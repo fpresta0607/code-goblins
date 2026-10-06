@@ -7,9 +7,11 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"slices"
 	"strings"
 	"testing"
+	"time"
 	"unsafe"
 
 	"golang.org/x/sys/windows"
@@ -17,6 +19,8 @@ import (
 	"github.com/fpresta0607/code-goblins/internal/execx"
 	"github.com/fpresta0607/code-goblins/internal/harness"
 	"github.com/fpresta0607/code-goblins/internal/host"
+	"github.com/fpresta0607/code-goblins/internal/lifecycle"
+	"github.com/fpresta0607/code-goblins/internal/lock"
 	"github.com/fpresta0607/code-goblins/internal/state"
 )
 
@@ -240,7 +244,7 @@ func TestANativeGoblinWhoseTerminalEndedResumesInPlace(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	result, err := f.service.Switch(context.Background(), SwitchRequest{ID: "task-7"})
+	result, err := f.service.Switch(context.Background(), SwitchRequest{ID: "task-7", ResumeSession: "owned-task-7-session"})
 
 	if err != nil {
 		t.Fatalf("Switch: %v", err)
@@ -249,11 +253,154 @@ func TestANativeGoblinWhoseTerminalEndedResumesInPlace(t *testing.T) {
 		t.Errorf("result = %+v, want the harness resumed with no handoff", result)
 	}
 	launches := named(f.events(t), "env")
-	if len(launches) != 2 || !strings.HasPrefix(launches[1].Text, "resume --last ") {
+	if len(launches) != 2 || !strings.HasPrefix(launches[1].Text, "resume owned-task-7-session ") {
 		t.Fatalf("launches = %+v, want the second with the harness's resume arguments first", launches)
 	}
 	if submitted := submittedLines(t, f, 2); !strings.Contains(delivered(t, submitted[len(submitted)-1]), "Your session was restarted") {
 		t.Errorf("submitted = %q, want the resumed harness told to continue", submitted)
+	}
+}
+
+func TestResumeCompletesWhenTheOwnedNativeSessionIsAlreadyWorking(t *testing.T) {
+	// Arrange
+	f := newNativeFixture(t, harness.Codex, "resumed-working")
+	f.service.Commands = cleanWorktree{f.service.Worktrees.Commands}
+	closeCurrentTerminal(t, f)
+	if _, err := f.service.Spawn(t.Context(), f.request); err != nil {
+		t.Fatal(err)
+	}
+	first, err := host.ReadRecord(f.stateDir, f.request.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := host.Close(f.stateDir, first, nativeCloseWait); err != nil {
+		t.Fatal(err)
+	}
+	before, err := state.ReadTaskMeta(f.stateDir, f.request.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	prior := state.Lifecycle{ID: before.ID, Generation: before.SpawnGen, Operation: "pause-proof", Action: "pause", Phase: "paused", Session: "owned-session", Started: time.Now().UTC()}
+	if err := state.WriteLifecycle(f.stateDir, prior); err != nil {
+		t.Fatal(err)
+	}
+	previous := nativeStartup
+	nativeStartup = 10 * time.Second
+	t.Cleanup(func() { nativeStartup = previous })
+	controller := lifecycle.Service{StateDir: f.stateDir, Operations: lifecycle.Operations{
+		Memory: func() (uint64, uint64, error) { return 5 << 30, 5 << 30, nil },
+		Resume: func(ctx context.Context, meta state.TaskMeta, paused state.Lifecycle) error {
+			_, err := f.service.Switch(ctx, SwitchRequest{ID: meta.ID, Generation: meta.SpawnGen, IsResume: true, ResumeSession: paused.Session})
+			return err
+		},
+		Notify: func(state.Lifecycle) error { return nil },
+	}}
+
+	// Act
+	result, err := controller.Run(t.Context(), lifecycle.Request{ID: before.ID, Generation: before.SpawnGen, Operation: "resume-proof", Action: "resume"})
+
+	// Assert
+	if err != nil || result.Phase != "running" || len(result.Problems) != 0 {
+		t.Fatalf("resume=%+v, %v; want the already-working owned session running", result, err)
+	}
+	after, err := state.ReadTaskMeta(f.stateDir, before.ID)
+	if err != nil || after.SpawnGen == before.SpawnGen || after.SpawnGen != result.Generation || after.ResumeOperation != result.Operation {
+		t.Fatalf("replacement generation does not match successful resume: %+v, %v", after, err)
+	}
+	launches := named(f.events(t), "env")
+	if len(launches) != 2 || !strings.HasPrefix(launches[1].Text, "resume owned-session ") {
+		t.Fatalf("launches=%+v, want the exact owned conversation", launches)
+	}
+	if input := named(f.events(t), "typed into resumed turn"); len(input) != 0 {
+		t.Fatalf("startup typed into a turn already in progress: %+v", input)
+	}
+	status, err := os.ReadFile(filepath.Join(f.stateDir, before.ID+".status"))
+	if err != nil || strings.Contains(string(status), "failed:") {
+		t.Fatalf("resume published a failure: %s, %v", status, err)
+	}
+	for _, name := range []string{".spawn.lock", ".lifecycle-" + before.ID + ".lock", state.MetadataLockName(before.ID), switchLockName(before.ID)} {
+		if _, err := lock.AcquireExclusiveNamed(f.stateDir, name); err != nil {
+			t.Fatalf("resume retained %s: %v", name, err)
+		}
+		if err := lock.ReleaseExclusiveNamed(f.stateDir, name); err != nil {
+			t.Fatal(err)
+		}
+	}
+}
+
+func TestTwoEndedNativeCodexTasksDoNotResumeTheForeignLatestSession(t *testing.T) {
+	for _, testCase := range []struct {
+		name    string
+		session string
+	}{
+		{name: "exact owned session", session: "owned-task-7-session"},
+		{name: "no proven owned session"},
+	} {
+		t.Run(testCase.name, func(t *testing.T) {
+			owned := newQuickFixture(t)
+			owned.service.Commands = cleanWorktree{owned.service.Worktrees.Commands}
+			owned.service.Harness = harness.Registry{Adapters: map[harness.Kind]harness.Adapter{harness.Codex: nativeAdapter{kind: harness.Codex, control: harness.Control{ResumeArgs: []string{"resume", "--last"}}}}}
+			if _, err := owned.service.Spawn(t.Context(), owned.request); err != nil {
+				t.Fatal(err)
+			}
+			closeCurrentTerminal(t, owned)
+			first, err := host.ReadRecord(owned.stateDir, owned.request.ID)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := host.Close(owned.stateDir, first, nativeCloseWait); err != nil {
+				t.Fatal(err)
+			}
+			before, err := state.ReadTaskMeta(owned.stateDir, owned.request.ID)
+			if err != nil {
+				t.Fatal(err)
+			}
+			foreign := newQuickFixture(t)
+			foreign.stateDir, foreign.service.StateDir = owned.stateDir, owned.stateDir
+			foreign.request.ID = "task-8"
+			closeTerminalAtEnd(t, foreign.stateDir, foreign.request.ID)
+			if _, err := foreign.service.Spawn(t.Context(), foreign.request); err != nil {
+				t.Fatal(err)
+			}
+			latest, err := host.ReadRecord(foreign.stateDir, foreign.request.ID)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := host.Close(foreign.stateDir, latest, nativeCloseWait); err != nil {
+				t.Fatal(err)
+			}
+			otherBefore, err := state.ReadTaskMeta(foreign.stateDir, foreign.request.ID)
+			if err != nil || host.Running(first) || host.Running(latest) {
+				t.Fatalf("both native tasks must have ended: %v", err)
+			}
+
+			result, err := owned.service.Switch(t.Context(), SwitchRequest{ID: before.ID, Effort: "xhigh", Generation: before.SpawnGen, ResumeSession: testCase.session})
+
+			if err != nil {
+				t.Fatal(err)
+			}
+			launches := named(owned.events(t), "env")
+			if len(launches) != 2 || strings.Contains(launches[1].Text, "--last") || strings.Contains(launches[1].Text, "foreign") {
+				t.Fatalf("task-8 is the latest ended native task; task-7 launched %+v, want no latest-session selection", launches)
+			}
+			if testCase.session != "" {
+				if !result.Resumed || result.Handoff != "" || !strings.HasPrefix(launches[1].Text, "resume "+testCase.session+" ") {
+					t.Fatalf("result=%+v launch=%s, want the exact owned session", result, launches[1].Text)
+				}
+			} else {
+				if result.Resumed || result.Handoff == "" || strings.HasPrefix(launches[1].Text, "resume ") {
+					t.Fatalf("result=%+v launch=%s, want a fresh handoff", result, launches[1].Text)
+				}
+				submitted := submittedLines(t, owned, 2)
+				if !strings.Contains(delivered(t, submitted[len(submitted)-1]), result.Handoff) {
+					t.Fatalf("replacement did not receive its handoff: %q", submitted)
+				}
+			}
+			otherAfter, err := state.ReadTaskMeta(foreign.stateDir, foreign.request.ID)
+			if err != nil || otherAfter != otherBefore || result.Meta.SpawnGen == before.SpawnGen {
+				t.Fatalf("foreign task changed or replacement did not advance its generation: %v", err)
+			}
+		})
 	}
 }
 
@@ -277,7 +424,7 @@ func TestAnEndedNativeGoblinResumesOverItsUncommittedWork(t *testing.T) {
 	}
 
 	_, changeErr := f.service.Switch(context.Background(), SwitchRequest{ID: "task-7", Model: "gpt-9"})
-	result, resumeErr := f.service.Switch(context.Background(), SwitchRequest{ID: "task-7"})
+	result, resumeErr := f.service.Switch(context.Background(), SwitchRequest{ID: "task-7", ResumeSession: "owned-task-7-session"})
 
 	if changeErr == nil || !strings.Contains(changeErr.Error(), "--force-dirty") {
 		t.Errorf("model change err = %v, want a refusal naming --force-dirty", changeErr)
