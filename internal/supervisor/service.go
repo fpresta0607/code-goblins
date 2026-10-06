@@ -441,11 +441,13 @@ func (s *Service) cycle(ctx context.Context, recover bool) {
 	reconcileErr = errors.Join(reconcileErr, s.Store.ingestAnswers())
 	reconcileErr = errors.Join(reconcileErr, s.Store.ingestActivity())
 	reconcileErr = errors.Join(reconcileErr, s.Store.ingestReviews())
+	reconcileErr = errors.Join(reconcileErr, s.Store.ingestGoblinRuns())
 	reconcileErr = errors.Join(reconcileErr, s.ingestCredentialRequests())
 	reconcileErr = errors.Join(reconcileErr, s.expireCredentials(time.Now()))
 	reconcileErr = errors.Join(reconcileErr, s.Store.expireRuns(time.Now()))
 	reconcileErr = errors.Join(reconcileErr, s.finishRuns(ctx))
 	reconcileErr = errors.Join(reconcileErr, s.Store.retireItems())
+	reconcileErr = errors.Join(reconcileErr, s.Store.retireGoblinRuns())
 	if cfo := readCFOState(s.Store.Home.State); cfo.registered && cfo.problem == "" {
 		reconcileErr = errors.Join(reconcileErr, s.Store.followCFO(cfo.identity), s.retellRuns(ctx))
 	}
@@ -984,7 +986,10 @@ type Snapshot struct {
 	CFOConversationLeft string `json:"cfo_conversation_left"`
 	// Memory is the machine's free memory for the Tasks meter, absent on a
 	// board that cannot start goblins or cannot read it.
-	Memory        *Memory             `json:"memory,omitempty"`
+	Memory *Memory `json:"memory,omitempty"`
+	// Disk is the free space of the home's drive for the meter beside
+	// memory, absent on a board that cannot read it.
+	Disk          *Disk               `json:"disk,omitempty"`
 	CIDurations   []CIDuration        `json:"ci_durations,omitempty"`
 	Subscriptions []SubscriptionUsage `json:"subscriptions"`
 	// AFK is AFK mode, the Overlord's switch for running the fleet while he
@@ -1294,6 +1299,11 @@ func (s *Service) Snapshot() (Snapshot, error) {
 				}
 			}
 			out.Memory = &memory
+		}
+		if dispatch.Disk != nil {
+			if disk, err := dispatch.Disk(); err == nil {
+				out.Disk = &disk
+			}
 		}
 	}
 	for _, done := range history {

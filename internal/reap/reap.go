@@ -66,6 +66,9 @@ type Result struct {
 	Findings []Finding `json:"findings"`
 	Applied  []string  `json:"applied,omitempty"`
 	Notes    []string  `json:"notes,omitempty"`
+	// Inventory is the evidence the sweep classified, which the janitor
+	// tidies from rather than collecting it again.
+	Inventory Inventory `json:"-"`
 }
 
 // Service runs the sweep. The action seams are plain functions rather than
@@ -105,7 +108,7 @@ func (s Service) Audit(ctx context.Context, options Options) (Result, error) {
 	for i := range findings {
 		s.gate(ctx, &findings[i], options)
 	}
-	return Result{Findings: findings, Notes: notes}, nil
+	return Result{Findings: findings, Notes: notes, Inventory: inv}, nil
 }
 
 // Apply runs the audit and then acts on every finding the gates cleared.
@@ -400,7 +403,7 @@ func (s Service) returnWorktree(ctx context.Context, finding Finding) error {
 		if !finding.Registered {
 			return nil
 		}
-		_, err := s.git(ctx, filepath.Dir(filepath.Dir(finding.Path)), "worktree", "prune")
+		_, err := s.git(ctx, finding.Project, "worktree", "prune")
 		return err
 	}
 	if finding.TaskID != "" && state.ValidTaskID(finding.TaskID) == nil {
@@ -414,8 +417,10 @@ func (s Service) returnWorktree(ctx context.Context, finding Finding) error {
 	if s.Return == nil {
 		return errors.New("no worktree return path configured")
 	}
-	project := filepath.Dir(filepath.Dir(finding.Path))
-	return s.Return(ctx, project, finding.Path)
+	if finding.Project == "" {
+		return errors.New("the checkout this worktree belongs to is unknown, so there is no repository to return it through")
+	}
+	return s.Return(ctx, finding.Project, finding.Path)
 }
 
 // archiveStatus moves an orphaned status log under state/archive/ rather than

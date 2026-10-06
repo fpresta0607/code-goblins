@@ -106,7 +106,7 @@ func (s *Service) engineCatalog(ctx context.Context, runner execx.Runner) (Engin
 				} else {
 					for index := range item.Models {
 						item.Models[index].Efforts = slices.DeleteFunc(item.Models[index].Efforts, func(effort string) bool {
-							_, err := adapter.Build(harness.LaunchSpec{BriefPath: filepath.Join(root, "brief.md"), TaskTmp: root, GoTmp: root, Model: item.Models[index].ID, Effort: effort})
+							_, err := adapter.Build(harness.LaunchSpec{BriefPath: filepath.Join(root, "brief.md"), TaskTmp: root, Scratch: root, Model: item.Models[index].ID, Effort: effort})
 							return err != nil
 						})
 					}

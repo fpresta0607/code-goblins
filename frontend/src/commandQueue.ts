@@ -25,7 +25,7 @@ export const asItems = (snapshot: Snapshot): Item[] => [
   ...(snapshot.runs || []).filter((run) => !run.credential_request).map((run): Item => ({ kind: "run", key: "run:" + run.id, run })),
   ...(snapshot.credentials || []).map((request): Item => ({ kind: "credential", key: "credential:" + request.id, request })),
 ];
-const task = (item: Item) => item.kind === "credential" ? item.request.task : item.kind === "question" ? item.question.task : item.kind === "review" ? item.review.task : "";
+const task = (item: Item) => item.kind === "credential" ? item.request.task : item.kind === "question" ? item.question.task : item.kind === "review" ? item.review.task : item.run.task;
 const created = (item: Item) => Date.parse(item.kind === "credential" ? item.request.created_at : item.kind === "question" ? item.question.created_at : item.kind === "review" ? item.review.created_at : item.run.created_at) || Number.MAX_SAFE_INTEGER;
 // When an item closed, as its History row says.
 export const closedAt = (item: Item) => item.kind === "credential" ? item.request.closed_at || item.request.created_at : item.kind === "question" ? item.question.answered_at || item.question.created_at

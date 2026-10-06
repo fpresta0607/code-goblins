@@ -1,3 +1,5 @@
+# What a clone an older build made its CFO home holds; cfo home move takes it
+# to the per-user home, and a clone is source only after that.
 projects/
 /state/
 # Fleet data is local state, except the standing routing policy, which ships.
@@ -18,8 +20,8 @@ config/
 !/config/verify.json
 !/config/voice.json
 /cfo.exe
-# install.cmd -Dev builds both names and the desktop window, and moves a copy
-# still running aside.
+# A go build in the clone, and what an older install.cmd -Dev built there:
+# both names and the desktop window, and a copy still running moved aside.
 /goblins.exe
 # The desktop window built in the clone, and the picture of its notifications,
 # which it writes beside itself at each start.
@@ -39,12 +41,12 @@ config/
 /frontend/test-results-*.txt
 /frontend/playwright.scratch.config.ts
 
-# The skill junction install.cmd -Dev creates (points at .agents/skills);
-# /.codex/skills/ is the one earlier bootstraps also made.
+# The skill junctions an older install.cmd -Dev made in the clone (pointing
+# at .agents/skills); the skills now install once into ~/.agents/skills.
 /.claude/skills/
 /.codex/skills/
 # Machine-local Claude permissions; never publish them.
 /.claude/settings.json
 
-# goblin worktrees live beside the checkout they came from
+# Where an older build put goblin worktrees; they now live in the CFO home.
 .worktrees/

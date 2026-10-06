@@ -822,8 +822,8 @@ button.line-number { min-height: 32px; display: flex; align-items: flex-start; j
 .card-stage { position: relative; }
 .question-card { position: relative; display: grid; gap: 16px; padding: 22px; border: 1px solid var(--glass-border); border-radius: var(--radius); background: var(--glass-bg); box-shadow: var(--glass-shadow); font-size: 1.0625rem; touch-action: pan-y; animation: card-in .18s ease-out; }
 @keyframes card-in { from { opacity: 0; transform: translateY(6px); } }
-.question-card .asker { display: flex; align-items: center; gap: 12px; color: #c4d4df; }
-.question-card .asker .goblin-avatar { width: 48px; height: 48px; }
+.question-card .asker, .run-card .asker { display: flex; align-items: center; gap: 12px; color: #c4d4df; }
+.question-card .asker .goblin-avatar, .run-card .asker .goblin-avatar { width: 48px; height: 48px; }
 .question-card h3, .run-card h3 { margin: 0; font-size: 1.375rem; line-height: 1.3; }
 .question-thumbs { display: flex; gap: 10px; overflow-x: auto; padding-bottom: 4px; }
 /* A review page's preview is the one way into it: the whole tile opens it. */
@@ -976,6 +976,8 @@ a.wait-open { min-height: 44px; border: 1px solid var(--accent-green); border-ra
 .memory-scale > .gap { flex: 0 9999 auto; min-width: 0; }
 .memory-scale > .next { flex: none; padding-left: 6px; }
 .memory-holders, .memory-warning { margin: 0; font-size: 1rem; overflow-wrap: anywhere; }
+.disk-meter { display: grid; gap: 6px; margin-top: 4px; padding-top: 10px; border-top: 1px solid var(--glass-border); }
+.memory > .disk-meter:first-child { margin-top: 0; padding-top: 0; border-top: 0; }
 .memory-warning { display: flex; gap: 8px; align-items: flex-start; color: var(--amber); }
 .memory-warning .icon { flex: none; width: 20px; height: 20px; margin-top: 2px; }
 .task-meters { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; margin-bottom: 14px; }

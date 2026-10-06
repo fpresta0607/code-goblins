@@ -348,6 +348,49 @@ func TestBuildNamesAVolumesProjectFromItsStackNameAlone(t *testing.T) {
 	}
 }
 
+// Spawn and Start refuse under the disk floor config/fleet.json sets, and
+// refuse everything when that floor cannot be read, so the Dispatch line
+// cfo runtime prints must not read ready in either case.
+func TestMachineDispatchWaitsUnderTheDiskFloor(t *testing.T) {
+	roomy := Machine{MemoryAvailable: 16 << 30, CommitAvailable: 16 << 30, DiskName: "C:", DiskFree: 20 << 30, DiskFloor: 15 << 30}
+	tests := []struct {
+		name   string
+		change func(*Machine)
+		want   Dispatch
+	}{
+		{
+			name:   "disk under the floor",
+			change: func(m *Machine) { m.DiskFree = 14<<30 + 900<<20 },
+			want:   Dispatch{Line: "Dispatch: wait, only 14.8 GB of disk is free on C:; the next goblin starts at the 15 GB disk floor"},
+		},
+		{
+			name:   "disk at exactly the floor",
+			change: func(m *Machine) { m.DiskFree = 15 << 30 },
+			want:   Dispatch{Ready: true, Line: "Dispatch: ready, 16.0 GB of memory and 16.0 GB of commit are free"},
+		},
+		{
+			name:   "the floor cannot be read",
+			change: func(m *Machine) { m.DiskFloorUnread = "config/fleet.json: invalid character" },
+			want:   Dispatch{Line: "Dispatch: wait, the disk floor cannot be read, so nothing starts: config/fleet.json: invalid character"},
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			// Arrange
+			machine := roomy
+			test.change(&machine)
+
+			// Act
+			dispatch := machine.Dispatch()
+
+			// Assert
+			if dispatch != test.want {
+				t.Fatalf("Dispatch() = %+v, want %+v", dispatch, test.want)
+			}
+		})
+	}
+}
+
 // The next goblin needs both memory and commit at the fleet's next-start
 // mark: commit running out stops a process starting however much memory
 // looks available, so a dispatch read from memory alone starts one anyway.

@@ -298,6 +298,20 @@ test("a question answered on the page that carried it says so", () => {
   assert.equal(answeredLabel(cleared), "You answered on its page");
 });
 
+test("a goblin's command waits with its goblin's items, after the CFO's own", () => {
+  // Arrange
+  const run = (id: string, task: string, created_at: string) => ({ id, identity: "i-" + id, task, title: "Run " + id, shell: "powershell", command: "Get-Date", state: "ready", created_at });
+  const snapshot = parseSnapshot({ healthy: true, attention: ["notes", "billing"],
+    questions: [question("q", "notes", "2026-10-02T01:00:00Z")],
+    runs: [run("run-billing-7", "billing", "2026-10-02T00:50:00Z"), run("install-main", "", "2026-10-02T01:10:00Z")] });
+
+  // Act
+  const order = waitingItems(snapshot).map((item) => item.key);
+
+  // Assert
+  assert.deepEqual(order, ["run:install-main", "question:q", "run:run-billing-7"]);
+});
+
 test("a run item waits in the stack while ready or running and settles with its exit code", () => {
   const run = (id: string, state: string, extra: Record<string, unknown> = {}) => ({ id, identity: "cfo-1", title: "Run " + id, shell: "powershell", command: "Get-Date", state, created_at: "2026-09-24T00:0" + id.length + ":00Z", ...extra });
   const snapshot = parseSnapshot({ healthy: true,

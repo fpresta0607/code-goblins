@@ -77,11 +77,14 @@ type AuthPreflight interface {
 // Service owns one local spawn. Its collaborators are injected through
 // their established package seams so operation ordering remains deterministic.
 type Service struct {
-	Worktrees   worktree.Service
-	Harness     harness.Registry
-	Auth        AuthPreflight
-	Commands    execx.Runner
-	StateDir    string
+	Worktrees worktree.Service
+	Harness   harness.Registry
+	Auth      AuthPreflight
+	Commands  execx.Runner
+	StateDir  string
+	// ScratchRoot is the home's scratch folder. A task's scratch folder,
+	// which its pane's TEMP, TMP and GOTMPDIR name, is <ScratchRoot>\<id>.
+	ScratchRoot string
 	Project     string
 	Sleep       func(context.Context, time.Duration) error
 	ReleaseLock func(string, string) error
@@ -228,14 +231,15 @@ func (s Service) Spawn(ctx context.Context, req Request) (result Result, err err
 		return Result{}, fmt.Errorf("spawn: read the user's environment for a native task: %w", err)
 	}
 
-	// Asked before the worktree exists, because "the first worktree in this
-	// checkout" stops being answerable the moment Acquire succeeds.
-	gitignoreNotice := s.Worktrees.GitignoreNotice(ctx, project)
-	wt, err := s.Worktrees.Acquire(ctx, project, "gb-"+req.ID)
+	scratch, err := s.scratch(req.ID)
+	if err != nil {
+		return Result{}, err
+	}
+	wt, err := s.Worktrees.Acquire(ctx, project, req.ID)
 	if err != nil {
 		return Result{}, fmt.Errorf("spawn: acquire task worktree: %w", err)
 	}
-	result = partialResult(req, project, taskTmp, wt.Path)
+	result = partialResult(req, project, taskTmp, wt.Path, scratch)
 
 	// Publish metadata as soon as the worktree exists, before the harness can
 	// start: a task whose launch later fails is then addressable and cleanable
@@ -252,7 +256,7 @@ func (s Service) Spawn(ctx context.Context, req Request) (result Result, err err
 	if err := state.WriteTaskMeta(s.StateDir, result.Meta); err != nil {
 		return Result{}, errors.Join(
 			fmt.Errorf("spawn: publish task metadata: %w", err),
-			s.teardownLaunch(ctx, nativeHost, project, wt.Path, result.Meta.ID),
+			s.teardownLaunch(ctx, nativeHost, project, wt.Path, scratch, result.Meta.ID),
 		)
 	}
 
@@ -264,7 +268,7 @@ func (s Service) Spawn(ctx context.Context, req Request) (result Result, err err
 		if err := state.AppendStatus(s.StateDir, result.Meta.ID, line); err != nil {
 			cause = errors.Join(cause, fmt.Errorf("spawn: record launch failure: %w", err))
 		}
-		if err := s.teardownLaunch(ctx, nativeHost, project, wt.Path, result.Meta.ID); err != nil {
+		if err := s.teardownLaunch(ctx, nativeHost, project, wt.Path, scratch, result.Meta.ID); err != nil {
 			cause = errors.Join(cause, err)
 		}
 		return result, cause
@@ -283,15 +287,11 @@ func (s Service) Spawn(ctx context.Context, req Request) (result Result, err err
 	if err := adapter.Validate(ctx, s.commands()); err != nil {
 		return fail(result, fmt.Errorf("spawn: validate harness %s: %w", req.Harness, err))
 	}
-	goTmp, err := state.GoTmpDir(s.StateDir, result.Meta.ID)
-	if err != nil {
-		return fail(result, err)
-	}
 	if err := os.MkdirAll(taskTmp, 0o755); err != nil {
 		return fail(result, fmt.Errorf("spawn: create task temporary directory: %w", err))
 	}
-	if err := os.MkdirAll(goTmp, 0o755); err != nil {
-		return fail(result, fmt.Errorf("spawn: create go temporary directory: %w", err))
+	if err := os.MkdirAll(scratch, 0o755); err != nil {
+		return fail(result, fmt.Errorf("spawn: create the task's scratch folder: %w", err))
 	}
 	if selection != nil {
 		if err := selection.Save(filepath.Join(taskTmp, "pipeline.json")); err != nil {
@@ -322,7 +322,7 @@ func (s Service) Spawn(ctx context.Context, req Request) (result Result, err err
 	launch, err := adapter.Build(harness.LaunchSpec{
 		BriefPath:       req.BriefPath,
 		TaskTmp:         taskTmp,
-		GoTmp:           goTmp,
+		Scratch:         scratch,
 		Model:           req.Model,
 		Effort:          req.Effort,
 		MCPConfig:       provision.MCPConfig,
@@ -353,9 +353,6 @@ func (s Service) Spawn(ctx context.Context, req Request) (result Result, err err
 	result.Output = successOutput(result.Meta)
 	if notice := containedNotice(nativeHost); notice != "" {
 		result.Output += "\n" + notice
-	}
-	if gitignoreNotice != "" {
-		result.Output += "\n" + gitignoreNotice
 	}
 	if provision.Installed != "" {
 		result.Output += "\ndependencies: " + provision.Installed
@@ -436,7 +433,7 @@ func codexMCPServers(kind harness.Kind) ([]string, error) {
 // unset, and HOME alone on darwin. All three are reserved because a manifest
 // that redirected any of them would leave any cfo command run from that terminal
 // computing a different directory than the process that created it.
-var reservedLaunchEnv = []string{"GOTMPDIR", "CFO_STATE_OVERRIDE", "LOCALAPPDATA", "XDG_CACHE_HOME", "HOME", harness.RoleVariable}
+var reservedLaunchEnv = []string{"GOTMPDIR", "TEMP", "TMP", "CFO_STATE_OVERRIDE", "LOCALAPPDATA", "XDG_CACHE_HOME", "HOME", harness.RoleVariable}
 
 // reservedLaunchName reports whether name belongs to the launch contract:
 // one of the names the contract owns, or one the adapter already set on the
@@ -610,8 +607,9 @@ func (s Service) worktreeGit() (worktree.Git, error) {
 
 // partialResult is the task's identity before its harness starts: its
 // terminal is the native host named by its id.
-func partialResult(req Request, project, taskTmp, worktree string) Result {
+func partialResult(req Request, project, taskTmp, worktree, scratch string) Result {
 	meta := state.TaskMeta{
+		Scratch:        scratch,
 		ID:             req.ID,
 		Window:         "native",
 		EndpointTaskID: req.ID,
@@ -634,13 +632,13 @@ func partialResult(req Request, project, taskTmp, worktree string) Result {
 }
 
 // teardownLaunch closes the task's terminal, returns the worktree, removes the
-// Go temporary directory and the task temporary directory, and retires the
+// task's scratch folder and its task temporary directory, and retires the
 // task metadata. It is the clean-failure path: every step after the close is
 // attempted and their failures joined, so one stuck teardown step never leaves
 // the rest undone. It closes only nativeHost, the host its spawn launched, and
 // a terminal that does not close stops the teardown: the task stays
 // addressable, and nothing is removed from under a harness that may still run.
-func (s Service) teardownLaunch(ctx context.Context, nativeHost host.Record, project, worktree, id string) error {
+func (s Service) teardownLaunch(ctx context.Context, nativeHost host.Record, project, worktree, scratch, id string) error {
 	if err := host.Close(s.StateDir, nativeHost, nativeCloseWait); err != nil {
 		return fmt.Errorf("spawn: close native terminal: %w; its worktree, temporary directories and task record are left in place", err)
 	}
@@ -648,15 +646,12 @@ func (s Service) teardownLaunch(ctx context.Context, nativeHost host.Record, pro
 	if err := s.Worktrees.Return(ctx, project, worktree); err != nil {
 		errs = errors.Join(errs, fmt.Errorf("spawn: return task worktree: %w", err))
 	}
-	// Removing the Go temporary directory belongs to this teardown rather than
-	// to a later cleanup: cleanup reads <id>.meta to find a task at all, so
-	// once the metadata is retired nothing can ever remove this directory and
-	// a failed spawn would orphan it under the user cache directory, out of
-	// sight of the state tree.
-	if goTmp, err := state.GoTmpDir(s.StateDir, id); err != nil {
-		errs = errors.Join(errs, err)
-	} else if err := os.RemoveAll(goTmp); err != nil {
-		errs = errors.Join(errs, fmt.Errorf("spawn: remove go temporary directory: %w", err))
+	// Removing the scratch folder belongs to this teardown rather than to a
+	// later cleanup: cleanup reads <id>.meta to find a task at all, so once
+	// the metadata is retired only the janitor's sweep of folders no task
+	// owns would find it.
+	if err := os.RemoveAll(scratch); err != nil {
+		errs = errors.Join(errs, fmt.Errorf("spawn: remove the task's scratch folder: %w", err))
 	}
 	// The task temporary directory goes for the same reason as the Go one, and
 	// with the same urgency: cleanup finds a task through <id>.meta, so once
@@ -672,6 +667,15 @@ func (s Service) teardownLaunch(ctx context.Context, nativeHost host.Record, pro
 		errs = errors.Join(errs, fmt.Errorf("spawn: retire task metadata: %w", err))
 	}
 	return errs
+}
+
+// scratch is the task's scratch folder under the home, refused before anything
+// is built when the home names none.
+func (s Service) scratch(id string) (string, error) {
+	if strings.TrimSpace(s.ScratchRoot) == "" || !filepath.IsAbs(s.ScratchRoot) {
+		return "", fmt.Errorf("spawn: the home's scratch folder %q is not an absolute path", s.ScratchRoot)
+	}
+	return filepath.Join(s.ScratchRoot, id), nil
 }
 
 // ensureProjectSeeded makes an unborn or empty primary project workable before
@@ -707,6 +711,7 @@ func notifyInstruction(id string) string {
 	return " Report outcomes to the CFO: on completion with a PR run: " + exe + " notify " + id + " --done --pr <url>. When blocked on a decision run: " + exe + " notify " + id + " --blocked \"<question>\"; the CFO reads it as body text, so lead with one short sentence that is the actual question, put the details on lines of their own that start with \"- \" (a real line break, such as `n in PowerShell), and mark with **two asterisks** only the verdict or the blocking item, never the whole question; when the question has a fixed set of choices, name them after one literal options: marker separated by |, as in \"<question> options: Fix it next (Recommended) | Keep 300 s\", ending the choice you recommend with (Recommended); each choice is the answer itself as a short phrase, never a bare letter or number like a, b or 2, which notify refuses, and details stay in the \"- \" lines. cfo drain renders those as the decision's options; the CFO answers it, and his answer arrives here as a message. On failure run: " + exe + " notify " + id + " --failed \"<reason>\". To say you are back at work or what you are doing run: " + exe + " notify " + id + " --working \"<what>\"; when you wait on another task, CI, a deploy or the Overlord personally (his sign-in, his click, his page) instead of asking a question run: " + exe + " notify " + id + " --waiting-on <task-id|overlord|ci|deploy|memory> \"<why>\"; a choice the CFO can make, such as whether to start something now or later, is a question, not a wait on the Overlord: ask it with --blocked and options." +
 		" When the Overlord must answer on a Scrawl page (his review page; call it Scrawl when you name it to him), open it with lavish-axi <html-file> --no-open, then run: " + exe + " notify " + id + " --waiting-on overlord \"<why>\" --lavish <html-file>, and never run lavish-axi poll yourself: the supervisor polls the page, and his answer reaches you through the CFO." +
 		" When the page asks him to pick, declare its choices in it with a <script type=\"application/json\" data-lavish-choices> block as the lavish skill shows, each option the answer itself as a short phrase: the page draws them as a radio list and his pick reaches you as the option's exact text; a page without it shows him no choices." +
+		" When the Overlord must run a command himself, such as a sign-in, never paste it into your words: write it to a .ps1 file and run: " + exe + " notify " + id + " --waiting-on overlord \"<why>\" --run <command.ps1>; his card shows the exact command and runs it with one click in a window he can use, and you are told how it ended." +
 		" For a successful browser walkthrough or a Scrawl presentation that needs no answer, use lavish-axi --no-open and report its safe URL with cfo present --id <stable-id> --task " + id + " --generation <CFO_SPAWN_GEN> --kind browser|review --url <safe-url>. Refresh only while live and report --state ended when finished. A viewing choice never pauses your work. See docs/native-board.md; do not publish secrets, query parameters or browser history."
 }
 

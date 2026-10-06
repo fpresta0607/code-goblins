@@ -55,14 +55,14 @@ commands:
   status    whether the supervisor runs: its board, what the fleet is doing and its pid; exits 1 when none runs
   stop      ask the supervisor to stop and wait until it has; --force ends its process tree instead
   setup     as goblins setup: run the quick start again and choose the agent the CFO starts as
-  resume    with no task named, as goblins resume: restart a running CFO in its terminal on its conversation, as for a frozen screen, or bring a closed one back, never from inside the CFO's own terminal; cfo resume <id> resumes a paused task
-  update    run by a verified candidate build: install it as this home's cfo.exe and goblins.exe, restart only the supervisor on it, and put the previous build back and restart that instead if anything fails; --recover finishes an update that stopped part way by putting the previous build back
+  resume    with no task named, as goblins resume: restart a running CFO in its terminal on its conversation, as for a frozen screen, or bring a closed one back, never from inside the CFO's own terminal, then bring back every goblin whose terminal ended; cfo resume <id> resumes a paused task
+  update    run by a verified candidate build: install it as this home's bin\cfo.exe and bin\goblins.exe, restart only the supervisor on it, and put the previous build back and restart that instead if anything fails; bin keeps the current build and the two before it; --recover finishes an update that stopped part way by putting the previous build back
   hooks     check|install <claude|codex|pi> native lifecycle hooks
   native-hook <harness>  bounded hook entry point (JSON on stdin)
   register  make this session the primary CFO the board delivers to; the SessionStart hooks do it, run it by hand when the board says the registration is stale
-  install   wire a CFO home into the machine (CFO_HOME, PATH, and the Claude Code hooks in your user settings) so a session in any repo is supervised: run from a checkout it wires that checkout, run anywhere else it sets up %LOCALAPPDATA%\CodeGoblins from this binary (the CFO's contract and skills, the default policy, and the binary as cfo.exe and goblins.exe); --projects-root <dir> records the folder that holds your checkouts so --project can take a bare name; --uninstall reverses the wiring, the board's native hooks and the Start-menu shortcut included, and keeps the home's files
+  install   wire the CFO home into the machine (CFO_HOME, PATH, and the Claude Code hooks in your user settings) so a session in any repo is supervised: from any folder, a checkout included, it sets up %LOCALAPPDATA%\CodeGoblins from this binary (the CFO's contract, the default policy, the binary as bin\cfo.exe and bin\goblins.exe, the skills once in ~\.agents\skills with a junction from Claude Code's skills folder, and state\harnesses.json naming where each harness keeps its configuration); --projects-root <dir> records the folder that holds your checkouts so --project can take a bare name; --uninstall reverses the wiring, the board's native hooks, the Start-menu shortcut and the skills it installed included, and keeps the home's files
   uninstall the same as install --uninstall
-  home      migrate [--apply --plan <digest>] [--memory-from <dir>]: lay out a home whose data predates the layout; without --apply a dry run that lists every file it would move, create or change, proves none is dropped and prints the plan digest --apply --plan makes
+  home      migrate [--apply --plan <digest>] [--memory-from <dir>]: lay out a home whose data predates the layout; without --apply a dry run that lists every file it would move, create or change, proves none is dropped and prints the plan digest --apply --plan makes; move [--to <dir>] [--apply --plan <digest>]: move an older build's home, such as a checkout, to the per-user home, with the same dry run, digest and read-back
   doctor    check the tools cfo needs (git, gh, claude, herdr, codex, pi, tasks-axi, quota-axi, no-mistakes, gh-axi, chrome-devtools-axi)
   pipeline  config-drift | config-apply | migrate <id> | run <id> --intent <text> | respond <id> --action <fix|approve> [--findings <ids>] [--instructions <text>] | recover <id>
   drain     print or acknowledge the wake queue and recovery episode
@@ -99,17 +99,18 @@ commands:
   cfo pr merge <url> [--method <merge|squash|rebase>] [--delete-branch] [--verified "<what verified it>"]   where the base requires a merge queue it adds the pull request to the queue instead, never with --admin; while AFK mode is on this is the CFO's own merge word: it needs --verified, a goblin's pull request whose head holds its base's tip unless a merge queue tests the merge, and no --delete-branch, and it is logged with its evidence before it merges
   cfo afk on [--asked "<his words>"] | off [--asked "<his words>"] | status | report | log --kind <merge|deploy|migration|install|answer|other> --what "<what>" --evidence "<evidence>" [--link <url>]   AFK mode, the Supreme Overlord's switch for running the fleet while he is away: on and off are his, made from a terminal of his own and refused in a goblin's; the registered CFO makes them only at his ask, with --asked and his words quoted exactly, which the switch and the report keep; off prints the report of the stretch; status says who turned it on, what was decided so far and what is held for him; log is the registered CFO recording a decision it made under the authority, with its evidence
   cfo merge-local <id>
-  cfo cleanup <id>
+  cfo cleanup <id>   return a finished task's worktree, every extra worktree it recorded and its scratch folder, refusing while any of them holds uncommitted work and keeping work that is not on the default branch as a local archive tag
+  cfo worktree add <id> <name> [--ref <commit>] | remove <id> <name>   give a task an extra worktree, <id>-<name>, beside its own in the home, recorded on the task so cleanup removes it with the task, or return one early
   cfo backlog done <id>   close a retired delivered task's queued row, preserving its evidence and continuation under Done
   cfo pause <id> | resume <id> | kill <id>   pause, resume or stop a task while preserving its work
   cfo reap [--dry-run] [--apply] [--force <pid|task-id>]... [--json]   find orphaned harness processes, stale dev servers, worktrees, task records and status logs; --apply retires the worktrees, records and logs, and ending a process needs its pid named with --force
-  cfo notify <id> --done --pr <url> | --blocked "<question>" | --failed "<reason>" | --working "<what>" | --waiting-on <task-id|overlord|ci|deploy|memory> "<why>" [--lavish <html-file>] [--link <https-url>]   a goblin reports its outcome straight into the wake queue, or what it is working on or waiting on; a wait on the Overlord leads with one sentence, puts values he must enter in a Markdown table on the lines after it with each value in backticks, which his card copies, and gives the one link his card opens with --link
+  cfo notify <id> --done --pr <url> | --blocked "<question>" | --failed "<reason>" | --working "<what>" | --waiting-on <task-id|overlord|ci|deploy|memory> "<why>" [--lavish <html-file>] [--link <https-url>] [--run <command-file>]   a goblin reports its outcome straight into the wake queue, or what it is working on or waiting on; a wait on the Overlord leads with one sentence, puts values he must enter in a Markdown table on the lines after it with each value in backticks, which his card copies, and gives the one link his card opens with --link; --run names a .ps1 or .sh file holding a command he must run, which his card runs with one click in a window he can use
   cfo question --id <stable-id> --text "<user question>" [--option "<choice>"]... [--recommend "<exact-choice>"]   registered CFO opens a user decision modal with Other; the answer returns as one normal native message, not a native prompt-tool response
   cfo answer <question-id|wake-seq> --option <choice> [--note "<text>"]   registered CFO answers a goblin's blocked question: delivered like cfo send (queued behind a working goblin's turn counts as delivered), the notify retired, and the choice, who and when recorded for the board
   cfo answer <question-id> --option <choice> [--note "<text>"] --record-only [--in <where>]   registered CFO records on the board a choice already given another way, for a goblin's notify already acknowledged or answered, and sends nothing; --in names where the Overlord gave it, such as chat, which the CFO's own question needs, and the card reads as his answer there
   cfo review --id <stable-id> --title "<what to look at>" [--task <id>] [--image <path>]... [--lavish <url|html-file>] | --id <stable-id> --withdraw "<reason>" [--task <id>] | --clear <stable-id> --reason "<why>"   report an item that stays in the Command Center until the Overlord answers or clears it, or withdraw your own, or as the registered primary CFO clear any open item, audited; a Scrawl page named by its HTML file is polled by the supervisor, so the Overlord's feedback on it reaches the CFO as a review wake
   cfo deliver --id <stable-id> --title "<what it is>" --file <path> [--url <link>] [--task <id>]   hand the Overlord a document as a Command Center item with Open and Download; the file is copied, a goblin's from its own folders, and the item leaves the queue when he opens or downloads it
-  cfo run-request --id <stable-id> --title "<why>" --shell powershell|pwsh|bash [--admin] [--cwd <dir>] --command-file <path>   registered CFO asks the Overlord to run a command with one click in the Command Center; the file is read once and runs as a script file, and the output and exit code come back as his answer
+  cfo run-request --id <stable-id> --title "<why>" --shell powershell|pwsh|bash [--admin] [--interactive] [--cwd <dir>] --command-file <path>   registered CFO asks the Overlord to run a command with one click in the Command Center; the file is read once and runs as a script file, and the output and exit code come back as his answer; --interactive runs it in the window itself, which stays open, for a sign-in or anything that needs the console
   cfo run-request --withdraw <id> --reason "<why>"   registered CFO takes a run item nobody ran off the Command Center, audited in state/runs.audit; Run on it is refused from then on, and a replacement is a new item under a new ID
   cfo present --id <stable-id> --kind browser|review --url <safe-url> [--task <id> [--generation <spawn-gen>]] [--state active|ended] [--ttl 5m] [--watch "<what to watch>"]   report a successful presentation without opening a browser or waiting; omit task only from verified primary CFO context; only one with --watch, a goblin asking the Overlord to watch it, reaches his Command Center
   hook <name>  claude code hook entry points (session-start, pretool-bash, pretool-arm, pretool-cd, pretool-subagent, turnend-guard, stop-autoarm)
@@ -174,6 +175,9 @@ type commandRuntime struct {
 	// restartCFO restarts the CFO running in native terminal cfo on its
 	// conversation and returns the conversation and whether it was resumed.
 	restartCFO func(h home.Home) (supervisor.CFOConversation, bool, error)
+	// admitLaunch says why the machine has no room yet for another harness,
+	// or nil when it has, as a spawn admits one.
+	admitLaunch func(h home.Home) error
 	// settleCFO answers the known startup dialogs of a CFO just started in
 	// native terminal cfo and returns what to tell the Overlord about them.
 	settleCFO func(ctx context.Context, stateDir, harness string) []string
@@ -210,10 +214,13 @@ type commandRuntime struct {
 	// passed. gateProgress is how often a run that holds a turn says beside
 	// it how far its tests are.
 	availableMemory func() (supervisor.Memory, error)
-	gateWaitLimit   time.Duration
-	gateBudget      func(gatetest.Level) time.Duration
-	gateRun         func(command []string, dir string, env []string, stdout, stderr io.Writer) (int, error)
-	gateProgress    time.Duration
+	// gateDisk reads the free disk a gate test run in a folder has beside its
+	// floor; nil reads the machine's.
+	gateDisk      func(dir string) (supervisor.Disk, error)
+	gateWaitLimit time.Duration
+	gateBudget    func(gatetest.Level) time.Duration
+	gateRun       func(command []string, dir string, env []string, stdout, stderr io.Writer) (int, error)
+	gateProgress  time.Duration
 }
 
 // resolveProject turns a --project argument into a checkout directory: a path
@@ -232,11 +239,12 @@ func defaultCommandRuntime() commandRuntime {
 				return spawn.Result{}, err
 			}
 			service := spawn.Service{
-				Worktrees:   worktree.Service{Commands: commands, DataDir: h.Data},
+				Worktrees:   worktree.Service{Commands: commands, DataDir: h.Data, Root: h.Worktrees()},
 				Harness:     harness.DefaultRegistry(),
 				Auth:        auth.SpawnPreflight{DataDir: h.Data, Home: h.Root, Runner: commands},
 				Commands:    commands,
 				StateDir:    h.State,
+				ScratchRoot: h.Scratch(),
 				PolicyPath:  filepath.Join(h.Root, "config", "pipeline.json"),
 				HostCommand: []string{self, "host"},
 				PromptSince: nativePromptSince(h),
@@ -245,7 +253,11 @@ func defaultCommandRuntime() commandRuntime {
 					if err != nil {
 						return err
 					}
-					return supervisor.CheckLaunch(h, memory)
+					disk, err := supervisor.MachineDisk(h)
+					if err != nil {
+						return fmt.Errorf("spawn: free disk cannot be read, so nothing starts: %w", err)
+					}
+					return supervisor.CheckLaunch(h, memory, disk)
 				},
 			}
 			return service.Spawn(ctx, request)
@@ -257,11 +269,12 @@ func defaultCommandRuntime() commandRuntime {
 				return spawn.SwitchResult{}, err
 			}
 			service := spawn.Service{
-				Worktrees:   worktree.Service{Commands: commands, DataDir: h.Data},
+				Worktrees:   worktree.Service{Commands: commands, DataDir: h.Data, Root: h.Worktrees()},
 				Harness:     harness.DefaultRegistry(),
 				Auth:        auth.SpawnPreflight{DataDir: h.Data, Home: h.Root, Runner: commands},
 				Commands:    commands,
 				StateDir:    h.State,
+				ScratchRoot: h.Scratch(),
 				HostCommand: []string{self, "host"},
 				PromptSince: nativePromptSince(h),
 			}
@@ -331,15 +344,26 @@ func defaultCommandRuntime() commandRuntime {
 		nativeTerminalRuns: supervisor.NativeTerminalRuns,
 		settleCFO:          settleNativeCFO,
 		restartCFO:         restartCFO,
-		setupAgent:         setupAgent,
-		choose:             onboarding.AskConsole,
-		repoActivity:       readRepositoryActivity,
-		repositoryOf:       tickets.GitHub{Commands: execx.OSRunner{}}.RepositoryOf,
-		availableMemory:    supervisor.MachineMemory,
-		gateWaitLimit:      time.Hour,
-		gateBudget:         gateBudget,
-		gateRun:            runGateCommand,
-		gateProgress:       5 * time.Second,
+		admitLaunch: func(h home.Home) error {
+			memory, err := supervisor.MachineMemory()
+			if err != nil {
+				return err
+			}
+			disk, err := supervisor.MachineDisk(h)
+			if err != nil {
+				return fmt.Errorf("free disk cannot be read, so nothing comes back: %w", err)
+			}
+			return supervisor.CheckLaunch(h, memory, disk)
+		},
+		setupAgent:      setupAgent,
+		choose:          onboarding.AskConsole,
+		repoActivity:    readRepositoryActivity,
+		repositoryOf:    tickets.GitHub{Commands: execx.OSRunner{}}.RepositoryOf,
+		availableMemory: supervisor.MachineMemory,
+		gateWaitLimit:   time.Hour,
+		gateBudget:      gateBudget,
+		gateRun:         runGateCommand,
+		gateProgress:    5 * time.Second,
 	}
 }
 
@@ -487,6 +511,8 @@ func runWithRuntime(args []string, stdout, stderr io.Writer, runtime commandRunt
 		return runMergeLocal(args[1:], stdout, stderr)
 	case "cleanup":
 		return runCleanup(args[1:], stdout, stderr, runtime)
+	case "worktree":
+		return runWorktree(args[1:], stdout, stderr, runtime)
 	case "reap":
 		return runReap(args[1:], stdout, stderr, runtime)
 	case "notify":

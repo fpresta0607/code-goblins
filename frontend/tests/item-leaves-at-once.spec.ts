@@ -376,9 +376,9 @@ test("a reused run does not keep the previous publication's pending send", async
   await page.goto("/");
   await send(page, "snapshot", { ...quiet, revision: 2, runs: [run] });
   await openCard(page, run.title);
-  await card(page).getByRole("button", { name: "Run", exact: true }).click();
+  await card(page).getByRole("button", { name: "Run in PowerShell" }).click();
   await expect.poll(() => supervisor.posted.length).toBe(1);
-  await expect(card(page).getByRole("button", { name: "Run", exact: true })).toBeDisabled();
+  await expect(card(page).getByRole("button", { name: "Run in PowerShell" })).toBeDisabled();
 
   // Act
   const again = { ...run, created_at: "2026-10-12T09:00:00Z", title: "Check the next release" };
@@ -386,7 +386,7 @@ test("a reused run does not keep the previous publication's pending send", async
 
   // Assert
   await expect(card(page)).toContainText(again.title);
-  await expect(card(page).getByRole("button", { name: "Run", exact: true })).toBeEnabled();
+  await expect(card(page).getByRole("button", { name: "Run in PowerShell" })).toBeEnabled();
   supervisor.accept();
 });
 

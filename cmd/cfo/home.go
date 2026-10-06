@@ -53,8 +53,11 @@ the home already has with other content is left as the home has it.
 var planDigest = regexp.MustCompile(`^[0-9a-f]{64}$`)
 
 func runHome(args []string, stdout, stderr io.Writer) int {
+	if len(args) > 0 && args[0] == "move" {
+		return runHomeMove(args[1:], stdout, stderr)
+	}
 	if len(args) == 0 || args[0] != "migrate" {
-		fmt.Fprint(stderr, homeUsage)
+		fmt.Fprint(stderr, homeUsage+"\n"+homeMoveUsage)
 		return 2
 	}
 	flags := flag.NewFlagSet("home migrate", flag.ContinueOnError)

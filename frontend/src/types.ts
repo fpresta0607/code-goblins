@@ -85,6 +85,10 @@ export interface Memory {
 // CommitHolder is one app's commit: its first process and every process it
 // started.
 export interface CommitHolder { name: string; commit: number }
+// Disk is the free space of the home's drive in bytes beside the floor under
+// which no goblin or gate test run starts and the lower mark at which the CFO
+// is woken.
+export interface Disk { drive: string; free: number; total: number; floor: number; wake: number }
 export interface Session {
   runtime?: RuntimeEvidence;
   id: string;
@@ -198,6 +202,8 @@ export interface Snapshot {
   credentials?: CredentialRequest[];
   // memory is absent on a board that cannot start goblins or read it.
   memory: Memory | null;
+  // disk is absent on a board that cannot read it.
+  disk: Disk | null;
   afk: Afk;
 }
 // AfkHeld is an item held for the Overlord while AFK mode is on: its key in
@@ -274,6 +280,9 @@ export interface Run {
   // credential_request names the credential request whose card opened this
   // terminal, and credential_names the names it stores.
   credential_request: string; credential_names: string[];
+  // task is the goblin whose own command this is, empty for the CFO's. An
+  // interactive item runs in its own window, which keeps its output.
+  task: string; interactive: boolean;
 }
 // A request for credential values by name: the Overlord pastes each value on
 // its card, and the board stores it in the project's credential scope. It
@@ -479,7 +488,8 @@ function itemLists(v: Record<string, unknown>) {
         command: string(r.command), cwd: string(r.cwd), state: string(r.state), exit_code: r.exit_code === undefined || r.exit_code === null ? null : number(r.exit_code),
         output: string(r.output), reason: string(r.reason), created_at: string(r.created_at), expires_at: string(r.expires_at), ran_at: string(r.ran_at), finished_at: string(r.finished_at),
         connection_task: string(r.connection_task), connection_generation: string(r.connection_generation),
-        credential_request: string(r.credential_request), credential_names: strings(r.credential_names) };
+        credential_request: string(r.credential_request), credential_names: strings(r.credential_names),
+        task: string(r.task), interactive: r.interactive === undefined ? false : boolean(r.interactive) };
     }),
     credentials: array(v.credentials).map(parseCredentialRequest),
     actions: array(v.actions).map(parseAction),
@@ -526,6 +536,9 @@ export function parseSnapshot(value: unknown): Snapshot {
       paged_pool: number(paged_pool), nonpaged_pool: number(nonpaged_pool), floor: number(floor), next: number(next),
       holders: array(holders).map((value) => { const h = object(value); return { name: string(h.name), commit: number(h.commit) }; }),
     }))(object(v.memory)),
+    disk: v.disk === undefined || v.disk === null ? null : (({ drive, free, total, floor, wake }) => ({
+      drive: string(drive), free: number(free), total: number(total), floor: number(floor), wake: number(wake),
+    }))(object(v.disk)),
     retired: strings(v.retired),
     issues: strings(v.issues),
     attention: strings(v.attention),
