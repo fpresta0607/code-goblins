@@ -2,6 +2,8 @@ package axi
 
 import (
 	"context"
+	"os"
+	"path/filepath"
 	"slices"
 	"strings"
 	"testing"
@@ -146,5 +148,63 @@ func TestLavishReadsOnlyTheSessionObject(t *testing.T) {
 				t.Errorf("Open = %v, want it refused for having no address", err)
 			}
 		})
+	}
+}
+
+// Ending a page ends its review session as an agent.
+func TestLavishEndEndsThePagesSession(t *testing.T) {
+	// Arrange
+	runner := &fakeRunner{result: execx.Result{Stdout: []byte("session:\n  file: \"C:\\\\work\\\\.lavish\\\\plan.html\"\n  status: ended\n")}}
+
+	// Act
+	err := (Lavish{Commands: runner}).End(context.Background(), `C:\work\.lavish\plan.html`)
+
+	// Assert
+	if err != nil {
+		t.Fatal(err)
+	}
+	assertRequest(t, runner, execx.Request{Name: "lavish-axi", Args: []string{"end", `C:\work\.lavish\plan.html`}})
+}
+
+// The sessions are read from lavish-axi's state file without running it, so
+// reading takes nothing from a page: each session's page, status, who ended
+// it and how many prompts wait on it undelivered, counted from the prompts
+// themselves when the count lags them. No state file is no sessions.
+func TestLavishSessionsReadsEverySessionWithoutTakingItsFeedback(t *testing.T) {
+	// Arrange
+	dir := t.TempDir()
+	t.Setenv("LAVISH_AXI_STATE_DIR", dir)
+	none, noneErr := (Lavish{}).Sessions()
+	stored := `{"sessions":{
+		"b2":{"key":"b2","file":"C:\\work\\b.html","status":"ended","ended_by":"user","pending_prompts":0,"prompts":[],"chat":[{"role":"user","text":"done"}]},
+		"a1":{"key":"a1","file":"C:\\work\\a.html","status":"feedback","pending_prompts":1,"prompts":[{"prompt":"Ship it"},{"prompt":"Bigger cards"}]}
+	}}`
+	if err := os.WriteFile(filepath.Join(dir, "state.json"), []byte(stored), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	// Act
+	sessions, err := (Lavish{}).Sessions()
+
+	// Assert
+	if noneErr != nil || len(none) != 0 {
+		t.Fatalf("Sessions without a state file = %+v, %v; want none", none, noneErr)
+	}
+	want := []PageSession{{File: `C:\work\a.html`, Status: "feedback", Pending: 2}, {File: `C:\work\b.html`, Status: "ended", EndedBy: "user"}}
+	if err != nil || !slices.Equal(sessions, want) {
+		t.Fatalf("Sessions = %+v, %v; want %+v", sessions, err, want)
+	}
+}
+
+// A state file lavish-axi left half written is an error, never no sessions.
+func TestLavishSessionsRefusesAnUnreadableStateFile(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("LAVISH_AXI_STATE_DIR", dir)
+	if err := os.WriteFile(filepath.Join(dir, "state.json"), []byte(`{"sessions":{"a1":{"file":`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	if sessions, err := (Lavish{}).Sessions(); err == nil {
+		t.Fatalf("Sessions = %+v, want an error for a half-written state file", sessions)
 	}
 }

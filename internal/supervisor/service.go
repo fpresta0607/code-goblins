@@ -65,6 +65,11 @@ type Options struct {
 	// PollPage waits up to a timeout for the Overlord's feedback on a Lavish
 	// page; without it no page is polled.
 	PollPage func(ctx context.Context, file, reply string, timeout time.Duration) (axi.PagePoll, error)
+	// PageSessions lists every review session lavish-axi keeps without
+	// taking anything from them, and EndPage ends one page's review; without
+	// both nothing sweeps the pages no poller watches.
+	PageSessions func() ([]axi.PageSession, error)
+	EndPage      func(ctx context.Context, file string) error
 	// FirstRun is what the first-run page reads and changes on this
 	// machine; without it the board can start no CFO.
 	FirstRun *FirstRun
@@ -155,10 +160,14 @@ type Service struct {
 	// starts after it answers.
 	credentialSaves sync.Mutex
 	credentialWork  sync.WaitGroup
-	// pages stops each open item's page poller; pageWork waits for them.
-	pagesMu  sync.Mutex
-	pages    map[string]context.CancelFunc
-	pageWork sync.WaitGroup
+	// pages are the pages a poller watches now, by pageKey; pageSwept is when
+	// the last sweep of every review session ended and pageSweeping whether
+	// one runs. pageWork waits for the pollers and the sweep.
+	pagesMu      sync.Mutex
+	pages        map[string]bool
+	pageSwept    time.Time
+	pageSweeping bool
+	pageWork     sync.WaitGroup
 	// afkChange takes one change to AFK mode at a time: a switch, a logged
 	// decision or the items held. held are the items already held in the
 	// stretch heldSession names.
@@ -470,6 +479,7 @@ func (s *Service) cycle(ctx context.Context, recover bool) {
 	reconcileErr = errors.Join(reconcileErr, s.holdForOverlord(time.Now().UTC()))
 	s.reconcilePresentations()
 	s.watchPages(ctx)
+	s.sweepPages(ctx)
 	if recover {
 		if s.Options.Reconcile != nil {
 			reconcileErr = errors.Join(reconcileErr, s.Options.Reconcile(ctx))
