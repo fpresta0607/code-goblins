@@ -378,11 +378,13 @@ type heldItem struct {
 func (item heldItem) key() string { return item.kind + ":" + item.id }
 
 // waitingOnOverlord are the items that wait on the Overlord: what the board
-// would announce to him, and a credential request, which only he can fill.
+// would announce to him, and a credential request, which only he can fill. A
+// goblin's question waits on the CFO, which answers it, so of the questions
+// only the CFO's own are his, as the board's forOverlord has it.
 func waitingOnOverlord(d Database) []heldItem {
 	var items []heldItem
 	for _, q := range d.Questions {
-		if q.Status == "pending" {
+		if q.Status == "pending" && q.Task == "" {
 			items = append(items, heldItem{"question", q.ID, q.Task, q.Text, q.Recommended})
 		}
 	}
