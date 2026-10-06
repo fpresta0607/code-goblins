@@ -83,8 +83,10 @@ type fleetWakes struct {
 	// disk floor.
 	DiskLow bool `json:"disk_low,omitempty"`
 	// Checks holds each goblin pull request's finished checks the CFO was
-	// woken for, so each completion wakes once.
+	// woken for, so each completion wakes once, and Hosted what each one's
+	// checks said at its last poll, for its goblin's card.
 	Checks          map[string]reportedChecks   `json:"checks,omitempty"`
+	Hosted          map[string]HostedChecks     `json:"hosted,omitempty"`
 	Health          map[string]reportedPRHealth `json:"health,omitempty"`
 	BackOff         map[string]time.Time        `json:"backoff,omitempty"`
 	AllowanceFloors map[string]allowanceFloor   `json:"allowance_floors,omitempty"`
@@ -484,6 +486,11 @@ func (s *Service) pollCI(ctx context.Context, w *fleetWakes, now time.Time, curr
 			delete(w.Health, url)
 		}
 	}
+	for url, hosted := range w.Hosted {
+		if now.Sub(hosted.At) >= ciRecordFor {
+			delete(w.Hosted, url)
+		}
+	}
 	for key, last := range w.Woke {
 		if now.Sub(last) >= ciRecordFor {
 			delete(w.Woke, key)
@@ -606,6 +613,7 @@ type ghPullRequest struct {
 	HeadRefOid        string    `json:"headRefOid"`
 	Checks            []ghCheck `json:"statusCheckRollup"`
 	Mergeable         string    `json:"mergeable"`
+	ReviewDecision    string    `json:"reviewDecision"`
 	BaseRefName       string    `json:"baseRefName"`
 	IsCrossRepository bool      `json:"isCrossRepository"`
 	Author            struct {
@@ -624,6 +632,8 @@ type ghCheck struct {
 	State       string `json:"state"`
 	CompletedAt string `json:"completedAt"`
 	StartedAt   string `json:"startedAt"`
+	DetailsURL  string `json:"detailsUrl"`
+	TargetURL   string `json:"targetUrl"`
 }
 
 func (c ghCheck) name() string {
@@ -654,6 +664,15 @@ func (c ghCheck) passed() bool {
 	return false
 }
 
+// link is the check's own page: a check run's details, or the target a
+// commit status names.
+func (c ghCheck) link() string {
+	if c.Kind == "StatusContext" {
+		return c.TargetURL
+	}
+	return c.DetailsURL
+}
+
 func (c ghCheck) outcome() string {
 	if c.Kind == "StatusContext" {
 		return c.State
@@ -668,7 +687,7 @@ func (c ghCheck) outcome() string {
 // pull requests could not be listed, apart from what went wrong raising a
 // wake; health left unread stays in w.PRUnread.
 func pollPullRequests(ctx context.Context, runner execx.Runner, stateDir string, w *fleetWakes, repo string, goblins []ciGoblin, now time.Time) (unreadable, err error) {
-	out, err := runOutput(ctx, runner, repo, "gh", "pr", "list", "--state", "open", "--limit", "100", "--json", "number,url,headRefName,headRefOid,statusCheckRollup,mergeable,baseRefName,isCrossRepository,author")
+	out, err := runOutput(ctx, runner, repo, "gh", "pr", "list", "--state", "open", "--limit", "100", "--json", "number,url,headRefName,headRefOid,statusCheckRollup,mergeable,reviewDecision,baseRefName,isCrossRepository,author")
 	if err != nil {
 		return fmt.Errorf("ci wakes: list the open pull requests of %s: %w", repo, err), nil
 	}
@@ -694,6 +713,7 @@ func pollPullRequests(ctx context.Context, runner execx.Runner, stateDir string,
 				reported.At = now
 				w.Checks[pr.URL] = reported
 			}
+			recordHostedChecks(w, pr, now)
 			errs = errors.Join(errs, reportChecks(stateDir, w, goblin.id, pr, now))
 		}
 	}

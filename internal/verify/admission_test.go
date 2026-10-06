@@ -392,7 +392,20 @@ func TestARunThatStoodInLinePastItsLimitStillWaitsForMemory(t *testing.T) {
 	holder := within(t, take(t, a), "the holder")
 	var available atomic.Uint64
 	available.Store(16 * gigabyte)
-	a.Available = func() (uint64, error) { return available.Load(), nil }
+	// readSince counts the readings that began after the shortage started,
+	// so the holder leaves only once the waiter has seen it: the run reads
+	// memory and then tries for the turn, and a reading taken a moment before
+	// the shortage, with the turn freed in that moment, rightly lets it run.
+	var short atomic.Bool
+	var readSince atomic.Int64
+	a.Available = func() (uint64, error) {
+		began := short.Load()
+		value := available.Load()
+		if began {
+			readSince.Add(1)
+		}
+		return value, nil
+	}
 	a.Limit = 500 * time.Millisecond
 	var waiter said
 	a.Waiting = waiter.waiting
@@ -415,11 +428,18 @@ func TestARunThatStoodInLinePastItsLimitStillWaitsForMemory(t *testing.T) {
 	time.Sleep(600 * time.Millisecond)
 
 	// Act
-	short := time.Now()
+	shortAt := time.Now()
 	available.Store(1 * gigabyte)
+	short.Store(true)
+	for readSince.Load() == 0 {
+		if time.Since(shortAt) > 5*time.Second {
+			t.Fatal("the waiter never read memory once it was short")
+		}
+		time.Sleep(time.Millisecond)
+	}
 	holder.Release()
 	got := <-ended
-	forMemory := time.Since(short)
+	forMemory := time.Since(shortAt)
 
 	// Assert
 	defer got.turn.Release()
