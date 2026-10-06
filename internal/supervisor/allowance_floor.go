@@ -9,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/fpresta0607/code-goblins/internal/afk"
 	"github.com/fpresta0607/code-goblins/internal/host"
 	"github.com/fpresta0607/code-goblins/internal/quota"
 	"github.com/fpresta0607/code-goblins/internal/state"
@@ -118,30 +119,70 @@ func (s *Service) pauseAtAllowanceFloor(ctx context.Context, watched *fleetWakes
 				continue
 			}
 		}
-		s.starts.Lock()
-		if s.starting == meta.ID || s.changing[meta.ID] != "" {
-			s.starts.Unlock()
-			continue
+		evidence := fmt.Sprintf("%s's weekly allowance is at the 5 percent floor until it resets at %s", meta.Harness, reset.UTC().Format(time.RFC3339))
+		if _, err := s.pauseAtFloor(meta, record, "allowance", reset.UTC().Format(time.RFC3339), evidence); err != nil {
+			problems = errors.Join(problems, err)
 		}
-		if s.changing == nil {
-			s.changing = map[string]string{}
-			s.changeErrors = map[string]taskChangeError{}
-		}
-		s.changing[meta.ID] = "pause"
-		s.starts.Unlock()
-		go s.runAllowancePause(meta, record, reset)
 	}
 	return problems
 }
 
-func (s *Service) runAllowancePause(meta state.TaskMeta, prior state.Lifecycle, reset time.Time) {
-	operation := fmt.Sprintf("allowance-pause-%d", time.Now().UnixNano())
-	output, err := s.Options.Dispatch.Spawn(context.Background(), []string{"pause", meta.ID, "--generation", meta.SpawnGen, "--operation", operation, "--reason", "allowance", "--until", reset.UTC().Format(time.RFC3339)})
+// pauseAtFloor pauses meta's goblin for a floor in the background, through
+// the lifecycle as the Overlord's own Pause does: reason is the floor's pause
+// reason and until its resume condition, empty for none. While AFK mode is
+// on its log keeps the pause with evidence, what it stands on, and then with
+// how it went, for the report of the stretch. It begins nothing while a start
+// or another change of the goblin is under way, and says whether it began.
+func (s *Service) pauseAtFloor(meta state.TaskMeta, prior state.Lifecycle, reason, until, evidence string) (bool, error) {
 	s.starts.Lock()
-	delete(s.changing, meta.ID)
-	if err != nil {
-		s.changeErrors[meta.ID] = taskChangeError{Message: spawnFailure(output, err), Generation: meta.SpawnGen, Operation: prior.Operation, Updated: prior.Updated}
+	if s.starting == meta.ID || s.changing[meta.ID] != "" {
+		s.starts.Unlock()
+		return false, nil
 	}
+	if s.changing == nil {
+		s.changing = map[string]string{}
+		s.changeErrors = map[string]taskChangeError{}
+	}
+	s.changing[meta.ID] = "pause"
 	s.starts.Unlock()
-	s.notify()
+	what := "at the " + reason + " floor"
+	logged := s.logFloorPause(afk.Entry{Task: meta.ID, What: what, Evidence: evidence})
+	go func() {
+		args := []string{"pause", meta.ID, "--generation", meta.SpawnGen, "--operation", fmt.Sprintf("%s-pause-%d", reason, time.Now().UnixNano()), "--reason", reason}
+		if until != "" {
+			args = append(args, "--until", until)
+		}
+		output, err := s.Options.Dispatch.Spawn(context.Background(), args)
+		outcome := "paused"
+		if err != nil {
+			outcome = "the pause failed: " + spawnFailure(output, err)
+		}
+		unlogged := s.logFloorPause(afk.Entry{Task: meta.ID, What: what, Outcome: outcome})
+		problem := ""
+		switch {
+		case err != nil:
+			problem = spawnFailure(output, err)
+		case unlogged != nil:
+			problem = "paused at the " + reason + " floor, but " + unlogged.Error()
+		}
+		s.starts.Lock()
+		delete(s.changing, meta.ID)
+		if problem != "" {
+			s.changeErrors[meta.ID] = taskChangeError{Message: problem, Generation: meta.SpawnGen, Operation: prior.Operation, Updated: prior.Updated}
+		}
+		s.starts.Unlock()
+		s.notify()
+	}()
+	return true, logged
+}
+
+// logFloorPause keeps a line of a pause at a floor in AFK mode's log while it
+// is on; while it is off there is no stretch to keep it in.
+func (s *Service) logFloorPause(entry afk.Entry) error {
+	s.afkChange.Lock()
+	defer s.afkChange.Unlock()
+	if err := afk.Pause(s.Store.Home.State, entry, time.Now()); err != nil && !errors.Is(err, afk.ErrNotOn) {
+		return fmt.Errorf("AFK mode's log did not take the pause of %s %s: %w", entry.Task, entry.What, err)
+	}
+	return nil
 }

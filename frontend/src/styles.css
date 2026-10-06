@@ -952,6 +952,8 @@ a.wait-open { min-height: 44px; border: 1px solid var(--accent-green); border-ra
    how long a queued task has waited. */
 .card-clock { justify-self: start; display: inline-flex; align-items: center; gap: 5px; color: var(--muted); font-size: 1rem; font-variant-numeric: tabular-nums; line-height: 1.4; }
 .card-clock .icon { width: 14px; height: 14px; }
+.card-stalled { justify-self: start; display: inline-flex; align-items: center; gap: 5px; color: var(--amber); font-size: 1rem; line-height: 1.4; }
+.card-stalled .icon { flex: none; width: 14px; height: 14px; }
 /* The CFO's Task view lists the queue below its workspace. */
 .cfo-queue { display: grid; gap: 12px; margin-top: 20px; padding-top: 24px; border-top: 1px solid var(--border); }
 .cfo-queue h3 { display: flex; gap: 10px; align-items: center; margin: 0; }
@@ -1000,6 +1002,7 @@ a.wait-open { min-height: 44px; border: 1px solid var(--accent-green); border-ra
    label it ends in an ellipsis rather than growing a second line. */
 .next-chip { justify-self: start; display: inline-block; max-width: 100%; padding: 2px 10px; border-radius: 999px; background: #123126; color: #8ff0c9; font-size: .9375rem; font-weight: 800; line-height: 1.4; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .next-chip.waiting { background: #33290f; color: var(--amber); }
+.next-chip.defect { border-radius: 12px; background: #3a1614; color: #ffb4a8; white-space: normal; }
 .card-start { position: absolute; top: 10px; right: 10px; width: 32px; height: 32px; min-height: 32px; border-radius: 10px; }
 .card-start .icon { width: 14px; height: 14px; fill: currentColor; }
 .card-start[aria-disabled="true"] { opacity: .55; cursor: not-allowed; }

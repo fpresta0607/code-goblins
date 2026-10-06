@@ -40,8 +40,11 @@ type Report struct {
 	Asked      string `json:"asked,omitempty"`
 	EndedFrom  string `json:"ended_from"`
 	EndedAsked string `json:"ended_asked,omitempty"`
-	// Decisions are the stretch's decisions in the order they were made.
+	// Decisions are the stretch's decisions in the order they were made, and
+	// Paused the goblins the supervisor paused at a floor, each with what the
+	// pause stood on and how it went.
 	Decisions []Entry  `json:"decisions"`
+	Paused    []Entry  `json:"paused"`
 	Finished  []Finish `json:"finished"`
 	Held      []Held   `json:"held"`
 	// Before and After are the allowance read when AFK mode turned on and
@@ -100,28 +103,39 @@ func Recommends(task, recommendation string, waiting bool) string {
 
 // Decisions folds a stretch's log lines into its decisions, in the order they
 // were made: a later line that carries an outcome closes the decision logged
-// before it for the same kind and subject.
+// before it for the same kind, subject and goblin.
 func Decisions(entries []Entry) []Entry {
-	var decisions []Entry
+	return folded(entries, DecisionKinds)
+}
+
+// Pauses folds a stretch's log lines into the goblins the supervisor paused
+// at a floor, each closed by the line that says how its pause went.
+func Pauses(entries []Entry) []Entry {
+	return folded(entries, []string{KindPause})
+}
+
+// folded is the lines of kinds, each with its outcome folded in.
+func folded(entries []Entry, kinds []string) []Entry {
+	var lines []Entry
 	for _, entry := range entries {
-		if !slices.Contains(DecisionKinds, entry.Kind) {
+		if !slices.Contains(kinds, entry.Kind) {
 			continue
 		}
 		if entry.Outcome != "" {
 			open := -1
-			for i, prior := range decisions {
-				if prior.Kind == entry.Kind && prior.What == entry.What && prior.Outcome == "" {
+			for i, prior := range lines {
+				if prior.Kind == entry.Kind && prior.What == entry.What && prior.Task == entry.Task && prior.Outcome == "" {
 					open = i
 				}
 			}
 			if open >= 0 {
-				decisions[open].Outcome = entry.Outcome
+				lines[open].Outcome = entry.Outcome
 				continue
 			}
 		}
-		decisions = append(decisions, entry)
+		lines = append(lines, entry)
 	}
-	return decisions
+	return lines
 }
 
 // Section is one heading of the report with the decisions under it.
@@ -131,9 +145,10 @@ type Section struct {
 }
 
 // Sections sorts the report's decisions under its headings, in the order the
-// report lists them. A heading the report always shows is there with nothing
-// under it; the others are there only when they hold something. The CFO's
-// text and the board's page are both written from these.
+// report lists them, and the goblins paused at a floor after them. A heading
+// the report always shows is there with nothing under it; the others are
+// there only when they hold something. The CFO's text and the board's page
+// are both written from these.
 func (r Report) Sections() []Section {
 	var sections []Section
 	decided := func(title string, keep func(Entry) bool, always bool) {
@@ -155,6 +170,9 @@ func (r Report) Sections() []Section {
 	decided("Installed", kind(KindInstall), true)
 	decided("Answered for goblins", kind(KindAnswer), true)
 	decided("Other decisions", kind(KindOther), false)
+	if len(r.Paused) > 0 {
+		sections = append(sections, Section{Title: "Paused at a floor", Entries: r.Paused})
+	}
 	return sections
 }
 

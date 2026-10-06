@@ -135,6 +135,36 @@ func TestAHeldItemSaysWhatWasRecommendedForIt(t *testing.T) {
 	}
 }
 
+// The goblins paused at a floor are listed after what the CFO decided, under
+// their own heading, and only in a stretch that paused one.
+func TestTheReportListsTheGoblinsPausedAtAFloor(t *testing.T) {
+	// Arrange
+	report := nightReport()
+	report.Paused = []Entry{{At: night.Add(3 * time.Hour), Kind: KindPause, Task: "nw-search-index", What: "at the memory floor", Evidence: "3.1 GB of memory and 6.2 GB of commit free on two readings in a row, under the 4 GB floor", Outcome: "paused"}}
+	var out bytes.Buffer
+
+	// Act
+	sections, err := report.Sections(), Render(&out, report)
+
+	// Assert
+	if err != nil {
+		t.Fatal(err)
+	}
+	if last := sections[len(sections)-1]; last.Title != "Paused at a floor" || len(last.Entries) != 1 || last.Entries[0].Task != "nw-search-index" {
+		t.Errorf("the last heading = %+v, want the goblin paused at the memory floor", last)
+	}
+	for _, line := range []string{"Paused at a floor (1)\n", "- nw-search-index: at the memory floor: paused\n", "  Evidence: 3.1 GB of memory and 6.2 GB of commit free on two readings in a row, under the 4 GB floor\n"} {
+		if !strings.Contains(out.String(), line) {
+			t.Errorf("the report does not say %q:\n%s", line, out.String())
+		}
+	}
+	for _, section := range nightReport().Sections() {
+		if section.Title == "Paused at a floor" {
+			t.Errorf("a stretch that paused nothing lists %+v", section)
+		}
+	}
+}
+
 func TestAQuietStretchReportsNothingRatherThanNothingAtAll(t *testing.T) {
 	var out bytes.Buffer
 	if err := Render(&out, Report{Session: "afk-1", Since: night, Ended: night.Add(time.Hour), From: "the board", EndedFrom: "the board"}); err != nil {

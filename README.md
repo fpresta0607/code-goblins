@@ -340,8 +340,12 @@ Answers to paused goblins are retained for their resume prompt.
 Resume requires the same 5 GB of free memory and of free commit, and continues a saved session less than a day after pausing where supported, otherwise using the saved handoff.
 The live cap is also checked for Start, spawn and Resume: `config/fleet.json` sets `max_live_goblins` (default 8), and memory and commit further reduce the available slots while preserving the 4 GB floor.
 At 5 percent remaining in a measured weekly allowance window, the same supervisor scheduler requests each affected goblin's handoff and pauses it until the applicable weekly windows reset.
+While [AFK mode](#afk-mode) is on it pauses at the memory floor too: after two readings in a row under 4 GB of free memory or commit, the newest goblin that is not pushing or merging is paused with the reason `memory`, one at a time.
 Short session or model windows do not trigger this reserve, and missing or stale quota remains unknown.
-The board snapshot exposes pause conditions, the live cap, time since real progress, and recent CI/deploy durations for the pending board presentation.
+On the board, a paused card says in place of Paused why it waits and what resumes it, in a few words such as "Memory: resumes at 5 GB free", "Waiting on PR #331 to merge" or "Waiting on CI, usually 13 min", the last from the median of that repository's measured runs.
+The memory meter shows the goblins live against the cap, and the setting while memory lowers the cap; with no free slot, Start and Resume say so on the card instead of being refused after the click.
+**Next** marks the one card the free-slot order takes first: a reported production defect, which says it jumps the queue, then a paused goblin whose pause has cleared or clears with memory, oldest pause first, then the top of the queue.
+A live goblin with no real progress for 20 minutes says for how long on its card.
 After 20 minutes with no new commit, push, gate-step change or changed status report, the supervisor raises one `progress_stalled` check wake to the CFO; real progress resets it, and intentional pauses do not raise it.
 Progress probes run together under one 10-second deadline, so stalled probes do not accumulate delays between memory readings.
 An allowance pause that failed for the current task generation and reset waits for intervention while unrelated cleared work can continue.
@@ -557,7 +561,7 @@ While it is on:
 
 At your first click or key on the board after five minutes with none, the board offers to turn it off.
 When the CFO turned it on at your ask, your very first click or key offers it at once, quoting your words, so a switch made on your words meets you before anything else.
-Turning it off shows the report of the stretch on the board as one page: who turned it on and off, how much of each thing there is, what is held for you with what was recommended for it and what became of it, then what merged, deployed and installed, each with its link and its verification, what each goblin finished, and what was spent, read from `quota-axi` when it turned on and when it turned off.
+Turning it off shows the report of the stretch on the board as one page: who turned it on and off, how much of each thing there is, what is held for you with what was recommended for it and what became of it, then what merged, deployed and installed, each with its link and its verification, the goblins paused at a floor, what each goblin finished, and what was spent, read from `quota-axi` when it turned on and when it turned off.
 The button beside the toggle opens the last report again.
 Each time you open it, held items show their current disposition first.
 `cfo afk status` shows who turned it on and when, what the CFO has decided so far and what is held for you.
@@ -593,7 +597,8 @@ Spent
 ```
 
 AFK mode shares the supervisor's allowance pause at 5 percent weekly remaining and its automatic resume at the reset.
-Automatic pauses at the memory floor are not built yet.
+While it is on, the fleet also pauses cleanly at the memory floor: when two readings in a row find free memory or commit under 4 GB, the supervisor pauses the newest goblin that is not pushing or merging, keeping its handoff, one goblin at a time, and resumes it once memory and commit are back at 5 GB.
+Each pause at either floor is in the report under **Paused at a floor**, with the readings it stood on and how it went.
 
 ### Open in VS Code
 
