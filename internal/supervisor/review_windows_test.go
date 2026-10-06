@@ -263,6 +263,7 @@ func TestReviewUsesRequiredNativeChannelAcrossHarnesses(t *testing.T) {
 			if err := os.WriteFile(filepath.Join(h.State, "primary.json"), data, 0600); err != nil {
 				t.Fatal(err)
 			}
+			terminal.drawsComposer(t, harness)
 			meta, _ := state.ReadTaskMeta(h.State, "task-1")
 			gitFixture(t, meta.Worktree)
 			service := &Service{Store: store, Options: Options{CFO: cfo}}

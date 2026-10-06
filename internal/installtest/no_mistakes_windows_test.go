@@ -259,7 +259,7 @@ func runInstallWithNoMistakes(t *testing.T, shell, releases string, setup noMist
 	if err != nil && !os.IsNotExist(err) {
 		t.Fatal(err)
 	}
-	return noMistakesInstall{output: string(output), record: string(recorded), local: local, temp: temp, bin: bin, userEnv: filepath.Join(local, userEnvFileName)}
+	return noMistakesInstall{output: string(output), record: string(recorded), local: local, temp: temp, bin: bin, userEnv: filepath.Join(local, UserEnvFile)}
 }
 
 // installedNoMistakes is where the install puts no-mistakes, where

@@ -121,12 +121,13 @@ export function nextOpenKey(stack: Item[], key: string, sent: ReadonlySet<string
 export interface SentDraft { submission: Submission | null; sending: boolean; error: string; receipt?: Action }
 
 // SendState is what an item's card shows after Send. A send is done the moment
-// it is made: its check shows at once and delivery goes on quietly. It is
-// confirmed once delivered, and failed only when the request was refused or
-// delivery failed or went unconfirmed, which a card still on screen shows.
+// it is made: its check shows at once and delivery goes on quietly. It reads
+// Sending until the supervisor has it, Queued while it waits for its terminal
+// and Sent after, and failed only when the request was refused or delivery
+// failed or went unconfirmed, which a card still on screen shows.
 // Once its action is known, the action alone decides; a draft edited after a
 // refusal has sent nothing.
-export interface SendState { failed: boolean; confirmed: boolean; heading: string; cleared: boolean }
+export interface SendState { failed: boolean; heading: string; cleared: boolean }
 
 export function sendState(draft: SentDraft, actions: Action[]): SendState | undefined {
   const { submission } = draft;
@@ -137,8 +138,9 @@ export function sendState(draft: SentDraft, actions: Action[]): SendState | unde
   const cleared = sent.kind === "review_clear" || sent.kind === "question_clear";
   return {
     failed: outcome ? deliveryMark(outcome).trouble : !!draft.error,
-    confirmed: outcome?.status === "succeeded",
-    heading: cleared ? string(sent.text) || (sent.kind === "question_clear" ? "Dismissed" : "Cleared") : "Sent",
+    heading: cleared ? string(sent.text) || (sent.kind === "question_clear" ? "Dismissed" : "Cleared")
+      : outcome?.status === "queued" ? "Queued"
+      : draft.sending && !outcome || outcome?.status === "running" && !outcome.awaiting ? "Sending" : "Sent",
     cleared,
   };
 }

@@ -39,6 +39,7 @@ export function deliveryMark(action: Action, goblin = "the goblin"): { icon: Ico
       return { icon: "check-double", label: cfo ? "CFO received" : action.kind === "goblin_answer" ? "Delivered to " + goblin : "Done", trouble: false };
     case "failed": return { icon: "close", label: "Could not deliver", trouble: true };
     case "uncertain": return { icon: "warning", label: action.advice || "Not confirmed. Check " + (cfo ? "the CFO's terminal" : "the goblin's terminal") + " before sending it again.", trouble: true };
+    case "queued": return { icon: "check", label: action.message || "Queued", trouble: false };
     default: return { icon: "check", label: action.awaiting && action.message ? action.message : "Sending", trouble: false };
   }
 }
