@@ -198,10 +198,10 @@ export interface Snapshot {
 }
 // AfkHeld is an item held for the Overlord while AFK mode is on: its key in
 // the Command Center, its goblin (empty for the CFO's own), what it asks,
-// whether it still waits on him and what became of it, and what its goblin
-// reported meanwhile.
+// whether it still waits on him and what became of it, what its goblin
+// reported meanwhile, and the choice its asker recommends, empty for none.
 export interface AfkHeld {
-  item: string; task: string; what: string; at: string; waiting: boolean; now: string; meanwhile: string;
+  item: string; task: string; what: string; at: string; waiting: boolean; now: string; meanwhile: string; recommendation: string;
 }
 // Afk is AFK mode, the Overlord's switch for running the fleet while he is
 // away: on, off, or unreadable when the supervisor cannot read the switch.
@@ -444,7 +444,7 @@ function parseCredentialRequest(value: unknown): CredentialRequest {
 }
 export function parseAfkHeld(value: unknown): AfkHeld {
   const h = object(value);
-  return { item: string(h.item), task: string(h.task), what: string(h.what), at: string(h.at), waiting: h.waiting === undefined ? false : boolean(h.waiting), now: string(h.now), meanwhile: string(h.meanwhile) };
+  return { item: string(h.item), task: string(h.task), what: string(h.what), at: string(h.at), waiting: h.waiting === undefined ? false : boolean(h.waiting), now: string(h.now), meanwhile: string(h.meanwhile), recommendation: string(h.recommendation) };
 }
 // A supervisor from before AFK mode reached the board sends none, which is off.
 function parseAfk(value: unknown): Afk {

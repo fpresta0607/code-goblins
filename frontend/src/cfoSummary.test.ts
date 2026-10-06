@@ -48,7 +48,7 @@ test("a question is counted without its lead sentence or its details", () => {
 
 test("while AFK mode is on the bar says so and counts nothing as waiting, whatever waits on the Overlord, and a switch that cannot be read is not taken for on", () => {
   const now = Date.parse("2026-10-02T12:31:00Z");
-  const held = { item: "question:own", task: "", what: "Merge PR 91 now?", at: "2026-10-02T03:05:00Z", waiting: true, now: "still waiting on you", meanwhile: "" };
+  const held = { item: "question:own", task: "", what: "Merge PR 91 now?", at: "2026-10-02T03:05:00Z", waiting: true, now: "still waiting on you", meanwhile: "", recommendation: "" };
   const on = afk({ state: "on", since: "2026-10-02T02:10:00Z", from: "his own board (goblins-window.exe pid 4242)", decided: 3, held: [held] });
   const waits = { tasks: [task("goblin-a")], questions: [question("own", "Merge PR 91 now?")] };
   const away = cfoSummary(snapshot({ ...waits, afk: on }), now);
