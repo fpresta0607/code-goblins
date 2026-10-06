@@ -66,6 +66,37 @@ func TestCodexsUpdatePromptIsAnsweredOnlyWithSkip(t *testing.T) {
 	}
 }
 
+func TestCodexsOptionalDaybreakOfferBlocksTheComposer(t *testing.T) {
+	screens, _ := NativeScreens(Codex)
+	for name, test := range map[string]struct {
+		rows      []string
+		isOffered bool
+	}{
+		"offer":                       {[]string{"Set up security for Daybreak mode", "Set up Advanced Account Security with a hardware security key.", "› 1. Set up security", "Press a number to choose · esc to dismiss · type to continue"}, true},
+		"wrapped offer":               {[]string{"Set up security for", "Daybreak mode", "› 1. Set up security", "Press a number to choose · esc to", "dismiss · type to continue"}, true},
+		"earlier title in transcript": {[]string{"Set up security for Daybreak mode"}, false},
+		"title without the optional offer footer": {[]string{"Set up security for Daybreak mode", "esc to dismiss"}, false},
+		"another security screen":                 {[]string{"Set up Advanced Account Security", "esc to dismiss"}, false},
+	} {
+		t.Run(name, func(t *testing.T) {
+			rows := append(test.rows, "› Ask Codex to do anything", "100% context left")
+			dialog, isFound := screens.Dialog(rows)
+			if isFound != test.isOffered {
+				t.Errorf("dialog found %v, want %v", isFound, test.isOffered)
+			}
+			if dialog.Chosen("1. Set up security") {
+				t.Error("security enrollment is never an automatic answer")
+			}
+			if isReady := screens.IsReady(rows); isReady == test.isOffered {
+				t.Errorf("ready %v while offered %v", isReady, test.isOffered)
+			}
+			if isEmpty := screens.ComposerEmpty(rows); isEmpty == test.isOffered {
+				t.Errorf("empty composer %v while offered %v", isEmpty, test.isOffered)
+			}
+		})
+	}
+}
+
 // Pi's project trust prompt, captured on pi 0.85.1 started without --approve,
 // focuses "Trust" first and is answered only with "Trust (this session
 // only)", which saves nothing to pi's trust store.
@@ -138,6 +169,33 @@ func TestCodexsLiveComposerIsReadyAndItsTurnIsWorking(t *testing.T) {
 		if got := screens.IsWorking(test.screen); got != test.working {
 			t.Errorf("%s: working = %v, want %v", name, got, test.working)
 		}
+	}
+}
+
+// Codex's status row is its only sign of a turn in progress, and a resumed
+// conversation found in one is taken as started, so text that quotes the row
+// in a shell, a reply or the composer must not read as one.
+func TestCodexWorkingIsReadOnlyFromItsStatusRow(t *testing.T) {
+	screens, _ := NativeScreens(Codex)
+	for _, test := range []struct {
+		row     string
+		working bool
+	}{
+		{"Working (1m 51s • esc to interrupt) · 1 background terminal running · /ps to view · /stop to close", true},
+		{"• Planning the fix (12s • esc to interrupt)", true},
+		{`PS C:\proof> Write-Output "Working (1s • esc to interrupt)"`, false},
+		{"The previous screen said esc to interrupt.", false},
+		{"› Explain Working (1s • esc to interrupt)", false},
+	} {
+		t.Run(test.row, func(t *testing.T) {
+			// Act
+			working := screens.IsWorking([]string{test.row})
+
+			// Assert
+			if working != test.working {
+				t.Fatalf("working = %v, want %v for %q", working, test.working, test.row)
+			}
+		})
 	}
 }
 
@@ -249,10 +307,40 @@ func TestAComposerReadsEmptyOnlyWhileItHoldsNothing(t *testing.T) {
 		"pi editor scrolled":       {Pi, []string{"─── ↑ 3 more ───────────────", "last line", rule, footer}, false},
 		"pi rule missing":          {Pi, []string{"Done.", footer}, false},
 		"claude is never typed in": {Claude, []string{"❯ ", "  ⏵⏵ bypass permissions on (shift+tab to cycle)"}, false},
+		"unknown composer":         {Kind("unknown"), []string{"❯ "}, false},
 	} {
 		screens, _ := NativeScreens(test.kind)
 		if got := screens.ComposerEmpty(test.screen); got != test.empty {
 			t.Errorf("%s: ComposerEmpty = %v, want %v", name, got, test.empty)
 		}
+	}
+}
+
+// Claude Code 2.1.288, captured in an isolated native terminal on 2026-10-03:
+// the last two rules enclose the current composer, including collapsed paste.
+func TestClaudesCapturedComposerReadsEmptyWithoutMistakingADraft(t *testing.T) {
+	rule := strings.Repeat("─", 140)
+	footer := "  ⏵⏵ bypass permissions on (shift+tab to cycle)"
+	screens, _ := NativeScreens(Claude)
+	for name, test := range map[string]struct {
+		screen []string
+		empty  bool
+	}{
+		"empty":            {[]string{rule, "❯", rule, footer}, true},
+		"cleared":          {[]string{rule, "❯\u00a0", rule, footer}, true},
+		"ascii prompt":     {[]string{rule, ">\u00a0", rule, footer}, true},
+		"draft":            {[]string{rule, "❯\u00a0scratch draft for composer proof", rule, footer}, false},
+		"collapsed paste":  {[]string{rule, "❯\u00a0[Pasted text #1]", rule, footer}, false},
+		"wrapped draft":    {[]string{rule, "❯", "  continued draft", rule, footer}, false},
+		"old empty prompt": {[]string{rule, "❯", rule, "old reply", rule, "❯ draft", rule, footer}, false},
+		"missing rule":     {[]string{"❯", rule, footer}, false},
+		"unknown hint":     {[]string{rule, "❯ Try fix typecheck errors", rule, footer}, false},
+		"no screen":        {nil, false},
+	} {
+		t.Run(name, func(t *testing.T) {
+			if got := screens.ComposerEmpty(test.screen); got != test.empty {
+				t.Fatalf("ComposerEmpty = %v, want %v", got, test.empty)
+			}
+		})
 	}
 }

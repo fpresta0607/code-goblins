@@ -2,6 +2,7 @@ import type { IconName } from "./Icon.tsx";
 import { object, string, type Action, type BoardActivity, type CredentialRequest, type Question, type Review, type ReviewDocument, type Run, type Snapshot } from "./types.ts";
 import { deliveryMark, runMark, type Submission } from "./feedback.ts";
 import { credentialSettled } from "./credentials.ts";
+import { plainMessage } from "./messageText.ts";
 
 // Everything the board holds as an item lives in one queue: a goblin's or the
 // CFO's question, a review item (images, a Lavish page, or a wait on him), a
@@ -58,16 +59,21 @@ export const waitsOnOverlord = (review: Review) => !!review.task && review.id.st
 // "Waiting on you: " and a page's link, which the card opens instead.
 export const waitReason = (review: Review) => review.title.replace(/^Waiting on you:\s*/, "").replace(review.lavish ? " (page " + review.lavish + ")" : "", "");
 
+// A review item on one line, for a list row or a button's label: a wait as
+// the goblin's words alone, anything else as its title.
+export const reviewLine = (review: Review) => plainMessage(waitsOnOverlord(review) ? waitReason(review) : review.title);
+
 // What a wait points at, so its card says it plainly and opens it: the page
-// the goblin named, else a file it delivered, else a web link in its words.
-// Null when it names nothing.
+// the goblin named, else a file it delivered, else the web link it gave as the
+// link (cfo notify --link), never an address it only names in its words, and
+// never its question to the CFO. Null when it names nothing.
 export type WaitTarget = { kind: "item"; key: string; label: string; says: string } | { kind: "page"; url: string; label: string; says: string };
 export function waitTarget(review: Review, snapshot: Snapshot): WaitTarget | null {
   if (review.lavish) return { kind: "page", url: review.lavish, label: "Open review", says: "It waits on your answer on its review page." };
   const file = (snapshot.reviews || []).find((candidate) => candidate.task === review.task && candidate.state === "open" && candidate.document);
   if (file?.document) return { kind: "item", key: "review:" + file.id, label: "Open the file", says: "It waits on you to open " + file.document.name + "." };
-  const link = /https?:\/\/[^\s<>"'()]+/.exec(review.title)?.[0].replace(/[.,;:!?]+$/, "");
-  if (link && URL.canParse(link)) return { kind: "page", url: link, label: "Open the link", says: "It waits on you at " + new URL(link).host + "." };
+  const link = URL.canParse(review.link) ? new URL(review.link) : null;
+  if (link && (link.protocol === "https:" || link.protocol === "http:")) return { kind: "page", url: review.link, label: "Open the link", says: "It waits on you at " + link.host + "." };
   return null;
 }
 
@@ -116,12 +122,13 @@ export function nextOpenKey(stack: Item[], key: string, sent: ReadonlySet<string
 export interface SentDraft { submission: Submission | null; sending: boolean; error: string; receipt?: Action }
 
 // SendState is what an item's card shows after Send. A send is done the moment
-// it is made: its check shows at once and delivery goes on quietly. It is
-// confirmed once delivered, and failed only when the request was refused or
-// delivery failed or went unconfirmed, which a card still on screen shows.
+// it is made: its check shows at once and delivery goes on quietly. It reads
+// Sending until the supervisor has it, Queued while it waits for its terminal
+// and Sent after, and failed only when the request was refused or delivery
+// failed or went unconfirmed, which a card still on screen shows.
 // Once its action is known, the action alone decides; a draft edited after a
 // refusal has sent nothing.
-export interface SendState { failed: boolean; confirmed: boolean; heading: string; cleared: boolean }
+export interface SendState { failed: boolean; heading: string; cleared: boolean }
 
 export function sendState(draft: SentDraft, actions: Action[]): SendState | undefined {
   const { submission } = draft;
@@ -132,8 +139,9 @@ export function sendState(draft: SentDraft, actions: Action[]): SendState | unde
   const cleared = sent.kind === "review_clear" || sent.kind === "question_clear";
   return {
     failed: outcome ? deliveryMark(outcome).trouble : !!draft.error,
-    confirmed: outcome?.status === "succeeded",
-    heading: cleared ? string(sent.text) || (sent.kind === "question_clear" ? "Dismissed" : "Cleared") : "Sent",
+    heading: cleared ? string(sent.text) || (sent.kind === "question_clear" ? "Dismissed" : "Cleared")
+      : outcome?.status === "queued" ? "Queued"
+      : draft.sending && !outcome || outcome?.status === "running" && !outcome.awaiting ? "Sending" : "Sent",
     cleared,
   };
 }

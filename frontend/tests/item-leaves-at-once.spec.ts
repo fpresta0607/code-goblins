@@ -126,11 +126,31 @@ async function expectGone(page: Page, says: string) {
 }
 
 const WAYS = [
-  { name: "a question he answers", item: { questions: [question] }, says: ASKS, pick: "Merge it", press: "dialog.question-modal .send-decision", kind: "cfo_answer", heading: "Sent" },
+  { name: "a question he answers", item: { questions: [question] }, says: ASKS, pick: "Merge it", press: "dialog.question-modal .send-decision", kind: "cfo_answer", heading: "Sending" },
   { name: "a question he dismisses", item: { questions: [question] }, says: ASKS, pick: "", press: 'dialog.question-modal [aria-label="Dismiss this question"]', kind: "question_clear", heading: "Dismissed" },
   { name: "a goblin's wait he dismisses", item: { reviews: [wait] }, says: WAITS, pick: "", press: "dialog.question-modal .status-dismiss", kind: "review_clear", heading: "Cleared" },
   { name: "a review he clears", item: { reviews: [proof] }, says: "Do the proof screenshots read well?", pick: "", press: 'dialog.question-modal [aria-label="Clear this item without answering"]', kind: "review_clear", heading: "Cleared" },
 ];
+
+test("an answer waiting for the Codex composer reads Queued with its reason", async ({ page, context }) => {
+  // Arrange
+  await standInStream(context);
+  await announcer(context);
+  const reason = "The CFO is typing. Your answer will wait.";
+  await context.route("**/api/actions", (route) => route.fulfill({ status: 202, json: { ...route.request().postDataJSON(), status: "queued", message: reason } }));
+  await boardAsked(page, { questions: [question] }, ASKS);
+  await send(page, "snapshot", { ...asking({ questions: [question] }), cfo_harness: "codex", revision: 3 });
+  await openCard(page, ASKS);
+  await card(page).getByText("Merge it", { exact: true }).click();
+
+  // Act
+  await card(page).locator(".send-decision").click();
+
+  // Assert
+  await expect(card(page).locator(".done-card h3")).toHaveText("Queued");
+  await expect(card(page)).toContainText(reason);
+  await expect(card(page)).not.toContainText("CFO received");
+});
 
 for (const way of WAYS) {
   test(`${way.name} leaves the count and the CFO's bar in the frame he acts, before the board hears back`, async ({ page, context }) => {
@@ -256,7 +276,7 @@ test.describe("in the desktop window's size, with the CFO's panel open", () => {
     const shown = await clickAndLook(page, "dialog.question-modal .send-decision");
 
     // Assert
-    expect(shown).toEqual({ painted: false, toasts: 0, badge: "Command Center", bar: expect.stringContaining("All quiet"), command: "", card: "Sent" });
+    expect(shown).toEqual({ painted: false, toasts: 0, badge: "Command Center", bar: expect.stringContaining("All quiet"), command: "", card: "Sending" });
     await expect.poll(() => supervisor.posted.map((body) => body.kind)).toEqual(["cfo_answer"]);
     await testInfo.attach("the frame after his answer", { body: await page.screenshot(), contentType: "image/png" });
     await expectGone(page, ASKS);
@@ -307,6 +327,122 @@ test("an ID published again after its item closed shows its count and its CFO ba
   await expect(badge(page)).toHaveAccessibleName("Command Center, 1 waiting on you");
   await expect(bar(page).getByRole("button", { name: "Open Command Center: 1 waiting on you" })).toBeVisible();
   await expect(bar(page)).not.toContainText(again);
+  await openCard(page, again);
+});
+
+for (const kind of ["question", "review"] as const) {
+  test(`a reused ${kind} clears its draft, while CFO registration keeps it`, async ({ page, context }) => {
+    // Arrange
+    await standInStream(context);
+    await announcer(context);
+    const original = kind === "question" ? question : proof;
+    const publish = (changes: object, revision: number) => asking(kind === "question" ? { questions: [{ ...original, ...changes }] } : { reviews: [{ ...original, ...changes }] }, revision);
+    await boardAsked(page, kind === "question" ? { questions: [question] } : { reviews: [proof] }, kind === "question" ? ASKS : proof.title);
+    await openCard(page, kind === "question" ? ASKS : proof.title);
+    if (kind === "question") await card(page).getByText("Other", { exact: true }).click();
+    await card(page).getByRole("textbox").fill("Keep this unfinished answer");
+
+    // Act: a new CFO adopts the same publication.
+    await send(page, "snapshot", publish({ identity: "e".repeat(64) }, 3));
+
+    // Assert
+    await expect(card(page).getByRole("textbox")).toHaveValue("Keep this unfinished answer");
+
+    // Act: the record goes away and its ID is published again.
+    await send(page, "snapshot", { ...quiet, revision: 4 });
+    await expect(card(page)).toBeHidden();
+    const again = "Please review the next release";
+    await send(page, "snapshot", publish({ created_at: "2026-10-12T09:00:00Z", text: again, title: again }, 5));
+    await openCard(page, again);
+
+    // Assert
+    if (kind === "question") {
+      await expect(card(page).locator("input[type=radio]:checked")).toHaveCount(0);
+      await card(page).getByText("Other", { exact: true }).click();
+    }
+    await expect(card(page).getByRole("textbox")).toHaveValue("");
+    await expect(card(page).getByRole("button", { name: kind === "question" ? "Send decision" : "Send answer" })).toBeDisabled();
+  });
+}
+
+test("a reused run does not keep the previous publication's pending send", async ({ page, context }) => {
+  // Arrange
+  await standInStream(context);
+  await announcer(context);
+  const supervisor = await actions(context);
+  const run = { id: "release-check", identity: "c".repeat(64), state: "ready", title: "Check the first release", shell: "powershell", command: "Write-Output ready", created_at: question.created_at };
+  await page.goto("/");
+  await send(page, "snapshot", { ...quiet, revision: 2, runs: [run] });
+  await openCard(page, run.title);
+  await card(page).getByRole("button", { name: "Run", exact: true }).click();
+  await expect.poll(() => supervisor.posted.length).toBe(1);
+  await expect(card(page).getByRole("button", { name: "Run", exact: true })).toBeDisabled();
+
+  // Act
+  const again = { ...run, created_at: "2026-10-12T09:00:00Z", title: "Check the next release" };
+  await send(page, "snapshot", { ...quiet, revision: 3, runs: [again] });
+
+  // Assert
+  await expect(card(page)).toContainText(again.title);
+  await expect(card(page).getByRole("button", { name: "Run", exact: true })).toBeEnabled();
+  supervisor.accept();
+});
+
+test("a reused credential request clears its typed value, while CFO registration keeps it", async ({ page, context }) => {
+  // Arrange
+  await standInStream(context);
+  await announcer(context);
+  const request = { id: "cred-release", generation: "f".repeat(32), identity: "c".repeat(64), by: "cfo", project: "probe", repository: "C:/dev/probe", names: ["PROBE_VALUE"], why: "Configure the first release", state: "open", created_at: question.created_at, expires_at: "2026-10-13T09:00:00Z" };
+  await page.goto("/");
+  await send(page, "snapshot", { ...quiet, revision: 2, credentials: [request] });
+  await openCard(page, request.why);
+  const field = card(page).getByLabel("Value for PROBE_VALUE");
+  const value = crypto.randomUUID();
+  await field.fill(value);
+  await expect(field).toHaveValue("\u2022".repeat(value.length));
+
+  // Act: adoption keeps the same publication.
+  await send(page, "snapshot", { ...quiet, revision: 3, credentials: [{ ...request, identity: "e".repeat(64) }] });
+
+  // Assert
+  await expect(field).toHaveValue("\u2022".repeat(value.length));
+
+  // Act
+  const again = { ...request, created_at: "2026-10-12T09:00:00Z", why: "Configure the next release" };
+  await send(page, "snapshot", { ...quiet, revision: 4, credentials: [again] });
+
+  // Assert
+  await expect(card(page)).toContainText(again.why);
+  await expect(field).toHaveValue("");
+  await expect(card(page).getByRole("button", { name: "Save", exact: true })).toBeDisabled();
+});
+
+test("a late refusal for an old publication does not mark the reused question's draft failed", async ({ page, context }) => {
+  // Arrange
+  await standInStream(context);
+  await announcer(context);
+  const supervisor = await actions(context);
+  await boardAsked(page, { questions: [question] }, ASKS);
+  await openCard(page, ASKS);
+  await card(page).getByText("Merge it", { exact: true }).click();
+  await card(page).getByRole("button", { name: "Send decision" }).click();
+  await expect.poll(() => supervisor.posted.length).toBe(1);
+  await card(page).getByRole("button", { name: "Close the Command Center" }).click();
+  const again = "May I merge the next release train?";
+  await send(page, "snapshot", asking({ questions: [{ ...question, created_at: "2026-10-12T09:00:00Z", text: again }] }, 3));
+  await openCard(page, again);
+  await card(page).getByText("Other", { exact: true }).click();
+  await card(page).getByRole("textbox").fill("This is the new answer");
+
+  // Act
+  const refused = page.waitForResponse((response) => response.url().endsWith("/api/actions") && response.status() === 409);
+  supervisor.refuse("the old question has closed");
+  await refused;
+
+  // Assert
+  await expect(card(page).getByRole("textbox")).toHaveValue("This is the new answer");
+  await expect(card(page).getByRole("alert")).toHaveCount(0);
+  await expect(card(page).getByRole("button", { name: "Send decision" })).toBeEnabled();
 });
 
 test("a send the board refuses puts the item back, with why", async ({ page, context }) => {

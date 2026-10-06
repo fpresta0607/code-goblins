@@ -152,11 +152,25 @@
         }
     }
 
+    # Get-UserEnvironment returns the user-scope variable $Name. Where
+    # CFO_USER_ENV_FILE is set it reads that file, which stands in for the
+    # user-scope environment as it does for Add-UserPath and cfo install, so a
+    # test's install never reads the machine's own user environment.
+    function Get-UserEnvironment([string]$Name) {
+        if (-not $env:CFO_USER_ENV_FILE) {
+            return [Environment]::GetEnvironmentVariable($Name, "User")
+        }
+        if (-not (Test-Path -LiteralPath $env:CFO_USER_ENV_FILE)) {
+            return $null
+        }
+        return (Get-Content -Raw -LiteralPath $env:CFO_USER_ENV_FILE | ConvertFrom-Json).$Name
+    }
+
     # Read-ProjectsRoot asks once for the folder that holds the user's
     # checkouts and returns cfo install's argument for it. A recorded folder is
     # kept on every rerun.
     function Read-ProjectsRoot {
-        if ([Environment]::GetEnvironmentVariable("CFO_PROJECTS_ROOT", "User")) {
+        if (Get-UserEnvironment "CFO_PROJECTS_ROOT") {
             return @()
         }
         if ([Console]::IsInputRedirected) {
@@ -206,6 +220,10 @@
             Write-Host "Install Go with: winget install -e --id GoLang.Go, then open a new terminal and run this again."
             throw "-Dev builds cfo.exe from this clone, which needs Go."
         }
+        if (-not (Get-Command npm -ErrorAction SilentlyContinue)) {
+            Write-Host "Install Node.js with: winget install -e --id OpenJS.NodeJS.LTS, then open a new terminal and run this again."
+            throw "-Dev builds the board cfo.exe embeds from this clone, which needs Node.js."
+        }
 
         # A clone bootstrapped before the Lavish ruling still has the retired review
         # surface binary here, where nothing builds it and nothing ignores it any
@@ -221,11 +239,17 @@
             }
         }
 
-        Write-Host "Building cfo.exe and the desktop window from $InstallDir ..."
+        Write-Host "Building the board, cfo.exe and the desktop window from $InstallDir ..."
         $built = Join-Path $InstallDir "cfo.exe.new"
         $builtWindow = Join-Path $InstallDir "goblins-window.exe.new"
         Push-Location -LiteralPath $InstallDir
         try {
+            # cfo.exe embeds the board npm builds from frontend, and without it
+            # serves a page saying the board was not built.
+            npm.cmd --prefix frontend ci
+            if ($LASTEXITCODE -ne 0) { throw "npm ci in frontend failed" }
+            npm.cmd --prefix frontend run build
+            if ($LASTEXITCODE -ne 0) { throw "npm run build in frontend failed" }
             go build -trimpath -o $built ./cmd/cfo
             if ($LASTEXITCODE -ne 0) { throw "go build failed" }
             # -H windowsgui: the window is a program with no console.
@@ -320,7 +344,7 @@
     $ErrorActionPreference = "Continue"
 
     # Claude reads project skills only from .claude/skills, so a junction points it
-    # at .agents/skills; codex, pi and kimi read .agents/skills directly, and a
+    # at .agents/skills; codex and pi read .agents/skills directly, and a
     # .codex/skills link would only give codex a second route to the same skills,
     # so one an earlier install made is removed.
     # A junction keeps one copy tracked in git (no developer-mode symlinks).
@@ -537,15 +561,12 @@ public static extern IntPtr SendMessageTimeout(IntPtr hWnd, uint Msg, UIntPtr wP
     #                Defender blocks as Trojan:Win32/Commando.A!ml.
     #   release    - the release pinned above, which Install-NoMistakes
     #                installs, and updates when an older one is present
-    #   manual     - no scriptable installer; print the manual step instead
     $tools = @(
         @{ Name = "git";                 Kind = "winget";     Cmd = "winget install -e --id Git.Git --accept-package-agreements --accept-source-agreements" },
         @{ Name = "gh";                  Kind = "winget";     Cmd = "winget install -e --id GitHub.cli --accept-package-agreements --accept-source-agreements" },
         @{ Name = "claude";              Kind = "powershell"; Cmd = "https://claude.ai/install.ps1" },
-        @{ Name = "herdr";               Kind = "powershell"; Cmd = "https://herdr.dev/install.ps1" },
         @{ Name = "codex";               Kind = "npm";        Cmd = "npm.cmd install -g @openai/codex" },
         @{ Name = "pi";                  Kind = "npm";        Cmd = "npm.cmd install -g @earendil-works/pi-coding-agent" },
-        @{ Name = "kimi";                Kind = "manual";     Cmd = "install the Kimi Code CLI from https://www.kimi.com (no scriptable installer; sign in after)" },
         @{ Name = "tasks-axi";           Kind = "npm";        Cmd = "npm.cmd install -g tasks-axi" },
         @{ Name = "quota-axi";           Kind = "npm";        Cmd = "npm.cmd install -g quota-axi" },
         @{ Name = "no-mistakes";         Kind = "release";    Cmd = "https://github.com/kunchenguid/no-mistakes/releases/download/v$noMistakesVersion" },
@@ -557,7 +578,6 @@ public static extern IntPtr SendMessageTimeout(IntPtr hWnd, uint Msg, UIntPtr wP
     $npmPresent = [bool](Get-Command npm -ErrorAction SilentlyContinue)
     $wingetPresent = [bool](Get-Command winget -ErrorAction SilentlyContinue)
 
-    $manualSteps = @()
     $failedInstalls = @()
     $installedAny = $false
     foreach ($tool in $tools) {
@@ -596,11 +616,6 @@ public static extern IntPtr SendMessageTimeout(IntPtr hWnd, uint Msg, UIntPtr wP
         }
         if ($found) {
             Write-Host ("ok       {0,-20} present" -f $tool.Name)
-            continue
-        }
-        if ($tool.Kind -eq "manual") {
-            Write-Host ("MANUAL   {0,-20} {1}" -f $tool.Name, $tool.Cmd)
-            $manualSteps += $tool.Name
             continue
         }
         if (($tool.Kind -in "npm", "npm-file") -and -not $npmPresent) {
@@ -679,7 +694,7 @@ public static extern IntPtr SendMessageTimeout(IntPtr hWnd, uint Msg, UIntPtr wP
     if ($installedAny) {
         Write-Host ""
         Write-Host "Refreshing PATH so newly installed tools are visible in this session ..."
-        $parts = @($env:Path -split ';') + @([Environment]::GetEnvironmentVariable("Path", "Machine") -split ';') + @([Environment]::GetEnvironmentVariable("Path", "User") -split ';')
+        $parts = @($env:Path -split ';') + @([Environment]::GetEnvironmentVariable("Path", "Machine") -split ';') + @([string](Get-UserEnvironment "Path") -split ';')
         $env:Path = ($parts | Where-Object { $_ -ne "" } | Select-Object -Unique) -join ';'
     }
 
@@ -785,19 +800,11 @@ public static extern IntPtr SendMessageTimeout(IntPtr hWnd, uint Msg, UIntPtr wP
     & $dest doctor
     $doctorExit = $LASTEXITCODE
 
-    if ($manualSteps.Count -gt 0 -or $failedInstalls.Count -gt 0) {
+    if ($failedInstalls.Count -gt 0) {
         Write-Host ""
-        if ($manualSteps.Count -gt 0) {
-            Write-Host "Still needs a manual step:"
-            foreach ($m in $manualSteps) {
-                Write-Host "  - $m"
-            }
-        }
-        if ($failedInstalls.Count -gt 0) {
-            Write-Host "These installs did not complete; see the lines above:"
-            foreach ($m in $failedInstalls) {
-                Write-Host "  - $m"
-            }
+        Write-Host "These installs did not complete; see the lines above:"
+        foreach ($m in $failedInstalls) {
+            Write-Host "  - $m"
         }
     }
 

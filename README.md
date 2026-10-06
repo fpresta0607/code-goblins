@@ -89,9 +89,10 @@ See [the native board guide](docs/native-board.md) for hook setup, build require
 The `no-mistakes` path owns review, bounded repair cycles, tests, lint, documentation, push, PR creation, and CI. Review budgets are frozen per task so changing global policy cannot silently weaken an in-flight job.
 
 This repository's own test step is `cfo gate test`, which plans before it runs.
-It says which level a change requires (`affected`, the changed Go packages and the packages that import them, or `full`, every package, once `go.mod` or `go.sum` changed), why each package is in the plan, and it leaves a report of what it ran.
+It says which level a change requires: `affected`, the Go packages the change reaches (those it changed, those that import them, and those whose tests read a changed file, such as an install script), or `full`, every package, once `go.mod` or `go.sum` changed or a changed file is one the verification policy does not account for.
+It says why each package is in the plan and which changed files no Go check reads, and it leaves a report of what it ran, with what became of each package and which tests failed.
 While working, `cfo gate test --level fast` vets the same packages and tests only the quick changed ones, and `cfo gate test --plan` prints the plan and runs nothing.
-Its tests take turns on the machine, one run at a time, and `cfo gate turns` shows which run holds the turn and which wait.
+Its tests take turns on the machine, one run at a time, and `cfo gate turns` shows which run holds the turn, how far its tests are, and which runs wait.
 See [Verification levels](docs/pipeline.md#verification-levels).
 
 The production-proof layer is intentionally fail-closed: delivery evidence must come from machine-readable PR state and terminal checks rather than a worker merely claiming that the task is finished.
@@ -155,7 +156,6 @@ It needs no backup repository: backing it up is only your own choice, and [Your 
 ```powershell
 goblins              # the quick start: the supervisor, the CFO's agent and the CFO, then its terminal or the board
 goblins setup        # the quick start again, choosing the agent the CFO runs on
-goblins --native     # the same, but start a new CFO in a native terminal shown here instead of in Herdr
 goblins --harness codex  # start the CFO as codex, claude or pi from now on, set up first; a running CFO keeps its harness
 goblins --board      # start the supervisor if needed and open the board, with no CFO in this terminal
 goblins --window     # the same, with the board in the desktop window
@@ -176,8 +176,8 @@ When this home's supervisor, or its supervisor and its CFO, already run, it says
 It never opens the board on its own.
 The board is only a view, so closing the browser stops nothing, and a supervisor started this way keeps running after the terminal closes.
 Then, when no CFO runs, the [quick start](#quick-start) makes the CFO's agent ready and starts the CFO in the CFO home, never in a project: the CFO works across every project from there.
-It starts in its remembered harness, a Codex or pi CFO always in a native terminal (see the [quick start](#quick-start)) and a Claude Code one in Herdr, in a fresh `cfo` tab, closing an idle old `cfo` tab or renaming a busy one to `shell`; `goblins --native` starts it in a native terminal of its own instead, so closing any window leaves it running, and `goblins attach` shows it again.
-A CFO that ran in a native terminal and was closed, however it ended (`/exit`, Ctrl-C, its window closed, a crash or a reboot), comes back when you run `goblins` again, with or without `--native`: in that terminal, and, when it starts as the same agent, on the conversation it last registered with, Claude Code with `--resume` and Codex with `codex resume`, and it registers itself as before.
+It starts in its remembered harness, in a native terminal of its own, so closing any window leaves it running, and `goblins attach` shows it again.
+A CFO that ran in a native terminal and was closed, however it ended (`/exit`, Ctrl-C, its window closed, a crash or a reboot), comes back when you run `goblins` again: in that terminal, and, when it starts as the same agent, on the conversation it last registered with, Claude Code with `--resume` and Codex with `codex resume`, and it registers itself as before.
 A conversation that cannot be resumed starts a new one, and so does one past 20 MB, since CFO sessions stay small, or one in pi, which has no resume; `goblins` says which.
 A CFO that ran in Herdr, or one that starts as another agent, starts a new conversation.
 A CFO already running is never started twice: one registered in a native terminal is shown in this terminal, one whose registration names a live process in Herdr is brought to the front there, and with no CFO registered, a CFO already running in native terminal `cfo`, which may not have registered yet, is shown.
@@ -297,6 +297,8 @@ The head of **Tasks** shows how much memory is free, as a number and a bar marke
 When free commit (memory plus page file) is the shorter of the two, the meter shows **Commit free (memory plus page file)** instead, with a line naming the three apps holding the most commit.
 A line also warns when the kernel's paged pool passes 4 GB, which means a driver is leaking memory and a reboot frees it.
 The bar spans 10 GB, with amber below 5 GB and red below the floor.
+Beside the meter, a ring around the Claude or OpenAI mark shows that subscription's weekly allowance remaining as `quota-axi` last read it, with a tick at the 5 percent reserve.
+A mark appears only while a live CFO or goblin terminal runs that harness, and shows **?** when the reading is stale, unavailable or needs a sign-in; hover, focus or hold a ring for its reset time and the reading's age.
 The first eligible task is marked **Next up**.
 The supervisor uses each free slot for the oldest pause whose condition has cleared, then for the queue in the Overlord's order.
 A future date, an unanswered question or an Overlord pause does not hold the queue.
@@ -406,6 +408,7 @@ Updating the executable or restarting the board does not change hosts that are a
 Every terminal pane has a voice bubble in its bottom-right corner, in a strip of its own under the terminal.
 Hold **Ctrl+Shift+Space** to dictate into the terminal that has the keyboard: while the keys are held the bubble's bars move with your voice, and releasing them types what was heard as one line, which **Enter** sends.
 What you say is recognised by a speech model the supervisor runs on this PC, so it costs nothing, needs no account and never leaves the machine; the first dictation downloads the model once, about 126 MB, and says so.
+The model stays loaded for two minutes after you dictate, so the next line comes back in a blink, and then gives its memory back.
 The bubble names the model while it listens.
 A browser that has a speech recognition of its own can use that instead, which sends your voice to the browser's maker: tick **Use this browser's speech recognition instead** under the bubble's recent dictations. It is off until you turn it on, and the desktop app has none to offer.
 Click the bubble for the pane's recent dictations, newest first, each with **Copy** and **Paste into this terminal**; they are kept in this browser only.
@@ -628,7 +631,7 @@ cfo cleanup <id>
 cfo backlog done <id>
 cfo reap [--dry-run|--apply]
 cfo drain
-cfo notify <id> --done --pr <url> | --blocked "<question>" | --failed "<reason>" | --working "<what>" | --waiting-on <task-id|overlord|ci|deploy|memory> "<why>" [--lavish <html-file>]
+cfo notify <id> --done --pr <url> | --blocked "<question>" | --failed "<reason>" | --working "<what>" | --waiting-on <task-id|overlord|ci|deploy|memory> "<why>" [--lavish <html-file>] [--link <https-url>]
 cfo question --id <stable-id> --text "<question>" [--option "<choice>"]... [--recommend "<exact-choice>"]
 cfo answer <question-id|wake-seq> --option <choice> [--note "<text>"]
 cfo answer <question-id> --option <choice> [--note "<text>"] --record-only [--in <where>]
@@ -776,7 +779,7 @@ The core is intentionally local-first:
 - `internal/auth/` — project-scoped credential preflight and injection.
 - `internal/state/` / `internal/wake/` — restart-proof task and event state.
 - `internal/supervisor/` - native event ingestion, durable actions and the local board API behind `cfo serve`, including the WebSocket that relays a native task's terminal from its host.
-- `frontend/` - the board's React/TypeScript source; Vite compiles it into `internal/boardweb/dist`, which is embedded in `cfo.exe`.
+- `frontend/` - the board's React/TypeScript source; Vite compiles it into `internal/boardweb/dist/board`, which git ignores and `cfo.exe` embeds.
 - `.agents/skills/` - the skills this repository owns, including `lavish`, the CFO's review surface over the third-party `lavish-axi` CLI; [docs/load-map.md](docs/load-map.md) maps every file each harness reads for instructions, skills, hooks and MCP.
 
 The control plane is local. Your coding harnesses may still call their model providers according to their own configuration.
@@ -785,14 +788,21 @@ The control plane is local. Your coding harnesses may still call their model pro
 
 Code Goblins is becoming a native Windows desktop app.
 
-- **Native terminals for the whole fleet.** Every goblin, and then the CFO, runs in a Windows terminal of its own (`cfo host`, a pseudo console that outlives every window) instead of Herdr; `cfo spawn` starts every goblin this way, and `goblins --native` starts the CFO so.
+- **Native terminals for the whole fleet.** Every goblin, and then the CFO, runs in a Windows terminal of its own (`cfo host`, a pseudo console that outlives every window) instead of Herdr; `cfo spawn` starts every goblin this way, and `goblins` starts the CFO so.
 - **No Herdr dependency.** Spawning, message delivery, agent detection, registration and verification, stop hooks and wakes, the monitor, `cfo peek`, cleanup and reaping move onto native commands, and the board's Herdr-only code is removed.
 - **A desktop app build of the board.** The board and its terminals, designed native-first, ship as one Windows application as well as the page `cfo serve` serves today.
   Its first build, a desktop window for the board, exists outside this repository's releases: [The desktop app](#the-desktop-app).
 
 ## Development
 
+A source build runs `npm ci` and `npm run build` in `frontend` before `go build`: `cfo.exe` embeds the board they build, and one built without it serves a page saying the board was not built.
+`go vet` and `go test` need Go alone.
+
 ```powershell
+cd frontend
+npm ci
+npm run build
+cd ..
 go vet ./...
 go test ./... -count=1
 go build ./cmd/cfo
@@ -822,6 +832,6 @@ Code Goblins can now describe each project's real runtime in `data/projects/<pro
 
 At spawn, CFO produces a compact durable **task capsule** and **runtime capsule** instead of replaying the CFO transcript. Without `--harness`, deterministic rules classify the brief and select an execution lane from the fleet's `data/routing.json` (a project manifest's `routing` block overrides it), checking quota-axi headroom first and falling to the next usable lane; explicit harness/model/effort flags still win. A redirected task can be marked with `cfo supersede`, which makes rejected unshipped work disposable and requires cleanup evidence.
 
-Delivery is evidence-driven: tiered verification and security commands write structured results, project deployment contracts prevent “CI green” from being mistaken for “production deployed,” and `cfo pr merge` verifies the exact PR head and merges with `--match-head-commit` so a newer unverified SHA cannot slip through.
+Delivery is evidence-driven: tiered verification and security commands write structured results, project deployment contracts prevent “CI green” from being mistaken for “production deployed,” and `cfo pr merge` verifies the exact PR head and merges with `--match-head-commit` so a newer unverified SHA cannot slip through; where the base requires GitHub's merge queue it adds that head to the queue, which tests it on the base's tip before merging.
 
 See [Project runtime contracts](docs/project-runtime.md), [Production autonomy roadmap](docs/production-roadmap.md), and [Orchestrator patterns](docs/orchestrator-patterns.md).

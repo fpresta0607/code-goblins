@@ -666,6 +666,57 @@ func TestAcquireExclusiveNamedContendsAcrossWindowsCaseVariant(t *testing.T) {
 	}
 }
 
+// A strict acquire that finds a holder gone reads its record again before it
+// removes it, so it never removes a record another run has just written. A
+// holder that removes its own record and ends between those two reads, as a
+// run giving back its admission turn does, leaves nothing to remove: the
+// acquire takes the lock instead of reporting the vanished record as an
+// error, which failed the run waiting for that turn.
+func TestStrictAcquireTakesALockWhoseHolderLeftBetweenItsReads(t *testing.T) {
+	// Arrange: a complete record of a holder that has ended, which its holder
+	// removes after the acquire's first read of it.
+	dir, name := t.TempDir(), "slot-1"
+	ended := exec.Command("cmd", "/c", "exit 0")
+	if err := ended.Run(); err != nil {
+		t.Fatal(err)
+	}
+	hostname, _ := os.Hostname()
+	pid := ended.ProcessState.Pid()
+	gone := &Info{PID: pid, OwnerPID: pid, Start: time.Now().Add(-time.Hour), Hostname: hostname, Acquired: time.Now().Add(-time.Hour)}
+	path := filepath.Join(dir, name)
+	if err := writeInfo(path, gone); err != nil {
+		t.Fatal(err)
+	}
+	self, status := ownerInfo(os.Getpid(), "")
+	if status == statusDead {
+		t.Fatal("current process unexpectedly dead")
+	}
+	reads := 0
+	read := func(dir, name string) (*Info, error) {
+		reads++
+		if reads == 2 {
+			if err := os.Remove(path); err != nil {
+				t.Fatal(err)
+			}
+		}
+		return ReadNamedStrict(dir, name)
+	}
+
+	// Act
+	info, err := acquireReading(dir, name, self, false, true, read)
+
+	// Assert
+	if reads < 2 {
+		t.Fatalf("the record was read %d time(s), so the acquire never reached the second read this tests", reads)
+	}
+	if err != nil || info == nil {
+		t.Fatalf("acquire = %+v, %v; want the lock taken once its holder left", info, err)
+	}
+	if recorded, err := ReadNamedStrict(dir, name); err != nil || recorded.PID != self.PID || !recorded.Start.Equal(self.Start) {
+		t.Errorf("the lock records %+v, %v; want this process", recorded, err)
+	}
+}
+
 // deadHoldersRecord writes dir/name naming a process that has ended.
 func deadHoldersRecord(t *testing.T, dir, name string) string {
 	t.Helper()

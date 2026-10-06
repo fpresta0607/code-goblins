@@ -40,12 +40,24 @@ on:
       - internal/doctor/**
       - .github/workflows/install.yml
       - .github/workflows/release.yml
+  # A merge queue run checks both installs too. GitHub applies no path
+  # filter to it, so every queued group runs them.
+  merge_group:
+    types: [checks_requested]
   workflow_dispatch:
     inputs:
       release:
         description: Install the latest published release instead of this commit's build
         type: boolean
         default: false
+
+concurrency:
+  # A newer commit on a pull request supersedes the run on the older one,
+  # which is cancelled. Every other run, on main, in the merge queue or
+  # started by hand, has a group of its own, so none is ever cancelled or
+  # held waiting.
+  group: ${{ github.workflow }}-${{ github.event_name == 'pull_request' && format('pr-{0}', github.event.pull_request.number) || github.run_id }}
+  cancel-in-progress: true
 
 permissions:
   contents: read
@@ -69,11 +81,22 @@ jobs:
       - uses: actions/setup-go@v5
         with:
           go-version: stable
+      - uses: actions/setup-node@v4
+        if: ${{ !inputs.release }}
+        with:
+          node-version: '24.13.0'
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
       - name: Serve this commit as the release
         if: ${{ !inputs.release }}
         shell: pwsh
         run: |
           New-Item -ItemType Directory release | Out-Null
+          # cfo.exe embeds the board, which a release builds first.
+          npm --prefix frontend ci
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          npm --prefix frontend run build
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           go build -o release/cfo.exe ./cmd/cfo
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           $hash = (Get-FileHash release/cfo.exe -Algorithm SHA256).Hash.ToLowerInvariant()
@@ -100,8 +123,7 @@ jobs:
           $want = Join-Path $env:LOCALAPPDATA "CodeGoblins\goblins.exe"
           if ($found -ne $want) { throw "goblins resolves to $found in the install's own window, want $want" }
           # The install ends with goblins doctor, whose verdict the next step
-          # reads line by line: kimi has no scriptable installer, so its spawn
-          # probe is broken on a clean runner.
+          # reads line by line.
           $global:LASTEXITCODE = 0
       - name: Check the installed home
         env:
@@ -133,8 +155,8 @@ jobs:
           }
           $doctor = & (Join-Path $cfoHome "goblins.exe") doctor
           $doctor | Write-Host
-          $failing = @($doctor | Where-Object { $_ -match "^(MISSING|broken)\s" -and $_ -notmatch "^(MISSING\s+kimi\s|broken\s+kimi\s+harness spawn probe: not found on PATH)" })
-          if ($failing.Count -gt 0) { throw "goblins doctor reports more than kimi missing: $($failing -join '; ')" }
+          $failing = @($doctor | Where-Object { $_ -match "^(MISSING|broken)\s" })
+          if ($failing.Count -gt 0) { throw "goblins doctor reports something missing or broken: $($failing -join '; ')" }
           # no-mistakes is the release this checkout's install.ps1 pins, where
           # no-mistakes' own installer puts it; a published release's script
           # may pin an earlier one. Only stdout holds the version: stderr may
@@ -209,11 +231,19 @@ jobs:
       - uses: actions/setup-go@v5
         with:
           go-version: stable
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24.13.0'
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
       - name: Install from the clone
         run: |
           .\install.cmd -Dev | Tee-Object -Variable installed
           # A build from source is unsigned, and the install must say so.
           if (-not ($installed -match "These programs are unsigned")) { throw "the -Dev install did not say that its programs are unsigned" }
+          # cfo.exe embeds the board -Dev builds first, and without it serves a
+          # page saying the board was not built.
+          if (-not (Test-Path internal/boardweb/dist/board/index.html)) { throw "the -Dev install built no board for cfo.exe to embed" }
           # The install ends with goblins doctor, whose verdict the next step
           # reads line by line, as the one-line job's does.
           $global:LASTEXITCODE = 0
@@ -239,8 +269,8 @@ jobs:
           }
           $doctor = & goblins doctor
           $doctor | Write-Host
-          $failing = @($doctor | Where-Object { $_ -match "^(MISSING|broken)\s" -and $_ -notmatch "^(MISSING\s+kimi\s|broken\s+kimi\s+harness spawn probe: not found on PATH)" })
-          if ($failing.Count -gt 0) { throw "goblins doctor reports more than kimi missing: $($failing -join '; ')" }
+          $failing = @($doctor | Where-Object { $_ -match "^(MISSING|broken)\s" })
+          if ($failing.Count -gt 0) { throw "goblins doctor reports something missing or broken: $($failing -join '; ')" }
           & goblins status
           if ($LASTEXITCODE -ne 0) { throw "no supervisor runs after -Dev's quick start" }
           $shortcut = (New-Object -ComObject WScript.Shell).CreateShortcut((Join-Path $env:APPDATA "Microsoft\Windows\Start Menu\Programs\Code Goblins.lnk"))

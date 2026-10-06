@@ -296,7 +296,7 @@ func (s Service) warnMissingBinary(out io.Writer) {
 	fmt.Fprintf(out, "\nWARNING: %s does not exist.\n", binary)
 	fmt.Fprintln(out, "Every installed hook runs that binary, so until it exists each one fails to start,")
 	fmt.Fprintln(out, "Claude Code reports a non-blocking hook error, and sessions run UNSUPERVISED.")
-	fmt.Fprintln(out, "Build it from the checkout: go build ./cmd/cfo")
+	fmt.Fprintln(out, "Build it from the checkout: npm ci and npm run build in frontend, then go build ./cmd/cfo")
 }
 
 func (s Service) setHome(report *reporter) error {

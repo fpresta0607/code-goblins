@@ -1,11 +1,12 @@
 // Package installtest runs install.ps1 for its tests in a session stripped
 // of this machine's own profile, so nothing an install reaches installs onto
 // the machine. Its own tests are those of the no-mistakes install, a package
-// apart from the root package's install tests so that each package's time
-// stays well inside go test's timeout on CI.
+// apart from internal/installscript's install tests so that each package's
+// time stays well inside go test's timeout on CI.
 package installtest
 
 import (
+	"maps"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -16,10 +17,10 @@ import (
 	"github.com/fpresta0607/code-goblins/internal/execx"
 )
 
-// userEnvFileName is the file in a stripped session's LOCALAPPDATA that
+// UserEnvFile is the file in a stripped session's LOCALAPPDATA that
 // stands in for the user-scope environment, so no install a test runs writes
 // this machine's own.
-const userEnvFileName = "user-env.json"
+const UserEnvFile = "user-env.json"
 
 // moduleCacheVariable names the file PowerShell keeps its record of what
 // every module exports in, when the machine keeps one outside a profile.
@@ -42,14 +43,29 @@ func OneLineShells(t *testing.T) []string {
 	return shells
 }
 
+// NpxCalls is the file in a stripped session's temp folder where the stand-in
+// npx records each call, one line of its arguments each.
+const NpxCalls = "npx-calls.txt"
+
 // StrippedCommand is name with args against the release served at base. It
 // gets folders of its own for every per-user location, a file standing in for
 // the user-scope environment, and a PATH with only Windows and the stand-ins
 // stubs names on it, each a .cmd with the given text, so nothing it could
-// reach installs onto this machine.
+// reach installs onto this machine. Once an install has installed anything it
+// adds the machine's own PATH, and with it the machine's Node, behind the
+// stand-ins; so npx stands in too, unless stubs names it, and records its
+// calls in temp's NpxCalls: a real npx fetched each skill from GitHub, about
+// a minute a run.
 func StrippedCommand(t *testing.T, base string, stubs map[string]string, name string, args ...string) (cmd *exec.Cmd, local, temp string) {
 	t.Helper()
 	local, temp, profile, bin := t.TempDir(), t.TempDir(), t.TempDir(), t.TempDir()
+	if _, isStubbed := stubs["npx"]; !isStubbed {
+		stubs = maps.Clone(stubs)
+		if stubs == nil {
+			stubs = map[string]string{}
+		}
+		stubs["npx"] = "@echo %*>>\"" + filepath.Join(temp, NpxCalls) + "\"\r\n@exit /b 0\r\n"
+	}
 	for tool, script := range stubs {
 		if err := os.WriteFile(filepath.Join(bin, tool+".cmd"), []byte(script), 0o700); err != nil {
 			t.Fatal(err)
@@ -73,7 +89,7 @@ func StrippedCommand(t *testing.T, base string, stubs map[string]string, name st
 		"TEMP=" + temp,
 		"TMP=" + temp,
 		"CODE_GOBLINS_RELEASE_BASE=" + base,
-		"CFO_USER_ENV_FILE=" + filepath.Join(local, userEnvFileName),
+		"CFO_USER_ENV_FILE=" + filepath.Join(local, UserEnvFile),
 	}
 	// A stripped session has no module cache of its own, so Windows
 	// PowerShell reads every module on the machine before its first command

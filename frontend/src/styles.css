@@ -840,7 +840,7 @@ button.line-number { min-height: 32px; display: flex; align-items: flex-start; j
 .question-thumbs span, .gallery-strip span { position: absolute; left: 6px; bottom: 6px; max-width: calc(100% - 12px); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; padding: 0 8px; border-radius: 999px; background: rgba(3, 5, 10, 0.8); font-weight: 800; }
 .gallery-strip button[aria-pressed="true"] { border-color: var(--accent-green); box-shadow: 0 0 0 2px var(--accent-green); }
 .question-outcome { display: flex; align-items: center; gap: 8px; margin: 0; font-weight: 800; }
-.card-actions { display: flex; align-items: center; justify-content: flex-end; gap: 10px; }
+.card-actions { display: flex; align-items: center; justify-content: flex-end; gap: 10px; flex-wrap: wrap; }
 .send-decision, .status-dismiss, .wait-open { display: inline-flex; align-items: center; gap: 8px; padding-inline: 22px; white-space: nowrap; }
 .send-decision .icon, .status-dismiss .icon, .wait-open .icon { width: 20px; height: 20px; }
 /* A wait that opens a page does it with a link drawn as the primary button. */
@@ -957,6 +957,22 @@ a.wait-open { min-height: 44px; border: 1px solid var(--accent-green); border-ra
 .memory-holders, .memory-warning { margin: 0; font-size: 1rem; overflow-wrap: anywhere; }
 .memory-warning { display: flex; gap: 8px; align-items: flex-start; color: var(--amber); }
 .memory-warning .icon { flex: none; width: 20px; height: 20px; margin-top: 2px; }
+.task-meters { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; margin-bottom: 14px; }
+.task-meters .memory { flex: 1 1 160px; min-width: 0; margin: 0; }
+.task-meters:has(.subscription-dials) .memory { padding-inline: 8px; }
+.subscription-dials { display: grid; gap: 6px; }
+.subscription-dial { display: flex; align-items: center; gap: 6px; min-width: 96px; border-radius: var(--radius); cursor: help; }
+.subscription-dial:focus-visible { outline: var(--focus-ring); outline-offset: 3px; }
+.subscription-ring { display: block; flex: none; width: 48px; height: 48px; }
+.subscription-track, .subscription-fill { fill: none; stroke-width: 3px; }
+.subscription-track { stroke: var(--muted); opacity: .24; }
+.subscription-fill { stroke: var(--mint); }
+.subscription-reserve { fill: none; stroke: var(--amber); stroke-width: 2px; }
+.subscription-percent { font-size: 1rem; font-variant-numeric: tabular-nums; }
+.subscription-dial.reserve { color: var(--amber); }
+.subscription-dial.reserve .subscription-fill { stroke: var(--amber); }
+.subscription-dial.unknown .subscription-track { stroke-dasharray: 3 3; opacity: .6; }
+.subscription-dial.unknown .subscription-percent { color: var(--muted); }
 /* The task the CFO starts next, and Start on every queued card: one play
    button among the card's controls. */
 .next-chip { justify-self: start; display: inline-flex; align-items: center; padding: 1px 10px; border-radius: 999px; background: #123126; color: #8ff0c9; font-size: 1rem; font-weight: 800; }
@@ -1012,7 +1028,6 @@ a.wait-open { min-height: 44px; border: 1px solid var(--accent-green); border-ra
 .run-output { padding: 12px 14px; min-height: 6rem; max-height: 22rem; color: #d8e9e2; }
 .run-cwd { display: flex; align-items: center; gap: 8px; margin: 0; color: var(--muted); font-size: .9375rem; overflow-wrap: anywhere; }
 .run-cwd .icon { width: 18px; height: 18px; flex: none; }
-.run-card .card-actions { flex-wrap: wrap; }
 .run-button { display: inline-flex; align-items: center; gap: 8px; white-space: nowrap; }
 .run-button .icon { width: 18px; height: 18px; fill: currentColor; }
 

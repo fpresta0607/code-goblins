@@ -714,7 +714,7 @@ func TestInstallWarnsWhenTheBinaryIsMissing(t *testing.T) {
 	f := newFixture(t, adopterSettings, nil)
 	output := f.install()
 
-	for _, want := range []string{"WARNING", "UNSUPERVISED", "go build ./cmd/cfo"} {
+	for _, want := range []string{"WARNING", "UNSUPERVISED", "npm ci and npm run build in frontend, then go build ./cmd/cfo"} {
 		if !strings.Contains(output, want) {
 			t.Errorf("output is missing %q on a root with no cfo.exe:\n%s", want, output)
 		}

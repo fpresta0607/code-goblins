@@ -25,14 +25,14 @@ In order, it:
 3. Asks once for [your projects folder](#your-projects-folder).
 4. Sets up the CFO home at `%LOCALAPPDATA%\CodeGoblins`: the CFO's contract, its skills, the default policy, the program as `cfo.exe` and `goblins.exe`, and the desktop window beside them as `goblins-window.exe` where the release ships one.
    `CFO_HOME` and the home's place on your PATH are set for your user, and the CFO's hooks are merged into your `~/.claude/settings.json`, which is backed up first and keeps your own hooks.
-5. Installs each missing tool the fleet drives: git and gh with winget, Claude Code and Herdr with their own installers, no-mistakes from the release `install.ps1` pins, and Codex, pi and the axi tools with npm, which needs Node.js.
+5. Installs each missing tool the fleet drives: git and gh with winget, Claude Code with its own installer, no-mistakes from the release `install.ps1` pins, and Codex, pi and the axi tools with npm, which needs Node.js.
    no-mistakes is the gate every goblin's work passes, so every machine runs the one release `install.ps1` names.
    The install downloads that release's archive and `checksums.txt` from its GitHub release page, never through GitHub's API, whose limit for anonymous callers failed installs on shared machines.
    It installs no-mistakes only when the archive matches `checksums.txt`, puts it in `%LOCALAPPDATA%\no-mistakes`, where no-mistakes' own installer puts it, adds that folder to your PATH and starts the no-mistakes daemon.
    A download that fails is tried twice more, a few seconds apart; if all three attempts fail, the install says why, goes on with the rest, and names no-mistakes among the installs that did not complete.
    Claude Code is the native build, `claude.exe`, because a native terminal starts it with no shell; a `claude` that is only a script, such as npm's `claude.cmd`, counts as missing, and the install adds `~\.local\bin`, where the native build lives, to your PATH.
    When npm's copy still comes first on your PATH, it warns and prints the command that removes it, `npm.cmd uninstall -g @anthropic-ai/claude-code`.
-   Kimi has no scriptable installer, so it prints the manual step instead.
+   Neither Herdr nor Kimi is installed or checked: every goblin and the CFO run in native terminals, and the fleet runs no Kimi for now.
 6. Installs the skills of gh-axi, chrome-devtools-axi and no-mistakes at user scope, for Claude Code, Codex and pi.
 7. Installs the board's native lifecycle hooks for each of Claude Code, Codex and pi that is installed.
 8. Adds Code Goblins to your Start menu.
@@ -69,8 +69,9 @@ The tick and each agent's mark are drawn in Unicode where the console says it ca
 4. When nobody is signed in, Enter opens the agent's own sign-in in the same window (`claude auth login`, `codex login`, or pi itself, where `/login` signs in and `/model` picks the provider), and the quick start checks again when it ends.
    You sign in there yourself; nothing is typed for you.
    An installer and a sign-in run on the console's other screen, under a line that says what is running, so what they print leaves with them; one that fails keeps that screen until you have read why.
-5. It remembers the agent and starts the CFO in the CFO home, in Herdr, or with `goblins --native`, and always for a Codex or pi CFO, in a native terminal of its own, and says so in one line: `CFO started as Claude Code in` the home, or `CFO already running` and where.
+5. It remembers the agent and starts the CFO in the CFO home, in a native terminal of its own, and says so in one line: `CFO started as Claude Code in` the home, or `CFO already running` and where.
    In a native terminal it answers the CFO's startup dialogs whose answers are known and safe, as a goblin's spawn does: Claude Code's trust in the home, Codex's directory trust and update prompt, and Codex's hook review without trusting the hooks, which stay your decision.
+   It dismisses Codex's optional Daybreak security setup offer with Escape and waits for it to disappear; account security setup stays your decision.
    It reads a dialog's focus by the mark the agent draws, Claude Code's `❯` or the plain `>` it draws in a console that does not announce Unicode.
    It types nothing at a screen it does not know, such as Claude Code's own first-run questions.
    For a dialog it has not answered, in Herdr or after those questions, it says what to choose: Yes at Claude Code's trust dialog, whose first choice, No, exits, and Continue without trusting at Codex's hook review.
@@ -117,14 +118,15 @@ cd code-goblins
 .\install.cmd -Dev
 ```
 
-It needs Go: `winget install -e --id GoLang.Go`.
+It needs Go and Node.js: `winget install -e --id GoLang.Go` and `winget install -e --id OpenJS.NodeJS.LTS`.
+A source build runs `npm ci` and `npm run build` in `frontend` before `go build`, because `cfo.exe` embeds the board they build, and `-Dev` does both for you.
 `install.cmd` runs `install.ps1` with PowerShell's execution policy bypassed, so it works whatever execution policy is set locally.
 An execution policy set by Group Policy still applies, and can refuse it.
 Type it in full: in PowerShell, `.\install -Dev` runs `install.ps1` itself, which the default execution policy refuses.
 
 `-Dev` does everything the one-line install does, with the clone in place of the download:
 
-- It builds `cfo.exe` from the clone, puts it beside itself as `goblins.exe`, and builds the desktop window, `goblins-window.exe`, beside them.
+- It builds the board, then `cfo.exe` from the clone, puts it beside itself as `goblins.exe`, and builds the desktop window, `goblins-window.exe`, beside them.
   A copy still running, such as a supervisor, a terminal's host or an open window, cannot be overwritten, so it moves aside to a `cfo.exe.<id>.old`, `goblins.exe.<id>.old` or `goblins-window.exe.<id>.old` of its own and is removed once nothing runs it, on this run or a later one.
 - It says that the three programs are unsigned: they were built on this PC, and Windows runs a program built here without asking.
   A copy taken to another PC is unsigned there too, and [On a fresh PC](#on-a-fresh-pc) says what Windows shows for one.

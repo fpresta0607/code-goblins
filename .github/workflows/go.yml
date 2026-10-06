@@ -4,9 +4,21 @@ on:
   push:
     branches: [main]
   pull_request:
+  # The merge queue tests each group of pull requests on main's tip before it
+  # merges them, and needs the required test check to report on that run.
+  merge_group:
+    types: [checks_requested]
 
 permissions:
   contents: read
+
+concurrency:
+  # A newer commit on a pull request supersedes the run on the older one,
+  # which is cancelled. Every other run, on main, in the merge queue or
+  # started by hand, has a group of its own, so none is ever cancelled or
+  # held waiting.
+  group: ${{ github.workflow }}-${{ github.event_name == 'pull_request' && format('pr-{0}', github.event.pull_request.number) || github.run_id }}
+  cancel-in-progress: true
 
 # The work runs as parallel jobs so a run takes as long as its slowest job,
 # not the sum: the frontend, each slow Go package, and every other Go package
@@ -25,7 +37,7 @@ jobs:
           node-version: '24.13.0'
           cache: npm
           cache-dependency-path: frontend/package-lock.json
-      - name: Check frontend and regenerate embedded assets
+      - name: Check and build the frontend
         id: frontend
         working-directory: frontend
         shell: pwsh
@@ -44,9 +56,15 @@ jobs:
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           npm run build
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          if (git status --porcelain --untracked-files=all -- ../internal/boardweb/dist) {
-            throw 'Embedded assets differ from the lockfile build. Run npm ci and npm run build in frontend, then commit the assets.'
+          # Where cfo.exe finds no board, it serves a page saying the board
+          # was not built.
+          if (-not (Test-Path ../internal/boardweb/dist/board/index.html)) {
+            throw 'npm run build wrote no internal/boardweb/dist/board/index.html, which cfo.exe embeds the board from.'
           }
+      # With the board built above, boardweb's tests prove cfo.exe embeds and
+      # serves it rather than the placeholder page.
+      - name: Check cfo.exe embeds the board
+        run: go test ./internal/boardweb -count=1
       # Fails on a copyleft or unrecognised licence in anything a release
       # ships, or a THIRD_PARTY_NOTICES that no longer lists it. It reads the
       # packages npm ci installed above, so it runs in this job.
