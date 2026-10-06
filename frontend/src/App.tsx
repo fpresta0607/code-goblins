@@ -207,7 +207,10 @@ export function App() {
   useSwitchKeys(snapshot ? switchOrder(snapshot.tasks) : [], cfoShown ? CFO_KEY : task?.id || "", switchTo);
   const maximizeView = maximizedView(view, shownView);
   const maximized = maximizedFor(maximizedChoice[maximizeView]);
-  const panelWide = paneOpen && maximized && !compact;
+  // Only a panel that shows something is maximized: with nothing chosen it
+  // shows the review placeholder, which takes no view's choice, so a
+  // terminal maximized before a reload never hides the board behind it.
+  const panelWide = showsPanel && maximized && !compact;
   // Back, on the panel of anything but the CFO, returns the panel to the
   // CFO's on the view it last showed, still maximized if it was, and hands
   // the keyboard back to where the panel was opened from, or to the panel
