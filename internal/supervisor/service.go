@@ -128,6 +128,7 @@ type Service struct {
 	ciDurations     []CIDuration
 	sameArea        map[string]sameArea
 	hostedChecks    map[string]HostedChecks
+	deploys         map[string]Deployment
 	progressReadErr error
 	// runRequests takes one run request at a time, so two with one ID never
 	// both write a script.
@@ -424,7 +425,7 @@ func (s *Service) cycle(ctx context.Context, recover bool) {
 	watched, fleetReadErr := readFleetWakes(s.Store.Home.State)
 	s.mu.Lock()
 	s.workProgress, s.ciDurations, s.sameArea, s.progressReadErr = watched.Progress, watched.Durations, watched.SameArea, fleetReadErr
-	s.hostedChecks = watched.Hosted
+	s.hostedChecks, s.deploys = watched.Hosted, watched.Deploys
 	s.mu.Unlock()
 	before := s.Store.Snapshot().Revision
 	ingestErr := s.Store.Ingest()
@@ -937,6 +938,9 @@ type Task struct {
 	// HostedChecks is what its pull request's hosted checks said at the last
 	// CI poll.
 	HostedChecks *HostedChecks `json:"hosted_checks,omitempty"`
+	// Deployment is how the deploy of its merged pull request stands, apart
+	// from its checks.
+	Deployment *Deployment `json:"deployment,omitempty"`
 	Evaluation
 }
 
@@ -1027,7 +1031,7 @@ func (s *Service) Snapshot() (Snapshot, error) {
 	d := s.Store.Snapshot()
 	s.mu.Lock()
 	out := Snapshot{Example: s.Options.Example, Instance: s.Instance, Revision: s.revision, Started: s.Started, At: time.Now().UTC(), Reconciled: s.reconciled, Error: s.lastError, Tasks: []Task{}, Attention: []string{}, Sessions: []Session{}, Retired: d.Retired, Actions: d.Actions, Issues: d.Issues}
-	progress, sameAreas, hostedChecks := maps.Clone(s.workProgress), maps.Clone(s.sameArea), maps.Clone(s.hostedChecks)
+	progress, sameAreas, hostedChecks, deploys := maps.Clone(s.workProgress), maps.Clone(s.sameArea), maps.Clone(s.hostedChecks), maps.Clone(s.deploys)
 	out.CIDurations = slices.Clone(s.ciDurations)
 	if s.progressReadErr != nil {
 		out.Issues = append(slices.Clone(out.Issues), s.progressReadErr.Error())
@@ -1359,6 +1363,9 @@ func (s *Service) Snapshot() (Snapshot, error) {
 		}
 		if ticket, exists := taskTickets[id]; exists {
 			task.Ticket = &ticket
+		}
+		if deployment, exists := deploys[task.PR]; exists && task.PR != "" {
+			task.Deployment = &deployment
 		}
 	}
 	if len(out.Decisions) > 100 {

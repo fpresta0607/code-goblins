@@ -12,7 +12,8 @@ const SNAPSHOT = {
     task("nw-sync", "Say why a billing sync fails", { pr: REPO + "/pull/55", ticket: { number: 52, url: REPO + "/issues/52", state: "pr open" }, hosted_checks: { head: "3d7072f8aa", state: "failed", checks: 9, failed: ["go (rest)", "frontend"], link: JOB, at: new Date().toISOString() } }),
     task("nw-export", "Export the audit trail", { pr: REPO + "/pull/56", hosted_checks: { head: "5f52309400", state: "passed", checks: 9, approved: true, at: new Date().toISOString() } }),
     task("nw-retry", "Retry the webhook", { pr: REPO + "/pull/57", hosted_checks: { head: "445bd85000", state: "pending", checks: 9, at: new Date().toISOString() } }),
-    task("nw-docs", "Fix the docs links", { pr: REPO + "/pull/58" }),
+    task("nw-docs", "Fix the docs links", { pr: REPO + "/pull/58", deployment: { commit: "aaa111bbb222", state: "deploying", workflows: ["Deploy"], link: REPO + "/actions/runs/81", at: new Date().toISOString() } }),
+    task("finished:nw-ship", "Ship the export", { phase: "done", verified: true, archived: true, merged: true, generation: "", harness: "", pr: REPO + "/pull/59", at: new Date().toISOString(), deployment: { commit: "ccc333ddd444", state: "failed", workflows: ["Deploy API", "Deploy worker"], link: REPO + "/actions/runs/82", at: new Date().toISOString() } }),
   ],
 };
 
@@ -63,12 +64,26 @@ for (const viewport of [{ name: "in his window", width: 1707, height: 1067 }, { 
       await expect(passed).toHaveText(["Checks passed", "Approved"]);
       await expect(passed.first()).toHaveAttribute("href", REPO + "/pull/56/checks");
       await expect(card(page, "Retry the webhook").locator("a.card-checks")).toHaveText("Checks running");
-      await expect(card(page, "Fix the docs links").locator(".card-checks")).toHaveCount(0);
+      await expect(card(page, "Fix the docs links").locator(".hosted-checks")).toHaveCount(0);
       expect(await crowded(page, "Say why a billing sync fails")).toEqual({ parts: 3, outside: 0, overlaps: 0 });
       expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true);
     });
   });
 }
+
+// A merged task's deploy shows beside its pull request, in the checks' look
+// and apart from them: on a finished card in Completed, and on a live one.
+test("a merged task's card says how its deploy stands and opens the run", async ({ page }) => {
+  await open(page);
+
+  const failed = card(page, "Ship the export").locator("a.deployment");
+  await expect(failed).toHaveText("Deploy failed");
+  await expect(failed).toHaveAttribute("href", REPO + "/actions/runs/82");
+  await expect(failed).toHaveAttribute("data-tip", "Deploy API, Deploy worker at ccc333d");
+  await expect(failed).toHaveClass(/hosted-failed/);
+  await expect(card(page, "Fix the docs links").locator("a.deployment")).toHaveText("Deploying");
+  await expect(card(page, "Say why a billing sync fails").locator(".deployment")).toHaveCount(0);
+});
 
 test("the panel shows the checks beside its pull request", async ({ page }) => {
   await open(page);
