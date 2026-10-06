@@ -423,8 +423,7 @@ test("delivery reads as a mark, and only trouble spells itself out", () => {
   // handed to the CFO, so only the review item's delivered flag earns two checks.
   assert.deepEqual(mark("succeeded", "review_answer"), { icon: "check", label: "Sent to the goblin or the CFO", trouble: false });
   assert.deepEqual(mark("running", "review"), { icon: "check", label: "Sending", trouble: false });
-  // A queued answer is on its way; "Queued" read as stuck.
-  assert.deepEqual(mark("queued", "review"), { icon: "check", label: "Sending", trouble: false });
+  assert.deepEqual(mark("queued", "review"), { icon: "check", label: "Queued", trouble: false });
   assert.deepEqual(mark("failed", "review"), { icon: "close", label: "Could not deliver", trouble: true });
   assert.deepEqual(mark("uncertain", "review"), { icon: "warning", label: "Not confirmed. Check the CFO's terminal before sending it again.", trouble: true });
   assert.deepEqual(mark("uncertain", "feedback"), { icon: "warning", label: "Not confirmed. Check the goblin's terminal before sending it again.", trouble: true });

@@ -41,15 +41,18 @@ type Screens struct {
 // shows, by moving the focus, the option whose row starts with one of Focus,
 // down to the option that starts with Accept, then confirming that option with
 // Enter.
-// A dialog without Accept is never answered: it stops the spawn. Summary marks
+// EscapeHint instead names the footer of an optional offer dismissed with
+// Escape, never accepted. A dialog without either is never answered: it stops
+// the spawn. Summary marks
 // a dialog whose answer leaves untrusted what it lists: the row it matches says
 // how much, and the spawn reports it.
 type Dialog struct {
-	Name    string
-	Markers []string
-	Focus   []string
-	Accept  string
-	Summary *regexp.Regexp
+	Name       string
+	Markers    []string
+	Focus      []string
+	Accept     string
+	EscapeHint string
+	Summary    *regexp.Regexp
 }
 
 // NativeScreens returns what kind shows on its own screen, and false for a
@@ -76,10 +79,14 @@ func NativeScreens(kind Kind) (Screens, bool) {
 			// three glyph lists; one has "*" where the others have "✳".
 			Working: regexp.MustCompile(`^[·✢✳*✶✻✽] \S.*…`),
 			Pasted:  []string{"[Pasted text #"},
+			// Claude Code 2.1.288 encloses its bare prompt between rules.
+			Empty:         regexp.MustCompile(`^[>❯][ \x{00a0}]*$`),
+			RuledComposer: true,
 		}, true
 	case Codex:
 		return Screens{
 			Dialogs: []Dialog{
+				{Name: "the optional Daybreak security setup offer", Markers: []string{"Set up security for Daybreak mode"}, EscapeHint: "Press a number to choose · esc to dismiss · type to continue"},
 				{Name: "the update prompt", Markers: []string{"Update available!"}, Focus: []string{"›"}, Accept: "2. Skip"},
 				{Name: "the directory trust prompt", Markers: []string{"Do you trust the contents of this directory?"}, Focus: []string{"›"}, Accept: "1. Yes, continue"},
 				// Trusting hooks is the Overlord's decision, never a spawn's: a
@@ -142,6 +149,9 @@ func (s Screens) Dialog(screen []string) (Dialog, bool) {
 // Shows reports whether screen shows the dialog.
 func (d Dialog) Shows(screen []string) bool {
 	compact := compactScreen(screen)
+	if d.EscapeHint != "" && !strings.Contains(compact, compactScreen([]string{d.EscapeHint})) {
+		return false
+	}
 	for _, marker := range d.Markers {
 		if strings.Contains(compact, compactScreen([]string{marker})) {
 			return true
@@ -151,9 +161,10 @@ func (d Dialog) Shows(screen []string) bool {
 }
 
 // IsReady reports whether screen shows the composer waiting for input and no
-// turn in progress.
+// turn or recognized dialog in progress.
 func (s Screens) IsReady(screen []string) bool {
-	return anyRow(screen, s.Ready) && !s.IsWorking(screen)
+	_, hasDialog := s.Dialog(screen)
+	return !hasDialog && anyRow(screen, s.Ready) && !s.IsWorking(screen)
 }
 
 // IsWorking reports whether screen shows a turn in progress.
@@ -166,11 +177,11 @@ func (s Screens) IsWorking(screen []string) bool {
 // unsent. It is false whenever that cannot be read, including for a harness
 // whose empty composer it does not know.
 func (s Screens) ComposerEmpty(screen []string) bool {
-	if s.Empty != nil {
-		return anyRow(screen, s.Empty)
+	if _, hasDialog := s.Dialog(screen); hasDialog {
+		return false
 	}
 	if !s.RuledComposer {
-		return false
+		return s.Empty != nil && anyRow(screen, s.Empty)
 	}
 	var rules []int
 	for i, row := range screen {
@@ -181,7 +192,11 @@ func (s Screens) ComposerEmpty(screen []string) bool {
 	if len(rules) < 2 || rules[len(rules)-1]-rules[len(rules)-2] < 2 {
 		return false
 	}
-	for _, row := range screen[rules[len(rules)-2]+1 : rules[len(rules)-1]] {
+	composer := screen[rules[len(rules)-2]+1 : rules[len(rules)-1]]
+	if s.Empty != nil {
+		return len(composer) == 1 && s.Empty.MatchString(strings.TrimSpace(composer[0]))
+	}
+	for _, row := range composer {
 		if strings.TrimSpace(row) != "" {
 			return false
 		}
