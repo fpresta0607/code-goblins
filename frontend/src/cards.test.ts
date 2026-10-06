@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { clockText, panelViews, showMoreLabel } from "./cards.ts";
+import { clockText, panelViews, showMoreLabel, stalledText } from "./cards.ts";
 import type { Session, Task } from "./types.ts";
 import { parseSnapshot } from "./types.ts";
 import { sessionEnd } from "./session-end.ts";
@@ -62,4 +62,25 @@ test("cleanup retirement stays distinct from an explicit lifecycle stop", () => 
   const task = parseSnapshot({ healthy: true, tasks: [{ id: "finished:t", archived: true, phase: "stopped", retired_at: "2026-09-30T12:00:00Z", verified: false }] }).tasks[0];
   assert.equal(sessionEnd(task), "retired");
   assert.equal(sessionEnd({ ...task, lifecycle: { phase: "stopped", action: "stop", at: "2026-09-30T12:00:00Z", kept: [], stopped: [], problems: [], handoff_saved: false, validation_restarts: false } }), "stopped");
+});
+
+test("a live card says how long it has gone without progress only past the 20-minute threshold", () => {
+  // Arrange
+  const goblin = (phase: string, progress?: number) => parseSnapshot({ healthy: true, tasks: [{ id: "a", phase, generation: "a-1", verified: false, ...(progress === undefined ? {} : { progress: { at: ago(progress), source: "commit" } }) }] }).tasks[0];
+  const cases: [string, Task, string][] = [
+    ["progress 19 minutes ago", goblin("working", 19), ""],
+    ["progress at the threshold", goblin("working", 20), "No progress for 20m"],
+    ["progress over an hour ago", goblin("waiting", 75), "No progress for 1h 15m"],
+    ["no progress watched yet", goblin("working"), ""],
+    ["a paused goblin", goblin("paused", 90), ""],
+    ["a delivered goblin awaiting its check", goblin("done", 90), ""],
+  ];
+
+  for (const [name, task, want] of cases) {
+    // Act
+    const said = stalledText(task, now);
+
+    // Assert
+    assert.equal(said, want, name);
+  }
 });
