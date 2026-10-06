@@ -35,6 +35,16 @@ const (
 		"  \"\",LOVE EVERY BIT OF IT,\"\",message,Freeform message\r\n" +
 		"  u7,\"Make it bigger, then \\\"ship\\\" it\",h1,element,Heading\r\n" +
 		"next_step: \"Apply the feedback.\"\r\n"
+	// The Code Goblins build 0.1.79-codegoblins.3 printed this, live, when the
+	// Overlord picked an option a Scrawl page declared in its
+	// data-lavish-choices block (2026-10-05): the prompt is the option's exact
+	// text, and the text column is the question.
+	lavishChoice = "session:\n" +
+		"  file: \"C:\\\\work\\\\.lavish\\\\plan.html\"\n" +
+		"  status: feedback\n" +
+		"prompts[1]{uid,prompt,selector,tag,text}:\n" +
+		"  \"1\",Use tabs for each section,\"script[data-lavish-choices]\",choice,Which layout should the settings page use?\n" +
+		"next_step: \"Apply the requested changes.\"\n"
 	lavishEndedByAgent = "session:\n" +
 		"  file: \"C:\\\\work\\\\.lavish\\\\plan.html\"\n" +
 		"  status: ended\n" +
@@ -87,6 +97,7 @@ func TestLavishPollReadsWhatTheOverlordWrote(t *testing.T) {
 		want   []string
 	}{
 		"two prompts, one quoted": {lavishTwoPrompts, []string{"LOVE EVERY BIT OF IT", `Make it bigger, then "ship" it`}},
+		"a declared choice":       {lavishChoice, []string{"Use tabs for each section"}},
 		"no prompt column":        {lavishFeedbackEnded, nil},
 		"no prompts":              {lavishWaiting, nil},
 	} {

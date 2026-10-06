@@ -172,6 +172,33 @@ func TestCodexsLiveComposerIsReadyAndItsTurnIsWorking(t *testing.T) {
 	}
 }
 
+// Codex's status row is its only sign of a turn in progress, and a resumed
+// conversation found in one is taken as started, so text that quotes the row
+// in a shell, a reply or the composer must not read as one.
+func TestCodexWorkingIsReadOnlyFromItsStatusRow(t *testing.T) {
+	screens, _ := NativeScreens(Codex)
+	for _, test := range []struct {
+		row     string
+		working bool
+	}{
+		{"Working (1m 51s • esc to interrupt) · 1 background terminal running · /ps to view · /stop to close", true},
+		{"• Planning the fix (12s • esc to interrupt)", true},
+		{`PS C:\proof> Write-Output "Working (1s • esc to interrupt)"`, false},
+		{"The previous screen said esc to interrupt.", false},
+		{"› Explain Working (1s • esc to interrupt)", false},
+	} {
+		t.Run(test.row, func(t *testing.T) {
+			// Act
+			working := screens.IsWorking([]string{test.row})
+
+			// Assert
+			if working != test.working {
+				t.Fatalf("working = %v, want %v for %q", working, test.working, test.row)
+			}
+		})
+	}
+}
+
 // After its first turn pi's footer leads with the session's token counts and
 // cost, so its context meter is found anywhere in the row, as seen live on pi
 // 0.85.1.

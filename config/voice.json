@@ -4,7 +4,7 @@
     "version": "1.13.8",
     "url": "https://github.com/k2-fsa/sherpa-onnx/releases/download/v1.13.8/sherpa-onnx-v1.13.8-win-x64-shared-MT-Release-no-tts.tar.bz2",
     "sha256": "4b0a94f7b5c606b1b64a19a831c2127559e4b3d34e195465ebc7be73d9ed4783",
-    "files": ["bin/sherpa-onnx-offline.exe", "bin/onnxruntime.dll"]
+    "files": ["lib/sherpa-onnx-c-api.dll", "lib/onnxruntime.dll"]
   },
   "model": {
     "name": "parakeet-tdt-110m",
@@ -13,7 +13,7 @@
     "sha256": "f628312e9fdf8686374cb01a69425c41732529d540860311f16f37cbc32cfe9b",
     "files": ["encoder.int8.onnx", "decoder.int8.onnx", "joiner.int8.onnx", "tokens.txt"]
   },
-  "program": "sherpa-onnx-offline.exe",
+  "program": "sherpa-onnx-c-api.dll",
   "args": [
     "--num-threads=2",
     "--encoder={model}/encoder.int8.onnx",
