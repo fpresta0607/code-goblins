@@ -112,6 +112,26 @@ no-mistakes refuses to stop its daemon while a gate runs; the install then leave
 The install only ever updates the no-mistakes in `%LOCALAPPDATA%\no-mistakes`: an older one that comes first on PATH from anywhere else is left alone, and the install names its path and says to run `no-mistakes update` or remove it.
 So when a Code Goblins release moves the pin forward, rerunning the install is how a machine moves to the no-mistakes it names.
 
+## Updating
+
+`goblins update`, run in a terminal of your own, updates the home to the newest published release without touching your goblins or the CFO.
+It runs only as the home's own `goblins` or `cfo`, and it says four steps as it goes:
+
+1. `[1/4] Download Code Goblins <version>`: it reads the newest release from GitHub and downloads its `cfo.exe`, its desktop window `goblins-window.exe` where the release ships one, its `SHA256SUMS` and its `install.ps1` into the home's `state\update`.
+2. `[2/4] Check the download`: it keeps a program only when it matches the release's `SHA256SUMS`, and, for a release whose `install.ps1` names a publisher, only when Windows reports it validly signed by that publisher, the same checks the one-line install makes.
+   It names each program's SHA-256, and says when the release is unsigned, which every release is until Code Goblins has a signing identity.
+   A program that fails a check is never run, and nothing in the home changes.
+3. `[3/4] Install Code Goblins <version>`: the downloaded build installs itself with its own `update`, which keeps the build it replaces, swaps `cfo.exe` and `goblins.exe` in `bin`, restarts only the board on the address it served, and puts the previous build back when the new one does not serve.
+   The desktop window follows into `bin`; an open window keeps running the earlier one until you quit it from its tray icon, and Code Goblins in the Start menu then opens the new one.
+4. `[4/4] Bring the home up to date`: the new build's `install` brings the home's contract, skills and hooks up to date, where this machine's install names this home; the board, already on the new build, is not restarted again.
+
+It ends on one line: `Updated:`, `Rolled back:` with why the new build did not serve, or `Failed:` with what stopped it before anything changed.
+The download is removed afterwards.
+`goblins update --check` says how your build stands against the newest release and what is new in it, and changes nothing.
+A build made from a clone has no release version, so it says to run `git pull` and then `.\install.cmd -Dev` in the clone instead.
+The update is yours alone: it refuses to run under the CFO, in a goblin's or a gate's terminal, under an agent harness, and where its parents cannot be followed to the desktop, as in Git Bash; run it in PowerShell or cmd.
+Rerunning the install still updates the tools it pins, such as no-mistakes, which an update leaves as they are.
+
 ## On a fresh PC
 
 A release says at the top of its notes whether its programs are code-signed, and by whom.

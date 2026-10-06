@@ -65,11 +65,15 @@ type serveProcess struct {
 // this home's cfo.exe and goblins.exe, or with --recover to finish an update
 // that ended part way by putting the previous build back. It restarts only
 // the supervisor, never a goblin's or the CFO's terminal, and leaves a board
-// answering either way.
+// answering either way. Run as the home's installed build it updates the home
+// from the newest published release instead, which installs itself the same
+// way.
 func runUpdate(args []string, stdout, stderr io.Writer, runtime commandRuntime) int {
 	f := flag.NewFlagSet("update", flag.ContinueOnError)
 	f.SetOutput(stderr)
 	recover := f.Bool("recover", false, "finish an update that ended part way by putting the previous build back")
+	check := f.Bool("check", false, "say whether a newer release is published, and change nothing")
+	to := f.String("to", "", "the release to update to, refused unless it is still the newest one published")
 	if err := f.Parse(args); err != nil || f.NArg() != 0 {
 		return 2
 	}
@@ -86,6 +90,19 @@ func runUpdate(args []string, stdout, stderr io.Writer, runtime commandRuntime) 
 		fmt.Fprintln(stderr, err)
 		return 1
 	}
+	program, err := os.Executable()
+	if err != nil {
+		fmt.Fprintln(stderr, err)
+		return 1
+	}
+	installed := !*recover && installedBuild(h, program)
+	if !installed && (*check || *to != "") {
+		fmt.Fprintln(stderr, "cfo update: --check and --to update a home from a release, so run them as the home's own goblins or cfo")
+		return 2
+	}
+	if installed {
+		return releaseUpdate(h, *check, *to, stdout, stderr)
+	}
 	// One update owns a home at a time, and its recovery the same.
 	if _, err := lock.AcquireExclusiveNamed(update.Dir(h.State), ".lock"); err != nil {
 		fmt.Fprintf(stderr, "cfo update: another update of this home is running: %v\n", err)
@@ -99,18 +116,13 @@ func runUpdate(args []string, stdout, stderr io.Writer, runtime commandRuntime) 
 	return installUpdate(h, stdout, stderr)
 }
 
-// installUpdate installs the running binary.
+// installUpdate installs the running binary, a candidate build that is not
+// one of the home's installed programs.
 func installUpdate(h home.Home, stdout, stderr io.Writer) int {
 	candidate, err := os.Executable()
 	if err != nil {
 		fmt.Fprintln(stderr, err)
 		return 1
-	}
-	for _, name := range update.Aliases {
-		if strings.EqualFold(filepath.Clean(candidate), filepath.Join(h.Bin(), name)) {
-			fmt.Fprintf(stderr, "cfo update: run the candidate build, not the installed %s\n", name)
-			return 1
-		}
 	}
 	// An earlier update that did not finish, or whose journal cannot be
 	// read or is not this home's, is never overwritten: its verified copies

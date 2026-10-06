@@ -145,36 +145,8 @@ func (s *Service) overlordsOwn(pid int, asked time.Time, who asker) ([]proc.Entr
 	if err != nil || len(ancestry) == 0 || ancestry[0].Start.After(asked) {
 		return nil, errors.New("AFK mode is the Supreme Overlord's switch, and the supervisor could not read the process that asked for it, as it cannot one run as administrator, so nothing says it is his" + onlyHis)
 	}
-	refuse := func(where string) ([]proc.Entry, error) {
+	if where := agentMark(s.Store.Home.State, ancestry, env); where != "" {
 		return nil, errors.New("AFK mode is the Supreme Overlord's switch, and " + who.runs + " " + where + onlyHis)
-	}
-	switch {
-	case environmentValue(env, harness.RoleVariable) == harness.RoleGoblin:
-		return refuse("in a goblin's terminal")
-	case environmentValue(env, gateAgentVariable) != "":
-		return refuse("as a gate agent")
-	}
-	if primary, _, err := readPrimary(s.Store.Home.State); err == nil && descendsFrom(ancestry, primary.Process) {
-		return refuse(fmt.Sprintf("under the registered CFO (%s pid %d)", primary.Agent, primary.Process.PID))
-	}
-	if id := environmentValue(env, host.IDVariable); id != "" {
-		return refuse("in native terminal " + id + ", which runs the CFO or a goblin")
-	}
-	if environmentValue(env, "HERDR_PANE_ID") != "" {
-		return refuse("in a Herdr pane, where the CFO or a goblin runs")
-	}
-	for _, entry := range ancestry {
-		if slices.Contains(agentHarnesses, strings.TrimSuffix(strings.ToLower(entry.ExeBase), ".exe")) {
-			return refuse(fmt.Sprintf("under an agent harness (%s pid %d)", entry.ExeBase, entry.PID))
-		}
-	}
-	// A command whose parents are cut off, as Git Bash's timeout leaves one,
-	// has no harness left among its ancestors; what the harness put in its
-	// environment is still there.
-	for _, name := range agentVariables {
-		if environmentValue(env, name) != "" {
-			return refuse("under an agent harness (its environment carries " + name + ")")
-		}
 	}
 	// The same cut with those variables removed too, as Git Bash's env leaves
 	// a command, has nothing left that marks an agent. Parents that stop short
@@ -184,6 +156,63 @@ func (s *Service) overlordsOwn(pid int, asked time.Time, who asker) ([]proc.Entr
 		return nil, errors.New("AFK mode is the Supreme Overlord's switch, and the supervisor could not follow its parents to the desktop, " + who.cut + onlyHis)
 	}
 	return ancestry, nil
+}
+
+// agentMark says where a process with these parents, itself first, and this
+// environment runs when something marks it as an agent's, and is empty when
+// nothing does: a goblin's or a gate agent's environment, the home's
+// registered CFO among its parents, a terminal the fleet runs an agent in, or
+// an agent harness above it or in its environment.
+func agentMark(stateDir string, ancestry []proc.Entry, env []string) string {
+	switch {
+	case environmentValue(env, harness.RoleVariable) == harness.RoleGoblin:
+		return "in a goblin's terminal"
+	case environmentValue(env, gateAgentVariable) != "":
+		return "as a gate agent"
+	}
+	if primary, _, err := readPrimary(stateDir); err == nil && descendsFrom(ancestry, primary.Process) {
+		return fmt.Sprintf("under the registered CFO (%s pid %d)", primary.Agent, primary.Process.PID)
+	}
+	if id := environmentValue(env, host.IDVariable); id != "" {
+		return "in native terminal " + id + ", which runs the CFO or a goblin"
+	}
+	if environmentValue(env, "HERDR_PANE_ID") != "" {
+		return "in a Herdr pane, where the CFO or a goblin runs"
+	}
+	for _, entry := range ancestry {
+		if slices.Contains(agentHarnesses, strings.TrimSuffix(strings.ToLower(entry.ExeBase), ".exe")) {
+			return fmt.Sprintf("under an agent harness (%s pid %d)", entry.ExeBase, entry.PID)
+		}
+	}
+	// A command whose parents are cut off, as Git Bash's timeout leaves one,
+	// has no harness left among its ancestors; what the harness put in its
+	// environment is still there.
+	for _, name := range agentVariables {
+		if environmentValue(env, name) != "" {
+			return "under an agent harness (its environment carries " + name + ")"
+		}
+	}
+	return ""
+}
+
+// UpdaterRefusal says why the process with these parents, itself first, and
+// this environment may not update Code Goblins from a release, or nothing
+// when it may: an update is the Supreme Overlord's alone, so whatever marks
+// the process as an agent's refuses it, as AFK mode's switch refuses it, and
+// so do parents that stop short of the desktop, where nothing says the
+// terminal is his.
+func UpdaterRefusal(stateDir string, ancestry []proc.Entry, env []string) error {
+	const only = ": he runs goblins update in a terminal of his own, or presses Update in the Command Center"
+	if len(ancestry) == 0 {
+		return errors.New("updating Code Goblins is the Supreme Overlord's alone, and this command could not read its own process, so nothing says it is his" + only)
+	}
+	if where := agentMark(stateDir, ancestry, env); where != "" {
+		return errors.New("updating Code Goblins is the Supreme Overlord's alone, and this command runs " + where + only)
+	}
+	if fromDesktop(ancestry) < 0 {
+		return errors.New("updating Code Goblins is the Supreme Overlord's alone, and this command could not follow its parents to the desktop, as it cannot those of a command run in Git Bash or under a program that replaces its own process, so nothing says it is his: run it in PowerShell or cmd, or press Update in the Command Center")
+	}
+	return nil
 }
 
 // fromDesktop is where a process's parents reach the Windows desktop or

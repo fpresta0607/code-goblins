@@ -127,6 +127,7 @@ Both are the same install, so use whichever you like: the setup if you want a wi
 Each puts the Code Goblins app and the `cfo` command line (also called `goblins`) together in one folder, `%LOCALAPPDATA%\CodeGoblins`, adds that folder to your PATH and Code Goblins to the Start menu, installs the tools the goblins use where they are missing, and opens [the desktop app](#the-desktop-app).
 Each says the same four steps as it goes (download, check, install, open) and keeps every detail in `%TEMP%\CodeGoblinsInstall.log`; a failure says in one sentence what happened and what to do.
 Run either again at any time to update: it never asks you to run anything first.
+Or run `goblins update` in a terminal of your own: it downloads the newest release, installs it only when each program matches the release's `SHA256SUMS`, restarts only the board on it, rolls back a build that does not start, and leaves your goblins and the CFO running ([Updating](docs/install.md#updating) says each step).
 Where Code Goblins already runs from another folder that `CFO_HOME` names, such as a clone an older build made the home, the install updates it there and leaves your goblins and their work as they are; moving it to the standard folder is `cfo home move`, whenever you choose.
 [Which home it installs](docs/install.md#which-home-it-installs) lists every case.
 
@@ -636,6 +637,7 @@ cfo auth <project> [--check|--fix] [--env]
 cfo install [--projects-root <dir>] [--uninstall]
 cfo uninstall
 cfo serve [--listen <loopback-address>]
+goblins update [--check] [--to <tag>]
 <candidate.exe> update [--recover]
 cfo hooks install <claude|codex|pi>
 cfo brief <id> --project <name|path> [--kind <ship|scout>] [--mode <mode>]
@@ -741,6 +743,10 @@ Pre-existing items remain in `cfo tickets`, while bots, the signed-in viewer, br
 Fresh live evidence is required even after a goblin reports one PR done.
 Each item wakes once per goblin generation across restarts, acknowledgement, item closure and area changes.
 Unknown creation times, changing branch inputs and incomplete GitHub reads stay visible as unread evidence; readable overlaps can still wake, and the same repository allowance and refusal backoff applies.
+
+To update a running home to the newest release, run `goblins update` in a terminal of your own: the home's own build downloads the release into `state\update`, keeps each program only when it matches the release's `SHA256SUMS` (and, for a signed release, its publisher's signature), and runs the downloaded build's `update` as below, then its `install` to bring the home's contract and skills up to date.
+`goblins update --check` says whether a newer release is published and what is new, and changes nothing.
+The update is yours alone: it refuses to run under the CFO, a goblin or any agent.
 
 To install a newer build into a running home, run the candidate build itself with `update`: it swaps both `cfo.exe` and `goblins.exe` in the home's `bin`, restarts only the supervisor, and puts the previous build back if the new one does not serve; `bin` keeps the two builds before the current one and no more.
 A home an older build set up in a checkout is moved first, with `cfo home move` (see [Your data](#your-data)).
