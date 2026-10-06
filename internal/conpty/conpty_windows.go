@@ -8,6 +8,7 @@ import (
 	"os"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"unsafe"
 
 	"golang.org/x/sys/windows"
@@ -48,6 +49,9 @@ type Console struct {
 	// typed tells the waker of input written, or of a resize.
 	waker *waker
 	typed chan struct{}
+	// isWindowsKeyEventWritten says a key event was written as Windows sends
+	// it, after which conhost holds an Escape that ends an input.
+	isWindowsKeyEventWritten atomic.Bool
 
 	mu     sync.Mutex
 	closed bool
@@ -221,15 +225,27 @@ func (c *Console) Read(p []byte) (int, error) {
 
 // Write types p into the terminal as the process's input, and tells the
 // console's input waker, which wakes the process if the input stays unread.
+// Once a key event has been written as Windows sends it, an ending conhost
+// would hold is written as the key events it stands for.
 func (c *Console) Write(p []byte) (int, error) {
 	if err := c.scheduling.reconcile(); err != nil {
 		fmt.Fprintln(os.Stderr, err)
 	}
-	n, err := c.in.Write(p)
+	if windowsKeyEvent.Match(p) {
+		c.isWindowsKeyEventWritten.Store(true)
+	}
+	input := p
+	if c.isWindowsKeyEventWritten.Load() {
+		input = endingAsKeyEvents(p)
+	}
+	n, err := c.in.Write(input)
 	if n > 0 {
 		c.wake()
 	}
-	return n, err
+	if err != nil {
+		return min(n, len(p)), err
+	}
+	return len(p), nil
 }
 
 // wake tells the console's input waker that the console has input it did not
