@@ -61,6 +61,9 @@ func echoChild() {
 	// A Ctrl-C typed to the terminal is reported, not obeyed.
 	interrupts := make(chan os.Signal, 1)
 	signal.Notify(interrupts, os.Interrupt)
+	// The console's input waker is attached before this program runs, and
+	// counts among its processes from the start.
+	started := consoleProcesses()
 	fmt.Println("ready")
 	lines := bufio.NewScanner(os.Stdin)
 	for lines.Scan() {
@@ -79,10 +82,11 @@ func echoChild() {
 				_ = os.Rename(path+".part", path)
 			}
 		case line == "wait-attach" || line == "hold-ctrl-c":
-			// A second process on this console is a screen read attached.
-			for deadline := time.Now().Add(15 * time.Second); consoleProcesses() < 2 && time.Now().Before(deadline); time.Sleep(10 * time.Millisecond) {
+			// A process more on this console than it started with is a
+			// screen read attached.
+			for deadline := time.Now().Add(15 * time.Second); consoleProcesses() <= started && time.Now().Before(deadline); time.Sleep(10 * time.Millisecond) {
 			}
-			fmt.Println("attached", consoleProcesses())
+			fmt.Println("attached", consoleProcesses()-started)
 			if line == "wait-attach" {
 				continue
 			}
