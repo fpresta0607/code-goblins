@@ -886,10 +886,14 @@ func TestNotifyInstructionTeachesWorkingAndWaitingReports(t *testing.T) {
 		"mark with **two asterisks** only the verdict or the blocking item",
 		"the Overlord personally (his sign-in, his click, his page)",
 		"a choice the CFO can make, such as whether to start something now or later, is a question, not a wait on the Overlord: ask it with --blocked and options",
+		"the CFO answers it, and his answer arrives here as a message",
 	} {
 		if !strings.Contains(instruction, want) {
 			t.Errorf("instruction = %q, want %q", instruction, want)
 		}
+	}
+	if strings.Contains(instruction, "the board shows them to the Supreme Overlord") {
+		t.Error("goblin questions must name the CFO as their recipient")
 	}
 }
 

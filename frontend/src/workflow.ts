@@ -115,13 +115,12 @@ export function nativeStatus(phase: string): string {
   return labels[phase] || "No evidence yet";
 }
 
-// asksOverlord is whether a goblin's question is on the board waiting for the
-// Overlord's answer; the CFO's own questions name no task.
+// asksOverlord is whether a goblin explicitly waits on the Overlord.
+// A goblin's question is the CFO's to answer.
 export function asksOverlord(snapshot: Snapshot, taskID: string): boolean {
   if (!taskID) return false;
   const task = snapshot.tasks.find((candidate) => candidate.id === taskID);
-  return task?.phase === "waiting" && task.waiting_on === "overlord"
-    || (snapshot.questions || []).some((question) => question.task === taskID && question.status === "pending");
+  return task?.phase === "waiting" && task.waiting_on === "overlord";
 }
 
 // waitingTarget is the goblin a waiting task waits on, when it is one the

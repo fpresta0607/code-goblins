@@ -55,6 +55,14 @@ const ROOM = 5 * 2 ** 30;
 
 // What a wait for room reads and how long it waits; a test of the wait itself
 // replaces them.
+// openItem opens the Command Center on the waiting item whose row in its
+// list reads text, as the Overlord does: nothing opens by itself.
+export async function openItem(page: Page, text: string): Promise<void> {
+  const menu = page.locator(".command-center-menu");
+  if (!await menu.evaluate((element) => (element as HTMLDetailsElement).open)) await menu.locator("> summary").click();
+  await menu.locator(".inbox-list li").filter({ hasText: text }).getByRole("button", { name: /^Answer / }).click();
+}
+
 export interface Room { free: () => number; limit: number; pause: number; ci: boolean }
 const MACHINE: Room = { free: os.freemem, limit: 60_000, pause: 500, ci: !!process.env.CI };
 
