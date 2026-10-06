@@ -63,6 +63,20 @@ export async function openItem(page: Page, text: string): Promise<void> {
   await menu.locator(".inbox-list li").filter({ hasText: text }).getByRole("button", { name: /^Answer / }).click();
 }
 
+// A card that finishes shows its check for three quarters of a second before
+// the Command Center moves on, which a loaded machine can let pass between two
+// looks, so a board's done cards are recorded as they pass, each as its
+// heading and line. Start recording before the act that finishes the card.
+export const recordDoneCards = (page: Page) => page.evaluate(() => {
+  const seen: string[] = [];
+  Object.assign(window, { doneCards: seen });
+  new MutationObserver(() => {
+    const text = document.querySelector("dialog.question-modal .done-card")?.textContent;
+    if (text && !seen.includes(text)) seen.push(text);
+  }).observe(document.body, { subtree: true, childList: true, characterData: true });
+});
+export const doneCards = (page: Page) => page.evaluate(() => (window as unknown as { doneCards: string[] }).doneCards);
+
 export interface Room { free: () => number; limit: number; pause: number; ci: boolean }
 const MACHINE: Room = { free: os.freemem, limit: 60_000, pause: 500, ci: !!process.env.CI };
 
