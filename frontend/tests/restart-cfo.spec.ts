@@ -19,9 +19,10 @@ async function open(page: Page, answer: { status: number; body: Record<string, u
 
 test.use({ viewport: { width: 1280, height: 720 } });
 
-test("Restart asks first, and Cancel restarts nothing", async ({ page }) => {
+test("Restart asks first, and Cancel restarts nothing", async ({ page }, testInfo) => {
   // Arrange
   const { requests } = await open(page, { status: 200, body: { restarted: true, resumed: true, session: "a1b2c3d4-session" } });
+  await page.screenshot({ path: testInfo.outputPath("restart-cfo-bar.png") });
 
   // Act
   await page.getByRole("button", { name: "Restart the CFO" }).click();
