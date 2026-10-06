@@ -33,9 +33,11 @@
 .disclosure.afk-held-panel > summary { padding: 12px 0 0; font-size: 1.0625rem; }
 .afk-held-panel > .disclosure-content { padding: 12px 0 2px; }
 
-/* What is held, drawn as the Command Center's inbox. An item that still waits
-   says so in the colour of waiting; a narrow list puts its age under its
-   words. */
+/* What is held, drawn as the Command Center's inbox. What was recommended for
+   an item reads as the Command Center's reason under an answer does; an item
+   that still waits says so in the colour of waiting; a narrow list puts its
+   age under its words. */
+.afk-held small.afk-recommends { color: var(--muted); font-weight: 500; }
 .afk-held small.afk-waiting { color: var(--amber); }
 @container (max-width: 640px) {
   .inbox-list.afk-held li { grid-template-columns: auto minmax(0, 1fr) auto; }
