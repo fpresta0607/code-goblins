@@ -231,28 +231,28 @@ func TestInstallStartsAtLoginTheWindowItSuppliedAndGoblinsForOneItKept(t *testin
 // made where there was none, and the window the home held stays as it was.
 func TestInstallThatKeptTheHomesWindowLeavesEveryOtherStartAtLoginEntry(t *testing.T) {
 	const kept = "a window from before"
-	for name, command := range map[string]func(root, earlier string) string{
+	for name, command := range map[string]func(bin, earlier string) string{
 		"a window in a folder beside the earlier one": func(_, earlier string) string {
 			return `"` + filepath.Join(earlier+"Other", windowName) + `" --board http://127.0.0.1:4310 --state "C:\home\state" --background`
 		},
 		"another home's goblins": func(string, string) string {
 			return `"C:\elsewhere\CodeGoblins\goblins.exe" --window --background`
 		},
-		"this home's window on its own": func(root, _ string) string {
-			return `"` + filepath.Join(root, windowName) + `" --board http://127.0.0.1:4310 --state "` + filepath.Join(root, "state") + `" --background`
+		"this home's window on its own": func(bin, _ string) string {
+			return `"` + filepath.Join(bin, windowName) + `" --board http://127.0.0.1:4310 --state "` + filepath.Join(filepath.Dir(bin), "state") + `" --background`
 		},
-		"this home's window alone": func(root, _ string) string {
-			return `"` + filepath.Join(root, windowName) + `" --background`
+		"this home's window alone": func(bin, _ string) string {
+			return `"` + filepath.Join(bin, windowName) + `" --background`
 		},
 		"no entry": func(string, string) string { return "" },
 	} {
 		t.Run(name, func(t *testing.T) {
 			// Arrange
 			f := installedFixture(t, nil, codegoblins.Contract, codegoblins.Policy)
-			writeFile(t, filepath.Join(f.root, windowName), kept)
+			writeFile(t, filepath.Join(f.bin, windowName), kept)
 			earlierWindowAtLogin(t, f)
 			key := ownStartAtLogin(t, f)
-			want := command(f.root, f.service.EarlierWindow)
+			want := command(f.bin, f.service.EarlierWindow)
 			if want != "" {
 				if err := key.SetStringValue(startAtLoginValue, want); err != nil {
 					t.Fatal(err)
@@ -273,7 +273,7 @@ func TestInstallThatKeptTheHomesWindowLeavesEveryOtherStartAtLoginEntry(t *testi
 			if strings.Contains(output, "start at login") {
 				t.Errorf("the install reports Start at login changed:\n%s", output)
 			}
-			if got := readFile(t, filepath.Join(f.root, windowName)); got != kept {
+			if got := readFile(t, filepath.Join(f.bin, windowName)); got != kept {
 				t.Errorf("%s in the home = %q, want %q", windowName, got, kept)
 			}
 		})
@@ -283,7 +283,7 @@ func TestInstallThatKeptTheHomesWindowLeavesEveryOtherStartAtLoginEntry(t *testi
 func TestCoreOnlyReinstallKeepsTheStandaloneWindowAndAdoptsItsLogin(t *testing.T) {
 	// Arrange
 	f := installedFixture(t, nil, codegoblins.Contract, codegoblins.Policy)
-	writeFile(t, filepath.Join(f.root, windowName), "retained older window")
+	writeFile(t, filepath.Join(f.bin, windowName), "retained older window")
 	f.install()
 	command := earlierWindowAtLogin(t, f)
 	writeFile(t, filepath.Join(f.service.EarlierWindow, windowPicture), "standalone picture")
@@ -297,12 +297,12 @@ func TestCoreOnlyReinstallKeepsTheStandaloneWindowAndAdoptsItsLogin(t *testing.T
 	f.install()
 
 	// Assert
-	want := `"` + filepath.Join(f.root, "goblins.exe") + `" --window --background`
+	want := `"` + filepath.Join(f.bin, "goblins.exe") + `" --window --background`
 	if got, _, err := key.GetStringValue(startAtLoginValue); err != nil || got != want {
 		t.Errorf("Start at login runs %q (%v), want %s", got, err, want)
 	}
 	for path, want := range map[string]string{
-		filepath.Join(f.root, windowName):                     "retained older window",
+		filepath.Join(f.bin, windowName):                      "retained older window",
 		filepath.Join(f.service.EarlierWindow, windowName):    "window 0",
 		filepath.Join(f.service.EarlierWindow, windowPicture): "standalone picture",
 	} {

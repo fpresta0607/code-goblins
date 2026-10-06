@@ -377,17 +377,32 @@ func (s Service) adoptEarlierWindow(report *reporter) error {
 // now live in bin.
 var rootPrograms = []string{"cfo.exe", "goblins.exe", windowName, windowPicture}
 
-// retireRootBinaries removes the binaries an older install put at the home's
-// root, now that bin holds them. One a process still runs cannot be removed
-// but can be renamed, so it moves into bin as an aside copy, which the
-// janitor removes once nothing runs it.
+// retireRootBinaries takes the programs an older install put at the home's
+// root out of it. One bin does not hold, such as a desktop window this
+// install did not supply, moves into bin and stays the home's own; the rest
+// are removed, now that bin holds them. One a process still runs cannot be
+// removed but can be renamed, so it moves into bin as an aside copy, which
+// the janitor removes once nothing runs it.
 func (s Service) retireRootBinaries(report *reporter) error {
-	var removed, moved []string
+	var kept, removed, moved []string
 	for _, name := range rootPrograms {
+		program, target := filepath.Join(s.Root, name), filepath.Join(s.bin(), name)
+		_, err := os.Stat(target)
+		switch {
+		case errors.Is(err, fs.ErrNotExist):
+			switch err := os.Rename(program, target); {
+			case err == nil:
+				kept = append(kept, name)
+			case !errors.Is(err, fs.ErrNotExist):
+				return fmt.Errorf("install: move %s, which an older install put at the home's root, into %s: %w", program, s.bin(), err)
+			}
+		case err != nil:
+			return fmt.Errorf("install: inspect %s: %w", target, err)
+		}
 		paths, _ := filepath.Glob(filepath.Join(s.Root, name+".*.old"))
 		paths, _ = appendGlob(paths, filepath.Join(s.Root, name+".*.update-old"))
 		paths, _ = appendGlob(paths, filepath.Join(s.Root, name+".held-*"))
-		for _, path := range append([]string{filepath.Join(s.Root, name)}, paths...) {
+		for _, path := range append([]string{program}, paths...) {
 			err := os.Remove(path)
 			switch {
 			case err == nil:
@@ -402,13 +417,16 @@ func (s Service) retireRootBinaries(report *reporter) error {
 			}
 		}
 	}
+	if len(kept) > 0 {
+		report.change("binary", "moved "+strings.Join(kept, ", ")+" from "+s.Root+", where an older install put them, into "+s.bin()+", which held none, and kept them")
+	}
 	if len(removed) > 0 {
 		report.change("binary", "removed "+strings.Join(removed, ", ")+" from "+s.Root+", where an older install put them")
 	}
 	if len(moved) > 0 {
 		report.change("binary", "moved "+strings.Join(moved, ", ")+" from "+s.Root+" into "+s.bin()+": something still runs them, and the janitor removes them once nothing does")
 	}
-	if len(removed)+len(moved) == 0 {
+	if len(kept)+len(removed)+len(moved) == 0 {
 		return nil
 	}
 	// A Start at login entry that ran the window from the root now runs it

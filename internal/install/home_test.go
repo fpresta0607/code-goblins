@@ -343,7 +343,8 @@ func TestAFreshInstallIsAHomeInUse(t *testing.T) {
 }
 
 // A home an older install set up kept its binaries at its root, on PATH
-// there; a reinstall moves them into bin and PATH with them.
+// there; a reinstall moves them into bin and PATH with them. The desktop
+// window, which this build does not supply, stays the home's own in bin.
 func TestReinstallMovesAnOlderInstallsRootBinariesIntoBin(t *testing.T) {
 	// Arrange
 	f := installedFixture(t, map[string]string{"Path": `C:\Windows`}, codegoblins.Contract, codegoblins.Policy)
@@ -366,6 +367,11 @@ func TestReinstallMovesAnOlderInstallsRootBinariesIntoBin(t *testing.T) {
 	}
 	if got := readFile(t, filepath.Join(f.bin, "cfo.exe")); got != "build 1" {
 		t.Errorf("bin\\cfo.exe = %q, want this build", got)
+	}
+	for _, name := range []string{"goblins-window.exe", "goblins-window.png"} {
+		if got, err := os.ReadFile(filepath.Join(f.bin, name)); err != nil || string(got) != "older build" {
+			t.Errorf("bin\\%s = %q (%v), want the home's own kept:\n%s", name, got, err, output)
+		}
 	}
 	if got := f.env.values["Path"]; got != `C:\Windows;`+f.bin {
 		t.Errorf("PATH = %q, want the root swapped for bin:\n%s", got, output)
