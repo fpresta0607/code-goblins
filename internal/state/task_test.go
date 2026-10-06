@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"reflect"
 	"runtime"
 	"strings"
 	"testing"
@@ -105,7 +106,7 @@ func TestWriteTaskMetaIsDeterministicAndRoundTripsHerdrFields(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got != meta {
+	if !reflect.DeepEqual(got, meta) {
 		t.Errorf("round trip = %+v, want %+v", got, meta)
 	}
 
@@ -130,7 +131,7 @@ func TestWriteTaskMetaRoundTripsTheTaskTitle(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got != meta {
+	if !reflect.DeepEqual(got, meta) {
 		t.Errorf("round trip = %+v, want %+v", got, meta)
 	}
 	meta.Title = "Two\nlines"
@@ -414,5 +415,32 @@ func TestGoTmpDirRefusesAnExtendedLengthStateDir(t *testing.T) {
 	}
 	if _, err := GoTmpDir(root, "g1"); err != nil {
 		t.Fatalf("GoTmpDir refused the plain spelling %q: %v", root, err)
+	}
+}
+
+func TestWriteTaskMetaRoundTripsScratchAndExtraWorktrees(t *testing.T) {
+	// Arrange
+	dir := t.TempDir()
+	meta := TaskMeta{ID: "g1", Window: "native", Worktree: `C:\home\worktrees\app\g1`, Harness: "claude", Kind: "ship", Backend: "native",
+		Scratch: `C:\home\scratch\g1`, Extras: []string{`C:\home\worktrees\app\g1-proof`, `C:\home\worktrees\app\g1-ci`}}
+
+	// Act
+	if err := WriteTaskMeta(dir, meta); err != nil {
+		t.Fatalf("WriteTaskMeta: %v", err)
+	}
+	got, err := ReadTaskMeta(dir, "g1")
+
+	// Assert
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(got, meta) {
+		t.Errorf("round trip = %+v, want %+v", got, meta)
+	}
+	for _, extras := range [][]string{{""}, {`C:\a|b`}, {"two\nlines"}} {
+		meta.Extras = extras
+		if err := WriteTaskMeta(dir, meta); err == nil {
+			t.Errorf("extras %q were written, want refused", extras)
+		}
 	}
 }

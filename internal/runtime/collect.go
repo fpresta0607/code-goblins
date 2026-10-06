@@ -7,7 +7,9 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/fpresta0607/code-goblins/internal/fleetconfig"
 	"github.com/fpresta0607/code-goblins/internal/home"
+	"github.com/fpresta0607/code-goblins/internal/janitor"
 	"github.com/fpresta0607/code-goblins/internal/state"
 )
 
@@ -48,12 +50,13 @@ type Collector struct {
 // Collect reads every source once.
 func (c Collector) Collect(ctx context.Context) (Inventory, error) {
 	inv := Inventory{
-		Containers: []Container{},
-		Volumes:    []Volume{},
-		Listeners:  []Listener{},
-		Retired:    map[string]bool{},
-		Present:    map[string]bool{},
-		SystemRoot: os.Getenv("SystemRoot"),
+		Containers:    []Container{},
+		Volumes:       []Volume{},
+		Listeners:     []Listener{},
+		Retired:       map[string]bool{},
+		Present:       map[string]bool{},
+		SystemRoot:    os.Getenv("SystemRoot"),
+		WorktreesRoot: c.Home.Worktrees(),
 	}
 	if inv.SystemRoot == "" {
 		inv.SystemRoot = os.Getenv("windir")
@@ -116,8 +119,24 @@ func (c Collector) Collect(ctx context.Context) (Inventory, error) {
 			machine.DockerReclaimable = inv.Machine.DockerReclaimable
 			inv.Machine = machine
 		}
+		if settings, err := fleetconfig.Read(c.Home.Root); err != nil {
+			inv.Machine.DiskFloorUnread = err.Error()
+		} else {
+			inv.Machine.DiskFloor = int64(fleetconfig.Bytes(settings.DiskFloorGB))
+		}
 	} else {
 		inv.Notes = append(inv.Notes, "SERVERS UNREADABLE: no system source configured")
+	}
+
+	metas := make([]state.TaskMeta, 0, len(tasks))
+	for _, task := range tasks {
+		if meta, err := state.ReadTaskMeta(c.Home.State, task.ID); err == nil {
+			metas = append(metas, meta)
+		}
+	}
+	inv.Storage = janitor.Measure(c.Home, metas)
+	if record, err := janitor.ReadRecord(c.Home.State); err == nil {
+		inv.Janitor = &record
 	}
 
 	var projectNotes []string
@@ -153,7 +172,7 @@ func (c Collector) tasks() ([]Task, []string, error) {
 			unreadable = append(unreadable, id)
 			continue
 		}
-		tasks = append(tasks, Task{ID: id, Project: meta.Project, Worktree: meta.Worktree})
+		tasks = append(tasks, Task{ID: id, Project: meta.Project, Worktree: meta.Worktree, Extras: meta.Extras})
 	}
 	sort.Slice(tasks, func(i, j int) bool { return tasks[i].ID < tasks[j].ID })
 	sort.Strings(unreadable)

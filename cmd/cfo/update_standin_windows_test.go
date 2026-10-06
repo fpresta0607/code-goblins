@@ -238,7 +238,7 @@ func standInUpdate() int {
 			time.Sleep(20 * time.Second)
 		}
 		if step == "stopped" && breakSwap {
-			_ = os.Remove(filepath.Join(h.Root, "goblins.exe.update-new"))
+			_ = os.Remove(filepath.Join(h.Bin(), "goblins.exe.update-new"))
 		}
 		if step == "rolling-back" && tamper != "" {
 			tampered, err := os.ReadFile(filepath.Join(h.Root, "tampered.exe"))
@@ -255,7 +255,7 @@ func standInUpdate() int {
 			// Held for the rest of the process, as a program reading it
 			// would, so it can be neither moved nor replaced. A test whose
 			// alias could not be held fails on this seam, not the product.
-			if _, err := holdExclusively(filepath.Join(h.Root, hold), holdWait); err != nil {
+			if _, err := holdExclusively(filepath.Join(h.Bin(), hold), holdWait); err != nil {
 				fmt.Fprintf(os.Stderr, "stand-in update: the test's alias %s could not be held: %v\n", hold, err)
 				os.Exit(holdFailedExit)
 			}

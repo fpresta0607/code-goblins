@@ -12,18 +12,21 @@ import (
 	"slices"
 	"strings"
 	"sync/atomic"
-	"syscall"
 	"testing"
 
 	"github.com/fpresta0607/code-goblins/internal/installtest"
 )
 
 // standInVariable makes a copy of this test binary stand in for a cfo.exe
-// whose every command succeeds.
+// whose every command succeeds, or, set to fail, whose every command fails.
 const standInVariable = "CODE_GOBLINS_TEST_STAND_IN"
 
 func TestMain(m *testing.M) {
-	if os.Getenv(standInVariable) != "" {
+	switch os.Getenv(standInVariable) {
+	case "":
+	case "fail":
+		os.Exit(1)
+	default:
 		os.Exit(0)
 	}
 	os.Exit(m.Run())
@@ -775,90 +778,55 @@ func TestInstallCmdGivesWindowsPowerShellItsOwnModules(t *testing.T) {
 	}
 }
 
-// -Dev replaces a cfo.exe that is still running, as a supervisor or a CFO's
-// terminal host keeps it on a working clone: the running copy moves aside,
-// and cfo.exe and goblins.exe both become the new build, with the desktop
-// window built beside them as a release builds it, a program that opens no
+// -Dev builds from the clone into a folder of its own and runs that build's
+// cfo install, which sets up the per-user home as the one-line install does:
+// the clone keeps no program, and the build folder goes once the
+// install has run, here a stand-in install that fails, so the script stops
+// there. The window is built as a release builds it, a program that opens no
 // console and has no developer tools, and the install says the programs it
-// built are unsigned. A rerun after the
-// next pull replaces them again while that copy still runs, and removes
-// every old copy nothing runs. A -Dev install runs through install.cmd, which
-// always starts Windows PowerShell, so Windows PowerShell alone checks it; the
+// built are unsigned. A -Dev install runs through install.cmd, which always
+// starts Windows PowerShell, so Windows PowerShell alone checks it; the
 // install workflow runs the whole install in both PowerShells on a clean
 // runner.
-func TestDevReplacesABuildThatIsStillRunning(t *testing.T) {
+func TestDevBuildsOutsideTheCloneAndLeavesNoProgramInIt(t *testing.T) {
+	// Arrange: go copies a stand-in cfo.exe, a copy of this test binary that
+	// fails at every command, to the path it is told to build to.
 	checkout := fakeCheckout(t)
-	newBuild, newWindow := filepath.Join(t.TempDir(), "built"), filepath.Join(t.TempDir(), "built-window")
-	// A running cfo.exe: ping, copied under that name, needs no console and
-	// runs for about 30 minutes, longer than a package may run, so the test
-	// stops it first, and a run cut off before its cleanup leaves nothing
-	// running for good.
-	running := filepath.Join(checkout, "cfo.exe")
-	ping, err := os.ReadFile(filepath.Join(os.Getenv("SystemRoot"), "System32", "PING.EXE"))
+	self, err := os.Executable()
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(running, ping, 0o755); err != nil {
+	standIn := filepath.Join(t.TempDir(), "stand-in.exe")
+	data, err := os.ReadFile(self)
+	if err != nil {
 		t.Fatal(err)
 	}
-	old := exec.Command(running, "-n", "1800", "127.0.0.1")
-	old.SysProcAttr = &syscall.SysProcAttr{CreationFlags: 0x08000000} // CREATE_NO_WINDOW
-	if err := old.Start(); err != nil {
+	if err := os.WriteFile(standIn, data, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	exited := make(chan struct{})
-	go func() {
-		_ = old.Wait()
-		close(exited)
-	}()
-	t.Cleanup(func() {
-		_ = old.Process.Kill()
-		<-exited
-	})
-	// go build -trimpath -o <path> ./cmd/cfo copies the new build to
-	// <path>, and the window's build its own; a build that would keep this
-	// machine's folders in the binary fails, and so does a window built to
-	// open a console or with its developer tools on.
+	window := filepath.Join(t.TempDir(), "window")
+	if err := os.WriteFile(window, []byte("the window"), 0o644); err != nil {
+		t.Fatal(err)
+	}
 	stubs := map[string]string{"git": "@exit /b 0\r\n", "gh": "@exit /b 0\r\n", "npm": "@exit /b 0\r\n", "go": "@if not \"%2\"==\"-trimpath\" exit /b 1\r\n" +
-		"@if not \"%9\"==\"./cmd/goblins-window\" copy /y \"" + newBuild + "\" \"%4\" >nul & exit /b\r\n" +
-		"@if not \"%~6\"==\"-H windowsgui\" exit /b 1\r\n@if not \"%7 %8\"==\"-tags production\" exit /b 1\r\n@copy /y \"" + newWindow + "\" \"%4\" >nul\r\n"}
+		"@if not \"%9\"==\"./cmd/goblins-window\" copy /y \"" + standIn + "\" \"%4\" >nul & exit /b\r\n" +
+		"@if not \"%~6\"==\"-H windowsgui\" exit /b 1\r\n@if not \"%7 %8\"==\"-tags production\" exit /b 1\r\n@copy /y \"" + window + "\" \"%4\" >nul\r\n"}
+	cmd, _, temp := installtest.StrippedCommand(t, installtest.ServeRelease(t, nil, ""), stubs, installtest.WindowsPowerShell(), "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-File", filepath.Join(checkout, "install.ps1"), "-Dev")
+	cmd.Env = append(cmd.Env, standInVariable+"=fail")
 
-	for _, build := range []string{"the build from this clone", "the build after the next pull"} {
-		if err := os.WriteFile(newBuild, []byte(build), 0o644); err != nil {
-			t.Fatal(err)
-		}
-		if err := os.WriteFile(newWindow, []byte(build+", its window"), 0o644); err != nil {
-			t.Fatal(err)
-		}
+	// Act
+	out, _ := cmd.CombinedOutput()
+	output := string(out)
 
-		output, _, _, _ := runPowerShellWithStubs(t, installtest.WindowsPowerShell(), installtest.ServeRelease(t, nil, ""), stubs, "-File", filepath.Join(checkout, "install.ps1"), "-Dev")
-
-		if !strings.Contains(output, "Built cfo.exe, goblins.exe and goblins-window.exe") {
-			t.Fatalf("install -Dev did not replace the build with %q:\n%s", build, output)
-		}
-		for name, want := range map[string]string{"cfo.exe": build, "goblins.exe": build, "goblins-window.exe": build + ", its window"} {
-			if built, err := os.ReadFile(filepath.Join(checkout, name)); err != nil || string(built) != want {
-				t.Errorf("%s = %q (%v), want %q:\n%s", name, built, err, want, output)
-			}
-		}
-		if !strings.Contains(output, "These programs are unsigned") {
-			t.Errorf("install -Dev does not say the programs it built are unsigned:\n%s", output)
-		}
+	// Assert
+	if !strings.Contains(output, "These programs are unsigned") || !strings.Contains(output, "cfo install exited with code 1") {
+		t.Fatalf("install -Dev did not build, or does not say its programs are unsigned:\n%s", output)
 	}
-	select {
-	case <-exited:
-		t.Errorf("the running cfo.exe was stopped, want it left running under its old name")
-	default:
+	if left, _ := filepath.Glob(filepath.Join(checkout, "*.exe*")); len(left) != 0 {
+		t.Errorf("the clone holds %v after install -Dev, want no program", left)
 	}
-	left, err := filepath.Glob(filepath.Join(checkout, "*.exe.*"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(left) != 1 {
-		t.Fatalf("copies left beside the build = %v, want only the one still running", left)
-	}
-	if kept, err := os.ReadFile(left[0]); err != nil || string(kept) != string(ping) {
-		t.Errorf("%s (%v) is not the copy still running", left[0], err)
+	if left, _ := filepath.Glob(filepath.Join(temp, "code-goblins-build-*")); len(left) != 0 {
+		t.Errorf("the build folder %v was left behind", left)
 	}
 }
 

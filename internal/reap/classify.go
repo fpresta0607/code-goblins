@@ -2,8 +2,9 @@
 // harness process whose pane or native terminal host is gone, a dev server
 // left running in a worktree no live goblin is working in, the worktree,
 // metadata and status records left behind when a task ends without a clean
-// cleanup, and the directory under a project's .worktrees/ that the project
-// does not register as a worktree at all.
+// cleanup, and the directory among the fleet's worktrees, in the home's
+// worktrees folder or a project's .worktrees/ an older build used, that the
+// project does not register as a worktree at all.
 //
 // No single source sees all of it. cfo knows the tasks it started, Herdr knows
 // the panes that still exist, only the operating system knows what is still
@@ -57,11 +58,12 @@ const (
 	OrphanMeta Class = "orphan_meta"
 	// OrphanStatus is a state/<id>.status log with no matching meta.
 	OrphanStatus Class = "orphan_status"
-	// OrphanDirectory is a directory under a project's .worktrees/ that the
+	// OrphanDirectory is a directory among the fleet's worktrees that the
 	// project does not register as a worktree: the empty shell a task that
 	// died leaves behind. It is a separate class because it is not a worktree,
-	// and every git question asked from inside one is answered by the
-	// enclosing repository instead.
+	// and every git question asked from inside one is answered by whatever
+	// repository encloses it instead, the project itself for one under its
+	// .worktrees/.
 	OrphanDirectory Class = "orphan_directory"
 )
 
@@ -76,8 +78,11 @@ type Finding struct {
 	TaskID string `json:"task_id,omitempty"`
 	PID    int    `json:"pid,omitempty"`
 	Path   string `json:"path,omitempty"`
-	Detail string `json:"detail"`
-	Action string `json:"action"`
+	// Project is the checkout a worktree finding belongs to, the repository
+	// its return and its prune run in.
+	Project string `json:"project,omitempty"`
+	Detail  string `json:"detail"`
+	Action  string `json:"action"`
 	// Registered says the project answered git worktree list and listed this
 	// path. It is what makes the administrative entry the project's to prune
 	// once the directory goes: where the project could not be asked, no
@@ -299,8 +304,8 @@ type NativeHost struct {
 	Started time.Time
 }
 
-// Registration is what a project repository answered about a directory under
-// its .worktrees/. It is three-valued because "the repository does not list
+// Registration is what a project repository answered about a directory among
+// the fleet's worktrees of it. It is three-valued because "the repository does not list
 // this directory" and "the repository could not be asked" are different facts,
 // and the sweep must not act on the second as though it were the first.
 type Registration string
@@ -321,7 +326,9 @@ const (
 	RegistrationUnlisted Registration = "unlisted"
 )
 
-// WorktreeDir is one directory found under a project's .worktrees/.
+// WorktreeDir is one directory found among the fleet's worktrees: in the
+// home's worktrees folder, or under a project's .worktrees/ where an older
+// build put them.
 type WorktreeDir struct {
 	Path         string
 	Project      string
@@ -343,7 +350,12 @@ type Inventory struct {
 	// StateDir is this home's state directory. A native terminal host run
 	// with any other --state belongs to a scratch CFO home some goblin's test
 	// or proof set up, not to the fleet.
-	StateDir        string
+	StateDir string
+	// ScratchRoot is this home's scratch folder, where each goblin's TEMP,
+	// TMP and GOTMPDIR point, one folder per task: a program run from there
+	// names its task as one run from an older build's Go temporary directory
+	// does, and a process working there works in that task's own directory.
+	ScratchRoot     string
 	Tasks           []Task
 	OrphanStatusIDs []string
 	Panes           []Pane
@@ -466,6 +478,59 @@ func Classify(inv Inventory) []Finding {
 	return findings
 }
 
+// Unowned lists the fleet worktrees in inv that no task owns, by its record
+// or by its name, and that nothing live works in: no agent's pane, no live
+// terminal host, and no process naming the folder on its command line. Each
+// is a worktree its project registers, or a folder its project answered
+// about and does not register. These are the janitor's to tidy; a worktree a
+// task still owns is that task's, left to cfo cleanup. A task whose record
+// cannot be read owns what its name could name, so nothing is listed for it.
+func Unowned(inv Inventory) []WorktreeDir {
+	tasks := make(map[string]Task, len(inv.Tasks))
+	for _, task := range inv.Tasks {
+		tasks[task.ID] = task
+	}
+	panes := make(map[string]Pane, len(inv.Panes))
+	for _, pane := range inv.Panes {
+		panes[pane.ID] = pane
+	}
+	unreadable := make(map[string]bool, len(inv.UnreadableTasks))
+	for _, id := range inv.UnreadableTasks {
+		unreadable[id] = true
+	}
+	var unowned []WorktreeDir
+	for _, worktree := range inv.Worktrees {
+		if worktree.Registration == RegistrationUnknown || len(inv.UnreadableTasks) > 0 {
+			continue
+		}
+		if _, known := ownerOf(worktree, tasks, inv.Worktrees, unreadable); known {
+			continue
+		}
+		if goblinIsAlive(Task{}, false, panes, worktree.Path) {
+			continue
+		}
+		if _, named := processNaming(worktree.Path, inv, nil); named {
+			continue
+		}
+		unowned = append(unowned, worktree)
+	}
+	return unowned
+}
+
+// Recorded reports whether a task record in inv names path as its worktree or
+// as an extra one. A fleet worktree no record names is a stray.
+func Recorded(inv Inventory, path string) bool {
+	key := normalizePath(filepath.Clean(path))
+	for _, task := range inv.Tasks {
+		for _, recorded := range append([]string{task.Meta.Worktree}, task.Meta.Extras...) {
+			if recorded != "" && normalizePath(filepath.Clean(recorded)) == key {
+				return true
+			}
+		}
+	}
+	return false
+}
+
 func classifyProcesses(inv Inventory, supervised, fleet map[int]bool, tasks map[string]Task, panes map[string]Pane, unreadable map[string]bool) []Finding {
 	desktop := descendants(inv.Processes, rootsMatching(inv.Processes, isDesktopApp))
 	gates := descendants(inv.Processes, rootsMatching(inv.Processes, isGateSupervisor))
@@ -489,7 +554,7 @@ func classifyProcesses(inv Inventory, supervised, fleet map[int]bool, tasks map[
 				// its own could ever be right about.
 				continue
 			}
-			fixture, underFixture := fixtureServer(process, byPID, inv.Session, inv.StateDir, owns)
+			fixture, underFixture := fixtureServer(process, byPID, inv.Session, inv.StateDir, inv.ScratchRoot, owns)
 			owner := ""
 			if underFixture {
 				dirs := fixture.Dirs
@@ -626,6 +691,7 @@ func classifyWorktrees(inv Inventory, supervised map[int]bool, tasks map[string]
 			Class:      OrphanWorktree,
 			TaskID:     worktree.TaskID,
 			Path:       worktree.Path,
+			Project:    worktree.Project,
 			Registered: worktree.Registration == RegistrationListed,
 			Detail:     placementOutcome(inv, task, known, unreadable[worktree.TaskID]) + extraWorktreeNote(task, known, worktree),
 			Action:     "return the worktree through cfo cleanup",
@@ -641,15 +707,27 @@ func classifyWorktrees(inv Inventory, supervised map[int]bool, tasks map[string]
 	return findings
 }
 
-// ownerOf returns the task a directory under .worktrees/ belongs to. That is
-// the task its gb-<id> name records. A goblin also makes extra worktrees for
-// other branches, named gb-<id>-<suffix>, and one no record names belongs to
-// the task it extends: the longest such id, in the same project, whose own
-// worktree was made before it. The age check keeps an older directory that
-// merely shares the start of a live task's name from being read as that
-// task's, and a directory whose own record could not be read is never handed
-// to another task.
+// ownerOf returns the task a fleet worktree belongs to. That is the task whose
+// record names it, as its worktree or as an extra one `cfo worktree add` made,
+// else the task its name records, <id> in the home or gb-<id> where an older
+// build put it. A goblin also made extra worktrees for itself, <id>-<suffix>,
+// and one no record names belongs to the task it extends: the longest such
+// id, in the same project, whose own worktree was made before it. The age
+// check keeps an older directory that merely shares the start of a live
+// task's name from being read as that task's, and a directory whose own
+// record could not be read is never handed to another task.
 func ownerOf(dir WorktreeDir, tasks map[string]Task, worktrees []WorktreeDir, unreadable map[string]bool) (Task, bool) {
+	key := normalizePath(filepath.Clean(dir.Path))
+	for _, task := range tasks {
+		for _, path := range append([]string{task.Meta.Worktree}, task.Meta.Extras...) {
+			if path != "" && normalizePath(filepath.Clean(path)) == key {
+				return task, true
+			}
+		}
+	}
+	if dir.TaskID == "" {
+		return Task{}, false
+	}
 	if task, ok := tasks[dir.TaskID]; ok {
 		return task, true
 	}
@@ -727,7 +805,7 @@ func unreadableHostHold(task Task, known bool) string {
 
 const unreadableHostText = "its native terminal's host record could not be read, so whether its goblin still runs is unknown"
 
-// classifyDirectory reports a directory under .worktrees/ that the project
+// classifyDirectory reports a directory among the worktrees that the project
 // does not register as a worktree. It is deliberately not an OrphanWorktree:
 // the premise every worktree question rests on has stopped holding here, and a
 // git command run inside such a shell is answered by the enclosing repository,
@@ -740,11 +818,12 @@ const unreadableHostText = "its native terminal's host record could not be read,
 // nothing names the path the finding says that rather than guessing.
 func classifyDirectory(inv Inventory, supervised map[int]bool, dir WorktreeDir, task Task, known, unreadable bool) Finding {
 	finding := Finding{
-		Class:  OrphanDirectory,
-		TaskID: dir.TaskID,
-		Path:   dir.Path,
-		Detail: dir.Project + " answered git worktree list and does not list this path, so it is not one of that project's worktrees",
-		Action: "remove the empty directory",
+		Class:   OrphanDirectory,
+		TaskID:  dir.TaskID,
+		Path:    dir.Path,
+		Project: dir.Project,
+		Detail:  dir.Project + " answered git worktree list and does not list this path, so it is not one of that project's worktrees",
+		Action:  "remove the empty directory",
 	}
 	if pid, ok := processNaming(dir.Path, inv, supervised); ok {
 		finding.PID = pid
@@ -903,8 +982,8 @@ const fixtureAncestry = 8
 // home's host carries its harness's command line after --, and a program run
 // from a goblin's Go temporary directory may be the stand-in itself, so each
 // is checked as its own fixture origin too.
-func fixtureServer(process Process, byPID map[int]Process, session, stateDir string, owns func(dir, task string) bool) (fixtureOrigin, bool) {
-	if origin, ok := nativeFixture(process, stateDir, owns); ok {
+func fixtureServer(process Process, byPID map[int]Process, session, stateDir, scratchRoot string, owns func(dir, task string) bool) (fixtureOrigin, bool) {
+	if origin, ok := nativeFixture(process, stateDir, scratchRoot, owns); ok {
 		return origin, true
 	}
 	current := process
@@ -919,7 +998,7 @@ func fixtureServer(process Process, byPID map[int]Process, session, stateDir str
 			}
 			return fixtureOrigin{}, false
 		}
-		if origin, ok := nativeFixture(parent, stateDir, owns); ok {
+		if origin, ok := nativeFixture(parent, stateDir, scratchRoot, owns); ok {
 			return origin, true
 		}
 		current = parent
@@ -931,11 +1010,11 @@ func fixtureServer(process Process, byPID map[int]Process, session, stateDir str
 // session runs its stand-ins from: the native terminal host of another CFO
 // home, or a program run from a goblin's Go temporary directory and from that
 // goblin's own worktree or scratch directory.
-func nativeFixture(process Process, stateDir string, owns func(dir, task string) bool) (fixtureOrigin, bool) {
+func nativeFixture(process Process, stateDir, scratchRoot string, owns func(dir, task string) bool) (fixtureOrigin, bool) {
 	if dirs, scratch := scratchHost(process, stateDir); scratch {
 		return fixtureOrigin{Process: process, Dirs: append([]string{process.Cwd}, dirs...), ScratchHome: true}, true
 	}
-	if task, ok := goTestTask(process); ok && owns(process.Cwd, task) {
+	if task, ok := goTestTask(process, scratchRoot); ok && owns(process.Cwd, task) {
 		return fixtureOrigin{Process: process, GoTestTask: task}, true
 	}
 	return fixtureOrigin{}, false
@@ -943,12 +1022,16 @@ func nativeFixture(process Process, stateDir string, owns func(dir, task string)
 
 // runsForTask reports whether dir, a process's working directory, lies in
 // task's own worktree, an extra worktree ownerOf gives it, or its scratch
-// directory: its task temporary directory or its Claude Code scratchpad. A Go
+// directory: its task temporary directory, its scratch folder or its Claude
+// Code scratchpad. A Go
 // temporary directory alone names no owner: the shared no-mistakes daemon
 // builds every goblin's gate tests under the directory of whichever goblin
 // started it, and runs them from the gate's own worktree.
 func runsForTask(dir, task string, inv Inventory, tasks map[string]Task, unreadable map[string]bool) bool {
 	if inv.StateDir != "" && pathWithin(dir, filepath.Join(inv.StateDir, "tasktmp", task)) {
+		return true
+	}
+	if inv.ScratchRoot != "" && pathWithin(dir, inv.ScratchRoot+`\`+task) {
 		return true
 	}
 	worktree, ok := worktreeHolding(scratchpadOwner(dir, inv.Worktrees), inv.Worktrees)
@@ -976,16 +1059,22 @@ type fixtureOrigin struct {
 	GoTestTask  string
 }
 
-// goTestTask is the task whose Go temporary directory,
-// %LOCALAPPDATA%\cfo\gotmp\<fleet>\<task id> (state.GoTmpDir), process's program
-// runs from. A goblin's Go test builds its test binary there, and the
-// stand-ins it starts run from the test's own temporary directory under it,
-// so the path names the goblin the test may be; runsForTask decides whether
-// it is.
-func goTestTask(process Process) (string, bool) {
+// goTestTask is the task whose Go temporary directory process's program runs
+// from: its scratch folder, <scratchRoot>\<task id>, or for a goblin an older
+// build spawned %LOCALAPPDATA%\cfo\gotmp\<fleet>\<task id> (state.GoTmpDir). A
+// goblin's Go test builds its test binary there, and the stand-ins it starts
+// run from the test's own temporary directory under it, so the path names the
+// goblin the test may be; runsForTask decides whether it is.
+func goTestTask(process Process, scratchRoot string) (string, bool) {
 	args := commandArgs(process.CommandLine)
 	if len(args) == 0 {
 		return "", false
+	}
+	if root := strings.TrimSuffix(normalizePath(scratchRoot), `\`); root != "" {
+		if rest, ok := strings.CutPrefix(normalizePath(args[0]), root+`\`); ok {
+			task, _, _ := strings.Cut(rest, `\`)
+			return task, task != ""
+		}
 	}
 	parts := strings.FieldsFunc(args[0], func(r rune) bool { return r == '\\' || r == '/' })
 	for index := 1; index+3 < len(parts); index++ {

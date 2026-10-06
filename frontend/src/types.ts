@@ -82,6 +82,10 @@ export interface Memory {
 // CommitHolder is one app's commit: its first process and every process it
 // started.
 export interface CommitHolder { name: string; commit: number }
+// Disk is the free space of the home's drive in bytes beside the floor under
+// which no goblin or gate test run starts and the lower mark at which the CFO
+// is woken.
+export interface Disk { drive: string; free: number; total: number; floor: number; wake: number }
 export interface Session {
   runtime?: RuntimeEvidence;
   id: string;
@@ -194,6 +198,8 @@ export interface Snapshot {
   credentials?: CredentialRequest[];
   // memory is absent on a board that cannot start goblins or read it.
   memory: Memory | null;
+  // disk is absent on a board that cannot read it.
+  disk: Disk | null;
   afk: Afk;
 }
 // AfkHeld is an item held for the Overlord while AFK mode is on: its key in
@@ -525,6 +531,9 @@ export function parseSnapshot(value: unknown): Snapshot {
       paged_pool: number(paged_pool), nonpaged_pool: number(nonpaged_pool), floor: number(floor), next: number(next),
       holders: array(holders).map((value) => { const h = object(value); return { name: string(h.name), commit: number(h.commit) }; }),
     }))(object(v.memory)),
+    disk: v.disk === undefined || v.disk === null ? null : (({ drive, free, total, floor, wake }) => ({
+      drive: string(drive), free: number(free), total: number(total), floor: number(floor), wake: number(wake),
+    }))(object(v.disk)),
     retired: strings(v.retired),
     issues: strings(v.issues),
     attention: strings(v.attention),

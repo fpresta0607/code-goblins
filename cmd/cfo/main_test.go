@@ -172,6 +172,11 @@ func TestMain(m *testing.M) {
 	if err := os.Setenv("CODEX_HOME", configDir); err != nil {
 		panic(err)
 	}
+	// Doctor's harness map reads Pi's folder, which is this machine's own and
+	// absent on a runner with no Pi.
+	if err := os.Setenv("PI_CODING_AGENT_DIR", configDir); err != nil {
+		panic(err)
+	}
 	// The process value answers before the user scope is read, so pinning it
 	// keeps every test that runs a real command off this machine's registry,
 	// and off whichever checkouts its operator happens to keep.

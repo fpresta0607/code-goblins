@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"path/filepath"
 	"strings"
+
+	"github.com/fpresta0607/code-goblins/internal/home"
 )
 
 // OwnerKind names who a running thing belongs to. The four are the four
@@ -59,7 +61,11 @@ func (o Owner) Label() string {
 // built once from an inventory and then asked; the lookups behind it are what
 // make each answer provable.
 type Attribution struct {
-	// worktrees maps a normalized worktree path to the live task holding it.
+	// worktreesRoot is the home's worktrees folder, where a path names the
+	// project and task of the worktree it is in.
+	worktreesRoot string
+	// worktrees maps a normalized worktree path, a task's own or an extra
+	// one it recorded, to the live task holding it.
 	worktrees map[string]Task
 	// tasks maps a task id to its live record. A task that recorded no
 	// worktree is absent from worktrees but still live, and a name-based
@@ -93,6 +99,7 @@ type declaredStack struct {
 // NewAttribution indexes an inventory for attribution.
 func NewAttribution(inv Inventory) Attribution {
 	attribution := Attribution{
+		worktreesRoot: inv.WorktreesRoot,
 		worktrees:     make(map[string]Task, len(inv.Tasks)),
 		tasks:         make(map[string]Task, len(inv.Tasks)),
 		checkouts:     make(map[string]Checkout, len(inv.Checkouts)),
@@ -106,8 +113,10 @@ func NewAttribution(inv Inventory) Attribution {
 	}
 	for _, task := range inv.Tasks {
 		attribution.tasks[task.ID] = task
-		if task.Worktree != "" {
-			attribution.worktrees[normalize(task.Worktree)] = task
+		for _, worktree := range append([]string{task.Worktree}, task.Extras...) {
+			if worktree != "" {
+				attribution.worktrees[normalize(worktree)] = task
+			}
 		}
 	}
 	for key, found := range inv.Present {
@@ -223,10 +232,10 @@ func (a Attribution) Of(workDir, stack string) Owner {
 			Evidence: "carries neither a working directory nor a stack name, so nothing can be traced back to a project or a task",
 		}
 	}
-	if taskID, ok := worktreeTaskID(workDir); ok && a.retired[taskID] {
+	if taskID, ok := a.worktreeTaskID(workDir); ok && a.retired[taskID] {
 		return Owner{
 			Kind:     OwnerUnowned,
-			Project:  projectFromWorktree(workDir),
+			Project:  a.projectFromWorktree(workDir),
 			TaskID:   taskID,
 			Evidence: fmt.Sprintf("started from %s, whose task %s has been retired", workDir, taskID),
 			Reap:     true,
@@ -236,11 +245,11 @@ func (a Attribution) Of(workDir, stack string) Owner {
 	if checked && !found {
 		owner := Owner{
 			Kind:     OwnerUnowned,
-			Project:  projectFromWorktree(workDir),
+			Project:  a.projectFromWorktree(workDir),
 			Evidence: fmt.Sprintf("started from %s, which is no longer on disk", workDir),
 			Reap:     true,
 		}
-		if taskID, ok := worktreeTaskID(workDir); ok {
+		if taskID, ok := a.worktreeTaskID(workDir); ok {
 			owner.TaskID = taskID
 		}
 		return owner
@@ -250,13 +259,13 @@ func (a Attribution) Of(workDir, stack string) Owner {
 		// pointer on a directory nothing has established is gone.
 		return Owner{
 			Kind:     OwnerUnowned,
-			Project:  projectFromWorktree(workDir),
+			Project:  a.projectFromWorktree(workDir),
 			Evidence: fmt.Sprintf("started from %s, which no project manifest and no task record claims and which was not checked on disk", workDir),
 		}
 	}
 	return Owner{
 		Kind:     OwnerOverlord,
-		Project:  projectFromWorktree(workDir),
+		Project:  a.projectFromWorktree(workDir),
 		Evidence: fmt.Sprintf("started from %s, which exists but no project manifest and no task record claims", workDir),
 	}
 }
@@ -276,11 +285,12 @@ func (a Attribution) taskIn(dir string) (Task, bool) {
 
 // checkoutIn resolves a directory to the project checkout containing it.
 //
-// The search stops at a fleet worktree: a worktree lives inside the checkout
-// it was made from but is never part of it, and without that stop every
-// leftover in a retired worktree would read as the project's own checkout.
+// The search stops at a fleet worktree: one an older build made lives inside
+// the checkout it was made from but is never part of it, and without that
+// stop every leftover in a retired worktree would read as the project's own
+// checkout.
 func (a Attribution) checkoutIn(dir string) (Checkout, bool) {
-	if _, inWorktree := worktreeRoot(dir); inWorktree {
+	if _, inWorktree := home.LocateWorktree(a.worktreesRoot, dir); inWorktree {
 		return Checkout{}, false
 	}
 	for _, key := range ancestors(dir) {
@@ -310,7 +320,7 @@ func ancestors(dir string) []string {
 }
 
 // taskFromStack recovers the task id a stack name carries, with or without
-// the gb- prefix spawn gives a worktree. Only an id the fleet has a record of
+// the gb- prefix an older build gave a worktree. Only an id the fleet has a record of
 // counts, live or retired: a stack that merely happens to be named like a
 // task is not one, and inventing a task id for it would be worse than
 // reporting no owner at all.
@@ -318,7 +328,7 @@ func (a Attribution) taskFromStack(stack string) (string, bool) {
 	if stack == "" {
 		return "", false
 	}
-	for _, candidate := range []string{strings.TrimPrefix(stack, worktreePrefix), stack} {
+	for _, candidate := range []string{strings.TrimPrefix(stack, home.LegacyWorktreePrefix), stack} {
 		if candidate == "" {
 			continue
 		}
@@ -338,53 +348,19 @@ func (a Attribution) liveTask(id string) (Task, bool) {
 	return task, ok
 }
 
-// worktreePrefix is the directory every fleet worktree lives under, and the
-// gb- prefix spawn gives each one. Together they are what lets a bare path
-// name the task that held it, long after the task's record is archived.
-const (
-	worktreeDirName = ".worktrees"
-	worktreePrefix  = "gb-"
-)
-
-// worktreeRoot finds the fleet worktree a directory is inside: the directory
-// itself, or the nearest ancestor whose parent is .worktrees. It returns false
-// for any path that is not inside a fleet worktree, so a project checkout or
-// an unrelated directory never gets a task attributed to it.
-func worktreeRoot(dir string) (string, bool) {
-	cleaned := strings.TrimRight(filepath.Clean(dir), `\/`)
-	for cleaned != "" {
-		parent := filepath.Dir(cleaned)
-		if strings.EqualFold(filepath.Base(parent), worktreeDirName) {
-			if id, ok := strings.CutPrefix(filepath.Base(cleaned), worktreePrefix); ok && id != "" {
-				return cleaned, true
-			}
-			return "", false
-		}
-		if parent == cleaned {
-			break
-		}
-		cleaned = parent
-	}
-	return "", false
+// worktreeTaskID recovers the task id of the fleet worktree a directory is
+// inside, from its folder's name, in the home or where an older build put
+// it. That is what lets a bare path name the task that held it, long after
+// the task's record is archived.
+func (a Attribution) worktreeTaskID(dir string) (string, bool) {
+	place, ok := home.LocateWorktree(a.worktreesRoot, dir)
+	return place.Name, ok
 }
 
-// worktreeTaskID recovers the task id of the worktree a directory is inside.
-func worktreeTaskID(dir string) (string, bool) {
-	root, ok := worktreeRoot(dir)
-	if !ok {
-		return "", false
-	}
-	return strings.TrimPrefix(filepath.Base(root), worktreePrefix), true
-}
-
-// projectFromWorktree names the project a worktree path belongs to: the
-// directory holding the .worktrees/ the worktree sits in.
-func projectFromWorktree(dir string) string {
-	root, ok := worktreeRoot(dir)
-	if !ok {
-		return ""
-	}
-	return projectName(filepath.Dir(filepath.Dir(root)))
+// projectFromWorktree names the project a fleet worktree path belongs to.
+func (a Attribution) projectFromWorktree(dir string) string {
+	place, _ := home.LocateWorktree(a.worktreesRoot, dir)
+	return place.Project
 }
 
 // projectName is a checkout path reduced to the name the fleet calls it by.

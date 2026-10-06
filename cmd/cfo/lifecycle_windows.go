@@ -60,7 +60,7 @@ func defaultTaskLifecycle(ctx context.Context, h home.Home, request lifecycle.Re
 			bounded, cancel := context.WithTimeout(ctx, 10*time.Second)
 			defer cancel()
 			var err error
-			resources, err = lifecycle.TaskResources(bounded, h.State, meta, gate)
+			resources, err = lifecycle.TaskResources(bounded, h, meta, gate)
 			stopped, teardown, stopErr := lifecycle.StopResources(bounded, resources)
 			for _, process := range teardown {
 				isTracked := false
@@ -146,7 +146,11 @@ func defaultTaskLifecycle(ctx context.Context, h home.Home, request lifecycle.Re
 			if err != nil {
 				return err
 			}
-			return supervisor.CheckLaunch(h, memory)
+			disk, err := supervisor.MachineDisk(h)
+			if err != nil {
+				return fmt.Errorf("free disk cannot be read, so nothing resumes: %w", err)
+			}
+			return supervisor.CheckLaunch(h, memory, disk)
 		},
 		Notify: func(record state.Lifecycle) error {
 			return lifecycle.Report(h.State, record)

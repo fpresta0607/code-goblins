@@ -1,8 +1,10 @@
-// Package worktree acquires, provisions, and returns isolated in-repo Git
-// worktrees for goblin tasks. A worktree lives at
-// <project>/.worktrees/<holder>, inside the repository it belongs to, so the
-// project tooling, credentials, and dependency caches the operator already
-// set up are one directory away instead of stranded in the primary checkout.
+// Package worktree acquires, provisions, and returns isolated Git worktrees
+// for goblin tasks. A worktree lives in the CFO home, at
+// <home>\worktrees\<project folder>\<task id>, never inside the project:
+// the project's checkout gains no folder and no file, its tools never walk a
+// goblin's copy of the code, and a worktree inherits neither the project's
+// CLAUDE.md as a parent memory nor its node_modules by walking up.
+// Provisioning shares the project's config and caches into it instead.
 package worktree
 
 import (
@@ -21,12 +23,10 @@ import (
 // Git provides the Git commands the service needs. It is an interface so
 // orchestration tests do not need a real repository.
 type Git interface {
-	// Acquire creates a detached worktree for holder at
-	// <project>/.worktrees/<holder>, based on origin's current default-branch
-	// commit, and returns its path. The .worktrees directory is registered in
-	// the clone's info/exclude first, so the worktree is invisible to the
-	// project's own git status without touching .gitignore.
-	Acquire(ctx context.Context, project, holder string) (string, error)
+	// Acquire creates a detached worktree at path, outside project, based on
+	// ref, or on origin's current default-branch commit when ref is empty,
+	// and returns its path.
+	Acquire(ctx context.Context, project, path, ref string) (string, error)
 	WorktreeTop(ctx context.Context, dir string) (string, error)
 	// Return removes a worktree and prunes its administrative entry. The
 	// uncommitted-work check comes first and a refused Return must change
@@ -44,12 +44,21 @@ type Git interface {
 	// It reports whether it seeded anything; a repo that already has a commit
 	// is left untouched.
 	EnsureSeeded(ctx context.Context, project string) (bool, error)
+	// Landing reads where a worktree's work stands against the default
+	// branch, and ArchiveTag keeps unlanded work reachable as a local
+	// archive tag before its worktree goes.
+	Landing(ctx context.Context, dir string) (Landing, error)
+	ArchiveTag(ctx context.Context, dir string, landing Landing, name string) (string, error)
 }
 
-// Service coordinates a single in-repo worktree lifecycle.
+// Service coordinates a single worktree lifecycle.
 type Service struct {
 	Commands execx.Runner
 	Git      Git
+	// Root is the home's worktrees folder. A task's worktree is
+	// <Root>\<project folder>\<task id>, and an extra one beside it
+	// <task id>-<name>.
+	Root string
 	// DataDir is the CFO home's data directory, where per-project worktree
 	// manifests live under projects/<name>/worktree.json. Provisioning reads
 	// it; acquisition and return do not.
@@ -62,20 +71,70 @@ type Worktree struct {
 	Path string
 }
 
-// Acquire creates a fresh in-repo worktree for holder. Holder is the task's
-// goblin name ("gb-<id>"); spawn's per-home lock and task-id uniqueness make
-// the path itself the lease, so no second ledger can drift from Git's own
-// worktree registry.
-func (s Service) Acquire(ctx context.Context, project, holder string) (Worktree, error) {
+// Path is where the worktree named name of project goes: the project's folder
+// under Root, named for its checkout's folder, so every worktree of one
+// project sits together.
+func (s Service) Path(project, name string) (string, error) {
+	if strings.TrimSpace(s.Root) == "" || !filepath.IsAbs(s.Root) {
+		return "", fmt.Errorf("worktree: the home's worktrees folder %q is not an absolute path", s.Root)
+	}
+	if strings.TrimSpace(name) == "" || name != filepath.Base(name) || name == "." || name == ".." {
+		return "", fmt.Errorf("worktree: %q is not a usable worktree name", name)
+	}
+	folder := filepath.Base(filepath.Clean(project))
+	if folder == "" || folder == "." || folder == string(filepath.Separator) || strings.HasSuffix(folder, ":") {
+		return "", fmt.Errorf("worktree: project %q names no folder", project)
+	}
+	return filepath.Join(s.Root, folder, name), nil
+}
+
+// Acquire creates a fresh worktree named for task id in the project's folder
+// under Root, on origin's default branch. Spawn's per-home lock and task-id
+// uniqueness make the path itself the lease, so no second ledger can drift
+// from Git's own worktree registry.
+func (s Service) Acquire(ctx context.Context, project, id string) (Worktree, error) {
+	return s.acquire(ctx, project, id, "")
+}
+
+// AddExtra creates a task's extra worktree, <id>-<name>, beside its own in
+// the project's folder under Root, on ref or, when ref is empty, on origin's
+// default branch. The caller records it on the task, which is what makes it
+// the task's and removes it with the task.
+func (s Service) AddExtra(ctx context.Context, project, id, name, ref string) (Worktree, error) {
+	if !validExtraName(name) {
+		return Worktree{}, fmt.Errorf("worktree: extra worktree name %q must be 1 to 32 letters, digits, dots, dashes or underscores", name)
+	}
+	return s.acquire(ctx, project, id+"-"+name, ref)
+}
+
+func validExtraName(name string) bool {
+	if name == "" || len(name) > 32 || name == "." || name == ".." {
+		return false
+	}
+	for _, char := range name {
+		switch {
+		case char >= 'a' && char <= 'z', char >= 'A' && char <= 'Z', char >= '0' && char <= '9', char == '.', char == '-', char == '_':
+		default:
+			return false
+		}
+	}
+	return true
+}
+
+func (s Service) acquire(ctx context.Context, project, name, ref string) (Worktree, error) {
 	primary, err := fsx.Canonical(project)
 	if err != nil {
 		return Worktree{}, fmt.Errorf("worktree: canonicalize primary project %q: %w", project, err)
+	}
+	target, err := s.Path(primary, name)
+	if err != nil {
+		return Worktree{}, err
 	}
 	git, err := s.git()
 	if err != nil {
 		return Worktree{}, err
 	}
-	path, err := git.Acquire(ctx, primary, holder)
+	path, err := git.Acquire(ctx, primary, target, ref)
 	if err != nil {
 		return Worktree{}, err
 	}
@@ -87,33 +146,6 @@ func (s Service) Acquire(ctx context.Context, project, holder string) (Worktree,
 		return Worktree{}, fmt.Errorf("worktree: acquired worktree %q is the primary project", path)
 	}
 	return Worktree{Path: path}, nil
-}
-
-// GitignoreNotice returns the one line to show when project is about to get
-// its first worktree and its own .gitignore does not cover .worktrees/, or ""
-// otherwise. Acquire already hides the directory from git through the clone's
-// info/exclude, but everything else that walks a checkout - formatters,
-// bundlers, test runners, deploy uploads - reads .gitignore and nothing else,
-// so an uncovered checkout has them crawling every goblin's copy of the code.
-//
-// It only ever says so. The repository is the operator's, and a tracked file
-// there is not this tool's to edit. A checkout git cannot answer for gets no
-// notice rather than a guess: the line is advice, never a gate.
-func (s Service) GitignoreNotice(ctx context.Context, project string) string {
-	if entries, _ := os.ReadDir(filepath.Join(project, ".worktrees")); len(entries) > 0 {
-		return ""
-	}
-	if s.Commands == nil {
-		return ""
-	}
-	// -v names the file the deciding rule came from. Only the root .gitignore
-	// can be written as the bare name here: info/exclude and a global excludes
-	// file both print with a directory in front.
-	result, err := s.Commands.Run(ctx, execx.Request{Dir: project, Name: "git", Args: []string{"check-ignore", "-v", ".worktrees/"}})
-	if err != nil || result.ExitCode > 1 || strings.HasPrefix(string(result.Stdout), ".gitignore:") {
-		return ""
-	}
-	return fmt.Sprintf("warning: %s does not ignore .worktrees/; add the line `.worktrees/` to it so the tools that read .gitignore skip goblin worktrees (cfo never edits your repository, and git itself already ignores them through info/exclude)", filepath.Join(project, ".gitignore"))
 }
 
 // Return releases an acquired worktree: its shared links are unlinked, the
