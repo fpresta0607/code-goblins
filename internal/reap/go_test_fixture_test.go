@@ -7,6 +7,10 @@ import (
 
 const boardGoTmp = `C:\Users\op\AppData\Local\cfo\gotmp\0b49f5f9\board`
 
+// fleetScratch is the home's scratch folder, where a goblin's TEMP, TMP and
+// GOTMPDIR point, one folder per task.
+const fleetScratch = `C:\Users\op\AppData\Local\CodeGoblins\scratch`
+
 // boardTestDir is where go test runs the board goblin's spawn tests: the
 // package's directory in its own worktree.
 const boardTestDir = liveWorktree + `\internal\spawn`
@@ -25,21 +29,27 @@ func withGoTest(inv Inventory, goTmp, dir string) Inventory {
 	return inv
 }
 
-// A goblin's Go tests run under its own Go temporary directory,
-// %LOCALAPPDATA%\cfo\gotmp\<fleet>\<task id>, so a test binary serving as a
+// A goblin's Go tests run under its own Go temporary directory, its scratch
+// folder <home>\scratch\<task id>, or %LOCALAPPDATA%\cfo\gotmp\<fleet>\<task
+// id> for a goblin an older build spawned, so a test binary serving as a
 // native terminal host there, and the stand-in harness it runs, belong to the
 // task that path names: skipped while that goblin lives, and reported against
 // it once it is gone. Reap reported both as unsupervised harnesses of no task.
 func TestAGoblinsGoTestStandInsAreItsFixture(t *testing.T) {
 	for name, test := range map[string]struct {
+		goTmp           string
 		alive, reported bool
 	}{
-		"a live goblin": {true, false},
-		"a dead goblin": {false, true},
+		"a live goblin, its scratch folder":           {fleetScratch + `\board`, true, false},
+		"a dead goblin, its scratch folder":           {fleetScratch + `\board`, false, true},
+		"a live goblin, an older build's Go temp dir": {boardGoTmp, true, false},
+		"a dead goblin, an older build's Go temp dir": {boardGoTmp, false, true},
 	} {
 		t.Run(name, func(t *testing.T) {
 			// Arrange
-			inv := withGoTest(fleetWithGoblin(test.alive, "done: PR https://example.invalid/pull/1"), boardGoTmp, boardTestDir)
+			inv := fleetWithGoblin(test.alive, "done: PR https://example.invalid/pull/1")
+			inv.ScratchRoot = fleetScratch
+			inv = withGoTest(inv, test.goTmp, boardTestDir)
 
 			// Act
 			orphans := classOf(Classify(inv), OrphanProcess)
@@ -71,12 +81,14 @@ func TestALiveGoblinsGoTestRunFromItsOwnDirectoriesIsItsFixture(t *testing.T) {
 		"its worktree":          boardTestDir,
 		"its extra worktree":    `C:\dev\proj\.worktrees\gb-board-2\internal\spawn`,
 		"its task temporary":    fleetState + `\tasktmp\board`,
+		"its scratch folder":    fleetScratch + `\board\TestSpawn123\001`,
 		"its Claude scratchpad": `C:\Users\op\AppData\Local\Temp\claude\c--dev-proj--worktrees-gb-board\5f0c2e1a\scratchpad`,
 	} {
 		t.Run(name, func(t *testing.T) {
 			// Arrange
 			inv := fleetWithGoblin(true, "done: PR https://example.invalid/pull/1")
 			inv.StateDir = fleetState
+			inv.ScratchRoot = fleetScratch
 			inv.Worktrees = append(inv.Worktrees, WorktreeDir{Path: `C:\dev\proj\.worktrees\gb-board-2`, Project: `C:\dev\proj`, TaskID: "board-2", Registration: RegistrationListed, Created: fixtureLater})
 			inv = withGoTest(inv, boardGoTmp, dir)
 

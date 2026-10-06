@@ -187,17 +187,17 @@ func (s Service) Switch(ctx context.Context, req SwitchRequest) (result SwitchRe
 	if err != nil {
 		return SwitchResult{}, fmt.Errorf("switch: %w", err)
 	}
-	// A relaunch reuses the task's own Go temporary directory and recreates it
-	// if it is missing; cleanup.removeGoTmp documents when it is retired. Both
-	// the path and the directory are knowable now - an unresolvable user cache
-	// directory or an unwritable one is a fleet-wide misconfiguration, and
-	// discovering it after the stop would leave the goblin with no harness.
-	goTmp, err := state.GoTmpDir(s.StateDir, req.ID)
+	// A relaunch reuses the task's own scratch folder and recreates it if it
+	// is missing; cleanup removes it with the task. Both the path and the
+	// folder are knowable now - an unwritable one is a fleet-wide
+	// misconfiguration, and discovering it after the stop would leave the
+	// goblin with no harness.
+	scratch, err := state.TaskScratch(s.StateDir, meta)
 	if err != nil {
 		return SwitchResult{}, err
 	}
-	if err := os.MkdirAll(goTmp, 0o755); err != nil {
-		return SwitchResult{}, fmt.Errorf("switch: create go temporary directory: %w", err)
+	if err := os.MkdirAll(scratch, 0o755); err != nil {
+		return SwitchResult{}, fmt.Errorf("switch: create the task's scratch folder: %w", err)
 	}
 	briefPath := meta.Brief
 	if briefPath == "" {
@@ -208,7 +208,7 @@ func (s Service) Switch(ctx context.Context, req SwitchRequest) (result SwitchRe
 	launch, err := adapter.Build(harness.LaunchSpec{
 		BriefPath:       briefPath,
 		TaskTmp:         meta.TaskTmp,
-		GoTmp:           goTmp,
+		Scratch:         scratch,
 		Model:           target.Model,
 		Effort:          target.Effort,
 		MCPConfig:       goblinMCPConfig(meta.TaskTmp),

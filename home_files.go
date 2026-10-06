@@ -4,12 +4,18 @@ package codegoblins
 
 import "embed"
 
-// Contract is the CFO's operating contract, its skills and the docs the
-// contract links to. The binary owns these: every install brings a home's
-// copies up to date.
+// Contract is the CFO's operating contract and the docs the contract links
+// to. The binary owns these: every install brings a home's copies up to date.
 //
-//go:embed AGENTS.md CLAUDE.md .agents/skills docs/pipeline.md docs/native-board.md
+//go:embed AGENTS.md CLAUDE.md docs/pipeline.md docs/native-board.md
 var Contract embed.FS
+
+// Skills are the skills Code Goblins ships, one folder each under
+// .agents/skills. An install keeps one copy of each in the user's shared
+// skills folder, which every harness reads, never in the home.
+//
+//go:embed .agents/skills
+var Skills embed.FS
 
 // Policy is the gate policy and the lane table the binary reads from its
 // home. They ship as defaults and then belong to the operator, who tunes

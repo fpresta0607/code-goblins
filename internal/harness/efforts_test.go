@@ -18,7 +18,7 @@ func TestCatalogEffortsBuildInTheNativeAdapters(t *testing.T) {
 				t.Fatal(err)
 			}
 			for _, effort := range efforts {
-				if _, err := adapter.Build(LaunchSpec{BriefPath: filepath.Join(root, "brief.md"), TaskTmp: root, GoTmp: root, Effort: effort}); err != nil {
+				if _, err := adapter.Build(LaunchSpec{BriefPath: filepath.Join(root, "brief.md"), TaskTmp: root, Scratch: root, Effort: effort}); err != nil {
 					t.Fatalf("catalog effort %s refused: %v", effort, err)
 				}
 			}

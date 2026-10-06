@@ -7,6 +7,7 @@ import (
 	"regexp"
 	"strings"
 
+	"github.com/fpresta0607/code-goblins/internal/afk"
 	"github.com/fpresta0607/code-goblins/internal/supervisor"
 )
 
@@ -29,6 +30,12 @@ func runQuestion(args []string, stdout, stderr io.Writer, runtime commandRuntime
 	if err != nil {
 		fmt.Fprintln(stderr, err)
 		return 1
+	}
+	// While AFK mode is on, what the CFO would have asked the Overlord is held
+	// for him with the choice it would make.
+	if switched, err := afk.Read(h.State); err == nil && switched.On && len(options) > 0 && *recommended == "" {
+		fmt.Fprintln(stderr, "cfo question: AFK mode is on, so this is held for the Overlord under Held for you, never asked, and it carries your recommendation: pass --recommend with the choice you would make")
+		return 2
 	}
 	c := supervisor.CFOConnection{State: h.State}
 	if err := c.PublishQuestion(*id, *text, options, *recommended); err != nil {

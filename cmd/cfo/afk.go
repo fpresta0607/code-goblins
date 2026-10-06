@@ -249,6 +249,9 @@ func afkStatus(h home.Home, stdout, stderr io.Writer) int {
 			whose = entry.Task + "'s"
 		}
 		fmt.Fprintf(stdout, "- %s, %s: %s\n", entry.Item, whose, entry.What)
+		if recommends := afk.Recommends(entry.Task, entry.Recommendation, true); recommends != "" {
+			fmt.Fprintln(stdout, "  "+recommends)
+		}
 	}
 	if unreadable > 0 {
 		fmt.Fprintf(stdout, "\n%d line(s) of the log (state/afk.audit) could not be read.\n", unreadable)

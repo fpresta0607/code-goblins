@@ -2,7 +2,7 @@ import { useRef, useState, type ReactNode } from "react";
 import { object, type Snapshot, type Task } from "./types";
 import type { CardStart } from "./TaskCard";
 import { message, request } from "./api";
-import { memoryBlock, queueBlock, slotBlock } from "./start";
+import { diskBlock, memoryBlock, queueBlock, slotBlock } from "./start";
 import { Icon } from "./Icon";
 import { StopTaskDialog } from "./stop-task-dialog";
 import { plainText, withoutHarness } from "./task-words";
@@ -26,7 +26,8 @@ export function TaskControls({ task, snapshot, start, leading, labelled = false,
   const isResumeRetry = task.lifecycle?.action === "resume" && ["failed", "resuming"].includes(task.lifecycle.phase);
   const canResume = task.phase === "paused" || isResumeRetry;
   const canPause = !!task.generation && !canResume && !task.archived;
-  const resumeBlock = isResumeRetry ? "" : memoryBlock(snapshot.memory) ? "Resume needs " + memoryBlock(snapshot.memory) : slotBlock(snapshot.memory);
+  const resumeNeeds = memoryBlock(snapshot.memory) || diskBlock(snapshot.disk);
+  const resumeBlock = isResumeRetry ? "" : resumeNeeds ? "Resume needs " + resumeNeeds : slotBlock(snapshot.memory);
   const act = async (action: "pause" | "resume" | "stop") => {
     if (isChanging) return;
     setConfirmation(null); setProblem("");

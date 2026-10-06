@@ -25,34 +25,41 @@ type RunnerGit struct {
 	Sleep    func(context.Context, time.Duration) error
 }
 
-// Acquire creates a detached worktree at <project>/.worktrees/<holder> based
-// on origin's current default-branch commit. The .worktrees directory is
-// registered in the clone's info/exclude first - the per-clone ignore
-// mechanism, so no project's tracked .gitignore has to change - and an
+// Acquire creates a detached worktree at path, outside the project, based on
+// ref, or on origin's current default-branch commit when ref is empty. An
 // existing path is refused rather than reused, because a worktree path is
-// handed to exactly one task.
-func (g RunnerGit) Acquire(ctx context.Context, project, holder string) (string, error) {
-	if strings.TrimSpace(holder) == "" || holder != filepath.Base(holder) {
-		return "", fmt.Errorf("worktree: holder %q is not a usable directory name", holder)
+// handed to exactly one task. Nothing is written into the project: git keeps
+// the worktree's registration in its own administrative folder, and the
+// worktree is outside every folder the project's tools walk.
+func (g RunnerGit) Acquire(ctx context.Context, project, path, ref string) (string, error) {
+	if strings.TrimSpace(path) == "" || !filepath.IsAbs(path) {
+		return "", fmt.Errorf("worktree: worktree path %q is not an absolute path", path)
 	}
-	target, _, err := g.fetchDefault(ctx, project)
-	if err != nil {
-		return "", err
+	target := ref
+	if target == "" {
+		var err error
+		if target, _, err = g.fetchDefault(ctx, project); err != nil {
+			return "", err
+		}
 	}
-	if err := g.ensureExcluded(ctx, project, ".worktrees/"); err != nil {
-		return "", err
-	}
-	path := filepath.Join(project, ".worktrees", holder)
 	if _, err := os.Stat(path); err == nil {
 		return "", fmt.Errorf("worktree: %q already exists; refusing to reuse another task's worktree", path)
 	} else if !errors.Is(err, os.ErrNotExist) {
 		return "", fmt.Errorf("worktree: inspect %q: %w", path, err)
 	}
-	if _, err := g.required(ctx, project, "git", "worktree", "add", "--detach", path, target); err != nil {
-		return "", fmt.Errorf("worktree: add worktree for %q: %w", holder, err)
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		return "", fmt.Errorf("worktree: create %q: %w", filepath.Dir(path), err)
+	}
+	if _, err := g.required(ctx, project, "git", "-c", longPaths, "worktree", "add", "--detach", path, target); err != nil {
+		return "", fmt.Errorf("worktree: add worktree %q: %w", filepath.Base(path), err)
 	}
 	return path, nil
 }
+
+// longPaths lets git create and remove the files of a worktree whose path
+// passes Windows' 260-character limit, as a worktree under the home with a
+// node_modules can, whether or not the machine turned core.longpaths on.
+const longPaths = "core.longpaths=true"
 
 // WorktreeTop reports dir's Git worktree root.
 func (g RunnerGit) WorktreeTop(ctx context.Context, dir string) (string, error) {
@@ -217,7 +224,7 @@ func (g RunnerGit) Return(ctx context.Context, project, worktree string) error {
 		return fmt.Errorf("worktree: unlink shared directories in %q: %w", worktree, err)
 	}
 	for attempt := 0; ; attempt++ {
-		result, err := g.command(ctx, project, "git", "worktree", "remove", "--force", worktree)
+		result, err := g.command(ctx, project, "git", "-c", longPaths, "worktree", "remove", "--force", worktree)
 		if err != nil {
 			return fmt.Errorf("worktree: remove %q: %w", worktree, err)
 		}
@@ -421,4 +428,84 @@ func combinedOutput(result execx.Result) []byte {
 		return result.Stdout
 	}
 	return append(append([]byte{}, result.Stdout...), append([]byte{'\n'}, result.Stderr...)...)
+}
+
+// Landing is where a worktree's work stands against its repository's default
+// branch.
+type Landing struct {
+	// Head is the commit the worktree has checked out.
+	Head string
+	// Branch is the branch it has checked out, empty when HEAD is detached.
+	Branch string
+	// Landed is whether Head is on origin's default branch as this clone last
+	// fetched it. A default branch git cannot name reads as not landed, so
+	// what cannot be proven on it is archived rather than lost.
+	Landed bool
+}
+
+// Landing reads where dir's work stands. It fetches nothing: a default branch
+// fetched long ago can only make landed work read as unlanded, which costs an
+// archive tag and never loses a commit.
+func (g RunnerGit) Landing(ctx context.Context, dir string) (Landing, error) {
+	head, err := g.required(ctx, dir, "git", "rev-parse", "--verify", "--quiet", "HEAD^{commit}")
+	if err != nil {
+		return Landing{}, fmt.Errorf("worktree: read HEAD of %q: %w", dir, err)
+	}
+	landing := Landing{Head: strings.TrimSpace(string(head.Stdout))}
+	if landing.Head == "" {
+		return Landing{}, fmt.Errorf("worktree: HEAD of %q is empty", dir)
+	}
+	branch, err := g.command(ctx, dir, "git", "symbolic-ref", "--quiet", "--short", "HEAD")
+	if err != nil {
+		return Landing{}, fmt.Errorf("worktree: read the branch of %q: %w", dir, err)
+	}
+	if branch.ExitCode == 0 {
+		landing.Branch = strings.TrimSpace(string(branch.Stdout))
+	}
+	defaultBranch, err := g.defaultBranch(ctx, dir)
+	if err != nil {
+		return landing, nil
+	}
+	ancestor, err := g.command(ctx, dir, "git", "merge-base", "--is-ancestor", landing.Head, "refs/remotes/origin/"+defaultBranch)
+	if err != nil {
+		return Landing{}, fmt.Errorf("worktree: compare %q with origin/%s: %w", dir, defaultBranch, err)
+	}
+	switch ancestor.ExitCode {
+	case 0:
+		landing.Landed = true
+	case 1:
+	default:
+		return Landing{}, commandFailure("git merge-base --is-ancestor", ancestor)
+	}
+	return landing, nil
+}
+
+// ArchiveTag keeps a worktree's unlanded work reachable before the worktree
+// goes, as the CONVERGE LIVE WORK rule keeps a swept branch: a local tag
+// refs/tags/archive/<branch>, or archive/<name> for a detached HEAD, at its
+// HEAD. A tag of that name already at HEAD is the same archive; one at another
+// commit is kept, and this one is named with the commit as well. It returns
+// the tag that holds HEAD.
+func (g RunnerGit) ArchiveTag(ctx context.Context, dir string, landing Landing, name string) (string, error) {
+	if landing.Branch != "" {
+		name = landing.Branch
+	}
+	tags := []string{"archive/" + name, "archive/" + name + "-" + landing.Head[:min(12, len(landing.Head))]}
+	for _, tag := range tags {
+		existing, err := g.command(ctx, dir, "git", "rev-parse", "--verify", "--quiet", "refs/tags/"+tag+"^{commit}")
+		if err != nil {
+			return "", fmt.Errorf("worktree: read tag %s: %w", tag, err)
+		}
+		if existing.ExitCode == 0 {
+			if strings.TrimSpace(string(existing.Stdout)) == landing.Head {
+				return tag, nil
+			}
+			continue
+		}
+		if _, err := g.required(ctx, dir, "git", "tag", tag, landing.Head); err != nil {
+			return "", fmt.Errorf("worktree: archive %q as %s: %w", dir, tag, err)
+		}
+		return tag, nil
+	}
+	return "", fmt.Errorf("worktree: tags %s already name other commits; archive %q by hand", strings.Join(tags, " and "), dir)
 }

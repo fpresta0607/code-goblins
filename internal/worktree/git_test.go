@@ -7,6 +7,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"reflect"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -34,8 +35,8 @@ func (r *scriptedRunner) Run(_ context.Context, request execx.Request) (execx.Re
 	return result.result, result.err
 }
 
-// acquireScript is the fetchDefault conversation plus the common-dir probe
-// every Acquire makes before `git worktree add`.
+// acquireScript is the fetchDefault conversation every Acquire on the
+// default branch makes before `git worktree add`.
 func acquireScript() []scriptedResult {
 	return []scriptedResult{
 		{}, // git fetch --quiet origin
@@ -43,25 +44,28 @@ func acquireScript() []scriptedResult {
 		{result: execx.Result{Stdout: []byte("origin/main\n")}},
 		{}, // git fetch refspec
 		{result: execx.Result{Stdout: []byte("abc123\n")}},
-		{result: execx.Result{Stdout: []byte(".git\n")}}, // rev-parse --git-common-dir
 		{}, // git worktree add --detach
 	}
 }
 
-func TestRunnerGitAcquireCreatesInRepoWorktree(t *testing.T) {
+func TestRunnerGitAcquireCreatesTheWorktreeOutsideTheProject(t *testing.T) {
+	// Arrange
 	project := t.TempDir()
 	if err := os.MkdirAll(filepath.Join(project, ".git", "info"), 0o755); err != nil {
 		t.Fatal(err)
 	}
+	path := filepath.Join(t.TempDir(), "worktrees", "app", "task")
 	runner := &scriptedRunner{results: acquireScript()}
 
-	path, err := (RunnerGit{Commands: runner}).Acquire(context.Background(), project, "gb-task")
+	// Act
+	got, err := (RunnerGit{Commands: runner}).Acquire(context.Background(), project, path, "")
+
+	// Assert
 	if err != nil {
 		t.Fatalf("Acquire: %v", err)
 	}
-	wantPath := filepath.Join(project, ".worktrees", "gb-task")
-	if path != wantPath {
-		t.Errorf("path = %q, want the in-repo worktree %q", path, wantPath)
+	if got != path {
+		t.Errorf("path = %q, want %q", got, path)
 	}
 	want := []execx.Request{
 		{Dir: project, Name: "git", Args: []string{"fetch", "--quiet", "origin"}},
@@ -69,84 +73,70 @@ func TestRunnerGitAcquireCreatesInRepoWorktree(t *testing.T) {
 		{Dir: project, Name: "git", Args: []string{"symbolic-ref", "--quiet", "--short", "refs/remotes/origin/HEAD"}},
 		{Dir: project, Name: "git", Args: []string{"fetch", "--quiet", "origin", "+refs/heads/main:refs/remotes/origin/main"}},
 		{Dir: project, Name: "git", Args: []string{"rev-parse", "--verify", "--quiet", "origin/main^{commit}"}},
-		{Dir: project, Name: "git", Args: []string{"rev-parse", "--git-common-dir"}},
-		{Dir: project, Name: "git", Args: []string{"worktree", "add", "--detach", wantPath, "origin/main"}},
+		{Dir: project, Name: "git", Args: []string{"-c", "core.longpaths=true", "worktree", "add", "--detach", path, "origin/main"}},
 	}
 	if !reflect.DeepEqual(runner.calls, want) {
 		t.Errorf("Git calls = %#v\nwant %#v", runner.calls, want)
 	}
-	exclude, err := os.ReadFile(filepath.Join(project, ".git", "info", "exclude"))
-	if err != nil {
-		t.Fatalf("read info/exclude: %v", err)
+	if _, err := os.Stat(filepath.Dir(path)); err != nil {
+		t.Errorf("the project's folder under the worktrees root was not made: %v", err)
 	}
-	if !strings.Contains(string(exclude), ".worktrees/\n") {
-		t.Errorf("info/exclude = %q, want .worktrees/ registered", exclude)
+	if _, err := os.Stat(filepath.Join(project, ".git", "info", "exclude")); !errors.Is(err, os.ErrNotExist) {
+		t.Errorf("Acquire wrote the project's info/exclude: %v", err)
+	}
+	if entries, _ := os.ReadDir(project); len(entries) != 1 {
+		t.Errorf("project holds %v, want only its .git", entries)
 	}
 }
 
-func TestRunnerGitAcquireRegistersExcludeOnce(t *testing.T) {
+func TestRunnerGitAcquireOnARefDetachesThereWithoutFetching(t *testing.T) {
 	project := t.TempDir()
-	infoDir := filepath.Join(project, ".git", "info")
-	if err := os.MkdirAll(infoDir, 0o755); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(filepath.Join(infoDir, "exclude"), []byte("# deps\n.worktrees/\n"), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	runner := &scriptedRunner{results: acquireScript()}
+	path := filepath.Join(t.TempDir(), "app", "task-proof")
+	runner := &scriptedRunner{results: []scriptedResult{{}}}
 
-	if _, err := (RunnerGit{Commands: runner}).Acquire(context.Background(), project, "gb-task"); err != nil {
+	if _, err := (RunnerGit{Commands: runner}).Acquire(context.Background(), project, path, "abc123"); err != nil {
 		t.Fatalf("Acquire: %v", err)
 	}
-	exclude, err := os.ReadFile(filepath.Join(infoDir, "exclude"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	if got := strings.Count(string(exclude), ".worktrees/"); got != 1 {
-		t.Errorf("info/exclude = %q, want .worktrees/ registered exactly once", exclude)
-	}
-	if !strings.HasPrefix(string(exclude), "# deps\n") {
-		t.Errorf("info/exclude = %q, want existing entries preserved", exclude)
+	want := []execx.Request{{Dir: project, Name: "git", Args: []string{"-c", "core.longpaths=true", "worktree", "add", "--detach", path, "abc123"}}}
+	if !reflect.DeepEqual(runner.calls, want) {
+		t.Errorf("Git calls = %#v\nwant %#v", runner.calls, want)
 	}
 }
 
 func TestRunnerGitAcquireRefusesAnExistingPath(t *testing.T) {
 	project := t.TempDir()
-	existing := filepath.Join(project, ".worktrees", "gb-task")
+	existing := filepath.Join(t.TempDir(), "app", "task")
 	if err := os.MkdirAll(existing, 0o755); err != nil {
 		t.Fatal(err)
 	}
 	runner := &scriptedRunner{results: acquireScript()}
 
-	_, err := (RunnerGit{Commands: runner}).Acquire(context.Background(), project, "gb-task")
+	_, err := (RunnerGit{Commands: runner}).Acquire(context.Background(), project, existing, "")
 	if err == nil || !strings.Contains(err.Error(), "already exists") {
 		t.Fatalf("Acquire error = %v, want existing-path refusal", err)
 	}
 	for _, call := range runner.calls {
-		if len(call.Args) > 1 && call.Args[0] == "worktree" && call.Args[1] == "add" {
+		if slices.Contains(call.Args, "add") {
 			t.Fatalf("Acquire added a worktree over an existing path: %#v", call)
 		}
 	}
 }
 
-func TestRunnerGitAcquireRefusesMalformedHolder(t *testing.T) {
-	for _, holder := range []string{"", "..", "a/b", `a\b`} {
-		if _, err := (RunnerGit{Commands: &scriptedRunner{}}).Acquire(context.Background(), t.TempDir(), holder); err == nil {
-			t.Errorf("Acquire(%q) returned nil, want holder refusal", holder)
+func TestRunnerGitAcquireRefusesARelativePath(t *testing.T) {
+	for _, path := range []string{"", "task", `app\task`} {
+		if _, err := (RunnerGit{Commands: &scriptedRunner{}}).Acquire(context.Background(), t.TempDir(), path, ""); err == nil {
+			t.Errorf("Acquire(%q) returned nil, want a refusal", path)
 		}
 	}
 }
 
 func TestRunnerGitAcquireSurfacesAddFailure(t *testing.T) {
 	project := t.TempDir()
-	if err := os.MkdirAll(filepath.Join(project, ".git"), 0o755); err != nil {
-		t.Fatal(err)
-	}
 	results := acquireScript()
 	results[len(results)-1] = scriptedResult{result: execx.Result{ExitCode: 128, Stderr: []byte("fatal: invalid reference")}}
 	runner := &scriptedRunner{results: results}
 
-	_, err := (RunnerGit{Commands: runner}).Acquire(context.Background(), project, "gb-task")
+	_, err := (RunnerGit{Commands: runner}).Acquire(context.Background(), project, filepath.Join(t.TempDir(), "app", "task"), "")
 	if err == nil || !strings.Contains(err.Error(), "invalid reference") {
 		t.Fatalf("Acquire error = %v, want the git worktree add failure", err)
 	}
@@ -173,7 +163,7 @@ func TestRunnerGitReturnRemovesWorktreeAndPrunes(t *testing.T) {
 	}
 	want := []execx.Request{
 		{Dir: worktreePath, Name: "git", Args: []string{"status", "--porcelain"}},
-		{Dir: project, Name: "git", Args: []string{"worktree", "remove", "--force", worktreePath}},
+		{Dir: project, Name: "git", Args: []string{"-c", "core.longpaths=true", "worktree", "remove", "--force", worktreePath}},
 		{Dir: project, Name: "git", Args: []string{"worktree", "prune"}},
 	}
 	if !reflect.DeepEqual(runner.calls, want) {
@@ -213,7 +203,7 @@ func TestRunnerGitReturnRetriesOnlyExactIndexLockCollision(t *testing.T) {
 		t.Fatalf("Git calls = %d, want status, remove, remove, prune", len(runner.calls))
 	}
 	for _, call := range runner.calls[1:3] {
-		want := execx.Request{Dir: project, Name: "git", Args: []string{"worktree", "remove", "--force", worktreePath}}
+		want := execx.Request{Dir: project, Name: "git", Args: []string{"-c", "core.longpaths=true", "worktree", "remove", "--force", worktreePath}}
 		if !reflect.DeepEqual(call, want) {
 			t.Errorf("Git request = %#v, want %#v", call, want)
 		}

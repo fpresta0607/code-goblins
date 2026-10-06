@@ -1,4 +1,5 @@
-import type { Memory } from "./types";
+import type { Disk, Memory } from "./types";
+import { DiskMeter } from "./DiskMeter";
 import { Icon } from "./Icon";
 import { capacityLine, freeGigabytes, holdersLine, meterScale, meterState, poolWarning, tighter } from "./start";
 
@@ -12,8 +13,9 @@ import { capacityLine, freeGigabytes, holdersLine, meterScale, meterState, poolW
 // page file) is the tighter of the two, the meter shows commit instead and
 // names the apps holding the most of it; a leaking paged pool gets a line of
 // its own. Under it, the goblins live against the cap on live goblins, with
-// the setting while memory lowers the cap.
-export function MemoryMeter({ memory }: { memory: Memory }) {
+// the setting while memory lowers the cap. Free disk, when the snapshot has
+// it, is the second meter in the same box, under memory.
+export function MemoryMeter({ memory, disk = null }: { memory: Memory; disk?: Disk | null }) {
   const state = meterState(memory), scale = meterScale(memory), shown = tighter(memory);
   const holders = holdersLine(memory), warning = poolWarning(memory), capacity = memory.capacity && capacityLine(memory.capacity);
   return <div className="memory" role="group" aria-label="Memory">
@@ -33,5 +35,6 @@ export function MemoryMeter({ memory }: { memory: Memory }) {
     {capacity && <div className="memory-line memory-capacity"><span>Goblins live</span><strong>{capacity.live}</strong></div>}
     {capacity?.note && <p className="memory-holders">{capacity.note}</p>}
     <p className="sr-only">{state.text}</p>
+    {disk && <DiskMeter disk={disk} />}
   </div>;
 }

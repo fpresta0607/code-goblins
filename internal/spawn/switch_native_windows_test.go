@@ -8,6 +8,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"reflect"
 	"slices"
 	"strings"
 	"testing"
@@ -397,7 +398,7 @@ func TestTwoEndedNativeCodexTasksDoNotResumeTheForeignLatestSession(t *testing.T
 				}
 			}
 			otherAfter, err := state.ReadTaskMeta(foreign.stateDir, foreign.request.ID)
-			if err != nil || otherAfter != otherBefore || result.Meta.SpawnGen == before.SpawnGen {
+			if err != nil || !reflect.DeepEqual(otherAfter, otherBefore) || result.Meta.SpawnGen == before.SpawnGen {
 				t.Fatalf("foreign task changed or replacement did not advance its generation: %v", err)
 			}
 		})

@@ -25,8 +25,8 @@ Find the fleet resources nothing else notices and retire them:
 an unsupervised harness process whose pane or native terminal host is gone, a
 dev server left running in a worktree no pane's agent or live native terminal
 host is working in, whatever its status log says, an orphaned worktree, task
-record or status log, and the empty directory a dead task leaves under
-.worktrees/.
+record or status log, and the empty directory a dead task leaves among the
+worktrees, in the home's worktrees folder or an older build's .worktrees/.
 
 A harness process is placed by its ancestry and its command line, never by its
 image name: the desktop application and the agents of a no-mistakes review

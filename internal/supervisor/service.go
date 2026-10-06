@@ -982,7 +982,10 @@ type Snapshot struct {
 	CFOConversationLeft string `json:"cfo_conversation_left"`
 	// Memory is the machine's free memory for the Tasks meter, absent on a
 	// board that cannot start goblins or cannot read it.
-	Memory        *Memory             `json:"memory,omitempty"`
+	Memory *Memory `json:"memory,omitempty"`
+	// Disk is the free space of the home's drive for the meter beside
+	// memory, absent on a board that cannot read it.
+	Disk          *Disk               `json:"disk,omitempty"`
 	CIDurations   []CIDuration        `json:"ci_durations,omitempty"`
 	Subscriptions []SubscriptionUsage `json:"subscriptions"`
 	// AFK is AFK mode, the Overlord's switch for running the fleet while he
@@ -1282,6 +1285,11 @@ func (s *Service) Snapshot() (Snapshot, error) {
 				}
 			}
 			out.Memory = &memory
+		}
+		if dispatch.Disk != nil {
+			if disk, err := dispatch.Disk(); err == nil {
+				out.Disk = &disk
+			}
 		}
 	}
 	for _, done := range history {

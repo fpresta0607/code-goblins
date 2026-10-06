@@ -369,9 +369,10 @@ func (s *Service) afkOn() bool {
 	return err == nil && switched.On
 }
 
-// heldItem is a Command Center item that waits on the Overlord.
+// heldItem is a Command Center item that waits on the Overlord, with the
+// choice its asker recommends when it is a question that names one.
 type heldItem struct {
-	kind, id, task, what string
+	kind, id, task, what, recommendation string
 }
 
 func (item heldItem) key() string { return item.kind + ":" + item.id }
@@ -382,12 +383,12 @@ func waitingOnOverlord(d Database) []heldItem {
 	var items []heldItem
 	for _, q := range d.Questions {
 		if q.Status == "pending" {
-			items = append(items, heldItem{"question", q.ID, q.Task, q.Text})
+			items = append(items, heldItem{"question", q.ID, q.Task, q.Text, q.Recommended})
 		}
 	}
 	for _, r := range d.Reviews {
 		if r.State == "open" {
-			items = append(items, heldItem{"review", r.ID, r.Task, r.Title})
+			items = append(items, heldItem{"review", r.ID, r.Task, r.Title, ""})
 		}
 	}
 	for _, r := range d.Runs {
@@ -395,12 +396,12 @@ func waitingOnOverlord(d Database) []heldItem {
 		// connection's repair, is ready only for the moment after his own
 		// click, and was never something that waited on him.
 		if r.State == "ready" && r.CredentialRequest == "" && r.ConnectionTask == "" {
-			items = append(items, heldItem{"run", r.ID, "", r.Title})
+			items = append(items, heldItem{"run", r.ID, "", r.Title, ""})
 		}
 	}
 	for _, c := range d.Credentials {
 		if c.State == "open" {
-			items = append(items, heldItem{"credential", c.ID, c.Task, "Credentials for " + c.Project + " (" + strings.Join(c.Names, ", ") + "): " + c.Why})
+			items = append(items, heldItem{"credential", c.ID, c.Task, "Credentials for " + c.Project + " (" + strings.Join(c.Names, ", ") + "): " + c.Why, ""})
 		}
 	}
 	return items
@@ -434,7 +435,7 @@ func (s *Service) holdForOverlord(now time.Time) error {
 		if s.held[item.key()] {
 			continue
 		}
-		if err := afk.Hold(stateDir, afk.Entry{Item: item.key(), Task: item.task, What: bounded(item.what, 2000)}, now); err != nil {
+		if err := afk.Hold(stateDir, afk.Entry{Item: item.key(), Task: item.task, What: bounded(item.what, 2000), Recommendation: item.recommendation}, now); err != nil {
 			return err
 		}
 		s.held[item.key()] = true
@@ -488,7 +489,7 @@ func (s *Service) heldOf(d Database, entries, decisions []afk.Entry) []afk.Held 
 			continue
 		}
 		waiting, now := heldNow(d, entry.Item, time.Time{})
-		one := afk.Held{Item: entry.Item, Task: entry.Task, What: entry.What, At: entry.At, Waiting: waiting, Now: now}
+		one := afk.Held{Item: entry.Item, Task: entry.Task, What: entry.What, At: entry.At, Waiting: waiting, Now: now, Recommendation: entry.Recommendation}
 		if entry.Task != "" {
 			// A status line is stamped to the second.
 			lines, _ := s.statusTail(entry.Task)

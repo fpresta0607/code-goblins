@@ -76,6 +76,10 @@ type Config struct {
 	// layout.File). Zero leaves the data alone.
 	FileEvery time.Duration
 
+	// JanitorEvery bounds how often the orphan sweep starts the janitor's
+	// pass over the home (see internal/janitor). Zero leaves the home alone.
+	JanitorEvery time.Duration
+
 	// WaitEvent is Task 9's filesystem-notification seam, replacing the
 	// plain Sleep(ctx, Poll) wait between checks. Its bool return has two
 	// halves, both load-bearing: true means an event was observed within
@@ -168,7 +172,7 @@ func ConfigFromEnv(h home.Home) Config {
 			StateDir: h.State,
 			Home:     userHome,
 		},
-		Polls:        monitor.ProcessPolls{},
+		Polls:        monitor.ProcessPolls{StateDir: h.State, Worktrees: h.Worktrees()},
 		Heartbeat:    heartbeat,
 		HeartbeatMax: heartbeatMax,
 	}
@@ -177,6 +181,7 @@ func ConfigFromEnv(h home.Home) Config {
 	// supervision does.
 	cfg.ReapEvery = clampMin1s(claudehook.Seconds("CFO_REAP_EVERY", 600))
 	cfg.FileEvery = 10 * time.Minute
+	cfg.JanitorEvery = time.Hour
 	cfg.Reap = &reap.Service{
 		Home: h,
 		Inventory: reap.Collector{
@@ -571,6 +576,7 @@ func sweepOrphans(ctx context.Context, cfg Config) string {
 	if auditErr != nil {
 		return ""
 	}
+	tidyHome(cfg, result.Inventory)
 
 	actionable := reap.Actionable(record.Findings)
 	if len(actionable) == 0 || reap.FindingsDigest(record.Findings) == previous.Digest {

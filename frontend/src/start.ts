@@ -1,4 +1,4 @@
-import type { FleetCapacity, Memory, PauseCondition, Snapshot, Task } from "./types";
+import type { Disk, FleetCapacity, Memory, PauseCondition, Snapshot, Task } from "./types";
 import { queuedTasks } from "./workflow.ts";
 
 const gigabytes = (bytes: number) => Math.round(bytes / 2 ** 30 * 10) / 10;
@@ -63,15 +63,39 @@ export function holdersLine(memory: Memory): string {
 const PAGED_POOL_WARNING = 4 * 2 ** 30;
 
 export function poolWarning(memory: Memory): string {
-  return memory.paged_pool > PAGED_POOL_WARNING ? `Paged pool ${held(memory.paged_pool)} GB: a driver is leaking memory; a reboot frees it.` : "";
+  return memory.paged_pool > PAGED_POOL_WARNING ? `Paged pool ${held(memory.paged_pool)} GB: Windows is holding this in its kernel paged pool, memory no goblin can use; restarting the PC frees it.` : "";
+}
+
+// The disk meter under the memory meter: under the floor no goblin or gate
+// test run starts, and under the lower mark the CFO is woken.
+export function diskState(disk: Disk): { tone: "ready" | "waiting" | "under"; text: string } {
+  if (disk.free < disk.wake) return { tone: "under", text: `Under the ${gigabytes(disk.wake)} GB mark: the CFO is woken, and nothing starts until disk frees.` };
+  if (disk.free < disk.floor) return { tone: "waiting", text: `Under the ${gigabytes(disk.floor)} GB floor: no goblin or gate test run starts until disk frees.` };
+  return { tone: "ready", text: "Enough disk for the next start." };
+}
+
+// The disk bar spans twice the floor, or the whole drive if that is less, so
+// both marks sit well inside it: the fill and both marks as percents of the
+// bar.
+export function diskScale(disk: Disk): { fill: number; wake: number; floor: number } {
+  const span = Math.min(disk.total || 2 * disk.floor, 2 * disk.floor) || 1;
+  const percent = (bytes: number) => Math.min(100, Math.max(0, bytes / span * 100));
+  return { fill: percent(disk.free), wake: percent(disk.wake), floor: percent(disk.floor) };
+}
+
+// What a start or a resume needs while the disk is under the floor, or empty
+// when it is not.
+export function diskBlock(disk: Disk | null): string {
+  return disk && disk.free < disk.floor ? `${gigabytes(disk.floor)} GB of free disk (${freeGigabytes(disk.free)} GB free)` : "";
 }
 
 // Why a queued task's Start cannot run now, or empty when it can. The
 // supervisor checks all of it again; this only saves a refused click.
-export function startBlock(task: Task, memory: Memory | null, anotherStarting: boolean): string {
+export function startBlock(task: Task, memory: Memory | null, anotherStarting: boolean, disk: Disk | null = null): string {
   if (task.starting) return "Starting";
   if (queueBlock(task)) return queueBlock(task);
   if (memoryBlock(memory)) return "Needs " + memoryBlock(memory);
+  if (diskBlock(disk)) return "Needs " + diskBlock(disk);
   if (slotBlock(memory)) return slotBlock(memory);
   if (anotherStarting) return "Another task is starting";
   return "";

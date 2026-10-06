@@ -258,9 +258,13 @@ func TestWorktreeTaskIDOnlyAcceptsFleetWorktrees(t *testing.T) {
 		{`C:\dev\peakCraftsman\.worktrees\notagoblin`, ""},
 		{`C:\dev\peakCraftsman\.worktrees\notagoblin\frontend`, ""},
 		{`C:\dev\elsewhere\gb-peak-inbox-connect`, ""},
+		{`C:\home\worktrees\peakCraftsman\peak-inbox-connect\frontend`, "peak-inbox-connect"},
+		{`C:\home\worktrees\peakCraftsman`, ""},
+		{`C:\home\scratch\peak-inbox-connect`, ""},
 	}
+	attribution := Attribution{worktreesRoot: `C:\home\worktrees`}
 	for _, testCase := range cases {
-		got, ok := worktreeTaskID(testCase.path)
+		got, ok := attribution.worktreeTaskID(testCase.path)
 		if !ok {
 			got = ""
 		}
