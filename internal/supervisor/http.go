@@ -446,6 +446,20 @@ func (h *HTTP) task(w http.ResponseWriter, r *http.Request) {
 		respond(w, 200, lines)
 		return
 	}
+	if parts[1] == "checks" {
+		lines, found, err := h.Service.localChecksLog(meta)
+		switch {
+		case err != nil:
+			apiError(w, 503, err.Error())
+		case !found:
+			apiError(w, 404, "No cfo gate test run of this task is kept")
+		default:
+			w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+			w.Header().Set("X-Content-Type-Options", "nosniff")
+			_, _ = io.WriteString(w, strings.Join(lines, "\n")+"\n")
+		}
+		return
+	}
 	if parts[1] != "files" && parts[1] != "diff" && parts[1] != "history" {
 		apiError(w, 404, "Unknown task detail")
 		return
@@ -514,10 +528,16 @@ func (h *HTTP) task(w http.ResponseWriter, r *http.Request) {
 }
 
 func statusTail(dir, id string) ([]string, error) {
-	f, err := fsx.Open(filepath.Join(dir, id+".status"))
+	lines, err := fileTail(filepath.Join(dir, id+".status"), 80)
 	if errors.Is(err, os.ErrNotExist) {
 		return []string{}, nil
 	}
+	return lines, err
+}
+
+// fileTail is the last keep lines of a file's last 64 KiB, redacted.
+func fileTail(path string, keep int) ([]string, error) {
+	f, err := fsx.Open(path)
 	if err != nil {
 		return nil, err
 	}
@@ -538,8 +558,8 @@ func statusTail(dir, id string) ([]string, error) {
 	if start > 0 && len(lines) > 0 {
 		lines = lines[1:]
 	}
-	if len(lines) > 80 {
-		lines = lines[len(lines)-80:]
+	if len(lines) > keep {
+		lines = lines[len(lines)-keep:]
 	}
 	return lines, nil
 }

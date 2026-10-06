@@ -29,6 +29,7 @@ import (
 	"github.com/fpresta0607/code-goblins/internal/release"
 	"github.com/fpresta0607/code-goblins/internal/supervisor"
 	"github.com/fpresta0607/code-goblins/internal/terminal"
+	"github.com/fpresta0607/code-goblins/internal/verify"
 	"github.com/fpresta0607/code-goblins/internal/voice"
 	"github.com/fpresta0607/code-goblins/internal/watch"
 )
@@ -179,6 +180,7 @@ func runServe(args []string, stdout, stderr io.Writer, runtime commandRuntime) i
 		PullRequestState: supervisor.GitHubPullRequestState(execx.OSRunner{}),
 		Reconcile:        func(ctx context.Context) error { return watch.Reconcile(ctx, config) },
 		VerifyDelivery:   (supervisor.Git{}).VerifyDelivery,
+		VerifyReports:    verify.Reports,
 		Runs:             supervisor.OSRunLauncher{},
 		PollPage:         (axi.Lavish{Commands: execx.OSRunner{}}).Poll,
 		FirstRun:         firstRun,
