@@ -4,6 +4,7 @@ import { ConnectionRow } from "./connection-row";
 import { parseConnections, type ConnectionEntry } from "./connections";
 import { Icon } from "./Icon";
 import { object, string, type Run, type Task } from "./types";
+import { plainText } from "./task-words";
 import "./connections.css";
 
 export function ConnectionsPanel({ task, runs = [], onRepair }: { task: Task; runs?: Run[]; onRepair?: (key: string) => void }) {
@@ -71,7 +72,7 @@ export function ConnectionsPanel({ task, runs = [], onRepair }: { task: Task; ru
   };
   return <section className="connections-panel" aria-label="Connections">
     <div className="connections-toolbar"><p>{data?.checking || !data ? "Checking connections..." : "Connection health"}</p><button type="button" className="icon-button" aria-label="Recheck connections" data-tip="Recheck connections" data-tip-align="end" disabled={isBusy || !data || data.checking} onClick={() => void refresh()}><Icon name="refresh" /></button></div>
-    {(error || data?.error) && <p className="connections-error" role="alert">{error || data?.error}</p>}
+    {(error || data?.error) && <p className="connections-error" role="alert">{plainText(error || data?.error || "")}</p>}
     {notice && <div className="connection-notice"><p role="status">{notice}</p>{runId && onRepair && <button type="button" onClick={() => onRepair("run:" + runId)}>Open repair card</button>}{loginURL && <a href={loginURL} target="_blank" rel="noreferrer" onClick={() => { isSignInPending.current = true; }}>Open sign-in</a>}</div>}
     {[["mcp", "MCP servers"], ["service", "Repository services"], ["credential", "Goblin credentials"]].map(([kind, label]) => {
       const entries = data?.entries.filter((entry) => entry.kind === kind) || [];

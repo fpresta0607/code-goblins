@@ -5,7 +5,7 @@ import { deliveryMark, submissionFor } from "./feedback";
 import { Avatar } from "./Avatar";
 import { Icon } from "./Icon";
 import { age } from "./presentation";
-import { answeredElsewhere, asItems, cardKey, closedElsewhere, holdsUnsent, isOpen, itemFor, nextOpenKey, notSent, openKeys, questionPage, sendState, settledIcon, reviewLine, settledItems, settledLabel, waitingItems, type Item } from "./commandQueue";
+import { answerMark, answerReason, answeredElsewhere, asItems, canChange, cardKey, closedAt, closedElsewhere, holdsUnsent, isOpen, itemFor, nextOpenKey, notSent, openKeys, questionPage, sendState, settledIcon, reviewLine, settledItems, settledLabel, waitingItems, type Item } from "./commandQueue";
 import { publishedAt, type Sent } from "./item-state";
 import { RunCard } from "./RunCard";
 import { CredentialCard } from "./credential-card";
@@ -20,6 +20,8 @@ import { Disclosure } from "./Disclosure";
 import { countedTitle } from "./arrivals";
 import { DoneCard } from "./DoneCard";
 import { DocumentCard } from "./DocumentCard";
+import { AnswerMark } from "./AnswerMark";
+import { ChangeCard } from "./ChangeCard";
 
 // A sent item's check shows this long before the next item.
 const DONE_MS = 750;
@@ -77,18 +79,33 @@ export function CommandCenter({ snapshot, connected, presentations, focus, onUns
   const [lastFocus, setLastFocus] = useState<CommandFocus | null>(focus);
   const [gallery, setGallery] = useState<number | null>(null);
   const [inbox, setInbox] = useState(false);
-  const [background, setBackground] = useState<Set<string>>(new Set());
   const [sent, setSent] = useState<Set<string>>(new Set());
   const [leaving, setLeaving] = useState("");
   const [allDone, setAllDone] = useState(false);
+  // The question whose CFO answer he opened from History to change.
+  const [changing, setChanging] = useState("");
+  const changeQuestion = changing ? (snapshot.questions || []).find((question) => question.id === changing) : undefined;
   const stack = waitingItems(snapshot, kept);
   const waiting = waitingItems(snapshot);
   const index = Math.max(0, stack.findIndex((item) => item.key === current));
-  const item: Item | undefined = open ? stack[index] : undefined;
+  const item: Item | undefined = open && !changeQuestion ? stack[index] : undefined;
   const draft = item ? drafts[item.key] : undefined;
   const outcome = draft?.submission ? snapshot.actions.find((action) => action.id === draft.submission?.id) || draft.receipt : undefined;
   const mark = outcome ? deliveryMark(outcome, item?.kind === "question" ? item.question.task : undefined) : undefined;
   const sending = draft ? sendState(draft, snapshot.actions) : undefined;
+  // A change to the CFO's answer keeps its own draft, apart from the
+  // question's, and is done once it is sent.
+  const changeKey = (question: Question) => "change:" + question.id;
+  const changeDraft = (question: Question, from?: Draft) => drafts[changeKey(question)] || { ...EMPTY_DRAFT, selection: from?.selection || "", written: from?.written || "" };
+  const isChanged = (question: Question) => {
+    const submission = drafts[changeKey(question)]?.submission;
+    const change = submission ? snapshot.actions.find((action) => action.id === submission.id) || drafts[changeKey(question)]?.receipt : undefined;
+    return change?.status === "succeeded" || !!change?.awaiting;
+  };
+  // His send met the CFO's answer at the same moment: the board refused his,
+  // or the supervisor sent nothing because the CFO had answered.
+  const crossed = item?.kind === "question" && item.question.answered_by === "cfo" && !item.question.answered_in && !!draft?.submission && (outcome ? outcome.status === "failed" : !!draft.error);
+  const changedHere = item?.kind === "question" && isChanged(item.question);
   // What the Overlord sent from this card shows as done the moment he sends
   // it; trouble keeps the card itself on screen with what went wrong. A run
   // keeps its card, which shows the command's result. An item he answered
@@ -97,7 +114,7 @@ export function CommandCenter({ snapshot, connected, presentations, focus, onUns
   // answered on another board, or taken back by its asker or the CFO.
   const closedBy = item && !draft?.submission ? closedElsewhere(item, snapshot.actions) : "";
   const elsewhere = !!item && (answeredElsewhere(item) || !!closedBy);
-  const finishing = !!item && item.kind !== "run" && (elsewhere || !!sending && !sending.failed);
+  const finishing = !!item && item.kind !== "run" && (elsewhere || changedHere || !!sending && !sending.failed);
   const done = finishing ? item.key : "";
   // Moving off a finishing card counts it as sent, so only a card on screen
   // from its Send to its delivery moves on by itself.
@@ -126,8 +143,12 @@ export function CommandCenter({ snapshot, connected, presentations, focus, onUns
   }
   const unsent = holdsUnsent(drafts, snapshot);
   useEffect(() => onUnsent(unsent), [unsent, onUnsent]);
+  // A presentation reaches him only when its goblin asks him to watch it; a
+  // goblin's own test run stays off the Command Center.
+  const watching = presentations.filter((event) => event.watch);
+  const needing = waiting.length + watching.length;
   const baseTitle = useRef(document.title);
-  useEffect(() => { document.title = countedTitle(baseTitle.current, waiting.length); }, [waiting.length]);
+  useEffect(() => { document.title = countedTitle(baseTitle.current, needing); }, [needing]);
   useEffect(() => () => { document.title = baseTitle.current; }, []);
   if (focus !== lastFocus) {
     setLastFocus(focus);
@@ -161,7 +182,14 @@ export function CommandCenter({ snapshot, connected, presentations, focus, onUns
   // The card on screen stays in the stack while it is shown, so an item
   // answered or cleared elsewhere turns into its settled card instead of vanishing.
   if (item && !kept.has(item.key)) setKept(new Set([...kept, item.key]));
-  const showing = !!item;
+  const showing = !!item || !!changeQuestion;
+  // A change made from History shows its check, then the Command Center closes.
+  const isChangeDone = !!changeQuestion && isChanged(changeQuestion);
+  useEffect(() => {
+    if (!isChangeDone) return;
+    const timer = setTimeout(() => setChanging(""), ALL_DONE_MS);
+    return () => clearTimeout(timer);
+  }, [isChangeDone]);
   const shownKey = item ? item.key + ":" + publishedAt(item) : "";
   useEffect(() => {
     if (!done || sent.has(done)) return;
@@ -198,7 +226,7 @@ export function CommandCenter({ snapshot, connected, presentations, focus, onUns
   useEffect(() => { if (shownKey && dialog.current) dialog.current.scrollTop = 0; }, [shownKey]);
   const close = () => {
     if (finishing) setSent((prior) => new Set([...prior, item.key]));
-    setOpen(false); setKept(new Set()); setGallery(null); setAllDone(false);
+    setOpen(false); setKept(new Set()); setGallery(null); setAllDone(false); setChanging("");
   };
   const move = (step: number) => { const next = stack[index + step]; if (next) show(next.key); };
   // Back and Next with the card's place in the stack lead the card's own
@@ -243,6 +271,18 @@ export function CommandCenter({ snapshot, connected, presentations, focus, onUns
   // A document leaves the queue once he opens or downloads it, and says so.
   const clear = (target: Review, how?: "Opened" | "Downloaded") => void post("review:" + target.id, { kind: "review_clear", review_id: target.id, generation: target.identity, ...(how ? { text: how } : {}) });
   const dismiss = (target: Question) => void post("question:" + target.id, { kind: "question_clear", question_id: target.id, generation: target.identity });
+  // A crossed card starts from his pick on the question's own card.
+  const editChange = (target: Question, changes: Partial<Draft>, from?: Draft) => {
+    const draft = changeDraft(target, from);
+    update(changeKey(target), drafts[changeKey(target)] ? changes : { selection: draft.selection, written: draft.written, ...changes });
+  };
+  const change = (target: Question, from?: Draft) => {
+    const draft = changeDraft(target, from);
+    const payload = questionAnswer(target, draft.selection, draft.written);
+    if (!payload) return;
+    if (!drafts[changeKey(target)]) editChange(target, {}, from);
+    void post(changeKey(target), { ...payload, kind: "answer_change" });
+  };
   const taskOf = (candidate: Item) => candidate.kind === "question" ? candidate.question.task : candidate.kind === "review" ? candidate.review.task : candidate.kind === "credential" ? candidate.request.task : "";
   const askerOf = (candidate: Item) => taskOf(candidate) ? snapshot.tasks.find((task) => task.id === taskOf(candidate))?.title || taskOf(candidate) : "The CFO";
   const textOf = (candidate: Item) => candidate.kind === "question" ? plainMessage(candidate.question.text) : candidate.kind === "review" ? reviewLine(candidate.review) : candidate.kind === "credential" ? credentialAsk(candidate.request) : candidate.run.title;
@@ -252,7 +292,7 @@ export function CommandCenter({ snapshot, connected, presentations, focus, onUns
   const images = !item || item.kind === "run" || item.kind === "credential" ? [] : item.kind === "question"
     ? questionChoices(item.question).filter((choice) => choice.image).map((choice) => ({ src: choice.image, value: choice.value, text: choice.text }))
     : reviewImages(item.review).map((src, n) => ({ src, value: "Image " + (n + 1), text: "Image " + (n + 1) }));
-  const notices = presentations.filter((event) => !background.has(event.id)).slice(-4).reverse();
+  const presenter = (event: BoardActivity) => event.cfo_identity ? "The CFO" : snapshot.tasks.find((task) => task.id === event.task_id)?.title || event.task_id;
   const settled = settledItems(snapshot).slice(0, 20);
   // Reset before committing this render, including IDs absent between publications.
   // Registration changes identity but keeps created_at, so unfinished answers survive.
@@ -270,37 +310,37 @@ export function CommandCenter({ snapshot, connected, presentations, focus, onUns
   }
   return <>
     <details ref={menu} className="command-center-menu" open={inbox} onToggle={(event) => setInbox(event.currentTarget.open)}>
-      <summary className="icon-button" data-tip="Command Center" data-tip-align="end" aria-label={"Command Center" + (waiting.length ? ", " + waiting.length + " waiting on you" : "")}><Icon name="command-center" />{waiting.length > 0 && <span className="count-badge" aria-hidden="true">{waiting.length}</span>}</summary>
+      <summary className="icon-button" data-tip="Command Center" data-tip-align="end" aria-label={"Command Center" + (needing ? ", " + needing + " waiting on you" : "")}><Icon name="command-center" />{needing > 0 && <span className="count-badge" aria-hidden="true">{needing}</span>}</summary>
       <div className="command-center-updates">
         <h2><Avatar persona="cfo" small />Command Center</h2>
         <section aria-label="Waiting on you">
-          <h3>Waiting on you <span className="column-count">{waiting.length}</span></h3>
-          {waiting.length ? <ul className="inbox-list">{waiting.map((candidate) => <li key={candidate.key}>
+          <h3>Waiting on you <span className="column-count">{needing}</span></h3>
+          {needing ? <ul className="inbox-list">{waiting.map((candidate) => <li key={candidate.key}>
             <Avatar persona={taskOf(candidate) ? personaFor(snapshot.tasks.find((task) => task.id === taskOf(candidate))) : "cfo"} small />
             <span className="inbox-text"><strong>{askerOf(candidate)}</strong><span className="inbox-summary">{textOf(candidate)}</span>{!!drafts[candidate.key] && notSent(drafts[candidate.key], candidate, snapshot.actions) && <small>Not sent: {drafts[candidate.key].error}</small>}</span>
             <time>{age(created(candidate))}</time>
             <button className="icon-button raised" aria-label={"Answer " + askerOf(candidate) + ": " + textOf(candidate)} data-tip="Answer" data-tip-align="end" onClick={() => { setInbox(false); setOpen(true); show(candidate.key); }}><Icon name={iconOf(candidate)} /></button>
+          </li>)}{watching.map((event) => <li key={"watch:" + event.id}>
+            <Avatar persona={event.cfo_identity ? "cfo" : personaFor(snapshot.tasks.find((task) => task.id === event.task_id))} small />
+            <span className="inbox-text"><strong>{presenter(event)}</strong><span className="inbox-summary">{event.watch}</span></span>
+            <time>{age(event.at)}</time>
+            <a className="icon-button raised" href={event.url} target="_blank" rel="noreferrer" aria-label={"Watch: " + event.watch} data-tip="Watch" data-tip-align="end"><Icon name="watch" /></a>
           </li>)}</ul> : <p className="muted">Nothing is waiting on you.</p>}
         </section>
-        {notices.length > 0 && <section aria-label="Pages to look at">
-          <h3>Pages</h3>
-          <ul className="inbox-list">{notices.map((event) => <li key={event.id}>
-            <span className="mark"><Icon name={event.kind === "review" ? "comment" : "browser-check"} /></span>
-            <span className="inbox-text"><strong>{event.kind === "review" ? "Review ready" : "Browser walkthrough running"}</strong>{event.cfo_identity ? "CFO" : snapshot.tasks.find((task) => task.id === event.task_id)?.title || event.task_id}</span>
-            <a className="icon-button raised" href={event.url} target="_blank" rel="noreferrer" aria-label={event.kind === "review" ? "Open review" : "Open page"} data-tip={event.kind === "review" ? "Open review" : "Open page"} data-tip-align="end"><Icon name="external" /></a>
-            <button className="icon-button" aria-label="Keep in background" data-tip="Keep in background" data-tip-align="end" onClick={() => setBackground((prior) => new Set([...prior, event.id]))}><Icon name="minus" /></button>
-          </li>)}</ul>
-        </section>}
         {settled.length > 0 && <Disclosure kind="inbox-history" title={<>History <span className="column-count">{settled.length}</span></>}>
           <ul className="inbox-list">{settled.map((candidate) => {
             const mark = settledIcon(candidate, snapshot.actions);
+            const who = candidate.kind === "question" ? answerMark(candidate.question) : "";
+            const reason = candidate.kind === "question" ? answerReason(candidate.question) : "";
             return <li key={candidate.key}>
-              <span className={"delivery " + mark.tone}><Icon name={mark.icon} /></span>
-              <span className="inbox-text"><strong>{askerOf(candidate)}</strong><span className="inbox-summary">{textOf(candidate)}</span><small>{settledLabel(candidate, snapshot.actions)}</small></span>
+              {who ? <AnswerMark who={who} /> : <span className={"delivery " + mark.tone}><Icon name={mark.icon} /></span>}
+              <span className="inbox-text"><strong>{askerOf(candidate)}</strong><span className="inbox-summary">{textOf(candidate)}</span><small>{settledLabel(candidate, snapshot.actions)}</small>{reason && <small className="answer-reason">{reason}</small>}</span>
+              <time>{age(closedAt(candidate))}</time>
+              {candidate.kind === "question" && canChange(candidate.question, snapshot) && <button className="icon-button raised" aria-label={"Change the CFO's answer to " + askerOf(candidate)} data-tip="Change the CFO's answer" data-tip-align="end" onClick={() => { setInbox(false); setChanging(candidate.question.id); }}><Icon name="edit" /></button>}
             </li>;
           })}</ul>
         </Disclosure>}
-        <p className="muted">Everything stays here until you answer or clear it, or the goblin that asked moves past it. Opening a page never pauses work.</p>
+        <p className="muted">Everything that needs you is listed here. A goblin's own test runs stay off this list.</p>
       </div>
     </details>
     {/* A click on the dimmed board around the card lands on the dialog
@@ -310,13 +350,21 @@ export function CommandCenter({ snapshot, connected, presentations, focus, onUns
       onCancel={(event) => { event.preventDefault(); if (gallery !== null) setGallery(null); else close(); }} onKeyDown={(event) => event.stopPropagation()}
       onPointerDown={(event) => { pressedOutside.current = outsideDialog(event); }}
       onClick={(event) => { if (pressedOutside.current && outsideDialog(event)) close(); }}>
-      {item && <>
+      {(item || changeQuestion) && <>
         <header className="command-center-heading">
           <Avatar persona="cfo" />
           <h2 id="command-center-heading">Supreme Overlord<span>Command Center</span></h2>
           <button type="button" className="icon-button question-close" aria-label="Close the Command Center" data-tip="Close" data-tip-align="end" onClick={close}><Icon name="close" /></button>
         </header>
-        {gallery !== null && images.length > 0
+        {changeQuestion
+          ? <div className="card-stage">
+            {isChangeDone
+              ? <DoneCard key={"changed:" + changeQuestion.id} heading="Changed to your answer" label={(snapshot.tasks.find((task) => task.id === changeQuestion.task)?.title || changeQuestion.task) + " is told the answer is yours: " + changeQuestion.answer} />
+              : <ChangeCard key={"change:" + changeQuestion.id} question={changeQuestion} snapshot={snapshot} connected={connected} crossed={false} draft={changeDraft(changeQuestion)}
+                onDraft={(changes) => editChange(changeQuestion, changes)} onChange={() => change(changeQuestion)} onClose={() => setChanging("")} />}
+          </div>
+        : !item ? null
+        : gallery !== null && images.length > 0
           ? <ImageGallery images={images} index={Math.min(gallery, images.length - 1)} lavish={item.kind === "question" ? pageFor(item.question)?.url : item.kind === "review" ? item.review.lavish : undefined} onIndex={setGallery} onClose={() => setGallery(null)}
             onChoose={item.kind === "question" && item.question.status === "pending" ? (value) => { update(item.key, { selection: "option:" + value, error: "", receipt: undefined }); setGallery(null); } : undefined} />
           : <div className="card-stage"
@@ -330,6 +378,11 @@ export function CommandCenter({ snapshot, connected, presentations, focus, onUns
             }}>
             {allDone
               ? <div className="done-card" role="status"><Avatar persona="cfo" /><h3>You're all done</h3><p>Nothing else is waiting on you.</p></div>
+              : changedHere && item.kind === "question"
+              ? <DoneCard key={"changed:" + shownKey} heading="Changed to your answer" label={askerOf(item) + " is told the answer is yours: " + item.question.answer} pager={pager} />
+              : crossed && item.kind === "question"
+              ? <ChangeCard key={"crossed:" + shownKey} question={item.question} snapshot={snapshot} connected={connected} crossed draft={changeDraft(item.question, draft)}
+                onDraft={(changes) => editChange(item.question, changes, draft)} onChange={() => change(item.question, draft)} onClose={() => setLeaving(item.key)} />
               : elsewhere
               ? <DoneCard key={shownKey} heading={closedBy || "Answered"} label={settledLabel(item, snapshot.actions)} pager={pager} />
               : finishing && sending

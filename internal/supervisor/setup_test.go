@@ -28,6 +28,17 @@ type firstRunMachine struct {
 	saved    string
 	recorded []string
 	started  []string
+	// runs is whether a CFO runs, reopened counts the CFOs brought back,
+	// and reopenErr is what bringing one back ends with; restarted counts
+	// the restarts of a running one, which end with restartErr or else on
+	// its conversation, unless restartEnds says its harness could not
+	// resume it.
+	runs        bool
+	reopened    int
+	reopenErr   error
+	restarted   int
+	restartErr  error
+	restartEnds bool
 }
 
 func newFirstRunMachine(t *testing.T) *firstRunMachine {
@@ -68,8 +79,16 @@ func newFirstRunMachine(t *testing.T) *firstRunMachine {
 		},
 		ProjectsRoot:    func() (string, error) { return "", nil },
 		SetProjectsRoot: func(dir string) error { m.recorded = append(m.recorded, dir); return nil },
-		CFORuns:         func() bool { return false },
+		CFORuns:         func() bool { return m.runs },
 		StartCFO:        func(agent string) error { m.started = append(m.started, agent); return nil },
+		ReopenCFO:       func() error { m.reopened++; return m.reopenErr },
+		RestartCFO: func() (CFOConversation, bool, error) {
+			m.restarted++
+			if m.restartErr != nil {
+				return CFOConversation{}, false, m.restartErr
+			}
+			return CFOConversation{Harness: "claude", Session: "a1b2c3d4-session"}, !m.restartEnds, nil
+		},
 	}
 	return m
 }
@@ -437,6 +456,116 @@ func TestTheBoardServesTheFirstRunPageAndStartsTheCFO(t *testing.T) {
 	case <-changes:
 	default:
 		t.Fatal("a start sent the board no fresh snapshot, so it shows no CFO until the next ping")
+	}
+}
+
+// The board's Reopen brings a closed CFO back, as goblins does, and tells
+// the board at once. It brings none back beside a CFO that runs, says why a
+// CFO could not come back, and a board that starts no CFO says so.
+func TestTheBoardReopensAClosedCFO(t *testing.T) {
+	for _, tc := range []struct {
+		name      string
+		arrange   func(m *firstRunMachine, s *Service)
+		code      int
+		reason    string
+		reopened  int
+		announced bool
+	}{
+		{"a closed CFO", func(*firstRunMachine, *Service) {}, http.StatusOK, `"reopened":true`, 1, true},
+		{"a CFO that runs", func(m *firstRunMachine, _ *Service) { m.runs = true }, http.StatusConflict, "The CFO already runs", 0, false},
+		{"a CFO that cannot come back", func(m *firstRunMachine, _ *Service) { m.reopenErr = errors.New("claude is not on PATH") }, http.StatusInternalServerError, "the CFO could not be reopened: claude is not on PATH", 1, false},
+		{"a board that starts no CFO", func(_ *firstRunMachine, s *Service) { s.Options.FirstRun = nil }, http.StatusConflict, "This board cannot start a CFO", 0, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			// Arrange
+			m := newFirstRunMachine(t)
+			store, _ := testStore(t)
+			s := &Service{Store: store, Instance: "instance-1", Options: Options{FirstRun: m.run}, subscribers: map[chan struct{}]struct{}{}}
+			tc.arrange(m, s)
+			handler := NewHTTP(s, "board.local", fstest.MapFS{})
+			changes, unsubscribe := s.subscribe()
+			defer unsubscribe()
+			req := httptest.NewRequest("POST", "http://board.local/api/cfo/reopen", strings.NewReader("{}"))
+			req.Header.Set("Origin", "http://board.local")
+			req.Header.Set("X-CFO-Token", "instance-1")
+			req.Header.Set("Content-Type", "application/json")
+			response := httptest.NewRecorder()
+
+			// Act
+			handler.ServeHTTP(response, req)
+
+			// Assert
+			if response.Code != tc.code || !strings.Contains(response.Body.String(), tc.reason) || m.reopened != tc.reopened {
+				t.Fatalf("POST /api/cfo/reopen = %d %s, reopened %d; want %d with %q and %d reopened", response.Code, response.Body.String(), m.reopened, tc.code, tc.reason, tc.reopened)
+			}
+			announced := false
+			select {
+			case <-changes:
+				announced = true
+			default:
+			}
+			if announced != tc.announced {
+				t.Errorf("the board was sent a fresh snapshot: %v, want %v", announced, tc.announced)
+			}
+		})
+	}
+}
+
+// The board's Restart does what goblins resume does for a CFO that runs, as
+// for one whose screen froze: it restarts it on its conversation and says
+// whether it came back on it. It restarts nothing while no CFO runs, and a
+// CFO it could not restart says why.
+func TestTheBoardRestartsARunningCFO(t *testing.T) {
+	for _, tc := range []struct {
+		name      string
+		arrange   func(m *firstRunMachine, s *Service)
+		body      string
+		code      int
+		reply     string
+		restarted int
+		announced bool
+	}{
+		{"a running CFO", func(m *firstRunMachine, _ *Service) { m.runs = true }, "{}", http.StatusOK, `"restarted":true,"resumed":true,"session":"a1b2c3d4-session"`, 1, true},
+		{"a CFO whose harness could not resume its conversation", func(m *firstRunMachine, _ *Service) { m.runs, m.restartEnds = true, true }, "{}", http.StatusOK, `"resumed":false`, 1, true},
+		{"no CFO running", func(*firstRunMachine, *Service) {}, "{}", http.StatusConflict, "No CFO runs to restart", 0, false},
+		{"a CFO left running", func(m *firstRunMachine, _ *Service) {
+			m.runs, m.restartErr = true, errors.New("the CFO in native terminal cfo registered no conversation it can come back on, so it is left running")
+		}, "{}", http.StatusInternalServerError, "the CFO could not be restarted: the CFO in native terminal cfo registered no conversation", 1, false},
+		{"a body field the route does not take", func(m *firstRunMachine, _ *Service) { m.runs = true }, `{"now":true}`, http.StatusBadRequest, "Invalid request JSON", 0, false},
+		{"a board that starts no CFO", func(_ *firstRunMachine, s *Service) { s.Options.FirstRun = nil }, "{}", http.StatusConflict, "This board cannot start a CFO", 0, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			// Arrange
+			m := newFirstRunMachine(t)
+			store, _ := testStore(t)
+			s := &Service{Store: store, Instance: "instance-1", Options: Options{FirstRun: m.run}, subscribers: map[chan struct{}]struct{}{}}
+			tc.arrange(m, s)
+			handler := NewHTTP(s, "board.local", fstest.MapFS{})
+			changes, unsubscribe := s.subscribe()
+			defer unsubscribe()
+			req := httptest.NewRequest("POST", "http://board.local/api/cfo/restart", strings.NewReader(tc.body))
+			req.Header.Set("Origin", "http://board.local")
+			req.Header.Set("X-CFO-Token", "instance-1")
+			req.Header.Set("Content-Type", "application/json")
+			response := httptest.NewRecorder()
+
+			// Act
+			handler.ServeHTTP(response, req)
+
+			// Assert
+			if response.Code != tc.code || !strings.Contains(response.Body.String(), tc.reply) || m.restarted != tc.restarted {
+				t.Fatalf("POST /api/cfo/restart = %d %s, restarted %d; want %d with %q and %d restarted", response.Code, response.Body.String(), m.restarted, tc.code, tc.reply, tc.restarted)
+			}
+			announced := false
+			select {
+			case <-changes:
+				announced = true
+			default:
+			}
+			if announced != tc.announced {
+				t.Errorf("the board was sent a fresh snapshot: %v, want %v", announced, tc.announced)
+			}
+		})
 	}
 }
 

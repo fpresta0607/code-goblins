@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { answeredBy, answeredElsewhere, answeredLabel, cardKey, chosenOption, closedElsewhere, documentFacts, holdsUnsent, itemFor, nextOpenKey, notSent, openKeys, outcomeIcon, questionOutcome, questionPage, reviewLine, sendState, settledIcon, settledItems, settledLabel, waitingItems, waitReason, waitsOnOverlord, waitTarget } from "./commandQueue.ts";
+import { answerMark, answerReason, answeredBy, answeredElsewhere, answeredLabel, canChange, cardKey, chosenOption, closedElsewhere, documentFacts, holdsUnsent, itemFor, nextOpenKey, notSent, openKeys, outcomeIcon, questionOutcome, questionPage, reviewLine, sendState, settledIcon, settledItems, settledLabel, waitingItems, waitReason, waitsOnOverlord, waitTarget } from "./commandQueue.ts";
 import type { Action, Review } from "./types.ts";
 import { parseSnapshot, type BoardActivity } from "./types.ts";
 
@@ -110,13 +110,64 @@ test("a closed question says what was chosen, by whom and when", () => {
   const [byYou, byCfo, older] = snapshot.questions ?? [];
   const cases: [typeof byYou, string, string, string][] = [
     [byYou, "B", "You chose B", "Answered by you"],
-    [byCfo, "A", "The CFO chose A. Ship it Friday", "Answered by the CFO"],
+    [byCfo, "A", "The CFO chose A", "Answered by the CFO"],
     [older, "A", "You chose A", "Answered by you"],
   ];
   for (const [candidate, chosen, label, who] of cases) {
     assert.equal(chosenOption(candidate), chosen, candidate.id);
     assert.equal(settledLabel({ kind: "question", key: "question:" + candidate.id, question: candidate }, []), label, candidate.id);
     assert.equal(answeredBy(candidate), who, candidate.id);
+  }
+});
+
+test("History marks who answered: you, the CFO, or the CFO while you were away", () => {
+  const cases: [string, Record<string, unknown>, string][] = [
+    ["his board answer", { status: "succeeded", answer_id: "x", answer: "A", answer_kind: "option", answered_option: "A", answered_by: "overlord" }, "you"],
+    ["his board answer on its way, which keeps its single check", { status: "queued", answer_id: "x", answer: "A", answer_kind: "option" }, ""],
+    ["his answer in chat, recorded by the CFO", { status: "succeeded", answer: "A", answer_kind: "option", answered_option: "A", answered_by: "overlord", answered_in: "chat" }, "you"],
+    ["his change to the CFO's answer", { status: "succeeded", answer: "B", answer_kind: "option", answered_option: "B", answered_by: "overlord", replaced_answer: "A" }, "you"],
+    ["the CFO's answer", { status: "succeeded", answer: "A", answer_kind: "option", answered_option: "A", answered_by: "cfo" }, "cfo"],
+    ["the CFO's answer while he was away", { status: "succeeded", answer: "A", answer_kind: "option", answered_option: "A", answered_by: "cfo", answered_away: true }, "away"],
+    ["a failed board answer", { status: "failed", answer_id: "x", answer: "A", answer_kind: "option" }, ""],
+    ["a superseded question", { status: "superseded" }, ""],
+    ["a question he dismissed", { status: "cleared" }, ""],
+  ];
+  for (const [name, fields, want] of cases) {
+    const [candidate] = parseSnapshot({ healthy: true, questions: [question("q", "billing", "2026-09-24T00:10:00Z", "pending", fields)] }).questions ?? [];
+    assert.equal(answerMark(candidate), want, name);
+  }
+});
+
+test("History gives the CFO's reason, or the CFO's answer his change replaced, on its own line", () => {
+  const cases: [string, Record<string, unknown>, string][] = [
+    ["the CFO's answer with a reason", { status: "succeeded", answer: "A. Ship it Friday", answer_kind: "option", answered_option: "A", answered_by: "cfo" }, "Reason: Ship it Friday"],
+    ["the CFO's answer without one", { status: "succeeded", answer: "A", answer_kind: "option", answered_option: "A", answered_by: "cfo" }, ""],
+    ["his change to the CFO's answer", { status: "succeeded", answer: "B", answer_kind: "option", answered_option: "B", answered_by: "overlord", replaced_answer: "A" }, "Replaced the CFO's answer: A"],
+    ["his written answer that reads like one", { status: "succeeded", answer_id: "x", answer: "A. but slower", answer_kind: "other", answered_by: "overlord" }, ""],
+  ];
+  for (const [name, fields, want] of cases) {
+    const [candidate] = parseSnapshot({ healthy: true, questions: [question("q", "billing", "2026-09-24T00:10:00Z", "pending", fields)] }).questions ?? [];
+    assert.equal(answerReason(candidate), want, name);
+  }
+});
+
+test("he can change only the CFO's answer to a goblin still on it that has reported nothing since", () => {
+  const answered = "2026-10-06T02:00:00Z";
+  const cfo = { status: "succeeded", answer: "A", answer_kind: "option", answered_option: "A", answered_by: "cfo", answered_at: answered, generation: "g1", change_id: "" };
+  const cases: [string, Record<string, unknown>, Record<string, unknown> | null, Record<string, unknown>[], boolean][] = [
+    ["the CFO's answer, nothing reported since", cfo, { reported_at: "2026-10-06T01:59:00Z" }, [], true],
+    ["the CFO's answer, a goblin that never reported", cfo, { reported_at: "0001-01-01T00:00:00Z" }, [], true],
+    ["the goblin reported since", cfo, { reported_at: "2026-10-06T02:00:01Z" }, [], false],
+    ["the goblin restarted", cfo, { generation: "g2", reported_at: "2026-10-06T01:59:00Z" }, [], false],
+    ["the goblin is gone", cfo, null, [], false],
+    ["his own answer", { ...cfo, answered_by: "overlord", answer_id: "x" }, { reported_at: "2026-10-06T01:59:00Z" }, [], false],
+    ["the CFO's own question", { ...cfo, task: "" }, { reported_at: "2026-10-06T01:59:00Z" }, [], false],
+    ["his change on its way", { ...cfo, change_id: "c1" }, { reported_at: "2026-10-06T01:59:00Z" }, [{ id: "c1", kind: "answer_change", status: "running" }], false],
+    ["his change that failed", { ...cfo, change_id: "c1" }, { reported_at: "2026-10-06T01:59:00Z" }, [{ id: "c1", kind: "answer_change", status: "failed" }], true],
+  ];
+  for (const [name, fields, task, actions, want] of cases) {
+    const snapshot = parseSnapshot({ healthy: true, actions, tasks: task ? [{ id: "billing", phase: "working", generation: "g1", verified: false, archived: false, merged: false, ...task }] : [], questions: [question("q", "billing", "2026-10-06T01:50:00Z", "pending", fields)] });
+    assert.equal(canChange(snapshot.questions![0], snapshot), want, name);
   }
 });
 
@@ -491,4 +542,23 @@ test("a wait's one-line row reads the goblin's words alone, and any other review
   assert.equal(endsWithTable, "Add the records");
   assert.equal(opensWithTable, "Add these records");
   assert.equal(other, "Look at the plan");
+});
+
+test("a page he sent a revision on waits on its goblin, so it leaves Waiting on you without settling", () => {
+  // Arrange
+  const snapshot = parseSnapshot({ healthy: true, reviews: [
+    review("waiting-billing-7", "billing", "2026-10-01T05:00:00Z", "open", { lavish: "http://127.0.0.1:4387/session/f26e", lavish_page: "C:\\work\\plan.html", revising_since: "2026-10-01T05:10:00Z" }),
+    review("waiting-notes-3", "notes", "2026-10-01T05:01:00Z", "open", { lavish: "http://127.0.0.1:4387/session/a1b2", lavish_page: "C:\\work\\notes.html" }),
+  ] });
+
+  // Act
+  const waiting = waitingItems(snapshot).map((item) => item.key);
+  const settled = settledItems(snapshot).map((item) => item.key);
+  const onScreen = waitingItems(snapshot, new Set(["review:waiting-billing-7"]));
+
+  // Assert
+  assert.deepEqual(waiting, ["review:waiting-notes-3"]);
+  assert.deepEqual(settled, []);
+  assert.deepEqual(onScreen.map((item) => item.key), ["review:waiting-billing-7", "review:waiting-notes-3"], "the card on screen when he revised stays, saying so");
+  assert.equal(nextOpenKey(onScreen, "review:waiting-notes-3"), null, "moving on never lands on a page that waits on its goblin");
 });

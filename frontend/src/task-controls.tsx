@@ -5,6 +5,7 @@ import { message, request } from "./api";
 import { diskBlock, memoryBlock, queueBlock } from "./start";
 import { Icon } from "./Icon";
 import { StopTaskDialog } from "./stop-task-dialog";
+import { plainText, withoutHarness } from "./task-words";
 
 // A task's controls: icons on its card, where start starts a queued task and
 // onAdjust opens its panel, and labelled buttons in its panel's action row,
@@ -41,19 +42,20 @@ export function TaskControls({ task, snapshot, start, leading, labelled = false,
     } catch (error: unknown) { setProblem(message(error)); setPending(null); }
   };
   if (task.archived || task.phase === "stopped") return null;
-  const problemText = problem || task.action_error || start?.problem;
+  const problemText = plainText(problem || task.action_error || start?.problem || "");
+  const name = withoutHarness(task.title) || task.id;
   const end = isQueued ? "Remove" : "Stop";
   const ending = isQueued ? "Removing" : "Stopping";
   // A labelled button says its own name, so its tip only says why it cannot
   // run; an icon's tip is its name until then.
-  const face = (name: string, tone = "", block = "") => ({
+  const face = (action: string, tone = "", block = "") => ({
     className: (labelled ? "labelled-button" : "icon-button raised") + tone,
-    "aria-label": name + " " + task.title,
-    ...(!labelled ? { "data-tip": block || name } : block ? { "data-tip": block, "data-tip-align": "start" } : {}),
+    "aria-label": action + " " + name,
+    ...(!labelled ? { "data-tip": block || action } : block ? { "data-tip": block, "data-tip-align": "start" } : {}),
   });
-  const text = (name: string) => labelled && <span>{name}</span>;
+  const text = (action: string) => labelled && <span>{action}</span>;
   return <>
-    <div className="task-controls" role="group" aria-label={"Controls for " + (task.title || task.id)}>
+    <div className="task-controls" role="group" aria-label={"Controls for " + name}>
       {leading}
       {isQueued && start && !queueBlock(task) && <button {...face("Start", "", start.blocked)} aria-disabled={!!start.blocked || isChanging} onClick={(event) => { if (!isChanging) start.onStart(event.currentTarget); }}><Icon name="play" />{text("Start")}</button>}
       {isQueued && onAdjust && <button {...face("Adjust")} disabled={isChanging} onClick={(event) => onAdjust(event.currentTarget)}><Icon name="edit" /></button>}

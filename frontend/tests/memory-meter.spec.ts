@@ -84,7 +84,7 @@ for (const width of [1440, 390]) {
       const meter = column.getByRole("group", { name: "Memory" });
       await expect(meter.locator(".memory-line")).toHaveText("Commit free (memory plus page file)2.5 GB");
       await expect(meter.locator(".memory-holders")).toHaveText("Most commit: ChatGPT 11.2 GB, claude 5.7 GB, cfo 4.3 GB");
-      await expect(column.locator(".next-chip")).toHaveText("Next, at 5 GB free");
+      await expect(column.locator(".next-chip")).toHaveText("Next at 5 GB");
       await expect(column.getByRole("button", { name: "Start Polish settings", exact: true })).toHaveAttribute("data-tip", "Needs 5 GB of commit free to keep the 4 GB floor");
     });
 

@@ -2,6 +2,7 @@ import { useId, useRef, useState } from "react";
 import { object, string, type Snapshot, type Task } from "./types";
 import { message, request } from "./api";
 import { Icon } from "./Icon";
+import { plainText } from "./task-words";
 
 export function TaskAdjustment({ task, snapshot }: { task: Task; snapshot: Snapshot }) {
   const label = useId();
@@ -32,9 +33,8 @@ export function TaskAdjustment({ task, snapshot }: { task: Task; snapshot: Snaps
     <div className="task-controls">
       <button className="labelled-button" disabled={isSending || task.starting || !text.trim()} onClick={() => void save()}><Icon name="save" />Save changes</button>
     </div>
-    <p className="muted">Save updates the task and its brief.</p>
     {(isSending || outcome) && <p role="status">{isSending ? "Saving..." : outcome}</p>}
-    {error && <p className="task-action-problem" role="alert">{error}</p>}
+    {error && <p className="task-action-problem" role="alert">{plainText(error)}</p>}
     {task.notes.map((note, index) => <div className="task-note" key={index}><Icon name="comment" /><div><strong>Note sent to CFO · awaiting reply</strong><p>{note}</p></div></div>)}
   </section>;
 }

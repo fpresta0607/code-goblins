@@ -29,11 +29,18 @@ import (
 // behind.
 func recordHost(t *testing.T, stateDir string, childPID int) {
 	t.Helper()
+	recordHostStarted(t, stateDir, childPID, time.Now().UTC())
+}
+
+// recordHostStarted records native terminal cfo's host as recordHost does,
+// as one that started at started.
+func recordHostStarted(t *testing.T, stateDir string, childPID int, started time.Time) {
+	t.Helper()
 	var name [16]byte
 	if _, err := rand.Read(name[:]); err != nil {
 		t.Fatal(err)
 	}
-	data, err := json.Marshal(host.Record{ID: "cfo", Pipe: `\\.\pipe\code-goblins-host-` + hex.EncodeToString(name[:]), Token: "token", Version: host.Version, HostPID: os.Getpid(), ChildPID: childPID, Started: time.Now().UTC()})
+	data, err := json.Marshal(host.Record{ID: "cfo", Pipe: `\\.\pipe\code-goblins-host-` + hex.EncodeToString(name[:]), Token: "token", Version: host.Version, HostPID: os.Getpid(), ChildPID: childPID, Started: started})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -802,10 +809,12 @@ func TestACFOThatRegisteredIsNotReportedAsUnregisteredBeforeTheNextCheck(t *test
 	}
 }
 
-// The CFO was closed and opened again in its terminal. The recovery cycle that
-// ran while it was closed found its process gone, and that finding is about
-// the registration it read: once the new CFO registers, the board says it runs
-// and shows no problem, never the closed one's pid until the next cycle.
+// The CFO was closed and opened again in its terminal. While it is closed the
+// board says so and names no pid: closing the CFO is no problem to report.
+// The recovery cycle that ran meanwhile found its process gone, and that
+// finding is about the registration it read: once the new CFO registers, the
+// board says it runs and shows no problem, never the closed one's pid until
+// the next cycle.
 func TestAReopenedCFOIsNotReportedWithTheProblemOfTheOneItReplaced(t *testing.T) {
 	// Arrange
 	h, _ := nativeBoard(t, "direct")
@@ -845,20 +854,21 @@ func TestAReopenedCFOIsNotReportedWithTheProblemOfTheOneItReplaced(t *testing.T)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if closed.CFORuns || !strings.Contains(closed.Registration, "pid 37680") {
-		t.Errorf("with the CFO closed: runs %v, registration %q; want it not running and the problem naming its process", closed.CFORuns, closed.Registration)
+	if closed.CFORuns || !closed.CFOClosed || closed.Registration != "" {
+		t.Errorf("with the CFO closed: runs %v, closed %v, registration %q; want it closed, not running, and no problem naming its process", closed.CFORuns, closed.CFOClosed, closed.Registration)
 	}
-	if !starting.CFOStarting || starting.Registration != "" {
-		t.Errorf("with terminal cfo up again and no CFO registered: starting %v, registration %q; want starting and no registration problem", starting.CFOStarting, starting.Registration)
+	if !starting.CFOStarting || starting.CFOClosed || starting.Registration != "" {
+		t.Errorf("with terminal cfo up again and no CFO registered: starting %v, closed %v, registration %q; want starting, not closed, and no registration problem", starting.CFOStarting, starting.CFOClosed, starting.Registration)
 	}
-	if !reopened.CFORuns || reopened.CFOStarting || reopened.Registration != "" {
-		t.Errorf("with the reopened CFO registered: runs %v, starting %v, registration %q; want it running and no registration problem", reopened.CFORuns, reopened.CFOStarting, reopened.Registration)
+	if !reopened.CFORuns || reopened.CFOStarting || reopened.CFOClosed || reopened.Registration != "" {
+		t.Errorf("with the reopened CFO registered: runs %v, starting %v, closed %v, registration %q; want it running and no registration problem", reopened.CFORuns, reopened.CFOStarting, reopened.CFOClosed, reopened.Registration)
 	}
 }
 
-// A CFO whose process is gone is reported by the read that finds it gone: the
-// board never says no CFO runs while giving no reason until the next cycle.
-func TestAnExitedCFOIsReportedByTheReadThatFindsItGone(t *testing.T) {
+// A CFO whose process is gone is said to be closed by the read that finds it
+// gone, whatever the last recovery cycle found for the one before it: the
+// board never waits for the next cycle to say so.
+func TestAnExitedCFOIsSaidClosedByTheReadThatFindsItGone(t *testing.T) {
 	// Arrange
 	h, _ := nativeBoard(t, "direct")
 	stateDir := h.Service.Store.Home.State
@@ -885,8 +895,73 @@ func TestAnExitedCFOIsReportedByTheReadThatFindsItGone(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if snapshot.CFORuns || snapshot.Registration == "" {
-		t.Errorf("with the registered process gone since the last check: runs %v, registration %q; want it not running and the reason", snapshot.CFORuns, snapshot.Registration)
+	if snapshot.CFORuns || !snapshot.CFOClosed || snapshot.Registration != "" {
+		t.Errorf("with the registered process gone since the last check: runs %v, closed %v, registration %q; want it closed and no problem", snapshot.CFORuns, snapshot.CFOClosed, snapshot.Registration)
+	}
+}
+
+// A CFO restarted in its terminal runs under a new host there. The snapshot
+// says when the host of the CFO's terminal started, so the board opens its
+// view of the CFO again when that changes, as it does for a goblin's new
+// generation, rather than leave it on the old host's ended screen.
+func TestTheSnapshotSaysWhenTheCFOsTerminalHostStarted(t *testing.T) {
+	// Arrange
+	h, _ := nativeBoard(t, "direct")
+	stateDir := h.Service.Store.Home.State
+	nativePrimary(t, stateDir)
+	before, after := time.Date(2026, 10, 5, 9, 0, 0, 0, time.UTC), time.Date(2026, 10, 5, 9, 5, 0, 0, time.UTC)
+	recordHostStarted(t, stateDir, os.Getpid(), before)
+	first, err := h.Service.Snapshot()
+	if err != nil {
+		t.Fatal(err)
+	}
+	recordHostStarted(t, stateDir, os.Getpid(), after)
+
+	// Act
+	second, err := h.Service.Snapshot()
+
+	// Assert
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !first.CFOTerminalSince.Equal(before) || !second.CFOTerminalSince.Equal(after) {
+		t.Errorf("the CFO's terminal host started %v, then %v; want %v, then %v", first.CFOTerminalSince, second.CFOTerminalSince, before, after)
+	}
+}
+
+// Only a registration that is sound and whose process ended is a closed CFO.
+// A home no CFO ever registered in is not one: it has no CFO to reopen and
+// shows its first-run page. A registration nothing can read is wrong and
+// stays wrong, so it keeps its problem.
+func TestOnlyASoundRegistrationWhoseProcessEndedIsAClosedCFO(t *testing.T) {
+	for _, tc := range []struct {
+		name, primary, problem string
+	}{
+		{"no CFO ever registered", "", "The CFO is not registered"},
+		{"a registration nothing can read", "{not json", "The CFO registration is invalid"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			// Arrange
+			h, _ := nativeBoard(t, "direct")
+			stateDir := h.Service.Store.Home.State
+			h.Service.Options.CFO = &CFOConnection{State: stateDir}
+			if tc.primary != "" {
+				if err := os.WriteFile(filepath.Join(stateDir, "primary.json"), []byte(tc.primary), 0o600); err != nil {
+					t.Fatal(err)
+				}
+			}
+
+			// Act
+			snapshot, err := h.Service.Snapshot()
+
+			// Assert
+			if err != nil {
+				t.Fatal(err)
+			}
+			if snapshot.CFOClosed || snapshot.CFORuns || !strings.Contains(snapshot.Registration, tc.problem) {
+				t.Errorf("closed %v, runs %v, registration %q; want neither, and a problem naming %q", snapshot.CFOClosed, snapshot.CFORuns, snapshot.Registration, tc.problem)
+			}
+		})
 	}
 }
 
