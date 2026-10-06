@@ -31,6 +31,7 @@ import (
 	"github.com/fpresta0607/code-goblins/internal/quota"
 	"github.com/fpresta0607/code-goblins/internal/state"
 	"github.com/fpresta0607/code-goblins/internal/supervise"
+	"github.com/fpresta0607/code-goblins/internal/verify"
 	"github.com/fpresta0607/code-goblins/internal/wake"
 	"github.com/fpresta0607/code-goblins/internal/watch"
 )
@@ -55,6 +56,10 @@ type Options struct {
 	// Tickets keeps a GitHub issue for each task in a repository other
 	// people work in; without it no ticket is kept.
 	Tickets *Tickets
+	// VerifyReports reads a project's cfo gate test reports, the newest
+	// first, which put each task's newest run on its card; without it no
+	// card shows one.
+	VerifyReports func(project string) ([]verify.Report, error)
 	// Runs opens run items' windows; without it no item can run.
 	Runs RunLauncher
 	// PollPage waits up to a timeout for the Overlord's feedback on a Lavish
@@ -129,6 +134,8 @@ type Service struct {
 	sameArea        map[string]sameArea
 	hostedChecks    map[string]HostedChecks
 	deploys         map[string]Deployment
+	localReports    map[string][]verify.Report
+	localReadErr    error
 	progressReadErr error
 	// runRequests takes one run request at a time, so two with one ID never
 	// both write a script.
@@ -426,6 +433,8 @@ func (s *Service) cycle(ctx context.Context, recover bool) {
 	s.mu.Lock()
 	s.workProgress, s.ciDurations, s.sameArea, s.progressReadErr = watched.Progress, watched.Durations, watched.SameArea, fleetReadErr
 	s.hostedChecks, s.deploys = watched.Hosted, watched.Deploys
+	localReports, localReadErr := s.readLocalReports()
+	s.localReports, s.localReadErr = localReports, localReadErr
 	s.mu.Unlock()
 	before := s.Store.Snapshot().Revision
 	ingestErr := s.Store.Ingest()
@@ -936,8 +945,9 @@ type Task struct {
 	Ticket   *TaskTicket `json:"ticket,omitempty"`
 	Overlaps []Overlap   `json:"overlaps,omitempty"`
 	// HostedChecks is what its pull request's hosted checks said at the last
-	// CI poll.
+	// CI poll, and LocalChecks its change's newest cfo gate test run.
 	HostedChecks *HostedChecks `json:"hosted_checks,omitempty"`
+	LocalChecks  *LocalChecks  `json:"local_checks,omitempty"`
 	// Deployment is how the deploy of its merged pull request stands, apart
 	// from its checks.
 	Deployment *Deployment `json:"deployment,omitempty"`
@@ -1031,7 +1041,10 @@ func (s *Service) Snapshot() (Snapshot, error) {
 	d := s.Store.Snapshot()
 	s.mu.Lock()
 	out := Snapshot{Example: s.Options.Example, Instance: s.Instance, Revision: s.revision, Started: s.Started, At: time.Now().UTC(), Reconciled: s.reconciled, Error: s.lastError, Tasks: []Task{}, Attention: []string{}, Sessions: []Session{}, Retired: d.Retired, Actions: d.Actions, Issues: d.Issues}
-	progress, sameAreas, hostedChecks, deploys := maps.Clone(s.workProgress), maps.Clone(s.sameArea), maps.Clone(s.hostedChecks), maps.Clone(s.deploys)
+	progress, sameAreas, hostedChecks, localReports, deploys := maps.Clone(s.workProgress), maps.Clone(s.sameArea), maps.Clone(s.hostedChecks), maps.Clone(s.localReports), maps.Clone(s.deploys)
+	if s.localReadErr != nil {
+		out.Issues = append(slices.Clone(out.Issues), s.localReadErr.Error())
+	}
 	out.CIDurations = slices.Clone(s.ciDurations)
 	if s.progressReadErr != nil {
 		out.Issues = append(slices.Clone(out.Issues), s.progressReadErr.Error())
@@ -1311,6 +1324,9 @@ func (s *Service) Snapshot() (Snapshot, error) {
 		}
 		if hosted, exists := hostedChecks[task.PR]; exists && task.PR != "" && !task.Archived {
 			task.HostedChecks = &hosted
+		}
+		if report, found := newestRun(localReports[task.Project], *task); found && !task.Archived {
+			task.LocalChecks = localChecks(report)
 		}
 	}
 	if dispatch := s.Options.Dispatch; dispatch != nil {

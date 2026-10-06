@@ -245,6 +245,7 @@ If the test output or log cannot be written, the test check fails even when `go 
 The 20 reports of a project written last are kept, the one a run just wrote always among them, and an older one is removed with its log.
 A log with no report belongs to a run still going and stays, until nothing has written to it for 24 hours, when the project's next run removes it.
 A run that cannot write its report says so and keeps its verdict: the checks decide the exit code, never the store.
+A report is written whole or not at all, and the board reads them: a live task's card shows the newest run of its change, as [docs/native-board.md](native-board.md) describes.
 
 ### Taking turns
 

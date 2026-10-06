@@ -16,6 +16,7 @@ import { PeopleRow } from "./people-row";
 import { TicketLink } from "./ticket-link";
 import { HostedChecksLink } from "./hosted-checks-link";
 import { DeploymentLink } from "./deployment-link";
+import { LocalChecksLink } from "./local-checks-link";
 
 // Who the goblin is, what it is doing now and what the Overlord can do about
 // it. Its status is the one place the panel says the task's state, with one
@@ -74,6 +75,7 @@ export function PanelHeader({ task, node, snapshot, compact, onAnswer, onOpenTas
       {waiting && <button className="icon-button raised pill-link answer" aria-label={"Answer: " + (waiting.kind === "question" ? plainMessage(waiting.question.text) : waiting.kind === "credential" ? credentialAsk(waiting.request) : reviewLine(waiting.review))} onClick={() => onAnswer(waiting.key)}><Icon name="command-center" /><span>Answer</span></button>}
       {task.ticket && <TicketLink ticket={task.ticket} className="icon-button raised pill-link" />}
       {pr && <a className="icon-button raised pill-link" href={pr} target="_blank" rel="noreferrer" aria-label={"Open pull request " + pullRequestLabel(pr)} data-tip="Open pull request">{badge.github ? <svg className="icon brand-glyph" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d={BRAND_MARKS.github.path} /></svg> : <Icon name="pull-request" />}<span>{badge.label}</span></a>}
+      {owner && task.local_checks && <LocalChecksLink checks={task.local_checks} taskId={task.id} className="icon-button raised pill-link" />}
       {pr && task.hosted_checks && <HostedChecksLink checks={task.hosted_checks} pr={pr} className="icon-button raised pill-link" />}
       {owner && task.deployment && <DeploymentLink deployment={task.deployment} className="icon-button raised pill-link" />}
     </div>}

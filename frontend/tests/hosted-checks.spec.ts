@@ -1,7 +1,8 @@
 import { expect, test, type Page } from "./site";
 
-// A live goblin's hosted checks beside its pull request, on its card and in
-// its panel. The supervisor is played by one held snapshot.
+// A live goblin's hosted checks and its change's newest cfo gate test run
+// beside its pull request, on its card and in its panel. The supervisor is
+// played by one held snapshot.
 const REPO = "https://github.com/northwind/northwind-api";
 const JOB = REPO + "/actions/runs/5/job/50";
 const task = (id: string, title: string, fields: Record<string, unknown> = {}) => ({ id, title, project: "northwind-api", phase: "working", verified: false, generation: id + "-1", harness: "claude", since: new Date(Date.now() - 42 * 60_000).toISOString(), ...fields });
@@ -9,8 +10,8 @@ const SNAPSHOT = {
   healthy: true, instance: "fixture", cfo_runs: true, cfo_harness: "claude", revision: 1, attention: [],
   sessions: [{ id: "cfo-1", harness: "claude", role: "cfo", model: "claude-opus-5-5" }],
   tasks: [
-    task("nw-sync", "Say why a billing sync fails", { pr: REPO + "/pull/55", ticket: { number: 52, url: REPO + "/issues/52", state: "pr open" }, hosted_checks: { head: "3d7072f8aa", state: "failed", checks: 9, failed: ["go (rest)", "frontend"], link: JOB, at: new Date().toISOString() } }),
-    task("nw-export", "Export the audit trail", { pr: REPO + "/pull/56", hosted_checks: { head: "5f52309400", state: "passed", checks: 9, approved: true, at: new Date().toISOString() } }),
+    task("nw-sync", "Say why a billing sync fails", { pr: REPO + "/pull/55", ticket: { number: 52, url: REPO + "/issues/52", state: "pr open" }, hosted_checks: { head: "3d7072f8aa", state: "failed", checks: 9, failed: ["go (rest)", "frontend"], link: JOB, at: new Date().toISOString() }, local_checks: { commit: "3d7072f8aa", level: "affected", required_level: "affected", status: "failed", duration_seconds: 1080, queue_seconds: 300, failed: ["internal/supervisor"], at: new Date().toISOString() } }),
+    task("nw-export", "Export the audit trail", { pr: REPO + "/pull/56", hosted_checks: { head: "5f52309400", state: "passed", checks: 9, approved: true, at: new Date().toISOString() }, local_checks: { commit: "5f52309400", level: "affected", required_level: "affected", status: "passed", duration_seconds: 600, failed: [], at: new Date().toISOString() } }),
     task("nw-retry", "Retry the webhook", { pr: REPO + "/pull/57", hosted_checks: { head: "445bd85000", state: "pending", checks: 9, at: new Date().toISOString() } }),
     task("nw-docs", "Fix the docs links", { pr: REPO + "/pull/58", deployment: { commit: "aaa111bbb222", state: "deploying", workflows: ["Deploy"], link: REPO + "/actions/runs/81", at: new Date().toISOString() } }),
     task("finished:nw-ship", "Ship the export", { phase: "done", verified: true, archived: true, merged: true, generation: "", harness: "", pr: REPO + "/pull/59", at: new Date().toISOString(), deployment: { commit: "ccc333ddd444", state: "failed", workflows: ["Deploy API", "Deploy worker"], link: REPO + "/actions/runs/82", at: new Date().toISOString() } }),
@@ -55,17 +56,21 @@ for (const viewport of [{ name: "in his window", width: 1707, height: 1067 }, { 
     test("a card says where its pull request's checks stand and opens the failed check's page", async ({ page }) => {
       await open(page);
 
-      const failed = card(page, "Say why a billing sync fails").locator("a.card-checks");
+      const failed = card(page, "Say why a billing sync fails").locator("a.card-checks.hosted-checks");
       await expect(failed).toHaveText("Checks failed");
       await expect(failed).toHaveAttribute("href", JOB);
       await expect(failed).toHaveAttribute("data-tip", "Failed: go (rest), frontend");
       await expect(failed).toHaveClass(/hosted-failed/);
       const passed = card(page, "Export the audit trail").locator(".card-checks");
-      await expect(passed).toHaveText(["Checks passed", "Approved"]);
-      await expect(passed.first()).toHaveAttribute("href", REPO + "/pull/56/checks");
+      await expect(passed).toHaveText(["Local tests passed", "Checks passed", "Approved"]);
+      await expect(passed.nth(1)).toHaveAttribute("href", REPO + "/pull/56/checks");
       await expect(card(page, "Retry the webhook").locator("a.card-checks")).toHaveText("Checks running");
       await expect(card(page, "Fix the docs links").locator(".hosted-checks")).toHaveCount(0);
-      expect(await crowded(page, "Say why a billing sync fails")).toEqual({ parts: 3, outside: 0, overlaps: 0 });
+      const local = card(page, "Say why a billing sync fails").locator("a.local-checks");
+      await expect(local).toHaveText("Local tests failed");
+      await expect(local).toHaveAttribute("href", "/api/tasks/nw-sync/checks");
+      await expect(local).toHaveAttribute("data-tip", "Failed: internal/supervisor; affected level, 18m, 5m of it waiting for its turn");
+      expect(await crowded(page, "Say why a billing sync fails")).toEqual({ parts: 4, outside: 0, overlaps: 0 });
       expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true);
     });
   });
@@ -94,5 +99,6 @@ test("the panel shows the checks beside its pull request", async ({ page }) => {
   const header = page.locator(".panel-header");
 
   await expect(header.locator(".hosted-checks")).toHaveText(["Checks passed", "Approved"]);
+  await expect(header.locator("a.local-checks")).toHaveText("Local tests passed");
   await expect(header.locator("a.hosted-checks")).toHaveAttribute("href", REPO + "/pull/56/checks");
 });
