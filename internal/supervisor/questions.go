@@ -62,6 +62,9 @@ type Question struct {
 	// came from, such as page for the Overlord's answer on the review page
 	// that carries it.
 	AnsweredIn string `json:"answered_in,omitempty"`
+	// AnsweredAway marks an answer the CFO gave while AFK mode was on, so the
+	// board tells it from one the Overlord could have seen.
+	AnsweredAway bool `json:"answered_away,omitempty"`
 	// Page is, on the board only, the open review item whose page carries
 	// this question, so the Command Center shows the two as one.
 	Page string `json:"page,omitempty"`
@@ -260,8 +263,11 @@ type cfoAnswer struct {
 	Answer     string `json:"answer"`
 	// In names where the Overlord gave the answer the CFO records, such as
 	// chat; it is empty for the CFO's own answer.
-	In string    `json:"in,omitempty"`
-	At time.Time `json:"at"`
+	In string `json:"in,omitempty"`
+	// Away is set by the supervisor when it receives the CFO's own answer
+	// while AFK mode is on; whatever a sender puts here is replaced.
+	Away bool      `json:"away,omitempty"`
+	At   time.Time `json:"at"`
 }
 
 // AnswerGoblin answers a goblin's blocked question as the CFO, the structured
@@ -653,13 +659,17 @@ func (s *Store) ingestAnswers() error {
 // recordCFOAnswer records an answer the CFO gave with cfo answer, or keeps it
 // for a later pass when its question cannot take it yet.
 func (s *Store) recordCFOAnswer(a cfoAnswer) error {
-	// An answer that reads as the Overlord's is refused while he is away,
-	// whatever command or process sent it.
-	if a.In != "" {
-		if err := overlordAway(s.Home.State); err != nil {
-			return err
-		}
+	switched, err := afk.Read(s.Home.State)
+	if err != nil {
+		return err
 	}
+	// An answer that reads as the Overlord's is refused while he is away,
+	// whatever command or process sent it, and the CFO's own answer then is
+	// marked as given while he was away, whatever its sender said.
+	if a.In != "" && switched.On {
+		return errOverlordAway
+	}
+	a.Away = switched.On
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if err := s.applyCFOAnswer(a); errors.Is(err, errAnswerWaits) {
@@ -708,7 +718,7 @@ func (s *Store) applyCFOAnswer(a cfoAnswer) error {
 	q, at := &s.db.Questions[i], a.At
 	q.Status, q.Message, q.AnswerID = "succeeded", "Answered by the CFO.", ""
 	q.Answer, q.AnswerKind = a.Answer, "option"
-	q.AnsweredOption, q.AnsweredBy, q.AnsweredAt = a.Option, "cfo", &at
+	q.AnsweredOption, q.AnsweredBy, q.AnsweredAt, q.AnsweredAway = a.Option, "cfo", &at, a.Away
 	if a.In != "" {
 		q.Message, q.AnsweredBy, q.AnsweredIn = "You answered in "+a.In+"; the CFO recorded it.", "overlord", a.In
 		s.closePagesOfQuestion(*q, "overlord", "You answered its question in "+a.In+": "+a.Answer)
@@ -1014,8 +1024,10 @@ func (s *Store) ingestQuestions() error {
 // a restart (followCFO).
 func (s *Store) supersedeQuestions() error {
 	// Missing evidence cannot establish replacement: an unreadable queue
-	// leaves the goblins' questions alone.
+	// leaves the goblins' questions alone, and an unreadable AFK state leaves
+	// an acked one open until it can say whether he was away.
 	pending, pendingErr := wake.Pending(s.Home.State)
+	switched, afkErr := afk.Read(s.Home.State)
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	changed := false
@@ -1032,11 +1044,11 @@ func (s *Store) supersedeQuestions() error {
 		case errors.Is(err, os.ErrNotExist) || err == nil && goblinIdentity(meta) != q.Identity:
 			q.Status, q.Message = "superseded", "The goblin's task restarted or ended, so its question no longer applies."
 			changed = true
-		case pendingErr == nil && !slices.ContainsFunc(pending, func(r wake.Record) bool { return r.Seq == q.Seq }):
+		case pendingErr == nil && afkErr == nil && !slices.ContainsFunc(pending, func(r wake.Record) bool { return r.Seq == q.Seq }):
 			// The CFO acks a goblin's question once it answered it, so it
 			// closes as answered by the CFO, with the check of any answer.
 			at := time.Now().UTC()
-			q.Status, q.Message, q.AnsweredBy, q.AnsweredAt = "succeeded", "Answered by the CFO.", "cfo", &at
+			q.Status, q.Message, q.AnsweredBy, q.AnsweredAt, q.AnsweredAway = "succeeded", "Answered by the CFO.", "cfo", &at, switched.On
 			changed = true
 		}
 	}
