@@ -119,11 +119,60 @@ type Tree struct {
 	FetchedAt       time.Time `json:"fetched_at"`
 }
 
-// Working says a child of the goblin is working.
-func (t Tree) Working() bool { return false }
+// Working says a child of the goblin is working: the goblin counts as
+// working while any child does.
+func (t Tree) Working() bool {
+	for _, child := range t.Children {
+		if child.State == Working {
+			return true
+		}
+	}
+	return false
+}
 
-// ActivityAt is the latest sign of work the goblin's own records show.
-func (t Tree) ActivityAt() time.Time { return time.Time{} }
+// ActivityAt is the latest sign of work the goblin's own records show: its
+// conversation written, or any agent, shell or monitor under it active. A
+// process job's activity is its processor use, which Jobs carries instead.
+func (t Tree) ActivityAt() time.Time {
+	latest := t.ConversationAt
+	for _, child := range t.Children {
+		if child.Kind != KindProcess && child.Kind != KindGate && child.LastActivity.After(latest) {
+			latest = child.LastActivity
+		}
+	}
+	return latest
+}
 
-// Jobs names what holds the goblin's turn.
-func (t Tree) Jobs() ([]string, time.Duration) { return nil, 0 }
+// Jobs names the goblin's running jobs of processes the way a wake names
+// them, "name (pid N)", with the processor time they have used, and the
+// agents, shells and monitors still working under it, which hold the
+// goblin's turn as its processes do.
+func (t Tree) Jobs() ([]string, time.Duration) {
+	var names []string
+	var used time.Duration
+	for _, child := range t.Children {
+		switch {
+		case child.process != "":
+			names = append(names, child.process)
+			used += child.cpu
+		case (child.Kind == KindSubagent || child.Kind == KindShell || child.Kind == KindMonitor) && (child.State == Working || child.State == Silent):
+			names = append(names, string(child.Kind)+" "+quote(child.Label))
+		}
+	}
+	return names, used
+}
+
+func quote(label string) string {
+	return "\"" + label + "\""
+}
+
+// settle applies the rules every working child shares at now: one quiet
+// for SilentAfter is silent.
+func settle(node *Node, now time.Time) {
+	if node.LastActivity.IsZero() {
+		node.LastActivity = node.Started
+	}
+	if node.State == Working && !node.LastActivity.IsZero() && now.Sub(node.LastActivity) >= SilentAfter {
+		node.State = Silent
+	}
+}

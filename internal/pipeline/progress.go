@@ -127,5 +127,10 @@ type StepDetail struct {
 // query of its own so a no-mistakes database without these columns costs
 // only this read, never Progress.
 func (r Reader) StepDetails(ctx context.Context, runID string) ([]StepDetail, error) {
-	return nil, nil
+	var steps []StepDetail
+	q := `SELECT step_name AS name,status,COALESCE(started_at,0) AS started_at,COALESCE(last_activity_at,0) AS last_activity_at,COALESCE(last_activity,'') AS last_activity,COALESCE(agent_pid,0) AS agent_pid FROM step_results WHERE run_id=` + sqlString(runID) + ` ORDER BY step_order`
+	if err := r.query(ctx, q, &steps); err != nil {
+		return nil, err
+	}
+	return steps, nil
 }
