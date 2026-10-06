@@ -123,7 +123,7 @@ test("a closed question says what was chosen, by whom and when", () => {
 test("History marks who answered: you, the CFO, or the CFO while you were away", () => {
   const cases: [string, Record<string, unknown>, string][] = [
     ["his board answer", { status: "succeeded", answer_id: "x", answer: "A", answer_kind: "option", answered_option: "A", answered_by: "overlord" }, "you"],
-    ["his board answer on its way", { status: "queued", answer_id: "x", answer: "A", answer_kind: "option" }, "you"],
+    ["his board answer on its way, which keeps its single check", { status: "queued", answer_id: "x", answer: "A", answer_kind: "option" }, ""],
     ["his answer in chat, recorded by the CFO", { status: "succeeded", answer: "A", answer_kind: "option", answered_option: "A", answered_by: "overlord", answered_in: "chat" }, "you"],
     ["his change to the CFO's answer", { status: "succeeded", answer: "B", answer_kind: "option", answered_option: "B", answered_by: "overlord", replaced_answer: "A" }, "you"],
     ["the CFO's answer", { status: "succeeded", answer: "A", answer_kind: "option", answered_option: "A", answered_by: "cfo" }, "cfo"],

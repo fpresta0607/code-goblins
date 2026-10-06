@@ -235,10 +235,11 @@ export function answerReason(question: Question): string {
 }
 
 // Who answered, as History marks it: you, the CFO, or the CFO while you were
-// away. A question nobody answered, or whose answer did not arrive, keeps
-// the mark of what became of it.
+// away. A question nobody answered, or whose answer is still on its way or
+// did not arrive, keeps the mark of what became of it, so its row reads sent,
+// then delivered.
 export function answerMark(question: Question): "" | "you" | "cfo" | "away" {
-  if (questionOutcome(question) !== "answered") return "";
+  if (questionOutcome(question) !== "answered" || question.status !== "succeeded") return "";
   if (question.answered_by !== "cfo") return "you";
   return question.answered_away ? "away" : "cfo";
 }
