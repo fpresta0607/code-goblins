@@ -31,6 +31,7 @@ const REPORT = {
     { title: "Deployed", entries: [] },
     { title: "Answered for goblins", entries: [{ at: "2026-10-02T04:05:00Z", kind: "answer", what: "notify-nw-invoice-export-12", task: "nw-invoice-export", evidence: "asked: Which CSV dialect? answered: RFC 4180" }] },
     { title: "Other decisions", entries: [{ at: "2026-10-02T05:00:00Z", kind: "other", what: "Restarted the dev server", link: "javascript:alert(1)", evidence: "it had stopped answering" }] },
+    { title: "Paused at a floor", entries: [{ at: "2026-10-02T06:40:00Z", kind: "pause", what: "at the memory floor", task: "nw-search-index", evidence: "3.1 GB of memory and 8.0 GB of commit free on two readings in a row, under the 4 GB floor; nw-search-index was the newest goblin not pushing or merging", outcome: "paused" }] },
   ],
   finished: [{ task: "nw-login-rate", pr: "https://github.com/northwind/northwind-api/pull/412", at: "2026-10-02T04:12:00Z" }],
   held: [HELD[0], { ...HELD[1], waiting: false, now: "you answered it: Keep it for now" }],
@@ -347,9 +348,9 @@ test("the report lists what is held first, then how much of each thing the CFO d
   await openCfoPanel(page);
   await header(page).getByRole("button", { name: "Open the last AFK report" }).click();
   await expect(report(page).locator(".afk-report-title")).toContainText("Turned on from your board, off from your terminal.");
-  await expect(report(page).locator(".afk-tally li")).toHaveText(["Held for you 2", "Merged 1", "Merge words with no merge recorded 1", "Deployed 0", "Answered for goblins 1", "Other decisions 1", "Goblins finished 1"]);
+  await expect(report(page).locator(".afk-tally li")).toHaveText(["Held for you 2", "Merged 1", "Merge words with no merge recorded 1", "Deployed 0", "Answered for goblins 1", "Other decisions 1", "Paused at a floor 1", "Goblins finished 1"]);
   // Coming back he reads what is held before what was decided.
-  expect(await report(page).locator("section").evaluateAll((sections) => sections.map((section) => section.getAttribute("aria-label")))).toEqual(["Held for you", "Merged", "Merge words with no merge recorded", "Answered for goblins", "Other decisions", "Goblins finished", "Spent"]);
+  expect(await report(page).locator("section").evaluateAll((sections) => sections.map((section) => section.getAttribute("aria-label")))).toEqual(["Held for you", "Merged", "Merge words with no merge recorded", "Answered for goblins", "Other decisions", "Paused at a floor", "Goblins finished", "Spent"]);
   // A section with nothing in it is counted above and not listed.
   await expect(report(page).getByRole("region", { name: "Deployed" })).toHaveCount(0);
 
@@ -366,6 +367,13 @@ test("the report lists what is held first, then how much of each thing the CFO d
   const other = report(page).getByRole("region", { name: "Other decisions" });
   await expect(other).toContainText("Restarted the dev server");
   await expect(other.getByRole("link")).toHaveCount(0);
+
+  // A goblin the supervisor paused at the memory floor wears the pause mark,
+  // with the readings the pause stood on.
+  const paused = report(page).getByRole("region", { name: "Paused at a floor" }).locator("li");
+  await expect(paused.locator("strong")).toHaveText("nw-search-index: at the memory floor: paused");
+  await expect(paused).toContainText("Evidence: 3.1 GB of memory and 8.0 GB of commit free on two readings in a row");
+  await expect(paused.locator(".delivery path")).toHaveAttribute("d", "M8 5v14M16 5v14");
 
   const held = report(page).getByRole("region", { name: "Held for you" }).locator("li");
   await expect(held).toHaveCount(2);

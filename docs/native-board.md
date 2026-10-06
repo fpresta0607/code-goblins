@@ -1144,6 +1144,9 @@ A page that was not looking while he was away, such as a tab the browser put to 
 Each cycle the supervisor records every item that waits on the Overlord as held, once in a stretch: a pending question, with the choice its asker recommended, an open review item or wait, a run item nobody ran, and an open credential request.
 What only he can decide is held for him rather than asked: the CFO publishes it as a `cfo question` with `--recommend`, which the command refuses without one while AFK mode is on and the question offers choices, or as a run item with the exact command.
 A run item the board made itself, for a credential card's terminal or a connection's repair, is not held: it is ready only for the moment after his own click.
+While it is on, a memory reading under the floor counts toward the memory floor: after two in a row with free memory or commit under 4 GB, and with no start or other change under way, the supervisor pauses the newest live native goblin, by when its terminal host started, that is not pausing, paused or failed at the memory floor before, and has no git push, merge, pull, rebase, cherry-pick or am, or `gh pr merge`, running under its host.
+It sends the `memory` pause through the same `cfo pause` the allowance floor sends, so the lifecycle keeps its handoff and the scheduler resumes it after two readings at 5 GB; a change under way, the pause included, starts the count again, so one goblin is paused at a time.
+Each pause at either floor is logged as a `pause` line with the readings it stood on, then its outcome, and the report lists them under Paused at a floor; they are not decisions, so the bar's count leaves them out.
 An answer recorded as the Overlord's (`cfo answer --record-only --in <where>`) is refused while it is on, by the command and by the supervisor for the same request sent straight over the pipe.
 
 A switch that cannot be read is never taken for on or off.
