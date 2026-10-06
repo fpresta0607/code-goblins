@@ -13,6 +13,8 @@ import (
 	"unsafe"
 
 	"golang.org/x/sys/windows"
+
+	"github.com/fpresta0607/code-goblins/internal/fsx"
 )
 
 var (
@@ -101,7 +103,10 @@ func TestProcessesStartedThroughExecxOpenNoConsoleWindow(t *testing.T) {
 				if output, err := command.CombinedOutput(); err != nil {
 					t.Fatalf("the parent failed: %v: %s", err, output)
 				}
-				got, err := os.ReadFile(report)
+				// The parent fixture returns once the report's new name
+				// exists, which can be while the child's rename still holds
+				// it, so it is read as fleet programs read.
+				got, err := fsx.ReadFile(report)
 				if err != nil {
 					t.Fatal(err)
 				}
