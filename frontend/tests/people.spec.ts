@@ -122,8 +122,12 @@ test.describe("on a phone", () => {
     expect(await crowded(page, "Say why a billing sync fails")).toEqual({ parts: 3, outside: 0, overlaps: 0 });
     const header = await openPanel(page, "Say why a billing sync fails");
     await expect(header.locator(".people-row .person")).toHaveCount(3);
-    const [panel, row] = await Promise.all([header.boundingBox(), header.locator(".people-row").boundingBox()]);
-    expect(row!.x + row!.width).toBeLessThanOrEqual(panel!.x + panel!.width + 1);
+    // Each person, avatar and name, stays inside the panel's header.
+    const spill = await header.evaluate((element) => {
+      const edge = element.getBoundingClientRect().right;
+      return [...element.querySelectorAll(".people-row .person > *")].filter((person) => person.getBoundingClientRect().right > edge + 1).length;
+    });
+    expect(spill).toBe(0);
     expect(await fits(page)).toBe(true);
   });
 });
