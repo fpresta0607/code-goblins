@@ -39,7 +39,7 @@ async function open(page: Page, phase: string, posts: unknown[], error = "", val
   await expect(page.locator("#panel-title")).toHaveText("Choose the task engine");
   const pill = page.locator(".panel-pill").getByRole("button", { name: "Task", exact: true });
   if (await pill.count()) await pill.click();
-  const connections = page.locator(".workspace-details").getByText("Connections", { exact: true });
+  const connections = page.locator("details.connections > summary");
   if (await connections.count()) await connections.click();
 }
 
@@ -89,7 +89,7 @@ for (const width of [1440, 390]) {
       await expect(page.locator(".task-card")).toContainText("Pending: next-model low");
       await page.evaluate((live) => window.dispatchEvent(new CustomEvent("fixture-snapshot", { detail: { instance: "fixture", cfo_runs: true, healthy: true, revision: 3, tasks: [live] } })), { ...task("working"), generation: "s2", model: "next-model", effort: "low" });
       await expect(page.locator(".task-card")).not.toContainText("Pending:");
-      await page.locator(".workspace-details summary").click();
+      await page.locator("details.connections > summary").click();
       await expect(engine.getByRole("combobox", { name: "Model", exact: true })).toHaveValue("next-model");
     });
 
@@ -111,7 +111,7 @@ test("unavailable values and failed saves show their reasons", async ({ page }) 
   await expect(engine.getByRole("combobox", { name: "Harness", exact: true }).locator("option[value=pi]")).toHaveJSProperty("disabled", true);
   await engine.getByRole("combobox", { name: "Model", exact: true }).selectOption("next-model");
   await engine.getByRole("button", { name: "Save", exact: true }).click();
-  await expect(engine.getByRole("alert")).toHaveText("The task was edited; reload its card");
+  await expect(engine.getByRole("alert")).toHaveText("The task was edited. Reload its card.");
 });
 
 test("switch now needs confirmation and a cancelled dialog sends nothing", async ({ page }) => {

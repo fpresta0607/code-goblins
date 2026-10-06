@@ -79,7 +79,7 @@ test("a blocked goblin needs the Overlord, so it opens its newest item waiting i
 
 test("a goblin's own failure says what it reported", () => {
   const [alert] = boardAlerts(snapshot({}), snapshot({ tasks: [task("a", "review", { report: "failed", activity: "The build broke", reason: "Manual task mode" })] }));
-  assert.equal(alert.text, "Goblin a failed: The build broke");
+  assert.equal(alert.text, "Goblin a failed: The build broke.");
 });
 
 test("a goblin waiting on the Overlord says so once, and a review item asks for review", () => {
@@ -263,7 +263,7 @@ test("the Completed column's history alerts nothing, while a live goblin done wi
 
 test("a goblin's own failure drops the verb its report line starts with", () => {
   const [alert] = boardAlerts(snapshot({}), snapshot({ tasks: [task("a", "working", { report: "failed", activity: "failed: spawn refused: no harness" })] }));
-  assert.equal(alert.text, "Goblin a failed: spawn refused: no harness");
+  assert.equal(alert.text, "Goblin a failed: Spawn refused: no harness.");
 });
 
 test("each alert names who speaks by its goblin's title, as its card does, says one plain line and offers the one thing to do", () => {
@@ -274,7 +274,8 @@ test("each alert names who speaks by its goblin's title, as its card does, says 
     ["a question from a goblin no longer on the board", snapshot({ questions: [question("q1", { task: "gone" })] }), { speaker: "gone", text: "gone asks: Which option?", action: "Open Command Center" }],
     ["the CFO's question", snapshot({ questions: [cfoQuestion] }), { speaker: "CFO", text: "The CFO asks: Merge the release now?", action: "Open Command Center" }],
     ["a command to run", snapshot({ runs: [run("c1")] }), { speaker: "CFO", text: "A command waits for you to run it: Restart the board", action: "Open Command Center" }],
-    ["a blocked goblin", snapshot({ tasks: [task("a", "blocked", { reason: "Needs a key" })] }), { speaker: "Goblin a", text: "Goblin a is blocked: Needs a key", action: "Open Command Center" }],
+    ["a goblin's command to run", snapshot({ runs: [{ ...run("c2"), task: "a", title: "Sign in to GitHub" }] }), { speaker: "Goblin a", text: "Goblin a asks you to run a command: Sign in to GitHub", action: "Open Command Center" }],
+    ["a blocked goblin", snapshot({ tasks: [task("a", "blocked", { reason: "Needs a key" })] }), { speaker: "Goblin a", text: "Goblin a is blocked: Needs a key.", action: "Open Command Center" }],
     ["a failed goblin", snapshot({ tasks: [task("a", "failed")] }), { speaker: "Goblin a", text: "Goblin a failed: it needs a decision to go on.", action: "Open" }],
     ["a finished goblin", snapshot({ tasks: [task("a", "done", { pr: "https://github.com/o/r/pull/7" })] }), { speaker: "Goblin a", text: "Goblin a finished: r #7 is ready.", action: "Open" }],
     ["a goblin without a title", snapshot({ tasks: [task("a", "failed", { title: "" })] }), { speaker: "a", text: "a failed: it needs a decision to go on.", action: "Open" }],
@@ -328,4 +329,10 @@ test("the board asks for notifications once, and only while the browser has not 
   assert.equal(asksPermission("granted", false), false);
   assert.equal(asksPermission("denied", false), false);
   assert.equal(asksPermission("unsupported", false), false);
+});
+
+test("an alert names a goblin without its harness and says its failure in plain words", () => {
+  const [alert] = boardAlerts(snapshot({}), snapshot({ tasks: [task("a", "working", { title: "Fix the gate; Claude Code", report: "failed", activity: "failed: go test failed at 9f3c2a1e; see C:\\Users\\me\\run.log" })] }));
+  assert.equal(alert.speaker, "Fix the gate");
+  assert.equal(alert.text, "Fix the gate failed: Go test failed. See run.log.");
 });

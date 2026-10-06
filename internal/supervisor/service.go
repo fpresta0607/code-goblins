@@ -59,7 +59,7 @@ type Options struct {
 	Runs RunLauncher
 	// PollPage waits up to a timeout for the Overlord's feedback on a Lavish
 	// page; without it no page is polled.
-	PollPage func(ctx context.Context, file string, timeout time.Duration) (axi.PagePoll, error)
+	PollPage func(ctx context.Context, file, reply string, timeout time.Duration) (axi.PagePoll, error)
 	// FirstRun is what the first-run page reads and changes on this
 	// machine; without it the board can start no CFO.
 	FirstRun *FirstRun
@@ -441,11 +441,13 @@ func (s *Service) cycle(ctx context.Context, recover bool) {
 	reconcileErr = errors.Join(reconcileErr, s.Store.ingestAnswers())
 	reconcileErr = errors.Join(reconcileErr, s.Store.ingestActivity())
 	reconcileErr = errors.Join(reconcileErr, s.Store.ingestReviews())
+	reconcileErr = errors.Join(reconcileErr, s.Store.ingestGoblinRuns())
 	reconcileErr = errors.Join(reconcileErr, s.ingestCredentialRequests())
 	reconcileErr = errors.Join(reconcileErr, s.expireCredentials(time.Now()))
 	reconcileErr = errors.Join(reconcileErr, s.Store.expireRuns(time.Now()))
 	reconcileErr = errors.Join(reconcileErr, s.finishRuns(ctx))
 	reconcileErr = errors.Join(reconcileErr, s.Store.retireItems())
+	reconcileErr = errors.Join(reconcileErr, s.Store.retireGoblinRuns())
 	if cfo := readCFOState(s.Store.Home.State); cfo.registered && cfo.problem == "" {
 		reconcileErr = errors.Join(reconcileErr, s.Store.followCFO(cfo.identity), s.retellRuns(ctx))
 	}
@@ -682,7 +684,7 @@ func (s *Service) execute(ctx context.Context, a Action) (Evaluation, error) {
 	if a.Kind == "feedback" || a.Kind == "cfo_message" {
 		return Evaluation{}, fmt.Errorf("%w: obsolete action kind %q is not accepted", ErrRejected, a.Kind)
 	}
-	if a.Kind != "evaluate" && a.Kind != "review" && a.Kind != "cfo_answer" && a.Kind != "goblin_answer" && a.Kind != "review_answer" && a.Kind != "review_clear" && a.Kind != "question_clear" && a.Kind != "run" {
+	if a.Kind != "evaluate" && a.Kind != "review" && a.Kind != "cfo_answer" && a.Kind != "goblin_answer" && a.Kind != "answer_change" && a.Kind != "review_answer" && a.Kind != "review_clear" && a.Kind != "question_clear" && a.Kind != "run" {
 		return Evaluation{}, fmt.Errorf("%w: unsupported action kind %q", ErrRejected, a.Kind)
 	}
 	if a.Kind == "run" {
@@ -722,6 +724,9 @@ func (s *Service) execute(ctx context.Context, a Action) (Evaluation, error) {
 	}
 	if a.Kind == "goblin_answer" {
 		return s.answerGoblin(ctx, a)
+	}
+	if a.Kind == "answer_change" {
+		return s.changeAnswer(ctx, a)
 	}
 	if a.Kind == "cfo_answer" {
 		if s.Options.CFO == nil {
@@ -880,9 +885,12 @@ type Task struct {
 	Runtime      RuntimeEvidence `json:"runtime"`
 	// Activity is the task's own latest status line, and Report the kind of
 	// its latest report.
-	Activity   string    `json:"activity"`
-	Report     string    `json:"report"`
-	LastReport string    `json:"last_report"`
+	Activity   string `json:"activity"`
+	Report     string `json:"report"`
+	LastReport string `json:"last_report"`
+	// ReportedAt is when the goblin wrote its latest report, so the board
+	// can tell whether it reported since an answer it was given.
+	ReportedAt time.Time `json:"reported_at"`
 	Handoff    bool      `json:"handoff"`
 	RetiredAt  time.Time `json:"retired_at"`
 	// Archived marks completed history rather than a live task, Merged that
@@ -958,6 +966,10 @@ type Snapshot struct {
 	// CFOTerminal names the native terminal the board shows the CFO in (see
 	// cfoState), and is empty while the CFO runs in Herdr or not at all.
 	CFOTerminal string `json:"cfo_terminal"`
+	// CFOTerminalSince is when the host of that terminal started, so a view
+	// of a CFO whose terminal was replaced, as a restart replaces it, is
+	// opened again on the new host.
+	CFOTerminalSince time.Time `json:"cfo_terminal_since,omitzero"`
 	// CFOHarness names the harness the registered CFO runs, such as claude or
 	// codex, for the mark beside the CFO on the board; it is empty while no
 	// CFO is registered.
@@ -1006,6 +1018,7 @@ func (s *Service) Snapshot() (Snapshot, error) {
 	}
 	cfo := readCFOState(s.Store.Home.State)
 	out.CFOTerminal, out.CFORuns, out.CFOStarting, out.CFOClosed, out.CFOHarness = cfo.terminal, cfo.registered || cfo.starting, cfo.starting, cfo.closed, cfo.harness
+	out.CFOTerminalSince = cfo.since
 	out.CFOConversationLeft = s.cfoConversationLeft()
 	// The registration problem comes from the same read as the rest, so the
 	// board never shows a running CFO beside the problem of one it replaced.
@@ -1112,7 +1125,7 @@ func (s *Service) Snapshot() (Snapshot, error) {
 			}
 		}
 		activity, pr := statusActivity(lines, spawned)
-		lastReport, _ := taskSessionSummary(lines, spawned)
+		lastReport, lastReportedAt, _ := taskSessionSummary(lines, spawned)
 		if verb, detail, ok := waitingQuestion(decisions, id); ok {
 			evaluation.Phase, evaluation.Reason, evaluation.WaitingOn = verb, "Waiting on the CFO: "+detail, ""
 			activity = detail
@@ -1125,7 +1138,7 @@ func (s *Service) Snapshot() (Snapshot, error) {
 			title = id
 			untitled[id] = true
 		}
-		out.Tasks = append(out.Tasks, Task{ID: id, Title: title, Project: filepath.Base(meta.Project), Harness: meta.Harness, Backend: meta.Backend, Model: meta.Model, Effort: meta.Effort, Mode: meta.Mode, Generation: meta.SpawnGen, Session: d.TaskSessions[id], Dependencies: []string{}, Runtime: runtime, Activity: activity, LastReport: lastReport, Since: s.sessionStarted(meta), Report: reportKind(report), Evaluation: evaluation})
+		out.Tasks = append(out.Tasks, Task{ID: id, Title: title, Project: filepath.Base(meta.Project), Harness: meta.Harness, Backend: meta.Backend, Model: meta.Model, Effort: meta.Effort, Mode: meta.Mode, Generation: meta.SpawnGen, Session: d.TaskSessions[id], Dependencies: []string{}, Runtime: runtime, Activity: activity, LastReport: lastReport, ReportedAt: lastReportedAt, Since: s.sessionStarted(meta), Report: reportKind(report), Evaluation: evaluation})
 		if len(out.Tasks) >= maxSessions {
 			break
 		}

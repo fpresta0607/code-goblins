@@ -4,7 +4,7 @@ import { changeSummary, dragRange, isDrag, parsePatchToRows, splitRows, reviewRa
 import { lineageRoots, ownsTaskSession, sessionModel, projectSessions, tasksWithoutSession, sessionTitle } from "./lineageTree.ts";
 import { alreadyKnown, deliveryMark, runMark, submissionFor } from "./feedback.ts";
 import { parseAction, parseSnapshot, decisionText } from "./types.ts";
-import { arrange, settle, waitingOn, workflowNodes, taskColumn, personaFor, nodeStatus, nativeStatus, statusText, asksOverlord, waitingTarget, pullRequestBadge, pullRequestIcon, pullRequestLabel, safePullRequest, fleetTraffic, reportTraffic, expireTraffic, fitScale, CFO_ROOT, NODE_WIDTH, NODE_HEIGHT } from "./workflow.ts";
+import { arrange, settle, waitingOn, workflowNodes, taskColumn, personaFor, nodeStatus, nativeStatus, statusPhase, statusText, asksOverlord, waitingTarget, pullRequestBadge, pullRequestIcon, pullRequestLabel, safePullRequest, fleetTraffic, reportTraffic, expireTraffic, fitScale, CFO_ROOT, NODE_WIDTH, NODE_HEIGHT } from "./workflow.ts";
 
 test("board completion and semantic personas require the corresponding evidence", () => {
   const task = parseSnapshot({healthy:true, tasks:[{id:"work",title:"Test keyboard access",phase:"done",generation:"new",verified:false}]}).tasks[0];
@@ -540,6 +540,21 @@ test("a waiting goblin says what it waits on, and only a wait on the Overlord re
   assert.equal(statusText("waiting"), "Waiting");
 });
 
+test("a goblin's command the goblin moved past reads withdrawn, without naming the CFO", () => {
+  // Arrange
+  const snapshot = parseSnapshot({ healthy: true, runs: [
+    { id: "run-billing-7", task: "billing", interactive: true, state: "withdrawn", reason: "billing reported again: working: pushing without it" },
+    { id: "install-main", state: "withdrawn", reason: "the candidate binary is gone" },
+  ] });
+
+  // Act
+  const labels = (snapshot.runs ?? []).map((run) => runMark(run).label);
+
+  // Assert
+  assert.deepEqual(labels, ["Withdrawn", "Withdrawn by the CFO"]);
+  assert.deepEqual((snapshot.runs ?? []).map((run) => [run.task, run.interactive]), [["billing", true], ["", false]]);
+});
+
 test("a run item states its progress in plain words with its exit code", () => {
   const snapshot = parseSnapshot({ healthy: true, runs: [
     { id: "a", identity: "cfo-1", title: "Rebuild the index", shell: "pwsh", admin: false, command: "Get-Date", cwd: "C:\\work", state: "ready" },
@@ -556,4 +571,21 @@ test("a run item states its progress in plain words with its exit code", () => {
   const cases: [string, string, boolean][] = [["Ready to run", "play", false], ["Running", "clock", false], ["Finished · exit 0", "check", false],
     ["Failed · exit 2", "warning", true], ["Failed", "warning", true], ["Expired", "close", false], ["Withdrawn by the CFO", "close", false]];
   cases.forEach(([label, icon, trouble], index) => assert.deepEqual(runMark(runs[index]), { icon, label, trouble }, runs[index].id));
+});
+
+test("an action that did not finish is the task's one status, and in-flight work wins over it", () => {
+  const failed = (action: string, phase = "working") => parseSnapshot({ healthy: true, tasks: [{ id: "a", title: "A; Claude Code", phase, generation: "s1", verified: false,
+    lifecycle: { phase: "failed", action, at: "2026-10-05T16:30:06Z", kept: [], stopped: [], problems: ["context deadline exceeded"], handoff_saved: false, validation_restarts: false } }] }).tasks[0];
+  const cases: [string, ReturnType<typeof failed>, string, string][] = [
+    ["a pause that ran out of time, whose goblin still reports working", failed("pause"), "Pause failed", "failed"],
+    ["a resume that failed", failed("resume", "unavailable"), "Resume failed", "failed"],
+    ["a stop that failed", failed("stop"), "Stop failed", "failed"],
+    ["a new pause under way", failed("pause", "pausing"), "Pausing", "pausing"],
+  ];
+  for (const [name, task, status, phase] of cases) {
+    assert.equal(nodeStatus({ id: "a", title: "", task, relation: "" }), status, name);
+    assert.equal(statusPhase(task), phase, name);
+  }
+  assert.equal(sessionTitle({ ...parseSnapshot({ healthy: true, sessions: [{ id: "n", role: "goblin", task_id: "a" }] }).sessions[0] }, failed("pause")), "A");
+  assert.equal(workflowNodes(parseSnapshot({ healthy: true, tasks: [{ id: "a", title: "A; Codex", phase: "working", generation: "s1", verified: false }] }))[1].title, "A");
 });

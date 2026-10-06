@@ -39,6 +39,8 @@ export interface Task extends Evaluation {
   activity: string;
   handoff?: boolean;
   last_report?: string;
+  // reported_at is when the goblin wrote its latest report.
+  reported_at?: string;
   retired_at?: string;
   // report is the kind of the goblin's latest report: working, blocked,
   // failed, done, waiting, or empty.
@@ -63,7 +65,12 @@ export interface Task extends Evaluation {
 export interface LifecycleStatus {
   phase: string; action: string; at: string; kept: string[]; stopped: string[]; problems: string[];
   handoff_saved: boolean; validation_restarts: boolean;
+  // pause is what a paused task waits for: memory, allowance, overlord,
+  // dependency, question, ci or deploy, with until naming the reset time,
+  // task:, pr:, date:, question id or awaited run; absent on an older pause.
+  pause?: PauseCondition;
 }
+export interface PauseCondition { reason: string; until: string; at: string }
 // Memory is the machine's free memory and free commit (memory plus page file)
 // in bytes beside the fleet's floor, under which nothing starts, and the mark
 // at which the CFO starts the next queued task; with the kernel's pools and,
@@ -123,6 +130,9 @@ export interface Decision {
 }
 export interface BoardActivity {
   cfo_identity?:string; live?:boolean;
+  // watch is the line a goblin writes when it asks the Overlord to watch this
+  // presentation; only such a presentation reaches his Command Center.
+  watch?:string;
   id:string; kind:string; task_id:string; generation:string; source:string; target:string; state:string; url:string; at:string; until:string;
 }
 export interface SubscriptionUsage {
@@ -147,6 +157,9 @@ export interface Snapshot {
   registration: string;
   // The native terminal the registered CFO runs in; empty while it runs in Herdr.
   cfo_terminal: string;
+  // When the host of that terminal started; a new one, as after a restart,
+  // is viewed afresh.
+  cfo_terminal_since: string;
   // The harness the registered CFO runs, such as claude; empty while none is registered.
   cfo_harness: string;
   // The conversation the CFO could not resume when it last came back, and how
@@ -215,6 +228,10 @@ export interface Question {
   image_count: number;
   // generation is the asking goblin's session; empty for the CFO's question.
   generation: string;
+  // answered_away marks the CFO's answer given while AFK mode was on;
+  // change_id is his board action changing the CFO's answer to his own, and
+  // replaced_answer the CFO's choice it replaced once the goblin has his.
+  answered_away: boolean; change_id: string; replaced_answer: string;
 }
 // A review item waits on the Overlord until he answers or clears it, or its
 // reporter withdraws it: an image review, a Lavish page, or a wait on him.
@@ -232,6 +249,9 @@ export interface Review {
   // question is the goblin's pending question this item's page carries, and
   // window_closed_at when the page's review window last closed, if it has.
   question: string; window_closed_at: string;
+  // revising_since is when he sent a revision from the page without ending
+  // its review: the item waits on its goblin's next version, not on him.
+  revising_since: string;
   // document is a delivered file, or null for any other item.
   document: ReviewDocument | null;
   state: string; answer: string; answer_id: string; delivered: boolean; reason: string; created_at: string; updated_at: string;
@@ -250,6 +270,9 @@ export interface Run {
   // credential_request names the credential request whose card opened this
   // terminal, and credential_names the names it stores.
   credential_request: string; credential_names: string[];
+  // task is the goblin whose own command this is, empty for the CFO's. An
+  // interactive item runs in its own window, which keeps its output.
+  task: string; interactive: boolean;
 }
 // A request for credential values by name: the Overlord pastes each value on
 // its card, and the board stores it in the project's credential scope. It
@@ -438,14 +461,15 @@ function itemLists(v: Record<string, unknown>) {
   return {
     questions: array(v.questions).map((value) => {
       const q = object(value);
-      return { id: string(q.id), identity: string(q.identity), text: string(q.text), options: strings(q.options), recommended: string(q.recommended), answer: string(q.answer), answer_kind: string(q.answer_kind), created_at: string(q.created_at), answer_id: string(q.answer_id), status: string(q.status), message: string(q.message), answered_option: string(q.answered_option), answered_by: string(q.answered_by), answered_at: string(q.answered_at), task: string(q.task), image_count: number(q.image_count), generation: string(q.generation), page: string(q.page), answered_in: string(q.answered_in) };
+      return { id: string(q.id), identity: string(q.identity), text: string(q.text), options: strings(q.options), recommended: string(q.recommended), answer: string(q.answer), answer_kind: string(q.answer_kind), created_at: string(q.created_at), answer_id: string(q.answer_id), status: string(q.status), message: string(q.message), answered_option: string(q.answered_option), answered_by: string(q.answered_by), answered_at: string(q.answered_at), task: string(q.task), image_count: number(q.image_count), generation: string(q.generation), page: string(q.page), answered_in: string(q.answered_in),
+        answered_away: q.answered_away === undefined ? false : boolean(q.answered_away), change_id: string(q.change_id), replaced_answer: string(q.replaced_answer) };
     }),
     reviews: array(v.reviews).map((value) => {
       const r = object(value);
       return { id: string(r.id), identity: string(r.identity), task: string(r.task), title: string(r.title), image_count: number(r.image_count), lavish: string(r.lavish), link: string(r.link), watched: string(r.lavish_page) !== "",
         document: r.document === undefined || r.document === null ? null : (({ name, size, kind, link }) => ({ name: string(name), size: number(size), kind: string(kind), link: string(link) }))(object(r.document)),
         state: string(r.state), answer: string(r.answer), answer_id: string(r.answer_id), delivered: r.delivered === undefined ? false : boolean(r.delivered), reason: string(r.reason),
-        answered_by: string(r.answered_by), answered_in: string(r.answered_in), question: string(r.question), window_closed_at: string(r.window_closed_at),
+        answered_by: string(r.answered_by), answered_in: string(r.answered_in), question: string(r.question), window_closed_at: string(r.window_closed_at), revising_since: string(r.revising_since),
         created_at: string(r.created_at), updated_at: string(r.updated_at) };
     }),
     runs: array(v.runs).map((value) => {
@@ -454,7 +478,8 @@ function itemLists(v: Record<string, unknown>) {
         command: string(r.command), cwd: string(r.cwd), state: string(r.state), exit_code: r.exit_code === undefined || r.exit_code === null ? null : number(r.exit_code),
         output: string(r.output), reason: string(r.reason), created_at: string(r.created_at), expires_at: string(r.expires_at), ran_at: string(r.ran_at), finished_at: string(r.finished_at),
         connection_task: string(r.connection_task), connection_generation: string(r.connection_generation),
-        credential_request: string(r.credential_request), credential_names: strings(r.credential_names) };
+        credential_request: string(r.credential_request), credential_names: strings(r.credential_names),
+        task: string(r.task), interactive: r.interactive === undefined ? false : boolean(r.interactive) };
     }),
     credentials: array(v.credentials).map(parseCredentialRequest),
     actions: array(v.actions).map(parseAction),
@@ -487,6 +512,7 @@ export function parseSnapshot(value: unknown): Snapshot {
     error: string(v.error),
     registration: v.registration === undefined ? "" : string(v.registration),
     cfo_terminal: v.cfo_terminal === undefined ? "" : string(v.cfo_terminal),
+    cfo_terminal_since: v.cfo_terminal_since === undefined ? "" : string(v.cfo_terminal_since),
     cfo_harness: v.cfo_harness === undefined ? "" : string(v.cfo_harness),
     cfo_conversation_left: v.cfo_conversation_left === undefined ? "" : string(v.cfo_conversation_left),
     build: string(v.build),
@@ -502,12 +528,13 @@ export function parseSnapshot(value: unknown): Snapshot {
     retired: strings(v.retired),
     issues: strings(v.issues),
     attention: strings(v.attention),
-    activity: array(v.activity).map(value=>{const a=object(value);return {id:string(a.id),kind:string(a.kind),task_id:string(a.task_id),generation:string(a.generation),cfo_identity:string(a.cfo_identity),live:a.live===undefined?false:boolean(a.live),source:string(a.source),target:string(a.target),state:string(a.state),url:string(a.url),at:string(a.at),until:string(a.until)};}),
+    activity: array(v.activity).map(value=>{const a=object(value);return {id:string(a.id),kind:string(a.kind),task_id:string(a.task_id),generation:string(a.generation),cfo_identity:string(a.cfo_identity),live:a.live===undefined?false:boolean(a.live),source:string(a.source),target:string(a.target),state:string(a.state),url:string(a.url),at:string(a.at),until:string(a.until),watch:string(a.watch)};}),
     ...itemLists(v),
     tasks: array(v.tasks).map((value) => {
       const t = object(value);
       return {
-        lifecycle: t.lifecycle == null ? undefined : ((record) => ({ phase: string(record.phase), action: string(record.action), at: string(record.at), kept: strings(record.kept), stopped: strings(record.stopped), problems: strings(record.problems), handoff_saved: boolean(record.handoff_saved), validation_restarts: boolean(record.validation_restarts) }))(object(t.lifecycle)),
+        lifecycle: t.lifecycle == null ? undefined : ((record) => ({ phase: string(record.phase), action: string(record.action), at: string(record.at), kept: strings(record.kept), stopped: strings(record.stopped), problems: strings(record.problems), handoff_saved: boolean(record.handoff_saved), validation_restarts: boolean(record.validation_restarts),
+          ...(record.pause == null ? {} : { pause: ((pause) => ({ reason: string(pause.reason), until: string(pause.until), at: string(pause.at) }))(object(record.pause)) }) }))(object(t.lifecycle)),
         teardown: strings(t.teardown), detail: string(t.detail), queue_revision: string(t.queue_revision), notes: strings(t.notes), action_error: string(t.action_error), branch: string(t.branch),
         pending_engine: t.pending_engine == null ? undefined : ((choice) => ({ harness: string(choice.harness), model: string(choice.model), effort: string(choice.effort), when: string(choice.when) }))(object(t.pending_engine)),
         switching: t.switching === undefined ? false : boolean(t.switching),
@@ -526,6 +553,7 @@ export function parseSnapshot(value: unknown): Snapshot {
         activity: t.activity === undefined ? "" : string(t.activity),
         handoff: t.handoff === undefined ? false : boolean(t.handoff),
         last_report: string(t.last_report),
+        reported_at: string(t.reported_at),
         retired_at: string(t.retired_at),
         report: t.report === undefined ? "" : string(t.report),
         waiting_on: t.waiting_on === undefined ? "" : string(t.waiting_on),

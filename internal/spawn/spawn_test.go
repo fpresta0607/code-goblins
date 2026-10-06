@@ -882,6 +882,8 @@ func TestNotifyInstructionTeachesWorkingAndWaitingReports(t *testing.T) {
 		exe + " notify task-7 --working \"<what>\"",
 		exe + " notify task-7 --waiting-on <task-id|overlord|ci|deploy|memory> \"<why>\"",
 		exe + " notify task-7 --waiting-on overlord \"<why>\" --lavish <html-file>",
+		exe + " notify task-7 --waiting-on overlord \"<why>\" --run <command.ps1>",
+		"runs it with one click in a window he can use",
 		"never run lavish-axi poll yourself",
 		"lead with one short sentence that is the actual question",
 		"lines of their own that start with \"- \"",

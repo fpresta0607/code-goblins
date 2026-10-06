@@ -305,8 +305,7 @@ button:disabled, textarea:disabled { cursor: default; opacity: .55; }
 .review-placeholder { margin: auto; padding: 40px 28px; text-align: center; color: var(--muted); }
 .review-placeholder .goblin-avatar { margin: 0 auto 18px; }
 .review-placeholder h2 { color: #e4eeeb; margin-bottom: 12px; }
-.workspace-details { grid-column: 1 / -1; min-width: 0; font-size: 1rem; padding-top: 24px; border-top: 1px solid var(--border); margin-top: 20px; }
-.workspace-details h3 { font-size: 1.25rem; margin-bottom: 20px; }
+.workspace-details .disclosure-content { font-size: 1rem; }
 .workspace-details dl { margin: 0; display: grid; gap: 12px; }
 .workspace-details dl > div { display: grid; grid-template-columns: minmax(100px, .38fr) minmax(0,1fr); gap: 16px; }
 .workspace-details dt { color: #acbdc9; }
@@ -314,7 +313,6 @@ button:disabled, textarea:disabled { cursor: default; opacity: .55; }
 .workspace-project { margin-bottom: 12px; }
 
 .workspace-outcome { color: var(--muted); font-size: .9375rem; margin: 12px 0; overflow-wrap: anywhere; }
-.disclosure.connections { margin-top: 22px; }
 .engine-selector { container-type: inline-size; min-width: 0; margin-bottom: 18px; }
 .engine-fields { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.5fr) minmax(0, .8fr); gap: 10px; }
 .engine-fields label { display: grid; min-width: 0; gap: 8px; color: var(--muted); font-size: .9375rem; }
@@ -333,7 +331,7 @@ button:disabled, textarea:disabled { cursor: default; opacity: .55; }
 .connection-list li { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; gap: 12px; padding: 9px 2px; border-bottom: 1px solid var(--border); }
 .connection-name { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 10px; font-weight: 700; overflow-wrap: anywhere; }
 .connection-name.mono { font-family: var(--font-mono); font-weight: 500; }
-.chip { font-family: var(--font-body); font-size: .9375rem; font-weight: 600; color: var(--muted); padding: 0 10px; border: 1px solid var(--glass-border); border-radius: 999px; white-space: nowrap; }
+.chip { display: inline-block; font-family: var(--font-body); font-size: .9375rem; font-weight: 600; line-height: 1.4; color: var(--muted); padding: 2px 10px; border: 1px solid var(--glass-border); border-radius: 999px; white-space: nowrap; }
 .connection-status { display: inline-flex; align-items: center; gap: 6px; font-weight: 700; color: var(--mint); }
 .connection-status .icon { width: 18px; height: 18px; }
 .connection-status.empty { color: var(--amber); }
@@ -362,6 +360,7 @@ button:disabled, textarea:disabled { cursor: default; opacity: .55; }
 .question-option { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 12px; font-size: 1.125rem; font-weight: 550; min-width: 0; overflow-wrap: anywhere; }
 .question-option small { flex-basis: 100%; color: #b3c0c7; font-size: 1rem; font-weight: 400; }
 .recommendation { color: var(--recommend-ink); background: var(--recommend-fill); padding: 2px 9px; border-radius: 7px; font-size: .9375rem; font-weight: 600; }
+.cfo-answer { color: var(--mint); border: 1px solid var(--glass-border-hover); padding: 1px 9px; border-radius: 7px; font-size: .9375rem; font-weight: 600; white-space: nowrap; }
 .written-answer textarea { width: 100%; background: var(--field-bg); }
 @media (max-width: 40rem) {
   .question-modal { padding: 24px 18px; }
@@ -392,6 +391,8 @@ button:focus:not(:focus-visible), summary:focus:not(:focus-visible), [tabindex]:
 .icon-button.raised:hover:not(:disabled) { transform: var(--lift); border-color: var(--glass-border-hover); box-shadow: var(--glass-shadow-hover); background: var(--glass-bg-hover), var(--hero-surface); }
 .empty-state { display: grid; align-content: center; gap: 14px; min-height: 350px; padding: 24px; text-align: center; color: var(--muted); max-width: 36rem; margin: 0 auto; }
 .empty-state h2 { color: #edf4f3; }
+.error-box p { margin: 0; }
+.error-box .raw-details { margin-top: 6px; }
 .connection-banner, .error-box { border: 1px solid #735338; border-radius: var(--radius); background: #292116; color: #f1c598; padding: 14px; margin-bottom: 18px; overflow-wrap: anywhere; font-size: .9375rem; }
 .connection-banner { margin: 16px; }
 /* A newer board is served: one quiet line with its reload. */
@@ -419,7 +420,9 @@ summary { cursor: pointer; }
 .section-toolbar p, .count { color: var(--muted); font-size: .9375rem; }
 .section-toolbar button { font-size: .9375rem; }
 .count { margin-left: 6px; }
-.loading, .padded { padding: 24px 12px; color: var(--muted); }
+/* A loading, searching or empty row sits where its content will, with the
+   same room above and below it in every section. */
+.loading, .padded { margin: 0; padding: 12px 0; color: var(--muted); }
 .file-reviews { display: grid; gap: 20px; }
 .file-review { border: 1px solid var(--glass-border); border-radius: var(--radius); background: var(--field-bg); }
 .file-review > summary { padding: 16px; min-width: 0; }
@@ -647,13 +650,21 @@ button.line-number { min-height: 32px; display: flex; align-items: flex-start; j
 .panel-header .project-label { font-size: 1.0625rem; }
 .panel-header .muted { color: var(--muted); }
 .panel-status { font-size: 1.0625rem; }
-.panel-activity { color: #c4d4df; overflow-wrap: anywhere; display: block; line-height: 1.5; max-height: calc(1.5em * 3); overflow: hidden; }
-/* The goblin's own words open in full behind Show more, never an ellipsis. */
-.panel-activity.expanded { max-height: none; overflow: visible; }
+/* The one sentence under a task's status, in full, then what it leaves out
+   behind Details and, for a failure, its log, on one line that wraps. */
+.panel-activity { margin: 4px 0 0; color: #c4d4df; overflow-wrap: anywhere; line-height: 1.5; }
+.panel-details-row { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 18px; min-width: 0; }
+.raw-details { min-width: 0; }
+.raw-details > summary { display: inline-block; padding: 2px 0; list-style: none; color: var(--mint); font-size: .9375rem; font-weight: 700; cursor: pointer; }
+.raw-details > summary::-webkit-details-marker { display: none; }
+.raw-details > summary:hover { text-decoration: underline; }
+.raw-details[open] { flex-basis: 100%; }
+.raw-details-text { display: grid; gap: 6px; margin-top: 6px; padding: 10px 12px; border: 1px solid var(--glass-border); border-radius: var(--radius); background: var(--field-bg); color: #b3c5d1; font-family: var(--font-mono); font-size: .875rem; line-height: 1.5; overflow-wrap: anywhere; white-space: pre-wrap; }
+.raw-details-text p { margin: 0; }
 .show-more { display: grid; gap: 6px; justify-items: start; min-width: 0; margin-top: 4px; }
-.show-more .panel-activity { margin: 0; }
-.show-more-toggle { min-height: 0; padding: 0; border: 0; background: none; box-shadow: none; color: var(--mint); font-size: .9375rem; font-weight: 700; }
-.show-more-toggle:hover { text-decoration: underline; }
+.show-more-toggle, .text-button { min-height: 0; padding: 2px 0; border: 0; background: none; box-shadow: none; color: var(--mint); font-size: .9375rem; font-weight: 700; }
+.show-more-toggle:hover, .text-button:hover { text-decoration: underline; }
+.text-link { color: var(--mint); font-size: .9375rem; font-weight: 700; }
 .panel-actions { grid-column: 1 / -1; display: flex; flex-wrap: wrap; align-items: center; gap: 10px; }
 .panel-header .workspace-outcome { grid-column: 1 / -1; margin: 0; }
 .pill-link { width: auto; min-width: 44px; padding: 0 14px 0 10px; border-radius: 999px; display: inline-flex; gap: 6px; color: #dff7ee; font-weight: 800; }
@@ -756,7 +767,6 @@ button.line-number { min-height: 32px; display: flex; align-items: flex-start; j
   .panel-header.compact { grid-template-columns: 48px minmax(0, 1fr); }
   .panel-header.compact .panel-actions { grid-column: 1 / -1; }
 }
-.panel-content > .workspace-details { border-top: 0; margin-top: 0; padding-top: 20px; }
 
 /* The comment affordance is a speech-bubble icon, never a font glyph,
    positioned on the first line of its row. */
@@ -810,8 +820,8 @@ button.line-number { min-height: 32px; display: flex; align-items: flex-start; j
 .card-stage { position: relative; }
 .question-card { position: relative; display: grid; gap: 16px; padding: 22px; border: 1px solid var(--glass-border); border-radius: var(--radius); background: var(--glass-bg); box-shadow: var(--glass-shadow); font-size: 1.0625rem; touch-action: pan-y; animation: card-in .18s ease-out; }
 @keyframes card-in { from { opacity: 0; transform: translateY(6px); } }
-.question-card .asker { display: flex; align-items: center; gap: 12px; color: #c4d4df; }
-.question-card .asker .goblin-avatar { width: 48px; height: 48px; }
+.question-card .asker, .run-card .asker { display: flex; align-items: center; gap: 12px; color: #c4d4df; }
+.question-card .asker .goblin-avatar, .run-card .asker .goblin-avatar { width: 48px; height: 48px; }
 .question-card h3, .run-card h3 { margin: 0; font-size: 1.375rem; line-height: 1.3; }
 .question-thumbs { display: flex; gap: 10px; overflow-x: auto; padding-bottom: 4px; }
 /* A review page's preview is the one way into it: the whole tile opens it. */
@@ -891,7 +901,16 @@ a.wait-open { min-height: 44px; border: 1px solid var(--accent-green); border-ra
 .inbox-text strong { font-weight: 800; }
 .inbox-text small { color: var(--mint); font-size: .9375rem; font-weight: 700; }
 .inbox-list time { color: var(--muted); white-space: nowrap; }
-.inbox-history li { grid-template-columns: auto minmax(0, 1fr); }
+.inbox-history li { grid-template-columns: auto minmax(0, 1fr) auto auto; align-items: start; }
+.inbox-history li > time { padding-top: 2px; }
+.inbox-text small.answer-reason { color: var(--muted); font-weight: 500; }
+/* Who answered: the crown for him, the CFO's face for the CFO, with a moon
+   while he was away. */
+.answer-mark { position: relative; display: inline-grid; place-items: center; width: 40px; height: 40px; flex: none; }
+.answer-mark.you { border-radius: 50%; border: 1px solid var(--amber); background: rgba(243, 197, 120, .1); color: var(--amber); }
+.answer-mark.you .icon { width: 22px; height: 22px; }
+.answer-mark .away-badge { position: absolute; right: -4px; bottom: -4px; display: grid; place-items: center; width: 20px; height: 20px; border-radius: 50%; background: var(--tip-surface); border: 1px solid var(--glass-border-hover); color: var(--mint); }
+.answer-mark .away-badge .icon { width: 13px; height: 13px; }
 @media (max-width: 40rem) {
   .question-modal { padding: 20px 16px; }
   .command-center-heading .goblin-avatar { width: 56px; height: 56px; }
@@ -975,7 +994,9 @@ a.wait-open { min-height: 44px; border: 1px solid var(--accent-green); border-ra
 .subscription-dial.unknown .subscription-percent { color: var(--muted); }
 /* The task the CFO starts next, and Start on every queued card: one play
    button among the card's controls. */
-.next-chip { justify-self: start; display: inline-flex; align-items: center; padding: 1px 10px; border-radius: 999px; background: #123126; color: #8ff0c9; font-size: 1rem; font-weight: 800; }
+/* A chip sizes to its label and never wraps it; on a card too narrow for the
+   label it ends in an ellipsis rather than growing a second line. */
+.next-chip { justify-self: start; display: inline-block; max-width: 100%; padding: 2px 10px; border-radius: 999px; background: #123126; color: #8ff0c9; font-size: .9375rem; font-weight: 800; line-height: 1.4; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .next-chip.waiting { background: #33290f; color: var(--amber); }
 .card-start { position: absolute; top: 10px; right: 10px; width: 32px; height: 32px; min-height: 32px; border-radius: 10px; }
 .card-start .icon { width: 14px; height: 14px; fill: currentColor; }
@@ -1055,7 +1076,6 @@ a.wait-open { min-height: 44px; border: 1px solid var(--accent-green); border-ra
 /* On a phone a row of two still fits on one line. */
 @media (max-width: 40rem) { .labelled-button { gap: 6px; padding-inline: 10px 12px; } }
 .card-secondary { color: var(--muted); font-size: 1rem; overflow-wrap: anywhere; }
-.queue-block { color: var(--amber); font-size: 1rem; }
 .phase-paused, .phase-pausing, .phase-resuming { color: var(--amber); }
 .phase-paused .status-dot, .phase-pausing .status-dot, .phase-resuming .status-dot { background: var(--amber); }
 .phase-stopped, .phase-stopping { color: var(--muted); }

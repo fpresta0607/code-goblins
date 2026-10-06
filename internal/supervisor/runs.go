@@ -45,8 +45,9 @@ const (
 var runShells = []string{"powershell", "pwsh", "bash"}
 
 // Run is a command the CFO needs the Overlord to run, which he runs with one
-// click from the Command Center. The registered primary CFO can create one;
-// the board can also create a connection repair bound to a task generation.
+// click from the Command Center. The registered primary CFO can create one,
+// and a goblin its own through its notify; the board can also create a
+// connection repair bound to a task generation.
 // Its command is the exact text of a script file under state/runs, and Run
 // executes that file, never anything the browser sends.
 type Run struct {
@@ -90,12 +91,18 @@ type Run struct {
 	// terminal, and CredentialNames the names it stores.
 	CredentialRequest string   `json:"credential_request,omitempty"`
 	CredentialNames   []string `json:"credential_names,omitempty"`
+
+	// Task is the goblin whose own command this is, empty for the CFO's.
+	Task string `json:"task,omitempty"`
+	// Interactive items run in the window itself, with nothing captured, and
+	// the window stays open: a sign-in or cfo attach needs the real console.
+	Interactive bool `json:"interactive,omitempty"`
 }
 
 // RunRequest is what cfo run-request asks for; CommandFile is read once.
 type RunRequest struct {
 	ID, Title, Shell, Cwd, CommandFile string
-	Admin                              bool
+	Admin, Interactive                 bool
 }
 
 // RunLauncher opens a run item's window. Launch returns once the process the
@@ -114,6 +121,9 @@ type RunLaunch struct {
 	Script string
 	Dir    string
 	Cwd    string
+	// Interactive runs the script in the window itself and keeps the
+	// window open, writing only exit.txt.
+	Interactive bool
 }
 
 // RunStarted is the process a launched item runs under.
@@ -143,7 +153,7 @@ func validRun(r Run) error {
 }
 
 func sameRun(a, b Run) bool {
-	return a.Identity == b.Identity && a.Title == b.Title && a.Shell == b.Shell && a.Admin == b.Admin && a.Command == b.Command && a.Cwd == b.Cwd
+	return a.Identity == b.Identity && a.Task == b.Task && a.Title == b.Title && a.Shell == b.Shell && a.Admin == b.Admin && a.Interactive == b.Interactive && a.Command == b.Command && a.Cwd == b.Cwd
 }
 
 // runDir holds one item's script and what its run leaves behind. Its name is
@@ -174,11 +184,11 @@ func runDigest(data []byte) string {
 // file Run executes itself, so nothing written straight into the state
 // directory ever reaches the board.
 func PublishRun(h home.Home, req RunRequest) error {
-	command, err := readRunCommand(req.CommandFile)
+	command, err := ReadRunCommand(req.CommandFile)
 	if err != nil {
 		return err
 	}
-	return sendPipeRequest(h.State, runPipeRequest{ID: req.ID, Title: req.Title, Shell: req.Shell, Admin: req.Admin, Cwd: req.Cwd, Command: command})
+	return sendPipeRequest(h.State, runPipeRequest{ID: req.ID, Title: req.Title, Shell: req.Shell, Admin: req.Admin, Interactive: req.Interactive, Cwd: req.Cwd, Command: command})
 }
 
 // WithdrawRun takes a run item nobody ran off the board for the registered
@@ -196,18 +206,19 @@ func WithdrawRun(h home.Home, id, reason string) error {
 // the CFO may not send: the supervisor makes it only for a process proven to
 // be the Overlord's own terminal.
 type runPipeRequest struct {
-	Kind       string             `json:"kind,omitempty"`
-	ID         string             `json:"id"`
-	Reason     string             `json:"reason,omitempty"`
-	Title      string             `json:"title"`
-	Shell      string             `json:"shell"`
-	Admin      bool               `json:"admin"`
-	Cwd        string             `json:"cwd"`
-	Command    string             `json:"command"`
-	Question   *Question          `json:"question,omitempty"`
-	Review     *Review            `json:"review,omitempty"`
-	Answer     *cfoAnswer         `json:"answer,omitempty"`
-	Credential *CredentialRequest `json:"credential,omitempty"`
+	Kind        string             `json:"kind,omitempty"`
+	ID          string             `json:"id"`
+	Reason      string             `json:"reason,omitempty"`
+	Title       string             `json:"title"`
+	Shell       string             `json:"shell"`
+	Admin       bool               `json:"admin"`
+	Interactive bool               `json:"interactive,omitempty"`
+	Cwd         string             `json:"cwd"`
+	Command     string             `json:"command"`
+	Question    *Question          `json:"question,omitempty"`
+	Review      *Review            `json:"review,omitempty"`
+	Answer      *cfoAnswer         `json:"answer,omitempty"`
+	Credential  *CredentialRequest `json:"credential,omitempty"`
 	// AFK is a decision the CFO logs under AFK mode's authority.
 	AFK *afk.Entry `json:"afk,omitempty"`
 	// Asked is the Overlord's words when the CFO asks for his AFK switch at
@@ -237,7 +248,7 @@ func (s *Service) acceptRunRequest(pid int, connected time.Time, req runPipeRequ
 		return fmt.Errorf("the run's folder %s is not a directory", cwd)
 	}
 	now := time.Now().UTC()
-	r := Run{ID: req.ID, Identity: identity, By: "cfo", Title: req.Title, Shell: req.Shell, Admin: req.Admin, Command: req.Command, Cwd: cwd, State: "ready", CreatedAt: now, ExpiresAt: now.Add(runLifetime)}
+	r := Run{ID: req.ID, Identity: identity, By: "cfo", Title: req.Title, Shell: req.Shell, Admin: req.Admin, Interactive: req.Interactive, Command: req.Command, Cwd: cwd, State: "ready", CreatedAt: now, ExpiresAt: now.Add(runLifetime)}
 	if err := validRun(r); err != nil {
 		return err
 	}
@@ -248,25 +259,16 @@ func (s *Service) acceptRunRequest(pid int, connected time.Time, req runPipeRequ
 		}
 		return errors.New("run ID already used; a re-run needs a new ID")
 	}
-	dir := runDir(s.Store.Home.State, r)
-	name, script := runScript(r)
-	if err := os.MkdirAll(dir, 0700); err != nil {
+	if err := s.Store.admitRun(r); errors.Is(err, ErrDeferred) {
+		return fmt.Errorf("the board already holds %d run items waiting or running", maxRuns)
+	} else if err != nil {
 		return err
-	}
-	if err := fsx.AtomicWriteFile(filepath.Join(dir, name), script); err != nil {
-		return errors.Join(err, os.RemoveAll(dir))
-	}
-	r.ScriptSum = runDigest(script)
-	if err := s.Store.acceptRun(r); err != nil {
-		if errors.Is(err, ErrDeferred) {
-			err = fmt.Errorf("the board already holds %d run items waiting or running", maxRuns)
-		}
-		return errors.Join(err, os.RemoveAll(dir))
 	}
 	return nil
 }
 
-func readRunCommand(path string) (string, error) {
+// ReadRunCommand reads the command a run item carries from its file, once.
+func ReadRunCommand(path string) (string, error) {
 	f, err := fsx.Open(path)
 	if err != nil {
 		return "", err
@@ -317,7 +319,8 @@ func (s *Store) acceptRun(r Run) error {
 }
 
 // withdrawRun takes the run item id, which nobody ran yet, off the board for
-// the registered CFO, keeping its reason on the item and in state/runs.audit;
+// the registered CFO, or a goblin's own once the goblin moved past it,
+// keeping its reason on the item and in state/runs.audit;
 // Run on it is refused from then on. Replacing an item is withdrawing it and
 // publishing the new command under a new ID. An item the board made for the
 // Overlord, a connection repair or a credential request's terminal, is not
@@ -492,7 +495,7 @@ func (s *Service) startRun(ctx context.Context, a Action) (Evaluation, error) {
 	case s.Options.Runs == nil:
 		err = errors.New("this supervisor cannot open run windows")
 	default:
-		started, err = s.Options.Runs.Launch(ctx, RunLaunch{Shell: r.Shell, Admin: r.Admin, Script: script, Dir: dir, Cwd: r.Cwd})
+		started, err = s.Options.Runs.Launch(ctx, RunLaunch{Shell: r.Shell, Admin: r.Admin, Script: script, Dir: dir, Cwd: r.Cwd, Interactive: r.Interactive})
 	}
 	if err != nil {
 		reason := "it could not start: " + err.Error()
@@ -570,6 +573,22 @@ func (s *Service) completeRun(ctx context.Context, r Run, code *int, reason stri
 	if r.ConnectionTask != "" {
 		checks, _ := s.connections()
 		checks.Get(r.ConnectionTask+"\n"+r.ConnectionGeneration, true)
+	}
+	// A goblin's own command answers the goblin that asked for it.
+	if r.Task != "" {
+		why := bounded(strings.Join(strings.Fields(r.Title), " "), 200)
+		text := fmt.Sprintf("The Overlord ran your command (%s) in its own window, and it did not finish: %s.", why, reason)
+		if code != nil {
+			text = fmt.Sprintf("The Overlord ran your command (%s) in its own window; it finished with exit code %d.", why, *code)
+		}
+		delivery := errors.New("no goblin transport")
+		if s.Options.CFO != nil {
+			_, delivery = s.Options.CFO.SendGoblin(ctx, r.Task, r.Identity, text)
+		}
+		if delivery != nil && !errors.Is(delivery, fleet.ErrQueuedBehindTurn) {
+			err = errors.Join(err, s.Store.noteRun(r.ID, r.RunAction, "the goblin could not be told: "+bounded(delivery.Error(), 300)))
+		}
+		return err
 	}
 	text := fmt.Sprintf("Run item %s (%s) did not finish: %s.", r.ID, r.Title, reason)
 	if code != nil {
