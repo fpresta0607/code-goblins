@@ -1,4 +1,5 @@
-import type { Memory } from "./types";
+import type { Disk, Memory } from "./types";
+import { DiskMeter } from "./DiskMeter";
 import { Icon } from "./Icon";
 import { freeGigabytes, holdersLine, meterScale, meterState, poolWarning, tighter } from "./start";
 
@@ -11,8 +12,9 @@ import { freeGigabytes, holdersLine, meterScale, meterState, poolWarning, tighte
 // so that neither leaves the box. While commit (memory plus
 // page file) is the tighter of the two, the meter shows commit instead and
 // names the apps holding the most of it; a leaking paged pool gets a line of
-// its own.
-export function MemoryMeter({ memory }: { memory: Memory }) {
+// its own. Free disk, when the snapshot has it, is the second meter in the
+// same box, under memory.
+export function MemoryMeter({ memory, disk = null }: { memory: Memory; disk?: Disk | null }) {
   const state = meterState(memory), scale = meterScale(memory), shown = tighter(memory);
   const holders = holdersLine(memory), warning = poolWarning(memory);
   return <div className="memory" role="group" aria-label="Memory">
@@ -30,5 +32,6 @@ export function MemoryMeter({ memory }: { memory: Memory }) {
     {holders && <p className="memory-holders">{holders}</p>}
     {warning && <p className="memory-warning"><Icon name="warning" />{warning}</p>}
     <p className="sr-only">{state.text}</p>
+    {disk && <DiskMeter disk={disk} />}
   </div>;
 }

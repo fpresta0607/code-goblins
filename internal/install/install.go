@@ -10,6 +10,8 @@ import (
 	"strings"
 
 	"github.com/fpresta0607/code-goblins/internal/execx"
+	"github.com/fpresta0607/code-goblins/internal/harnessmap"
+	"github.com/fpresta0607/code-goblins/internal/home"
 	"github.com/fpresta0607/code-goblins/internal/nativehook"
 )
 
@@ -32,9 +34,9 @@ const ProjectsRootVariable = "CFO_PROJECTS_ROOT"
 // default, because the file it merges into is someone's personal Claude Code
 // setup and losing their hooks to our installer is the worst failure here.
 type Service struct {
-	// Root is the CFO home: a code-goblins checkout, or a home set up outside
-	// one. It is the value CFO_HOME gets, the directory added to PATH, and the
-	// directory holding cfo.exe.
+	// Root is the CFO home, the per-user home every install uses unless
+	// CFO_HOME names another. It is the value CFO_HOME gets; its bin folder is
+	// the directory added to PATH and the one holding cfo.exe.
 	Root string
 	// UserSettings is the Claude Code user settings file, normally
 	// ~/.claude/settings.json.
@@ -47,12 +49,21 @@ type Service struct {
 	// ProjectsRoot is the folder to record as the projects root. Empty leaves
 	// whatever is recorded alone, so a plain re-install never forgets it.
 	ProjectsRoot string
-	// Contract and Policy are what a home outside a checkout gets from the
-	// binary, and Binary is the running executable, copied into it. All three
-	// are unset for a checkout, which carries its own.
+	// Contract and Policy are what a home gets from the binary, and Binary
+	// is the running executable, copied into its bin folder.
 	Contract fs.FS
 	Policy   fs.FS
 	Binary   string
+	// Skills are the skills the binary ships, one folder each, which go to
+	// the shared skills folder Harnesses names with a junction from Claude
+	// Code's, never into the home.
+	Skills fs.FS
+	// Harnesses is where each harness keeps its configuration on this
+	// machine, recorded in the home for the CFO and goblins to read.
+	Harnesses harnessmap.Map
+	// Link makes the directory junction Claude Code reads a shared skill
+	// through.
+	Link harnessmap.Linker
 	// HarnessDirs are the configuration folders, by harness name, whose
 	// board native hooks (written by `cfo hooks install`) an uninstall
 	// removes.
@@ -68,10 +79,6 @@ type Service struct {
 	// EarlierWindow is the folder an earlier install kept the desktop window
 	// in, on its own. An install whose home holds the window takes its place.
 	EarlierWindow string
-	// BuiltWindow says the desktop window in Root was built for this install,
-	// as install.cmd -Dev builds it into a checkout, where the install copies
-	// none itself. Without it a checkout's window is one it held before.
-	BuiltWindow bool
 }
 
 // Install wires the CFO into the machine and reports every change and every
@@ -95,7 +102,11 @@ func (s Service) Install(out io.Writer) error {
 			return fmt.Errorf("install: --projects-root %s is not a directory; name the folder that holds your checkouts", s.ProjectsRoot)
 		}
 	}
-	if err := s.refuseAnotherHome(); err != nil {
+	if s.Contract == nil || s.Policy == nil || s.Skills == nil || s.Binary == "" {
+		return errors.New("install: the contract, the policy, the skills and the running binary are all required to set up a home")
+	}
+	former, err := s.formerHome()
+	if err != nil {
 		return err
 	}
 	if err := s.writeUserHooks(report); err != nil {
@@ -104,11 +115,7 @@ func (s Service) Install(out io.Writer) error {
 	if err := s.clearRepoHooks(report); err != nil {
 		return err
 	}
-	if s.Contract != nil {
-		if err := s.writeHome(report); err != nil {
-			return err
-		}
-	} else if err := s.createCheckoutState(report); err != nil {
+	if err := s.writeHome(report); err != nil {
 		return err
 	}
 	if err := s.layOutData(report); err != nil {
@@ -117,7 +124,7 @@ func (s Service) Install(out io.Writer) error {
 	if err := s.setHome(report); err != nil {
 		return err
 	}
-	if err := s.addToPath(report); err != nil {
+	if err := s.addToPath(report, former); err != nil {
 		return err
 	}
 	if err := s.setProjectsRoot(report); err != nil {
@@ -126,11 +133,7 @@ func (s Service) Install(out io.Writer) error {
 	if err := s.adoptEarlierWindow(report); err != nil {
 		return err
 	}
-	if err := s.finish(report, "cfo install: already installed - nothing changed"); err != nil {
-		return err
-	}
-	s.warnMissingBinary(out)
-	return nil
+	return s.finish(report, "cfo install: already installed - nothing changed")
 }
 
 // Uninstall reverses Install. An adopter who cannot cleanly back out will
@@ -142,10 +145,8 @@ func (s Service) Uninstall(out io.Writer) error {
 	if _, _, err := s.Env.Get(homeVariable); err != nil {
 		return err
 	}
-	if s.Contract != nil {
-		if err := s.refuseAnotherHome(); err != nil {
-			return err
-		}
+	if _, err := s.formerHome(); err != nil {
+		return err
 	}
 	if err := s.removeUserHooks(report); err != nil {
 		return err
@@ -168,26 +169,11 @@ func (s Service) Uninstall(out io.Writer) error {
 	if err := s.removeStartAtLogin(report); err != nil {
 		return err
 	}
-	if s.Contract != nil {
-		report.same("home", "kept "+s.Root+" with its state and data; delete the folder to remove them")
+	if err := s.removeSkills(report); err != nil {
+		return err
 	}
+	report.same("home", "kept "+s.Root+" with its state and data; delete the folder to remove them")
 	return s.finish(report, "cfo install --uninstall: nothing to remove")
-}
-
-// createCheckoutState gives a checkout its state folder, which makes it a
-// primary home at once, as writeHome does for a home outside one: until then
-// another install would not count the checkout as in use, move CFO_HOME away
-// and leave the checkout's binaries first on PATH.
-func (s Service) createCheckoutState(report *reporter) error {
-	state := filepath.Join(s.Root, "state")
-	if info, err := os.Stat(state); err == nil && info.IsDir() {
-		return nil
-	}
-	if err := os.MkdirAll(state, 0o755); err != nil {
-		return fmt.Errorf("install: create %s: %w", state, err)
-	}
-	report.change("home", "created "+state)
-	return nil
 }
 
 // removeNativeHooks removes the board's native lifecycle hooks from each
@@ -225,10 +211,10 @@ func (s Service) removeStartMenuShortcut(report *reporter) error {
 	}
 	window := filepath.Join(filepath.Dir(s.StartMenuShortcut), windowShortcutName)
 	shortcuts := []string{s.StartMenuShortcut}
-	if _, err := os.Stat(filepath.Join(s.Root, windowName)); err == nil {
+	if _, err := os.Stat(filepath.Join(s.bin(), windowName)); err == nil {
 		shortcuts = append(shortcuts, window)
 	} else if !errors.Is(err, fs.ErrNotExist) {
-		return fmt.Errorf("install: inspect the desktop window in %s: %w", s.Root, err)
+		return fmt.Errorf("install: inspect the desktop window in %s: %w", s.bin(), err)
 	}
 	for _, shortcut := range shortcuts {
 		err := os.Remove(shortcut)
@@ -281,22 +267,6 @@ func (s Service) finish(report *reporter, idleLine string) error {
 		fmt.Fprintln(report.out, idleLine)
 	}
 	return nil
-}
-
-// warnMissingBinary says loudly what a missing binary means before the first
-// session finds out. Installing before the binary is built is a supported
-// flow, so this warns rather than refuses - but without it, `cfo install`
-// would bless with a success message the exact unsupervised session this
-// package exists to prevent.
-func (s Service) warnMissingBinary(out io.Writer) {
-	binary := filepath.Join(s.Root, "cfo.exe")
-	if _, err := os.Stat(binary); err == nil {
-		return
-	}
-	fmt.Fprintf(out, "\nWARNING: %s does not exist.\n", binary)
-	fmt.Fprintln(out, "Every installed hook runs that binary, so until it exists each one fails to start,")
-	fmt.Fprintln(out, "Claude Code reports a non-blocking hook error, and sessions run UNSUPERVISED.")
-	fmt.Fprintln(out, "Build it from the checkout: npm ci and npm run build in frontend, then go build ./cmd/cfo")
 }
 
 func (s Service) setHome(report *reporter) error {
@@ -430,23 +400,48 @@ func AddToUserPath(dir string) error {
 	return env.Broadcast()
 }
 
-func (s Service) addToPath(report *reporter) error {
+// addToPath puts the home's bin folder on the user PATH, where the hooks and
+// every terminal find cfo and goblins, and takes off the home's root, where an
+// older install put the binaries, and the root of the former home it takes
+// over from, so neither an older build left there nor a cfo.exe built in that
+// checkout ever runs before this home's bin.
+func (s Service) addToPath(report *reporter, former string) error {
 	raw, _, err := s.Env.Get(pathVariable)
 	if err != nil {
 		return err
 	}
 	entries := pathEntries(raw)
+	kept := make([]string, 0, len(entries)+1)
+	present := false
+	var dropped []string
 	for _, entry := range entries {
-		if samePathEntry(entry, s.Root) {
-			report.same("PATH", "already contains "+s.Root)
-			return nil
+		switch {
+		case samePathEntry(entry, s.Root) || former != "" && samePathEntry(entry, former):
+			dropped = append(dropped, entry)
+		case samePathEntry(entry, s.bin()):
+			present = true
+			kept = append(kept, entry)
+		default:
+			kept = append(kept, entry)
 		}
 	}
-	if err := s.Env.Set(pathVariable, strings.Join(append(entries, s.Root), pathSeparator)); err != nil {
+	if present && len(dropped) == 0 {
+		report.same("PATH", "already contains "+s.bin())
+		return nil
+	}
+	if !present {
+		kept = append(kept, s.bin())
+	}
+	if err := s.Env.Set(pathVariable, strings.Join(kept, pathSeparator)); err != nil {
 		return err
 	}
 	report.envChanged = true
-	report.change("PATH", fmt.Sprintf("appended %s, keeping the %d entries already there", s.Root, len(entries)))
+	if !present {
+		report.change("PATH", fmt.Sprintf("appended %s, keeping the %d other entries already there", s.bin(), len(kept)-1))
+	}
+	for _, entry := range dropped {
+		report.change("PATH", "removed "+entry+", where an older build's binaries were")
+	}
 	return nil
 }
 
@@ -458,21 +453,26 @@ func (s Service) removeFromPath(report *reporter) error {
 	entries := pathEntries(raw)
 	kept := make([]string, 0, len(entries))
 	for _, entry := range entries {
-		if samePathEntry(entry, s.Root) {
+		if samePathEntry(entry, s.bin()) || samePathEntry(entry, s.Root) {
 			continue
 		}
 		kept = append(kept, entry)
 	}
 	if len(kept) == len(entries) {
-		report.same("PATH", "does not contain "+s.Root)
+		report.same("PATH", "does not contain "+s.bin())
 		return nil
 	}
 	if err := s.Env.Set(pathVariable, strings.Join(kept, pathSeparator)); err != nil {
 		return err
 	}
 	report.envChanged = true
-	report.change("PATH", fmt.Sprintf("removed %s, keeping the other %d entries", s.Root, len(kept)))
+	report.change("PATH", fmt.Sprintf("removed %s, keeping the other %d entries", s.bin(), len(kept)))
 	return nil
+}
+
+// bin is the home's folder for the installed binaries.
+func (s Service) bin() string {
+	return filepath.Join(s.Root, home.BinDir)
 }
 
 func (s Service) writeUserHooks(report *reporter) error {

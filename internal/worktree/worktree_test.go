@@ -14,7 +14,7 @@ import (
 type gitStub struct {
 	acquirePath string
 	acquireErr  error
-	acquired    [][2]string
+	acquired    [][3]string
 	tops        map[string]string
 	topErr      error
 	returned    [][2]string
@@ -24,9 +24,17 @@ type gitStub struct {
 	seedValue   bool
 }
 
-func (g *gitStub) Acquire(_ context.Context, project, holder string) (string, error) {
-	g.acquired = append(g.acquired, [2]string{project, holder})
+func (g *gitStub) Acquire(_ context.Context, project, path, ref string) (string, error) {
+	g.acquired = append(g.acquired, [3]string{project, path, ref})
 	return g.acquirePath, g.acquireErr
+}
+
+func (g *gitStub) Landing(context.Context, string) (Landing, error) {
+	return Landing{}, nil
+}
+
+func (g *gitStub) ArchiveTag(context.Context, string, Landing, string) (string, error) {
+	return "", nil
 }
 
 func (g *gitStub) WorktreeTop(_ context.Context, dir string) (string, error) {
@@ -47,6 +55,7 @@ func (g *gitStub) EnsureSeeded(_ context.Context, project string) (bool, error) 
 }
 
 func TestAcquireCreatesWorktreeThroughGit(t *testing.T) {
+	// Arrange
 	root := t.TempDir()
 	project := filepath.Join(root, "project")
 	worktreePath := filepath.Join(root, "worktree")
@@ -55,11 +64,13 @@ func TestAcquireCreatesWorktreeThroughGit(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-
 	git := &gitStub{acquirePath: worktreePath}
-	service := Service{Git: git}
+	service := Service{Git: git, Root: filepath.Join(root, "home", "worktrees")}
 
-	got, err := service.Acquire(context.Background(), project, "gb-task")
+	// Act
+	got, err := service.Acquire(context.Background(), project, "task")
+
+	// Assert
 	if err != nil {
 		t.Fatalf("Acquire: %v", err)
 	}
@@ -69,8 +80,46 @@ func TestAcquireCreatesWorktreeThroughGit(t *testing.T) {
 	if len(git.acquired) != 1 {
 		t.Fatalf("Acquire calls = %v, want 1", git.acquired)
 	}
-	if !fsx.SamePath(git.acquired[0][0], project) || git.acquired[0][1] != "gb-task" {
-		t.Errorf("Acquire call = %v, want canonical project and exact holder", git.acquired[0])
+	want := filepath.Join(root, "home", "worktrees", "project", "task")
+	if !fsx.SamePath(git.acquired[0][0], project) || !strings.EqualFold(git.acquired[0][1], want) || git.acquired[0][2] != "" {
+		t.Errorf("Acquire call = %v, want the canonical project, %s and the default branch", git.acquired[0], want)
+	}
+}
+
+func TestAddExtraPlacesItBesideTheTasksOwnUnderTheHome(t *testing.T) {
+	// Arrange
+	root := t.TempDir()
+	project := filepath.Join(root, "app")
+	extra := filepath.Join(root, "extra")
+	for _, dir := range []string{project, extra} {
+		if err := os.Mkdir(dir, 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	git := &gitStub{acquirePath: extra}
+	service := Service{Git: git, Root: filepath.Join(root, "worktrees")}
+
+	// Act
+	if _, err := service.AddExtra(context.Background(), project, "task", "proof", "abc123"); err != nil {
+		t.Fatalf("AddExtra: %v", err)
+	}
+
+	// Assert
+	want := filepath.Join(root, "worktrees", "app", "task-proof")
+	if len(git.acquired) != 1 || !strings.EqualFold(git.acquired[0][1], want) || git.acquired[0][2] != "abc123" {
+		t.Fatalf("Acquire calls = %v, want one at %s on abc123", git.acquired, want)
+	}
+	for _, name := range []string{"", "..", "a/b", `a\b`, "has space", strings.Repeat("x", 33)} {
+		if _, err := service.AddExtra(context.Background(), project, "task", name, ""); err == nil {
+			t.Errorf("AddExtra(%q) = nil, want the name refused", name)
+		}
+	}
+}
+
+func TestAcquireRefusesAMissingWorktreesRoot(t *testing.T) {
+	_, err := (Service{Git: &gitStub{}}).Acquire(context.Background(), t.TempDir(), "task")
+	if err == nil || !strings.Contains(err.Error(), "worktrees folder") {
+		t.Fatalf("Acquire error = %v, want the missing root named", err)
 	}
 }
 
@@ -99,8 +148,8 @@ func TestAcquireRejectsFailuresAndThePrimaryCheckout(t *testing.T) {
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			service := Service{Git: test.git}
-			_, err := service.Acquire(context.Background(), project, "gb-task")
+			service := Service{Git: test.git, Root: t.TempDir()}
+			_, err := service.Acquire(context.Background(), project, "task")
 			if err == nil || !strings.Contains(err.Error(), test.want) {
 				t.Fatalf("Acquire error = %v, want substring %q", err, test.want)
 			}
@@ -109,7 +158,7 @@ func TestAcquireRejectsFailuresAndThePrimaryCheckout(t *testing.T) {
 }
 
 func TestAcquireRequiresGitOrCommandRunner(t *testing.T) {
-	_, err := (Service{}).Acquire(context.Background(), t.TempDir(), "gb-task")
+	_, err := (Service{Root: t.TempDir()}).Acquire(context.Background(), t.TempDir(), "task")
 	if err == nil || !strings.Contains(err.Error(), "Git or command runner is required") {
 		t.Fatalf("Acquire error = %v, want dependency diagnostic", err)
 	}

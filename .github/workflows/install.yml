@@ -120,7 +120,7 @@ jobs:
           }
           # goblins works at once in the window the install ran in.
           $found = (Get-Command goblins -ErrorAction Stop).Source
-          $want = Join-Path $env:LOCALAPPDATA "CodeGoblins\goblins.exe"
+          $want = Join-Path $env:LOCALAPPDATA "CodeGoblins\bin\goblins.exe"
           if ($found -ne $want) { throw "goblins resolves to $found in the install's own window, want $want" }
           # The install ends with goblins doctor, whose verdict the next step
           # reads line by line.
@@ -135,11 +135,18 @@ jobs:
           $env:Path = [Environment]::GetEnvironmentVariable("Path", "Machine") + ";" + [Environment]::GetEnvironmentVariable("Path", "User")
           $env:CFO_HOME = [Environment]::GetEnvironmentVariable("CFO_HOME", "User")
           $cfoHome = Join-Path $env:LOCALAPPDATA "CodeGoblins"
-          foreach ($file in "cfo.exe", "goblins.exe", ".cfo-home", "AGENTS.md", "CLAUDE.md", ".agents\skills\lavish\SKILL.md", ".claude\skills\lavish\SKILL.md", "config\pipeline.json", "data\routing.json", "state") {
+          $bin = Join-Path $cfoHome "bin"
+          foreach ($file in "bin\cfo.exe", "bin\goblins.exe", ".cfo-home", "AGENTS.md", "CLAUDE.md", "config\pipeline.json", "data\routing.json", "state") {
             if (-not (Test-Path -LiteralPath (Join-Path $cfoHome $file))) { throw "the one-line install left no $file in $cfoHome" }
           }
+          # The skills this repository ships install once in the shared skills
+          # folder, which Claude Code reads through a junction per skill.
+          foreach ($skill in "lavish", "stow") {
+            if (-not (Test-Path -LiteralPath (Join-Path $env:USERPROFILE ".agents\skills\$skill\SKILL.md"))) { throw "the one-line install left no $skill skill in ~\.agents\skills" }
+            if ((Get-Item -LiteralPath (Join-Path $env:USERPROFILE ".claude\skills\$skill") -Force).LinkType -ne "Junction") { throw "~\.claude\skills\$skill is not a junction to ~\.agents\skills\$skill" }
+          }
           if ([Environment]::GetEnvironmentVariable("CFO_HOME", "User") -ne $cfoHome) { throw "CFO_HOME is not $cfoHome" }
-          if (-not (([Environment]::GetEnvironmentVariable("Path", "User") -split ";") -contains $cfoHome)) { throw "$cfoHome is not on the user PATH" }
+          if (-not (([Environment]::GetEnvironmentVariable("Path", "User") -split ";") -contains $bin)) { throw "$bin is not on the user PATH" }
           $settings = Get-Content -Raw (Join-Path $env:USERPROFILE ".claude\settings.json") | ConvertFrom-Json
           # A hook runs its command with its args: cfo install writes the CFO hooks as
           # cfo.exe with args hook <name>, so each entry is read as that whole line.
@@ -153,7 +160,7 @@ jobs:
               if ((Get-Item -LiteralPath $found[0]).LinkType) { throw "$($found[0]) is a link, want a copy" }
             }
           }
-          $doctor = & (Join-Path $cfoHome "goblins.exe") doctor
+          $doctor = & (Join-Path $bin "goblins.exe") doctor
           $doctor | Write-Host
           $failing = @($doctor | Where-Object { $_ -match "^(MISSING|broken)\s" })
           if ($failing.Count -gt 0) { throw "goblins doctor reports something missing or broken: $($failing -join '; ')" }
@@ -169,7 +176,7 @@ jobs:
           if ($env:REAL_RELEASE -ne "true" -and $version -notmatch "(?m)^no-mistakes version v$([regex]::Escape($pin))(\s|$)") { throw "no-mistakes --version prints '$($version.Trim())', want the pinned v$pin" }
           # The install's quick start started the supervisor, so one runs, and Code
           # Goblins in the Start menu opens it again.
-          & (Join-Path $cfoHome "goblins.exe") status
+          & (Join-Path $bin "goblins.exe") status
           if ($LASTEXITCODE -ne 0) { throw "no supervisor runs after the install's quick start" }
           $shortcutPath = Join-Path $env:APPDATA "Microsoft\Windows\Start Menu\Programs\Code Goblins.lnk"
           if (-not (Test-Path -LiteralPath $shortcutPath)) { throw "the install made no $shortcutPath" }
@@ -177,8 +184,8 @@ jobs:
           # Where the release carries the desktop window the entry starts
           # that program alone, which opens the app with no terminal; a
           # release with none keeps the quick start.
-          $opens = if (Test-Path -LiteralPath (Join-Path $cfoHome "goblins-window.exe")) { "goblins-window.exe" } else { "goblins.exe" }
-          if ($shortcut.TargetPath -ne (Join-Path $cfoHome $opens) -or $shortcut.Arguments -ne "") { throw "the Start-menu shortcut runs '$($shortcut.TargetPath) $($shortcut.Arguments)', want the home's $opens alone" }
+          $opens = if (Test-Path -LiteralPath (Join-Path $bin "goblins-window.exe")) { "goblins-window.exe" } else { "goblins.exe" }
+          if ($shortcut.TargetPath -ne (Join-Path $bin $opens) -or $shortcut.Arguments -ne "") { throw "the Start-menu shortcut runs '$($shortcut.TargetPath) $($shortcut.Arguments)', want the home's $opens alone" }
           $global:LASTEXITCODE = 0
       - name: Install again
         env:
@@ -203,19 +210,19 @@ jobs:
       - name: Uninstall
         run: |
           $cfoHome = Join-Path $env:LOCALAPPDATA "CodeGoblins"
-          # From a neutral folder, as a user would: inside a checkout,
-          # uninstall unwires that checkout instead.
+          $bin = Join-Path $cfoHome "bin"
+          # From a neutral folder, as a user would.
           Set-Location $env:RUNNER_TEMP
           # As in a new terminal, CFO_HOME names the home whose supervisor
           # stop ends.
           $env:CFO_HOME = [Environment]::GetEnvironmentVariable("CFO_HOME", "User")
-          & (Join-Path $cfoHome "goblins.exe") stop
+          & (Join-Path $bin "goblins.exe") stop
           if ($LASTEXITCODE -ne 0) { throw "goblins stop exited with code $LASTEXITCODE" }
-          & (Join-Path $cfoHome "goblins.exe") uninstall
+          & (Join-Path $bin "goblins.exe") uninstall
           if ($LASTEXITCODE -ne 0) { throw "goblins uninstall exited with code $LASTEXITCODE" }
           if (Test-Path -LiteralPath (Join-Path $env:APPDATA "Microsoft\Windows\Start Menu\Programs\Code Goblins.lnk")) { throw "the Start-menu shortcut survived the uninstall" }
           if ([Environment]::GetEnvironmentVariable("CFO_HOME", "User")) { throw "CFO_HOME survived the uninstall" }
-          if (([Environment]::GetEnvironmentVariable("Path", "User") -split ";") -contains $cfoHome) { throw "$cfoHome is still on the user PATH" }
+          if (([Environment]::GetEnvironmentVariable("Path", "User") -split ";") -contains $bin) { throw "$bin is still on the user PATH" }
           $settings = Get-Content -Raw (Join-Path $env:USERPROFILE ".claude\settings.json") | ConvertFrom-Json
           $left = @(@($settings.hooks.PSObject.Properties.Value.hooks | ForEach-Object { @($_.command) + @($_.args) -join " " }) -match "cfo\.exe hook |cfo-native-hook\.ps1")
           if ($left.Count -gt 0) { throw "hooks survived the uninstall: $($left -join '; ')" }
@@ -247,19 +254,27 @@ jobs:
           # The install ends with goblins doctor, whose verdict the next step
           # reads line by line, as the one-line job's does.
           $global:LASTEXITCODE = 0
-      - name: Check the clone is the CFO home
+      - name: Check the per-user home
         run: |
           # A new terminal, as the install tells the user to open, sees the PATH
           # the install wrote to the registry; a new step does not.
           $env:Path = [Environment]::GetEnvironmentVariable("Path", "Machine") + ";" + [Environment]::GetEnvironmentVariable("Path", "User")
           $clone = $env:GITHUB_WORKSPACE
-          if ([Environment]::GetEnvironmentVariable("CFO_HOME", "User") -ne $clone) { throw "CFO_HOME is not the clone, $clone" }
-          if (-not (([Environment]::GetEnvironmentVariable("Path", "User") -split ";") -contains $clone)) { throw "the clone is not on the user PATH" }
+          $cfoHome = Join-Path $env:LOCALAPPDATA "CodeGoblins"
+          $bin = Join-Path $cfoHome "bin"
+          # -Dev installs the same per-user home the one-line install does,
+          # and the clone keeps no program.
+          if ([Environment]::GetEnvironmentVariable("CFO_HOME", "User") -ne $cfoHome) { throw "CFO_HOME is not $cfoHome" }
+          if (-not (([Environment]::GetEnvironmentVariable("Path", "User") -split ";") -contains $bin)) { throw "$bin is not on the user PATH" }
           foreach ($name in "cfo", "goblins") {
             $found = (Get-Command $name -ErrorAction Stop).Source
-            if ($found -ne (Join-Path $clone "$name.exe")) { throw "$name resolves to $found, want the clone's $name.exe" }
+            if ($found -ne (Join-Path $bin "$name.exe")) { throw "$name resolves to $found, want the home's bin\$name.exe" }
           }
-          if ((Get-Item -LiteralPath (Join-Path $clone ".claude\skills") -Force).LinkType -ne "Junction") { throw ".claude\skills is not a junction to .agents\skills" }
+          $programs = @(Get-ChildItem -LiteralPath $clone -Filter *.exe* -File | ForEach-Object Name)
+          if ($programs.Count -gt 0) { throw "the clone holds $($programs -join ', ') after -Dev, want no program" }
+          foreach ($skill in "lavish", "stow") {
+            if ((Get-Item -LiteralPath (Join-Path $env:USERPROFILE ".claude\skills\$skill") -Force).LinkType -ne "Junction") { throw "~\.claude\skills\$skill is not a junction to ~\.agents\skills\$skill" }
+          }
           $commands = @((Get-Content -Raw (Join-Path $env:USERPROFILE ".claude\settings.json") | ConvertFrom-Json).hooks.SessionStart.hooks | ForEach-Object { @($_.command) + @($_.args) -join " " })
           foreach ($hook in "cfo\.exe hook session-start", "cfo-native-hook\.ps1") {
             if (-not ($commands -match $hook)) { throw "no SessionStart hook in the Claude Code user settings matches $hook" }
@@ -274,21 +289,26 @@ jobs:
           & goblins status
           if ($LASTEXITCODE -ne 0) { throw "no supervisor runs after -Dev's quick start" }
           $shortcut = (New-Object -ComObject WScript.Shell).CreateShortcut((Join-Path $env:APPDATA "Microsoft\Windows\Start Menu\Programs\Code Goblins.lnk"))
-          # -Dev builds the desktop window beside goblins, so Code Goblins in
-          # the Start menu starts that program alone, and it is the one entry.
-          if (-not (Test-Path -LiteralPath (Join-Path $clone "goblins-window.exe"))) { throw "-Dev built no desktop window in the clone" }
-          if ($shortcut.TargetPath -ne (Join-Path $clone "goblins-window.exe") -or $shortcut.Arguments -ne "") { throw "the Start-menu shortcut runs '$($shortcut.TargetPath) $($shortcut.Arguments)', want the clone's goblins-window.exe alone" }
+          # -Dev builds the desktop window, which cfo install puts in bin beside
+          # goblins, so Code Goblins in the Start menu starts that program
+          # alone, and it is the one entry.
+          if (-not (Test-Path -LiteralPath (Join-Path $bin "goblins-window.exe"))) { throw "-Dev put no desktop window in $bin" }
+          if ($shortcut.TargetPath -ne (Join-Path $bin "goblins-window.exe") -or $shortcut.Arguments -ne "") { throw "the Start-menu shortcut runs '$($shortcut.TargetPath) $($shortcut.Arguments)', want the home's goblins-window.exe alone" }
           if (Test-Path -LiteralPath (Join-Path $env:APPDATA "Microsoft\Windows\Start Menu\Programs\Code Goblins Window.lnk")) { throw "the install made a second Start-menu entry for the window" }
           $global:LASTEXITCODE = 0
       - name: Uninstall
         run: |
-          # Run in the clone, uninstall unwires the clone and keeps it.
-          & (Join-Path $env:GITHUB_WORKSPACE "goblins.exe") stop
+          # Run in the clone, uninstall unwires the per-user home, keeps its
+          # files and leaves the clone as it was.
+          $cfoHome = Join-Path $env:LOCALAPPDATA "CodeGoblins"
+          $bin = Join-Path $cfoHome "bin"
+          $env:CFO_HOME = [Environment]::GetEnvironmentVariable("CFO_HOME", "User")
+          & (Join-Path $bin "goblins.exe") stop
           if ($LASTEXITCODE -ne 0) { throw "goblins stop exited with code $LASTEXITCODE" }
-          & (Join-Path $env:GITHUB_WORKSPACE "goblins.exe") uninstall
+          & (Join-Path $bin "goblins.exe") uninstall
           if ($LASTEXITCODE -ne 0) { throw "goblins uninstall exited with code $LASTEXITCODE" }
           if (Test-Path -LiteralPath (Join-Path $env:APPDATA "Microsoft\Windows\Start Menu\Programs\Code Goblins.lnk")) { throw "the Start-menu shortcut survived the uninstall" }
           if ([Environment]::GetEnvironmentVariable("CFO_HOME", "User")) { throw "CFO_HOME survived the uninstall" }
-          if (([Environment]::GetEnvironmentVariable("Path", "User") -split ";") -contains $env:GITHUB_WORKSPACE) { throw "the clone is still on the user PATH" }
-          if (-not (Test-Path -LiteralPath (Join-Path $env:GITHUB_WORKSPACE "cfo.exe"))) { throw "the uninstall removed the clone's build" }
+          if (([Environment]::GetEnvironmentVariable("Path", "User") -split ";") -contains $bin) { throw "$bin is still on the user PATH" }
+          if (-not (Test-Path -LiteralPath (Join-Path $cfoHome "state"))) { throw "the uninstall removed the home's state" }
           $global:LASTEXITCODE = 0

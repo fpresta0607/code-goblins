@@ -1,4 +1,5 @@
 import type { BoardActivity, Snapshot, Task } from "./types";
+import { DiskMeter } from "./DiskMeter";
 import { MemoryMeter } from "./MemoryMeter";
 import { RankedCards } from "./RankedCards";
 import { RenderBoundary } from "./render-boundary";
@@ -9,8 +10,9 @@ import type { CardStarter } from "./useStart";
 import { queuedTasks } from "./workflow";
 
 // The queue, top first, as the Tasks column and the CFO's Task tab both show
-// it: free memory against the mark at which the CFO starts the next task, and
-// each queued task with its rank, its drag and its Start.
+// it: free memory against the mark at which the CFO starts the next task, free
+// disk against its floor, and each queued task with its rank, its drag and
+// its Start.
 export function QueuedTasks({ snapshot, selected, now, presentations, cardStart, onSelect }: {
   snapshot: Snapshot; selected?: string; now: number; presentations: BoardActivity[];
   // cardStart is the board's one Start, shared by every list of queued tasks.
@@ -21,8 +23,9 @@ export function QueuedTasks({ snapshot, selected, now, presentations, cardStart,
   const tasks = queuedTasks(snapshot);
   const nextTask = tasks.find((task) => !queueBlock(task));
   return <>
-    {(memory || !!snapshot.subscriptions?.length) && <div className="task-meters">
-      {memory && <MemoryMeter memory={memory} />}
+    {(memory || snapshot.disk || !!snapshot.subscriptions?.length) && <div className="task-meters">
+      {memory && <MemoryMeter memory={memory} disk={snapshot.disk ?? null} />}
+      {!memory && snapshot.disk && <div className="memory"><DiskMeter disk={snapshot.disk} /></div>}
       {!!snapshot.subscriptions?.length && <div className="subscription-dials" role="group" aria-label="Weekly subscription allowance">
         {snapshot.subscriptions.map((usage) => <SubscriptionDial key={usage.provider} usage={usage} now={now} />)}
       </div>}
