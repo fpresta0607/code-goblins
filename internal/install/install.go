@@ -79,6 +79,9 @@ type Service struct {
 	// EarlierWindow is the folder an earlier install kept the desktop window
 	// in, on its own. An install whose home holds the window takes its place.
 	EarlierWindow string
+	// Checkout says Root is a code-goblins checkout an older build made the
+	// home, which carries the contract itself, as files git tracks.
+	Checkout bool
 }
 
 // Install wires the CFO into the machine and reports every change and every

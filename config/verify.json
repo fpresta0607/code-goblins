@@ -12,7 +12,7 @@
   "contracts": [
     {
       "paths": ["install.ps1", "install.cmd", "tools/pin-installer.ps1"],
-      "packages": ["internal/doctor", "internal/installscript", "internal/installtest"],
+      "packages": ["cmd/goblins-setup", "internal/doctor", "internal/installscript", "internal/installtest"],
       "why": "tests run or read these scripts"
     },
     {

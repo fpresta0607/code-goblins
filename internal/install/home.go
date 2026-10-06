@@ -72,9 +72,14 @@ func (s Service) writeHome(report *reporter) error {
 		}
 		created = append(created, folder)
 	}
-	manifest, written, err := s.writeContract()
-	if err != nil {
-		return err
+	// A checkout carries the contract itself, as files git tracks, so the
+	// install writes none of it there, and no marker: git vouches for it.
+	var manifest []string
+	written := 0
+	if !s.Checkout {
+		if manifest, written, err = s.writeContract(); err != nil {
+			return err
+		}
 	}
 	if err := s.seedPolicy(report); err != nil {
 		return err
@@ -91,29 +96,33 @@ func (s Service) writeHome(report *reporter) error {
 	if err := s.installSkills(report); err != nil {
 		return err
 	}
-	removed, err := s.removeUnshipped(previous, manifest)
-	if err != nil {
-		return err
-	}
-	var done []string
-	if written > 0 {
-		done = append(done, fmt.Sprintf("wrote %d of %d files into %s", written, len(manifest), s.Root))
-	}
-	if removed > 0 {
-		done = append(done, fmt.Sprintf("removed %d files the binary no longer ships", removed))
-	}
-	if len(done) > 0 {
-		report.change("contract", strings.Join(done, "; "))
+	if s.Checkout {
+		report.same("contract", s.Root+" is a code-goblins checkout and keeps its own, which git tracks")
 	} else {
-		report.same("contract", fmt.Sprintf("all %d files already current in %s", len(manifest), s.Root))
-	}
-	if _, err := writeIfDifferent(markerPath, []byte(markerText+strings.Join(manifest, "\r\n")+"\r\n")); err != nil {
-		return fmt.Errorf("install: mark %s as a CFO home: %w", s.Root, err)
+		removed, err := s.removeUnshipped(previous, manifest)
+		if err != nil {
+			return err
+		}
+		var done []string
+		if written > 0 {
+			done = append(done, fmt.Sprintf("wrote %d of %d files into %s", written, len(manifest), s.Root))
+		}
+		if removed > 0 {
+			done = append(done, fmt.Sprintf("removed %d files the binary no longer ships", removed))
+		}
+		if len(done) > 0 {
+			report.change("contract", strings.Join(done, "; "))
+		} else {
+			report.same("contract", fmt.Sprintf("all %d files already current in %s", len(manifest), s.Root))
+		}
+		if _, err := writeIfDifferent(markerPath, []byte(markerText+strings.Join(manifest, "\r\n")+"\r\n")); err != nil {
+			return fmt.Errorf("install: mark %s as a CFO home: %w", s.Root, err)
+		}
 	}
 	switch {
 	case len(created) > 0:
 		report.change("home", "set up "+s.Root+" with "+strings.Join(created, ", "))
-	case !hadMarker:
+	case !hadMarker && !s.Checkout:
 		report.change("home", "marked "+s.Root+" as a CFO home again")
 	default:
 		report.same("home", s.Root+" is set up")
@@ -377,32 +386,59 @@ func (s Service) adoptEarlierWindow(report *reporter) error {
 // now live in bin.
 var rootPrograms = []string{"cfo.exe", "goblins.exe", windowName, windowPicture}
 
+// rootAliases are the root programs that stay where an older install put
+// them, as this build. Sessions started before this install run them there:
+// by the full path the hooks they read at their start name, through the PATH
+// they started with, and by the full path a goblin's brief names. Taking them
+// away would leave a running fleet's hooks and commands failing until each
+// session restarts.
+var rootAliases = map[string]bool{"cfo.exe": true, "goblins.exe": true}
+
 // retireRootBinaries takes the programs an older install put at the home's
-// root out of it. One bin does not hold, such as a desktop window this
-// install did not supply, moves into bin and stays the home's own; the rest
-// are removed, now that bin holds them. One a process still runs cannot be
-// removed but can be renamed, so it moves into bin as an aside copy, which
-// the janitor removes once nothing runs it.
+// root out of it, except the root aliases, which it brings up to this build.
+// One bin does not hold, such as a desktop window this install did not
+// supply, moves into bin and stays the home's own; the rest are removed, now
+// that bin holds them. One a process still runs cannot be removed but can be
+// renamed, so it moves into bin as an aside copy, which the janitor removes
+// once nothing runs it.
 func (s Service) retireRootBinaries(report *reporter) error {
-	var kept, removed, moved []string
+	data, err := fsx.ReadFile(s.Binary)
+	if err != nil {
+		return fmt.Errorf("install: read the running binary %s: %w", s.Binary, err)
+	}
+	var current, kept, removed, moved []string
 	for _, name := range rootPrograms {
 		program, target := filepath.Join(s.Root, name), filepath.Join(s.bin(), name)
-		_, err := os.Stat(target)
-		switch {
-		case errors.Is(err, fs.ErrNotExist):
-			switch err := os.Rename(program, target); {
-			case err == nil:
-				kept = append(kept, name)
-			case !errors.Is(err, fs.ErrNotExist):
-				return fmt.Errorf("install: move %s, which an older install put at the home's root, into %s: %w", program, s.bin(), err)
+		retired := []string{program}
+		if rootAliases[name] {
+			retired = nil
+			if _, err := os.Stat(program); err == nil {
+				changed, _, err := replaceProgram(program, data)
+				if err != nil {
+					return err
+				}
+				if changed {
+					current = append(current, name)
+				}
 			}
-		case err != nil:
-			return fmt.Errorf("install: inspect %s: %w", target, err)
+		} else {
+			_, err := os.Stat(target)
+			switch {
+			case errors.Is(err, fs.ErrNotExist):
+				switch err := os.Rename(program, target); {
+				case err == nil:
+					kept = append(kept, name)
+				case !errors.Is(err, fs.ErrNotExist):
+					return fmt.Errorf("install: move %s, which an older install put at the home's root, into %s: %w", program, s.bin(), err)
+				}
+			case err != nil:
+				return fmt.Errorf("install: inspect %s: %w", target, err)
+			}
 		}
 		paths, _ := filepath.Glob(filepath.Join(s.Root, name+".*.old"))
 		paths, _ = appendGlob(paths, filepath.Join(s.Root, name+".*.update-old"))
 		paths, _ = appendGlob(paths, filepath.Join(s.Root, name+".held-*"))
-		for _, path := range append([]string{program}, paths...) {
+		for _, path := range append(retired, paths...) {
 			err := os.Remove(path)
 			switch {
 			case err == nil:
@@ -416,6 +452,9 @@ func (s Service) retireRootBinaries(report *reporter) error {
 				moved = append(moved, filepath.Base(path))
 			}
 		}
+	}
+	if len(current) > 0 {
+		report.change("binary", "brought "+strings.Join(current, " and ")+" in "+s.Root+" up to this build too, where sessions started before this install run them")
 	}
 	if len(kept) > 0 {
 		report.change("binary", "moved "+strings.Join(kept, ", ")+" from "+s.Root+", where an older install put them, into "+s.bin()+", which held none, and kept them")
