@@ -84,7 +84,10 @@ func (k *keptHome) files() map[string]string {
 }
 
 // install runs build's cfo install on the machine, from a folder of its own,
-// as the install script runs the release it downloaded.
+// as the install script runs the release it downloaded: with no CFO_HOME in
+// its environment, as on a machine where only the user scope names it, so a
+// supervisor it starts finds its home as a real build does, from the
+// environment it is given.
 func (k *keptHome) install(build string) (int, string, []byte) {
 	k.t.Helper()
 	machine := k.t.TempDir()
@@ -96,7 +99,7 @@ func (k *keptHome) install(build string) (int, string, []byte) {
 	cmd := exec.Command(candidate, "install")
 	cmd.Dir = machine
 	cmd.Env = append(os.Environ(),
-		"CFO_TEST_UPDATE_ROOT="+k.root, "CFO_TEST_UPDATE_SERVE_WAIT=8s", "CFO_TEST_HANDOVER_WAIT=2s",
+		"CFO_TEST_UPDATE_RESOLVE=1", "CFO_TEST_UPDATE_SERVE_WAIT=8s", "CFO_TEST_HANDOVER_WAIT=2s",
 		install.UserEnvFileVariable+"="+k.environment,
 		"LOCALAPPDATA="+filepath.Join(machine, "Local"), "APPDATA="+filepath.Join(machine, "Roaming"),
 		"USERPROFILE="+filepath.Join(machine, "profile"), "HOME="+filepath.Join(machine, "profile"))

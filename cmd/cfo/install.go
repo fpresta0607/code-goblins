@@ -155,6 +155,14 @@ func servingBoard(h home.Home, stdout io.Writer) (runningBoard, bool) {
 // that does not serve gives way to the program that ran before.
 func (b runningBoard) restart(h home.Home, stdout io.Writer) {
 	fmt.Fprintf(stdout, "cfo install: restarting the board (pid %d) on this build\n", b.process.pid)
+	// The supervisors started here serve this home whatever this process's
+	// environment names, which on a machine where only the user scope holds
+	// CFO_HOME is nothing.
+	h, err := pinHome(h)
+	if err != nil {
+		fmt.Fprintf(stdout, "%s The board keeps running its earlier build until Code Goblins next starts it: %v.\n", notePrefix, err)
+		return
+	}
 	if err := endSupervisor(h, b.process); err != nil {
 		fmt.Fprintf(stdout, "%s The board keeps running its earlier build until Code Goblins next starts it: %v.\n", notePrefix, err)
 		return
