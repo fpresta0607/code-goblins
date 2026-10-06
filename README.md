@@ -156,6 +156,7 @@ It needs no backup repository: backing it up is only your own choice, and [Your 
 ```powershell
 goblins              # the quick start: the supervisor, the CFO's agent and the CFO, then its terminal or the board
 goblins setup        # the quick start again, choosing the agent the CFO runs on
+goblins resume       # restart a running CFO in its terminal on its conversation, as for a frozen screen, or bring a closed one back
 goblins --harness codex  # start the CFO as codex, claude or pi from now on, set up first; a running CFO keeps its harness
 goblins --board      # start the supervisor if needed and open the board, with no CFO in this terminal
 goblins --window     # the same, with the board in the desktop window
@@ -180,6 +181,13 @@ It starts in its remembered harness, in a native terminal of its own, so closing
 A CFO that ran in a native terminal and was closed, however it ended (`/exit`, Ctrl-C, its window closed, a crash or a reboot), comes back when you run `goblins` again: in that terminal, and, when it starts as the same agent, on the conversation it last registered with, Claude Code with `--resume` and Codex with `codex resume`, and it registers itself as before.
 A conversation that cannot be resumed starts a new one, and so does one past 20 MB, since CFO sessions stay small, or one in pi, which has no resume; `goblins` says which.
 A CFO that ran in Herdr, or one that starts as another agent, starts a new conversation.
+`goblins resume` restarts a CFO that is running in its native terminal, as for one whose screen froze while the session kept working: it closes that terminal, which ends the agent and interrupts its current response, and starts it again there on the same conversation, while goblins and the board keep running.
+It stops nothing it cannot bring back: a CFO whose conversation cannot be resumed, such as one in pi or one past 20 MB, or whose terminal runs a process that conversation was not recorded for, is left running, and `goblins resume` says why.
+Run inside the CFO's own terminal, it would end itself with that terminal, so it leaves the CFO running there and says to run it in another terminal or from the board.
+A restarted CFO whose agent ends within three seconds, as one that cannot resume the conversation does, starts again there on a new one, and `goblins resume` names the conversation it could not resume; one that ends while its startup questions are answered is reported as ended, and `goblins` brings it back.
+A CFO that `goblins` or `goblins resume` starts on a new conversation that way leaves the board saying which conversation could not be resumed and the command that opens it by hand, until the CFO next comes back on its conversation.
+`cfo resume` with no task named is the same command.
+With no CFO running in a native terminal it does what `goblins` does, and brings a closed one back.
 A CFO already running is never started twice: one registered in a native terminal is shown in this terminal, one whose registration names a live process in Herdr is brought to the front there, and with no CFO registered, a CFO already running in native terminal `cfo`, which may not have registered yet, is shown.
 Every run ends on one screen: the CFO's home and the board's link, which Ctrl+click opens, above two choices.
 **Open the CFO terminal**, the one Enter takes, attaches this terminal to the CFO, to Herdr with the CFO in front or to its native terminal; run inside Herdr, it only brings the CFO to the front.
@@ -209,7 +217,8 @@ So a Codex or pi CFO always starts in a native terminal, and the first prompt go
 It has none of the hooks a Claude Code CFO has: nothing gives it the session digest, nothing guards its turns, and a closed pi CFO starts a new conversation.
 Claude Code is the recommended one, the choice of agent says in a few words what each gets, and `cfo doctor` lists what the home's CFO goes without.
 Each starts on the model its own configuration names, so a Codex whose configured model the signed-in account cannot use fails its first turn and never registers: change the model with Codex's `/model`, then tell it to run `cfo register`.
-Without a terminal, `goblins --board` opens the board, and whenever no CFO runs the board shows its first-run screen.
+Without a terminal, `goblins --board` opens the board, and in a home that has had no CFO the board shows its first-run screen while none runs.
+A home whose CFO was closed, however it ended, keeps its board: the CFO's bar says the CFO is closed, with one action, **Reopen the CFO**, which brings it back as `goblins` does, and no message names a process or tells you to run `cfo register`.
 It shows as done what the quick start already knows, the home and the agent you chose there, offers the agents as one row of icon tabs, and **Start the CFO** starts it in the home, never in a project, and opens it in the board's terminal.
 The folder that holds your projects is optional there.
 The page starts any of the three this machine has installed, with the same few words on what a CFO in each gets.
@@ -462,7 +471,7 @@ The question reads as plain body text across a wide card: its first sentence is 
 Choices are a plain list of the answers themselves, the recommended one first and marked **Recommended**, with no A, B or C, and **Other** takes a written answer; a goblin's own A), B), C) labels are dropped.
 `cfo question` and `cfo notify` refuse a choice that is only a letter or number, such as `a` or `2`: each choice is the answer, written as a short phrase.
 Review items share the stack: a goblin's image review or review page, and a goblin waiting on you personally (its sign-in, its click, its page), which shows as a status card with no answer box: it says what the goblin waits on and opens it (**Open the page**, **Open its question**, **Open the file** or **Open the link**), with **Dismiss** beside it.
-A review page shows as a preview you click to open it (**Open review**); a page the board watches is answered on the page itself, and its card finishes when you send or end the review there.
+A review page shows as a preview named Scrawl page you click to open it (**Open review**), and a goblin's wait with a page opens it from its one **Open review** button, so a card says its words once; a page the board watches is answered on the page itself, and its card finishes when you send or end the review there.
 When a goblin asks a question about its open review page, the Command Center shows one card, the page's: the question, **Open review**, and where the review stands (waiting for your answer, or when its window closed; nothing you send there is lost).
 An answer you send on the page finishes its card with the same check as an answer sent from the card (**Answered**, You answered on its page) and the next item follows; History lists it as answered, never as withdrawn.
 Other items, a plain link included, are answered in writing with **Send answer**, and any item but a wait closes with **Clear**.

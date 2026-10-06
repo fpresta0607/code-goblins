@@ -29,13 +29,14 @@ test("Start uses the picked agent, or the one the quick start remembered, or the
   for (const [name, given, picked, lookedAtFolder, want] of cases) assert.deepEqual(startState(given, picked, lookedAtFolder), want, name);
 });
 
-test("the board's root shows the first-run page whenever no CFO runs, unless he just started one or chose the board", () => {
+test("the board's root shows the first-run page only in a home that has had no CFO, unless he just started one or chose the board", () => {
   const cases: [string, Parameters<typeof showsFirstRun>[0], boolean][] = [
-    ["no CFO", { cfoRuns: false, choice: "" }, true],
-    ["a CFO runs", { cfoRuns: true, choice: "" }, false],
-    ["just started, before the board sees it", { cfoRuns: false, choice: "started" }, false],
-    ["the board without a CFO, by his choice", { cfoRuns: false, choice: "board" }, false],
-    ["the board's Start the CFO, even after a start the board never saw run", { cfoRuns: false, choice: "" }, true],
+    ["no CFO", { cfoRuns: false, cfoClosed: false, choice: "" }, true],
+    ["a CFO runs", { cfoRuns: true, cfoClosed: false, choice: "" }, false],
+    ["just started, before the board sees it", { cfoRuns: false, cfoClosed: false, choice: "started" }, false],
+    ["the board without a CFO, by his choice", { cfoRuns: false, cfoClosed: false, choice: "board" }, false],
+    ["the board's Start the CFO, even after a start the board never saw run", { cfoRuns: false, cfoClosed: false, choice: "" }, true],
+    ["a CFO that was closed: the home has had one, so the board stays", { cfoRuns: false, cfoClosed: true, choice: "" }, false],
   ];
   for (const [name, given, want] of cases) assert.equal(showsFirstRun(given), want, name);
 });

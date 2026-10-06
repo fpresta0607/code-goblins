@@ -39,6 +39,8 @@ export interface Task extends Evaluation {
   activity: string;
   handoff?: boolean;
   last_report?: string;
+  // reported_at is when the goblin wrote its latest report.
+  reported_at?: string;
   retired_at?: string;
   // report is the kind of the goblin's latest report: working, blocked,
   // failed, done, waiting, or empty.
@@ -154,6 +156,9 @@ export interface Snapshot {
   cfo_terminal: string;
   // The harness the registered CFO runs, such as claude; empty while none is registered.
   cfo_harness: string;
+  // The conversation the CFO could not resume when it last came back, and how
+  // to resume it by hand; empty when it came back on its own.
+  cfo_conversation_left: string;
   // build names the board bundle the supervisor serves.
   build: string;
   // cfo_runs says a CFO is registered and running or starting; without one
@@ -164,6 +169,10 @@ export interface Snapshot {
   // onboarding and sign-in, a Codex or pi CFO when its first prompt runs cfo
   // register.
   cfo_starting: boolean;
+  // cfo_closed says the home's CFO registered and has since ended, with no
+  // terminal up for a new one: the board says so and offers Reopen, and
+  // shows no first-run page.
+  cfo_closed: boolean;
   inbox: number;
   tasks: Task[];
   sessions: Session[];
@@ -213,6 +222,10 @@ export interface Question {
   image_count: number;
   // generation is the asking goblin's session; empty for the CFO's question.
   generation: string;
+  // answered_away marks the CFO's answer given while AFK mode was on;
+  // change_id is his board action changing the CFO's answer to his own, and
+  // replaced_answer the CFO's choice it replaced once the goblin has his.
+  answered_away: boolean; change_id: string; replaced_answer: string;
 }
 // A review item waits on the Overlord until he answers or clears it, or its
 // reporter withdraws it: an image review, a Lavish page, or a wait on him.
@@ -230,6 +243,9 @@ export interface Review {
   // question is the goblin's pending question this item's page carries, and
   // window_closed_at when the page's review window last closed, if it has.
   question: string; window_closed_at: string;
+  // revising_since is when he sent a revision from the page without ending
+  // its review: the item waits on its goblin's next version, not on him.
+  revising_since: string;
   // document is a delivered file, or null for any other item.
   document: ReviewDocument | null;
   state: string; answer: string; answer_id: string; delivered: boolean; reason: string; created_at: string; updated_at: string;
@@ -436,14 +452,15 @@ function itemLists(v: Record<string, unknown>) {
   return {
     questions: array(v.questions).map((value) => {
       const q = object(value);
-      return { id: string(q.id), identity: string(q.identity), text: string(q.text), options: strings(q.options), recommended: string(q.recommended), answer: string(q.answer), answer_kind: string(q.answer_kind), created_at: string(q.created_at), answer_id: string(q.answer_id), status: string(q.status), message: string(q.message), answered_option: string(q.answered_option), answered_by: string(q.answered_by), answered_at: string(q.answered_at), task: string(q.task), image_count: number(q.image_count), generation: string(q.generation), page: string(q.page), answered_in: string(q.answered_in) };
+      return { id: string(q.id), identity: string(q.identity), text: string(q.text), options: strings(q.options), recommended: string(q.recommended), answer: string(q.answer), answer_kind: string(q.answer_kind), created_at: string(q.created_at), answer_id: string(q.answer_id), status: string(q.status), message: string(q.message), answered_option: string(q.answered_option), answered_by: string(q.answered_by), answered_at: string(q.answered_at), task: string(q.task), image_count: number(q.image_count), generation: string(q.generation), page: string(q.page), answered_in: string(q.answered_in),
+        answered_away: q.answered_away === undefined ? false : boolean(q.answered_away), change_id: string(q.change_id), replaced_answer: string(q.replaced_answer) };
     }),
     reviews: array(v.reviews).map((value) => {
       const r = object(value);
       return { id: string(r.id), identity: string(r.identity), task: string(r.task), title: string(r.title), image_count: number(r.image_count), lavish: string(r.lavish), link: string(r.link), watched: string(r.lavish_page) !== "",
         document: r.document === undefined || r.document === null ? null : (({ name, size, kind, link }) => ({ name: string(name), size: number(size), kind: string(kind), link: string(link) }))(object(r.document)),
         state: string(r.state), answer: string(r.answer), answer_id: string(r.answer_id), delivered: r.delivered === undefined ? false : boolean(r.delivered), reason: string(r.reason),
-        answered_by: string(r.answered_by), answered_in: string(r.answered_in), question: string(r.question), window_closed_at: string(r.window_closed_at),
+        answered_by: string(r.answered_by), answered_in: string(r.answered_in), question: string(r.question), window_closed_at: string(r.window_closed_at), revising_since: string(r.revising_since),
         created_at: string(r.created_at), updated_at: string(r.updated_at) };
     }),
     runs: array(v.runs).map((value) => {
@@ -486,9 +503,11 @@ export function parseSnapshot(value: unknown): Snapshot {
     registration: v.registration === undefined ? "" : string(v.registration),
     cfo_terminal: v.cfo_terminal === undefined ? "" : string(v.cfo_terminal),
     cfo_harness: v.cfo_harness === undefined ? "" : string(v.cfo_harness),
+    cfo_conversation_left: v.cfo_conversation_left === undefined ? "" : string(v.cfo_conversation_left),
     build: string(v.build),
     cfo_runs: v.cfo_runs === undefined || boolean(v.cfo_runs),
     cfo_starting: v.cfo_starting === undefined ? false : boolean(v.cfo_starting),
+    cfo_closed: v.cfo_closed === undefined ? false : boolean(v.cfo_closed),
     inbox: number(v.inbox),
     memory: v.memory === undefined || v.memory === null ? null : (({ available, total, commit_available, commit_limit, paged_pool, nonpaged_pool, floor, next, holders }) => ({
       available: number(available), total: number(total), commit_available: number(commit_available), commit_limit: number(commit_limit),
@@ -523,6 +542,7 @@ export function parseSnapshot(value: unknown): Snapshot {
         activity: t.activity === undefined ? "" : string(t.activity),
         handoff: t.handoff === undefined ? false : boolean(t.handoff),
         last_report: string(t.last_report),
+        reported_at: string(t.reported_at),
         retired_at: string(t.retired_at),
         report: t.report === undefined ? "" : string(t.report),
         waiting_on: t.waiting_on === undefined ? "" : string(t.waiting_on),
