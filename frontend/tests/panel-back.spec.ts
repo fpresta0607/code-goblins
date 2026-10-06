@@ -14,6 +14,7 @@ const BOARD = [
 ];
 
 async function open(page: Page) {
+  await page.addInitScript(() => localStorage.setItem("cfo-first-open", "shown"));
   const snapshot = { healthy: true, instance: "fixture", cfo_runs: true, revision: 1, attention: [], tasks: BOARD };
   await holdStream(page, snapshot);
   await page.route("**/api/**", async (route) => {

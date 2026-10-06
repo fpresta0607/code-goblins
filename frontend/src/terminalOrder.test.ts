@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { CFO_KEY, MAXIMIZED_KEYS, cfoView, goblinView, idleView, keepLive, maximizedFor, maximizedView, paneTrack, paneWidth, switchKey, switchOrder, switchTarget, type DeckView } from "./terminalOrder.ts";
+import { CFO_KEY, MAXIMIZED_KEYS, cfoView, firstOpen, goblinView, idleView, keepLive, maximizedFor, maximizedView, paneTrack, paneWidth, switchKey, switchOrder, switchTarget, type DeckView } from "./terminalOrder.ts";
 import type { Session, Task } from "./types.ts";
 import { parseSnapshot } from "./types.ts";
 
@@ -121,4 +121,15 @@ test("the Board's terminal and task views each follow their own choice; Orchestr
   assert.equal(maximizedView("Board", "task"), "task", "the Board's task view follows the task choice");
   assert.equal(maximizedView("Orchestration", "terminal"), "task", "an Orchestration terminal follows the task choice");
   assert.equal(maximizedView("Orchestration", "task"), "task");
+});
+
+test("a browser's first open is one that records none and keeps no panel layout", () => {
+  const cases: [string, string | null, (string | null)[], boolean][] = [
+    ["a browser that never showed the board", null, [null, null, null], true],
+    ["one whose first open is recorded", "shown", [null, null, null], false],
+    ["one that keeps a panel width from before the record existed", null, ["520", null, null], false],
+    ["one that keeps a maximize choice from before the record existed", null, [null, null, "false"], false],
+    ["one with both", "shown", ["520", "true", "true"], false],
+  ];
+  for (const [name, recorded, kept, want] of cases) assert.equal(firstOpen(recorded, kept), want, name);
 });
