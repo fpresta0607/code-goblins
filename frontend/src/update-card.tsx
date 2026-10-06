@@ -3,7 +3,7 @@ import { request } from "./api";
 import { Avatar } from "./Avatar";
 import { Icon } from "./Icon";
 import { age } from "./presentation";
-import { object, string, type Run } from "./types";
+import { object, string, type ReleaseOffer, type Run } from "./types";
 import { updateOutcome, updateProgress } from "./update-progress";
 
 // How often the card reads what a running update printed, as a run card does.
@@ -20,8 +20,8 @@ const LOADED_BUILD = document.querySelector<HTMLMetaElement>('meta[name="cfo-bui
 // Update button, the Overlord's alone. Once pressed it follows the update as
 // a run card follows its command, step by step from what it prints, and ends
 // on how it went in one line; once updated, the page reloads on the new board.
-export function UpdateCard({ run, served, connected, sending, error, onRun, onRetry, pager }: { run: Run; served: string; connected: boolean; sending: boolean; error: string; onRun: () => void; onRetry?: () => void; pager?: ReactNode }) {
-  const offer = run.update!;
+export function UpdateCard({ run, offer, served, connected, sending, error, onRun, onRetry, pager }: { run: Run; offer: ReleaseOffer; served: string; connected: boolean; sending: boolean; error: string; onRun: () => void; onRetry?: () => void; pager?: ReactNode }) {
+
   const [printed, setPrinted] = useState("");
   const running = run.state === "running";
   useEffect(() => {
