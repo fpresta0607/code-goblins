@@ -1160,14 +1160,14 @@ cd ..
 go build -o cfo.exe ./cmd/cfo
 ```
 
-Vite generates `internal/boardweb/dist`; do not edit that output manually.
-Commit the regenerated assets with frontend source changes.
+Vite generates `internal/boardweb/dist/board`, which git ignores; do not edit or commit it.
+`cfo.exe` embeds it, and a checkout that has not built it embeds instead the one committed file under `internal/boardweb/dist`, a placeholder page that says the board was not built and names the commands that build it, so `go build` and `go test` need Go alone.
 `npm run test:browser` first builds the board and every page under `frontend/tests/fixtures`, bundled as the shipped board is, into a folder of that run's own under the system's temporary folder, and the browser tests read those files, answering each request themselves.
 No web server runs behind them: the pages are given the origin `http://127.0.0.1:1`, this machine as the board is really served, on a port the browser refuses to connect to, so no test waits on a port or opens a connection the machine can refuse, and a request a test does not answer itself fails at once.
 Outside CI every browser test waits, before it starts, while less than 5 GB of memory is free, and fails saying so after a minute: Windows takes about half a minute to release a test's browser process after the test ends, each still holding about 150 MB, so a fast run holds gigabytes on a machine the fleet shares; on a machine short of memory, run one spec at a time.
 One unit test, `src/dev-server.test.ts`, starts the dev server on a port the machine picks and loads the board's page and entry module from it, so development mode stays tested.
-The HTML input and embedded HTML/JavaScript/CSS outputs are pinned to LF in `.gitattributes`, because Vite preserves template newlines and Git checkout conversion otherwise reports rebuilt assets as modified on Windows.
-Both Windows CI and release workflows install from the lockfile, check the frontend, regenerate assets, and fail if the committed bundle differs: the release before it compiles Go, and CI in a job of its own beside the Go tests.
+The board's HTML template and the placeholder page are pinned to LF in `.gitattributes`: Vite preserves the template's newlines, so a build on Windows embeds the same bytes as one anywhere else.
+Both Windows CI and the release workflow install from the lockfile, check the frontend, build the board, and fail when the build is not where `cfo.exe` embeds it from: the release before it compiles Go, and CI in a job of its own beside the Go tests, which then runs `internal/boardweb`'s tests over the build.
 The runtime executable embeds those assets and requires no Node process.
 The board names the build it serves, a hash of its `index.html`, which names every hashed file of the bundle, in the page (`<meta name="cfo-build">`) and in every snapshot, on `/api/snapshot` and on the event stream.
 A tab whose loaded build differs from the one served, such as one left open across an install, reloads itself while it is hidden, the event stream is live and the Overlord is not mid-answer (the Command Center closed, no card in it and no comment on a diff keeping an answer not yet sent, no terminal listening to dictation, and no text field holding text), and otherwise shows one line, The board was updated, with Reload; a page loaded without a build, such as from the dev server, never acts.
