@@ -76,8 +76,9 @@ export interface Task extends Evaluation {
   ticket?: Ticket;
   overlaps: Overlap[];
   // hosted_checks is what its pull request's hosted checks said at the last
-  // CI poll.
+  // CI poll, and local_checks its change's newest cfo gate test run.
   hosted_checks?: HostedChecks;
+  local_checks?: LocalChecks;
 }
 export interface WorkProgress { at: string; source: string }
 // HostedChecks is a pull request's hosted checks at its head: state is
@@ -86,6 +87,10 @@ export interface WorkProgress { at: string; source: string }
 // failed names the checks that failed or were cancelled and link is the first
 // one's page; approved says a reviewer approved the pull request.
 export interface HostedChecks { state: string; checks: number; failed: string[]; link: string; approved: boolean }
+// LocalChecks is the newest cfo gate test run of a task's change: the commit,
+// the level it ran and the one required, passed or failed, how long it took
+// and waited for its turn, and the packages or commands that failed.
+export interface LocalChecks { commit: string; level: string; required_level: string; status: string; duration_seconds: number; queue_seconds: number; failed: string[]; at: string }
 // Ticket is a task's issue: its number, its link and where it stands, one
 // of queued, in progress, pr open, paused, blocked, merged or closed.
 export interface Ticket { number: number; url: string; state: string }
@@ -633,6 +638,7 @@ export function parseSnapshot(value: unknown): Snapshot {
         ...(t.ticket == null ? {} : { ticket: ((ticket) => ({ number: number(ticket.number), url: string(ticket.url), state: string(ticket.state) }))(object(t.ticket)) }),
         overlaps: array(t.overlaps).map((value) => { const o = object(value); return { ...parsePerson(o), what: string(o.what), url: string(o.url) }; }),
         ...(t.hosted_checks == null ? {} : { hosted_checks: ((c) => ({ state: string(c.state), checks: number(c.checks), failed: strings(c.failed), link: string(c.link), approved: c.approved === undefined ? false : boolean(c.approved) }))(object(t.hosted_checks)) }),
+        ...(t.local_checks == null ? {} : { local_checks: ((c) => ({ commit: string(c.commit), level: string(c.level), required_level: string(c.required_level), status: string(c.status), duration_seconds: number(c.duration_seconds), queue_seconds: number(c.queue_seconds), failed: strings(c.failed), at: string(c.at) }))(object(t.local_checks)) }),
         phase: string(t.phase),
         reason: string(t.reason),
         head: string(t.head),
