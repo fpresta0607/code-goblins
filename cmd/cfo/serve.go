@@ -155,8 +155,13 @@ func runServe(args []string, stdout, stderr io.Writer, runtime commandRuntime) i
 	if !*example {
 		ticketKeeping = ticketWriter(execx.OSRunner{}, runtime)
 	}
+	var dictation supervisor.Dictation
+	if speech := dictationEngine(h, stderr); speech != nil {
+		dictation = speech
+		defer speech.Close()
+	}
 	s, err := supervisor.Start(ctx, h, supervisor.Options{
-		Dictation:        dictationEngine(h, stderr),
+		Dictation:        dictation,
 		Example:          *example,
 		Tickets:          ticketKeeping,
 		CFO:              &supervisor.CFOConnection{State: h.State, Terminals: terminal.HerdrSessions(&herdr.Client{Commands: execx.OSRunner{}, Sockets: herdr.NewSocketCache()})},
@@ -277,7 +282,7 @@ func spawnFromBoard(ctx context.Context, args []string) (string, error) {
 // this build pins, or the one the home's own config/voice.json names, kept
 // under the home's caches. Settings that cannot be read leave the board
 // without dictation, and cfo doctor says why.
-func dictationEngine(h home.Home, stderr io.Writer) supervisor.Dictation {
+func dictationEngine(h home.Home, stderr io.Writer) *voice.Voice {
 	speech, err := voice.For(h.Root, codegoblins.Voice)
 	if err != nil {
 		fmt.Fprintln(stderr, "dictation: "+err.Error())

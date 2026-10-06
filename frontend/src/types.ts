@@ -20,6 +20,8 @@ export interface Task extends Evaluation {
   queue_revision: string;
   notes: string[];
   action_error: string;
+  pending_engine?: { harness: string; model: string; effort: string; when: string };
+  switching?: boolean;
   branch: string;
   runtime?: RuntimeEvidence;
   id: string;
@@ -127,7 +129,16 @@ export interface BoardActivity {
   cfo_identity?:string; live?:boolean;
   id:string; kind:string; task_id:string; generation:string; source:string; target:string; state:string; url:string; at:string; until:string;
 }
+export interface SubscriptionUsage {
+  provider: "claude" | "codex";
+  status: "available" | "unavailable" | "stale" | "auth_required";
+  percent_remaining: number | null;
+  read_at: string;
+  resets_at: string;
+  source: "oauth" | "api" | "";
+}
 export interface Snapshot {
+  subscriptions?: SubscriptionUsage[];
   activity?: BoardActivity[];
   example: boolean;
   instance: string;
@@ -452,6 +463,15 @@ export function parseItems(value: unknown): Items {
 export function parseSnapshot(value: unknown): Snapshot {
   const v = object(value);
   return {
+    subscriptions: array(v.subscriptions).flatMap((value): SubscriptionUsage[] => {
+      const usage = object(value);
+      if (usage.provider !== "claude" && usage.provider !== "codex") return [];
+      const status = usage.status === "available" || usage.status === "stale" || usage.status === "auth_required" ? usage.status : "unavailable";
+      const remaining = usage.percent_remaining;
+      const isMeasured = status === "available" && usage.source === "oauth" && typeof remaining === "number" && Number.isFinite(remaining) && remaining >= 0 && remaining <= 100;
+      return [{ provider: usage.provider, status: status === "available" && !isMeasured ? "unavailable" : status, percent_remaining: isMeasured ? remaining : null,
+        read_at: string(usage.read_at), resets_at: string(usage.resets_at), source: usage.source === "oauth" || usage.source === "api" ? usage.source : "" }];
+    }),
     afk: parseAfk(v.afk),
     instance: string(v.instance),
     revision: number(v.revision),
@@ -486,6 +506,8 @@ export function parseSnapshot(value: unknown): Snapshot {
       return {
         lifecycle: t.lifecycle == null ? undefined : ((record) => ({ phase: string(record.phase), action: string(record.action), at: string(record.at), kept: strings(record.kept), stopped: strings(record.stopped), problems: strings(record.problems), handoff_saved: boolean(record.handoff_saved), validation_restarts: boolean(record.validation_restarts) }))(object(t.lifecycle)),
         teardown: strings(t.teardown), detail: string(t.detail), queue_revision: string(t.queue_revision), notes: strings(t.notes), action_error: string(t.action_error), branch: string(t.branch),
+        pending_engine: t.pending_engine == null ? undefined : ((choice) => ({ harness: string(choice.harness), model: string(choice.model), effort: string(choice.effort), when: string(choice.when) }))(object(t.pending_engine)),
+        switching: t.switching === undefined ? false : boolean(t.switching),
         runtime: parseRuntime(t.runtime),
         id: string(t.id),
         title: string(t.title),

@@ -167,7 +167,7 @@ func ConfigFromEnv(h home.Home) Config {
 			Native: monitor.NativeProber{StateDir: h.State},
 		},
 		Gate: &monitor.RecentGateProber{Probe: monitor.ExecGateProber{}},
-		Progress: monitor.HostProgress{
+		Progress: &monitor.HostProgress{
 			Panes:    &herdr.Client{Commands: execx.OSRunner{}, Session: session, Sockets: sockets},
 			StateDir: h.State,
 			Home:     userHome,

@@ -41,6 +41,8 @@ jobs:
           if (git status --porcelain --untracked-files=all -- ../internal/boardweb/dist) {
             throw 'Embedded assets differ from the lockfile build. Run npm ci and npm run build in frontend, then commit the assets.'
           }
+      - name: Check third-party licences
+        run: go run ./tools/notices -check
       # Every build carries the committed version resource and manifest; a
       # release stamps its own version into them first. -trimpath keeps the
       # build machine's folders out of the binary, so one commit builds to one
@@ -58,15 +60,35 @@ jobs:
           if ($info.ProductName -ne 'Code Goblins' -or $info.ProductVersion -ne '${{ github.ref_name }}') {
             throw "cfo.exe carries ProductName '$($info.ProductName)' and ProductVersion '$($info.ProductVersion)', want 'Code Goblins' and '${{ github.ref_name }}'"
           }
+          Push-Location cmd/goblins-window
+          go run github.com/tc-hib/go-winres@v0.3.3 make --in winres.json --arch amd64 --product-version ${{ github.ref_name }} --file-version ${{ github.ref_name }}
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          Pop-Location
+          # production: the released window has no developer tools and no
+          # browser menu on a right click.
+          go build -trimpath -tags production -ldflags "-H windowsgui" -o goblins-window.exe ./cmd/goblins-window
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          Push-Location cmd/goblins-setup
+          go run github.com/tc-hib/go-winres@v0.3.3 make --in winres.json --arch amd64 --product-version ${{ github.ref_name }} --file-version ${{ github.ref_name }}
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          Pop-Location
+          # The setup installs the release that builds it, from the
+          # repository that publishes it.
+          go build -trimpath -tags production -ldflags "-H windowsgui -X main.repository=${{ github.repository }} -X main.tag=${{ github.ref_name }}" -o CodeGoblinsSetup.exe ./cmd/goblins-setup
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
       - uses: actions/upload-artifact@v4
         with:
           name: unsigned-build
-          path: cfo.exe
+          path: |
+            cfo.exe
+            goblins-window.exe
+            CodeGoblinsSetup.exe
           if-no-files-found: error
           retention-days: 1
 
   # Signing and publishing run no project code or package manager, so nothing
-  # the build installs can reach the signing identity.
+  # the build installs can reach the signing identity. The job leaves a draft:
+  # a person reads it and publishes it, and no tag publishes by itself.
   publish:
     needs: build
     runs-on: windows-latest
@@ -84,13 +106,22 @@ jobs:
           sparse-checkout: |
             install.ps1
             tools/pin-installer.ps1
+            LICENSE
+            THIRD_PARTY_NOTICES
           sparse-checkout-cone-mode: false
       - uses: actions/download-artifact@v4
         with:
           name: unsigned-build
-      # A release is signed or it is not published: without the signing
-      # identity the job stops here, and no unsigned build ever ships.
-      - name: Require the signing identity
+      # A release is signed where the release environment holds the signing
+      # identity. Where it holds none, the release is unsigned and says so:
+      # its notes and its installer name no publisher, and its SHA256SUMS is
+      # what a download is checked against. Adding the identity to the
+      # environment is all it takes to sign the next one. An identity that is
+      # only partly there is a mistake, and stops the release rather than
+      # letting it go out unsigned unnoticed.
+      # A publisher label alone is not an Azure signing identity.
+      - name: Look for the signing identity
+        id: signing
         shell: pwsh
         env:
           AZURE_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
@@ -103,40 +134,58 @@ jobs:
         run: |
           $names = 'AZURE_CLIENT_ID', 'AZURE_TENANT_ID', 'AZURE_SUBSCRIPTION_ID', 'SIGNING_ENDPOINT', 'SIGNING_ACCOUNT', 'SIGNING_PROFILE', 'SIGNING_PUBLISHER'
           $missing = @($names | Where-Object { -not [Environment]::GetEnvironmentVariable($_) })
-          if ($missing.Count -gt 0) { throw "Release signing is not set up in the release environment (missing: $($missing -join ', ')), so nothing is published." }
+          $identityMissing = @($missing | Where-Object { $_ -ne 'SIGNING_PUBLISHER' })
+          if ($missing.Count -eq 0) {
+            "signed=true" >> $env:GITHUB_OUTPUT
+          }
+          elseif ($identityMissing.Count -eq ($names.Count - 1)) {
+            "signed=false" >> $env:GITHUB_OUTPUT
+            Write-Host "::warning::The release environment holds no signing identity, so this release is unsigned and says so."
+          }
+          else {
+            throw "Release signing is only partly set up in the release environment (missing: $($missing -join ', ')), so nothing is published."
+          }
       - uses: azure/login@v3
+        if: steps.signing.outputs.signed == 'true'
         with:
           client-id: ${{ secrets.AZURE_CLIENT_ID }}
           tenant-id: ${{ secrets.AZURE_TENANT_ID }}
           subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
       - name: Sign
+        if: steps.signing.outputs.signed == 'true'
         uses: azure/artifact-signing-action@v2
         with:
           endpoint: ${{ vars.SIGNING_ENDPOINT }}
           signing-account-name: ${{ vars.SIGNING_ACCOUNT }}
           certificate-profile-name: ${{ vars.SIGNING_PROFILE }}
-          files: ${{ github.workspace }}\cfo.exe
+          files: |
+            ${{ github.workspace }}\CodeGoblinsSetup.exe
+            ${{ github.workspace }}\cfo.exe
+            ${{ github.workspace }}\goblins-window.exe
           file-digest: SHA256
           timestamp-rfc3161: http://timestamp.acs.microsoft.com
           timestamp-digest: SHA256
           description: Code Goblins
           description-url: https://github.com/${{ github.repository }}
-      # cfo.exe must carry a valid, timestamped signature from the expected
+      # Each file must carry a valid, timestamped signature from the expected
       # publisher, checked two ways, or the release stops.
-      - name: Verify the signature
+      - name: Verify the signatures
+        if: steps.signing.outputs.signed == 'true'
         shell: pwsh
         env:
           SIGNING_PUBLISHER: ${{ vars.SIGNING_PUBLISHER }}
         run: |
           $signtool = Get-ChildItem "${env:ProgramFiles(x86)}\Windows Kits\10\bin\*\x64\signtool.exe" | Sort-Object FullName -Descending | Select-Object -First 1
-          if (-not $signtool) { throw "signtool.exe is not on this runner, so the signature cannot be verified and nothing is published." }
-          $signature = Get-AuthenticodeSignature -FilePath cfo.exe
-          if ($signature.Status -ne 'Valid') { throw "cfo.exe is not validly signed: $($signature.Status) $($signature.StatusMessage)" }
-          if ($signature.SignerCertificate.GetNameInfo('SimpleName', $false) -ne $env:SIGNING_PUBLISHER) { throw "cfo.exe is signed by '$($signature.SignerCertificate.Subject)', not '$env:SIGNING_PUBLISHER'" }
-          if (-not $signature.TimeStamperCertificate) { throw "cfo.exe carries no timestamp, so its signature would lapse with the certificate" }
-          & $signtool.FullName verify /pa /tw cfo.exe
-          if ($LASTEXITCODE -ne 0) { throw "signtool verify /pa failed for cfo.exe with exit code $LASTEXITCODE" }
-      # The signed file is scanned with Microsoft Defender on current
+          if (-not $signtool) { throw "signtool.exe is not on this runner, so the signatures cannot be verified and nothing is published." }
+          foreach ($file in 'CodeGoblinsSetup.exe', 'cfo.exe', 'goblins-window.exe') {
+            $signature = Get-AuthenticodeSignature -FilePath $file
+            if ($signature.Status -ne 'Valid') { throw "$file is not validly signed: $($signature.Status) $($signature.StatusMessage)" }
+            if ($signature.SignerCertificate.GetNameInfo('SimpleName', $false) -ne $env:SIGNING_PUBLISHER) { throw "$file is signed by '$($signature.SignerCertificate.Subject)', not '$env:SIGNING_PUBLISHER'" }
+            if (-not $signature.TimeStamperCertificate) { throw "$file carries no timestamp, so its signature would lapse with the certificate" }
+            & $signtool.FullName verify /pa /tw $file
+            if ($LASTEXITCODE -ne 0) { throw "signtool verify /pa failed for $file with exit code $LASTEXITCODE" }
+          }
+      # The files as published are scanned with Microsoft Defender on current
       # definitions. GitHub's Windows image turns real-time protection off and
       # excludes whole drives, where a scan passes without looking, so the job
       # turns protection back on and removes the exclusions first, and scans
@@ -158,10 +207,17 @@ jobs:
           $preference = Get-MpPreference
           if ($preference.ExclusionPath) { Remove-MpPreference -ExclusionPath $preference.ExclusionPath }
           if ($preference.ExclusionExtension) { Remove-MpPreference -ExclusionExtension $preference.ExclusionExtension }
+          # Defender turns real-time protection on a few seconds after it is
+          # asked to, so its status is read once it reports protection on, or
+          # after a minute, when the check below stops the release.
+          $deadline = (Get-Date).AddMinutes(1)
+          while (-not (Get-MpComputerStatus).RealTimeProtectionEnabled -and (Get-Date) -lt $deadline) {
+            Start-Sleep -Seconds 2
+          }
           $status = Get-MpComputerStatus
           $preference = Get-MpPreference
           $record = @(
-            "Microsoft Defender scan of this release's signed cfo.exe, on the GitHub runner that published it"
+            "Microsoft Defender scan of this release's programs as published, on the GitHub runner that published it"
             "Running mode: $($status.AMRunningMode)"
             "Antivirus enabled: $($status.AntivirusEnabled)"
             "Real-time protection enabled: $($status.RealTimeProtectionEnabled)"
@@ -179,33 +235,80 @@ jobs:
           if ($status.AMRunningMode -ne 'Normal' -or -not $status.AntivirusEnabled -or -not $status.RealTimeProtectionEnabled -or $preference.ExclusionPath -or $preference.ExclusionExtension) {
             throw "Microsoft Defender is not actively protecting this runner with nothing excluded, so its scan would prove nothing and nothing is published."
           }
-          $scan = & $scanner -Scan -ScanType 3 -File (Resolve-Path cfo.exe).Path -DisableRemediation
-          $scan | Write-Host
-          if ($LASTEXITCODE -ne 0) { throw "Defender's scan of cfo.exe exited with code $LASTEXITCODE (2 is a detection), so nothing is published." }
-          $record += "cfo.exe, SHA256 $((Get-FileHash cfo.exe -Algorithm SHA256).Hash.ToLowerInvariant()): $(@($scan).Where({ $_ -match 'found' }) -join ' ')"
+          foreach ($file in 'CodeGoblinsSetup.exe', 'cfo.exe', 'goblins-window.exe') {
+            $scan = & $scanner -Scan -ScanType 3 -File (Resolve-Path $file).Path -DisableRemediation
+            $scan | Write-Host
+            if ($LASTEXITCODE -ne 0) { throw "Defender's scan of $file exited with code $LASTEXITCODE (2 is a detection), so nothing is published." }
+            $record += "$file, SHA256 $((Get-FileHash $file -Algorithm SHA256).Hash.ToLowerInvariant()): $(@($scan).Where({ $_ -match 'found' }) -join ' ')"
+          }
           [IO.File]::WriteAllText("$PWD/defender-scan.txt", ($record -join "`n") + "`n")
-      # install.ps1 refuses a download that does not match this file. The sum
-      # is of the signed file, the one published.
+      # install.ps1 refuses a download that does not match this file. The
+      # sums are of the files as published, after signing where they are
+      # signed.
       - name: Checksum
         shell: pwsh
         run: |
-          $hash = (Get-FileHash cfo.exe -Algorithm SHA256).Hash.ToLowerInvariant()
-          [IO.File]::WriteAllText("SHA256SUMS", "$hash  cfo.exe`n")
+          $lines = foreach ($file in 'CodeGoblinsSetup.exe', 'cfo.exe', 'goblins-window.exe') {
+            "$((Get-FileHash $file -Algorithm SHA256).Hash.ToLowerInvariant())  $file"
+          }
+          [IO.File]::WriteAllText("SHA256SUMS", ($lines -join "`n") + "`n")
       # The one-line install runs the install.ps1 published here, pinned to
-      # this repository's release of this tag and to its publisher, so a
-      # script change never outruns a release, a fork's installer never
-      # downloads another repository's release, and a download it does not
-      # see signed by that publisher is refused.
+      # this repository's release of this tag, so a script change never
+      # outruns a release and a fork's installer never downloads another
+      # repository's release. A signed release pins its publisher too, and a
+      # download the script does not see signed by that publisher is refused;
+      # an unsigned release names none, and its installer says that it checks
+      # the release's SHA256SUMS only.
       - name: Pin the installer to this release
         shell: pwsh
         env:
+          SIGNED: ${{ steps.signing.outputs.signed }}
           SIGNING_PUBLISHER: ${{ vars.SIGNING_PUBLISHER }}
-        run: ./tools/pin-installer.ps1 -Repository $env:GITHUB_REPOSITORY -Tag $env:GITHUB_REF_NAME -Publisher $env:SIGNING_PUBLISHER -Destination release/install.ps1
+        run: |
+          $pin = @{ Repository = $env:GITHUB_REPOSITORY; Tag = $env:GITHUB_REF_NAME; Destination = 'release/install.ps1' }
+          if ($env:SIGNED -eq 'true') { $pin.Publisher = $env:SIGNING_PUBLISHER }
+          ./tools/pin-installer.ps1 @pin
+      # The notes open with what a person must know before trusting the
+      # files: whether they are signed and by whom, and their sums.
+      - name: Write the release notes
+        shell: pwsh
+        env:
+          SIGNED: ${{ steps.signing.outputs.signed }}
+          SIGNING_PUBLISHER: ${{ vars.SIGNING_PUBLISHER }}
+        run: |
+          $notes = @()
+          if ($env:SIGNED -eq 'true') {
+            $notes += "The programs of this release are code-signed by **$env:SIGNING_PUBLISHER**, and the install refuses a download that is not."
+          }
+          else {
+            $notes += "**This release is unsigned.** Code Goblins has no code-signing identity yet, so Windows knows these programs only as from an unknown publisher: a file saved with a browser gets SmartScreen's ""Windows protected your PC"", where **More info** and then **Run anyway** starts it, and Smart App Control, where it is on, blocks it."
+            $notes += "You trust it by its SHA-256: the install refuses a download that does not match the sums below."
+          }
+          $notes += ''
+          $notes += '| File | SHA-256 |'
+          $notes += '| --- | --- |'
+          foreach ($line in Get-Content SHA256SUMS) {
+            $hash, $file = $line -split '\s+', 2
+            $notes += "| ``$file`` | ``$hash`` |"
+          }
+          $notes += ''
+          $notes += "To install, download ``CodeGoblinsSetup.exe`` from this page and open it. Or run this in PowerShell:"
+          $notes += ''
+          $notes += '```powershell'
+          $notes += "irm https://github.com/$env:GITHUB_REPOSITORY/releases/download/$env:GITHUB_REF_NAME/install.ps1 | iex"
+          $notes += '```'
+          [IO.File]::WriteAllText("$PWD/release-notes.md", ($notes -join "`n") + "`n")
       - name: Publish release
         uses: softprops/action-gh-release@v2
         with:
+          draft: true
+          body_path: release-notes.md
           files: |
+            CodeGoblinsSetup.exe
             cfo.exe
+            goblins-window.exe
             SHA256SUMS
             defender-scan.txt
+            LICENSE
+            THIRD_PARTY_NOTICES
             release/install.ps1

@@ -1,4 +1,4 @@
-package codegoblins
+package installscript
 
 import (
 	"crypto/sha256"
@@ -40,7 +40,7 @@ func runOneLineInstall(t *testing.T, shell, base string) (output, local, temp st
 
 func installScript(t *testing.T) string {
 	t.Helper()
-	script, err := filepath.Abs("install.ps1")
+	script, err := filepath.Abs(filepath.Join("..", "..", "install.ps1"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -104,16 +104,94 @@ func serveFiles(t *testing.T, files map[string][]byte) string {
 }
 
 // runPin runs tools/pin-installer.ps1 in shell, as release.yml does, and
-// returns where it was told to write the release's install script.
-func runPin(t *testing.T, shell, repository, tag, publisher string) (destination, output string, err error) {
+// returns where it was told to write the release's install script. A signed
+// release names its publisher; an unsigned one passes none.
+func runPin(t *testing.T, shell, repository, tag string, publisher ...string) (destination, output string, err error) {
 	t.Helper()
-	pin, err := filepath.Abs(filepath.Join("tools", "pin-installer.ps1"))
+	pin, err := filepath.Abs(filepath.Join("..", "..", "tools", "pin-installer.ps1"))
 	if err != nil {
 		t.Fatal(err)
 	}
 	destination = filepath.Join(t.TempDir(), "release", "install.ps1")
-	out, err := exec.Command(shell, "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-File", pin, "-Repository", repository, "-Tag", tag, "-Publisher", publisher, "-Destination", destination).CombinedOutput()
+	args := []string{"-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-File", pin, "-Repository", repository, "-Tag", tag, "-Destination", destination}
+	for _, name := range publisher {
+		args = append(args, "-Publisher", name)
+	}
+	out, err := exec.Command(shell, args...).CombinedOutput()
 	return destination, string(out), err
+}
+
+func TestReleaseSigningIdentityAllowsUnsignedDraftWithoutAzure(t *testing.T) {
+	// Arrange
+	workflow, err := os.ReadFile(filepath.Join("..", "..", ".github", "workflows", "release.yml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, step, found := strings.Cut(strings.ReplaceAll(string(workflow), "\r\n", "\n"), "      - name: Look for the signing identity\n")
+	if !found {
+		t.Fatal("release has no signing identity step")
+	}
+	_, script, found := strings.Cut(step, "        run: |\n")
+	if !found {
+		t.Fatal("signing identity step has no script")
+	}
+	script, _, found = strings.Cut(script, "      - uses: azure/login@v3\n")
+	if !found {
+		t.Fatal("signing identity script has no Azure login boundary")
+	}
+	var lines []string
+	for _, line := range strings.Split(strings.TrimRight(script, "\n"), "\n") {
+		code, found := strings.CutPrefix(line, "          ")
+		if !found {
+			t.Fatalf("unexpected signing identity script line: %q", line)
+		}
+		lines = append(lines, code)
+	}
+	names := []string{"AZURE_CLIENT_ID", "AZURE_TENANT_ID", "AZURE_SUBSCRIPTION_ID", "SIGNING_ENDPOINT", "SIGNING_ACCOUNT", "SIGNING_PROFILE", "SIGNING_PUBLISHER"}
+	for name, test := range map[string]struct {
+		inputs  []string
+		signed  string
+		refused bool
+	}{
+		"no identity or publisher":        {signed: "false"},
+		"publisher alone":                 {inputs: names[6:], signed: "false"},
+		"complete identity and publisher": {inputs: names, signed: "true"},
+		"identity without publisher":      {inputs: names[:6], refused: true},
+		"partial identity with publisher": {inputs: []string{names[0], names[6]}, refused: true},
+		"partial identity alone":          {inputs: names[:1], refused: true},
+	} {
+		t.Run(name, func(t *testing.T) {
+			// Arrange
+			result := filepath.Join(t.TempDir(), "github-output.txt")
+			command := "$ErrorActionPreference = 'Stop'\n" + strings.Join(lines, "\n") + "\n[Console]::Write([IO.File]::ReadAllText($env:GITHUB_OUTPUT))"
+			cmd, local, temp := installtest.StrippedCommand(t, "", nil, installtest.WindowsPowerShell(), "-NoProfile", "-NonInteractive", "-Command", command)
+			cmd.Env = append(cmd.Env, "GITHUB_OUTPUT="+result)
+			for _, input := range test.inputs {
+				cmd.Env = append(cmd.Env, input+"=configured-value")
+			}
+
+			// Act
+			output, err := cmd.CombinedOutput()
+
+			// Assert
+			assertNothingInstalled(t, local, temp)
+			if test.refused {
+				if err == nil || !strings.Contains(string(output), "Release signing is only partly set up") {
+					t.Fatalf("partial identity = %v, want refusal:\n%s", err, output)
+				}
+				if _, statErr := os.Stat(result); !os.IsNotExist(statErr) {
+					t.Errorf("partial identity wrote a signing choice (%v), want none", statErr)
+				}
+				return
+			}
+			if err != nil || strings.Count(string(output), "signed=") != 1 || strings.Count(string(output), "signed="+test.signed) != 1 {
+				t.Fatalf("identity = %v, want exactly signed=%s:\n%s", err, test.signed, output)
+			}
+			if strings.Contains(string(output), "::warning::") != (test.signed == "false") {
+				t.Errorf("identity warning does not match signed=%s:\n%s", test.signed, output)
+			}
+		})
+	}
 }
 
 // The install script a release publishes downloads that release's own files:
@@ -156,6 +234,9 @@ func TestThePinRefusesAValueItCannotWriteAsItIs(t *testing.T) {
 		"a tag that is not a release's":       {"fpresta0607/code-goblins", "main", "Code Goblins Test Publisher"},
 		"a publisher PowerShell would expand": {"fpresta0607/code-goblins", "v1.2.3", "Goblins $env:USERNAME"},
 		"a publisher outside ASCII":           {"fpresta0607/code-goblins", "v1.2.3", "Caf\u00e9 Goblins"},
+		// A signed release whose publisher's name went missing must not
+		// come out as an unsigned one.
+		"a publisher named as nothing": {"fpresta0607/code-goblins", "v1.2.3", ""},
 	} {
 		t.Run(name, func(t *testing.T) {
 			// Act
@@ -211,6 +292,42 @@ func TestOneLineInstallChecksTheDesktopWindowTheReleaseLists(t *testing.T) {
 				assertNothingInstalled(t, local, temp)
 			})
 		}
+	}
+}
+
+// An unsigned release pins its repository and its tag and names no publisher:
+// its install script says that it checks the release's SHA256SUMS only, and
+// goes on to run a download that matches its sum.
+func TestAnUnsignedReleasesInstallNamesNoPublisherAndChecksTheSum(t *testing.T) {
+	binary := []byte("a build nobody signed")
+	for _, shell := range installtest.OneLineShells(t) {
+		t.Run(filepath.Base(shell), func(t *testing.T) {
+			// Arrange
+			script, output, err := runPin(t, shell, "fpresta0607/code-goblins", "v1.2.3")
+			if err != nil {
+				t.Fatalf("pin-installer.ps1 = %v:\n%s", err, output)
+			}
+			base := installtest.ServeRelease(t, binary, fmt.Sprintf("%x  cfo.exe\n", sha256.Sum256(binary)))
+
+			// Act
+			output, _, _, err = runStrippedPowerShell(t, shell, base, "-Command", "Get-Content -Raw -LiteralPath '"+script+"' | Invoke-Expression")
+
+			// Assert
+			for _, want := range []string{
+				"names no publisher, so the download is checked against the release's SHA256SUMS only",
+				"Verified cfo.exe against the release's SHA256SUMS",
+			} {
+				if !strings.Contains(output, want) {
+					t.Errorf("install = %v, want it to say %q:\n%s", err, want, output)
+				}
+			}
+			if strings.Contains(output, "is not validly signed") {
+				t.Errorf("an unsigned release's install asked for a signature:\n%s", output)
+			}
+			if err == nil {
+				t.Fatalf("install succeeded with a stand-in program that cannot run:\n%s", output)
+			}
+		})
 	}
 }
 
@@ -303,6 +420,43 @@ func TestOneLineInstallRunsADownloadThatMatchesTheReleaseChecksum(t *testing.T) 
 	}
 }
 
+// The install reads the user-scope environment where it writes it: from the
+// file a stripped session names for it, never from this machine's own. A
+// projects folder recorded there spares the question, and with none recorded
+// the install says so, whatever this machine's own user environment holds.
+func TestOneLineInstallReadsTheUserEnvironmentItIsGiven(t *testing.T) {
+	binary := []byte("not a program")
+	sums := fmt.Sprintf("%x  cfo.exe\n", sha256.Sum256(binary))
+	for name, test := range map[string]struct {
+		recorded  string
+		shouldSay bool
+	}{
+		"with no projects folder recorded": {recorded: "{}", shouldSay: true},
+		"with a projects folder recorded":  {recorded: `{"CFO_PROJECTS_ROOT": "C:\\projects"}`},
+	} {
+		t.Run(name, func(t *testing.T) {
+			// Arrange
+			cmd, local, _ := installtest.StrippedCommand(t, installtest.ServeRelease(t, binary, sums), map[string]string{"git": "@exit /b 0\r\n", "gh": "@exit /b 0\r\n"}, installtest.WindowsPowerShell(),
+				"-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-Command", "Get-Content -Raw -LiteralPath '"+installScript(t)+"' | Invoke-Expression")
+			if err := os.WriteFile(filepath.Join(local, installtest.UserEnvFile), []byte(test.recorded), 0o600); err != nil {
+				t.Fatal(err)
+			}
+
+			// Act
+			out, _ := cmd.CombinedOutput()
+
+			// Assert
+			output := string(out)
+			if !strings.Contains(output, "Verified cfo.exe against the release's SHA256SUMS") {
+				t.Fatalf("the install stopped before it asked for a projects folder:\n%s", output)
+			}
+			if isSaid := strings.Contains(output, "No projects folder recorded"); isSaid != test.shouldSay {
+				t.Errorf("the install says no projects folder is recorded: %t, want %t:\n%s", isSaid, test.shouldSay, output)
+			}
+		})
+	}
+}
+
 // The one-line install runs in the caller's own session and leaves it exactly
 // as it was, even when it is refused.
 func TestOneLineInstallLeavesTheCallersSessionAsItWas(t *testing.T) {
@@ -343,7 +497,6 @@ func TestOneLineInstallStartsOfficialInstallersFromAFile(t *testing.T) {
 	base := installtest.ServeRelease(t, binary, fmt.Sprintf("%x  cfo.exe\n", sha256.Sum256(binary)))
 	installers := []string{
 		"https://claude.ai/install.ps1",
-		"https://herdr.dev/install.ps1",
 	}
 	for _, shell := range installtest.OneLineShells(t) {
 		t.Run(filepath.Base(shell), func(t *testing.T) {
@@ -488,7 +641,7 @@ func TestDevStopsForGoBeforeChangingAnything(t *testing.T) {
 // the script itself, and hands back its exit code.
 func TestInstallCmdRunsTheScriptWhateverTheExecutionPolicy(t *testing.T) {
 	checkout := fakeCheckout(t)
-	wrapper, err := os.ReadFile("install.cmd")
+	wrapper, err := os.ReadFile(filepath.Join("..", "..", "install.cmd"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -523,7 +676,7 @@ func TestInstallCmdRunsTheScriptWhateverTheExecutionPolicy(t *testing.T) {
 // PowerShell its own module path.
 func TestInstallCmdGivesWindowsPowerShellItsOwnModules(t *testing.T) {
 	checkout := t.TempDir()
-	wrapper, err := os.ReadFile("install.cmd")
+	wrapper, err := os.ReadFile(filepath.Join("..", "..", "install.cmd"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -571,11 +724,12 @@ func TestInstallCmdGivesWindowsPowerShellItsOwnModules(t *testing.T) {
 // cfo install, which sets up the per-user home as the one-line install does:
 // the clone keeps only its source, and the build folder goes once the
 // install has run, here a stand-in install that fails, so the script stops
-// there. The window is built as a program that opens no console,
-// and the install says the programs it built are unsigned. A -Dev install
-// runs through install.cmd, which always starts Windows PowerShell, so
-// Windows PowerShell alone checks it; the install workflow runs the whole
-// install in both PowerShells on a clean runner.
+// there. The window is built as a release builds it, a program that opens no
+// console and has no developer tools, and the install says the programs it
+// built are unsigned. A -Dev install runs through install.cmd, which always
+// starts Windows PowerShell, so Windows PowerShell alone checks it; the
+// install workflow runs the whole install in both PowerShells on a clean
+// runner.
 func TestDevBuildsOutsideTheCloneAndLeavesItSourceOnly(t *testing.T) {
 	// Arrange: go copies a stand-in cfo.exe, a copy of this test binary that
 	// fails at every command, to the path it is told to build to.
@@ -597,8 +751,8 @@ func TestDevBuildsOutsideTheCloneAndLeavesItSourceOnly(t *testing.T) {
 		t.Fatal(err)
 	}
 	stubs := map[string]string{"git": "@exit /b 0\r\n", "gh": "@exit /b 0\r\n", "go": "@if not \"%2\"==\"-trimpath\" exit /b 1\r\n" +
-		"@if not \"%7\"==\"./cmd/goblins-window\" copy /y \"" + standIn + "\" \"%4\" >nul & exit /b\r\n" +
-		"@if not \"%~6\"==\"-H windowsgui\" exit /b 1\r\n@copy /y \"" + window + "\" \"%4\" >nul\r\n"}
+		"@if not \"%9\"==\"./cmd/goblins-window\" copy /y \"" + standIn + "\" \"%4\" >nul & exit /b\r\n" +
+		"@if not \"%~6\"==\"-H windowsgui\" exit /b 1\r\n@if not \"%7 %8\"==\"-tags production\" exit /b 1\r\n@copy /y \"" + window + "\" \"%4\" >nul\r\n"}
 	cmd, _, temp := installtest.StrippedCommand(t, installtest.ServeRelease(t, nil, ""), stubs, installtest.WindowsPowerShell(), "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-File", filepath.Join(checkout, "install.ps1"), "-Dev")
 	cmd.Env = append(cmd.Env, standInVariable+"=fail")
 

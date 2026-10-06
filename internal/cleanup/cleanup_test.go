@@ -227,6 +227,10 @@ func (f *cleanupFixture) assertMetadataPreserved(t *testing.T) {
 
 func TestCleanupReturnsCleanInactiveWorktree(t *testing.T) {
 	fixture := newCleanupFixture(t)
+	fixture.meta.Model, fixture.meta.Effort = "recorded-model", "xhigh"
+	if err := state.WriteTaskMeta(fixture.stateDir, fixture.meta); err != nil {
+		t.Fatal(err)
+	}
 
 	result, err := fixture.service.Cleanup(context.Background(), "g1")
 	if err != nil {
@@ -241,6 +245,10 @@ func TestCleanupReturnsCleanInactiveWorktree(t *testing.T) {
 	}
 	if _, err := os.Stat(filepath.Join(fixture.stateDir, "g1.meta")); !errors.Is(err, os.ErrNotExist) {
 		t.Fatalf("metadata survives successful cleanup: %v", err)
+	}
+	outcome, err := state.ReadOutcome(fixture.stateDir, "g1")
+	if err != nil || outcome.Harness != fixture.meta.Harness || outcome.Model != fixture.meta.Model || outcome.Effort != fixture.meta.Effort {
+		t.Fatalf("engine did not survive cleanup: %+v, %v", outcome, err)
 	}
 	status, err := state.TailStatus(fixture.stateDir, "g1", 5)
 	if err != nil || len(status) != 1 {

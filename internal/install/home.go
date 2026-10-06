@@ -317,11 +317,22 @@ func CarryWindow(root, binary string, out io.Writer) error {
 // beside itself.
 const windowPicture = "goblins-window.png"
 
+// suppliesWindow reports whether this install puts its own window in the
+// home: one shipped or built beside its binary, which it copies into bin. An
+// install run from the home's own bin only keeps the window there.
+func (s Service) suppliesWindow() bool {
+	if s.Contract == nil || s.Binary == "" || sameDirectory(filepath.Dir(s.Binary), s.bin()) {
+		return false
+	}
+	_, err := os.Stat(filepath.Join(filepath.Dir(s.Binary), windowName))
+	return err == nil
+}
+
 // adoptEarlierWindow makes this home's desktop window the one the user has,
 // where an earlier install kept a copy in a folder of its own: Start at login
-// starts this home in that copy's place, and the copy goes once no window
-// runs from it. Its Start menu entry is the install script's to replace. A
-// home that holds no window leaves the earlier copy as the one there is.
+// starts this home in that copy's place. Only an install that supplied its
+// window removes the earlier copy once it stops running; one that retained a
+// window keeps the earlier copy and its entry. A home with no window keeps it.
 func (s Service) adoptEarlierWindow(report *reporter) error {
 	if s.EarlierWindow == "" || sameDirectory(s.EarlierWindow, s.Root) {
 		return nil
@@ -335,6 +346,10 @@ func (s Service) adoptEarlierWindow(report *reporter) error {
 	}
 	if err := s.adoptStartAtLogin(report); err != nil {
 		return err
+	}
+	if !s.suppliesWindow() {
+		report.same("window", "kept the earlier desktop window in "+s.EarlierWindow+", since this install retained the home's window")
+		return nil
 	}
 	// An open window holds its program, which Windows cannot delete, so it is
 	// named rather than ended: quitting it is the user's.

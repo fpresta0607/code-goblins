@@ -36,9 +36,10 @@ type Operations struct {
 }
 
 type Service struct {
-	StateDir   string
-	PauseWait  time.Duration
-	Operations Operations
+	StateDir    string
+	PrepareWait time.Duration
+	PauseWait   time.Duration
+	Operations  Operations
 }
 
 func (service Service) Run(ctx context.Context, request Request) (result state.Lifecycle, err error) {
@@ -180,20 +181,44 @@ func (service Service) Run(ctx context.Context, request Request) (result state.L
 			if wait <= 0 {
 				wait = 5 * time.Second
 			}
-			prepare, cancel := context.WithTimeout(ctx, wait)
-			prepareErr := service.Operations.Prepare(prepare, meta, result.Handoff)
-			for prepareErr == nil {
+			deliveryWait := service.PrepareWait
+			if deliveryWait <= 0 {
+				deliveryWait = time.Minute
+			}
+			prepare, cancelPrepare := context.WithTimeout(ctx, deliveryWait)
+			prepared := make(chan error, 1)
+			go func() { prepared <- service.Operations.Prepare(prepare, meta, result.Handoff) }()
+			waiting, cancelWait := prepare, cancelPrepare
+			ticker := time.NewTicker(20 * time.Millisecond)
+		waitForHandoff:
+			for {
+				// A published final handoff proves completion even if native delivery missed the working screen.
 				if info, statErr := os.Stat(result.Handoff); statErr == nil && info.Mode().IsRegular() && info.Size() > 0 {
 					result.HandoffSaved = true
 					break
 				}
 				select {
-				case <-prepare.Done():
-					prepareErr = prepare.Err()
-				case <-time.After(20 * time.Millisecond):
+				case prepareErr := <-prepared:
+					prepared = nil
+					if prepareErr != nil {
+						break waitForHandoff
+					}
+					cancelPrepare()
+					waiting, cancelWait = context.WithTimeout(ctx, wait)
+				case <-waiting.Done():
+					break waitForHandoff
+				case <-ticker.C:
 				}
 			}
-			cancel()
+			ticker.Stop()
+			cancelWait()
+			cancelPrepare()
+			if prepared != nil {
+				<-prepared
+			}
+			if info, statErr := os.Stat(result.Handoff); statErr == nil && info.Mode().IsRegular() && info.Size() > 0 {
+				result.HandoffSaved = true
+			}
 			if !result.HandoffSaved {
 				result.Problems = append(result.Problems, "Stopping-point deadline reached or request failed; no new handoff was saved")
 			}

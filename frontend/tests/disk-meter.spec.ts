@@ -33,13 +33,15 @@ async function board(page: Page, disk: object) {
   return column;
 }
 
-// The meter's layout: every label inside the box at body size, the two marks'
-// labels apart, nothing scrolling sideways, and the disk meter wholly under
-// the memory meter.
+// The meter's layout: every label inside it at body size, the two marks'
+// labels apart, nothing scrolling sideways, and the disk meter the second
+// meter in the memory meter's box, under memory's own scale.
 async function layout(column: ReturnType<Page["getByRole"]>) {
   return column.evaluate((tasks) => {
     const meter = tasks.querySelector<HTMLElement>('[aria-label="Disk"]')!;
-    const memory = tasks.querySelector<HTMLElement>('[aria-label="Memory"]')!.getBoundingClientRect();
+    const memoryBox = tasks.querySelector<HTMLElement>('[aria-label="Memory"]')!;
+    const box = memoryBox.getBoundingClientRect();
+    const memoryScale = memoryBox.querySelector<HTMLElement>(":scope > .memory-scale")!.getBoundingClientRect();
     const inside = meter.getBoundingClientRect();
     const texts = [...meter.querySelectorAll<HTMLElement>(":scope > :not(.sr-only), :scope > * > span, :scope > * > strong")].filter((element) => element.textContent?.trim());
     const [wake, floor] = [".memory-scale > .floor", ".memory-scale > .next"].map((selector) => meter.querySelector<HTMLElement>(selector)!.getBoundingClientRect());
@@ -48,7 +50,7 @@ async function layout(column: ReturnType<Page["getByRole"]>) {
       outside: [...meter.children].filter((child) => { const rect = child.getBoundingClientRect(); return rect.left < inside.left || rect.right > inside.right || rect.bottom > inside.bottom; }).map((child) => child.className),
       labelsApart: wake.right <= floor.left,
       overflows: meter.scrollWidth > meter.clientWidth,
-      underMemory: inside.top >= memory.bottom,
+      stackedInTheMemoryBox: meter.parentElement === memoryBox && inside.top >= memoryScale.bottom && inside.left >= box.left && inside.right <= box.right && inside.bottom <= box.bottom,
     };
   });
 }
@@ -59,7 +61,7 @@ test.describe("in the Overlord's window, 1707 px wide with the CFO's panel open"
   test.use({ viewport: { width: 1707, height: 1067 }, deviceScaleFactor: 1.5 });
 
   for (const [state, disk] of Object.entries(states)) {
-    test(`free disk ${state === "roomy" ? "above the floor" : state === "floor" ? "under the floor" : "under the wake mark"} shows beside memory, inside its box`, async ({ page }, testInfo) => {
+    test(`free disk ${state === "roomy" ? "above the floor" : state === "floor" ? "under the floor" : "under the wake mark"} shows under memory in the same box`, async ({ page }, testInfo) => {
       // Arrange: the CFO's own panel, on its Task view, beside the board.
       const column = await board(page, disk);
       await page.keyboard.press("Control+Alt+1");
@@ -71,7 +73,7 @@ test.describe("in the Overlord's window, 1707 px wide with the CFO's panel open"
       await page.screenshot({ path: testInfo.outputPath(`disk-${state}-1707.png`) });
 
       // Assert
-      expect(measured).toEqual({ smallest: 16, outside: [], labelsApart: true, overflows: false, underMemory: true });
+      expect(measured).toEqual({ smallest: 16, outside: [], labelsApart: true, overflows: false, stackedInTheMemoryBox: true });
       const meter = column.getByRole("group", { name: "Disk" });
       await expect(meter.locator(".memory-line")).toHaveText(`Disk free (C:)${(disk.free / GB).toFixed(1)} GB`);
       await expect(meter.locator(".memory-fill")).toHaveClass(new RegExp(state === "roomy" ? "ready" : state === "floor" ? "waiting" : "under"));
@@ -103,6 +105,6 @@ test.describe("on a phone, 390 px wide", () => {
     await column.screenshot({ path: testInfo.outputPath("disk-floor-390.png") });
 
     // Assert
-    expect(measured).toEqual({ smallest: 16, outside: [], labelsApart: true, overflows: false, underMemory: true });
+    expect(measured).toEqual({ smallest: 16, outside: [], labelsApart: true, overflows: false, stackedInTheMemoryBox: true });
   });
 });

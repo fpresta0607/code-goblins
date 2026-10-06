@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"path/filepath"
+	"slices"
 	"strings"
 
 	"github.com/fpresta0607/code-goblins/internal/execx"
@@ -19,7 +20,6 @@ const (
 	Claude Kind = "claude"
 	Codex  Kind = "codex"
 	Pi     Kind = "pi"
-	Kimi   Kind = "kimi"
 )
 
 // LaunchSpec contains the task-specific values used to build one harness
@@ -40,9 +40,7 @@ type LaunchSpec struct {
 	// token-authenticated subset of the project's .mcp.json), materialized
 	// under the task's temporary directory and empty when nothing qualified.
 	// Only the claude adapter reads it, through --mcp-config; codex ignores
-	// it and uses the operator's own codex configuration, and kimi has no
-	// config flag and loads the copy provisioning leaves at the worktree root
-	// when that path was safe to write.
+	// it and uses the operator's own codex configuration.
 	MCPConfig string
 	// CodexMCPServers names the MCP servers the operator's own Codex
 	// configuration defines, which the codex adapter turns off: a goblin
@@ -137,7 +135,6 @@ func DefaultRegistry() Registry {
 		Claude: claudeAdapter{},
 		Codex:  codexAdapter{},
 		Pi:     &piAdapter{},
-		Kimi:   kimiAdapter{},
 	}}
 }
 
@@ -194,12 +191,7 @@ func DefaultModel(kind Kind) string {
 }
 
 func validSharedEffort(effort string) bool {
-	switch effort {
-	case "low", "medium", "high", "xhigh", "max":
-		return true
-	default:
-		return false
-	}
+	return slices.Contains(Efforts(Claude), effort)
 }
 
 func validateExecutable(ctx context.Context, runner execx.Runner, executable string, args ...string) (execx.Result, error) {

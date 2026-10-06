@@ -39,15 +39,16 @@ const (
 )
 
 var (
-	spawnHarnesses = []string{"claude", "codex", "pi", "kimi"}
+	spawnHarnesses = []string{"claude", "codex", "pi"}
 	spawnModes     = []string{"no-mistakes", "direct-PR", "local-only"}
-	spawnValue     = regexp.MustCompile(`^[A-Za-z0-9._:-]{1,64}$`)
+	spawnValue     = regexp.MustCompile(`^[A-Za-z0-9._:/\[\]~-]{1,200}$`)
 	briefSetting   = regexp.MustCompile(`(?i)^\s*(harness|model|effort|mode)\s*:\s*(\S+)\s*$`)
 )
 
 // Dispatch is what a queued task's Start reads and runs on this machine:
 // its memory, and cfo spawn itself. Without it the board starts no goblin.
 type Dispatch struct {
+	Idle func(context.Context, state.TaskMeta) (bool, error)
 	// Memory reads the machine's physical memory, commit and kernel pools.
 	Memory func() (Memory, error)
 	// Disk reads the free space of the home's drive and the disk floor; nil
@@ -332,24 +333,8 @@ func planStart(h home.Home, id string) (startPlan, error) {
 	if plan.project == "" {
 		return startPlan{}, StartRefusal{Reason: "The brief for " + id + " names no project"}
 	}
-	named := briefSettings(brief)
-	pick := func(fromRow, key, fallback string) string {
-		switch {
-		case fromRow != "":
-			return fromRow
-		case named[key] != "":
-			return named[key]
-		}
-		return fallback
-	}
-	plan.harness = pick(row.Harness, "harness", defaultHarness)
-	fallbackModel, fallbackEffort := "", ""
-	if plan.harness == defaultHarness {
-		fallbackModel, fallbackEffort = defaultModel, defaultEffort
-	}
-	plan.model = pick(row.Model, "model", fallbackModel)
-	plan.effort = pick(row.Effort, "effort", fallbackEffort)
-	plan.mode = pick(row.Mode, "mode", "")
+	settings := queuedEngine(row, briefSettings(brief))
+	plan.harness, plan.model, plan.effort, plan.mode = settings.harness, settings.model, settings.effort, settings.mode
 	switch {
 	case !slices.Contains(spawnHarnesses, plan.harness):
 		return startPlan{}, StartRefusal{Reason: "The backlog row or brief names harness " + plan.harness + ", which cfo spawn does not run"}
@@ -363,6 +348,27 @@ func planStart(h home.Home, id string) (startPlan, error) {
 		plan.missingBrief = &queued
 	}
 	return plan, nil
+}
+
+func queuedEngine(row fleet.BacklogRow, named map[string]string) startPlan {
+	pick := func(fromRow, key, fallback string) string {
+		switch {
+		case fromRow != "":
+			return fromRow
+		case named[key] != "":
+			return named[key]
+		}
+		return fallback
+	}
+	plan := startPlan{harness: pick(row.Harness, "harness", defaultHarness)}
+	fallbackModel, fallbackEffort := "", ""
+	if plan.harness == defaultHarness {
+		fallbackModel, fallbackEffort = defaultModel, defaultEffort
+	}
+	plan.model = pick(row.Model, "model", fallbackModel)
+	plan.effort = pick(row.Effort, "effort", fallbackEffort)
+	plan.mode = pick(row.Mode, "mode", "")
+	return plan
 }
 
 // briefSettings are the harness, model, effort and mode a brief names on

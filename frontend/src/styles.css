@@ -315,6 +315,19 @@ button:disabled, textarea:disabled { cursor: default; opacity: .55; }
 
 .workspace-outcome { color: var(--muted); font-size: .9375rem; margin: 12px 0; overflow-wrap: anywhere; }
 .disclosure.connections { margin-top: 22px; }
+.engine-selector { container-type: inline-size; min-width: 0; margin-bottom: 18px; }
+.engine-fields { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.5fr) minmax(0, .8fr); gap: 10px; }
+.engine-fields label { display: grid; min-width: 0; gap: 8px; color: var(--muted); font-size: .9375rem; }
+.engine-fields select { width: 100%; min-width: 0; color: #edf4f3; padding-left: 10px; }
+.engine-harness { display: flex; align-items: center; min-width: 0; position: relative; }
+.engine-harness .mark { position: absolute; left: 8px; width: 24px; height: 24px; pointer-events: none; }
+.engine-harness .mark svg { width: 15px; height: 15px; }
+.engine-harness select { padding-left: 38px; }
+.engine-selector > button { margin-top: 12px; }
+.engine-readonly { display: flex; align-items: center; flex-wrap: wrap; gap: 10px; overflow-wrap: anywhere; }
+.engine-pending { overflow-wrap: anywhere; }
+.engine-pending button { margin-left: 6px; }
+@container (max-width: 390px) { .engine-fields { grid-template-columns: minmax(0, 1fr) minmax(0, .5fr); } .engine-fields label:first-child { grid-column: 1 / -1; } }
 .connections p { color: var(--muted); }
 .connection-list { list-style: none; margin: 0 0 14px; padding: 0; display: grid; }
 .connection-list li { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; gap: 12px; padding: 9px 2px; border-bottom: 1px solid var(--border); }
@@ -942,8 +955,26 @@ a.wait-open { min-height: 44px; border: 1px solid var(--accent-green); border-ra
 .memory-scale > .gap { flex: 0 9999 auto; min-width: 0; }
 .memory-scale > .next { flex: none; padding-left: 6px; }
 .memory-holders, .memory-warning { margin: 0; font-size: 1rem; overflow-wrap: anywhere; }
+.disk-meter { display: grid; gap: 6px; margin-top: 4px; padding-top: 10px; border-top: 1px solid var(--glass-border); }
+.memory > .disk-meter:first-child { margin-top: 0; padding-top: 0; border-top: 0; }
 .memory-warning { display: flex; gap: 8px; align-items: flex-start; color: var(--amber); }
 .memory-warning .icon { flex: none; width: 20px; height: 20px; margin-top: 2px; }
+.task-meters { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; margin-bottom: 14px; }
+.task-meters .memory { flex: 1 1 160px; min-width: 0; margin: 0; }
+.task-meters:has(.subscription-dials) .memory { padding-inline: 8px; }
+.subscription-dials { display: grid; gap: 6px; }
+.subscription-dial { display: flex; align-items: center; gap: 6px; min-width: 96px; border-radius: var(--radius); cursor: help; }
+.subscription-dial:focus-visible { outline: var(--focus-ring); outline-offset: 3px; }
+.subscription-ring { display: block; flex: none; width: 48px; height: 48px; }
+.subscription-track, .subscription-fill { fill: none; stroke-width: 3px; }
+.subscription-track { stroke: var(--muted); opacity: .24; }
+.subscription-fill { stroke: var(--mint); }
+.subscription-reserve { fill: none; stroke: var(--amber); stroke-width: 2px; }
+.subscription-percent { font-size: 1rem; font-variant-numeric: tabular-nums; }
+.subscription-dial.reserve { color: var(--amber); }
+.subscription-dial.reserve .subscription-fill { stroke: var(--amber); }
+.subscription-dial.unknown .subscription-track { stroke-dasharray: 3 3; opacity: .6; }
+.subscription-dial.unknown .subscription-percent { color: var(--muted); }
 /* The task the CFO starts next, and Start on every queued card: one play
    button among the card's controls. */
 .next-chip { justify-self: start; display: inline-flex; align-items: center; padding: 1px 10px; border-radius: 999px; background: #123126; color: #8ff0c9; font-size: 1rem; font-weight: 800; }

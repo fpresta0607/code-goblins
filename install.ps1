@@ -152,11 +152,25 @@
         }
     }
 
+    # Get-UserEnvironment returns the user-scope variable $Name. Where
+    # CFO_USER_ENV_FILE is set it reads that file, which stands in for the
+    # user-scope environment as it does for Add-UserPath and cfo install, so a
+    # test's install never reads the machine's own user environment.
+    function Get-UserEnvironment([string]$Name) {
+        if (-not $env:CFO_USER_ENV_FILE) {
+            return [Environment]::GetEnvironmentVariable($Name, "User")
+        }
+        if (-not (Test-Path -LiteralPath $env:CFO_USER_ENV_FILE)) {
+            return $null
+        }
+        return (Get-Content -Raw -LiteralPath $env:CFO_USER_ENV_FILE | ConvertFrom-Json).$Name
+    }
+
     # Read-ProjectsRoot asks once for the folder that holds the user's
     # checkouts and returns cfo install's argument for it. A recorded folder is
     # kept on every rerun.
     function Read-ProjectsRoot {
-        if ([Environment]::GetEnvironmentVariable("CFO_PROJECTS_ROOT", "User")) {
+        if (Get-UserEnvironment "CFO_PROJECTS_ROOT") {
             return @()
         }
         if ([Console]::IsInputRedirected) {
@@ -233,7 +247,9 @@
                 go build -trimpath -o $dest ./cmd/cfo
                 if ($LASTEXITCODE -ne 0) { throw "go build failed" }
                 # -H windowsgui: the window is a program with no console.
-                go build -trimpath -o (Join-Path $build "goblins-window.exe") -ldflags "-H windowsgui" ./cmd/goblins-window
+                # production: as a release builds it, with no developer tools and
+                # no browser menu on a right click.
+                go build -trimpath -o (Join-Path $build "goblins-window.exe") -ldflags "-H windowsgui" -tags production ./cmd/goblins-window
                 if ($LASTEXITCODE -ne 0) { throw "go build of the desktop window failed" }
             }
             finally {
@@ -244,6 +260,8 @@
             Write-Host "These programs are unsigned: they were built on this PC from this clone, and Code Goblins has no signed release yet."
             Write-Host "Windows runs a program built here without asking. A copy taken to another PC is unsigned there too: SmartScreen may show ""Windows protected your PC"" with an unknown publisher, where More info and then Run anyway starts it, and Smart App Control, where it is on, blocks it."
 
+            # cfo install puts the window built beside it in the home.
+            $deliveredWindow = $true
             $projectsRoot = Read-ProjectsRoot
             & $dest install @projectsRoot
             if ($LASTEXITCODE -ne 0) { throw "cfo install exited with code $LASTEXITCODE" }
@@ -261,6 +279,8 @@
             if (-not (Save-VerifiedRelease $download)) {
                 throw "Code Goblins was not installed: the release could not be downloaded from $releaseBase."
             }
+            # cfo install puts the window downloaded beside it in the home.
+            $deliveredWindow = Test-Path -LiteralPath (Join-Path $download "goblins-window.exe")
 
             $projectsRoot = Read-ProjectsRoot
             & $downloaded install @projectsRoot
@@ -447,15 +467,12 @@ public static extern IntPtr SendMessageTimeout(IntPtr hWnd, uint Msg, UIntPtr wP
     #                Defender blocks as Trojan:Win32/Commando.A!ml.
     #   release    - the release pinned above, which Install-NoMistakes
     #                installs, and updates when an older one is present
-    #   manual     - no scriptable installer; print the manual step instead
     $tools = @(
         @{ Name = "git";                 Kind = "winget";     Cmd = "winget install -e --id Git.Git --accept-package-agreements --accept-source-agreements" },
         @{ Name = "gh";                  Kind = "winget";     Cmd = "winget install -e --id GitHub.cli --accept-package-agreements --accept-source-agreements" },
         @{ Name = "claude";              Kind = "powershell"; Cmd = "https://claude.ai/install.ps1" },
-        @{ Name = "herdr";               Kind = "powershell"; Cmd = "https://herdr.dev/install.ps1" },
         @{ Name = "codex";               Kind = "npm";        Cmd = "npm.cmd install -g @openai/codex" },
         @{ Name = "pi";                  Kind = "npm";        Cmd = "npm.cmd install -g @earendil-works/pi-coding-agent" },
-        @{ Name = "kimi";                Kind = "manual";     Cmd = "install the Kimi Code CLI from https://www.kimi.com (no scriptable installer; sign in after)" },
         @{ Name = "tasks-axi";           Kind = "npm";        Cmd = "npm.cmd install -g tasks-axi" },
         @{ Name = "quota-axi";           Kind = "npm";        Cmd = "npm.cmd install -g quota-axi" },
         @{ Name = "no-mistakes";         Kind = "release";    Cmd = "https://github.com/kunchenguid/no-mistakes/releases/download/v$noMistakesVersion" },
@@ -467,7 +484,6 @@ public static extern IntPtr SendMessageTimeout(IntPtr hWnd, uint Msg, UIntPtr wP
     $npmPresent = [bool](Get-Command npm -ErrorAction SilentlyContinue)
     $wingetPresent = [bool](Get-Command winget -ErrorAction SilentlyContinue)
 
-    $manualSteps = @()
     $failedInstalls = @()
     $installedAny = $false
     foreach ($tool in $tools) {
@@ -506,11 +522,6 @@ public static extern IntPtr SendMessageTimeout(IntPtr hWnd, uint Msg, UIntPtr wP
         }
         if ($found) {
             Write-Host ("ok       {0,-20} present" -f $tool.Name)
-            continue
-        }
-        if ($tool.Kind -eq "manual") {
-            Write-Host ("MANUAL   {0,-20} {1}" -f $tool.Name, $tool.Cmd)
-            $manualSteps += $tool.Name
             continue
         }
         if (($tool.Kind -in "npm", "npm-file") -and -not $npmPresent) {
@@ -589,7 +600,7 @@ public static extern IntPtr SendMessageTimeout(IntPtr hWnd, uint Msg, UIntPtr wP
     if ($installedAny) {
         Write-Host ""
         Write-Host "Refreshing PATH so newly installed tools are visible in this session ..."
-        $parts = @($env:Path -split ';') + @([Environment]::GetEnvironmentVariable("Path", "Machine") -split ';') + @([Environment]::GetEnvironmentVariable("Path", "User") -split ';')
+        $parts = @($env:Path -split ';') + @([Environment]::GetEnvironmentVariable("Path", "Machine") -split ';') + @([string](Get-UserEnvironment "Path") -split ';')
         $env:Path = ($parts | Where-Object { $_ -ne "" } | Select-Object -Unique) -join ';'
     }
 
@@ -633,38 +644,48 @@ public static extern IntPtr SendMessageTimeout(IntPtr hWnd, uint Msg, UIntPtr wP
         }
     }
 
-    # Code Goblins in the Start menu opens the app. Where the home holds the
-    # desktop window, it opens the board in it, starting the supervisor when
-    # none runs and no CFO; its console shows only minimized, for as long as
-    # that takes. A home with no window, as a build from source that built
-    # none leaves, runs the quick start in a window of its own: it starts the
-    # supervisor and the CFO when they are not running and ends on a screen
-    # that offers the CFO's terminal and the board. In a terminal, goblins is
-    # the quick start either way.
+    # Code Goblins in the Start menu opens the app. Where this install put the
+    # desktop window in the home, built or downloaded just now, the entry
+    # starts that program alone: it runs goblins out of sight, which finds the
+    # supervisor or starts it, and opens the board in the window, so no
+    # terminal shows; it starts no CFO, which the board's first-run page does.
+    # A window the home only kept, as a release with none leaves the one from
+    # before, may be from before a window started alone opened the app, so the
+    # entry runs goblins --window, which opens any window, with its console
+    # minimized for as long as that takes. A home with no window runs the quick
+    # start in a window of its own: it starts the supervisor and the CFO when
+    # they are not running and ends on a screen that offers the CFO's terminal
+    # and the board. In a terminal, goblins is the quick start either way.
     $goblins = Join-Path $InstallDir "bin\goblins.exe"
-    $opensWindow = Test-Path -LiteralPath (Join-Path $InstallDir "bin\goblins-window.exe")
+    $window = Join-Path $InstallDir "bin\goblins-window.exe"
+    $opensWindow = Test-Path -LiteralPath $window
     $programs = Join-Path $env:APPDATA "Microsoft\Windows\Start Menu\Programs"
     $shortcutPath = Join-Path $programs "Code Goblins.lnk"
     try {
         New-Item -ItemType Directory -Force -Path $programs -ErrorAction Stop | Out-Null
         $shortcut = (New-Object -ComObject WScript.Shell).CreateShortcut($shortcutPath)
-        $shortcut.TargetPath = $goblins
         $shortcut.WorkingDirectory = $InstallDir
-        if ($opensWindow) {
+        $shortcut.Arguments = ""
+        $shortcut.WindowStyle = 1
+        if ($deliveredWindow) {
+            $shortcut.TargetPath = $window
+            $shortcut.Description = "Open Code Goblins"
+        }
+        elseif ($opensWindow) {
+            $shortcut.TargetPath = $goblins
             $shortcut.Arguments = "--window"
             $shortcut.WindowStyle = 7
             $shortcut.Description = "Open Code Goblins"
         }
         else {
-            $shortcut.Arguments = ""
-            $shortcut.WindowStyle = 1
+            $shortcut.TargetPath = $goblins
             $shortcut.Description = "Start Code Goblins"
         }
         $shortcut.Save()
         Write-Host ("shortcut {0,-20} {1}" -f "Code Goblins", $shortcutPath)
-        # The window once had an entry of its own; the one entry opens it now.
+        # A window this install delivered replaces the standalone entry.
         $earlierShortcut = Join-Path $programs "Code Goblins Window.lnk"
-        if ($opensWindow -and (Test-Path -LiteralPath $earlierShortcut)) {
+        if ($deliveredWindow -and (Test-Path -LiteralPath $earlierShortcut)) {
             Remove-Item -LiteralPath $earlierShortcut -Force
             Write-Host ("removed  {0,-20} {1}" -f "Code Goblins Window", $earlierShortcut)
         }
@@ -679,19 +700,11 @@ public static extern IntPtr SendMessageTimeout(IntPtr hWnd, uint Msg, UIntPtr wP
     & $dest doctor
     $doctorExit = $LASTEXITCODE
 
-    if ($manualSteps.Count -gt 0 -or $failedInstalls.Count -gt 0) {
+    if ($failedInstalls.Count -gt 0) {
         Write-Host ""
-        if ($manualSteps.Count -gt 0) {
-            Write-Host "Still needs a manual step:"
-            foreach ($m in $manualSteps) {
-                Write-Host "  - $m"
-            }
-        }
-        if ($failedInstalls.Count -gt 0) {
-            Write-Host "These installs did not complete; see the lines above:"
-            foreach ($m in $failedInstalls) {
-                Write-Host "  - $m"
-            }
+        Write-Host "These installs did not complete; see the lines above:"
+        foreach ($m in $failedInstalls) {
+            Write-Host "  - $m"
         }
     }
 
