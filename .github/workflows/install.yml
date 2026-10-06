@@ -152,9 +152,11 @@ jobs:
           # cfo.exe with args hook <name>, so each entry is read as that whole line.
           if (-not (@($settings.hooks.SessionStart.hooks | ForEach-Object { @($_.command) + @($_.args) -join " " }) -match "cfo\.exe hook session-start")) { throw "the CFO hooks are not in the Claude Code user settings" }
           # Each harness gets its own copy of each skill: a symlink needs a
-          # right an ordinary Windows user may not have.
+          # right an ordinary Windows user may not have. Codex and pi each read
+          # the shared ~\.agents\skills as well as their own folder, and the
+          # skills CLI lays pi's copy in the shared one since its 1.7.1.
           foreach ($skill in "gh-axi", "chrome-devtools-axi", "no-mistakes") {
-            foreach ($folders in @(".claude\skills"), @(".pi\agent\skills"), @(".codex\skills", ".agents\skills")) {
+            foreach ($folders in @(".claude\skills"), @(".pi\agent\skills", ".agents\skills"), @(".codex\skills", ".agents\skills")) {
               $found = @($folders | ForEach-Object { Join-Path $env:USERPROFILE "$_\$skill" } | Where-Object { Test-Path -LiteralPath (Join-Path $_ "SKILL.md") })
               if ($found.Count -eq 0) { throw "the one-line install left the $skill skill in none of $($folders -join ', ')" }
               if ((Get-Item -LiteralPath $found[0]).LinkType) { throw "$($found[0]) is a link, want a copy" }
