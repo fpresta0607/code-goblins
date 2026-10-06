@@ -356,7 +356,7 @@ export function CommandCenter({ snapshot, connected, presentations, focus, onUns
               : item.kind === "credential"
               ? <CredentialCard key={shownKey} request={item.request} snapshot={snapshot} connected={connected} pager={pager} />
               : item.kind === "run" && item.run.update
-              ? <UpdateCard key={shownKey} run={item.run} offer={item.run.update} served={snapshot.build} connected={connected} sending={!!drafts[item.key]?.sending} error={drafts[item.key]?.error || ""} onRun={() => run(item.run)} onRetry={retryOf(item.run)} pager={pager} />
+              ? <UpdateCard key={shownKey} run={item.run} offer={item.run.update} connected={connected} sending={!!drafts[item.key]?.sending} error={drafts[item.key]?.error || ""} onRun={() => run(item.run)} onRetry={retryOf(item.run)} pager={pager} />
               : item.kind === "run"
               ? <RunCard key={shownKey} run={item.run} goblin={item.run.task ? snapshot.tasks.find((task) => task.id === item.run.task) : undefined} connected={connected} sending={!!drafts[item.key]?.sending} error={drafts[item.key]?.error || ""} onRun={() => run(item.run)} pager={pager} />
               : item.review.document

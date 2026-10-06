@@ -131,6 +131,8 @@ It runs only as the home's own `goblins` or `cfo`, and it says four steps as it 
 4. `[4/4] Bring the home up to date`: the new build's `install` brings the home's contract, skills and hooks up to date, where this machine's install names this home; the board, already on the new build, is not restarted again.
 
 It ends on one line: `Updated:`, `Rolled back:` with why the new build did not serve, or `Failed:` with what stopped it before anything changed.
+When the new build serves but its install cannot refresh the home, or the machine's installed home cannot be read, it keeps that build, ends on `Updated:` saying what remains to do, and exits 6; run `goblins install` to finish.
+Updating another home deliberately skips that refresh and exits 0.
 The download is removed afterwards.
 `goblins update --check` says how your build stands against the newest release and what is new in it, and changes nothing.
 A build made from a clone has no release version, so it says to run `git pull` and then `.\install.cmd -Dev` in the clone instead.

@@ -184,15 +184,19 @@ func releaseUpdate(h home.Home, check bool, to, pressed string, stdout, stderr i
 	// The install brings up to date the home the machine names, so it runs
 	// only where that is this home.
 	releaseStep(stdout, 4, latest.Tag)
+	installCode := 0
 	switch target, err := installTarget(); {
 	case err != nil:
-		fmt.Fprintf(stdout, "Note: Code Goblins %s runs, but which home this machine's install names could not be read (%v), so the home's contract, skills and hooks were left as they were; run goblins install to finish.\n", latest.Tag, err)
+		fmt.Fprintf(stderr, "cfo update: which home this machine's install names could not be read (%v).\n", err)
+		installCode = 1
 	case !sameHomePath(target.Root, h.Root):
 		fmt.Fprintf(stdout, "Note: Code Goblins %s runs, but this machine's install names the home %s, not this one, so this home's contract, skills and hooks were left as they were.\n", latest.Tag, target.Root)
 	default:
-		if code := runProgram(h, filepath.Join(h.Bin(), "cfo.exe"), []string{"install"}, stdout, stderr); code != 0 {
-			fmt.Fprintf(stdout, "Note: Code Goblins %s runs, but its install did not bring the home's contract, skills and hooks up to date (exit code %d); run goblins install to finish.\n", latest.Tag, code)
-		}
+		installCode = runProgram(h, filepath.Join(h.Bin(), "cfo.exe"), []string{"install"}, stdout, stderr)
+	}
+	if installCode != 0 {
+		fmt.Fprintf(stdout, "Updated: Code Goblins %s runs, but its install did not bring the home's contract, skills and hooks up to date (exit code %d); run goblins install to finish.\n", latest.Tag, installCode)
+		return updateHomeIncomplete
 	}
 	fmt.Fprintf(stdout, "Updated: Code Goblins %s runs.\n", latest.Tag)
 	return updateInstalled

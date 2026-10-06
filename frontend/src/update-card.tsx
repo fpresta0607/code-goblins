@@ -8,19 +8,13 @@ import { updateOutcome, updateProgress } from "./update-progress";
 
 // How often the card reads what a running update printed, as a run card does.
 const OUTPUT_READ_MS = 1000;
-// How long "Updated" shows before the page reloads on the new board.
-const RELOAD_MS = 2500;
-
-// The build of the board this page loaded, which an update replaces.
-const LOADED_BUILD = document.querySelector<HTMLMetaElement>('meta[name="cfo-build"]')?.content || "";
-
 // The Update Code Goblins item: an event, not a goblin's question. It names
 // the version this board runs and the one it installs, what is new in a few
 // lines, whether the release is signed and what the update checks, and one
 // Update button, the Overlord's alone. Once pressed it follows the update as
 // a run card follows its command, step by step from what it prints, and ends
 // on how it went in one line; once updated, the page reloads on the new board.
-export function UpdateCard({ run, offer, served, connected, sending, error, onRun, onRetry, pager }: { run: Run; offer: ReleaseOffer; served: string; connected: boolean; sending: boolean; error: string; onRun: () => void; onRetry?: () => void; pager?: ReactNode }) {
+export function UpdateCard({ run, offer, connected, sending, error, onRun, onRetry, pager }: { run: Run; offer: ReleaseOffer; connected: boolean; sending: boolean; error: string; onRun: () => void; onRetry?: () => void; pager?: ReactNode }) {
 
   const [printed, setPrinted] = useState("");
   const running = run.state === "running";
@@ -40,11 +34,6 @@ export function UpdateCard({ run, offer, served, connected, sending, error, onRu
     return () => { stopped = true; clearInterval(timer); };
   }, [running, run.id]);
   const updated = run.state === "succeeded";
-  useEffect(() => {
-    if (!updated || !LOADED_BUILD || !served || served === LOADED_BUILD) return;
-    const timer = setTimeout(() => location.reload(), RELOAD_MS);
-    return () => clearTimeout(timer);
-  }, [updated, served]);
   const output = running ? printed : run.output;
   const progress = updateProgress(run, output);
   const outcome = updateOutcome(run);

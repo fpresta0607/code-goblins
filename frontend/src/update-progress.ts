@@ -7,6 +7,7 @@ const STEP_TITLES = (to: string) => ["Download Code Goblins " + to, "Check each 
 const STEP_LINE = /^\[(\d)\/4\] /;
 // The line goblins update ends on: how it went, and why.
 const RESULT_LINE = /^(Updated|Rolled back|Failed): (.*)$/;
+const UPDATE_RELOAD_WINDOW_MS = 10 * 60 * 1000;
 
 export type StepState = "done" | "now" | "todo" | "failed";
 export interface UpdateProgress { steps: { title: string; state: StepState }[]; result: string }
@@ -39,11 +40,18 @@ export function updateOutcome(run: Run): { icon: IconName; label: string; troubl
     case "ready": return { icon: "sparkle", label: "Ready", trouble: false };
     case "running": return { icon: "refresh", label: "Updating", trouble: false };
     case "succeeded": return { icon: "check-double", label: "Updated", trouble: false };
-    case "failed": return run.exit_code === 3 ? { icon: "warning", label: "Rolled back", trouble: true } : { icon: "warning", label: "Not updated", trouble: true };
+    case "failed": return { icon: "warning", label: run.exit_code === 6 ? "Updated" : run.exit_code === 3 ? "Rolled back" : "Not updated", trouble: true };
     case "withdrawn": return { icon: "close", label: "Replaced", trouble: false };
     case "expired": return { icon: "close", label: "Expired", trouble: false };
     default: return { icon: "clock", label: "Waiting", trouble: false };
   }
+}
+
+export function updateSucceededRecently(snapshot: Snapshot | null, now: number): boolean {
+  return !!snapshot?.runs.some((run) => {
+    const elapsed = now - Date.parse(run.finished_at);
+    return !!run.update && run.state === "succeeded" && elapsed >= 0 && elapsed <= UPDATE_RELOAD_WINDOW_MS;
+  });
 }
 
 export interface ReleaseBanner { kind: "update" | "source"; tag: string; installed: string; page: string; item: string }

@@ -32,6 +32,8 @@ const (
 	// updateDegraded: the previous build serves from its verified copy,
 	// but an alias still needs repair by update --recover.
 	updateDegraded = 5
+	// updateHomeIncomplete: the candidate serves, but the home's refresh failed.
+	updateHomeIncomplete = 6
 )
 
 // Bounds on the steps of an update.

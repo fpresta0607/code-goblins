@@ -75,7 +75,7 @@ func buildBytes(t *testing.T, build string) []byte {
 // updateFromRelease runs the home's installed cfo.exe update as the version
 // installed, against the release server, on a machine of the test's own:
 // its user environment names this home, and its profile folders are scratch.
-func (u *updateHome) updateFromRelease(server *releaseServer, installed string, arguments ...string) (int, string) {
+func (u *updateHome) updateFromRelease(server *releaseServer, installed string, seams []string, arguments ...string) (int, string) {
 	u.t.Helper()
 	machine := u.t.TempDir()
 	environment := filepath.Join(machine, "user-env.json")
@@ -92,7 +92,11 @@ func (u *updateHome) updateFromRelease(server *releaseServer, installed string, 
 		"CFO_TEST_VERSION="+installed, release.APIVariable+"="+server.URL+"/latest",
 		install.UserEnvFileVariable+"="+environment,
 		"LOCALAPPDATA="+filepath.Join(machine, "Local"), "APPDATA="+filepath.Join(machine, "Roaming"),
-		"USERPROFILE="+filepath.Join(machine, "profile"), "HOME="+filepath.Join(machine, "profile"))
+		"USERPROFILE="+filepath.Join(machine, "profile"), "HOME="+filepath.Join(machine, "profile"),
+		"CLAUDE_CONFIG_DIR="+filepath.Join(machine, "profile", ".claude"),
+		"CODEX_HOME="+filepath.Join(machine, "profile", ".codex"),
+		"PI_CODING_AGENT_DIR="+filepath.Join(machine, "profile", ".pi", "agent"))
+	cmd.Env = append(cmd.Env, seams...)
 	var output bytes.Buffer
 	cmd.Stdout, cmd.Stderr = &output, &output
 	err = cmd.Run()
@@ -120,7 +124,7 @@ func TestAnUpdateFromAReleaseInstallsItAndRestartsOnlyTheBoard(t *testing.T) {
 	server := newReleaseServer(t, "v0.5.0", map[string][]byte{"cfo.exe": candidate, "goblins-window.exe": window})
 
 	// Act
-	code, output := u.updateFromRelease(server, "v0.4.2")
+	code, output := u.updateFromRelease(server, "v0.4.2", nil)
 
 	// Assert
 	if code != updateInstalled {
@@ -164,7 +168,7 @@ func TestAnUpdateFromAReleaseRefusesADownloadThatFailsItsChecksum(t *testing.T) 
 	server.files["cfo.exe"] = buildBytes(t, "tampered")
 
 	// Act
-	code, output := u.updateFromRelease(server, "v0.4.2")
+	code, output := u.updateFromRelease(server, "v0.4.2", nil)
 
 	// Assert
 	if code != 1 || !strings.Contains(output, "Failed: the downloaded cfo.exe does not match the release's SHA256SUMS") {
@@ -191,13 +195,80 @@ func TestAnUpdateFromAReleaseRollsBackABuildThatDoesNotServe(t *testing.T) {
 	server := newReleaseServer(t, "v0.5.0", map[string][]byte{"cfo.exe": buildBytes(t, "crash")})
 
 	// Act
-	code, output := u.updateFromRelease(server, "v0.4.2")
+	code, output := u.updateFromRelease(server, "v0.4.2", nil)
 
 	// Assert
 	if code != updateRolledBack || !strings.Contains(output, "Rolled back: Code Goblins v0.4.2 serves again, and v0.5.0 was not installed") {
 		t.Fatalf("update exited %d, want %d and the rollback said:\n%s", code, updateRolledBack, output)
 	}
 	u.previousServes()
+}
+
+func TestAnUpdateFromAReleaseReportsAnIncompleteHomeRefresh(t *testing.T) {
+	cases := []struct {
+		name             string
+		isUnreadableHome bool
+		isOtherHome      bool
+		code             int
+		reason           string
+	}{
+		{name: "malformed Claude settings", code: updateHomeIncomplete, reason: "settings.json"},
+		{name: "unreadable machine home", isUnreadableHome: true, code: updateHomeIncomplete, reason: "which home this machine's install names could not be read"},
+		{name: "another home's refresh is skipped", isOtherHome: true, code: updateInstalled, reason: "not this one"},
+	}
+	for _, test := range cases {
+		t.Run(test.name, func(t *testing.T) {
+			u := newUpdateHome(t, "previous", "candidate")
+			oldSupervisor, cfoHost := u.serving()
+			candidate := buildBytes(t, "candidate")
+			server := newReleaseServer(t, "v0.5.0", map[string][]byte{"cfo.exe": candidate})
+			machine := t.TempDir()
+			settings := filepath.Join(machine, "settings.json")
+			if err := os.WriteFile(settings, []byte("invalid JSON"), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			seams := []string{"CLAUDE_CONFIG_DIR=" + machine}
+			if test.isUnreadableHome || test.isOtherHome {
+				environment := filepath.Join(machine, "user-env.json")
+				values := []byte("invalid JSON")
+				if test.isOtherHome {
+					otherHome := filepath.Join(machine, "other-home")
+					if err := os.MkdirAll(filepath.Join(otherHome, "state"), 0o700); err != nil {
+						t.Fatal(err)
+					}
+					var err error
+					values, err = json.Marshal(map[string]string{"CFO_HOME": otherHome})
+					if err != nil {
+						t.Fatal(err)
+					}
+				}
+				if err := os.WriteFile(environment, values, 0o600); err != nil {
+					t.Fatal(err)
+				}
+				seams = append(seams, install.UserEnvFileVariable+"="+environment)
+			}
+
+			code, output := u.updateFromRelease(server, "v0.4.2", seams)
+
+			if code != test.code || !strings.Contains(output, test.reason) {
+				t.Fatalf("update exited %d, want %d saying %q:\n%s", code, test.code, test.reason, output)
+			}
+			want := "Updated: Code Goblins v0.5.0 runs."
+			if test.code == updateHomeIncomplete {
+				want = "Updated: Code Goblins v0.5.0 runs, but its install did not bring the home's contract, skills and hooks up to date (exit code 1); run goblins install to finish."
+			}
+			if !strings.HasSuffix(strings.TrimSpace(output), want) {
+				t.Fatalf("the update did not end on %q:\n%s", want, output)
+			}
+			u.aliasesAre(candidate, "released")
+			if err := boardAlive(context.Background(), u.awaitBoard()); err != nil {
+				t.Fatalf("the released build does not serve: %v", err)
+			}
+			if u.running(oldSupervisor) || !u.running(cfoHost) {
+				t.Fatal("the update did not restart only the supervisor")
+			}
+		})
+	}
 }
 
 // releaseHome is a scratch home for an update run in this process, against

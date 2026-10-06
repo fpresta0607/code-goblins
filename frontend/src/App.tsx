@@ -18,6 +18,7 @@ import { CFO_KEY, MAXIMIZED_KEYS, firstOpen, maximizedFor, maximizedView, paneTr
 import { useSwitchKeys } from "./useSwitchKeys";
 import { unsentComment, updateAction } from "./boardUpdate";
 import { ReleaseBanner } from "./release-banner";
+import { updateSucceededRecently } from "./update-progress";
 import { windowTarget } from "./terminalWindow";
 import { message, request } from "./api";
 import { FirstRun } from "./FirstRun";
@@ -120,8 +121,8 @@ export function App() {
   const selectedSession = task?.archived && (!node || node.role === "goblin") ? undefined
     : node || (task && snapshot?.sessions.find((session) => ownsTaskSession(session, task)));
   const reviews = useReview(task, snapshot);
-  // Once the supervisor serves a newer board, a hidden tab reloads itself at
-  // once and a visible one says so and offers a reload, never mid-answer.
+  const [now,setNow]=useState(Date.now);
+  useEffect(()=>{const timer=setInterval(()=>setNow(Date.now()),1000);return()=>clearInterval(timer);},[]);
   const served = snapshot?.build || "";
   const connected = connection === "Live";
   const unsent = useRef(false);
@@ -130,15 +131,17 @@ export function App() {
   const commentUnsent = useRef(false);
   useEffect(() => { commentUnsent.current = commenting; }, [commenting]);
   const updated = updateAction({ loaded: LOADED_BUILD, served, hidden: false, answering: true, connected }) !== "none";
+  const hasRecentUpdate = updateSucceededRecently(snapshot, now);
   useEffect(() => {
-    const check = () => { if (updateAction({ loaded: LOADED_BUILD, served, hidden: document.hidden, answering: answering(unsent.current || commentUnsent.current), connected }) === "reload") location.reload(); };
+    const check = () => {
+      const hasUnsent = unsent.current || commentUnsent.current;
+      if (updateAction({ loaded: LOADED_BUILD, served, hidden: document.hidden, answering: answering(hasUnsent), connected, unsent: hasUnsent, updated: hasRecentUpdate }) === "reload") location.reload();
+    };
     check();
     document.addEventListener("visibilitychange", check);
     return () => document.removeEventListener("visibilitychange", check);
-  }, [served, connected]);
+  }, [served, connected, hasRecentUpdate]);
   const effects = useActivity(snapshot, connected);
-  const [now,setNow]=useState(Date.now);
-  useEffect(()=>{const timer=setInterval(()=>setNow(Date.now()),1000);return()=>clearInterval(timer);},[]);
   const presentations=snapshot&&connected?livePresentations(snapshot,now):[];
   // A goblin opens on its Terminal view, unless the caller asks for a view
   // (an alert opens the Task view, where its reason is).

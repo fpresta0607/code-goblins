@@ -259,6 +259,33 @@ func TestPressingUpdateGrantsItsCommandOnceAndRunsItHidden(t *testing.T) {
 	}
 }
 
+func TestAnUpdateItemPastItsExpiryCanStillBePressedAndLaunched(t *testing.T) {
+	source := newReleaseSource(t, "v0.5.0")
+	s := releaseService(t, source, "v0.4.2")
+	launcher := &fakeRunLauncher{started: liveStart(t)}
+	s.Options.Runs = launcher
+	s.checkReleases(context.Background())
+	s.Store.db.Runs[0].ExpiresAt = time.Now().Add(-48 * time.Hour)
+	item := updateItems(s)[0]
+	asOverlordsBoard(s)
+
+	status, body := askTheBoard(t, s, "POST", "/api/actions", `{"id":"press-late","kind":"run","run_id":"`+item.ID+`","generation":"`+item.Identity+`"}`, nil)
+	if status != http.StatusAccepted {
+		t.Fatalf("Update after its expiry answered %d %s, want %d", status, body, http.StatusAccepted)
+	}
+	if err := s.Store.ProcessOne(context.Background(), s.execute); err != nil {
+		t.Fatal(err)
+	}
+
+	launches := launcher.all()
+	if len(launches) != 1 || !launches[0].Hidden {
+		t.Fatalf("Update launched %+v, want one hidden run", launches)
+	}
+	if got := updateItems(s)[0]; got.State != "running" || got.Started == nil {
+		t.Fatalf("the item is %+v, want it launched", got)
+	}
+}
+
 // A grant runs only the item and release it was written for, and only
 // while it is fresh, so a grant left behind never runs an update later.
 func TestAnUpdateGrantRunsOnlyItsOwnFreshItem(t *testing.T) {

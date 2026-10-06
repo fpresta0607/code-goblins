@@ -107,9 +107,11 @@ func TestMain(m *testing.M) {
 	// Nor does any supervisor a test starts look for a release on GitHub:
 	// it looks at a port that refuses at once, unless its test names a
 	// release server of its own.
-	if err := os.Setenv(release.APIVariable, "http://127.0.0.1:1/latest"); err != nil {
-		fmt.Fprintln(os.Stderr, err)
-		os.Exit(1)
+	if _, isSet := os.LookupEnv(release.APIVariable); !isSet {
+		if err := os.Setenv(release.APIVariable, "http://127.0.0.1:1/latest"); err != nil {
+			fmt.Fprintln(os.Stderr, err)
+			os.Exit(1)
+		}
 	}
 	// A build stand-in an update test installs runs as that build.
 	if code, ok := runStandInBuild(); ok {
