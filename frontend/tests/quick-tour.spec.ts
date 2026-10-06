@@ -110,7 +110,7 @@ for (const [name, viewport, scale] of [
       await expect(tour(page).getByRole("img", { name: "Step 1 of 3" })).toBeVisible();
       await expect(page.getByText("Speak into this terminal")).toHaveCount(0);
       await lights(page, panel(page));
-      await page.screenshot({ path: testInfo.outputPath("1-talk-to-the-cfo.png") });
+      await page.screenshot({ path: testInfo.outputPath("1-talk-to-the-cfo.png"), animations: "disabled" });
 
       // Act
       await page.keyboard.press("Enter");
@@ -119,7 +119,7 @@ for (const [name, viewport, scale] of [
       await expect(tour(page).getByRole("heading", { name: "Goblins do the work." })).toBeVisible();
       await expect(tour(page).getByRole("button", { name: "Next" })).toBeFocused();
       await lights(page, board(page));
-      await page.screenshot({ path: testInfo.outputPath("2-goblins-do-the-work.png") });
+      await page.screenshot({ path: testInfo.outputPath("2-goblins-do-the-work.png"), animations: "disabled" });
 
       // Act
       await tour(page).getByRole("button", { name: "Next" }).click();
@@ -128,7 +128,7 @@ for (const [name, viewport, scale] of [
       await expect(tour(page).getByRole("heading", { name: "When I need you, it waits here." })).toBeVisible();
       await expect(tour(page).getByText("Replay this tour with the question mark button.")).toBeVisible();
       await lights(page, commandCenter(page));
-      await page.screenshot({ path: testInfo.outputPath("3-when-i-need-you.png") });
+      await page.screenshot({ path: testInfo.outputPath("3-when-i-need-you.png"), animations: "disabled" });
 
       // Act
       await tour(page).getByRole("button", { name: "Done" }).click();
@@ -236,14 +236,14 @@ test.describe("in a narrow window", () => {
     expect(card.x).toBeGreaterThanOrEqual(0);
     expect(card.x + card.width).toBeLessThanOrEqual(390);
     expect(card.y + card.height).toBeLessThanOrEqual(800);
-    await page.screenshot({ path: testInfo.outputPath("narrow-1.png") });
+    await page.screenshot({ path: testInfo.outputPath("narrow-1.png"), animations: "disabled" });
 
     // Act
     await page.keyboard.press("Enter");
     await page.keyboard.press("Enter");
     await expect(tour(page).getByRole("heading", { name: "When I need you, it waits here." })).toBeVisible();
     await lights(page, commandCenter(page));
-    await page.screenshot({ path: testInfo.outputPath("narrow-3.png") });
+    await page.screenshot({ path: testInfo.outputPath("narrow-3.png"), animations: "disabled" });
     await tour(page).getByRole("button", { name: "Done" }).click();
 
     // Assert
