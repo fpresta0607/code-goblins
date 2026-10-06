@@ -6,8 +6,9 @@ import { BRAND_MARKS } from "./brandMarks";
 import { Icon } from "./Icon";
 import { ownsTaskSession, sessionTitle } from "./lineageTree";
 import { asksOverlord, nodeStatus, personaFor, pullRequestBadge, pullRequestLabel, safePullRequest, waitingTarget } from "./workflow";
-import { waitingItems, type Item } from "./commandQueue";
+import { reviewLine, waitingItems, type Item } from "./commandQueue";
 import { credentialAsk } from "./credentials";
+import { plainMessage } from "./messageText";
 import { ShowMore } from "./ShowMore";
 import { AfkToggle } from "./afk-toggle";
 
@@ -55,7 +56,7 @@ export function PanelHeader({ task, node, snapshot, compact, onAnswer, onOpenTas
     {owner && !!task.generation && <div className="panel-actions">
       <button className="icon-button raised" disabled={opening || !snapshot.instance} aria-label="Open in VS Code" data-tip="Open in VS Code" data-tip-align="start" onClick={() => void open("vscode")}><img className="brand-icon" src="/assets/vscode.svg" alt="" /></button>
       <button className="icon-button raised" disabled={opening || !snapshot.instance} aria-label="Open folder" data-tip="Open folder" onClick={() => void open("folder")}><Icon name="folder" /></button>
-      {waiting && <button className="icon-button raised pill-link answer" aria-label={"Answer: " + (waiting.kind === "question" ? waiting.question.text : waiting.kind === "credential" ? credentialAsk(waiting.request) : waiting.review.title)} data-tip="Answer in the Command Center" onClick={() => onAnswer(waiting.key)}><Icon name="command-center" /><span>Answer</span></button>}
+      {waiting && <button className="icon-button raised pill-link answer" aria-label={"Answer: " + (waiting.kind === "question" ? plainMessage(waiting.question.text) : waiting.kind === "credential" ? credentialAsk(waiting.request) : reviewLine(waiting.review))} data-tip="Answer in the Command Center" onClick={() => onAnswer(waiting.key)}><Icon name="command-center" /><span>Answer</span></button>}
       {pr && <a className="icon-button raised pill-link" href={pr} target="_blank" rel="noreferrer" aria-label={"Open pull request " + pullRequestLabel(pr)} data-tip="Open pull request">{badge.github ? <svg className="icon brand-glyph" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d={BRAND_MARKS.github.path} /></svg> : <Icon name="pull-request" />}<span>{badge.label}</span></a>}
     </div>}
     {outcome && <p className="workspace-outcome" role="status">{outcome}</p>}
