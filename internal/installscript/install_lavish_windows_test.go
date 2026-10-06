@@ -3,6 +3,7 @@ package installscript
 import (
 	"crypto/sha256"
 	"fmt"
+	"maps"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -21,9 +22,10 @@ var lavishPin = regexp.MustCompile(`Sha256 = "([0-9A-Fa-f]{64})"`)
 // runInstallWithLavishDownload runs script as the one-line install with
 // stand-ins for the internet and npm: the lavish-axi release file is answered
 // with content, every other download from the internet with a line of text,
-// and npm records how it was called. It returns the install's output, the
-// record, and the session's temp folder.
-func runInstallWithLavishDownload(t *testing.T, script string, content []byte) (output, recorded, temp string) {
+// and npm records how it was called. A stand-in in standIns replaces the one
+// of its name. It returns the install's output, the record, and the
+// session's temp folder.
+func runInstallWithLavishDownload(t *testing.T, script string, content []byte, standIns map[string]string) (output, recorded, temp string) {
 	t.Helper()
 	executable, err := os.Executable()
 	if err != nil {
@@ -46,6 +48,7 @@ func runInstallWithLavishDownload(t *testing.T, script string, content []byte) (
 		"npm":        "@echo npm %*>>\"" + record + "\"\r\n@exit /b 0\r\n",
 		"powershell": "@exit /b 1\r\n",
 	}
+	maps.Copy(stubs, standIns)
 	internet := "function Invoke-WebRequest {\n" +
 		"  [CmdletBinding()] param([string]$Uri, [string]$OutFile, [switch]$UseBasicParsing)\n" +
 		"  if ($Uri.StartsWith('" + base + "/')) { Microsoft.PowerShell.Utility\\Invoke-WebRequest -Uri $Uri -OutFile $OutFile -UseBasicParsing; return }\n" +
@@ -78,7 +81,7 @@ func npmCallsFor(recorded string) []string {
 // the script's own, the same whichever PowerShell runs it, so Windows
 // PowerShell alone checks it.
 func TestOneLineInstallRefusesALavishDownloadThatDoesNotMatchItsPin(t *testing.T) {
-	output, recorded, temp := runInstallWithLavishDownload(t, installScript(t), []byte("not the release the script pins"))
+	output, recorded, temp := runInstallWithLavishDownload(t, installScript(t), []byte("not the release the script pins"), nil)
 
 	if !strings.Contains(recorded, "/v0.1.79-codegoblins.3/"+lavishFile) {
 		t.Fatalf("the lavish-axi release was not downloaded:\n%s\n%s", recorded, output)
@@ -99,7 +102,7 @@ func TestOneLineInstallRefusesALavishDownloadThatDoesNotMatchItsPin(t *testing.T
 		t.Fatalf("npx was never called: %v\n%s", err, output)
 	}
 	for _, skill := range []string{"gh-axi", "chrome-devtools-axi", "no-mistakes"} {
-		want := fmt.Sprintf("-y skills add kunchenguid/%s --skill %s -g -y -a claude-code -a codex -a pi --copy", skill, skill)
+		want := fmt.Sprintf("-y skills@%s add kunchenguid/%s --skill %s -g -y -a claude-code -a codex -a pi --copy", skillsCliPin(t), skill, skill)
 		if strings.Count(string(skills), want) != 1 {
 			t.Errorf("npx calls %q, want %q once", skills, want)
 		}
@@ -124,7 +127,7 @@ func TestOneLineInstallHandsNpmTheLavishDownloadThatMatchesItsPin(t *testing.T) 
 		t.Fatal(err)
 	}
 
-	output, recorded, temp := runInstallWithLavishDownload(t, script, content)
+	output, recorded, temp := runInstallWithLavishDownload(t, script, content, nil)
 
 	if !strings.Contains(output, "Verified "+lavishFile+" against the SHA256 this install pins") || strings.Contains(output, "does not match the SHA256 this install pins") {
 		t.Fatalf("the install did not verify the download:\n%s\n%s", output, recorded)
