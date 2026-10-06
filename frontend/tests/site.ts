@@ -16,9 +16,12 @@ export const ORIGIN = "http://127.0.0.1:1";
 // request opens a socket, so a connection the machine refuses cannot fail a
 // page load. No supervisor runs behind the tests either, so an API request a
 // test does not answer itself fails. origin serves the pages under another
-// origin too, for a test of the board as another machine sees it.
-export async function servePages(context: BrowserContext, origin = ORIGIN): Promise<void> {
+// origin too, for a test of the board as another machine sees it. Its browser
+// has had the board's quick tour, so no tour covers the board on a first
+// open, unless hadTour is false.
+export async function servePages(context: BrowserContext, origin = ORIGIN, hadTour = true): Promise<void> {
   const site = process.env.BOARD_TEST_SITE!;
+  if (hadTour) await context.addInitScript(() => localStorage.setItem("cfo-tour", "seen"));
   await context.route(origin + "/**", (route) => {
     const { pathname } = new URL(route.request().url());
     const file = path.join(site, pathname === "/" ? "index.html" : decodeURIComponent(pathname));
@@ -93,9 +96,8 @@ export async function roomForATest({ free, limit, pause, ci }: Room = MACHINE): 
 }
 
 // Every test waits for room before it starts. A test's own context has its
-// pages served; a test that opens another context serves that one itself.
-// Its browser has had the board's quick tour, so no tour covers the board
-// on a first open, unless the test sets hadTour to false.
+// pages served, with hadTour passed to servePages; a test that opens another
+// context serves that one itself.
 export const test = base.extend<{ room: Room; paced: void; hadTour: boolean }>({
   room: [MACHINE, { option: true }],
   hadTour: [true, { option: true }],
@@ -104,8 +106,7 @@ export const test = base.extend<{ room: Room; paced: void; hadTour: boolean }>({
     await use();
   }, { auto: true, timeout: MACHINE.limit + 10_000 }],
   context: async ({ context, hadTour }, use) => {
-    await servePages(context);
-    if (hadTour) await context.addInitScript(() => localStorage.setItem("cfo-tour", "seen"));
+    await servePages(context, ORIGIN, hadTour);
     await use(context);
   },
 });
