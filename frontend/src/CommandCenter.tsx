@@ -1,11 +1,11 @@
 import { useEffect, useLayoutEffect, useRef, useState, type MouseEvent, type ReactNode } from "react";
-import { announce, message, request } from "./api";
+import { message, request } from "./api";
 import { parseAction, string, type BoardActivity, type Question, type Review, type Run, type Snapshot } from "./types";
 import { deliveryMark, submissionFor } from "./feedback";
 import { Avatar } from "./Avatar";
 import { Icon } from "./Icon";
 import { age } from "./presentation";
-import { answerMark, answerReason, answeredElsewhere, asItems, canChange, cardKey, closedAt, closedElsewhere, holdsUnsent, isOpen, itemFor, nextOpenKey, notSent, openKeys, questionPage, sendState, settledIcon, reviewLine, settledItems, settledLabel, waitingItems, type Item } from "./commandQueue";
+import { answerMark, answerReason, answeredElsewhere, asItems, canChange, cardKey, closedAt, closedElsewhere, holdsUnsent, isOpen, itemFor, nextOpenKey, notSent, questionPage, sendState, settledIcon, reviewLine, settledItems, settledLabel, waitingItems, type Item } from "./commandQueue";
 import { publishedAt, type Sent } from "./item-state";
 import { RunCard } from "./RunCard";
 import { CredentialCard } from "./credential-card";
@@ -32,15 +32,6 @@ const ALL_DONE_MS = 1600;
 // the Overlord, or the list when nothing waits.
 export interface CommandFocus { key: string; at: number }
 
-// Whether the Overlord is typing somewhere on the board: in a text field, a
-// comment box or a terminal. The Command Center never opens itself then; what
-// is new waits under the badge with its alert (decision 3596).
-const typing = () => {
-  const active = document.activeElement;
-  return active instanceof HTMLElement && (active.isContentEditable || active instanceof HTMLTextAreaElement
-    || active instanceof HTMLInputElement && !["button", "checkbox", "radio", "submit", "reset", "range", "color", "file"].includes(active.type));
-};
-
 const outsideDialog = (event: MouseEvent<HTMLDialogElement>) => {
   const box = event.currentTarget.getBoundingClientRect();
   return event.target === event.currentTarget && (event.clientX < box.left || event.clientX > box.right || event.clientY < box.top || event.clientY > box.bottom);
@@ -49,11 +40,9 @@ const outsideDialog = (event: MouseEvent<HTMLDialogElement>) => {
 // The Supreme Overlord Command Center: an inbox of everything waiting on him,
 // and a stack that shows one item at a time, a question or a review item. Each
 // answer goes to its asker on its own, once; drafts survive closing,
-// reconnecting and moving between cards. A new question opens the stack, once:
-// the supervisor hands each question to the first tab that asks and remembers
-// it, so no reload, other tab or supervisor restart opens it again. Any
-// other new item waits in the inbox under the badge, the board's alerts
-// announce every new item, and the tab's title counts what waits. The moment an answer is sent
+// reconnecting and moving between cards. It never opens by itself: a new
+// item waits in the inbox under the badge, the bar says so, and the tab's
+// title counts what waits. The moment an answer is sent
 // its check shows and the next open item follows while delivery goes on
 // quietly; an item he acted on never comes back, so a delivery that fails
 // later reads as its line in History. The
@@ -74,8 +63,6 @@ export function CommandCenter({ snapshot, connected, presentations, focus, onUns
   const [open, setOpen] = useState(false);
   const [current, setCurrent] = useState("");
   const [kept, setKept] = useState<Set<string>>(new Set());
-  const asked = useRef(new Set<string>());
-  const [arrived, setArrived] = useState<string[]>([]);
   const [lastFocus, setLastFocus] = useState<CommandFocus | null>(focus);
   const [gallery, setGallery] = useState<number | null>(null);
   const [inbox, setInbox] = useState(false);
@@ -96,16 +83,12 @@ export function CommandCenter({ snapshot, connected, presentations, focus, onUns
   // A change to the CFO's answer keeps its own draft, apart from the
   // question's, and is done once it is sent.
   const changeKey = (question: Question) => "change:" + question.id;
-  const changeDraft = (question: Question, from?: Draft) => drafts[changeKey(question)] || { ...EMPTY_DRAFT, selection: from?.selection || "", written: from?.written || "" };
+  const changeDraft = (question: Question) => drafts[changeKey(question)] || EMPTY_DRAFT;
   const isChanged = (question: Question) => {
     const submission = drafts[changeKey(question)]?.submission;
     const change = submission ? snapshot.actions.find((action) => action.id === submission.id) || drafts[changeKey(question)]?.receipt : undefined;
     return change?.status === "succeeded" || !!change?.awaiting;
   };
-  // His send met the CFO's answer at the same moment: the board refused his,
-  // or the supervisor sent nothing because the CFO had answered.
-  const crossed = item?.kind === "question" && item.question.answered_by === "cfo" && !item.question.answered_in && !!draft?.submission && (outcome ? outcome.status === "failed" : !!draft.error);
-  const changedHere = item?.kind === "question" && isChanged(item.question);
   // What the Overlord sent from this card shows as done the moment he sends
   // it; trouble keeps the card itself on screen with what went wrong. A run
   // keeps its card, which shows the command's result. An item he answered
@@ -114,7 +97,7 @@ export function CommandCenter({ snapshot, connected, presentations, focus, onUns
   // answered on another board, or taken back by its asker or the CFO.
   const closedBy = item && !draft?.submission ? closedElsewhere(item, snapshot.actions) : "";
   const elsewhere = !!item && (answeredElsewhere(item) || !!closedBy);
-  const finishing = !!item && item.kind !== "run" && (elsewhere || changedHere || !!sending && !sending.failed);
+  const finishing = !!item && item.kind !== "run" && (elsewhere || !!sending && !sending.failed);
   const done = finishing ? item.key : "";
   // Moving off a finishing card counts it as sent, so only a card on screen
   // from its Send to its delivery moves on by itself.
@@ -123,24 +106,6 @@ export function CommandCenter({ snapshot, connected, presentations, focus, onUns
     if (finishing && item.key !== shown) setSent((prior) => new Set([...prior, item.key]));
     setCurrent(shown); setGallery(null); setAllDone(false);
   };
-  // Every question still open is asked about once, one its page's card
-  // carries too, so it never opens the Command Center when that card closes.
-  // With AFK mode on when its answer comes, even an earlier claim opens nothing.
-  const { instance } = snapshot;
-  const afkState = useRef(snapshot.afk.state);
-  useEffect(() => { afkState.current = snapshot.afk.state; });
-  const pending = [...openKeys(snapshot)].filter((key) => key.startsWith("question:")).join("\n");
-  useEffect(() => {
-    const keys = pending ? pending.split("\n").filter((key) => !asked.current.has(key)) : [];
-    if (!keys.length) return;
-    for (const key of keys) asked.current.add(key);
-    void announce(instance, keys.map((key) => "open:" + key)).then((claimed) => setArrived((prior) => [...prior, ...keys.filter((key) => afkState.current !== "on" && (claimed === null || claimed.includes("open:" + key)))]));
-  }, [pending, instance]);
-  if (arrived.length) {
-    setArrived([]);
-    const fresh = waiting.find((item) => arrived.includes(item.key));
-    if (fresh && !open && !typing()) { setOpen(true); show(fresh.key); }
-  }
   const unsent = holdsUnsent(drafts, snapshot);
   useEffect(() => onUnsent(unsent), [unsent, onUnsent]);
   // A presentation reaches him only when its goblin asks him to watch it; a
@@ -271,17 +236,10 @@ export function CommandCenter({ snapshot, connected, presentations, focus, onUns
   // A document leaves the queue once he opens or downloads it, and says so.
   const clear = (target: Review, how?: "Opened" | "Downloaded") => void post("review:" + target.id, { kind: "review_clear", review_id: target.id, generation: target.identity, ...(how ? { text: how } : {}) });
   const dismiss = (target: Question) => void post("question:" + target.id, { kind: "question_clear", question_id: target.id, generation: target.identity });
-  // A crossed card starts from his pick on the question's own card.
-  const editChange = (target: Question, changes: Partial<Draft>, from?: Draft) => {
-    const draft = changeDraft(target, from);
-    update(changeKey(target), drafts[changeKey(target)] ? changes : { selection: draft.selection, written: draft.written, ...changes });
-  };
-  const change = (target: Question, from?: Draft) => {
-    const draft = changeDraft(target, from);
+  const change = (target: Question) => {
+    const draft = changeDraft(target);
     const payload = questionAnswer(target, draft.selection, draft.written);
-    if (!payload) return;
-    if (!drafts[changeKey(target)]) editChange(target, {}, from);
-    void post(changeKey(target), { ...payload, kind: "answer_change" });
+    if (payload) void post(changeKey(target), { ...payload, kind: "answer_change" });
   };
   const taskOf = (candidate: Item) => candidate.kind === "question" ? candidate.question.task : candidate.kind === "review" ? candidate.review.task : candidate.kind === "credential" ? candidate.request.task : candidate.run.task;
   const askerOf = (candidate: Item) => taskOf(candidate) ? snapshot.tasks.find((task) => task.id === taskOf(candidate))?.title || taskOf(candidate) : "The CFO";
@@ -360,8 +318,8 @@ export function CommandCenter({ snapshot, connected, presentations, focus, onUns
           ? <div className="card-stage">
             {isChangeDone
               ? <DoneCard key={"changed:" + changeQuestion.id} heading="Changed to your answer" label={(snapshot.tasks.find((task) => task.id === changeQuestion.task)?.title || changeQuestion.task) + " is told the answer is yours: " + changeQuestion.answer} />
-              : <ChangeCard key={"change:" + changeQuestion.id} question={changeQuestion} snapshot={snapshot} connected={connected} crossed={false} draft={changeDraft(changeQuestion)}
-                onDraft={(changes) => editChange(changeQuestion, changes)} onChange={() => change(changeQuestion)} onClose={() => setChanging("")} />}
+              : <ChangeCard key={"change:" + changeQuestion.id} question={changeQuestion} snapshot={snapshot} connected={connected} draft={changeDraft(changeQuestion)}
+                onDraft={(changes) => update(changeKey(changeQuestion), changes)} onChange={() => change(changeQuestion)} onClose={() => setChanging("")} />}
           </div>
         : !item ? null
         : gallery !== null && images.length > 0
@@ -378,11 +336,6 @@ export function CommandCenter({ snapshot, connected, presentations, focus, onUns
             }}>
             {allDone
               ? <div className="done-card" role="status"><Avatar persona="cfo" /><h3>You're all done</h3><p>Nothing else is waiting on you.</p></div>
-              : changedHere && item.kind === "question"
-              ? <DoneCard key={"changed:" + shownKey} heading="Changed to your answer" label={askerOf(item) + " is told the answer is yours: " + item.question.answer} pager={pager} />
-              : crossed && item.kind === "question"
-              ? <ChangeCard key={"crossed:" + shownKey} question={item.question} snapshot={snapshot} connected={connected} crossed draft={changeDraft(item.question, draft)}
-                onDraft={(changes) => editChange(item.question, changes, draft)} onChange={() => change(item.question, draft)} onClose={() => setLeaving(item.key)} />
               : elsewhere
               ? <DoneCard key={shownKey} heading={closedBy || "Answered"} label={settledLabel(item, snapshot.actions)} pager={pager} />
               : finishing && sending

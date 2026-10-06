@@ -569,6 +569,49 @@ func TestAnItemThatWaitsOnTheOverlordWhileAFKModeIsOnIsHeldOnceAndNotAnnounced(t
 	}
 }
 
+// A goblin's question is the CFO's to answer, never his, as the board's
+// Command Center has it: while AFK mode is on it is not held for him, and the
+// digest's list of what waits on him leaves it out. The CFO's own question,
+// a goblin's wait and a command left for him still wait on him.
+func TestAGoblinsQuestionToTheCFOIsNotHeldForTheOverlord(t *testing.T) {
+	// Arrange
+	store, h := testStore(t)
+	s := &Service{Store: store}
+	waitingItems(t, store)
+	store.mu.Lock()
+	store.db.Questions = append(store.db.Questions, Question{ID: "notify-task-1-7", Identity: strings.Repeat("e", 64), Text: "Which store should the export use?", Options: []string{"SQLite", "Postgres"}, Status: "pending", Task: "task-1", Generation: "task-1-g1", Seq: 7, CreatedAt: time.Now().UTC()})
+	err := store.save()
+	store.mu.Unlock()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := afk.TurnOn(h.State, "the board", nil, time.Now()); err != nil {
+		t.Fatal(err)
+	}
+
+	// Act
+	err = s.holdForOverlord(time.Now())
+	open, openErr := OpenItems(h.State)
+
+	// Assert
+	if err := errors.Join(err, openErr); err != nil {
+		t.Fatal(err)
+	}
+	var held []string
+	for _, entry := range afkEntries(t, h.State) {
+		if entry.Kind == afk.KindHeld {
+			held = append(held, entry.Item)
+		}
+	}
+	slices.Sort(held)
+	if want := []string{"question:drop-legacy-invoices", "review:waiting-task-1-7", "run:delete-merged-branches"}; !slices.Equal(held, want) {
+		t.Errorf("held = %q, want %q: the goblin's question is the CFO's to answer", held, want)
+	}
+	if slices.ContainsFunc(open, func(item OpenItem) bool { return item.ID == "notify-task-1-7" }) || len(open) != 3 {
+		t.Errorf("open items = %+v, want what waits on him without the goblin's question", open)
+	}
+}
+
 // What no longer waits on him is not held: an answered question, a closed
 // item, a command that already ran.
 func TestWhatNoLongerWaitsOnTheOverlordIsNotHeld(t *testing.T) {
@@ -795,9 +838,10 @@ func TestAQuestionTheCFOAnsweredIsNotReportedAsHeld(t *testing.T) {
 }
 
 // The board closes a goblin's question as the CFO's once the CFO acks its
-// notify, whether or not it answered. Only a logged answer is a decision, so a
-// held question that closed that way with nothing logged stays in the report
-// as held, saying so.
+// notify, whether or not it answered. A goblin's question is no longer held
+// for the Overlord, but a stretch that began before that may still hold one in
+// its log. Only a logged answer is a decision, so such a held question that
+// closed that way with nothing logged stays in the report as held, saying so.
 func TestAHeldQuestionClosedAsTheCFOsWithNoLoggedDecisionStaysInTheReport(t *testing.T) {
 	// Arrange
 	store, h := testStore(t)
@@ -809,7 +853,7 @@ func TestAHeldQuestionClosedAsTheCFOsWithNoLoggedDecisionStaysInTheReport(t *tes
 		t.Fatal(err)
 	}
 	asked := surfaced(t, store, meta, record, cfo)
-	if err := s.holdForOverlord(time.Now()); err != nil {
+	if err := afk.Hold(h.State, afk.Entry{Item: "question:" + asked.ID, Task: meta.ID, What: asked.Text}, time.Now()); err != nil {
 		t.Fatal(err)
 	}
 	if err := wake.AckThrough(h.State, record.Seq); err != nil {

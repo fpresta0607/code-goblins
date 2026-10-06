@@ -29,6 +29,7 @@ func TestFleetEvaluationPrefersAWaitingQuestionThenTheGateThenHerdr(t *testing.T
 	none := RuntimeEvidence{State: "unknown", Reason: "Current Herdr liveness evidence is unavailable"}
 	ready := Evaluation{Phase: "ready", Generation: "gen2", PR: "https://example/pr/1"}
 	question := []wake.Record{{Seq: 3, Kind: "notify", Key: "g1", Detail: "blocked: Which schema? options: a | b"}}
+	asked := []wake.Record{{Seq: 4, Kind: "stale", Key: "g1", Detail: proseAsk}}
 	for _, c := range []struct {
 		name       string
 		evaluation Evaluation
@@ -41,6 +42,8 @@ func TestFleetEvaluationPrefersAWaitingQuestionThenTheGateThenHerdr(t *testing.T
 		{"another task's question does not block this one", ready, busy, []wake.Record{{Kind: "notify", Key: "g2", Detail: "blocked: other"}}, "ready", ""},
 		{"a question answered on the board no longer blocks", ready, busy, []wake.Record{{Seq: 3, Kind: "notify", Key: "g1", Detail: "blocked: Which schema? options: a | b", Answered: "b"}}, "ready", ""},
 		{"a done notify is not a question", Evaluation{}, busy, []wake.Record{{Kind: "notify", Key: "g1", Detail: "done: PR https://example/pr/1"}}, "working", "Herdr reports busy"},
+		{"a question asked in prose waits like a notify", ready, busy, asked, "blocked", "Waiting on the CFO: Which layout do you want?"},
+		{"an idle goblin asked nothing", Evaluation{}, idle, []wake.Record{{Seq: 4, Kind: "stale", Key: "g1", Detail: "goblin_idle: at its prompt for 3m"}}, "idle", "Herdr reports idle"},
 		{"the gate outranks the pane", ready, busy, nil, "ready", ""},
 		{"a busy pane is working", Evaluation{Phase: "review", Generation: "gen2"}, busy, nil, "working", "Herdr reports busy"},
 		{"an idle pane is awaiting input", Evaluation{}, idle, nil, "idle", "Herdr reports idle"},
@@ -96,6 +99,43 @@ func TestSnapshotShowsWhatTheFleetKnowsForATaskNoHookReported(t *testing.T) {
 	}
 }
 
+// proseAsk is the monitor's wake for a goblin that ended its turn asking in
+// prose, as it raises it.
+const proseAsk = `goblin_asks: g1 ended its turn asking in prose instead of with cfo notify --blocked and waits at its prompt for the answer; next: answer it with cfo send g1 "<your answer>" (cfo answer takes only a notify's question). It asked: "Which layout do you want?"`
+
+// A goblin that ended its turn asking in prose shows on the board as waiting
+// on the CFO with its question, as one that asked with cfo notify --blocked
+// does, until it reports again.
+func TestSnapshotShowsAGoblinThatAskedInProseAsWaitingOnTheCFO(t *testing.T) {
+	// Arrange
+	store, h := testStore(t)
+	now := time.Now().UTC()
+	writeFile(t, state.StatusPath(h.State, "task-1"), now.Add(-time.Minute).Format(time.RFC3339)+" working: building the layout\n")
+	if _, err := wake.Append(h.State, "stale", "task-1", strings.ReplaceAll(proseAsk, "g1", "task-1")); err != nil {
+		t.Fatal(err)
+	}
+	service := &Service{Store: store}
+
+	// Act
+	view, err := service.Snapshot()
+	if err != nil {
+		t.Fatal(err)
+	}
+	writeFile(t, state.StatusPath(h.State, "task-1"), now.Add(-time.Minute).Format(time.RFC3339)+" working: building the layout\n"+now.Add(time.Minute).Format(time.RFC3339)+" working: grid layout, as the CFO answered\n")
+	after, err := service.Snapshot()
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Assert
+	if got := view.Tasks[0]; got.Phase != "blocked" || got.Reason != "Waiting on the CFO: Which layout do you want?" || got.Activity != "Which layout do you want?" {
+		t.Fatalf("asking task = phase %q reason %q activity %q, want it waiting on the CFO with its question", got.Phase, got.Reason, got.Activity)
+	}
+	if got := after.Tasks[0]; got.Phase == "blocked" {
+		t.Fatalf("after its next report the task still reads %q: %q", got.Phase, got.Reason)
+	}
+}
+
 // A goblin's own failed report leaves its phase to the evidence, so the board
 // alerts on it only through the report kind the snapshot carries.
 func TestSnapshotReportNamesTheKindOfATasksLatestReport(t *testing.T) {
@@ -125,6 +165,89 @@ func TestSnapshotReportNamesTheKindOfATasksLatestReport(t *testing.T) {
 		}
 		if sent.Report != c.report {
 			t.Errorf("after %q the snapshot sends report %q, want %q", c.line, sent.Report, c.report)
+		}
+	}
+}
+
+// A blocked or failed notify the CFO handled still holds the task, as the hold
+// tests in hold_status_test.go require, and is marked as the CFO's so the board
+// never announces it as the goblin's news, through a reconnect and later gate
+// transitions.
+func TestSnapshotMarksAHandledNotifyAsTheCFOsThroughReconnectAndGateTransitions(t *testing.T) {
+	for _, verb := range []string{"blocked", "failed"} {
+		for _, handling := range []string{"answer then drain", "drain without a waiting snapshot"} {
+			t.Run(verb+"/"+handling, func(t *testing.T) {
+				store, h := testStore(t)
+				service := &Service{Store: store}
+				before := time.Now().Add(-time.Minute).UTC().Truncate(time.Second)
+				meta, err := state.ReadTaskMeta(h.State, "task-1")
+				if err != nil {
+					t.Fatal(err)
+				}
+				meta.SpawnGen = fmt.Sprintf("s%d", before.Add(-time.Second).UnixNano())
+				if err := state.WriteTaskMeta(h.State, meta); err != nil {
+					t.Fatal(err)
+				}
+				question := verb + ": Which fix? options: Retry | Revert"
+				lines := before.Format(time.RFC3339) + " working: implementing the fix\n" + before.Add(time.Second).Format(time.RFC3339) + " " + question + "\n"
+				if err := os.WriteFile(state.StatusPath(h.State, "task-1"), []byte(lines), 0600); err != nil {
+					t.Fatal(err)
+				}
+				record, err := wake.Append(h.State, "notify", "task-1", question)
+				if err != nil {
+					t.Fatal(err)
+				}
+				if handling == "answer then drain" {
+					view, err := service.Snapshot()
+					if err != nil || view.Tasks[0].Phase != verb || view.Tasks[0].ReportHandled {
+						t.Fatalf("waiting snapshot = %+v, %v; want the question waiting and not handled", view.Tasks, err)
+					}
+					if err := wake.MarkAnswered(h.State, record.Seq, wake.AnsweredByCFO, "Retry"); err != nil {
+						t.Fatal(err)
+					}
+					view, err = service.Snapshot()
+					if err != nil || view.Tasks[0].Report != verb || !view.Tasks[0].ReportHandled {
+						t.Errorf("answered snapshot = %+v, %v; want the %s report held and marked handled", view.Tasks, err, verb)
+					}
+				}
+				if err := wake.AckThrough(h.State, record.Seq); err != nil {
+					t.Fatal(err)
+				}
+				// Reopen the store and service: the stream may miss every waiting snapshot.
+				store, err = Open(h)
+				if err != nil {
+					t.Fatal(err)
+				}
+				service = &Service{Store: store}
+				for _, phase := range []string{"review", "blocked", "review"} {
+					store.db.Tasks["task-1"] = Evaluation{Phase: phase, Reason: "gate " + phase, Generation: meta.SpawnGen, At: time.Now()}
+					if err := store.save(); err != nil {
+						t.Fatal(err)
+					}
+					view, err := service.Snapshot()
+					if err != nil {
+						t.Fatal(err)
+					}
+					isGateBlock := phase == "blocked"
+					if task := view.Tasks[0]; task.Report != verb || task.ReportHandled == isGateBlock || isGateBlock && (task.Phase != "blocked" || task.Reason != "gate blocked") || !isGateBlock && task.Phase != verb {
+						t.Errorf("after handling, gate %s sends %+v; want the %s report holding the task marked handled, or the gate's own block unmarked", phase, task, verb)
+					}
+				}
+				// Even the same words reported again are new failure evidence.
+				later := record.Time.Truncate(time.Second).Format(time.RFC3339) + " " + question + "\n"
+				file, err := os.OpenFile(state.StatusPath(h.State, "task-1"), os.O_APPEND|os.O_WRONLY, 0600)
+				if err != nil {
+					t.Fatal(err)
+				}
+				_, err = file.WriteString(later)
+				if closeErr := file.Close(); err != nil || closeErr != nil {
+					t.Fatalf("append later report: %v, %v", err, closeErr)
+				}
+				view, err := service.Snapshot()
+				if err != nil || view.Tasks[0].Report != verb || view.Tasks[0].ReportHandled {
+					t.Fatalf("new report = %+v, %v; want an unhandled %s", view.Tasks, err, verb)
+				}
+			})
 		}
 	}
 }

@@ -45,7 +45,10 @@ type Service struct {
 	Progress ProgressProber
 	// Polls lists the lavish-axi polls goblins run themselves, each flagged
 	// to the CFO once; nil disables the check.
-	Polls                 PollProber
+	Polls PollProber
+	// Replies reads a goblin's last reply, so one that stopped at its prompt
+	// asking in prose wakes the CFO with its question; nil reads none.
+	Replies               ReplyReader
 	Now                   func() time.Time
 	StaleEscalateAfter    time.Duration
 	StallAfter            time.Duration
@@ -408,6 +411,11 @@ func (s Service) classify(ctx context.Context, meta state.TaskMeta, prior Observ
 		}
 		detail := "agent turn ended; waiting on input"
 		if sample.Status == herdr.AgentDone {
+			// A goblin that asked stays that one wake until it works again.
+			if observation.Health == HealthStale && observation.Reason == GoblinAsks {
+				observation.LastSeen = now
+				return observation, sample
+			}
 			// A turn that ended with a background shell or a tool its pane
 			// still shows running resumes by itself when that work reports
 			// back, so nobody owes it an answer while that work moves.
@@ -437,6 +445,11 @@ func (s Service) classify(ctx context.Context, meta state.TaskMeta, prior Observ
 				}
 				if lingering != "" {
 					detail += "; " + lingering
+				}
+			}
+			if observation.Reason != AwaitingAnswer {
+				if asked := s.askedAtPrompt(ctx, meta, sample); len(asked) > 0 {
+					return askObservation(observation, asked, now), sample
 				}
 			}
 		}
@@ -891,6 +904,36 @@ func awaitingInputObservation(observation Observation, detail string, now time.T
 	observation.DemandDeepInspection = true
 	if first && observation.PendingEvent == nil {
 		event := taskEvent(observation.TaskID, AwaitingAnswer, detail)
+		observation.PendingEvent = &event
+	}
+	return observation
+}
+
+// askedAtPrompt returns the sentences of the goblin's last reply that ask the
+// CFO something or offer it a choice; none when it asked nothing or its reply
+// cannot be read.
+func (s Service) askedAtPrompt(ctx context.Context, meta state.TaskMeta, sample EndpointSample) []string {
+	if s.Replies == nil {
+		return nil
+	}
+	return askedIn(s.Replies.LastReply(ctx, meta, sample))
+}
+
+// askObservation records a goblin at its prompt whose last reply asked the
+// CFO something in prose. It wakes once with the question, in place of the
+// generic wake for a goblin stopped at its prompt, and demands inspection,
+// because the goblin waits on an answer.
+func askObservation(observation Observation, asked []string, now time.Time) Observation {
+	observation.IdleSince = nil
+	observation.Health = HealthStale
+	observation.Reason = GoblinAsks
+	observation.StaleSince = timePointer(now)
+	observation.NextEscalation = timePointer(now.Add(time.Hour))
+	observation.NextPauseResurface = nil
+	observation.Escalation = 0
+	observation.DemandDeepInspection = true
+	if observation.PendingEvent == nil {
+		event := taskEvent(observation.TaskID, GoblinAsks, askDetail(observation.TaskID, asked))
 		observation.PendingEvent = &event
 	}
 	return observation

@@ -36,7 +36,7 @@ func TestMain(m *testing.M) {
 // text through Invoke-Expression, against the release served at base.
 func runOneLineInstall(t *testing.T, shell, base string) (output, local, temp string, err error) {
 	t.Helper()
-	return runStrippedPowerShell(t, shell, base, "-Command", "Get-Content -Raw -LiteralPath '"+installScript(t)+"' | Invoke-Expression")
+	return runStrippedPowerShell(t, shell, base, "-Command", "Get-Content -Raw -LiteralPath '"+installScript(t)+"' | Invoke-Expression; exit $LASTEXITCODE")
 }
 
 func installScript(t *testing.T) string {
@@ -73,7 +73,7 @@ func runPowerShellWithStubs(t *testing.T, shell, base string, stubs map[string]s
 	t.Helper()
 	cmd, local, temp := installtest.StrippedCommand(t, base, stubs, shell, append([]string{"-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass"}, args...)...)
 	out, err := cmd.CombinedOutput()
-	return string(out), local, temp, err
+	return installtest.Said(out, temp), local, temp, err
 }
 
 // assertNothingInstalled checks that no CFO home was set up and that the
@@ -214,7 +214,7 @@ func TestAPublishedInstallDownloadsFromItsOwnRelease(t *testing.T) {
 			offline := "function Invoke-WebRequest([string]$Uri, [string]$OutFile, [switch]$UseBasicParsing) { Write-Host ('GET ' + $Uri); throw 'offline' }; "
 
 			// Act
-			output, local, temp, err := runStrippedPowerShell(t, installtest.WindowsPowerShell(), "", "-Command", offline+"Get-Content -Raw -LiteralPath '"+script+"' | Invoke-Expression")
+			output, local, temp, err := runStrippedPowerShell(t, installtest.WindowsPowerShell(), "", "-Command", offline+"Get-Content -Raw -LiteralPath '"+script+"' | Invoke-Expression; exit $LASTEXITCODE")
 
 			// Assert
 			want := "GET https://github.com/" + repository + "/releases/download/v1.2.3/SHA256SUMS"
@@ -267,7 +267,7 @@ func TestOneLineInstallChecksTheDesktopWindowTheReleaseLists(t *testing.T) {
 			refused   bool
 		}{
 			"a window that matches":        {sha256.Sum256(window), "Verified goblins-window.exe against the release's SHA256SUMS", false},
-			"a window that does not match": {sha256.Sum256([]byte("another window")), "The downloaded goblins-window.exe does not match the release's SHA256SUMS", true},
+			"a window that does not match": {sha256.Sum256([]byte("another window")), "The downloaded goblins-window.exe does not match the release's checksum", true},
 		} {
 			t.Run(filepath.Base(shell)+" "+name, func(t *testing.T) {
 				// Arrange
@@ -311,7 +311,7 @@ func TestAnUnsignedReleasesInstallNamesNoPublisherAndChecksTheSum(t *testing.T) 
 			base := installtest.ServeRelease(t, binary, fmt.Sprintf("%x  cfo.exe\n", sha256.Sum256(binary)))
 
 			// Act
-			output, _, _, err = runStrippedPowerShell(t, shell, base, "-Command", "Get-Content -Raw -LiteralPath '"+script+"' | Invoke-Expression")
+			output, _, _, err = runStrippedPowerShell(t, shell, base, "-Command", "Get-Content -Raw -LiteralPath '"+script+"' | Invoke-Expression; exit $LASTEXITCODE")
 
 			// Assert
 			for _, want := range []string{
@@ -322,7 +322,7 @@ func TestAnUnsignedReleasesInstallNamesNoPublisherAndChecksTheSum(t *testing.T) 
 					t.Errorf("install = %v, want it to say %q:\n%s", err, want, output)
 				}
 			}
-			if strings.Contains(output, "is not validly signed") {
+			if strings.Contains(output, "is not signed by") {
 				t.Errorf("an unsigned release's install asked for a signature:\n%s", output)
 			}
 			if err == nil {
@@ -347,10 +347,10 @@ func TestAPublishedInstallRefusesADownloadItsPublisherDidNotSign(t *testing.T) {
 			base := installtest.ServeRelease(t, binary, fmt.Sprintf("%x  cfo.exe\n", sha256.Sum256(binary)))
 
 			// Act
-			output, local, temp, err := runStrippedPowerShell(t, shell, base, "-Command", "Get-Content -Raw -LiteralPath '"+script+"' | Invoke-Expression")
+			output, local, temp, err := runStrippedPowerShell(t, shell, base, "-Command", "Get-Content -Raw -LiteralPath '"+script+"' | Invoke-Expression; exit $LASTEXITCODE")
 
 			// Assert
-			if err == nil || !strings.Contains(output, "The downloaded cfo.exe is not validly signed by Code Goblins Test Publisher") {
+			if err == nil || !strings.Contains(output, "The downloaded cfo.exe is not signed by Code Goblins Test Publisher") {
 				t.Fatalf("install = %v, want the unsigned download refused:\n%s", err, output)
 			}
 			assertNothingInstalled(t, local, temp)
@@ -373,9 +373,9 @@ func TestOneLineInstallRefusesADownloadThatDoesNotMatchTheReleaseChecksum(t *tes
 		want   string
 		shells []string
 	}{
-		"another build's checksum": {binary, fmt.Sprintf("%x  cfo.exe\n", sha256.Sum256([]byte("the build the release published"))), "does not match the release's SHA256SUMS", []string{installtest.WindowsPowerShell()}},
-		"no checksum for cfo.exe":  {binary, fmt.Sprintf("%x  other.exe\n", sha256.Sum256(binary)), "does not match the release's SHA256SUMS", []string{installtest.WindowsPowerShell()}},
-		"no release at all":        {nil, "", "the release could not be downloaded", installtest.OneLineShells(t)},
+		"another build's checksum": {binary, fmt.Sprintf("%x  cfo.exe\n", sha256.Sum256([]byte("the build the release published"))), "does not match the release's checksum", []string{installtest.WindowsPowerShell()}},
+		"no checksum for cfo.exe":  {binary, fmt.Sprintf("%x  other.exe\n", sha256.Sum256(binary)), "does not match the release's checksum", []string{installtest.WindowsPowerShell()}},
+		"no release at all":        {nil, "", "Code Goblins could not be downloaded from", installtest.OneLineShells(t)},
 	} {
 		for _, shell := range test.shells {
 			t.Run(filepath.Base(shell)+" "+name, func(t *testing.T) {
@@ -421,58 +421,23 @@ func TestOneLineInstallRunsADownloadThatMatchesTheReleaseChecksum(t *testing.T) 
 	}
 }
 
-// The install reads the user-scope environment where it writes it: from the
-// file a stripped session names for it, never from this machine's own. A
-// projects folder recorded there spares the question, and with none recorded
-// the install says so, whatever this machine's own user environment holds.
-func TestOneLineInstallReadsTheUserEnvironmentItIsGiven(t *testing.T) {
-	binary := []byte("not a program")
-	sums := fmt.Sprintf("%x  cfo.exe\n", sha256.Sum256(binary))
-	for name, test := range map[string]struct {
-		recorded  string
-		shouldSay bool
-	}{
-		"with no projects folder recorded": {recorded: "{}", shouldSay: true},
-		"with a projects folder recorded":  {recorded: `{"CFO_PROJECTS_ROOT": "C:\\projects"}`},
-	} {
-		t.Run(name, func(t *testing.T) {
-			// Arrange
-			cmd, local, _ := installtest.StrippedCommand(t, installtest.ServeRelease(t, binary, sums), map[string]string{"git": "@exit /b 0\r\n", "gh": "@exit /b 0\r\n"}, installtest.WindowsPowerShell(),
-				"-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-Command", "Get-Content -Raw -LiteralPath '"+installScript(t)+"' | Invoke-Expression")
-			if err := os.WriteFile(filepath.Join(local, installtest.UserEnvFile), []byte(test.recorded), 0o600); err != nil {
-				t.Fatal(err)
-			}
-
-			// Act
-			out, _ := cmd.CombinedOutput()
-
-			// Assert
-			output := string(out)
-			if !strings.Contains(output, "Verified cfo.exe against the release's SHA256SUMS") {
-				t.Fatalf("the install stopped before it asked for a projects folder:\n%s", output)
-			}
-			if isSaid := strings.Contains(output, "No projects folder recorded"); isSaid != test.shouldSay {
-				t.Errorf("the install says no projects folder is recorded: %t, want %t:\n%s", isSaid, test.shouldSay, output)
-			}
-		})
-	}
-}
-
 // The one-line install runs in the caller's own session and leaves it exactly
-// as it was, even when it is refused.
+// as it was, even when it is refused: it says why in its plain lines rather
+// than as an error record, and leaves LASTEXITCODE 1, as a program that
+// failed does, for the caller to read.
 func TestOneLineInstallLeavesTheCallersSessionAsItWas(t *testing.T) {
 	for _, shell := range installtest.OneLineShells(t) {
 		t.Run(filepath.Base(shell), func(t *testing.T) {
 			caller := "$InstallDir = 'mine'; $Dev = 'mine'; $ErrorActionPreference = 'SilentlyContinue'\n" +
-				"try { Get-Content -Raw -LiteralPath '" + installScript(t) + "' | Invoke-Expression } catch { Write-Output \"refused: $($_.Exception.Message)\" }\n" +
-				"Write-Output \"InstallDir=[$InstallDir] Dev=[$Dev] ErrorActionPreference=[$ErrorActionPreference]\""
+				"Get-Content -Raw -LiteralPath '" + installScript(t) + "' | Invoke-Expression\n" +
+				"Write-Output \"exit=[$LASTEXITCODE] InstallDir=[$InstallDir] Dev=[$Dev] ErrorActionPreference=[$ErrorActionPreference]\""
 
 			output, _, _, err := runStrippedPowerShell(t, shell, installtest.ServeRelease(t, nil, ""), "-Command", caller)
 
-			if err != nil || !strings.Contains(output, "refused: Code Goblins was not installed") {
-				t.Fatalf("install = %v, want it refused and caught by the caller:\n%s", err, output)
+			if err != nil || !strings.Contains(output, "Failed: Code Goblins could not be downloaded from") {
+				t.Fatalf("install = %v, want it refused in its plain lines:\n%s", err, output)
 			}
-			if want := "InstallDir=[mine] Dev=[mine] ErrorActionPreference=[SilentlyContinue]"; !strings.Contains(output, want) {
+			if want := "exit=[1] InstallDir=[mine] Dev=[mine] ErrorActionPreference=[SilentlyContinue]"; !strings.Contains(output, want) {
 				t.Fatalf("the caller's session changed, want %q:\n%s", want, output)
 			}
 		})
@@ -514,10 +479,11 @@ func TestOneLineInstallStartsOfficialInstallersFromAFile(t *testing.T) {
 				"  Set-Content -LiteralPath $OutFile -Value \"# installer from $Uri\"\n" +
 				"}\n"
 			cmd, _, temp := installtest.StrippedCommand(t, base, stubs, shell, "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-Command",
-				internet+"Get-Content -Raw -LiteralPath '"+installScript(t)+"' | Invoke-Expression")
+				internet+"Get-Content -Raw -LiteralPath '"+installScript(t)+"' | Invoke-Expression; exit $LASTEXITCODE")
 			cmd.Env = append(cmd.Env, standInVariable+"=1")
 
-			output, _ := cmd.CombinedOutput()
+			out, _ := cmd.CombinedOutput()
+			output := installtest.Said(out, temp)
 
 			recorded, err := os.ReadFile(record)
 			if err != nil {
@@ -816,10 +782,10 @@ func TestDevBuildsOutsideTheCloneAndLeavesNoProgramInIt(t *testing.T) {
 
 	// Act
 	out, _ := cmd.CombinedOutput()
-	output := string(out)
+	output := installtest.Said(out, temp)
 
 	// Assert
-	if !strings.Contains(output, "These programs are unsigned") || !strings.Contains(output, "cfo install exited with code 1") {
+	if !strings.Contains(output, "These programs are unsigned") || !strings.Contains(output, "Failed: Code Goblins could not be set up") {
 		t.Fatalf("install -Dev did not build, or does not say its programs are unsigned:\n%s", output)
 	}
 	if left, _ := filepath.Glob(filepath.Join(checkout, "*.exe*")); len(left) != 0 {
@@ -845,9 +811,9 @@ func TestInstallStopsForWingetBeforeDownloadingAnything(t *testing.T) {
 			}))
 			defer release.Close()
 
-			output, local, temp, err := runPowerShellWith(t, installtest.WindowsPowerShell(), release.URL, tools, "-Command", "Get-Content -Raw -LiteralPath '"+installScript(t)+"' | Invoke-Expression")
+			output, local, temp, err := runPowerShellWith(t, installtest.WindowsPowerShell(), release.URL, tools, "-Command", "Get-Content -Raw -LiteralPath '"+installScript(t)+"' | Invoke-Expression; exit $LASTEXITCODE")
 
-			if err == nil || !strings.Contains(output, "https://apps.microsoft.com/detail/9NBLGGH4NNS1") || !strings.Contains(output, "winget is missing, and the install needs it for "+want+".") {
+			if err == nil || !strings.Contains(output, "https://apps.microsoft.com/detail/9NBLGGH4NNS1") || !strings.Contains(output, "This PC has no winget, which installs "+want+" for Code Goblins") {
 				t.Fatalf("install = %v, want it stopped for winget with the App Installer fix:\n%s", err, output)
 			}
 			if n := requests.Load(); n != 0 {

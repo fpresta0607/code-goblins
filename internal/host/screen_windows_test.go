@@ -138,7 +138,7 @@ func TestACtrlCDuringAScreenReadNeverReachesTheHost(t *testing.T) {
 		read <- err
 	}()
 	typeLine(t, v, "hold-ctrl-c")
-	v.waitFor(t, "attached 2")
+	v.waitFor(t, "attached 1")
 
 	if err := v.Input([]byte{0x03}); err != nil {
 		t.Fatalf("Input: %v", err)
@@ -169,7 +169,7 @@ func TestTheConsoleClosingDuringAScreenReadNeverReachesTheHost(t *testing.T) {
 		read <- err
 	}()
 	typeLine(t, v, "wait-attach")
-	v.waitFor(t, "attached 2")
+	v.waitFor(t, "attached 1")
 
 	typeLine(t, v, "exit 3")
 
@@ -203,7 +203,7 @@ func TestAScreenReadFinishesBeforeTheTerminalCloses(t *testing.T) {
 		read <- err
 	}()
 	typeLine(t, v, "wait-attach")
-	v.waitFor(t, "attached 2")
+	v.waitFor(t, "attached 1")
 
 	if err := v.CloseTerminal(); err != nil {
 		t.Fatalf("CloseTerminal: %v", err)

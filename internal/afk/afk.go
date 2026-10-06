@@ -72,11 +72,13 @@ type Allowance struct {
 }
 
 // The kinds of line the log holds: the switch, an item held for the Overlord,
-// and the decisions the CFO makes under the authority.
+// a goblin the supervisor paused at a floor, and the decisions the CFO makes
+// under the authority.
 const (
 	KindOn        = "on"
 	KindOff       = "off"
 	KindHeld      = "held"
+	KindPause     = "pause"
 	KindMerge     = "merge"
 	KindAnswer    = "answer"
 	KindDeploy    = "deploy"
@@ -273,6 +275,18 @@ func Hold(stateDir string, entry Entry, now time.Time) error {
 		return errors.New("a held line names its item")
 	}
 	entry.Kind = KindHeld
+	_, err := record(stateDir, entry, now)
+	return err
+}
+
+// Pause records a goblin the supervisor paused at a floor, in the stretch
+// that is on: first with the readings the pause stood on, then with how it
+// went. It is the supervisor's safety rail, not a decision of the CFO's.
+func Pause(stateDir string, entry Entry, now time.Time) error {
+	if strings.TrimSpace(entry.Task) == "" {
+		return errors.New("a paused line names its goblin")
+	}
+	entry.Kind = KindPause
 	_, err := record(stateDir, entry, now)
 	return err
 }

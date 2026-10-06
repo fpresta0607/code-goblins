@@ -78,6 +78,8 @@ func runStandInBuild() (int, bool) {
 		return standInServe(build), true
 	case "update":
 		return standInUpdate(), true
+	case "install":
+		return standInInstall(), true
 	}
 	// Anything else, a terminal's host or a watcher, idles until ended.
 	time.Sleep(3 * time.Minute)
@@ -216,6 +218,19 @@ func holdExclusively(path string, wait time.Duration) (syscall.Handle, error) {
 // CFO_TEST_UPDATE_TAMPER replaces the named verified copies with the home's
 // tampered.exe as the rollback begins, and CFO_TEST_UPDATE_PAUSE waits at a
 // step.
+// standInInstall runs the real cfo install as the build, with the waits a test
+// names, so a supervisor the install restarts is this build's stand-in.
+func standInInstall() int {
+	if wait, err := time.ParseDuration(os.Getenv("CFO_TEST_UPDATE_SERVE_WAIT")); err == nil {
+		updateServeWait = wait
+	}
+	if wait, err := time.ParseDuration(os.Getenv("CFO_TEST_HANDOVER_WAIT")); err == nil {
+		watch.HandoverWait = wait
+	}
+	updateStopWait = 5 * time.Second
+	return runInstall(os.Args[2:], os.Stdout, os.Stderr)
+}
+
 func standInUpdate() int {
 	h := standInHome()
 	if wait, err := time.ParseDuration(os.Getenv("CFO_TEST_UPDATE_SERVE_WAIT")); err == nil {

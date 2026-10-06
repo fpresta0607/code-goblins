@@ -107,6 +107,30 @@ func TestAckThroughDropsHandledKeepsRest(t *testing.T) {
 	}
 }
 
+func TestAckKeepsABlockingNotifyIfItsHandledStatusCannotBeSaved(t *testing.T) {
+	dir := t.TempDir()
+	record, err := Append(dir, "notify", "task-1", "failed: Which fix? options: Retry | Revert")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Mkdir(filepath.Join(dir, "task-1.status"), 0700); err != nil {
+		t.Fatal(err)
+	}
+
+	err = AckThrough(dir, record.Seq)
+
+	if err == nil {
+		t.Fatal("ack succeeded without preserving the handled blocking notice")
+	}
+	queued, err := Pending(dir)
+	if err != nil || len(queued) != 1 || queued[0].Seq != record.Seq {
+		t.Fatalf("pending = %+v, %v; want the original blocking notice", queued, err)
+	}
+	if retired, err := Acked(dir, record.Seq); err != nil || retired {
+		t.Fatalf("acked = %v, %v; want the notice unretired", retired, err)
+	}
+}
+
 func TestSequenceNeverReusedAfterAck(t *testing.T) {
 	dir := t.TempDir()
 	for i := 0; i < 3; i++ {
@@ -528,5 +552,30 @@ func TestAnsweredNotifyNamesWhoAnswered(t *testing.T) {
 				t.Fatalf("drain rendering does not say %q:\n%s", c.want, out.String())
 			}
 		})
+	}
+}
+
+// A goblin that asked in prose filed no notify, but the monitor's record of its
+// ask is a question owed all the same, and it carries the goblin's own words
+// for the board.
+func TestAProseAskIsAQuestionOwedWithItsWords(t *testing.T) {
+	// Arrange
+	asked := Record{Kind: "stale", Key: "g1", Detail: `goblin_asks: g1 ended its turn asking in prose instead of with cfo notify --blocked and waits at its prompt for the answer; next: answer it with cfo send g1 "<your answer>" (cfo answer takes only a notify's question). It asked: "Should I open the PR? It says "ready" now."`}
+	idle := Record{Kind: "stale", Key: "g1", Detail: "goblin_idle: at its prompt for 3m"}
+
+	// Act
+	question, ok := ProseAsk(asked, "g1")
+	_, otherGoblin := ProseAsk(asked, "g2")
+	_, idleAsks := ProseAsk(idle, "g1")
+
+	// Assert
+	if !AwaitingAnswerStall(asked, "g1") {
+		t.Error("a prose ask is not counted as an answer owed")
+	}
+	if !ok || question != `Should I open the PR? It says "ready" now.` {
+		t.Errorf("question = %q (%t), want the goblin's words whole", question, ok)
+	}
+	if otherGoblin || idleAsks {
+		t.Errorf("another goblin's ask or an idle wake read as this goblin's question: %t %t", otherGoblin, idleAsks)
 	}
 }

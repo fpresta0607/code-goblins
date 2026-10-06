@@ -1,10 +1,12 @@
 # Installing Code Goblins
 
-There are two ways in, and each is one command you can rerun at any time.
-Both run `goblins doctor`, which checks every tool and harness the fleet needs, add Code Goblins to the Start menu, and end with the quick start in the same window.
-Both put `cfo` and `goblins` on your PATH; the one-line install's own window has them at once, and any other terminal that was already open finds them once you open a new one.
+`CodeGoblinsSetup.exe` and the one-line PowerShell install are the same install, and you can rerun either at any time to update.
+Each puts the Code Goblins app and the `cfo` command line (also called `goblins`) together in one folder, adds that folder to your PATH and Code Goblins to the Start menu, installs the tools the goblins use where they are missing, and opens the app.
+Use the setup if you want a window, the one line if you live in a terminal.
 
 ## To use it
+
+Download [`CodeGoblinsSetup.exe`](https://github.com/fpresta0607/code-goblins/releases/latest/download/CodeGoblinsSetup.exe) from the latest release and open it, or run this in any PowerShell window:
 
 ```powershell
 irm https://github.com/fpresta0607/code-goblins/releases/latest/download/install.ps1 | iex
@@ -12,38 +14,57 @@ irm https://github.com/fpresta0607/code-goblins/releases/latest/download/install
 
 It needs no clone and no Go, and `goblins` works in the same window as soon as it finishes.
 
-Releases from v0.4.0 on also carry `CodeGoblinsSetup.exe`, the same install with no terminal: download it from the release's page and open it.
-It downloads the install script of its own release, runs it out of sight, shows each line the script prints in a window of its own, and opens the app when the script is done.
-When the script stops, the window says so with the script's own last lines and names the file that holds everything it printed, `CodeGoblinsSetup.log` in your temp folder; closing the window ends the install, and opening the setup again finishes it.
-With no terminal to ask in, it records no [projects folder](#your-projects-folder), and its quick start only starts the supervisor: the app's first-run page starts the CFO.
+The setup first says what it will install, where, and what it changes, and starts when you press **Install** (or **Update**, where Code Goblins is already there).
+It downloads the install script of its own release and runs it out of sight; the one-line install runs that script in your window.
+Either way you see the same four steps, `[1/4] Download Code Goblins`, `[2/4] Check the download`, `[3/4] Install Code Goblins and its tools` and `[4/4] Open Code Goblins`, with a line under the third saying which tool it is installing, a `Note:` line for anything to know, and nothing else.
+Every other detail goes to the install's log, `CodeGoblinsInstall.log` in your temp folder.
+When something stops the install, it says in one sentence what happened and what to do, and names the log; the setup offers **Show details**, **Open the log** and **Try again**.
+Closing the setup ends the install, and running it again finishes it.
+The install asks nothing: the app's first-run page starts the CFO and records [your projects folder](#your-projects-folder).
+
+The setup draws at your display's own scale, so its text is sharp at 100, 150 or 200 percent.
+
+### Which home it installs
+
+The install never stops to ask you to run anything first; it decides by what it finds.
+
+| On your PC | What the install does |
+| --- | --- |
+| Nothing yet | Installs into `%LOCALAPPDATA%\CodeGoblins`. |
+| An earlier install | Updates it in place and keeps your settings, policy and fleet. |
+| The command line only | Updates it and adds the app and its Start menu entry. |
+| `CFO_HOME` naming another folder that holds a fleet, such as a clone an older build made the home | Keeps using that folder and says so in one line: the programs go into its `bin`, those at its root are brought up to date too, and in a clone the files git tracks are left as they are. Moving it to the standard folder is [`cfo home move`](#where-your-data-lives), whenever you choose. |
+| The board, the CFO or goblins running | Restarts only the board on the new build, on the address it served; no goblin's or the CFO's terminal is touched, and a build that does not start gives the board back to the one before. |
+| An install that stopped part way | Finishes it: every step is safe to run again. |
+
+The install never moves, deletes or rewrites a fleet's state, data or worktrees.
 
 Either way the steps are the script's.
 In order, it:
 
 1. Stops before changing anything when git or gh is missing and winget, which installs them, is missing too; the fix is App Installer from the Microsoft Store.
 2. Downloads `cfo.exe`, and the desktop window `goblins-window.exe` when the release lists one, from the release this `install.ps1` was published with, so the script and the programs are always one release's, and refuses each unless it matches the release's `SHA256SUMS`.
-3. Asks once for [your projects folder](#your-projects-folder).
-4. Sets up the CFO home at `%LOCALAPPDATA%\CodeGoblins`: the CFO's contract, the default policy, the program as `bin\cfo.exe` and `bin\goblins.exe`, and the desktop window beside them as `goblins-window.exe` where the release ships one, with the `state`, `data`, `worktrees`, `scratch` and `caches` folders beside `bin`.
+3. Sets up the CFO home it picked, as [the table above](#which-home-it-installs) says, normally `%LOCALAPPDATA%\CodeGoblins`: the CFO's contract, the default policy, the program as `bin\cfo.exe` and `bin\goblins.exe`, and the desktop window beside them as `goblins-window.exe` where the release ships one, with the `state`, `data`, `worktrees`, `scratch` and `caches` folders beside `bin`.
    The skills Code Goblins ships go once into `~\.agents\skills`, which Codex and Pi read, with a junction to each from Claude Code's skills folder, and `state\harnesses.json` records where each harness keeps its configuration; nothing in a harness folder that Code Goblins did not put there is changed.
    `CFO_HOME` and the home's `bin` on your PATH are set for your user, and the CFO's hooks are merged into your `~/.claude/settings.json`, which is backed up first and keeps your own hooks.
-5. Installs each missing tool the fleet drives: git and gh with winget, Claude Code with its own installer, no-mistakes from the release `install.ps1` pins, and Codex, pi and the axi tools with npm, which needs Node.js.
+4. Installs each missing tool the fleet drives: git and gh with winget, Claude Code with its own installer, no-mistakes from the release `install.ps1` pins, and Codex, pi and the axi tools with npm, which needs Node.js.
    no-mistakes is the gate every goblin's work passes, so every machine runs the one release `install.ps1` names.
    The install downloads that release's archive and `checksums.txt` from its GitHub release page, never through GitHub's API, whose limit for anonymous callers failed installs on shared machines.
    It installs no-mistakes only when the archive matches `checksums.txt`, puts it in `%LOCALAPPDATA%\no-mistakes`, where no-mistakes' own installer puts it, adds that folder to your PATH and starts the no-mistakes daemon.
    A download that fails is tried twice more, a few seconds apart; if all three attempts fail, the install says why, goes on with the rest, and names no-mistakes among the installs that did not complete.
    Claude Code is the native build, `claude.exe`, because a native terminal starts it with no shell; a `claude` that is only a script, such as npm's `claude.cmd`, counts as missing, and the install adds `~\.local\bin`, where the native build lives, to your PATH.
-   When npm's copy still comes first on your PATH, it warns and prints the command that removes it, `npm.cmd uninstall -g @anthropic-ai/claude-code`.
+   When npm's copy still comes first on your PATH, the closing note names claude, and the log has the command that removes it, `npm.cmd uninstall -g @anthropic-ai/claude-code`.
    Neither Herdr nor Kimi is installed or checked: every goblin and the CFO run in native terminals, and the fleet runs no Kimi for now.
-6. Installs the skills of gh-axi, chrome-devtools-axi and no-mistakes at user scope, for Claude Code, Codex and pi.
-7. Installs the board's native lifecycle hooks for each of Claude Code, Codex and pi that is installed.
-8. Adds Code Goblins to your Start menu.
+5. Installs the skills of gh-axi, chrome-devtools-axi and no-mistakes at user scope, for Claude Code, Codex and pi.
+6. Installs the board's native lifecycle hooks for each of Claude Code, Codex and pi that is installed.
+7. Adds Code Goblins to your Start menu.
    Where this install put the desktop window in the home it starts `goblins-window.exe` alone, which opens the app with no terminal: it runs `goblins --window` out of sight, which finds or starts the supervisor and opens the board in the window.
    Where the home only kept a window it already held, as an install from a release that ships none leaves it, the entry runs `goblins --window` itself, with its console minimized: a window from before this may not open the app when started alone.
    In a home with no window it runs `goblins`, the quick start, in a window of its own.
-9. Runs `goblins doctor`, prints what still needs a manual step, then runs the [quick start](#the-quick-start) in the same window.
+8. Runs `goblins doctor` into the log, names any tool it could not install in one line, and opens the app; a home with no app runs the [quick start](#the-quick-start) in a window of its own.
 
 Rerun it to update: it brings the home's contract, skills and program up to date, and keeps your projects folder and any policy you tuned.
-A supervisor still running the previous build keeps running it, since a running program cannot be replaced; the install says so, and `goblins stop`, then `goblins`, restarts it on the new one.
+A running program cannot be replaced, only renamed, so the previous build moves aside and the new one takes its name; a supervisor that runs is then restarted on the new build, as `cfo update` restarts it.
 An open desktop window likewise keeps running the previous window until you quit it from its tray icon, and Code Goblins in the Start menu then opens the new one.
 
 An install that delivers its desktop window into the home takes the place of a copy that was installed on its own, in `%LOCALAPPDATA%\CodeGoblinsWindow` with **Code Goblins Window** in the Start menu.
@@ -128,13 +149,14 @@ Type it in full: in PowerShell, `.\install -Dev` runs `install.ps1` itself, whic
 
 `-Dev` does everything the one-line install does, with the clone in place of the download:
 
-- It builds the board in the clone, then `cfo.exe` and the desktop window, `goblins-window.exe`, into a temporary folder of its own, runs that build's `cfo install`, which sets up the same per-user home the one-line install does, and removes the folder.
+- It builds the board in the clone, then `cfo.exe` and the desktop window, `goblins-window.exe`, into a temporary folder of its own, runs that build's `cfo install`, which picks the home as the one-line install does, and removes the folder.
+  Its steps are `[1/3] Build Code Goblins from this clone`, then installing and opening as the one-line install's.
   The clone keeps only what git ignores: the board, which `cfo.exe` embeds from there, and the frontend's `node_modules`.
   A copy in the home still running, such as a supervisor, a terminal's host or an open window, cannot be overwritten, so it moves aside to a `cfo.exe.<id>.old`, `goblins.exe.<id>.old` or `goblins-window.exe.<id>.old` of its own and is removed once nothing runs it, on this run or a later one.
 - It says that the three programs are unsigned: they were built on this PC, and Windows runs a program built here without asking.
   A copy taken to another PC is unsigned there too, and [On a fresh PC](#on-a-fresh-pc) says what Windows shows for one.
 - The home's `bin` goes on your PATH; open a new terminal to use it, since `install.cmd` runs in a PowerShell of its own.
-  While `CFO_HOME` names another folder that holds a fleet's state, such as a clone an older build made its home, it refuses before changing your environment or settings: run `cfo home move` with the new build to bring that fleet into the per-user home, or `goblins uninstall` from that home first to start anew.
+  While `CFO_HOME` names another folder that holds a fleet's state, such as a clone an older build made its home, it keeps that home, as [the table above](#which-home-it-installs) says; `cfo home move` brings that fleet into the per-user home whenever you choose.
 - It installs this repository's skills the same way, once in `~\.agents\skills` with a junction from Claude Code's skills folder; [load-map.md](load-map.md) shows where each harness looks for skills.
 
 Rerun it after you pull, to rebuild.
@@ -150,8 +172,8 @@ Backing the home up, for example its `data` folder to a private git repository, 
 
 ## Your projects folder
 
-The install asks once for the folder that holds your checkouts, wherever you keep them.
+The app's first-run page offers the folder that holds your checkouts, wherever you keep them; the install itself asks nothing.
 It is recorded on your machine as `CFO_PROJECTS_ROOT`, beside `CFO_HOME`, and never in this repository, so every adopter's layout stays their own.
 With it set, `--project` takes a bare name as well as a path: `--project my-project` is `<dir>\my-project`, matched without regard to case, and the fleet works in that one checkout instead of cloning a second copy.
 It is optional: without it every command still takes a path, and `goblins doctor` tells you it is unset.
-To record or change it later, run `goblins install --projects-root <dir>`, in the clone for a `-Dev` install; a rerun of either install keeps the folder already recorded.
+To record or change it from a terminal, run `goblins install --projects-root <dir>`; a rerun of either install keeps the folder already recorded.

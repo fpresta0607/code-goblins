@@ -24,6 +24,7 @@ var starters = map[string][]string{
 // package, each with why it cannot.
 var startsElsewhere = map[string]string{
 	"internal/conpty/conpty_windows.go windows.CreateProcess":   "the process runs in a pseudo console, which has no window",
+	"internal/conpty/waker_windows.go windows.CreateProcess":    "the input waker is attached to a pseudo console, which an exec.Cmd cannot attach a process to, and has no window",
 	"internal/supervisor/runs_windows.go windows.CreateProcess": "a run item's window is meant to show and to read what the Overlord types in it, which takes starting it without standard handles; an exec.Cmd always hands it some",
 }
 

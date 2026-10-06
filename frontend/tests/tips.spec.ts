@@ -1,4 +1,4 @@
-import { expect, holdStream, test, type Locator, type Page } from "./site";
+import { expect, holdStream, openItem, test, type Locator, type Page } from "./site";
 
 // Every tip on the board holds its whole text on a solid surface, stays
 // inside the window and is cut off by nothing, wherever its part is: a card,
@@ -25,10 +25,10 @@ const TASKS = [
   task("paused-one", "paused", { at: since }),
   task("finished:done-one", "done", { archived: true, merged: true, verified: true, generation: "", branch: "fix/done-one", at: since, pr: "https://github.com/example/code-goblins/pull/198" }),
 ];
-const QUESTION = { id: "q1", identity: "q1", text: "Which layout should the board open in when the window is too narrow for three columns beside the panel?", options: ["Kanban", "Stacked"], recommended: "Kanban", status: "pending", task: "working-one", created_at: since };
+const QUESTION = { id: "q1", identity: "q1", text: "Which layout should the board open in when the window is too narrow for three columns beside the panel?", options: ["Kanban", "Stacked"], recommended: "Kanban", status: "pending", task: "", created_at: since };
 
-// A question waiting on the Overlord opens the Command Center over the board,
-// so only the Command Center's own walk has one.
+// A question waiting on the Overlord counts on the board's bar and badge, so
+// only the Command Center's own walk has one.
 async function open(page: Page, tasks: Record<string, unknown>[] = TASKS, questions: Record<string, unknown>[] = []) {
   const snapshot = { healthy: true, instance: "fixture", cfo_runs: true, cfo_harness: "claude", revision: 1, attention: [], memory, tasks, questions };
   // The walks point at one part after another, so the board must hold still.
@@ -134,6 +134,7 @@ for (const [size, viewport] of [["wide", { width: 1440, height: 900 }], ["phone"
     test("every tip in the Command Center is whole, solid and inside the window", async ({ page }) => {
       await open(page, TASKS, [QUESTION]);
       const dialog = page.locator("dialog.question-modal");
+      await openItem(page, "Which layout should the board open in");
       await expect(dialog).toBeVisible();
       const card = await walk(dialog);
       await dialog.getByRole("button", { name: "Close the Command Center", exact: true }).click();

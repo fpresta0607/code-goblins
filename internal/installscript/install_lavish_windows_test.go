@@ -54,11 +54,11 @@ func runInstallWithLavishDownload(t *testing.T, script string, content []byte) (
 		"  Set-Content -LiteralPath $OutFile -Value \"# installer from $Uri\"\n" +
 		"}\n"
 	cmd, _, temp := installtest.StrippedCommand(t, base, stubs, installtest.WindowsPowerShell(), "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-Command",
-		internet+"Get-Content -Raw -LiteralPath '"+script+"' | Invoke-Expression")
+		internet+"Get-Content -Raw -LiteralPath '"+script+"' | Invoke-Expression; exit $LASTEXITCODE")
 	cmd.Env = append(cmd.Env, standInVariable+"=1")
 	out, _ := cmd.CombinedOutput()
 	written, _ := os.ReadFile(record)
-	return string(out), string(written), temp
+	return installtest.Said(out, temp), string(written), temp
 }
 
 // npmCallsFor returns the recorded npm calls that name lavish-axi.
