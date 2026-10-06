@@ -475,7 +475,9 @@ func statusActivity(lines []string, spawned time.Time) (string, string) {
 	return bounded(activity, 4000), pr
 }
 
-func taskSessionSummary(lines []string, spawned time.Time) (report string, retired time.Time) {
+// taskSessionSummary is a task's latest report with when it was written, and
+// when cleanup retired it, as far as its status log says.
+func taskSessionSummary(lines []string, spawned time.Time) (report string, reportedAt time.Time, retired time.Time) {
 	for i := len(lines) - 1; i >= 0; i-- {
 		stamp, event := state.SplitStatus(lines[i])
 		if !spawned.IsZero() && stamp.Before(spawned.Truncate(time.Second)) {
@@ -488,10 +490,10 @@ func taskSessionSummary(lines []string, spawned time.Time) (report string, retir
 				retired = stamp
 			}
 		} else if report == "" && reportKind(event) != "" {
-			report = redact(bounded(event, 4000))
+			report, reportedAt = redact(bounded(event, 4000)), stamp
 		}
 	}
-	return report, retired
+	return report, reportedAt, retired
 }
 
 // finishedTasks are tasks cfo cleanup finished within the history window,
@@ -550,7 +552,7 @@ func finishedTasks(h home.Home, now time.Time) []Task {
 			continue
 		}
 		_, pr := statusActivity(lines, time.Time{})
-		report, retired := taskSessionSummary(lines, time.Time{})
+		report, _, retired := taskSessionSummary(lines, time.Time{})
 		phase, reason := "stopped", "Stopped without recorded delivery"
 		if pr != "" {
 			phase, reason = "done", "Delivered pull request; task cleaned up"
@@ -622,7 +624,7 @@ func finishedTasks(h home.Home, now time.Time) []Task {
 			}
 			if status, ok := found[id]; ok && generation != "queued" {
 				if lines, err := fsx.ReadLines(status.path); err == nil {
-					task.LastReport, task.RetiredAt = taskSessionSummary(lines, spawnTime(generation))
+					task.LastReport, _, task.RetiredAt = taskSessionSummary(lines, spawnTime(generation))
 				}
 			}
 			tasks = slices.DeleteFunc(tasks, func(existing Task) bool { return existing.ID == task.ID })

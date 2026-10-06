@@ -55,6 +55,7 @@ func TestTaskHandoffAvailabilityAndLastReportReachTheSnapshot(t *testing.T) {
 	if err := os.WriteFile(path, []byte("Work retained."), 0600); err != nil {
 		t.Fatal(err)
 	}
+	reported := time.Now().UTC().Truncate(time.Second)
 	if err := state.AppendStatus(home.State, "task-1", "working: checks passed"); err != nil {
 		t.Fatal(err)
 	}
@@ -70,13 +71,14 @@ func TestTaskHandoffAvailabilityAndLastReportReachTheSnapshot(t *testing.T) {
 		t.Fatal(err)
 	}
 	var task struct {
-		Handoff    bool   `json:"handoff"`
-		LastReport string `json:"last_report"`
+		Handoff    bool      `json:"handoff"`
+		LastReport string    `json:"last_report"`
+		ReportedAt time.Time `json:"reported_at"`
 	}
 	if err := json.Unmarshal(data, &task); err != nil {
 		t.Fatal(err)
 	}
-	if !task.Handoff || task.LastReport != "working: checks passed" {
+	if !task.Handoff || task.LastReport != "working: checks passed" || task.ReportedAt.Before(reported) || task.ReportedAt.After(time.Now()) {
 		t.Fatalf("task has no readable handoff or the wrong last report: %s", data)
 	}
 }
@@ -96,7 +98,7 @@ func TestTaskSessionSummaryDoesNotInventEvidence(t *testing.T) {
 		{"redacted report", []string{"working: password=fixture-secret"}, time.Time{}, "working: password=[redacted]"},
 	} {
 		t.Run(fixture.name, func(t *testing.T) {
-			report, retired := taskSessionSummary(fixture.lines, fixture.spawned)
+			report, _, retired := taskSessionSummary(fixture.lines, fixture.spawned)
 			if report != fixture.report || !retired.IsZero() {
 				t.Fatalf("summary = %q, %v; want %q with no known retirement time", report, retired, fixture.report)
 			}

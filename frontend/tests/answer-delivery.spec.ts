@@ -51,7 +51,7 @@ test("an answer typed for a busy CFO reads sent, then delivered, and never warns
   // Assert
   await expect(list).toContainText("You chose Lift it");
   await expect(list).not.toContainText("not yet delivered");
-  await expect(list.locator(".delivery.succeeded")).toHaveCount(1);
+  await expect(list.getByRole("img", { name: "You answered" })).toHaveCount(1);
 });
 
 test("an answer the board refuses after he closed its card stays waiting, and its row says it was not sent", async ({ page }) => {
