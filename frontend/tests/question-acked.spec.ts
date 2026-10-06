@@ -27,5 +27,5 @@ test("a question the CFO answered and acked reads answered with the check, on it
 
   // Assert
   await expect(history).toContainText("The CFO answered it");
-  await expect(history.locator(".delivery.succeeded")).toHaveCount(1);
+  await expect(history.getByRole("img", { name: "The CFO answered", exact: true })).toHaveCount(1);
 });
