@@ -14,6 +14,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/fpresta0607/code-goblins/internal/disk"
 	"github.com/fpresta0607/code-goblins/internal/fleet"
 	"github.com/fpresta0607/code-goblins/internal/home"
 	"github.com/fpresta0607/code-goblins/internal/state"
@@ -60,10 +61,59 @@ func startBoardWith(t *testing.T, memory Memory, spawner *spawnRecorder) (*HTTP,
 	handler, h := orderBoard(t)
 	handler.Service.Options.Dispatch = &Dispatch{
 		Memory:        func() (Memory, error) { return memory, nil },
+		Disk:          func() (Disk, error) { return diskWithFree(200 * gigabyte), nil },
 		CommitHolders: func() ([]CommitHolder, error) { return nil, nil },
 		Spawn:         spawner.spawn,
 	}
 	return handler, h
+}
+
+// diskWithFree is the home's drive with free bytes left, beside the default
+// 15 GB floor and 10 GB wake mark.
+func diskWithFree(free uint64) Disk {
+	return Disk{Reading: disk.Reading{Drive: "C:", Free: free, Total: 500 * gigabyte}, Floor: 15 * gigabyte, Wake: 10 * gigabyte}
+}
+
+// Start under the disk floor dispatches nothing, and its refusal names what is
+// free and the floor; at the floor exactly it starts.
+func TestStartUnderTheDiskFloorIsRefusedNamingTheFreeSpaceAndTheFloor(t *testing.T) {
+	tests := []struct {
+		name    string
+		free    uint64
+		refused bool
+	}{
+		{name: "under the floor", free: 14*gigabyte + 900*1024*1024, refused: true},
+		{name: "at the floor", free: 15 * gigabyte},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			// Arrange
+			spawner := &spawnRecorder{}
+			handler, h := startBoard(t, 16*gigabyte, spawner)
+			handler.Service.Options.Dispatch.Disk = func() (Disk, error) { return diskWithFree(test.free), nil }
+			queueBriefedTask(t, h, "- **next-task** - Ship it", plainBrief)
+
+			// Act
+			response := postStart(handler, `{"task":"next-task"}`, "board.local", "http://board.local", orderToken)
+			if response.Code == 202 {
+				waitStarted(t, handler, "next-task")
+			}
+
+			// Assert
+			if !test.refused {
+				if response.Code != 202 {
+					t.Fatalf("start=%d %s, want the task started at the floor", response.Code, response.Body)
+				}
+				return
+			}
+			if response.Code != 409 || !strings.Contains(response.Body.String(), "free disk on C: is 14.9 GB, under the 15 GB disk floor") {
+				t.Fatalf("start=%d %s, want a refusal naming the free disk and the floor", response.Code, response.Body)
+			}
+			if calls := spawner.recorded(); len(calls) != 0 {
+				t.Fatalf("the refused start dispatched %v", calls)
+			}
+		})
+	}
 }
 
 func postStart(handler *HTTP, body, host, origin, token string) *httptest.ResponseRecorder {

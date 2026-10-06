@@ -3,13 +3,17 @@ package install
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"sort"
 	"strings"
 	"testing"
+	"testing/fstest"
 
 	codegoblins "github.com/fpresta0607/code-goblins"
+	"github.com/fpresta0607/code-goblins/internal/harnessmap"
 	"github.com/fpresta0607/code-goblins/internal/nativehook"
 )
 
@@ -94,15 +98,35 @@ func (e *fakeEnv) Broadcast() error {
 	return nil
 }
 
-// fixture builds a temp machine: a checkout root, a user settings file
-// holding adopterSettings, and a fake user environment.
+// fixture builds a temp machine: a home root, a user settings file holding
+// adopterSettings, a fake user environment, a profile of its own for the
+// harness folders and a stand-in build to install.
 type fixture struct {
 	t       *testing.T
 	root    string
+	bin     string
 	user    string
 	repo    string
+	profile string
 	env     *fakeEnv
 	service Service
+}
+
+// minimalContract, minimalPolicy and minimalSkills stand in for what the
+// binary embeds.
+var (
+	minimalContract = fstest.MapFS{"AGENTS.md": {Data: []byte("contract")}}
+	minimalPolicy   = fstest.MapFS{"config/pipeline.json": {Data: []byte("{}")}}
+	minimalSkills   = fstest.MapFS{"stow/SKILL.md": {Data: []byte("stow")}}
+)
+
+// mklink makes a directory junction as cfo install does.
+func mklink(link, target string) error {
+	out, err := exec.Command("cmd", "/c", "mklink", "/J", link, target).CombinedOutput()
+	if err != nil {
+		return fmt.Errorf("mklink: %v: %s", err, out)
+	}
+	return nil
 }
 
 func newFixture(t *testing.T, userSettings string, env map[string]string) *fixture {
@@ -122,8 +146,21 @@ func newFixture(t *testing.T, userSettings string, env map[string]string) *fixtu
 			t.Fatal(err)
 		}
 	}
-	f := &fixture{t: t, root: root, user: user, repo: repo, env: newFakeEnv(env)}
-	f.service = Service{Root: root, UserSettings: user, RepoSettings: repo, Env: f.env}
+	profile := filepath.Join(dir, "home")
+	binary := filepath.Join(dir, "release", "cfo.exe")
+	if err := os.MkdirAll(filepath.Dir(binary), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(binary, []byte("build 1"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	f := &fixture{t: t, root: root, bin: filepath.Join(root, "bin"), user: user, repo: repo, profile: profile, env: newFakeEnv(env)}
+	f.service = Service{
+		Root: root, UserSettings: user, RepoSettings: repo, Env: f.env,
+		Contract: minimalContract, Policy: minimalPolicy, Skills: minimalSkills, Binary: binary,
+		Harnesses: harnessmap.Find(func(string) string { return "" }, profile),
+		Link:      mklink,
+	}
 	return f
 }
 
@@ -289,7 +326,7 @@ func TestInstallTwiceChangesNothingTheSecondTime(t *testing.T) {
 	if !strings.Contains(output, "already installed - nothing changed") {
 		t.Errorf("a second install did not report itself as a no-op:\n%s", output)
 	}
-	for _, want := range []string{"unchanged already " + f.root, "unchanged already contains " + f.root, "unchanged already in " + f.user} {
+	for _, want := range []string{"unchanged already " + f.root, "unchanged already contains " + f.bin, "unchanged already in " + f.user} {
 		if !strings.Contains(output, want) {
 			t.Errorf("output is missing %q:\n%s", want, output)
 		}
@@ -454,7 +491,7 @@ func TestUninstallPreservesTheStandaloneWindowWhenTheHomeHoldsNone(t *testing.T)
 	}
 	writeFile(t, f.service.StartMenuShortcut, "shortcut to this home")
 	f.install()
-	if _, err := os.Stat(filepath.Join(f.root, windowName)); !os.IsNotExist(err) {
+	if _, err := os.Stat(filepath.Join(f.bin, windowName)); !os.IsNotExist(err) {
 		t.Fatalf("the installed home must hold no window: %v", err)
 	}
 	for path, want := range standaloneFiles {
@@ -634,7 +671,7 @@ func TestInstallSetsHomeAndPath(t *testing.T) {
 	if got := f.env.values["CFO_HOME"]; got != f.root {
 		t.Errorf("CFO_HOME = %q, want %q", got, f.root)
 	}
-	want := `C:\Windows;C:\Windows\System32;` + f.root
+	want := `C:\Windows;C:\Windows\System32;` + f.bin
 	if got := f.env.values["Path"]; got != want {
 		t.Errorf("PATH = %q, want %q", got, want)
 	}
@@ -643,10 +680,29 @@ func TestInstallSetsHomeAndPath(t *testing.T) {
 	}
 }
 
+// An install that takes over from the home CFO_HOME names once cfo home move
+// has carried its state away takes that home's root off PATH, so neither an
+// older build left there nor a cfo.exe built in that checkout ever runs before
+// the new home's bin. Any other entry stays.
+func TestInstallTakingOverFromAFormerHomeTakesItsRootOffPath(t *testing.T) {
+	// Arrange
+	former := filepath.Join(t.TempDir(), "code-goblins")
+	writeFile(t, filepath.Join(former, "AGENTS.md"), "contract")
+	f := newFixture(t, adopterSettings, map[string]string{"CFO_HOME": former, "Path": `C:\Windows;` + former + `;C:\Tools`})
+
+	// Act
+	f.install()
+
+	// Assert
+	if got, want := f.env.values["Path"], `C:\Windows;C:\Tools;`+f.bin; got != want {
+		t.Errorf("PATH = %q, want %q", got, want)
+	}
+}
+
 func TestInstallLeavesAnAlreadyCorrectEnvironmentAlone(t *testing.T) {
 	f := newFixture(t, adopterSettings, nil)
 	f.env.values["CFO_HOME"] = f.root + `\`
-	f.env.values["Path"] = `C:\Windows;` + strings.ToUpper(f.root)
+	f.env.values["Path"] = `C:\Windows;` + strings.ToUpper(f.bin)
 	f.install()
 
 	if len(f.env.setCalls) != 0 {
@@ -660,11 +716,11 @@ func TestInstallLeavesAnAlreadyCorrectEnvironmentAlone(t *testing.T) {
 func TestInstallDoesNotDuplicateAPathEntryWrittenWithVariables(t *testing.T) {
 	dir := t.TempDir()
 	t.Setenv("CFO_TEST_TOOLS", dir)
-	f := newFixture(t, adopterSettings, map[string]string{"Path": `C:\Windows;%CFO_TEST_TOOLS%\code-goblins`})
+	f := newFixture(t, adopterSettings, map[string]string{"Path": `C:\Windows;%CFO_TEST_TOOLS%\code-goblins\bin`})
 	f.service.Root = filepath.Join(dir, "code-goblins")
 	f.install()
 
-	if got, want := f.env.values["Path"], `C:\Windows;%CFO_TEST_TOOLS%\code-goblins`; got != want {
+	if got, want := f.env.values["Path"], `C:\Windows;%CFO_TEST_TOOLS%\code-goblins\bin`; got != want {
 		t.Errorf("PATH = %q, want it untouched at %q", got, want)
 	}
 }
@@ -707,29 +763,6 @@ func TestUninstallRefusesWithNothingChangedWhenTheEnvironmentIsUnreadable(t *tes
 	}
 	if string(after) != string(installed) {
 		t.Errorf("the settings file was rewritten before the environment refusal:\n%s", after)
-	}
-}
-
-func TestInstallWarnsWhenTheBinaryIsMissing(t *testing.T) {
-	f := newFixture(t, adopterSettings, nil)
-	output := f.install()
-
-	for _, want := range []string{"WARNING", "UNSUPERVISED", "npm ci and npm run build in frontend, then go build ./cmd/cfo"} {
-		if !strings.Contains(output, want) {
-			t.Errorf("output is missing %q on a root with no cfo.exe:\n%s", want, output)
-		}
-	}
-}
-
-func TestInstallDoesNotWarnWhenTheBinaryIsPresent(t *testing.T) {
-	f := newFixture(t, adopterSettings, nil)
-	if err := os.WriteFile(filepath.Join(f.root, "cfo.exe"), []byte("binary"), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	output := f.install()
-
-	if strings.Contains(output, "WARNING") {
-		t.Errorf("output warns about a binary that exists:\n%s", output)
 	}
 }
 

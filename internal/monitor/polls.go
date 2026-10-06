@@ -9,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/fpresta0607/code-goblins/internal/home"
 	"github.com/fpresta0607/code-goblins/internal/proc"
 	"github.com/fpresta0607/code-goblins/internal/state"
 )
@@ -31,8 +32,15 @@ type PollProber interface {
 	Polls(ctx context.Context) ([]Poll, error)
 }
 
-// ProcessPolls reads those polls from this machine's process table.
-type ProcessPolls struct{}
+// ProcessPolls reads those polls from this machine's process table. A poll is
+// placed with the goblin whose worktree it runs in: the task whose record in
+// StateDir names that worktree, as its own or as an extra one, or else the
+// task the worktree's folder under Worktrees, the home's worktrees folder, or
+// where an older build put it, is named for.
+type ProcessPolls struct {
+	StateDir  string
+	Worktrees string
+}
 
 // pollAncestry bounds the walk from a poll up to the goblin that started it:
 // the poll, the shell it runs in, the harness and the pane's shell, with room
@@ -43,11 +51,13 @@ const pollAncestry = 8
 // under a process that does. Only the command lines of node and lavish-axi
 // are read, so the check opens a handful of processes rather than every one
 // on the machine.
-func (ProcessPolls) Polls(context.Context) ([]Poll, error) {
+func (p ProcessPolls) Polls(context.Context) ([]Poll, error) {
 	processes, err := proc.Processes()
 	if err != nil {
 		return nil, err
 	}
+	owners := recordedWorktrees(p.StateDir)
+	inWorktree := func(dir string) string { return worktreeTask(owners, p.Worktrees, dir) }
 	var polls []Poll
 	for _, process := range processes {
 		if name := executableName(process.ExeBase); name != "node" && name != "lavish-axi" {
@@ -65,7 +75,7 @@ func (ProcessPolls) Polls(context.Context) ([]Poll, error) {
 		if err != nil || len(chain) == 0 || chain[0].PID != process.PID {
 			continue
 		}
-		task, ok := goblinOf(chain)
+		task, ok := goblinOf(chain, inWorktree)
 		if !ok {
 			continue
 		}
@@ -83,7 +93,7 @@ func (ProcessPolls) Polls(context.Context) ([]Poll, error) {
 // first, that runs in a goblin's worktree. A poll cfo started is the
 // supervisor polling a page wait for the CFO, which is exactly what a goblin
 // should have asked for, so it is never a goblin's poll.
-func goblinOf(chain []proc.Entry) (string, bool) {
+func goblinOf(chain []proc.Entry, inWorktree func(string) string) (string, bool) {
 	if startedByCFO(chain) {
 		return "", false
 	}
@@ -92,7 +102,7 @@ func goblinOf(chain []proc.Entry) (string, bool) {
 		if err != nil {
 			continue
 		}
-		if task := worktreeTask(dir); task != "" {
+		if task := inWorktree(dir); task != "" {
 			return task, true
 		}
 	}
@@ -115,22 +125,47 @@ func startedByCFO(chain []proc.Entry) bool {
 	return false
 }
 
-// worktreeTask names the goblin whose worktree holds dir, from the
-// <project>\.worktrees\gb-<task> layout spawn creates, or returns "" when dir
-// is in no goblin's worktree.
-func worktreeTask(dir string) string {
-	parts := strings.FieldsFunc(filepath.Clean(dir), isPathSeparator)
-	task := ""
-	for index := 0; index+1 < len(parts); index++ {
-		name := parts[index+1]
-		if !strings.EqualFold(parts[index], ".worktrees") || len(name) <= len("gb-") || !strings.EqualFold(name[:len("gb-")], "gb-") {
+// worktreeTask names the goblin whose worktree holds dir: the task whose
+// record names that worktree, else the task its folder is named for, or ""
+// when dir is in no goblin's worktree.
+func worktreeTask(owners map[string]string, worktreesRoot, dir string) string {
+	place, ok := home.LocateWorktree(worktreesRoot, dir)
+	if !ok {
+		return ""
+	}
+	if task, ok := owners[strings.ToLower(place.Root)]; ok {
+		return task
+	}
+	if state.ValidTaskID(place.Name) == nil {
+		return place.Name
+	}
+	return ""
+}
+
+// recordedWorktrees maps every worktree a task record in stateDir names, its
+// own and its extras, lowercased, to the task. A record that cannot be read
+// places nothing.
+func recordedWorktrees(stateDir string) map[string]string {
+	owners := map[string]string{}
+	if stateDir == "" {
+		return owners
+	}
+	scan, err := state.ScanIDs(stateDir)
+	if err != nil {
+		return owners
+	}
+	for _, id := range scan.MetaIDs {
+		meta, err := state.ReadTaskMeta(stateDir, id)
+		if err != nil {
 			continue
 		}
-		if id := name[len("gb-"):]; state.ValidTaskID(id) == nil {
-			task = id
+		for _, path := range append([]string{meta.Worktree}, meta.Extras...) {
+			if path != "" {
+				owners[strings.ToLower(filepath.Clean(path))] = id
+			}
 		}
 	}
-	return task
+	return owners
 }
 
 // pollPage reports whether args run lavish-axi's poll, and the page it waits

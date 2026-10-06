@@ -125,7 +125,8 @@ func TestAFolderOfAProgramWindowsStillHasIsRemovedAtCleanup(t *testing.T) {
 			temp := t.TempDir()
 			RemoveAtCleanup(t, temp)
 			child := exec.Command(os.Args[0], "-test.run=^TestChildLeavesAProgramWindowsStillHas$", "-test.count=1")
-			child.Env = append(os.Environ(), childMode+"="+test.mode, "TMP="+temp)
+			// t.TempDir prefers GOTMPDIR, which every goblin's pane sets, to TMP.
+			child.Env = append(os.Environ(), childMode+"="+test.mode, "TMP="+temp, "GOTMPDIR="+temp)
 
 			output, err := child.CombinedOutput()
 

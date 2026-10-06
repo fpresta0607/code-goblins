@@ -128,7 +128,7 @@ func TestInstalledHooksRunTheHomesBinaryWithoutAShell(t *testing.T) {
 	f.install()
 
 	// Assert
-	binary := filepath.Join(f.root, "cfo.exe")
+	binary := filepath.Join(f.bin, "cfo.exe")
 	names := map[string]bool{}
 	for _, hook := range registeredHooks(t, f.user) {
 		if hook.Command != binary {
@@ -154,7 +154,7 @@ func TestInstallRegistersPreCompactForManualAndAutomaticCompactionOnce(t *testin
 
 	count := 0
 	for _, hook := range registeredHooks(t, f.user) {
-		if hook.Event != "PreCompact" || hook.Command != filepath.Join(f.root, "cfo.exe") {
+		if hook.Event != "PreCompact" || hook.Command != filepath.Join(f.bin, "cfo.exe") {
 			continue
 		}
 		count++
@@ -172,7 +172,7 @@ func TestInstallRegistersPreCompactForManualAndAutomaticCompactionOnce(t *testin
 	}
 	f.uninstall()
 	for _, hook := range registeredHooks(t, f.user) {
-		if hook.Event == "PreCompact" && hook.Command == filepath.Join(f.root, "cfo.exe") {
+		if hook.Event == "PreCompact" && hook.Command == filepath.Join(f.bin, "cfo.exe") {
 			t.Fatal("uninstall left the pre-compact hook registered")
 		}
 	}
