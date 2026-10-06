@@ -1,4 +1,4 @@
-import { expect, openItem, test, type BrowserContext, type Page } from "./site";
+import { doneCards, expect, openItem, recordDoneCards, test, type BrowserContext, type Page } from "./site";
 
 // The Overlord, 2026-10-02: "when I close a Command Center question or the CFO
 // answers it, the alert hangs around for a stale second or two in the goblin
@@ -107,17 +107,6 @@ const clickAndLook = (page: Page, selector: string) => page.evaluate(async (sele
   for (let turn = 0; turn < 5; turn++) await Promise.resolve();
   return { painted, toasts: document.querySelectorAll(".toasts .toast").length, badge: document.querySelector(".command-center-menu > summary")!.getAttribute("aria-label"), bar: document.querySelector(".cfo-pin")!.textContent, command: document.querySelector(".cfo-pin .cfo-command")?.getAttribute("aria-label") || "", card: document.querySelector("dialog.question-modal .done-card h3")?.textContent || "" };
 }, selector);
-// A card that finishes shows its check for three quarters of a second, so a
-// board's done cards are recorded as they pass, each as its heading and line.
-const recordDoneCards = (page: Page) => page.evaluate(() => {
-  const seen: string[] = [];
-  Object.assign(window, { doneCards: seen });
-  new MutationObserver(() => {
-    const text = document.querySelector("dialog.question-modal .done-card")?.textContent;
-    if (text && !seen.includes(text)) seen.push(text);
-  }).observe(document.body, { subtree: true, childList: true, characterData: true });
-});
-const doneCards = (page: Page) => page.evaluate(() => (window as unknown as { doneCards: string[] }).doneCards);
 async function expectGone(page: Page, says: string) {
   await expect(toasts(page)).toHaveCount(0);
   await expect(badge(page)).toHaveAccessibleName("Command Center");
@@ -144,14 +133,16 @@ test("an answer waiting for the Codex composer reads Queued with its reason", as
   await send(page, "snapshot", { ...asking({ questions: [question] }), cfo_harness: "codex", revision: 3 });
   await openCard(page, ASKS);
   await card(page).getByText("Merge it", { exact: true }).click();
+  await recordDoneCards(page);
 
   // Act
   await card(page).locator(".send-decision").click();
 
   // Assert
-  await expect(card(page).locator(".done-card h3")).toHaveText("Queued");
-  await expect(card(page)).toContainText(reason);
-  await expect(card(page)).not.toContainText("CFO received");
+  await expect.poll(() => doneCards(page)).toContainEqual(expect.stringMatching(/^Queued/));
+  const shown = await doneCards(page);
+  for (const queued of shown.filter((text) => text.startsWith("Queued"))) expect(queued).toContain(reason);
+  expect(shown.filter((text) => text.includes("CFO received"))).toEqual([]);
 });
 
 for (const way of WAYS) {
