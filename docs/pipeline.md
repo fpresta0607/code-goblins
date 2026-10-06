@@ -155,14 +155,29 @@ cfo gate test --plan          # print the plan and run nothing
 
 | Level | `go vet` | `go test` |
 | --- | --- | --- |
-| `fast` | the changed packages and their direct importers | the changed packages the policy does not list as slow |
-| `affected` | the changed packages and their direct importers | the same packages |
+| `fast` | the packages the change reaches | the changed packages and the packages a contract selects, unless the policy lists them as slow |
+| `affected` | the packages the change reaches | the same packages |
 | `full` | every package | every package |
 
-A change requires `affected` before it merges, and `full` once `go.mod` or `go.sum` changed or the policy cannot be read.
+A change reaches the packages that own a changed file, the packages that import one of those directly or transitively, and the packages a contract of the policy names for a changed file.
+A package owns the Go files in its directory, the files under its `testdata` folder and the files its `//go:embed` patterns cover, so a doc the binary embeds selects the package that embeds it and a doc nothing embeds selects none.
+
+A change requires `affected` before it merges, and `full` once `go.mod` or `go.sum` changed, the policy cannot be read, or a changed file is one the policy does not account for.
 With no `--level` the step runs the required level, which is what the gate runs.
 A level asked for runs instead: a broader one is always allowed, and a narrower one exits 0 when its checks pass while its last line and its report say which level the change still requires.
-The plan prints why each package is in it (`changed`, or `imports <package>`) and every test run the level left to a broader one, with why.
+The plan prints why each package is in it (`changed`, `imports <package>`, or a contract's reason with the file that changed) and every test run the level left to a broader one, with why.
+It then lists the changed files that are outside the Go checks, under the policy's reason for each, and the changed files the policy does not account for, so what the step does not check is read from its output and not assumed:
+
+```text
+cfo gate test: level affected: the default for a change
+cfo gate test: the change since 0123abcd reaches 3 package(s); CI runs every package
+- example.com/m/internal/doctor (tests run or read these scripts: install.ps1)
+- example.com/m/internal/installscript (tests run or read these scripts: install.ps1)
+- example.com/m/internal/installtest (tests run or read these scripts: install.ps1)
+changed files outside the Go checks:
+- README.md, docs/pipeline.md (documentation and housekeeping no Go check reads)
+```
+
 CI runs every package whatever the local level was.
 
 The policy is `config/verify.json`:
@@ -170,11 +185,40 @@ The policy is `config/verify.json`:
 ```json
 {
   "version": 1,
-  "slow_packages": [".", "cmd/cfo", "internal/supervisor"]
+  "slow_packages": ["cmd/cfo", "internal/installscript", "internal/supervisor"],
+  "contracts": [
+    {
+      "paths": ["install.ps1", "install.cmd", "tools/pin-installer.ps1"],
+      "packages": ["internal/doctor", "internal/installscript", "internal/installtest"],
+      "why": "tests run or read these scripts"
+    }
+  ],
+  "outside": [
+    {
+      "paths": ["README.md", "docs/**"],
+      "why": "documentation and housekeeping no Go check reads"
+    }
+  ]
 }
 ```
 
 `slow_packages` are the packages whose tests take minutes on a loaded machine, each named by its directory from the repository root with forward slashes, and `.` for the root package; the fast level vets them and leaves their tests to `affected`.
+
+`contracts` say what the import graph cannot see: the files a package's tests read by path, such as a script they run.
+A change to a file one of a contract's `paths` names selects the contract's `packages`, named as `slow_packages` names them, and the plan gives the contract's `why` with the file.
+A contract selects its own packages and not the packages that import them.
+
+`outside` names the files no Go check reads, each rule with why: a doc nothing embeds, or the frontend's sources, which its own checks cover.
+A change to one of them selects nothing, and the plan lists it under the rule's reason.
+
+A path is a pattern from the repository root with forward slashes: `*` and `?` match inside one name as Go's `path.Match` does, `**` stands for any number of folders, none included, and case does not count.
+A file a package owns is that package's whatever a pattern says of it, and a contract is read before `outside`.
+
+A policy that has `contracts` or `outside` says what every file is.
+Under it a changed file that is in no package, under no contract and not listed as outside is one nobody has said anything about, so the change requires `full` and the plan names the file.
+`TestTheRepositoryPolicyAccountsForEveryTrackedFile` in `internal/gatetest` fails when a tracked file is in that state, so a new kind of file gets its line in the policy in the change that adds it; that change is itself planned by the default branch's policy, which does not know the file yet, and so requires `full` once.
+A policy with neither field keeps the earlier rule: a file no package owns selects nothing and nothing is listed.
+
 The policy that applies is the default branch's, read from the commit where the branch left it and never from the branch's own copy, so a branch, or a fix commit under a gate, cannot loosen the policy it is checked by.
 A change to the file therefore takes effect once it is on the default branch.
 A build ignores a field it does not know, so the build a gate has installed keeps reading a policy that a later build extended.
@@ -185,6 +229,19 @@ Every run that is not `--plan` leaves a report, and beside it a log of what its 
 A run at a level narrower than the change requires ends with one more line saying which level the change still requires.
 `CFO_VERIFY_DIR` names a folder to use in place of `<user cache folder>\cfo\verify`, so they go under its `reports\<project>\`.
 The report holds the project, the task when a goblin ran it, the commit, where the branch left the default branch, how many files were uncommitted, the level run and the level required with why, the policy and the toolchain, each package with why it was selected, each test run left out with why, and each command with its start, duration, exit code and status: `passed`, `failed`, `over_budget` when a check passed but ran past its budget, or `not_run` when admission or an earlier command failed.
+For the test command it also holds what became of each package: `passed`, `failed`, `build_failed` when it did not compile, `no_tests`, or `unfinished` when its tests were still running as the run ended, with its time, how many tests it ran, the tests that failed and the tests that started and never finished, which is how a test that hangs shows.
+
+The tests run as `go test -json`, and the step prints what `go test` prints without `-v`: a compile error as it arrives, each package's summary line as the package ends, and for a package that did not pass what it printed itself and what its failed and unfinished tests printed.
+A run in which a package did not pass ends its tests' output by saying which packages, and which tests in them:
+
+```text
+cfo gate test: go test did not pass in 2 of 7 package(s):
+- example.com/m/internal/spawn: TestSwitchWaits did not finish
+- example.com/m/cmd/cfo: TestUpdate, TestUpdate/rollback failed
+```
+
+The log holds every line the tests wrote, as `go test -v` prints them, so a passing test's lines and every test's own time are read there.
+If the test output or log cannot be written, the test check fails even when `go test` exits zero.
 The 20 reports of a project written last are kept, the one a run just wrote always among them, and an older one is removed with its log.
 A log with no report belongs to a run still going and stays, until nothing has written to it for 24 hours, when the project's next run removes it.
 A run that cannot write its report says so and keeps its verdict: the checks decide the exit code, never the store.
@@ -193,7 +250,7 @@ A run that cannot write its report says so and keeps its verdict: the checks dec
 
 Every `go vet` and `go test` command waits for a turn at every level: the shared capacity limits concurrent commands, every goblin's and every gate's alike, in the order they asked.
 Each command releases its turn when execution ends and joins the common line again before its next command.
-The default remains one because of what the gate's own logs showed: of the test steps that ran alone 11 percent had a failing test, and of those that ran beside three or more others 71 percent, with all but three of the 45 minute package timeouts among them.
+The default remains one, which keeps heavy commands from competing for the same machine's resources.
 Production admission always uses the operating system's user cache folder under `cfo/verify/slots`, regardless of report or process environment redirects.
 The shared `capacity.json` setting accepts only `{"capacity":1}` or `{"capacity":2}`; absence means one.
 Activating capacity two requires a separately reviewed quiet window with no legacy command executing or queued.
@@ -210,12 +267,14 @@ cfo gate test: waiting for its turn (3m0s so far): the turn is held by code-gobl
 ```
 
 A gate shows a step's output only once the step has ended, so `cfo gate turns` prints the line from outside while the wait lasts: each run that holds a turn, the runs that wait in the order they asked, and the memory when the machine is short of it.
+Under a run that holds a turn, `cfo gate turns` prints what the run says it is doing, which the run renews every five seconds while its tests run: how many packages are done, which tests are running and for how long, and the last line of its output.
 A new gate run names the task registered for its source worktree, including the owner of an extra worktree, in its turn and report.
 The run's recorded repository and branch select that worktree; the shared process's task variable is not used.
 If the run or owner cannot be verified, the task stays unnamed and the log explains why.
 
 ```text
 turn: code-goblins at 0123abcd, affected level, in C:\work\code-goblins (pid 4242), for 12m0s of its 1h30m0s budget
+  now: go test: 3 package(s) done; running example.com/m/internal/spawn TestSwitchWaits for 40s; last output: ok  	example.com/m/internal/lock	21.2s
 waiting:
 1. code-goblins at 89abcdef, affected level, in C:\work\other (pid 5150), for 3m0s
 ```

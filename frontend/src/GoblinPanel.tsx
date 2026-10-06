@@ -38,7 +38,7 @@ export function GoblinPanel({ task, node, snapshot, connected, reviews, view, no
         <LifecycleDetails task={task} />
         {task.phase === "queued" && <TaskAdjustment task={task} snapshot={snapshot} />}
       </div>}
-      {task?.archived ? null : owner ? <TaskView task={task} snapshot={snapshot} connected={connected} reviews={reviews} onRepair={onAnswer} /> : <div className="panel-content"><WorkspaceDetails task={task} node={node} runs={snapshot.runs} onRepair={onAnswer} />
+      {!task?.archived && owner ? <TaskView task={task} snapshot={snapshot} connected={connected} reviews={reviews} onRepair={onAnswer} /> : <div className="panel-content"><WorkspaceDetails task={task} node={node} runs={snapshot.runs} instance={snapshot.instance} onRepair={onAnswer} />
         {!task && !node && <section className="cfo-queue" aria-label="Queued tasks">
           <h3>Tasks<span className="column-count">{queuedTasks(snapshot).length}</span></h3>
           <p className="column-hint">Top starts first, when memory allows.</p>

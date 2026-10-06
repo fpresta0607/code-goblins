@@ -164,7 +164,7 @@ func TestSwitchWritesAHandoffAndPointsTheNewHarnessAtIt(t *testing.T) {
 func TestSwitchResumesInPlaceWhenOnlyTheModelChanges(t *testing.T) {
 	f := newSwitchFixture(t, harness.Control{StopCommand: "/exit", ResumeArgs: []string{"resume", "--last"}})
 
-	result, err := f.service.Switch(context.Background(), SwitchRequest{ID: f.meta.ID, Model: "gpt-9"})
+	result, err := f.service.Switch(context.Background(), SwitchRequest{ID: f.meta.ID, Model: "gpt-9", Generation: f.meta.SpawnGen, ResumeSession: "owned-session-7"})
 
 	if err != nil {
 		t.Fatalf("Switch: %v", err)
@@ -172,7 +172,7 @@ func TestSwitchResumesInPlaceWhenOnlyTheModelChanges(t *testing.T) {
 	if !result.Resumed || result.Handoff != "" {
 		t.Fatalf("result = %+v, want the harness's own resume and no handoff", result)
 	}
-	if launches := named(f.events(t), "env"); len(launches) != 1 || !strings.HasPrefix(launches[0].Text, "resume --last ") {
+	if launches := named(f.events(t), "env"); len(launches) != 1 || !strings.HasPrefix(launches[0].Text, "resume owned-session-7 ") || strings.Contains(launches[0].Text, "--last") {
 		t.Errorf("launches = %+v, want the resume arguments first", launches)
 	}
 	after, _ := state.ReadTaskMeta(f.stateDir, f.meta.ID)
@@ -195,6 +195,28 @@ func TestPausedResumeUsesTheSavedSessionInsteadOfTheLatestSession(t *testing.T) 
 	launches := named(f.events(t), "env")
 	if !result.Resumed || len(launches) != 1 || !strings.HasPrefix(launches[0].Text, "resume saved-session-42 ") || strings.Contains(launches[0].Text, "--last") {
 		t.Fatalf("result = %+v, launches = %+v; want the saved session resumed", result, launches)
+	}
+}
+
+func TestSwitchRefusesASessionFromTheReplacedTaskGeneration(t *testing.T) {
+	f := newSwitchFixture(t, harness.Control{ResumeArgs: []string{"resume", "--last"}})
+	replacement := f.meta
+	replacement.SpawnGen = "replacement-generation"
+	if err := state.WriteTaskMeta(f.stateDir, replacement); err != nil {
+		t.Fatal(err)
+	}
+
+	_, err := f.service.Switch(t.Context(), SwitchRequest{ID: f.meta.ID, Model: "gpt-9", Generation: f.meta.SpawnGen, ResumeSession: "previous-session"})
+
+	if err == nil || !strings.Contains(err.Error(), "task session changed") {
+		t.Fatalf("Switch=%v, want a generation refusal", err)
+	}
+	after, readErr := state.ReadTaskMeta(f.stateDir, f.meta.ID)
+	if readErr != nil || after != replacement {
+		t.Fatalf("replacement changed after refusal: %+v, %v", after, readErr)
+	}
+	if _, err := os.Stat(f.record); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("a harness launched after stale generation refusal: %v", err)
 	}
 }
 
@@ -244,19 +266,26 @@ func TestSwitchRefusesANoOpWhileTheHarnessRuns(t *testing.T) {
 	assertLeftRunning(t, f, terminal, before)
 }
 
-// A failure between stopping the old harness and starting the new one - here
-// the target adapter refusing to build its launch - leaves a durable record
-// that the goblin has no harness, and how to start one.
-func TestSwitchRecordsAnEmptyTerminalWhenTheTargetRefusesToBuild(t *testing.T) {
-	f := newSwitchFixture(t, harness.Control{StopCommand: "/exit"})
-	f.service.Harness.Adapters[harness.Codex] = nativeAdapter{kind: harness.Codex, buildErr: errors.New(`harness: Codex does not support effort "max"`)}
+// A launch the target refuses to build, such as an effort it does not take,
+// is refused while the old harness still runs: the goblin is left as it was.
+func TestSwitchRefusesALaunchTheTargetCannotBuildBeforeStoppingTheHarness(t *testing.T) {
+	f, terminal := newRunningGoblin(t)
+	before, err := state.ReadTaskMeta(f.stateDir, "task-7")
+	if err != nil {
+		t.Fatal(err)
+	}
+	f.service.Harness.Adapters[harness.Codex] = nativeAdapter{kind: harness.Codex, control: harness.Control{StopCommand: "/exit"}, buildErr: errors.New(`harness: Codex does not support effort "ultra"`)}
 
-	_, err := f.service.Switch(context.Background(), SwitchRequest{ID: f.meta.ID, Effort: "max"})
+	_, err = f.service.Switch(context.Background(), SwitchRequest{ID: "task-7", Effort: "ultra"})
 
-	assertEmptyTerminalRecorded(t, f, err, "--effort default")
+	if err == nil || !strings.Contains(err.Error(), `does not support effort "ultra"`) || !strings.Contains(err.Error(), "left running") {
+		t.Fatalf("err = %v, want the harness's refusal and that the goblin was left running", err)
+	}
+	assertLeftRunning(t, f, terminal, before)
 }
 
-// A replacement whose terminal cannot start leaves the same record.
+// A replacement whose terminal cannot start leaves a durable record that the
+// goblin has no harness, and how to start one.
 func TestSwitchRecordsAnEmptyTerminalWhenTheNewHarnessWillNotStart(t *testing.T) {
 	f := newSwitchFixture(t, harness.Control{StopCommand: "/exit"})
 	f.service.HostCommand = []string{filepath.Join(t.TempDir(), "no-such-host.exe")}
@@ -393,9 +422,10 @@ func TestSwitchHandoffNamesADetachedWorktreePlainly(t *testing.T) {
 }
 
 // Neither a model name nor an effort survives a change of harness: "opus"
-// means nothing to codex, and Kimi has no effort at all. A model or an effort
-// the operator names explicitly is kept, a Claude goblin that names no model
-// runs Opus 5.5, and a switch that changes only the effort keeps a named model.
+// means nothing to codex, and pi may lack an effort claude has. A model or an
+// effort the operator names explicitly is kept, a Claude goblin that names no
+// model runs Opus 5.5, and a switch that changes only the effort keeps a named
+// model.
 func TestSwitchCarriesOnlyWhatTheNewHarnessUnderstands(t *testing.T) {
 	for _, test := range []struct {
 		name    string
@@ -404,10 +434,10 @@ func TestSwitchCarriesOnlyWhatTheNewHarnessUnderstands(t *testing.T) {
 		want    switchTarget
 	}{
 		{"a model change keeps the effort", state.TaskMeta{Harness: "claude", Model: "opus", Effort: "high"}, SwitchRequest{Model: "sonnet"}, switchTarget{harness.Claude, "sonnet", "high"}},
-		{"a new harness drops the model and the effort", state.TaskMeta{Harness: "claude", Model: "opus", Effort: "high"}, SwitchRequest{Harness: harness.Kimi}, switchTarget{harness.Kimi, "", ""}},
-		{"an explicit effort crosses harnesses", state.TaskMeta{Harness: "claude", Model: "opus", Effort: "high"}, SwitchRequest{Harness: harness.Kimi, Effort: "xhigh"}, switchTarget{harness.Kimi, "", "xhigh"}},
-		{"an explicit model crosses harnesses", state.TaskMeta{Harness: "claude", Model: "opus", Effort: "high"}, SwitchRequest{Harness: harness.Kimi, Model: "kimi-k2"}, switchTarget{harness.Kimi, "kimi-k2", ""}},
-		{"claude with no model runs Opus 5.5", state.TaskMeta{Harness: "kimi", Model: "default", Effort: "default"}, SwitchRequest{Harness: harness.Claude}, switchTarget{harness.Claude, "claude-opus-5-5", ""}},
+		{"a new harness drops the model and the effort", state.TaskMeta{Harness: "claude", Model: "opus", Effort: "high"}, SwitchRequest{Harness: harness.Pi}, switchTarget{harness.Pi, "", ""}},
+		{"an explicit effort crosses harnesses", state.TaskMeta{Harness: "claude", Model: "opus", Effort: "high"}, SwitchRequest{Harness: harness.Pi, Effort: "xhigh"}, switchTarget{harness.Pi, "", "xhigh"}},
+		{"an explicit model crosses harnesses", state.TaskMeta{Harness: "claude", Model: "opus", Effort: "high"}, SwitchRequest{Harness: harness.Pi, Model: "its-model"}, switchTarget{harness.Pi, "its-model", ""}},
+		{"claude with no model runs Opus 5.5", state.TaskMeta{Harness: "pi", Model: "default", Effort: "default"}, SwitchRequest{Harness: harness.Claude}, switchTarget{harness.Claude, "claude-opus-5-5", ""}},
 		{"an effort change keeps a named model", state.TaskMeta{Harness: "claude", Model: "claude-sonnet-5", Effort: "high"}, SwitchRequest{Effort: "max"}, switchTarget{harness.Claude, "claude-sonnet-5", "max"}},
 		{"an effort change gives an unnamed claude model Opus 5.5", state.TaskMeta{Harness: "claude", Model: "default", Effort: "high"}, SwitchRequest{Effort: "max"}, switchTarget{harness.Claude, "claude-opus-5-5", "max"}},
 	} {

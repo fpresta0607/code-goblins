@@ -23,7 +23,7 @@ import (
 	"github.com/fpresta0607/code-goblins/internal/wake"
 )
 
-// A native terminal starts at the size goblins --native starts the CFO at.
+// A native terminal starts at the size goblins starts the CFO at.
 const (
 	nativeCols = 120
 	nativeRows = 40
@@ -88,7 +88,7 @@ func (s Service) startNativeHarness(ctx context.Context, id string, kind harness
 	if err != nil {
 		return host.Record{}, fmt.Errorf("spawn: start native terminal %s: %w", id, err)
 	}
-	untrusted, err := s.awaitNativeReady(ctx, record, screens)
+	untrusted, working, err := s.awaitNativeReady(ctx, record, screens, launch.Resumed)
 	if err != nil {
 		return record, err
 	}
@@ -96,6 +96,11 @@ func (s Service) startNativeHarness(ctx context.Context, id string, kind harness
 		if err := s.reportUntrusted(id, kind, launch.Dir, untrusted); err != nil {
 			return record, err
 		}
+	}
+	// A resumed conversation that came back in a turn is at work on its task
+	// already, and text typed now would wait behind that turn.
+	if working {
+		return record, nil
 	}
 	instruction, err := s.typedInstruction(id, screens, launch.PromptInstruction())
 	if err != nil {
@@ -142,16 +147,19 @@ func instructionPointer(path string) string {
 // from a screen that shows none. The composer counts as ready once it has
 // read so throughout nativeReadySettle: Codex 0.154 drew its composer, then
 // its hook review over it a second later, and a brief typed at the first sight
-// of the composer went into the review. It returns what a dialog answered
-// without trust left untrusted, in the dialog's own words, or nothing.
-func (s Service) awaitNativeReady(ctx context.Context, record host.Record, screens harness.Screens) (string, error) {
+// of the composer went into the review. A resumed conversation can come back
+// in a turn, its status row showing it working, as a Codex goblin with a
+// background terminal running did live; once that has held as long as a
+// composer must, it has started and working says so. It returns what a
+// dialog answered without trust left untrusted, in the dialog's own words, or
+// nothing.
+func (s Service) awaitNativeReady(ctx context.Context, record host.Record, screens harness.Screens, resumed bool) (untrusted string, working bool, err error) {
 	deadline := time.Now().Add(nativeStartup)
-	var untrusted string
-	ready := 0
+	ready, busy := 0, 0
 	for {
 		screen, err := s.readNativeScreen(ctx, record)
 		if err != nil {
-			return "", fmt.Errorf("spawn: %w", err)
+			return "", false, fmt.Errorf("spawn: %w", err)
 		}
 		if dialog, found := screens.Dialog(screen); found {
 			if dialog.Summary != nil {
@@ -160,21 +168,26 @@ func (s Service) awaitNativeReady(ctx context.Context, record host.Record, scree
 				}
 			}
 			if err := s.answerDialog(ctx, record, dialog, screen); err != nil {
-				return "", err
+				return "", false, err
 			}
-			ready = 0
+			ready, busy = 0, 0
 			continue
 		}
 		if !screens.IsReady(screen) {
 			ready = 0
 		} else if ready++; ready > readySettleReads() {
-			return untrusted, nil
+			return untrusted, false, nil
+		}
+		if !resumed || !screens.IsWorking(screen) {
+			busy = 0
+		} else if busy++; busy > readySettleReads() {
+			return untrusted, true, nil
 		}
 		if time.Now().After(deadline) {
-			return "", fmt.Errorf("spawn: native terminal %s showed neither a dialog it knows nor its harness's composer within %s; its screen ends:\n%s", record.ID, nativeStartup, host.ScreenTail(screen, 8))
+			return "", false, fmt.Errorf("spawn: native terminal %s showed neither a dialog it knows nor its harness's composer within %s; its screen ends:\n%s", record.ID, nativeStartup, host.ScreenTail(screen, 8))
 		}
 		if err := s.sleep(ctx, nativePoll); err != nil {
-			return "", err
+			return "", false, err
 		}
 	}
 }

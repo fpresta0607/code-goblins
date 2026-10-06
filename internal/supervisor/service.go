@@ -138,6 +138,8 @@ type Service struct {
 	starting     string
 	startErrors  map[string]string
 	changing     map[string]string
+	engineFrom   map[string]state.TaskMeta
+	engineIdle   map[string]engineIdleReading
 	changeErrors map[string]taskChangeError
 	// credentialSaves takes one credential save at a time, and
 	// credentialWork waits for the refresh and the CFO's notice each save
@@ -174,7 +176,8 @@ type Service struct {
 	snapshots     sharedSnapshots
 	buildSnapshot func() (Snapshot, error)
 	// reads is what the snapshot remembers of the fleet's files.
-	reads keptReads
+	reads                keptReads
+	subscriptionReadings map[string]quota.WeeklyReading
 }
 
 // snapshotRefresh is how often every board gets a fresh snapshot with nothing
@@ -317,6 +320,12 @@ func (s *Service) run(ctx context.Context) {
 		s.keepHistory(ctx, historyRefresh, historyWatch)
 	}()
 	defer func() { s.cancel(); <-historyDone }()
+	usageDone := make(chan struct{})
+	go func() {
+		defer close(usageDone)
+		s.keepSubscriptionUsage(ctx, time.Minute)
+	}()
+	defer func() { s.cancel(); <-usageDone }()
 	awakeDone := make(chan struct{})
 	go func() {
 		defer close(awakeDone)
@@ -442,6 +451,7 @@ func (s *Service) cycle(ctx context.Context, recover bool) {
 	}
 	reconcileErr = errors.Join(reconcileErr, s.Store.supersedeQuestions())
 	reconcileErr = errors.Join(reconcileErr, s.Store.settleDeliveries(time.Now().UTC(), s.lookAtTerminal))
+	reconcileErr = errors.Join(reconcileErr, s.applyEngineChoices(ctx, time.Now().UTC()))
 	reconcileErr = errors.Join(reconcileErr, s.holdForOverlord(time.Now().UTC()))
 	s.reconcilePresentations()
 	s.watchPages(ctx)
@@ -883,16 +893,18 @@ type Task struct {
 	// Brief says queued work has its brief, which a Start needs; Starting
 	// that its Start runs cfo spawn now, and StartError why its last Start
 	// failed.
-	Brief         bool             `json:"brief"`
-	Starting      bool             `json:"starting"`
-	StartError    string           `json:"start_error"`
-	Lifecycle     *LifecycleStatus `json:"lifecycle,omitempty"`
-	Teardown      []string         `json:"teardown,omitempty"`
-	ActionError   string           `json:"action_error,omitempty"`
-	QueueRevision string           `json:"queue_revision,omitempty"`
-	Detail        string           `json:"detail,omitempty"`
-	Notes         []string         `json:"notes,omitempty"`
-	Progress      *WorkProgress    `json:"progress,omitempty"`
+	Brief         bool                `json:"brief"`
+	Starting      bool                `json:"starting"`
+	StartError    string              `json:"start_error"`
+	Lifecycle     *LifecycleStatus    `json:"lifecycle,omitempty"`
+	Teardown      []string            `json:"teardown,omitempty"`
+	ActionError   string              `json:"action_error,omitempty"`
+	QueueRevision string              `json:"queue_revision,omitempty"`
+	Detail        string              `json:"detail,omitempty"`
+	PendingEngine *state.EngineChoice `json:"pending_engine,omitempty"`
+	Switching     bool                `json:"switching,omitempty"`
+	Notes         []string            `json:"notes,omitempty"`
+	Progress      *WorkProgress       `json:"progress,omitempty"`
 	Evaluation
 }
 
@@ -944,8 +956,9 @@ type Snapshot struct {
 	CFOHarness string `json:"cfo_harness"`
 	// Memory is the machine's free memory for the Tasks meter, absent on a
 	// board that cannot start goblins or cannot read it.
-	Memory      *Memory      `json:"memory,omitempty"`
-	CIDurations []CIDuration `json:"ci_durations,omitempty"`
+	Memory        *Memory             `json:"memory,omitempty"`
+	CIDurations   []CIDuration        `json:"ci_durations,omitempty"`
+	Subscriptions []SubscriptionUsage `json:"subscriptions"`
 	// AFK is AFK mode, the Overlord's switch for running the fleet while he
 	// is away, as the board shows it.
 	AFK AFKView `json:"afk"`
@@ -1154,6 +1167,7 @@ func (s *Service) Snapshot() (Snapshot, error) {
 	s.starts.Lock()
 	starting := s.starting
 	startErrors, changing, changeErrors := maps.Clone(s.startErrors), maps.Clone(s.changing), maps.Clone(s.changeErrors)
+	engineFrom := maps.Clone(s.engineFrom)
 	s.starts.Unlock()
 	for i := range out.Tasks {
 		task := &out.Tasks[i]
@@ -1161,6 +1175,10 @@ func (s *Service) Snapshot() (Snapshot, error) {
 		if task.Phase == "queued" {
 			if queued, err := s.queuedTask(task.ID); err == nil {
 				task.QueueRevision, task.Detail = queued.Revision, queued.Detail
+				brief := filepath.Join(s.Store.Home.Data, task.ID, "brief.md")
+				named, _ := kept(&s.reads, "brief-settings", []string{brief}, func() (map[string]string, error) { return briefSettings(brief), nil })
+				settings := queuedEngine(queued.Row, named)
+				task.Harness, task.Model, task.Effort, task.Mode = settings.harness, settings.model, settings.effort, settings.mode
 				if queued.IsBriefOnly {
 					task.Title = queued.Row.Title
 				}
@@ -1196,11 +1214,21 @@ func (s *Service) Snapshot() (Snapshot, error) {
 				task.Archived = true
 			}
 		}
+		choice, err := kept(&s.reads, "engine-choice", []string{filepath.Join(s.Store.Home.State, "engine", task.ID+".json")}, func() (state.EngineChoice, error) { return state.ReadEngineChoice(s.Store.Home.State, task.ID) })
+		if err == nil && choice.Generation == task.Generation {
+			task.PendingEngine = &choice
+		}
 		if failure, ok := changeErrors[task.ID]; ok && failure.Generation == task.Generation && (lifecycleErr != nil || failure.Operation == record.Operation && failure.Updated.Equal(record.Updated)) {
 			task.ActionError = failure.Message
 		}
-		if phase := map[string]string{"pause": "pausing", "resume": "resuming", "stop": "stopping"}[changing[task.ID]]; phase != "" {
-			task.Phase = phase
+		if action := changing[task.ID]; action != "" {
+			if action == "switch" {
+				task.Switching = true
+				prior := engineFrom[task.ID]
+				task.Harness, task.Model, task.Effort = prior.Harness, prior.Model, prior.Effort
+			} else {
+				task.Phase = map[string]string{"pause": "pausing", "resume": "resuming", "stop": "stopping"}[action]
+			}
 		}
 	}
 	for i := range out.Tasks {
@@ -1266,5 +1294,6 @@ func (s *Service) Snapshot() (Snapshot, error) {
 			out.Inbox++
 		}
 	}
+	out.Subscriptions = s.subscriptionUsage(cfo, out)
 	return out, nil
 }
