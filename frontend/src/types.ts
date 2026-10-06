@@ -45,6 +45,9 @@ export interface Task extends Evaluation {
   // report is the kind of the goblin's latest report: working, blocked,
   // failed, done, waiting, or empty.
   report: string;
+  // report_handled says the task is blocked or failed by its own notify, which
+  // the CFO answered or acknowledged: the CFO's to handle, never his news.
+  report_handled?: boolean;
   // waiting_on names what a waiting task waits on: another task's id,
   // overlord, ci or deploy; gate_step is the gate step of a task in review.
   waiting_on: string;
@@ -218,6 +221,7 @@ export interface Snapshot {
   // onboarding and sign-in, a Codex or pi CFO when its first prompt runs cfo
   // register.
   cfo_starting: boolean;
+  cfo_quiet: { since: string; count: number; oldest_age: number } | null;
   // cfo_closed says the home's CFO registered and has since ended, with no
   // terminal up for a new one: the board says so and offers Reopen, and
   // shows no first-run page.
@@ -570,6 +574,7 @@ export function parseSnapshot(value: unknown): Snapshot {
     build: string(v.build),
     cfo_runs: v.cfo_runs === undefined || boolean(v.cfo_runs),
     cfo_starting: v.cfo_starting === undefined ? false : boolean(v.cfo_starting),
+    cfo_quiet: v.cfo_quiet == null ? null : ((quiet) => ({ since: string(quiet.since), count: number(quiet.count), oldest_age: number(quiet.oldest_age) }))(object(v.cfo_quiet)),
     cfo_closed: v.cfo_closed === undefined ? false : boolean(v.cfo_closed),
     inbox: number(v.inbox),
     memory: v.memory === undefined || v.memory === null ? null : (({ available, total, commit_available, commit_limit, paged_pool, nonpaged_pool, floor, next, holders, capacity }) => ({

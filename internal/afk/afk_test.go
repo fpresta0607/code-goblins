@@ -177,6 +177,43 @@ func TestAnItemIsHeldOnlyWhileAFKModeIsOn(t *testing.T) {
 	}
 }
 
+// A goblin the supervisor paused at a floor while AFK mode is on is logged
+// with the readings it stood on, and then with how the pause went. It is the
+// supervisor's safety rail, not a decision of the CFO's, so it counts as none.
+func TestAGoblinPausedAtAFloorIsLoggedWithItsEvidenceAndOutcome(t *testing.T) {
+	// Arrange
+	dir, on := turnedOn(t)
+	pause := Entry{Task: "nw-search-index", What: "at the memory floor", Evidence: "3.1 GB of memory and 6.2 GB of commit free on two readings in a row, under the 4 GB floor"}
+
+	// Act
+	err := errors.Join(Pause(dir, pause, night.Add(time.Minute)), Pause(dir, Entry{Task: pause.Task, What: pause.What, Outcome: "paused"}, night.Add(2*time.Minute)))
+
+	// Assert
+	if err != nil {
+		t.Fatal(err)
+	}
+	entries, _, err := Entries(dir, on.Session)
+	if err != nil {
+		t.Fatal(err)
+	}
+	pauses := Pauses(entries)
+	if len(pauses) != 1 || pauses[0].Kind != KindPause || pauses[0].Task != pause.Task || pauses[0].Evidence != pause.Evidence || pauses[0].Outcome != "paused" {
+		t.Errorf("Pauses = %+v, want the pause with its evidence and its outcome", pauses)
+	}
+	if decisions := Decisions(entries); len(decisions) != 0 {
+		t.Errorf("Decisions = %+v, want none: a pause at a floor is not the CFO's", decisions)
+	}
+	if err := Pause(dir, Entry{What: "at the memory floor", Evidence: "low"}, night.Add(3*time.Minute)); err == nil {
+		t.Error("a pause that names no goblin was logged")
+	}
+	if _, err := TurnOff(dir, "the board", night.Add(time.Hour)); err != nil {
+		t.Fatal(err)
+	}
+	if err := Pause(dir, pause, night.Add(2*time.Hour)); !errors.Is(err, ErrNotOn) {
+		t.Errorf("Pause while off = %v, want %v", err, ErrNotOn)
+	}
+}
+
 // A line cut short, as a crash mid-write leaves one, is counted, never
 // dropped unseen: a log that says less than it holds must say so.
 func TestALogLineThatCannotBeReadIsCounted(t *testing.T) {

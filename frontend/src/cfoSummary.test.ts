@@ -17,14 +17,15 @@ test("with nothing waiting on the Overlord the CFO says all is quiet and how man
   assert.deepEqual(cfoSummary(snapshot()), { waiting: 0, line: "All quiet. No goblins are at work." });
 });
 
-test("while something waits on the Overlord the bar counts it and says nothing of what it is, nor that all is quiet", () => {
+test("while something waits on the Overlord the bar counts it and says nothing of what it is, and a goblin's question to the CFO is not counted", () => {
   const needs = cfoSummary(snapshot({
     tasks: [task("goblin-a")],
     questions: [question("goblin", "Which **layout** should I use?\n\n- A: stacked", { task: "goblin-a", created_at: "2026-09-25T09:00:00Z" }), question("own", "Merge **PR 91** now?")],
     reviews: [review("look", "Check the onboarding mockup")],
   }));
-  assert.deepEqual(needs, { waiting: 3, line: "The CFO supervises 1 goblin." });
+  assert.deepEqual(needs, { waiting: 2, line: "The CFO supervises 1 goblin." });
   assert.deepEqual(cfoSummary(snapshot({ runs: [run("fix", "Restart the dev database")] })), { waiting: 1, line: "No goblins are at work." });
+  assert.deepEqual(cfoSummary(snapshot({ tasks: [task("goblin-a")], questions: [question("goblin", "Which layout should I use?", { task: "goblin-a" })] })), { waiting: 0, line: "All quiet. The CFO supervises 1 goblin." }, "only a goblin's question waits, and it waits on the CFO");
 });
 
 test("what was answered or closed no longer counts", () => {

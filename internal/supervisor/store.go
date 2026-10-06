@@ -131,7 +131,8 @@ type Database struct {
 	Credentials []CredentialRequest `json:"credentials,omitempty"`
 	// Announced is every Command Center key the board has announced, so no
 	// item is announced twice.
-	Announced []Announcement `json:"announced,omitempty"`
+	Announced     []Announcement `json:"announced,omitempty"`
+	CFOQuietSince time.Time      `json:"cfo_quiet_since,omitzero"`
 }
 
 type Store struct {

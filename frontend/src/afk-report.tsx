@@ -9,14 +9,16 @@ import { pullRequestLabel } from "./workflow";
 import type { Task } from "./types";
 import "./afk.css";
 
-// The mark each kind of decision wears in the report.
-const MARKS: Record<string, IconName> = { merge: "merge", deploy: "external", migration: "database", install: "download", answer: "comment", other: "check" };
+// The mark each kind of decision, and a goblin paused at a floor, wears in
+// the report.
+const MARKS: Record<string, IconName> = { merge: "merge", deploy: "external", migration: "database", install: "download", answer: "comment", other: "check", pause: "pause" };
 
 // The report of the last stretch of AFK mode, as one page over the board: who
 // turned it on and off, how many of each thing there is, what is held for the
 // Overlord and what became of it, which he reads first, then what the CFO
 // merged, deployed, migrated, installed and answered, each with its link and
-// the evidence it stood on, what each goblin finished, and what was spent. It
+// the evidence it stood on, the goblins paused at a floor, what each goblin
+// finished, and what was spent. It
 // opens when AFK mode turns off, and again from the CFO panel's header.
 export function AfkReportPage({ tasks, now, onClose, onCommand }: { tasks: Task[]; now: number; onClose: () => void; onCommand: () => void }) {
   const dialog = useRef<HTMLDialogElement>(null);

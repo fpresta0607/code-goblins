@@ -4,15 +4,19 @@ import { deliveryMark, runMark, type Submission } from "./feedback.ts";
 import { credentialSettled } from "./credentials.ts";
 import { plainMessage } from "./messageText.ts";
 
-// Everything the Overlord is asked lives in one queue: a goblin's or the CFO's
-// question, a review item (images, a Lavish page, or a wait on him), a
+// Everything the board holds as an item lives in one queue: a goblin's or the
+// CFO's question, a review item (images, a Lavish page, or a wait on him), a
 // command the CFO needs him to run, or a request for credential values.
 export type Item = { kind: "question"; key: string; question: Question } | { kind: "review"; key: string; review: Review } | { kind: "run"; key: string; run: Run }
   | { kind: "credential"; key: string; request: CredentialRequest };
 
-// A question its goblin asked while its review page is open is that page's
-// item: the page's card shows it, so it never waits as a card of its own.
-const foldedIntoPage = (item: Item) => item.kind === "question" && !!item.question.page;
+// forOverlord says whether an item is his: a question the CFO asks him, what
+// the CFO passes up, a goblin's wait or page addressed to him, a command and
+// a credential request. A goblin's question is the CFO's to answer, never
+// his: it does not wait on him, alert him or open anything, and is in
+// History once answered. One it asked while its review page is open is shown
+// by that page's card.
+export const forOverlord = (item: Item) => item.kind !== "question" || !item.question.task;
 
 // A terminal a credential card opened shows on that card, not as a run of its own.
 export const asItems = (snapshot: Snapshot): Item[] => [
@@ -66,14 +70,12 @@ export const waitReason = (review: Review) => review.title.replace(/^Waiting on 
 export const reviewLine = (review: Review) => plainMessage(waitsOnOverlord(review) ? waitReason(review) : review.title);
 
 // What a wait points at, so its card says it plainly and opens it: the page
-// the goblin named, else its own newest question still waiting, else a file
-// it delivered, else the web link it gave as the link (cfo notify --link),
-// never an address it only names in its words. Null when it names nothing.
+// the goblin named, else a file it delivered, else the web link it gave as the
+// link (cfo notify --link), never an address it only names in its words, and
+// never its question to the CFO. Null when it names nothing.
 export type WaitTarget = { kind: "item"; key: string; label: string; says: string } | { kind: "page"; url: string; label: string; says: string };
 export function waitTarget(review: Review, snapshot: Snapshot): WaitTarget | null {
   if (review.lavish) return { kind: "page", url: review.lavish, label: "Open review", says: "It waits on your answer on its review page." };
-  const question = (snapshot.questions || []).filter((candidate) => candidate.task === review.task && candidate.status === "pending").sort((a, b) => Date.parse(b.created_at) - Date.parse(a.created_at))[0];
-  if (question) return { kind: "item", key: "question:" + question.id, label: "Open its question", says: "It waits on your answer to its question." };
   const file = (snapshot.reviews || []).find((candidate) => candidate.task === review.task && candidate.state === "open" && candidate.document);
   if (file?.document) return { kind: "item", key: "review:" + file.id, label: "Open the file", says: "It waits on you to open " + file.document.name + "." };
   const link = URL.canParse(review.link) ? new URL(review.link) : null;
@@ -99,19 +101,18 @@ export function cardKey(snapshot: Snapshot, key: string): string {
 export function waitingItems(snapshot: Snapshot, kept: ReadonlySet<string> = new Set()): Item[] {
   const place = (item: Item) => { const at = snapshot.attention.indexOf(task(item)); return at < 0 ? snapshot.attention.length : at; };
   return asItems(snapshot)
-    .filter((item) => !foldedIntoPage(item) && (waitsOnHim(item) || kept.has(item.key)))
+    .filter((item) => forOverlord(item) && (waitsOnHim(item) || kept.has(item.key)))
     .sort((a, b) => Number(!!task(a)) - Number(!!task(b)) || place(a) - place(b) || created(a) - created(b));
 }
 
-// Every item still open, a question its page's card carries too: what the
-// board has already announced, whichever card shows it.
+// Every item of his still open: what the board has already announced.
 export function openKeys(snapshot: Snapshot): Set<string> {
-  return new Set(asItems(snapshot).filter(isOpen).map((item) => item.key));
+  return new Set(asItems(snapshot).filter((item) => forOverlord(item) && isOpen(item)).map((item) => item.key));
 }
 
 // The newest item a goblin has waiting on the Overlord, if any.
 export function newestItemOf(snapshot: Snapshot, id: string): Item | undefined {
-  return asItems(snapshot).filter((item) => isOpen(item) && task(item) === id).sort((a, b) => created(b) - created(a))[0];
+  return asItems(snapshot).filter((item) => forOverlord(item) && isOpen(item) && task(item) === id).sort((a, b) => created(b) - created(a))[0];
 }
 
 // The item to show after the one at key: the next open item, wrapping to the

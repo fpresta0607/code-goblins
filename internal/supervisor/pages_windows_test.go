@@ -505,9 +505,12 @@ func TestAPageAnswerThatCannotBeSavedTravelsInTheWake(t *testing.T) {
 	if len(wakes) != 1 {
 		t.Fatalf("review wakes = %+v, want the answer", wakes)
 	}
+	// The bound is on the answer carried inline; the page's path and the
+	// save error before it are as long as this machine's paths.
 	detail := wakes[0].Detail
-	if !strings.Contains(detail, "could not be saved") || !strings.Contains(detail, "(cut to its end) ...") || !strings.HasSuffix(detail, " Ship option B\"\n") || len(detail) > pageFeedbackInline+500 || !utf8.ValidString(detail) {
-		t.Fatalf("wake detail = %q (%d bytes), want the answer's end inline, bounded, and the cut said", detail, len(detail))
+	_, inline, isCut := strings.Cut(detail, "(cut to its end) ...")
+	if !strings.Contains(detail, "could not be saved") || !isCut || !strings.HasSuffix(inline, " Ship option B\"\n") || len(inline) > pageFeedbackInline || !utf8.ValidString(detail) {
+		t.Fatalf("wake detail = %q (%d bytes, %d inline), want the answer's end inline, bounded, and the cut said", detail, len(detail), len(inline))
 	}
 	if got := store.Snapshot().Reviews[0]; got.State != "answered" || got.AnsweredIn != "page" {
 		t.Errorf("the wait = %+v, want it answered on its page once the CFO has it", got)
