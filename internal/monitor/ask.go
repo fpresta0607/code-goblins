@@ -41,6 +41,9 @@ var askingPhrase = regexp.MustCompile(`(?i)` + strings.Join([]string{
 // mark or an asking phrase that is not the goblin's own words.
 var notWords = regexp.MustCompile("`[^`]*`|https?://\\S+")
 
+// paragraphBreak is a blank line between a reply's paragraphs.
+var paragraphBreak = regexp.MustCompile(`\n\s*\n`)
+
 // askedIn returns the sentences that ask the CFO something or offer it a
 // choice in the last two paragraphs of reply, where a goblin that stops to
 // ask puts its question, in reply's order; none for a reply that only
@@ -48,7 +51,7 @@ var notWords = regexp.MustCompile("`[^`]*`|https?://\\S+")
 // asking phrase, read without its code spans and links.
 func askedIn(reply string) []string {
 	var paragraphs []string
-	for _, paragraph := range regexp.MustCompile(`\n\s*\n`).Split(strings.ReplaceAll(strings.TrimSpace(reply), "\r\n", "\n"), -1) {
+	for _, paragraph := range paragraphBreak.Split(strings.ReplaceAll(strings.TrimSpace(reply), "\r\n", "\n"), -1) {
 		if strings.TrimSpace(paragraph) != "" {
 			paragraphs = append(paragraphs, paragraph)
 		}
