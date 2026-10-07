@@ -222,7 +222,7 @@ func TestAdmissionCapacityTwoNeverExceedsTwoConcurrentHolders(t *testing.T) {
 	// loaded workstation without anything being wrong.
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
 	defer cancel()
-	leave := make(chan struct{})
+	leave, holding := make(chan struct{}), make(chan struct{}, 6)
 	var runs sync.WaitGroup
 	var held, maximum, finished atomic.Int32
 
@@ -239,6 +239,7 @@ func TestAdmissionCapacityTwoNeverExceedsTwoConcurrentHolders(t *testing.T) {
 			count := held.Add(1)
 			for seen := maximum.Load(); count > seen && !maximum.CompareAndSwap(seen, count); seen = maximum.Load() {
 			}
+			holding <- struct{}{}
 			select {
 			case <-leave:
 			case <-ctx.Done():
@@ -252,6 +253,16 @@ func TestAdmissionCapacityTwoNeverExceedsTwoConcurrentHolders(t *testing.T) {
 	case <-blocked:
 	case <-ctx.Done():
 		t.Error("no waiter reached the occupied shared slots")
+	}
+	// A run waiting next in line shows the admission granted both slots, but
+	// a granted run counts itself only once its Wait has returned, which can
+	// be after the run behind it already waits; released before both have
+	// counted, the two holds never overlap in the count.
+	for range 2 {
+		select {
+		case <-holding:
+		case <-ctx.Done():
+		}
 	}
 	close(leave)
 	runs.Wait()
