@@ -1,4 +1,4 @@
-import { expect, openItem, test } from "./site";
+import { doneCards, expect, openItem, recordDoneCards, test } from "./site";
 
 // The Overlord, 2026-09-29: "You can't close a command card if you answered
 // it". He answered the CFO's question in chat and its card stayed under
@@ -12,13 +12,14 @@ test("a question he answered in chat finishes its open card, recorded by the CFO
   await openItem(page, "May I stop the 4 stray Herdr panes left from yesterday?");
   await expect(dialog.getByText("May I stop the 4 stray Herdr panes left from yesterday?")).toBeVisible();
 
+  await recordDoneCards(page);
+
   // Act
   await page.evaluate(() => window.recordInChat?.());
 
   // Assert
-  const done = dialog.locator(".done-card");
-  await expect(done.getByRole("heading", { name: "Answered" })).toBeVisible();
-  await expect(done).toContainText("You answered in chat · recorded by the CFO");
+  await expect.poll(() => doneCards(page)).toContainEqual(expect.stringMatching(/^Answered/));
+  for (const answered of (await doneCards(page)).filter((text) => text.startsWith("Answered"))) expect(answered).toContain("You answered in chat · recorded by the CFO");
   await expect(dialog.getByText("May I build the layout switch as drawn?")).toBeVisible();
 });
 
@@ -35,12 +36,13 @@ test("he dismisses a question he no longer needs from its card", async ({ page }
   await openItem(page, "May I stop the 4 stray Herdr panes left from yesterday?");
   const dismiss = dialog.getByRole("button", { name: "Dismiss this question" });
   await expect(dismiss).toHaveAttribute("data-tip", "Dismiss: answered elsewhere or no longer needed");
+  await recordDoneCards(page);
 
   // Act
   await dismiss.click();
 
   // Assert
   await expect.poll(() => posted.map((body) => [body.kind, body.question_id, body.generation])).toEqual([["question_clear", "herdr-strays-20260929", "c".repeat(64)]]);
-  await expect(dialog.locator(".done-card").getByRole("heading", { name: "Dismissed" })).toBeVisible();
+  await expect.poll(() => doneCards(page)).toContainEqual(expect.stringMatching(/^Dismissed/));
   await expect(dialog.getByText("May I build the layout switch as drawn?")).toBeVisible();
 });

@@ -41,12 +41,14 @@ function posted(body: Buffer, headers: Record<string, string>): Posted {
 // object is there, and the window has taken the browser's recognizer away.
 // With browser the Overlord has turned the browser's speech recognition on,
 // and with refusal the supervisor refuses every dictation in those words.
-async function openPane(page: Page, { hint = false, dictations = [] as { text: string; at: number }[], panes = 1, app = false, browser = false, refusal = "", replies = null as Route[] | null } = {}) {
+// With status the supervisor answers what it says of its speech model from
+// that, read at each ask, in place of always ready.
+async function openPane(page: Page, { hint = false, dictations = [] as { text: string; at: number }[], panes = 1, app = false, browser = false, refusal = "", replies = null as Route[] | null, status = null as (() => { state: string; note?: string }) | null } = {}) {
   const asked: string[] = [], posts: Posted[] = [];
   await page.route("**/api/voice", (route) => { asked.push(route.request().url()); return route.fulfill({ json: OLD_VOICE_REPLY }); });
   await page.route("**/api/dictation", (route) => {
     const request = route.request();
-    if (request.method() === "GET") return route.fulfill({ json: { engine: "test-model", state: "ready" } });
+    if (request.method() === "GET") return route.fulfill({ json: { engine: "test-model", ...(status ? status() : { state: "ready" }) } });
     posts.push(posted(request.postDataBuffer()!, request.headers()));
     if (replies) { replies.push(route); return; }
     return refusal ? route.fulfill({ status: 503, json: { error: refusal } }) : route.fulfill({ json: { text: "ship the voice bubble", engine: "test-model" } });
@@ -138,11 +140,96 @@ test("overlapping dictations reach the same terminal in capture order", async ({
   await expect.poll(() => page.evaluate(() => window.voiceProbe!.replies)).toBe(1);
   await expect.poll(() => page.locator("output").textContent()).toBe("");
   await replies[0].fulfill({ json: { text: "open the\npull request" } });
-  await expect.poll(() => page.locator("output").textContent()).toBe("open the pull request\nthen run the tests");
+  await expect.poll(() => page.locator("output").textContent()).toBe("open the pull request\n then run the tests");
   expect(posts).toHaveLength(2);
   await expect(page.getByRole("textbox", { name: "Terminal input" })).toHaveValue("");
   await bubble.click();
   await expect(page.getByRole("dialog", { name: "Recent messages" }).locator(".voice-text")).toHaveText(["then run the tests", "open the pull request"]);
+});
+
+test("a dictation typed right after another starts with a space, and one after a typed key does not", async ({ page }) => {
+  const replies: Route[] = [];
+  const { bubble } = await openPane(page, { app: true, replies });
+  const say = async (count: number, words: string) => {
+    await holdShortcut(page, 0);
+    await expect.poll(() => page.evaluate(() => window.voiceProbe!.captures.length)).toBe(count);
+    await page.waitForTimeout(1200);
+    await releaseShortcut(page);
+    await expect.poll(() => replies.length).toBe(count);
+    await replies[count - 1].fulfill({ json: { text: words } });
+  };
+  // The output shows each typing on a line of its own, exactly as typed.
+  const typed = () => page.locator("output").textContent();
+  await say(1, "open the pull request");
+  await expect.poll(typed).toBe("open the pull request");
+  await say(2, "then run the tests");
+  await expect.poll(typed).toBe("open the pull request\n then run the tests");
+  await page.keyboard.press("x");
+  await say(3, "and merge it");
+  await expect.poll(typed).toBe("open the pull request\n then run the tests\nand merge it");
+  // The recent dictations keep the words alone, without the separating space.
+  expect(await page.evaluate(() => (JSON.parse(localStorage.getItem("cfo-dictations-v1")!) as Record<string, { text: string }[]>)["task:voice"].map((message) => message.text)))
+    .toEqual(["and merge it", "then run the tests", "open the pull request"]);
+  await bubble.click();
+  await expect(page.getByRole("dialog", { name: "Recent messages" }).locator(".voice-text")).toHaveText(["and merge it", "then run the tests", "open the pull request"]);
+});
+
+// What the supervisor says while the first dictation sets up its speech model.
+const DOWNLOADING = (done: number) => `Dictation is being set up, once: downloading its speech model, ${done} of 125 MB, which stays on this PC. Dictate again when it is ready.`;
+
+test("the first dictation's set-up of the speech model stays shown as it downloads, then says dictation is ready", async ({ page }) => {
+  const replies: Route[] = [];
+  let setup: { state: string; note?: string } = { state: "fetching", note: DOWNLOADING(0) };
+  const { pane } = await openPane(page, { app: true, replies, status: () => setup });
+  await dictate(page);
+  await expect.poll(() => replies.length).toBe(1);
+  await replies[0].fulfill({ status: 503, json: { error: DOWNLOADING(0) } });
+  await expect(pane.getByRole("status")).toHaveText(DOWNLOADING(0));
+  setup = { state: "fetching", note: DOWNLOADING(45) };
+  await expect(pane.getByRole("status")).toHaveText(DOWNLOADING(45));
+  // It stays past the time a note is shown, for as long as the set-up lasts,
+  // even when the supervisor says the same for a while.
+  await page.waitForTimeout(7000);
+  await expect(pane.getByRole("status")).toHaveText(DOWNLOADING(45));
+  setup = { state: "ready" };
+  await expect(pane.getByRole("status")).toHaveText("Dictation is ready: hold Ctrl+Shift+Space and speak.");
+  await expect(pane.getByRole("status")).toHaveCount(0, { timeout: 10000 });
+});
+
+test("a set-up of the speech model that fails stays shown until the next dictation", async ({ page }) => {
+  const replies: Route[] = [];
+  const failure = "Parakeet-tdt-110m en-36000-int8 could not be downloaded: no such host. Connect to the internet and dictate again.";
+  let setup: { state: string; note?: string } = { state: "fetching", note: DOWNLOADING(0) };
+  const { pane } = await openPane(page, { app: true, replies, status: () => setup });
+  await dictate(page);
+  await expect.poll(() => replies.length).toBe(1);
+  await replies[0].fulfill({ status: 503, json: { error: DOWNLOADING(0) } });
+  await expect(pane.getByRole("status")).toHaveText(DOWNLOADING(0));
+  setup = { state: "missing", note: failure };
+  await expect(pane.getByRole("status")).toHaveText(failure);
+  await page.waitForTimeout(7000);
+  await expect(pane.getByRole("status")).toHaveText(failure);
+  setup = { state: "ready" };
+  await holdShortcut(page, 0);
+  await expect(pane.getByText(failure)).toHaveCount(0);
+  await expect.poll(() => page.evaluate(() => window.voiceProbe!.captures.length)).toBe(2);
+  await page.waitForTimeout(1200);
+  await releaseShortcut(page);
+  await expect.poll(() => replies.length).toBe(2);
+  await replies[1].fulfill({ json: { text: "now it types" } });
+  await expect.poll(() => page.locator("output").textContent()).toBe("now it types");
+});
+
+test("a dictation refused for another reason only shows why, and asks nothing more of the speech model", async ({ page }) => {
+  let asks = 0;
+  const { pane } = await openPane(page, { app: true, refusal: "Dictation needs 1 GB of free memory and 1 GB of free commit, and this PC has 0.5 GB and 3.0 GB.", status: () => { asks++; return { state: "ready" }; } });
+  await dictate(page);
+  await expect(pane.getByRole("status")).toHaveText("Dictation needs 1 GB of free memory and 1 GB of free commit, and this PC has 0.5 GB and 3.0 GB.");
+  await page.waitForTimeout(2500);
+  const asked = asks;
+  await page.waitForTimeout(2500);
+  expect(asks, "the page stops asking once the model is ready").toBe(asked);
+  await expect(pane.getByRole("status")).toHaveCount(0, { timeout: 10000 });
 });
 
 test("a stalled dictation is canceled without blocking later words", async ({ page }) => {
@@ -434,4 +521,25 @@ for (const stop of ["release outside the terminal", "window blur"]) {
     expect(posts).toHaveLength(0);
     await releaseShortcut(page);
   });
+}
+
+// The desktop app's WebView2 grants the page every permission itself, so a
+// microphone it is refused was refused by Windows; a browser tab's was refused
+// by the browser. Each is stubbed with the refusals WebView2 and Windows give.
+const WINDOWS_BLOCKED = "The microphone is blocked for Code Goblins by Windows. Turn on Microphone access and Let desktop apps access your microphone in Windows Settings > Privacy & security > Microphone, then hold Ctrl+Shift+Space again.";
+const BROWSER_BLOCKED = "The microphone is blocked for the board. Allow it in the browser's site settings, then hold Ctrl+Shift+Space again.";
+for (const [where, app, expected] of [["the desktop app", true, WINDOWS_BLOCKED], ["a browser", false, BROWSER_BLOCKED]] as const) {
+  for (const refusal of ["Permission denied", "Permission denied by system"]) {
+    test(`in ${where}, a microphone refused with "${refusal}" says where to allow it`, async ({ page }) => {
+      const { pane, posts } = await openPane(page, { app });
+      await page.evaluate((refusal) => {
+        navigator.mediaDevices.getUserMedia = async () => { throw new DOMException(refusal, "NotAllowedError"); };
+      }, refusal);
+      await holdShortcut(page, 0);
+      await expect(pane.getByRole("status")).toHaveText(expected);
+      await releaseShortcut(page);
+      await expect(page.locator("output")).toHaveText("");
+      expect(posts).toHaveLength(0);
+    });
+  }
 }

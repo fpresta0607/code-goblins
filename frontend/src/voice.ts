@@ -13,6 +13,9 @@ const time = (value: unknown) => typeof value === "number" && Number.isFinite(va
 export const BOARD_DICTATIONS = 10;
 export const BOARD_PANES = 20;
 const DICTATIONS_KEY = "cfo-dictations-v1";
+// "dismissed" once the bubble's first-visit hint has been put away, or
+// spent by the quick tour, which says the same.
+export const VOICE_HINT_KEY = "cfo-voice-hint-v1";
 type Store = Pick<Storage, "getItem" | "setItem">;
 type Kept = Record<string, VoiceMessage[]>;
 
@@ -40,10 +43,11 @@ export function readDictations(storage: Store | null, pane: string): VoiceMessag
 }
 
 // rememberDictation returns the pane's dictations with this one first, even
-// when the browser refuses to keep them.
+// when the browser refuses to keep them. It keeps the words alone, without
+// the space typed before a dictation that followed another.
 export function rememberDictation(storage: Store | null, pane: string, text: string, at: number): VoiceMessage[] {
   const kept = readKept(storage);
-  const messages = [{ text, at }, ...(kept[pane] || [])].slice(0, BOARD_DICTATIONS);
+  const messages = [{ text: text.trim(), at }, ...(kept[pane] || [])].slice(0, BOARD_DICTATIONS);
   const panes = Object.entries({ ...kept, [pane]: messages })
     .sort(([, a], [, b]) => (b[0]?.at ?? 0) - (a[0]?.at ?? 0)).slice(0, BOARD_PANES);
   try {

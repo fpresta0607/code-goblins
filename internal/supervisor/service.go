@@ -65,6 +65,11 @@ type Options struct {
 	// PollPage waits up to a timeout for the Overlord's feedback on a Lavish
 	// page; without it no page is polled.
 	PollPage func(ctx context.Context, file, reply string, timeout time.Duration) (axi.PagePoll, error)
+	// PageSessions lists every review session lavish-axi keeps without
+	// taking anything from them, and EndPage ends one page's review; without
+	// both nothing sweeps the pages no poller watches.
+	PageSessions func() ([]axi.PageSession, error)
+	EndPage      func(ctx context.Context, file string) error
 	// FirstRun is what the first-run page reads and changes on this
 	// machine; without it the board can start no CFO.
 	FirstRun *FirstRun
@@ -136,6 +141,7 @@ type Service struct {
 	ciDurations     []CIDuration
 	sameArea        map[string]sameArea
 	hostedChecks    map[string]HostedChecks
+	deploys         map[string]Deployment
 	localReports    map[string][]verify.Report
 	localReadErr    error
 	progressReadErr error
@@ -162,10 +168,14 @@ type Service struct {
 	// starts after it answers.
 	credentialSaves sync.Mutex
 	credentialWork  sync.WaitGroup
-	// pages stops each open item's page poller; pageWork waits for them.
-	pagesMu  sync.Mutex
-	pages    map[string]context.CancelFunc
-	pageWork sync.WaitGroup
+	// pages are the pages a poller watches now, by pageKey; pageSwept is when
+	// the last sweep of every review session ended and pageSweeping whether
+	// one runs. pageWork waits for the pollers and the sweep.
+	pagesMu      sync.Mutex
+	pages        map[string]bool
+	pageSwept    time.Time
+	pageSweeping bool
+	pageWork     sync.WaitGroup
 	// afkChange takes one change to AFK mode at a time: a switch, a logged
 	// decision or the items held. held are the items already held in the
 	// stretch heldSession names.
@@ -446,7 +456,7 @@ func (s *Service) cycle(ctx context.Context, recover bool) {
 	watched, fleetReadErr := readFleetWakes(s.Store.Home.State)
 	s.mu.Lock()
 	s.workProgress, s.ciDurations, s.sameArea, s.progressReadErr = watched.Progress, watched.Durations, watched.SameArea, fleetReadErr
-	s.hostedChecks = watched.Hosted
+	s.hostedChecks, s.deploys = watched.Hosted, watched.Deploys
 	localReports, localReadErr := s.readLocalReports()
 	s.localReports, s.localReadErr = localReports, localReadErr
 	s.mu.Unlock()
@@ -485,6 +495,7 @@ func (s *Service) cycle(ctx context.Context, recover bool) {
 	reconcileErr = errors.Join(reconcileErr, s.holdForOverlord(time.Now().UTC()))
 	s.reconcilePresentations()
 	s.watchPages(ctx)
+	s.sweepPages(ctx)
 	if recover {
 		if s.Options.Reconcile != nil {
 			reconcileErr = errors.Join(reconcileErr, s.Options.Reconcile(ctx))
@@ -962,6 +973,9 @@ type Task struct {
 	// CI poll, and LocalChecks its change's newest cfo gate test run.
 	HostedChecks *HostedChecks `json:"hosted_checks,omitempty"`
 	LocalChecks  *LocalChecks  `json:"local_checks,omitempty"`
+	// Deployment is how the deploy of its merged pull request stands, apart
+	// from its checks.
+	Deployment *Deployment `json:"deployment,omitempty"`
 	Evaluation
 }
 
@@ -1055,7 +1069,7 @@ func (s *Service) Snapshot() (Snapshot, error) {
 	d := s.Store.Snapshot()
 	s.mu.Lock()
 	out := Snapshot{Example: s.Options.Example, Instance: s.Instance, Revision: s.revision, Started: s.Started, At: time.Now().UTC(), Reconciled: s.reconciled, Error: s.lastError, Tasks: []Task{}, Attention: []string{}, Sessions: []Session{}, Retired: d.Retired, Actions: d.Actions, Issues: d.Issues}
-	progress, sameAreas, hostedChecks, localReports := maps.Clone(s.workProgress), maps.Clone(s.sameArea), maps.Clone(s.hostedChecks), maps.Clone(s.localReports)
+	progress, sameAreas, hostedChecks, localReports, deploys := maps.Clone(s.workProgress), maps.Clone(s.sameArea), maps.Clone(s.hostedChecks), maps.Clone(s.localReports), maps.Clone(s.deploys)
 	out.Release = s.release
 	if s.localReadErr != nil {
 		out.Issues = append(slices.Clone(out.Issues), s.localReadErr.Error())
@@ -1394,6 +1408,9 @@ func (s *Service) Snapshot() (Snapshot, error) {
 		}
 		if ticket, exists := taskTickets[id]; exists {
 			task.Ticket = &ticket
+		}
+		if deployment, exists := deploys[task.PR]; exists && task.PR != "" {
+			task.Deployment = &deployment
 		}
 	}
 	if len(out.Decisions) > 100 {

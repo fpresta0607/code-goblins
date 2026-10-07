@@ -16,9 +16,12 @@ export const ORIGIN = "http://127.0.0.1:1";
 // request opens a socket, so a connection the machine refuses cannot fail a
 // page load. No supervisor runs behind the tests either, so an API request a
 // test does not answer itself fails. origin serves the pages under another
-// origin too, for a test of the board as another machine sees it.
-export async function servePages(context: BrowserContext, origin = ORIGIN): Promise<void> {
+// origin too, for a test of the board as another machine sees it. Its browser
+// has had the board's quick tour, so no tour covers the board on a first
+// open, unless hadTour is false.
+export async function servePages(context: BrowserContext, origin = ORIGIN, hadTour = true): Promise<void> {
   const site = process.env.BOARD_TEST_SITE!;
+  if (hadTour) await context.addInitScript(() => localStorage.setItem("cfo-tour", "seen"));
   await context.route(origin + "/**", (route) => {
     const { pathname } = new URL(route.request().url());
     const file = path.join(site, pathname === "/" ? "index.html" : decodeURIComponent(pathname));
@@ -63,6 +66,20 @@ export async function openItem(page: Page, text: string): Promise<void> {
   await menu.locator(".inbox-list li").filter({ hasText: text }).getByRole("button", { name: /^Answer / }).click();
 }
 
+// A card that finishes shows its check for three quarters of a second before
+// the Command Center moves on, which a loaded machine can let pass between two
+// looks, so a board's done cards are recorded as they pass, each as its
+// heading and line. Start recording before the act that finishes the card.
+export const recordDoneCards = (page: Page) => page.evaluate(() => {
+  const seen: string[] = [];
+  Object.assign(window, { doneCards: seen });
+  new MutationObserver(() => {
+    const text = document.querySelector("dialog.question-modal .done-card")?.textContent;
+    if (text && !seen.includes(text)) seen.push(text);
+  }).observe(document.body, { subtree: true, childList: true, characterData: true });
+});
+export const doneCards = (page: Page) => page.evaluate(() => (window as unknown as { doneCards: string[] }).doneCards);
+
 export interface Room { free: () => number; limit: number; pause: number; ci: boolean }
 const MACHINE: Room = { free: os.freemem, limit: 60_000, pause: 500, ci: !!process.env.CI };
 
@@ -79,15 +96,17 @@ export async function roomForATest({ free, limit, pause, ci }: Room = MACHINE): 
 }
 
 // Every test waits for room before it starts. A test's own context has its
-// pages served; a test that opens another context serves that one itself.
-export const test = base.extend<{ room: Room; paced: void }>({
+// pages served, with hadTour passed to servePages; a test that opens another
+// context serves that one itself.
+export const test = base.extend<{ room: Room; paced: void; hadTour: boolean }>({
   room: [MACHINE, { option: true }],
+  hadTour: [true, { option: true }],
   paced: [async ({ room }, use) => {
     await roomForATest(room);
     await use();
   }, { auto: true, timeout: MACHINE.limit + 10_000 }],
-  context: async ({ context }, use) => {
-    await servePages(context);
+  context: async ({ context, hadTour }, use) => {
+    await servePages(context, ORIGIN, hadTour);
     await use(context);
   },
 });

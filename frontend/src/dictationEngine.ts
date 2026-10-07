@@ -78,6 +78,15 @@ export function recognizerFor(instance: () => string): new () => Recognizer {
   return (usesBrowser() && speechRecognition()) || localRecognizer(record, recogniseWith(instance));
 }
 
+// DictationStatus is what the supervisor says of its speech model: ready,
+// fetching with how far the download is, or missing with why it failed.
+export interface DictationStatus { state: string; note: string }
+
+export async function dictationStatus(): Promise<DictationStatus> {
+  const status = object(await request("/api/dictation"));
+  return { state: string(status.state), note: string(status.note) };
+}
+
 let named: Promise<string> | null = null;
 
 // modelName asks the supervisor once which speech model it runs, and is

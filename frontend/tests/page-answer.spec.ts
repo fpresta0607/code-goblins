@@ -1,4 +1,4 @@
-import { expect, test, type Page } from "./site";
+import { doneCards, expect, recordDoneCards, test, type Page } from "./site";
 
 // The Overlord answered cg-board-theme's mockups on the review page while its
 // card was open in the Command Center (2026-09-30): the card must finish with
@@ -15,14 +15,14 @@ async function openTheWait(page: Page) {
 test("a review answered on its page finishes its open card with a check and moves on", async ({ page }) => {
   // Arrange
   const dialog = await openTheWait(page);
+  await recordDoneCards(page);
 
   // Act
   await page.evaluate(() => window.answerOnPage?.());
 
   // Assert
-  const done = dialog.locator(".done-card");
-  await expect(done.getByRole("heading", { name: "Answered" })).toBeVisible();
-  await expect(done).toContainText("You answered on its page; the CFO relays it to the goblin.");
+  await expect.poll(() => doneCards(page)).toContainEqual(expect.stringMatching(/^Answered/));
+  for (const answered of (await doneCards(page)).filter((text) => text.startsWith("Answered"))) expect(answered).toContain("You answered on its page; the CFO relays it to the goblin.");
   await expect(dialog.getByRole("heading", { name: "Look at the new icons" })).toBeVisible();
   await expect(dialog.getByText(/Withdrawn/)).toHaveCount(0);
   await expect(dialog.getByRole("alert")).toHaveCount(0);
@@ -37,6 +37,7 @@ test("a clear refused because he just answered on the page shows the check, not 
     await route.fulfill({ status: 409, json: { error: "that review is not open; refresh the board" } });
   });
   const dialog = await openTheWait(page);
+  await recordDoneCards(page);
 
   // Act
   await dialog.getByRole("button", { name: "Dismiss" }).click();
@@ -44,7 +45,7 @@ test("a clear refused because he just answered on the page shows the check, not 
   await page.evaluate(() => window.answerOnPage?.());
 
   // Assert
-  await expect(dialog.locator(".done-card").getByRole("heading", { name: "Answered" })).toBeVisible();
+  await expect.poll(() => doneCards(page)).toContainEqual(expect.stringMatching(/^Answered/));
   await expect(dialog.getByText(/that review is not open/)).toHaveCount(0);
   await expect(dialog.getByRole("heading", { name: "Look at the new icons" })).toBeVisible();
   // A refused send that moved on comes back only while it can be retried; this
