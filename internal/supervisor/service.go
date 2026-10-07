@@ -1366,7 +1366,7 @@ func (s *Service) Snapshot() (Snapshot, error) {
 			_, briefErr := s.reads.look(filepath.Join(s.Store.Home.Data, task.ID, "brief.md"))
 			task.Brief = briefErr == nil
 			task.StartError = startErrors[task.ID]
-			task.Finished = finished.refusal(task.ID)
+			task.Finished = s.finishedCard(finished, task.ID)
 		}
 		record, lifecycleErr := s.lifecycle(task.ID)
 		isCurrent := record.Generation == task.Generation || record.Generation == "queued" && task.Phase == "queued" && record.Phase == "stopping"

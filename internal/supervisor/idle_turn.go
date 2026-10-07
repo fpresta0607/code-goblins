@@ -64,13 +64,15 @@ func IdleTurnWake(h home.Home, memory Memory, now time.Time) (string, error) {
 	})
 	finished := readFinishedWork(h, nil)
 	queued := startableQueued(h, finished)
+	var next string
 	var steps, waiting []string
 	for index, record := range paused {
-		if index == 0 {
-			steps = append(steps, "resume "+record.ID+" with cfo resume "+record.ID)
-		} else {
+		if index > 0 {
 			waiting = append(waiting, record.ID)
+			continue
 		}
+		next = record.ID
+		steps = append(steps, "resume "+record.ID+" with cfo resume "+record.ID)
 	}
 	for index, id := range queued {
 		if index > 0 {
@@ -81,12 +83,14 @@ func IdleTurnWake(h home.Home, memory Memory, now time.Time) (string, error) {
 		if err != nil {
 			return "", err
 		}
+		if next == "" {
+			next = id
+		}
 		steps = append(steps, "start "+id+" with cfo "+commandLine(plan.args()))
 	}
-	if len(steps) == 0 {
+	if next == "" {
 		return "", nil
 	}
-	next := strings.Fields(steps[0])[1]
 	path := filepath.Join(h.State, idleTurnFile)
 	var last idleTurn
 	if data, err := fsx.ReadFile(path); err == nil {
@@ -118,7 +122,7 @@ func IdleTurnWake(h home.Home, memory Memory, now time.Time) (string, error) {
 
 // startableQueued names the queued tasks a Start could start now, in queue
 // order.
-func startableQueued(h home.Home, finished finishedWork) []string {
+func startableQueued(h home.Home, finished *finishedWork) []string {
 	var queued []string
 	for _, id := range queuedCandidates(h) {
 		if _, err := planStart(h, id, finished); err == nil {

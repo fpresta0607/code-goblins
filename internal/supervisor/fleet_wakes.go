@@ -368,7 +368,7 @@ func diskLowDetail(h home.Home, reading Disk, now time.Time) string {
 // memoryWork is the work waiting on memory: the queued tasks a Start could
 // start now, top of the queue first, and the live goblins whose latest report
 // is a wait on memory.
-func memoryWork(h home.Home, finished finishedWork) (queued, waiting []string) {
+func memoryWork(h home.Home, finished *finishedWork) (queued, waiting []string) {
 	queued = startableQueued(h, finished)
 	for _, meta := range liveTasks(h.State) {
 		if record, err := state.ReadLifecycle(h.State, meta.ID); err == nil && record.Generation == meta.SpawnGen && record.Phase == "paused" && record.Pause != nil && record.Pause.Reason == "memory" {

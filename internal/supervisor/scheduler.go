@@ -10,7 +10,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/fpresta0607/code-goblins/internal/fleet"
 	"github.com/fpresta0607/code-goblins/internal/state"
 )
 
@@ -50,10 +49,6 @@ func (s *Service) schedule(ctx context.Context, now time.Time, memory Memory, wa
 		return record, err
 	}
 	finished := s.finishedWork()
-	backlog, err := fleet.ReadBacklog(s.Store.Home)
-	if err != nil {
-		return record, err
-	}
 	var queued []string
 	defect := ""
 	for _, id := range queuedCandidates(s.Store.Home) {
@@ -79,9 +74,6 @@ func (s *Service) schedule(ctx context.Context, now time.Time, memory Memory, wa
 		if plan.isProductionDefect && defect == "" {
 			defect = id
 		}
-	}
-	if !slices.ContainsFunc(backlog.Queued, func(row fleet.BacklogRow) bool { return row.ID == defect }) {
-		defect = ""
 	}
 	var problems error
 	var ready []state.Lifecycle
@@ -144,7 +136,8 @@ func (s *Service) schedule(ctx context.Context, now time.Time, memory Memory, wa
 	case memoryPending != "":
 		record.Text = memoryPending + " resumes first, once memory reads 5 GB twice"
 	case len(record.Waiting) > 0:
-		record.Text = "nothing starts: " + record.Waiting[0].ID + ": " + record.Waiting[0].Why
+		// The whole reason is on the task's card; the meter's line is short.
+		record.Text = "nothing starts: " + record.Waiting[0].ID + ": " + bounded(record.Waiting[0].Why, 120)
 		if len(record.Waiting) > 1 {
 			record.Text += fmt.Sprintf(" (and %d more)", len(record.Waiting)-1)
 		}
@@ -153,7 +146,7 @@ func (s *Service) schedule(ctx context.Context, now time.Time, memory Memory, wa
 	}
 	var refusal StartRefusal
 	if errors.As(problems, &refusal) {
-		record.Text = "nothing starts: " + refusal.Reason
+		record.Text = "nothing starts: " + bounded(refusal.Reason, 120)
 	}
 	return record, problems
 }

@@ -359,8 +359,10 @@ func reopenIdleTurn(h home.Home, session string) string {
 	if err != nil {
 		return ""
 	}
-	detail, err := supervisor.IdleTurnWake(h, memory, time.Now().UTC())
-	if err != nil || detail == "" {
+	// A wake raised whose interval could not be recorded still reopens the
+	// turn; one that could not be raised does not.
+	detail, _ := supervisor.IdleTurnWake(h, memory, time.Now().UTC())
+	if detail == "" {
 		return ""
 	}
 	// The reopened turn drains the wake, so the auto-arm does not rewake the

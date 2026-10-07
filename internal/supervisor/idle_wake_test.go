@@ -172,3 +172,39 @@ func TestTheSnapshotNamesWhatTheSchedulerDid(t *testing.T) {
 		})
 	}
 }
+
+// The meter's line cuts a long reason short; the whole of it stays in what
+// the scheduler found waiting, for the idle wake, and on the task's card.
+func TestTheMetersLineCutsALongReasonShort(t *testing.T) {
+	// Arrange
+	spawner := &spawnRecorder{}
+	handler, h := startBoard(t, 8*gigabyte, spawner)
+	queueBriefedTask(t, h, "- **next-task** - Ship it (repo: code-goblins)", plainBrief)
+	reason := "refused: " + strings.Repeat("the project's auth preflight is red ", 10)
+	handler.Service.Options.Dispatch.Spawn = func(ctx context.Context, args []string) (string, error) {
+		_, _ = spawner.spawn(ctx, args)
+		return reason, errors.New("exit status 1")
+	}
+	now := time.Now().UTC()
+
+	// Act
+	for reading := range 2 {
+		if err := handler.Service.checkFleet(t.Context(), now.Add(time.Duration(reading)*time.Minute)); err != nil {
+			t.Fatal(err)
+		}
+		awaitDispatch(t, handler.Service, spawner, 1)
+	}
+
+	// Assert
+	snapshot, err := handler.Service.Snapshot()
+	if err != nil {
+		t.Fatal(err)
+	}
+	scheduling := snapshot.Scheduling
+	if scheduling == nil || len(scheduling.Text) > 180 || !strings.HasSuffix(scheduling.Text, "...") {
+		t.Fatalf("line = %+v, want it cut short", scheduling)
+	}
+	if len(scheduling.Waiting) != 1 || !strings.Contains(scheduling.Waiting[0].Why, strings.TrimSpace(reason)) {
+		t.Errorf("waiting = %+v, want the whole reason", scheduling.Waiting)
+	}
+}

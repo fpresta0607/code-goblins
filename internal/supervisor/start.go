@@ -302,7 +302,7 @@ func spawnFailure(output string, err error) string {
 // queued work with a brief and a project, not already running and not
 // already finished. Harness, model, effort and mode come from the backlog
 // row, then the brief, then the fleet's defaults.
-func planStart(h home.Home, id string, finished finishedWork) (startPlan, error) {
+func planStart(h home.Home, id string, finished *finishedWork) (startPlan, error) {
 	if _, err := os.Stat(filepath.Join(h.State, id+".meta")); err == nil {
 		return startPlan{}, StartRefusal{Reason: id + " already runs; open it from In progress", Held: true}
 	}

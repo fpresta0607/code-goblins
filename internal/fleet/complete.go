@@ -78,7 +78,7 @@ func CompleteQueuedTask(h home.Home, id string) (err error) {
 			if strings.TrimSpace(lines[next]) == "" {
 				continue
 			}
-			if !continuesRow(strings.TrimSuffix(strings.TrimSuffix(lines[next], "\n"), "\r")) {
+			if !strings.HasPrefix(lines[next], " ") && !strings.HasPrefix(lines[next], "\t") {
 				break
 			}
 			end = next + 1

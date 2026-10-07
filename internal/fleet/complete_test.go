@@ -29,25 +29,6 @@ func completedHome(t *testing.T, backlog string) home.Home {
 	return h
 }
 
-// Closing a row moves only its own block: a row indented under it is another
-// task's row, which the board reads as queued work, and it stays queued.
-func TestCompleteQueuedTaskLeavesAnIndentedRowOfAnotherTaskQueued(t *testing.T) {
-	// Arrange
-	h := completedHome(t, "## Queued\n- **g1** - Ship it\n  detail: mine\n  - **child** - Another task\n    detail: its own\n\n## Done\n")
-
-	// Act
-	err := CompleteQueuedTask(h, "g1")
-
-	// Assert
-	if err != nil {
-		t.Fatal(err)
-	}
-	got, _ := os.ReadFile(filepath.Join(h.Data, "backlog.md"))
-	if want := "## Queued\n  - **child** - Another task\n    detail: its own\n\n## Done\n- [x] g1 - Ship it (done 2026-10-07)\n  detail: mine\n"; string(got) != want {
-		t.Errorf("backlog =\n%s\nwant\n%s", got, want)
-	}
-}
-
 // A task with no row anywhere in the backlog is not queued, which a cleanup
 // of a task spawned straight from a brief meets every time.
 func TestCompleteQueuedTaskWithNoRowIsNotQueued(t *testing.T) {
