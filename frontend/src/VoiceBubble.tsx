@@ -2,23 +2,29 @@ import { useEffect, useRef, useState } from "react";
 import { spoken } from "./dictation";
 import { browserOffered, setUsesBrowser, usesBrowser } from "./dictationEngine";
 import { Icon } from "./Icon";
+import { VOICE_HINT_KEY } from "./voice";
 import type { Voice } from "./useVoice";
 
-const HINT_KEY = "cfo-voice-hint-v1";
 const BARS = 9;
 // While listening, a bar takes the microphone's level this often.
 const SAMPLE_MS = 70;
+// A bar at rest is a dot, one eighth of its height, so while the keys are held
+// in silence the bars are a flat dotted line. A level under QUIET, such as a
+// room's hum, keeps the dot: only a voice moves the bars.
+const REST = 1 / 8;
+const QUIET = 0.08;
 
 function hintDismissed(): boolean {
-  try { return localStorage.getItem(HINT_KEY) === "dismissed"; } catch { return false; }
+  try { return localStorage.getItem(VOICE_HINT_KEY) === "dismissed"; } catch { return false; }
 }
 
 const clock = (at: number) => at ? new Date(at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) : "";
 
 // A terminal's voice bubble, always in the pane's bottom-right corner: idle,
 // a small microphone that opens the pane's recent dictations, each with Copy
-// and Paste into this terminal; recording, it shows the microphone's level as
-// bars. The first visit explains the shortcut once. model is the speech model
+// and Paste into this terminal; recording, a waveform that moves with the
+// voice, which is a flat dotted line while the keys are held in silence. The
+// first visit explains the shortcut once. model is the speech model
 // the supervisor runs on this PC, which the bubble names as what listens; the
 // list's foot says so too and offers the browser's own speech recognition
 // where the browser has one.
@@ -47,7 +53,7 @@ export function VoiceBubble({ voice, listening, level, model, onPaste }: { voice
         sampled = now;
         levels.shift();
         levels.push(level());
-        levels.forEach((value, index) => { const bar = bars.current[index]; if (bar) bar.style.transform = `scaleY(${.2 + .8 * value})`; });
+        levels.forEach((value, index) => { const bar = bars.current[index]; if (bar) bar.style.transform = `scaleY(${value < QUIET ? REST : REST + (1 - REST) * value})`; });
       }
       frame = requestAnimationFrame(draw);
     };
@@ -61,7 +67,7 @@ export function VoiceBubble({ voice, listening, level, model, onPaste }: { voice
   }, [copied]);
   const dismiss = () => {
     setDismissed(true);
-    try { localStorage.setItem(HINT_KEY, "dismissed"); } catch { /* the hint shows again next visit */ }
+    try { localStorage.setItem(VOICE_HINT_KEY, "dismissed"); } catch { /* the hint shows again next visit */ }
   };
   const close = () => { setOpen(false); bubble.current?.focus(); };
   const toggle = () => {

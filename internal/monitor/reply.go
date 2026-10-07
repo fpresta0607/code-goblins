@@ -6,7 +6,13 @@ import (
 	"encoding/json"
 	"errors"
 	"io"
+	"os"
+	"path/filepath"
+	"strconv"
 	"strings"
+	"unicode"
+	"unicode/utf16"
+	"unicode/utf8"
 
 	"github.com/fpresta0607/code-goblins/internal/fleettree"
 	"github.com/fpresta0607/code-goblins/internal/fsx"
@@ -46,32 +52,98 @@ func (h *HostProgress) LastReply(ctx context.Context, meta state.TaskMeta, sampl
 	return lastReplyIn(h.tree().Conversation(ctx, goblin), read)
 }
 
+// sessionTranscript is the transcript the harness keeps for session, its
+// first pattern's newest match: a Claude subagent's own transcript is never
+// the goblin's reply.
+func (h *HostProgress) sessionTranscript(harness, session string) string {
+	if h.Home == "" || !sessionID.MatchString(session) {
+		return ""
+	}
+	matches, _ := filepath.Glob(filepath.Join(h.Home, strings.ReplaceAll(transcriptPatterns[harness][0], "{session}", session)))
+	return newestFile(matches)
+}
+
+// claudeFolderLimit is the longest folder name Claude Code keeps a working
+// folder's conversations under.
+const claudeFolderLimit = 200
+
+// claudeFolder is the folder Claude Code 2.1.292 keeps the conversations
+// held in dir under, named as it names it: each UTF-16 unit of dir but an
+// ASCII letter or digit as a hyphen, and a name longer than
+// claudeFolderLimit cut there and followed by a hyphen and the base-36
+// absolute value of dir's 32-bit string hash. A goblin's worktree under a
+// long scratch path took the cut, live on 2026-10-06.
+func claudeFolder(dir string) string {
+	units := utf16.Encode([]rune(dir))
+	folder := make([]byte, len(units))
+	var hash int32
+	for i, unit := range units {
+		folder[i] = '-'
+		if unit < utf8.RuneSelf && (unicode.IsLetter(rune(unit)) || unicode.IsDigit(rune(unit))) {
+			folder[i] = byte(unit)
+		}
+		hash = hash*31 + int32(unit)
+	}
+	if len(folder) <= claudeFolderLimit {
+		return string(folder)
+	}
+	return string(folder[:claudeFolderLimit]) + "-" + strconv.FormatInt(max(int64(hash), -int64(hash)), 36)
+}
+
+// claudeConversations is every conversation Claude Code keeps in the folder
+// for dir, which it names after the folder a session starts in.
+func (h *HostProgress) claudeConversations(dir string) []string {
+	if h.Home == "" || !filepath.IsAbs(dir) {
+		return nil
+	}
+	matches, _ := filepath.Glob(filepath.Join(h.Home, ".claude", "projects", claudeFolder(dir), "*.jsonl"))
+	return matches
+}
+
+// newestFile is the path in paths whose file was written last.
+func newestFile(paths []string) string {
+	newest := ""
+	var written int64
+	for _, path := range paths {
+		if info, err := os.Stat(path); err == nil && (newest == "" || info.ModTime().UnixNano() > written) {
+			newest, written = path, info.ModTime().UnixNano()
+		}
+	}
+	return newest
+}
+
 // lastReplyIn reads the reply read finds in the end of the transcript at
 // path.
 func lastReplyIn(path string, read func(entries [][]byte) string) string {
+	return read(transcriptTail(path))
+}
+
+// transcriptTail is the entries in the end of the transcript at path, the
+// last transcriptEntryReach of it, and none when it cannot be read.
+func transcriptTail(path string) [][]byte {
 	if path == "" {
-		return ""
+		return nil
 	}
 	file, err := fsx.Open(path)
 	if err != nil {
-		return ""
+		return nil
 	}
 	defer file.Close()
 	info, err := file.Stat()
 	if err != nil {
-		return ""
+		return nil
 	}
-	start := max(0, info.Size()-fleettree.TranscriptEntryReach)
+	start := max(0, info.Size()-transcriptEntryReach)
 	tail := make([]byte, info.Size()-start)
 	if _, err := file.ReadAt(tail, start); err != nil && !errors.Is(err, io.EOF) {
-		return ""
+		return nil
 	}
 	entries := bytes.Split(tail, []byte("\n"))
 	if start > 0 {
 		// The first piece may begin part way through an entry.
 		entries = entries[1:]
 	}
-	return read(entries)
+	return entries
 }
 
 // claudeReply is the text that ended the last turn of a Claude Code

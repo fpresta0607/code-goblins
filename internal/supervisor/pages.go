@@ -4,14 +4,17 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io/fs"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"time"
 	"unicode/utf8"
 
 	"github.com/fpresta0607/code-goblins/internal/axi"
 	"github.com/fpresta0607/code-goblins/internal/fleet"
+	"github.com/fpresta0607/code-goblins/internal/state"
 	"github.com/fpresta0607/code-goblins/internal/wake"
 )
 
@@ -31,64 +34,88 @@ const (
 // the next attempt.
 var pagePollPause = 10 * time.Second
 
-// watchPages keeps one poller for each open item that names a Lavish page,
-// and stops the poller of an item that is no longer open. lavish-axi hands a
-// page's feedback to whichever poll takes it, so the supervisor is the only
-// one that polls: the Overlord's answer on any page reaches the CFO.
+// watchPages keeps one poller for each page the supervisor watches: the
+// Lavish page of any item, open or closed, until the review on it settles,
+// while the item is the CFO's own or its goblin's task stands. What becomes
+// of the item, a later report that withdraws its card or an answer to the
+// goblin's question that closes it, never ends the watch, so nothing the
+// Overlord sends on the page goes unread. lavish-axi hands a page's feedback
+// to whichever poll takes it, so a page has one poller, named by its file,
+// and the supervisor is the only one that polls.
 func (s *Service) watchPages(ctx context.Context) {
 	if s.Options.PollPage == nil {
 		return
 	}
-	open := map[string]Review{}
-	for _, r := range s.Store.Snapshot().Reviews {
-		if r.State == "open" && r.LavishPage != "" {
-			open[r.ID] = r
-		}
-	}
+	watched := s.Store.watchedPages()
 	s.pagesMu.Lock()
 	defer s.pagesMu.Unlock()
 	if s.pages == nil {
-		s.pages = map[string]context.CancelFunc{}
+		s.pages = map[string]bool{}
 	}
-	for id, stop := range s.pages {
-		if _, ok := open[id]; !ok {
-			stop()
-			delete(s.pages, id)
-		}
-	}
-	for id, r := range open {
-		if _, ok := s.pages[id]; ok || ctx.Err() != nil {
+	for key := range watched {
+		if s.pages[key] || ctx.Err() != nil {
 			continue
 		}
-		pageCtx, stop := context.WithCancel(ctx)
-		s.pages[id] = stop
+		s.pages[key] = true
 		s.pageWork.Add(1)
 		go func() {
 			defer s.pageWork.Done()
-			s.watchPage(pageCtx, r)
+			s.watchPage(ctx, key)
+			// A page no longer watched, such as a retired goblin's, is the
+			// next cycle's sweep, so it says why soon rather than in minutes.
+			s.pagesMu.Lock()
+			delete(s.pages, key)
+			s.pageSwept = time.Time{}
+			s.pagesMu.Unlock()
 		}()
 	}
 }
 
-// watchPage polls one item's page until the Overlord answers on it or ends
-// it, the item closes, or the page cannot be polled, then gives the CFO what
-// happened and closes the item. A closed review window is not the end of the
-// review: lavish-axi keeps the session, his answers queue on the page until a
-// poll takes them, and reopening the page resumes the same review, so the
-// poll goes on after a pause that keeps a window that keeps disconnecting
-// from spinning it. What he sends without ending the review is a revision,
-// unless the page carries a question it answers: its reporter makes the next
-// version, the page says so, and the poll goes on.
-func (s *Service) watchPage(ctx context.Context, r Review) {
+// watchPage polls one page until the review on it settles, then gives the
+// CFO what happened and closes the page's open items, or until the page is no
+// longer watched because its goblin's task was retired, which leaves it to
+// the sweep. Between polls it takes the item that now stands for the page,
+// so a newer item, or one that closed meanwhile, is the one answered. A closed
+// review window is not the end of the review: lavish-axi keeps the session,
+// his answers queue on the page until a poll takes them, and reopening the
+// page resumes the same review, so the poll goes on after a pause that keeps
+// a window that keeps disconnecting from spinning it. What he sends without
+// ending the review is a revision, unless the page carries a question it
+// answers: its reporter makes the next version, the page says so, and the
+// poll goes on. On a page whose item has closed it is a note its goblin gets
+// all the same.
+func (s *Service) watchPage(ctx context.Context, key string) {
 	failures := 0
 	reply := ""
 	for {
+		r, watched := s.Store.watchedPages()[key]
+		if !watched {
+			return
+		}
 		poll, err := s.Options.PollPage(ctx, r.LavishPage, reply, pagePollTimeout)
 		if ctx.Err() != nil {
 			return
 		}
+		if now, ok := s.Store.watchedPages()[key]; ok {
+			r = now
+		} else if now, ok := s.Store.review(r.ID); ok {
+			r = now
+		}
 		if err == nil {
 			reply = ""
+		}
+		if err == nil && poll.Status == "feedback" && r.State != "open" {
+			failures = 0
+			wakeKey := r.Task
+			if wakeKey == "" {
+				wakeKey = r.ID
+			}
+			// The next poll shows him who has it, and ends the watch when
+			// he ended the review.
+			if reply = s.passOnPageFeedback(ctx, r.LavishPage, r.Task, r.Identity, wakeKey, poll); reply == "" {
+				return
+			}
+			continue
 		}
 		if err == nil && poll.Status == "feedback" && !poll.Ended && !s.Store.asksOnPage(r) {
 			failures = 0
@@ -135,7 +162,7 @@ func (s *Service) watchPage(ctx context.Context, r Review) {
 // the CFO has it; an empty reply means the poller stopped first.
 func (s *Service) takeRevision(ctx context.Context, r Review, poll axi.PagePoll) string {
 	feedback := "his feedback is in "
-	if saved, err := savePageFeedback(s.Store.Home.State, r, poll.Output); err == nil {
+	if saved, err := savePageFeedback(s.Store.Home.State, r.ID, poll.Output); err == nil {
 		feedback += saved
 	} else {
 		s.publish(err)
@@ -162,14 +189,14 @@ func (s *Service) takeRevision(ctx context.Context, r Review, poll axi.PagePoll)
 }
 
 // deliverToGoblin types text into the goblin's own terminal, as a board
-// answer reaches it, and reports whether the goblin has it; one queued behind
-// its turn counts.
+// answer reaches it, and reports whether the goblin has it; one queued for
+// its next tool call counts.
 func (s *Service) deliverToGoblin(ctx context.Context, r Review, text string) bool {
 	if s.Options.CFO == nil {
 		return false
 	}
 	_, err := s.Options.CFO.SendGoblin(ctx, r.Task, r.Identity, text)
-	if err != nil && !errors.Is(err, fleet.ErrQueuedBehindTurn) {
+	if err != nil && !errors.Is(err, fleet.ErrQueuedForToolCall) {
 		s.publish(err)
 		return false
 	}
@@ -197,15 +224,24 @@ func (s *Service) queueReviewWake(ctx context.Context, key, detail string) bool 
 	return true
 }
 
-// handPageToCFO wakes the CFO with what became of an item's page and closes
-// the item. His answer reaches a goblin in its own terminal and the CFO is
-// told; when the goblin cannot take it, the CFO relays it, and the CFO's own
-// page has no goblin, so its wake is keyed by the item. The poll consumed the
-// page's feedback, so the wake is retried until the CFO has it, and the item
-// stays open until then. An item the Overlord answered on its page closes
-// answered, by him, on the page, and one he ended there closes as his clear;
-// only an item that closed without his word is withdrawn.
+// handPageToCFO wakes the CFO with what became of an item's page, settles the
+// page and closes every open item naming it, so the board never shows the
+// page as waiting on him once its review has ended. His answer reaches a
+// goblin in its own terminal and the CFO is told; when the goblin cannot take
+// it, the CFO relays it, and the CFO's own page has no goblin, so its wake is
+// keyed by the item. The poll consumed the page's feedback, so the wake is
+// retried until the CFO has it, and the item stays open until then. An item
+// the Overlord answered on its page closes answered, by him, on the page, and
+// one he ended there closes as his clear; only an item that closed without
+// his word is withdrawn. A page whose items had all closed already settles
+// with no wake: whatever he sent on it was passed on as it came.
 func (s *Service) handPageToCFO(ctx context.Context, r Review, poll axi.PagePoll, pollErr error) {
+	if r.State != "open" {
+		if err := s.Store.settlePage(pageKey(r.LavishPage), Review{}); err != nil {
+			s.publish(err)
+		}
+		return
+	}
 	var detail string
 	relay, key, answered := "relay it to the goblin", r.Task, "You answered on its page; the CFO relays it to the goblin."
 	if r.Task == "" {
@@ -222,7 +258,7 @@ func (s *Service) handPageToCFO(ctx context.Context, r Review, poll axi.PagePoll
 			on += " and ended the review"
 		}
 		asked := strings.Join(poll.Prompts, "\n")
-		saved, err := savePageFeedback(s.Store.Home.State, r, poll.Output)
+		saved, err := savePageFeedback(s.Store.Home.State, r.ID, poll.Output)
 		told := asked
 		if told == "" {
 			told = "his feedback is in " + saved
@@ -261,21 +297,127 @@ func (s *Service) handPageToCFO(ctx context.Context, r Review, poll axi.PagePoll
 	if !s.queueReviewWake(ctx, key, detail) {
 		return
 	}
-	if err := s.Store.closeReview(r.ID, closed); err != nil {
+	if err := s.Store.settlePage(pageKey(r.LavishPage), closed); err != nil {
 		s.publish(err)
 	}
 }
 
+// passOnPageFeedback hands what the Overlord sent on a page nobody waits on
+// any more, its item closed or never made, to the goblin of task while it
+// runs as identity, else to the CFO, and returns the reply the page shows him:
+// who has it. The CFO is told either way, by a review wake keyed by key, and
+// acts on it itself for its own page (no task) or a retired goblin's. The
+// poll consumed the feedback, so the wake is retried until the CFO has it; an
+// empty reply means the caller stopped first.
+func (s *Service) passOnPageFeedback(ctx context.Context, page, task, identity, key string, poll axi.PagePoll) string {
+	feedback := "his feedback is in "
+	if saved, err := savePageFeedback(s.Store.Home.State, key, poll.Output); err == nil {
+		feedback += saved
+	} else {
+		s.publish(err)
+		feedback = "his feedback could not be saved (" + err.Error() + "): " + bounded(poll.Output, pageFeedbackInline)
+	}
+	asked := strings.Join(poll.Prompts, "\n")
+	if asked == "" {
+		asked = feedback
+	}
+	detail, reply := "the Overlord wrote on your page "+page+"; "+feedback+", act on it", "Received. The CFO has it."
+	switch {
+	case task == "":
+	case !s.Store.taskStands(task):
+		detail, reply = "the Overlord wrote on the page "+page+" of "+task+", which has been retired; "+feedback+", act on it", "Received. "+task+" has been retired, so the CFO has it."
+	case s.deliverToGoblin(ctx, Review{Task: task, Identity: identity}, fmt.Sprintf("The Overlord wrote on your review page %s: %s\nTo show him a next version, change the same file and run cfo notify %s --waiting-on overlord \"<why>\" --lavish %s.", page, asked, task, page)):
+		detail, reply = "the Overlord wrote on the page "+page+", and "+task+" has it: "+asked, "Received. "+task+" has it."
+	default:
+		detail, reply = "the Overlord wrote on the page "+page+"; "+feedback+", relay it to "+task, "Received. The CFO has it and passes it to "+task+"."
+	}
+	if !s.queueReviewWake(ctx, key, bounded(detail, 4000)) {
+		return ""
+	}
+	return reply
+}
+
 // savePageFeedback keeps a poll's whole output for the CFO to read, since
-// delivery consumed it and lavish-axi holds no other copy.
-func savePageFeedback(stateDir string, r Review, output string) (string, error) {
+// delivery consumed it and lavish-axi holds no other copy, in a file named
+// for name and the time.
+func savePageFeedback(stateDir, name, output string) (string, error) {
 	dir := filepath.Join(stateDir, "reviews", "feedback")
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return "", err
 	}
-	path := filepath.Join(dir, r.ID+"-"+time.Now().UTC().Format("20060102T150405.000000000Z")+".toon")
+	path := filepath.Join(dir, name+"-"+time.Now().UTC().Format("20060102T150405.000000000Z")+".toon")
 	if err := os.WriteFile(path, []byte(strings.ReplaceAll(output, "\r\n", "\n")), 0o600); err != nil {
 		return "", err
 	}
 	return path, nil
+}
+
+// pageKey names a page by its file the way Windows does, in any case.
+func pageKey(file string) string {
+	return strings.ToLower(filepath.Clean(file))
+}
+
+// watchesPage reports whether the supervisor watches item r's page: the
+// review on it has not settled, and the item is the CFO's own or its goblin's
+// task stands. A retired goblin's page is the sweep's to end.
+func (s *Store) watchesPage(r Review) bool {
+	return r.LavishPage != "" && r.PageSettled == nil && r.Document == nil && (r.Task == "" || s.taskStands(r.Task))
+}
+
+// taskStands reports whether task id stands, running or paused: its record is
+// there. A record that cannot be checked stands, the safe side.
+func (s *Store) taskStands(id string) bool {
+	_, err := os.Stat(state.TaskMetaPath(s.Home.State, id))
+	return !errors.Is(err, fs.ErrNotExist)
+}
+
+// watchedPages maps the key of each page the supervisor watches to the item
+// that stands for it: the newest open item naming it, else the newest item.
+func (s *Store) watchedPages() map[string]Review {
+	pages := map[string]Review{}
+	for _, r := range s.Snapshot().Reviews {
+		if !s.watchesPage(r) {
+			continue
+		}
+		key := pageKey(r.LavishPage)
+		prior, found := pages[key]
+		if !found || (r.State == "open") != (prior.State == "open") && r.State == "open" || (r.State == "open") == (prior.State == "open") && !r.CreatedAt.Before(prior.CreatedAt) {
+			pages[key] = r
+		}
+	}
+	return pages
+}
+
+// review returns item id as it stands now.
+func (s *Store) review(id string) (Review, bool) {
+	reviews := s.Snapshot().Reviews
+	i := slices.IndexFunc(reviews, func(r Review) bool { return r.ID == id })
+	if i < 0 {
+		return Review{}, false
+	}
+	return reviews[i], true
+}
+
+// settlePage records that the review on the page key names has settled, on
+// every item naming it, so nothing watches it any more, and closes each of
+// them still open as closed says, when it says anything.
+func (s *Store) settlePage(key string, closed Review) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	at := time.Now().UTC()
+	changed := false
+	for i := range s.db.Reviews {
+		r := &s.db.Reviews[i]
+		if r.LavishPage == "" || r.PageSettled != nil || pageKey(r.LavishPage) != key {
+			continue
+		}
+		r.PageSettled, changed = &at, true
+		if r.State == "open" && closed.State != "" {
+			r.State, r.Reason, r.AnsweredBy, r.AnsweredIn, r.UpdatedAt = closed.State, closed.Reason, closed.AnsweredBy, closed.AnsweredIn, at
+		}
+	}
+	if !changed {
+		return nil
+	}
+	return s.save()
 }

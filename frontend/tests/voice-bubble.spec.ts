@@ -464,9 +464,17 @@ test("holding the shortcut records one capture and its bars follow the voice", a
   const bars = bubble.locator(".voice-bars span");
   await expect(bars).toHaveCount(9);
   const heights = () => bars.evaluateAll((bars) => bars.map((bar) => new DOMMatrix(getComputedStyle(bar).transform).d));
-  await expect.poll(async () => Math.max(...await heights())).toBeCloseTo(.2, 2);
-  const scales = new Set<number>([20]);
-  for (const [volume, minimum] of [[.04, .25], [.12, .4], [.3, .8]]) {
+  // Held in silence, the bars are a flat dotted line: each a 3 px square, one
+  // eighth of its 24 px bar.
+  const flat = async () => { const all = await heights(); return Math.max(...all) - Math.min(...all) < .001 && Math.abs(all[0] - .125) < .001; };
+  await expect.poll(flat).toBe(true);
+  expect(await bars.first().evaluate((bar) => getComputedStyle(bar).width)).toBe("3px");
+  // A quiet room's hum keeps the line flat; only a voice moves it.
+  await page.evaluate(() => { window.voiceSignal!.gain.gain.value = .015; });
+  await page.waitForTimeout(1000);
+  expect(await flat(), `a hum moved the bars to ${(await heights()).join(", ")}`).toBe(true);
+  const scales = new Set<number>([13]);
+  for (const [volume, minimum] of [[.04, .2], [.12, .4], [.3, .8]]) {
     await page.evaluate((volume) => { window.voiceSignal!.gain.gain.value = volume; }, volume);
     await expect.poll(async () => Math.min(...await heights())).toBeGreaterThan(minimum);
     for (const height of await heights()) scales.add(Math.round(height * 100));
@@ -474,7 +482,7 @@ test("holding the shortcut records one capture and its bars follow the voice", a
   expect(Math.max(...scales)).toBeGreaterThan(25);
   expect(scales.size).toBeGreaterThan(2);
   await page.evaluate(() => { window.voiceSignal!.gain.gain.value = 0; });
-  await expect.poll(async () => Math.max(...await heights())).toBeCloseTo(.2, 2);
+  await expect.poll(flat).toBe(true);
   // One microphone is open, for the bars and the words alike.
   expect(await page.evaluate(() => window.voiceProbe!.captures.length)).toBe(1);
 
@@ -521,4 +529,25 @@ for (const stop of ["release outside the terminal", "window blur"]) {
     expect(posts).toHaveLength(0);
     await releaseShortcut(page);
   });
+}
+
+// The desktop app's WebView2 grants the page every permission itself, so a
+// microphone it is refused was refused by Windows; a browser tab's was refused
+// by the browser. Each is stubbed with the refusals WebView2 and Windows give.
+const WINDOWS_BLOCKED = "The microphone is blocked for Code Goblins by Windows. Turn on Microphone access and Let desktop apps access your microphone in Windows Settings > Privacy & security > Microphone, then hold Ctrl+Shift+Space again.";
+const BROWSER_BLOCKED = "The microphone is blocked for the board. Allow it in the browser's site settings, then hold Ctrl+Shift+Space again.";
+for (const [where, app, expected] of [["the desktop app", true, WINDOWS_BLOCKED], ["a browser", false, BROWSER_BLOCKED]] as const) {
+  for (const refusal of ["Permission denied", "Permission denied by system"]) {
+    test(`in ${where}, a microphone refused with "${refusal}" says where to allow it`, async ({ page }) => {
+      const { pane, posts } = await openPane(page, { app });
+      await page.evaluate((refusal) => {
+        navigator.mediaDevices.getUserMedia = async () => { throw new DOMException(refusal, "NotAllowedError"); };
+      }, refusal);
+      await holdShortcut(page, 0);
+      await expect(pane.getByRole("status")).toHaveText(expected);
+      await releaseShortcut(page);
+      await expect(page.locator("output")).toHaveText("");
+      expect(posts).toHaveLength(0);
+    });
+  }
 }

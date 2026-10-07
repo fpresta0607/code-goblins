@@ -9,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/fpresta0607/code-goblins/internal/monitor"
 	"github.com/fpresta0607/code-goblins/internal/state"
 )
 
@@ -72,7 +73,7 @@ func TestASendToANativeGoblinLeavesABoardReceipt(t *testing.T) {
 				t.Fatal(err)
 			}
 
-			err := PrepareSendActivity(h, target)()
+			err := PrepareSendActivity(h, target).Taken()
 
 			if err != nil {
 				t.Fatal(err)
@@ -93,6 +94,78 @@ func TestASendToANativeGoblinLeavesABoardReceipt(t *testing.T) {
 	}
 }
 
+// A send typed into a goblin in a turn is held by its harness until the
+// goblin's next tool call, so its board receipt shows only once the goblin's
+// record of the conversation shows the text taken, timed then; the receipt of
+// a goblin that restarted first is dropped unshown.
+func TestAQueuedSendShowsItsReceiptOnlyOnceTheGoblinTookIt(t *testing.T) {
+	for _, test := range []struct {
+		name  string
+		looks [](func(BoardActivity) (bool, bool))
+		shown bool
+		held  bool
+	}{
+		{"taken at its next tool call", [](func(BoardActivity) (bool, bool)){notTaken, taken}, true, false},
+		{"not taken yet", [](func(BoardActivity) (bool, bool)){notTaken, notTaken}, false, true},
+		{"restarted before it took it", [](func(BoardActivity) (bool, bool)){notTaken, restarted}, false, false},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			// Arrange
+			store, h := testStore(t)
+			primaryFixture(t, store)
+			meta := makeNative(t, h.State, "task-1")
+			if err := store.Accept(event(t, h, "SessionStart", "worker", "", time.Now().UTC())); err != nil {
+				t.Fatal(err)
+			}
+			if err := store.save(); err != nil {
+				t.Fatal(err)
+			}
+			since := time.Now().UTC()
+			if err := PrepareSendActivity(h, "task-1").Queued("CFO: merge main first", since); err != nil {
+				t.Fatal(err)
+			}
+			if err := store.ingestActivity(); err != nil {
+				t.Fatal(err)
+			}
+			var asked []BoardActivity
+			now := since.Add(time.Minute)
+
+			// Act
+			for _, look := range test.looks {
+				if err := store.settleQueuedSends(now, func(a BoardActivity) (bool, bool) { asked = append(asked, a); return look(a) }); err != nil {
+					t.Fatal(err)
+				}
+			}
+
+			// Assert
+			var receipts []BoardActivity
+			for _, a := range store.Snapshot().Activity {
+				if a.Kind == "message" {
+					receipts = append(receipts, a)
+				}
+			}
+			if test.shown != (len(receipts) == 1) || len(receipts) > 1 {
+				t.Fatalf("message receipts = %+v, want shown=%t", receipts, test.shown)
+			}
+			if test.shown && (receipts[0].State != "accepted" || receipts[0].Digest != "" || !receipts[0].At.Equal(now) || receipts[0].Generation != meta.SpawnGen) {
+				t.Errorf("receipt = %+v, want it accepted, for the goblin's generation, at the look that saw it taken", receipts[0])
+			}
+			if len(asked) == 0 || asked[0].Digest != monitor.TextDigest("CFO: merge main first") || !asked[0].At.Equal(since) {
+				t.Errorf("the goblin's record was asked for %+v, want the text's digest since the send", asked)
+			}
+			if held := len(store.Snapshot().QueuedSends) == 1; held != test.held {
+				t.Errorf("held receipts = %+v, want held=%t", store.Snapshot().QueuedSends, test.held)
+			}
+		})
+	}
+}
+
+var (
+	notTaken  = func(BoardActivity) (bool, bool) { return false, false }
+	taken     = func(BoardActivity) (bool, bool) { return true, false }
+	restarted = func(BoardActivity) (bool, bool) { return false, true }
+)
+
 func TestSendReceiptNeverBorrowsSameHarnessParent(t *testing.T) {
 	store, h := testStore(t)
 	primaryFixture(t, store)
@@ -111,7 +184,7 @@ func TestSendReceiptNeverBorrowsSameHarnessParent(t *testing.T) {
 	}
 	t.Setenv("CFO_SESSION_ID", "actual-primary")
 	t.Setenv("CFO_SESSION_HARNESS", "codex")
-	if err := PrepareSendActivity(h, "task-1")(); err != nil {
+	if err := PrepareSendActivity(h, "task-1").Taken(); err != nil {
 		t.Fatal(err)
 	}
 	if err := store.ingestActivity(); err != nil {
@@ -128,7 +201,7 @@ func TestSendReceiptNeverBorrowsSameHarnessParent(t *testing.T) {
 	if err := store.save(); err != nil {
 		t.Fatal(err)
 	}
-	if err := PrepareSendActivity(h, "task-1")(); err != nil {
+	if err := PrepareSendActivity(h, "task-1").Taken(); err != nil {
 		t.Fatal(err)
 	}
 	if err := store.ingestActivity(); err != nil {

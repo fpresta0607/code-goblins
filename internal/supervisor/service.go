@@ -66,6 +66,11 @@ type Options struct {
 	// PollPage waits up to a timeout for the Overlord's feedback on a Lavish
 	// page; without it no page is polled.
 	PollPage func(ctx context.Context, file, reply string, timeout time.Duration) (axi.PagePoll, error)
+	// PageSessions lists every review session lavish-axi keeps without
+	// taking anything from them, and EndPage ends one page's review; without
+	// both nothing sweeps the pages no poller watches.
+	PageSessions func() ([]axi.PageSession, error)
+	EndPage      func(ctx context.Context, file string) error
 	// FirstRun is what the first-run page reads and changes on this
 	// machine; without it the board can start no CFO.
 	FirstRun *FirstRun
@@ -95,6 +100,9 @@ type Options struct {
 	// the board's record of each goblin's conversation. Without it no card
 	// shows one.
 	Tree *fleettree.Reader
+	// Releases is where the board looks for a newer release of Code
+	// Goblins; without it the board never looks and makes no Update item.
+	Releases *Releases
 }
 
 type Service struct {
@@ -144,6 +152,10 @@ type Service struct {
 	// trees is each live goblin's family tree as keepTrees last read it.
 	trees           map[string]fleettree.Tree
 	progressReadErr error
+	// release is the newest release as the banner shows it, kept by the
+	// release watch, which releaseNow asks for another look.
+	release    *ReleaseView
+	releaseNow chan struct{}
 	// runRequests takes one run request at a time, so two with one ID never
 	// both write a script.
 	runRequests sync.Mutex
@@ -163,10 +175,14 @@ type Service struct {
 	// starts after it answers.
 	credentialSaves sync.Mutex
 	credentialWork  sync.WaitGroup
-	// pages stops each open item's page poller; pageWork waits for them.
-	pagesMu  sync.Mutex
-	pages    map[string]context.CancelFunc
-	pageWork sync.WaitGroup
+	// pages are the pages a poller watches now, by pageKey; pageSwept is when
+	// the last sweep of every review session ended and pageSweeping whether
+	// one runs. pageWork waits for the pollers and the sweep.
+	pagesMu      sync.Mutex
+	pages        map[string]bool
+	pageSwept    time.Time
+	pageSweeping bool
+	pageWork     sync.WaitGroup
 	// afkChange takes one change to AFK mode at a time: a switch, a logged
 	// decision or the items held. held are the items already held in the
 	// stretch heldSession names.
@@ -223,7 +239,7 @@ func Start(ctx context.Context, h home.Home, options Options) (*Service, error) 
 		return nil, err
 	}
 	ctx, cancel := context.WithCancel(ctx)
-	s := &Service{Store: store, Options: options, Instance: hex.EncodeToString(id[:]), Started: time.Now().UTC(), subscribers: map[chan struct{}]struct{}{}, done: make(chan struct{}), work: make(chan struct{}, 1), looks: make(chan chan struct{}), cancel: cancel}
+	s := &Service{Store: store, Options: options, Instance: hex.EncodeToString(id[:]), Started: time.Now().UTC(), subscribers: map[chan struct{}]struct{}{}, done: make(chan struct{}), work: make(chan struct{}, 1), looks: make(chan chan struct{}), releaseNow: make(chan struct{}, 1), cancel: cancel}
 	if options.Tickets != nil {
 		s.tickets = newTicketKeeper(h, options.Tickets)
 	}
@@ -374,6 +390,14 @@ func (s *Service) run(ctx context.Context) {
 		}
 	}()
 	defer func() { s.cancel(); <-treesDone }()
+	releasesDone := make(chan struct{})
+	go func() {
+		defer close(releasesDone)
+		if s.Options.Releases != nil {
+			s.watchReleases(ctx)
+		}
+	}()
+	defer func() { s.cancel(); <-releasesDone }()
 	// A single inbox watcher, independent of task count. A timeout also
 	// recovers notifications lost during atomic renames or an AV filter fault.
 	notified := make(chan struct{}, 1)
@@ -485,10 +509,12 @@ func (s *Service) cycle(ctx context.Context, recover bool) {
 	reconcileErr = errors.Join(reconcileErr, s.Store.supersedeQuestions())
 	reconcileErr = errors.Join(reconcileErr, s.Store.keepCFOQuiet(time.Now().UTC()))
 	reconcileErr = errors.Join(reconcileErr, s.Store.settleDeliveries(time.Now().UTC(), s.lookAtTerminal))
+	reconcileErr = errors.Join(reconcileErr, s.Store.settleQueuedSends(time.Now().UTC(), s.lookAtQueuedSend))
 	reconcileErr = errors.Join(reconcileErr, s.applyEngineChoices(ctx, time.Now().UTC()))
 	reconcileErr = errors.Join(reconcileErr, s.holdForOverlord(time.Now().UTC()))
 	s.reconcilePresentations()
 	s.watchPages(ctx)
+	s.sweepPages(ctx)
 	if recover {
 		if s.Options.Reconcile != nil {
 			reconcileErr = errors.Join(reconcileErr, s.Options.Reconcile(ctx))
@@ -1048,6 +1074,9 @@ type Snapshot struct {
 	// Projects names who else works in each collaborative project on the
 	// board.
 	Projects []ProjectPeople `json:"projects"`
+	// Release is a newer published release of Code Goblins, or any on a
+	// board built from a clone, for the board's banner.
+	Release *ReleaseView `json:"release,omitempty"`
 }
 
 // setItems makes items the snapshot's Command Center items.
@@ -1064,6 +1093,7 @@ func (s *Service) Snapshot() (Snapshot, error) {
 	s.mu.Lock()
 	out := Snapshot{Example: s.Options.Example, Instance: s.Instance, Revision: s.revision, Started: s.Started, At: time.Now().UTC(), Reconciled: s.reconciled, Error: s.lastError, Tasks: []Task{}, Attention: []string{}, Sessions: []Session{}, Retired: d.Retired, Actions: d.Actions, Issues: d.Issues}
 	progress, sameAreas, hostedChecks, localReports, deploys, trees := maps.Clone(s.workProgress), maps.Clone(s.sameArea), maps.Clone(s.hostedChecks), maps.Clone(s.localReports), maps.Clone(s.deploys), maps.Clone(s.trees)
+	out.Release = s.release
 	if s.localReadErr != nil {
 		out.Issues = append(slices.Clone(out.Issues), s.localReadErr.Error())
 	}

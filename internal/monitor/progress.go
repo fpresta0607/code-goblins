@@ -2,10 +2,16 @@ package monitor
 
 import (
 	"context"
+	"encoding/json"
+	"io"
+	"path/filepath"
+	"regexp"
+	"strings"
 	"sync"
 	"time"
 
 	"github.com/fpresta0607/code-goblins/internal/fleettree"
+	"github.com/fpresta0607/code-goblins/internal/fsx"
 	"github.com/fpresta0607/code-goblins/internal/herdr"
 	"github.com/fpresta0607/code-goblins/internal/host"
 	"github.com/fpresta0607/code-goblins/internal/state"
@@ -60,6 +66,11 @@ type HostProgress struct {
 	Tree *fleettree.Reader
 
 	once sync.Once
+	mu   sync.Mutex
+	// rolloutCwds holds the directory each Codex rollout's opening
+	// session_meta names, by path, for the rollouts that still exist. A
+	// rollout never rewrites its first entry, so each is read once.
+	rolloutCwds map[string]string
 }
 
 // tree is the reader the prober reads through.
@@ -122,3 +133,112 @@ func (h *HostProgress) harness(ctx context.Context, meta state.TaskMeta, sample 
 	}
 	return info.ForegroundProcessGroupID, time.Time{}, nil
 }
+
+// transcriptPatterns are where each harness writes its session transcript,
+// as globs under the user's home with {session} standing for the session id.
+// A Claude subagent writes its own transcript beside its parent's, and a
+// parent waiting on one writes nothing, so those count too.
+var transcriptPatterns = map[string][]string{
+	"claude": {
+		filepath.Join(".claude", "projects", "*", "{session}.jsonl"),
+		filepath.Join(".claude", "projects", "*", "{session}", "subagents", "*.jsonl"),
+	},
+	"codex": {filepath.Join(".codex", "sessions", "*", "*", "*", "rollout-*-{session}.jsonl")},
+	"pi":    {filepath.Join(".pi", "agent", "sessions", "*", "*_{session}.jsonl")},
+}
+
+// sessionID is the shape of a harness session id. Anything else could reach
+// outside the transcript directories once substituted into a glob.
+var sessionID = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9-]*$`)
+
+// nativeCodexRollouts is every rollout whose opening session_meta binds it
+// to worktree, of those Codex filed on the day of started or later, or of
+// all when started is zero. Each rollout's opening is read once, but a
+// machine keeps thousands of them, so a reader that knows when the agent
+// started reads only those filed since.
+func (h *HostProgress) nativeCodexRollouts(ctx context.Context, worktree string, started time.Time) []string {
+	var rollouts []string
+	if h.Home == "" || !filepath.IsAbs(worktree) {
+		return rollouts
+	}
+	worktree, err := fsx.Canonical(worktree)
+	if err != nil {
+		return rollouts
+	}
+	pattern := strings.ReplaceAll(transcriptPatterns["codex"][0], "{session}", "*")
+	matches, _ := filepath.Glob(filepath.Join(h.Home, pattern))
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	cwds := make(map[string]string, len(matches))
+	for _, match := range matches {
+		if cwd, ok := h.rolloutCwds[match]; ok {
+			cwds[match] = cwd
+		}
+	}
+	h.rolloutCwds = cwds
+	owned := map[string]bool{}
+	for _, match := range matches {
+		if ctx.Err() != nil {
+			break
+		}
+		if filed, ok := rolloutDay(match); ok && filed.Before(started.Add(-24*time.Hour)) {
+			continue
+		}
+		cwd, ok := cwds[match]
+		if !ok {
+			if cwd, ok = rolloutCwd(match); !ok {
+				continue
+			}
+			cwds[match] = cwd
+		}
+		isOwned, seen := owned[cwd]
+		if !seen {
+			resolved, err := fsx.Canonical(cwd)
+			isOwned = filepath.IsAbs(cwd) && err == nil && strings.EqualFold(resolved, worktree)
+			owned[cwd] = isOwned
+		}
+		if isOwned {
+			rollouts = append(rollouts, match)
+		}
+	}
+	return rollouts
+}
+
+// rolloutDay is the day Codex filed rollout under, from its year, month and
+// day folders, in the local time Codex names them in.
+func rolloutDay(rollout string) (time.Time, bool) {
+	day := filepath.Dir(rollout)
+	month := filepath.Dir(day)
+	year := filepath.Dir(month)
+	filed, err := time.ParseInLocation("2006/01/02", filepath.Base(year)+"/"+filepath.Base(month)+"/"+filepath.Base(day), time.Local)
+	return filed, err == nil
+}
+
+// rolloutCwd reads the directory a rollout's opening session_meta names,
+// empty when its first entry is anything else. ok is false while that entry
+// cannot be read whole.
+func rolloutCwd(path string) (string, bool) {
+	file, err := fsx.Open(path)
+	if err != nil {
+		return "", false
+	}
+	defer file.Close()
+	var entry struct {
+		Type    string `json:"type"`
+		Payload struct {
+			Cwd string `json:"cwd"`
+		} `json:"payload"`
+	}
+	if json.NewDecoder(io.LimitReader(file, transcriptEntryReach)).Decode(&entry) != nil {
+		return "", false
+	}
+	if entry.Type != "session_meta" {
+		return "", true
+	}
+	return entry.Payload.Cwd, true
+}
+
+// transcriptEntryReach bounds how much of a transcript's end is read for its
+// last entry, since one entry holding a large tool result can run to
+// megabytes.
+const transcriptEntryReach = 4 << 20

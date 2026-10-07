@@ -782,3 +782,34 @@ func TestAcquireGivesUpOnAReaderThatNeverLetsADeadHoldersRecordGo(t *testing.T) 
 		t.Errorf("the acquire waited %s, want it bounded", waited)
 	}
 }
+
+// A live holder that never lets go is waited on only for the wait asked for:
+// past it the acquire returns the holder's ErrHeld.
+func TestAcquireNamedOwnerWithinGivesUpOnALiveHolderAfterItsWait(t *testing.T) {
+	// Arrange
+	dir := t.TempDir()
+	holder := exec.Command("ping", "-n", "30", "127.0.0.1")
+	if err := holder.Start(); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = holder.Process.Kill(); _ = holder.Wait() })
+	if _, err := AcquireNamedOwner(dir, ".wake-queue.lock", holder.Process.Pid, "wake"); err != nil {
+		t.Fatal(err)
+	}
+	const wait = 300 * time.Millisecond
+
+	// Act
+	began := time.Now()
+	_, err := AcquireNamedOwnerWithin(dir, ".wake-queue.lock", os.Getpid(), "wake", wait)
+	waited := time.Since(began)
+
+	// Assert
+	if !errors.Is(err, ErrHeld) {
+		t.Fatalf("AcquireNamedOwnerWithin over a holder that never let go = %v, want ErrHeld", err)
+	}
+	// It stops short of a pause that would end past the wait, so it can give
+	// up up to one pause early.
+	if waited < wait/4 || waited > 5*time.Second {
+		t.Errorf("the acquire waited %s, want about %s", waited, wait)
+	}
+}

@@ -23,9 +23,9 @@ const answered = (status: string, answer: string) => ({ ...question, status, ans
 const action = (answer: string, fields: Record<string, unknown>) => ({ id: answer, kind: "cfo_answer", question_id: question.id, generation: identity, updated_at: "2026-10-01T16:55:01Z", ...fields });
 const snapshots = {
   busy: (answer: string) => ({ ...base, revision: 2, questions: [answered("running", answer)],
-    actions: [action(answer, { status: "running", message: "Sent. The CFO reads it when its current turn ends.", awaiting: { host: "cfo", since: "2026-10-01T16:54:54Z" } })] }),
+    actions: [action(answer, { status: "running", message: "Sent. The CFO takes it at its next tool call, or as its current turn ends.", awaiting: { host: "cfo", since: "2026-10-01T16:54:54Z" } })] }),
   delivered: (answer: string) => ({ ...base, revision: 3, questions: [{ ...answered("succeeded", answer), answered_option: "Lift it", answered_by: "overlord", answered_at: "2026-10-01T16:55:20Z" }],
-    actions: [action(answer, { status: "succeeded", message: "Taken by the CFO in its terminal, as its hook reported." })] }),
+    actions: [action(answer, { status: "succeeded", message: "Taken by the CFO, as its own record of the conversation shows." })] }),
   lost: (answer: string) => ({ ...base, revision: 3, questions: [answered("uncertain", answer)],
     actions: [action(answer, { status: "uncertain", message: advice, advice })] }),
 };
