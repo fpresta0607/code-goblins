@@ -116,10 +116,15 @@ func proveAnswerOnce(t *testing.T, p *wakeProof) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	// Found while it runs, so the end below reaches it and no later process
+	// that took its pid.
+	hostProcess, err := os.FindProcess(cfo.HostPID)
+	if err != nil {
+		t.Fatal(err)
+	}
 	t.Cleanup(func() {
-		if process, err := os.FindProcess(cfo.HostPID); err == nil {
-			_ = process.Kill()
-		}
+		_ = hostProcess.Kill()
+		_ = hostProcess.Release()
 	})
 	p.cfoTerminal = &cfo
 	p.say("CFO %s runs in native terminal cfo, host pid %d, harness pid %d", p.cfo, cfo.HostPID, cfo.ChildPID)

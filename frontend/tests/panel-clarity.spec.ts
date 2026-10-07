@@ -16,7 +16,7 @@ async function open(page: Page, calls: string[] = []) {
     if (url.pathname === "/api/workspace") return route.fulfill({ json: { project: "code-goblins", repository: "code-goblins", branch: "feat/resume-and-closed-cfo", root: "C:\\dev\\code-goblins\\.worktrees\\gb-cg-goblins-quickstart", harness: "claude", model: "Reported: claude-opus-5-5", notes: [] } });
     if (url.pathname.endsWith("/files")) return route.fulfill({ json: [{ path: "internal/lifecycle/service.go", status: "modified" }, { path: "frontend/src/workflow.ts", status: "modified" }] });
     if (url.pathname.endsWith("/diff")) return route.fulfill({ json: { path: url.searchParams.get("path"), patch: PATCH, code: "", head: "h", revision: "", fingerprint: "f", binary: false, code_omitted: false } });
-    if (url.pathname.endsWith("/activity")) return route.fulfill({ json: ["2026-10-05T16:30:06Z lifecycle-failed: Requested by the operator"] });
+    if (url.pathname.endsWith("/activity")) return route.fulfill({ json: ["2026-10-05T16:30:06Z failed: go test ./internal/billing failed at 9f3c2a1e"] });
     return route.fulfill({ status: 404, json: { error: "No fixture for this resource" } });
   });
   await page.goto("/");
@@ -51,8 +51,8 @@ const STATES = [
     sentence: "The three mockups are on the Scrawl page. Reply build or say what to change.", raw: "waiting on overlord: the three mockups", isFailure: false, isQuiet: false },
   { state: "paused", title: "Memory and subscription dials in one header", status: "Paused",
     sentence: "It stays paused until you resume it. The goblin's last saved notes are kept.", raw: "Stopping-point deadline reached or request failed; no new handoff was saved", isFailure: false, isQuiet: false },
-  { state: "a pause that did not finish", title: "Paused goblins resume by themselves when the reason for the pause clears", status: "Pause failed",
-    sentence: "The pause did not finish, so the goblin is not paused. Its work is kept. Try Pause again.", raw: "context deadline exceeded", isFailure: true, isQuiet: true },
+  { state: "a pause that did not finish", title: "Paused goblins resume by themselves when the reason for the pause clears", status: "Pause did not finish",
+    sentence: "The pause did not finish, so the goblin is not paused. Its work is kept. Try Pause again.", raw: "context deadline exceeded", isFailure: false, isQuiet: true },
   { state: "failed", title: "PrecisionDocs-AI uses far fewer GitHub Actions minutes", status: "Failed",
     sentence: "Go test billing failed: TestMeteredUsage timed out after 10m0s. Log at report.log.", raw: "failed: go test ./internal/billing failed at 9f3c2a1e", isFailure: true, isQuiet: false },
 ];
@@ -61,8 +61,10 @@ for (const [size, viewport, scale] of [["the Overlord's window", { width: 1707, 
   test.describe(`at ${size}`, () => {
     test.use({ viewport, deviceScaleFactor: scale });
 
-    // Under Working and Pause failed the Overlord wants no line (2026-10-05):
-    // what it would say is the first thing behind Details.
+    // Under Working and Pause did not finish the Overlord wants no line
+    // (2026-10-05): what it would say is the first thing behind Details. A
+    // pause someone asked for that did not finish is no failure of the
+    // goblin's (2026-10-07), so it offers no log as a failure does.
     test("each panel says its state once, as its one status, with one plain sentence or none, and the raw words behind Details", async ({ page }) => {
       // Arrange
       await open(page);
@@ -186,13 +188,13 @@ test("a failure's Open the log opens Activity and reads the log", async ({ page 
   // Arrange
   const calls: string[] = [];
   await open(page, calls);
-  await select(page, "Paused goblins resume by themselves when the reason for the pause clears");
+  await select(page, "PrecisionDocs-AI uses far fewer GitHub Actions minutes");
 
   // Act
   await panel(page).getByRole("button", { name: "Open the log" }).click();
 
   // Assert
   await expect(panel(page).locator("#task-activity")).toHaveAttribute("open");
-  await expect(panel(page).locator(".activity-list")).toContainText("lifecycle-failed");
-  expect(calls).toContain("/api/tasks/cg-fleet-auto-resume/activity");
+  await expect(panel(page).locator(".activity-list")).toContainText("go test ./internal/billing failed");
+  expect(calls).toContain("/api/tasks/pd-ci-minutes/activity");
 });

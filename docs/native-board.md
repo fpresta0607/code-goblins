@@ -316,7 +316,7 @@ A queued task's Adjust this task form follows that row, always open, with Save c
 A pause or stop lists what it kept under What’s preserved, each as a short label without its path or hash, and what it ended under Stopped resources; it repeats neither the status nor its reason.
 The panel sends no note to the CFO: the supervisor still accepts the `note` action of `POST /api/tasks/adjust` and a snapshot's task notes still show under the form, but nothing on the board files one.
 The CFO's Task view holds its workspace and connections and then every queued task, the same list as the Tasks column, in the same order, with the same memory meter, drag, keyboard moves and Start; an order or a start made in either shows in both.
-Board and Orchestration both open a goblin, and the CFO, on its Terminal view, and an alert opens its task on the Task view, where the alert's reason is; Orchestration's Terminal view defaults to the registered CFO; once opened, both views stay mounted, so switching keeps scroll position and selection.
+Board and Orchestration both open a goblin, and the CFO, on its Terminal view; Orchestration's Terminal view defaults to the registered CFO; once opened, both views stay mounted, so switching keeps scroll position and selection.
 There is still no standalone message composer: typing happens in the terminal itself.
 Open in VS Code and Open folder require a deliberate click and resolve the selected goblin's fresh, isolated Git worktree.
 The API accepts task identity and an editor enum, never a browser-provided path or command; it starts Code.exe directly with literal arguments and removes Electron Node/development flags from its inherited environment.
@@ -520,7 +520,7 @@ A control is a `PanelControl` (an id, a name for its tip and its menu item, an a
 Until 2 October 2026 the row gave the controls half of what the switch left, so in a panel dragged narrow they were drawn over the switch.
 
 Every terminal pane, native or Herdr, shows a voice bubble in its bottom-right corner, in a strip of its own under the terminal, so it never covers the terminal's text.
-It is drawn like the board's goblin alerts: a microphone in a stepped pixel frame, outlined in Bone while idle and in Moss while it records, and its first-visit hint and recent messages open in the same leather dialogue frame.
+It is drawn like the board's dialogue boxes: a microphone in a stepped pixel frame, outlined in Bone while idle and in Moss while it records, and its first-visit hint and recent messages open in the same leather dialogue frame.
 That frame is at most 400 px wide and never wider than its terminal less 28 px, so in a panel dragged narrow it is whole; until 2 October 2026 it was sized by the window, and a narrow panel cut off its left side.
 Holding Ctrl+Shift+Space in a terminal, native or Herdr, dictates into it through the speech model the supervisor runs on this PC, in a browser tab and in the desktop window alike.
 At each press the board opens the microphone once and records that track with the browser's own recorder, and while the keys are held the bubble's bars are recent samples of that same capture's level, each a dot below the loudness of a voice, so silence and a room's hum show a flat dotted line; nothing runs while the bubble is idle.
@@ -756,8 +756,12 @@ Sixteen lines hold all that `goblins` says about a supervisor that did not start
 It needs only what the supervisor already provides: the board's address in `state\board.json`, the board's page, `/api/snapshot`, which it reads every 3 seconds for what newly waits on the Overlord, and `/api/announce`, where it claims each of those before it notifies it.
 It holds no fleet state, and closing it leaves the supervisor, the CFO and every goblin running: it runs as a single instance, closing hides it to the tray, and only **Quit the window** in the tray menu ends it.
 It follows the supervisor to a new address, loads the board again when a supervisor that was down answers, and opens the board's new-tab links in the default browser.
-It raises the board's alerts as Windows notifications only while it is minimized or hidden to the tray; on the screen the board's own alert is the signal, and nothing is claimed.
-What its own look finds it claims under the key the board's page uses, `alert:` and the item's key, after the 1.5 seconds a hidden tab waits, and notifies only what the supervisor hands it, so nothing in AFK mode; a supervisor that cannot be asked lets it notify, as it lets the page.
+It raises the board's alerts as Windows notifications only while it is minimized or hidden to the tray; on the screen the board's Open Command Center is the signal, and nothing is claimed.
+Its notifications are the board's: only a new Command Center item that asks the Overlord something, never a goblin blocked, failed or done.
+Its own look at the board, every 3 seconds, finds those items in `/api/snapshot`, so a notification does not wait on the hidden page, which Windows runs at its lowest priority.
+Each is titled with who asks, a goblin by its title without its harness or the CFO, and says the item on one plain line as the page does: a question's lead, a wait's reason without its queue prefix or page link, without Markdown marks or a table of values.
+It claims each under the key the board's page uses, `alert:` and the item's key with its `created_at`, after the 1.5 seconds a hidden tab waits, and notifies only what the supervisor hands it, so nothing in AFK mode; a supervisor that cannot be asked lets it notify, as it lets the page.
+A click on any of its notifications brings the window to the front and opens that item in the Command Center, one it raised from its own look as well as one the page raised: the page hears of the first as the `code-goblins-notification-click` event.
 Each notification carries the goblin from `goblins-window.png`, which every start writes beside the program and names as `IconUri` under `HKCU\Software\Classes\AppUserModelId\Code Goblins`.
 A picture that went missing while the window ran is put back before the next notification, and a notification goes out without it when it cannot be kept.
 A window started with `--profile`, as its tests start it, or on a home other than the user's own registers for no notification, raises none and claims nothing from its board, since Windows hands a click on any Code Goblins notification to the program that registered last.
@@ -872,8 +876,8 @@ Conflicting, corrupt or oversized inbox records leave bounded diagnostics and ca
 ## Goblin questions
 
 A goblin's `cfo notify <id> --blocked "<question> options: <answer> (Recommended) | <answer>"` asks the CFO.
-It never appears in the Overlord's waiting count, shows him a toast or opens the Command Center; after it is answered, History shows who answered it.
-Once the CFO answers or acknowledges it, its notify still holds the task, blocked or failed with its words, until the goblin reports again, and the snapshot marks that task `report_handled`, so the board never tells him of it as the goblin's news; a block or failure the gate holds is never marked and is news.
+It never appears in the Overlord's waiting count, alerts him or opens the Command Center; after it is answered, History shows who answered it.
+Once the CFO answers or acknowledges it, its notify still holds the task, blocked or failed with its words, until the goblin reports again.
 The CFO publishes a decision that needs the Overlord with `cfo question`.
 A question's first choice that ends with `(Recommended)` is shown first and marked, and the mark is stripped from every choice.
 The choices follow the last `options:` marker, so a question that names the marker in its own words, such as in a detail line, keeps its choices.
@@ -998,24 +1002,24 @@ An item addressed to the Overlord has one signal on a visible board: Open Comman
 Only the CFO's own questions (`task` empty) wait on him; a goblin's blocked or failed question belongs to the CFO and enters History after it is answered.
 A goblin's explicit wait on the Overlord, review page, delivered file, run item and credential request still belong in his queue.
 No item shows an in-page toast or opens the Command Center by itself, including while the CFO's terminal is open.
-A goblin's finished or failed news still shows a dialogue box with Open for that goblin; routine progress shows none.
-The first snapshot establishes the baseline for news and items.
+Only an open item that asks the Overlord something alerts (the Overlord, 2026-10-07: "alerts should only be open command center questions"): a goblin blocked, failed or done is said on its card and raises no alert, and neither does routine progress.
+A pause or stop the CFO or the Overlord asked for is never drawn as the goblin failing: one that did not finish reads Pause did not finish or Stop did not finish in the action's own colour, its problems behind Details, and its report reaches the CFO as `lifecycle-<phase>`, never as the goblin's own `blocked:` or `failed:` notify, so it holds no question for the CFO and is not counted as one.
+The first snapshot establishes the baseline for items.
 When unanswered blocked or failed wake records, or `goblin_asks` records of a question a goblin asked in prose, have waited on the CFO for ten minutes, `cfo_quiet` gives one notice with their count and the oldest age in seconds.
 Its `since` is saved once for that stretch and remains the same through answers, reloads, reconnects and supervisor restarts until no question has waited ten minutes.
-The board can announce that notice on its first snapshot, with Open the CFO's terminal; it never offers the goblins' questions to the Overlord.
-Before an announcement the board claims the event through `POST /api/announce` (`keys` for items and the quiet-CFO stretch, `news` for a goblin's news) and announces only what the answer's `claimed` names.
-The supervisor hands each key to the first request and keeps it for thirty days, at most 2048 keys, so a second tab or a restart never announces that item or stretch again.
+The CFO's bar says the notice in place of All quiet while it lasts; it is no alert, and it never offers the goblins' questions to the Overlord.
+Before an announcement the board claims the item through `POST /api/announce` (`keys`) and announces only what the answer's `claimed` names.
+The supervisor hands each key to the first request and keeps it for thirty days, at most 2048 keys, so a second tab or a restart never announces that item again.
 While [AFK mode](#afk-mode) is on it hands out nothing and records what was asked about, so nothing announces while the Overlord is away or repeats when he returns.
 A hidden tab waits a second and a half before claiming, giving a visible tab the first chance; with no tab in view the hidden tab can send its Windows notification.
-An item's announcement is claimed as `alert:<item key>@<created_at>`, and a goblin's news as `alert:<key>` cut to 160 characters, within the endpoint's 512 byte bound; an unreachable supervisor falls back on what the browser remembers.
-An item's identity prevents repeats, and identical words from the same goblin within five minutes are one event.
+An item's announcement is claimed as `alert:<item key>@<created_at>`, whole, within the endpoint's 512 byte bound; an unreachable supervisor falls back on what the browser remembers.
+An item's identity prevents repeats, and the same ask from the same asker within five minutes is one event.
 The supervisor takes an item's ID again once it has dropped the record that used it, so an ID published again with another `created_at` is a new item: it is announced again, and the earlier publication's announcement leaves.
-A goblin's next pull request alerts at once; the same news more than five minutes later can alert again.
 The browser remembers the last 100 announcements it showed.
-A toast steps up once as it arrives, or appears under reduced motion, leaves after eight seconds unless the pointer or keyboard rests on it, and can be dismissed; at most four show, newest at the bottom.
 Windows notifications require `document.hidden`: a hidden tab or minimized window, not an unfocused window that remains visible.
-The browser asks for notification permission once, with the first announcement, and a notification click opens its item or terminal.
-An announcement and its notification leave when their item closes or is published again under its ID, or the quiet-CFO stretch ends.
+A notification is titled with who asks and says the item on one plain line in the asker's words, as the Command Center lists it, never a status or a lifecycle's words.
+The browser asks for notification permission once, with the first announcement, and a notification click opens its item in the Command Center.
+An announcement and its notification leave when their item closes or is published again under its ID.
 A click on an item already closed opens the Command Center's list, never another item's card.
 Its card shows the title, its images as thumbnails that open the same full-size gallery as a question's, and its own page, when it has one, as a preview named Scrawl page that opens the page with Open review and never repeats the title.
 An item whose page the supervisor watches (an HTML page given with `--lavish`) is answered on that page, so its card has no text box: it finishes when the Overlord sends or ends the review there, or he closes it with Clear.

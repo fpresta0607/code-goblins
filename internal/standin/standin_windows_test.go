@@ -1,6 +1,7 @@
 package standin
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
@@ -197,5 +198,85 @@ func TestRemovalWaitsOutAFileStillHeldOpen(t *testing.T) {
 	}
 	if _, err := os.Stat(dir); !os.IsNotExist(err) {
 		t.Fatalf("the folder is still there after its removal (%v)", err)
+	}
+}
+
+// childWaits, set, has the child run of this test binary wait a minute, as a
+// fixture process does until its test ends it.
+const childWaits = "STANDIN_TEST_WAITS"
+
+func TestChildWaits(t *testing.T) {
+	if os.Getenv(childWaits) == "" {
+		return
+	}
+	time.Sleep(time.Minute)
+}
+
+// startWaiting starts a child that waits a minute and returns it with the
+// time Windows says it was created.
+func startWaiting(t *testing.T) (*exec.Cmd, windows.Filetime) {
+	t.Helper()
+	child := exec.Command(os.Args[0], "-test.run=^TestChildWaits$")
+	child.Env = append(os.Environ(), childWaits+"=1")
+	if err := child.Start(); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = child.Process.Kill(); _ = child.Wait() })
+	return child, created(t, child.Process.Pid)
+}
+
+// created is when Windows says the process pid names now was created.
+func created(t *testing.T, pid int) windows.Filetime {
+	t.Helper()
+	process, err := windows.OpenProcess(windows.PROCESS_QUERY_LIMITED_INFORMATION, false, uint32(pid))
+	if err != nil {
+		t.Fatalf("open pid %d: %v", pid, err)
+	}
+	defer windows.CloseHandle(process)
+	var creation, exit, kernel, user windows.Filetime
+	if err := windows.GetProcessTimes(process, &creation, &exit, &kernel, &user); err != nil {
+		t.Fatal(err)
+	}
+	return creation
+}
+
+// Once a held process has ended and the test that started it has let go of
+// it, its pid still names it, ended, and no other process.
+func TestAHeldProcessKeepsItsPidAfterItEnds(t *testing.T) {
+	// Arrange
+	child, birth := startWaiting(t)
+	pid := child.Process.Pid
+	held := Hold(t, pid)
+
+	// Act
+	if err := child.Process.Kill(); err != nil {
+		t.Fatal(err)
+	}
+	_ = child.Wait()
+
+	// Assert
+	if event, err := windows.WaitForSingleObject(held, 0); err != nil || event != windows.WAIT_OBJECT_0 {
+		t.Fatalf("the held handle reads the ended child as running: event %d, %v", event, err)
+	}
+	if now := created(t, pid); now != birth {
+		t.Fatalf("pid %d names a process created at %v, want the ended child, created at %v", pid, now, birth)
+	}
+}
+
+// Hold ends the process when the test that held it ends.
+func TestHoldEndsTheProcessWhenTheTestEnds(t *testing.T) {
+	// Arrange
+	child, _ := startWaiting(t)
+
+	// Act
+	t.Run("holds it", func(t *testing.T) {
+		Hold(t, child.Process.Pid)
+	})
+
+	// Assert
+	// Unended, the child would end on its own after a minute, with exit code 0.
+	var exit *exec.ExitError
+	if err := child.Wait(); !errors.As(err, &exit) || exit.ExitCode() != 1 {
+		t.Fatalf("the held child ended with %v, want Hold's exit code 1", err)
 	}
 }

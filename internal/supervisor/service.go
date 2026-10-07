@@ -971,11 +971,6 @@ type Task struct {
 	// ReportedAt is when the goblin wrote its latest report, so the board
 	// can tell whether it reported since an answer it was given.
 	ReportedAt time.Time `json:"reported_at"`
-	// ReportHandled says the task is blocked or failed by its own notify, which
-	// the CFO answered or acknowledged: it holds the task until the goblin
-	// reports again, and it is the CFO's to handle, never news for the
-	// Overlord. A block or failure the gate holds is never marked.
-	ReportHandled bool      `json:"report_handled,omitempty"`
 	Handoff       bool      `json:"handoff"`
 	RetiredAt     time.Time `json:"retired_at"`
 	// Archived marks completed history rather than a live task, Merged that
@@ -1233,9 +1228,6 @@ func (s *Service) Snapshot() (Snapshot, error) {
 		lines, _ := s.statusTail(id)
 		spawned := spawnTime(meta.SpawnGen)
 		reportedAt, report := latestReport(lines, spawned)
-		unhandledAt, unhandled := latestReport(taskReports(lines, out.Decisions, id), spawned)
-		isHandled := report != "" && (unhandledAt != reportedAt || unhandled != report)
-		isHeldByHandledReport := false
 		decisions := out.Decisions
 		if !spawned.IsZero() || supersedesQuestion(report) {
 			decisions = slices.DeleteFunc(slices.Clone(out.Decisions), func(r wake.Record) bool {
@@ -1270,7 +1262,6 @@ func (s *Service) Snapshot() (Snapshot, error) {
 		// standing dependency wait still survives a question asked beside it.
 		if kind := reportKind(report); !isGateHeld && (kind == "blocked" || kind == "failed") && !(isReported && phase == "waiting") {
 			evaluation.Phase, evaluation.Reason, evaluation.WaitingOn = kind, strings.TrimPrefix(report, kind+": "), ""
-			isHeldByHandledReport = isHandled
 		}
 		if !isGateHeld && (evaluation.Phase == "working" || evaluation.Phase == "review") && !runtime.At.Before(standingAt) {
 			if runtime.State == string(monitor.HealthIdle) || runtime.State == string(monitor.HealthParked) {
@@ -1295,7 +1286,7 @@ func (s *Service) Snapshot() (Snapshot, error) {
 			title = id
 			untitled[id] = true
 		}
-		out.Tasks = append(out.Tasks, Task{ID: id, Title: title, Parent: meta.Parent, Project: filepath.Base(meta.Project), Harness: meta.Harness, Backend: meta.Backend, Model: meta.Model, Effort: meta.Effort, Mode: meta.Mode, Generation: meta.SpawnGen, Session: d.TaskSessions[id], Dependencies: []string{}, Runtime: runtime, Activity: activity, LastReport: lastReport, ReportedAt: lastReportedAt, Since: s.sessionStarted(meta), Report: reportKind(report), ReportHandled: isHeldByHandledReport, Evaluation: evaluation})
+		out.Tasks = append(out.Tasks, Task{ID: id, Title: title, Parent: meta.Parent, Project: filepath.Base(meta.Project), Harness: meta.Harness, Backend: meta.Backend, Model: meta.Model, Effort: meta.Effort, Mode: meta.Mode, Generation: meta.SpawnGen, Session: d.TaskSessions[id], Dependencies: []string{}, Runtime: runtime, Activity: activity, LastReport: lastReport, ReportedAt: lastReportedAt, Since: s.sessionStarted(meta), Report: reportKind(report), Evaluation: evaluation})
 		if len(out.Tasks) >= maxSessions {
 			break
 		}

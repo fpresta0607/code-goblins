@@ -126,10 +126,15 @@ func proveCFOStart(t *testing.T, p *wakeProof, instructions string) {
 		if err != nil {
 			t.Fatal(err)
 		}
+		// Found while it runs, so the end below reaches it, and no later
+		// process that took its pid once the proof closed the terminal.
+		hostProcess, err := os.FindProcess(launched.HostPID)
+		if err != nil {
+			t.Fatal(err)
+		}
 		t.Cleanup(func() {
-			if process, err := os.FindProcess(launched.HostPID); err == nil {
-				_ = process.Kill()
-			}
+			_ = hostProcess.Kill()
+			_ = hostProcess.Release()
 		})
 		p.cfoTerminal = &launched
 		p.say("CFO %s runs in native terminal cfo, host pid %d, harness pid %d", p.cfo, launched.HostPID, launched.ChildPID)

@@ -22,18 +22,16 @@ export async function request(
 const HIDDEN_TAB_WAIT_MS = 1500;
 
 // announce asks the supervisor which of these the board has not announced
-// yet, and gets back those it may announce now: an alert, a Windows
-// notification, the Command Center opening by itself. The supervisor hands
-// each key to one request, so no item is announced twice, in another tab,
-// after a reload or after the supervisor restarts. keys are items, announced
-// once; news is a goblin's news, which is a new event when the same words
-// come again later. Null means the supervisor could not be asked, and the
-// caller falls back on what this browser remembers.
-export async function announce(instance: string, keys: string[], news: string[] = []): Promise<string[] | null> {
-  if (!keys.length && !news.length) return [];
+// yet, and gets back those it may announce now with a Windows notification.
+// The supervisor hands each key to one request, so no item is announced
+// twice, in another tab, after a reload or after the supervisor restarts.
+// Null means the supervisor could not be asked, and the caller falls back on
+// what this browser remembers.
+export async function announce(instance: string, keys: string[]): Promise<string[] | null> {
+  if (!keys.length) return [];
   if (document.hidden) await new Promise((resolve) => setTimeout(resolve, HIDDEN_TAB_WAIT_MS));
   try {
-    const { claimed } = object(await request("/api/announce", undefined, { method: "POST", headers: { "Content-Type": "application/json", "X-CFO-Token": instance }, body: JSON.stringify({ keys, news }) }));
+    const { claimed } = object(await request("/api/announce", undefined, { method: "POST", headers: { "Content-Type": "application/json", "X-CFO-Token": instance }, body: JSON.stringify({ keys }) }));
     return Array.isArray(claimed) ? claimed.filter((key): key is string => typeof key === "string") : null;
   } catch { return null; }
 }

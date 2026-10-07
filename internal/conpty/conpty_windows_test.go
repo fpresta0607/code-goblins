@@ -316,15 +316,8 @@ func TestCloseLeavesAMachineServiceStartedInTheTerminalRunning(t *testing.T) {
 			t.Fatal("the stand-in Docker Desktop never started its child")
 		}
 	}
-	t.Cleanup(func() {
-		for _, pid := range []int{serviceChild, service} {
-			if handle, err := windows.OpenProcess(windows.PROCESS_TERMINATE|windows.SYNCHRONIZE, false, uint32(pid)); err == nil {
-				_ = windows.TerminateProcess(handle, 1)
-				_, _ = windows.WaitForSingleObject(handle, 10000)
-				_ = windows.CloseHandle(handle)
-			}
-		}
-	})
+	// Both wait a minute, and nothing ends either before the close below.
+	heldService, heldServiceChild := standin.Hold(t, service), standin.Hold(t, serviceChild)
 
 	// Act
 	s.closed = true
@@ -340,21 +333,16 @@ func TestCloseLeavesAMachineServiceStartedInTheTerminalRunning(t *testing.T) {
 		}
 	}
 	time.Sleep(500 * time.Millisecond)
-	for name, pid := range map[string]int{"the stand-in Docker Desktop": service, "its child": serviceChild} {
-		if !running(pid) {
-			t.Errorf("%s, pid %d, ended with the terminal", name, pid)
+	for name, process := range map[string]windows.Handle{"the stand-in Docker Desktop": heldService, "its child": heldServiceChild} {
+		if !running(process) {
+			t.Errorf("%s ended with the terminal", name)
 		}
 	}
 }
 
-// running reports whether pid still runs.
-func running(pid int) bool {
-	handle, err := windows.OpenProcess(windows.SYNCHRONIZE, false, uint32(pid))
-	if err != nil {
-		return false
-	}
-	defer windows.CloseHandle(handle)
-	event, _ := windows.WaitForSingleObject(handle, 0)
+// running reports whether process still runs.
+func running(process windows.Handle) bool {
+	event, _ := windows.WaitForSingleObject(process, 0)
 	return event == uint32(windows.WAIT_TIMEOUT)
 }
 

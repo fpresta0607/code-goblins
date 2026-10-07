@@ -57,3 +57,15 @@ test("while AFK mode is on the bar says so and counts nothing as waiting, whatev
   assert.match(away.line, /^AFK since .+, from your board\. 3 decided, 1 held for you\.$/);
   assert.deepEqual(cfoSummary(snapshot({ ...waits, afk: afk({ state: "unreadable" }) }), now), { waiting: 1, line: "The CFO supervises 1 goblin." });
 });
+
+// The Overlord, 2026-10-07: alerts are only for what the Command Center asks
+// him. That the CFO has left goblins' questions unanswered is no longer an
+// alert; the CFO's bar says it, in place of All quiet, while it lasts.
+test("questions the CFO has left unanswered for ten minutes are said on its bar, with their count and age, while it lasts", () => {
+  const cases: [string, Partial<Snapshot>, string][] = [
+    ["three questions, nothing waiting on him", { tasks: [task("a"), task("b")], cfo_quiet: { since: "2026-10-02T12:10:00Z", count: 3, oldest_age: 660 } }, "The CFO has not answered 3 questions; the oldest has waited 11 minutes. The CFO supervises 2 goblins."],
+    ["one question, beside an item waiting on him", { tasks: [task("a")], questions: [question("own", "Merge PR 91 now?")], cfo_quiet: { since: "2026-10-02T12:10:00Z", count: 1, oldest_age: 600 } }, "The CFO has not answered 1 question; the oldest has waited 10 minutes. The CFO supervises 1 goblin."],
+    ["the stretch over", { tasks: [task("a")], cfo_quiet: null }, "All quiet. The CFO supervises 1 goblin."],
+  ];
+  for (const [name, changes, line] of cases) assert.equal(cfoSummary(snapshot(changes)).line, line, name);
+});

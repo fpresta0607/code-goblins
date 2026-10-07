@@ -1,6 +1,7 @@
 package janitor
 
 import (
+	"bytes"
 	"context"
 	"fmt"
 	"os"
@@ -17,13 +18,23 @@ import (
 	"github.com/fpresta0607/code-goblins/internal/state"
 )
 
+// gitIn runs git in dir and returns what it printed. A git that fails says
+// what it printed to each stream and its trace2 log, whose last lines tell a
+// git that exited on its own from one ended from outside, which prints
+// nothing: main's CI once saw only "git [push -q origin HEAD:main]: exit
+// status 1".
 func gitIn(t *testing.T, dir string, args ...string) string {
 	t.Helper()
-	out, err := exec.Command("git", append([]string{"-C", dir}, args...)...).CombinedOutput()
-	if err != nil {
-		t.Fatalf("git %v: %v\n%s", args, err, out)
+	trace := filepath.Join(t.TempDir(), "trace2.log")
+	command := exec.Command("git", append([]string{"-C", dir}, args...)...)
+	command.Env = append(os.Environ(), "GIT_TRACE2="+trace)
+	var stdout, stderr bytes.Buffer
+	command.Stdout, command.Stderr = &stdout, &stderr
+	if err := command.Run(); err != nil {
+		traced, _ := os.ReadFile(trace)
+		t.Fatalf("git %v: %v\nstdout:\n%s\nstderr:\n%s\ntrace2:\n%s", args, err, stdout.Bytes(), stderr.Bytes(), traced)
 	}
-	return strings.TrimSpace(string(out))
+	return strings.TrimSpace(stdout.String())
 }
 
 // sweepFixture is a home and a project cloned from a bare origin, as a
