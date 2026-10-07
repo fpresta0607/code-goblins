@@ -106,13 +106,13 @@ func (s *Service) watchPage(ctx context.Context, key string) {
 		}
 		if err == nil && poll.Status == "feedback" && r.State != "open" {
 			failures = 0
-			key := r.Task
-			if key == "" {
-				key = r.ID
+			wakeKey := r.Task
+			if wakeKey == "" {
+				wakeKey = r.ID
 			}
 			// The next poll shows him who has it, and ends the watch when
 			// he ended the review.
-			if reply = s.passOnPageFeedback(ctx, r.LavishPage, r.Task, r.Identity, key, poll); reply == "" {
+			if reply = s.passOnPageFeedback(ctx, r.LavishPage, r.Task, r.Identity, wakeKey, poll); reply == "" {
 				return
 			}
 			continue
