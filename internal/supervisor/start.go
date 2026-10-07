@@ -304,7 +304,7 @@ func spawnFailure(output string, err error) string {
 // row, then the brief, then the fleet's defaults.
 func planStart(h home.Home, id string, finished finishedWork) (startPlan, error) {
 	if _, err := os.Stat(filepath.Join(h.State, id+".meta")); err == nil {
-		return startPlan{}, StartRefusal{Reason: id + " already runs; open it from In progress"}
+		return startPlan{}, StartRefusal{Reason: id + " already runs; open it from In progress", Held: true}
 	}
 	backlog, err := fleet.ReadBacklog(h)
 	if err != nil {
@@ -312,13 +312,13 @@ func planStart(h home.Home, id string, finished finishedWork) (startPlan, error)
 	}
 	queued, err := backlog.ReadQueuedTask(h, id)
 	if errors.Is(err, fleet.ErrNotQueued) {
-		return startPlan{}, StartRefusal{Reason: id + " is not queued"}
+		return startPlan{}, StartRefusal{Reason: id + " is not queued", Held: true}
 	}
 	if err != nil {
 		return startPlan{}, err
 	}
 	if refusal := finished.refusal(id); refusal != "" {
-		return startPlan{}, StartRefusal{Reason: refusal}
+		return startPlan{}, StartRefusal{Reason: refusal, Held: true}
 	}
 	row := queued.Row
 	brief := filepath.Join(h.Data, id, "brief.md")
@@ -327,7 +327,7 @@ func planStart(h home.Home, id string, finished finishedWork) (startPlan, error)
 		return startPlan{}, briefErr
 	}
 	if len(row.BlockedByIDs) > 0 {
-		return startPlan{}, StartRefusal{Reason: id + " is waiting on " + strings.Join(row.BlockedByIDs, ", ") + ": " + row.BlockedReason}
+		return startPlan{}, StartRefusal{Reason: id + " is waiting on " + strings.Join(row.BlockedByIDs, ", ") + ": " + row.BlockedReason, Held: true}
 	}
 	plan := startPlan{id: id, brief: brief, project: briefProject(brief), isProductionDefect: row.Priority == "production-defect"}
 	if plan.project == "" {

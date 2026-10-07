@@ -1,4 +1,4 @@
-import type { Disk, FleetCapacity, Memory, PauseCondition, Snapshot, Task } from "./types";
+import type { Disk, FleetCapacity, Memory, PauseCondition, Scheduling, Snapshot, Task } from "./types";
 import { queuedTasks } from "./workflow.ts";
 
 const gigabytes = (bytes: number) => Math.round(bytes / 2 ** 30 * 10) / 10;
@@ -19,14 +19,22 @@ export function tighter(memory: Memory): { isCommit: boolean; free: number; tota
     : { isCommit: false, free: memory.available, total: memory.total };
 }
 
-// The memory meter at the head of Tasks: the CFO starts the next queued task
-// once memory reaches the mark, and nothing starts under the floor. The board
-// itself starts nothing on its own.
-export function meterState(memory: Memory): { tone: "ready" | "waiting" | "under"; text: string } {
+// The memory meter at the head of Tasks: the supervisor starts the next
+// queued task, or resumes a paused goblin whose pause cleared, once memory
+// reaches the mark, and nothing starts under the floor. With memory free it
+// says what the supervisor started or resumed, or why nothing waiting did.
+export function meterState(memory: Memory, scheduling: Scheduling | null = null): { tone: "ready" | "waiting" | "under"; text: string } {
   const { isCommit, free } = tighter(memory);
   if (free < memory.floor) return { tone: "under", text: `Under the ${gigabytes(memory.floor)} GB floor: nothing starts until ${isCommit ? "commit" : "memory"} frees.` };
-  if (free < memory.next) return { tone: "waiting", text: `The CFO starts the next task at ${gigabytes(memory.next)} GB free.` };
-  return { tone: "ready", text: "Enough memory: the CFO starts the next task." };
+  if (free < memory.next) return { tone: "waiting", text: `The next task starts at ${gigabytes(memory.next)} GB free.` };
+  return { tone: "ready", text: scheduling ? "Enough memory: " + scheduling.text : "Enough memory for the next task" };
+}
+
+// The meter's line under its bar while memory is free: what the supervisor
+// started or resumed at its last reading, or why nothing waiting started.
+export function scheduleLine(memory: Memory, scheduling: Scheduling | null): string {
+  if (!scheduling || meterState(memory).tone !== "ready") return "";
+  return scheduling.text.charAt(0).toUpperCase() + scheduling.text.slice(1);
 }
 
 // The memory bar spans twice the mark at which the CFO starts the next task,

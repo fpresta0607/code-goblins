@@ -79,6 +79,9 @@ type fleetWakes struct {
 	MemoryBelow  int       `json:"memory_below,omitempty"`
 	MemorySpent  bool      `json:"memory_spent,omitempty"`
 	MemoryReadAt time.Time `json:"memory_read_at,omitzero"`
+	// IdleSince is when the scheduler first found work it could not start
+	// while memory was free, for the idle wake.
+	IdleSince time.Time `json:"idle_since,omitzero"`
 	// DiskLow says disk_low woke since a reading was last at or above the
 	// disk floor.
 	DiskLow bool `json:"disk_low,omitempty"`
@@ -272,6 +275,12 @@ func (s *Service) checkMemory(ctx context.Context, w *fleetWakes, now time.Time)
 	}
 	w.MemoryReadAt = now
 	low := min(memory.Available, memory.CommitAvailable)
+	// Only a reading that schedules keeps the idle clock running, and only
+	// one that schedules says what the scheduler did.
+	idleSince := w.IdleSince
+	w.IdleSince = time.Time{}
+	var scheduled *Scheduling
+	defer func() { s.setScheduling(scheduled) }()
 	if low < memoryFloor {
 		w.MemorySpent, w.MemoryAbove = false, 0
 		w.MemoryBelow++
@@ -293,7 +302,12 @@ func (s *Service) checkMemory(ctx context.Context, w *fleetWakes, now time.Time)
 	if low < memoryNext {
 		return planningErr
 	}
-	if err := s.schedule(ctx, now, memory, w); err != nil {
+	scheduled, err = s.schedule(ctx, now, memory, w)
+	if err != nil {
+		return errors.Join(planningErr, err)
+	}
+	w.IdleSince = idleSince
+	if err := s.wakeWhenStalled(w, scheduled, memory, now); err != nil {
 		return errors.Join(planningErr, err)
 	}
 	if w.MemoryAbove < 2 || w.MemorySpent || !w.due("memory", memoryWakeGap, now) {
@@ -355,20 +369,7 @@ func diskLowDetail(h home.Home, reading Disk, now time.Time) string {
 // start now, top of the queue first, and the live goblins whose latest report
 // is a wait on memory.
 func memoryWork(h home.Home, finished finishedWork) (queued, waiting []string) {
-	var candidates []string
-	if backlog, err := fleet.ReadBacklog(h); err == nil {
-		for _, row := range backlog.Queued {
-			if row.Structured && state.ValidTaskID(row.ID) == nil {
-				candidates = append(candidates, row.ID)
-			}
-		}
-	}
-	for _, task := range queuedBriefs(h, diskBriefs) {
-		if !slices.Contains(candidates, task.ID) {
-			candidates = append(candidates, task.ID)
-		}
-	}
-	for _, id := range candidates {
+	for _, id := range queuedCandidates(h) {
 		if _, err := planStart(h, id, finished); err == nil {
 			queued = append(queued, id)
 		}
@@ -384,6 +385,25 @@ func memoryWork(h home.Home, finished finishedWork) (queued, waiting []string) {
 		}
 	}
 	return queued, waiting
+}
+
+// queuedCandidates names the queued work in queue order: each structured row
+// under ## Queued, then each brief no row names and nothing dispatched.
+func queuedCandidates(h home.Home) []string {
+	var candidates []string
+	if backlog, err := fleet.ReadBacklog(h); err == nil {
+		for _, row := range backlog.Queued {
+			if row.Structured && state.ValidTaskID(row.ID) == nil {
+				candidates = append(candidates, row.ID)
+			}
+		}
+	}
+	for _, task := range queuedBriefs(h, diskBriefs) {
+		if !slices.Contains(candidates, task.ID) {
+			candidates = append(candidates, task.ID)
+		}
+	}
+	return candidates
 }
 
 // liveTasks reads every live task record in stateDir, in name order.

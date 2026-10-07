@@ -24,7 +24,7 @@ export function QueuedTasks({ snapshot, selected, now, presentations, cardStart,
   const next = nextInOrder(snapshot, now);
   return <>
     {(memory || snapshot.disk || !!snapshot.subscriptions?.length) && <div className="task-meters">
-      {memory && <MemoryMeter memory={memory} disk={snapshot.disk ?? null} />}
+      {memory && <MemoryMeter memory={memory} scheduling={snapshot.scheduling} disk={snapshot.disk ?? null} />}
       {!memory && snapshot.disk && <div className="memory"><DiskMeter disk={snapshot.disk} /></div>}
       {!!snapshot.subscriptions?.length && <div className="subscription-dials" role="group" aria-label="Weekly subscription allowance">
         {snapshot.subscriptions.map((usage) => <SubscriptionDial key={usage.provider} usage={usage} now={now} />)}

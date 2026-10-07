@@ -14,50 +14,78 @@ import (
 	"github.com/fpresta0607/code-goblins/internal/state"
 )
 
-func (s *Service) schedule(ctx context.Context, now time.Time, memory Memory, watched *fleetWakes) error {
-	if s.Options.Dispatch.Spawn == nil || memory.shortfall() != "" {
-		return nil
+// Scheduling is what the scheduler made of its last reading with memory
+// free, for the board's memory meter and the CFO's idle wake: Text says what
+// it started or resumed, else why nothing started, and Waiting is the work
+// that could run now and did not, each with why.
+type Scheduling struct {
+	At      time.Time     `json:"at"`
+	Text    string        `json:"text"`
+	Waiting []WaitingWork `json:"waiting,omitempty"`
+}
+
+// WaitingWork is a queued task or a paused goblin that could run now and did
+// not start, and why.
+type WaitingWork struct {
+	ID  string `json:"id"`
+	Why string `json:"why"`
+}
+
+// schedule takes one free slot, in the fleet's order: a reported production
+// defect, then the oldest paused goblin whose pause cleared, then the top of
+// the queue, unless a goblin paused for memory comes back first. It says what
+// it did, and what could run and did not, with why; a board that cannot start
+// goblins schedules nothing and says nothing.
+func (s *Service) schedule(ctx context.Context, now time.Time, memory Memory, watched *fleetWakes) (*Scheduling, error) {
+	if s.Options.Dispatch.Spawn == nil {
+		return nil, nil
 	}
+	record := &Scheduling{At: now}
 	s.starts.Lock()
-	isChanging := s.starting != "" || len(s.changing) > 0
-	failed := maps.Clone(s.startErrors)
+	starting, changing := s.starting, maps.Clone(s.changing)
+	failed, changeErrors := maps.Clone(s.startErrors), maps.Clone(s.changeErrors)
 	s.starts.Unlock()
-	if isChanging {
-		return nil
-	}
 	capacity, err := ReadFleetCapacity(s.Store.Home, memory)
 	if err != nil {
-		return err
-	}
-	if capacity.Slots == 0 {
-		return nil
+		return record, err
 	}
 	finished := s.finishedWork()
-	queued, _ := memoryWork(s.Store.Home, finished)
-	// A queued task whose last start failed waits for the Overlord's Start,
-	// so it neither holds the slot nor reports its failure every reading.
-	queued = slices.DeleteFunc(queued, func(id string) bool {
-		if _, isFailed := failed[id]; isFailed {
-			return true
-		}
-		plan, err := planStart(s.Store.Home, id, finished)
-		if err != nil {
-			return true
-		}
-		return allowanceBlocked(watched, plan.harness, plan.model, now)
-	})
 	backlog, err := fleet.ReadBacklog(s.Store.Home)
 	if err != nil {
-		return err
+		return record, err
 	}
-	for _, row := range backlog.Queued {
-		if row.Priority == "production-defect" && slices.Contains(queued, row.ID) {
-			return s.startQueued(row.ID, false)
+	var queued []string
+	defect := ""
+	for _, id := range queuedCandidates(s.Store.Home) {
+		plan, err := planStart(s.Store.Home, id, finished)
+		var refusal StartRefusal
+		if errors.As(err, &refusal) && refusal.Held {
+			continue
 		}
+		// A queued task whose last start failed waits for a Start, so it
+		// neither holds the slot nor fails again every reading.
+		if failure, isFailed := failed[id]; isFailed {
+			record.Waiting = append(record.Waiting, WaitingWork{ID: id, Why: "its last start failed: " + failure})
+			continue
+		}
+		if err != nil {
+			record.Waiting = append(record.Waiting, WaitingWork{ID: id, Why: err.Error()})
+			continue
+		}
+		if allowanceBlocked(watched, plan.harness, plan.model, now) {
+			continue
+		}
+		queued = append(queued, id)
+		if plan.isProductionDefect && defect == "" {
+			defect = id
+		}
+	}
+	if !slices.ContainsFunc(backlog.Queued, func(row fleet.BacklogRow) bool { return row.ID == defect }) {
+		defect = ""
 	}
 	var problems error
 	var ready []state.Lifecycle
-	isMemoryPending := false
+	memoryPending := ""
 	for _, meta := range liveTasks(s.Store.Home.State) {
 		if allowanceBlocked(watched, meta.Harness, meta.Model, now) {
 			continue
@@ -80,8 +108,8 @@ func (s *Service) schedule(ctx context.Context, now time.Time, memory Memory, wa
 		}
 		if isReady {
 			ready = append(ready, record)
-		} else if record.Pause.Reason == "memory" {
-			isMemoryPending = true
+		} else if record.Pause.Reason == "memory" && memoryPending == "" {
+			memoryPending = meta.ID
 		}
 	}
 	slices.SortFunc(ready, func(left, right state.Lifecycle) int {
@@ -90,14 +118,48 @@ func (s *Service) schedule(ctx context.Context, now time.Time, memory Memory, wa
 		}
 		return strings.Compare(left.ID, right.ID)
 	})
-	if len(ready) > 0 {
-		return errors.Join(problems, s.resumeAutomatically(ready[0]))
+	for _, paused := range ready {
+		if failure, isFailed := changeErrors[paused.ID]; isFailed && failure.Generation == paused.Generation {
+			record.Waiting = append(record.Waiting, WaitingWork{ID: paused.ID, Why: "its last resume failed: " + failure.Message})
+		}
 	}
-	if len(queued) > 0 && !isMemoryPending {
-		return errors.Join(problems, s.startQueued(queued[0], false))
+	switch {
+	case starting != "":
+		record.Text = starting + " is starting"
+	case len(changing) > 0:
+		id := slices.Sorted(maps.Keys(changing))[0]
+		record.Text = id + " is " + changingVerbs[changing[id]]
+	case capacity.Slots == 0:
+		record.Waiting = nil
+		record.Text = fmt.Sprintf("no free slot: %d of %d goblins live", capacity.Live, capacity.Limit)
+	case defect != "":
+		record.Text = "starting " + defect + ", a reported production defect"
+		problems = errors.Join(problems, s.startQueued(defect, false))
+	case len(ready) > 0:
+		record.Text = "resuming " + ready[0].ID
+		problems = errors.Join(problems, s.resumeAutomatically(ready[0]))
+	case len(queued) > 0 && memoryPending == "":
+		record.Text = "starting " + queued[0]
+		problems = errors.Join(problems, s.startQueued(queued[0], false))
+	case memoryPending != "":
+		record.Text = memoryPending + " resumes first, once memory reads 5 GB twice"
+	case len(record.Waiting) > 0:
+		record.Text = "nothing starts: " + record.Waiting[0].ID + ": " + record.Waiting[0].Why
+		if len(record.Waiting) > 1 {
+			record.Text += fmt.Sprintf(" (and %d more)", len(record.Waiting)-1)
+		}
+	default:
+		record.Text = "nothing waits to start"
 	}
-	return problems
+	var refusal StartRefusal
+	if errors.As(problems, &refusal) {
+		record.Text = "nothing starts: " + refusal.Reason
+	}
+	return record, problems
 }
+
+// changingVerbs says what a task in the middle of a change is doing.
+var changingVerbs = map[string]string{"resume": "resuming", "switch": "switching", "pause": "pausing", "stop": "stopping", "save": "being edited", "note": "being edited"}
 
 func (s *Service) pauseCleared(ctx context.Context, condition state.PauseCondition, now time.Time, watched *fleetWakes) (bool, error) {
 	switch condition.Reason {

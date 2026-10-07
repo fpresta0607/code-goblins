@@ -56,10 +56,12 @@ type FirstRun struct {
 // first-run page or of a queued task; its message is the reason, in the
 // board's words. Passing says a queued task's refusal has a cause that passes
 // by itself and the board sees pass: memory under the floor, or another Start
-// running.
+// running. Held says the task waits on nothing the CFO can fix: it runs
+// already, is not queued, already finished, or waits on another task.
 type StartRefusal struct {
 	Reason  string
 	Passing bool
+	Held    bool
 }
 
 func (r StartRefusal) Error() string { return r.Reason }

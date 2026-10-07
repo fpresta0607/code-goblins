@@ -168,10 +168,19 @@ export interface LifecycleStatus {
   pause?: PauseCondition;
 }
 export interface PauseCondition { reason: string; until: string; at: string }
+// Scheduling is what the supervisor's scheduler made of its last reading with
+// memory free: text says what it started or resumed, else why nothing
+// waiting started, and waiting is the work that could run and did not.
+export interface Scheduling {
+  at: string;
+  text: string;
+  waiting: { id: string; why: string }[];
+}
+
 // Memory is the machine's free memory and free commit (memory plus page file)
 // in bytes beside the fleet's floor, under which nothing starts, and the mark
-// at which the CFO starts the next queued task; with the kernel's pools and,
-// while commit is the tighter, the apps holding the most of it.
+// at which the next queued task starts; with the kernel's pools and, while
+// commit is the tighter, the apps holding the most of it.
 export interface Memory {
   available: number; total: number; commit_available: number; commit_limit: number;
   paged_pool: number; nonpaged_pool: number; floor: number; next: number; holders: CommitHolder[];
@@ -308,6 +317,10 @@ export interface Snapshot {
   credentials?: CredentialRequest[];
   // memory is absent on a board that cannot start goblins or read it.
   memory: Memory | null;
+  // scheduling is what the supervisor started or resumed at its last
+  // reading with memory free, or why nothing waiting started; null while
+  // memory is short or nothing schedules.
+  scheduling: Scheduling | null;
   ci_durations: CIDuration[];
   // disk is absent on a board that cannot read it.
   disk: Disk | null;
@@ -681,6 +694,7 @@ export function parseSnapshot(value: unknown): Snapshot {
       holders: array(holders).map((value) => { const h = object(value); return { name: string(h.name), commit: number(h.commit) }; }),
       ...(capacity == null ? {} : { capacity: ((c) => ({ live: number(c.live), limit: number(c.limit), configured: number(c.configured), slots: number(c.slots) }))(object(capacity)) }),
     }))(object(v.memory)),
+    scheduling: v.scheduling == null ? null : ((scheduled) => ({ at: string(scheduled.at), text: string(scheduled.text), waiting: array(scheduled.waiting).map((value) => { const w = object(value); return { id: string(w.id), why: string(w.why) }; }) }))(object(v.scheduling)),
     ci_durations: array(v.ci_durations).map((value) => { const d = object(value); return { repository: string(d.repository), kind: string(d.kind), seconds: number(d.duration_seconds) }; }),
     disk: v.disk === undefined || v.disk === null ? null : (({ drive, free, total, floor, wake }) => ({
       drive: string(drive), free: number(free), total: number(total), floor: number(floor), wake: number(wake),

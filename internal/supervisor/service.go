@@ -176,6 +176,9 @@ type Service struct {
 	engineFrom   map[string]state.TaskMeta
 	engineIdle   map[string]engineIdleReading
 	changeErrors map[string]taskChangeError
+	// scheduling is what the scheduler made of its last reading with memory
+	// free; mu guards it.
+	scheduling *Scheduling
 	// isCFOComingBack says the comeback is bringing the CFO back now; starts
 	// guards it too.
 	isCFOComingBack bool
@@ -1089,6 +1092,10 @@ type Snapshot struct {
 	// Memory is the machine's free memory for the Tasks meter, absent on a
 	// board that cannot start goblins or cannot read it.
 	Memory *Memory `json:"memory,omitempty"`
+	// Scheduling is what the scheduler started, resumed or found waiting at
+	// its last reading with memory free, for the meter's line; absent while
+	// memory is short or nothing schedules.
+	Scheduling *Scheduling `json:"scheduling,omitempty"`
 	// Disk is the free space of the home's drive for the meter beside
 	// memory, absent on a board that cannot read it.
 	Disk          *Disk               `json:"disk,omitempty"`
@@ -1120,6 +1127,7 @@ func (s *Service) Snapshot() (Snapshot, error) {
 	out := Snapshot{Example: s.Options.Example, Instance: s.Instance, Revision: s.revision, Started: s.Started, At: time.Now().UTC(), Reconciled: s.reconciled, Error: s.lastError, Tasks: []Task{}, Attention: []string{}, Sessions: []Session{}, Retired: d.Retired, Actions: d.Actions, Issues: d.Issues}
 	progress, sameAreas, hostedChecks, localReports, deploys, trees := maps.Clone(s.workProgress), maps.Clone(s.sameArea), maps.Clone(s.hostedChecks), maps.Clone(s.localReports), maps.Clone(s.deploys), maps.Clone(s.trees)
 	out.Release = s.release
+	out.Scheduling = s.scheduling
 	if s.localReadErr != nil {
 		out.Issues = append(slices.Clone(out.Issues), s.localReadErr.Error())
 	}
