@@ -32,6 +32,7 @@ import (
 	"github.com/fpresta0607/code-goblins/internal/quota"
 	"github.com/fpresta0607/code-goblins/internal/state"
 	"github.com/fpresta0607/code-goblins/internal/supervise"
+	"github.com/fpresta0607/code-goblins/internal/train"
 	"github.com/fpresta0607/code-goblins/internal/verify"
 	"github.com/fpresta0607/code-goblins/internal/wake"
 	"github.com/fpresta0607/code-goblins/internal/watch"
@@ -162,6 +163,9 @@ type Service struct {
 	// release watch, which releaseNow asks for another look.
 	release    *ReleaseView
 	releaseNow chan struct{}
+	// trains are the merge trains the board shows, as keepTrains last read
+	// them.
+	trains []train.Train
 	// runRequests takes one run request at a time, so two with one ID never
 	// both write a script.
 	runRequests sync.Mutex
@@ -1101,6 +1105,9 @@ type Snapshot struct {
 	// Release is a newer published release of Code Goblins, or any on a
 	// board built from a clone, for the board's banner.
 	Release *ReleaseView `json:"release,omitempty"`
+	// MergeTrains are the merge trains running, and those that finished in
+	// the last hours, newest first, each a card with its pull requests.
+	MergeTrains []train.Train `json:"merge_trains"`
 }
 
 // setItems makes items the snapshot's Command Center items.
@@ -1118,6 +1125,7 @@ func (s *Service) Snapshot() (Snapshot, error) {
 	out := Snapshot{Example: s.Options.Example, Instance: s.Instance, Revision: s.revision, Started: s.Started, At: time.Now().UTC(), Reconciled: s.reconciled, Error: s.lastError, Tasks: []Task{}, Attention: []string{}, Sessions: []Session{}, Retired: d.Retired, Actions: d.Actions, Issues: d.Issues}
 	progress, sameAreas, hostedChecks, localReports, deploys, trees := maps.Clone(s.workProgress), maps.Clone(s.sameArea), maps.Clone(s.hostedChecks), maps.Clone(s.localReports), maps.Clone(s.deploys), maps.Clone(s.trees)
 	out.Release = s.release
+	out.MergeTrains = append([]train.Train{}, s.trains...)
 	if s.localReadErr != nil {
 		out.Issues = append(slices.Clone(out.Issues), s.localReadErr.Error())
 	}

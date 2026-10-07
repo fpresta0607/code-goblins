@@ -98,6 +98,19 @@ See [Verification levels](docs/pipeline.md#verification-levels).
 
 The production-proof layer is intentionally fail-closed: delivery evidence must come from machine-readable PR state and terminal checks rather than a worker merely claiming that the task is finished.
 
+### Merge trains
+
+Landing green pull requests one at a time costs one CI run each, in a row, because every merge makes the others' runs stale.
+A merge train lands them with one run.
+It merges the green pull requests goblins finished onto main in the order they reported done, on a branch of its own, and opens a pull request for that branch that is never merged, so CI tests them together once.
+When that run is green, each pull request merges with a merge commit in the same order, and main's tree must then equal the train's.
+When it is red, the train is halved until the one pull request that breaks it is found: every half that passes lands, and that pull request's goblin gets the failing checks.
+A pull request that conflicts with the ones ahead of it stays off and its goblin is told to merge main; drafts and pull requests labelled `hold` (recovery, security, money paths, or anything the Overlord said to wait on) never ride.
+
+The supervisor starts a train by itself when two or more green goblin pull requests wait on one main, and the board shows each train as one card with its pull requests.
+`cfo pr train <project>` starts one by hand, or joins the one running, and waits until it is over.
+See [Merge trains](AGENTS.md#merge-trains).
+
 ### Project-scoped credentials
 
 Projects declare the services they need. `cfo auth` probes them before dispatch, validates project identity where configured, and keeps credentials namespaced outside repositories. A blocking authentication failure prevents normal dispatch rather than stranding a worker halfway through a task.
@@ -717,6 +730,7 @@ cfo gate test [--level fast|affected|full] [--plan]
 cfo gate turns
 cfo pr check <id> <url>
 cfo pr merge <url> [--method <merge|squash|rebase>] [--delete-branch] [--verified "<what verified it>"]
+cfo pr train <project>
 cfo afk on [--asked "<his words>"] | off [--asked "<his words>"] | status | report
 cfo afk log --kind <kind> --what "<what>" --evidence "<evidence>" [--link <url>]
 cfo cleanup <id>
