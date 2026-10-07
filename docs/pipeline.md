@@ -85,11 +85,15 @@ Migration never changes a worktree, native run row, gate ref, origin ref, or rev
 cfo pipeline run <id> --intent "The user's complete objective and constraints"
 cfo pipeline respond <id> --action fix --findings finding-id --instructions "Concrete guidance"
 cfo pipeline respond <id> --action approve
+cfo pipeline respond <id> --branch fix/connections --action approve
 cfo pipeline recover <id>
 cfo pipeline migrate <id>
 ```
 
 Commands operate in the recorded task worktree and use its frozen policy.
+A task that gates several branches from extra worktrees names one: `run`, `respond` and `recover` take `--branch <branch>`, and `respond` and `recover` take `--run <run-id>` instead.
+The command then acts in whichever of the task's recorded worktrees, its own or an extra one `cfo worktree add` made, has that branch checked out, because a native command answers the latest run of the branch checked out where it runs.
+A run must be its branch's latest run in the project, and a branch or run that none of the task's worktrees has checked out is refused before anything reaches the gate.
 The pane exports `CFO_HOME` and `CFO_STATE_OVERRIDE` and every gate step inherits both, so the `--intent` text must require any step that runs `cfo`, or a shell that resolves it, to clear them or point them at a temporary directory.
 `internal/home` refuses the inherited fleet home from a test binary, which covers `go test`, but the real `cfo` binary is not a test binary and no-mistakes has no per-repo step environment setting, so the intent is the only place left to state it.
 Commit work on a named feature branch before `run`.

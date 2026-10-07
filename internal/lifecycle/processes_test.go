@@ -60,3 +60,47 @@ func TestOwnedProcessesNeverTreatRelativeOrRootDirectoryAsOwnership(t *testing.T
 		}
 	}
 }
+
+// A goblin's teardown never ends a machine service it started. On 2026-10-07
+// a pause stopped Docker Desktop, its build and its WSL processes as the
+// goblin's: Docker Desktop had started from the goblin's worktree, inside its
+// terminal's job. On 2026-10-01 one stopped the no-mistakes daemon every gate
+// shared, with every other goblin's gate agents under it. The daemon's agent
+// at work in this task's own gate worktree is still the task's to stop, and
+// the goblin's own commands, a wsl.exe it ran included, are still its own.
+func TestOwnedProcessesSpareMachineServicesAGoblinStarted(t *testing.T) {
+	// Arrange
+	root := filepath.Join(t.TempDir(), "gb-task")
+	gate := filepath.Join(t.TempDir(), "gate-run")
+	started := time.Date(2026, 10, 7, 12, 45, 0, 0, time.UTC)
+	at := func(seconds int) time.Time { return started.Add(time.Duration(seconds) * time.Second) }
+	processes := []Process{
+		{PID: 10, ParentPID: 1, Name: "pwsh.exe", Started: at(0), Directory: root},
+		{PID: 11, ParentPID: 10, Name: "Docker Desktop.exe", Started: at(1), Directory: root, Arguments: []string{`C:\Program Files\Docker\Docker\Docker Desktop.exe`}},
+		{PID: 12, ParentPID: 11, Name: "com.docker.backend.exe", Started: at(2), Directory: root},
+		{PID: 13, ParentPID: 12, Name: "wsl.exe", Started: at(3), Arguments: []string{"wsl.exe", "-d", "docker-desktop"}},
+		{PID: 14, ParentPID: 13, Name: "wslhost.exe", Started: at(4)},
+		{PID: 15, ParentPID: 11, Name: "com.docker.build.exe", Started: at(5)},
+		{PID: 20, ParentPID: 10, Name: "no-mistakes.exe", Started: at(6), Directory: root, Arguments: []string{"no-mistakes", "daemon", "run", "--root", `C:\Users\o\.no-mistakes`}},
+		{PID: 21, ParentPID: 20, Name: "claude.exe", Started: at(7), Directory: filepath.Join(t.TempDir(), "another-gate-run")},
+		{PID: 22, ParentPID: 20, Name: "claude.exe", Started: at(8), Directory: gate},
+		{PID: 30, ParentPID: 10, Name: "wsl.exe", Started: at(9), Arguments: []string{"wsl.exe", "-e", "go", "test"}},
+		{PID: 31, ParentPID: 10, Name: "node.exe", Started: at(10), Directory: root},
+	}
+	var job []Identity
+	for _, process := range processes {
+		job = append(job, Identity{PID: process.PID, Started: process.Started})
+	}
+
+	// Act
+	owned := OwnedProcesses(processes, []string{root, gate}, job)
+
+	// Assert
+	var got []int
+	for _, process := range owned {
+		got = append(got, process.PID)
+	}
+	if want := []int{10, 22, 30, 31}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("owned %v, want %v: the goblin's shell, its own gate's agent, its wsl command and its server, never Docker Desktop's processes or the shared daemon and another gate's agent", got, want)
+	}
+}

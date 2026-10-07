@@ -4,6 +4,8 @@ import (
 	"path/filepath"
 	"strings"
 	"time"
+
+	"github.com/fpresta0607/code-goblins/internal/proc"
 )
 
 type Identity struct {
@@ -20,25 +22,39 @@ type Process struct {
 	Arguments []string
 }
 
+// OwnedProcesses are the processes a task's teardown ends: those in its
+// terminal's job, and those at work in its directories or running a program
+// from them. A machine service the goblin started is never among them, nor
+// what runs under it, since it serves the whole machine: Docker Desktop
+// started from a worktree runs there and in that job, and so does a
+// no-mistakes daemon a goblin's gate started, with every other gate's agents
+// under it. A daemon's agent at work in the task's own directories, its own
+// gate run's, is still the task's.
 func OwnedProcesses(processes []Process, directories []string, job []Identity) []Process {
+	running := make([]proc.ServiceProcess, 0, len(processes))
+	for _, process := range processes {
+		running = append(running, proc.ServiceProcess{PID: process.PID, ParentPID: process.ParentPID, ExeBase: process.Name, Arguments: process.Arguments, Start: process.Started})
+	}
+	services := proc.ServicesOf(running)
 	var owned []Process
 	for _, process := range processes {
 		if process.PID <= 0 || process.Started.IsZero() {
 			continue
 		}
-		isOwned := false
+		isJobMember := false
 		for _, identity := range job {
 			if identity.PID == process.PID && identity.Started.Equal(process.Started) {
-				isOwned = true
+				isJobMember = true
 				break
 			}
 		}
+		isClaimed := false
 		for _, directory := range directories {
 			if !filepath.IsAbs(directory) || filepath.Dir(filepath.Clean(directory)) == filepath.Clean(directory) {
 				continue
 			}
 			if withinDirectory(process.Directory, directory) {
-				isOwned = true
+				isClaimed = true
 			}
 			name := strings.TrimSuffix(strings.ToLower(process.Name), ".exe")
 			isRuntime := name == "node" || strings.HasPrefix(name, "python") || name == "pwsh" || name == "powershell" || name == "bash" || name == "sh" || name == "go" || name == "cfo"
@@ -59,11 +75,13 @@ func OwnedProcesses(processes []Process, directories []string, job []Identity) [
 					}
 				}
 				if isTaskArgument && withinDirectory(argument, directory) {
-					isOwned = true
+					isClaimed = true
 				}
 			}
 		}
-		if isOwned {
+		service := services[process.PID]
+		isService := service == proc.DockerDesktop || service == proc.GateDaemon && (proc.ServiceOf(process.Name, process.Arguments) == proc.GateDaemon || !isClaimed)
+		if (isJobMember || isClaimed) && !isService {
 			owned = append(owned, process)
 		}
 	}
