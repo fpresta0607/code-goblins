@@ -41,22 +41,22 @@ async function recordNotifications(page: Page, hidden: boolean) {
 }
 const notes = (page: Page) => page.evaluate(() => (window as unknown as { notes: { options: { body: string }; closed: boolean }[] }).notes.map((note) => ({ body: note.options.body, closed: note.closed })));
 
-test("a goblin's question to the CFO shows him nothing: no toast, no card, no count, no notification", async ({ page }) => {
+test("a goblin's question to the CFO, and its pull request after it, show him nothing: no toast, no card, no count, no notification", async ({ page }) => {
   // Arrange: a board out of sight, where every alert would notify.
   await recordNotifications(page, true);
   await open(page);
 
-  // Act: the goblin asks, then finishes, which proves the board took the
-  // question's snapshot in before anything is counted.
+  // Act: the goblin asks, then finishes, and then the CFO asks him, whose
+  // notification proves the board took both snapshots in before it.
   await step(page, "asked");
   await step(page, "finished");
+  await step(page, "cfoAsks");
 
   // Assert
-  await expect(toasts(page)).toHaveCount(1);
-  await expect(toasts(page)).toContainText("cg-board-theme finished: code-goblins #240 is ready.");
+  await expect.poll(() => notes(page)).toEqual([{ body: CFO_ASKS, closed: false }]);
+  await expect(toasts(page)).toHaveCount(0);
   await expect(dialog(page)).toBeHidden();
-  await expect(badge(page)).toHaveAccessibleName("Command Center");
-  expect(await notes(page)).toEqual([{ body: "cg-board-theme finished: code-goblins #240 is ready.", closed: false }]);
+  await expect(badge(page)).toHaveAccessibleName("Command Center, 1 waiting on you");
 });
 
 test("the CFO's question is one signal on the board: it waits under the count, with no toast, and nothing opens by itself", async ({ page }) => {
@@ -72,30 +72,6 @@ test("the CFO's question is one signal on the board: it waits under the count, w
   await expect(page.locator(".toasts")).toHaveCount(0);
   await expect(dialog(page)).toBeHidden();
   expect(await notes(page)).toEqual([]);
-});
-
-test("news he dismissed stays dismissed through a supervisor restart and a reload", async ({ page }) => {
-  await open(page);
-  await step(page, "finished");
-  await expect(toasts(page)).toHaveCount(1);
-  await toasts(page).getByRole("button", { name: /^Dismiss/ }).click();
-  await expect(page.locator(".toasts")).toHaveCount(0);
-  // The supervisor restarts, the goblin flickers back to work, and the same
-  // news comes back in the next snapshot. Changing its PR while it stays
-  // done is no new finish either.
-  for (const name of ["restarting", "working", "finished", "shipped"] as const) await step(page, name);
-  await expect(page.locator(".toasts")).toHaveCount(0);
-  // A new working-to-done report announces its next PR; replayed news would
-  // show above it.
-  await step(page, "working");
-  await step(page, "shipped");
-  await expect(toasts(page).last()).toContainText("cg-board-theme finished: code-goblins #241 is ready.");
-  await expect(toasts(page)).toHaveCount(1);
-  // A reload sees the same news arrive again and shows none of it.
-  await page.reload();
-  await page.waitForFunction(() => "step" in window);
-  for (const name of ["finished", "shipped", "working"] as const) await step(page, name);
-  await expect(page.locator(".toasts")).toHaveCount(0);
 });
 
 test("with the board out of sight an item raises a Windows notification, and clicking it opens that item", async ({ page }) => {

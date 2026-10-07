@@ -49,8 +49,8 @@ const send = (page: Page, type: "snapshot" | "items", data: object) => page.eval
 async function announcer(context: BrowserContext) {
   const announced = new Set<string>();
   await context.route("**/api/announce", async (route) => {
-    const asked: { keys?: string[]; news?: string[] } = route.request().postDataJSON();
-    const claimed = [...asked.keys || [], ...asked.news || []].filter((key) => !announced.has(key));
+    const asked: { keys: string[] } = route.request().postDataJSON();
+    const claimed = asked.keys.filter((key) => !announced.has(key));
     for (const key of claimed) announced.add(key);
     await route.fulfill({ json: { claimed } });
   });
@@ -165,53 +165,13 @@ for (const way of WAYS) {
   });
 }
 
-// An item shows no toast, so a goblin's news is the dialogue whose action a
-// click can meet while it is still stepping in.
-for (const scenario of [
-  { name: "a goblin's finished news opens its goblin when its dialogue finishes appearing during the click", news: { phase: "done", report: "done", pr: "https://github.com/fpresta0607/code-goblins/pull/204" }, says: "Probe the DNS finished" },
-  { name: "a goblin's failed news opens its goblin when its dialogue finishes appearing during the click", news: { phase: "failed", report: "failed", activity: "failed: its checks failed" }, says: "Probe the DNS failed" },
-]) {
-  test(scenario.name, async ({ page, context }, testInfo) => {
-    // Arrange: pause the toast's entrance before pressing its real action.
-    await standInStream(context);
-    await announcer(context);
-    await page.goto("/");
-    await send(page, "snapshot", quiet);
-    await expect(bar(page)).toContainText("All quiet");
-    await send(page, "snapshot", { ...quiet, revision: 2, tasks: [{ ...quiet.tasks[0], ...scenario.news }] });
-    const dialogue = toasts(page).filter({ hasText: scenario.says }).locator(".dialogue");
-    await dialogue.evaluate((element) => {
-      for (const animation of element.getAnimations()) {
-        animation.pause();
-        animation.currentTime = 0;
-      }
-    });
-    const button = dialogue.getByRole("button", { name: "Open", exact: true });
-    const bounds = await button.boundingBox();
-    if (!bounds) throw new Error("The news's Open button has no visible bounds.");
-    const point = { x: bounds.x + bounds.width / 2, y: bounds.y + bounds.height / 2 };
-    await page.mouse.move(point.x, point.y);
-
-    // Act: the same pointer presses and releases while the entrance completes.
-    await page.mouse.down();
-    await dialogue.evaluate((element) => {
-      for (const animation of element.getAnimations()) animation.finish();
-    });
-    await page.mouse.up();
-    await testInfo.attach("the dialogue after the pointer click", { body: await page.screenshot(), contentType: "image/png" });
-
-    // Assert
-    await expect(page.locator("#panel-title")).toHaveText("Probe the DNS");
-  });
-}
-
 // The Overlord works in the desktop window: the board in WebView2, maximized
 // on his 2560 by 1600 screen at 150 percent, which is 1707 CSS pixels wide at
 // device scale 1.5, with the CFO's panel open beside the board.
 test.describe("in the desktop window's size, with the CFO's panel open", () => {
   test.use({ viewport: { width: 1707, height: 1000 }, deviceScaleFactor: 1.5 });
 
-  test("a goblin's question stays with the CFO, his own question waits quietly, and the ten-minute notice opens his terminal", async ({ page, context }, testInfo) => {
+  test("a goblin's question stays with the CFO, his own question waits quietly, and the ten-minute notice is said on the CFO's bar, alerting nothing", async ({ page, context }, testInfo) => {
     // Arrange
     await standInStream(context);
     await announcer(context);
@@ -238,7 +198,10 @@ test.describe("in the desktop window's size, with the CFO's panel open", () => {
     await testInfo.attach("one quiet item with the CFO's terminal open", { body: await page.screenshot(), contentType: "image/png" });
     await page.getByRole("button", { name: "Close panel", exact: true }).click();
     await send(page, "snapshot", { ...quiet, revision: 4, cfo_quiet: { since: "2026-10-02T12:10:00Z", count: 3, oldest_age: 660 } });
-    await toasts(page).getByRole("button", { name: "Open the CFO's terminal", exact: true }).click();
+    await expect(bar(page)).toContainText("The CFO has not answered 3 questions; the oldest has waited 11 minutes. The CFO supervises 1 goblin.");
+    await page.waitForTimeout(500);
+    await expect(toasts(page)).toHaveCount(0);
+    await bar(page).getByRole("button", { name: "Open the CFO's terminal" }).first().click();
     await expect(page.locator("#panel-title")).toHaveText("CFO");
     await expect(page.getByRole("textbox", { name: "Terminal input" })).toBeFocused();
   });

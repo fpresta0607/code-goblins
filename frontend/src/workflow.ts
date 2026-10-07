@@ -137,19 +137,27 @@ const WAITS: Record<string, string> = { overlord: "the CFO", ci: "CI", deploy: "
 const GATE_STEPS: Record<string, string> = { review: "code review", lint: "lint", push: "push", test: "tests", ci: "CI", pr: "PR", document: "docs" };
 
 // A pause, resume or stop that did not finish is the task's state until the
-// next one starts, whatever its goblin last reported.
-const FAILED_ACTIONS: Record<string, string> = { pause: "Pause failed", resume: "Resume failed", stop: "Stop failed" };
-const actionFailed = (task: Task) => task.lifecycle?.phase === "failed" && !["pausing", "resuming", "stopping"].includes(task.phase) ? FAILED_ACTIONS[task.lifecycle.action] || "" : "";
+// next one starts, whatever its goblin last reported, drawn as that action
+// under way: the CFO or the Overlord asked for a pause or a stop, so one that
+// did not finish is never the goblin failing (the Overlord, 2026-10-07), and
+// the CFO hears of it. Only a goblin that did not start again has failed.
+const FAILED_ACTIONS: Record<string, { status: string; phase: string }> = {
+  pause: { status: "Pause did not finish", phase: "pausing" },
+  resume: { status: "Resume failed", phase: "failed" },
+  stop: { status: "Stop did not finish", phase: "stopping" },
+};
+const actionFailed = (task: Task) => task.lifecycle?.phase === "failed" && !["pausing", "resuming", "stopping"].includes(task.phase) ? FAILED_ACTIONS[task.lifecycle.action] : undefined;
 
-// statusPhase is the phase a task's status is drawn in, failed for an action
-// that did not finish.
+// statusPhase is the phase a task's status is drawn in: the action's for one
+// that did not finish, and failed for a goblin that did not come back.
 export function statusPhase(task: Task): string {
-  return actionFailed(task) || task.comeback?.state === "stopped" ? "failed" : task.phase;
+  return actionFailed(task)?.phase || (task.comeback?.state === "stopped" ? "failed" : task.phase);
 }
 
 export function nodeStatus(node: WorkflowNode, asking = false): string {
   if (node.status) return node.status;
-  if (node.task && actionFailed(node.task)) return actionFailed(node.task);
+  const unfinished = node.task && actionFailed(node.task);
+  if (unfinished) return unfinished.status;
   if (node.task && ["paused", "pausing", "resuming", "stopping", "stopped"].includes(node.task.phase)) return statusText(node.task.phase);
   if (node.task?.comeback?.state === "waiting") return "Comes back after the restart when memory allows";
   if (node.task?.comeback?.state === "stopped") return "Did not come back after the restart";

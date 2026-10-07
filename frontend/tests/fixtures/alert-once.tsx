@@ -39,9 +39,9 @@ function Page() {
   useEffect(() => { window.step = setShown; }, []);
   return <main data-step={shown} style={{ minHeight: "100vh", padding: 24 }}>
     <output aria-label="Opened">{said}</output>
-    <Alerts snapshot={snapshot} onOpen={(target) => {
-      setSaid("opened " + (target.kind === "command" ? "the Command Center at " + target.key : target.kind === "task" ? target.id : "the CFO's terminal"));
-      if (target.kind === "command") setFocus({ key: target.key, at: Date.now() });
+    <Alerts snapshot={snapshot} onOpen={(key) => {
+      setSaid("opened the Command Center at " + key);
+      setFocus({ key, at: Date.now() });
     }} />
     <CommandCenter snapshot={snapshot} connected presentations={[]} focus={focus} onUnsent={ignore} />
   </main>;

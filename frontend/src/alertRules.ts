@@ -1,41 +1,31 @@
-import { isOpen, itemFor, newestItemOf, openKeys, waitingItems, waitReason, waitsOnOverlord, type Item } from "./commandQueue.ts";
+import { isOpen, itemFor, openKeys, waitingItems, waitReason, waitsOnOverlord, type Item } from "./commandQueue.ts";
 import { credentialAsk } from "./credentials.ts";
 import { publishedAt } from "./item-state.ts";
 import { messageBlocks, plainMessage } from "./messageText.ts";
 import type { Snapshot, Task } from "./types.ts";
-import { pullRequestLabel } from "./workflow.ts";
-import { plainText, reportBody, withoutHarness } from "./task-words.ts";
+import { withoutHarness } from "./task-words.ts";
 
-// What an alert opens: a Command Center item by its key, where an empty key
-// opens the first item waiting or the inbox, or a goblin's task.
-export type AlertTarget = { kind: "command"; key: string } | { kind: "task"; id: string } | { kind: "cfo" };
-
-// An alert tells the Overlord that something needs him or finished: its key
-// is the one event it stands for, a Command Center item's id with its
-// publishing or a goblin's news, and says is who says what, by which a copy
-// of it is known.
-// It is a goblin, or the CFO, coming up to him: speaker names who, text is its
-// one plain line, and action is the one thing to do about it.
+// An alert tells the Overlord that a Command Center item asks him something,
+// and nothing else does (the Overlord, 2026-10-07: "alerts should only be
+// open command center questions"): a goblin blocked, failed or done, and the
+// CFO falling behind on its questions, are said on the goblin's card and the
+// CFO's bar. Its key is the item's id with its publishing, item is the
+// Command Center item it opens, and says is who asks what, by which the same
+// ask filed again under a new item is known as a copy. speaker names who
+// asks, and text is its one plain line.
 export interface BoardAlert {
   key: string;
   says: string;
-  tone: "needs" | "failed" | "done";
   speaker: string;
   text: string;
-  action: string;
-  // task is the goblin the alert is about or that asks; empty for the CFO.
-  task: string;
-  target: AlertTarget;
+  item: string;
 }
 
 // How much of a message an alert shows, and of the name it starts with, so a
-// goblin titled with a whole sentence still leaves room for what happened.
+// goblin titled with a whole sentence still leaves room for what it asks.
 const TEXT_LIMIT = 160;
 const NAME_LIMIT = 60;
 const shortened = (text: string, limit = TEXT_LIMIT) => text.length > limit ? text.slice(0, limit - 1).trimEnd() + "…" : text;
-
-// Everything in the Command Center opens there.
-const OPEN_COMMAND_CENTER = "Open Command Center";
 
 // A goblin speaks by its title, as its card and the Command Center inbox name
 // it, falling back to its id.
@@ -46,12 +36,8 @@ const nameOf = (tasks: Task[], id: string) => withoutHarness(tasks.find((task) =
 // and the same ID with another created_at is a new item.
 const itemAlertKey = (item: Item) => item.key + "@" + publishedAt(item);
 
-// An item alerts as its publishing, and says what it asks and who asks it, so
-// the same ask filed again under a new item, such as a wait a goblin files
-// once more, is known as a copy.
 function itemAlert(item: Item, tasks: Task[]): BoardAlert {
-  const target: AlertTarget = { kind: "command", key: item.key };
-  const alert = (task: string, text: string): BoardAlert => ({ key: itemAlertKey(item), says: "item:" + (task || "cfo") + ":" + text, tone: "needs", speaker: task ? nameOf(tasks, task) : "CFO", text: shortened(text), action: OPEN_COMMAND_CENTER, task, target });
+  const alert = (task: string, text: string): BoardAlert => ({ key: itemAlertKey(item), says: "item:" + (task || "cfo") + ":" + text, speaker: task ? nameOf(tasks, task) : "CFO", text: shortened(text), item: item.key });
   const asker = (task: string) => task ? shortened(nameOf(tasks, task), NAME_LIMIT) : "The CFO";
   if (item.kind === "question") {
     // A question says its lead: the first paragraph or bullet, without the
@@ -70,71 +56,15 @@ function itemAlert(item: Item, tasks: Task[]): BoardAlert {
   return alert("", "A command waits for you to run it: " + item.run.title);
 }
 
-// A goblin's blocked or failed notify waits on the CFO, and its task reads so
-// until he answers or acks it. After that the notify still holds the task
-// until the goblin reports again, marked as one the CFO handled.
-const asksCFO = (task: Task) => task.reason.startsWith("Waiting on the CFO") || !!task.report_handled;
-
-// A goblin's state that the Overlord hears of: blocked or failed by its
-// evidence or failed by its own report, or done with its pull request.
-// Anything else, such as working, in review or waiting on another task, is
-// routine and says nothing. A goblin waiting on its own question, which its
-// task reads as Waiting on the CFO, or held by one the CFO handled, says
-// nothing either: its question is the CFO's to answer, who is woken for it,
-// so nothing waits on the Overlord.
-function taskState(task: Task): "blocked" | "failed" | "done" | "" {
-  if (task.phase === "blocked") return asksCFO(task) ? "" : "blocked";
-  if (task.phase === "failed" || task.report === "failed") return asksCFO(task) ? "" : "failed";
-  return (task.phase === "done" || task.report === "done") && task.pr ? "done" : "";
-}
-
-// A blocked goblin needs the Overlord, so its alert opens the Command Center
-// on its newest item waiting there, or with no item, on the first one waiting
-// or the inbox. Only its done or failed news opens the goblin itself. Its
-// news has no id of its own, so its key is what it says: the same pull request
-// or the same failure, and its next pull request is another.
-function taskAlert(task: Task, state: "blocked" | "failed" | "done", next: Snapshot): BoardAlert {
-  const name = shortened(withoutHarness(task.title) || task.id, NAME_LIMIT);
-  const blocked = state === "blocked";
-  const target: AlertTarget = blocked ? { kind: "command", key: newestItemOf(next, task.id)?.key || "" } : { kind: "task", id: task.id };
-  const alert = (tone: BoardAlert["tone"], news: string, text: string): BoardAlert => {
-    const key = "task:" + task.id + ":" + task.generation + ":" + state + ":" + news;
-    return { key, says: key, tone, speaker: withoutHarness(task.title) || task.id, text: shortened(text), action: blocked ? OPEN_COMMAND_CENTER : "Open", task: task.id, target };
-  };
-  if (state === "done") return alert("done", task.pr, name + " finished: " + pullRequestLabel(task.pr) + " is ready.");
-  const said = state === "failed" && task.report === "failed" ? reportBody(task.activity) : task.reason;
-  return alert(state === "failed" ? "failed" : "needs", said, name + (state === "failed" ? " failed: " : " is blocked: ") + (plainText(said) || "it needs a decision to go on."));
-}
-
-// boardAlerts is what changed between two snapshots that needs the Overlord
-// or finished: a new question, review, command or credential request in the
-// Command Center, and a goblin that became blocked, failed or done with its
-// pull request. The first snapshot a page sees alerts nothing: what already
-// waits is under the badge.
-// A question that was open inside its page's card is not new when it shows
-// as a card of its own.
-// A goblin's failed question that the CFO handled is no failure after it.
-// The Completed column's history is not a goblin finishing, so it alerts
-// nothing either.
+// boardAlerts is the items new in the Command Center between two snapshots
+// that ask the Overlord something: a question, review, command or credential
+// request. The first snapshot a page sees alerts nothing: what already waits
+// is under the badge. A question that was open inside its page's card is not
+// new when it shows as a card of its own.
 export function boardAlerts(previous: Snapshot | null, next: Snapshot): BoardAlert[] {
-  const notices: BoardAlert[] = [];
-  const quiet = next.cfo_quiet;
-  if (quiet && quiet.since !== previous?.cfo_quiet?.since) {
-    notices.push({ key: "cfo-quiet:" + quiet.since, says: "quiet-cfo:" + quiet.since, tone: "needs", speaker: "CFO", task: "",
-      text: `The CFO has not answered ${quiet.count} question${quiet.count === 1 ? "" : "s"}; the oldest has waited ${Math.floor(quiet.oldest_age / 60)} minutes.`,
-      action: "Open the CFO's terminal", target: { kind: "cfo" } });
-  }
-  if (!previous) return notices;
+  if (!previous) return [];
   const known = openKeys(previous);
-  const items = waitingItems(next).filter((item) => !known.has(item.key)).map((item) => itemAlert(item, next.tasks));
-  const before = new Map(previous.tasks.map((task) => [task.id, task]));
-  const tasks = next.tasks.filter((task) => !task.archived).flatMap((task) => {
-    const state = taskState(task);
-    const prior = before.get(task.id);
-    const changed = !prior || prior.generation !== task.generation || taskState(prior) !== state;
-    return state && changed ? [taskAlert(task, state, next)] : [];
-  });
-  return [...notices, ...items, ...tasks];
+  return waitingItems(next).filter((item) => !known.has(item.key)).map((item) => itemAlert(item, next.tasks));
 }
 
 // An alert a browser showed: its key, what it said, and when.
@@ -147,78 +77,62 @@ export interface SeenAlert {
 // How many alerts a browser remembers having shown, newest last.
 export const SEEN_LIMIT = 100;
 
-// How long the same words from the same speaker are one event.
+// How long the same ask from the same asker is one event.
 const SAME_EVENT_MS = 5 * 60 * 1000;
 
 // unseen is the alerts among a snapshot's that are not copies of one this
 // browser showed, each once, and the alerts remembered after showing them. An
-// item is a copy of one shown under its key, whenever that was, and any alert
-// is a copy of one that said the same less than five minutes before: a
-// snapshot, a reconnect or a reload brings no alert back, and the same news
-// later is a new event. An item that is a copy by its words is remembered
-// under its own id too, at the time of the one it copies, so it never alerts
-// later. The list comes back as it was given when nothing was added to it.
+// alert is a copy of one shown under its key, whenever that was, or of one
+// that said the same less than five minutes before: a snapshot, a reconnect
+// or a reload brings no alert back, and the same ask later is a new event. A
+// copy by its words is remembered under its own key too, at the time of the
+// one it copies, so it never alerts later. The list comes back as it was
+// given when nothing was added to it.
 export function unseen(alerts: BoardAlert[], seen: readonly SeenAlert[], now: number): { fresh: BoardAlert[]; seen: readonly SeenAlert[] } {
   const shown = [...seen];
   const fresh: BoardAlert[] = [];
   for (const alert of alerts) {
-    const isItem = isItemAlert(alert);
-    if (isItem && shown.some((one) => one.key === alert.key)) continue;
+    if (shown.some((one) => one.key === alert.key)) continue;
     const said = shown.find((one) => one.says === alert.says && now - one.at < SAME_EVENT_MS);
-    if (said && !isItem) continue;
     shown.push({ key: alert.key, says: alert.says, at: said ? said.at : now });
     if (!said) fresh.push(alert);
   }
   return { fresh, seen: shown.length === seen.length ? seen : shown.slice(-SEEN_LIMIT) };
 }
 
-// An item's alert has the item's key and says its words; a goblin's news has
-// no id of its own, so its key is what it says.
-export const isItemAlert = (alert: BoardAlert) => alert.key !== alert.says;
+// What the desktop window's page hears when the Overlord clicks a Windows
+// notification the window raised from its own look at the board, which the
+// page holds no notification for: the alert's key, whose item it opens.
+export const NOTIFICATION_CLICK = "code-goblins-notification-click";
 
-// The name the supervisor records an alert under, short enough for it to
-// take: an item's whole, since its id is short and its publishing ends it,
-// and a goblin's news cut, since a long reason is one event by how it starts.
-// The cut never leaves half of a character, which the supervisor would record
-// as another.
-export function announceKey(alert: BoardAlert): string {
-  if (isItemAlert(alert)) return "alert:" + alert.key;
-  const name = ("alert:" + alert.key).slice(0, 160);
-  const last = name.charCodeAt(name.length - 1);
-  return last >= 0xd800 && last <= 0xdbff ? name.slice(0, -1) : name;
+// The Command Center item an alert's key stands for: the key without its
+// publishing.
+export function alertItem(key: string): string {
+  const at = key.lastIndexOf("@");
+  return at < 0 ? key : key.slice(0, at);
 }
+
+// The name the supervisor records an alert under: its key whole, since an
+// item's id is short and its publishing ends it.
+export const announceKey = (alert: BoardAlert) => "alert:" + alert.key;
 
 // An alert whose item the snapshot shows closed, or published again since
 // under its id, has nothing left to open: he answered or cleared it, here or
 // anywhere else. An item the snapshot does not hold, as while the supervisor
 // restarts, is not known to be closed.
 export function outlived(alert: BoardAlert, snapshot: Snapshot): boolean {
-  if (alert.target.kind === "cfo") return alert.key !== "cfo-quiet:" + snapshot.cfo_quiet?.since;
-  const item = isItemAlert(alert) && alert.target.kind === "command" ? itemFor(snapshot, alert.target.key) : undefined;
+  const item = itemFor(snapshot, alert.item);
   return !!item && (!isOpen(item) || itemAlertKey(item) !== alert.key);
-}
-
-// The most toasts shown at once; the oldest leaves first.
-const MAX_TOASTS = 4;
-
-// arrive stacks fresh alerts below the toasts on screen. A goblin's news that
-// comes again takes the place of its toast still resting there.
-export function arrive(shown: BoardAlert[], fresh: BoardAlert[]): BoardAlert[] {
-  const keys = new Set(fresh.map((alert) => alert.key));
-  return [...shown.filter((toast) => !keys.has(toast.key)), ...fresh].slice(-MAX_TOASTS);
 }
 
 // A Windows notification is for an alert the Overlord cannot see: the board
 // is out of sight, its tab hidden or its window minimized, and he allowed
-// them. A board on screen notifies nothing, in front or not.
+// them. A board on screen notifies nothing, in front or not: there the bar's
+// Open Command Center, which glows and counts what waits, is the item's one
+// signal.
 export function notifies(permission: NotificationPermission | "unsupported", hidden: boolean): boolean {
   return permission === "granted" && hidden;
 }
-
-// One item is one signal: what waits on him shows on the bar's Open Command
-// Center button and under the count, so its alert is no toast. A goblin's
-// news, which waits on nothing, is one.
-export const showsToast = (alert: BoardAlert) => !isItemAlert(alert) || alert.target.kind === "cfo";
 
 // The board asks for Windows notifications once, with the first alert, and
 // never again once he has answered or dismissed the ask.

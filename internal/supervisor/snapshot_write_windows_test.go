@@ -26,7 +26,7 @@ func TestAnEventStreamOpensWhileStoreWritesWaitForAFileReader(t *testing.T) {
 					t.Fatal(err)
 				}
 			}
-			if _, err := store.claimAnnounced([]string{"first"}, nil, time.Now()); err != nil {
+			if _, err := store.claimAnnounced([]string{"first"}, time.Now()); err != nil {
 				t.Fatal(err)
 			}
 			reader, err := os.Open(store.path())
@@ -43,7 +43,7 @@ func TestAnEventStreamOpensWhileStoreWritesWaitForAFileReader(t *testing.T) {
 				writers.Add(1)
 				go func() {
 					defer writers.Done()
-					if _, err := store.claimAnnounced([]string{fmt.Sprintf("new-%d", i)}, nil, time.Now()); err != nil {
+					if _, err := store.claimAnnounced([]string{fmt.Sprintf("new-%d", i)}, time.Now()); err != nil {
 						t.Errorf("queued store write: %v", err)
 					}
 				}()
