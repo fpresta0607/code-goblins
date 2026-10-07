@@ -86,7 +86,7 @@ test("a new request alerts once, naming who asks and what, and opens its card", 
   const filed = request({ names: ["STRIPE_SECRET_KEY"] });
   const alerts = boardAlerts(board([]), board([filed]));
   assert.deepEqual(alerts.map(({ key, tone, speaker, text, action, task, target }) => ({ key, tone, speaker, text, action, task, target })), [
-    { key: "credential:" + filed.id, tone: "needs", speaker: "Add Stripe billing", text: "Add Stripe billing asks: Paste STRIPE_SECRET_KEY for precisiondocs", action: "Open Command Center", task: "add-billing", target: { kind: "command", key: "credential:" + filed.id } },
+    { key: "credential:" + filed.id + "@" + filed.created_at, tone: "needs", speaker: "Add Stripe billing", text: "Add Stripe billing asks: Paste STRIPE_SECRET_KEY for precisiondocs", action: "Open Command Center", task: "add-billing", target: { kind: "command", key: "credential:" + filed.id } },
   ]);
   const [cfo] = boardAlerts(board([]), board([{ ...filed, by: "cfo", task: "" }]));
   assert.equal(cfo.speaker, "CFO");

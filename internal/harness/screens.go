@@ -89,6 +89,9 @@ func NativeScreens(kind Kind) (Screens, bool) {
 				{Name: "the optional Daybreak security setup offer", Markers: []string{"Set up security for Daybreak mode"}, EscapeHint: "Press a number to choose · esc to dismiss · type to continue"},
 				{Name: "the update prompt", Markers: []string{"Update available!"}, Focus: []string{"›"}, Accept: "2. Skip"},
 				{Name: "the directory trust prompt", Markers: []string{"Do you trust the contents of this directory?"}, Focus: []string{"›"}, Accept: "1. Yes, continue"},
+				// Codex 0.160 asks this in its place, live on 2026-10-07 in a
+				// project it was never told to trust; Escape there quits Codex.
+				{Name: "the folder trust prompt", Markers: []string{"Trust this folder?"}, Focus: []string{"›"}, Accept: "1. Trust and continue"},
 				// Trusting hooks is the Overlord's decision, never a spawn's: a
 				// goblin continues without trusting them, so they do not run,
 				// and the spawn reports them.

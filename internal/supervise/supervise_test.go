@@ -264,6 +264,7 @@ func TestEpochLedgerNextAndSetOutcome(t *testing.T) {
 	if err != nil || n2 != 2 {
 		t.Fatalf("NextEpoch #2 = %d, %v, want 2, nil", n2, err)
 	}
+	written := time.Now()
 	if err := SetOutcome(dir, 2, "rewake"); err != nil {
 		t.Fatal(err)
 	}
@@ -271,6 +272,7 @@ func TestEpochLedgerNextAndSetOutcome(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	read := time.Now()
 	if epoch.N != 2 {
 		t.Errorf("epoch.N = %d, want 2", epoch.N)
 	}
@@ -280,8 +282,10 @@ func TestEpochLedgerNextAndSetOutcome(t *testing.T) {
 	if epoch.OwnerPID != os.Getpid() {
 		t.Errorf("epoch.OwnerPID = %d, want %d", epoch.OwnerPID, os.Getpid())
 	}
-	if diff := time.Since(epoch.UpdatedAt); diff < -2*time.Second || diff > 2*time.Second {
-		t.Errorf("epoch.UpdatedAt = %v, want within 2s of now", epoch.UpdatedAt)
+	// The stamp is kept to the second, and is judged by when it was written,
+	// never by its age at the end, which counts how long the write took.
+	if epoch.UpdatedAt.Before(written.Truncate(time.Second)) || epoch.UpdatedAt.After(read) {
+		t.Errorf("epoch.UpdatedAt = %v, want the second SetOutcome wrote it, between %v and %v", epoch.UpdatedAt, written, read)
 	}
 }
 
