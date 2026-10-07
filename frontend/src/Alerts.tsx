@@ -108,7 +108,7 @@ export function Alerts({ snapshot, onOpen }: { snapshot: Snapshot; onOpen: (targ
         <p>Show a Windows notification when something needs you while the board is in the background?</p>
       </DialogueBox>
     </div>}
-    {toasts.map((alert) => <Toast key={alert.key} alert={alert} persona={alert.task ? personaFor(snapshot.tasks.find((task) => task.id === alert.task)) : alert.speaker === "Code Goblins" ? "releases" : "cfo"}
+    {toasts.map((alert) => <Toast key={alert.key} alert={alert} persona={alert.task ? personaFor(snapshot.tasks.find((task) => task.id === alert.task)) : "cfo"}
       onOpen={() => { dismiss(alert.key); onOpen(alert.target); }} onDismiss={() => dismiss(alert.key)} onExpire={() => leave(alert.key)} />)}
   </section>;
 }
