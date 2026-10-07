@@ -668,7 +668,7 @@ func TestANativeSpawnAnswersCodexsStartupAndDeliversItsInstructionOnce(t *testin
 			if submitted := named(events, "submitted"); len(submitted) != 1 || submitted[0].Text != pointer {
 				t.Errorf("submitted = %+v, want the line pointing at the instruction once:\n%s", submitted, pointer)
 			}
-			if instruction := spawnInstruction(f.brief, "task-7"); written != instruction+"\n" {
+			if instruction := spawnInstruction(f.brief, state.TaskMeta{ID: "task-7", Kind: "ship"}); written != instruction+"\n" {
 				t.Errorf("instruction.md = %q, want the whole instruction:\n%s", written, instruction)
 			}
 			env := named(events, "env")[0].Env

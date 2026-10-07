@@ -69,7 +69,7 @@ func newHomeTask(t *testing.T) homeTask {
 	commands := execx.OSRunner{}
 	worktrees := worktree.Service{Commands: commands, Root: filepath.Join(home, "worktrees")}
 	ctx := context.Background()
-	own, err := worktrees.Acquire(ctx, project, "g1")
+	own, err := worktrees.Acquire(ctx, project, "g1", "")
 	if err != nil {
 		t.Fatal(err)
 	}

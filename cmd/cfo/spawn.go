@@ -57,6 +57,7 @@ func runSpawn(args []string, stdout, stderr io.Writer, runtime commandRuntime) i
 	auto := fs.Bool("auto", false, "route from the lane table; the default without --harness, kept as an alias")
 	overlapOK := fs.String("overlap-ok", "", "start although a teammate has work in the same area, and say why; the reason goes on the task's ticket and status log")
 	givenTitle := fs.String("title", "", "the task's short title for the board and its ticket; omitted, its backlog row's title")
+	parent := fs.String("parent", "", "start the task as a helper of this running goblin: on a branch cut from its last commit, in local-only mode, reporting to it; the supervisor starts helpers for cfo helper start")
 	if err := fs.Parse(args[1:]); err != nil {
 		return 2
 	}
@@ -112,18 +113,25 @@ func runSpawn(args []string, stdout, stderr io.Writer, runtime commandRuntime) i
 	// bound starts the task unchecked and says so. A project with no GitHub
 	// repository has no teammates to read, which is nothing to say. A read
 	// that stopped short of something still refuses on what it did find.
-	overlap, unread, err := teammateOverlap(runtime, h, args[0], checkout, string(briefText), time.Now())
-	hasOverlap := len(overlap.Files) > 0 || len(overlap.Issues) > 0
-	if len(unread) > 0 {
-		warnIncompleteCheck(stderr, unread)
-	}
-	switch {
-	case errors.Is(err, tickets.ErrNotGitHub):
-	case err != nil:
-		fmt.Fprintf(stderr, "cfo spawn: who else works in this area could not be read, so the task starts unchecked: %v\n", err)
-	case hasOverlap && strings.TrimSpace(*overlapOK) == "":
-		refuseOverlap(stderr, overlap)
-		return 1
+	// A helper works inside its parent's area by definition, which its
+	// parent's own spawn already checked, so it reads no teammate's work.
+	var overlap tickets.Overlaps
+	hasOverlap := false
+	if *parent == "" {
+		var unread []string
+		overlap, unread, err = teammateOverlap(runtime, h, args[0], checkout, string(briefText), time.Now())
+		hasOverlap = len(overlap.Files) > 0 || len(overlap.Issues) > 0
+		if len(unread) > 0 {
+			warnIncompleteCheck(stderr, unread)
+		}
+		switch {
+		case errors.Is(err, tickets.ErrNotGitHub):
+		case err != nil:
+			fmt.Fprintf(stderr, "cfo spawn: who else works in this area could not be read, so the task starts unchecked: %v\n", err)
+		case hasOverlap && strings.TrimSpace(*overlapOK) == "":
+			refuseOverlap(stderr, overlap)
+			return 1
+		}
 	}
 	assessment := routing.Classify(string(briefText))
 	routed := *harnessName == ""
@@ -258,6 +266,7 @@ func runSpawn(args []string, stdout, stderr io.Writer, runtime commandRuntime) i
 		Effort:    *effort,
 		Class:     *class,
 		Title:     title,
+		Parent:    *parent,
 		Capsule:   writeCapsule,
 	})
 	if err != nil {
