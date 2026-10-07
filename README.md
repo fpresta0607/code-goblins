@@ -139,6 +139,7 @@ irm https://github.com/fpresta0607/code-goblins/releases/latest/download/install
 
 Both are the same install, so use whichever you like: the setup if you want a window, the one line if you live in a terminal.
 Each puts the Code Goblins app and the `cfo` command line (also called `goblins`) together in one folder, `%LOCALAPPDATA%\CodeGoblins`, adds that folder to your PATH and Code Goblins to the Start menu, installs the tools the goblins use where they are missing, and opens [the desktop app](#the-desktop-app).
+Each also merges the CFO's hooks and a few permission rules into your Claude Code settings, `~/.claude/settings.json`, keeping your own and backing the file up first: the rules let a Claude Code CFO in auto mode put questions, run items, reviews and documents in front of you in the Command Center, which [Safety model](#safety-model) explains.
 Each also turns on **Start at login**, so Code Goblins starts in the tray when you sign in and brings back what a restart ended; untick it in the setup to keep it off, and [Opening, closing and restarting](#opening-closing-and-restarting) says how to change it later.
 Each says the same four steps as it goes (download, check, install, open) and keeps every detail in `%TEMP%\CodeGoblinsInstall.log`; a failure says in one sentence what happened and what to do.
 Run either again at any time to update: it never asks you to run anything first.
@@ -920,6 +921,11 @@ Code Goblins is designed for high autonomy without pretending that an LLM saying
 - AFK mode is your switch: the supervisor refuses it from a goblin's terminal and from a browser an agent opened, makes it for the CFO only with the words you asked it with and records them, logs every decision the CFO makes under it with its evidence, and holds what stays yours for you, never decided.
 - Only the registered CFO process can put a question, item or answer on the board as the CFO: the supervisor proves the sender from the process at the other end of its pipe, and a goblin, running as the same Windows user, cannot pass its own items off as the CFO's by writing files.
 - The CFO never waits on a native question prompt: its pre-tool hook refuses Claude Code's `AskUserQuestion` in the registered CFO session and points it to `cfo question` and `cfo run-request`, so every question reaches the Command Center and supervision keeps running while it waits.
+- `cfo install` adds Claude Code allow rules only for the commands that put an item in front of you and run no command of their caller's: `cfo question`, `cfo run-request`, `cfo review`, `cfo present`, `cfo deliver` and `cfo auth request`, as `Bash(cfo question *)` and `PowerShell(cfo question *)` and so on.
+  Auto mode resolves such a narrow rule before its classifier, unless `autoMode.classifyAllShell` is on, so the classifier no longer keeps a card from you; filing a run item runs nothing, and its command runs only once **Run** is pressed for it.
+  The rules hold in every Claude Code session you run, and each of these commands still refuses a caller that is neither the registered CFO nor a goblin naming its own task.
+  `cfo answer` gets no rule, because it types the CFO's decision into a goblin's terminal for that goblin to act on, and the classifier keeps judging it as it judges `cfo send`.
+  Adding the rules is yours: the CFO never edits them into your settings, `cfo install --uninstall` removes exactly the ones the install added, and `cfo doctor` names any that are missing.
 
 For high-risk production systems, use repository branch protection and keep production deployment credentials outside worker reach. Code Goblins coordinates software delivery; it is not an operating-system sandbox.
 
