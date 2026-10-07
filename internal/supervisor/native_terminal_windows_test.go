@@ -93,6 +93,9 @@ func TestNativeTerminalProgram(t *testing.T) {
 	// composer is the harness whose composer the program draws: Claude Code's
 	// unless a draw line names another, for a terminal registered as it.
 	composer := "claude"
+	// footer is a line Claude Code's footer adds under its mode, such as the
+	// one saying an update of it waits for a restart.
+	footer := ""
 	// A screen is drawn in one write, so a read never finds it half drawn. The
 	// turn's line reads as a turn to both Claude Code's and Codex's screens.
 	drawComposer := func(text string, isWorking bool) {
@@ -114,6 +117,9 @@ func TestNativeTerminalProgram(t *testing.T) {
 			rows = append(rows, rule, text, rule, "0.0%/1.0M (auto)")
 		default:
 			rows = append(rows, rule, "❯ "+text, rule, "⏵⏵ bypass permissions on (shift+tab to cycle)")
+			if footer != "" {
+				rows = append(rows, footer)
+			}
 		}
 		fmt.Print("\x1b[2J\x1b[H" + strings.Join(rows, "\r\n") + "\r\n")
 	}
@@ -134,6 +140,9 @@ func TestNativeTerminalProgram(t *testing.T) {
 		case line == "turn":
 			harness, hooked = true, false
 			drawComposer("", true)
+		case line == "update installed":
+			footer = "✓ Update installed · Restart to update"
+			drawComposer("", false)
 		case strings.HasPrefix(line, "ask "):
 			if _, err := goblinAsker(args[2], strings.TrimPrefix(line, "ask ")); err != nil {
 				record("ask error: " + err.Error())

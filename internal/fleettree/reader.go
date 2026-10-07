@@ -245,6 +245,29 @@ func (r *Reader) Conversation(ctx context.Context, goblin Goblin) string {
 	return path
 }
 
+// RunningSession is the id of the conversation the goblin's running harness
+// is in, as the harness records it itself, for a switch that resumes it when
+// the board recorded none: Claude Code's record of its own process, or the
+// Codex rollout of the goblin's worktree written last, never a child
+// agent's. It is empty while the harness does not run, and for pi, whose
+// conversation no switch resumes.
+func (r *Reader) RunningSession(ctx context.Context, goblin Goblin) string {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	_, harness, isRunning, _, _ := r.harnessOf(goblin)
+	if !isRunning {
+		return ""
+	}
+	switch strings.ToLower(goblin.Meta.Harness) {
+	case "claude":
+		return claudeProcessSession(r.Home, harness.harness)
+	case "codex":
+		metas := r.rollouts(ctx)
+		return metas[r.codexConversation(ctx, goblin.Meta.Worktree, "", metas)].id
+	}
+	return ""
+}
+
 // claudeLog keeps one log per goblin, read on from where it stopped while
 // the goblin's conversation stays the same.
 func (r *Reader) claudeLog(task, path string) *claudeLog {

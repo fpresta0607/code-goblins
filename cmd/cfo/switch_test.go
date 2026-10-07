@@ -23,9 +23,10 @@ func TestRunSwitchNeedsAHarnessModelOrEffort(t *testing.T) {
 		exit    int
 		refusal string
 	}{
-		"a model":    {[]string{"--model", "gpt-5"}, 0, ""},
-		"no options": {nil, 2, "one of --harness, --model, or --effort is required"},
-		"--native":   {[]string{"--native"}, 2, "-native"},
+		"a model":               {[]string{"--model", "gpt-5"}, 0, ""},
+		"no options":            {nil, 2, "one of --harness, --model, --effort or --restart is required"},
+		"--native":              {[]string{"--native"}, 2, "-native"},
+		"a restart with values": {[]string{"--restart", "--model", "gpt-5"}, 2, "--restart keeps the goblin's own harness, model and effort"},
 	} {
 		t.Run(name, func(t *testing.T) {
 			h := testHome(t)

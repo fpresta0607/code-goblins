@@ -38,7 +38,11 @@ type SwitchRequest struct {
 	ResumeSession string
 	ResumeHandoff string
 	ResumeNote    string
-	Generation    string
+	// Restart starts the task's own harness, model and effort again in
+	// place while it runs, as for an update of its harness installed since
+	// it started, which a switch to the same values otherwise refuses.
+	Restart    bool
+	Generation string
 	// BriefPath is the fallback for a task whose metadata predates the brief
 	// field.
 	BriefPath string
@@ -118,11 +122,14 @@ func (s Service) Switch(ctx context.Context, req SwitchRequest) (result SwitchRe
 	}
 
 	target := requestedTarget(meta, req)
+	if req.Restart {
+		target = switchTarget{Harness: harness.Kind(meta.Harness), Model: meta.Model, Effort: meta.Effort}
+	}
 	if target == (switchTarget{}) {
 		return SwitchResult{}, fmt.Errorf("switch: task %s has no harness to switch", req.ID)
 	}
 
-	if target.same(meta) {
+	if target.same(meta) && !req.Restart {
 		if nativeTerminalRuns(s.StateDir, meta.ID) {
 			if req.IsResume {
 				return SwitchResult{Meta: meta, Resumed: true, Output: "task already resumed " + meta.ID}, nil
