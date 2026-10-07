@@ -247,7 +247,7 @@ func (s *Service) runStart(dispatch *Dispatch, plan startPlan) {
 			s.publish(err)
 		}
 	}()
-	output, err := dispatch.Spawn(context.Background(), plan.args())
+	output, err := s.runPastTheSpawnLock(dispatch, plan.args())
 	failure := ""
 	if err != nil {
 		failure = spawnFailure(output, err)

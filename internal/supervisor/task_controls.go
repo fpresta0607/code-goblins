@@ -1,7 +1,6 @@
 package supervisor
 
 import (
-	"context"
 	"encoding/json"
 	"errors"
 	"net/http"
@@ -161,7 +160,7 @@ func (h *HTTP) lifecycleTask(w http.ResponseWriter, r *http.Request) {
 	s.starts.Unlock()
 	isDispatched = true
 	go func() {
-		output, err := s.Options.Dispatch.Spawn(context.Background(), args)
+		output, err := s.runPastTheSpawnLock(s.Options.Dispatch, args)
 		var failure taskChangeError
 		if err != nil {
 			failure = taskChangeError{Message: spawnFailure(output, err), Generation: input.Generation, Operation: prior.Operation, Updated: prior.Updated}

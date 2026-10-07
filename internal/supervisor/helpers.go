@@ -191,7 +191,7 @@ func (p helperStart) args() []string {
 // short, as a Start's is not, then tells its parent in its terminal and the
 // CFO through the wake queue how it went, before the start slot frees.
 func (s *Service) runHelperStart(dispatch *Dispatch, plan helperStart) {
-	output, err := dispatch.Spawn(context.Background(), plan.args())
+	output, err := s.runPastTheSpawnLock(dispatch, plan.args())
 	told := "Your helper " + plan.ID + " is up on branch " + plan.Branch + ", working on its brief; it reports to you here."
 	detail := "started: helper of " + plan.parent.ID + ", which asked the supervisor for it, on branch " + plan.Branch + "; it reports to " + plan.parent.ID
 	if err != nil {
