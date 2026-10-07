@@ -1220,9 +1220,9 @@ func terminalVerb(verb string) bool {
 // or its host's start when that came later, plus a launch budget. A task whose
 // agent registers and dies before the monitor ever observes it alive would
 // otherwise be "launching" forever; after the budget it is classified as a dead
-// endpoint and wakes normally. A spawn writes the task record before it
-// installs the worktree's dependencies, which took thirteen minutes on
-// 2026-10-07, so the budget restarts when the host does.
+// endpoint and wakes normally. A spawn writes the task record before its host
+// starts, thirteen minutes before on 2026-10-07, so the budget restarts when
+// the host does.
 func (s Service) launchDeadline(meta state.TaskMeta, now time.Time) time.Time {
 	info, err := os.Stat(filepath.Join(s.StateDir, meta.ID+".meta"))
 	if err != nil {
@@ -1237,10 +1237,10 @@ func (s Service) launchDeadline(meta state.TaskMeta, now time.Time) time.Time {
 
 // isRelaunching reports whether a command starting the goblin's harness still
 // runs: a cfo switch relaunching it, or the cfo spawn that wrote its record,
-// which holds the fleet's spawn lock from before it names the goblin's
-// generation until the harness has its brief. A live holder that took the lock
-// no later than the generation began is that spawn; one that took it after is
-// another task's.
+// which holds the home's spawn lock as its turn from before it names the
+// goblin's generation until the goblin's host runs. A live holder that took
+// the lock no later than the generation began is that spawn; one that took it
+// after is another task's.
 func (s Service) isRelaunching(meta state.TaskMeta) bool {
 	if holder, err := lock.ReadNamed(s.StateDir, ".switch-"+meta.ID+".lock"); err == nil && holder.Alive() {
 		return true
