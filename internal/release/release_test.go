@@ -211,7 +211,7 @@ func fetchFrom(t *testing.T, stub *stubRelease, signedBy SignatureReader) (Downl
 		t.Fatal(err)
 	}
 	dir := filepath.Join(state, "update", "release", release.Tag)
-	download, err := Fetch(context.Background(), http.DefaultClient, stub.source(), release, dir, signedBy)
+	download, err := Fetch(context.Background(), http.DefaultClient, stub.source(), release, dir, signedBy, nil)
 	return download, dir, err
 }
 
@@ -219,6 +219,81 @@ func noSignature(t *testing.T) SignatureReader {
 	return func(context.Context, string) (string, string, error) {
 		t.Error("an unsigned release's download had its signature read")
 		return "", "", errors.New("not expected")
+	}
+}
+
+func TestFetchReportsCheckingAfterAllProgramsDownload(t *testing.T) {
+	cases := []struct {
+		name            string
+		isBadChecksum   bool
+		isDownloadError bool
+		status          string
+		wantError       string
+		wantSignatures  int
+	}{
+		{name: "verified", status: "Valid", wantSignatures: 2},
+		{name: "checksum refused", isBadChecksum: true, status: "Valid", wantError: "does not match the release's SHA256SUMS"},
+		{name: "signature refused", status: "HashMismatch", wantError: "not validly signed", wantSignatures: 1},
+		{name: "download failed", isDownloadError: true, status: "Valid", wantError: "HTTP 502"},
+	}
+	for _, test := range cases {
+		t.Run(test.name, func(t *testing.T) {
+			assets := releaseAssets("SIQstack LLC", map[string][]byte{Program: []byte("new build"), Window: []byte("new window")})
+			if test.isBadChecksum {
+				assets[Program] = []byte("tampered build")
+			}
+			stub := newStubRelease(t, "v0.5.0", assets)
+			if test.isDownloadError {
+				stub.statuses["/download/"+Window] = http.StatusBadGateway
+			}
+			state := t.TempDir()
+			latest, err := Latest(context.Background(), http.DefaultClient, stub.source(), state)
+			if err != nil {
+				t.Fatal(err)
+			}
+			dir := filepath.Join(state, "release")
+			checks, signatures := 0, 0
+			checking := func() {
+				checks++
+				if signatures != 0 {
+					t.Error("signature checks began before checking was reported")
+				}
+				for _, name := range []string{Program, Window} {
+					data, err := os.ReadFile(filepath.Join(dir, name+".download"))
+					if err != nil || string(data) != string(assets[name]) {
+						t.Errorf("checking began before %s finished downloading: %q, %v", name, data, err)
+					}
+					if _, err := os.Stat(filepath.Join(dir, name)); !errors.Is(err, os.ErrNotExist) {
+						t.Errorf("%s was kept before checking began: %v", name, err)
+					}
+				}
+			}
+			signedBy := func(context.Context, string) (string, string, error) {
+				if checks != 1 {
+					t.Error("a signature was read before checking was reported once")
+				}
+				signatures++
+				return test.status, "SIQstack LLC", nil
+			}
+
+			_, err = Fetch(context.Background(), http.DefaultClient, stub.source(), latest, dir, signedBy, checking)
+
+			if test.wantError == "" && err != nil || test.wantError != "" && (err == nil || !strings.Contains(err.Error(), test.wantError)) {
+				t.Fatalf("Fetch = %v, want error %q", err, test.wantError)
+			}
+			wantChecks := 1
+			if test.isDownloadError {
+				wantChecks = 0
+			}
+			if checks != wantChecks || signatures != test.wantSignatures {
+				t.Fatalf("checking reported %d times, signatures read %d times; want %d and %d", checks, signatures, wantChecks, test.wantSignatures)
+			}
+			if test.wantError != "" {
+				if _, err := os.Stat(dir); !errors.Is(err, os.ErrNotExist) {
+					t.Fatalf("a refused download was kept: %v", err)
+				}
+			}
+		})
 	}
 }
 
@@ -305,7 +380,7 @@ func TestFetchRefusesADownloadFromAnotherSite(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	_, err = Fetch(context.Background(), http.DefaultClient, source, release, filepath.Join(state, "release"), noSignature(t))
+	_, err = Fetch(context.Background(), http.DefaultClient, source, release, filepath.Join(state, "release"), noSignature(t), nil)
 
 	if err == nil || !strings.Contains(err.Error(), "not from") {
 		t.Fatalf("Fetch = %v, want a download from another site refused", err)
@@ -314,18 +389,20 @@ func TestFetchRefusesADownloadFromAnotherSite(t *testing.T) {
 
 func TestFetchChecksTheSignatureOfASignedRelease(t *testing.T) {
 	cases := []struct {
-		name           string
-		status, signer string
-		wantErr        bool
+		name                      string
+		status, signer, publisher string
+		wantErr                   bool
 	}{
-		{"signed by its publisher", "Valid", "SIQstack LLC", false},
-		{"unsigned", "NotSigned", "", true},
-		{"signed by someone else", "Valid", "Someone Else", true},
-		{"a signature that does not hold", "HashMismatch", "SIQstack LLC", true},
+		{"signed by its publisher", "Valid", "SIQstack LLC", "SIQstack LLC", false},
+		{"publisher differs only in case", "Valid", "SIQstack LLC", "SIQSTACK LLC", false},
+		{"unsigned", "NotSigned", "", "SIQstack LLC", true},
+		{"signed by someone else", "Valid", "Someone Else", "SIQstack LLC", true},
+		{"a signature that does not hold", "HashMismatch", "SIQstack LLC", "SIQstack LLC", true},
+		{"an invalid signature with a different publisher case", "HashMismatch", "SIQstack LLC", "SIQSTACK LLC", true},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
-			stub := newStubRelease(t, "v0.5.0", releaseAssets("SIQstack LLC", map[string][]byte{"cfo.exe": []byte("new build"), "goblins-window.exe": []byte("new window")}))
+			stub := newStubRelease(t, "v0.5.0", releaseAssets(c.publisher, map[string][]byte{"cfo.exe": []byte("new build"), "goblins-window.exe": []byte("new window")}))
 			var read []string
 			signedBy := func(_ context.Context, path string) (string, string, error) {
 				read = append(read, filepath.Base(path))
@@ -337,8 +414,8 @@ func TestFetchChecksTheSignatureOfASignedRelease(t *testing.T) {
 			if c.wantErr != (err != nil) {
 				t.Fatalf("Fetch = %+v, %v; want an error: %v", download, err, c.wantErr)
 			}
-			if !c.wantErr && (download.Publisher != "SIQstack LLC" || len(read) != 2) {
-				t.Fatalf("download = %+v after reading the signatures of %v; want both programs checked against SIQstack LLC", download, read)
+			if !c.wantErr && (download.Publisher != c.publisher || len(read) != 2) {
+				t.Fatalf("download = %+v after reading the signatures of %v; want both programs checked against %s", download, read, c.publisher)
 			}
 		})
 	}

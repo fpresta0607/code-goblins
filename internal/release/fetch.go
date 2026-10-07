@@ -55,7 +55,7 @@ var publisherLine = regexp.MustCompile(`(?m)^\s*\$releasePublisher = "([^"\r\n]*
 // must match its sum, and, where a publisher is named, carry a valid
 // signature by that publisher, read with signedBy. Anything that stops it
 // removes dir, so a refused release leaves nothing to run.
-func Fetch(ctx context.Context, client *http.Client, source Source, r Release, dir string, signedBy SignatureReader) (download Download, err error) {
+func Fetch(ctx context.Context, client *http.Client, source Source, r Release, dir string, signedBy SignatureReader, checking func()) (download Download, err error) {
 	if err := os.RemoveAll(dir); err != nil {
 		return Download{}, err
 	}
@@ -87,20 +87,38 @@ func Fetch(ctx context.Context, client *http.Client, source Source, r Release, d
 	if _, listed := download.Sums[Program]; !listed {
 		return Download{}, fmt.Errorf("release %s's SHA256SUMS lists no %s, so nothing was downloaded", r.Tag, Program)
 	}
+	checksums := map[string]string{}
 	for _, name := range []string{Program, Window} {
-		want, listed := download.Sums[name]
+		_, listed := download.Sums[name]
 		if !listed {
-			delete(download.Sums, name)
 			continue
 		}
-		path, err := fetchProgram(ctx, client, source, r, name, want, dir)
+		checksum, err := fetchProgram(ctx, client, source, r, name, dir)
 		if err != nil {
 			return Download{}, err
 		}
+		checksums[name] = checksum
+	}
+	if checking != nil {
+		checking()
+	}
+	for _, name := range []string{Program, Window} {
+		want, listed := download.Sums[name]
+		if !listed {
+			continue
+		}
+		if got := checksums[name]; got != want {
+			return Download{}, fmt.Errorf("the downloaded %s does not match the release's SHA256SUMS (it is %s, the release lists %s), so nothing was installed", name, got, want)
+		}
+		partial := filepath.Join(dir, name+".download")
 		if download.Publisher != "" {
-			if err := checkSigned(ctx, signedBy, path, name, download.Publisher); err != nil {
+			if err := checkSigned(ctx, signedBy, partial, name, download.Publisher); err != nil {
 				return Download{}, err
 			}
+		}
+		path := filepath.Join(dir, name)
+		if err := os.Rename(partial, path); err != nil {
+			return Download{}, err
 		}
 		if name == Program {
 			download.Program = path
@@ -168,9 +186,7 @@ func fetchText(ctx context.Context, client *http.Client, source Source, r Releas
 	return data, nil
 }
 
-// fetchProgram downloads name into dir under a name of its own, hashing it
-// as it arrives, and gives it its own name only once it matches want.
-func fetchProgram(ctx context.Context, client *http.Client, source Source, r Release, name, want, dir string) (string, error) {
+func fetchProgram(ctx context.Context, client *http.Client, source Source, r Release, name, dir string) (string, error) {
 	address, err := assetURL(source, r, name)
 	if err != nil {
 		return "", err
@@ -193,11 +209,7 @@ func fetchProgram(ctx context.Context, client *http.Client, source Source, r Rel
 	if written > maxProgram {
 		return "", fmt.Errorf("release %s's %s is over %d MiB", r.Tag, name, maxProgram>>20)
 	}
-	if got := hex.EncodeToString(hash.Sum(nil)); got != want {
-		return "", fmt.Errorf("the downloaded %s does not match the release's SHA256SUMS (it is %s, the release lists %s), so nothing was installed", name, got, want)
-	}
-	path := filepath.Join(dir, name)
-	return path, os.Rename(partial, path)
+	return hex.EncodeToString(hash.Sum(nil)), nil
 }
 
 // sumLine is one line of SHA256SUMS as sha256sum writes it: the hex digest,
@@ -226,7 +238,7 @@ func checkSigned(ctx context.Context, signedBy SignatureReader, path, name, publ
 	if err != nil {
 		return fmt.Errorf("the signature of the downloaded %s could not be read (%v), so nothing was installed", name, err)
 	}
-	if status != "Valid" || signer != publisher {
+	if status != "Valid" || !strings.EqualFold(signer, publisher) {
 		return fmt.Errorf("the downloaded %s is not validly signed by %s (Windows reads %s, by %q), so nothing was installed", name, publisher, status, signer)
 	}
 	return nil

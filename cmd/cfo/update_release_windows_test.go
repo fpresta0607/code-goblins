@@ -174,6 +174,9 @@ func TestAnUpdateFromAReleaseRefusesADownloadThatFailsItsChecksum(t *testing.T) 
 	if code != 1 || !strings.Contains(output, "Failed: the downloaded cfo.exe does not match the release's SHA256SUMS") {
 		t.Fatalf("update exited %d, want 1 and the checksum named:\n%s", code, output)
 	}
+	if !strings.Contains(output, "[2/4] Check the download") || strings.Contains(output, "[3/4]") {
+		t.Fatalf("the checksum failure was not reported in the check step:\n%s", output)
+	}
 	u.aliasesAre(u.previous, "previous")
 	if !u.running(oldSupervisor) {
 		t.Error("the supervisor was stopped for a download that was refused")
@@ -342,20 +345,62 @@ func TestUpdateCheckNamesWhatIsNew(t *testing.T) {
 // The release the Overlord pressed Update on is the one installed: when a
 // newer one was published since, nothing is downloaded and he is told.
 func TestAnUpdateToAReleaseNoLongerTheNewestChangesNothing(t *testing.T) {
-	server := newReleaseServer(t, "v0.5.1", map[string][]byte{"cfo.exe": []byte("v0.5.1")})
-	h := releaseHome(t, server, "v0.4.2")
 	before := updaterRefusal
 	updaterRefusal = func(home.Home) error { return nil }
 	t.Cleanup(func() { updaterRefusal = before })
-	var output bytes.Buffer
-
-	code := releaseUpdate(h, false, "v0.5.0", "", &output, &output)
-
-	if code != 1 || !strings.Contains(output.String(), "the newest release is now v0.5.1, not v0.5.0, so nothing was changed") {
-		t.Fatalf("update --to v0.5.0 exited %d:\n%s", code, output.String())
+	cases := []struct{ name, installed string }{
+		{"an available update", "v0.4.2"},
+		{"already current", "v0.5.1"},
+		{"ahead of the release", "v0.6.0"},
 	}
-	if server.downloads.Load() != 0 {
-		t.Fatalf("it downloaded %d files", server.downloads.Load())
+	for _, test := range cases {
+		t.Run(test.name, func(t *testing.T) {
+			server := newReleaseServer(t, "v0.5.1", map[string][]byte{"cfo.exe": []byte("v0.5.1")})
+			h := releaseHome(t, server, test.installed)
+			var output bytes.Buffer
+
+			code := releaseUpdate(h, false, "v0.5.0", "", &output, &output)
+
+			if code != 1 || !strings.Contains(output.String(), "the newest release is now v0.5.1, not v0.5.0, so nothing was changed") {
+				t.Fatalf("update --to v0.5.0 exited %d:\n%s", code, output.String())
+			}
+			if server.downloads.Load() != 0 {
+				t.Fatalf("it downloaded %d files", server.downloads.Load())
+			}
+		})
+	}
+}
+
+func TestAnUpdateFromAReleaseReportsVerificationFailuresAtTheCheck(t *testing.T) {
+	cases := []struct{ name, publisher, reason string }{
+		{"checksum", "", "does not match the release's SHA256SUMS"},
+		{"signature", "SIQstack LLC", "not validly signed by SIQstack LLC"},
+	}
+	beforeRefusal, beforeSignature := updaterRefusal, readSignature
+	updaterRefusal = func(home.Home) error { return nil }
+	readSignature = func(context.Context, string) (string, string, error) { return "HashMismatch", "SIQstack LLC", nil }
+	t.Cleanup(func() { updaterRefusal, readSignature = beforeRefusal, beforeSignature })
+	for _, test := range cases {
+		t.Run(test.name, func(t *testing.T) {
+			server := newReleaseServer(t, "v0.5.0", map[string][]byte{release.Program: []byte("new build"), release.Window: []byte("new window")})
+			if test.publisher == "" {
+				server.files[release.Program] = []byte("tampered build")
+			} else {
+				server.files["install.ps1"] = []byte("$releasePublisher = \"" + test.publisher + "\"\n")
+			}
+			h := releaseHome(t, server, "v0.4.2")
+			var output bytes.Buffer
+
+			code := releaseUpdate(h, false, "", "", &output, &output)
+
+			lines := strings.Split(strings.TrimSpace(output.String()), "\n")
+			if code != 1 || len(lines) != 4 || lines[1] != "[1/4] Download Code Goblins v0.5.0" || lines[2] != "[2/4] Check the download" || !strings.HasPrefix(lines[3], "Failed:") || !strings.Contains(lines[3], test.reason) {
+				t.Fatalf("update exited %d and did not report its %s failure at the check:\n%s", code, test.name, output.String())
+			}
+			if _, err := os.Stat(filepath.Join(update.Dir(h.State), "release", "v0.5.0")); !errors.Is(err, os.ErrNotExist) {
+				t.Fatalf("the refused download was kept: %v", err)
+			}
+		})
 	}
 }
 

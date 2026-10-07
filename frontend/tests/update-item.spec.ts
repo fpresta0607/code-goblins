@@ -199,7 +199,9 @@ for (const draft of ["answer", "changed answer", "diff comment"] as const) {
 
     snapshot.build = "new-build";
     snapshot.revision++;
-    snapshot.runs[0] = { ...snapshot.runs[0], state: "succeeded", exit_code: 0, finished_at: new Date(Date.now() - 2000).toISOString() };
+    const updating = snapshot.runs?.[0];
+    if (!updating) throw new Error("The fixture must include its Update item");
+    snapshot.runs = [{ ...updating, state: "succeeded", exit_code: 0, finished_at: new Date(Date.now() - 2000).toISOString() }];
     await page.evaluate((detail) => window.dispatchEvent(new CustomEvent("fixture-snapshot", { detail })), snapshot);
 
     await expect(page.locator(".update-banner")).toBeVisible();

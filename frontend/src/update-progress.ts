@@ -47,8 +47,11 @@ export function updateOutcome(run: Run): { icon: IconName; label: string; troubl
   }
 }
 
+// updateSucceededRecently reads successful Update items finished in the last
+// ten minutes, allowing time for the board to restart and reconnect without
+// treating an older History entry as an update that just installed.
 export function updateSucceededRecently(snapshot: Snapshot | null, now: number): boolean {
-  return !!snapshot?.runs.some((run) => {
+  return (snapshot?.runs || []).some((run) => {
     const elapsed = now - Date.parse(run.finished_at);
     return !!run.update && run.state === "succeeded" && elapsed >= 0 && elapsed <= UPDATE_RELOAD_WINDOW_MS;
   });

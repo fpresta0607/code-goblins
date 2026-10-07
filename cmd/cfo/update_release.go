@@ -113,6 +113,10 @@ func releaseUpdate(h home.Home, check bool, to, pressed string, stdout, stderr i
 		fmt.Fprintf(stderr, "Failed: the newest release of Code Goblins could not be read (%v). Nothing was changed.\n", err)
 		return 1
 	}
+	if to != "" && to != latest.Tag {
+		fmt.Fprintf(stderr, "Failed: the newest release is now %s, not %s, so nothing was changed. Press Update on the newer one, or run goblins update.\n", latest.Tag, to)
+		return 1
+	}
 	standing := release.StandingOf(version, latest.Tag)
 	if standing == release.FromSource {
 		fmt.Fprintf(stdout, "Code Goblins %s is published (%s).\n", latest.Tag, latest.Page)
@@ -141,15 +145,12 @@ func releaseUpdate(h home.Home, check bool, to, pressed string, stdout, stderr i
 		fmt.Fprintln(stdout, "To update, run goblins update in a terminal of your own, or press Update in the Command Center.")
 		return 0
 	}
-	if to != "" && to != latest.Tag {
-		fmt.Fprintf(stderr, "Failed: the newest release is now %s, not %s, so nothing was changed. Press Update on the newer one, or run goblins update.\n", latest.Tag, to)
-		return 1
-	}
-
 	releaseStep(stdout, 1, latest.Tag)
 	dir := filepath.Join(update.Dir(h.State), "release", latest.Tag)
 	ctx, cancel = context.WithTimeout(context.Background(), releaseDownloadWait)
-	download, err := release.Fetch(ctx, http.DefaultClient, source, latest, dir, readSignature)
+	download, err := release.Fetch(ctx, http.DefaultClient, source, latest, dir, readSignature, func() {
+		releaseStep(stdout, 2, latest.Tag)
+	})
 	cancel()
 	if err != nil {
 		fmt.Fprintf(stderr, "Failed: %v.\n", strings.TrimSuffix(err.Error(), "."))
@@ -158,7 +159,6 @@ func releaseUpdate(h home.Home, check bool, to, pressed string, stdout, stderr i
 	// The download leaves once the build it holds has run its update; what
 	// that update keeps for its way back is its own copy.
 	defer os.RemoveAll(dir)
-	releaseStep(stdout, 2, latest.Tag)
 	for _, name := range []string{release.Program, release.Window} {
 		if sum, ok := download.Sums[name]; ok {
 			fmt.Fprintf(stdout, "      %s matches the release's SHA256SUMS: %s\n", name, sum)

@@ -13,7 +13,7 @@ const printed = {
   updated: "[1/4] Download Code Goblins v0.5.0\n[2/4] Check the download\n[3/4] Install Code Goblins v0.5.0\n[4/4] Bring the home up to date\nUpdated: Code Goblins v0.5.0 runs.\n",
   incomplete: "[1/4] Download Code Goblins v0.5.0\n[2/4] Check the download\n[3/4] Install Code Goblins v0.5.0\n[4/4] Bring the home up to date\nUpdated: Code Goblins v0.5.0 runs, but its install did not bring the home's contract, skills and hooks up to date (exit code 1); run goblins install to finish.\n",
   rolledBack: "[1/4] Download Code Goblins v0.5.0\n[2/4] Check the download\n[3/4] Install Code Goblins v0.5.0\ncfo update: the supervisor (pid 30412) did not serve within 1m30s; putting the previous build back\nRolled back: Code Goblins v0.4.2 serves again, and v0.5.0 was not installed; what it printed above says why.\n",
-  refused: "[1/4] Download Code Goblins v0.5.0\nFailed: the downloaded cfo.exe does not match the release's SHA256SUMS (it is 11, the release lists 22), so nothing was installed.\n",
+  refused: "[1/4] Download Code Goblins v0.5.0\n[2/4] Check the download\nFailed: the downloaded cfo.exe does not match the release's SHA256SUMS (it is 11, the release lists 22), so nothing was installed.\n",
 };
 
 test("an update's steps follow what it printed: done, the one under way, and those still to come", () => {
@@ -24,7 +24,7 @@ test("an update's steps follow what it printed: done, the one under way, and tho
     ["updated", run({ state: "succeeded", exit_code: 0 }), printed.updated, ["done", "done", "done", "done"], "Code Goblins v0.5.0 runs."],
     ["updated with an incomplete home refresh", run({ state: "failed", exit_code: 6 }), printed.incomplete, ["done", "done", "done", "failed"], "Code Goblins v0.5.0 runs, but its install did not bring the home's contract, skills and hooks up to date (exit code 1); run goblins install to finish."],
     ["rolled back", run({ state: "failed", exit_code: 3 }), printed.rolledBack, ["done", "done", "failed", "todo"], "Code Goblins v0.4.2 serves again, and v0.5.0 was not installed; what it printed above says why."],
-    ["refused at the check", run({ state: "failed", exit_code: 1 }), printed.refused, ["failed", "todo", "todo", "todo"], "The downloaded cfo.exe does not match the release's SHA256SUMS (it is 11, the release lists 22), so nothing was installed."],
+    ["refused at the check", run({ state: "failed", exit_code: 1 }), printed.refused, ["done", "failed", "todo", "todo"], "The downloaded cfo.exe does not match the release's SHA256SUMS (it is 11, the release lists 22), so nothing was installed."],
     ["a window closed before it finished", run({ state: "failed", exit_code: null, reason: "its window closed before the command finished" }), printed.installing, ["done", "done", "failed", "todo"], "It stopped before it finished: its window closed before the command finished."],
   ];
   for (const [name, given, output, states, result] of cases) {
@@ -73,6 +73,9 @@ test("a board update counts as recent only when its item succeeded in the last t
   ];
   for (const [name, runs, want] of cases) assert.equal(updateSucceededRecently(snapshot(runs), now), want, name);
   assert.equal(updateSucceededRecently(null, now), false);
+  const withoutRuns = snapshot([]);
+  delete withoutRuns.runs;
+  assert.equal(updateSucceededRecently(withoutRuns, now), false, "a snapshot without runs");
 });
 
 test("the banner points to the update while one waits, and to the clone's steps for a board built from source", () => {
