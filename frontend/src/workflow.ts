@@ -311,6 +311,25 @@ export function arrange(nodes: WorkflowNode[], waits: Record<string, string> = {
   return positions;
 }
 
+// makeRoom moves the rows of cards under a goblin whose children show
+// beneath its card down far enough that nothing covers them: below is how far
+// under each such card its children reach. Every card of a row moves alike,
+// so the layout keeps its rows.
+export function makeRoom(positions: Record<string, Point>, below: Record<string, number>): Record<string, Point> {
+  const rows = [...new Set(Object.values(positions).map((point) => point.y))].sort((one, other) => one - other);
+  const moved = new Map<number, number>();
+  let shift = 0, reach = -Infinity;
+  for (const y of rows) {
+    shift = Math.max(shift, reach + ROOM - y);
+    moved.set(y, y + shift);
+    for (const [id, point] of Object.entries(positions)) if (point.y === y) reach = Math.max(reach, y + shift + NODE_HEIGHT + (below[id] || 0));
+  }
+  return Object.fromEntries(Object.entries(positions).map(([id, point]) => [id, { x: point.x, y: moved.get(point.y)! }]));
+}
+
+// The room kept between what one row's children reach and the next row.
+const ROOM = 40;
+
 // settle is where each card shows: where the Overlord placed it by hand, else
 // its arranged place, or the free place nearest to it when a card he placed
 // covers that, so no card ever covers another.

@@ -7,12 +7,15 @@ import { Chevron } from "./Chevron";
 import { personaFor } from "./workflow";
 import { lineageRoots, ownsTaskSession, projectSessions, sessionRole, sessionTitle, tasksWithoutSession } from "./lineageTree";
 import { withoutHarness } from "./task-words";
+import { hasChildren } from "./fleet-tree";
+import { TreeUnder } from "./TreeUnder";
 
 export interface Selection { session?: string; task?: string }
 
-export function Lineage({ snapshot, project, selected, onSelect, effects, presentations }: {
+export function Lineage({ snapshot, project, selected, onSelect, effects, presentations, now }: {
   presentations:BoardActivity[];
   snapshot: Snapshot;
+  now: number;
   effects: ActivityEffect[];
   project: string;
   selected: Selection | null;
@@ -69,6 +72,7 @@ export function Lineage({ snapshot, project, selected, onSelect, effects, presen
           </button>}
         </div>
       </div>
+      {owner && task?.tree && hasChildren(task.tree) && <TreeUnder tree={task.tree} title={title} now={now} />}
       {!isCollapsed && descendants.length > 0 && <ul className="workflow-children" aria-label={"Children of " + title}>
         {descendants.map((child) => render(child, seen))}
       </ul>}
@@ -91,6 +95,7 @@ export function Lineage({ snapshot, project, selected, onSelect, effects, presen
             </button>
           </div>
         </div>
+        {task.tree && hasChildren(task.tree) && <TreeUnder tree={task.tree} title={withoutHarness(task.title) || task.id} now={now} />}
       </li>)}
     </ul>}
   </section>;

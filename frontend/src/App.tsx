@@ -294,8 +294,8 @@ export function App() {
         {snapshot?.cfo_conversation_left && <div className="connection-banner" role="status">{snapshot.cfo_conversation_left}</div>}
         {!snapshot || !cardStart ? <div className="empty-state" role="status"><h2>Connecting to the supervisor</h2><p>Loading tasks and native sessions.</p></div>
           : view === "Board" ? <Board presentations={presentations} snapshot={snapshot} layout={boardLayout} selected={task?.id} now={now} onSelect={(task, source) => select({ task: task.id }, source)} onTerminal={(task, source) => select({ task: task.id }, source, "terminal")} onOpenCfo={(source) => { returnFocus.current = source; switchTo(CFO_KEY); }} onOpenCommand={() => setCommandFocus({ key: "", at: Date.now() })} onStartCfo={() => setFirstRunChoice("")} cardStart={cardStart} />
-            : compact ? <Lineage presentations={presentations} effects={effects} snapshot={snapshot} project="" selected={selectedSession ? { session: selectedSession.id } : selected} onSelect={select} />
-              : <Orchestration presentations={presentations} effects={effects} snapshot={snapshot} connected={connected} selected={selectedSession ? "session:" + selectedSession.id : selected?.task ? "task:" + selected.task : ""}
+            : compact ? <Lineage presentations={presentations} effects={effects} snapshot={snapshot} now={now} project="" selected={selectedSession ? { session: selectedSession.id } : selected} onSelect={select} />
+              : <Orchestration presentations={presentations} effects={effects} snapshot={snapshot} now={now} connected={connected} selected={selectedSession ? "session:" + selectedSession.id : selected?.task ? "task:" + selected.task : ""}
                 onSelect={(node, source) => select(node.session ? { session: node.session.id } : node.task ? { task: node.task.id } : {}, source)} />}
       </main>
       {divided && <PaneDivider workspace={workspace} pane={pane} width={paneSize} onWidth={setPaneSize} onResizing={setResizing} onDone={(width) => store(PANE_WIDTH_KEY, String(width))} />}
