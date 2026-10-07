@@ -54,8 +54,10 @@ const answering = (unsent: boolean) => unsent || !!document.querySelector("dialo
 function stored(key: string): string | null {
   try { return localStorage.getItem(key); } catch { return null; }
 }
-function store(key: string, value: string) {
-  try { localStorage.setItem(key, value); } catch { /* the layout still applies to this view */ }
+// store says whether this browser kept the value; what it could not keep
+// still applies to this view.
+function store(key: string, value: string): boolean {
+  try { localStorage.setItem(key, value); return true; } catch { return false; }
 }
 
 // The board's layout, kept in this browser: kanban unless stacked was chosen.
@@ -101,9 +103,11 @@ export function App() {
   useEffect(() => { if (!opensFirst) store(FIRST_OPEN_KEY, "shown"); }, [opensFirst]);
   // tourDue is whether this browser still owes its quick tour: from its
   // first open until the tour starts, through any reload, and never again
-  // once it has had one. The tour's first step says how to speak to the
-  // terminal, so a tour owed spends the terminal's own voice hint.
-  const [tourDue, setTourDue] = useState(() => stored(TOUR_KEY) === "due" || stored(TOUR_KEY) === null && opensFirst);
+  // once it has had one. A browser that keeps nothing, so that every open
+  // looks like its first, is owed none, since it could not keep the tour to
+  // once. The tour's first step says how to speak to the terminal, so a
+  // tour owed spends the terminal's own voice hint.
+  const [tourDue, setTourDue] = useState(() => stored(TOUR_KEY) === "due" || stored(TOUR_KEY) === null && opensFirst && store(TOUR_KEY, "due"));
   useEffect(() => {
     store(TOUR_KEY, tourDue ? "due" : "seen");
     if (tourDue) store(VOICE_HINT_KEY, "dismissed");

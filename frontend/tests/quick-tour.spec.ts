@@ -197,6 +197,25 @@ test.describe("in the desktop window", () => {
     await lights(page, panel(page));
   });
 
+  test("a browser that keeps nothing is owed no tour, since it could not keep it to once, and the question mark still shows it", async ({ page }) => {
+    // Arrange: every open of this browser looks like its first.
+    await page.addInitScript(() => Object.defineProperty(window, "localStorage", { get() { throw new Error("storage blocked"); } }));
+
+    // Act
+    await open(page);
+
+    // Assert: the first open's layout, with no tour over it.
+    await expect(page.locator("#panel-title")).toHaveText("CFO");
+    await expect(terminalInput(page)).toBeFocused();
+    await expect(tour(page)).toHaveCount(0);
+
+    // Act
+    await page.getByRole("button", { name: "Replay the tour" }).click();
+
+    // Assert
+    await expect(tour(page).getByRole("heading", { name: "I'm the CFO. Tell me what to build." })).toBeVisible();
+  });
+
   test("with no CFO the tour waits for the one the first-run page starts, through a reload", async ({ page }) => {
     // Arrange
     await open(page, noCfo);
