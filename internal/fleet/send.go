@@ -66,9 +66,11 @@ func NormalizeKey(key string) (string, error) {
 	}
 }
 
-// ErrQueuedBehindTurn marks an unconfirmed delivery to a harness that was in
-// a turn when the text was submitted. A turn in progress, such as a long tool
-// call, reports nothing until it ends, so nothing can prove more before then;
-// the text waits in the harness's input for the turn to end. It is not
-// evidence the text was lost.
-var ErrQueuedBehindTurn = errors.New("the agent was working, so the text waits for its current turn to end")
+// ErrQueuedForToolCall marks a delivery to a harness that was in a turn when
+// the text was submitted, and has not taken it yet. Each harness a goblin
+// runs queues text submitted during a turn and hands it to its model at the
+// next tool call: Claude Code 2.1.292 and Codex 0.160 did, live on
+// 2026-10-06, and pi 0.85 documents it. A tool call running when the text
+// arrives is never interrupted, so a long one delays it. It is not evidence
+// the text was lost.
+var ErrQueuedForToolCall = errors.New("the agent was in a turn, so its harness holds the text and hands it over at its next tool call, once the call running now ends, or as the turn ends if it calls no tool first")
