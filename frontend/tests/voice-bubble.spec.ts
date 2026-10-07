@@ -522,3 +522,24 @@ for (const stop of ["release outside the terminal", "window blur"]) {
     await releaseShortcut(page);
   });
 }
+
+// The desktop app's WebView2 grants the page every permission itself, so a
+// microphone it is refused was refused by Windows; a browser tab's was refused
+// by the browser. Each is stubbed with the refusals WebView2 and Windows give.
+const WINDOWS_BLOCKED = "The microphone is blocked for Code Goblins by Windows. Turn on Microphone access and Let desktop apps access your microphone in Windows Settings > Privacy & security > Microphone, then hold Ctrl+Shift+Space again.";
+const BROWSER_BLOCKED = "The microphone is blocked for the board. Allow it in the browser's site settings, then hold Ctrl+Shift+Space again.";
+for (const [where, app, expected] of [["the desktop app", true, WINDOWS_BLOCKED], ["a browser", false, BROWSER_BLOCKED]] as const) {
+  for (const refusal of ["Permission denied", "Permission denied by system"]) {
+    test(`in ${where}, a microphone refused with "${refusal}" says where to allow it`, async ({ page }) => {
+      const { pane, posts } = await openPane(page, { app });
+      await page.evaluate((refusal) => {
+        navigator.mediaDevices.getUserMedia = async () => { throw new DOMException(refusal, "NotAllowedError"); };
+      }, refusal);
+      await holdShortcut(page, 0);
+      await expect(pane.getByRole("status")).toHaveText(expected);
+      await releaseShortcut(page);
+      await expect(page.locator("output")).toHaveText("");
+      expect(posts).toHaveLength(0);
+    });
+  }
+}
