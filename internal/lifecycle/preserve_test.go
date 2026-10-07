@@ -3,11 +3,13 @@ package lifecycle
 import (
 	"context"
 	"fmt"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
 
 	"github.com/fpresta0607/code-goblins/internal/execx"
+	"github.com/fpresta0607/code-goblins/internal/fsx"
 	"github.com/fpresta0607/code-goblins/internal/state"
 )
 
@@ -65,7 +67,7 @@ func TestPreserveWorkKeepsEverythingNotProvenPushed(t *testing.T) {
 		t.Run(test.name, func(t *testing.T) {
 			root := filepath.Join(t.TempDir(), "gb-work")
 			runner := &preservationRunner{root: root, status: test.status, branch: test.branch, head: "abc123", remote: test.remote, pushFails: test.pushFails}
-			result, err := PreserveWork(context.Background(), runner, state.TaskMeta{ID: "work", Worktree: root, Mode: test.mode})
+			result, err := PreserveWork(context.Background(), runner, state.TaskMeta{ID: "work", Worktree: root, Mode: test.mode}, "")
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -85,8 +87,47 @@ func TestPreserveWorkKeepsEverythingNotProvenPushed(t *testing.T) {
 func TestPreserveWorkRefusesAnEnclosingCheckout(t *testing.T) {
 	root := t.TempDir()
 	runner := &preservationRunner{root: root}
-	_, err := PreserveWork(context.Background(), runner, state.TaskMeta{ID: "work", Worktree: filepath.Join(root, ".worktrees", "gb-work")})
+	_, err := PreserveWork(context.Background(), runner, state.TaskMeta{ID: "work", Worktree: filepath.Join(root, ".worktrees", "gb-work")}, "")
 	if err == nil {
 		t.Fatal("an empty worktree directory was treated as its enclosing checkout")
+	}
+}
+
+// gitAt runs git in dir.
+func gitAt(t *testing.T, dir string, args ...string) {
+	t.Helper()
+	if out, err := exec.Command("git", append([]string{"-C", dir, "-c", "user.email=t@t", "-c", "user.name=t"}, args...)...).CombinedOutput(); err != nil {
+		t.Fatalf("git %v: %v\n%s", args, err, out)
+	}
+}
+
+// A helper's work is kept by its parent's branch once its parent merged it,
+// so stopping the helper then lets its worktree go; until then it is local
+// work never pushed, and its worktree is kept.
+func TestPreserveWorkKeepsAHelpersWorktreeUntilItsParentsBranchHoldsIt(t *testing.T) {
+	// Arrange
+	root, err := fsx.Canonical(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	project, parent, helper := filepath.Join(root, "app"), filepath.Join(root, "g1"), filepath.Join(root, "g1-h1")
+	gitAt(t, root, "init", "-q", "--initial-branch=main", project)
+	gitAt(t, project, "commit", "-q", "--allow-empty", "-m", "seed")
+	gitAt(t, project, "worktree", "add", "-q", "-b", "feat/x", parent)
+	gitAt(t, project, "worktree", "add", "-q", "-b", "feat/x-h1", helper, "feat/x")
+	gitAt(t, helper, "commit", "-q", "--allow-empty", "-m", "helper work")
+	meta := state.TaskMeta{ID: "g1-h1", Parent: "g1", Mode: "local-only", Worktree: helper}
+
+	// Act
+	before, beforeErr := PreserveWork(context.Background(), execx.OSRunner{}, meta, parent)
+	gitAt(t, parent, "merge", "-q", "--no-ff", "-m", "merge helper", "feat/x-h1")
+	after, afterErr := PreserveWork(context.Background(), execx.OSRunner{}, meta, parent)
+
+	// Assert
+	if beforeErr != nil || before.CanRemove {
+		t.Errorf("before the merge = %+v, %v; want the worktree kept", before, beforeErr)
+	}
+	if afterErr != nil || !after.CanRemove || !strings.Contains(strings.Join(after.Kept, " "), "merged into its parent g1's branch") {
+		t.Errorf("after the merge = %+v, %v; want the work kept by g1's branch", after, afterErr)
 	}
 }

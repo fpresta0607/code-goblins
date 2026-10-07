@@ -12,6 +12,7 @@ import (
 	"github.com/fpresta0607/code-goblins/internal/execx"
 	"github.com/fpresta0607/code-goblins/internal/fsx"
 	"github.com/fpresta0607/code-goblins/internal/state"
+	"github.com/fpresta0607/code-goblins/internal/worktree"
 )
 
 var deliveredPR = regexp.MustCompile(`^https://github\.com/[\w.-]+/[\w.-]+/pull/\d+$`)
@@ -20,6 +21,18 @@ func (service Service) outcome(ctx context.Context, meta state.TaskMeta, reason 
 	outcome = state.Outcome{ID: meta.ID, Generation: meta.SpawnGen, Title: meta.Title, Project: meta.Project, Harness: meta.Harness, Model: meta.Model, Effort: meta.Effort, Phase: "stopped", Reason: reason, At: time.Now().UTC()}
 	if outcome.Title == "" {
 		outcome.Title = meta.ID
+	}
+	// A helper delivers into its parent's branch, however it ended.
+	if meta.Parent != "" {
+		if parent, err := state.ReadTaskMeta(service.StateDir, meta.Parent); err == nil {
+			bounded, cancel := context.WithTimeout(ctx, 5*time.Second)
+			isHeld, err := (worktree.RunnerGit{Commands: service.Commands}).HoldsHead(bounded, parent.Worktree, meta.Worktree)
+			cancel()
+			if err == nil && isHeld {
+				outcome.Phase, outcome.Evidence = "done", "merged into its parent "+meta.Parent+"'s branch"
+				return outcome
+			}
+		}
 	}
 	if current, err := state.ReadLifecycle(service.StateDir, meta.ID); err == nil && current.Generation == meta.SpawnGen && current.Action == "stop" {
 		defer func() { outcome.Phase, outcome.Reason = "stopped", current.Reason }()

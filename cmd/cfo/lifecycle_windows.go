@@ -120,7 +120,13 @@ func defaultTaskLifecycle(ctx context.Context, h home.Home, request lifecycle.Re
 			return status == herdr.AgentAlive, err
 		},
 		Archive: func(ctx context.Context, meta state.TaskMeta, record *state.Lifecycle) (lifecycle.Preservation, error) {
-			preserved, err := lifecycle.PreserveWork(ctx, commands, meta)
+			holder := ""
+			if meta.Parent != "" {
+				if parent, err := state.ReadTaskMeta(h.State, meta.Parent); err == nil {
+					holder = parent.Worktree
+				}
+			}
+			preserved, err := lifecycle.PreserveWork(ctx, commands, meta, holder)
 			if err != nil {
 				return preserved, err
 			}

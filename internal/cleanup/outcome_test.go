@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -109,6 +110,56 @@ func TestCleanupRequiresCurrentDeliveryAndKeepsPRDetailsOnStop(t *testing.T) {
 			}
 			if err != nil || outcome.Phase != want || want == "done" && outcome.Evidence == "" || kind == "stopped pull request" && (outcome.PR == "" || outcome.Reason != "Requested from the board") {
 				t.Fatalf("outcome=%+v %v", outcome, err)
+			}
+		})
+	}
+}
+
+// A helper delivers into its parent's branch, so once its parent merged it
+// Completed shows it Finished, the merge's stop included; one stopped before
+// that delivered nothing and shows Stopped.
+func TestAHelperMergedIntoItsParentsBranchIsDelivered(t *testing.T) {
+	git := func(t *testing.T, dir string, args ...string) {
+		t.Helper()
+		if out, err := exec.Command("git", append([]string{"-C", dir, "-c", "user.email=t@t", "-c", "user.name=t"}, args...)...).CombinedOutput(); err != nil {
+			t.Fatalf("git %v: %v\n%s", args, err, out)
+		}
+	}
+	for _, isMerged := range []bool{true, false} {
+		t.Run(fmt.Sprintf("merged %t", isMerged), func(t *testing.T) {
+			// Arrange
+			root := t.TempDir()
+			stateDir := filepath.Join(root, "state")
+			if err := os.MkdirAll(stateDir, 0o700); err != nil {
+				t.Fatal(err)
+			}
+			project, parent, helper := filepath.Join(root, "app"), filepath.Join(root, "g1"), filepath.Join(root, "g1-h1")
+			git(t, root, "init", "-q", "--initial-branch=main", project)
+			git(t, project, "commit", "-q", "--allow-empty", "-m", "seed")
+			git(t, project, "worktree", "add", "-q", "-b", "feat/x", parent)
+			git(t, project, "worktree", "add", "-q", "-b", "feat/x-h1", helper, "feat/x")
+			git(t, helper, "commit", "-q", "--allow-empty", "-m", "helper work")
+			if isMerged {
+				git(t, parent, "merge", "-q", "--no-ff", "-m", "merge helper", "feat/x-h1")
+			}
+			meta := state.TaskMeta{ID: "g1-h1", Parent: "g1", Kind: "ship", Mode: "local-only", SpawnGen: "s1", Window: "native", Harness: "claude", Backend: "native", Worktree: helper}
+			for _, record := range []state.TaskMeta{meta, {ID: "g1", Kind: "ship", Window: "native", Harness: "claude", Backend: "native", Worktree: parent}} {
+				if err := state.WriteTaskMeta(stateDir, record); err != nil {
+					t.Fatal(err)
+				}
+			}
+			if err := state.WriteLifecycle(stateDir, state.Lifecycle{ID: "g1-h1", Generation: "s1", Operation: "op-1", Action: "stop", Phase: "stopping", Reason: "Merged into its parent g1's branch feat/x"}); err != nil {
+				t.Fatal(err)
+			}
+			service := Service{StateDir: stateDir, Commands: execx.OSRunner{}}
+
+			// Act
+			outcome := service.outcome(t.Context(), meta, "Worktree returned by cleanup")
+
+			// Assert
+			want := map[bool]string{true: "done", false: "stopped"}[isMerged]
+			if outcome.Phase != want || isMerged != strings.Contains(outcome.Evidence, "merged into its parent g1") {
+				t.Errorf("outcome = %+v, want %s", outcome, want)
 			}
 		})
 	}

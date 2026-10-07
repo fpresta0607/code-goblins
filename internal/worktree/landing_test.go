@@ -154,3 +154,32 @@ func TestArchiveTagKeepsUnlandedWorkReachable(t *testing.T) {
 		t.Errorf("the first archive moved to %s, want it kept at %s", got, landing.Head)
 	}
 }
+
+func TestHoldsHeadTellsAMergedHelperFromAnUnmergedOne(t *testing.T) {
+	// Arrange: a parent on feat/x and its helper on feat/x-h1, one commit
+	// ahead of it.
+	project := clonedProject(t)
+	git := RunnerGit{Commands: execx.OSRunner{}}
+	home := t.TempDir()
+	parent, helper := filepath.Join(home, "g1"), filepath.Join(home, "g1-h1")
+	gitRun(t, project, "worktree", "add", "-b", "feat/x", parent, "origin/main")
+	gitRun(t, project, "worktree", "add", "-b", "feat/x-h1", helper, "feat/x")
+	if err := os.WriteFile(filepath.Join(helper, "helper.txt"), []byte("helped"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	gitRun(t, helper, "add", ".")
+	gitRun(t, helper, "commit", "-q", "-m", "helper work")
+
+	// Act
+	before, beforeErr := git.HoldsHead(context.Background(), parent, helper)
+	gitRun(t, parent, "merge", "-q", "--no-ff", "-m", "merge helper", "feat/x-h1")
+	after, afterErr := git.HoldsHead(context.Background(), parent, helper)
+
+	// Assert
+	if beforeErr != nil || before {
+		t.Errorf("before the merge HoldsHead = %t, %v; want false", before, beforeErr)
+	}
+	if afterErr != nil || !after {
+		t.Errorf("after the merge HoldsHead = %t, %v; want true", after, afterErr)
+	}
+}
