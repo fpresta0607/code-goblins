@@ -21,6 +21,7 @@ import (
 	"github.com/fpresta0607/code-goblins/internal/herdr"
 	"github.com/fpresta0607/code-goblins/internal/host"
 	"github.com/fpresta0607/code-goblins/internal/lock"
+	"github.com/fpresta0607/code-goblins/internal/monitor"
 	"github.com/fpresta0607/code-goblins/internal/proc"
 	"github.com/fpresta0607/code-goblins/internal/spawn"
 	"github.com/fpresta0607/code-goblins/internal/state"
@@ -451,16 +452,17 @@ func (c *CFOConnection) Send(ctx context.Context, identity, text string) (Evalua
 const nativeSubmitSettle = 300 * time.Millisecond
 
 // nativeConfirm bounds how long a delivery to the native CFO waits after
-// submission for the CFO's hook to report it taken before the delivery is left
-// sent and awaiting that report; nativeConfirmPoll spaces the looks.
+// submission to be shown taken before the delivery is left sent and awaiting
+// that; nativeConfirmPoll spaces the looks.
 const (
 	nativeConfirm     = 5 * time.Second
 	nativeConfirmPoll = 250 * time.Millisecond
 )
 
 // sendNative waits for an empty composer, types once and confirms the text
-// before Enter. A prompt hook or a new working turn proves acceptance; input
-// submitted behind an existing turn awaits its prompt receipt.
+// before Enter. A prompt hook or a new working turn proves acceptance by an
+// idle CFO; input submitted during a turn is taken at the CFO's next tool
+// call, and only the CFO's own record of its conversation proves it.
 func (c *CFOConnection) sendNative(ctx context.Context, primary primaryRegistration, text string) (Evaluation, error) {
 	if err := c.verify(primary); err != nil {
 		return Evaluation{}, fmt.Errorf("%w: %v", ErrRejected, err)
@@ -553,10 +555,21 @@ func (c *CFOConnection) sendNative(ctx context.Context, primary primaryRegistrat
 	if err := delivery.Write([]byte(submit)); err != nil {
 		return Evaluation{}, fmt.Errorf("the message was typed into the CFO's native terminal, and whether its submit key reached it is unknown: %w", err)
 	}
+	// A CFO in a turn takes the answer at its next tool call, and its prompt
+	// hook runs as its harness queues the answer, before the CFO has it, so
+	// only its own record of the conversation proves it taken.
+	digest := monitor.TextDigest(instruction)
+	session := cfoSession(c.State, primary)
+	conversation := monitor.Conversation{Harness: primary.Agent, Session: session}
 	pressed, presses := time.Now(), 0
 	for deadline := time.Now().Add(nativeConfirm); ; {
-		if taken, err := NativeHostPromptSince(c.State, primary.Host, submitted); err == nil && taken {
-			return Evaluation{Reason: "Taken by the CFO in its native terminal, as its hook reported."}, nil
+		if busy && conversations().Took(ctx, conversation, digest, submitted) {
+			return Evaluation{Reason: "Taken by the CFO at its next tool call, as its own record of the conversation shows."}, nil
+		}
+		if !busy {
+			if taken, err := NativeHostPromptSince(c.State, primary.Host, submitted); err == nil && taken {
+				return Evaluation{Reason: "Taken by the CFO in its native terminal, as its hook reported."}, nil
+			}
 		}
 		screen, err := read(record)
 		if err != nil {
@@ -576,7 +589,7 @@ func (c *CFOConnection) sendNative(ctx context.Context, primary primaryRegistrat
 			if dialog || !busy && !screens.IsWorking(screen) && !screens.ComposerEmpty(screen) {
 				return Evaluation{}, errors.New("The answer remains in the CFO's input without confirmation that it was submitted. Inspect its terminal before sending again.")
 			}
-			return Evaluation{Reason: sentToCFO, Awaiting: &Awaiting{Host: primary.Host, Harness: primary.Agent, Since: submitted}}, nil
+			return Evaluation{Reason: sentToCFO, Awaiting: &Awaiting{Host: primary.Host, Harness: primary.Agent, Since: submitted, Digest: digest, Session: session}}, nil
 		}
 		select {
 		case <-time.After(nativeConfirmPoll):

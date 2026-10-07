@@ -532,9 +532,9 @@ func TestADeliveryToANativeCFOWhoseScreenTurnsToWorkWithoutItsHookIsSentNotDeliv
 	}
 }
 
-// A delivery to a native CFO already in a turn waits behind that turn: it is
-// typed and submitted once and reported sent, not delivered, while no hook
-// reports it taken.
+// A delivery to a native CFO already in a turn waits for its next tool call:
+// it is typed and submitted once and reported sent, not delivered, while
+// nothing shows it taken.
 func TestADeliveryToANativeCFOInATurnWaitsBehindIt(t *testing.T) {
 	stateDir := t.TempDir()
 	if err := os.WriteFile(filepath.Join(stateDir, NATIVE_EXIT_PHASES_FILE), nil, 0o600); err != nil {

@@ -189,14 +189,14 @@ func (s *Service) takeRevision(ctx context.Context, r Review, poll axi.PagePoll)
 }
 
 // deliverToGoblin types text into the goblin's own terminal, as a board
-// answer reaches it, and reports whether the goblin has it; one queued behind
-// its turn counts.
+// answer reaches it, and reports whether the goblin has it; one queued for
+// its next tool call counts.
 func (s *Service) deliverToGoblin(ctx context.Context, r Review, text string) bool {
 	if s.Options.CFO == nil {
 		return false
 	}
 	_, err := s.Options.CFO.SendGoblin(ctx, r.Task, r.Identity, text)
-	if err != nil && !errors.Is(err, fleet.ErrQueuedBehindTurn) {
+	if err != nil && !errors.Is(err, fleet.ErrQueuedForToolCall) {
 		s.publish(err)
 		return false
 	}

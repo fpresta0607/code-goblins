@@ -464,9 +464,17 @@ test("holding the shortcut records one capture and its bars follow the voice", a
   const bars = bubble.locator(".voice-bars span");
   await expect(bars).toHaveCount(9);
   const heights = () => bars.evaluateAll((bars) => bars.map((bar) => new DOMMatrix(getComputedStyle(bar).transform).d));
-  await expect.poll(async () => Math.max(...await heights())).toBeCloseTo(.2, 2);
-  const scales = new Set<number>([20]);
-  for (const [volume, minimum] of [[.04, .25], [.12, .4], [.3, .8]]) {
+  // Held in silence, the bars are a flat dotted line: each a 3 px square, one
+  // eighth of its 24 px bar.
+  const flat = async () => { const all = await heights(); return Math.max(...all) - Math.min(...all) < .001 && Math.abs(all[0] - .125) < .001; };
+  await expect.poll(flat).toBe(true);
+  expect(await bars.first().evaluate((bar) => getComputedStyle(bar).width)).toBe("3px");
+  // A quiet room's hum keeps the line flat; only a voice moves it.
+  await page.evaluate(() => { window.voiceSignal!.gain.gain.value = .015; });
+  await page.waitForTimeout(1000);
+  expect(await flat(), `a hum moved the bars to ${(await heights()).join(", ")}`).toBe(true);
+  const scales = new Set<number>([13]);
+  for (const [volume, minimum] of [[.04, .2], [.12, .4], [.3, .8]]) {
     await page.evaluate((volume) => { window.voiceSignal!.gain.gain.value = volume; }, volume);
     await expect.poll(async () => Math.min(...await heights())).toBeGreaterThan(minimum);
     for (const height of await heights()) scales.add(Math.round(height * 100));
@@ -474,7 +482,7 @@ test("holding the shortcut records one capture and its bars follow the voice", a
   expect(Math.max(...scales)).toBeGreaterThan(25);
   expect(scales.size).toBeGreaterThan(2);
   await page.evaluate(() => { window.voiceSignal!.gain.gain.value = 0; });
-  await expect.poll(async () => Math.max(...await heights())).toBeCloseTo(.2, 2);
+  await expect.poll(flat).toBe(true);
   // One microphone is open, for the bars and the words alike.
   expect(await page.evaluate(() => window.voiceProbe!.captures.length)).toBe(1);
 

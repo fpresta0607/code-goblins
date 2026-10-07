@@ -98,7 +98,7 @@ func NativeScreens(kind Kind) (Screens, bool) {
 			// placeholder, at start and after a turn (the binary also holds
 			// "Ask a follow-up question"), above a footer naming the
 			// model and folder ("gpt-6-astra low · ~\..."); a footer that
-			// counts the context left shows while text waits behind a turn. A
+			// counts the context left shows while text waits in a turn. A
 			// turn in progress shows only in the status row, as in "• Working
 			// (5s • esc to interrupt)", whose glyph alternates with ◦ and may
 			// be blank, and whose heading may name the step instead of

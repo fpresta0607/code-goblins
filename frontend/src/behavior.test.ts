@@ -441,13 +441,13 @@ test("delivery reads as a mark, and only trouble spells itself out", () => {
 // unconfirmed ... I get these command center blips and errors, fix".
 test("an answer typed for a busy CFO reads sent, then delivered, and warns only in words that say what to do", () => {
   // Arrange
-  const sent = "Sent. The CFO reads it when its current turn ends.";
+  const sent = "Sent. The CFO takes it at its next tool call, or as its current turn ends.";
   const advice = "Your answer was typed for the CFO, which has not picked it up. Open its terminal and press Enter if your answer is waiting in its box; if it is not there, type it to the CFO.";
   const answer = (fields: Record<string, unknown>) => deliveryMark(parseAction({ id: "a", kind: "cfo_answer", ...fields }));
 
   // Act
   const waiting = answer({ status: "running", message: sent, awaiting: { host: "cfo", since: "2026-10-01T16:54:54Z" } });
-  const delivered = answer({ status: "succeeded", message: "Taken by the CFO in its terminal, as its hook reported." });
+  const delivered = answer({ status: "succeeded", message: "Taken by the CFO, as its own record of the conversation shows." });
   const lost = answer({ status: "uncertain", message: advice, advice });
 
   // Assert

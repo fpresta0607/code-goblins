@@ -4,6 +4,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"flag"
 	"fmt"
 	"io"
@@ -106,7 +107,7 @@ commands:
   cfo reap [--dry-run] [--apply] [--force <pid|task-id>]... [--json]   find orphaned harness processes, stale dev servers, worktrees, task records and status logs; --apply retires the worktrees, records and logs, and ending a process needs its pid named with --force
   cfo notify <id> --done --pr <url> | --blocked "<question>" | --failed "<reason>" | --working "<what>" | --waiting-on <task-id|overlord|ci|deploy|memory> "<why>" [--lavish <html-file>] [--link <https-url>] [--run <command-file>]   a goblin reports its outcome straight into the wake queue, or what it is working on or waiting on; a wait on the Overlord leads with one sentence, puts values he must enter in a Markdown table on the lines after it with each value in backticks, which his card copies, and gives the one link his card opens with --link; --run names a .ps1 or .sh file holding a command he must run, which his card runs with one click in a window he can use
   cfo question --id <stable-id> --text "<user question>" [--option "<choice>"]... [--recommend "<exact-choice>"]   registered CFO opens a user decision modal with Other; the answer returns as one normal native message, not a native prompt-tool response
-  cfo answer <question-id|wake-seq> --option <choice> [--note "<text>"]   registered CFO answers a goblin's blocked question: delivered like cfo send (queued behind a working goblin's turn counts as delivered), the notify retired, and the choice, who and when recorded for the board
+  cfo answer <question-id|wake-seq> --option <choice> [--note "<text>"]   registered CFO answers a goblin's blocked question: delivered like cfo send (queued for a working goblin's next tool call counts as delivered), the notify retired, and the choice, who and when recorded for the board
   cfo answer <question-id> --option <choice> [--note "<text>"] --record-only [--in <where>]   registered CFO records on the board a choice already given another way, for a goblin's notify already acknowledged or answered, and sends nothing; --in names where the Overlord gave it, such as chat, which the CFO's own question needs, and the card reads as his answer there
   cfo review --id <stable-id> --title "<what to look at>" [--task <id>] [--image <path>]... [--lavish <url|html-file>] | --id <stable-id> --withdraw "<reason>" [--task <id>] | --clear <stable-id> --reason "<why>"   report an item that stays in the Command Center until the Overlord answers or clears it, or withdraw your own, or as the registered primary CFO clear any open item, audited; a Scrawl page named by its HTML file is polled by the supervisor, so the Overlord's feedback on it reaches the CFO as a review wake
   cfo deliver --id <stable-id> --title "<what it is>" --file <path> [--url <link>] [--task <id>]   hand the Overlord a document as a Command Center item with Open and Download; the file is copied, a goblin's from its own folders, and the item leaves the queue when he opens or downloads it
@@ -286,10 +287,18 @@ func defaultCommandRuntime() commandRuntime {
 				return err
 			}
 			receipt := supervisor.PrepareSendActivity(h, target)
-			if err := (spawn.Service{StateDir: h.State, PromptSince: nativePromptSince(h)}).SendNative(ctx, meta, fleet.Stamp(text)); err != nil {
+			stamped, since := fleet.Stamp(text), time.Now()
+			err = (spawn.Service{StateDir: h.State, PromptSince: nativePromptSince(h), Took: supervisor.NativeTook}).SendNative(ctx, meta, stamped)
+			switch {
+			case errors.Is(err, fleet.ErrQueuedForToolCall):
+				if receiptErr := receipt.Queued(stamped, since); receiptErr != nil {
+					fmt.Fprintln(os.Stderr, "Message queued; board activity receipt unavailable. Do not resend for this notice.")
+				}
+				return err
+			case err != nil:
 				return err
 			}
-			if err := receipt(); err != nil {
+			if err := receipt.Taken(); err != nil {
 				fmt.Fprintln(os.Stderr, "Message accepted; board activity receipt unavailable. Do not resend for this notice.")
 			}
 			return nil

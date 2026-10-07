@@ -1,6 +1,7 @@
 package supervisor
 
 import (
+	"context"
 	"crypto/rand"
 	"crypto/sha256"
 	"encoding/hex"
@@ -20,6 +21,7 @@ import (
 	"github.com/fpresta0607/code-goblins/internal/home"
 	"github.com/fpresta0607/code-goblins/internal/host"
 	"github.com/fpresta0607/code-goblins/internal/lock"
+	"github.com/fpresta0607/code-goblins/internal/monitor"
 	"github.com/fpresta0607/code-goblins/internal/proc"
 	"github.com/fpresta0607/code-goblins/internal/state"
 )
@@ -45,6 +47,10 @@ type BoardActivity struct {
 	// watch a presentation, such as a walkthrough it runs for him; only such
 	// a presentation reaches his Command Center.
 	Watch string `json:"watch,omitempty"`
+	// Digest is, on the receipt of a message typed into a goblin in a turn,
+	// the monitor.TextDigest of the text, which the supervisor holds the
+	// receipt for until the goblin's record shows it taken.
+	Digest string `json:"digest,omitempty"`
 }
 
 // PresentationURLProblem names the rule raw breaks, or returns "" for a URL
@@ -119,8 +125,13 @@ func (s *Store) retainActivity(a BoardActivity) error {
 	}
 	switch a.Kind {
 	case "created", "message":
-		if a.State != "accepted" || a.URL != "" || !a.Until.IsZero() {
+		queued := a.Kind == "message" && a.State == "queued"
+		if (a.State != "accepted" && !queued) || a.URL != "" || !a.Until.IsZero() || queued != isTextDigest(a.Digest) {
 			return errors.New("invalid native activity receipt")
+		}
+		if queued {
+			s.holdQueuedSend(a)
+			return nil
 		}
 	case "browser", "review":
 		if a.State != "active" && a.State != "ended" {
@@ -157,6 +168,68 @@ func (s *Store) retainActivity(a BoardActivity) error {
 		s.db.Activity = s.db.Activity[len(s.db.Activity)-maxBoardActivity:]
 	}
 	return nil
+}
+
+// isTextDigest reports whether digest is a monitor.TextDigest: 64 lowercase
+// hexadecimal digits.
+func isTextDigest(digest string) bool {
+	_, err := hex.DecodeString(digest)
+	return len(digest) == 64 && err == nil && strings.ToLower(digest) == digest
+}
+
+// holdQueuedSend keeps the receipt of a message typed into a goblin in a
+// turn, once, until its record shows the goblin took it. The caller holds
+// the store lock.
+func (s *Store) holdQueuedSend(a BoardActivity) {
+	if slices.ContainsFunc(s.db.QueuedSends, func(held BoardActivity) bool { return held.ID == a.ID }) {
+		return
+	}
+	s.db.QueuedSends = append(s.db.QueuedSends, a)
+	if len(s.db.QueuedSends) > maxBoardActivity {
+		s.db.QueuedSends = s.db.QueuedSends[len(s.db.QueuedSends)-maxBoardActivity:]
+	}
+}
+
+// settleQueuedSends shows on the board the receipt of each message typed
+// into a goblin in a turn once look finds its record shows the goblin took
+// it, timed when that was seen, and drops one whose goblin restarted or
+// ended, or that waited deliveryForget. look reads each goblin away from the
+// store's lock.
+func (s *Store) settleQueuedSends(now time.Time, look func(BoardActivity) (took, gone bool)) error {
+	s.mu.Lock()
+	held := slices.Clone(s.db.QueuedSends)
+	s.mu.Unlock()
+	type outcome struct{ took, gone bool }
+	outcomes := map[string]outcome{}
+	for _, a := range held {
+		took, gone := look(a)
+		outcomes[a.ID] = outcome{took, gone}
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	var kept []BoardActivity
+	changed := false
+	for _, a := range s.db.QueuedSends {
+		seen, looked := outcomes[a.ID]
+		switch {
+		case !looked:
+			kept = append(kept, a)
+			continue
+		case seen.took:
+			a.State, a.Digest, a.At = "accepted", "", now
+			// A goblin that lost its native session since shows no receipt.
+			_ = s.retainActivity(a)
+		case !seen.gone && now.Sub(a.At) < deliveryForget:
+			kept = append(kept, a)
+			continue
+		}
+		changed = true
+	}
+	if !changed {
+		return nil
+	}
+	s.db.QueuedSends = kept
+	return s.save()
 }
 
 func activityReplacement(prior, next BoardActivity) (bool, error) {
@@ -364,11 +437,47 @@ func PublishPresentation(h home.Home, a BoardActivity) error {
 	return spoolActivity(h.State, a)
 }
 
+// SendReceipt is the board's receipt of one cfo send to a native goblin,
+// pinned to the goblin the send was for. One for a goblin the board shows no
+// session of does nothing.
+type SendReceipt struct {
+	h        home.Home
+	meta     state.TaskMeta
+	activity BoardActivity
+}
+
+// Taken spools the receipt of a send the goblin has.
+func (r SendReceipt) Taken() error {
+	return r.spool(r.activity, time.Now().UTC())
+}
+
+// Queued spools the receipt of text submitted at since into a goblin in a
+// turn, whose harness hands it over at the goblin's next tool call: the
+// supervisor shows it once the goblin's record shows the text taken.
+func (r SendReceipt) Queued(text string, since time.Time) error {
+	a := r.activity
+	a.State, a.Digest = "queued", monitor.TextDigest(text)
+	return r.spool(a, since.UTC())
+}
+
+func (r SendReceipt) spool(a BoardActivity, at time.Time) error {
+	if a.ID == "" {
+		return nil
+	}
+	current, err := state.ReadTaskMeta(r.h.State, r.meta.ID)
+	if err != nil || current.SpawnGen != r.meta.SpawnGen || current.Worktree != r.meta.Worktree || current.Backend != r.meta.Backend {
+		return errors.New("message accepted but recipient changed before board receipt")
+	}
+	a.At = at
+	return spoolActivity(r.h.State, a)
+}
+
 // PrepareSendActivity pins the observed destination before a send. The caller
-// invokes its returned function only after native acceptance, never on an
+// spools its receipt only after native acceptance, or as queued once the
+// goblin's harness holds the text for its next tool call, never on an
 // uncertain submit. Observability failure must not cause a message retry.
-func PrepareSendActivity(h home.Home, target string) func() error {
-	none := func() error { return nil }
+func PrepareSendActivity(h home.Home, target string) SendReceipt {
+	none := SendReceipt{}
 	meta, native := fleet.NativeTask(h.State, target)
 	if !native {
 		return none
@@ -401,14 +510,18 @@ func PrepareSendActivity(h home.Home, target string) func() error {
 		return none
 	}
 	a := BoardActivity{ID: "send-" + hex.EncodeToString(bytes[:]), Kind: "message", TaskID: meta.ID, Generation: meta.SpawnGen, Source: source, Target: node.ID, State: "accepted"}
-	return func() error {
-		current, err := state.ReadTaskMeta(h.State, meta.ID)
-		if err != nil || current.SpawnGen != meta.SpawnGen || current.Worktree != meta.Worktree || current.Backend != meta.Backend {
-			return errors.New("message accepted but recipient changed before board receipt")
-		}
-		a.At = time.Now().UTC()
-		return spoolActivity(h.State, a)
+	return SendReceipt{h: h, meta: meta, activity: a}
+}
+
+// lookAtQueuedSend reads the goblin a queued send was typed into: gone once
+// it restarted or ended, and whether its harness's record of the
+// conversation shows the text taken.
+func (s *Service) lookAtQueuedSend(a BoardActivity) (took, gone bool) {
+	meta, err := state.ReadTaskMeta(s.Store.Home.State, a.TaskID)
+	if err != nil || meta.SpawnGen != a.Generation {
+		return false, true
 	}
+	return conversations().Took(context.Background(), goblinConversation(meta), a.Digest, a.At), false
 }
 
 // Reuse the supervisor's existing cycle. At most one bounded native identity
