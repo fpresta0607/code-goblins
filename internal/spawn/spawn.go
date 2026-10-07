@@ -90,6 +90,10 @@ type Service struct {
 	// user's environment names.
 	HomeRoot string
 	StateDir string
+	// ProjectsRoot is the projects root the spawning process names, which a
+	// native goblin's terminal names in place of the user's, as the CFO's
+	// terminal does; empty leaves the user's.
+	ProjectsRoot string
 	// ScratchRoot is the home's scratch folder. A task's scratch folder,
 	// which its pane's TEMP, TMP and GOTMPDIR name, is <ScratchRoot>\<id>.
 	ScratchRoot string

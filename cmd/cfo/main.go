@@ -245,16 +245,17 @@ func defaultCommandRuntime() commandRuntime {
 				return spawn.Result{}, err
 			}
 			service := spawn.Service{
-				Worktrees:   worktree.Service{Commands: commands, DataDir: h.Data, Root: h.Worktrees()},
-				Harness:     harness.DefaultRegistry(),
-				Auth:        auth.SpawnPreflight{DataDir: h.Data, Home: h.Root, Runner: commands},
-				Commands:    commands,
-				HomeRoot:    h.Root,
-				StateDir:    h.State,
-				ScratchRoot: h.Scratch(),
-				PolicyPath:  filepath.Join(h.Root, "config", "pipeline.json"),
-				HostCommand: []string{self, "host"},
-				PromptSince: nativePromptSince(h),
+				Worktrees:    worktree.Service{Commands: commands, DataDir: h.Data, Root: h.Worktrees()},
+				Harness:      harness.DefaultRegistry(),
+				Auth:         auth.SpawnPreflight{DataDir: h.Data, Home: h.Root, Runner: commands},
+				Commands:     commands,
+				HomeRoot:     h.Root,
+				StateDir:     h.State,
+				ProjectsRoot: os.Getenv(install.ProjectsRootVariable),
+				ScratchRoot:  h.Scratch(),
+				PolicyPath:   filepath.Join(h.Root, "config", "pipeline.json"),
+				HostCommand:  []string{self, "host"},
+				PromptSince:  nativePromptSince(h),
 				Admit: func() error {
 					memory, err := supervisor.MachineMemory()
 					if err != nil {
@@ -276,15 +277,16 @@ func defaultCommandRuntime() commandRuntime {
 				return spawn.SwitchResult{}, err
 			}
 			service := spawn.Service{
-				Worktrees:   worktree.Service{Commands: commands, DataDir: h.Data, Root: h.Worktrees()},
-				Harness:     harness.DefaultRegistry(),
-				Auth:        auth.SpawnPreflight{DataDir: h.Data, Home: h.Root, Runner: commands},
-				Commands:    commands,
-				HomeRoot:    h.Root,
-				StateDir:    h.State,
-				ScratchRoot: h.Scratch(),
-				HostCommand: []string{self, "host"},
-				PromptSince: nativePromptSince(h),
+				Worktrees:    worktree.Service{Commands: commands, DataDir: h.Data, Root: h.Worktrees()},
+				Harness:      harness.DefaultRegistry(),
+				Auth:         auth.SpawnPreflight{DataDir: h.Data, Home: h.Root, Runner: commands},
+				Commands:     commands,
+				HomeRoot:     h.Root,
+				StateDir:     h.State,
+				ProjectsRoot: os.Getenv(install.ProjectsRootVariable),
+				ScratchRoot:  h.Scratch(),
+				HostCommand:  []string{self, "host"},
+				PromptSince:  nativePromptSince(h),
 			}
 			return service.Switch(ctx, request)
 		},

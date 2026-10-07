@@ -22,6 +22,7 @@ import (
 	"github.com/fpresta0607/code-goblins/internal/harness"
 	"github.com/fpresta0607/code-goblins/internal/home"
 	"github.com/fpresta0607/code-goblins/internal/host"
+	"github.com/fpresta0607/code-goblins/internal/install"
 	"github.com/fpresta0607/code-goblins/internal/state"
 	"github.com/fpresta0607/code-goblins/internal/wake"
 )
@@ -73,7 +74,7 @@ type codexEvent struct {
 }
 
 // recordedEnv is what the fake codex records of its environment.
-var recordedEnv = []string{"CFO_TASK_ID", "CFO_ROLE", "GOTMPDIR", "TEMP", "TMP", "CFO_HOME", "CFO_STATE_OVERRIDE", "CFO_HOST_ID", "FIXTURE_TOKEN", "PLAYWRIGHT_BROWSERS_PATH", "LOCALAPPDATA", "XDG_CACHE_HOME", "HOME", "UV_CACHE_DIR", "DATABASE_URL", "OPENAI_API_KEY", "HERDR_PANE_ID", "CLAUDECODE", "CLAUDE_CODE_ENTRYPOINT", "CLAUDE_CODE_GIT_BASH_PATH", "CODEX_SANDBOX_NETWORK_DISABLED", "CLAUDE_CODE_CHILD_SESSION", "CLAUDE_CODE_SESSION_ID", "CLAUDE_CODE_MESSAGING_SOCKET", "CLAUDE_CODE_MESSAGING_TOKEN", "CLAUDE_PID", "HERDR_TAB_ID", "HERDR_WORKSPACE_ID", "A_SESSION_ONLY_VARIABLE", "USERS_OWN_SETTING"}
+var recordedEnv = []string{"CFO_TASK_ID", "CFO_ROLE", "GOTMPDIR", "TEMP", "TMP", "CFO_HOME", "CFO_STATE_OVERRIDE", "CFO_PROJECTS_ROOT", "CFO_HOST_ID", "FIXTURE_TOKEN", "PLAYWRIGHT_BROWSERS_PATH", "LOCALAPPDATA", "XDG_CACHE_HOME", "HOME", "UV_CACHE_DIR", "DATABASE_URL", "OPENAI_API_KEY", "HERDR_PANE_ID", "CLAUDECODE", "CLAUDE_CODE_ENTRYPOINT", "CLAUDE_CODE_GIT_BASH_PATH", "CODEX_SANDBOX_NETWORK_DISABLED", "CLAUDE_CODE_CHILD_SESSION", "CLAUDE_CODE_SESSION_ID", "CLAUDE_CODE_MESSAGING_SOCKET", "CLAUDE_CODE_MESSAGING_TOKEN", "CLAUDE_PID", "HERDR_TAB_ID", "HERDR_WORKSPACE_ID", "A_SESSION_ONLY_VARIABLE", "USERS_OWN_SETTING"}
 
 // fakeHarness shows codex's own startup screens, as captured on this machine,
 // and answers keys the way codex does. It records its environment, every key
@@ -1313,5 +1314,46 @@ func TestANativeGoblinResolvesTheHomeThatSpawnedIt(t *testing.T) {
 	}
 	if got := *resolved[0].Home; !strings.EqualFold(got.Root, spawningRoot) || !strings.EqualFold(got.State, f.stateDir) {
 		t.Errorf("the goblin resolves root %s and state %s, want the spawning home's root %s and state %s", got.Root, got.State, spawningRoot, f.stateDir)
+	}
+}
+
+// recordedValue is a recorded variable's value, or that it was not set.
+func recordedValue(value *string) string {
+	if value == nil {
+		return "not set"
+	}
+	return *value
+}
+
+// A goblin's terminal names the projects root its spawner names, as the CFO's
+// terminal does, so a home started with a projects root of its own never
+// gives its goblins the machine's, which the user's environment names; a
+// spawner that names none leaves the user's.
+func TestANativeGoblinKeepsTheProjectsRootItsSpawnerNames(t *testing.T) {
+	machineRoot := `C:\dev`
+	for name, test := range map[string]struct {
+		spawners string
+		want     string
+	}{
+		"a projects root of its own": {`C:\scratch\projects`, `C:\scratch\projects`},
+		"none of its own":            {"", machineRoot},
+	} {
+		t.Run(name, func(t *testing.T) {
+			// Arrange
+			f := newQuickFixture(t)
+			f.userEnv = append(f.userEnv, install.ProjectsRootVariable+"="+machineRoot)
+			f.service.ProjectsRoot = test.spawners
+
+			// Act
+			if _, err := f.service.Spawn(context.Background(), f.request); err != nil {
+				t.Fatalf("Spawn: %v", err)
+			}
+
+			// Assert
+			got := named(f.events(t), "env")[0].Env[install.ProjectsRootVariable]
+			if got == nil || *got != test.want {
+				t.Errorf("the goblin's %s is %v, want %q", install.ProjectsRootVariable, recordedValue(got), test.want)
+			}
+		})
 	}
 }

@@ -19,6 +19,7 @@ import (
 	"github.com/fpresta0607/code-goblins/internal/fleet"
 	"github.com/fpresta0607/code-goblins/internal/harness"
 	"github.com/fpresta0607/code-goblins/internal/host"
+	"github.com/fpresta0607/code-goblins/internal/install"
 	"github.com/fpresta0607/code-goblins/internal/state"
 	"github.com/fpresta0607/code-goblins/internal/wake"
 )
@@ -610,9 +611,10 @@ var inheritedSessionVariables = []string{"CLAUDECODE", "CLAUDE_CODE_ENTRYPOINT",
 // ran cfo spawn reaches the goblin; without the harness billing keys or any
 // session marker; then the project's credentials, then the launch's variables
 // (CFO_ROLE=goblin and the task's identity among them) and the spawning
-// home's CFO_HOME and CFO_STATE_OVERRIDE, which win: the user's environment
-// names the machine's installed home, which for a second home on the machine
-// is another one. This block is how its credentials reach the harness at
+// home's CFO_HOME and CFO_STATE_OVERRIDE, and the projects root the spawner
+// names, where it names one, which win: the user's environment names the
+// machine's installed home and projects root, which for a second home on the
+// machine are another's. This block is how its credentials reach the harness at
 // start.
 // Names compare without case, as Windows compares them.
 func (s Service) nativeHostEnvironment(userEnv []string, launch harness.Launch, credentials map[string]string) []string {
@@ -640,6 +642,9 @@ func (s Service) nativeHostEnvironment(userEnv []string, launch harness.Launch, 
 	}
 	set("CFO_HOME", s.HomeRoot)
 	set("CFO_STATE_OVERRIDE", s.StateDir)
+	if s.ProjectsRoot != "" {
+		set(install.ProjectsRootVariable, s.ProjectsRoot)
+	}
 	env := make([]string, 0, len(values))
 	for upper, value := range values {
 		env = append(env, names[upper]+"="+value)
