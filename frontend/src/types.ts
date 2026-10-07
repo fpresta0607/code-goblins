@@ -400,9 +400,12 @@ export interface SetupAgent {
   recommended: boolean;
   note: string;
   installed: boolean;
-  signed_in: boolean;
+  // What the agent's own status command says, in the environment the CFO's
+  // terminal starts with; unknown is an answer it did not give.
+  sign_in: SignIn;
   reason: string;
 }
+export type SignIn = "signed_in" | "signed_out" | "unknown";
 export interface Commit {
   sha: string;
   short: string;
@@ -718,7 +721,9 @@ export function parseSetup(value: unknown): Setup {
     problem: string(v.problem),
     agents: array(v.agents).map((value) => {
       const agent = object(value);
-      return { id: string(agent.id), name: string(agent.name), recommended: boolean(agent.recommended), note: string(agent.note), installed: boolean(agent.installed), signed_in: boolean(agent.signed_in), reason: string(agent.reason) };
+      const signIn = string(agent.sign_in);
+      if (signIn !== "signed_in" && signIn !== "signed_out" && signIn !== "unknown") throw new Error("Invalid sign-in state");
+      return { id: string(agent.id), name: string(agent.name), recommended: boolean(agent.recommended), note: string(agent.note), installed: boolean(agent.installed), sign_in: signIn, reason: string(agent.reason) };
     }),
     cfo_runs: boolean(v.cfo_runs),
   };
