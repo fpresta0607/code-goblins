@@ -1104,6 +1104,196 @@ func TestPipelineRunLaunchesNativeAfterCheckStart(t *testing.T) {
 	}
 }
 
+// taskWorktreesRunner answers git in each directory of branches as the top
+// level of a checkout with that branch checked out, the native database's run
+// lookup with runBranch and its custody record with recovery; every other
+// command goes to the runner it wraps.
+type taskWorktreesRunner struct {
+	execx.Runner
+	branches  map[string]string
+	runBranch string
+	recovery  string
+}
+
+func (r taskWorktreesRunner) Run(ctx context.Context, q execx.Request) (execx.Result, error) {
+	command := strings.Join(q.Args, " ")
+	switch {
+	case q.Name == "git" && command == "rev-parse --show-toplevel":
+		return execx.Result{Stdout: []byte(q.Dir + "\n")}, nil
+	case q.Name == "git" && command == "symbolic-ref --quiet --short HEAD":
+		branch, ok := r.branches[q.Dir]
+		if !ok {
+			return execx.Result{ExitCode: 1}, nil
+		}
+		return execx.Result{Stdout: []byte(branch + "\n")}, nil
+	case q.Name == "sqlite3" && strings.Contains(command, "SELECT runs.branch FROM runs"):
+		if r.runBranch == "" {
+			return execx.Result{Stdout: []byte("[]")}, nil
+		}
+		return execx.Result{Stdout: []byte(`[{"branch":"` + r.runBranch + `"}]`)}, nil
+	case q.Name == "sqlite3" && strings.Contains(command, "AS recorded_head"):
+		return execx.Result{Stdout: []byte(r.recovery)}, nil
+	}
+	return r.Runner.Run(ctx, q)
+}
+
+// extraWorktreeTask is a gated task shaped as cg-board-polish-4 was on
+// 2026-10-03: its own worktree on feat/panel-row and an extra worktree, which
+// cfo worktree add recorded, on fix/connections, where PR 308's run waited on
+// a decision the CFO could not give. A stray worktree of the project that the
+// task never recorded has fix/stray checked out. It returns the home, the
+// native root and the branches checked out by directory.
+func extraWorktreeTask(t *testing.T) (home.Home, string, map[string]string) {
+	t.Helper()
+	p, err := pipeline.Load(filepath.Join("..", "..", "config", "pipeline.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	selection, err := p.Select("ordinary")
+	if err != nil {
+		t.Fatal(err)
+	}
+	root := t.TempDir()
+	h := home.Home{Root: root, State: filepath.Join(root, "state")}
+	nm := filepath.Join(root, "nm")
+	tmp := filepath.Join(h.State, "tasktmp", "task")
+	project := filepath.Join(root, "project")
+	own := filepath.Join(root, "worktrees", "project", "task")
+	extra := filepath.Join(root, "worktrees", "project", "task-connections")
+	stray := filepath.Join(root, "worktrees", "project", "stray")
+	for _, path := range []string{nm, tmp, project, own, extra, stray} {
+		if err := os.MkdirAll(path, 0o700); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := selection.Save(filepath.Join(tmp, "pipeline.json")); err != nil {
+		t.Fatal(err)
+	}
+	meta := state.TaskMeta{ID: "task", Mode: "no-mistakes", Worktree: own, Extras: []string{extra}, Project: project, TaskTmp: tmp, PipelineClass: selection.Class, PipelineHash: selection.Hash}
+	if err := state.WriteTaskMeta(h.State, meta); err != nil {
+		t.Fatal(err)
+	}
+	config, _, err := pipeline.Render([]byte("{}"), p)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(nm, "config.yaml"), config, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(nm, "state.sqlite"), nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	return h, nm, map[string]string{own: "feat/panel-row", extra: "fix/connections", stray: "fix/stray"}
+}
+
+// A goblin that gates several pull requests from extra worktrees still gets
+// the CFO's decision on each: respond, named the branch or the run, answers
+// the gate from the worktree that has that branch checked out, since the
+// native command answers the branch checked out where it runs.
+func TestPipelineRespondAnswersTheGateOfABranchInAnExtraWorktree(t *testing.T) {
+	for _, selector := range [][]string{{"--branch", "fix/connections"}, {"--run", "01M3ZNA9"}} {
+		t.Run(selector[0], func(t *testing.T) {
+			// Arrange
+			h, nm, branches := extraWorktreeTask(t)
+			gate := &pipelineRunner{gate: pipeline.Gate{RunID: "01M3ZNA9", StepID: "step", Step: "review", Status: "awaiting_approval", Round: 1, Findings: `{"findings":[{"id":"style","action":"no-op"}]}`}}
+			runner := taskWorktreesRunner{Runner: gate, branches: branches, runBranch: "fix/connections"}
+			meta, err := state.ReadTaskMeta(h.State, "task")
+			if err != nil {
+				t.Fatal(err)
+			}
+
+			// Act
+			err = pipelineCommand(context.Background(), h, nm, runner, append([]string{"respond", "task", "--action", "approve"}, selector...), &bytes.Buffer{})
+
+			// Assert
+			if err != nil {
+				t.Fatalf("respond %s: %v", strings.Join(selector, " "), err)
+			}
+			if len(gate.native) != 1 || gate.native[0].Dir != meta.Extras[0] || strings.Join(gate.native[0].Args, " ") != "axi respond --step review --action approve" {
+				t.Fatalf("native calls = %+v, want one approve in the extra worktree %s", gate.native, meta.Extras[0])
+			}
+		})
+	}
+}
+
+// What respond is named must be the task's: a branch none of its recorded
+// worktrees has checked out, a stray worktree's included, and a run that is
+// not the latest of such a branch are refused before anything reaches the
+// gate.
+func TestPipelineRespondRefusesABranchOrRunThatIsNotTheTasks(t *testing.T) {
+	for _, tc := range []struct {
+		name      string
+		selector  []string
+		runBranch string
+		want      string
+	}{
+		{"a branch checked out nowhere", []string{"--branch", "feat/elsewhere"}, "", "checked out in none of task task's worktrees"},
+		{"a stray worktree's branch", []string{"--branch", "fix/stray"}, "", "checked out in none of task task's worktrees"},
+		{"a run that is no branch's latest", []string{"--run", "01OLDRUN"}, "", "is not the latest run of a branch"},
+		{"a run of a stray worktree's branch", []string{"--run", "01STRAY"}, "fix/stray", "checked out in none of task task's worktrees"},
+		{"a run its branch moved past", []string{"--run", "01OLDRUN"}, "fix/connections", "no longer the latest run of fix/connections"},
+		{"a branch and a run", []string{"--branch", "fix/connections", "--run", "01M3ZNA9"}, "fix/connections", "name a branch or a run, not both"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			// Arrange
+			h, nm, branches := extraWorktreeTask(t)
+			gate := &pipelineRunner{gate: pipeline.Gate{RunID: "01M3ZNA9", StepID: "step", Step: "review", Status: "awaiting_approval", Round: 1, Findings: `{"findings":[]}`}}
+			runner := taskWorktreesRunner{Runner: gate, branches: branches, runBranch: tc.runBranch}
+
+			// Act
+			err := pipelineCommand(context.Background(), h, nm, runner, append([]string{"respond", "task", "--action", "approve"}, tc.selector...), &bytes.Buffer{})
+
+			// Assert
+			if err == nil || !strings.Contains(err.Error(), tc.want) {
+				t.Fatalf("respond %s: %v, want a refusal saying %q", strings.Join(tc.selector, " "), err, tc.want)
+			}
+			if len(gate.native) != 0 {
+				t.Fatalf("a refused respond reached the gate: %+v", gate.native)
+			}
+		})
+	}
+}
+
+// run and recover act on a named branch the way respond does: in the task's
+// worktree that has it checked out.
+func TestPipelineRunAndRecoverActInTheWorktreeOfTheNamedBranch(t *testing.T) {
+	t.Run("run", func(t *testing.T) {
+		// Arrange
+		h, nm, branches := extraWorktreeTask(t)
+		start := &pipelineStartRunner{}
+		runner := taskWorktreesRunner{Runner: start, branches: branches}
+
+		// Act
+		err := pipelineCommand(context.Background(), h, nm, runner, []string{"run", "task", "--branch", "fix/connections", "--intent", "ship safely"}, &bytes.Buffer{})
+
+		// Assert
+		if err != nil {
+			t.Fatalf("run --branch: %v", err)
+		}
+		if len(start.native) != 1 || !strings.HasSuffix(start.native[0].Dir, "task-connections") || strings.Join(start.native[0].Args, " ") != "axi run --intent ship safely" {
+			t.Fatalf("native launches = %+v, want one run in the extra worktree", start.native)
+		}
+	})
+	t.Run("recover", func(t *testing.T) {
+		// Arrange
+		h, nm, branches := extraWorktreeTask(t)
+		gate := &pipelineRunner{}
+		runner := taskWorktreesRunner{Runner: gate, branches: branches, runBranch: "fix/connections",
+			recovery: `[{"run_id":"01M3ZNA9","repo_id":"repo","branch":"fix/connections","status":"failed","recorded_head":"aaa","submitted_head":"bbb"}]`}
+
+		// Act: the fake's worktree reads no clean status, so custody stays where it is.
+		err := pipelineCommand(context.Background(), h, nm, runner, []string{"recover", "task", "--run", "01M3ZNA9"}, &bytes.Buffer{})
+
+		// Assert
+		if err == nil || !strings.Contains(err.Error(), "custody recovery requires a clean task worktree") {
+			t.Fatalf("recover --run: %v, want it to reach the extra worktree's custody check", err)
+		}
+		if len(gate.native) != 1 || !strings.HasSuffix(gate.native[0].Dir, "task-connections") || strings.Join(gate.native[0].Args, " ") != "axi sync --check" {
+			t.Fatalf("native calls = %+v, want the custody check in the extra worktree", gate.native)
+		}
+	})
+}
+
 func TestPipelineConfigDriftDoesNotWriteOrExposeValues(t *testing.T) {
 	root := t.TempDir()
 	nm := t.TempDir()
