@@ -1,4 +1,4 @@
-import { lazy, Suspense, useCallback, useEffect, useRef, useState, type CSSProperties } from "react";
+import { lazy, Suspense, useEffect, useRef, useState, type CSSProperties } from "react";
 import { useRuntimeStream } from "./stream";
 import { useItemState } from "./use-item-state";
 import { Lineage, type Selection } from "./Lineage";
@@ -125,22 +125,18 @@ export function App() {
   useEffect(()=>{const timer=setInterval(()=>setNow(Date.now()),1000);return()=>clearInterval(timer);},[]);
   const served = snapshot?.build || "";
   const connected = connection === "Live";
-  const unsent = useRef(false);
-  const onUnsent = useCallback((next: boolean) => { unsent.current = next; }, []);
-  const commenting = Object.values(reviews.drafts).some((draft) => unsentComment(draft, reviews.outcome(draft)));
-  const commentUnsent = useRef(false);
-  useEffect(() => { commentUnsent.current = commenting; }, [commenting]);
+  const [hasUnsentAnswers, setHasUnsentAnswers] = useState(false);
+  const hasUnsent = hasUnsentAnswers || Object.values(reviews.drafts).some((draft) => unsentComment(draft, reviews.outcome(draft)));
   const updated = updateAction({ loaded: LOADED_BUILD, served, hidden: false, answering: true, connected }) !== "none";
   const hasRecentUpdate = updateSucceededRecently(snapshot, now);
   useEffect(() => {
     const check = () => {
-      const hasUnsent = unsent.current || commentUnsent.current;
       if (updateAction({ loaded: LOADED_BUILD, served, hidden: document.hidden, answering: answering(hasUnsent), connected, unsent: hasUnsent, updated: hasRecentUpdate }) === "reload") location.reload();
     };
     check();
     document.addEventListener("visibilitychange", check);
     return () => document.removeEventListener("visibilitychange", check);
-  }, [served, connected, hasRecentUpdate]);
+  }, [served, connected, hasRecentUpdate, hasUnsent]);
   const effects = useActivity(snapshot, connected);
   const presentations=snapshot&&connected?livePresentations(snapshot,now):[];
   // A goblin opens on its Terminal view, unless the caller asks for a view
@@ -280,7 +276,7 @@ export function App() {
           ? <button className="icon-button" aria-disabled="true" aria-label="Layout: stacked, the board is too narrow for columns side by side" data-tip="Too narrow for columns side by side, so the board is stacked. Close or narrow the panel, or widen the window." data-tip-align="end"><Icon name="stacked" /></button>
           : <button className="icon-button" aria-label={nextLayout === "stacked" ? "Stacked layout" : "Kanban layout"} data-tip={nextLayout === "stacked" ? "Stacked layout" : "Kanban layout"} data-tip-align="end"
             onClick={() => { setBoardLayout(nextLayout); store(BOARD_LAYOUT_KEY, nextLayout); }}><Icon name={boardLayout} /></button>)}
-        {snapshot && <CommandCenter snapshot={snapshot} connected={connected} presentations={presentations} focus={commandFocus} onUnsent={onUnsent} onSent={sent} />}
+        {snapshot && <CommandCenter snapshot={snapshot} connected={connected} presentations={presentations} focus={commandFocus} onUnsent={setHasUnsentAnswers} onSent={sent} />}
         <div className="connection" role="status">
           <span className={"live-dot " + (!connected ? "offline" : "")} />{connection}
         </div>

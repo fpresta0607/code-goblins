@@ -1,4 +1,7 @@
-import { expect, test, type Page } from "./site";
+import { readFile } from "node:fs/promises";
+import { join } from "node:path";
+import { expect, openItem, ORIGIN, test, type Page, type Route } from "./site";
+import { parseSnapshot } from "../src/types";
 
 // The Overlord, 2026-10-02: "make sure updates for code goblins comes just as
 // its own special overlord command". A new release reaches him as an item of
@@ -134,3 +137,91 @@ test("a board built from a clone gets the clone's steps instead of Update", asyn
   await expect(banner.getByRole("button", { name: "Open" })).toHaveCount(0);
   await expect(page.getByLabel("Command Center, 1 waiting on you")).toHaveCount(0);
 });
+
+for (const draft of ["answer", "changed answer", "diff comment"] as const) {
+  test(`a postponed update reload resumes after the ${draft} is sent or cleared`, async ({ page }) => {
+    const snapshot = parseSnapshot({ healthy: true, instance: "update-reload", revision: 1, cfo_runs: true, build: "old-build",
+      tasks: [{ id: "billing", title: "Billing", generation: "g1", phase: "working", verified: false, reported_at: "2026-10-06T14:00:00Z" }],
+      questions: [
+        { id: "reply", identity: "r".repeat(64), task: "", text: "Which queue?", options: ["A", "B"], status: "pending", created_at: "2026-10-06T14:00:00Z" },
+        { id: "history", identity: "h".repeat(64), task: "billing", generation: "g1", text: "Which database?", options: ["SQLite", "PostgreSQL"], status: "succeeded", answered_by: "cfo", answer: "SQLite", answer_kind: "option", answered_option: "SQLite", answered_at: "2026-10-06T14:01:00Z", created_at: "2026-10-06T14:00:00Z" },
+      ],
+      runs: [{ id: "update-v0.5.0-1", identity: "u".repeat(64), title: "Update Code Goblins", state: "running", created_at: "2026-10-06T14:02:00Z", update: { from: "v0.4.2", to: "v0.5.0" } }],
+    });
+    await page.addInitScript((first) => {
+      localStorage.setItem("cfo-first-open", "shown");
+      class SnapshotSource extends EventTarget {
+        private publish = (event: Event) => {
+          if (event instanceof CustomEvent) this.dispatchEvent(new MessageEvent("snapshot", { data: JSON.stringify(event.detail) }));
+        };
+        constructor() {
+          super();
+          window.addEventListener("fixture-snapshot", this.publish);
+          queueMicrotask(() => this.publish(new CustomEvent("fixture-snapshot", { detail: first })));
+        }
+        close() { window.removeEventListener("fixture-snapshot", this.publish); }
+      }
+      Object.defineProperty(window, "EventSource", { value: SnapshotSource });
+    }, snapshot);
+    await page.route("**/api/**", async (route) => {
+      const { pathname } = new URL(route.request().url());
+      if (pathname === "/api/announce") return route.fulfill({ json: { claimed: [] } });
+      if (pathname.endsWith("/files")) return route.fulfill({ json: [{ path: "example.go", status: "modified" }] });
+      if (pathname.endsWith("/diff")) return route.fulfill({ json: { path: "example.go", patch: "@@ -1 +1 @@\n-old\n+new\n", code: "", head: "h", revision: "", fingerprint: "f", binary: false, code_omitted: false } });
+      return route.fulfill({ status: 404, json: { error: "No fixture for this resource" } });
+    });
+    const posts: Route[] = [];
+    await page.route("**/api/actions", (route) => { posts.push(route); });
+    const html = await readFile(join(process.env.BOARD_TEST_SITE!, "index.html"), "utf8");
+    let loads = 0;
+    await page.route(ORIGIN + "/", (route) => {
+      const build = ++loads === 1 ? "old-build" : "new-build";
+      return route.fulfill({ contentType: "text/html", body: html.replace("</head>", `<meta name="cfo-build" content="${build}"></head>`) });
+    });
+    await page.goto("/");
+    if (draft === "answer") {
+      await openItem(page, "Which queue?");
+    } else if (draft === "changed answer") {
+      await page.locator(".command-center-menu > summary").click();
+      await page.locator(".command-center-menu").getByText("History", { exact: false }).click();
+      await page.getByRole("button", { name: "Change the CFO's answer to Billing" }).click();
+    } else {
+      await page.locator(".task-card").filter({ hasText: "Billing" }).click();
+      const taskView = page.locator(".panel-pill").getByRole("button", { name: "Task", exact: true });
+      if (await taskView.count()) await taskView.click();
+      await page.locator("details.changes-section > summary").click();
+      await page.locator("details.file-review > summary").filter({ hasText: "example.go" }).click();
+      await page.getByRole("button", { name: "Comment on new line 1" }).click();
+    }
+    if (draft !== "diff comment") await page.getByRole("radio", { name: /^Other/ }).check();
+    const written = page.getByRole("textbox", { name: draft === "diff comment" ? "Comment to the CFO on New line 1" : "Your written answer", exact: true });
+    await written.fill("Please keep my draft");
+
+    snapshot.build = "new-build";
+    snapshot.revision++;
+    snapshot.runs[0] = { ...snapshot.runs[0], state: "succeeded", exit_code: 0, finished_at: new Date(Date.now() - 2000).toISOString() };
+    await page.evaluate((detail) => window.dispatchEvent(new CustomEvent("fixture-snapshot", { detail })), snapshot);
+
+    await expect(page.locator(".update-banner")).toBeVisible();
+    await page.waitForTimeout(1200);
+    expect(loads).toBe(1);
+    await expect(written).toHaveValue("Please keep my draft");
+    expect(await page.evaluate(() => document.hidden)).toBe(false);
+
+    if (draft === "diff comment") {
+      await page.getByRole("button", { name: "Cancel comment" }).click();
+      expect(posts).toHaveLength(0);
+    } else {
+      await page.getByRole("button", { name: draft === "answer" ? "Send decision" : "Change to my answer", exact: true }).click();
+      await expect.poll(() => posts.length).toBe(1);
+      await page.waitForTimeout(300);
+      expect(loads).toBe(1);
+      const body = posts[0].request().postDataJSON();
+      expect(body).toMatchObject({ kind: draft === "answer" ? "cfo_answer" : "answer_change", text: "Please keep my draft" });
+      await posts[0].fulfill({ json: { id: body.id, kind: body.kind, question_id: body.question_id, status: "queued" } });
+    }
+
+    await expect.poll(() => loads).toBe(2);
+    await expect(page.locator('meta[name="cfo-build"]')).toHaveAttribute("content", "new-build");
+  });
+}
