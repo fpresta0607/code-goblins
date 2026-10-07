@@ -1,10 +1,8 @@
 import { useEffect, useRef, useState } from "react";
 import { announce } from "./api";
-import { announceKey, arrive, asksPermission, boardAlerts, isItemAlert, notifies, outlived, showsToast, unseen, type AlertTarget, type BoardAlert, type SeenAlert } from "./alertRules";
-import { personaFor } from "./workflow";
+import { alertItem, announceKey, asksPermission, boardAlerts, NOTIFICATION_CLICK, notifies, outlived, unseen, type BoardAlert, type SeenAlert } from "./alertRules";
 import { DialogueBox } from "./DialogueBox";
 import { Icon } from "./Icon";
-import { Toast } from "./Toast";
 import type { Snapshot } from "./types";
 
 // Whether the board already asked this browser for Windows notifications.
@@ -30,18 +28,16 @@ function rememberSeen(seen: readonly SeenAlert[]) {
   try { localStorage.setItem(SEEN_KEY, JSON.stringify(seen)); } catch { /* this page still shows each alert once */ }
 }
 
-// The board's alerts: a stack of toasts at the bottom right for a goblin's
-// news, each opening its goblin, and a Windows notification for every alert
-// while the board is out of sight, once he allows them. An item that waits
-// on him is no toast: the bar and the count show it, and that is its one
-// signal on the board. The board asks for notifications once, with the first
-// alert. Each event shows once, in one tab of the board: the supervisor
-// hands each alert to the first tab that asks, and remembers it through a
-// reload and its own restart. Opening or dismissing a toast closes its
-// notification, a toast that only times out leaves it, clicking the
-// notification removes the toast and opens what it was about, and a
+// The board's alerts: a Windows notification for each new Command Center item
+// that asks the Overlord something, while the board is out of sight, once he
+// allows them; a click on it opens that item in the Command Center. On the
+// board the bar's Open Command Center, which glows and counts what waits, is
+// an item's one signal, so nothing here shows on screen but the one ask for
+// notifications, with the first alert. Each item is announced once, in one
+// tab of the board: the supervisor hands each alert to the first tab that
+// asks, and remembers it through a reload and its own restart. A
 // notification leaves when its item is answered or cleared anywhere.
-export function Alerts({ snapshot, onOpen }: { snapshot: Snapshot; onOpen: (target: AlertTarget) => void }) {
+export function Alerts({ snapshot, onOpen }: { snapshot: Snapshot; onOpen: (item: string) => void }) {
   const previous = useRef<Snapshot | null>(null);
   const [stored] = useState(readSeen);
   const seen = useRef<readonly SeenAlert[]>(stored);
@@ -49,8 +45,14 @@ export function Alerts({ snapshot, onOpen }: { snapshot: Snapshot; onOpen: (targ
   const latest = useRef(snapshot);
   const onOpenNow = useRef(onOpen);
   useEffect(() => { onOpenNow.current = onOpen; });
-  const [toasts, setToasts] = useState<BoardAlert[]>([]);
   const [asking, setAsking] = useState(false);
+  useEffect(() => {
+    const open = (event: Event) => {
+      if (event instanceof CustomEvent && typeof event.detail === "string") onOpenNow.current(alertItem(event.detail));
+    };
+    window.addEventListener(NOTIFICATION_CLICK, open);
+    return () => window.removeEventListener(NOTIFICATION_CLICK, open);
+  }, []);
   useEffect(() => {
     const now = Date.now();
     const alerts = boardAlerts(previous.current, snapshot);
@@ -66,12 +68,11 @@ export function Alerts({ snapshot, onOpen }: { snapshot: Snapshot; onOpen: (targ
     const { fresh } = sighting;
     if (!fresh.length) return;
     // The supervisor answers after later snapshots may have come, so what
-    // it hands this tab is shown against the items open by then.
-    void announce(snapshot.instance, fresh.filter(isItemAlert).map(announceKey), fresh.filter((alert) => !isItemAlert(alert)).map(announceKey)).then((claimed) => {
+    // it hands this tab is notified against the items open by then.
+    void announce(snapshot.instance, fresh.map(announceKey)).then((claimed) => {
       // With AFK mode on now, even an earlier claim hands nothing.
       const mine = fresh.filter((alert) => latest.current.afk.state !== "on" && (claimed === null || claimed.includes(announceKey(alert))) && !outlived(alert, latest.current));
       if (!mine.length) return;
-      if (mine.some(showsToast)) setToasts((prior) => arrive(prior, mine.filter(showsToast)));
       if (asksPermission(permission(), asked())) setAsking(true);
       if (!notifies(permission(), document.hidden)) return;
       for (const alert of mine) {
@@ -81,24 +82,19 @@ export function Alerts({ snapshot, onOpen }: { snapshot: Snapshot; onOpen: (targ
         note.onclick = () => {
           window.focus();
           note.close();
-          setToasts((prior) => prior.filter((toast) => toast.key !== alert.key));
-          onOpenNow.current(alert.target);
+          onOpenNow.current(alert.item);
         };
       }
     });
   }, [snapshot]);
-  // A toast leaves with its item, as its notification does.
-  if (toasts.some((toast) => outlived(toast, snapshot))) setToasts(toasts.filter((toast) => !outlived(toast, snapshot)));
-  const leave = (key: string) => setToasts((prior) => prior.filter((toast) => toast.key !== key));
-  const dismiss = (key: string) => { leave(key); notes.current.get(key)?.note.close(); };
   const answer = (allow: boolean) => {
     rememberAsked();
     setAsking(false);
     if (allow && typeof Notification !== "undefined") void Notification.requestPermission();
   };
-  if (!toasts.length && !asking) return null;
+  if (!asking) return null;
   return <section className="toasts" aria-live="polite" aria-label="Alerts">
-    {asking && <div className="toast ask">
+    <div className="toast ask">
       <DialogueBox persona="cfo" label="Windows notifications"
         actions={<>
           <button className="pixel-button" onClick={() => answer(true)}>Turn on</button>
@@ -107,8 +103,6 @@ export function Alerts({ snapshot, onOpen }: { snapshot: Snapshot; onOpen: (targ
         </>}>
         <p>Show a Windows notification when something needs you while the board is in the background?</p>
       </DialogueBox>
-    </div>}
-    {toasts.map((alert) => <Toast key={alert.key} alert={alert} persona={alert.task ? personaFor(snapshot.tasks.find((task) => task.id === alert.task)) : "cfo"}
-      onOpen={() => { dismiss(alert.key); onOpen(alert.target); }} onDismiss={() => dismiss(alert.key)} onExpire={() => leave(alert.key)} />)}
+    </div>
   </section>;
 }

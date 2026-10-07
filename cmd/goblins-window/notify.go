@@ -10,7 +10,6 @@ import (
 	"slices"
 	"strings"
 	"time"
-	"unicode/utf16"
 )
 
 // sight is what the window knows of where it is on the screen.
@@ -28,22 +27,11 @@ func away(window sight) bool {
 	return !window.IsVisible() || window.IsMinimised()
 }
 
-// announceLimit is how long a key the supervisor records may be, in the units
-// the board's page counts.
-const announceLimit = 160
-
 // announceKey is the name the supervisor records an item's alert under, as
-// the board's page forms it, so the page and the window claim the same event.
+// the board's page forms it, whole, so the page and the window claim the same
+// event.
 func announceKey(id string) string {
-	units := utf16.Encode([]rune("alert:" + id))
-	if len(units) > announceLimit {
-		units = units[:announceLimit]
-		// The cut never leaves half of a character.
-		if last := units[len(units)-1]; last >= 0xd800 && last <= 0xdbff {
-			units = units[:len(units)-1]
-		}
-	}
-	return string(utf16.Decode(units))
+	return "alert:" + id
 }
 
 // claim asks the board's supervisor which of keys this window may announce,
@@ -94,9 +82,10 @@ const hiddenWait = 1500 * time.Millisecond
 // answered by then counts as one that cannot be asked.
 const claimWait = time.Minute
 
-// Notifier raises the window's Windows notifications. One is raised only
-// while the Overlord cannot see the board, never while the window is on the
-// screen, where the board's own alert is the signal. What the window finds
+// Notifier raises the window's Windows notifications, each for a Command
+// Center item that asks the Overlord something. One is raised only while the
+// Overlord cannot see the board, never while the window is on the screen,
+// where the board's Open Command Center is the signal. What the window finds
 // waiting by itself it claims from the supervisor first, as the board's page
 // does, so an item is announced once, by whichever asks first, and not at all
 // while AFK mode is on.
@@ -145,7 +134,7 @@ func (n *Notifier) FromBoard(board, instance string, items []Item) {
 	}
 	for i, item := range items {
 		if slices.Contains(claimed, keys[i]) {
-			n.raise(Note{ID: item.ID, Title: "Waiting on you", Body: item.Text})
+			n.raise(Note{ID: item.ID, Title: item.Asker, Body: item.Text})
 		}
 	}
 }

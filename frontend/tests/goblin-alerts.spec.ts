@@ -8,7 +8,7 @@ async function open(page: Page) {
   await page.addInitScript(() => Object.defineProperty(Notification, "permission", { get: () => "default" }));
   await page.goto("/tests/fixtures/goblin-alerts.html");
   await expect(page.getByRole("group", { name: "Alerts" }).or(page.locator(".toasts"))).toBeVisible();
-  await expect(page.locator(".toasts .dialogue")).toHaveCount(3);
+  await expect(page.locator(".toasts .dialogue")).toHaveCount(1);
 }
 // The fixture's two bars: one over a board column while a question waits on
 // the Overlord, and one at rest.
@@ -68,25 +68,18 @@ test("Open Command Center opens the first item waiting", async ({ page }) => {
   await expect(page.locator("dialog.question-modal")).toContainText("Pick the waveform");
 });
 
-test("each goblin's news opens its goblin, and its question for the CFO shows no toast", async ({ page }, testInfo) => {
+// The Overlord, 2026-10-07: "alerts should only be open command center
+// questions". A goblin finishing or failing, and its question for the CFO,
+// are on its card; the board shows no toast for them, nor for the CFO's own
+// question, whose one signal is the bar's Open Command Center. The first
+// item for him brings only the ask for Windows notifications.
+test("a goblin's news and its question for the CFO show no toast, and the CFO's question brings only the ask for notifications", async ({ page }, testInfo) => {
   await open(page);
-  const cases: [string, string, boolean][] = [
-    ["cg-board-kill finished: code-goblins #204 is ready.", "Open", false],
-    ["pd-billing-admin failed: Its checks failed.", "Open", false],
-  ];
-  for (const [text, action, isFilled] of cases) {
-    const alert = page.locator(".toasts .dialogue").filter({ hasText: text });
-    await expect(alert.locator(".dialogue-text")).toHaveText(text);
-    await expect(alert.locator(".dialogue-actions")).toHaveText(action);
-    expect(await filled(alert.getByRole("button", { name: action, exact: true })), text).toBe(isFilled ? LANTERN : "rgba(0, 0, 0, 0)");
-  }
-  await expect(page.locator(".toasts")).not.toContainText("Which layout should I keep?");
+  await expect(page.locator(".toasts .toast")).toHaveCount(1);
+  for (const said of ["cg-board-kill", "pd-billing-admin", "cg-voice", "Which layout should I keep?", "Merge pull request 204 now?"]) await expect(page.locator(".toasts"), said).not.toContainText(said);
   await expect(page.locator("dialog.question-modal")).not.toBeVisible();
   await testInfo.attach("cfo-question-after", { body: await page.screenshot(), contentType: "image/png" });
   await expect(page.getByRole("button", { name: /terminal/i }).filter({ hasText: /Open terminal/ })).toHaveCount(0);
-  await page.locator(".toasts .dialogue").filter({ hasText: "finished" }).getByRole("button", { name: "Open", exact: true }).click();
-  await expect(page.locator("output")).toHaveText("opened cg-board-kill");
-  await page.mouse.move(0, 0);
   const ask = page.locator(".toasts .dialogue").filter({ hasText: "Windows notification" });
   expect(await filled(ask.getByRole("button", { name: "Turn on" }))).toBe(LANTERN);
   expect(await filled(ask.getByRole("button", { name: "Not now" }))).toBe("rgba(0, 0, 0, 0)");
@@ -141,30 +134,10 @@ test("the bar's portrait tooltip shows over the board column under it", async ({
   expect(await tipOnTop(page)).toBe(true);
 });
 
-test("an alert's Dismiss tooltip shows over the next alert", async ({ page }) => {
-  await page.setViewportSize({ width: 320, height: 900 });
-  // Every alert leaves by itself after eight seconds, so time stands still once
-  // the boxes show, or on a slow run the stack shifts under the pointer.
-  const settled = () => page.locator(".toasts").evaluate((stack) => Promise.all(stack.getAnimations({ subtree: true }).map((animation) => animation.finished)));
-  await page.clock.install();
-  await open(page);
-  await page.clock.pauseAt(await page.evaluate(() => Date.now()) + 1000);
-  await settled();
-  const dismiss = page.locator(".toasts .toast").first().getByRole("button", { name: /^Dismiss/ });
-  await dismiss.hover();
-  await expect(page.getByRole("tooltip")).toHaveText((await dismiss.getAttribute("data-tip"))!);
-  const meetsNext = await dismiss.evaluate((element) => {
-    const next = element.closest(".toast")!.nextElementSibling!.querySelector(".dialogue-box")!.getBoundingClientRect(), tip = document.querySelector("[role=tooltip]")!.getBoundingClientRect();
-    return tip.bottom > next.top && tip.top < next.bottom && tip.right > next.left && tip.left < next.right;
-  });
-  expect(meetsNext, "the tip lies on the next alert").toBe(true);
-  expect(await tipOnTop(page)).toBe(true);
-});
-
 test("with reduced motion the boxes just appear and Open Command Center keeps its glow without breathing", async ({ page }) => {
   await page.emulateMedia({ reducedMotion: "reduce" });
   await open(page);
-  expect(await page.locator(".dialogue").evaluateAll((boxes) => boxes.map((element) => getComputedStyle(element).animationName))).toEqual(Array(3).fill("none"));
+  expect(await page.locator(".dialogue").evaluateAll((boxes) => boxes.map((element) => getComputedStyle(element).animationName))).toEqual(["none"]);
   await expect(command(page)).toHaveCSS("animation-name", "none");
   expect(await command(page).evaluate((button) => getComputedStyle(button).boxShadow)).not.toBe("none");
 });

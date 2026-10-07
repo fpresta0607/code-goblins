@@ -5,7 +5,10 @@ import { afkLine } from "./afk.ts";
 // The pinned CFO bar says how many goblins the CFO supervises, and how many
 // items wait on the Overlord, since every question and review reaches him
 // through the CFO. It names nothing of what waits: its Open Command Center
-// glows instead, and the Command Center says what each item is.
+// glows instead, and the Command Center says what each item is. While the
+// CFO has left goblins' questions unanswered for ten minutes the bar says so,
+// with how many and how long the oldest has waited, in place of All quiet:
+// that is never an alert, which is only for what asks the Overlord himself.
 //
 // While AFK mode is on the bar says so instead, and nothing waits by its
 // count: nothing on the board prompts the Overlord while he is away, and what
@@ -16,5 +19,7 @@ export function cfoSummary(snapshot: Snapshot, now = Date.now()): { waiting: num
   const waiting = waitingItems(snapshot).length;
   const goblins = snapshot.tasks.filter((task) => !!task.generation && !task.archived).length;
   const fleet = goblins ? "The CFO supervises " + goblins + (goblins === 1 ? " goblin." : " goblins.") : "No goblins are at work.";
-  return { waiting, line: waiting ? fleet : "All quiet. " + fleet };
+  const quiet = snapshot.cfo_quiet;
+  const behind = quiet ? `The CFO has not answered ${quiet.count} question${quiet.count === 1 ? "" : "s"}; the oldest has waited ${Math.floor(quiet.oldest_age / 60)} minutes. ` : "";
+  return { waiting, line: behind ? behind + fleet : waiting ? fleet : "All quiet. " + fleet };
 }

@@ -21,8 +21,8 @@ function supervisor() {
   let requests = 0;
   return {
     serve: (context: BrowserContext) => context.route("**/api/announce", async (route) => {
-      const asked: { keys?: string[]; news?: string[] } = route.request().postDataJSON();
-      const claimed = [...asked.keys || [], ...asked.news || []].filter((key) => !announced.has(key));
+      const asked: { keys: string[] } = route.request().postDataJSON();
+      const claimed = asked.keys.filter((key) => !announced.has(key));
       for (const key of claimed) announced.add(key);
       requests++;
       await route.fulfill({ json: { claimed } });
