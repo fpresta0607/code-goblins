@@ -115,9 +115,11 @@ func TestCleanupRequiresCurrentDeliveryAndKeepsPRDetailsOnStop(t *testing.T) {
 	}
 }
 
-// A helper delivers into its parent's branch, so once its parent merged it
-// Completed shows it Finished, the merge's stop included; one stopped before
-// that delivered nothing and shows Stopped.
+// A helper delivers into its parent's branch: once it reported done and its
+// parent's branch holds its work, Completed shows it Finished, the merge's
+// stop included. One its parent never merged, and one that never reported
+// done, whose head its parent's branch holds only because it committed
+// nothing of its own, delivered nothing and show Stopped.
 func TestAHelperMergedIntoItsParentsBranchIsDelivered(t *testing.T) {
 	git := func(t *testing.T, dir string, args ...string) {
 		t.Helper()
@@ -125,8 +127,16 @@ func TestAHelperMergedIntoItsParentsBranchIsDelivered(t *testing.T) {
 			t.Fatalf("git %v: %v\n%s", args, err, out)
 		}
 	}
-	for _, isMerged := range []bool{true, false} {
-		t.Run(fmt.Sprintf("merged %t", isMerged), func(t *testing.T) {
+	for _, test := range []struct {
+		name                              string
+		hasCommits, isMerged, hasReported bool
+		want                              string
+	}{
+		{"merged after reporting done", true, true, true, "done"},
+		{"reported done but never merged", true, false, true, "stopped"},
+		{"nothing of its own and no report", false, false, false, "stopped"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
 			// Arrange
 			root := t.TempDir()
 			stateDir := filepath.Join(root, "state")
@@ -138,13 +148,20 @@ func TestAHelperMergedIntoItsParentsBranchIsDelivered(t *testing.T) {
 			git(t, project, "commit", "-q", "--allow-empty", "-m", "seed")
 			git(t, project, "worktree", "add", "-q", "-b", "feat/x", parent)
 			git(t, project, "worktree", "add", "-q", "-b", "feat/x-h1", helper, "feat/x")
-			git(t, helper, "commit", "-q", "--allow-empty", "-m", "helper work")
-			if isMerged {
+			if test.hasCommits {
+				git(t, helper, "commit", "-q", "--allow-empty", "-m", "helper work")
+			}
+			if test.isMerged {
 				git(t, parent, "merge", "-q", "--no-ff", "-m", "merge helper", "feat/x-h1")
 			}
 			meta := state.TaskMeta{ID: "g1-h1", Parent: "g1", Kind: "ship", Mode: "local-only", SpawnGen: "s1", Window: "native", Harness: "claude", Backend: "native", Worktree: helper}
 			for _, record := range []state.TaskMeta{meta, {ID: "g1", Kind: "ship", Window: "native", Harness: "claude", Backend: "native", Worktree: parent}} {
 				if err := state.WriteTaskMeta(stateDir, record); err != nil {
+					t.Fatal(err)
+				}
+			}
+			if test.hasReported {
+				if err := state.AppendStatus(stateDir, "g1-h1", "done: ready for g1 to merge"); err != nil {
 					t.Fatal(err)
 				}
 			}
@@ -157,9 +174,8 @@ func TestAHelperMergedIntoItsParentsBranchIsDelivered(t *testing.T) {
 			outcome := service.outcome(t.Context(), meta, "Worktree returned by cleanup")
 
 			// Assert
-			want := map[bool]string{true: "done", false: "stopped"}[isMerged]
-			if outcome.Phase != want || isMerged != strings.Contains(outcome.Evidence, "merged into its parent g1") {
-				t.Errorf("outcome = %+v, want %s", outcome, want)
+			if outcome.Phase != test.want || (test.want == "done") != strings.Contains(outcome.Evidence, "merged into its parent g1") {
+				t.Errorf("outcome = %+v, want %s", outcome, test.want)
 			}
 		})
 	}

@@ -59,7 +59,7 @@ func PreserveWork(ctx context.Context, commands execx.Runner, meta state.TaskMet
 	if holder != "" {
 		if isHeld, err := (worktree.RunnerGit{Commands: commands}).HoldsHead(ctx, holder, meta.Worktree); err == nil && isHeld {
 			result.CanRemove = true
-			result.Kept = []string{fmt.Sprintf("branch %s, merged into its parent %s's branch", result.Branch, meta.Parent)}
+			result.Kept = []string{fmt.Sprintf("branch %s, which its parent %s's branch holds", result.Branch, meta.Parent)}
 			return result, nil
 		}
 	}

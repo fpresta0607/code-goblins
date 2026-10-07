@@ -22,8 +22,11 @@ func (service Service) outcome(ctx context.Context, meta state.TaskMeta, reason 
 	if outcome.Title == "" {
 		outcome.Title = meta.ID
 	}
-	// A helper delivers into its parent's branch, however it ended.
-	if meta.Parent != "" {
+	// A helper delivers into its parent's branch, however it ended: once it
+	// reported done and its parent's branch holds its work. One that never
+	// reported done delivered nothing, though its parent's branch holds its
+	// head when it committed nothing of its own.
+	if meta.Parent != "" && service.reportedDone(meta) {
 		if parent, err := state.ReadTaskMeta(service.StateDir, meta.Parent); err == nil {
 			bounded, cancel := context.WithTimeout(ctx, 5*time.Second)
 			isHeld, err := (worktree.RunnerGit{Commands: service.Commands}).HoldsHead(bounded, parent.Worktree, meta.Worktree)
@@ -88,4 +91,21 @@ func (service Service) outcome(ctx context.Context, meta state.TaskMeta, reason 
 		outcome.Phase, outcome.Evidence = "done", "pushed task commits "+head
 	}
 	return outcome
+}
+
+// reportedDone reports whether the task said it was done in its current
+// generation.
+func (service Service) reportedDone(meta state.TaskMeta) bool {
+	lines, _ := state.TailStatus(service.StateDir, meta.ID, 200)
+	nanoseconds, _ := strconv.ParseInt(strings.TrimPrefix(meta.SpawnGen, "s"), 10, 64)
+	for index := len(lines) - 1; index >= 0; index-- {
+		at, line := state.SplitStatus(lines[index])
+		if nanoseconds > 0 && at.Before(time.Unix(0, nanoseconds).Truncate(time.Second)) {
+			return false
+		}
+		if strings.HasPrefix(line, "done: ") {
+			return true
+		}
+	}
+	return false
 }

@@ -127,7 +127,7 @@ func TestPreserveWorkKeepsAHelpersWorktreeUntilItsParentsBranchHoldsIt(t *testin
 	if beforeErr != nil || before.CanRemove {
 		t.Errorf("before the merge = %+v, %v; want the worktree kept", before, beforeErr)
 	}
-	if afterErr != nil || !after.CanRemove || !strings.Contains(strings.Join(after.Kept, " "), "merged into its parent g1's branch") {
+	if afterErr != nil || !after.CanRemove || !strings.Contains(strings.Join(after.Kept, " "), "which its parent g1's branch holds") {
 		t.Errorf("after the merge = %+v, %v; want the work kept by g1's branch", after, afterErr)
 	}
 }

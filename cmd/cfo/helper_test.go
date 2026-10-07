@@ -151,7 +151,7 @@ func newMergeFixture(t *testing.T) *mergeFixture {
 	f.runtime = testCommandRuntimeForHome(f.home)
 	f.runtime.taskLifecycle = func(_ context.Context, _ home.Home, request lifecycle.Request, _ string) (state.Lifecycle, error) {
 		f.retired = append(f.retired, request)
-		return state.Lifecycle{Phase: "stopped", Kept: []string{"branch feat/x-h1, merged into its parent g1's branch"}}, nil
+		return state.Lifecycle{Phase: "stopped", Kept: []string{"branch feat/x-h1, which its parent g1's branch holds"}}, nil
 	}
 	return f
 }
