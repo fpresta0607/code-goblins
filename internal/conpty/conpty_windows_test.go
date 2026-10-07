@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"regexp"
 	"strconv"
 	"strings"
@@ -15,17 +16,34 @@ import (
 	"time"
 
 	"golang.org/x/sys/windows"
+
+	"github.com/fpresta0607/code-goblins/internal/standin"
 )
 
 // childMode makes the test binary the process inside the console: "echo"
-// answers typed lines, "sleep" just waits to be ended.
+// answers typed lines, "sleep" just waits to be ended, and "service" starts
+// a sleeping child, writes its pid to the file serviceChildFile names, and
+// waits to be ended.
 const childMode = "CONPTY_TEST_CHILD"
+
+const serviceChildFile = "CONPTY_TEST_SERVICE_CHILD"
 
 func TestMain(m *testing.M) {
 	switch os.Getenv(childMode) {
 	case "echo":
 		echoChild()
 	case "sleep":
+		time.Sleep(time.Minute)
+	case "service":
+		child := exec.Command(os.Args[0])
+		child.Env = append(os.Environ(), childMode+"=sleep")
+		child.SysProcAttr = &syscall.SysProcAttr{CreationFlags: windows.DETACHED_PROCESS}
+		if err := child.Start(); err != nil {
+			os.Exit(2)
+		}
+		if err := os.WriteFile(os.Getenv(serviceChildFile), []byte(strconv.Itoa(child.Process.Pid)), 0o600); err != nil {
+			os.Exit(2)
+		}
 		time.Sleep(time.Minute)
 	default:
 		os.Exit(m.Run())
@@ -68,6 +86,15 @@ func echoChild() {
 				continue
 			}
 			fmt.Printf("grandchild %d\n", grandchild.Process.Pid)
+		case strings.HasPrefix(line, "spawn-service "):
+			service := exec.Command(strings.TrimPrefix(line, "spawn-service "))
+			service.Env = append(os.Environ(), childMode+"=service")
+			service.SysProcAttr = &syscall.SysProcAttr{CreationFlags: windows.DETACHED_PROCESS}
+			if err := service.Start(); err != nil {
+				fmt.Println("spawn error", err)
+				continue
+			}
+			fmt.Printf("service %d\n", service.Process.Pid)
 		case strings.HasPrefix(line, "exit "):
 			code, _ := strconv.Atoi(strings.TrimPrefix(line, "exit "))
 			os.Exit(code)
@@ -243,6 +270,92 @@ func TestCloseEndsTheWholeProcessTree(t *testing.T) {
 			t.Errorf("pid %d is still running after Close", pid)
 		}
 	}
+}
+
+// A goblin may start Docker Desktop from its terminal for a test, as one did
+// on 2026-10-07. Docker Desktop serves the whole machine, so closing the
+// terminal ends what the goblin started but never Docker Desktop or what
+// runs under it, though both are in the terminal's job. The Docker Desktop
+// here is a stand-in, a copy of this test binary under its name; never the
+// real one.
+func TestCloseLeavesAMachineServiceStartedInTheTerminalRunning(t *testing.T) {
+	// Arrange
+	programs := t.TempDir()
+	standin.RemoveAtCleanup(t, programs)
+	binary, err := os.ReadFile(os.Args[0])
+	if err != nil {
+		t.Fatal(err)
+	}
+	docker := filepath.Join(programs, "Docker Desktop.exe")
+	if err := os.WriteFile(docker, binary, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	// Windows scans a program the first time it starts, which a loaded
+	// machine can take seconds over, so the stand-in starts once first.
+	if output, err := exec.Command(docker, "-test.run=^$").CombinedOutput(); err != nil {
+		t.Fatalf("the stand-in Docker Desktop did not run: %v\n%s", err, output)
+	}
+	childFile := filepath.Join(t.TempDir(), "service-child")
+	console, s := startChild(t, Spec{Cols: 80, Rows: 25, Env: append(os.Environ(), childMode+"=echo", serviceChildFile+"="+childFile)})
+	typeLine(t, console, "spawn")
+	grandchild, err := strconv.Atoi(s.waitFor(t, `grandchild (\d+)`)[1])
+	if err != nil {
+		t.Fatal(err)
+	}
+	typeLine(t, console, "spawn-service "+docker)
+	service, err := strconv.Atoi(s.waitFor(t, `service (\d+)`)[1])
+	if err != nil {
+		t.Fatal(err)
+	}
+	var serviceChild int
+	for deadline := time.Now().Add(10 * time.Second); serviceChild == 0; time.Sleep(20 * time.Millisecond) {
+		if data, err := os.ReadFile(childFile); err == nil {
+			serviceChild, _ = strconv.Atoi(string(data))
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("the stand-in Docker Desktop never started its child")
+		}
+	}
+	t.Cleanup(func() {
+		for _, pid := range []int{serviceChild, service} {
+			if handle, err := windows.OpenProcess(windows.PROCESS_TERMINATE|windows.SYNCHRONIZE, false, uint32(pid)); err == nil {
+				_ = windows.TerminateProcess(handle, 1)
+				_, _ = windows.WaitForSingleObject(handle, 10000)
+				_ = windows.CloseHandle(handle)
+			}
+		}
+	})
+
+	// Act
+	s.closed = true
+	closeErr := console.Close()
+
+	// Assert
+	if closeErr != nil {
+		t.Fatalf("Close: %v", closeErr)
+	}
+	for _, pid := range []int{console.PID(), grandchild} {
+		if !exited(pid) {
+			t.Errorf("the goblin's own pid %d is still running after Close", pid)
+		}
+	}
+	time.Sleep(500 * time.Millisecond)
+	for name, pid := range map[string]int{"the stand-in Docker Desktop": service, "its child": serviceChild} {
+		if !running(pid) {
+			t.Errorf("%s, pid %d, ended with the terminal", name, pid)
+		}
+	}
+}
+
+// running reports whether pid still runs.
+func running(pid int) bool {
+	handle, err := windows.OpenProcess(windows.SYNCHRONIZE, false, uint32(pid))
+	if err != nil {
+		return false
+	}
+	defer windows.CloseHandle(handle)
+	event, _ := windows.WaitForSingleObject(handle, 0)
+	return event == uint32(windows.WAIT_TIMEOUT)
 }
 
 // exited reports whether pid has ended within ten seconds. A pid that can no

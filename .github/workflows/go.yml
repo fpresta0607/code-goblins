@@ -148,16 +148,15 @@ jobs:
       - name: Ensure SQLite integration tests can run
         shell: pwsh
         run: |
-          # Chocolatey's feed can answer 503 for a moment, so a failed install
-          # is tried again after a wait, three attempts in all, as install.ps1
-          # does for its downloads.
-          if (-not (Get-Command sqlite3 -ErrorAction SilentlyContinue)) {
-            for ($attempt = 1; ; $attempt++) {
-              choco install sqlite --yes --no-progress
-              if ($LASTEXITCODE -eq 0) { break }
-              if ($attempt -eq 3) { throw "choco install sqlite failed 3 times; see above" }
-              Start-Sleep -Seconds (5 * $attempt)
-            }
+          # Chocolatey's feed can answer 503 or 504 for a moment, so an install
+          # that leaves no sqlite3 is tried again after a wait, three attempts
+          # in all, as install.ps1 does for its downloads. Its exit code is no
+          # guide: on 2026-10-07 a 504 left it installing nothing and exiting 0
+          # (run 37631337103), so only sqlite3 itself says it worked.
+          for ($attempt = 1; -not (Get-Command sqlite3 -ErrorAction SilentlyContinue); $attempt++) {
+            if ($attempt -gt 3) { throw "choco install sqlite left no sqlite3 after 3 attempts; see above" }
+            if ($attempt -gt 1) { Start-Sleep -Seconds (5 * ($attempt - 1)) }
+            choco install sqlite --yes --no-progress
           }
           sqlite3 --version
       - if: matrix.shard == 'rest'

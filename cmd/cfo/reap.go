@@ -3,8 +3,10 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -150,6 +152,7 @@ func defaultReap(ctx context.Context, h home.Home, options reap.Options) (reap.R
 
 			ProjectsRoot:     install.MachineProjectsRoot,
 			WorkingDirectory: proc.WorkingDirectory,
+			Environment:      proc.Environment,
 		},
 		Commands: commands,
 		CPU:      proc.CPUTime,
@@ -157,6 +160,7 @@ func defaultReap(ctx context.Context, h home.Home, options reap.Options) (reap.R
 		Clean: func(ctx context.Context, id string, forceArchive bool) error {
 			_, err := cleanup.Service{
 				StateDir:     h.State,
+				Data:         h.Data,
 				Commands:     commands,
 				Terminal:     client,
 				Worktrees:    worktree.Service{Commands: commands},
@@ -178,8 +182,24 @@ func defaultReap(ctx context.Context, h home.Home, options reap.Options) (reap.R
 
 // killTree ends a process and everything under it. taskkill /T is what reaches
 // the children: a dev server is a shell that spawned the actual server, and
-// killing only the parent leaves the port held.
+// killing only the parent leaves the port held. A machine service under it
+// (proc.Service), such as Docker Desktop a goblin started, serves the whole
+// machine and is left running with what runs under it, so then the rest of
+// the tree is ended one process at a time.
 func killTree(ctx context.Context, commands execx.Runner, pid int) error {
+	tree, services, err := proc.ProcessTree(pid)
+	if err != nil {
+		return err
+	}
+	if slices.ContainsFunc(tree, func(process proc.ServiceProcess) bool { return services[process.PID] != proc.NoService }) {
+		var failures error
+		for _, process := range tree {
+			if services[process.PID] == proc.NoService {
+				failures = errors.Join(failures, proc.TerminateVerified(process.PID, process.Start, func([]string) error { return nil }))
+			}
+		}
+		return failures
+	}
 	result, err := commands.Run(ctx, execx.Request{
 		Name: "taskkill",
 		Args: []string{"/PID", strconv.Itoa(pid), "/T", "/F"},

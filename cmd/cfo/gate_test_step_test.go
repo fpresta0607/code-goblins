@@ -86,7 +86,7 @@ func TestGateTestRunsTheChangedPackagesAndTheirImportersWithoutTheFleetHome(t *t
 
 	// Act
 	var stdout, stderr bytes.Buffer
-	exit := gateTest(&stdout, &stderr)
+	exit := gateTest(&stdout, &stderr, "--level", "affected")
 
 	// Assert
 	if exit != 0 {
@@ -99,6 +99,50 @@ func TestGateTestRunsTheChangedPackagesAndTheirImportersWithoutTheFleetHome(t *t
 	}
 	if strings.Contains(stdout.String(), "example.com/m/c") {
 		t.Errorf("stdout %q names a package the branch neither changed nor feeds", stdout.String())
+	}
+}
+
+// With no --level a run takes the fast level, because CI runs every package
+// and so checks the level the change requires: it vets every package the
+// change reaches and tests the changed ones, so b, which imports the changed
+// a, is vetted and its tests are left to CI, and the run says so.
+func TestGateTestRunsTheFastLevelWhenNoLevelIsGiven(t *testing.T) {
+	// Arrange
+	dir := testStepModule(t, nil, map[string]string{"a/a.go": "package a\n\nfunc A() int { return 2 }\n"})
+	t.Chdir(dir)
+
+	// Act
+	var stdout, stderr bytes.Buffer
+	exit := gateTest(&stdout, &stderr)
+
+	// Assert
+	if exit != 0 {
+		t.Fatalf("exit = %d, want 0; stdout=%s stderr=%s", exit, stdout.String(), stderr.String())
+	}
+	for _, want := range []string{
+		"cfo gate test: level fast, the default, since CI runs every package; the change requires affected: the default for a change",
+		"cfo gate test: passed at level fast",
+		"cfo gate test: the change requires the affected level before it merges, which CI's run of every package checks",
+	} {
+		if !strings.Contains(stdout.String(), want) {
+			t.Errorf("stdout %q lacks %q", stdout.String(), want)
+		}
+	}
+	report, _ := lastReport(t)
+	if report.Level != "fast" || report.RequiredLevel != "affected" || report.Status != "passed" {
+		t.Errorf("the report says level %q, required %q, status %q; want fast, affected, passed", report.Level, report.RequiredLevel, report.Status)
+	}
+	wantCommands := [][]string{
+		{"go", "vet", "example.com/m/a", "example.com/m/b"},
+		{"go", "test", "-json", "-count=1", "-p", "2", "-timeout", "45m", "example.com/m/a"},
+	}
+	if len(report.Checks) != len(wantCommands) {
+		t.Fatalf("the report holds %d check(s), want %d: %+v", len(report.Checks), len(wantCommands), report.Checks)
+	}
+	for index, check := range report.Checks {
+		if !slices.Equal(check.Command, wantCommands[index]) {
+			t.Errorf("check %d ran %q; want %q", index, check.Command, wantCommands[index])
+		}
 	}
 }
 
@@ -137,7 +181,7 @@ func TestGateTestFailsWhenAChosenPackageFails(t *testing.T) {
 	if report.Status != "failed" || len(report.Checks) != 2 || report.Checks[1].Status != "failed" || report.Checks[1].ExitCode != 1 {
 		t.Errorf("the report says %s with checks %+v; want failed, with go test failed on exit code 1", report.Status, report.Checks)
 	}
-	if !strings.Contains(stdout.String(), "cfo gate test: failed at level affected") {
+	if !strings.Contains(stdout.String(), "cfo gate test: failed at level fast") {
 		t.Errorf("stdout %q lacks the verdict line", stdout.String())
 	}
 }
@@ -181,7 +225,7 @@ func TestGateTestRecordsWhatItRanInAReport(t *testing.T) {
 
 	// Act
 	var stdout, stderr bytes.Buffer
-	exit := gateTest(&stdout, &stderr)
+	exit := gateTest(&stdout, &stderr, "--level", "affected")
 
 	// Assert
 	if exit != 0 {
@@ -257,7 +301,7 @@ func TestGateTestPlanPrintsThePlanAndRunsNothing(t *testing.T) {
 		t.Fatalf("exit = %d, want 0; stdout=%s stderr=%s", exit, stdout.String(), stderr.String())
 	}
 	for _, want := range []string{
-		"cfo gate test: level affected: the default for a change",
+		"cfo gate test: level fast, the default, since CI runs every package; the change requires affected: the default for a change",
 		"- example.com/m/c (changed)",
 		"policy: built-in defaults",
 		"would run: go vet example.com/m/c",
@@ -326,7 +370,7 @@ func TestGateTestPlanNamesThePackagesAContractSelectsWithItsReason(t *testing.T)
 		t.Fatalf("exit = %d, want 0; stdout=%s stderr=%s", exit, stdout.String(), stderr.String())
 	}
 	for _, want := range []string{
-		"cfo gate test: level affected: the default for a change",
+		"cfo gate test: level fast, the default, since CI runs every package; the change requires affected: the default for a change",
 		"cfo gate test: the change since " + revision(t, dir, "origin/main")[:8] + " reaches 1 package(s); CI runs every package",
 		"- example.com/m/b (b's tests run the scripts: scripts/setup.ps1)",
 		"would run: go vet example.com/m/b",
@@ -357,7 +401,7 @@ func TestGateTestPlanSaysWhichChangedFilesAreOutsideTheGoChecks(t *testing.T) {
 		t.Fatalf("exit = %d, want 0; stdout=%s stderr=%s", exit, stdout.String(), stderr.String())
 	}
 	for _, want := range []string{
-		"cfo gate test: level affected: the default for a change",
+		"cfo gate test: level fast, the default, since CI runs every package; the change requires affected: the default for a change",
 		"no Go package changed",
 		"changed files outside the Go checks:\n- README.md, docs/guide.md (documentation no Go check reads)\n",
 	} {
@@ -382,7 +426,7 @@ func TestGateTestPlanRequiresEveryPackageForAFileThePolicyDoesNotAccountFor(t *t
 
 	// Act
 	var stdout, stderr bytes.Buffer
-	exit := gateTest(&stdout, &stderr, "--plan")
+	exit := gateTest(&stdout, &stderr, "--level", "full", "--plan")
 
 	// Assert
 	if exit != 0 {
@@ -459,7 +503,7 @@ func TestGateTestRecordsWhatIsOutsideAndWhatIsUnaccountedForInItsReport(t *testi
 	if !slices.Equal(report.Unknown, []string{"tools/new.sh"}) {
 		t.Errorf("the report names %q as unaccounted for; want tools/new.sh", report.Unknown)
 	}
-	if want := "cfo gate test: the change still requires the full level before it merges"; !strings.Contains(stdout.String(), want) {
+	if want := "cfo gate test: the change requires the full level before it merges, which CI's run of every package checks"; !strings.Contains(stdout.String(), want) {
 		t.Errorf("stdout %q lacks %q", stdout.String(), want)
 	}
 }
@@ -475,7 +519,7 @@ func TestGateTestRecordsEachPackagesResultAndKeepsTheFullOutputInItsLog(t *testi
 
 	// Act
 	var stdout, stderr bytes.Buffer
-	exit := gateTest(&stdout, &stderr)
+	exit := gateTest(&stdout, &stderr, "--level", "affected")
 
 	// Assert
 	if exit != 0 {
@@ -794,7 +838,7 @@ func TestGateTestAtFastLeavesASlowPackagesTestsAndSaysWhatIsStillRequired(t *tes
 		"left to the affected level:",
 		"- tests of example.com/m/c (a slow package)",
 		"cfo gate test: passed at level fast",
-		"cfo gate test: the change still requires the affected level before it merges",
+		"cfo gate test: the change requires the affected level before it merges, which CI's run of every package checks",
 	} {
 		if !strings.Contains(stdout.String(), want) {
 			t.Errorf("stdout %q lacks %q", stdout.String(), want)
@@ -1088,8 +1132,9 @@ func TestGateTestNamesItselfAndItsBudgetWhileItHoldsItsTurn(t *testing.T) {
 		level  string
 		budget time.Duration
 	}{
-		"the affected level": {nil, "affected", 90 * time.Minute},
-		"the full level":     {[]string{"--level", "full"}, "full", 3 * time.Hour},
+		"the default fast level": {nil, "fast", 90 * time.Minute},
+		"the affected level":     {[]string{"--level", "affected"}, "affected", 90 * time.Minute},
+		"the full level":         {[]string{"--level", "full"}, "full", 3 * time.Hour},
 	} {
 		t.Run(name, func(t *testing.T) {
 			// Arrange
@@ -1176,12 +1221,12 @@ func TestGateTestDoesNotPassARunWhoseTestsRanPastTheirBudget(t *testing.T) {
 	if exit != 1 || !strings.Contains(stdout.String(), "ran go test") {
 		t.Fatalf("exit = %d, want 1 with the tests run to their end; stdout=%s stderr=%s", exit, stdout.String(), stderr.String())
 	}
-	for _, want := range []string{"cfo gate test: go test passed but ran for ", ", past the 1ms budget of the affected level, so the run does not pass"} {
+	for _, want := range []string{"cfo gate test: go test passed but ran for ", ", past the 1ms budget of the fast level, so the run does not pass"} {
 		if !strings.Contains(stderr.String(), want) {
 			t.Errorf("stderr %q lacks %q", stderr.String(), want)
 		}
 	}
-	if !strings.Contains(stdout.String(), "cfo gate test: failed at level affected") {
+	if !strings.Contains(stdout.String(), "cfo gate test: failed at level fast") {
 		t.Errorf("stdout %q lacks the verdict line of a failed run", stdout.String())
 	}
 	report, _ := lastReport(t)

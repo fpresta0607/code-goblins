@@ -9,6 +9,8 @@ import (
 	"syscall"
 	"time"
 	"unsafe"
+
+	"golang.org/x/sys/windows"
 )
 
 // Access rights, information classes and layouts used to read the job
@@ -16,6 +18,7 @@ import (
 const (
 	processDupHandle            = 0x0040
 	jobObjectQuery              = 0x0004
+	jobObjectSetAttributes      = 0x0002
 	systemExtendedHandleInfo    = 64
 	jobObjectBasicProcessIDList = 3
 	statusInfoLengthMismatch    = 0xC0000004
@@ -43,6 +46,109 @@ var (
 // shell blocked in that wait is waiting on. A job holderPID itself runs in is
 // not one it waits on, so it is skipped. Entries are sorted by pid.
 func JobProcesses(holderPID int) ([]Entry, error) {
+	jobs, err := heldJobs(holderPID, jobObjectQuery)
+	if err != nil {
+		return nil, err
+	}
+	defer closeAll(jobs)
+	processes, err := snapshotProcesses()
+	if err != nil {
+		return nil, err
+	}
+	seen := map[uint32]bool{}
+	var jobbed []Entry
+	for _, job := range jobs {
+		ids, err := jobProcessIDs(job)
+		if err != nil {
+			return nil, err
+		}
+		if slices.Contains(ids, uint32(holderPID)) {
+			continue
+		}
+		for _, id := range ids {
+			start, alive := jobProcessStart(job, id)
+			if seen[id] || !alive {
+				continue
+			}
+			seen[id] = true
+			jobbed = append(jobbed, Entry{PID: int(id), ParentPID: int(processes[id].parentPID), ExeBase: processes[id].exeBase, Start: start})
+		}
+	}
+	sort.Slice(jobbed, func(i, j int) bool { return jobbed[i].PID < jobbed[j].PID })
+	return jobbed, nil
+}
+
+// KeepJobsOnClose stops the jobs holderPID holds open from ending their
+// processes when their last handle closes, so a machine service left in one
+// outlives holderPID. A job holderPID itself runs in is left as it is.
+func KeepJobsOnClose(holderPID int) error {
+	jobs, err := heldJobs(holderPID, jobObjectQuery|jobObjectSetAttributes)
+	if err != nil {
+		return err
+	}
+	defer closeAll(jobs)
+	for _, job := range jobs {
+		ids, err := jobProcessIDs(job)
+		if err != nil {
+			return err
+		}
+		if slices.Contains(ids, uint32(holderPID)) {
+			continue
+		}
+		if err := KeepJobOnClose(windows.Handle(job)); err != nil {
+			return fmt.Errorf("proc: a job process %d holds: %w", holderPID, err)
+		}
+	}
+	return nil
+}
+
+// KeepJobOnClose stops job from ending its processes when its last handle
+// closes, keeping its other limits.
+func KeepJobOnClose(job windows.Handle) error {
+	var limits windows.JOBOBJECT_EXTENDED_LIMIT_INFORMATION
+	if err := windows.QueryInformationJobObject(job, windows.JobObjectExtendedLimitInformation, uintptr(unsafe.Pointer(&limits)), uint32(unsafe.Sizeof(limits)), nil); err != nil {
+		return fmt.Errorf("read the job's limits: %w", err)
+	}
+	if limits.BasicLimitInformation.LimitFlags&windows.JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE == 0 {
+		return nil
+	}
+	limits.BasicLimitInformation.LimitFlags &^= windows.JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE
+	if _, err := windows.SetInformationJobObject(job, windows.JobObjectExtendedLimitInformation, uintptr(unsafe.Pointer(&limits)), uint32(unsafe.Sizeof(limits))); err != nil {
+		return fmt.Errorf("keep the job's processes when it closes: %w", err)
+	}
+	return nil
+}
+
+// JobMembers lists the processes in job.
+func JobMembers(job windows.Handle) ([]int, error) {
+	ids, err := jobProcessIDs(syscall.Handle(job))
+	if err != nil {
+		return nil, err
+	}
+	members := make([]int, len(ids))
+	for index, id := range ids {
+		members[index] = int(id)
+	}
+	return members, nil
+}
+
+// EndJobMember ends process pid if it is still in job, so a reused ID never
+// ends another process.
+func EndJobMember(job windows.Handle, pid int) {
+	process, err := windows.OpenProcess(windows.PROCESS_TERMINATE|windows.PROCESS_QUERY_LIMITED_INFORMATION, false, uint32(pid))
+	if err != nil {
+		return
+	}
+	defer windows.CloseHandle(process)
+	var isMember int32
+	if ok, _, _ := procIsProcessInJob.Call(uintptr(process), uintptr(job), uintptr(unsafe.Pointer(&isMember))); ok != 0 && isMember != 0 {
+		_ = windows.TerminateProcess(process, 1)
+	}
+}
+
+// heldJobs duplicates, with access, every job object holderPID holds open.
+// The caller closes them.
+func heldJobs(holderPID int, access uint32) ([]syscall.Handle, error) {
 	holder, err := syscall.OpenProcess(processDupHandle, false, uint32(holderPID))
 	if err != nil {
 		return nil, fmt.Errorf("proc: open process %d: %w", holderPID, err)
@@ -69,46 +175,29 @@ func JobProcesses(holderPID int) ([]Entry, error) {
 	if !found {
 		return nil, errors.New("proc: the system handle table does not list this process's own job")
 	}
-
-	processes, err := snapshotProcesses()
-	if err != nil {
-		return nil, err
-	}
 	current, err := syscall.GetCurrentProcess()
 	if err != nil {
 		return nil, err
 	}
-	seen := map[uint32]bool{}
-	var jobbed []Entry
+	var jobs []syscall.Handle
 	for _, entry := range table {
 		if entry.process != uintptr(holderPID) || entry.objectType != jobType {
 			continue
 		}
 		var job syscall.Handle
-		if err := syscall.DuplicateHandle(holder, syscall.Handle(entry.handle), current, &job, jobObjectQuery, false, 0); err != nil {
+		if err := syscall.DuplicateHandle(holder, syscall.Handle(entry.handle), current, &job, access, false, 0); err != nil {
+			closeAll(jobs)
 			return nil, fmt.Errorf("proc: read a job process %d holds: %w", holderPID, err)
 		}
-		ids, err := jobProcessIDs(job)
-		if err != nil {
-			syscall.CloseHandle(job)
-			return nil, err
-		}
-		if slices.Contains(ids, uint32(holderPID)) {
-			syscall.CloseHandle(job)
-			continue
-		}
-		for _, id := range ids {
-			start, alive := jobProcessStart(job, id)
-			if seen[id] || !alive {
-				continue
-			}
-			seen[id] = true
-			jobbed = append(jobbed, Entry{PID: int(id), ParentPID: int(processes[id].parentPID), ExeBase: processes[id].exeBase, Start: start})
-		}
-		syscall.CloseHandle(job)
+		jobs = append(jobs, job)
 	}
-	sort.Slice(jobbed, func(i, j int) bool { return jobbed[i].PID < jobbed[j].PID })
-	return jobbed, nil
+	return jobs, nil
+}
+
+func closeAll(handles []syscall.Handle) {
+	for _, handle := range handles {
+		syscall.CloseHandle(handle)
+	}
 }
 
 func jobProcessStart(job syscall.Handle, id uint32) (time.Time, bool) {
