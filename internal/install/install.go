@@ -1,12 +1,15 @@
 package install
 
 import (
+	"bytes"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
 	"io/fs"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 
 	"github.com/fpresta0607/code-goblins/internal/execx"
@@ -116,7 +119,7 @@ func (s Service) Install(out io.Writer) error {
 	if err != nil {
 		return err
 	}
-	if err := s.writeUserHooks(report); err != nil {
+	if err := s.writeUserSettings(report); err != nil {
 		return err
 	}
 	if err := s.clearRepoHooks(report); err != nil {
@@ -158,7 +161,7 @@ func (s Service) Uninstall(out io.Writer) error {
 	if _, err := s.formerHome(); err != nil {
 		return err
 	}
-	if err := s.removeUserHooks(report); err != nil {
+	if err := s.removeUserSettings(report); err != nil {
 		return err
 	}
 	if err := s.removeNativeHooks(report); err != nil {
@@ -485,12 +488,19 @@ func (s Service) bin() string {
 	return filepath.Join(s.Root, home.BinDir)
 }
 
-func (s Service) writeUserHooks(report *reporter) error {
+// writeUserSettings merges the CFO hooks and the Command Center allow rules
+// into the user's Claude Code settings in one write, so the one backup holds
+// the file as it stood before either.
+func (s Service) writeUserSettings(report *reporter) error {
 	file, err := loadSettings(s.UserSettings)
 	if err != nil {
 		return err
 	}
 	foreign := file.foreignHookCount()
+	hooksBefore, err := json.Marshal(file.values["hooks"])
+	if err != nil {
+		return err
+	}
 	stood, err := file.pruneCFOHooks()
 	if err != nil {
 		return err
@@ -498,43 +508,131 @@ func (s Service) writeUserHooks(report *reporter) error {
 	if err := file.addCFOHooks(s.Root, stood); err != nil {
 		return err
 	}
-	changed, backup, err := file.save()
+	hooksAfter, err := json.Marshal(file.values["hooks"])
 	if err != nil {
 		return err
 	}
-	if changed {
-		report.change("user hooks", fmt.Sprintf("wrote %d CFO hook groups into %s", len(cfoHookGroups(s.Root)), s.UserSettings))
-		if backup != "" {
-			report.detail("backed up the previous file to " + backup)
+	allow, err := file.allowRules()
+	if err != nil {
+		return err
+	}
+	missing := missingRules(allow)
+	// The record is written before the rules, so no rule is ever added that
+	// it does not name, and put back when the settings write fails, so it
+	// never names a rule the file does not hold, which a rule the adopter
+	// writes there later would answer to.
+	restoreRecord := func() error { return nil }
+	if len(missing) > 0 {
+		recorded, err := readRulesRecord(s.UserSettings)
+		if err != nil {
+			return err
 		}
-	} else {
+		grown := slices.Clone(recorded)
+		for _, rule := range missing {
+			if !slices.Contains(grown, rule) {
+				grown = append(grown, rule)
+			}
+		}
+		if len(grown) > len(recorded) {
+			if err := writeRulesRecord(s.UserSettings, grown); err != nil {
+				return err
+			}
+			restoreRecord = func() error {
+				if recorded == nil {
+					return os.Remove(s.UserSettings + rulesRecordSuffix)
+				}
+				return writeRulesRecord(s.UserSettings, recorded)
+			}
+		}
+		if err := file.setAllowRules(append(allow, missing...)); err != nil {
+			return err
+		}
+	}
+	_, backup, err := file.save()
+	if err != nil {
+		return errors.Join(err, restoreRecord())
+	}
+	if bytes.Equal(hooksBefore, hooksAfter) {
 		report.same("user hooks", "already in "+s.UserSettings)
+	} else {
+		report.change("user hooks", fmt.Sprintf("wrote %d CFO hook groups into %s", len(cfoHookGroups(s.Root)), s.UserSettings))
+	}
+	if len(missing) > 0 {
+		report.change("permissions", fmt.Sprintf("added %d Command Center allow rules to %s: %s", len(missing), s.UserSettings, strings.Join(missing, ", ")))
+		report.detail("so Claude Code's auto mode lets the CFO file questions, run items, reviews, presentations, documents and credential requests for the Overlord")
+	} else {
+		report.same("permissions", fmt.Sprintf("the %d Command Center allow rules are already in %s", len(PermissionRules()), s.UserSettings))
+	}
+	if backup != "" {
+		report.detail("backed up the previous file to " + backup)
 	}
 	report.detail(fmt.Sprintf("left %d hook(s) that are not the CFO's exactly as they were", foreign))
 	return nil
 }
 
-func (s Service) removeUserHooks(report *reporter) error {
+// removeUserSettings takes the CFO hooks and the allow rules cfo install
+// recorded adding out of the user's Claude Code settings in one write, and
+// then the record. A rule the adopter wrote stays, even one install would
+// have added.
+func (s Service) removeUserSettings(report *reporter) error {
 	file, err := loadSettings(s.UserSettings)
+	if err != nil {
+		return err
+	}
+	hooksBefore, err := json.Marshal(file.values["hooks"])
 	if err != nil {
 		return err
 	}
 	if _, err := file.pruneCFOHooks(); err != nil {
 		return err
 	}
-	changed, backup, err := file.save()
+	hooksAfter, err := json.Marshal(file.values["hooks"])
 	if err != nil {
 		return err
 	}
-	if !changed {
-		report.same("user hooks", "none of the CFO's in "+s.UserSettings)
-		return nil
+	recorded, err := readRulesRecord(s.UserSettings)
+	if err != nil {
+		return err
 	}
-	report.change("user hooks", "removed the CFO hooks from "+s.UserSettings)
+	// Only a recorded rule is removed, so with none recorded the permissions
+	// block is not read at all.
+	removed := 0
+	if len(recorded) > 0 {
+		allow, err := file.allowRules()
+		if err != nil {
+			return err
+		}
+		kept := slices.DeleteFunc(slices.Clone(allow), func(rule string) bool { return slices.Contains(recorded, rule) })
+		if removed = len(allow) - len(kept); removed > 0 {
+			if err := file.setAllowRules(kept); err != nil {
+				return err
+			}
+		}
+	}
+	_, backup, err := file.save()
+	if err != nil {
+		return err
+	}
+	if err := os.Remove(s.UserSettings + rulesRecordSuffix); err != nil && !errors.Is(err, fs.ErrNotExist) {
+		return fmt.Errorf("install: remove the record of the rules added to %s: %w", s.UserSettings, err)
+	}
+	hooksChanged := !bytes.Equal(hooksBefore, hooksAfter)
+	if hooksChanged {
+		report.change("user hooks", "removed the CFO hooks from "+s.UserSettings)
+	} else {
+		report.same("user hooks", "none of the CFO's in "+s.UserSettings)
+	}
+	if removed > 0 {
+		report.change("permissions", fmt.Sprintf("removed the %d Command Center allow rules cfo install added to %s, keeping the rest", removed, s.UserSettings))
+	} else {
+		report.same("permissions", "none of the Command Center allow rules cfo install added are in "+s.UserSettings)
+	}
 	if backup != "" {
 		report.detail("backed up the previous file to " + backup)
 	}
-	report.detail(fmt.Sprintf("left %d hook(s) that are not the CFO's exactly as they were", file.foreignHookCount()))
+	if hooksChanged || removed > 0 {
+		report.detail(fmt.Sprintf("left %d hook(s) that are not the CFO's exactly as they were", file.foreignHookCount()))
+	}
 	return nil
 }
 
