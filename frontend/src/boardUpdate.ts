@@ -2,14 +2,13 @@ import { deliveryMark } from "./feedback.ts";
 import type { Action } from "./types.ts";
 
 // updateAction is what a tab does once the supervisor serves another board
-// build than the one it loaded: nothing while the builds match or either is
-// unknown; reload by itself only while the tab is hidden, the Overlord is not
-// in the middle of an answer and the supervisor is live, so a reload never
-// lands on a board that is down; otherwise offer a reload, so the board never
-// reloads under his hands.
-export function updateAction({ loaded, served, hidden, answering, connected }: { loaded: string; served: string; hidden: boolean; answering: boolean; connected: boolean }): "none" | "banner" | "reload" {
+// build than the one it loaded. With a live connection and nothing unsent,
+// it reloads a hidden, idle tab, or any tab after an update just installed,
+// even with the Command Center open. Otherwise it offers the Reload banner;
+// unknown or matching builds need no action.
+export function updateAction({ loaded, served, hidden, answering, connected, unsent = false, updated = false }: { loaded: string; served: string; hidden: boolean; answering: boolean; connected: boolean; unsent?: boolean; updated?: boolean }): "none" | "banner" | "reload" {
   if (!loaded || !served || loaded === served) return "none";
-  return hidden && !answering && connected ? "reload" : "banner";
+  return connected && !unsent && (updated || hidden && !answering) ? "reload" : "banner";
 }
 
 // unsentComment says whether a code-review comment on a diff holds text the

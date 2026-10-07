@@ -97,6 +97,11 @@ type Run struct {
 	// Interactive items run in the window itself, with nothing captured, and
 	// the window stays open: a sign-in or cfo attach needs the real console.
 	Interactive bool `json:"interactive,omitempty"`
+	// Update is the release an Update Code Goblins item installs: the board
+	// made the item, it waits until a newer release or this build replaces
+	// it, only the Overlord runs it, and its window stays out of sight while
+	// its card shows how it goes.
+	Update *ReleaseOffer `json:"update,omitempty"`
 }
 
 // RunRequest is what cfo run-request asks for; CommandFile is read once.
@@ -124,6 +129,9 @@ type RunLaunch struct {
 	// Interactive runs the script in the window itself and keeps the
 	// window open, writing only exit.txt.
 	Interactive bool
+	// Hidden runs it with no window, for an item whose card shows how it
+	// goes.
+	Hidden bool
 }
 
 // RunStarted is the process a launched item runs under.
@@ -345,6 +353,9 @@ func (s *Store) withdrawRun(id, reason string) error {
 	case r.CredentialRequest != "":
 		s.mu.Unlock()
 		return fmt.Errorf("run item %s is the terminal the Overlord opened for a credential request; it is not the CFO's to withdraw", r.ID)
+	case r.Update != nil:
+		s.mu.Unlock()
+		return fmt.Errorf("run item %s is the Overlord's Update to Code Goblins %s; it is not the CFO's to withdraw", r.ID, r.Update.To)
 	case r.State != "ready":
 		s.mu.Unlock()
 		return fmt.Errorf("the run item is already %s, so it cannot be withdrawn", r.State)
@@ -371,7 +382,9 @@ func (s *Store) expireRuns(now time.Time) error {
 	defer s.mu.Unlock()
 	changed := false
 	for i := range s.db.Runs {
-		if r := &s.db.Runs[i]; r.State == "ready" && !now.Before(r.ExpiresAt) {
+		// An Update item waits until a newer release or this build
+		// replaces it.
+		if r := &s.db.Runs[i]; r.State == "ready" && r.Update == nil && !now.Before(r.ExpiresAt) {
 			r.State, r.Reason = "expired", "nobody ran it within 24 hours"
 			changed = true
 		}
@@ -494,6 +507,12 @@ func (s *Service) startRun(ctx context.Context, a Action) (Evaluation, error) {
 		err = errors.New("its script file is missing or changed")
 	case s.Options.Runs == nil:
 		err = errors.New("this supervisor cannot open run windows")
+	case r.Update != nil:
+		// The command an Update item runs reads this grant as the
+		// Overlord's click, which no terminal of his opened.
+		if err = grantUpdate(s.Store.Home.State, r); err == nil {
+			started, err = s.Options.Runs.Launch(ctx, RunLaunch{Shell: r.Shell, Script: script, Dir: dir, Cwd: r.Cwd, Hidden: true})
+		}
 	default:
 		started, err = s.Options.Runs.Launch(ctx, RunLaunch{Shell: r.Shell, Admin: r.Admin, Script: script, Dir: dir, Cwd: r.Cwd, Interactive: r.Interactive})
 	}
@@ -573,6 +592,11 @@ func (s *Service) completeRun(ctx context.Context, r Run, code *int, reason stri
 	if r.ConnectionTask != "" {
 		checks, _ := s.connections()
 		checks.Get(r.ConnectionTask+"\n"+r.ConnectionGeneration, true)
+	}
+	// An update that did not install gets an item of its own again while
+	// its release is still the newest.
+	if r.Update != nil && (code == nil || *code != 0) {
+		s.lookAgain()
 	}
 	// A goblin's own command answers the goblin that asked for it.
 	if r.Task != "" {

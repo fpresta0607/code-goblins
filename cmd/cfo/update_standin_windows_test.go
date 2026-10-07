@@ -233,6 +233,15 @@ func standInInstall() int {
 
 func standInUpdate() int {
 	h := standInHome()
+	// A home's installed build updates from a release as the version the
+	// test names, and passes the proof that the Overlord runs it unless the
+	// test asks for the proof.
+	if named := os.Getenv("CFO_TEST_VERSION"); named != "" {
+		version = named
+	}
+	if os.Getenv("CFO_TEST_UPDATE_PROOF") == "" {
+		updaterRefusal = func(home.Home) error { return nil }
+	}
 	if wait, err := time.ParseDuration(os.Getenv("CFO_TEST_UPDATE_SERVE_WAIT")); err == nil {
 		updateServeWait = wait
 	}

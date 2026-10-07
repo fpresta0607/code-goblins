@@ -95,6 +95,9 @@ type Options struct {
 	// turned on beside the one taken when it turned off.
 	Allowance func(ctx context.Context) ([]afk.Allowance, string)
 	Quota     func(ctx context.Context) (quota.Report, string)
+	// Releases is where the board looks for a newer release of Code
+	// Goblins; without it the board never looks and makes no Update item.
+	Releases *Releases
 }
 
 type Service struct {
@@ -142,6 +145,10 @@ type Service struct {
 	localReports    map[string][]verify.Report
 	localReadErr    error
 	progressReadErr error
+	// release is the newest release as the banner shows it, kept by the
+	// release watch, which releaseNow asks for another look.
+	release    *ReleaseView
+	releaseNow chan struct{}
 	// runRequests takes one run request at a time, so two with one ID never
 	// both write a script.
 	runRequests sync.Mutex
@@ -225,7 +232,7 @@ func Start(ctx context.Context, h home.Home, options Options) (*Service, error) 
 		return nil, err
 	}
 	ctx, cancel := context.WithCancel(ctx)
-	s := &Service{Store: store, Options: options, Instance: hex.EncodeToString(id[:]), Started: time.Now().UTC(), subscribers: map[chan struct{}]struct{}{}, done: make(chan struct{}), work: make(chan struct{}, 1), looks: make(chan chan struct{}), cancel: cancel}
+	s := &Service{Store: store, Options: options, Instance: hex.EncodeToString(id[:]), Started: time.Now().UTC(), subscribers: map[chan struct{}]struct{}{}, done: make(chan struct{}), work: make(chan struct{}, 1), looks: make(chan chan struct{}), releaseNow: make(chan struct{}, 1), cancel: cancel}
 	if options.Tickets != nil {
 		s.tickets = newTicketKeeper(h, options.Tickets)
 	}
@@ -365,6 +372,14 @@ func (s *Service) run(ctx context.Context) {
 		}
 	}()
 	defer func() { s.cancel(); <-ticketsDone }()
+	releasesDone := make(chan struct{})
+	go func() {
+		defer close(releasesDone)
+		if s.Options.Releases != nil {
+			s.watchReleases(ctx)
+		}
+	}()
+	defer func() { s.cancel(); <-releasesDone }()
 	// A single inbox watcher, independent of task count. A timeout also
 	// recovers notifications lost during atomic renames or an AV filter fault.
 	notified := make(chan struct{}, 1)
@@ -1037,6 +1052,9 @@ type Snapshot struct {
 	// Projects names who else works in each collaborative project on the
 	// board.
 	Projects []ProjectPeople `json:"projects"`
+	// Release is a newer published release of Code Goblins, or any on a
+	// board built from a clone, for the board's banner.
+	Release *ReleaseView `json:"release,omitempty"`
 }
 
 // setItems makes items the snapshot's Command Center items.
@@ -1053,6 +1071,7 @@ func (s *Service) Snapshot() (Snapshot, error) {
 	s.mu.Lock()
 	out := Snapshot{Example: s.Options.Example, Instance: s.Instance, Revision: s.revision, Started: s.Started, At: time.Now().UTC(), Reconciled: s.reconciled, Error: s.lastError, Tasks: []Task{}, Attention: []string{}, Sessions: []Session{}, Retired: d.Retired, Actions: d.Actions, Issues: d.Issues}
 	progress, sameAreas, hostedChecks, localReports, deploys := maps.Clone(s.workProgress), maps.Clone(s.sameArea), maps.Clone(s.hostedChecks), maps.Clone(s.localReports), maps.Clone(s.deploys)
+	out.Release = s.release
 	if s.localReadErr != nil {
 		out.Issues = append(slices.Clone(out.Issues), s.localReadErr.Error())
 	}

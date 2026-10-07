@@ -260,6 +260,9 @@ export interface Snapshot {
   // projects names who else works in each collaborative project, by the
   // project name tasks carry.
   projects: ProjectPeople[];
+  // release is a newer published release, or any where this board was built
+  // from a clone; null when there is none or the check is off.
+  release: ReleaseView | null;
 }
 // AfkHeld is an item held for the Overlord while AFK mode is on: its key in
 // the Command Center, its goblin (empty for the CFO's own), what it asks,
@@ -338,7 +341,23 @@ export interface Run {
   // task is the goblin whose own command this is, empty for the CFO's. An
   // interactive item runs in its own window, which keeps its output.
   task: string; interactive: boolean;
+  // update is the release an Update Code Goblins item installs, which the
+  // board shows as its own card; null on every other item.
+  update: ReleaseOffer | null;
 }
+// A newer release of Code Goblins, as the Update item offers it: the version
+// this board runs and the one it installs, when that was published, a few
+// lines of what is new, its notes' page, whether its notes say it is signed
+// and by whom, and the SHA-256 they list for cfo.exe.
+export interface ReleaseOffer {
+  from: string; to: string; page: string; published: string; notes: string[];
+  // signing is "signed", "unsigned", or empty when the notes do not say.
+  signing: string; publisher: string; sum: string;
+}
+// The newest published release where it is newer than this board's build,
+// or any release where the board was built from a clone, which updates from
+// the clone instead.
+export interface ReleaseView { installed: string; tag: string; page: string; published: string; source: boolean }
 // A request for credential values by name: the Overlord pastes each value on
 // its card, and the board stores it in the project's credential scope. It
 // never carries a value.
@@ -400,9 +419,12 @@ export interface SetupAgent {
   recommended: boolean;
   note: string;
   installed: boolean;
-  signed_in: boolean;
+  // What the agent's own status command says, in the environment the CFO's
+  // terminal starts with; unknown is an answer it did not give.
+  sign_in: SignIn;
   reason: string;
 }
+export type SignIn = "signed_in" | "signed_out" | "unknown";
 export interface Commit {
   sha: string;
   short: string;
@@ -544,7 +566,9 @@ function itemLists(v: Record<string, unknown>) {
         output: string(r.output), reason: string(r.reason), created_at: string(r.created_at), expires_at: string(r.expires_at), ran_at: string(r.ran_at), finished_at: string(r.finished_at),
         connection_task: string(r.connection_task), connection_generation: string(r.connection_generation),
         credential_request: string(r.credential_request), credential_names: strings(r.credential_names),
-        task: string(r.task), interactive: r.interactive === undefined ? false : boolean(r.interactive) };
+        task: string(r.task), interactive: r.interactive === undefined ? false : boolean(r.interactive),
+        update: r.update == null ? null : (({ from, to, page, published, notes, signing, publisher, sum }) => ({ from: string(from), to: string(to), page: string(page), published: string(published),
+          notes: strings(notes), signing: string(signing), publisher: string(publisher), sum: string(sum) }))(object(r.update)) };
     }),
     credentials: array(v.credentials).map(parseCredentialRequest),
     actions: array(v.actions).map(parseAction),
@@ -600,6 +624,7 @@ export function parseSnapshot(value: unknown): Snapshot {
       drive: string(drive), free: number(free), total: number(total), floor: number(floor), wake: number(wake),
     }))(object(v.disk)),
     projects: array(v.projects).map((value) => { const p = object(value); return { name: string(p.name), repository: string(p.repository), contributors: array(p.contributors).map((person) => parsePerson(object(person))) }; }),
+    release: v.release == null ? null : (({ installed, tag, page, published, source }) => ({ installed: string(installed), tag: string(tag), page: string(page), published: string(published), source: boolean(source) }))(object(v.release)),
     retired: strings(v.retired),
     issues: strings(v.issues),
     attention: strings(v.attention),
@@ -718,7 +743,9 @@ export function parseSetup(value: unknown): Setup {
     problem: string(v.problem),
     agents: array(v.agents).map((value) => {
       const agent = object(value);
-      return { id: string(agent.id), name: string(agent.name), recommended: boolean(agent.recommended), note: string(agent.note), installed: boolean(agent.installed), signed_in: boolean(agent.signed_in), reason: string(agent.reason) };
+      const signIn = string(agent.sign_in);
+      if (signIn !== "signed_in" && signIn !== "signed_out" && signIn !== "unknown") throw new Error("Invalid sign-in state");
+      return { id: string(agent.id), name: string(agent.name), recommended: boolean(agent.recommended), note: string(agent.note), installed: boolean(agent.installed), sign_in: signIn, reason: string(agent.reason) };
     }),
     cfo_runs: boolean(v.cfo_runs),
   };

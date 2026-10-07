@@ -400,6 +400,16 @@ button:focus:not(:focus-visible), summary:focus:not(:focus-visible), [tabindex]:
 /* A newer board is served: one quiet line with its reload. */
 .update-banner { display: flex; flex: none; align-items: center; justify-content: space-between; gap: 12px; padding: 6px 8px 6px 16px; border: 1px solid var(--glass-border-hover); border-radius: var(--radius); background: var(--glass-bg-hover); color: #c9f2e2; font-weight: 700; }
 .update-banner .primary { min-height: 36px; padding: 6px 16px; }
+/* A newer release waits: the same slim line in the electric ring the Update
+   item wears, pointing to it. */
+.release-banner { display: flex; flex: none; align-items: center; gap: 12px; padding: 6px 8px 6px 12px; border: 1px solid transparent; border-radius: var(--radius); background: linear-gradient(var(--hero-surface), var(--hero-surface)) padding-box, var(--electric-ring) border-box; box-shadow: var(--electric-glow); color: #e2ecf0; font-weight: 700; }
+.release-banner img { width: 30px; height: 30px; object-fit: contain; flex: none; }
+.release-banner .what { flex: 1; min-width: 0; overflow-wrap: anywhere; }
+.release-banner .what span { color: var(--muted); font-weight: 600; }
+.release-banner a { display: inline-flex; align-items: center; gap: 6px; color: #9cc9ff; text-decoration: none; white-space: nowrap; }
+.release-banner a .icon, .release-banner .primary .icon { width: 18px; height: 18px; }
+.release-banner .primary { display: inline-flex; align-items: center; gap: 8px; min-height: 36px; padding: 6px 16px; }
+.release-banner .icon-button { width: 36px; height: 36px; min-height: 36px; }
 .error-box button { display: block; margin-top: 10px; }
 .render-error { display: flex; align-items: center; gap: 12px; margin: 0; }
 .render-error span { flex: 1; }
@@ -747,7 +757,7 @@ button.line-number { min-height: 32px; display: flex; align-items: flex-start; j
 .voice-bubble.recording::before { box-shadow: inset 0 0 0 2px var(--moss); }
 .voice-dot { width: 10px; height: 10px; flex: none; background: #ff5f57; }
 .voice-bars { display: inline-flex; align-items: center; gap: 3px; height: 24px; }
-.voice-bars span { width: 3px; height: 24px; background: var(--moss); transform: scaleY(.2); transition: transform 70ms linear; }
+.voice-bars span { width: 3px; height: 24px; background: var(--moss); transform: scaleY(.125); transition: transform 70ms linear; }
 .voice-card { position: absolute; right: 14px; bottom: calc(100% + 8px); z-index: 4; display: grid; gap: 10px; width: min(400px, calc(100% - 28px)); padding: 18px 20px; color: var(--bone); filter: drop-shadow(3px 3px 0 var(--soot)); }
 .voice-card::before { border: 2px solid var(--soot); background: var(--hide); box-shadow: inset 0 0 0 2px var(--edge); }
 .voice-card p { margin: 0; overflow-wrap: anywhere; }
@@ -1058,6 +1068,51 @@ a.wait-open { min-height: 44px; border: 1px solid var(--accent-green); border-ra
 .run-cwd .icon { width: 18px; height: 18px; flex: none; }
 .run-button { display: inline-flex; align-items: center; gap: 8px; white-space: nowrap; }
 .run-button .icon { width: 18px; height: 18px; fill: currentColor; }
+/* The Update Code Goblins item is an event, not a goblin's question: an
+   electric ring instead of the glass border, the release goblin instead of an
+   asker, and the two versions large. */
+.update-card { display: grid; gap: 16px; padding: 24px; border: 1px solid transparent; border-radius: var(--radius); background: linear-gradient(135deg, rgba(0, 229, 155, 0.07), rgba(3, 5, 10, 0.94) 45%, rgba(0, 140, 255, 0.05)) padding-box, var(--electric-ring) border-box; box-shadow: var(--electric-glow), var(--glass-shadow); font-size: 1.0625rem; }
+.update-head { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+.update-head .goblin-avatar { width: 52px; height: 52px; }
+.update-head .who { display: grid; line-height: 1.25; }
+.update-head .who strong { color: #edf4f3; }
+.update-head .who small { color: var(--muted); font-size: .9375rem; }
+.update-head .chip.release { color: #d9c8ff; border-color: #a855f766; background: #a855f714; }
+.update-head .run-state { margin-left: auto; }
+.run-state.updating { color: #9cc9ff; }
+.update-card h3 { margin: 0; font-size: 1.375rem; line-height: 1.3; }
+.update-versions { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; font-family: var(--font-display); font-size: 2.25rem; line-height: 1.1; }
+.update-versions .from { color: #8fa3b1; }
+.update-versions .to { background: var(--brand-gradient); -webkit-background-clip: text; background-clip: text; color: transparent; }
+@media (forced-colors: active) { .update-versions .to { background: none; color: CanvasText; } }
+.update-versions .icon { width: 28px; height: 28px; color: #8fa3b1; }
+.update-notes { display: grid; gap: 6px; margin: 0; padding-left: 22px; color: #d5e2e8; }
+.update-notes-link { display: inline-flex; align-items: center; gap: 6px; justify-self: start; color: #9cc9ff; font-weight: 700; text-decoration: none; }
+.update-notes-link .icon { width: 18px; height: 18px; }
+.update-trust { display: flex; align-items: flex-start; gap: 10px; margin: 0; padding: 10px 12px; border: 1px solid #f3c57833; border-radius: var(--radius); background: #f3c5780d; color: #ead7ae; font-size: 1rem; }
+.update-trust .icon { width: 20px; height: 20px; flex: none; margin-top: 2px; color: var(--amber); }
+.update-trust code { font-family: var(--font-mono); font-size: .9rem; color: #f1e2bf; overflow-wrap: anywhere; }
+.update-effect { margin: 0; color: var(--muted); }
+.update-steps { list-style: none; margin: 0; padding: 0; display: grid; gap: 8px; }
+.update-steps li { display: flex; align-items: center; gap: 10px; color: #c4d4df; }
+.update-steps li .icon { width: 20px; height: 20px; flex: none; }
+.update-steps li.done { color: #d8e9e2; }
+.update-steps li.done .icon { color: var(--mint); }
+.update-steps li.now { color: #edf4f3; font-weight: 800; }
+.update-steps li.now .icon { color: var(--accent-blue); animation: update-spin 1.1s linear infinite; }
+.update-steps li.todo { color: #7f909c; }
+.update-steps li.failed .icon { color: var(--red); }
+@keyframes update-spin { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) { .update-steps li.now .icon { animation: none; } }
+.update-result { margin: 0; font-weight: 700; }
+.update-result.ok { color: #c9f2e2; }
+.update-result.back { color: #f1c598; }
+.update-output summary { cursor: pointer; color: #9fb5c3; font-weight: 700; }
+.update-output .run-output { margin-top: 8px; min-height: 0; max-height: 12rem; }
+.card-actions .update-button { display: inline-flex; align-items: center; gap: 8px; padding: 10px 22px; }
+.card-actions .update-button .icon { width: 20px; height: 20px; }
+/* Its row in the Command Center's list wears the same ring. */
+.inbox-list li.release-row { border-color: #a855f755; box-shadow: var(--electric-glow), var(--glass-shadow); }
 
 /* The terminal deck below the panel header: every live terminal, one shown
    at a time, filling the panel. */

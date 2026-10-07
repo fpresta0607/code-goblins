@@ -132,7 +132,7 @@ func TestOnlyABoardOfTheOverlordsOwnSwitchesAFKMode(t *testing.T) {
 			}
 
 			// Act
-			from, err := s.overlordsBoard(request, credentialBoardHost, time.Now())
+			from, err := s.overlordsBoard(request, credentialBoardHost, time.Now(), askingBoard)
 
 			// Assert
 			if c.refusal == "" {

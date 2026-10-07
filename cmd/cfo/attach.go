@@ -248,15 +248,25 @@ func startNativeCFO(h home.Home, project, harness string, args []string) error {
 	if err != nil {
 		return err
 	}
+	env, err := cfoTerminalEnvironment(h)
+	if err != nil {
+		return err
+	}
+	_, err = host.Launch(h.State, []string{self, "host"}, env, host.Spec{ID: supervisor.NativeCFOTerminal, Args: program, Dir: project, Cols: 120, Rows: 40})
+	return err
+}
+
+// cfoTerminalEnvironment is the environment the CFO's native terminal of
+// home h starts with: the one Windows gives a new process of this user, made
+// the CFO's by nativeCFOEnvironment.
+func cfoTerminalEnvironment(h home.Home) ([]string, error) {
 	userEnv, err := spawn.UserEnvironment()
 	if err != nil {
-		return fmt.Errorf("read the user's environment: %w", err)
+		return nil, fmt.Errorf("read the user's environment: %w", err)
 	}
 	// An unresolvable projects root leaves the user's own setting in place.
 	projects, _ := install.MachineProjectsRoot()
-	env := nativeCFOEnvironment(userEnv, os.Environ(), h, projects)
-	_, err = host.Launch(h.State, []string{self, "host"}, env, host.Spec{ID: supervisor.NativeCFOTerminal, Args: program, Dir: project, Cols: 120, Rows: 40})
-	return err
+	return nativeCFOEnvironment(userEnv, os.Environ(), h, projects), nil
 }
 
 // nativeCFOProgram is the command line a native terminal starts harness with

@@ -3,10 +3,10 @@ import assert from "node:assert/strict";
 import { showsFirstRun, startState } from "./firstRunStart.ts";
 import type { Setup, SetupAgent } from "./types.ts";
 
-const claude: SetupAgent = { id: "claude", name: "Claude Code", recommended: true, note: "the best experience", installed: true, signed_in: true, reason: "" };
+const claude: SetupAgent = { id: "claude", name: "Claude Code", recommended: true, note: "the best experience", installed: true, sign_in: "signed_in", reason: "" };
 const others: SetupAgent[] = [
-  { id: "codex", name: "Codex", recommended: false, note: "woken by a typed line; no digest or guards", installed: true, signed_in: true, reason: "" },
-  { id: "pi", name: "pi", recommended: false, note: "woken by a typed line; no digest, guards or resume", installed: false, signed_in: false, reason: "Install pi to start the CFO" },
+  { id: "codex", name: "Codex", recommended: false, note: "woken by a typed line; no digest or guards", installed: true, sign_in: "signed_in", reason: "" },
+  { id: "pi", name: "pi", recommended: false, note: "woken by a typed line; no digest, guards or resume", installed: false, sign_in: "unknown", reason: "Install pi to start the CFO" },
 ];
 const setup = (changes: Partial<Setup> = {}): Setup => ({ home: "C:\\CodeGoblins", agent: "", projects_root: "C:\\dev", checkouts: ["alpha", "beta"], problem: "", agents: [claude, ...others], cfo_runs: false, ...changes });
 

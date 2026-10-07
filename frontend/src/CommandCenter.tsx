@@ -8,6 +8,7 @@ import { age } from "./presentation";
 import { answerMark, answerReason, answeredElsewhere, asItems, canChange, cardKey, closedAt, closedElsewhere, holdsUnsent, isOpen, itemFor, nextOpenKey, notSent, questionPage, sendState, settledIcon, reviewLine, settledItems, settledLabel, waitingItems, type Item } from "./commandQueue";
 import { publishedAt, type Sent } from "./item-state";
 import { RunCard } from "./RunCard";
+import { UpdateCard } from "./update-card";
 import { CredentialCard } from "./credential-card";
 import { credentialAsk } from "./credentials";
 import { questionAnswer, questionChoices } from "./questionChoices";
@@ -233,6 +234,12 @@ export function CommandCenter({ snapshot, connected, presentations, focus, onUns
   };
   // Run names the stored item; the browser never sends command text.
   const run = (target: Run) => { if (target.state === "ready") void post("run:" + target.id, { kind: "run", run_id: target.id, generation: target.identity }); };
+  // An update that did not install offers the item the board publishes for
+  // the same release again, once there is one.
+  const retryOf = (target: Run) => {
+    const again = target.state === "failed" ? (snapshot.runs || []).find((other) => other.id !== target.id && other.state === "ready" && other.update?.to === target.update?.to) : undefined;
+    return again ? () => show("run:" + again.id) : undefined;
+  };
   // A document leaves the queue once he opens or downloads it, and says so.
   const clear = (target: Review, how?: "Opened" | "Downloaded") => void post("review:" + target.id, { kind: "review_clear", review_id: target.id, generation: target.identity, ...(how ? { text: how } : {}) });
   const dismiss = (target: Question) => void post("question:" + target.id, { kind: "question_clear", question_id: target.id, generation: target.identity });
@@ -242,10 +249,12 @@ export function CommandCenter({ snapshot, connected, presentations, focus, onUns
     if (payload) void post(changeKey(target), { ...payload, kind: "answer_change" });
   };
   const taskOf = (candidate: Item) => candidate.kind === "question" ? candidate.question.task : candidate.kind === "review" ? candidate.review.task : candidate.kind === "credential" ? candidate.request.task : candidate.run.task;
-  const askerOf = (candidate: Item) => taskOf(candidate) ? snapshot.tasks.find((task) => task.id === taskOf(candidate))?.title || taskOf(candidate) : "The CFO";
-  const textOf = (candidate: Item) => candidate.kind === "question" ? plainMessage(candidate.question.text) : candidate.kind === "review" ? reviewLine(candidate.review) : candidate.kind === "credential" ? credentialAsk(candidate.request) : candidate.run.title;
+  // An Update item is Code Goblins' own, not the CFO's or a goblin's.
+  const release = (candidate: Item) => candidate.kind === "run" ? candidate.run.update : null;
+  const askerOf = (candidate: Item) => release(candidate) ? "Code Goblins" : taskOf(candidate) ? snapshot.tasks.find((task) => task.id === taskOf(candidate))?.title || taskOf(candidate) : "The CFO";
+  const textOf = (candidate: Item) => candidate.kind === "question" ? plainMessage(candidate.question.text) : candidate.kind === "review" ? reviewLine(candidate.review) : candidate.kind === "credential" ? credentialAsk(candidate.request) : candidate.run.update ? "Update to " + candidate.run.update.to + " from " + candidate.run.update.from : candidate.run.title;
   const created = (candidate: Item) => candidate.kind === "question" ? candidate.question.created_at : candidate.kind === "review" ? candidate.review.created_at : candidate.kind === "credential" ? candidate.request.created_at : candidate.run.created_at;
-  const iconOf = (candidate: Item) => candidate.kind === "question" ? candidate.question.image_count ? "images" : "question" : candidate.kind === "review" ? candidate.review.document ? "file" : candidate.review.image_count ? "images" : "comment" : candidate.kind === "credential" ? "key" : "play";
+  const iconOf = (candidate: Item) => candidate.kind === "question" ? candidate.question.image_count ? "images" : "question" : candidate.kind === "review" ? candidate.review.document ? "file" : candidate.review.image_count ? "images" : "comment" : candidate.kind === "credential" ? "key" : candidate.run.update ? "download" : "play";
   const pageFor = (candidate: Question) => questionPage(presentations, candidate);
   const images = !item || item.kind === "run" || item.kind === "credential" ? [] : item.kind === "question"
     ? questionChoices(item.question).filter((choice) => choice.image).map((choice) => ({ src: choice.image, value: choice.value, text: choice.text }))
@@ -273,8 +282,8 @@ export function CommandCenter({ snapshot, connected, presentations, focus, onUns
         <h2><Avatar persona="cfo" small />Command Center</h2>
         <section aria-label="Waiting on you">
           <h3>Waiting on you <span className="column-count">{needing}</span></h3>
-          {needing ? <ul className="inbox-list">{waiting.map((candidate) => <li key={candidate.key}>
-            <Avatar persona={taskOf(candidate) ? personaFor(snapshot.tasks.find((task) => task.id === taskOf(candidate))) : "cfo"} small />
+          {needing ? <ul className="inbox-list">{waiting.map((candidate) => <li key={candidate.key} className={release(candidate) ? "release-row" : undefined}>
+            <Avatar persona={release(candidate) ? "releases" : taskOf(candidate) ? personaFor(snapshot.tasks.find((task) => task.id === taskOf(candidate))) : "cfo"} small />
             <span className="inbox-text"><strong>{askerOf(candidate)}</strong><span className="inbox-summary">{textOf(candidate)}</span>{!!drafts[candidate.key] && notSent(drafts[candidate.key], candidate, snapshot.actions) && <small>Not sent: {drafts[candidate.key].error}</small>}</span>
             <time>{age(created(candidate))}</time>
             <button className="icon-button raised" aria-label={"Answer " + askerOf(candidate) + ": " + textOf(candidate)} data-tip="Answer" data-tip-align="end" onClick={() => { setInbox(false); setOpen(true); show(candidate.key); }}><Icon name={iconOf(candidate)} /></button>
@@ -346,6 +355,8 @@ export function CommandCenter({ snapshot, connected, presentations, focus, onUns
                 onDraft={(changes) => update(item.key, changes)} onSend={() => send(item)} onDismiss={() => dismiss(item.question)} onImage={setGallery} pager={pager} />
               : item.kind === "credential"
               ? <CredentialCard key={shownKey} request={item.request} snapshot={snapshot} connected={connected} pager={pager} />
+              : item.kind === "run" && item.run.update
+              ? <UpdateCard key={shownKey} run={item.run} offer={item.run.update} connected={connected} sending={!!drafts[item.key]?.sending} error={drafts[item.key]?.error || ""} onRun={() => run(item.run)} onRetry={retryOf(item.run)} pager={pager} />
               : item.kind === "run"
               ? <RunCard key={shownKey} run={item.run} goblin={item.run.task ? snapshot.tasks.find((task) => task.id === item.run.task) : undefined} connected={connected} sending={!!drafts[item.key]?.sending} error={drafts[item.key]?.error || ""} onRun={() => run(item.run)} pager={pager} />
               : item.review.document
