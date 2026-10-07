@@ -41,6 +41,17 @@ var gateWords = map[string]struct {
 	"failed":            {Failed, "failed"},
 }
 
+// gateEnded says how a run reads that the pipeline counts as ended.
+var gateEnded = map[string]struct {
+	state         State
+	label, detail string
+}{
+	"completed":              {Done, "Gate passed", "every step passed"},
+	"failed":                 {Failed, "Gate failed", "run failed"},
+	"cancelled":              {Failed, "Gate cancelled", "run cancelled"},
+	"ci_monitor_interrupted": {Failed, "Gate interrupted", "its watch of CI was interrupted"},
+}
+
 // gateNode is the goblin's gate run as a child: its active step, or how the
 // run ended. A run whose steps started before the goblin's generation is an
 // earlier goblin's, and ok is false for it.
@@ -59,9 +70,12 @@ func gateNode(reading gateReading, born time.Time, processes []Process) (Node, b
 		return Node{}, false
 	}
 	node := Node{ID: "gate:" + reading.progress.RunID, Kind: KindGate, Started: first, LastActivity: last, SourceUpdatedAt: last}
+	ended, isEnded := gateEnded[reading.progress.Status]
 	for _, step := range reading.steps {
 		word, active := gateWords[step.Status]
-		if !active {
+		// An ended run's step records name no work going on, only the step
+		// that failed it.
+		if !active || isEnded && word.state != Failed {
 			continue
 		}
 		node.Label = "Gate: " + step.Name
@@ -76,16 +90,11 @@ func gateNode(reading gateReading, born time.Time, processes []Process) (Node, b
 		}
 		return node, true
 	}
-	switch reading.progress.Status {
-	case "completed":
-		node.Label, node.State, node.Detail = "Gate passed", Done, "every step passed"
-	case "failed", "cancelled":
-		node.Label, node.State, node.Detail = "Gate "+reading.progress.Status, Failed, "run "+reading.progress.Status
-	default:
+	if !isEnded {
 		node.Label, node.State, node.Detail = "Gate", Waiting, "between steps"
 		return node, true
 	}
-	node.Finished = last
+	node.Label, node.State, node.Detail, node.Finished = ended.label, ended.state, ended.detail, last
 	return node, true
 }
 

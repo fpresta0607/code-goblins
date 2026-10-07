@@ -72,6 +72,50 @@ func TestReadFindsCodexChildAgentsFromTheirOwnRollouts(t *testing.T) {
 	}
 }
 
+// A working child agent's last line is the last thing it was seen to do, its
+// newest message or tool call since its turn started, so one gone silent can
+// be named with what it last did.
+func TestReadNamesWhatAWorkingCodexChildLastDid(t *testing.T) {
+	item := func(when time.Time, payload object) object {
+		return object{"timestamp": when.Format(time.RFC3339Nano), "type": "response_item", "payload": payload}
+	}
+	message := func(when time.Time, text string) object {
+		return item(when, object{"type": "message", "role": "assistant", "content": []object{{"type": "output_text", "text": text}}})
+	}
+	quiet := at.Add(-15 * time.Minute)
+	for name, test := range map[string]struct {
+		entries []any
+		want    string
+	}{
+		"a message":                 {[]any{message(quiet.Add(-time.Minute), "Reading the wake rules.\nThen the tests."), item(quiet, object{"type": "reasoning"})}, "Reading the wake rules."},
+		"a tool call after it":      {[]any{message(quiet.Add(-time.Minute), "Reading the wake rules."), item(quiet, object{"type": "custom_tool_call", "name": "exec", "input": "await tools.exec_command({})"})}, "called exec"},
+		"nothing since it started":  {[]any{item(quiet, object{"type": "reasoning"})}, ""},
+		"an earlier turn's message": {nil, ""},
+	} {
+		t.Run(name, func(t *testing.T) {
+			// Arrange
+			home, worktree := t.TempDir(), t.TempDir()
+			day := filepath.Join(home, ".codex", "sessions", "2026", "10", "06")
+			start := at.Add(-time.Hour)
+			writeLines(t, filepath.Join(day, "rollout-2026-10-06T15-00-00-root.jsonl"), at.Add(-time.Minute),
+				sessionMeta("root", worktree, "", "", "", start), codexEvent("task_started", at.Add(-time.Minute), nil))
+			entries := []any{sessionMeta("c1", worktree, "root", "/root/map_monitor", "Curie", start.Add(10*time.Minute)),
+				message(start.Add(11*time.Minute), "An earlier turn's answer."),
+				codexEvent("task_started", start.Add(20*time.Minute), nil)}
+			writeLines(t, filepath.Join(day, "rollout-2026-10-06T15-10-00-c1.jsonl"), quiet, append(entries, test.entries...)...)
+			reader := Reader{Home: home, Now: func() time.Time { return at }}
+
+			// Act
+			tree, _ := reader.Read(context.Background(), Goblin{Meta: state.TaskMeta{ID: "tree", Harness: "codex", Backend: "native", Worktree: worktree}})
+
+			// Assert
+			if working := child(t, tree, "subagent:c1"); working.State != Silent || working.LastLine != test.want {
+				t.Errorf("child = %+v, want silent with last line %q", working, test.want)
+			}
+		})
+	}
+}
+
 // pi 0.85 records no sub-agents and no background jobs: its tree shows none
 // and guesses none.
 func TestReadShowsNoChildrenForPi(t *testing.T) {

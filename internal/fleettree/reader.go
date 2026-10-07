@@ -68,11 +68,12 @@ type processKey struct {
 	created int64
 }
 
-// cpuReading is a job's processor time when last read, and when it was last
-// seen using the processor.
+// cpuReading is a job's processor time when last judged, when it was last
+// seen using the processor, and whether it was working then.
 type cpuReading struct {
-	at, busy time.Time
-	cpu      time.Duration
+	at, busy  time.Time
+	cpu       time.Duration
+	isWorking bool
 }
 
 // busyShare is the share of one processor a job must use between readings
@@ -80,6 +81,11 @@ type cpuReading struct {
 // below it, a build or a test run far above. The monitor judges its own
 // progress by the same share.
 const busyShare = 0.05
+
+// judgeEvery is the shortest span a job's processor use is judged over, the
+// monitor's own: two reads can land a second apart, and a burst caught in
+// that second would otherwise pass for work.
+const judgeEvery = time.Minute
 
 // shellStartWindow is how long after its call a background shell's process
 // may start and still be matched to it.
@@ -98,42 +104,23 @@ func (r *Reader) Read(ctx context.Context, goblin Goblin) (Tree, error) {
 	meta := goblin.Meta
 	tree := Tree{TaskID: meta.ID, Generation: meta.SpawnGen, Harness: meta.Harness, Children: []Node{}, FetchedAt: now}
 
-	var processes []Process
-	var harness harnessProcesses
-	var processErr error
-	isRunning := false
-	if goblin.HarnessPID != 0 {
-		read := r.Processes
-		if read == nil {
-			read = Processes
+	processes, harness, isRunning, isReused, processErr := r.harnessOf(goblin)
+	switch {
+	case processErr != nil:
+		tree.Unread = append(tree.Unread, "processes: "+processErr.Error())
+	case isReused:
+		tree.Unread = append(tree.Unread, "processes: the goblin's harness has ended; its process id now names another program")
+	case isRunning:
+		for _, process := range harness.all {
+			tree.Memory += process.Memory
 		}
-		processes, processErr = read()
-		if processErr != nil {
-			tree.Unread = append(tree.Unread, "processes: "+processErr.Error())
-		} else if harness, isRunning = readHarness(goblin.HarnessPID, processes, HarnessLaunch); isRunning && !goblin.HarnessStarted.IsZero() && harness.top.Started.Sub(goblin.HarnessStarted).Abs() > startSlack {
-			// The terminal's program ended and Windows gave its id to
-			// another process, which is no part of this goblin.
-			isRunning = false
-			tree.Unread = append(tree.Unread, "processes: the goblin's harness has ended; its process id now names another program")
-		} else if isRunning {
-			for _, process := range harness.all {
-				tree.Memory += process.Memory
-			}
-			tree.OwnMemory = harness.harness.Memory
-		}
+		tree.OwnMemory = harness.harness.Memory
 	}
 
-	session := goblin.Session
-	if session == "" && r.Recorded != nil {
-		session = r.Recorded(meta)
-	}
+	path, metas := r.conversation(ctx, goblin, harness.harness, isRunning)
 	var shellCommands map[string]string
 	switch strings.ToLower(meta.Harness) {
 	case "claude":
-		if session == "" && isRunning {
-			session = claudeProcessSession(r.Home, harness.harness)
-		}
-		path := SessionTranscript(r.Home, "claude", session)
 		if path == "" {
 			tree.Unread = append(tree.Unread, "conversation: Claude Code names no conversation of this goblin's own")
 			break
@@ -146,8 +133,6 @@ func (r *Reader) Read(ctx context.Context, goblin Goblin) (Tree, error) {
 		tree.Children = append(tree.Children, log.nodes(now)...)
 		shellCommands = log.commands
 	case "codex":
-		metas := r.rollouts(ctx)
-		path := r.codexConversation(ctx, meta.Worktree, session, metas)
 		if path == "" {
 			tree.Unread = append(tree.Unread, "conversation: no Codex rollout of this goblin's own")
 			break
@@ -159,7 +144,7 @@ func (r *Reader) Read(ctx context.Context, goblin Goblin) (Tree, error) {
 	case "pi":
 		// pi 0.85 records no sub-agents and no background jobs; only its
 		// conversation's last write is read, when the terminal names it.
-		tree.ConversationAt = WrittenAt(SessionTranscript(r.Home, "pi", session))
+		tree.ConversationAt = WrittenAt(path)
 	}
 	if isRunning {
 		// A child of an earlier run of the harness ended with it, however
@@ -201,6 +186,64 @@ func (r *Reader) Read(ctx context.Context, goblin Goblin) (Tree, error) {
 }
 
 var kindOrder = map[Kind]int{KindSubagent: 0, KindShell: 1, KindMonitor: 2, KindProcess: 3, KindGate: 4}
+
+// harnessOf reads every running process and, among them, the goblin's
+// harness and everything under it. isReused is set when the harness's id
+// now names another program: the terminal's program ended and Windows gave
+// its id to a process that is no part of this goblin.
+func (r *Reader) harnessOf(goblin Goblin) (processes []Process, harness harnessProcesses, isRunning, isReused bool, err error) {
+	if goblin.HarnessPID == 0 {
+		return nil, harnessProcesses{}, false, false, nil
+	}
+	read := r.Processes
+	if read == nil {
+		read = Processes
+	}
+	if processes, err = read(); err != nil {
+		return nil, harnessProcesses{}, false, false, err
+	}
+	harness, isRunning = readHarness(goblin.HarnessPID, processes, HarnessLaunch)
+	if isRunning && !goblin.HarnessStarted.IsZero() && harness.top.Started.Sub(goblin.HarnessStarted).Abs() > startSlack {
+		return processes, harnessProcesses{}, false, true, nil
+	}
+	return processes, harness, isRunning, false, nil
+}
+
+// conversation is the goblin's own conversation file: the session its
+// terminal names, else the one the board recorded for its generation, else
+// for Claude Code the one its running process records for itself, and for
+// Codex its worktree's rollout written last; for Claude Code never merely the
+// newest in its folder. metas is every Codex rollout read, among which a
+// Codex goblin's children are.
+func (r *Reader) conversation(ctx context.Context, goblin Goblin, harness Process, isRunning bool) (string, map[string]rolloutMeta) {
+	session := goblin.Session
+	if session == "" && r.Recorded != nil {
+		session = r.Recorded(goblin.Meta)
+	}
+	switch strings.ToLower(goblin.Meta.Harness) {
+	case "claude":
+		if session == "" && isRunning {
+			session = claudeProcessSession(r.Home, harness)
+		}
+		return SessionTranscript(r.Home, "claude", session), nil
+	case "codex":
+		metas := r.rollouts(ctx)
+		return r.codexConversation(ctx, goblin.Meta.Worktree, session, metas), metas
+	case "pi":
+		return SessionTranscript(r.Home, "pi", session), nil
+	}
+	return "", nil
+}
+
+// Conversation is the goblin's own conversation file, chosen as Read chooses
+// it, for a reader of what the goblin last said.
+func (r *Reader) Conversation(ctx context.Context, goblin Goblin) string {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	_, harness, isRunning, _, _ := r.harnessOf(goblin)
+	path, _ := r.conversation(ctx, goblin, harness.harness, isRunning)
+	return path
+}
 
 // claudeLog keeps one log per goblin, read on from where it stopped while
 // the goblin's conversation stays the same.
@@ -287,23 +330,31 @@ func (r *Reader) jobNodes(harness harnessProcesses, shellCommands map[string]str
 		group, label, detail := classify(job, facts)
 		key := processKey{job.root.PID, job.root.Created}
 		cpu := job.cpu()
+		// A job is judged when first read, over its life so far, and again
+		// once judgeEvery has passed since; between, it keeps its judgment.
 		reading, seen := r.readings[key]
-		share := 0.0
-		if elapsed := now.Sub(reading.at); seen && elapsed > 0 {
-			share = float64(cpu-reading.cpu) / float64(elapsed)
-		} else if age := now.Sub(job.root.Started); age > 0 {
-			share = float64(cpu) / float64(age)
-		}
-		busy := reading.busy
-		if busy.IsZero() {
-			busy = job.root.Started
+		if elapsed := now.Sub(reading.at); !seen || elapsed >= judgeEvery {
+			share := 0.0
+			if seen {
+				share = float64(cpu-reading.cpu) / float64(elapsed)
+			} else if age := now.Sub(job.root.Started); age > 0 {
+				share = float64(cpu) / float64(age)
+			}
+			if reading.busy.IsZero() {
+				reading.busy = job.root.Started
+			}
+			reading.isWorking = share >= busyShare
+			if reading.isWorking {
+				reading.busy = now
+			}
+			reading.at, reading.cpu = now, cpu
+			r.readings[key] = reading
 		}
 		state := Waiting
-		if share >= busyShare {
-			state, busy = Working, now
+		if reading.isWorking {
+			state = Working
 		}
-		r.readings[key] = cpuReading{at: now, busy: busy, cpu: cpu}
-		node := Node{ID: fmt.Sprintf("process:%d:%d", job.root.PID, job.root.Created), Kind: KindProcess, Group: group, Label: label, Detail: detail, State: state, Started: job.root.Started, LastActivity: busy, Memory: job.memory(), SourceUpdatedAt: now, cpu: cpu, process: job.name()}
+		node := Node{ID: fmt.Sprintf("process:%d:%d", job.root.PID, job.root.Created), Kind: KindProcess, Group: group, Label: label, Detail: detail, State: state, Started: job.root.Started, LastActivity: reading.busy, Memory: job.memory(), SourceUpdatedAt: now, cpu: cpu, process: job.name()}
 		if shell := shellOf(job, facts.commands[job.root.PID], shellCommands, children); shell != "" {
 			node.Parent = shell
 		}

@@ -107,6 +107,9 @@ func TestGateNodeSaysWhereTheRunStands(t *testing.T) {
 		"passed":        {"completed", []pipeline.StepDetail{{Name: "ci", Status: "completed", StartedAt: started}}, Done, "Gate passed"},
 		"cancelled":     {"cancelled", []pipeline.StepDetail{{Name: "review", Status: "completed", StartedAt: started}}, Failed, "Gate cancelled"},
 		"between steps": {"running", []pipeline.StepDetail{{Name: "review", Status: "completed", StartedAt: started}, {Name: "test", Status: "pending"}}, Waiting, "Gate"},
+		// An ended run's step left fixing or running is not work going on.
+		"cancelled mid-fix":       {"cancelled", []pipeline.StepDetail{{Name: "review", Status: "fixing", StartedAt: started}}, Failed, "Gate cancelled"},
+		"an interrupted CI watch": {"ci_monitor_interrupted", []pipeline.StepDetail{{Name: "review", Status: "completed", StartedAt: started}, {Name: "ci", Status: "running", StartedAt: started}}, Failed, "Gate interrupted"},
 	} {
 		t.Run(name, func(t *testing.T) {
 			node, ok := gateNode(gateReading{progress: pipeline.Progress{RunID: "r", Status: test.status}, steps: test.steps}, born, nil)

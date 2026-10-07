@@ -166,7 +166,8 @@ func codexChildren(metas map[string]rolloutMeta, root string) []Node {
 
 // codexChild reads one child agent's rollout: it works from a task_started
 // until its task_complete, which carries its last message, and a turn_aborted
-// ends it unfinished.
+// ends it unfinished. A working child's last line is the last thing it was
+// seen to do since its turn started: its newest message or tool call.
 func codexChild(path string, meta rolloutMeta) Node {
 	written, entries := tail(path)
 	name := meta.path[strings.LastIndex(meta.path, "/")+1:]
@@ -175,21 +176,32 @@ func codexChild(path string, meta rolloutMeta) Node {
 		detail = "child agent"
 	}
 	node := Node{ID: "subagent:" + meta.id, Kind: KindSubagent, Label: label(strings.ReplaceAll(name, "_", " "), "Child agent"), Detail: detail, State: Working, Started: meta.started, LastActivity: written, SourceUpdatedAt: written}
+	lastDid := ""
 	for i := len(entries) - 1; i >= 0; i-- {
 		var entry struct {
 			Timestamp time.Time `json:"timestamp"`
 			Type      string    `json:"type"`
 			Payload   struct {
-				Type      string `json:"type"`
-				LastAgent string `json:"last_agent_message"`
-				Reason    string `json:"reason"`
+				Type      string          `json:"type"`
+				LastAgent string          `json:"last_agent_message"`
+				Reason    string          `json:"reason"`
+				Role      string          `json:"role"`
+				Name      string          `json:"name"`
+				Content   json.RawMessage `json:"content"`
 			} `json:"payload"`
 		}
-		if json.Unmarshal(entries[i], &entry) != nil || entry.Type != "event_msg" {
+		if json.Unmarshal(entries[i], &entry) != nil {
+			continue
+		}
+		if entry.Type == "response_item" && lastDid == "" {
+			lastDid = codexDid(entry.Payload.Type, entry.Payload.Role, entry.Payload.Name, entry.Payload.Content)
+		}
+		if entry.Type != "event_msg" {
 			continue
 		}
 		switch entry.Payload.Type {
 		case "task_started":
+			node.LastLine = lastDid
 			return node
 		case "task_complete":
 			node.State, node.Finished = Done, entry.Timestamp.UTC()
@@ -201,14 +213,31 @@ func codexChild(path string, meta rolloutMeta) Node {
 			return node
 		}
 	}
+	node.LastLine = lastDid
 	return node
 }
 
-// CodexRollout is a Codex goblin's own rollout: the one session names, or,
-// for a native goblin whose terminal names none, the rollout bound to its
-// worktree whose entries were written last, never a child agent's.
-func (r *Reader) CodexRollout(ctx context.Context, worktree, session string) string {
-	r.mu.Lock()
-	defer r.mu.Unlock()
-	return r.codexConversation(ctx, worktree, session, r.rollouts(ctx))
+// codexDid is what one rollout item says the agent did: the first line of a
+// message it wrote, or the tool it called; nothing for anything else.
+func codexDid(kind, role, name string, content json.RawMessage) string {
+	switch kind {
+	case "message":
+		var parts []struct {
+			Type string `json:"type"`
+			Text string `json:"text"`
+		}
+		if role != "assistant" || json.Unmarshal(content, &parts) != nil {
+			return ""
+		}
+		for _, part := range parts {
+			if part.Type == "output_text" && strings.TrimSpace(part.Text) != "" {
+				return bounded(firstLine(part.Text), 200)
+			}
+		}
+	case "function_call", "custom_tool_call":
+		if name != "" {
+			return "called " + name
+		}
+	}
+	return ""
 }

@@ -6,9 +6,6 @@ import (
 	"encoding/json"
 	"errors"
 	"io"
-	"os"
-	"path/filepath"
-	"regexp"
 	"strings"
 
 	"github.com/fpresta0607/code-goblins/internal/fleettree"
@@ -24,54 +21,29 @@ type ReplyReader interface {
 }
 
 // LastReply reads the reply that ended the goblin's last turn from its
-// harness's own record: Claude Code's conversation, the session Herdr names
-// or else the newest Claude Code keeps for the goblin's worktree, and Codex's
-// rollout, the session Herdr names or else the newest that names the
-// worktree. pi's is read off its screen, the one harness whose record this
-// does not read.
+// harness's own record: Claude Code's conversation or Codex's rollout, the
+// goblin's own as the board's tree reads it, which is the session Herdr
+// names or else the one the board's record or the harness itself proves.
+// pi's is read off its screen, the one harness whose record this does not
+// read.
 func (h *HostProgress) LastReply(ctx context.Context, meta state.TaskMeta, sample EndpointSample) string {
+	var read func(entries [][]byte) string
 	switch strings.ToLower(sample.Harness) {
 	case "claude":
-		if sample.Session != "" {
-			return lastReplyIn(fleettree.SessionTranscript(h.Home, "claude", sample.Session), claudeReply)
-		}
-		return lastReplyIn(h.newestClaudeConversation(meta.Worktree), claudeReply)
+		read = claudeReply
 	case "codex":
-		return lastReplyIn(h.tree().CodexRollout(ctx, meta.Worktree, sample.Session), codexReply)
+		read = codexReply
 	case "pi":
 		return screenReply(sample.Capture)
-	}
-	return ""
-}
-
-// claudeFolderCharacters are the characters Claude Code writes as a hyphen in
-// the folder it keeps a working folder's conversations in: everything but a
-// letter or a digit.
-var claudeFolderCharacters = regexp.MustCompile(`[^A-Za-z0-9]`)
-
-// newestClaudeConversation is the conversation Claude Code last wrote in the
-// folder it keeps for worktree, which it names after the folder a session
-// starts in. A native goblin's terminal names no session, and the goblin is
-// the one Claude Code working there; the folder its shell is in can move, so
-// the entries' own folder is not read.
-func (h *HostProgress) newestClaudeConversation(worktree string) string {
-	if h.Home == "" || !filepath.IsAbs(worktree) {
+	default:
 		return ""
 	}
-	matches, _ := filepath.Glob(filepath.Join(h.Home, ".claude", "projects", claudeFolderCharacters.ReplaceAllString(worktree, "-"), "*.jsonl"))
-	return newestFile(matches)
-}
-
-// newestFile is the path in paths whose file was written last.
-func newestFile(paths []string) string {
-	newest := ""
-	var written int64
-	for _, path := range paths {
-		if info, err := os.Stat(path); err == nil && (newest == "" || info.ModTime().UnixNano() > written) {
-			newest, written = path, info.ModTime().UnixNano()
-		}
+	meta.Harness = sample.Harness
+	goblin := fleettree.Goblin{Meta: meta, Session: sample.Session}
+	if sample.Session == "" {
+		goblin.HarnessPID, goblin.HarnessStarted, _ = h.harness(ctx, meta, sample)
 	}
-	return newest
+	return lastReplyIn(h.tree().Conversation(ctx, goblin), read)
 }
 
 // lastReplyIn reads the reply read finds in the end of the transcript at

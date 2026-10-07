@@ -5,11 +5,14 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"syscall"
 	"testing"
 	"time"
 
+	"github.com/fpresta0607/code-goblins/internal/fleettree"
+	"github.com/fpresta0607/code-goblins/internal/pipeline"
 	"github.com/fpresta0607/code-goblins/internal/state"
 )
 
@@ -128,5 +131,58 @@ func TestAWorkingSubagentHoldsTheStaleWake(t *testing.T) {
 	}
 	if result.Event == nil || result.Observations[0].Reason != BusyTurnOverAge {
 		t.Fatalf("once the sub-agent stopped = %+v, want busy_turn_over_age", result.Event)
+	}
+}
+
+// treeGate is a goblin's gate run as the pipeline's reader gives it.
+type treeGate struct {
+	progress pipeline.Progress
+	steps    []pipeline.StepDetail
+}
+
+func (g treeGate) Progress(context.Context, string, string) (pipeline.Progress, error) {
+	return g.progress, nil
+}
+
+func (g treeGate) StepDetails(context.Context, string) ([]pipeline.StepDetail, error) {
+	return g.steps, nil
+}
+
+// A goblin whose gate is working counts as working while its own turn shows
+// nothing new: the gate is its work and the gate step's last activity its
+// progress, so a goblin waiting on its gate is not owed an answer.
+func TestAWorkingGateIsTheGoblinsProgress(t *testing.T) {
+	// Arrange
+	home, stateDir := t.TempDir(), t.TempDir()
+	now := time.Now().UTC().Truncate(time.Second)
+	meta, _ := nativeClaudeGoblin(t, home, stateDir, now.Add(-3*time.Hour))
+	gitDir := filepath.Join(t.TempDir(), "worktrees", "gb-g1")
+	if err := os.MkdirAll(gitDir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(meta.Worktree, ".git"), []byte("gitdir: "+gitDir+"\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(gitDir, "HEAD"), []byte("ref: refs/heads/feat/g1\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	stepActivity := now.Add(-time.Minute)
+	gate := treeGate{progress: pipeline.Progress{RunID: "run-1", Status: "running"}, steps: []pipeline.StepDetail{
+		{Name: "test", Status: "running", StartedAt: now.Add(-20 * time.Minute).Unix(), LastActivityAt: stepActivity.Unix(), LastActivity: "go test ./internal/fleettree"},
+	}}
+	prober := &HostProgress{StateDir: stateDir, Home: home, Tree: &fleettree.Reader{Home: home, Gate: gate}}
+
+	// Act
+	progress, err := prober.InspectProgress(context.Background(), meta, EndpointSample{Harness: "claude"})
+
+	// Assert
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !slices.Contains(progress.Jobs, `gate "Gate: test"`) {
+		t.Errorf("Jobs = %v, want the working gate named as the goblin's work", progress.Jobs)
+	}
+	if !progress.TranscriptAt.Equal(stepActivity) {
+		t.Errorf("TranscriptAt = %v, want the gate step's last activity %v", progress.TranscriptAt, stepActivity)
 	}
 }

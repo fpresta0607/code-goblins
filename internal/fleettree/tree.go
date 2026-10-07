@@ -131,12 +131,13 @@ func (t Tree) Working() bool {
 }
 
 // ActivityAt is the latest sign of work the goblin's own records show: its
-// conversation written, or any agent, shell or monitor under it active. A
-// process job's activity is its processor use, which Jobs carries instead.
+// conversation written, any agent, shell or monitor under it active, or its
+// gate's step at work. A process job's activity is its processor use, which
+// Jobs carries instead, and a gate waiting on a decision is not at work.
 func (t Tree) ActivityAt() time.Time {
 	latest := t.ConversationAt
 	for _, child := range t.Children {
-		if child.Kind != KindProcess && child.Kind != KindGate && child.LastActivity.After(latest) {
+		if child.Kind != KindProcess && (child.Kind != KindGate || child.State == Working || child.State == Silent) && child.LastActivity.After(latest) {
 			latest = child.LastActivity
 		}
 	}
@@ -145,8 +146,8 @@ func (t Tree) ActivityAt() time.Time {
 
 // Jobs names the goblin's running jobs of processes the way a wake names
 // them, "name (pid N)", with the processor time they have used, and the
-// agents, shells and monitors still working under it, which hold the
-// goblin's turn as its processes do.
+// agents, shells, monitors and gate step still at work under it, which hold
+// the goblin's turn as its processes do.
 func (t Tree) Jobs() ([]string, time.Duration) {
 	var names []string
 	var used time.Duration
@@ -155,7 +156,7 @@ func (t Tree) Jobs() ([]string, time.Duration) {
 		case child.process != "":
 			names = append(names, child.process)
 			used += child.cpu
-		case (child.Kind == KindSubagent || child.Kind == KindShell || child.Kind == KindMonitor) && (child.State == Working || child.State == Silent):
+		case child.Kind != KindProcess && (child.State == Working || child.State == Silent):
 			names = append(names, string(child.Kind)+" "+quote(child.Label))
 		}
 	}

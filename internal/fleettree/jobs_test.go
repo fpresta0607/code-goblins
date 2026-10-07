@@ -162,12 +162,12 @@ func TestReadGroupsAGoblinsProcessesIntoJobsWithMemory(t *testing.T) {
 	}
 	goblin := Goblin{Meta: state.TaskMeta{ID: "tree", Harness: "codex"}, HarnessPID: 100}
 
-	// Act: two readings fifteen seconds apart, the test run using the
-	// processor between them and the dev server not.
+	// Act: two readings a minute apart, the test run using the processor
+	// between them and the dev server not.
 	if _, err := reader.Read(context.Background(), goblin); err != nil {
 		t.Fatal(err)
 	}
-	now, testCPU = at.Add(15*time.Second), testCPU+5*time.Second
+	now, testCPU = at.Add(time.Minute), testCPU+5*time.Second
 	tree, err := reader.Read(context.Background(), goblin)
 
 	// Assert
@@ -267,7 +267,7 @@ func TestReadKeepsEachGoblinsReadingsApart(t *testing.T) {
 	}
 
 	// Act
-	now, testCPU = at.Add(15*time.Second), testCPU+5*time.Second
+	now, testCPU = at.Add(time.Minute), testCPU+5*time.Second
 	if _, err := reader.Read(context.Background(), second); err != nil {
 		t.Fatal(err)
 	}
@@ -278,6 +278,47 @@ func TestReadKeepsEachGoblinsReadingsApart(t *testing.T) {
 		t.Fatal(err)
 	}
 	if test := child(t, tree, "process:102:3"); test.State != Working {
-		t.Errorf("test run = %+v, want working: it used a third of a processor since this goblin's last reading", test)
+		t.Errorf("test run = %+v, want working: it used a twelfth of a processor since this goblin's last reading", test)
+	}
+}
+
+// A job's processor use is judged over a minute at least, as the monitor
+// judges its own: a burst caught between two reads a second apart is not
+// work, and moves neither the job nor the background shell it runs for.
+func TestReadJudgesProcessorUseOverAMinute(t *testing.T) {
+	// Arrange
+	home := t.TempDir()
+	launched := at.Add(-time.Hour)
+	shellStart := launched.Add(20 * time.Minute)
+	goblin, _ := claudeGoblin(t, home,
+		call("toolu_S1", "Bash", object{"command": "go test ./internal/... 2>&1 | tail -5", "description": "Run the Go tests", "run_in_background": true}, shellStart.Add(-time.Second)),
+		result("toolu_S1", "running", object{"backgroundTaskId": "b1"}, shellStart),
+	)
+	goblin.HarnessPID = 100
+	testCPU, now := 30*time.Second, at
+	reader := Reader{
+		Home:        home,
+		Processes:   func() ([]Process, error) { return goblinProcesses(launched, testCPU), nil },
+		Listeners:   func() (map[int][]int, error) { return nil, nil },
+		CommandLine: func(pid int) (string, error) { return goblinCommands[pid], nil },
+		Now:         func() time.Time { return now },
+	}
+	first, err := reader.Read(context.Background(), goblin)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Act
+	now, testCPU = at.Add(time.Second), testCPU+100*time.Millisecond
+	burst, _ := reader.Read(context.Background(), goblin)
+	now, testCPU = at.Add(time.Minute), testCPU+5*time.Second
+	minute, _ := reader.Read(context.Background(), goblin)
+
+	// Assert
+	if shell := child(t, burst, "shell:b1"); !shell.LastActivity.Equal(child(t, first, "shell:b1").LastActivity) || !burst.ActivityAt().Equal(first.ActivityAt()) {
+		t.Errorf("a tenth of a second's burst moved the shell to %v and the goblin to %v; want both as first read", shell.LastActivity, burst.ActivityAt())
+	}
+	if shell := child(t, minute, "shell:b1"); !shell.LastActivity.Equal(at.Add(time.Minute)) {
+		t.Errorf("shell after a minute's work = %v, want %v", shell.LastActivity, at.Add(time.Minute))
 	}
 }

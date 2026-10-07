@@ -23,11 +23,13 @@ func TestTreeWorksWhileAnyChildWorks(t *testing.T) {
 		isWorking bool
 		activity  time.Time
 	}{
-		"a working sub-agent": {[]Node{{Kind: KindSubagent, State: Working, LastActivity: at}, {Kind: KindShell, State: Done, LastActivity: at.Add(-time.Hour)}}, true, at},
-		"a working job":       {[]Node{{Kind: KindProcess, State: Working, LastActivity: at}}, true, at.Add(-time.Hour)},
-		"only silent":         {[]Node{{Kind: KindShell, State: Silent, LastActivity: at.Add(-20 * time.Minute)}}, false, at.Add(-20 * time.Minute)},
-		"all finished":        {[]Node{{Kind: KindSubagent, State: Done, LastActivity: at.Add(-30 * time.Minute)}, {Kind: KindProcess, State: Waiting}}, false, at.Add(-30 * time.Minute)},
-		"no children":         {nil, false, at.Add(-time.Hour)},
+		"a working sub-agent":  {[]Node{{Kind: KindSubagent, State: Working, LastActivity: at}, {Kind: KindShell, State: Done, LastActivity: at.Add(-time.Hour)}}, true, at},
+		"a working job":        {[]Node{{Kind: KindProcess, State: Working, LastActivity: at}}, true, at.Add(-time.Hour)},
+		"only silent":          {[]Node{{Kind: KindShell, State: Silent, LastActivity: at.Add(-20 * time.Minute)}}, false, at.Add(-20 * time.Minute)},
+		"all finished":         {[]Node{{Kind: KindSubagent, State: Done, LastActivity: at.Add(-30 * time.Minute)}, {Kind: KindProcess, State: Waiting}}, false, at.Add(-30 * time.Minute)},
+		"no children":          {nil, false, at.Add(-time.Hour)},
+		"a working gate":       {[]Node{{Kind: KindGate, State: Working, LastActivity: at}}, true, at},
+		"a gate on a decision": {[]Node{{Kind: KindGate, State: Waiting, LastActivity: at}}, false, at.Add(-time.Hour)},
 	} {
 		t.Run(name, func(t *testing.T) {
 			tree := Tree{ConversationAt: at.Add(-time.Hour), Children: test.children}
@@ -35,27 +37,32 @@ func TestTreeWorksWhileAnyChildWorks(t *testing.T) {
 				t.Errorf("Working() = %v, want %v", tree.Working(), test.isWorking)
 			}
 			if !tree.ActivityAt().Equal(test.activity) {
-				t.Errorf("ActivityAt() = %v, want %v: the conversation or an agent, shell or monitor, never a job's start", tree.ActivityAt(), test.activity)
+				t.Errorf("ActivityAt() = %v, want %v: the conversation, an agent, shell or monitor, or a working gate, never a job's start", tree.ActivityAt(), test.activity)
 			}
 		})
 	}
 }
 
 // Jobs names what holds the goblin's turn: each job of processes as a wake
-// names it, and each agent, shell or monitor still running.
+// names it, each agent, shell or monitor still running, and a working gate.
 func TestTreeJobsNamesWhatHoldsTheGoblinsTurn(t *testing.T) {
 	tree := Tree{Children: []Node{
 		{Kind: KindSubagent, Label: "Map plumbing", State: Working},
 		{Kind: KindSubagent, Label: "Research", State: Done},
 		{Kind: KindMonitor, Label: "CI checks", State: Silent},
 		{Kind: KindProcess, State: Waiting, process: "node.exe (pid 9)", cpu: 2 * time.Second},
-		{Kind: KindGate, State: Working},
+		{Kind: KindGate, Label: "Gate: test", State: Working},
 	}}
+	deciding := Tree{Children: []Node{{Kind: KindGate, Label: "Gate: review", State: Waiting}}}
 
 	names, used := tree.Jobs()
+	waiting, _ := deciding.Jobs()
 
-	if !slices.Equal(names, []string{`subagent "Map plumbing"`, `monitor "CI checks"`, "node.exe (pid 9)"}) || used != 2*time.Second {
+	if !slices.Equal(names, []string{`subagent "Map plumbing"`, `monitor "CI checks"`, "node.exe (pid 9)", `gate "Gate: test"`}) || used != 2*time.Second {
 		t.Errorf("Jobs() = %v, %s", names, used)
+	}
+	if len(waiting) != 0 {
+		t.Errorf("Jobs() of a gate waiting on a decision = %v, want none: the goblin owes it the decision", waiting)
 	}
 }
 
