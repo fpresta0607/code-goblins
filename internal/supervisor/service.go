@@ -139,6 +139,7 @@ type Service struct {
 	ciDurations     []CIDuration
 	sameArea        map[string]sameArea
 	hostedChecks    map[string]HostedChecks
+	deploys         map[string]Deployment
 	localReports    map[string][]verify.Report
 	localReadErr    error
 	progressReadErr error
@@ -444,7 +445,7 @@ func (s *Service) cycle(ctx context.Context, recover bool) {
 	watched, fleetReadErr := readFleetWakes(s.Store.Home.State)
 	s.mu.Lock()
 	s.workProgress, s.ciDurations, s.sameArea, s.progressReadErr = watched.Progress, watched.Durations, watched.SameArea, fleetReadErr
-	s.hostedChecks = watched.Hosted
+	s.hostedChecks, s.deploys = watched.Hosted, watched.Deploys
 	localReports, localReadErr := s.readLocalReports()
 	s.localReports, s.localReadErr = localReports, localReadErr
 	s.mu.Unlock()
@@ -960,6 +961,9 @@ type Task struct {
 	// CI poll, and LocalChecks its change's newest cfo gate test run.
 	HostedChecks *HostedChecks `json:"hosted_checks,omitempty"`
 	LocalChecks  *LocalChecks  `json:"local_checks,omitempty"`
+	// Deployment is how the deploy of its merged pull request stands, apart
+	// from its checks.
+	Deployment *Deployment `json:"deployment,omitempty"`
 	// Comeback is where a live goblin the last restart ended is in coming
 	// back: waiting for its turn, or stopped with the reason.
 	Comeback *state.ComebackEntry `json:"comeback,omitempty"`
@@ -1059,7 +1063,7 @@ func (s *Service) Snapshot() (Snapshot, error) {
 	d := s.Store.Snapshot()
 	s.mu.Lock()
 	out := Snapshot{Example: s.Options.Example, Instance: s.Instance, Revision: s.revision, Started: s.Started, At: time.Now().UTC(), Reconciled: s.reconciled, Error: s.lastError, Tasks: []Task{}, Attention: []string{}, Sessions: []Session{}, Retired: d.Retired, Actions: d.Actions, Issues: d.Issues}
-	progress, sameAreas, hostedChecks, localReports := maps.Clone(s.workProgress), maps.Clone(s.sameArea), maps.Clone(s.hostedChecks), maps.Clone(s.localReports)
+	progress, sameAreas, hostedChecks, localReports, deploys := maps.Clone(s.workProgress), maps.Clone(s.sameArea), maps.Clone(s.hostedChecks), maps.Clone(s.localReports), maps.Clone(s.deploys)
 	if s.localReadErr != nil {
 		out.Issues = append(slices.Clone(out.Issues), s.localReadErr.Error())
 	}
@@ -1413,6 +1417,9 @@ func (s *Service) Snapshot() (Snapshot, error) {
 		}
 		if ticket, exists := taskTickets[id]; exists {
 			task.Ticket = &ticket
+		}
+		if deployment, exists := deploys[task.PR]; exists && task.PR != "" {
+			task.Deployment = &deployment
 		}
 	}
 	if len(out.Decisions) > 100 {

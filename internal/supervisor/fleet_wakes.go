@@ -85,8 +85,11 @@ type fleetWakes struct {
 	// Checks holds each goblin pull request's finished checks the CFO was
 	// woken for, so each completion wakes once, and Hosted what each one's
 	// checks said at its last poll, for its goblin's card.
-	Checks          map[string]reportedChecks   `json:"checks,omitempty"`
-	Hosted          map[string]HostedChecks     `json:"hosted,omitempty"`
+	Checks map[string]reportedChecks `json:"checks,omitempty"`
+	Hosted map[string]HostedChecks   `json:"hosted,omitempty"`
+	// Deploys holds, by pull request, how the deploy of its merge stands, as
+	// the default branch's push runs said at the last poll.
+	Deploys         map[string]Deployment       `json:"deploys,omitempty"`
 	Health          map[string]reportedPRHealth `json:"health,omitempty"`
 	BackOff         map[string]time.Time        `json:"backoff,omitempty"`
 	AllowanceFloors map[string]allowanceFloor   `json:"allowance_floors,omitempty"`
@@ -502,6 +505,11 @@ func (s *Service) pollCI(ctx context.Context, w *fleetWakes, now time.Time, curr
 			delete(w.Hosted, url)
 		}
 	}
+	for url, deployment := range w.Deploys {
+		if now.Sub(deployment.At) >= ciRecordFor {
+			delete(w.Deploys, url)
+		}
+	}
 	for key, last := range w.Woke {
 		if now.Sub(last) >= ciRecordFor {
 			delete(w.Woke, key)
@@ -832,6 +840,7 @@ func reportChecks(stateDir string, w *fleetWakes, goblin string, pr ghPullReques
 type ghRun struct {
 	ID         int64     `json:"databaseId"`
 	Workflow   string    `json:"workflowName"`
+	Title      string    `json:"displayTitle"`
 	Status     string    `json:"status"`
 	Conclusion string    `json:"conclusion"`
 	HeadSHA    string    `json:"headSha"`
@@ -879,7 +888,7 @@ func pollMain(ctx context.Context, runner execx.Runner, stateDir string, w *flee
 	if err != nil {
 		return err, nil
 	}
-	out, err := runOutput(ctx, runner, repo, "gh", "run", "list", "--branch", branch, "--event", "push", "--limit", "20", "--json", "databaseId,workflowName,status,conclusion,headSha,url,startedAt,updatedAt")
+	out, err := runOutput(ctx, runner, repo, "gh", "run", "list", "--branch", branch, "--event", "push", "--limit", "20", "--json", "databaseId,workflowName,displayTitle,status,conclusion,headSha,url,startedAt,updatedAt")
 	if err != nil {
 		return fmt.Errorf("ci wakes: list the push runs of %s's %s: %w", repo, branch, err), nil
 	}
@@ -887,6 +896,7 @@ func pollMain(ctx context.Context, runner execx.Runner, stateDir string, w *flee
 	if err := json.Unmarshal([]byte(out), &runs); err != nil {
 		return fmt.Errorf("ci wakes: gh listed the push runs of %s in a shape it cannot read: %w", repo, err), nil
 	}
+	recordDeployments(w, runs, now)
 	newest := map[string]bool{}
 	var errs error
 	for _, run := range runs {
