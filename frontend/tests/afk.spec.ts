@@ -244,7 +244,7 @@ for (const response of ["successful", "failed"] as const) test(`a late ${respons
   const inFlight: Route[] = [];
   await page.route("**/api/announce", (route) => { inFlight.push(route); });
   await push(page, snapshot({ questions: [QUESTIONS[0]] }));
-  await expect.poll(() => inFlight.some((route) => (route.request().postDataJSON() as { keys: string[] }).keys.includes("alert:question:q-drop-table"))).toBe(true);
+  await expect.poll(() => inFlight.some((route) => (route.request().postDataJSON() as { keys: string[] }).keys.includes("alert:question:q-drop-table@" + QUESTIONS[0].created_at))).toBe(true);
   await push(page, snapshot({ questions: [QUESTIONS[0]], afk: on({ held: [HELD[0]] }) }));
   await expect(bar(page).locator(".cfo-rest > p")).toHaveText(/1 held for you\.$/);
   for (const route of inFlight.splice(0)) await route.fulfill(response === "successful"

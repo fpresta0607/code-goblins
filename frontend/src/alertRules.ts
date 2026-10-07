@@ -1,5 +1,6 @@
 import { isOpen, itemFor, newestItemOf, openKeys, waitingItems, waitReason, waitsOnOverlord, type Item } from "./commandQueue.ts";
 import { credentialAsk } from "./credentials.ts";
+import { publishedAt } from "./item-state.ts";
 import { messageBlocks, plainMessage } from "./messageText.ts";
 import type { Snapshot, Task } from "./types.ts";
 import { pullRequestLabel } from "./workflow.ts";
@@ -10,8 +11,9 @@ import { plainText, reportBody, withoutHarness } from "./task-words.ts";
 export type AlertTarget = { kind: "command"; key: string } | { kind: "task"; id: string } | { kind: "cfo" };
 
 // An alert tells the Overlord that something needs him or finished: its key
-// is the one event it stands for, a Command Center item's own id or a
-// goblin's news, and says is who says what, by which a copy of it is known.
+// is the one event it stands for, a Command Center item's id with its
+// publishing or a goblin's news, and says is who says what, by which a copy
+// of it is known.
 // It is a goblin, or the CFO, coming up to him: speaker names who, text is its
 // one plain line, and action is the one thing to do about it.
 export interface BoardAlert {
@@ -39,12 +41,17 @@ const OPEN_COMMAND_CENTER = "Open Command Center";
 // it, falling back to its id.
 const nameOf = (tasks: Task[], id: string) => withoutHarness(tasks.find((task) => task.id === id)?.title || "") || id;
 
-// An item alerts by its own id, and says what it asks and who asks it, so the
-// same ask filed again under a new item, such as a wait a goblin files once
-// more, is known as a copy.
+// An item's alert is keyed by its id and the publishing it stands for: the
+// supervisor takes an ID again once it has dropped the record that used it,
+// and the same ID with another created_at is a new item.
+const itemAlertKey = (item: Item) => item.key + "@" + publishedAt(item);
+
+// An item alerts as its publishing, and says what it asks and who asks it, so
+// the same ask filed again under a new item, such as a wait a goblin files
+// once more, is known as a copy.
 function itemAlert(item: Item, tasks: Task[]): BoardAlert {
   const target: AlertTarget = { kind: "command", key: item.key };
-  const alert = (task: string, text: string): BoardAlert => ({ key: item.key, says: "item:" + (task || "cfo") + ":" + text, tone: "needs", speaker: task ? nameOf(tasks, task) : "CFO", text: shortened(text), action: OPEN_COMMAND_CENTER, task, target });
+  const alert = (task: string, text: string): BoardAlert => ({ key: itemAlertKey(item), says: "item:" + (task || "cfo") + ":" + text, tone: "needs", speaker: task ? nameOf(tasks, task) : "CFO", text: shortened(text), action: OPEN_COMMAND_CENTER, task, target });
   const asker = (task: string) => task ? shortened(nameOf(tasks, task), NAME_LIMIT) : "The CFO";
   if (item.kind === "question") {
     // A question says its lead: the first paragraph or bullet, without the
@@ -145,7 +152,7 @@ const SAME_EVENT_MS = 5 * 60 * 1000;
 
 // unseen is the alerts among a snapshot's that are not copies of one this
 // browser showed, each once, and the alerts remembered after showing them. An
-// item is a copy of one shown under its id, whenever that was, and any alert
+// item is a copy of one shown under its key, whenever that was, and any alert
 // is a copy of one that said the same less than five minutes before: a
 // snapshot, a reconnect or a reload brings no alert back, and the same news
 // later is a new event. An item that is a copy by its words is remembered
@@ -170,21 +177,25 @@ export function unseen(alerts: BoardAlert[], seen: readonly SeenAlert[], now: nu
 export const isItemAlert = (alert: BoardAlert) => alert.key !== alert.says;
 
 // The name the supervisor records an alert under, short enough for it to
-// take: a goblin's long reason is one event by how it starts. The cut never
-// leaves half of a character, which the supervisor would record as another.
+// take: an item's whole, since its id is short and its publishing ends it,
+// and a goblin's news cut, since a long reason is one event by how it starts.
+// The cut never leaves half of a character, which the supervisor would record
+// as another.
 export function announceKey(alert: BoardAlert): string {
+  if (isItemAlert(alert)) return "alert:" + alert.key;
   const name = ("alert:" + alert.key).slice(0, 160);
   const last = name.charCodeAt(name.length - 1);
   return last >= 0xd800 && last <= 0xdbff ? name.slice(0, -1) : name;
 }
 
-// An alert whose item the snapshot shows closed has nothing left to open: he
-// answered or cleared it, here or anywhere else. An item the snapshot does
-// not hold, as while the supervisor restarts, is not known to be closed.
+// An alert whose item the snapshot shows closed, or published again since
+// under its id, has nothing left to open: he answered or cleared it, here or
+// anywhere else. An item the snapshot does not hold, as while the supervisor
+// restarts, is not known to be closed.
 export function outlived(alert: BoardAlert, snapshot: Snapshot): boolean {
   if (alert.target.kind === "cfo") return alert.key !== "cfo-quiet:" + snapshot.cfo_quiet?.since;
-  const item = isItemAlert(alert) ? itemFor(snapshot, alert.key) : undefined;
-  return !!item && !isOpen(item);
+  const item = isItemAlert(alert) && alert.target.kind === "command" ? itemFor(snapshot, alert.target.key) : undefined;
+  return !!item && (!isOpen(item) || itemAlertKey(item) !== alert.key);
 }
 
 // The most toasts shown at once; the oldest leaves first.

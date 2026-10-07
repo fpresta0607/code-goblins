@@ -992,14 +992,15 @@ Before an announcement the board claims the event through `POST /api/announce` (
 The supervisor hands each key to the first request and keeps it for thirty days, at most 2048 keys, so a second tab or a restart never announces that item or stretch again.
 While [AFK mode](#afk-mode) is on it hands out nothing and records what was asked about, so nothing announces while the Overlord is away or repeats when he returns.
 A hidden tab waits a second and a half before claiming, giving a visible tab the first chance; with no tab in view the hidden tab can send its Windows notification.
-An announcement is claimed as `alert:<key>` cut to 160 characters, within the endpoint's 512 byte bound, and an unreachable supervisor falls back on what the browser remembers.
+An item's announcement is claimed as `alert:<item key>@<created_at>`, and a goblin's news as `alert:<key>` cut to 160 characters, within the endpoint's 512 byte bound; an unreachable supervisor falls back on what the browser remembers.
 An item's identity prevents repeats, and identical words from the same goblin within five minutes are one event.
+The supervisor takes an item's ID again once it has dropped the record that used it, so an ID published again with another `created_at` is a new item: it is announced again, and the earlier publication's announcement leaves.
 A goblin's next pull request alerts at once; the same news more than five minutes later can alert again.
 The browser remembers the last 100 announcements it showed.
 A toast steps up once as it arrives, or appears under reduced motion, leaves after eight seconds unless the pointer or keyboard rests on it, and can be dismissed; at most four show, newest at the bottom.
 Windows notifications require `document.hidden`: a hidden tab or minimized window, not an unfocused window that remains visible.
 The browser asks for notification permission once, with the first announcement, and a notification click opens its item or terminal.
-An announcement and its notification leave when their item closes or the quiet-CFO stretch ends.
+An announcement and its notification leave when their item closes or is published again under its ID, or the quiet-CFO stretch ends.
 A click on an item already closed opens the Command Center's list, never another item's card.
 Its card shows the title, its images as thumbnails that open the same full-size gallery as a question's, and its own page, when it has one, as a preview named Scrawl page that opens the page with Open review and never repeats the title.
 An item whose page the supervisor watches (an HTML page given with `--lavish`) is answered on that page, so its card has no text box: it finishes when the Overlord sends or ends the review there, or he closes it with Clear.
