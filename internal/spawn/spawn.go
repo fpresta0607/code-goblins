@@ -8,6 +8,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -93,6 +94,9 @@ type Service struct {
 	ReleaseLock func(string, string) error
 	PolicyPath  string
 	Admit       func() error
+	// Progress, when set, is told what a start waits on while it waits for
+	// its turn: cfo spawn's standard error.
+	Progress io.Writer
 	// UserEnvironment is the environment a native task starts from: the
 	// variables Windows gives a new process of this user, never this
 	// process's own. Nil reads them from the user's and the machine's
@@ -176,28 +180,48 @@ func (s Service) Spawn(ctx context.Context, req Request) (result Result, err err
 		return Result{}, err
 	}
 
+	// What a start only reads runs before its turn, since the turn holds up
+	// every other start and resume: the harness check runs a process, and the
+	// credential probes can reach the network for seconds each.
+	if err := adapter.Validate(ctx, s.commands()); err != nil {
+		return Result{}, fmt.Errorf("spawn: validate harness %s: %w", req.Harness, err)
+	}
+	// The preflight runs before anything is built, so a goblin that would
+	// start without a credential it needs costs no terminal and no worktree.
+	// Dispatching anyway is what let a stale DATABASE_URL reach a goblin, so
+	// a red blocking service stops here; --yolo is the existing override.
+	preflight, err := s.preflightCredentials(ctx, project)
+	if err != nil {
+		return Result{}, err
+	}
+	if preflight.Refusal != "" && !req.Yolo {
+		return Result{}, fmt.Errorf("spawn: %s", preflight.Refusal)
+	}
+	// A goblin starts from the user's environment, never this process's own.
+	userEnv, err := s.userEnvironment()
+	if err != nil {
+		return Result{}, fmt.Errorf("spawn: read the user's environment for a native task: %w", err)
+	}
+	scratch, err := s.scratch(req.ID)
+	if err != nil {
+		return Result{}, err
+	}
+
 	if err := os.MkdirAll(s.StateDir, 0o755); err != nil {
 		return Result{}, fmt.Errorf("spawn: create state directory: %w", err)
 	}
-	// The spawn lock covers the whole dispatch, not just worktree acquisition:
-	// task id alias rejection, metadata publication and the harness launch all
-	// mutate shared fleet state under it. Dependency provisioning (about 5s pnpm, about 22s
-	// uv against warm caches) therefore runs under it too, so concurrent
-	// dispatches into install-strategy projects serialize behind each other's
-	// installer. That is a chosen property: narrowing the lock to Acquire is a
-	// redesign of the spawn critical section, and the cost is a slower
-	// concurrent dispatch, never a wrong one.
-	if _, err := lock.AcquireExclusiveNamed(s.StateDir, spawnLockName); err != nil {
-		return Result{}, fmt.Errorf("spawn: acquire spawn lock: %w", err)
+	// The turn covers what must be serial: the id's alias check, the
+	// admission that counts running terminals, the worktree and branch, the
+	// task record and the terminal's host launch. It ends once the host runs,
+	// so the harness's startup, the brief's delivery and the goblin's
+	// dependency install hold up no other start.
+	endTurn, err := s.takeLaunchTurn(ctx, "the start of "+req.ID)
+	if err != nil {
+		return Result{}, err
 	}
 	defer func() {
-		if releaseErr := s.releaseTaskLock(s.StateDir, spawnLockName); releaseErr != nil {
-			releaseErr = fmt.Errorf("spawn: release spawn lock: %w", releaseErr)
-			if err == nil {
-				err = releaseErr
-			} else {
-				err = errors.Join(err, releaseErr)
-			}
+		if turnErr := endTurn(); turnErr != nil {
+			err = errors.Join(err, turnErr)
 		}
 	}()
 	if err := rejectTaskIDAlias(s.StateDir, req.ID); err != nil {
@@ -233,27 +257,6 @@ func (s Service) Spawn(ctx context.Context, req Request) (result Result, err err
 		return Result{}, err
 	}
 
-	// The preflight runs before anything is built, so a goblin that would
-	// start without a credential it needs costs no terminal and no worktree.
-	// Dispatching anyway is what let a stale DATABASE_URL reach a goblin, so
-	// a red blocking service stops here; --yolo is the existing override.
-	preflight, err := s.preflightCredentials(ctx, project)
-	if err != nil {
-		return Result{}, err
-	}
-	if preflight.Refusal != "" && !req.Yolo {
-		return Result{}, fmt.Errorf("spawn: %s", preflight.Refusal)
-	}
-	// A goblin starts from the user's environment, never this process's own.
-	userEnv, err := s.userEnvironment()
-	if err != nil {
-		return Result{}, fmt.Errorf("spawn: read the user's environment for a native task: %w", err)
-	}
-
-	scratch, err := s.scratch(req.ID)
-	if err != nil {
-		return Result{}, err
-	}
 	wt, err := s.Worktrees.Acquire(ctx, project, req.ID, helper.head)
 	if err != nil {
 		return Result{}, fmt.Errorf("spawn: acquire task worktree: %w", err)
@@ -312,9 +315,6 @@ func (s Service) Spawn(ctx context.Context, req Request) (result Result, err err
 		}
 	}
 
-	if err := adapter.Validate(ctx, s.commands()); err != nil {
-		return fail(result, fmt.Errorf("spawn: validate harness %s: %w", req.Harness, err))
-	}
 	if err := os.MkdirAll(taskTmp, 0o755); err != nil {
 		return fail(result, fmt.Errorf("spawn: create task temporary directory: %w", err))
 	}
@@ -326,20 +326,21 @@ func (s Service) Spawn(ctx context.Context, req Request) (result Result, err err
 			return fail(result, err)
 		}
 	}
-	// The worktree starts as tracked files only; provisioning is what makes it
-	// runnable as if it were the project - shared config, dependencies
-	// installed against the shared package cache, and the token-authenticated
-	// subset of the project's MCP servers. A server that authenticates by
-	// bearerTokenEnvVar reaches the goblin only when the environment its
-	// terminal's host is built with sets that variable. No harness billing key
-	// ever reaches a goblin, whatever its source.
+	// The worktree starts as tracked files only; provisioning shares the
+	// project's config into it, names the install commands its goblin runs
+	// first against the shared package caches its terminal names, and
+	// materializes the token-authenticated subset of the project's MCP
+	// servers. A server that authenticates by bearerTokenEnvVar reaches the
+	// goblin only when the environment its terminal's host is built with sets
+	// that variable. No harness billing key ever reaches a goblin, whatever
+	// its source.
 	hasVariable := func(name string) bool {
 		if auth.IsHarnessBillingKey(name) {
 			return false
 		}
 		return hasNativeVariable(s.nativeHostEnvironment(userEnv, harness.Launch{}, preflight.Env), name)
 	}
-	provision, err := s.Worktrees.Provision(ctx, project, wt.Path, taskTmp, preflight.Caches, hasVariable)
+	provision, err := s.Worktrees.Provision(ctx, project, wt.Path, taskTmp, hasVariable)
 	if err != nil {
 		return fail(result, fmt.Errorf("spawn: provision worktree environment: %w", err))
 	}
@@ -370,11 +371,24 @@ func (s Service) Spawn(ctx context.Context, req Request) (result Result, err err
 	// Every goblin is told to report its outcome through cfo notify, so the
 	// CFO is woken with the actual PR URL, question, or failure reason instead
 	// of the watcher guessing from its screen.
-	launch.Instruction = spawnInstruction(req.BriefPath, result.Meta)
+	launch.Instruction = spawnInstruction(req.BriefPath, result.Meta, provision.Install)
 	if selection != nil {
 		launch.Instruction += selection.Instruction(req.ID, filepath.Join(taskTmp, "pipeline.json"))
 	}
-	if nativeHost, err = s.startNativeHarness(ctx, req.ID, req.Harness, launch, userEnv, preflight.Env); err != nil {
+	if len(provision.Install) > 0 {
+		// The card says what the goblin does first until its own first
+		// report, which this line comes before.
+		if err := state.AppendStatus(s.StateDir, req.ID, "working: installing its dependencies first: "+strings.Join(provision.Install, " && ")); err != nil {
+			return fail(result, fmt.Errorf("spawn: record the dependency step: %w", err))
+		}
+	}
+	if nativeHost, err = s.launchNativeHost(req.ID, req.Harness, launch, userEnv, preflight.Env); err != nil {
+		return fail(result, err)
+	}
+	// Its release error, if any, is returned with the result once the brief
+	// is delivered: the goblin is running either way.
+	_ = endTurn()
+	if err := s.briefNativeHarness(ctx, req.ID, nativeHost, req.Harness, launch); err != nil {
 		return fail(result, err)
 	}
 
@@ -382,16 +396,11 @@ func (s Service) Spawn(ctx context.Context, req Request) (result Result, err err
 	if notice := containedNotice(nativeHost); notice != "" {
 		result.Output += "\n" + notice
 	}
-	if provision.Installed != "" {
-		result.Output += "\ndependencies: " + provision.Installed
+	if len(provision.Install) > 0 {
+		result.Output += "\ndependencies: the goblin installs them as its first step, in its own terminal: " + strings.Join(provision.Install, " && ")
 	}
 	if len(provision.LinkSkipped) > 0 {
 		result.Output += "\nlink: " + strings.Join(provision.LinkSkipped, ", ") + " already present in the worktree (the project's own checked-out file), so the default share was skipped"
-	}
-	if provision.InstallFailed != "" {
-		// Reported, not fatal: the goblin can run the installer itself, and
-		// repairing the lockfile may be the task it was dispatched for.
-		result.Output += "\ndependencies: strategy install failed at " + provision.InstallFailed + "; the goblin was dispatched without them: " + provision.InstallOutput
 	}
 	if len(provision.MCPDropped) > 0 {
 		result.Output += "\nmcp: withheld OAuth-only servers from the goblin: " + strings.Join(provision.MCPDropped, ", ") + " (declare a token-authenticated form in the project .mcp.json to reach goblins)"
@@ -739,10 +748,29 @@ func (s Service) ensureProjectSeeded(ctx context.Context, project string) error 
 }
 
 // spawnInstruction is the full first instruction a goblin receives: read the
-// brief, then report outcomes through cfo notify so the CFO is woken with the
-// real payload rather than a guess from its screen.
-func spawnInstruction(briefPath string, meta state.TaskMeta) string {
-	return harness.BriefInstruction(briefPath) + notifyInstruction(meta)
+// brief, install the worktree's dependencies first when install names any,
+// then report outcomes through cfo notify so the CFO is woken with the real
+// payload rather than a guess from its screen.
+func spawnInstruction(briefPath string, meta state.TaskMeta, install []string) string {
+	return harness.BriefInstruction(briefPath) + dependencyInstruction(meta.Worktree, install) + notifyInstruction(meta)
+}
+
+// dependencyInstruction tells a goblin to install its worktree's dependencies
+// as its first step, with the commands provisioning named, and nothing when
+// it named none. The spawn leaves the install to the goblin so it holds up no
+// other start; the goblin's tool may cut a long command short, so it is told
+// how long one can take here.
+func dependencyInstruction(worktree string, install []string) string {
+	if len(install) == 0 {
+		return ""
+	}
+	commands := make([]string, len(install))
+	for index, command := range install {
+		commands[index] = "\"" + command + "\""
+	}
+	return " Your worktree's dependencies are not installed yet: before you build or test anything, run " + strings.Join(commands, ", then ") + " in " + worktree + ", stopping at the first that fails." +
+		" On this machine an install can take many minutes, so run it where your tool's time limit cannot cut it short, such as in the background, and wait for it to end." +
+		" Install only into this worktree, never another's."
 }
 
 // notifyInstruction tells a goblin how to report its outcome through cfo

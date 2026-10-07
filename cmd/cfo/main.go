@@ -254,6 +254,7 @@ func defaultCommandRuntime() commandRuntime {
 				PolicyPath:  filepath.Join(h.Root, "config", "pipeline.json"),
 				HostCommand: []string{self, "host"},
 				PromptSince: nativePromptSince(h),
+				Progress:    os.Stderr,
 				Admit: func() error {
 					memory, err := supervisor.MachineMemory()
 					if err != nil {

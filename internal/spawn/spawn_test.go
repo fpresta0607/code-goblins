@@ -13,7 +13,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/fpresta0607/code-goblins/internal/auth"
 	"github.com/fpresta0607/code-goblins/internal/execx"
 	"github.com/fpresta0607/code-goblins/internal/fsx"
 	"github.com/fpresta0607/code-goblins/internal/harness"
@@ -422,39 +421,6 @@ func TestSpawnKeepsTheLaunchContractOverCaseAliasedRedirects(t *testing.T) {
 	}
 }
 
-func TestSpawnDispatchesAndReportsWhenTheDependencyInstallFails(t *testing.T) {
-	f := newQuickFixture(t)
-	// Strategy install is the default and its command is auto-detected from a
-	// lockfile, so no project opted into it. A drifted lockfile must not turn
-	// every dispatch into this repo into a failure.
-	writeFile(t, filepath.Join(f.worktree, "pnpm-lock.yaml"), "lockfileVersion: '9.0'\n")
-	f.runner.installer = "pnpm"
-	f.runner.installerStderr = "ERR_PNPM_OUTDATED_LOCKFILE  Cannot install with frozen-lockfile\n"
-
-	result, err := f.service.Spawn(context.Background(), f.request)
-	if err != nil {
-		t.Fatalf("Spawn: %v, want the goblin dispatched anyway", err)
-	}
-	if !slices.Contains(f.fixture.events, "install") {
-		t.Fatalf("events = %v, want the detected installer to have run", f.fixture.events)
-	}
-	if !strings.Contains(result.Output, "pnpm install --frozen-lockfile") ||
-		!strings.Contains(result.Output, "ERR_PNPM_OUTDATED_LOCKFILE") {
-		t.Errorf("output = %q, want the failed install command and its cause reported", result.Output)
-	}
-	// Nothing was torn down: the task is published, its worktree kept, and
-	// the harness got its brief.
-	if _, err := state.ReadTaskMeta(f.stateDir, f.request.ID); err != nil {
-		t.Fatalf("read metadata after a failed install: %v", err)
-	}
-	if f.git.returned != 0 {
-		t.Errorf("worktree returns = %d; want the dispatch left intact", f.git.returned)
-	}
-	if submitted := named(f.events(t), "submitted"); len(submitted) != 1 {
-		t.Errorf("submitted = %+v, want the brief delivered after the failed install", submitted)
-	}
-}
-
 func TestSpawnRefusesUnvalidatableWorktreeWithoutLaunching(t *testing.T) {
 	f := newFixture(t)
 	f.git.topErr = errors.New("worktree: not a git worktree")
@@ -642,23 +608,6 @@ func TestSpawnSurfacesTaskLockReleaseFailure(t *testing.T) {
 	})
 }
 
-func TestSpawnRefusesAContendedLockAndSpawnsOnceItIsReleased(t *testing.T) {
-	f := newQuickFixture(t)
-	if _, err := lock.AcquireExclusiveNamed(f.stateDir, spawnLockName); err != nil {
-		t.Fatalf("AcquireExclusiveNamed setup: %v", err)
-	}
-	_, err := f.service.Spawn(context.Background(), f.request)
-	if !errors.Is(err, lock.ErrHeld) {
-		t.Fatalf("Spawn contention error = %v, want ErrHeld", err)
-	}
-	if err := lock.ReleaseNamed(f.stateDir, spawnLockName); err != nil {
-		t.Fatalf("ReleaseNamed setup lock: %v", err)
-	}
-	if _, err := f.service.Spawn(context.Background(), f.request); err != nil {
-		t.Fatalf("Spawn after lock release: %v", err)
-	}
-}
-
 func TestSpawnRejectsCaseAliasBeforeTerminalOrWorktreeMutation(t *testing.T) {
 	f := newQuickFixture(t)
 	f.request.ID = "Foo"
@@ -703,7 +652,7 @@ func TestSpawnRejectsCaseInsensitiveMetadataExtensionBeforeTerminalOrWorktreeMut
 	if _, err := f.service.Spawn(context.Background(), request); err == nil || !strings.Contains(err.Error(), "case-insensitive") {
 		t.Fatalf("case-insensitive extension Spawn error = %v, want collision refusal", err)
 	}
-	if f.runner.calls != 0 || len(f.events) != 0 {
+	if f.runner.calls != 0 || len(mutations(f.events)) != 0 {
 		t.Errorf("commands = %d and events = %v, want none before the metadata-alias refusal", f.runner.calls, f.events)
 	}
 }
@@ -761,7 +710,7 @@ func TestSpawnRejectsCaseAliasOfARetainedTaskTemporaryDirectory(t *testing.T) {
 	if _, err := f.service.Spawn(context.Background(), request); err == nil || !strings.Contains(err.Error(), "case-insensitive") {
 		t.Fatalf("alias Spawn error = %v, want collision refusal", err)
 	}
-	if f.runner.calls != 0 || len(f.events) != 0 {
+	if f.runner.calls != 0 || len(mutations(f.events)) != 0 {
 		t.Errorf("commands = %d and events = %v after alias rejection, want none before a second task mutation", f.runner.calls, f.events)
 	}
 }
@@ -777,16 +726,9 @@ func TestSpawnRejectsCaseAliasOfALiveTask(t *testing.T) {
 	if _, err := f.service.Spawn(context.Background(), request); err == nil || !strings.Contains(err.Error(), "case-insensitive") {
 		t.Fatalf("alias Spawn error = %v, want collision refusal", err)
 	}
-	if f.runner.calls != 0 || len(f.events) != 0 {
+	if f.runner.calls != 0 || len(mutations(f.events)) != 0 {
 		t.Errorf("commands = %d and events = %v after alias rejection, want none before a second task mutation", f.runner.calls, f.events)
 	}
-}
-
-// refusingPreflight stops a dispatch the way a red blocking service does.
-type refusingPreflight struct{}
-
-func (refusingPreflight) Preflight(context.Context, string) (auth.Result, error) {
-	return auth.Result{Refusal: "a blocking service is red"}, nil
 }
 
 // The capsule is written into the id's own task temporary directory only after
@@ -794,7 +736,6 @@ func (refusingPreflight) Preflight(context.Context, string) (auth.Result, error)
 // the capsule with it, so the retry is not refused by the failed attempt.
 func TestSpawnRemovesTheCapsuleOfASpawnThatFailsBeforePublishing(t *testing.T) {
 	f := newQuickFixture(t)
-	f.request.Yolo = false
 	taskTmp := filepath.Join(f.stateDir, "tasktmp", f.request.ID)
 	request := f.request
 	request.Capsule = func(dir string) (string, error) {
@@ -807,17 +748,16 @@ func TestSpawnRemovesTheCapsuleOfASpawnThatFailsBeforePublishing(t *testing.T) {
 		}
 		return brief, os.WriteFile(brief, []byte("Delivery contract: mode=no-mistakes\nDo the work.\n\n## CFO durable task capsule\n"), 0o600)
 	}
-	credentials := f.service.Auth
-	f.service.Auth = refusingPreflight{}
+	f.git.acquireErr = errors.New("worktree: add worktree refused")
 
-	if _, err := f.service.Spawn(context.Background(), request); err == nil || !strings.Contains(err.Error(), "a blocking service is red") {
-		t.Fatalf("Spawn error = %v, want the preflight refusal", err)
+	if _, err := f.service.Spawn(context.Background(), request); err == nil || !strings.Contains(err.Error(), "add worktree refused") {
+		t.Fatalf("Spawn error = %v, want the worktree refusal", err)
 	}
 	if _, err := os.Stat(taskTmp); !errors.Is(err, os.ErrNotExist) {
 		t.Fatalf("capsule directory %q survived the failed spawn: %v", taskTmp, err)
 	}
 
-	f.service.Auth = credentials
+	f.git.acquireErr = nil
 	result, err := f.service.Spawn(context.Background(), request)
 	if err != nil {
 		t.Fatalf("retry Spawn error = %v, want the same id spawned with its capsule", err)
@@ -1090,6 +1030,12 @@ func newFixture(t *testing.T) *fixture {
 	return fixture
 }
 
+// mutations is events without the harness check, which a spawn runs before
+// its turn because it only reads.
+func mutations(events []string) []string {
+	return slices.DeleteFunc(slices.Clone(events), func(event string) bool { return event == "validate-harness" })
+}
+
 // hasTerminal reports whether task id has a native terminal record.
 func hasTerminal(stateDir, id string) bool {
 	_, err := host.ReadRecord(stateDir, id)
@@ -1154,8 +1100,9 @@ func (a fixtureAdapter) Build(spec harness.LaunchSpec) (harness.Launch, error) {
 }
 
 type worktreeGit struct {
-	events    *[]string
-	acquired  string
+	events     *[]string
+	acquireErr error
+	acquired   string
 	top       string
 	topErr    error
 	returnErr error
@@ -1164,6 +1111,9 @@ type worktreeGit struct {
 
 func (g *worktreeGit) Acquire(_ context.Context, project, path, ref string) (string, error) {
 	*g.events = append(*g.events, "worktree-acquire")
+	if g.acquireErr != nil {
+		return "", g.acquireErr
+	}
 	g.acquired = path
 	if !filepath.IsAbs(path) || ref != "" {
 		return "", fmt.Errorf("unexpected worktree %q on %q", path, ref)

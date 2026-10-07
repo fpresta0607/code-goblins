@@ -459,6 +459,35 @@ func TestAcquireExclusiveNamedContendsButRetainsItsOwnVerifiedRecord(t *testing.
 	}
 }
 
+func TestAcquireExclusiveNamedForNamesWhatHoldsTheLock(t *testing.T) {
+	// Arrange: another live process holds the lock for a start, which the
+	// foreign host stands in for, since this process's own lease is refused
+	// before its record is read.
+	dir, name := t.TempDir(), ".spawn.lock"
+	if _, err := AcquireExclusiveNamedFor(dir, name, "the start of pp-open-work"); err != nil {
+		t.Fatalf("AcquireExclusiveNamedFor: %v", err)
+	}
+	recorded, err := ReadNamed(dir, name)
+	if err != nil || recorded.Purpose != "the start of pp-open-work" {
+		t.Fatalf("record = %+v, %v; want the purpose recorded", recorded, err)
+	}
+	if err := ReleaseExclusiveNamed(dir, name); err != nil {
+		t.Fatal(err)
+	}
+	recorded.Hostname = "some-other-host"
+	if err := writeInfo(filepath.Join(dir, name), recorded); err != nil {
+		t.Fatal(err)
+	}
+
+	// Act
+	_, err = AcquireExclusiveNamedFor(dir, name, "the start of cg-next")
+
+	// Assert
+	if !errors.Is(err, ErrHeld) || !strings.Contains(err.Error(), "the start of pp-open-work, pid ") {
+		t.Fatalf("contended acquire = %v, want ErrHeld naming the start that holds it", err)
+	}
+}
+
 func TestReleaseExclusiveNamedRetriesTransientRemovalThenAllowsRetry(t *testing.T) {
 	dir := t.TempDir()
 	name := ".spawn-task.lock"
