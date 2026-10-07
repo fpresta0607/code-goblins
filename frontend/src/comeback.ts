@@ -20,18 +20,19 @@ export function comebackLine(comeback: Comeback | undefined): ComebackLine | nul
   const total = comeback.goblins.length;
   const back = comeback.goblins.filter((entry) => entry.state === "back").length;
   const stopped = comeback.goblins.filter((entry) => entry.state === "stopped").map((entry) => entry.id);
+  const details = [];
+  if (cfo?.state === "stopped") details.push("The CFO did not come back: " + cfo.reason.replace(/[. ]+$/, "") + ".");
   const isWaiting = cfo?.state === "waiting" || comeback.goblins.some((entry) => entry.state === "waiting");
   if (isWaiting) {
     const parts = [];
     if (cfo) parts.push(cfo.state === "back" ? "the CFO is back" : cfo.state === "waiting" ? "the CFO comes back first" : "the CFO did not come back");
     if (total > 0) parts.push(back + " of " + goblins(total) + (back === 1 || total === 1 ? " is back" : " are back"));
-    return { text: "Coming back after a restart: " + parts.join(", ") + ".", detail: "The next one starts when memory allows.", isDone: false };
+    details.push("The next one starts when memory allows.");
+    return { text: "Coming back after a restart: " + parts.join(", ") + ".", detail: details.join(" "), isDone: false };
   }
   const resumed = [];
   if (cfo?.state === "back") resumed.push("the CFO");
   if (total > 0) resumed.push(back === total ? goblins(total) : back + " of " + goblins(total));
-  const details = [];
-  if (cfo?.state === "stopped") details.push("The CFO did not come back: " + cfo.reason.replace(/[. ]+$/, "") + ".");
   if (stopped.length > 0) details.push(names(stopped) + " did not come back; " + (stopped.length === 1 ? "its card says" : "their cards say") + " why.");
   return { text: resumed.length ? "Resumed " + resumed.join(" and ") + " after a restart." : "Nothing came back after a restart.", detail: details.join(" "), isDone: true };
 }

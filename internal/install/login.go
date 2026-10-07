@@ -56,8 +56,16 @@ func WriteStartAtLogin(stateDir, choice string) error {
 // before a window started alone opened the app, it is goblins with --window,
 // which opens any window.
 func (s Service) startAtLoginCommand() string {
+	commands := s.startAtLoginCommands()
 	if s.suppliesWindow() {
-		return `"` + filepath.Join(s.bin(), windowName) + `" --background`
+		return commands[0]
 	}
-	return `"` + filepath.Join(s.bin(), "goblins.exe") + `" --window --background`
+	return commands[1]
+}
+
+func (s Service) startAtLoginCommands() [2]string {
+	return [2]string{
+		`"` + filepath.Join(s.bin(), windowName) + `" --background`,
+		`"` + filepath.Join(s.bin(), "goblins.exe") + `" --window --background`,
+	}
 }

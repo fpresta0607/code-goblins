@@ -142,7 +142,21 @@ func (s *Service) planComeback(now time.Time) (state.Comeback, bool, error) {
 	prior, err := state.ReadComeback(directory)
 	switch {
 	case err == nil && prior.SignedIn.Equal(s.signedIn):
-		return prior, false, nil
+		isChanged := false
+		for index := range prior.Goblins {
+			entry := &prior.Goblins[index]
+			if entry.State != state.ComebackWaiting {
+				continue
+			}
+			if meta, err := state.ReadTaskMeta(directory, entry.ID); err == nil && meta.SpawnGen != entry.Generation && !NativeTerminalRuns(directory, entry.ID) {
+				entry.Generation = meta.SpawnGen
+				isChanged = true
+			}
+		}
+		if isChanged {
+			err = state.WriteComeback(directory, prior)
+		}
+		return prior, false, err
 	case errors.Is(err, os.ErrNotExist):
 		record := state.Comeback{SignedIn: s.signedIn, Planned: now}
 		return record, true, state.WriteComeback(directory, record)

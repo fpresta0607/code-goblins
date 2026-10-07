@@ -20,6 +20,14 @@ test("while the fleet comes back the line says what is back and that the next wa
   });
 });
 
+test("the CFO failure reason stays visible while a goblin waits for memory", () => {
+  assert.deepEqual(comebackLine(comeback(entry("cfo", "stopped", "its conversation s-1 could not be resumed.  "), entry("a", "waiting"))), {
+    text: "Coming back after a restart: the CFO did not come back, 0 of 1 goblin is back.",
+    detail: "The CFO did not come back: its conversation s-1 could not be resumed. The next one starts when memory allows.",
+    isDone: false,
+  });
+});
+
 test("once everything is back the line says what resumed", () => {
   const goblins = ["a", "b", "c", "d", "e", "f"].map((id) => entry(id, "back"));
   assert.deepEqual(comebackLine(comeback(entry("cfo", "back"), ...goblins)), { text: "Resumed the CFO and 6 goblins after a restart.", detail: "", isDone: true });

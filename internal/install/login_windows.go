@@ -141,7 +141,7 @@ func (s Service) keepStartAtLogin(report *reporter) error {
 			report.same("start at login", "kept the entry that starts another Code Goblins home: "+current)
 			return nil
 		}
-		for _, starts := range []string{`"` + filepath.Join(s.bin(), windowName) + `" --background`, `"` + filepath.Join(s.bin(), "goblins.exe") + `" --window --background`} {
+		for _, starts := range s.startAtLoginCommands() {
 			if strings.EqualFold(current, starts) {
 				report.same("start at login", "Windows starts Code Goblins at login: "+current)
 				return nil
@@ -177,8 +177,9 @@ func (s Service) StartsAtLogin() (on bool, unavailable string, err error) {
 }
 
 // SetStartsAtLogin turns Start at login on or off for this home, as the
-// board's switch does, and keeps the choice in the home. On, Windows starts
-// the home's desktop window alone, in the tray, which starts the supervisor.
+// board's switch does, and keeps the choice in the home. On, an entry that
+// already starts this home's supervisor stays as it is; otherwise goblins
+// starts the supervisor and opens any window this home holds in the tray.
 func (s Service) SetStartsAtLogin(on bool) error {
 	choice := StartAtLoginOff
 	if on {
@@ -197,10 +198,24 @@ func (s Service) SetStartsAtLogin(on bool) error {
 	if s.StartAtLoginKey == "" {
 		return errors.New("this machine keeps no Start at login entries")
 	}
-	key, _, err := registry.CreateKey(registry.CURRENT_USER, s.StartAtLoginKey, registry.QUERY_VALUE|registry.SET_VALUE)
+	commands := s.startAtLoginCommands()
+	key, current, ok, err := s.startAtLogin()
 	if err != nil {
-		return fmt.Errorf("open the Start at login entries: %w", err)
+		return err
 	}
-	defer key.Close()
-	return key.SetStringValue(startAtLoginValue, `"`+window+`" --background`)
+	if ok {
+		defer key.Close()
+		for _, command := range commands {
+			if strings.EqualFold(current, command) {
+				return nil
+			}
+		}
+	} else {
+		key, _, err = registry.CreateKey(registry.CURRENT_USER, s.StartAtLoginKey, registry.QUERY_VALUE|registry.SET_VALUE)
+		if err != nil {
+			return fmt.Errorf("open the Start at login entries: %w", err)
+		}
+		defer key.Close()
+	}
+	return key.SetStringValue(startAtLoginValue, commands[1])
 }

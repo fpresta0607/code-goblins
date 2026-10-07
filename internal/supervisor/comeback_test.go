@@ -533,6 +533,82 @@ func TestTheComebackCarriesWaitingTaskIdentityAcrossGenerationPublication(t *tes
 	}
 }
 
+func TestTheComebackReconcilesWaitingGenerationsInTheSameSignIn(t *testing.T) {
+	for _, testCase := range []struct {
+		name, phase             string
+		isRunning, shouldChange bool
+	}{
+		{name: "waiting without a terminal", phase: state.ComebackWaiting, shouldChange: true},
+		{name: "waiting with a live terminal", phase: state.ComebackWaiting, isRunning: true},
+		{name: "stopped", phase: state.ComebackStopped},
+		{name: "back", phase: state.ComebackBack},
+	} {
+		t.Run(testCase.name, func(t *testing.T) {
+			recorder := &comebackRecorder{}
+			service, h, _ := comebackBoard(t, recorder, [2]float64{8, 8})
+			meta := workingGoblin(t, h, "alpha", lastSignIn.Add(time.Hour))
+			generation := meta.SpawnGen
+			planned := thisSignIn.Add(time.Minute)
+			if err := state.WriteComeback(h.State, state.Comeback{SignedIn: thisSignIn, Planned: planned, Goblins: []state.ComebackEntry{
+				{ID: meta.ID, Generation: generation, State: testCase.phase, Reason: "kept reason"},
+			}}); err != nil {
+				t.Fatal(err)
+			}
+			meta.SpawnGen = "published-generation"
+			if err := state.WriteTaskMeta(h.State, meta); err != nil {
+				t.Fatal(err)
+			}
+			if testCase.isRunning {
+				if err := os.Remove(filepath.Join(h.State, "hosts", meta.ID+".json")); err != nil {
+					t.Fatal(err)
+				}
+				hostTerminal(t, h.State, meta.ID)
+			}
+			memory := Memory{Available: 4 * gigabyte, CommitAvailable: 4 * gigabyte}
+			wakes := fleetWakes{MemoryAbove: 1}
+
+			isWaiting, err := service.comeBack(thisSignIn.Add(2*time.Minute), memory, &wakes)
+			if err != nil || isWaiting != (testCase.phase == state.ComebackWaiting) || wakes.MemoryAbove != 1 || len(recorder.came()) != 0 {
+				t.Fatalf("waiting %v, error %v, readings %d, resumed %v", isWaiting, err, wakes.MemoryAbove, recorder.came())
+			}
+			record, err := state.ReadComeback(h.State)
+			if err != nil || len(record.Goblins) != 1 {
+				t.Fatalf("comeback %+v, error %v", record, err)
+			}
+			if testCase.shouldChange {
+				generation = meta.SpawnGen
+			}
+			entry := record.Goblins[0]
+			if entry.Generation != generation || entry.State != testCase.phase || entry.Reason != "kept reason" || !record.Planned.Equal(planned) || !record.SignedIn.Equal(thisSignIn) {
+				t.Fatalf("comeback %+v, want %s on %s with the original plan", record, testCase.phase, generation)
+			}
+			if record.Waiting(meta.ID, meta.SpawnGen) != testCase.shouldChange {
+				t.Fatalf("waiting on the published generation = %v, want %v", record.Waiting(meta.ID, meta.SpawnGen), testCase.shouldChange)
+			}
+			snapshot, err := service.Snapshot()
+			if err != nil {
+				t.Fatal(err)
+			}
+			card := slices.IndexFunc(snapshot.Tasks, func(task Task) bool { return task.ID == meta.ID })
+			if card < 0 || (snapshot.Tasks[card].Comeback != nil) != testCase.shouldChange {
+				t.Fatalf("task's comeback on the published generation: %+v", snapshot.Tasks)
+			}
+			if testCase.shouldChange && snapshot.Tasks[card].Comeback.State != state.ComebackWaiting {
+				t.Fatalf("task's comeback %+v, want waiting", snapshot.Tasks[card].Comeback)
+			}
+			if err := os.Chtimes(state.ComebackPath(h.State), lastSignIn, lastSignIn); err != nil {
+				t.Fatal(err)
+			}
+			if _, err := service.comeBack(thisSignIn.Add(3*time.Minute), memory, &wakes); err != nil {
+				t.Fatal(err)
+			}
+			if info, err := os.Stat(state.ComebackPath(h.State)); err != nil || !info.ModTime().Equal(lastSignIn) {
+				t.Fatalf("unchanged comeback was rewritten, stat error %v", err)
+			}
+		})
+	}
+}
+
 func TestTheComebackCountsOnlyTheCurrentSignInsMemoryReadings(t *testing.T) {
 	for _, isSameSignIn := range []bool{false, true} {
 		t.Run(fmt.Sprint(isSameSignIn), func(t *testing.T) {
