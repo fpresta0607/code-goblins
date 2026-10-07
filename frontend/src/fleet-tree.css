@@ -41,9 +41,9 @@
 .tree-child.dim, .working-row.dim { opacity: .55; }
 .tree-child-copy { display: grid; min-width: 0; line-height: 1.3; }
 .tree-child-copy strong { font-size: 1rem; font-weight: 800; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.tree-child-copy .plain-status { font-size: .875rem; gap: 6px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.tree-child-copy .plain-status { font-size: .875rem; gap: 6px; white-space: nowrap; overflow: hidden; }
 .tree-child-copy .status-dot { width: 7px; height: 7px; }
-.tree-child-detail { color: var(--muted); font-weight: 600; }
+.tree-child-detail { min-width: 0; overflow: hidden; text-overflow: ellipsis; color: var(--muted); font-weight: 600; }
 .tree-memory { font-size: .875rem; font-weight: 700; color: #b9cad6; white-space: nowrap; }
 
 /* The lineage list at phone width: the count under the goblin, its children
