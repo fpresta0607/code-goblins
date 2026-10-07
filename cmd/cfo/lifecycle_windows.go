@@ -52,6 +52,17 @@ func defaultTaskLifecycle(ctx context.Context, h home.Home, request lifecycle.Re
 	gate := pipeline.Reader{Root: root, Commands: commands}
 	runtime := defaultCommandRuntime()
 	var resources lifecycle.Resources
+	admit := func() error {
+		memory, err := supervisor.MachineMemory()
+		if err != nil {
+			return err
+		}
+		disk, err := supervisor.MachineDisk(h)
+		if err != nil {
+			return fmt.Errorf("free disk cannot be read, so nothing resumes: %w", err)
+		}
+		return supervisor.CheckLaunch(h, memory, disk)
+	}
 	service := lifecycle.Service{StateDir: h.State, Operations: lifecycle.Operations{
 		Helpers: func(ctx context.Context, meta state.TaskMeta, record *state.Lifecycle) ([]string, error) {
 			return reachHelpers(ctx, h, meta, record, runtime.taskLifecycle)
@@ -95,7 +106,7 @@ func defaultTaskLifecycle(ctx context.Context, h home.Home, request lifecycle.Re
 			return nil
 		},
 		Resume: func(ctx context.Context, meta state.TaskMeta, prior state.Lifecycle) error {
-			return resumeTask(ctx, h, runtime, commands, gate, meta, prior)
+			return resumeTask(ctx, h, runtime, commands, gate, meta, prior, admit)
 		},
 		IsRunning: func(ctx context.Context, meta state.TaskMeta) (bool, error) {
 			if meta.Backend == "native" {
@@ -148,17 +159,7 @@ func defaultTaskLifecycle(ctx context.Context, h home.Home, request lifecycle.Re
 			memory, err := supervisor.MachineMemory()
 			return memory.Available, memory.CommitAvailable, err
 		},
-		Admit: func() error {
-			memory, err := supervisor.MachineMemory()
-			if err != nil {
-				return err
-			}
-			disk, err := supervisor.MachineDisk(h)
-			if err != nil {
-				return fmt.Errorf("free disk cannot be read, so nothing resumes: %w", err)
-			}
-			return supervisor.CheckLaunch(h, memory, disk)
-		},
+		Admit: admit,
 		Notify: func(record state.Lifecycle) error {
 			return lifecycle.Report(h.State, record)
 		},
@@ -166,7 +167,10 @@ func defaultTaskLifecycle(ctx context.Context, h home.Home, request lifecycle.Re
 	return service.Run(ctx, request)
 }
 
-func resumeTask(ctx context.Context, h home.Home, runtime commandRuntime, commands execx.Runner, gate pipeline.Reader, meta state.TaskMeta, prior state.Lifecycle) error {
+// resumeTask relaunches a paused task in place. admit is the machine's room,
+// which the relaunch checks again under the home's spawn lock, around its
+// terminal's launch only.
+func resumeTask(ctx context.Context, h home.Home, runtime commandRuntime, commands execx.Runner, gate pipeline.Reader, meta state.TaskMeta, prior state.Lifecycle, admit func() error) error {
 	if meta.Backend != "native" {
 		return fmt.Errorf("resume: task %s runs in backend %q; only a task in a native terminal can resume; retire it with cfo cleanup %s --force-archive", meta.ID, meta.Backend, meta.ID)
 	}
@@ -196,7 +200,7 @@ func resumeTask(ctx context.Context, h home.Home, runtime commandRuntime, comman
 	if pausedAt.IsZero() || time.Since(pausedAt) >= 24*time.Hour || pausedAt.After(time.Now()) {
 		session = ""
 	}
-	request := spawn.SwitchRequest{ID: meta.ID, Generation: meta.SpawnGen, ForceDirty: true, BriefPath: meta.Brief, IsResume: true, ResumeSession: session, ResumeHandoff: handoff, ResumeNote: prior.ResumeNote}
+	request := spawn.SwitchRequest{ID: meta.ID, Generation: meta.SpawnGen, ForceDirty: true, BriefPath: meta.Brief, IsResume: true, ResumeSession: session, ResumeHandoff: handoff, ResumeNote: prior.ResumeNote, Admit: admit}
 	if hasChoice {
 		request.Harness, request.Model, request.Effort = harness.Kind(choice.Harness), choice.Model, choice.Effort
 		if choice.Harness != meta.Harness {

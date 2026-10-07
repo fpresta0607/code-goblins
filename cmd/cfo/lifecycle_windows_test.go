@@ -41,7 +41,7 @@ func TestResumeUsesSavedSessionOnlyWithinOneDayOfThePause(t *testing.T) {
 			meta := state.TaskMeta{ID: "task", SpawnGen: "generation-1", Backend: "native", Worktree: t.TempDir()}
 			prior := state.Lifecycle{Session: "saved-session", Started: time.Now().Add(-testCase.age), Handoff: "retained-handoff.md", HandoffSaved: true, ResumeNote: "The Overlord answered: continue"}
 
-			err := resumeTask(t.Context(), h, runtime, &resumeRunner{}, pipeline.Reader{}, meta, prior)
+			err := resumeTask(t.Context(), h, runtime, &resumeRunner{}, pipeline.Reader{}, meta, prior, nil)
 
 			if err != nil || received.ResumeSession != testCase.wantSession || received.ResumeHandoff != prior.Handoff || received.ID != meta.ID || received.ResumeNote != prior.ResumeNote {
 				t.Fatalf("resume request=%+v error=%v", received, err)
@@ -62,7 +62,7 @@ func TestResumeRefusesATaskRecordedInHerdrBeforeTheGateRestarts(t *testing.T) {
 	meta := state.TaskMeta{ID: "task", SpawnGen: "session-1", Backend: "herdr", Project: "project", Worktree: t.TempDir()}
 	prior := state.Lifecycle{ID: "task", Phase: "paused", GateRun: "run-1", GateIntent: "ship it"}
 
-	err := resumeTask(context.Background(), h, runtime, commands, gate, meta, prior)
+	err := resumeTask(context.Background(), h, runtime, commands, gate, meta, prior, nil)
 
 	want := `resume: task task runs in backend "herdr"; only a task in a native terminal can resume; retire it with cfo cleanup task --force-archive`
 	if err == nil || err.Error() != want {
@@ -102,7 +102,7 @@ func TestResumeUsesSavedEngineOnlyForItsSessionAndKeepsFailedChoices(t *testing.
 				return spawn.SwitchResult{}, nil
 			}}
 
-			err := resumeTask(context.Background(), h, runtime, &resumeRunner{}, pipeline.Reader{}, meta, state.Lifecycle{Session: "session-1", Started: time.Now().Add(-time.Hour), HandoffSaved: true, Handoff: "saved handoff"})
+			err := resumeTask(context.Background(), h, runtime, &resumeRunner{}, pipeline.Reader{}, meta, state.Lifecycle{Session: "session-1", Started: time.Now().Add(-time.Hour), HandoffSaved: true, Handoff: "saved handoff"}, nil)
 
 			if (err != nil) != test.isFailed || request.ResumeSession != test.session || request.ResumeHandoff != "saved handoff" || !request.ForceDirty {
 				t.Fatalf("resume = %+v, %v", request, err)

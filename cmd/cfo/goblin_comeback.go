@@ -10,6 +10,7 @@ import (
 
 	"github.com/fpresta0607/code-goblins/internal/fleettree"
 	"github.com/fpresta0607/code-goblins/internal/home"
+	"github.com/fpresta0607/code-goblins/internal/lock"
 	"github.com/fpresta0607/code-goblins/internal/spawn"
 	"github.com/fpresta0607/code-goblins/internal/state"
 	"github.com/fpresta0607/code-goblins/internal/supervisor"
@@ -101,8 +102,14 @@ func bringGoblinBack(ctx context.Context, h home.Home, runtime commandRuntime, i
 		BriefPath:     filepath.Join(h.Data, id, "brief.md"),
 		ResumeSession: session,
 		ResumeNote:    note,
+		Admit:         func() error { return runtime.admitLaunch(h) },
 	})
-	if err != nil {
+	switch {
+	case errors.Is(err, spawn.ErrNoRoom):
+		return goblinComeback{id: id, said: err.Error(), isWaiting: true}, true
+	case errors.Is(err, lock.ErrHeld):
+		return goblinComeback{id: id, said: "waits for room: " + err.Error(), isWaiting: true}, true
+	case err != nil:
 		return goblinComeback{id: id, said: "it could not come back: " + err.Error()}, true
 	}
 	if result.Resumed {

@@ -397,7 +397,8 @@ An eligible queued card has a **Start** play icon with a tooltip.
 It dispatches the task the way the CFO does, through `cfo spawn` with its brief and the harness, model, effort and mode its backlog row or brief names (Claude Code on `claude-opus-5-5` at `xhigh` when they name none), tells the CFO, puts the task at the top of In progress and opens its terminal once its session is up.
 When a brief is missing, Start writes it from the queued task and tells the CFO before dispatching.
 Start requires at least 5 GB of free memory and 5 GB of free commit (RAM plus page file, which a new program needs even while memory looks free) and free disk at or above the disk floor, and waits while another task is starting or resuming; a refusal names whichever is short and appears on the card.
-A Start or Resume, and each start or resume the supervisor makes by itself, that meets a `cfo spawn` the CFO runs by hand waits for it to end and then tries once more.
+A start ends once its goblin has its brief: the goblin installs its worktree's dependencies (`npm ci`, `uv sync` and the like) in its own terminal as its first step, and its card says so, so a long install never holds up the next start or resume.
+A Start or Resume, and each start or resume the supervisor makes by itself, that meets a `cfo spawn` the CFO runs by hand waits for that spawn's turn, which ends once its terminal runs; one that gives up after waiting 10 minutes tries once more as soon as the lock frees.
 
 In-progress cards have **Pause** and **Stop** icons, and paused cards have **Resume** and Stop, with tooltips on hover or keyboard focus.
 A queued card has **Remove** where they have Stop: a task that has not started has nothing to stop.

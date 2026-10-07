@@ -9,7 +9,6 @@ import (
 	"time"
 
 	"github.com/fpresta0607/code-goblins/internal/host"
-	"github.com/fpresta0607/code-goblins/internal/lock"
 	"github.com/fpresta0607/code-goblins/internal/state"
 )
 
@@ -226,7 +225,6 @@ func (s *Service) bringGoblinBack(comeback *Comeback, id string, memory Memory) 
 	evaluation := s.Store.Snapshot().Tasks[id]
 	lifecycle, lifecycleErr := state.ReadLifecycle(directory, id)
 	result := GoblinComeback{Outcome: LeftAsItWas}
-	var releaseErr error
 	switch {
 	case metaErr != nil && !errors.Is(metaErr, os.ErrNotExist):
 		result = GoblinComeback{Outcome: DidNotComeBack, Said: "its task record cannot be read: " + metaErr.Error()}
@@ -236,19 +234,12 @@ func (s *Service) bringGoblinBack(comeback *Comeback, id string, memory Memory) 
 	case NativeTerminalRuns(directory, id):
 		result.Outcome = AlreadyRuns
 	default:
-		if _, err := lock.AcquireExclusiveNamed(directory, ".spawn.lock"); err != nil {
-			reason := err.Error()
-			if errors.Is(err, lock.ErrHeld) {
-				reason = "another task is starting"
-			}
-			result = GoblinComeback{Outcome: WaitsForRoom, Said: reason}
+		// The relaunch takes the home's spawn lock itself, around its
+		// terminal's launch only, and admits the goblin again under it.
+		if err := s.launchRoom(memory); err != nil {
+			result = GoblinComeback{Outcome: WaitsForRoom, Said: err.Error()}
 		} else {
-			if err := s.launchRoom(memory); err != nil {
-				result = GoblinComeback{Outcome: WaitsForRoom, Said: err.Error()}
-			} else {
-				result = comeback.Goblin(context.Background(), id)
-			}
-			releaseErr = lock.ReleaseExclusiveNamed(directory, ".spawn.lock")
+			result = comeback.Goblin(context.Background(), id)
 		}
 	}
 	s.comeback.Lock()
@@ -283,7 +274,7 @@ func (s *Service) bringGoblinBack(comeback *Comeback, id string, memory Memory) 
 	s.starts.Lock()
 	delete(s.changing, id)
 	s.starts.Unlock()
-	s.reportComeback(errors.Join(err, releaseErr))
+	s.reportComeback(err)
 }
 
 // reportComeback keeps what a comeback step met for the next recovery cycle,

@@ -68,15 +68,12 @@ var (
 // maxDialogMoves bounds the focus moves one dialog takes.
 const maxDialogMoves = 8
 
-// startNativeHarness starts the harness in a native terminal of its own, the
-// task's id, and delivers its instruction. It reads the terminal's screen
-// throughout: it answers a startup dialog only once it recognizes it, types
-// the instruction only at the harness's composer, and submits it only once the
-// composer shows it. It returns the record of the host it launched, even when
-// it fails afterwards, and the zero record when it launched none.
-func (s Service) startNativeHarness(ctx context.Context, id string, kind harness.Kind, launch harness.Launch, userEnv []string, credentials map[string]string) (host.Record, error) {
-	screens, ok := harness.NativeScreens(kind)
-	if !ok {
+// launchNativeHost starts the harness in a native terminal of its own, the
+// task's id, and returns its host's record, the zero record when it launched
+// none. It is the last step of a start's turn: from here the host counts as a
+// running terminal, which the next start's admission sees.
+func (s Service) launchNativeHost(id string, kind harness.Kind, launch harness.Launch, userEnv []string, credentials map[string]string) (host.Record, error) {
+	if _, ok := harness.NativeScreens(kind); !ok {
 		return host.Record{}, fmt.Errorf("spawn: %s cannot run in a native terminal yet", kind)
 	}
 	program, err := nativeProgram(kind, launch)
@@ -93,25 +90,39 @@ func (s Service) startNativeHarness(ctx context.Context, id string, kind harness
 	if err != nil {
 		return host.Record{}, fmt.Errorf("spawn: start native terminal %s: %w", id, err)
 	}
+	return record, nil
+}
+
+// briefNativeHarness waits for the harness in task id's native terminal,
+// which record names, to start and delivers its instruction. It reads the
+// terminal's screen throughout: it answers a startup dialog only once it
+// recognizes it, types the instruction only at the harness's composer, and
+// submits it only once the composer shows it. It runs after the start's turn,
+// so a slow startup holds up no other start.
+func (s Service) briefNativeHarness(ctx context.Context, id string, record host.Record, kind harness.Kind, launch harness.Launch) error {
+	screens, ok := harness.NativeScreens(kind)
+	if !ok {
+		return fmt.Errorf("spawn: %s cannot run in a native terminal yet", kind)
+	}
 	untrusted, working, err := s.awaitNativeReady(ctx, record, screens, launch.Resumed)
 	if err != nil {
-		return record, err
+		return err
 	}
 	if untrusted != "" {
 		if err := s.reportUntrusted(id, kind, launch.Dir, untrusted); err != nil {
-			return record, err
+			return err
 		}
 	}
 	// A resumed conversation that came back in a turn is at work on its task
 	// already, so its instruction is not typed a second time.
 	if working {
-		return record, nil
+		return nil
 	}
 	instruction, err := s.typedInstruction(id, screens, launch.PromptInstruction())
 	if err != nil {
-		return record, err
+		return err
 	}
-	return record, s.deliverNativeInstruction(ctx, record, screens, state.TaskMeta{ID: id, Harness: string(kind), Worktree: launch.Dir, SpawnGen: launch.Env["CFO_SPAWN_GEN"]}, instruction)
+	return s.deliverNativeInstruction(ctx, record, screens, state.TaskMeta{ID: id, Harness: string(kind), Worktree: launch.Dir, SpawnGen: launch.Env["CFO_SPAWN_GEN"]}, instruction)
 }
 
 // typedInstructionLimit is the longest instruction typed whole into a harness
