@@ -8,9 +8,7 @@
 package main
 
 import (
-	"crypto/sha256"
 	_ "embed"
-	"encoding/hex"
 	"flag"
 	"fmt"
 	"log"
@@ -58,13 +56,13 @@ func main() {
 	}
 	launcher := os.Getenv(launcherVariable)
 	login := loginCommand(launcher, self, *board, *stateDir)
-	// The window's tests run on a profile of their own, beside the user's
-	// window and never as its second instance.
-	instance := "dev.codegoblins.window"
+	userEnv, err := userEnvironment()
+	if err != nil {
+		log.Printf("read the user's own environment, to tell whether this is the user's own home: %v", err)
+	}
+	known := windowIdentity(*stateDir, *profile, userEnv)
 	var windows application.WindowsOptions
 	if *profile != "" {
-		sum := sha256.Sum256([]byte(*profile))
-		instance += "." + hex.EncodeToString(sum[:8])
 		windows.WebviewUserDataPath = *profile
 	}
 	windows.AdditionalBrowserArgs = strings.Fields(*browserArgs)
@@ -77,14 +75,15 @@ func main() {
 			window.Focus()
 		}
 	}
-	// A window on a profile of its own, as the window's tests start, claims
-	// nothing from its board and raises no Windows notification: registering
-	// for them names this program to Windows as the one a click on the user's
-	// own window's notifications starts, and a claim it raises nothing for
-	// takes the alert from a page on that board.
+	// A window on a profile of its own, as the window's tests start, or on a
+	// home other than the user's own claims nothing from its board and raises
+	// no Windows notification: registering for them names this program to
+	// Windows as the one a click on the user's own window's notifications
+	// starts, and a claim it raises nothing for takes the alert from a page on
+	// that board.
 	var notifier *Notifier
 	var services []application.Service
-	if *profile == "" {
+	if known.notifies {
 		toasts := notifications.New()
 		services = append(services, application.NewService(toasts))
 		notifier = &Notifier{
@@ -134,7 +133,7 @@ func main() {
 			}
 		},
 		SingleInstance: &application.SingleInstanceOptions{
-			UniqueID: instance,
+			UniqueID: known.instance,
 			// A second goblins brings this window to the front.
 			OnSecondInstanceLaunch: func(application.SecondInstanceData) { show() },
 		},
