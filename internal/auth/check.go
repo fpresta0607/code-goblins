@@ -303,7 +303,7 @@ func (c Checker) runProbe(ctx context.Context, service Service, resolution Resol
 		// credential problem that does not exist.
 		return StateUnverified, "cannot verify: " + service.Probe[0] + " is not installed"
 	case errors.Is(err, context.DeadlineExceeded):
-		return StateUnreachable, fmt.Sprintf("probe did not answer within %s", c.timeout())
+		return StateUnreachable, c.timedOut("probe", result)
 	case err != nil:
 		return StateFailed, "probe could not run: " + err.Error()
 	case result.ExitCode == 0:
@@ -336,7 +336,7 @@ func (c Checker) runIdentity(ctx context.Context, identity Identity, resolution 
 	case errors.Is(err, exec.ErrNotFound):
 		return StateUnverified, "identity unverified: " + identity.Command[0] + " is not installed"
 	case errors.Is(err, context.DeadlineExceeded):
-		return StateUnreachable, fmt.Sprintf("identity check did not answer within %s", c.timeout())
+		return StateUnreachable, c.timedOut("identity check", result)
 	case err != nil:
 		return StateUnverified, "identity unverified: check could not run: " + err.Error()
 	case result.ExitCode != 0:
@@ -436,6 +436,16 @@ func (c Checker) timeout() time.Duration {
 	return ProbeTimeout
 }
 
+// timedOut describes a command that ran out of time, with the first line it
+// printed when it printed one: a tool that answered and then did not exit is
+// a different fault from one that never answered.
+func (c Checker) timedOut(command string, result execx.Result) string {
+	if printed := firstLine(result.Stdout, result.Stderr); printed != "" {
+		return fmt.Sprintf("%s did not exit within %s; it printed: %s", command, c.timeout(), printed)
+	}
+	return fmt.Sprintf("%s did not answer within %s", command, c.timeout())
+}
+
 // exec runs one manifest command with the resolved credentials in its
 // environment. Arguments may reference a resolved value as $NAME, so a login
 // command can pass a stored key without the manifest ever holding it.
@@ -453,10 +463,13 @@ func (c Checker) exec(ctx context.Context, argv []string, resolved map[string]Re
 	for _, arg := range argv[1:] {
 		args = append(args, expand(arg, resolved))
 	}
+	// A CLI installed with npm runs behind a .cmd shim, and ending only the
+	// shim at the time limit would leave the CLI itself running.
 	result, err := c.Runner.Run(ctx, execx.Request{
-		Name: argv[0],
-		Args: args,
-		Env:  Environ(resolved),
+		Name:     argv[0],
+		Args:     args,
+		Env:      Environ(resolved),
+		KillTree: true,
 	})
 	result.Stdout = scrub(result.Stdout, resolved)
 	result.Stderr = scrub(result.Stderr, resolved)
