@@ -100,17 +100,23 @@ func reachHelpers(ctx context.Context, h home.Home, meta state.TaskMeta, record 
 	if err != nil {
 		return nil, err
 	}
+	// A stop's record keeps the pause before it, which says nothing of the
+	// stop.
+	var pause *state.PauseCondition
+	if record.Action == "pause" {
+		pause = record.Pause
+	}
 	var lines []string
 	var problems []error
 	for _, helper := range helpers {
-		if record.Pause != nil && record.Pause.Reason == "dependency" && strings.EqualFold(record.Pause.Until, "task:"+helper.ID) {
+		if pause != nil && pause.Reason == "dependency" && strings.EqualFold(pause.Until, "task:"+helper.ID) {
 			lines = append(lines, "helper "+helper.ID+" kept at work: "+meta.ID+" waits on it")
 			continue
 		}
 		sum := sha256.Sum256([]byte(record.Operation + "\x00" + helper.ID))
 		request := lifecycle.Request{ID: helper.ID, Generation: helper.SpawnGen, Operation: "helper-" + hex.EncodeToString(sum[:8]), Action: record.Action, Reason: "Stopped with its parent " + meta.ID + ": " + record.Reason}
-		if record.Pause != nil {
-			request.Reason, request.Until = record.Pause.Reason, record.Pause.Until
+		if pause != nil {
+			request.Reason, request.Until = pause.Reason, pause.Until
 		}
 		result, err := run(ctx, h, request, "")
 		if err != nil {

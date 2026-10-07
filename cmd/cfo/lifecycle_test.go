@@ -56,6 +56,12 @@ func TestReachHelpersRunsTheParentsActionOnEachHelper(t *testing.T) {
 			[]lifecycle.Request{{ID: "g1-h1", Generation: "s2", Action: "stop", Reason: "Stopped with its parent g1: Requested from the board"}}, []string{"helper g1-h1 stopped"}},
 		{"a wait on that helper", state.Lifecycle{Operation: "op-1", Action: "pause", Pause: &state.PauseCondition{Reason: "dependency", Until: "task:g1-h1"}},
 			nil, []string{"helper g1-h1 kept at work: g1 waits on it"}},
+		// A stop's record keeps the pause before it, which says nothing of
+		// the stop.
+		{"a stop after a pause", state.Lifecycle{Operation: "op-2", Action: "stop", Reason: "Requested from the board", Pause: &state.PauseCondition{Reason: "overlord"}},
+			[]lifecycle.Request{{ID: "g1-h1", Generation: "s2", Action: "stop", Reason: "Stopped with its parent g1: Requested from the board"}}, []string{"helper g1-h1 stopped"}},
+		{"a stop after a wait on that helper", state.Lifecycle{Operation: "op-2", Action: "stop", Reason: "Requested from the board", Pause: &state.PauseCondition{Reason: "dependency", Until: "task:g1-h1"}},
+			[]lifecycle.Request{{ID: "g1-h1", Generation: "s2", Action: "stop", Reason: "Stopped with its parent g1: Requested from the board"}}, []string{"helper g1-h1 stopped"}},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
