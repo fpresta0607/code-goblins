@@ -460,6 +460,7 @@ test("a choice or written text on an item still waiting stays unsent until its s
     ["a choice on an item that left the snapshot", { "question:gone": { ...blank, selection: "option:A" } }, [], false],
     ["a choice on a question that closed", { "question:done": { ...blank, selection: "option:A" } }, [], false],
     ["written text on a review item that was cleared", { "review:cleared": { ...blank, written: "Looks good" } }, [], false],
+    ["a send in flight on an item the board already shows answered", { "question:done": { ...blank, selection: "option:A", submission: answer, sending: true } }, [], true],
   ];
   for (const [name, drafts, actions, want] of cases) assert.equal(holdsUnsent(drafts, { ...waiting, actions }), want, name);
 });

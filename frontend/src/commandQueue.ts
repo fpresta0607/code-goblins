@@ -165,11 +165,13 @@ export function notSent(draft: SentDraft, item: Item | undefined, actions: Actio
 // holdsUnsent says whether any card of an item still waiting, or a change to
 // the CFO's answer made from History, keeps a choice or written text the
 // Overlord has not sent, is sending it, or saw its send fail, which a reload
-// would lose. A draft left on an item that closed is no longer his to send.
+// would lose. A draft left on an item that closed is no longer his to send;
+// one he is sending counts whatever the item shows, since the board shows it
+// answered the moment he sends it.
 export function holdsUnsent(drafts: Record<string, SentDraft & { selection: string; written: string }>, snapshot: Snapshot): boolean {
   return Object.entries(drafts).some(([key, draft]) => {
     const item = itemFor(snapshot, key);
-    const isLive = key.startsWith("change:") || !!item && isOpen(item);
+    const isLive = draft.sending || key.startsWith("change:") || !!item && isOpen(item);
     const state = sendState(draft, snapshot.actions);
     return isLive && (!!draft.selection || !!draft.written.trim()) && (draft.sending || !state || state.failed);
   });
