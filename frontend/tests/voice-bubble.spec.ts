@@ -138,11 +138,38 @@ test("overlapping dictations reach the same terminal in capture order", async ({
   await expect.poll(() => page.evaluate(() => window.voiceProbe!.replies)).toBe(1);
   await expect.poll(() => page.locator("output").textContent()).toBe("");
   await replies[0].fulfill({ json: { text: "open the\npull request" } });
-  await expect.poll(() => page.locator("output").textContent()).toBe("open the pull request\nthen run the tests");
+  await expect.poll(() => page.locator("output").textContent()).toBe("open the pull request\n then run the tests");
   expect(posts).toHaveLength(2);
   await expect(page.getByRole("textbox", { name: "Terminal input" })).toHaveValue("");
   await bubble.click();
   await expect(page.getByRole("dialog", { name: "Recent messages" }).locator(".voice-text")).toHaveText(["then run the tests", "open the pull request"]);
+});
+
+test("a dictation typed right after another starts with a space, and one after a typed key does not", async ({ page }) => {
+  const replies: Route[] = [];
+  const { bubble } = await openPane(page, { app: true, replies });
+  const say = async (count: number, words: string) => {
+    await holdShortcut(page, 0);
+    await expect.poll(() => page.evaluate(() => window.voiceProbe!.captures.length)).toBe(count);
+    await page.waitForTimeout(1200);
+    await releaseShortcut(page);
+    await expect.poll(() => replies.length).toBe(count);
+    await replies[count - 1].fulfill({ json: { text: words } });
+  };
+  // The output shows each typing on a line of its own, exactly as typed.
+  const typed = () => page.locator("output").textContent();
+  await say(1, "open the pull request");
+  await expect.poll(typed).toBe("open the pull request");
+  await say(2, "then run the tests");
+  await expect.poll(typed).toBe("open the pull request\n then run the tests");
+  await page.keyboard.press("x");
+  await say(3, "and merge it");
+  await expect.poll(typed).toBe("open the pull request\n then run the tests\nand merge it");
+  // The recent dictations keep the words alone, without the separating space.
+  expect(await page.evaluate(() => (JSON.parse(localStorage.getItem("cfo-dictations-v1")!) as Record<string, { text: string }[]>)["task:voice"].map((message) => message.text)))
+    .toEqual(["and merge it", "then run the tests", "open the pull request"]);
+  await bubble.click();
+  await expect(page.getByRole("dialog", { name: "Recent messages" }).locator(".voice-text")).toHaveText(["and merge it", "then run the tests", "open the pull request"]);
 });
 
 test("a stalled dictation is canceled without blocking later words", async ({ page }) => {

@@ -460,6 +460,16 @@ public static extern IntPtr SendMessageTimeout(IntPtr hWnd, uint Msg, UIntPtr wP
     # failed the install on shared CI runners. Moving the pin forward and
     # rerunning the install updates a machine to it.
     $noMistakesVersion = "1.75.1"
+    # Every package this install fetches from npm, the skills CLI among
+    # them, is pinned to an exact version, so a release upstream reaches
+    # users only when it is pinned here. On 2026-10-06 the skills CLI 1.7.1
+    # moved pi's skills to another folder for every install the day it was
+    # published. To bump one, read its release notes, change its version
+    # here or in the tools below, and codex's or pi's in
+    # internal/onboarding/installers.go as well, which a test holds to the
+    # same, and let the install workflow, which runs on a pull request that
+    # changes this file, prove it.
+    $skillsCliVersion = "1.7.1"
 
     # The one no-mistakes the install manages and ever replaces, where
     # no-mistakes' own installer and its update put it.
@@ -555,13 +565,13 @@ public static extern IntPtr SendMessageTimeout(IntPtr hWnd, uint Msg, UIntPtr wP
         @{ Name = "git";                 Kind = "winget";     Cmd = "winget install -e --id Git.Git --accept-package-agreements --accept-source-agreements" },
         @{ Name = "gh";                  Kind = "winget";     Cmd = "winget install -e --id GitHub.cli --accept-package-agreements --accept-source-agreements" },
         @{ Name = "claude";              Kind = "powershell"; Cmd = "https://claude.ai/install.ps1" },
-        @{ Name = "codex";               Kind = "npm";        Cmd = "npm.cmd install -g @openai/codex" },
-        @{ Name = "pi";                  Kind = "npm";        Cmd = "npm.cmd install -g @earendil-works/pi-coding-agent" },
-        @{ Name = "tasks-axi";           Kind = "npm";        Cmd = "npm.cmd install -g tasks-axi" },
-        @{ Name = "quota-axi";           Kind = "npm";        Cmd = "npm.cmd install -g quota-axi" },
+        @{ Name = "codex";               Kind = "npm";        Cmd = "npm.cmd install -g @openai/codex@0.160.1" },
+        @{ Name = "pi";                  Kind = "npm";        Cmd = "npm.cmd install -g @earendil-works/pi-coding-agent@1.0.4" },
+        @{ Name = "tasks-axi";           Kind = "npm";        Cmd = "npm.cmd install -g tasks-axi@0.2.6" },
+        @{ Name = "quota-axi";           Kind = "npm";        Cmd = "npm.cmd install -g quota-axi@0.1.58" },
         @{ Name = "no-mistakes";         Kind = "release";    Cmd = "https://github.com/kunchenguid/no-mistakes/releases/download/v$noMistakesVersion" },
-        @{ Name = "gh-axi";              Kind = "npm";        Cmd = "npm.cmd install -g gh-axi" },
-        @{ Name = "chrome-devtools-axi"; Kind = "npm";        Cmd = "npm.cmd install -g chrome-devtools-axi" },
+        @{ Name = "gh-axi";              Kind = "npm";        Cmd = "npm.cmd install -g gh-axi@0.1.35" },
+        @{ Name = "chrome-devtools-axi"; Kind = "npm";        Cmd = "npm.cmd install -g chrome-devtools-axi@0.1.39" },
         @{ Name = "lavish-axi";          Kind = "npm-file";   Cmd = "https://github.com/fpresta0607/lavish-axi/releases/download/v0.1.79-codegoblins.3/lavish-axi-0.1.79-codegoblins.3.tgz"; Sha256 = "C9D491112C4B971A957B7B72D7E72378E42ECA20BFB4A3E725E60E76C18BA9B9" }
     )
 
@@ -711,9 +721,17 @@ public static extern IntPtr SendMessageTimeout(IntPtr hWnd, uint Msg, UIntPtr wP
             continue
         }
         # Only the fleet's harnesses, as copies: a symlink needs a right an
-        # ordinary Windows user may not have.
-        Write-Detail ("skill    {0,-20} npx skills add kunchenguid/{0} --skill {0} -g -y -a claude-code -a codex -a pi --copy" -f $skill)
-        $code = Invoke-Logged "npx.cmd" @("-y", "skills", "add", "kunchenguid/$skill", "--skill", $skill, "-g", "-y", "-a", "claude-code", "-a", "codex", "-a", "pi", "--copy")
+        # ordinary Windows user may not have. The skill comes from GitHub, and
+        # a fetch that fails once, as one did on a hosted runner on
+        # 2026-10-06, is tried once more before the skill is left out.
+        $skillArgs = @("-y", "skills@$skillsCliVersion", "add", "kunchenguid/$skill", "--skill", $skill, "-g", "-y", "-a", "claude-code", "-a", "codex", "-a", "pi", "--copy")
+        Write-Detail ("skill    {0,-20} npx {1}" -f $skill, ($skillArgs[1..($skillArgs.Count - 1)] -join " "))
+        $code = Invoke-Logged "npx.cmd" $skillArgs
+        if ($code -ne 0) {
+            Write-Detail ("RETRY    {0,-20} skill install exited with code {1}; trying once more" -f $skill, $code)
+            Start-Sleep -Seconds 2
+            $code = Invoke-Logged "npx.cmd" $skillArgs
+        }
         if ($code -ne 0) {
             Write-Detail ("WARN     {0,-20} skill install exited with code {1}" -f $skill, $code)
             $failedInstalls += "$skill skill"

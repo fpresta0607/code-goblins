@@ -5,6 +5,9 @@ import { modelName, recognizerFor } from "./dictationEngine";
 // A note about dictation stays this long over the terminal.
 const NOTE_MS = 6000;
 
+// Keys that only modify another, as the shortcut's own Ctrl and Shift do.
+const MODIFIERS = ["Control", "Shift", "Alt", "Meta"];
+
 // Push-to-talk dictation for one terminal. Its key handler hands every key to
 // key first: false means the terminal must not see the key, true that it may,
 // and null that the key is not dictation's. What was heard is typed with type.
@@ -24,6 +27,10 @@ export function useDictation(type: (text: string) => void, instance: string) {
     return () => { live = false; };
   }, []);
   const dictation = useRef<Dictation | null>(null);
+  // A dictation typed right after another, with no key pressed in the
+  // terminal between them, starts with a space, so the two do not run
+  // together.
+  const followsDictation = useRef(false);
   useEffect(() => () => { dictation.current?.dispose(); dictation.current = null; }, []);
   useEffect(() => {
     if (!note) return;
@@ -45,10 +52,17 @@ export function useDictation(type: (text: string) => void, instance: string) {
   }, []);
   const key = useCallback((event: KeyboardEvent): boolean | null => {
     const meaning = dictationKey(event);
-    if (!meaning) return null;
+    if (!meaning) {
+      if (event.type === "keydown" && !MODIFIERS.includes(event.key)) followsDictation.current = false;
+      return null;
+    }
     if (meaning.swallow) event.preventDefault();
     if (meaning.action === "start") {
-      dictation.current ??= new Dictation({ heard: (text) => typeText.current(text), listening: setListening, problem: setNote }, () => recognizerFor(() => token.current), navigator.language || "en-US", openMicrophone);
+      const heard = (text: string) => {
+        typeText.current(followsDictation.current ? " " + text : text);
+        followsDictation.current = true;
+      };
+      dictation.current ??= new Dictation({ heard, listening: setListening, problem: setNote }, () => recognizerFor(() => token.current), navigator.language || "en-US", openMicrophone);
       dictation.current.start();
     }
     if (meaning.action === "stop") {
