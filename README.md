@@ -377,6 +377,7 @@ An eligible queued card has a **Start** play icon with a tooltip.
 It dispatches the task the way the CFO does, through `cfo spawn` with its brief and the harness, model, effort and mode its backlog row or brief names (Claude Code on `claude-opus-5-5` at `xhigh` when they name none), tells the CFO, puts the task at the top of In progress and opens its terminal once its session is up.
 When a brief is missing, Start writes it from the queued task and tells the CFO before dispatching.
 Start requires at least 5 GB of free memory and 5 GB of free commit (RAM plus page file, which a new program needs even while memory looks free) and free disk at or above the disk floor, and waits while another task is starting or resuming; a refusal names whichever is short and appears on the card.
+A Start or Resume, and each start or resume the supervisor makes by itself, that meets a `cfo spawn` the CFO runs by hand waits for it to end and then tries once more.
 
 In-progress cards have **Pause** and **Stop** icons, and paused cards have **Resume** and Stop, with tooltips on hover or keyboard focus.
 A queued card has **Remove** where they have Stop: a task that has not started has nothing to stop.
@@ -406,6 +407,7 @@ The memory meter shows the goblins live against the cap, and the setting while m
 A live goblin with no real progress for 20 minutes says for how long on its card.
 After 20 minutes with no new commit, push, gate-step change or changed status report, the supervisor raises one `progress_stalled` check wake to the CFO; real progress resets it, and intentional pauses do not raise it.
 Progress probes run together under one 10-second deadline, so stalled probes do not accumulate delays between memory readings.
+A goblin whose latest report is a wait on its own helper takes the helper's progress as its own, on its card and in this check, and draws no wake while the helper is watched, since the helper's own check reports its stall.
 An allowance pause that failed for the current task generation and reset waits for intervention while unrelated cleared work can continue.
 Durations are measured from the start and finish timestamps of the checks and awaited Actions runs reported by `ci_finished`; missing timestamps are left unmeasured, and check names containing `deploy` are classified as deploys.
 If validation was interrupted, its gate commits are preserved before that run is aborted; validation restarts on Resume.
@@ -744,9 +746,12 @@ Run `cfo doctor` after installation for the current dependency and harness healt
 
 A goblin can ask the supervisor for one helper goblin of its own: it writes the helper's brief to a file and runs `cfo helper start <its-id> --brief <file> --title "<short title>"`.
 The supervisor starts it only when memory allows (5 GB free to start, never under the 4 GB floor), one helper per goblin at a time and never a helper of a helper, and a refusal says why and when to ask again.
+A start that meets a `cfo spawn` the CFO runs by hand waits for it to end and tries once more.
 The helper works in a worktree of its own, on a branch cut from its parent's last commit, and reports to its parent rather than the CFO.
+While the parent reports it waits on its helper, the helper's progress counts as the parent's, so the parent draws no `progress_stalled` wake while its helper works.
 When it is done, the parent runs `cfo helper merge <its-id>`, which merges the helper's branch into its own with a merge commit and retires the helper; the parent stays the one who opens the pull request.
-Pausing or stopping a goblin pauses or stops its helper with it, `cfo fleet-view` names each helper's parent, and the board hangs each helper under its parent in the family tree.
+Pausing or stopping a goblin pauses or stops its helper with it, and a helper paused with its parent comes back by itself once its parent runs again, when memory allows: its paused card says it resumes with its parent, and **Next** marks it when it is the next to come back.
+`cfo fleet-view` names each helper's parent, and the board hangs each helper under its parent: in the family tree while its parent runs, and as a card under its parent's card while its parent is paused.
 
 <p align="center">
   <img src="docs/images/family-tree.webp" alt="The family tree on the Orchestration view: under the goblin streaming the billing export, its sub-agents, its helper goblin, a dev server, a test run and a silent background shell as baby goblins with their state, age and memory, and beside it the goblin's panel listing the same under What's working" width="900" />
