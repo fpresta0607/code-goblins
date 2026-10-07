@@ -170,10 +170,11 @@ export interface NextUp { id: string; text: string; tone: "" | "waiting" | "defe
 // for a pause for memory is once memory is back; then the top of the queue
 // that can start. A pause that waits on the Overlord, a pull request, a task,
 // CI or a date still ahead holds no slot: the supervisor resumes it at the
-// first reading after it clears.
+// first reading after it clears. A queued task whose last start failed waits
+// for its Start, so the supervisor passes over it too.
 export function nextInOrder(snapshot: Snapshot, now: number): NextUp | null {
   const tone = memoryBlock(snapshot.memory) ? "waiting" : "";
-  const queued = queuedTasks(snapshot).filter((task) => !queueBlock(task));
+  const queued = queuedTasks(snapshot).filter((task) => !queueBlock(task) && !task.start_error);
   const defect = queued.find((task) => task.priority === "production-defect");
   if (defect) return { id: defect.id, text: "Production defect: jumps the queue", tone: "defect" };
   const resumable = snapshot.tasks.filter((task) => task.phase === "paused" && task.lifecycle?.pause && isClearing(task.lifecycle.pause, now))

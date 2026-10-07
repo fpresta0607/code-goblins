@@ -404,7 +404,7 @@ While [AFK mode](#afk-mode) is on it pauses at the memory floor too: after two r
 Short session or model windows do not trigger this reserve, and missing or stale quota remains unknown.
 On the board, a paused card says in place of Paused why it waits and what resumes it, in a few words such as "Memory: resumes at 5 GB free", "Waiting on PR #331 to merge" or "Waiting on CI, usually 13 min", the last from the median of that repository's measured runs.
 The memory meter shows the goblins live against the cap, and the setting while memory lowers the cap; with no free slot, Start and Resume say so on the card instead of being refused after the click.
-**Next** marks the one card the free-slot order takes first: a reported production defect, which says it jumps the queue, then a paused goblin whose pause has cleared or clears with memory, oldest pause first, then the top of the queue.
+**Next** marks the one card the free-slot order takes first: a reported production defect, which says it jumps the queue, then a paused goblin whose pause has cleared or clears with memory, oldest pause first, then the top of the queue, passing over a task whose last start failed, which waits for its Start.
 A live goblin with no real progress for 20 minutes says for how long on its card.
 After 20 minutes with no new commit, push, gate-step change or changed status report, the supervisor raises one `progress_stalled` check wake to the CFO; real progress resets it, and intentional pauses do not raise it.
 Progress probes run together under one 10-second deadline, so stalled probes do not accumulate delays between memory readings.
