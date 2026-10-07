@@ -22,6 +22,7 @@ import (
 	"github.com/fpresta0607/code-goblins/internal/connections"
 	"github.com/fpresta0607/code-goblins/internal/execx"
 	"github.com/fpresta0607/code-goblins/internal/fleet"
+	"github.com/fpresta0607/code-goblins/internal/fleettree"
 	"github.com/fpresta0607/code-goblins/internal/home"
 	"github.com/fpresta0607/code-goblins/internal/lock"
 	"github.com/fpresta0607/code-goblins/internal/monitor"
@@ -90,6 +91,10 @@ type Options struct {
 	// turned on beside the one taken when it turned off.
 	Allowance func(ctx context.Context) ([]afk.Allowance, string)
 	Quota     func(ctx context.Context) (quota.Report, string)
+	// Tree reads each live goblin's family tree for its card; Start gives it
+	// the board's record of each goblin's conversation. Without it no card
+	// shows one.
+	Tree *fleettree.Reader
 }
 
 type Service struct {
@@ -125,16 +130,18 @@ type Service struct {
 	// recovery cycle. ciUnreadable is why each watched repository's CI
 	// cannot be read, as of the last fleet reading; publish joins it into
 	// whatever it publishes for as long as the failure lasts.
-	historyErr      error
-	cfoWakeErr      error
-	fleetErr        error
-	ciUnreadable    error
-	workProgress    map[string]WorkProgress
-	ciDurations     []CIDuration
-	sameArea        map[string]sameArea
-	hostedChecks    map[string]HostedChecks
-	localReports    map[string][]verify.Report
-	localReadErr    error
+	historyErr   error
+	cfoWakeErr   error
+	fleetErr     error
+	ciUnreadable error
+	workProgress map[string]WorkProgress
+	ciDurations  []CIDuration
+	sameArea     map[string]sameArea
+	hostedChecks map[string]HostedChecks
+	localReports map[string][]verify.Report
+	localReadErr error
+	// trees is each live goblin's family tree as keepTrees last read it.
+	trees           map[string]fleettree.Tree
 	progressReadErr error
 	// runRequests takes one run request at a time, so two with one ID never
 	// both write a script.
@@ -218,6 +225,9 @@ func Start(ctx context.Context, h home.Home, options Options) (*Service, error) 
 	s := &Service{Store: store, Options: options, Instance: hex.EncodeToString(id[:]), Started: time.Now().UTC(), subscribers: map[chan struct{}]struct{}{}, done: make(chan struct{}), work: make(chan struct{}, 1), looks: make(chan chan struct{}), cancel: cancel}
 	if options.Tickets != nil {
 		s.tickets = newTicketKeeper(h, options.Tickets)
+	}
+	if options.Tree != nil {
+		options.Tree.Recorded = store.recordedSession
 	}
 	go s.run(ctx)
 	return s, nil
@@ -355,6 +365,14 @@ func (s *Service) run(ctx context.Context) {
 		}
 	}()
 	defer func() { s.cancel(); <-ticketsDone }()
+	treesDone := make(chan struct{})
+	go func() {
+		defer close(treesDone)
+		if s.Options.Tree != nil {
+			s.keepTrees(ctx)
+		}
+	}()
+	defer func() { s.cancel(); <-treesDone }()
 	// A single inbox watcher, independent of task count. A timeout also
 	// recovers notifications lost during atomic renames or an AV filter fault.
 	notified := make(chan struct{}, 1)
@@ -947,6 +965,10 @@ type Task struct {
 	// CI poll, and LocalChecks its change's newest cfo gate test run.
 	HostedChecks *HostedChecks `json:"hosted_checks,omitempty"`
 	LocalChecks  *LocalChecks  `json:"local_checks,omitempty"`
+	// Tree is what a live goblin has running under it: its sub-agents,
+	// background shells and monitors, its jobs of processes with their
+	// memory, and its gate run.
+	Tree *fleettree.Tree `json:"tree,omitempty"`
 	Evaluation
 }
 
@@ -1037,7 +1059,7 @@ func (s *Service) Snapshot() (Snapshot, error) {
 	d := s.Store.Snapshot()
 	s.mu.Lock()
 	out := Snapshot{Example: s.Options.Example, Instance: s.Instance, Revision: s.revision, Started: s.Started, At: time.Now().UTC(), Reconciled: s.reconciled, Error: s.lastError, Tasks: []Task{}, Attention: []string{}, Sessions: []Session{}, Retired: d.Retired, Actions: d.Actions, Issues: d.Issues}
-	progress, sameAreas, hostedChecks, localReports := maps.Clone(s.workProgress), maps.Clone(s.sameArea), maps.Clone(s.hostedChecks), maps.Clone(s.localReports)
+	progress, sameAreas, hostedChecks, localReports, trees := maps.Clone(s.workProgress), maps.Clone(s.sameArea), maps.Clone(s.hostedChecks), maps.Clone(s.localReports), maps.Clone(s.trees)
 	if s.localReadErr != nil {
 		out.Issues = append(slices.Clone(out.Issues), s.localReadErr.Error())
 	}
@@ -1323,6 +1345,9 @@ func (s *Service) Snapshot() (Snapshot, error) {
 		}
 		if report, found := newestRun(localReports[task.Project], *task); found && !task.Archived {
 			task.LocalChecks = localChecks(report)
+		}
+		if tree, exists := trees[task.ID]; exists && tree.Generation == task.Generation && !task.Archived {
+			task.Tree = &tree
 		}
 	}
 	if dispatch := s.Options.Dispatch; dispatch != nil {

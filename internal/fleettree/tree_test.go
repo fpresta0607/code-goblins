@@ -172,3 +172,31 @@ func TestOwnedSessionTakesOnlyThisGenerationsGoblin(t *testing.T) {
 		t.Error("an unreadable record read as none, want an error")
 	}
 }
+
+// A process id the host recorded for the goblin's harness, now held by a
+// later process, is no part of the goblin: nothing under it is the
+// goblin's.
+func TestReadIgnoresAProcessThatReusedTheHarnessesID(t *testing.T) {
+	// Arrange
+	launched := at.Add(-time.Hour)
+	reader := Reader{
+		Home:        t.TempDir(),
+		Processes:   func() ([]Process, error) { return goblinProcesses(launched, time.Minute), nil },
+		Listeners:   func() (map[int][]int, error) { return nil, nil },
+		CommandLine: func(pid int) (string, error) { return goblinCommands[pid], nil },
+		Now:         func() time.Time { return at },
+	}
+	meta := state.TaskMeta{ID: "tree", Harness: "codex"}
+
+	// Act
+	reused, _ := reader.Read(context.Background(), Goblin{Meta: meta, HarnessPID: 100, HarnessStarted: launched.Add(-3 * time.Hour)})
+	own, _ := reader.Read(context.Background(), Goblin{Meta: meta, HarnessPID: 100, HarnessStarted: launched.Add(300 * time.Millisecond)})
+
+	// Assert
+	if len(reused.Children) != 0 || reused.Memory != 0 || len(reused.Unread) == 0 {
+		t.Errorf("tree over a reused id = %+v, want nothing of another program's, and why", reused)
+	}
+	if len(own.Children) != 3 || own.Memory == 0 {
+		t.Errorf("tree over the recorded process = %+v, want its jobs", own)
+	}
+}

@@ -11,6 +11,7 @@ import (
 	"regexp"
 	"strings"
 
+	"github.com/fpresta0607/code-goblins/internal/fleettree"
 	"github.com/fpresta0607/code-goblins/internal/fsx"
 	"github.com/fpresta0607/code-goblins/internal/state"
 )
@@ -32,30 +33,15 @@ func (h *HostProgress) LastReply(ctx context.Context, meta state.TaskMeta, sampl
 	switch strings.ToLower(sample.Harness) {
 	case "claude":
 		if sample.Session != "" {
-			return lastReplyIn(h.sessionTranscript("claude", sample.Session), claudeReply)
+			return lastReplyIn(fleettree.SessionTranscript(h.Home, "claude", sample.Session), claudeReply)
 		}
 		return lastReplyIn(h.newestClaudeConversation(meta.Worktree), claudeReply)
 	case "codex":
-		if sample.Session != "" {
-			return lastReplyIn(h.sessionTranscript("codex", sample.Session), codexReply)
-		}
-		rollout, _ := h.newestNativeCodexRollout(ctx, meta.Worktree)
-		return lastReplyIn(rollout, codexReply)
+		return lastReplyIn(h.tree().CodexRollout(ctx, meta.Worktree, sample.Session), codexReply)
 	case "pi":
 		return screenReply(sample.Capture)
 	}
 	return ""
-}
-
-// sessionTranscript is the transcript the harness keeps for session, its
-// first pattern's newest match: a Claude subagent's own transcript is never
-// the goblin's reply.
-func (h *HostProgress) sessionTranscript(harness, session string) string {
-	if h.Home == "" || !sessionID.MatchString(session) {
-		return ""
-	}
-	matches, _ := filepath.Glob(filepath.Join(h.Home, strings.ReplaceAll(transcriptPatterns[harness][0], "{session}", session)))
-	return newestFile(matches)
 }
 
 // claudeFolderCharacters are the characters Claude Code writes as a hyphen in
@@ -103,7 +89,7 @@ func lastReplyIn(path string, read func(entries [][]byte) string) string {
 	if err != nil {
 		return ""
 	}
-	start := max(0, info.Size()-transcriptEntryReach)
+	start := max(0, info.Size()-fleettree.TranscriptEntryReach)
 	tail := make([]byte, info.Size()-start)
 	if _, err := file.ReadAt(tail, start); err != nil && !errors.Is(err, io.EOF) {
 		return ""

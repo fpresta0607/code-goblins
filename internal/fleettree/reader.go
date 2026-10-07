@@ -48,13 +48,19 @@ type Reader struct {
 }
 
 // Goblin is one goblin to read: its task record, the process its terminal
-// runs (0 when none is known) and the harness session its terminal names
-// (empty when it names none).
+// runs (0 when none is known) and when that process started (zero when
+// unknown), and the harness session its terminal names (empty when it names
+// none).
 type Goblin struct {
-	Meta       state.TaskMeta
-	HarnessPID int
-	Session    string
+	Meta           state.TaskMeta
+	HarnessPID     int
+	HarnessStarted time.Time
+	Session        string
 }
+
+// startSlack is how far a process's start may read from the start its
+// terminal's host recorded for it.
+const startSlack = time.Second
 
 type processKey struct {
 	pid     int
@@ -103,7 +109,12 @@ func (r *Reader) Read(ctx context.Context, goblin Goblin) (Tree, error) {
 		processes, processErr = read()
 		if processErr != nil {
 			tree.Unread = append(tree.Unread, "processes: "+processErr.Error())
-		} else if harness, isRunning = readHarness(goblin.HarnessPID, processes, HarnessLaunch); isRunning {
+		} else if harness, isRunning = readHarness(goblin.HarnessPID, processes, HarnessLaunch); isRunning && !goblin.HarnessStarted.IsZero() && harness.top.Started.Sub(goblin.HarnessStarted).Abs() > startSlack {
+			// The terminal's program ended and Windows gave its id to
+			// another process, which is no part of this goblin.
+			isRunning = false
+			tree.Unread = append(tree.Unread, "processes: the goblin's harness has ended; its process id now names another program")
+		} else if isRunning {
 			for _, process := range harness.all {
 				tree.Memory += process.Memory
 			}
@@ -164,6 +175,7 @@ func (r *Reader) Read(ctx context.Context, goblin Goblin) (Tree, error) {
 			tree.Unread = append(tree.Unread, "listening ports: "+err.Error())
 		}
 		tree.Children = mergeShells(append(tree.Children, jobs...))
+		r.forgetEnded(processes)
 	}
 	if node, ok := r.gateNode(ctx, meta, processes, now); ok {
 		tree.Children = append(tree.Children, node)
@@ -258,10 +270,8 @@ func (r *Reader) jobNodes(harness harnessProcesses, shellCommands map[string]str
 		commandLine = proc.CommandLine
 	}
 	if r.commands == nil {
-		r.commands = map[processKey]string{}
+		r.commands, r.readings = map[processKey]string{}, map[processKey]cpuReading{}
 	}
-	readings := map[processKey]cpuReading{}
-	commands := map[processKey]string{}
 	var nodes []Node
 	for _, job := range harness.jobs {
 		for _, member := range job.members {
@@ -269,8 +279,8 @@ func (r *Reader) jobNodes(harness harnessProcesses, shellCommands map[string]str
 			command, ok := r.commands[key]
 			if !ok {
 				command, _ = commandLine(member.PID)
+				r.commands[key] = command
 			}
-			commands[key] = command
 			facts.commands[member.PID] = command
 		}
 		group, label, detail := classify(job, facts)
@@ -291,15 +301,33 @@ func (r *Reader) jobNodes(harness harnessProcesses, shellCommands map[string]str
 		if share >= busyShare {
 			state, busy = Working, now
 		}
-		readings[key] = cpuReading{at: now, busy: busy, cpu: cpu}
+		r.readings[key] = cpuReading{at: now, busy: busy, cpu: cpu}
 		node := Node{ID: fmt.Sprintf("process:%d:%d", job.root.PID, job.root.Created), Kind: KindProcess, Group: group, Label: label, Detail: detail, State: state, Started: job.root.Started, LastActivity: busy, Memory: job.memory(), SourceUpdatedAt: now, cpu: cpu, process: job.name()}
 		if shell := shellOf(job, facts.commands[job.root.PID], shellCommands, children); shell != "" {
 			node.Parent = shell
 		}
 		nodes = append(nodes, node)
 	}
-	r.commands, r.readings = commands, readings
 	return nodes, err
+}
+
+// forgetEnded drops what the reader keeps of processes no longer running,
+// whichever goblin they were under: processes is every process running now.
+func (r *Reader) forgetEnded(processes []Process) {
+	running := make(map[processKey]bool, len(processes))
+	for _, process := range processes {
+		running[processKey{process.PID, process.Created}] = true
+	}
+	for key := range r.commands {
+		if !running[key] {
+			delete(r.commands, key)
+		}
+	}
+	for key := range r.readings {
+		if !running[key] {
+			delete(r.readings, key)
+		}
+	}
 }
 
 // shellOf is the background shell a job runs for, when the job's first
@@ -391,11 +419,31 @@ func generationStart(generation string) time.Time {
 	return time.Unix(0, nanos).UTC()
 }
 
-// OwnedSession is the conversation the board recorded for the task's goblin
-// of its current generation, in a harness that resumes one by its id, or
-// none when nothing proves that, so nothing reads another task's
-// conversation as this one's. A record that cannot be read is an error,
-// never taken as none.
+// RecordedSession is the board's record of one harness session.
+type RecordedSession struct {
+	NativeID   string `json:"native_id"`
+	Harness    string `json:"harness"`
+	Role       string `json:"role"`
+	TaskID     string `json:"task_id"`
+	Generation string `json:"generation"`
+}
+
+// Owned is the conversation id the board recorded for the task's goblin of
+// its current generation, in a harness that resumes one by its id, or empty
+// when session proves no such thing, so nothing reads another task's
+// conversation as this one's.
+func Owned(meta state.TaskMeta, session RecordedSession) string {
+	if meta.SpawnGen == "" || (meta.Harness != "codex" && meta.Harness != "claude") {
+		return ""
+	}
+	if session.TaskID != meta.ID || session.Generation != meta.SpawnGen || session.Harness != meta.Harness || session.Role != "goblin" {
+		return ""
+	}
+	return session.NativeID
+}
+
+// OwnedSession is Owned read from the board's record in stateDir. A record
+// that cannot be read is an error, never taken as none.
 func OwnedSession(stateDir string, meta state.TaskMeta) (string, error) {
 	if meta.SpawnGen == "" || (meta.Harness != "codex" && meta.Harness != "claude") {
 		return "", nil
@@ -408,21 +456,11 @@ func OwnedSession(stateDir string, meta state.TaskMeta) (string, error) {
 		return "", fmt.Errorf("read session ownership: %w", err)
 	}
 	var database struct {
-		Sessions map[string]struct {
-			NativeID   string `json:"native_id"`
-			Harness    string `json:"harness"`
-			Role       string `json:"role"`
-			TaskID     string `json:"task_id"`
-			Generation string `json:"generation"`
-		} `json:"sessions"`
-		TaskSessions map[string]string `json:"task_sessions"`
+		Sessions     map[string]RecordedSession `json:"sessions"`
+		TaskSessions map[string]string          `json:"task_sessions"`
 	}
 	if err := json.Unmarshal(data, &database); err != nil {
 		return "", fmt.Errorf("read session ownership: %w", err)
 	}
-	session := database.Sessions[database.TaskSessions[meta.ID]]
-	if session.TaskID != meta.ID || session.Generation != meta.SpawnGen || session.Harness != meta.Harness || session.Role != "goblin" {
-		return "", nil
-	}
-	return session.NativeID, nil
+	return Owned(meta, database.Sessions[database.TaskSessions[meta.ID]]), nil
 }

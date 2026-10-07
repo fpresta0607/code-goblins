@@ -1,24 +1,13 @@
 package monitor
 
 import (
-	"bytes"
 	"context"
-	"encoding/json"
-	"errors"
-	"fmt"
-	"io"
-	"os"
-	"path/filepath"
-	"regexp"
-	"sort"
-	"strings"
 	"sync"
 	"time"
 
-	"github.com/fpresta0607/code-goblins/internal/fsx"
+	"github.com/fpresta0607/code-goblins/internal/fleettree"
 	"github.com/fpresta0607/code-goblins/internal/herdr"
 	"github.com/fpresta0607/code-goblins/internal/host"
-	"github.com/fpresta0607/code-goblins/internal/proc"
 	"github.com/fpresta0607/code-goblins/internal/state"
 )
 
@@ -26,12 +15,15 @@ import (
 // pane. agent_status says whether the harness is in a turn; this says whether
 // anything underneath it is moving.
 type ProgressSample struct {
-	// TranscriptAt is when the harness last wrote its session transcript,
-	// zero when no transcript was found.
+	// TranscriptAt is when the goblin's own records last moved: its
+	// conversation written, or any sub-agent, background shell or monitor
+	// under it active (see fleettree.Tree.ActivityAt); zero when none was
+	// found.
 	TranscriptAt time.Time
-	// Jobs names each process the harness started after launching that is
-	// still running - a tool command, a background job, a monitor loop - as
-	// "name (pid N)".
+	// Jobs names each job of processes the harness started after launching
+	// that is still running - a tool command, a background job, a monitor
+	// loop - as "name (pid N)", and each sub-agent, background shell or
+	// monitor still working under it, which hold its turn the same way.
 	Jobs []string
 	// JobCPU is the processor time those processes and everything under them
 	// have used.
@@ -51,8 +43,9 @@ type PaneProcesses interface {
 	PaneProcessInfo(ctx context.Context, target herdr.Target) (herdr.PaneProcessInfo, error)
 }
 
-// HostProgress reads progress evidence on this machine: the harness's
-// transcript under the user's home, and the processes under the harness.
+// HostProgress reads progress evidence on this machine from the goblin's
+// fleet tree, the reader the board's family tree reads through, so the
+// stale rules and the board never disagree about what a goblin is doing.
 type HostProgress struct {
 	Panes PaneProcesses
 	// StateDir is where native terminals' hosts record the program each
@@ -61,305 +54,71 @@ type HostProgress struct {
 	// Home is the user's home directory, where every harness keeps its
 	// transcripts. Empty skips the transcript.
 	Home string
+	// Tree is the reader, shared with the board where one process runs
+	// both; nil reads through one of its own over Home, which takes the
+	// conversation the board recorded in StateDir.
+	Tree *fleettree.Reader
 
-	mu sync.Mutex
-	// rolloutCwds holds the directory each Codex rollout's opening
-	// session_meta names, by path, for the rollouts that still exist. A
-	// rollout never rewrites its first entry, so each is read once.
-	rolloutCwds map[string]string
+	once sync.Once
 }
 
-// harnessLaunch is how long after a harness starts the processes it starts
-// still belong to launching it: its MCP servers, or the real binary a shim
-// runs. A process it starts later is work it was asked to do.
-const harnessLaunch = 2 * time.Minute
+// tree is the reader the prober reads through.
+func (h *HostProgress) tree() *fleettree.Reader {
+	h.once.Do(func() {
+		if h.Tree == nil {
+			h.Tree = &fleettree.Reader{Home: h.Home, Recorded: func(meta state.TaskMeta) string {
+				// A record that cannot be read proves no conversation, and
+				// the harness's own record of its process still can.
+				session, _ := fleettree.OwnedSession(h.StateDir, meta)
+				return session
+			}}
+		}
+	})
+	return h.Tree
+}
 
-// InspectProgress reads the transcript and the harness's own processes. The
-// harness of a native task is the program its terminal runs; otherwise it is
-// whatever Herdr reports in the pane's foreground, and a pane back at its
-// shell has no harness and so no processes of its own.
+// InspectProgress reads the goblin's tree: its own records' last activity,
+// and the jobs and children that hold its turn. The harness of a native task
+// is the program its terminal runs; otherwise it is whatever Herdr reports
+// in the pane's foreground, and a pane back at its shell has no harness and
+// so no processes of its own. An error means some evidence could not be
+// read; the sample still carries whatever was.
 func (h *HostProgress) InspectProgress(ctx context.Context, meta state.TaskMeta, sample EndpointSample) (ProgressSample, error) {
-	progress := ProgressSample{TranscriptAt: transcriptAt(h.Home, sample.Harness, sample.Session)}
-	if meta.Backend == "native" && strings.EqualFold(sample.Harness, "codex") && sample.Session == "" {
-		_, progress.TranscriptAt = h.newestNativeCodexRollout(ctx, meta.Worktree)
+	harnessPID, started, pidErr := h.harness(ctx, meta, sample)
+	// The harness the terminal runs now is the one whose records are read,
+	// as Herdr reports it for a pane.
+	if sample.Harness != "" {
+		meta.Harness = sample.Harness
 	}
-	harnessPID, err := h.harnessPID(ctx, meta, sample)
-	if err != nil || harnessPID == 0 {
-		return progress, err
+	tree, treeErr := h.tree().Read(ctx, fleettree.Goblin{Meta: meta, HarnessPID: harnessPID, HarnessStarted: started, Session: sample.Session})
+	progress := ProgressSample{TranscriptAt: tree.ActivityAt()}
+	if pidErr != nil || harnessPID == 0 {
+		return progress, pidErr
 	}
-	processes, err := proc.Processes()
-	if err != nil {
-		return progress, err
+	if treeErr != nil {
+		return progress, treeErr
 	}
-	progress.Jobs, progress.JobCPU = harnessJobs(harnessPID, processes, harnessLaunch, proc.StartTime, proc.CPUTime)
+	progress.Jobs, progress.JobCPU = tree.Jobs()
 	return progress, nil
 }
 
-// harnessPID returns the process id of the task's harness, and 0 for a pane
-// back at its shell.
-func (h *HostProgress) harnessPID(ctx context.Context, meta state.TaskMeta, sample EndpointSample) (int, error) {
+// harness returns the process id of the task's harness, 0 for a pane back at
+// its shell, and when a native terminal's host recorded it started, which
+// tells it from a later process Windows gave its id.
+func (h *HostProgress) harness(ctx context.Context, meta state.TaskMeta, sample EndpointSample) (int, time.Time, error) {
 	if meta.Backend == "native" {
 		record, err := host.ReadRecord(h.StateDir, meta.ID)
 		if err != nil {
-			return 0, err
+			return 0, time.Time{}, err
 		}
-		return record.ChildPID, nil
+		return record.ChildPID, record.ChildStart, nil
 	}
 	info, err := h.Panes.PaneProcessInfo(ctx, sample.Endpoint.Target)
 	if err != nil {
-		return 0, err
+		return 0, time.Time{}, err
 	}
 	if info.ForegroundProcessGroupID == info.ShellPID {
-		return 0, nil
+		return 0, time.Time{}, nil
 	}
-	return info.ForegroundProcessGroupID, nil
-}
-
-// launchShims are the programs a harness is commonly started through. One
-// that launched a single process as it started is walked through to the
-// harness it runs, so a harness installed behind node or a .cmd wrapper is
-// read where it actually runs its tools.
-var launchShims = map[string]bool{"cmd": true, "node": true}
-
-// harnessJobs finds the processes a harness started after launching, and the
-// processor time they and their descendants have used. A process started
-// within launch of the harness is part of the harness - its MCP
-// servers are the common case, and they idle for its whole life - so it is
-// never counted as work. A child created before its parent is a reused
-// process id, not a child, and is skipped.
-func harnessJobs(root int, processes []proc.Entry, launch time.Duration, start func(int) (time.Time, bool), cpu func(int) (time.Duration, bool)) ([]string, time.Duration) {
-	byPID := make(map[int]proc.Entry, len(processes))
-	children := make(map[int][]proc.Entry)
-	for _, process := range processes {
-		byPID[process.PID] = process
-		children[process.ParentPID] = append(children[process.ParentPID], process)
-	}
-	harness, found := byPID[root]
-	if !found {
-		return nil, 0
-	}
-	launched, ok := start(root)
-	if !ok {
-		return nil, 0
-	}
-	launchEnds := launched.Add(launch)
-	childrenOf := func(pid int, after time.Time) []proc.Entry {
-		var kept []proc.Entry
-		for _, child := range children[pid] {
-			if child.PID == pid {
-				continue
-			}
-			if started, ok := start(child.PID); ok && !started.Before(after) {
-				child.Start = started
-				kept = append(kept, child)
-			}
-		}
-		return kept
-	}
-
-	for launchShims[executableName(harness.ExeBase)] {
-		kids := childrenOf(harness.PID, launched)
-		if len(kids) != 1 || kids[0].Start.After(launchEnds) {
-			break
-		}
-		harness = kids[0]
-	}
-
-	var jobs []proc.Entry
-	for _, child := range childrenOf(harness.PID, launched) {
-		if child.Start.After(launchEnds) {
-			jobs = append(jobs, child)
-		}
-	}
-	sort.Slice(jobs, func(i, j int) bool { return jobs[i].PID < jobs[j].PID })
-
-	var names []string
-	var used time.Duration
-	seen := map[int]bool{harness.PID: true}
-	var walk func(process proc.Entry)
-	walk = func(process proc.Entry) {
-		if seen[process.PID] {
-			return
-		}
-		seen[process.PID] = true
-		if spent, ok := cpu(process.PID); ok {
-			used += spent
-		}
-		for _, child := range childrenOf(process.PID, process.Start) {
-			walk(child)
-		}
-	}
-	for _, job := range jobs {
-		names = append(names, fmt.Sprintf("%s (pid %d)", job.ExeBase, job.PID))
-		walk(job)
-	}
-	return names, used
-}
-
-// transcriptPatterns are where each harness writes its session transcript,
-// as globs under the user's home with {session} standing for the session id.
-// A Claude subagent writes its own transcript beside its parent's, and a
-// parent waiting on one writes nothing, so those count too.
-var transcriptPatterns = map[string][]string{
-	"claude": {
-		filepath.Join(".claude", "projects", "*", "{session}.jsonl"),
-		filepath.Join(".claude", "projects", "*", "{session}", "subagents", "*.jsonl"),
-	},
-	"codex": {filepath.Join(".codex", "sessions", "*", "*", "*", "rollout-*-{session}.jsonl")},
-	"pi":    {filepath.Join(".pi", "agent", "sessions", "*", "*_{session}.jsonl")},
-}
-
-// sessionID is the shape of a harness session id. Anything else could reach
-// outside the transcript directories once substituted into a glob.
-var sessionID = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9-]*$`)
-
-// transcriptAt returns when the harness last wrote its session transcript,
-// or zero when the harness keeps none this reads or none was found. That is
-// the later of the file's write time and its last complete entry's own
-// timestamp: Codex keeps its rollout open and appends to it, and on
-// 2026-09-29 a rollout's write time stayed ninety seconds after its creation
-// for hours while its entries ran on, read alike with os.Stat and from an
-// open handle.
-func transcriptAt(home, harness, session string) time.Time {
-	var latest time.Time
-	if home == "" || !sessionID.MatchString(session) {
-		return latest
-	}
-	for _, pattern := range transcriptPatterns[strings.ToLower(harness)] {
-		matches, err := filepath.Glob(filepath.Join(home, strings.ReplaceAll(pattern, "{session}", session)))
-		if err != nil {
-			continue
-		}
-		for _, match := range matches {
-			file, err := fsx.Open(match)
-			if err != nil {
-				continue
-			}
-			written := transcriptFileAt(file)
-			file.Close()
-			if written.After(latest) {
-				latest = written
-			}
-		}
-	}
-	return latest
-}
-
-// Native Codex screens carry no session ID. The rollout's own metadata binds
-// it to the task's worktree; directory timestamps cannot establish progress
-// while Codex keeps the writer open. newestNativeCodexRollout returns the
-// rollout bound to worktree whose entries were written last, and when.
-func (h *HostProgress) newestNativeCodexRollout(ctx context.Context, worktree string) (string, time.Time) {
-	var newest string
-	var latest time.Time
-	if h.Home == "" || !filepath.IsAbs(worktree) {
-		return newest, latest
-	}
-	worktree, err := fsx.Canonical(worktree)
-	if err != nil {
-		return newest, latest
-	}
-	pattern := strings.ReplaceAll(transcriptPatterns["codex"][0], "{session}", "*")
-	matches, _ := filepath.Glob(filepath.Join(h.Home, pattern))
-	h.mu.Lock()
-	defer h.mu.Unlock()
-	cwds := make(map[string]string, len(matches))
-	for _, match := range matches {
-		if cwd, ok := h.rolloutCwds[match]; ok {
-			cwds[match] = cwd
-		}
-	}
-	h.rolloutCwds = cwds
-	owned := map[string]bool{}
-	for _, match := range matches {
-		if ctx.Err() != nil {
-			break
-		}
-		cwd, ok := cwds[match]
-		if !ok {
-			if cwd, ok = rolloutCwd(match); !ok {
-				continue
-			}
-			cwds[match] = cwd
-		}
-		isOwned, seen := owned[cwd]
-		if !seen {
-			resolved, err := fsx.Canonical(cwd)
-			isOwned = filepath.IsAbs(cwd) && err == nil && strings.EqualFold(resolved, worktree)
-			owned[cwd] = isOwned
-		}
-		if !isOwned {
-			continue
-		}
-		file, err := fsx.Open(match)
-		if err != nil {
-			continue
-		}
-		if written := transcriptFileAt(file); written.After(latest) {
-			newest, latest = match, written
-		}
-		file.Close()
-	}
-	return newest, latest
-}
-
-// rolloutCwd reads the directory a rollout's opening session_meta names,
-// empty when its first entry is anything else. ok is false while that entry
-// cannot be read whole.
-func rolloutCwd(path string) (string, bool) {
-	file, err := fsx.Open(path)
-	if err != nil {
-		return "", false
-	}
-	defer file.Close()
-	var entry struct {
-		Type    string `json:"type"`
-		Payload struct {
-			Cwd string `json:"cwd"`
-		} `json:"payload"`
-	}
-	if json.NewDecoder(io.LimitReader(file, transcriptEntryReach)).Decode(&entry) != nil {
-		return "", false
-	}
-	if entry.Type != "session_meta" {
-		return "", true
-	}
-	return entry.Payload.Cwd, true
-}
-
-// transcriptEntryReach bounds how much of a transcript's end is read for its
-// last entry, since one entry holding a large tool result can run to
-// megabytes.
-const transcriptEntryReach = 4 << 20
-
-// transcriptFileAt reads the write time and length through the open handle,
-// and uses the last complete entry's timestamp when it is newer. An entry
-// still being written does not parse and is passed over.
-func transcriptFileAt(file *os.File) time.Time {
-	info, err := file.Stat()
-	if err != nil {
-		return time.Time{}
-	}
-	start := max(0, info.Size()-transcriptEntryReach)
-	tail := make([]byte, info.Size()-start)
-	if _, err := file.ReadAt(tail, start); err != nil && !errors.Is(err, io.EOF) {
-		return info.ModTime()
-	}
-	lines := bytes.Split(tail, []byte("\n"))
-	if start > 0 {
-		// The first piece may begin part way through an entry.
-		lines = lines[1:]
-	}
-	for i := len(lines) - 1; i >= 0; i-- {
-		var entry struct {
-			Timestamp time.Time `json:"timestamp"`
-		}
-		if json.Unmarshal(lines[i], &entry) == nil && !entry.Timestamp.IsZero() {
-			if entry.Timestamp.After(info.ModTime()) {
-				return entry.Timestamp
-			}
-			break
-		}
-	}
-	return info.ModTime()
+	return info.ForegroundProcessGroupID, time.Time{}, nil
 }

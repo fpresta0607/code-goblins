@@ -203,3 +203,12 @@ func codexChild(path string, meta rolloutMeta) Node {
 	}
 	return node
 }
+
+// CodexRollout is a Codex goblin's own rollout: the one session names, or,
+// for a native goblin whose terminal names none, the rollout bound to its
+// worktree whose entries were written last, never a child agent's.
+func (r *Reader) CodexRollout(ctx context.Context, worktree, session string) string {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return r.codexConversation(ctx, worktree, session, r.rollouts(ctx))
+}

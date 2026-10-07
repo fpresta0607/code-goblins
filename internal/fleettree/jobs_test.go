@@ -3,7 +3,9 @@ package fleettree
 import (
 	"context"
 	"os"
+	"os/exec"
 	"slices"
+	"strconv"
 	"testing"
 	"time"
 
@@ -73,15 +75,52 @@ func TestHarnessJobsDoesNotWalkThroughPowerShell(t *testing.T) {
 	}
 }
 
+// TestMain runs this test binary as a busy child when a test starts it so.
+func TestMain(m *testing.M) {
+	if os.Getenv("FLEETTREE_BUSY_CHILD") == "1" {
+		for deadline := time.Now().Add(30 * time.Second); time.Now().Before(deadline); {
+		}
+		os.Exit(0)
+	}
+	os.Exit(m.Run())
+}
+
+// The fakes above stand for a process table; this reads the real one, with
+// this test process as the harness and a busy child it started as its job.
 func TestHarnessJobsReadsTheLiveProcessTable(t *testing.T) {
+	// Arrange
+	command := exec.Command(os.Args[0])
+	command.Env = append(os.Environ(), "FLEETTREE_BUSY_CHILD=1")
+	if err := command.Start(); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		_ = command.Process.Kill()
+		_, _ = command.Process.Wait()
+	})
+	time.Sleep(300 * time.Millisecond)
+
+	// Act
 	processes, err := Processes()
 	if err != nil {
 		t.Fatal(err)
 	}
 	read, ok := readHarness(os.Getpid(), processes, 0)
-	if !ok || read.harness.PID != os.Getpid() || read.harness.Memory == 0 || read.harness.CPU <= 0 || read.harness.Started.IsZero() {
-		t.Fatalf("this test process as Windows lists it = %+v, %v; want its start, processor time and memory", read.harness, ok)
+
+	// Assert
+	if !ok || read.harness.PID != os.Getpid() || read.harness.Memory == 0 || read.harness.Started.IsZero() {
+		t.Fatalf("this test process as Windows lists it = %+v, %v; want its start and memory", read.harness, ok)
 	}
+	want := " (pid " + strconv.Itoa(command.Process.Pid) + ")"
+	for _, job := range read.jobs {
+		if job.root.PID == command.Process.Pid {
+			if job.name() != job.root.Exe+want || job.cpu() < 100*time.Millisecond || job.memory() == 0 {
+				t.Errorf("busy child = %s, %s, %d bytes; want it named, with its processor time and memory", job.name(), job.cpu(), job.memory())
+			}
+			return
+		}
+	}
+	t.Fatalf("jobs = %v, want the busy child%s", jobNames(read), want)
 }
 
 // goblinProcesses is a Claude goblin's harness with an MCP server it started
@@ -196,5 +235,49 @@ func TestClassifyNamesWhatAJobIsDoing(t *testing.T) {
 				t.Errorf("classify = %s %q, want %s %q", group, label, test.group, test.label)
 			}
 		})
+	}
+}
+
+// Reading one goblin keeps what was read of every other: a job's processor
+// use is judged between its own goblin's readings, whatever was read between
+// them.
+func TestReadKeepsEachGoblinsReadingsApart(t *testing.T) {
+	// Arrange
+	launched := at.Add(-time.Hour)
+	testCPU := 30 * time.Second
+	now := at
+	other := []Process{
+		{PID: 200, ParentPID: 1, Exe: "claude.exe", Created: 20, Started: launched},
+		{PID: 201, ParentPID: 200, Exe: "bash.exe", Created: 21, Started: launched.Add(30 * time.Minute), CPU: time.Second},
+	}
+	reader := Reader{
+		Home:        t.TempDir(),
+		Processes:   func() ([]Process, error) { return append(goblinProcesses(launched, testCPU), other...), nil },
+		Listeners:   func() (map[int][]int, error) { return nil, nil },
+		CommandLine: func(pid int) (string, error) { return goblinCommands[pid], nil },
+		Now:         func() time.Time { return now },
+	}
+	first := Goblin{Meta: state.TaskMeta{ID: "first", Harness: "codex"}, HarnessPID: 100}
+	second := Goblin{Meta: state.TaskMeta{ID: "second", Harness: "codex"}, HarnessPID: 200}
+	if _, err := reader.Read(context.Background(), first); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := reader.Read(context.Background(), second); err != nil {
+		t.Fatal(err)
+	}
+
+	// Act
+	now, testCPU = at.Add(15*time.Second), testCPU+5*time.Second
+	if _, err := reader.Read(context.Background(), second); err != nil {
+		t.Fatal(err)
+	}
+	tree, err := reader.Read(context.Background(), first)
+
+	// Assert
+	if err != nil {
+		t.Fatal(err)
+	}
+	if test := child(t, tree, "process:102:3"); test.State != Working {
+		t.Errorf("test run = %+v, want working: it used a third of a processor since this goblin's last reading", test)
 	}
 }

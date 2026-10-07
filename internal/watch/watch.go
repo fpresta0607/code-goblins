@@ -20,6 +20,7 @@ import (
 	"github.com/fpresta0607/code-goblins/internal/claudehook"
 	"github.com/fpresta0607/code-goblins/internal/crewstate"
 	"github.com/fpresta0607/code-goblins/internal/execx"
+	"github.com/fpresta0607/code-goblins/internal/fleettree"
 	"github.com/fpresta0607/code-goblins/internal/fsx"
 	"github.com/fpresta0607/code-goblins/internal/herdr"
 	"github.com/fpresta0607/code-goblins/internal/home"
@@ -56,6 +57,9 @@ type Config struct {
 	Heartbeat    time.Duration
 	HeartbeatMax time.Duration
 	Monitor      *monitor.Service
+	// Tree is the reader the monitor's progress evidence reads through, the
+	// board's family tree reader, which cfo serve shares with the board.
+	Tree *fleettree.Reader
 	// Routing is the standing answer to a harness that starts erroring. An
 	// empty policy simply means every fault wakes the CFO undecided.
 	Routing routing.Policy
@@ -161,11 +165,20 @@ func ConfigFromEnv(h home.Home) Config {
 	// herdr process each time.
 	sockets := herdr.NewSocketCache()
 	// The harnesses' transcripts tell both how a goblin's work moves and what
-	// it last said.
+	// it last said, read through the family tree reader. Alone, as cfo watch,
+	// it takes the conversation the board recorded from the board's file;
+	// cfo serve hands the same reader the board's record in memory.
+	cfg.Tree = &fleettree.Reader{Home: userHome, Recorded: func(meta state.TaskMeta) string {
+		// A record that cannot be read proves no conversation, and the
+		// harness's own record of its process still can.
+		session, _ := fleettree.OwnedSession(h.State, meta)
+		return session
+	}}
 	transcripts := &monitor.HostProgress{
 		Panes:    &herdr.Client{Commands: execx.OSRunner{}, Session: session, Sockets: sockets},
 		StateDir: h.State,
 		Home:     userHome,
+		Tree:     cfg.Tree,
 	}
 	cfg.Monitor = &monitor.Service{
 		StateDir: h.State,

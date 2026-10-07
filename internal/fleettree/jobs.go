@@ -60,7 +60,9 @@ func (j job) memory() uint64 {
 
 // harnessProcesses is a goblin's harness as the process list shows it.
 type harnessProcesses struct {
-	// harness is the harness itself, past any launch shim.
+	// top is the process the goblin's terminal runs, and harness the
+	// harness itself, past any launch shim.
+	top     Process
 	harness Process
 	// all is the process the goblin's terminal runs and every process under
 	// it, the harness and its MCP servers included.
@@ -105,7 +107,7 @@ func readHarness(root int, processes []Process, launch time.Duration) (harnessPr
 		harness = kids[0]
 	}
 
-	read := harnessProcesses{harness: harness}
+	read := harnessProcesses{top: top, harness: harness}
 	seen := map[int]bool{}
 	var walk func(process Process, into *[]Process)
 	walk = func(process Process, into *[]Process) {
