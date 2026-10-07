@@ -20,8 +20,8 @@ func TestACFOWithNoSessionStartHookStartsWithAPromptThatRegistersIt(t *testing.T
 	}{
 		{"Claude Code, new", "claude", nil, nil},
 		{"Claude Code, resumed", "claude", []string{"--resume", "a1b2"}, []string{"--resume", "a1b2"}},
-		{"Codex, new", "codex", nil, []string{cfoFirstPrompt}},
-		{"Codex, resumed", "codex", []string{"resume", "a1b2"}, []string{"resume", "a1b2", cfoFirstPrompt}},
+		{"Codex, new", "codex", nil, []string{"--no-alt-screen", cfoFirstPrompt}},
+		{"Codex, resumed", "codex", []string{"resume", "a1b2"}, []string{"resume", "a1b2", "--no-alt-screen", cfoFirstPrompt}},
 		{"pi, new", "pi", nil, []string{cfoFirstPrompt}},
 	}
 	for _, test := range tests {
@@ -34,6 +34,23 @@ func TestACFOWithNoSessionStartHookStartsWithAPromptThatRegistersIt(t *testing.T
 				t.Errorf("cfoStartArguments(%s, %q) = %q, want %q", test.harness, test.resume, got, test.want)
 			}
 		})
+	}
+}
+
+// A Codex CFO draws on the terminal's own screen, as a Codex goblin does, so
+// its history stays in the board terminal's scrollback and a click, drag and
+// release there selects text: the Overlord found that missing in Codex and
+// present in Claude Code on 2026-10-02. A resumed conversation is no
+// exception.
+func TestACodexCFOStartsOnTheInlineScreen(t *testing.T) {
+	for _, resume := range [][]string{nil, {"resume", "a1b2"}} {
+		// Act
+		got := cfoStartArguments("codex", resume)
+
+		// Assert
+		if !slices.Contains(got, "--no-alt-screen") {
+			t.Errorf("cfoStartArguments(codex, %q) = %q, want Codex's inline screen", resume, got)
+		}
 	}
 }
 

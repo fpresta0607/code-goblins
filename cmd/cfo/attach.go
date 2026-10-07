@@ -228,12 +228,18 @@ const cfoFirstPrompt = "You are the CFO of this Code Goblins home. First run the
 
 // cfoStartArguments are the arguments a CFO's harness starts with: args, such
 // as the ones that resume a conversation, and for a harness the supervisor
-// wakes by typing, the first prompt that registers it, last.
+// wakes by typing, the first prompt that registers it, last. Codex draws
+// inline, as a Codex goblin does, so its history stays in the board
+// terminal's scrollback and a drag there selects text.
 func cfoStartArguments(harness string, args []string) []string {
+	args = slices.Clone(args)
+	if harness == "codex" {
+		args = append(args, "--no-alt-screen")
+	}
 	if supervisor.CFOWakeFor(harness) != supervisor.CFOWakeTyped {
 		return args
 	}
-	return append(slices.Clone(args), cfoFirstPrompt)
+	return append(args, cfoFirstPrompt)
 }
 
 // startNativeCFO starts harness as the CFO of home h in native terminal cfo,
