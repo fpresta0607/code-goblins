@@ -181,7 +181,7 @@ func TestCheckCountsTheSkipsGateCommitsLeaveInEachTestFile(t *testing.T) {
 			}
 
 			// Act
-			result, err := Check(context.Background(), execx.OSRunner{}, dir)
+			result, err := Check(context.Background(), execx.OSRunner{}, dir, nil)
 
 			// Assert
 			if err != nil {

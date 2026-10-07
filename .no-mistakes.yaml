@@ -61,9 +61,10 @@ auto_fix:
 # file than they removed while HEAD still has their skips there (counted per
 # gate commit, so a reworded or moved skip still shows and a merged main never
 # counts), which parks the run with an ask-user finding: approve accepts it,
-# fix restores the test. It reads every gate commit since the merge base, so a
-# later gate run on a branch whose gate deletion was already approved parks
-# again, and approving again clears it. It runs the installed cfo, the trusted
+# fix restores the test. A gate commit under the head of an earlier park a
+# person approved or skipped, read from the gate's database, is left out on
+# any branch carrying it; one the rebase step rewrote after the approval is a
+# new commit and parks once more. It runs the installed cfo, the trusted
 # binary, so it works once the CFO installs a build that has `cfo gate`.
 gates:
   - name: tests-kept
