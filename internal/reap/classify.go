@@ -534,6 +534,7 @@ func Recorded(inv Inventory, path string) bool {
 func classifyProcesses(inv Inventory, supervised, fleet map[int]bool, tasks map[string]Task, panes map[string]Pane, unreadable map[string]bool) []Finding {
 	desktop := descendants(inv.Processes, rootsMatching(inv.Processes, isDesktopApp))
 	gates := descendants(inv.Processes, rootsMatching(inv.Processes, isGateSupervisor))
+	own := overlordsSessions(inv.Processes)
 	byPID := make(map[int]Process, len(inv.Processes))
 	for _, process := range inv.Processes {
 		byPID[process.PID] = process
@@ -548,7 +549,7 @@ func classifyProcesses(inv Inventory, supervised, fleet map[int]bool, tasks map[
 		}
 		switch {
 		case isHarness(process):
-			if isNonFleetHarness(process, desktop, gates) {
+			if isNonFleetHarness(process, desktop, gates, own) {
 				// Not a fleet process at all, so not this sweep's business:
 				// reporting it would wake the CFO for something no action of
 				// its own could ever be right about.
@@ -1421,8 +1422,10 @@ const unidentifiedHold = "could not determine what this process belongs to: it h
 // no-mistakes review round in progress. Both are read from the evidence the
 // scan already has, the ancestry and the command line, and both must be left
 // alone entirely: forcing one closes the application the Overlord is using or
-// ends a review round for a goblin that is working.
-func isNonFleetHarness(process Process, desktopApp, gateAgents map[int]bool) bool {
+// ends a review round for a goblin that is working. So must his own sessions
+// in a terminal: on 2026-10-07 two of them were held as unidentified orphans
+// on every sweep for a day.
+func isNonFleetHarness(process Process, desktopApp, gateAgents, overlords map[int]bool) bool {
 	switch {
 	case desktopApp[process.PID]:
 		// The packaged application, by its own install path or an ancestor's.
@@ -1430,8 +1433,41 @@ func isNonFleetHarness(process Process, desktopApp, gateAgents map[int]bool) boo
 	case gateAgents[process.PID]:
 		// A reviewer launched by a round in progress.
 		return true
+	case overlords[process.PID]:
+		// A session the Overlord started in a terminal of his own.
+		return true
 	}
 	return false
+}
+
+// userTerminal is the window the Overlord types into himself, and
+// explorerShells are the consoles he opens from Explorer instead.
+const userTerminal = "windowsterminal"
+
+var explorerShells = []string{"powershell", "pwsh", "cmd", "mintty"}
+
+// overlordsSessions are the processes the Overlord runs himself: everything a
+// Windows Terminal window or a shell he opened from Explorer started, except
+// the fleet's own cfo processes and everything under them. A harness there is
+// his own Claude Code or Codex session, whatever its flags, while a host the
+// fleet launched from his terminal, and the harness it runs, stay the fleet's.
+func overlordsSessions(processes []Process) map[int]bool {
+	byPID := make(map[int]Process, len(processes))
+	for _, process := range processes {
+		byPID[process.PID] = process
+	}
+	sessions := descendants(processes, rootsMatching(processes, func(process Process) bool {
+		name := executableName(process.Name)
+		if name == userTerminal {
+			return true
+		}
+		parent, ok := byPID[process.ParentPID]
+		return ok && executableName(parent.Name) == "explorer" && !process.Start.Before(parent.Start) && slices.Contains(explorerShells, name)
+	}))
+	for pid := range descendants(processes, rootsMatching(processes, func(process Process) bool { return executableName(process.Name) == "cfo" })) {
+		delete(sessions, pid)
+	}
+	return sessions
 }
 
 // isDesktopApp matches a packaged desktop application's own process by its

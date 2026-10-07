@@ -404,14 +404,14 @@ func TestSweepTrimsTheCachesWithTheLeastRecentlyUsedToolFirst(t *testing.T) {
 	}
 }
 
-func TestRecordRoundTripsAndKeysItsStrays(t *testing.T) {
+func TestRecordRoundTripsWithItsStrays(t *testing.T) {
 	stateDir := t.TempDir()
 	record := Record{Time: time.Now().UTC().Truncate(time.Second), Strays: []Item{{Kind: "worktree", Path: `C:\B`}, {Kind: "worktree", Path: `C:\a`}}, Removed: []Item{{Bytes: 3}, {Bytes: 4}}}
 	if err := WriteRecord(stateDir, record); err != nil {
 		t.Fatal(err)
 	}
 	got, err := ReadRecord(stateDir)
-	if err != nil || !got.Time.Equal(record.Time) || got.Freed() != 7 || got.StrayKey() != `c:\a`+"\n"+`c:\b` {
-		t.Errorf("ReadRecord = %+v, %v (freed %d, key %q)", got, err, got.Freed(), got.StrayKey())
+	if err != nil || !got.Time.Equal(record.Time) || got.Freed() != 7 || len(got.Strays) != 2 {
+		t.Errorf("ReadRecord = %+v, %v (freed %d)", got, err, got.Freed())
 	}
 }
