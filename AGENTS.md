@@ -11,7 +11,7 @@ A goblin that `cfo spawn` dispatched into this repository (its pane carries `CFO
 
 1. **You never do the project work yourself.** You clone, brief, dispatch, supervise, and deliver; goblins make the code changes.
 2. **You are the only point of contact.** Goblins report to you; you report plain outcomes to the Supreme Overlord.
-3. **Never merge without the Supreme Overlord's explicit word** (the standing exceptions are a project's `yolo` posture and [AFK mode](#afk-mode), his switch, while it is on).
+3. **Never merge without the Supreme Overlord's explicit word** (the standing exceptions are a project's `yolo` posture, [AFK mode](#afk-mode), his switch, while it is on, and a [merge train](#merge-trains) landing goblins' green pull requests that carry no `hold` label).
 4. **Never tear down unlanded work.** Uncommitted or unmerged goblin work is never discarded.
 5. **The fleet never idles while work waits.** Your job is the whole list, not only the goblins in flight: while memory is free, resume each paused goblin whose pause cleared and start the next queued task until nothing that could run is left. The supervisor does this by itself and reopens your turn when it would end idle ([The fleet never idles](#the-fleet-never-idles)).
 
@@ -58,6 +58,7 @@ A goblin that `cfo spawn` dispatched into this repository (its pane carries `CFO
 | `cfo brief <id> --project <p> [--kind <kind>] [--mode <m>]` | Scaffold a task brief at `data/<id>/brief.md`. The brief records the resolved checkout, so a bare name and its path write the same brief |
 | `cfo pr check <id> <url>` | Record an opened PR on the task |
 | `cfo pr merge <url> [--method <m>] [--delete-branch] [--verified "<what verified it>"]` | Merge a PR (merge, squash, or rebase). Where its base requires GitHub's merge queue it adds the PR to the queue instead, pinned to the head it verified, with the queue's own merge method and never `--admin`: the queue tests it on the base's tip with the PRs ahead of it and merges it when that passes, a PR already queued is reported and left alone, and `--delete-branch` is refused because the merge comes later. `--delete-branch` deletes the remote ref first and the local branch second, independently: a branch left behind is a warning, not a failure, because the merge has already landed. The local half only touches a local branch that is the commit GitHub merged, and stays silent otherwise; when it does run on a goblin branch, expect it to warn - git will not delete a branch its worktree still holds. While [AFK mode](#afk-mode) is on the merge is your own merge word: it needs `--verified`, refuses `--delete-branch`, a pull request that is not a goblin's and, where the base has no merge queue, a head that does not hold its base's tip, and is logged with its evidence before anything merges or joins the queue |
+| `cfo pr train <project>` | Land every green pull request goblins finished in the project with one CI run, as a [merge train](#merge-trains): merge them onto the default branch in queue order on a train branch, open a train pull request that is never merged, and wait for its one CI run; on green merge each with a merge commit in train order and check the branch's tree equals the train's, on red halve the train until the pull request that breaks it is found, landing every half that passes, and send that pull request's goblin the failure. Held (label `hold`), draft and conflicting pull requests never ride. It joins the train already running in the project and exits when the train is over: 0 when it landed or stopped at the pull request that broke it, 1 when it failed |
 | `cfo afk on [--asked "<his words>"] \| off [--asked "<his words>"] \| status \| report \| log --kind <kind> --what "<what>" --evidence "<evidence>" [--link <url>]` | [AFK mode](#afk-mode), the Supreme Overlord's switch for running the fleet while he is away. `on` and `off` are his: without `--asked` the supervisor makes the switch only for a process it proves runs in a terminal of his own, and refuses yours and a goblin's. You make it only when he asks you to in his own words in your conversation, with `--asked` and those words quoted exactly: the supervisor then makes it only for a process it proves runs under the registered CFO, never for a goblin or a gate agent, and records that the CFO switched it at his ask with his words. `off` prints the report of the stretch, and `report` prints it again. `status` says whether it is on, since when and from where, its terms, what you decided so far and what is held for him. `log` is how you, the registered CFO, record a decision made under its authority that no other command logs, with its evidence: `--kind` is `deploy`, `migration`, `install` or `other`, or `merge` or `answer` for one the log did not take from `cfo pr merge` or `cfo answer`, which log their own, and it is refused while AFK mode is off. All but `status` and `report` need `cfo serve` running |
 | `cfo merge-local <id>` | Fast-forward a project's main to a goblin's landed branch |
 | `cfo cleanup <id>` | Close the task tab and return a finished, proven-inactive task's worktrees and scratch: its worktree (in the home, or where its record says for a task an older build spawned), every extra worktree it recorded with `cfo worktree add`, and its scratch folder are removed and their git administrative entries pruned, and work that is not on the default branch is first kept as a local tag, `archive/<branch>`. A task any of whose worktrees holds uncommitted work is refused before anything changes, never destroyed. A native task has no tab: it is returned once its terminal has ended, or while its harness waits at its ready composer with no turn in progress, and then its terminal is closed, which ends the harness |
@@ -92,10 +93,11 @@ A goblin may ask the supervisor for one helper goblin of its own, as the Supreme
 It writes the helper's brief to a file and runs `cfo helper start <its-id> --brief <file> --title "<short title>"` from its own terminal; the request rides the supervisor's pipe, and only a process inside that goblin's terminal can ask in its name.
 The supervisor alone starts helpers, through `cfo spawn <id>-h<n> --parent <id>`, and only within the caps: one helper per goblin at a time, a paused helper included; no helpers of helpers; a parent that is live, native, at work and on a branch; and the memory, commit, disk and live-goblin marks every Start holds (5 GB to start, never under the 4 GB floor).
 A refusal says why and when to ask again, and one goblin starts at a time, so a helper waits behind the board's Start or a Resume, and they wait behind it.
+A start that meets a `cfo spawn` you run by hand, which holds the home's spawn lock, waits for it to end and tries once more, as Start, Resume and the scheduler's own starts and resumes do.
 The helper is a local-only ship task named `<parent>-h<n>`, a number no earlier helper of that parent had, on the parent's harness, model and effort, in a worktree of its own on `<parent-branch>-h<n>`, cut from the parent's last commit; its brief is kept at `data/<helper>/brief.md`.
 It reports to its parent, not to you: its `cfo notify <helper> --done`, which needs no pull request, its `--blocked` and its `--failed` are typed into the parent's terminal, and wake you only when that terminal cannot take them.
 You are told once when each helper starts or fails to start, and `cfo fleet-view` names each helper's parent.
-The parent answers its helper with `cfo send <helper> "<answer>"`, reports `cfo notify <parent> --waiting-on <helper> "<why>"` while it only waits, and once the helper reports done runs `cfo helper merge <parent>`: a merge commit of the helper's branch in the parent's own worktree, then the helper retired through Stop.
+The parent answers its helper with `cfo send <helper> "<answer>"`, reports `cfo notify <parent> --waiting-on <helper> "<why>"` while it only waits, which makes the helper's progress count as its own, and once the helper reports done runs `cfo helper merge <parent>`: a merge commit of the helper's branch in the parent's own worktree, then the helper retired through Stop.
 A conflict is left for the parent to resolve and commit, and asked again the command only retires the helper; the parent stays the one who opens the pull request.
 A helper its parent no longer needs is stopped with `cfo kill <helper> --reason "<why>"`, which keeps its unmerged work.
 
@@ -311,7 +313,7 @@ CI and deploy take `--until pr:<GitHub PR URL>@<40-character SHA>` or `run:<GitH
 The supervisor's one scheduler resumes memory after two readings of 5 GB free memory and commit, allowance at reset, a dependency when its task finishes or PR merges or date arrives, a question when the Overlord answers, and CI/deploy on the matching `ci_finished` record.
 An Overlord pause needs his Resume, and a legacy pause with no condition also needs manual Resume.
 Pausing or stopping a goblin first pauses or stops each of its [helpers](#helper-goblins) through the same path, each with its own record, handoff request and card, a pause keeping the parent's condition, except a helper the parent is paused to wait on, which keeps working; the parent's own sweep then ends anything a helper's operation left.
-Resume is one card at a time, a helper's included, since each start needs its own memory.
+Resume is one card at a time, a helper's included, since each start needs its own memory; a helper paused with its parent needs no Resume of its own, since the scheduler resumes it once its parent runs again, when memory allows.
 Resume keeps the task id, worktree and branch; it continues the saved session less than a day after pausing where supported, then uses the retained handoff.
 Answers given while paused ride the resume prompt.
 For a free slot, the oldest cleared pause comes before the Overlord's queue order; unresolved pauses do not block new work.
@@ -324,6 +326,7 @@ While [AFK mode](#afk-mode) is on, the 4 GB memory floor pauses the newest live 
 Short session or model windows do not trigger this reserve, and missing or stale quota remains unknown.
 The board shows each paused card's reason and what resumes it in place of Paused, the goblins live against the cap under the memory meter, Next on the card the free-slot order takes first (a production defect says it jumps the queue), and a stall line on a live card past 20 minutes without progress; a CI or deploy wait names the repository's median measured run.
 The supervisor raises one `progress_stalled` check wake after 20 minutes without a new commit, push, gate-step change or changed status report, resets it on real progress, and suppresses it during intentional pauses.
+A goblin whose latest report is a wait on its own [helper](#helper-goblins) takes the helper's progress as its own and draws no such wake while the helper is watched, since the helper's own check reports its stall; once the helper is paused, the goblin is checked as any other.
 CI/deploy durations come from start and finish timestamps captured with `ci_finished`; unknown timestamps stay unmeasured, and check names containing `deploy` are classified as deploys.
 
 ## Switching a running goblin
@@ -394,6 +397,33 @@ The goblin's branch is its deliverable.
 `cfo pr merge` and `cfo merge-local` never merge red or divergent work — they refuse loudly. After a merge, tell the Supreme Overlord the full PR URL.
 Where the base requires GitHub's merge queue, `cfo pr merge` adds a green PR to the queue rather than merging it: the queue tests the PRs in it together on the base's current tip and merges each whose run passes, so a PR no longer needs its head refreshed on main and a fresh CI run before its turn. It is merged when GitHub says so, not when the command returns.
 While [AFK mode](#afk-mode) is on, merge authority is your own merge word for a goblin pull request that meets its checks, given with `cfo pr merge <url> --verified "<what verified it>"`.
+
+### Merge trains
+
+Landing pull requests one at a time costs one CI run each, in a row, because every merge makes the other green runs stale.
+A merge train lands them together with one run.
+`cfo pr train <project>` picks the green pull requests goblins finished on the project's default branch in queue order, the one reported done first going first, and merges them onto the branch's tip with merge commits on a branch of its own, `cfo/train-<stamp>`.
+It builds them from commits alone, so the project checkout's working tree and branches are never touched, and pushes the result with a pull request titled `(do not merge)` that is never merged: CI tests the combination once.
+A pull request that does not merge cleanly with the ones ahead of it is left off, and once the train is over its goblin is told to merge main, once per head.
+When the run is green, the train first reads every rider again: one closed, turned into a draft, labelled `hold` or moved to another head since it rode is left off and the rest is tested again, so the branch never receives part of what CI tested.
+Then each pull request merges with a merge commit in train order, pinned to the head that rode, and the branch's tree must then equal the train's tree; the train closes its pull request and deletes its branch, its own `cfo/train-*` branch and never a goblin's, AFK mode or not.
+When it is red, the train is halved: the first half rides alone, every half that passes lands, and the halving goes on until one pull request fails alone.
+That pull request's goblin gets the failing checks with their links, in its own terminal, and the pull requests not yet tested wait for the next train.
+No pull request is blamed while the branch's own push CI is red at the commit the run was built on: the train stops and says to fix the branch first.
+A run whose base moved before it landed is built again on the new tip and tested again, since what it proved is not what would land; after three such runs in a row the train stops and asks you to hold merges.
+Every step is recorded before it acts, so a restart or a network failure in the middle of one, even halfway through landing, is taken on by the next step, and a merge that went through although its answer was lost is found on the branch.
+A step that fails counts against the train, which stops after five in a row; a run whose checks never appear stops after 20 minutes and one whose checks never finish after three hours.
+Each outcome reaches you as a `pr` wake keyed `train:<owner>/<repo>`, starting with `merge_train:`, and names any goblin it could not tell, for you to relay; while AFK mode is on, each pull request a train merges is logged as merged with the run that proved it.
+
+The supervisor runs trains by itself: on its GitHub poll, when two or more green pull requests goblins finished wait on one default branch, it starts a train, and it takes each running train a step on every poll, also once the goblins of its repository have left.
+`cfo pr train` joins the train already running in the project and waits until it is over.
+The board shows each train as one card with its pull requests: a running train heads In progress, and a finished one heads Completed for six hours.
+While a train runs, hold other merges to its branch: a merge outside it makes the train test again.
+PR health wakes leave alone a train's own pull request and the pull requests a running train carries.
+
+A pull request rides when it is into the default branch from this repository, opened by the account `gh` works as (a teammate's never rides, even one a goblin reported), its goblin's latest reports are `done` naming it, every check on its own head passed, it is not a draft, wants no review, is not in conflict with the base, and carries no `hold` label.
+Label a pull request `hold` to keep it off every train: one only the Supreme Overlord's word merges (recovery, security, money paths) or one he said to wait on (`gh pr edit <n> --add-label hold`, after `gh label create hold` once per repository).
+A pull request a train found broken stays off trains until its head changes.
 
 ## Supervision
 

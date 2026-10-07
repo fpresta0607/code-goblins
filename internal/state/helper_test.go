@@ -107,3 +107,23 @@ func TestNextHelperIDRefusesAParentWhoseHelperIDWouldNotFit(t *testing.T) {
 		t.Error("NextHelperID wrote a record")
 	}
 }
+
+func TestAHelperOperationIsKnownAsItsParentsAndRetriesWithIt(t *testing.T) {
+	operation := HelperOperation("pause-1", "g1-h1")
+	if !IsHelperOperation(operation) || ValidTaskID(operation) != nil {
+		t.Fatalf("HelperOperation = %q, want a valid operation IsHelperOperation knows", operation)
+	}
+	if operation != HelperOperation("pause-1", "g1-h1") {
+		t.Error("a retried parent operation made another helper operation")
+	}
+	for _, other := range []string{HelperOperation("pause-2", "g1-h1"), HelperOperation("pause-1", "g1-h2")} {
+		if other == operation {
+			t.Errorf("another parent operation or helper made the same operation %q", other)
+		}
+	}
+	for _, own := range []string{"pause-1", "resume-1", "auto-resume-1", "", "memory-pause-1"} {
+		if IsHelperOperation(own) {
+			t.Errorf("IsHelperOperation(%q) = true, want a task's own operation known as its own", own)
+		}
+	}
+}

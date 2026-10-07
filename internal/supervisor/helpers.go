@@ -191,7 +191,7 @@ func (p helperStart) args() []string {
 // short, as a Start's is not, then tells its parent in its terminal and the
 // CFO through the wake queue how it went, before the start slot frees.
 func (s *Service) runHelperStart(dispatch *Dispatch, plan helperStart) {
-	output, err := dispatch.Spawn(context.Background(), plan.args())
+	output, err := s.runPastTheSpawnLock(dispatch, plan.args())
 	told := "Your helper " + plan.ID + " is up on branch " + plan.Branch + ", working on its brief; it reports to you here."
 	detail := "started: helper of " + plan.parent.ID + ", which asked the supervisor for it, on branch " + plan.Branch + "; it reports to " + plan.parent.ID
 	if err != nil {
@@ -212,4 +212,26 @@ func (s *Service) runHelperStart(dispatch *Dispatch, plan helperStart) {
 	s.starting = ""
 	s.starts.Unlock()
 	s.notify()
+}
+
+// resumesWithItsParent says paused helper meta may resume now: its parent's
+// own pause paused it, which nothing of the helper's clears, and its parent
+// runs again. A helper paused by itself keeps its own condition.
+func (s *Service) resumesWithItsParent(meta state.TaskMeta, record state.Lifecycle) (bool, error) {
+	if meta.Parent == "" || !state.IsHelperOperation(record.Operation) {
+		return false, nil
+	}
+	stateDir := s.Store.Home.State
+	parent, err := state.ReadTaskMeta(stateDir, meta.Parent)
+	if errors.Is(err, os.ErrNotExist) {
+		return false, nil
+	}
+	if err != nil {
+		return false, err
+	}
+	lifecycle, err := state.ReadLifecycle(stateDir, parent.ID)
+	if errors.Is(err, os.ErrNotExist) {
+		return true, nil
+	}
+	return err == nil && (lifecycle.Generation != parent.SpawnGen || lifecycle.Phase == "running"), err
 }
