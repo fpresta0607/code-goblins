@@ -71,10 +71,13 @@ test("a goblin's card counts what runs under it and names a child gone silent, w
   await expect(page.locator(".task-card-shell").filter({ hasText: "Fix the flaky checkout test" }).locator(".card-tree, .card-silent")).toHaveCount(0);
 });
 
-test("at phone width the lineage list opens a goblin's children on a rail, with nothing wider than the screen", async ({ page }) => {
+test("at phone width the lineage list opens a goblin's running children on a rail, finished ones left off, with nothing wider than the screen", async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 });
   await page.goto("/tests/fixtures/fleet-tree.html?view=lineage");
+  await expect(page.getByRole("button", { name: /under Fix the flaky checkout test/ })).toHaveCount(0);
   await page.getByRole("button", { name: /under Build the fleet tree/ }).click();
-  await expect(page.getByRole("list", { name: "What runs under Build the fleet tree" }).locator(".tree-child")).toHaveCount(3);
+  const children = page.getByRole("list", { name: "What runs under Build the fleet tree" }).locator(".tree-child");
+  await expect(children).toHaveCount(2);
+  await expect(children.filter({ hasText: "Research MCP OAuth" })).toHaveCount(0);
   expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(390);
 });
