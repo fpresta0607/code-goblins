@@ -58,27 +58,22 @@ const (
 	DidNotComeBack
 )
 
-// comeBack takes the comeback's next step at a memory reading at or above
-// the floor: the CFO first, then the next goblin once memory and commit read
+// comeBack takes the next step of the comeback checkMemory planned, at a
+// memory reading at or above the floor: the CFO first, then the next goblin
+// once memory and commit read
 // at or above the next-start mark twice in a row and a launch has room, one
 // at a time. It reports whether anything still waits to come back, while
 // which nothing else starts by itself.
-func (s *Service) comeBack(now time.Time, memory Memory, w *fleetWakes) (bool, error) {
+func (s *Service) comeBack(memory Memory, w *fleetWakes) (bool, error) {
 	comeback := s.Options.Comeback
 	if comeback == nil || s.Options.Example {
 		return false, nil
 	}
 	s.comeback.Lock()
 	defer s.comeback.Unlock()
-	record, isNewPlan, err := s.planComeback(now)
+	record, err := state.ReadComeback(s.Store.Home.State)
 	if err != nil {
 		return false, err
-	}
-	if isNewPlan {
-		w.MemoryAbove = 0
-		if min(memory.Available, memory.CommitAvailable) >= memoryNext {
-			w.MemoryAbove = 1
-		}
 	}
 	next := slices.IndexFunc(record.Goblins, func(entry state.ComebackEntry) bool { return entry.State == state.ComebackWaiting })
 	isCFOWaiting := record.CFO != nil && record.CFO.State == state.ComebackWaiting

@@ -146,6 +146,124 @@ func reading(t *testing.T, service *Service, minute int) {
 	awaitComeback(t, service)
 }
 
+func TestTheComebackRecordsTheSignInBeforeLowOrFailedMemoryReadings(t *testing.T) {
+	for _, hasPriorPlan := range []bool{false, true} {
+		for _, isReadingFailed := range []bool{false, true} {
+			t.Run(fmt.Sprintf("prior plan %v, failed reading %v", hasPriorPlan, isReadingFailed), func(t *testing.T) {
+				recorder := &comebackRecorder{}
+				service, h, spawner := comebackBoard(t, recorder, [2]float64{4, 8}, [2]float64{8, 8}, [2]float64{8, 8})
+				closedCFO(t, h.State)
+				terminalStarted(t, h, NativeCFOTerminal, lastSignIn.Add(time.Minute))
+				meta := workingGoblin(t, h, "alpha", lastSignIn.Add(time.Hour))
+				if !hasPriorPlan {
+					if err := os.Remove(state.ComebackPath(h.State)); err != nil {
+						t.Fatal(err)
+					}
+				}
+				readMemory := service.Options.Dispatch.Memory
+				service.Options.Dispatch.Memory = func() (Memory, error) {
+					record, err := state.ReadComeback(h.State)
+					if err != nil || !record.SignedIn.Equal(thisSignIn) {
+						t.Fatalf("before reading memory, comeback %+v, error %v", record, err)
+					}
+					if isReadingFailed {
+						return Memory{}, errors.New("memory cannot be read")
+					}
+					return Memory{Available: memoryFloor - 1, CommitAvailable: 8 * gigabyte}, nil
+				}
+
+				reading(t, service, 0)
+
+				record, err := state.ReadComeback(h.State)
+				if err != nil || !record.SignedIn.Equal(thisSignIn) || !record.Planned.Equal(thisSignIn) {
+					t.Fatalf("comeback %+v, error %v, want this sign-in recorded", record, err)
+				}
+				if hasPriorPlan {
+					if record.CFO == nil || record.CFO.State != state.ComebackWaiting || len(record.Goblins) != 1 || !record.Waiting(meta.ID, meta.SpawnGen) {
+						t.Fatalf("comeback %+v, want the CFO and alpha waiting", record)
+					}
+				} else if record.CFO != nil || len(record.Goblins) != 0 {
+					t.Fatalf("first-run comeback %+v, want no returning terminals", record)
+				}
+				if len(recorder.came()) != 0 || len(spawner.recorded()) != 0 {
+					t.Fatalf("without memory admission, resumed %v, dispatched %v", recorder.came(), spawner.recorded())
+				}
+
+				service.Options.Dispatch.Memory = readMemory
+				reading(t, service, 1)
+				afterFloor := recorder.came()
+				reading(t, service, 2)
+				afterFirstMark := recorder.came()
+				reading(t, service, 3)
+				if hasPriorPlan {
+					if !slices.Equal(afterFloor, []string{NativeCFOTerminal}) || !slices.Equal(afterFirstMark, afterFloor) || !slices.Equal(recorder.came(), []string{NativeCFOTerminal, meta.ID}) {
+						t.Fatalf("resumed at floor %v, first mark %v, second mark %v", afterFloor, afterFirstMark, recorder.came())
+					}
+				} else if len(recorder.came()) != 0 {
+					t.Fatalf("first-run comeback resumed %v", recorder.came())
+				}
+			})
+		}
+	}
+}
+
+func TestAComebackPlanningErrorIsReportedWhenMemoryCannotBeRead(t *testing.T) {
+	recorder := &comebackRecorder{}
+	service, _, _ := comebackBoard(t, recorder, [2]float64{8, 8})
+	planningErr := errors.New("sign-in cannot be read")
+	service.Options.Comeback.SignedIn = func() (time.Time, error) { return time.Time{}, planningErr }
+	isMemoryRead := false
+	service.Options.Dispatch.Memory = func() (Memory, error) {
+		isMemoryRead = true
+		return Memory{}, errors.New("memory cannot be read")
+	}
+	wakes := fleetWakes{MemoryAbove: 3, MemoryBelow: 1}
+
+	err := service.checkMemory(t.Context(), &wakes, thisSignIn)
+
+	if !errors.Is(err, planningErr) || !isMemoryRead || wakes.MemoryAbove != 0 || wakes.MemoryBelow != 0 || len(recorder.came()) != 0 {
+		t.Fatalf("error %v, memory read %v, readings %+v, resumed %v", err, isMemoryRead, wakes, recorder.came())
+	}
+}
+
+func TestAComebackPlanningErrorStillPausesAtTheMemoryFloor(t *testing.T) {
+	spawner := &spawnRecorder{}
+	service, _, _, newer, now := floorBoard(t, true, spawner, [2]float64{3, 8}, [2]float64{3, 8})
+	planningErr := errors.New("sign-in cannot be read")
+	service.Options.Comeback = &Comeback{SignedIn: func() (time.Time, error) { return time.Time{}, planningErr }}
+	wakes := fleetWakes{}
+
+	for minute := range 2 {
+		if err := service.checkMemory(t.Context(), &wakes, now.Add(time.Duration(minute)*time.Minute)); !errors.Is(err, planningErr) {
+			t.Fatalf("reading %d error %v, want the planning error", minute, err)
+		}
+	}
+
+	calls := awaitDispatch(t, service, spawner, 1)
+	if len(calls) != 1 || calls[0][0] != "pause" || calls[0][1] != newer.ID {
+		t.Fatalf("dispatches %v, want the newest goblin paused despite the planning error", calls)
+	}
+}
+
+func TestAComebackPlanningErrorStillSchedulesWaitingWork(t *testing.T) {
+	recorder := &comebackRecorder{}
+	service, h, spawner := comebackBoard(t, recorder, [2]float64{16, 16})
+	planningErr := errors.New("sign-in cannot be read")
+	service.Options.Comeback.SignedIn = func() (time.Time, error) { return time.Time{}, planningErr }
+	queueBriefedTask(t, h, "- **next-task** - Ship it", plainBrief)
+	wakes := fleetWakes{}
+
+	err := service.checkMemory(t.Context(), &wakes, thisSignIn)
+
+	if !errors.Is(err, planningErr) || wakes.MemoryAbove != 1 || len(recorder.came()) != 0 {
+		t.Fatalf("error %v, readings %d, resumed %v", err, wakes.MemoryAbove, recorder.came())
+	}
+	calls := awaitDispatch(t, service, spawner, 1)
+	if len(calls) != 1 || calls[0][0] != "spawn" || calls[0][1] != "next-task" {
+		t.Fatalf("dispatches %v, want the queued task started despite the planning error", calls)
+	}
+}
+
 // After a restart the CFO comes back first, then each goblin that was
 // working, one at a time, a reading apart once memory has read at the
 // next-start mark twice; a goblin that finished, was paused or stopped, ran
@@ -636,12 +754,12 @@ func TestTheComebackReconcilesWaitingGenerationsInTheSameSignIn(t *testing.T) {
 				}
 				hostTerminal(t, h.State, meta.ID)
 			}
-			memory := Memory{Available: 4 * gigabyte, CommitAvailable: 4 * gigabyte}
-			wakes := fleetWakes{MemoryAbove: 1}
+			service.starting = "manual"
+			wakes := fleetWakes{MemoryAbove: 1, MemoryReadAt: thisSignIn.Add(time.Minute)}
 
-			isWaiting, err := service.comeBack(thisSignIn.Add(2*time.Minute), memory, &wakes)
-			if err != nil || isWaiting != (testCase.phase == state.ComebackWaiting) || wakes.MemoryAbove != 1 || len(recorder.came()) != 0 {
-				t.Fatalf("waiting %v, error %v, readings %d, resumed %v", isWaiting, err, wakes.MemoryAbove, recorder.came())
+			err := service.checkMemory(t.Context(), &wakes, thisSignIn.Add(2*time.Minute))
+			if err != nil || wakes.MemoryAbove != 2 || len(recorder.came()) != 0 {
+				t.Fatalf("error %v, readings %d, resumed %v", err, wakes.MemoryAbove, recorder.came())
 			}
 			record, err := state.ReadComeback(h.State)
 			if err != nil || len(record.Goblins) != 1 {
@@ -671,7 +789,7 @@ func TestTheComebackReconcilesWaitingGenerationsInTheSameSignIn(t *testing.T) {
 			if err := os.Chtimes(state.ComebackPath(h.State), lastSignIn, lastSignIn); err != nil {
 				t.Fatal(err)
 			}
-			if _, err := service.comeBack(thisSignIn.Add(3*time.Minute), memory, &wakes); err != nil {
+			if err := service.checkMemory(t.Context(), &wakes, thisSignIn.Add(3*time.Minute)); err != nil {
 				t.Fatal(err)
 			}
 			if info, err := os.Stat(state.ComebackPath(h.State)); err != nil || !info.ModTime().Equal(lastSignIn) {
@@ -802,14 +920,14 @@ func TestTheComebackDoesNotOverlapCompetingLaunchReservations(t *testing.T) {
 			wakes := fleetWakes{MemoryAbove: 2}
 
 			for range 128 {
-				isWaiting, err := service.comeBack(thisSignIn, memory, &wakes)
+				isWaiting, err := service.comeBack(memory, &wakes)
 				if err != nil || !isWaiting {
 					t.Fatalf("comeback waiting %v, error %v", isWaiting, err)
 				}
 				runtime.Gosched()
 			}
 			finish()
-			if _, err := service.comeBack(thisSignIn, memory, &wakes); err != nil {
+			if _, err := service.comeBack(memory, &wakes); err != nil {
 				t.Fatal(err)
 			}
 			awaitComeback(t, service)
@@ -840,7 +958,7 @@ func TestManualStartRemainsAllowedWhileTheComebackWaits(t *testing.T) {
 	if response.Code != 202 {
 		t.Fatalf("manual Start = %d %s, want accepted while alpha waits", response.Code, response.Body)
 	}
-	isWaiting, err := service.comeBack(thisSignIn.Add(time.Minute), Memory{Available: 8 * gigabyte, CommitAvailable: 8 * gigabyte}, &fleetWakes{MemoryAbove: 2})
+	isWaiting, err := service.comeBack(Memory{Available: 8 * gigabyte, CommitAvailable: 8 * gigabyte}, &fleetWakes{MemoryAbove: 2})
 	finish()
 	waitStarted(t, handler, "next-task")
 
