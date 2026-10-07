@@ -444,3 +444,30 @@ func TestWriteTaskMetaRoundTripsScratchAndExtraWorktrees(t *testing.T) {
 		}
 	}
 }
+
+// A helper's record names the goblin that asked for it, which is what makes
+// it a helper: the caps, its reports, its branch and its place on the board
+// all follow from that one value, so it is a task ID and never the task's own.
+func TestWriteTaskMetaRoundTripsTheParentOfAHelper(t *testing.T) {
+	// Arrange
+	dir := t.TempDir()
+	meta := TaskMeta{ID: "g1-h1", Window: "native", Worktree: `C:\home\worktrees\app\g1-h1`, Harness: "claude", Kind: "ship", Mode: "local-only", Backend: "native", Parent: "g1"}
+
+	// Act
+	err := WriteTaskMeta(dir, meta)
+	got, readErr := ReadTaskMeta(dir, "g1-h1")
+
+	// Assert
+	if err != nil || readErr != nil {
+		t.Fatalf("write = %v, read = %v", err, readErr)
+	}
+	if !reflect.DeepEqual(got, meta) {
+		t.Errorf("round trip = %+v, want %+v", got, meta)
+	}
+	for _, parent := range []string{"g1-h1", "bad parent", ".g1"} {
+		meta.Parent = parent
+		if err := WriteTaskMeta(dir, meta); err == nil || !strings.Contains(err.Error(), "parent") {
+			t.Errorf("parent %q = %v, want refused", parent, err)
+		}
+	}
+}
