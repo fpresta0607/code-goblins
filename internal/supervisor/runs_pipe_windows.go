@@ -136,9 +136,7 @@ func (s *Service) handleRunClient(ctx context.Context, handle syscall.Handle, co
 	ok, _, callErr := procGetNamedPipeClientProcessID.Call(uintptr(handle), uintptr(unsafe.Pointer(&pid)))
 	pipe := os.NewFile(uintptr(handle), "run request pipe")
 	defer pipe.Close()
-	var reply struct {
-		Error string `json:"error,omitempty"`
-	}
+	var reply pipeReply
 	expired := make(chan struct{})
 	timer := time.AfterFunc(runReadTimeout, func() {
 		_ = syscall.CancelIoEx(handle, nil)
@@ -169,6 +167,13 @@ func (s *Service) handleRunClient(ctx context.Context, handle syscall.Handle, co
 				err = s.acceptRunRequest(int(pid), connected, req)
 			case "afk-on", "afk-off":
 				err = s.switchAFK(ctx, int(pid), connected, req.Kind == "afk-on", req.Asked)
+			case "helper":
+				var started HelperStart
+				if req.Helper == nil {
+					err = errors.New("a helper request names no helper")
+				} else if started, err = s.acceptHelper(*req.Helper); err == nil {
+					reply.Helper = &started
+				}
 			default:
 				err = s.acceptCFOItem(int(pid), connected, req)
 			}
@@ -240,6 +245,13 @@ func Reported(stateDir string) {
 // sendPipeRequest hands one request to the supervisor and returns the reason
 // it was refused, if it was.
 func sendPipeRequest(stateDir string, req runPipeRequest) error {
+	_, err := askPipe(stateDir, req)
+	return err
+}
+
+// askPipe hands one request to the supervisor and returns its answer, or the
+// reason it was refused.
+func askPipe(stateDir string, req runPipeRequest) (pipeReply, error) {
 	var pipe *os.File
 	var err error
 	for deadline := time.Now().Add(2 * time.Second); ; time.Sleep(25 * time.Millisecond) {
@@ -249,7 +261,7 @@ func sendPipeRequest(stateDir string, req runPipeRequest) error {
 		}
 	}
 	if err != nil {
-		return errors.New("the supervisor is not running, so the board cannot take this; start cfo serve")
+		return pipeReply{}, errors.New("the supervisor is not running, so the board cannot take this; start cfo serve")
 	}
 	defer pipe.Close()
 	// The command goes only to the supervisor of this home: the process that
@@ -257,35 +269,33 @@ func sendPipeRequest(stateDir string, req runPipeRequest) error {
 	// squatter, and it never sees the request.
 	var server uint32
 	if ok, _, callErr := procGetNamedPipeServerProcessID.Call(pipe.Fd(), uintptr(unsafe.Pointer(&server))); ok == 0 {
-		return fmt.Errorf("the run request pipe's server could not be identified: %w", callErr)
+		return pipeReply{}, fmt.Errorf("the run request pipe's server could not be identified: %w", callErr)
 	}
 	if !lock.HeldByNamed(stateDir, ".watch.lock", int(server)) {
-		return fmt.Errorf("the run request pipe is served by pid %d, which is not this home's supervisor, so nothing was sent", server)
+		return pipeReply{}, fmt.Errorf("the run request pipe is served by pid %d, which is not this home's supervisor, so nothing was sent", server)
 	}
 	if err := pipe.SetDeadline(time.Now().Add(runReplyTimeout)); err != nil {
-		return err
+		return pipeReply{}, err
 	}
 	data, err := json.Marshal(req)
 	if err != nil {
-		return err
+		return pipeReply{}, err
 	}
 	if _, err := pipe.Write(append(data, '\n')); err != nil {
-		return fmt.Errorf("the supervisor did not take the run request: %w", err)
+		return pipeReply{}, fmt.Errorf("the supervisor did not take the run request: %w", err)
 	}
 	line, err := bufio.NewReader(io.LimitReader(pipe, 64<<10)).ReadBytes('\n')
-	var reply struct {
-		Error string `json:"error"`
-	}
+	var reply pipeReply
 	if errors.Is(err, os.ErrDeadlineExceeded) {
-		return fmt.Errorf("the supervisor did not answer the run request within %s", runReplyTimeout)
+		return pipeReply{}, fmt.Errorf("the supervisor did not answer the run request within %s", runReplyTimeout)
 	}
 	if err != nil || json.Unmarshal(line, &reply) != nil {
-		return errors.New("the supervisor gave no answer to the run request")
+		return pipeReply{}, errors.New("the supervisor gave no answer to the run request")
 	}
 	if reply.Error != "" {
-		return errors.New(reply.Error)
+		return reply, errors.New(reply.Error)
 	}
-	return nil
+	return reply, nil
 }
 
 // currentUserOnly is a security descriptor that grants the current user, and
