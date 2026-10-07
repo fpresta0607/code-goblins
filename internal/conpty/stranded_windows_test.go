@@ -94,6 +94,9 @@ func TestTypedKeysReachAProgramThatPrintsWhileItReads(t *testing.T) {
 		_ = console.Close()
 		<-ended
 	})
+	// readErr is what the terminal's output ended with, set before output
+	// closes.
+	var readErr error
 	go func() {
 		defer close(ended)
 		defer close(output)
@@ -108,6 +111,7 @@ func TestTypedKeysReachAProgramThatPrintsWhileItReads(t *testing.T) {
 				}
 			}
 			if err != nil {
+				readErr = err
 				return
 			}
 		}
@@ -120,7 +124,7 @@ func TestTypedKeysReachAProgramThatPrintsWhileItReads(t *testing.T) {
 			select {
 			case chunk, isOpen := <-output:
 				if !isOpen {
-					t.Fatalf("the terminal ended before %q", marker)
+					t.Fatalf("the terminal ended before %q: %s", marker, terminalEnd(console, readErr, shown, progressPath))
 				}
 				shown += string(chunk)
 				if len(shown) > 8192 {
@@ -157,6 +161,22 @@ func TestTypedKeysReachAProgramThatPrintsWhileItReads(t *testing.T) {
 		slowest = max(slowest, time.Since(typed))
 	}
 	t.Logf("%d keys typed into a printing program, the slowest echoed after %s", keys, slowest)
+}
+
+// terminalEnd says how a terminal that ended under a test ended: the error
+// its output ended with, how its program exited, what it last showed and
+// what the program last read, which tell a program that failed or was ended
+// from a console that went away under it.
+func terminalEnd(console *Console, readErr error, shown, progressPath string) string {
+	exit := "its program had not exited 5s later"
+	select {
+	case <-console.Done():
+		exit = fmt.Sprintf("its program exited with code %#x", console.ExitCode())
+	case <-time.After(5 * time.Second):
+	}
+	progress, _ := os.ReadFile(progressPath)
+	lines := strings.Split(strings.TrimSpace(string(progress)), "\n")
+	return fmt.Sprintf("its output ended with %v; %s; it last showed %q; the program last read %q", readErr, exit, shown[max(0, len(shown)-1024):], lines[max(0, len(lines)-3):])
 }
 
 // TestUnreadInputChild sends Ctrl-C and Ctrl-Break to every process attached
