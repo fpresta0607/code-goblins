@@ -487,10 +487,10 @@ var homeImages = map[string]bool{"cfo.exe": true, "goblins.exe": true, "previous
 
 // homeServe accepts a process that is this home's supervisor: a program of
 // this home, by the image it has loaded, running serve for this home as
-// home.Resolve finds one, from CFO_HOME or else its working directory, with
-// CFO_STATE_OVERRIDE or else the home's state. A supervisor can run from any
-// folder with CFO_HOME set, and the fleet runs scratch supervisors from the
-// same binary for other homes and states, none of them this home's.
+// home.Resolve finds one, from CFO_HOME or else the per-user home its
+// LOCALAPPDATA names, with CFO_STATE_OVERRIDE or else the home's state. A
+// supervisor can run from any folder, and the fleet runs scratch supervisors
+// from the same binary for other homes and states, none of them this home's.
 func homeServe(h home.Home) func(proc.Identity) error {
 	return func(identity proc.Identity) error {
 		if err := serveRole(identity.Arguments); err != nil {
@@ -503,7 +503,11 @@ func homeServe(h home.Home) func(proc.Identity) error {
 		// relative name resolves against its own working folder.
 		root := identity.Getenv("CFO_HOME")
 		if root == "" {
-			root = identity.Directory
+			local := identity.Getenv("LOCALAPPDATA")
+			if local == "" {
+				return errors.New("it names no home: neither CFO_HOME nor LOCALAPPDATA is set in its environment")
+			}
+			root = filepath.Join(resolvedFrom(identity.Directory, local), "CodeGoblins")
 		} else {
 			root = resolvedFrom(identity.Directory, root)
 		}

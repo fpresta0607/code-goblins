@@ -84,7 +84,7 @@ func (u *updateHome) start(program string, arguments ...string) *exec.Cmd {
 	u.t.Helper()
 	cmd := exec.Command(program, arguments...)
 	cmd.Dir = u.root
-	cmd.Env = append(os.Environ(), "CFO_TEST_UPDATE_ROOT="+u.root)
+	cmd.Env = append(os.Environ(), "CFO_TEST_UPDATE_ROOT="+u.root, "CFO_HOME="+u.root)
 	if err := cmd.Start(); err != nil {
 		u.t.Fatal(err)
 	}
@@ -587,7 +587,7 @@ func (u *updateHome) strangerServing() *exec.Cmd {
 	u.t.Helper()
 	stranger := exec.Command(filepath.Join(u.bin, "goblins.exe"), "serve", "--listen", "127.0.0.1:0")
 	stranger.Dir = u.root
-	stranger.Env = append(os.Environ(), "CFO_TEST_UPDATE_ROOT="+u.root, "CFO_STATE_OVERRIDE="+filepath.Join(u.t.TempDir(), "state"))
+	stranger.Env = append(os.Environ(), "CFO_TEST_UPDATE_ROOT="+u.root, "CFO_HOME="+u.root, "CFO_STATE_OVERRIDE="+filepath.Join(u.t.TempDir(), "state"))
 	if err := stranger.Start(); err != nil {
 		u.t.Fatal(err)
 	}
@@ -948,7 +948,7 @@ func TestAHomesSupervisorIsKnownByWhereItsRelativeNamesResolve(t *testing.T) {
 		{"a relative CFO_STATE_OVERRIDE from the folder that holds it", parent, []string{"CFO_HOME=" + root, `CFO_STATE_OVERRIDE=my-home\state`}, true},
 		{"both relative from the folder that holds it", parent, []string{"CFO_HOME=my-home", `CFO_STATE_OVERRIDE=my-home\state`}, true},
 		{"a relative state that means another state", parent, []string{"CFO_HOME=" + root, `CFO_STATE_OVERRIDE=other\state`}, false},
-		{"the same relative state from the home's own root", root, []string{`CFO_STATE_OVERRIDE=my-home\state`}, false},
+		{"the same relative state from the home's own root", root, []string{"CFO_HOME=" + root, `CFO_STATE_OVERRIDE=my-home\state`}, false},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			program := filepath.Join(root, "bin", "goblins.exe")
@@ -961,6 +961,43 @@ func TestAHomesSupervisorIsKnownByWhereItsRelativeNamesResolve(t *testing.T) {
 			}
 			if !test.isHomes && err == nil {
 				t.Fatal("a supervisor of another state was taken for this home's")
+			}
+		})
+	}
+}
+
+// A supervisor started with no CFO_HOME serves the per-user home its own
+// LOCALAPPDATA names, as home.Resolve finds it, whatever folder it runs in: an
+// update takes it for this home's only when that is this home, and never stops
+// the per-user home's supervisor because it was started in this home's root.
+func TestASupervisorWithNoCFOHomeServesItsPerUserHome(t *testing.T) {
+	local := t.TempDir()
+	perUser := home.Home{Root: filepath.Join(local, "CodeGoblins"), State: filepath.Join(local, "CodeGoblins", "state")}
+	checkout := t.TempDir()
+	another := home.Home{Root: checkout, State: filepath.Join(checkout, "state")}
+	for _, test := range []struct {
+		name      string
+		h         home.Home
+		directory string
+		isHomes   bool
+	}{
+		{"the per-user home's supervisor, run from another folder", perUser, t.TempDir(), true},
+		{"the per-user home's supervisor, run from another home's root", another, checkout, false},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			// Arrange
+			program := filepath.Join(test.h.Root, "bin", "goblins.exe")
+			identity := proc.Identity{Image: program, Arguments: []string{program, "serve", "--listen", "127.0.0.1:0"}, Directory: test.directory, Environment: []string{"LOCALAPPDATA=" + local}}
+
+			// Act
+			err := homeServe(test.h)(identity)
+
+			// Assert
+			if test.isHomes && err != nil {
+				t.Fatalf("this home's supervisor was refused: %v", err)
+			}
+			if !test.isHomes && err == nil {
+				t.Fatal("the per-user home's supervisor was taken for another home's")
 			}
 		})
 	}
@@ -1518,7 +1555,7 @@ func TestRollbackLeavesASupervisorOfAnotherStateRunning(t *testing.T) {
 	}
 	foreign := exec.Command(filepath.Join(u.bin, "goblins.exe"), "serve", "--listen", "127.0.0.1:0")
 	foreign.Dir = u.root
-	foreign.Env = append(os.Environ(), "CFO_TEST_UPDATE_ROOT="+other, "CFO_STATE_OVERRIDE="+filepath.Join(other, "state"))
+	foreign.Env = append(os.Environ(), "CFO_TEST_UPDATE_ROOT="+other, "CFO_HOME="+other, "CFO_STATE_OVERRIDE="+filepath.Join(other, "state"))
 	if err := foreign.Start(); err != nil {
 		t.Fatal(err)
 	}
