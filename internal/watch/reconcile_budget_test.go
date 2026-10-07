@@ -77,19 +77,30 @@ func TestRunGivesUpOnAProbeThatNeverAnswers(t *testing.T) {
 // whole budget would otherwise leave serve's heartbeat a budget old, and the
 // next pass can start before serve's own heartbeat tick, doubling that past
 // the Stop hook's grace while serve is alive and holds the lock.
+//
+// The scan waits on a probe that never answers until the budget cuts it off,
+// so a heartbeat touched after the scan is stamped at least a budget into the
+// pass. That is judged from the pass's start, never as the heartbeat's age
+// when the pass returns: that age is how long writing the heartbeat took,
+// which reached a second on a loaded four-core runner (run 37631337103) and
+// says nothing of when it was stamped. A third of the budget is left for
+// Windows' wall clock, which the stamp is kept in, advancing in ticks.
 func TestReconcileLeavesTheHeartbeatFreshAfterACutOffPass(t *testing.T) {
+	// Arrange
 	dir := t.TempDir()
 	budget := 300 * time.Millisecond
 	cfg := Config{Home: baseConfig(dir).Home, Monitor: hangingMonitor(t, dir), ReconcileBudget: budget}
+	passStart := time.Now()
 
+	// Act
 	_ = Reconcile(context.Background(), cfg)
-	passEnd := time.Now()
 
+	// Assert
 	heartbeat, err := monitor.ReadHeartbeat(dir)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if age := passEnd.Sub(heartbeat.LastCycle); age >= budget {
-		t.Errorf("heartbeat was %s old when the pass returned; want it touched after the scan, under the %s budget", age, budget)
+	if stamped := heartbeat.LastCycle.Sub(passStart); stamped < budget-budget/3 {
+		t.Errorf("heartbeat was stamped %s into the pass; want it touched after the scan the %s budget cut off", stamped, budget)
 	}
 }
