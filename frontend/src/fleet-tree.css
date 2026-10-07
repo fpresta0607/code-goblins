@@ -1,0 +1,86 @@
+/* The family tree: each goblin's children as baby goblins under it, on the
+   canvas, in the lineage list at phone width, on its card and in its panel.
+   The heads are one generated atlas, three across and three down, in the
+   order fleet-tree.ts names them. */
+.baby-goblin { display: inline-block; flex: none; width: 44px; height: 44px; background: url('/assets/goblin-babies.png') 0 0 / 300% 300% no-repeat; }
+.baby-goblin.small { width: 24px; height: 24px; }
+.baby-goblin.silent { border-radius: 50%; box-shadow: 0 0 0 2px var(--amber), 0 0 12px #f3c57855; }
+.baby-subagent { background-position: 0 0; }
+.baby-shell { background-position: 50% 0; }
+.baby-monitor { background-position: 100% 0; }
+.baby-gate { background-position: 0 50%; }
+.baby-server { background-position: 50% 50%; }
+.baby-test { background-position: 100% 50%; }
+.baby-build { background-position: 0 100%; }
+.baby-browser { background-position: 50% 100%; }
+.baby-other { background-position: 100% 100%; }
+
+.phase-silent .status-dot { background: var(--amber); box-shadow: 0 0 0 3px #f3c57833; }
+.phase-silent.plain-status { color: #f6d79e; }
+.phase-idle .status-dot, .phase-done .status-dot { background: #7891ad; }
+.phase-idle.plain-status, .phase-done.plain-status { color: #a6b8c8; }
+
+/* A goblin's children collapsed to a count. */
+.tree-count { display: inline-flex; align-items: center; gap: 10px; min-height: 38px; padding: 4px 12px 4px 10px; border: 1px solid var(--glass-border-hover); border-radius: 999px; background: var(--glass-bg), var(--hero-surface); box-shadow: var(--glass-shadow); font-size: .9375rem; font-weight: 700; color: #c4d4df; white-space: nowrap; }
+.tree-count:hover { border-color: var(--accent-green); }
+.tree-count.has-silent { border-color: #f3c57888; }
+.tree-count svg { width: 16px; height: 16px; flex: none; color: #bed2d9; }
+.tree-tally { display: inline-flex; align-items: center; gap: 2px; color: var(--mint); }
+.tree-count-words { display: inline-flex; align-items: center; gap: 6px; }
+.tree-count-words .status-dot { width: 8px; height: 8px; }
+.tree-count-memory { color: #b9cad6; }
+
+/* A goblin's children on the canvas: the count under its card, and when it
+   is open, each child on a branch below it. */
+.tree-branch { position: absolute; display: grid; gap: 8px; justify-items: start; }
+.tree-branch .tree-count { justify-self: center; }
+.tree-branch.closed { justify-items: center; }
+.tree-rail { display: grid; gap: 8px; width: 100%; margin: 0; padding: 0 0 0 22px; list-style: none; border-left: 1px solid var(--glass-border-hover); }
+.tree-child { position: relative; display: grid; grid-template-columns: 44px minmax(0, 1fr) auto; align-items: center; gap: 10px; min-height: 60px; padding: 6px 12px 6px 8px; border: 1px solid var(--glass-border); border-radius: var(--radius); background: var(--glass-bg), var(--hero-surface); box-shadow: var(--glass-shadow); }
+.tree-rail .tree-child::before { content: ""; position: absolute; left: -23px; top: 50%; width: 22px; border-top: 1px solid var(--glass-border-hover); }
+.tree-child.dim, .working-row.dim { opacity: .55; }
+.tree-child-copy { display: grid; min-width: 0; line-height: 1.3; }
+.tree-child-copy strong { font-size: 1rem; font-weight: 800; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.tree-child-copy .plain-status { font-size: .875rem; gap: 6px; white-space: nowrap; overflow: hidden; }
+.tree-child-copy .status-dot { width: 7px; height: 7px; }
+.tree-child-detail { min-width: 0; overflow: hidden; text-overflow: ellipsis; color: var(--muted); font-weight: 600; }
+.tree-memory { font-size: .875rem; font-weight: 700; color: #b9cad6; white-space: nowrap; }
+
+/* The lineage list at phone width: the count under the goblin, its children
+   on a rail. */
+.workflow-branch > .tree-lineage { margin: 10px 0 0 12px; display: grid; gap: 8px; justify-items: start; }
+
+/* The goblin's card names a silent child with its last line. */
+.card-tree { display: inline-flex; align-items: center; flex-wrap: wrap; gap: 4px 10px; color: #b9cad6; font-size: .9375rem; font-weight: 700; }
+.card-tree .tree-tally { gap: 2px; }
+.card-silent { display: grid; gap: 2px; margin-top: 2px; padding: 6px 10px; border-left: 3px solid var(--amber); border-radius: 6px; background: rgba(243, 197, 120, 0.07); font-size: .9375rem; min-width: 0; }
+.card-silent b { color: #f6d79e; font-weight: 800; overflow-wrap: anywhere; }
+.card-silent code { font-family: var(--font-mono); font-size: .8125rem; color: #e7d3a3; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+/* What's working in the goblin's panel. */
+.working-summary { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 18px; margin: 0 0 14px; font-weight: 700; color: #c4d4df; }
+.working-summary .plain-status { font-size: .9375rem; }
+.working-list { display: grid; gap: 8px; margin: 0; padding: 0; list-style: none; }
+.working-row { display: grid; grid-template-columns: 44px minmax(0, 1fr) auto; align-items: center; gap: 12px; padding: 8px 14px 8px 8px; border: 1px solid var(--border); border-radius: var(--radius); background: rgba(3, 5, 10, 0.45); }
+.working-what { display: grid; gap: 2px; min-width: 0; }
+.working-what strong { font-weight: 800; overflow-wrap: anywhere; }
+.working-what small { color: var(--muted); font-size: .875rem; overflow-wrap: anywhere; }
+.working-last-line { font-family: var(--font-mono); font-size: .8125rem; color: #e7d3a3; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.working-meta { display: grid; grid-template-columns: 96px 64px 72px; align-items: center; gap: 12px; justify-items: end; font-size: .9375rem; }
+.working-meta .plain-status { justify-self: start; font-size: .9375rem; }
+.working-for { color: #c4d4df; font-weight: 700; }
+.working-memory { color: #b9cad6; font-weight: 700; }
+.working-finished > summary { display: flex; align-items: center; gap: 8px; padding: 12px 2px 4px; color: var(--muted); font-weight: 700; list-style: none; cursor: pointer; }
+.working-finished > summary::-webkit-details-marker { display: none; }
+.working-finished > summary svg { width: 16px; height: 16px; transition: transform .16s ease; }
+.working-finished[open] > summary svg { transform: rotate(90deg); }
+.working-finished .working-list { margin-top: 8px; }
+.working-freshness, .working-unread { margin: 14px 0 0; color: #8fa3b3; font-size: .875rem; }
+.working-unread { margin-top: 4px; overflow-wrap: anywhere; }
+
+/* At phone width a row puts its state, time and memory on a line of their
+   own under what it does. */
+@media (max-width: 720px) {
+  .working-row { grid-template-columns: 44px minmax(0, 1fr); }
+  .working-meta { grid-column: 2; display: flex; flex-wrap: wrap; gap: 4px 14px; justify-items: start; font-size: .875rem; }
+}

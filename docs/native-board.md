@@ -331,6 +331,23 @@ A card he placed stays where he put it, and an arranged card whose place it cove
 A connector pulses for a few seconds when its goblin reports a new status line or files a wake record; a report that lands while the board is hidden never plays later.
 Arrange resets positions, and storage failures remain visible.
 Narrow screens use a collapsible nested list that names the actual parent when indentation is capped.
+
+### The family tree
+
+Under each live goblin the board shows what it has running: its sub-agents, the shells and monitors it left running in the background, the jobs of processes its harness started, and its gate run.
+The supervisor reads it every 15 seconds from what the harness and the machine already keep, and writes nothing to either (`internal/fleettree`), and serves it on the goblin's task in `GET /api/snapshot` as `tree`.
+Claude Code's sub-agents, background shells and monitors come from the goblin's own conversation, with each sub-agent's transcript and each shell's output for its last activity and last line.
+That conversation is the one the board recorded for the goblin's generation, or the one the running Claude Code process records for itself in `~/.claude/sessions/<pid>.json` with its own creation time, never the newest file in the worktree's folder, where another session can work.
+A Codex goblin's child agents come from their own rollouts, which name the thread that spawned them; pi records no sub-agents or background jobs, so a pi goblin shows none and none is guessed.
+A job is one process the harness started after its first two minutes, with everything under it, named by what it does: a test run or build by its command line, a dev server by the port it listens on, a browser, or other; each shows its private memory, and the goblin's card and panel show the memory of the harness and everything under it.
+Each child carries a state: working, waiting (an idle job, or a gate waiting on a decision), done, failed, or silent, a working child with no activity for ten minutes, the monitor's stall interval.
+Each also carries when its source last changed and when it was read.
+Each child is drawn as a baby goblin whose prop says its kind (a magnifying glass for a sub-agent, a laptop for a shell, binoculars for a monitor, glasses and a shield for the gate, an antenna for a dev server, goggles for a test run, a hard hat for a build, a tablet for a browser), and its tip names it.
+On the canvas a goblin's children are collapsed to a count under its card: a head and a number for each kind still running, how many work or are silent, and their memory; pressing it opens each child on a branch under the card, where idle and finished ones are dimmed and the newest three finished ones stay, and the rows below make room.
+At phone width the lineage list opens them the same way under the goblin's card.
+The goblin's panel opens with What's working: its counts, then one row per running child with what it does, its state, for how long and its memory, a silent child's last line, the finished ones folded away, and when it was read.
+A goblin's card counts what runs under it and names the child that has gone silent longest with its last line.
+None of it wakes the CFO: the monitor's stale and idle rules read their progress evidence through the same reader, so a goblin counts as working while any child works, and the board and the wakes never disagree about it.
 A child without its own reported native transport explains that limitation without borrowing its owning task's terminal or model.
 Bounded accepted-message receipts produce a brief travelling connector pulse and receiving-card glow where exact caller native identity proves the reported parent.
 Native-creation receipts instead produce a quiet birth highlight on that proven parent branch plus the child-card glow and entrance; creation is never rendered as a message receipt.

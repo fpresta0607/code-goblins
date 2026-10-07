@@ -132,3 +132,31 @@ func TestProgressRequiresReviewTestsCommitPushAndPRAtExactHead(t *testing.T) {
 		t.Fatal("stale review accepted")
 	}
 }
+
+// StepDetails reads what each step of a run is doing, in order: when it
+// started, its last activity and the agent working it, from no-mistakes'
+// own columns, with nothing for a step that has not started.
+func TestStepDetailsReadsWhatEachStepIsDoing(t *testing.T) {
+	root := t.TempDir()
+	database := filepath.Join(root, "state.sqlite")
+	sql := `CREATE TABLE step_results(run_id TEXT,step_name TEXT,status TEXT,step_order INTEGER,started_at INTEGER,last_activity_at INTEGER,last_activity TEXT,agent_pid INTEGER);
+INSERT INTO step_results VALUES('run','test','running',2,1791297214,1791325002,'go test ./...',34824),('run','review','completed',1,1791297171,1791297214,'status: completed',NULL),('run','lint','pending',3,NULL,NULL,NULL,NULL),('other','review','running',1,1,1,'x',1);`
+	result, err := (execx.OSRunner{}).Run(context.Background(), execx.Request{Name: "sqlite3", Args: []string{database, sql}})
+	if err != nil {
+		t.Skipf("sqlite3 unavailable: %v", err)
+	}
+	if result.ExitCode != 0 {
+		t.Fatal(string(result.Stderr))
+	}
+
+	steps, err := (Reader{Root: root, Commands: execx.OSRunner{}}).StepDetails(context.Background(), "run")
+
+	want := []StepDetail{
+		{Name: "review", Status: "completed", StartedAt: 1791297171, LastActivityAt: 1791297214, LastActivity: "status: completed"},
+		{Name: "test", Status: "running", StartedAt: 1791297214, LastActivityAt: 1791325002, LastActivity: "go test ./...", AgentPID: 34824},
+		{Name: "lint", Status: "pending"},
+	}
+	if err != nil || fmt.Sprint(steps) != fmt.Sprint(want) {
+		t.Fatalf("StepDetails = %+v, %v; want %+v", steps, err, want)
+	}
+}

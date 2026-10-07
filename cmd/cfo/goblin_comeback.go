@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/fpresta0607/code-goblins/internal/fleettree"
 	"github.com/fpresta0607/code-goblins/internal/home"
 	"github.com/fpresta0607/code-goblins/internal/spawn"
 	"github.com/fpresta0607/code-goblins/internal/state"
@@ -89,7 +90,7 @@ func bringGoblinBack(ctx context.Context, h home.Home, runtime commandRuntime, i
 	if err := runtime.admitLaunch(h); err != nil {
 		return goblinComeback{id: id, said: "waits for room: " + err.Error(), isWaiting: true}, true
 	}
-	session, err := ownedSession(h.State, meta)
+	session, err := fleettree.OwnedSession(h.State, meta)
 	if err != nil {
 		return goblinComeback{id: id, said: err.Error()}, true
 	}

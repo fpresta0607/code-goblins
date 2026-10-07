@@ -281,13 +281,13 @@ func TestHostProgressReadsANativeHarnessFromItsTerminal(t *testing.T) {
 
 	_, missing := prober.InspectProgress(context.Background(), meta, EndpointSample{Harness: "claude"})
 	record := recordNativeHost(t, stateDir, "g1")
-	harnessPID, err := prober.harnessPID(context.Background(), meta, EndpointSample{Harness: "claude"})
+	harnessPID, started, err := prober.harness(context.Background(), meta, EndpointSample{Harness: "claude"})
 
 	if missing == nil {
 		t.Error("a native task with no host gave progress evidence")
 	}
-	if err != nil || harnessPID != record.ChildPID {
-		t.Errorf("harness pid = %d, %v; want the terminal's program, pid %d, not its host, pid %d", harnessPID, err, record.ChildPID, record.HostPID)
+	if err != nil || harnessPID != record.ChildPID || !started.Equal(record.ChildStart) {
+		t.Errorf("harness = pid %d started %v, %v; want the terminal's program, pid %d started %v, not its host, pid %d", harnessPID, started, err, record.ChildPID, record.ChildStart, record.HostPID)
 	}
 }
 

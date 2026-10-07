@@ -1,14 +1,21 @@
 import { useEffect, useMemo, useRef, useState, type PointerEvent } from "react";
-import type { BoardActivity, Snapshot } from "./types";
+import type { BoardActivity, FleetTree, Snapshot } from "./types";
 import { Avatar } from "./Avatar";
 import { activityDisplay, EFFECT_MS, playFrom, presentationShownOn, type ActivityEffect } from "./activity";
 import { Chevron } from "./Chevron";
 import { Icon } from "./Icon";
 import { ownsTaskSession } from "./lineageTree";
-import { arrange, asksOverlord, expireTraffic, fitScale, fleetTraffic, NODE_HEIGHT, NODE_WIDTH, nodeStatus, personaFor, PULSE_MS, reportTraffic, settle, statusPhase, waitingOn, workflowNodes, type Point, type WorkflowNode } from "./workflow";
+import { arrange, asksOverlord, expireTraffic, fitScale, fleetTraffic, makeRoom, NODE_HEIGHT, NODE_WIDTH, nodeStatus, personaFor, PULSE_MS, reportTraffic, settle, statusPhase, waitingOn, workflowNodes, type Point, type WorkflowNode } from "./workflow";
+import { canvasChildren, hasChildren } from "./fleet-tree";
+import { TreeCount } from "./TreeCount";
+import { TreeChild } from "./TreeChild";
 
 // v1 saved every card's place at each drag, which pinned the whole canvas.
 const layoutKey = "cfo-orchestration-layout-v2";
+
+// Under a goblin's card: the gap to its count, the count's height, and each
+// child's card with the gap under it.
+const TREE_GAP = 18, COUNT_HEIGHT = 40, CHILD_STEP = 68;
 
 function readLayout(): { positions: Record<string, Point>; error: string } {
   try {
@@ -27,16 +34,26 @@ function readLayout(): { positions: Record<string, Point>; error: string } {
   } catch { return { positions: {}, error: "Saved layout is unavailable. Arrange starts a fresh layout." }; }
 }
 
-export function Orchestration({ snapshot, selected, connected, effects, onSelect, presentations }: {
+export function Orchestration({ snapshot, selected, connected, effects, onSelect, presentations, now }: {
   presentations:BoardActivity[];
-  snapshot: Snapshot; selected: string; connected: boolean; effects: ActivityEffect[];
+  snapshot: Snapshot; selected: string; connected: boolean; effects: ActivityEffect[]; now: number;
   onSelect: (node: WorkflowNode, source: HTMLElement) => void;
 }) {
   const nodes = useMemo(() => workflowNodes(snapshot), [snapshot]);
   const awaited = useMemo(() => waitingOn(snapshot, nodes), [snapshot, nodes]);
-  const automatic = useMemo(() => arrange(nodes, awaited), [nodes, awaited]);
+  // A goblin's children show collapsed to a count under its card until it is
+  // opened; an open goblin's children stand under it, and the rows below
+  // make room for them.
+  const [openTrees, setOpenTrees] = useState<Set<string>>(new Set());
+  const trees = useMemo(() => Object.fromEntries(nodes.flatMap((node): [string, FleetTree][] => {
+    const tree = node.task && ownsTaskSession(node.session, node.task) ? node.task.tree : undefined;
+    return tree && hasChildren(tree) ? [[node.id, tree]] : [];
+  })), [nodes]);
+  const below = useMemo(() => Object.fromEntries(Object.entries(trees).map(([id, tree]): [string, number] =>
+    [id, TREE_GAP + COUNT_HEIGHT + (openTrees.has(id) ? canvasChildren(tree).length * CHILD_STEP : 0)])), [trees, openTrees]);
+  const automatic = useMemo(() => makeRoom(arrange(nodes, awaited), below), [nodes, awaited, below]);
   const [layout, setLayout] = useState(readLayout);
-  const positions = useMemo(() => settle(automatic, layout.positions), [automatic, layout.positions]);
+  const positions = useMemo(() => settle(automatic, layout.positions, below), [automatic, layout.positions, below]);
   const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
   // The graph fills the visible canvas, centered, until a zoom or a pan by
   // hand takes over; Fit hands it back. A dragged card holds the frame still.
@@ -86,7 +103,7 @@ export function Orchestration({ snapshot, selected, connected, effects, onSelect
   const fitLeft = xs.length ? Math.max(0, Math.min(...xs) - 40) : 0;
   const fitTop = ys.length ? Math.max(0, Math.min(...ys) - 40) : 0;
   const fitWidth = Math.max(1, ...xs.map((x) => x + NODE_WIDTH + 40)) - fitLeft;
-  const fitHeight = Math.max(1, ...ys.map((y) => y + NODE_HEIGHT + 80)) - fitTop;
+  const fitHeight = Math.max(1, ...visible.map((node) => point(node.id).y + NODE_HEIGHT + (below[node.id] || 0) + 80)) - fitTop;
   const { scale, left, top, width, height } = held ?? { scale: manual ?? fitScale({ width: fitWidth, height: fitHeight }, canvas), left: fitLeft, top: fitTop, width: fitWidth, height: fitHeight };
   const zoom = (next: number) => setManual(Math.max(.35, Math.min(1.5, next)));
   const fit = () => { setManual(null); viewport.current?.scrollTo(0, 0); };
@@ -242,6 +259,18 @@ export function Orchestration({ snapshot, selected, connected, effects, onSelect
               </button>
               {children && <button className="node-disclosure" aria-label={(collapsed.has(node.id) ? "Expand" : "Collapse") + " descendants of " + node.title} aria-expanded={!collapsed.has(node.id)} onClick={() => setCollapsed((prior) => { const next = new Set(prior); if (next.has(node.id)) next.delete(node.id); else next.add(node.id); return next; })}><Chevron collapsed={collapsed.has(node.id)} /></button>}
             </article>;
+          })}
+          {visible.flatMap((node) => {
+            const tree = trees[node.id];
+            if (!tree) return [];
+            const p = point(node.id), isOpen = openTrees.has(node.id);
+            const toggle = () => setOpenTrees((prior) => { const next = new Set(prior); if (next.has(node.id)) next.delete(node.id); else next.add(node.id); return next; });
+            return [<div key={"tree:" + node.id} className={"tree-branch" + (isOpen ? "" : " closed")} style={{ left: p.x, top: p.y + NODE_HEIGHT + TREE_GAP, width: NODE_WIDTH }}>
+              <TreeCount tree={tree} title={node.title} expanded={isOpen} onToggle={toggle} />
+              {isOpen && <ul className="tree-rail" aria-label={"What runs under " + node.title}>
+                {canvasChildren(tree).map((child) => <li key={child.id}><TreeChild node={child} now={now} /></li>)}
+              </ul>}
+            </div>];
           })}
         </div>
       </div>
