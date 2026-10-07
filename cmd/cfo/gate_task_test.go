@@ -13,6 +13,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/fpresta0607/code-goblins/internal/fsx"
 	"github.com/fpresta0607/code-goblins/internal/home"
 	"github.com/fpresta0607/code-goblins/internal/state"
 )
@@ -147,8 +148,19 @@ func TestAGateRunNamesItsOwnerInEitherWorktreeFolderOfAMovedHome(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			// Arrange
 			project, gateRoot, worktree := gateTaskFixture(t, "cg-example")
-			cfoHome := os.Getenv("CFO_HOME")
-			devDrive := filepath.Join(t.TempDir(), "CodeGoblins")
+			// git worktree move records the long spelling of a path, and a
+			// CI runner's temporary folder has a short one (RUNNER~1), so
+			// every folder here is spelled long, as spawn's always are.
+			cfoHome, err := fsx.Canonical(os.Getenv("CFO_HOME"))
+			if err != nil {
+				t.Fatal(err)
+			}
+			t.Setenv("CFO_HOME", cfoHome)
+			devDrive, err := fsx.Canonical(t.TempDir())
+			if err != nil {
+				t.Fatal(err)
+			}
+			devDrive = filepath.Join(devDrive, "CodeGoblins")
 			writeDevDriveConfig(t, cfoHome, devDrive)
 			parent := cfoHome
 			if onTheDrive {
