@@ -786,11 +786,15 @@ func TestRunWindowGivesTheItemItsConsoleAsInput(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	// The window stays open until it is closed, so it runs here, and the end
+	// below reaches it and no later process that took its pid.
+	window, err := os.FindProcess(started.PID)
+	if err != nil {
+		t.Fatalf("find the run window, pid %d: %v", started.PID, err)
+	}
 	t.Cleanup(func() {
-		if window, err := os.FindProcess(started.PID); err == nil {
-			_ = window.Kill()
-			_, _ = window.Wait()
-		}
+		_ = window.Kill()
+		_, _ = window.Wait()
 	})
 	deadline := time.Now().Add(30 * time.Second)
 	for _, ok := readRunExit(dir); !ok; _, ok = readRunExit(dir) {

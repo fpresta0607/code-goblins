@@ -887,13 +887,18 @@ func TestAFailedNativeSpawnLeavesATerminalItDidNotStartRunning(t *testing.T) {
 	if err != nil {
 		t.Fatalf("start the terminal that already runs: %v", err)
 	}
+	// Found while it runs, so the end below reaches it and no later process
+	// that took its pid.
+	existingHost, err := os.FindProcess(existing.HostPID)
+	if err != nil {
+		t.Fatal(err)
+	}
 	t.Cleanup(func() {
 		if err := host.Close(f.stateDir, existing, nativeCloseWait); err != nil {
 			t.Errorf("close the terminal that already ran: %v", err)
-			if process, err := os.FindProcess(existing.HostPID); err == nil {
-				_ = process.Kill()
-			}
+			_ = existingHost.Kill()
 		}
+		_ = existingHost.Release()
 	})
 
 	_, err = f.service.Spawn(context.Background(), f.request)

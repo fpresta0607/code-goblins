@@ -71,6 +71,7 @@ func TestAHostLaunchedInsideATerminalOutlivesIt(t *testing.T) {
 			t.Fatalf("the terminal's host never recorded itself; the terminal shows:\n%s", strings.Join(screen, "\n"))
 		}
 	}
+	pin(t, inner.HostPID)
 	t.Cleanup(func() { end(inner.HostPID) })
 
 	err := Close(stateDir, outer, time.Second)
@@ -99,6 +100,7 @@ func TestAnOrdinaryChildOfATerminalEndsWithIt(t *testing.T) {
 			t.Fatal("the terminal's program never started its child")
 		}
 	}
+	pin(t, child)
 	t.Cleanup(func() { end(child) })
 
 	err := Close(stateDir, outer, time.Second)

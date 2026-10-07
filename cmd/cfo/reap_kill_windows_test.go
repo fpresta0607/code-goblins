@@ -85,18 +85,11 @@ func TestKillTreeLeavesAMachineServiceUnderTheProcessRunning(t *testing.T) {
 	}
 	rootEnded := make(chan struct{})
 	go func() { _ = root.Wait(); close(rootEnded) }()
-	started := map[string]int{}
 	t.Cleanup(func() {
-		for _, pid := range started {
-			if handle, err := windows.OpenProcess(windows.PROCESS_TERMINATE|windows.SYNCHRONIZE, false, uint32(pid)); err == nil {
-				_ = windows.TerminateProcess(handle, 1)
-				_, _ = windows.WaitForSingleObject(handle, 10000)
-				_ = windows.CloseHandle(handle)
-			}
-		}
 		_ = root.Process.Kill()
 		<-rootEnded
 	})
+	started := map[string]int{}
 	for deadline := time.Now().Add(30 * time.Second); len(started) < 3; time.Sleep(50 * time.Millisecond) {
 		if data, err := os.ReadFile(pids); err == nil {
 			for _, line := range strings.Split(strings.TrimSpace(string(data)), "\n") {
@@ -108,6 +101,12 @@ func TestKillTreeLeavesAMachineServiceUnderTheProcessRunning(t *testing.T) {
 		if time.Now().After(deadline) {
 			t.Fatalf("the fixture reported %v, want its service, own child and backend", started)
 		}
+	}
+	// Each fixture waits a minute, and nothing ends one before the kill
+	// below, so each pid still names its fixture here.
+	held := map[string]windows.Handle{}
+	for name, pid := range started {
+		held[name] = standin.Hold(t, pid)
 	}
 
 	// Act
@@ -122,25 +121,20 @@ func TestKillTreeLeavesAMachineServiceUnderTheProcessRunning(t *testing.T) {
 	case <-time.After(15 * time.Second):
 		t.Error("the process named still runs")
 	}
-	if killTreeRunning(started["own"]) {
+	if killTreeRunning(held["own"]) {
 		t.Errorf("its own child, pid %d, still runs", started["own"])
 	}
 	time.Sleep(time.Second)
 	for _, name := range []string{"service", "backend"} {
-		if !killTreeRunning(started[name]) {
+		if !killTreeRunning(held[name]) {
 			t.Errorf("the stand-in Docker Desktop's %s process, pid %d, ended with the tree", name, started[name])
 		}
 	}
 }
 
-// killTreeRunning reports whether pid still runs, waiting up to two seconds
-// for it to end.
-func killTreeRunning(pid int) bool {
-	handle, err := windows.OpenProcess(windows.SYNCHRONIZE, false, uint32(pid))
-	if err != nil {
-		return false
-	}
-	defer windows.CloseHandle(handle)
-	event, _ := windows.WaitForSingleObject(handle, 2000)
+// killTreeRunning reports whether process still runs, waiting up to two
+// seconds for it to end.
+func killTreeRunning(process windows.Handle) bool {
+	event, _ := windows.WaitForSingleObject(process, 2000)
 	return event == uint32(windows.WAIT_TIMEOUT)
 }

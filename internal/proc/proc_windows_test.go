@@ -95,10 +95,15 @@ func TestJobProcessesListsWhatStartProcessWaitIsWaitingOn(t *testing.T) {
 	if ping.PID == 0 {
 		t.Fatal("the waiting shell's job never listed the ping its exited cmd left running")
 	}
+	// Found while it runs, so the end below reaches it and no later process
+	// that took its pid.
+	pinging, err := os.FindProcess(ping.PID)
+	if err != nil {
+		t.Fatalf("find the ping, pid %d: %v", ping.PID, err)
+	}
 	t.Cleanup(func() {
-		if process, err := os.FindProcess(ping.PID); err == nil {
-			_ = process.Kill()
-		}
+		_ = pinging.Kill()
+		_ = pinging.Release()
 	})
 	if jobbed, err := JobProcesses(os.Getpid()); err != nil || len(jobbed) != 0 {
 		t.Fatalf("a process with no wait of its own = %+v, %v; want nothing", jobbed, err)
