@@ -557,16 +557,20 @@ func fileData(ctx context.Context, cfg Config, last *time.Time) {
 }
 
 // sweepOrphans runs the orphan audit when it is due, persists the result for
-// the session-start digest, and wakes the CFO the first time a given set of
-// orphans appears.
+// the session-start digest, and wakes the CFO when a running finding appears
+// that it has not been told about.
 //
-// The wake fires on a change in the finding set, never on its mere existence:
-// a leak that has already been reported and consciously left alone must not
-// re-wake the CFO on every cycle, while one new unsupervised harness must wake
-// it immediately. A sweep that fails is recorded as a failure rather than
-// swallowed, because "cannot see the fleet" and "the fleet is clean" must
-// never render the same. Nothing here is fatal to the watcher: supervision of
-// the goblins that DO have panes matters more than the sweep.
+// The wake fires on something new, never on a finding's mere existence nor on
+// the rest of the set moving around it: a leak that has already been reported
+// and consciously left alone must not re-wake the CFO when a retired task's
+// status log comes and goes beside it, while one new unsupervised harness must
+// wake it immediately. A worktree or a status log waits for cfo reap and the
+// session-start digest, as Actionable says. A sweep that fails is recorded as
+// a failure rather than swallowed, because "cannot see the fleet" and "the
+// fleet is clean" must never render the same, and it keeps what was reported,
+// because a sweep that saw nothing has not seen anything go away. Nothing here
+// is fatal to the watcher: supervision of the goblins that DO have panes
+// matters more than the sweep.
 func sweepOrphans(ctx context.Context, cfg Config) string {
 	if cfg.Reap == nil || cfg.ReapEvery <= 0 {
 		return ""
@@ -585,29 +589,43 @@ func sweepOrphans(ctx context.Context, cfg Config) string {
 	}
 	record.Findings = result.Findings
 	record.Notes = result.Notes
+	record.Reported = previous.Reported
 	if auditErr != nil {
 		record.Error = auditErr.Error()
+		_ = reap.WriteRecord(cfg.Home.State, record)
+		return ""
+	}
+
+	actionable := reap.Actionable(record.Findings)
+	running := reap.ReportKeys(actionable)
+	told := make(map[string]bool, len(previous.Reported))
+	for _, key := range previous.Reported {
+		told[key] = true
+	}
+	record.Reported = nil
+	isNew := false
+	for _, key := range running {
+		if told[key] {
+			record.Reported = append(record.Reported, key)
+		} else {
+			isNew = true
+		}
+	}
+	reason := ""
+	if isNew {
+		detail := reap.Summary(record.Findings) + "; still running: " + reap.Summary(actionable) + "; run cfo reap to see them, cfo reap --apply to retire everything else, and cfo reap --force <pid> --apply to end one of these, because a kill is authorised only by naming its pid"
+		if _, err := wake.Append(cfg.Home.State, "orphan", "orphans", detail); err == nil {
+			record.Reported = running
+			if _, err := wake.PublishEpisode(cfg.Home.State); err == nil {
+				reason = "orphan:" + detail
+			}
+		}
 	}
 	if writeErr := reap.WriteRecord(cfg.Home.State, record); writeErr != nil {
 		return ""
 	}
-	if auditErr != nil {
-		return ""
-	}
 	tidyHome(cfg, result.Inventory)
-
-	actionable := reap.Actionable(record.Findings)
-	if len(actionable) == 0 || reap.FindingsDigest(record.Findings) == previous.Digest {
-		return ""
-	}
-	detail := reap.Summary(record.Findings) + "; still running: " + reap.Summary(actionable) + "; run cfo reap to see them, cfo reap --apply to retire everything else, and cfo reap --force <pid> --apply to end one of these, because a kill is authorised only by naming its pid"
-	if _, err := wake.Append(cfg.Home.State, "orphan", "orphans", detail); err != nil {
-		return ""
-	}
-	if _, err := wake.PublishEpisode(cfg.Home.State); err != nil {
-		return ""
-	}
-	return "orphan:" + detail
+	return reason
 }
 
 // routeHarnessError answers a provider failure with the fleet's standing

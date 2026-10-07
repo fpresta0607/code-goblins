@@ -156,6 +156,41 @@ func TestProgressWatchReportsOnceAndResetsOnRealProgress(t *testing.T) {
 	}
 }
 
+// A goblin whose latest report says it waits on something, finished, or
+// asked the CFO expects no commit, push or report until that changes, and
+// each of those has its own wake: ci_finished, done, its question. Twenty
+// quiet minutes after one is nothing new, so progress_stalled stays for a
+// goblin that says it is working.
+func TestProgressWatchLeavesAGoblinThatSaidItWaitsOrFinished(t *testing.T) {
+	for _, report := range []string{
+		"waiting on ci: PR 432 is pushed and its one CI run is going",
+		"waiting on overlord: his sign-in on the page",
+		"done: PR https://github.com/o/r/pull/432",
+		"blocked: Shall I fix the folder trust prompt? options: Fix it (Recommended) | Leave it",
+	} {
+		t.Run(report, func(t *testing.T) {
+			// Arrange
+			service, h := fleetService(t)
+			liveGoblin(t, h, "slow-task", h.Root)
+			service.Options.Progress = &progressGit{head: strings.Repeat("a", 40), pushed: strings.Repeat("a", 40)}
+			now := time.Date(2026, 10, 7, 15, 0, 0, 0, time.UTC)
+			writeFile(t, filepath.Join(h.State, "slow-task.status"), now.Format(time.RFC3339)+" "+report+"\n")
+
+			// Act
+			for _, elapsed := range []time.Duration{0, 25 * time.Minute, 50 * time.Minute} {
+				if err := service.checkFleet(t.Context(), now.Add(elapsed)); err != nil {
+					t.Fatal(err)
+				}
+			}
+
+			// Assert
+			if got := progressWakeCount(t, service); got != 0 {
+				t.Fatalf("progress wakes = %d after %q, want none", got, report)
+			}
+		})
+	}
+}
+
 func TestProgressWatchDoesNotTreatRepeatedReportsOrPausedWaitsAsWork(t *testing.T) {
 	service, h := fleetService(t)
 	liveGoblin(t, h, "slow-task", h.Root)

@@ -39,6 +39,51 @@ func lifecycleFixture(t *testing.T) (Service, state.TaskMeta) {
 	}}, meta
 }
 
+// On 2026-10-07 each goblin the CFO retired woke it again with the pause it
+// had just typed, sixteen times as "paused: Requested by the operator", and
+// five more as the goblin failing when a teardown ran out of time. Whoever
+// typed a request reads its outcome from the command, so finishing it wakes
+// nobody, a retry included; an operation the board or the scheduler started
+// still tells the CFO how it ended.
+func TestOnlyAnOperationNobodyWatchesSendsItsOutcome(t *testing.T) {
+	for _, test := range []struct {
+		name        string
+		isWatched   bool
+		hasStopFail bool
+		wantNotices int
+	}{
+		{"a pause the CFO typed", true, false, 0},
+		{"a pause the CFO typed whose teardown ran out of time", true, true, 0},
+		{"a pause the board asked for", false, false, 1},
+		{"a pause the board asked for whose teardown ran out of time", false, true, 1},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			// Arrange
+			service, meta := lifecycleFixture(t)
+			notices := 0
+			service.Operations.Notify = func(state.Lifecycle) error {
+				notices++
+				return nil
+			}
+			if test.hasStopFail {
+				service.Operations.Stop = func(context.Context, state.TaskMeta, *state.Lifecycle) ([]string, error) {
+					return nil, context.DeadlineExceeded
+				}
+			}
+			request := Request{ID: meta.ID, Generation: meta.SpawnGen, Operation: "pause-1", Action: "pause", Reason: "overlord", IsWatched: test.isWatched}
+
+			// Act
+			record, _ := service.Run(context.Background(), request)
+			_, _ = service.Run(context.Background(), request)
+
+			// Assert
+			if notices != test.wantNotices || !record.NoticeSent {
+				t.Fatalf("notices = %d (record %+v), want %d and the notice settled", notices, record, test.wantNotices)
+			}
+		})
+	}
+}
+
 func TestPauseReleasesResourcesAfterTheStoppingPointDeadline(t *testing.T) {
 	service, meta := lifecycleFixture(t)
 	var phases []string

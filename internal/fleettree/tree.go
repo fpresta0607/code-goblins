@@ -167,6 +167,18 @@ func (t Tree) Jobs() ([]string, time.Duration) {
 	return names, used
 }
 
+// Waits names the agents, shells and monitors still open under the goblin,
+// working or silent: work its harness records it is waiting on.
+func (t Tree) Waits() []string {
+	var names []string
+	for _, child := range t.Children {
+		if child.process == "" && child.Kind != KindProcess && child.Kind != KindGate && (child.State == Working || child.State == Silent) {
+			names = append(names, string(child.Kind)+" "+quote(child.Label))
+		}
+	}
+	return names
+}
+
 func quote(label string) string {
 	return "\"" + label + "\""
 }

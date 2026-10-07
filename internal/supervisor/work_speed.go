@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"slices"
 	"strings"
 	"time"
 
@@ -156,7 +157,12 @@ measuring:
 			prior.At, prior.Source, prior.Woken = progress.At, progress.Source+" (helper "+helper+")", false
 		}
 		prior.Seconds = max(0, int64(now.Sub(prior.At)/time.Second))
-		if now.Sub(prior.At) >= PROGRESS_THRESHOLD && !prior.Woken && !(isWaiting && measured[helper]) {
+		// A goblin whose latest report is done, a question, or a wait on CI,
+		// a deploy, the Overlord or memory expects no progress until that
+		// changes, and each of those wakes the CFO on its own when it does.
+		kind := reportKind(prior.Report)
+		isReportedElsewhere := kind == "done" || kind == "blocked" || kind == "failed" || slices.ContainsFunc([]string{"ci", "deploy", "overlord", "memory"}, func(on string) bool { return strings.HasPrefix(prior.Report, "waiting on "+on+": ") })
+		if now.Sub(prior.At) >= PROGRESS_THRESHOLD && !prior.Woken && !(isWaiting && measured[helper]) && !isReportedElsewhere {
 			detail := fmt.Sprintf("progress_stalled: %s has made no new commit, push, gate step or status report for %d minutes; last progress: %s; next: inspect its work and decide whether it should pause", id, prior.Seconds/60, prior.Source)
 			if err := raiseFleetWake(s.Store.Home.State, "check", id, detail); err != nil {
 				problems = errors.Join(problems, err)

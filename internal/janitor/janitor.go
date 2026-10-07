@@ -19,8 +19,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"path/filepath"
-	"sort"
-	"strings"
 	"time"
 
 	"github.com/fpresta0607/code-goblins/internal/disk"
@@ -84,17 +82,6 @@ func (r Record) Freed() int64 {
 		freed += item.Bytes
 	}
 	return freed
-}
-
-// StrayKey is a stable digest of the strays, so the CFO is woken when the set
-// changes and not on every sweep that finds the same ones.
-func (r Record) StrayKey() string {
-	paths := make([]string, 0, len(r.Strays))
-	for _, stray := range r.Strays {
-		paths = append(paths, strings.ToLower(stray.Path))
-	}
-	sort.Strings(paths)
-	return strings.Join(paths, "\n")
 }
 
 // RecordName is the sweep's record in the home's state folder.

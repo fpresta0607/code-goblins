@@ -77,15 +77,35 @@ func runJanitor(cfg Config, inv reap.Inventory) {
 	if err := janitor.WriteRecord(cfg.Home.State, record); err != nil {
 		return
 	}
-	if len(record.Strays) == 0 || record.StrayKey() == previous.StrayKey() {
+	detail := strayWake(previous, record)
+	if detail == "" {
 		return
+	}
+	if _, err := wake.Append(cfg.Home.State, "orphan", "strays", detail); err == nil {
+		_, _ = wake.PublishEpisode(cfg.Home.State)
+	}
+}
+
+// strayWake is the wake detail for a pass that reports a stray the last pass
+// did not, and empty otherwise: the same strays again, or one of them gone,
+// is nothing new for the CFO.
+func strayWake(previous, record janitor.Record) string {
+	reported := make(map[string]bool, len(previous.Strays))
+	for _, stray := range previous.Strays {
+		reported[strings.ToLower(stray.Path)] = true
+	}
+	isNew := false
+	for _, stray := range record.Strays {
+		if !reported[strings.ToLower(stray.Path)] {
+			isNew = true
+		}
+	}
+	if !isNew {
+		return ""
 	}
 	var paths []string
 	for _, stray := range record.Strays {
 		paths = append(paths, stray.Path+" ("+stray.Detail+")")
 	}
-	detail := fmt.Sprintf("%d stray item(s) the janitor reports and does not remove: %s; remove what is the fleet's leftovers, record a goblin's extra worktree with cfo worktree add, and leave what is the Overlord's", len(paths), strings.Join(paths, "; "))
-	if _, err := wake.Append(cfg.Home.State, "orphan", "strays", detail); err == nil {
-		_, _ = wake.PublishEpisode(cfg.Home.State)
-	}
+	return fmt.Sprintf("%d stray item(s) the janitor reports and does not remove: %s; remove what is the fleet's leftovers, record a goblin's extra worktree with cfo worktree add, and leave what is the Overlord's", len(paths), strings.Join(paths, "; "))
 }
