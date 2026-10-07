@@ -1008,6 +1008,7 @@ func newFixture(t *testing.T) *fixture {
 		Harness: harness.Registry{Adapters: map[harness.Kind]harness.Adapter{
 			harness.Claude: fixtureAdapter{events: &fixture.events, specs: &fixture.specs},
 		}},
+		HomeRoot:        root,
 		StateDir:        stateDir,
 		Project:         project,
 		UserEnvironment: func() ([]string, error) { return os.Environ(), nil },

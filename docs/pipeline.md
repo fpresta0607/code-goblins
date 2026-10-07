@@ -151,10 +151,10 @@ Newly spawned tasks freeze policy v3 directly.
 `cfo gate test` is this repository's test step (`commands.test` in `.no-mistakes.yaml`), and it plans before it runs.
 
 ```powershell
-cfo gate test                 # the level the change requires
-cfo gate test --level fast    # while working: static checks and the quick changed packages
-cfo gate test --level full    # every package
-cfo gate test --plan          # print the plan and run nothing
+cfo gate test                     # fast, the default: static checks and the quick changed packages
+cfo gate test --level affected    # every package the change reaches, which CI's run also covers
+cfo gate test --level full        # every package
+cfo gate test --plan              # print the plan and run nothing
 ```
 
 | Level | `go vet` | `go test` |
@@ -167,17 +167,22 @@ A change reaches the packages that own a changed file, the packages that import 
 A package owns the Go files in its directory, the files under its `testdata` folder and the files its `//go:embed` patterns cover, so a doc the binary embeds selects the package that embeds it and a doc nothing embeds selects none.
 
 A change requires `affected` before it merges, and `full` once `go.mod` or `go.sum` changed, the policy cannot be read, or a changed file is one the policy does not account for.
-With no `--level` the step runs the required level, which is what the gate runs.
-A level asked for runs instead: a broader one is always allowed, and a narrower one exits 0 when its checks pass while its last line and its report say which level the change still requires.
+CI runs every package on every pull request, and a pull request merges only once CI passed on the main it lands on, so CI's run is the check of the level a change requires.
+With no `--level` the step runs `fast`, which is what the gate runs.
+Running the required level here as well ran the slowest packages twice, once on this machine and once in CI: from 2026-10-05 to 2026-10-07 every such local run took a median of 33 minutes, where CI tested every package in 11.
+A level asked for runs instead, such as `affected` to reproduce what CI found; a run at a level narrower than the change requires exits 0 when its checks pass, and its last line and its report name the level the change requires, which CI's run checks.
+In a slow package, run the tests a change touched by name (`go test ./internal/supervisor -run 'TestName' -count=1`) rather than the whole package, which takes 15 minutes or more here.
 The plan prints why each package is in it (`changed`, `imports <package>`, or a contract's reason with the file that changed) and every test run the level left to a broader one, with why.
 It then lists the changed files that are outside the Go checks, under the policy's reason for each, and the changed files the policy does not account for, so what the step does not check is read from its output and not assumed:
 
 ```text
-cfo gate test: level affected: the default for a change
+cfo gate test: level fast, the default, since CI runs every package; the change requires affected: the default for a change
 cfo gate test: the change since 0123abcd reaches 3 package(s); CI runs every package
 - example.com/m/internal/doctor (tests run or read these scripts: install.ps1)
 - example.com/m/internal/installscript (tests run or read these scripts: install.ps1)
 - example.com/m/internal/installtest (tests run or read these scripts: install.ps1)
+left to the affected level:
+- tests of example.com/m/internal/installscript (a slow package)
 changed files outside the Go checks:
 - README.md, docs/pipeline.md (documentation and housekeeping no Go check reads)
 ```
@@ -230,7 +235,7 @@ A file that does not parse, or a version the build does not know, makes the chan
 A repository with no policy file has no slow packages.
 
 Every run that is not `--plan` leaves a report, and beside it a log of what its commands wrote, in `<user cache folder>\cfo\verify\reports\<project>\`, and its verdict line names the report.
-A run at a level narrower than the change requires ends with one more line saying which level the change still requires.
+A run at a level narrower than the change requires ends with one more line naming the level the change requires, which CI's run checks.
 `CFO_VERIFY_DIR` names a folder to use in place of `<user cache folder>\cfo\verify`, so they go under its `reports\<project>\`.
 The report holds the project, the task when a goblin ran it, the commit, where the branch left the default branch, how many files were uncommitted, the level run and the level required with why, the policy and the toolchain, each package with why it was selected, each test run left out with why, and each command with its start, duration, exit code and status: `passed`, `failed`, `over_budget` when a check passed but ran past its budget, or `not_run` when admission or an earlier command failed.
 For the test command it also holds what became of each package: `passed`, `failed`, `build_failed` when it did not compile, `no_tests`, or `unfinished` when its tests were still running as the run ended, with its time, how many tests it ran, the tests that failed and the tests that started and never finished, which is how a test that hangs shows.

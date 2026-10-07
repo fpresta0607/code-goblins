@@ -65,15 +65,16 @@ func runGate(args []string, stdout, stderr io.Writer, runtime commandRuntime) in
 // branch's change requires, prints the plan with why each package is in it,
 // runs go vet and go test at the planned level without the fleet's CFO_HOME
 // and CFO_STATE_OVERRIDE, which a gate step inherits from the goblin's pane,
-// and leaves a report of what it ran. With no --level it runs the level the
-// change requires: the changed packages, the packages that import them
-// directly or transitively and the packages a contract of the policy names
-// for a changed file, or every package once a module file changed or a
-// changed file is one the policy does not account for, while CI runs every
-// package. The plan also lists the changed files the policy puts outside the
-// Go checks, so what the step does not check is said. --level runs another
-// level and still says what is required, and --plan prints the plan and runs
-// nothing. Every check waits for the run's turn on the machine, and checks
+// and leaves a report of what it ran. With no --level it runs the fast level,
+// because CI runs every package on every pull request and so is the check of
+// the level the change requires: the changed packages, the packages that
+// import them directly or transitively and the packages a contract of the
+// policy names for a changed file, or every package once a module file
+// changed or a changed file is one the policy does not account for. Running
+// that level here as well ran the slowest packages twice, here and in CI. The
+// plan also lists the changed files the policy puts outside the Go checks, so
+// what the step does not check is said. --level runs another level and still
+// says what is required, and --plan prints the plan and runs nothing. Every check waits for the run's turn on the machine, and checks
 // that ran past their level's budget do not pass. The tests' output is what
 // go test prints without -v, the log holds every line they wrote, the report
 // what became of each package, and a run that holds a turn says beside it how
@@ -81,20 +82,20 @@ func runGate(args []string, stdout, stderr io.Writer, runtime commandRuntime) in
 func runGateTest(args []string, dir string, stdout, stderr io.Writer, runtime commandRuntime) int {
 	flags := flag.NewFlagSet("cfo gate test", flag.ContinueOnError)
 	flags.SetOutput(stderr)
-	levelName := flags.String("level", "", "fast, affected or full; the level the change requires when not given")
+	levelName := flags.String("level", "", "fast, affected or full; fast when not given, since CI runs every package")
 	planOnly := flags.Bool("plan", false, "print the plan and run nothing")
 	if err := flags.Parse(args); err != nil || flags.NArg() != 0 {
 		fmt.Fprintln(stderr, "usage: cfo gate test [--level fast|affected|full] [--plan]")
 		return 2
 	}
-	var asked gatetest.Level
+	asked, defaulted := gatetest.Fast, true
 	if *levelName != "" {
 		level, err := gatetest.ParseLevel(*levelName)
 		if err != nil {
 			fmt.Fprintln(stderr, err)
 			return 2
 		}
-		asked = level
+		asked, defaulted = level, false
 	}
 	start := time.Now()
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
@@ -114,7 +115,7 @@ func runGateTest(args []string, dir string, stdout, stderr io.Writer, runtime co
 		commands = append(commands, append([]string{"go", "test", "-json", "-count=1", "-p", "2", "-timeout", "45m"}, plan.Tests...))
 	}
 	if *planOnly {
-		printGatePlan(stdout, plan)
+		printGatePlan(stdout, plan, defaulted)
 		fmt.Fprintln(stdout, "policy: "+plan.Policy)
 		for _, command := range commands {
 			fmt.Fprintln(stdout, "would run: "+strings.Join(command, " "))
@@ -162,7 +163,7 @@ func runGateTest(args []string, dir string, stdout, stderr io.Writer, runtime co
 		full = log
 		stdout, stderr = io.MultiWriter(stdout, log), io.MultiWriter(stderr, log)
 	}
-	printGatePlan(stdout, plan)
+	printGatePlan(stdout, plan, defaulted)
 	if taskErr != nil {
 		fmt.Fprintf(stderr, "cfo gate test: task attribution unavailable: %v\n", taskErr)
 	}
@@ -245,7 +246,7 @@ func runGateTest(args []string, dir string, stdout, stderr io.Writer, runtime co
 	}
 	fmt.Fprintln(stdout, verdict)
 	if report.Status == "passed" && !plan.Level.Covers(plan.Required) {
-		fmt.Fprintf(stdout, "cfo gate test: the change still requires the %s level before it merges\n", plan.Required)
+		fmt.Fprintf(stdout, "cfo gate test: the change requires the %s level before it merges, which CI's run of every package checks\n", plan.Required)
 	}
 	if report.Status != "passed" {
 		return 1
@@ -407,11 +408,15 @@ const unknownShown = 10
 // printGatePlan prints the level a plan runs and why, each package the
 // change reaches with why, each test run the level leaves to a broader one,
 // the changed files the policy puts outside the Go checks, under its reason
-// for each, and the changed files it does not account for.
-func printGatePlan(w io.Writer, plan gatetest.Plan) {
-	if plan.Level == plan.Required {
+// for each, and the changed files it does not account for. defaulted says the
+// level is the one a run without --level takes.
+func printGatePlan(w io.Writer, plan gatetest.Plan, defaulted bool) {
+	switch {
+	case plan.Level == plan.Required:
 		fmt.Fprintf(w, "cfo gate test: level %s: %s\n", plan.Level, plan.Why)
-	} else {
+	case defaulted:
+		fmt.Fprintf(w, "cfo gate test: level %s, the default, since CI runs every package; the change requires %s: %s\n", plan.Level, plan.Required, plan.Why)
+	default:
 		fmt.Fprintf(w, "cfo gate test: level %s, asked for; the change requires %s: %s\n", plan.Level, plan.Required, plan.Why)
 	}
 	switch {
