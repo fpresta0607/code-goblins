@@ -118,8 +118,7 @@ func Run(stateDir string, spec Spec) error {
 	}()
 	closing := make(chan struct{}, 1)
 	// screens is held shared by every screen read and whole to close the
-	// console, which releases the terminal program's process: its pid stays
-	// the program's for as long as a read attaches to it.
+	// console, so a read in flight is answered before the console closes.
 	var screens sync.RWMutex
 	var viewers sync.WaitGroup
 	go func() {

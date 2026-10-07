@@ -636,7 +636,8 @@ A host refuses to start for a terminal that already runs, so a second start neve
 `cfo peek gb-<id>`, the form fleet-view suggests, reads a native task's terminal as `cfo peek <id>` does.
 `cfo fleet-view` reads a native task's current state from its own terminal, as the monitor does, never from Herdr: a turn on its screen is working, and an idle terminal whose host recorded itself under the task's id is the task's own, so the row shows the task's latest report; with no running host the row is unknown.
 A Herdr task's idle pane still shows unknown, since no Herdr answer proves the pane is the task's.
-For each read the host starts a process of its own that attaches to the terminal's console, reads its window and ends, so a Ctrl-C typed to the terminal, or its console closing, during a read can end only that read, never the host.
+The terminal's input waker, attached to its console from start to end, reads the window when the host asks, so a read is a message to a process already running, never a process of its own, and the host never attaches to the console, so a Ctrl-C typed to the terminal, or its console closing, never reaches the host.
+A host started by an older cfo still starts its own program for every read, and an install leaves such a host running and puts the new build at that program's path, so every build still answers that read.
 A read that fails is an error naming the terminal, never an empty screen.
 `cfo spawn`, and the board's Start with it, starts every goblin in a native terminal of its own, named by its task id. A pi goblin starts with `--approve` where its pi advertises it, so it never asks to trust the folder's project files and saves no trust.
 The harness starts as its own program: claude.exe itself, and codex and pi through `cmd /c`, since their npm shims are scripts, and an argument cmd would read as more than text is refused.

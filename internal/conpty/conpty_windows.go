@@ -46,9 +46,9 @@ type Console struct {
 	done       chan struct{}
 	code       uint32
 
-	// waker wakes the process when input written to it stays unread, and
-	// typed tells the waker of input written, or of a resize. closing
-	// closes when Close begins.
+	// waker wakes the process when input written to it stays unread and
+	// reads the console's screen for Screen, and typed tells the waker of
+	// input written, or of a resize. closing closes when Close begins.
 	waker   *waker
 	typed   chan struct{}
 	closing chan struct{}
