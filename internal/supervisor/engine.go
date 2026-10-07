@@ -13,6 +13,7 @@ import (
 
 	"github.com/fpresta0607/code-goblins/internal/execx"
 	"github.com/fpresta0607/code-goblins/internal/fleet"
+	"github.com/fpresta0607/code-goblins/internal/fleettree"
 	"github.com/fpresta0607/code-goblins/internal/harness"
 	"github.com/fpresta0607/code-goblins/internal/host"
 	"github.com/fpresta0607/code-goblins/internal/pipeline"
@@ -60,13 +61,16 @@ func (h *HTTP) selectTaskEngine(w http.ResponseWriter, r *http.Request) {
 		apiError(w, 400, err.Error())
 		return
 	}
-	if state.ValidTaskID(input.Task) != nil || !slices.Contains([]string{"", "turn-end", "now", "cancel"}, input.When) {
+	if state.ValidTaskID(input.Task) != nil || !slices.Contains([]string{"", "turn-end", "now", "cancel", "update"}, input.When) {
 		apiError(w, 400, "Invalid task engine selection")
 		return
 	}
 	s := h.Service
 	choice := state.EngineChoice{ID: input.Task, Generation: input.Generation, Harness: input.Harness, Model: input.Model, Effort: input.Effort, Requested: time.Now().UTC()}
-	if input.When != "cancel" {
+	// An update keeps the goblin's own harness, model and effort, so there is
+	// no choice to check against the catalog.
+	isUpdate := input.When == "update"
+	if input.When != "cancel" && !isUpdate {
 		ctx, cancel := context.WithTimeout(r.Context(), 8*time.Second)
 		defer cancel()
 		catalog, err := s.engineCatalog(ctx, execx.OSRunner{})
@@ -123,7 +127,10 @@ func (h *HTTP) selectTaskEngine(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if record, err := state.ReadLifecycle(s.Store.Home.State, input.Task); err == nil && record.Generation == meta.SpawnGen {
-		if record.Phase == "paused" {
+		if record.Phase == "paused" && isUpdate {
+			apiError(w, 409, "A paused goblin starts on the update when it resumes")
+			return
+		} else if record.Phase == "paused" {
 			choice.When = "resume"
 		} else if record.Phase != "running" {
 			apiError(w, 409, "Wait until this task finishes changing")
@@ -133,7 +140,14 @@ func (h *HTTP) selectTaskEngine(w http.ResponseWriter, r *http.Request) {
 		apiError(w, 500, err.Error())
 		return
 	}
-	if choice.When == "resume" || input.When == "turn-end" {
+	if isUpdate {
+		if s.goblinUpdate(meta.ID, meta.SpawnGen) == nil {
+			apiError(w, 409, "No harness update waits for this goblin")
+			return
+		}
+		choice = state.EngineChoice{ID: meta.ID, Generation: meta.SpawnGen, Harness: meta.Harness, Model: meta.Model, Effort: meta.Effort, When: "update", Requested: choice.Requested}
+	}
+	if choice.When == "resume" || input.When == "turn-end" || isUpdate {
 		if choice.When == "" {
 			choice.When = "turn-end"
 		}
@@ -195,12 +209,18 @@ func (s *Service) startEngineSwitch(meta state.TaskMeta, choice state.EngineChoi
 	delete(s.changeErrors, meta.ID)
 	go func() {
 		args := []string{"switch", meta.ID, "--generation", meta.SpawnGen, "--harness", choice.Harness, "--model", choice.Model, "--effort", choice.Effort, "--force-dirty"}
+		if choice.When == "update" {
+			args = []string{"switch", meta.ID, "--generation", meta.SpawnGen, "--restart"}
+		}
 		output, err := s.Options.Dispatch.Spawn(context.Background(), args)
 		s.starts.Lock()
 		if removeErr := state.RemoveEngineChoice(s.Store.Home.State, meta.ID); removeErr != nil {
 			err = errors.Join(err, removeErr)
 		}
 		outcome := "session switched"
+		if choice.When == "update" {
+			outcome = "session restarted onto its harness update"
+		}
 		if err != nil {
 			generation := meta.SpawnGen
 			if current, readErr := state.ReadTaskMeta(s.Store.Home.State, meta.ID); readErr == nil {
@@ -248,7 +268,7 @@ func (s *Service) applyEngineChoices(ctx context.Context, now time.Time) error {
 			failures = errors.Join(failures, err)
 			continue
 		}
-		if choice.When != "turn-end" || s.Options.Dispatch == nil {
+		if choice.When != "turn-end" && choice.When != "update" || s.Options.Dispatch == nil {
 			continue
 		}
 		s.starts.Lock()
@@ -305,37 +325,41 @@ func (s *Service) applyEngineChoices(ctx context.Context, now time.Time) error {
 			continue
 		}
 		s.starts.Unlock()
-		catalogContext, cancel := context.WithTimeout(ctx, 8*time.Second)
-		catalog, err := s.engineCatalog(catalogContext, execx.OSRunner{})
-		cancel()
-		if err != nil {
-			s.starts.Lock()
-			delete(s.engineIdle, id)
-			s.starts.Unlock()
-			failures = errors.Join(failures, err)
-			continue
-		}
-		if unavailable := validateEngineSelection(catalog, choice); unavailable != nil {
-			s.starts.Lock()
-			delete(s.engineIdle, id)
-			current, readErr := state.ReadEngineChoice(s.Store.Home.State, id)
-			if readErr != nil || current != choice {
-				s.starts.Unlock()
-				if !errors.Is(readErr, os.ErrNotExist) {
-					failures = errors.Join(failures, readErr)
-				}
-				continue
-			}
-			if err := state.RemoveEngineChoice(s.Store.Home.State, id); err != nil {
+		// An update keeps the goblin's own values, which the catalog has no
+		// say in.
+		if choice.When != "update" {
+			catalogContext, cancel := context.WithTimeout(ctx, 8*time.Second)
+			catalog, err := s.engineCatalog(catalogContext, execx.OSRunner{})
+			cancel()
+			if err != nil {
+				s.starts.Lock()
+				delete(s.engineIdle, id)
 				s.starts.Unlock()
 				failures = errors.Join(failures, err)
 				continue
 			}
-			s.recordEngineFailure(id, choice.Generation, unavailable, false)
-			s.starts.Unlock()
-			s.reportEngineChoice(choice, "pending choice removed: "+unavailable.Error())
-			s.notify()
-			continue
+			if unavailable := validateEngineSelection(catalog, choice); unavailable != nil {
+				s.starts.Lock()
+				delete(s.engineIdle, id)
+				current, readErr := state.ReadEngineChoice(s.Store.Home.State, id)
+				if readErr != nil || current != choice {
+					s.starts.Unlock()
+					if !errors.Is(readErr, os.ErrNotExist) {
+						failures = errors.Join(failures, readErr)
+					}
+					continue
+				}
+				if err := state.RemoveEngineChoice(s.Store.Home.State, id); err != nil {
+					s.starts.Unlock()
+					failures = errors.Join(failures, err)
+					continue
+				}
+				s.recordEngineFailure(id, choice.Generation, unavailable, false)
+				s.starts.Unlock()
+				s.reportEngineChoice(choice, "pending choice removed: "+unavailable.Error())
+				s.notify()
+				continue
+			}
 		}
 		isIdle, err = s.engineTaskIdle(ctx, meta)
 		if err == nil && isIdle {
@@ -391,6 +415,17 @@ func (s *Service) engineTaskIdle(ctx context.Context, meta state.TaskMeta) (bool
 		return false, nil
 	} else if err != nil && !errors.Is(err, os.ErrNotExist) {
 		return false, err
+	}
+	// A restart ends what the harness runs for it in the background, so a
+	// goblin with a sub-agent, a background shell or a monitor still at work
+	// is not at the end of its turn, whatever its screen shows.
+	s.mu.Lock()
+	tree, isRead := s.trees[meta.ID]
+	s.mu.Unlock()
+	if isRead && tree.Generation == meta.SpawnGen && slices.ContainsFunc(tree.Children, func(child fleettree.Node) bool {
+		return (child.Kind == fleettree.KindSubagent || child.Kind == fleettree.KindShell || child.Kind == fleettree.KindMonitor) && child.State != fleettree.Done && child.State != fleettree.Failed
+	}) {
+		return false, nil
 	}
 	if idle := s.Options.Dispatch.Idle; idle != nil {
 		return idle(ctx, meta)

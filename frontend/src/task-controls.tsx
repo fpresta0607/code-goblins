@@ -6,11 +6,15 @@ import { diskBlock, memoryBlock, queueBlock, slotBlock } from "./start";
 import { Icon } from "./Icon";
 import { StopTaskDialog } from "./stop-task-dialog";
 import { plainText, withoutHarness } from "./task-words";
+import { harnessName } from "./workflow";
+import "./harness-update.css";
 
 // A task's controls: icons on its card, where start starts a queued task and
 // onAdjust opens its panel, and labelled buttons in its panel's action row,
 // which leaves both to the card. A queued task has not started, so it is
-// removed rather than stopped.
+// removed rather than stopped. While an update of a live goblin's harness
+// waits, Update restarts it onto it, on its own conversation, at the end of
+// its turn; pressed again before then it takes the press back.
 // leading is a control shown first in the group, such as a card's terminal button.
 export function TaskControls({ task, snapshot, start, leading, labelled = false, onAdjust }: {
   task: Task; snapshot: Snapshot; start?: CardStart; leading?: ReactNode; labelled?: boolean; onAdjust?: (source: HTMLElement) => void;
@@ -28,6 +32,15 @@ export function TaskControls({ task, snapshot, start, leading, labelled = false,
   const canPause = !!task.generation && !canResume && !task.archived;
   const resumeNeeds = memoryBlock(snapshot.memory) || diskBlock(snapshot.disk);
   const resumeBlock = isResumeRetry ? "" : resumeNeeds ? "Resume needs " + resumeNeeds : slotBlock(snapshot.memory);
+  const isUpdatePending = task.pending_engine?.when === "update";
+  const canUpdate = isUpdatePending || !!task.harness_update && !canResume && !task.archived && !isQueued;
+  const update = async () => {
+    if (isChanging) return;
+    setProblem("");
+    try {
+      await request("/api/tasks/engine", undefined, { method: "POST", headers: { "Content-Type": "application/json", "X-CFO-Token": snapshot.instance }, body: JSON.stringify({ task: task.id, generation: task.generation, when: isUpdatePending ? "cancel" : "update" }) });
+    } catch (error: unknown) { setProblem(message(error)); }
+  };
   const act = async (action: "pause" | "resume" | "stop") => {
     if (isChanging) return;
     setConfirmation(null); setProblem("");
@@ -59,12 +72,13 @@ export function TaskControls({ task, snapshot, start, leading, labelled = false,
       {leading}
       {isQueued && start && !queueBlock(task) && <button {...face("Start", "", start.blocked)} aria-disabled={!!start.blocked || isChanging} onClick={(event) => { if (!isChanging) start.onStart(event.currentTarget); }}><Icon name="play" />{text("Start")}</button>}
       {isQueued && onAdjust && <button {...face("Adjust")} disabled={isChanging} onClick={(event) => onAdjust(event.currentTarget)}><Icon name="edit" /></button>}
+      {canUpdate && <button className={(labelled ? "labelled-button" : "icon-button raised") + " harness-update-control" + (isUpdatePending ? " pending" : "")} aria-label={(isUpdatePending ? "Cancel the update of " : "Update ") + name} data-tip={isUpdatePending ? "Take the update back" : harnessName(task.harness) + " was updated. Restart this goblin onto it at its next stopping point; its conversation is kept."} data-tip-align="start" disabled={isChanging} onClick={() => void update()}><Icon name={isUpdatePending ? "clock" : "download"} />{text(isUpdatePending ? "Cancel update" : "Update")}</button>}
       {canPause && <button {...face("Pause")} disabled={isChanging} onClick={() => void act("pause")}><Icon name="pause" />{text("Pause")}</button>}
       {canResume && <button {...face("Resume", "", resumeBlock)} aria-disabled={!!resumeBlock || isChanging} onClick={() => { if (!resumeBlock && !isChanging) void act("resume"); }}><Icon name="play" />{text("Resume")}</button>}
       <button {...face(end, " danger")} disabled={isChanging} onClick={() => setConfirmation({ generation: task.generation, revision: task.queue_revision })}><Icon name="trash" />{text(end)}</button>
     </div>
     {(isChanging || problemText) && <div className="task-notes">
-      {isChanging && <p className="task-action-progress" role="status">{pending ? { pause: "Pausing", resume: "Resuming", stop: ending }[pending.action] : task.switching ? "Switching engine" : task.starting ? "Starting" : task.phase === "pausing" ? "Pausing" : task.phase === "resuming" ? "Resuming" : ending}...</p>}
+      {isChanging && <p className="task-action-progress" role="status">{pending ? { pause: "Pausing", resume: "Resuming", stop: ending }[pending.action] : task.switching ? (isUpdatePending ? "Updating " + harnessName(task.harness) : "Switching engine") : task.starting ? "Starting" : task.phase === "pausing" ? "Pausing" : task.phase === "resuming" ? "Resuming" : ending}...</p>}
       {problemText && <p className="task-action-problem" role="alert">{problemText}</p>}
     </div>}
     {confirmation && <StopTaskDialog task={task} canPause={canPause} onPause={() => void act("pause")} onStop={() => void act("stop")} onClose={() => setConfirmation(null)} />}

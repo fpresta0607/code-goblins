@@ -700,13 +700,14 @@ The task's Connections start with Harness, Model and Effort selectors, with the 
 The model catalog is not a model-name list embedded in the board; each model's reasoning levels are limited to those the installed adapter accepts, and an unavailable current value remains visible with its reason.
 `POST /api/tasks/engine` binds live changes to the task's spawn generation and queued changes to the backlog revision.
 A queued choice changes the settings Start reads under the backlog lock; a paused choice is saved in `state/engine/<id>.json` and consumed only after Resume succeeds.
-A running task's confirmation defaults to Switch when its turn ends: the pending choice survives a supervisor restart, is shown on its card, and applies after two idle empty-composer readings at least one second apart and no running, fixing or fix-review gate step.
+A running task's confirmation defaults to Switch when its turn ends: the pending choice survives a supervisor restart, is shown on its card, and applies after two idle empty-composer readings at least one second apart, with no running, fixing or fix-review gate step and no sub-agent, background shell or monitor of the goblin's still at work in its [family tree](#the-family-tree), since the switch ends them.
 A task paused while that choice is still pending uses it on its next Resume, which removes it only after the launch succeeds.
 The catalog is read again as the choice applies: a selection that is no longer available is removed, with its reason on the task's card.
 An idle or gate reading that fails shows on that card until a later reading succeeds or the choice is cancelled; neither kind of failure becomes the board-wide error.
 Switch now explicitly interrupts the turn and a running gate step, using the existing `cfo switch` path with `--force-dirty` and `--generation`, which refuses the switch when the task's session has changed; its confirmation says uncommitted work stays.
 The old native terminal closes, ending the processes it started, and there is no additional leftover-process refusal.
 The target launch is built before the old harness stops, so an invalid launch leaves the session untouched; a failure after the stop shows the CLI's recovery reason and preserves the worktree.
+A switch that keeps a running goblin's harness resumes the conversation the board recorded for its generation, or, where it recorded none, as a home without the [native hooks](#native-hook-setup) records none, the one the running harness records for itself: Claude Code's `~/.claude/sessions/<pid>.json`, proved by its process's creation time, or the Codex rollout of the goblin's worktree written last, never a child agent's.
 The panel keeps its live values while the switch runs, then shows the resulting session and any failure reason.
 The CFO receives one digest line in the notify wake queue, never a prompt, for each saved queued or Resume choice, each switch that completed or failed, and each pending choice removed because its session changed or its selection became unavailable.
 Completed outcomes record the last harness, model and effort, while older outcomes without those fields say Engine not recorded.
@@ -729,6 +730,20 @@ Finishing a repair refreshes the cached status, and returning from a browser sig
 A stored token does not change an already running native process's environment, so its row remains Missing until the goblin receives it.
 Matching-generation native model evidence takes precedence; otherwise the model is explicitly labeled configured, including a configured default.
 Environment values, full process environments, dotenv, auth scripts, MCP commands and headers are never exposed.
+
+### Harness updates
+
+A harness keeps running the install it started from, so an update of Claude Code, Codex or pi installed while the CFO or a goblin runs takes effect only when that harness restarts.
+Every ten seconds the supervisor reads each running native terminal for one, the CFO's and every live goblin's that is not paused or changing.
+An update waits when the harness's own footer under its composer says so, which Claude Code 2.1.292 draws as "✓ Update installed · Restart to update" with a second half its servers may word as "/restart to apply" or "Restart to apply", or when its program on PATH, `claude.exe` or the npm shim `codex.cmd` or `pi.cmd` that every install writes again, was written after the terminal's program started.
+Codex and pi announce only an update that is available, which a restart does not install, so for them the install is the signal; the same words above the composer are the conversation and never count.
+While one waits, the snapshot's `cfo_update` puts **Update** before the AFK switch in the CFO panel's header, and a task's `harness_update` puts it among the goblin's controls, on its card and in its panel; a pi CFO, which cannot come back on its conversation, is offered none.
+Nothing restarts until the Overlord presses it: an update waiting only shows the button, AFK mode never presses it, and the CFO never does.
+The CFO's press, `POST /api/cfo/update`, is kept in `state/cfo-update.json` for the CFO whose terminal's host started then, and `{"cancel":true}` takes it back.
+The supervisor restarts the CFO onto the update through the Restart CFO path, on its own conversation (`claude --resume <id>`, `codex resume <id>`), once its turn has ended on two readings a second apart: its Stop hook waits on the wake queue, proved by the hook holding `state/.claude-autoarm.lock` under the registered CFO's own harness, or no turn, tool or background work runs and its composer is empty.
+Until then the header says the CFO restarts when its turn ends; a press for a CFO whose terminal was replaced since is dropped, and a restart that fails says why under the header and leaves the CFO running.
+A goblin's press is a pending engine choice with `when` `update` and its own harness, model and effort, shown on its card, which applies at the end of its turn as a deferred switch does and runs `cfo switch <id> --generation <generation> --restart`.
+`--restart` starts the goblin's own harness, model and effort again in place while it runs, which a same-values switch otherwise refuses, on its own conversation; a pi goblin, which has no resume, comes back from a handoff note, as every pi switch does.
 
 ### The tab and the installed app
 

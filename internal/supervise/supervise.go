@@ -75,6 +75,18 @@ func Needed(stateDir string) (bool, string, error) {
 	return true, fmt.Sprintf("%d task(s) in flight", n), nil
 }
 
+// StopHook returns the Claude Code Stop hook that holds the auto-arm lock
+// now, proved alive: the session it runs under has ended its turn, and the
+// hook waits on the wake queue. Whose session that is, the caller proves by
+// the hook's parents.
+func StopHook(stateDir string) (lock.Info, bool) {
+	holder, err := lock.ReadNamed(stateDir, autoarmLockName)
+	if err != nil || holder.Session != autoarmSession || !holder.VerifiedAlive() {
+		return lock.Info{}, false
+	}
+	return *holder, true
+}
+
 // WatcherHealthy reports whether stateDir's .watch.lock names a live holder
 // and monitor's typed LastCycle is younger than grace. Both conjuncts are
 // required because a lock record alone cannot prove a live watcher loop.

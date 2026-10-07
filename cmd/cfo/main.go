@@ -88,7 +88,7 @@ commands:
   cfo supersede <task-id> --reason <text>
   cfo spawn <id> --project <name|path> --brief <path> [--harness <claude|codex|pi>] [--mode <no-mistakes|direct-PR|local-only>] [--model <model>] [--effort <level>] [--class <ordinary|high-risk|mechanical>] [--title "<short title>"] [--overlap-ok "<why>"] [--yolo]   starts the goblin in a native terminal of its own; without --harness the lane table in data/routing.json picks harness, model and effort from the brief and the quota headroom; without --title the task takes its backlog row's title, and with neither it is named by its id
   cfo title <id> "<short title>"   give a running task its short title: the board shows it, and the supervisor writes it to the ticket it opened for the task
-  cfo switch <id> [--harness <h>] [--model <m>] [--effort <e>] [--force-dirty]   change a running goblin's harness/model/effort in place
+  cfo switch <id> [--harness <h>] [--model <m>] [--effort <e>] [--force-dirty] [--restart]   change a running goblin's harness/model/effort in place, or restart it onto a harness update
   cfo send <target> [--key <key>] <text...>
   cfo peek <target> [lines]
   cfo fleet-view [--json]

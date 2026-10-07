@@ -5,11 +5,12 @@ import { Avatar } from "./Avatar";
 import { BRAND_MARKS } from "./brandMarks";
 import { Icon } from "./Icon";
 import { ownsTaskSession, sessionTitle } from "./lineageTree";
-import { asksOverlord, nodeStatus, personaFor, pullRequestBadge, pullRequestLabel, safePullRequest, statusPhase, waitingTarget } from "./workflow";
+import { asksOverlord, harnessName, nodeStatus, personaFor, pullRequestBadge, pullRequestLabel, safePullRequest, statusPhase, waitingTarget } from "./workflow";
 import { reviewLine, waitingItems, type Item } from "./commandQueue";
 import { credentialAsk } from "./credentials";
 import { plainMessage } from "./messageText";
 import { AfkToggle } from "./afk-toggle";
+import { CfoUpdate } from "./cfo-update";
 import { plainText, taskSummary, withoutHarness } from "./task-words";
 import { RawDetails } from "./raw-details";
 import { PeopleRow } from "./people-row";
@@ -22,10 +23,13 @@ import { LocalChecksLink } from "./local-checks-link";
 // it. Its status is the one place the panel says the task's state, with one
 // plain sentence under it and the words that sentence leaves out behind
 // Details; a failure links to the task's log. The CFO drawn without a task has
-// no worktree to open; its header carries the AFK toggle beside its status.
+// no worktree to open; its header carries the AFK toggle beside its status,
+// with Update before it while an update of the CFO's harness waits, and under
+// them what a press of Update waits for or why it did not restart the CFO.
 export function PanelHeader({ task, node, snapshot, compact, onAnswer, onOpenTask, onOpenLog }: { task?: Task; node?: Session; snapshot: Snapshot; compact: boolean; onAnswer: (key: string) => void; onOpenTask: (task: Task) => void; onOpenLog: () => void }) {
   const [opening, setOpening] = useState(false);
   const [outcome, setOutcome] = useState("");
+  const [updateProblem, setUpdateProblem] = useState("");
   const cfo = !task && !node;
   const owner = !!task && ownsTaskSession(node, task);
   const asking = owner && asksOverlord(snapshot, task.id);
@@ -69,7 +73,10 @@ export function PanelHeader({ task, node, snapshot, compact, onAnswer, onOpenTas
         {owner && said.isFailure && !task.archived && <button className="text-button" onClick={onOpenLog}>Open the log</button>}
       </div>}
     </div>
-    {cfo && <AfkToggle afk={snapshot.afk} instance={snapshot.instance} />}
+    {cfo && <AfkToggle afk={snapshot.afk} instance={snapshot.instance} leading={<CfoUpdate snapshot={snapshot} onProblem={setUpdateProblem} />} />}
+    {cfo && snapshot.cfo_update && (updateProblem || snapshot.cfo_update.problem
+      ? <p className="cfo-update-line problem" role="alert">{updateProblem || snapshot.cfo_update.problem}</p>
+      : snapshot.cfo_update.pending && <p className="cfo-update-line" role="status"><Icon name="clock" />The CFO restarts onto the {harnessName(snapshot.cfo_update.harness)} update when its turn ends, on the same conversation.</p>)}
     {owner && !!task.generation && <div className="panel-actions">
       <button className="icon-button raised" disabled={opening || !snapshot.instance} aria-label="Open in VS Code" data-tip="Open in VS Code" data-tip-align="start" onClick={() => void open("vscode")}><img className="brand-icon" src="/assets/vscode.svg" alt="" /></button>
       <button className="icon-button raised" disabled={opening || !snapshot.instance} aria-label="Open folder" data-tip="Open folder" onClick={() => void open("folder")}><Icon name="folder" /></button>
