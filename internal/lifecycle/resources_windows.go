@@ -177,10 +177,12 @@ func stopResources(ctx context.Context, resources Resources, stop func(context.C
 	stopped := []string{}
 	var teardown []state.TeardownProcess
 	finished := map[Identity]bool{}
+	// The first sweep ends the hosts, so their jobs are kept for the services
+	// in them before it.
+	if err := keepServicesPastHosts(resources.Hosts); err != nil {
+		return stopped, teardown, err
+	}
 	for sweep := 0; sweep < 4; sweep++ {
-		if err := keepServicesPastHosts(resources.Hosts); err != nil {
-			return stopped, teardown, err
-		}
 		processes, err := Inventory(ctx, resources.Directories, resources.Hosts)
 		if err != nil {
 			return stopped, teardown, err
