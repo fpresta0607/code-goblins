@@ -2,9 +2,11 @@ package fleettree
 
 import (
 	"context"
+	"encoding/json"
 	"path/filepath"
 	"slices"
 	"strconv"
+	"strings"
 	"testing"
 	"time"
 
@@ -198,5 +200,23 @@ func TestReadIgnoresAProcessThatReusedTheHarnessesID(t *testing.T) {
 	}
 	if len(own.Children) != 3 || own.Memory == 0 {
 		t.Errorf("tree over the recorded process = %+v, want its jobs", own)
+	}
+}
+
+// A goblin running nothing is served with an empty list of children, never
+// with none at all.
+func TestReadServesNoChildrenAsAnEmptyList(t *testing.T) {
+	// Arrange
+	reader := Reader{Home: t.TempDir(), Processes: func() ([]Process, error) {
+		return []Process{{PID: 100, ParentPID: 1, Exe: "claude.exe", Started: at.Add(-time.Hour)}}, nil
+	}, Now: func() time.Time { return at }}
+
+	// Act
+	tree, _ := reader.Read(context.Background(), Goblin{Meta: state.TaskMeta{ID: "tree", Harness: "codex"}, HarnessPID: 100})
+	data, err := json.Marshal(tree)
+
+	// Assert
+	if err != nil || !strings.Contains(string(data), `"children":[]`) {
+		t.Errorf("tree = %s, %v; want an empty list of children", data, err)
 	}
 }

@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"sort"
@@ -359,7 +360,7 @@ func mergeShells(children []Node) []Node {
 			jobs[child.Parent] = append(jobs[child.Parent], child)
 		}
 	}
-	var kept []Node
+	kept := []Node{}
 	for _, child := range children {
 		if child.Kind == KindProcess && child.Parent != "" {
 			continue
@@ -393,7 +394,9 @@ func (r *Reader) gateNode(ctx context.Context, meta state.TaskMeta, processes []
 		reading = gateReading{at: now}
 		if branch := worktreeBranch(meta.Worktree); branch != "" {
 			reading.progress, reading.err = r.Gate.Progress(ctx, meta.Project, branch)
-			if errors.Is(reading.err, pipeline.ErrNoProgress) {
+			// No run of the branch, or no no-mistakes state on this machine
+			// at all, is no gate run rather than one that could not be read.
+			if errors.Is(reading.err, pipeline.ErrNoProgress) || errors.Is(reading.err, fs.ErrNotExist) {
 				reading.err = nil
 			}
 			if reading.err == nil && reading.progress.RunID != "" {

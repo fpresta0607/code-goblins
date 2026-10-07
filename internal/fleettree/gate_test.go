@@ -2,6 +2,8 @@ package fleettree
 
 import (
 	"context"
+	"fmt"
+	"io/fs"
 	"path/filepath"
 	"testing"
 	"time"
@@ -113,4 +115,31 @@ func TestGateNodeSaysWhereTheRunStands(t *testing.T) {
 			}
 		})
 	}
+}
+
+// A home whose no-mistakes has never run keeps no state database: that is no
+// gate run, not evidence that could not be read.
+func TestReadTakesAMissingGateDatabaseAsNoRun(t *testing.T) {
+	// Arrange
+	missing := &missingGate{}
+	reader := Reader{Home: t.TempDir(), Gate: missing, Now: func() time.Time { return at }}
+	meta := state.TaskMeta{ID: "tree", Harness: "pi", Worktree: gateWorktree(t)}
+
+	// Act
+	tree, _ := reader.Read(context.Background(), Goblin{Meta: meta})
+
+	// Assert
+	if len(tree.Children) != 0 || len(tree.Unread) != 0 {
+		t.Errorf("tree = %+v, want no gate and nothing unread", tree)
+	}
+}
+
+type missingGate struct{}
+
+func (missingGate) Progress(context.Context, string, string) (pipeline.Progress, error) {
+	return pipeline.Progress{}, fmt.Errorf("pipeline: cannot inspect state database: %w", fs.ErrNotExist)
+}
+
+func (missingGate) StepDetails(context.Context, string) ([]pipeline.StepDetail, error) {
+	return nil, nil
 }
