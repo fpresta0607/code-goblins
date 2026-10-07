@@ -13,6 +13,7 @@ import (
 	"github.com/fpresta0607/code-goblins/internal/execx"
 	"github.com/fpresta0607/code-goblins/internal/harnessmap"
 	"github.com/fpresta0607/code-goblins/internal/home"
+	"github.com/fpresta0607/code-goblins/internal/install"
 	"github.com/fpresta0607/code-goblins/internal/monitor"
 	"github.com/fpresta0607/code-goblins/internal/routing"
 	"github.com/fpresta0607/code-goblins/internal/supervisor"
@@ -71,6 +72,7 @@ func runDoctor(stdout io.Writer, runtime commandRuntime) int {
 	reportCFOHarness(stdout)
 	reportStaleWakes(stdout)
 	reportHarnessMap(stdout)
+	reportPermissions(stdout)
 	reportLongPaths(stdout)
 
 	if !healthy {
@@ -272,4 +274,33 @@ func valueOr(value, fallback string) string {
 		return fallback
 	}
 	return value
+}
+
+// reportPermissions says whether the user's Claude Code settings hold the
+// allow rules cfo install adds for the commands that file Command Center
+// items, names any missing with the fix, and says when auto mode sets them
+// all aside. Without them auto mode's classifier can refuse a card, and the
+// Overlord sees nothing. It never counts against the health verdict: a Codex
+// or pi CFO does not read them, and only the Overlord adds them, with cfo
+// install or by hand, because no agent widens its own permissions.
+func reportPermissions(stdout io.Writer) {
+	settings, err := install.UserSettingsPath()
+	if err != nil {
+		fmt.Fprintf(stdout, "permissions: Claude Code's settings could not be found (%v)\n", err)
+		return
+	}
+	permissions, err := install.ReadPermissions(settings)
+	if err != nil {
+		fmt.Fprintf(stdout, "permissions: %s unreadable (%v)\n", settings, err)
+		return
+	}
+	total := len(install.PermissionRules())
+	if len(permissions.Missing) > 0 {
+		fmt.Fprintf(stdout, "permissions: %d of the %d Command Center allow rules are missing from %s: %s; without them Claude Code's auto mode can refuse the CFO's questions, run items, reviews, presentations, documents and credential requests, and nothing reaches the Command Center; they are the Supreme Overlord's to add, with `cfo install` (it keeps his own rules and backs the file up first) or by hand, and a CFO tells him rather than adding them itself\n", len(permissions.Missing), total, settings, strings.Join(permissions.Missing, ", "))
+	} else {
+		fmt.Fprintf(stdout, "permissions: the %d Command Center allow rules are in %s\n", total, settings)
+	}
+	if permissions.ClassifyAllShell {
+		fmt.Fprintf(stdout, "permissions: autoMode.classifyAllShell is on in %s, so auto mode sets these rules aside and its classifier judges every item the CFO files\n", settings)
+	}
 }

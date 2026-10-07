@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -10,6 +11,7 @@ import (
 	"time"
 
 	"github.com/fpresta0607/code-goblins/internal/doctor"
+	"github.com/fpresta0607/code-goblins/internal/install"
 )
 
 func TestRunDoctorPrintsTheLaneTableBesideTheSwitchRules(t *testing.T) {
@@ -313,5 +315,88 @@ func TestRunDoctorSaysWhatTheCFOsHarnessGets(t *testing.T) {
 				t.Errorf("doctor names %d things the CFO goes without, want %d\n%s", got, tc.lacks, stdout.String())
 			}
 		})
+	}
+}
+
+// cfo doctor says whether the user's Claude Code settings hold the allow
+// rules for the commands that file Command Center items, names the ones
+// missing with the fix, and says when auto mode sets them all aside.
+func TestRunDoctorReportsTheCommandCenterPermissionRules(t *testing.T) {
+	rules := install.PermissionRules()
+	listed := func(rules []string) string {
+		data, err := json.Marshal(rules)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return string(data)
+	}
+	for _, tc := range []struct {
+		name, settings string
+		want           []string
+		absent         []string
+	}{
+		{"no settings file", "", []string{"permissions: 12 of the 12 Command Center allow rules are missing from %s: " + strings.Join(rules, ", "), "they are the Supreme Overlord's to add, with `cfo install`"}, nil},
+		{"all in place", `{"permissions": {"allow": ` + listed(rules) + `}}`, []string{"permissions: the 12 Command Center allow rules are in %s\n"}, []string{"are missing from", "classifyAllShell"}},
+		{"two missing", `{"permissions": {"allow": ` + listed(rules[2:]) + `}}`, []string{"permissions: 2 of the 12 Command Center allow rules are missing from %s: Bash(cfo question *), Bash(cfo run-request *);"}, nil},
+		{"auto mode classifies every shell command", `{"autoMode": {"classifyAllShell": true}, "permissions": {"allow": ` + listed(rules) + `}}`, []string{"permissions: the 12 Command Center allow rules are in %s\n", "permissions: autoMode.classifyAllShell is on in %s, so auto mode sets these rules aside"}, []string{"are missing from"}},
+		{"malformed", `{"permissions": []}`, []string{"permissions: %s unreadable ("}, []string{"are missing from"}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			// Arrange
+			dir := t.TempDir()
+			t.Setenv("CLAUDE_CONFIG_DIR", dir)
+			settings := filepath.Join(dir, "settings.json")
+			if tc.settings != "" {
+				if err := os.WriteFile(settings, []byte(tc.settings), 0o600); err != nil {
+					t.Fatal(err)
+				}
+			}
+			var stdout bytes.Buffer
+
+			// Act
+			reportPermissions(&stdout)
+
+			// Assert
+			for _, want := range tc.want {
+				if want = strings.ReplaceAll(want, "%s", settings); !strings.Contains(stdout.String(), want) {
+					t.Errorf("doctor lacks %q\n%s", want, stdout.String())
+				}
+			}
+			for _, absent := range tc.absent {
+				if strings.Contains(stdout.String(), absent) {
+					t.Errorf("doctor says %q\n%s", absent, stdout.String())
+				}
+			}
+		})
+	}
+}
+
+// Missing Command Center rules are reported and never make doctor
+// unhealthy: a Codex or pi CFO does not read them, and only the Overlord adds
+// them.
+func TestRunDoctorNamesMissingCommandCenterRulesAndStaysHealthy(t *testing.T) {
+	// Arrange
+	bin := t.TempDir()
+	for _, name := range []string{
+		"git", "gh", "tasks-axi", "quota-axi", "no-mistakes", "gh-axi", "chrome-devtools-axi", "lavish-axi", "winget",
+		"claude", "codex", "pi",
+	} {
+		fakeDoctorTool(t, bin, name)
+	}
+	t.Setenv("PATH", bin)
+	t.Setenv("CFO_HOME", t.TempDir())
+	claude := t.TempDir()
+	t.Setenv("CLAUDE_CONFIG_DIR", claude)
+
+	// Act
+	var stdout, stderr bytes.Buffer
+	exit := run([]string{"doctor"}, &stdout, &stderr)
+
+	// Assert
+	if want := "permissions: 12 of the 12 Command Center allow rules are missing from " + filepath.Join(claude, "settings.json"); !strings.Contains(stdout.String(), want) {
+		t.Errorf("stdout lacks %q\n%s", want, stdout.String())
+	}
+	if exit != 0 {
+		t.Errorf("exit = %d, want 0: missing Command Center rules must not make doctor unhealthy\n%s", exit, stdout.String())
 	}
 }
