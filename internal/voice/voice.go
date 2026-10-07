@@ -29,12 +29,13 @@ import (
 const Room = 1 << 30
 
 // Part is one pinned download, the engine or the model: an archive, its
-// SHA-256 and the files of it that are kept.
+// SHA-256 and size in bytes, and the files of it that are kept.
 type Part struct {
 	Name    string   `json:"name"`
 	Version string   `json:"version"`
 	URL     string   `json:"url"`
 	SHA256  string   `json:"sha256"`
+	Size    int64    `json:"size"`
 	Files   []string `json:"files"`
 }
 
@@ -143,6 +144,9 @@ func (p Part) check() error {
 	if !sha256Hex.MatchString(p.SHA256) {
 		return fmt.Errorf("%s: its sha256 must be 64 lowercase hexadecimal digits", p.Name)
 	}
+	if p.Size <= 0 {
+		return fmt.Errorf("%s: its size must be the archive's size in bytes", p.Name)
+	}
 	if len(p.Files) == 0 {
 		return fmt.Errorf("%s: it names no files to keep", p.Name)
 	}
@@ -180,22 +184,38 @@ func (v *Voice) Name() string { return v.Settings.Model.Name }
 // Summary names the model and the engine and says whether they are there.
 func (v *Voice) Summary() string {
 	name := fmt.Sprintf("%s %s on %s %s", v.Settings.Model.Name, v.Settings.Model.Version, v.Settings.Engine.Name, v.Settings.Engine.Version)
-	if v.Ready() != nil {
-		return name + ", not fetched yet: the first dictation downloads it once into " + v.Dir
+	if missing := v.Missing(); missing > 0 {
+		return fmt.Sprintf("%s, not fetched yet: the first dictation downloads it once, %d MB, into %s", name, missing>>20, v.Dir)
 	}
 	return name + ", ready in " + v.Dir
 }
 
+// Missing is how many bytes Fetch still has to download: the pinned sizes
+// of the engine and the model, whichever is not there.
+func (v *Voice) Missing() int64 {
+	var missing int64
+	for _, part := range []Part{v.Settings.Engine, v.Settings.Model} {
+		if v.ready(part) != nil {
+			missing += part.Size
+		}
+	}
+	return missing
+}
+
 // Fetch downloads whichever of the engine and the model is not there,
-// telling progress how much of a part's download has arrived.
-func (v *Voice) Fetch(ctx context.Context, progress func(part string, done, total int64)) error {
+// telling progress how many of the bytes Missing counted have arrived.
+func (v *Voice) Fetch(ctx context.Context, progress func(done, total int64)) error {
+	total := v.Missing()
+	var finished int64
 	for _, part := range []Part{v.Settings.Engine, v.Settings.Model} {
 		if v.ready(part) == nil {
 			continue
 		}
-		if err := v.fetch(ctx, part, progress); err != nil {
+		if err := v.fetch(ctx, part, func(done int64) { progress(min(finished+done, total), total) }); err != nil {
 			return err
 		}
+		finished += part.Size
+		progress(finished, total)
 	}
 	return nil
 }

@@ -264,7 +264,17 @@ When the board cannot open, the window says why in a message of its own, in the 
 `goblins --window` does the same from a terminal, and **Open the board** in the quick start opens the window in place of the browser.
 Closing the window hides it to its tray, whose menu has **Open the board**, **Start at login**, which opens the app in the tray when you sign in, with no terminal either, and **Quit the window**.
 An install takes the place of a copy of the window that was installed on its own, in a folder of its own: [the install guide](docs/install.md#to-use-it) says what it removes and what it keeps.
-Dictation with **Ctrl+Shift+Space** works in the window as in a browser tab: both hand what you say to the speech model the supervisor runs on this PC.
+
+#### Dictating in the app
+
+Click into a terminal in the window, Claude Code's, Codex's, pi's or the CFO's, hold **Ctrl+Shift+Space**, speak, and let go: what you said is typed into that terminal as one line, and **Enter** sends it.
+A speech model the supervisor runs on this PC hears it, so your voice never leaves the PC, and dictation costs nothing and needs no account.
+The first time, the model is not there yet: the app downloads it once, 125 MB, and the note under the terminal says how far it is as it arrives, then **Dictation is ready**.
+What you said that first time is not kept, so say it again once it is ready.
+Without the internet the note says which file to download and where to save it, and the next dictation uses it; a download that fails stays shown under the terminal until you dictate again.
+After that a line comes back in a moment, and the model gives its memory back after two minutes without dictation.
+Two dictations in a row are typed with a space between them, and a click on the microphone in the terminal's corner lists your recent dictations.
+It works the same in a browser tab, and the terminal panel under [Board and Orchestration](#board-and-orchestration) says more.
 
 ### Board and Orchestration
 
@@ -433,7 +443,7 @@ New native hosts explicitly request interactive Windows scheduling, so typing an
 Updating the executable or restarting the board does not change hosts that are already running; apply the host update when each session can be safely resumed, preserving active work.
 Every terminal pane has a voice bubble in its bottom-right corner, in a strip of its own under the terminal.
 Hold **Ctrl+Shift+Space** to dictate into the terminal that has the keyboard: while the keys are held the bubble's bars move with your voice, and releasing them types what was heard as one line, which **Enter** sends.
-What you say is recognised by a speech model the supervisor runs on this PC, so it costs nothing, needs no account and never leaves the machine; the first dictation downloads the model once, about 126 MB, and says so.
+What you say is recognised by a speech model the supervisor runs on this PC, so it costs nothing, needs no account and never leaves the machine; the first dictation downloads the model once, 125 MB, shows how far it is under the terminal and says when dictation is ready, and the words of that first dictation are not kept.
 The model stays loaded for two minutes after you dictate, so the next line comes back in a blink, and then gives its memory back.
 The bubble names the model while it listens.
 A browser that has a speech recognition of its own can use that instead, which sends your voice to the browser's maker: tick **Use this browser's speech recognition instead** under the bubble's recent dictations. It is off until you turn it on, and the desktop app has none to offer.

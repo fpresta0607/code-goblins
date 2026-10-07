@@ -76,12 +76,14 @@ export interface Task extends Evaluation {
   ticket?: Ticket;
   overlaps: Overlap[];
   // hosted_checks is what its pull request's hosted checks said at the last
-  // CI poll, and local_checks its change's newest cfo gate test run.
+  // CI poll, local_checks its change's newest cfo gate test run, and
+  // deployment how the deploy of its merge stands, apart.
   hosted_checks?: HostedChecks;
   local_checks?: LocalChecks;
   // tree is what a live goblin has running under it, absent for one that
   // runs nothing the supervisor could read.
   tree?: FleetTree;
+  deployment?: Deployment;
 }
 // FleetTree is a goblin and what runs under it as the supervisor last read
 // it: memory is its harness and everything under it, own_memory the harness
@@ -123,6 +125,11 @@ export interface HostedChecks { state: string; checks: number; failed: string[];
 // the level it ran and the one required, passed or failed, how long it took
 // and waited for its turn, and the packages or commands that failed.
 export interface LocalChecks { commit: string; level: string; required_level: string; status: string; duration_seconds: number; queue_seconds: number; failed: string[]; at: string }
+// Deployment is how the deploy of a merged pull request stands, from the
+// default branch's deploy workflows for its merge commit: state is deploying,
+// deployed, failed or cancelled, workflows names them, and link is the page
+// of the run that failed or was cancelled, else of the newest one.
+export interface Deployment { commit: string; state: string; workflows: string[]; link: string; at: string }
 // Ticket is a task's issue: its number, its link and where it stands, one
 // of queued, in progress, pr open, paused, blocked, merged or closed.
 export interface Ticket { number: number; url: string; state: string }
@@ -672,6 +679,7 @@ export function parseSnapshot(value: unknown): Snapshot {
         ...(t.hosted_checks == null ? {} : { hosted_checks: ((c) => ({ state: string(c.state), checks: number(c.checks), failed: strings(c.failed), link: string(c.link), approved: c.approved === undefined ? false : boolean(c.approved) }))(object(t.hosted_checks)) }),
         ...(t.tree == null ? {} : { tree: parseTree(t.tree) }),
         ...(t.local_checks == null ? {} : { local_checks: ((c) => ({ commit: string(c.commit), level: string(c.level), required_level: string(c.required_level), status: string(c.status), duration_seconds: number(c.duration_seconds), queue_seconds: number(c.queue_seconds), failed: strings(c.failed), at: string(c.at) }))(object(t.local_checks)) }),
+        ...(t.deployment == null ? {} : { deployment: ((d) => ({ commit: string(d.commit), state: string(d.state), workflows: strings(d.workflows), link: string(d.link), at: string(d.at) }))(object(t.deployment)) }),
         phase: string(t.phase),
         reason: string(t.reason),
         head: string(t.head),

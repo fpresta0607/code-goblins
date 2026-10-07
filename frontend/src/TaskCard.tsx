@@ -12,6 +12,7 @@ import { pauseStatus, plainText, teardownSentence, withoutHarness } from "./task
 import { TicketLink } from "./ticket-link";
 import { SameAreaAvatars } from "./same-area-avatars";
 import { HostedChecksLink } from "./hosted-checks-link";
+import { DeploymentLink } from "./deployment-link";
 import { LocalChecksLink } from "./local-checks-link";
 import { BabyGoblin } from "./BabyGoblin";
 import { forHowLong, formatMemory, silentChild, summarize } from "./fleet-tree";
@@ -79,10 +80,11 @@ export function TaskCard({ task, snapshot, selected, presentations, now, rank, n
   return <div className={"task-card-shell" + (selected ? " selected" : "")}>
     <button ref={card} className="task-card"
       aria-pressed={selected} onClick={(event) => onSelect(task, event.currentTarget)} onPointerEnter={measure} onFocus={measure} {...tip}>{content}</button>
-    {(pr || column === "Completed" || task.ticket || task.overlaps.length > 0 || task.local_checks) && <div className="card-links">
+    {(pr || column === "Completed" || task.ticket || task.overlaps.length > 0 || task.local_checks || task.deployment) && <div className="card-links">
       {pr && <a className={"card-pr pr-" + icon} href={pr} target="_blank" rel="noreferrer" aria-label={"Open pull request " + pullRequestLabel(pr)}><Icon name={icon} />{pullRequestLabel(pr)}</a>}
       {task.local_checks && <LocalChecksLink checks={task.local_checks} taskId={task.id} className="card-checks" />}
       {pr && task.hosted_checks && <HostedChecksLink checks={task.hosted_checks} pr={pr} className="card-checks" />}
+      {task.deployment && <DeploymentLink deployment={task.deployment} className="card-checks" />}
       {task.ticket && <TicketLink ticket={task.ticket} className="card-ticket" />}
       <SameAreaAvatars overlaps={task.overlaps} />
       {column === "Completed" && <span className="card-secondary card-history-id">{task.branch || task.id.replace(/^finished:/, "")}</span>}
