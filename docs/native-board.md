@@ -48,7 +48,7 @@ Run inside a Herdr pane there is nothing to attach, so `goblins` only brings the
 A supervisor started in the background has no terminal for Ctrl-C to reach, so `goblins stop` writes `state/serve.stop` naming the record's pid and waits up to 30 seconds for the board to stop answering.
 The supervisor checks for that request on its notification tick, which comes at least every two seconds between cycles, and stops as it would on Ctrl-C, removing its record; a request naming any other pid is left over from a supervisor that already ended, so it is removed and stops nothing.
 A supervisor also removes any request left from before it started, so a reused pid cannot stop it.
-`goblins stop --force` ends the recorded pid's process tree with `taskkill /T /F` and removes the record instead, and a record whose supervisor does not answer as itself is removed without stopping anything; a supervisor whose snapshot is slow still answers, so its record is never taken for stale.
+`goblins stop --force` ends the recorded pid's process tree with `taskkill /T /F`, or one process at a time when a machine service (Docker Desktop, the no-mistakes daemon) runs under it, which it leaves running, and removes the record instead, and a record whose supervisor does not answer as itself is removed without stopping anything; a supervisor whose snapshot is slow still answers, so its record is never taken for stale.
 Restarting with the same CFO home recovers durable events, evaluations, actions, and lineage.
 
 ## Native hook setup
@@ -183,6 +183,7 @@ The Tasks column draws each as a ring around the provider's mark beside the memo
 Each poll makes one PR list, one batched GraphQL comparison when the repository has open PRs, and one main-run list per watched repository, plus one run read for each red run it reports; it lists every open PR, even in a repository with no live goblin.
 When every check on a live goblin's open pull request has concluded (the one it recorded, reported `done`, or opened from its worktree's branch), it wakes the CFO once, keyed by the goblin, with the result and the names of the failing checks; a rerun that finishes with a new result wakes again.
 When the newest push run of a workflow on a repository's default branch finishes red, it wakes the CFO once for that run, keyed `main:<repository>`, naming the workflow, the failing jobs and the run id; a cancelled run is not red.
+Runs are judged newest first by their ids, and GitHub sometimes answers with an older page of them, so a listing whose newest run is older than one a poll already read for that repository, before or since it was last watched, is passed over until the next poll.
 One pull request wakes at most once every five minutes, and one workflow on one repository's default branch wakes at most once every five minutes, so a push that turns two workflows red raises two wakes, each naming its own workflow and run.
 A repository with no `origin` remote is a local one and is not watched: `gh` is asked nothing about it, and it raises no error and no wake.
 A repository that has an `origin` and still cannot be read (its `origin` is not GitHub, `gh` is signed out, a `gh` call fails, or its default branch cannot be found) keeps one line in the supervisor's error on the board, naming it, from the first failing poll until a poll reads it again.
@@ -593,6 +594,7 @@ The board's first-run page reads the same remembered harness, shows it as chosen
 In a native terminal Claude Code runs as `claude.exe` and codex and pi as their npm script shims through `cmd /c`, as a native goblin's do; goblins starts no CFO in Herdr.
 A harness that is not installed or not signed in goes to the quick start's install or sign-in step, and nothing is remembered or started until it is ready.
 Its command line ends with one first prompt, which has it run `cfo register` in that terminal and then do what AGENTS.md says a CFO does at the start of a session; Claude Code needs none, since its SessionStart hook registers it and prints the digest.
+A Codex CFO starts with `--no-alt-screen`, as a Codex goblin does, so it draws inline, its history stays in the terminal's own scrollback and a drag in the board selects its text.
 What a CFO in each harness gets is one table, `supervisor.CFOCapabilities`: how it is woken, how it registers, whether a closed one comes back on its conversation, and what it goes without.
 The quick start's notes, the first-run page and `cfo doctor`, whose `cfo harness:` line names the remembered harness with a `goes without:` line for each thing it lacks, all read that table, so none says more than another.
 A real Codex CFO and a real pi CFO started this way were proved in scratch homes on 2026-10-02: each registered itself within 15 seconds of its terminal opening, ran `cfo session-start` and the other start-of-session checks, and acknowledged a queued wake within 12 seconds of the supervisor typing its line; the Codex CFO's terminal was then closed, and started again with `codex resume` and the same first prompt it registered again on the conversation it had (`TestACFOStartedAsGoblinsStartsItRegistersIsWokenAndComesBack`, run only when asked).
@@ -995,14 +997,15 @@ Before an announcement the board claims the event through `POST /api/announce` (
 The supervisor hands each key to the first request and keeps it for thirty days, at most 2048 keys, so a second tab or a restart never announces that item or stretch again.
 While [AFK mode](#afk-mode) is on it hands out nothing and records what was asked about, so nothing announces while the Overlord is away or repeats when he returns.
 A hidden tab waits a second and a half before claiming, giving a visible tab the first chance; with no tab in view the hidden tab can send its Windows notification.
-An announcement is claimed as `alert:<key>` cut to 160 characters, within the endpoint's 512 byte bound, and an unreachable supervisor falls back on what the browser remembers.
+An item's announcement is claimed as `alert:<item key>@<created_at>`, and a goblin's news as `alert:<key>` cut to 160 characters, within the endpoint's 512 byte bound; an unreachable supervisor falls back on what the browser remembers.
 An item's identity prevents repeats, and identical words from the same goblin within five minutes are one event.
+The supervisor takes an item's ID again once it has dropped the record that used it, so an ID published again with another `created_at` is a new item: it is announced again, and the earlier publication's announcement leaves.
 A goblin's next pull request alerts at once; the same news more than five minutes later can alert again.
 The browser remembers the last 100 announcements it showed.
 A toast steps up once as it arrives, or appears under reduced motion, leaves after eight seconds unless the pointer or keyboard rests on it, and can be dismissed; at most four show, newest at the bottom.
 Windows notifications require `document.hidden`: a hidden tab or minimized window, not an unfocused window that remains visible.
 The browser asks for notification permission once, with the first announcement, and a notification click opens its item or terminal.
-An announcement and its notification leave when their item closes or the quiet-CFO stretch ends.
+An announcement and its notification leave when their item closes or is published again under its ID, or the quiet-CFO stretch ends.
 A click on an item already closed opens the Command Center's list, never another item's card.
 Its card shows the title, its images as thumbnails that open the same full-size gallery as a question's, and its own page, when it has one, as a preview named Scrawl page that opens the page with Open review and never repeats the title.
 An item whose page the supervisor watches (an HTML page given with `--lavish`) is answered on that page, so its card has no text box: it finishes when the Overlord sends or ends the review there, or he closes it with Clear.

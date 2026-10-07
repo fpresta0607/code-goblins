@@ -268,6 +268,23 @@ FROM step_results s JOIN latest ON latest.id=s.run_id WHERE s.status IN ('awaiti
 	return rows[0], nil
 }
 
+// RunBranch is the branch of run in this registered project, which must be
+// that branch's latest run: a native command answers only the latest run of
+// the branch checked out where it runs.
+func (r Reader) RunBranch(ctx context.Context, project, run string) (string, error) {
+	var rows []struct {
+		Branch string `json:"branch"`
+	}
+	sql := `SELECT runs.branch FROM runs JOIN repos ON repos.id=runs.repo_id WHERE lower(replace(repos.working_path,char(92),'/'))=lower(` + sqlString(filepath.ToSlash(project)) + `) AND runs.id=` + sqlString(run) + ` AND runs.id=(SELECT latest.id FROM runs latest WHERE latest.repo_id=runs.repo_id AND latest.branch=runs.branch ORDER BY latest.created_at DESC, latest.id DESC LIMIT 1)`
+	if err := r.query(ctx, sql, &rows); err != nil {
+		return "", err
+	}
+	if len(rows) != 1 || rows[0].Branch == "" {
+		return "", fmt.Errorf("pipeline: run %s is not the latest run of a branch in this task's project", run)
+	}
+	return rows[0].Branch, nil
+}
+
 // Response is one answer to a parked gate. Accept names the open ask-user and
 // auto-fix findings the CFO takes as they stand, with approve only.
 type Response struct{ Action, Findings, Instructions, Accept string }

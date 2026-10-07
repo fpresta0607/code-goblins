@@ -47,6 +47,47 @@ INSERT INTO step_rounds VALUES('step',1,'user'),('step',2,'user'),('step',3,NULL
 	}
 }
 
+// A run named for a gate decision is read as its branch only while it is that
+// branch's latest run in this project, since the native command that answers
+// it answers the latest run of the branch checked out where it runs.
+func TestRunBranchNamesOnlyALatestRunOfThisProject(t *testing.T) {
+	sqlite, err := exec.LookPath("sqlite3")
+	if err != nil {
+		t.Skip("sqlite3 CLI not available")
+	}
+	// Arrange
+	dir := t.TempDir()
+	sql := `CREATE TABLE repos(id TEXT,working_path TEXT,default_branch TEXT);
+CREATE TABLE runs(id TEXT,repo_id TEXT,branch TEXT,created_at INTEGER,status TEXT);
+INSERT INTO repos VALUES('repo','C:\project','main'),('elsewhere','C:\other','main');
+INSERT INTO runs VALUES('old','repo','fix/connections',1,'failed'),('current','repo','fix/connections',2,'running'),('panel','repo','feat/panel-row',3,'completed'),('foreign','elsewhere','fix/connections',4,'running');`
+	if out, err := exec.Command(sqlite, filepath.Join(dir, "state.sqlite"), sql).CombinedOutput(); err != nil {
+		t.Fatalf("fixture: %s %v", out, err)
+	}
+	reader := Reader{Root: dir, Commands: execx.OSRunner{}}
+	for _, tc := range []struct {
+		run, want string
+	}{
+		{"current", "fix/connections"},
+		{"panel", "feat/panel-row"},
+		{"old", ""},
+		{"foreign", ""},
+		{"absent", ""},
+		{"' OR '1'='1", ""},
+	} {
+		// Act
+		branch, err := reader.RunBranch(context.Background(), "C:/project", tc.run)
+
+		// Assert
+		if tc.want == "" && (err == nil || branch != "") {
+			t.Errorf("run %q read as branch %q, %v; want a refusal", tc.run, branch, err)
+		}
+		if tc.want != "" && (err != nil || branch != tc.want) {
+			t.Errorf("run %q read as branch %q, %v; want %q", tc.run, branch, err, tc.want)
+		}
+	}
+}
+
 func TestRepoPolicyCannotRaiseCapsAndDoesNotOwnReviewAgents(t *testing.T) {
 	p := testPolicy(t)
 	for _, source := range []string{"auto_fix: {review: 10}", "auto_fix: {test: 2}", "auto_fix: {review: 0, review: 10}", "agent: [claude]\n---\nagent: [pi]"} {

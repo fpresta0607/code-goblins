@@ -1,6 +1,7 @@
 package supervisor
 
 import (
+	"cmp"
 	"context"
 	"encoding/json"
 	"errors"
@@ -96,6 +97,11 @@ type fleetWakes struct {
 	// RedRuns holds, by repository, the red push runs of its main the CFO
 	// was woken for.
 	RedRuns map[string][]int64 `json:"red_runs,omitempty"`
+	// NewestRuns holds, by repository, the newest push run of its main any
+	// poll listed. It outlives the repository's watch, so a listing older
+	// than one read before is known for one when the repository is watched
+	// again.
+	NewestRuns map[string]int64 `json:"newest_runs,omitempty"`
 	// Unreadable holds, by repository, why its CI could not be read on its
 	// last poll.
 	Unreadable map[string]unreadableRepo `json:"unreadable,omitempty"`
@@ -896,8 +902,14 @@ func defaultBranch(ctx context.Context, runner execx.Runner, repo string) (strin
 // pollMain raises ci_finished for each workflow whose newest push run on
 // repo's default branch finished red and was not reported yet, naming the
 // workflow, the jobs that failed and the run. On 2026-09-30 main's install
-// workflow stayed red for hours before the CFO noticed. It returns why the
-// runs could not be read, apart from what went wrong raising a wake.
+// workflow stayed red for hours before the CFO noticed. GitHub sometimes
+// answers the newest-first listing with an older page: on 2026-10-06 it gave
+// a deploy run of 2026-03-01 as PrecisionDocs-AI's newest while every deploy
+// that day had passed. So the runs are judged newest first by their IDs,
+// which GitHub gives out in order, and a listing whose newest run is older
+// than one a poll already read is passed over until the next poll. It
+// returns why the runs could not be read, apart from what went wrong raising
+// a wake.
 func pollMain(ctx context.Context, runner execx.Runner, stateDir string, w *fleetWakes, repo string, now time.Time) (unreadable, err error) {
 	branch, err := defaultBranch(ctx, runner, repo)
 	if err != nil {
@@ -910,6 +922,16 @@ func pollMain(ctx context.Context, runner execx.Runner, stateDir string, w *flee
 	var runs []ghRun
 	if err := json.Unmarshal([]byte(out), &runs); err != nil {
 		return fmt.Errorf("ci wakes: gh listed the push runs of %s in a shape it cannot read: %w", repo, err), nil
+	}
+	slices.SortStableFunc(runs, func(a, b ghRun) int { return cmp.Compare(b.ID, a.ID) })
+	if len(runs) > 0 {
+		if runs[0].ID < w.NewestRuns[repo] {
+			return nil, nil
+		}
+		if w.NewestRuns == nil {
+			w.NewestRuns = map[string]int64{}
+		}
+		w.NewestRuns[repo] = runs[0].ID
 	}
 	recordDeployments(w, runs, now)
 	newest := map[string]bool{}
