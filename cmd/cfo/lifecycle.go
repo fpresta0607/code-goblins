@@ -2,12 +2,15 @@ package main
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"flag"
 	"fmt"
 	"io"
 	"os"
+	"strings"
 	"time"
 
 	"github.com/fpresta0607/code-goblins/internal/home"
@@ -83,4 +86,44 @@ func runLifecycle(action string, args []string, stdout, stderr io.Writer, runtim
 		return 1
 	}
 	return 0
+}
+
+// reachHelpers pauses or stops each live helper of meta as meta itself is
+// paused or stopped, through run, the same lifecycle, so each keeps a record,
+// a handoff request and a card of its own, and says what became of each. A
+// helper paused with its parent keeps the parent's condition, and one its
+// parent pauses to wait on stays at work. Each helper's operation is derived
+// from its parent's, so a retried parent operation retries the helper's
+// rather than starting another.
+func reachHelpers(ctx context.Context, h home.Home, meta state.TaskMeta, record *state.Lifecycle, run func(context.Context, home.Home, lifecycle.Request, string) (state.Lifecycle, error)) ([]string, error) {
+	helpers, err := state.HelpersOf(h.State, meta.ID)
+	if err != nil {
+		return nil, err
+	}
+	// A stop's record keeps the pause before it, which says nothing of the
+	// stop.
+	var pause *state.PauseCondition
+	if record.Action == "pause" {
+		pause = record.Pause
+	}
+	var lines []string
+	var problems []error
+	for _, helper := range helpers {
+		if pause != nil && pause.Reason == "dependency" && strings.EqualFold(pause.Until, "task:"+helper.ID) {
+			lines = append(lines, "helper "+helper.ID+" kept at work: "+meta.ID+" waits on it")
+			continue
+		}
+		sum := sha256.Sum256([]byte(record.Operation + "\x00" + helper.ID))
+		request := lifecycle.Request{ID: helper.ID, Generation: helper.SpawnGen, Operation: "helper-" + hex.EncodeToString(sum[:8]), Action: record.Action, Reason: "Stopped with its parent " + meta.ID + ": " + record.Reason}
+		if pause != nil {
+			request.Reason, request.Until = pause.Reason, pause.Until
+		}
+		result, err := run(ctx, h, request, "")
+		if err != nil {
+			problems = append(problems, fmt.Errorf("helper %s: %w", helper.ID, err))
+			continue
+		}
+		lines = append(lines, "helper "+helper.ID+" "+result.Phase)
+	}
+	return lines, errors.Join(problems...)
 }

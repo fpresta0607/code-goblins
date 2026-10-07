@@ -954,6 +954,8 @@ type Task struct {
 	Session      string          `json:"session"`
 	Dependencies []string        `json:"dependencies"`
 	Runtime      RuntimeEvidence `json:"runtime"`
+	// Parent is the goblin a helper works for; empty for every other task.
+	Parent string `json:"parent,omitempty"`
 	// Activity is the task's own latest status line, and Report the kind of
 	// its latest report.
 	Activity   string `json:"activity"`
@@ -1275,7 +1277,7 @@ func (s *Service) Snapshot() (Snapshot, error) {
 			title = id
 			untitled[id] = true
 		}
-		out.Tasks = append(out.Tasks, Task{ID: id, Title: title, Project: filepath.Base(meta.Project), Harness: meta.Harness, Backend: meta.Backend, Model: meta.Model, Effort: meta.Effort, Mode: meta.Mode, Generation: meta.SpawnGen, Session: d.TaskSessions[id], Dependencies: []string{}, Runtime: runtime, Activity: activity, LastReport: lastReport, ReportedAt: lastReportedAt, Since: s.sessionStarted(meta), Report: reportKind(report), ReportHandled: isHeldByHandledReport, Evaluation: evaluation})
+		out.Tasks = append(out.Tasks, Task{ID: id, Title: title, Parent: meta.Parent, Project: filepath.Base(meta.Project), Harness: meta.Harness, Backend: meta.Backend, Model: meta.Model, Effort: meta.Effort, Mode: meta.Mode, Generation: meta.SpawnGen, Session: d.TaskSessions[id], Dependencies: []string{}, Runtime: runtime, Activity: activity, LastReport: lastReport, ReportedAt: lastReportedAt, Since: s.sessionStarted(meta), Report: reportKind(report), ReportHandled: isHeldByHandledReport, Evaluation: evaluation})
 		if len(out.Tasks) >= maxSessions {
 			break
 		}

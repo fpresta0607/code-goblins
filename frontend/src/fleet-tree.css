@@ -14,6 +14,7 @@
 .baby-build { background-position: 0 100%; }
 .baby-browser { background-position: 50% 100%; }
 .baby-other { background-position: 100% 100%; }
+.baby-helper { background-position: 0 0; }
 
 .phase-silent .status-dot { background: var(--amber); box-shadow: 0 0 0 3px #f3c57833; }
 .phase-silent.plain-status { color: #f6d79e; }

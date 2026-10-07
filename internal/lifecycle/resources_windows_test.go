@@ -272,3 +272,70 @@ func TestTaskResourcesCoverAHomeTasksWorktreesAndScratch(t *testing.T) {
 		}
 	}
 }
+
+// A helper is its parent's: stopping the parent ends what runs in its
+// helper's worktree too, whatever the helper's own stop left behind, and
+// nothing of any other goblin.
+func TestStoppingAParentStopsWhatRunsInItsHelpersWorktree(t *testing.T) {
+	// Arrange
+	root := t.TempDir()
+	h := home.Home{Root: root, State: filepath.Join(root, "state")}
+	project := filepath.Join(t.TempDir(), "app")
+	goblin := func(id, parent string) state.TaskMeta {
+		meta := state.TaskMeta{ID: id, Parent: parent, Window: "native", Harness: "claude", Kind: "ship", Backend: "native", Project: project,
+			Worktree: filepath.Join(root, "worktrees", "app", id), TaskTmp: filepath.Join(h.State, "tasktmp", id), Scratch: filepath.Join(root, "scratch", id)}
+		for _, directory := range []string{meta.Worktree, meta.TaskTmp, meta.Scratch} {
+			if err := os.MkdirAll(directory, 0o755); err != nil {
+				t.Fatal(err)
+			}
+		}
+		if err := state.WriteTaskMeta(h.State, meta); err != nil {
+			t.Fatal(err)
+		}
+		return meta
+	}
+	parent, helper, other := goblin("g1", ""), goblin("g1-h1", "g1"), goblin("g2", "")
+	start := func(directory string) (*exec.Cmd, windows.Handle) {
+		child := exec.Command(os.Args[0], "-test.run=^TestLifecycleProcessFixture$")
+		child.Dir = directory
+		child.Env = append(os.Environ(), "CFO_LIFECYCLE_FIXTURE=1")
+		if err := child.Start(); err != nil {
+			t.Fatal(err)
+		}
+		t.Cleanup(func() { _ = child.Process.Kill(); _ = child.Wait() })
+		handle, err := windows.OpenProcess(windows.SYNCHRONIZE, false, uint32(child.Process.Pid))
+		if err != nil {
+			t.Fatal(err)
+		}
+		t.Cleanup(func() { _ = windows.CloseHandle(handle) })
+		return child, handle
+	}
+	helperProcess, helperHandle := start(helper.Worktree)
+	otherProcess, otherHandle := start(other.Worktree)
+	gate := pipeline.Reader{Root: filepath.Join(root, "gate"), Commands: execx.OSRunner{}}
+
+	// Act
+	resources, err := TaskResources(t.Context(), h, parent, gate)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithTimeout(t.Context(), time.Minute)
+	defer cancel()
+	stopped, _, stopErr := StopResources(ctx, resources)
+
+	// Assert
+	for _, want := range []string{helper.Worktree, helper.TaskTmp, helper.Scratch} {
+		if !slices.Contains(resources.Directories, want) {
+			t.Errorf("directories = %v, want the helper's %s among them", resources.Directories, want)
+		}
+	}
+	if slices.Contains(resources.Directories, other.Worktree) {
+		t.Errorf("directories = %v, want none of g2's", resources.Directories)
+	}
+	if result, _ := windows.WaitForSingleObject(helperHandle, 10000); result != windows.WAIT_OBJECT_0 {
+		t.Errorf("the helper's process pid %d still runs after its parent stopped; stopped %v, error %v", helperProcess.Process.Pid, stopped, stopErr)
+	}
+	if result, _ := windows.WaitForSingleObject(otherHandle, 0); result != uint32(windows.WAIT_TIMEOUT) {
+		t.Errorf("g2's process pid %d ended with g1's stop", otherProcess.Process.Pid)
+	}
+}

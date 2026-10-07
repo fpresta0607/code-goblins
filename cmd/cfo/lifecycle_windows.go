@@ -53,6 +53,9 @@ func defaultTaskLifecycle(ctx context.Context, h home.Home, request lifecycle.Re
 	runtime := defaultCommandRuntime()
 	var resources lifecycle.Resources
 	service := lifecycle.Service{StateDir: h.State, Operations: lifecycle.Operations{
+		Helpers: func(ctx context.Context, meta state.TaskMeta, record *state.Lifecycle) ([]string, error) {
+			return reachHelpers(ctx, h, meta, record, runtime.taskLifecycle)
+		},
 		Prepare: pauseInstruction(runtime, h),
 		Stop: func(ctx context.Context, meta state.TaskMeta, record *state.Lifecycle) ([]string, error) {
 			bounded, cancel := context.WithTimeout(ctx, 10*time.Second)
@@ -117,7 +120,13 @@ func defaultTaskLifecycle(ctx context.Context, h home.Home, request lifecycle.Re
 			return status == herdr.AgentAlive, err
 		},
 		Archive: func(ctx context.Context, meta state.TaskMeta, record *state.Lifecycle) (lifecycle.Preservation, error) {
-			preserved, err := lifecycle.PreserveWork(ctx, commands, meta)
+			holder := ""
+			if meta.Parent != "" {
+				if parent, err := state.ReadTaskMeta(h.State, meta.Parent); err == nil {
+					holder = parent.Worktree
+				}
+			}
+			preserved, err := lifecycle.PreserveWork(ctx, commands, meta, holder)
 			if err != nil {
 				return preserved, err
 			}

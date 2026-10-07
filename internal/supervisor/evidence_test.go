@@ -1122,3 +1122,36 @@ func TestCompletedLiveTaskUsesItsPullRequestTitleAndRepository(t *testing.T) {
 		t.Fatal("stopping an undispatched task did not invalidate Completed")
 	}
 }
+
+// A helper its parent merged delivered into its parent's branch before the
+// merge retired it through Stop, so Completed shows it Finished with why, as
+// its outcome records; a stop of the same generation never relabels a
+// delivered outcome, and one of another generation leaves it alone.
+func TestCompletedShowsAMergedHelperFinishedThoughTheMergeStoppedIt(t *testing.T) {
+	for _, test := range []struct {
+		name, outcome, generation, want string
+	}{
+		{"a merged helper", "done", "s1", "done"},
+		{"an unmerged helper", "stopped", "s1", "stopped"},
+		{"an older delivery", "done", "s0", "stopped"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			// Arrange
+			h := home.Home{State: t.TempDir(), Data: t.TempDir()}
+			if err := state.WriteOutcome(h.State, state.Outcome{ID: "g1-h1", Generation: test.generation, Title: "Accounts migration", Project: "app", Phase: test.outcome, Evidence: "merged into its parent g1's branch", At: time.Now()}); err != nil {
+				t.Fatal(err)
+			}
+			if err := state.WriteLifecycle(h.State, state.Lifecycle{ID: "g1-h1", Generation: "s1", Operation: "merge-1", Action: "stop", Phase: "stopped", Title: "Accounts migration", Project: "app", Reason: "Merged into its parent g1's branch feat/x", Updated: time.Now()}); err != nil {
+				t.Fatal(err)
+			}
+
+			// Act
+			tasks := finishedTasks(h, time.Now())
+
+			// Assert
+			if len(tasks) != 1 || tasks[0].Phase != test.want || tasks[0].Reason != "Merged into its parent g1's branch feat/x" {
+				t.Errorf("Completed = %+v, want one %s card saying why", tasks, test.want)
+			}
+		})
+	}
+}

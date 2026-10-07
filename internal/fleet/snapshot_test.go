@@ -443,3 +443,43 @@ func recordHost(t *testing.T, stateDir, id string) {
 		t.Fatal(err)
 	}
 }
+
+// fleet-view names the goblin a helper works for, in its JSON and on its
+// Markdown row, so the CFO sees each helper beside its parent.
+func TestFleetViewNamesAHelpersParent(t *testing.T) {
+	// Arrange
+	h := snapshotHome(t)
+	writeSnapshotMeta(t, h, "g1", t.TempDir(), t.TempDir())
+	helper := writeSnapshotMeta(t, h, "g1-h1", t.TempDir(), t.TempDir())
+	helper.Parent = "g1"
+	if err := state.WriteTaskMeta(h.State, helper); err != nil {
+		t.Fatal(err)
+	}
+
+	// Act
+	snapshot, err := BuildSnapshot(t.Context(), h, &snapshotEndpoint{})
+	var markdown, data bytes.Buffer
+	markdownErr, jsonErr := RenderMarkdown(&markdown, snapshot), RenderJSON(&data, snapshot)
+
+	// Assert
+	if err != nil || markdownErr != nil || jsonErr != nil {
+		t.Fatalf("snapshot %v, markdown %v, json %v", err, markdownErr, jsonErr)
+	}
+	if !strings.Contains(markdown.String(), "| g1-h1 (helper of g1) |") || strings.Contains(markdown.String(), "| g1 (helper") {
+		t.Errorf("fleet view does not name g1-h1 as g1's helper alone:\n%s", markdown.String())
+	}
+	var decoded struct {
+		Tasks []struct {
+			ID     string `json:"id"`
+			Parent string `json:"parent"`
+		} `json:"tasks"`
+	}
+	if err := json.Unmarshal(data.Bytes(), &decoded); err != nil {
+		t.Fatal(err)
+	}
+	for _, task := range decoded.Tasks {
+		if want := map[string]string{"g1": "", "g1-h1": "g1"}[task.ID]; task.Parent != want {
+			t.Errorf("task %s has parent %q in JSON, want %q", task.ID, task.Parent, want)
+		}
+	}
+}

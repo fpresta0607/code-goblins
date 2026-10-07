@@ -106,6 +106,8 @@ commands:
   cfo pause <id> | resume <id> | kill <id>   pause, resume or stop a task while preserving its work
   cfo reap [--dry-run] [--apply] [--force <pid|task-id>]... [--json]   find orphaned harness processes, stale dev servers, worktrees, task records and status logs; --apply retires the worktrees, records and logs, and ending a process needs its pid named with --force
   cfo notify <id> --done --pr <url> | --blocked "<question>" | --failed "<reason>" | --working "<what>" | --waiting-on <task-id|overlord|ci|deploy|memory> "<why>" [--lavish <html-file>] [--link <https-url>] [--run <command-file>]   a goblin reports its outcome straight into the wake queue, or what it is working on or waiting on; a wait on the Overlord leads with one sentence, puts values he must enter in a Markdown table on the lines after it with each value in backticks, which his card copies, and gives the one link his card opens with --link; --run names a .ps1 or .sh file holding a command he must run, which his card runs with one click in a window he can use
+  cfo helper start <parent-id> --brief <file> [--title "<short title>"]   a goblin asks the supervisor for one helper goblin: the supervisor starts it only when memory allows, one per goblin at a time and never a helper's, on a branch cut from the goblin's last commit, in local-only mode, reporting to the goblin; it says which helper and branch, or why not and when to ask again
+  cfo helper merge <parent-id>   the goblin merges its helper's branch into its own with a merge commit, in its own worktree, and retires the helper; a conflict is left for it to resolve and commit, and asked again it only retires the helper; it stays the one who opens the pull request
   cfo question --id <stable-id> --text "<user question>" [--option "<choice>"]... [--recommend "<exact-choice>"]   registered CFO opens a user decision modal with Other; the answer returns as one normal native message, not a native prompt-tool response
   cfo answer <question-id|wake-seq> --option <choice> [--note "<text>"]   registered CFO answers a goblin's blocked question: delivered like cfo send (queued for a working goblin's next tool call counts as delivered), the notify retired, and the choice, who and when recorded for the board
   cfo answer <question-id> --option <choice> [--note "<text>"] --record-only [--in <where>]   registered CFO records on the board a choice already given another way, for a goblin's notify already acknowledged or answered, and sends nothing; --in names where the Overlord gave it, such as chat, which the CFO's own question needs, and the card reads as his answer there
@@ -204,6 +206,8 @@ type commandRuntime struct {
 	// repositoryOf names the GitHub repository a checkout's origin is, for
 	// cfo tickets --allow-public-tickets.
 	repositoryOf func(ctx context.Context, checkout string) (string, error)
+	// requestHelper asks the supervisor for a goblin's helper.
+	requestHelper func(home.Home, supervisor.HelperRequest) (supervisor.HelperStart, error)
 	// switchAFK asks the supervisor to turn AFK mode on or off, and logAFK to
 	// log a decision made under it; nil is the supervisor's pipe.
 	switchAFK func(h home.Home, on bool, asked string) error
@@ -232,7 +236,8 @@ func (r commandRuntime) resolveProject(arg string) (string, error) {
 
 func defaultCommandRuntime() commandRuntime {
 	return commandRuntime{
-		resolveHome: home.Resolve,
+		resolveHome:   home.Resolve,
+		requestHelper: supervisor.RequestHelper,
 		spawn: func(ctx context.Context, h home.Home, request spawn.Request) (spawn.Result, error) {
 			commands := execx.OSRunner{}
 			self, err := os.Executable()
@@ -525,7 +530,9 @@ func runWithRuntime(args []string, stdout, stderr io.Writer, runtime commandRunt
 	case "reap":
 		return runReap(args[1:], stdout, stderr, runtime)
 	case "notify":
-		return runNotify(args[1:], stdout, stderr)
+		return runNotify(args[1:], stdout, stderr, runtime)
+	case "helper":
+		return runHelper(args[1:], stdout, stderr, runtime)
 	case "question":
 		return runQuestion(args[1:], stdout, stderr, runtime)
 	case "answer":

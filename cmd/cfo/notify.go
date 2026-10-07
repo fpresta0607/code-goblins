@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"flag"
 	"fmt"
 	"io"
@@ -13,7 +14,7 @@ import (
 	"github.com/fpresta0607/code-goblins/internal/afk"
 	"github.com/fpresta0607/code-goblins/internal/axi"
 	"github.com/fpresta0607/code-goblins/internal/execx"
-	"github.com/fpresta0607/code-goblins/internal/home"
+	"github.com/fpresta0607/code-goblins/internal/fleet"
 	"github.com/fpresta0607/code-goblins/internal/state"
 	"github.com/fpresta0607/code-goblins/internal/supervisor"
 	"github.com/fpresta0607/code-goblins/internal/wake"
@@ -54,7 +55,11 @@ import (
 // names a Lavish page puts the page on its card, and the supervisor polls it:
 // the Overlord's feedback there goes to the CFO, never to a poll of the
 // goblin's own.
-func runNotify(args []string, stdout, stderr io.Writer) int {
+//
+// A helper reports to its parent instead: its done, which needs no pull
+// request, its question and its failure are typed into its parent's
+// terminal, and wake the CFO only when that terminal cannot take them.
+func runNotify(args []string, stdout, stderr io.Writer, runtime commandRuntime) int {
 	if len(args) == 0 {
 		fmt.Fprintln(stderr, "cfo notify: task ID is required")
 		return 2
@@ -109,11 +114,12 @@ func runNotify(args []string, stdout, stderr io.Writer) int {
 		fmt.Fprintln(stderr, "cfo notify: exactly one of --done, --blocked, --failed, --working or --waiting-on is required")
 		return 2
 	case *done:
-		if *pr == "" {
-			fmt.Fprintln(stderr, "cfo notify: --done requires --pr <url>")
-			return 2
+		// Only a helper is done without a pull request; whether this task
+		// is one is read with its record below.
+		verb = "done"
+		if *pr != "" {
+			detail = "PR " + *pr
 		}
-		verb, detail = "done", "PR "+*pr
 	case *blocked != "":
 		verb, detail = "blocked", *blocked
 	case *failed != "":
@@ -200,10 +206,21 @@ func runNotify(args []string, stdout, stderr io.Writer) int {
 		detail += " (page " + pageURL + ")"
 	}
 
-	h, err := home.Resolve()
+	h, err := runtime.resolveHome()
 	if err != nil {
 		fmt.Fprintln(stderr, err)
 		return 1
+	}
+	parent := ""
+	if meta, err := state.ReadTaskMeta(h.State, id); err == nil {
+		parent = meta.Parent
+	}
+	if verb == "done" && *pr == "" {
+		if parent == "" {
+			fmt.Fprintln(stderr, "cfo notify: --done requires --pr <url>")
+			return 2
+		}
+		detail = "ready for " + parent + " to merge"
 	}
 	line := verb + ": " + state.NormalizeStatusDetail(detail)
 	if *link != "" {
@@ -234,6 +251,16 @@ func runNotify(args []string, stdout, stderr io.Writer) int {
 		supervisor.Reported(h.State)
 		fmt.Fprintf(stdout, "notified %s %s\n", id, line)
 		return 0
+	}
+	if report := helperReport(id, parent, verb, line); report != "" {
+		err := runtime.sendText(context.Background(), h, parent, report)
+		if err == nil || errors.Is(err, fleet.ErrQueuedForToolCall) {
+			supervisor.Reported(h.State)
+			fmt.Fprintf(stdout, "notified %s's parent %s %s\n", id, parent, line)
+			return 0
+		}
+		fmt.Fprintf(stderr, "cfo notify: %s's terminal did not take the report, so the CFO is told instead: %v\n", parent, err)
+		line += "; it could not reach its parent " + parent + ": " + state.NormalizeStatusDetail(err.Error())
 	}
 	record, err := wake.Append(h.State, "notify", id, line)
 	if err != nil {
@@ -280,6 +307,25 @@ func runNotify(args []string, stdout, stderr io.Writer) int {
 		fmt.Fprintf(stdout, "AFK mode is on: the Overlord is away until he turns it off, so this wait is held for him and nothing prompts him. If any of your work does not depend on it, move to that next piece now and report it with cfo notify %s --working \"<what>\".\n", id)
 	}
 	return 0
+}
+
+// helperReport is what a helper's report says in its parent's terminal,
+// with the command that acts on it, on one line so the terminal takes it
+// whole; empty for a task that is no helper and for a report only the
+// board shows.
+func helperReport(id, parent, verb, line string) string {
+	_, said, _ := strings.Cut(line, ": ")
+	switch {
+	case parent == "":
+		return ""
+	case verb == "done":
+		return "Your helper " + id + " is done: its work is committed on its branch, " + said + ". Merge it into your branch with: cfo helper merge " + parent
+	case verb == "blocked":
+		return "Your helper " + id + " asks: " + said + " Answer it with: cfo send " + id + " \"<answer>\""
+	case verb == "failed":
+		return "Your helper " + id + " failed: " + said + ". Tell it what to do with: cfo send " + id + " \"<what>\", or stop it with: cfo kill " + id + " --reason \"<why>\""
+	}
+	return ""
 }
 
 // pageOpenTimeout bounds opening a Lavish page, which starts lavish-axi's

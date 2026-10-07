@@ -341,7 +341,7 @@ func (s Service) relaunchHarness(ctx context.Context, meta state.TaskMeta, targe
 		if err != nil {
 			return "", false, host.Record{}, err
 		}
-		launch.Instruction = handoffInstruction(handoff, briefPath, id)
+		launch.Instruction = handoffInstruction(handoff, briefPath, meta)
 	}
 	if request.IsResume && request.ResumeHandoff != "" {
 		launch.Instruction += " Read the retained pause handoff at " + request.ResumeHandoff + "."
@@ -507,17 +507,17 @@ func (s Service) writeHandoff(ctx context.Context, meta state.TaskMeta, target s
 	return path, nil
 }
 
-func handoffInstruction(handoff, briefPath, id string) string {
+func handoffInstruction(handoff, briefPath string, meta state.TaskMeta) string {
 	instruction := "You are taking over a task in progress. Read the handoff at " + handoff + " first"
 	if briefPath != "" {
 		instruction += ", then the brief at " + briefPath
 	}
-	return instruction + ", then continue the work. A question you asked the CFO before the restart was cancelled with it: if you were waiting on an answer, ask it again with cfo notify --blocked." + notifyInstruction(id)
+	return instruction + ", then continue the work. A question you asked the CFO before the restart was cancelled with it: if you were waiting on an answer, ask it again with cfo notify --blocked." + notifyInstruction(meta)
 }
 
 func resumeInstruction(meta state.TaskMeta, target switchTarget) string {
 	return fmt.Sprintf("Your session was restarted as %s (was %s). Your prior context is intact; continue the task where you left off. A question you asked the CFO before the restart was cancelled with it: if you were waiting on an answer, ask it again with cfo notify --blocked.",
-		describe(string(target.Harness), target.Model, target.Effort), describe(meta.Harness, meta.Model, meta.Effort)) + notifyInstruction(meta.ID)
+		describe(string(target.Harness), target.Model, target.Effort), describe(meta.Harness, meta.Model, meta.Effort)) + notifyInstruction(meta)
 }
 
 // recentStatus returns the tail of the task's status log, which is the only

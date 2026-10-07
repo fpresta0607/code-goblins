@@ -1,7 +1,7 @@
 import type { Session, Snapshot, Task } from "./types.ts";
 import { lineageRoots, ownsTaskSession, sessionTitle, tasksWithoutSession } from "./lineageTree.ts";
 import { withoutHarness } from "./task-words.ts";
-import { isHeldByTree } from "./fleet-tree.ts";
+import { isHeldByTree, isHelperHeld } from "./fleet-tree.ts";
 
 export type Persona = "cfo" | "builder" | "reviewer" | "tester" | "planner" | "finisher" | "general"
   | "debugger" | "security" | "database" | "designer" | "documentation" | "operations"
@@ -194,7 +194,7 @@ export function workflowNodes(snapshot: Snapshot): WorkflowNode[] {
             : snapshot.retired.includes(session.parent) ? "Parent retired" : "Parent unreported",
       };
     }),
-    ...tasksWithoutSession(snapshot.tasks.filter((task) => !task.archived && task.phase !== "queued"), snapshot.sessions).map((task) => ({
+    ...tasksWithoutSession(snapshot.tasks.filter((task) => !task.archived && task.phase !== "queued" && !isHelperHeld(snapshot, task.id)), snapshot.sessions).map((task) => ({
       id: "task:" + task.id, title: withoutHarness(task.title) || task.id, task, relation: "Session unreported",
     })),
   ];

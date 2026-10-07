@@ -212,7 +212,8 @@ func WithdrawRun(h home.Home, id, reason string) error {
 // AFK mode, which the supervisor records only once the sending process is
 // proven to be the CFO. AFK mode's switch (afk-on, afk-off) is the one kind
 // the CFO may not send: the supervisor makes it only for a process proven to
-// be the Overlord's own terminal.
+// be the Overlord's own terminal. A helper is a goblin's ask for a helper
+// goblin, which its own terminal proved before sending.
 type runPipeRequest struct {
 	Kind        string             `json:"kind,omitempty"`
 	ID          string             `json:"id"`
@@ -231,7 +232,15 @@ type runPipeRequest struct {
 	AFK *afk.Entry `json:"afk,omitempty"`
 	// Asked is the Overlord's words when the CFO asks for his AFK switch at
 	// his ask, as the CFO quotes them.
-	Asked string `json:"asked,omitempty"`
+	Asked  string         `json:"asked,omitempty"`
+	Helper *HelperRequest `json:"helper,omitempty"`
+}
+
+// pipeReply is the supervisor's answer to one request over its pipe: why it
+// was refused, or, for a helper, the helper it is starting.
+type pipeReply struct {
+	Error  string       `json:"error,omitempty"`
+	Helper *HelperStart `json:"helper,omitempty"`
 }
 
 // acceptRunRequest records a run item that came over the pipe from process

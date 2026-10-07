@@ -23,6 +23,8 @@ export interface Task extends Evaluation {
   pending_engine?: { harness: string; model: string; effort: string; when: string };
   switching?: boolean;
   branch: string;
+  // parent is the goblin a helper works for, empty for every other task.
+  parent: string;
   runtime?: RuntimeEvidence;
   id: string;
   title: string;
@@ -723,6 +725,7 @@ export function parseSnapshot(value: unknown): Snapshot {
         starting: t.starting === undefined ? false : boolean(t.starting),
         start_error: string(t.start_error),
         priority: t.priority === undefined ? "" : string(t.priority),
+        parent: t.parent === undefined ? "" : string(t.parent),
         ...(t.progress == null ? {} : { progress: ((progress) => ({ at: string(progress.at), source: string(progress.source) }))(object(t.progress)) }),
         ...(t.ticket == null ? {} : { ticket: ((ticket) => ({ number: number(ticket.number), url: string(ticket.url), state: string(ticket.state) }))(object(t.ticket)) }),
         overlaps: array(t.overlaps).map((value) => { const o = object(value); return { ...parsePerson(o), what: string(o.what), url: string(o.url) }; }),

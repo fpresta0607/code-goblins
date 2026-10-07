@@ -109,3 +109,24 @@ test("a sub-agent its goblin's tree holds is a baby goblin under it, not a card 
   assert.ok(cards(held).includes("session:own") && !cards(held).includes("session:a1"), "the tree holds the sub-agent: " + cards(held).join(", "));
   assert.ok(cards(goblin).includes("session:a1"), "with no tree to hold it, the sub-agent keeps its card");
 });
+
+test("a helper goblin is drawn as a goblin baby under its parent and named a helper", () => {
+  assert.equal(babyFor(child({ kind: "helper" })), "helper");
+  assert.deepEqual(summarize(tree([child({ id: "helper:g-h1", kind: "helper", state: "working" })])).kinds, [["helper", 1]]);
+});
+
+test("a helper its parent's tree holds is a baby goblin under its parent, not a card of its own", () => {
+  const sessions = [
+    { id: "own", native_id: "own", harness: "claude", role: "goblin", task_id: "g" },
+    { id: "helper", native_id: "helper", harness: "claude", role: "goblin", task_id: "g-h1" },
+  ];
+  const helper = { id: "g-h1", parent: "g", phase: "working", verified: false };
+  const parent = { id: "g", phase: "working", verified: false };
+  const holding = { ...parent, tree: { task_id: "g", generation: "s1", harness: "claude", children: [{ id: "helper:g-h1", kind: "helper", state: "working" }] } };
+  const cards = (tasks: object[], withSessions = true) => workflowNodes(parseSnapshot({ healthy: true, tasks, sessions: withSessions ? sessions : [] })).map((node) => node.id);
+  assert.ok(cards([holding, helper]).includes("session:own") && !cards([holding, helper]).includes("session:helper"), "the tree holds the helper's session: " + cards([holding, helper]).join(", "));
+  assert.ok(!cards([holding, helper], false).includes("task:g-h1"), "the tree holds the helper's task: " + cards([holding, helper], false).join(", "));
+  assert.ok(cards([parent, helper]).includes("session:helper"), "a helper no tree holds keeps its card");
+  assert.equal(parseSnapshot({ healthy: true, tasks: [helper] }).tasks[0].parent, "g");
+  assert.equal(parseSnapshot({ healthy: true, tasks: [parent] }).tasks[0].parent, "");
+});

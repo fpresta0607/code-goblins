@@ -872,7 +872,7 @@ func TestNotifyInstructionTeachesWorkingAndWaitingReports(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	instruction := notifyInstruction("task-7")
+	instruction := notifyInstruction(state.TaskMeta{ID: "task-7"})
 
 	for _, want := range []string{
 		exe + " notify task-7 --working \"<what>\"",
@@ -902,7 +902,7 @@ func TestNotifyInstructionTeachesWorkingAndWaitingReports(t *testing.T) {
 // it that; the lavish-axi command and the --lavish flag keep their names.
 func TestNotifyInstructionCallsTheReviewPageScrawl(t *testing.T) {
 	// Act
-	instruction := notifyInstruction("task-7")
+	instruction := notifyInstruction(state.TaskMeta{ID: "task-7"})
 
 	// Assert
 	for _, want := range []string{
@@ -926,7 +926,7 @@ func TestNotifyInstructionCallsTheReviewPageScrawl(t *testing.T) {
 // as the option's exact text.
 func TestNotifyInstructionTellsAPageThatAsksHimToPickToDeclareItsChoices(t *testing.T) {
 	// Act
-	instruction := notifyInstruction("task-7")
+	instruction := notifyInstruction(state.TaskMeta{ID: "task-7"})
 
 	// Assert
 	for _, want := range []string{

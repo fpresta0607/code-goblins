@@ -25,6 +25,10 @@ const (
 	KindProcess Kind = "process"
 	// KindGate is the goblin's no-mistakes run.
 	KindGate Kind = "gate"
+	// KindHelper is a helper goblin the supervisor started for the goblin:
+	// a goblin of its own, on a branch cut from this one's, that reports to
+	// it.
+	KindHelper Kind = "helper"
 )
 
 // State is where a child stands.

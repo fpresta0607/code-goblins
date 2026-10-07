@@ -40,7 +40,8 @@ func (s *Service) readTrees(ctx context.Context) {
 	defer cancel()
 	trees := map[string]fleettree.Tree{}
 	live := map[string]bool{}
-	for _, meta := range liveTasks(s.Store.Home.State) {
+	metas := liveTasks(s.Store.Home.State)
+	for _, meta := range metas {
 		live[meta.ID] = true
 		if pass.Err() != nil {
 			break
@@ -60,9 +61,44 @@ func (s *Service) readTrees(ctx context.Context) {
 		trees[meta.ID] = tree
 	}
 	s.Options.Tree.Forget(live)
+	// A helper hangs under its parent as a child of the parent's tree; a
+	// parent whose tree was not read, such as a paused one, holds none.
+	now := time.Now().UTC()
+	for _, meta := range metas {
+		if parent, isRead := trees[meta.Parent]; meta.Parent != "" && isRead {
+			parent.Children = append(parent.Children, fleettree.HelperNode(meta, trees[meta.ID], s.helperStanding(meta), now))
+			trees[meta.Parent] = parent
+		}
+	}
 	s.mu.Lock()
 	s.trees = trees
 	s.mu.Unlock()
+}
+
+// helperStanding is where helper meta stands by its own records: its latest
+// report since it started and whether it is paused.
+func (s *Service) helperStanding(meta state.TaskMeta) fleettree.HelperStanding {
+	var standing fleettree.HelperStanding
+	stateDir := s.Store.Home.State
+	if record, err := state.ReadLifecycle(stateDir, meta.ID); err == nil && record.Generation == meta.SpawnGen && (record.Phase == "paused" || record.Phase == "pausing") {
+		standing.Paused = true
+	}
+	lines, err := state.TailStatus(stateDir, meta.ID, 200)
+	if err != nil {
+		return standing
+	}
+	born := spawnTime(meta.SpawnGen)
+	for i := len(lines) - 1; i >= 0; i-- {
+		stamp, event := state.SplitStatus(lines[i])
+		if !born.IsZero() && stamp.Before(born.Truncate(time.Second)) {
+			break
+		}
+		if kind := reportKind(event); kind != "" {
+			standing.Report, standing.ReportedAt = kind, stamp
+			break
+		}
+	}
+	return standing
 }
 
 // recordedSession is the conversation the board recorded for the task's

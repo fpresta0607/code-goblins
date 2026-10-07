@@ -1613,7 +1613,7 @@ func TestGoblinBlockedNotifyRewakesTheCFOWhileServeSupervises(t *testing.T) {
 		defer close(done)
 		time.Sleep(1500 * time.Millisecond)
 		var stdout, stderr bytes.Buffer
-		if exit := runNotify([]string{"g1", "--blocked", "Merge or hold? options: merge | hold"}, &stdout, &stderr); exit != 0 {
+		if exit := runNotify([]string{"g1", "--blocked", "Merge or hold? options: merge | hold"}, &stdout, &stderr, defaultCommandRuntime()); exit != 0 {
 			t.Errorf("notify exit=%d stderr=%s", exit, stderr.String())
 		}
 	}()

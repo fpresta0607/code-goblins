@@ -89,11 +89,12 @@ func (s Service) Path(project, name string) (string, error) {
 }
 
 // Acquire creates a fresh worktree named for task id in the project's folder
-// under Root, on origin's default branch. Spawn's per-home lock and task-id
-// uniqueness make the path itself the lease, so no second ledger can drift
-// from Git's own worktree registry.
-func (s Service) Acquire(ctx context.Context, project, id string) (Worktree, error) {
-	return s.acquire(ctx, project, id, "")
+// under Root, on ref, or on origin's default branch when ref is empty: a
+// helper's starts on its parent's last commit. Spawn's per-home lock and
+// task-id uniqueness make the path itself the lease, so no second ledger can
+// drift from Git's own worktree registry.
+func (s Service) Acquire(ctx context.Context, project, id, ref string) (Worktree, error) {
+	return s.acquire(ctx, project, id, ref)
 }
 
 // AddExtra creates a task's extra worktree, <id>-<name>, beside its own in

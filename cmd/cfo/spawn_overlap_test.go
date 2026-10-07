@@ -271,3 +271,37 @@ func TestTheDefaultRuntimeChecksOverlapBeforeASpawn(t *testing.T) {
 		t.Fatal("the real cfo has no repository read, so cfo spawn would start every task unchecked")
 	}
 }
+
+// A helper works inside its parent's area by definition, so its spawn reads
+// no teammate's work, which its parent's own spawn already did, and names
+// its parent on the request.
+func TestSpawnOfAHelperReadsNoTeammatesWorkAndNamesItsParent(t *testing.T) {
+	// Arrange
+	fixture := newOverlapSpawn(t, "Say why in tasks/billing_sync.py.")
+	deps := testCommandRuntimeForHome(fixture.home)
+	isRead := false
+	deps.repoActivity = func(context.Context, string, time.Time) (tickets.Activity, error) {
+		isRead = true
+		return fixture.activity, nil
+	}
+	var got spawn.Request
+	deps.spawn = func(_ context.Context, _ home.Home, request spawn.Request) (spawn.Result, error) {
+		got = request
+		return spawn.Result{Output: "spawned nw-h1"}, nil
+	}
+	var stdout, stderr bytes.Buffer
+
+	// Act
+	code := runWithRuntime([]string{"spawn", "nw-h1", "--project", fixture.checkout, "--brief", fixture.brief, "--harness", "claude", "--mode", "local-only", "--parent", "nw"}, &stdout, &stderr, deps)
+
+	// Assert
+	if code != 0 {
+		t.Fatalf("exit = %d, want 0; stderr=%s", code, stderr.String())
+	}
+	if isRead {
+		t.Error("a helper's spawn read the repository for teammates' work")
+	}
+	if got.Parent != "nw" || got.Mode != "local-only" || got.ID != "nw-h1" {
+		t.Errorf("request = %+v, want a local-only helper of nw", got)
+	}
+}

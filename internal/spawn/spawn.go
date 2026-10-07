@@ -50,6 +50,9 @@ type Request struct {
 	// backlog row, kept on the task so the board names it once the row leaves
 	// the queue.
 	Title string
+	// Parent, for a helper goblin, is the task that asked for it: the helper
+	// works on a branch cut from the parent's last commit and reports to it.
+	Parent string
 	// Capsule, when set, writes the task capsule into the task temporary
 	// directory and returns the brief the goblin reads instead of BriefPath.
 	// It runs only once the id is proven free, because the alias check
@@ -139,6 +142,9 @@ func (s Service) Spawn(ctx context.Context, req Request) (result Result, err err
 	if err := validateDeliveryContract(req); err != nil {
 		return Result{}, err
 	}
+	if err := validateHelperRequest(req); err != nil {
+		return Result{}, err
+	}
 	var selection *pipeline.Selection
 	if req.Class == "" {
 		req.Class = "ordinary"
@@ -202,6 +208,12 @@ func (s Service) Spawn(ctx context.Context, req Request) (result Result, err err
 			return Result{}, err
 		}
 	}
+	var helper helperBase
+	if req.Parent != "" {
+		if helper, err = s.helperStart(ctx, req, project); err != nil {
+			return Result{}, err
+		}
+	}
 	if req.Capsule != nil {
 		// A spawn that fails before the task is published has no teardown, so
 		// the capsule goes with it rather than claiming the id for a retry.
@@ -242,7 +254,7 @@ func (s Service) Spawn(ctx context.Context, req Request) (result Result, err err
 	if err != nil {
 		return Result{}, err
 	}
-	wt, err := s.Worktrees.Acquire(ctx, project, req.ID)
+	wt, err := s.Worktrees.Acquire(ctx, project, req.ID, helper.head)
 	if err != nil {
 		return Result{}, fmt.Errorf("spawn: acquire task worktree: %w", err)
 	}
@@ -289,6 +301,15 @@ func (s Service) Spawn(ctx context.Context, req Request) (result Result, err err
 	}
 	if err := worktree.Validate(ctx, git, project, wt.Path); err != nil {
 		return fail(result, fmt.Errorf("spawn: validate task worktree: %w", err))
+	}
+	if helper.branch != "" {
+		switched, err := s.commands().Run(ctx, execx.Request{Dir: wt.Path, Name: "git", Args: []string{"switch", "--quiet", "--create", helper.branch}})
+		if err == nil && switched.ExitCode != 0 {
+			err = errors.New(strings.TrimSpace(string(switched.Stderr)))
+		}
+		if err != nil {
+			return fail(result, fmt.Errorf("spawn: cut the helper's branch %s from %s: %w", helper.branch, helper.parentBranch, err))
+		}
 	}
 
 	if err := adapter.Validate(ctx, s.commands()); err != nil {
@@ -349,7 +370,7 @@ func (s Service) Spawn(ctx context.Context, req Request) (result Result, err err
 	// Every goblin is told to report its outcome through cfo notify, so the
 	// CFO is woken with the actual PR URL, question, or failure reason instead
 	// of the watcher guessing from its screen.
-	launch.Instruction = spawnInstruction(req.BriefPath, req.ID)
+	launch.Instruction = spawnInstruction(req.BriefPath, result.Meta)
 	if selection != nil {
 		launch.Instruction += selection.Instruction(req.ID, filepath.Join(taskTmp, "pipeline.json"))
 	}
@@ -530,6 +551,22 @@ func validateRequest(req Request) error {
 	return nil
 }
 
+// validateHelperRequest refuses a helper that could push or open a pull
+// request: its parent does both, so a helper is a ship task in local-only
+// mode.
+func validateHelperRequest(req Request) error {
+	if req.Parent == "" {
+		return nil
+	}
+	if err := state.ValidTaskID(req.Parent); err != nil {
+		return fmt.Errorf("spawn: parent: %w", err)
+	}
+	if req.Kind != "ship" || req.Mode != "local-only" {
+		return errors.New("spawn: a helper is a ship task in local-only mode: its parent pushes and opens the pull request")
+	}
+	return nil
+}
+
 func requireBrief(req Request) error {
 	if req.BriefPath == "" {
 		return errors.New("spawn: brief path is required")
@@ -630,6 +667,7 @@ func partialResult(req Request, project, taskTmp, worktree, scratch string) Resu
 		Effort:         valueOrDefault(req.Effort),
 		Backend:        "native",
 		Title:          req.Title,
+		Parent:         req.Parent,
 	}
 	if req.Kind == "ship" {
 		meta.Mode = req.Mode
@@ -703,23 +741,32 @@ func (s Service) ensureProjectSeeded(ctx context.Context, project string) error 
 // spawnInstruction is the full first instruction a goblin receives: read the
 // brief, then report outcomes through cfo notify so the CFO is woken with the
 // real payload rather than a guess from its screen.
-func spawnInstruction(briefPath, id string) string {
-	return harness.BriefInstruction(briefPath) + notifyInstruction(id)
+func spawnInstruction(briefPath string, meta state.TaskMeta) string {
+	return harness.BriefInstruction(briefPath) + notifyInstruction(meta)
 }
 
 // notifyInstruction tells a goblin how to report its outcome through cfo
 // notify, so the CFO is woken with the actual payload instead of the watcher
-// guessing from its screen.
-func notifyInstruction(id string) string {
+// guessing from its screen. A helper reports to its parent instead, and a
+// ship goblin is told it may ask for a helper.
+func notifyInstruction(meta state.TaskMeta) string {
 	exe, err := os.Executable()
 	if err != nil {
 		exe = "cfo"
+	}
+	if meta.Parent != "" {
+		return helperInstruction(exe, meta)
+	}
+	id := meta.ID
+	offer := ""
+	if meta.Kind == "ship" {
+		offer = helperOffer(exe, id)
 	}
 	return " Report outcomes to the CFO: on completion with a PR run: " + exe + " notify " + id + " --done --pr <url>. When blocked on a decision run: " + exe + " notify " + id + " --blocked \"<question>\"; the CFO reads it as body text, so lead with one short sentence that is the actual question, put the details on lines of their own that start with \"- \" (a real line break, such as `n in PowerShell), and mark with **two asterisks** only the verdict or the blocking item, never the whole question; when the question has a fixed set of choices, name them after one literal options: marker separated by |, as in \"<question> options: Fix it next (Recommended) | Keep 300 s\", ending the choice you recommend with (Recommended); each choice is the answer itself as a short phrase, never a bare letter or number like a, b or 2, which notify refuses, and details stay in the \"- \" lines. cfo drain renders those as the decision's options; the CFO answers it, and his answer arrives here as a message. Never wait on the CFO for a choice you can undo: take the better option, say which with --working, and keep going; a choice you cannot undo or make yourself is a question for --blocked, never one asked in your reply. On failure run: " + exe + " notify " + id + " --failed \"<reason>\". To say you are back at work or what you are doing run: " + exe + " notify " + id + " --working \"<what>\"; when you wait on another task, CI, a deploy or the Overlord personally (his sign-in, his click, his page) instead of asking a question run: " + exe + " notify " + id + " --waiting-on <task-id|overlord|ci|deploy|memory> \"<why>\"; a choice the CFO can make, such as whether to start something now or later, is a question, not a wait on the Overlord: ask it with --blocked and options." +
 		" When the Overlord must answer on a Scrawl page (his review page; call it Scrawl when you name it to him), open it with lavish-axi <html-file> --no-open, then run: " + exe + " notify " + id + " --waiting-on overlord \"<why>\" --lavish <html-file>, and never run lavish-axi poll yourself: the supervisor polls the page, and his answer reaches you through the CFO." +
 		" When the page asks him to pick, declare its choices in it with a <script type=\"application/json\" data-lavish-choices> block as the lavish skill shows, each option the answer itself as a short phrase: the page draws them as a radio list and his pick reaches you as the option's exact text; a page without it shows him no choices." +
 		" When the Overlord must run a command himself, such as a sign-in, never paste it into your words: write it to a .ps1 file and run: " + exe + " notify " + id + " --waiting-on overlord \"<why>\" --run <command.ps1>; his card shows the exact command and runs it with one click in a window he can use, and you are told how it ended." +
-		" For a successful browser walkthrough or a Scrawl presentation that needs no answer, use lavish-axi --no-open and report its safe URL with cfo present --id <stable-id> --task " + id + " --generation <CFO_SPAWN_GEN> --kind browser|review --url <safe-url>. Refresh only while live and report --state ended when finished. A viewing choice never pauses your work. See docs/native-board.md; do not publish secrets, query parameters or browser history."
+		" For a successful browser walkthrough or a Scrawl presentation that needs no answer, use lavish-axi --no-open and report its safe URL with cfo present --id <stable-id> --task " + id + " --generation <CFO_SPAWN_GEN> --kind browser|review --url <safe-url>. Refresh only while live and report --state ended when finished. A viewing choice never pauses your work. See docs/native-board.md; do not publish secrets, query parameters or browser history." + offer
 }
 
 func (s Service) releaseTaskLock(dir, name string) error {

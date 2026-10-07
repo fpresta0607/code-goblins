@@ -509,3 +509,24 @@ func (g RunnerGit) ArchiveTag(ctx context.Context, dir string, landing Landing, 
 	}
 	return "", fmt.Errorf("worktree: tags %s already name other commits; archive %q by hand", strings.Join(tags, " and "), dir)
 }
+
+// HoldsHead reports whether the history checked out in holder holds the
+// commit checked out in dir, as a parent's branch holds its helper's work
+// once the parent merged it.
+func (g RunnerGit) HoldsHead(ctx context.Context, holder, dir string) (bool, error) {
+	head, err := g.required(ctx, dir, "git", "rev-parse", "--verify", "--quiet", "HEAD^{commit}")
+	if err != nil {
+		return false, fmt.Errorf("worktree: read HEAD of %q: %w", dir, err)
+	}
+	ancestor, err := g.command(ctx, holder, "git", "merge-base", "--is-ancestor", strings.TrimSpace(string(head.Stdout)), "HEAD")
+	if err != nil {
+		return false, fmt.Errorf("worktree: compare %q with %q: %w", dir, holder, err)
+	}
+	switch ancestor.ExitCode {
+	case 0:
+		return true, nil
+	case 1:
+		return false, nil
+	}
+	return false, commandFailure("git merge-base --is-ancestor", ancestor)
+}

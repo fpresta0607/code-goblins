@@ -613,6 +613,11 @@ func finishedTasks(h home.Home, now time.Time) []Task {
 				}
 				generation = record.Generation
 				task = Task{ID: "finished:" + id, Title: record.Title, Project: filepath.Base(record.Project), Archived: true, Dependencies: []string{}, Lifecycle: lifecycleStatus(record), Teardown: record.TeardownLabels(), Evaluation: Evaluation{Phase: "stopped", Reason: record.Reason, At: record.Updated}}
+				// A stop never relabels what its own generation delivered: a
+				// helper its parent merged is retired through Stop.
+				if outcome, err := state.ReadOutcome(stateDir, id); err == nil && outcome.Generation == record.Generation && outcome.Phase == "done" {
+					task.Phase = "done"
+				}
 				if at := slices.IndexFunc(tasks, func(existing Task) bool { return existing.ID == task.ID }); at >= 0 {
 					task.PR, task.Branch = tasks[at].PR, tasks[at].Branch
 					task.Harness, task.Model, task.Effort = tasks[at].Harness, tasks[at].Model, tasks[at].Effort

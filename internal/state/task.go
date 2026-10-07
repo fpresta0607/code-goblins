@@ -52,6 +52,10 @@ type TaskMeta struct {
 	// Extras are the extra worktrees `cfo worktree add` made for the task
 	// beside its own, which go with it.
 	Extras []string
+	// Parent is the goblin a helper works for: the task that asked the
+	// supervisor for it, whose branch its own is cut from and to which it
+	// reports. Empty for every task the CFO dispatched.
+	Parent string
 }
 
 // extrasSeparator joins a task's extra worktrees in its record. Windows
@@ -252,6 +256,7 @@ func ReadTaskMeta(stateDir, id string) (TaskMeta, error) {
 		HerdrPaneID:      kv["herdr_pane_id"],
 		Title:            kv["title"],
 		Scratch:          kv["scratch"],
+		Parent:           kv["parent"],
 	}
 	if extras := kv["extras"]; extras != "" {
 		meta.Extras = strings.Split(extras, extrasSeparator)
@@ -337,6 +342,7 @@ func WriteTaskMeta(stateDir string, meta TaskMeta) error {
 		"title":              meta.Title,
 		"scratch":            meta.Scratch,
 		"extras":             strings.Join(meta.Extras, extrasSeparator),
+		"parent":             meta.Parent,
 	}
 	if meta.Kind == "ship" {
 		fields["mode"] = meta.Mode
@@ -351,6 +357,14 @@ func WriteTaskMeta(stateDir string, meta TaskMeta) error {
 }
 
 func validateTaskMetaValues(meta TaskMeta) error {
+	if meta.Parent != "" {
+		if err := ValidTaskID(meta.Parent); err != nil {
+			return fmt.Errorf("state: task metadata parent: %w", err)
+		}
+		if strings.EqualFold(meta.Parent, meta.ID) {
+			return fmt.Errorf("state: task %s cannot be its own parent", meta.ID)
+		}
+	}
 	fields := []struct {
 		name  string
 		value string
