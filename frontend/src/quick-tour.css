@@ -1,0 +1,19 @@
+/* The quick tour fills the window: what it is not about is dimmed around one
+   lit part of the board, outlined in the goblins' lantern, and the CFO's
+   card sits beside that part as a goblin dialogue box. */
+.quick-tour { position: fixed; inset: 0; width: 100%; height: 100%; max-width: none; max-height: none; margin: 0; padding: 0; overflow: hidden; border: 0; background: transparent; color: inherit; }
+.quick-tour::backdrop { background: transparent; }
+.quick-tour.unlit::backdrop { background: #02070abd; }
+.quick-tour-light { position: fixed; box-shadow: 0 0 0 200vmax #02070abd; outline: 2px solid #F2B447; outline-offset: 2px; pointer-events: none; }
+.quick-tour .quick-tour-card { position: fixed; width: min(460px, calc(100vw - 32px)); }
+.quick-tour-card .dialogue-box { grid-template-columns: auto minmax(0, 1fr); align-items: start; padding-right: 64px; }
+.quick-tour-card .dialogue-text { display: grid; gap: 6px; padding-top: 4px; }
+.quick-tour-card .dialogue-text p { color: var(--bone-dim); }
+.quick-tour-title { margin: 0; color: var(--bone); font: 400 1.1875rem/1.3 var(--font-display); }
+.quick-tour-card .dialogue-actions { grid-column: 1 / -1; justify-content: space-between; }
+.quick-tour .dialogue .quick-tour-skip { position: absolute; top: 12px; right: 12px; }
+.quick-tour-steps { display: flex; gap: 6px; }
+.quick-tour-steps span { width: 10px; height: 10px; background: var(--edge); }
+.quick-tour-steps span.now { background: var(--lantern); }
+.quick-tour-icon { display: inline-grid; vertical-align: -5px; }
+.quick-tour-icon .icon { width: 22px; height: 22px; }

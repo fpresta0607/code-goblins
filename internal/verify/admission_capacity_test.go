@@ -46,7 +46,10 @@ func TestAdmissionSharedCapacityDeterminesTheMinimumFloor(t *testing.T) {
 					a := admissionWithCapacity(t, capacity)
 					a.Floor, a.Limit = sample.requested, 20*time.Millisecond
 					a.Available = func() (uint64, error) { return sample.available, nil }
-					ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+					// A refusal must come from the 20 ms limit, never from this
+					// bound, which only ends a run that hangs: a turn's lock
+					// files alone can take a second on a loaded workstation.
+					ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
 					defer cancel()
 
 					// Act
@@ -160,7 +163,7 @@ func TestAdmissionCapacityTwoReclaimsOnlyTheGoneProcessIdentity(t *testing.T) {
 			if err := os.WriteFile(filepath.Join(a.Dir, slot), data, 0o600); err != nil {
 				t.Fatal(err)
 			}
-			ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+			ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
 			defer cancel()
 
 			// Act
@@ -213,7 +216,11 @@ func TestAdmissionCapacityTwoNeverExceedsTwoConcurrentHolders(t *testing.T) {
 			}
 		}
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	// The one bound is for a run that hangs. The six turns come one after
+	// another, each writing and reading lock files, which a busy machine can
+	// slow to tenths of a second a file: six took up to 25 seconds on a
+	// loaded workstation without anything being wrong.
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
 	defer cancel()
 	leave := make(chan struct{})
 	var runs sync.WaitGroup
@@ -241,13 +248,10 @@ func TestAdmissionCapacityTwoNeverExceedsTwoConcurrentHolders(t *testing.T) {
 			finished.Add(1)
 		}()
 	}
-	deadline := time.NewTimer(5 * time.Second)
-	defer deadline.Stop()
 	select {
 	case <-blocked:
-	case <-deadline.C:
+	case <-ctx.Done():
 		t.Error("no waiter reached the occupied shared slots")
-		cancel()
 	}
 	close(leave)
 	runs.Wait()
