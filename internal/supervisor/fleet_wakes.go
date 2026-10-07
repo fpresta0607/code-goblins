@@ -369,11 +369,7 @@ func diskLowDetail(h home.Home, reading Disk, now time.Time) string {
 // start now, top of the queue first, and the live goblins whose latest report
 // is a wait on memory.
 func memoryWork(h home.Home, finished finishedWork) (queued, waiting []string) {
-	for _, id := range queuedCandidates(h) {
-		if _, err := planStart(h, id, finished); err == nil {
-			queued = append(queued, id)
-		}
-	}
+	queued = startableQueued(h, finished)
 	for _, meta := range liveTasks(h.State) {
 		if record, err := state.ReadLifecycle(h.State, meta.ID); err == nil && record.Generation == meta.SpawnGen && record.Phase == "paused" && record.Pause != nil && record.Pause.Reason == "memory" {
 			waiting = append(waiting, meta.ID)

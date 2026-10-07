@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/fpresta0607/code-goblins/internal/execx"
+	"github.com/fpresta0607/code-goblins/internal/home"
 	"github.com/fpresta0607/code-goblins/internal/host"
 	"github.com/fpresta0607/code-goblins/internal/nativehook"
 	"github.com/fpresta0607/code-goblins/internal/supervisor"
@@ -77,6 +78,17 @@ func runNativeHook(args []string, input io.Reader, stdout, stderr io.Writer, run
 	// shows on the board as the registration state rather than in the reply.
 	if e.Kind == "started" && e.Role == "cfo" && e.TaskID == "" && (e.Harness == "codex" || e.Harness == "pi") && os.Getenv(host.IDVariable) != "" {
 		_, _ = supervisor.Register(*dir, e.Harness, e.SessionID)
+	}
+	// A Codex or pi CFO has no Stop hook that reopens its turn, so the turn it
+	// ends idle while work waits raises the idle wake, which the supervisor
+	// types into its terminal as it does every wake. A failure never fails the
+	// hook the harness runs.
+	if e.Kind == "settled" && e.Role == "cfo" && e.TaskID == "" && (e.Harness == "codex" || e.Harness == "pi") && supervisor.RunsUnderRegisteredCFO(*dir) {
+		if memory, err := hookMemory(); err == nil {
+			if _, err := supervisor.IdleTurnWake(home.Home{Root: *root, State: *dir, Data: filepath.Join(*root, "data")}, memory, time.Now().UTC()); err != nil {
+				fmt.Fprintln(stderr, "idle wake:", err)
+			}
+		}
 	}
 	return 0
 }

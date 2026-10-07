@@ -252,6 +252,13 @@ func hookTurnendGuard(stdin io.Reader, stdout, stderr io.Writer) int {
 	}
 	state := h.State
 
+	// The fleet never idles while work waits: a turn the home's CFO ends with
+	// no goblin at work while work that could run waits and memory is free
+	// is reopened with the next work named.
+	if reopen := reopenIdleTurn(h, payload.SessionID); reopen != "" {
+		return claudehook.BlockStop(stderr, reopen)
+	}
+
 	guardGrace := claudehook.Seconds("CFO_GUARD_GRACE", 300)
 	epochFresh := claudehook.Seconds("CFO_CLAUDE_AUTOARM_EPOCH_FRESH", 15)
 	syncWait := time.Duration(claudehook.Int("CFO_CLAUDE_AUTOARM_SYNC_WAIT_MS", 800, 0, 60000)) * time.Millisecond
@@ -329,6 +336,37 @@ func hookTurnendGuard(stdin io.Reader, stdout, stderr io.Writer) int {
 
 	// upstream step 6: block, with the blind-turn banner.
 	return claudehook.BlockStop(stderr, fmt.Sprintf(blindTurnBanner, inFlight, beatAge(state)))
+}
+
+// idleTurnBanner reopens a turn that would end idle: %s is the idle wake.
+const idleTurnBanner = "cfo turn reopened - work waits, no goblin is at work and memory is free.\n%s\nRun cfo drain, start or resume the work it names, and acknowledge with the WAKE_ACK_REQUIRED command it prints."
+
+// hookMemory reads the machine's memory for the turn-end guard.
+var hookMemory = supervisor.MachineMemory
+
+// reopenIdleTurn is the banner that reopens the turn of the session holding
+// the home when it ends with no goblin at work while work that could run
+// waits and memory is free, naming the next work, or "" when the turn may
+// end. The same next work reopens a turn once per half hour, so a CFO that
+// cannot start it is not held at every turn end; the supervisor's idle wake
+// covers the rest. Any other session in the home is not the CFO.
+func reopenIdleTurn(h home.Home, session string) string {
+	holder, err := lock.Read(h.State)
+	if err != nil || session == "" || holder.Session != session || !holder.VerifiedAlive() {
+		return ""
+	}
+	memory, err := hookMemory()
+	if err != nil {
+		return ""
+	}
+	detail, err := supervisor.IdleTurnWake(h, memory, time.Now().UTC())
+	if err != nil || detail == "" {
+		return ""
+	}
+	// The reopened turn drains the wake, so the auto-arm does not rewake the
+	// session for it a second time.
+	_ = markRewoken(h.State)
+	return withAFKBanner(h.State, fmt.Sprintf(idleTurnBanner, detail))
 }
 
 // pollAutoarmProof checks supervise.AutoarmOwnsRecovery immediately, then
@@ -612,9 +650,11 @@ func hookStopAutoarmWithConfig(h home.Home, payload claudehook.Payload, stdout, 
 		}
 	}
 
-	// Step 3: need gate. An unlistable state directory never arms.
+	// Step 3: need gate. An unlistable state directory never arms. Queued
+	// work that could start needs the CFO as much as a goblin in flight: the
+	// wakes it raises reach the CFO only through this hook.
 	needed, _, err := supervise.Needed(state)
-	if err != nil || !needed {
+	if err != nil || !needed && !supervisor.WorkWaits(h) {
 		return 0
 	}
 
@@ -712,7 +752,7 @@ func hookStopAutoarmWithConfig(h home.Home, payload claudehook.Payload, stdout, 
 	// whatever the loop durably queued (a wake record, a published
 	// episode) survives for a later drain regardless, and this firing
 	// does not need to force an immediate handling turn for it.
-	if stillNeeded, _, err := supervise.Needed(state); err != nil || !stillNeeded {
+	if stillNeeded, _, err := supervise.Needed(state); err != nil || !stillNeeded && !supervisor.WorkWaits(h) {
 		recordOutcome("clean")
 		return 0
 	}

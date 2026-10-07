@@ -166,29 +166,19 @@ func (s *Service) pauseCleared(ctx context.Context, condition state.PauseConditi
 	case "memory":
 		return watched.MemoryAbove >= 2, nil
 	case "allowance":
-		at, err := time.Parse(time.RFC3339, condition.Until)
-		return err == nil && !now.Before(at), err
+		return pauseClearedHere(s.Store.Home.State, condition, now)
 	case "dependency":
 		kind, target, _ := strings.Cut(condition.Until, ":")
-		switch kind {
-		case "date":
-			at, err := time.Parse(time.RFC3339, target)
-			return err == nil && !now.Before(at), err
-		case "task":
-			outcome, err := state.ReadOutcome(s.Store.Home.State, target)
-			if errors.Is(err, os.ErrNotExist) {
-				return false, nil
-			}
-			return err == nil && outcome.Phase == "done", err
-		case "pr":
-			if s.Options.PullRequestState == nil {
-				return false, nil
-			}
-			probe, cancel := context.WithTimeout(ctx, ghCallTimeout)
-			defer cancel()
-			pull, err := s.Options.PullRequestState(probe, target)
-			return err == nil && pull.State == "MERGED", err
+		if kind != "pr" {
+			return pauseClearedHere(s.Store.Home.State, condition, now)
 		}
+		if s.Options.PullRequestState == nil {
+			return false, nil
+		}
+		probe, cancel := context.WithTimeout(ctx, ghCallTimeout)
+		defer cancel()
+		pull, err := s.Options.PullRequestState(probe, target)
+		return err == nil && pull.State == "MERGED", err
 	case "question":
 		for _, question := range s.Store.Snapshot().Questions {
 			if question.ID == condition.Until {
