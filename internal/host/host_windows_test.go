@@ -742,6 +742,7 @@ func TestTheHostOutlivesItsLauncher(t *testing.T) {
 	if err != nil {
 		t.Fatalf("the launcher printed %q, want the host's pid", output)
 	}
+	pin(t, hostPID)
 	t.Cleanup(func() { end(hostPID) })
 	record, err := ReadRecord(stateDir, "g1")
 	if err != nil || record.HostPID != hostPID {
@@ -785,6 +786,7 @@ func TestClosingTheTerminalLeavesNoProcess(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	pin(t, grandchild)
 
 	if err := v.CloseTerminal(); err != nil {
 		t.Fatalf("CloseTerminal: %v", err)
@@ -811,6 +813,7 @@ func TestAKilledHostTakesItsTerminalWithIt(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	pin(t, grandchild)
 
 	end(record.HostPID)
 

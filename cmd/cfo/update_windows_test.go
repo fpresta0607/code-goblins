@@ -1508,10 +1508,9 @@ func TestRecoverAfterARestartFinishesADegradedUpdateWithTheBoardServing(t *testi
 		t.Fatal(err)
 	}
 	last := journal.Attempts[len(journal.Attempts)-1]
-	if process, err := os.FindProcess(last.PID); err == nil {
-		_ = process.Kill()
-		_ = process.Release()
-	}
+	// Ended only as the process the journal names, never one that took its
+	// pid since.
+	_ = proc.TerminateVerified(last.PID, last.Start, func([]string) error { return nil })
 	for deadline := time.Now().Add(10 * time.Second); processIs(serveProcess{pid: last.PID, start: last.Start}); time.Sleep(100 * time.Millisecond) {
 		if time.Now().After(deadline) {
 			t.Fatal("the backup's supervisor did not end")
