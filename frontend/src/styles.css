@@ -747,7 +747,7 @@ button.line-number { min-height: 32px; display: flex; align-items: flex-start; j
 .voice-bubble.recording::before { box-shadow: inset 0 0 0 2px var(--moss); }
 .voice-dot { width: 10px; height: 10px; flex: none; background: #ff5f57; }
 .voice-bars { display: inline-flex; align-items: center; gap: 3px; height: 24px; }
-.voice-bars span { width: 3px; height: 24px; background: var(--moss); transform: scaleY(.2); transition: transform 70ms linear; }
+.voice-bars span { width: 3px; height: 24px; background: var(--moss); transform: scaleY(.125); transition: transform 70ms linear; }
 .voice-card { position: absolute; right: 14px; bottom: calc(100% + 8px); z-index: 4; display: grid; gap: 10px; width: min(400px, calc(100% - 28px)); padding: 18px 20px; color: var(--bone); filter: drop-shadow(3px 3px 0 var(--soot)); }
 .voice-card::before { border: 2px solid var(--soot); background: var(--hide); box-shadow: inset 0 0 0 2px var(--edge); }
 .voice-card p { margin: 0; overflow-wrap: anywhere; }
