@@ -90,27 +90,16 @@ var mutationMutex sync.Mutex
 // withLock serializes a wake-state read-modify-write behind
 // state/.wake-queue.lock. The process-local mutex serializes goroutines,
 // since the file lock accepts a same-process holder.
-// A live holder is waited out within lockBudget,
-// 10 ms after the first attempt and twice as long after each next one up to
-// half a second, and past it the contention is returned to the caller
-// rather than swallowed; a dead holder is stolen by the lock package
-// itself, so a process killed inside fn cannot wedge the home.
+// A live holder is waited out within lockBudget, and past it the contention
+// is returned to the caller rather than swallowed; a dead holder is stolen
+// by the lock package itself, so a process killed inside fn cannot wedge the
+// home.
 func withLock(dir string, fn func() error) error {
 	mutationMutex.Lock()
 	defer mutationMutex.Unlock()
 
-	deadline := time.Now().Add(lockBudget)
-	wait := 10 * time.Millisecond
-	for {
-		_, err := lock.AcquireNamedOwner(dir, wakeLockName, os.Getpid(), "wake")
-		if err == nil {
-			break
-		}
-		if !errors.Is(err, lock.ErrHeld) || time.Now().Add(wait).After(deadline) {
-			return err
-		}
-		time.Sleep(wait)
-		wait = min(2*wait, 500*time.Millisecond)
+	if _, err := lock.AcquireNamedOwnerWithin(dir, wakeLockName, os.Getpid(), "wake", lockBudget); err != nil {
+		return err
 	}
 	defer lock.ReleaseNamed(dir, wakeLockName)
 	return fn()
