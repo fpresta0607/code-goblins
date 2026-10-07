@@ -50,6 +50,9 @@ func TestASpawnWhoseDependencyStepBlocksDoesNotBlockAnotherStart(t *testing.T) {
 	// Arrange: the second start is a real native spawn; the first goes into
 	// a project whose npm install never ends until the test lets it, and
 	// stops at its terminal's launch, which comes after its dependency step.
+	// Both run the fixture's stand-in codex, which a launch starts through
+	// cmd without looking for any harness on PATH, so the first stops there
+	// for want of a host command on a machine with no harness installed too.
 	second := newQuickFixture(t)
 	closeTerminalAtEnd(t, second.stateDir, second.request.ID)
 	firstWorktree := makeDir(t, filepath.Join(filepath.Dir(second.worktree), "first-worktree"))
@@ -59,11 +62,9 @@ func TestASpawnWhoseDependencyStepBlocksDoesNotBlockAnotherStart(t *testing.T) {
 	first := second.service
 	first.Worktrees.Git = &worktreeGit{events: &firstEvents, top: firstWorktree}
 	first.Worktrees.Commands = gate
-	first.Harness = harness.Registry{Adapters: map[harness.Kind]harness.Adapter{harness.Claude: fixtureAdapter{events: &firstEvents}}}
 	first.HostCommand = nil
 	firstRequest := second.request
 	firstRequest.ID = "task-8"
-	firstRequest.Harness = harness.Claude
 	firstDone := make(chan error, 1)
 	go func() {
 		_, err := first.Spawn(context.Background(), firstRequest)
