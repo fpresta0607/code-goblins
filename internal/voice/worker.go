@@ -56,6 +56,12 @@ type workerLog struct {
 	data  []byte
 }
 
+// answered is the line the worker writes on its standard error once it has
+// answered a sound, after anything it said about that sound. Its standard
+// error reaches the log apart from its answers, so it is the one way to tell
+// a later dictation's words from a line of an earlier one still on its way.
+const answered = "\x00voice-worker answered\n"
+
 func (l *workerLog) Write(data []byte) (int, error) {
 	l.mutex.Lock()
 	defer l.mutex.Unlock()
@@ -63,11 +69,15 @@ func (l *workerLog) Write(data []byte) (int, error) {
 	return len(data), nil
 }
 
-// since returns what was written after the first mark bytes.
-func (l *workerLog) since(mark int) []byte {
+// sinceAnswered returns what was written after the last answer, or since the
+// worker started when it answered none.
+func (l *workerLog) sinceAnswered() []byte {
 	l.mutex.Lock()
 	defer l.mutex.Unlock()
-	return l.data[mark:]
+	if at := bytes.LastIndex(l.data, []byte(answered)); at >= 0 {
+		return l.data[at+len(answered):]
+	}
+	return l.data
 }
 
 // worker is one running `cfo voice-worker`.
@@ -199,8 +209,6 @@ func (v *Voice) exchange(ctx context.Context, sound []byte) (string, error) {
 		v.worker = w
 	}
 	w := v.worker
-	// An error quotes only what the worker wrote during this dictation.
-	mark := len(w.log.since(0))
 	answer := make(chan workerAnswer, 1)
 	go func() { answer <- w.ask(sound) }()
 	var reply workerAnswer
@@ -214,8 +222,11 @@ func (v *Voice) exchange(ctx context.Context, sound []byte) (string, error) {
 	case reply = <-answer:
 	}
 	if reply.err != nil {
+		// Retiring waits for the worker to exit, by which time all it wrote
+		// is in its log; the error quotes only what it wrote after its last
+		// answer.
 		v.retire()
-		return "", fmt.Errorf("the dictation engine failed: %w: %s", reply.err, lastLines(w.log.since(mark), 3))
+		return "", fmt.Errorf("the dictation engine failed: %w: %s", reply.err, lastLines(w.log.sinceAnswered(), 3))
 	}
 	w.uses++
 	uses := w.uses
@@ -290,8 +301,10 @@ func writeFrame(output io.Writer, data []byte) error {
 }
 
 // RunWorker is the worker's side: it recognises each sound input brings and
-// answers on output, until input closes.
-func RunWorker(input io.Reader, output io.Writer, recognize func([]byte) (string, error)) error {
+// answers on output, until input closes. said is the worker's standard error,
+// where the engine says what it has to say, and it is marked after each
+// answer.
+func RunWorker(input io.Reader, output, said io.Writer, recognize func([]byte) (string, error)) error {
 	for {
 		sound, err := readFrame(input, MAX_SOUND_BYTES)
 		if err == io.EOF {
@@ -308,6 +321,9 @@ func RunWorker(input io.Reader, output io.Writer, recognize func([]byte) (string
 		}
 		data, err := json.Marshal(reply)
 		if err != nil {
+			return err
+		}
+		if _, err := io.WriteString(said, answered); err != nil {
 			return err
 		}
 		if err := writeFrame(output, data); err != nil {

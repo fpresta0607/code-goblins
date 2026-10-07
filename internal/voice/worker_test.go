@@ -55,7 +55,7 @@ func standInWorker(arguments []string) int {
 	if errors.Is(err, os.ErrNotExist) {
 		recognize, err := OpenWorker(options)
 		if err == nil {
-			err = RunWorker(os.Stdin, os.Stdout, recognize)
+			err = RunWorker(os.Stdin, os.Stdout, os.Stderr, recognize)
 		}
 		if err != nil {
 			fmt.Fprintln(os.Stderr, err)
@@ -75,7 +75,7 @@ func standInWorker(arguments []string) int {
 		return 3
 	}
 	answered := 0
-	err = RunWorker(os.Stdin, os.Stdout, func(sound []byte) (string, error) {
+	err = RunWorker(os.Stdin, os.Stdout, os.Stderr, func(sound []byte) (string, error) {
 		answered++
 		if fixture.Role == "dies silently later" && answered > 1 {
 			os.Exit(255)
@@ -492,7 +492,7 @@ func TestTheWorkerRefusesABrokenFrameWithoutRecognising(t *testing.T) {
 	binary.LittleEndian.PutUint32(oversized[:], MAX_SOUND_BYTES+1)
 	for _, input := range [][]byte{{0, 0, 0, 0}, {1, 0}, {1, 0, 0, 0}, {2, 0, 0, 0, 1}, oversized[:]} {
 		recognised := false
-		err := RunWorker(bytes.NewReader(input), io.Discard, func([]byte) (string, error) {
+		err := RunWorker(bytes.NewReader(input), io.Discard, io.Discard, func([]byte) (string, error) {
 			recognised = true
 			return "words", nil
 		})
@@ -503,13 +503,13 @@ func TestTheWorkerRefusesABrokenFrameWithoutRecognising(t *testing.T) {
 }
 
 func TestTheWorkerAnswersEachSoundAndKeepsGoingAfterOneItCannotRecognise(t *testing.T) {
-	var input, output bytes.Buffer
+	var input, output, said bytes.Buffer
 	for _, sound := range []string{"first", "second"} {
 		if err := writeFrame(&input, []byte(sound)); err != nil {
 			t.Fatal(err)
 		}
 	}
-	if err := RunWorker(&input, &output, func(sound []byte) (string, error) {
+	if err := RunWorker(&input, &output, &said, func(sound []byte) (string, error) {
 		if string(sound) == "first" {
 			return "", errors.New("Failed to read sound")
 		}
@@ -529,5 +529,8 @@ func TestTheWorkerAnswersEachSoundAndKeepsGoingAfterOneItCannotRecognise(t *test
 	}
 	if output.Len() != 0 {
 		t.Fatalf("the worker wrote %d bytes more", output.Len())
+	}
+	if said.String() != answered+answered {
+		t.Fatalf("the worker said %q, want each answer marked", said.String())
 	}
 }

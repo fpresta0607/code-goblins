@@ -21,7 +21,7 @@ func runVoiceWorker(arguments []string, input io.Reader, output, stderr io.Write
 		fmt.Fprintf(stderr, "voice-worker: %v\n", err)
 		return 1
 	}
-	if err := voice.RunWorker(input, output, recognize); err != nil {
+	if err := voice.RunWorker(input, output, stderr, recognize); err != nil {
 		fmt.Fprintf(stderr, "voice-worker: %v\n", err)
 		return 1
 	}
