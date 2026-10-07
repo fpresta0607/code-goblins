@@ -13,6 +13,7 @@ import (
 	"strings"
 	"sync/atomic"
 	"testing"
+	"time"
 )
 
 // fixtureSHA256 is the SHA-256 of testdata/part.tar.bz2, which holds
@@ -32,8 +33,10 @@ func TestMain(m *testing.M) {
 	os.Exit(m.Run())
 }
 
-// quiet is a progress nobody listens to.
-func quiet(string, int64, int64) {}
+// quiet is a progress nobody listens to, and quietPart one of a part's.
+func quiet(int64, int64) {}
+
+func quietPart(int64) {}
 
 // refusesEverything fails the test that sends a request through it.
 type refusesEverything struct{ t *testing.T }
@@ -43,8 +46,11 @@ func (r refusesEverything) RoundTrip(request *http.Request) (*http.Response, err
 	return nil, errors.New("no network in this test")
 }
 
+// fixtureSize is the size in bytes of testdata/part.tar.bz2.
+const fixtureSize = 288
+
 func part(name, url string) Part {
-	return Part{Name: name, Version: "1.0", URL: url, SHA256: fixtureSHA256, Files: []string{"bin/program.txt", "bin/library.txt", "tokens.txt"}}
+	return Part{Name: name, Version: "1.0", URL: url, SHA256: fixtureSHA256, Size: fixtureSize, Files: []string{"bin/program.txt", "bin/library.txt", "tokens.txt"}}
 }
 
 // served answers every request with the fixture archive and counts them.
@@ -84,8 +90,8 @@ func entries(t *testing.T, dir string) []string {
 }
 
 func TestSettingsAreReadWholeAndRefusedWhenTheyDoNotPinADownload(t *testing.T) {
-	valid := `{"engine":{"name":"engine","version":"1","url":"https://example.test/e.tar.bz2","sha256":"` + fixtureSHA256 + `","files":["bin/e.exe"]},
-"model":{"name":"model","version":"2","url":"https://example.test/m.tar.bz2","sha256":"` + fixtureSHA256 + `","files":["tokens.txt"]},
+	valid := `{"engine":{"name":"engine","version":"1","url":"https://example.test/e.tar.bz2","sha256":"` + fixtureSHA256 + `","size":1,"files":["bin/e.exe"]},
+"model":{"name":"model","version":"2","url":"https://example.test/m.tar.bz2","sha256":"` + fixtureSHA256 + `","size":1,"files":["tokens.txt"]},
 "program":"e.exe","args":["--num-threads=2","--encoder={model}/e.onnx","--decoder={model}/d.onnx","--joiner={model}/j.onnx","--tokens={model}/tokens.txt","--model-type=nemo_transducer"]}`
 	path := filepath.Join(t.TempDir(), "voice.json")
 	if err := os.WriteFile(path, []byte(valid), 0o600); err != nil {
@@ -100,7 +106,8 @@ func TestSettingsAreReadWholeAndRefusedWhenTheyDoNotPinADownload(t *testing.T) {
 	}
 	for name, change := range map[string][2]string{
 		"a download that is not https":   {"https://example.test/m.tar.bz2", "http://example.test/m.tar.bz2"},
-		"a checksum that is not SHA-256": {`"sha256":"` + fixtureSHA256 + `","files":["tokens.txt"]`, `"sha256":"abc","files":["tokens.txt"]`},
+		"a checksum that is not SHA-256": {`"sha256":"` + fixtureSHA256 + `","size":1,"files":["tokens.txt"]`, `"sha256":"abc","size":1,"files":["tokens.txt"]`},
+		"a part with no size":            {`"size":1,"files":["tokens.txt"]`, `"files":["tokens.txt"]`},
 		"a part with no files":           {`"files":["tokens.txt"]`, `"files":[]`},
 		"a file that leaves its folder":  {`"files":["tokens.txt"]`, `"files":["../tokens.txt"]`},
 		"an archive that is not tar.bz2": {"https://example.test/m.tar.bz2", "https://example.test/m.zip"},
@@ -124,6 +131,44 @@ func TestSettingsAreReadWholeAndRefusedWhenTheyDoNotPinADownload(t *testing.T) {
 	}
 }
 
+func TestAFetchTellsHowMuchOfTheWholeDownloadHasArrived(t *testing.T) {
+	archive, err := os.ReadFile(filepath.Join("testdata", "part.tar.bz2"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Each archive arrives in two halves, so progress is told inside each part.
+	server := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Length", fmt.Sprint(len(archive)))
+		_, _ = w.Write(archive[:len(archive)/2])
+		w.(http.Flusher).Flush()
+		time.Sleep(50 * time.Millisecond)
+		_, _ = w.Write(archive[len(archive)/2:])
+	}))
+	t.Cleanup(server.Close)
+	voice := &Voice{Settings: Settings{Engine: part("engine", server.URL+"/engine.tar.bz2"), Model: part("model", server.URL+"/model.tar.bz2"), Program: "library.txt"}, Dir: t.TempDir(), Client: server.Client()}
+	if missing := voice.Missing(); missing != 2*fixtureSize {
+		t.Fatalf("with nothing fetched %d bytes are missing, want both parts' %d", missing, 2*fixtureSize)
+	}
+	var told [][2]int64
+	if err := voice.Fetch(context.Background(), func(done, total int64) { told = append(told, [2]int64{done, total}) }); err != nil {
+		t.Fatal(err)
+	}
+	var engineDone, insideModel bool
+	for index, progress := range told {
+		if progress[1] != 2*fixtureSize || progress[0] < 0 || progress[0] > progress[1] || index > 0 && progress[0] < told[index-1][0] {
+			t.Fatalf("progress %v is not a count of the whole download that only grows: %v", progress, told)
+		}
+		engineDone = engineDone || progress[0] == fixtureSize
+		insideModel = insideModel || progress[0] > fixtureSize && progress[0] < 2*fixtureSize
+	}
+	if !engineDone || !insideModel || told[len(told)-1] != [2]int64{2 * fixtureSize, 2 * fixtureSize} {
+		t.Fatalf("progress did not pass the engine's end, count on through the model and finish whole: %v", told)
+	}
+	if missing := voice.Missing(); missing != 0 {
+		t.Fatalf("after the fetch %d bytes are missing", missing)
+	}
+}
+
 func TestAFetchKeepsOnlyTheNamedFilesOfADownloadThatMatchesItsChecksum(t *testing.T) {
 	server, asked := served(t)
 	dir := t.TempDir()
@@ -133,7 +178,7 @@ func TestAFetchKeepsOnlyTheNamedFilesOfADownloadThatMatchesItsChecksum(t *testin
 	if err := voice.ready(wanted); err == nil {
 		t.Fatal("a part that was never fetched reads ready")
 	}
-	if err := voice.fetch(context.Background(), wanted, func(_ string, done, total int64) { progress = append(progress, done, total) }); err != nil {
+	if err := voice.fetch(context.Background(), wanted, func(done int64) { progress = append(progress, done) }); err != nil {
 		t.Fatal(err)
 	}
 	got := entries(t, dir)
@@ -150,8 +195,8 @@ func TestAFetchKeepsOnlyTheNamedFilesOfADownloadThatMatchesItsChecksum(t *testin
 	if asked.Load() != 1 {
 		t.Fatalf("the download was asked for %d times", asked.Load())
 	}
-	if len(progress) < 2 || progress[len(progress)-2] != 288 || progress[len(progress)-1] != 288 {
-		t.Fatalf("progress ended at %v, want 288 of 288 bytes", progress)
+	if len(progress) == 0 || progress[len(progress)-1] != fixtureSize {
+		t.Fatalf("progress ended at %v, want all %d bytes", progress, fixtureSize)
 	}
 	// A part whose file was changed or removed is not ready.
 	if err := os.WriteFile(filepath.Join(dir, "engine-1.0", "library.txt"), []byte("longer than before\n"), 0o600); err != nil {
@@ -181,7 +226,7 @@ func TestAnArchiveWhoseEntriesStartWithADotFolderIsUnpackedTheSame(t *testing.T)
 	voice := &Voice{Dir: dir, Client: server.Client()}
 	wanted := part("model", server.URL+"/dotted.tar.bz2")
 	wanted.SHA256 = "61a0b071b5a67cfaa02ea47e90c7648a106a8afc6172aff97b431c428270f80b"
-	if err := voice.fetch(context.Background(), wanted, quiet); err != nil {
+	if err := voice.fetch(context.Background(), wanted, quietPart); err != nil {
 		t.Fatal(err)
 	}
 	if got, want := strings.Join(entries(t, dir), " "), "model-1.0/library.txt model-1.0/program.txt model-1.0/tokens.txt model-1.0/verified.json"; got != want {
@@ -219,7 +264,7 @@ func TestADownloadThatDoesNotMatchItsChecksumIsRefusedAndNothingIsKept(t *testin
 	voice := &Voice{Dir: dir, Client: server.Client()}
 	wrong := part("engine", server.URL+"/part.tar.bz2")
 	wrong.SHA256 = strings.Repeat("0", 64)
-	err := voice.fetch(context.Background(), wrong, quiet)
+	err := voice.fetch(context.Background(), wrong, quietPart)
 	if err == nil {
 		t.Fatal("a download with the wrong checksum was accepted")
 	}
@@ -242,7 +287,7 @@ func TestADownloadWithoutAWantedFileIsRefusedAndNothingIsKept(t *testing.T) {
 	voice := &Voice{Dir: dir, Client: server.Client()}
 	missing := part("engine", server.URL+"/part.tar.bz2")
 	missing.Files = append(missing.Files, "bin/absent.txt")
-	err := voice.fetch(context.Background(), missing, quiet)
+	err := voice.fetch(context.Background(), missing, quietPart)
 	if err == nil || !strings.Contains(err.Error(), "bin/absent.txt") {
 		t.Fatalf("a download without bin/absent.txt answered %v", err)
 	}
@@ -259,7 +304,7 @@ func TestOfflineTheFetchSaysWhatToDoAndAFilePlacedByHandIsUsedWithoutTheNetwork(
 	dir := t.TempDir()
 	voice := &Voice{Dir: dir, Client: client}
 	wanted := part("model", url)
-	err := voice.fetch(context.Background(), wanted, quiet)
+	err := voice.fetch(context.Background(), wanted, quietPart)
 	if err == nil {
 		t.Fatal("a fetch with no network succeeded")
 	}
@@ -279,7 +324,7 @@ func TestOfflineTheFetchSaysWhatToDoAndAFilePlacedByHandIsUsedWithoutTheNetwork(
 	if err := os.WriteFile(place, archive, 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if err := voice.fetch(context.Background(), wanted, quiet); err != nil {
+	if err := voice.fetch(context.Background(), wanted, quietPart); err != nil {
 		t.Fatalf("the file placed by hand was not used: %v", err)
 	}
 	if err := voice.ready(wanted); err != nil {
@@ -293,7 +338,7 @@ func TestOfflineTheFetchSaysWhatToDoAndAFilePlacedByHandIsUsedWithoutTheNetwork(
 	if err := os.WriteFile(filepath.Join(other, "part.tar.bz2"), append(archive, 0), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if err := (&Voice{Dir: other, Client: client}).fetch(context.Background(), wanted, quiet); err == nil || !strings.Contains(err.Error(), "checksum") {
+	if err := (&Voice{Dir: other, Client: client}).fetch(context.Background(), wanted, quietPart); err == nil || !strings.Contains(err.Error(), "checksum") {
 		t.Fatalf("a changed file placed by hand answered %v", err)
 	}
 }
@@ -369,7 +414,7 @@ func TestAFetchRefusesAProgramItCannotCheckForNetworking(t *testing.T) {
 	voice := &Voice{Dir: dir, Client: server.Client()}
 	// testdata/program.tar.bz2 holds part-1.0/bin/engine.exe, which is text.
 	wanted := Part{Name: "engine", Version: "1.0", URL: server.URL + "/program.tar.bz2", SHA256: programSHA256, Files: []string{"bin/engine.exe"}}
-	err = voice.fetch(context.Background(), wanted, quiet)
+	err = voice.fetch(context.Background(), wanted, quietPart)
 	if err == nil || !strings.Contains(err.Error(), "engine.exe") {
 		t.Fatalf("a program that cannot be read answered %v", err)
 	}
@@ -440,7 +485,7 @@ func TestAHomeUsesItsOwnSettingsAndOtherwiseTheBuilds(t *testing.T) {
 	if voice.Settings.Model.Name != "parakeet-tdt-110m" || voice.Dir != filepath.Join(root, "caches", "voice") {
 		t.Fatalf("a home with no settings of its own got %s in %s", voice.Settings.Model.Name, voice.Dir)
 	}
-	want := "parakeet-tdt-110m en-36000-int8 on sherpa-onnx 1.13.8, not fetched yet: the first dictation downloads it once into " + voice.Dir
+	want := "parakeet-tdt-110m en-36000-int8 on sherpa-onnx 1.13.8, not fetched yet: the first dictation downloads it once, 125 MB, into " + voice.Dir
 	if got := voice.Summary(); got != want {
 		t.Fatalf("summary %q, want %q", got, want)
 	}
