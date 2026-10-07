@@ -25,13 +25,36 @@ type Resources struct {
 	Gate        pipeline.InterruptedRun
 }
 
-// TaskResources is the task-to-resources boundary. Supervisor-owned helpers
-// can extend this set without changing Pause or Stop's termination rules.
-// Every directory it names is the task's own by its identity: the worktree
-// spawn made for it in the home, or where an older build put it, the extra
-// worktrees it recorded beside that, its task temporary directory and its
-// scratch folder, so a record that names anything else stops nothing.
+// TaskResources is the task-to-resources boundary. A task's helpers are its
+// own, so their resources join its set without changing Pause or Stop's
+// termination rules: stopping a parent ends whatever its helpers' own stops
+// left. Every directory it names is a task's own by its identity: the
+// worktree spawn made for it in the home, or where an older build put it,
+// the extra worktrees it recorded beside that, its task temporary directory
+// and its scratch folder, so a record that names anything else stops
+// nothing.
 func TaskResources(ctx context.Context, h home.Home, meta state.TaskMeta, gate pipeline.Reader) (Resources, error) {
+	resources, err := ownResources(ctx, h, meta, gate.Commands)
+	if err != nil {
+		return resources, err
+	}
+	helpers, err := state.HelpersOf(h.State, meta.ID)
+	if err != nil {
+		return resources, err
+	}
+	for _, helper := range helpers {
+		owned, err := ownResources(ctx, h, helper, gate.Commands)
+		if err != nil {
+			return resources, fmt.Errorf("helper %s: %w", helper.ID, err)
+		}
+		resources.Directories = append(resources.Directories, owned.Directories...)
+		resources.Hosts = append(resources.Hosts, owned.Hosts...)
+	}
+	return withGate(ctx, meta, gate, resources)
+}
+
+// ownResources are the directories and terminal one task holds itself.
+func ownResources(ctx context.Context, h home.Home, meta state.TaskMeta, commands execx.Runner) (Resources, error) {
 	var resources Resources
 	stateDir := h.State
 	project := filepath.Base(filepath.Clean(meta.Project))
@@ -86,7 +109,7 @@ func TaskResources(ctx context.Context, h home.Home, meta state.TaskMeta, gate p
 			resources.Hosts = append(resources.Hosts, Identity{PID: record.HostPID, Started: started})
 		}
 	} else if meta.Backend == "herdr" {
-		client := &herdr.Client{Commands: gate.Commands, Session: meta.HerdrSession}
+		client := &herdr.Client{Commands: commands, Session: meta.HerdrSession}
 		target := herdr.Target{Session: meta.HerdrSession, Pane: meta.HerdrPaneID}
 		info, err := client.PaneProcessInfo(ctx, target)
 		if err != nil {
@@ -107,6 +130,11 @@ func TaskResources(ctx context.Context, h home.Home, meta state.TaskMeta, gate p
 			resources.Hosts = append(resources.Hosts, Identity{PID: info.ShellPID, Started: started})
 		}
 	}
+	return resources, nil
+}
+
+// withGate adds the task's open gate run, and its worktree, to resources.
+func withGate(ctx context.Context, meta state.TaskMeta, gate pipeline.Reader, resources Resources) (Resources, error) {
 	if _, err := os.Stat(filepath.Join(gate.Root, "state.sqlite")); errors.Is(err, os.ErrNotExist) {
 		return resources, nil
 	} else if err != nil {

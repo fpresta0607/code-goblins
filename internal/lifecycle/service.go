@@ -24,6 +24,11 @@ type Request struct {
 }
 
 type Operations struct {
+	// Helpers pauses or stops the task's helpers as the task itself is
+	// paused or stopped, first, so each gets its own record, and says what
+	// became of each; one that fails is the task's problem to name, never a
+	// reason to keep it running.
+	Helpers    func(context.Context, state.TaskMeta, *state.Lifecycle) ([]string, error)
 	Prepare    func(context.Context, state.TaskMeta, string) error
 	Stop       func(context.Context, state.TaskMeta, *state.Lifecycle) ([]string, error)
 	Checkpoint func(context.Context, state.TaskMeta, *state.Lifecycle) error
@@ -176,6 +181,13 @@ func (service Service) Run(ctx context.Context, request Request) (result state.L
 		}
 		result.Phase = "running"
 	} else {
+		var helpers []string
+		if service.Operations.Helpers != nil {
+			var helperErr error
+			if helpers, helperErr = service.Operations.Helpers(ctx, meta, &result); helperErr != nil {
+				result.Problems = append(result.Problems, helperErr.Error())
+			}
+		}
 		if request.Action == "pause" {
 			wait := service.PauseWait
 			if wait <= 0 {
@@ -224,6 +236,7 @@ func (service Service) Run(ctx context.Context, request Request) (result state.L
 			}
 		}
 		result.Stopped, err = service.Operations.Stop(ctx, meta, &result)
+		result.Stopped = append(result.Stopped, helpers...)
 		if err == nil && service.Operations.Checkpoint != nil {
 			err = service.Operations.Checkpoint(ctx, meta, &result)
 		}

@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -433,4 +434,69 @@ func TestPauseInstructionPublishesTheHandoffAfterThePush(t *testing.T) {
 	if push < 0 || draft < push || publish < draft {
 		t.Fatalf("handoff is not published last, after the push: %q", instruction)
 	}
+}
+
+// Pausing or stopping a parent pauses or stops its helpers first, through
+// the same operation, and a helper whose own operation fails never holds its
+// parent back: the parent's sweep ends what the helper left. Resume reaches
+// no helper, since each start needs its own memory.
+func TestPauseAndStopReachTheHelpersBeforeTheParentsOwnProcesses(t *testing.T) {
+	for _, test := range []struct{ action, reason, phase, want string }{
+		{"pause", "overlord", "paused", "helpers pause pausing"},
+		{"stop", "Requested by the operator", "stopped", "helpers stop stopping"},
+	} {
+		t.Run(test.action, func(t *testing.T) {
+			// Arrange
+			service, meta := lifecycleFixture(t)
+			var order []string
+			service.Operations.Helpers = func(_ context.Context, parent state.TaskMeta, record *state.Lifecycle) ([]string, error) {
+				order = append(order, "helpers "+record.Action+" "+record.Phase)
+				return []string{"helper task-h2 " + test.phase}, errors.New("helper task-h1: its terminal did not answer")
+			}
+			prepare, stop := service.Operations.Prepare, service.Operations.Stop
+			service.Operations.Prepare = func(ctx context.Context, meta state.TaskMeta, path string) error {
+				order = append(order, "prepare")
+				return prepare(ctx, meta, path)
+			}
+			service.Operations.Stop = func(ctx context.Context, meta state.TaskMeta, record *state.Lifecycle) ([]string, error) {
+				order = append(order, "stop")
+				return stop(ctx, meta, record)
+			}
+
+			// Act
+			record, err := service.Run(context.Background(), Request{ID: meta.ID, Generation: meta.SpawnGen, Operation: "op-1", Action: test.action, Reason: test.reason})
+
+			// Assert
+			if err != nil || record.Phase != test.phase {
+				t.Fatalf("%s = %+v, %v; want %s despite the helper", test.action, record, err, test.phase)
+			}
+			if len(order) == 0 || order[0] != test.want || order[len(order)-1] != "stop" {
+				t.Errorf("order = %v, want the helpers first and the parent's own stop last", order)
+			}
+			if !slices.ContainsFunc(record.Problems, func(problem string) bool { return strings.Contains(problem, "helper task-h1") }) {
+				t.Errorf("problems = %v, want the helper's failure named", record.Problems)
+			}
+			if !slices.Contains(record.Stopped, "fixture process") || !slices.Contains(record.Stopped, "helper task-h2 "+test.phase) {
+				t.Errorf("stopped = %v, want the parent's processes and what became of the helper", record.Stopped)
+			}
+		})
+	}
+	t.Run("resume", func(t *testing.T) {
+		service, meta := lifecycleFixture(t)
+		isReached := false
+		service.Operations.Helpers = func(context.Context, state.TaskMeta, *state.Lifecycle) ([]string, error) {
+			isReached = true
+			return nil, nil
+		}
+		if _, err := service.Run(context.Background(), Request{ID: meta.ID, Generation: meta.SpawnGen, Operation: "op-1", Action: "pause", Reason: "overlord"}); err != nil {
+			t.Fatal(err)
+		}
+		isReached = false
+		if _, err := service.Run(context.Background(), Request{ID: meta.ID, Generation: meta.SpawnGen, Operation: "op-2", Action: "resume"}); err != nil {
+			t.Fatal(err)
+		}
+		if isReached {
+			t.Error("Resume reached the helpers")
+		}
+	})
 }
