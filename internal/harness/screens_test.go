@@ -66,6 +66,54 @@ func TestCodexsUpdatePromptIsAnsweredOnlyWithSkip(t *testing.T) {
 	}
 }
 
+// Codex 0.160 asks whether to trust a folder it was never told to trust with
+// a new prompt, captured live on 2026-10-07 when a spawn into a new project
+// gave up on it after two minutes. It is answered as the older directory
+// trust prompt is, with Trust and continue, never Quit, however its sentence
+// wraps; Escape would quit Codex.
+func TestCodexsFolderTrustPromptIsAnsweredWithTrustAndContinue(t *testing.T) {
+	// Arrange
+	screens, _ := NativeScreens(Codex)
+	prompt := []string{
+		"  Note: You’re in a subdirectory of a Git project. Trusting will apply to the repository root:",
+		`  c:\users\o\appdata\local\temp\esc-proof\projects\esc-proof`,
+		"",
+		"  Trust this folder? Codex can read, edit, and run files here, subject to your permission settings. Folder settings",
+		"  can run code automatically, even without a model request. Continue only if you trust these files. Your trust",
+		"  decision will be saved.",
+		"",
+		"› 1. Trust and continue",
+		"  2. Quit",
+		"",
+		"  enter continue · esc quit",
+	}
+	wrapped := []string{"  Trust this", "  folder? Codex can read, edit, and run files here.", "  1. Trust and continue", "› 2. Quit", "  enter continue · esc quit"}
+	for name, test := range map[string]struct {
+		screen []string
+		chosen bool
+	}{
+		"focus on Trust and continue": {prompt, true},
+		"wrapped, focus on Quit":      {wrapped, false},
+	} {
+		t.Run(name, func(t *testing.T) {
+			// Act
+			dialog, found := screens.Dialog(test.screen)
+			focused, ok := dialog.Focused(test.screen)
+
+			// Assert
+			if !found || !ok {
+				t.Fatalf("Dialog = %q (found %v), focus %q (read %v); want the folder trust prompt with its focus read", dialog.Name, found, focused, ok)
+			}
+			if dialog.Chosen(focused) != test.chosen {
+				t.Errorf("focus on %q: chosen %v, want %v", focused, dialog.Chosen(focused), test.chosen)
+			}
+			if screens.IsReady(test.screen) {
+				t.Error("the prompt reads as Codex's composer waiting for input")
+			}
+		})
+	}
+}
+
 func TestCodexsOptionalDaybreakOfferBlocksTheComposer(t *testing.T) {
 	screens, _ := NativeScreens(Codex)
 	for name, test := range map[string]struct {

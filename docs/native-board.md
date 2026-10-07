@@ -48,7 +48,7 @@ Run inside a Herdr pane there is nothing to attach, so `goblins` only brings the
 A supervisor started in the background has no terminal for Ctrl-C to reach, so `goblins stop` writes `state/serve.stop` naming the record's pid and waits up to 30 seconds for the board to stop answering.
 The supervisor checks for that request on its notification tick, which comes at least every two seconds between cycles, and stops as it would on Ctrl-C, removing its record; a request naming any other pid is left over from a supervisor that already ended, so it is removed and stops nothing.
 A supervisor also removes any request left from before it started, so a reused pid cannot stop it.
-`goblins stop --force` ends the recorded pid's process tree with `taskkill /T /F` and removes the record instead, and a record whose supervisor does not answer as itself is removed without stopping anything; a supervisor whose snapshot is slow still answers, so its record is never taken for stale.
+`goblins stop --force` ends the recorded pid's process tree with `taskkill /T /F`, or one process at a time when a machine service (Docker Desktop, the no-mistakes daemon) runs under it, which it leaves running, and removes the record instead, and a record whose supervisor does not answer as itself is removed without stopping anything; a supervisor whose snapshot is slow still answers, so its record is never taken for stale.
 Restarting with the same CFO home recovers durable events, evaluations, actions, and lineage.
 
 ## Native hook setup
@@ -596,6 +596,7 @@ The board's first-run page reads the same remembered harness, shows it as chosen
 In a native terminal Claude Code runs as `claude.exe` and codex and pi as their npm script shims through `cmd /c`, as a native goblin's do; goblins starts no CFO in Herdr.
 A harness that is not installed or not signed in goes to the quick start's install or sign-in step, and nothing is remembered or started until it is ready.
 Its command line ends with one first prompt, which has it run `cfo register` in that terminal and then do what AGENTS.md says a CFO does at the start of a session; Claude Code needs none, since its SessionStart hook registers it and prints the digest.
+A Codex CFO starts with `--no-alt-screen`, as a Codex goblin does, so it draws inline, its history stays in the terminal's own scrollback and a drag in the board selects its text.
 What a CFO in each harness gets is one table, `supervisor.CFOCapabilities`: how it is woken, how it registers, whether a closed one comes back on its conversation, and what it goes without.
 The quick start's notes, the first-run page and `cfo doctor`, whose `cfo harness:` line names the remembered harness with a `goes without:` line for each thing it lacks, all read that table, so none says more than another.
 A real Codex CFO and a real pi CFO started this way were proved in scratch homes on 2026-10-02: each registered itself within 15 seconds of its terminal opening, ran `cfo session-start` and the other start-of-session checks, and acknowledged a queued wake within 12 seconds of the supervisor typing its line; the Codex CFO's terminal was then closed, and started again with `codex resume` and the same first prompt it registered again on the conversation it had (`TestACFOStartedAsGoblinsStartsItRegistersIsWokenAndComesBack`, run only when asked).
@@ -644,7 +645,7 @@ The terminal's environment starts from the one Windows gives a new process of th
 The harness billing keys and every known session marker, such as `CLAUDECODE`, `CLAUDE_CODE_CHILD_SESSION` and the Herdr pane's variables, are dropped from it all the same, then the project's credentials and the launch's variables, `CFO_ROLE=goblin` among them, are added and win: a native task has no credentials script.
 A Claude Code setting such as `CLAUDE_CODE_GIT_BASH_PATH` therefore reaches a native goblin only when it is configured for the user or the machine, not when only the spawning session sets it.
 The spawn reads the terminal's screen throughout and types only where it recognizes what it reads.
-A startup dialog it knows is answered only once it has shown for a moment, by moving the focus down and checking each move on the screen before confirming: Claude's trust dialog, which focuses "No, exit" first, Codex's update prompt (Skip), trust prompt (Yes) and hook review (Continue without trusting, never Trust all), and the project trust prompt of a pi without `--approve` (Trust (this session only), never a trust pi saves).
+A startup dialog it knows is answered only once it has shown for a moment, by moving the focus down and checking each move on the screen before confirming: Claude's trust dialog, which focuses "No, exit" first, Codex's update prompt (Skip), trust prompt (Yes, or Trust and continue in Codex 0.160's folder trust prompt) and hook review (Continue without trusting, never Trust all), and the project trust prompt of a pi without `--approve` (Trust (this session only), never a trust pi saves).
 Trusting a hook is the Overlord's decision, so a Codex goblin runs without the hooks its review listed, and the spawn reports them to the CFO as `cfo notify` does, with a working status and a wake naming the command hooks of `hooks.json` in `CODEX_HOME` and in the project's `.codex`; a hooks file it cannot read is named in that report, never a reason to stop, and `config.toml` `[hooks]` tables are not named.
 A prompt a spawn may not answer, or a screen it does not recognize within the startup budget, stops the spawn with the terminal named and its screen quoted.
 The instruction is typed into the composer once the composer has stayed ready for two seconds with no dialog drawn over it, submitted once the composer shows it, and the spawn succeeds only once the harness shows it working.
@@ -996,14 +997,15 @@ Before an announcement the board claims the event through `POST /api/announce` (
 The supervisor hands each key to the first request and keeps it for thirty days, at most 2048 keys, so a second tab or a restart never announces that item or stretch again.
 While [AFK mode](#afk-mode) is on it hands out nothing and records what was asked about, so nothing announces while the Overlord is away or repeats when he returns.
 A hidden tab waits a second and a half before claiming, giving a visible tab the first chance; with no tab in view the hidden tab can send its Windows notification.
-An announcement is claimed as `alert:<key>` cut to 160 characters, within the endpoint's 512 byte bound, and an unreachable supervisor falls back on what the browser remembers.
+An item's announcement is claimed as `alert:<item key>@<created_at>`, and a goblin's news as `alert:<key>` cut to 160 characters, within the endpoint's 512 byte bound; an unreachable supervisor falls back on what the browser remembers.
 An item's identity prevents repeats, and identical words from the same goblin within five minutes are one event.
+The supervisor takes an item's ID again once it has dropped the record that used it, so an ID published again with another `created_at` is a new item: it is announced again, and the earlier publication's announcement leaves.
 A goblin's next pull request alerts at once; the same news more than five minutes later can alert again.
 The browser remembers the last 100 announcements it showed.
 A toast steps up once as it arrives, or appears under reduced motion, leaves after eight seconds unless the pointer or keyboard rests on it, and can be dismissed; at most four show, newest at the bottom.
 Windows notifications require `document.hidden`: a hidden tab or minimized window, not an unfocused window that remains visible.
 The browser asks for notification permission once, with the first announcement, and a notification click opens its item or terminal.
-An announcement and its notification leave when their item closes or the quiet-CFO stretch ends.
+An announcement and its notification leave when their item closes or is published again under its ID, or the quiet-CFO stretch ends.
 A click on an item already closed opens the Command Center's list, never another item's card.
 Its card shows the title, its images as thumbnails that open the same full-size gallery as a question's, and its own page, when it has one, as a preview named Scrawl page that opens the page with Open review and never repeats the title.
 An item whose page the supervisor watches (an HTML page given with `--lavish`) is answered on that page, so its card has no text box: it finishes when the Overlord sends or ends the review there, or he closes it with Clear.

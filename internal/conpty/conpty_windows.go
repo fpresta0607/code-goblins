@@ -33,7 +33,8 @@ type Spec struct {
 // Console is one running pseudo console and the process in it. The process
 // and everything it starts share a job object, so Close ends them all, except
 // a process that asks to break away (a goblin host, a detached serve), which
-// leaves the job and outlives Close. The console's input waker runs in the
+// leaves the job and outlives Close, and a machine service started in it,
+// which Close leaves running (endJob). The console's input waker runs in the
 // job too.
 type Console struct {
 	pc         windows.Handle
@@ -337,12 +338,13 @@ func (c *Console) ExitCode() uint32 {
 	return c.code
 }
 
-// Close ends the process and everything it started, and releases the
-// console; the console's owner calls it once. Closing the pseudo console can
-// wait for its output to be read, so the output is drained here too.
+// Close ends the process and everything it started but a machine service
+// (endJob), and releases the console; the console's owner calls it once.
+// Closing the pseudo console can wait for its output to be read, so the
+// output is drained here too.
 func (c *Console) Close() error {
 	close(c.closing)
-	err := windows.TerminateJobObject(c.job, 1)
+	err := endJob(c.job)
 	go func() {
 		buffer := make([]byte, 32<<10)
 		for {
