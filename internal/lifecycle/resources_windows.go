@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -176,6 +177,11 @@ func stopResources(ctx context.Context, resources Resources, stop func(context.C
 	stopped := []string{}
 	var teardown []state.TeardownProcess
 	finished := map[Identity]bool{}
+	// The first sweep ends the hosts, so their jobs are kept for the services
+	// in them before it.
+	if err := keepServicesPastHosts(resources.Hosts); err != nil {
+		return stopped, teardown, err
+	}
 	for sweep := 0; sweep < 4; sweep++ {
 		processes, err := Inventory(ctx, resources.Directories, resources.Hosts)
 		if err != nil {
@@ -240,4 +246,32 @@ func stopResources(ctx context.Context, resources Resources, stop func(context.C
 		}
 	}
 	return stopped, teardown, nil
+}
+
+// keepServicesPastHosts stops a task host's job from ending a machine service
+// in it (proc.Service) when the host ends: teardown ends the host, and with it
+// the job's last handle, which would end every process still in the job.
+func keepServicesPastHosts(hosts []Identity) error {
+	if len(hosts) == 0 {
+		return nil
+	}
+	services, err := proc.RunningServices()
+	if err != nil {
+		return fmt.Errorf("identify the machine services running: %w", err)
+	}
+	for _, host := range hosts {
+		if started, exists := proc.StartTime(host.PID); !exists || !started.Equal(host.Started) {
+			continue
+		}
+		members, err := proc.JobProcesses(host.PID)
+		if err != nil {
+			return fmt.Errorf("read task host %d job: %w", host.PID, err)
+		}
+		if slices.ContainsFunc(members, func(member proc.Entry) bool { return services[member.PID] != proc.NoService }) {
+			if err := proc.KeepJobsOnClose(host.PID); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
 }

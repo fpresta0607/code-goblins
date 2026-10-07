@@ -48,7 +48,7 @@ Run inside a Herdr pane there is nothing to attach, so `goblins` only brings the
 A supervisor started in the background has no terminal for Ctrl-C to reach, so `goblins stop` writes `state/serve.stop` naming the record's pid and waits up to 30 seconds for the board to stop answering.
 The supervisor checks for that request on its notification tick, which comes at least every two seconds between cycles, and stops as it would on Ctrl-C, removing its record; a request naming any other pid is left over from a supervisor that already ended, so it is removed and stops nothing.
 A supervisor also removes any request left from before it started, so a reused pid cannot stop it.
-`goblins stop --force` ends the recorded pid's process tree with `taskkill /T /F` and removes the record instead, and a record whose supervisor does not answer as itself is removed without stopping anything; a supervisor whose snapshot is slow still answers, so its record is never taken for stale.
+`goblins stop --force` ends the recorded pid's process tree with `taskkill /T /F`, or one process at a time when a machine service (Docker Desktop, the no-mistakes daemon) runs under it, which it leaves running, and removes the record instead, and a record whose supervisor does not answer as itself is removed without stopping anything; a supervisor whose snapshot is slow still answers, so its record is never taken for stale.
 Restarting with the same CFO home recovers durable events, evaluations, actions, and lineage.
 
 ## Native hook setup
