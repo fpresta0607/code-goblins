@@ -123,7 +123,10 @@ func pauseNativeHandoff(t *testing.T, mode string) {
 		}
 	}
 	var deliveryError error
-	service := lifecycle.Service{StateDir: stateDir, PrepareWait: 10 * time.Second, Operations: lifecycle.Operations{
+	// Delivery has the minute a pause gives it: the slow composer takes 6 s
+	// of it, and every look at the screen while it waits starts a process,
+	// which a loaded machine can take seconds to start.
+	service := lifecycle.Service{StateDir: stateDir, Operations: lifecycle.Operations{
 		Prepare: func(ctx context.Context, meta state.TaskMeta, handoff string) error {
 			deliveryError = (spawn.Service{StateDir: stateDir}).SendNative(ctx, meta, lifecycle.PauseInstruction(handoff))
 			return deliveryError
