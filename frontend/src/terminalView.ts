@@ -49,8 +49,11 @@ export class TerminalView {
   private written = 0;
   private consumed = 0;
   private acknowledged = 0;
-  // owner is whether the terminal has the size this view last claimed.
+  // owner is whether the terminal has the size this view last claimed, and
+  // isTaken whether it has taken that size since. A size it takes after that
+  // is another window's, which this view draws until typed into.
   private owner = true;
+  private isTaken = false;
   private claimed: { cols: number; rows: number } | null = null;
   // claimedAt is how much output was drawn when the terminal first took this
   // view's size; the repaint that size asked for follows it.
@@ -91,7 +94,9 @@ export class TerminalView {
     this.socket.onmessage = (event: MessageEvent<ArrayBuffer | string>) => this.receive(event.data);
     this.socket.onclose = (event) => { if (!this.disposed) { this.term.options.disableStdin = true; this.events.closed(event.code, event.reason); } };
     this.term.onData((data) => {
-      if (!this.owner) this.claim();
+      // The claim may wait for the grid to be drawn; the claim then made takes
+      // the terminal back all the same.
+      if (!this.owner) { this.isTaken = false; this.claim(); }
       for (const piece of inputMessages(this.encoder.encode(data))) this.send(piece);
     });
     this.term.onBinary((data) => this.send(Uint8Array.from(data, (character) => character.charCodeAt(0) & 255)));
@@ -187,6 +192,7 @@ export class TerminalView {
     if (this.disposed) return;
     this.resizeGrid(cols, rows);
     this.owner = this.claimed?.cols === cols && this.claimed.rows === rows;
+    if (this.owner) this.isTaken = true;
     if (this.owner && this.claimedAt < 0 && this.history >= 0 && this.consumed >= this.history) this.claimedAt = this.consumed;
     this.readyIfDrawn();
   }
@@ -207,9 +213,12 @@ export class TerminalView {
   // The grid changes only when the terminal takes the size, at that point in
   // its output, so output written for the old size is never drawn on the new
   // grid. The first size repaints the screen even when it matches; later ones
-  // reach the pseudo console once the panel has settled.
+  // reach the pseudo console once the panel has settled. Once another window
+  // has sized the terminal after it took this view's size, only typing here
+  // takes it back: this view becoming whole or coming into sight, its font
+  // loading and its panel resizing draw that window's size.
   private claim(): void {
-    if (this.disposed || !this.isShown || !this.step("claim")) return;
+    if (this.disposed || !this.isShown || this.isTaken && !this.owner || !this.step("claim")) return;
     const panel = this.element.getBoundingClientRect();
     const size = panelFit(panel.width, panel.height, this.cell(), PADDING);
     if (!size || !this.term.element) return;
@@ -218,6 +227,7 @@ export class TerminalView {
     if (this.socket.readyState !== WebSocket.OPEN) return;
     if (this.sized && this.owner && size.cols === this.claimed?.cols && size.rows === this.claimed.rows) return;
     this.owner = true;
+    this.isTaken = false;
     const claimed = { cols: size.cols, rows: size.rows };
     this.claimed = claimed;
     clearTimeout(this.settle);
