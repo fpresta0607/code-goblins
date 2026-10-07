@@ -98,6 +98,12 @@ func (s *Service) schedule(ctx context.Context, now time.Time, memory Memory, wa
 			problems = errors.Join(problems, fmt.Errorf("pause condition for %s: %w", meta.ID, err))
 			continue
 		}
+		isWithParent, err := s.resumesWithItsParent(meta, record)
+		if err != nil {
+			problems = errors.Join(problems, fmt.Errorf("parent of %s: %w", meta.ID, err))
+			continue
+		}
+		isReady = isReady || isWithParent
 		if isReady {
 			ready = append(ready, record)
 		} else if record.Pause.Reason == "memory" && memoryPending == "" {
@@ -211,7 +217,7 @@ func (s *Service) resumeAutomatically(record state.Lifecycle) error {
 	delete(s.changeErrors, record.ID)
 	operation := fmt.Sprintf("auto-resume-%d", time.Now().UnixNano())
 	go func() {
-		output, err := s.Options.Dispatch.Spawn(context.Background(), []string{"resume", record.ID, "--generation", record.Generation, "--operation", operation, "--reason", "Pause condition cleared"})
+		output, err := s.runPastTheSpawnLock(s.Options.Dispatch, []string{"resume", record.ID, "--generation", record.Generation, "--operation", operation, "--reason", "Pause condition cleared"})
 		s.starts.Lock()
 		delete(s.changing, record.ID)
 		if err != nil {

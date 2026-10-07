@@ -170,6 +170,9 @@ export interface ProjectPeople { name: string; repository: string; contributors:
 export interface LifecycleStatus {
   phase: string; action: string; at: string; kept: string[]; stopped: string[]; problems: string[];
   handoff_saved: boolean; validation_restarts: boolean;
+  // with_parent is a helper's pause or stop its parent's made: paused, it
+  // resumes once its parent runs again.
+  with_parent?: boolean;
   // pause is what a paused task waits for: memory, allowance, overlord,
   // dependency, question, ci or deploy, with until naming the reset time,
   // task:, pr:, date:, question id or awaited run; absent on an older pause.
@@ -730,6 +733,7 @@ export function parseSnapshot(value: unknown): Snapshot {
       const t = object(value);
       return {
         lifecycle: t.lifecycle == null ? undefined : ((record) => ({ phase: string(record.phase), action: string(record.action), at: string(record.at), kept: strings(record.kept), stopped: strings(record.stopped), problems: strings(record.problems), handoff_saved: boolean(record.handoff_saved), validation_restarts: boolean(record.validation_restarts),
+          ...(record.with_parent === undefined ? {} : { with_parent: boolean(record.with_parent) }),
           ...(record.pause == null ? {} : { pause: ((pause) => ({ reason: string(pause.reason), until: string(pause.until), at: string(pause.at) }))(object(record.pause)) }) }))(object(t.lifecycle)),
         teardown: strings(t.teardown), detail: string(t.detail), queue_revision: string(t.queue_revision), notes: strings(t.notes), action_error: string(t.action_error), branch: string(t.branch),
         pending_engine: t.pending_engine == null ? undefined : ((choice) => ({ harness: string(choice.harness), model: string(choice.model), effort: string(choice.effort), when: string(choice.when) }))(object(t.pending_engine)),

@@ -106,10 +106,18 @@ function when(at: string): string {
   return Number.isFinite(date.getTime()) ? date.toLocaleString(undefined, { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" }) : "its set time";
 }
 
-// What resumes a paused goblin, from its pause's condition.
-function resumes(pause: PauseCondition | undefined, tasks: Task[]): string {
+// pausedWithParent is the parent a helper was paused with, which resumes the
+// helper once it runs again, or nothing for any other task.
+export function pausedWithParent(task: Task, tasks: Task[]): Task | undefined {
+  return task.lifecycle?.with_parent ? tasks.find((other) => other.id === task.parent) : undefined;
+}
+
+// What resumes a paused goblin, from its pause's condition, or for a helper
+// the Overlord paused with its parent, from that parent.
+function resumes(pause: PauseCondition | undefined, tasks: Task[], parent?: Task): string {
   const byItself = "It resumes by itself ";
   const [kind, target] = pause?.until.split(/:(.*)/s) || [];
+  if (parent && pause?.reason === "overlord") return byItself + "when " + inSentence(withoutHarness(parent.title) || parent.id) + " runs again.";
   switch (pause?.reason) {
     case "memory": return byItself + "once 5 GB of memory is free.";
     case "allowance": return byItself + "when the allowance resets, " + when(pause.until) + ".";
@@ -129,12 +137,12 @@ function resumes(pause: PauseCondition | undefined, tasks: Task[]): string {
 // What a paused card says in place of Paused: why it waits and what resumes
 // it, in a few words, once; the panel says the same in a sentence. A CI or
 // deploy wait names how long the repository's runs usually take.
-export function pauseStatus(pause: PauseCondition | undefined, tasks: Task[], durations: CIDuration[]): string {
+export function pauseStatus(pause: PauseCondition | undefined, tasks: Task[], durations: CIDuration[], parent?: Task): string {
   const [kind, target] = pause?.until.split(/:(.*)/s) || [];
   switch (pause?.reason) {
     case "memory": return "Memory: resumes at 5 GB free";
     case "allowance": return "Allowance: resumes " + when(pause.until);
-    case "overlord": return "Paused by you";
+    case "overlord": return parent ? "Resumes with " + (withoutHarness(parent.title) || parent.id) : "Paused by you";
     case "question": return "Waiting for your answer";
     case "ci": case "deploy": {
       const usual = usualMinutes(durations, repositoryOf(target.split("@")[0]), pause.reason);
@@ -214,7 +222,7 @@ function summaryOf(task: Task, tasks: Task[]): Summary {
   const teardown = teardownSentence(task.teardown);
   const join = (...sentences: string[]) => sentences.filter(Boolean).join(" ");
   if (record?.phase === "failed" && FAILED_ACTION[record.action]) return { sentence: join(FAILED_ACTION[record.action], teardown), details: [...record.problems, ...task.teardown], isFailure: true };
-  if (task.phase === "paused") return { sentence: join(resumes(record?.pause, tasks), record && !record.handoff_saved ? "The goblin's last saved notes are kept." : "", teardown), details: [...(record?.problems || []), ...task.teardown], isFailure: false };
+  if (task.phase === "paused") return { sentence: join(resumes(record?.pause, tasks, pausedWithParent(task, tasks)), record && !record.handoff_saved ? "The goblin's last saved notes are kept." : "", teardown), details: [...(record?.problems || []), ...task.teardown], isFailure: false };
   if (["pausing", "resuming", "stopping", "stopped"].includes(task.phase)) return { sentence: teardown, details: task.teardown, isFailure: false };
   // A queued task's status says it all; the Overlord wants no wait line.
   if (task.phase === "queued") return { sentence: "", details: [], isFailure: false };
