@@ -189,7 +189,7 @@ func ConfigFromEnv(h home.Home) Config {
 		Gate:         &monitor.RecentGateProber{Probe: monitor.ExecGateProber{}},
 		Progress:     transcripts,
 		Replies:      transcripts,
-		Polls:        monitor.ProcessPolls{StateDir: h.State, Worktrees: h.Worktrees()},
+		Polls:        monitor.ProcessPolls{StateDir: h.State, WorktreeRoots: h.WorktreeRoots()},
 		Heartbeat:    heartbeat,
 		HeartbeatMax: heartbeatMax,
 	}
