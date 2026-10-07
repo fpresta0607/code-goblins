@@ -66,9 +66,9 @@ func (p NativeProber) Inspect(ctx context.Context, meta state.TaskMeta) (Endpoin
 	if read == nil {
 		read = host.ReadScreen
 	}
-	// A read attaches a process of its own to the terminal's console, and
-	// one can fail while the terminal is alive and working, so a failed read
-	// is read again before anything is concluded from it.
+	// A read can fail while the terminal is alive and working, as one that
+	// times out on a loaded machine does, so a failed read is read again
+	// before anything is concluded from it.
 	screen, err := read(record)
 	for attempt := 1; err != nil && attempt < screenReads; attempt++ {
 		select {

@@ -11,18 +11,55 @@ import (
 	"sync"
 	"testing"
 	"time"
+	"unicode/utf16"
 	"unicode/utf8"
 	"unsafe"
+
+	"golang.org/x/sys/windows"
 
 	"github.com/fpresta0607/code-goblins/internal/conpty"
 )
 
-// consoleProcesses is how many processes are attached to this process's
-// console.
-func consoleProcesses() int {
+var (
+	kernel32              = windows.NewLazySystemDLL("kernel32.dll")
+	setConsoleCtrlHandler = kernel32.NewProc("SetConsoleCtrlHandler")
+	readConsoleOutput     = kernel32.NewProc("ReadConsoleOutputW")
+)
+
+// consoleProcessIDs are the processes attached to this process's console.
+func consoleProcessIDs() []uint32 {
 	pids := make([]uint32, 16)
 	count, _, _ := kernel32.NewProc("GetConsoleProcessList").Call(uintptr(unsafe.Pointer(&pids[0])), uintptr(len(pids)))
-	return int(count)
+	return pids[:min(int(count), len(pids))]
+}
+
+// ownScreen reads the rows of the window of this process's console the way
+// the program in a terminal sees them, through a console call of its own, so
+// a host's read is compared with the screen rather than with itself.
+func ownScreen() ([]string, error) {
+	out := windows.Handle(os.Stdout.Fd())
+	var info windows.ConsoleScreenBufferInfo
+	if err := windows.GetConsoleScreenBufferInfo(out, &info); err != nil {
+		return nil, err
+	}
+	width, height := int(info.Window.Right-info.Window.Left)+1, int(info.Window.Bottom-info.Window.Top)+1
+	// CHAR_INFO: a cell's character, then its attributes.
+	cells := make([][2]uint16, width*height)
+	region := info.Window
+	// The buffer's size and the cell to start at, each a COORD taken by value.
+	size := uint32(uint16(width)) | uint32(uint16(height))<<16
+	if ok, _, err := readConsoleOutput.Call(uintptr(out), uintptr(unsafe.Pointer(&cells[0])), uintptr(size), 0, uintptr(unsafe.Pointer(&region))); ok == 0 {
+		return nil, err
+	}
+	rows := make([]string, height)
+	for y := range rows {
+		characters := make([]uint16, width)
+		for x := range characters {
+			characters[x] = cells[y*width+x][0]
+		}
+		rows[y] = string(utf16.Decode(characters))
+	}
+	return rows, nil
 }
 
 // obeyCtrlC has this process, and every process it starts from now on, end at
@@ -34,12 +71,32 @@ func obeyCtrlC(t *testing.T) {
 	}
 }
 
-// holdScreenReads keeps every screen read attached for hold before it reads,
-// until the test ends. Call it before hosting a terminal in this process, so
-// the host sees the hold from its start and has ended before it is lifted.
-func holdScreenReads(t *testing.T, hold time.Duration) {
-	screenHold = hold
-	t.Cleanup(func() { screenHold = 0 })
+// holdScreenReads holds every screen read a host in this process serves for
+// hold, with the terminal's screens held, before the read asks for the
+// screen, until the test ends; the channel it returns says when a hold
+// begins. Call it before hosting a terminal in this process, so the host sees
+// the hold from its start and has ended before it is lifted.
+func holdScreenReads(t *testing.T, hold time.Duration) <-chan struct{} {
+	held := make(chan struct{}, 1)
+	holdScreenRead = func() {
+		select {
+		case held <- struct{}{}:
+		default:
+		}
+		time.Sleep(hold)
+	}
+	t.Cleanup(func() { holdScreenRead = func() {} })
+	return held
+}
+
+// waitForHold waits for a screen read to be held.
+func waitForHold(t *testing.T, held <-chan struct{}) {
+	t.Helper()
+	select {
+	case <-held:
+	case <-time.After(15 * time.Second):
+		t.Fatal("no screen read was held")
+	}
 }
 
 // hostHere hosts terminal g1 in this test process, running echo-child, so a
@@ -123,40 +180,87 @@ func TestTheHostReadsTheScreenItsTerminalsProgramSees(t *testing.T) {
 	}
 }
 
-// A Ctrl-C typed to the terminal while a screen read is attached to its
-// console reaches the terminal's program and the read, never the host. The
-// host here is this test process, which a Ctrl-C would end. The read finishes.
-func TestACtrlCDuringAScreenReadNeverReachesTheHost(t *testing.T) {
+// jobAccounting is JOBOBJECT_BASIC_ACCOUNTING_INFORMATION.
+type jobAccounting struct {
+	TotalUserTime, TotalKernelTime, ThisPeriodTotalUserTime, ThisPeriodTotalKernelTime int64
+	TotalPageFaultCount, TotalProcesses, ActiveProcesses, TotalTerminatedProcesses     uint32
+}
+
+// processesStarted is how many processes job has held, ended ones included.
+func processesStarted(t *testing.T, job windows.Handle) uint32 {
+	t.Helper()
+	var accounting jobAccounting
+	if err := windows.QueryInformationJobObject(job, windows.JobObjectBasicAccountingInformation, uintptr(unsafe.Pointer(&accounting)), uint32(unsafe.Sizeof(accounting)), nil); err != nil {
+		t.Fatalf("QueryInformationJobObject: %v", err)
+	}
+	return accounting.TotalProcesses
+}
+
+// A screen read is a message to a process already attached to the terminal's
+// console, never a process of its own: steer delivery reads a goblin's screen
+// every 250 ms, and one read that started a process took 8.6 s on a machine
+// slow to start them. The host runs here in a job the test made, which counts
+// every process the host starts from then on.
+func TestAScreenReadStartsNoProcess(t *testing.T) {
+	_, record := launch(t)
+	v := connect(t, record)
+	v.waitFor(t, "ready")
+	job, err := windows.CreateJobObject(nil, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = windows.CloseHandle(job) })
+	hostProcess, err := windows.OpenProcess(windows.PROCESS_SET_QUOTA|windows.PROCESS_TERMINATE, false, uint32(record.HostPID))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer windows.CloseHandle(hostProcess)
+	if err := windows.AssignProcessToJobObject(job, hostProcess); err != nil {
+		t.Fatalf("AssignProcessToJobObject: %v", err)
+	}
+	before := processesStarted(t, job)
+
+	for range 20 {
+		if _, err := ReadScreen(record); err != nil {
+			t.Fatalf("ReadScreen: %v", err)
+		}
+	}
+
+	if started := processesStarted(t, job) - before; started != 0 {
+		t.Errorf("20 screen reads started %d processes, want none", started)
+	}
+}
+
+// A Ctrl-C typed to the terminal reaches the terminal's program and the
+// console's input waker, which reads the screen, never the host: the host
+// here is this test process, which a Ctrl-C would end. The waker outlives
+// it, so the screen still reads.
+func TestACtrlCNeverReachesTheHostAndTheScreenStillReads(t *testing.T) {
 	obeyCtrlC(t)
-	holdScreenReads(t, 3*time.Second)
 	_, record, _ := hostHere(t)
 	v := connect(t, record)
 	v.waitFor(t, "ready")
-	read := make(chan error, 1)
-	go func() {
-		_, err := ReadScreen(record)
-		read <- err
-	}()
-	typeLine(t, v, "hold-ctrl-c")
-	v.waitFor(t, "attached 1")
+	typeLine(t, v, "wait-ctrl-c")
+	v.waitFor(t, "waiting for a ctrl-c")
 
 	if err := v.Input([]byte{0x03}); err != nil {
 		t.Fatalf("Input: %v", err)
 	}
 
 	v.waitFor(t, "interrupted")
-	if err := <-read; err != nil {
-		t.Errorf("the read the Ctrl-C reached failed: %v", err)
+	rows, err := ReadScreen(record)
+	if err != nil || !strings.Contains(ScreenTail(rows, 0), "interrupted") {
+		t.Errorf("ReadScreen after the Ctrl-C = %q, %v; want the screen, showing the interrupt", ScreenTail(rows, 0), err)
 	}
 	typeLine(t, v, "still here")
 	v.waitFor(t, "got still here")
 }
 
-// The terminal's console closing while a screen read is attached to it ends
-// only the read. The host, this test process, reports the terminal's end and
+// The terminal's console closing while a screen read is in flight ends only
+// the read. The host, this test process, reports the terminal's end and
 // removes its record, and the read is an error naming the terminal.
 func TestTheConsoleClosingDuringAScreenReadNeverReachesTheHost(t *testing.T) {
-	holdScreenReads(t, 5*time.Second)
+	held := holdScreenReads(t, 2*time.Second)
 	stateDir, record, ended := hostHere(t)
 	v := connect(t, record)
 	v.waitFor(t, "ready")
@@ -168,8 +272,7 @@ func TestTheConsoleClosingDuringAScreenReadNeverReachesTheHost(t *testing.T) {
 		}
 		read <- err
 	}()
-	typeLine(t, v, "wait-attach")
-	v.waitFor(t, "attached 1")
+	waitForHold(t, held)
 
 	typeLine(t, v, "exit 3")
 
@@ -189,11 +292,10 @@ func TestTheConsoleClosingDuringAScreenReadNeverReachesTheHost(t *testing.T) {
 	}
 }
 
-// A close requested while a screen read is attached waits for the read, so
-// the terminal's program, and with it the pid the read attached to, outlives
-// the read.
+// A close requested while a screen read is in flight waits for the read, so
+// the read is answered before the terminal's console closes.
 func TestAScreenReadFinishesBeforeTheTerminalCloses(t *testing.T) {
-	holdScreenReads(t, 2*time.Second)
+	held := holdScreenReads(t, 2*time.Second)
 	_, record, ended := hostHere(t)
 	v := connect(t, record)
 	v.waitFor(t, "ready")
@@ -202,8 +304,7 @@ func TestAScreenReadFinishesBeforeTheTerminalCloses(t *testing.T) {
 		_, err := ReadScreen(record)
 		read <- err
 	}()
-	typeLine(t, v, "wait-attach")
-	v.waitFor(t, "attached 1")
+	waitForHold(t, held)
 
 	if err := v.CloseTerminal(); err != nil {
 		t.Fatalf("CloseTerminal: %v", err)
@@ -220,8 +321,8 @@ func TestAScreenReadFinishesBeforeTheTerminalCloses(t *testing.T) {
 	}
 }
 
-// A terminal whose program has ended is never read, since the program's pid
-// may by then name another process: the answer says the terminal has ended.
+// A terminal whose program has ended is never read, since its console closed
+// with it: the answer says the terminal has ended.
 func TestAScreenOfAnEndedTerminalIsNotRead(t *testing.T) {
 	console, err := conpty.Start(conpty.Spec{Args: []string{os.Args[0], "echo-child"}, Cols: 80, Rows: 25})
 	if err != nil {
@@ -254,21 +355,24 @@ func TestAScreenOfAnEndedTerminalIsNotRead(t *testing.T) {
 	}
 }
 
-// A screen read that cannot attach to the terminal's console, here because
-// the terminal's program left it, is an error naming the terminal, never an
-// empty screen.
-func TestAScreenReadThatCannotAttachIsAnError(t *testing.T) {
+// A screen read the console's input waker cannot answer, here because it
+// was ended, is an error naming the terminal, never an empty screen, and
+// comes at once rather than when the read times out.
+func TestAScreenReadNothingAnswersIsAnErrorAtOnce(t *testing.T) {
 	_, record := launch(t)
 	v := connect(t, record)
 	v.waitFor(t, "ready")
-	left := filepath.Join(t.TempDir(), "left")
-	typeLine(t, v, "free "+left)
-	waitForFile(t, left)
+	typeLine(t, v, "end-waker")
+	v.waitFor(t, "ended 1 other process")
+	started := time.Now()
 
 	rows, err := ReadScreen(record)
 
-	if err == nil || rows != nil || !strings.Contains(err.Error(), "terminal g1") || !strings.Contains(err.Error(), "attach to the console") {
-		t.Fatalf("ReadScreen = %q, %v; want an error naming terminal g1 and the attach that failed", rows, err)
+	if err == nil || rows != nil || !strings.Contains(err.Error(), "terminal g1") || !strings.Contains(err.Error(), "input waker") {
+		t.Fatalf("ReadScreen = %q, %v; want an error naming terminal g1 and its input waker", rows, err)
+	}
+	if took := time.Since(started); took >= screenTimeout {
+		t.Errorf("the read failed after %s, want before its %s timeout", took, screenTimeout)
 	}
 }
 
