@@ -8,7 +8,7 @@ import { harnessMark } from "./connectors";
 import type { NextUp } from "./start";
 import { TaskControls } from "./task-controls";
 import { asksOverlord, harnessTip, nodeStatus, personaFor, pullRequestIcon, pullRequestLabel, safePullRequest, statusPhase, taskColumn } from "./workflow";
-import { pauseStatus, plainText, teardownSentence, withoutHarness } from "./task-words";
+import { pausedWithParent, pauseStatus, plainText, teardownSentence, withoutHarness } from "./task-words";
 import { TicketLink } from "./ticket-link";
 import { SameAreaAvatars } from "./same-area-avatars";
 import { HostedChecksLink } from "./hosted-checks-link";
@@ -54,7 +54,7 @@ export function TaskCard({ task, snapshot, selected, presentations, now, rank, n
   const clock = column === "Completed" || column === "Paused" ? "" : clockText(task.since, now, waiting ? "waiting" : "running");
   const clockBadge = clock && <span className="card-clock"><Icon name="clock" /><span className="sr-only">{waiting ? "Waiting for" : "Running for"} </span>{clock}</span>;
   const ended = (column === "Paused" || column === "Completed") && task.at ? new Date(task.at) : null;
-  const status = statusPhase(task) === "paused" ? pauseStatus(task.lifecycle?.pause, snapshot.tasks, snapshot.ci_durations) : nodeStatus({ id: task.id, title: task.title, task, relation: "" }, asking);
+  const status = statusPhase(task) === "paused" ? pauseStatus(task.lifecycle?.pause, snapshot.tasks, snapshot.ci_durations, pausedWithParent(task, snapshot.tasks)) : nodeStatus({ id: task.id, title: task.title, task, relation: "" }, asking);
   const stalled = stalledText(task, now);
   const parent = task.parent && snapshot.tasks.find((other) => other.id === task.parent);
   const parentName = parent ? withoutHarness(parent.title) || parent.id : task.parent;

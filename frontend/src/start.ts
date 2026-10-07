@@ -1,5 +1,6 @@
 import type { Disk, FleetCapacity, Memory, PauseCondition, Scheduling, Snapshot, Task } from "./types";
 import { queuedTasks } from "./workflow.ts";
+import { pausedWithParent } from "./task-words.ts";
 
 const gigabytes = (bytes: number) => Math.round(bytes / 2 ** 30 * 10) / 10;
 
@@ -177,7 +178,12 @@ export function nextInOrder(snapshot: Snapshot, now: number): NextUp | null {
   const queued = queuedTasks(snapshot).filter((task) => !queueBlock(task) && !task.start_error);
   const defect = queued.find((task) => task.priority === "production-defect");
   if (defect) return { id: defect.id, text: "Production defect: jumps the queue", tone: "defect" };
-  const resumable = snapshot.tasks.filter((task) => task.phase === "paused" && task.lifecycle?.pause && isClearing(task.lifecycle.pause, now))
+  // A helper paused with its parent resumes once its parent runs again.
+  const isBackWithParent = (task: Task) => {
+    const parent = pausedWithParent(task, snapshot.tasks);
+    return !!parent && (!parent.lifecycle || parent.lifecycle.phase === "running");
+  };
+  const resumable = snapshot.tasks.filter((task) => task.phase === "paused" && task.lifecycle?.pause && (isClearing(task.lifecycle.pause, now) || isBackWithParent(task)))
     .sort((left, right) => Date.parse(left.lifecycle!.pause!.at) - Date.parse(right.lifecycle!.pause!.at) || left.id.localeCompare(right.id));
   if (resumable.length) return { id: resumable[0].id, text: "Next up", tone };
   return queued.length ? { id: queued[0].id, text: nextChip(snapshot.memory), tone } : null;

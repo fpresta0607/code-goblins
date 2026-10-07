@@ -1,7 +1,6 @@
 package supervisor
 
 import (
-	"context"
 	"encoding/json"
 	"errors"
 	"net/http"
@@ -27,10 +26,13 @@ type LifecycleStatus struct {
 	HandoffSaved       bool                  `json:"handoff_saved"`
 	ValidationRestarts bool                  `json:"validation_restarts"`
 	Pause              *state.PauseCondition `json:"pause,omitempty"`
+	// WithParent is a helper's pause or stop its parent's made: paused, the
+	// scheduler resumes it once its parent runs again.
+	WithParent bool `json:"with_parent,omitempty"`
 }
 
 func lifecycleStatus(record state.Lifecycle) *LifecycleStatus {
-	return &LifecycleStatus{Phase: record.Phase, Action: record.Action, At: record.Updated, Kept: record.Kept, Stopped: record.Stopped, Problems: record.Problems, HandoffSaved: record.HandoffSaved, Pause: record.Pause, ValidationRestarts: record.GateRun != "" && (record.Phase == "paused" || record.Action == "resume" && record.Phase != "running")}
+	return &LifecycleStatus{Phase: record.Phase, Action: record.Action, At: record.Updated, Kept: record.Kept, Stopped: record.Stopped, Problems: record.Problems, HandoffSaved: record.HandoffSaved, Pause: record.Pause, ValidationRestarts: record.GateRun != "" && (record.Phase == "paused" || record.Action == "resume" && record.Phase != "running"), WithParent: state.IsHelperOperation(record.Operation)}
 }
 
 type taskChangeError struct {
@@ -161,7 +163,7 @@ func (h *HTTP) lifecycleTask(w http.ResponseWriter, r *http.Request) {
 	s.starts.Unlock()
 	isDispatched = true
 	go func() {
-		output, err := s.Options.Dispatch.Spawn(context.Background(), args)
+		output, err := s.runPastTheSpawnLock(s.Options.Dispatch, args)
 		var failure taskChangeError
 		if err != nil {
 			failure = taskChangeError{Message: spawnFailure(output, err), Generation: input.Generation, Operation: prior.Operation, Updated: prior.Updated}

@@ -228,6 +228,8 @@ test("Next sits on the card the supervisor's order for a free slot takes first",
     ["a goblin blocked on a date does not stop the queue", board(memory(9), [queued("first"), paused("dated", "dependency", "date:2026-10-07T09:00:00Z", "2026-10-05T10:00:00Z")]), { id: "first", text: "Next up", tone: "" }],
     ["a goblin waiting on the Overlord never holds Next", board(memory(9), [queued("first"), paused("his", "overlord", "", "2026-10-05T10:00:00Z"), paused("asks", "question", "q-1", "2026-10-05T10:00:00Z")]), { id: "first", text: "Next up", tone: "" }],
     ["a reported production defect jumps paused goblins and the queue", board(memory(9), [queued("first"), queued("urgent", { priority: "production-defect" }), paused("older", "memory", "", "2026-10-06T10:00:00Z")]), { id: "urgent", text: "Production defect: jumps the queue", tone: "defect" }],
+    ["a helper paused with its parent resumes once its parent runs again", board(memory(9), [queued("first"), { id: "parent", phase: "working", generation: "parent-1", verified: false }, { ...paused("helper", "overlord", "", "2026-10-05T10:00:00Z"), parent: "parent", lifecycle: { ...paused("helper", "overlord", "", "2026-10-05T10:00:00Z").lifecycle, with_parent: true } }]), { id: "helper", text: "Next up", tone: "" }],
+    ["a helper paused with its parent waits while its parent is paused", board(memory(9), [queued("first"), paused("parent", "overlord", "", "2026-10-05T10:00:00Z"), { ...paused("helper", "overlord", "", "2026-10-05T10:00:00Z"), parent: "parent", lifecycle: { ...paused("helper", "overlord", "", "2026-10-05T10:00:00Z").lifecycle, with_parent: true } }]), { id: "first", text: "Next up", tone: "" }],
     ["nothing to start", board(memory(9), []), null],
   ];
 

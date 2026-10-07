@@ -93,10 +93,11 @@ A goblin may ask the supervisor for one helper goblin of its own, as the Supreme
 It writes the helper's brief to a file and runs `cfo helper start <its-id> --brief <file> --title "<short title>"` from its own terminal; the request rides the supervisor's pipe, and only a process inside that goblin's terminal can ask in its name.
 The supervisor alone starts helpers, through `cfo spawn <id>-h<n> --parent <id>`, and only within the caps: one helper per goblin at a time, a paused helper included; no helpers of helpers; a parent that is live, native, at work and on a branch; and the memory, commit, disk and live-goblin marks every Start holds (5 GB to start, never under the 4 GB floor).
 A refusal says why and when to ask again, and one goblin starts at a time, so a helper waits behind the board's Start or a Resume, and they wait behind it.
+A start that meets a `cfo spawn` you run by hand, which holds the home's spawn lock, waits for it to end and tries once more, as Start, Resume and the scheduler's own starts and resumes do.
 The helper is a local-only ship task named `<parent>-h<n>`, a number no earlier helper of that parent had, on the parent's harness, model and effort, in a worktree of its own on `<parent-branch>-h<n>`, cut from the parent's last commit; its brief is kept at `data/<helper>/brief.md`.
 It reports to its parent, not to you: its `cfo notify <helper> --done`, which needs no pull request, its `--blocked` and its `--failed` are typed into the parent's terminal, and wake you only when that terminal cannot take them.
 You are told once when each helper starts or fails to start, and `cfo fleet-view` names each helper's parent.
-The parent answers its helper with `cfo send <helper> "<answer>"`, reports `cfo notify <parent> --waiting-on <helper> "<why>"` while it only waits, and once the helper reports done runs `cfo helper merge <parent>`: a merge commit of the helper's branch in the parent's own worktree, then the helper retired through Stop.
+The parent answers its helper with `cfo send <helper> "<answer>"`, reports `cfo notify <parent> --waiting-on <helper> "<why>"` while it only waits, which makes the helper's progress count as its own, and once the helper reports done runs `cfo helper merge <parent>`: a merge commit of the helper's branch in the parent's own worktree, then the helper retired through Stop.
 A conflict is left for the parent to resolve and commit, and asked again the command only retires the helper; the parent stays the one who opens the pull request.
 A helper its parent no longer needs is stopped with `cfo kill <helper> --reason "<why>"`, which keeps its unmerged work.
 
@@ -312,7 +313,7 @@ CI and deploy take `--until pr:<GitHub PR URL>@<40-character SHA>` or `run:<GitH
 The supervisor's one scheduler resumes memory after two readings of 5 GB free memory and commit, allowance at reset, a dependency when its task finishes or PR merges or date arrives, a question when the Overlord answers, and CI/deploy on the matching `ci_finished` record.
 An Overlord pause needs his Resume, and a legacy pause with no condition also needs manual Resume.
 Pausing or stopping a goblin first pauses or stops each of its [helpers](#helper-goblins) through the same path, each with its own record, handoff request and card, a pause keeping the parent's condition, except a helper the parent is paused to wait on, which keeps working; the parent's own sweep then ends anything a helper's operation left.
-Resume is one card at a time, a helper's included, since each start needs its own memory.
+Resume is one card at a time, a helper's included, since each start needs its own memory; a helper paused with its parent needs no Resume of its own, since the scheduler resumes it once its parent runs again, when memory allows.
 Resume keeps the task id, worktree and branch; it continues the saved session less than a day after pausing where supported, then uses the retained handoff.
 Answers given while paused ride the resume prompt.
 For a free slot, the oldest cleared pause comes before the Overlord's queue order; unresolved pauses do not block new work.
@@ -325,6 +326,7 @@ While [AFK mode](#afk-mode) is on, the 4 GB memory floor pauses the newest live 
 Short session or model windows do not trigger this reserve, and missing or stale quota remains unknown.
 The board shows each paused card's reason and what resumes it in place of Paused, the goblins live against the cap under the memory meter, Next on the card the free-slot order takes first (a production defect says it jumps the queue), and a stall line on a live card past 20 minutes without progress; a CI or deploy wait names the repository's median measured run.
 The supervisor raises one `progress_stalled` check wake after 20 minutes without a new commit, push, gate-step change or changed status report, resets it on real progress, and suppresses it during intentional pauses.
+A goblin whose latest report is a wait on its own [helper](#helper-goblins) takes the helper's progress as its own and draws no such wake while the helper is watched, since the helper's own check reports its stall; once the helper is paused, the goblin is checked as any other.
 CI/deploy durations come from start and finish timestamps captured with `ci_finished`; unknown timestamps stay unmeasured, and check names containing `deploy` are classified as deploys.
 
 ## Switching a running goblin
