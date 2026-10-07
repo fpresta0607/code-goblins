@@ -21,8 +21,10 @@ type Dictation interface {
 	Name() string
 	// Ready says what is missing, or nil when the engine can recognise.
 	Ready() error
+	// Missing is how many bytes Fetch has to download.
+	Missing() int64
 	// Fetch downloads what is missing, telling progress as it arrives.
-	Fetch(ctx context.Context, progress func(part string, done, total int64)) error
+	Fetch(ctx context.Context, progress func(done, total int64)) error
 	// Recognize returns the words in a WAV sound.
 	Recognize(ctx context.Context, sound []byte) (string, error)
 }
@@ -41,20 +43,20 @@ const dictationPatience = 30 * time.Minute
 type dictationFetch struct {
 	mu      sync.Mutex
 	running bool
-	// part is the download that is arriving, the engine or the model.
-	part  string
+	// done of total bytes have arrived.
 	done  int64
 	total int64
 	// problem is why the last download failed, until the next one starts.
 	problem string
 }
 
-// note says how far the download is.
+// note says how far the download is: the bytes that have arrived, then the
+// check of the archives once all have.
 func (f *dictationFetch) note() string {
-	if f.total <= 0 {
-		return "Dictation is being set up, once. Dictate again when it is there."
+	if f.total > 0 && f.done >= f.total {
+		return "Dictation is being set up, once: checking and unpacking its speech model. Dictate again when it is ready."
 	}
-	return fmt.Sprintf("Dictation is being set up, once: downloading %s, %d of %d MB. Dictate again when it is there.", f.part, f.done>>20, f.total>>20)
+	return fmt.Sprintf("Dictation is being set up, once: downloading its speech model, %d of %d MB, which stays on this PC. Dictate again when it is ready.", f.done>>20, f.total>>20)
 }
 
 // fetchDictation starts the engine's download unless one runs, and returns
@@ -68,7 +70,7 @@ func (h *HTTP) fetchDictation(speech Dictation) string {
 		return fetch.note()
 	}
 	note := fetch.problem
-	fetch.running, fetch.part, fetch.done, fetch.total, fetch.problem = true, "", 0, 0, ""
+	fetch.running, fetch.done, fetch.total, fetch.problem = true, 0, speech.Missing(), ""
 	if note == "" {
 		note = fetch.note()
 	}
@@ -78,9 +80,9 @@ func (h *HTTP) fetchDictation(speech Dictation) string {
 		// The download outlives the request that started it.
 		ctx, cancel := context.WithTimeout(context.Background(), h.dictationPatience)
 		defer cancel()
-		err := speech.Fetch(ctx, func(part string, done, total int64) {
+		err := speech.Fetch(ctx, func(done, total int64) {
 			fetch.mu.Lock()
-			fetch.part, fetch.done, fetch.total = part, done, total
+			fetch.done, fetch.total = done, total
 			fetch.mu.Unlock()
 		})
 		fetch.mu.Lock()

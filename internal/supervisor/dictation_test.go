@@ -19,10 +19,13 @@ import (
 )
 
 // fakeSpeech is a dictation engine that records what it was asked. While
-// missing is set it is not ready, and a fetch that returns nil makes it so.
+// missing is set it is not ready, its 125 MB still to download, and a fetch
+// that returns nil makes it so. A fetch tells that arrived bytes have, 45 MB
+// unless set.
 type fakeSpeech struct {
 	mu      sync.Mutex
 	missing error
+	arrived int64
 	fetches int
 	// started is closed once a fetch has told its progress, and the fetch
 	// then waits for fetching to close.
@@ -42,12 +45,24 @@ func (f *fakeSpeech) Ready() error {
 	return f.missing
 }
 
-func (f *fakeSpeech) Fetch(ctx context.Context, progress func(part string, done, total int64)) error {
+func (f *fakeSpeech) Missing() int64 {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.missing == nil {
+		return 0
+	}
+	return 125 << 20
+}
+
+func (f *fakeSpeech) Fetch(ctx context.Context, progress func(done, total int64)) error {
 	f.mu.Lock()
 	f.fetches++
-	wait, err := f.fetching, f.fetchErr
+	wait, err, arrived := f.fetching, f.fetchErr, f.arrived
 	f.mu.Unlock()
-	progress("model", 45<<20, 103<<20)
+	if arrived == 0 {
+		arrived = 45 << 20
+	}
+	progress(arrived, 125<<20)
 	if wait != nil {
 		close(f.started)
 		select {
@@ -193,17 +208,18 @@ func TestTheFirstDictationFetchesTheModelOnceAndSaysSo(t *testing.T) {
 	handler := dictationBoard(t, speech)
 	response := dictate(handler, []byte("RIFF-sound"), nil)
 	_, _, problem := answer(t, response)
-	if response.Code != http.StatusServiceUnavailable || !strings.Contains(problem, "being set up") {
+	// The first answer already says what is downloaded and how big it is.
+	if response.Code != http.StatusServiceUnavailable || !strings.Contains(problem, "being set up, once: downloading its speech model, 0 of 125 MB, which stays on this PC. Dictate again when it is ready.") {
 		t.Fatalf("the first dictation answered %d %s", response.Code, response.Body)
 	}
 	// While it downloads, another dictation starts no second download and
 	// the status says how far it is.
 	<-speech.started
 	response = dictate(handler, []byte("RIFF-sound"), nil)
-	if _, _, problem = answer(t, response); !strings.Contains(problem, "downloading model, 45 of 103 MB") {
+	if _, _, problem = answer(t, response); !strings.Contains(problem, "downloading its speech model, 45 of 125 MB") {
 		t.Fatalf("a dictation during the download answered %s", response.Body)
 	}
-	if _, state, note := dictationStatus(t, handler); state != "fetching" || !strings.Contains(note, "downloading model, 45 of 103 MB") {
+	if _, state, note := dictationStatus(t, handler); state != "fetching" || !strings.Contains(note, "downloading its speech model, 45 of 125 MB") {
 		t.Fatalf("the status reads %s %q", state, note)
 	}
 	close(speech.fetching)
@@ -214,6 +230,17 @@ func TestTheFirstDictationFetchesTheModelOnceAndSaysSo(t *testing.T) {
 	response = dictate(handler, []byte("RIFF-sound"), nil)
 	if text, _, _ := answer(t, response); response.Code != 200 || text != "now it types" {
 		t.Fatalf("after the download a dictation answered %d %s", response.Code, response.Body)
+	}
+}
+
+func TestOnceAllHasArrivedTheStatusSaysTheModelIsBeingChecked(t *testing.T) {
+	speech := &fakeSpeech{missing: errors.New("model 1 is not fetched"), arrived: 125 << 20, started: make(chan struct{}), fetching: make(chan struct{})}
+	handler := dictationBoard(t, speech)
+	defer close(speech.fetching)
+	dictate(handler, []byte("RIFF-sound"), nil)
+	<-speech.started
+	if _, state, note := dictationStatus(t, handler); state != "fetching" || note != "Dictation is being set up, once: checking and unpacking its speech model. Dictate again when it is ready." {
+		t.Fatalf("with every byte arrived the status reads %s %q", state, note)
 	}
 }
 
