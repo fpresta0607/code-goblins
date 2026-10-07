@@ -27,6 +27,10 @@ async function openTerminal(page: Page): Promise<Relay> {
   });
   await page.goto("/tests/fixtures/terminal-geometry.html");
   await expect.poll(() => relay.resizes.length).toBeGreaterThan(0);
+  // The view claims the terminal again once its font has loaded and once it
+  // is whole, so it settles only after both.
+  await page.evaluate(() => document.fonts.ready.then(() => undefined));
+  await expect(page.locator(".terminal-view.staged")).toHaveCount(0);
   await settled(relay);
   return relay;
 }
@@ -48,6 +52,8 @@ async function settled(relay: Relay): Promise<{ cols: number; rows: number }> {
 // that output was drawn on.
 const widthProbe = () => Buffer.from("\x1b[999C\x1b[6n");
 const size = (cols: number, rows: number) => JSON.stringify({ type: "size", cols, rows });
+// The drawn grid's width; the view measures its cell from it the same way.
+const screenWidth = (page: Page) => page.locator(".xterm-screen").evaluate((screen) => screen.getBoundingClientRect().width);
 
 // Each answer is ESC [ row ; column R.
 function probedWidths(relay: Relay): number[] {
@@ -149,3 +155,39 @@ test("typing takes the terminal back from a size another window gave it", async 
   await expect.poll(() => relay.typed.join("")).toContain("x");
   await expect.poll(() => relay.resizes.slice(resizes)).toContainEqual(claimed);
 });
+
+// Once another window has sized the terminal after it took the view's size,
+// the view draws that size and takes the terminal back only once typed into:
+// not when it comes into sight, as it also does when it becomes whole, and not
+// when its panel resizes. Main's CI at 9fc1f795 (run 37527438550) took it back
+// unasked when the view became whole.
+const UNTYPED = [
+  { event: "comes into sight", act: async (page: Page) => {
+    const switcher = page.getByRole("button", { name: "Switch terminal" });
+    await switcher.click();
+    await switcher.click();
+  } },
+  { event: "has its panel resized", act: async (page: Page) => {
+    const viewport = page.viewportSize()!;
+    await page.setViewportSize({ width: Math.round(viewport.width * 0.8), height: viewport.height });
+  } },
+];
+for (const { event, act } of UNTYPED) {
+  test(`a view that ${event} after another window sized the terminal keeps that size until typed into`, async ({ page }) => {
+    const relay = await openTerminal(page);
+    const claimed = relay.resizes.at(-1)!;
+    const cell = await screenWidth(page) / HOST_SIZE.cols;
+    relay.send(size(claimed.cols, claimed.rows), size(90, 30));
+    await expect.poll(async () => Math.round(await screenWidth(page) / cell)).toBe(90);
+    const resizes = relay.resizes.length;
+
+    await act(page);
+    await page.waitForTimeout(500);
+
+    expect(relay.resizes.slice(resizes), "the view took the terminal back without being typed into").toEqual([]);
+    await page.getByRole("textbox", { name: "Terminal input", exact: true }).focus();
+    await page.keyboard.type("x");
+    await expect.poll(() => relay.typed.join("")).toContain("x");
+    await expect.poll(() => relay.resizes.length).toBeGreaterThan(resizes);
+  });
+}
