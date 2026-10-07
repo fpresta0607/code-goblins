@@ -55,15 +55,12 @@ func TestMain(m *testing.M) {
 // echoChild answers one typed line at a time: the terminal its host says it
 // runs in, its terminal's size, a grandchild it starts, an exit code, a flood
 // of output before an exit code, a spill of output it keeps running after,
-// two seconds of streamed lines, its screen as it reads it itself, a screen read attaching to its console, a
-// Ctrl-C, leaving its console, or the line itself.
+// two seconds of streamed lines, its screen as it reads it itself, a Ctrl-C,
+// ending every other process attached to its console, or the line itself.
 func echoChild() {
 	// A Ctrl-C typed to the terminal is reported, not obeyed.
 	interrupts := make(chan os.Signal, 1)
 	signal.Notify(interrupts, os.Interrupt)
-	// The console's input waker is attached before this program runs, and
-	// counts among its processes from the start.
-	started := consoleProcesses()
 	fmt.Println("ready")
 	lines := bufio.NewScanner(os.Stdin)
 	for lines.Scan() {
@@ -71,7 +68,7 @@ func echoChild() {
 		switch {
 		case strings.HasPrefix(line, "screen "):
 			// Written to a file, so the screen stays as it was read.
-			rows, err := consoleScreen()
+			rows, err := ownScreen()
 			if err != nil {
 				fmt.Println("screen error", err)
 				continue
@@ -81,27 +78,31 @@ func echoChild() {
 			if os.WriteFile(path+".part", data, 0o600) == nil {
 				_ = os.Rename(path+".part", path)
 			}
-		case line == "wait-attach" || line == "hold-ctrl-c":
-			// A process more on this console than it started with is a
-			// screen read attached.
-			for deadline := time.Now().Add(15 * time.Second); consoleProcesses() <= started && time.Now().Before(deadline); time.Sleep(10 * time.Millisecond) {
-			}
-			fmt.Println("attached", consoleProcesses()-started)
-			if line == "wait-attach" {
-				continue
-			}
+		case line == "wait-ctrl-c":
 			// Waiting here rather than on input, which a Ctrl-C would end.
+			fmt.Println("waiting for a ctrl-c")
 			select {
 			case <-interrupts:
 				fmt.Println("interrupted")
 			case <-time.After(15 * time.Second):
 				fmt.Println("no interrupt")
 			}
-		case strings.HasPrefix(line, "free "):
-			// Nothing reaches this console through this program any more.
-			_, _, _ = kernel32.NewProc("FreeConsole").Call()
-			_ = os.WriteFile(strings.TrimPrefix(line, "free "), nil, 0o600)
-			time.Sleep(time.Minute)
+		case line == "end-waker":
+			// The console's input waker is the one other process attached.
+			ended := 0
+			for _, pid := range consoleProcessIDs() {
+				if int(pid) == os.Getpid() {
+					continue
+				}
+				if process, err := windows.OpenProcess(windows.PROCESS_TERMINATE|windows.SYNCHRONIZE, false, pid); err == nil {
+					if windows.TerminateProcess(process, 1) == nil {
+						_, _ = windows.WaitForSingleObject(process, 10000)
+						ended++
+					}
+					_ = windows.CloseHandle(process)
+				}
+			}
+			fmt.Println("ended", ended, "other process")
 		case line == "host-id":
 			fmt.Println("host-id", os.Getenv(IDVariable))
 		case line == "host-proof":
