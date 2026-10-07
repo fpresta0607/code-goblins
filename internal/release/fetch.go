@@ -186,6 +186,9 @@ func fetchText(ctx context.Context, client *http.Client, source Source, r Releas
 	return data, nil
 }
 
+// fetchProgram downloads name into dir under a name of its own, as
+// <name>.download, and returns its SHA-256, hashed as it arrives; Fetch gives
+// it its own name only once it is checked.
 func fetchProgram(ctx context.Context, client *http.Client, source Source, r Release, name, dir string) (string, error) {
 	address, err := assetURL(source, r, name)
 	if err != nil {

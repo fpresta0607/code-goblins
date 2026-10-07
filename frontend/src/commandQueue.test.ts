@@ -440,7 +440,7 @@ test("every open item of his is one the board has announced, never a goblin's qu
   assert.deepEqual(waitingItems(snapshot).map((item) => item.key).sort(), ["question:alone", "review:plan", "run:install"], "the carried question shows as its page's card");
 });
 
-test("every retained choice or written draft stays unsent until its send finishes successfully", () => {
+test("a choice or written text on an item still waiting stays unsent until its send finishes successfully; one on a closed item does not", () => {
   const blank = { selection: "", written: "", submission: null, sending: false, error: "" };
   const answer = submitted("a1", { kind: "goblin_answer", text: "SQLite" });
   const waiting = parseSnapshot({ healthy: true,
@@ -457,9 +457,9 @@ test("every retained choice or written draft stays unsent until its send finishe
     ["a send delivered", { "question:q": { ...blank, selection: "option:A", submission: answer } }, [action("a1", "goblin_answer", "succeeded")], false],
     ["a send refused", { "question:q": { ...blank, selection: "option:A", submission: answer, error: "that question is not open" } }, [], true],
     ["a delivery that failed", { "question:q": { ...blank, selection: "option:A", submission: answer } }, [action("a1", "goblin_answer", "failed")], true],
-    ["a choice on an item that left the snapshot", { "question:gone": { ...blank, selection: "option:A" } }, [], true],
-    ["a choice on a question that closed", { "question:done": { ...blank, selection: "option:A" } }, [], true],
-    ["written text on a review item that was cleared", { "review:cleared": { ...blank, written: "Looks good" } }, [], true],
+    ["a choice on an item that left the snapshot", { "question:gone": { ...blank, selection: "option:A" } }, [], false],
+    ["a choice on a question that closed", { "question:done": { ...blank, selection: "option:A" } }, [], false],
+    ["written text on a review item that was cleared", { "review:cleared": { ...blank, written: "Looks good" } }, [], false],
   ];
   for (const [name, drafts, actions, want] of cases) assert.equal(holdsUnsent(drafts, { ...waiting, actions }), want, name);
 });

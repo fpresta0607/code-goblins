@@ -162,13 +162,16 @@ export function notSent(draft: SentDraft, item: Item | undefined, actions: Actio
   return !!submission && !draft.sending && !!draft.error && !accepted && !!item && isOpen(item);
 }
 
-// holdsUnsent says whether any card keeps a choice
-// or written text the Overlord has not sent, or whose send failed, which a
-// reload would lose.
+// holdsUnsent says whether any card of an item still waiting, or a change to
+// the CFO's answer made from History, keeps a choice or written text the
+// Overlord has not sent, is sending it, or saw its send fail, which a reload
+// would lose. A draft left on an item that closed is no longer his to send.
 export function holdsUnsent(drafts: Record<string, SentDraft & { selection: string; written: string }>, snapshot: Snapshot): boolean {
-  return Object.values(drafts).some((draft) => {
+  return Object.entries(drafts).some(([key, draft]) => {
+    const item = itemFor(snapshot, key);
+    const isLive = key.startsWith("change:") || !!item && isOpen(item);
     const state = sendState(draft, snapshot.actions);
-    return (!!draft.selection || !!draft.written.trim()) && (draft.sending || !state || state.failed);
+    return isLive && (!!draft.selection || !!draft.written.trim()) && (draft.sending || !state || state.failed);
   });
 }
 
