@@ -199,6 +199,8 @@ func runServe(args []string, stdout, stderr io.Writer, runtime commandRuntime) i
 		VerifyReports:    verify.Reports,
 		Runs:             supervisor.OSRunLauncher{},
 		PollPage:         (axi.Lavish{Commands: execx.OSRunner{}}).Poll,
+		PageSessions:     (axi.Lavish{}).Sessions,
+		EndPage:          (axi.Lavish{Commands: execx.OSRunner{}}).End,
 		FirstRun:         firstRun,
 		Dispatch:         &supervisor.Dispatch{Memory: supervisor.MachineMemory, Disk: func() (supervisor.Disk, error) { return supervisor.MachineDisk(h) }, CommitHolders: supervisor.CommitHolders, Spawn: spawnFromBoard},
 		// The CI wakes only read GitHub, as PullRequestState does, so an

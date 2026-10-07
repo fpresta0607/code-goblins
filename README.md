@@ -269,7 +269,18 @@ When the board cannot open, the window says why in a message of its own, in the 
 Closing the window hides it to its tray, whose menu has **Open the board**, **Start at login**, which opens the app in the tray when you sign in, with no terminal either, and **Quit the window**.
 Start at login is on after an install, and it is one setting with the switch on the board and the setup's box.
 An install takes the place of a copy of the window that was installed on its own, in a folder of its own: [the install guide](docs/install.md#to-use-it) says what it removes and what it keeps.
-Dictation with **Ctrl+Shift+Space** works in the window as in a browser tab: both hand what you say to the speech model the supervisor runs on this PC.
+
+#### Dictating in the app
+
+Click into a terminal in the window, Claude Code's, Codex's, pi's or the CFO's, hold **Ctrl+Shift+Space**, speak, and let go: what you said is typed into that terminal as one line, and **Enter** sends it.
+A speech model the supervisor runs on this PC hears it, so your voice never leaves the PC, and dictation costs nothing and needs no account.
+The first time, the model is not there yet: the app downloads it once, 125 MB, and the note under the terminal says how far it is as it arrives, then **Dictation is ready**.
+What you said that first time is not kept, so say it again once it is ready.
+Without the internet the note says which file to download and where to save it, and the next dictation uses it; a download that fails stays shown under the terminal until you dictate again.
+If Windows blocks the microphone, the note says so and where to turn it back on: Settings > Privacy & security > Microphone, with Microphone access and Let desktop apps access your microphone on.
+After that a line comes back in a moment, and the model gives its memory back after two minutes without dictation.
+Two dictations in a row are typed with a space between them, and a click on the microphone in the terminal's corner lists your recent dictations.
+It works the same in a browser tab, and the terminal panel under [Board and Orchestration](#board-and-orchestration) says more.
 
 ### Opening, closing and restarting
 
@@ -457,6 +468,7 @@ The terminal fills the panel, and you pick the goblin on the board; every termin
 **Ctrl+Alt+Up** and **Ctrl+Alt+Down** step through the terminals, the CFO first and then each goblin with a terminal, and **Ctrl+Alt+1** to **Ctrl+Alt+9** jump to one, from anywhere on the board; a switch hands the keyboard to the terminal it shows.
 The first time a browser, an installed web app or the desktop window shows the board of a home whose CFO is running, it opens on the Board with the CFO's terminal beside it and the keyboard in that terminal; a window too narrow for two columns shows the board with that terminal under it and leaves the keyboard alone.
 That happens once: what you arrange afterwards is kept, and a browser that already keeps a panel width or a maximize choice is left as it is.
+That first open also starts a very quick tour, three steps in which the CFO points at its terminal, the board and the Command Center; **Escape** or the X skips it, it shows once, and the **?** in the top bar replays it.
 A terminal and the Task view both open beside the board, **Maximize** gives the panel the whole window and **Restore** brings the board back beside it, and on the Orchestration view the panel opens beside the graph.
 Drag the divider between the board and the panel to size the panel; the width, and whether each view is maximized, are remembered in this browser.
 A task's panel has **Back** in its corner, which returns the panel to the CFO's on the view it last showed, and the CFO's own panel has Close; **Escape** does the same as the button.
@@ -468,7 +480,7 @@ New native hosts explicitly request interactive Windows scheduling, so typing an
 Updating the executable or restarting the board does not change hosts that are already running; apply the host update when each session can be safely resumed, preserving active work.
 Every terminal pane has a voice bubble in its bottom-right corner, in a strip of its own under the terminal.
 Hold **Ctrl+Shift+Space** to dictate into the terminal that has the keyboard: while the keys are held the bubble's bars move with your voice, and releasing them types what was heard as one line, which **Enter** sends.
-What you say is recognised by a speech model the supervisor runs on this PC, so it costs nothing, needs no account and never leaves the machine; the first dictation downloads the model once, about 126 MB, and says so.
+What you say is recognised by a speech model the supervisor runs on this PC, so it costs nothing, needs no account and never leaves the machine; the first dictation downloads the model once, 125 MB, shows how far it is under the terminal and says when dictation is ready, and the words of that first dictation are not kept.
 The model stays loaded for two minutes after you dictate, so the next line comes back in a blink, and then gives its memory back.
 The bubble names the model while it listens.
 A browser that has a speech recognition of its own can use that instead, which sends your voice to the browser's maker: tick **Use this browser's speech recognition instead** under the bubble's recent dictations. It is off until you turn it on, and the desktop app has none to offer.

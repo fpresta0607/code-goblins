@@ -51,12 +51,16 @@ interface Supervisor { asked: Asked[]; refuses: boolean; announces: boolean }
 async function open(page: Page, first: object, supervisor: Supervisor = { asked: [], refuses: false, announces: true }): Promise<Supervisor> {
   await page.addInitScript(() => {
     const streams: EventTarget[] = [];
+    // What held the page's main thread, kept for slowPush below.
+    const longFrames: unknown[] = [];
+    const pushedAt: number[] = [];
+    new PerformanceObserver((list) => { for (const entry of list.getEntries()) longFrames.push(entry.toJSON()); }).observe({ type: "long-animation-frame", buffered: true });
     class HeldStream extends EventTarget {
       onerror: unknown = null;
       constructor() { super(); streams.push(this); }
       close() { streams.splice(streams.indexOf(this), 1); }
     }
-    Object.assign(window, { EventSource: HeldStream, pushSnapshot: (value: unknown) => { for (const stream of streams) stream.dispatchEvent(new MessageEvent("snapshot", { data: JSON.stringify(value) })); return streams.length; } });
+    Object.assign(window, { EventSource: HeldStream, longFrames, pushedAt, pushSnapshot: (value: unknown) => { pushedAt.push(performance.now()); for (const stream of streams) stream.dispatchEvent(new MessageEvent("snapshot", { data: JSON.stringify(value) })); return streams.length; } });
   });
   await page.route("**/api/**", async (route) => {
     const request = route.request();
@@ -69,10 +73,29 @@ async function open(page: Page, first: object, supervisor: Supervisor = { asked:
     else await route.fulfill({ status: 404, json: { error: "No fixture for this resource" } });
   });
   await page.goto("/");
-  await expect.poll(() => push(page, first)).toBeGreaterThan(0);
+  const started = Date.now();
+  try {
+    await expect.poll(() => push(page, first)).toBeGreaterThan(0);
+  } finally {
+    if (Date.now() - started > SLOW_PUSH_MS) await slowPush(page, Date.now() - started);
+  }
   await expect(page.locator(".board-column").first()).toBeVisible();
   await page.evaluate(() => document.fonts.ready);
   return supervisor;
+}
+// On CI runners the first push has twice waited over five seconds on the
+// page's main thread, which drew nothing meanwhile (runs 37360134485 and
+// 37517175728), and that does not happen on a developer machine. A push that
+// slow attaches the page's long animation frames, each with the scripts,
+// style and layout and rendering it spent its time on, and when the pushes
+// were made, so the next one names what held the thread.
+const SLOW_PUSH_MS = 2000;
+async function slowPush(page: Page, waited: number) {
+  const held = await page.evaluate(() => {
+    const { longFrames, pushedAt } = window as unknown as { longFrames: unknown[]; pushedAt: number[] };
+    return { now: performance.now(), pushedAt, longFrames };
+  });
+  await test.info().attach("long animation frames", { contentType: "application/json", body: JSON.stringify({ waited, ...held }, null, 1) });
 }
 const push = (page: Page, value: object) => page.evaluate((next) => (window as unknown as { pushSnapshot: (value: unknown) => number }).pushSnapshot(next), value);
 
