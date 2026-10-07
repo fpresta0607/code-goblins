@@ -72,6 +72,10 @@ async function announcer(context: BrowserContext, taken: string[] = []) {
 
 // A board out of sight: its tab hidden or its window minimized.
 const OUT_OF_SIGHT = () => Object.defineProperty(document, "hidden", { configurable: true, get: () => true });
+// A board out of sight waits a second and a half before it asks the
+// supervisor what to announce, so whatever it would announce has been asked
+// for and shown by this long after its snapshot.
+const ANNOUNCED_BY_MS = 2500;
 
 const bar = (page: Page) => page.locator(".cfo-pin");
 const card = (page: Page) => page.locator("dialog.question-modal");
@@ -114,7 +118,7 @@ test.describe("on the board, in a browser tab", () => {
     // Act
     await send(page, news());
     await expect(goblin(page, "Board theme").locator(".plain-status")).toHaveClass(/phase-blocked/);
-    await page.waitForTimeout(1000);
+    await page.waitForTimeout(ANNOUNCED_BY_MS);
     await testInfo.attach("goblins' news on the board", { body: await page.screenshot(), contentType: "image/png" });
 
     // Assert
@@ -188,7 +192,7 @@ window.addEventListener("DOMContentLoaded", () => { ${notesScript} });`;
     // Act: the goblins' news, then the CFO's two questions.
     await send(page, news());
     await expect(goblin(page, "Board theme").locator(".plain-status")).toHaveClass(/phase-blocked/);
-    await page.waitForTimeout(1000);
+    await page.waitForTimeout(ANNOUNCED_BY_MS);
     const quiet = await posted(page);
     await testInfo.attach("goblins' news in the window's size", { body: await page.screenshot(), contentType: "image/png" });
     await send(page, { ...news(), questions: [RELEASE, second] });
