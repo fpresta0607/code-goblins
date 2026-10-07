@@ -69,5 +69,5 @@ func helperInstruction(exe string, meta state.TaskMeta) string {
 // helperOffer tells a goblin it may ask the supervisor for one helper.
 func helperOffer(exe, id string) string {
 	return " When a separate piece of your task can run beside yours, you may ask the supervisor for one helper goblin: write its brief to a file and run: " + exe + " helper start " + id + " --brief <file> --title \"<short title>\". It starts only when memory allows, works on a branch cut from your last commit and reports to you here; the command says when to ask again if it is refused." +
-		" While you only wait on it, run: " + exe + " notify " + id + " --waiting-on <helper-id> \"<why>\". When it reports done, merge its work into your branch with: " + exe + " helper merge " + id + ", which retires it; you stay the one who opens the pull request. Stop a helper you no longer need with: " + exe + " kill <helper-id> --reason \"<why>\"."
+		" While you only wait on it, run: " + exe + " notify " + id + " --waiting-on <helper-id> \"<why>\". Answer its questions with: " + exe + " send <helper-id> \"<answer>\". When it reports done, merge its work into your branch with: " + exe + " helper merge " + id + ", which retires it; you stay the one who opens the pull request. Stop a helper you no longer need with: " + exe + " kill <helper-id> --reason \"<why>\"."
 }

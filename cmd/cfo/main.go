@@ -525,7 +525,7 @@ func runWithRuntime(args []string, stdout, stderr io.Writer, runtime commandRunt
 	case "reap":
 		return runReap(args[1:], stdout, stderr, runtime)
 	case "notify":
-		return runNotify(args[1:], stdout, stderr)
+		return runNotify(args[1:], stdout, stderr, runtime)
 	case "question":
 		return runQuestion(args[1:], stdout, stderr, runtime)
 	case "answer":

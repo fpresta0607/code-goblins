@@ -28,7 +28,7 @@ func TestNotifyBlockedWritesStatusAndWakesTheCFO(t *testing.T) {
 	t.Setenv("CFO_HOME", dir)
 
 	var stdout, stderr bytes.Buffer
-	if exit := runNotify([]string{"g1", "--blocked", "Should I merge this?"}, &stdout, &stderr); exit != 0 {
+	if exit := runNotify([]string{"g1", "--blocked", "Should I merge this?"}, &stdout, &stderr, defaultCommandRuntime()); exit != 0 {
 		t.Fatalf("exit=%d stderr=%s", exit, stderr.String())
 	}
 
@@ -66,7 +66,7 @@ func TestNotifyDoneRequiresPR(t *testing.T) {
 	t.Setenv("CFO_HOME", dir)
 
 	var stdout, stderr bytes.Buffer
-	if exit := runNotify([]string{"g1", "--done"}, &stdout, &stderr); exit != 2 || !strings.Contains(stderr.String(), "--pr") {
+	if exit := runNotify([]string{"g1", "--done"}, &stdout, &stderr, defaultCommandRuntime()); exit != 2 || !strings.Contains(stderr.String(), "--pr") {
 		t.Fatalf("exit=%d stderr=%q, want --pr refusal", exit, stderr.String())
 	}
 }
@@ -79,7 +79,7 @@ func TestNotifyRequiresExactlyOneOutcome(t *testing.T) {
 	t.Setenv("CFO_HOME", dir)
 
 	var stdout, stderr bytes.Buffer
-	if exit := runNotify([]string{"g1"}, &stdout, &stderr); exit != 2 || !strings.Contains(stderr.String(), "exactly one") {
+	if exit := runNotify([]string{"g1"}, &stdout, &stderr, defaultCommandRuntime()); exit != 2 || !strings.Contains(stderr.String(), "exactly one") {
 		t.Fatalf("exit=%d stderr=%q, want exactly-one refusal", exit, stderr.String())
 	}
 }
@@ -94,7 +94,7 @@ func TestNotifyTargetsStateOverrideWithoutCFOHome(t *testing.T) {
 	t.Chdir(worktree)
 
 	var stdout, stderr bytes.Buffer
-	if exit := runNotify([]string{"g1", "--blocked", "Should I merge this?"}, &stdout, &stderr); exit != 0 {
+	if exit := runNotify([]string{"g1", "--blocked", "Should I merge this?"}, &stdout, &stderr, defaultCommandRuntime()); exit != 0 {
 		t.Fatalf("exit=%d stderr=%s", exit, stderr.String())
 	}
 
@@ -135,7 +135,7 @@ func TestNotifyTargetsStateOverrideWithAGlobalCFOHome(t *testing.T) {
 	t.Chdir(worktree)
 
 	var stdout, stderr bytes.Buffer
-	if exit := runNotify([]string{"g1", "--done", "--pr", "https://example.test/pr/1"}, &stdout, &stderr); exit != 0 {
+	if exit := runNotify([]string{"g1", "--done", "--pr", "https://example.test/pr/1"}, &stdout, &stderr, defaultCommandRuntime()); exit != 0 {
 		t.Fatalf("exit=%d stderr=%s", exit, stderr.String())
 	}
 
@@ -159,7 +159,7 @@ func TestNotifyNormalizesControlCharactersInTheDetail(t *testing.T) {
 	t.Setenv("CFO_HOME", dir)
 
 	var stdout, stderr bytes.Buffer
-	if exit := runNotify([]string{"g1", "--blocked", "Should I\nmerge this?"}, &stdout, &stderr); exit != 0 {
+	if exit := runNotify([]string{"g1", "--blocked", "Should I\nmerge this?"}, &stdout, &stderr, defaultCommandRuntime()); exit != 0 {
 		t.Fatalf("exit=%d stderr=%s", exit, stderr.String())
 	}
 
@@ -207,7 +207,7 @@ func TestBlockedNotifyIsQueuedAtOnceWithAndWithoutServe(t *testing.T) {
 
 			var stdout, stderr bytes.Buffer
 			start := time.Now()
-			if exit := runNotify([]string{"g1", "--blocked", "Which store? options: Postgres | SQLite"}, &stdout, &stderr); exit != 0 {
+			if exit := runNotify([]string{"g1", "--blocked", "Which store? options: Postgres | SQLite"}, &stdout, &stderr, defaultCommandRuntime()); exit != 0 {
 				t.Fatalf("exit=%d stderr=%s", exit, stderr.String())
 			}
 			if elapsed := time.Since(start); elapsed > 5*time.Second {
@@ -273,7 +273,7 @@ func TestNotifyTellsTheRunningSupervisorWhichTellsItsBoardsAtOnce(t *testing.T) 
 
 			// Act
 			var stdout, stderr bytes.Buffer
-			if exit := runNotify(args, &stdout, &stderr); exit != 0 {
+			if exit := runNotify(args, &stdout, &stderr, defaultCommandRuntime()); exit != 0 {
 				t.Fatalf("exit=%d stderr=%s", exit, stderr.String())
 			}
 
@@ -307,7 +307,7 @@ func TestNotifyRefusesAChoiceThatIsOnlyALetterOrNumber(t *testing.T) {
 		"Merge now? options: 12 | Wait",
 	} {
 		var stdout, stderr bytes.Buffer
-		if exit := runNotify([]string{"g1", "--blocked", question}, &stdout, &stderr); exit != 2 || !strings.Contains(stderr.String(), "write the answer itself") {
+		if exit := runNotify([]string{"g1", "--blocked", question}, &stdout, &stderr, defaultCommandRuntime()); exit != 2 || !strings.Contains(stderr.String(), "write the answer itself") {
 			t.Fatalf("%q: exit=%d stderr=%q, want it refused with how to write the answer", question, exit, stderr.String())
 		}
 	}
@@ -319,7 +319,7 @@ func TestNotifyRefusesAChoiceThatIsOnlyALetterOrNumber(t *testing.T) {
 	}
 	question := "Merge now? options: Fix it next (Recommended) | Keep 300 s | A plan"
 	var stdout, stderr bytes.Buffer
-	if exit := runNotify([]string{"g1", "--blocked", question}, &stdout, &stderr); exit != 0 {
+	if exit := runNotify([]string{"g1", "--blocked", question}, &stdout, &stderr, defaultCommandRuntime()); exit != 0 {
 		t.Fatalf("exit=%d stderr=%q, want answers written as phrases recorded", exit, stderr.String())
 	}
 	if records, err := wake.Pending(stateDir); err != nil || len(records) != 1 || records[0].Detail != "blocked: "+question {
@@ -365,7 +365,7 @@ func TestNotifyImagesAreCheckedBeforeAnythingIsRecorded(t *testing.T) {
 		"outside the task":  {[]string{"--blocked", question, "--image", inside, "--image", outside}, 1},
 	} {
 		var stdout, stderr bytes.Buffer
-		if exit := runNotify(append([]string{"g1"}, c.args...), &stdout, &stderr); exit != c.exit {
+		if exit := runNotify(append([]string{"g1"}, c.args...), &stdout, &stderr, defaultCommandRuntime()); exit != c.exit {
 			t.Fatalf("%s: exit=%d stderr=%q, want %d", name, exit, stderr.String(), c.exit)
 		}
 	}
@@ -376,7 +376,7 @@ func TestNotifyImagesAreCheckedBeforeAnythingIsRecorded(t *testing.T) {
 		t.Fatalf("a refused notify woke the CFO: %+v %v", records, err)
 	}
 	var stdout, stderr bytes.Buffer
-	if exit := runNotify([]string{"g1", "--blocked", question, "--image", inside, "--image", filepath.Join(dir, "work", ".", "grid.png")}, &stdout, &stderr); exit != 0 {
+	if exit := runNotify([]string{"g1", "--blocked", question, "--image", inside, "--image", filepath.Join(dir, "work", ".", "grid.png")}, &stdout, &stderr, defaultCommandRuntime()); exit != 0 {
 		t.Fatalf("exit=%d stderr=%q, want the notify recorded", exit, stderr.String())
 	}
 	if records, err := wake.Pending(stateDir); err != nil || len(records) != 1 || records[0].Detail != "blocked: "+question {
@@ -405,7 +405,7 @@ func TestNotifyWorkingAndWaitingOnWakeOnlyForTheOverlord(t *testing.T) {
 		"working with a stray": {[]string{"g1", "--working", "lint", "extra"}, 2},
 	} {
 		var stdout, stderr bytes.Buffer
-		if exit := runNotify(c.args, &stdout, &stderr); exit != c.exit {
+		if exit := runNotify(c.args, &stdout, &stderr, defaultCommandRuntime()); exit != c.exit {
 			t.Errorf("%s: exit=%d stderr=%q, want %d", name, exit, stderr.String(), c.exit)
 		}
 	}
@@ -420,7 +420,7 @@ func TestNotifyWorkingAndWaitingOnWakeOnlyForTheOverlord(t *testing.T) {
 		{[]string{"g1", "--waiting-on", "board-ui", "its API contract"}, "waiting on board-ui: its API contract"},
 	} {
 		var stdout, stderr bytes.Buffer
-		if exit := runNotify(c.args, &stdout, &stderr); exit != 0 {
+		if exit := runNotify(c.args, &stdout, &stderr, defaultCommandRuntime()); exit != 0 {
 			t.Fatalf("%v: exit=%d stderr=%q", c.args, exit, stderr.String())
 		}
 		lines, err := state.TailStatus(stateDir, "g1", 1)
@@ -432,7 +432,7 @@ func TestNotifyWorkingAndWaitingOnWakeOnlyForTheOverlord(t *testing.T) {
 		t.Fatalf("wake records = %+v %v, want none for working or a wait on a task or CI", records, err)
 	}
 	var stdout, stderr bytes.Buffer
-	if exit := runNotify([]string{"g1", "--waiting-on", "overlord", "log in to Stripe"}, &stdout, &stderr); exit != 0 {
+	if exit := runNotify([]string{"g1", "--waiting-on", "overlord", "log in to Stripe"}, &stdout, &stderr, defaultCommandRuntime()); exit != 0 {
 		t.Fatalf("exit=%d stderr=%q", exit, stderr.String())
 	}
 	if records, err := wake.Pending(stateDir); err != nil || len(records) != 1 || records[0].Detail != "waiting on overlord: log in to Stripe" {
@@ -480,7 +480,7 @@ func TestNotifyWaitNamesTheLavishPageTheOverlordAnswersOn(t *testing.T) {
 		"a page that is not HTML": {[]string{"g1", "--waiting-on", "overlord", "pick a plan", "--lavish", notes}, 2},
 	} {
 		var stdout, stderr bytes.Buffer
-		if exit := runNotify(c.args, &stdout, &stderr); exit != c.exit {
+		if exit := runNotify(c.args, &stdout, &stderr, defaultCommandRuntime()); exit != c.exit {
 			t.Errorf("%s: exit=%d stderr=%q, want %d", name, exit, stderr.String(), c.exit)
 		}
 	}
@@ -492,7 +492,7 @@ func TestNotifyWaitNamesTheLavishPageTheOverlordAnswersOn(t *testing.T) {
 	// nothing would watch the page: the notify fails loudly, and the CFO still
 	// has the wait.
 	var stdout, stderr bytes.Buffer
-	exit := runNotify([]string{"g1", "--waiting-on", "overlord", "pick a plan", "--lavish", page}, &stdout, &stderr)
+	exit := runNotify([]string{"g1", "--waiting-on", "overlord", "pick a plan", "--lavish", page}, &stdout, &stderr, defaultCommandRuntime())
 
 	if exit != 1 || !strings.Contains(stderr.String(), "nothing watches the page "+page) || !strings.Contains(stderr.String(), "ask in text with --blocked") {
 		t.Fatalf("exit=%d stderr=%q, want a failure naming the unwatched page and saying to ask in text", exit, stderr.String())
@@ -523,7 +523,7 @@ func TestNotifyWaitWithAPageIsRefusedWithoutLavish(t *testing.T) {
 	t.Setenv("PATH", t.TempDir())
 
 	var stdout, stderr bytes.Buffer
-	exit := runNotify([]string{"g1", "--waiting-on", "overlord", "pick a plan", "--lavish", page}, &stdout, &stderr)
+	exit := runNotify([]string{"g1", "--waiting-on", "overlord", "pick a plan", "--lavish", page}, &stdout, &stderr, defaultCommandRuntime())
 
 	if exit != 1 || !strings.Contains(stderr.String(), "ask in text with --blocked") {
 		t.Fatalf("exit=%d stderr=%q, want a refusal that says to ask in text", exit, stderr.String())
@@ -561,7 +561,7 @@ func TestNotifyWaitGivesTheLinkTheOverlordGoesTo(t *testing.T) {
 		"a plain http web link": {[]string{"g1", "--waiting-on", "overlord", "add the records", "--link", "http://dash.cloudflare.com/dns"}, "https"},
 	} {
 		var stdout, stderr bytes.Buffer
-		if exit := runNotify(c.args, &stdout, &stderr); exit != 2 || !strings.Contains(stderr.String(), c.says) {
+		if exit := runNotify(c.args, &stdout, &stderr, defaultCommandRuntime()); exit != 2 || !strings.Contains(stderr.String(), c.says) {
 			t.Errorf("%s: exit=%d stderr=%q, want 2 naming %q", name, exit, stderr.String(), c.says)
 		}
 	}
@@ -571,7 +571,7 @@ func TestNotifyWaitGivesTheLinkTheOverlordGoesTo(t *testing.T) {
 
 	// Act
 	var stdout, stderr bytes.Buffer
-	exit := runNotify([]string{"g1", "--waiting-on", "overlord", "add the records", "--link", link}, &stdout, &stderr)
+	exit := runNotify([]string{"g1", "--waiting-on", "overlord", "add the records", "--link", link}, &stdout, &stderr, defaultCommandRuntime())
 
 	// Assert
 	if exit != 0 {
@@ -617,7 +617,7 @@ func TestNotifyCarriesACommandForTheOverlordToRun(t *testing.T) {
 		"an empty command":              {[]string{"g1", "--waiting-on", "overlord", "sign in", "--run", write("empty.ps1", "  \n")}, "empty"},
 	} {
 		var stdout, stderr bytes.Buffer
-		if exit := runNotify(c.args, &stdout, &stderr); exit != 2 || !strings.Contains(stderr.String(), c.says) {
+		if exit := runNotify(c.args, &stdout, &stderr, defaultCommandRuntime()); exit != 2 || !strings.Contains(stderr.String(), c.says) {
 			t.Errorf("%s: exit=%d stderr=%q, want 2 naming %q", name, exit, stderr.String(), c.says)
 		}
 	}
@@ -627,7 +627,7 @@ func TestNotifyCarriesACommandForTheOverlordToRun(t *testing.T) {
 
 	// Act
 	var stdout, stderr bytes.Buffer
-	exit := runNotify([]string{"g1", "--waiting-on", "overlord", "Sign in to GitHub so I can push", "--run", command}, &stdout, &stderr)
+	exit := runNotify([]string{"g1", "--waiting-on", "overlord", "Sign in to GitHub so I can push", "--run", command}, &stdout, &stderr, defaultCommandRuntime())
 
 	// Assert
 	if exit != 0 {
@@ -666,7 +666,7 @@ func TestNotifyTellsAGoblinWaitingOnTheOverlordToMoveOnWhileAFKModeIsOn(t *testi
 			var stdout, stderr bytes.Buffer
 
 			// Act
-			exit := runNotify([]string{"g1", "--waiting-on", "overlord", "log in to Stripe"}, &stdout, &stderr)
+			exit := runNotify([]string{"g1", "--waiting-on", "overlord", "log in to Stripe"}, &stdout, &stderr, defaultCommandRuntime())
 
 			// Assert
 			if exit != 0 || !strings.Contains(stdout.String(), "notified g1 waiting on overlord: log in to Stripe") {
@@ -677,5 +677,118 @@ func TestNotifyTellsAGoblinWaitingOnTheOverlordToMoveOnWhileAFKModeIsOn(t *testi
 				t.Errorf("stdout = %q, want the goblin told to move on only while AFK mode is on (%v)", stdout.String(), away)
 			}
 		})
+	}
+}
+
+// helperHome is a home where goblin g1 has helper g1-h1, with a runtime that
+// records what is typed into a terminal instead of typing it, and fails the
+// way sendErr says.
+func helperHome(t *testing.T, sendErr error) (home.Home, commandRuntime, *[][2]string) {
+	t.Helper()
+	h := testHome(t)
+	if err := os.MkdirAll(h.State, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	for _, meta := range []state.TaskMeta{{ID: "g1"}, {ID: "g1-h1", Parent: "g1", Mode: "local-only"}} {
+		meta.Window, meta.Harness, meta.Kind, meta.Backend, meta.Worktree = "native", "claude", "ship", "native", filepath.Join(h.Root, meta.ID)
+		if err := state.WriteTaskMeta(h.State, meta); err != nil {
+			t.Fatal(err)
+		}
+	}
+	runtime := testCommandRuntimeForHome(h)
+	var typed [][2]string
+	runtime.sendText = func(_ context.Context, _ home.Home, target, text string) error {
+		typed = append(typed, [2]string{target, text})
+		return sendErr
+	}
+	return h, runtime, &typed
+}
+
+func TestAHelpersReportsReachItsParentAndNotTheCFO(t *testing.T) {
+	cases := []struct {
+		args []string
+		want []string
+	}{
+		{[]string{"g1-h1", "--done"}, []string{"Your helper g1-h1 is done", "cfo helper merge g1"}},
+		{[]string{"g1-h1", "--blocked", "Which table?\n- users or accounts"}, []string{"Your helper g1-h1 asks: Which table?", "cfo send g1-h1"}},
+		{[]string{"g1-h1", "--failed", "the build is broken"}, []string{"Your helper g1-h1 failed: the build is broken", "cfo kill g1-h1"}},
+	}
+	for _, c := range cases {
+		t.Run(c.args[1], func(t *testing.T) {
+			// Arrange
+			h, runtime, typed := helperHome(t, nil)
+			var stdout, stderr bytes.Buffer
+
+			// Act
+			exit := runNotify(c.args, &stdout, &stderr, runtime)
+
+			// Assert
+			if exit != 0 {
+				t.Fatalf("exit = %d, stderr = %s", exit, stderr.String())
+			}
+			if len(*typed) != 1 || (*typed)[0][0] != "g1" {
+				t.Fatalf("typed = %q, want one report in g1's terminal", *typed)
+			}
+			for _, want := range c.want {
+				if !strings.Contains((*typed)[0][1], want) {
+					t.Errorf("the report %q does not say %q", (*typed)[0][1], want)
+				}
+			}
+			if strings.Contains((*typed)[0][1], "\n") {
+				t.Errorf("the report %q spans lines; a line break would submit it early", (*typed)[0][1])
+			}
+			if records, err := wake.Pending(h.State); err != nil || len(records) != 0 {
+				t.Errorf("wake records = %+v, %v; want the CFO left out of a helper's report", records, err)
+			}
+			if lines, _ := state.TailStatus(h.State, "g1-h1", 1); len(lines) != 1 {
+				t.Errorf("status = %v, want the report on the helper's own log", lines)
+			}
+		})
+	}
+}
+
+func TestAHelpersReportWakesTheCFOWhenItsParentCannotTakeIt(t *testing.T) {
+	// Arrange
+	h, runtime, _ := helperHome(t, errors.New("g1's terminal has ended"))
+	var stdout, stderr bytes.Buffer
+
+	// Act
+	exit := runNotify([]string{"g1-h1", "--done"}, &stdout, &stderr, runtime)
+
+	// Assert
+	if exit != 0 {
+		t.Fatalf("exit = %d, stderr = %s", exit, stderr.String())
+	}
+	records, err := wake.Pending(h.State)
+	if err != nil || len(records) != 1 || records[0].Key != "g1-h1" || !strings.Contains(records[0].Detail, "could not reach its parent g1") || !strings.Contains(records[0].Detail, "terminal has ended") {
+		t.Errorf("wake records = %+v, %v; want the undelivered report woken to the CFO with why", records, err)
+	}
+}
+
+func TestOnlyAHelperReportsDoneWithoutAPullRequest(t *testing.T) {
+	// Arrange
+	h, runtime, typed := helperHome(t, nil)
+	var stdout, stderr bytes.Buffer
+
+	// Act
+	exit := runNotify([]string{"g1", "--done"}, &stdout, &stderr, runtime)
+
+	// Assert
+	if exit != 2 || !strings.Contains(stderr.String(), "--pr") || len(*typed) != 0 {
+		t.Errorf("exit = %d, stderr = %q, typed = %q; want the parent's done refused without --pr", exit, stderr.String(), *typed)
+	}
+	if lines, _ := state.TailStatus(h.State, "g1", 1); len(lines) != 0 {
+		t.Errorf("status = %v, want nothing recorded for a refused notify", lines)
+	}
+}
+
+func TestAHelpersWorkingReportStaysOnTheBoard(t *testing.T) {
+	_, runtime, typed := helperHome(t, nil)
+	var stdout, stderr bytes.Buffer
+
+	exit := runNotify([]string{"g1-h1", "--working", "writing the migration"}, &stdout, &stderr, runtime)
+
+	if exit != 0 || len(*typed) != 0 {
+		t.Errorf("exit = %d, typed = %q; want a working report recorded and typed nowhere", exit, *typed)
 	}
 }

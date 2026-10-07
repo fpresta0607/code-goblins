@@ -168,7 +168,7 @@ func TestNotifyInstructionTellsAHelperToReportToItsParentAndNeverPush(t *testing
 			t.Errorf("helper instruction offers %q:\n%s", unwanted, helper)
 		}
 	}
-	for _, want := range []string{"helper start g1 --brief", "helper merge g1", "--waiting-on <helper-id>", "--pr <url>"} {
+	for _, want := range []string{"helper start g1 --brief", "helper merge g1", "--waiting-on <helper-id>", "send <helper-id>", "--pr <url>"} {
 		if !strings.Contains(goblin, want) {
 			t.Errorf("goblin instruction lacks %q:\n%s", want, goblin)
 		}
