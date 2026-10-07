@@ -1,6 +1,7 @@
 package supervisor
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"net/http"
@@ -35,6 +36,10 @@ type FirstRun struct {
 	// as cfo install --projects-root does.
 	ProjectsRoot    func() (string, error)
 	SetProjectsRoot func(root string) error
+	// SignIn asks agent's own status command whether it is signed in, in
+	// the environment the CFO's native terminal starts with, so the page
+	// says what that terminal will find.
+	SignIn func(ctx context.Context, agent string) SignInState
 	// CFORuns says a CFO is registered or its native terminal is up;
 	// StartCFO starts agent as the CFO in native terminal cfo, in the home;
 	// ReopenCFO brings the home's closed CFO back as goblins does;
@@ -76,17 +81,29 @@ type Setup struct {
 
 // SetupAgent is one agent the first-run page shows: its name, whether it is
 // the recommended one and the few words on what a CFO in it gets, all from
-// the table of what is proved; whether this machine has it on PATH and a
-// sign-in saved for it; and why Start cannot pick it when it cannot.
+// the table of what is proved; whether this machine has it on PATH and what
+// its own status command says of its sign-in; and why Start cannot pick it
+// when it cannot.
 type SetupAgent struct {
-	ID          string `json:"id"`
-	Name        string `json:"name"`
-	Recommended bool   `json:"recommended"`
-	Note        string `json:"note,omitempty"`
-	Installed   bool   `json:"installed"`
-	SignedIn    bool   `json:"signed_in"`
-	Reason      string `json:"reason,omitempty"`
+	ID          string      `json:"id"`
+	Name        string      `json:"name"`
+	Recommended bool        `json:"recommended"`
+	Note        string      `json:"note,omitempty"`
+	Installed   bool        `json:"installed"`
+	SignIn      SignInState `json:"sign_in"`
+	Reason      string      `json:"reason,omitempty"`
 }
+
+// SignInState is what an agent's own status command says of its sign-in.
+// Unknown is an answer it did not give, or an agent not asked, and is never
+// shown as signed in or signed out.
+type SignInState string
+
+const (
+	SignedIn      SignInState = "signed_in"
+	SignedOut     SignInState = "signed_out"
+	SignInUnknown SignInState = "unknown"
+)
 
 // firstRunSignIn is the file under the home folder each agent's sign-in is
 // saved in.
@@ -118,8 +135,23 @@ func ProjectCheckouts(root string) ([]string, error) {
 }
 
 // Setup reads the first-run page for root, or for the recorded projects
-// folder when root is empty.
-func (f *FirstRun) Setup(root string) Setup {
+// folder when root is empty, asking every installed agent at once whether it
+// is signed in, so the page waits for the slowest answer alone.
+func (f *FirstRun) Setup(ctx context.Context, root string) Setup {
+	setup := f.setup(root)
+	var asked sync.WaitGroup
+	for i := range setup.Agents {
+		if setup.Agents[i].Installed {
+			asked.Go(func() { setup.Agents[i].SignIn = f.SignIn(ctx, setup.Agents[i].ID) })
+		}
+	}
+	asked.Wait()
+	return setup
+}
+
+// setup is the first-run page for root with no agent asked whether it is
+// signed in, which Start does not need.
+func (f *FirstRun) setup(root string) Setup {
 	setup := Setup{Home: f.CFOHome, Agent: f.SavedAgent(), Checkouts: []string{}, CFORuns: f.CFORuns()}
 	if root == "" {
 		recorded, err := f.ProjectsRoot()
@@ -136,8 +168,7 @@ func (f *FirstRun) Setup(root string) Setup {
 	// none is refused that the fleet can wake.
 	for _, agent := range CFOCapabilities() {
 		path, err := f.LookPath(agent.Agent)
-		info, statErr := os.Stat(filepath.Join(f.Home, filepath.FromSlash(firstRunSignIn[agent.Agent])))
-		shown := SetupAgent{ID: agent.Agent, Name: agent.Name, Recommended: agent.Recommended, Note: agent.Note, Installed: err == nil, SignedIn: statErr == nil && info.Mode().IsRegular() && info.Size() > 0}
+		shown := SetupAgent{ID: agent.Agent, Name: agent.Name, Recommended: agent.Recommended, Note: agent.Note, Installed: err == nil, SignIn: SignInUnknown}
 		switch {
 		case agent.Wake == CFOWakeNone:
 			shown.Reason = "Goblins cannot wake a " + agent.Name + " CFO"
@@ -194,7 +225,7 @@ func (f *FirstRun) Start(root, agent string) error {
 	if f.CFORuns() {
 		return StartRefusal{Reason: "The CFO already runs; open its terminal from the board"}
 	}
-	setup := f.Setup(root)
+	setup := f.setup(root)
 	chosen := slices.IndexFunc(setup.Agents, func(shown SetupAgent) bool { return shown.ID == agent })
 	switch {
 	case chosen < 0:
@@ -319,7 +350,7 @@ func (h *HTTP) setup(w http.ResponseWriter, r *http.Request) {
 		apiError(w, http.StatusConflict, "This board cannot start a CFO")
 		return
 	}
-	respond(w, http.StatusOK, h.Service.Options.FirstRun.Setup(r.URL.Query().Get("root")))
+	respond(w, http.StatusOK, h.Service.Options.FirstRun.Setup(r.Context(), r.URL.Query().Get("root")))
 }
 
 // startCFO serves POST /api/setup/start, the first-run page's Start.
