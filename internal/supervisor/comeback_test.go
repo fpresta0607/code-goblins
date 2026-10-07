@@ -17,6 +17,7 @@ import (
 
 	"github.com/fpresta0607/code-goblins/internal/home"
 	"github.com/fpresta0607/code-goblins/internal/host"
+	"github.com/fpresta0607/code-goblins/internal/lock"
 	"github.com/fpresta0607/code-goblins/internal/state"
 	"github.com/fpresta0607/code-goblins/internal/wake"
 )
@@ -153,6 +154,7 @@ func TestARestartBringsTheCFOBackFirstThenEachWorkingGoblinOneAtATime(t *testing
 	// Arrange
 	recorder := &comebackRecorder{}
 	service, h, spawner := comebackBoard(t, recorder, [2]float64{8, 8})
+	closedCFO(t, h.State)
 	terminalStarted(t, h, NativeCFOTerminal, lastSignIn.Add(time.Minute))
 	for _, id := range []string{"alpha", "bravo", "charlie"} {
 		workingGoblin(t, h, id, lastSignIn.Add(time.Hour))
@@ -221,6 +223,7 @@ func TestTheComebackWaitsForMemoryAndCommitAtTheMarks(t *testing.T) {
 		[2]float64{8, 8},   // first again
 		[2]float64{8, 8},   // second: alpha
 	)
+	closedCFO(t, h.State)
 	terminalStarted(t, h, NativeCFOTerminal, lastSignIn.Add(time.Minute))
 	workingGoblin(t, h, "alpha", lastSignIn.Add(time.Hour))
 	var came [][]string
@@ -297,8 +300,9 @@ func TestAGoblinThatCannotComeBackStaysStoppedWithItsReasonAndBlocksNoOther(t *t
 // the reason, and the goblins still come back.
 func TestACFOThatCannotComeBackLeavesTheGoblinsComingBack(t *testing.T) {
 	// Arrange
-	recorder := &comebackRecorder{cfoErr: errors.New("its conversation s-1 could not be resumed; Reopen on its bar starts it on a new one")}
+	recorder := &comebackRecorder{cfoErr: errors.New("its conversation s-1 could not be resumed; Reopen on its bar tries its conversation again and starts it on a new one where that cannot be resumed")}
 	service, h, _ := comebackBoard(t, recorder, [2]float64{8, 8})
+	closedCFO(t, h.State)
 	terminalStarted(t, h, NativeCFOTerminal, lastSignIn.Add(time.Minute))
 	workingGoblin(t, h, "alpha", lastSignIn.Add(time.Hour))
 
@@ -352,6 +356,74 @@ func TestAGoblinWithNoRoomYetWaitsWithTheReason(t *testing.T) {
 	}
 	if record.Goblins[0].State != state.ComebackBack {
 		t.Errorf("alpha is %s after room came, want back", record.Goblins[0].State)
+	}
+}
+
+func TestTheComebackWaitsForTheSharedSpawnLockAndHoldsItDuringLaunch(t *testing.T) {
+	recorder := &comebackRecorder{}
+	service, h, _ := comebackBoard(t, recorder, [2]float64{8, 8})
+	workingGoblin(t, h, "alpha", lastSignIn.Add(time.Hour))
+	reading(t, service, 0)
+	if _, err := lock.AcquireExclusiveNamed(h.State, ".spawn.lock"); err != nil {
+		t.Fatal(err)
+	}
+	release := sync.OnceFunc(func() {
+		if err := lock.ReleaseExclusiveNamed(h.State, ".spawn.lock"); err != nil {
+			t.Error(err)
+		}
+	})
+	t.Cleanup(release)
+	service.Options.Comeback.Goblin = func(ctx context.Context, id string) GoblinComeback {
+		if _, err := lock.AcquireExclusiveNamed(h.State, ".spawn.lock"); !errors.Is(err, lock.ErrHeld) {
+			if err == nil {
+				_ = lock.ReleaseExclusiveNamed(h.State, ".spawn.lock")
+			}
+			t.Errorf("spawn lock during launch = %v, want held", err)
+		}
+		return recorder.goblin(ctx, id)
+	}
+
+	reading(t, service, 1)
+	record, err := state.ReadComeback(h.State)
+	if err != nil || len(record.Goblins) != 1 || record.Goblins[0].State != state.ComebackWaiting || record.Goblins[0].Reason != "Waits for room: another task is starting" || len(recorder.came()) != 0 {
+		t.Fatalf("while another start holds the lock: comeback %+v, error %v, resumed %v", record, err, recorder.came())
+	}
+	release()
+	reading(t, service, 2)
+
+	if !slices.Equal(recorder.came(), []string{"alpha"}) {
+		t.Fatalf("after release resumed %v, want alpha", recorder.came())
+	}
+	record, err = state.ReadComeback(h.State)
+	if err != nil || len(record.Goblins) != 1 || record.Goblins[0].State != state.ComebackBack {
+		t.Fatalf("after release: comeback %+v, error %v, want alpha back", record, err)
+	}
+	if _, err := lock.AcquireExclusiveNamed(h.State, ".spawn.lock"); err != nil {
+		t.Fatalf("spawn lock after the comeback = %v, want released", err)
+	}
+	if err := lock.ReleaseExclusiveNamed(h.State, ".spawn.lock"); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestTheComebackLeavesAnUnregisteredCFOToFirstRunSetup(t *testing.T) {
+	recorder := &comebackRecorder{}
+	service, h, _ := comebackBoard(t, recorder, [2]float64{8, 8})
+	terminalStarted(t, h, NativeCFOTerminal, lastSignIn.Add(time.Minute))
+	alpha := workingGoblin(t, h, "alpha", lastSignIn.Add(time.Hour))
+
+	reading(t, service, 0)
+	record, err := state.ReadComeback(h.State)
+	if err != nil || record.CFO != nil || !record.Waiting(alpha.ID, alpha.SpawnGen) || len(recorder.came()) != 0 {
+		t.Fatalf("comeback %+v, error %v, resumed %v, want only alpha waiting", record, err, recorder.came())
+	}
+	snapshot, err := service.Snapshot()
+	if err != nil || snapshot.CFOClosed || snapshot.CFORuns || snapshot.CFOStarting {
+		t.Fatalf("CFO closed %v, runs %v, starting %v, error %v, want first-run setup", snapshot.CFOClosed, snapshot.CFORuns, snapshot.CFOStarting, err)
+	}
+	reading(t, service, 1)
+	if !slices.Equal(recorder.came(), []string{alpha.ID}) {
+		t.Fatalf("resumed %v, want alpha alone", recorder.came())
 	}
 }
 

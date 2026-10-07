@@ -31,8 +31,8 @@ func TestTheComebackResumesTheCFOOnItsOwnConversationAndNeverStartsAFreshOne(t *
 		wantErr            string
 	}{
 		{name: "on its conversation", conversation: "a1b2c3d4-session", wantArgs: []string{"--resume a1b2c3d4-session"}},
-		{name: "not on a new one when the resumed terminal does not hold", conversation: "a1b2c3d4-session", resumeEnds: true, wantArgs: []string{"--resume a1b2c3d4-session"}, wantErr: "its conversation a1b2c3d4-session could not be resumed; Reopen on its bar starts it on a new one"},
-		{name: "not at all when it registered no conversation", wantErr: "it registered no conversation of its own as Claude Code; Reopen on its bar starts it on a new one"},
+		{name: "not on a new one when the resumed terminal does not hold", conversation: "a1b2c3d4-session", resumeEnds: true, wantArgs: []string{"--resume a1b2c3d4-session"}, wantErr: "its conversation a1b2c3d4-session could not be resumed; Reopen on its bar tries its conversation again and starts it on a new one where that cannot be resumed"},
+		{name: "not at all when it registered no conversation", wantErr: "it registered no conversation of its own as Claude Code; Reopen on its bar tries its conversation again and starts it on a new one where that cannot be resumed"},
 		{name: "not again when it already runs", conversation: "a1b2c3d4-session", isRunning: true},
 	} {
 		t.Run(tc.name, func(t *testing.T) {

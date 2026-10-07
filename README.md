@@ -284,7 +284,7 @@ A restart or a sign-out ends all of those processes, and Code Goblins brings the
 **Start at login**, which every install turns on, starts the app in the tray when you sign in to Windows, with no terminal shown, and the app starts the supervisor.
 The supervisor then brings back what the restart ended, in this order:
 
-1. The CFO, in its terminal, on the conversation it last ran, resumed by that conversation's id: Claude Code with `--resume <session>`, Codex with `codex resume <session>`.
+1. The registered CFO, in its terminal, on the conversation it last ran, resumed by that conversation's id: Claude Code with `--resume <session>`, Codex with `codex resume <session>`.
    It never starts a fresh CFO in its place.
 2. Each goblin that was working and had not finished, in its own session, with the same harness, model and effort, one at a time.
    Each waits for room as a start does: memory and commit both at the 5 GB mark on two readings in a row, a minute apart, and a free goblin slot.
@@ -294,7 +294,7 @@ Goblins that had finished, were paused or stopped, or were retired stay as they 
 While anything waits to come back nothing else starts by itself: queued starts, paused goblins' automatic resumes and `memory_ready` wait.
 A Start or Resume you press on the board, or a `cfo spawn` the CFO chooses, is still allowed.
 A goblin that cannot come back, such as one whose harness sign-in expired, stays stopped with the reason on its card, the CFO is told, and the other goblins still come back.
-A CFO whose conversation cannot be resumed stays closed with the reason, and **Reopen** on its bar starts it on a new conversation.
+A CFO whose conversation cannot be resumed stays closed with the reason, and **Reopen** on its bar tries its conversation again and starts it on a new one where that cannot be resumed.
 While this runs, one line at the top of the board says what is back and what waits, then what resumed, such as "Resumed the CFO and 6 goblins after a restart."; it is the same line in the desktop window and in the browser, and Dismiss puts it away.
 With Start at login off, the same happens the first time the supervisor starts after the restart, when you open the app or run `goblins`.
 

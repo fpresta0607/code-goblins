@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/fpresta0607/code-goblins/internal/host"
+	"github.com/fpresta0607/code-goblins/internal/lock"
 	"github.com/fpresta0607/code-goblins/internal/state"
 )
 
@@ -173,7 +174,7 @@ func (s *Service) planComeback(now time.Time) (state.Comeback, bool, error) {
 		terminal, err := host.ReadRecord(directory, id)
 		return err == nil && !terminal.Started.Before(prior.SignedIn) && terminal.Started.Before(s.signedIn) && !NativeTerminalRuns(directory, id)
 	}
-	if ended(NativeCFOTerminal, prior.CFO) && !CFORuns(directory) {
+	if _, _, err := readPrimary(directory); err == nil && ended(NativeCFOTerminal, prior.CFO) && !CFORuns(directory) {
 		record.CFO = &state.ComebackEntry{ID: NativeCFOTerminal, State: state.ComebackWaiting}
 	}
 	evaluations := s.Store.Snapshot().Tasks
@@ -230,6 +231,7 @@ func (s *Service) bringGoblinBack(comeback *Comeback, id string, memory Memory) 
 	evaluation := s.Store.Snapshot().Tasks[id]
 	lifecycle, lifecycleErr := state.ReadLifecycle(directory, id)
 	result := GoblinComeback{Outcome: LeftAsItWas}
+	var releaseErr error
 	switch {
 	case metaErr != nil && !errors.Is(metaErr, os.ErrNotExist):
 		result = GoblinComeback{Outcome: DidNotComeBack, Said: "its task record cannot be read: " + metaErr.Error()}
@@ -239,10 +241,19 @@ func (s *Service) bringGoblinBack(comeback *Comeback, id string, memory Memory) 
 	case NativeTerminalRuns(directory, id):
 		result.Outcome = AlreadyRuns
 	default:
-		if err := s.launchRoom(memory); err != nil {
-			result = GoblinComeback{Outcome: WaitsForRoom, Said: err.Error()}
+		if _, err := lock.AcquireExclusiveNamed(directory, ".spawn.lock"); err != nil {
+			reason := err.Error()
+			if errors.Is(err, lock.ErrHeld) {
+				reason = "another task is starting"
+			}
+			result = GoblinComeback{Outcome: WaitsForRoom, Said: reason}
 		} else {
-			result = comeback.Goblin(context.Background(), id)
+			if err := s.launchRoom(memory); err != nil {
+				result = GoblinComeback{Outcome: WaitsForRoom, Said: err.Error()}
+			} else {
+				result = comeback.Goblin(context.Background(), id)
+			}
+			releaseErr = lock.ReleaseExclusiveNamed(directory, ".spawn.lock")
 		}
 	}
 	s.comeback.Lock()
@@ -277,7 +288,7 @@ func (s *Service) bringGoblinBack(comeback *Comeback, id string, memory Memory) 
 	s.starts.Lock()
 	delete(s.changing, id)
 	s.starts.Unlock()
-	s.reportComeback(err)
+	s.reportComeback(errors.Join(err, releaseErr))
 }
 
 // reportComeback keeps what a comeback step met for the next recovery cycle,

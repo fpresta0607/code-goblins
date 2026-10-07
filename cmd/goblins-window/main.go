@@ -181,8 +181,7 @@ func main() {
 	// Start at login is one setting with the board's and the setup's: the
 	// choice is kept in the home, so an install keeps it, and the tray shows
 	// a change the board made.
-	isAtLogin := StartsAtLogin(login)
-	atLogin := menu.AddCheckbox("Start at login", isAtLogin)
+	atLogin := menu.AddCheckbox("Start at login", StartsAtLogin(login))
 	atLogin.OnClick(func(ctx *application.Context) {
 		if err := keepStartAtLogin(login, *stateDir, atLogin.Checked()); err != nil {
 			atLogin.SetChecked(!atLogin.Checked())
@@ -207,8 +206,10 @@ func main() {
 			if time.Since(started) < startGrace {
 				continue
 			}
-			if now := StartsAtLogin(login); now != isAtLogin {
-				isAtLogin = now
+			if _, err := adoptEarlierLogin(launcher, self, login); err != nil {
+				log.Printf("start at login: %v", err)
+			}
+			if now := StartsAtLogin(login); now != atLogin.Checked() {
 				atLogin.SetChecked(now)
 			}
 			url, moved := follow.Next()

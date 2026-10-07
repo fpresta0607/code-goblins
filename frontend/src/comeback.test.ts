@@ -43,7 +43,7 @@ test("a goblin or the CFO that did not come back is named, and its card or bar s
   assert.deepEqual(comebackLine(comeback(undefined, entry("a", "stopped"), entry("b", "stopped"))), {
     text: "Resumed 0 of 2 goblins after a restart.", detail: "a and b did not come back; their cards say why.", isDone: true,
   });
-  assert.deepEqual(comebackLine(comeback(entry("cfo", "stopped", "its conversation s-1 could not be resumed; Reopen on its bar starts it on a new one"), entry("a", "back"))), {
-    text: "Resumed 1 goblin after a restart.", detail: "The CFO did not come back: its conversation s-1 could not be resumed; Reopen on its bar starts it on a new one.", isDone: true,
+  assert.deepEqual(comebackLine(comeback(entry("cfo", "stopped", "its conversation s-1 could not be resumed; Reopen on its bar tries its conversation again and starts it on a new one where that cannot be resumed"), entry("a", "back"))), {
+    text: "Resumed 1 goblin after a restart.", detail: "The CFO did not come back: its conversation s-1 could not be resumed; Reopen on its bar tries its conversation again and starts it on a new one where that cannot be resumed.", isDone: true,
   });
 });

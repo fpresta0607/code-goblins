@@ -81,8 +81,9 @@ func reopenCFO(h home.Home, start func(h home.Home, project, harness string, arg
 // supervisor's comeback does first: as the agent the home remembers, in
 // native terminal cfo, on the conversation it last registered with and never
 // on a new one, with its startup dialogs answered. It says why the CFO did
-// not come back, and the board's Reopen then starts it on a new one. A CFO
-// that runs already, as one goblins started first, is back.
+// not come back; the board's Reopen tries its conversation again and starts
+// it on a new one where that cannot be resumed. A CFO that runs already, as
+// one goblins started first, is back.
 func comebackCFO(ctx context.Context, h home.Home, runtime commandRuntime) error {
 	launchErr := acquireCFOLaunch(ctx, h.State)
 	if launchErr == nil {
@@ -103,7 +104,7 @@ func comebackCFO(ctx context.Context, h home.Home, runtime commandRuntime) error
 		if why == "" {
 			why = "it registered no conversation of its own as " + onboarding.Name(agent)
 		}
-		return fmt.Errorf("%s; Reopen on its bar starts it on a new one", why)
+		return fmt.Errorf("%s; Reopen on its bar tries its conversation again and starts it on a new one where that cannot be resumed", why)
 	}
 	held, err := comeBack(h, agent, resume, runtime.startNativeCFO, runtime.nativeTerminalRuns)
 	if err != nil {
@@ -113,7 +114,7 @@ func comebackCFO(ctx context.Context, h home.Home, runtime commandRuntime) error
 		runtime.settleCFO(ctx, h.State, agent)
 	}
 	if !held || !runtime.nativeTerminalRuns(h.State, supervisor.NativeCFOTerminal) {
-		return fmt.Errorf("its conversation %s could not be resumed; Reopen on its bar starts it on a new one", resume[len(resume)-1])
+		return fmt.Errorf("its conversation %s could not be resumed; Reopen on its bar tries its conversation again and starts it on a new one where that cannot be resumed", resume[len(resume)-1])
 	}
 	supervisor.ClearCFOConversationLeft(h.State)
 	return nil
