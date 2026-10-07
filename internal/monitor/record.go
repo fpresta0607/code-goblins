@@ -159,8 +159,10 @@ type Observation struct {
 	// are the reading the next one is measured against, and JobSampledSince
 	// is when the current run of consecutive readings began. HasJobProgress
 	// is their latest CPU judgment, independent of transcript evidence.
-	// ProgressReadAt and Jobs are the scan's own reading, when it was made and
-	// the processes it found running, so one scan reads progress once.
+	// ProgressReadAt, Jobs and Waits are the scan's own reading, when it was
+	// made, the processes it found running and the sub-agents, background
+	// shells and monitors open under the goblin, so one scan reads progress
+	// once.
 	EvidenceAt         *time.Time    `json:"evidence_at,omitempty"`
 	JobCPU             time.Duration `json:"job_cpu,omitempty"`
 	JobSampledAt       *time.Time    `json:"job_sampled_at,omitempty"`
@@ -168,6 +170,7 @@ type Observation struct {
 	HasJobProgress     bool          `json:"has_job_progress,omitempty"`
 	ProgressReadAt     *time.Time    `json:"-"`
 	Jobs               []string      `json:"-"`
+	Waits              []string      `json:"-"`
 	IdleSince          *time.Time    `json:"idle_since,omitempty"`
 	StaleSince         *time.Time    `json:"stale_since,omitempty"`
 	NextEscalation     *time.Time    `json:"next_escalation,omitempty"`

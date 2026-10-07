@@ -34,6 +34,9 @@ type ProgressSample struct {
 	// JobCPU is the processor time those processes and everything under them
 	// have used.
 	JobCPU time.Duration
+	// Waits names the sub-agents, background shells and monitors still open
+	// under it: work its harness records it is waiting on.
+	Waits []string
 }
 
 // ProgressProber reads a goblin's progress evidence. The monitor consults it
@@ -110,6 +113,7 @@ func (h *HostProgress) InspectProgress(ctx context.Context, meta state.TaskMeta,
 		return progress, treeErr
 	}
 	progress.Jobs, progress.JobCPU = tree.Jobs()
+	progress.Waits = tree.Waits()
 	return progress, nil
 }
 

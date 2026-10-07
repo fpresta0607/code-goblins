@@ -67,6 +67,13 @@ func (s Service) idleAtPrompt(ctx context.Context, meta state.TaskMeta, sample E
 	if now.Sub(since) < s.idleAfter() || !judged || observation.PendingEvent != nil {
 		return observation
 	}
+	// A goblin whose harness records it waiting on a sub-agent, background
+	// shell or monitor it started is not idle until that wait has shown no
+	// progress for the busy budget: on 2026-10-07 cg-ci-green woke the CFO
+	// seven times while it waited on its own CI monitor.
+	if len(observation.Waits) > 0 && now.Sub(since) < s.busyTurnMax() {
+		return observation
+	}
 	// A goblin whose last reply asks waits on that answer: it wakes with its
 	// question, and an idle wake's gap does not hold a question back.
 	if asked := s.askedAtPrompt(ctx, meta, sample); len(asked) > 0 {
