@@ -31,7 +31,7 @@ export function MemoryMeter({ memory, scheduling = null, disk = null }: { memory
       <span className="gap" style={{ flexBasis: `${scale.next - scale.floor}%` }} />
       <span className="next">{Math.round(memory.next / 2 ** 30)} GB next</span>
     </div>
-    {scheduled && <p className="memory-holders" aria-hidden="true">{scheduled}</p>}
+    {scheduled && <p className="memory-schedule" aria-hidden="true">{scheduled}</p>}
     {holders && <p className="memory-holders">{holders}</p>}
     {warning && <p className="memory-warning"><Icon name="warning" />{warning}</p>}
     {capacity && <div className="memory-line memory-capacity"><span>Goblins live</span><strong>{capacity.live}</strong></div>}

@@ -995,7 +995,7 @@ a.wait-open { min-height: 44px; border: 1px solid var(--accent-green); border-ra
 .memory-scale > .floor { flex: 0 1 auto; min-width: max-content; padding-right: 6px; text-align: right; }
 .memory-scale > .gap { flex: 0 9999 auto; min-width: 0; }
 .memory-scale > .next { flex: none; padding-left: 6px; }
-.memory-holders, .memory-warning { margin: 0; font-size: 1rem; overflow-wrap: anywhere; }
+.memory-holders, .memory-schedule, .memory-warning { margin: 0; font-size: 1rem; overflow-wrap: anywhere; }
 .disk-meter { display: grid; gap: 6px; margin-top: 4px; padding-top: 10px; border-top: 1px solid var(--glass-border); }
 .memory > .disk-meter:first-child { margin-top: 0; padding-top: 0; border-top: 0; }
 .memory-warning { display: flex; gap: 8px; align-items: flex-start; color: var(--amber); }
