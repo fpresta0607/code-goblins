@@ -2,8 +2,6 @@ package main
 
 import (
 	"context"
-	"crypto/sha256"
-	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"flag"
@@ -113,8 +111,7 @@ func reachHelpers(ctx context.Context, h home.Home, meta state.TaskMeta, record 
 			lines = append(lines, "helper "+helper.ID+" kept at work: "+meta.ID+" waits on it")
 			continue
 		}
-		sum := sha256.Sum256([]byte(record.Operation + "\x00" + helper.ID))
-		request := lifecycle.Request{ID: helper.ID, Generation: helper.SpawnGen, Operation: "helper-" + hex.EncodeToString(sum[:8]), Action: record.Action, Reason: "Stopped with its parent " + meta.ID + ": " + record.Reason}
+		request := lifecycle.Request{ID: helper.ID, Generation: helper.SpawnGen, Operation: state.HelperOperation(record.Operation, helper.ID), Action: record.Action, Reason: "Stopped with its parent " + meta.ID + ": " + record.Reason}
 		if pause != nil {
 			request.Reason, request.Until = pause.Reason, pause.Until
 		}

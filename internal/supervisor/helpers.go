@@ -213,3 +213,25 @@ func (s *Service) runHelperStart(dispatch *Dispatch, plan helperStart) {
 	s.starts.Unlock()
 	s.notify()
 }
+
+// resumesWithItsParent says paused helper meta may resume now: its parent's
+// own pause paused it, which nothing of the helper's clears, and its parent
+// runs again. A helper paused by itself keeps its own condition.
+func (s *Service) resumesWithItsParent(meta state.TaskMeta, record state.Lifecycle) (bool, error) {
+	if meta.Parent == "" || !state.IsHelperOperation(record.Operation) {
+		return false, nil
+	}
+	stateDir := s.Store.Home.State
+	parent, err := state.ReadTaskMeta(stateDir, meta.Parent)
+	if errors.Is(err, os.ErrNotExist) {
+		return false, nil
+	}
+	if err != nil {
+		return false, err
+	}
+	lifecycle, err := state.ReadLifecycle(stateDir, parent.ID)
+	if errors.Is(err, os.ErrNotExist) {
+		return true, nil
+	}
+	return err == nil && (lifecycle.Generation != parent.SpawnGen || lifecycle.Phase == "running"), err
+}

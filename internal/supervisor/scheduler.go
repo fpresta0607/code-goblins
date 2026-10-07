@@ -77,6 +77,12 @@ func (s *Service) schedule(ctx context.Context, now time.Time, memory Memory, wa
 			problems = errors.Join(problems, fmt.Errorf("pause condition for %s: %w", meta.ID, err))
 			continue
 		}
+		isWithParent, err := s.resumesWithItsParent(meta, record)
+		if err != nil {
+			problems = errors.Join(problems, fmt.Errorf("parent of %s: %w", meta.ID, err))
+			continue
+		}
+		isReady = isReady || isWithParent
 		if isReady {
 			ready = append(ready, record)
 		} else if record.Pause.Reason == "memory" {
