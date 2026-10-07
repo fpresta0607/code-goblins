@@ -263,6 +263,11 @@ type Process struct {
 	// harness-shaped processes and their ancestors, the one place it decides
 	// anything, and is empty wherever it was not read or could not be.
 	Cwd string `json:"cwd,omitempty"`
+	// Terminal is the native terminal of this home the process proves it
+	// runs in: the one its environment names, by the proof value that
+	// terminal's host put there. It is read for the same processes as Cwd,
+	// and is empty wherever nothing was proven.
+	Terminal string `json:"terminal,omitempty"`
 }
 
 // Pane is one pane Herdr still reports, with the operating-system identity
@@ -302,6 +307,9 @@ type NativeHost struct {
 	ID      string
 	HostPID int
 	Started time.Time
+	// ProofSum is the digest of the proof value the host put in its
+	// terminal's environment.
+	ProofSum string
 }
 
 // Registration is what a project repository answered about a directory among
@@ -1276,6 +1284,15 @@ func supervisedPIDs(inv Inventory, hosts map[string]int) map[int]bool {
 	roots := make([]int, 0, len(inv.Panes)*2+len(hosts)+len(inv.SelfPIDs))
 	for _, pid := range hosts {
 		roots = append(roots, pid)
+	}
+	// A process that proves it runs in a live terminal is that terminal's,
+	// with everything it starts, though its chain of parents stops short of
+	// the host: Git Bash runs timeout, an MSYS program, by replacing its own
+	// Windows process, so a goblin's tests run that way reach no host.
+	for _, process := range inv.Processes {
+		if _, live := hosts[process.Terminal]; live {
+			roots = append(roots, process.PID)
+		}
 	}
 	for _, pane := range inv.Panes {
 		if pane.ShellPID != 0 {

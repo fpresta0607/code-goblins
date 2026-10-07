@@ -62,10 +62,13 @@ export interface Task extends Evaluation {
   // was written; empty when neither is known.
   since: string;
   // brief says queued work has its brief, which Start needs; starting that
-  // its Start runs cfo spawn now, and start_error why its last Start failed.
+  // its Start runs cfo spawn now, start_error why its last Start failed, and
+  // finished why it never starts again by itself: what says it already
+  // finished.
   brief: boolean;
   starting: boolean;
   start_error: string;
+  finished: string;
   // priority is a queued task's backlog priority: production-defect starts
   // it ahead of every other start and resume.
   priority: string;
@@ -165,10 +168,19 @@ export interface LifecycleStatus {
   pause?: PauseCondition;
 }
 export interface PauseCondition { reason: string; until: string; at: string }
+// Scheduling is what the supervisor's scheduler made of its last reading with
+// memory free: text says what it started or resumed, else why nothing
+// waiting started, and waiting is the work that could run and did not.
+export interface Scheduling {
+  at: string;
+  text: string;
+  waiting: { id: string; why: string }[];
+}
+
 // Memory is the machine's free memory and free commit (memory plus page file)
 // in bytes beside the fleet's floor, under which nothing starts, and the mark
-// at which the CFO starts the next queued task; with the kernel's pools and,
-// while commit is the tighter, the apps holding the most of it.
+// at which the next queued task starts; with the kernel's pools and, while
+// commit is the tighter, the apps holding the most of it.
 export interface Memory {
   available: number; total: number; commit_available: number; commit_limit: number;
   paged_pool: number; nonpaged_pool: number; floor: number; next: number; holders: CommitHolder[];
@@ -305,6 +317,10 @@ export interface Snapshot {
   credentials?: CredentialRequest[];
   // memory is absent on a board that cannot start goblins or read it.
   memory: Memory | null;
+  // scheduling is what the supervisor started or resumed at its last
+  // reading with memory free, or why nothing waiting started; null while
+  // memory is short or nothing schedules.
+  scheduling: Scheduling | null;
   ci_durations: CIDuration[];
   // disk is absent on a board that cannot read it.
   disk: Disk | null;
@@ -678,6 +694,7 @@ export function parseSnapshot(value: unknown): Snapshot {
       holders: array(holders).map((value) => { const h = object(value); return { name: string(h.name), commit: number(h.commit) }; }),
       ...(capacity == null ? {} : { capacity: ((c) => ({ live: number(c.live), limit: number(c.limit), configured: number(c.configured), slots: number(c.slots) }))(object(capacity)) }),
     }))(object(v.memory)),
+    scheduling: v.scheduling == null ? null : ((scheduled) => ({ at: string(scheduled.at), text: string(scheduled.text), waiting: array(scheduled.waiting).map((value) => { const w = object(value); return { id: string(w.id), why: string(w.why) }; }) }))(object(v.scheduling)),
     ci_durations: array(v.ci_durations).map((value) => { const d = object(value); return { repository: string(d.repository), kind: string(d.kind), seconds: number(d.duration_seconds) }; }),
     disk: v.disk === undefined || v.disk === null ? null : (({ drive, free, total, floor, wake }) => ({
       drive: string(drive), free: number(free), total: number(total), floor: number(floor), wake: number(wake),
@@ -724,6 +741,7 @@ export function parseSnapshot(value: unknown): Snapshot {
         brief: t.brief === undefined ? false : boolean(t.brief),
         starting: t.starting === undefined ? false : boolean(t.starting),
         start_error: string(t.start_error),
+        finished: t.finished === undefined ? "" : string(t.finished),
         priority: t.priority === undefined ? "" : string(t.priority),
         parent: t.parent === undefined ? "" : string(t.parent),
         ...(t.progress == null ? {} : { progress: ((progress) => ({ at: string(progress.at), source: string(progress.source) }))(object(t.progress)) }),
