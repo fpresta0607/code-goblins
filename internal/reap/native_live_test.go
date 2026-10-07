@@ -279,13 +279,15 @@ func TestTheSweepRunsWithoutHerdrOnlyWhenNoHerdrServerRuns(t *testing.T) {
 // harnesses.
 func TestAProcessProvenInALiveGoblinsTerminalIsThatGoblins(t *testing.T) {
 	for name, test := range map[string]struct {
+		terminal string
 		proof    string
 		hostRuns bool
 		reported bool
 	}{
-		"proven in the live terminal":             {"proof-board", true, false},
-		"a proof the terminal never gave":         {"forged", true, true},
-		"proven in a terminal whose host is gone": {"proof-board", false, true},
+		"proven in the live terminal":                {"board", "proof-board", true, false},
+		"proven in the live terminal, named in caps": {"BOARD", "proof-board", true, false},
+		"a proof the terminal never gave":            {"board", "forged", true, true},
+		"proven in a terminal whose host is gone":    {"board", "proof-board", false, true},
 	} {
 		t.Run(name, func(t *testing.T) {
 			// Arrange
@@ -301,7 +303,7 @@ func TestAProcessProvenInALiveGoblinsTerminalIsThatGoblins(t *testing.T) {
 			if test.hostRuns {
 				processes = append(processes, process(400, 1, "cfo.exe", `cfo.exe host --id board`, fixtureStart), process(410, 400, "claude.exe", `claude --dangerously-skip-permissions`, fixtureLatest))
 			}
-			terminal := []string{`PATH=C:\Windows`, "CFO_HOST_ID=board", "CFO_HOST_PROOF=" + test.proof}
+			terminal := []string{`PATH=C:\Windows`, "CFO_HOST_ID=" + test.terminal, "CFO_HOST_PROOF=" + test.proof}
 			environments := map[int][]string{500: terminal, 510: terminal, 520: {`PATH=C:\Windows`}, 530: {`PATH=C:\Windows`}}
 			collector := Collector{Home: h, Session: "default", Processes: processes, Environment: func(pid int) ([]string, error) {
 				if env, ok := environments[pid]; ok {

@@ -163,6 +163,9 @@ func TestASecondHomeListsNoWorktreeItsRecordsDoNotName(t *testing.T) {
 		filepath.Join(shared, ".worktrees", "gb-mine-extra"),
 		filepath.Join(shared, ".worktrees", "gb-finished"),
 		filepath.Join(shared, ".worktrees", "gb-delivered"),
+		filepath.Join(shared, ".worktrees", "gb-delivered-hotfix"),
+		filepath.Join(other, ".worktrees", "gb-delivered-hotfix"),
+		filepath.Join(shared, ".worktrees", "gb-finished-hotfix"),
 		filepath.Join(shared, ".worktrees", "gb-archived"),
 		filepath.Join(shared, ".worktrees", "gb-another-homes"),
 		filepath.Join(shared, ".worktrees", "operators-own"),
@@ -175,13 +178,15 @@ func TestASecondHomeListsNoWorktreeItsRecordsDoNotName(t *testing.T) {
 		}
 	}
 	for path, content := range map[string]string{
-		filepath.Join(stateDir, "finished.status"):               "done: PR https://example.invalid/pull/1\n",
-		filepath.Join(stateDir, "outcomes", "delivered.json"):    `{"id":"delivered"}`,
+		filepath.Join(stateDir, "finished.status"):              "done: PR https://example.invalid/pull/1\n",
 		filepath.Join(stateDir, state.ArchiveDirName, "x.json"): "{}",
 	} {
 		if err := os.WriteFile(path, []byte(content), 0o600); err != nil {
 			t.Fatal(err)
 		}
+	}
+	if err := state.WriteOutcome(stateDir, state.Outcome{ID: "delivered", Project: shared, Phase: "done", Evidence: "merged"}); err != nil {
+		t.Fatal(err)
 	}
 	collector := Collector{
 		Home:         home.Home{Root: filepath.Join(root, "home"), State: stateDir},
@@ -199,7 +204,10 @@ func TestASecondHomeListsNoWorktreeItsRecordsDoNotName(t *testing.T) {
 
 	// Assert
 	sort.Strings(got)
-	want := []string{"gb-archived", "gb-delivered", "gb-finished", "gb-mine", "gb-mine-extra"}
+	// An extra worktree no record lists is a task's when its name extends
+	// the task's id in the checkout the task's record names: a live task's
+	// record, or a finished task's outcome.
+	want := []string{"gb-archived", "gb-delivered", "gb-delivered-hotfix", "gb-finished", "gb-mine", "gb-mine-extra"}
 	if strings.Join(got, " ") != strings.Join(want, " ") {
 		t.Errorf("worktrees = %q, want only the ones this home's records name, %q", got, want)
 	}

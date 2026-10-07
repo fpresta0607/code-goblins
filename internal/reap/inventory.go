@@ -211,9 +211,9 @@ func (c Collector) placeTerminals(inv *Inventory) {
 	if c.Environment == nil {
 		return
 	}
-	sums := make(map[string]string, len(inv.NativeHosts))
+	records := make(map[string]NativeHost, len(inv.NativeHosts))
 	for _, record := range inv.NativeHosts {
-		sums[strings.ToLower(record.ID)] = record.ProofSum
+		records[strings.ToLower(record.ID)] = record
 	}
 	index := make(map[int]int, len(inv.Processes))
 	for i, process := range inv.Processes {
@@ -232,17 +232,17 @@ func (c Collector) placeTerminals(inv *Inventory) {
 			}
 			read[pid] = true
 			if env, err := c.Environment(pid); err == nil {
-				inv.Processes[i].Terminal = provenTerminal(env, sums)
+				inv.Processes[i].Terminal = provenTerminal(env, records)
 			}
 			pid = inv.Processes[i].ParentPID
 		}
 	}
 }
 
-// provenTerminal is the terminal env names whose host's recorded proof sum,
-// among sums, is that of the proof value env carries, or "" when there is
-// none.
-func provenTerminal(env []string, sums map[string]string) string {
+// provenTerminal is the id, as its host record spells it, of the terminal
+// among records that env names and whose recorded proof sum is that of the
+// proof value env carries, or "" when there is none.
+func provenTerminal(env []string, records map[string]NativeHost) string {
 	var id, proof string
 	for _, entry := range env {
 		name, value, _ := strings.Cut(entry, "=")
@@ -253,11 +253,11 @@ func provenTerminal(env []string, sums map[string]string) string {
 			proof = value
 		}
 	}
-	sum, ok := sums[strings.ToLower(id)]
-	if !ok || !(host.Record{ProofSum: sum}).Proves(proof) {
+	record, ok := records[strings.ToLower(id)]
+	if !ok || !(host.Record{ProofSum: record.ProofSum}).Proves(proof) {
 		return ""
 	}
-	return id
+	return record.ID
 }
 
 func (c Collector) latestVerb(id string) string {
@@ -367,7 +367,7 @@ func (c Collector) worktrees(ctx context.Context, tasks []Task, notes *[]string)
 			roots[project] = false
 		}
 	}
-	held := heldIDs(c.Home.State, tasks)
+	held := heldIDs(c.Home.State, tasks, notes)
 	// A root's value is whether everything under its .worktrees/ is this
 	// home's. A root already known keeps its value.
 	if c.ProjectsRoot != nil {
@@ -437,8 +437,9 @@ func (c Collector) worktrees(ctx context.Context, tasks []Task, notes *[]string)
 // claims reports whether this home's records name path, a folder under the
 // .worktrees/ of checkout root: a live task's worktree or extra one, a goblin
 // worktree named for a task this home holds any record of, or one named as an
-// extra of a live task in that checkout, <id>-<suffix>, as ownerOf reads it.
-func claims(root, path string, tasks []Task, held map[string]bool) bool {
+// extra of such a task, <id>-<suffix>, where that task's record or outcome
+// names root as its checkout, as ownerOf reads an extra.
+func claims(root, path string, tasks []Task, held map[string]string) bool {
 	key := normalizePath(filepath.Clean(path))
 	for _, task := range tasks {
 		for _, recorded := range append([]string{task.Meta.Worktree}, task.Meta.Extras...) {
@@ -451,45 +452,56 @@ func claims(root, path string, tasks []Task, held map[string]bool) bool {
 	if !ok || name == "" {
 		return false
 	}
-	if held[name] {
+	if _, ok := held[name]; ok {
 		return true
 	}
-	for _, task := range tasks {
-		if strings.HasPrefix(name, strings.ToLower(task.ID)+"-") && normalizePath(filepath.Clean(task.Meta.Project)) == normalizePath(filepath.Clean(root)) {
+	for id, project := range held {
+		if project != "" && strings.HasPrefix(name, id+"-") && normalizePath(filepath.Clean(project)) == normalizePath(filepath.Clean(root)) {
 			return true
 		}
 	}
 	return false
 }
 
-// heldIDs are the ids, lowercased as Windows compares them, of every task this
-// home holds a record of: a task record, readable or not, a status log, an
-// outcome, or a record cleanup or the sweep archived, <id>.<stamp> or
-// <id>.status.<stamp>.
-func heldIDs(stateDir string, tasks []Task) map[string]bool {
-	held := map[string]bool{}
-	for _, task := range tasks {
-		held[strings.ToLower(task.ID)] = true
+// heldIDs maps the id, lowercased as Windows compares it, of every task this
+// home holds a record of to the checkout that record names, where one does:
+// a task record, readable or not, a status log, an outcome, or a record
+// cleanup or the sweep archived, <id>.<stamp> or <id>.status.<stamp>. Only a
+// live task's record and an outcome name a checkout. A folder of records that
+// cannot be read is noted, and its records are not held.
+func heldIDs(stateDir string, tasks []Task, notes *[]string) map[string]string {
+	held := map[string]string{}
+	hold := func(id, project string) {
+		if known := held[strings.ToLower(id)]; known == "" {
+			held[strings.ToLower(id)] = project
+		}
 	}
-	entries, _ := os.ReadDir(stateDir)
-	for _, entry := range entries {
+	for _, task := range tasks {
+		hold(task.ID, task.Meta.Project)
+	}
+	read := func(dir string) []os.DirEntry {
+		entries, err := os.ReadDir(dir)
+		if err != nil && !errors.Is(err, os.ErrNotExist) {
+			*notes = append(*notes, fmt.Sprintf("%s: UNREADABLE (%s); a goblin worktree only its records there name is not listed", dir, err))
+		}
+		return entries
+	}
+	for _, entry := range read(stateDir) {
 		name := entry.Name()
 		if id, ok := strings.CutSuffix(name, ".meta"); ok && !entry.IsDir() {
-			held[strings.ToLower(id)] = true
+			hold(id, "")
 		} else if id, ok := strings.CutSuffix(name, ".status"); ok && !entry.IsDir() {
-			held[strings.ToLower(id)] = true
+			hold(id, "")
 		}
 	}
-	outcomes, _ := os.ReadDir(filepath.Join(stateDir, "outcomes"))
-	for _, entry := range outcomes {
+	for _, entry := range read(filepath.Join(stateDir, "outcomes")) {
 		if id, ok := strings.CutSuffix(entry.Name(), ".json"); ok {
-			held[strings.ToLower(id)] = true
+			outcome, _ := state.ReadOutcome(stateDir, id)
+			hold(id, outcome.Project)
 		}
 	}
-	archived, _ := os.ReadDir(filepath.Join(stateDir, state.ArchiveDirName))
-	for _, entry := range archived {
-		id := strings.TrimSuffix(strings.TrimSuffix(entry.Name(), filepath.Ext(entry.Name())), ".status")
-		held[strings.ToLower(id)] = true
+	for _, entry := range read(filepath.Join(stateDir, state.ArchiveDirName)) {
+		hold(strings.TrimSuffix(strings.TrimSuffix(entry.Name(), filepath.Ext(entry.Name())), ".status"), "")
 	}
 	return held
 }
