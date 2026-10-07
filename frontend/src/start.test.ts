@@ -1,6 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { capacityLine, diskBlock, diskScale, diskState, freeGigabytes, holdersLine, memoryBlock, meterScale, meterState, nextChip, nextInOrder, poolWarning, refusalStands, slotBlock, startBlock, startOutcome, tighter } from "./start.ts";
+import { capacityLine, diskBlock, diskScale, diskState, freeGigabytes, holdersLine, memoryBlock, meterScale, meterState, nextChip, nextInOrder, poolWarning, queueBlock, refusalStands, scheduleLine, slotBlock, startBlock, startOutcome, tighter } from "./start.ts";
+import { nodeStatus } from "./workflow.ts";
 import { parseSnapshot, type Disk, type Memory, type Snapshot, type Task } from "./types.ts";
 
 const GB = 2 ** 30;
@@ -9,12 +10,28 @@ const GB = 2 ** 30;
 const memory = (available: number, commit = 40): Memory => ({ available: available * GB, total: 32 * GB, commit_available: commit * GB, commit_limit: 48 * GB, paged_pool: 0.5 * GB, nonpaged_pool: 0.3 * GB, floor: 4 * GB, next: 5 * GB, holders: [] });
 const task = (changes: Partial<Task> = {}) => parseSnapshot({ healthy: true, tasks: [{ id: "next-task", phase: "queued", brief: true, starting: false, start_error: "", verified: false, ...changes }] }).tasks[0];
 
-test("the meter says when the CFO starts the next task, and never that one starts by itself", () => {
-  assert.deepEqual(meterState(memory(5.2)), { tone: "ready", text: "Enough memory: the CFO starts the next task." });
-  assert.deepEqual(meterState(memory(4)), { tone: "waiting", text: "The CFO starts the next task at 5 GB free." });
-  assert.deepEqual(meterState(memory(4.99)), { tone: "waiting", text: "The CFO starts the next task at 5 GB free." });
-  assert.deepEqual(meterState(memory(5)), { tone: "ready", text: "Enough memory: the CFO starts the next task." });
+test("the meter says when the next task starts", () => {
+  assert.deepEqual(meterState(memory(5.2)), { tone: "ready", text: "Enough memory for the next task" });
+  assert.deepEqual(meterState(memory(4)), { tone: "waiting", text: "The next task starts at 5 GB free." });
+  assert.deepEqual(meterState(memory(4.99)), { tone: "waiting", text: "The next task starts at 5 GB free." });
+  assert.deepEqual(meterState(memory(5)), { tone: "ready", text: "Enough memory for the next task" });
   assert.deepEqual(meterState(memory(3.99)), { tone: "under", text: "Under the 4 GB floor: nothing starts until memory frees." });
+});
+
+test("with memory free the meter names what the supervisor started or resumed, or why nothing waiting started", () => {
+  // Arrange
+  const scheduled = (text: string) => parseSnapshot({ healthy: true, scheduling: { at: "2026-10-07T12:00:00Z", text, waiting: [{ id: "next-task", why: "its last start failed: refused" }] } }).scheduling;
+  const failed = scheduled("nothing starts: next-task: its last start failed: refused");
+
+  // Act and assert
+  assert.deepEqual(meterState(memory(8), scheduled("starting next-task")), { tone: "ready", text: "Enough memory: starting next-task" });
+  assert.deepEqual(meterState(memory(8), failed), { tone: "ready", text: "Enough memory: nothing starts: next-task: its last start failed: refused" });
+  assert.deepEqual(meterState(memory(4.5), scheduled("starting next-task")), { tone: "waiting", text: "The next task starts at 5 GB free." }, "a reading with memory short says nothing of the last one with memory free");
+  assert.equal(scheduleLine(memory(8), scheduled("resuming paused-task")), "Resuming paused-task");
+  assert.equal(scheduleLine(memory(8), failed), "Nothing starts: next-task: its last start failed: refused");
+  assert.equal(scheduleLine(memory(4.5), failed), "");
+  assert.equal(scheduleLine(memory(8), null), "");
+  assert.deepEqual(failed?.waiting, [{ id: "next-task", why: "its last start failed: refused" }]);
 });
 
 test("the memory bar spans twice the start mark, so the floor and start marks sit apart and a full bar means the next task starts", () => {
@@ -28,7 +45,7 @@ test("commit the machine does not report is unknown, not zero, so the meter show
   const unreported = { ...memory(7.5), commit_available: 0, commit_limit: 0 };
   assert.deepEqual(tighter(unreported), { isCommit: false, free: 7.5 * GB, total: 32 * GB });
   assert.deepEqual(meterScale(unreported), { fill: 75, floor: 40, next: 50 });
-  assert.deepEqual(meterState(unreported), { tone: "ready", text: "Enough memory: the CFO starts the next task." });
+  assert.deepEqual(meterState(unreported), { tone: "ready", text: "Enough memory for the next task" });
   assert.equal(memoryBlock(unreported), "");
   assert.equal(tighter(memory(7.5, 0)).isCommit, true, "commit that is reported and used up is still the tighter");
 });
@@ -41,6 +58,18 @@ test("Start is offered while a queued task can start, and otherwise says why not
   assert.equal(startBlock(task(), memory(3.9), false), "Needs 5 GB free to keep the 4 GB floor");
   assert.equal(startBlock(task(), memory(5), true), "Another task is starting");
   assert.equal(startBlock(task({ starting: true }), memory(5), true), "Starting", "its own start in flight");
+});
+
+test("a queued task that already finished offers no Start, and its card says so and why", () => {
+  // Arrange
+  const why = "Already finished: its last report was done (2026-10-06 11:59Z: done: PR 9); it never starts again by itself. Move its row to ## Done, or queue new work under a new id";
+  const finished = task({ finished: why });
+
+  // Act and assert
+  assert.equal(queueBlock(finished), why);
+  assert.equal(startBlock(finished, memory(9), false), why);
+  assert.equal(nodeStatus({ id: finished.id, title: finished.id, task: finished, relation: "" }), "Already finished");
+  assert.equal(queueBlock(task()), "", "work nothing says finished still starts");
 });
 
 test("free memory rounds down, so just under the floor or start mark never reads as ready", () => {
@@ -191,6 +220,8 @@ test("Next sits on the card the supervisor's order for a free slot takes first",
     ["only the queue", board(memory(9), [queued("first"), queued("second")]), { id: "first", text: "Next up", tone: "" }],
     ["the queue while memory is short", board(memory(4.2), [queued("first")]), { id: "first", text: "Next at 5 GB", tone: "waiting" }],
     ["a queued task waiting on another goblin is passed over", board(memory(9), [queued("held", { dependencies: ["other"] }), queued("free")]), { id: "free", text: "Next up", tone: "" }],
+    ["a queued task that already finished is passed over", board(memory(9), [queued("done", { finished: "Already finished: its last report was done" }), queued("free")]), { id: "free", text: "Next up", tone: "" }],
+    ["a queued task whose last start failed waits for its Start and is passed over", board(memory(9), [queued("failed", { start_error: "spawn: project missing" }), queued("free")]), { id: "free", text: "Next up", tone: "" }],
     ["a goblin paused for memory resumes before the queue", board(memory(4.2), [queued("first"), paused("later", "memory", "", "2026-10-06T11:00:00Z"), paused("older", "memory", "", "2026-10-06T10:00:00Z")]), { id: "older", text: "Next up", tone: "waiting" }],
     ["an allowance whose reset passed counts as cleared", board(memory(9), [queued("first"), paused("reset", "allowance", "2026-10-06T11:59:00Z", "2026-10-05T10:00:00Z")]), { id: "reset", text: "Next up", tone: "" }],
     ["an allowance not yet reset holds no slot", board(memory(9), [queued("first"), paused("later", "allowance", "2026-10-06T13:00:00Z", "2026-10-05T10:00:00Z")]), { id: "first", text: "Next up", tone: "" }],

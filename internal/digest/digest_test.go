@@ -409,7 +409,8 @@ func TestComposeSectionBodies(t *testing.T) {
 		"Every drain presentation ends with a WAKE_ACK_REQUIRED command",
 		"The refusal is the protection working",
 		"it retires EVERY question at or below the sequence",
-		"Supervision is needed whenever tasks are in flight",
+		"Supervision is needed whenever tasks are in flight or queued work could start",
+		"a turn that ends with no goblin at work while work waits and memory is free is reopened",
 	}
 	// The commands quoted in this section are what the agent types verbatim.
 	// An over-escaped Go literal renders them with literal backslashes, which

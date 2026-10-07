@@ -84,6 +84,9 @@ func CompleteQueuedTask(h home.Home, id string) (err error) {
 			end = next + 1
 		}
 	}
+	if matches == 0 {
+		return ErrNotQueued
+	}
 	if matches != 1 {
 		return fmt.Errorf("backlog completion needs exactly one source row for %s; found %d", id, matches)
 	}
