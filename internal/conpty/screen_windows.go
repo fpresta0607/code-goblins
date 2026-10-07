@@ -18,8 +18,8 @@ import (
 
 // Reading a console's screen takes a process attached to the console, and the
 // console's owner never attaches, since a Ctrl-C typed to the terminal and its
-// closing reach every process attached. The console's input waker is attached
-// from the start, so it reads the screen when asked: the owner sends
+// closing can reach every process attached. The console's input waker is
+// attached from the start, so it reads the screen when asked: the owner sends
 // screenAsked among the bytes that tell of input written, and the waker
 // answers with a line of its report. A read is then a message to a process
 // already running, never a process of its own, which on a machine slow to
