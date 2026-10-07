@@ -222,6 +222,8 @@ They are never written into a repository and never printed - reports show proven
 | `unverified` | resolved, but the probe tool is absent or the check could not run | no |
 | `skipped` | an optional service is unconfigured, which is a choice | no |
 
+A probe, identity check or login that runs past its 20 s limit is ended with everything it started, the CLI behind an npm `.cmd` shim such as `vercel.cmd` included, and when it printed anything first its `unreachable` detail quotes that line, which separates a tool that answered and then did not exit from one that never answered.
+
 Before asking the Supreme Overlord for anything, run `cfo auth <project> --fix`: it adopts what the machine already holds (a project's gitignored local `.env`, the token `gh` already owns, the token `flyctl` already holds) into that project's scope rather than asking twice.
 Ask once, with the consolidated sign-in request that command prints, instead of letting goblins fail one credential at a time.
 
