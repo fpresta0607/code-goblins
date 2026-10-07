@@ -943,12 +943,11 @@ cd frontend
 npm ci
 npm run build
 cd ..
-go vet ./...
-go test ./... -count=1
+go run ./cmd/cfo gate test
 go build ./cmd/cfo
 ```
 
-CI runs on `windows-latest`. The real-session acceptance suite is opt-in because it requires actual Herdr and harness installations.
+`cfo gate test` vets what your change reaches and tests the changed packages that are quick to test; CI runs on `windows-latest` and tests every package on every pull request. The real-session acceptance suite is opt-in because it requires actual Herdr and harness installations.
 
 ## Project lineage
 
