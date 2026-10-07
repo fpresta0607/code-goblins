@@ -11,17 +11,17 @@ import (
 	"github.com/fpresta0607/code-goblins/internal/lock"
 )
 
-// spawnLockCommands are the cfo commands that take the home's spawn lock for
-// their run, so one that meets another holding it fails at once.
+// spawnLockCommands are the cfo commands that wait for their turn on the
+// home's spawn lock and give up with lock.ErrHeld after waiting ten minutes.
 var spawnLockCommands = []string{"spawn", "resume"}
 
 // spawnLockWait bounds how long a start waits for the spawn lock to free.
 const spawnLockWait = 10 * time.Minute
 
-// runPastTheSpawnLock runs cfo with args, and when a spawn or a resume met
-// the home's spawn lock held by another start, such as a cfo spawn the CFO
-// runs by hand, runs it once more as soon as that lock frees: the start was
-// only waiting its turn.
+// runPastTheSpawnLock runs cfo with args, and when a spawn or a resume gave
+// up waiting for its turn on the home's spawn lock, held by another start such
+// as a cfo spawn the CFO runs by hand, runs it once more as soon as that lock
+// frees.
 func (s *Service) runPastTheSpawnLock(dispatch *Dispatch, args []string) (string, error) {
 	output, err := dispatch.Spawn(context.Background(), args)
 	if err == nil || !slices.Contains(spawnLockCommands, args[0]) || !strings.Contains(output, lock.ErrHeld.Error()) {

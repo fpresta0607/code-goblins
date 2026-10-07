@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"slices"
@@ -12,6 +13,7 @@ import (
 	"time"
 
 	"github.com/fpresta0607/code-goblins/internal/home"
+	"github.com/fpresta0607/code-goblins/internal/lock"
 	"github.com/fpresta0607/code-goblins/internal/spawn"
 	"github.com/fpresta0607/code-goblins/internal/state"
 	"github.com/fpresta0607/code-goblins/internal/supervisor"
@@ -209,5 +211,44 @@ func TestGoblinsResumeLaunchesNoGoblinThereIsNoRoomFor(t *testing.T) {
 		if comeback.isBack || !strings.Contains(comeback.said, "waits for room: 3.1 GB of memory is free") {
 			t.Errorf("of %s goblins resume said %q; want it waiting for room with the reason", comeback.id, comeback.said)
 		}
+	}
+}
+
+// A goblin's relaunch is admitted again in its own turn: one the machine
+// had no room for by then, or whose turn another start held too long, waits
+// to come back, with the reason, rather than counting as one that cannot.
+func TestGoblinsResumeLeavesAGoblinItsRelaunchHadNoRoomForWaiting(t *testing.T) {
+	for _, c := range []struct {
+		name string
+		err  error
+		said string
+	}{
+		{"no room", fmt.Errorf("%w: %w", spawn.ErrNoRoom, errors.New("3.1 GB of memory is free")), "waits for room: 3.1 GB of memory is free"},
+		{"turn held", fmt.Errorf("spawn: the relaunch of first waited 10m0s for its turn and stopped: %w", lock.ErrHeld), "waits for room: spawn: the relaunch of first waited 10m0s for its turn"},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			// Arrange
+			h := comebackHome(t, map[string][2]string{"first": {"codex", "native"}}, nil)
+			var requests []spawn.SwitchRequest
+			runtime := comebackRuntime(nil, nil, func(request spawn.SwitchRequest) (spawn.SwitchResult, error) {
+				if request.Admit == nil {
+					t.Error("relaunch has no admission; want the launch admitted in its turn")
+				} else if admitted := request.Admit(); admitted != nil {
+					t.Errorf("relaunch admission = %v; want the machine's room, which the runtime admits", admitted)
+				}
+				return spawn.SwitchResult{}, c.err
+			}, &requests)
+
+			// Act
+			comebacks, err := bringGoblinsBack(t.Context(), h, runtime)
+
+			// Assert
+			if err != nil || len(requests) != 1 || len(comebacks) != 1 {
+				t.Fatalf("comebacks %+v, err %v, switches %+v; want first relaunched once", comebacks, err, requests)
+			}
+			if !comebacks[0].isWaiting || comebacks[0].isBack || !strings.HasPrefix(comebacks[0].said, c.said) {
+				t.Errorf("goblins resume said %q (waiting %v); want it waiting: %q", comebacks[0].said, comebacks[0].isWaiting, c.said)
+			}
+		})
 	}
 }

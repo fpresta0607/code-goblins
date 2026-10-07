@@ -477,50 +477,35 @@ func TestAGoblinWithNoRoomYetWaitsWithTheReason(t *testing.T) {
 	}
 }
 
-func TestTheComebackWaitsForTheSharedSpawnLockAndHoldsItDuringLaunch(t *testing.T) {
+// The comeback no longer holds the home's spawn lock across a goblin's whole
+// relaunch: the relaunch takes its own turn around its terminal's launch, so
+// a start that holds the lock delays the relaunch by seconds, not the
+// comeback by a whole startup.
+func TestTheComebackLeavesTheSpawnLockToTheRelaunch(t *testing.T) {
+	// Arrange
 	recorder := &comebackRecorder{}
 	service, h, _ := comebackBoard(t, recorder, [2]float64{8, 8})
 	workingGoblin(t, h, "alpha", lastSignIn.Add(time.Hour))
 	reading(t, service, 0)
-	if _, err := lock.AcquireExclusiveNamed(h.State, ".spawn.lock"); err != nil {
+	if _, err := lock.AcquireExclusiveNamedFor(h.State, ".spawn.lock", "the start of beta"); err != nil {
 		t.Fatal(err)
 	}
-	release := sync.OnceFunc(func() {
+	t.Cleanup(func() {
 		if err := lock.ReleaseExclusiveNamed(h.State, ".spawn.lock"); err != nil {
 			t.Error(err)
 		}
 	})
-	t.Cleanup(release)
-	service.Options.Comeback.Goblin = func(ctx context.Context, id string) GoblinComeback {
-		if _, err := lock.AcquireExclusiveNamed(h.State, ".spawn.lock"); !errors.Is(err, lock.ErrHeld) {
-			if err == nil {
-				_ = lock.ReleaseExclusiveNamed(h.State, ".spawn.lock")
-			}
-			t.Errorf("spawn lock during launch = %v, want held", err)
-		}
-		return recorder.goblin(ctx, id)
-	}
 
+	// Act
 	reading(t, service, 1)
-	record, err := state.ReadComeback(h.State)
-	if err != nil || len(record.Goblins) != 1 || record.Goblins[0].State != state.ComebackWaiting || record.Goblins[0].Reason != "Waits for room: another task is starting" || len(recorder.came()) != 0 {
-		t.Fatalf("while another start holds the lock: comeback %+v, error %v, resumed %v", record, err, recorder.came())
-	}
-	release()
-	reading(t, service, 2)
 
+	// Assert
 	if !slices.Equal(recorder.came(), []string{"alpha"}) {
-		t.Fatalf("after release resumed %v, want alpha", recorder.came())
+		t.Fatalf("relaunched %v while another start held the lock; want alpha handed to its relaunch", recorder.came())
 	}
-	record, err = state.ReadComeback(h.State)
-	if err != nil || len(record.Goblins) != 1 || record.Goblins[0].State != state.ComebackBack {
-		t.Fatalf("after release: comeback %+v, error %v, want alpha back", record, err)
-	}
-	if _, err := lock.AcquireExclusiveNamed(h.State, ".spawn.lock"); err != nil {
-		t.Fatalf("spawn lock after the comeback = %v, want released", err)
-	}
-	if err := lock.ReleaseExclusiveNamed(h.State, ".spawn.lock"); err != nil {
-		t.Fatal(err)
+	holder, err := lock.ReadNamed(h.State, ".spawn.lock")
+	if err != nil || holder.Purpose != "the start of beta" {
+		t.Fatalf("spawn lock after the comeback = %+v, %v; want the other start's, untouched", holder, err)
 	}
 }
 
