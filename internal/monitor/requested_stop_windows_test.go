@@ -31,7 +31,7 @@ func TestAFailedPauseOrStopWhoseHostIsGoneDoesNotWake(t *testing.T) {
 			meta := nativeMeta("g1", "claude")
 			meta.SpawnGen = "s1"
 			writeTask(t, stateDir, meta)
-			if err := WriteObservation(stateDir, Observation{Schema: Schema, TaskID: "g1", Endpoint: endpointString(meta), LastSeen: now.Add(-time.Minute), LastObserved: now.Add(-time.Minute), Health: HealthBusy, Reason: None}); err != nil {
+			if err := WriteObservation(stateDir, Observation{Schema: Schema, TaskID: "g1", Endpoint: endpointString(meta), EndpointVerdict: ProbePresent, Digest: "seen", LastSeen: now.Add(-time.Minute), LastProgress: now.Add(-time.Minute), LastObserved: now.Add(-time.Minute), Health: HealthBusy, Reason: None}); err != nil {
 				t.Fatal(err)
 			}
 			if err := state.WriteLifecycle(stateDir, state.Lifecycle{ID: "g1", Generation: "s1", RequestGeneration: "s1", Operation: "op-1", Action: test.action, Phase: "failed", Reason: "Requested by the operator"}); err != nil {

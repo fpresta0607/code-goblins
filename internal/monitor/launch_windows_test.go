@@ -33,7 +33,6 @@ func TestScanKeepsAGoblinQuietWhileItsSpawnOrSwitchRuns(t *testing.T) {
 		{"its switch relaunching a goblin seen alive", ".switch-g1.lock", false, false, true, false},
 		{"another task's spawn holding the lock", ".spawn.lock", true, false, false, true},
 		{"its host started a minute ago, its spawn over", "", false, true, false, false},
-		{"its host started a minute ago, its spawn over", "", false, true, false, false},
 		{"its spawn gone", "", false, false, false, true},
 	} {
 		t.Run(test.name, func(t *testing.T) {
@@ -57,7 +56,7 @@ func TestScanKeepsAGoblinQuietWhileItsSpawnOrSwitchRuns(t *testing.T) {
 				recordNativeHost(t, stateDir, "g1")
 			}
 			if test.wasSeen {
-				if err := WriteObservation(stateDir, Observation{Schema: Schema, TaskID: "g1", Endpoint: endpointString(meta), LastSeen: now.Add(-time.Hour), LastObserved: now.Add(-time.Minute), Health: HealthBusy, Reason: None}); err != nil {
+				if err := WriteObservation(stateDir, Observation{Schema: Schema, TaskID: "g1", Endpoint: endpointString(meta), EndpointVerdict: ProbePresent, Digest: "seen", LastSeen: now.Add(-time.Hour), LastProgress: now.Add(-time.Hour), LastObserved: now.Add(-time.Minute), Health: HealthBusy, Reason: None}); err != nil {
 					t.Fatal(err)
 				}
 			}
