@@ -485,7 +485,7 @@ func TestAClearOfAQuestionThatDidNotFollowTheCFOStillClearsIt(t *testing.T) {
 }
 
 // A run's result typed and submitted while the CFO was inside a turn is told:
-// the CFO takes it when its turn ends, so it is never typed again.
+// the CFO takes it at its next tool call, so it is never typed again.
 func TestARunResultSubmittedBehindTheCFOsTurnIsToldOnce(t *testing.T) {
 	// Arrange
 	store, _ := testStore(t)

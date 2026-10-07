@@ -12,10 +12,11 @@ import (
 
 // SendNative delivers text to a native task's harness the way spawn delivers
 // its instruction: typed into its terminal, submitted once the composer shows
-// it, and delivered only once the harness shows it working. A slash or dollar
-// command waits out the harness's completion popup before it is submitted,
-// and is reported unconfirmed: /exit ends the harness and /model opens a
-// picker, so no screen afterwards proves it ran.
+// it, and delivered only once the harness is proven to have it; text typed
+// while the harness is in a turn is otherwise reported queued for its next
+// tool call. A slash or dollar command waits out the harness's completion
+// popup before it is submitted, and is reported unconfirmed: /exit ends the
+// harness and /model opens a picker, so no screen afterwards proves it ran.
 func (s Service) SendNative(ctx context.Context, meta state.TaskMeta, text string) error {
 	screens, ok := harness.NativeScreens(harness.Kind(meta.Harness))
 	if !ok {
@@ -26,7 +27,7 @@ func (s Service) SendNative(ctx context.Context, meta state.TaskMeta, text strin
 		return fmt.Errorf("send: native task %s has no running terminal: %w", meta.ID, err)
 	}
 	if !fleet.IsCommand(text) {
-		return s.deliverNativeInstruction(ctx, record, screens, text, meta.SpawnGen)
+		return s.deliverNativeInstruction(ctx, record, screens, meta, text)
 	}
 	if err := s.submitNative(ctx, record, screens, text, fleet.TypeSettleFor(text)); err != nil {
 		return err

@@ -53,9 +53,7 @@ func defaultTaskLifecycle(ctx context.Context, h home.Home, request lifecycle.Re
 	runtime := defaultCommandRuntime()
 	var resources lifecycle.Resources
 	service := lifecycle.Service{StateDir: h.State, Operations: lifecycle.Operations{
-		Prepare: func(ctx context.Context, meta state.TaskMeta, handoff string) error {
-			return runtime.sendText(ctx, h, meta.ID, lifecycle.PauseInstruction(handoff))
-		},
+		Prepare: pauseInstruction(runtime, h),
 		Stop: func(ctx context.Context, meta state.TaskMeta, record *state.Lifecycle) ([]string, error) {
 			bounded, cancel := context.WithTimeout(ctx, 10*time.Second)
 			defer cancel()
@@ -201,4 +199,16 @@ func resumeTask(ctx context.Context, h home.Home, runtime commandRuntime, comman
 		return state.RemoveEngineChoice(h.State, meta.ID)
 	}
 	return err
+}
+
+// pauseInstruction types the instruction to write its handoff file into the
+// goblin of a task being paused. A goblin in a turn takes it at its next tool
+// call, so the pause then waits for the handoff as for any delivered one.
+func pauseInstruction(runtime commandRuntime, h home.Home) func(context.Context, state.TaskMeta, string) error {
+	return func(ctx context.Context, meta state.TaskMeta, handoff string) error {
+		if err := runtime.sendText(ctx, h, meta.ID, lifecycle.PauseInstruction(handoff)); !errors.Is(err, fleet.ErrQueuedForToolCall) {
+			return err
+		}
+		return nil
+	}
 }

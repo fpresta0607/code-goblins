@@ -46,7 +46,7 @@ func reportLater(t *testing.T, store *Store, meta state.TaskMeta) {
 // The Overlord's word outranks the CFO's: on a goblin's question the CFO
 // answered, while the goblin has reported nothing since, he changes the
 // answer from the Command Center. The goblin is told the new answer replaces
-// the CFO's, whether it takes it now or when its current turn ends, and the
+// the CFO's, whether it takes it now or at its next tool call, and the
 // question reads as his answer, keeping the CFO's it replaced.
 func TestTheOverlordChangesAnAnswerTheCFOGave(t *testing.T) {
 	for name, isBusy := range map[string]bool{"an idle goblin": false, "a goblin in a turn": true} {

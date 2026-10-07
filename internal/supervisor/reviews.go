@@ -846,13 +846,14 @@ func (s *Service) answerReview(ctx context.Context, a Action) (Evaluation, error
 	if r.Task == "" {
 		result, err = s.Options.CFO.Send(ctx, r.Identity, fmt.Sprintf("Answer to your review item %s (%s): %s", r.ID, r.Title, a.Text))
 	} else {
-		result, err = s.Options.CFO.SendGoblin(ctx, r.Task, r.Identity, fmt.Sprintf("The Overlord answered your review item %s (%s): %s", r.ID, r.Title, a.Text))
+		text := fmt.Sprintf("The Overlord answered your review item %s (%s): %s", r.ID, r.Title, a.Text)
+		result, err = s.Options.CFO.SendGoblin(ctx, r.Task, r.Identity, text)
 		if errors.Is(err, ErrRejected) {
 			return s.answerReviewToCFO(ctx, r, a.Text)
 		}
-	}
-	if errors.Is(err, fleet.ErrQueuedBehindTurn) {
-		result, err = s.behindGoblinsTurn(r.Task, sent, "Submitted while its reporter was working; it takes the answer when its current turn ends."), nil
+		if errors.Is(err, fleet.ErrQueuedForToolCall) {
+			result, err = s.behindGoblinsTurn(r.Task, sent, text, "Submitted while its reporter was working; it takes the answer at its next tool call, or as its current turn ends."), nil
+		}
 	}
 	if err != nil {
 		return result, err
@@ -897,7 +898,7 @@ func (s *Service) answerReviewToCFO(ctx context.Context, r Review, answer string
 		return result, err
 	}
 	if result.Awaiting != nil {
-		return Evaluation{Reason: r.Task + " had restarted or ended, so the answer went to the CFO, which reads it when its current turn ends.", Awaiting: result.Awaiting}, nil
+		return Evaluation{Reason: r.Task + " had restarted or ended, so the answer went to the CFO, which takes it at its next tool call, or as its current turn ends.", Awaiting: result.Awaiting}, nil
 	}
 	return Evaluation{Reason: r.Task + " had restarted or ended, so the CFO received the answer."}, nil
 }

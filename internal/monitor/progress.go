@@ -252,12 +252,32 @@ func transcriptAt(home, harness, session string) time.Time {
 func (h *HostProgress) newestNativeCodexRollout(ctx context.Context, worktree string) (string, time.Time) {
 	var newest string
 	var latest time.Time
+	for _, rollout := range h.nativeCodexRollouts(ctx, worktree, time.Time{}) {
+		file, err := fsx.Open(rollout)
+		if err != nil {
+			continue
+		}
+		if written := transcriptFileAt(file); written.After(latest) {
+			newest, latest = rollout, written
+		}
+		file.Close()
+	}
+	return newest, latest
+}
+
+// nativeCodexRollouts is every rollout whose opening session_meta binds it
+// to worktree, of those Codex filed on the day of started or later, or of
+// all when started is zero. Each rollout's opening is read once, but a
+// machine keeps thousands of them, so a reader that knows when the agent
+// started reads only those filed since.
+func (h *HostProgress) nativeCodexRollouts(ctx context.Context, worktree string, started time.Time) []string {
+	var rollouts []string
 	if h.Home == "" || !filepath.IsAbs(worktree) {
-		return newest, latest
+		return rollouts
 	}
 	worktree, err := fsx.Canonical(worktree)
 	if err != nil {
-		return newest, latest
+		return rollouts
 	}
 	pattern := strings.ReplaceAll(transcriptPatterns["codex"][0], "{session}", "*")
 	matches, _ := filepath.Glob(filepath.Join(h.Home, pattern))
@@ -275,6 +295,9 @@ func (h *HostProgress) newestNativeCodexRollout(ctx context.Context, worktree st
 		if ctx.Err() != nil {
 			break
 		}
+		if filed, ok := rolloutDay(match); ok && filed.Before(started.Add(-24*time.Hour)) {
+			continue
+		}
 		cwd, ok := cwds[match]
 		if !ok {
 			if cwd, ok = rolloutCwd(match); !ok {
@@ -288,19 +311,21 @@ func (h *HostProgress) newestNativeCodexRollout(ctx context.Context, worktree st
 			isOwned = filepath.IsAbs(cwd) && err == nil && strings.EqualFold(resolved, worktree)
 			owned[cwd] = isOwned
 		}
-		if !isOwned {
-			continue
+		if isOwned {
+			rollouts = append(rollouts, match)
 		}
-		file, err := fsx.Open(match)
-		if err != nil {
-			continue
-		}
-		if written := transcriptFileAt(file); written.After(latest) {
-			newest, latest = match, written
-		}
-		file.Close()
 	}
-	return newest, latest
+	return rollouts
+}
+
+// rolloutDay is the day Codex filed rollout under, from its year, month and
+// day folders, in the local time Codex names them in.
+func rolloutDay(rollout string) (time.Time, bool) {
+	day := filepath.Dir(rollout)
+	month := filepath.Dir(day)
+	year := filepath.Dir(month)
+	filed, err := time.ParseInLocation("2006/01/02", filepath.Base(year)+"/"+filepath.Base(month)+"/"+filepath.Base(day), time.Local)
+	return filed, err == nil
 }
 
 // rolloutCwd reads the directory a rollout's opening session_meta names,
