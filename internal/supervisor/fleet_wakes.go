@@ -22,6 +22,7 @@ import (
 	"github.com/fpresta0607/code-goblins/internal/home"
 	"github.com/fpresta0607/code-goblins/internal/janitor"
 	"github.com/fpresta0607/code-goblins/internal/state"
+	"github.com/fpresta0607/code-goblins/internal/train"
 	"github.com/fpresta0607/code-goblins/internal/wake"
 )
 
@@ -504,7 +505,8 @@ func (s *Service) pollCI(ctx context.Context, w *fleetWakes, now time.Time, curr
 	w.CIPolled = now
 	goblins := ciGoblins(ctx, runner, s.Store.Home.State)
 	errs := s.pollAwaitedRuns(ctx, w, now)
-	for _, repo := range w.watch(goblins, now) {
+	repos := w.watch(goblins, now)
+	for _, repo := range repos {
 		if currentTime().Before(w.BackOff[repo]) {
 			continue
 		}
@@ -532,14 +534,16 @@ func (s *Service) pollCI(ctx context.Context, w *fleetWakes, now time.Time, curr
 			}
 		}
 		pollRunner := githubPollRunner{commands: runner, state: w, repo: repo, now: currentTime}
-		pullsUnreadable, pullsErr := pollPullRequests(ctx, pollRunner, s.Store.Home.State, w, repo, mine, now)
+		listed, pullsUnreadable, pullsErr := pollPullRequests(ctx, pollRunner, s.Store.Home.State, w, repo, mine, now)
 		mainUnreadable, mainErr := pollMain(ctx, pollRunner, s.Store.Home.State, w, repo, now)
 		overlapErr := s.pollOverlaps(ctx, pollRunner, w, repo, mine, currentTime)
+		trainErr := s.runTrain(ctx, pollRunner, repo, listed)
 		if ctx.Err() != nil {
 			return errors.Join(errs, pullsErr, mainErr)
 		}
-		errs = errors.Join(errs, pullsErr, mainErr, overlapErr, reportUnreadable(s.Store.Home.State, w, repo, errors.Join(pullsUnreadable, mainUnreadable), now))
+		errs = errors.Join(errs, pullsErr, mainErr, overlapErr, trainErr, reportUnreadable(s.Store.Home.State, w, repo, errors.Join(pullsUnreadable, mainUnreadable), now))
 	}
+	errs = errors.Join(errs, s.advanceUnwatchedTrains(ctx, runner, w, repos, currentTime), s.keepTrains(now))
 	maps.DeleteFunc(w.SameArea, func(id string, _ sameArea) bool {
 		return !slices.ContainsFunc(goblins, func(goblin ciGoblin) bool { return goblin.id == id })
 	})
@@ -763,26 +767,32 @@ func (c ghCheck) outcome() string {
 // pollPullRequests lists repo's open pull requests once and raises
 // ci_finished for each one of goblins whose checks have all concluded with
 // a result it was not woken for: its head and each check's conclusion, and
-// pr_health or pr_unread for every open pull request. It returns why the
-// pull requests could not be listed, apart from what went wrong raising a
-// wake; health left unread stays in w.PRUnread.
-func pollPullRequests(ctx context.Context, runner execx.Runner, stateDir string, w *fleetWakes, repo string, goblins []ciGoblin, now time.Time) (unreadable, err error) {
-	out, err := runOutput(ctx, runner, repo, "gh", "pr", "list", "--state", "open", "--limit", "100", "--json", "number,url,headRefName,headRefOid,statusCheckRollup,mergeable,reviewDecision,baseRefName,isCrossRepository,author")
+// pr_health or pr_unread for every open pull request but a merge train's own
+// and those a running train carries, which the train tests on the current
+// base itself. It returns the pull requests as a merge train reads them, and
+// why they could not be listed, apart from what went wrong raising a wake;
+// health left unread stays in w.PRUnread.
+func pollPullRequests(ctx context.Context, runner execx.Runner, stateDir string, w *fleetWakes, repo string, goblins []ciGoblin, now time.Time) (listed []train.PullRequest, unreadable, err error) {
+	out, err := runOutput(ctx, runner, repo, "gh", "pr", "list", "--state", "open", "--limit", "100", "--json", train.ListFields)
 	if err != nil {
-		return fmt.Errorf("ci wakes: list the open pull requests of %s: %w", repo, err), nil
+		return nil, fmt.Errorf("ci wakes: list the open pull requests of %s: %w", repo, err), nil
 	}
 	var open []ghPullRequest
 	if err := json.Unmarshal([]byte(out), &open); err != nil {
-		return fmt.Errorf("ci wakes: gh listed the open pull requests of %s in a shape it cannot read: %w", repo, err), nil
+		return nil, fmt.Errorf("ci wakes: gh listed the open pull requests of %s in a shape it cannot read: %w", repo, err), nil
 	}
 	if open == nil {
-		return fmt.Errorf("ci wakes: the open pull requests of %s were not read", repo), nil
+		return nil, fmt.Errorf("ci wakes: the open pull requests of %s were not read", repo), nil
 	}
 	for _, pr := range open {
 		if pr.Number <= 0 || pr.HeadRefOid == "" || !githubPullRequest.MatchString(pr.URL) {
-			return fmt.Errorf("ci wakes: an invalid pull request was listed for %s", repo), nil
+			return nil, fmt.Errorf("ci wakes: an invalid pull request was listed for %s", repo), nil
 		}
 	}
+	if err := json.Unmarshal([]byte(out), &listed); err != nil {
+		return nil, fmt.Errorf("ci wakes: gh listed the open pull requests of %s in a shape a merge train cannot read: %w", repo, err), nil
+	}
+	carried := carriedByTrains(stateDir)
 	var errs error
 	isRunningWorkflows := runsPullRequestWorkflows(repo)
 	for _, goblin := range goblins {
@@ -800,7 +810,7 @@ func pollPullRequests(ctx context.Context, runner execx.Runner, stateDir string,
 	}
 	comparisons, unreadComparisons, branch, unread := comparePullRequests(ctx, runner, repo, open)
 	if ctx.Err() != nil {
-		return nil, errs
+		return listed, nil, errs
 	}
 	isCapped := len(open) >= 100
 	if isCapped {
@@ -821,7 +831,7 @@ func pollPullRequests(ctx context.Context, runner execx.Runner, stateDir string,
 			unreadHeads = append(unreadHeads, pr)
 		}
 		comparison := comparisons[pr.Number]
-		if comparison == nil && pr.Mergeable != "CONFLICTING" {
+		if comparison == nil && pr.Mergeable != "CONFLICTING" || carried[pr.URL] || strings.HasPrefix(pr.HeadRefName, train.BranchPrefix) {
 			continue
 		}
 		var owner string
@@ -837,7 +847,7 @@ func pollPullRequests(ctx context.Context, runner execx.Runner, stateDir string,
 		}
 		errs = errors.Join(errs, reportPRHealth(stateDir, w, owner, pr, branch, behind, now))
 	}
-	return nil, errors.Join(errs, reportPRUnread(stateDir, w, repo, unreadHeads, isCapped, unread, now))
+	return listed, nil, errors.Join(errs, reportPRUnread(stateDir, w, repo, unreadHeads, isCapped, unread, now))
 }
 
 // runsPullRequestWorkflows reports whether repo's checkout has a GitHub

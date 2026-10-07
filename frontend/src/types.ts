@@ -147,6 +147,14 @@ export interface LocalChecks { commit: string; level: string; required_level: st
 // deployed, failed or cancelled, workflows names them, and link is the page
 // of the run that failed or was cancelled, else of the newest one.
 export interface Deployment { commit: string; state: string; workflows: string[]; link: string; at: string }
+// MergeTrain is a merge train: green pull requests merged onto base on a
+// branch of its own, which its pull request lets CI test together once.
+// state is testing, landed, stopped or failed, runs counts its CI runs, and
+// note says what happened last.
+export interface MergeTrain { id: string; repository: string; base: string; pr: string; state: string; runs: number; started: string; finished: string; note: string; cars: TrainCar[] }
+// TrainCar is one pull request on a train: state is riding, waiting,
+// landed, culprit, conflict or returned, and note says why.
+export interface TrainCar { number: number; url: string; title: string; task: string; state: string; note: string }
 // Ticket is a task's issue: its number, its link and where it stands, one
 // of queued, in progress, pr open, paused, blocked, merged or closed.
 export interface Ticket { number: number; url: string; state: string }
@@ -162,6 +170,9 @@ export interface ProjectPeople { name: string; repository: string; contributors:
 export interface LifecycleStatus {
   phase: string; action: string; at: string; kept: string[]; stopped: string[]; problems: string[];
   handoff_saved: boolean; validation_restarts: boolean;
+  // with_parent is a helper's pause or stop its parent's made: paused, it
+  // resumes once its parent runs again.
+  with_parent?: boolean;
   // pause is what a paused task waits for: memory, allowance, overlord,
   // dependency, question, ci or deploy, with until naming the reset time,
   // task:, pr:, date:, question id or awaited run; absent on an older pause.
@@ -331,6 +342,9 @@ export interface Snapshot {
   // release is a newer published release, or any where this board was built
   // from a clone; null when there is none or the check is off.
   release: ReleaseView | null;
+  // merge_trains are the trains running and those finished in the last
+  // hours, newest first.
+  merge_trains?: MergeTrain[];
 }
 // AfkHeld is an item held for the Overlord while AFK mode is on: its key in
 // the Command Center, its goblin (empty for the CFO's own), what it asks,
@@ -649,6 +663,14 @@ export function parseItems(value: unknown): Items {
 function parsePerson(p: Record<string, unknown>): Person {
   return { login: string(p.login), name: string(p.name), avatar_url: string(p.avatar_url) };
 }
+function parseMergeTrain(value: unknown): MergeTrain {
+  const t = object(value);
+  return {
+    id: string(t.id), repository: string(t.repository), base: string(t.base), pr: string(t.pr), state: string(t.state), runs: number(t.runs),
+    started: string(t.started), finished: string(t.finished), note: string(t.note),
+    cars: array(t.cars).map((car) => { const c = object(car); return { number: number(c.number), url: string(c.url), title: string(c.title), task: string(c.task), state: string(c.state), note: string(c.note) }; }),
+  };
+}
 function parseComebackEntry(value: unknown): ComebackEntry {
   const entry = object(value);
   const state = string(entry.state);
@@ -701,6 +723,7 @@ export function parseSnapshot(value: unknown): Snapshot {
     }))(object(v.disk)),
     projects: array(v.projects).map((value) => { const p = object(value); return { name: string(p.name), repository: string(p.repository), contributors: array(p.contributors).map((person) => parsePerson(object(person))) }; }),
     release: v.release == null ? null : (({ installed, tag, page, published, source }) => ({ installed: string(installed), tag: string(tag), page: string(page), published: string(published), source: boolean(source) }))(object(v.release)),
+    merge_trains: array(v.merge_trains).map(parseMergeTrain),
     retired: strings(v.retired),
     issues: strings(v.issues),
     attention: strings(v.attention),
@@ -710,6 +733,7 @@ export function parseSnapshot(value: unknown): Snapshot {
       const t = object(value);
       return {
         lifecycle: t.lifecycle == null ? undefined : ((record) => ({ phase: string(record.phase), action: string(record.action), at: string(record.at), kept: strings(record.kept), stopped: strings(record.stopped), problems: strings(record.problems), handoff_saved: boolean(record.handoff_saved), validation_restarts: boolean(record.validation_restarts),
+          ...(record.with_parent === undefined ? {} : { with_parent: boolean(record.with_parent) }),
           ...(record.pause == null ? {} : { pause: ((pause) => ({ reason: string(pause.reason), until: string(pause.until), at: string(pause.at) }))(object(record.pause)) }) }))(object(t.lifecycle)),
         teardown: strings(t.teardown), detail: string(t.detail), queue_revision: string(t.queue_revision), notes: strings(t.notes), action_error: string(t.action_error), branch: string(t.branch),
         pending_engine: t.pending_engine == null ? undefined : ((choice) => ({ harness: string(choice.harness), model: string(choice.model), effort: string(choice.effort), when: string(choice.when) }))(object(t.pending_engine)),
