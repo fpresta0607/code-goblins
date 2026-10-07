@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { listItem, pauseStatus, plainText, reportBody, summary, taskSummary, withoutHarness, teardownSentence } from "./task-words.ts";
+import { listItem, pausedWithParent, pauseStatus, plainText, reportBody, summary, taskSummary, withoutHarness, teardownSentence } from "./task-words.ts";
 import { parseSnapshot, type CIDuration, type Task } from "./types.ts";
 
 const task = (fields: Record<string, unknown>): Task => parseSnapshot({ healthy: true, tasks: [{ id: "a", title: "a", phase: "working", generation: "s1", verified: false, ...fields }] }).tasks[0];
@@ -180,5 +180,18 @@ test("a paused card says why it waits and what resumes it in a few words, in pla
     // Assert
     if (typeof said === "string") assert.equal(status, said, name);
     else assert.match(status, said, name);
+  }
+});
+
+test("a helper paused with its parent says it resumes with its parent, on its card and in its panel", () => {
+  const parent = task({ id: "g", title: "Sync the ledger" });
+  for (const [withParent, card, panel] of [
+    [true, "Resumes with Sync the ledger", "It resumes by itself when Sync the ledger runs again."],
+    [false, "Paused by you", "It stays paused until you resume it."],
+  ] as [boolean, string, string][]) {
+    const helper = task({ id: "g-h1", parent: "g", phase: "paused", lifecycle: lifecycle({ pause: { reason: "overlord", until: "", at: "2026-10-05T16:30:06Z" }, with_parent: withParent }) });
+    const tasks = [parent, helper];
+    assert.equal(pauseStatus(helper.lifecycle?.pause, tasks, [], pausedWithParent(helper, tasks)), card);
+    assert.equal(taskSummary(helper, tasks).sentence, panel);
   }
 });

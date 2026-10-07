@@ -2,8 +2,6 @@ package main
 
 import (
 	"context"
-	"crypto/sha256"
-	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"flag"
@@ -28,7 +26,9 @@ func runLifecycle(action string, args []string, stdout, stderr io.Writer, runtim
 	generation := flags.String("generation", "", "expected task generation")
 	operation := flags.String("operation", "", "idempotent operation identity")
 	reason := flags.String("reason", "", "pause reason: memory, allowance, overlord, dependency, question, ci or deploy")
-	until := flags.String("until", "", "pause clearing condition: reset time, task:<id>, pr:<URL>, date:<RFC3339> or question id")
+	until := flags.String("until", "", "pause clearing condition: an RFC3339 time to resume at, task:<id>, pr:<URL>, date:<RFC3339>, an allowance reset or a question id")
+	untilTask := flags.String("until-task", "", "pause until this task delivers")
+	untilPR := flags.String("until-pr", "", "pause until this GitHub pull request merges")
 	revision := flags.String("revision", "", "expected queued task revision")
 	if err := flags.Parse(args[1:]); err != nil || flags.NArg() != 0 {
 		return 2
@@ -38,13 +38,18 @@ func runLifecycle(action string, args []string, stdout, stderr io.Writer, runtim
 		return 2
 	}
 	if action == "pause" {
+		var err error
+		if *reason, *until, err = pauseCondition(*reason, *until, *untilTask, *untilPR); err != nil {
+			fmt.Fprintln(stderr, err)
+			return 2
+		}
 		if _, err := state.NewPauseCondition(*reason, *until, time.Now().UTC()); err != nil {
 			fmt.Fprintln(stderr, err)
 			return 2
 		}
 	} else {
-		if *until != "" {
-			fmt.Fprintln(stderr, "--until is only valid for pause")
+		if *until != "" || *untilTask != "" || *untilPR != "" {
+			fmt.Fprintln(stderr, "--until, --until-task and --until-pr are only valid for pause")
 			return 2
 		}
 		if *reason == "" {
@@ -88,6 +93,41 @@ func runLifecycle(action string, args []string, stdout, stderr io.Writer, runtim
 	return 0
 }
 
+// pauseCondition is the reason and condition a pause records from its flags:
+// --until-task and --until-pr wait on a task to deliver or a pull request to
+// merge, and --until alone on a time or on a task:, pr: or date: wait, all of
+// them dependencies the supervisor resumes by itself. A pause that names
+// nothing that resumes it is refused: it would never resume.
+func pauseCondition(reason, until, untilTask, untilPR string) (string, string, error) {
+	given := 0
+	for _, value := range []string{until, untilTask, untilPR} {
+		if value != "" {
+			given++
+		}
+	}
+	switch {
+	case given > 1:
+		return "", "", errors.New("pause takes one condition: --until, --until-task or --until-pr")
+	case untilTask != "":
+		until = "task:" + untilTask
+	case untilPR != "":
+		until = "pr:" + untilPR
+	case until != "" && reason == "":
+		if _, err := time.Parse(time.RFC3339, until); err == nil {
+			until = "date:" + until
+		}
+	case reason == "":
+		return "", "", errors.New("pause needs what resumes the goblin: --until <RFC3339 time>, --until-task <id> or --until-pr <GitHub PR URL>, or --reason memory, allowance, overlord, question, ci or deploy")
+	}
+	if reason == "" || untilTask != "" || untilPR != "" {
+		if reason != "" && reason != "dependency" {
+			return "", "", fmt.Errorf("--until-task and --until-pr wait on a dependency, not %s", reason)
+		}
+		reason = "dependency"
+	}
+	return reason, until, nil
+}
+
 // reachHelpers pauses or stops each live helper of meta as meta itself is
 // paused or stopped, through run, the same lifecycle, so each keeps a record,
 // a handoff request and a card of its own, and says what became of each. A
@@ -113,8 +153,7 @@ func reachHelpers(ctx context.Context, h home.Home, meta state.TaskMeta, record 
 			lines = append(lines, "helper "+helper.ID+" kept at work: "+meta.ID+" waits on it")
 			continue
 		}
-		sum := sha256.Sum256([]byte(record.Operation + "\x00" + helper.ID))
-		request := lifecycle.Request{ID: helper.ID, Generation: helper.SpawnGen, Operation: "helper-" + hex.EncodeToString(sum[:8]), Action: record.Action, Reason: "Stopped with its parent " + meta.ID + ": " + record.Reason}
+		request := lifecycle.Request{ID: helper.ID, Generation: helper.SpawnGen, Operation: state.HelperOperation(record.Operation, helper.ID), Action: record.Action, Reason: "Stopped with its parent " + meta.ID + ": " + record.Reason}
 		if pause != nil {
 			request.Reason, request.Until = pause.Reason, pause.Until
 		}

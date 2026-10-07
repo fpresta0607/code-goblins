@@ -202,7 +202,7 @@ func (s *Service) startQueued(id string, isOverlord bool) error {
 			}
 		}
 	}()
-	plan, err := planStart(s.Store.Home, id)
+	plan, err := planStart(s.Store.Home, id, s.finishedWork())
 	if err != nil {
 		return err
 	}
@@ -247,7 +247,7 @@ func (s *Service) runStart(dispatch *Dispatch, plan startPlan) {
 			s.publish(err)
 		}
 	}()
-	output, err := dispatch.Spawn(context.Background(), plan.args())
+	output, err := s.runPastTheSpawnLock(dispatch, plan.args())
 	failure := ""
 	if err != nil {
 		failure = spawnFailure(output, err)
@@ -299,12 +299,12 @@ func spawnFailure(output string, err error) string {
 }
 
 // planStart is the cfo spawn a Start of id runs, or why it cannot: id must be
-// queued work with a brief and a project, and not already running. Harness,
-// model, effort and mode come from the backlog row, then the brief, then the
-// fleet's defaults.
-func planStart(h home.Home, id string) (startPlan, error) {
+// queued work with a brief and a project, not already running and not
+// already finished. Harness, model, effort and mode come from the backlog
+// row, then the brief, then the fleet's defaults.
+func planStart(h home.Home, id string, finished *finishedWork) (startPlan, error) {
 	if _, err := os.Stat(filepath.Join(h.State, id+".meta")); err == nil {
-		return startPlan{}, StartRefusal{Reason: id + " already runs; open it from In progress"}
+		return startPlan{}, StartRefusal{Reason: id + " already runs; open it from In progress", Held: true}
 	}
 	backlog, err := fleet.ReadBacklog(h)
 	if err != nil {
@@ -312,10 +312,13 @@ func planStart(h home.Home, id string) (startPlan, error) {
 	}
 	queued, err := backlog.ReadQueuedTask(h, id)
 	if errors.Is(err, fleet.ErrNotQueued) {
-		return startPlan{}, StartRefusal{Reason: id + " is not queued"}
+		return startPlan{}, StartRefusal{Reason: id + " is not queued", Held: true}
 	}
 	if err != nil {
 		return startPlan{}, err
+	}
+	if refusal := finished.refusal(id); refusal != "" {
+		return startPlan{}, StartRefusal{Reason: refusal, Held: true}
 	}
 	row := queued.Row
 	brief := filepath.Join(h.Data, id, "brief.md")
@@ -324,7 +327,7 @@ func planStart(h home.Home, id string) (startPlan, error) {
 		return startPlan{}, briefErr
 	}
 	if len(row.BlockedByIDs) > 0 {
-		return startPlan{}, StartRefusal{Reason: id + " is waiting on " + strings.Join(row.BlockedByIDs, ", ") + ": " + row.BlockedReason}
+		return startPlan{}, StartRefusal{Reason: id + " is waiting on " + strings.Join(row.BlockedByIDs, ", ") + ": " + row.BlockedReason, Held: true}
 	}
 	plan := startPlan{id: id, brief: brief, project: briefProject(brief), isProductionDefect: row.Priority == "production-defect"}
 	if plan.project == "" {

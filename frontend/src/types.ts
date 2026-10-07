@@ -59,10 +59,13 @@ export interface Task extends Evaluation {
   // was written; empty when neither is known.
   since: string;
   // brief says queued work has its brief, which Start needs; starting that
-  // its Start runs cfo spawn now, and start_error why its last Start failed.
+  // its Start runs cfo spawn now, start_error why its last Start failed, and
+  // finished why it never starts again by itself: what says it already
+  // finished.
   brief: boolean;
   starting: boolean;
   start_error: string;
+  finished: string;
   // priority is a queued task's backlog priority: production-defect starts
   // it ahead of every other start and resume.
   priority: string;
@@ -141,6 +144,14 @@ export interface LocalChecks { commit: string; level: string; required_level: st
 // deployed, failed or cancelled, workflows names them, and link is the page
 // of the run that failed or was cancelled, else of the newest one.
 export interface Deployment { commit: string; state: string; workflows: string[]; link: string; at: string }
+// MergeTrain is a merge train: green pull requests merged onto base on a
+// branch of its own, which its pull request lets CI test together once.
+// state is testing, landed, stopped or failed, runs counts its CI runs, and
+// note says what happened last.
+export interface MergeTrain { id: string; repository: string; base: string; pr: string; state: string; runs: number; started: string; finished: string; note: string; cars: TrainCar[] }
+// TrainCar is one pull request on a train: state is riding, waiting,
+// landed, culprit, conflict or returned, and note says why.
+export interface TrainCar { number: number; url: string; title: string; task: string; state: string; note: string }
 // Ticket is a task's issue: its number, its link and where it stands, one
 // of queued, in progress, pr open, paused, blocked, merged or closed.
 export interface Ticket { number: number; url: string; state: string }
@@ -156,16 +167,28 @@ export interface ProjectPeople { name: string; repository: string; contributors:
 export interface LifecycleStatus {
   phase: string; action: string; at: string; kept: string[]; stopped: string[]; problems: string[];
   handoff_saved: boolean; validation_restarts: boolean;
+  // with_parent is a helper's pause or stop its parent's made: paused, it
+  // resumes once its parent runs again.
+  with_parent?: boolean;
   // pause is what a paused task waits for: memory, allowance, overlord,
   // dependency, question, ci or deploy, with until naming the reset time,
   // task:, pr:, date:, question id or awaited run; absent on an older pause.
   pause?: PauseCondition;
 }
 export interface PauseCondition { reason: string; until: string; at: string }
+// Scheduling is what the supervisor's scheduler made of its last reading with
+// memory free: text says what it started or resumed, else why nothing
+// waiting started, and waiting is the work that could run and did not.
+export interface Scheduling {
+  at: string;
+  text: string;
+  waiting: { id: string; why: string }[];
+}
+
 // Memory is the machine's free memory and free commit (memory plus page file)
 // in bytes beside the fleet's floor, under which nothing starts, and the mark
-// at which the CFO starts the next queued task; with the kernel's pools and,
-// while commit is the tighter, the apps holding the most of it.
+// at which the next queued task starts; with the kernel's pools and, while
+// commit is the tighter, the apps holding the most of it.
 export interface Memory {
   available: number; total: number; commit_available: number; commit_limit: number;
   paged_pool: number; nonpaged_pool: number; floor: number; next: number; holders: CommitHolder[];
@@ -302,6 +325,10 @@ export interface Snapshot {
   credentials?: CredentialRequest[];
   // memory is absent on a board that cannot start goblins or read it.
   memory: Memory | null;
+  // scheduling is what the supervisor started or resumed at its last
+  // reading with memory free, or why nothing waiting started; null while
+  // memory is short or nothing schedules.
+  scheduling: Scheduling | null;
   ci_durations: CIDuration[];
   // disk is absent on a board that cannot read it.
   disk: Disk | null;
@@ -312,6 +339,9 @@ export interface Snapshot {
   // release is a newer published release, or any where this board was built
   // from a clone; null when there is none or the check is off.
   release: ReleaseView | null;
+  // merge_trains are the trains running and those finished in the last
+  // hours, newest first.
+  merge_trains?: MergeTrain[];
 }
 // AfkHeld is an item held for the Overlord while AFK mode is on: its key in
 // the Command Center, its goblin (empty for the CFO's own), what it asks,
@@ -630,6 +660,14 @@ export function parseItems(value: unknown): Items {
 function parsePerson(p: Record<string, unknown>): Person {
   return { login: string(p.login), name: string(p.name), avatar_url: string(p.avatar_url) };
 }
+function parseMergeTrain(value: unknown): MergeTrain {
+  const t = object(value);
+  return {
+    id: string(t.id), repository: string(t.repository), base: string(t.base), pr: string(t.pr), state: string(t.state), runs: number(t.runs),
+    started: string(t.started), finished: string(t.finished), note: string(t.note),
+    cars: array(t.cars).map((car) => { const c = object(car); return { number: number(c.number), url: string(c.url), title: string(c.title), task: string(c.task), state: string(c.state), note: string(c.note) }; }),
+  };
+}
 function parseComebackEntry(value: unknown): ComebackEntry {
   const entry = object(value);
   const state = string(entry.state);
@@ -675,12 +713,14 @@ export function parseSnapshot(value: unknown): Snapshot {
       holders: array(holders).map((value) => { const h = object(value); return { name: string(h.name), commit: number(h.commit) }; }),
       ...(capacity == null ? {} : { capacity: ((c) => ({ live: number(c.live), limit: number(c.limit), configured: number(c.configured), slots: number(c.slots) }))(object(capacity)) }),
     }))(object(v.memory)),
+    scheduling: v.scheduling == null ? null : ((scheduled) => ({ at: string(scheduled.at), text: string(scheduled.text), waiting: array(scheduled.waiting).map((value) => { const w = object(value); return { id: string(w.id), why: string(w.why) }; }) }))(object(v.scheduling)),
     ci_durations: array(v.ci_durations).map((value) => { const d = object(value); return { repository: string(d.repository), kind: string(d.kind), seconds: number(d.duration_seconds) }; }),
     disk: v.disk === undefined || v.disk === null ? null : (({ drive, free, total, floor, wake }) => ({
       drive: string(drive), free: number(free), total: number(total), floor: number(floor), wake: number(wake),
     }))(object(v.disk)),
     projects: array(v.projects).map((value) => { const p = object(value); return { name: string(p.name), repository: string(p.repository), contributors: array(p.contributors).map((person) => parsePerson(object(person))) }; }),
     release: v.release == null ? null : (({ installed, tag, page, published, source }) => ({ installed: string(installed), tag: string(tag), page: string(page), published: string(published), source: boolean(source) }))(object(v.release)),
+    merge_trains: array(v.merge_trains).map(parseMergeTrain),
     retired: strings(v.retired),
     issues: strings(v.issues),
     attention: strings(v.attention),
@@ -690,6 +730,7 @@ export function parseSnapshot(value: unknown): Snapshot {
       const t = object(value);
       return {
         lifecycle: t.lifecycle == null ? undefined : ((record) => ({ phase: string(record.phase), action: string(record.action), at: string(record.at), kept: strings(record.kept), stopped: strings(record.stopped), problems: strings(record.problems), handoff_saved: boolean(record.handoff_saved), validation_restarts: boolean(record.validation_restarts),
+          ...(record.with_parent === undefined ? {} : { with_parent: boolean(record.with_parent) }),
           ...(record.pause == null ? {} : { pause: ((pause) => ({ reason: string(pause.reason), until: string(pause.until), at: string(pause.at) }))(object(record.pause)) }) }))(object(t.lifecycle)),
         teardown: strings(t.teardown), detail: string(t.detail), queue_revision: string(t.queue_revision), notes: strings(t.notes), action_error: string(t.action_error), branch: string(t.branch),
         pending_engine: t.pending_engine == null ? undefined : ((choice) => ({ harness: string(choice.harness), model: string(choice.model), effort: string(choice.effort), when: string(choice.when) }))(object(t.pending_engine)),
@@ -721,6 +762,7 @@ export function parseSnapshot(value: unknown): Snapshot {
         brief: t.brief === undefined ? false : boolean(t.brief),
         starting: t.starting === undefined ? false : boolean(t.starting),
         start_error: string(t.start_error),
+        finished: t.finished === undefined ? "" : string(t.finished),
         priority: t.priority === undefined ? "" : string(t.priority),
         parent: t.parent === undefined ? "" : string(t.parent),
         ...(t.progress == null ? {} : { progress: ((progress) => ({ at: string(progress.at), source: string(progress.source) }))(object(t.progress)) }),

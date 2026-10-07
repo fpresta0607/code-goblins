@@ -238,3 +238,101 @@ func TestAHelperStartHoldsTheStartSlotUntilItsSpawnEnds(t *testing.T) {
 		t.Errorf("a Start while g1-h1 starts = %v, want it told to wait", startErr)
 	}
 }
+
+func TestAHelperPausedWithItsParentResumesOnceItsParentRunsAgain(t *testing.T) {
+	for _, test := range []struct {
+		name      string
+		isParent  bool
+		isRunning bool
+		isResumed bool
+	}{
+		{"its parent resumed", true, true, true},
+		{"its parent still paused", true, false, false},
+		{"paused by itself while its parent runs", false, true, false},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			// Arrange: the Overlord paused the parent, which paused its
+			// helper with the same condition, or the helper on its own.
+			spawner := &spawnRecorder{}
+			handler, h := startBoard(t, 8*gigabyte, spawner)
+			s := handler.Service
+			at := time.Now().UTC().Add(-time.Hour)
+			parent := pausedGoblin(t, h, "fam", "overlord", "", at)
+			if test.isRunning {
+				if err := state.WriteLifecycle(h.State, state.Lifecycle{ID: parent.ID, Generation: parent.SpawnGen, Operation: "resume-fam", Action: "resume", Phase: "running", Started: at, Updated: at}); err != nil {
+					t.Fatal(err)
+				}
+			}
+			helper := state.TaskMeta{ID: "fam-h1", Parent: parent.ID, SpawnGen: "generation-fam-h1", Backend: "native", Project: h.Root, Worktree: filepath.Join(h.Root, ".worktrees", "gb-fam-h1")}
+			if err := state.WriteTaskMeta(h.State, helper); err != nil {
+				t.Fatal(err)
+			}
+			operation := "pause-fam-h1"
+			if test.isParent {
+				operation = state.HelperOperation("pause-fam", helper.ID)
+			}
+			if err := state.WriteLifecycle(h.State, state.Lifecycle{ID: helper.ID, Generation: helper.SpawnGen, Operation: operation, Action: "pause", Phase: "paused", Started: at, Updated: at, Pause: &state.PauseCondition{Reason: "overlord", At: at}, Reason: "overlord"}); err != nil {
+				t.Fatal(err)
+			}
+			writeFile(t, filepath.Join(h.Data, "backlog.md"), "## Queued\n")
+			s.Options.Dispatch.Memory = (&memoryReadings{readings: [][2]float64{{8, 8}, {8, 8}}}).read
+
+			// Act
+			err := s.checkFleet(t.Context(), time.Now().UTC())
+
+			// Assert
+			if err != nil {
+				t.Fatal(err)
+			}
+			if !test.isResumed {
+				s.starts.Lock()
+				changing := len(s.changing)
+				s.starts.Unlock()
+				if calls := spawner.recorded(); changing != 0 || len(calls) != 0 {
+					t.Fatalf("dispatched %q (%d changing), want the helper left paused", calls, changing)
+				}
+				return
+			}
+			calls := awaitDispatch(t, s, spawner, 1)
+			if len(calls) != 1 || calls[0][0] != "resume" || calls[0][1] != helper.ID {
+				t.Fatalf("dispatched %q, want the helper resumed", calls)
+			}
+		})
+	}
+}
+
+func TestTheBoardSaysWhichPausedHelperResumesWithItsParent(t *testing.T) {
+	for _, test := range []struct {
+		name         string
+		operation    string
+		isWithParent bool
+	}{
+		{"paused with its parent", state.HelperOperation("pause-fam", "fam-h1"), true},
+		{"paused by itself", "pause-fam-h1", false},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			// Arrange
+			handler, h := startBoard(t, 8*gigabyte, &spawnRecorder{})
+			at := time.Now().UTC().Add(-time.Hour)
+			helper := state.TaskMeta{ID: "fam-h1", Parent: "fam", SpawnGen: "generation-fam-h1", Backend: "native", Project: h.Root, Worktree: filepath.Join(h.Root, ".worktrees", "gb-fam-h1")}
+			if err := state.WriteTaskMeta(h.State, helper); err != nil {
+				t.Fatal(err)
+			}
+			if err := state.WriteLifecycle(h.State, state.Lifecycle{ID: helper.ID, Generation: helper.SpawnGen, Operation: test.operation, Action: "pause", Phase: "paused", Started: at, Updated: at, Pause: &state.PauseCondition{Reason: "overlord", At: at}, Reason: "overlord"}); err != nil {
+				t.Fatal(err)
+			}
+
+			// Act
+			snapshot, err := handler.Service.Snapshot()
+
+			// Assert
+			if err != nil {
+				t.Fatal(err)
+			}
+			index := slices.IndexFunc(snapshot.Tasks, func(task Task) bool { return task.ID == helper.ID })
+			if index < 0 || snapshot.Tasks[index].Lifecycle == nil || snapshot.Tasks[index].Lifecycle.WithParent != test.isWithParent {
+				t.Fatalf("the board's tasks are %+v, want %s with_parent %v", snapshot.Tasks, helper.ID, test.isWithParent)
+			}
+		})
+	}
+}

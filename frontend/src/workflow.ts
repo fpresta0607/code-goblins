@@ -162,6 +162,7 @@ export function nodeStatus(node: WorkflowNode, asking = false): string {
   if (node.task?.comeback?.state === "waiting") return "Comes back after the restart when memory allows";
   if (node.task?.comeback?.state === "stopped") return "Did not come back after the restart";
   if (node.task?.archived) return node.task.merged ? "Merged" : node.task.closed ? "Closed" : "Finished";
+  if (node.task?.phase === "queued" && node.task.finished) return "Already finished";
   if (node.task && ownsTaskSession(node.session, node.task)) {
     const { phase, reason, verified } = node.task;
     if (asking) return "Waiting on the CFO";
@@ -206,11 +207,19 @@ export function workflowNodes(snapshot: Snapshot): WorkflowNode[] {
       id: "task:" + task.id, title: withoutHarness(task.title) || task.id, task, relation: "Session unreported",
     })),
   ];
+  // A helper no family tree holds, such as one whose parent is paused, hangs
+  // under its parent's card: its record names its parent.
+  const owns = (node: WorkflowNode) => node.task !== undefined && ownsTaskSession(node.session, node.task);
+  const helpers = new Set<WorkflowNode>();
+  for (const node of nodes) {
+    const parent = owns(node) && node.task?.parent ? nodes.find((other) => other.task?.id === node.task?.parent && owns(other)) : undefined;
+    if (parent) { node.parent = parent.id; node.relation = "Helper goblin"; helpers.add(node); }
+  }
   // Every live task record was dispatched by the CFO through cfo spawn, so a
   // task no native hook reported hangs under the CFO: the reported session
   // when there is one, otherwise the supervisor root drawn for it. Sessions
   // keep only the parents they reported.
-  const dispatched = nodes.filter((node) => node.id.startsWith("task:"));
+  const dispatched = nodes.filter((node) => node.id.startsWith("task:") && !helpers.has(node));
   if (dispatched.length) {
     let cfo = nodes.find((node) => node.session?.role === "cfo");
     if (!cfo) {
@@ -231,13 +240,14 @@ export function workflowNodes(snapshot: Snapshot): WorkflowNode[] {
 }
 
 // waitingOn maps the card of each goblin waiting on another goblin to the card
-// of the goblin it waits on, as the dashed line between them shows.
+// of the goblin it waits on, as the dashed line between them shows; a helper
+// hung under the goblin waiting on it is shown by their connector instead.
 export function waitingOn(snapshot: Snapshot, nodes: WorkflowNode[]): Record<string, string> {
   const edges: Record<string, string> = {};
   for (const node of nodes) {
     const awaited = node.task && ownsTaskSession(node.session, node.task) ? waitingTarget(snapshot, node.task) : undefined;
     const target = awaited && nodes.find((other) => other.task?.id === awaited.id && ownsTaskSession(other.session, other.task));
-    if (target) edges[node.id] = target.id;
+    if (target && target.parent !== node.id) edges[node.id] = target.id;
   }
   return edges;
 }

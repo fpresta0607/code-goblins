@@ -1,5 +1,6 @@
-import type { Disk, FleetCapacity, Memory, PauseCondition, Snapshot, Task } from "./types";
+import type { Disk, FleetCapacity, Memory, PauseCondition, Scheduling, Snapshot, Task } from "./types";
 import { queuedTasks } from "./workflow.ts";
+import { pausedWithParent } from "./task-words.ts";
 
 const gigabytes = (bytes: number) => Math.round(bytes / 2 ** 30 * 10) / 10;
 
@@ -19,14 +20,22 @@ export function tighter(memory: Memory): { isCommit: boolean; free: number; tota
     : { isCommit: false, free: memory.available, total: memory.total };
 }
 
-// The memory meter at the head of Tasks: the CFO starts the next queued task
-// once memory reaches the mark, and nothing starts under the floor. The board
-// itself starts nothing on its own.
-export function meterState(memory: Memory): { tone: "ready" | "waiting" | "under"; text: string } {
+// The memory meter at the head of Tasks: the supervisor starts the next
+// queued task, or resumes a paused goblin whose pause cleared, once memory
+// reaches the mark, and nothing starts under the floor. With memory free it
+// says what the supervisor started or resumed, or why nothing waiting did.
+export function meterState(memory: Memory, scheduling: Scheduling | null = null): { tone: "ready" | "waiting" | "under"; text: string } {
   const { isCommit, free } = tighter(memory);
   if (free < memory.floor) return { tone: "under", text: `Under the ${gigabytes(memory.floor)} GB floor: nothing starts until ${isCommit ? "commit" : "memory"} frees.` };
-  if (free < memory.next) return { tone: "waiting", text: `The CFO starts the next task at ${gigabytes(memory.next)} GB free.` };
-  return { tone: "ready", text: "Enough memory: the CFO starts the next task." };
+  if (free < memory.next) return { tone: "waiting", text: `The next task starts at ${gigabytes(memory.next)} GB free.` };
+  return { tone: "ready", text: scheduling ? "Enough memory: " + scheduling.text : "Enough memory for the next task" };
+}
+
+// The meter's line under its bar while memory is free: what the supervisor
+// started or resumed at its last reading, or why nothing waiting started.
+export function scheduleLine(memory: Memory, scheduling: Scheduling | null): string {
+  if (!scheduling || meterState(memory).tone !== "ready") return "";
+  return scheduling.text.charAt(0).toUpperCase() + scheduling.text.slice(1);
 }
 
 // The memory bar spans twice the mark at which the CFO starts the next task,
@@ -101,8 +110,12 @@ export function startBlock(task: Task, memory: Memory | null, anotherStarting: b
   return "";
 }
 
+// Why a queued task does not start whatever memory there is: it already
+// finished, or it waits on other tasks.
 export function queueBlock(task: Task): string {
-  return task.phase === "queued" && task.dependencies.length ? task.reason || "Waiting on " + task.dependencies.join(", ") : "";
+  if (task.phase !== "queued") return "";
+  if (task.finished) return task.finished;
+  return task.dependencies.length ? task.reason || "Waiting on " + task.dependencies.join(", ") : "";
 }
 
 // A Start's refusal on its card, the snapshot revision it arrived at, and
@@ -158,13 +171,19 @@ export interface NextUp { id: string; text: string; tone: "" | "waiting" | "defe
 // for a pause for memory is once memory is back; then the top of the queue
 // that can start. A pause that waits on the Overlord, a pull request, a task,
 // CI or a date still ahead holds no slot: the supervisor resumes it at the
-// first reading after it clears.
+// first reading after it clears. A queued task whose last start failed waits
+// for its Start, so the supervisor passes over it too.
 export function nextInOrder(snapshot: Snapshot, now: number): NextUp | null {
   const tone = memoryBlock(snapshot.memory) ? "waiting" : "";
-  const queued = queuedTasks(snapshot).filter((task) => !queueBlock(task));
+  const queued = queuedTasks(snapshot).filter((task) => !queueBlock(task) && !task.start_error);
   const defect = queued.find((task) => task.priority === "production-defect");
   if (defect) return { id: defect.id, text: "Production defect: jumps the queue", tone: "defect" };
-  const resumable = snapshot.tasks.filter((task) => task.phase === "paused" && task.lifecycle?.pause && isClearing(task.lifecycle.pause, now))
+  // A helper paused with its parent resumes once its parent runs again.
+  const isBackWithParent = (task: Task) => {
+    const parent = pausedWithParent(task, snapshot.tasks);
+    return !!parent && (!parent.lifecycle || parent.lifecycle.phase === "running");
+  };
+  const resumable = snapshot.tasks.filter((task) => task.phase === "paused" && task.lifecycle?.pause && (isClearing(task.lifecycle.pause, now) || isBackWithParent(task)))
     .sort((left, right) => Date.parse(left.lifecycle!.pause!.at) - Date.parse(right.lifecycle!.pause!.at) || left.id.localeCompare(right.id));
   if (resumable.length) return { id: resumable[0].id, text: "Next up", tone };
   return queued.length ? { id: queued[0].id, text: nextChip(snapshot.memory), tone } : null;

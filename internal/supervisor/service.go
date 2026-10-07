@@ -32,6 +32,7 @@ import (
 	"github.com/fpresta0607/code-goblins/internal/quota"
 	"github.com/fpresta0607/code-goblins/internal/state"
 	"github.com/fpresta0607/code-goblins/internal/supervise"
+	"github.com/fpresta0607/code-goblins/internal/train"
 	"github.com/fpresta0607/code-goblins/internal/verify"
 	"github.com/fpresta0607/code-goblins/internal/wake"
 	"github.com/fpresta0607/code-goblins/internal/watch"
@@ -162,6 +163,9 @@ type Service struct {
 	// release watch, which releaseNow asks for another look.
 	release    *ReleaseView
 	releaseNow chan struct{}
+	// trains are the merge trains the board shows, as keepTrains last read
+	// them.
+	trains []train.Train
 	// runRequests takes one run request at a time, so two with one ID never
 	// both write a script.
 	runRequests sync.Mutex
@@ -176,6 +180,9 @@ type Service struct {
 	engineFrom   map[string]state.TaskMeta
 	engineIdle   map[string]engineIdleReading
 	changeErrors map[string]taskChangeError
+	// scheduling is what the scheduler made of its last reading with memory
+	// free; mu guards it.
+	scheduling *Scheduling
 	// isCFOComingBack says the comeback is bringing the CFO back now; starts
 	// guards it too.
 	isCFOComingBack bool
@@ -568,7 +575,7 @@ func (s *Service) keepHistory(ctx context.Context, every, watch time.Duration) {
 	for {
 		if next := s.historyMark(); next != mark || time.Since(rebuilt) >= every {
 			mark, rebuilt = next, time.Now()
-			err := s.refreshHistory(ctx, time.Now().UTC())
+			err := errors.Join(s.closeDeliveredRows(), s.refreshHistory(ctx, time.Now().UTC()))
 			s.mu.Lock()
 			s.historyErr = err
 			s.mu.Unlock()
@@ -976,11 +983,13 @@ type Task struct {
 	// brief was written; zero when neither is known.
 	Since time.Time `json:"since"`
 	// Brief says queued work has its brief, which a Start needs; Starting
-	// that its Start runs cfo spawn now, and StartError why its last Start
-	// failed.
+	// that its Start runs cfo spawn now, StartError why its last Start
+	// failed, and Finished why it never starts again by itself: what says it
+	// already finished.
 	Brief         bool                `json:"brief"`
 	Starting      bool                `json:"starting"`
 	StartError    string              `json:"start_error"`
+	Finished      string              `json:"finished,omitempty"`
 	Lifecycle     *LifecycleStatus    `json:"lifecycle,omitempty"`
 	Teardown      []string            `json:"teardown,omitempty"`
 	ActionError   string              `json:"action_error,omitempty"`
@@ -1082,6 +1091,10 @@ type Snapshot struct {
 	// Memory is the machine's free memory for the Tasks meter, absent on a
 	// board that cannot start goblins or cannot read it.
 	Memory *Memory `json:"memory,omitempty"`
+	// Scheduling is what the scheduler started, resumed or found waiting at
+	// its last reading with memory free, for the meter's line; absent while
+	// memory is short or nothing schedules.
+	Scheduling *Scheduling `json:"scheduling,omitempty"`
 	// Disk is the free space of the home's drive for the meter beside
 	// memory, absent on a board that cannot read it.
 	Disk          *Disk               `json:"disk,omitempty"`
@@ -1096,6 +1109,9 @@ type Snapshot struct {
 	// Release is a newer published release of Code Goblins, or any on a
 	// board built from a clone, for the board's banner.
 	Release *ReleaseView `json:"release,omitempty"`
+	// MergeTrains are the merge trains running, and those that finished in
+	// the last hours, newest first, each a card with its pull requests.
+	MergeTrains []train.Train `json:"merge_trains"`
 }
 
 // setItems makes items the snapshot's Command Center items.
@@ -1113,10 +1129,12 @@ func (s *Service) Snapshot() (Snapshot, error) {
 	out := Snapshot{Example: s.Options.Example, Instance: s.Instance, Revision: s.revision, Started: s.Started, At: time.Now().UTC(), Reconciled: s.reconciled, Error: s.lastError, Tasks: []Task{}, Attention: []string{}, Sessions: []Session{}, Retired: d.Retired, Actions: d.Actions, Issues: d.Issues}
 	progress, sameAreas, hostedChecks, localReports, deploys, trees := maps.Clone(s.workProgress), maps.Clone(s.sameArea), maps.Clone(s.hostedChecks), maps.Clone(s.localReports), maps.Clone(s.deploys), maps.Clone(s.trees)
 	out.Release = s.release
+	out.Scheduling = s.scheduling
 	if s.localReadErr != nil {
 		out.Issues = append(slices.Clone(out.Issues), s.localReadErr.Error())
 	}
 	out.CIDurations = slices.Clone(s.ciDurations)
+	out.MergeTrains = append([]train.Train{}, s.trains...)
 	if s.progressReadErr != nil {
 		out.Issues = append(slices.Clone(out.Issues), s.progressReadErr.Error())
 	}
@@ -1324,6 +1342,7 @@ func (s *Service) Snapshot() (Snapshot, error) {
 	startErrors, changing, changeErrors := maps.Clone(s.startErrors), maps.Clone(s.changing), maps.Clone(s.changeErrors)
 	engineFrom := maps.Clone(s.engineFrom)
 	s.starts.Unlock()
+	finished := readFinishedWork(s.Store.Home, history)
 	for i := range out.Tasks {
 		task := &out.Tasks[i]
 		task.Starting = task.ID == starting
@@ -1346,6 +1365,7 @@ func (s *Service) Snapshot() (Snapshot, error) {
 			_, briefErr := s.reads.look(filepath.Join(s.Store.Home.Data, task.ID, "brief.md"))
 			task.Brief = briefErr == nil
 			task.StartError = startErrors[task.ID]
+			task.Finished = s.finishedCard(finished, task.ID)
 		}
 		record, lifecycleErr := s.lifecycle(task.ID)
 		isCurrent := record.Generation == task.Generation || record.Generation == "queued" && task.Phase == "queued" && record.Phase == "stopping"
