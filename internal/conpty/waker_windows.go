@@ -8,6 +8,8 @@ import (
 	"os"
 	"os/signal"
 	"strings"
+	"sync"
+	"sync/atomic"
 	"time"
 	"unsafe"
 
@@ -25,7 +27,8 @@ import (
 // still unread a moment later, it writes a menu event into the console's
 // input, which wakes the reader and which every reader ignores, as documented
 // for MENU_EVENT and as libuv, crossterm, .NET and conhost's own character
-// reads do.
+// reads do. Attached from the console's start to its end, the waker also
+// reads the console's screen when asked.
 
 // wakerRole, as a program's first argument, makes a program built with this
 // package the input waker of the pseudo console it was started in, instead
@@ -66,12 +69,25 @@ const wakerReady = 10 * time.Second
 
 // waker is the host's end of a console's input waker.
 type waker struct {
-	// typed takes one byte each time input is written.
+	// typed takes one byte each time input is written, and one for each ask
+	// for the screen.
 	typed *os.File
 	// report carries what the waker says, a line at a time, and lines reads
 	// it.
 	report *os.File
 	lines  *bufio.Reader
+
+	// asking numbers each ask for the screen as it sends it, and asks is the
+	// number of the last.
+	asking sync.Mutex
+	asks   uint64
+
+	// answering holds the waker's latest answer for the screen and whether
+	// the waker has ended; answered closes when either changes.
+	answering sync.Mutex
+	answer    screenAnswer
+	isEnded   bool
+	answered  chan struct{}
 }
 
 // startWaker starts this program as the input waker of pseudo console pc,
@@ -101,7 +117,7 @@ func startWaker(pc, job windows.Handle) (*waker, error) {
 		return nil, fmt.Errorf("conpty: input waker pipe: %w", err)
 	}
 	defer windows.CloseHandle(typedRead)
-	w := &waker{typed: os.NewFile(uintptr(typedWrite), "conpty-input-waker")}
+	w := &waker{typed: os.NewFile(uintptr(typedWrite), "conpty-input-waker"), answered: make(chan struct{})}
 	if err := windows.CreatePipe(&reportRead, &reportWrite, &inheritable, 0); err != nil {
 		w.typed.Close()
 		return nil, fmt.Errorf("conpty: input waker pipe: %w", err)
@@ -175,22 +191,30 @@ func startWaker(pc, job windows.Handle) (*waker, error) {
 }
 
 // relay tells the waker of input written, through typed, until done closes,
-// and copies what it says into this process's standard error. A waker that
-// stops listening before done or closing closes, which the console closes as
-// Close begins, has failed, and says so.
+// and copies what it says into this process's standard error, but for its
+// answers for the screen, which it keeps for the reads that asked. A waker
+// that stops listening before done or closing closes, which the console
+// closes as Close begins, has failed, and says so.
 func (w *waker) relay(typed, done, closing <-chan struct{}) {
 	go func() {
 		defer w.report.Close()
-		lines := bufio.NewScanner(w.lines)
-		for lines.Scan() {
-			fmt.Fprintln(os.Stderr, "conpty: "+lines.Text())
+		defer w.end()
+		for {
+			// An answer for a large screen is one long line.
+			line, err := w.lines.ReadString('\n')
+			if line = strings.TrimRight(line, "\r\n"); line != "" && !w.take(line) {
+				fmt.Fprintln(os.Stderr, "conpty: "+line)
+			}
+			if err != nil {
+				return
+			}
 		}
 	}()
 	defer w.typed.Close()
 	for {
 		select {
 		case <-typed:
-			if _, err := w.typed.Write([]byte{1}); err != nil {
+			if _, err := w.typed.Write([]byte{inputWritten}); err != nil {
 				select {
 				case <-done:
 				case <-closing:
@@ -206,7 +230,8 @@ func (w *waker) relay(typed, done, closing <-chan struct{}) {
 }
 
 // runWaker is the input waker, attached to its pseudo console. Each byte
-// typed brings is input the host wrote; report takes what it has to say.
+// typed brings is input the host wrote or an ask for the screen; report takes
+// what it has to say, a line at a time.
 func runWaker(typed io.Reader, report io.Writer) int {
 	// Ctrl-C and Ctrl-Break reach every process attached to the console, and
 	// the waker outlives both. The console closing still ends it.
@@ -221,18 +246,29 @@ func runWaker(typed io.Reader, report io.Writer) int {
 		fmt.Fprintf(report, "the input waker cannot open its console's input: %v\n", err)
 		return 1
 	}
+	report = &lineWriter{out: report}
 	fmt.Fprintln(report, "ready")
-	written := make(chan struct{}, 1)
+	written, asked := make(chan struct{}, 1), make(chan struct{}, 1)
+	var asks atomic.Uint64
+	go answerScreens(asked, &asks, report)
 	go func() {
 		defer close(written)
 		signals := make([]byte, 64)
 		for {
-			if _, err := typed.Read(signals); err != nil {
+			count, err := typed.Read(signals)
+			if err != nil {
 				return
 			}
-			select {
-			case written <- struct{}{}:
-			default:
+			for _, sent := range signals[:count] {
+				next := written
+				if sent == screenAsked {
+					asks.Add(1)
+					next = asked
+				}
+				select {
+				case next <- struct{}{}:
+				default:
+				}
 			}
 		}
 	}()
@@ -325,4 +361,17 @@ func (r *reporter) say(line string) {
 	}
 	fmt.Fprintln(r.out, line)
 	r.last, r.held = time.Now(), 0
+}
+
+// lineWriter writes each line it is given whole: the waker's wakes and its
+// answers for the screen are written from goroutines of their own.
+type lineWriter struct {
+	mu  sync.Mutex
+	out io.Writer
+}
+
+func (w *lineWriter) Write(line []byte) (int, error) {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	return w.out.Write(line)
 }

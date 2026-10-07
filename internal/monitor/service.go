@@ -313,10 +313,10 @@ func (s Service) classify(ctx context.Context, meta state.TaskMeta, prior Observ
 			return launchingObservation(observation, now), sample
 		}
 	}
-	// A screen read attaches a process of its own to the terminal's console
-	// and can fail while the goblin works on, so one failed read keeps the
-	// last reading and is read again on the next scan; only a second failure
-	// in a row is an unknown endpoint.
+	// A screen read can fail while the goblin works on, as one that times out
+	// on a loaded machine does, so one failed read keeps the last reading and
+	// is read again on the next scan; only a second failure in a row is an
+	// unknown endpoint.
 	if sample.ReadFailed && prior.Health != "" && prior.ScreenUnreadSince == nil {
 		observation.ScreenUnreadSince = timePointer(now)
 		tally.suppress(meta.ID, EndpointUnknown, now.Format(time.RFC3339Nano), "one screen read failed and is read again next scan: "+sample.Detail, now)

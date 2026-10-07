@@ -14,6 +14,7 @@ import (
 	"sync"
 	"testing"
 	"time"
+	"unsafe"
 
 	"golang.org/x/sys/windows"
 
@@ -36,7 +37,8 @@ const nativeSpawnHost = "native-spawn-host"
 // fakeCodexMode picks what it shows: codex's update prompt, then its trust
 // prompt and composer by default, its composer at once ("ready"), or its hook
 // review prompt ("hooks"), nothing
-// a spawn would recognize ("silent"), or no console at all ("detached"). Half
+// a spawn would recognize ("silent"), or a screen nothing can read, the
+// console's input waker ended ("unreadable"). Half
 // drawn ("halfdrawn"), its update prompt shows its header alone at first, and
 // no focus for a moment after a move. At its composer, a prompt can open as
 // the typing starts ("late"), a submitted line can leave it looking idle
@@ -106,9 +108,22 @@ func fakeHarness() {
 		record(codexEvent{Event: "home", Home: &resolved})
 	}
 	mode := os.Getenv(fakeCodexMode)
-	if mode == "detached" {
-		_, _, _ = windows.NewLazySystemDLL("kernel32.dll").NewProc("FreeConsole").Call()
-		record(codexEvent{Event: "detached"})
+	if mode == "unreadable" {
+		// The console's input waker, which reads its screen, is the one
+		// other process attached to it.
+		pids := make([]uint32, 16)
+		count, _, _ := windows.NewLazySystemDLL("kernel32.dll").NewProc("GetConsoleProcessList").Call(uintptr(unsafe.Pointer(&pids[0])), uintptr(len(pids)))
+		for _, pid := range pids[:min(int(count), len(pids))] {
+			if int(pid) == os.Getpid() {
+				continue
+			}
+			if process, err := windows.OpenProcess(windows.PROCESS_TERMINATE|windows.SYNCHRONIZE, false, pid); err == nil {
+				_ = windows.TerminateProcess(process, 1)
+				_, _ = windows.WaitForSingleObject(process, 10000)
+				_ = windows.CloseHandle(process)
+			}
+		}
+		record(codexEvent{Event: "unreadable"})
 		time.Sleep(time.Minute)
 		return
 	}
@@ -1008,17 +1023,17 @@ func TestANativeSpawnNeverTypesIntoAScreenItDoesNotKnow(t *testing.T) {
 }
 
 // A screen that cannot be read stops the spawn with the read's error: it
-// never counts as a screen with no dialog on it. Claude is the terminal's
-// own program, so its leaving the console leaves nothing to read it through.
+// never counts as a screen with no dialog on it. The console's input waker
+// reads its screen, so with the waker ended nothing can.
 func TestANativeSpawnStopsWhenItCannotReadTheScreen(t *testing.T) {
 	previous := nativeReadGrace
 	nativeReadGrace = 2 * time.Second
 	t.Cleanup(func() { nativeReadGrace = previous })
-	f := newNativeFixture(t, harness.Claude, "detached")
+	f := newNativeFixture(t, harness.Claude, "unreadable")
 
 	_, err := f.service.Spawn(context.Background(), f.request)
 
-	if err == nil || !strings.Contains(err.Error(), "terminal task-7") || !strings.Contains(err.Error(), "attach to the console") {
+	if err == nil || !strings.Contains(err.Error(), "terminal task-7") || !strings.Contains(err.Error(), "input waker") {
 		t.Fatalf("Spawn error = %v, want the failed read of terminal task-7", err)
 	}
 }

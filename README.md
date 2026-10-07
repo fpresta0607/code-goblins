@@ -14,9 +14,9 @@
 </p>
 
 <p align="center">
-  <img src="docs/images/hero.webp" alt="The Code Goblins board: the CFO's bar with the question waiting on you, two queued tasks under the memory meter, goblins in progress, and beside them the selected goblin's panel with its status line and the diff of its change" width="900" />
+  <img src="docs/images/hero.webp" alt="The Code Goblins board: the CFO's bar with Open Command Center and the one item waiting on you, two queued tasks under the memory and disk meters, and beside them the selected goblin's panel with the diff of its change" width="900" />
   <br />
-  <sub>Screenshots show the example workspace, <code>cfo serve --example</code> on an isolated home, staged with demo goblins.</sub>
+  <sub>Screenshots show an example workspace: example goblins in example repositories, never a real fleet.</sub>
 </p>
 
 <p align="center">
@@ -131,7 +131,7 @@ Each says the same four steps as it goes (download, check, install, open) and ke
 Run either again at any time to update: it never asks you to run anything first.
 Once Code Goblins runs, a newer release comes to you as its own item in the board's Command Center, **Update Code Goblins**, with what is new and one **Update** button, and a slim banner at the top points to it ([Update Code Goblins](docs/native-board.md#update-code-goblins)).
 
-<img src="docs/images/update-item.png" alt="The Update Code Goblins item in the Command Center: v0.4.2 to v0.5.0, what is new, the unsigned-release line with the SHA-256 it checks, and the Update button" width="732" />
+<img src="docs/images/update-item.webp" alt="The Update Code Goblins item in the Command Center: v0.5.1 to v0.6.0, what is new, the unsigned-release line with the SHA-256 it checks, and the Update button" width="732" />
 
 Or run `goblins update` in a terminal of your own: it downloads the newest release, installs it only when each program matches the release's `SHA256SUMS`, restarts only the board on it, rolls back a build that does not start, and leaves your goblins and the CFO running ([Updating](docs/install.md#updating) says each step).
 Where Code Goblins already runs from another folder that `CFO_HOME` names, such as a clone an older build made the home, the install updates it there and leaves your goblins and their work as they are; moving it to the standard folder is `cfo home move`, whenever you choose.
@@ -243,7 +243,7 @@ When it needs you, it asks on the board: a decision, a page to review, or a comm
 ## Using the board
 
 <p align="center">
-  <img src="docs/images/board-review.webp" alt="Board view: the CFO's bar above the columns, two numbered queued tasks under the memory meter, each with start, adjust and remove buttons, five goblins in progress, and the selected goblin's panel with its status, workspace, Connections and Changes" width="900" />
+  <img src="docs/images/board-review.webp" alt="Board view: the CFO's bar above the Tasks, In progress and Completed columns, two numbered queued tasks under the memory and disk meters, each with start, adjust and remove buttons, goblins in progress, merged and closed work, and the selected goblin's panel in its review gate, with its pull request, local tests, running checks, Workspace and Connections" width="900" />
 </p>
 
 `cfo serve` runs the native supervisor and serves its board, which is compiled into `cfo.exe`, at `http://127.0.0.1:4310`.
@@ -263,6 +263,10 @@ It listens on loopback only, and Ctrl-C in its terminal, or `goblins stop` from 
 Hook setup, evidence rules and terminal limits are in [the native board guide](docs/native-board.md).
 
 ### The desktop app
+
+<p align="center">
+  <img src="docs/images/desktop-window.webp" alt="The Code Goblins desktop window: the board's Tasks, In progress and Completed columns with the CFO's terminal beside them, in a window of its own" width="900" />
+</p>
 
 The board also runs in a desktop window of its own, `goblins-window.exe`: the same board in Microsoft's WebView2, with a tray icon and Windows notifications.
 It holds no fleet state, and quitting it leaves the supervisor, the CFO and every goblin running.
@@ -334,7 +338,7 @@ The header switches between two views, one at a time, each with a contextual pan
 - **Orchestration** is the live family tree: the CFO above its goblins and any child sessions they reported. The panel shows the selected session's real native terminal and starts on the CFO, whose terminal is shown from its host when the CFO runs in a native terminal. Dragging cards, panning, zooming, **Fit** and **Arrange** change only the layout, because parentage comes from native session evidence. A goblin waiting on another sits under it, joined by a dashed line; only a card you drag keeps its place, and the rest arrange themselves around it without covering one another. A brief pulse along a connector marks a real accepted message. Under each goblin, what it runs (its sub-agents, background shells and monitors, its jobs of processes with their memory, and its gate run) shows as baby goblins, collapsed to a count until you open it; the goblin's panel lists them under **What's working**, and its card names a child gone silent with its last line. None of it wakes the CFO.
 
 <p align="center">
-  <img src="docs/images/orchestration.webp" alt="Orchestration view over the goblin workshop at night: the CFO above five goblins in four repositories, with the selected goblin's live native terminal in the right panel" width="900" />
+  <img src="docs/images/orchestration.webp" alt="Orchestration view over the goblin workshop at night: the CFO above five goblins in three repositories, a count of what runs under each goblin that runs anything, and the selected goblin's live native terminal in the right panel" width="900" />
 </p>
 
 Each card shows the task's short title and a muted line with its repo and status; the goblin's own words are in its panel.
@@ -456,7 +460,7 @@ Open the dropdown to check connections that were last checked over a minute ago,
 Repairs trigger a fresh check; a token stored after a native goblin started still needs to reach that goblin before its credential row changes.
 Disabled or withheld MCP servers say why they are unavailable, and no secret values appear on the board.
 
-<img src="docs/images/board-connections.png" alt="Connections dropdown with Connected checks, sign-in actions, withheld MCP servers, repository services and provided credentials" width="720" />
+<img src="docs/images/board-connections.webp" alt="Workspace and Connections in a goblin's panel: the harness, model and effort selectors, then Connected checks, a sign-in action, a withheld MCP server, repository services and a provided credential" width="720" />
 
 The CFO's Task view lists every queued task under its workspace, in the same priority order as the Tasks column and with the same memory meter, drag and **Start**.
 The Terminal view is the goblin's live terminal, edge to edge.
@@ -507,13 +511,13 @@ In other harnesses, shells and Herdr terminals, **Shift+Enter** keeps the same b
 The advertised font-size, terminal-switching, dictation and **Shift+Escape** shortcuts remain the board's; the Herdr history view also uses **Shift+PageUp**, **Shift+PageDown** and **Escape** to navigate history.
 
 <p align="center">
-  <img src="docs/images/goblin-panel.webp" alt="A goblin's native terminal maximized over the whole window, edge to edge with no scroll bars, under the Task and Terminal pill with Open in terminal, Restore and Close" width="900" />
+  <img src="docs/images/goblin-panel.webp" alt="A goblin's native terminal maximized over the whole window, edge to edge with no scroll bars, under the Terminal and Task pill with Open in terminal, Restore and Back" width="900" />
 </p>
 
 ### Sending a diff comment to the CFO
 
 <p align="center">
-  <img src="docs/images/annotation-delivery.webp" alt="An inline comment on supervisor.ts new lines 2 to 3, shrunk to a chip whose two check marks show the CFO accepted it" width="720" />
+  <img src="docs/images/annotation-delivery.webp" alt="An inline comment on export.ts new lines 6 to 7, shrunk to a chip whose two check marks show the CFO received it" width="720" />
 </p>
 
 Open **Changes**, open a file and click a line number, where a comment icon appears on hover; Shift-click extends the selection to a range.
@@ -526,7 +530,7 @@ Retrying an unchanged comment keeps its request ID, so a retry cannot deliver th
 ### Supreme Overlord Command Center
 
 <p align="center">
-  <img src="docs/images/command-center.webp" alt="Supreme Overlord Command Center: the CFO asks which order for the lag fixes, with its details as two bullets, then three answers as a plain radio list (Fix it next, before item 7, marked Recommended and selected; Keep 300 s; Wait for the Codex reset on 29 September) and Other, with Send decision below" width="560" />
+  <img src="docs/images/command-center.webp" alt="Supreme Overlord Command Center: the CFO asks whether to fix the checkout race now or quarantine the test and ship, with its details as two bullets, the second in bold, then three answers as a plain radio list (Fix the race first, marked Recommended and selected; Quarantine the test and ship; Wait for the next release) and Other, with 1 of 2, Dismiss and Send decision below" width="560" />
 </p>
 
 When the CFO needs a decision only you can make, it publishes the question with `cfo question` and **Open Command Center** shows how many items wait on you.
@@ -539,6 +543,11 @@ Review items share the stack: a goblin's image review or review page, and a gobl
 A review page shows as a preview named Scrawl page you click to open it (**Open review**), and a goblin's wait with a page opens it from its one **Open review** button, so a card says its words once; a page the board watches is answered on the page itself, and its card finishes when you send or end the review there.
 When a goblin asks a question about its open review page, the Command Center shows one card, the page's: the question, **Open review**, and where the review stands (waiting for your answer, or when its window closed; nothing you send there is lost).
 An answer you send on the page finishes its card with the same check as an answer sent from the card (**Answered**, You answered on its page) and the next item follows; History lists it as answered, never as withdrawn.
+
+<p align="center">
+  <img src="docs/images/review-page.webp" alt="A Scrawl review page from the goblin streaming the billing export: its result, the numbers that matter and what was checked, a comment being written on the 190 MB figure, and the Conversation panel with the agent listening" width="900" />
+</p>
+
 Other items, a plain link included, are answered in writing with **Send answer**, and any item but a wait closes with **Clear**.
 A document the CFO or a goblin delivers with `cfo deliver` shows its file type, name and size with **Download**, and **Open** when the browser can show it or it has a link; opening or downloading it moves it to History.
 Each item that needs you has one signal on the visible board: **Open Command Center** and its count.
@@ -553,7 +562,7 @@ While the board's tab is hidden or its window is minimized, an announcement can 
 An unfocused window that is still visible sends no Windows notification.
 
 <p align="center">
-  <img src="docs/images/alert.webp" alt="An alert at the bottom right of the board: the goblin fixing the flaky checkout test wants your review, with its request, Look at the checkout race fix before it ships, and a close button" width="420" />
+  <img src="docs/images/alert.webp" alt="An alert at the bottom right of the board: Refresh the Windows install guide finished and its pull request is ready, with Open and a close button" width="420" />
 </p>
 
 New items also stay under the badge, and the browser tab's title counts what is waiting on you.
@@ -588,7 +597,7 @@ Values are typed only on the board on this PC: a board opened through Tailscale 
 A request takes one save and expires after 24 hours.
 
 <p align="center">
-  <img src="docs/images/credential-card.webp" alt="A credential card in the Command Center: Add Stripe billing needs two credentials for precisiondocs; each row shows its name, where it is saved (the repository, the credential scope, and the goblins' auth.ps1 and stripe service), what it is for, the page to get it from, and a hidden value field, one with a warning to use a restricted key, the other noting a stored value that saving replaces; below, the cfo auth store command with Copy and Run, and Save" width="640" />
+  <img src="docs/images/credential-card.webp" alt="A credential card in the Command Center: Stream the billing CSV export needs two credentials for acme-api; each row shows its name, where it is saved (the repository, the credential scope, and the goblins' auth.ps1 and stripe service), what it is for, the page to get it from, and a hidden value field, one noting a stored value that saving replaces; below, the cfo auth store command with Copy and Run, and Save" width="640" />
 </p>
 
 ### AFK mode
@@ -736,6 +745,10 @@ The supervisor starts it only when memory allows (5 GB free to start, never unde
 The helper works in a worktree of its own, on a branch cut from its parent's last commit, and reports to its parent rather than the CFO.
 When it is done, the parent runs `cfo helper merge <its-id>`, which merges the helper's branch into its own with a merge commit and retires the helper; the parent stays the one who opens the pull request.
 Pausing or stopping a goblin pauses or stops its helper with it, `cfo fleet-view` names each helper's parent, and the board hangs each helper under its parent in the family tree.
+
+<p align="center">
+  <img src="docs/images/family-tree.webp" alt="The family tree on the Orchestration view: under the goblin streaming the billing export, its sub-agents, its helper goblin, a dev server, a test run and a silent background shell as baby goblins with their state, age and memory, and beside it the goblin's panel listing the same under What's working" width="900" />
+</p>
 
 ### Working beside teammates
 
