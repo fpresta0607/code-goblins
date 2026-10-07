@@ -154,6 +154,7 @@ export function nodeStatus(node: WorkflowNode, asking = false): string {
   if (node.task?.comeback?.state === "waiting") return "Comes back after the restart when memory allows";
   if (node.task?.comeback?.state === "stopped") return "Did not come back after the restart";
   if (node.task?.archived) return node.task.merged ? "Merged" : node.task.closed ? "Closed" : "Finished";
+  if (node.task?.phase === "queued" && node.task.finished) return "Already finished";
   if (node.task && ownsTaskSession(node.session, node.task)) {
     const { phase, reason, verified } = node.task;
     if (asking) return "Waiting on the CFO";

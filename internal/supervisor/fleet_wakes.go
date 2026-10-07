@@ -299,7 +299,7 @@ func (s *Service) checkMemory(ctx context.Context, w *fleetWakes, now time.Time)
 	if w.MemoryAbove < 2 || w.MemorySpent || !w.due("memory", memoryWakeGap, now) {
 		return planningErr
 	}
-	queued, waiting := memoryWork(s.Store.Home)
+	queued, waiting := memoryWork(s.Store.Home, s.finishedWork())
 	if len(queued) == 0 && len(waiting) == 0 {
 		return planningErr
 	}
@@ -354,7 +354,7 @@ func diskLowDetail(h home.Home, reading Disk, now time.Time) string {
 // memoryWork is the work waiting on memory: the queued tasks a Start could
 // start now, top of the queue first, and the live goblins whose latest report
 // is a wait on memory.
-func memoryWork(h home.Home) (queued, waiting []string) {
+func memoryWork(h home.Home, finished finishedWork) (queued, waiting []string) {
 	var candidates []string
 	if backlog, err := fleet.ReadBacklog(h); err == nil {
 		for _, row := range backlog.Queued {
@@ -369,7 +369,7 @@ func memoryWork(h home.Home) (queued, waiting []string) {
 		}
 	}
 	for _, id := range candidates {
-		if _, err := planStart(h, id); err == nil {
+		if _, err := planStart(h, id, finished); err == nil {
 			queued = append(queued, id)
 		}
 	}

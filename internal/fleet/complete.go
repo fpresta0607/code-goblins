@@ -78,11 +78,14 @@ func CompleteQueuedTask(h home.Home, id string) (err error) {
 			if strings.TrimSpace(lines[next]) == "" {
 				continue
 			}
-			if !strings.HasPrefix(lines[next], " ") && !strings.HasPrefix(lines[next], "\t") {
+			if !continuesRow(strings.TrimSuffix(strings.TrimSuffix(lines[next], "\n"), "\r")) {
 				break
 			}
 			end = next + 1
 		}
+	}
+	if matches == 0 {
+		return ErrNotQueued
 	}
 	if matches != 1 {
 		return fmt.Errorf("backlog completion needs exactly one source row for %s; found %d", id, matches)

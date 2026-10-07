@@ -24,9 +24,11 @@ import (
 	"time"
 
 	"github.com/fpresta0607/code-goblins/internal/execx"
+	"github.com/fpresta0607/code-goblins/internal/fleet"
 	"github.com/fpresta0607/code-goblins/internal/fsx"
 	"github.com/fpresta0607/code-goblins/internal/harness"
 	"github.com/fpresta0607/code-goblins/internal/herdr"
+	"github.com/fpresta0607/code-goblins/internal/home"
 	"github.com/fpresta0607/code-goblins/internal/host"
 	"github.com/fpresta0607/code-goblins/internal/lock"
 	"github.com/fpresta0607/code-goblins/internal/state"
@@ -51,6 +53,10 @@ type Service struct {
 	// even one idle at its composer, so nothing is closed: a caller that must
 	// never end a process, as reap must not, leaves that to cfo cleanup.
 	LeaveRunningTerminals bool
+	// Data is the home's data directory, whose backlog.md queues the task: a
+	// task cleanup finds delivered leaves ## Queued for ## Done. Without it
+	// the backlog is left alone.
+	Data string
 }
 
 // Result reports the exact returned task identity.
@@ -207,7 +213,25 @@ func (s Service) Cleanup(ctx context.Context, id string) (result Result, err err
 	if scratchErr != nil {
 		result.Output += fmt.Sprintf("\nwarning: %v; the janitor removes it once the handle clears", scratchErr)
 	}
+	result.Output += s.closeRow(outcome)
 	return result, nil
+}
+
+// closeRow moves a delivered task's row from ## Queued to ## Done, and says
+// so, or why it could not: the task is retired either way, and the
+// supervisor moves a row left behind once it can.
+func (s Service) closeRow(outcome state.Outcome) string {
+	if s.Data == "" || outcome.Phase != "done" {
+		return ""
+	}
+	err := fleet.CompleteQueuedTask(home.Home{State: s.StateDir, Data: s.Data}, outcome.ID)
+	switch {
+	case errors.Is(err, fleet.ErrNotQueued):
+		return ""
+	case err != nil:
+		return "\nwarning: its backlog row stays under ## Queued for now (" + err.Error() + "); the supervisor moves it to ## Done once it can"
+	}
+	return "\nits backlog row is under ## Done"
 }
 
 // recordedExtras resolves the extra worktrees the task recorded, each proven
@@ -301,6 +325,7 @@ func (s Service) forceArchive(ctx context.Context, meta state.TaskMeta, id, work
 	if scratchErr != nil {
 		result.Output += fmt.Sprintf("\nwarning: %v; the janitor removes it once the handle clears", scratchErr)
 	}
+	result.Output += s.closeRow(outcome)
 	return result, nil
 }
 

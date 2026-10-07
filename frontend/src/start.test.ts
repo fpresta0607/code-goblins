@@ -1,6 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { capacityLine, diskBlock, diskScale, diskState, freeGigabytes, holdersLine, memoryBlock, meterScale, meterState, nextChip, nextInOrder, poolWarning, refusalStands, slotBlock, startBlock, startOutcome, tighter } from "./start.ts";
+import { capacityLine, diskBlock, diskScale, diskState, freeGigabytes, holdersLine, memoryBlock, meterScale, meterState, nextChip, nextInOrder, poolWarning, queueBlock, refusalStands, slotBlock, startBlock, startOutcome, tighter } from "./start.ts";
+import { nodeStatus } from "./workflow.ts";
 import { parseSnapshot, type Disk, type Memory, type Snapshot, type Task } from "./types.ts";
 
 const GB = 2 ** 30;
@@ -41,6 +42,18 @@ test("Start is offered while a queued task can start, and otherwise says why not
   assert.equal(startBlock(task(), memory(3.9), false), "Needs 5 GB free to keep the 4 GB floor");
   assert.equal(startBlock(task(), memory(5), true), "Another task is starting");
   assert.equal(startBlock(task({ starting: true }), memory(5), true), "Starting", "its own start in flight");
+});
+
+test("a queued task that already finished offers no Start, and its card says so and why", () => {
+  // Arrange
+  const why = "Already finished: its last report was done (2026-10-06 11:59Z: done: PR 9); it never starts again by itself. Move its row to ## Done, or queue new work under a new id";
+  const finished = task({ finished: why });
+
+  // Act and assert
+  assert.equal(queueBlock(finished), why);
+  assert.equal(startBlock(finished, memory(9), false), why);
+  assert.equal(nodeStatus({ id: finished.id, title: finished.id, task: finished, relation: "" }), "Already finished");
+  assert.equal(queueBlock(task()), "", "work nothing says finished still starts");
 });
 
 test("free memory rounds down, so just under the floor or start mark never reads as ready", () => {
@@ -191,6 +204,7 @@ test("Next sits on the card the supervisor's order for a free slot takes first",
     ["only the queue", board(memory(9), [queued("first"), queued("second")]), { id: "first", text: "Next up", tone: "" }],
     ["the queue while memory is short", board(memory(4.2), [queued("first")]), { id: "first", text: "Next at 5 GB", tone: "waiting" }],
     ["a queued task waiting on another goblin is passed over", board(memory(9), [queued("held", { dependencies: ["other"] }), queued("free")]), { id: "free", text: "Next up", tone: "" }],
+    ["a queued task that already finished is passed over", board(memory(9), [queued("done", { finished: "Already finished: its last report was done" }), queued("free")]), { id: "free", text: "Next up", tone: "" }],
     ["a goblin paused for memory resumes before the queue", board(memory(4.2), [queued("first"), paused("later", "memory", "", "2026-10-06T11:00:00Z"), paused("older", "memory", "", "2026-10-06T10:00:00Z")]), { id: "older", text: "Next up", tone: "waiting" }],
     ["an allowance whose reset passed counts as cleared", board(memory(9), [queued("first"), paused("reset", "allowance", "2026-10-06T11:59:00Z", "2026-10-05T10:00:00Z")]), { id: "reset", text: "Next up", tone: "" }],
     ["an allowance not yet reset holds no slot", board(memory(9), [queued("first"), paused("later", "allowance", "2026-10-06T13:00:00Z", "2026-10-05T10:00:00Z")]), { id: "first", text: "Next up", tone: "" }],

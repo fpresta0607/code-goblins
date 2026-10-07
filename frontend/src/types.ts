@@ -62,10 +62,13 @@ export interface Task extends Evaluation {
   // was written; empty when neither is known.
   since: string;
   // brief says queued work has its brief, which Start needs; starting that
-  // its Start runs cfo spawn now, and start_error why its last Start failed.
+  // its Start runs cfo spawn now, start_error why its last Start failed, and
+  // finished why it never starts again by itself: what says it already
+  // finished.
   brief: boolean;
   starting: boolean;
   start_error: string;
+  finished: string;
   // priority is a queued task's backlog priority: production-defect starts
   // it ahead of every other start and resume.
   priority: string;
@@ -724,6 +727,7 @@ export function parseSnapshot(value: unknown): Snapshot {
         brief: t.brief === undefined ? false : boolean(t.brief),
         starting: t.starting === undefined ? false : boolean(t.starting),
         start_error: string(t.start_error),
+        finished: t.finished === undefined ? "" : string(t.finished),
         priority: t.priority === undefined ? "" : string(t.priority),
         parent: t.parent === undefined ? "" : string(t.parent),
         ...(t.progress == null ? {} : { progress: ((progress) => ({ at: string(progress.at), source: string(progress.source) }))(object(t.progress)) }),

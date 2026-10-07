@@ -202,7 +202,7 @@ func (s *Service) startQueued(id string, isOverlord bool) error {
 			}
 		}
 	}()
-	plan, err := planStart(s.Store.Home, id)
+	plan, err := planStart(s.Store.Home, id, s.finishedWork())
 	if err != nil {
 		return err
 	}
@@ -299,10 +299,10 @@ func spawnFailure(output string, err error) string {
 }
 
 // planStart is the cfo spawn a Start of id runs, or why it cannot: id must be
-// queued work with a brief and a project, and not already running. Harness,
-// model, effort and mode come from the backlog row, then the brief, then the
-// fleet's defaults.
-func planStart(h home.Home, id string) (startPlan, error) {
+// queued work with a brief and a project, not already running and not
+// already finished. Harness, model, effort and mode come from the backlog
+// row, then the brief, then the fleet's defaults.
+func planStart(h home.Home, id string, finished finishedWork) (startPlan, error) {
 	if _, err := os.Stat(filepath.Join(h.State, id+".meta")); err == nil {
 		return startPlan{}, StartRefusal{Reason: id + " already runs; open it from In progress"}
 	}
@@ -316,6 +316,9 @@ func planStart(h home.Home, id string) (startPlan, error) {
 	}
 	if err != nil {
 		return startPlan{}, err
+	}
+	if refusal := finished.refusal(id); refusal != "" {
+		return startPlan{}, StartRefusal{Reason: refusal}
 	}
 	row := queued.Row
 	brief := filepath.Join(h.Data, id, "brief.md")

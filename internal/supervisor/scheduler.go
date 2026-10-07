@@ -32,14 +32,15 @@ func (s *Service) schedule(ctx context.Context, now time.Time, memory Memory, wa
 	if capacity.Slots == 0 {
 		return nil
 	}
-	queued, _ := memoryWork(s.Store.Home)
+	finished := s.finishedWork()
+	queued, _ := memoryWork(s.Store.Home, finished)
 	// A queued task whose last start failed waits for the Overlord's Start,
 	// so it neither holds the slot nor reports its failure every reading.
 	queued = slices.DeleteFunc(queued, func(id string) bool {
 		if _, isFailed := failed[id]; isFailed {
 			return true
 		}
-		plan, err := planStart(s.Store.Home, id)
+		plan, err := planStart(s.Store.Home, id, finished)
 		if err != nil {
 			return true
 		}

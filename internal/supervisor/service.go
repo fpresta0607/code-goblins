@@ -568,7 +568,7 @@ func (s *Service) keepHistory(ctx context.Context, every, watch time.Duration) {
 	for {
 		if next := s.historyMark(); next != mark || time.Since(rebuilt) >= every {
 			mark, rebuilt = next, time.Now()
-			err := s.refreshHistory(ctx, time.Now().UTC())
+			err := errors.Join(s.closeDeliveredRows(), s.refreshHistory(ctx, time.Now().UTC()))
 			s.mu.Lock()
 			s.historyErr = err
 			s.mu.Unlock()
@@ -981,11 +981,13 @@ type Task struct {
 	// brief was written; zero when neither is known.
 	Since time.Time `json:"since"`
 	// Brief says queued work has its brief, which a Start needs; Starting
-	// that its Start runs cfo spawn now, and StartError why its last Start
-	// failed.
+	// that its Start runs cfo spawn now, StartError why its last Start
+	// failed, and Finished why it never starts again by itself: what says it
+	// already finished.
 	Brief         bool                `json:"brief"`
 	Starting      bool                `json:"starting"`
 	StartError    string              `json:"start_error"`
+	Finished      string              `json:"finished,omitempty"`
 	Lifecycle     *LifecycleStatus    `json:"lifecycle,omitempty"`
 	Teardown      []string            `json:"teardown,omitempty"`
 	ActionError   string              `json:"action_error,omitempty"`
@@ -1333,6 +1335,7 @@ func (s *Service) Snapshot() (Snapshot, error) {
 	startErrors, changing, changeErrors := maps.Clone(s.startErrors), maps.Clone(s.changing), maps.Clone(s.changeErrors)
 	engineFrom := maps.Clone(s.engineFrom)
 	s.starts.Unlock()
+	finished := readFinishedWork(s.Store.Home, history)
 	for i := range out.Tasks {
 		task := &out.Tasks[i]
 		task.Starting = task.ID == starting
@@ -1355,6 +1358,7 @@ func (s *Service) Snapshot() (Snapshot, error) {
 			_, briefErr := s.reads.look(filepath.Join(s.Store.Home.Data, task.ID, "brief.md"))
 			task.Brief = briefErr == nil
 			task.StartError = startErrors[task.ID]
+			task.Finished = finished.refusal(task.ID)
 		}
 		record, lifecycleErr := s.lifecycle(task.ID)
 		isCurrent := record.Generation == task.Generation || record.Generation == "queued" && task.Phase == "queued" && record.Phase == "stopping"

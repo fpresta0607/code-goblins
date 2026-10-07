@@ -101,8 +101,12 @@ export function startBlock(task: Task, memory: Memory | null, anotherStarting: b
   return "";
 }
 
+// Why a queued task does not start whatever memory there is: it already
+// finished, or it waits on other tasks.
 export function queueBlock(task: Task): string {
-  return task.phase === "queued" && task.dependencies.length ? task.reason || "Waiting on " + task.dependencies.join(", ") : "";
+  if (task.phase !== "queued") return "";
+  if (task.finished) return task.finished;
+  return task.dependencies.length ? task.reason || "Waiting on " + task.dependencies.join(", ") : "";
 }
 
 // A Start's refusal on its card, the snapshot revision it arrived at, and

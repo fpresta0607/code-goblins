@@ -86,6 +86,7 @@ func defaultCleanup(ctx context.Context, h home.Home, id string, forceArchive bo
 	commands := execx.OSRunner{}
 	service := cleanup.Service{
 		StateDir:     h.State,
+		Data:         h.Data,
 		Commands:     commands,
 		Terminal:     &herdr.Client{Commands: commands, Session: herdrSession()},
 		Worktrees:    worktree.Service{Commands: commands},

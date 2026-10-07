@@ -157,6 +157,7 @@ func defaultReap(ctx context.Context, h home.Home, options reap.Options) (reap.R
 		Clean: func(ctx context.Context, id string, forceArchive bool) error {
 			_, err := cleanup.Service{
 				StateDir:     h.State,
+				Data:         h.Data,
 				Commands:     commands,
 				Terminal:     client,
 				Worktrees:    worktree.Service{Commands: commands},

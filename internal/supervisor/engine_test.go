@@ -47,7 +47,7 @@ func TestEngineSelectionSavesQueuedSettingsForStartAndRejectsStaleEdits(t *testi
 	if response.Code != 200 {
 		t.Fatalf("queued choice = %d: %s", response.Code, response.Body)
 	}
-	plan, err := planStart(h, "next-task")
+	plan, err := planStart(h, "next-task", readFinishedWork(h, nil))
 	if err != nil || plan.harness != "codex" || plan.model != "default" || plan.effort != "high" {
 		t.Fatalf("Start settings = %+v, %v", plan, err)
 	}
@@ -201,7 +201,7 @@ func TestEngineSelectionSavesPausedChoiceAndCancelsIt(t *testing.T) {
 func TestQueuedSnapshotNamesTheEngineThatStartWillUse(t *testing.T) {
 	handler, h := startBoard(t, 5*gigabyte, &spawnRecorder{})
 	queueBriefedTask(t, h, "- **next-task** - Ship it (repo: project, harness: pi, model: provider/model, effort: high)", plainBrief)
-	plan, err := planStart(h, "next-task")
+	plan, err := planStart(h, "next-task", readFinishedWork(h, nil))
 	if err != nil {
 		t.Fatal(err)
 	}
