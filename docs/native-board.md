@@ -423,6 +423,8 @@ The pseudo console repaints its whole window on every resize, even to the size i
 Every view of the terminal, the one that sent the resize too, is told each size the terminal took as `{"type":"size","cols":C,"rows":R}` at its place in the output: after what the terminal wrote before the resize and before what it wrote after, whichever viewer resized it, `cfo attach` in an Open window included, and the history carries the sizes it was written at the same way.
 A view changes its grid only there, once xterm has parsed the output before it, never ahead of the terminal, so output is always drawn on the grid it was written for rather than wrapping and landing at the wrong columns.
 A view draws another viewer's size until it is typed into, which sizes the terminal to it, and `cfo attach` takes the terminal back the same way with its next key.
+Nothing else in the view takes the size back: not the view becoming whole or coming into sight, its font loading or its panel resizing.
+Only a size the terminal takes after it took the view's own counts as another viewer's; until then the terminal is still on its way to the view's size.
 xterm answers a program's terminal queries, such as a cursor-position or device-attributes request, through the same input path as typing, so a view that answers one takes the terminal's size back just as a key would.
 A size under 20 columns or 5 rows, measured while a panel was hidden, or over 1000 columns or 500 rows is ignored and announced to nobody.
 A host tells a viewer sizes only when its handshake asks for them; for a host started before hosts told sizes, the relay tells every view the size each of its own resizes gave the terminal, at the end of the output it had read by then.
