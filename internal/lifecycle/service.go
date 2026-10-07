@@ -120,10 +120,10 @@ func (service Service) Run(ctx context.Context, request Request) (result state.L
 		if prior.Generation != meta.SpawnGen && !isInterruptedResume || prior.Phase != "paused" && !(prior.Action == "resume" && (prior.Phase == "failed" || prior.Phase == "resuming")) {
 			return result, errors.New("only a paused task can resume")
 		}
-		if _, err := lock.AcquireExclusiveNamed(service.StateDir, ".spawn.lock"); err != nil {
-			return result, fmt.Errorf("another task is starting: %w", err)
-		}
-		defer func() { err = errors.Join(err, lock.ReleaseExclusiveNamed(service.StateDir, ".spawn.lock")) }()
+		// These checks refuse early, before the record changes. The relaunch
+		// itself takes the home's spawn lock only around its terminal's
+		// launch and admits it again under it, so a gate restart or a slow
+		// harness startup here holds up no other start.
 		if isInterruptedResume && service.Operations.IsRunning != nil {
 			isAlreadyRunning, err = service.Operations.IsRunning(ctx, meta)
 			if err != nil {

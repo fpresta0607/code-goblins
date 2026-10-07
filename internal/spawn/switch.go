@@ -9,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/fpresta0607/code-goblins/internal/auth"
 	"github.com/fpresta0607/code-goblins/internal/execx"
 	"github.com/fpresta0607/code-goblins/internal/fsx"
 	"github.com/fpresta0607/code-goblins/internal/harness"
@@ -41,7 +42,17 @@ type SwitchRequest struct {
 	// BriefPath is the fallback for a task whose metadata predates the brief
 	// field.
 	BriefPath string
+	// Admit, when set, makes the relaunch a start: Resume and the comeback
+	// add a running terminal, so they take the home's spawn lock as a spawn
+	// does, from the check that the task's terminal is not running to its
+	// host's launch, and are admitted on the machine's room under it by
+	// Admit. A switch only replaces a running harness and sets none.
+	Admit func() error
 }
+
+// ErrNoRoom marks a relaunch Admit refused: the machine has no room for one
+// more running terminal yet, which a later try can find.
+var ErrNoRoom = errors.New("waits for room")
 
 // SwitchResult reports what the switch changed.
 type SwitchResult struct {
@@ -225,6 +236,41 @@ func (s Service) Switch(ctx context.Context, req SwitchRequest) (result SwitchRe
 		return SwitchResult{}, fmt.Errorf("switch: current harness %q has no adapter: %w", meta.Harness, err)
 	}
 	from := describe(meta.Harness, meta.Model, meta.Effort)
+	// A switch re-injects the same credentials a spawn would, but never
+	// refuses on a red service: the goblin is already running, and stranding
+	// work in a stopped harness would cost more than the missing credential.
+	// The probes run before the stop, so one that fails leaves the harness
+	// running, and before any turn, since they can take seconds each.
+	preflight, err := s.preflightCredentials(ctx, project)
+	if err != nil {
+		return SwitchResult{}, fmt.Errorf("%w; task %s was left running as it was", err, req.ID)
+	}
+	endTurn := func() error { return nil }
+	if req.Admit != nil {
+		if endTurn, err = s.takeLaunchTurn(ctx, "the relaunch of "+req.ID); err != nil {
+			return SwitchResult{}, err
+		}
+		defer func() {
+			if turnErr := endTurn(); turnErr != nil {
+				err = errors.Join(err, turnErr)
+			}
+		}()
+		// The start this relaunch can race is a spawn of the same task: it
+		// publishes the task's record before its terminal runs and holds its
+		// turn until it does. A relaunch that read the record in between, as
+		// cfo goblins resume does for every recorded task whose terminal is
+		// not running, finds that terminal running once its own turn comes,
+		// and must leave it alone.
+		if nativeTerminalRuns(s.StateDir, meta.ID) {
+			if req.IsResume {
+				return SwitchResult{Meta: meta, Resumed: true, Output: "task already resumed " + meta.ID}, nil
+			}
+			return SwitchResult{}, fmt.Errorf("switch: task %s already runs; another start launched it while this relaunch waited for its turn", req.ID)
+		}
+		if err := req.Admit(); err != nil {
+			return SwitchResult{}, fmt.Errorf("%w: %w", ErrNoRoom, err)
+		}
+	}
 	// A native terminal ends with its harness, and its job ends everything the
 	// harness started, so nothing is left to wait on.
 	if err := s.stopNative(ctx, meta.ID, current.Control()); err != nil {
@@ -256,7 +302,7 @@ func (s Service) Switch(ctx context.Context, req SwitchRequest) (result SwitchRe
 		}
 	}
 	launchMeta.SpawnGen = meta.SpawnGen
-	handoff, resumed, nativeHost, err := s.relaunchHarness(ctx, launchMeta, target, adapter, launch, project, worktreePath, briefPath, dirty, req.ID, manifest.Env, req)
+	handoff, resumed, nativeHost, err := s.relaunchHarness(ctx, launchMeta, target, adapter, launch, worktreePath, briefPath, dirty, req.ID, manifest.Env, preflight, req, endTurn)
 	if err != nil {
 		// The failure may have come after the new harness was already
 		// running, so the terminal is checked again before it is described.
@@ -302,11 +348,12 @@ func (s Service) Switch(ctx context.Context, req SwitchRequest) (result SwitchRe
 }
 
 // relaunchHarness injects credentials into the target's launch, writes the
-// resume instruction or handoff, and starts the new harness. Every step after
-// the old harness has stopped lives here, so any failure returns through the
-// same empty-terminal recovery. Anything knowable before the stop is resolved by
-// Switch and handed in: the built launch and the project's redirects.
-func (s Service) relaunchHarness(ctx context.Context, meta state.TaskMeta, target switchTarget, adapter harness.Adapter, launch harness.Launch, project, worktreePath, briefPath, dirty, id string, redirects map[string]string, request SwitchRequest) (handoff string, resumed bool, nativeHost host.Record, err error) {
+// resume instruction or handoff, and starts the new harness, ending the
+// relaunch's turn once its host runs. Every step after the old harness has
+// stopped lives here, so any failure returns through the same empty-terminal
+// recovery. Anything knowable before the stop is resolved by Switch and handed
+// in: the built launch, the project's redirects and its credentials.
+func (s Service) relaunchHarness(ctx context.Context, meta state.TaskMeta, target switchTarget, adapter harness.Adapter, launch harness.Launch, worktreePath, briefPath, dirty, id string, redirects map[string]string, preflight auth.Result, request SwitchRequest, endTurn func() error) (handoff string, resumed bool, nativeHost host.Record, err error) {
 	resumed = target.Harness == harness.Kind(meta.Harness) && len(adapter.Control().ResumeArgs) > 0 && request.ResumeSession != ""
 	if request.IsResume {
 		resumed = request.ResumeSession != "" && (target.Harness == harness.Claude || target.Harness == harness.Codex)
@@ -316,13 +363,6 @@ func (s Service) relaunchHarness(ctx context.Context, meta state.TaskMeta, targe
 	// environment redirects have to be re-applied or the new harness runs
 	// without the caches the spawned one had.
 	mergeProvisionEnv(launch.Env, redirects)
-	// A switch re-injects the same credentials a spawn would, but never
-	// refuses on a red service: the goblin is already running, and stranding
-	// work in a stopped harness would cost more than the missing credential.
-	preflight, err := s.preflightCredentials(ctx, project)
-	if err != nil {
-		return "", false, host.Record{}, err
-	}
 	mergeProvisionEnv(launch.Env, preflight.Caches)
 	nativeEnvironment(launch.Env, meta)
 
@@ -358,8 +398,12 @@ func (s Service) relaunchHarness(ctx context.Context, meta state.TaskMeta, targe
 	if err != nil {
 		return handoff, resumed, host.Record{}, fmt.Errorf("switch: read the user's environment: %w", err)
 	}
-	nativeHost, err = s.startNativeHarness(ctx, id, target.Harness, launch, userEnv, preflight.Env)
-	return handoff, resumed, nativeHost, err
+	if nativeHost, err = s.launchNativeHost(id, target.Harness, launch, userEnv, preflight.Env); err != nil {
+		return handoff, resumed, nativeHost, err
+	}
+	// Its release error, if any, reaches Switch's caller with the result.
+	_ = endTurn()
+	return handoff, resumed, nativeHost, s.briefNativeHarness(ctx, id, nativeHost, target.Harness, launch)
 }
 
 // switchTarget is the harness, model, and effort the task should run after
