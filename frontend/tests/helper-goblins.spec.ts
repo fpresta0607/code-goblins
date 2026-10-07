@@ -32,3 +32,19 @@ test("at phone width the lineage list shows a held helper under its parent only"
   await expect(page.getByRole("list", { name: "What runs under Let goblins start helpers" }).locator(".tree-child")).toContainText("Accounts migration");
   expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(390);
 });
+
+test("a helper no tree holds hangs under its parent's card, on the canvas and in the lineage list", async ({ page }) => {
+  await page.goto("/tests/fixtures/helper-goblins.html");
+  const parent = page.locator(".flow-node").filter({ hasText: "Sync the ledger" });
+  const helper = page.locator(".flow-node").filter({ hasText: "Ledger fixtures" });
+  await expect(helper).toHaveCount(1);
+  await expect(page.locator(".connection-line.relation-Helper")).toHaveCount(1);
+  const [above, below] = [await parent.boundingBox(), await helper.boundingBox()];
+  expect(below!.y).toBeGreaterThan(above!.y + above!.height);
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.goto("/tests/fixtures/helper-goblins.html?view=lineage");
+  const under = page.getByRole("list", { name: "Children of Sync the ledger" });
+  await expect(under.locator(".node-select").filter({ hasText: "Ledger fixtures" })).toHaveCount(1);
+  await expect(under.locator(".node-relation")).toHaveText("Helper goblin");
+  expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(390);
+});

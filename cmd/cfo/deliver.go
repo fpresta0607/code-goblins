@@ -120,7 +120,8 @@ mode: %s
 	return 0
 }
 
-// runPR handles "cfo pr check <id> <url>" and "cfo pr merge <url>".
+// runPR handles "cfo pr check <id> <url>", "cfo pr merge <url>" and
+// "cfo pr train <project>".
 func runPR(sub string, args []string, stdout, stderr io.Writer, commands execx.Runner, runtime commandRuntime) int {
 	switch sub {
 	case "check":
@@ -132,8 +133,10 @@ func runPR(sub string, args []string, stdout, stderr io.Writer, commands execx.R
 			return 1
 		}
 		return runPRMerge(args, stdout, stderr, commands, away)
+	case "train":
+		return runPRTrain(args, stdout, stderr, commands, runtime)
 	default:
-		fmt.Fprintf(stderr, "cfo pr: unknown subcommand %q (want check or merge)\n", sub)
+		fmt.Fprintf(stderr, "cfo pr: unknown subcommand %q (want check, merge or train)\n", sub)
 		return 2
 	}
 }

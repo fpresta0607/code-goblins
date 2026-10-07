@@ -1,12 +1,32 @@
 package state
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"os"
 	"strconv"
 	"strings"
 )
+
+// helperOperationPrefix opens every lifecycle operation a parent's pause or
+// stop makes for its helper.
+const helperOperationPrefix = "helper-"
+
+// HelperOperation is the lifecycle operation that pauses or stops helper with
+// its parent's operation parentOperation. It is derived from it, so a retried
+// parent operation retries the helper's rather than starting another.
+func HelperOperation(parentOperation, helper string) string {
+	sum := sha256.Sum256([]byte(parentOperation + "\x00" + helper))
+	return helperOperationPrefix + hex.EncodeToString(sum[:8])
+}
+
+// IsHelperOperation says operation is one HelperOperation made: its task was
+// paused or stopped with its parent.
+func IsHelperOperation(operation string) bool {
+	return strings.HasPrefix(operation, helperOperationPrefix)
+}
 
 // HelpersOf lists the live helpers of task parent: the tasks whose records
 // name it as their parent. A record that cannot be read is an error, never a

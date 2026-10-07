@@ -32,6 +32,7 @@ import (
 	"github.com/fpresta0607/code-goblins/internal/quota"
 	"github.com/fpresta0607/code-goblins/internal/state"
 	"github.com/fpresta0607/code-goblins/internal/supervise"
+	"github.com/fpresta0607/code-goblins/internal/train"
 	"github.com/fpresta0607/code-goblins/internal/verify"
 	"github.com/fpresta0607/code-goblins/internal/wake"
 	"github.com/fpresta0607/code-goblins/internal/watch"
@@ -162,6 +163,9 @@ type Service struct {
 	// release watch, which releaseNow asks for another look.
 	release    *ReleaseView
 	releaseNow chan struct{}
+	// trains are the merge trains the board shows, as keepTrains last read
+	// them.
+	trains []train.Train
 	// runRequests takes one run request at a time, so two with one ID never
 	// both write a script.
 	runRequests sync.Mutex
@@ -1110,6 +1114,9 @@ type Snapshot struct {
 	// Release is a newer published release of Code Goblins, or any on a
 	// board built from a clone, for the board's banner.
 	Release *ReleaseView `json:"release,omitempty"`
+	// MergeTrains are the merge trains running, and those that finished in
+	// the last hours, newest first, each a card with its pull requests.
+	MergeTrains []train.Train `json:"merge_trains"`
 }
 
 // setItems makes items the snapshot's Command Center items.
@@ -1132,6 +1139,7 @@ func (s *Service) Snapshot() (Snapshot, error) {
 		out.Issues = append(slices.Clone(out.Issues), s.localReadErr.Error())
 	}
 	out.CIDurations = slices.Clone(s.ciDurations)
+	out.MergeTrains = append([]train.Train{}, s.trains...)
 	if s.progressReadErr != nil {
 		out.Issues = append(slices.Clone(out.Issues), s.progressReadErr.Error())
 	}
