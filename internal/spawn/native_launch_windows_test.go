@@ -20,6 +20,7 @@ import (
 	"github.com/fpresta0607/code-goblins/internal/auth"
 	"github.com/fpresta0607/code-goblins/internal/execx"
 	"github.com/fpresta0607/code-goblins/internal/harness"
+	"github.com/fpresta0607/code-goblins/internal/home"
 	"github.com/fpresta0607/code-goblins/internal/host"
 	"github.com/fpresta0607/code-goblins/internal/state"
 	"github.com/fpresta0607/code-goblins/internal/wake"
@@ -68,10 +69,11 @@ type codexEvent struct {
 	Text  string             `json:"text,omitempty"`
 	PID   int                `json:"pid,omitempty"`
 	Env   map[string]*string `json:"env,omitempty"`
+	Home  *home.Home         `json:"home,omitempty"`
 }
 
 // recordedEnv is what the fake codex records of its environment.
-var recordedEnv = []string{"CFO_TASK_ID", "CFO_ROLE", "GOTMPDIR", "TEMP", "TMP", "CFO_STATE_OVERRIDE", "CFO_HOST_ID", "FIXTURE_TOKEN", "PLAYWRIGHT_BROWSERS_PATH", "LOCALAPPDATA", "XDG_CACHE_HOME", "HOME", "UV_CACHE_DIR", "DATABASE_URL", "OPENAI_API_KEY", "HERDR_PANE_ID", "CLAUDECODE", "CLAUDE_CODE_ENTRYPOINT", "CLAUDE_CODE_GIT_BASH_PATH", "CODEX_SANDBOX_NETWORK_DISABLED", "CLAUDE_CODE_CHILD_SESSION", "CLAUDE_CODE_SESSION_ID", "CLAUDE_CODE_MESSAGING_SOCKET", "CLAUDE_CODE_MESSAGING_TOKEN", "CLAUDE_PID", "HERDR_TAB_ID", "HERDR_WORKSPACE_ID", "A_SESSION_ONLY_VARIABLE", "USERS_OWN_SETTING"}
+var recordedEnv = []string{"CFO_TASK_ID", "CFO_ROLE", "GOTMPDIR", "TEMP", "TMP", "CFO_HOME", "CFO_STATE_OVERRIDE", "CFO_HOST_ID", "FIXTURE_TOKEN", "PLAYWRIGHT_BROWSERS_PATH", "LOCALAPPDATA", "XDG_CACHE_HOME", "HOME", "UV_CACHE_DIR", "DATABASE_URL", "OPENAI_API_KEY", "HERDR_PANE_ID", "CLAUDECODE", "CLAUDE_CODE_ENTRYPOINT", "CLAUDE_CODE_GIT_BASH_PATH", "CODEX_SANDBOX_NETWORK_DISABLED", "CLAUDE_CODE_CHILD_SESSION", "CLAUDE_CODE_SESSION_ID", "CLAUDE_CODE_MESSAGING_SOCKET", "CLAUDE_CODE_MESSAGING_TOKEN", "CLAUDE_PID", "HERDR_TAB_ID", "HERDR_WORKSPACE_ID", "A_SESSION_ONLY_VARIABLE", "USERS_OWN_SETTING"}
 
 // fakeHarness shows codex's own startup screens, as captured on this machine,
 // and answers keys the way codex does. It records its environment, every key
@@ -96,6 +98,12 @@ func fakeHarness() {
 		}
 	}
 	record(codexEvent{Event: "env", PID: os.Getpid(), Env: env, Text: strings.Join(os.Args[1:], " ")})
+	// The home every cfo command run in the goblin's terminal resolves.
+	if resolved, err := home.Resolve(); err != nil {
+		record(codexEvent{Event: "home", Text: err.Error()})
+	} else {
+		record(codexEvent{Event: "home", Home: &resolved})
+	}
 	mode := os.Getenv(fakeCodexMode)
 	if mode == "detached" {
 		_, _, _ = windows.NewLazySystemDLL("kernel32.dll").NewProc("FreeConsole").Call()
@@ -1278,5 +1286,32 @@ func TestANativeGoblinDoesNotInheritTheCallersTerminalSettings(t *testing.T) {
 		if !hasNativeVariable(env, name) {
 			t.Errorf("the goblin starts without %s", name)
 		}
+	}
+}
+
+// Every cfo command a goblin runs acts on the home that spawned it, root and
+// state alike, whatever home the user's environment names. A second home on
+// the machine spawns its goblins from a user environment whose CFO_HOME is the
+// first install's: on 2026-10-07 a scratch home's goblin resolved that home's
+// root with its own home's state, so it merged its helper but could not
+// retire it, and its cfo kill was refused as needing a primary home.
+func TestANativeGoblinResolvesTheHomeThatSpawnedIt(t *testing.T) {
+	// Arrange
+	f := newQuickFixture(t)
+	f.userEnv = append(f.userEnv, "CFO_HOME="+t.TempDir())
+	spawningRoot := filepath.Dir(f.stateDir)
+
+	// Act
+	if _, err := f.service.Spawn(context.Background(), f.request); err != nil {
+		t.Fatalf("Spawn: %v", err)
+	}
+
+	// Assert
+	resolved := named(f.events(t), "home")
+	if len(resolved) != 1 || resolved[0].Home == nil {
+		t.Fatalf("the goblin's home.Resolve = %+v, want one resolved home", resolved)
+	}
+	if got := *resolved[0].Home; !strings.EqualFold(got.Root, spawningRoot) || !strings.EqualFold(got.State, f.stateDir) {
+		t.Errorf("the goblin resolves root %s and state %s, want the spawning home's root %s and state %s", got.Root, got.State, spawningRoot, f.stateDir)
 	}
 }

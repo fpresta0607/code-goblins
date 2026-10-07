@@ -85,6 +85,9 @@ func (s Service) startNativeHarness(ctx context.Context, id string, kind harness
 	if len(s.HostCommand) == 0 {
 		return host.Record{}, errors.New("spawn: the command that runs a native terminal's host is required")
 	}
+	if !filepath.IsAbs(s.HomeRoot) {
+		return host.Record{}, fmt.Errorf("spawn: the home's root %q is not an absolute path, so the goblin's cfo commands could not name the home that spawned it", s.HomeRoot)
+	}
 	record, err := host.Launch(s.StateDir, s.HostCommand, s.nativeHostEnvironment(userEnv, launch, credentials), host.Spec{ID: id, Args: program, Dir: launch.Dir, Cols: nativeCols, Rows: nativeRows})
 	if err != nil {
 		return host.Record{}, fmt.Errorf("spawn: start native terminal %s: %w", id, err)
@@ -606,8 +609,11 @@ var inheritedSessionVariables = []string{"CLAUDECODE", "CLAUDE_CODE_ENTRYPOINT",
 // this user, never the spawning process's own, so nothing of the session that
 // ran cfo spawn reaches the goblin; without the harness billing keys or any
 // session marker; then the project's credentials, then the launch's variables
-// (CFO_ROLE=goblin and the task's identity among them) and CFO_STATE_OVERRIDE,
-// which win. This block is how its credentials reach the harness at start.
+// (CFO_ROLE=goblin and the task's identity among them) and the spawning
+// home's CFO_HOME and CFO_STATE_OVERRIDE, which win: the user's environment
+// names the machine's installed home, which for a second home on the machine
+// is another one. This block is how its credentials reach the harness at
+// start.
 // Names compare without case, as Windows compares them.
 func (s Service) nativeHostEnvironment(userEnv []string, launch harness.Launch, credentials map[string]string) []string {
 	names := map[string]string{}
@@ -632,6 +638,7 @@ func (s Service) nativeHostEnvironment(userEnv []string, launch harness.Launch, 
 	for name, value := range launch.Env {
 		set(name, value)
 	}
+	set("CFO_HOME", s.HomeRoot)
 	set("CFO_STATE_OVERRIDE", s.StateDir)
 	env := make([]string, 0, len(values))
 	for upper, value := range values {

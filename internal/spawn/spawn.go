@@ -84,7 +84,12 @@ type Service struct {
 	Harness   harness.Registry
 	Auth      AuthPreflight
 	Commands  execx.Runner
-	StateDir  string
+	// HomeRoot and StateDir are the home this spawn runs in. A native
+	// goblin's terminal names both, as CFO_HOME and CFO_STATE_OVERRIDE, so
+	// every cfo command the goblin runs acts on this home, whatever home the
+	// user's environment names.
+	HomeRoot string
+	StateDir string
 	// ScratchRoot is the home's scratch folder. A task's scratch folder,
 	// which its pane's TEMP, TMP and GOTMPDIR name, is <ScratchRoot>\<id>.
 	ScratchRoot string
@@ -451,9 +456,9 @@ func codexMCPServers(kind harness.Kind) ([]string, error) {
 // reservedLaunchEnv names the environment the launch contract owns. It is
 // explicit rather than read off the launch map at merge time because the
 // contract is written in stages: the adapter stamps GOTMPDIR and CFO_ROLE at
-// build, nativeHostEnvironment adds CFO_STATE_OVERRIDE when it builds the
-// host's environment, and a manifest or credential merged in between must not
-// be able to claim a name the launch has not written yet.
+// build, nativeHostEnvironment adds CFO_HOME and CFO_STATE_OVERRIDE when it
+// builds the host's environment, and a manifest or credential merged in
+// between must not be able to claim a name the launch has not written yet.
 //
 // The cache root belongs to the contract for the same reason: the task's Go
 // temporary directory is derived from os.UserCacheDir, which reads
@@ -461,7 +466,7 @@ func codexMCPServers(kind harness.Kind) ([]string, error) {
 // unset, and HOME alone on darwin. All three are reserved because a manifest
 // that redirected any of them would leave any cfo command run from that terminal
 // computing a different directory than the process that created it.
-var reservedLaunchEnv = []string{"GOTMPDIR", "TEMP", "TMP", "CFO_STATE_OVERRIDE", "LOCALAPPDATA", "XDG_CACHE_HOME", "HOME", harness.RoleVariable}
+var reservedLaunchEnv = []string{"GOTMPDIR", "TEMP", "TMP", "CFO_HOME", "CFO_STATE_OVERRIDE", "LOCALAPPDATA", "XDG_CACHE_HOME", "HOME", harness.RoleVariable}
 
 // reservedLaunchName reports whether name belongs to the launch contract:
 // one of the names the contract owns, or one the adapter already set on the
