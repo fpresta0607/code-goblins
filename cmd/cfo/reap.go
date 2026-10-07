@@ -150,6 +150,7 @@ func defaultReap(ctx context.Context, h home.Home, options reap.Options) (reap.R
 
 			ProjectsRoot:     install.MachineProjectsRoot,
 			WorkingDirectory: proc.WorkingDirectory,
+			Environment:      proc.Environment,
 		},
 		Commands: commands,
 		CPU:      proc.CPUTime,

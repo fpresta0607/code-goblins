@@ -63,6 +63,11 @@ type Collector struct {
 	// traces a test fixture's stand-in harness back to the goblin or gate
 	// that started it; nil leaves every stand-in unplaced.
 	WorkingDirectory func(pid int) (string, error)
+	// Environment reads the environment a process runs with. It is what
+	// proves a process runs in a native terminal whose host is alive, by the
+	// proof value that terminal's host gave it; nil leaves every process
+	// unproven.
+	Environment func(pid int) ([]string, error)
 }
 
 // Collect reads state, panes, processes and worktree directories once each.
@@ -157,6 +162,7 @@ func (c Collector) Collect(ctx context.Context) (Inventory, []string, error) {
 		notes = append(notes, "no process lister configured; process evidence is missing")
 	}
 	c.nativeHosts(&inv, &notes)
+	c.placeTerminals(&inv)
 
 	return inv, notes, nil
 }
@@ -192,8 +198,66 @@ func (c Collector) nativeHosts(inv *Inventory, notes *[]string) {
 			inv.UnreadableHosts = append(inv.UnreadableHosts, id)
 			continue
 		}
-		inv.NativeHosts = append(inv.NativeHosts, NativeHost{ID: record.ID, HostPID: record.HostPID, Started: record.Started})
+		inv.NativeHosts = append(inv.NativeHosts, NativeHost{ID: record.ID, HostPID: record.HostPID, Started: record.Started, ProofSum: record.ProofSum})
 	}
+}
+
+// placeTerminals proves, for every harness-shaped process and its ancestors,
+// the native terminal of this home it runs in: the one its environment names,
+// when the proof value beside that name is the one the terminal's host
+// recorded. Every process in a terminal inherits both, through an exec that
+// cuts its chain of parents short of the host too, as an MSYS one does.
+func (c Collector) placeTerminals(inv *Inventory) {
+	if c.Environment == nil {
+		return
+	}
+	sums := make(map[string]string, len(inv.NativeHosts))
+	for _, record := range inv.NativeHosts {
+		sums[strings.ToLower(record.ID)] = record.ProofSum
+	}
+	index := make(map[int]int, len(inv.Processes))
+	for i, process := range inv.Processes {
+		index[process.PID] = i
+	}
+	read := make(map[int]bool)
+	for _, process := range inv.Processes {
+		if !isHarness(process) {
+			continue
+		}
+		pid := process.PID
+		for range fixtureAncestry + 1 {
+			i, ok := index[pid]
+			if !ok || read[pid] {
+				break
+			}
+			read[pid] = true
+			if env, err := c.Environment(pid); err == nil {
+				inv.Processes[i].Terminal = provenTerminal(env, sums)
+			}
+			pid = inv.Processes[i].ParentPID
+		}
+	}
+}
+
+// provenTerminal is the terminal env names whose host's recorded proof sum,
+// among sums, is that of the proof value env carries, or "" when there is
+// none.
+func provenTerminal(env []string, sums map[string]string) string {
+	var id, proof string
+	for _, entry := range env {
+		name, value, _ := strings.Cut(entry, "=")
+		switch {
+		case strings.EqualFold(name, host.IDVariable):
+			id = value
+		case strings.EqualFold(name, host.ProofVariable):
+			proof = value
+		}
+	}
+	sum, ok := sums[strings.ToLower(id)]
+	if !ok || !(host.Record{ProofSum: sum}).Proves(proof) {
+		return ""
+	}
+	return id
 }
 
 func (c Collector) latestVerb(id string) string {

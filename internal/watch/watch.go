@@ -210,6 +210,7 @@ func ConfigFromEnv(h home.Home) Config {
 
 			ProjectsRoot:     install.MachineProjectsRoot,
 			WorkingDirectory: proc.WorkingDirectory,
+			Environment:      proc.Environment,
 		},
 		Commands: execx.OSRunner{},
 	}

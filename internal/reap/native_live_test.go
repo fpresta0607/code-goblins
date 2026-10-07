@@ -2,6 +2,8 @@ package reap
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"os"
@@ -264,5 +266,85 @@ func TestTheSweepRunsWithoutHerdrOnlyWhenNoHerdrServerRuns(t *testing.T) {
 				t.Errorf("notes = %q, want one saying Herdr is not running", notes)
 			}
 		})
+	}
+}
+
+// A goblin's own tests run their children in its terminal, but Git Bash runs
+// timeout, an MSYS program, by replacing its own Windows process, so their
+// chain of parents stops short of the goblin's host. Every process in the
+// terminal inherits the proof value its host put there, and one that proves
+// it runs in a live goblin's terminal is that goblin's, with everything it
+// starts, never an orphan. On 2026-10-07 the live sweep woke the CFO twice
+// for a goblin's spawn.test.exe and its stand-in cmd.exe as unsupervised
+// harnesses.
+func TestAProcessProvenInALiveGoblinsTerminalIsThatGoblins(t *testing.T) {
+	for name, test := range map[string]struct {
+		proof    string
+		hostRuns bool
+		reported bool
+	}{
+		"proven in the live terminal":             {"proof-board", true, false},
+		"a proof the terminal never gave":         {"forged", true, true},
+		"proven in a terminal whose host is gone": {"proof-board", false, true},
+	} {
+		t.Run(name, func(t *testing.T) {
+			// Arrange
+			h, _ := nativeHome(t)
+			withProofSum(t, h, "board", "proof-board")
+			standIn := `C:\WINDOWS\system32\cmd.exe /c codex --dangerously-bypass-approvals-and-sandbox`
+			processes := stubProcesses{
+				process(500, 9999, "go.exe", `go test ./internal/spawn/`, fixtureLatest),
+				process(510, 500, "spawn.test.exe", `C:\tmp\spawn.test.exe -test.timeout=10m0s`, fixtureLatest),
+				process(520, 510, "spawn.test.exe", `C:\tmp\spawn.test.exe native-spawn-host --state C:\tmp\state --id task-7 -- `+standIn, fixtureLatest),
+				process(530, 520, "cmd.exe", standIn, fixtureLatest),
+			}
+			if test.hostRuns {
+				processes = append(processes, process(400, 1, "cfo.exe", `cfo.exe host --id board`, fixtureStart), process(410, 400, "claude.exe", `claude --dangerously-skip-permissions`, fixtureLatest))
+			}
+			terminal := []string{`PATH=C:\Windows`, "CFO_HOST_ID=board", "CFO_HOST_PROOF=" + test.proof}
+			environments := map[int][]string{500: terminal, 510: terminal, 520: {`PATH=C:\Windows`}, 530: {`PATH=C:\Windows`}}
+			collector := Collector{Home: h, Session: "default", Processes: processes, Environment: func(pid int) ([]string, error) {
+				if env, ok := environments[pid]; ok {
+					return env, nil
+				}
+				return nil, errors.New("process environment unavailable")
+			}}
+
+			// Act
+			inv, _, err := collector.Collect(context.Background())
+			if err != nil {
+				t.Fatal(err)
+			}
+			orphans := classOf(Classify(inv), OrphanProcess)
+
+			// Assert
+			reported := slices.ContainsFunc(orphans, func(finding Finding) bool { return finding.PID == 520 || finding.PID == 530 })
+			if reported != test.reported {
+				t.Errorf("the goblin's test host and stand-in reported = %v, want %v: %v", reported, test.reported, lines(orphans))
+			}
+		})
+	}
+}
+
+// withProofSum keeps in task id's host record the digest of the proof value
+// its host put in its terminal.
+func withProofSum(t *testing.T, h home.Home, id, proof string) {
+	t.Helper()
+	path := filepath.Join(h.State, "hosts", id+".json")
+	var record map[string]any
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := json.Unmarshal(data, &record); err != nil {
+		t.Fatal(err)
+	}
+	sum := sha256.Sum256([]byte(proof))
+	record["proof_sum"] = hex.EncodeToString(sum[:])
+	if data, err = json.Marshal(record); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, data, 0o600); err != nil {
+		t.Fatal(err)
 	}
 }
