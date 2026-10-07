@@ -1,7 +1,7 @@
 import { useEffect, useLayoutEffect, useRef, useState, type MouseEvent, type ReactNode } from "react";
 import { message, request } from "./api";
 import { parseAction, string, type BoardActivity, type Question, type Review, type Run, type Snapshot } from "./types";
-import { deliveryMark, submissionFor } from "./feedback";
+import { deliveryMark, runMark, submissionFor } from "./feedback";
 import { Avatar } from "./Avatar";
 import { Icon } from "./Icon";
 import { age } from "./presentation";
@@ -91,14 +91,17 @@ export function CommandCenter({ snapshot, connected, presentations, focus, onUns
     return change?.status === "succeeded" || !!change?.awaiting;
   };
   // What the Overlord sent from this card shows as done the moment he sends
-  // it; trouble keeps the card itself on screen with what went wrong. A run
-  // keeps its card, which shows the command's result. An item he answered
-  // elsewhere, such as on its page, finishes the same way, whatever this card
-  // tried meanwhile, and so does one that closed while this card sent nothing:
-  // answered on another board, or taken back by its asker or the CFO.
+  // it; trouble keeps the card itself on screen with what went wrong. An item
+  // he answered elsewhere, such as on its page, finishes the same way,
+  // whatever this card tried meanwhile, and so does one that closed while this
+  // card sent nothing: answered on another board, or taken back by its asker
+  // or the CFO. A command finishes once it ends without trouble, by its exit
+  // code whatever its output says, or is withdrawn; one that failed keeps its
+  // card, with its output, and an update keeps its own card.
   const closedBy = item && !draft?.submission ? closedElsewhere(item, snapshot.actions) : "";
   const elsewhere = !!item && (answeredElsewhere(item) || !!closedBy);
-  const finishing = !!item && item.kind !== "run" && (elsewhere || !!sending && !sending.failed);
+  const ranClean = item?.kind === "run" && !item.run.update && !isOpen(item) && !runMark(item.run).trouble;
+  const finishing = !!item && (item.kind === "run" ? ranClean : elsewhere || !!sending && !sending.failed);
   const done = finishing ? item.key : "";
   // Moving off a finishing card counts it as sent, so only a card on screen
   // from its Send to its delivery moves on by itself.
@@ -347,6 +350,8 @@ export function CommandCenter({ snapshot, connected, presentations, focus, onUns
               ? <div className="done-card" role="status"><Avatar persona="cfo" /><h3>You're all done</h3><p>Nothing else is waiting on you.</p></div>
               : elsewhere
               ? <DoneCard key={shownKey} heading={closedBy || "Answered"} label={settledLabel(item, snapshot.actions)} pager={pager} />
+              : ranClean
+              ? <DoneCard key={shownKey} heading={runMark(item.run).label} label={item.run.reason} pager={pager} />
               : finishing && sending
               ? <DoneCard key={shownKey} heading={sending.heading}
                 label={sending.cleared ? sending.heading !== "Cleared" ? "It moves to your history." : "" : mark?.label !== sending.heading ? mark?.label || "" : ""} pager={pager} />
