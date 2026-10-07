@@ -26,9 +26,9 @@ import (
 	"github.com/fpresta0607/code-goblins/internal/wake"
 )
 
-// maxReviews bounds the review list. An open item, or a wait its goblin still
-// stands on, is never dropped to make room: a new one waits in the inbox until
-// an older one closes.
+// maxReviews bounds the review list. An open item, a wait its goblin still
+// stands on, or an item whose page is still watched is never dropped to make
+// room: a new one waits in the inbox until an older one closes.
 const maxReviews = 128
 
 // maxReviewImages is the most images one review carries.
@@ -60,9 +60,14 @@ type Review struct {
 	ImageCount int      `json:"image_count,omitempty"`
 	Lavish     string   `json:"lavish,omitempty"`
 	// LavishPage is the HTML file of a Lavish page, a goblin's or the CFO's
-	// own, which the supervisor polls for the Overlord's feedback while the
-	// item is open.
+	// own, which the supervisor polls for the Overlord's feedback until the
+	// review on it settles, whatever becomes of the item.
 	LavishPage string `json:"lavish_page,omitempty"`
+	// PageSettled is when the review on the item's page settled: the
+	// Overlord answered or ended it there, an agent ended it, it could not be
+	// polled, or its goblin's task was retired. The page is watched until
+	// then, after the item closes too, so nothing he sends there goes unread.
+	PageSettled *time.Time `json:"page_settled,omitempty"`
 	// Link is the web link a goblin's wait gives as where the Overlord goes,
 	// the only link its card opens.
 	Link string `json:"link,omitempty"`
@@ -622,7 +627,7 @@ func (s *Store) acceptReview(r Review) error {
 		}
 		if len(s.db.Reviews) >= maxReviews {
 			closed := slices.IndexFunc(s.db.Reviews, func(old Review) bool {
-				return old.State != "open" && !s.answering(old) && !s.holdsWait(old)
+				return old.State != "open" && !s.answering(old) && !s.holdsWait(old) && !s.watchesPage(old)
 			})
 			if closed < 0 {
 				return ErrDeferred
@@ -632,7 +637,7 @@ func (s *Store) acceptReview(r Review) error {
 			}
 			s.db.Reviews = slices.Delete(s.db.Reviews, closed, closed+1)
 		}
-		r.ImageCount, r.Reason, r.Answer, r.AnswerID, r.Delivered = 0, "", "", "", false
+		r.ImageCount, r.Reason, r.Answer, r.AnswerID, r.Delivered, r.PageSettled = 0, "", "", "", false, nil
 		s.db.Reviews = append(s.db.Reviews, r)
 	case "withdrawn":
 		if i < 0 {
@@ -696,7 +701,7 @@ func (s *Store) acceptReview(r Review) error {
 		next := *prior
 		next.Title, next.Lavish, next.Link = r.Title, r.Lavish, r.Link
 		next.State, next.Reason, next.Answer, next.AnswerID, next.Delivered, next.AnsweredBy, next.AnsweredIn = "open", "", "", "", false, "", ""
-		next.RevisingSince, next.WindowClosedAt, next.CreatedAt, next.UpdatedAt = nil, nil, r.UpdatedAt, r.UpdatedAt
+		next.RevisingSince, next.WindowClosedAt, next.PageSettled, next.CreatedAt, next.UpdatedAt = nil, nil, nil, r.UpdatedAt, r.UpdatedAt
 		if err := validReview(next); err != nil {
 			return err
 		}
@@ -771,15 +776,16 @@ func waitStands(r Review, reportedAt time.Time, report string) bool {
 }
 
 // pruneReviews drops closed items, with their copied images, a set time after
-// they closed. Open items, items whose answer is on its way and a wait its
-// goblin still stands on are never pruned.
+// they closed. Open items, items whose answer is on its way, a wait its
+// goblin still stands on and an item whose page is still watched are never
+// pruned.
 func (s *Store) pruneReviews(now time.Time) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	kept := make([]Review, 0, len(s.db.Reviews))
 	var removed []Review
 	for _, r := range s.db.Reviews {
-		if r.State != "open" && !s.answering(r) && now.Sub(r.UpdatedAt) > closedReviewRetention && !s.holdsWait(r) {
+		if r.State != "open" && !s.answering(r) && now.Sub(r.UpdatedAt) > closedReviewRetention && !s.holdsWait(r) && !s.watchesPage(r) {
 			removed = append(removed, r)
 			continue
 		}
