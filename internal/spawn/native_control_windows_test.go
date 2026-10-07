@@ -128,10 +128,10 @@ func TestANativeTaskWithNoTerminalTakesNothing(t *testing.T) {
 	}
 }
 
-// Text typed into a harness already in a turn waits in its composer until
-// that turn ends, so with no hook report of the harness taking it the send
-// says it waits behind the turn, where it once reported it delivered because
-// the screen already showed the harness working.
+// Text typed into a harness already in a turn is queued by the harness, so
+// with nothing showing the harness took it the send says it is queued, where
+// it once reported it delivered because the screen already showed the harness
+// working.
 func TestASteerToANativeGoblinInATurnIsQueuedWithoutAHookReport(t *testing.T) {
 	f := newNativeFixture(t, harness.Codex, "")
 	nativeQueuedProof = 500 * time.Millisecond
@@ -146,18 +146,47 @@ func TestASteerToANativeGoblinInATurnIsQueuedWithoutAHookReport(t *testing.T) {
 
 	err = f.service.SendNative(context.Background(), meta, "CFO: run the tests")
 
-	if !errors.Is(err, fleet.ErrQueuedBehindTurn) {
-		t.Errorf("SendNative = %v, want it queued behind the turn", err)
+	if !errors.Is(err, fleet.ErrQueuedForToolCall) {
+		t.Errorf("SendNative = %v, want it queued for the next tool call", err)
 	}
 	if submitted := submittedLines(t, f, 2); !slices.Equal(submitted, []string{spawnPointer(t, f.fixture), "CFO: run the tests"}) {
 		t.Errorf("submitted = %q, want the steer submitted once after the instruction", submitted)
 	}
 }
 
-// A harness's own hook report of taking a prompt after the submit proves the
-// delivery even while the harness was in a turn, and the report is asked for
-// with the task's id and generation, from before the submit.
-func TestASteerToANativeGoblinInATurnIsProvenByItsHook(t *testing.T) {
+// A harness in a turn reports a prompt through its hook when it queues the
+// text, not when it takes it: Claude Code 2.1.292 ran UserPromptSubmit for a
+// steer typed during a tool call ten seconds before it took the steer into
+// its turn at the next tool call, live on 2026-10-06. So a hook report never
+// proves a delivery to a goblin in a turn, and the steer is reported queued
+// for its next tool call, typed and submitted once.
+func TestAHookReportDoesNotProveASteerToANativeGoblinInATurn(t *testing.T) {
+	f := newNativeFixture(t, harness.Codex, "")
+	nativeQueuedProof = 500 * time.Millisecond
+	t.Cleanup(func() { nativeQueuedProof = 5 * time.Second })
+	if _, err := f.service.Spawn(context.Background(), f.request); err != nil {
+		t.Fatalf("Spawn: %v", err)
+	}
+	meta, err := state.ReadTaskMeta(f.stateDir, "task-7")
+	if err != nil {
+		t.Fatal(err)
+	}
+	f.service.PromptSince = func(string, string, time.Time) (bool, error) { return true, nil }
+
+	err = f.service.SendNative(context.Background(), meta, "CFO: run the tests")
+
+	if !errors.Is(err, fleet.ErrQueuedForToolCall) {
+		t.Errorf("SendNative = %v, want it queued for the goblin's next tool call despite the hook report", err)
+	}
+	if submitted := submittedLines(t, f, 2); !slices.Equal(submitted, []string{spawnPointer(t, f.fixture), "CFO: run the tests"}) {
+		t.Errorf("submitted = %q, want the steer submitted once after the instruction", submitted)
+	}
+}
+
+// A steer to a goblin in a turn is delivered once the harness's own record of
+// the conversation shows it handed to the model, asked for with the task and
+// the exact text typed, from before the submit; until then it is queued.
+func TestASteerToANativeGoblinInATurnIsProvenByItsRecord(t *testing.T) {
 	f := newNativeFixture(t, harness.Codex, "")
 	if _, err := f.service.Spawn(context.Background(), f.request); err != nil {
 		t.Fatalf("Spawn: %v", err)
@@ -166,20 +195,29 @@ func TestASteerToANativeGoblinInATurnIsProvenByItsHook(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	var asked []string
+	type ask struct {
+		task, worktree, text string
+		since                time.Time
+	}
+	var asked []ask
 	before := time.Now()
-	f.service.PromptSince = func(taskID, generation string, since time.Time) (bool, error) {
-		asked = append(asked, taskID+" "+generation)
-		return !since.Before(before), nil
+	f.service.Took = func(_ context.Context, meta state.TaskMeta, text string, since time.Time) bool {
+		asked = append(asked, ask{meta.ID, meta.Worktree, text, since})
+		// The fake records a line once it takes it, as a harness's record does.
+		return len(named(f.events(t), "submitted")) == 2
 	}
 
 	err = f.service.SendNative(context.Background(), meta, "CFO: run the tests")
+	after := time.Now()
 
 	if err != nil {
-		t.Errorf("SendNative = %v, want the hook report to prove it taken", err)
+		t.Errorf("SendNative = %v, want the record to prove it taken", err)
 	}
-	if len(asked) == 0 || asked[0] != "task-7 "+meta.SpawnGen {
-		t.Errorf("the hook report was asked for %q, want task-7 in generation %s", asked, meta.SpawnGen)
+	if len(asked) == 0 || asked[0].task != "task-7" || asked[0].worktree != meta.Worktree || asked[0].text != "CFO: run the tests" || asked[0].since.Before(before) || asked[0].since.After(after) {
+		t.Errorf("the record was asked for %+v, want task-7's in %s holding the steer since the send", asked, meta.Worktree)
+	}
+	if submitted := submittedLines(t, f, 2); !slices.Equal(submitted, []string{spawnPointer(t, f.fixture), "CFO: run the tests"}) {
+		t.Errorf("submitted = %q, want the steer submitted once after the instruction", submitted)
 	}
 }
 

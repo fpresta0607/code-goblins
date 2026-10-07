@@ -178,10 +178,9 @@ func proveAnswerOnce(t *testing.T, p *wakeProof) {
 	if submitted != 1 {
 		t.Fatalf("the %s CFO's conversation holds the answer %d times, want once; see %s", p.cfo, submitted, filepath.Join(p.root, "proof.log"))
 	}
-	// Only the Claude Code CFO runs this tree's prompt hook: a Codex session
-	// takes its hooks from this machine's Codex settings, which the proof
-	// leaves alone, and a delivery made behind a turn is confirmed only by
-	// the hook.
+	// A delivery made during a turn is confirmed only by the CFO's own record
+	// of its conversation, found by the session it registered, which this
+	// proof checks for the Claude Code CFO.
 	delivered := func() (supervisor.Action, bool) {
 		for _, action := range p.snapshot(t).Actions {
 			if action.ID == "proof-answer" {

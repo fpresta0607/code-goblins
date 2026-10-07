@@ -4,8 +4,11 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"fmt"
+	"strings"
 	"testing"
 
+	"github.com/fpresta0607/code-goblins/internal/fleet"
 	"github.com/fpresta0607/code-goblins/internal/home"
 )
 
@@ -27,6 +30,26 @@ func TestRunSendStreamsConfirmedTextResult(t *testing.T) {
 	}
 	if stdout.String() != "sent gb-g1\n" || stderr.Len() != 0 {
 		t.Errorf("stdout=%q stderr=%q, want only user-facing confirmation", stdout.String(), stderr.String())
+	}
+}
+
+// A steer typed into a goblin in a turn is queued by its harness, which hands
+// it over at the goblin's next tool call: cfo send says so as an outcome, not
+// a failure, and says not to send it again, since it was typed once.
+func TestRunSendSaysAQueuedSteerLandsAtTheGoblinsNextToolCall(t *testing.T) {
+	deps := testCommandRuntime(t)
+	deps.sendText = func(context.Context, home.Home, string, string) error {
+		return fmt.Errorf("spawn: native terminal g1 took the text: %w", fleet.ErrQueuedForToolCall)
+	}
+
+	var stdout, stderr bytes.Buffer
+	exit := runWithRuntime([]string{"send", "gb-g1", "merge", "main", "first"}, &stdout, &stderr, deps)
+
+	if exit != 0 {
+		t.Fatalf("exit = %d, want 0; stderr=%s", exit, stderr.String())
+	}
+	if out := stdout.String(); !strings.HasPrefix(out, "queued for gb-g1: ") || !strings.Contains(out, "next tool call") || !strings.Contains(out, "do not send it again") || stderr.Len() != 0 {
+		t.Errorf("stdout=%q stderr=%q, want it reported queued for the goblin's next tool call", out, stderr.String())
 	}
 }
 

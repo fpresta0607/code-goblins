@@ -585,7 +585,7 @@ func (s *Service) completeRun(ctx context.Context, r Run, code *int, reason stri
 		if s.Options.CFO != nil {
 			_, delivery = s.Options.CFO.SendGoblin(ctx, r.Task, r.Identity, text)
 		}
-		if delivery != nil && !errors.Is(delivery, fleet.ErrQueuedBehindTurn) {
+		if delivery != nil && !errors.Is(delivery, fleet.ErrQueuedForToolCall) {
 			err = errors.Join(err, s.Store.noteRun(r.ID, r.RunAction, "the goblin could not be told: "+bounded(delivery.Error(), 300)))
 		}
 		return err
@@ -651,9 +651,7 @@ func (s *Service) tellCFO(ctx context.Context, text string) error {
 	if err != nil {
 		return fmt.Errorf("%w: the CFO registration is unreadable", ErrRejected)
 	}
-	if _, err = s.Options.CFO.Send(ctx, identity, text); errors.Is(err, fleet.ErrQueuedBehindTurn) {
-		return nil
-	}
+	_, err = s.Options.CFO.Send(ctx, identity, text)
 	return err
 }
 

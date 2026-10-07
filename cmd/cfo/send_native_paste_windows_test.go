@@ -81,6 +81,11 @@ func runNativeSendPasteComposer(args []string) int {
 		if exit := runNativeHook([]string{"codex", "--home", filepath.Dir(stateDir), "--state", stateDir}, bytes.NewReader(input), io.Discard, os.Stderr, commandRuntime{}); exit != 0 {
 			os.Exit(2)
 		}
+		// Codex records what it takes in the rollout its session opened for
+		// the folder it works in, as a user message.
+		if err := appendCodexRollout(stateDir, session, text); err != nil {
+			os.Exit(2)
+		}
 		record("consumed", text)
 		draw("Ask a follow-up question")
 	}
@@ -154,9 +159,37 @@ func runNativeSendPasteComposer(args []string) int {
 	}
 }
 
+// appendCodexRollout writes what a Codex session working in dir records as
+// it takes text: its rollout's opening, the first time, then the text as a
+// user message, in this user's home.
+func appendCodexRollout(dir, session, text string) error {
+	profile, err := os.UserHomeDir()
+	if err != nil {
+		return err
+	}
+	now := time.Now()
+	path := filepath.Join(profile, ".codex", "sessions", now.Format("2006"), now.Format("01"), now.Format("02"), "rollout-"+now.Format("2006-01-02T15-04-05")+"-"+session+fmt.Sprint(os.Getpid())+".jsonl")
+	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+		return err
+	}
+	file, err := os.OpenFile(path, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0o600)
+	if err != nil {
+		return err
+	}
+	defer file.Close()
+	if info, err := file.Stat(); err == nil && info.Size() == 0 {
+		if err := json.NewEncoder(file).Encode(map[string]any{"type": "session_meta", "payload": map[string]any{"id": session, "cwd": dir}}); err != nil {
+			return err
+		}
+	}
+	return json.NewEncoder(file).Encode(map[string]any{"timestamp": now.UTC().Format(time.RFC3339Nano), "type": "response_item", "payload": map[string]any{"type": "message", "role": "user", "content": []map[string]any{{"type": "input_text", "text": text}}}})
+}
+
 func TestNativeCLISendSubmitsDelayedMultilinePasteOnce(t *testing.T) {
 	// Resolving a mistaken Herdr route must fail locally, never reach the fleet.
 	t.Setenv("PATH", t.TempDir())
+	// The fixture's rollouts go to a user home of the test's own.
+	t.Setenv("USERPROFILE", t.TempDir())
 	const text = "Keep the original decision.\nDo not replay it.\nPreserve this exact matching suffix for the next turn."
 	for _, mode := range []string{"idle", "busy-accepted", "busy-late"} {
 		for _, prior := range []string{"Preserve this exact matching suffix for the next turn.", "[Pasted Content #1]"} {
@@ -208,8 +241,7 @@ func TestNativeCLISendSubmitsDelayedMultilinePasteOnce(t *testing.T) {
 
 				wantExit := 0
 				if mode == "busy-late" {
-					wantExit = 1
-					if stdout.Len() != 0 || !strings.Contains(stderr.String(), fleet.ErrQueuedBehindTurn.Error()) {
+					if !strings.HasPrefix(stdout.String(), "queued for gb-"+meta.ID+": ") || !strings.Contains(stdout.String(), "next tool call") || stderr.Len() != 0 {
 						t.Errorf("pending output: stdout=%q stderr=%q", stdout.String(), stderr.String())
 					}
 					if taken, err := supervisor.NativePromptSince(stateDir, meta.ID, meta.SpawnGen, since); err != nil || taken {

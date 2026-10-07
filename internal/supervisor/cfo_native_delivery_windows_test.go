@@ -158,6 +158,7 @@ func TestNativeCFOBusyAnswersBecomeDeliveredOnlyWhenTheQueuedPromptIsTaken(t *te
 		for _, kind := range []string{"cfo_answer", "review_answer"} {
 			t.Run(harness+"/"+kind, func(t *testing.T) {
 				// Arrange
+				records := useConversations(t)
 				store, home := testStore(t)
 				mode := "busy"
 				if harness == "claude" {
@@ -208,12 +209,20 @@ func TestNativeCFOBusyAnswersBecomeDeliveredOnlyWhenTheQueuedPromptIsTaken(t *te
 				if err := reopened.Ingest(); err != nil {
 					t.Fatal(err)
 				}
-				if err := reopened.settleDeliveries(time.Now().UTC(), working); err != nil {
+				if err := reopened.settleDeliveries(time.Now().UTC(), service.lookAtTerminal); err != nil {
+					t.Fatal(err)
+				}
+				if reported := reopened.Snapshot().Actions[0]; reported.Status != "running" || reported.Awaiting == nil {
+					t.Errorf("after the CFO's prompt hook alone = %+v; want it still on its way, since a hook runs as the harness queues the text", reported)
+				}
+				typed := strings.TrimPrefix(terminal.lines(t)[1], "queued ")
+				takenInRecord(t, records, harness, "session-1", "", typed)
+				if err := reopened.settleDeliveries(time.Now().UTC(), service.lookAtTerminal); err != nil {
 					t.Fatal(err)
 				}
 				delivered := reopened.Snapshot().Actions[0]
-				if delivered.Status != "succeeded" || delivered.Awaiting != nil || !strings.Contains(delivered.Message, "hook reported") {
-					t.Errorf("late acceptance = %+v; want delivered with the native prompt receipt", delivered)
+				if delivered.Status != "succeeded" || delivered.Awaiting != nil || !strings.Contains(delivered.Message, "record of the conversation") {
+					t.Errorf("once the CFO's record shows it taken = %+v; want it delivered", delivered)
 				}
 				if input := strings.Join(terminal.lines(t), "\n"); strings.Count(input, "queued Overlord:") != 1 || strings.Count(input, "accepted Overlord:") != 1 {
 					t.Errorf("busy input = %q; want one submission and one later acceptance", input)

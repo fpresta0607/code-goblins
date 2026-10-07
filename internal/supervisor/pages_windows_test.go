@@ -517,10 +517,10 @@ func TestAPageAnswerThatCannotBeSavedTravelsInTheWake(t *testing.T) {
 	}
 }
 
-// A native goblin's board answer that waits behind its turn closes the page
+// A native goblin's board answer typed during its turn closes the page
 // that carries its question as soon as it is sent, so an answer on that page
 // never reaches the goblin as a second answer. Neither the warning nor the
-// late report that follows closes a page the goblin opened after it.
+// late take that follows closes a page the goblin opened after it.
 func TestABoardAnswerBehindAGoblinsTurnClosesItsPageOnceWhenSent(t *testing.T) {
 	// Arrange
 	store, h := testStore(t)
@@ -555,10 +555,7 @@ func TestABoardAnswerBehindAGoblinsTurnClosesItsPageOnceWhenSent(t *testing.T) {
 	}
 	store.mu.Unlock()
 	warned := store.settleDeliveries(since.Add(deliveryQuiet+time.Second), idle)
-	store.mu.Lock()
-	store.db.Sessions["codex/worker-1"] = Session{ID: "codex/worker-1", NativeID: "worker-1", Harness: "codex", Role: "goblin", Phase: "active", TaskID: meta.ID, Generation: meta.SpawnGen, PromptAt: since.Add(deliveryQuiet + time.Minute)}
-	store.mu.Unlock()
-	delivered := store.settleDeliveries(since.Add(deliveryQuiet+2*time.Minute), idle)
+	delivered := store.settleDeliveries(since.Add(deliveryQuiet+2*time.Minute), took)
 	settled := store.Snapshot()
 
 	// Assert
@@ -566,7 +563,7 @@ func TestABoardAnswerBehindAGoblinsTurnClosesItsPageOnceWhenSent(t *testing.T) {
 		t.Fatal(warned, delivered)
 	}
 	if a := sent.Actions[slices.IndexFunc(sent.Actions, func(a Action) bool { return a.ID == "board-answer" })]; a.Status != "running" || a.Awaiting == nil {
-		t.Fatalf("the board answer = %s, want it sent and awaiting the goblin's hook", a.Status)
+		t.Fatalf("the board answer = %s, want it sent and awaiting the goblin's record", a.Status)
 	}
 	if r := sent.Reviews[0]; r.State != "answered" || r.AnsweredBy != "overlord" || r.AnsweredIn != "question" {
 		t.Errorf("the page's item once the answer was sent = %+v, want it answered by the Overlord through its question", r)
@@ -575,7 +572,7 @@ func TestABoardAnswerBehindAGoblinsTurnClosesItsPageOnceWhenSent(t *testing.T) {
 		t.Errorf("polled %d pages and woke the CFO %d times, want the closed page never relayed as a second answer", len(polled), len(reviewWakes(t, h.State, meta.ID)))
 	}
 	if a := settled.Actions[slices.IndexFunc(settled.Actions, func(a Action) bool { return a.ID == "board-answer" })]; a.Status != "succeeded" {
-		t.Errorf("the board answer after the late report = %s, want it delivered", a.Status)
+		t.Errorf("the board answer after the late take = %s, want it delivered", a.Status)
 	}
 	if i := slices.IndexFunc(settled.Reviews, func(r Review) bool { return r.ID == "plan-later" }); i < 0 || settled.Reviews[i].State != "open" {
 		t.Errorf("a page the goblin opened after the answer was sent = %+v, want it still open", settled.Reviews)

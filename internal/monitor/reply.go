@@ -8,8 +8,11 @@ import (
 	"io"
 	"os"
 	"path/filepath"
-	"regexp"
+	"strconv"
 	"strings"
+	"unicode"
+	"unicode/utf16"
+	"unicode/utf8"
 
 	"github.com/fpresta0607/code-goblins/internal/fsx"
 	"github.com/fpresta0607/code-goblins/internal/state"
@@ -58,22 +61,49 @@ func (h *HostProgress) sessionTranscript(harness, session string) string {
 	return newestFile(matches)
 }
 
-// claudeFolderCharacters are the characters Claude Code writes as a hyphen in
-// the folder it keeps a working folder's conversations in: everything but a
-// letter or a digit.
-var claudeFolderCharacters = regexp.MustCompile(`[^A-Za-z0-9]`)
+// claudeFolderLimit is the longest folder name Claude Code keeps a working
+// folder's conversations under.
+const claudeFolderLimit = 200
+
+// claudeFolder is the folder Claude Code 2.1.292 keeps the conversations
+// held in dir under, named as it names it: each UTF-16 unit of dir but an
+// ASCII letter or digit as a hyphen, and a name longer than
+// claudeFolderLimit cut there and followed by a hyphen and the base-36
+// absolute value of dir's 32-bit string hash. A goblin's worktree under a
+// long scratch path took the cut, live on 2026-10-06.
+func claudeFolder(dir string) string {
+	units := utf16.Encode([]rune(dir))
+	folder := make([]byte, len(units))
+	var hash int32
+	for i, unit := range units {
+		folder[i] = '-'
+		if unit < utf8.RuneSelf && (unicode.IsLetter(rune(unit)) || unicode.IsDigit(rune(unit))) {
+			folder[i] = byte(unit)
+		}
+		hash = hash*31 + int32(unit)
+	}
+	if len(folder) <= claudeFolderLimit {
+		return string(folder)
+	}
+	return string(folder[:claudeFolderLimit]) + "-" + strconv.FormatInt(max(int64(hash), -int64(hash)), 36)
+}
+
+// claudeConversations is every conversation Claude Code keeps in the folder
+// for dir, which it names after the folder a session starts in.
+func (h *HostProgress) claudeConversations(dir string) []string {
+	if h.Home == "" || !filepath.IsAbs(dir) {
+		return nil
+	}
+	matches, _ := filepath.Glob(filepath.Join(h.Home, ".claude", "projects", claudeFolder(dir), "*.jsonl"))
+	return matches
+}
 
 // newestClaudeConversation is the conversation Claude Code last wrote in the
-// folder it keeps for worktree, which it names after the folder a session
-// starts in. A native goblin's terminal names no session, and the goblin is
-// the one Claude Code working there; the folder its shell is in can move, so
-// the entries' own folder is not read.
+// folder it keeps for worktree. A native goblin's terminal names no session,
+// and the goblin is the one Claude Code working there; the folder its shell
+// is in can move, so the entries' own folder is not read.
 func (h *HostProgress) newestClaudeConversation(worktree string) string {
-	if h.Home == "" || !filepath.IsAbs(worktree) {
-		return ""
-	}
-	matches, _ := filepath.Glob(filepath.Join(h.Home, ".claude", "projects", claudeFolderCharacters.ReplaceAllString(worktree, "-"), "*.jsonl"))
-	return newestFile(matches)
+	return newestFile(h.claudeConversations(worktree))
 }
 
 // newestFile is the path in paths whose file was written last.
@@ -91,29 +121,35 @@ func newestFile(paths []string) string {
 // lastReplyIn reads the reply read finds in the end of the transcript at
 // path.
 func lastReplyIn(path string, read func(entries [][]byte) string) string {
+	return read(transcriptTail(path))
+}
+
+// transcriptTail is the entries in the end of the transcript at path, the
+// last transcriptEntryReach of it, and none when it cannot be read.
+func transcriptTail(path string) [][]byte {
 	if path == "" {
-		return ""
+		return nil
 	}
 	file, err := fsx.Open(path)
 	if err != nil {
-		return ""
+		return nil
 	}
 	defer file.Close()
 	info, err := file.Stat()
 	if err != nil {
-		return ""
+		return nil
 	}
 	start := max(0, info.Size()-transcriptEntryReach)
 	tail := make([]byte, info.Size()-start)
 	if _, err := file.ReadAt(tail, start); err != nil && !errors.Is(err, io.EOF) {
-		return ""
+		return nil
 	}
 	entries := bytes.Split(tail, []byte("\n"))
 	if start > 0 {
 		// The first piece may begin part way through an entry.
 		entries = entries[1:]
 	}
-	return read(entries)
+	return entries
 }
 
 // claudeReply is the text that ended the last turn of a Claude Code
