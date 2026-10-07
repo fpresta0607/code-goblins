@@ -39,6 +39,9 @@ type Lifecycle struct {
 	Kept              []string          `json:"kept,omitempty"`
 	Problems          []string          `json:"problems,omitempty"`
 	NoticeSent        bool              `json:"notice_sent"`
+	// Watched says the request's own caller reads its outcome, so no notice
+	// is sent for it.
+	Watched bool `json:"watched,omitempty"`
 }
 
 type TeardownProcess struct {

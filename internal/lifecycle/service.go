@@ -21,6 +21,10 @@ type Request struct {
 	Reason     string
 	Until      string
 	Session    string
+	// IsWatched says whoever asked reads the outcome from the command they
+	// typed, so finishing the operation sends no notice: the CFO retiring a
+	// goblin must not be woken by its own pause.
+	IsWatched bool
 }
 
 type Operations struct {
@@ -148,7 +152,7 @@ func (service Service) Run(ctx context.Context, request Request) (result state.L
 			}
 		}
 	}
-	result = state.Lifecycle{ID: request.ID, Generation: meta.SpawnGen, RequestGeneration: request.Generation, Operation: request.Operation, Action: request.Action, Started: time.Now().UTC(), Reason: request.Reason, Title: meta.Title, Project: meta.Project, Kept: []string{"worktree " + meta.Worktree, "task session and branch"}, Session: prior.Session}
+	result = state.Lifecycle{ID: request.ID, Generation: meta.SpawnGen, RequestGeneration: request.Generation, Operation: request.Operation, Action: request.Action, Started: time.Now().UTC(), Reason: request.Reason, Title: meta.Title, Project: meta.Project, Kept: []string{"worktree " + meta.Worktree, "task session and branch"}, Session: prior.Session, Watched: request.IsWatched}
 	if prior.Phase != "running" {
 		result.GateRun, result.GateIntent, result.GateHead = prior.GateRun, prior.GateIntent, prior.GateHead
 	}
@@ -292,8 +296,10 @@ func (service Service) finish(record state.Lifecycle) (state.Lifecycle, error) {
 			return record, err
 		}
 	}
-	if err := service.Operations.Notify(record); err != nil {
-		return record, err
+	if !record.Watched {
+		if err := service.Operations.Notify(record); err != nil {
+			return record, err
+		}
 	}
 	record.NoticeSent = true
 	return record, service.save(&record)

@@ -60,10 +60,13 @@ func runLifecycle(action string, args []string, stdout, stderr io.Writer, runtim
 		fmt.Fprintln(stderr, "task lifecycle requires a primary home")
 		return 1
 	}
-	if *operation == "" {
+	// The board, the scheduler and the allowance floor name their operation;
+	// a command typed without one is read by whoever typed it.
+	isWatched := *operation == ""
+	if isWatched {
 		*operation = fmt.Sprintf("op-%d", time.Now().UnixNano())
 	}
-	request := lifecycle.Request{ID: args[0], Generation: *generation, Operation: *operation, Action: action, Reason: *reason, Until: *until}
+	request := lifecycle.Request{ID: args[0], Generation: *generation, Operation: *operation, Action: action, Reason: *reason, Until: *until, IsWatched: isWatched}
 	meta, err := state.ReadTaskMeta(h.State, request.ID)
 	if err != nil && !(errors.Is(err, os.ErrNotExist) && action == "stop") {
 		fmt.Fprintln(stderr, err)
@@ -114,7 +117,7 @@ func reachHelpers(ctx context.Context, h home.Home, meta state.TaskMeta, record 
 			continue
 		}
 		sum := sha256.Sum256([]byte(record.Operation + "\x00" + helper.ID))
-		request := lifecycle.Request{ID: helper.ID, Generation: helper.SpawnGen, Operation: "helper-" + hex.EncodeToString(sum[:8]), Action: record.Action, Reason: "Stopped with its parent " + meta.ID + ": " + record.Reason}
+		request := lifecycle.Request{ID: helper.ID, Generation: helper.SpawnGen, Operation: "helper-" + hex.EncodeToString(sum[:8]), Action: record.Action, Reason: "Stopped with its parent " + meta.ID + ": " + record.Reason, IsWatched: record.Watched}
 		if pause != nil {
 			request.Reason, request.Until = pause.Reason, pause.Until
 		}

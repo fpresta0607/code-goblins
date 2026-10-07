@@ -7,6 +7,7 @@ import (
 	"image"
 	"image/png"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"slices"
 	"strings"
@@ -68,6 +69,68 @@ func TestNotifyDoneRequiresPR(t *testing.T) {
 	var stdout, stderr bytes.Buffer
 	if exit := runNotify([]string{"g1", "--done"}, &stdout, &stderr, defaultCommandRuntime()); exit != 2 || !strings.Contains(stderr.String(), "--pr") {
 		t.Fatalf("exit=%d stderr=%q, want --pr refusal", exit, stderr.String())
+	}
+}
+
+// On 2026-10-07 cg-fleet-tree reported PR 416 done, and again when the CFO
+// asked it to wrap up, and cg-ci-green did the same with PR 421: two wakes
+// for one finished head each. A done wakes the CFO once per pull request
+// head, even after the CFO acknowledged it; a new head is a new report.
+func TestNotifyDoneWakesOncePerPullRequestHead(t *testing.T) {
+	// Arrange
+	dir := t.TempDir()
+	if err := os.Mkdir(filepath.Join(dir, "state"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("CFO_HOME", dir)
+	t.Setenv("CFO_STATE_OVERRIDE", "")
+	worktree := t.TempDir()
+	git := func(args ...string) {
+		t.Helper()
+		if out, err := exec.Command("git", append([]string{"-C", worktree, "-c", "user.name=t", "-c", "user.email=t@example.test"}, args...)...).CombinedOutput(); err != nil {
+			t.Fatalf("git %v: %v\n%s", args, err, out)
+		}
+	}
+	git("init", "-q")
+	git("commit", "-q", "--allow-empty", "-m", "first")
+	if err := state.WriteTaskMeta(filepath.Join(dir, "state"), state.TaskMeta{ID: "g1", SpawnGen: "s1", Worktree: worktree}); err != nil {
+		t.Fatal(err)
+	}
+	const pr = "https://github.com/o/r/pull/416"
+	notifyDone := func(link string) string {
+		t.Helper()
+		var stdout, stderr bytes.Buffer
+		if exit := runNotify([]string{"g1", "--done", "--pr", link}, &stdout, &stderr, defaultCommandRuntime()); exit != 0 {
+			t.Fatalf("exit=%d stderr=%q", exit, stderr.String())
+		}
+		return stdout.String()
+	}
+	doneWakes := func() int {
+		t.Helper()
+		records, err := wake.Pending(filepath.Join(dir, "state"))
+		if err != nil {
+			t.Fatal(err)
+		}
+		return len(records)
+	}
+
+	// Act and Assert
+	notifyDone(pr)
+	if again := notifyDone(pr + " (merged, ready to retire)"); doneWakes() != 1 || !strings.Contains(again, "not woken again") {
+		t.Fatalf("a second done for the same head left %d wakes and said %q, want one wake and a word that the CFO was not woken again", doneWakes(), again)
+	}
+	records, _ := wake.Pending(filepath.Join(dir, "state"))
+	if err := wake.AckThrough(filepath.Join(dir, "state"), records[len(records)-1].Seq); err != nil {
+		t.Fatal(err)
+	}
+	notifyDone(pr)
+	if doneWakes() != 0 {
+		t.Fatalf("a done for a head the CFO already acknowledged woke it again: %d wakes", doneWakes())
+	}
+	git("commit", "-q", "--allow-empty", "-m", "second")
+	notifyDone(pr)
+	if doneWakes() != 1 {
+		t.Fatalf("a done for a new head left %d wakes, want one", doneWakes())
 	}
 }
 

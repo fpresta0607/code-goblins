@@ -211,9 +211,9 @@ func runNotify(args []string, stdout, stderr io.Writer, runtime commandRuntime) 
 		fmt.Fprintln(stderr, err)
 		return 1
 	}
-	parent := ""
+	parent, worktree := "", ""
 	if meta, err := state.ReadTaskMeta(h.State, id); err == nil {
-		parent = meta.Parent
+		parent, worktree = meta.Parent, meta.Worktree
 	}
 	if verb == "done" && *pr == "" {
 		if parent == "" {
@@ -262,10 +262,28 @@ func runNotify(args []string, stdout, stderr io.Writer, runtime commandRuntime) 
 		fmt.Fprintf(stderr, "cfo notify: %s's terminal did not take the report, so the CFO is told instead: %v\n", parent, err)
 		line += "; it could not reach its parent " + parent + ": " + state.NormalizeStatusDetail(err.Error())
 	}
-	record, err := wake.Append(h.State, "notify", id, line)
+	// A pull request's head is reported done once: a goblin asked to wrap up
+	// often reports the same finished head again, sometimes with more words
+	// after its link.
+	var record wake.Record
+	isNew := true
+	head := ""
+	if verb == "done" && *pr != "" && worktree != "" {
+		head, _ = gitOutput(execx.OSRunner{}, worktree, "rev-parse", "HEAD")
+	}
+	if head != "" {
+		link, _, _ := strings.Cut(strings.TrimSpace(*pr), " ")
+		record, isNew, err = wake.AppendFirst(h.State, "done/"+id+"/"+link+"@"+head, "notify", id, line)
+	} else {
+		record, err = wake.Append(h.State, "notify", id, line)
+	}
 	if err != nil {
 		fmt.Fprintln(stderr, "cfo notify: wake the CFO: "+err.Error())
 		return 1
+	}
+	if !isNew {
+		fmt.Fprintf(stdout, "%s already reported %s done at %s, so the CFO was not woken again\n", id, *pr, head)
+		return 0
 	}
 	if _, err := wake.PublishEpisode(h.State); err != nil {
 		fmt.Fprintln(stderr, "cfo notify: publish recovery episode: "+err.Error())
