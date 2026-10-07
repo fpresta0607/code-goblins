@@ -10,6 +10,10 @@ import (
 	"github.com/fpresta0607/code-goblins/internal/fsx"
 )
 
+// EngineChoice is the harness, model and effort the Overlord chose for a
+// running goblin and When it takes them: at the end of its turn (turn-end),
+// when it resumes (resume), or, with its own values, at the end of its turn
+// onto an update of its harness (update).
 type EngineChoice struct {
 	ID         string    `json:"id"`
 	Generation string    `json:"generation"`
@@ -67,7 +71,7 @@ func (choice EngineChoice) validate() error {
 	if err := ValidTaskID(choice.ID); err != nil {
 		return err
 	}
-	if choice.Generation == "" || choice.Harness == "" || choice.When != "resume" && choice.When != "turn-end" {
+	if choice.Generation == "" || choice.Harness == "" || choice.When != "resume" && choice.When != "turn-end" && choice.When != "update" {
 		return errors.New("engine choice requires a session, harness and switch timing")
 	}
 	return nil

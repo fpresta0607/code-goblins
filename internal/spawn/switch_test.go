@@ -291,6 +291,44 @@ func TestSwitchRefusesANoOpWhileTheHarnessRuns(t *testing.T) {
 	assertLeftRunning(t, f, terminal, before)
 }
 
+// A restart onto a harness update starts the goblin's own harness, model and
+// effort again while it runs, on its own conversation: the old harness is
+// told to exit, the new one resumes the session it is given, and the record
+// keeps every value but the generation.
+func TestARestartStartsTheSameHarnessAgainOnItsOwnConversation(t *testing.T) {
+	// Arrange
+	f, terminal := newRunningGoblin(t)
+	f.service.Harness = harness.Registry{Adapters: map[harness.Kind]harness.Adapter{harness.Codex: nativeAdapter{kind: harness.Codex, control: harness.Control{StopCommand: "/exit", ResumeArgs: []string{"resume", "--last"}}}}}
+	before, err := state.ReadTaskMeta(f.stateDir, "task-7")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Act
+	result, err := f.service.Switch(context.Background(), SwitchRequest{ID: "task-7", Generation: before.SpawnGen, Restart: true, ResumeSession: "owned-session-7"})
+
+	// Assert
+	if err != nil {
+		t.Fatalf("Switch: %v", err)
+	}
+	if !result.Resumed || result.Handoff != "" {
+		t.Fatalf("result = %+v, want the goblin's own conversation resumed and no handoff", result)
+	}
+	if submitted := submittedLines(t, f, 1); !slices.Contains(submitted, "/exit") {
+		t.Errorf("submitted = %q, want the running harness told to exit", submitted)
+	}
+	if launches := named(f.events(t), "env"); len(launches) != 2 || !strings.HasPrefix(launches[1].Text, "resume owned-session-7 ") {
+		t.Errorf("launches = %+v, want the spawn and then the same harness resuming owned-session-7", launches)
+	}
+	after, err := state.ReadTaskMeta(f.stateDir, "task-7")
+	if err != nil || after.Harness != before.Harness || after.Model != before.Model || after.Effort != before.Effort || after.SpawnGen == before.SpawnGen {
+		t.Errorf("after the restart the record is %+v, %v; want %s %s %s on a new generation", after, err, before.Harness, before.Model, before.Effort)
+	}
+	if current, err := host.ReadRecord(f.stateDir, "task-7"); err != nil || current.HostPID == terminal.HostPID {
+		t.Errorf("the terminal is %+v, %v; want a new host in place of %d", current, err, terminal.HostPID)
+	}
+}
+
 // A launch the target refuses to build, such as an effort it does not take,
 // is refused while the old harness still runs: the goblin is left as it was.
 func TestSwitchRefusesALaunchTheTargetCannotBuildBeforeStoppingTheHarness(t *testing.T) {

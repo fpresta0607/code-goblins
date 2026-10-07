@@ -1,3 +1,12 @@
+// HarnessUpdate is an update of the harness a terminal runs that was
+// installed after it started: line is the harness's own words for it on its
+// screen and installed when its program was installed since, whichever
+// showed it.
+export interface HarnessUpdate { harness: string; line: string; installed: string }
+// CFOUpdate is the CFO's, with its Update button's state: pending once he
+// pressed it, until the CFO's turn ends; updating while the restart runs;
+// problem why the last press did not restart it.
+export interface CFOUpdate extends HarnessUpdate { pending: boolean; updating: boolean; problem: string }
 export interface RuntimeEvidence {
   state: string;
   reason: string;
@@ -21,6 +30,9 @@ export interface Task extends Evaluation {
   notes: string[];
   action_error: string;
   pending_engine?: { harness: string; model: string; effort: string; when: string };
+  // harness_update is an update of the harness the goblin runs, installed
+  // since it started, for the Update button on its card.
+  harness_update?: HarnessUpdate;
   switching?: boolean;
   branch: string;
   // parent is the goblin a helper works for, empty for every other task.
@@ -289,6 +301,9 @@ export interface Snapshot {
   // The conversation the CFO could not resume when it last came back, and how
   // to resume it by hand; empty when it came back on its own.
   cfo_conversation_left: string;
+  // cfo_update is an update of the harness the CFO runs, installed since it
+  // started, for the Update button on its header; null while none waits.
+  cfo_update: CFOUpdate | null;
   // comeback is what the supervisor brings back after the last restart or
   // sign-out; absent when it brings nothing back.
   comeback?: Comeback;
@@ -592,6 +607,9 @@ function parseRuntime(value: unknown): RuntimeEvidence | undefined {
   const r = object(value);
   return { state: string(r.state), reason: string(r.reason), at: string(r.at) };
 }
+function parseHarnessUpdate(update: Record<string, unknown>): HarnessUpdate {
+  return { harness: string(update.harness), line: update.line === undefined ? "" : string(update.line), installed: update.installed === undefined ? "" : string(update.installed) };
+}
 function parseCredentialRequest(value: unknown): CredentialRequest {
   const c = object(value);
   const services: Record<string, string[]> = {};
@@ -699,6 +717,7 @@ export function parseSnapshot(value: unknown): Snapshot {
     cfo_terminal_since: v.cfo_terminal_since === undefined ? "" : string(v.cfo_terminal_since),
     cfo_harness: v.cfo_harness === undefined ? "" : string(v.cfo_harness),
     cfo_conversation_left: v.cfo_conversation_left === undefined ? "" : string(v.cfo_conversation_left),
+    cfo_update: v.cfo_update == null ? null : ((update) => ({ ...parseHarnessUpdate(update), pending: update.pending === undefined ? false : boolean(update.pending), updating: update.updating === undefined ? false : boolean(update.updating), problem: update.problem === undefined ? "" : string(update.problem) }))(object(v.cfo_update)),
     ...(v.start_at_login == null ? {} : { start_at_login: ((setting) => ({ on: boolean(setting.on), unavailable: setting.unavailable === undefined ? "" : string(setting.unavailable) }))(object(v.start_at_login)) }),
     ...(v.comeback == null ? {} : { comeback: ((c) => ({ signed_in: string(c.signed_in), ...(c.cfo == null ? {} : { cfo: parseComebackEntry(c.cfo) }), goblins: array(c.goblins).map(parseComebackEntry) }))(object(v.comeback)) }),
     build: string(v.build),
@@ -734,6 +753,7 @@ export function parseSnapshot(value: unknown): Snapshot {
           ...(record.pause == null ? {} : { pause: ((pause) => ({ reason: string(pause.reason), until: string(pause.until), at: string(pause.at) }))(object(record.pause)) }) }))(object(t.lifecycle)),
         teardown: strings(t.teardown), detail: string(t.detail), queue_revision: string(t.queue_revision), notes: strings(t.notes), action_error: string(t.action_error), branch: string(t.branch),
         pending_engine: t.pending_engine == null ? undefined : ((choice) => ({ harness: string(choice.harness), model: string(choice.model), effort: string(choice.effort), when: string(choice.when) }))(object(t.pending_engine)),
+        ...(t.harness_update == null ? {} : { harness_update: parseHarnessUpdate(object(t.harness_update)) }),
         switching: t.switching === undefined ? false : boolean(t.switching),
         runtime: parseRuntime(t.runtime),
         id: string(t.id),

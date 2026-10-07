@@ -7,7 +7,7 @@ import { clockText, stalledText } from "./cards";
 import { harnessMark } from "./connectors";
 import type { NextUp } from "./start";
 import { TaskControls } from "./task-controls";
-import { asksOverlord, harnessTip, nodeStatus, personaFor, pullRequestIcon, pullRequestLabel, safePullRequest, statusPhase, taskColumn } from "./workflow";
+import { asksOverlord, harnessName, harnessTip, nodeStatus, personaFor, pullRequestIcon, pullRequestLabel, safePullRequest, statusPhase, taskColumn } from "./workflow";
 import { pausedWithParent, pauseStatus, plainText, teardownSentence, withoutHarness } from "./task-words";
 import { TicketLink } from "./ticket-link";
 import { SameAreaAvatars } from "./same-area-avatars";
@@ -72,8 +72,10 @@ export function TaskCard({ task, snapshot, selected, presentations, now, rank, n
       {stalled && <span className="card-stalled"><Icon name="warning" />{stalled}</span>}
       {kinds.length > 0 && <span className="card-tree">{kinds.map(([baby, count]) => <span key={baby} className="tree-tally"><BabyGoblin baby={baby} small />{count}</span>)}{task.tree && formatMemory(task.tree.memory)}</span>}
       {silent && <span className="card-silent"><b>Silent {forHowLong(silent, now)}: {silent.label}</b>{silent.last_line && <code>{silent.last_line}</code>}</span>}
-      {task.pending_engine && <span className="card-secondary">{task.pending_engine.when === "resume" ? "Resume with" : "Pending:"} {task.pending_engine.model} {task.pending_engine.effort}</span>}
-      {task.switching && <span className="card-secondary">Switching engine...</span>}
+      {task.pending_engine?.when === "update"
+        ? <span className="card-secondary harness-update-note">{task.switching ? "Updating " + harnessName(task.harness) + "..." : "Updates " + harnessName(task.harness) + " at its next stopping point"}</span>
+        : task.pending_engine && <span className="card-secondary">{task.pending_engine.when === "resume" ? "Resume with" : "Pending:"} {task.pending_engine.model} {task.pending_engine.effort}</span>}
+      {task.switching && task.pending_engine?.when !== "update" && <span className="card-secondary">Switching engine...</span>}
       {ended && Number.isFinite(ended.getTime()) && <span className="card-clock"><Icon name="clock" /><time dateTime={task.at}>{ended.toLocaleString(undefined, { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" })}</time></span>}
       {column === "Completed" && task.phase === "stopped" && task.reason && <span className="card-secondary">{plainText(task.reason)}</span>}
       {task.teardown.length > 0 && <span className="windows-teardown">{teardownSentence(task.teardown)}</span>}

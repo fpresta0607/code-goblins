@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, type ReactNode } from "react";
 import { Icon } from "./Icon";
 import { UNREADABLE } from "./afk";
 import { useAfkActions } from "./afk-actions";
@@ -14,8 +14,9 @@ import "./afk.css";
 // question: it only gives him his decisions back, and it is how a switch that
 // cannot be read is reset, which the header says while it cannot be read.
 // While it is off, the report of the last stretch opens from the button
-// beside it.
-export function AfkToggle({ afk, instance }: { afk: Afk; instance: string }) {
+// beside it. leading is a control shown before them, on the same row at
+// every width.
+export function AfkToggle({ afk, instance, leading }: { afk: Afk; instance: string; leading?: ReactNode }) {
   const [asking, setAsking] = useState(false);
   const { pending, problem, turn, clear } = useAfkSwitch(instance);
   const { openReport } = useAfkActions();
@@ -24,6 +25,7 @@ export function AfkToggle({ afk, instance }: { afk: Afk; instance: string }) {
   const press = () => { if (afk.state === "off") { clear(); setAsking(true); } else void turn(false); };
   return <>
     <div className="afk-header">
+      {leading}
       {afk.state === "off" && afk.report && <button className="icon-button raised" aria-label="Open the last AFK report" data-tip="Last AFK report" data-tip-align="end" onClick={openReport}><Icon name="file" /></button>}
       <button className="afk-toggle" role="switch" aria-checked={on} aria-label="AFK mode" data-tip={on ? "Turn AFK off" : afk.state === "off" ? "Turn AFK on" : "Reset AFK to off"} data-tip-align="end" disabled={pending} onClick={press}>
         <span className="afk-toggle-label">AFK</span>

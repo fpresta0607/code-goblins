@@ -23,7 +23,9 @@ import (
 	"github.com/fpresta0607/code-goblins/internal/execx"
 	"github.com/fpresta0607/code-goblins/internal/fleet"
 	"github.com/fpresta0607/code-goblins/internal/fleettree"
+	"github.com/fpresta0607/code-goblins/internal/harness"
 	"github.com/fpresta0607/code-goblins/internal/home"
+	"github.com/fpresta0607/code-goblins/internal/host"
 	"github.com/fpresta0607/code-goblins/internal/lock"
 	"github.com/fpresta0607/code-goblins/internal/monitor"
 	"github.com/fpresta0607/code-goblins/internal/nativehook"
@@ -110,6 +112,11 @@ type Options struct {
 	// Releases is where the board looks for a newer release of Code
 	// Goblins; without it the board never looks and makes no Update item.
 	Releases *Releases
+	// ReadScreen reads a native terminal's console, and ProgramInstalled
+	// when a harness's program was installed, for the harness updates the
+	// board offers; nil reads the machine's.
+	ReadScreen       func(host.Record) ([]string, error)
+	ProgramInstalled func(harness.Kind) (string, time.Time, error)
 }
 
 type Service struct {
@@ -159,6 +166,15 @@ type Service struct {
 	// trees is each live goblin's family tree as keepTrees last read it.
 	trees           map[string]fleettree.Tree
 	progressReadErr error
+
+	// cfoUpdateRead and harnessUpdates are the harness updates the last look
+	// found waiting for the CFO and for each goblin; cfoUpdating says the
+	// CFO's pressed update runs now, and cfoUpdateProblem why the last one
+	// did not.
+	cfoUpdateRead    *harnessUpdateRead
+	harnessUpdates   map[string]harnessUpdateRead
+	cfoUpdating      bool
+	cfoUpdateProblem string
 	// release is the newest release as the banner shows it, kept by the
 	// release watch, which releaseNow asks for another look.
 	release    *ReleaseView
@@ -402,6 +418,12 @@ func (s *Service) run(ctx context.Context) {
 		}
 	}()
 	defer func() { s.cancel(); <-ticketsDone }()
+	updatesDone := make(chan struct{})
+	go func() {
+		defer close(updatesDone)
+		s.keepHarnessUpdates(ctx, harnessUpdateEvery)
+	}()
+	defer func() { s.cancel(); <-updatesDone }()
 	treesDone := make(chan struct{})
 	go func() {
 		defer close(treesDone)
@@ -996,6 +1018,7 @@ type Task struct {
 	QueueRevision string              `json:"queue_revision,omitempty"`
 	Detail        string              `json:"detail,omitempty"`
 	PendingEngine *state.EngineChoice `json:"pending_engine,omitempty"`
+	HarnessUpdate *HarnessUpdate      `json:"harness_update,omitempty"`
 	Switching     bool                `json:"switching,omitempty"`
 	Notes         []string            `json:"notes,omitempty"`
 	Progress      *WorkProgress       `json:"progress,omitempty"`
@@ -1082,6 +1105,9 @@ type Snapshot struct {
 	// CFOConversationLeft names the conversation the CFO could not resume
 	// when it last came back, and is empty when it came back on its own.
 	CFOConversationLeft string `json:"cfo_conversation_left"`
+	// CFOUpdate is an update of the harness the CFO runs, installed since it
+	// started, for the Update button on its header; absent while none waits.
+	CFOUpdate *CFOUpdate `json:"cfo_update,omitempty"`
 	// Comeback is what the supervisor brings back after the last restart or
 	// sign-out, for the board's line; absent when it brings nothing back.
 	Comeback *state.Comeback `json:"comeback,omitempty"`
@@ -1156,6 +1182,9 @@ func (s *Service) Snapshot() (Snapshot, error) {
 	out.CFOTerminal, out.CFORuns, out.CFOStarting, out.CFOClosed, out.CFOHarness = cfo.terminal, cfo.registered || cfo.starting, cfo.starting, cfo.closed, cfo.harness
 	out.CFOTerminalSince = cfo.since
 	out.CFOConversationLeft = s.cfoConversationLeft()
+	if cfo.registered {
+		out.CFOUpdate = s.cfoUpdateView(cfo.since)
+	}
 	out.Comeback = s.comebackView()
 	if view, issue := s.startAtLoginView(); issue != "" {
 		out.Issues = append(slices.Clone(out.Issues), issue)
@@ -1393,6 +1422,7 @@ func (s *Service) Snapshot() (Snapshot, error) {
 		if err == nil && choice.Generation == task.Generation {
 			task.PendingEngine = &choice
 		}
+		task.HarnessUpdate = s.goblinUpdate(task.ID, task.Generation)
 		if failure, ok := changeErrors[task.ID]; ok && failure.Generation == task.Generation && (lifecycleErr != nil || failure.Operation == record.Operation && failure.Updated.Equal(record.Updated)) {
 			task.ActionError = failure.Message
 		}
