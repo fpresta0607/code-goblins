@@ -98,7 +98,7 @@ func writeInfo(path string, info *Info) error {
 	if err != nil {
 		return err
 	}
-	f, err := os.OpenFile(path, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o644)
+	f, err := fsx.CreateNew(path, 0o644)
 	if err != nil {
 		return err
 	}
@@ -119,6 +119,24 @@ func AcquireNamedOwner(dir, name string, ownerPID int, session string) (*Info, e
 		return nil, fmt.Errorf("%w: pid %d", ErrOwnerDead, ownerPID)
 	}
 	return acquire(dir, name, self, true, false)
+}
+
+// AcquireNamedOwnerWithin is AcquireNamedOwner waiting out a live holder for
+// up to wait, for a lock whose holder only reads and writes a file: a loaded
+// machine can slow that for seconds. It looks again 10 ms after the first
+// attempt and twice as long after each next one up to half a second, and
+// past wait returns the holder's ErrHeld.
+func AcquireNamedOwnerWithin(dir, name string, ownerPID int, session string, wait time.Duration) (*Info, error) {
+	deadline := time.Now().Add(wait)
+	pause := 10 * time.Millisecond
+	for {
+		info, err := AcquireNamedOwner(dir, name, ownerPID, session)
+		if !errors.Is(err, ErrHeld) || time.Now().Add(pause).After(deadline) {
+			return info, err
+		}
+		time.Sleep(pause)
+		pause = min(2*pause, 500*time.Millisecond)
+	}
 }
 
 // AcquireExclusiveNamed takes dir/name for the current process without the
@@ -189,7 +207,8 @@ func acquireExclusiveNamed(dir, name string, isStrict bool) (*Info, error) {
 // created or touched; an unverifiable ownerPID (statusUnknown) still
 // proceeds, fail closed to alive exactly as Alive() does.
 // Strategy: exclusive create with read-back verification, grace period for
-// mid-write files, and retry with a constant backoff on transient errors.
+// mid-write files, and a create that waits out another process's hold on
+// the record, as fsx does for every fleet file.
 func AcquireOwner(dir string, ownerPID int, session string) (*Info, error) {
 	return AcquireNamedOwner(dir, ".lock", ownerPID, session)
 }
@@ -234,9 +253,10 @@ func acquireReading(dir, name string, self *Info, allowReacquire, isStrict bool,
 		}
 
 		if !errors.Is(err, os.ErrExist) {
-			// Transient error (e.g., sharing violation): sleep and retry.
-			time.Sleep(50 * time.Millisecond)
-			continue
+			// The create has already waited out another process holding the
+			// record, a released one still being deleted included, so this
+			// is no contention a further attempt outlasts.
+			return nil, err
 		}
 
 		// File exists; read the holder.

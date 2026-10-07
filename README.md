@@ -272,6 +272,7 @@ A speech model the supervisor runs on this PC hears it, so your voice never leav
 The first time, the model is not there yet: the app downloads it once, 125 MB, and the note under the terminal says how far it is as it arrives, then **Dictation is ready**.
 What you said that first time is not kept, so say it again once it is ready.
 Without the internet the note says which file to download and where to save it, and the next dictation uses it; a download that fails stays shown under the terminal until you dictate again.
+If Windows blocks the microphone, the note says so and where to turn it back on: Settings > Privacy & security > Microphone, with Microphone access and Let desktop apps access your microphone on.
 After that a line comes back in a moment, and the model gives its memory back after two minutes without dictation.
 Two dictations in a row are typed with a space between them, and a click on the microphone in the terminal's corner lists your recent dictations.
 It works the same in a browser tab, and the terminal panel under [Board and Orchestration](#board-and-orchestration) says more.
