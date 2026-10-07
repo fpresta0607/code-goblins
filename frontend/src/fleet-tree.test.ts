@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { babyFor, canvasChildren, finished, forHowLong, formatMemory, isDimmed, running, silentChild, stateWord, summarize } from "./fleet-tree.ts";
-import { makeRoom, NODE_HEIGHT, NODE_WIDTH, settle, workflowNodes } from "./workflow.ts";
+import { makeRoom, NODE_HEIGHT, NODE_WIDTH, settle, waitingOn, workflowNodes } from "./workflow.ts";
 import { parseSnapshot, type FleetTree, type TreeNode } from "./types.ts";
 
 const MINUTE = 60_000;
@@ -129,4 +129,35 @@ test("a helper its parent's tree holds is a baby goblin under its parent, not a 
   assert.ok(cards([parent, helper]).includes("session:helper"), "a helper no tree holds keeps its card");
   assert.equal(parseSnapshot({ healthy: true, tasks: [helper] }).tasks[0].parent, "g");
   assert.equal(parseSnapshot({ healthy: true, tasks: [parent] }).tasks[0].parent, "");
+});
+
+test("a helper no family tree holds hangs under its parent's card, never the CFO's", () => {
+  const cfo = { id: "cfo", native_id: "cfo", harness: "claude", role: "cfo", generation: "c1" };
+  const own = { id: "own", native_id: "own", harness: "claude", role: "goblin", task_id: "g", generation: "s1", parent: "cfo" };
+  const helperSession = { id: "helper", native_id: "helper", harness: "claude", role: "goblin", task_id: "g-h1", generation: "s2", parent: "cfo" };
+  const parent = { id: "g", phase: "paused", verified: false, generation: "s1" };
+  const helper = { id: "g-h1", parent: "g", phase: "working", verified: false, generation: "s2" };
+  const parentOf = (tasks: object[], sessions: object[]) => Object.fromEntries(workflowNodes(parseSnapshot({ healthy: true, tasks, sessions }))
+    .map((node) => [node.id, [node.parent, node.relation]]));
+  for (const [name, tasks, sessions, card, under] of [
+    ["no session reported", [parent, helper], [], "task:g-h1", "task:g"],
+    ["both sessions reported", [{ ...parent, session: "own" }, { ...helper, session: "helper" }], [cfo, own, helperSession], "session:helper", "session:own"],
+    ["only the parent's reported", [{ ...parent, session: "own" }, helper], [cfo, own], "task:g-h1", "session:own"],
+    ["only the helper's reported", [parent, { ...helper, session: "helper" }], [cfo, helperSession], "session:helper", "task:g"],
+  ] as [string, object[], object[], string, string][]) {
+    assert.deepEqual(parentOf(tasks, sessions)[card], [under, "Helper goblin"], name);
+  }
+  assert.deepEqual(parentOf([parent, helper], [])["task:g"], ["cfo:primary", "Dispatched by the CFO"], "its parent still hangs under the CFO");
+  assert.equal(parentOf([helper], [])["task:g-h1"][0], "cfo:primary", "a helper whose parent is gone hangs under the CFO");
+});
+
+test("a goblin waiting on the helper hung under it draws no dashed line to it", () => {
+  const waiting = { id: "g", phase: "waiting", waiting_on: "g-h1", reason: "merging its work", verified: false, generation: "s1" };
+  const helper = { id: "g-h1", parent: "g", phase: "working", verified: false, generation: "s2" };
+  const other = { id: "o", phase: "working", verified: false, generation: "s3" };
+  const snapshot = (tasks: object[]) => parseSnapshot({ healthy: true, tasks });
+  const helperWait = snapshot([waiting, helper]);
+  assert.deepEqual(waitingOn(helperWait, workflowNodes(helperWait)), {});
+  const otherWait = snapshot([{ ...waiting, waiting_on: "o" }, helper, other]);
+  assert.deepEqual(waitingOn(otherWait, workflowNodes(otherWait)), { "task:g": "task:o" });
 });
