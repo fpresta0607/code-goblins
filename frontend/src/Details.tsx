@@ -17,6 +17,8 @@ import { RawDetails } from "./raw-details";
 import { deliveryMark } from "./feedback";
 import type { ReviewControls } from "./review";
 import { pullRequestBadge, safePullRequest } from "./workflow";
+import { hasChildren, running } from "./fleet-tree";
+import { WhatsWorking } from "./WhatsWorking";
 
 // A read that failed says what could not be read, in one sentence, with the
 // supervisor's error behind Details.
@@ -159,10 +161,11 @@ function Activity({ task, snapshot }: { task?: Task; snapshot: Snapshot }) {
 // what happened, below the panel header, each closed until it is opened, so
 // opening a panel reads no diff. log is the Activity section's state, which a
 // failure's Open the log opens.
-export function TaskView({ task, snapshot, connected, reviews, log, onRepair }: {
-  task: Task; snapshot: Snapshot; connected: boolean; reviews: ReviewControls; log: { open: boolean; onOpenChange: (open: boolean) => void }; onRepair?: (key: string) => void;
+export function TaskView({ task, snapshot, connected, reviews, log, now, onRepair }: {
+  task: Task; snapshot: Snapshot; connected: boolean; reviews: ReviewControls; log: { open: boolean; onOpenChange: (open: boolean) => void }; now: number; onRepair?: (key: string) => void;
 }) {
   return <div className="panel-content">
+      {task.tree && hasChildren(task.tree) && <Disclosure title="What's working" kind="working-section" defaultOpen={running(task.tree).length > 0}><WhatsWorking tree={task.tree} now={now} /></Disclosure>}
       <WorkspaceDetails task={task} runs={snapshot.runs} instance={snapshot.instance} onRepair={onRepair} />
       {task.generation ? <Disclosure title="Changes" kind="changes-section"><Changes task={task} reviews={reviews} connected={connected} /></Disclosure> : <p className="muted padded">Changes will appear when this task starts.</p>}
       <Disclosure id="task-activity" title="Activity" open={log.open} onOpenChange={log.onOpenChange}><Activity task={task} snapshot={snapshot} /></Disclosure>

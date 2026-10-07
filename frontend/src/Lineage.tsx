@@ -7,19 +7,22 @@ import { Chevron } from "./Chevron";
 import { personaFor } from "./workflow";
 import { lineageRoots, ownsTaskSession, projectSessions, sessionRole, sessionTitle, tasksWithoutSession } from "./lineageTree";
 import { withoutHarness } from "./task-words";
+import { hasChildren, isHeldByTree } from "./fleet-tree";
+import { TreeUnder } from "./TreeUnder";
 
 export interface Selection { session?: string; task?: string }
 
-export function Lineage({ snapshot, project, selected, onSelect, effects, presentations }: {
+export function Lineage({ snapshot, project, selected, onSelect, effects, presentations, now }: {
   presentations:BoardActivity[];
   snapshot: Snapshot;
+  now: number;
   effects: ActivityEffect[];
   project: string;
   selected: Selection | null;
   onSelect: (selection: Selection, source: HTMLElement) => void;
 }) {
   const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
-  const sessions = projectSessions(snapshot.sessions, snapshot.tasks, project);
+  const sessions = projectSessions(snapshot.sessions.filter((session) => !isHeldByTree(snapshot, session)), snapshot.tasks, project);
   const tasks = snapshot.tasks.filter((task) => !task.archived && (!project || task.project === project));
   const taskOnly = tasksWithoutSession(tasks, snapshot.sessions);
   const byID = new Map(sessions.map((node) => [node.id, node]));
@@ -69,6 +72,7 @@ export function Lineage({ snapshot, project, selected, onSelect, effects, presen
           </button>}
         </div>
       </div>
+      {owner && task?.tree && hasChildren(task.tree) && <TreeUnder tree={task.tree} title={title} now={now} />}
       {!isCollapsed && descendants.length > 0 && <ul className="workflow-children" aria-label={"Children of " + title}>
         {descendants.map((child) => render(child, seen))}
       </ul>}
@@ -91,6 +95,7 @@ export function Lineage({ snapshot, project, selected, onSelect, effects, presen
             </button>
           </div>
         </div>
+        {task.tree && hasChildren(task.tree) && <TreeUnder tree={task.tree} title={withoutHarness(task.title) || task.id} now={now} />}
       </li>)}
     </ul>}
   </section>;

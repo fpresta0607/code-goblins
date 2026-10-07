@@ -170,12 +170,22 @@ func runServe(args []string, stdout, stderr io.Writer, runtime commandRuntime) i
 		dictation = speech
 		defer speech.Close()
 	}
+	gate := pipeline.Reader{Root: root, Commands: execx.OSRunner{}}
+	// The board's family tree and the monitor's progress evidence read
+	// through one reader, so they never disagree about what a goblin does.
+	// An example board shows made-up goblins, so it reads no harness's
+	// records on this machine for a tree.
+	config.Tree.Gate = gate
+	tree := config.Tree
+	if *example {
+		tree = nil
+	}
 	s, err := supervisor.Start(ctx, h, supervisor.Options{
 		Dictation:        dictation,
 		Example:          *example,
 		Tickets:          ticketKeeping,
 		CFO:              &supervisor.CFOConnection{State: h.State, Terminals: terminal.HerdrSessions(&herdr.Client{Commands: execx.OSRunner{}, Sockets: herdr.NewSocketCache()})},
-		Gate:             pipeline.Reader{Root: root, Commands: execx.OSRunner{}},
+		Gate:             gate,
 		MergedPRs:        supervisor.GitMergedPRs(supervisor.FleetRepos(h, projects)),
 		PullRequestState: supervisor.GitHubPullRequestState(execx.OSRunner{}),
 		Reconcile:        func(ctx context.Context) error { return watch.Reconcile(ctx, config) },
@@ -197,6 +207,7 @@ func runServe(args []string, stdout, stderr io.Writer, runtime commandRuntime) i
 		RefreshCredentials: boardCredentialRefresh(runtime),
 		Allowance:          readAFKAllowance(runtime),
 		Quota:              runtime.quota,
+		Tree:               tree,
 		Releases:           releases,
 	})
 	if err != nil {

@@ -9,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/fpresta0607/code-goblins/internal/fleettree"
 	"github.com/fpresta0607/code-goblins/internal/state"
 )
 
@@ -55,9 +56,15 @@ func claudeProjectFolder(home, worktree string) string {
 	}, worktree))
 }
 
+// recordedAs is a prober whose board recorded session as every goblin's own
+// conversation.
+func recordedAs(home, session string) *HostProgress {
+	return &HostProgress{Home: home, Tree: &fleettree.Reader{Home: home, Recorded: func(state.TaskMeta) string { return session }}}
+}
+
 // A native Claude Code goblin's last reply is the text that ended its last
-// turn, read from the newest conversation Claude Code keeps for its worktree,
-// and nothing while a turn is still running or ended on a tool call.
+// turn, read from its own conversation, and nothing while a turn is still
+// running or ended on a tool call.
 func TestANativeClaudeGoblinsLastReplyIsReadFromItsTranscript(t *testing.T) {
 	cwd := t.TempDir()
 	prompt := claudeEntry("user", cwd, "CFO: PR 369's failure is not yours.")
@@ -90,7 +97,7 @@ func TestANativeClaudeGoblinsLastReplyIsReadFromItsTranscript(t *testing.T) {
 			meta.Worktree = cwd
 
 			// Act
-			got := (&HostProgress{Home: home}).LastReply(context.Background(), meta, EndpointSample{Harness: "claude"})
+			got := recordedAs(home, "session-1").LastReply(context.Background(), meta, EndpointSample{Harness: "claude"})
 
 			// Assert
 			if got != test.want {
@@ -100,17 +107,19 @@ func TestANativeClaudeGoblinsLastReplyIsReadFromItsTranscript(t *testing.T) {
 	}
 }
 
-// The goblin's current conversation is its folder's newest, and a Herdr
-// goblin's is the session Herdr names, wherever Claude Code keeps it.
-func TestTheClaudeConversationReadIsTheGoblinsCurrentOne(t *testing.T) {
+// The goblin's conversation is the one the board's record or its own harness
+// proves, as the board reads it, never merely its folder's newest, where a
+// forked CFO session worked on 2026-10-06; a Herdr goblin's is the session
+// Herdr names, wherever Claude Code keeps it.
+func TestTheClaudeConversationReadIsTheGoblinsOwn(t *testing.T) {
 	// Arrange
 	home, cwd := t.TempDir(), t.TempDir()
 	folder := claudeProjectFolder(home, cwd)
 	written := time.Now()
-	transcriptLines(t, filepath.Join(folder, "older.jsonl"), written.Add(-time.Hour), claudeEntry("assistant", cwd, claudeText("Should I open the PR?")))
-	transcriptLines(t, filepath.Join(folder, "newer.jsonl"), written, claudeEntry("assistant", cwd, claudeText("PR 12 is open.")))
+	transcriptLines(t, filepath.Join(folder, "own.jsonl"), written.Add(-time.Hour), claudeEntry("assistant", cwd, claudeText("PR 12 is open.")))
+	transcriptLines(t, filepath.Join(folder, "forked.jsonl"), written, claudeEntry("assistant", cwd, claudeText("Should I open the PR?")))
 	transcriptLines(t, filepath.Join(home, ".claude", "projects", "elsewhere", "herdr-session.jsonl"), written.Add(-2*time.Hour), claudeEntry("assistant", `C:\elsewhere`, claudeText("Which layout do you want?")))
-	prober := &HostProgress{Home: home}
+	prober := recordedAs(home, "own")
 
 	// Act
 	meta := nativeMeta("g1", "claude")
@@ -120,7 +129,7 @@ func TestTheClaudeConversationReadIsTheGoblinsCurrentOne(t *testing.T) {
 
 	// Assert
 	if native != "PR 12 is open." {
-		t.Errorf("native reply = %q, want the newest conversation's", native)
+		t.Errorf("native reply = %q, want its own conversation's, not the newer forked one's", native)
 	}
 	if herdr != "Which layout do you want?" {
 		t.Errorf("Herdr reply = %q, want the named session's", herdr)

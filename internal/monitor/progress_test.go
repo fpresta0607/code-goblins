@@ -5,13 +5,11 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
-	"slices"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/fpresta0607/code-goblins/internal/herdr"
-	"github.com/fpresta0607/code-goblins/internal/proc"
 	"github.com/fpresta0607/code-goblins/internal/state"
 )
 
@@ -721,130 +719,4 @@ type failingPanes struct{ err error }
 
 func (f failingPanes) PaneProcessInfo(context.Context, herdr.Target) (herdr.PaneProcessInfo, error) {
 	return herdr.PaneProcessInfo{}, f.err
-}
-
-func TestHarnessJobsCountsOnlyWorkStartedAfterLaunch(t *testing.T) {
-	launched := time.Date(2026, 9, 26, 9, 0, 0, 0, time.UTC)
-	table := processTable{
-		{PID: 10, ParentPID: 1, ExeBase: "claude.exe"}:  {start: launched, cpu: time.Hour},
-		{PID: 11, ParentPID: 10, ExeBase: "cmd.exe"}:    {start: launched.Add(13 * time.Second)},
-		{PID: 12, ParentPID: 11, ExeBase: "python.exe"}: {start: launched.Add(14 * time.Second), cpu: 7 * time.Second},
-		{PID: 13, ParentPID: 10, ExeBase: "bash.exe"}:   {start: launched.Add(20 * time.Minute), cpu: time.Second},
-		{PID: 14, ParentPID: 13, ExeBase: "go.exe"}:     {start: launched.Add(21 * time.Minute), cpu: 40 * time.Second},
-		// A process id the harness's own child once had, now reused by a
-		// process older than the harness: never its child.
-		{PID: 15, ParentPID: 10, ExeBase: "svchost.exe"}: {start: launched.Add(-time.Hour), cpu: time.Hour},
-	}
-
-	jobs, used := harnessJobs(10, table.entries(), harnessLaunch, table.start, table.cpu)
-	if !slices.Equal(jobs, []string{"bash.exe (pid 13)"}) {
-		t.Errorf("jobs = %v, want only the bash the harness started after launching", jobs)
-	}
-	if used != 41*time.Second {
-		t.Errorf("processor time = %s, want the job and its child's 41s, not the MCP server's or the harness's own", used)
-	}
-}
-
-func TestHarnessJobsWalksThroughALaunchShim(t *testing.T) {
-	launched := time.Date(2026, 9, 26, 9, 0, 0, 0, time.UTC)
-	table := processTable{
-		{PID: 20, ParentPID: 1, ExeBase: "node.exe"}:        {start: launched},
-		{PID: 21, ParentPID: 20, ExeBase: "codex.exe"}:      {start: launched.Add(time.Second)},
-		{PID: 22, ParentPID: 21, ExeBase: "node.exe"}:       {start: launched.Add(3 * time.Second)},
-		{PID: 23, ParentPID: 21, ExeBase: "powershell.exe"}: {start: launched.Add(5 * time.Minute), cpu: 2 * time.Second},
-	}
-
-	jobs, _ := harnessJobs(20, table.entries(), harnessLaunch, table.start, table.cpu)
-	if !slices.Equal(jobs, []string{"powershell.exe (pid 23)"}) {
-		t.Errorf("jobs = %v, want the command the codex binary behind its node shim is running", jobs)
-	}
-}
-
-// PowerShell is a shell, not a harness launcher: whatever it started as it
-// opened belongs to it, and is not walked through as though it were the harness.
-func TestHarnessJobsDoesNotWalkThroughPowerShell(t *testing.T) {
-	launched := time.Date(2026, 9, 26, 9, 0, 0, 0, time.UTC)
-	table := processTable{
-		{PID: 30, ParentPID: 1, ExeBase: "pwsh.exe"}:    {start: launched},
-		{PID: 31, ParentPID: 30, ExeBase: "claude.exe"}: {start: launched.Add(time.Second)},
-		{PID: 32, ParentPID: 31, ExeBase: "bash.exe"}:   {start: launched.Add(5 * time.Minute), cpu: 2 * time.Second},
-	}
-
-	jobs, _ := harnessJobs(30, table.entries(), harnessLaunch, table.start, table.cpu)
-	if len(jobs) != 0 {
-		t.Errorf("jobs = %v, want none: pwsh is the foreground program and its child started with it", jobs)
-	}
-}
-
-func TestTranscriptAtFindsEachHarnessTranscript(t *testing.T) {
-	home := t.TempDir()
-	written := time.Date(2026, 9, 26, 9, 0, 0, 0, time.UTC)
-	transcript := func(at time.Time, parts ...string) {
-		t.Helper()
-		path := filepath.Join(append([]string{home}, parts...)...)
-		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
-			t.Fatal(err)
-		}
-		if err := os.WriteFile(path, []byte("{}\n"), 0o644); err != nil {
-			t.Fatal(err)
-		}
-		if err := os.Chtimes(path, at, at); err != nil {
-			t.Fatal(err)
-		}
-	}
-	transcript(written, ".claude", "projects", "C--work-g1", "a1b2.jsonl")
-	transcript(written.Add(5*time.Minute), ".claude", "projects", "C--work-g1", "a1b2", "subagents", "agent-1.jsonl")
-	transcript(written, ".codex", "sessions", "2026", "09", "26", "rollout-2026-09-26T09-00-00-c3d4.jsonl")
-	transcript(written, ".pi", "agent", "sessions", "--C--work-g1--", "2026-09-26T09-00-00-000Z_e5f6.jsonl")
-
-	for _, tc := range []struct {
-		harness, session string
-		want             time.Time
-	}{
-		{"claude", "a1b2", written.Add(5 * time.Minute)},
-		{"codex", "c3d4", written},
-		{"pi", "e5f6", written},
-		{"kimi", "a1b2", time.Time{}},
-		{"claude", "missing", time.Time{}},
-		{"claude", `..\a1b2`, time.Time{}},
-		{"claude", "*", time.Time{}},
-	} {
-		if got := transcriptAt(home, tc.harness, tc.session); !got.Equal(tc.want) {
-			t.Errorf("transcriptAt(%s, %q) = %s, want %s", tc.harness, tc.session, got, tc.want)
-		}
-	}
-}
-
-type processFacts struct {
-	start time.Time
-	cpu   time.Duration
-}
-
-type processTable map[proc.Entry]processFacts
-
-func (table processTable) entries() []proc.Entry {
-	entries := make([]proc.Entry, 0, len(table))
-	for entry := range table {
-		entries = append(entries, entry)
-	}
-	return entries
-}
-
-func (table processTable) facts(pid int) (processFacts, bool) {
-	for entry, facts := range table {
-		if entry.PID == pid {
-			return facts, true
-		}
-	}
-	return processFacts{}, false
-}
-
-func (table processTable) start(pid int) (time.Time, bool) {
-	facts, ok := table.facts(pid)
-	return facts.start, ok
-}
-
-func (table processTable) cpu(pid int) (time.Duration, bool) {
-	facts, ok := table.facts(pid)
-	return facts.cpu, ok
 }
