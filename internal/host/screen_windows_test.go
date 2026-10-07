@@ -231,23 +231,32 @@ func TestAScreenReadStartsNoProcess(t *testing.T) {
 	}
 }
 
-// A Ctrl-C typed to the terminal reaches the terminal's program and the
-// console's input waker, which reads the screen, never the host: the host
-// here is this test process, which a Ctrl-C would end. The waker outlives
-// it, so the screen still reads.
-func TestACtrlCNeverReachesTheHostAndTheScreenStillReads(t *testing.T) {
+// A Ctrl-C typed to the terminal while a screen read is in flight reaches the
+// terminal's program, never the host: the host here is this test process,
+// which a Ctrl-C would end. The read finishes, and the screen still reads.
+func TestACtrlCDuringAScreenReadNeverReachesTheHost(t *testing.T) {
 	obeyCtrlC(t)
+	held := holdScreenReads(t, 2*time.Second)
 	_, record, _ := hostHere(t)
 	v := connect(t, record)
 	v.waitFor(t, "ready")
 	typeLine(t, v, "wait-ctrl-c")
 	v.waitFor(t, "waiting for a ctrl-c")
+	read := make(chan error, 1)
+	go func() {
+		_, err := ReadScreen(record)
+		read <- err
+	}()
+	waitForHold(t, held)
 
 	if err := v.Input([]byte{0x03}); err != nil {
 		t.Fatalf("Input: %v", err)
 	}
 
 	v.waitFor(t, "interrupted")
+	if err := <-read; err != nil {
+		t.Errorf("the read the Ctrl-C came during failed: %v", err)
+	}
 	rows, err := ReadScreen(record)
 	if err != nil || !strings.Contains(ScreenTail(rows, 0), "interrupted") {
 		t.Errorf("ReadScreen after the Ctrl-C = %q, %v; want the screen, showing the interrupt", ScreenTail(rows, 0), err)
