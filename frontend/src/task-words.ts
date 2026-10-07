@@ -215,13 +215,15 @@ export function taskSummary(task: Task, tasks: Task[], status = ""): Summary {
 // The Overlord, 2026-10-05, on the review of these screens: "dont need text
 // under working" and "dont need text under pause fialed". Under these two the
 // panel says nothing; what it would say is the first thing behind Details.
-const QUIET_STATUSES = new Set(["Working", "Pause failed"]);
+const QUIET_STATUSES = new Set(["Working", "Pause did not finish"]);
 
 function summaryOf(task: Task, tasks: Task[]): Summary {
   const record = task.lifecycle;
   const teardown = teardownSentence(task.teardown);
   const join = (...sentences: string[]) => sentences.filter(Boolean).join(" ");
-  if (record?.phase === "failed" && FAILED_ACTION[record.action]) return { sentence: join(FAILED_ACTION[record.action], teardown), details: [...record.problems, ...task.teardown], isFailure: true };
+  // A pause or stop someone asked for that did not finish is no failure of
+  // the goblin's; a goblin that did not start again is.
+  if (record?.phase === "failed" && FAILED_ACTION[record.action]) return { sentence: join(FAILED_ACTION[record.action], teardown), details: [...record.problems, ...task.teardown], isFailure: record.action === "resume" };
   if (task.phase === "paused") return { sentence: join(resumes(record?.pause, tasks, pausedWithParent(task, tasks)), record && !record.handoff_saved ? "The goblin's last saved notes are kept." : "", teardown), details: [...(record?.problems || []), ...task.teardown], isFailure: false };
   if (["pausing", "resuming", "stopping", "stopped"].includes(task.phase)) return { sentence: teardown, details: task.teardown, isFailure: false };
   // A queued task's status says it all; the Overlord wants no wait line.

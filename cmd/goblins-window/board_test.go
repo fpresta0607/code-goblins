@@ -9,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
+	"strings"
 	"sync"
 	"testing"
 
@@ -101,36 +102,86 @@ func TestTheWindowLoadsTheBoardOnlyWhenItsPageIsNotABoards(t *testing.T) {
 	}
 }
 
-// What waits on the Overlord is what the board's page alerts: a pending
-// question by its lead line unless it was asked from an open review page, an
-// open review item, a command ready or running unless a credential card
-// opened it, and an open request for credentials by its project, never by the
-// credential names. A question asked from an open review page is returned as
-// a key beside them, open without an alert of its own. A goblin's question,
-// which names its task, is the CFO's to answer: it is neither listed nor
-// returned as a key, beside its open page or not. The snapshot names the
-// supervisor's instance too.
+// What waits on the Overlord is what the board's page alerts, keyed as the
+// page keys it, by its id and publishing: a pending question by its lead
+// unless it was asked from an open review page, an open review item, a
+// command ready or running unless a credential card opened it, and an open
+// request for credentials by its project, never by the credential names. A
+// question asked from an open review page is returned as a key beside them,
+// open without an alert of its own. A goblin's question, which names its
+// task, is the CFO's to answer: it is neither listed nor returned as a key,
+// beside its open page or not, and a goblin blocked, failed or done is no
+// item at all. The snapshot names the supervisor's instance too.
 func TestWaitingListsWhatTheBoardsPageAlerts(t *testing.T) {
-	snapshot := `{"instance":"i-1","questions":[{"id":"q1","text":"Which plan?\n- details","status":"pending"},{"id":"q2","text":"old","status":"answered"},
-			{"id":"q3","text":"Asked from its page?","status":"pending","page":"r1"},
-			{"id":"notify-shop-4","text":"Which port?","status":"pending","task":"shop"},
-			{"id":"notify-shop-5","text":"Which colour?","status":"pending","task":"shop","page":"r1"}],
-		"reviews":[{"id":"r1","title":"Pick a layout","state":"open"},{"id":"r2","title":"done","state":"answered"}],
-		"runs":[{"id":"u1","title":"Install the tool","state":"ready"},{"id":"u2","title":"ran","state":"finished"},
-			{"id":"u3","title":"Sign in","state":"ready","credential_request":"c1"}],
-		"credentials":[{"id":"c1","project":"shop","state":"open","names":["API_KEY"]},{"id":"c2","project":"blog","state":"saved","names":["TOKEN"]}]}`
+	snapshot := `{"instance":"i-1","tasks":[{"id":"shop","title":"Open the shop; Claude Code","phase":"failed","reason":"Waiting on the CFO: Requested by the operator; worktree C:\\work"},{"id":"blog","title":"Blog","phase":"done","pr":"https://github.com/o/r/pull/7"}],
+		"questions":[{"id":"q1","text":"Which plan?\n- details","status":"pending","created_at":"2026-10-01T12:00:00Z"},{"id":"q2","text":"old","status":"answered","created_at":"2026-10-01T12:00:00Z"},
+			{"id":"q3","text":"Asked from its page?","status":"pending","page":"r1","created_at":"2026-10-01T12:03:00Z"},
+			{"id":"notify-shop-4","text":"Which port?","status":"pending","task":"shop","created_at":"2026-10-01T12:04:00Z"},
+			{"id":"notify-shop-5","text":"Which colour?","status":"pending","task":"shop","page":"r1","created_at":"2026-10-01T12:05:00Z"}],
+		"reviews":[{"id":"r1","title":"Pick a layout","state":"open","task":"shop","created_at":"2026-10-01T12:01:00Z"},{"id":"r2","title":"done","state":"answered","created_at":"2026-10-01T12:00:00Z"}],
+		"runs":[{"id":"u1","title":"Install the tool","state":"ready","created_at":"2026-10-01T12:02:00Z"},{"id":"u2","title":"ran","state":"finished","created_at":"2026-10-01T12:00:00Z"},
+			{"id":"u3","title":"Sign in","state":"ready","credential_request":"c1","created_at":"2026-10-01T12:00:00Z"}],
+		"credentials":[{"id":"c1","project":"shop","state":"open","task":"shop","names":["API_KEY"],"created_at":"2026-10-01T12:06:00Z"},{"id":"c2","project":"blog","state":"saved","names":["TOKEN"],"created_at":"2026-10-01T12:00:00Z"}]}`
 
 	instance, items, folded, err := waiting([]byte(snapshot))
 
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := []Item{{"question:q1", "Which plan?"}, {"review:r1", "Pick a layout"}, {"run:u1", "Install the tool"}, {"credential:c1", "Credentials wanted for shop"}}
+	want := []Item{
+		{"question:q1@2026-10-01T12:00:00Z", "CFO", "The CFO asks: Which plan?"},
+		{"review:r1@2026-10-01T12:01:00Z", "Open the shop", "Open the shop wants your review: Pick a layout"},
+		{"run:u1@2026-10-01T12:02:00Z", "CFO", "A command waits for you to run it: Install the tool"},
+		{"credential:c1@2026-10-01T12:06:00Z", "Open the shop", "Open the shop asks for credentials for shop"},
+	}
 	if instance != "i-1" || !slices.Equal(items, want) {
 		t.Errorf("waiting = %q, %+v; want i-1, %+v", instance, items, want)
 	}
-	if !slices.Equal(folded, []string{"question:q3"}) {
+	if !slices.Equal(folded, []string{"question:q3@2026-10-01T12:03:00Z"}) {
 		t.Errorf("folded = %v, want question:q3 alone", folded)
+	}
+}
+
+// The Overlord, 2026-10-07: an alert is one plain line in the asker's words,
+// never raw text. The window says each item as the board's page says it: who
+// asks, by its goblin's title without its harness, and the item's own words
+// on one line, without Markdown's marks, a table of values, a wait's queue
+// prefix or its page's link.
+func TestEachItemIsNotifiedInItsAskersWordsOnOnePlainLine(t *testing.T) {
+	page := "http://127.0.0.1:4387/session/f26e"
+	longTitle := strings.Repeat("Answers are never lost ", 5)
+	for name, test := range map[string]struct {
+		item string
+		want Item
+	}{
+		"the CFO's question, its marks dropped and its details left out": {`"questions":[{"id":"q1","text":"Ship **now**?\n\n- details","status":"pending","created_at":"T"}]`,
+			Item{"question:q1@T", "CFO", "The CFO asks: Ship now?"}},
+		"a question that opens with a table of values": {`"questions":[{"id":"q1","text":"| Type | Name |\n| --- | --- |\n| CNAME | ` + "`mcp`" + ` |\nMay I add these records?","status":"pending","created_at":"T"}]`,
+			Item{"question:q1@T", "CFO", "The CFO asks: May I add these records?"}},
+		"a question whose lead is a bullet": {`"questions":[{"id":"q1","text":"- Pick **one** of ` + "`a`" + ` or ` + "`b`" + `\n- details","status":"pending","created_at":"T"}]`,
+			Item{"question:q1@T", "CFO", "The CFO asks: Pick one of a or b"}},
+		"a goblin's wait, with a table and its page": {`"reviews":[{"id":"waiting-shop-4","task":"shop","state":"open","created_at":"T","lavish":"` + page + `","title":"Waiting on you: Add the DNS records in **Cloudflare**\n| Type | Name |\n| --- | --- |\n| CNAME | ` + "`mcp`" + ` |\nthen tell me (page ` + page + `)"}]`,
+			Item{"review:waiting-shop-4@T", "Open the shop", "Open the shop is waiting on you: Add the DNS records in Cloudflare then tell me"}},
+		"a goblin no longer on the board": {`"reviews":[{"id":"r1","task":"gone","state":"open","created_at":"T","title":"Review the plan"}]`,
+			Item{"review:r1@T", "gone", "gone wants your review: Review the plan"}},
+		"a goblin whose title is a whole sentence": {`"reviews":[{"id":"r1","task":"long","state":"open","created_at":"T","title":"Review the plan"}]`,
+			Item{"review:r1@T", strings.TrimSpace(longTitle), "Answers are never lost Answers are never lost Answers are n… wants your review: Review the plan"}},
+		"a goblin's command to run": {`"runs":[{"id":"u1","task":"shop","state":"ready","created_at":"T","title":"Sign in to **GitHub**"}]`,
+			Item{"run:u1@T", "Open the shop", "Open the shop asks you to run a command: Sign in to GitHub"}},
+		"a new release": {`"runs":[{"id":"update-v0.6.0","state":"ready","created_at":"T","title":"Update","update":{"from":"v0.5.1","to":"v0.6.0"}}]`,
+			Item{"run:update-v0.6.0@T", "Code Goblins", "Code Goblins v0.6.0 is ready: update from v0.5.1"}},
+		"a question past what a notification says": {`"questions":[{"id":"q1","text":"Ship it? ` + strings.Repeat("x", 300) + `","status":"pending","created_at":"T"}]`,
+			Item{"question:q1@T", "CFO", "The CFO asks: Ship it? " + strings.Repeat("x", 136) + "…"}},
+	} {
+		t.Run(name, func(t *testing.T) {
+			snapshot := `{"instance":"i-1","tasks":[{"id":"shop","title":"Open the shop; Claude Code"},{"id":"long","title":"` + longTitle + `"}],` + test.item + `}`
+
+			_, items, _, err := waiting([]byte(snapshot))
+
+			if err != nil || !slices.Equal(items, []Item{test.want}) {
+				t.Errorf("waiting = %+v, %v; want %+v", items, err, test.want)
+			}
+		})
 	}
 }
 
@@ -139,8 +190,8 @@ func TestWaitingListsWhatTheBoardsPageAlerts(t *testing.T) {
 // never there before still is.
 func TestTheWatcherDoesNotTellAQuestionItsPageCarried(t *testing.T) {
 	var mu sync.Mutex
-	snapshot := `{"instance":"i-1","questions":[{"id":"q1","text":"Asked from its page?","status":"pending","page":"r1"}],
-		"reviews":[{"id":"r1","title":"Pick a layout","state":"open"}]}`
+	snapshot := `{"instance":"i-1","questions":[{"id":"q1","text":"Asked from its page?","status":"pending","page":"r1","created_at":"T1"}],
+		"reviews":[{"id":"r1","title":"Pick a layout","state":"open","created_at":"T0"}]}`
 	board := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		mu.Lock()
 		defer mu.Unlock()
@@ -151,15 +202,15 @@ func TestTheWatcherDoesNotTellAQuestionItsPageCarried(t *testing.T) {
 
 	first, _ := watcher.New(board.URL)
 	mu.Lock()
-	snapshot = `{"instance":"i-1","questions":[{"id":"q1","text":"Asked from its page?","status":"pending"},{"id":"q2","text":"Never there before?","status":"pending"}],
-		"reviews":[{"id":"r1","title":"Pick a layout","state":"withdrawn"}]}`
+	snapshot = `{"instance":"i-1","questions":[{"id":"q1","text":"Asked from its page?","status":"pending","created_at":"T1"},{"id":"q2","text":"Never there before?","status":"pending","created_at":"T2"}],
+		"reviews":[{"id":"r1","title":"Pick a layout","state":"withdrawn","created_at":"T0"}]}`
 	mu.Unlock()
 	second, _ := watcher.New(board.URL)
 
 	if len(first) != 0 {
 		t.Errorf("first look = %+v, want nothing: it only learns what waits", first)
 	}
-	if !slices.Equal(second, []Item{{"question:q2", "Never there before?"}}) {
+	if !slices.Equal(second, []Item{{"question:q2@T2", "CFO", "The CFO asks: Never there before?"}}) {
 		t.Errorf("second look = %+v, want the question that was never there alone", second)
 	}
 }
@@ -169,7 +220,7 @@ func TestTheWatcherDoesNotTellAQuestionItsPageCarried(t *testing.T) {
 // be read shows nothing new.
 func TestTheWatcherTellsOnlyNewItems(t *testing.T) {
 	var mu sync.Mutex
-	snapshot := `{"instance":"i-1","questions":[{"id":"q1","text":"First?","status":"pending"}]}`
+	snapshot := `{"instance":"i-1","questions":[{"id":"q1","text":"First?","status":"pending","created_at":"T1"}]}`
 	board := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		mu.Lock()
 		defer mu.Unlock()
@@ -184,7 +235,7 @@ func TestTheWatcherTellsOnlyNewItems(t *testing.T) {
 
 	first, answered := watcher.New(board.URL)
 	mu.Lock()
-	snapshot = `{"instance":"i-2","questions":[{"id":"q1","text":"First?","status":"pending"},{"id":"q2","text":"Second?","status":"pending"}]}`
+	snapshot = `{"instance":"i-2","questions":[{"id":"q1","text":"First?","status":"pending","created_at":"T1"},{"id":"q2","text":"Second?","status":"pending","created_at":"T2"},{"id":"q1","text":"First, asked again?","status":"pending","created_at":"T3"}]}`
 	mu.Unlock()
 	second, _ := watcher.New(board.URL)
 	third, _ := watcher.New(board.URL)
@@ -193,8 +244,8 @@ func TestTheWatcherTellsOnlyNewItems(t *testing.T) {
 	if len(first) != 0 {
 		t.Errorf("first look = %+v, want nothing: it only learns what waits", first)
 	}
-	if !slices.Equal(second, []Item{{"question:q2", "Second?"}}) {
-		t.Errorf("second look = %+v, want the new question alone", second)
+	if !slices.Equal(second, []Item{{"question:q2@T2", "CFO", "The CFO asks: Second?"}, {"question:q1@T3", "CFO", "The CFO asks: First, asked again?"}}) {
+		t.Errorf("second look = %+v, want the new question and the first's ID published again", second)
 	}
 	if len(third) != 0 || len(unreadable) != 0 {
 		t.Errorf("third look %+v, unreadable board %+v; want nothing new", third, unreadable)

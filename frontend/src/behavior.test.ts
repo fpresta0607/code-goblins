@@ -573,13 +573,18 @@ test("a run item states its progress in plain words with its exit code", () => {
   cases.forEach(([label, icon, trouble], index) => assert.deepEqual(runMark(runs[index]), { icon, label, trouble }, runs[index].id));
 });
 
+// A pause or stop that did not finish is the task's status, but never drawn as
+// the goblin failing: the CFO or the Overlord asked for it, and the CFO hears
+// of it (the Overlord, 2026-10-07: a pause or retirement the CFO asked for is
+// never shown as a failure). A goblin that did not start again is.
 test("an action that did not finish is the task's one status, and in-flight work wins over it", () => {
   const failed = (action: string, phase = "working") => parseSnapshot({ healthy: true, tasks: [{ id: "a", title: "A; Claude Code", phase, generation: "s1", verified: false,
     lifecycle: { phase: "failed", action, at: "2026-10-05T16:30:06Z", kept: [], stopped: [], problems: ["context deadline exceeded"], handoff_saved: false, validation_restarts: false } }] }).tasks[0];
   const cases: [string, ReturnType<typeof failed>, string, string][] = [
-    ["a pause that ran out of time, whose goblin still reports working", failed("pause"), "Pause failed", "failed"],
+    ["a pause that ran out of time, whose goblin still reports working", failed("pause"), "Pause did not finish", "pausing"],
+    ["a pause that ran out of time on a goblin read as failed", failed("pause", "failed"), "Pause did not finish", "pausing"],
     ["a resume that failed", failed("resume", "unavailable"), "Resume failed", "failed"],
-    ["a stop that failed", failed("stop"), "Stop failed", "failed"],
+    ["a stop that did not finish", failed("stop"), "Stop did not finish", "stopping"],
     ["a new pause under way", failed("pause", "pausing"), "Pausing", "pausing"],
   ];
   for (const [name, task, status, phase] of cases) {

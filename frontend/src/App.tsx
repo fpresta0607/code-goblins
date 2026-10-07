@@ -316,7 +316,7 @@ export function App() {
     {updated && <div className="update-banner" role="status"><span>The board was updated.</span><button className="primary" onClick={() => location.reload()}>Reload</button></div>}
     {snapshot && <ComebackBanner comeback={snapshot.comeback} />}
     {snapshot && !updated && <ReleaseBanner snapshot={snapshot} onOpen={(key) => setCommandFocus({ key, at: Date.now() })} />}
-    {snapshot && <Alerts snapshot={snapshot} onOpen={(target) => { if (target.kind === "command") setCommandFocus({ key: target.key, at: Date.now() }); else if (target.kind === "cfo") { setView("Board"); switchTo(CFO_KEY); } else select({ task: target.id }, document.body, "task"); }} />}
+    {snapshot && <Alerts snapshot={snapshot} onOpen={(key) => setCommandFocus({ key, at: Date.now() })} />}
     {firstRun ? <main className="first-run-region" aria-label="First run">
       {snapshot && <FirstRun instance={snapshot.instance} onStarted={() => { setFirstRunChoice("started"); setView("Board"); switchTo(CFO_KEY); }} onBoard={() => setFirstRunChoice("board")} />}
     </main> : <div ref={workspace} className={"workspace" + (paneOpen ? " with-pane" : "") + (view === "Board" && boardLayout === "kanban" ? " kanban" : "") + (resizing && divided ? " resizing" : "")} style={layout}>

@@ -366,11 +366,11 @@ func TestWhileAFKModeIsOnTheBoardIsHandedNothingToAnnounce(t *testing.T) {
 	}
 
 	// Act
-	away := askToAnnounce(t, s, `{"keys":["alert:question:q1","open:question:q1"],"news":["alert:task:a:g1:done:pr7"]}`)
+	away := askToAnnounce(t, s, `{"keys":["alert:question:q1","open:question:q1"]}`)
 	if _, err := afk.TurnOff(h.State, "the board", time.Now()); err != nil {
 		t.Fatal(err)
 	}
-	back := askToAnnounce(t, s, `{"keys":["alert:question:q1","open:question:q1","alert:question:q2"],"news":["alert:task:a:g1:done:pr7"]}`)
+	back := askToAnnounce(t, s, `{"keys":["alert:question:q1","open:question:q1","alert:question:q2"]}`)
 
 	// Assert
 	if len(away) != 0 {
@@ -404,7 +404,7 @@ func TestWhileAFKModeIsOnABoardWhoseQuestionCannotBeRecordedIsHandedNothing(t *t
 	}
 
 	// Act
-	claimed := askToAnnounce(t, s, `{"keys":["alert:question:q1","open:question:q1"],"news":["alert:task:a:g1:blocked"]}`)
+	claimed := askToAnnounce(t, s, `{"keys":["alert:question:q1","open:question:q1"]}`)
 
 	// Assert
 	if len(claimed) != 0 {

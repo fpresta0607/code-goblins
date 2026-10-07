@@ -257,21 +257,31 @@ for (const response of ["successful", "failed"] as const) test(`a late ${respons
 });
 
 test("with AFK on, a new item raises no alert and opens nothing, even when the supervisor cannot be asked what was announced", async ({ page }) => {
+  await page.addInitScript(() => {
+    class Note {
+      static permission = "granted";
+      static requestPermission = async () => "granted";
+      constructor(public title: string, public options: { body: string }) { (window as unknown as { notes: string[] }).notes.push(options.body); }
+      close() {}
+    }
+    Object.assign(window, { notes: [], Notification: Note });
+    Object.defineProperty(document, "hidden", { configurable: true, get: () => true });
+  });
+  const notes = () => page.evaluate(() => (window as unknown as { notes: string[] }).notes);
   await open(page, snapshot({ afk: on() }), { asked: [], refuses: false, announces: false });
   const asked = page.waitForResponse((response) => new URL(response.url()).pathname === "/api/announce");
   await push(page, snapshot({ questions: [QUESTIONS[1]], afk: on({ held: [HELD[1]] }) }));
   await asked;
   await expect(bar(page).locator(".cfo-rest > p")).toHaveText(/1 held for you\.$/);
   await page.waitForTimeout(500);
-  await expect(page.locator(".toasts .dialogue")).toHaveCount(0);
+  expect(await notes()).toEqual([]);
   await expect(page.locator("dialog.question-modal")).not.toBeVisible();
   // The same failed ask with AFK off announces from what this browser
-  // remembers, as it always has: an item shows no toast, so a goblin's news
-  // stands for it.
+  // remembers, as it always has: the item that is new since is notified, and
+  // the one that arrived while he was away never is.
   await push(page, snapshot({ questions: QUESTIONS }));
-  await push(page, snapshot({ questions: QUESTIONS, tasks: TASKS.map((task) => task.id === "nw-invoice-export" ? { ...task, phase: "done", pr: "https://github.com/northwind/northwind-api/pull/412" } : task) }));
-  await expect(page.locator(".toasts .dialogue")).toContainText("nw-invoice-export finished");
-  await expect(page.locator(".toasts")).not.toContainText("Migration 0042");
+  await expect.poll(notes).toEqual(["The CFO asks: Migration 0042 drops the legacy_invoices table. Apply it?"]);
+  await expect(page.locator("dialog.question-modal")).not.toBeVisible();
 });
 
 test("his first click after he has been gone still does what he meant and offers to turn AFK off: keys typed blind press nothing, Stay AFK keeps it on, and Turn AFK off shows the report", async ({ page }) => {
