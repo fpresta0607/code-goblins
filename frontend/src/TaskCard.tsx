@@ -56,6 +56,8 @@ export function TaskCard({ task, snapshot, selected, presentations, now, rank, n
   const ended = (column === "Paused" || column === "Completed") && task.at ? new Date(task.at) : null;
   const status = statusPhase(task) === "paused" ? pauseStatus(task.lifecycle?.pause, snapshot.tasks, snapshot.ci_durations) : nodeStatus({ id: task.id, title: task.title, task, relation: "" }, asking);
   const stalled = stalledText(task, now);
+  const parent = task.parent && snapshot.tasks.find((other) => other.id === task.parent);
+  const parentName = parent ? withoutHarness(parent.title) || parent.id : task.parent;
   // What runs under a live goblin, as baby goblins with a count each, and
   // the child that has gone silent longest with its last line.
   const kinds = column === "In progress" ? summarize(task.tree).kinds : [];
@@ -65,6 +67,7 @@ export function TaskCard({ task, snapshot, selected, presentations, now, rank, n
     <span className="card-copy">{presentations.some((event) => event.task_id === task.id) && <span className="browser-indicator">Browser active</span>}{next && <span className={"next-chip" + (next.tone ? " " + next.tone : "")}>{next.text}</span>}<strong className="card-title">{name}</strong>
       {rank && <span className="sr-only">, {rank}</span>}
       <span className="card-meta">{task.project && <span className="card-repo">{task.project}</span>}<span className={"plain-status phase-" + statusPhase(task) + (task.archived && task.phase !== "stopped" ? " pr-" + icon : "")}><span className="status-dot" /><span className="card-status-text">{status}</span></span></span>
+      {parentName && <span className="card-secondary">Helper of {parentName}</span>}
       {clockBadge}
       {stalled && <span className="card-stalled"><Icon name="warning" />{stalled}</span>}
       {kinds.length > 0 && <span className="card-tree">{kinds.map(([baby, count]) => <span key={baby} className="tree-tally"><BabyGoblin baby={baby} small />{count}</span>)}{task.tree && formatMemory(task.tree.memory)}</span>}

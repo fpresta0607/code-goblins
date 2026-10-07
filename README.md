@@ -680,6 +680,8 @@ cfo backlog done <id>
 cfo reap [--dry-run|--apply]
 cfo drain
 cfo notify <id> --done --pr <url> | --blocked "<question>" | --failed "<reason>" | --working "<what>" | --waiting-on <task-id|overlord|ci|deploy|memory> "<why>" [--lavish <html-file>] [--link <https-url>] [--run <command-file>]
+cfo helper start <parent-id> --brief <file> [--title "<short title>"]
+cfo helper merge <parent-id>
 cfo question --id <stable-id> --text "<question>" [--option "<choice>"]... [--recommend "<exact-choice>"]
 cfo answer <question-id|wake-seq> --option <choice> [--note "<text>"]
 cfo answer <question-id> --option <choice> [--note "<text>"] --record-only [--in <where>]
@@ -691,6 +693,14 @@ cfo run-request --withdraw <id> --reason "<why>"
 ```
 
 Run `cfo doctor` after installation for the current dependency and harness health report.
+
+### Helper goblins
+
+A goblin can ask the supervisor for one helper goblin of its own: it writes the helper's brief to a file and runs `cfo helper start <its-id> --brief <file> --title "<short title>"`.
+The supervisor starts it only when memory allows (5 GB free to start, never under the 4 GB floor), one helper per goblin at a time and never a helper of a helper, and a refusal says why and when to ask again.
+The helper works in a worktree of its own, on a branch cut from its parent's last commit, and reports to its parent rather than the CFO.
+When it is done, the parent runs `cfo helper merge <its-id>`, which merges the helper's branch into its own with a merge commit and retires the helper; the parent stays the one who opens the pull request.
+Pausing or stopping a goblin pauses or stops its helper with it, `cfo fleet-view` names each helper's parent, and the board hangs each helper under its parent in the family tree.
 
 ### Working beside teammates
 

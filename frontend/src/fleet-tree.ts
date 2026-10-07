@@ -3,20 +3,21 @@ import { clockText } from "./cards.ts";
 
 // Baby is the baby goblin a child is drawn as: its kind, and for a job of
 // processes what that job is doing. The heads are one generated atlas,
-// goblin-babies.png, in this order.
-export type Baby = "subagent" | "shell" | "monitor" | "gate" | "server" | "test" | "build" | "browser" | "other";
-export const BABIES: Baby[] = ["subagent", "shell", "monitor", "gate", "server", "test", "build", "browser", "other"];
+// goblin-babies.png, in this order; a helper goblin, which has no head of
+// its own, wears the sub-agent's.
+export type Baby = "subagent" | "shell" | "monitor" | "gate" | "server" | "test" | "build" | "browser" | "other" | "helper";
+export const BABIES: Baby[] = ["subagent", "shell", "monitor", "gate", "server", "test", "build", "browser", "other", "helper"];
 
 // What each baby goblin is, as its tip says.
 export const BABY_NAMES: Record<Baby, string> = {
   subagent: "Sub-agent", shell: "Background shell", monitor: "Monitor", gate: "Gate run",
-  server: "Dev server", test: "Test run", build: "Build", browser: "Browser", other: "Process",
+  server: "Dev server", test: "Test run", build: "Build", browser: "Browser", other: "Process", helper: "Helper goblin",
 };
 
 const JOB_BABIES: Record<string, Baby> = { "dev-server": "server", test: "test", build: "build", browser: "browser" };
 
 export function babyFor(node: TreeNode): Baby {
-  if (node.kind === "subagent" || node.kind === "shell" || node.kind === "monitor" || node.kind === "gate") return node.kind;
+  if (node.kind === "subagent" || node.kind === "shell" || node.kind === "monitor" || node.kind === "gate" || node.kind === "helper") return node.kind;
   return JOB_BABIES[node.group] || "other";
 }
 
@@ -101,7 +102,13 @@ export const CANVAS_FINISHED = 3;
 export const canvasChildren = (tree?: FleetTree) => [...running(tree), ...finished(tree).slice(0, CANVAS_FINISHED)];
 
 // isHeldByTree is whether a session is a sub-agent a native hook reported whose
-// goblin's family tree holds it: it shows as a baby goblin under its goblin,
-// not as a card of its own as well.
+// goblin's family tree holds it, or a helper goblin's whose parent's tree
+// holds it: it shows as a baby goblin under that goblin, not as a card of its
+// own as well.
 export const isHeldByTree = (snapshot: Snapshot, session: Session): boolean =>
-  session.role === "subagent" && snapshot.tasks.some((task) => task.id === session.task_id && task.tree !== undefined);
+  session.role === "subagent" && snapshot.tasks.some((task) => task.id === session.task_id && task.tree !== undefined)
+  || session.role === "goblin" && isHelperHeld(snapshot, session.task_id);
+
+// isHelperHeld is whether helper task id hangs in its parent's family tree.
+export const isHelperHeld = (snapshot: Snapshot, id: string): boolean =>
+  snapshot.tasks.some((task) => (task.tree?.children || []).some((node) => node.kind === "helper" && node.id === "helper:" + id));

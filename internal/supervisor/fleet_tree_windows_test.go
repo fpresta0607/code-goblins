@@ -92,3 +92,66 @@ func TestSnapshotCarriesEachLiveGoblinsTree(t *testing.T) {
 		t.Errorf("the snapshot's JSON carries no tree with its freshness: %s", data)
 	}
 }
+
+// A helper hangs under its parent in the family tree, where its own report
+// and lifecycle say how it stands, and its own card names its parent; a
+// helper whose parent's tree is not read keeps a card of its own only.
+func TestAHelperHangsUnderItsParentInTheFamilyTree(t *testing.T) {
+	// Arrange
+	store, h := testStore(t)
+	userHome := t.TempDir()
+	helper := treeGoblin(t, h.State, userHome, "g1-h1", true)
+	helper.Parent, helper.Title = "g1", "Accounts migration"
+	if err := state.WriteTaskMeta(h.State, helper); err != nil {
+		t.Fatal(err)
+	}
+	treeGoblin(t, h.State, userHome, "g1", true)
+	orphan := treeGoblin(t, h.State, userHome, "g2-h1", true)
+	orphan.Parent = "g2"
+	if err := state.WriteTaskMeta(h.State, orphan); err != nil {
+		t.Fatal(err)
+	}
+	if err := state.AppendStatus(h.State, "g1-h1", "done: ready for g1 to merge"); err != nil {
+		t.Fatal(err)
+	}
+	if err := state.AppendStatus(h.State, "g1-h1", "starting: a status line that is no report"); err != nil {
+		t.Fatal(err)
+	}
+	service := &Service{Store: store, Instance: "tree", Options: Options{Tree: &fleettree.Reader{Home: userHome}}}
+
+	// Act
+	service.readTrees(context.Background())
+	snapshot, err := service.Snapshot()
+
+	// Assert
+	if err != nil {
+		t.Fatal(err)
+	}
+	tasks := map[string]Task{}
+	for _, task := range snapshot.Tasks {
+		tasks[task.ID] = task
+	}
+	parent := tasks["g1"]
+	if parent.Tree == nil {
+		t.Fatal("g1 has no tree")
+	}
+	var found *fleettree.Node
+	for i, child := range parent.Tree.Children {
+		if child.Kind == fleettree.KindHelper {
+			found = &parent.Tree.Children[i]
+		}
+	}
+	if found == nil || found.ID != "helper:g1-h1" || found.Label != "Accounts migration" || found.State != fleettree.Done {
+		t.Errorf("g1's helper child = %+v, want g1-h1 done", found)
+	}
+	if tasks["g1-h1"].Parent != "g1" || tasks["g1"].Parent != "" || tasks["g2-h1"].Parent != "g2" {
+		t.Errorf("parents = %q, %q, %q; want each task's own", tasks["g1-h1"].Parent, tasks["g1"].Parent, tasks["g2-h1"].Parent)
+	}
+	if tree := tasks["g1-h1"].Tree; tree != nil {
+		for _, child := range tree.Children {
+			if child.Kind == fleettree.KindHelper {
+				t.Errorf("the helper's own tree holds a helper: %+v", child)
+			}
+		}
+	}
+}
