@@ -129,18 +129,11 @@ func TestStoppingAGoblinLeavesTheMachineServicesItStartedRunning(t *testing.T) {
 	}
 	hostEnded := make(chan struct{})
 	go func() { _ = hostProcess.Wait(); close(hostEnded) }()
-	started := map[string]int{}
 	t.Cleanup(func() {
-		for _, pid := range started {
-			if handle, err := windows.OpenProcess(windows.PROCESS_TERMINATE|windows.SYNCHRONIZE, false, uint32(pid)); err == nil {
-				_ = windows.TerminateProcess(handle, 1)
-				_, _ = windows.WaitForSingleObject(handle, 10000)
-				_ = windows.CloseHandle(handle)
-			}
-		}
 		_ = hostProcess.Process.Kill()
 		<-hostEnded
 	})
+	started := map[string]int{}
 	for deadline := time.Now().Add(30 * time.Second); len(started) < 4; time.Sleep(50 * time.Millisecond) {
 		if data, err := os.ReadFile(pids); err == nil {
 			for _, line := range strings.Split(strings.TrimSpace(string(data)), "\n") {
@@ -152,6 +145,12 @@ func TestStoppingAGoblinLeavesTheMachineServicesItStartedRunning(t *testing.T) {
 		if time.Now().After(deadline) {
 			t.Fatalf("the goblin fixture reported %v, want its goblin, own process, service and backend", started)
 		}
+	}
+	// Each fixture waits a minute, and nothing ends one before the stop
+	// below, so each pid still names its fixture here.
+	held := map[string]windows.Handle{}
+	for name, pid := range started {
+		held[name] = standin.Hold(t, pid)
 	}
 	resources, err := TaskResources(t.Context(), h, meta, pipeline.Reader{Root: filepath.Join(root, "gate"), Commands: execx.OSRunner{}})
 	if err != nil {
@@ -173,26 +172,21 @@ func TestStoppingAGoblinLeavesTheMachineServicesItStartedRunning(t *testing.T) {
 		t.Errorf("the goblin's terminal host still runs after the stop; stopped %v", stopped)
 	}
 	for _, name := range []string{"goblin", "own"} {
-		if lifecycleRunning(started[name]) {
+		if lifecycleRunning(held[name]) {
 			t.Errorf("the goblin's %s process, pid %d, still runs after the stop; stopped %v", name, started[name], stopped)
 		}
 	}
 	time.Sleep(time.Second)
 	for _, name := range []string{"service", "backend"} {
-		if !lifecycleRunning(started[name]) {
+		if !lifecycleRunning(held[name]) {
 			t.Errorf("the stand-in Docker Desktop's %s process, pid %d, ended with the goblin; stopped %v", name, started[name], stopped)
 		}
 	}
 }
 
-// lifecycleRunning reports whether pid still runs, waiting up to two seconds
-// for it to end.
-func lifecycleRunning(pid int) bool {
-	handle, err := windows.OpenProcess(windows.SYNCHRONIZE, false, uint32(pid))
-	if err != nil {
-		return false
-	}
-	defer windows.CloseHandle(handle)
-	event, _ := windows.WaitForSingleObject(handle, 2000)
+// lifecycleRunning reports whether process still runs, waiting up to two
+// seconds for it to end.
+func lifecycleRunning(process windows.Handle) bool {
+	event, _ := windows.WaitForSingleObject(process, 2000)
 	return event == uint32(windows.WAIT_TIMEOUT)
 }

@@ -154,8 +154,8 @@ func (f pollFixture) poll(dir string, args ...string) int {
 }
 
 // pollUnder starts parent in parentDir, which starts a lavish-axi stand-in in
-// childDir with args and prints its pid once it runs. Both are stopped by pid
-// when the test ends; an orphaned poll's parent exits before this returns.
+// childDir with args and prints its pid once it runs. Both are stopped when
+// the test ends; an orphaned poll's parent exits before this returns.
 func (f pollFixture) pollUnder(parent, parentDir, childDir string, orphan bool, args ...string) int {
 	f.t.Helper()
 	command := exec.Command(parent, args...)
@@ -183,10 +183,15 @@ func (f pollFixture) pollUnder(parent, parentDir, childDir string, orphan bool, 
 	if err != nil {
 		f.t.Fatalf("the parent stand-in printed %q, want the child pid", line)
 	}
+	// Found while it runs, so the end below reaches it and no later process
+	// that took its pid.
+	child, err := os.FindProcess(pid)
+	if err != nil {
+		f.t.Fatalf("find the poll stand-in, pid %d: %v", pid, err)
+	}
 	f.t.Cleanup(func() {
-		if process, err := os.FindProcess(pid); err == nil {
-			_ = process.Kill()
-		}
+		_ = child.Kill()
+		_ = child.Release()
 	})
 	if orphan {
 		if err := command.Wait(); err != nil {
