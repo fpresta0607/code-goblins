@@ -1,4 +1,4 @@
-import { ORIGIN, expect, servePages, test, type Page, type Route } from "./site";
+import { expect, test, type Page, type Route } from "./site";
 
 // AFK mode on the board: the toggle in the CFO panel's header, what the CFO's
 // bar holds for the Overlord while it is on, the offer when he is back and the
@@ -446,45 +446,43 @@ test("on a phone the bar keeps its line, its terminal and what is held inside it
   expect(await fits(page)).toBe(true);
 });
 
-test("in the desktop window the toggle sits on the header's first row, and on a panel at its narrowest it is still there and inside the header", async ({ browser }) => {
-  // His window: maximized on a 2560 by 1600 screen at 150 percent.
-  const context = await browser.newContext({ viewport: { width: 1707, height: 1067 }, deviceScaleFactor: 1.5, baseURL: ORIGIN });
-  await servePages(context);
-  const page = await context.newPage();
-  await open(page, snapshot({ questions: QUESTIONS, afk: on({ decided: 4, held: HELD }) }));
-  await openHeld(page);
-  await expect(bar(page).locator(".afk-held li")).toHaveCount(2);
-  await openCfoPanel(page);
-  for (const view of ["Task", "Terminal"]) {
-    await page.locator(".panel-pill").getByRole("button", { name: view, exact: true }).click();
-    const rows = await header(page).evaluate((element) => [".goblin-avatar", ".afk-toggle"].map((selector) => { const box = element.querySelector(selector)!.getBoundingClientRect(); return [Math.round(box.top), Math.round(box.bottom)]; }));
-    // The toggle is beside the CFO's portrait, name and status, not under them.
-    expect(rows[1][0], view + " view").toBeLessThan(rows[0][1]);
-    expect(rows[1][1], view + " view").toBeGreaterThan(rows[0][0]);
-    expect(await within(page, ".panel-header"), view + " view").toBe(true);
-  }
-  expect(await within(page, ".cfo-rest")).toBe(true);
-  expect(await fits(page)).toBe(true);
-  await context.close();
+// His window: maximized on a 2560 by 1600 screen at 150 percent.
+test.describe("in the desktop window", () => {
+  test.use({ viewport: { width: 1707, height: 1067 }, deviceScaleFactor: 1.5 });
+
+  test("the toggle sits on the header's first row", async ({ page }) => {
+    await open(page, snapshot({ questions: QUESTIONS, afk: on({ decided: 4, held: HELD }) }));
+    await openHeld(page);
+    await expect(bar(page).locator(".afk-held li")).toHaveCount(2);
+    await openCfoPanel(page);
+    for (const view of ["Task", "Terminal"]) {
+      await page.locator(".panel-pill").getByRole("button", { name: view, exact: true }).click();
+      const rows = await header(page).evaluate((element) => [".goblin-avatar", ".afk-toggle"].map((selector) => { const box = element.querySelector(selector)!.getBoundingClientRect(); return [Math.round(box.top), Math.round(box.bottom)]; }));
+      // The toggle is beside the CFO's portrait, name and status, not under them.
+      expect(rows[1][0], view + " view").toBeLessThan(rows[0][1]);
+      expect(rows[1][1], view + " view").toBeGreaterThan(rows[0][0]);
+      expect(await within(page, ".panel-header"), view + " view").toBe(true);
+    }
+    expect(await within(page, ".cfo-rest")).toBe(true);
+    expect(await fits(page)).toBe(true);
+  });
 
   // The panel dragged to its narrowest, 360 pixels: the header wraps rather
   // than hide or cover the toggle.
-  const narrow = await browser.newContext({ viewport: { width: 1707, height: 1067 }, deviceScaleFactor: 1.5, baseURL: ORIGIN });
-  await servePages(narrow);
-  const small = await narrow.newPage();
-  await small.addInitScript(() => localStorage.setItem("cfo-pane-width", "360"));
-  await open(small, snapshot({ afk: on() }));
-  await openCfoPanel(small);
-  for (const view of ["Task", "Terminal"]) {
-    await small.locator(".panel-pill").getByRole("button", { name: view, exact: true }).click();
-    expect(Math.round((await small.locator(".context-pane").boundingBox())!.width), view + " view").toBe(360);
-    await expect(toggle(small)).toBeVisible();
-    expect(await within(small, ".panel-header"), view + " view").toBe(true);
-    const overlap = await header(small).evaluate((element) => {
-      const status = element.querySelector(".panel-status")!.getBoundingClientRect(), switched = element.querySelector(".afk-toggle")!.getBoundingClientRect();
-      return status.right > switched.left && status.left < switched.right && status.bottom > switched.top && status.top < switched.bottom;
-    });
-    expect(overlap, view + " view: the status and the toggle overlap").toBe(false);
-  }
-  await narrow.close();
+  test("on a panel at its narrowest the toggle is still there and inside the header", async ({ page }) => {
+    await page.addInitScript(() => localStorage.setItem("cfo-pane-width", "360"));
+    await open(page, snapshot({ afk: on() }));
+    await openCfoPanel(page);
+    for (const view of ["Task", "Terminal"]) {
+      await page.locator(".panel-pill").getByRole("button", { name: view, exact: true }).click();
+      expect(Math.round((await page.locator(".context-pane").boundingBox())!.width), view + " view").toBe(360);
+      await expect(toggle(page)).toBeVisible();
+      expect(await within(page, ".panel-header"), view + " view").toBe(true);
+      const overlap = await header(page).evaluate((element) => {
+        const status = element.querySelector(".panel-status")!.getBoundingClientRect(), switched = element.querySelector(".afk-toggle")!.getBoundingClientRect();
+        return status.right > switched.left && status.left < switched.right && status.bottom > switched.top && status.top < switched.bottom;
+      });
+      expect(overlap, view + " view: the status and the toggle overlap").toBe(false);
+    }
+  });
 });
