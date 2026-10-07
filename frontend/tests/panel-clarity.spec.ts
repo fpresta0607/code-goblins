@@ -16,7 +16,7 @@ async function open(page: Page, calls: string[] = []) {
     if (url.pathname === "/api/workspace") return route.fulfill({ json: { project: "code-goblins", repository: "code-goblins", branch: "feat/resume-and-closed-cfo", root: "C:\\dev\\code-goblins\\.worktrees\\gb-cg-goblins-quickstart", harness: "claude", model: "Reported: claude-opus-5-5", notes: [] } });
     if (url.pathname.endsWith("/files")) return route.fulfill({ json: [{ path: "internal/lifecycle/service.go", status: "modified" }, { path: "frontend/src/workflow.ts", status: "modified" }] });
     if (url.pathname.endsWith("/diff")) return route.fulfill({ json: { path: url.searchParams.get("path"), patch: PATCH, code: "", head: "h", revision: "", fingerprint: "f", binary: false, code_omitted: false } });
-    if (url.pathname.endsWith("/activity")) return route.fulfill({ json: ["2026-10-05T16:30:06Z lifecycle-failed: Requested by the operator"] });
+    if (url.pathname.endsWith("/activity")) return route.fulfill({ json: ["2026-10-05T16:30:06Z failed: go test ./internal/billing failed at 9f3c2a1e"] });
     return route.fulfill({ status: 404, json: { error: "No fixture for this resource" } });
   });
   await page.goto("/");
@@ -188,13 +188,13 @@ test("a failure's Open the log opens Activity and reads the log", async ({ page 
   // Arrange
   const calls: string[] = [];
   await open(page, calls);
-  await select(page, "Paused goblins resume by themselves when the reason for the pause clears");
+  await select(page, "PrecisionDocs-AI uses far fewer GitHub Actions minutes");
 
   // Act
   await panel(page).getByRole("button", { name: "Open the log" }).click();
 
   // Assert
   await expect(panel(page).locator("#task-activity")).toHaveAttribute("open");
-  await expect(panel(page).locator(".activity-list")).toContainText("lifecycle-failed");
-  expect(calls).toContain("/api/tasks/cg-fleet-auto-resume/activity");
+  await expect(panel(page).locator(".activity-list")).toContainText("go test ./internal/billing failed");
+  expect(calls).toContain("/api/tasks/pd-ci-minutes/activity");
 });
