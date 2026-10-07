@@ -39,9 +39,9 @@ test("questions left on the CFO raise one notice per stretch, with their count a
 test("what needs the Overlord or finished alerts once, and opens its item", () => {
   const before = snapshot({});
   const cases: [string, Snapshot, { key: string; tone: string; target: unknown }[]][] = [
-    ["a new question", snapshot({ questions: [question("q1")] }), [{ key: "question:q1", tone: "needs", target: { kind: "command", key: "question:q1" } }]],
-    ["a new review card", snapshot({ reviews: [review("r1")] }), [{ key: "review:r1", tone: "needs", target: { kind: "command", key: "review:r1" } }]],
-    ["a new run card", snapshot({ runs: [run("c1")] }), [{ key: "run:c1", tone: "needs", target: { kind: "command", key: "run:c1" } }]],
+    ["a new question", snapshot({ questions: [question("q1")] }), [{ key: "question:q1@2026-09-27T01:00:00Z", tone: "needs", target: { kind: "command", key: "question:q1" } }]],
+    ["a new review card", snapshot({ reviews: [review("r1")] }), [{ key: "review:r1@2026-09-27T01:00:00Z", tone: "needs", target: { kind: "command", key: "review:r1" } }]],
+    ["a new run card", snapshot({ runs: [run("c1")] }), [{ key: "run:c1@2026-09-27T01:00:00Z", tone: "needs", target: { kind: "command", key: "run:c1" } }]],
     ["a goblin blocked", snapshot({ tasks: [task("a", "blocked", { reason: "Needs a key" })] }), [{ key: "task:a:a-1:blocked:Needs a key", tone: "needs", target: { kind: "command", key: "" } }]],
     ["a goblin that asked before, blocked at its gate", snapshot({ tasks: [task("a", "blocked", { report: "blocked", activity: "blocked: Which port?", reason: GATE_BLOCK })] }), [{ key: "task:a:a-1:blocked:" + GATE_BLOCK, tone: "needs", target: { kind: "command", key: "" } }]],
     ["a goblin failed", snapshot({ tasks: [task("a", "failed")] }), [{ key: "task:a:a-1:failed:", tone: "failed", target: { kind: "task", id: "a" } }]],
@@ -205,6 +205,28 @@ test("an event alerts once however often a snapshot or a reconnect brings it bac
   assert.deepEqual(shown(refiled, nextPR), ["Goblin a finished: r #8 is ready."], "its next pull request is news");
 });
 
+// The supervisor takes an ID again once it has dropped the record that used
+// it, so the same ID with another created_at is a new item: it alerts, and it
+// is announced under a name of its own, which the supervisor never recorded
+// for the earlier one, whose alert has nothing left to open.
+test("an ID published again after its item closed alerts and is announced as a new item", () => {
+  // Arrange: he saw the first publication's alert, then answered it.
+  const first = question("release-train-20261002", { text: "May I merge the release train?" });
+  const again = question("release-train-20261002", { text: "May I merge the next release train?", created_at: "2026-10-12T09:00:00Z" });
+  const shown = boardAlerts(snapshot({}), snapshot({ questions: [first] }));
+  const seen = unseen(shown, [], MINUTE).seen;
+
+  // Act: the supervisor dropped the answered record, and the ID is asked again ten days later.
+  const alerts = boardAlerts(snapshot({ questions: [{ ...first, status: "succeeded" }] }), snapshot({ questions: [again] }));
+  const sighting = unseen(alerts, seen, 10 * 24 * 60 * MINUTE);
+
+  // Assert
+  assert.deepEqual(sighting.fresh.map((alert) => alert.text), ["The CFO asks: May I merge the next release train?"]);
+  assert.notEqual(announceKey(sighting.fresh[0]), announceKey(shown[0]), "each publication is announced under its own name");
+  assert.equal(outlived(shown[0], snapshot({ questions: [again] })), true, "the earlier publication's alert has nothing left to open");
+  assert.equal(outlived(sighting.fresh[0], snapshot({ questions: [again] })), false);
+});
+
 test("a question its page's card carried alerts nothing when the page closes and it shows as a card of its own", () => {
   // Arrange
   const page = { ...review("plan-1"), lavish: "http://127.0.0.1:4387/session/a", lavish_page: "C:\\work\\plan.html" };
@@ -248,7 +270,7 @@ test("an alert is announced under its key, cut short when a goblin's reason is l
   const names = [announceKey(asks), announceKey(long)];
 
   // Assert
-  assert.equal(names[0], "alert:question:notify-a-4");
+  assert.equal(names[0], "alert:question:notify-a-4@2026-09-27T01:00:00Z");
   assert.equal(names[1].length, 160);
   assert.ok(names[1].startsWith("alert:task:a:a-1:blocked:It stopped because "));
 });
@@ -290,13 +312,13 @@ test("the same words within five minutes are one event, and a real new event lat
     ["the same news after a supervisor restart", 2, restarting, blocked, []],
     ["the same news after a flicker back to work", 4, working, blocked, []],
     ["its gate asking for a second decision", 10, working, blocked, ["task:a:a-1:blocked:" + GATE_BLOCK]],
-    ["a wait", 20, working, snapshot({ reviews: [wait("waiting-a-3")] }), ["review:waiting-a-3"]],
+    ["a wait", 20, working, snapshot({ reviews: [wait("waiting-a-3")] }), ["review:waiting-a-3@2026-09-27T01:00:00Z"]],
     ["the wait filed again under a new id", 22, working, snapshot({ reviews: [wait("waiting-a-5")] }), []],
     ["the wait folded under its new id, back after a restart", 32, restarting, snapshot({ reviews: [wait("waiting-a-5")] }), []],
-    ["the wait filed again later", 40, working, snapshot({ reviews: [wait("waiting-a-7")] }), ["review:waiting-a-7"]],
+    ["the wait filed again later", 40, working, snapshot({ reviews: [wait("waiting-a-7")] }), ["review:waiting-a-7@2026-09-27T01:00:00Z"]],
     ["an item already shown, back after a restart", 60, restarting, snapshot({ reviews: [wait("waiting-a-3")] }), []],
-    ["a question", 70, working, snapshot({ questions: [ask("notify-a-8", "The port.")] }), ["question:notify-a-8"]],
-    ["another question with the same first line", 80, working, snapshot({ questions: [ask("notify-a-9", "The colour.")] }), ["question:notify-a-9"]],
+    ["a question", 70, working, snapshot({ questions: [ask("notify-a-8", "The port.")] }), ["question:notify-a-8@2026-09-27T01:00:00Z"]],
+    ["another question with the same first line", 80, working, snapshot({ questions: [ask("notify-a-9", "The colour.")] }), ["question:notify-a-9@2026-09-27T01:00:00Z"]],
   ];
   let seen: readonly SeenAlert[] = [];
   for (const [name, minute, from, to, want] of steps) {
