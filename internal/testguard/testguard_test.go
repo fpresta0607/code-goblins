@@ -127,7 +127,7 @@ func TestCheckReportsOnlyTheGatesOwnDeletions(t *testing.T) {
 	write("guard_test.go", "package x\n")
 	git("commit", "-qam", "no-mistakes(test): fix failing live test")
 
-	result, err := Check(context.Background(), execx.OSRunner{}, dir)
+	result, err := Check(context.Background(), execx.OSRunner{}, dir, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -142,7 +142,7 @@ func TestCheckReportsOnlyTheGatesOwnDeletions(t *testing.T) {
 	// check must then pass, or the gate could never be satisfied.
 	write("guard_test.go", "package x\n\nfunc TestGuardHolds(t *testing.T) {}\n")
 	git("commit", "-qam", "no-mistakes(gate): restore the deleted test")
-	restored, err := Check(context.Background(), execx.OSRunner{}, dir)
+	restored, err := Check(context.Background(), execx.OSRunner{}, dir, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -156,7 +156,7 @@ func TestCheckReportsARemovedTestWhoseNameAnotherTestExtends(t *testing.T) {
 	write("guard_test.go", "package x\n\nfunc TestParseFails(t *testing.T) {}\n")
 	git("commit", "-qam", "no-mistakes(test): fix failing parse test")
 
-	result, err := Check(context.Background(), execx.OSRunner{}, dir)
+	result, err := Check(context.Background(), execx.OSRunner{}, dir, nil)
 
 	if err != nil {
 		t.Fatal(err)
@@ -175,7 +175,7 @@ func TestCheckReportsARemovedTestWhoseNameAnotherTestsNameContains(t *testing.T)
 	write("a.test.ts", "\n")
 	git("commit", "-qam", "no-mistakes(test): fix the failing route test")
 
-	result, err := Check(context.Background(), execx.OSRunner{}, dir)
+	result, err := Check(context.Background(), execx.OSRunner{}, dir, nil)
 
 	if err != nil {
 		t.Fatal(err)

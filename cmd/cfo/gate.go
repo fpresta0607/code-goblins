@@ -17,6 +17,7 @@ import (
 	"github.com/fpresta0607/code-goblins/internal/fleetconfig"
 	"github.com/fpresta0607/code-goblins/internal/gatetest"
 	"github.com/fpresta0607/code-goblins/internal/home"
+	"github.com/fpresta0607/code-goblins/internal/pipeline"
 	"github.com/fpresta0607/code-goblins/internal/supervisor"
 	"github.com/fpresta0607/code-goblins/internal/testguard"
 	"github.com/fpresta0607/code-goblins/internal/verify"
@@ -25,7 +26,8 @@ import (
 // runGate runs a check a no-mistakes gate calls from its run worktree.
 // tests-kept exits 1 when the gate's own fix commits deleted or skipped a
 // test, which parks the run with an ask-user finding instead of letting the
-// deletion through unseen. test is the repository's local test step, and
+// deletion through unseen, and leaves out the gate commits a person already
+// let through at an earlier park. test is the repository's local test step, and
 // turns shows which test runs hold the machine's turns and which wait.
 func runGate(args []string, stdout, stderr io.Writer, runtime commandRuntime) int {
 	if len(args) == 0 || !slices.Contains([]string{"tests-kept", "test", "turns"}, args[0]) || (args[0] != "test" && len(args) != 1) {
@@ -45,20 +47,44 @@ func runGate(args []string, stdout, stderr io.Writer, runtime commandRuntime) in
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
 	defer cancel()
-	result, err := testguard.Check(ctx, execx.OSRunner{}, dir)
+	approved, approvalsErr := approvedHeads(ctx)
+	result, err := testguard.Check(ctx, execx.OSRunner{}, dir, approved)
 	if err != nil {
 		fmt.Fprintln(stderr, err)
 		return 2
+	}
+	fmt.Fprintln(stdout, testguard.CheckedLine(result.Head))
+	switch {
+	case approvalsErr != nil:
+		fmt.Fprintf(stdout, "tests kept: approvals given at earlier parks were not read (%v), so every gate commit since the base was read\n", approvalsErr)
+	case result.Approved > 0:
+		fmt.Fprintf(stdout, "tests kept: left out %d gate commit(s) a person already let through at an earlier tests-kept park\n", result.Approved)
 	}
 	if len(result.Removals) == 0 {
 		fmt.Fprintf(stdout, "tests kept: %d gate commit(s) since %.8s checked, and none deleted or skipped a test\n", result.Commits, result.Base)
 		return 0
 	}
-	fmt.Fprintf(stdout, "A gate fix commit deleted or skipped %d test(s), which a gate may do only as an ask-user decision: approve to accept it, or fix to restore them.\n", len(result.Removals))
+	fmt.Fprintf(stdout, "A gate fix commit deleted or skipped %d test(s), which a gate may do only as an ask-user decision: approve to accept it, and later runs leave these commits out, or fix to restore them.\n", len(result.Removals))
 	for _, removal := range result.Removals {
 		fmt.Fprintln(stdout, "- "+removal.String())
 	}
 	return 1
+}
+
+// approvedHeads are the heads of earlier tests-kept parks a person approved
+// or skipped, read from the gate's database, where each park's summary keeps
+// the check's first line. When the database cannot be read the check leaves
+// nothing out, as it did before it read approvals.
+func approvedHeads(ctx context.Context) ([]string, error) {
+	root, err := pipeline.DefaultRoot()
+	if err != nil {
+		return nil, err
+	}
+	summaries, err := pipeline.Reader{Root: root, Commands: execx.OSRunner{}}.ApprovedGateSummaries(ctx)
+	if err != nil {
+		return nil, err
+	}
+	return testguard.ApprovedHeads(summaries), nil
 }
 
 // runGateTest is this repository's local gate test step. It plans what the
