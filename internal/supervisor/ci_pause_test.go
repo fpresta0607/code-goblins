@@ -97,7 +97,7 @@ func TestCIPauseUsesFreshConfirmationWithoutRepeatingTheCompletionWake(t *testin
 	head := strings.Repeat("a", 40)
 	pr := ghPullRequest{Number: 42, URL: "https://github.com/owner/repo/pull/42", HeadRefOid: head, Checks: []ghCheck{{Name: "test", Status: "COMPLETED", Conclusion: "SUCCESS"}}}
 	watched := fleetWakes{}
-	if err := reportChecks(h.State, &watched, "waiting-task", pr, now.Add(-time.Hour)); err != nil {
+	if err := reportChecks(h.State, &watched, "waiting-task", pr, false, now.Add(-time.Hour)); err != nil {
 		t.Fatal(err)
 	}
 	meta := pausedGoblin(t, h, "waiting-task", "ci", "pr:"+pr.URL+"@"+head, now.Add(-time.Minute))
@@ -106,7 +106,7 @@ func TestCIPauseUsesFreshConfirmationWithoutRepeatingTheCompletionWake(t *testin
 		t.Fatal(err)
 	}
 
-	if err := reportChecks(h.State, &watched, meta.ID, pr, now); err != nil {
+	if err := reportChecks(h.State, &watched, meta.ID, pr, false, now); err != nil {
 		t.Fatal(err)
 	}
 	isReady, err := service.pauseCleared(t.Context(), *condition.Pause, now, &watched)

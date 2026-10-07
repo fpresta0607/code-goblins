@@ -123,7 +123,7 @@ func reportPRHealth(stateDir string, w *fleetWakes, owner string, pr ghPullReque
 		if base == "" {
 			base = branch
 		}
-		condition = "conflicts with its base " + base
+		condition = "conflicts with its base " + base + ", so its workflows cannot run"
 	}
 	key := pr.URL
 	detail := fmt.Sprintf("pr_health: %s's PR #%d (%s) at %s %s (%s); the fleet reports it and never pushes to it", pr.Author.Login, pr.Number, pr.HeadRefName, pr.HeadRefOid, condition, pr.URL)

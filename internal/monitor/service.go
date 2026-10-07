@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"time"
 
@@ -14,6 +15,8 @@ import (
 	"github.com/fpresta0607/code-goblins/internal/fsx"
 	"github.com/fpresta0607/code-goblins/internal/harness"
 	"github.com/fpresta0607/code-goblins/internal/herdr"
+	"github.com/fpresta0607/code-goblins/internal/host"
+	"github.com/fpresta0607/code-goblins/internal/lock"
 	"github.com/fpresta0607/code-goblins/internal/routing"
 	"github.com/fpresta0607/code-goblins/internal/state"
 	"github.com/fpresta0607/code-goblins/internal/wake"
@@ -151,7 +154,7 @@ func (s Service) Scan(ctx context.Context) (ScanResult, error) {
 				if lifecycle.Phase == "resuming" {
 					health = HealthLaunching
 				}
-				observation := Observation{Schema: Schema, TaskID: id, Endpoint: endpointString(meta), EndpointVerdict: ProbeUnknown, LastObserved: now, Health: health, Reason: LifecycleOperation}
+				observation := lifecycleObservation(meta, health, now)
 				if err := WriteObservation(s.StateDir, observation); err != nil {
 					return ScanResult{}, err
 				}
@@ -305,10 +308,11 @@ func (s Service) classify(ctx context.Context, meta state.TaskMeta, prior Observ
 	}
 	// A native task publishes its metadata before its host starts, and the
 	// harness then shows the trust dialog and its composer before the brief is
-	// submitted. Within the launch budget anything short of a turn in progress
-	// is still launching, unless the provider is refusing the harness or the
-	// goblin has already been seen alive.
-	if meta.Backend == "native" && sample.Status != herdr.AgentWorking && prior.LastSeen.IsZero() && now.Before(s.launchDeadline(meta)) {
+	// submitted. While the command starting it still runs, and within the
+	// launch budget after, anything short of a turn in progress is still
+	// launching, unless the provider is refusing the harness or the goblin has
+	// already been seen alive.
+	if meta.Backend == "native" && sample.Status != herdr.AgentWorking && (s.isRelaunching(meta) || prior.LastSeen.IsZero() && now.Before(s.launchDeadline(meta, now))) {
 		if _, _, refused := routing.Detect(string(sample.Capture)); !refused {
 			return launchingObservation(observation, now), sample
 		}
@@ -326,6 +330,9 @@ func (s Service) classify(ctx context.Context, meta state.TaskMeta, prior Observ
 		observation.ScreenUnreadSince = nil
 	}
 	if sample.Verdict == ProbeMissing {
+		if s.isStoppedOnRequest(meta) {
+			return lifecycleObservation(meta, HealthParked, now), sample
+		}
 		if verb, line, ok := s.latestStatusVerb(meta.ID); ok && verb == "paused" && line > observation.ConsumedVerbLine {
 			return s.pausedMissingObservation(observation, sample.Detail, now), sample
 		}
@@ -341,7 +348,7 @@ func (s Service) classify(ctx context.Context, meta state.TaskMeta, prior Observ
 		// not harness death. Stay quiet only within the launch budget: a task
 		// whose agent registers and dies before it is ever observed alive must
 		// not stay "launching" forever, so past the budget it wakes as death.
-		if sample.Verdict == ProbePresent && sample.Agent == herdr.AgentDead && prior.LastSeen.IsZero() && now.Before(s.launchDeadline(meta)) {
+		if sample.Verdict == ProbePresent && sample.Agent == herdr.AgentDead && prior.LastSeen.IsZero() && now.Before(s.launchDeadline(meta, now)) {
 			return launchingObservation(observation, now), sample
 		}
 		return unknownObservation(observation, EndpointUnknown, detail, now), sample
@@ -640,7 +647,7 @@ func (s Service) sampleProgress(ctx context.Context, meta state.TaskMeta, sample
 		observation.HasJobProgress = false
 		return nil, false, err
 	}
-	observation.ProgressReadAt, observation.Jobs = timePointer(now), progress.Jobs
+	observation.ProgressReadAt, observation.Jobs, observation.Waits = timePointer(now), progress.Jobs, progress.Waits
 	if len(progress.Jobs) == 0 {
 		observation.HasJobProgress = false
 		observation.JobCPU = 0
@@ -1209,16 +1216,56 @@ func terminalVerb(verb string) bool {
 	return false
 }
 
-// launchDeadline bounds the launch-in-progress grace to the task's spawn time
-// plus a launch budget. A task whose agent registers and dies before the
-// monitor ever observes it alive would otherwise be "launching" forever; after
-// the budget it is classified as a dead endpoint and wakes normally.
-func (s Service) launchDeadline(meta state.TaskMeta) time.Time {
+// launchDeadline bounds the launch-in-progress grace to the task's spawn time,
+// or its host's start when that came later, plus a launch budget. A task whose
+// agent registers and dies before the monitor ever observes it alive would
+// otherwise be "launching" forever; after the budget it is classified as a dead
+// endpoint and wakes normally. A spawn writes the task record before its host
+// starts, thirteen minutes before on 2026-10-07, so the budget restarts when
+// the host does.
+func (s Service) launchDeadline(meta state.TaskMeta, now time.Time) time.Time {
 	info, err := os.Stat(filepath.Join(s.StateDir, meta.ID+".meta"))
 	if err != nil {
 		return time.Time{}
 	}
-	return info.ModTime().Add(s.launchGrace())
+	started := info.ModTime()
+	if record, err := host.ReadRecord(s.StateDir, meta.ID); err == nil && record.Started.After(started) && !record.Started.After(now) {
+		started = record.Started
+	}
+	return started.Add(s.launchGrace())
+}
+
+// isRelaunching reports whether a command starting the goblin's harness still
+// runs: a cfo switch relaunching it, or the cfo spawn that wrote its record,
+// which holds the home's spawn lock as its turn from before it names the
+// goblin's generation until the goblin's host runs. A live holder that took
+// the lock no later than the generation began is that spawn; one that took it
+// after is another task's.
+func (s Service) isRelaunching(meta state.TaskMeta) bool {
+	if holder, err := lock.ReadNamed(s.StateDir, ".switch-"+meta.ID+".lock"); err == nil && holder.Alive() {
+		return true
+	}
+	holder, err := lock.ReadNamed(s.StateDir, ".spawn.lock")
+	if err != nil || !holder.Alive() {
+		return false
+	}
+	nanoseconds, err := strconv.ParseInt(strings.TrimPrefix(meta.SpawnGen, "s"), 10, 64)
+	return err == nil && !holder.Acquired.After(time.Unix(0, nanoseconds))
+}
+
+// isStoppedOnRequest reports whether the goblin's host is gone because a pause
+// or stop was asked for it. One that ended failed, out of time with its
+// handoff or its teardown, still took the host down as asked, so the host
+// being gone wakes nobody; a failed resume is a goblin missing.
+func (s Service) isStoppedOnRequest(meta state.TaskMeta) bool {
+	record, err := state.ReadLifecycle(s.StateDir, meta.ID)
+	return err == nil && record.Generation == meta.SpawnGen && record.Phase == "failed" && (record.Action == "pause" || record.Action == "stop")
+}
+
+// lifecycleObservation is a goblin a pause, stop or resume accounts for,
+// which carries no endpoint or alarm evidence.
+func lifecycleObservation(meta state.TaskMeta, health Health, now time.Time) Observation {
+	return Observation{Schema: Schema, TaskID: meta.ID, Endpoint: endpointString(meta), EndpointVerdict: ProbeUnknown, LastObserved: now, Health: health, Reason: LifecycleOperation}
 }
 
 func (s Service) busyReference(id string) time.Time {

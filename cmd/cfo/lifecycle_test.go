@@ -39,6 +39,42 @@ func TestLifecycleCommandsUseTheSameServiceAndSurfaceFailures(t *testing.T) {
 	}
 }
 
+// A lifecycle command typed without --operation is read by whoever typed it,
+// the CFO at its prompt; the board, the scheduler and the allowance floor
+// each name their operation, and nobody reads their command's output.
+func TestATypedLifecycleCommandIsWatchedAndAMachinesIsNot(t *testing.T) {
+	for _, test := range []struct {
+		name      string
+		args      []string
+		isWatched bool
+	}{
+		{"typed", []string{"pause", "task", "--reason", "overlord"}, true},
+		{"from the board", []string{"pause", "task", "--operation", "4f1c2a", "--reason", "overlord"}, false},
+		{"typed stop", []string{"kill", "task"}, true},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			// Arrange
+			h := primaryHomeFixture(t)
+			if err := state.WriteTaskMeta(h.State, state.TaskMeta{ID: "task", SpawnGen: "session-1"}); err != nil {
+				t.Fatal(err)
+			}
+			var received lifecycle.Request
+			runtime := commandRuntime{resolveHome: func() (home.Home, error) { return h, nil }, taskLifecycle: func(_ context.Context, _ home.Home, request lifecycle.Request, _ string) (state.Lifecycle, error) {
+				received = request
+				return state.Lifecycle{}, nil
+			}}
+
+			// Act
+			code := runWithRuntime(test.args, &bytes.Buffer{}, &bytes.Buffer{}, runtime)
+
+			// Assert
+			if code != 0 || received.IsWatched != test.isWatched {
+				t.Fatalf("command=%d request=%+v, want IsWatched %v", code, received, test.isWatched)
+			}
+		})
+	}
+}
+
 // Pausing or stopping a parent runs the same operation on each live helper,
 // once per parent operation whatever retries it, a pause keeping the
 // parent's condition; a parent paused until its own helper finishes leaves

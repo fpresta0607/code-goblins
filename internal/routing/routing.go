@@ -248,14 +248,20 @@ func redactOperatorLines(lowered string) string {
 
 var quotedLinePrefix = regexp.MustCompile(`^(?:[+-]|[0-9]+[ \t]+[+-]|\S+\.[[:alnum:]_]+:[0-9]+:)`)
 
-// redactQuotedLines keeps source/diff excerpts, fenced quotations and Codex
-// command output from becoming the worker's own provider refusal. Actual git
+// claudeToolCall is the row Claude Code draws for a tool call, lowercased:
+// "⏺ bash(go test ./...)", or "⏺ municode - search (mcp)(...)" for an MCP
+// tool. Its result follows on a "⎿" row, wrapped onto deeper-indented rows.
+var claudeToolCall = regexp.MustCompile(`^⏺ (?:[\w.:-]+|.+ \(mcp\))\(`)
+
+// redactQuotedLines keeps source/diff excerpts, fenced quotations and the
+// output of a command a goblin ran, under Codex's "• Ran" or Claude Code's
+// tool call, from becoming the worker's own provider refusal. Actual git
 // platform failures in command output still need third-party classification.
 // Blanking preserves byte offsets into the original evidence.
 func redactQuotedLines(lowered string) string {
 	lines := strings.Split(lowered, "\n")
 	fenceEnd, toolIndent := -1, -1
-	isToolCommandContext := false
+	isToolCommandContext, isClaudeToolPending := false, false
 	for index, line := range lines {
 		trimmed := strings.TrimLeft(line, " \t")
 		indent := len(line) - len(trimmed)
@@ -271,15 +277,26 @@ func redactQuotedLines(lowered string) string {
 			}
 		}
 		isQuoted := index <= fenceEnd || quotedLinePrefix.MatchString(trimmed)
-		isToolCommand := !isQuoted && (strings.HasPrefix(trimmed, "\u2022 ran ") || strings.HasPrefix(trimmed, "ran "))
+		isBlank := strings.TrimSpace(trimmed) == ""
+		isClaudeToolCall := !isQuoted && claudeToolCall.MatchString(trimmed)
+		isToolCommand := !isQuoted && (strings.HasPrefix(trimmed, "\u2022 ran ") || strings.HasPrefix(trimmed, "ran ") || isClaudeToolCall)
 		isToolOutput := strings.HasPrefix(trimmed, "└")
+		// Only the first result row under a Claude Code tool call is its
+		// output; a later "⎿" row is the harness speaking again, as its own
+		// API error does.
+		isClaudeToolOutput := isClaudeToolPending && strings.HasPrefix(trimmed, "⎿")
+		isClaudeToolPending = isClaudeToolCall || isClaudeToolPending && isBlank
 		if isToolCommand {
 			toolIndent = indent + 2
 			isToolCommandContext = true
 		} else if isToolOutput {
 			toolIndent = indent + 2
 			isToolCommandContext = false
-		} else if strings.TrimSpace(trimmed) != "" && (indent < toolIndent || strings.IndexAny(trimmed, "⎿●✻◐⏺❯›>•") == 0) {
+		} else if isClaudeToolOutput {
+			// Its wrapped rows sit deeper than its "⎿".
+			toolIndent = indent + 1
+			isToolCommandContext = false
+		} else if !isBlank && (indent < toolIndent || strings.IndexAny(trimmed, "⎿●✻◐⏺❯›>•") == 0) {
 			// A blank row inside a tool result does not end it; the next
 			// line's indentation or harness marker does.
 			toolIndent = -1

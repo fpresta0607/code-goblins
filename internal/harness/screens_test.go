@@ -315,6 +315,7 @@ func TestRunningWorkIsReadFromAnyHarnessPane(t *testing.T) {
 		"codex status row":          {[]string{"• Working (5s • esc to interrupt)", "› Ask Codex to do anything"}, "• Working (5s • esc to interrupt)"},
 		"codex status row, wrapped": {[]string{"◦ Working (12s • esc to", "› Ask Codex to do anything"}, "◦ Working (12s • esc to"},
 		"pi rule":                   {[]string{"── ⠸ Working ──", "0.0%/1.0M (auto)"}, "── ⠸ Working ──"},
+		"claude waits on an agent":  {[]string{"✻ Waiting for 1 background agent to finish", ">", "⏵⏵ bypass permissions on (shift+tab to cycle) · ← 2 agents · ↓ to manage"}, "✻ Waiting for 1 background agent to finish"},
 	} {
 		running, ok := RunningWork(test.screen)
 		if !ok || running != test.running {
@@ -327,6 +328,8 @@ func TestRunningWorkIsReadFromAnyHarnessPane(t *testing.T) {
 		"codex idle":              {"• Working tree is clean and all tests pass.", "› Ask Codex to do anything", "  100% context left"},
 		"pi idle":                 {"────", "↑7.8k ↓895 R31k CH94.9% $0.003 0.8%/1.0M (auto)"},
 		"a reply naming a shell":  {"● Run it in 1 shell and report back.", "❯", "  ⏵⏵ bypass permissions on (shift+tab to cycle)"},
+		"claude idle, no monitor": {"✻ Brewed for 2s · done 12:56 AM · 1 monitor still running", "❯", "  ⏵⏵ bypass permissions on (shift+tab to cycle)"},
+		"a reply about waiting":   {"● Waiting for 1 background agent is the plan.", "❯", "  ⏵⏵ bypass permissions on (shift+tab to cycle)"},
 	} {
 		if running, ok := RunningWork(screen); ok {
 			t.Errorf("%s: RunningWork = %q, want nothing running", name, running)

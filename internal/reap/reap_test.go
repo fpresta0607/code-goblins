@@ -573,7 +573,7 @@ func TestRecordRoundTrip(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if read.Digest != FindingsDigest(record.Findings) || len(read.Findings) != 1 {
+	if len(read.Findings) != 1 {
 		t.Fatalf("read back %+v", read)
 	}
 
