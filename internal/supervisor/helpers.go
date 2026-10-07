@@ -64,8 +64,9 @@ type helperStart struct {
 // spawn in the background, or says why not and when to ask again. It takes
 // the start slot the board's Start and Resume take, so one goblin starts at
 // a time, and holds the memory, commit, disk and live-goblin marks every
-// start does. The caps are spawn's own: a helper of a helper is refused for
-// good, and a second helper until the first is merged or stopped.
+// start does. The caps are the ones spawn holds too: a helper of a helper is
+// refused for good, and a second helper until the first is merged or
+// stopped.
 func (s *Service) acceptHelper(request HelperRequest) (HelperStart, error) {
 	dispatch := s.Options.Dispatch
 	switch {
@@ -119,7 +120,7 @@ func (s *Service) acceptHelper(request HelperRequest) (HelperStart, error) {
 		return HelperStart{}, fmt.Errorf("free disk cannot be read, so nothing starts: %w", err)
 	}
 	if err := CheckLaunch(s.Store.Home, memory, disk); err != nil {
-		return HelperStart{}, fmt.Errorf("%w; ask again in ten minutes, or once the board's memory meter reads 5 GB", err)
+		return HelperStart{}, fmt.Errorf("%w; ask again in ten minutes", err)
 	}
 	// The helper's status log is written before its brief, so the brief
 	// never shows on the board as queued work, and its id is never given
