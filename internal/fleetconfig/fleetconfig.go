@@ -1,5 +1,6 @@
 // Package fleetconfig reads the fleet's machine settings, config/fleet.json in
-// the home: how many goblins may run at once, the free disk under which no
+// the home: whether the board looks for a newer release, how many goblins
+// may run at once, the free disk under which no
 // goblin or gate starts and the lower mark at which the CFO is woken, how
 // large the shared caches may grow, and which temporary folders the janitor
 // treats as the fleet's leaks. A missing file is the defaults; a file that does
@@ -32,6 +33,9 @@ type Settings struct {
 	// TempPatterns name the folders in the machine's temporary folder the
 	// fleet's tests and tools leave behind, as filepath.Match patterns.
 	TempPatterns []string `json:"temp_patterns"`
+	// CheckForUpdates lets the board look for a newer release of Code
+	// Goblins when it starts and every few hours; false turns the look off.
+	CheckForUpdates bool `json:"check_for_updates"`
 }
 
 // Defaults are the settings a home with no config/fleet.json runs under.
@@ -44,7 +48,8 @@ func Defaults() Settings {
 		// The leaks the CFO removed by hand on 2026-10-02: Go test homes,
 		// Go's own build folders, cfo fixtures, Playwright and Chrome
 		// profiles, audit runs and PrecisionDocs test homes.
-		TempPatterns: []string{"Test*", "go-build*", "cfo-*", "playwright*", "scoped_dir*", "fallow-audit*", "pd-*"},
+		TempPatterns:    []string{"Test*", "go-build*", "cfo-*", "playwright*", "scoped_dir*", "fallow-audit*", "pd-*"},
+		CheckForUpdates: true,
 	}
 }
 

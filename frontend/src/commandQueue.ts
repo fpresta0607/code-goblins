@@ -3,6 +3,7 @@ import { object, string, type Action, type BoardActivity, type CredentialRequest
 import { deliveryMark, runMark, type Submission } from "./feedback.ts";
 import { credentialSettled } from "./credentials.ts";
 import { plainMessage } from "./messageText.ts";
+import { updateOutcome } from "./update-progress.ts";
 
 // Everything the board holds as an item lives in one queue: a goblin's or the
 // CFO's question, a review item (images, a Lavish page, or a wait on him), a
@@ -161,14 +162,18 @@ export function notSent(draft: SentDraft, item: Item | undefined, actions: Actio
   return !!submission && !draft.sending && !!draft.error && !accepted && !!item && isOpen(item);
 }
 
-// holdsUnsent says whether any card of an item still waiting keeps a choice
-// or written text the Overlord has not sent, or whose send failed, which a
-// reload would lose.
+// holdsUnsent says whether any card of an item still waiting, or a change to
+// the CFO's answer made from History, keeps a choice or written text the
+// Overlord has not sent, is sending it, or saw its send fail, which a reload
+// would lose. A draft left on an item that closed is no longer his to send;
+// one he is sending counts whatever the item shows, since the board shows it
+// answered the moment he sends it.
 export function holdsUnsent(drafts: Record<string, SentDraft & { selection: string; written: string }>, snapshot: Snapshot): boolean {
   return Object.entries(drafts).some(([key, draft]) => {
     const item = itemFor(snapshot, key);
+    const isLive = draft.sending || key.startsWith("change:") || !!item && isOpen(item);
     const state = sendState(draft, snapshot.actions);
-    return !!item && isOpen(item) && (!!draft.selection || !!draft.written.trim()) && (!state || state.failed);
+    return isLive && (!!draft.selection || !!draft.written.trim()) && (draft.sending || !state || state.failed);
   });
 }
 
@@ -289,7 +294,7 @@ export function settledLabel(item: Item, actions: Action[]): string {
   if (item.kind === "credential") return credentialSettled(item.request);
   const advice = (answer: string) => actions.find((action) => action.id === answer)?.advice || "";
   if (item.kind === "question") return questionOutcome(item.question) === "uncertain" && advice(item.question.answer_id) || answeredLabel(item.question);
-  if (item.kind === "run") return runMark(item.run).label + (item.run.reason ? ": " + item.run.reason : "");
+  if (item.kind === "run") return (item.run.update ? updateOutcome(item.run).label + " " + item.run.update.to : runMark(item.run).label) + (item.run.reason ? ": " + item.run.reason : "");
   const { state, answer, reason, task } = item.review;
   const asker = task ? "the goblin" : "the CFO";
   if (state === "withdrawn") return "Withdrawn: " + reason;
@@ -314,7 +319,7 @@ export function settledIcon(item: Item, actions: Action[]): { icon: IconName; to
     if (outcome === "answered" && item.question.status !== "succeeded") return { icon: "check", tone: "queued" };
     return { icon: outcomeIcon(outcome), tone: outcome === "answered" ? "succeeded" : outcome };
   }
-  if (item.kind === "run") return { icon: runMark(item.run).icon, tone: item.run.state };
+  if (item.kind === "run") return { icon: (item.run.update ? updateOutcome(item.run) : runMark(item.run)).icon, tone: item.run.state };
   if (item.review.state !== "answered") return { icon: "close", tone: item.review.state };
   if (answeredElsewhere(item)) return { icon: "check-double", tone: "succeeded" };
   const outcome = answerOutcome(item.review, actions);

@@ -305,6 +305,9 @@ jobs:
         with:
           draft: true
           body_path: release-notes.md
+          # GitHub's list of what changed follows the notes; the board's
+          # Update item shows its first lines as what is new.
+          generate_release_notes: true
           files: |
             CodeGoblinsSetup.exe
             cfo.exe
