@@ -1,4 +1,4 @@
-import type { FleetTree, TreeNode } from "./types.ts";
+import type { FleetTree, Session, Snapshot, TreeNode } from "./types.ts";
 import { clockText } from "./cards.ts";
 
 // Baby is the baby goblin a child is drawn as: its kind, and for a job of
@@ -99,3 +99,9 @@ export const hasChildren = (tree?: FleetTree) => (tree?.children.length || 0) > 
 // calm; its panel lists them all.
 export const CANVAS_FINISHED = 3;
 export const canvasChildren = (tree?: FleetTree) => [...running(tree), ...finished(tree).slice(0, CANVAS_FINISHED)];
+
+// isHeldByTree is whether a session is a sub-agent a native hook reported whose
+// goblin's family tree holds it: it shows as a baby goblin under its goblin,
+// not as a card of its own as well.
+export const isHeldByTree = (snapshot: Snapshot, session: Session): boolean =>
+  session.role === "subagent" && snapshot.tasks.some((task) => task.id === session.task_id && task.tree !== undefined);

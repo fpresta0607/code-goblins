@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { babyFor, canvasChildren, finished, forHowLong, formatMemory, isDimmed, running, silentChild, stateWord, summarize } from "./fleet-tree.ts";
-import { makeRoom, NODE_HEIGHT } from "./workflow.ts";
+import { makeRoom, NODE_HEIGHT, NODE_WIDTH, settle, workflowNodes } from "./workflow.ts";
 import { parseSnapshot, type FleetTree, type TreeNode } from "./types.ts";
 
 const MINUTE = 60_000;
@@ -85,4 +85,27 @@ test("a snapshot carries each goblin's tree", () => {
   assert.equal(parsed.children[0].label, "Map");
   assert.deepEqual(parsed.unread, []);
   assert.equal(parseSnapshot({ healthy: true, instance: "x", tasks: [{ id: "q", title: "q", phase: "queued", verified: false }] }).tasks[0].tree, undefined);
+});
+
+test("a goblin the Overlord moved keeps its open children clear of every card arranged around it", () => {
+  const arranged = { "task:a": { x: 0, y: 0 }, "task:b": { x: 0, y: 488 } };
+  const placed = { "task:a": { x: 0, y: 300 } };
+  const below = { "task:a": 400 };
+  const shown = settle(arranged, placed, below);
+  const a = shown["task:a"], b = shown["task:b"];
+  assert.deepEqual(a, placed["task:a"], "his card stays where he put it");
+  const clear = b.x >= a.x + NODE_WIDTH || b.x + NODE_WIDTH <= a.x || b.y >= a.y + NODE_HEIGHT + below["task:a"] || b.y + NODE_HEIGHT <= a.y;
+  assert.ok(clear, `the card at ${JSON.stringify(b)} sits among the children under the moved goblin at ${JSON.stringify(a)}`);
+});
+
+test("a sub-agent its goblin's tree holds is a baby goblin under it, not a card of its own", () => {
+  const sessions = [
+    { id: "own", native_id: "own", harness: "claude", role: "goblin", task_id: "g" },
+    { id: "a1", native_id: "a1", harness: "claude", role: "subagent", task_id: "g", parent: "own", relation: "delegated" },
+  ];
+  const goblin = { id: "g", phase: "working", verified: false };
+  const held = { ...goblin, tree: { task_id: "g", generation: "s1", harness: "claude", children: [{ id: "subagent:a1", kind: "subagent", state: "working" }] } };
+  const cards = (task: object) => workflowNodes(parseSnapshot({ healthy: true, tasks: [task], sessions })).map((node) => node.id);
+  assert.ok(cards(held).includes("session:own") && !cards(held).includes("session:a1"), "the tree holds the sub-agent: " + cards(held).join(", "));
+  assert.ok(cards(goblin).includes("session:a1"), "with no tree to hold it, the sub-agent keeps its card");
 });

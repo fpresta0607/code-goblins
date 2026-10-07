@@ -53,7 +53,7 @@ export function Orchestration({ snapshot, selected, connected, effects, onSelect
     [id, TREE_GAP + COUNT_HEIGHT + (openTrees.has(id) ? canvasChildren(tree).length * CHILD_STEP : 0)])), [trees, openTrees]);
   const automatic = useMemo(() => makeRoom(arrange(nodes, awaited), below), [nodes, awaited, below]);
   const [layout, setLayout] = useState(readLayout);
-  const positions = useMemo(() => settle(automatic, layout.positions), [automatic, layout.positions]);
+  const positions = useMemo(() => settle(automatic, layout.positions, below), [automatic, layout.positions, below]);
   const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
   // The graph fills the visible canvas, centered, until a zoom or a pan by
   // hand takes over; Fit hands it back. A dragged card holds the frame still.

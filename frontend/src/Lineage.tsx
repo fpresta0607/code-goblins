@@ -7,7 +7,7 @@ import { Chevron } from "./Chevron";
 import { personaFor } from "./workflow";
 import { lineageRoots, ownsTaskSession, projectSessions, sessionRole, sessionTitle, tasksWithoutSession } from "./lineageTree";
 import { withoutHarness } from "./task-words";
-import { hasChildren } from "./fleet-tree";
+import { hasChildren, isHeldByTree } from "./fleet-tree";
 import { TreeUnder } from "./TreeUnder";
 
 export interface Selection { session?: string; task?: string }
@@ -22,7 +22,7 @@ export function Lineage({ snapshot, project, selected, onSelect, effects, presen
   onSelect: (selection: Selection, source: HTMLElement) => void;
 }) {
   const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
-  const sessions = projectSessions(snapshot.sessions, snapshot.tasks, project);
+  const sessions = projectSessions(snapshot.sessions.filter((session) => !isHeldByTree(snapshot, session)), snapshot.tasks, project);
   const tasks = snapshot.tasks.filter((task) => !task.archived && (!project || task.project === project));
   const taskOnly = tasksWithoutSession(tasks, snapshot.sessions);
   const byID = new Map(sessions.map((node) => [node.id, node]));

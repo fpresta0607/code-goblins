@@ -1,6 +1,7 @@
 import type { Session, Snapshot, Task } from "./types.ts";
 import { lineageRoots, ownsTaskSession, sessionTitle, tasksWithoutSession } from "./lineageTree.ts";
 import { withoutHarness } from "./task-words.ts";
+import { isHeldByTree } from "./fleet-tree.ts";
 
 export type Persona = "cfo" | "builder" | "reviewer" | "tester" | "planner" | "finisher" | "general"
   | "debugger" | "security" | "database" | "designer" | "documentation" | "operations"
@@ -178,9 +179,10 @@ export interface WorkflowNode {
 export const CFO_ROOT = "cfo:primary";
 
 export function workflowNodes(snapshot: Snapshot): WorkflowNode[] {
-  const ids = new Set(snapshot.sessions.map((node) => node.id));
+  const sessions = snapshot.sessions.filter((session) => !isHeldByTree(snapshot, session));
+  const ids = new Set(sessions.map((node) => node.id));
   const nodes: WorkflowNode[] = [
-    ...snapshot.sessions.map((session) => {
+    ...sessions.map((session) => {
       const task = snapshot.tasks.find((task) => task.id === session.task_id);
       return {
         id: "session:" + session.id, title: sessionTitle(session, task), task, session,
@@ -233,19 +235,30 @@ export function waitingOn(snapshot: Snapshot, nodes: WorkflowNode[]): Record<str
 // The canvas grid: a card and its gap across, a row down.
 const COLUMN = NODE_WIDTH + 44, ROW = 244;
 
+// The gap kept between one card, with what shows under it, and the next.
+const GAP = 44;
+
 // Two cards clash when they are nearer than a card and its gap both across
-// and down.
-const clashes = (one: Point, other: Point) => Math.abs(one.x - other.x) < COLUMN && Math.abs(one.y - other.y) < NODE_HEIGHT + 44;
+// and down, each counted with how far its children reach under it.
+const clashes = (one: Point, other: Point, oneBelow = 0, otherBelow = 0) => Math.abs(one.x - other.x) < COLUMN
+  && one.y < other.y + NODE_HEIGHT + otherBelow + GAP && other.y < one.y + NODE_HEIGHT + oneBelow + GAP;
+
+// A card on the canvas and how far its children reach under it.
+interface Taken { point: Point; below: number }
+
+// cards are the cards at positions, none with children under it.
+const cards = (positions: Record<string, Point>): Taken[] => Object.values(positions).map((point) => ({ point, below: 0 }));
 
 // nearestFree is the place nearest to where a card wants to be that no other
 // card covers: a column either side along its row, then the rows below it,
 // and else past every card in its row.
-function nearestFree(want: Point, taken: Point[]): Point {
+function nearestFree(want: Point, taken: Taken[], below = 0): Point {
   for (let row = 0; row < 4; row++) for (const step of [0, -1, 1, -2, 2, -3, 3]) {
     const place = { x: want.x + step * COLUMN, y: want.y + row * ROW };
-    if (place.x >= 0 && !taken.some((other) => clashes(place, other))) return place;
+    if (place.x >= 0 && !taken.some((other) => clashes(place, other.point, below, other.below))) return place;
   }
-  return { x: Math.max(want.x, ...taken.filter((other) => Math.abs(other.y - want.y) < NODE_HEIGHT + 44).map((other) => other.x + COLUMN)), y: want.y };
+  const inRow = taken.filter((other) => clashes({ x: other.point.x, y: want.y }, other.point, below, other.below));
+  return { x: Math.max(want.x, ...inRow.map((other) => other.point.x + COLUMN)), y: want.y };
 }
 
 // Positioning changes presentation only. Cycles retain a visible node but do
@@ -305,8 +318,8 @@ export function arrange(nodes: WorkflowNode[], waits: Record<string, string> = {
       const from = positions[sibling];
       positions[id] = under[0];
       delete positions[sibling];
-      positions[sibling] = nearestFree(from, Object.values(positions));
-    } else positions[id] = nearestFree(under[0], Object.values(positions));
+      positions[sibling] = nearestFree(from, cards(positions));
+    } else positions[id] = nearestFree(under[0], cards(positions));
   }
   return positions;
 }
@@ -320,23 +333,23 @@ export function makeRoom(positions: Record<string, Point>, below: Record<string,
   const moved = new Map<number, number>();
   let shift = 0, reach = -Infinity;
   for (const y of rows) {
-    shift = Math.max(shift, reach + ROOM - y);
+    shift = Math.max(shift, reach + GAP - y);
     moved.set(y, y + shift);
     for (const [id, point] of Object.entries(positions)) if (point.y === y) reach = Math.max(reach, y + shift + NODE_HEIGHT + (below[id] || 0));
   }
   return Object.fromEntries(Object.entries(positions).map(([id, point]) => [id, { x: point.x, y: moved.get(point.y)! }]));
 }
 
-// The room kept between what one row's children reach and the next row.
-const ROOM = 40;
-
 // settle is where each card shows: where the Overlord placed it by hand, else
 // its arranged place, or the free place nearest to it when a card he placed
-// covers that, so no card ever covers another.
-export function settle(arranged: Record<string, Point>, placed: Record<string, Point>): Record<string, Point> {
+// covers that, so no card ever covers another, nor the children under it:
+// below is how far under each card its children reach.
+export function settle(arranged: Record<string, Point>, placed: Record<string, Point>, below: Record<string, number> = {}): Record<string, Point> {
   const positions: Record<string, Point> = {};
   for (const id of Object.keys(arranged)) if (placed[id]) positions[id] = placed[id];
-  for (const [id, want] of Object.entries(arranged)) if (!placed[id]) positions[id] = nearestFree(want, Object.values(positions));
+  for (const [id, want] of Object.entries(arranged)) if (!placed[id]) {
+    positions[id] = nearestFree(want, Object.entries(positions).map(([other, point]) => ({ point, below: below[other] || 0 })), below[id] || 0);
+  }
   return positions;
 }
 
