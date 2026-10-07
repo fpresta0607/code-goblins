@@ -96,6 +96,12 @@ type Options struct {
 	// turned on beside the one taken when it turned off.
 	Allowance func(ctx context.Context) ([]afk.Allowance, string)
 	Quota     func(ctx context.Context) (quota.Report, string)
+	// Comeback brings the fleet back after a restart or sign-out; without it
+	// nothing comes back by itself.
+	Comeback *Comeback
+	// StartAtLogin is whether Windows starts this home at login; without it
+	// the board shows no such setting.
+	StartAtLogin *StartAtLogin
 	// Tree reads each live goblin's family tree for its card; Start gives it
 	// the board's record of each goblin's conversation. Without it no card
 	// shows one.
@@ -170,6 +176,13 @@ type Service struct {
 	engineFrom   map[string]state.TaskMeta
 	engineIdle   map[string]engineIdleReading
 	changeErrors map[string]taskChangeError
+	// isCFOComingBack says the comeback is bringing the CFO back now; starts
+	// guards it too.
+	isCFOComingBack bool
+	// comeback takes one change to the comeback record at a time, and
+	// signedIn is when this sign-in began, read once.
+	comeback sync.Mutex
+	signedIn time.Time
 	// credentialSaves takes one credential save at a time, and
 	// credentialWork waits for the refresh and the CFO's notice each save
 	// starts after it answers.
@@ -995,6 +1008,9 @@ type Task struct {
 	// Deployment is how the deploy of its merged pull request stands, apart
 	// from its checks.
 	Deployment *Deployment `json:"deployment,omitempty"`
+	// Comeback is where a live goblin the last restart ended is in coming
+	// back: waiting for its turn, or stopped with the reason.
+	Comeback *state.ComebackEntry `json:"comeback,omitempty"`
 	// Tree is what a live goblin has running under it: its sub-agents,
 	// background shells and monitors, its jobs of processes with their
 	// memory, and its gate run.
@@ -1060,6 +1076,12 @@ type Snapshot struct {
 	// CFOConversationLeft names the conversation the CFO could not resume
 	// when it last came back, and is empty when it came back on its own.
 	CFOConversationLeft string `json:"cfo_conversation_left"`
+	// Comeback is what the supervisor brings back after the last restart or
+	// sign-out, for the board's line; absent when it brings nothing back.
+	Comeback *state.Comeback `json:"comeback,omitempty"`
+	// StartAtLogin is whether Windows starts this home at login, absent on a
+	// board that cannot change it.
+	StartAtLogin *StartAtLoginView `json:"start_at_login,omitempty"`
 	// Memory is the machine's free memory for the Tasks meter, absent on a
 	// board that cannot start goblins or cannot read it.
 	Memory *Memory `json:"memory,omitempty"`
@@ -1119,6 +1141,12 @@ func (s *Service) Snapshot() (Snapshot, error) {
 	out.CFOTerminal, out.CFORuns, out.CFOStarting, out.CFOClosed, out.CFOHarness = cfo.terminal, cfo.registered || cfo.starting, cfo.starting, cfo.closed, cfo.harness
 	out.CFOTerminalSince = cfo.since
 	out.CFOConversationLeft = s.cfoConversationLeft()
+	out.Comeback = s.comebackView()
+	if view, issue := s.startAtLoginView(); issue != "" {
+		out.Issues = append(slices.Clone(out.Issues), issue)
+	} else {
+		out.StartAtLogin = view
+	}
 	// The registration problem comes from the same read as the rest, so the
 	// board never shows a running CFO beside the problem of one it replaced.
 	// What the recovery cycle found is added only for the registration it
@@ -1354,6 +1382,16 @@ func (s *Service) Snapshot() (Snapshot, error) {
 		}
 		if failure, ok := changeErrors[task.ID]; ok && failure.Generation == task.Generation && (lifecycleErr != nil || failure.Operation == record.Operation && failure.Updated.Equal(record.Updated)) {
 			task.ActionError = failure.Message
+		}
+		if out.Comeback != nil {
+			if index := slices.IndexFunc(out.Comeback.Goblins, func(entry state.ComebackEntry) bool {
+				return entry.ID == task.ID && entry.Generation == task.Generation && entry.State != state.ComebackBack
+			}); index >= 0 {
+				task.Comeback = &out.Comeback.Goblins[index]
+				if task.Comeback.State == state.ComebackStopped {
+					task.ActionError = "Did not come back after the restart: " + strings.TrimRight(task.Comeback.Reason, ". ") + ". The CFO was told."
+				}
+			}
 		}
 		if action := changing[task.ID]; action != "" {
 			if action == "switch" {

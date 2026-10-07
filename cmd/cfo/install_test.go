@@ -209,3 +209,25 @@ func TestInstallFromACheckoutAndFromTheDesktopInstallerMakeTheSameHome(t *testin
 		t.Errorf("the checkout's git status after install = %q, %v; want nothing new", status, err)
 	}
 }
+
+// --start-at-login takes on or off, and is no part of an uninstall; either
+// mistake is refused before anything is changed.
+func TestInstallRefusesAStartAtLoginItCannotTake(t *testing.T) {
+	for name, args := range map[string][]string{
+		"neither on nor off": {"--start-at-login", "maybe"},
+		"with --uninstall":   {"--uninstall", "--start-at-login", "off"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			// Arrange
+			var stdout, stderr bytes.Buffer
+
+			// Act
+			code := runInstall(args, &stdout, &stderr)
+
+			// Assert
+			if code != 2 || !strings.Contains(stderr.String(), "--start-at-login") || stdout.Len() != 0 {
+				t.Errorf("cfo install %v exited %d, said %q and %q; want 2 naming --start-at-login and nothing done", args, code, stdout.String(), stderr.String())
+			}
+		})
+	}
+}

@@ -240,16 +240,32 @@ func (s *Service) checkFleet(ctx context.Context, now time.Time) error {
 // report is a wait on memory. It wakes once per crossing: not again until a
 // reading falls under the floor and crosses back, and never twice within
 // memoryWakeGap. A reading under the floor goes to AFK mode's memory floor.
+// Every check first plans the comeback for this sign-in, before memory is
+// read, so a sign-in that never reaches the floor still records itself; a
+// planning error is reported and the rest of the check still runs. Each
+// reading at or above the floor then takes the comeback's next step after a
+// restart, and while anything waits to come back nothing else starts by
+// itself and memory_ready waits.
 func (s *Service) checkMemory(ctx context.Context, w *fleetWakes, now time.Time) error {
 	dispatch := s.Options.Dispatch
 	if dispatch == nil || dispatch.Memory == nil {
 		return nil
 	}
+	var planningErr error
+	if s.Options.Comeback != nil && !s.Options.Example {
+		var isNewPlan bool
+		s.comeback.Lock()
+		_, isNewPlan, planningErr = s.planComeback(now)
+		s.comeback.Unlock()
+		if isNewPlan {
+			w.MemoryAbove = 0
+		}
+	}
 	memory, err := dispatch.Memory()
 	if err != nil {
 		// No reading is no evidence either way: the next two decide.
 		w.MemoryAbove, w.MemoryBelow = 0, 0
-		return nil
+		return planningErr
 	}
 	if w.MemoryReadAt.IsZero() || now.Sub(w.MemoryReadAt) > 2*fleetWatchEvery || !now.After(w.MemoryReadAt) {
 		w.MemoryAbove, w.MemoryBelow = 0, 0
@@ -259,30 +275,40 @@ func (s *Service) checkMemory(ctx context.Context, w *fleetWakes, now time.Time)
 	if low < memoryFloor {
 		w.MemorySpent, w.MemoryAbove = false, 0
 		w.MemoryBelow++
-		return s.pauseAtMemoryFloor(w, memory)
+		return errors.Join(planningErr, s.pauseAtMemoryFloor(w, memory))
 	}
 	w.MemoryBelow = 0
 	if low < memoryNext {
 		w.MemoryAbove = 0
-		return nil
+	} else {
+		w.MemoryAbove++
 	}
-	w.MemoryAbove++
+	// What a restart ended comes back before anything else starts by itself, and no
+	// memory wake offers its room to other work while it does.
+	if planningErr == nil {
+		if isComing, err := s.comeBack(memory, w); isComing || err != nil {
+			return err
+		}
+	}
+	if low < memoryNext {
+		return planningErr
+	}
 	if err := s.schedule(ctx, now, memory, w); err != nil {
-		return err
+		return errors.Join(planningErr, err)
 	}
 	if w.MemoryAbove < 2 || w.MemorySpent || !w.due("memory", memoryWakeGap, now) {
-		return nil
+		return planningErr
 	}
 	queued, waiting := memoryWork(s.Store.Home)
 	if len(queued) == 0 && len(waiting) == 0 {
-		return nil
+		return planningErr
 	}
 	if err := raiseFleetWake(s.Store.Home.State, "memory", "memory", memoryReadyDetail(memory, queued, waiting)); err != nil {
-		return err
+		return errors.Join(planningErr, err)
 	}
 	w.MemorySpent = true
 	w.woke("memory", now)
-	return nil
+	return planningErr
 }
 
 // checkDisk wakes the CFO once when the home's drive falls under the mark the

@@ -118,11 +118,21 @@
         return
     }
 
+    # -NoStartAtLogin keeps Windows from starting Code Goblins at login, and
+    # -StartAtLogin turns that back on; with neither the home keeps the choice
+    # it holds, on where it holds none.
     $Dev = $false
+    $StartAtLogin = ""
     $arguments = @($args[0])
     for ($i = 0; $i -lt $arguments.Count; $i++) {
         if ($arguments[$i] -eq "-Dev") {
             $Dev = $true
+        }
+        elseif ($arguments[$i] -eq "-StartAtLogin") {
+            $StartAtLogin = "on"
+        }
+        elseif ($arguments[$i] -eq "-NoStartAtLogin") {
+            $StartAtLogin = "off"
         }
         else {
             throw "Unknown argument '$($arguments[$i])'. In a clone of Code Goblins, run: .\install.cmd -Dev"
@@ -244,10 +254,15 @@
     }
 
     # Install-Home runs cfo install from $Program, which picks the home itself:
-    # the one already in use, kept where it is, or the per-user home. Its
-    # report goes to the log, and its notes to the screen.
+    # the one already in use, kept where it is, or the per-user home, and
+    # makes Windows start it at login unless that was turned off. Its report
+    # goes to the log, and its notes to the screen.
     function Install-Home([string]$Program) {
-        if ((Invoke-Logged $Program @("install")) -ne 0) {
+        $installArguments = @("install")
+        if ($StartAtLogin) {
+            $installArguments += @("--start-at-login", $StartAtLogin)
+        }
+        if ((Invoke-Logged $Program $installArguments) -ne 0) {
             throw "Code Goblins could not be set up: $($lastLine.Text -replace '^install: ', '')"
         }
     }

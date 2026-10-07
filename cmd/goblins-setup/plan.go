@@ -10,11 +10,14 @@ import (
 )
 
 // Plan is what the window says before anything changes: the folder Code
-// Goblins goes into, whether it is there already, and a sentence about it.
+// Goblins goes into, whether it is there already, a sentence about it, and
+// whether Start at login is ticked, as it is unless the home it updates had
+// it turned off.
 type Plan struct {
-	Folder string `json:"folder"`
-	Update bool   `json:"update"`
-	Note   string `json:"note"`
+	Folder       string `json:"folder"`
+	Update       bool   `json:"update"`
+	Note         string `json:"note"`
+	StartAtLogin bool   `json:"start_at_login"`
 }
 
 // findPlan is the plan for this machine.
@@ -27,7 +30,11 @@ func findPlan() (Plan, error) {
 	if err != nil {
 		return Plan{}, err
 	}
-	plan := Plan{Folder: target.Root, Update: target.Update}
+	choice, err := install.ReadStartAtLogin(filepath.Join(target.Root, "state"))
+	if err != nil {
+		return Plan{}, err
+	}
+	plan := Plan{Folder: target.Root, Update: target.Update, StartAtLogin: choice != install.StartAtLoginOff}
 	if target.Kept {
 		plan.Note = "You already run Code Goblins from this folder, so it is updated there and your goblins and their work stay as they are."
 	}

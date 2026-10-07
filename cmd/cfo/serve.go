@@ -25,6 +25,7 @@ import (
 	"github.com/fpresta0607/code-goblins/internal/home"
 	"github.com/fpresta0607/code-goblins/internal/host"
 	"github.com/fpresta0607/code-goblins/internal/install"
+	"github.com/fpresta0607/code-goblins/internal/lock"
 	"github.com/fpresta0607/code-goblins/internal/pipeline"
 	"github.com/fpresta0607/code-goblins/internal/release"
 	"github.com/fpresta0607/code-goblins/internal/supervisor"
@@ -170,6 +171,30 @@ func runServe(args []string, stdout, stderr io.Writer, runtime commandRuntime) i
 		dictation = speech
 		defer speech.Close()
 	}
+	// After a restart or sign-out the supervisor brings the CFO and the
+	// goblins that were working back by itself; an example board brings
+	// nothing back.
+	var comeback *supervisor.Comeback
+	var startAtLogin *supervisor.StartAtLogin
+	if !*example {
+		// The board's Start at login is the setting the install, the setup
+		// and the desktop window's tray change.
+		login := boardStartAtLogin(h)
+		startAtLogin = &supervisor.StartAtLogin{
+			Read: func() (supervisor.StartAtLoginView, error) {
+				on, unavailable, err := login.StartsAtLogin()
+				return supervisor.StartAtLoginView{On: on, Unavailable: unavailable}, err
+			},
+			Set: login.SetStartsAtLogin,
+		}
+		comeback = &supervisor.Comeback{
+			SignedIn: supervisor.SignInBegan,
+			CFO:      func(ctx context.Context) error { return comebackCFO(ctx, h, runtime) },
+			Goblin: func(ctx context.Context, id string) supervisor.GoblinComeback {
+				return comebackGoblin(ctx, h, runtime, id)
+			},
+		}
+	}
 	gate := pipeline.Reader{Root: root, Commands: execx.OSRunner{}}
 	// The board's family tree and the monitor's progress evidence read
 	// through one reader, so they never disagree about what a goblin does.
@@ -207,6 +232,8 @@ func runServe(args []string, stdout, stderr io.Writer, runtime commandRuntime) i
 		RefreshCredentials: boardCredentialRefresh(runtime),
 		Allowance:          readAFKAllowance(runtime),
 		Quota:              runtime.quota,
+		Comeback:           comeback,
+		StartAtLogin:       startAtLogin,
 		Tree:               tree,
 		Releases:           releases,
 	})
@@ -283,12 +310,28 @@ func firstRunOn(h home.Home, userHome string, example bool, setMachine func(root
 			// environment first, and it still holds the old root.
 			return os.Setenv(install.ProjectsRootVariable, root)
 		},
-		SignIn:     cfoSignIn(h),
-		CFORuns:    func() bool { return supervisor.CFORuns(h.State) },
-		StartCFO:   func(agent string) error { return startNativeCFO(h, h.Root, agent, nil) },
+		SignIn:  cfoSignIn(h),
+		CFORuns: func() bool { return supervisor.CFORuns(h.State) },
+		StartCFO: func(agent string) error {
+			launchErr := acquireCFOLaunch(context.Background(), h.State)
+			if launchErr == nil {
+				defer lock.ReleaseExclusiveNamed(h.State, cfoLaunchLock)
+			}
+			if supervisor.CFORuns(h.State) {
+				return nil
+			}
+			if launchErr != nil {
+				return launchErr
+			}
+			return startNativeCFO(h, h.Root, agent, nil)
+		},
 		ReopenCFO:  func() error { return reopenCFO(h, startNativeCFO, supervisor.NativeTerminalRuns) },
 		RestartCFO: func() (supervisor.CFOConversation, bool, error) { return restartCFO(h) },
 	}
+}
+
+func boardStartAtLogin(h home.Home) install.Service {
+	return install.Service{Root: h.Root, StartAtLoginKey: startAtLoginKey()}
 }
 
 // spawnFromBoard runs this cfo binary with args, as a queued task's Start

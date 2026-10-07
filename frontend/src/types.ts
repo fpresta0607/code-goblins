@@ -84,6 +84,9 @@ export interface Task extends Evaluation {
   // runs nothing the supervisor could read.
   tree?: FleetTree;
   deployment?: Deployment;
+  // comeback is where a live goblin the last restart ended is in coming
+  // back: waiting for its turn, or stopped with the reason.
+  comeback?: ComebackEntry;
 }
 // FleetTree is a goblin and what runs under it as the supervisor last read
 // it: memory is its harness and everything under it, own_memory the harness
@@ -115,6 +118,15 @@ function parseTree(value: unknown): FleetTree {
   };
 }
 export interface WorkProgress { at: string; source: string }
+// ComebackEntry is the CFO or one goblin the supervisor brings back after a
+// restart or sign-out: waiting for its turn, back, or stopped with the reason.
+export interface ComebackEntry { id: string; state: "waiting" | "back" | "stopped" | ""; reason: string }
+// Comeback is what the supervisor brings back after the last restart or
+// sign-out: the CFO first, then each goblin that was working.
+export interface Comeback { signed_in: string; cfo?: ComebackEntry; goblins: ComebackEntry[] }
+// StartAtLoginView is whether Windows starts this home at login, or why it
+// cannot be started at login.
+export interface StartAtLoginView { on: boolean; unavailable: string }
 // HostedChecks is a pull request's hosted checks at its head: state is
 // pending while one runs and none has failed, failed as soon as one has,
 // cancelled when they ended with one cancelled, and passed when all passed;
@@ -255,6 +267,12 @@ export interface Snapshot {
   // The conversation the CFO could not resume when it last came back, and how
   // to resume it by hand; empty when it came back on its own.
   cfo_conversation_left: string;
+  // comeback is what the supervisor brings back after the last restart or
+  // sign-out; absent when it brings nothing back.
+  comeback?: Comeback;
+  // start_at_login is whether Windows starts this home at login; absent on a
+  // board that cannot change it.
+  start_at_login?: StartAtLoginView;
   // build names the board bundle the supervisor serves.
   build: string;
   // cfo_runs says a CFO is registered and running or starting; without one
@@ -613,6 +631,11 @@ export function parseItems(value: unknown): Items {
 function parsePerson(p: Record<string, unknown>): Person {
   return { login: string(p.login), name: string(p.name), avatar_url: string(p.avatar_url) };
 }
+function parseComebackEntry(value: unknown): ComebackEntry {
+  const entry = object(value);
+  const state = string(entry.state);
+  return { id: string(entry.id), state: state === "waiting" || state === "back" || state === "stopped" ? state : "", reason: string(entry.reason) };
+}
 export function parseSnapshot(value: unknown): Snapshot {
   const v = object(value);
   return {
@@ -639,6 +662,8 @@ export function parseSnapshot(value: unknown): Snapshot {
     cfo_terminal_since: v.cfo_terminal_since === undefined ? "" : string(v.cfo_terminal_since),
     cfo_harness: v.cfo_harness === undefined ? "" : string(v.cfo_harness),
     cfo_conversation_left: v.cfo_conversation_left === undefined ? "" : string(v.cfo_conversation_left),
+    ...(v.start_at_login == null ? {} : { start_at_login: ((setting) => ({ on: boolean(setting.on), unavailable: setting.unavailable === undefined ? "" : string(setting.unavailable) }))(object(v.start_at_login)) }),
+    ...(v.comeback == null ? {} : { comeback: ((c) => ({ signed_in: string(c.signed_in), ...(c.cfo == null ? {} : { cfo: parseComebackEntry(c.cfo) }), goblins: array(c.goblins).map(parseComebackEntry) }))(object(v.comeback)) }),
     build: string(v.build),
     cfo_runs: v.cfo_runs === undefined || boolean(v.cfo_runs),
     cfo_starting: v.cfo_starting === undefined ? false : boolean(v.cfo_starting),
@@ -701,6 +726,7 @@ export function parseSnapshot(value: unknown): Snapshot {
         ...(t.progress == null ? {} : { progress: ((progress) => ({ at: string(progress.at), source: string(progress.source) }))(object(t.progress)) }),
         ...(t.ticket == null ? {} : { ticket: ((ticket) => ({ number: number(ticket.number), url: string(ticket.url), state: string(ticket.state) }))(object(t.ticket)) }),
         overlaps: array(t.overlaps).map((value) => { const o = object(value); return { ...parsePerson(o), what: string(o.what), url: string(o.url) }; }),
+        ...(t.comeback == null ? {} : { comeback: parseComebackEntry(t.comeback) }),
         ...(t.hosted_checks == null ? {} : { hosted_checks: ((c) => ({ state: string(c.state), checks: number(c.checks), failed: strings(c.failed), link: string(c.link), approved: c.approved === undefined ? false : boolean(c.approved) }))(object(t.hosted_checks)) }),
         ...(t.tree == null ? {} : { tree: parseTree(t.tree) }),
         ...(t.local_checks == null ? {} : { local_checks: ((c) => ({ commit: string(c.commit), level: string(c.level), required_level: string(c.required_level), status: string(c.status), duration_seconds: number(c.duration_seconds), queue_seconds: number(c.queue_seconds), failed: strings(c.failed), at: string(c.at) }))(object(t.local_checks)) }),

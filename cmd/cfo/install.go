@@ -40,6 +40,7 @@ func runInstall(args []string, stdout, stderr io.Writer) int {
 	fs.SetOutput(stderr)
 	uninstall := fs.Bool("uninstall", false, "remove what cfo install added")
 	projectsRoot := fs.String("projects-root", "", "the folder that holds your checkouts, so --project can take a bare name")
+	startAtLogin := fs.String("start-at-login", "", "on or off: whether Windows starts Code Goblins in the tray at login, which brings back what a restart ended; the home keeps the choice, and without it an install keeps the choice the home holds, on where it holds none")
 	if err := fs.Parse(args); err != nil {
 		return 2
 	}
@@ -49,6 +50,14 @@ func runInstall(args []string, stdout, stderr io.Writer) int {
 	}
 	if *uninstall && *projectsRoot != "" {
 		fmt.Fprintln(stderr, "cfo install: --projects-root cannot be combined with --uninstall")
+		return 2
+	}
+	if *startAtLogin != "" && *startAtLogin != install.StartAtLoginOn && *startAtLogin != install.StartAtLoginOff {
+		fmt.Fprintln(stderr, "cfo install: --start-at-login is on or off")
+		return 2
+	}
+	if *uninstall && *startAtLogin != "" {
+		fmt.Fprintln(stderr, "cfo install: --start-at-login cannot be combined with --uninstall")
 		return 2
 	}
 
@@ -64,6 +73,7 @@ func runInstall(args []string, stdout, stderr io.Writer) int {
 		return 1
 	}
 	service.Checkout = target.Checkout
+	service.StartAtLogin = *startAtLogin
 	if *projectsRoot != "" {
 		if service.ProjectsRoot, err = fsx.AbsClean(*projectsRoot); err != nil {
 			fmt.Fprintf(stderr, "cfo install: resolve --projects-root: %v\n", err)
@@ -245,10 +255,21 @@ func installService(root string) (install.Service, error) {
 		Binary:       binary,
 		Harnesses:    harnessmap.Find(os.Getenv, userHome),
 		Link:         junction(commands),
-		// The desktop window's Start at login entry, which an uninstall
-		// removes and an install takes over from an earlier copy.
-		StartAtLoginKey: install.StartAtLoginKey,
+		// The Start at login entry, which an install sets unless it was
+		// turned off and an uninstall removes. A machine whose user
+		// environment is a file, as a test's is, has none.
+		StartAtLoginKey: startAtLoginKey(),
 	}, nil
+}
+
+// startAtLoginKey is where this machine keeps what Windows starts at login,
+// or nothing where the user environment is a file standing in for this
+// machine's, so an install there never makes the real machine start it.
+func startAtLoginKey() string {
+	if os.Getenv(install.UserEnvFileVariable) != "" {
+		return ""
+	}
+	return install.StartAtLoginKey
 }
 
 // installTarget is the home install wires in, as install.FindTarget picks it:

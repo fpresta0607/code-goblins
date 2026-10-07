@@ -346,7 +346,7 @@ func (s Service) relaunchHarness(ctx context.Context, meta state.TaskMeta, targe
 	if request.IsResume && request.ResumeHandoff != "" {
 		launch.Instruction += " Read the retained pause handoff at " + request.ResumeHandoff + "."
 	}
-	if request.IsResume && request.ResumeNote != "" {
+	if request.ResumeNote != "" {
 		launch.Instruction += "\n" + request.ResumeNote
 	}
 	if meta.PipelineHash != "" {

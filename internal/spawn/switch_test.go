@@ -182,6 +182,30 @@ func TestSwitchResumesInPlaceWhenOnlyTheModelChanges(t *testing.T) {
 	}
 }
 
+// A goblin brought back on its own session after a restart, which was never
+// paused, is told the note it is brought back with after the instruction a
+// resumed session gets.
+func TestAResumeInPlaceTellsTheGoblinItsNote(t *testing.T) {
+	// Arrange
+	f := newSwitchFixture(t, harness.Control{StopCommand: "/exit", ResumeArgs: []string{"resume", "--last"}})
+	note := "The machine restarted, which ended your terminal; continue where you left off."
+
+	// Act
+	result, err := f.service.Switch(context.Background(), SwitchRequest{ID: f.meta.ID, Model: "gpt-9", Generation: f.meta.SpawnGen, ResumeSession: "owned-session-7", ResumeNote: note})
+
+	// Assert
+	if err != nil {
+		t.Fatal(err)
+	}
+	submitted := submittedLines(t, f.nativeFixture, 1)
+	if !result.Resumed || len(submitted) != 1 {
+		t.Fatalf("result = %+v, submitted = %q; want the session resumed and told once", result, submitted)
+	}
+	if instruction := delivered(t, submitted[0]); !strings.Contains(instruction, "Your session was restarted") || !strings.HasSuffix(strings.TrimSpace(instruction), note) {
+		t.Errorf("instruction = %q, want the resumed session's instruction ending with the note", instruction)
+	}
+}
+
 func TestPausedResumeUsesTheSavedSessionInsteadOfTheLatestSession(t *testing.T) {
 	f := newSwitchFixture(t, harness.Control{StopCommand: "/exit", ResumeArgs: []string{"resume", "--last"}})
 	if err := state.WriteLifecycle(f.stateDir, state.Lifecycle{ID: f.meta.ID, Generation: f.meta.SpawnGen, Operation: "resume-1", Action: "resume", Phase: "resuming"}); err != nil {

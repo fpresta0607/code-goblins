@@ -6,20 +6,28 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"github.com/fpresta0607/code-goblins/internal/fleettree"
 	"github.com/fpresta0607/code-goblins/internal/home"
 	"github.com/fpresta0607/code-goblins/internal/spawn"
 	"github.com/fpresta0607/code-goblins/internal/state"
+	"github.com/fpresta0607/code-goblins/internal/supervisor"
 )
 
 // goblinComeback is what goblins resume did for one goblin a reboot or
-// sign-out left without its terminal, in words for the Overlord.
+// sign-out left without its terminal, in words for the Overlord. isWaiting
+// says it waits for room to come back.
 type goblinComeback struct {
-	id     string
-	said   string
-	isBack bool
+	id        string
+	said      string
+	isBack    bool
+	isWaiting bool
 }
+
+// restartNote is the line a goblin the supervisor brings back after a
+// restart is told, after the instruction a resumed session gets.
+const restartNote = "The machine restarted, which ended your terminal; this is your own session brought back, so continue where you left off."
 
 // bringGoblinsBack brings back, in place, every goblin a reboot or sign-out
 // ended: each task with a record whose native terminal no longer runs,
@@ -38,17 +46,17 @@ func bringGoblinsBack(ctx context.Context, h home.Home, runtime commandRuntime) 
 	}
 	var comebacks []goblinComeback
 	for _, id := range scan.MetaIDs {
-		if comeback, ended := bringGoblinBack(ctx, h, runtime, id); ended {
+		if comeback, ended := bringGoblinBack(ctx, h, runtime, id, ""); ended {
 			comebacks = append(comebacks, comeback)
 		}
 	}
 	return comebacks, nil
 }
 
-// bringGoblinBack brings one goblin back as bringGoblinsBack says, and
-// reports false for one that still runs or was paused or stopped on purpose,
-// which it leaves as it is.
-func bringGoblinBack(ctx context.Context, h home.Home, runtime commandRuntime, id string) (goblinComeback, bool) {
+// bringGoblinBack brings one goblin back as bringGoblinsBack says, with note
+// added to what it is told when it starts, and reports false for one that
+// still runs or was paused or stopped on purpose, which it leaves as it is.
+func bringGoblinBack(ctx context.Context, h home.Home, runtime commandRuntime, id, note string) (goblinComeback, bool) {
 	meta, err := state.ReadTaskMeta(h.State, id)
 	if err != nil {
 		return goblinComeback{id: id, said: "its task record cannot be read: " + err.Error()}, true
@@ -80,7 +88,7 @@ func bringGoblinBack(ctx context.Context, h home.Home, runtime commandRuntime, i
 		return goblinComeback{}, false
 	}
 	if err := runtime.admitLaunch(h); err != nil {
-		return goblinComeback{id: id, said: "waits for room: " + err.Error()}, true
+		return goblinComeback{id: id, said: "waits for room: " + err.Error(), isWaiting: true}, true
 	}
 	session, err := fleettree.OwnedSession(h.State, meta)
 	if err != nil {
@@ -92,6 +100,7 @@ func bringGoblinBack(ctx context.Context, h home.Home, runtime commandRuntime, i
 		ForceDirty:    true,
 		BriefPath:     filepath.Join(h.Data, id, "brief.md"),
 		ResumeSession: session,
+		ResumeNote:    note,
 	})
 	if err != nil {
 		return goblinComeback{id: id, said: "it could not come back: " + err.Error()}, true
@@ -100,4 +109,24 @@ func bringGoblinBack(ctx context.Context, h home.Home, runtime commandRuntime, i
 		return goblinComeback{id: id, said: "back on its conversation", isBack: true}, true
 	}
 	return goblinComeback{id: id, said: "back from a handoff, since no conversation is proved its own", isBack: true}, true
+}
+
+// comebackGoblin is the supervisor's comeback of one goblin after a restart:
+// bringGoblinBack, telling the goblin the machine restarted, in the words the
+// supervisor records.
+func comebackGoblin(ctx context.Context, h home.Home, runtime commandRuntime, id string) supervisor.GoblinComeback {
+	comeback, ended := bringGoblinBack(ctx, h, runtime, id, restartNote)
+	switch {
+	case !ended && runtime.nativeTerminalRuns(h.State, id):
+		return supervisor.GoblinComeback{Outcome: supervisor.AlreadyRuns}
+	case !ended:
+		return supervisor.GoblinComeback{Outcome: supervisor.LeftAsItWas}
+	case comeback.isBack:
+		return supervisor.GoblinComeback{Outcome: supervisor.CameBack, Said: comeback.said}
+	case runtime.nativeTerminalRuns(h.State, id):
+		return supervisor.GoblinComeback{Outcome: supervisor.CameBack, Said: strings.TrimPrefix(comeback.said, "it could not come back: ")}
+	case comeback.isWaiting:
+		return supervisor.GoblinComeback{Outcome: supervisor.WaitsForRoom, Said: strings.TrimPrefix(comeback.said, "waits for room: ")}
+	}
+	return supervisor.GoblinComeback{Outcome: supervisor.DidNotComeBack, Said: strings.TrimPrefix(comeback.said, "it could not come back: ")}
 }

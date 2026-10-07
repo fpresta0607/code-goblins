@@ -400,6 +400,13 @@ button:focus:not(:focus-visible), summary:focus:not(:focus-visible), [tabindex]:
 /* A newer board is served: one quiet line with its reload. */
 .update-banner { display: flex; flex: none; align-items: center; justify-content: space-between; gap: 12px; padding: 6px 8px 6px 16px; border: 1px solid var(--glass-border-hover); border-radius: var(--radius); background: var(--glass-bg-hover); color: #c9f2e2; font-weight: 700; }
 .update-banner .primary { min-height: 36px; padding: 6px 16px; }
+/* After a restart: what is coming back, then what resumed. */
+.comeback-banner.working { color: var(--mint); }
+.comeback-detail { font-weight: 400; color: var(--muted); }
+/* Start at login in the CFO's Workspace: what it does, and its switch. */
+.start-at-login { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; margin-top: 12px; padding-top: 12px; border-top: 1px solid var(--border); }
+.start-at-login p { margin: 4px 0 0; color: var(--muted); }
+.start-at-login .afk-toggle { flex: none; }
 /* A newer release waits: the same slim line in the electric ring the Update
    item wears, pointing to it. */
 .release-banner { display: flex; flex: none; align-items: center; gap: 12px; padding: 6px 8px 6px 12px; border: 1px solid transparent; border-radius: var(--radius); background: linear-gradient(var(--hero-surface), var(--hero-surface)) padding-box, var(--electric-ring) border-box; box-shadow: var(--electric-glow); color: #e2ecf0; font-weight: 700; }

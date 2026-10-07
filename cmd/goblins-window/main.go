@@ -178,9 +178,12 @@ func main() {
 	} else if adopted {
 		log.Printf("start at login now runs %s", login)
 	}
+	// Start at login is one setting with the board's and the setup's: the
+	// choice is kept in the home, so an install keeps it, and the tray shows
+	// a change the board made.
 	atLogin := menu.AddCheckbox("Start at login", StartsAtLogin(login))
 	atLogin.OnClick(func(ctx *application.Context) {
-		if err := SetStartAtLogin(login, atLogin.Checked()); err != nil {
+		if err := keepStartAtLogin(login, *stateDir, atLogin.Checked()); err != nil {
 			atLogin.SetChecked(!atLogin.Checked())
 			log.Printf("start at login: %v", err)
 		}
@@ -202,6 +205,12 @@ func main() {
 			// WebView2 exists there is nothing to load a page into.
 			if time.Since(started) < startGrace {
 				continue
+			}
+			if _, err := adoptEarlierLogin(launcher, self, login); err != nil {
+				log.Printf("start at login: %v", err)
+			}
+			if now := StartsAtLogin(login); now != atLogin.Checked() {
+				atLogin.SetChecked(now)
 			}
 			url, moved := follow.Next()
 			fresh, answers := watcher.New(url)

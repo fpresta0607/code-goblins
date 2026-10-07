@@ -79,6 +79,7 @@ A task can run through Claude Code, Codex, or Pi. `cfo switch` can change the ha
 ### Restart-proof supervision
 
 Task metadata, fleet state, and wake events live on disk. Closing the supervisor does not erase what the fleet was doing.
+Closing the board, the desktop window or `goblins attach` stops nothing, and after a restart or sign-out Code Goblins starts at login and brings the CFO and every goblin that was working back by itself: [Opening, closing and restarting](#opening-closing-and-restarting) says how.
 
 `cfo serve` runs the native supervisor and an embedded React board at `http://127.0.0.1:4310`.
 Native lifecycle hooks, durable actions, task evidence, code review previews, and reported session lineage remain independent of browser lifetime.
@@ -125,6 +126,7 @@ irm https://github.com/fpresta0607/code-goblins/releases/latest/download/install
 
 Both are the same install, so use whichever you like: the setup if you want a window, the one line if you live in a terminal.
 Each puts the Code Goblins app and the `cfo` command line (also called `goblins`) together in one folder, `%LOCALAPPDATA%\CodeGoblins`, adds that folder to your PATH and Code Goblins to the Start menu, installs the tools the goblins use where they are missing, and opens [the desktop app](#the-desktop-app).
+Each also turns on **Start at login**, so Code Goblins starts in the tray when you sign in and brings back what a restart ended; untick it in the setup to keep it off, and [Opening, closing and restarting](#opening-closing-and-restarting) says how to change it later.
 Each says the same four steps as it goes (download, check, install, open) and keeps every detail in `%TEMP%\CodeGoblinsInstall.log`; a failure says in one sentence what happened and what to do.
 Run either again at any time to update: it never asks you to run anything first.
 Once Code Goblins runs, a newer release comes to you as its own item in the board's Command Center, **Update Code Goblins**, with what is new and one **Update** button, and a slim banner at the top points to it ([Update Code Goblins](docs/native-board.md#update-code-goblins)).
@@ -177,8 +179,9 @@ goblins uninstall    # undo the install; the home folder and its data stay
 ```
 
 `goblins` on its own finds the supervisor, or starts it in the background with a hidden console of its own when none is running, so no window opens, with its output in `state\serve.log` in the CFO home.
-The board's address is the same every time: `http://127.0.0.1:4310`, or the loopback address you set in `CFO_BOARD_ADDRESS`.
-When that address is in use, `goblins` starts no board anywhere else: it says who holds it, the Code Goblins fleet of another home by its folder or another program, and what to do.
+The board's address is `http://127.0.0.1:4310`, or the loopback address you set in `CFO_BOARD_ADDRESS`.
+When another home's board or another program already holds `127.0.0.1:4310`, as on a PC where a fleet already runs, `goblins` starts this home's board on a free port of its own instead, and its banner, the app and `goblins status` give that board's link.
+An address you set in `CFO_BOARD_ADDRESS` that is in use starts no board: `goblins` says who holds it, the Code Goblins fleet of another home by its folder or another program, and what to do.
 It prints the banner, the board's link and one line on what the CFO and the goblins are doing and how much waits on you.
 When this home's supervisor, or its supervisor and its CFO, already run, it says so and starts nothing beside them.
 It never opens the board on its own.
@@ -197,6 +200,7 @@ A CFO that `goblins` or `goblins resume` starts on a new conversation that way l
 With no CFO running in a native terminal it does what `goblins` does, and brings a closed one back.
 Then it brings back every goblin whose terminal ended, as a reboot or sign-out ends them all: each in place, with its worktree, uncommitted work, harness, model and effort, on its own conversation where the board's record proves it is the task's and from a handoff where it does not, and it lists which came back and which need a hand.
 A goblin paused or stopped on purpose, or still running, is left as it is, and one the machine has no room for yet waits, with the reason, rather than starting.
+After a restart or sign-out the supervisor does all of this by itself as soon as it starts, as [Opening, closing and restarting](#opening-closing-and-restarting) says, so `goblins resume` is for the times in between.
 A CFO already running is never started twice: one registered in a native terminal is shown in this terminal, one whose registration names a live process in Herdr is brought to the front there, and with no CFO registered, a CFO already running in native terminal `cfo`, which may not have registered yet, is shown.
 Every run ends on one screen: the CFO's home and the board's link, which Ctrl+click opens, above two choices.
 **Open the CFO terminal**, the one Enter takes, attaches this terminal to the CFO, to Herdr with the CFO in front or to its native terminal; run inside Herdr, it only brings the CFO to the front.
@@ -268,6 +272,7 @@ A window the home only kept from before, under an install that ships none, still
 When the board cannot open, the window says why in a message of its own, in the words `goblins` would use in a terminal.
 `goblins --window` does the same from a terminal, and **Open the board** in the quick start opens the window in place of the browser.
 Closing the window hides it to its tray, whose menu has **Open the board**, **Start at login**, which opens the app in the tray when you sign in, with no terminal either, and **Quit the window**.
+Start at login is on after an install, and it is one setting with the switch on the board and the setup's box.
 An install takes the place of a copy of the window that was installed on its own, in a folder of its own: [the install guide](docs/install.md#to-use-it) says what it removes and what it keeps.
 
 #### Dictating in the app
@@ -281,6 +286,36 @@ If Windows blocks the microphone, the note says so and where to turn it back on:
 After that a line comes back in a moment, and the model gives its memory back after two minutes without dictation.
 Two dictations in a row are typed with a space between them, and a click on the microphone in the terminal's corner lists your recent dictations.
 It works the same in a browser tab, and the terminal panel under [Board and Orchestration](#board-and-orchestration) says more.
+
+### Opening, closing and restarting
+
+Code Goblins runs in the background, in processes of their own: the supervisor, `cfo serve`, which serves the board, and one `cfo host` for each terminal, the CFO's and each goblin's, each holding its harness.
+None of them belongs to a window.
+The board in a browser, the desktop window and `goblins attach` are only views: closing any of them leaves the supervisor, the CFO and every goblin running.
+Closing the desktop window hides it to its tray, and **Quit the window** in the tray ends the window alone.
+Opening the app, from the Start menu or at sign-in, finds this home's supervisor, or starts it out of sight, outside any terminal, and then shows the board.
+`goblins stop` stops only the supervisor: the CFO and the goblins keep working in their terminals.
+
+A restart or a sign-out ends all of those processes, and Code Goblins brings them back by itself.
+**Start at login**, which every install turns on, starts the app in the tray when you sign in to Windows, with no terminal shown, and the app starts the supervisor.
+The supervisor then brings back what the restart ended, in this order:
+
+1. The registered CFO, in its terminal, on the conversation it last ran, resumed by that conversation's id: Claude Code with `--resume <session>`, Codex with `codex resume <session>`.
+   It never starts a fresh CFO in its place.
+2. Each goblin that was working and had not finished, in its own session, with the same harness, model and effort, one at a time.
+   Each waits for room as a start does: memory and commit both at the 5 GB mark on two readings in a row, a minute apart, and a free goblin slot.
+3. Each goblin that comes back is told in one line that the machine restarted and to continue where it left off.
+
+Goblins that had finished, were paused or stopped, or were retired stay as they were.
+While anything waits to come back nothing else starts by itself: queued starts, paused goblins' automatic resumes and `memory_ready` wait.
+A Start or Resume you press on the board, or a `cfo spawn` the CFO chooses, is still allowed.
+A goblin that cannot come back, such as one whose harness sign-in expired, stays stopped with the reason on its card, the CFO is told, and the other goblins still come back.
+A CFO whose conversation cannot be resumed stays closed with the reason, and **Reopen** on its bar tries its conversation again and starts it on a new one where that cannot be resumed.
+While this runs, one line at the top of the board says what is back and what waits, then what resumed, such as "Resumed the CFO and 6 goblins after a restart."; it is the same line in the desktop window and in the browser, and Dismiss puts it away.
+With Start at login off, the same happens the first time the supervisor starts after the restart, when you open the app or run `goblins`.
+
+Start at login is one setting wherever you change it: the switch under **Workspace** in the CFO's panel on the board, **Start at login** in the desktop window's tray menu, the box in the setup, or `cfo install --start-at-login off` or `on` in a terminal.
+The home keeps your choice, so an update never turns back on what you turned off, and `goblins uninstall` removes the entry.
 
 ### Board and Orchestration
 

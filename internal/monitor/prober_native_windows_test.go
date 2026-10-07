@@ -290,3 +290,25 @@ func TestHostProgressReadsANativeHarnessFromItsTerminal(t *testing.T) {
 		t.Errorf("harness = pid %d started %v, %v; want the terminal's program, pid %d started %v, not its host, pid %d", harnessPID, started, err, record.ChildPID, record.ChildStart, record.HostPID)
 	}
 }
+
+// A goblin whose terminal a restart ended and that the supervisor's comeback
+// brings back says so, rather than sending the CFO to bring it back by hand.
+func TestANativeProberSaysTheComebackBringsBackAGoblinARestartEnded(t *testing.T) {
+	// Arrange
+	stateDir := t.TempDir()
+	meta := nativeMeta("g1", "claude")
+	if err := state.WriteComeback(stateDir, state.Comeback{Goblins: []state.ComebackEntry{{ID: meta.ID, Generation: meta.SpawnGen, State: state.ComebackWaiting}}}); err != nil {
+		t.Fatal(err)
+	}
+
+	// Act
+	sample, err := NativeProber{StateDir: stateDir, ReadScreen: screenOf("> ")}.Inspect(context.Background(), meta)
+
+	// Assert
+	if err != nil {
+		t.Fatal(err)
+	}
+	if sample.Verdict != ProbeMissing || !strings.Contains(sample.Detail, "the supervisor brings it back by itself") || strings.Contains(sample.Detail, "goblins resume") {
+		t.Errorf("sample = %+v, want missing, saying the supervisor brings it back", sample)
+	}
+}

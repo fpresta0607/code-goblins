@@ -301,6 +301,14 @@ func TestTheEarlierLoginEntryBecomesTheWindowAlone(t *testing.T) {
 	if adoptErr != nil || againErr != nil || offErr != nil || afterOffErr != nil {
 		t.Errorf("errors: first start %v, second start %v, off %v, start after off %v", adoptErr, againErr, offErr, afterOffErr)
 	}
+	if err := SetStartAtLogin(`"C:\app\goblins.exe" --window --background`, true); err != nil {
+		t.Fatal(err)
+	}
+	readopted, err := adoptEarlierLogin(launcher, window, login)
+	entry, _ = loginEntry(t)
+	if err != nil || !readopted || entry != login || !StartsAtLogin(login) {
+		t.Errorf("after the board enables login: adopted %v, entry %q, on %v, error %v", readopted, entry, StartsAtLogin(login), err)
+	}
 }
 
 // Only the entry an earlier window wrote for the goblins beside this window is

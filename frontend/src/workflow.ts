@@ -144,13 +144,15 @@ const actionFailed = (task: Task) => task.lifecycle?.phase === "failed" && !["pa
 // statusPhase is the phase a task's status is drawn in, failed for an action
 // that did not finish.
 export function statusPhase(task: Task): string {
-  return actionFailed(task) ? "failed" : task.phase;
+  return actionFailed(task) || task.comeback?.state === "stopped" ? "failed" : task.phase;
 }
 
 export function nodeStatus(node: WorkflowNode, asking = false): string {
   if (node.status) return node.status;
   if (node.task && actionFailed(node.task)) return actionFailed(node.task);
   if (node.task && ["paused", "pausing", "resuming", "stopping", "stopped"].includes(node.task.phase)) return statusText(node.task.phase);
+  if (node.task?.comeback?.state === "waiting") return "Comes back after the restart when memory allows";
+  if (node.task?.comeback?.state === "stopped") return "Did not come back after the restart";
   if (node.task?.archived) return node.task.merged ? "Merged" : node.task.closed ? "Closed" : "Finished";
   if (node.task && ownsTaskSession(node.session, node.task)) {
     const { phase, reason, verified } = node.task;

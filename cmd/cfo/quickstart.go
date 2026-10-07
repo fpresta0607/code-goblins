@@ -16,6 +16,7 @@ import (
 	"github.com/fpresta0607/code-goblins/internal/fsx"
 	"github.com/fpresta0607/code-goblins/internal/home"
 	"github.com/fpresta0607/code-goblins/internal/install"
+	"github.com/fpresta0607/code-goblins/internal/lock"
 	"github.com/fpresta0607/code-goblins/internal/onboarding"
 	"github.com/fpresta0607/code-goblins/internal/spawn"
 	"github.com/fpresta0607/code-goblins/internal/supervisor"
@@ -211,6 +212,10 @@ type cfoSession struct {
 // yet. A CFO is never started beside one that runs. Either way list says so
 // in one line.
 func ensureCFOSession(ctx context.Context, runtime commandRuntime, h home.Home, agent string, list *onboarding.Checklist) (cfoSession, bool, error) {
+	launchErr := acquireCFOLaunch(ctx, h.State)
+	if launchErr == nil {
+		defer lock.ReleaseExclusiveNamed(h.State, cfoLaunchLock)
+	}
 	if id, live := runtime.nativeCFO(h.State); live {
 		list.Done("CFO", "already running in native terminal "+id)
 		return cfoSession{native: id}, false, nil
@@ -225,6 +230,9 @@ func ensureCFOSession(ctx context.Context, runtime commandRuntime, h home.Home, 
 	if runtime.nativeTerminalRuns(h.State, supervisor.NativeCFOTerminal) {
 		list.Done("CFO", "already starting in native terminal "+supervisor.NativeCFOTerminal)
 		return cfoSession{native: supervisor.NativeCFOTerminal}, false, nil
+	}
+	if launchErr != nil {
+		return cfoSession{}, false, launchErr
 	}
 	if agent == "" {
 		// The CFO that ran when this launch began has ended since.

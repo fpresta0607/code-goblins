@@ -1,5 +1,5 @@
 import { useResource } from "./api";
-import { object, string, strings, type Run, type Session, type Task } from "./types";
+import { object, string, strings, type Run, type Session, type StartAtLoginView, type Task } from "./types";
 import { harnessName } from "./workflow";
 import { ownsTaskSession, sessionModel } from "./lineageTree";
 import { harnessMark, modelMark } from "./connectors";
@@ -8,6 +8,7 @@ import { Disclosure } from "./Disclosure";
 import { ConnectionsPanel } from "./connections-panel";
 import { EngineSelector } from "./engine-selector";
 import { RawDetails } from "./raw-details";
+import { StartAtLoginSetting } from "./StartAtLoginSetting";
 
 function parse(value: unknown) {
   const v = object(value);
@@ -22,8 +23,8 @@ function splitModel(model: string): { name: string; basis: string } {
 
 // Where the work lives and what it runs on: the Workspace and Connections
 // sections of a panel, each closed until it is opened, like the sections
-// below them.
-export function WorkspaceDetails({ task, node, runs, instance, onRepair }: { task?: Task; node?: Session; runs?: Run[]; instance: string; onRepair?: (key: string) => void }) {
+// below them. The CFO's Workspace also holds Start at login.
+export function WorkspaceDetails({ task, node, runs, instance, startAtLogin, onRepair }: { task?: Task; node?: Session; runs?: Run[]; instance: string; startAtLogin?: StartAtLoginView; onRepair?: (key: string) => void }) {
   const child = !!node && !ownsTaskSession(node, task);
   const queued = !!task && !task.generation;
   const isArchived = !!task?.archived;
@@ -40,6 +41,7 @@ export function WorkspaceDetails({ task, node, runs, instance, onRepair }: { tas
         <dl>{[["Repository", details.repository], ["Branch", details.branch], [child ? "Owning task folder" : task ? "Working folder" : "CFO project root", details.root]].filter(([, value]) => value).map(([label, value]) => <div key={label}><dt>{label}</dt><dd>{value}</dd></div>)}</dl>
         {details.notes.map((note) => <p key={note}>{note}</p>)}
       </>}
+      {!task && !node && startAtLogin && <StartAtLoginSetting setting={startAtLogin} instance={instance} />}
     </Disclosure>
     <Disclosure kind="connections" title="Connections">
       {task && !child ? <EngineSelector key={task.id + task.generation} task={task} instance={instance} /> : <ul className="connection-list" aria-label="Harness and model">
