@@ -24,6 +24,13 @@ func TestDetectIgnoresQuotedReviewerFaults(t *testing.T) {
 		{"CRLF review diff", "    64 +The review log states: " + weekly + "\r\n• Working (8s • esc to interrupt)"},
 		{"quoted auth diff", "    38 +401 Unauthorized: invalid api key"},
 		{"quoted provider source result", "review.log:38: Error: 503 Service Unavailable"},
+		// Wake 6013 on 2026-10-07: a goblin's own pytest log, wrapped by
+		// Claude Code under the test run's tool call, read as its provider.
+		{"claude tool output wrapped row", "⏺ Bash(uv run pytest tests/test_zoning.py -q)\n  ⎿  WARNING  app.services.zoning_clients:zoning_clients.py:4128 Municode find_municipality attempt 1 failed for Ta\n     mpa, FL: Server error '503 Service Unavailable' for url 'https://api.municode.com/Clients/stateAbbr?stateAbbr=FL'\n     … +40 lines (ctrl+o to expand)\n\n✻ Cogitating… (esc to interrupt)"},
+		{"claude tool output first row", "⏺ Bash(python probe.py)\n  ⎿  Error: 503 Service Unavailable\n"},
+		{"claude tool output after an empty row", "⏺ Bash(python probe.py)\n  ⎿  probing\n\n     internal server error\n"},
+		{"claude mcp tool output", "⏺ municode - search (MCP)(query: \"Tampa\")\n  ⎿  {\"error\": \"502 Bad Gateway\"}\n"},
+		{"claude tool auth output", "⏺ Bash(curl -s https://example.test/api)\n  ⎿  401 Unauthorized: invalid api key\n"},
 	}
 	for _, test := range cases {
 		t.Run(test.name, func(t *testing.T) {
@@ -56,6 +63,8 @@ func TestDetectKeepsGenuineFaultsAfterQuotedEvidence(t *testing.T) {
 		"```text\n401 Unauthorized: invalid api key\n```\n",
 		"• Ran Get-Content review.log\n  └ Error: 503 Service Unavailable\n    previous output\n",
 		"An incomplete quoted fence:\n```text\n",
+		"⏺ Bash(python probe.py)\n  ⎿  Error: 503 Service Unavailable\n     previous output\n",
+		"⏺ Bash(python probe.py)\n  ⎿  Error: 503 Service Unavailable\n\n",
 	}
 	for _, test := range cases {
 		t.Run(test.name, func(t *testing.T) {
@@ -78,5 +87,9 @@ func TestDetectKeepsThirdPartyToolFailures(t *testing.T) {
 	fault, evidence, found := Detect(tail)
 	if !found || fault != ThirdParty || evidence != "└ gh: 429 API rate limit exceeded for user" {
 		t.Fatalf("Detect = (%q, %q, %v), want the actual git-platform tool failure", fault, evidence, found)
+	}
+	tail = "⏺ Bash(gh pr view 1)\n  ⎿  gh: 429 API rate limit exceeded for user\n"
+	if fault, evidence, found := Detect(tail); !found || fault != ThirdParty || evidence != "⎿  gh: 429 API rate limit exceeded for user" {
+		t.Fatalf("Detect under a Claude Code tool call = (%q, %q, %v), want the actual git-platform tool failure", fault, evidence, found)
 	}
 }
