@@ -52,6 +52,11 @@ const (
 	// for the gap; it is never dropped.
 	memoryWakeGap = 15 * time.Minute
 	ciWakeGap     = 5 * time.Minute
+	// workflowStartGrace is how long a pull request whose other checks have
+	// all concluded waits for its repository's workflows to report. GitHub
+	// queues them within seconds of a push, so a head none reports for by
+	// then ran none: a path filter or a condition skipped them.
+	workflowStartGrace = 10 * time.Minute
 	// diskWakeGap is the least time between two disk wakes.
 	diskWakeGap = 15 * time.Minute
 	// repoWatchFor is how long a repository stays watched for its main's push
@@ -88,6 +93,10 @@ type fleetWakes struct {
 	// checks said at its last poll, for its goblin's card.
 	Checks map[string]reportedChecks `json:"checks,omitempty"`
 	Hosted map[string]HostedChecks   `json:"hosted,omitempty"`
+	// Unstarted holds, by pull request, the head whose checks all concluded
+	// before any of its repository's workflows reported, and when a poll
+	// first saw that.
+	Unstarted map[string]unstartedWorkflows `json:"unstarted,omitempty"`
 	// Deploys holds, by pull request, how the deploy of its merge stands, as
 	// the default branch's push runs said at the last poll.
 	Deploys         map[string]Deployment       `json:"deploys,omitempty"`
@@ -128,6 +137,13 @@ type reportedChecks struct {
 	Signature  string    `json:"signature"`
 	At         time.Time `json:"at"`
 	ReportedAt time.Time `json:"reported_at,omitzero"`
+}
+
+// unstartedWorkflows is a pull request head none of whose workflows has
+// reported, and when a poll first found its other checks all concluded.
+type unstartedWorkflows struct {
+	Head  string    `json:"head"`
+	Since time.Time `json:"since"`
 }
 
 // unreadableRepo is the failure a repository's last poll met, and whether
@@ -516,6 +532,11 @@ func (s *Service) pollCI(ctx context.Context, w *fleetWakes, now time.Time, curr
 			delete(w.Checks, url)
 		}
 	}
+	for url, unstarted := range w.Unstarted {
+		if now.Sub(unstarted.Since) >= ciRecordFor {
+			delete(w.Unstarted, url)
+		}
+	}
 	for url, health := range w.Health {
 		if now.Sub(health.At) >= ciRecordFor {
 			delete(w.Health, url)
@@ -674,6 +695,9 @@ type ghCheck struct {
 	StartedAt   string `json:"startedAt"`
 	DetailsURL  string `json:"detailsUrl"`
 	TargetURL   string `json:"targetUrl"`
+	// WorkflowName names the GitHub Actions workflow a check run belongs to,
+	// and is empty for another app's check, such as GitGuardian's.
+	WorkflowName string `json:"workflowName"`
 }
 
 func (c ghCheck) name() string {
@@ -744,6 +768,7 @@ func pollPullRequests(ctx context.Context, runner execx.Runner, stateDir string,
 		}
 	}
 	var errs error
+	isRunningWorkflows := runsPullRequestWorkflows(repo)
 	for _, goblin := range goblins {
 		for _, pr := range open {
 			if !slices.Contains(goblin.pullRequests, pr.URL) && (pr.IsCrossRepository || goblin.branch == "" || pr.HeadRefName != goblin.branch) {
@@ -754,7 +779,7 @@ func pollPullRequests(ctx context.Context, runner execx.Runner, stateDir string,
 				w.Checks[pr.URL] = reported
 			}
 			recordHostedChecks(w, pr, now)
-			errs = errors.Join(errs, reportChecks(stateDir, w, goblin.id, pr, now))
+			errs = errors.Join(errs, reportChecks(stateDir, w, goblin.id, pr, isRunningWorkflows, now))
 		}
 	}
 	comparisons, unreadComparisons, branch, unread := comparePullRequests(ctx, runner, repo, open)
@@ -799,20 +824,57 @@ func pollPullRequests(ctx context.Context, runner execx.Runner, stateDir string,
 	return nil, errors.Join(errs, reportPRUnread(stateDir, w, repo, unreadHeads, isCapped, unread, now))
 }
 
+// runsPullRequestWorkflows reports whether repo's checkout has a GitHub
+// Actions workflow its pull requests trigger.
+func runsPullRequestWorkflows(repo string) bool {
+	workflows, _ := filepath.Glob(filepath.Join(repo, ".github", "workflows", "*.y*ml"))
+	for _, workflow := range workflows {
+		if data, err := fsx.ReadFile(workflow); err == nil && strings.Contains(string(data), "pull_request") {
+			return true
+		}
+	}
+	return false
+}
+
 // reportChecks raises ci_finished for pr once every check on it has
-// concluded, unless the CFO was already woken for this very result.
-func reportChecks(stateDir string, w *fleetWakes, goblin string, pr ghPullRequest, now time.Time) error {
-	if len(pr.Checks) == 0 {
+// concluded, unless the CFO was already woken for this very result. In a
+// repository whose pull requests run workflows, the checks other apps report
+// are not the whole result: on 2026-10-07 a wake said "all 1 passed" with
+// only GitGuardian's in. So pr finishes once a workflow has reported too, or
+// says no workflow ran once workflowStartGrace has passed without one. A pull
+// request that conflicts with its base runs no workflows at all, and its
+// pr_health wake says so instead.
+func reportChecks(stateDir string, w *fleetWakes, goblin string, pr ghPullRequest, isRunningWorkflows bool, now time.Time) error {
+	if len(pr.Checks) == 0 || pr.Mergeable == "CONFLICTING" {
 		return nil
 	}
-	var parts, failed []string
+	var parts, failed, reported []string
+	hasWorkflow := false
 	for _, check := range pr.Checks {
 		if !check.concluded() {
 			return nil
 		}
 		parts = append(parts, check.name()+"="+check.outcome()+"@"+check.CompletedAt)
+		reported = append(reported, check.name())
+		hasWorkflow = hasWorkflow || check.WorkflowName != ""
 		if !check.passed() {
 			failed = append(failed, check.name())
+		}
+	}
+	isUnstarted := isRunningWorkflows && !hasWorkflow
+	if !isUnstarted {
+		delete(w.Unstarted, pr.URL)
+	} else {
+		if w.Unstarted == nil {
+			w.Unstarted = map[string]unstartedWorkflows{}
+		}
+		unstarted := w.Unstarted[pr.URL]
+		if unstarted.Head != pr.HeadRefOid {
+			unstarted = unstartedWorkflows{Head: pr.HeadRefOid, Since: now}
+			w.Unstarted[pr.URL] = unstarted
+		}
+		if now.Sub(unstarted.Since) < workflowStartGrace {
+			return nil
 		}
 	}
 	sort.Strings(parts)
@@ -831,9 +893,13 @@ func reportChecks(stateDir string, w *fleetWakes, goblin string, pr ghPullReques
 		head = head[:7]
 	}
 	detail := fmt.Sprintf("ci_finished: %s's PR #%d (%s) finished its checks at %s: ", goblin, pr.Number, pr.HeadRefName, head)
-	if len(failed) == 0 {
+	switch {
+	case isUnstarted:
+		sort.Strings(reported)
+		detail += fmt.Sprintf("no workflow ran for this head in %s, only %s reported (%d of %d failed); next: check why its workflows did not start, such as a path filter or a skipped trigger, before merging it (%s)", workflowStartGrace, strings.Join(reported, ", "), len(failed), len(pr.Checks), pr.URL)
+	case len(failed) == 0:
 		detail += fmt.Sprintf("all %d passed; next: check the base and the merge ref's first parent, then merge it with a merge commit if its work is done (%s)", len(pr.Checks), pr.URL)
-	} else {
+	default:
 		sort.Strings(failed)
 		detail += fmt.Sprintf("%d of %d failed (%s); next: tell %s which checks failed with cfo send %s \"...\" so it fixes them (%s)", len(failed), len(pr.Checks), strings.Join(failed, ", "), goblin, goblin, pr.URL)
 	}
@@ -934,6 +1000,14 @@ func pollMain(ctx context.Context, runner execx.Runner, stateDir string, w *flee
 		w.NewestRuns[repo] = runs[0].ID
 	}
 	recordDeployments(w, runs, now)
+	// Two checkouts of one GitHub repository list the same runs, and a run's
+	// id is GitHub's own, so a run reported for either is reported.
+	reportedRuns := map[int64]bool{}
+	for _, ids := range w.RedRuns {
+		for _, id := range ids {
+			reportedRuns[id] = true
+		}
+	}
 	newest := map[string]bool{}
 	var errs error
 	for _, run := range runs {
@@ -942,7 +1016,7 @@ func pollMain(ctx context.Context, runner execx.Runner, stateDir string, w *flee
 		}
 		newest[run.Workflow] = true
 		key := "ci:main:" + repo + ":" + run.Workflow
-		if !run.red() || slices.Contains(w.RedRuns[repo], run.ID) || !w.due(key, ciWakeGap, now) {
+		if !run.red() || reportedRuns[run.ID] || !w.due(key, ciWakeGap, now) {
 			continue
 		}
 		jobs, jobsErr := failedJobs(ctx, runner, repo, run.ID)

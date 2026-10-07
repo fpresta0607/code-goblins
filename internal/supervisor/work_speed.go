@@ -128,7 +128,10 @@ func (s *Service) checkProgress(ctx context.Context, watched *fleetWakes, now ti
 		}
 		prior.Head, prior.Pushed, prior.Gate, prior.Report = head, pushed, gate, report
 		prior.Seconds = max(0, int64(now.Sub(prior.At)/time.Second))
-		if now.Sub(prior.At) >= PROGRESS_THRESHOLD && !prior.Woken {
+		// A goblin that last said it waits on something, finished or asked
+		// expects no progress until that changes, and each of those wakes the
+		// CFO on its own; only one that says it works can stall.
+		if kind := reportKind(report); now.Sub(prior.At) >= PROGRESS_THRESHOLD && !prior.Woken && (kind == "" || kind == "working") {
 			detail := fmt.Sprintf("progress_stalled: %s has made no new commit, push, gate step or status report for %d minutes; last progress: %s; next: inspect its work and decide whether it should pause", meta.ID, prior.Seconds/60, prior.Source)
 			if err := raiseFleetWake(s.Store.Home.State, "check", meta.ID, detail); err != nil {
 				problems = errors.Join(problems, err)
