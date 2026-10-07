@@ -85,24 +85,22 @@ func (s *Service) comeBack(now time.Time, memory Memory, w *fleetWakes) (bool, e
 		return false, nil
 	}
 	s.starts.Lock()
-	isBusy := s.starting != "" || len(s.changing) > 0 || s.isCFOComingBack
-	if !isBusy && isCFOWaiting {
-		s.isCFOComingBack = true
-	}
-	s.starts.Unlock()
-	if isBusy {
+	if s.starting != "" || len(s.changing) > 0 || s.isCFOComingBack {
+		s.starts.Unlock()
 		return true, nil
 	}
 	if isCFOWaiting {
+		s.isCFOComingBack = true
+		s.starts.Unlock()
 		go s.bringCFOBack(comeback)
 		s.notify()
 		return true, nil
 	}
 	if w.MemoryAbove < 2 {
+		s.starts.Unlock()
 		return true, nil
 	}
 	id := record.Goblins[next].ID
-	s.starts.Lock()
 	if s.changing == nil {
 		s.changing = map[string]string{}
 		s.changeErrors = map[string]taskChangeError{}

@@ -7,9 +7,11 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
 	"slices"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -582,5 +584,127 @@ func TestTheComebackKeepsTheReasonForAGoblinThatRunsAfterAnError(t *testing.T) {
 	}
 	if slices.ContainsFunc(records, func(record wake.Record) bool { return record.Kind == "check" && record.Key == "alpha" }) {
 		t.Fatalf("running goblin raised a failed-resume wake: %+v", records)
+	}
+}
+
+func TestTheComebackDoesNotOverlapCompetingLaunchReservations(t *testing.T) {
+	for _, kind := range []string{"start", "resume", "CFO"} {
+		t.Run(kind, func(t *testing.T) {
+			recorder := &comebackRecorder{outcomes: map[string]GoblinComeback{
+				"alpha": {Outcome: WaitsForRoom, Said: "stand-in waits"},
+			}}
+			service, h, _ := comebackBoard(t, recorder, [2]float64{8, 8})
+			alpha := workingGoblin(t, h, "alpha", lastSignIn.Add(time.Hour))
+			if err := state.WriteComeback(h.State, state.Comeback{SignedIn: thisSignIn, Goblins: []state.ComebackEntry{
+				{ID: alpha.ID, Generation: alpha.SpawnGen, State: state.ComebackWaiting},
+			}}); err != nil {
+				t.Fatal(err)
+			}
+			service.changing = map[string]string{}
+			var admissions, overlaps atomic.Int32
+			service.Options.Dispatch.Disk = func() (Disk, error) {
+				admissions.Add(1)
+				service.starts.Lock()
+				if service.starting != "" || service.changing["manual"] != "" || service.isCFOComingBack {
+					overlaps.Add(1)
+				}
+				service.starts.Unlock()
+				return diskWithFree(200 * gigabyte), nil
+			}
+			stop := make(chan struct{})
+			var workers sync.WaitGroup
+			for range 3 {
+				workers.Go(func() {
+					for {
+						select {
+						case <-stop:
+							return
+						default:
+						}
+						service.starts.Lock()
+						isReserved := service.starting == "" && len(service.changing) == 0 && !service.isCFOComingBack
+						if isReserved {
+							switch kind {
+							case "start":
+								service.starting = "manual"
+							case "resume":
+								service.changing["manual"] = "resume"
+							case "CFO":
+								service.isCFOComingBack = true
+							}
+						}
+						service.starts.Unlock()
+						if !isReserved {
+							runtime.Gosched()
+							continue
+						}
+						time.Sleep(5 * time.Millisecond)
+						service.starts.Lock()
+						service.starting = ""
+						delete(service.changing, "manual")
+						service.isCFOComingBack = false
+						time.Sleep(2 * time.Millisecond)
+						service.starts.Unlock()
+					}
+				})
+			}
+			finish := sync.OnceFunc(func() { close(stop); workers.Wait(); awaitComeback(t, service) })
+			defer finish()
+			memory := Memory{Available: 8 * gigabyte, CommitAvailable: 8 * gigabyte}
+			wakes := fleetWakes{MemoryAbove: 2}
+
+			for range 128 {
+				isWaiting, err := service.comeBack(thisSignIn, memory, &wakes)
+				if err != nil || !isWaiting {
+					t.Fatalf("comeback waiting %v, error %v", isWaiting, err)
+				}
+				runtime.Gosched()
+			}
+			finish()
+			if _, err := service.comeBack(thisSignIn, memory, &wakes); err != nil {
+				t.Fatal(err)
+			}
+			awaitComeback(t, service)
+
+			if overlaps.Load() != 0 || admissions.Load() == 0 {
+				t.Fatalf("%d of %d comeback admissions overlapped a competing %s", overlaps.Load(), admissions.Load(), kind)
+			}
+			record, err := state.ReadComeback(h.State)
+			if err != nil || len(record.Goblins) != 1 || record.Goblins[0].State != state.ComebackWaiting {
+				t.Fatalf("comeback %+v, error %v, want the entry still waiting", record, err)
+			}
+		})
+	}
+}
+
+func TestManualStartRemainsAllowedWhileTheComebackWaits(t *testing.T) {
+	recorder := &comebackRecorder{}
+	service, h, spawner := comebackBoard(t, recorder, [2]float64{8, 8})
+	workingGoblin(t, h, "alpha", lastSignIn.Add(time.Hour))
+	reading(t, service, 0)
+	queueBriefedTask(t, h, "- **next-task** - Ship it", plainBrief)
+	spawner.release = make(chan struct{})
+	finish := sync.OnceFunc(func() { close(spawner.release) })
+	defer finish()
+	handler := NewHTTP(service, "board.local", nil)
+
+	response := postStart(handler, `{"task":"next-task"}`, "board.local", "http://board.local", orderToken)
+	if response.Code != 202 {
+		t.Fatalf("manual Start = %d %s, want accepted while alpha waits", response.Code, response.Body)
+	}
+	isWaiting, err := service.comeBack(thisSignIn.Add(time.Minute), Memory{Available: 8 * gigabyte, CommitAvailable: 8 * gigabyte}, &fleetWakes{MemoryAbove: 2})
+	finish()
+	waitStarted(t, handler, "next-task")
+
+	if err != nil || !isWaiting || len(recorder.came()) != 0 {
+		t.Fatalf("comeback waiting %v, error %v, resumed %v during the manual Start", isWaiting, err, recorder.came())
+	}
+	record, err := state.ReadComeback(h.State)
+	if err != nil || len(record.Goblins) != 1 || record.Goblins[0].State != state.ComebackWaiting {
+		t.Fatalf("comeback %+v, error %v, want alpha waiting for the next reading", record, err)
+	}
+	reading(t, service, 2)
+	if !slices.Equal(recorder.came(), []string{"alpha"}) {
+		t.Fatalf("after the manual Start resumed %v, want alpha", recorder.came())
 	}
 }
