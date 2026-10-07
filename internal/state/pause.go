@@ -97,6 +97,15 @@ func (condition PauseCondition) Description() string {
 	case "question":
 		return "Waiting for the Overlord's answer to " + condition.Until
 	case "dependency":
+		kind, target, _ := strings.Cut(condition.Until, ":")
+		switch kind {
+		case "date":
+			return "Resumes at " + target
+		case "task":
+			return "Waiting on " + target + " to deliver; resumes when it does"
+		case "pr":
+			return "Waiting on " + target + " to merge; resumes when it does"
+		}
 		return "Waiting on " + condition.Until
 	case "ci", "deploy":
 		return "Waiting on " + condition.Reason + "; resumes when the awaited head finishes"
