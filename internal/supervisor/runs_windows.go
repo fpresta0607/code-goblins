@@ -146,14 +146,17 @@ func runnerScript(l RunLaunch, shell string) ([]byte, []string) {
 	closing := "Write-Host ''\r\n" +
 		"Write-Host \"Finished with exit code $code. Press Enter to close this window.\"\r\n" +
 		"[void][Console]::ReadLine()\r\n"
+	noWindow := ""
 	if l.Hidden {
 		closing = ""
+		noWindow = "$start.CreateNoWindow = $true\r\n"
 	}
 	return []byte("\xef\xbb\xbf" +
 		"$ErrorActionPreference = 'Stop'\r\n" +
 		"$start = [System.Diagnostics.ProcessStartInfo]::new(" + quote(shell) + ", " + quote(`-NoProfile -ExecutionPolicy Bypass -File "`+l.Script+`"`) + ")\r\n" +
 		"$start.WorkingDirectory = " + quote(l.Cwd) + "\r\n" +
 		"$start.UseShellExecute = $false\r\n" +
+		noWindow +
 		"$start.RedirectStandardOutput = $true\r\n" +
 		"$start.RedirectStandardError = $true\r\n" +
 		"$utf8 = [System.Text.UTF8Encoding]::new($false)\r\n" +

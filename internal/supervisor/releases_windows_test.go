@@ -333,7 +333,23 @@ func TestAnUpdateGrantRunsOnlyItsOwnFreshItem(t *testing.T) {
 func TestAHiddenRunEndsWithItsCommand(t *testing.T) {
 	dir := t.TempDir()
 	script := filepath.Join(dir, "command.ps1")
-	if err := os.WriteFile(script, []byte("\xef\xbb\xbfWrite-Output 'updated'\r\nexit 3\r\n"), 0o600); err != nil {
+	command := "\xef\xbb\xbf" + `$ErrorActionPreference = 'Stop'
+Add-Type -TypeDefinition @'
+using System;
+using System.Runtime.InteropServices;
+public static class ConsoleVisibility {
+    [DllImport("kernel32.dll")]
+    public static extern IntPtr GetConsoleWindow();
+    [DllImport("user32.dll")]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    public static extern bool IsWindowVisible(IntPtr window);
+}
+'@
+Write-Output ('console-visible=' + [ConsoleVisibility]::IsWindowVisible([ConsoleVisibility]::GetConsoleWindow()))
+Write-Output 'updated'
+exit 3
+`
+	if err := os.WriteFile(script, []byte(command), 0o600); err != nil {
 		t.Fatal(err)
 	}
 
@@ -352,7 +368,7 @@ func TestAHiddenRunEndsWithItsCommand(t *testing.T) {
 	if code, ok := readRunExit(dir); !ok || code != 3 {
 		t.Fatalf("exit.txt = %d, %v; want 3", code, ok)
 	}
-	if output := readRunOutput(dir); !strings.Contains(output, "updated") {
+	if output := readRunOutput(dir); !strings.Contains(output, "updated") || !strings.Contains(output, "console-visible=False") {
 		t.Fatalf("output.log = %q", output)
 	}
 }
