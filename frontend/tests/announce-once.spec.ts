@@ -10,6 +10,8 @@ import { expect, servePages, test, type BrowserContext, type Page } from "./site
 // comes back. A goblin's question to the CFO is never announced at all.
 const ASKS = "May the goblin finish the remaining heavy steps now, or stay paused?";
 const QUESTION = "question:finish-heavy-steps";
+// Its alert, and so its notification, stands for this one publishing of it.
+const QUESTION_ALERT = QUESTION + "@2026-10-01T12:14:58Z";
 
 // The supervisor's record of what the board announced, as POST /api/announce
 // keeps it: each key goes to the first request that asks for it. One record
@@ -52,7 +54,7 @@ async function open(page: Page) {
   await page.waitForFunction(() => "advance" in window);
 }
 // Each step waits until the board has drawn its snapshot, so none is skipped.
-async function step(page: Page, name: "working" | "asked" | "answered" | "both" | "second" | "goblinAsks" | "restarting") {
+async function step(page: Page, name: "working" | "asked" | "answered" | "both" | "second" | "goblinAsks" | "restarting" | "republished") {
   await page.evaluate((to) => (window as unknown as { advance: (name: string) => void }).advance(to), name);
   await expect(page.locator("main")).toHaveAttribute("data-step", name);
 }
@@ -97,7 +99,7 @@ test("a goblin's question to the CFO is never announced: the board asks the supe
   await step(page, "asked");
 
   // Assert
-  await expect.poll(() => notes(page)).toEqual([{ tag: QUESTION, closed: false }]);
+  await expect.poll(() => notes(page)).toEqual([{ tag: QUESTION_ALERT, closed: false }]);
   expect(record.requests()).toBe(1);
   await expect(page.getByLabel("Command Center, 1 waiting on you")).toBeVisible();
   await expect(commandCenter(page)).toBeHidden();
@@ -111,7 +113,7 @@ test("a question he was notified of never notifies again after a reload", async 
   await record.serve(context);
   await open(page);
   await step(page, "asked");
-  await expect.poll(() => notes(page)).toEqual([{ tag: QUESTION, closed: false }]);
+  await expect.poll(() => notes(page)).toEqual([{ tag: QUESTION_ALERT, closed: false }]);
 
   // Act: the board reloads, as it does after an update, and the same question
   // is still waiting in the supervisor's next snapshot.
@@ -126,6 +128,28 @@ test("a question he was notified of never notifies again after a reload", async 
   await expect(page.getByLabel("Command Center, 1 waiting on you")).toBeVisible();
 });
 
+// The supervisor takes an ID again once it has dropped the record that used
+// it, so a question asked again under an answered question's ID is a new
+// item, and out of sight it raises its own notification.
+test("a question asked again under an ID he was notified of notifies him again", async ({ page, context }) => {
+  // Arrange
+  await context.addInitScript(RECORD_NOTIFICATIONS);
+  await context.addInitScript(OUT_OF_SIGHT);
+  const record = supervisor();
+  await record.serve(context);
+  await open(page);
+  await step(page, "asked");
+  await expect.poll(() => notes(page)).toEqual([{ tag: QUESTION_ALERT, closed: false }]);
+  await step(page, "answered");
+  await expect.poll(() => notes(page)).toEqual([{ tag: QUESTION_ALERT, closed: true }]);
+
+  // Act
+  await step(page, "republished");
+
+  // Assert
+  await expect.poll(() => notes(page)).toEqual([{ tag: QUESTION_ALERT, closed: true }, { tag: QUESTION + "@2026-10-12T09:00:00Z", closed: false }]);
+});
+
 test("two tabs out of sight send one Windows notification between them, and it closes with its item", async ({ page, context }) => {
   // Arrange
   await context.addInitScript(RECORD_NOTIFICATIONS);
@@ -138,7 +162,7 @@ test("two tabs out of sight send one Windows notification between them, and it c
 
   // Act
   await step(page, "asked");
-  await expect.poll(() => notes(page)).toEqual([{ tag: QUESTION, closed: false }]);
+  await expect.poll(() => notes(page)).toEqual([{ tag: QUESTION_ALERT, closed: false }]);
   const before = record.requests();
   await step(other, "asked");
   await settled(other, record, before);
@@ -146,8 +170,8 @@ test("two tabs out of sight send one Windows notification between them, and it c
   await step(page, "answered");
 
   // Assert
-  expect(sent).toEqual([{ tag: QUESTION, closed: false }]);
-  await expect.poll(() => notes(page)).toEqual([{ tag: QUESTION, closed: true }]);
+  expect(sent).toEqual([{ tag: QUESTION_ALERT, closed: false }]);
+  await expect.poll(() => notes(page)).toEqual([{ tag: QUESTION_ALERT, closed: true }]);
 });
 
 test("a tab he cannot see leaves the item to the board he is looking at, so nothing notifies", async ({ page, context }) => {
@@ -183,7 +207,7 @@ test("a supervisor restart and a browser that remembers nothing bring no second 
   await record.serve(context);
   await open(page);
   await step(page, "asked");
-  await expect.poll(() => notes(page)).toEqual([{ tag: QUESTION, closed: false }]);
+  await expect.poll(() => notes(page)).toEqual([{ tag: QUESTION_ALERT, closed: false }]);
 
   // Act: the supervisor restarts under the open board, and the board is then
   // opened in a browser with no storage of its own.
@@ -200,7 +224,7 @@ test("a supervisor restart and a browser that remembers nothing bring no second 
   await settled(elsewhere, record, before);
 
   // Assert: the one notification still stands, and no other was raised.
-  expect(await notes(page)).toEqual([{ tag: QUESTION, closed: false }]);
+  expect(await notes(page)).toEqual([{ tag: QUESTION_ALERT, closed: false }]);
   expect(await notes(elsewhere)).toEqual([]);
   await expect(commandCenter(elsewhere)).toBeHidden();
   await fresh.close();
