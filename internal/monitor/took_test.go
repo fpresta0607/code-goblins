@@ -59,6 +59,9 @@ func TestAGoblinHasASteerOnlyOnceItsHarnessHandedItToTheModel(t *testing.T) {
 		{"the agent quoted it", "claude", []map[string]any{{"type": "assistant", "timestamp": after, "message": map[string]any{"role": "assistant", "content": claudeText(steer)}}}, false},
 		{"an earlier copy was taken before it was sent", "claude", []map[string]any{claudeQueued(before, steer)}, false},
 		{"Claude Code took it wrapped across lines", "claude", []map[string]any{claudeQueued(after, strings.Replace(steer, " Reply", "\n  Reply", 1))}, true},
+		// Claude Code 2.1.292 kept a 1,136-character answer typed during a
+		// turn this way, live on 2026-10-06.
+		{"Claude Code took it as a paste", "claude", []map[string]any{claudeQueued(after, "<pasted_content id=\"072c\">\n"+steer+"\n</pasted_content id=\"072c\">")}, true},
 		{"Codex took it into the running turn", "codex", []map[string]any{codexMessage("2026-10-06T21:54:55.560Z", "user", steer)}, true},
 		{"Codex's agent said it", "codex", []map[string]any{codexMessage(after, "assistant", steer)}, false},
 		{"a Codex tool's output holds its words", "codex", []map[string]any{{"timestamp": after, "type": "response_item", "payload": map[string]any{"type": "custom_tool_call_output", "output": steer}}}, false},

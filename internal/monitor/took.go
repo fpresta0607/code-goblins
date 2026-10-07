@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"time"
 )
@@ -126,10 +127,13 @@ func handedText(harness string, entry []byte) ([]string, time.Time, bool) {
 			return nil, time.Time{}, false
 		}
 		if line.Type == "attachment" && line.Attachment.Type == "queued_command" {
-			return []string{line.Attachment.Prompt}, line.Timestamp, true
+			return []string{unpasted(line.Attachment.Prompt)}, line.Timestamp, true
 		}
 		if line.Type == "user" && line.Message.Role == "user" {
 			texts, ok := promptTexts(line.Message.Content)
+			for i := range texts {
+				texts[i] = unpasted(texts[i])
+			}
 			return texts, line.Timestamp, ok
 		}
 	case "codex":
@@ -144,6 +148,18 @@ func handedText(harness string, entry []byte) ([]string, time.Time, bool) {
 		}
 	}
 	return nil, time.Time{}, false
+}
+
+// pastedContent marks where Claude Code 2.1.292 took typed text as a paste:
+// it keeps a long answer typed during a turn as <pasted_content id="072c">,
+// a line break, the text, a line break and </pasted_content id="072c">, as it
+// did live on 2026-10-06.
+var pastedContent = regexp.MustCompile(`</?pasted_content id="[^"]*">`)
+
+// unpasted is text with the marks of where Claude Code took it as a paste
+// taken out.
+func unpasted(text string) string {
+	return pastedContent.ReplaceAllString(text, "")
 }
 
 // promptTexts is the text of a user message's content: the string itself,

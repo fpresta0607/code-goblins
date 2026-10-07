@@ -174,6 +174,11 @@ func proveSteer(t *testing.T, p *wakeProof) {
 	command.Stdout, command.Stderr = &stdout, &stderr
 	err = command.Run()
 	p.say("cfo send after %d of %d steps took %s, exit %v\nstdout: %s\nstderr: %s", before, steerSteps, time.Since(sent).Round(time.Millisecond), err, stdout.String(), stderr.String())
+	// How the harness shows a steer it holds for its next tool call.
+	if record, readErr := host.ReadRecord(p.home.State, goblin); readErr == nil {
+		screen, screenErr := host.ReadScreen(record)
+		p.say("%s's screen as cfo send returned (read error %v):\n%s", goblin, screenErr, host.ScreenTail(screen, 16))
+	}
 
 	// Assert
 	if err != nil || stderr.Len() != 0 || !(stdout.String() == "sent "+goblin+"\n" || strings.HasPrefix(stdout.String(), "queued for "+goblin+": ") && strings.Contains(stdout.String(), "next tool call")) {
