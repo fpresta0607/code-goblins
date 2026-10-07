@@ -56,7 +56,7 @@ func (v *Voice) ready(part Part) error {
 // the parts' folders, and keeps its files only when the archive matches its
 // checksum, holds every file named, and no program in it links a networking
 // library. The archive itself is never kept.
-func (v *Voice) fetch(ctx context.Context, part Part, progress func(part string, done, total int64)) error {
+func (v *Voice) fetch(ctx context.Context, part Part, progress func(done int64)) error {
 	address, err := url.Parse(part.URL)
 	if err != nil {
 		return err
@@ -115,8 +115,9 @@ func redirect(next *http.Request, via []*http.Request) error {
 	return nil
 }
 
-// download writes the part's archive to file, telling progress as it arrives.
-func (v *Voice) download(ctx context.Context, part Part, file string, progress func(part string, done, total int64)) error {
+// download writes the part's archive to file, telling progress how much of
+// it has arrived.
+func (v *Voice) download(ctx context.Context, part Part, file string, progress func(done int64)) error {
 	client := v.Client
 	if client == nil {
 		client = &http.Client{CheckRedirect: redirect}
@@ -138,7 +139,7 @@ func (v *Voice) download(ctx context.Context, part Part, file string, progress f
 	if err != nil {
 		return err
 	}
-	_, err = io.Copy(out, &counted{from: response.Body, tell: func(done int64) { progress(part.Name, done, response.ContentLength) }})
+	_, err = io.Copy(out, &counted{from: response.Body, tell: progress})
 	if closeErr := out.Close(); err == nil {
 		err = closeErr
 	}

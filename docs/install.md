@@ -48,6 +48,7 @@ In order, it:
    The skills Code Goblins ships go once into `~\.agents\skills`, which Codex and Pi read, with a junction to each from Claude Code's skills folder, and `state\harnesses.json` records where each harness keeps its configuration; nothing in a harness folder that Code Goblins did not put there is changed.
    `CFO_HOME` and the home's `bin` on your PATH are set for your user, and the CFO's hooks are merged into your `~/.claude/settings.json`, which is backed up first and keeps your own hooks.
 4. Installs each missing tool the fleet drives: git and gh with winget, Claude Code with its own installer, no-mistakes from the release `install.ps1` pins, and Codex, pi and the axi tools with npm, which needs Node.js.
+   Each npm package is installed at the exact version `install.ps1` pins, so a new release upstream reaches an install only once it is pinned there.
    no-mistakes is the gate every goblin's work passes, so every machine runs the one release `install.ps1` names.
    The install downloads that release's archive and `checksums.txt` from its GitHub release page, never through GitHub's API, whose limit for anonymous callers failed installs on shared machines.
    It installs no-mistakes only when the archive matches `checksums.txt`, puts it in `%LOCALAPPDATA%\no-mistakes`, where no-mistakes' own installer puts it, adds that folder to your PATH and starts the no-mistakes daemon.
@@ -55,7 +56,8 @@ In order, it:
    Claude Code is the native build, `claude.exe`, because a native terminal starts it with no shell; a `claude` that is only a script, such as npm's `claude.cmd`, counts as missing, and the install adds `~\.local\bin`, where the native build lives, to your PATH.
    When npm's copy still comes first on your PATH, the closing note names claude, and the log has the command that removes it, `npm.cmd uninstall -g @anthropic-ai/claude-code`.
    Neither Herdr nor Kimi is installed or checked: every goblin and the CFO run in native terminals, and the fleet runs no Kimi for now.
-5. Installs the skills of gh-axi, chrome-devtools-axi and no-mistakes at user scope, for Claude Code, Codex and pi.
+5. Installs the skills of gh-axi, chrome-devtools-axi and no-mistakes at user scope, for Claude Code, Codex and pi, through the version of the skills CLI `install.ps1` pins.
+   A skill whose install fails is tried once more; one that fails again is named in the closing note, and the rest of the install goes on.
 6. Installs the board's native lifecycle hooks for each of Claude Code, Codex and pi that is installed.
 7. Adds Code Goblins to your Start menu.
    Where this install put the desktop window in the home it starts `goblins-window.exe` alone, which opens the app with no terminal: it runs `goblins --window` out of sight, which finds or starts the supervisor and opens the board in the window.
