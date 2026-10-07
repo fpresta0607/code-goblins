@@ -25,6 +25,7 @@ import (
 	"github.com/fpresta0607/code-goblins/internal/home"
 	"github.com/fpresta0607/code-goblins/internal/host"
 	"github.com/fpresta0607/code-goblins/internal/install"
+	"github.com/fpresta0607/code-goblins/internal/lock"
 	"github.com/fpresta0607/code-goblins/internal/pipeline"
 	"github.com/fpresta0607/code-goblins/internal/supervisor"
 	"github.com/fpresta0607/code-goblins/internal/terminal"
@@ -169,7 +170,7 @@ func runServe(args []string, stdout, stderr io.Writer, runtime commandRuntime) i
 	if !*example {
 		// The board's Start at login is the setting the install, the setup
 		// and the desktop window's tray change.
-		login := install.Service{Root: h.Root, StartAtLoginKey: install.StartAtLoginKey}
+		login := boardStartAtLogin(h)
 		startAtLogin = &supervisor.StartAtLogin{
 			Read: func() (supervisor.StartAtLoginView, error) {
 				on, unavailable, err := login.StartsAtLogin()
@@ -286,11 +287,27 @@ func firstRunOn(h home.Home, userHome string, example bool, setMachine func(root
 			// environment first, and it still holds the old root.
 			return os.Setenv(install.ProjectsRootVariable, root)
 		},
-		CFORuns:    func() bool { return supervisor.CFORuns(h.State) },
-		StartCFO:   func(agent string) error { return startNativeCFO(h, h.Root, agent, nil) },
+		CFORuns: func() bool { return supervisor.CFORuns(h.State) },
+		StartCFO: func(agent string) error {
+			launchErr := acquireCFOLaunch(context.Background(), h.State)
+			if launchErr == nil {
+				defer lock.ReleaseExclusiveNamed(h.State, cfoLaunchLock)
+			}
+			if supervisor.CFORuns(h.State) {
+				return nil
+			}
+			if launchErr != nil {
+				return launchErr
+			}
+			return startNativeCFO(h, h.Root, agent, nil)
+		},
 		ReopenCFO:  func() error { return reopenCFO(h, startNativeCFO, supervisor.NativeTerminalRuns) },
 		RestartCFO: func() (supervisor.CFOConversation, bool, error) { return restartCFO(h) },
 	}
+}
+
+func boardStartAtLogin(h home.Home) install.Service {
+	return install.Service{Root: h.Root, StartAtLoginKey: startAtLoginKey()}
 }
 
 // spawnFromBoard runs this cfo binary with args, as a queued task's Start

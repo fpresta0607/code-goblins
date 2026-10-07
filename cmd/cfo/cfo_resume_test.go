@@ -72,7 +72,7 @@ func TestReopenBringsAClosedCFOBackAsGoblinsDoes(t *testing.T) {
 			}
 
 			// Act
-			err := reopenCFO(f.home, started, func(string, string) bool { return tc.holds })
+			err := reopenCFO(f.home, started, func(string, string) bool { return len(starts) > 0 && tc.holds })
 
 			// Assert
 			for i := range tc.want {
@@ -110,15 +110,17 @@ func TestReopenReportsTheConversationItActuallyCouldNotResume(t *testing.T) {
 				t.Fatal(err)
 			}
 			startError := errors.New("fresh start failed")
+			isStarted := false
 			start := func(_ home.Home, _, _ string, args []string) error {
 				if len(args) == 0 && testCase.isStartError {
 					return startError
 				}
+				isStarted = true
 				return nil
 			}
 
 			// Act
-			err := reopenCFO(fixture.home, start, func(string, string) bool { return testCase.isResumeHeld })
+			err := reopenCFO(fixture.home, start, func(string, string) bool { return isStarted && testCase.isResumeHeld })
 
 			// Assert
 			if testCase.isStartError != errors.Is(err, startError) || !testCase.isStartError && err != nil {

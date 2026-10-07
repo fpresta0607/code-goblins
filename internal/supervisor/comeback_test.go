@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"slices"
@@ -404,4 +405,182 @@ func TestTheFirstSupervisorBringsNothingBackAndALaterOneInTheSameSignInCarriesOn
 			t.Errorf("came back %v, want bravo alone", came)
 		}
 	})
+}
+
+func TestTheComebackRechecksWaitingGoblinsBeforeLaunching(t *testing.T) {
+	for _, testCase := range []struct {
+		name, evaluation, lifecycle   string
+		isStale, isRetired, isRunning bool
+		shouldLaunch                  bool
+	}{
+		{name: "done", evaluation: "done"},
+		{name: "merged", evaluation: "merged"},
+		{name: "paused", lifecycle: "paused"},
+		{name: "stopped", lifecycle: "stopped"},
+		{name: "pausing", lifecycle: "pausing"},
+		{name: "resuming", lifecycle: "resuming"},
+		{name: "stopping", lifecycle: "stopping"},
+		{name: "failed", lifecycle: "failed"},
+		{name: "retired", isRetired: true},
+		{name: "terminal already answers", isRunning: true},
+		{name: "old completion", evaluation: "done", isStale: true, shouldLaunch: true},
+		{name: "old pause", lifecycle: "paused", isStale: true, shouldLaunch: true},
+		{name: "still working", lifecycle: "running", shouldLaunch: true},
+	} {
+		t.Run(testCase.name, func(t *testing.T) {
+			recorder := &comebackRecorder{}
+			service, h, _ := comebackBoard(t, recorder, [2]float64{8, 8})
+			meta := workingGoblin(t, h, "alpha", lastSignIn.Add(time.Hour))
+			reading(t, service, 0)
+			generation := meta.SpawnGen
+			if testCase.isStale {
+				generation = "previous-generation"
+			}
+			if testCase.evaluation != "" {
+				service.Store.mu.Lock()
+				service.Store.db.Tasks[meta.ID] = Evaluation{Phase: testCase.evaluation, Generation: generation, At: thisSignIn}
+				err := service.Store.save()
+				service.Store.mu.Unlock()
+				if err != nil {
+					t.Fatal(err)
+				}
+			}
+			if testCase.lifecycle != "" {
+				action := "resume"
+				if testCase.lifecycle == "paused" || testCase.lifecycle == "pausing" {
+					action = "pause"
+				} else if testCase.lifecycle == "stopped" || testCase.lifecycle == "stopping" {
+					action = "stop"
+				}
+				if err := state.WriteLifecycle(h.State, state.Lifecycle{ID: meta.ID, Generation: generation, Operation: "changed", Action: action, Phase: testCase.lifecycle, Started: thisSignIn}); err != nil {
+					t.Fatal(err)
+				}
+			}
+			if testCase.isRetired {
+				if err := os.Remove(state.TaskMetaPath(h.State, meta.ID)); err != nil {
+					t.Fatal(err)
+				}
+			}
+			if testCase.isRunning {
+				if err := os.Remove(filepath.Join(h.State, "hosts", meta.ID+".json")); err != nil {
+					t.Fatal(err)
+				}
+				program, err := os.Executable()
+				if err != nil {
+					t.Fatal(err)
+				}
+				typed := filepath.Join(h.Root, "typed.txt")
+				hostProgram(t, h.State, meta.ID, typed, program, "-test.run=^TestNativeTerminalProgram$", "--", "native-terminal-program", typed, h.State)
+			}
+			if !testCase.shouldLaunch {
+				service.Options.Dispatch.Disk = func() (Disk, error) { return Disk{}, errors.New("disk cannot be read") }
+			}
+
+			reading(t, service, 1)
+
+			came := recorder.came()
+			if testCase.shouldLaunch {
+				if !slices.Equal(came, []string{meta.ID}) {
+					t.Fatalf("launched %v, want alpha resumed", came)
+				}
+			} else if len(came) != 0 {
+				t.Fatalf("launched %v after %s", came, testCase.name)
+			}
+			record, err := state.ReadComeback(h.State)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if testCase.shouldLaunch || testCase.isRunning {
+				if len(record.Goblins) != 1 || record.Goblins[0].State != state.ComebackBack {
+					t.Fatalf("comeback %+v, want alpha back", record.Goblins)
+				}
+			} else if len(record.Goblins) != 0 {
+				t.Fatalf("comeback %+v, want alpha left as it was", record.Goblins)
+			}
+		})
+	}
+}
+
+func TestTheComebackCarriesWaitingTaskIdentityAcrossGenerationPublication(t *testing.T) {
+	for _, priorState := range []string{state.ComebackWaiting, state.ComebackBack, state.ComebackStopped} {
+		t.Run(priorState, func(t *testing.T) {
+			recorder := &comebackRecorder{}
+			service, h, _ := comebackBoard(t, recorder, [2]float64{8, 8})
+			meta := workingGoblin(t, h, "alpha", lastSignIn.Add(-time.Hour))
+			if err := state.WriteComeback(h.State, state.Comeback{SignedIn: lastSignIn, Goblins: []state.ComebackEntry{
+				{ID: meta.ID, Generation: "before-switch", State: priorState},
+			}}); err != nil {
+				t.Fatal(err)
+			}
+
+			reading(t, service, 0)
+			record, err := state.ReadComeback(h.State)
+			if err != nil {
+				t.Fatal(err)
+			}
+			reading(t, service, 1)
+
+			if priorState == state.ComebackWaiting {
+				if len(record.Goblins) != 1 || record.Goblins[0].Generation != meta.SpawnGen || !slices.Equal(recorder.came(), []string{meta.ID}) {
+					t.Fatalf("planned %+v and resumed %v, want the waiting task's current generation", record.Goblins, recorder.came())
+				}
+			} else if len(record.Goblins) != 0 || len(recorder.came()) != 0 {
+				t.Fatalf("planned %+v and resumed %v from an earlier %s entry", record.Goblins, recorder.came(), priorState)
+			}
+		})
+	}
+}
+
+func TestTheComebackCountsOnlyTheCurrentSignInsMemoryReadings(t *testing.T) {
+	for _, isSameSignIn := range []bool{false, true} {
+		t.Run(fmt.Sprint(isSameSignIn), func(t *testing.T) {
+			recorder := &comebackRecorder{}
+			service, h, _ := comebackBoard(t, recorder, [2]float64{8, 8})
+			meta := workingGoblin(t, h, "alpha", lastSignIn.Add(time.Hour))
+			if isSameSignIn {
+				if err := state.WriteComeback(h.State, state.Comeback{SignedIn: thisSignIn, Goblins: []state.ComebackEntry{
+					{ID: meta.ID, Generation: meta.SpawnGen, State: state.ComebackWaiting},
+				}}); err != nil {
+					t.Fatal(err)
+				}
+			}
+			if err := writeFleetWakes(h.State, fleetWakes{MemoryAbove: 1, MemoryReadAt: thisSignIn.Add(-30 * time.Second)}); err != nil {
+				t.Fatal(err)
+			}
+
+			reading(t, service, 0)
+			first := recorder.came()
+			reading(t, service, 1)
+
+			if !isSameSignIn && len(first) != 0 || isSameSignIn && !slices.Equal(first, []string{meta.ID}) {
+				t.Fatalf("first reading resumed %v, same sign-in %v", first, isSameSignIn)
+			}
+			if !slices.Equal(recorder.came(), []string{meta.ID}) {
+				t.Fatalf("resumed %v, want alpha exactly once", recorder.came())
+			}
+		})
+	}
+}
+
+func TestTheComebackKeepsTheReasonForAGoblinThatRunsAfterAnError(t *testing.T) {
+	recorder := &comebackRecorder{outcomes: map[string]GoblinComeback{
+		"alpha": {Outcome: CameBack, Said: "instruction confirmation timed out"},
+	}}
+	service, h, _ := comebackBoard(t, recorder, [2]float64{8, 8})
+	workingGoblin(t, h, "alpha", lastSignIn.Add(time.Hour))
+
+	reading(t, service, 0)
+	reading(t, service, 1)
+
+	record, err := state.ReadComeback(h.State)
+	if err != nil || len(record.Goblins) != 1 || record.Goblins[0].State != state.ComebackBack || record.Goblins[0].Reason != "instruction confirmation timed out" {
+		t.Fatalf("comeback %+v, error %v, want a running goblin with its error retained", record, err)
+	}
+	records, err := wake.Pending(h.State)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if slices.ContainsFunc(records, func(record wake.Record) bool { return record.Kind == "check" && record.Key == "alpha" }) {
+		t.Fatalf("running goblin raised a failed-resume wake: %+v", records)
+	}
 }

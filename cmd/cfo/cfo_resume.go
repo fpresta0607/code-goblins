@@ -40,6 +40,16 @@ func comeBack(h home.Home, agent string, resume []string, start func(h home.Home
 // hold. The board shows the CFO in a native terminal, so it starts in one
 // wherever it ran before.
 func reopenCFO(h home.Home, start func(h home.Home, project, harness string, args []string) error, runs func(stateDir, id string) bool) error {
+	launchErr := acquireCFOLaunch(context.Background(), h.State)
+	if launchErr == nil {
+		defer lock.ReleaseExclusiveNamed(h.State, cfoLaunchLock)
+	}
+	if supervisor.CFORuns(h.State) || runs(h.State, supervisor.NativeCFOTerminal) {
+		return nil
+	}
+	if launchErr != nil {
+		return launchErr
+	}
 	agent, err := cfoHarness(h.State)
 	if err != nil {
 		return err
@@ -74,12 +84,15 @@ func reopenCFO(h home.Home, start func(h home.Home, project, harness string, arg
 // not come back, and the board's Reopen then starts it on a new one. A CFO
 // that runs already, as one goblins started first, is back.
 func comebackCFO(ctx context.Context, h home.Home, runtime commandRuntime) error {
-	if _, err := lock.AcquireExclusiveNamed(h.State, cfoLaunchLock); err != nil {
-		return fmt.Errorf("another start of the CFO is under way: %w", err)
+	launchErr := acquireCFOLaunch(ctx, h.State)
+	if launchErr == nil {
+		defer lock.ReleaseExclusiveNamed(h.State, cfoLaunchLock)
 	}
-	defer lock.ReleaseExclusiveNamed(h.State, cfoLaunchLock)
 	if cfoRuns(runtime, h.State) {
 		return nil
+	}
+	if launchErr != nil {
+		return launchErr
 	}
 	agent, err := cfoHarness(h.State)
 	if err != nil {

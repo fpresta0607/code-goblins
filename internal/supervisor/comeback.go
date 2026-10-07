@@ -61,7 +61,7 @@ const (
 // the floor: the CFO first, then the next goblin once memory and commit read
 // at or above the next-start mark twice in a row and a launch has room, one
 // at a time. It reports whether anything still waits to come back, while
-// which nothing else is started.
+// which nothing else starts by itself.
 func (s *Service) comeBack(now time.Time, memory Memory, w *fleetWakes) (bool, error) {
 	comeback := s.Options.Comeback
 	if comeback == nil || s.Options.Example {
@@ -69,9 +69,15 @@ func (s *Service) comeBack(now time.Time, memory Memory, w *fleetWakes) (bool, e
 	}
 	s.comeback.Lock()
 	defer s.comeback.Unlock()
-	record, err := s.planComeback(now)
+	record, isNewPlan, err := s.planComeback(now)
 	if err != nil {
 		return false, err
+	}
+	if isNewPlan {
+		w.MemoryAbove = 0
+		if min(memory.Available, memory.CommitAvailable) >= memoryNext {
+			w.MemoryAbove = 1
+		}
 	}
 	next := slices.IndexFunc(record.Goblins, func(entry state.ComebackEntry) bool { return entry.State == state.ComebackWaiting })
 	isCFOWaiting := record.CFO != nil && record.CFO.State == state.ComebackWaiting
@@ -95,14 +101,6 @@ func (s *Service) comeBack(now time.Time, memory Memory, w *fleetWakes) (bool, e
 	if w.MemoryAbove < 2 {
 		return true, nil
 	}
-	if err := s.launchRoom(memory); err != nil {
-		reason := "Waits for room: " + err.Error()
-		if record.Goblins[next].Reason != reason {
-			record.Goblins[next].Reason = reason
-			return true, state.WriteComeback(s.Store.Home.State, record)
-		}
-		return true, nil
-	}
 	id := record.Goblins[next].ID
 	s.starts.Lock()
 	if s.changing == nil {
@@ -112,7 +110,7 @@ func (s *Service) comeBack(now time.Time, memory Memory, w *fleetWakes) (bool, e
 	s.changing[id] = "resume"
 	delete(s.changeErrors, id)
 	s.starts.Unlock()
-	go s.bringGoblinBack(comeback, id)
+	go s.bringGoblinBack(comeback, id, memory)
 	s.notify()
 	return true, nil
 }
@@ -134,24 +132,24 @@ func (s *Service) launchRoom(memory Memory) error {
 // the first time a supervisor asks in it. A home with no record has none from
 // the sign-in before, so its first comeback brings nothing back and only
 // marks where this sign-in began. The caller holds s.comeback.
-func (s *Service) planComeback(now time.Time) (state.Comeback, error) {
+func (s *Service) planComeback(now time.Time) (state.Comeback, bool, error) {
 	directory := s.Store.Home.State
 	if s.signedIn.IsZero() {
 		signedIn, err := s.Options.Comeback.SignedIn()
 		if err != nil {
-			return state.Comeback{}, fmt.Errorf("nothing comes back after a restart: %w", err)
+			return state.Comeback{}, false, fmt.Errorf("nothing comes back after a restart: %w", err)
 		}
 		s.signedIn = signedIn
 	}
 	prior, err := state.ReadComeback(directory)
 	switch {
 	case err == nil && prior.SignedIn.Equal(s.signedIn):
-		return prior, nil
+		return prior, false, nil
 	case errors.Is(err, os.ErrNotExist):
 		record := state.Comeback{SignedIn: s.signedIn, Planned: now}
-		return record, state.WriteComeback(directory, record)
+		return record, true, state.WriteComeback(directory, record)
 	case err != nil:
-		return state.Comeback{}, fmt.Errorf("nothing comes back after a restart: %w", err)
+		return state.Comeback{}, false, fmt.Errorf("nothing comes back after a restart: %w", err)
 	}
 	record := state.Comeback{SignedIn: s.signedIn, Planned: now}
 	// A terminal started in the sign-in before this one, or one an earlier
@@ -180,7 +178,7 @@ func (s *Service) planComeback(now time.Time) (state.Comeback, error) {
 		}
 		var earlier *state.ComebackEntry
 		if index := slices.IndexFunc(prior.Goblins, func(entry state.ComebackEntry) bool {
-			return entry.ID == meta.ID && entry.Generation == meta.SpawnGen
+			return entry.ID == meta.ID
 		}); index >= 0 {
 			earlier = &prior.Goblins[index]
 		}
@@ -188,7 +186,7 @@ func (s *Service) planComeback(now time.Time) (state.Comeback, error) {
 			record.Goblins = append(record.Goblins, state.ComebackEntry{ID: meta.ID, Generation: meta.SpawnGen, State: state.ComebackWaiting})
 		}
 	}
-	return record, state.WriteComeback(directory, record)
+	return record, true, state.WriteComeback(directory, record)
 }
 
 // bringCFOBack brings the CFO back and records how it went.
@@ -214,9 +212,27 @@ func (s *Service) bringCFOBack(comeback *Comeback) {
 // bringGoblinBack brings one goblin back and records how it went. One that
 // could not come back stays stopped, with the reason on its card, and wakes
 // the CFO; the next goblin's turn comes at the next reading either way.
-func (s *Service) bringGoblinBack(comeback *Comeback, id string) {
-	result := comeback.Goblin(context.Background(), id)
+func (s *Service) bringGoblinBack(comeback *Comeback, id string, memory Memory) {
 	directory := s.Store.Home.State
+	meta, metaErr := state.ReadTaskMeta(directory, id)
+	evaluation := s.Store.Snapshot().Tasks[id]
+	lifecycle, lifecycleErr := state.ReadLifecycle(directory, id)
+	result := GoblinComeback{Outcome: LeftAsItWas}
+	switch {
+	case metaErr != nil && !errors.Is(metaErr, os.ErrNotExist):
+		result = GoblinComeback{Outcome: DidNotComeBack, Said: "its task record cannot be read: " + metaErr.Error()}
+	case metaErr != nil || meta.Backend != "native" || meta.SpawnGen == "":
+	case evaluation.Generation == meta.SpawnGen && (evaluation.Phase == "done" || evaluation.Phase == "merged"):
+	case lifecycleErr == nil && lifecycle.Generation == meta.SpawnGen && lifecycle.Phase != "running":
+	case NativeTerminalRuns(directory, id):
+		result.Outcome = AlreadyRuns
+	default:
+		if err := s.launchRoom(memory); err != nil {
+			result = GoblinComeback{Outcome: WaitsForRoom, Said: err.Error()}
+		} else {
+			result = comeback.Goblin(context.Background(), id)
+		}
+	}
 	s.comeback.Lock()
 	record, err := state.ReadComeback(directory)
 	if index := slices.IndexFunc(record.Goblins, func(entry state.ComebackEntry) bool { return entry.ID == id }); err == nil && index >= 0 {
@@ -224,7 +240,7 @@ func (s *Service) bringGoblinBack(comeback *Comeback, id string) {
 		entry.Reason, entry.At = result.Said, time.Now().UTC()
 		switch result.Outcome {
 		case CameBack, AlreadyRuns:
-			entry.State, entry.Reason = state.ComebackBack, ""
+			entry.State = state.ComebackBack
 		case LeftAsItWas:
 			record.Goblins = slices.Delete(record.Goblins, index, index+1)
 		case WaitsForRoom:

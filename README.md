@@ -291,6 +291,8 @@ The supervisor then brings back what the restart ended, in this order:
 3. Each goblin that comes back is told in one line that the machine restarted and to continue where it left off.
 
 Goblins that had finished, were paused or stopped, or were retired stay as they were.
+While anything waits to come back nothing else starts by itself: queued starts, paused goblins' automatic resumes and `memory_ready` wait.
+A Start or Resume you press on the board, or a `cfo spawn` the CFO chooses, is still allowed.
 A goblin that cannot come back, such as one whose harness sign-in expired, stays stopped with the reason on its card, the CFO is told, and the other goblins still come back.
 A CFO whose conversation cannot be resumed stays closed with the reason, and **Reopen** on its bar starts it on a new conversation.
 While this runs, one line at the top of the board says what is back and what waits, then what resumed, such as "Resumed the CFO and 6 goblins after a restart."; it is the same line in the desktop window and in the browser, and Dismiss puts it away.

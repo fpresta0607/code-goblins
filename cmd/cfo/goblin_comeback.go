@@ -122,6 +122,8 @@ func comebackGoblin(ctx context.Context, h home.Home, runtime commandRuntime, id
 		return supervisor.GoblinComeback{Outcome: supervisor.LeftAsItWas}
 	case comeback.isBack:
 		return supervisor.GoblinComeback{Outcome: supervisor.CameBack, Said: comeback.said}
+	case runtime.nativeTerminalRuns(h.State, id):
+		return supervisor.GoblinComeback{Outcome: supervisor.CameBack, Said: strings.TrimPrefix(comeback.said, "it could not come back: ")}
 	case comeback.isWaiting:
 		return supervisor.GoblinComeback{Outcome: supervisor.WaitsForRoom, Said: strings.TrimPrefix(comeback.said, "waits for room: ")}
 	}
