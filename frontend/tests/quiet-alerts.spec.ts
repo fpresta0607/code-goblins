@@ -179,6 +179,10 @@ window.addEventListener("DOMContentLoaded", () => { ${notesScript} });`;
   const clicked = (page: Page, id: string) => page.evaluate((note) => (window as unknown as { codeGoblinsNoteClicked: (id: string) => void }).codeGoblinsNoteClicked(note), id);
 
   test("only a new Command Center item reaches Windows, and a click on it opens that item, whichever of the page and the window raised it", async ({ page, context }, testInfo) => {
+    // It draws the whole board at the window's scale and waits out a hidden
+    // board's claim delay twice, which a loaded machine stretches past the
+    // default time.
+    test.slow();
     // Arrange: the window raised the second question from its own look and
     // claimed it first, so the page raises nothing for it.
     const second = question("deploy-site-20261007", "May I deploy the website now?", "2026-10-07T15:12:00Z");
