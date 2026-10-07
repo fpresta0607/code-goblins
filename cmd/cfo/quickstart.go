@@ -297,12 +297,26 @@ func ensureCFOSession(ctx context.Context, runtime commandRuntime, h home.Home, 
 	return cfoSession{native: supervisor.NativeCFOTerminal}, true, nil
 }
 
-// quickstartDetector reads how ready each agent is on this machine: PATH,
-// each agent's own status command, pi's settings in its agent folder, and
-// whether Claude Code's native build is installed.
+// quickstartDetector reads how ready each agent is in this console.
 func quickstartDetector() onboarding.Detector {
-	directory, claudeDirectory := os.Getenv("PI_CODING_AGENT_DIR"), ""
-	if userHome, err := os.UserHomeDir(); err == nil {
+	return agentDetector(os.Environ(), execx.OSRunner{})
+}
+
+// agentDetector reads how ready each agent is for a process started with
+// env: PATH, each agent's own status command run with env by runner, pi's
+// settings in the agent folder env names, and whether Claude Code's native
+// build is in the home env names.
+func agentDetector(env []string, runner execx.Runner) onboarding.Detector {
+	value := func(name string) string {
+		for _, entry := range env {
+			if key, found, ok := strings.Cut(entry, "="); ok && strings.EqualFold(key, name) {
+				return found
+			}
+		}
+		return ""
+	}
+	directory, claudeDirectory := value("PI_CODING_AGENT_DIR"), ""
+	if userHome := value("USERPROFILE"); userHome != "" {
 		if directory == "" {
 			directory = filepath.Join(userHome, ".pi", "agent")
 		}
@@ -313,8 +327,28 @@ func quickstartDetector() onboarding.Detector {
 		if err != nil {
 			return execx.Result{}, err
 		}
-		return execx.OSRunner{}.Run(ctx, execx.Request{Name: program[0], Args: program[1:], KillTree: true})
+		return runner.Run(ctx, execx.Request{Name: program[0], Args: program[1:], Env: env, KillTree: true})
 	}}
+}
+
+// cfoSignIn asks agent's own status command whether it is signed in, run in
+// the environment the CFO's native terminal of home h starts with, so the
+// first-run page says what that terminal will find. A status command that
+// does not say, or an environment that cannot be read, is unknown.
+func cfoSignIn(h home.Home) func(context.Context, string) supervisor.SignInState {
+	return func(ctx context.Context, agent string) supervisor.SignInState {
+		env, err := cfoTerminalEnvironment(h)
+		if err != nil {
+			return supervisor.SignInUnknown
+		}
+		switch agentDetector(env, execx.OSRunner{}).Detect(ctx, agent).State {
+		case onboarding.Ready:
+			return supervisor.SignedIn
+		case onboarding.SignedOut:
+			return supervisor.SignedOut
+		}
+		return supervisor.SignInUnknown
+	}
 }
 
 // setupAgent runs the quick start's agent steps in this console and returns

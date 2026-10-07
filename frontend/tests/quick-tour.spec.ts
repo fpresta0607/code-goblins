@@ -42,7 +42,7 @@ async function open(page: Page, snapshot: Record<string, unknown> = running, kep
   }, JSON.stringify(snapshot));
   await page.route("**/api/**", async (route) => {
     const path = new URL(route.request().url()).pathname;
-    if (path === "/api/setup") await route.fulfill({ json: { home: "C:\\Users\\franco\\AppData\\Local\\CodeGoblins", agent: "claude", projects_root: "", checkouts: [], agents: [{ id: "claude", name: "Claude Code", recommended: true, note: "the best experience", installed: true, signed_in: true }], cfo_runs: false } });
+    if (path === "/api/setup") await route.fulfill({ json: { home: "C:\\Users\\franco\\AppData\\Local\\CodeGoblins", agent: "claude", projects_root: "", checkouts: [], agents: [{ id: "claude", name: "Claude Code", recommended: true, note: "the best experience", installed: true, sign_in: "signed_in" }], cfo_runs: false } });
     else if (path === "/api/setup/start") await route.fulfill({ json: { started: true } });
     else await route.fulfill({ status: 404, json: { error: "No fixture for this resource" } });
   });

@@ -185,10 +185,15 @@ func (c *CFOConnection) SendGoblin(ctx context.Context, taskID, identity, text s
 	if meta.Backend != "native" {
 		return Evaluation{}, fmt.Errorf("%w: the goblin's task was recorded in Herdr by an older build, which this build cannot reach; nothing was sent", ErrRejected)
 	}
-	if err := typeIntoGoblin(ctx, c.State, meta, fleet.Stamp(oneLine(text))); err != nil {
+	if err := typeIntoGoblin(ctx, c.State, meta, goblinLine(text)); err != nil {
 		return Evaluation{}, err
 	}
 	return Evaluation{Reason: "Accepted by the goblin in its native terminal."}, nil
+}
+
+// goblinLine is what SendGoblin types into a goblin's terminal for text.
+func goblinLine(text string) string {
+	return fleet.Stamp(oneLine(text))
 }
 
 // typeIntoGoblin delivers text into a goblin's native terminal. It is a
@@ -196,7 +201,7 @@ func (c *CFOConnection) SendGoblin(ctx context.Context, taskID, identity, text s
 var typeIntoGoblin = func(ctx context.Context, stateDir string, meta state.TaskMeta, text string) error {
 	sender := spawn.Service{StateDir: stateDir, PromptSince: func(taskID, generation string, since time.Time) (bool, error) {
 		return NativePromptSince(stateDir, taskID, generation, since)
-	}}
+	}, Took: NativeTook}
 	return sender.SendNative(ctx, meta, text)
 }
 
@@ -277,8 +282,8 @@ func answerLabel(a Action) string {
 }
 
 // deliverAnswer gives the goblin that asked q the Overlord's answer: saved
-// for its Resume while it is paused, otherwise typed into its terminal, where
-// it waits behind a turn in progress.
+// for its Resume while it is paused, otherwise typed into its terminal, which
+// takes it at its next tool call when a turn is in progress.
 func (s *Service) deliverAnswer(ctx context.Context, q Question, text string) (Evaluation, error) {
 	sent := time.Now().UTC()
 	isSaved, err := savePausedAnswer(s.Store.Home.State, q.Task, q.Identity, text)
@@ -289,8 +294,8 @@ func (s *Service) deliverAnswer(ctx context.Context, q Question, text string) (E
 	if !isSaved {
 		result, err = s.Options.CFO.SendGoblin(ctx, q.Task, q.Identity, text)
 	}
-	if errors.Is(err, fleet.ErrQueuedBehindTurn) {
-		result, err = s.behindGoblinsTurn(q.Task, sent, "Submitted to the goblin while it was working; it takes the answer when its current turn ends."), nil
+	if errors.Is(err, fleet.ErrQueuedForToolCall) {
+		result, err = s.behindGoblinsTurn(q.Task, sent, text, "Submitted to the goblin while it was working; it takes the answer at its next tool call, or as its current turn ends."), nil
 	}
 	return result, err
 }
@@ -344,9 +349,9 @@ type cfoAnswer struct {
 // retires it without --ack-blocking, and the supervisor records which choice
 // closed the question, that the CFO gave it, and when. Only the registered
 // primary CFO may answer. It returns the choice it delivered, and whether the
-// goblin was working, so the answer waits in its input until its current turn
-// ends: that is a delivery, submitted once, and it is recorded like one, so
-// neither the CFO nor the board sends a second decision.
+// goblin was in a turn, so its harness takes the answer at its next tool call:
+// that is a delivery, submitted once, and it is recorded like one, so neither
+// the CFO nor the board sends a second decision.
 func (c *CFOConnection) AnswerGoblin(ctx context.Context, ref, option, note string) (chosen string, queued bool, err error) {
 	identity, release, err := c.CallerIdentity()
 	if err != nil {
@@ -403,7 +408,7 @@ func (c *CFOConnection) AnswerGoblin(ctx context.Context, ref, option, note stri
 	}
 	answer := withNote(chosen, note)
 	_, err = c.SendGoblin(ctx, q.Task, q.Identity, fmt.Sprintf("decision %d: %s", seq, answer))
-	queued = errors.Is(err, fleet.ErrQueuedBehindTurn)
+	queued = errors.Is(err, fleet.ErrQueuedForToolCall)
 	if err != nil && !queued {
 		return "", false, err
 	}

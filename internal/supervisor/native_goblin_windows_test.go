@@ -165,7 +165,7 @@ func TestANativeGoblinsSendToItsChildNamesItAsSender(t *testing.T) {
 
 	parent.typeLine(t, "send gb-task-1")
 	lines := parent.waitForLines(t, 1)
-	outside := PrepareSendActivity(h, "task-1")()
+	outside := PrepareSendActivity(h, "task-1").Taken()
 
 	if len(lines) != 1 || lines[0] != "sent" {
 		t.Fatalf("the parent's terminal recorded %q, want its send received", lines)

@@ -7,11 +7,11 @@ import (
 	"golang.org/x/sys/windows"
 )
 
-// This process runs in the sign-in SignedIn reads, so the sign-in began after
+// This process runs in the sign-in SignInBegan reads, so the sign-in began after
 // the machine started and before this process did.
-func TestSignedInIsBetweenTheMachinesStartAndThisProcesss(t *testing.T) {
+func TestTheSignInBeganBetweenTheMachinesStartAndThisProcesss(t *testing.T) {
 	// Act
-	signedIn, err := SignedIn()
+	signedIn, err := SignInBegan()
 
 	// Assert
 	if err != nil {

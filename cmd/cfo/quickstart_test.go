@@ -7,10 +7,12 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"path/filepath"
 	"slices"
 	"strings"
 	"testing"
 
+	"github.com/fpresta0607/code-goblins/internal/execx"
 	"github.com/fpresta0607/code-goblins/internal/home"
 	"github.com/fpresta0607/code-goblins/internal/onboarding"
 	"github.com/fpresta0607/code-goblins/internal/supervisor"
@@ -382,5 +384,53 @@ func TestGoblinsReportsEscapeAtTheChoiceAsACancel(t *testing.T) {
 	// Assert
 	if exit != 1 || stderr != "goblins: setup was cancelled; run goblins to continue\n" {
 		t.Errorf("exit=%d stderr=%q, want the cancel reported in the quick start's words", exit, stderr)
+	}
+}
+
+// statusRunner records every status command run and answers none of them.
+type statusRunner struct{ requests []execx.Request }
+
+func (r *statusRunner) Run(_ context.Context, request execx.Request) (execx.Result, error) {
+	r.requests = append(r.requests, request)
+	return execx.Result{}, nil
+}
+
+// The first-run page asks an agent whether it is signed in as the CFO's
+// terminal will start it: its status command runs with that terminal's
+// environment, and pi's settings and Claude Code's native build are looked
+// for in the home that environment names, never this process's own. Found
+// 2026-10-06 in a scratch profile, where the two homes differ.
+func TestAgentDetectorAsksInTheEnvironmentItIsGiven(t *testing.T) {
+	userHome := t.TempDir()
+	for _, c := range []struct {
+		name, piDirectory string
+		wantPi            string
+	}{
+		{"pi's folder in the home", "", filepath.Join(userHome, ".pi", "agent")},
+		{"pi's folder the environment names", `D:\pi-agent`, `D:\pi-agent`},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			// Arrange
+			env := []string{"USERPROFILE=" + userHome, "CFO_HOME=" + filepath.Join(userHome, "CodeGoblins")}
+			if c.piDirectory != "" {
+				env = append(env, "PI_CODING_AGENT_DIR="+c.piDirectory)
+			}
+			runner := &statusRunner{}
+			detector := agentDetector(env, runner)
+
+			// Act
+			_, err := detector.Probe(t.Context(), "cmd", "/c", "exit")
+
+			// Assert
+			if err != nil {
+				t.Fatal(err)
+			}
+			if len(runner.requests) != 1 || !slices.Equal(runner.requests[0].Env, env) {
+				t.Fatalf("status commands = %+v, want one run with the environment %q", runner.requests, env)
+			}
+			if wantClaude := filepath.Join(userHome, ".local", "bin"); detector.PiDirectory != c.wantPi || detector.ClaudeDirectory != wantClaude {
+				t.Fatalf("pi's folder %q and Claude Code's %q, want %q and %q", detector.PiDirectory, detector.ClaudeDirectory, c.wantPi, wantClaude)
+			}
+		})
 	}
 }

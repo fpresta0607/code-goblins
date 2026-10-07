@@ -129,6 +129,11 @@ Each puts the Code Goblins app and the `cfo` command line (also called `goblins`
 Each also turns on **Start at login**, so Code Goblins starts in the tray when you sign in and brings back what a restart ended; untick it in the setup to keep it off, and [Opening, closing and restarting](#opening-closing-and-restarting) says how to change it later.
 Each says the same four steps as it goes (download, check, install, open) and keeps every detail in `%TEMP%\CodeGoblinsInstall.log`; a failure says in one sentence what happened and what to do.
 Run either again at any time to update: it never asks you to run anything first.
+Once Code Goblins runs, a newer release comes to you as its own item in the board's Command Center, **Update Code Goblins**, with what is new and one **Update** button, and a slim banner at the top points to it ([Update Code Goblins](docs/native-board.md#update-code-goblins)).
+
+<img src="docs/images/update-item.png" alt="The Update Code Goblins item in the Command Center: v0.4.2 to v0.5.0, what is new, the unsigned-release line with the SHA-256 it checks, and the Update button" width="732" />
+
+Or run `goblins update` in a terminal of your own: it downloads the newest release, installs it only when each program matches the release's `SHA256SUMS`, restarts only the board on it, rolls back a build that does not start, and leaves your goblins and the CFO running ([Updating](docs/install.md#updating) says each step).
 Where Code Goblins already runs from another folder that `CFO_HOME` names, such as a clone an older build made the home, the install updates it there and leaves your goblins and their work as they are; moving it to the standard folder is `cfo home move`, whenever you choose.
 [Which home it installs](docs/install.md#which-home-it-installs) lists every case.
 
@@ -479,7 +484,7 @@ A Claude Code pane with no scrollback of its own, such as Claude Code's fullscre
 New native hosts explicitly request interactive Windows scheduling, so typing and dictated bursts remain responsive when their hidden console would otherwise be treated as background work.
 Updating the executable or restarting the board does not change hosts that are already running; apply the host update when each session can be safely resumed, preserving active work.
 Every terminal pane has a voice bubble in its bottom-right corner, in a strip of its own under the terminal.
-Hold **Ctrl+Shift+Space** to dictate into the terminal that has the keyboard: while the keys are held the bubble's bars move with your voice, and releasing them types what was heard as one line, which **Enter** sends.
+Hold **Ctrl+Shift+Space** to dictate into the terminal that has the keyboard: while the keys are held the bubble's waveform moves with your voice and lies as a flat dotted line while you are silent, and releasing them types what was heard as one line, which **Enter** sends.
 What you say is recognised by a speech model the supervisor runs on this PC, so it costs nothing, needs no account and never leaves the machine; the first dictation downloads the model once, 125 MB, shows how far it is under the terminal and says when dictation is ready, and the words of that first dictation are not kept.
 The model stays loaded for two minutes after you dictate, so the next line comes back in a blink, and then gives its memory back.
 The bubble names the model while it listens.
@@ -683,6 +688,7 @@ cfo auth <project> [--check|--fix] [--env]
 cfo install [--projects-root <dir>] [--uninstall]
 cfo uninstall
 cfo serve [--listen <loopback-address>]
+goblins update [--check] [--to <tag>]
 <candidate.exe> update [--recover]
 cfo hooks install <claude|codex|pi>
 cfo brief <id> --project <name|path> [--kind <ship|scout>] [--mode <mode>]
@@ -788,6 +794,10 @@ Pre-existing items remain in `cfo tickets`, while bots, the signed-in viewer, br
 Fresh live evidence is required even after a goblin reports one PR done.
 Each item wakes once per goblin generation across restarts, acknowledgement, item closure and area changes.
 Unknown creation times, changing branch inputs and incomplete GitHub reads stay visible as unread evidence; readable overlaps can still wake, and the same repository allowance and refusal backoff applies.
+
+To update a running home to the newest release, run `goblins update` in a terminal of your own: the home's own build downloads the release into `state\update`, keeps each program only when it matches the release's `SHA256SUMS` (and, for a signed release, its publisher's signature), and runs the downloaded build's `update` as below, then its `install` to bring the home's contract and skills up to date.
+`goblins update --check` says whether a newer release is published and what is new, and changes nothing.
+The update is yours alone: it refuses to run under the CFO, a goblin or any agent.
 
 To install a newer build into a running home, run the candidate build itself with `update`: it swaps both `cfo.exe` and `goblins.exe` in the home's `bin`, restarts only the supervisor, and puts the previous build back if the new one does not serve; `bin` keeps the two builds before the current one and no more.
 A home an older build set up in a checkout is moved first, with `cfo home move` (see [Your data](#your-data)).

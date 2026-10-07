@@ -59,7 +59,8 @@ var (
 	// harness that takes it in slowly.
 	nativeTypedCap = 10 * time.Minute
 	// nativeQueuedProof bounds how long a delivery to a harness already in
-	// a turn waits for a hook to report it taken, in case the turn was ending.
+	// a turn waits for the harness's record to show it taken, in case the
+	// tool call running was ending.
 	nativeQueuedProof = 5 * time.Second
 )
 
@@ -98,7 +99,7 @@ func (s Service) startNativeHarness(ctx context.Context, id string, kind harness
 		}
 	}
 	// A resumed conversation that came back in a turn is at work on its task
-	// already, and text typed now would wait behind that turn.
+	// already, so its instruction is not typed a second time.
 	if working {
 		return record, nil
 	}
@@ -106,7 +107,7 @@ func (s Service) startNativeHarness(ctx context.Context, id string, kind harness
 	if err != nil {
 		return record, err
 	}
-	return record, s.deliverNativeInstruction(ctx, record, screens, instruction, launch.Env["CFO_SPAWN_GEN"])
+	return record, s.deliverNativeInstruction(ctx, record, screens, state.TaskMeta{ID: id, Harness: string(kind), Worktree: launch.Dir, SpawnGen: launch.Env["CFO_SPAWN_GEN"]}, instruction)
 }
 
 // typedInstructionLimit is the longest instruction typed whole into a harness
@@ -311,14 +312,17 @@ func (s Service) answerDialog(ctx context.Context, record host.Record, dialog ha
 	return nil
 }
 
-// deliverNativeInstruction submits the instruction to the harness of
-// generation generation and returns once the harness is proven to have taken
-// it: its native hooks report a prompt taken since the submit, or its screen
-// shows it working when it was not working before. Typed into a harness
-// already in a turn, the text waits in its composer for that turn to end, so
-// with no hook report soon after the submit it is not proven taken and the
-// error says it waits behind the turn.
-func (s Service) deliverNativeInstruction(ctx context.Context, record host.Record, screens harness.Screens, instruction, generation string) error {
+// deliverNativeInstruction submits the instruction to the harness of task
+// meta and returns once the harness is proven to have taken it. A harness
+// idle at its composer takes it as the prompt of a new turn: its native hooks
+// report a prompt taken since the submit, or its screen shows it working when
+// it was not working before. A harness already in a turn queues it and hands
+// it to its model at its next tool call, never interrupting the call that
+// runs, and runs its prompt hook as it queues it, so only its own record of
+// the conversation proves it taken; with none soon after the submit the
+// error says it is queued for that tool call. Either way it is typed and
+// submitted once.
+func (s Service) deliverNativeInstruction(ctx context.Context, record host.Record, screens harness.Screens, meta state.TaskMeta, instruction string) error {
 	before, err := s.readNativeScreen(ctx, record)
 	if err != nil {
 		return err
@@ -335,8 +339,11 @@ func (s Service) deliverNativeInstruction(ctx context.Context, record host.Recor
 	deadline := time.Now().Add(within)
 	pressed, presses := time.Now(), 0
 	for {
-		if s.PromptSince != nil {
-			if taken, err := s.PromptSince(record.ID, generation, submitted); err == nil && taken {
+		if busy && s.Took != nil && s.Took(ctx, meta, instruction, submitted) {
+			return nil
+		}
+		if !busy && s.PromptSince != nil {
+			if taken, err := s.PromptSince(record.ID, meta.SpawnGen, submitted); err == nil && taken {
 				return nil
 			}
 		}
@@ -360,7 +367,7 @@ func (s Service) deliverNativeInstruction(ctx context.Context, record host.Recor
 		}
 		if time.Now().After(deadline) {
 			if busy {
-				return fmt.Errorf("spawn: native terminal %s took the text while its harness was in a turn, and no hook reported the harness taking it within %s: %w", record.ID, within, fleet.ErrQueuedBehindTurn)
+				return fmt.Errorf("spawn: native terminal %s has the text submitted: %w", record.ID, fleet.ErrQueuedForToolCall)
 			}
 			return fmt.Errorf("spawn: native terminal %s never showed its harness working on the instruction: not within %s; its screen ends:\n%s", record.ID, within, host.ScreenTail(screen, 8))
 		}

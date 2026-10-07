@@ -144,6 +144,15 @@ func servingBoard(h home.Home, stdout io.Writer) (runningBoard, bool) {
 	if err != nil {
 		return runningBoard{}, false
 	}
+	// A board that already runs this build, as one an update from a release
+	// just started does, has nothing to restart onto.
+	this, thisErr := os.Executable()
+	runs, runsErr := update.HashFile(identity.Image)
+	installing, installingErr := update.HashFile(this)
+	if thisErr == nil && runsErr == nil && installingErr == nil && runs == installing {
+		fmt.Fprintf(stdout, "cfo install: the board (pid %d) already runs this build\n", running.pid)
+		return runningBoard{}, false
+	}
 	board := runningBoard{process: running, address: boardAddress(), previous: filepath.Join(update.Dir(h.State), "previous-goblins.exe")}
 	if record, err := readBoardRecord(h.State); err == nil && record.PID == running.pid {
 		board.address = strings.TrimPrefix(record.URL, "http://")

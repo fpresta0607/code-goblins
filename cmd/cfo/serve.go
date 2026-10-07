@@ -27,6 +27,7 @@ import (
 	"github.com/fpresta0607/code-goblins/internal/install"
 	"github.com/fpresta0607/code-goblins/internal/lock"
 	"github.com/fpresta0607/code-goblins/internal/pipeline"
+	"github.com/fpresta0607/code-goblins/internal/release"
 	"github.com/fpresta0607/code-goblins/internal/supervisor"
 	"github.com/fpresta0607/code-goblins/internal/terminal"
 	"github.com/fpresta0607/code-goblins/internal/verify"
@@ -157,6 +158,14 @@ func runServe(args []string, stdout, stderr io.Writer, runtime commandRuntime) i
 	if !*example {
 		ticketKeeping = ticketWriter(execx.OSRunner{}, runtime)
 	}
+	// The board looks for a newer release of Code Goblins; an example board
+	// looks only at a release source it is pointed at.
+	var releases *supervisor.Releases
+	if source, err := release.SourceFromEnvironment(); err != nil {
+		fmt.Fprintf(stderr, "cfo serve: the update check is off: %v\n", err)
+	} else if !*example || os.Getenv(release.APIVariable) != "" {
+		releases = &supervisor.Releases{Source: source, Version: version, Client: http.DefaultClient}
+	}
 	var dictation supervisor.Dictation
 	if speech := dictationEngine(h, stderr); speech != nil {
 		dictation = speech
@@ -179,7 +188,7 @@ func runServe(args []string, stdout, stderr io.Writer, runtime commandRuntime) i
 			Set: login.SetStartsAtLogin,
 		}
 		comeback = &supervisor.Comeback{
-			SignedIn: supervisor.SignedIn,
+			SignedIn: supervisor.SignInBegan,
 			CFO:      func(ctx context.Context) error { return comebackCFO(ctx, h, runtime) },
 			Goblin: func(ctx context.Context, id string) supervisor.GoblinComeback {
 				return comebackGoblin(ctx, h, runtime, id)
@@ -215,6 +224,7 @@ func runServe(args []string, stdout, stderr io.Writer, runtime commandRuntime) i
 		Quota:              runtime.quota,
 		Comeback:           comeback,
 		StartAtLogin:       startAtLogin,
+		Releases:           releases,
 	})
 	if err != nil {
 		fmt.Fprintln(stderr, err)
@@ -289,6 +299,7 @@ func firstRunOn(h home.Home, userHome string, example bool, setMachine func(root
 			// environment first, and it still holds the old root.
 			return os.Setenv(install.ProjectsRootVariable, root)
 		},
+		SignIn:  cfoSignIn(h),
 		CFORuns: func() bool { return supervisor.CFORuns(h.State) },
 		StartCFO: func(agent string) error {
 			launchErr := acquireCFOLaunch(context.Background(), h.State)

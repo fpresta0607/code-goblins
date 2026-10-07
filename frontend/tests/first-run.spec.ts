@@ -14,9 +14,9 @@ const setup = (changes: Record<string, unknown> = {}) => ({
   projects_root: "C:\\dev",
   checkouts: ["alpha", "beta"],
   agents: [
-    { id: "claude", name: "Claude Code", recommended: true, note: "the best experience", installed: true, signed_in: true },
-    { id: "codex", name: "Codex", recommended: false, note: "woken by a typed line; no digest or guards", installed: true, signed_in: true },
-    { id: "pi", name: "pi", recommended: false, note: "woken by a typed line; no digest, guards or resume", installed: false, signed_in: false, reason: missing },
+    { id: "claude", name: "Claude Code", recommended: true, note: "the best experience", installed: true, sign_in: "signed_in" },
+    { id: "codex", name: "Codex", recommended: false, note: "woken by a typed line; no digest or guards", installed: true, sign_in: "signed_in" },
+    { id: "pi", name: "pi", recommended: false, note: "woken by a typed line; no digest, guards or resume", installed: false, sign_in: "unknown", reason: missing },
   ],
   cfo_runs: false,
   ...changes,
@@ -61,6 +61,37 @@ test("the page asks for no project, shows what the quick start knows as done, an
   // Assert: the folder he never looked at is not sent, and no project is.
   await expect(page.getByRole("status", { name: "Outcome" })).toHaveText("The CFO's terminal opens");
   expect(starts).toEqual([{ root: "", agent: "claude" }]);
+});
+
+// The page says each installed agent's sign-in as the agent's own status
+// command says it, in the environment the CFO's terminal starts with, and
+// nothing of a sign-in for one not installed. Found 2026-10-06 in a scratch
+// profile: the page said Not signed in while the CFO's terminal started
+// Claude Code signed in with the PC user's own account.
+for (const [signIn, says] of [["signed_in", "Signed in"], ["signed_out", "Not signed in"], ["unknown", "Sign-in unknown"]] as const) {
+  test(`an agent whose status command says ${signIn} reads ${says}`, async ({ page }) => {
+    // Arrange
+    const machine = setup();
+    const [claude, ...others] = machine.agents;
+
+    // Act
+    await open(page, { ...machine, agents: [{ ...claude, sign_in: signIn }, ...others] });
+
+    // Assert
+    await expect(page.getByRole("tabpanel")).toContainText(says);
+  });
+}
+
+test("an agent not installed says nothing of a sign-in", async ({ page }) => {
+  // Arrange
+  await open(page, setup());
+
+  // Act
+  await page.getByRole("tablist", { name: "Agent" }).getByRole("tab", { name: "pi" }).click();
+
+  // Assert
+  await expect(page.getByRole("tabpanel")).toContainText("Not installed");
+  await expect(page.getByRole("tabpanel")).not.toContainText(/sign/i);
 });
 
 test("the agents are one row of icon tabs moved with Left and Right", async ({ page }, testInfo) => {

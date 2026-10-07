@@ -133,6 +133,10 @@ type Database struct {
 	// item is announced twice.
 	Announced     []Announcement `json:"announced,omitempty"`
 	CFOQuietSince time.Time      `json:"cfo_quiet_since,omitzero"`
+	// QueuedSends are the receipts of messages typed into a goblin in a
+	// turn, held until its record shows the goblin took each; the board
+	// shows a receipt only then.
+	QueuedSends []BoardActivity `json:"queued_sends,omitempty"`
 }
 
 type Store struct {
@@ -175,7 +179,7 @@ func Open(h home.Home) (*Store, error) {
 		s.committed = cloneDatabase(s.db)
 		for i := range s.db.Actions {
 			a := &s.db.Actions[i]
-			// A delivery already typed and submitted still awaits its hook.
+			// A delivery already typed and submitted still awaits its reader.
 			if a.Status == "running" && a.Awaiting == nil {
 				if a.Kind == "evaluate" {
 					a.Status = "queued"
@@ -252,6 +256,7 @@ func cloneDatabase(d Database) Database {
 	d.Issues = slices.Clone(d.Issues)
 	d.Questions = slices.Clone(d.Questions)
 	d.Activity = slices.Clone(d.Activity)
+	d.QueuedSends = slices.Clone(d.QueuedSends)
 	d.Reviews = slices.Clone(d.Reviews)
 	d.Runs = slices.Clone(d.Runs)
 	d.CFOAnswers = slices.Clone(d.CFOAnswers)
@@ -660,7 +665,7 @@ func (s *Store) queueItemAction(a Action) (Action, error) {
 		switch {
 		case run < 0:
 			return Action{}, errors.New("that run item is not on the board; refresh the board")
-		case s.db.Runs[run].State == "expired" || s.db.Runs[run].State == "ready" && !time.Now().Before(s.db.Runs[run].ExpiresAt):
+		case s.db.Runs[run].State == "expired" || s.db.Runs[run].State == "ready" && s.db.Runs[run].Update == nil && !time.Now().Before(s.db.Runs[run].ExpiresAt):
 			return Action{}, errors.New("that run item expired; running it again needs a new item from the CFO")
 		case s.db.Runs[run].State == "withdrawn":
 			return Action{}, errors.New("the CFO withdrew that run item: " + s.db.Runs[run].Reason)

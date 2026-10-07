@@ -17,6 +17,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -358,6 +359,7 @@ func (h *HTTP) stream(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *HTTP) action(w http.ResponseWriter, r *http.Request) {
+	asked := time.Now()
 	if !strings.HasPrefix(r.Header.Get("Content-Type"), "application/json") {
 		apiError(w, 415, "JSON required")
 		return
@@ -400,6 +402,14 @@ func (h *HTTP) action(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	a := Action{ID: input.ID, Kind: input.Kind, TaskID: input.TaskID, Generation: input.Generation, Text: input.Text, File: input.File, Line: input.Line, EndLine: input.EndLine, Side: input.Side, Head: input.Head, Revision: input.Revision, DiffID: input.DiffID, QuestionID: input.QuestionID, ReviewID: input.ReviewID, RunID: input.RunID, AnswerKind: input.AnswerKind}
+	// An update is the Overlord's alone: Update runs only for a board of
+	// his own, proven as AFK mode's switch proves one.
+	if a.Kind == "run" && slices.ContainsFunc(h.Service.Store.Snapshot().Runs, func(run Run) bool { return run.ID == a.RunID && run.Update != nil }) {
+		if _, err := h.Service.overlordsBoard(r, h.Host, asked, updatingBoard); err != nil {
+			apiError(w, http.StatusForbidden, err.Error())
+			return
+		}
+	}
 	var err error
 	if a.Kind == "review" {
 		a, err = h.Service.Store.QueueReview(a, h.Service.Options.CFO)

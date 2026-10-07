@@ -3,9 +3,16 @@ import { message, request, useResource } from "./api";
 import { Avatar } from "./Avatar";
 import { Icon, type IconName } from "./Icon";
 import { startState } from "./firstRunStart";
-import { parseSetup } from "./types";
+import { parseSetup, type SignIn } from "./types";
 
 const AGENT_ICONS: Record<string, IconName> = { claude: "claude", codex: "codex", pi: "pi" };
+// What the page says of an installed agent's sign-in, as its own status
+// command said it, and how it marks it; an answer it did not give is neither.
+const SIGN_IN: Record<SignIn, { text: string; icon: IconName; tone: string }> = {
+  signed_in: { text: "Signed in", icon: "check", tone: "yes" },
+  signed_out: { text: "Not signed in", icon: "close", tone: "no" },
+  unknown: { text: "Sign-in unknown", icon: "question", tone: "" },
+};
 
 // FirstRun is the page the board's root shows while no CFO runs. It shows as
 // done what the terminal quick start already knows, the home the CFO starts
@@ -77,7 +84,7 @@ export function FirstRun({ instance, onStarted, onBoard }: { instance: string; o
       {shown && <div className="agent-panel" role="tabpanel" id="agent-panel" aria-labelledby={"agent-tab-" + shown.id}>
         <span className="agent-state">
           <span className={shown.installed ? "yes" : "no"}><Icon name={shown.installed ? "check" : "close"} />{shown.installed ? "Installed" : "Not installed"}</span>
-          <span className={shown.signed_in ? "yes" : "no"}><Icon name={shown.signed_in ? "check" : "close"} />{shown.signed_in ? "Signed in" : "Not signed in"}</span>
+          {shown.installed && <span className={SIGN_IN[shown.sign_in].tone}><Icon name={SIGN_IN[shown.sign_in].icon} />{SIGN_IN[shown.sign_in].text}</span>}
         </span>
         {shown.note && <span className="agent-note">{shown.note}</span>}
         {shown.reason && <small>{shown.reason}</small>}

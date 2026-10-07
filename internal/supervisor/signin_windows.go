@@ -41,10 +41,10 @@ type logonSessionData struct {
 	logonTime             int64
 }
 
-// SignedIn is when the Windows sign-in this process runs in began: a restart
+// SignInBegan is when the Windows sign-in this process runs in began: a restart
 // and a sign-out both end every process of the sign-in before it, so a
 // terminal that started before it was ended by one of them.
-func SignedIn() (time.Time, error) {
+func SignInBegan() (time.Time, error) {
 	var statistics tokenStatistics
 	var length uint32
 	token := windows.GetCurrentProcessToken()

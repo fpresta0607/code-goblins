@@ -106,6 +106,13 @@ type Service struct {
 	// after a time: supervisor.NativePromptSince in production. Nil proves a
 	// delivery by the screen alone.
 	PromptSince func(taskID, generation string, since time.Time) (bool, error)
+	// Took reports whether a native task's harness handed text to its model
+	// at or after a time, as the harness's own record of its conversation
+	// shows: a monitor.HostProgress reading it in production. It is the one
+	// proof that a harness in a turn has text typed into it, since a harness
+	// queues such text and hands it over at its next tool call. Nil proves
+	// nothing.
+	Took func(ctx context.Context, meta state.TaskMeta, text string, since time.Time) bool
 }
 
 // Spawn creates and launches exactly one local ship or scout task.
