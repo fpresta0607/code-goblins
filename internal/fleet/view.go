@@ -116,8 +116,12 @@ func renderTasks(w io.Writer, tasks []TaskRow) error {
 		if task.Current.State == crewstate.Paused {
 			endpoint = "released"
 		}
+		id := task.ID
+		if task.Parent != "" {
+			id += " (helper of " + task.Parent + ")"
+		}
 		fields := []string{
-			task.ID,
+			id,
 			currentText(task),
 			dash(string(task.Monitor.Health)),
 			staleText(task.Monitor.StaleSeconds),

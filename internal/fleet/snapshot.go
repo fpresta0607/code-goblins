@@ -101,6 +101,8 @@ type TaskRow struct {
 	Actions  Actions               `json:"actions"`
 	Teardown []string              `json:"teardown,omitempty"`
 	Pause    *state.PauseCondition `json:"pause,omitempty"`
+	// Parent is the goblin a helper works for; empty for every other task.
+	Parent string `json:"parent,omitempty"`
 }
 
 // MonitorSummary is the renderer-facing subset of the persisted Task 4
@@ -214,6 +216,7 @@ func BuildSnapshot(ctx context.Context, h home.Home, endpoint EndpointReader) (S
 			Actions:  Actions{Peek: "cfo peek gb-" + meta.ID},
 			Teardown: teardown,
 			Pause:    pause,
+			Parent:   meta.Parent,
 		})
 	}
 	sort.Slice(snapshot.Tasks, func(i, j int) bool {
