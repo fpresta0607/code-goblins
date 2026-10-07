@@ -138,19 +138,20 @@ func Sweep(ctx context.Context, cfg Config) Record {
 	return record
 }
 
-// keepRecentBuilds keeps bin to the current build and the two before it,
-// unless an update is under way, whose staged and moved-aside copies are its
-// way back.
+// keepRecentBuilds keeps the folder holding the home's build, bin or the root
+// of a home a build before bin set up, to the current build and the two
+// before it, unless an update is under way, whose staged and moved-aside
+// copies are its way back.
 func (cfg Config) keepRecentBuilds(record *Record) {
+	programs := cfg.Home.Programs()
 	journal, err := update.ReadJournal(cfg.Home.State)
 	if err == nil && !journal.Phase.Finished() {
-		record.Notes = append(record.Notes, "an update is under way, so bin was left as it is")
+		record.Notes = append(record.Notes, "an update is under way, so "+programs+" was left as it is")
 		return
 	}
-	before := Size(cfg.Home.Bin())
-	left := update.KeepRecent(cfg.Home.Bin(), update.KeptBuilds)
-	if freed := before - Size(cfg.Home.Bin()); freed > 0 {
-		record.Removed = append(record.Removed, Item{Kind: "bin", Path: cfg.Home.Bin(), Bytes: freed, Detail: "builds older than the two before the current one"})
+	freed, left := update.KeepRecent(programs, update.KeptBuilds)
+	if freed > 0 {
+		record.Removed = append(record.Removed, Item{Kind: "bin", Path: programs, Bytes: freed, Detail: "builds older than the two before the current one"})
 	}
 	for _, path := range left {
 		record.Kept = append(record.Kept, Item{Kind: "bin", Path: path, Detail: "an old build something still runs"})

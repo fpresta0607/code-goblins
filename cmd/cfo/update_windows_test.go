@@ -27,9 +27,12 @@ import (
 // updateHome is a scratch CFO home whose cfo.exe and goblins.exe are one
 // build stand-in, with a candidate build waiting beside them.
 type updateHome struct {
-	t         *testing.T
-	root      string
-	bin       string
+	t    *testing.T
+	root string
+	bin  string
+	// programs is the folder holding cfo.exe and goblins.exe: bin, or the
+	// root of a home a build before bin set up.
+	programs  string
 	state     string
 	candidate string
 	previous  []byte
@@ -61,7 +64,7 @@ func newUpdateHome(t *testing.T, previous, candidate string) *updateHome {
 
 func newUpdateHomeIn(t *testing.T, root, previous, candidate string) *updateHome {
 	t.Helper()
-	u := &updateHome{t: t, root: root, bin: filepath.Join(root, "bin"), state: filepath.Join(root, "state"), started: map[*exec.Cmd]time.Time{}}
+	u := &updateHome{t: t, root: root, bin: filepath.Join(root, "bin"), programs: filepath.Join(root, "bin"), state: filepath.Join(root, "state"), started: map[*exec.Cmd]time.Time{}}
 	for _, folder := range []string{u.state, u.bin} {
 		if err := os.MkdirAll(folder, 0o700); err != nil {
 			t.Fatal(err)
@@ -103,8 +106,8 @@ func (u *updateHome) running(cmd *exec.Cmd) bool {
 // terminal host, and waits until the supervisor serves.
 func (u *updateHome) serving() (supervisor, cfoHost *exec.Cmd) {
 	u.t.Helper()
-	supervisor = u.start(filepath.Join(u.bin, "goblins.exe"), "serve", "--listen", "127.0.0.1:0")
-	cfoHost = u.start(filepath.Join(u.bin, "cfo.exe"), "host", "--id", "cfo")
+	supervisor = u.start(filepath.Join(u.programs, "goblins.exe"), "serve", "--listen", "127.0.0.1:0")
+	cfoHost = u.start(filepath.Join(u.programs, "cfo.exe"), "host", "--id", "cfo")
 	u.awaitBoard()
 	return supervisor, cfoHost
 }
@@ -149,7 +152,7 @@ func (u *updateHome) awaitBoard() boardRecord {
 func (u *updateHome) aliasesAre(want []byte, what string) {
 	u.t.Helper()
 	for _, name := range update.Aliases {
-		got, err := os.ReadFile(filepath.Join(u.bin, name))
+		got, err := os.ReadFile(filepath.Join(u.programs, name))
 		if err != nil {
 			u.t.Fatalf("read %s: %v", name, err)
 		}
@@ -498,20 +501,19 @@ const (
 	recoverFirst = "recover first"
 	// untrusted: this home's journal, but one no update writes.
 	untrusted = "untrusted"
-	// movedHome: a finished update of another home, which may be this home
-	// before it was moved.
-	movedHome = "moved home"
 	// othersWayBack: an unfinished update of another home, whose journal is
 	// that update's way back and is never to be moved aside.
 	othersWayBack = "another's way back"
 )
 
-// A journal that cannot be read, or that is not this home's, finished or not,
-// is never taken for permission: update and recover both refuse and change
-// nothing, the journal and every copy included. Only an unfinished update of
-// this home is answered with a recovery line, and that line is this home's
-// own; a malformed journal of this home is one that cannot be trusted, and
-// only a finished journal of another home may be moved aside.
+// A journal that cannot be read, or an unfinished one, is never taken for
+// permission: update and recover both refuse and change nothing, the journal
+// and every copy included. Only an unfinished update of this home is answered
+// with a recovery line, and that line is this home's own; a malformed journal
+// of this home is one that cannot be trusted, and no refusal leaves a journal
+// for the Overlord to move aside by hand. A finished update of another home is
+// history, which TestUpdateInstallsWhereEachHomeShapeKeepsItsBuild updates
+// over.
 func TestUpdateRefusesAJournalItCannotTrust(t *testing.T) {
 	for _, test := range []struct {
 		name    string
@@ -523,7 +525,6 @@ func TestUpdateRefusesAJournalItCannotTrust(t *testing.T) {
 		{"another alias set", `{"schema":"cfo-update.v1","root":"ROOT","phase":"done","candidate_copy":"STATE\\update\\candidate.exe","aliases":[]}`, untrusted},
 		{"an edited copy", `{"schema":"cfo-update.v1","root":"ROOT","phase":"swapped","candidate_copy":"C:\\elsewhere\\x.exe","aliases":[]}`, untrusted},
 		{"another home's", `{"schema":"cfo-update.v1","root":"C:\\elsewhere","phase":"swapped","aliases":[]}`, othersWayBack},
-		{"another home's finished", `{"schema":"cfo-update.v1","root":"C:\\elsewhere","phase":"done","candidate_copy":"C:\\elsewhere\\state\\update\\candidate.exe","aliases":[]}`, movedHome},
 		{"unfinished here", "", recoverFirst},
 	} {
 		t.Run(test.name, func(t *testing.T) {
@@ -565,10 +566,10 @@ func TestUpdateRefusesAJournalItCannotTrust(t *testing.T) {
 			if (test.refusal == untrusted) != strings.Contains(output, "cannot be trusted") {
 				t.Fatalf("only a malformed journal of this home is refused as one that cannot be trusted:\n%s", output)
 			}
-			if (test.refusal == movedHome) != strings.Contains(output, "aside") {
-				t.Fatalf("only a finished journal of another home may be moved aside:\n%s", output)
+			if strings.Contains(output, "aside by hand") {
+				t.Fatalf("the refusal leaves the Overlord a journal to move aside by hand:\n%s", output)
 			}
-			if (test.refusal == movedHome || test.refusal == othersWayBack) && (!strings.Contains(output, `C:\elsewhere`) || !strings.Contains(output, u.root)) {
+			if test.refusal == othersWayBack && (!strings.Contains(output, `C:\elsewhere`) || !strings.Contains(output, u.root)) {
 				t.Fatalf("the refusal does not name both homes:\n%s", output)
 			}
 			if test.refusal != recoverFirst {

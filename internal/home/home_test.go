@@ -466,3 +466,42 @@ func jsonString(s string) string {
 	data, _ := json.Marshal(s)
 	return string(data)
 }
+
+// A home keeps its installed build in bin, or, where a build before bin set
+// it up, as the checkout an older build made the Overlord's home, at its
+// root: Programs is where the build is, so an update swaps it in place.
+func TestProgramsIsWhereTheHomeKeepsItsBuild(t *testing.T) {
+	for _, test := range []struct {
+		name  string
+		files []string
+		want  string
+	}{
+		{"a home set up with bin", []string{`bin\cfo.exe`, `bin\goblins.exe`}, BinDir},
+		{"a home set up before bin", []string{`cfo.exe`, `goblins.exe`}, "."},
+		{"a home before bin whose bin holds only the window", []string{`cfo.exe`, `goblins.exe`, `bin\goblins-window.exe`}, "."},
+		{"a home an install laid out over one before bin", []string{`cfo.exe`, `goblins.exe`, `bin\cfo.exe`, `bin\goblins.exe`}, BinDir},
+		{"a home with no build yet", nil, BinDir},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			// Arrange
+			h := Home{Root: t.TempDir()}
+			for _, name := range test.files {
+				path := filepath.Join(h.Root, name)
+				if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+					t.Fatal(err)
+				}
+				if err := os.WriteFile(path, []byte(name), 0o644); err != nil {
+					t.Fatal(err)
+				}
+			}
+
+			// Act
+			got := h.Programs()
+
+			// Assert
+			if want := filepath.Join(h.Root, test.want); got != want {
+				t.Errorf("Programs() = %s, want %s", got, want)
+			}
+		})
+	}
+}

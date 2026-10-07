@@ -540,7 +540,7 @@ func TestCarryWindowBringsTheWindowBesideTheBuildIntoTheHome(t *testing.T) {
 			var out strings.Builder
 
 			// Act
-			err := CarryWindow(root, filepath.Join(release, "cfo.exe"), &out)
+			err := CarryWindow(filepath.Join(root, "bin"), filepath.Join(release, "cfo.exe"), &out)
 
 			// Assert
 			if err != nil {
@@ -565,7 +565,7 @@ func TestCarryWindowReportsAWindowItCannotReplace(t *testing.T) {
 	writeFile(t, filepath.Join(release, "goblins-window.exe"), "window 2")
 
 	// Act
-	err := CarryWindow(root, filepath.Join(release, "cfo.exe"), io.Discard)
+	err := CarryWindow(filepath.Join(root, "bin"), filepath.Join(release, "cfo.exe"), io.Discard)
 
 	// Assert
 	if err == nil {
