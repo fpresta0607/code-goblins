@@ -19,8 +19,8 @@ const states = {
   small: { ...machine, total: 6 * GB, commit_limit: 9 * GB, available: 3 * GB, commit_available: 6 * GB },
 };
 
-async function tasksColumn(page: Page, memory: object) {
-  const snapshot = { instance: "memory-fixture", revision: 1, healthy: true, example: true, cfo_runs: false, memory, tasks };
+async function tasksColumn(page: Page, memory: object, scheduling: object | null = null) {
+  const snapshot = { instance: "memory-fixture", revision: 1, healthy: true, example: true, cfo_runs: false, memory, scheduling, tasks };
   await page.route("**/api/**", async (route) => {
     if (new URL(route.request().url()).pathname === "/api/events") {
       await route.fulfill({ contentType: "text/event-stream", body: `event: snapshot\ndata: ${JSON.stringify(snapshot)}\n\n` });
@@ -86,6 +86,43 @@ for (const width of [1440, 390]) {
       await expect(meter.locator(".memory-holders")).toHaveText("Most commit: ChatGPT 11.2 GB, claude 5.7 GB, cfo 4.3 GB");
       await expect(column.locator(".next-chip")).toHaveText("Next at 5 GB");
       await expect(column.getByRole("button", { name: "Start Polish settings", exact: true })).toHaveAttribute("data-tip", "Needs 5 GB of commit free to keep the 4 GB floor");
+    });
+
+    test("with memory free the meter names what the supervisor started, in body-size text inside its box", async ({ page }, testInfo) => {
+      // Arrange
+      const scheduling = { at: "2026-10-07T12:00:00Z", text: "starting polish-settings", waiting: [] };
+
+      // Act
+      const meter = (await tasksColumn(page, states.memory, scheduling)).getByRole("group", { name: "Memory" });
+
+      // Assert
+      await expect(meter.locator(".memory-schedule")).toHaveText("Starting polish-settings");
+      await expect(meter.locator(".sr-only")).toHaveText("Enough memory: starting polish-settings");
+      await meter.screenshot({ path: testInfo.outputPath(`scheduled-${width}.png`) });
+    });
+
+    test("with memory free the meter says why nothing waiting started, and the line stays inside its box", async ({ page }, testInfo) => {
+      // Arrange
+      const scheduling = { at: "2026-10-07T12:00:00Z", text: "nothing starts: polish-settings: its last start failed: refused: the project's auth preflight is red for GitHub and Vercel", waiting: [{ id: "polish-settings", why: "its last start failed" }] };
+
+      // Act
+      const meter = (await tasksColumn(page, states.memory, scheduling)).getByRole("group", { name: "Memory" });
+      const line = meter.locator(".memory-schedule");
+
+      // Assert
+      await expect(line).toHaveText("Nothing starts: polish-settings: its last start failed: refused: the project's auth preflight is red for GitHub and Vercel");
+      const fits = await meter.evaluate((box) => {
+        const inside = box.getBoundingClientRect(), text = box.querySelector<HTMLElement>(".memory-schedule")!;
+        const rect = text.getBoundingClientRect();
+        return { inside: rect.left >= inside.left && rect.right <= inside.right && rect.bottom <= inside.bottom, size: parseFloat(getComputedStyle(text).fontSize), overflows: box.scrollWidth > box.clientWidth };
+      });
+      expect(fits).toEqual({ inside: true, size: 16, overflows: false });
+      await meter.screenshot({ path: testInfo.outputPath(`nothing-starts-${width}.png`) });
+    });
+
+    test("with memory short the meter keeps no line from a reading with memory free", async ({ page }) => {
+      const meter = (await tasksColumn(page, states.commit, { at: "2026-10-07T12:00:00Z", text: "starting polish-settings", waiting: [] })).getByRole("group", { name: "Memory" });
+      await expect(meter.locator(".memory-schedule")).toHaveCount(0);
     });
 
     test("a leaking paged pool gets one warning line", async ({ page }) => {

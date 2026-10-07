@@ -36,8 +36,9 @@ export function PanelHeader({ task, node, snapshot, compact, onAnswer, onOpenTas
     : nodeStatus({ id: title, title, task, session: node, relation: "" }, asking);
   const phase = cfo ? (snapshot.registration ? "stale" : cfoSession?.runtime?.state || cfoSession?.phase || "working") : owner ? statusPhase(task) : node?.runtime?.state || node?.phase || "";
   const said = owner ? taskSummary(task, snapshot.tasks, status) : undefined;
-  // What a queued task's wait line leaves out: the CFO's note on it.
-  const note = owner && task.phase === "queued" && task.dependencies.length ? withoutHarness(task.reason) : "";
+  // What a queued task's wait line leaves out: the CFO's note on it, or what
+  // says it already finished.
+  const note = owner && task.phase === "queued" && (task.finished || task.dependencies.length) ? withoutHarness(task.finished || task.reason) : "";
   const pr = owner ? safePullRequest(task.pr) : "";
   const badge = pullRequestBadge(pr);
   const awaited = owner ? waitingTarget(snapshot, task) : undefined;

@@ -371,6 +371,13 @@ A mark appears only while a live CFO or goblin terminal runs that harness, and s
 The first eligible task is marked **Next up**.
 The supervisor uses each free slot for the oldest pause whose condition has cleared, then for the queue in the Overlord's order.
 A future date, an unanswered question or an Overlord pause does not hold the queue.
+The supervisor does this by itself, one start or resume a minute while memory allows, until nothing that could run is left: the fleet never idles while work waits, and nothing waits for the CFO to notice.
+With memory free, a line under the memory meter names what it started or resumed, such as "Starting cg-docs", or why nothing waiting started, such as "Nothing starts: cg-docs: its last start failed: ...".
+A queued task that already finished never starts again, by itself or from Start: when its last report, live or archived, was done, or its pull request or one of its branch merged, its card reads **Already finished** with the evidence in place of Start.
+When `cfo cleanup` retires a delivered task, its row moves from Queued to Done with its detail lines, and the supervisor moves any row a delivered task left behind.
+Work the supervisor cannot start, such as a start that failed or a row that needs the CFO, wakes the CFO with an `idle` wake once it has waited 30 minutes with memory free and nothing started, naming each task and why, and again every 30 minutes it lasts.
+When the CFO's turn ends with no goblin at work while work that could run waits and memory is free, its turn is reopened with the next work named: Claude Code's Stop hook does it, and a Codex or pi CFO's native hook raises the wake the supervisor types into its terminal.
+None of this needs a setting: every home does it.
 The Overlord's own Start or Resume overrides that ordering; a queued row marked `(priority: production-defect)` also goes first, with a notify explaining that it jumped the order.
 A blocked task has no Start button or Next up mark and adds no line about what it waits for; the CFO's note on the wait is in its panel behind **More**.
 An eligible queued card has a **Start** play icon with a tooltip.
@@ -389,7 +396,8 @@ Such processes remain listed as **Finishing Windows teardown** on the card and i
 Its worktree, branch and session stay available, and the Paused card says when it paused, what was kept and whether a handoff was saved.
 Every pause records why it paused and what resumes it.
 The board's Pause records `overlord`, which only the Overlord's Resume clears.
-The CLI requires `cfo pause <id> --reason <reason>`; the reasons are `memory`, `allowance`, `overlord`, `dependency`, `question`, `ci` and `deploy`.
+The CLI takes what resumes the goblin: `cfo pause <id> --until <RFC3339 time>`, `--until-task <id>` or `--until-pr <GitHub PR URL>` pauses it until that time, until that task delivers or until that pull request merges, and the supervisor resumes it then by itself, as for a goblin paused until an allowance's weekly reset.
+Otherwise it takes `--reason <reason>`: `memory`, `allowance`, `overlord`, `dependency`, `question`, `ci` or `deploy`; a pause that names nothing that resumes it is refused.
 An allowance pause takes `--until <RFC3339 reset time>`; a dependency takes `--until task:<id>`, `pr:<GitHub PR URL>` or `date:<RFC3339 time>`; a question takes `--until <question id>`.
 For CI or deploy, name the exact awaited head with `--until pr:<GitHub PR URL>@<40-character SHA>` or `run:<GitHub Actions run URL>@<40-character SHA>`.
 Pause for CI or deploy only when waiting on that run is the goblin's remaining work.
@@ -402,7 +410,7 @@ While [AFK mode](#afk-mode) is on it pauses at the memory floor too: after two r
 Short session or model windows do not trigger this reserve, and missing or stale quota remains unknown.
 On the board, a paused card says in place of Paused why it waits and what resumes it, in a few words such as "Memory: resumes at 5 GB free", "Waiting on PR #331 to merge" or "Waiting on CI, usually 13 min", the last from the median of that repository's measured runs.
 The memory meter shows the goblins live against the cap, and the setting while memory lowers the cap; with no free slot, Start and Resume say so on the card instead of being refused after the click.
-**Next** marks the one card the free-slot order takes first: a reported production defect, which says it jumps the queue, then a paused goblin whose pause has cleared or clears with memory, oldest pause first, then the top of the queue.
+**Next** marks the one card the free-slot order takes first: a reported production defect, which says it jumps the queue, then a paused goblin whose pause has cleared or clears with memory, oldest pause first, then the top of the queue, passing over a task whose last start failed, which waits for its Start.
 A live goblin with no real progress for 20 minutes says for how long on its card.
 After 20 minutes with no new commit, push, gate-step change or changed status report, the supervisor raises one `progress_stalled` check wake to the CFO; real progress resets it, and intentional pauses do not raise it.
 Progress probes run together under one 10-second deadline, so stalled probes do not accumulate delays between memory readings.
@@ -935,12 +943,11 @@ cd frontend
 npm ci
 npm run build
 cd ..
-go vet ./...
-go test ./... -count=1
+go run ./cmd/cfo gate test
 go build ./cmd/cfo
 ```
 
-CI runs on `windows-latest`. The real-session acceptance suite is opt-in because it requires actual Herdr and harness installations.
+`cfo gate test` vets what your change reaches and tests the changed packages that are quick to test; CI runs on `windows-latest` and tests every package on every pull request. The real-session acceptance suite is opt-in because it requires actual Herdr and harness installations.
 
 ## Project lineage
 
