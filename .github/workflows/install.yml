@@ -232,6 +232,17 @@ jobs:
           if ($left.Count -gt 0) { throw "hooks survived the uninstall: $($left -join '; ')" }
           if (-not (Test-Path -LiteralPath (Join-Path $cfoHome "state"))) { throw "the uninstall removed the home's state" }
           $global:LASTEXITCODE = 0
+      # The install keeps every detail it does not print in its log, which
+      # the job's output never shows; keep it, so a failed install can be
+      # read after the runner is gone.
+      - name: Keep the install's log
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: install-log-one-line-${{ matrix.shell }}
+          path: ~/AppData/Local/Temp/CodeGoblinsInstall.log
+          if-no-files-found: ignore
+          retention-days: 14
 
   dev:
     runs-on: windows-latest
@@ -318,3 +329,14 @@ jobs:
           if (([Environment]::GetEnvironmentVariable("Path", "User") -split ";") -contains $bin) { throw "$bin is still on the user PATH" }
           if (-not (Test-Path -LiteralPath (Join-Path $cfoHome "state"))) { throw "the uninstall removed the home's state" }
           $global:LASTEXITCODE = 0
+      # The install keeps every detail it does not print in its log, which
+      # the job's output never shows; keep it, so a failed install can be
+      # read after the runner is gone.
+      - name: Keep the install's log
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: install-log-dev
+          path: ~/AppData/Local/Temp/CodeGoblinsInstall.log
+          if-no-files-found: ignore
+          retention-days: 14
