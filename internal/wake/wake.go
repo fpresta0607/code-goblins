@@ -52,6 +52,7 @@ var kinds = map[string]bool{
 	"ci":        true,
 	"pr":        true,
 	"disk":      true,
+	"idle":      true,
 }
 
 // Record is one durable wake. Seq starts at 1 and is never reused; the ack
@@ -158,7 +159,7 @@ func writeQueue(dir string, records []Record) error {
 // single-writer, and gains AtomicWriteFile's bounded retry on Windows sharing locks.
 func Append(dir, kind, key, detail string) (Record, error) {
 	if !kinds[kind] {
-		return Record{}, fmt.Errorf("wake: unknown kind %q, want one of signal, stale, check, heartbeat, notify, orphan, review, memory, ci, pr, disk", kind)
+		return Record{}, fmt.Errorf("wake: unknown kind %q, want one of signal, stale, check, heartbeat, notify, orphan, review, memory, ci, pr, disk, idle", kind)
 	}
 	var rec Record
 	err := withLock(dir, func() error {
