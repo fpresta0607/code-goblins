@@ -13,6 +13,9 @@ const time = (value: unknown) => typeof value === "number" && Number.isFinite(va
 export const BOARD_DICTATIONS = 10;
 export const BOARD_PANES = 20;
 const DICTATIONS_KEY = "cfo-dictations-v1";
+// "dismissed" once the bubble's first-visit hint has been put away, or
+// spent by the quick tour, which says the same.
+export const VOICE_HINT_KEY = "cfo-voice-hint-v1";
 type Store = Pick<Storage, "getItem" | "setItem">;
 type Kept = Record<string, VoiceMessage[]>;
 

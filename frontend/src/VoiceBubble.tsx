@@ -2,15 +2,15 @@ import { useEffect, useRef, useState } from "react";
 import { spoken } from "./dictation";
 import { browserOffered, setUsesBrowser, usesBrowser } from "./dictationEngine";
 import { Icon } from "./Icon";
+import { VOICE_HINT_KEY } from "./voice";
 import type { Voice } from "./useVoice";
 
-const HINT_KEY = "cfo-voice-hint-v1";
 const BARS = 9;
 // While listening, a bar takes the microphone's level this often.
 const SAMPLE_MS = 70;
 
 function hintDismissed(): boolean {
-  try { return localStorage.getItem(HINT_KEY) === "dismissed"; } catch { return false; }
+  try { return localStorage.getItem(VOICE_HINT_KEY) === "dismissed"; } catch { return false; }
 }
 
 const clock = (at: number) => at ? new Date(at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) : "";
@@ -61,7 +61,7 @@ export function VoiceBubble({ voice, listening, level, model, onPaste }: { voice
   }, [copied]);
   const dismiss = () => {
     setDismissed(true);
-    try { localStorage.setItem(HINT_KEY, "dismissed"); } catch { /* the hint shows again next visit */ }
+    try { localStorage.setItem(VOICE_HINT_KEY, "dismissed"); } catch { /* the hint shows again next visit */ }
   };
   const close = () => { setOpen(false); bubble.current?.focus(); };
   const toggle = () => {
