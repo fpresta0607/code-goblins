@@ -140,6 +140,9 @@ test("a board built from a clone gets the clone's steps instead of Update", asyn
 
 for (const draft of ["answer", "changed answer", "diff comment"] as const) {
   test(`a postponed update reload resumes after the ${draft} is sent or cleared`, async ({ page }) => {
+    // A diff comment is typed after opening the task, its changes and the
+    // file's diff, which outruns the default limit on a loaded machine.
+    if (draft === "diff comment") test.slow();
     const snapshot = parseSnapshot({ healthy: true, instance: "update-reload", revision: 1, cfo_runs: true, build: "old-build",
       tasks: [{ id: "billing", title: "Billing", generation: "g1", phase: "working", verified: false, reported_at: "2026-10-06T14:00:00Z" }],
       questions: [
