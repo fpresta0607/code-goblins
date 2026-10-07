@@ -37,8 +37,9 @@ const wakeLockName = ".wake-queue.lock"
 // answers a goblin's item or page, the `memory`, `ci` and `pr` kinds it
 // appends when memory comes back for waiting work, CI finishes or cannot be
 // read, and a pull request conflicts or falls behind, and the `disk` kind it
-// appends when free disk falls under the mark the CFO is woken at, and no
-// others.
+// appends when free disk falls under the mark the CFO is woken at, the
+// `allowance` kind it appends when a subscription window nears its end or
+// renews after it was used up, and no others.
 var kinds = map[string]bool{
 	"signal":    true,
 	"stale":     true,
@@ -52,6 +53,7 @@ var kinds = map[string]bool{
 	"pr":        true,
 	"disk":      true,
 	"idle":      true,
+	"allowance": true,
 }
 
 // Record is one durable wake. Seq starts at 1 and is never reused; the ack

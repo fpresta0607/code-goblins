@@ -425,6 +425,8 @@ The live cap is also checked for Start, spawn and Resume: `config/fleet.json` se
 At 5 percent remaining in a measured weekly allowance window, the same supervisor scheduler requests each affected goblin's handoff and pauses it until the applicable weekly windows reset.
 While [AFK mode](#afk-mode) is on it pauses at the memory floor too: after two readings in a row under 4 GB of free memory or commit, the newest goblin that is not pushing or merging is paused with the reason `memory`, one at a time.
 Short session or model windows do not trigger this reserve, and missing or stale quota remains unknown.
+A used-up session window is waited out rather than paused: nothing starts or resumes on its harness until it renews, and then the CFO is woken once with the goblins it stopped, to send on any that sits idle.
+The CFO also hears once when a window a running goblin draws on passes 85 percent used.
 On the board, a paused card says in place of Paused why it waits and what resumes it, in a few words such as "Memory: resumes at 5 GB free", "Waiting on PR #331 to merge" or "Waiting on CI, usually 13 min", the last from the median of that repository's measured runs.
 The memory meter shows the goblins live against the cap, and the setting while memory lowers the cap; with no free slot, Start and Resume say so on the card instead of being refused after the click.
 **Next** marks the one card the free-slot order takes first: a reported production defect, which says it jumps the queue, then a paused goblin whose pause has cleared or clears with memory, oldest pause first, then the top of the queue, passing over a task whose last start failed, which waits for its Start.
