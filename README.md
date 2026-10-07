@@ -552,18 +552,14 @@ Other items, a plain link included, are answered in writing with **Send answer**
 A document the CFO or a goblin delivers with `cfo deliver` shows its file type, name and size with **Download**, and **Open** when the browser can show it or it has a link; opening or downloading it moves it to History.
 Each item that needs you has one signal on the visible board: **Open Command Center** and its count.
 An item shows no toast and opens no dialog by itself.
-A goblin's finished or failed news still appears in its dialogue box at the bottom right, with **Open** for that goblin; alerts stack and leave after a few seconds, and routine progress never alerts.
-If unanswered blocked or failed questions have waited on the CFO for ten minutes, one notice names their count and the oldest age, with **Open the CFO's terminal**.
-That notice appears once for the same stretch, through reloads, reconnects and supervisor restarts, and never turns those questions into decisions for you.
-Each item is announced once by its own id, and the same news from the same goblin within five minutes is one event.
-A goblin's next pull request alerts at once; the same news more than five minutes later alerts again.
-Your browser remembers the last 100 alerts it showed.
-While the board's tab is hidden or its window is minimized, an announcement can also be a Windows notification once you allow them; the board asks once, with its first announcement, and clicking one opens its item or terminal.
+Only an open Command Center item that asks you something alerts you: a question the CFO asks you, a goblin's wait or page addressed to you, a command to run, a credential request or a new release.
+A goblin blocked, failed or done is said on its card, never as an alert, and routine progress never alerts.
+A pause or stop that the CFO or you asked for is never shown as a failure: one that did not finish reads **Pause did not finish** or **Stop did not finish** on its card, and the CFO hears of it.
+If unanswered blocked or failed questions have waited on the CFO for ten minutes, the CFO's bar says how many and how long the oldest has waited, in place of All quiet, until the CFO catches up; that is never an alert and never turns those questions into decisions for you.
+While the board's tab is hidden or its window is minimized, a new item raises a Windows notification once you allow them, naming who asks and saying what in one plain line; the board asks once, with the first item, and clicking the notification opens that item in the Command Center.
 An unfocused window that is still visible sends no Windows notification.
-
-<p align="center">
-  <img src="docs/images/alert.webp" alt="An alert at the bottom right of the board: Refresh the Windows install guide finished and its pull request is ready, with Open and a close button" width="420" />
-</p>
+Each item is announced once, by its own id and when it was published, through reloads, reconnects, supervisor restarts and every open board, and the same ask filed again within five minutes is one event.
+Your browser remembers the last 100 alerts it showed.
 
 New items also stay under the badge, and the browser tab's title counts what is waiting on you.
 A goblin's item closes by itself once nobody waits on it: a wait when the goblin reports again or the CFO answers it, any item but a delivered document when its goblin finishes or is cleaned up, and the CFO can clear a stale one with a reason.
