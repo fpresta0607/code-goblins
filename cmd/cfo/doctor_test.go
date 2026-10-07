@@ -251,7 +251,7 @@ func TestRunDoctorNamesTheDictationModelAndWhetherItIsThere(t *testing.T) {
 
 	var stdout, stderr bytes.Buffer
 	run([]string{"doctor"}, &stdout, &stderr)
-	want := "dictation: parakeet-tdt-110m en-36000-int8 on sherpa-onnx 1.13.8, not fetched yet: the first dictation downloads it once into " + filepath.Join(root, "caches", "voice")
+	want := "dictation: parakeet-tdt-110m en-36000-int8 on sherpa-onnx 1.13.8, not fetched yet: the first dictation downloads it once, 125 MB, into " + filepath.Join(root, "caches", "voice")
 	if !strings.Contains(stdout.String(), want) {
 		t.Errorf("stdout lacks %q\n%s", want, stdout.String())
 	}
