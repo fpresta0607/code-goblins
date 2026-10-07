@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"os"
 	"path/filepath"
 	"slices"
 	"strings"
@@ -418,6 +419,113 @@ func TestCIFinishedWakesWhenMainsPushCIGoesRed(t *testing.T) {
 	}
 }
 
+// deployRun is one push run of main's Deploy to Production workflow, as gh
+// run list reports it.
+func deployRun(id int64, conclusion string) string {
+	return fmt.Sprintf(`{"databaseId":%d,"workflowName":"Deploy to Production","status":"completed","conclusion":%q,"headSha":"def9371c45","url":"https://github.com/o/r/actions/runs/%d"}`, id, conclusion, id)
+}
+
+// GitHub sometimes answers the newest-first listing of main's push runs with
+// an older page. On 2026-10-06 it gave PrecisionDocs-AI's deploy run of
+// 2026-03-01 as the newest, and the CFO was told main was red while every
+// deploy that day had passed. A listing older than one a poll already read
+// says nothing of main as it is now; a newer red run still wakes.
+func TestCIFinishedJudgesMainByItsNewestRunNeverAnOlderPage(t *testing.T) {
+	// Arrange
+	s, h := fleetService(t)
+	project := t.TempDir()
+	liveGoblin(t, h, "pd-goblin", project)
+	forge := forgeFor(project, "pd-goblin")
+	forge.branch, forge.pulls, forge.jobs = "feat/x", "[]", `{"jobs":[{"name":"deploy","conclusion":"failure"}]}`
+	forge.runs = "[" + deployRun(37469735276, "success") + "," + deployRun(37462939864, "success") + "]"
+	s.Options.CI = forge
+	now := time.Date(2026, 10, 6, 15, 0, 0, 0, time.UTC)
+	if green := pollForge(t, s, h, &now); len(green) != 0 {
+		t.Fatalf("a green deploy woke the CFO: %+v", green)
+	}
+
+	// Act: GitHub lists a page from March.
+	forge.runs = "[" + deployRun(22548630531, "failure") + "," + deployRun(22548000000, "success") + "]"
+	stale := pollForge(t, s, h, &now)
+	forge.runs = "[" + deployRun(37470000000, "failure") + "," + deployRun(37469735276, "success") + "]"
+	red := pollForge(t, s, h, &now)
+
+	// Assert
+	if len(stale) != 0 {
+		t.Fatalf("a red run older than the newest one read woke the CFO: %+v", stale)
+	}
+	if len(red) != 1 || !strings.Contains(red[0].Detail, "run 37470000000") {
+		t.Fatalf("main red on its newest run = %+v, want one wake for run 37470000000", red)
+	}
+}
+
+// What a poll read of main outlives the repository's watch: once its last
+// goblin is gone the repository leaves the watch, and when a goblin works
+// there again a listing older than the newest run read before still wakes
+// nobody.
+func TestCIFinishedKnowsMainsNewestRunWhenItsRepositoryIsWatchedAgain(t *testing.T) {
+	// Arrange
+	s, h := fleetService(t)
+	project := t.TempDir()
+	liveGoblin(t, h, "pd-goblin", project)
+	forge := forgeFor(project, "pd-goblin")
+	forge.branch, forge.pulls, forge.jobs = "feat/x", "[]", `{"jobs":[{"name":"deploy","conclusion":"failure"}]}`
+	forge.runs = "[" + deployRun(37469735276, "success") + "]"
+	s.Options.CI = forge
+	now := time.Date(2026, 10, 6, 6, 0, 0, 0, time.UTC)
+	if green := pollForge(t, s, h, &now); len(green) != 0 {
+		t.Fatalf("a green deploy woke the CFO: %+v", green)
+	}
+	if err := os.Remove(filepath.Join(h.State, "pd-goblin.meta")); err != nil {
+		t.Fatal(err)
+	}
+	now = now.Add(repoWatchFor)
+	if err := s.checkFleet(context.Background(), now); err != nil {
+		t.Fatal(err)
+	}
+	listed := func() int {
+		return len(slices.DeleteFunc(slices.Clone(forge.runListDirs), func(dir string) bool { return dir != filepath.Clean(project) }))
+	}
+	if listed() != 1 {
+		t.Fatalf("main's runs were listed %d times by the time the repository left the watch, want once", listed())
+	}
+	liveGoblin(t, h, "pd-goblin", project)
+
+	// Act
+	forge.runs = "[" + deployRun(22548630531, "failure") + "]"
+	stale := pollForge(t, s, h, &now)
+
+	// Assert
+	if listed() != 2 {
+		t.Fatalf("main's runs were listed %d times, want twice: the repository is watched again", listed())
+	}
+	if len(stale) != 0 {
+		t.Fatalf("an old red run newly seen after the repository was watched again woke the CFO: %+v", stale)
+	}
+}
+
+// Each workflow is judged by its newest run, whatever order GitHub lists
+// them in.
+func TestCIFinishedJudgesEachWorkflowByItsNewestRunInAnyOrder(t *testing.T) {
+	// Arrange
+	s, h := fleetService(t)
+	project := t.TempDir()
+	liveGoblin(t, h, "pd-goblin", project)
+	forge := forgeFor(project, "pd-goblin")
+	forge.branch, forge.pulls, forge.jobs = "feat/x", "[]", `{"jobs":[{"name":"deploy","conclusion":"failure"}]}`
+	forge.runs = "[" + deployRun(37462939864, "failure") + "," + deployRun(37469735276, "success") + "]"
+	s.Options.CI = forge
+	now := time.Date(2026, 10, 6, 15, 0, 0, 0, time.UTC)
+
+	// Act
+	woke := pollForge(t, s, h, &now)
+
+	// Assert
+	if len(woke) != 0 {
+		t.Fatalf("a red run listed before its workflow's newer green one woke the CFO: %+v", woke)
+	}
+}
+
 // GitHub is asked at most every two minutes, however often the fleet is
 // read, because its calls come out of the hourly allowance every goblin
 // shares.
@@ -476,8 +584,8 @@ func TestCIFinishedWakesOncePerRedWorkflowOfOnePush(t *testing.T) {
 	liveGoblin(t, h, "cg-wakes", project)
 	forge := forgeFor(project, "cg-wakes")
 	forge.branch, forge.pulls, forge.jobs = "feat/wakes", "[]", `{"jobs":[{"name":"test","conclusion":"failure"}]}`
-	forge.runs = `[{"databaseId":36740825611,"workflowName":"go","status":"completed","conclusion":"failure","headSha":"4e8bd9e536","url":"https://github.com/o/r/actions/runs/36740825611"},
-{"databaseId":36740825612,"workflowName":"install","status":"completed","conclusion":"failure","headSha":"4e8bd9e536","url":"https://github.com/o/r/actions/runs/36740825612"}]`
+	forge.runs = `[{"databaseId":36740825612,"workflowName":"install","status":"completed","conclusion":"failure","headSha":"4e8bd9e536","url":"https://github.com/o/r/actions/runs/36740825612"},
+{"databaseId":36740825611,"workflowName":"go","status":"completed","conclusion":"failure","headSha":"4e8bd9e536","url":"https://github.com/o/r/actions/runs/36740825611"}]`
 	s.Options.CI = forge
 	now := time.Date(2026, 9, 30, 12, 0, 0, 0, time.UTC)
 
@@ -486,7 +594,7 @@ func TestCIFinishedWakesOncePerRedWorkflowOfOnePush(t *testing.T) {
 	if len(red) != 2 {
 		t.Fatalf("two workflows red on main = %+v, want two wakes", red)
 	}
-	for i, want := range []string{"workflow go, job test, run 36740825611", "workflow install, job test, run 36740825612"} {
+	for i, want := range []string{"workflow install, job test, run 36740825612", "workflow go, job test, run 36740825611"} {
 		if !strings.Contains(red[i].Detail, want) {
 			t.Errorf("wake %q lacks %q", red[i].Detail, want)
 		}
