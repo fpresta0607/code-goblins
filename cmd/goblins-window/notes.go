@@ -13,14 +13,17 @@ import (
 const noteMessage = "notify:"
 
 // notesScript runs in the board's page after each load. The board raises a
-// notification for each alert the Overlord is not looking at, by rules of its
-// own: what newly waits on him, and a goblin that is blocked, failed or done.
-// WebView2 would draw that itself, outside Windows' notifications and their
-// center, so the page's Notification hands each one to the window, which
-// raises a Windows notification while he cannot see the window and tells the
-// page when it is clicked, so the board opens the item. The window is a
-// program he installed, whose notifications Windows' own settings turn off,
-// so the board is told it may notify and never asks. A page that changed
+// notification for each new Command Center item that asks the Overlord
+// something while he is not looking, and for nothing else. WebView2 would
+// draw that itself, outside Windows' notifications and their center, so the
+// page's Notification hands each one to the window, which raises a Windows
+// notification while he cannot see the window and tells the page when it is
+// clicked, so the board opens the item. A click on one the window raised from
+// its own look, which the page holds no notification for, reaches the board
+// as the page event code-goblins-notification-click with the notification's
+// id, its alert's key, so the board opens that item all the same. The window
+// is a program he installed, whose notifications Windows' own settings turn
+// off, so the board is told it may notify and never asks. A page that changed
 // Notification itself, as the board's own tests do, keeps what it set.
 const notesScript = `(() => {
   if (window.codeGoblinsNotes) return;
@@ -45,7 +48,11 @@ const notesScript = `(() => {
       this.onclose?.();
     }
   };
-  window.codeGoblinsNoteClicked = (id) => notes.get(id)?.onclick?.();
+  window.codeGoblinsNoteClicked = (id) => {
+    const note = notes.get(id);
+    if (note) note.onclick?.();
+    else window.dispatchEvent(new CustomEvent("code-goblins-notification-click", { detail: id }));
+  };
 })();`
 
 // Note is a notification the board's page asks the window to raise.
