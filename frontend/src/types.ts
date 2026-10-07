@@ -80,7 +80,39 @@ export interface Task extends Evaluation {
   // deployment how the deploy of its merge stands, apart.
   hosted_checks?: HostedChecks;
   local_checks?: LocalChecks;
+  // tree is what a live goblin has running under it, absent for one that
+  // runs nothing the supervisor could read.
+  tree?: FleetTree;
   deployment?: Deployment;
+}
+// FleetTree is a goblin and what runs under it as the supervisor last read
+// it: memory is its harness and everything under it, own_memory the harness
+// alone, both private bytes; unread names evidence that could not be read.
+export interface FleetTree {
+  task_id: string; generation: string; harness: string; memory: number; own_memory: number; conversation_at: string;
+  children: TreeNode[]; unread: string[]; source_updated_at: string; fetched_at: string;
+}
+// TreeNode is one child of a goblin: a sub-agent, a background shell or
+// monitor, a job of processes (whose group says what it does: dev-server,
+// test, build, browser or other) or its gate run. state is working, waiting,
+// done, failed or silent; memory is its processes' private bytes.
+export interface TreeNode {
+  id: string; kind: string; group: string; parent: string; label: string; detail: string; state: string;
+  started: string; last_activity: string; finished: string; last_line: string; memory: number;
+  source_updated_at: string; fetched_at: string;
+}
+function parseTree(value: unknown): FleetTree {
+  const t = object(value);
+  return {
+    task_id: string(t.task_id), generation: string(t.generation), harness: string(t.harness), memory: number(t.memory), own_memory: number(t.own_memory),
+    conversation_at: string(t.conversation_at), unread: strings(t.unread), source_updated_at: string(t.source_updated_at), fetched_at: string(t.fetched_at),
+    children: array(t.children).map((child) => {
+      const c = object(child);
+      return { id: string(c.id), kind: string(c.kind), group: string(c.group), parent: string(c.parent), label: string(c.label), detail: string(c.detail), state: string(c.state),
+        started: string(c.started), last_activity: string(c.last_activity), finished: string(c.finished), last_line: string(c.last_line), memory: number(c.memory),
+        source_updated_at: string(c.source_updated_at), fetched_at: string(c.fetched_at) };
+    }),
+  };
 }
 export interface WorkProgress { at: string; source: string }
 // HostedChecks is a pull request's hosted checks at its head: state is
@@ -670,6 +702,7 @@ export function parseSnapshot(value: unknown): Snapshot {
         ...(t.ticket == null ? {} : { ticket: ((ticket) => ({ number: number(ticket.number), url: string(ticket.url), state: string(ticket.state) }))(object(t.ticket)) }),
         overlaps: array(t.overlaps).map((value) => { const o = object(value); return { ...parsePerson(o), what: string(o.what), url: string(o.url) }; }),
         ...(t.hosted_checks == null ? {} : { hosted_checks: ((c) => ({ state: string(c.state), checks: number(c.checks), failed: strings(c.failed), link: string(c.link), approved: c.approved === undefined ? false : boolean(c.approved) }))(object(t.hosted_checks)) }),
+        ...(t.tree == null ? {} : { tree: parseTree(t.tree) }),
         ...(t.local_checks == null ? {} : { local_checks: ((c) => ({ commit: string(c.commit), level: string(c.level), required_level: string(c.required_level), status: string(c.status), duration_seconds: number(c.duration_seconds), queue_seconds: number(c.queue_seconds), failed: strings(c.failed), at: string(c.at) }))(object(t.local_checks)) }),
         ...(t.deployment == null ? {} : { deployment: ((d) => ({ commit: string(d.commit), state: string(d.state), workflows: strings(d.workflows), link: string(d.link), at: string(d.at) }))(object(t.deployment)) }),
         phase: string(t.phase),

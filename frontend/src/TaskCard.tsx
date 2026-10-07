@@ -14,6 +14,8 @@ import { SameAreaAvatars } from "./same-area-avatars";
 import { HostedChecksLink } from "./hosted-checks-link";
 import { DeploymentLink } from "./deployment-link";
 import { LocalChecksLink } from "./local-checks-link";
+import { BabyGoblin } from "./BabyGoblin";
+import { forHowLong, formatMemory, silentChild, summarize } from "./fleet-tree";
 
 // A task's card on the board: its title, up to three lines, then a muted line
 // with the repo and the status, both wrapping onto further lines, and a quiet
@@ -54,6 +56,10 @@ export function TaskCard({ task, snapshot, selected, presentations, now, rank, n
   const ended = (column === "Paused" || column === "Completed") && task.at ? new Date(task.at) : null;
   const status = statusPhase(task) === "paused" ? pauseStatus(task.lifecycle?.pause, snapshot.tasks, snapshot.ci_durations) : nodeStatus({ id: task.id, title: task.title, task, relation: "" }, asking);
   const stalled = stalledText(task, now);
+  // What runs under a live goblin, as baby goblins with a count each, and
+  // the child that has gone silent longest with its last line.
+  const kinds = column === "In progress" ? summarize(task.tree).kinds : [];
+  const silent = column === "In progress" ? silentChild(task.tree) : undefined;
   const content = <>
     <Avatar persona={personaFor(task)} />
     <span className="card-copy">{presentations.some((event) => event.task_id === task.id) && <span className="browser-indicator">Browser active</span>}{next && <span className={"next-chip" + (next.tone ? " " + next.tone : "")}>{next.text}</span>}<strong className="card-title">{name}</strong>
@@ -61,6 +67,8 @@ export function TaskCard({ task, snapshot, selected, presentations, now, rank, n
       <span className="card-meta">{task.project && <span className="card-repo">{task.project}</span>}<span className={"plain-status phase-" + statusPhase(task) + (task.archived && task.phase !== "stopped" ? " pr-" + icon : "")}><span className="status-dot" /><span className="card-status-text">{status}</span></span></span>
       {clockBadge}
       {stalled && <span className="card-stalled"><Icon name="warning" />{stalled}</span>}
+      {kinds.length > 0 && <span className="card-tree">{kinds.map(([baby, count]) => <span key={baby} className="tree-tally"><BabyGoblin baby={baby} small />{count}</span>)}{task.tree && formatMemory(task.tree.memory)}</span>}
+      {silent && <span className="card-silent"><b>Silent {forHowLong(silent, now)}: {silent.label}</b>{silent.last_line && <code>{silent.last_line}</code>}</span>}
       {task.pending_engine && <span className="card-secondary">{task.pending_engine.when === "resume" ? "Resume with" : "Pending:"} {task.pending_engine.model} {task.pending_engine.effort}</span>}
       {task.switching && <span className="card-secondary">Switching engine...</span>}
       {ended && Number.isFinite(ended.getTime()) && <span className="card-clock"><Icon name="clock" /><time dateTime={task.at}>{ended.toLocaleString(undefined, { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" })}</time></span>}

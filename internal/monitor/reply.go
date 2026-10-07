@@ -14,6 +14,7 @@ import (
 	"unicode/utf16"
 	"unicode/utf8"
 
+	"github.com/fpresta0607/code-goblins/internal/fleettree"
 	"github.com/fpresta0607/code-goblins/internal/fsx"
 	"github.com/fpresta0607/code-goblins/internal/state"
 )
@@ -26,28 +27,29 @@ type ReplyReader interface {
 }
 
 // LastReply reads the reply that ended the goblin's last turn from its
-// harness's own record: Claude Code's conversation, the session Herdr names
-// or else the newest Claude Code keeps for the goblin's worktree, and Codex's
-// rollout, the session Herdr names or else the newest that names the
-// worktree. pi's is read off its screen, the one harness whose record this
-// does not read.
+// harness's own record: Claude Code's conversation or Codex's rollout, the
+// goblin's own as the board's tree reads it, which is the session Herdr
+// names or else the one the board's record or the harness itself proves.
+// pi's is read off its screen, the one harness whose record this does not
+// read.
 func (h *HostProgress) LastReply(ctx context.Context, meta state.TaskMeta, sample EndpointSample) string {
+	var read func(entries [][]byte) string
 	switch strings.ToLower(sample.Harness) {
 	case "claude":
-		if sample.Session != "" {
-			return lastReplyIn(h.sessionTranscript("claude", sample.Session), claudeReply)
-		}
-		return lastReplyIn(h.newestClaudeConversation(meta.Worktree), claudeReply)
+		read = claudeReply
 	case "codex":
-		if sample.Session != "" {
-			return lastReplyIn(h.sessionTranscript("codex", sample.Session), codexReply)
-		}
-		rollout, _ := h.newestNativeCodexRollout(ctx, meta.Worktree)
-		return lastReplyIn(rollout, codexReply)
+		read = codexReply
 	case "pi":
 		return screenReply(sample.Capture)
+	default:
+		return ""
 	}
-	return ""
+	meta.Harness = sample.Harness
+	goblin := fleettree.Goblin{Meta: meta, Session: sample.Session}
+	if sample.Session == "" {
+		goblin.HarnessPID, goblin.HarnessStarted, _ = h.harness(ctx, meta, sample)
+	}
+	return lastReplyIn(h.tree().Conversation(ctx, goblin), read)
 }
 
 // sessionTranscript is the transcript the harness keeps for session, its
@@ -96,14 +98,6 @@ func (h *HostProgress) claudeConversations(dir string) []string {
 	}
 	matches, _ := filepath.Glob(filepath.Join(h.Home, ".claude", "projects", claudeFolder(dir), "*.jsonl"))
 	return matches
-}
-
-// newestClaudeConversation is the conversation Claude Code last wrote in the
-// folder it keeps for worktree. A native goblin's terminal names no session,
-// and the goblin is the one Claude Code working there; the folder its shell
-// is in can move, so the entries' own folder is not read.
-func (h *HostProgress) newestClaudeConversation(worktree string) string {
-	return newestFile(h.claudeConversations(worktree))
 }
 
 // newestFile is the path in paths whose file was written last.

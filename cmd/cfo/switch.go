@@ -2,19 +2,15 @@ package main
 
 import (
 	"context"
-	"encoding/json"
-	"errors"
 	"flag"
 	"fmt"
 	"io"
-	"os"
 	"path/filepath"
 
-	"github.com/fpresta0607/code-goblins/internal/fsx"
+	"github.com/fpresta0607/code-goblins/internal/fleettree"
 	"github.com/fpresta0607/code-goblins/internal/harness"
 	"github.com/fpresta0607/code-goblins/internal/spawn"
 	"github.com/fpresta0607/code-goblins/internal/state"
-	"github.com/fpresta0607/code-goblins/internal/supervisor"
 )
 
 // runSwitch changes a running goblin's harness, model, or effort in place.
@@ -69,7 +65,7 @@ func runSwitch(args []string, stdout, stderr io.Writer, runtime commandRuntime) 
 		BriefPath:  filepath.Join(h.Data, id, "brief.md"),
 	}
 	if request.Harness == "" || string(request.Harness) == meta.Harness {
-		if request.ResumeSession, err = ownedSession(h.State, meta); err != nil {
+		if request.ResumeSession, err = fleettree.OwnedSession(h.State, meta); err != nil {
 			fmt.Fprintf(stderr, "switch: %v\n", err)
 			return 1
 		}
@@ -84,31 +80,4 @@ func runSwitch(args []string, stdout, stderr io.Writer, runtime commandRuntime) 
 		fmt.Fprintln(stdout, hint)
 	}
 	return 0
-}
-
-// ownedSession is the conversation the board recorded for the task's goblin
-// of its current generation, in a harness that resumes one by its id, or none
-// when nothing proves that, so a switch never comes back on another task's
-// conversation. A record that cannot be read is an error, never taken as
-// none.
-func ownedSession(stateDir string, meta state.TaskMeta) (string, error) {
-	if meta.SpawnGen == "" || (meta.Harness != "codex" && meta.Harness != "claude") {
-		return "", nil
-	}
-	data, err := fsx.ReadFile(filepath.Join(stateDir, ".supervisor.json"))
-	if errors.Is(err, os.ErrNotExist) {
-		return "", nil
-	}
-	if err != nil {
-		return "", fmt.Errorf("read session ownership: %w", err)
-	}
-	var database supervisor.Database
-	if err := json.Unmarshal(data, &database); err != nil {
-		return "", fmt.Errorf("read session ownership: %w", err)
-	}
-	session := database.Sessions[database.TaskSessions[meta.ID]]
-	if session.TaskID != meta.ID || session.Generation != meta.SpawnGen || session.Harness != meta.Harness || session.Role != "goblin" {
-		return "", nil
-	}
-	return session.NativeID, nil
 }
