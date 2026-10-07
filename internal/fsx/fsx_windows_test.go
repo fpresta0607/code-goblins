@@ -74,8 +74,11 @@ func TestAFleetReaderDoesNotBlockAReplace(t *testing.T) {
 	}
 }
 
-// The wait is bounded: a reader that never lets go costs a write
-// transientBudget, then the write fails and leaves no temp file behind.
+// The wait is bounded: a reader that never lets go costs a write at most
+// transientBudget of waiting, then the write fails and leaves no temp file
+// behind. The budget bounds the waits, not the file work around them, which
+// on four busy processors took 0.6 to 0.85 s a step: the call took 2.97 s
+// in all, 0.26 s of it waiting.
 func TestAtomicWriteFileGivesUpOnAReaderThatNeverLetsGo(t *testing.T) {
 	// Arrange
 	dir := t.TempDir()
@@ -90,12 +93,15 @@ func TestAtomicWriteFileGivesUpOnAReaderThatNeverLetsGo(t *testing.T) {
 	defer reader.Close()
 	budget := transientBudget
 	transientBudget = 300 * time.Millisecond
-	t.Cleanup(func() { transientBudget = budget })
+	var waited time.Duration
+	sleep = func(wait time.Duration) {
+		waited += wait
+		time.Sleep(wait)
+	}
+	t.Cleanup(func() { transientBudget, sleep = budget, time.Sleep })
 
 	// Act
-	started := time.Now()
 	err = AtomicWriteFile(path, []byte("new"))
-	took := time.Since(started)
 
 	// Assert
 	if err == nil {
@@ -104,8 +110,8 @@ func TestAtomicWriteFileGivesUpOnAReaderThatNeverLetsGo(t *testing.T) {
 	if !strings.Contains(err.Error(), path) {
 		t.Errorf("the error %q does not name %s", err, path)
 	}
-	if took > 2*time.Second {
-		t.Errorf("AtomicWriteFile took %s to give up, want about %s", took, transientBudget)
+	if waited > transientBudget {
+		t.Errorf("AtomicWriteFile waited %s before giving up, over its budget of %s", waited, transientBudget)
 	}
 	if entries, _ := os.ReadDir(dir); len(entries) != 1 {
 		t.Errorf("the directory holds %d entries, want only the file (no temp file left)", len(entries))
