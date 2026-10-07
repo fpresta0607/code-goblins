@@ -286,21 +286,26 @@ func (c Collector) readPanes(ctx context.Context) (panes []Pane, unresolved, unp
 //
 // Every checkout under the projects root is scanned as well, because a goblin
 // worktree whose records were all archived sits in a project no task names any
-// more. Only gb-* directories count there: no record says the fleet was ever
-// in such a checkout, so anything else under its .worktrees/ is the operator's
-// own worktree, and this sweep must not so much as report it as an orphan.
+// more.
+//
+// Outside the home's own root and clones, a folder under .worktrees/ counts
+// only when this home's records name it (see claims): a project's checkout and
+// the projects root are every home's on the machine, so another home's goblin
+// worktrees and the operator's own sit there too, and this sweep must not so
+// much as report one as an orphan.
 func (c Collector) worktrees(ctx context.Context, tasks []Task, notes *[]string) []WorktreeDir {
 	roots := map[string]bool{c.Home.Root: true}
 	for _, entry := range readDirNames(filepath.Join(c.Home.Root, "projects")) {
 		roots[filepath.Join(c.Home.Root, "projects", entry)] = true
 	}
 	for _, task := range tasks {
-		if task.Meta.Project != "" {
-			roots[filepath.Clean(task.Meta.Project)] = true
+		if project := filepath.Clean(task.Meta.Project); task.Meta.Project != "" && !roots[project] {
+			roots[project] = false
 		}
 	}
-	// A root's value is whether everything under its .worktrees/ is the
-	// fleet's. A checkout already known from a record keeps true.
+	held := heldIDs(c.Home.State, tasks)
+	// A root's value is whether everything under its .worktrees/ is this
+	// home's. A root already known keeps its value.
 	if c.ProjectsRoot != nil {
 		projectsRoot, err := c.ProjectsRoot()
 		if err != nil {
@@ -341,10 +346,10 @@ func (c Collector) worktrees(ctx context.Context, tasks []Task, notes *[]string)
 		var registered []os.FileInfo
 		var answered, asked bool
 		for _, entry := range entries {
-			if !entry.IsDir() || (!roots[root] && !strings.HasPrefix(entry.Name(), home.LegacyWorktreePrefix)) {
+			path := filepath.Join(dir, entry.Name())
+			if !entry.IsDir() || (!roots[root] && !claims(root, path, tasks, held)) {
 				continue
 			}
-			path := filepath.Join(dir, entry.Name())
 			if seen[normalizePath(path)] {
 				continue
 			}
@@ -363,6 +368,66 @@ func (c Collector) worktrees(ctx context.Context, tasks []Task, notes *[]string)
 		}
 	}
 	return found
+}
+
+// claims reports whether this home's records name path, a folder under the
+// .worktrees/ of checkout root: a live task's worktree or extra one, a goblin
+// worktree named for a task this home holds any record of, or one named as an
+// extra of a live task in that checkout, <id>-<suffix>, as ownerOf reads it.
+func claims(root, path string, tasks []Task, held map[string]bool) bool {
+	key := normalizePath(filepath.Clean(path))
+	for _, task := range tasks {
+		for _, recorded := range append([]string{task.Meta.Worktree}, task.Meta.Extras...) {
+			if recorded != "" && normalizePath(filepath.Clean(recorded)) == key {
+				return true
+			}
+		}
+	}
+	name, ok := strings.CutPrefix(strings.ToLower(filepath.Base(path)), home.LegacyWorktreePrefix)
+	if !ok || name == "" {
+		return false
+	}
+	if held[name] {
+		return true
+	}
+	for _, task := range tasks {
+		if strings.HasPrefix(name, strings.ToLower(task.ID)+"-") && normalizePath(filepath.Clean(task.Meta.Project)) == normalizePath(filepath.Clean(root)) {
+			return true
+		}
+	}
+	return false
+}
+
+// heldIDs are the ids, lowercased as Windows compares them, of every task this
+// home holds a record of: a task record, readable or not, a status log, an
+// outcome, or a record cleanup or the sweep archived, <id>.<stamp> or
+// <id>.status.<stamp>.
+func heldIDs(stateDir string, tasks []Task) map[string]bool {
+	held := map[string]bool{}
+	for _, task := range tasks {
+		held[strings.ToLower(task.ID)] = true
+	}
+	entries, _ := os.ReadDir(stateDir)
+	for _, entry := range entries {
+		name := entry.Name()
+		if id, ok := strings.CutSuffix(name, ".meta"); ok && !entry.IsDir() {
+			held[strings.ToLower(id)] = true
+		} else if id, ok := strings.CutSuffix(name, ".status"); ok && !entry.IsDir() {
+			held[strings.ToLower(id)] = true
+		}
+	}
+	outcomes, _ := os.ReadDir(filepath.Join(stateDir, "outcomes"))
+	for _, entry := range outcomes {
+		if id, ok := strings.CutSuffix(entry.Name(), ".json"); ok {
+			held[strings.ToLower(id)] = true
+		}
+	}
+	archived, _ := os.ReadDir(filepath.Join(stateDir, state.ArchiveDirName))
+	for _, entry := range archived {
+		id := strings.TrimSuffix(strings.TrimSuffix(entry.Name(), filepath.Ext(entry.Name())), ".status")
+		held[strings.ToLower(id)] = true
+	}
+	return held
 }
 
 // homeWorktrees lists every folder under the home's worktrees folder,

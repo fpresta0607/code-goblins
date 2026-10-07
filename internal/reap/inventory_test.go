@@ -54,7 +54,7 @@ func TestWorktreesScansAJunctionedCheckout(t *testing.T) {
 	}
 
 	collector := Collector{
-		Home:         home.Home{Root: filepath.Join(root, "home")},
+		Home:         withRecords(t, filepath.Join(root, "home"), "archived"),
 		Commands:     registerEverything{},
 		ProjectsRoot: func() (string, error) { return projects, nil },
 	}
@@ -87,7 +87,7 @@ func TestWorktreesScansTheProjectsRootForGoblinWorktreesOnly(t *testing.T) {
 		}
 	}
 	collector := Collector{
-		Home:         home.Home{Root: filepath.Join(root, "home")},
+		Home:         withRecords(t, filepath.Join(root, "home"), "archived"),
 		Commands:     registerEverything{},
 		ProjectsRoot: func() (string, error) { return projects, nil },
 	}
@@ -100,11 +100,13 @@ func TestWorktreesScansTheProjectsRootForGoblinWorktreesOnly(t *testing.T) {
 	}
 	sort.Strings(got)
 	want := []string{
-		// A project a task names reports everything, exactly as before.
+		// A project a task names reports that task's goblin worktree, and
+		// nothing no record of this home names: a project's checkout is every
+		// home's, and the operator's.
 		filepath.Join(known, ".worktrees", "gb-live"),
-		filepath.Join(known, ".worktrees", "stray"),
 		// A checkout no task names is reached through the projects root, and
-		// only its goblin worktree is the fleet's to report.
+		// only the goblin worktree of a task this home kept a record of is
+		// its to report.
 		filepath.Join(projects, "forgotten", ".worktrees", "gb-archived"),
 	}
 	sort.Strings(want)
@@ -122,8 +124,84 @@ func TestWorktreesScansTheProjectsRootForGoblinWorktreesOnly(t *testing.T) {
 	}
 
 	collector.ProjectsRoot = nil
-	if found := collector.worktrees(context.Background(), tasks, &notes); len(found) != 2 {
-		t.Errorf("without a projects root the scan found %d worktrees, want the known project's 2", len(found))
+	if found := collector.worktrees(context.Background(), tasks, &notes); len(found) != 1 {
+		t.Errorf("without a projects root the scan found %d worktrees, want the known project's 1", len(found))
+	}
+}
+
+// withRecords is a home at root whose state folder holds a status log for
+// each id, the record a task's history keeps after its cleanup.
+func withRecords(t *testing.T, root string, ids ...string) home.Home {
+	t.Helper()
+	h := home.Home{Root: root, State: filepath.Join(root, "state")}
+	if err := os.MkdirAll(h.State, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	for _, id := range ids {
+		if err := os.WriteFile(filepath.Join(h.State, id+".status"), []byte("done: finished\n"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	return h
+}
+
+// A home lists a goblin worktree an older build put in a checkout's .worktrees
+// only when its own records name it: a live task, a status log, an outcome or
+// an archive. The projects root and a project's checkout are every home's on
+// the machine, so another home's goblins work there too. On 2026-10-02 a
+// scratch home whose projects root was the live one listed 28 of the live
+// fleet's worktrees as unheld orphans and told its CFO to run cfo reap --apply.
+func TestASecondHomeListsNoWorktreeItsRecordsDoNotName(t *testing.T) {
+	// Arrange
+	root := t.TempDir()
+	projects := filepath.Join(root, "dev")
+	shared := filepath.Join(projects, "shared")
+	other := filepath.Join(projects, "other")
+	stateDir := filepath.Join(root, "home", "state")
+	for _, dir := range []string{
+		filepath.Join(shared, ".worktrees", "gb-mine"),
+		filepath.Join(shared, ".worktrees", "gb-mine-extra"),
+		filepath.Join(shared, ".worktrees", "gb-finished"),
+		filepath.Join(shared, ".worktrees", "gb-delivered"),
+		filepath.Join(shared, ".worktrees", "gb-archived"),
+		filepath.Join(shared, ".worktrees", "gb-another-homes"),
+		filepath.Join(shared, ".worktrees", "operators-own"),
+		filepath.Join(other, ".worktrees", "gb-theirs"),
+		filepath.Join(stateDir, "outcomes"),
+		filepath.Join(stateDir, state.ArchiveDirName, "archived.20261007T000000Z"),
+	} {
+		if err := os.MkdirAll(dir, 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for path, content := range map[string]string{
+		filepath.Join(stateDir, "finished.status"):               "done: PR https://example.invalid/pull/1\n",
+		filepath.Join(stateDir, "outcomes", "delivered.json"):    `{"id":"delivered"}`,
+		filepath.Join(stateDir, state.ArchiveDirName, "x.json"): "{}",
+	} {
+		if err := os.WriteFile(path, []byte(content), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	collector := Collector{
+		Home:         home.Home{Root: filepath.Join(root, "home"), State: stateDir},
+		Commands:     registerEverything{},
+		ProjectsRoot: func() (string, error) { return projects, nil },
+	}
+	tasks := []Task{{ID: "mine", Meta: state.TaskMeta{Project: shared, Worktree: filepath.Join(shared, ".worktrees", "gb-mine"), Extras: []string{filepath.Join(shared, ".worktrees", "gb-mine-extra")}}}}
+
+	// Act
+	var notes []string
+	var got []string
+	for _, worktree := range collector.worktrees(context.Background(), tasks, &notes) {
+		got = append(got, filepath.Base(worktree.Path))
+	}
+
+	// Assert
+	sort.Strings(got)
+	want := []string{"gb-archived", "gb-delivered", "gb-finished", "gb-mine", "gb-mine-extra"}
+	if strings.Join(got, " ") != strings.Join(want, " ") {
+		t.Errorf("worktrees = %q, want only the ones this home's records name, %q", got, want)
 	}
 }
 
@@ -175,7 +253,7 @@ func TestWorktreesConfirmRegistrationWithTheRepository(t *testing.T) {
 	}
 
 	collector := Collector{
-		Home:         home.Home{Root: filepath.Join(root, "home")},
+		Home:         withRecords(t, filepath.Join(root, "home"), "live", "dead"),
 		Commands:     execx.OSRunner{},
 		ProjectsRoot: func() (string, error) { return projects, nil },
 	}
@@ -220,7 +298,7 @@ func TestWorktreesConfirmRegistrationThroughAJunction(t *testing.T) {
 	}
 
 	collector := Collector{
-		Home:         home.Home{Root: filepath.Join(root, "home")},
+		Home:         withRecords(t, filepath.Join(root, "home"), "live"),
 		Commands:     execx.OSRunner{},
 		ProjectsRoot: func() (string, error) { return projects, nil },
 	}
