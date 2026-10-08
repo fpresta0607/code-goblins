@@ -2,6 +2,7 @@ package lifecycle
 
 import (
 	"context"
+	"errors"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -85,18 +86,13 @@ func appendLifecyclePIDs(t *testing.T, path string, lines ...string) {
 	}
 }
 
-// A goblin's teardown never ends a machine service the goblin started. On
-// 2026-10-07 `cfo pause pd-small-cleanups` stopped Docker Desktop, which the
-// goblin had started from its worktree for a test, with its build and WSL
-// processes, and left the engine unreachable. Docker Desktop started from a
-// worktree runs there and in the goblin's terminal's job, which ends what is
-// left in it when its host ends. Stopping the goblin here ends its terminal,
-// the goblin and its own process, and leaves a stand-in Docker Desktop, a copy
-// of this test binary under that name, and its backend running; never the
-// real Docker Desktop.
-func TestStoppingAGoblinLeavesTheMachineServicesItStartedRunning(t *testing.T) {
-	// Arrange
-	root := t.TempDir()
+// hostedGoblin is native goblin g1 of a home under root, running in its
+// terminal's host, which runs the goblin fixture: the goblin, a process of
+// its own, and a stand-in Docker Desktop with its backend. It returns each
+// fixture's pid by name, a handle holding each, and a channel closed once
+// the host has ended.
+func hostedGoblin(t *testing.T, root string) (home.Home, state.TaskMeta, map[string]int, map[string]windows.Handle, <-chan struct{}) {
+	t.Helper()
 	h := home.Home{Root: root, State: filepath.Join(root, "state")}
 	project := filepath.Join(t.TempDir(), "app")
 	meta := state.TaskMeta{ID: "g1", Backend: "native", Project: project, Worktree: filepath.Join(root, "worktrees", "app", "g1"), TaskTmp: filepath.Join(h.State, "tasktmp", "g1")}
@@ -152,6 +148,22 @@ func TestStoppingAGoblinLeavesTheMachineServicesItStartedRunning(t *testing.T) {
 	for name, pid := range started {
 		held[name] = standin.Hold(t, pid)
 	}
+	return h, meta, started, held, hostEnded
+}
+
+// A goblin's teardown never ends a machine service the goblin started. On
+// 2026-10-07 `cfo pause pd-small-cleanups` stopped Docker Desktop, which the
+// goblin had started from its worktree for a test, with its build and WSL
+// processes, and left the engine unreachable. Docker Desktop started from a
+// worktree runs there and in the goblin's terminal's job, which ends what is
+// left in it when its host ends. Stopping the goblin here ends its terminal,
+// the goblin and its own process, and leaves a stand-in Docker Desktop, a copy
+// of this test binary under that name, and its backend running; never the
+// real Docker Desktop.
+func TestStoppingAGoblinLeavesTheMachineServicesItStartedRunning(t *testing.T) {
+	// Arrange
+	root := t.TempDir()
+	h, meta, started, held, hostEnded := hostedGoblin(t, root)
 	resources, err := TaskResources(t.Context(), h, meta, pipeline.Reader{Root: filepath.Join(root, "gate"), Commands: execx.OSRunner{}})
 	if err != nil {
 		t.Fatal(err)
@@ -181,6 +193,53 @@ func TestStoppingAGoblinLeavesTheMachineServicesItStartedRunning(t *testing.T) {
 		if !lifecycleRunning(held[name]) {
 			t.Errorf("the stand-in Docker Desktop's %s process, pid %d, ended with the goblin; stopped %v", name, started[name], stopped)
 		}
+	}
+}
+
+// busyGate is a machine so loaded that reading the task's branch and its
+// gate's state, which the no-mistakes daemon keeps busy, each answer only
+// once they are given up, as on 2026-10-08 with two other sessions' gate
+// runs going and Git symbolic-ref timing out.
+type busyGate struct{}
+
+func (busyGate) Run(ctx context.Context, _ execx.Request) (execx.Result, error) {
+	<-ctx.Done()
+	return execx.Result{}, ctx.Err()
+}
+
+// Between 14:44Z and 14:58Z on 2026-10-08 every pause failed with context
+// deadline exceeded at 1 to 4 GB free, while the no-mistakes daemon ran two
+// other sessions' gates: each saved its goblin's handoff, and its session
+// went on running. Reading the gate's state took the whole bound on the
+// stop, so nothing was ended. The goblin's terminal now ends whatever the
+// gate's state meets, and the stop says what did not finish.
+func TestAStopEndsTheGoblinWhileItsGateStateCannotBeRead(t *testing.T) {
+	// Arrange
+	root := t.TempDir()
+	h, meta, started, held, hostEnded := hostedGoblin(t, root)
+	gateRoot := filepath.Join(root, "gate")
+	if err := os.MkdirAll(gateRoot, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(gateRoot, "state.sqlite"), nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	var record state.Lifecycle
+
+	// Act
+	_, stopped, err := StopTask(t.Context(), h, meta, pipeline.Reader{Root: gateRoot, Commands: busyGate{}}, &record)
+
+	// Assert
+	select {
+	case <-hostEnded:
+	case <-time.After(15 * time.Second):
+		t.Fatalf("the goblin's terminal host still runs after the stop; stopped %v, error %v", stopped, err)
+	}
+	if lifecycleRunning(held["goblin"]) {
+		t.Errorf("the goblin, pid %d, still runs after the stop; stopped %v", started["goblin"], stopped)
+	}
+	if !errors.As(err, new(UnfinishedStop)) || !errors.Is(err, context.DeadlineExceeded) {
+		t.Errorf("error = %v, want the stop's unread gate named once the terminal ended", err)
 	}
 }
 

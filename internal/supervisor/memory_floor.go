@@ -12,23 +12,25 @@ import (
 	"github.com/fpresta0607/code-goblins/internal/state"
 )
 
-// The memory floor is a safety rail of AFK mode. While the Overlord is away
-// and two readings in a row find memory or commit under the floor, the
-// supervisor pauses the newest live goblin that is not pushing or merging,
-// through the pause the allowance floor uses, one goblin at a time, and the
-// scheduler resumes it once memory is back at the next-start mark. While he
-// is here the CFO and he decide what to pause.
+// The memory floor keeps the machine working whether or not the Overlord is
+// away (the Overlord, 2026-10-08: "it should work regardless of afk thats a
+// critical core feature"). When two readings in a row find memory or commit
+// under the floor, the supervisor pauses the newest live goblin that is not
+// pushing or merging, through the pause the allowance floor uses, one goblin
+// at a time, and the scheduler resumes it once memory is back at the
+// next-start mark. While AFK mode is on, its log keeps each pause for the
+// report of the stretch.
 
 // gitPushOrMerge are the git commands that push or merge, which a goblin is
 // left to finish rather than paused in the middle of.
 var gitPushOrMerge = []string{"push", "merge", "pull", "rebase", "cherry-pick", "am"}
 
 // pauseAtMemoryFloor takes a reading under the floor, the w.MemoryBelow-th in
-// a row, of memory: from the second on, while AFK mode is on and nothing else
-// starts or changes, it pauses the newest goblin it may. A change under way
-// frees what it frees only once it ends, so the count starts again after it.
+// a row, of memory: from the second on, while nothing else starts or
+// changes, it pauses the newest goblin it may. A change under way frees what
+// it frees only once it ends, so the count starts again after it.
 func (s *Service) pauseAtMemoryFloor(w *fleetWakes, memory Memory) error {
-	if w.MemoryBelow < 2 || !s.afkOn() {
+	if w.MemoryBelow < 2 {
 		return nil
 	}
 	s.starts.Lock()
