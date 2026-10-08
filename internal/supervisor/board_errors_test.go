@@ -35,7 +35,7 @@ func boardRequest(handler http.Handler, method, path, body string) *httptest.Res
 	return response
 }
 
-// A failure only the board saw, such as a clipboard it could not use, comes
+// A failure only the board saw, such as a read that failed, comes
 // to the CFO through POST /api/cfo/report, once while it repeats.
 func TestTheBoardReportsAFailureOnlyItSaw(t *testing.T) {
 	for _, tc := range []struct {
@@ -44,8 +44,8 @@ func TestTheBoardReportsAFailureOnlyItSaw(t *testing.T) {
 		code  int
 		wakes []string
 	}{
-		{"a clipboard the board could not use", `{"where":"credential card","text":"The browser did not copy the commands."}`, http.StatusAccepted, []string{"board: credential card: The browser did not copy the commands."}},
-		{"no text", `{"where":"credential card","text":"  "}`, http.StatusBadRequest, nil},
+		{"a read the board could not make", `{"where":"reading /api/workspace","text":"Request failed"}`, http.StatusAccepted, []string{"board: reading /api/workspace: Request failed"}},
+		{"no text", `{"where":"reading /api/workspace","text":"  "}`, http.StatusBadRequest, nil},
 		{"a field the route does not take", `{"where":"card","text":"x","level":"warning"}`, http.StatusBadRequest, nil},
 	} {
 		t.Run(tc.name, func(t *testing.T) {

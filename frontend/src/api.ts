@@ -40,8 +40,8 @@ export async function announce(instance: string, keys: string[]): Promise<string
 let instance = "";
 export function knowInstance(id: string): void { instance = id; }
 
-// reportToCfo gives the CFO a failure only this board saw, such as a
-// clipboard or a microphone it could not use or a read that failed, rather
+// reportToCfo gives the CFO a failure only this board saw, such as a read
+// that failed, a stream it could not parse or a card it could not draw, rather
 // than showing it to the Overlord: the Overlord, 2026-10-08, "everything error
 // wise goes to cfo and cfo decides what to tell me in command center". A
 // refusal of his own click is said beside it for a moment (ClickFeedback),

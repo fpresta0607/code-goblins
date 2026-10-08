@@ -9,13 +9,13 @@ import (
 	"github.com/fpresta0607/code-goblins/internal/wake"
 )
 
-// A failure only the board sees, such as a clipboard or a microphone it cannot
-// use or a read that failed, goes to the CFO rather than onto the board, as
-// the Overlord ruled on 2026-10-08: "again everything error wise goes to cfo
-// and cfo decides what to tell me in command center". The board reports it
-// through POST /api/cfo/report; the supervisor's own errors reach the CFO
-// from the supervisor. Each wake is a notify keyed board, and the same
-// failure wakes the CFO at most once an hour.
+// A failure only the board sees, such as a read that failed, a stream it
+// could not parse or a card it could not draw, goes to the CFO rather than
+// onto the board, as the Overlord ruled on 2026-10-08: "again everything error
+// wise goes to cfo and cfo decides what to tell me in command center". The
+// board reports it through POST /api/cfo/report; the supervisor's own errors
+// reach the CFO from the supervisor. Each wake is a notify keyed board, and
+// the same failure wakes the CFO at most once an hour.
 const boardErrorQuiet = time.Hour
 
 // boardErrors remembers when each error last woke the CFO.
