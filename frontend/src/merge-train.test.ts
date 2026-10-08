@@ -4,7 +4,7 @@ import { carLook, carName, isTrainOver, trainLook } from "./merge-train.ts";
 import type { MergeTrain, TrainCar } from "./types.ts";
 
 const PR = "https://github.com/o/r/pull/";
-const car = (number: number, state: string, note = ""): TrainCar => ({ number, url: PR + number, title: "change " + number, task: "g" + number, goblin: "", goblin_title: "", state, note });
+const car = (number: number, state: string, note = ""): TrainCar => ({ number, url: PR + number, title: "change " + number, task: "g" + number, goblin: "", goblin_title: "", head: "", state, note });
 const train = (overrides: Partial<MergeTrain>): MergeTrain => ({
   id: "r-20261007-160000", repository: "o/r", base: "main", pr: PR + "900", state: "testing", runs: 1,
   started: "2026-10-07T16:00:00Z", finished: "", note: "", cars: [], ...overrides,
