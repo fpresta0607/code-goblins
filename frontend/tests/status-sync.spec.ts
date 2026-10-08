@@ -10,6 +10,8 @@ import { expect, holdStream, test, type Locator, type Page } from "./site";
 // panel, its terminal pane and its canvas node, from one snapshot. The
 // supervisor is played by one held snapshot per state.
 const since = "2026-10-08T21:30:00Z";
+// The snapshot's time: half a minute after the goblin's session started.
+const AT = "2026-10-08T21:30:30Z";
 const GB = 2 ** 30;
 const memory = { next: 5 * GB, floor: 4 * GB, total: 32 * GB, available: 9 * GB, commit_limit: 48 * GB, commit_available: 40 * GB, paged_pool: GB / 2, nonpaged_pool: GB / 4 };
 const ZANE = "Zane - Train Tamer";
@@ -23,6 +25,7 @@ const STATES = [
   { name: "queued", task: zane({ phase: "queued" }), text: "Queued", phase: "queued", column: "Tasks" },
   { name: "started by the scheduler", task: zane({ phase: "queued", starting: true }), text: "Starting", phase: "started", column: "In progress" },
   { name: "starting with its session recorded", task: zane({ phase: "unknown", starting: true, generation: "s1", backend: "native" }), text: "Starting", phase: "started", column: "In progress" },
+  { name: "started, with no evidence of it yet", task: zane({ phase: "unknown", generation: "s1", backend: "native" }), text: "Starting", phase: "started", column: "In progress" },
   { name: "working", task: zane({ phase: "working", generation: "s1", backend: "native" }), text: "Working", phase: "working", column: "In progress" },
   { name: "a failed start", task: zane({ phase: "queued", start_error: "cfo spawn: the brief names no project" }), text: "Start failed", phase: "failed", column: "Tasks" },
 ] as const;
@@ -31,7 +34,7 @@ interface Posted { path: string; body: Record<string, unknown> }
 
 async function open(page: Page, task: Record<string, unknown>, posted: Posted[] = []) {
   await page.addInitScript(() => localStorage.setItem("cfo-first-open", "shown"));
-  await holdStream(page, { healthy: true, instance: "fixture", cfo_runs: true, revision: 1, attention: [], memory, tasks: [task, WORKING_OTHER] });
+  await holdStream(page, { healthy: true, instance: "fixture", cfo_runs: true, revision: 1, at: AT, attention: [], memory, tasks: [task, WORKING_OTHER] });
   await page.route("**/api/**", async (route) => {
     if (route.request().method() === "POST") {
       posted.push({ path: new URL(route.request().url()).pathname, body: route.request().postDataJSON() });

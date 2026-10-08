@@ -101,6 +101,20 @@ test("a started goblin reads Starting until its spawn ends, then what it does", 
   assert.deepEqual(taskStatus(zane(working), working), { text: "Working", phase: "working" });
 });
 
+// On a scratch board, 2026-10-08: a goblin read "unknown" for 9 seconds
+// between the end of its spawn and its first native activity.
+test("a goblin whose spawn ended reads Starting until the supervisor has evidence of it, and not past its startup", () => {
+  const since = "2026-10-08T23:05:22Z";
+  const read = (phase: string, seconds: number) => {
+    const snapshot = parseSnapshot({ healthy: true, revision: 9, at: new Date(Date.parse(since) + seconds * 1000).toISOString(), tasks: [{ id: "zane", title: "Train history", phase, generation: "s1", since, verified: false }] });
+    return taskStatus(zane(snapshot), snapshot);
+  };
+  assert.deepEqual(read("unknown", 50), { text: "Starting", phase: "started" });
+  assert.deepEqual(read("unavailable", 50), { text: "Starting", phase: "started" });
+  assert.deepEqual(read("working", 60), { text: "Working", phase: "working" });
+  assert.deepEqual(read("unknown", 180), { text: "No evidence yet", phase: "unknown" });
+});
+
 test("a paused goblin reads why it waits and what resumes it, the same words on every surface", () => {
   const snapshot = board({ phase: "paused", generation: "s1", lifecycle: { phase: "paused", action: "pause", at: "2026-10-08T11:00:00Z", kept: [], stopped: [], problems: [], handoff_saved: true, validation_restarts: false, pause: { reason: "memory", until: "", at: "2026-10-08T11:00:00Z" } } });
   assert.deepEqual(taskStatus(zane(snapshot), snapshot), { text: "Memory: resumes at 5 GB free", phase: "paused" });
