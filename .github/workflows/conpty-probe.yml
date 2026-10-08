@@ -24,6 +24,8 @@ jobs:
         run: |
           [System.Environment]::OSVersion.VersionString
           (Get-Item "$env:WINDIR\System32\conhost.exe").VersionInfo.FileVersion
+          (Get-FileHash "$env:WINDIR\System32\conhost.exe").Hash
+          (Get-ItemProperty 'HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion').UBR
           New-Item -ItemType Directory -Force D:\dumps | Out-Null
           $wer = 'HKLM:\SOFTWARE\Microsoft\Windows\Windows Error Reporting'
           New-Item -Force "$wer\LocalDumps\conhost.exe" | Out-Null
@@ -40,7 +42,7 @@ jobs:
       - name: The typed-keys test alone, 1000 times
         continue-on-error: true
         shell: pwsh
-        run: go test ./internal/conpty -run '^TestTypedKeysReachAProgramThatPrintsWhileItReads$' -count=1500 -timeout 35m
+        run: go test ./internal/conpty -run '^TestTypedKeysReachAProgramThatPrintsWhileItReads$' -count=800 -timeout 30m
         env:
           CONPTY_PROBE_DUMPS: '1'
           CFO_HOME: ${{ runner.temp }}\cfo-go-tests
@@ -54,7 +56,7 @@ jobs:
           $cdb = 'C:\Program Files (x86)\Windows Kits\10\Debuggers\x64\cdb.exe'
           foreach ($dump in $dumps | Select-Object -First 4) {
             "===== $($dump.Name)"
-            & $cdb -z $dump.FullName -c '.symfix c:\symbols; .reload; .ecxr; kb 40; r; !analyze -v; q' 2>&1 | Select-Object -Last 220
+            & $cdb -z $dump.FullName -y 'srv*C:\symbols*https://msdl.microsoft.com/download/symbols' -i 'C:\Windows\System32' -c '.reload /f conhost.exe; .reload /f ntdll.dll; .reload /f KERNELBASE.dll; .ecxr; .echo FRAMES; kn 30; .echo NEAREST; ln conhost+0x44808; .echo CODE; ub conhost+0x44808 L12; u conhost+0x44808 L4; .echo THREADS; ~*kn 12; q' 2>&1 | Select-String -Pattern 'FRAMES|NEAREST|CODE|THREADS|conhost!|ntdll!|KERNELBASE!|^ *[0-9a-f]{2} [0-9a-f]{8}`|^[0-9a-f]{8}`[0-9a-f]{8} ' | ForEach-Object { $_.Line } | Select-Object -First 160
           }
           Get-WinEvent -FilterHashtable @{ LogName = 'Application'; Id = 1000, 1001 } -ErrorAction SilentlyContinue |
             Where-Object { $_.Message -match 'conhost' } | Select-Object -First 4 | ForEach-Object { $_.Message }
