@@ -23,10 +23,47 @@ type Dictation interface {
 	Ready() error
 	// Missing is how many bytes Fetch has to download.
 	Missing() int64
-	// Fetch downloads what is missing, telling progress as it arrives.
+	// Fetch downloads what is missing, telling progress as it arrives, and
+	// removes an engine or model an earlier pin left.
 	Fetch(ctx context.Context, progress func(done, total int64)) error
+	// Replaces says an engine or model the build no longer pins is here, as
+	// after an update to a build that pins a newer one.
+	Replaces() bool
+	// Warm loads the engine ahead of a dictation.
+	Warm(ctx context.Context) error
 	// Recognize returns the words in a WAV sound.
 	Recognize(ctx context.Context, sound []byte) (string, error)
+}
+
+// ReplaceDictation starts fetching the engine and model this build pins when
+// an earlier build's are here in their place, as after an update that pins a
+// newer model, so the first dictation after the update finds them ready and
+// the earlier ones are removed. A home that never set dictation up is left
+// to its install and its first dictation.
+func (h *HTTP) ReplaceDictation() {
+	speech := h.Service.Options.Dictation
+	if speech == nil || speech.Ready() == nil || !speech.Replaces() {
+		return
+	}
+	h.fetchDictation(speech)
+}
+
+// warmDictation loads the engine as a dictation begins, so its words come
+// soon after the keys are let go. It answers at once; a dictation that could
+// not run says why when it is sent.
+func (h *HTTP) warmDictation(w http.ResponseWriter, r *http.Request) {
+	if offMachine(r, h.Host) != "" {
+		apiError(w, http.StatusForbidden, "The board dictates only on the PC it runs on, from its own page at 127.0.0.1, so what you say never leaves that PC.")
+		return
+	}
+	if speech := h.Service.Options.Dictation; speech != nil && speech.Ready() == nil {
+		h.dictationWork.Add(1)
+		go func() {
+			defer h.dictationWork.Done()
+			_ = speech.Warm(context.Background())
+		}()
+	}
+	w.WriteHeader(http.StatusAccepted)
 }
 
 // dictationLimit bounds one dictation's sound: about four minutes of the 16

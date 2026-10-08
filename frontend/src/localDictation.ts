@@ -36,12 +36,32 @@ export function wav({ samples, rate }: Sound): Uint8Array<ArrayBuffer> {
   return bytes;
 }
 
+// downsample brings a sound down to rate by averaging each run of samples
+// that makes one sample at rate, a light low-pass that speech needs no more
+// than; a part-run left at the end is dropped. A sound at or under rate is
+// kept as it is, and the engine takes its rate from the WAV.
+export function downsample(sound: Sound, rate: number): Sound {
+  if (sound.rate <= rate) return sound;
+  const step = sound.rate / rate;
+  const samples = new Float32Array(Math.floor(sound.samples.length / step));
+  for (let index = 0; index < samples.length; index++) {
+    const from = Math.round(index * step);
+    const to = Math.round((index + 1) * step);
+    let sum = 0;
+    for (let at = from; at < to; at++) sum += sound.samples[at];
+    samples[index] = sum / (to - from);
+  }
+  return { samples, rate };
+}
+
 // localRecognizer is a recognizer the board's dictation drives as it drives
 // the browser's: start records the track it is handed with open, and stop
 // ends the recording before it returns, so the microphone can close at once,
 // then hands it to recognise and delivers the words it answers, once.
-// What recognise refuses with is passed on as the supervisor wrote it.
-export function localRecognizer(open: (track: MediaStreamTrack) => Recording, recognise: (sound: Uint8Array<ArrayBuffer>, signal: AbortSignal) => Promise<string>): new () => Recognizer {
+// What recognise refuses with is passed on as the supervisor wrote it. warm
+// is called as the recording begins, so the supervisor loads its engine while
+// the words are still being said.
+export function localRecognizer(open: (track: MediaStreamTrack) => Recording, recognise: (sound: Uint8Array<ArrayBuffer>, signal: AbortSignal) => Promise<string>, warm: () => void): new () => Recognizer {
   return class implements Recognizer {
     continuous = false;
     interimResults = false;
@@ -66,7 +86,9 @@ export function localRecognizer(open: (track: MediaStreamTrack) => Recording, re
         this.recording = open(track);
       } catch {
         this.end({ error: "audio-capture" });
+        return;
       }
+      warm();
     }
 
     stop(): void {

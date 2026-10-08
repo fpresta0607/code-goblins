@@ -11,7 +11,7 @@ import (
 )
 
 // With VOICE_LIVE_DIR naming a folder, this test downloads the engine and the
-// model config/voice.json pins, about 126 MB, into that folder, where a
+// model config/voice.json pins, about 51 MB, into that folder, where a
 // second run finds them, and recognises a spoken line with them. It is the
 // one test here that uses the network, so it runs only when asked.
 func TestThePinnedEngineRecognisesASpokenLine(t *testing.T) {

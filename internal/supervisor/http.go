@@ -60,8 +60,8 @@ type HTTP struct {
 	// build names the bundle in Assets: its index.html names every hashed
 	// file of the bundle, so any rebuild changes it.
 	build string
-	// dictation is the engine's one download; dictationWork waits for it,
-	// and dictationSlot runs one engine at a time.
+	// dictation is the engine's one download; dictationWork waits for it
+	// and for each warming, and dictationSlot runs one engine at a time.
 	dictation         dictationFetch
 	dictationWork     sync.WaitGroup
 	dictationSlot     chan struct{}
@@ -147,6 +147,8 @@ func (h *HTTP) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		h.dictationStatus(w)
 	case r.URL.Path == "/api/dictation" && r.Method == "POST":
 		h.dictate(w, r)
+	case r.URL.Path == "/api/dictation/warm" && r.Method == "POST":
+		h.warmDictation(w, r)
 	case r.URL.Path == "/api/connections" && r.Method == "GET":
 		h.readConnections(w, r)
 	case r.URL.Path == "/api/connections/check" && r.Method == "POST":

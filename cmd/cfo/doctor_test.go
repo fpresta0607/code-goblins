@@ -290,7 +290,7 @@ func TestRunDoctorSaysDictationIsReadyOrWhatIsMissingAndTheFix(t *testing.T) {
 	}
 	stdout.Reset()
 	run([]string{"doctor"}, &stdout, &stderr)
-	if !strings.Contains(stdout.String(), "dictation: settings unreadable (") || strings.Contains(stdout.String(), "parakeet") {
+	if !strings.Contains(stdout.String(), "dictation: settings unreadable (") || strings.Contains(stdout.String(), model.Name) {
 		t.Errorf("stdout does not say the home's own settings are unreadable\n%s", stdout.String())
 	}
 }

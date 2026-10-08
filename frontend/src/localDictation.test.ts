@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { localRecognizer, wav, type Recording, type Sound } from "./localDictation.ts";
+import { downsample, localRecognizer, wav, type Recording, type Sound } from "./localDictation.ts";
 import { Dictation, type Recognizer } from "./dictation.ts";
 
 const settle = () => new Promise((resolve) => setTimeout(resolve, 0));
@@ -21,7 +21,8 @@ function engine({ sound = { samples: new Float32Array([0, .5, -.5, 1]), rate: 16
     posted.push(bytes);
     answer = () => refusal ? reject(new Error(refusal)) : resolve(words);
   });
-  return { Recognition: localRecognizer(open, recognise), recorded, posted, answer: () => answer?.() };
+  let warmed = 0;
+  return { Recognition: localRecognizer(open, recognise, () => { warmed++; }), recorded, posted, answer: () => answer?.(), warmed: () => warmed };
 }
 
 function listen(recognizer: Recognizer) {
@@ -46,6 +47,28 @@ test("a sound is written as a 16-bit mono WAV at its own rate", () => {
   assert.deepEqual(samples, [0, 16384, -16384, 32767, -32768, 32767, -32768], "louder than full scale is held at full scale");
 });
 
+test("a recording is brought down to the model's rate by averaging each run of samples", () => {
+  const recorded = { samples: new Float32Array([0, .3, .6, .9, .9, .9, -.3, -.6, -.9, 1]), rate: 48000 };
+  const sound = downsample(recorded, 16000);
+  assert.equal(sound.rate, 16000);
+  assert.deepEqual(Array.from(sound.samples, (sample) => Math.round(sample * 100) / 100), [.3, .9, -.6], "each three samples at 48 kHz are one at 16 kHz, and a part-run left over is dropped");
+});
+
+test("a rate that is not a multiple of the model's is averaged over runs of its own length", () => {
+  const recorded = { samples: Float32Array.from({ length: 441 }, (_, index) => index), rate: 44100 };
+  const sound = downsample(recorded, 16000);
+  assert.equal(sound.rate, 16000);
+  assert.equal(sound.samples.length, 160, "441 samples at 44.1 kHz are 10 ms, 160 samples at 16 kHz");
+  assert.ok(sound.samples.every((sample, index) => index === 0 || sample > sound.samples[index - 1]), "a rising line stays rising");
+});
+
+test("a recording at or under the model's rate is kept as it is", () => {
+  const recorded = { samples: new Float32Array([.1, .2, .3]), rate: 16000 };
+  assert.equal(downsample(recorded, 16000), recorded);
+  const lower = { samples: new Float32Array([.1, .2]), rate: 8000 };
+  assert.equal(downsample(lower, 16000), lower, "the engine takes a lower rate as it is");
+});
+
 test("what is said between start and stop is recorded from the track and its words are delivered once", async () => {
   const { Recognition, recorded, posted, answer } = engine();
   const recognizer = new Recognition();
@@ -68,6 +91,28 @@ test("what is said between start and stop is recorded from the track and its wor
   recognizer.stop();
   await settle();
   assert.equal(posted.length, 1, "a second stop asks nothing again");
+});
+
+test("the engine is warmed as the recording begins, once a dictation, so its words come soon after the keys are let go", async () => {
+  const { Recognition, warmed, answer } = engine();
+  const recognizer = new Recognition();
+  listen(recognizer);
+  assert.equal(warmed(), 0, "nothing is warmed before a dictation begins");
+  recognizer.start(track);
+  assert.equal(warmed(), 1, "the engine is warmed while the words are still being said");
+  recognizer.stop();
+  await settle();
+  answer();
+  await settle();
+  assert.equal(warmed(), 1, "letting go warms nothing more");
+});
+
+test("a dictation with no track to record warms nothing", () => {
+  const { Recognition, warmed } = engine();
+  const recognizer = new Recognition();
+  listen(recognizer);
+  recognizer.start();
+  assert.equal(warmed(), 0);
 });
 
 test("a recording with no sound in it asks the supervisor nothing and says nothing was heard", async () => {
@@ -141,6 +186,7 @@ test("aborting during decode never asks the supervisor", async () => {
   const Recognition = localRecognizer(
     () => ({ stop: async () => sound, cancel: () => {} }),
     async (bytes) => { posts.push(bytes); return "too late"; },
+    () => {},
   );
   const recognizer = new Recognition();
   const events = listen(recognizer);
@@ -174,6 +220,7 @@ test("aborting a pending recognition cancels its HTTP request and ignores late w
   const Recognition = localRecognizer(
     () => ({ stop: async () => sound, cancel: () => {} }),
     (bytes, signal?: AbortSignal) => fetch("http://127.0.0.1:1/api/dictation", { method: "POST", body: bytes, signal }).then((response) => response.text()),
+    () => {},
   );
   const recognizer = new Recognition();
   const events = listen(recognizer);

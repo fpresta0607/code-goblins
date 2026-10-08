@@ -458,7 +458,7 @@ func TestTheShippedSettingsPinBothDownloads(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if settings.Model.Name != "parakeet-tdt-110m" || settings.Engine.Name != "sherpa-onnx" {
+	if settings.Model.Name != "moonshine-tiny-en" || settings.Engine.Name != "sherpa-onnx" {
 		t.Fatalf("the shipped settings name %s on %s", settings.Model.Name, settings.Engine.Name)
 	}
 	if !slices.ContainsFunc(settings.Engine.Files, func(file string) bool { return path.Base(file) == settings.Program }) {

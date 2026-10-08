@@ -117,9 +117,7 @@ func (v *Voice) fetch(ctx context.Context, part Part, progress func(done int64))
 const supersededPrefix = ".superseded-"
 
 // removeSuperseded removes the folders of the engines and models these
-// settings no longer pin: each folder a fetch made, as its record says, that
-// is neither the pinned engine's nor the pinned model's. A folder is first
-// moved aside whole, so one still in use, such as an engine an earlier
+// settings no longer pin. A folder is first moved aside whole, so one still in use, such as an engine an earlier
 // build's worker has loaded, cannot be moved and stays whole for a later
 // fetch to remove, rather than being half removed under the build using it.
 func (v *Voice) removeSuperseded() {
@@ -127,20 +125,13 @@ func (v *Voice) removeSuperseded() {
 	if err != nil {
 		return
 	}
-	pinned := map[string]bool{filepath.Base(v.folder(v.Settings.Engine)): true, filepath.Base(v.folder(v.Settings.Model)): true}
 	for _, entry := range entries {
-		name := entry.Name()
-		switch {
-		case !entry.IsDir() || pinned[name]:
-			continue
-		case strings.HasPrefix(name, supersededPrefix):
-			// Moved aside by a fetch that could not finish removing it.
-			_ = os.RemoveAll(filepath.Join(v.Dir, name))
-			continue
+		// Moved aside by a fetch that could not finish removing it.
+		if entry.IsDir() && strings.HasPrefix(entry.Name(), supersededPrefix) {
+			_ = os.RemoveAll(filepath.Join(v.Dir, entry.Name()))
 		}
-		if _, err := os.Stat(filepath.Join(v.Dir, name, verifiedName)); err != nil {
-			continue
-		}
+	}
+	for _, name := range v.superseded() {
 		aside, err := os.MkdirTemp(v.Dir, supersededPrefix)
 		if err != nil {
 			return
@@ -151,6 +142,35 @@ func (v *Voice) removeSuperseded() {
 		}
 		_ = os.RemoveAll(aside)
 	}
+}
+
+// superseded names the folders here of engines and models these settings no
+// longer pin: each a fetch made, as its record says, that is neither the
+// pinned engine's nor the pinned model's.
+func (v *Voice) superseded() []string {
+	entries, err := os.ReadDir(v.Dir)
+	if err != nil {
+		return nil
+	}
+	pinned := map[string]bool{filepath.Base(v.folder(v.Settings.Engine)): true, filepath.Base(v.folder(v.Settings.Model)): true}
+	var names []string
+	for _, entry := range entries {
+		name := entry.Name()
+		if !entry.IsDir() || pinned[name] || strings.HasPrefix(name, ".") {
+			continue
+		}
+		if _, err := os.Stat(filepath.Join(v.Dir, name, verifiedName)); err == nil {
+			names = append(names, name)
+		}
+	}
+	return names
+}
+
+// Replaces says an engine or model these settings no longer pin is here, as
+// after an update to a build that pins a newer one, so fetching now
+// replaces it.
+func (v *Voice) Replaces() bool {
+	return len(v.superseded()) > 0
 }
 
 // redirect follows a download sent on only to another https address, and no

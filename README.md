@@ -141,8 +141,11 @@ Both are the same install, so use whichever you like: the setup if you want a wi
 Each puts the Code Goblins app and the `cfo` command line (also called `goblins`) together in one folder, `%LOCALAPPDATA%\CodeGoblins`, adds that folder to your PATH and Code Goblins to the Start menu, installs the tools the goblins use where they are missing, and opens [the desktop app](#the-desktop-app).
 Each also merges the CFO's hooks and a few permission rules into your Claude Code settings, `~/.claude/settings.json`, keeping your own and backing the file up first: the rules let a Claude Code CFO in auto mode put questions, run items, reviews and documents in front of you in the Command Center, which [Safety model](#safety-model) explains.
 Each also turns on **Start at login**, so Code Goblins starts in the tray when you sign in and brings back what a restart ended; untick it in the setup to keep it off, and [Opening, closing and restarting](#opening-closing-and-restarting) says how to change it later.
+Each also sets up [dictation](#dictating-in-the-app), under "Setting up dictation": it downloads the speech model and the engine that runs it, 51 MB, keeps each only when it matches the SHA-256 the build pins, and puts them in the home, so the first time you dictate it simply works.
+If that download fails, the install still ends well and says that dictation finishes setting itself up the first time you dictate.
 Each says the same four steps as it goes (download, check, install, open) and keeps every detail in `%TEMP%\CodeGoblinsInstall.log`; a failure says in one sentence what happened and what to do.
 Run either again at any time to update: it never asks you to run anything first.
+An update keeps the speech model it finds and downloads one again only when the new build pins a different one, which then replaces the old, and `goblins uninstall` removes it.
 Once Code Goblins runs, a newer release comes to you as its own item in the board's Command Center, **Update Code Goblins**, with what is new and one **Update** button, and a slim banner at the top points to it ([Update Code Goblins](docs/native-board.md#update-code-goblins)).
 
 <img src="docs/images/update-item.webp" alt="The Update Code Goblins item in the Command Center: v0.5.1 to v0.6.0, what is new, the unsigned-release line with the SHA-256 it checks, and the Update button" width="732" />
@@ -298,11 +301,11 @@ An install takes the place of a copy of the window that was installed on its own
 
 Click into a terminal in the window, Claude Code's, Codex's, pi's or the CFO's, hold **Ctrl+Shift+Space**, speak, and let go: what you said is typed into that terminal as one line, and **Enter** sends it.
 A speech model the supervisor runs on this PC hears it, so your voice never leaves the PC, and dictation costs nothing and needs no account.
-The first time, the model is not there yet: the app downloads it once, 125 MB, and the note under the terminal says how far it is as it arrives, then **Dictation is ready**.
-What you said that first time is not kept, so say it again once it is ready.
+The install sets the model up, Moonshine tiny, so the first dictation works at once.
+If the install could not, as offline, the first dictation downloads it, 28 MB, and the note under the terminal says how far it is as it arrives, then **Dictation is ready**; what you said that first time is not kept, so say it again once it is ready.
 Without the internet the note says which file to download and where to save it, and the next dictation uses it; a download that fails stays shown under the terminal until you dictate again.
 If Windows blocks the microphone, the note says so and where to turn it back on: Settings > Privacy & security > Microphone, with Microphone access and Let desktop apps access your microphone on.
-After that a line comes back in a moment, and the model gives its memory back after two minutes without dictation.
+The model starts loading as you press the keys and stays loaded for 30 minutes after you dictate, so a line comes back in a moment; then it gives its memory back.
 Two dictations in a row are typed with a space between them, and a click on the microphone in the terminal's corner lists your recent dictations.
 It works the same in a browser tab, and the terminal panel under [Board and Orchestration](#board-and-orchestration) says more.
 
@@ -517,8 +520,8 @@ New native hosts explicitly request interactive Windows scheduling, so typing an
 Updating the executable or restarting the board does not change hosts that are already running; apply the host update when each session can be safely resumed, preserving active work.
 Every terminal pane has a voice bubble in its bottom-right corner, in a strip of its own under the terminal.
 Hold **Ctrl+Shift+Space** to dictate into the terminal that has the keyboard: while the keys are held the bubble's waveform moves with your voice and lies as a flat dotted line while you are silent, and releasing them types what was heard as one line, which **Enter** sends.
-What you say is recognised by a speech model the supervisor runs on this PC, so it costs nothing, needs no account and never leaves the machine; the first dictation downloads the model once, 125 MB, shows how far it is under the terminal and says when dictation is ready, and the words of that first dictation are not kept.
-The model stays loaded for two minutes after you dictate, so the next line comes back in a blink, and then gives its memory back.
+What you say is recognised by a speech model the supervisor runs on this PC, so it costs nothing, needs no account and never leaves the machine; the install sets the model up, so the first dictation works at once, and where it could not, the first dictation downloads it, 28 MB, shows how far it is under the terminal and says when dictation is ready, and the words of that first dictation are not kept.
+The model starts loading as you press the keys and stays loaded for 30 minutes after you dictate, so a line comes back in a blink, and then gives its memory back.
 The bubble names the model while it listens.
 A browser that has a speech recognition of its own can use that instead, which sends your voice to the browser's maker: tick **Use this browser's speech recognition instead** under the bubble's recent dictations. It is off until you turn it on, and the desktop app has none to offer.
 Click the bubble for the pane's recent dictations, newest first, each with **Copy** and **Paste into this terminal**; they are kept in this browser only.

@@ -48,11 +48,15 @@ func newSherpaRecognizer(options WorkerOptions, api sherpaAPI) (*sherpaRecognize
 		MaxActivePaths: 4,
 	}
 	pinner.Pin(config)
-	config.ModelConfig.Transducer = sherpaOfflineTransducerModelConfig{Encoder: text(options.Encoder), Decoder: text(options.Decoder), Joiner: text(options.Joiner)}
+	if options.MoonshineEncoder != "" {
+		config.ModelConfig.Moonshine = sherpaOfflineMoonshineModelConfig{Encoder: text(options.MoonshineEncoder), MergedDecoder: text(options.MoonshineMergedDecoder)}
+	} else {
+		config.ModelConfig.Transducer = sherpaOfflineTransducerModelConfig{Encoder: text(options.Encoder), Decoder: text(options.Decoder), Joiner: text(options.Joiner)}
+		config.ModelConfig.ModelType = text(options.ModelType)
+	}
 	config.ModelConfig.Tokens = text(options.Tokens)
 	config.ModelConfig.NumThreads = int32(options.Threads)
 	config.ModelConfig.Provider = text("cpu")
-	config.ModelConfig.ModelType = text(options.ModelType)
 	handle := api.createRecognizer(config)
 	if handle == 0 {
 		return nil, errors.New("the engine could not load the model")
