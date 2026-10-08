@@ -10,7 +10,7 @@
 # SHA256SUMS, lets cfo.exe set up the home with the app and the cfo command
 # line together in its bin folder, on your PATH, this window included, and
 # installs the tools, skills and hooks the fleet needs and Code Goblins in
-# the Start menu, then opens the app. The home is the one already in use
+# the Start menu and on the desktop, then opens the app. The home is the one already in use
 # where CFO_HOME names one, kept where it is, and otherwise
 # %LOCALAPPDATA%\CodeGoblins. It asks nothing, prints only those steps and
 # a line for anything to know, and keeps every detail in its log.
@@ -800,43 +800,50 @@ public static extern IntPtr SendMessageTimeout(IntPtr hWnd, uint Msg, UIntPtr wP
     # start in a window of its own: it starts the supervisor and the CFO when
     # they are not running and ends on a screen that offers the CFO's terminal
     # and the board. In a terminal, goblins is the quick start either way.
+    # The same Code Goblins is put on the desktop, the folder Windows shows
+    # there, OneDrive's where it keeps the desktop; CODE_GOBLINS_DESKTOP names
+    # another, as a test's own. An install puts both back where they were
+    # removed, and goblins uninstall removes both.
     $goblins = Join-Path $InstallDir "bin\goblins.exe"
     $window = Join-Path $InstallDir "bin\goblins-window.exe"
     $opensWindow = Test-Path -LiteralPath $window
     $programs = Join-Path $env:APPDATA "Microsoft\Windows\Start Menu\Programs"
-    $shortcutPath = Join-Path $programs "Code Goblins.lnk"
-    try {
-        New-Item -ItemType Directory -Force -Path $programs -ErrorAction Stop | Out-Null
-        $shortcut = (New-Object -ComObject WScript.Shell).CreateShortcut($shortcutPath)
-        $shortcut.WorkingDirectory = $InstallDir
-        $shortcut.Arguments = ""
-        $shortcut.WindowStyle = 1
-        if ($deliveredWindow) {
-            $shortcut.TargetPath = $window
-            $shortcut.Description = "Open Code Goblins"
+    $desktop = if ($env:CODE_GOBLINS_DESKTOP) { $env:CODE_GOBLINS_DESKTOP } else { [Environment]::GetFolderPath("Desktop") }
+    foreach ($place in @(@{ Name = "Start-menu"; Folder = $programs }, @{ Name = "desktop"; Folder = $desktop })) {
+        $shortcutPath = Join-Path $place.Folder "Code Goblins.lnk"
+        try {
+            New-Item -ItemType Directory -Force -Path $place.Folder -ErrorAction Stop | Out-Null
+            $shortcut = (New-Object -ComObject WScript.Shell).CreateShortcut($shortcutPath)
+            $shortcut.WorkingDirectory = $InstallDir
+            $shortcut.Arguments = ""
+            $shortcut.WindowStyle = 1
+            if ($deliveredWindow) {
+                $shortcut.TargetPath = $window
+                $shortcut.Description = "Open Code Goblins"
+            }
+            elseif ($opensWindow) {
+                $shortcut.TargetPath = $goblins
+                $shortcut.Arguments = "--window"
+                $shortcut.WindowStyle = 7
+                $shortcut.Description = "Open Code Goblins"
+            }
+            else {
+                $shortcut.TargetPath = $goblins
+                $shortcut.Description = "Start Code Goblins"
+            }
+            $shortcut.Save()
+            Write-Detail ("shortcut {0,-20} {1}" -f "Code Goblins", $shortcutPath)
         }
-        elseif ($opensWindow) {
-            $shortcut.TargetPath = $goblins
-            $shortcut.Arguments = "--window"
-            $shortcut.WindowStyle = 7
-            $shortcut.Description = "Open Code Goblins"
-        }
-        else {
-            $shortcut.TargetPath = $goblins
-            $shortcut.Description = "Start Code Goblins"
-        }
-        $shortcut.Save()
-        Write-Detail ("shortcut {0,-20} {1}" -f "Code Goblins", $shortcutPath)
-        # A window this install delivered replaces the standalone entry.
-        $earlierShortcut = Join-Path $programs "Code Goblins Window.lnk"
-        if ($deliveredWindow -and (Test-Path -LiteralPath $earlierShortcut)) {
-            Remove-Item -LiteralPath $earlierShortcut -Force
-            Write-Detail ("removed  {0,-20} {1}" -f "Code Goblins Window", $earlierShortcut)
+        catch {
+            Write-Detail ("WARN     {0,-20} the {1} shortcut was not made: {2}" -f "Code Goblins", $place.Name, $_.Exception.Message)
+            $failedInstalls += "$($place.Name) shortcut"
         }
     }
-    catch {
-        Write-Detail ("WARN     {0,-20} the Start-menu shortcut was not made: {1}" -f "Code Goblins", $_.Exception.Message)
-        $failedInstalls += "Start-menu shortcut"
+    # A window this install delivered replaces the standalone entry.
+    $earlierShortcut = Join-Path $programs "Code Goblins Window.lnk"
+    if ($deliveredWindow -and (Test-Path -LiteralPath $earlierShortcut)) {
+        Remove-Item -LiteralPath $earlierShortcut -Force
+        Write-Detail ("removed  {0,-20} {1}" -f "Code Goblins Window", $earlierShortcut)
     }
 
     Write-Detail ""

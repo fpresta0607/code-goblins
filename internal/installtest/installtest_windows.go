@@ -90,6 +90,9 @@ func StrippedCommand(t *testing.T, base string, stubs map[string]string, name st
 		"TEMP=" + temp,
 		"TMP=" + temp,
 		"CODE_GOBLINS_RELEASE_BASE=" + base,
+		// The desktop shortcut goes on the session's own desktop, never this
+		// machine's, which Windows would find whatever USERPROFILE says.
+		"CODE_GOBLINS_DESKTOP=" + filepath.Join(profile, "Desktop"),
 		"CFO_USER_ENV_FILE=" + filepath.Join(local, UserEnvFile),
 	}
 	// A stripped session has no module cache of its own, so Windows

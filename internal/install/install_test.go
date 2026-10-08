@@ -521,6 +521,40 @@ func TestUninstallRemovesTheStartMenuShortcut(t *testing.T) {
 	}
 }
 
+// Uninstall removes the Code Goblins shortcut the install script put on the
+// desktop, and leaves everything else on the desktop alone.
+func TestUninstallRemovesTheDesktopShortcut(t *testing.T) {
+	// Arrange
+	f := newFixture(t, adopterSettings, nil)
+	desktop := t.TempDir()
+	shortcut := filepath.Join(desktop, "Code Goblins.lnk")
+	other := filepath.Join(desktop, "Another program.lnk")
+	for _, path := range []string{shortcut, other} {
+		if err := os.WriteFile(path, []byte("shortcut"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	f.service.DesktopShortcut = shortcut
+	f.install()
+
+	// Act
+	output := f.uninstall()
+
+	// Assert
+	if !strings.Contains(output, "removed "+shortcut) {
+		t.Errorf("the uninstall output does not report the shortcut removed:\n%s", output)
+	}
+	if _, err := os.Stat(shortcut); !os.IsNotExist(err) {
+		t.Errorf("%s survived the uninstall: %v", shortcut, err)
+	}
+	if _, err := os.Stat(other); err != nil {
+		t.Errorf("the uninstall removed another program's shortcut: %v", err)
+	}
+	if output := f.uninstall(); !strings.Contains(output, "nothing to remove") || !strings.Contains(output, "no shortcut at "+shortcut) {
+		t.Errorf("a second uninstall found more to remove:\n%s", output)
+	}
+}
+
 // A home holding the desktop window removes the legacy window shortcut on
 // uninstall, where that shortcut is still present.
 func TestUninstallRemovesTheWindowsStartMenuShortcut(t *testing.T) {

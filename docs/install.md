@@ -1,7 +1,7 @@
 # Installing Code Goblins
 
 `CodeGoblinsSetup.exe` and the one-line PowerShell install are the same install, and you can rerun either at any time to update.
-Each puts the Code Goblins app and the `cfo` command line (also called `goblins`) together in one folder, adds that folder to your PATH and Code Goblins to the Start menu, installs the tools the goblins use where they are missing, and opens the app.
+Each puts the Code Goblins app and the `cfo` command line (also called `goblins`) together in one folder, adds that folder to your PATH and Code Goblins to the Start menu and the desktop, installs the tools the goblins use where they are missing, and opens the app.
 Use the setup if you want a window, the one line if you live in a terminal.
 
 ## To use it
@@ -65,8 +65,9 @@ In order, it:
 7. Sets up dictation, saying "Setting up dictation": the home's own build, with `cfo dictation setup`, downloads the speech engine and model it pins in `config\voice.json`, 51 MB, keeps each only when it matches its pinned SHA-256 and no program in it links a networking library, and puts them in the home's `caches\voice`, where the board's dictation looks, so the first dictation works at once.
    One already there is not downloaded again, and one an earlier build pinned is removed once the new one is in place, so a machine never keeps two models.
    A failure never fails the install: it notes that dictation finishes setting itself up the first time you dictate, and the log says why.
-8. Adds Code Goblins to your Start menu.
-   Where this install put the desktop window in the home, the entry starts `goblins-window.exe` alone with no terminal; [The desktop window](native-board.md#the-desktop-window) describes how it finds its board.
+8. Adds Code Goblins to your Start menu and your desktop.
+   Where this install put the desktop window in the home, both shortcuts start `goblins-window.exe` alone with no terminal.
+   [The desktop window](native-board.md#the-desktop-window) describes how it finds its board.
    Where the home only kept a window it already held, as an install from a release that ships none leaves it, the entry runs `goblins --window` itself, with its console minimized: a window from before this may not open the app when started alone.
    In a home with no window it runs `goblins`, the quick start, in a window of its own.
 9. Runs `goblins doctor` into the log, names any tool it could not install in one line, and opens the app; a home with no app runs the [quick start](#the-quick-start) in a window of its own.
@@ -207,7 +208,7 @@ The home is outside every repository: goblins work in git worktrees of your chec
 The janitor keeps the home small, and the board and `cfo runtime` show what it holds; [AGENTS.md](../AGENTS.md#the-cfo-home) describes each folder.
 It all stays on your machine: Code Goblins needs no backup repository, account or service for it.
 Backing the home up, for example its `data` folder to a private git repository, is only your own choice.
-`goblins uninstall` removes the hooks, the board's native hooks, the environment and the Start-menu shortcut the install set, the desktop window's Start at login entry where it starts a program in that home, and dictation's speech engine and model in `caches\voice`, and keeps the home folder, with its state and data, until you delete it.
+`goblins uninstall` removes the hooks, the board's native hooks, the environment and the Start-menu and desktop shortcuts the install set, the desktop window's Start at login entry where it starts a program in that home, and dictation's speech engine and model in `caches\voice`, and keeps the home folder, with its state and data, until you delete it.
 While the board has the engine loaded it cannot be removed, so the uninstall changes nothing and says to quit Code Goblins with `goblins stop` first.
 
 ## Your projects folder
