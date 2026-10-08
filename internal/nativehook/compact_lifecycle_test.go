@@ -54,12 +54,11 @@ func TestInstallIncludesNativeCompactLifecycle(t *testing.T) {
 			if err := json.Unmarshal(content, &document); err != nil {
 				t.Fatal(err)
 			}
-			_, ownedCommand := helperCommand(directory)
 			for _, event := range []string{"PreCompact", "PostCompact"} {
 				ownedCount, unrelatedCount := 0, 0
 				for _, group := range document.Hooks[event] {
 					for _, handler := range group.Hooks {
-						if handler.Command == ownedCommand {
+						if ownsCommand("codex", directory, handler.Command) {
 							ownedCount++
 							if handler.Timeout != 3 {
 								t.Errorf("%s timeout = %d, want the unchanged 3-second contract", event, handler.Timeout)

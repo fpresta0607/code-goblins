@@ -68,12 +68,16 @@ func Install(c InstallConfig) (string, error) {
 		return "", err
 	}
 	helper, command := helperCommand(c.ConfigDir)
+	direct, isDirect := directCommand(c)
+	if isDirect {
+		command = direct
+	}
 	events := []string{"SessionStart", "UserPromptSubmit", "PostToolUse", "Stop", "SessionEnd", "SubagentStart", "SubagentStop"}
 	if c.Harness == "codex" {
 		events = append(events, "Interrupt", "PreCompact", "PostCompact")
 	}
 	for _, event := range events {
-		kept, stood, err := withoutCommand(hooks[event], command)
+		kept, stood, err := withoutOwned(hooks[event], c.Harness, c.ConfigDir)
 		if err != nil {
 			return "", err
 		}
@@ -117,9 +121,16 @@ func Install(c InstallConfig) (string, error) {
 			return "", err
 		}
 	}
-	script := ownedMarker + "\n$OutputEncoding = [Console]::OutputEncoding = New-Object System.Text.UTF8Encoding($false)\n[Console]::In.ReadToEnd() | & " + ps(c.Executable) + " 'native-hook' " + ps(c.Harness) + " '--home' " + ps(c.Home) + " '--state' " + ps(c.State) + "\nexit $LASTEXITCODE\n"
-	if err := writeOwned(helper, script); err != nil {
-		return "", err
+	if isDirect {
+		// The hooks no longer run a helper an earlier install wrote.
+		if _, err := removeOwned(helper); err != nil {
+			return "", err
+		}
+	} else {
+		script := ownedMarker + "\n$OutputEncoding = [Console]::OutputEncoding = New-Object System.Text.UTF8Encoding($false)\n[Console]::In.ReadToEnd() | & " + ps(c.Executable) + " 'native-hook' " + ps(c.Harness) + " '--home' " + ps(c.Home) + " '--state' " + ps(c.State) + "\nexit $LASTEXITCODE\n"
+		if err := writeOwned(helper, script); err != nil {
+			return "", err
+		}
 	}
 	if err := fsx.AtomicWriteFile(path, append(data, '\n')); err != nil {
 		return "", err
@@ -167,10 +178,10 @@ func Uninstall(harness, configDir string) (bool, error) {
 	if err != nil {
 		return false, err
 	}
-	helper, command := helperCommand(configDir)
+	helper, _ := helperCommand(configDir)
 	removed := false
 	for event, groups := range hooks {
-		kept, stood, err := withoutCommand(groups, command)
+		kept, stood, err := withoutOwned(groups, harness, configDir)
 		if err != nil {
 			return false, err
 		}
@@ -217,6 +228,35 @@ func helperCommand(configDir string) (helper, command string) {
 	return helper, `powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -File "` + filepath.ToSlash(helper) + `"`
 }
 
+// unquotedPath matches a path PowerShell, cmd and bash all read as one word
+// with no quotes, written with forward slashes.
+const unquotedPath = `[A-Za-z0-9:/._~-]+`
+
+// directCommand is the Codex hook command that runs cfo itself, and whether
+// Codex hooks use it. Codex runs each hook command inside the session's own
+// shell, powershell.exe -NoProfile -Command on Windows, so the helper's
+// command starts a second PowerShell for every event; live on 2026-10-08
+// that took longer than the 3-second limit and every hook timed out. Without
+// quotes it means the same to PowerShell, cmd and bash, so a path that would
+// need quoting keeps the helper. Claude Code keeps the helper.
+func directCommand(c InstallConfig) (string, bool) {
+	executable, home, state := filepath.ToSlash(c.Executable), filepath.ToSlash(c.Home), filepath.ToSlash(c.State)
+	whole := regexp.MustCompile(`^` + unquotedPath + `$`)
+	if c.Harness != "codex" || !whole.MatchString(executable) || !whole.MatchString(home) || !whole.MatchString(state) {
+		return "", false
+	}
+	return executable + " native-hook codex --home " + home + " --state " + state, true
+}
+
+// ownsCommand reports whether a hook command is one Install wrote for harness
+// under configDir: the helper's, or cfo run directly for harness from any
+// place it was installed, so a reinstall after the binary moved replaces it.
+func ownsCommand(harness, configDir, command string) bool {
+	_, helper := helperCommand(configDir)
+	direct := regexp.MustCompile(`^` + unquotedPath + ` native-hook ` + regexp.QuoteMeta(harness) + ` --home ` + unquotedPath + ` --state ` + unquotedPath + `$`)
+	return command == helper || direct.MatchString(command)
+}
+
 // readHooks reads a harness settings file: its bytes as found, the document,
 // and its hooks by event. A missing file is an empty document.
 func readHooks(path string) ([]byte, map[string]json.RawMessage, map[string][]json.RawMessage, error) {
@@ -239,12 +279,12 @@ func readHooks(path string) ([]byte, map[string]json.RawMessage, map[string][]js
 	return original, doc, hooks, nil
 }
 
-// withoutCommand returns an event's matcher groups with every handler that
-// runs command removed, dropping the groups left empty, and where the first
-// group that ran command stood among the groups kept, or -1 when none did:
-// Install puts its group back there, so a rerun moves nothing. Groups it does
-// not touch keep their bytes.
-func withoutCommand(groups []json.RawMessage, command string) ([]json.RawMessage, int, error) {
+// withoutOwned returns an event's matcher groups with every handler Install
+// wrote for harness under configDir removed, dropping the groups left empty,
+// and where the first group that ran one stood among the groups kept, or -1
+// when none did: Install puts its group back there, so a rerun moves nothing.
+// Groups it does not touch keep their bytes.
+func withoutOwned(groups []json.RawMessage, harness, configDir string) ([]json.RawMessage, int, error) {
 	kept := make([]json.RawMessage, 0, len(groups)+1)
 	stood := -1
 	for _, raw := range groups {
@@ -264,7 +304,7 @@ func withoutCommand(groups []json.RawMessage, command string) ([]json.RawMessage
 			if err := json.Unmarshal(entry, &handler); err != nil {
 				return nil, 0, err
 			}
-			if handler.Command != command {
+			if !ownsCommand(harness, configDir, handler.Command) {
 				remaining = append(remaining, entry)
 			}
 		}

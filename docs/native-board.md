@@ -67,11 +67,13 @@ Its hooks go back where they stood in each event's list, as `cfo install`'s do i
 It does not change models, gate policy, approval settings, or Codex hook trust.
 Review the exact installed Codex definitions in `/hooks` before they can run.
 
-Claude and Codex helpers pipe hook stdin to `cfo native-hook <harness>` using bounded PowerShell commands.
+Claude's helper pipes hook stdin to `cfo native-hook claude` using a bounded PowerShell command.
+Codex runs each hook command inside the session's own shell, `powershell.exe -NoProfile -Command` on Windows, so its hooks run `cfo native-hook codex` directly: a helper there would start a second PowerShell for every event, and live on Codex 0.160 that took longer than the 3-second limit, so every hook timed out.
+The direct command is written without quotes and with forward slashes, which PowerShell, cmd and bash read alike, so where the executable, home or state path would need quoting Codex keeps the helper.
 Pi's extension calls the same executable directly from its native event handlers.
 Hooks record identity and lifecycle metadata, not prompts, tool arguments, or transcripts.
 They atomically spool an event and return without Git, network, gate, or browser work.
-The installer records the absolute executable/home/state paths, so reinstall the owned helper after moving the executable.
+The installer records the absolute executable/home/state paths, so reinstall the owned hooks after moving the executable; a reinstall replaces the hooks an earlier install wrote, in either form.
 
 | Harness signal | Native meaning |
 | --- | --- |
@@ -80,6 +82,8 @@ The installer records the absolute executable/home/state paths, so reinstall the
 | Stop | Settled; requests task evaluation |
 | SessionEnd | Harness session ended |
 | Codex Interrupt | Interrupted; requests evaluation |
+| Codex PreCompact / Pi session_before_compact | The CFO's checkpoint is written; no turn starts or ends |
+| Codex PostCompact / Pi session_compact | One wake names the CFO's checkpoint; no turn starts or ends |
 | SubagentStart / SubagentStop | Reported child started / settled |
 | Pi session_start / agent_start / tool_execution_end | Started / active |
 | Pi agent_settled with no pending messages | Settled after continuations and retries |
