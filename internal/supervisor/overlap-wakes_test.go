@@ -591,18 +591,21 @@ func TestNewTeammateOverlapRequiresCurrentLiveEvidence(t *testing.T) {
 	}
 }
 
-func TestNewTeammateOverlapBoundsAllSharedReadPages(t *testing.T) {
+// Each page of the shared read is bounded by thirty seconds of its own, so a
+// slow page never leaves the next one less time.
+func TestNewTeammateOverlapBoundsEachSharedReadPage(t *testing.T) {
 	service, _, forge, _, now := overlapFixture(t)
 	forge.activityPages = []string{strings.Replace(forge.activity, `"hasNextPage":false`, `"endCursor":"more","hasNextPage":true`, 1), forge.activity}
+	forge.onActivity = func() { time.Sleep(20 * time.Millisecond) }
 	started := time.Now()
 	if err := service.checkFleet(context.Background(), now); err != nil {
 		t.Fatal(err)
 	}
-	if len(forge.activityDeadlines) != 2 || !forge.activityDeadlines[0].Equal(forge.activityDeadlines[1]) {
-		t.Fatalf("page deadlines = %v, want one shared deadline", forge.activityDeadlines)
+	if len(forge.activityDeadlines) != 2 || !forge.activityDeadlines[1].After(forge.activityDeadlines[0]) {
+		t.Fatalf("page deadlines = %v, want each page on a deadline of its own", forge.activityDeadlines)
 	}
 	if span := forge.activityDeadlines[0].Sub(started); span > 30*time.Second+time.Second || span < 28*time.Second {
-		t.Fatalf("repository read bound = %s, want 30s", span)
+		t.Fatalf("page read bound = %s, want 30s", span)
 	}
 }
 
@@ -989,6 +992,9 @@ func (g *pagedGitHub) Run(ctx context.Context, request execx.Request) (execx.Res
 	}
 	round := pagedRound{flags: map[string]string{}, cursors: map[string]string{}}
 	round.deadline, _ = ctx.Deadline()
+	// Windows reads the time a clock tick at a time, so two pages read within
+	// one tick would share a deadline whether or not each had its own.
+	time.Sleep(20 * time.Millisecond)
 	for i := 0; i+1 < len(request.Args); i++ {
 		name, value, _ := strings.Cut(request.Args[i+1], "=")
 		switch request.Args[i] {

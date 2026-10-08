@@ -20,7 +20,14 @@ import (
 	"github.com/fpresta0607/code-goblins/internal/wake"
 )
 
-const overlapPollEvery = 10 * time.Minute
+const (
+	// overlapPollEvery is how often an overlap read of a repository starts.
+	overlapPollEvery = 10 * time.Minute
+	// overlapPagesPerPass is how many pages of GitHub's answer one CI poll
+	// reads of an overlap read, each on ghCallTimeout of its own; a read with
+	// more takes them up on the next poll.
+	overlapPagesPerPass = 2
+)
 
 // Overlap is one piece of a teammate's open work that meets a live goblin's
 // area: who, what it is, such as "PR #1446", and its link.
@@ -65,6 +72,12 @@ func (s *Service) isOverlapLive(meta state.TaskMeta, now time.Time) bool {
 		!observation.LastObserved.After(now.Add(time.Minute))
 }
 
+// pollOverlaps starts an overlap read of repo every overlapPollEvery while a
+// goblin works there live, and reads overlapPagesPerPass pages of it a poll:
+// a read with more pages, or one whose page failed, takes up where it left
+// off on the next poll. What a read could not read stays on the board, and
+// is returned, to wake the CFO, once it went unread failingPasses polls in a
+// row.
 func (s *Service) pollOverlaps(ctx context.Context, runner execx.Runner, w *fleetWakes, repo string, mine []ciGoblin, currentTime func() time.Time) error {
 	if ctx.Err() != nil {
 		return nil
@@ -79,6 +92,8 @@ func (s *Service) pollOverlaps(ctx context.Context, runner execx.Runner, w *flee
 	}
 	if len(active) == 0 {
 		delete(w.OverlapUnread, repo)
+		delete(w.Failing, "overlap:"+repo)
+		delete(s.overlapReads, repo)
 		return nil
 	}
 	for identity, notice := range w.OverlapNotices {
@@ -92,32 +107,80 @@ func (s *Service) pollOverlaps(ctx context.Context, runner execx.Runner, w *flee
 		}
 	}
 	now := currentTime()
-	if now.Sub(w.OverlapPolled[repo]) < overlapPollEvery {
-		return nil
-	}
-	if w.OverlapPolled == nil {
-		w.OverlapPolled = map[string]time.Time{}
-	}
-	w.OverlapPolled[repo] = now
-	reading, cancel := context.WithTimeout(ctx, ghCallTimeout)
-	defer cancel()
 	reader := tickets.GitHub{Commands: runner}
-	repository, err := reader.RepositoryOf(reading, repo)
-	if errors.Is(err, tickets.ErrNotGitHub) {
-		delete(w.OverlapUnread, repo)
-		return nil
+	work := s.overlapReads[repo]
+	var err error
+	if work == nil {
+		if now.Sub(w.OverlapPolled[repo]) < overlapPollEvery {
+			return nil
+		}
+		if w.OverlapPolled == nil {
+			w.OverlapPolled = map[string]time.Time{}
+		}
+		w.OverlapPolled[repo] = now
+		probe, cancel := context.WithTimeout(ctx, ghCallTimeout)
+		repository, originErr := reader.RepositoryOf(probe, repo)
+		cancel()
+		if errors.Is(originErr, tickets.ErrNotGitHub) {
+			delete(w.OverlapUnread, repo)
+			delete(w.Failing, "overlap:"+repo)
+			return nil
+		}
+		err = originErr
+		if err == nil {
+			work, err = tickets.StartOpenWork(repository, now)
+		}
+		if err == nil {
+			if s.overlapReads == nil {
+				s.overlapReads = map[string]*tickets.OpenWork{}
+			}
+			s.overlapReads[repo] = work
+		}
 	}
-	var activity tickets.Activity
+	pages := 0
 	if err == nil {
-		activity, err = reader.ReadOpenWork(reading, repository, now)
+		pages, err = reader.Continue(ctx, work, overlapPagesPerPass, ghCallTimeout)
+		if work.IsWhole() {
+			delete(s.overlapReads, repo)
+		}
 	}
 	if ctx.Err() != nil {
 		return nil
 	}
-	var unread error
-	if err != nil {
-		unread = err
-	} else if activity.Viewer.Login == "" {
+	unread := err
+	if pages > 0 {
+		unreadAreas, err := s.readOverlaps(ctx, runner, w, work.Activity(), active, now, currentTime)
+		if err != nil {
+			return err
+		}
+		unread = errors.Join(unread, unreadAreas)
+	}
+	if ctx.Err() != nil {
+		return nil
+	}
+	if unread == nil {
+		delete(w.OverlapUnread, repo)
+		delete(w.Failing, "overlap:"+repo)
+		return nil
+	}
+	if w.OverlapUnread == nil {
+		w.OverlapUnread = map[string]string{}
+	}
+	w.OverlapUnread[repo] = fmt.Sprintf("overlap read of %s incomplete: %v", repo, unread)
+	if w.failing("overlap:"+repo, unread) == nil {
+		return nil
+	}
+	return errors.New(w.OverlapUnread[repo])
+}
+
+// readOverlaps tells the CFO of each teammate's pull request or issue, as
+// activity has them so far, that meets a live goblin's area and opened after
+// the goblin started, and keeps on each goblin's card the teammates' work its
+// area meets. It returns what it could not read, apart from what went wrong
+// telling the CFO.
+func (s *Service) readOverlaps(ctx context.Context, runner execx.Runner, w *fleetWakes, activity tickets.Activity, active []ciGoblin, now time.Time, currentTime func() time.Time) (unread, err error) {
+	repository := activity.Repository
+	if activity.Viewer.Login == "" {
 		unread = errors.New("the GitHub viewer is unread")
 	} else {
 		for _, problem := range activity.Unread {
@@ -165,7 +228,7 @@ func (s *Service) pollOverlaps(ctx context.Context, runner execx.Runner, w *flee
 				}
 				line := (tickets.Overlaps{Files: []tickets.FileOverlap{match}}).Lines()[0]
 				if err := s.recordOverlap(ctx, w, goblin, repository, "pr", match.PullRequest, line, match.URL); err != nil {
-					return err
+					return unread, err
 				}
 			}
 			own := map[int]bool{}
@@ -206,23 +269,12 @@ func (s *Service) pollOverlaps(ctx context.Context, runner execx.Runner, w *flee
 				}
 				line := (tickets.Overlaps{Issues: []tickets.IssueMatch{match}}).Lines()[0]
 				if err := s.recordOverlap(ctx, w, goblin, repository, "issue", match.Number, line, match.URL); err != nil {
-					return err
+					return unread, err
 				}
 			}
 		}
 	}
-	if ctx.Err() != nil {
-		return nil
-	}
-	if unread == nil {
-		delete(w.OverlapUnread, repo)
-		return nil
-	}
-	if w.OverlapUnread == nil {
-		w.OverlapUnread = map[string]string{}
-	}
-	w.OverlapUnread[repo] = fmt.Sprintf("overlap read of %s incomplete: %v", repo, unread)
-	return errors.New(w.OverlapUnread[repo])
+	return unread, nil
 }
 
 // overlapsOf is the teammates' work an area meets, as a card names it: each

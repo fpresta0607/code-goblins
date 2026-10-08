@@ -91,7 +91,10 @@ func doneReports(lines []string, spawned time.Time) map[string]time.Time {
 // at least minimumRiders goblins' finished pull requests wait green on its
 // default branch. open is the pull request list the poll read, nil when it
 // could not be read: a running train still takes its step, and none starts.
-func (s *Service) runTrain(ctx context.Context, runner execx.Runner, repo string, open []train.PullRequest) error {
+// A step or a read of the account gh works as that fails is tried again on
+// the next poll, and returned only once it failed failingPasses polls in a
+// row.
+func (s *Service) runTrain(ctx context.Context, runner execx.Runner, w *fleetWakes, repo string, open []train.PullRequest) error {
 	stateDir := s.Store.Home.State
 	repository, err := TrainRepository(ctx, runner, repo)
 	if err != nil {
@@ -100,11 +103,7 @@ func (s *Service) runTrain(ctx context.Context, runner execx.Runner, repo string
 	trains, listErr := train.List(stateDir)
 	engine := s.trainEngine(runner, repository.Slug)
 	if running, isRunning := train.Running(trains, repository.Slug); isRunning {
-		_, err := engine.Advance(ctx, running.ID)
-		if errors.Is(err, train.ErrBusy) {
-			err = nil
-		}
-		return errors.Join(listErr, err)
+		return errors.Join(listErr, advanceTrain(ctx, engine, running.ID))
 	}
 	goblins := TrainGoblins(stateDir, repo)
 	if len(doneAndOpen(goblins, open)) < minimumRiders {
@@ -112,8 +111,9 @@ func (s *Service) runTrain(ctx context.Context, runner execx.Runner, repo string
 	}
 	viewer, err := runOutput(ctx, runner, repo, "gh", "api", "user", "--jq", ".login")
 	if err != nil {
-		return errors.Join(listErr, fmt.Errorf("merge train: read the account gh works as in %s: %w", repo, err))
+		return errors.Join(listErr, w.failing("train viewer:"+repo, fmt.Errorf("merge train: read the account gh works as in %s: %w", repo, err)))
 	}
+	delete(w.Failing, "train viewer:"+repo)
 	riders, _ := train.Riders(open, repository.Base, viewer, goblins, trains)
 	if len(riders) < minimumRiders {
 		return listErr
@@ -135,9 +135,20 @@ func (s *Service) advanceUnwatchedTrains(ctx context.Context, runner execx.Runne
 			continue
 		}
 		pollRunner := githubPollRunner{commands: runner, state: w, repo: t.Checkout, now: currentTime}
-		if _, stepErr := s.trainEngine(pollRunner, t.Repository).Advance(ctx, t.ID); !errors.Is(stepErr, train.ErrBusy) {
-			err = errors.Join(err, stepErr)
-		}
+		err = errors.Join(err, advanceTrain(ctx, s.trainEngine(pollRunner, t.Repository), t.ID))
+	}
+	return err
+}
+
+// advanceTrain takes train id's next step and returns what went wrong, but
+// not a step another poll is taking, nor one that failed on fewer than
+// failingPasses polls in a row: the train counts its own failed steps and
+// takes the step again on the next poll, and on 2026-10-08 a read that timed
+// out under the fleet's load took about 600 ms minutes later.
+func advanceTrain(ctx context.Context, engine train.Engine, id string) error {
+	advanced, err := engine.Advance(ctx, id)
+	if errors.Is(err, train.ErrBusy) || err != nil && !advanced.IsFinished() && advanced.Errors > 0 && advanced.Errors < failingPasses {
+		return nil
 	}
 	return err
 }

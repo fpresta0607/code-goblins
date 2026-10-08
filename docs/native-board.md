@@ -190,8 +190,9 @@ Runs are judged newest first by their ids, and GitHub sometimes answers with an 
 One pull request wakes at most once every five minutes, and one workflow on one repository's default branch wakes at most once every five minutes, so a push that turns two workflows red raises two wakes, each naming its own workflow and run.
 A repository with no `origin` remote is a local one and is not watched: `gh` is asked nothing about it, and it raises no error and no wake.
 A repository that has an `origin` and still cannot be read (its `origin` is not GitHub, `gh` is signed out, a `gh` call fails, or its default branch cannot be found) keeps one line in the supervisor's error on the board, naming it, from the first failing poll until a poll reads it again.
-Once the same failure has been met on two polls in a row it wakes the CFO once as `ci_unreadable` (wake kind `ci`), keyed `repo:<repository>`, with the error and the next step: sign `gh` in with `gh auth login`, point `origin` at GitHub, or set `origin`'s default branch with `git remote set-head origin -a`.
-It does not wake again while the failure stays the same; a different failure met on two polls in a row wakes again, and so does one that cleared and came back, never twice within five minutes for one repository, and a failure clearing raises no wake.
+Once the same failure has been met on three polls in a row it wakes the CFO once as `ci_unreadable` (wake kind `ci`), keyed `repo:<repository>`, with the error and the next step: sign `gh` in with `gh auth login`, point `origin` at GitHub, or set `origin`'s default branch with `git remote set-head origin -a`.
+A read that times out under the fleet's load, as listings did on 2026-10-08 and took about 600 ms minutes later, is read again on the next poll and wakes nobody.
+It does not wake again while the failure stays the same; a different failure met on three polls in a row wakes again, and so does one that cleared and came back, never twice within five minutes for one repository, and a failure clearing raises no wake.
 The failure is compared by its exact text, so one whose text differs on every poll keeps its line on the board and does not wake, and one whose text changes, as when a goblin starts in a repository `gh` cannot read, wakes once more.
 A 403, 429 or exhausted allowance pauses every later GitHub read in that repository, across restarts, until its retry or reset time, or an hour when GitHub gives no usable time; the reads it holds fail with the same text every time, so a refusal that never clears still wakes once as `ci_unreadable` on its second retry.
 `pr_health` (wake kind `pr`), keyed `health:<owner>/<name>`: a watched PR that conflicts with its base or falls behind the default branch wakes the CFO once per condition and head, naming the owning goblin and the safe update, or a teammate's author and link.
@@ -205,7 +206,10 @@ If `gh` cannot name its account, only goblins' PRs are watched in that poll, and
 A head whose own comparison comes back missing or invalid in an otherwise readable response, conflicting or not, wakes the CFO once, and the listing limit once until the listing falls under 100 and comes back, never twice within five minutes for one repository; the wake names the heads, the reason and the next step, and recurring poll errors raise no further wake.
 A comparison request that fails as a whole (a refusal, a timeout, a server error or a response with no comparisons) keeps only its line on the board and wakes for no head, so a head it left unread still wakes once if its own comparison later fails; a refusal reaches the CFO as `ci_unreadable`.
 It never raises `ci_unreadable`, and CI wakes and readable PR health from that repository continue.
-`pr_overlap` (wake kind `pr`), keyed by the goblin: the same poll checks new teammate PRs and issues against running goblins, sharing one repository activity read at most every ten minutes under a thirty-second deadline and the existing allowance/refusal backoff, and reading each goblin's area under a thirty-second deadline of its own.
+`pr_overlap` (wake kind `pr`), keyed by the goblin: the same poll checks new teammate PRs and issues against running goblins, sharing one overlap read of the repository that starts at most every ten minutes under the existing allowance/refusal backoff, and reading each goblin's area under a thirty-second deadline of its own.
+The overlap read asks for the viewer, the open PRs with their files and the open issues, and no branch: it compares no branch's files, so no branch can meet a goblin's area, and GitHub lists branches by name, never by their last push, so on 2026-10-08 paging the 403 branches of `fpresta0607/code-goblins` under one deadline timed out pass after pass.
+A poll reads two pages of it, each under a thirty-second deadline of its own.
+A read with more pages, or one whose page failed, takes up where it left off on the next poll rather than starting over, and the overlaps its pages read so far are checked as they arrive.
 The area is the branch's committed change from its default-branch merge base, including renamed and deleted paths, with issue words from the brief's Task and Acceptance criteria.
 An item must have opened strictly after the goblin's current spawn generation began; an item opened during the generation stays eligible if later committed changes first make it overlap.
 Pre-existing open items remain visible in the ordinary ticket report and do not wake on polling startup, restart or area changes.
@@ -213,6 +217,7 @@ The wake names the teammate, item link, overlap and goblin, asking the CFO wheth
 Fresh live evidence is checked before and after the read, including after a per-PR done report; stopped or paused goblins, bots, the signed-in viewer, branch-only work and the goblin's own recorded or claimed issue in that repository never produce these wakes.
 Each item wakes once per goblin generation across restart, acknowledgement, closure and area changes.
 Unknown item or generation timestamps, unread authors and incomplete reads keep a board line without guessing times or raising `ci_unreadable`, while readable overlaps continue.
+They wake the CFO as `supervisor_error` only once the read went unread on three polls in a row.
 A goblin's area is read on the branch it has checked out at that moment, never one read at the start of the poll; a branch, head or base its own git work moves during the read is read again once, and a goblin still moving is left for the next pass, never reported: on 2026-10-08 a goblin that switched branches between the poll's start and its read showed as a failed read for ten minutes.
 What the fleet wakes remember, in `state/fleet-wakes.json`, survives a restart, so a restart neither repeats a wake nor loses one, and a failing repository's line shows again at once.
 The board lists no queued wakes of any kind: these reach the CFO as the others do, through its Stop hook or the line typed into a Codex or pi CFO's terminal.
@@ -247,7 +252,9 @@ Any other merged pull request keeps its Completed card, even when a live task re
 A history card is its pull request link, since it has no live worktree to review.
 A finished task finds its merge among every merge of the week, not only the newest 20, so an older merge still marks it merged.
 A finished task's GitHub pull request that no merge commit shows is asked about with `gh pr view` on a history refresh: merged (a squash merge leaves no merge commit) reads Merged, closed without merging reads Closed, and open reads Finished.
-A merged or closed answer is kept; an open one, or an ask that failed, which the board reports as an error, is asked again after 10 minutes.
+A merged or closed answer is kept and an open one is asked again after 10 minutes.
+An ask that failed keeps what GitHub last answered and is asked again on the next refresh.
+The board reports it as an error, which wakes the CFO, only once it failed on three refreshes in a row, and from then on it is asked again after 10 minutes.
 The asks of one refresh share a 5-second budget, so a slow GitHub never holds up the supervisor; a pull request not asked before it runs out reads Finished and is asked on the next refresh, and an ask it cuts off counts as failed.
 The card wears GitHub's icons and colors: the purple merge icon for Merged, the red closed pull request icon for Closed, and the pull request icon otherwise.
 A live task's pull request link wears the merge icon too once its gate shows the merge, in phase merged and after its landed content is verified.

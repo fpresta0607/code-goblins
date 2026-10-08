@@ -27,8 +27,10 @@ type trainProject struct {
 	checkout string
 	pusher   string
 	created  int
-	// viewerReads counts the reads of the account gh works as.
-	viewerReads int
+	// viewerReads counts the reads of the account gh works as, and
+	// viewerTimeouts is how many more of them time out.
+	viewerReads    int
+	viewerTimeouts int
 }
 
 func newTrainProject(t *testing.T) *trainProject {
@@ -97,6 +99,10 @@ func (p *trainProject) Run(ctx context.Context, request execx.Request) (execx.Re
 	}
 	if request.Name == "gh" && len(request.Args) > 1 && request.Args[0] == "api" && request.Args[1] == "user" {
 		p.viewerReads++
+		if p.viewerTimeouts > 0 {
+			p.viewerTimeouts--
+			return execx.Result{}, context.DeadlineExceeded
+		}
 		return execx.Result{Stdout: []byte("fleet\n")}, nil
 	}
 	if request.Name == "gh" && len(request.Args) > 1 && request.Args[0] == "pr" && request.Args[1] == "create" {
@@ -129,7 +135,7 @@ func TestTheSupervisorStartsATrainWhenTwoGoblinsFinishedPullRequestsWaitGreen(t 
 	reportDone(t, h, "g12", project.checkout, "done: PR "+second.URL)
 
 	// Act
-	err := service.runTrain(context.Background(), project, project.checkout, []train.PullRequest{first, second})
+	err := service.runTrain(context.Background(), project, &fleetWakes{}, project.checkout, []train.PullRequest{first, second})
 
 	// Assert
 	if err != nil {
@@ -144,6 +150,33 @@ func TestTheSupervisorStartsATrainWhenTwoGoblinsFinishedPullRequestsWaitGreen(t 
 	}
 	if wakes := prWakes(t, h, "merge_train"); len(wakes) != 1 || wakes[0].Key != "train:o/r" || !strings.Contains(wakes[0].Detail, "#11, #12") {
 		t.Fatalf("pr wakes = %+v, want the train's start", wakes)
+	}
+}
+
+// The account gh works as, read before a train starts, is read again on the
+// next poll when the read times out, and its failure is returned only once
+// it failed on three polls in a row; the poll that reads it starts the train.
+func TestATrainsAccountReadIsReportedOnlyOnTheThirdFailingPollInARow(t *testing.T) {
+	// Arrange
+	service, h := fleetService(t)
+	project := newTrainProject(t)
+	first, second := project.pull(11), project.pull(12)
+	reportDone(t, h, "g11", project.checkout, "done: PR "+first.URL)
+	reportDone(t, h, "g12", project.checkout, "done: PR "+second.URL)
+	project.viewerTimeouts = 3
+	watched := &fleetWakes{}
+
+	for poll, shouldReport := range []bool{false, false, true, false} {
+		// Act
+		err := service.runTrain(context.Background(), project, watched, project.checkout, []train.PullRequest{first, second})
+
+		// Assert
+		if (err != nil) != shouldReport {
+			t.Fatalf("poll %d returned %v, want an error only on the third failing poll in a row", poll+1, err)
+		}
+	}
+	if trains, err := train.List(h.State); err != nil || len(trains) != 1 || len(watched.Failing) != 0 {
+		t.Fatalf("trains = %+v, %v, failing reads %v, want the train started and nothing left failing", trains, err, watched.Failing)
 	}
 }
 
@@ -181,7 +214,7 @@ func TestTheSupervisorStartsATrainForGoblinsThatWentOnWorkingAfterTheirDoneRepor
 	reportDone(t, h, "cg-dev-drive", project.checkout, "done: PR "+second.URL, "working: building its last pull request", "blocked: which drive letter?")
 
 	// Act
-	err := service.runTrain(context.Background(), project, project.checkout, []train.PullRequest{first, second})
+	err := service.runTrain(context.Background(), project, &fleetWakes{}, project.checkout, []train.PullRequest{first, second})
 
 	// Assert
 	if err != nil {
@@ -205,7 +238,7 @@ func TestTheSupervisorLeavesALoneFinishedPullRequestToTheCFO(t *testing.T) {
 	reportDone(t, h, "g22", project.checkout, "working: building #22, not done with it yet")
 
 	// Act
-	err := service.runTrain(context.Background(), project, project.checkout, []train.PullRequest{first, working})
+	err := service.runTrain(context.Background(), project, &fleetWakes{}, project.checkout, []train.PullRequest{first, working})
 
 	// Assert
 	if err != nil {

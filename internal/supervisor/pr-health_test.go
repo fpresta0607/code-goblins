@@ -549,7 +549,7 @@ func TestCIUnreadableWakesForAPersistentRefusalOnItsSecondRetry(t *testing.T) {
 			forge.failureOn, forge.failure = test.command, test.failure
 			at := now
 			var lastBackOff time.Time
-			for retry, wantWoke := range []int{0, 1, 1} {
+			for retry, wantWoke := range []int{0, 0, 1} {
 				service = &Service{Store: service.Store, Options: service.Options}
 				calls := len(forge.requests)
 

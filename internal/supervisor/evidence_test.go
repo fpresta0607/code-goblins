@@ -952,6 +952,10 @@ func TestAFinishedTaskReadsItsPullRequestStateFromGitHub(t *testing.T) {
 	}
 }
 
+// A pull request GitHub keeps not answering for reads Finished, is asked
+// again on each refresh, and is reported once it went unanswered on three
+// refreshes in a row; from then on it is asked, and reported, only after the
+// recheck interval.
 func TestAPullRequestGitHubCouldNotReadStaysFinishedAndIsReported(t *testing.T) {
 	store, h := testStore(t)
 	if err := os.WriteFile(filepath.Join(h.State, "unread.status"), []byte("done: PR https://github.com/o/r/pull/7\n"), 0o644); err != nil {
@@ -971,18 +975,24 @@ func TestAPullRequestGitHubCouldNotReadStaysFinishedAndIsReported(t *testing.T) 
 		t.Fatal(snapshotErr)
 	}
 
-	if !errors.Is(err, failure) {
-		t.Fatalf("refreshHistory error = %v, want GitHub's failure reported", err)
+	if err != nil {
+		t.Fatalf("refreshHistory error = %v, want one unanswered ask left unreported", err)
 	}
 	index := slices.IndexFunc(view.Tasks, func(task Task) bool { return task.ID == "finished:unread" })
 	if index < 0 || view.Tasks[index].Merged || view.Tasks[index].Closed {
 		t.Fatalf("tasks = %+v, want the unread pull request to read Finished", view.Tasks)
 	}
-	if err := service.refreshHistory(t.Context(), now.Add(time.Minute)); err != nil || asks != 1 {
-		t.Fatalf("a minute later: error %v after %d asks, want no new ask", err, asks)
+	if err := service.refreshHistory(t.Context(), now.Add(time.Minute)); err != nil || asks != 2 {
+		t.Fatalf("a minute later: error %v after %d asks, want it asked again and left unreported", err, asks)
 	}
-	if err := service.refreshHistory(t.Context(), now.Add(pullRequestRecheck)); !errors.Is(err, failure) || asks != 2 {
-		t.Fatalf("after the recheck interval: error %v after %d asks, want one more ask", err, asks)
+	if err := service.refreshHistory(t.Context(), now.Add(2*time.Minute)); !errors.Is(err, failure) || asks != 3 {
+		t.Fatalf("on the third refresh: error %v after %d asks, want it asked again and GitHub's failure reported", err, asks)
+	}
+	if err := service.refreshHistory(t.Context(), now.Add(3*time.Minute)); err != nil || asks != 3 {
+		t.Fatalf("a minute after it was reported: error %v after %d asks, want no new ask", err, asks)
+	}
+	if err := service.refreshHistory(t.Context(), now.Add(2*time.Minute+pullRequestRecheck)); !errors.Is(err, failure) || asks != 4 {
+		t.Fatalf("after the recheck interval: error %v after %d asks, want one more ask, reported", err, asks)
 	}
 }
 
@@ -1028,7 +1038,8 @@ func TestAPullRequestReadThatTimesOutOnceIsAskedAgainOnTheNextRefreshAndNeverRep
 
 // All asks of one refresh share pullRequestBudget, so a GitHub that does not
 // answer holds the supervisor's loop only that long; what was not asked is
-// asked on the next refresh.
+// asked on the next refresh, and so is the ask the budget cut off, which is
+// not reported for one refresh.
 func TestASlowGitHubHoldsARefreshOnlyForTheBudget(t *testing.T) {
 	store, h := testStore(t)
 	for pr := 1; pr <= 3; pr++ {
@@ -1056,16 +1067,16 @@ func TestASlowGitHubHoldsARefreshOnlyForTheBudget(t *testing.T) {
 	if elapsed > pullRequestBudget+3*time.Second {
 		t.Fatalf("the refresh took %v, want it to end soon after the %v budget", elapsed, pullRequestBudget)
 	}
-	if !errors.Is(err, context.DeadlineExceeded) || len(asked) != 1 {
-		t.Fatalf("first refresh: error %v after asking %v, want one ask cut off by the budget and reported", err, asked)
+	if err != nil || len(asked) != 1 {
+		t.Fatalf("first refresh: error %v after asking %v, want one ask cut off by the budget and not reported", err, asked)
 	}
 	blocked := asked[0]
 	asked = nil
 	if err := service.refreshHistory(t.Context(), now.Add(time.Minute)); err != nil {
 		t.Fatal(err)
 	}
-	if len(asked) != 2 || slices.Contains(asked, blocked) {
-		t.Fatalf("next refresh asked %v, want the two pull requests the budget left and not %s", asked, blocked)
+	if len(asked) != 3 || !slices.Contains(asked, blocked) {
+		t.Fatalf("next refresh asked %v, want the two pull requests the budget left and %s again", asked, blocked)
 	}
 }
 
