@@ -1,6 +1,6 @@
 import type { Session, Snapshot, Task } from "./types.ts";
 import { lineageRoots, ownsTaskSession, sessionTitle, tasksWithoutSession } from "./lineageTree.ts";
-import { withoutHarness } from "./task-words.ts";
+import { goblinName } from "./task-words.ts";
 import { isHeldByTree, isHelperHeld } from "./fleet-tree.ts";
 
 export type Persona = "cfo" | "builder" | "reviewer" | "tester" | "planner" | "finisher" | "general"
@@ -57,12 +57,15 @@ export function personaFor(task?: Task, node?: Session): Persona {
   if (/\b(build|builder|implement|fix|repair|develop)\b/.test(meaning)) return "builder";
   // No keyword matched: a stable choice per task keeps concurrent goblins
   // apart on the board. It says nothing about the work itself.
-  if (task?.id) {
-    let hash = 0;
-    for (const character of task.id) hash = (hash * 31 + character.charCodeAt(0)) >>> 0;
-    return stablePersonas[hash % stablePersonas.length];
-  }
-  return "general";
+  return task?.id ? stablePersona(task.id) : "general";
+}
+
+// stablePersona is the persona a task id always gets, for a goblin whose work
+// names no specialist or whose task the board no longer holds.
+export function stablePersona(id: string): Persona {
+  let hash = 0;
+  for (const character of id) hash = (hash * 31 + character.charCodeAt(0)) >>> 0;
+  return stablePersonas[hash % stablePersonas.length];
 }
 
 const stablePersonas: Persona[] = ["builder", "reviewer", "tester", "planner", "debugger", "security", "database", "designer",
@@ -154,7 +157,9 @@ export function statusPhase(task: Task): string {
   return actionFailed(task)?.phase || (task.comeback?.state === "stopped" ? "failed" : task.phase);
 }
 
-export function nodeStatus(node: WorkflowNode, asking = false): string {
+// A wait on another goblin names it by its goblin name while tasks, the
+// board's, hold it.
+export function nodeStatus(node: WorkflowNode, asking = false, tasks: Task[] = []): string {
   if (node.status) return node.status;
   const unfinished = node.task && actionFailed(node.task);
   if (unfinished) return unfinished.status;
@@ -167,7 +172,10 @@ export function nodeStatus(node: WorkflowNode, asking = false): string {
     const { phase, reason, verified } = node.task;
     if (asking) return "Waiting on the CFO";
     if ((phase === "blocked" || phase === "failed") && reason.startsWith("Waiting on the CFO")) return "Waiting on the CFO";
-    if (phase === "waiting" && node.task.waiting_on) return "Waiting on " + (WAITS[node.task.waiting_on] || node.task.waiting_on);
+    if (phase === "waiting" && node.task.waiting_on) {
+      const awaited = tasks.find((candidate) => candidate.id === node.task?.waiting_on);
+      return "Waiting on " + (WAITS[node.task.waiting_on] || (awaited ? goblinName(awaited) : node.task.waiting_on));
+    }
     if (phase === "review" && Object.hasOwn(GATE_STEPS, node.task.gate_step)) return "In review gate: " + GATE_STEPS[node.task.gate_step];
     return phase === "done" && !verified ? "Done, verifying" : statusText(phase);
   }
@@ -204,7 +212,7 @@ export function workflowNodes(snapshot: Snapshot): WorkflowNode[] {
       };
     }),
     ...tasksWithoutSession(snapshot.tasks.filter((task) => !task.archived && task.phase !== "queued" && !isHelperHeld(snapshot, task.id)), snapshot.sessions).map((task) => ({
-      id: "task:" + task.id, title: withoutHarness(task.title) || task.id, task, relation: "Session unreported",
+      id: "task:" + task.id, title: goblinName(task), task, relation: "Session unreported",
     })),
   ];
   // A helper no family tree holds, such as one whose parent is paused, hangs

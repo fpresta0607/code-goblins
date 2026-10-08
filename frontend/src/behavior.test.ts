@@ -594,3 +594,30 @@ test("an action that did not finish is the task's one status, and in-flight work
   assert.equal(sessionTitle({ ...parseSnapshot({ healthy: true, sessions: [{ id: "n", role: "goblin", task_id: "a" }] }).sessions[0] }, failed("pause")), "A");
   assert.equal(workflowNodes(parseSnapshot({ healthy: true, tasks: [{ id: "a", title: "A; Codex", phase: "working", generation: "s1", verified: false }] }))[1].title, "A");
 });
+
+test("the canvas calls a named goblin by its name and title, its session or not, and an unnamed one by its task", () => {
+  const snapshot = parseSnapshot({ healthy: true,
+    tasks: [
+      { id: "cg-names", title: "Show goblin names", phase: "working", verified: false, generation: "g1", session: "s1", goblin_name: "Jerry", goblin_title: "Code Designer" },
+      { id: "cg-quiet", title: "Quiet task", phase: "working", verified: false, goblin_name: "Mabel", goblin_title: "Bug Hunter" },
+      { id: "cg-plain", title: "Plain task", phase: "working", verified: false },
+    ],
+    sessions: [{ id: "s1", role: "goblin", task_id: "cg-names", generation: "g1", native_id: "n1", phase: "active" }],
+  });
+  const titles = Object.fromEntries(workflowNodes(snapshot).map((node) => [node.id, node.title]));
+  assert.equal(titles["session:s1"], "Jerry - Code Designer");
+  assert.equal(titles["task:cg-quiet"], "Mabel - Bug Hunter");
+  assert.equal(titles["task:cg-plain"], "Plain task");
+  assert.equal(sessionTitle(snapshot.sessions[0], snapshot.tasks[0]), "Jerry - Code Designer");
+});
+
+test("a goblin waiting on another names it by its goblin name while the board holds it, and by its id once it does not", () => {
+  const snapshot = parseSnapshot({ healthy: true, tasks: [
+    { id: "a", title: "A", phase: "waiting", waiting_on: "b", verified: false },
+    { id: "b", title: "B work", phase: "working", verified: false, goblin_name: "Otis", goblin_title: "Bug Hunter" },
+    { id: "c", title: "C", phase: "waiting", waiting_on: "gone", verified: false },
+  ] });
+  const [a, , c] = snapshot.tasks;
+  assert.equal(nodeStatus({ id: "a", title: "", task: a, relation: "" }, false, snapshot.tasks), "Waiting on Otis - Bug Hunter");
+  assert.equal(nodeStatus({ id: "c", title: "", task: c, relation: "" }, false, snapshot.tasks), "Waiting on gone");
+});

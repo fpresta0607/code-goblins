@@ -51,6 +51,12 @@ export function carLook(car: TrainCar): CarLook {
   return { label: "#" + car.number, url: safeGitHubLink(car.url), text, tone, tip: car.note };
 }
 
+// carName is how a car goes on its train: by the name and title of the
+// goblin that reported it done, else by its pull request's title.
+export function carName(car: TrainCar): string {
+  return car.goblin ? [car.goblin, car.goblin_title].filter(Boolean).join(" - ") : car.title || car.task;
+}
+
 // isTrainOver says whether a train has finished, so its card belongs among
 // the completed work.
 export function isTrainOver(train: MergeTrain): boolean {

@@ -40,6 +40,10 @@ export interface Task extends Evaluation {
   runtime?: RuntimeEvidence;
   id: string;
   title: string;
+  // goblin_name and goblin_title are the fun name and title the goblin was
+  // given at spawn, empty before it has one.
+  goblin_name: string;
+  goblin_title: string;
   project: string;
   harness: string;
   // backend is the terminal the task runs in: native, herdr, or empty before it starts.
@@ -113,8 +117,9 @@ export interface FleetTree {
 // monitor, a job of processes (whose group says what it does: dev-server,
 // test, build, browser or other) or its gate run. state is working, waiting,
 // done, failed or silent; memory is its processes' private bytes.
+// task is a named helper goblin's task, which its label leaves to its tip.
 export interface TreeNode {
-  id: string; kind: string; group: string; parent: string; label: string; detail: string; state: string;
+  id: string; kind: string; group: string; parent: string; label: string; detail: string; task: string; state: string;
   started: string; last_activity: string; finished: string; last_line: string; memory: number;
   source_updated_at: string; fetched_at: string;
 }
@@ -125,7 +130,7 @@ function parseTree(value: unknown): FleetTree {
     conversation_at: string(t.conversation_at), unread: strings(t.unread), source_updated_at: string(t.source_updated_at), fetched_at: string(t.fetched_at),
     children: array(t.children).map((child) => {
       const c = object(child);
-      return { id: string(c.id), kind: string(c.kind), group: string(c.group), parent: string(c.parent), label: string(c.label), detail: string(c.detail), state: string(c.state),
+      return { id: string(c.id), kind: string(c.kind), group: string(c.group), parent: string(c.parent), label: string(c.label), detail: string(c.detail), task: string(c.task), state: string(c.state),
         started: string(c.started), last_activity: string(c.last_activity), finished: string(c.finished), last_line: string(c.last_line), memory: number(c.memory),
         source_updated_at: string(c.source_updated_at), fetched_at: string(c.fetched_at) };
     }),
@@ -163,7 +168,9 @@ export interface Deployment { commit: string; state: string; workflows: string[]
 export interface MergeTrain { id: string; repository: string; base: string; pr: string; state: string; runs: number; started: string; finished: string; note: string; cars: TrainCar[] }
 // TrainCar is one pull request on a train: state is riding, waiting,
 // landed, culprit, conflict or returned, and note says why.
-export interface TrainCar { number: number; url: string; title: string; task: string; state: string; note: string }
+// goblin and goblin_title are the name and title of the goblin that reported
+// it done.
+export interface TrainCar { number: number; url: string; title: string; task: string; goblin: string; goblin_title: string; state: string; note: string }
 // Ticket is a task's issue: its number, its link and where it stands, one
 // of queued, in progress, pr open, paused, blocked, merged or closed.
 export interface Ticket { number: number; url: string; state: string }
@@ -683,7 +690,7 @@ function parseMergeTrain(value: unknown): MergeTrain {
   return {
     id: string(t.id), repository: string(t.repository), base: string(t.base), pr: string(t.pr), state: string(t.state), runs: number(t.runs),
     started: string(t.started), finished: string(t.finished), note: string(t.note),
-    cars: array(t.cars).map((car) => { const c = object(car); return { number: number(c.number), url: string(c.url), title: string(c.title), task: string(c.task), state: string(c.state), note: string(c.note) }; }),
+    cars: array(t.cars).map((car) => { const c = object(car); return { number: number(c.number), url: string(c.url), title: string(c.title), task: string(c.task), goblin: string(c.goblin), goblin_title: string(c.goblin_title), state: string(c.state), note: string(c.note) }; }),
   };
 }
 function parseComebackEntry(value: unknown): ComebackEntry {
@@ -758,6 +765,8 @@ export function parseSnapshot(value: unknown): Snapshot {
         runtime: parseRuntime(t.runtime),
         id: string(t.id),
         title: string(t.title),
+        goblin_name: string(t.goblin_name),
+        goblin_title: string(t.goblin_title),
         project: string(t.project),
         harness: string(t.harness),
         backend: string(t.backend),

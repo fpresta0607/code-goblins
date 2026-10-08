@@ -16,9 +16,12 @@ a.train-status:hover, a.train-status:focus-visible { text-decoration: underline;
 .train-status .status-dot { flex: none; }
 .train-note { margin: 0; color: var(--muted); font-size: .9375rem; line-height: 1.45; overflow-wrap: anywhere; }
 .train-cars { display: grid; gap: 4px; margin: 0; padding: 0; list-style: none; }
-.train-car { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: baseline; gap: 10px; font-size: .9375rem; line-height: 1.4; }
+.train-car { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; gap: 10px; font-size: .9375rem; line-height: 1.4; }
 .train-car-number { font-weight: 700; color: inherit; text-decoration: none; font-variant-numeric: tabular-nums; }
 a.train-car-number:hover, a.train-car-number:focus-visible { text-decoration: underline; }
+/* The goblin that made a pull request, by its avatar, name and title. */
+.train-car-goblin { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.train-car-goblin .goblin-avatar { width: 28px; height: 28px; }
 .train-car-title { min-width: 0; overflow: hidden; color: #c4d4df; text-overflow: ellipsis; white-space: nowrap; }
 .train-car-state { font-weight: 700; white-space: nowrap; }
 .train-pending { color: var(--blue); }

@@ -8,7 +8,7 @@ import { harnessMark } from "./connectors";
 import type { NextUp } from "./start";
 import { TaskControls } from "./task-controls";
 import { asksOverlord, harnessName, harnessTip, nodeStatus, personaFor, pullRequestIcon, pullRequestLabel, safePullRequest, statusPhase, taskColumn } from "./workflow";
-import { pausedWithParent, pauseStatus, plainText, teardownSentence, withoutHarness } from "./task-words";
+import { goblinName, pausedWithParent, pauseStatus, plainText, taskName, teardownSentence } from "./task-words";
 import { TicketLink } from "./ticket-link";
 import { SameAreaAvatars } from "./same-area-avatars";
 import { HostedChecksLink } from "./hosted-checks-link";
@@ -38,26 +38,27 @@ export function TaskCard({ task, snapshot, selected, presentations, now, rank, n
   onSelect: (task: Task, source: HTMLElement) => void;
   onTerminal: (task: Task, source: HTMLElement) => void;
 }) {
-  // A title still shortened shows in full in a tip on hover or focus: the
-  // card carries data-tip only while its title is shortened.
+  // A named goblin's card shows its task in a tip on hover or focus. Any
+  // other title still shortened shows in full in its tip: that card carries
+  // data-tip only while its title is shortened.
   const [clipped, setClipped] = useState(false);
   const card = useRef<HTMLButtonElement>(null);
   const measure = (event: SyntheticEvent<HTMLElement>) => {
     const title = event.currentTarget.querySelector<HTMLElement>(".card-title");
     setClipped(!!title && title.scrollHeight > title.clientHeight + 1);
   };
-  const name = withoutHarness(task.title) || task.id;
-  const tip = clipped ? { "data-tip": name, "data-tip-align": "start" } : {};
+  const name = goblinName(task);
+  const tip = task.goblin_name ? { "data-tip": taskName(task), "data-tip-align": "start" } : clipped ? { "data-tip": name, "data-tip-align": "start" } : {};
   const pr = safePullRequest(task.pr), icon = pullRequestIcon(task), asking = asksOverlord(snapshot, task.id);
   const waiting = task.phase === "queued";
   const column = taskColumn(task);
   const clock = column === "Completed" || column === "Paused" ? "" : clockText(task.since, now, waiting ? "waiting" : "running");
   const clockBadge = clock && <span className="card-clock"><Icon name="clock" /><span className="sr-only">{waiting ? "Waiting for" : "Running for"} </span>{clock}</span>;
   const ended = (column === "Paused" || column === "Completed") && task.at ? new Date(task.at) : null;
-  const status = statusPhase(task) === "paused" ? pauseStatus(task.lifecycle?.pause, snapshot.tasks, snapshot.ci_durations, pausedWithParent(task, snapshot.tasks)) : nodeStatus({ id: task.id, title: task.title, task, relation: "" }, asking);
+  const status = statusPhase(task) === "paused" ? pauseStatus(task.lifecycle?.pause, snapshot.tasks, snapshot.ci_durations, pausedWithParent(task, snapshot.tasks)) : nodeStatus({ id: task.id, title: task.title, task, relation: "" }, asking, snapshot.tasks);
   const stalled = stalledText(task, now);
   const parent = task.parent && snapshot.tasks.find((other) => other.id === task.parent);
-  const parentName = parent ? withoutHarness(parent.title) || parent.id : task.parent;
+  const parentName = parent ? goblinName(parent) : task.parent;
   // What runs under a live goblin, as baby goblins with a count each, and
   // the child that has gone silent longest with its last line.
   const kinds = column === "In progress" ? summarize(task.tree).kinds : [];

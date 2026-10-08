@@ -666,6 +666,8 @@ button.line-number { min-height: 32px; display: flex; align-items: flex-start; j
 .panel-header .goblin-avatar { width: 88px; height: 88px; }
 .panel-identity { display: grid; gap: 4px; min-width: 0; }
 .panel-header h2 { font-size: clamp(1.625rem, 2.4vw, 2rem); line-height: 1.2; overflow-wrap: anywhere; }
+/* A named goblin's task, under its name. */
+.panel-goblin-task { margin: 0; color: #c4d4df; font-size: 1.125rem; font-weight: 600; overflow-wrap: anywhere; }
 .panel-header .project-label { font-size: 1.0625rem; }
 .panel-header .muted { color: var(--muted); }
 .panel-status { font-size: 1.0625rem; }
