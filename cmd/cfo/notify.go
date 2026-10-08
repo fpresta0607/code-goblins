@@ -322,7 +322,7 @@ func runNotify(args []string, stdout, stderr io.Writer, runtime commandRuntime) 
 	// While AFK mode is on nothing prompts the Overlord, so a goblin that
 	// waits on him is told to move to what does not depend on him.
 	if switched, err := afk.Read(h.State); verb == "waiting on overlord" && err == nil && switched.On {
-		fmt.Fprintf(stdout, "AFK mode is on: the Overlord is away until he turns it off, so this wait is held for him and nothing prompts him. If any of your work does not depend on it, move to that next piece now and report it with cfo notify %s --working \"<what>\".\n", id)
+		fmt.Fprintf(stdout, "AFK mode is on: the Overlord is away until he turns it off and nothing is asked of him, so the CFO leaves this for him in the backlog. If any of your work does not depend on it, move to that next piece now and report it with cfo notify %s --working \"<what>\".\n", id)
 	}
 	return 0
 }

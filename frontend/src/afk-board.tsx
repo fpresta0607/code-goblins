@@ -32,12 +32,10 @@ export function AfkBoard({ snapshot, now, onCommand, children }: { snapshot: Sna
     if (shown) setShown(false);
     if (afk.state !== "on") setOffering("");
   }
-  // The newest AFK state, the last click or key and the newest onCommand, for
-  // the listener and the actions below.
+  // The newest AFK state and the last click or key, for the listener below.
   const latest = useRef(afk);
   const lastTouch = useRef(0);
-  const command = useRef(onCommand);
-  useEffect(() => { latest.current = afk; command.current = onCommand; });
+  useEffect(() => { latest.current = afk; });
   const away = afk.state === "on";
   useEffect(() => {
     if (!away) return;
@@ -57,7 +55,7 @@ export function AfkBoard({ snapshot, now, onCommand, children }: { snapshot: Sna
     window.addEventListener("keydown", touched, true);
     return () => { window.removeEventListener("click", touched, true); window.removeEventListener("keydown", touched, true); };
   }, [away]);
-  const actions = useMemo(() => ({ openReport: () => setReporting(true), turnedOff: () => { setShown(true); setReporting(true); }, answer: (item: string) => command.current(item) }), []);
+  const actions = useMemo(() => ({ openReport: () => setReporting(true), turnedOff: () => { setShown(true); setReporting(true); } }), []);
   const turnOff = async () => { if (await turn(false)) { setOffering(""); actions.turnedOff(); } };
   return <AfkActionsContext.Provider value={actions}>
     {children}

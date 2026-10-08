@@ -49,6 +49,7 @@ func nightReport() Report {
 		Session: "afk-1", Since: night, Ended: night.Add(10*time.Hour + 21*time.Minute),
 		From: "his own terminal (powershell.exe pid 4242)", EndedFrom: "his own terminal (powershell.exe pid 5151)",
 		Decisions: []Entry{
+			{Kind: KindLeft, What: "Sign in to Vercel for pd-auth", Evidence: "his own sign-in; backlog row pd-auth-vercel-sign-in"},
 			{Kind: KindMerge, What: "https://github.com/acme/api/pull/12", Link: "https://github.com/acme/api/pull/12", Evidence: "gate run 41 passed and its test output was read; head abc1234; 7 checks green", Outcome: "merged"},
 			{Kind: KindMerge, What: "https://github.com/acme/api/pull/13", Evidence: "verified locally"},
 			{Kind: KindDeploy, What: "acme production", Link: "https://acme.example/health", Evidence: "/health reads 200 with commit abc1234"},
@@ -92,6 +93,9 @@ func TestTheReportSaysWhatWasDecidedFinishedHeldAndSpent(t *testing.T) {
 		"what was spent":                "claude week: 40% used when it turned on, 47% when it turned off (7 points)",
 		"what it could not read":        "1 line of the log could not be read",
 		"how many were held":            "Held for you (2)",
+		"how many were left for him":    "Left for you (1)",
+		"what was left for him":         "Sign in to Vercel for pd-auth",
+		"why it was left for him":       "backlog row pd-auth-vercel-sign-in",
 		"how many merged":               "Merged (1)",
 		"merge words that did not land": "Merge words with no merge recorded (1)",
 	} {
@@ -173,7 +177,7 @@ func TestAQuietStretchReportsNothingRatherThanNothingAtAll(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	for _, phrase := range []string{"Merged (0)", "Deployed (0)", "Goblins finished (0)", "Held for you (0)"} {
+	for _, phrase := range []string{"Left for you (0)", "Merged (0)", "Deployed (0)", "Goblins finished (0)", "Held for you (0)"} {
 		if !strings.Contains(out.String(), phrase) {
 			t.Errorf("a quiet stretch's report does not say %q:\n%s", phrase, out.String())
 		}
@@ -318,15 +322,15 @@ func TestTheReportIsKeptForTheStretchItEnds(t *testing.T) {
 	}
 
 	report, found, err := ReadReport(dir)
-	if err != nil || !found || report.Session != "afk-1" || len(report.Decisions) != 4 || len(report.Held) != 2 || !report.Ended.Equal(nightReport().Ended) {
+	if err != nil || !found || report.Session != "afk-1" || len(report.Decisions) != 5 || len(report.Held) != 2 || !report.Ended.Equal(nightReport().Ended) {
 		t.Errorf("ReadReport = %+v, %v, %v, want the report that was saved", report, found, err)
 	}
 }
 
 // The report's decisions sit under the same headings in the CFO's text and on
-// the board's page. A heading the report always shows is there with nothing
-// under it, so a night with no deploy says so; the others are there only when
-// they hold something.
+// the board's page, what was left for him first, since it is his to do now. A
+// heading the report always shows is there with nothing under it, so a night
+// with no deploy says so; the others are there only when they hold something.
 func TestTheReportsDecisionsSitUnderItsHeadings(t *testing.T) {
 	// Act
 	night, quiet := nightReport().Sections(), Report{}.Sections()
@@ -339,16 +343,19 @@ func TestTheReportsDecisionsSitUnderItsHeadings(t *testing.T) {
 		}
 		return titles
 	}
-	if got, want := titled(night), []string{"Merged 1", "Merge words with no merge recorded 1", "Deployed 1", "Migrations applied 0", "Installed 0", "Answered for goblins 1"}; !slices.Equal(got, want) {
+	if got, want := titled(night), []string{"Left for you 1", "Merged 1", "Merge words with no merge recorded 1", "Deployed 1", "Migrations applied 0", "Installed 0", "Answered for goblins 1"}; !slices.Equal(got, want) {
 		t.Errorf("the night's headings = %q, want %q", got, want)
 	}
-	if merged := night[0].Entries[0]; merged.What != "https://github.com/acme/api/pull/12" || merged.Outcome != OutcomeMerged {
+	if left := night[0].Entries[0]; left.What != "Sign in to Vercel for pd-auth" {
+		t.Errorf("under Left for you = %+v, want what only he can do", left)
+	}
+	if merged := night[1].Entries[0]; merged.What != "https://github.com/acme/api/pull/12" || merged.Outcome != OutcomeMerged {
 		t.Errorf("under Merged = %+v, want the merge word whose merge was recorded", merged)
 	}
-	if unmerged := night[1].Entries[0]; unmerged.What != "https://github.com/acme/api/pull/13" || unmerged.Outcome != "" {
+	if unmerged := night[2].Entries[0]; unmerged.What != "https://github.com/acme/api/pull/13" || unmerged.Outcome != "" {
 		t.Errorf("under Merge words with no merge recorded = %+v, want the one with no outcome", unmerged)
 	}
-	if got, want := titled(quiet), []string{"Merged 0", "Deployed 0", "Migrations applied 0", "Installed 0", "Answered for goblins 0"}; !slices.Equal(got, want) {
+	if got, want := titled(quiet), []string{"Left for you 0", "Merged 0", "Deployed 0", "Migrations applied 0", "Installed 0", "Answered for goblins 0"}; !slices.Equal(got, want) {
 		t.Errorf("a quiet stretch's headings = %q, want %q", got, want)
 	}
 	for _, section := range quiet {
