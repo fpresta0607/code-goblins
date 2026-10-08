@@ -421,11 +421,7 @@ func runWithRuntime(args []string, stdout, stderr io.Writer, runtime commandRunt
 		}
 		return runQuickstart(stdout, stderr, runtime, true, false, "")
 	}
-	if len(args) > 0 && args[0] == "resume" && (runtime.goblins || len(args) == 1) {
-		if len(args) != 1 {
-			fmt.Fprintln(stderr, "usage: goblins resume")
-			return 2
-		}
+	if len(args) == 1 && args[0] == "resume" {
 		return runQuickstart(stdout, stderr, runtime, false, true, "")
 	}
 	if runtime.goblins && (len(args) == 0 || strings.HasPrefix(args[0], "-")) {

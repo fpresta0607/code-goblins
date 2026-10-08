@@ -126,8 +126,8 @@ func TestGoblinsResumeBringsBackAClosedCFO(t *testing.T) {
 }
 
 // A restart that would lose the CFO's conversation is refused with its
-// reason, the CFO left running and nothing else started; anything after
-// goblins resume is refused too.
+// reason, the CFO left running and nothing else started; goblins resume with
+// a task named resumes that task, as cfo resume does, and restarts no CFO.
 func TestGoblinsResumeSaysWhyItLeftTheCFORunning(t *testing.T) {
 	// Arrange
 	f := newSessionFixture(t)
@@ -136,14 +136,15 @@ func TestGoblinsResumeSaysWhyItLeftTheCFORunning(t *testing.T) {
 
 	// Act
 	exit, _, stderr := f.launch("resume")
+	restarts := f.restarts
 	extra, _, extraErr := f.launch("resume", "now")
 
 	// Assert
 	if exit != 1 || !strings.Contains(stderr, "so it is left running") || len(f.nativeStarts) != 0 || len(f.screens) != 0 {
 		t.Errorf("exit=%d stderr=%q nativeStarts=%q screens=%+v, want the refusal and nothing started or shown", exit, stderr, f.nativeStarts, f.screens)
 	}
-	if extra != 2 || !strings.Contains(extraErr, "usage: goblins resume") {
-		t.Errorf("goblins resume now: exit=%d stderr=%q, want its usage", extra, extraErr)
+	if extra == 0 || f.restarts != restarts || strings.Contains(extraErr, "usage: goblins resume") {
+		t.Errorf("goblins resume now: exit=%d restarts=%d stderr=%q, want task now's resume refused and no CFO restarted", extra, f.restarts-restarts, extraErr)
 	}
 }
 
