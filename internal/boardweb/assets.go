@@ -2,8 +2,8 @@
 // dist/board, which git ignores. Node is needed only to build the board,
 // never to run cfo serve. A checkout that has not built it embeds the one
 // file under dist that is committed, the placeholder page dist/index.html,
-// which says so and names the command that builds it. A build carrying only
-// that page is never installed: cfo update and cfo install refuse it.
+// which says so and names the commands that build it. See README.md#development
+// for the requirements before installing a source build.
 package boardweb
 
 import (

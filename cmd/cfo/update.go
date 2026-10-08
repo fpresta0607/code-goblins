@@ -58,10 +58,8 @@ var (
 	recordUpdate    = update.Record
 )
 
-// boardBuilt reports whether this build embeds the board. A build without
-// it serves a page saying the board was not built in place of the board, so
-// neither an update nor an install puts one in a home. A test's builds,
-// which CI's go jobs make with no board, stand in for builds that carry one.
+// boardBuilt is a seam for the board preflight: CI's Go jobs build no board,
+// but their test binaries stand in for builds that carry one.
 var boardBuilt = boardweb.Built
 
 // noBoard says why a build that carries no board is not installed, and how
