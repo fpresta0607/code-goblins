@@ -27,7 +27,6 @@ export interface Task extends Evaluation {
   teardown: string[];
   detail: string;
   queue_revision: string;
-  notes: string[];
   action_error: string;
   pending_engine?: { harness: string; model: string; effort: string; when: string };
   // harness_update is an update of the harness the goblin runs, installed
@@ -768,7 +767,7 @@ export function parseSnapshot(value: unknown): Snapshot {
         lifecycle: t.lifecycle == null ? undefined : ((record) => ({ phase: string(record.phase), action: string(record.action), at: string(record.at), kept: strings(record.kept), stopped: strings(record.stopped), problems: strings(record.problems), handoff_saved: boolean(record.handoff_saved), validation_restarts: boolean(record.validation_restarts),
           ...(record.with_parent === undefined ? {} : { with_parent: boolean(record.with_parent) }),
           ...(record.pause == null ? {} : { pause: ((pause) => ({ reason: string(pause.reason), until: string(pause.until), at: string(pause.at) }))(object(record.pause)) }) }))(object(t.lifecycle)),
-        teardown: strings(t.teardown), detail: string(t.detail), queue_revision: string(t.queue_revision), notes: strings(t.notes), action_error: string(t.action_error), branch: string(t.branch),
+        teardown: strings(t.teardown), detail: string(t.detail), queue_revision: string(t.queue_revision), action_error: string(t.action_error), branch: string(t.branch),
         pending_engine: t.pending_engine == null ? undefined : ((choice) => ({ harness: string(choice.harness), model: string(choice.model), effort: string(choice.effort), when: string(choice.when) }))(object(t.pending_engine)),
         ...(t.harness_update == null ? {} : { harness_update: parseHarnessUpdate(object(t.harness_update)) }),
         switching: t.switching === undefined ? false : boolean(t.switching),

@@ -10,7 +10,6 @@ import { QueuedTasks } from "./QueuedTasks";
 import type { CardStarter } from "./useStart";
 import { queuedTasks } from "./workflow";
 import { TaskControls } from "./task-controls";
-import { TaskAdjustment } from "./task-adjustment";
 import { LifecycleDetails } from "./lifecycle-details";
 import { PanelRow, type PanelControl } from "./panel-row";
 import { RestartCfoButton } from "./restart-cfo-button";
@@ -47,7 +46,6 @@ export function GoblinPanel({ task, node, child, snapshot, connected, reviews, v
       {task && <div className="panel-content lifecycle-panel">
         <TaskControls task={task} snapshot={snapshot} labelled />
         <LifecycleDetails task={task} />
-        {task.phase === "queued" && <TaskAdjustment task={task} snapshot={snapshot} />}
       </div>}
       {!task?.archived && owner ? <TaskView task={task} snapshot={snapshot} connected={connected} reviews={reviews} log={{ open: isLogOpen, onOpenChange: setLogOpen }} now={now} onRepair={onAnswer} /> : <div className="panel-content">
         {!task && !node && snapshot.cfo_conversation_left && <p className="cfo-conversation-left">{snapshot.cfo_conversation_left}</p>}
