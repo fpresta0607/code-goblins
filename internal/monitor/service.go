@@ -368,9 +368,11 @@ func (s Service) classify(ctx context.Context, meta state.TaskMeta, prior Observ
 		return erroringObservation(observation, digest, fault, detail, now), sample
 	}
 
-	// A terminal that keeps no counters, as a native one keeps none, shows its
-	// liveness on its screen instead: output written to it since the last scan.
-	isOutputMoved := sample.CountersUnavailable && observation.Digest != "" && observation.Digest != digest
+	// A native terminal keeps no counters, so between turns its liveness shows
+	// on its screen instead: output written to it since a scan that also found
+	// it between turns. The screen a turn leaves as it ends is the turn ending,
+	// which its status already says.
+	isOutputMoved := sample.CountersUnavailable && observation.BusySince == nil && observation.Digest != "" && observation.Digest != digest
 	observation.Digest = digest
 
 	// Any status other than working ends the busy stretch: the next working
