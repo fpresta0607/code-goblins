@@ -334,6 +334,8 @@ A project declares them in `data/projects/<name>/services.json`, beside its auth
 It starts Docker Desktop's engine first when the engine is not running, and starts anything only while free memory and free commit stay at or above the 4 GB floor with the stack's cost added: its last measured cost, or the estimate before the first.
 Until they would, it says why once a minute and waits, for up to `--wait` (30 minutes by default, and `0` refuses at once).
 A start measures the drop in free memory while the stack, and the engine when it started that too, came up, a stop measures the rise, and the record keeps the larger, so the next start is admitted on what the stack really costs.
+A first start builds the images the stack lacks inside that start, which can take many minutes and more memory than the stack runs on: PrecisionDocs' backend build took 6.6 GB with the engine on 2026-10-08, where redis and qdrant with the engine took 3.4 GB.
+The cost it measures guards every later start, and a later start that finds the images measures what the running stack takes instead.
 A stack that was already running when cfo came is shared and never stopped by cfo, and beside one that runs part of the stack cfo stops only the services it started.
 `cfo services down <project> --task <id>` releases the hold, and the last release stops what cfo started, keeping named volumes, and the engine when cfo started it and nothing it did not start runs on it.
 
