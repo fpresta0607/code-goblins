@@ -25,10 +25,7 @@ func AllowanceReset(report quota.Report, provider, model string, now time.Time) 
 	if !ok || reading.Stale || !reading.Known {
 		return time.Time{}, false
 	}
-	scope, ok := reading.Scopes["model:"+model]
-	if !ok || model == "" {
-		scope = reading.Scopes["all_models"]
-	}
+	scope := boundScope(reading, model)
 	var reset time.Time
 	isLow := false
 	for _, window := range reading.Windows {
@@ -50,6 +47,35 @@ func AllowanceReset(report quota.Report, provider, model string, now time.Time) 
 	return reset, isLow
 }
 
+// sessionReset is when a used-up session window that bounds provider's model
+// scope frees again. A session is never kept as a reserve, as the week is:
+// once it is used up, nothing starts or resumes on it until it renews, and
+// the goblins it stopped are waited out rather than paused.
+func sessionReset(report quota.Report, provider, model string, now time.Time) (time.Time, bool) {
+	reading, ok := report.Providers[provider]
+	if !ok || reading.Stale || !reading.Known {
+		return time.Time{}, false
+	}
+	scope := boundScope(reading, model)
+	var reset time.Time
+	for _, window := range reading.Windows {
+		if window.Kind == "session" && window.PercentUsed >= 100 && slices.Contains(scope.BoundedBy, window.ID) && window.ResetsAt.After(now) && window.ResetsAt.After(reset) {
+			reset = window.ResetsAt
+		}
+	}
+	return reset, !reset.IsZero()
+}
+
+// boundScope is the scope a goblin on model draws from: the model's own when
+// quota-axi measures one, otherwise every model's.
+func boundScope(reading quota.Provider, model string) quota.Scope {
+	scope, ok := reading.Scopes["model:"+model]
+	if !ok || model == "" {
+		scope = reading.Scopes["all_models"]
+	}
+	return scope
+}
+
 func allowanceBlocked(watched *fleetWakes, provider, model string, now time.Time) bool {
 	floor, ok := watched.AllowanceFloors[provider+"/model:"+model]
 	if !ok || model == "" {
@@ -60,14 +86,15 @@ func allowanceBlocked(watched *fleetWakes, provider, model string, now time.Time
 
 func (s *Service) pauseAtAllowanceFloor(ctx context.Context, watched *fleetWakes, now time.Time) error {
 	watched.AllowanceFloors = map[string]allowanceFloor{}
-	if s.Options.Quota == nil || s.Options.Dispatch == nil || s.Options.Dispatch.Spawn == nil {
-		return nil
+	report, skipped := quota.Report{}, "no quota reader"
+	if s.Options.Quota != nil {
+		probe, cancel := context.WithTimeout(ctx, 20*time.Second)
+		report, skipped = s.Options.Quota(probe)
+		cancel()
 	}
-	probe, cancel := context.WithTimeout(ctx, 20*time.Second)
-	report, skipped := s.Options.Quota(probe)
-	cancel()
 	if skipped != "" {
-		return nil
+		// A session seen used up still wakes the CFO when it renews.
+		return s.raiseAllowanceWakes(quota.Report{}, watched, now)
 	}
 	for provider, reading := range report.Providers {
 		if reading.Stale || !reading.Known {
@@ -79,10 +106,16 @@ func (s *Service) pauseAtAllowanceFloor(ctx context.Context, watched *fleetWakes
 				model = ""
 			}
 			reset, isLow := AllowanceReset(report, provider, model, now)
+			if !isLow {
+				reset, isLow = sessionReset(report, provider, model, now)
+			}
 			watched.AllowanceFloors[provider+"/"+name] = allowanceFloor{IsLow: isLow, Reset: reset}
 		}
 	}
-	var problems error
+	problems := s.raiseAllowanceWakes(report, watched, now)
+	if s.Options.Dispatch == nil || s.Options.Dispatch.Spawn == nil {
+		return problems
+	}
 	for _, meta := range liveTasks(s.Store.Home.State) {
 		reset, isLow := AllowanceReset(report, meta.Harness, meta.Model, now)
 		if !isLow {
