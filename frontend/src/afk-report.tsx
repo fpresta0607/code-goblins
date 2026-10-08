@@ -24,10 +24,9 @@ const waitsOnHim = (entry: AfkDecision): boolean => entry.kind === "left" || ent
 // the Overlord in the Command Center, which he reads first, then what the CFO
 // merged, deployed, migrated, installed and answered, each with its link and
 // the evidence it stood on, the goblins paused at a floor, what each goblin
-// finished, and what was spent. A section that holds anything still waiting
-// on him is open; every other folds into a drawer, closed until he opens it,
-// as a task's panel folds its sections, so a long stretch's merges, installs
-// and finished goblins do not bury what needs him. It opens when AFK mode
+// finished, and what was spent. Decision drawers keep long lists from
+// burying what still needs him; waitsOnHim keeps those decisions open.
+// Spent and the short Not read list stay open. It opens when AFK mode
 // turns off, and again from the CFO panel's header.
 export function AfkReportPage({ tasks, now, onClose, onCommand }: { tasks: Task[]; now: number; onClose: () => void; onCommand: () => void }) {
   const dialog = useRef<HTMLDialogElement>(null);

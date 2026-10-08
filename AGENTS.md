@@ -606,7 +606,7 @@ At his first click or key on the board after five minutes with none, the board o
 After a switch you made at his ask, his very first click or key on the board offers it at once, so a switch made on his words meets him before anything else.
 The desktop window is silenced with it: before `goblins-window.exe` notifies what its own look at the board found, it claims it through `/api/announce`, which hands out nothing while AFK mode is on.
 
-Turning it off produces the report of the stretch, which the board shows him as one page, `cfo afk off` prints for him and `cfo afk report` prints again: who turned it on and off, with his words for a switch you made, then what is held for him with the choice recommended for it and what became of it, as it stands whenever the report is read, and what its goblin did meanwhile, which he reads first, then what you left for him with why it is his, then what you merged, deployed, migrated, installed and answered, each with its link and evidence, any merge word whose merge was not recorded, the goblins paused at a floor, what each goblin reported done, and what was used of each allowance, from the supervisor's last `quota-axi` reading before it turned on beside its last before it turned off, leaving out an allowance at 0% and a reading not taken.
+Turning it off produces the report of the stretch: [AFK mode in the README](README.md#afk-mode) owns its board presentation and text usage, and [the native board guide](docs/native-board.md#afk-mode) owns its data and audit contracts.
 The switch waits on no program, so it answers at once, and turning it on again removes the report of the stretch before.
 You are woken when it turns off: write that report into your terminal with `cfo afk report`.
 

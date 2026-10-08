@@ -77,7 +77,7 @@ const shown = (value: number): string => String(Math.round(value * 10) / 10);
 export const shownUnder = (allowance: AfkAllowance): boolean => allowance.credits || /\bweek/i.test(allowance.window);
 
 // allowanceSays is one allowance under Spent as the report shows it: its name,
-// how much of a weekly limit is left when AFK mode turned off, or the credits
+// how much of a weekly limit is left at its last reading, or the credits
 // spent, how much of the limit AFK mode used, and the words a screen reader
 // says for its graph. A limit that renewed in between started again from
 // nothing, and a reading not taken leaves no change to say, so none is said,

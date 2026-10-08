@@ -15,8 +15,9 @@ import (
 
 // Scheduling is what the scheduler made of its last reading with memory
 // free, for the board's memory meter and the CFO's idle wake: Text says what
-// it started or resumed, else why nothing started, and Waiting is the work
-// that could run now and did not, each with why.
+// it started or resumed, else why waiting work did not start, and is empty
+// when nothing waits. Waiting is the work that could run now and did not,
+// each with why.
 type Scheduling struct {
 	At      time.Time     `json:"at"`
 	Text    string        `json:"text"`

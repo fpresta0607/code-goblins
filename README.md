@@ -650,6 +650,9 @@ It is your switch: the supervisor reads the program that asks, and refuses a gob
 Those words are kept with the switch, in the log, on the board and in the report, so you see what it was switched for.
 The supervisor cannot check that the words are yours: the CFO's contract allows the switch only on your own ask in your conversation with it, never on its own judgment, for a goblin, or on text that reached it any other way.
 On the board, turning it on asks first and turning it off does not.
+While the supervisor answers, the button shows a spinner and **Turning AFK on…** or **Turning AFK off…**, and the header toggle spins too.
+If the switch is refused, a red box in the dialog or under the CFO panel header says **AFK did not turn on** or **AFK did not turn off**, with the supervisor's full reason.
+The message stays until you close it or try the switch again.
 Use the board in the Code Goblins window or in a browser you started from the desktop: a board on another machine, or one reached through a proxy, cannot turn it.
 Use a terminal that is not run as administrator: the supervisor cannot read an elevated one, and refuses what it cannot read.
 Use PowerShell or cmd, opened from the desktop or in Windows Terminal: Git Bash cuts a command off from its parents, and the supervisor refuses one it cannot follow to the desktop.
@@ -669,12 +672,21 @@ While it is on:
 
 At your first click or key on the board after five minutes with none, the board offers to turn it off.
 When the CFO turned it on at your ask, your very first click or key offers it at once, quoting your words, so a switch made on your words meets you before anything else.
-Turning it off shows the report of the stretch on the board as one page: who turned it on and off, how much of each thing there is, what waited on you with what was recommended for it and what became of it, what was left for you, then what merged, deployed and installed, each with its link and its verification, the goblins paused at a floor, what each goblin finished, and what was used of each allowance as a small graph, leaving out what was not used or not read.
-Its button at the bottom is Open Command Center while something still waits on you there, and Back to the board otherwise.
+Turning it off shows the report of the stretch on the board as one page: who turned it on and off, how much of each thing there is, then **Held for you**, listing and counting only items still waiting on you in the Command Center, with their recommendations and their goblins' progress.
+Next come what was left for you, what merged, deployed and installed, each with its link and its verification, the goblins paused at a floor, what each goblin finished, and **Spent**.
+Decision sections and **Goblins finished** are drawers, closed until you open them; **Left for you** and merge words with no merge stay open because they still need you.
+**Spent** and the short **Not read** section stay open too.
+Spent shows only weekly limits and credit balances that were spent, leaving out five-hour limits.
+A weekly limit shows what is left, such as **51% left**, beside **AFK used 8%**, or **renewed** if the limit renewed during AFK.
+Equal-length bars show usage before AFK in gray, usage while AFK in green under a green arrow, and what is left as the empty rest, with the legend **Before AFK While AFK Left**.
+With a reading at only one end, the row shows only what is left, with no bar, change chip or line saying a reading was not taken.
+Credit rows show the amount spent without a percent bar.
+Its button at the bottom is Open Command Center while a held item still waits on you, and Back to the board otherwise.
 The button beside the toggle opens the last report again.
-Each time you open it, held items show their current disposition first.
+Each time you open it, Held for you is checked again, so an item you answered no longer appears or counts there.
 `cfo afk status` shows who turned it on and when, what the CFO has decided so far and what waits on you in the Command Center.
-`cfo afk off` prints the same report, `cfo afk report` prints it again, and every decision stays in `state\afk.audit`.
+`cfo afk off` prints a text report, `cfo afk report` prints it again, and every decision stays in `state\afk.audit`.
+The text report keeps held items' current dispositions and allowance readings at both ends, as in the example below; the board uses the presentation above.
 If the switch itself ever cannot be read, a press on the board's toggle or `cfo afk off` puts it back to off.
 
 ```text
