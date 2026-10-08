@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState, type PointerEvent } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState, type PointerEvent } from "react";
 import type { BoardActivity, FleetTree, Snapshot } from "./types";
 import { Avatar } from "./Avatar";
 import { activityDisplay, EFFECT_MS, playFrom, presentationShownOn, type ActivityEffect } from "./activity";
@@ -61,7 +61,7 @@ export function Orchestration({ snapshot, selected, connected, effects, onSelect
   const [canvas, setCanvas] = useState({ width: 0, height: 0 });
   const automatic = useMemo(() => makeRoom(arrange(nodes, canvas, awaited, extents), below), [nodes, canvas, awaited, extents, below]);
   const [layout, setLayout] = useState(readLayout);
-  const positions = useMemo(() => settle(automatic, layout.positions, extents), [automatic, layout.positions, extents]);
+  const positions = useMemo(() => settle(automatic, layout.positions, extents, awaited), [automatic, layout.positions, extents, awaited]);
   const [view, setView] = useState<View | null>(null);
   const [held, setHeld] = useState<View | null>(null);
 
@@ -116,10 +116,13 @@ export function Orchestration({ snapshot, selected, connected, effects, onSelect
   const { scale } = shown;
   const zoom = (next: number) => setView(zoomAt(shown, next, { x: canvas.width / 2, y: canvas.height / 2 }));
   const fit = () => setView(null);
-  useEffect(() => {
+  // Measured before the first paint, so the tree never shows unfitted.
+  useLayoutEffect(() => {
     const element = viewport.current;
     if (!element) return;
-    const observer = new ResizeObserver(() => setCanvas({ width: element.clientWidth, height: element.clientHeight }));
+    const measure = () => setCanvas({ width: element.clientWidth, height: element.clientHeight });
+    measure();
+    const observer = new ResizeObserver(measure);
     observer.observe(element);
     return () => observer.disconnect();
   }, []);
@@ -257,6 +260,25 @@ export function Orchestration({ snapshot, selected, connected, effects, onSelect
             return [<g key={"wait:" + node.id} className="dependency-line"><path d={path} /><circle cx={ex} cy={ey} r={5} /></g>];
           })}
         </svg>
+        {/* Branches come before the cards, so a card and its chevron lie
+            over the branches hanging from it. */}
+        {visible.flatMap((node) => {
+          const tree = trees[node.id];
+          if (!tree) return [];
+          const p = point(node.id);
+          if (collapsed.has(node.id)) return [<div key={"tree:" + node.id} className="tree-branch" style={{ left: p.x, top: p.y + NODE_HEIGHT + TREE_GAP, width: NODE_WIDTH }}>
+            <TreeCount tree={tree} title={node.title} expanded={false} onToggle={() => toggle(node.id)} />
+          </div>];
+          const block = branches[node.id];
+          return [<ul key={"tree:" + node.id} className="tree-branches" aria-label={"What runs under " + node.title}
+            style={{ left: p.x + (NODE_WIDTH - block.width) / 2, top: p.y + NODE_HEIGHT, width: block.width, height: block.height }}>
+            <svg className="branch-lines" width={block.width} height={block.height} aria-hidden="true">
+              {block.lines.map((line) => <path key={line} d={line} />)}
+              {block.ends.map((end) => <circle key={end.x + "," + end.y} cx={end.x} cy={end.y} r={3} />)}
+            </svg>
+            {running(tree).map((child, i) => <li key={child.id} style={{ left: block.places[i].x, top: block.places[i].y }}><TreeChild node={child} now={now} /></li>)}
+          </ul>];
+        })}
         {visible.map((node) => {
           const parent = node.parent ? byID.get(node.parent) : undefined;
           const activity = activityDisplay(connected ? effects : [],node.session?.id || "",parent?.session?.id || "");
@@ -283,23 +305,6 @@ export function Orchestration({ snapshot, selected, connected, effects, onSelect
             </button>
             {children && <button className="node-disclosure" aria-label={(collapsed.has(node.id) ? "Expand" : "Collapse") + " descendants of " + node.title} aria-expanded={!collapsed.has(node.id)} onClick={() => toggle(node.id)}><Chevron collapsed={collapsed.has(node.id)} /></button>}
           </article>;
-        })}
-        {visible.flatMap((node) => {
-          const tree = trees[node.id];
-          if (!tree) return [];
-          const p = point(node.id);
-          if (collapsed.has(node.id)) return [<div key={"tree:" + node.id} className="tree-branch" style={{ left: p.x, top: p.y + NODE_HEIGHT + TREE_GAP, width: NODE_WIDTH }}>
-            <TreeCount tree={tree} title={node.title} expanded={false} onToggle={() => toggle(node.id)} />
-          </div>];
-          const block = branches[node.id];
-          return [<ul key={"tree:" + node.id} className="tree-branches" aria-label={"What runs under " + node.title}
-            style={{ left: p.x + (NODE_WIDTH - block.width) / 2, top: p.y + NODE_HEIGHT, width: block.width, height: block.height }}>
-            <svg className="branch-lines" width={block.width} height={block.height} aria-hidden="true">
-              {block.lines.map((line) => <path key={line} d={line} />)}
-              {block.ends.map((end) => <circle key={end.x + "," + end.y} cx={end.x} cy={end.y} r={3} />)}
-            </svg>
-            {running(tree).map((child, i) => <li key={child.id} style={{ left: block.places[i].x, top: block.places[i].y }}><TreeChild node={child} now={now} /></li>)}
-          </ul>];
         })}
       </div>
     </div>

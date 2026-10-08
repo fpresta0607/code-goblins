@@ -24,6 +24,7 @@ test.beforeEach(async ({ page }) => {
 
 test("the wheel zooms the canvas in and out where the pointer is", async ({ page }) => {
   await page.goto("/tests/fixtures/canvas-controls.html");
+  await expect(page.locator(".flow-node")).toHaveCount(6);
   const start = await zoom(page);
   const before = (await card(page, "Goblin 2").boundingBox())!;
   const pointer = { x: before.x + before.width * .25, y: before.y + before.height * .75 };
@@ -40,6 +41,7 @@ test("the wheel zooms the canvas in and out where the pointer is", async ({ page
 
 test("dragging the canvas moves every card with it, and Fit frames them all where they were", async ({ page }) => {
   await page.goto("/tests/fixtures/canvas-controls.html");
+  await expect(page.locator(".flow-node")).toHaveCount(6);
   const fitted = await boxes(page);
   await page.mouse.move(12, 12);
   await page.mouse.down();
