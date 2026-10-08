@@ -6,6 +6,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"syscall"
 	"testing"
@@ -73,6 +74,64 @@ func TestInstallReplacesAHomeBuildThatIsStillRunning(t *testing.T) {
 	}
 	if strings.Contains(output, "the previous build still runs") {
 		t.Errorf("the install says an old build still runs once none does:\n%s", output)
+	}
+}
+
+// A copy an older install moved aside at the home's root that something still
+// runs cannot be removed, so the install moves it into bin, named for its
+// program alone, as any copy moved aside is. Named again on top of its old
+// name it once stayed in bin for good: the pass that removes old copies once
+// nothing runs them did not know the name. A later install removes it once
+// nothing runs it.
+func TestARootCopyStillRunningMovesIntoBinUnderItsProgramsName(t *testing.T) {
+	// Arrange: a running copy at the root, ping under the name an older
+	// install gave a copy it moved aside.
+	f := installedFixture(t, nil, codegoblins.Contract, codegoblins.Policy)
+	f.install()
+	ping, err := os.ReadFile(filepath.Join(os.Getenv("SystemRoot"), "System32", "PING.EXE"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	running := filepath.Join(f.root, "cfo.exe.ZWLFUCC5NGUANWZOS4MPE2XO2L.old")
+	if err := os.WriteFile(running, ping, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	old := exec.Command(running, "-n", "120", "127.0.0.1")
+	old.SysProcAttr = &syscall.SysProcAttr{CreationFlags: 0x08000000} // CREATE_NO_WINDOW
+	if err := old.Start(); err != nil {
+		t.Fatal(err)
+	}
+	exited := make(chan struct{})
+	go func() {
+		_ = old.Wait()
+		close(exited)
+	}()
+	stop := func() {
+		_ = old.Process.Kill()
+		<-exited
+	}
+	t.Cleanup(stop)
+
+	// Act
+	output := f.install()
+
+	// Assert
+	moved, err := filepath.Glob(filepath.Join(f.bin, "cfo.exe.*.old"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(moved) != 1 || !regexp.MustCompile(`^cfo\.exe\.[A-Za-z0-9]+\.old$`).MatchString(filepath.Base(moved[0])) || readFile(t, moved[0]) != string(ping) {
+		t.Fatalf("copies moved into bin = %v, want the running copy alone, named cfo.exe.<text>.old:\n%s", moved, output)
+	}
+	if _, err := os.Stat(running); !os.IsNotExist(err) {
+		t.Errorf("the running copy is still at the home's root: %v", err)
+	}
+
+	stop()
+	f.install()
+
+	if left, _ := filepath.Glob(filepath.Join(f.bin, "cfo.exe.*.old")); len(left) != 0 {
+		t.Errorf("copies left once nothing runs them: %v", left)
 	}
 }
 

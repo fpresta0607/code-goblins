@@ -263,7 +263,7 @@ func installUpdate(h home.Home, stdout, stderr io.Writer) int {
 		return rollBack(h, journal, address, fmt.Errorf("record the update as done: %w", err), stdout, stderr)
 	}
 	update.CleanUp(journal)
-	_, running := update.KeepRecent(programs, update.KeptBuilds)
+	_, running := update.RemoveAsideCopies(programs)
 	for _, kept := range running {
 		fmt.Fprintf(stdout, "Kept %s: something still runs it, and the janitor removes it once nothing does.\n", kept)
 	}

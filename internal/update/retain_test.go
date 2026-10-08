@@ -4,9 +4,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"strings"
 	"testing"
-	"time"
 )
 
 // builds counts the distinct builds of cfo among the files in bin, its
@@ -36,10 +34,11 @@ func builds(t *testing.T, bin string) (map[string]bool, int) {
 
 // Every update moves the build it replaces aside, and a copy something still
 // runs, such as a goblin's terminal host, outlives the update's own clean-up:
-// 122 of them once filled a home's root. Whatever number of updates runs, bin
-// keeps the current build and the two before it, and the last update's
-// rollback still puts the build it replaced back.
-func TestBinKeepsTheCurrentBuildAndTwoBeforeItAfterAnyNumberOfUpdates(t *testing.T) {
+// 122 of them once filled a home's root. The Overlord, 2026-10-08: "no
+// redudant exe files". Whatever number of updates runs, bin keeps the current
+// build alone, under its two names, and the last update's rollback still puts
+// the build it replaced back from the update's own verified copies.
+func TestBinKeepsTheCurrentBuildAloneAfterAnyNumberOfUpdates(t *testing.T) {
 	// Arrange
 	home := t.TempDir()
 	bin := filepath.Join(home, "bin")
@@ -62,7 +61,8 @@ func TestBinKeepsTheCurrentBuildAndTwoBeforeItAfterAnyNumberOfUpdates(t *testing
 		}
 
 		// Act: an update whose clean-up could not remove the copies it moved
-		// aside, because something still ran them.
+		// aside, because something still ran them, then the pass that
+		// removes them once nothing does.
 		var err error
 		if journal, err = Prepare(bin, stateDir, candidate); err != nil {
 			t.Fatalf("update %d: Prepare: %v", i, err)
@@ -73,29 +73,18 @@ func TestBinKeepsTheCurrentBuildAndTwoBeforeItAfterAnyNumberOfUpdates(t *testing
 		if err := Record(stateDir, journal, Done, "serves"); err != nil {
 			t.Fatal(err)
 		}
-		time.Sleep(20 * time.Millisecond)
-		KeepRecent(bin, KeptBuilds)
+		RemoveAsideCopies(bin)
 
 		// Assert
-		hashes, files := builds(t, bin)
-		if len(hashes) > KeptBuilds+1 {
-			t.Fatalf("after update %d bin holds %d builds in %d files, want at most %d", i, len(hashes), files, KeptBuilds+1)
-		}
-	}
-	for _, kept := range []string{"build 5", "build 4"} {
-		sum, err := hashOf(strings.NewReader(kept))
-		if err != nil {
-			t.Fatal(err)
-		}
-		if hashes, _ := builds(t, bin); !hashes[sum] {
-			t.Errorf("bin no longer holds %s, one of the two builds before the current one", kept)
+		if hashes, files := builds(t, bin); len(hashes) != 1 || files != len(Aliases) {
+			t.Fatalf("after update %d bin holds %d builds in %d files, want the current build alone in its %d aliases", i, len(hashes), files, len(Aliases))
 		}
 	}
 
 	// The rollback restores from the update's verified copies, which the
-	// pruning never touches.
+	// removal never touches.
 	if err := Restore(journal); err != nil {
-		t.Fatalf("Restore after pruning: %v", err)
+		t.Fatalf("Restore after the removal: %v", err)
 	}
 	for _, name := range Aliases {
 		if got, err := os.ReadFile(filepath.Join(bin, name)); err != nil || string(got) != "build 5" {
@@ -104,19 +93,40 @@ func TestBinKeepsTheCurrentBuildAndTwoBeforeItAfterAnyNumberOfUpdates(t *testing
 	}
 }
 
-func TestKeepRecentLeavesWhatAnUpdateInProgressStaged(t *testing.T) {
+// Every copy of a program moved aside goes, whichever way it was named, a
+// copy an older install moved again under a second .old among them, which
+// once stayed in bin for good; what an update in progress staged and every
+// other file stay.
+func TestRemoveAsideCopiesRemovesEveryCopyMovedAsideAndNothingElse(t *testing.T) {
+	// Arrange
 	bin := t.TempDir()
-	for _, name := range []string{"cfo.exe.update-new", "goblins.exe.update-restore", "cfo.exe", "notes.txt"} {
+	aside := []string{"cfo.exe.1791449158834959100.update-old", "goblins.exe.ZWLFUCC5NGUANWZOS4MPE2XO2L.old", "cfo.exe.OFXG3O7Z2WTAOETUQUBHOQCWTS.old.GHVTLRQU5WOWXKXQU6QWXUHANI.old", "goblins-window.exe.abc.old", "cfo.exe.held-66714dea"}
+	kept := []string{"cfo.exe.update-new", "goblins.exe.update-restore", "cfo.exe", "goblins.exe", "goblins-window.exe", "notes.txt", "cfo.exe.bak"}
+	for _, name := range append(append([]string{}, aside...), kept...) {
 		if err := os.WriteFile(filepath.Join(bin, name), []byte(name), 0o644); err != nil {
 			t.Fatal(err)
 		}
 	}
 
-	KeepRecent(bin, 0)
+	// Act
+	freed, left := RemoveAsideCopies(bin)
 
-	for _, name := range []string{"cfo.exe.update-new", "goblins.exe.update-restore", "cfo.exe", "notes.txt"} {
+	// Assert
+	for _, name := range aside {
+		if _, err := os.Stat(filepath.Join(bin, name)); !os.IsNotExist(err) {
+			t.Errorf("%s, a copy moved aside, survived: %v", name, err)
+		}
+	}
+	for _, name := range kept {
 		if _, err := os.Stat(filepath.Join(bin, name)); err != nil {
 			t.Errorf("%s was removed: %v", name, err)
 		}
+	}
+	var want int64
+	for _, name := range aside {
+		want += int64(len(name))
+	}
+	if freed != want || len(left) != 0 {
+		t.Errorf("RemoveAsideCopies = %d bytes freed, %v left; want %d and none", freed, left, want)
 	}
 }
