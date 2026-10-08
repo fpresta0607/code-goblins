@@ -1,6 +1,7 @@
 # Installing Code Goblins
 
 `CodeGoblinsSetup.exe` and the one-line PowerShell install are the same install, and you can rerun either at any time to update.
+Any copy of `CodeGoblinsSetup.exe`, one kept from an older release included, installs the newest release.
 Each puts the Code Goblins app and the `cfo` command line (also called `goblins`) together in one folder, adds that folder to your PATH and Code Goblins to the Start menu, installs the tools the goblins use where they are missing, and opens the app.
 Use the setup if you want a window, the one line if you live in a terminal.
 

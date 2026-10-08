@@ -239,11 +239,12 @@ func TestShowDetailsShowsTheLogsLastLines(t *testing.T) {
 	}
 }
 
-// A setup built by a release installs that release, and one built with no
-// release named installs the latest.
-func TestTheSetupInstallsTheReleaseThatBuiltIt(t *testing.T) {
+// The Overlord, 2026-10-08: "the setup is an old installer". Every setup
+// installs the newest release, whichever release built it, so one kept from
+// an older release never puts its own older build over a newer one.
+func TestTheSetupInstallsTheNewestReleaseWhicheverBuiltIt(t *testing.T) {
 	for name, test := range map[string]struct{ tag, want string }{
-		"a release's own setup":     {"v1.2.3", "https://github.com/someone/code-goblins/releases/download/v1.2.3/install.ps1"},
+		"an older release's setup":  {"v0.4.0", "https://github.com/someone/code-goblins/releases/latest/download/install.ps1"},
 		"a setup built from source": {"", "https://github.com/someone/code-goblins/releases/latest/download/install.ps1"},
 	} {
 		t.Run(name, func(t *testing.T) {

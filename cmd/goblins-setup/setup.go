@@ -20,21 +20,20 @@ import (
 )
 
 // repository and tag are the release that publishes this program, stamped in
-// when it is built with -ldflags -X. A build that names no tag, as one from a
-// clone, installs the latest release of Code Goblins' own repository.
+// when it is built with -ldflags -X. tag is this program's own version, which
+// its log names; a build that names none is one from a clone.
 var (
 	repository = "fpresta0607/code-goblins"
 	tag        = ""
 )
 
-// scriptURL is where the install script this program runs is published: its
-// own release's, which installs that release's programs and no other, or the
-// latest release's for a build that names no release.
+// scriptURL is where the install script this program runs is published: the
+// newest release's, whichever release published this program. A setup kept
+// from an older release, as the Overlord ran one from his Downloads on
+// 2026-10-08, still installs the newest Code Goblins, never its own older
+// build over a newer one.
 func scriptURL() string {
-	if tag == "" {
-		return "https://github.com/" + repository + "/releases/latest/download/install.ps1"
-	}
-	return "https://github.com/" + repository + "/releases/download/" + tag + "/install.ps1"
+	return "https://github.com/" + repository + "/releases/latest/download/install.ps1"
 }
 
 // downloadWait bounds the download of the install script, which is small.
@@ -106,7 +105,7 @@ type Setup struct {
 // sentence: what stopped the install and what to do. The details are in the
 // log.
 func (s Setup) Install(ctx context.Context, report func(Progress)) error {
-	if err := os.WriteFile(s.Log, []byte("Code Goblins Setup "+version()+", "+time.Now().Format(time.RFC1123)+"\r\n"), 0o644); err != nil {
+	if err := os.WriteFile(s.Log, []byte("Code Goblins Setup "+version()+", installing the newest release, "+time.Now().Format(time.RFC1123)+"\r\n"), 0o644); err != nil {
 		return fmt.Errorf("Setup could not write its log %s (%v); free some disk space, then try again.", s.Log, err)
 	}
 	report(Progress{Step: 1})
@@ -267,10 +266,10 @@ func (s Setup) download(ctx context.Context, path string) error {
 	return os.WriteFile(path, script.Bytes(), 0o644)
 }
 
-// version is the release this program installs.
+// version is this program's own release, which installs the newest one.
 func version() string {
 	if tag == "" {
-		return "(latest release)"
+		return "(built from source)"
 	}
 	return tag
 }
