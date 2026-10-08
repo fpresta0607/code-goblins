@@ -50,18 +50,46 @@ const (
 const devDriveAttachEvery = 12 * time.Hour
 
 // watchDevDrive keeps the Dev Drive's view and items to the machine: now,
-// every minute while a step is under way and every half hour otherwise, and
-// whenever the person asks or one of its items ends.
+// every minute while a step is under way and every half hour otherwise,
+// whenever the person asks or one of its items ends, and at the next tick
+// after config\dev-drive.json changed, as cfo dev-drive setup, cfo dev-drive
+// move and the install change it. Only that file is read each tick; the
+// machine is read when a look is due.
 func (s *Service) watchDevDrive(ctx context.Context) {
+	tick := s.devDriveTick
+	if tick == 0 {
+		tick = time.Minute
+	}
+	var due time.Time
+	var seen devDriveMark
 	for {
-		every := s.keepDevDrive(ctx)
+		if mark := s.devDriveMark(); mark != seen || !time.Now().Before(due) {
+			due = time.Now().Add(s.keepDevDrive(ctx))
+			seen = s.devDriveMark()
+		}
 		select {
 		case <-ctx.Done():
 			return
-		case <-time.After(every):
+		case <-time.After(tick):
 		case <-s.devDriveNow:
+			due = time.Time{}
 		}
 	}
+}
+
+// devDriveMark is when config\dev-drive.json last changed and its size, the
+// zero mark while there is none.
+type devDriveMark struct {
+	modified time.Time
+	size     int64
+}
+
+func (s *Service) devDriveMark() devDriveMark {
+	info, err := os.Stat(home.DevDriveConfigPath(s.Store.Home.Root))
+	if err != nil {
+		return devDriveMark{}
+	}
+	return devDriveMark{modified: info.ModTime(), size: info.Size()}
 }
 
 // devDriveAgain asks the Dev Drive watch for another look now.
@@ -207,14 +235,7 @@ func (s *Service) devDriveViewNow() *DevDriveView {
 // which asks for the next step now, or declined.
 func (s *Service) askDevDrive(want bool) error {
 	s.devDriveConfig.Lock()
-	config, err := home.ReadDevDriveConfig(s.Store.Home.Root)
-	if err == nil {
-		config.Choice = home.DevDriveDeclined
-		if want {
-			config.Choice, config.AskedAt = home.DevDriveWanted, time.Now().UTC()
-		}
-		err = home.WriteDevDriveConfig(s.Store.Home.Root, config)
-	}
+	err := home.AnswerDevDrive(s.Store.Home.Root, want, time.Now().UTC())
 	s.devDriveConfig.Unlock()
 	if err == nil {
 		s.devDriveAgain()

@@ -185,7 +185,10 @@ type Service struct {
 	// devDriveNow asks the Dev Drive watch for another look; devDriveConfig
 	// serializes its changes to config\dev-drive.json with the board's, and
 	// devDriveView is what it last found, under devDriveViewMu.
-	devDriveNow    chan struct{}
+	devDriveNow chan struct{}
+	// devDriveTick is how often the watch reads the config file; zero is a
+	// minute, and a test sets it shorter.
+	devDriveTick   time.Duration
 	devDriveConfig sync.Mutex
 	devDriveViewMu sync.Mutex
 	devDriveView   *DevDriveView
@@ -1011,8 +1014,8 @@ type Task struct {
 	// ReportedAt is when the goblin wrote its latest report, so the board
 	// can tell whether it reported since an answer it was given.
 	ReportedAt time.Time `json:"reported_at"`
-	Handoff       bool      `json:"handoff"`
-	RetiredAt     time.Time `json:"retired_at"`
+	Handoff    bool      `json:"handoff"`
+	RetiredAt  time.Time `json:"retired_at"`
 	// Archived marks completed history rather than a live task, Merged that
 	// its pull request merged into its base, and Closed that GitHub closed it
 	// without merging.

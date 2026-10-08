@@ -120,9 +120,12 @@
 
     # -NoStartAtLogin keeps Windows from starting Code Goblins at login, and
     # -StartAtLogin turns that back on; with neither the home keeps the choice
-    # it holds, on where it holds none.
+    # it holds, on where it holds none. -DevDrive answers the setup's offer of
+    # a Dev Drive with yes, so the board's first Command Center item sets one
+    # up, and -NoDevDrive with no; with neither nothing is recorded.
     $Dev = $false
     $StartAtLogin = ""
+    $DevDrive = ""
     $arguments = @($args[0])
     for ($i = 0; $i -lt $arguments.Count; $i++) {
         if ($arguments[$i] -eq "-Dev") {
@@ -133,6 +136,12 @@
         }
         elseif ($arguments[$i] -eq "-NoStartAtLogin") {
             $StartAtLogin = "off"
+        }
+        elseif ($arguments[$i] -eq "-DevDrive") {
+            $DevDrive = "on"
+        }
+        elseif ($arguments[$i] -eq "-NoDevDrive") {
+            $DevDrive = "off"
         }
         else {
             throw "Unknown argument '$($arguments[$i])'. In a clone of Code Goblins, run: .\install.cmd -Dev"
@@ -261,6 +270,9 @@
         $installArguments = @("install")
         if ($StartAtLogin) {
             $installArguments += @("--start-at-login", $StartAtLogin)
+        }
+        if ($DevDrive) {
+            $installArguments += @("--dev-drive", $DevDrive)
         }
         if ((Invoke-Logged $Program $installArguments) -ne 0) {
             throw "Code Goblins could not be set up: $($lastLine.Text -replace '^install: ', '')"

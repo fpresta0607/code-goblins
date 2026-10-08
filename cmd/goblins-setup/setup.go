@@ -94,6 +94,10 @@ type Setup struct {
 	// StartAtLogin is the person's choice of Start at login, on or off,
 	// which the script hands to cfo install; empty keeps the home's choice.
 	StartAtLogin string
+	// DevDrive is the answer to the offer of a Dev Drive, on or off, which
+	// the script hands to cfo install; empty where the window showed no
+	// offer.
+	DevDrive string
 }
 
 // Install downloads the install script and runs it out of sight, handing
@@ -125,6 +129,12 @@ func (s Setup) Install(ctx context.Context, report func(Progress)) error {
 		arguments = append(arguments, "-StartAtLogin")
 	case "off":
 		arguments = append(arguments, "-NoStartAtLogin")
+	}
+	switch s.DevDrive {
+	case "on":
+		arguments = append(arguments, "-DevDrive")
+	case "off":
+		arguments = append(arguments, "-NoDevDrive")
 	}
 	command := execx.CommandContext(ctx, s.Shell, arguments...)
 	command.Dir = folder

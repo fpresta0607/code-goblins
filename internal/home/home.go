@@ -136,6 +136,21 @@ const (
 	DevDriveDeclined = "declined"
 )
 
+// AnswerDevDrive records the person's answer to the offer of a Dev Drive in
+// root's config\dev-drive.json, from the setup or the board: wanted, asked at
+// now, so the board makes the next step's Command Center item, or declined.
+func AnswerDevDrive(root string, want bool, now time.Time) error {
+	config, err := ReadDevDriveConfig(root)
+	if err != nil {
+		return err
+	}
+	config.Choice = DevDriveDeclined
+	if want {
+		config.Choice, config.AskedAt = DevDriveWanted, now
+	}
+	return WriteDevDriveConfig(root, config)
+}
+
 // WriteDevDriveConfig writes root's config\dev-drive.json.
 func WriteDevDriveConfig(root string, config DevDriveConfig) error {
 	data, err := json.MarshalIndent(config, "", "  ")

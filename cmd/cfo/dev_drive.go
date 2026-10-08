@@ -17,13 +17,17 @@ import (
 // worktrees, scratch and package caches onto one:
 //
 //	cfo dev-drive
+//	cfo dev-drive setup
 //	cfo dev-drive move --to <folder>
 func runDevDrive(args []string, stdout, stderr io.Writer, runtime commandRuntime) int {
 	if len(args) > 0 && args[0] == "move" {
 		return runDevDriveMove(args[1:], stdout, stderr, runtime)
 	}
+	if len(args) == 1 && args[0] == "setup" {
+		return runDevDriveSetup(stdout, stderr, runtime)
+	}
 	if len(args) != 0 {
-		fmt.Fprintln(stderr, "usage: cfo dev-drive [move --to <folder>]")
+		fmt.Fprintln(stderr, "usage: cfo dev-drive [setup | move --to <folder>]")
 		return 2
 	}
 	h, err := runtime.resolveHome()
@@ -45,6 +49,22 @@ func runDevDrive(args []string, stdout, stderr io.Writer, runtime commandRuntime
 		}
 		fmt.Fprintf(stdout, "  %s %q %s, %.0f GB free of %.0f GB\n", v.Letter(), v.Label, kind, float64(v.Free)/(1<<30), float64(v.Total)/(1<<30))
 	}
+	return 0
+}
+
+// runDevDriveSetup asks for the next Dev Drive step from a terminal, as Set up
+// on the board does: the board puts it in the Command Center.
+func runDevDriveSetup(stdout, stderr io.Writer, runtime commandRuntime) int {
+	h, err := runtime.resolveHome()
+	if err != nil {
+		fmt.Fprintln(stderr, err)
+		return 1
+	}
+	if err := home.AnswerDevDrive(h.Root, true, time.Now().UTC()); err != nil {
+		fmt.Fprintln(stderr, "cfo dev-drive setup: "+err.Error())
+		return 1
+	}
+	fmt.Fprintln(stdout, "asked: the board puts the next Dev Drive step in the Command Center within a minute, each step one item to run")
 	return 0
 }
 
