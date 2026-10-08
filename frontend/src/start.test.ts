@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { diskBlock, diskScale, diskState, freeGigabytes, holdersLine, memoryBlock, meterScale, meterState, nextChip, nextInOrder, poolWarning, queueBlock, refusalStands, scheduleLine, startBlock, startOutcome, tighter } from "./start.ts";
+import { diskBlock, diskScale, diskState, freeGigabytes, holdersLine, memoryBlock, meterScale, meterState, nextChip, nextInOrder, poolWarning, queueBlock, refusalStands, scheduleLine, startBlock, startOrder, startOutcome, tighter } from "./start.ts";
 import { nodeStatus } from "./workflow.ts";
 import { parseSnapshot, type Disk, type Memory, type Snapshot, type Task } from "./types.ts";
 
@@ -116,7 +116,7 @@ test("the meter names the apps holding the most commit only while commit is the 
 
 test("a paged pool past 4 GB says Windows holds it and a restart frees it", () => {
   assert.equal(poolWarning({ ...memory(7), paged_pool: 4 * GB }), "");
-  assert.equal(poolWarning({ ...memory(7), paged_pool: 15.6 * GB }), "Paged pool 15.6 GB: Windows is holding this in its kernel paged pool, memory no goblin can use; restarting the PC frees it.");
+  assert.equal(poolWarning({ ...memory(7), paged_pool: 15.6 * GB }), "Paged pool 15.6 GB: Windows holds this in its kernel paged pool, where no goblin can use it. Restarting the PC frees it.");
   assert.match(poolWarning({ ...memory(7), paged_pool: 4 * GB + 1 }), /^Paged pool/);
 });
 
@@ -227,6 +227,32 @@ test("Next sits on the card the supervisor's order for a free slot takes first",
 
     // Assert
     assert.deepEqual(next, want, name);
+  }
+});
+
+// The Overlord, 2026-10-07: "for priority next up should be at the top of
+// the column the positional should align with priority".
+test("the Tasks column runs in start order: Next up first, then what can start, then what is held", () => {
+  // Arrange
+  const queued = (id: string, fields: Record<string, unknown> = {}) => ({ id, phase: "queued", brief: true, verified: false, ...fields });
+  const board = (tasks: Record<string, unknown>[]) => parseSnapshot({ healthy: true, memory: memory(9), tasks });
+  const cases: [string, Snapshot, string[]][] = [
+    ["the queue's order when everything can start", board([queued("a"), queued("b"), queued("c")]), ["a", "b", "c"]],
+    ["a row blocked by time sits under every row that can start", board([queued("timed", { dependencies: ["time"], reason: "blocked-by: time" }), queued("free"), queued("also-free")]), ["free", "also-free", "timed"]],
+    ["a row that already finished and one whose start failed sit under the rest", board([queued("done", { finished: "Already finished" }), queued("failed", { start_error: "spawn: project missing" }), queued("free")]), ["free", "done", "failed"]],
+    ["a reported production defect is first", board([queued("first"), queued("urgent", { priority: "production-defect" })]), ["urgent", "first"]],
+    ["a held production defect stays with the held", board([queued("first"), queued("urgent", { priority: "production-defect", dependencies: ["other"] })]), ["first", "urgent"]],
+    ["nothing queued", board([]), []],
+  ];
+
+  for (const [name, snapshot, want] of cases) {
+    // Act
+    const order = startOrder(snapshot).map((task) => task.id);
+
+    // Assert
+    assert.deepEqual(order, want, name);
+    const next = nextInOrder(snapshot, Date.parse("2026-10-06T12:00:00Z"));
+    if (next) assert.equal(next.id, order[0], name + ": Next up is the first row");
   }
 });
 

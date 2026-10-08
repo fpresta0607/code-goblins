@@ -82,8 +82,7 @@ export function VoiceBubble({ voice, listening, level, model, onPaste }: { voice
   return <div className="voice-dock" onKeyDown={(event) => { if (open && event.key === "Escape") { event.stopPropagation(); close(); } }}>
     {hint && !open && <div className="voice-card voice-hint" role="note">
       <p className="voice-card-title">Speak into this terminal</p>
-      <p>Focus the terminal, hold Ctrl+Shift+Space, speak, then release.</p>
-      <p>Click the microphone for your recent words.</p>
+      <p>Hold Ctrl+Shift+Space and speak.</p>
       <button className="icon-button pixel-icon voice-close" aria-label="Dismiss hint" data-tip="Dismiss hint" data-tip-align="end" onClick={dismiss}><Icon name="close" /></button>
     </div>}
     {open && <section className="voice-card voice-recent" role="dialog" aria-label="Recent messages">

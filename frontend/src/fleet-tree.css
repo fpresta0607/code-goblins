@@ -66,12 +66,10 @@
    on a rail. */
 .workflow-branch > .tree-lineage { margin: 10px 0 0 12px; display: grid; gap: 8px; justify-items: start; }
 
-/* The goblin's card names a silent child with its last line. */
+/* The goblin's card counts what runs under it; a silent child is named in
+   its panel, not on the card. */
 .card-tree { display: inline-flex; align-items: center; flex-wrap: wrap; gap: 4px 10px; color: #b9cad6; font-size: .9375rem; font-weight: 700; }
 .card-tree .tree-tally { gap: 2px; }
-.card-silent { display: grid; gap: 2px; margin-top: 2px; padding: 6px 10px; border-left: 3px solid var(--amber); border-radius: 6px; background: rgba(243, 197, 120, 0.07); font-size: .9375rem; min-width: 0; }
-.card-silent b { color: #f6d79e; font-weight: 800; overflow-wrap: anywhere; }
-.card-silent code { font-family: var(--font-mono); font-size: .8125rem; color: #e7d3a3; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 
 /* What's working in the goblin's panel. */
 .working-summary { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 18px; margin: 0 0 14px; font-weight: 700; color: #c4d4df; }

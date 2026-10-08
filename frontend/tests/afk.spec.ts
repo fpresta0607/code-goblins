@@ -125,7 +125,7 @@ test("the CFO panel's header carries the AFK toggle beside its status: off at re
   await expect(header(page).getByRole("switch")).toHaveCount(1);
   await expect(toggle(page)).toHaveText("AFK");
   await expect(toggle(page)).toHaveAttribute("aria-checked", "false");
-  await expect(bar(page).locator(".cfo-rest")).toContainText("All quiet. The CFO supervises 3 goblins.");
+  await expect(bar(page).locator(".cfo-rest")).toContainText("All quiet. 3 goblins at work.");
 
   // On asks, with the focus on Cancel: Enter alone turns nothing on.
   await toggle(page).click();
@@ -179,20 +179,21 @@ test("a refusal is said in the supervisor's words, in the question and under the
 // just show the command center button to open whats to be answered". AFK mode
 // is complete autopilot, so the bar lists nothing held for him: whatever waits
 // is a click away on Open Command Center, which does not glow while he is away.
-test("while AFK is on the bar lists nothing held, and Open Command Center, unlit, is its one way to what waits", async ({ page }) => {
+test("while AFK is on the bar stays at rest and lists nothing held, and an outline Open Command Center is its one way to what waits", async ({ page }) => {
   await open(page, snapshot({ questions: QUESTIONS }));
-  // With AFK off the same items put a glowing Open Command Center on the bar.
+  // With AFK off the same items bring the CFO's lantern box with its lantern
+  // Open Command Center.
   const command = bar(page).getByRole("button", { name: /^Open Command Center/ });
   await expect(command).toHaveAccessibleName("Open Command Center: 2 waiting on you");
-  await expect(command).toHaveCSS("animation-name", "cfo-command-glow");
+  await expect(bar(page).locator(".dialogue")).toHaveCount(1);
+  await expect(command).not.toHaveClass(/outline/);
 
   await push(page, snapshot({ questions: QUESTIONS, afk: on({ decided: 4, held: HELD }) }));
   await expect(bar(page).locator(".cfo-rest > p")).toHaveText(/^AFK since .+\. 4 decided\.$/);
+  await expect(bar(page).locator(".dialogue")).toHaveCount(0);
   await expect(bar(page).getByText(/held/i)).toHaveCount(0);
   await expect(bar(page).locator(".afk-held, details")).toHaveCount(0);
-  await expect(command).toHaveAccessibleName("Open Command Center: 2 waiting on you");
-  await expect(command).toHaveCSS("animation-name", "none");
-  await expect(command).toHaveCSS("box-shadow", "none");
+  await expect(bar(page).locator(".cfo-rest").getByRole("button", { name: "Open Command Center: 2 waiting on you" })).toHaveClass(/outline/);
   await expect(page.locator("dialog.question-modal")).not.toBeVisible();
 
   await command.click();

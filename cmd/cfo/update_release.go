@@ -192,7 +192,7 @@ func releaseUpdate(h home.Home, check bool, to, pressed string, stdout, stderr i
 	case !sameHomePath(target.Root, h.Root):
 		fmt.Fprintf(stdout, "Note: Code Goblins %s runs, but this machine's install names the home %s, not this one, so this home's contract, skills and hooks were left as they were.\n", latest.Tag, target.Root)
 	default:
-		installCode = runProgram(h, filepath.Join(h.Bin(), "cfo.exe"), []string{"install"}, stdout, stderr)
+		installCode = runProgram(h, filepath.Join(h.Programs(), "cfo.exe"), []string{"install"}, stdout, stderr)
 	}
 	if installCode != 0 {
 		fmt.Fprintf(stdout, "Updated: Code Goblins %s runs, but its install did not bring the home's contract, skills and hooks up to date (exit code %d); run goblins install to finish.\n", latest.Tag, installCode)

@@ -12,8 +12,8 @@ const afk = (changes: Partial<Afk> = {}): Afk => ({ state: "off", since: "", fro
 const snapshot = (changes: Partial<Snapshot> = {}) => ({ tasks: [], attention: [], questions: [], reviews: [], runs: [], afk: afk(), ...changes }) as unknown as Snapshot;
 
 test("with nothing waiting on the Overlord the CFO says all is quiet and how many goblins it supervises", () => {
-  assert.deepEqual(cfoSummary(snapshot({ tasks: [task("a"), task("b"), task("queued", { generation: "" }), task("history", { archived: true })] })), { waiting: 0, line: "All quiet. The CFO supervises 2 goblins." });
-  assert.deepEqual(cfoSummary(snapshot({ tasks: [task("a")] })), { waiting: 0, line: "All quiet. The CFO supervises 1 goblin." });
+  assert.deepEqual(cfoSummary(snapshot({ tasks: [task("a"), task("b"), task("queued", { generation: "" }), task("history", { archived: true })] })), { waiting: 0, line: "All quiet. 2 goblins at work." });
+  assert.deepEqual(cfoSummary(snapshot({ tasks: [task("a")] })), { waiting: 0, line: "All quiet. 1 goblin at work." });
   assert.deepEqual(cfoSummary(snapshot()), { waiting: 0, line: "All quiet. No goblins are at work." });
 });
 
@@ -23,13 +23,13 @@ test("while something waits on the Overlord the bar counts it and says nothing o
     questions: [question("goblin", "Which **layout** should I use?\n\n- A: stacked", { task: "goblin-a", created_at: "2026-09-25T09:00:00Z" }), question("own", "Merge **PR 91** now?")],
     reviews: [review("look", "Check the onboarding mockup")],
   }));
-  assert.deepEqual(needs, { waiting: 2, line: "The CFO supervises 1 goblin." });
+  assert.deepEqual(needs, { waiting: 2, line: "1 goblin at work." });
   assert.deepEqual(cfoSummary(snapshot({ runs: [run("fix", "Restart the dev database")] })), { waiting: 1, line: "No goblins are at work." });
-  assert.deepEqual(cfoSummary(snapshot({ tasks: [task("goblin-a")], questions: [question("goblin", "Which layout should I use?", { task: "goblin-a" })] })), { waiting: 0, line: "All quiet. The CFO supervises 1 goblin." }, "only a goblin's question waits, and it waits on the CFO");
+  assert.deepEqual(cfoSummary(snapshot({ tasks: [task("goblin-a")], questions: [question("goblin", "Which layout should I use?", { task: "goblin-a" })] })), { waiting: 0, line: "All quiet. 1 goblin at work." }, "only a goblin's question waits, and it waits on the CFO");
 });
 
 test("what was answered or closed no longer counts", () => {
-  assert.deepEqual(cfoSummary(snapshot({ tasks: [task("a")], questions: [question("done", "Ship it?", { status: "answered" })], reviews: [review("closed", "Old", { state: "closed" })] })), { waiting: 0, line: "All quiet. The CFO supervises 1 goblin." });
+  assert.deepEqual(cfoSummary(snapshot({ tasks: [task("a")], questions: [question("done", "Ship it?", { status: "answered" })], reviews: [review("closed", "Old", { state: "closed" })] })), { waiting: 0, line: "All quiet. 1 goblin at work." });
 });
 
 test("a goblin's wait on the Overlord, titled Waiting on you by its item, is counted and its title never shown", () => {
@@ -55,7 +55,7 @@ test("while AFK mode is on the bar says so and still counts what waits in the Co
   const away = cfoSummary(snapshot({ ...waits, afk: on }), now);
   assert.deepEqual(away, { waiting: 1, line: afkLine(on, now) });
   assert.match(away.line, /^AFK since .+, from your board\. 3 decided\.$/);
-  assert.deepEqual(cfoSummary(snapshot({ ...waits, afk: afk({ state: "unreadable" }) }), now), { waiting: 1, line: "The CFO supervises 1 goblin." });
+  assert.deepEqual(cfoSummary(snapshot({ ...waits, afk: afk({ state: "unreadable" }) }), now), { waiting: 1, line: "1 goblin at work." });
 });
 
 // The Overlord, 2026-10-07: alerts are only for what the Command Center asks
@@ -63,9 +63,9 @@ test("while AFK mode is on the bar says so and still counts what waits in the Co
 // alert; the CFO's bar says it, in place of All quiet, while it lasts.
 test("questions the CFO has left unanswered for ten minutes are said on its bar, with their count and age, while it lasts", () => {
   const cases: [string, Partial<Snapshot>, string][] = [
-    ["three questions, nothing waiting on him", { tasks: [task("a"), task("b")], cfo_quiet: { since: "2026-10-02T12:10:00Z", count: 3, oldest_age: 660 } }, "The CFO has not answered 3 questions; the oldest has waited 11 minutes. The CFO supervises 2 goblins."],
-    ["one question, beside an item waiting on him", { tasks: [task("a")], questions: [question("own", "Merge PR 91 now?")], cfo_quiet: { since: "2026-10-02T12:10:00Z", count: 1, oldest_age: 600 } }, "The CFO has not answered 1 question; the oldest has waited 10 minutes. The CFO supervises 1 goblin."],
-    ["the stretch over", { tasks: [task("a")], cfo_quiet: null }, "All quiet. The CFO supervises 1 goblin."],
+    ["three questions, nothing waiting on him", { tasks: [task("a"), task("b")], cfo_quiet: { since: "2026-10-02T12:10:00Z", count: 3, oldest_age: 660 } }, "3 questions wait for the CFO (11 min). 2 goblins at work."],
+    ["one question, beside an item waiting on him", { tasks: [task("a")], questions: [question("own", "Merge PR 91 now?")], cfo_quiet: { since: "2026-10-02T12:10:00Z", count: 1, oldest_age: 600 } }, "1 question waits for the CFO (10 min). 1 goblin at work."],
+    ["the stretch over", { tasks: [task("a")], cfo_quiet: null }, "All quiet. 1 goblin at work."],
   ];
   for (const [name, changes, line] of cases) assert.equal(cfoSummary(snapshot(changes)).line, line, name);
 });

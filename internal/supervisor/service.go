@@ -794,11 +794,14 @@ func (s *Service) execute(ctx context.Context, a Action) (Evaluation, error) {
 	if a.Kind == "feedback" || a.Kind == "cfo_message" {
 		return Evaluation{}, fmt.Errorf("%w: obsolete action kind %q is not accepted", ErrRejected, a.Kind)
 	}
-	if a.Kind != "evaluate" && a.Kind != "review" && a.Kind != "cfo_answer" && a.Kind != "goblin_answer" && a.Kind != "answer_change" && a.Kind != "review_answer" && a.Kind != "review_clear" && a.Kind != "question_clear" && a.Kind != "run" {
+	if a.Kind != "evaluate" && a.Kind != "review" && a.Kind != "cfo_answer" && a.Kind != "goblin_answer" && a.Kind != "answer_change" && a.Kind != "review_answer" && a.Kind != "review_clear" && a.Kind != "question_clear" && a.Kind != "run" && a.Kind != "run_stop" {
 		return Evaluation{}, fmt.Errorf("%w: unsupported action kind %q", ErrRejected, a.Kind)
 	}
 	if a.Kind == "run" {
 		return s.startRun(ctx, a)
+	}
+	if a.Kind == "run_stop" {
+		return s.stopRun(ctx, a)
 	}
 	if a.Kind == "review_answer" {
 		return s.answerReview(ctx, a)

@@ -33,7 +33,7 @@ func newKeptHome(t *testing.T) *keptHome {
 	t.Helper()
 	root := filepath.Join(t.TempDir(), "code-goblins")
 	k := &keptHome{
-		updateHome: &updateHome{t: t, root: root, bin: filepath.Join(root, home.BinDir), state: filepath.Join(root, "state"), started: map[*exec.Cmd]time.Time{}},
+		updateHome: &updateHome{t: t, root: root, bin: filepath.Join(root, home.BinDir), programs: root, state: filepath.Join(root, "state"), started: map[*exec.Cmd]time.Time{}},
 		tracked:    map[string]string{"AGENTS.md": "the checkout's own contract", "cmd/cfo/main.go": "package main"},
 		fleet: map[string]string{
 			"state/tasks/demo-task/meta.json":     `{"id":"demo-task","status":"working"}`,
@@ -144,6 +144,7 @@ func TestInstallOverACheckoutHomeInUseKeepsItAndItsFleetWorking(t *testing.T) {
 	if k.running(k.supervisor) {
 		t.Errorf("the earlier board still runs:\n%s", output)
 	}
+	k.servesWithNoConsoleWindow()
 	if !k.running(k.cfoHost) {
 		t.Errorf("the install ended the CFO's terminal host")
 	}

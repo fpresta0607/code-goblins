@@ -144,6 +144,9 @@ func standInServe(build string) int {
 		}
 	}
 	defer lock.ReleaseExclusiveNamed(stateDir, ".watch.lock")
+	// The console it was given, which a test reads to prove the supervisor an
+	// update or an install starts has one of its own with no window.
+	probeConsole(filepath.Join(stateDir, "test-serve-console-"+strconv.Itoa(os.Getpid())))
 	listener, err := net.Listen("tcp", *address)
 	if err != nil {
 		fmt.Fprintln(os.Stderr, err)

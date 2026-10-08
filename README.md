@@ -143,7 +143,7 @@ Each also merges the CFO's hooks and a few permission rules into your Claude Cod
 Each also turns on **Start at login**, so Code Goblins starts in the tray when you sign in and brings back what a restart ended; untick it in the setup to keep it off, and [Opening, closing and restarting](#opening-closing-and-restarting) says how to change it later.
 Each says the same four steps as it goes (download, check, install, open) and keeps every detail in `%TEMP%\CodeGoblinsInstall.log`; a failure says in one sentence what happened and what to do.
 Run either again at any time to update: it never asks you to run anything first.
-Once Code Goblins runs, a newer release comes to you as its own item in the board's Command Center, **Update Code Goblins**, with what is new and one **Update** button, and a slim banner at the top points to it ([Update Code Goblins](docs/native-board.md#update-code-goblins)).
+Once Code Goblins runs, a newer release comes to you as its own item in the board's Command Center, **Update Code Goblins**, with what is new and one **Update** button ([Update Code Goblins](docs/native-board.md#update-code-goblins)).
 
 <img src="docs/images/update-item.webp" alt="The Update Code Goblins item in the Command Center: v0.5.1 to v0.6.0, what is new, the unsigned-release line with the SHA-256 it checks, and the Update button" width="732" />
 
@@ -496,7 +496,7 @@ Disabled or withheld MCP servers say why they are unavailable, and no secret val
 
 The CFO's Task view lists every queued task under its workspace, in the same priority order as the Tasks column and with the same memory meter, drag and **Start**.
 The Terminal view is the goblin's live terminal, edge to edge.
-A goblin in a native terminal (what `cfo spawn` starts for every goblin) is drawn from its terminal's own output at the panel's size, in a 20 px font, with an even inset and the input line at the bottom: type straight into it, scroll its history with the wheel (no scroll bar is drawn; a Claude Code goblin starts in Claude's classic interface, not its fullscreen one, so its history is the terminal's own and scrolls at once), and use **Ctrl+Plus**, **Ctrl+Minus** and **Ctrl+0** to change the font size, which gives the terminal fewer or more columns rather than shrinking what it shows.
+A goblin in a native terminal (what `cfo spawn` starts for every goblin) is drawn from its terminal's own output at the panel's size, in a 20 px font, with an even inset and the input line at the bottom: type straight into it, scroll its history with the wheel (no scroll bar is drawn; a Claude Code goblin draws in the interface your Claude Code `tui` setting names, as the CFO does, so in fullscreen its input line stays put and Claude Code offers its own jump to the bottom), and use **Ctrl+Plus**, **Ctrl+Minus** and **Ctrl+0** to change the font size, which gives the terminal fewer or more columns rather than shrinking what it shows.
 The monitor supervises it from its terminal as it does a goblin in Herdr, and it asks, reports and receives the Overlord's answers through its own terminal.
 `cfo switch` changes its harness, model or effort in place, and after a reboot, which ends every native terminal, `goblins resume` brings every goblin back in its own session, as `cfo switch <id> --harness <the harness it ran>` does for one.
 Opening it replays the terminal's history out of sight and shows it once its screen is whole, so it never opens blank or half drawn, and a full-pane state shows while it connects.
@@ -530,7 +530,9 @@ In both, drag to select and the selection is copied, and **Shift+Escape** moves 
 Hold **Shift** while selecting if the running program has taken the mouse.
 **Ctrl+C** copies selected text; without a selection it interrupts the running program.
 **Ctrl+Shift+C** always copies, and **Ctrl+V** or **Ctrl+Shift+V** pastes the clipboard, including multiline text and large selections.
-When the clipboard holds no text, such as only an image, **Ctrl+V** sends the program the Ctrl+V control character, as it did before; whether the program then attaches the image is up to the program.
+When the clipboard holds no text, such as only an image, **Ctrl+V** sends the key the terminal's harness attaches a clipboard image on, so you never need its own image key.
+On Windows Claude Code and pi take an image only on **Alt+V**, so they are sent Alt+V; Codex takes it on Ctrl+V, so Codex, shells and other programs are sent the Ctrl+V control character.
+**Alt+V** itself still reaches every program as Alt+V.
 The browser's right-click Paste command uses the same paste path.
 The program's paste mode is respected; a Herdr view refuses a paste that exceeds its 1 MiB encoded request limit without sending any text.
 Multiline paste into a native Codex goblin on Windows still does not arrive as a paste and can submit the first line.
@@ -607,8 +609,10 @@ A goblin waiting on you offers **Answer** in its panel, which opens the stack at
 A question with images shows a thumbnail per choice that opens a full-size, swipeable, zoomable gallery.
 An answer to the CFO goes to the same verified CFO session, and an answer to a goblin goes to that goblin's own terminal, each exactly once; no answer approves a gate or merges anything.
 Each live page offers **Open review** or **Open page** and **Keep in background**; neither pauses work.
-A command the CFO needs you to run arrives as a run card with its shell, an **Admin** badge when it runs elevated, the exact command with a copy button, and one button that says where it runs, such as **Run in PowerShell**; once it runs, the card shows its output as a terminal does, live while it runs, and its exit code when it ends.
-A goblin can hand you a command the same way, on a run card that names the goblin: a sign-in or anything else that needs a real terminal runs in its own window, which stays open for you, and the goblin is told how it ended.
+A command the CFO needs you to run arrives as a run card with its shell, an **Admin** badge when it runs elevated, the exact command with a copy button, and one button that says where it runs, such as **Run in PowerShell**.
+Run turns the card into the command's own terminal, where you type, paste and sign in; no window or tab opens, an administrator's command included once you confirm Windows' prompt, and **Stop** ends it.
+When the command exits the card completes by itself, **Complete** or **Failed:** with the last line it printed, and History keeps its exit code.
+A goblin can hand you a command the same way, on a run card that names the goblin, and the goblin is told how it ended.
 
 <p align="center">
   <img src="docs/images/run-card.webp" alt="A run card: the Windows PowerShell command the CFO needs run and its folder, then after Run, Finished with exit 0 and the captured output" width="560" />
@@ -767,7 +771,7 @@ cfo answer <question-id> --option <choice> [--note "<text>"] --record-only [--in
 cfo review --id <stable-id> --title "<what to look at>" [--task <id>] [--image <path>]... [--lavish <url|html-file>]
 cfo review --clear <stable-id> --reason "<why>"
 cfo deliver --id <stable-id> --title "<what it is>" --file <path> [--url <link>] [--task <id>]
-cfo run-request --id <stable-id> --title "<why>" --shell powershell|pwsh|bash [--admin] [--interactive] [--cwd <dir>] --command-file <path>
+cfo run-request --id <stable-id> --title "<why>" --shell powershell|pwsh|bash [--admin] [--cwd <dir>] --command-file <path>
 cfo run-request --withdraw <id> --reason "<why>"
 ```
 
@@ -864,9 +868,10 @@ To update a running home to the newest release, run `goblins update` in a termin
 `goblins update --check` says whether a newer release is published and what is new, and changes nothing.
 The update is yours alone: it refuses to run under the CFO, a goblin or any agent.
 
-To install a newer build into a running home, run the candidate build itself with `update`: it swaps both `cfo.exe` and `goblins.exe` in the home's `bin`, restarts only the supervisor, and puts the previous build back if the new one does not serve; `bin` keeps the two builds before the current one and no more.
-A home an older build set up in a checkout is moved first, with `cfo home move` (see [Your data](#your-data)).
-A `goblins-window.exe` beside the candidate follows it into the home once the candidate serves; an open window keeps running the previous one until you quit it from its tray icon, and a window that could not be replaced leaves the update done and is named.
+To install a newer build into a running home, run the candidate build itself with `update`: it swaps both `cfo.exe` and `goblins.exe` where the home keeps them, restarts only the supervisor, and puts the previous build back if the new one does not serve; that folder keeps the two builds before the current one and no more.
+The home keeps them in its `bin`, or, where a build before `bin` set it up, such as a checkout an older build made the home, at its root, where they are updated until an install lays the home out with `bin`.
+The journal of an earlier update that finished is history, whatever home it names; only an unfinished one, whose copies are its way back, stops an update.
+A `goblins-window.exe` beside the candidate follows it into the home beside `goblins.exe` once the candidate serves; an open window keeps running the previous one until you quit it from its tray icon, and a window that could not be replaced leaves the update done and is named.
 If an update stops part way, it prints a recovery line that runs the candidate's kept copy and names the home and its state, so it works from any folder with both commands gone; paste it into Windows PowerShell as printed, for example:
 
 ```powershell

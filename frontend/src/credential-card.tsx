@@ -8,6 +8,7 @@ import { personaFor } from "./workflow";
 import { credentialHeading, credentialSettled, destination, linkLabel, onThisMachine, stillNeeded, storeCommand, terminalNames, valueWarnings } from "./credentials";
 import { CredentialField } from "./credential-field";
 import { CredentialReplaceDialog } from "./credential-replace-dialog";
+import { RunTerminal } from "./run-terminal";
 import "./credential-card.css";
 
 // What the board said when it refused a save or a Run: why, and the names the
@@ -50,6 +51,8 @@ export function CredentialCard({ request, snapshot, connected, pager }: { reques
   const needed = stillNeeded(request);
   const held = (name: string) => request.existing.includes(name) && !request.saved.includes(name);
   const terminalOpen = (snapshot.runs || []).some((run) => run.credential_request === request.id && (run.state === "ready" || run.state === "running"));
+  // The terminal runs on this card, on the board on his PC alone.
+  const terminal = local ? (snapshot.runs || []).find((run) => run.credential_request === request.id && run.state === "running" && run.terminal) : undefined;
   const task = snapshot.tasks.find((candidate) => candidate.id === request.task);
   const asker = request.task ? task?.title || request.task : "The CFO";
   const typeable = terminalNames(request, []);
@@ -95,10 +98,10 @@ export function CredentialCard({ request, snapshot, connected, pager }: { reques
     const box = commandBox.current;
     if (!window.isSecureContext && box) {
       window.getSelection()?.selectAllChildren(box);
-      setError("This page cannot reach the clipboard; the commands are selected, so press Ctrl+C.");
+      setError("This page cannot reach the clipboard. The commands are selected, so press Ctrl+C.");
       return;
     }
-    navigator.clipboard.writeText(commands.join("\n")).then(() => { setCopied(true); setTimeout(() => setCopied(false), 1400); }, () => setError("The browser did not copy the commands; select them and press Ctrl+C."));
+    navigator.clipboard.writeText(commands.join("\n")).then(() => { setCopied(true); setTimeout(() => setCopied(false), 1400); }, () => setError("The browser did not copy the commands. Select them and press Ctrl+C."));
   };
 
   const told = toldLine(request);
@@ -112,7 +115,8 @@ export function CredentialCard({ request, snapshot, connected, pager }: { reques
     {request.state === "saved" && <p className="credential-outcome delivery succeeded"><Icon name="check-double" /><span><strong>{credentialSettled(request)}.</strong>{told && <small>{told}</small>}</span></p>}
     {!open && request.state !== "saved" && <p className="credential-outcome warning-text"><Icon name="clock" /><span><strong>{request.reason}</strong></span></p>}
     {request.state === "saved" && request.reason && <p className="warning-text">{request.reason}</p>}
-    {open && terminalOpen && <p className="credential-terminal-open" role="status"><Icon name="terminal" />A terminal is open on this PC: type each value there, where nothing you type is shown. Saving here waits until it closes.</p>}
+    {open && terminalOpen && <p className="credential-terminal-open" role="status"><Icon name="terminal" />{!local ? "A terminal is open on the board on your PC: type each value there, where nothing you type is shown." : terminal ? "Type each value in the terminal below, where nothing you type is shown." : "A terminal is open on this PC: type each value there, where nothing you type is shown."} Saving here waits until it closes.</p>}
+    {open && terminal && <RunTerminal run={terminal} instance={snapshot.instance} connected={connected} />}
     <div className="credential-table-wrap">
       <table className="credential-table">
         <thead><tr><th scope="col">Name</th><th scope="col">Saved to</th><th scope="col">Used for</th><th scope="col">Get it here</th><th scope="col">Value</th></tr></thead>

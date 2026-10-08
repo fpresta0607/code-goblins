@@ -108,7 +108,7 @@ test("closed items are listed newest first with what became of them", () => {
   assert.deepEqual(settledItems(snapshot).map((item) => item.key), ["question:e", "review:r1", "question:c", "review:r2", "question:b", "review:r3", "review:r5", "question:a"],
     "a question asked first but answered after a review was cleared sorts by when it was answered");
   const label = (key: string) => settledLabel(itemFor(snapshot, key)!, snapshot.actions);
-  const cases: [string, string][] = [["question:a", "You chose A"], ["question:b", "You wrote: Ship it Friday (not yet delivered to the CFO)"], ["question:c", "Superseded; the asker was replaced"],
+  const cases: [string, string][] = [["question:a", "You chose A"], ["question:b", "You wrote: Ship it Friday (not yet delivered to the CFO)"], ["question:c", "Superseded. The asker was replaced."],
     ["review:r1", "You wrote: Go with B"], ["review:r2", "Withdrawn: the goblin found the answer"], ["review:r3", "Cleared"],
     ["review:r5", "Cleared by the CFO: Decided: grid ships"]];
   for (const [key, text] of cases) assert.equal(label(key), text, key);
@@ -198,7 +198,7 @@ test("only an answer that reached its asker counts as answered", () => {
     ["a failed board answer", { status: "failed", answer_id: "x", answer: "A", answer_kind: "option", message: "the CFO already handled this question; nothing was sent" }, "failed", "Your answer did not reach the goblin", "warning"],
     ["an unconfirmed board answer", { status: "uncertain", answer_id: "x", answer: "A", answer_kind: "option" }, "uncertain", "Not confirmed: check the goblin's terminal", "warning"],
     ["a question cleared after a failure", { status: "cleared", answer_id: "x", answer: "A", answer_kind: "option" }, "cleared", "Closed without an answer", "close"],
-    ["a superseded question without a message", { status: "superseded" }, "superseded", "Superseded; the asker was replaced", "close"],
+    ["a superseded question without a message", { status: "superseded" }, "superseded", "Superseded. The asker was replaced.", "close"],
     ["a question the CFO answered and retired with --ack-blocking", { status: "succeeded", answered_by: "cfo", message: "Answered by the CFO." }, "answered", "The CFO answered it", "check-double"],
     ["a pending question", { status: "pending" }, "pending", "Waiting on you", "close"],
     ["an answer he gave in chat, recorded by the CFO", { status: "succeeded", answer: "Stop them", answer_kind: "option", answered_option: "Stop them", answered_by: "overlord", answered_in: "chat" }, "answered", "You answered in chat · recorded by the CFO", "check-double"],
@@ -312,17 +312,18 @@ test("a goblin's command waits with its goblin's items, after the CFO's own", ()
   assert.deepEqual(order, ["run:install-main", "review:waiting-notes-3", "run:run-billing-7"]);
 });
 
-test("a run item waits in the stack while ready or running and settles with its exit code", () => {
+test("a run item waits in the stack while ready or running and settles in History with its exit code", () => {
   const run = (id: string, state: string, extra: Record<string, unknown> = {}) => ({ id, identity: "cfo-1", title: "Run " + id, shell: "powershell", command: "Get-Date", state, created_at: "2026-09-24T00:0" + id.length + ":00Z", ...extra });
   const snapshot = parseSnapshot({ healthy: true,
     reviews: [review("g", "billing", "2026-09-24T00:00:30Z")],
     runs: [run("r", "ready"), run("rr", "running", { ran_at: "2026-09-24T00:10:00Z" }), run("rrr", "succeeded", { exit_code: 0, finished_at: "2026-09-24T00:20:00Z" }),
-      run("rrrr", "failed", { exit_code: 3, reason: "The command exited with 3.", finished_at: "2026-09-24T00:30:00Z" }), run("rrrrr", "expired", { reason: "Nobody ran it within 24 hours.", finished_at: "2026-09-24T00:40:00Z" })],
+      run("rrrr", "failed", { exit_code: 3, output: "copying\nAccess is denied.\n", reason: "the CFO could not be told: it restarted", finished_at: "2026-09-24T00:30:00Z" }), run("rrrrr", "expired", { reason: "Nobody ran it within 24 hours.", finished_at: "2026-09-24T00:40:00Z" }),
+      run("rrrrrr", "stopped", { reason: "the Overlord stopped it", finished_at: "2026-09-24T00:50:00Z" })],
   });
   assert.deepEqual(waitingItems(snapshot).map((item) => item.key), ["run:r", "run:rr", "review:g"], "the CFO's runs come before a goblin's item");
   const settled = settledItems(snapshot).filter((item) => item.kind === "run");
-  assert.deepEqual(settled.map((item) => item.key), ["run:rrrrr", "run:rrrr", "run:rrr"]);
-  const cases: [string, string, string][] = [["run:rrr", "Finished · exit 0", "check"], ["run:rrrr", "Failed · exit 3: The command exited with 3.", "warning"], ["run:rrrrr", "Expired: Nobody ran it within 24 hours.", "close"]];
+  assert.deepEqual(settled.map((item) => item.key), ["run:rrrrrr", "run:rrrrr", "run:rrrr", "run:rrr"]);
+  const cases: [string, string, string][] = [["run:rrr", "Complete · exit 0", "check"], ["run:rrrr", "Failed: Access is denied. · exit 3: the CFO could not be told: it restarted", "warning"], ["run:rrrrr", "Expired: Nobody ran it within 24 hours.", "close"], ["run:rrrrrr", "Stopped", "stop-circle"]];
   for (const [key, label, icon] of cases) {
     const item = itemFor(snapshot, key)!;
     assert.equal(settledLabel(item, snapshot.actions), label, key);
