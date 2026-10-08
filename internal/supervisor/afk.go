@@ -297,7 +297,7 @@ func (s *Service) switchAFK(ctx context.Context, pid int, connected time.Time, o
 		if err != nil {
 			return err
 		}
-		return s.switchAFKAs(ctx, from, "", on)
+		return s.switchAFKAs(from, "", on)
 	}
 	asked, err := afk.HisWords(asked)
 	if err != nil {
@@ -308,7 +308,7 @@ func (s *Service) switchAFK(ctx context.Context, pid int, connected time.Time, o
 		return err
 	}
 	defer release()
-	return s.switchAFKAs(ctx, by, asked, on)
+	return s.switchAFKAs(by, asked, on)
 }
 
 // switchedSays opens the CFO's notice of a switch with who made it: the
@@ -322,23 +322,14 @@ func switchedSays(from, asked, to string) string {
 
 // switchAFKAs turns AFK mode on or off for who its caller has proven asks: the
 // Overlord from a terminal or a board of his own, which from names, or the
-// registered CFO at his ask, which from names with his words in asked. Turning
-// it on reads the allowance and tells the CFO through its wake queue; turning
-// it off keeps the report of the stretch first, so a stretch never ends
-// without one, and tells the CFO to write it into its terminal. Its caller
-// holds runRequests.
-func (s *Service) switchAFKAs(ctx context.Context, from, asked string, on bool) error {
+// registered CFO at his ask, which from names with his words in asked. It
+// waits on no program: the allowance it keeps is the supervisor's last
+// reading. Turning it on removes the report of the stretch before and tells
+// the CFO through its wake queue; turning it off keeps the report of the
+// stretch first, so a stretch never ends without one, and tells the CFO to
+// write it into its terminal. Its caller holds runRequests.
+func (s *Service) switchAFKAs(from, asked string, on bool) error {
 	stateDir := s.Store.Home.State
-	// quota-axi is read with afkChange free, so the supervisor's cycle never
-	// waits behind it, and only for a switch that will be made. Requests for
-	// the switch are taken one at a time, so it reads the same again below.
-	s.afkChange.Lock()
-	before, err := afk.Read(stateDir)
-	s.afkChange.Unlock()
-	allowance, unread := []afk.Allowance(nil), "this supervisor reads no allowance"
-	if err == nil && on != before.On && s.Options.Allowance != nil {
-		allowance, unread = s.Options.Allowance(ctx)
-	}
 	s.afkChange.Lock()
 	defer s.afkChange.Unlock()
 	current, err := afk.Read(stateDir)
@@ -361,6 +352,7 @@ func (s *Service) switchAFKAs(ctx context.Context, from, asked string, on bool) 
 		return afk.ErrNotOn
 	}
 	now := time.Now().UTC()
+	allowance := s.heldAllowance(now)
 	if on {
 		if asked == "" {
 			_, _, err = afk.TurnOn(stateDir, from, allowance, now)
@@ -370,10 +362,13 @@ func (s *Service) switchAFKAs(ctx context.Context, from, asked string, on bool) 
 		if err != nil {
 			return err
 		}
+		// What the board's view kept of the stretch before goes with its
+		// report.
+		s.reads.forget(afkLogKind+current.Session, filepath.Join(stateDir, "afk.audit"))
 		return s.afkNotice(switchedSays(from, asked, "on") + ": he is away until he turns it off, and nothing prompts him meanwhile. Decide what its authority covers yourself and log each decision, and leave what stays his alone held for him. Its terms stand above this queue.")
 	}
 	current.Ended, current.EndedFrom, current.EndedAsked = now, from, asked
-	if err := afk.SaveReport(stateDir, s.afkReport(current, allowance, unread)); err != nil {
+	if err := afk.SaveReport(stateDir, s.afkReport(current, allowance)); err != nil {
 		return fmt.Errorf("AFK mode stays on: the report of its stretch could not be kept: %w", err)
 	}
 	if asked == "" {
@@ -494,8 +489,8 @@ func (s *Service) holdForOverlord(now time.Time) error {
 // afkReport is the report of the stretch ended holds: the log's decisions and
 // pauses at a floor, what each goblin reported done, each held item with what
 // became of it, and the allowance read when it turned on beside after, read
-// now.
-func (s *Service) afkReport(ended afk.State, after []afk.Allowance, unread string) afk.Report {
+// when it turned off. A reading not taken is left out, never noted.
+func (s *Service) afkReport(ended afk.State, after []afk.Allowance) afk.Report {
 	stateDir := s.Store.Home.State
 	report := afk.Report{Session: ended.Session, Since: ended.Since, Ended: ended.Ended, From: ended.From, Asked: ended.Asked, EndedFrom: ended.EndedFrom, EndedAsked: ended.EndedAsked, Before: ended.Allowance, After: after}
 	entries, unreadable, err := afk.Entries(stateDir, ended.Session)
@@ -504,12 +499,6 @@ func (s *Service) afkReport(ended afk.State, after []afk.Allowance, unread strin
 		report.Notes = append(report.Notes, "the log of decisions could not be read: "+err.Error())
 	case unreadable > 0:
 		report.Notes = append(report.Notes, fmt.Sprintf("%d line(s) of the log could not be read, in this stretch or another", unreadable))
-	}
-	if len(ended.Allowance) == 0 {
-		report.Notes = append(report.Notes, "the allowance was not read when AFK mode turned on")
-	}
-	if len(after) == 0 {
-		report.Notes = append(report.Notes, "the allowance was not read when AFK mode turned off: "+unread)
 	}
 	report.Decisions, report.Paused = afk.Decisions(entries), afk.Pauses(entries)
 	finished, err := doneBetween(stateDir, ended.Since, ended.Ended)
@@ -571,6 +560,10 @@ type AFKView struct {
 	Report string `json:"report,omitempty"`
 }
 
+// afkLogKind, with a stretch's session, names what the board's view keeps of
+// that stretch's log.
+const afkLogKind = "afk-log "
+
 // afkView reads AFK mode for a snapshot of d. A log that cannot be read leaves
 // the view without what the log holds, and is the error returned.
 func (s *Service) afkView(d Database) (AFKView, error) {
@@ -582,7 +575,7 @@ func (s *Service) afkView(d Database) (AFKView, error) {
 		view.State = "unreadable"
 	case switched.On:
 		view.State, view.Since, view.From, view.Asked = "on", &switched.Since, switched.From, switched.Asked
-		entries, err := kept(&s.reads, "afk-log "+switched.Session, []string{filepath.Join(stateDir, "afk.audit")}, func() ([]afk.Entry, error) {
+		entries, err := kept(&s.reads, afkLogKind+switched.Session, []string{filepath.Join(stateDir, "afk.audit")}, func() ([]afk.Entry, error) {
 			entries, _, err := afk.Entries(stateDir, switched.Session)
 			return entries, err
 		})
@@ -690,28 +683,44 @@ func heldNow(d Database, item string, ended time.Time) (waiting bool, now string
 }
 
 // doneBetween are the pull requests goblins reported done from since to
-// ended, read from every status log the state directory and its archive
-// still hold, oldest first.
+// ended, read from the status logs the state directory and its archive still
+// hold, oldest first. A log last written before the stretch began, or
+// archived before it, holds nothing of it and is not opened: the home holds
+// hundreds of logs, opening a file costs this machine up to 80 ms, and
+// opening them all held turning AFK mode off for up to a minute.
 func doneBetween(stateDir string, since, ended time.Time) ([]afk.Finish, error) {
+	began := since.Truncate(time.Second)
 	logs := map[string]string{}
 	entries, err := os.ReadDir(stateDir)
 	if err != nil {
 		return nil, err
 	}
 	for _, entry := range entries {
-		if id, ok := strings.CutSuffix(entry.Name(), ".status"); ok && !entry.IsDir() && state.ValidTaskID(id) == nil {
-			logs[filepath.Join(stateDir, entry.Name())] = id
+		id, ok := strings.CutSuffix(entry.Name(), ".status")
+		if !ok || entry.IsDir() || state.ValidTaskID(id) != nil {
+			continue
 		}
+		// The listing carries each file's time, so asking it opens nothing.
+		if info, err := entry.Info(); err == nil && info.ModTime().Before(began) {
+			continue
+		}
+		logs[filepath.Join(stateDir, entry.Name())] = id
 	}
 	archive := filepath.Join(stateDir, state.ArchiveDirName)
 	archived, err := os.ReadDir(archive)
 	if err != nil && !errors.Is(err, os.ErrNotExist) {
 		return nil, err
 	}
+	// An archived log's name ends with when it was archived, and nothing
+	// writes to it after.
+	archivedBefore := func(stamp string) bool {
+		at, err := time.Parse("20060102T150405Z", stamp)
+		return err == nil && at.Before(began)
+	}
 	for _, entry := range archived {
-		if m := archivedStatusFile.FindStringSubmatch(entry.Name()); m != nil && !entry.IsDir() {
+		if m := archivedStatusFile.FindStringSubmatch(entry.Name()); m != nil && !entry.IsDir() && !archivedBefore(m[2]) {
 			logs[filepath.Join(archive, entry.Name())] = m[1]
-		} else if m := archivedTaskDir.FindStringSubmatch(entry.Name()); m != nil && entry.IsDir() {
+		} else if m := archivedTaskDir.FindStringSubmatch(entry.Name()); m != nil && entry.IsDir() && !archivedBefore(m[2]) {
 			logs[filepath.Join(archive, entry.Name(), m[1]+".status")] = m[1]
 		}
 	}

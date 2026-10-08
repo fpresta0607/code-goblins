@@ -13,18 +13,23 @@ const AfkReportPage = lazy(() => import("./afk-report").then((module) => ({ defa
 // offer to turn it off at the Overlord's first click or key after he has been
 // gone, or after the CFO turned it on at his ask. Nothing here opens by itself
 // while he is away: the report follows his own off, and the offer his own
-// click or key. Until the first snapshot comes
+// click or key. His own off from this board shows the report as soon as the
+// supervisor answers, which keeps the report before it does, and the snapshot
+// after it brings no second one. Until the first snapshot comes
 // the board knows of no switch, which is off. onCommand opens the Command
 // Center at an item, or at the first that waits when it names none.
 export function AfkBoard({ snapshot, now, onCommand, children }: { snapshot: Snapshot | null; now: number; onCommand: (item: string) => void; children: ReactNode }) {
   const afk = snapshot?.afk ?? AFK_OFF;
   const [prior, setPrior] = useState<Afk>(afk);
   const [reporting, setReporting] = useState(false);
+  // shown says the report of the off this board just made is already shown.
+  const [shown, setShown] = useState(false);
   const [offering, setOffering] = useState<Occasion>("");
   const { pending, problem, turn, clear } = useAfkSwitch(snapshot?.instance ?? "");
   if (prior.state !== afk.state || prior.report !== afk.report) {
     setPrior(afk);
-    if (turnedOff(prior, afk)) setReporting(true);
+    if (turnedOff(prior, afk) && !shown) setReporting(true);
+    if (shown) setShown(false);
     if (afk.state !== "on") setOffering("");
   }
   // The newest AFK state, the last click or key and the newest onCommand, for
@@ -52,10 +57,11 @@ export function AfkBoard({ snapshot, now, onCommand, children }: { snapshot: Sna
     window.addEventListener("keydown", touched, true);
     return () => { window.removeEventListener("click", touched, true); window.removeEventListener("keydown", touched, true); };
   }, [away]);
-  const actions = useMemo(() => ({ openReport: () => setReporting(true), answer: (item: string) => command.current(item) }), []);
+  const actions = useMemo(() => ({ openReport: () => setReporting(true), turnedOff: () => { setShown(true); setReporting(true); }, answer: (item: string) => command.current(item) }), []);
+  const turnOff = async () => { if (await turn(false)) { setOffering(""); actions.turnedOff(); } };
   return <AfkActionsContext.Provider value={actions}>
     {children}
-    {offering && away && <AfkOffer afk={afk} occasion={offering} now={now} pending={pending} problem={problem} onTurnOff={() => void turn(false)} onStay={() => { setOffering(""); clear(); }} />}
+    {offering && away && <AfkOffer afk={afk} occasion={offering} now={now} pending={pending} problem={problem} onTurnOff={() => void turnOff()} onStay={() => { setOffering(""); clear(); }} />}
     {reporting && snapshot && <Suspense fallback={null}><AfkReportPage tasks={snapshot.tasks} now={now} onClose={() => setReporting(false)} onCommand={() => { setReporting(false); onCommand(""); }} /></Suspense>}
   </AfkActionsContext.Provider>;
 }

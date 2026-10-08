@@ -240,7 +240,6 @@ func runServe(args []string, stdout, stderr io.Writer, runtime commandRuntime) i
 		// writes, and its refresh is cfo auth store's own.
 		Credentials:        auth.OpenStore,
 		RefreshCredentials: boardCredentialRefresh(runtime),
-		Allowance:          readAFKAllowance(runtime),
 		Quota:              runtime.quota,
 		Comeback:           comeback,
 		StartAtLogin:       startAtLogin,

@@ -573,13 +573,13 @@ export function string(value: unknown): string {
   if (typeof value !== "string") throw new Error("Invalid response text");
   return value;
 }
-function number(value: unknown): number {
+export function number(value: unknown): number {
   if (value == null) return 0;
   if (typeof value !== "number" || !Number.isFinite(value))
     throw new Error("Invalid response number");
   return value;
 }
-function boolean(value: unknown): boolean {
+export function boolean(value: unknown): boolean {
   if (typeof value !== "boolean") throw new Error("Invalid response boolean");
   return value;
 }

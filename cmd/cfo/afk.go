@@ -1,17 +1,14 @@
 package main
 
 import (
-	"context"
 	"flag"
 	"fmt"
 	"io"
-	"maps"
 	"slices"
 	"strings"
 
 	"github.com/fpresta0607/code-goblins/internal/afk"
 	"github.com/fpresta0607/code-goblins/internal/home"
-	"github.com/fpresta0607/code-goblins/internal/quota"
 	"github.com/fpresta0607/code-goblins/internal/supervisor"
 )
 
@@ -257,44 +254,4 @@ func afkStatus(h home.Home, stdout, stderr io.Writer) int {
 		fmt.Fprintf(stdout, "\n%d line(s) of the log (state/afk.audit) could not be read.\n", unreadable)
 	}
 	return 0
-}
-
-// afkAllowance is quota-axi's reading as AFK mode's report keeps it: every
-// window's use and any credit balance of each provider it measured, in
-// provider order.
-func afkAllowance(report quota.Report) []afk.Allowance {
-	var readings []afk.Allowance
-	for _, name := range slices.Sorted(maps.Keys(report.Providers)) {
-		provider := report.Providers[name]
-		// Numbers quota-axi itself calls old are no reading.
-		if provider.Stale {
-			continue
-		}
-		for _, window := range provider.Windows {
-			label := window.Label
-			if label == "" {
-				label = window.ID
-			}
-			readings = append(readings, afk.Allowance{Provider: name, Window: label, PercentUsed: window.PercentUsed, ResetsAt: window.ResetsAt})
-		}
-		if credits := provider.Credits; credits != nil {
-			readings = append(readings, afk.Allowance{Provider: name, Window: "credits", Credits: true, Remaining: credits.Remaining, Unit: credits.Unit, Unlimited: credits.Unlimited})
-		}
-	}
-	return readings
-}
-
-// readAFKAllowance reads the allowance through the runtime's quota-axi, or
-// says why it could not.
-func readAFKAllowance(runtime commandRuntime) func(context.Context) ([]afk.Allowance, string) {
-	return func(ctx context.Context) ([]afk.Allowance, string) {
-		if runtime.quota == nil {
-			return nil, "this build reads no quota-axi"
-		}
-		report, skipped := runtime.quota(ctx)
-		if skipped != "" {
-			return nil, skipped
-		}
-		return afkAllowance(report), ""
-	}
 }

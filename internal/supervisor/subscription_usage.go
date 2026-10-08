@@ -30,9 +30,7 @@ func (s *Service) keepSubscriptionUsage(ctx context.Context, every time.Duration
 }
 
 func (s *Service) refreshSubscriptionUsage(ctx context.Context) {
-	probe, cancel := context.WithTimeout(ctx, 15*time.Second)
-	defer cancel()
-	report, skipped := s.Options.Quota(probe)
+	report, skipped := s.readQuota(ctx, 15*time.Second)
 	readings := map[string]quota.WeeklyReading{}
 	for _, provider := range []string{"claude", "codex"} {
 		reading := report.Weekly(provider, time.Now().UTC())
