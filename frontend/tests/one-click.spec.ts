@@ -50,8 +50,7 @@ for (const [name, id, button, status, path] of [
     const control = card(page, id).getByRole("button", { name: button });
 
     // Act
-    await control.click();
-    await control.click({ force: true });
+    await control.dblclick();
 
     // Assert
     await expect(card(page, id).locator(".card-status-text")).toHaveText(status);
@@ -64,11 +63,12 @@ for (const [name, id, button, status, path] of [
     await open(page, 4.2, neverAnswered, posted);
     const control = card(page, id).getByRole("button", { name: button });
 
+    await expect(control).not.toHaveAttribute("aria-disabled", "true");
+
     // Act
     await control.click();
 
     // Assert
-    await expect(control).not.toHaveAttribute("aria-disabled", "true");
     await expect.poll(() => posted.filter((request) => request.path === path)).toHaveLength(1);
     await expect(card(page, id).locator(".card-status-text")).toHaveText(status);
   });

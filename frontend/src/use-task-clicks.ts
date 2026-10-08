@@ -15,6 +15,12 @@ export function recordClick(task: string, click: TaskClick | null): void {
   for (const listener of listeners) listener();
 }
 
+// isOnItsWay says a click on task is on its way to the supervisor, so a
+// second one, such as the other half of a double click, sends nothing.
+export function isOnItsWay(task: string): boolean {
+  return clicks.get(task)?.revision === null;
+}
+
 const subscribe = (listener: () => void) => {
   listeners.add(listener);
   return () => { listeners.delete(listener); };

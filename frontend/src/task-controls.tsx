@@ -7,7 +7,7 @@ import { Icon } from "./Icon";
 import { StopTaskDialog } from "./stop-task-dialog";
 import { withoutHarness } from "./task-words";
 import { harnessName } from "./workflow";
-import { recordClick } from "./use-task-clicks";
+import { isOnItsWay, recordClick } from "./use-task-clicks";
 
 // A task's controls: icons on its card, where start starts a queued task and
 // onAdjust opens its panel, and labelled buttons in its panel's action row,
@@ -43,7 +43,7 @@ export function TaskControls({ task, snapshot, start, trailing, labelled = false
     } catch (error: unknown) { reportToCfo("the harness update of " + task.id, message(error)); }
   };
   const act = async (action: "pause" | "resume" | "stop") => {
-    if (isChanging) return;
+    if (isChanging || isOnItsWay(task.id)) return;
     setConfirmation(null);
     const payload = JSON.stringify({ task: task.id, generation: task.generation, revision: task.queue_revision, action });
     if (attempt.current?.payload !== payload) attempt.current = { payload, operation: crypto.randomUUID() };

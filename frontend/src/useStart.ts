@@ -3,7 +3,7 @@ import { object } from "./types";
 import type { CardStart } from "./TaskCard";
 import { message, reportToCfo, request } from "./api";
 import { startBlock, type AcceptedStart } from "./start";
-import { recordClick } from "./use-task-clicks";
+import { isOnItsWay, recordClick } from "./use-task-clicks";
 
 export type CardStarter = (task: Task) => CardStart;
 
@@ -17,6 +17,7 @@ export type CardStarter = (task: Task) => CardStart;
 export function useStart(snapshot: Snapshot | null, onStarted: (accepted: AcceptedStart) => void): CardStarter | null {
   if (!snapshot) return null;
   const start = async (task: Task) => {
+    if (isOnItsWay(task.id)) return;
     recordClick(task.id, { action: "start", revision: null });
     try {
       const accepted = object(await request("/api/tasks/start", undefined, { method: "POST", headers: { "Content-Type": "application/json", "X-CFO-Token": snapshot.instance }, body: JSON.stringify({ task: task.id }) }));
