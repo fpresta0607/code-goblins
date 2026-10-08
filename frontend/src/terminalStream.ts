@@ -8,8 +8,11 @@ export const DEFAULT_FONT_SIZE = 20;
 export const MIN_FONT_SIZE = 12;
 export const MAX_FONT_SIZE = 28;
 // Every terminal the board sizes draws at the one text size the Overlord last
-// chose with Ctrl+Plus and Ctrl+Minus, remembered in this browser.
+// chose with Ctrl+Plus and Ctrl+Minus, or the right button and the wheel,
+// remembered in this browser, so each device keeps its own.
 const FONT_KEY = "cfo-terminal-font-size";
+// The open terminals, which follow a size chosen in any one of them at once.
+const fontFollowers = new Set<(size: number) => void>();
 
 export function storedFontSize(): number {
   try {
@@ -19,7 +22,21 @@ export function storedFontSize(): number {
 }
 
 export function storeFontSize(size: number): void {
-  try { localStorage.setItem(FONT_KEY, String(size)); } catch { /* the size still applies to this view */ }
+  try { localStorage.setItem(FONT_KEY, String(size)); } catch { /* the size still applies to the open terminals */ }
+  for (const follow of fontFollowers) follow(size);
+}
+
+// followFontSize has an open terminal take every size chosen from now on, in
+// this page or in another page of the board in this browser, and returns what
+// stops it.
+export function followFontSize(follow: (size: number) => void): () => void {
+  const stored = (event: StorageEvent) => { if (event.key === FONT_KEY) follow(storedFontSize()); };
+  fontFollowers.add(follow);
+  window.addEventListener("storage", stored);
+  return () => {
+    fontFollowers.delete(follow);
+    window.removeEventListener("storage", stored);
+  };
 }
 // Output is acknowledged in steps of this many bytes, or at once when xterm
 // has caught up with everything received.
