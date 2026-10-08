@@ -8,22 +8,23 @@ import (
 	"github.com/fpresta0607/code-goblins/internal/home"
 )
 
-// Disk is the free space of the drive the home is on, beside the fleet's disk
-// floor, under which no goblin and no gate test run starts, and the lower mark
-// at which the CFO is woken. The board shows it beside the memory meter.
+// Disk is the free space of the drive the home is on, or of the Dev Drive its
+// heavy folders moved to when that has less, beside the fleet's disk floor,
+// under which no goblin and no gate test run starts, and the lower mark at
+// which the CFO is woken. The board shows it beside the memory meter.
 type Disk struct {
 	disk.Reading
 	Floor uint64 `json:"floor"`
 	Wake  uint64 `json:"wake"`
 }
 
-// MachineDisk reads the home's drive and the floors config/fleet.json sets.
+// MachineDisk reads the home's drives and the floors config/fleet.json sets.
 func MachineDisk(h home.Home) (Disk, error) {
 	settings, err := fleetconfig.Read(h.Root)
 	if err != nil {
 		return Disk{}, err
 	}
-	reading, err := disk.Read(h.Root)
+	reading, err := disk.ReadLeast(h.Root, h.DevDrive)
 	if err != nil {
 		return Disk{}, err
 	}

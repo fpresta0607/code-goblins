@@ -6,6 +6,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"time"
 
@@ -21,7 +22,7 @@ import (
 // orphan.
 const worktreeGrace = time.Hour
 
-// tidyWorktrees removes every worktree in this home's worktrees folder that no
+// tidyWorktrees removes every worktree in this home's worktree roots that no
 // task owns, its work kept first: one that is clean and on the default branch
 // goes, one with commits of its own is archived as a local tag and then goes,
 // and one with uncommitted work is never touched and is reported. A folder its
@@ -35,7 +36,10 @@ func (cfg Config) tidyWorktrees(ctx context.Context, record *Record) {
 	git := worktree.RunnerGit{Commands: cfg.Commands}
 	gone := map[string]bool{}
 	for _, dir := range reap.Unowned(cfg.Inventory) {
-		if rel, err := filepath.Rel(cfg.Home.Worktrees(), dir.Path); err != nil || !filepath.IsLocal(rel) {
+		if !slices.ContainsFunc(cfg.Home.WorktreeRoots(), func(root string) bool {
+			rel, err := filepath.Rel(root, dir.Path)
+			return err == nil && filepath.IsLocal(rel)
+		}) {
 			continue
 		}
 		if reason := cfg.notYetOrphaned(dir); reason != "" {
@@ -82,7 +86,7 @@ func (cfg Config) notYetOrphaned(dir reap.WorktreeDir) string {
 	if dir.Created.IsZero() || cfg.Now.Sub(dir.Created) < worktreeGrace {
 		return "made less than an hour ago, or when cannot be read; a spawn may not have recorded it yet"
 	}
-	owner, known, err := reap.WorktreeOwner(cfg.Home.State, cfg.Home.Worktrees(), dir.Project, dir.Path)
+	owner, known, err := reap.WorktreeOwner(cfg.Home.State, cfg.Home.WorktreeRoots(), dir.Project, dir.Path)
 	if err != nil {
 		return "the task records could not be read again before removing it: " + err.Error()
 	}

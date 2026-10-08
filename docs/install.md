@@ -33,7 +33,7 @@ The install never stops to ask you to run anything first; it decides by what it 
 | Nothing yet | Installs into `%LOCALAPPDATA%\CodeGoblins`. |
 | An earlier install | Updates it in place and keeps your settings, policy and fleet. |
 | The command line only | Updates it and adds the app and its Start menu entry. |
-| `CFO_HOME` naming another folder that holds a fleet, such as a clone an older build made the home | Keeps using that folder and says so in one line: the programs go into its `bin`, those at its root are brought up to date too, and in a clone the files git tracks are left as they are. Moving it to the standard folder is [`cfo home move`](#where-your-data-lives), whenever you choose. |
+| `CFO_HOME` naming another folder that holds a fleet, such as a clone an older build made the home | Keeps using that folder and says so in one line: the programs go into its `bin`, those at its root are brought up to date too, and in a clone the files git tracks are left as they are, while the clone gets the `.cfo-home` marker, which git ignores, that makes it the home in use. Moving it to the standard folder is [`cfo home move`](#where-your-data-lives), whenever you choose. |
 | The board, the CFO or goblins running | Restarts only the board on the new build, on the address it served; no goblin's or the CFO's terminal is touched, and a build that does not start gives the board back to the one before. |
 | An install that stopped part way | Finishes it: every step is safe to run again. |
 

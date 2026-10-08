@@ -273,6 +273,48 @@ func TestTaskResourcesCoverAHomeTasksWorktreesAndScratch(t *testing.T) {
 	}
 }
 
+// A home whose heavy folders moved to a Dev Drive owns a task's folders in
+// either place: a task made before the move keeps its worktree and scratch in
+// the home, a new one has them on the drive, and an older task's extra made
+// after the move lands on the drive. Anything outside both is still refused.
+func TestTaskResourcesCoverATasksFoldersInEitherPlaceOfAMovedHome(t *testing.T) {
+	root := t.TempDir()
+	devDrive := filepath.Join(t.TempDir(), "CodeGoblins")
+	h := home.Home{Root: root, State: filepath.Join(root, "state"), DevDrive: devDrive}
+	project := filepath.Join(t.TempDir(), "app")
+	gate := pipeline.Reader{Root: filepath.Join(root, "gate"), Commands: execx.OSRunner{}}
+	for name, meta := range map[string]state.TaskMeta{
+		"made on the drive": {
+			ID: "g1", Backend: "native", Project: project,
+			Worktree: filepath.Join(devDrive, "worktrees", "app", "g1"),
+			Extras:   []string{filepath.Join(devDrive, "worktrees", "app", "g1-proof")},
+			Scratch:  filepath.Join(devDrive, "scratch", "g1"),
+			TaskTmp:  filepath.Join(h.State, "tasktmp", "g1"),
+		},
+		"made before the move": {
+			ID: "g2", Backend: "native", Project: project,
+			Worktree: filepath.Join(root, "worktrees", "app", "g2"),
+			Extras:   []string{filepath.Join(devDrive, "worktrees", "app", "g2-after-the-move")},
+			Scratch:  filepath.Join(root, "scratch", "g2"),
+			TaskTmp:  filepath.Join(h.State, "tasktmp", "g2"),
+		},
+	} {
+		resources, err := TaskResources(t.Context(), h, meta, gate)
+		if err != nil {
+			t.Fatalf("%s: %v", name, err)
+		}
+		for _, want := range []string{meta.Worktree, meta.Extras[0], meta.Scratch, meta.TaskTmp} {
+			if !slices.Contains(resources.Directories, want) {
+				t.Errorf("%s: directories = %v, want %s among them", name, resources.Directories, want)
+			}
+		}
+	}
+	outside := state.TaskMeta{ID: "g3", Backend: "native", Project: project, Worktree: filepath.Join(devDrive, "elsewhere", "g3"), TaskTmp: filepath.Join(h.State, "tasktmp", "g3")}
+	if _, err := TaskResources(t.Context(), h, outside, gate); err == nil {
+		t.Error("a worktree on the drive outside its worktrees folder was taken for the task's")
+	}
+}
+
 // A helper is its parent's: stopping the parent ends what runs in its
 // helper's worktree too, whatever the helper's own stop left behind, and
 // nothing of any other goblin.

@@ -1,11 +1,14 @@
 package home
 
 import (
+	"encoding/json"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/fpresta0607/code-goblins/internal/fsx"
 )
@@ -348,14 +351,143 @@ func TestLocateWorktreeReadsBothLayouts(t *testing.T) {
 		`C:\dev\app\.worktrees\gb-outer\x\.worktrees\gb-inner`: {Root: `C:\dev\app\.worktrees\gb-outer\x\.worktrees\gb-inner`, Project: "x", Name: "inner"},
 	}
 	for dir, want := range cases {
-		got, ok := LocateWorktree(root, dir)
+		got, ok := LocateWorktree([]string{root}, dir)
 		if !ok || got != want {
 			t.Errorf("LocateWorktree(%q) = %+v, %v; want %+v", dir, got, ok, want)
 		}
 	}
 	for _, dir := range []string{root, root + `\app`, `C:\dev\app`, `C:\dev\app\.worktrees\feature`, `C:\dev\app\.worktrees\gb-`, `C:\Users\op\AppData\Local\CodeGoblins\scratch\task-1`} {
-		if got, ok := LocateWorktree(root, dir); ok {
+		if got, ok := LocateWorktree([]string{root}, dir); ok {
 			t.Errorf("LocateWorktree(%q) = %+v, want no fleet worktree", dir, got)
 		}
+	}
+}
+
+func TestResolvePutsWorktreesScratchAndCachesOnTheDevDrive(t *testing.T) {
+	// Arrange: a home whose config names a folder on a Dev Drive.
+	root := t.TempDir()
+	drive := filepath.Join(t.TempDir(), "CodeGoblins")
+	writeDevDriveConfig(t, root, `{"root": `+jsonString(drive)+`}`)
+	t.Setenv("CFO_HOME", root)
+	t.Setenv("CFO_STATE_OVERRIDE", "")
+
+	// Act
+	h, err := Resolve()
+
+	// Assert: the heavy folders follow the drive; records and programs stay.
+	if err != nil {
+		t.Fatalf("Resolve: %v", err)
+	}
+	for got, want := range map[string]string{h.Worktrees(): filepath.Join(drive, "worktrees"), h.Scratch(): filepath.Join(drive, "scratch"), h.Caches(): filepath.Join(drive, "caches"), h.Bin(): filepath.Join(root, "bin"), h.State: filepath.Join(root, "state"), h.Data: filepath.Join(root, "data")} {
+		if got != want {
+			t.Errorf("folder %q, want %q", got, want)
+		}
+	}
+	// A task made before the move keeps its folders in the home.
+	if got, want := h.WorktreeRoots(), []string{filepath.Join(drive, "worktrees"), filepath.Join(root, "worktrees")}; !slices.Equal(got, want) {
+		t.Errorf("WorktreeRoots = %q, want %q", got, want)
+	}
+	if got, want := h.ScratchRoots(), []string{filepath.Join(drive, "scratch"), filepath.Join(root, "scratch")}; !slices.Equal(got, want) {
+		t.Errorf("ScratchRoots = %q, want %q", got, want)
+	}
+}
+
+func TestResolveWithoutADevDriveKeepsEverythingInTheHome(t *testing.T) {
+	cases := map[string]string{"no file": "", "a file that names no folder": `{"choice": "declined"}`}
+	for name, config := range cases {
+		t.Run(name, func(t *testing.T) {
+			// Arrange
+			root := t.TempDir()
+			if config != "" {
+				writeDevDriveConfig(t, root, config)
+			}
+			t.Setenv("CFO_HOME", root)
+			t.Setenv("CFO_STATE_OVERRIDE", "")
+
+			// Act
+			h, err := Resolve()
+
+			// Assert
+			if err != nil {
+				t.Fatalf("Resolve: %v", err)
+			}
+			if h.Worktrees() != filepath.Join(root, "worktrees") || h.Scratch() != filepath.Join(root, "scratch") || h.Caches() != filepath.Join(root, "caches") {
+				t.Errorf("heavy folders left the home: %q %q %q", h.Worktrees(), h.Scratch(), h.Caches())
+			}
+			if got := h.WorktreeRoots(); !slices.Equal(got, []string{filepath.Join(root, "worktrees")}) {
+				t.Errorf("WorktreeRoots = %q, want only the home's", got)
+			}
+			if got := h.ScratchRoots(); !slices.Equal(got, []string{filepath.Join(root, "scratch")}) {
+				t.Errorf("ScratchRoots = %q, want only the home's", got)
+			}
+		})
+	}
+}
+
+func TestResolveRefusesADevDriveFileThatDoesNotMeanAFolder(t *testing.T) {
+	for name, config := range map[string]string{"not JSON": `root = D:\x`, "a relative folder": `{"root": "CodeGoblins"}`, "two objects": `{} {}`} {
+		t.Run(name, func(t *testing.T) {
+			root := t.TempDir()
+			writeDevDriveConfig(t, root, config)
+			t.Setenv("CFO_HOME", root)
+			t.Setenv("CFO_STATE_OVERRIDE", "")
+			if h, err := Resolve(); err == nil || !strings.Contains(err.Error(), DevDriveFile) {
+				t.Fatalf("Resolve = %+v, %v; want a refusal naming %s", h, err, DevDriveFile)
+			}
+		})
+	}
+}
+
+func TestLocateWorktreeFindsATaskInEveryRoot(t *testing.T) {
+	roots := []string{`D:\CodeGoblins\worktrees`, `C:\Users\op\AppData\Local\CodeGoblins\worktrees`}
+	for dir, want := range map[string]WorktreePlace{
+		roots[0] + `\app\new-task\src`: {Root: roots[0] + `\app\new-task`, Project: "app", Name: "new-task"},
+		roots[1] + `\app\old-task`:     {Root: roots[1] + `\app\old-task`, Project: "app", Name: "old-task"},
+	} {
+		if got, ok := LocateWorktree(roots, dir); !ok || got != want {
+			t.Errorf("LocateWorktree(%q) = %+v, %v; want %+v", dir, got, ok, want)
+		}
+	}
+	if got, ok := LocateWorktree(roots, `D:\CodeGoblins\scratch\new-task`); ok {
+		t.Errorf("LocateWorktree found %+v in a scratch folder", got)
+	}
+}
+
+func writeDevDriveConfig(t *testing.T, root, content string) {
+	t.Helper()
+	if err := os.MkdirAll(filepath.Join(root, "config"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "config", DevDriveFile), []byte(content), 0o644); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func jsonString(s string) string {
+	data, _ := json.Marshal(s)
+	return string(data)
+}
+
+func TestWriteDevDriveConfigRoundTripsWhatResolveReads(t *testing.T) {
+	// Arrange
+	root := t.TempDir()
+	drive := filepath.Join(t.TempDir(), "CodeGoblins")
+	moved := time.Date(2026, 10, 8, 1, 2, 3, 0, time.UTC)
+
+	// Act
+	err := WriteDevDriveConfig(root, DevDriveConfig{Root: drive, MovedAt: moved})
+
+	// Assert
+	if err != nil {
+		t.Fatal(err)
+	}
+	config, err := ReadDevDriveConfig(root)
+	if err != nil || config.Root != drive || !config.MovedAt.Equal(moved) {
+		t.Fatalf("read back %+v, %v; want %s moved at %s", config, err, drive, moved)
+	}
+	t.Setenv("CFO_HOME", root)
+	t.Setenv("CFO_STATE_OVERRIDE", "")
+	if h, err := Resolve(); err != nil || h.DevDrive != drive {
+		t.Errorf("Resolve = %+v, %v; want its Dev Drive folder %s", h, err, drive)
 	}
 }

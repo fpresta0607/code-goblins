@@ -157,8 +157,8 @@ func TestInstallOverACheckoutHomeInUseKeepsItAndItsFleetWorking(t *testing.T) {
 			t.Errorf("%s = %q (%v), want it left as %q", name, got, err, content)
 		}
 	}
-	if _, err := os.Stat(filepath.Join(k.root, home.InstalledMarker)); !os.IsNotExist(err) {
-		t.Errorf("the install marked the checkout (%v)", err)
+	if !home.IsPrimary(home.Home{Root: k.root, State: k.state}) {
+		t.Errorf("the checkout is not the primary home after the install, so its commands and hooks refuse it:\n%s", output)
 	}
 	var values map[string]string
 	data, err := os.ReadFile(k.environment)

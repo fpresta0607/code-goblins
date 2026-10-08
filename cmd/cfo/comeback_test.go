@@ -85,7 +85,7 @@ func TestTheComebackBringsEachGoblinBackToldTheMachineRestarted(t *testing.T) {
 		"fails":        {"codex", "native"},
 	}, map[string]string{"paused": "paused"})
 	var requests []spawn.SwitchRequest
-	refused := errors.New("live goblin cap reached")
+	refused := errors.New("only 4.6 GB of memory is free")
 	runtime := comebackRuntime([]string{"still-runs"}, nil, func(request spawn.SwitchRequest) (spawn.SwitchResult, error) {
 		if request.ID == "fails" {
 			return spawn.SwitchResult{}, errors.New("switch: validate harness codex: codex is not signed in")
@@ -108,7 +108,7 @@ func TestTheComebackBringsEachGoblinBackToldTheMachineRestarted(t *testing.T) {
 		"claude-owned": {Outcome: supervisor.CameBack, Said: "back on its conversation"},
 		"still-runs":   {Outcome: supervisor.AlreadyRuns},
 		"paused":       {Outcome: supervisor.LeftAsItWas},
-		"no-room":      {Outcome: supervisor.WaitsForRoom, Said: "live goblin cap reached"},
+		"no-room":      {Outcome: supervisor.WaitsForRoom, Said: "only 4.6 GB of memory is free"},
 		"fails":        {Outcome: supervisor.DidNotComeBack, Said: "switch: validate harness codex: codex is not signed in"},
 	}
 	for id, outcome := range want {

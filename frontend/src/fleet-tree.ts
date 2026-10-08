@@ -68,10 +68,10 @@ export const running = (tree?: FleetTree) => (tree?.children || []).filter((node
 export const finished = (tree?: FleetTree) => (tree?.children || []).filter(isFinished)
   .sort((one, other) => (known(other.finished) || "").localeCompare(known(one.finished) || ""));
 
-export interface TreeSummary { working: number; silent: number; idle: number; finished: number; kinds: [Baby, number][] }
+export interface TreeSummary { working: number; silent: number; idle: number; kinds: [Baby, number][] }
 
-// summarize is a goblin's children at a glance: how many work, are silent,
-// idle or finished, and how many of each kind are still running.
+// summarize is a goblin's children at a glance: how many work, are silent or
+// idle, and how many of each kind are still running.
 export function summarize(tree?: FleetTree): TreeSummary {
   const children = tree?.children || [];
   const counts = new Map<Baby, number>();
@@ -80,7 +80,6 @@ export function summarize(tree?: FleetTree): TreeSummary {
     working: children.filter((node) => node.state === "working").length,
     silent: children.filter((node) => node.state === "silent").length,
     idle: children.filter(isIdle).length,
-    finished: children.filter(isFinished).length,
     kinds: BABIES.flatMap((baby): [Baby, number][] => counts.has(baby) ? [[baby, counts.get(baby)!]] : []),
   };
 }
@@ -92,14 +91,50 @@ export function silentChild(tree?: FleetTree): TreeNode | undefined {
     .sort((one, other) => (known(one.last_activity) || "").localeCompare(known(other.last_activity) || ""))[0];
 }
 
-// hasChildren says the goblin has anything under it to show.
+// hasChildren says the goblin has anything under it to show in its panel,
+// finished children included.
 export const hasChildren = (tree?: FleetTree) => (tree?.children.length || 0) > 0;
 
-// canvasChildren are the children an open goblin shows under its card: every
-// one still running and the newest few that finished, so the canvas stays
-// calm; its panel lists them all.
-export const CANVAS_FINISHED = 3;
-export const canvasChildren = (tree?: FleetTree) => [...running(tree), ...finished(tree).slice(0, CANVAS_FINISHED)];
+// hasRunningChildren says the goblin has a child still running or idle,
+// which is all the canvas and the lineage list draw under it; its panel lists
+// the finished ones too.
+export const hasRunningChildren = (tree?: FleetTree) => running(tree).length > 0;
+
+// A baby goblin on its branch, and the branches' measures: the twig from a
+// spine to a baby, the gaps between columns and rows, the drop from the
+// goblin's card to the first row, and the bend of a joint.
+export const BABY_WIDTH = 166, BABY_HEIGHT = 124;
+const TWIG = 18, COLUMN_GAP = 14, ROW_GAP = 14, DROP = 44, BEND = 8;
+
+// Branches are a goblin's running children laid out under its card: where
+// each baby goblin sits, the lines that join them to the card, the end of
+// each line at a baby, and where each line that runs down sits from the
+// card's middle. Every point is from the top left of the block, which is
+// centred under the card, as wide as the card at least, with its top at the
+// card's bottom.
+export interface Branches { width: number; height: number; places: { x: number; y: number }[]; lines: string[]; ends: { x: number; y: number }[]; drops: number[] }
+
+// branchLayout hangs count baby goblins under a card in about as many
+// columns as rows, up to four columns: one hangs straight under the card;
+// more hang each from a twig off its column's spine, the spines joined to
+// the card by a trunk and a bar, so a big family grows down, not across.
+export function branchLayout(count: number, cardWidth: number): Branches {
+  const columns = Math.min(4, Math.ceil(Math.sqrt(count))), rows = Math.ceil(count / columns);
+  const step = TWIG + BABY_WIDTH + COLUMN_GAP, span = columns * step - COLUMN_GAP;
+  const width = Math.max(cardWidth, span), centre = width / 2, left = (width - span) / 2;
+  const height = DROP + rows * (BABY_HEIGHT + ROW_GAP) - ROW_GAP;
+  if (columns === 1) return { width, height, places: [{ x: centre - BABY_WIDTH / 2, y: DROP }], lines: [`M${centre},0 L${centre},${DROP}`], ends: [{ x: centre, y: DROP }], drops: [0] };
+  const bar = DROP / 2, spine = (column: number) => left + column * step, last = spine(columns - 1);
+  const places = Array.from({ length: count }, (_, i) => ({ x: spine(i % columns) + TWIG, y: DROP + Math.floor(i / columns) * (BABY_HEIGHT + ROW_GAP) }));
+  const middle = (place: { y: number }) => place.y + BABY_HEIGHT / 2;
+  const lines = [`M${centre},0 L${centre},${bar} M${spine(0)},${bar + BEND} Q${spine(0)},${bar} ${spine(0) + BEND},${bar} L${last - BEND},${bar} Q${last},${bar} ${last},${bar + BEND}`];
+  for (let column = 0; column < columns; column++) {
+    const lowest = places.filter((_, i) => i % columns === column).at(-1)!;
+    lines.push(`M${spine(column)},${bar + BEND} L${spine(column)},${middle(lowest) - BEND}`);
+  }
+  for (const place of places) lines.push(`M${place.x - TWIG},${middle(place) - BEND} Q${place.x - TWIG},${middle(place)} ${place.x - TWIG + BEND},${middle(place)} L${place.x},${middle(place)}`);
+  return { width, height, places, lines, ends: places.map((place) => ({ x: place.x, y: middle(place) })), drops: [0, ...Array.from({ length: columns }, (_, column) => spine(column) - centre)] };
+}
 
 // isHeldByTree is whether a session is a sub-agent a native hook reported whose
 // goblin's family tree holds it, or a helper goblin's whose parent's tree

@@ -217,6 +217,37 @@ func TestUpdateInstallsTheCandidateAndRestartsOnlyTheSupervisor(t *testing.T) {
 	}
 }
 
+// An update from a build that read max_live_goblins takes it out of the
+// home's settings before the candidate's supervisor starts: the candidate
+// refuses a key it no longer reads, and with it every start.
+func TestUpdateTakesTheRetiredGoblinCountOutBeforeItsSupervisorStarts(t *testing.T) {
+	// Arrange
+	u := newUpdateHome(t, "previous", "candidate")
+	u.serving()
+	settings := filepath.Join(u.root, "config", "fleet.json")
+	if err := os.MkdirAll(filepath.Dir(settings), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(settings, []byte(`{"max_live_goblins":128}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	// Act
+	code, output := u.run(nil)
+
+	// Assert
+	if code != updateInstalled {
+		t.Fatalf("update exited %d:\n%s", code, output)
+	}
+	data, err := os.ReadFile(settings)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(data), "max_live_goblins") || !strings.Contains(output, "max_live_goblins") {
+		t.Fatalf("config/fleet.json after the update:\n%s\nwant the count taken out and named in the output:\n%s", data, output)
+	}
+}
+
 // The desktop window beside the candidate follows the update into the home,
 // in place of the window the home held. A window that cannot be put there
 // leaves the update done, since the home's window shows any build's board,
