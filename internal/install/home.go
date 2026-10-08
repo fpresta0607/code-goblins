@@ -488,7 +488,11 @@ func (s Service) retireRootBinaries(report *reporter) error {
 				removed = append(removed, filepath.Base(path))
 			case errors.Is(err, fs.ErrNotExist):
 			default:
-				aside := filepath.Join(s.bin(), filepath.Base(path)+"."+rand.Text()+".old")
+				// Named for its program alone, as any copy moved aside is, so
+				// the pass that removes old copies once nothing runs them
+				// knows it: a copy that was already one, named again on top
+				// of its old name, was once left in bin for good.
+				aside := filepath.Join(s.bin(), name+"."+rand.Text()+".old")
 				if err := os.Rename(path, aside); err != nil {
 					return fmt.Errorf("install: retire %s, which an older install put at the home's root: %w", path, err)
 				}
