@@ -205,17 +205,19 @@ func TestClassifyNamesWhatAJobIsDoing(t *testing.T) {
 		group    Group
 		label    string
 	}{
-		"go test":              {[]string{"bash.exe", "go.exe"}, []string{"", "go test ./..."}, nil, GroupTest, "Test run"},
-		"a go test binary":     {[]string{"pkg.test.exe"}, []string{""}, []int{51234}, GroupTest, "Test run"},
-		"playwright":           {[]string{"cmd.exe", "node.exe", "chrome.exe"}, []string{"", "npx playwright test", ""}, []int{5173}, GroupTest, "Test run"},
-		"cfo gate test":        {[]string{"cfo.exe"}, []string{`"C:\home\bin\cfo.exe" gate test --level fast`}, nil, GroupTest, "Test run"},
-		"vitest":               {[]string{"node.exe"}, []string{"node vitest run"}, nil, GroupTest, "Test run"},
-		"go build":             {[]string{"go.exe"}, []string{"go build ./cmd/cfo"}, nil, GroupBuild, "Build"},
-		"npm run build":        {[]string{"cmd.exe", "node.exe"}, []string{"npm run build", ""}, nil, GroupBuild, "Build"},
-		"a dev server":         {[]string{"node.exe"}, []string{"vite"}, []int{5174, 5173}, GroupDevServer, "Dev server :5173"},
-		"a browser":            {[]string{"msedge.exe", "msedge.exe"}, []string{"", ""}, nil, GroupBrowser, "Browser"},
-		"anything else":        {[]string{"bash.exe", "rg.exe"}, []string{`bash -c "eval 'rg -n '\''needle'\'' .'"`, ""}, nil, GroupOther, "rg -n 'needle' ."},
-		"a command line alone": {[]string{"python.exe"}, []string{"python -I survey.py"}, nil, GroupOther, "python -I survey.py"},
+		"go test":                {[]string{"bash.exe", "go.exe"}, []string{"", "go test ./..."}, nil, GroupTest, "Test run"},
+		"a go test binary":       {[]string{"pkg.test.exe"}, []string{""}, []int{51234}, GroupTest, "Test run"},
+		"playwright":             {[]string{"cmd.exe", "node.exe", "chrome.exe"}, []string{"", "npx playwright test", ""}, []int{5173}, GroupTest, "Test run"},
+		"cfo gate test":          {[]string{"cfo.exe"}, []string{`"C:\home\bin\cfo.exe" gate test --level fast`}, nil, GroupTest, "Test run"},
+		"vitest":                 {[]string{"node.exe"}, []string{"node vitest run"}, nil, GroupTest, "Test run"},
+		"go build":               {[]string{"go.exe"}, []string{"go build ./cmd/cfo"}, nil, GroupBuild, "Build"},
+		"npm run build":          {[]string{"cmd.exe", "node.exe"}, []string{"npm run build", ""}, nil, GroupBuild, "Build"},
+		"a dev server":           {[]string{"node.exe"}, []string{"vite"}, []int{5174, 5173}, GroupDevServer, "Dev server :5173"},
+		"a browser":              {[]string{"msedge.exe", "msedge.exe"}, []string{"", ""}, nil, GroupBrowser, "Browser"},
+		"anything else":          {[]string{"bash.exe", "rg.exe"}, []string{`bash -c "eval 'rg -n '\''needle'\'' .'"`, ""}, nil, GroupOther, "rg -n 'needle' ."},
+		"a command line alone":   {[]string{"python.exe"}, []string{"python -I survey.py"}, nil, GroupOther, "python -I survey.py"},
+		"a command cmd.exe runs": {[]string{"cmd.exe", "python.exe"}, []string{`C:\WINDOWS\System32\cmd.exe /d /s /c "python -I survey.py"`, ""}, nil, GroupOther, "python -I survey.py"},
+		"a program by its path":  {[]string{"python.exe"}, []string{`"C:\Program Files\Python312\python.exe" -I survey.py`}, nil, GroupOther, "python -I survey.py"},
 	} {
 		t.Run(name, func(t *testing.T) {
 			// Arrange
