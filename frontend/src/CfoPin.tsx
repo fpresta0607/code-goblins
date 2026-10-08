@@ -3,11 +3,7 @@ import type { Snapshot } from "./types";
 import { message, request } from "./api";
 import { Avatar } from "./Avatar";
 import { ConnectorMark } from "./ConnectorMark";
-import { Disclosure } from "./Disclosure";
 import { Icon } from "./Icon";
-import { stillHeld } from "./afk";
-import { useAfkActions } from "./afk-actions";
-import { AfkHeldList } from "./afk-held";
 import { cfoSummary } from "./cfoSummary";
 import { harnessMark } from "./connectors";
 import { harnessTip } from "./workflow";
@@ -31,13 +27,11 @@ import "./cfo-pin.css";
 // register.
 // The mark of the harness the registered CFO runs sits beside its portrait,
 // with the model of its newest session in that harness in its tip. While AFK
-// mode is on nothing glows: the bar says since when and how much was decided
-// and held, and lists under itself what is held for him once he opens the
-// list, which never opens by itself, each item a click from the Command
-// Center.
+// mode is on nothing glows: the bar says since when and how much was decided,
+// and Open Command Center, unlit, is its one way to whatever waits, since
+// nothing is held for him while he is away.
 export function CfoPin({ snapshot, onOpen, onCommand, onStart }: { snapshot: Snapshot; onOpen: (source: HTMLElement) => void; onCommand: () => void; onStart: () => void }) {
   const { waiting, line } = cfoSummary(snapshot);
-  const { answer } = useAfkActions();
   const [reopening, setReopening] = useState(false);
   const [restarting, setRestarting] = useState(false);
   const [confirming, setConfirming] = useState(false);
@@ -84,7 +78,6 @@ export function CfoPin({ snapshot, onOpen, onCommand, onStart }: { snapshot: Sna
   const restartLabel = restarting ? "Restarting the CFO…" : "Restart the CFO";
   const harness = snapshot.cfo_harness;
   const model = snapshot.sessions.filter((session) => session.role === "cfo" && session.harness === harness).at(-1)?.model || "";
-  const held = stillHeld(snapshot.afk);
   return <div className="cfo-pin">
     <div className="cfo-rest" role="group" aria-label="CFO">
       {absent
@@ -93,12 +86,9 @@ export function CfoPin({ snapshot, onOpen, onCommand, onStart }: { snapshot: Sna
       {harness && !absent && <ConnectorMark mark={harnessMark(harness)} label={harnessTip(harness, model, "")} />}
       <p title={shown}>{shown}{failure && <span className="warning-text" role="alert"> {failure}</span>}</p>
       {absent && <button className="labelled-button primary" onClick={onStart}><Icon name="play" />Start the CFO</button>}
-      {!absent && waiting > 0 && <button className="cfo-command" aria-label={"Open Command Center: " + waiting + " waiting on you"} onClick={onCommand}>Open Command Center<span className="cfo-command-count" aria-hidden="true">{waiting}</span></button>}
+      {!absent && waiting > 0 && <button className={"cfo-command" + (snapshot.afk.state === "on" ? " away" : "")} aria-label={"Open Command Center: " + waiting + " waiting on you"} onClick={onCommand}>Open Command Center<span className="cfo-command-count" aria-hidden="true">{waiting}</span></button>}
       {restartable && <button className="icon-button raised" aria-label={restartLabel} data-tip={restartLabel} data-tip-align="end" disabled={restarting} onClick={() => setConfirming(true)}><Icon name="refresh" /></button>}
       {!absent && <button className="icon-button raised" aria-label={terminal} data-tip={terminal} data-tip-align="end" onClick={(event) => onOpen(event.currentTarget)}><Icon name="terminal" /></button>}
-      {snapshot.afk.state === "on" && <Disclosure kind="afk-held-panel" title={<>Held for you <span className="column-count">{held.length}</span></>}>
-        <AfkHeldList held={held} tasks={snapshot.tasks} onOpen={answer} />
-      </Disclosure>}
     </div>
     {confirming && <RestartCfoDialog onRestart={() => void restart()} onClose={() => setConfirming(false)} />}
   </div>;

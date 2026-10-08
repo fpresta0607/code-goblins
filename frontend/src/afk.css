@@ -29,9 +29,6 @@
 
 /* The CFO's bar lists what is held under its line while AFK mode is on. */
 .cfo-rest { flex-wrap: wrap; container-type: inline-size; }
-.cfo-rest > .afk-held-panel { flex: 1 0 100%; min-width: 0; }
-.disclosure.afk-held-panel > summary { padding: 12px 0 0; font-size: 1.0625rem; }
-.afk-held-panel > .disclosure-content { padding: 12px 0 2px; }
 
 /* What is held, drawn as the Command Center's inbox. What was recommended for
    an item reads as the Command Center's reason under an answer does; an item
