@@ -3,8 +3,12 @@ package supervisor
 import (
 	"context"
 	"errors"
+	"fmt"
 	"path/filepath"
+	"slices"
+	"strings"
 
+	"github.com/fpresta0607/code-goblins/internal/services"
 	"github.com/fpresta0607/code-goblins/internal/state"
 )
 
@@ -32,6 +36,7 @@ func (s *Service) workspaceDetail(ctx context.Context, taskID, generation string
 				out.Harness = p.Agent
 			}
 		}
+		out.Notes = s.servicesNotes("")
 		return out, nil
 	}
 	var err error
@@ -51,5 +56,48 @@ func (s *Service) workspaceDetail(ctx context.Context, taskID, generation string
 	if err != nil {
 		out.Notes = append(out.Notes, "Branch information is unavailable.")
 	}
+	out.Notes = append(out.Notes, s.servicesNotes(meta.ID)...)
 	return out, nil
+}
+
+// servicesNotes says which local services stacks a task holds, with whom
+// and what they take, or for the CFO, every stack held and whether cfo
+// started the engine under them.
+func (s *Service) servicesNotes(task string) []string {
+	record, err := services.ReadRecord(s.Store.Home.State)
+	if err != nil {
+		return []string{"The local services cfo holds could not be read."}
+	}
+	var notes []string
+	for _, stack := range record.Sorted() {
+		if !stack.IsUp() || task != "" && !stack.Holds(task) {
+			continue
+		}
+		memory := ", whose memory is not measured yet."
+		if stack.Cost.Bytes > 0 {
+			memory = fmt.Sprintf(", which take %.1f GB of memory.", float64(stack.Cost.Bytes)/(1<<30))
+		}
+		if task == "" {
+			notes = append(notes, stack.Project+"'s local services are up for "+andList(stack.HolderIDs())+memory)
+			continue
+		}
+		note := "Holds " + stack.Project + "'s local services"
+		if others := slices.DeleteFunc(stack.HolderIDs(), func(id string) bool { return id == task }); len(others) > 0 {
+			note += " with " + andList(others)
+		}
+		note += memory
+		notes = append(notes, note)
+	}
+	if task == "" && len(notes) > 0 && record.Engine.StartedByCFO {
+		notes = append(notes, "cfo started the Docker engine for them and stops it once none of them runs.")
+	}
+	return notes
+}
+
+// andList joins names as a sentence names them: a, b and c.
+func andList(names []string) string {
+	if len(names) < 2 {
+		return strings.Join(names, "")
+	}
+	return strings.Join(names[:len(names)-1], ", ") + " and " + names[len(names)-1]
 }

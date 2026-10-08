@@ -758,6 +758,7 @@ cfo send <target> <text...>
 cfo peek <target> [lines]
 cfo fleet-view [--json]
 cfo runtime [--json]
+cfo services up <project> --task <id> [--wait <duration>] | down <project> --task <id>
 cfo tickets <project> [--brief <file>] [--files <paths>] [--json]
 cfo pipeline migrate <id>
 cfo pipeline run <id> --intent <text>
@@ -934,7 +935,7 @@ If you want one, make `data\` a git repository and push it to a private remote o
 
 The home stays small on its own: the binaries, records under 200 MB, capped caches, and about 0.2 GB for each running goblin, which leaves when its work merges.
 Once an hour the janitor removes what the fleet left behind: a worktree in the home no task owns once its work is on the default branch or kept as a local `archive/<branch>` tag, old builds past the two before the current one, temporary folders nothing has written to for a day, a retired task's scratch, logs and evidence (its brief, report, decisions, handoffs and status log stay, and so does anything it handed you), backups past the newest two of each kind, and cache space over the cap, using each tool's own prune.
-It never touches uncommitted work, your checkouts or Docker, and it reports what it will not remove: a worktree no task records, a new folder in your projects root that is no checkout, and a `data\` over 200 MB.
+It never touches uncommitted work or your checkouts, touches Docker only to stop a project's local services that cfo started for goblins once no running goblin holds them, and reports what it will not remove: a worktree no task records, a new folder in your projects root that is no checkout, and a `data\` over 200 MB.
 `cfo runtime` shows what each part of the home holds, and the board shows free disk under free memory, in one box.
 
 ### A Dev Drive for the busiest folders (optional)
@@ -1058,6 +1059,10 @@ MIT. See [LICENSE](LICENSE). First Mate lineage remains acknowledged as required
 Code Goblins can now describe each project's real runtime in `data/projects/<project>/project.json`: databases, caches, vector stores, object storage, frontends, backends, workers, queues, local/remote services, providers, health checks, deploy commands, verification policy, security policy, routing lanes, and budgets. Credential **names** may appear there; credential values stay in the existing auth store.
 
 At spawn, CFO produces a compact durable **task capsule** and **runtime capsule** instead of replaying the CFO transcript. Without `--harness`, deterministic rules classify the brief and select an execution lane from the fleet's `data/routing.json` (a project manifest's `routing` block overrides it), checking quota-axi headroom first and falling to the next usable lane; explicit harness/model/effort flags still win. A redirected task can be marked with `cfo supersede`, which makes rejected unshipped work disposable and requires cleanup evidence.
+
+A goblin whose check needs a project's local services, such as a backend with its Redis, runs `cfo services up <project> --task <id>` instead of Docker itself.
+The project declares the compose file and the services in `data/projects/<project>/services.json`, and cfo starts Docker Desktop's engine and one shared stack only while free memory stays above the fleet's floor with the stack's measured cost added, waiting and saying why until it does.
+The last goblin to release the stack, its cleanup or the janitor stops what cfo started, the engine included, and `cfo runtime` and the board show each stack, who holds it and its memory.
 
 Delivery is evidence-driven: tiered verification and security commands write structured results, project deployment contracts prevent “CI green” from being mistaken for “production deployed,” and `cfo pr merge` verifies the exact PR head and merges with `--match-head-commit` so a newer unverified SHA cannot slip through; where the base requires GitHub's merge queue it adds that head to the queue, which tests it on the base's tip before merging.
 

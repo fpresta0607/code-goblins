@@ -8,10 +8,11 @@
 // cap with each tool's own prune, and reports what it must not touch: a
 // worktree holding uncommitted work, a worktree no task records, a retired
 // task's folder holding a git repository, a data folder over 200 MB, and a
-// new folder or file in the projects root that is no checkout.
-// It never touches Docker, the Overlord's checkouts or files, or anything
-// holding uncommitted or unpushed work, and every check that decides a removal
-// refuses when it cannot read what it checks.
+// new folder or file in the projects root that is no checkout. It stops the
+// local services stacks cfo services started that no live task holds, and
+// beyond those never touches Docker, the Overlord's checkouts or files, or
+// anything holding uncommitted or unpushed work, and every check that decides
+// a removal refuses when it cannot read what it checks.
 package janitor
 
 import (
@@ -53,6 +54,11 @@ type Config struct {
 	// list was read before anything is removed on the strength of it.
 	SelfPID int
 	Now     time.Time
+	// StopServices stops every local services stack cfo services started
+	// that no live task holds, and the Docker engine cfo started once
+	// nothing it started runs on it, and says what it stopped. Nil stops
+	// nothing.
+	StopServices func(ctx context.Context) ([]string, error)
 }
 
 // Item is one thing a sweep removed, kept or reports.
@@ -124,6 +130,7 @@ func Sweep(ctx context.Context, cfg Config) Record {
 		cfg.retireMovedCaches(&record)
 	}
 	cfg.trimCaches(ctx, &record)
+	cfg.stopServices(ctx, &record)
 	cfg.reportProjectsRoot(&record)
 	metas := make([]state.TaskMeta, 0, len(cfg.Inventory.Tasks))
 	for _, task := range cfg.Inventory.Tasks {
@@ -137,6 +144,21 @@ func Sweep(ctx context.Context, cfg Config) Record {
 		record.Notes = append(record.Notes, "free disk could not be read: "+err.Error())
 	}
 	return record
+}
+
+// stopServices stops the local services stacks no live task holds. One that
+// cannot be stopped is a note, and the next sweep tries again.
+func (cfg Config) stopServices(ctx context.Context, record *Record) {
+	if cfg.StopServices == nil {
+		return
+	}
+	lines, err := cfg.StopServices(ctx)
+	for _, line := range lines {
+		record.Removed = append(record.Removed, Item{Kind: "services", Detail: line})
+	}
+	if err != nil {
+		record.Notes = append(record.Notes, "the local services no live task holds could not be stopped, so the next sweep tries again: "+err.Error())
+	}
 }
 
 // keepRecentBuilds keeps the folder holding the home's build, bin or the root
