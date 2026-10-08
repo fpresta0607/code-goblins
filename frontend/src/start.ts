@@ -108,15 +108,23 @@ export function diskBlock(disk: Disk | null): string {
   return disk && disk.free < disk.floor ? `${gigabytes(disk.floor)} GB of free disk (${freeGigabytes(disk.free)} GB free)` : "";
 }
 
-// Why a queued task's Start cannot run now, or empty when it can. The
-// supervisor checks all of it again; this only saves a refused click.
-export function startBlock(task: Task, memory: Memory | null, anotherStarting: boolean, disk: Disk | null = null): string {
+// Why a queued task's Start does nothing now, or empty when it starts it:
+// its own start is under way, or the task waits on what its queue says. A
+// Start clicked while another goblin starts or resumes, or while memory or
+// disk is short, waits its turn on the supervisor, so one click starts it.
+export function startBlock(task: Task): string {
   if (task.starting) return "Starting";
-  if (queueBlock(task)) return queueBlock(task);
-  if (memoryBlock(memory)) return "Needs " + memoryBlock(memory);
-  if (diskBlock(disk)) return "Needs " + diskBlock(disk);
-  if (anotherStarting) return "Another task is starting";
-  return "";
+  return queueBlock(task);
+}
+
+// What a Start or Resume the Overlord clicked waits for while it waits its
+// turn: memory or disk under the mark. Behind another goblin starting or
+// resuming it says Starting or Resuming, so this is empty.
+export function turnStatus(task: Task, memory: Memory | null, disk: Disk | null): string {
+  if (!task.asked) return "";
+  const verb = task.phase === "queued" ? "Starts" : "Resumes";
+  if (memory && memoryBlock(memory)) return `${verb} at ${gigabytes(memory.next)} GB free`;
+  return diskBlock(disk) ? verb + " once disk frees" : "";
 }
 
 // Why a queued task does not start whatever memory there is: it already

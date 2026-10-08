@@ -5,7 +5,7 @@ import { ConnectorMark } from "./ConnectorMark";
 import { Icon } from "./Icon";
 import { clockText } from "./cards";
 import { harnessMark } from "./connectors";
-import type { NextUp } from "./start";
+import { turnStatus, type NextUp } from "./start";
 import { TaskControls } from "./task-controls";
 import { asksOverlord, harnessName, harnessTip, nodeStatus, personaFor, pullRequestIcon, pullRequestLabel, safePullRequest, statusPhase, taskColumn } from "./workflow";
 import { goblinName, pausedWithParent, pauseStatus, plainText, taskName } from "./task-words";
@@ -34,7 +34,7 @@ import { formatMemory, summarize } from "./fleet-tree";
 // paused one, in place of Paused, why it waits and what resumes it. A goblin
 // gone quiet, and windows still closing, are the CFO's to hear, never warnings
 // on the card. next marks the one card the order for a free slot takes first.
-export interface CardStart { blocked: string; onStart: (source: HTMLElement) => Promise<string> }
+export interface CardStart { blocked: string; onStart: () => void }
 export function TaskCard({ task, snapshot, selected, presentations, now, rank, next, start, onSelect, onTerminal }: {
   task: Task; snapshot: Snapshot; selected: boolean; presentations: BoardActivity[]; now: number; rank?: string;
   next?: NextUp; start?: CardStart;
@@ -60,7 +60,7 @@ export function TaskCard({ task, snapshot, selected, presentations, now, rank, n
   const clock = column === "Completed" || column === "Paused" ? "" : clockText(task.since, now, waiting ? "waiting" : "running");
   const clockBadge = clock && <span className="card-clock"><Icon name="clock" /><span className="sr-only">{waiting ? "Waiting for" : "Running for"} </span>{clock}</span>;
   const ended = (column === "Paused" || column === "Completed") && task.at ? new Date(task.at) : null;
-  const status = statusPhase(task) === "paused" ? pauseStatus(task.lifecycle?.pause, snapshot.tasks, snapshot.ci_durations, pausedWithParent(task, snapshot.tasks)) : nodeStatus({ id: task.id, title: task.title, task, relation: "" }, asking, snapshot.tasks);
+  const status = turnStatus(task, snapshot.memory, snapshot.disk) || (statusPhase(task) === "paused" ? pauseStatus(task.lifecycle?.pause, snapshot.tasks, snapshot.ci_durations, pausedWithParent(task, snapshot.tasks)) : nodeStatus({ id: task.id, title: task.title, task, relation: "" }, asking, snapshot.tasks));
   const parent = task.parent && snapshot.tasks.find((other) => other.id === task.parent);
   const parentName = parent ? goblinName(parent) : task.parent;
   // What runs under a live goblin, as baby goblins with a count each.

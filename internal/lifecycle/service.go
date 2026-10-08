@@ -117,7 +117,17 @@ func (service Service) Run(ctx context.Context, request Request) (result state.L
 	isAlreadyRunning := false
 	if request.Action == "resume" {
 		isInterruptedResume := prior.Action == "resume" && (prior.Phase == "resuming" || prior.Phase == "failed") && meta.ResumeOperation == prior.Operation
-		if prior.Generation != meta.SpawnGen && !isInterruptedResume || prior.Phase != "paused" && !(prior.Action == "resume" && (prior.Phase == "failed" || prior.Phase == "resuming")) {
+		// A pause that failed while its goblin ran took effect once its
+		// terminal ended, so the goblin resumes as a paused one does.
+		isEndedPause := false
+		if prior.Action == "pause" && prior.Phase == "failed" && prior.Generation == meta.SpawnGen && service.Operations.IsRunning != nil {
+			isRunning, err := service.Operations.IsRunning(ctx, meta)
+			if err != nil {
+				return result, fmt.Errorf("read whether the goblin's terminal runs: %w", err)
+			}
+			isEndedPause = !isRunning
+		}
+		if prior.Generation != meta.SpawnGen && !isInterruptedResume || prior.Phase != "paused" && !isEndedPause && !(prior.Action == "resume" && (prior.Phase == "failed" || prior.Phase == "resuming")) {
 			return result, errors.New("only a paused task can resume")
 		}
 		// These checks refuse early, before the record changes. The relaunch
@@ -243,6 +253,15 @@ func (service Service) Run(ctx context.Context, request Request) (result state.L
 		result.Stopped = append(result.Stopped, helpers...)
 		if err == nil && service.Operations.Checkpoint != nil {
 			err = service.Operations.Checkpoint(ctx, meta, &result)
+		}
+		// A pause whose goblin's terminal no longer runs took effect,
+		// whatever the rest of its stop met: the goblin is paused, what its
+		// stop met is named, and its session is kept for its resume.
+		if err != nil && request.Action == "pause" && service.Operations.IsRunning != nil {
+			if isRunning, runErr := service.Operations.IsRunning(ctx, meta); runErr == nil && !isRunning {
+				result.Problems = append(result.Problems, err.Error())
+				err = nil
+			}
 		}
 		if err == nil {
 			if request.Action == "pause" {

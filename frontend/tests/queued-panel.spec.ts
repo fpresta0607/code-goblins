@@ -149,7 +149,7 @@ test("removing a queued task says Removing while it goes", async ({ page }) => {
   await select(page, "queued-one");
   await panel(page).getByRole("button", { name: "Remove queued-one" }).click();
   await page.getByRole("dialog").getByRole("button", { name: "Remove from queue" }).click();
-  await expect(panel(page).getByRole("status").filter({ hasText: "Removing..." })).toBeVisible();
+  await expect(panel(page).locator(".panel-status")).toHaveText("Removing");
 });
 
 test("Adjust this task has Save changes, labelled, under its text box, and no Send to CFO", async ({ page }) => {

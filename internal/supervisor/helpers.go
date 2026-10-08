@@ -212,6 +212,7 @@ func (s *Service) runHelperStart(dispatch *Dispatch, plan helperStart) {
 	s.starting = ""
 	s.starts.Unlock()
 	s.notify()
+	s.runAsked()
 }
 
 // resumesWithItsParent says paused helper meta may resume now: its parent's

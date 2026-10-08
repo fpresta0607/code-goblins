@@ -13,6 +13,7 @@ import { AfkToggle } from "./afk-toggle";
 import { CfoUpdate } from "./cfo-update";
 import { goblinName, taskName, taskSummary, withoutHarness } from "./task-words";
 import { RawDetails } from "./raw-details";
+import { turnStatus } from "./start";
 import { PeopleRow } from "./people-row";
 import { TicketLink } from "./ticket-link";
 import { HostedChecksLink } from "./hosted-checks-link";
@@ -37,7 +38,7 @@ export function PanelHeader({ task, node, snapshot, compact, onAnswer, onOpenTas
   const title = cfo ? "CFO" : node ? sessionTitle(node, task) : task ? goblinName(task) : "";
   const status = cfo
     ? nodeStatus({ id: "cfo", title, session: cfoSession, relation: "", status: snapshot.registration ? "Registration stale" : cfoSession ? undefined : "Supervising" })
-    : nodeStatus({ id: title, title, task, session: node, relation: "" }, asking, snapshot.tasks);
+    : owner && turnStatus(task, snapshot.memory, snapshot.disk) || nodeStatus({ id: title, title, task, session: node, relation: "" }, asking, snapshot.tasks);
   const phase = cfo ? (snapshot.registration ? "stale" : cfoSession?.runtime?.state || cfoSession?.phase || "working") : owner ? statusPhase(task) : node?.runtime?.state || node?.phase || "";
   const said = owner ? taskSummary(task, snapshot.tasks, status) : undefined;
   // What a queued task's wait line leaves out: the CFO's note on it, or what

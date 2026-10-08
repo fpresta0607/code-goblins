@@ -75,11 +75,14 @@ export interface Task extends Evaluation {
   // was written; empty when neither is known.
   since: string;
   // brief says queued work has its brief, which Start needs; starting that
-  // its Start runs cfo spawn now, start_error why its last Start failed, and
-  // finished why it never starts again by itself: what says it already
-  // finished.
+  // its Start runs cfo spawn now or waits its turn, start_error why its last
+  // Start failed, and finished why it never starts again by itself: what
+  // says it already finished. asked says a Start or Resume the Overlord
+  // clicked waits its turn behind another start or resume, or for memory or
+  // disk.
   brief: boolean;
   starting: boolean;
+  asked: boolean;
   start_error: string;
   finished: string;
   // priority is a queued task's backlog priority: production-defect starts
@@ -800,6 +803,7 @@ export function parseSnapshot(value: unknown): Snapshot {
         since: string(t.since),
         brief: t.brief === undefined ? false : boolean(t.brief),
         starting: t.starting === undefined ? false : boolean(t.starting),
+        asked: t.asked === undefined ? false : boolean(t.asked),
         start_error: string(t.start_error),
         finished: t.finished === undefined ? "" : string(t.finished),
         priority: t.priority === undefined ? "" : string(t.priority),
