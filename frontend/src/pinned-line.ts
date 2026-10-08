@@ -39,7 +39,10 @@ export class PinnedLine {
     const top = screen.top - panel.top + (term.rows - 1) * row;
     if (pinned === null) return top;
     const line = this.line ?? this.open(term);
-    Object.assign(line.options, { fontSize: term.options.fontSize, fontFamily: term.options.fontFamily, lineHeight: term.options.lineHeight });
+    // The cursor is drawn as the terminal draws its own: a block while it
+    // has the keyboard, an outline while it does not.
+    const cursorInactiveStyle = document.activeElement === term.textarea ? "block" : "outline";
+    Object.assign(line.options, { fontSize: term.options.fontSize, fontFamily: term.options.fontFamily, lineHeight: term.options.lineHeight, cursorInactiveStyle });
     if (line.cols !== term.cols) { line.resize(term.cols, 1); this.drawn = ""; }
     Object.assign(this.element.style, { left: screen.left - panel.left + "px", top: top + "px", width: screen.width + "px", height: row + "px" });
     const input = lineInput(buffer.getLine(pinned)!, term.cols, buffer.cursorX, isCursorShown);
@@ -54,9 +57,14 @@ export class PinnedLine {
 
   private open(term: Terminal): Terminal {
     const nonce = document.querySelector<HTMLMetaElement>('meta[name="cfo-style-nonce"]')?.content || "";
-    const line = new Terminal({ documentOverride: terminalDocument(nonce), cols: term.cols, rows: 1, scrollback: 0, disableStdin: true, cursorBlink: false, cursorInactiveStyle: "block", fontSize: term.options.fontSize, fontFamily: term.options.fontFamily, lineHeight: term.options.lineHeight, theme: term.options.theme });
+    const line = new Terminal({ documentOverride: terminalDocument(nonce), cols: term.cols, rows: 1, scrollback: 0, disableStdin: true, cursorBlink: false, fontSize: term.options.fontSize, fontFamily: term.options.fontFamily, lineHeight: term.options.lineHeight, theme: term.options.theme });
     line.open(this.element);
     if (line.textarea) line.textarea.tabIndex = -1;
+    // xterm draws no cursor until its terminal is typed into, focused or
+    // switched to the alternate screen, and this one is never typed into or
+    // focused. The alternate screen also keeps no history, which a single
+    // drawn line needs none of.
+    line.write("\x1b[?1049h");
     this.line = line;
     return line;
   }

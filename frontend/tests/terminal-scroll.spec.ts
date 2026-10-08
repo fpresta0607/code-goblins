@@ -58,6 +58,7 @@ test("reading the history keeps the line he types on pinned at the bottom, and n
   // with Jump to bottom above it, and nothing else is said.
   await expect(screenRows(page)).not.toContainText(PROMPT);
   await expect(pin(page)).toContainText(PROMPT);
+  await expect(pin(page).locator(".xterm-cursor")).toHaveCount(1);
   await expect(jump(page)).toBeVisible();
   const screen = (await page.locator(".terminal-view > .xterm .xterm-screen").boundingBox())!;
   const pinned = (await pin(page).boundingBox())!;
