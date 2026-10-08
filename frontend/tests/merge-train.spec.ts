@@ -69,7 +69,7 @@ for (const viewport of [{ name: "in his window", width: 1707, height: 1067 }, { 
 
       const finished = column(page, "Completed").locator(".train-card");
       await expect(finished).toHaveCount(1);
-      await expect(finished.locator(".train-status")).toHaveText("#53 breaks CI; landed #51, #52");
+      await expect(finished.locator(".train-status")).toHaveText("#53 breaks CI. Landed #51, #52");
       await expect(finished.locator(".train-status")).toHaveClass(/train-failed/);
       const culprit = finished.locator(".train-car").filter({ hasText: "#53" });
       await expect(culprit).toContainText("Breaks CI");

@@ -3,6 +3,8 @@ package supervisor
 import (
 	"context"
 	"encoding/json"
+	"maps"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -165,7 +167,9 @@ func TestSnapshotShowsUsageOnlyWhileTheFixtureGoblinIsLive(t *testing.T) {
 }
 
 func TestSubscriptionRefreshProjectsOnlySafeWeeklyFields(t *testing.T) {
-	now := time.Now().UTC()
+	// The fraction of a second CI drew on 2026-10-08, whose digits hold the
+	// fixture's credit balance.
+	now := time.Now().UTC().Truncate(time.Second).Add(999495800 * time.Nanosecond)
 	service := &Service{Options: Options{Quota: func(context.Context) (quota.Report, string) {
 		return quota.Report{GeneratedAt: now, Providers: map[string]quota.Provider{"codex": {Source: "oauth", Status: "fresh", RefreshedAt: now, Known: true, Windows: []quota.Window{{ID: "weekly", PercentUsed: 24, ResetsAt: now.Add(24 * time.Hour)}}, Resets: map[string]time.Time{"weekly": now.Add(24 * time.Hour)}, Credits: &quota.Credits{Remaining: 999, Unit: "private-balance"}}}}, ""
 	}}}
@@ -176,8 +180,17 @@ func TestSubscriptionRefreshProjectsOnlySafeWeeklyFields(t *testing.T) {
 		t.Fatalf("usage = %+v", usage)
 	}
 	data, err := json.Marshal(usage)
-	if err != nil || strings.Contains(string(data), "private-balance") || strings.Contains(string(data), "999") {
-		t.Fatalf("unsafe projection: %s, %v", data, err)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// The projection is read field by field: a balance's digits can turn up
+	// inside a timestamp's fraction of a second, which is no leak.
+	var projected []map[string]any
+	if err := json.Unmarshal(data, &projected); err != nil {
+		t.Fatal(err)
+	}
+	if fields := slices.Sorted(maps.Keys(projected[0])); !slices.Equal(fields, []string{"percent_remaining", "provider", "read_at", "resets_at", "source", "status"}) || strings.Contains(string(data), "private-balance") {
+		t.Fatalf("unsafe projection: %s", data)
 	}
 
 	view.At = now.Add(2 * time.Hour)

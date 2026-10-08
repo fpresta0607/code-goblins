@@ -15,9 +15,9 @@ test("a train says in plain words where it stands, in its tone, and opens its pu
     [train({ cars: [car(1, "riding"), car(2, "riding")] }), "CI tests #1, #2", "pending"],
     [train({ runs: 3, cars: [car(1, "landed"), car(2, "riding"), car(3, "waiting")] }), "CI tests #2, run 3", "pending"],
     [train({ state: "landed", cars: [car(1, "landed"), car(2, "landed"), car(3, "conflict")] }), "Landed #1, #2", "passed"],
-    [train({ state: "stopped", cars: [car(1, "landed"), car(2, "culprit"), car(3, "returned")] }), "#2 breaks CI; landed #1", "failed"],
+    [train({ state: "stopped", cars: [car(1, "landed"), car(2, "culprit"), car(3, "returned")] }), "#2 breaks CI. Landed #1", "failed"],
     [train({ state: "stopped", cars: [car(1, "conflict")] }), "Nothing merged cleanly", "cancelled"],
-    [train({ state: "failed", cars: [car(1, "landed"), car(2, "returned")] }), "Train failed; landed #1", "failed"],
+    [train({ state: "failed", cars: [car(1, "landed"), car(2, "returned")] }), "Train failed. Landed #1", "failed"],
   ] as const) {
     assert.deepEqual(trainLook(given), { text, tone, url: PR + "900" });
   }

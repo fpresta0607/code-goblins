@@ -104,8 +104,8 @@ func checksOutcome(checks []Check) (string, []Check) {
 }
 
 // Goblin is a live goblin whose finished pull requests may ride: its task and
-// each pull request it reported done since its latest other report, with
-// when it reported it.
+// each pull request it reported done in its current run, whatever it reported
+// after, with when it first reported it.
 type Goblin struct {
 	Task string
 	// Name and Title are the goblin's fun name and title.

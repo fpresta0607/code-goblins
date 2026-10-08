@@ -180,6 +180,35 @@ func TestPRTrainLandsTheGoblinsGreenPullRequestsWithOneRun(t *testing.T) {
 	}
 }
 
+// cfo pr train reads a goblin's finished pull requests as the supervisor
+// does: one it reported done rides although the goblin went on working on its
+// next pull request.
+func TestPRTrainLandsAPullRequestWhoseGoblinWentOnWorking(t *testing.T) {
+	// Arrange
+	forge := newTrainForge(t)
+	h := testHome(t)
+	first, second := forge.pull(31, "feat/a", "a.txt"), forge.pull(32, "feat/b", "b.txt")
+	doneGoblin(t, h, "g31", forge.project, first)
+	doneGoblin(t, h, "g32", forge.project, second)
+	if err := state.AppendStatus(h.State, "g31", "working: building its next pull request"); err != nil {
+		t.Fatal(err)
+	}
+	runtime := testCommandRuntimeForHome(h)
+	runtime.trainEvery = time.Millisecond
+	var stdout, stderr bytes.Buffer
+
+	// Act
+	code := runPR("train", []string{forge.project}, &stdout, &stderr, forge, runtime)
+
+	// Assert
+	if code != 0 {
+		t.Fatalf("cfo pr train = %d, stderr %s, stdout %s", code, stderr.String(), stdout.String())
+	}
+	if !slices.Equal(forge.merged, []string{first.URL, second.URL}) {
+		t.Fatalf("merged %v, want #31 then #32:\n%s", forge.merged, stdout.String())
+	}
+}
+
 func TestPRTrainStartsNothingWithoutAGoblinsFinishedPullRequest(t *testing.T) {
 	// Arrange
 	forge := newTrainForge(t)

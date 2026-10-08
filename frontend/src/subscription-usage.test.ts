@@ -6,11 +6,12 @@ import { subscriptionState } from "./subscription-usage.ts";
 const NOW = Date.parse("2026-10-03T13:07:00Z");
 const reading = (changes: Record<string, unknown> = {}) => parseSnapshot({ healthy: true, subscriptions: [{ provider: "codex", status: "available", percent_remaining: 76, source: "oauth", read_at: "2026-10-03T13:06:00Z", resets_at: "2026-10-09T22:27:42Z", ...changes }] }).subscriptions![0];
 
-test("the weekly percentage preserves zero and full allowance and marks exactly five percent as reserve", () => {
-  for (const [remaining, isReserve] of [[0, true], [5, true], [5.1, false], [76, false], [100, false]] as const) {
+test("the weekly percentage preserves zero and full allowance, marks exactly five percent as reserve and ten as near it", () => {
+  for (const [remaining, isReserve, isNearReserve] of [[0, true, true], [5, true, true], [5.1, false, true], [10, false, true], [10.1, false, false], [76, false, false], [100, false, false]] as const) {
     const state = subscriptionState(reading({ percent_remaining: remaining }), NOW);
     assert.equal(state.remaining, remaining);
     assert.equal(state.isReserve, isReserve);
+    assert.equal(state.isNearReserve, isNearReserve);
     assert.equal(state.text, remaining + "%");
     assert.match(state.label, /OpenAI.*weekly remaining/);
   }
@@ -31,6 +32,7 @@ test("stale, failed and sign-in-required readings never show a percentage", () =
     const state = subscriptionState(reading({ status }), NOW);
     assert.equal(state.remaining, null);
     assert.equal(state.isReserve, false);
+    assert.equal(state.isNearReserve, false);
     assert.doesNotMatch(state.details, /provider-secret-error/);
   }
   assert.match(subscriptionState(reading({ status: "auth_required" }), NOW).details, /sign-in required/);

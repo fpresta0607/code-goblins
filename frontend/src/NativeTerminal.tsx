@@ -36,7 +36,7 @@ type Connection = { sized: boolean; abort: AbortController; lease: string; frame
 // the live screen.
 // An input the supervisor refuses, or whose outcome is unknown, ends the view;
 // it is never resent, and reconnecting starts from a fresh full screen.
-export function NativeTerminal({ task, node, instance, visible, shown, focus = 0 }: { task?: Task; node?: Session; instance: string; visible: boolean; shown: boolean; focus?: number }) {
+export function NativeTerminal({ task, node, harness, instance, visible, shown, focus = 0 }: { task?: Task; node?: Session; harness: string; instance: string; visible: boolean; shown: boolean; focus?: number }) {
   const host = useRef<HTMLDivElement>(null);
   const pastHost = useRef<HTMLDivElement>(null);
   const history = useRef<Terminal | null>(null);
@@ -44,6 +44,10 @@ export function NativeTerminal({ task, node, instance, visible, shown, focus = 0
   const shownValue = useRef(shown);
   const shownChanged = useRef<((shown: boolean) => void) | null>(null);
   useEffect(() => { shownValue.current = shown; shownChanged.current?.(shown); }, [shown]);
+  // The harness the pane runs takes a pasted image on its own key, and a hook
+  // may report it while the view is open.
+  const harnessValue = useRef(harness);
+  useEffect(() => { harnessValue.current = harness; }, [harness]);
   // A switch to this terminal hands it the keyboard, at once or on its first
   // frame, giving it to the history while that is shown.
   const wantFocus = useRef(false);
@@ -351,7 +355,7 @@ export function NativeTerminal({ task, node, instance, visible, shown, focus = 0
     pasteText.current = typePaste;
     const paste = (event: ClipboardEvent) => {
       event.preventDefault(); event.stopImmediatePropagation();
-      const input = clipboardInput(event);
+      const input = clipboardInput(event, harnessValue.current);
       if (input && "text" in input) typePaste(input.text);
       else if (input) { closeHistory(); send(input.key); }
     };

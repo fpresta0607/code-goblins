@@ -1,4 +1,4 @@
-import { expect, holdStream, test, type Page } from "./site";
+import { expect, holdStream, test, type Locator, type Page } from "./site";
 
 // The Overlord, 2026-10-07, looking at Claude Code's "Update installed ·
 // Restart to update" in the CFO's terminal: "there should be an easy update
@@ -49,7 +49,7 @@ for (const [width, height] of [[1280, 800], [390, 844]]) {
       // Assert: beside the switch, on one row with it at every width.
       await expect(update).toBeVisible();
       await header(page).screenshot({ path: testInfo.outputPath(`cfo-header-update-${width}.png`) });
-      await expect(update).toHaveAttribute("data-tip", "Claude Code was updated. Restart the CFO onto it at its next stopping point; its conversation is kept.");
+      await expect(update).toHaveAttribute("data-tip", "Claude Code was updated. Restart the CFO onto it at its next stopping point. Its conversation is kept.");
       const button = (await update.boundingBox())!, toggle = (await header(page).getByRole("switch", { name: "AFK mode" }).boundingBox())!;
       expect(Math.abs(button.y + button.height / 2 - (toggle.y + toggle.height / 2))).toBeLessThan(4);
       expect(toggle.x - (button.x + button.width)).toBeLessThan(32);
@@ -69,9 +69,14 @@ for (const [width, height] of [[1280, 800], [390, 844]]) {
 
       // Assert
       await expect(update).toBeVisible();
-      await expect(update).toHaveAttribute("data-tip", "Claude Code was updated. Restart this goblin onto it at its next stopping point; its conversation is kept.");
+      await expect(update).toHaveAttribute("data-tip", "Claude Code was updated. Restart this goblin onto it at its next stopping point. Its conversation is kept.");
       expect(await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth)).toBe(0);
       await card(page).screenshot({ path: testInfo.outputPath(`goblin-card-update-${width}.png`) });
+
+      // The Overlord, 2026-10-07: "update button on task cards is ugly". It
+      // wears the look of the card's other controls.
+      const look = (button: Locator) => button.evaluate((element) => { const style = getComputedStyle(element); return [style.width, style.borderTopColor, style.color, style.boxShadow, style.backgroundColor].join(" | "); });
+      expect(await look(update)).toBe(await look(card(page).getByRole("button", { name: "Pause Export invoices as CSV" })));
 
       // Act
       await update.click();

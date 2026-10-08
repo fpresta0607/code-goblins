@@ -4,12 +4,12 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"math"
 	"slices"
 	"strings"
 	"time"
 
 	"github.com/fpresta0607/code-goblins/internal/afk"
-	"github.com/fpresta0607/code-goblins/internal/crewstate"
 	"github.com/fpresta0607/code-goblins/internal/execx"
 	"github.com/fpresta0607/code-goblins/internal/fleet"
 	"github.com/fpresta0607/code-goblins/internal/fsx"
@@ -43,16 +43,19 @@ func TrainRepository(ctx context.Context, runner execx.Runner, checkout string) 
 }
 
 // TrainGoblins reads the live goblins working in checkout and, for each, the
-// pull requests it reported done since its latest other report: a goblin
-// that reported anything after its done report is working again, and its
-// pull request does not ride until it reports done again.
+// pull requests it reported done in its current run, whatever it reported
+// after: a goblin that goes on to its next pull request, or is blocked on
+// it, has still finished this one, and whether it rides is the pull
+// request's own state, open, green and not in conflict, which train.Riders
+// reads. The whole log is read, since a long run's done report can lie
+// further back than any tail of it.
 func TrainGoblins(stateDir, checkout string) []train.Goblin {
 	var goblins []train.Goblin
 	for _, meta := range liveTasks(stateDir) {
 		if meta.Project == "" || !fsx.SamePath(meta.Project, checkout) {
 			continue
 		}
-		lines, _ := state.TailStatus(stateDir, meta.ID, 200)
+		lines, _ := state.TailStatus(stateDir, meta.ID, math.MaxInt)
 		if done := doneReports(lines, spawnTime(meta.SpawnGen)); len(done) > 0 {
 			goblins = append(goblins, train.Goblin{Task: meta.ID, Name: meta.GoblinName, Title: meta.GoblinTitle, Done: done})
 		}
@@ -60,27 +63,25 @@ func TrainGoblins(stateDir, checkout string) []train.Goblin {
 	return goblins
 }
 
-// doneReports reads a goblin's status log back from its newest report while
-// the reports are done reports, and returns each pull request they name with
-// when it was first reported done in that run, so reporting it again keeps
-// its place in the queue.
+// doneReports returns each pull request a goblin's status log reports done
+// since it was spawned, with when it was first reported done in that run, so
+// reporting it again keeps its place in the queue and nothing reported after
+// takes it away.
 func doneReports(lines []string, spawned time.Time) map[string]time.Time {
 	done := map[string]time.Time{}
-	for i := len(lines) - 1; i >= 0; i-- {
-		stamp, event := state.SplitStatus(lines[i])
+	for _, line := range lines {
+		stamp, event := state.SplitStatus(line)
 		if !spawned.IsZero() && stamp.Before(spawned.Truncate(time.Second)) {
-			break
-		}
-		event = strings.TrimSpace(event)
-		if event == "" || crewstate.IsCFOAudit(event) {
 			continue
 		}
-		rest, isDone := strings.CutPrefix(event, "done: PR ")
+		rest, isDone := strings.CutPrefix(strings.TrimSpace(event), "done: PR ")
 		if !isDone {
-			break
+			continue
 		}
 		if fields := strings.Fields(rest); len(fields) > 0 && githubPullRequest.MatchString(fields[0]) {
-			done[fields[0]] = stamp
+			if _, seen := done[fields[0]]; !seen {
+				done[fields[0]] = stamp
+			}
 		}
 	}
 	return done

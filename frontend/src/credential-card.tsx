@@ -95,10 +95,10 @@ export function CredentialCard({ request, snapshot, connected, pager }: { reques
     const box = commandBox.current;
     if (!window.isSecureContext && box) {
       window.getSelection()?.selectAllChildren(box);
-      setError("This page cannot reach the clipboard; the commands are selected, so press Ctrl+C.");
+      setError("This page cannot reach the clipboard. The commands are selected, so press Ctrl+C.");
       return;
     }
-    navigator.clipboard.writeText(commands.join("\n")).then(() => { setCopied(true); setTimeout(() => setCopied(false), 1400); }, () => setError("The browser did not copy the commands; select them and press Ctrl+C."));
+    navigator.clipboard.writeText(commands.join("\n")).then(() => { setCopied(true); setTimeout(() => setCopied(false), 1400); }, () => setError("The browser did not copy the commands. Select them and press Ctrl+C."));
   };
 
   const told = toldLine(request);

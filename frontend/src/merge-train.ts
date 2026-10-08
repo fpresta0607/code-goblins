@@ -29,11 +29,11 @@ export function trainLook(train: MergeTrain): TrainLook {
       return { text: `Landed ${numbers(landed)}`, tone: "passed", url };
     case "stopped": {
       const culprits = train.cars.filter((car) => car.state === "culprit");
-      if (culprits.length > 0) return { text: `${numbers(culprits)} breaks CI` + (landed.length > 0 ? `; landed ${numbers(landed)}` : ""), tone: "failed", url };
+      if (culprits.length > 0) return { text: `${numbers(culprits)} breaks CI` + (landed.length > 0 ? `. Landed ${numbers(landed)}` : ""), tone: "failed", url };
       return { text: landed.length > 0 ? `Landed ${numbers(landed)}` : "Nothing merged cleanly", tone: "cancelled", url };
     }
   }
-  return { text: "Train failed" + (landed.length > 0 ? `; landed ${numbers(landed)}` : ""), tone: "failed", url };
+  return { text: "Train failed" + (landed.length > 0 ? `. Landed ${numbers(landed)}` : ""), tone: "failed", url };
 }
 
 const CAR_WORDS: Record<string, [string, Tone]> = {
