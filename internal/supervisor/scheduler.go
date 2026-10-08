@@ -217,7 +217,10 @@ func (s *Service) resumeAutomatically(record state.Lifecycle) error {
 	delete(s.changeErrors, record.ID)
 	operation := fmt.Sprintf("auto-resume-%d", time.Now().UnixNano())
 	go func() {
+		launched := make(chan struct{})
+		go s.watchLaunch(record.ID, launched)
 		output, err := s.runPastTheSpawnLock(s.Options.Dispatch, []string{"resume", record.ID, "--generation", record.Generation, "--operation", operation, "--reason", "Pause condition cleared"})
+		close(launched)
 		s.starts.Lock()
 		delete(s.changing, record.ID)
 		if err != nil {

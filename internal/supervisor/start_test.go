@@ -23,13 +23,15 @@ import (
 
 const gigabyte = 1 << 30
 
-// spawnRecorder stands in for cfo spawn: it records each call and answers
-// with the outcome the test gives it, after release when release is set.
+// spawnRecorder stands in for cfo spawn: it records each call, does what
+// during does, as cfo writes a task's record before it ends, and answers with
+// the outcome the test gives it, after release when release is set.
 type spawnRecorder struct {
 	mu      sync.Mutex
 	calls   [][]string
 	output  string
 	err     error
+	during  func(args []string)
 	release chan struct{}
 }
 
@@ -37,6 +39,9 @@ func (r *spawnRecorder) spawn(_ context.Context, args []string) (string, error) 
 	r.mu.Lock()
 	r.calls = append(r.calls, args)
 	r.mu.Unlock()
+	if r.during != nil {
+		r.during(args)
+	}
 	if r.release != nil {
 		<-r.release
 	}

@@ -261,7 +261,10 @@ func (s *Service) runStart(dispatch *Dispatch, plan startPlan) {
 			s.publish(err)
 		}
 	}()
+	launched := make(chan struct{})
+	go s.watchLaunch(plan.id, launched)
 	output, err := s.runPastTheSpawnLock(dispatch, plan.args())
+	close(launched)
 	failure := ""
 	if err != nil {
 		failure = spawnFailure(output, err)

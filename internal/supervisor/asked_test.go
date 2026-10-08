@@ -298,6 +298,47 @@ func TestAGoblinWhosePauseFailedAndWhoseTerminalEndedShowsPausedAndResumes(t *te
 	}
 }
 
+// The board opens a started goblin's terminal once a snapshot shows its
+// session, and a snapshot showed it only at the next change of anything else
+// or the 15 second refresh: on 2026-10-08 the board saw a start's session 6
+// seconds after its terminal ran. Its record and its terminal host, written
+// while cfo spawn runs, reach the board at once.
+func TestTheBoardSeesAStartingGoblinsSessionTheMomentItIsRecorded(t *testing.T) {
+	// Arrange
+	spawner := &spawnRecorder{release: make(chan struct{})}
+	t.Cleanup(func() { close(spawner.release) })
+	handler, h := startBoard(t, 16*gigabyte, spawner)
+	queueBriefedTask(t, h, "- **next-task** - Ship it", plainBrief)
+	recorded := make(chan struct{})
+	spawner.during = func([]string) {
+		time.Sleep(300 * time.Millisecond)
+		if err := state.WriteTaskMeta(h.State, state.TaskMeta{ID: "next-task", Project: h.Root, Worktree: h.Root, Harness: "claude", Mode: "no-mistakes", Kind: "ship", Backend: "native", SpawnGen: "s1"}); err != nil {
+			t.Error(err)
+		}
+		close(recorded)
+	}
+	if code := startClick(handler, "next-task"); code != 202 {
+		t.Fatalf("start = %d, want 202", code)
+	}
+	if card := cardOf(t, handler, "next-task"); card.Generation != "" {
+		t.Fatalf("card before the record = %+v", card)
+	}
+
+	// Act
+	<-recorded
+	var card Task
+	for deadline := time.Now().Add(3 * time.Second); time.Now().Before(deadline); time.Sleep(50 * time.Millisecond) {
+		if card = cardOf(t, handler, "next-task"); card.Generation != "" {
+			break
+		}
+	}
+
+	// Assert
+	if card.Generation != "s1" {
+		t.Fatalf("card 3 seconds after its record = %+v, want its session shown while cfo spawn runs", card)
+	}
+}
+
 // A board Resume that cfo refuses before it records anything, as goblins did
 // with "usage: goblins resume", goes to the CFO, which nothing else tells.
 func TestABoardResumeTheCLIRefusesTellsTheCFO(t *testing.T) {

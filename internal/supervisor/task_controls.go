@@ -232,7 +232,12 @@ func (s *Service) changeTask(input lifecycleRequest) error {
 	s.starts.Unlock()
 	isDispatched = true
 	go func() {
+		launched := make(chan struct{})
+		if input.Action == "resume" {
+			go s.watchLaunch(input.Task, launched)
+		}
 		output, err := s.runPastTheSpawnLock(s.Options.Dispatch, args)
+		close(launched)
 		var failure taskChangeError
 		isToldByItsRecord := false
 		if err != nil {
