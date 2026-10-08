@@ -356,9 +356,11 @@ Unreported child models remain unreported even when their owning task declares a
 Dragging a card or using Alt plus an arrow key changes only its saved browser position; connectors retain their reported parent identity.
 The tree fits and centers itself in the visible canvas, scaled up to fill it but never past 125% and down as far as 10%, so the whole of any tree shows, and refits whenever the panel opens or closes, the window resizes, a goblin appears or leaves, or a dragged card is dropped.
 The canvas moves and zooms like a map instead of scrolling: dragging it, from empty space, a line or a baby goblin, moves the view, and the wheel or a trackpad pinch zooms between 10% and 150% about the point under the pointer; the plus and minus buttons and keys zoom about the middle.
+Every line of the tree, from a goblin to a goblin under it and from a goblin to each of its baby goblins, starts at the middle of its parent's bottom and ends at the middle of its child's top, at every zoom, after a drag and after Arrange (`frontend/tests/tree-branches.spec.ts`).
 Moving or zooming the view stops the automatic fit until Fit, or the 0 key, restores it.
 A family of goblins with no cards under them wraps into the rows that show it largest in the canvas's shape: one row in a wide canvas, more in a tall, narrow one such as the canvas beside an open panel.
 Each row after the first is offset, by half a card where it can be, so its connectors drop clear of every line that runs down from a goblin above, its middle or a spine of its branches, and so never read as that goblin's; a connector to a later row drops straight from its parent behind the cards and branches between.
+A connector from a goblin whose baby goblins hang open leaves by their trunk and runs down beside them, so it never passes behind one of its own baby goblins.
 A goblin whose branches are wider than its card takes as many columns as they need, so no card or branch covers another.
 A goblin waiting on another sits in the row under the one it waits on, half a card over, and the dashed line between them runs straight down what the two cards share; a sibling with nothing under it gives up that place and takes the nearest free one, and a chain or a cycle of waits keeps its family places.
 Only a card the Overlord moves is saved, so the canvas keeps arranging every card he has not placed himself.
@@ -377,16 +379,30 @@ A Codex goblin's child agents come from their own rollouts, which name the threa
 A job is one process the harness started after its first two minutes, with everything under it, named by what it does: a test run or build by its command line, a dev server by the port it listens on, a browser, or other; each shows its private memory, and the goblin's card and panel show the memory of the harness and everything under it.
 Each child carries a state: working, waiting (an idle job, or a gate waiting on a decision), done, failed, or silent, a working child with no activity for ten minutes, the monitor's stall interval.
 Each also carries when its source last changed and when it was read.
-Each child is drawn as a baby goblin whose prop says its kind (a magnifying glass for a sub-agent, a laptop for a shell, binoculars for a monitor, glasses and a shield for the gate, an antenna for a dev server, goggles for a test run, a hard hat for a build, a tablet for a browser), and its tip names it.
+Each child is drawn as a baby goblin whose prop says its kind (a magnifying glass for a sub-agent, a laptop for a shell, binoculars for a monitor, glasses and a shield for the gate, an antenna for a dev server, goggles for a test run, a hard hat for a build, a tablet for a browser).
+Its tip, after the same two second rest as every tip, is its task: a sub-agent's prompt, a background shell's or monitor's command, what a job runs without its shell or its program's folder, a helper's task, or else what it does.
+A baby goblin is named after its goblin in the order its goblin's children started, Kip Jr., then Kip II, Kip III and on, with a short title for its own job, as goblins are called by name and title.
+The title is made from its own description as the one who does it, such as Board Starter for Start the board or Dictation Tester for Test dictation, and is its kind's own, such as Server Keeper or Process Wrangler, when the description starts with no such deed.
+A helper goblin keeps its own name.
 A [helper goblin](../AGENTS.md#helper-goblins) the supervisor started for a goblin is a child of that goblin's tree too, drawn with the sub-agent's head and named Helper goblin in its tip: its title, its own tree's memory, and where its own records say it stands, working or silent by its own activity, waiting while it is paused or asks its parent, done once it reported done and failed once it reported failure.
 A helper its parent's tree holds is not drawn again as a card of its own on the canvas or in the lineage list, as a held sub-agent is not; one no tree holds, such as a paused goblin's, keeps its card and hangs under its parent's card, the parent's session or, with none reported, its task, never under the CFO, and every helper's card on the board says whose helper it is.
-On the canvas a goblin's running children hang on branches under its card, each a baby goblin with what it does, its state and for how long, and its memory, idle ones dimmed, and the rows below make room.
-They hang in about as many columns as rows, up to four columns, each column on a spine with a twig to each child, so a big family grows down rather than across.
+On the canvas a goblin's running children hang on branches under its card, each a baby goblin with its name and title, its state and for how long in a plain chip, and its memory, and the rows below make room.
+None is dimmed, idle and silent ones included, since each can be opened, none shows a command line, and none is yellow: a silent one's chip and dot are as plain as an idle one's.
+They hang in about as many columns as rows, up to four columns, centred under the card, so a big family grows down rather than across.
+A trunk drops from the card to a bar, and from the bar a branch drops into the middle of the top of each baby goblin in the first row.
+A baby goblin lower down is reached by the spine beside its column, which turns into the gap above it and drops into the middle of its top.
 The chevron under the card folds them, with any cards under it, to their count, the same rounded rectangle as the baby goblins: a head and a number for each kind still running, how many work, are silent or idle, and their memory; pressing the count opens them again.
 A finished child is not drawn there, so a goblin whose children have all finished shows neither; its panel still lists them.
-At phone width the lineage list shows the count under the goblin's card, and pressing it opens each child on a rail.
+At phone width the lineage list shows the count under the goblin's card, and pressing it opens each child on a rail, which runs down beside them and turns into the middle of each one's top, as the rail of a goblin's goblins does into the middle of each card's top.
 The goblin's panel opens with What's working: its counts, then one row per running child with what it does, its state, for how long and its memory, a silent child's last line, the finished ones folded away, and when it was read.
-A goblin's card counts what runs under it and names the child that has gone silent longest with its last line.
+A goblin's card counts what runs under it, and pressing the count opens the Orchestration canvas with that goblin and its baby goblins in the middle.
+Baby goblins live on the canvas and in the lineage list, never as cards of their own on the board's columns.
+
+Pressing a baby goblin, on the canvas or on its rail, opens the same panel a goblin opens, with the baby goblin's name and its task on one line above its terminal.
+A sub-agent's terminal is its own record as its goblin's harness keeps it, Claude Code's transcript of the sub-agent or a Codex child agent's rollout, which the board reads again every two seconds while it shows and draws as Claude Code draws a conversation: the task after >, what the agent said and each tool it called after ●, and under a call the first line of what came back after ⎿.
+A sub-agent runs inside its goblin's harness and has no terminal of its own to type into, so this terminal only reads.
+`GET /api/tasks/<id>/agent?node=<child id>` answers its newest lines, only for a sub-agent the goblin's tree holds and from the record the supervisor's own read of that tree found, never a path the browser names.
+A helper goblin opens its own panel and terminal, since it is a goblin of its own, and any other baby goblin opens its goblin's terminal under the baby goblin's name and task.
 None of it wakes the CFO: the monitor's stale and idle rules read their progress evidence through the same reader, so a goblin counts as working while any child works, and the board and the wakes never disagree about it.
 A child without its own reported native transport explains that limitation without borrowing its owning task's terminal or model.
 Bounded accepted-message receipts produce a brief travelling connector pulse and receiving-card glow where exact caller native identity proves the reported parent.

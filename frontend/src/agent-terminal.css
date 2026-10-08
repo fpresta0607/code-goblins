@@ -1,0 +1,4 @@
+/* A sub-agent's terminal: the newest lines of its own record, drawn as the
+   goblin's terminal draws a terminal, what came back to it quieter. */
+.agent-terminal { position: relative; flex: 1; min-width: 0; min-height: 0; overflow: auto; padding: 14px 18px; background: #071015; color: #d8e9e2; font-family: var(--font-mono); font-size: .875rem; line-height: 1.55; white-space: pre-wrap; overflow-wrap: anywhere; }
+.agent-terminal .agent-result { color: #8fa5b5; }

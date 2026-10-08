@@ -35,11 +35,14 @@ import { formatMemory, summarize } from "./fleet-tree";
 // gone quiet, and windows still closing, are the CFO's to hear, never warnings
 // on the card. next marks the one card the order for a free slot takes first.
 export interface CardStart { blocked: string; onStart: (source: HTMLElement) => Promise<string> }
-export function TaskCard({ task, snapshot, selected, presentations, now, rank, next, start, onSelect, onTerminal }: {
+export function TaskCard({ task, snapshot, selected, presentations, now, rank, next, start, onSelect, onTerminal, onCount }: {
   task: Task; snapshot: Snapshot; selected: boolean; presentations: BoardActivity[]; now: number; rank?: string;
   next?: NextUp; start?: CardStart;
   onSelect: (task: Task, source: HTMLElement) => void;
   onTerminal: (task: Task, source: HTMLElement) => void;
+  // onCount shows what runs under the goblin, on the Orchestration canvas;
+  // a card without it shows no count.
+  onCount?: (task: Task) => void;
 }) {
   // A live goblin goes by its name and shows its task in a tip on hover or
   // focus, and a completed card leads with what it delivered. Any other
@@ -63,15 +66,19 @@ export function TaskCard({ task, snapshot, selected, presentations, now, rank, n
   const status = statusPhase(task) === "paused" ? pauseStatus(task.lifecycle?.pause, snapshot.tasks, snapshot.ci_durations, pausedWithParent(task, snapshot.tasks)) : nodeStatus({ id: task.id, title: task.title, task, relation: "" }, asking, snapshot.tasks);
   const parent = task.parent && snapshot.tasks.find((other) => other.id === task.parent);
   const parentName = parent ? goblinName(parent) : task.parent;
-  // What runs under a live goblin, as baby goblins with a count each.
+  // What runs under a live goblin, as baby goblins with a count each, which
+  // opens the Orchestration canvas on the goblin: its baby goblins live
+  // there, never as cards of their own.
   const kinds = column === "In progress" ? summarize(task.tree).kinds : [];
+  const count = kinds.length > 0 && onCount && <button type="button" className="card-tree" aria-label={"Show what runs under " + name + " on the canvas"} data-tip="Show on the canvas" data-tip-align="start" onClick={() => onCount(task)}>
+    {kinds.map(([baby, number]) => <span key={baby} className="tree-tally"><BabyGoblin baby={baby} small hasTip={false} />{number}</span>)}{task.tree && formatMemory(task.tree.memory)}
+  </button>;
   const content = <>
     <Avatar persona={personaFor(task)} />
     <span className="card-copy"><span className="card-head">{presentations.some((event) => event.task_id === task.id) && <span className="browser-indicator">Browser active</span>}{next && <span className={"next-chip" + (next.tone ? " " + next.tone : "")}>{next.text}</span>}<strong className="card-title">{name}</strong></span>
       {rank && <span className="sr-only">, {rank}</span>}
       <span className="card-meta">{task.project && <span className="card-repo">{task.project}</span>}<span className={"plain-status phase-" + statusPhase(task) + (task.archived && task.phase !== "stopped" ? " pr-" + icon : "")}><span className="status-dot" /><span className="card-status-text">{status}</span></span>{clockBadge}{ended && Number.isFinite(ended.getTime()) && <span className="card-clock"><Icon name="clock" /><time dateTime={task.at}>{ended.toLocaleString(undefined, { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" })}</time></span>}</span>
       {parentName && <span className="card-secondary">Helper of {parentName}</span>}
-      {kinds.length > 0 && <span className="card-tree">{kinds.map(([baby, count]) => <span key={baby} className="tree-tally"><BabyGoblin baby={baby} small />{count}</span>)}{task.tree && formatMemory(task.tree.memory)}</span>}
       {task.pending_engine?.when === "update"
         ? <span className="card-secondary">{task.switching ? "Updating " + harnessName(task.harness) + "..." : "Updates " + harnessName(task.harness) + " at its next stopping point"}</span>
         : task.pending_engine && <span className="card-secondary">{task.pending_engine.when === "resume" ? "Resume with" : "Pending:"} {task.pending_engine.model} {task.pending_engine.effort}</span>}
@@ -83,7 +90,8 @@ export function TaskCard({ task, snapshot, selected, presentations, now, rank, n
   return <div className={"task-card-shell" + (selected ? " selected" : "")}>
     <button ref={card} className="task-card"
       aria-pressed={selected} onClick={(event) => onSelect(task, event.currentTarget)} onPointerEnter={measure} onFocus={measure} {...tip}>{content}</button>
-    {(pr || column === "Completed" || task.ticket || task.overlaps.length > 0 || task.local_checks || task.deployment) && <div className="card-links">
+    {(count || pr || column === "Completed" || task.ticket || task.overlaps.length > 0 || task.local_checks || task.deployment) && <div className="card-links">
+      {count}
       {pr && <a className={"card-pr pr-" + icon} href={pr} target="_blank" rel="noreferrer" aria-label={"Open pull request " + pullRequestLabel(pr)} {...column === "Completed" && task.branch ? { "data-tip": task.branch, "data-tip-align": "start" } : {}}><Icon name={icon} />{pullRequestLabel(pr)}</a>}
       {task.local_checks && <LocalChecksLink checks={task.local_checks} taskId={task.id} className="card-checks" />}
       {pr && task.hosted_checks && <HostedChecksLink checks={task.hosted_checks} pr={pr} className="card-checks" />}

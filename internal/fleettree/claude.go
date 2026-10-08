@@ -48,6 +48,9 @@ type claudeLog struct {
 	agents   map[string]string
 	outputs  map[string]string
 	commands map[string]string
+	// transcripts are each sub-agent's own transcript, by its node's id, as
+	// the last read of the children found them.
+	transcripts map[string]string
 }
 
 type pendingCall struct {
@@ -80,7 +83,7 @@ type claudeBlock struct {
 }
 
 func newClaudeLog(path string) *claudeLog {
-	return &claudeLog{path: path, children: map[string]*Node{}, tasks: map[string]string{}, pending: map[string]pendingCall{}, agents: map[string]string{}, outputs: map[string]string{}, commands: map[string]string{}}
+	return &claudeLog{path: path, children: map[string]*Node{}, tasks: map[string]string{}, pending: map[string]pendingCall{}, agents: map[string]string{}, outputs: map[string]string{}, commands: map[string]string{}, transcripts: map[string]string{}}
 }
 
 // claudeReadChunk bounds one read of new entries.
@@ -191,6 +194,7 @@ func (l *claudeLog) call(block claudeBlock, at time.Time) {
 	var input struct {
 		Description  string `json:"description"`
 		SubagentType string `json:"subagent_type"`
+		Prompt       string `json:"prompt"`
 		Command      string `json:"command"`
 		TaskID       string `json:"task_id"`
 		ShellID      string `json:"shell_id"`
@@ -203,7 +207,7 @@ func (l *claudeLog) call(block claudeBlock, at time.Time) {
 		if detail == "" {
 			detail = "general-purpose"
 		}
-		l.children[block.ID] = &Node{ID: "subagent:" + block.ID, Kind: KindSubagent, Label: label(input.Description, "Sub-agent"), Detail: detail, State: Working, Started: at, LastActivity: at}
+		l.children[block.ID] = &Node{ID: "subagent:" + block.ID, Kind: KindSubagent, Label: label(input.Description, "Sub-agent"), Detail: detail, Task: task(input.Prompt), State: Working, Started: at, LastActivity: at}
 	case "Bash", "PowerShell":
 		l.pending[block.ID] = pendingCall{tool: block.Name, label: label(input.Description, firstLine(input.Command)), command: input.Command, started: at}
 	case "Monitor":
@@ -262,7 +266,7 @@ func (l *claudeLog) result(block claudeBlock, raw json.RawMessage, at time.Time)
 		if result.BackgroundTaskID == "" {
 			return
 		}
-		l.children[block.ToolUseID] = &Node{ID: "shell:" + result.BackgroundTaskID, Kind: KindShell, Label: call.label, Detail: "background " + strings.ToLower(call.tool), State: Working, Started: call.started, LastActivity: at}
+		l.children[block.ToolUseID] = &Node{ID: "shell:" + result.BackgroundTaskID, Kind: KindShell, Label: call.label, Detail: "background " + strings.ToLower(call.tool), Task: task(call.command), State: Working, Started: call.started, LastActivity: at}
 		l.tasks[result.BackgroundTaskID] = block.ToolUseID
 		l.commands["shell:"+result.BackgroundTaskID] = call.command
 		if match := outputFile.FindStringSubmatch(string(block.Content)); match != nil {
@@ -276,7 +280,7 @@ func (l *claudeLog) result(block claudeBlock, raw json.RawMessage, at time.Time)
 		if result.TaskID == "" {
 			return
 		}
-		l.children[block.ToolUseID] = &Node{ID: "monitor:" + result.TaskID, Kind: KindMonitor, Label: call.label, Detail: "monitor", State: Working, Started: call.started, LastActivity: at}
+		l.children[block.ToolUseID] = &Node{ID: "monitor:" + result.TaskID, Kind: KindMonitor, Label: call.label, Detail: "monitor", Task: task(call.command), State: Working, Started: call.started, LastActivity: at}
 		l.tasks[result.TaskID] = block.ToolUseID
 	case "TaskStop", "KillShell":
 		target := result.StoppedTaskID
@@ -356,6 +360,7 @@ const claudeChildrenKept = 40
 func (l *claudeLog) nodes(now time.Time) []Node {
 	session := strings.TrimSuffix(l.path, filepath.Ext(l.path))
 	agentsByCall := l.agentFiles(session)
+	l.transcripts = map[string]string{}
 	var out []Node
 	for id, child := range l.children {
 		node := *child
@@ -364,8 +369,11 @@ func (l *claudeLog) nodes(now time.Time) []Node {
 			if agent == "" {
 				agent = agentsByCall[id]
 			}
-			if agent != "" {
+			// The id names a file under the conversation's folder, so only
+			// an id of the harness's own shape is followed.
+			if sessionID.MatchString(agent) {
 				transcript := filepath.Join(session, "subagents", "agent-"+agent+".jsonl")
+				l.transcripts[node.ID] = transcript
 				if written, line := claudeTail(transcript); !written.IsZero() {
 					node.SourceUpdatedAt = written
 					node.LastActivity = later(node.LastActivity, written)
@@ -498,6 +506,15 @@ const outputReach = 8 << 10
 
 // ansi matches a terminal's color and cursor sequences.
 var ansi = regexp.MustCompile(`\x1b\[[0-9;?]*[ -/]*[@-~]`)
+
+// taskLimit bounds a child's task, which the board shows in its tip.
+const taskLimit = 300
+
+// task is what a child was asked to do, on one line: a sub-agent's prompt or
+// a background command.
+func task(text string) string {
+	return bounded(strings.Join(strings.Fields(text), " "), taskLimit)
+}
 
 func label(text, fallback string) string {
 	if text = strings.TrimSpace(text); text != "" {

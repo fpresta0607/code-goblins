@@ -42,6 +42,7 @@ type Reader struct {
 
 	mu           sync.Mutex
 	logs         map[string]*claudeLog
+	agents       map[string]agentRecords
 	rolloutMetas map[string]rolloutMeta
 	commands     map[processKey]string
 	readings     map[processKey]cpuReading
@@ -119,6 +120,7 @@ func (r *Reader) Read(ctx context.Context, goblin Goblin) (Tree, error) {
 
 	path, metas := r.conversation(ctx, goblin, harness.harness, isRunning)
 	var shellCommands map[string]string
+	delete(r.agents, meta.ID)
 	switch strings.ToLower(meta.Harness) {
 	case "claude":
 		if path == "" {
@@ -132,6 +134,7 @@ func (r *Reader) Read(ctx context.Context, goblin Goblin) (Tree, error) {
 		tree.ConversationAt = log.writtenAt()
 		tree.Children = append(tree.Children, log.nodes(now)...)
 		shellCommands = log.commands
+		r.keepAgents(meta.ID, "claude", log.transcripts)
 	case "codex":
 		if path == "" {
 			tree.Unread = append(tree.Unread, "conversation: no Codex rollout of this goblin's own")
@@ -139,7 +142,9 @@ func (r *Reader) Read(ctx context.Context, goblin Goblin) (Tree, error) {
 		}
 		tree.ConversationAt = WrittenAt(path)
 		if root := metas[path].id; root != "" {
-			tree.Children = append(tree.Children, codexChildren(metas, root)...)
+			children, rollouts := codexChildren(metas, root)
+			tree.Children = append(tree.Children, children...)
+			r.keepAgents(meta.ID, "codex", rollouts)
 		}
 	case "pi":
 		// pi 0.85 records no sub-agents and no background jobs; only its
@@ -291,6 +296,11 @@ func (r *Reader) Forget(live map[string]bool) {
 			delete(r.logs, task)
 		}
 	}
+	for task := range r.agents {
+		if !live[task] {
+			delete(r.agents, task)
+		}
+	}
 	for task := range r.gates {
 		if !live[task] {
 			delete(r.gates, task)
@@ -377,7 +387,7 @@ func (r *Reader) jobNodes(harness harnessProcesses, shellCommands map[string]str
 		if reading.isWorking {
 			state = Working
 		}
-		node := Node{ID: fmt.Sprintf("process:%d:%d", job.root.PID, job.root.Created), Kind: KindProcess, Group: group, Label: label, Detail: detail, State: state, Started: job.root.Started, LastActivity: reading.busy, Memory: job.memory(), SourceUpdatedAt: now, cpu: cpu, process: job.name()}
+		node := Node{ID: fmt.Sprintf("process:%d:%d", job.root.PID, job.root.Created), Kind: KindProcess, Group: group, Label: label, Detail: detail, Task: commandTask(facts.commands[job.root.PID]), State: state, Started: job.root.Started, LastActivity: reading.busy, Memory: job.memory(), SourceUpdatedAt: now, cpu: cpu, process: job.name()}
 		if shell := shellOf(job, facts.commands[job.root.PID], shellCommands, children); shell != "" {
 			node.Parent = shell
 		}

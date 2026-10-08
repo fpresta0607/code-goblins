@@ -512,13 +512,24 @@ button.line-number { min-height: 32px; display: flex; align-items: flex-start; j
 .node-task { margin-top: 6px; }
 .node-status { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; margin-top: 12px; font-size: .9375rem; }
 .badge { color: #c4e0d4; }
-.workflow-space .workflow-children { display: grid; gap: 20px; margin: 20px 0 0 10px; padding-left: 16px; border-left: 1px solid var(--glass-border-hover); }
+/* A goblin under another hangs from its parent's rail, which runs down
+   beside its children to the last one's turn, on a line that turns under
+   what says how it is related into the middle of its card's top. */
+.workflow-space .workflow-children { display: grid; gap: 20px; margin: 20px 0 0 10px; padding-left: 16px; }
+.workflow-space .workflow-children > .workflow-branch::before { content: ""; position: absolute; left: -16px; top: -20px; bottom: 0; border-left: 1px solid var(--glass-border-hover); }
+.workflow-space .workflow-children > .workflow-branch:last-child::before { content: none; }
+.workflow-children > .workflow-branch > .node-group > .node-relation { position: relative; margin-bottom: 14px; }
+.workflow-children > .workflow-branch:last-child > .node-group > .node-relation::before { content: ""; position: absolute; left: -16px; top: -20px; bottom: -6px; border-left: 1px solid var(--glass-border-hover); }
+.workflow-children > .workflow-branch > .node-group > .workflow-node::after { content: ""; position: absolute; left: -17px; top: -9px; box-sizing: border-box; width: calc(50% + 17px); height: 8px; border: solid var(--glass-border-hover); border-width: 1px 1px 0 0; border-top-right-radius: 8px; pointer-events: none; }
 .compact-communication-pulse { position: absolute; left: -17px; top: -20px; width: 2px; height: 40px; overflow: hidden; background: #57e5bf55; animation: effect-life ease-in-out forwards; }
 .compact-communication-pulse::after { content: ""; position: absolute; left: -2px; top: -12px; width: 6px; height: 12px; border-radius: 999px; background: #86ffe0; animation: compact-guidance 1.2s ease-out infinite; }
 .compact-creation-highlight { position: absolute; left: -18px; top: -20px; width: 3px; height: 40px; background: #70bfa9; box-shadow: 0 0 8px #67e8b744; animation: effect-life ease-in-out forwards; }
 @keyframes compact-guidance { to { transform: translateY(52px); } }
 .workflow-children .workflow-children { margin-left: 0; }
-.workflow-children .workflow-children .workflow-children { padding-left: 0; border-left: 0; }
+.workflow-children .workflow-children .workflow-children { padding-left: 0; }
+.workflow-children .workflow-children .workflow-children > .workflow-branch::before,
+.workflow-children .workflow-children .workflow-children > .workflow-branch > .node-group > .node-relation::before,
+.workflow-children .workflow-children .workflow-children > .workflow-branch > .node-group > .workflow-node::after { content: none; }
 @media (max-width: 90rem) {
   .task-board { gap: 14px; padding: 24px 18px; }
   .board-column { padding: 18px 10px; }
@@ -694,6 +705,14 @@ button.dialogue-portrait:hover::before { background: #2e241b; }
 .panel-header.compact { grid-template-columns: 48px minmax(0, 1fr) auto; gap: 10px 14px; padding: 10px 18px 12px; }
 .panel-header.compact .goblin-avatar { width: 48px; height: 48px; }
 .panel-header.compact h2 { font-size: 1.375rem; }
+/* A baby goblin's panel: its head where a goblin's portrait is, and its name
+   and its task on one line. */
+.baby-header > .baby-goblin { width: 48px; height: 48px; }
+.panel-header .panel-child-title { display: flex; align-items: baseline; gap: 10px; min-width: 0; line-height: 1.3; white-space: nowrap; }
+.panel-child-title > span { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.panel-child-title > span:first-child { flex: 0 1 auto; }
+.panel-child-task { flex: 1 1 0; color: #c4d4df; font-size: 1.125rem; font-weight: 600; }
+.panel-child-task::before { content: "·"; margin-right: 10px; color: var(--muted); }
 .panel-header.compact .panel-actions { grid-column: auto; }
 .panel-task { position: relative; flex: 1; min-height: 0; overflow: hidden auto; scrollbar-gutter: stable; }
 .panel-content { padding: 0 28px 30px; }

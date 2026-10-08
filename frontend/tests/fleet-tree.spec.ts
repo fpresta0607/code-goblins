@@ -13,21 +13,21 @@ const covered = async (page: Page) => (await boxes(page)).flatMap((one, i, all) 
   .filter((other) => one.left < other.right && other.left < one.right && one.top < other.bottom && other.top < one.bottom)
   .map((other) => one.name + " and " + other.name));
 
-test("each goblin's running children hang on branches under its card as baby goblins, idle ones dimmed, finished ones and a goblin whose children all finished left off", async ({ page }) => {
+test("each goblin's running children hang on branches under its card as baby goblins, finished ones and a goblin whose children all finished left off", async ({ page }) => {
   await page.goto("/tests/fixtures/fleet-tree.html");
   const branches = page.getByRole("list", { name: "What runs under Build the fleet tree" });
   const children = branches.locator(".tree-child");
   await expect(children).toHaveCount(2);
-  await expect(children.nth(0)).toContainText("Map harness plumbing");
-  await expect(children.nth(0)).toContainText("Working 4m · Explore");
+  await expect(children.nth(0)).toContainText("Plumbing Mapper");
+  await expect(children.nth(0)).toContainText("Working 4m");
   await expect(children.nth(0)).not.toHaveClass(/dim/);
-  await expect(children.nth(1)).toContainText("Dev server :5173");
+  await expect(children.nth(1)).toContainText("Server Keeper");
   await expect(children.nth(1)).toContainText("Idle 38m");
   await expect(children.nth(1)).toContainText("412 MB");
-  await expect(children.nth(1)).toHaveClass(/dim/);
-  await expect(children.filter({ hasText: "Research MCP OAuth" })).toHaveCount(0);
-  expect(await children.getByRole("img").evaluateAll((heads) => heads.map((head) => head.getAttribute("data-tip")))).toEqual(["Sub-agent", "Dev server"]);
-  await expect(branches.locator(".branch-lines path"), "a trunk and bar, a spine for each of two columns and a twig to each child").toHaveCount(5);
+  await expect(children.nth(1), "an idle one can be opened, so it is not greyed").not.toHaveClass(/dim/);
+  await expect(children.filter({ hasText: "OAuth Researcher" })).toHaveCount(0);
+  expect(await children.getByRole("img").evaluateAll((heads) => heads.map((head) => head.getAttribute("aria-label")))).toEqual(["Sub-agent", "Dev server"]);
+  await expect(branches.locator(".branch-lines path"), "a branch to each child").toHaveCount(2);
   await expect(page.getByRole("list", { name: "What runs under Stream the billing CSV export" }).locator(".tree-child")).toHaveCount(1);
   await expect(page.getByRole("list", { name: "What runs under Fix the flaky checkout test" })).toHaveCount(0);
   await expect(page.getByRole("button", { name: /descendants of Fix the flaky checkout test/ })).toHaveCount(0);
@@ -93,6 +93,6 @@ test("at phone width the lineage list opens a goblin's running children on a rai
   await page.getByRole("button", { name: /under Build the fleet tree/ }).click();
   const children = page.getByRole("list", { name: "What runs under Build the fleet tree" }).locator(".tree-child");
   await expect(children).toHaveCount(2);
-  await expect(children.filter({ hasText: "Research MCP OAuth" })).toHaveCount(0);
+  await expect(children.filter({ hasText: "OAuth Researcher" })).toHaveCount(0);
   expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(390);
 });

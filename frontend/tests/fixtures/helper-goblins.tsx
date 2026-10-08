@@ -29,9 +29,9 @@ const snapshot = parseSnapshot({
 
 function Fixture() {
   if (view === "lineage") return <main className="canvas-region" style={{ width: "100%" }}><Lineage snapshot={snapshot} project="" selected={null} effects={[]} presentations={[]} now={now} onSelect={() => {}} /></main>;
-  if (view === "cards") return <Board snapshot={snapshot} layout="stacked" now={now} presentations={[]} onSelect={() => {}} onTerminal={() => {}} onOpenCfo={() => {}} onOpenCommand={() => {}} onStartCfo={() => {}} cardStart={() => ({ blocked: "", onStart: () => Promise.resolve("") })} />;
+  if (view === "cards") return <Board snapshot={snapshot} layout="stacked" now={now} presentations={[]} onSelect={() => {}} onTerminal={() => {}} onCount={() => {}} onOpenCfo={() => {}} onOpenCommand={() => {}} onStartCfo={() => {}} cardStart={() => ({ blocked: "", onStart: () => Promise.resolve("") })} />;
   return <main style={{ height: "100vh", display: "flex", flexDirection: "column" }}>
-    <Orchestration snapshot={snapshot} selected="" connected effects={[]} presentations={[]} now={now} onSelect={() => {}} />
+    <Orchestration snapshot={snapshot} selected="" connected effects={[]} presentations={[]} now={now} onSelect={() => {}} onChild={() => {}} />
   </main>;
 }
 watchTips();

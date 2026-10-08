@@ -1,5 +1,5 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, type PointerEvent } from "react";
-import type { BoardActivity, FleetTree, Snapshot } from "./types";
+import type { BoardActivity, FleetTree, Snapshot, Task, TreeNode } from "./types";
 import { Avatar } from "./Avatar";
 import { activityDisplay, EFFECT_MS, playFrom, presentationShownOn, type ActivityEffect } from "./activity";
 import { Chevron } from "./Chevron";
@@ -7,7 +7,7 @@ import { Icon } from "./Icon";
 import { ownsTaskSession } from "./lineageTree";
 import { taskName } from "./task-words";
 import { arrange, asksOverlord, expireTraffic, fitScale, fleetTraffic, makeRoom, NODE_HEIGHT, NODE_WIDTH, nodeStatus, personaFor, PULSE_MS, reportTraffic, settle, statusPhase, waitingOn, workflowNodes, zoomAt, type Extent, type Point, type View, type WorkflowNode } from "./workflow";
-import { branchLayout, hasRunningChildren, running } from "./fleet-tree";
+import { babyName, branchLayout, elbows, hasRunningChildren, running } from "./fleet-tree";
 import { TreeCount } from "./TreeCount";
 import { TreeChild } from "./TreeChild";
 
@@ -17,6 +17,10 @@ const layoutKey = "cfo-orchestration-layout-v2";
 // Under a folded goblin's card: the gap to its count, clear of the card's
 // chevron, and the count's height.
 const TREE_GAP = 28, COUNT_HEIGHT = 40;
+
+// How far under a goblin's baby goblins its connector to a goblin below
+// them runs across: half the gap the canvas keeps between them.
+const LANE_GAP = 22;
 
 // How far a notch of the wheel zooms: about a sixth.
 const WHEEL_ZOOM = .0015;
@@ -40,10 +44,17 @@ function readLayout(): { positions: Record<string, Point> } {
   } catch { return { positions: {} }; }
 }
 
-export function Orchestration({ snapshot, selected, connected, effects, onSelect, presentations, now }: {
+// focus asks for one goblin, by its task, to be shown in the middle of the
+// canvas with its baby goblins, once for each time it is asked (at).
+export interface CanvasFocus { task: string; at: number }
+
+export function Orchestration({ snapshot, selected, connected, effects, onSelect, onChild, focus, presentations, now }: {
   presentations:BoardActivity[];
   snapshot: Snapshot; selected: string; connected: boolean; effects: ActivityEffect[]; now: number;
   onSelect: (node: WorkflowNode, source: HTMLElement) => void;
+  // onChild opens a goblin's baby goblin.
+  onChild: (task: Task, child: TreeNode, source: HTMLElement) => void;
+  focus?: CanvasFocus;
 }) {
   const nodes = useMemo(() => workflowNodes(snapshot), [snapshot]);
   const awaited = useMemo(() => waitingOn(snapshot, nodes), [snapshot, nodes]);
@@ -73,6 +84,9 @@ export function Orchestration({ snapshot, selected, connected, effects, onSelect
   const ignoreClick = useRef(false);
   const drag = useRef<{ id: string; pointer: Point; start: Point } | null>(null);
   const pan = useRef<{ pointer: Point; start: View } | null>(null);
+  // Whether the press moved the view, which makes its click no click on the
+  // baby goblin it started on.
+  const panned = useRef(false);
   const signatures = useRef<Map<string, string> | null>(null);
   const [traffic, setTraffic] = useState<Record<string, number[]>>({});
   const pulses = useRef(new Set<ReturnType<typeof setTimeout>>());
@@ -119,6 +133,16 @@ export function Orchestration({ snapshot, selected, connected, effects, onSelect
   const shown = held ?? view ?? { scale: fitted, x: (canvas.width - fitWidth * fitted) / 2 - fitLeft * fitted, y: (canvas.height - fitHeight * fitted) / 2 - fitTop * fitted };
   const { scale } = shown;
   const zoom = (next: number) => setView(zoomAt(shown, next, { x: canvas.width / 2, y: canvas.height / 2 }));
+  // A goblin asked for from the board shows in the middle of the canvas,
+  // framed with what hangs under its card, once the canvas is measured.
+  const [focusedAt, setFocusedAt] = useState(0);
+  const focused = focus && focus.at !== focusedAt && canvas.width ? visible.find((node) => node.task?.id === focus.task && ownsTaskSession(node.session, node.task)) : undefined;
+  if (focus && focused) {
+    const p = point(focused.id), height = NODE_HEIGHT + (below[focused.id] || 0);
+    const framed = fitScale({ width: (extents[focused.id]?.width || NODE_WIDTH) + 80, height: height + 80 }, canvas);
+    setFocusedAt(focus.at);
+    setView({ scale: framed, x: canvas.width / 2 - (p.x + NODE_WIDTH / 2) * framed, y: canvas.height / 2 - (p.y + height / 2) * framed });
+  }
   const fit = () => setView(null);
   // Measured before the first paint, so the tree never shows unfitted.
   useLayoutEffect(() => {
@@ -185,18 +209,31 @@ export function Orchestration({ snapshot, selected, connected, effects, onSelect
         if (event.key === "0") { event.preventDefault(); fit(); }
       }}
       onPointerDown={(event) => {
-        if (event.button !== 0 || (event.target instanceof Element && event.target.closest(".flow-node, button"))) return;
-        event.currentTarget.setPointerCapture(event.pointerId);
+        const target = event.target instanceof Element ? event.target : null;
+        if (event.button !== 0 || target?.closest(".flow-node, button:not(.tree-child)")) return;
+        // A press on a baby goblin is its click until it moves, so the
+        // canvas takes the pointer only once the press pans.
+        if (!target?.closest(".tree-child")) event.currentTarget.setPointerCapture(event.pointerId);
         pan.current = { pointer: { x: event.clientX, y: event.clientY }, start: shown };
+        panned.current = false;
       }}
       onPointerMove={(event) => {
         if (!pan.current) return;
         const { pointer, start } = pan.current, dx = event.clientX - pointer.x, dy = event.clientY - pointer.y;
-        // A press that hardly moves is not a pan, so it leaves the frame fitted.
-        if (!view && Math.abs(dx) + Math.abs(dy) < 4) return;
+        // A press that hardly moves is not a pan, so it leaves the frame
+        // fitted and a baby goblin pressed.
+        if (!panned.current && Math.abs(dx) + Math.abs(dy) < 4) return;
+        panned.current = true;
+        if (!event.currentTarget.hasPointerCapture(event.pointerId)) event.currentTarget.setPointerCapture(event.pointerId);
         setView({ ...start, x: start.x + dx, y: start.y + dy });
       }}
-      onPointerUp={() => { pan.current = null; }} onPointerCancel={() => { pan.current = null; }}>
+      onPointerUp={() => { pan.current = null; }} onPointerCancel={() => { pan.current = null; panned.current = false; }}
+      onClickCapture={(event) => {
+        // A press that panned the view ends in no click; a key still
+        // presses what has the keyboard.
+        if (panned.current && event.detail > 0) event.stopPropagation();
+        panned.current = false;
+      }}>
       {!nodes.length && <div className="empty-state"><h2>No sessions reported yet</h2><p>Native parent relationships will appear here as work starts.</p></div>}
       <div className="flow-world" style={{ transform: `translate(${shown.x}px, ${shown.y}px) scale(${scale})` }}>
         <svg className="flow-connections" width={fitLeft + fitWidth} height={fitTop + fitHeight} aria-hidden="true">
@@ -213,9 +250,15 @@ export function Orchestration({ snapshot, selected, connected, effects, onSelect
             const ex = to.x + NODE_WIDTH / 2, ey = to.y;
             // Travel sideways just below the parent, then drop straight
             // down, so a connector to a second row passes through a gap in
-            // the first. For the next row this is the plain S curve.
+            // the first. For the next row this is the plain S curve. Under a
+            // parent whose baby goblins hang open, it leaves by their trunk
+            // and runs down beside them, so it never passes behind one.
+            const block = collapsed.has(node.parent) ? undefined : branches[node.parent];
+            const under = block && sy + block.height + LANE_GAP;
             const drop = Math.min((ey - sy) / 2, 56);
-            const path = `M${sx},${sy} C${sx},${sy + drop} ${ex},${sy + drop} ${ex},${sy + 2 * drop} L${ex},${ey}`;
+            const path = block && under && ey - under >= LANE_GAP / 2
+              ? elbows([{ x: sx, y: sy }, { x: sx, y: sy + block.bar }, { x: sx + block.lane, y: sy + block.bar }, { x: sx + block.lane, y: under }, { x: ex, y: under }, { x: ex, y: ey }])
+              : `M${sx},${sy} C${sx},${sy + drop} ${ex},${sy + drop} ${ex},${sy + 2 * drop} L${ex},${ey}`;
             const activity = activityDisplay(connected ? effects : [],node.session?.id || "",byID.get(node.parent || "")?.session?.id || "");
             const reports = connected && node.task ? traffic[node.task.id] || [] : [];
             // Each pulse or birth highlight is its own overlay on the
@@ -267,8 +310,8 @@ export function Orchestration({ snapshot, selected, connected, effects, onSelect
         {/* Branches come before the cards, so a card and its chevron lie
             over the branches hanging from it. */}
         {visible.flatMap((node) => {
-          const tree = trees[node.id];
-          if (!tree) return [];
+          const tree = trees[node.id], task = node.task;
+          if (!tree || !task) return [];
           const p = point(node.id);
           if (collapsed.has(node.id)) return [<div key={"tree:" + node.id} className="tree-branch" style={{ left: p.x, top: p.y + NODE_HEIGHT + TREE_GAP, width: NODE_WIDTH }}>
             <TreeCount tree={tree} title={node.title} expanded={false} onToggle={() => toggle(node.id)} />
@@ -280,7 +323,9 @@ export function Orchestration({ snapshot, selected, connected, effects, onSelect
               {block.lines.map((line) => <path key={line} d={line} />)}
               {block.ends.map((end) => <circle key={end.x + "," + end.y} cx={end.x} cy={end.y} r={3} />)}
             </svg>
-            {running(tree).map((child, i) => <li key={child.id} style={{ left: block.places[i].x, top: block.places[i].y }}><TreeChild node={child} now={now} /></li>)}
+            {running(tree).map((child, i) => <li key={child.id} style={{ left: block.places[i].x, top: block.places[i].y }}>
+              <TreeChild node={child} name={babyName(task, child)} now={now} isSelected={selected === "child:" + child.id} onOpen={(source) => onChild(task, child, source)} />
+            </li>)}
           </ul>];
         })}
         {visible.map((node) => {
