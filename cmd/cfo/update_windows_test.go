@@ -220,6 +220,46 @@ func TestUpdateInstallsTheCandidateAndRestartsOnlyTheSupervisor(t *testing.T) {
 	}
 }
 
+// A candidate built from a checkout that never built its board carries a page
+// saying so in place of the board, and that page answers like a board, so an
+// update that installed it would end done while the Overlord saw no board.
+// The update refuses it before anything changes and says how to build one
+// that carries the board; the previous build keeps serving.
+func TestUpdateRefusesACandidateWithoutItsBoard(t *testing.T) {
+	// Arrange
+	u := newUpdateHome(t, "previous", "candidate")
+	supervisor, _ := u.serving()
+	before := u.updateFiles()
+	_, err := os.Stat(update.Dir(u.state))
+	if err != nil && !errors.Is(err, os.ErrNotExist) {
+		t.Fatal(err)
+	}
+	hasUpdateDirectory := err == nil
+
+	// Act
+	code, output := u.run([]string{"CFO_TEST_NO_BOARD=1"})
+
+	// Assert
+	if code != 1 {
+		t.Fatalf("an update of a candidate without its board exited %d, want 1:\n%s", code, output)
+	}
+	for _, want := range []string{"carries no board", "npm run build", "nothing was changed"} {
+		if !strings.Contains(output, want) {
+			t.Errorf("the refusal does not say %q:\n%s", want, output)
+		}
+	}
+	u.aliasesAre(u.previous, "previous")
+	u.unchanged(before)
+	if !hasUpdateDirectory {
+		if _, err := os.Stat(update.Dir(u.state)); !errors.Is(err, os.ErrNotExist) {
+			t.Fatalf("the refusal created state\\update, want it to remain absent: %v", err)
+		}
+	}
+	if !u.running(supervisor) {
+		t.Fatalf("the previous build's supervisor stopped:\n%s", output)
+	}
+}
+
 // An update from a build that read max_live_goblins takes it out of the
 // home's settings before the candidate's supervisor starts: the candidate
 // refuses a key it no longer reads, and with it every start.

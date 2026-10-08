@@ -98,6 +98,10 @@ func TestRunUsageListsFleetCommands(t *testing.T) {
 // the live wake queue - which is not a hypothetical: it is how this guard
 // came to be written.
 func TestMain(m *testing.M) {
+	// Every build a test runs, in this process or as a stand-in a test
+	// installs, stands in for a build that carries its board, which CI's go
+	// jobs never build. A test of the refusal says otherwise itself.
+	boardBuilt = func() bool { return true }
 	// No test's supervisor takes the board's usual address, which the fleet
 	// of the machine the tests run on may hold: each asks for any free port,
 	// and so does every program a test starts.

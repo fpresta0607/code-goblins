@@ -40,6 +40,26 @@ func TestAssetsServeTheBoardTheCheckoutBuilt(t *testing.T) {
 	}
 }
 
+// Built says whether this checkout built the board, as the page Vite writes
+// says: CI's frontend job proves it true, and the go jobs, which build no
+// board, prove it false.
+func TestBuiltSaysWhetherTheCheckoutBuiltTheBoard(t *testing.T) {
+	// Arrange
+	_, err := os.Stat(filepath.Join("dist", "board", "index.html"))
+	if err != nil && !errors.Is(err, fs.ErrNotExist) {
+		t.Fatal(err)
+	}
+	want := err == nil
+
+	// Act
+	got := Built()
+
+	// Assert
+	if got != want {
+		t.Errorf("Built() = %t, want %t, as dist/board/index.html says", got, want)
+	}
+}
+
 // The placeholder page says the board was not built and names the command
 // that builds it, and keeps the <head> the supervisor writes the page's
 // nonce and build into.
