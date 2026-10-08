@@ -25,7 +25,7 @@ test("once all is back the line says what resumed, names who did not come back, 
   const line = page.getByRole("status").filter({ hasText: "after a restart" });
 
   // Assert
-  await expect(line).toContainText("Resumed the CFO and 5 of 6 goblins after a restart. cg-site-hero did not come back; its card says why.");
+  await expect(line).toContainText("Resumed the CFO and 5 of 6 goblins after a restart. cg-site-hero did not come back. Its card says why.");
   await expect(page.getByText("Did not come back after the restart", { exact: true })).toBeVisible();
   await expect(page.getByRole("alert")).toHaveText("Did not come back after the restart: Codex is not signed in. The CFO was told.");
   await page.screenshot({ path: testInfo.outputPath("restart-resumed.png") });

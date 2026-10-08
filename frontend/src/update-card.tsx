@@ -55,7 +55,7 @@ export function UpdateCard({ run, offer, connected, sending, error, onRun, onRet
       {offer.notes.length > 0 && <ul className="update-notes">{offer.notes.map((note) => <li key={note}>{note}</li>)}</ul>}
       {offer.page && <a className="update-notes-link" href={offer.page} target="_blank" rel="noreferrer">What's new<Icon name="external" /></a>}
       <p className="update-trust"><Icon name="shield" /><span>{trustLine(offer.signing, offer.publisher)}{offer.sum && <>, such as cfo.exe <code>{offer.sum.slice(0, 8) + "…" + offer.sum.slice(-6)}</code></>}.</span></p>
-      <p className="update-effect">The board restarts for a few seconds; goblins and the CFO keep running. A build that does not start is rolled back.</p>
+      <p className="update-effect">The board restarts for a few seconds. Goblins and the CFO keep running. A build that does not start is rolled back.</p>
     </>}
     {(running || run.state === "failed") && <ol className="update-steps">{progress.steps.map((step) => <li key={step.title} className={step.state}>
       <Icon name={step.state === "done" ? "check" : step.state === "now" ? "refresh" : step.state === "failed" ? "warning" : "clock"} />{step.title}

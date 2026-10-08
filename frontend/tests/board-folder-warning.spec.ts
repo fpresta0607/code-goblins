@@ -9,8 +9,11 @@ const send = (page: Page, data: object) => page.evaluate((data) => {
   window.dispatchEvent(new CustomEvent("fixture-snapshot", { detail: data }));
 }, data);
 
+// The supervisor's own error goes to the CFO, never onto the board: the
+// Overlord, 2026-10-07, "this massive lump is useless to me as the user". The
+// board keeps drawing live updates while a folder cannot be read.
 for (const width of [1440, 390]) {
-  test(`the board names an unreadable folder and keeps drawing live updates at ${width}`, async ({ page }) => {
+  test(`the board keeps drawing live updates while a folder is unreadable, and shows no warning for it, at ${width}`, async ({ page }) => {
     await page.setViewportSize({ width, height: 900 });
     await page.addInitScript(() => {
       class FixtureSource extends EventTarget {
@@ -30,14 +33,11 @@ for (const width of [1440, 390]) {
     await send(page, snapshot(1, "", "Before the folder problem"));
     await expect(page.getByText("Before the folder problem", { exact: true })).toBeVisible();
     await send(page, snapshot(2, problem, "New evidence while the folder is unreadable"));
-    const warning = page.getByRole("alert").filter({ hasText: "State folder native-inbox" });
-    await expect(warning).toHaveText(problem);
-    await expect(page.getByText("Live", { exact: true })).toBeVisible();
     await expect(page.getByText("New evidence while the folder is unreadable", { exact: true })).toBeVisible();
+    await expect(page.getByText("Live", { exact: true })).toBeVisible();
+    await expect(page.getByText(/State folder native-inbox/)).toHaveCount(0);
     await expect(page.getByText(/Supervisor connection lost/)).toHaveCount(0);
-    expect(await warning.evaluate((element) => element.scrollWidth <= element.clientWidth)).toBe(true);
     await send(page, snapshot(3, "", "Access restored in the same session"));
-    await expect(warning).toHaveCount(0);
     await expect(page.getByText("Access restored in the same session", { exact: true })).toBeVisible();
   });
 }

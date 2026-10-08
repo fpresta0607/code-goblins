@@ -23,6 +23,7 @@ import { DoneCard } from "./DoneCard";
 import { DocumentCard } from "./DocumentCard";
 import { AnswerMark } from "./AnswerMark";
 import { ChangeCard } from "./ChangeCard";
+import "./lantern.css";
 
 // A sent item's check shows this long before the next item.
 const DONE_MS = 750;
@@ -285,7 +286,7 @@ export function CommandCenter({ snapshot, connected, presentations, focus, onUns
         <h2><Avatar persona="cfo" small />Command Center</h2>
         <section aria-label="Waiting on you">
           <h3>Waiting on you <span className="column-count">{needing}</span></h3>
-          {needing ? <ul className="inbox-list">{waiting.map((candidate) => <li key={candidate.key} className={release(candidate) ? "release-row" : undefined}>
+          {needing ? <ul className="inbox-list waiting">{waiting.map((candidate) => <li key={candidate.key} className={release(candidate) ? "release-row" : undefined}>
             <Avatar persona={release(candidate) ? "releases" : taskOf(candidate) ? personaFor(snapshot.tasks.find((task) => task.id === taskOf(candidate))) : "cfo"} small />
             <span className="inbox-text"><strong>{askerOf(candidate)}</strong><span className="inbox-summary">{textOf(candidate)}</span>{!!drafts[candidate.key] && notSent(drafts[candidate.key], candidate, snapshot.actions) && <small>Not sent: {drafts[candidate.key].error}</small>}</span>
             <time>{age(created(candidate))}</time>
@@ -310,7 +311,6 @@ export function CommandCenter({ snapshot, connected, presentations, focus, onUns
             </li>;
           })}</ul>
         </Disclosure>}
-        <p className="muted">Everything that needs you is listed here. A goblin's own test runs stay off this list.</p>
       </div>
     </details>
     {/* A click on the dimmed board around the card lands on the dialog

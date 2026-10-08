@@ -429,7 +429,7 @@ test("the first visit explains the shortcut once", async ({ page }) => {
   const { bubble } = await openPane(page, { hint: true });
   const hint = page.getByRole("note");
   await expect(hint).toContainText("Speak into this terminal");
-  await expect(hint).toContainText("hold Ctrl+Shift+Space");
+  await expect(hint).toContainText("Hold Ctrl+Shift+Space and speak.");
   await page.getByRole("button", { name: "Dismiss hint" }).click();
   await expect(hint).toHaveCount(0);
   await page.reload();
