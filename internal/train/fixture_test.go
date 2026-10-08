@@ -400,7 +400,7 @@ func goblinsFor(prs ...PullRequest) []Goblin {
 	var goblins []Goblin
 	start := time.Date(2026, 10, 7, 12, 0, 0, 0, time.UTC)
 	for i, pr := range prs {
-		goblins = append(goblins, Goblin{Task: fmt.Sprintf("g%d", pr.Number), Done: map[string]time.Time{pr.URL: start.Add(time.Duration(i) * time.Minute)}})
+		goblins = append(goblins, Goblin{Task: fmt.Sprintf("g%d", pr.Number), Name: fmt.Sprintf("Goblin%d", pr.Number), Title: "Code Designer", Done: map[string]time.Time{pr.URL: start.Add(time.Duration(i) * time.Minute)}})
 	}
 	return goblins
 }

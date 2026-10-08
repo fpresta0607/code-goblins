@@ -103,6 +103,9 @@ type TaskRow struct {
 	Pause    *state.PauseCondition `json:"pause,omitempty"`
 	// Parent is the goblin a helper works for; empty for every other task.
 	Parent string `json:"parent,omitempty"`
+	// GoblinName and GoblinTitle are the goblin's fun name and title.
+	GoblinName  string `json:"goblin_name,omitempty"`
+	GoblinTitle string `json:"goblin_title,omitempty"`
 }
 
 // MonitorSummary is the renderer-facing subset of the persisted Task 4
@@ -204,19 +207,21 @@ func BuildSnapshot(ctx context.Context, h home.Home, endpoint EndpointReader) (S
 			return Snapshot{}, err
 		}
 		snapshot.Tasks = append(snapshot.Tasks, TaskRow{
-			ID:       meta.ID,
-			Current:  current,
-			Monitor:  monitorSummary,
-			Kind:     meta.Kind,
-			Project:  meta.Project,
-			Backend:  meta.Backend,
-			Endpoint: endpointSummary(meta, endpointExists),
-			Artifact: artifact,
-			Path:     taskPath(meta),
-			Actions:  Actions{Peek: "cfo peek gb-" + meta.ID},
-			Teardown: teardown,
-			Pause:    pause,
-			Parent:   meta.Parent,
+			ID:          meta.ID,
+			Current:     current,
+			Monitor:     monitorSummary,
+			Kind:        meta.Kind,
+			Project:     meta.Project,
+			Backend:     meta.Backend,
+			Endpoint:    endpointSummary(meta, endpointExists),
+			Artifact:    artifact,
+			Path:        taskPath(meta),
+			Actions:     Actions{Peek: "cfo peek gb-" + meta.ID},
+			Teardown:    teardown,
+			Pause:       pause,
+			Parent:      meta.Parent,
+			GoblinName:  meta.GoblinName,
+			GoblinTitle: meta.GoblinTitle,
 		})
 	}
 	sort.Slice(snapshot.Tasks, func(i, j int) bool {

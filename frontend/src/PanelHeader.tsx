@@ -11,7 +11,7 @@ import { credentialAsk } from "./credentials";
 import { plainMessage } from "./messageText";
 import { AfkToggle } from "./afk-toggle";
 import { CfoUpdate } from "./cfo-update";
-import { plainText, taskSummary, withoutHarness } from "./task-words";
+import { goblinName, plainText, taskName, taskSummary, withoutHarness } from "./task-words";
 import { RawDetails } from "./raw-details";
 import { PeopleRow } from "./people-row";
 import { TicketLink } from "./ticket-link";
@@ -34,10 +34,10 @@ export function PanelHeader({ task, node, snapshot, compact, onAnswer, onOpenTas
   const owner = !!task && ownsTaskSession(node, task);
   const asking = owner && asksOverlord(snapshot, task.id);
   const cfoSession = snapshot.sessions.find((session) => session.role === "cfo");
-  const title = cfo ? "CFO" : node ? sessionTitle(node, task) : withoutHarness(task?.title || "") || task?.id || "";
+  const title = cfo ? "CFO" : node ? sessionTitle(node, task) : task ? goblinName(task) : "";
   const status = cfo
     ? nodeStatus({ id: "cfo", title, session: cfoSession, relation: "", status: snapshot.registration ? "Registration stale" : cfoSession ? undefined : "Supervising" })
-    : nodeStatus({ id: title, title, task, session: node, relation: "" }, asking);
+    : nodeStatus({ id: title, title, task, session: node, relation: "" }, asking, snapshot.tasks);
   const phase = cfo ? (snapshot.registration ? "stale" : cfoSession?.runtime?.state || cfoSession?.phase || "working") : owner ? statusPhase(task) : node?.runtime?.state || node?.phase || "";
   const said = owner ? taskSummary(task, snapshot.tasks, status) : undefined;
   // What a queued task's wait line leaves out: the CFO's note on it, or what
@@ -63,9 +63,10 @@ export function PanelHeader({ task, node, snapshot, compact, onAnswer, onOpenTas
     <Avatar persona={cfo ? "cfo" : personaFor(task, node)} small />
     <div className="panel-identity">
       <h2 id="panel-title">{title}</h2>
+      {owner && task.goblin_name && <p className="panel-goblin-task">{taskName(task)}</p>}
       {!compact && task?.project && <div className="project-line"><p className="project-label">{task.project}</p><PeopleRow snapshot={snapshot} task={task} /></div>}
-      <p className={"panel-status plain-status phase-" + phase}><span className="status-dot" />{status}{awaited && <button className="status-link" aria-label={"Open " + (withoutHarness(awaited.title) || awaited.id) + ", which this goblin is waiting on"} data-tip={"Open " + (withoutHarness(awaited.title) || awaited.id)} onClick={() => onOpenTask(awaited)}><Icon name="next" /></button>}</p>
-      {!compact && !owner && node && task && <p className="muted">Part of {withoutHarness(task.title) || task.id}</p>}
+      <p className={"panel-status plain-status phase-" + phase}><span className="status-dot" />{status}{awaited && <button className="status-link" aria-label={"Open " + goblinName(awaited) + ", which this goblin is waiting on"} data-tip={"Open " + goblinName(awaited)} onClick={() => onOpenTask(awaited)}><Icon name="next" /></button>}</p>
+      {!compact && !owner && node && task && <p className="muted">Part of {goblinName(task)}</p>}
       {!compact && said?.sentence && <p className="panel-activity">{said.sentence}</p>}
       {!compact && said && (said.details.length > 0 || said.isFailure || note) && <div className="panel-details-row">
         <RawDetails lines={said.details} />

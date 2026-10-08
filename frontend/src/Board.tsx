@@ -41,7 +41,7 @@ export function Board({ snapshot, layout, selected, now, onSelect, onTerminal, o
   // each as one card with its pull requests.
   const trains = (isOver: boolean) => {
     const shown = (snapshot.merge_trains ?? []).filter((train) => isTrainOver(train) === isOver);
-    return shown.length > 0 && <div className="train-cards">{shown.map((train) => <MergeTrainCard key={train.id} train={train} />)}</div>;
+    return shown.length > 0 && <div className="train-cards">{shown.map((train) => <MergeTrainCard key={train.id} train={train} tasks={snapshot.tasks} />)}</div>;
   };
   return <section className={"task-board" + (layout === "stacked" ? " stacked" : "")} aria-label="Task board">
     <CfoPin snapshot={snapshot} now={now} onOpen={onOpenCfo} onCommand={onOpenCommand} onStart={onStartCfo} />

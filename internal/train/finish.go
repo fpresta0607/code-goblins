@@ -4,6 +4,8 @@ import (
 	"context"
 	"fmt"
 	"strings"
+
+	"github.com/fpresta0607/code-goblins/internal/goblinname"
 )
 
 // finish ends the train in state: it records how it ended first, so a
@@ -46,7 +48,7 @@ func (e Engine) finish(ctx context.Context, t *Train, state, note string) error 
 			continue
 		}
 		if err := e.TellGoblin(ctx, car.Task, text); err != nil {
-			undelivered = append(undelivered, fmt.Sprintf("%s was not told about #%d (%v): relay it with cfo send", car.Task, car.Number, err))
+			undelivered = append(undelivered, fmt.Sprintf("%s was not told about #%d (%v): relay it with cfo send", goblinname.Called(car.Goblin, car.Task), car.Number, err))
 		}
 	}
 	summary := "merge_train: " + t.Repository + " train " + t.ID + " " + e.summary(*t)
