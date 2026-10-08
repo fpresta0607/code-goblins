@@ -138,12 +138,14 @@ func TestPickKeepsClearOfTheNamesTheLastSpawnsUsed(t *testing.T) {
 	free := firstNames[:3]
 	recent := []Pair{{Name: free[0], Title: "Bug Hunter"}, {Name: free[1], Title: "Word Smith"}}
 
-	// Act
-	pair, err := pick("", heldBut(asSpelled, free...), recent)
-
-	// Assert
-	if err != nil || pair.Name != free[2] {
-		t.Fatalf("pair = %+v, %v, want %s, the one free name no recent spawn used", pair, err, free[2])
+	// Act and assert: pick chooses at random, so a pick blind to recent
+	// spawns would land on the right name a third of the time; many picks
+	// leave it no such luck.
+	for range 50 {
+		pair, err := pick("", heldBut(asSpelled, free...), recent)
+		if err != nil || pair.Name != free[2] {
+			t.Fatalf("pair = %+v, %v, want %s, the one free name no recent spawn used", pair, err, free[2])
+		}
 	}
 }
 
