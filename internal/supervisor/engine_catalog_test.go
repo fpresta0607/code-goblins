@@ -72,6 +72,66 @@ func TestEngineCatalogReadsInstalledHarnessModelsAndTheirEfforts(t *testing.T) {
 	}
 }
 
+// The fixture is Claude Code 2.1.293's catalog of 2026-10-07 for the
+// organization it was signed in to, trimmed to three of its models.
+func TestEngineCatalogOffersClaudeModelsFromClaudeCodesOwnCatalog(t *testing.T) {
+	// Arrange
+	store, _ := testStore(t)
+	machine := newFirstRunMachine(t)
+	recorded, err := os.ReadFile(filepath.Join("testdata", "claude-model-catalog-cc.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	catalogs := filepath.Join(machine.run.Home, ".claude", "cache", "model-catalog")
+	writeFile(t, filepath.Join(machine.run.Home, ".claude.json"), `{"oauthAccount":{"organizationUuid":"signed-in-org"},"additionalModelOptionsCache":[{"value":"claude-fable-5-1[1m]","label":"Fable"}]}`)
+	writeFile(t, filepath.Join(catalogs, "signed-in-org-3ed20817107d-cc.json"), string(recorded))
+	other := func(fetchedAt, model string) string {
+		return `{"version":2,"fetchedAt":` + fetchedAt + `,"catalog":{"surface":"cc","config":{"id":"cc","models":[{"id":"` + model + `","name":"` + model + `"}]}}}`
+	}
+	writeFile(t, filepath.Join(catalogs, "signed-in-org-0697c9c0325f-cc.json"), other("1", "claude-older-catalog-only"))
+	writeFile(t, filepath.Join(catalogs, "another-org-e146c75e2fa2-cc.json"), other("9791415559001", "claude-another-org-only"))
+	writeFile(t, filepath.Join(catalogs, "tok-1bb99ad6f7a4-ccd.json"), other("9791415559001", "claude-desktop-only"))
+	handler := NewHTTP(&Service{Store: store, Options: Options{FirstRun: machine.run}}, "board.local", nil)
+	response := httptest.NewRecorder()
+
+	// Act
+	handler.ServeHTTP(response, httptest.NewRequest(http.MethodGet, "http://board.local/api/engines", nil))
+
+	// Assert
+	var catalog EngineCatalog
+	if err := json.Unmarshal(response.Body.Bytes(), &catalog); response.Code != 200 || err != nil {
+		t.Fatalf("catalog status = %d, %v: %s", response.Code, err, response.Body.String())
+	}
+	at := slices.IndexFunc(catalog.Harnesses, func(item EngineHarness) bool { return item.ID == "claude" })
+	if at < 0 || catalog.Harnesses[at].Reason != "" {
+		t.Fatalf("claude = %+v", catalog.Harnesses)
+	}
+	models := map[string]EngineModel{}
+	for _, model := range catalog.Harnesses[at].Models {
+		if _, isTwice := models[model.ID]; isTwice {
+			t.Fatalf("%s offered twice: %+v", model.ID, catalog.Harnesses[at].Models)
+		}
+		models[model.ID] = model
+	}
+	if sonnet := models["claude-sonnet-5-5"]; sonnet.Name != "Sonnet 5.5" || strings.Join(sonnet.Efforts, ",") != "low,medium,high,xhigh,max" {
+		t.Fatalf("sonnet = %+v, want Claude Code's name and efforts", sonnet)
+	}
+	if opus := models["claude-opus-5-5"]; opus.Name != "Opus 5.5" || opus.DefaultEffort != defaultEffort {
+		t.Fatalf("opus = %+v, want Claude Code's name and the fleet's %s default", opus, defaultEffort)
+	}
+	if haiku, ok := models["claude-haiku-4-5-20251001"]; !ok || len(haiku.Efforts) != 0 {
+		t.Fatalf("a model without effort options = %+v, %v", haiku, ok)
+	}
+	if _, ok := models["claude-fable-5-1[1m]"]; !ok {
+		t.Fatal("the additional model option disappeared")
+	}
+	for _, absent := range []string{"claude-older-catalog-only", "claude-another-org-only", "claude-desktop-only"} {
+		if _, ok := models[absent]; ok {
+			t.Fatalf("%s came from a catalog Claude Code does not use now", absent)
+		}
+	}
+}
+
 func TestEngineCatalogReportsUnreadableCatalogAndMissingSignIn(t *testing.T) {
 	store, _ := testStore(t)
 	machine := newFirstRunMachine(t)

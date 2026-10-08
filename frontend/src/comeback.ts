@@ -33,6 +33,6 @@ export function comebackLine(comeback: Comeback | undefined): ComebackLine | nul
   const resumed = [];
   if (cfo?.state === "back") resumed.push("the CFO");
   if (total > 0) resumed.push(back === total ? goblins(total) : back + " of " + goblins(total));
-  if (stopped.length > 0) details.push(names(stopped) + " did not come back; " + (stopped.length === 1 ? "its card says" : "their cards say") + " why.");
+  if (stopped.length > 0) details.push(names(stopped) + " did not come back. " + (stopped.length === 1 ? "Its card says" : "Their cards say") + " why.");
   return { text: resumed.length ? "Resumed " + resumed.join(" and ") + " after a restart." : "Nothing came back after a restart.", detail: details.join(" "), isDone: true };
 }

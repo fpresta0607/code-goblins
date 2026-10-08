@@ -197,7 +197,7 @@ export function bracketedPaste(text: string): string {
   const paste = "\x1b[200~" + stripPasteEscapes(text).replace(/\r?\n/g, "\r") + "\x1b[201~";
   // Match Go's JSON escaping and leave room for Herdr's request envelope.
   const encoded = JSON.stringify(paste).replace(/[<>&\u2028\u2029]/g, (character) => "\\u" + character.charCodeAt(0).toString(16).padStart(4, "0"));
-  if (inputBytes(encoded) > 1024 * 1024 - 1024) throw new Error("Paste exceeds Herdr's encoded request limit. Paste a smaller selection; nothing was sent.");
+  if (inputBytes(encoded) > 1024 * 1024 - 1024) throw new Error("Paste exceeds Herdr's encoded request limit. Paste a smaller selection. Nothing was sent.");
   return paste;
 }
 
@@ -273,6 +273,6 @@ export function typingHeldReason(raw: string): string {
 // Why the wheel cannot scroll a pane whose take was refused, in the
 // Overlord's words.
 export function scrollHeldReason(raw: string): string {
-  if (GATE_CUSTODY.test(raw)) return "A review gate owns this goblin's pane now; scroll it in Herdr.";
+  if (GATE_CUSTODY.test(raw)) return "A review gate owns this goblin's pane now. Scroll it in Herdr.";
   return "The wheel cannot scroll this pane: " + raw;
 }

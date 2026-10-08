@@ -117,6 +117,21 @@ test.describe("in a window 1707 px wide", () => {
     await expect(page.getByRole("button", { name: "Stacked layout" })).toBeVisible();
   });
 
+  // The Overlord, 2026-10-07: "please stop kanban container at last goblin it
+  // doesnt need to extend to fit the in progress group container".
+  test("each column ends below its last card instead of stretching to the tallest", async ({ page }) => {
+    await open(page, [...BOARD, ...Array.from({ length: 4 }, (_, index) => task("working-" + (index + 3), "working"))]);
+    const ends = await page.locator(".board-column").evaluateAll((sections) => sections.map((section) => {
+      const box = section.getBoundingClientRect(), cards = [...section.querySelectorAll(".task-card-shell")].map((card) => card.getBoundingClientRect().bottom);
+      return { name: section.getAttribute("aria-label"), height: box.height, gapUnderLast: box.bottom - Math.max(...cards) };
+    }));
+    const progress = ends.find((column) => column.name === "In progress")!;
+    for (const column of ends.filter((column) => column.name !== "In progress")) {
+      expect(column.height, column.name!).toBeLessThan(progress.height);
+      expect(column.gapUnderLast, column.name!).toBeLessThan(48);
+    }
+  });
+
   test("a stacked board leaves the panel its half", async ({ page }) => {
     await open(page);
     await page.getByRole("button", { name: "Stacked layout" }).click();

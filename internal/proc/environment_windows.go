@@ -16,19 +16,27 @@ func Environment(pid int) ([]string, error) {
 		return nil, errors.New("process environment unavailable")
 	}
 	defer syscall.CloseHandle(handle)
-	peb, err := processEnvironmentBlock(handle)
+	var environment []string
+	err = walkSteady(handle, pid, func() (uintptr, error) {
+		peb, err := processEnvironmentBlock(handle)
+		if err != nil {
+			return 0, errors.New("process environment unavailable")
+		}
+		parameters, err := readPointer(handle, peb+pebOffsetProcessParameters)
+		if err != nil || parameters == 0 {
+			return 0, errors.New("process parameters unavailable")
+		}
+		address, err := readPointer(handle, parameters+unsafe.Offsetof(windows.RTL_USER_PROCESS_PARAMETERS{}.Environment))
+		if err != nil || address == 0 {
+			return parameters, errors.New("process environment unavailable")
+		}
+		environment, err = environmentAt(handle, address)
+		return parameters, err
+	})
 	if err != nil {
-		return nil, errors.New("process environment unavailable")
+		return nil, err
 	}
-	parameters, err := readPointer(handle, peb+pebOffsetProcessParameters)
-	if err != nil || parameters == 0 {
-		return nil, errors.New("process parameters unavailable")
-	}
-	address, err := readPointer(handle, parameters+unsafe.Offsetof(windows.RTL_USER_PROCESS_PARAMETERS{}.Environment))
-	if err != nil || address == 0 {
-		return nil, errors.New("process environment unavailable")
-	}
-	return environmentAt(handle, address)
+	return environment, nil
 }
 
 // environmentAt reads the environment block at address in the process

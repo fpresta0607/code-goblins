@@ -1,4 +1,4 @@
-import { expect, test, type Page } from "./site";
+import { expect, holdStream, test, type Page } from "./site";
 
 // Tickets and people on the board: a task's ticket and the avatars of
 // teammates whose work meets its branch on its card, and the people of its
@@ -129,5 +129,36 @@ test.describe("on a phone", () => {
     });
     expect(spill).toBe(0);
     expect(await fits(page)).toBe(true);
+  });
+});
+
+// The Overlord, 2026-10-07, on nine avatars running past a card's edge: "see
+// how fit can get out of hand for this ui". A card shows three, then how many
+// more, all inside it.
+test.describe("with nine people in a goblin's area, in his window", () => {
+  test.use({ viewport: { width: 1707, height: 1067 }, deviceScaleFactor: 1.5 });
+
+  test("the card shows three avatars and +6, inside the card", async ({ page }) => {
+    // Arrange
+    const crowd = Array.from({ length: 9 }, (_, index) => ({ login: "dev-" + index, avatar_url: avatar(10 + index), what: "PR #" + (40 + index), url: REPO + "/pull/" + (40 + index) }));
+    await holdStream(page, { ...SNAPSHOT, tasks: [task("nm-source-proof", "Prove no-mistakes builds from source", { ticket: { number: 3, url: REPO + "/issues/3", state: "in progress" }, overlaps: crowd })] });
+    await page.route("https://avatars.githubusercontent.com/**", (route) => route.fulfill({ contentType: "image/svg+xml", body: `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 40 40"><rect width="40" height="40" fill="#2f7d5b"/></svg>` }));
+    await page.route("**/api/**", (route) => route.fulfill({ status: 404, json: { error: "No fixture for this resource" } }));
+
+    // Act
+    await page.goto("/");
+    await page.keyboard.press("Control+Alt+1");
+    const proof = card(page, "Prove no-mistakes builds from source");
+    await expect(proof).toBeVisible();
+
+    // Assert
+    await expect(proof.locator(".same-area-person")).toHaveCount(3);
+    await expect(proof.locator(".same-area-more")).toHaveText("+6");
+    await expect(proof.locator(".same-area-more")).toHaveAttribute("data-tip", /^Also in the same area: dev-3: PR #43\. .*dev-8: PR #48$/);
+    const outside = await proof.evaluate((shell) => {
+      const box = shell.getBoundingClientRect();
+      return [...shell.querySelectorAll(".same-area-person, .same-area-more")].filter((part) => part.getBoundingClientRect().right > box.right + 1).length;
+    });
+    expect(outside).toBe(0);
   });
 });

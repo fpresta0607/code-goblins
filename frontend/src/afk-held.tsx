@@ -5,6 +5,7 @@ import { age } from "./presentation";
 import { personaFor } from "./workflow";
 import type { AfkHeld, Task } from "./types";
 import "./afk.css";
+import "./lantern.css";
 
 // What is held for the Overlord while AFK mode is on, drawn as the Command
 // Center's inbox draws what waits on him: whose it is, what it asks, what was

@@ -104,7 +104,7 @@ test("a request's alert has nothing left to open once the request is saved or ex
 });
 
 test("the CFO bar counts an open request as waiting on the Overlord, and a saved one no longer", () => {
-  assert.deepEqual(cfoSummary(board([request({ names: ["STRIPE_SECRET_KEY"] })])), { waiting: 1, line: "The CFO supervises 1 goblin." });
+  assert.deepEqual(cfoSummary(board([request({ names: ["STRIPE_SECRET_KEY"] })])), { waiting: 1, line: "1 goblin at work." });
   assert.equal(cfoSummary(board([request({ state: "saved", saved: ["STRIPE_SECRET_KEY"] })])).waiting, 0);
 });
 
