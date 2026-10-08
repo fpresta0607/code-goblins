@@ -32,6 +32,7 @@ import (
 	"github.com/fpresta0607/code-goblins/internal/quota"
 	"github.com/fpresta0607/code-goblins/internal/reap"
 	"github.com/fpresta0607/code-goblins/internal/runtime"
+	"github.com/fpresta0607/code-goblins/internal/services"
 	"github.com/fpresta0607/code-goblins/internal/spawn"
 	"github.com/fpresta0607/code-goblins/internal/state"
 	"github.com/fpresta0607/code-goblins/internal/supervisor"
@@ -95,7 +96,8 @@ commands:
   cfo send <target> [--key <key>] <text...>
   cfo peek <target> [lines]
   cfo fleet-view [--json]
-  cfo runtime [--json]   what is running on this machine and who owns it: containers by owner, listening dev servers and whether each is safe to stop, machine headroom, each project's deploy target, and how to run each project locally
+  cfo runtime [--json]   what is running on this machine and who owns it: containers by owner, the local services stacks cfo holds for tasks, listening dev servers and whether each is safe to stop, machine headroom, each project's deploy target, and how to run each project locally
+  cfo services up <project> --task <id> [--wait <duration>] | down <project> --task <id>   start the local services a project declares for a task's full-stack check, or share them with the tasks that hold them, only while memory and commit stay above the floor with their cost added, waiting up to --wait and saying why. down releases the hold, and the last release stops what cfo started and the engine when cfo started it
   cfo tickets <project> [--brief <file>] [--files <paths>] [--json]   read-only report of what others have in flight in the project's GitHub repository: whether it is collaborative, its active contributors, open issues, open and draft PRs with their files, and branches others pushed in the last 14 days; with --brief or --files it names the PRs, branches and issues that overlap that area
   cfo tickets <project> --allow-public-tickets   let the supervisor keep each task's ticket in the project's repository although it is public, where every issue is public; asked once per repository
   cfo brief <id> --project <name|path> [--kind <ship|scout>] [--mode <no-mistakes|direct-PR|local-only>]
@@ -215,6 +217,9 @@ type commandRuntime struct {
 	repositoryOf func(ctx context.Context, checkout string) (string, error)
 	// requestHelper asks the supervisor for a goblin's helper.
 	requestHelper func(home.Home, supervisor.HelperRequest) (supervisor.HelperStart, error)
+	// projectServices builds the local services of a home, writing what a
+	// start says while it waits to progress.
+	projectServices func(home.Home, io.Writer) services.Service
 	// dictationClient downloads dictation's engine and model; nil is the
 	// one the voice package makes, which follows only https.
 	dictationClient *http.Client
@@ -249,8 +254,9 @@ func (r commandRuntime) resolveProject(arg string) (string, error) {
 
 func defaultCommandRuntime() commandRuntime {
 	return commandRuntime{
-		resolveHome:   home.Resolve,
-		requestHelper: supervisor.RequestHelper,
+		resolveHome:     home.Resolve,
+		requestHelper:   supervisor.RequestHelper,
+		projectServices: defaultProjectServices,
 		spawn: func(ctx context.Context, h home.Home, request spawn.Request) (spawn.Result, error) {
 			commands := execx.OSRunner{}
 			self, err := os.Executable()
@@ -535,6 +541,8 @@ func runWithRuntime(args []string, stdout, stderr io.Writer, runtime commandRunt
 		return runPeek(args[1:], stdout, stderr, runtime)
 	case "fleet-view":
 		return runFleet(args[1:], stdout, stderr, runtime)
+	case "services":
+		return runServices(args[1:], stdout, stderr, runtime)
 	case "runtime":
 		return runRuntime(args[1:], stdout, stderr, runtime)
 	case "tickets":

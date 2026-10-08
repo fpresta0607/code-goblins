@@ -10,6 +10,7 @@ import (
 	"github.com/fpresta0607/code-goblins/internal/fleetconfig"
 	"github.com/fpresta0607/code-goblins/internal/home"
 	"github.com/fpresta0607/code-goblins/internal/janitor"
+	"github.com/fpresta0607/code-goblins/internal/services"
 	"github.com/fpresta0607/code-goblins/internal/state"
 )
 
@@ -137,6 +138,11 @@ func (c Collector) Collect(ctx context.Context) (Inventory, error) {
 	inv.Storage = janitor.Measure(c.Home, metas)
 	if record, err := janitor.ReadRecord(c.Home.State); err == nil {
 		inv.Janitor = &record
+	}
+	if record, err := services.ReadRecord(c.Home.State); err != nil {
+		inv.Notes = append(inv.Notes, "LOCAL SERVICES UNREADABLE: "+err.Error()+" - the stacks cfo services holds for tasks are not accounted for; fix or remove the record and run this again")
+	} else {
+		inv.Services = record
 	}
 
 	var projectNotes []string

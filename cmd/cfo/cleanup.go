@@ -91,6 +91,8 @@ func defaultCleanup(ctx context.Context, h home.Home, id string, forceArchive bo
 		Terminal:     &herdr.Client{Commands: commands, Session: herdrSession()},
 		Worktrees:    worktree.Service{Commands: commands},
 		ForceArchive: forceArchive,
+
+		ReleaseServices: defaultProjectServices(h, io.Discard).ReleaseTask,
 	}
 	result, err := service.Cleanup(ctx, id)
 	if err != nil {

@@ -13,6 +13,7 @@ import (
 	"github.com/fpresta0607/code-goblins/internal/install"
 	"github.com/fpresta0607/code-goblins/internal/janitor"
 	"github.com/fpresta0607/code-goblins/internal/reap"
+	"github.com/fpresta0607/code-goblins/internal/services"
 	"github.com/fpresta0607/code-goblins/internal/state"
 	"github.com/fpresta0607/code-goblins/internal/wake"
 )
@@ -73,6 +74,13 @@ func runJanitor(cfg Config, inv reap.Inventory) {
 		ProjectsRoot: projects,
 		SelfPID:      os.Getpid(),
 		Now:          time.Now(),
+		StopServices: services.Service{
+			StateDir: cfg.Home.State,
+			DataDir:  cfg.Home.Data,
+			Docker:   services.CLI{Commands: cfg.Reap.Commands},
+			IsLive:   services.LiveIn(cfg.Home.State),
+			Now:      time.Now,
+		}.Sweep,
 	})
 	if err := janitor.WriteRecord(cfg.Home.State, record); err != nil {
 		return
