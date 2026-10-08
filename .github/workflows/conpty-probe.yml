@@ -1,0 +1,72 @@
+name: conpty-probe
+
+# Temporary: reproduces the typed-keys terminal ending on the hosted runner's
+# conhost and reads where conhost crashed. Runs only on a push to a probe
+# branch.
+on:
+  push:
+    branches: ['probe/conpty-*']
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    runs-on: windows-latest
+    timeout-minutes: 75
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-go@v5
+        with:
+          go-version: stable
+      - name: Keep conhost's crash dumps
+        shell: pwsh
+        run: |
+          [System.Environment]::OSVersion.VersionString
+          (Get-Item "$env:WINDIR\System32\conhost.exe").VersionInfo.FileVersion
+          (Get-FileHash "$env:WINDIR\System32\conhost.exe").Hash
+          (Get-ItemProperty 'HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion').UBR
+          New-Item -ItemType Directory -Force D:\dumps | Out-Null
+          $wer = 'HKLM:\SOFTWARE\Microsoft\Windows\Windows Error Reporting'
+          New-Item -Force "$wer\LocalDumps\conhost.exe" | Out-Null
+          Set-ItemProperty "$wer\LocalDumps\conhost.exe" DumpFolder 'D:\dumps' -Type ExpandString
+          Set-ItemProperty "$wer\LocalDumps\conhost.exe" DumpType 1 -Type DWord
+          Set-ItemProperty "$wer\LocalDumps\conhost.exe" DumpCount 10 -Type DWord
+          New-Item -Force "$wer\LocalDumps\OpenConsole.exe" | Out-Null
+          Set-ItemProperty "$wer\LocalDumps\OpenConsole.exe" DumpFolder 'D:\dumps' -Type ExpandString
+          Set-ItemProperty "$wer\LocalDumps\OpenConsole.exe" DumpType 1 -Type DWord
+          Set-ItemProperty $wer Disabled 0 -Type DWord
+          Set-ItemProperty $wer DontShowUI 1 -Type DWord
+          Get-ItemProperty "HKLM:\SOFTWARE\Policies\Microsoft\Windows\Windows Error Reporting" -ErrorAction SilentlyContinue | Format-List
+          Set-Service WerSvc -StartupType Manual
+          Start-Service WerSvc
+          Get-Service WerSvc | Format-List Status, StartType
+          Get-ChildItem 'C:\Program Files (x86)\Windows Kits\10\Debuggers\x64\cdb.exe' -ErrorAction SilentlyContinue
+      - name: The typed-keys test, 2000 times, on this branch's console host
+        continue-on-error: true
+        shell: pwsh
+        run: go test ./internal/conpty -run '^TestTypedKeysReachAProgramThatPrintsWhileItReads$' -count=2000 -timeout 45m
+        env:
+          CONPTY_PROBE_DUMPS: '1'
+          CFO_HOME: ${{ runner.temp }}\cfo-go-tests
+          CFO_STATE_OVERRIDE: ${{ runner.temp }}\cfo-go-tests\state
+      - name: The whole package, 10 times
+        continue-on-error: true
+        shell: pwsh
+        run: go test ./internal/conpty -count=10 -timeout 30m
+        env:
+          CFO_HOME: ${{ runner.temp }}\cfo-go-tests
+          CFO_STATE_OVERRIDE: ${{ runner.temp }}\cfo-go-tests\state
+      - name: Where conhost crashed
+        if: always()
+        shell: pwsh
+        run: |
+          $dumps = @(Get-ChildItem D:\dumps -Filter *.dmp -ErrorAction SilentlyContinue)
+          "$($dumps.Count) conhost dumps"
+          $cdb = 'C:\Program Files (x86)\Windows Kits\10\Debuggers\x64\cdb.exe'
+          foreach ($dump in $dumps | Select-Object -First 4) {
+            "===== $($dump.Name)"
+            & $cdb -z $dump.FullName -y 'srv*C:\symbols*https://msdl.microsoft.com/download/symbols' -i 'C:\Windows\System32' -c '.reload /f conhost.exe; .reload /f ntdll.dll; .reload /f KERNELBASE.dll; .ecxr; .echo FRAMES; kn 30; .echo NEAREST; ln conhost+0x44808; .echo CODE; ub conhost+0x44808 L12; u conhost+0x44808 L4; .echo THREADS; ~*kn 12; q' 2>&1 | Select-String -Pattern 'FRAMES|NEAREST|CODE|THREADS|conhost!|ntdll!|KERNELBASE!|^ *[0-9a-f]{2} [0-9a-f]{8}`|^[0-9a-f]{8}`[0-9a-f]{8} ' | ForEach-Object { $_.Line } | Select-Object -First 160
+          }
+          Get-WinEvent -FilterHashtable @{ LogName = 'Application'; Id = 1000, 1001 } -ErrorAction SilentlyContinue |
+            Where-Object { $_.Message -match 'conhost' } | Select-Object -First 4 | ForEach-Object { $_.Message }
