@@ -133,7 +133,8 @@ for (const width of [1440, 390]) {
     test("a leaking paged pool is named in the bar's tip, with no warning box", async ({ page }) => {
       const meter = (await tasksColumn(page, states.pool)).getByRole("group", { name: "Memory" });
       await expect(meter.locator(".memory-bar")).toHaveAttribute("data-tip", /Paged pool 15\.6 GB/);
-      await expect(meter).not.toContainText("Paged pool");
+      // A screen reader hears the tip in the meter's hidden line, and only there.
+      await expect(meter.getByText(/Paged pool/)).toHaveClass("sr-only");
     });
   });
 }
