@@ -791,9 +791,8 @@ public static extern IntPtr SendMessageTimeout(IntPtr hWnd, uint Msg, UIntPtr wP
 
     # Code Goblins in the Start menu opens the app. Where this install put the
     # desktop window in the home, built or downloaded just now, the entry
-    # starts that program alone: it runs goblins out of sight, which finds the
-    # supervisor or starts it, and opens the board in the window, so no
-    # terminal shows; it starts no CFO, which the board's first-run page does.
+    # starts that program alone so its desktop ancestry stays intact while it
+    # locates the board out of sight.
     # A window the home only kept, as a release with none leaves the one from
     # before, may be from before a window started alone opened the app, so the
     # entry runs goblins --window, which opens any window, with its console

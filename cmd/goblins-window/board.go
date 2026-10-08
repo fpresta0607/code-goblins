@@ -336,11 +336,9 @@ const runValue = "CodeGoblins"
 // it. A flag would stop a window older than its goblins from starting at all.
 const launcherVariable = "CODE_GOBLINS_LAUNCHER"
 
-// loginCommand is what Windows runs at login. For a window that goblins
-// started it is the window alone, for the tray, which runs that goblins out of
-// sight, so the supervisor starts first and no terminal shows. For a window
-// started on its own it is the window on the same board, in the tray, where
-// it follows the supervisor's record once one runs.
+// loginCommand is what Windows runs at login. A known launcher lets the
+// window locate its board out of sight at each sign-in. Without a launcher,
+// the entry must keep the explicitly supplied board and state folder.
 func loginCommand(launcher, window, board, stateDir string) string {
 	if launcher != "" {
 		return `"` + window + `" --background`
@@ -349,11 +347,11 @@ func loginCommand(launcher, window, board, stateDir string) string {
 }
 
 // adoptEarlierLogin makes the login entry an earlier window in this folder
-// wrote, for a window that goblins started, this window's: that entry ran the
+// wrote, for a window with a known launcher, this window's: that entry ran the
 // goblins beside window with --window --background, in a terminal at every
 // login, and becomes login, so the tray shows Start at login as on and turning
 // it off removes the entry. It reports whether it rewrote the entry. Any other
-// entry is left as it is, and a window started on its own adopts none.
+// entry is left as it is, and a window without a launcher adopts none.
 func adoptEarlierLogin(launcher, window, login string) (bool, error) {
 	earlier := `"` + filepath.Join(filepath.Dir(window), goblinsName) + `" --window --background`
 	if launcher == "" || !StartsAtLogin(earlier) {

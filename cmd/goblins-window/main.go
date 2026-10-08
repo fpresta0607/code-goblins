@@ -53,8 +53,8 @@ func main() {
 			os.Exit(1)
 		}
 		*board, *stateDir = found, state
-		// The goblins it asked launches it, as goblins launches the window it
-		// starts: Start at login starts this program alone again.
+		// Recording the sibling launcher keeps Start at login on the standalone
+		// --background entry instead of pinning this board's address.
 		launcher = filepath.Join(filepath.Dir(self), goblinsName)
 	}
 	if *board == "" || *stateDir == "" {

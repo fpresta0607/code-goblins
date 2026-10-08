@@ -119,11 +119,8 @@ var (
 	snapshotTimeout = 3 * time.Second
 )
 
-// runWindowLauncher is goblins --window, which the desktop window runs when
-// it is started alone, with --background at login: it finds or starts the
-// supervisor as goblins does and shows
-// the desktop window, in the tray alone with background, and starts or shows
-// no CFO.
+// runWindowLauncher keeps --window and --window --background working for
+// older windows that ask goblins to open a window rather than locate its board.
 func runWindowLauncher(stdout, stderr io.Writer, runtime commandRuntime, background bool) int {
 	h, err := runtime.resolveHome()
 	if err != nil {
