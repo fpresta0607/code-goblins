@@ -104,6 +104,16 @@ func (api *windowsSherpaAPI) acceptWaveform(stream uintptr, wave sherpaWave) {
 	_, _, _ = api.acceptWaveformProc.Call(stream, uintptr(wave.SampleRate), wave.Samples, uintptr(wave.NumSamples))
 }
 
+// acceptSilence hands the stream samples of silence at rate after the sound.
+func (api *windowsSherpaAPI) acceptSilence(stream uintptr, rate, samples int32) {
+	if samples <= 0 {
+		return
+	}
+	silence := make([]float32, samples)
+	_, _, _ = api.acceptWaveformProc.Call(stream, uintptr(rate), uintptr(unsafe.Pointer(&silence[0])), uintptr(samples))
+	runtime.KeepAlive(silence)
+}
+
 func (api *windowsSherpaAPI) decode(recognizer, stream uintptr) {
 	_, _, _ = api.decodeProc.Call(recognizer, stream)
 }
