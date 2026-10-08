@@ -8,6 +8,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/fpresta0607/code-goblins/internal/doctor"
 	"github.com/fpresta0607/code-goblins/internal/host"
 	"github.com/fpresta0607/code-goblins/internal/install"
 	"github.com/fpresta0607/code-goblins/internal/release"
@@ -109,6 +110,14 @@ func TestMain(m *testing.M) {
 	// release server of its own.
 	if _, isSet := os.LookupEnv(release.APIVariable); !isSet {
 		if err := os.Setenv(release.APIVariable, "http://127.0.0.1:1/latest"); err != nil {
+			fmt.Fprintln(os.Stderr, err)
+			os.Exit(1)
+		}
+	}
+	// Nor does a doctor a test runs ask npm or Claude Code's channel for the
+	// harnesses' newest versions, unless its test names a source of its own.
+	if _, isSet := os.LookupEnv(doctor.ReleasesVariable); !isSet {
+		if err := os.Setenv(doctor.ReleasesVariable, "http://127.0.0.1:1"); err != nil {
 			fmt.Fprintln(os.Stderr, err)
 			os.Exit(1)
 		}

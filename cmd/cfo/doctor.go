@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"net/http"
 	"os"
 	"sort"
 	"strings"
@@ -52,6 +53,7 @@ func runDoctor(stdout io.Writer, runtime commandRuntime) int {
 			healthy = false
 		}
 	}
+	reportHarnessVersions(stdout, probes)
 
 	querier := telemetry.Querier{Commands: execx.OSRunner{}, DBPath: telemetry.DefaultDBPath()}
 	rows, note := querier.SpeedTable(context.Background())
@@ -79,6 +81,36 @@ func runDoctor(stdout io.Writer, runtime commandRuntime) int {
 		return 1
 	}
 	return 0
+}
+
+// reportHarnessVersions prints each working harness's installed version next
+// to the newest its publisher offers, with the command that installs it, and
+// the version the Codex desktop app bundles, which updates by itself while
+// goblins start the codex on PATH. None of it counts against the health
+// verdict: an older harness still runs.
+func reportHarnessVersions(stdout io.Writer, probes []doctor.HarnessProbe) {
+	releases, err := doctor.ReleasesFromEnvironment()
+	if err != nil {
+		fmt.Fprintf(stdout, "version: the harnesses' newest versions are not read: %v\n", err)
+	}
+	for _, version := range releases.Versions(context.Background(), http.DefaultClient, probes) {
+		switch {
+		case version.Problem != "":
+			fmt.Fprintf(stdout, "version  %-10s %s installed; the newest could not be read: %s\n", version.Name, version.Installed, version.Problem)
+		case version.Update != "":
+			fmt.Fprintf(stdout, "version  %-10s %s installed, %s on %s: %s\n", version.Name, version.Installed, version.Newest, version.Source, version.Update)
+		default:
+			fmt.Fprintf(stdout, "version  %-10s %s installed, the newest on %s\n", version.Name, version.Installed, version.Source)
+		}
+	}
+	program, isInstalled, err := doctor.DesktopCodex()
+	switch {
+	case err != nil:
+		fmt.Fprintf(stdout, "version  %-10s the Codex desktop app's bundled codex.exe could not be found: %v\n", "codex", err)
+	case isInstalled:
+		probe := doctor.ProbeHarness(context.Background(), "codex", program)
+		fmt.Fprintf(stdout, "version  %-10s the Codex desktop app bundles %s at %s; goblins start the codex on PATH\n", "codex", probe.Detail, program)
+	}
 }
 
 // reportHarnessMap prints where each harness keeps its configuration and
