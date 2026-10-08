@@ -16,8 +16,12 @@ import (
 )
 
 // consoleHostChildVariable makes the test binary report the console host
-// its process chose, for a test that chooses differently.
-const consoleHostChildVariable = "CONPTY_TEST_CONSOLE_HOST_CHILD"
+// its process chose, for a test that chooses differently, and
+// consoleHostFolderVariable names the folder that child puts it in.
+const (
+	consoleHostChildVariable  = "CONPTY_TEST_CONSOLE_HOST_CHILD"
+	consoleHostFolderVariable = "CONPTY_TEST_CONSOLE_HOST_FOLDER"
+)
 
 // The embedded console host is Microsoft's own: Windows finds each file's
 // Authenticode signature valid, and Microsoft Corporation signed it.
@@ -162,24 +166,51 @@ func TestConsolesRunOnTheEmbeddedOpenConsole(t *testing.T) {
 	if problem := ConsoleHostProblem(); problem != nil {
 		t.Fatal(problem)
 	}
-	cache, err := os.UserCacheDir()
+	dir, err := consoleHostFolder()
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := filepath.Join(cache, "cfo", "conpty", openConsoleVersion, "OpenConsole.exe")
 
 	// Act
 	_, _, server := startChildWithServer(t, Spec{Cols: 80, Rows: 25})
 
 	// Assert
-	if got := processImage(t, server); !strings.EqualFold(got, want) {
+	if got, want := processImage(t, server), filepath.Join(dir, "OpenConsole.exe"); !strings.EqualFold(got, want) {
 		t.Fatalf("the console server runs %s, want %s", got, want)
+	}
+}
+
+// A process whose environment points LOCALAPPDATA and USERPROFILE at a
+// test's own folder still runs its consoles from this user's own folder, so
+// nothing it loads is left in a folder the test deletes as it ends.
+func TestTheConsoleHostIsNeverPlacedWhereTheEnvironmentPointsLocalAppData(t *testing.T) {
+	// Arrange
+	dir, err := consoleHostFolder()
+	if err != nil {
+		t.Fatal(err)
+	}
+	pointed := t.TempDir()
+	child := exec.Command(os.Args[0], "-test.run=^TestConsoleHostChoiceChild$", "-test.v")
+	child.Env = append(os.Environ(), "LOCALAPPDATA="+pointed, "USERPROFILE="+pointed, consoleHostChildVariable+"=1")
+
+	// Act
+	out, err := child.CombinedOutput()
+
+	// Assert
+	if err != nil {
+		t.Fatalf("the child failed: %v\n%s", err, out)
+	}
+	if want := "server " + filepath.Join(dir, "OpenConsole.exe"); !strings.Contains(strings.ToLower(string(out)), strings.ToLower(want)) {
+		t.Fatalf("the child said %s, want its console on %s", out, want)
+	}
+	if entries, err := os.ReadDir(pointed); err != nil || len(entries) > 0 {
+		t.Fatalf("the folder the environment pointed at holds %v (%v), want nothing", entries, err)
 	}
 }
 
 // When the embedded console host cannot be written, consoles run on the
 // system conhost, and the process says why. Each process chooses once, so a
-// child chooses with a cache folder that cannot be made.
+// child chooses with a folder that cannot be made.
 func TestAConsoleHostThatCannotBeWrittenLeavesTheSystemConhostAndSaysWhy(t *testing.T) {
 	// Arrange
 	blocked := filepath.Join(t.TempDir(), "not-a-folder")
@@ -187,7 +218,7 @@ func TestAConsoleHostThatCannotBeWrittenLeavesTheSystemConhostAndSaysWhy(t *test
 		t.Fatal(err)
 	}
 	child := exec.Command(os.Args[0], "-test.run=^TestConsoleHostChoiceChild$", "-test.v")
-	child.Env = append(os.Environ(), "LOCALAPPDATA="+blocked, consoleHostChildVariable+"=1")
+	child.Env = append(os.Environ(), consoleHostFolderVariable+"="+filepath.Join(blocked, openConsoleVersion), consoleHostChildVariable+"=1")
 
 	// Act
 	out, err := child.CombinedOutput()
@@ -205,11 +236,15 @@ func TestAConsoleHostThatCannotBeWrittenLeavesTheSystemConhostAndSaysWhy(t *test
 	}
 }
 
-// TestConsoleHostChoiceChild starts a console and says what its server runs
-// and why it is not the embedded OpenConsole.
+// TestConsoleHostChoiceChild starts a console, with its console host in the
+// folder consoleHostFolderVariable names when it names one, and says what its
+// server runs and why it is not the embedded OpenConsole.
 func TestConsoleHostChoiceChild(t *testing.T) {
 	if os.Getenv(consoleHostChildVariable) == "" {
 		return
+	}
+	if dir := os.Getenv(consoleHostFolderVariable); dir != "" {
+		consoleHostFolder = func() (string, error) { return dir, nil }
 	}
 	_, _, server := startChildWithServer(t, Spec{Cols: 80, Rows: 25})
 	fmt.Printf("server %s\nproblem %v\n", processImage(t, server), ConsoleHostProblem())

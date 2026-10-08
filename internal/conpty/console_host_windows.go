@@ -50,6 +50,19 @@ type consoleHost struct {
 	asksDeviceAttributes bool
 }
 
+// consoleHostFolder is the folder the embedded files go in: this Windows
+// user's own LocalAppData, as the user's profile names it, whatever the
+// environment says, so a test that points LOCALAPPDATA or USERPROFILE at a
+// folder of its own, which it deletes as it ends, never loads them from
+// there.
+var consoleHostFolder = func() (string, error) {
+	local, err := windows.GetCurrentProcessToken().KnownFolderPath(windows.FOLDERID_LocalAppData, 0)
+	if err != nil {
+		return "", fmt.Errorf("find this user's LocalAppData: %w", err)
+	}
+	return filepath.Join(local, "cfo", "conpty", openConsoleVersion), nil
+}
+
 var (
 	chooseHost sync.Once
 	chosenHost consoleHost
@@ -90,11 +103,10 @@ func systemConsoleHost() consoleHost {
 // write, checks each against the embedded copy through a handle it keeps,
 // and loads conpty.dll, which starts the OpenConsole.exe beside it.
 func loadOpenConsole() (consoleHost, error) {
-	cache, err := os.UserCacheDir()
+	dir, err := consoleHostFolder()
 	if err != nil {
 		return consoleHost{}, err
 	}
-	dir := filepath.Join(cache, "cfo", "conpty", openConsoleVersion)
 	if err := userOnlyFolder(dir); err != nil {
 		return consoleHost{}, err
 	}
