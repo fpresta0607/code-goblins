@@ -39,11 +39,10 @@ import { formatMemory, summarize } from "./fleet-tree";
 // gone quiet, and windows still closing, are the CFO's to hear, never warnings
 // on the card. next marks the one card the order for a free slot takes first.
 export interface CardStart { blocked: string; onStart: () => void }
-export function TaskCard({ task, snapshot, selected, presentations, now, rank, next, start, onSelect, onTerminal, onCount }: {
+export function TaskCard({ task, snapshot, selected, presentations, now, rank, next, start, onSelect, onCount }: {
   task: Task; snapshot: Snapshot; selected: boolean; presentations: BoardActivity[]; now: number; rank?: string;
   next?: NextUp; start?: CardStart;
   onSelect: (task: Task, source: HTMLElement) => void;
-  onTerminal: (task: Task, source: HTMLElement) => void;
   // onCount shows what runs under the goblin, on the Orchestration canvas;
   // a card without it shows no count.
   onCount?: (task: Task) => void;
@@ -91,7 +90,6 @@ export function TaskCard({ task, snapshot, selected, presentations, now, rank, n
       {column === "Completed" && task.phase === "stopped" && task.reason && <span className="card-secondary">{plainText(task.reason)}</span>}
     </span>
   </>;
-  const terminal = !!task.generation && column === "In progress" && <button className="icon-button raised card-terminal" aria-label={"Open the terminal of " + name} data-tip="Terminal" data-tip-align="end" onClick={(event) => onTerminal(task, event.currentTarget)}><Icon name="terminal" /></button>;
   return <div className={"task-card-shell" + (selected ? " selected" : "")}>
     <button ref={card} className="task-card"
       aria-pressed={selected} onClick={(event) => onSelect(task, event.currentTarget)} onPointerEnter={measure} onFocus={measure} {...tip}>{content}</button>
@@ -105,7 +103,7 @@ export function TaskCard({ task, snapshot, selected, presentations, now, rank, n
       <SameAreaAvatars overlaps={task.overlaps} />
       {column === "Completed" && !pr && <span className="card-secondary card-history-id">{task.branch || task.id.replace(/^finished:/, "")}</span>}
     </div>}
-    <TaskControls task={task} snapshot={snapshot} start={start} trailing={terminal} onAdjust={(source) => onSelect(task, source)} />
+    <TaskControls task={task} snapshot={snapshot} start={start} onAdjust={(source) => onSelect(task, source)} />
     {task.harness && <span className="card-harness" onClick={() => onSelect(task, card.current!)}><ConnectorMark mark={harnessMark(task.harness)} label={harnessTip(task.harness, task.model, task.effort)} align="end" /></span>}
   </div>;
 }

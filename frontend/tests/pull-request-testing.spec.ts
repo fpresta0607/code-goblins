@@ -93,7 +93,6 @@ for (const width of [1440, 390]) {
       await expect(row.locator(".train-car-state")).toHaveText("Testing");
       await expect(sid).not.toContainText(/Paused|resumes/);
       await expect(sid.getByRole("button", { name: "Resume Keep the memory floor", exact: true })).toBeVisible();
-      await expect(sid.getByRole("button", { name: "Open the terminal of Sid - Memory Keeper", exact: true })).toBeAttached();
     });
 
     test("a goblin waiting on its own CI reads Testing and opens that run", async ({ page }) => {

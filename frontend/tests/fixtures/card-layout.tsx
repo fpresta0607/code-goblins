@@ -45,7 +45,7 @@ function Fixture() {
     document.addEventListener("keydown", close);
     return () => document.removeEventListener("keydown", close);
   }, []);
-  const board = <Board snapshot={snapshot} layout="stacked" selected={selected} now={now} presentations={presentations} onSelect={select} onTerminal={() => {}} onCount={() => {}} onOpenCfo={() => {}} onOpenCommand={() => {}} onStartCfo={() => {}} cardStart={() => ({ blocked: "", onStart: () => Promise.resolve("") })} />;
+  const board = <Board snapshot={snapshot} layout="stacked" selected={selected} now={now} presentations={presentations} onSelect={select} onCount={() => {}} onOpenCfo={() => {}} onOpenCommand={() => {}} onStartCfo={() => {}} cardStart={() => ({ blocked: "", onStart: () => Promise.resolve("") })} />;
   if (search.has("queue")) return <aside className="context-pane" style={{ width: "calc(100vw - 16px)" }}><div className="panel-content"><section className="cfo-queue" aria-label="Queued tasks">
     <QueuedTasks snapshot={snapshot} selected={selected} now={now} presentations={presentations} cardStart={() => ({ blocked: "", onStart: () => Promise.resolve("") })} onSelect={select} />
   </section></div></aside>;

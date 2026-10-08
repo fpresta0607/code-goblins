@@ -28,6 +28,6 @@ export function QueuedTasks({ snapshot, selected, now, presentations, cardStart,
     <RenderBoundary scope="list"><RankedCards list="queued" tasks={tasks} instance={snapshot.instance} revision={snapshot.revision} empty={<p className="column-empty">Nothing queued</p>}
       renderCard={(task, rank) => <TaskCard task={task} snapshot={snapshot} selected={selected === task.id} presentations={presentations} now={now} rank={rank}
         next={task.id === next?.id ? next : undefined}
-        start={cardStart(task)} onSelect={onSelect} onTerminal={onSelect} />} /></RenderBoundary>
+        start={cardStart(task)} onSelect={onSelect} />} /></RenderBoundary>
   </>;
 }

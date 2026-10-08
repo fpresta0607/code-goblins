@@ -255,17 +255,17 @@ test("a card's tip is gone as soon as the pointer leaves the part it names", asy
 test("a card's tip shows on keyboard focus, clear of the card, and goes with the focus", async ({ page }) => {
   await board(page, 1000);
   const shell = page.locator(".task-card-shell").filter({ has: page.locator(".card-pr[href$='/205']") });
-  // The terminal button comes after the card's other controls.
-  await shell.getByRole("button", { name: /^Stop / }).focus();
+  // Stop is the card's last control.
+  await shell.getByRole("button", { name: /^Pause / }).focus();
   await page.keyboard.press("Tab");
-  const terminal = shell.getByRole("button", { name: /^Open the terminal of / });
-  await expect(terminal).toBeFocused();
+  const stop = shell.getByRole("button", { name: /^Stop / });
+  await expect(stop).toBeFocused();
   let tips: ShownTip[] = [];
-  await expect.poll(async () => (tips = await terminal.evaluate(shownTips)).length).toBe(1);
-  expect(tips[0].text).toBe("Terminal");
+  await expect.poll(async () => (tips = await stop.evaluate(shownTips)).length).toBe(1);
+  expect(tips[0].text).toBe("Stop");
   expect(tipProblems(tips)).toEqual([]);
-  await watchTipGo(terminal, "blur");
-  await terminal.evaluate((element) => (element as HTMLElement).blur());
+  await watchTipGo(stop, "blur");
+  await stop.evaluate((element) => (element as HTMLElement).blur());
   expect(await page.evaluate(() => window.tipOutlived)).toBeLessThanOrEqual(2);
 });
 
@@ -276,11 +276,11 @@ test("a keyboard-focused part's tip follows its card when the page scrolls", asy
   const shell = page.locator(".task-card-shell").filter({ has: page.locator(".card-pr[href$='/205']") });
   // The screen is shorter than the board, so the page has room to scroll.
   await page.setViewportSize({ width: 1000, height: 1000 });
-  await shell.getByRole("button", { name: /^Stop / }).focus();
+  await shell.getByRole("button", { name: /^Pause / }).focus();
   await page.keyboard.press("Tab");
-  const terminal = shell.getByRole("button", { name: /^Open the terminal of / });
-  await expect(terminal).toBeFocused();
-  await expect.poll(async () => (await terminal.evaluate(shownTips)).length).toBe(1);
+  const stop = shell.getByRole("button", { name: /^Stop / });
+  await expect(stop).toBeFocused();
+  await expect.poll(async () => (await stop.evaluate(shownTips)).length).toBe(1);
   const top = Math.round(await shell.evaluate((card) => card.getBoundingClientRect().top)) - 60;
   // The page scrolls only once it has taken the new screen's height, so the
   // scroll is repeated until the card is 60 px higher.
@@ -289,7 +289,7 @@ test("a keyboard-focused part's tip follows its card when the page scrolls", asy
     return Math.round(card.getBoundingClientRect().top);
   }, top)).toBe(top);
   let tips: ShownTip[] = [];
-  await expect.poll(async () => tipProblems(tips = await terminal.evaluate(shownTips))).toEqual([]);
+  await expect.poll(async () => tipProblems(tips = await stop.evaluate(shownTips))).toEqual([]);
   expect(tips.map((tip) => tip.side)).toEqual(["over"]);
 });
 
@@ -385,8 +385,8 @@ test.describe("in his window, beside the CFO's panel", () => {
       };
     });
 
-    // Assert: Update, Pause, Stop and the terminal, one row, the mark beside them.
-    expect(layout).toEqual({ controls: 4, rows: 1, markOnTheRow: true, metaAtTheLeft: 0 });
+    // Assert: Update, Pause and Stop, one row, the mark beside them.
+    expect(layout).toEqual({ controls: 3, rows: 1, markOnTheRow: true, metaAtTheLeft: 0 });
     await expect(shell.getByRole("button", { name: /^Pause / })).toBeVisible();
     await expect(shell.getByRole("button", { name: /^Stop / })).toBeVisible();
   });

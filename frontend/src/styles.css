@@ -1007,14 +1007,6 @@ a.wait-open { min-height: 44px; border: 1px solid var(--accent-green); border-ra
   .question-card { padding: 16px; }
 }
 .question-card h3:focus { outline: none; }
-/* A live goblin's controls start with a one-tap way into its terminal. */
-.card-terminal .icon { width: 17px; height: 17px; }
-/* On a screen that can hover, the terminal button shows on hover and focus;
-   the whole card opens the panel. */
-@media (hover: hover) {
-  .card-terminal { opacity: 0; transition: opacity .12s; }
-  .task-card-shell:hover .card-terminal, .task-card-shell:focus-within .card-terminal { opacity: 1; }
-}
 /* A task card: its title, up to three lines, then a muted line with the
    repo and the status, which wrap onto further lines rather than ending in an
    ellipsis. */
