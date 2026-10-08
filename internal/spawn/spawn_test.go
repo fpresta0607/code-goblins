@@ -244,7 +244,7 @@ func TestSpawnShipPublishesANativeTaskAndBriefsItsHarness(t *testing.T) {
 	if meta.TaskTmp == "" || meta.SpawnGen == "" {
 		t.Errorf("metadata = %+v, want tasktmp and spawn generation", meta)
 	}
-	if got, want := sortedKeys(t, f.stateDir, f.request.ID), []string{"backend", "brief", "effort", "endpoint_task_id", "harness", "kind", "mode", "model", "project", "scratch", "spawn_gen", "tasktmp", "window", "worktree", "yolo"}; !reflect.DeepEqual(got, want) {
+	if got, want := sortedKeys(t, f.stateDir, f.request.ID), []string{"backend", "brief", "effort", "endpoint_task_id", "goblin_name", "goblin_title", "harness", "kind", "mode", "model", "project", "scratch", "spawn_gen", "tasktmp", "window", "worktree", "yolo"}; !reflect.DeepEqual(got, want) {
 		t.Errorf("metadata keys = %v, want %v", got, want)
 	}
 	scratch := taskScratch(f.stateDir, meta.ID)
@@ -295,7 +295,7 @@ func TestSpawnScoutOmitsShipFields(t *testing.T) {
 	if result.Meta.Mode != "" || result.Meta.Yolo != "" {
 		t.Errorf("scout metadata = %+v, want omitted mode and yolo", result.Meta)
 	}
-	if got, want := sortedKeys(t, f.stateDir, f.request.ID), []string{"backend", "brief", "effort", "endpoint_task_id", "harness", "kind", "model", "project", "scratch", "spawn_gen", "tasktmp", "window", "worktree"}; !reflect.DeepEqual(got, want) {
+	if got, want := sortedKeys(t, f.stateDir, f.request.ID), []string{"backend", "brief", "effort", "endpoint_task_id", "goblin_name", "goblin_title", "harness", "kind", "model", "project", "scratch", "spawn_gen", "tasktmp", "window", "worktree"}; !reflect.DeepEqual(got, want) {
 		t.Errorf("scout metadata keys = %v, want %v", got, want)
 	}
 }
