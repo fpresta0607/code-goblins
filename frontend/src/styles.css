@@ -1080,8 +1080,9 @@ a.wait-open { min-height: 44px; border: 1px solid var(--accent-green); border-ra
 .card-start-problem { margin: 6px 4px 0; color: var(--amber); font-size: .875rem; overflow-wrap: anywhere; }
 @media (prefers-reduced-motion: reduce) { .memory-fill { transition: none; } .card-start-spinner { animation-duration: 2.4s; } }
 /* Tasks and In progress are in priority order, top first: each card's
-   number is its place and turns into a grip on hover or focus, and a dragged
-   card lifts while the others slide aside. A finger drags by the number. */
+   number is its place and stays in sight on hover, on focus and in a drag, and
+   a dragged card lifts while the others slide aside. A finger drags by the
+   number. */
 .task-cards.ranked { position: relative; }
 .task-cards.sorting { user-select: none; }
 .ranked-item { position: relative; min-width: 0; }
@@ -1096,9 +1097,8 @@ a.wait-open { min-height: 44px; border: 1px solid var(--accent-green); border-ra
   .task-cards.sorting .task-card { cursor: grabbing; }
 }
 .rank { position: absolute; z-index: 1; left: 13px; top: 22px; width: 26px; height: 26px; display: grid; place-items: center; border: 1px solid var(--glass-border); border-radius: 8px; background: var(--field-bg); color: #c4d4df; font-size: 1rem; font-weight: 800; font-variant-numeric: tabular-nums; pointer-events: none; }
-.rank .grip { display: none; width: 14px; height: 14px; fill: currentColor; }
-.ranked-item:hover .rank-number, .ranked-item:focus-within .rank-number, .ranked-item.dragging .rank-number { display: none; }
-.ranked-item:hover .grip, .ranked-item:focus-within .grip, .ranked-item.dragging .grip { display: block; }
+/* A card rises over the others on hover and focus, and its number over it. */
+.ranked-item:hover .rank, .ranked-item:focus-within .rank { z-index: 4; }
 @media (any-pointer: coarse) { .rank { pointer-events: auto; touch-action: none; } }
 .ranked-item.dragging .task-card-shell { transform: scale(1.02) rotate(-.6deg); border-color: var(--mint); box-shadow: 0 18px 40px #000a, 0 0 0 2px var(--mint); }
 .ranked-item.dragging .rank { border-color: var(--mint); }
