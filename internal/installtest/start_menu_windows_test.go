@@ -27,6 +27,8 @@ type startMenuInstall struct {
 	local string
 	// programs is the session's Start-menu programs folder.
 	programs string
+	// desktop is the session's desktop.
+	desktop string
 }
 
 // runInstallForStartMenu runs command, which runs install.ps1, in Windows
@@ -50,10 +52,13 @@ func runInstallForStartMenu(t *testing.T, base string, stubs map[string]string, 
 		"}\n" +
 		"function Start-Sleep { param([int]$Seconds) }\n"
 	cmd, local, temp := StrippedCommand(t, base, all, WindowsPowerShell(), "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-Command", internet+command)
-	programs := ""
+	programs, desktop := "", ""
 	for _, variable := range cmd.Env {
 		if appData, found := strings.CutPrefix(variable, "APPDATA="); found {
 			programs = filepath.Join(appData, "Microsoft", "Windows", "Start Menu", "Programs")
+		}
+		if folder, found := strings.CutPrefix(variable, "CODE_GOBLINS_DESKTOP="); found {
+			desktop = folder
 		}
 	}
 	cmd.Env = append(cmd.Env, standInVariable+"=1", standInRecordVariable+"="+record)
@@ -67,7 +72,7 @@ func runInstallForStartMenu(t *testing.T, base string, stubs map[string]string, 
 	if err != nil && !os.IsNotExist(err) {
 		t.Fatal(err)
 	}
-	return startMenuInstall{output: Said(output, temp), record: string(recorded), local: local, programs: programs}
+	return startMenuInstall{output: Said(output, temp), record: string(recorded), local: local, programs: programs, desktop: desktop}
 }
 
 // serveReleaseWithWindow serves a release holding binary as cfo.exe and, when
@@ -97,9 +102,22 @@ func serveReleaseWithWindow(t *testing.T, binary, window []byte) string {
 // the arguments it gives it, read from the shortcut as Windows reads it.
 func startMenuEntry(t *testing.T, run startMenuInstall) (target, arguments string) {
 	t.Helper()
-	shortcut := filepath.Join(run.programs, "Code Goblins.lnk")
+	return shortcutAt(t, filepath.Join(run.programs, "Code Goblins.lnk"), run.output)
+}
+
+// desktopEntry is what the Code Goblins shortcut on the session's desktop
+// starts, as startMenuEntry reads the Start-menu entry.
+func desktopEntry(t *testing.T, run startMenuInstall) (target, arguments string) {
+	t.Helper()
+	return shortcutAt(t, filepath.Join(run.desktop, "Code Goblins.lnk"), run.output)
+}
+
+// shortcutAt is the program the shortcut starts and the arguments it gives
+// it, read as Windows reads them.
+func shortcutAt(t *testing.T, shortcut, output string) (target, arguments string) {
+	t.Helper()
 	if _, err := os.Stat(shortcut); err != nil {
-		t.Fatalf("the install made no Start-menu entry: %v\n%s", err, run.output)
+		t.Fatalf("the install made no shortcut at %s: %v\n%s", shortcut, err, output)
 	}
 	out, err := execx.Command(WindowsPowerShell(), "-NoProfile", "-NonInteractive", "-Command",
 		"$shortcut = (New-Object -ComObject WScript.Shell).CreateShortcut('"+shortcut+"'); Write-Output \"target=$($shortcut.TargetPath)\"; Write-Output \"arguments=$($shortcut.Arguments)\"").CombinedOutput()
@@ -221,6 +239,12 @@ func TestOneLineInstallStartsAloneOnlyTheWindowItDelivered(t *testing.T) {
 			wantTarget := fsx.LongPath(filepath.Join(bin, test.program))
 			if !strings.EqualFold(fsx.LongPath(target), wantTarget) || arguments != test.arguments {
 				t.Errorf("Code Goblins in the Start menu runs %q with %q, want %q with %q:\n%s", target, arguments, wantTarget, test.arguments, run.output)
+			}
+			// The Overlord, 2026-10-08: "make sure installer and desktop
+			// shortcut get created seamlessly". The desktop gets the same
+			// Code Goblins as the Start menu.
+			if onDesktop, desktopArguments := desktopEntry(t, run); !strings.EqualFold(fsx.LongPath(onDesktop), wantTarget) || desktopArguments != test.arguments {
+				t.Errorf("Code Goblins on the desktop runs %q with %q, want %q with %q, as the Start menu's does:\n%s", onDesktop, desktopArguments, wantTarget, test.arguments, run.output)
 			}
 			if !strings.Contains(run.record, "cfo install\r\n") || strings.Contains(run.record, "--window-built") {
 				t.Errorf("want cfo install run as it is, told of no window built here:\n%s\n%s", run.record, run.output)
@@ -358,6 +382,106 @@ function Start-Process {
 			}
 			if !strings.Contains(string(log), "Done: Code Goblins is installed") {
 				t.Errorf("install did not complete:\n%s", log)
+			}
+		})
+	}
+}
+
+func TestUnavailableDesktopDoesNotStopInstall(t *testing.T) {
+	for name, setup := range map[string]string{
+		"unavailable drive": "$env:CODE_GOBLINS_DESKTOP = 'UnavailableDesktop:\\' + $env:CODE_GOBLINS_DESKTOP\n",
+		"folder is a file":  "New-Item -ItemType File -Path $env:CODE_GOBLINS_DESKTOP -Force | Out-Null\n",
+	} {
+		t.Run(name, func(t *testing.T) {
+			base := serveReleaseWithWindow(t, standIn(t), nil)
+			command := setup + "Get-Content -Raw -LiteralPath '" + installScript(t) + "' | Invoke-Expression; Write-Output \"install-exit=$LASTEXITCODE\"; exit $LASTEXITCODE"
+
+			run := runInstallForStartMenu(t, base, nil, command, nil)
+
+			if !strings.Contains(run.output, "Done: Code Goblins is installed in ") || !strings.Contains(run.output, "install-exit=0") || strings.Contains(run.output, "Failed:") {
+				t.Errorf("an unavailable desktop stopped the install:\n%s", run.output)
+			}
+			hasWarning, hasFailedInstallNote := false, false
+			for _, line := range strings.Split(run.output, "\n") {
+				if strings.HasPrefix(line, "WARN ") && strings.Contains(line, "the desktop shortcut was not made:") {
+					hasWarning = true
+				}
+				if strings.HasPrefix(line, "Note: These could not be installed,") && strings.Contains(line, "desktop shortcut") {
+					hasFailedInstallNote = true
+				}
+			}
+			if !hasWarning || !hasFailedInstallNote {
+				t.Errorf("the unavailable desktop has no warning or named failed-install note:\n%s", run.output)
+			}
+			target, arguments := startMenuEntry(t, run)
+			wantTarget := fsx.LongPath(filepath.Join(run.local, "CodeGoblins", "bin", "goblins.exe"))
+			if !strings.EqualFold(fsx.LongPath(target), wantTarget) || arguments != "" {
+				t.Errorf("Code Goblins in the Start menu runs %q with %q, want %q alone:\n%s", target, arguments, wantTarget, run.output)
+			}
+		})
+	}
+}
+
+// A release that delivers the window replaces the Start-menu entry of a window
+// installed on its own only once its own Code Goblins entry is saved there:
+// an entry Windows refuses to save leaves the earlier one, so the Start menu
+// still opens a window, and the install says the entry was not made.
+func TestADeliveredWindowReplacesTheEarlierEntryOnlyOnceItsOwnIsSaved(t *testing.T) {
+	const delivered, standalone = "this release's window", "shortcut to a window installed on its own"
+	for name, test := range map[string]struct {
+		// isEntryRefused puts a folder where the entry goes, and Windows
+		// refuses to save a shortcut over a folder.
+		isEntryRefused bool
+		isEarlierKept  bool
+	}{
+		"its own entry saved":   {false, false},
+		"its own entry refused": {true, true},
+	} {
+		t.Run(name, func(t *testing.T) {
+			// Arrange
+			base := serveReleaseWithWindow(t, standIn(t), []byte(delivered))
+			seed := func(local, programs string) {
+				if err := os.MkdirAll(programs, 0o755); err != nil {
+					t.Fatal(err)
+				}
+				if err := os.WriteFile(filepath.Join(programs, "Code Goblins Window.lnk"), []byte(standalone), 0o644); err != nil {
+					t.Fatal(err)
+				}
+				if test.isEntryRefused {
+					if err := os.Mkdir(filepath.Join(programs, "Code Goblins.lnk"), 0o755); err != nil {
+						t.Fatal(err)
+					}
+				}
+			}
+
+			// Act
+			run := runInstallForStartMenu(t, base, nil, "Get-Content -Raw -LiteralPath '"+installScript(t)+"' | Invoke-Expression; exit $LASTEXITCODE", seed)
+
+			// Assert
+			// The stand-in cfo.exe moves nothing into the home, so the
+			// install's own line says it delivered the window.
+			if !strings.Contains(run.output, "Verified goblins-window.exe against the release's SHA256SUMS") {
+				t.Fatalf("want the release's window downloaded and verified, which delivers it:\n%s", run.output)
+			}
+			if test.isEntryRefused {
+				hasWarning := false
+				for _, line := range strings.Split(run.output, "\n") {
+					if strings.HasPrefix(line, "WARN ") && strings.Contains(line, "the Start-menu shortcut was not made:") {
+						hasWarning = true
+					}
+				}
+				if !hasWarning {
+					t.Errorf("want a warning that the Start-menu shortcut was not made:\n%s", run.output)
+				}
+			} else {
+				target, _ := startMenuEntry(t, run)
+				if wantTarget := fsx.LongPath(filepath.Join(run.local, "CodeGoblins", "bin", "goblins-window.exe")); !strings.EqualFold(fsx.LongPath(target), wantTarget) {
+					t.Errorf("Code Goblins in the Start menu runs %q, want %q:\n%s", target, wantTarget, run.output)
+				}
+			}
+			earlier, err := os.ReadFile(filepath.Join(run.programs, "Code Goblins Window.lnk"))
+			if isKept := err == nil && string(earlier) == standalone; isKept != test.isEarlierKept {
+				t.Errorf("the earlier entry kept = %v (%q, %v), want %v:\n%s", isKept, earlier, err, test.isEarlierKept, run.output)
 			}
 		})
 	}
