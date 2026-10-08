@@ -118,6 +118,42 @@ func TestTheBoardOffersANewerReleaseAsItsOwnUpdateItem(t *testing.T) {
 	}
 }
 
+// Update runs the home's own goblins.exe where the home keeps it: in bin, or
+// at the root of a home a build before bin set up, such as a checkout an
+// older build made the home, which has no bin.
+func TestTheUpdateItemRunsTheGoblinsTheHomeKeeps(t *testing.T) {
+	for _, test := range []struct {
+		name     string
+		programs string
+	}{
+		{"a home with bin", "bin"},
+		{"a home with its build at its root", "."},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			// Arrange
+			s := releaseService(t, newReleaseSource(t, "v0.5.0"), "v0.4.2")
+			programs := filepath.Join(s.Store.Home.Root, test.programs)
+			if err := os.MkdirAll(programs, 0o700); err != nil {
+				t.Fatal(err)
+			}
+			for _, name := range []string{"cfo.exe", "goblins.exe"} {
+				if err := os.WriteFile(filepath.Join(programs, name), []byte("the installed build"), 0o700); err != nil {
+					t.Fatal(err)
+				}
+			}
+
+			// Act
+			s.checkReleases(context.Background())
+
+			// Assert
+			items := updateItems(s)
+			if want := "& '" + filepath.Join(programs, "goblins.exe") + "' update --to v0.5.0"; len(items) != 1 || !strings.Contains(items[0].Command, want) {
+				t.Fatalf("the Update items are %+v, want one whose command runs %s", items, want)
+			}
+		})
+	}
+}
+
 // config/fleet.json's check_for_updates: false turns the look off: the board
 // asks nothing, shows no banner and retires an item that waits.
 func TestTheUpdateCheckCanBeTurnedOff(t *testing.T) {

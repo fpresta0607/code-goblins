@@ -782,7 +782,8 @@ var (
 )
 
 // probeConsole writes how many processes share this process's console, none
-// when it has no console, and whether that console shows a window.
+// when it has no console, whether that console has a window at all, and
+// whether the window shows.
 func probeConsole(report string) int {
 	processes := make([]uint32, 16)
 	count, _, _ := getConsoleProcessList.Call(uintptr(unsafe.Pointer(&processes[0])), uintptr(len(processes)))
@@ -792,15 +793,18 @@ func probeConsole(report string) int {
 		shown, _, _ := isWindowVisible.Call(window)
 		visible = shown != 0
 	}
-	if err := os.WriteFile(report, []byte(fmt.Sprintf("processes=%d visible=%t", count, visible)), 0o600); err != nil {
+	if err := os.WriteFile(report, []byte(fmt.Sprintf("processes=%d window=%t visible=%t", count, window != 0, visible)), 0o600); err != nil {
 		return 1
 	}
 	return 0
 }
 
-// The supervisor goblins starts must have a hidden console of its own: with
-// none, every console program it runs would open a window of its own, and
-// with the terminal's, closing the terminal would end it.
+// The supervisor goblins starts must have a console of its own with no
+// window: with none, every console program it runs would open a window of its
+// own, and with the terminal's, closing the terminal would end it. A console
+// with a window, even a hidden one, is one Windows can hand to Windows
+// Terminal as the default terminal, which shows it, and closing that window
+// ends the supervisor; the window it hands over reads as hidden here.
 func TestDetachedStartGivesAHiddenConsoleOfItsOwn(t *testing.T) {
 	dir := t.TempDir()
 	report := filepath.Join(dir, "console.txt")
@@ -830,8 +834,8 @@ func TestDetachedStartGivesAHiddenConsoleOfItsOwn(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got := string(data); got != "processes=1 visible=false" {
-		t.Fatalf("stand-in console: %s, want a hidden console only it is attached to", got)
+	if got := string(data); got != "processes=1 window=false visible=false" {
+		t.Fatalf("stand-in console: %s, want a console with no window that only it is attached to", got)
 	}
 }
 

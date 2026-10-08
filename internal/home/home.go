@@ -54,6 +54,20 @@ const (
 // Bin is the folder holding the home's installed binaries.
 func (h Home) Bin() string { return filepath.Join(h.Root, BinDir) }
 
+// Programs is the folder holding the build the home runs: bin, or, in a home
+// a build before bin set up, such as a checkout an older build made the home,
+// its root, where that build keeps cfo.exe and goblins.exe until an install
+// lays the home out with bin. A home with no build yet gets bin, where an
+// install puts one.
+func (h Home) Programs() string {
+	if _, err := os.Stat(filepath.Join(h.Bin(), "cfo.exe")); err != nil {
+		if _, err := os.Stat(filepath.Join(h.Root, "cfo.exe")); err == nil {
+			return h.Root
+		}
+	}
+	return h.Bin()
+}
+
 // Worktrees is the folder new goblin worktrees go to.
 func (h Home) Worktrees() string { return filepath.Join(h.heavy(), WorktreesDir) }
 
@@ -276,7 +290,7 @@ func resolve() (Home, error) {
 // up, and what makes a folder a home: a source checkout holds AGENTS.md and
 // may hold a state folder a test or an older build left, and is never one
 // unless it is the home in use, as a checkout an older build made the home
-// is, which install marks. The repository ignores the file, so such a
+// is, which install and update mark. The repository ignores the file, so a
 // checkout carries it untracked and none of its worktrees carries it.
 const InstalledMarker = ".cfo-home"
 
