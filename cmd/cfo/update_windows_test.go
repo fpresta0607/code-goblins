@@ -217,6 +217,37 @@ func TestUpdateInstallsTheCandidateAndRestartsOnlyTheSupervisor(t *testing.T) {
 	}
 }
 
+// An update from a build that read max_live_goblins takes it out of the
+// home's settings before the candidate's supervisor starts: the candidate
+// refuses a key it no longer reads, and with it every start.
+func TestUpdateTakesTheRetiredGoblinCountOutBeforeItsSupervisorStarts(t *testing.T) {
+	// Arrange
+	u := newUpdateHome(t, "previous", "candidate")
+	u.serving()
+	settings := filepath.Join(u.root, "config", "fleet.json")
+	if err := os.MkdirAll(filepath.Dir(settings), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(settings, []byte(`{"max_live_goblins":128}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	// Act
+	code, output := u.run(nil)
+
+	// Assert
+	if code != updateInstalled {
+		t.Fatalf("update exited %d:\n%s", code, output)
+	}
+	data, err := os.ReadFile(settings)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(data), "max_live_goblins") || !strings.Contains(output, "max_live_goblins") {
+		t.Fatalf("config/fleet.json after the update:\n%s\nwant the count taken out and named in the output:\n%s", data, output)
+	}
+}
+
 // The desktop window beside the candidate follows the update into the home,
 // in place of the window the home held. A window that cannot be put there
 // leaves the update done, since the home's window shows any build's board,
@@ -1670,21 +1701,16 @@ func TestARunningSupervisorIsTheBuildItLoadedNotWhatItsAliasHoldsNow(t *testing.
 	if runsPreviousBuild(running, journal) {
 		t.Fatal("a candidate supervisor whose alias now holds the previous build was taken for the previous build")
 	}
-	// A process that is still starting cannot always be read: this stand-in
-	// is a copy of the test binary, which sets its environment as it starts,
-	// and a read of its directory or environment taken meanwhile fails ("Only
-	// part of a ReadProcessMemory or WriteProcessMemory request was
-	// completed"). A failed read answers "not the previous build", so the
-	// question is asked until the process has settled. The fleet asks it of
-	// a supervisor that has been serving; asked once here, at once, it
-	// failed about one run in five on a busy machine.
+	// Asked the moment the stand-in starts, while it moves its parameter
+	// block into its heap. A failed read answers "not the previous build",
+	// and a read that crossed the move failed about one ask in five on a busy
+	// machine ("Only part of a ReadProcessMemory or WriteProcessMemory
+	// request was completed") until proc walked the block again when it moved.
 	previousServe := u.start(alias, "host", "--id", "previous")
 	previous := serveProcess{pid: previousServe.Process.Pid, start: u.started[previousServe]}
-	for deadline := time.Now().Add(10 * time.Second); !runsPreviousBuild(previous, journal); time.Sleep(20 * time.Millisecond) {
-		if time.Now().After(deadline) {
-			_, err := proc.Identify(previous.pid, previous.start)
-			t.Fatalf("a process running the previous build was not recognised as it within 10s (reading it: %v)", err)
-		}
+	if !runsPreviousBuild(previous, journal) {
+		_, err := proc.Identify(previous.pid, previous.start)
+		t.Fatalf("a process running the previous build, asked the moment it started, was not recognised as it (reading it: %v)", err)
 	}
 }
 

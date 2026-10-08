@@ -3,72 +3,74 @@ package supervisor
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
-	"strings"
 	"testing"
 	"time"
 
+	"github.com/fpresta0607/code-goblins/internal/home"
 	"github.com/fpresta0607/code-goblins/internal/host"
 	"github.com/fpresta0607/code-goblins/internal/quota"
 	"github.com/fpresta0607/code-goblins/internal/state"
 )
 
-func TestStartPastTheConfiguredLiveCapIsRefusedWithItsReason(t *testing.T) {
-	spawner := &spawnRecorder{}
-	handler, h := startBoard(t, 16*gigabyte, spawner)
-	queueBriefedTask(t, h, "- **next-task** - Ship it", plainBrief)
-	writeFile(t, filepath.Join(h.Root, "config", "fleet.json"), `{"max_live_goblins":1}`)
-	if err := state.WriteTaskMeta(h.State, state.TaskMeta{ID: "running-task", Backend: "native", SpawnGen: "generation-1"}); err != nil {
-		t.Fatal(err)
+// liveGoblins records count native goblins whose terminal hosts run.
+func liveGoblins(t *testing.T, h home.Home, count int) {
+	t.Helper()
+	for index := range count {
+		id := fmt.Sprintf("running-task-%d", index)
+		if err := state.WriteTaskMeta(h.State, state.TaskMeta{ID: id, Backend: "native", SpawnGen: "generation-" + id}); err != nil {
+			t.Fatal(err)
+		}
+		data, err := json.Marshal(host.Record{ID: id, HostPID: os.Getpid(), Started: time.Now().UTC(), Pipe: "fixture", Token: "fixture"})
+		if err != nil {
+			t.Fatal(err)
+		}
+		writeFile(t, filepath.Join(h.State, "hosts", id+".json"), string(data))
 	}
-	data, err := json.Marshal(host.Record{ID: "running-task", HostPID: os.Getpid(), Started: time.Now().UTC(), Pipe: "fixture", Token: "fixture"})
-	if err != nil {
-		t.Fatal(err)
-	}
-	writeFile(t, filepath.Join(h.State, "hosts", "running-task.json"), string(data))
+}
 
+// On 2026-10-07 the board refused a Start with "No free slot: 8 of 8 goblins
+// live" while 9 GB of memory was free: a goblin count capped the fleet. Slots
+// go by memory alone, so the ninth goblin starts.
+func TestStartWithEightGoblinsLiveAndNineGBFreeStarts(t *testing.T) {
+	// Arrange
+	spawner := &spawnRecorder{}
+	handler, h := startBoard(t, 9*gigabyte, spawner)
+	queueBriefedTask(t, h, "- **next-task** - Ship it", plainBrief)
+	liveGoblins(t, h, 8)
+
+	// Act
 	response := postStart(handler, `{"task":"next-task"}`, "board.local", "http://board.local", orderToken)
 	if response.Code == 202 {
 		waitStarted(t, handler, "next-task")
 	}
 
-	if response.Code != 409 || !strings.Contains(response.Body.String(), "live goblin cap") || !strings.Contains(response.Body.String(), "1") {
-		t.Fatalf("start=%d %s, want cap refusal", response.Code, response.Body)
+	// Assert
+	if response.Code != 202 {
+		t.Fatalf("start=%d %s, want the ninth goblin started with 9 GB free", response.Code, response.Body)
 	}
-	if calls := spawner.recorded(); len(calls) != 0 {
-		t.Fatalf("cap refusal dispatched %v", calls)
+	if calls := spawner.recorded(); len(calls) != 1 || calls[0][0] != "spawn" || calls[0][1] != "next-task" {
+		t.Fatalf("dispatches=%v, want next-task spawned", calls)
 	}
 }
 
-func TestFleetCapacityUsesBothResourcesAndRejectsInvalidSettings(t *testing.T) {
-	for _, testCase := range []struct {
-		name, settings    string
-		available, commit uint64
-		wantSlots         int
-		shouldFail        bool
-	}{
-		{name: "memory constrains cap", available: 6 * gigabyte, commit: 20 * gigabyte, wantSlots: 2},
-		{name: "commit constrains cap", available: 20 * gigabyte, commit: 5 * gigabyte, wantSlots: 1},
-		{name: "floor reserves gates", available: 4 * gigabyte, commit: 20 * gigabyte},
-		{name: "setting constrains cap", settings: `{"max_live_goblins":1}`, available: 20 * gigabyte, commit: 20 * gigabyte, wantSlots: 1},
-		{name: "null", settings: `null`, shouldFail: true},
-		{name: "unknown key", settings: `{"maximum":4}`, shouldFail: true},
-		{name: "zero maximum", settings: `{"max_live_goblins":0}`, shouldFail: true},
-		{name: "two objects", settings: `{} {}`, shouldFail: true},
-	} {
-		t.Run(testCase.name, func(t *testing.T) {
-			_, h := fleetService(t)
-			if testCase.settings != "" {
-				writeFile(t, filepath.Join(h.Root, "config", "fleet.json"), testCase.settings)
-			}
+func TestSchedulerStartsTheNextTaskWithEightGoblinsLiveAndNineGBFree(t *testing.T) {
+	// Arrange
+	spawner := &spawnRecorder{}
+	handler, h := startBoard(t, 9*gigabyte, spawner)
+	queueBriefedTask(t, h, "- **next-task** - Ship it", plainBrief)
+	liveGoblins(t, h, 8)
 
-			capacity, err := ReadFleetCapacity(h, Memory{Available: testCase.available, CommitAvailable: testCase.commit})
+	// Act
+	if err := handler.Service.checkFleet(t.Context(), time.Now().UTC()); err != nil {
+		t.Fatal(err)
+	}
 
-			if (err != nil) != testCase.shouldFail || err == nil && capacity.Slots != testCase.wantSlots {
-				t.Fatalf("capacity=%+v err=%v, want slots=%d failed=%v", capacity, err, testCase.wantSlots, testCase.shouldFail)
-			}
-		})
+	// Assert
+	if calls := awaitDispatch(t, handler.Service, spawner, 1); calls[0][0] != "spawn" || calls[0][1] != "next-task" {
+		t.Fatalf("dispatches=%v, want next-task spawned", calls)
 	}
 }
 

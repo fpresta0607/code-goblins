@@ -240,7 +240,7 @@ func TestPRHealthLeavesTrainsAndThePullRequestsTheyCarryAlone(t *testing.T) {
 	w := fleetWakes{}
 
 	// Act
-	listed, unreadable, err := pollPullRequests(context.Background(), forge, h.State, &w, forge.repo, nil, now)
+	listed, unreadable, err := pollPullRequests(context.Background(), forge, h.State, &w, forge.repo, nil, &fleetOwners{}, now)
 
 	// Assert
 	if err != nil || unreadable != nil {
