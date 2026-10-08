@@ -34,6 +34,7 @@ import (
 	"github.com/fpresta0607/code-goblins/internal/quota"
 	"github.com/fpresta0607/code-goblins/internal/state"
 	"github.com/fpresta0607/code-goblins/internal/supervise"
+	"github.com/fpresta0607/code-goblins/internal/tickets"
 	"github.com/fpresta0607/code-goblins/internal/train"
 	"github.com/fpresta0607/code-goblins/internal/verify"
 	"github.com/fpresta0607/code-goblins/internal/wake"
@@ -170,6 +171,10 @@ type Service struct {
 	workProgress map[string]WorkProgress
 	ciDurations  []CIDuration
 	sameArea     map[string]sameArea
+	// overlapReads holds, by repository, the overlap read still under way,
+	// which the next CI poll takes on where it left off; only the fleet
+	// readings touch it.
+	overlapReads map[string]*tickets.OpenWork
 	hostedChecks map[string]HostedChecks
 	deploys      map[string]Deployment
 	localReports map[string][]verify.Report
