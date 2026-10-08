@@ -447,7 +447,7 @@ func TestACFOThatCannotComeBackLeavesTheGoblinsComingBack(t *testing.T) {
 func TestAGoblinWithNoRoomYetWaitsWithTheReason(t *testing.T) {
 	// Arrange
 	recorder := &comebackRecorder{outcomes: map[string]GoblinComeback{
-		"alpha": {Outcome: WaitsForRoom, Said: "live goblin cap reached"},
+		"alpha": {Outcome: WaitsForRoom, Said: "only 4.6 GB of memory is free"},
 	}}
 	service, h, _ := comebackBoard(t, recorder, [2]float64{8, 8})
 	alpha := workingGoblin(t, h, "alpha", lastSignIn.Add(time.Hour))
@@ -465,7 +465,7 @@ func TestAGoblinWithNoRoomYetWaitsWithTheReason(t *testing.T) {
 
 	// Assert
 	card := slices.IndexFunc(snapshot.Tasks, func(task Task) bool { return task.ID == alpha.ID })
-	if card < 0 || snapshot.Tasks[card].Comeback == nil || snapshot.Tasks[card].Comeback.State != state.ComebackWaiting || snapshot.Tasks[card].Comeback.Reason != "Waits for room: live goblin cap reached" {
+	if card < 0 || snapshot.Tasks[card].Comeback == nil || snapshot.Tasks[card].Comeback.State != state.ComebackWaiting || snapshot.Tasks[card].Comeback.Reason != "Waits for room: only 4.6 GB of memory is free" {
 		t.Fatalf("alpha's card while it waits: %+v", snapshot.Tasks)
 	}
 	record, err := state.ReadComeback(h.State)

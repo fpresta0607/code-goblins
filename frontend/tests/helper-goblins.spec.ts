@@ -2,12 +2,10 @@ import { expect, test } from "./site";
 
 test("a helper hangs under its parent as a helper goblin, not as a card of its own", async ({ page }) => {
   await page.goto("/tests/fixtures/helper-goblins.html");
-  const count = page.getByRole("button", { name: /under Let goblins start helpers/ });
-  await expect(count.getByRole("img", { name: "Helper goblin" })).toHaveCount(1);
   await expect(page.locator(".flow-node").filter({ hasText: "Accounts migration" })).toHaveCount(0);
-  await count.click();
   const helper = page.getByRole("list", { name: "What runs under Let goblins start helpers" }).locator(".tree-child");
   await expect(helper).toHaveCount(1);
+  await expect(helper.getByRole("img", { name: "Helper goblin" })).toHaveCount(1);
   await expect(helper).toContainText("Accounts migration");
   await expect(helper).toContainText("Working 4m");
   await expect(helper).toContainText("512 MB");

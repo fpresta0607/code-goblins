@@ -129,11 +129,15 @@ func (s *Service) pollOverlaps(ctx context.Context, runner execx.Runner, w *flee
 				unread = errors.Join(unread, fmt.Errorf("%s generation creation time is unread", goblin.id))
 				continue
 			}
-			area, brief, err := s.overlapArea(reading, runner, goblin)
+			area, brief, branch, err := s.overlapArea(ctx, runner, goblin)
+			if errors.Is(err, errGoblinMoving) {
+				continue
+			}
 			if err != nil {
 				unread = errors.Join(unread, fmt.Errorf("%s branch area: %w", goblin.id, err))
 				continue
 			}
+			goblin.branch = branch
 			if !s.isOverlapLive(goblin.meta, currentTime()) {
 				continue
 			}
@@ -241,45 +245,24 @@ func overlapsOf(matches tickets.Overlaps, own map[int]bool) []Overlap {
 	return overlaps
 }
 
-func (s *Service) overlapArea(ctx context.Context, runner execx.Runner, goblin ciGoblin) (tickets.Area, string, error) {
-	worktree := goblin.meta.Worktree
-	branch, err := defaultBranch(ctx, runner, goblin.repo)
+// errGoblinMoving says a goblin's own git work moved its branch, head or base
+// through both reads of its area: the goblin is working, so its area is read
+// on the next pass, and nothing is reported.
+var errGoblinMoving = errors.New("the goblin's branch moved through both reads")
+
+// overlapArea reads the files goblin's branch changes against the default
+// branch, with its brief, and the branch it has checked out. It runs on a
+// deadline of its own, never the one the GitHub read before it used, and
+// names the branch itself rather than trusting one read at the start of the
+// poll: on 2026-10-08 a goblin that switched branches in the tens of seconds
+// between the two read as a failed read, and goblins read late ran out of
+// the shared deadline.
+func (s *Service) overlapArea(ctx context.Context, runner execx.Runner, goblin ciGoblin) (tickets.Area, string, string, error) {
+	ctx, cancel := context.WithTimeout(ctx, ghCallTimeout)
+	defer cancel()
+	paths, branch, err := branchPaths(ctx, runner, goblin)
 	if err != nil {
-		return tickets.Area{}, "", err
-	}
-	head, err := runOutput(ctx, runner, worktree, "git", "rev-parse", "HEAD")
-	if err != nil {
-		return tickets.Area{}, "", err
-	}
-	base, err := runOutput(ctx, runner, worktree, "git", "rev-parse", "origin/"+branch)
-	if err != nil {
-		return tickets.Area{}, "", err
-	}
-	ancestor, err := runOutput(ctx, runner, worktree, "git", "merge-base", head, base)
-	if err != nil {
-		return tickets.Area{}, "", err
-	}
-	result, err := runner.Run(ctx, execx.Request{Dir: worktree, Name: "git", Args: []string{"diff", "--name-only", "--no-renames", "-z", ancestor, head}})
-	if err != nil {
-		return tickets.Area{}, "", err
-	}
-	if result.ExitCode != 0 {
-		return tickets.Area{}, "", fmt.Errorf("git branch diff exited %d: %s", result.ExitCode, strings.TrimSpace(string(result.Stderr)))
-	}
-	currentHead, err := runOutput(ctx, runner, worktree, "git", "rev-parse", "HEAD")
-	if err != nil {
-		return tickets.Area{}, "", err
-	}
-	currentBase, err := runOutput(ctx, runner, worktree, "git", "rev-parse", "origin/"+branch)
-	if err != nil {
-		return tickets.Area{}, "", err
-	}
-	currentBranch, err := runOutput(ctx, runner, worktree, "git", "branch", "--show-current")
-	if err != nil {
-		return tickets.Area{}, "", err
-	}
-	if head != currentHead || base != currentBase || currentBranch != goblin.branch {
-		return tickets.Area{}, "", errors.New("branch head, base or checkout changed during the read")
+		return tickets.Area{}, "", "", err
 	}
 	briefPath := goblin.meta.Brief
 	if briefPath == "" {
@@ -289,25 +272,81 @@ func (s *Service) overlapArea(ctx context.Context, runner execx.Runner, goblin c
 	if errors.Is(err, os.ErrNotExist) {
 		queued, queuedErr := fleet.ReadQueuedTask(s.Store.Home, goblin.id)
 		if queuedErr != nil {
-			return tickets.Area{}, "", errors.Join(err, queuedErr)
+			return tickets.Area{}, "", "", errors.Join(err, queuedErr)
 		}
 		brief = []byte(queued.Detail)
 	} else if err != nil {
-		return tickets.Area{}, "", err
+		return tickets.Area{}, "", "", err
 	}
 	area := tickets.BriefArea(string(brief), func(string) bool { return false })
 	area.Paths = nil
-	var paths []string
-	for _, path := range strings.Split(string(result.Stdout), "\x00") {
-		if path != "" {
-			paths = append(paths, path)
-		}
-	}
 	area, ignored := area.WithPaths(paths...)
 	if len(ignored) > 0 {
-		return tickets.Area{}, "", fmt.Errorf("branch paths are unread: %q", ignored)
+		return tickets.Area{}, "", "", fmt.Errorf("branch paths are unread: %q", ignored)
 	}
-	return area, string(brief), nil
+	return area, string(brief), branch, nil
+}
+
+// branchPaths reads the files goblin's checked-out branch changes against
+// the default branch, and that branch. The read names the branch first and
+// checks at its end that the branch, its head and the base did not move under
+// it; a goblin's own git work that moved one is read again once, and one that
+// moves through both reads is errGoblinMoving.
+func branchPaths(ctx context.Context, runner execx.Runner, goblin ciGoblin) ([]string, string, error) {
+	worktree := goblin.meta.Worktree
+	defaultName, err := defaultBranch(ctx, runner, goblin.repo)
+	if err != nil {
+		return nil, "", err
+	}
+	read := func(args ...string) (string, error) { return runOutput(ctx, runner, worktree, "git", args...) }
+	for range 2 {
+		branch, err := read("branch", "--show-current")
+		if err != nil {
+			return nil, "", err
+		}
+		head, err := read("rev-parse", "HEAD")
+		if err != nil {
+			return nil, "", err
+		}
+		base, err := read("rev-parse", "origin/"+defaultName)
+		if err != nil {
+			return nil, "", err
+		}
+		ancestor, err := read("merge-base", head, base)
+		if err != nil {
+			return nil, "", err
+		}
+		result, err := runner.Run(ctx, execx.Request{Dir: worktree, Name: "git", Args: []string{"diff", "--name-only", "--no-renames", "-z", ancestor, head}})
+		if err != nil {
+			return nil, "", err
+		}
+		if result.ExitCode != 0 {
+			return nil, "", fmt.Errorf("git branch diff exited %d: %s", result.ExitCode, strings.TrimSpace(string(result.Stderr)))
+		}
+		currentHead, err := read("rev-parse", "HEAD")
+		if err != nil {
+			return nil, "", err
+		}
+		currentBase, err := read("rev-parse", "origin/"+defaultName)
+		if err != nil {
+			return nil, "", err
+		}
+		currentBranch, err := read("branch", "--show-current")
+		if err != nil {
+			return nil, "", err
+		}
+		if head != currentHead || base != currentBase || branch != currentBranch {
+			continue
+		}
+		var paths []string
+		for _, path := range strings.Split(string(result.Stdout), "\x00") {
+			if path != "" {
+				paths = append(paths, path)
+			}
+		}
+		return paths, branch, nil
+	}
+	return nil, "", errGoblinMoving
 }
 
 func (s *Service) recordOverlap(ctx context.Context, w *fleetWakes, goblin ciGoblin, repository, kind string, number int, line, url string) error {

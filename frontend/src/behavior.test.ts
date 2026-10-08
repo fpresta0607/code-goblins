@@ -4,7 +4,10 @@ import { changeSummary, dragRange, isDrag, parsePatchToRows, splitRows, reviewRa
 import { lineageRoots, ownsTaskSession, sessionModel, projectSessions, tasksWithoutSession, sessionTitle } from "./lineageTree.ts";
 import { alreadyKnown, deliveryMark, runMark, submissionFor } from "./feedback.ts";
 import { parseAction, parseSnapshot, decisionText } from "./types.ts";
-import { arrange, settle, waitingOn, workflowNodes, taskColumn, personaFor, nodeStatus, nativeStatus, statusPhase, statusText, asksOverlord, waitingTarget, pullRequestBadge, pullRequestIcon, pullRequestLabel, safePullRequest, fleetTraffic, reportTraffic, expireTraffic, fitScale, CFO_ROOT, NODE_WIDTH, NODE_HEIGHT } from "./workflow.ts";
+import { arrange, settle, waitingOn, workflowNodes, taskColumn, personaFor, nodeStatus, nativeStatus, statusPhase, statusText, asksOverlord, waitingTarget, pullRequestBadge, pullRequestIcon, pullRequestLabel, safePullRequest, fleetTraffic, reportTraffic, expireTraffic, fitScale, zoomAt, MAX_ZOOM, MIN_ZOOM, CFO_ROOT, NODE_WIDTH, NODE_HEIGHT } from "./workflow.ts";
+
+// A canvas of the board's usual shape, wider than it is tall.
+const CANVAS = { width: 1400, height: 900 };
 
 test("board completion and semantic personas require the corresponding evidence", () => {
   const task = parseSnapshot({healthy:true, tasks:[{id:"work",title:"Test keyboard access",phase:"done",generation:"new",verified:false}]}).tasks[0];
@@ -33,7 +36,7 @@ test("arrangement preserves five-level lineage and never invents an orphan paren
     {id:"nested",parent:"child"},{id:"deep",parent:"nested"},{id:"orphan",parent:"missing"},
     {id:"cycle1",parent:"cycle2"},{id:"cycle2",parent:"cycle1"},
   ]});
-  const nodes=workflowNodes(snapshot), positions=arrange(nodes);
+  const nodes=workflowNodes(snapshot), positions=arrange(nodes, CANVAS);
   assert.equal(nodes.find(node=>node.id==="session:orphan")?.parent,undefined);
   assert.equal(Object.keys(positions).length,8);
   assert.ok(positions["session:deep"].y>positions["session:nested"].y);
@@ -285,7 +288,7 @@ test("dispatched goblins hang under the CFO, and only live work is in the tree",
 
 test("a wide family of goblins wraps into rows that never overlap", () => {
   const nodes = workflowNodes(parseSnapshot({healthy:true, tasks:["a", "b", "c", "d", "e", "f"].map((id) => ({id, phase:"working", verified:false}))}));
-  const positions = arrange(nodes);
+  const positions = arrange(nodes, CANVAS);
   const cards = nodes.filter((node) => node.task).map((node) => positions[node.id]);
   const rows = [...new Set(cards.map((point) => point.y))].sort((a, b) => a - b);
   assert.equal(rows.length, 2);
@@ -312,10 +315,22 @@ const fleet = (count: number, waits: Record<string, string> = {}) => parseSnapsh
 const overlaps = (positions: Record<string, { x: number; y: number }>) => Object.entries(positions).flatMap(([id, one], i, all) => all.slice(i + 1)
   .filter(([, other]) => Math.abs(one.x - other.x) < NODE_WIDTH && Math.abs(one.y - other.y) < NODE_HEIGHT).map(([other]) => id + " and " + other));
 
+test("a family of goblins wraps into the rows that show it largest in the canvas: one in a wide canvas, more in a tall one", () => {
+  const nodes = workflowNodes(fleet(FLEET.length));
+  const rows = (canvas: { width: number; height: number }) => {
+    const positions = arrange(nodes, canvas);
+    return new Set(nodes.filter((node) => node.task).map((node) => positions[node.id].y)).size;
+  };
+  assert.equal(rows({ width: 3200, height: 700 }), 1, "a wide canvas");
+  assert.equal(rows(CANVAS), 2, "the board's usual canvas");
+  assert.ok(rows({ width: 836, height: 956 }) > 2, "his canvas with the CFO panel open: " + rows({ width: 836, height: 956 }) + " rows");
+  assert.equal(rows({ width: 0, height: 0 }), 1, "a canvas not yet measured keeps one row");
+});
+
 test("a goblin waiting on another sits in the row under it, half a card over, and no card covers another", () => {
   for (const count of [3, 5, FLEET.length]) {
     const nodes = workflowNodes(fleet(count, { "cg-board-theme": "cg-cfo-wakes" }));
-    const positions = arrange(nodes, { "task:cg-board-theme": "task:cg-cfo-wakes" });
+    const positions = arrange(nodes, CANVAS, { "task:cg-board-theme": "task:cg-cfo-wakes" });
     const waiting = positions["task:cg-board-theme"], awaited = positions["task:cg-cfo-wakes"];
     assert.equal(waiting.y, awaited.y + 244, count + " goblins: in the row under it");
     assert.equal(Math.abs(waiting.x - awaited.x), (NODE_WIDTH + 44) / 2, count + " goblins: half a card over");
@@ -325,12 +340,12 @@ test("a goblin waiting on another sits in the row under it, half a card over, an
 
 test("a chain or a cycle of waits keeps its places, and only the first link moves under its goblin", () => {
   const nodes = workflowNodes(fleet(FLEET.length));
-  const family = arrange(nodes);
-  const chain = arrange(nodes, { "task:cg-board-theme": "task:cg-cfo-wakes", "task:cg-cfo-wakes": "task:cg-hidden-windows" });
+  const family = arrange(nodes, CANVAS);
+  const chain = arrange(nodes, CANVAS, { "task:cg-board-theme": "task:cg-cfo-wakes", "task:cg-cfo-wakes": "task:cg-hidden-windows" });
   assert.equal(chain["task:cg-cfo-wakes"].y, chain["task:cg-hidden-windows"].y + 244);
   assert.ok([...new Set(Object.values(family).map((point) => point.y))].includes(chain["task:cg-board-theme"].y), "the waiting end of a chain stays in a family row");
   assert.deepEqual(overlaps(chain), []);
-  const cycle = arrange(nodes, { "task:cg-board-theme": "task:cg-cfo-wakes", "task:cg-cfo-wakes": "task:cg-board-theme" });
+  const cycle = arrange(nodes, CANVAS, { "task:cg-board-theme": "task:cg-cfo-wakes", "task:cg-cfo-wakes": "task:cg-board-theme" });
   assert.deepEqual(cycle, family);
 });
 
@@ -340,7 +355,7 @@ test("the dashed line's goblins are the waiting one and the one it waits on, on 
 });
 
 test("no card covers another, whatever the Overlord placed by hand", () => {
-  const arranged = arrange(workflowNodes(fleet(FLEET.length)));
+  const arranged = arrange(workflowNodes(fleet(FLEET.length)), CANVAS);
   assert.notDeepEqual(overlaps({ ...arranged, ...PLACED_BY_HAND }), [], "his placed card covers an arranged one");
   const shown = settle(arranged, PLACED_BY_HAND);
   assert.deepEqual(overlaps(shown), []);
@@ -348,6 +363,17 @@ test("no card covers another, whatever the Overlord placed by hand", () => {
   assert.notDeepEqual(shown["task:pd-connect-quickstart"], arranged["task:pd-connect-quickstart"], "the covered card moves");
   assert.deepEqual(shown["task:cg-cfo-wakes"], arranged["task:cg-cfo-wakes"], "a card nothing covers keeps its place");
   assert.deepEqual(settle(arranged, {}), arranged);
+});
+
+test("a goblin arranged under the one it waits on stays under it when a card the Overlord placed takes its place, whatever the canvas", () => {
+  const snapshot = fleet(FLEET.length, { "cg-board-theme": "cg-cfo-wakes" });
+  const nodes = workflowNodes(snapshot), waits = waitingOn(snapshot, nodes);
+  for (const canvas of [CANVAS, { width: 900, height: 700 }, { width: 836, height: 956 }, { width: 390, height: 844 }]) {
+    const shown = settle(arrange(nodes, canvas, waits), PLACED_BY_HAND, {}, waits);
+    const waiting = shown["task:cg-board-theme"], awaited = shown["task:cg-cfo-wakes"];
+    assert.ok(waiting.y > awaited.y && Math.abs(waiting.x - awaited.x) < NODE_WIDTH, `${canvas.width} by ${canvas.height}: ${JSON.stringify({ waiting, awaited })}`);
+    assert.deepEqual(overlaps(shown), [], `${canvas.width} by ${canvas.height}`);
+  }
 });
 
 test("a connector pulses only when a goblin reports something new", () => {
@@ -456,16 +482,28 @@ test("an answer typed for a busy CFO reads sent, then delivered, and warns only 
   assert.deepEqual(lost, { icon: "warning", label: advice, trouble: true });
 });
 
-test("the orchestration graph fills the canvas, capped so cards never get huge", () => {
+test("the orchestration graph fills the canvas, capped so cards never get huge, and shrinks as far as a big tree needs", () => {
   const cases: [number, number, number, number, number][] = [
     [600, 400, 1448, 948, 1.25],
     [1400, 500, 748, 948, .5],
     [700, 900, 1448, 498, .5],
-    [5000, 5000, 548, 548, .35],
+    [2500, 2500, 548, 548, .2],
+    [5000, 5000, 548, 548, .1],
+    [10000, 10000, 548, 548, .1],
     [800, 600, 0, 0, 1],
   ];
   for (const [graphWidth, graphHeight, canvasWidth, canvasHeight, scale] of cases) {
     assert.equal(fitScale({ width: graphWidth, height: graphHeight }, { width: canvasWidth, height: canvasHeight }), scale, graphWidth + "x" + graphHeight + " in " + canvasWidth + "x" + canvasHeight);
+  }
+});
+
+test("zooming keeps the point under the pointer where it is, within the zoom range", () => {
+  const view = { scale: .5, x: 100, y: 40 }, pointer = { x: 300, y: 240 };
+  const under = (shown: typeof view) => ({ x: (pointer.x - shown.x) / shown.scale, y: (pointer.y - shown.y) / shown.scale });
+  for (const [scale, shown] of [[1, 1], [.25, .25], [1.5, 1.5], [4, MAX_ZOOM], [.01, MIN_ZOOM]]) {
+    const next = zoomAt(view, scale, pointer);
+    assert.equal(next.scale, shown, "zoomed to " + scale);
+    assert.ok(Math.abs(under(next).x - under(view).x) < 1e-9 && Math.abs(under(next).y - under(view).y) < 1e-9, "the point under the pointer moved at " + scale);
   }
 });
 
