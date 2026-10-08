@@ -246,7 +246,7 @@ test("a queued task's panel has no section to adjust it, and its box opens in th
   await expect(panel(page).getByText("Adjust this task")).toHaveCount(0);
   await expect(below.getByRole("textbox")).toHaveCount(0);
   await expect(below.getByRole("button", { name: /Save/ })).toHaveCount(0);
-  await expect(below.getByRole("button")).toHaveText(["Remove"]);
+  await expect(below.getByRole("button")).toHaveText(["Start", "Remove"]);
 });
 
 for (const where of ["caret", "line"] as const) {
