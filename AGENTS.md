@@ -331,6 +331,7 @@ The product does this by itself in every home, with no setting, and wakes you fo
 `--until <RFC3339 time>`, `--until-task <id>` and `--until-pr <GitHub PR URL>` pause it until that time, until that task delivers or until that pull request merges: a dependency the scheduler resumes by itself, so a goblin paused for Codex's weekly reset with `--until <the reset>` resumes at the reset.
 Otherwise name the reason with `--reason`: `memory`, `allowance`, `overlord`, `dependency`, `question`, `ci` or `deploy`; a pause that names nothing that resumes it, or two conditions, is refused, and the board's Pause records `overlord`.
 Use `--until <RFC3339 reset time>` for allowance, `task:<id>`, `pr:<GitHub PR URL>` or `date:<RFC3339 time>` for dependencies, and `<question id>` for a question.
+`cfo pause` on a goblin that is already paused takes the new condition in place, so what resumes it can be changed; what its pause stopped and kept stays, and nothing is stopped again.
 CI and deploy take `--until pr:<GitHub PR URL>@<40-character SHA>` or `run:<GitHub Actions run URL>@<40-character SHA>`; pause only when waiting on that run is the goblin's remaining work.
 The supervisor's one scheduler resumes memory after two readings of 5 GB free memory and commit, allowance at reset, a dependency when its task finishes or PR merges or date arrives, a question when the Overlord answers, and CI/deploy on the matching `ci_finished` record.
 An Overlord pause needs his Resume, and a legacy pause with no condition also needs manual Resume.
@@ -344,7 +345,7 @@ Start, spawn and Resume share the memory/commit floor: each needs 5 GB of memory
 They share the disk floor too: none starts while the home's drive has less free than `config/fleet.json`'s `disk_floor_gb`, default 15, and the refusal names what is free and the floor; `cfo gate test` starts no run under it either.
 The board shows disk free under memory, in the memory meter's box, and under `disk_wake_gb`, default 10, the supervisor wakes the CFO once with a `disk` wake, and again only after a reading back at or above the floor.
 The allowance floor is 5 percent remaining in a measured weekly window; the scheduler asks for a handoff and records an allowance pause with its weekly reset, the seam AFK mode shares.
-While [AFK mode](#afk-mode) is on, the 4 GB memory floor pauses the newest live goblin not pushing or merging, one at a time, with a `memory` pause the scheduler resumes at 5 GB.
+The 4 GB memory floor pauses the newest live goblin not pushing or merging, one at a time, with a `memory` pause the scheduler resumes at 5 GB, whether or not [AFK mode](#afk-mode) is on.
 Short session or model windows do not trigger this reserve, and missing or stale quota remains unknown.
 A session window that is used up is waited out rather than paused: until it renews, nothing starts or resumes on its harness, and when it renews one `allowance` wake names the goblins it stopped, since Claude Code goes on by itself only where its screen offered to; peek each and send an idle one on.
 One `allowance` wake also comes when a window bounding a running goblin's model passes 85 percent used, once per window and reset.
@@ -608,7 +609,7 @@ Only he resets the switch, with the board's toggle or `cfo afk off` from a termi
 Your `cfo afk off --asked` does not reset it: it is refused and leaves the switch as it is.
 
 The supervisor's single scheduler owns allowance pauses at 5 percent weekly remaining and their automatic resume at reset, shared with AFK mode through lifecycle pause reasons.
-While it is on, the memory floor pauses goblins by itself too: when two readings in a row find free memory or commit under the 4 GB floor, the supervisor pauses the newest live goblin that is not pushing or merging, with the reason `memory`, through the same pause the allowance floor uses, one goblin at a time, and the scheduler resumes it once memory and commit are back at 5 GB.
+The memory floor pauses goblins by itself whether or not it is on: when two readings in a row find free memory or commit under the 4 GB floor, the supervisor pauses the newest live goblin that is not pushing or merging, with the reason `memory`, through the same pause the allowance floor uses, one goblin at a time, and the scheduler resumes it once memory and commit are back at 5 GB.
 Each pause at either floor while it is on is logged in `state/afk.audit` with the readings it stood on and how it went, and the report lists it under Paused at a floor; it is the supervisor's, not a decision of yours.
 The proof of who switches reads processes, so it stops an agent that follows this contract and tries the command, the pipe, or the board's toggle from a browser it started; like the board's other items, it does not stop a process of the same Windows user that writes `state/afk.json` itself or drives his own running browser, and it does not prove that the words passed with `--asked` are his (see [docs/native-board.md](docs/native-board.md#afk-mode)).
 
