@@ -78,6 +78,9 @@ func TestResolveHonorsEnvOverrides(t *testing.T) {
 
 func TestIsPrimaryRequiresAllThree(t *testing.T) {
 	dir := t.TempDir()
+	// The folder is in no repository: the search for one stops above it, not
+	// at whatever checkout holds the temp folder.
+	t.Setenv("GIT_CEILING_DIRECTORIES", filepath.Dir(dir))
 	h := Home{Root: dir, State: filepath.Join(dir, "state"), Data: filepath.Join(dir, "data")}
 	if IsPrimary(h) {
 		t.Error("primary without AGENTS.md, state/ or the marker")

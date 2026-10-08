@@ -53,6 +53,9 @@ func newKeptHome(t *testing.T) *keptHome {
 	if err := os.MkdirAll(filepath.Join(root, ".git"), 0o755); err != nil {
 		t.Fatal(err)
 	}
+	// The .git above is no repository, so the search for one must stop here,
+	// not reach whatever checkout holds the temp folder.
+	t.Setenv("GIT_CEILING_DIRECTORIES", filepath.Dir(root))
 	for _, name := range []string{"cfo.exe", "goblins.exe"} {
 		k.previous = writeBuild(t, filepath.Join(root, name), "previous")
 	}

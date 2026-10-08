@@ -338,8 +338,12 @@ INSERT INTO runs VALUES('previous','repo','feat',1,'` + c.status + `');`
 			if out, err := exec.Command(sqlite, filepath.Join(dir, "state.sqlite"), sql).CombinedOutput(); err != nil {
 				t.Fatalf("fixture: %s %v", out, err)
 			}
+			worktree := t.TempDir()
+			// The worktree is a plain folder: the search for a repository stops
+			// above it, not at whatever checkout holds the temp folder.
+			t.Setenv("GIT_CEILING_DIRECTORIES", filepath.Dir(worktree))
 			reader := Reader{Root: dir, Commands: execx.OSRunner{}}
-			err := reader.CheckStart(context.Background(), "C:/project", t.TempDir(), "feat", testPolicy(t))
+			err := reader.CheckStart(context.Background(), "C:/project", worktree, "feat", testPolicy(t))
 			if errors.Is(err, ErrUnresolved) != c.unresolved {
 				t.Fatalf("status %q: %v", c.status, err)
 			}

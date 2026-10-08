@@ -104,6 +104,9 @@ func TestRecoveryHeadRealGitDistinguishesMissingAndInvalidAnchors(t *testing.T) 
 					}
 				case "unreadable-repository":
 					repo = t.TempDir()
+					// No repository holds the folder: the search for one stops
+					// above it, not at whatever checkout holds the temp folder.
+					t.Setenv("GIT_CEILING_DIRECTORIES", filepath.Dir(repo))
 				}
 				reader := Reader{Commands: execx.OSRunner{}}
 				if kind == "missing" {
