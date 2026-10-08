@@ -332,6 +332,7 @@ The product does this by itself in every home, with no setting, and wakes you fo
 Otherwise name the reason with `--reason`: `memory`, `allowance`, `overlord`, `dependency`, `question`, `ci` or `deploy`; a pause that names nothing that resumes it, or two conditions, is refused, and the board's Pause records `overlord`.
 Use `--until <RFC3339 reset time>` for allowance, `task:<id>`, `pr:<GitHub PR URL>` or `date:<RFC3339 time>` for dependencies, and `<question id>` for a question.
 `cfo pause` on a goblin that is already paused takes the new condition in place, so what resumes it can be changed; what its pause stopped and kept stays, and nothing is stopped again.
+A pause ends the goblin's terminal first, so a busy goblin that misses its stopping point is still paused, with its session kept for its resume, even when the search for its other processes runs out of time; its record names that search as a problem.
 CI and deploy take `--until pr:<GitHub PR URL>@<40-character SHA>` or `run:<GitHub Actions run URL>@<40-character SHA>`; pause only when waiting on that run is the goblin's remaining work.
 The supervisor's one scheduler resumes memory after two readings of 5 GB free memory and commit, allowance at reset, a dependency when its task finishes or PR merges or date arrives, a question when the Overlord answers, and CI/deploy on the matching `ci_finished` record.
 An Overlord pause needs his Resume, and a legacy pause with no condition also needs manual Resume.

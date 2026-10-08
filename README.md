@@ -414,6 +414,7 @@ In-progress cards have **Pause** and **Stop** icons, and paused cards have **Res
 A queued card has **Remove** where they have Stop: a task that has not started has nothing to stop.
 A task's panel carries its controls as labelled buttons, in one row under its header: **Remove** for a queued task, whose Start stays on its card, and **Pause** or **Resume** and **Stop** for one that has started.
 Pause allows five seconds for a stopping point and handoff, then ends the task's processes, including its detached browser sessions, dev servers and tests.
+It ends the goblin's terminal first, which ends its agent and everything under it, so a busy goblin that misses its stopping point is still paused, with its session kept for its resume, even when the search for its other processes runs out of time on a machine short of memory.
 A machine service the goblin started for its work is never one of them: Docker Desktop with everything it runs, and the no-mistakes daemon with every other goblin's gate agents, keep running through a pause, a stop, a cleanup, a switch, a forced reap and the goblin's terminal closing; the daemon's agents at work on the task's own gate are still ended.
 Such a service holds the folder it was started from, so start it from outside the worktree, or cleanup cannot remove the worktree while it runs.
 Pause and Stop count a process as stopped once Windows reports an exit status, even if Windows is still releasing its resources.

@@ -13,6 +13,18 @@ type Identity struct {
 	Started time.Time `json:"started"`
 }
 
+// UnfinishedSweep is a stop that ended the task's terminal, which ends its
+// harness and the job under it and frees what the goblin held, while the
+// sweep for the task's other processes did not finish, as on a machine so
+// short of memory that reading its processes runs out of time.
+type UnfinishedSweep struct{ Err error }
+
+func (e UnfinishedSweep) Error() string {
+	return "its terminal ended, but the sweep for its other processes did not finish: " + e.Err.Error()
+}
+
+func (e UnfinishedSweep) Unwrap() error { return e.Err }
+
 type Process struct {
 	PID       int
 	ParentPID int

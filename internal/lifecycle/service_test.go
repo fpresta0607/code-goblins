@@ -123,6 +123,53 @@ func TestAPausedTaskPausedAgainTakesTheNewCondition(t *testing.T) {
 	}
 }
 
+// A busy goblin misses its stopping point, and on a machine short of memory
+// the sweep for its processes then ran out of time too, so the pause failed
+// and nothing paused (cg-proc-partial-read and cg-project-services,
+// 2026-10-08). Once its terminal has ended the goblin is stopped, so the
+// pause takes effect: paused, with the unfinished sweep named, and its
+// session kept for its resume.
+func TestAPauseTakesEffectOnceTheTerminalEndsWhateverTheSweepMeets(t *testing.T) {
+	// Arrange
+	service, meta := lifecycleFixture(t)
+	service.Operations.Prepare = func(ctx context.Context, _ state.TaskMeta, _ string) error {
+		<-ctx.Done()
+		return ctx.Err()
+	}
+	service.Operations.Stop = func(context.Context, state.TaskMeta, *state.Lifecycle) ([]string, error) {
+		return []string{"claude.exe pid 42"}, UnfinishedSweep{Err: context.DeadlineExceeded}
+	}
+
+	// Act
+	record, err := service.Run(context.Background(), Request{ID: meta.ID, Generation: meta.SpawnGen, Operation: "memory-pause-1", Action: "pause", Reason: "memory", Session: "session-1"})
+
+	// Assert
+	if err != nil || record.Phase != "paused" || record.Session != "session-1" || !slices.Equal(record.Stopped, []string{"claude.exe pid 42"}) {
+		t.Fatalf("pause = %+v, %v, want it paused with its session kept", record, err)
+	}
+	if !slices.ContainsFunc(record.Problems, func(problem string) bool { return strings.Contains(problem, "did not finish") }) {
+		t.Fatalf("problems = %q, want the unfinished sweep named", record.Problems)
+	}
+}
+
+// A stop still fails while the sweep is unfinished: it removes the
+// worktree, which a process left in it would hold.
+func TestAStopFailsWhileTheSweepIsUnfinished(t *testing.T) {
+	// Arrange
+	service, meta := lifecycleFixture(t)
+	service.Operations.Stop = func(context.Context, state.TaskMeta, *state.Lifecycle) ([]string, error) {
+		return nil, UnfinishedSweep{Err: context.DeadlineExceeded}
+	}
+
+	// Act
+	record, err := service.Run(context.Background(), Request{ID: meta.ID, Generation: meta.SpawnGen, Operation: "stop-1", Action: "stop", Reason: "overlord"})
+
+	// Assert
+	if err == nil || record.Phase != "failed" {
+		t.Fatalf("stop = %+v, %v, want it failed", record, err)
+	}
+}
+
 func TestPauseReleasesResourcesAfterTheStoppingPointDeadline(t *testing.T) {
 	service, meta := lifecycleFixture(t)
 	var phases []string

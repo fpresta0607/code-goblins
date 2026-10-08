@@ -208,6 +208,36 @@ func TestStopQueuedKeepsPendingTeardownOfARequeuedTask(t *testing.T) {
 	}
 }
 
+// The task's terminal ends first, by its own identity, whatever the sweep
+// for its other processes meets: a sweep reads every process on the machine,
+// which on a machine short of memory ran out of time before it ended
+// anything, so a busy goblin went on holding the memory a pause was for.
+func TestStopResourcesEndsTheTerminalEvenWhenTheSweepRunsOutOfTime(t *testing.T) {
+	// Arrange
+	terminal := Identity{PID: 4242, Started: time.Date(2026, 10, 8, 2, 0, 0, 0, time.UTC)}
+	expired, cancel := context.WithDeadline(t.Context(), time.Now().Add(-time.Second))
+	defer cancel()
+	var ended []Identity
+
+	// Act
+	stopped, _, err := stopResources(expired, Resources{Directories: []string{t.TempDir()}, Hosts: []Identity{terminal}}, func(ctx context.Context, identity Identity) (bool, error) {
+		if ctx.Err() != nil {
+			return false, ctx.Err()
+		}
+		ended = append(ended, identity)
+		return false, nil
+	})
+
+	// Assert
+	var unfinished UnfinishedSweep
+	if len(ended) != 1 || ended[0] != terminal || len(stopped) != 1 {
+		t.Fatalf("ended = %v, stopped = %v, want the terminal ended first", ended, stopped)
+	}
+	if !errors.As(err, &unfinished) || !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("error = %v, want the unfinished sweep named", err)
+	}
+}
+
 func TestStopResourcesIssuesEveryTerminationBeforeWaiting(t *testing.T) {
 	directory := t.TempDir()
 	for range 3 {
