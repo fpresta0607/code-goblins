@@ -298,6 +298,7 @@ A pull request under test reads one state with one link on every surface (`front
 On a train, its goblin's pull request chip, on the card and in the panel, says what the train's card says of it, in the same tone, and opens the train's pull request: the running train that carries it, else the newest finished one while the pull request's head is still the one that rode.
 Off a train, the chip is its hosted checks above.
 A goblin that waits only on that test, paused until its pull request merges or until its CI run on it finishes, or live and idle since it reported the pull request done, says the same words as its status on its card, in its panel's header with no line under it, and on its node on the Orchestration canvas, whose tip is its card's.
+Paused so, its terminal view says the same words in place of Session paused.
 A goblin at work, blocked, asking or waiting on something else says that itself, and only its chip reads the test.
 The supervisor keeps the trains its CI poll reads, so a card follows its train within one poll.
 In a repository other people work in, that row also carries the task's ticket, GitHub's issue mark in the color of where it stands and its number, opening the issue, and the avatar of each teammate whose open work meets a live goblin's branch, ringed in amber, opening that work, with who and what in its tip.

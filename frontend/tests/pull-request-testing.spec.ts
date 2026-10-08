@@ -53,6 +53,8 @@ const progress = (page: Page) => board(page).getByRole("region", { name: "In pro
 const pausedSection = (page: Page) => board(page).getByRole("region", { name: "Paused", exact: true });
 const card = (page: Page, name: string) => board(page).locator(".task-card-shell").filter({ has: page.locator(".card-title").filter({ hasText: name }) });
 const header = (page: Page) => page.locator(".goblin-panel .panel-header");
+// What the panel shows in place of a terminal whose session is not running.
+const ended = (page: Page) => page.locator(".deck-slot:not([hidden]) .ended-session");
 
 async function select(page: Page, name: string) {
   await card(page, name).locator(".task-card").click();
@@ -140,9 +142,20 @@ test.describe("in his window", () => {
     expect(panelChip).toMatchObject({ text: "Testing", href: TRAIN_PR });
     await expect(header(page).locator(".panel-activity")).toHaveCount(0);
     await expect(header(page)).not.toContainText(/Paused|resumes/);
+    await expect(ended(page).locator("h2")).toHaveText("Testing");
+    await expect(ended(page)).not.toContainText("Paused");
     expect(nodeStatus.text).toBe("Testing");
     await expect(node.locator(".flow-node-main")).toHaveAttribute("data-tip", cardTip!);
     await expect(node.locator(".flow-node-main")).toHaveAttribute("aria-label", /^Sid - Memory Keeper\. Testing\./);
+  });
+
+  test("a real pause's panel still says its session paused", async ({ page }) => {
+    await open(page);
+
+    await select(page, "Otis - Ledger Clerk");
+
+    await expect(header(page).locator(".panel-status")).toHaveText("Paused");
+    await expect(ended(page).locator("h2")).toHaveText("Session paused");
   });
 
   test("the panel of a goblin waiting on its own CI opens that run", async ({ page }) => {

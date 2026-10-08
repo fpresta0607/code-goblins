@@ -48,7 +48,7 @@ export function TerminalDeck({ snapshot, task, node, child, cfo, shown, connecte
         const each = snapshot.tasks.find((candidate) => candidate.id === entry);
         if (!each) return null;
         const ended = sessionEnd(each);
-        if (ended) return <div className="deck-slot" key={entry} hidden={!here}><EndedSession task={each} kind={ended} /></div>;
+        if (ended) return <div className="deck-slot" key={entry} hidden={!here}><EndedSession task={each} kind={ended} trains={snapshot.merge_trains ?? []} /></div>;
         if (!each.generation) return null;
         const view = goblinView(each);
         return <div className="deck-slot" key={entry} hidden={!here}>
