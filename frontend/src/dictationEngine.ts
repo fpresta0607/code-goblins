@@ -58,9 +58,10 @@ export function recogniseWith(instance: () => string): (sound: Uint8Array<ArrayB
 
 // warmWith has the supervisor load its engine as a dictation begins, as the
 // board whose token is instance. Nothing waits on it: a dictation that could
-// not run says why when it is sent.
+// not run says why when it is sent. Its empty answer is read to the end, so
+// the request ends there.
 export function warmWith(instance: () => string): () => void {
-  return () => { fetch("/api/dictation/warm", { method: "POST", headers: { "X-CFO-Token": instance() } }).catch(() => {}); };
+  return () => { fetch("/api/dictation/warm", { method: "POST", headers: { "X-CFO-Token": instance() } }).then((response) => response.text()).catch(() => {}); };
 }
 
 function store(): Storage | null {

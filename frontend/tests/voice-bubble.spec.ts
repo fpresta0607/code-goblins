@@ -46,6 +46,8 @@ function posted(body: Buffer, headers: Record<string, string>): Posted {
 async function openPane(page: Page, { hint = false, dictations = [] as { text: string; at: number }[], panes = 1, app = false, browser = false, refusal = "", replies = null as Route[] | null, status = null as (() => { state: string; note?: string }) | null } = {}) {
   const asked: string[] = [], posts: Posted[] = [];
   await page.route("**/api/voice", (route) => { asked.push(route.request().url()); return route.fulfill({ json: OLD_VOICE_REPLY }); });
+  // The supervisor accepts the warming a dictation begins with and answers at once.
+  await page.route("**/api/dictation/warm", (route) => route.fulfill({ status: 202 }));
   await page.route("**/api/dictation", (route) => {
     const request = route.request();
     if (request.method() === "GET") return route.fulfill({ json: { engine: "test-model", ...(status ? status() : { state: "ready" }) } });
@@ -343,8 +345,8 @@ test("dictating asks nothing outside the board's own address, and the supervisor
   expect(requests.length).toBeGreaterThan(0);
   expect(requests.filter((request) => !request.split(" ")[1].startsWith(ORIGIN + "/"))).toEqual([]);
   // Besides the words, the page asks the supervisor only which model listens,
-  // once, when the pane opens.
-  expect(requests.filter((request) => request.includes("/api/") && request !== "GET " + ORIGIN + "/api/dictation")).toEqual(["POST " + ORIGIN + "/api/dictation"]);
+  // once, when the pane opens, and to load its engine as the keys are pressed.
+  expect(requests.filter((request) => request.includes("/api/") && request !== "GET " + ORIGIN + "/api/dictation")).toEqual(["POST " + ORIGIN + "/api/dictation/warm", "POST " + ORIGIN + "/api/dictation"]);
 });
 
 test("what the supervisor refuses with is shown as it wrote it, and nothing is typed", async ({ page }) => {

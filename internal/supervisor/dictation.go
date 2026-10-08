@@ -49,11 +49,15 @@ func (h *HTTP) ReplaceDictation() {
 }
 
 // warmDictation loads the engine as a dictation begins, so its words come
-// soon after the keys are let go. It answers at once; a dictation that could
-// not run says why when it is sent.
+// soon after the keys are let go. It takes no body, and answers at once; a
+// dictation that could not run says why when it is sent.
 func (h *HTTP) warmDictation(w http.ResponseWriter, r *http.Request) {
 	if offMachine(r, h.Host) != "" {
 		apiError(w, http.StatusForbidden, "The board dictates only on the PC it runs on, from its own page at 127.0.0.1, so what you say never leaves that PC.")
+		return
+	}
+	if r.ContentLength != 0 {
+		apiError(w, http.StatusBadRequest, "Warming the dictation engine takes no body")
 		return
 	}
 	if speech := h.Service.Options.Dictation; speech != nil && speech.Ready() == nil {

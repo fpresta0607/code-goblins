@@ -2,8 +2,10 @@ package supervisor
 
 import (
 	"errors"
+	"io"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 )
 
@@ -40,8 +42,9 @@ func TestADictationBeginningWarmsTheEngine(t *testing.T) {
 	}
 }
 
-// Warming is the board's own page's on this machine alone, and an engine
-// that is not there yet is not warmed: the dictation that follows says why.
+// Warming is the board's own page's on this machine alone, takes no body, and
+// an engine that is not there yet is not warmed: the dictation that follows
+// says why.
 func TestWarmingIsRefusedOffTheMachineAndSkippedWithoutTheModel(t *testing.T) {
 	for name, test := range map[string]struct {
 		speech *fakeSpeech
@@ -51,6 +54,12 @@ func TestWarmingIsRefusedOffTheMachineAndSkippedWithoutTheModel(t *testing.T) {
 		"a peer off this machine": {&fakeSpeech{}, func(r *http.Request) { r.RemoteAddr = "100.101.102.103:51234" }, http.StatusForbidden},
 		"no board token":          {&fakeSpeech{}, func(r *http.Request) { r.Header.Del("X-CFO-Token") }, http.StatusForbidden},
 		"no model yet":            {&fakeSpeech{missing: errors.New("model 1.0 is not fetched")}, nil, http.StatusAccepted},
+		// Warming takes no body, as every board endpoint refuses one it does
+		// not take.
+		"a body": {&fakeSpeech{}, func(r *http.Request) {
+			r.Body = io.NopCloser(strings.NewReader(`{"value":"x"}`))
+			r.ContentLength = int64(len(`{"value":"x"}`))
+		}, http.StatusBadRequest},
 	} {
 		t.Run(name, func(t *testing.T) {
 			// Arrange
