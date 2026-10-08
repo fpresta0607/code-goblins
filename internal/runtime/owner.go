@@ -61,9 +61,9 @@ func (o Owner) Label() string {
 // built once from an inventory and then asked; the lookups behind it are what
 // make each answer provable.
 type Attribution struct {
-	// worktreesRoot is the home's worktrees folder, where a path names the
+	// worktreeRoots are the home's worktree folders, where a path names the
 	// project and task of the worktree it is in.
-	worktreesRoot string
+	worktreeRoots []string
 	// worktrees maps a normalized worktree path, a task's own or an extra
 	// one it recorded, to the live task holding it.
 	worktrees map[string]Task
@@ -99,7 +99,7 @@ type declaredStack struct {
 // NewAttribution indexes an inventory for attribution.
 func NewAttribution(inv Inventory) Attribution {
 	attribution := Attribution{
-		worktreesRoot: inv.WorktreesRoot,
+		worktreeRoots: inv.WorktreeRoots,
 		worktrees:     make(map[string]Task, len(inv.Tasks)),
 		tasks:         make(map[string]Task, len(inv.Tasks)),
 		checkouts:     make(map[string]Checkout, len(inv.Checkouts)),
@@ -290,7 +290,7 @@ func (a Attribution) taskIn(dir string) (Task, bool) {
 // stop every leftover in a retired worktree would read as the project's own
 // checkout.
 func (a Attribution) checkoutIn(dir string) (Checkout, bool) {
-	if _, inWorktree := home.LocateWorktree(a.worktreesRoot, dir); inWorktree {
+	if _, inWorktree := home.LocateWorktree(a.worktreeRoots, dir); inWorktree {
 		return Checkout{}, false
 	}
 	for _, key := range ancestors(dir) {
@@ -353,13 +353,13 @@ func (a Attribution) liveTask(id string) (Task, bool) {
 // it. That is what lets a bare path name the task that held it, long after
 // the task's record is archived.
 func (a Attribution) worktreeTaskID(dir string) (string, bool) {
-	place, ok := home.LocateWorktree(a.worktreesRoot, dir)
+	place, ok := home.LocateWorktree(a.worktreeRoots, dir)
 	return place.Name, ok
 }
 
 // projectFromWorktree names the project a fleet worktree path belongs to.
 func (a Attribution) projectFromWorktree(dir string) string {
-	place, _ := home.LocateWorktree(a.worktreesRoot, dir)
+	place, _ := home.LocateWorktree(a.worktreeRoots, dir)
 	return place.Project
 }
 

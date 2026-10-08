@@ -11,6 +11,11 @@ const boardGoTmp = `C:\Users\op\AppData\Local\cfo\gotmp\0b49f5f9\board`
 // GOTMPDIR point, one folder per task.
 const fleetScratch = `C:\Users\op\AppData\Local\CodeGoblins\scratch`
 
+// devDriveScratch is the scratch folder of a home whose heavy folders moved
+// to a Dev Drive; fleetScratch is still where a task made before the move
+// keeps its own.
+const devDriveScratch = `D:\CodeGoblins\scratch`
+
 // boardTestDir is where go test runs the board goblin's spawn tests: the
 // package's directory in its own worktree.
 const boardTestDir = liveWorktree + `\internal\spawn`
@@ -42,13 +47,15 @@ func TestAGoblinsGoTestStandInsAreItsFixture(t *testing.T) {
 	}{
 		"a live goblin, its scratch folder":           {fleetScratch + `\board`, true, false},
 		"a dead goblin, its scratch folder":           {fleetScratch + `\board`, false, true},
+		"a live goblin, its scratch on the Dev Drive": {devDriveScratch + `\board`, true, false},
+		"a dead goblin, its scratch on the Dev Drive": {devDriveScratch + `\board`, false, true},
 		"a live goblin, an older build's Go temp dir": {boardGoTmp, true, false},
 		"a dead goblin, an older build's Go temp dir": {boardGoTmp, false, true},
 	} {
 		t.Run(name, func(t *testing.T) {
 			// Arrange
 			inv := fleetWithGoblin(test.alive, "done: PR https://example.invalid/pull/1")
-			inv.ScratchRoot = fleetScratch
+			inv.ScratchRoots = []string{devDriveScratch, fleetScratch}
 			inv = withGoTest(inv, test.goTmp, boardTestDir)
 
 			// Act
@@ -82,13 +89,14 @@ func TestALiveGoblinsGoTestRunFromItsOwnDirectoriesIsItsFixture(t *testing.T) {
 		"its extra worktree":    `C:\dev\proj\.worktrees\gb-board-2\internal\spawn`,
 		"its task temporary":    fleetState + `\tasktmp\board`,
 		"its scratch folder":    fleetScratch + `\board\TestSpawn123\001`,
+		"its Dev Drive scratch": devDriveScratch + `\board\TestSpawn123\001`,
 		"its Claude scratchpad": `C:\Users\op\AppData\Local\Temp\claude\c--dev-proj--worktrees-gb-board\5f0c2e1a\scratchpad`,
 	} {
 		t.Run(name, func(t *testing.T) {
 			// Arrange
 			inv := fleetWithGoblin(true, "done: PR https://example.invalid/pull/1")
 			inv.StateDir = fleetState
-			inv.ScratchRoot = fleetScratch
+			inv.ScratchRoots = []string{devDriveScratch, fleetScratch}
 			inv.Worktrees = append(inv.Worktrees, WorktreeDir{Path: `C:\dev\proj\.worktrees\gb-board-2`, Project: `C:\dev\proj`, TaskID: "board-2", Registration: RegistrationListed, Created: fixtureLater})
 			inv = withGoTest(inv, boardGoTmp, dir)
 

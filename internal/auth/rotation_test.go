@@ -974,9 +974,8 @@ func TestCacheEnvPinsOneSharedStorePerEcosystem(t *testing.T) {
 	for _, name := range []string{"UV_CACHE_DIR", "npm_config_store_dir", "PLAYWRIGHT_BROWSERS_PATH", "GOMODCACHE", "GOCACHE", "npm_config_cache", "CARGO_HOME"} {
 		clearEnv(t, name)
 	}
-	home := t.TempDir()
-	env := CacheEnv(home)
-	root := filepath.Join(home, CacheDirName)
+	root := filepath.Join(t.TempDir(), "caches")
+	env := CacheEnv(root)
 	want := map[string]string{
 		"UV_CACHE_DIR":             filepath.Join(root, "uv"),
 		"npm_config_store_dir":     filepath.Join(root, "pnpm"),
@@ -1034,9 +1033,9 @@ func TestCacheAuditNamesAnInheritedLocationRatherThanOmittingIt(t *testing.T) {
 	clearEnv(t, "UV_CACHE_DIR", "npm_config_store_dir", "PLAYWRIGHT_BROWSERS_PATH", "GOMODCACHE", "GOCACHE", "npm_config_cache")
 	tuned := filepath.Join(t.TempDir(), "ms-playwright")
 	t.Setenv("PLAYWRIGHT_BROWSERS_PATH", tuned)
-	home := t.TempDir()
+	caches := filepath.Join(t.TempDir(), "caches")
 
-	audit := CacheAudit(home, nil)
+	audit := CacheAudit(caches, nil)
 	if len(audit) != len(cacheVars) {
 		t.Fatalf("audit = %+v, want every cache variable listed", audit)
 	}
@@ -1048,12 +1047,12 @@ func TestCacheAuditNamesAnInheritedLocationRatherThanOmittingIt(t *testing.T) {
 	if playwright.Source != CacheSourceInherited || playwright.Path != tuned {
 		t.Errorf("playwright = %+v, want it marked inherited and pointing where the operator set it", playwright)
 	}
-	if uv := byName["UV_CACHE_DIR"]; uv.Source != CacheSourceCFO || uv.Path != filepath.Join(home, CacheDirName, "uv") {
+	if uv := byName["UV_CACHE_DIR"]; uv.Source != CacheSourceCFO || uv.Path != filepath.Join(caches, "uv") {
 		t.Errorf("uv = %+v, want a redirect cfo set rather than an inherited one", uv)
 	}
 	// The launch path is unchanged: a pane still receives only what cfo sets,
 	// so the audit can never hand back an inherited location as a redirect.
-	if _, redirected := CacheEnv(home)["PLAYWRIGHT_BROWSERS_PATH"]; redirected {
+	if _, redirected := CacheEnv(caches)["PLAYWRIGHT_BROWSERS_PATH"]; redirected {
 		t.Error("the audit changed what a pane inherits")
 	}
 }
@@ -1088,7 +1087,7 @@ func TestAdoptionLineNamesWhatChangedAndNeverAValue(t *testing.T) {
 // somebody bothered to tune.
 func TestCacheAuditReportsTheProjectsOwnDeclaredLocation(t *testing.T) {
 	clearEnv(t, "UV_CACHE_DIR", "npm_config_store_dir", "PLAYWRIGHT_BROWSERS_PATH", "GOMODCACHE", "GOCACHE", "npm_config_cache")
-	home := t.TempDir()
+	caches := filepath.Join(t.TempDir(), "caches")
 	declared := filepath.Join(t.TempDir(), "project-browsers")
 	// The operator's own environment names a third location, so this also
 	// pins the precedence: the project beats an inherited value, not just an
@@ -1096,7 +1095,7 @@ func TestCacheAuditReportsTheProjectsOwnDeclaredLocation(t *testing.T) {
 	t.Setenv("PLAYWRIGHT_BROWSERS_PATH", filepath.Join(t.TempDir(), "operator-browsers"))
 
 	byName := map[string]CacheRedirect{}
-	for _, redirect := range CacheAudit(home, map[string]string{"PLAYWRIGHT_BROWSERS_PATH": declared}) {
+	for _, redirect := range CacheAudit(caches, map[string]string{"PLAYWRIGHT_BROWSERS_PATH": declared}) {
 		byName[redirect.Name] = redirect
 	}
 	playwright := byName["PLAYWRIGHT_BROWSERS_PATH"]
@@ -1104,11 +1103,11 @@ func TestCacheAuditReportsTheProjectsOwnDeclaredLocation(t *testing.T) {
 		t.Errorf("playwright = %+v, want the project's own declared location", playwright)
 	}
 	// A declaration for one ecosystem must not silence the rest.
-	if uv := byName["UV_CACHE_DIR"]; uv.Source != CacheSourceCFO || uv.Path != filepath.Join(home, CacheDirName, "uv") {
+	if uv := byName["UV_CACHE_DIR"]; uv.Source != CacheSourceCFO || uv.Path != filepath.Join(caches, "uv") {
 		t.Errorf("uv = %+v, want the shared root still reported", uv)
 	}
 	// The launch path is untouched: a pane still receives only what cfo sets.
-	if _, redirected := CacheEnv(home)["PLAYWRIGHT_BROWSERS_PATH"]; redirected {
+	if _, redirected := CacheEnv(caches)["PLAYWRIGHT_BROWSERS_PATH"]; redirected {
 		t.Error("the audit changed what a pane inherits")
 	}
 }

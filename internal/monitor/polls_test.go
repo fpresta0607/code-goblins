@@ -68,9 +68,11 @@ func TestWorktreeTaskNamesTheGoblinWhoseWorktreeHoldsADirectory(t *testing.T) {
 		`C:\home\worktrees\app\never-recorded`:                        "never-recorded",
 		`C:\home\worktrees\app`:                                       "",
 		`C:\home\scratch\task-3`:                                      "",
+		`D:\CodeGoblins\worktrees\app\task-4\web`:                     "task-4",
+		`D:\CodeGoblins\scratch\task-4`:                               "",
 	} {
 		owners := map[string]string{strings.ToLower(`C:\home\worktrees\app\task-3-proof`): "task-3"}
-		if got := worktreeTask(owners, `C:\home\worktrees`, dir); got != want {
+		if got := worktreeTask(owners, []string{`D:\CodeGoblins\worktrees`, `C:\home\worktrees`}, dir); got != want {
 			t.Errorf("worktreeTask(%q) = %q, want %q", dir, got, want)
 		}
 	}

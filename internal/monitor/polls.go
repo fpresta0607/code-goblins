@@ -35,11 +35,11 @@ type PollProber interface {
 // ProcessPolls reads those polls from this machine's process table. A poll is
 // placed with the goblin whose worktree it runs in: the task whose record in
 // StateDir names that worktree, as its own or as an extra one, or else the
-// task the worktree's folder under Worktrees, the home's worktrees folder, or
-// where an older build put it, is named for.
+// task the worktree's folder under WorktreeRoots, the home's worktree folders,
+// or where an older build put it, is named for.
 type ProcessPolls struct {
-	StateDir  string
-	Worktrees string
+	StateDir      string
+	WorktreeRoots []string
 }
 
 // pollAncestry bounds the walk from a poll up to the goblin that started it:
@@ -57,7 +57,7 @@ func (p ProcessPolls) Polls(context.Context) ([]Poll, error) {
 		return nil, err
 	}
 	owners := recordedWorktrees(p.StateDir)
-	inWorktree := func(dir string) string { return worktreeTask(owners, p.Worktrees, dir) }
+	inWorktree := func(dir string) string { return worktreeTask(owners, p.WorktreeRoots, dir) }
 	var polls []Poll
 	for _, process := range processes {
 		if name := executableName(process.ExeBase); name != "node" && name != "lavish-axi" {
@@ -128,8 +128,8 @@ func startedByCFO(chain []proc.Entry) bool {
 // worktreeTask names the goblin whose worktree holds dir: the task whose
 // record names that worktree, else the task its folder is named for, or ""
 // when dir is in no goblin's worktree.
-func worktreeTask(owners map[string]string, worktreesRoot, dir string) string {
-	place, ok := home.LocateWorktree(worktreesRoot, dir)
+func worktreeTask(owners map[string]string, worktreeRoots []string, dir string) string {
+	place, ok := home.LocateWorktree(worktreeRoots, dir)
 	if !ok {
 		return ""
 	}
