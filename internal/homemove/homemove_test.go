@@ -53,7 +53,7 @@ func checkoutHome(t *testing.T) (string, map[string]bool) {
 	write(t, filepath.Join(root, "state", "wake.jsonl"), `{"seq":1}`)
 	write(t, filepath.Join(root, "data", "backlog.md"), "## Queued\n")
 	write(t, filepath.Join(root, "data", "g1", "brief.md"), "do the work")
-	write(t, filepath.Join(root, "config", "fleet.json"), `{"max_live_goblins":4}`)
+	write(t, filepath.Join(root, "config", "fleet.json"), `{"disk_floor_gb":20}`)
 	write(t, filepath.Join(root, "caches", "uv", "blob"), "downloaded")
 	write(t, filepath.Join(root, ".worktrees", "gb-g1", "work.go"), "package work")
 	write(t, filepath.Join(root, "cfo.exe"), "old build")

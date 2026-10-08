@@ -33,6 +33,13 @@ type overlapForge struct {
 	failure           string
 	moveHead          bool
 	moveBase          bool
+	// churnHead moves the head on every diff, as a goblin committing
+	// through both reads would; nextBranch is the branch the goblin
+	// switches to once its branch was first read.
+	churnHead  bool
+	nextBranch string
+	// headDeadlines are the deadlines the worktree's HEAD was read under.
+	headDeadlines []time.Time
 	onActivity        func()
 	requests          []execx.Request
 }
@@ -42,7 +49,11 @@ func (f *overlapForge) Run(ctx context.Context, request execx.Request) (execx.Re
 	command := request.Name + " " + strings.Join(request.Args, " ")
 	switch {
 	case strings.HasPrefix(command, "git branch --show-current") && strings.HasPrefix(request.Dir, filepath.Join(f.repo, ".worktrees")):
-		return execx.Result{Stdout: []byte(f.branch + "\n")}, nil
+		branch := f.branch
+		if f.nextBranch != "" {
+			f.branch, f.nextBranch = f.nextBranch, ""
+		}
+		return execx.Result{Stdout: []byte(branch + "\n")}, nil
 	case request.Name == "gh" && strings.Contains(command, "recentIssues"):
 		f.activityCalls++
 		if deadline, ok := ctx.Deadline(); ok {
@@ -63,6 +74,9 @@ func (f *overlapForge) Run(ctx context.Context, request execx.Request) (execx.Re
 	case strings.HasPrefix(command, "git -C "):
 		return execx.Result{Stdout: []byte("https://github.com/o/r.git\n")}, nil
 	case strings.HasPrefix(command, "git rev-parse HEAD"):
+		if deadline, ok := ctx.Deadline(); ok {
+			f.headDeadlines = append(f.headDeadlines, deadline)
+		}
 		return execx.Result{Stdout: []byte(f.head + "\n")}, nil
 	case command == "git rev-parse origin/main":
 		return execx.Result{Stdout: []byte(f.base + "\n")}, nil
@@ -75,6 +89,9 @@ func (f *overlapForge) Run(ctx context.Context, request execx.Request) (execx.Re
 		}
 		if f.moveBase {
 			f.base = "moved"
+		}
+		if f.churnHead {
+			f.head += "+"
 		}
 		return execx.Result{Stdout: []byte(f.paths)}, nil
 	}
@@ -241,7 +258,7 @@ func TestNewTeammateOverlapExcludesViewerBotsAndStoppedTasks(t *testing.T) {
 }
 
 func TestNewTeammateOverlapKeepsUnknownTimesAndMovedHeadUnread(t *testing.T) {
-	for _, problem := range []string{"item creation", "unparseable creation", "generation", "head moved", "base moved", "viewer", "invalid path"} {
+	for _, problem := range []string{"item creation", "unparseable creation", "generation", "viewer", "invalid path"} {
 		t.Run(problem, func(t *testing.T) {
 			service, h, forge, meta, now := overlapFixture(t)
 			switch problem {
@@ -258,10 +275,6 @@ func TestNewTeammateOverlapKeepsUnknownTimesAndMovedHeadUnread(t *testing.T) {
 				if err := state.WriteTaskMeta(h.State, meta); err != nil {
 					t.Fatal(err)
 				}
-			case "head moved":
-				forge.moveHead = true
-			case "base moved":
-				forge.moveBase = true
 			}
 			if err := service.checkFleet(context.Background(), now); err == nil || !strings.Contains(err.Error(), "overlap") {
 				t.Fatalf("%s was not explicitly unread: %v", problem, err)
@@ -273,6 +286,81 @@ func TestNewTeammateOverlapKeepsUnknownTimesAndMovedHeadUnread(t *testing.T) {
 				t.Fatalf("overlap unread misrouted to CI: %+v", wakes)
 			}
 		})
+	}
+}
+
+// On 2026-10-08 the board showed "overlap read of C:\dev\code-goblins
+// incomplete: cg-afk-report branch area: branch head, base or checkout changed
+// during the read" for ten minutes: the goblin had made a new branch after the
+// poll first read its branch. A supervisor read that races a goblin's own git
+// work is the goblin working, never an error: its area is read on the branch it
+// names itself, a move during the read is read again once, and a goblin still
+// moving is left for the next pass.
+func TestOverlapReadOfAGoblinMovingItsBranchIsNeverAnError(t *testing.T) {
+	for _, move := range []string{"a new branch after the poll read it", "head moved once", "base moved once", "head moving through both reads"} {
+		t.Run(move, func(t *testing.T) {
+			// Arrange
+			service, h, forge, _, now := overlapFixture(t)
+			switch move {
+			case "a new branch after the poll read it":
+				forge.nextBranch = "feat/retry-fast"
+			case "head moved once":
+				forge.moveHead = true
+			case "base moved once":
+				forge.moveBase = true
+			case "head moving through both reads":
+				forge.churnHead = true
+			}
+
+			// Act
+			err := service.checkFleet(context.Background(), now)
+
+			// Assert
+			if err != nil {
+				t.Fatalf("a goblin moving its own branch was reported: %v", err)
+			}
+			persisted, readErr := readFleetWakes(h.State)
+			if readErr != nil || len(persisted.OverlapUnread) != 0 {
+				t.Fatalf("overlap unread = %+v, %v; want none", persisted.OverlapUnread, readErr)
+			}
+			wakes := fleetWakeRecords(t, h, "pr")
+			if move == "head moving through both reads" {
+				if len(wakes) != 0 {
+					t.Fatalf("a goblin still moving was read: %+v", wakes)
+				}
+				return
+			}
+			if len(wakes) != 1 || !strings.Contains(wakes[0].Detail, "pr_overlap") {
+				t.Fatalf("overlap wakes = %+v, want the teammate's overlap found on the re-read", wakes)
+			}
+			if move == "a new branch after the poll read it" && !strings.Contains(wakes[0].Detail, "feat/retry-fast") {
+				t.Fatalf("overlap wake %q does not name the branch the goblin moved to", wakes[0].Detail)
+			}
+		})
+	}
+}
+
+// The same read at 01:34:16Z also said "cg-voice-at-install branch area:
+// context deadline exceeded": every goblin's git reads ran on the one
+// 30-second deadline of the GitHub read before them, at 100 to 200 ms a git
+// call, so the goblins read last ran out of time. Each goblin's area is read
+// on a deadline of its own.
+func TestOverlapReadGivesEachGoblinsAreaADeadlineOfItsOwn(t *testing.T) {
+	// Arrange
+	service, _, forge, _, now := overlapFixture(t)
+	forge.onActivity = func() { time.Sleep(20 * time.Millisecond) }
+
+	// Act
+	if err := service.checkFleet(context.Background(), now); err != nil {
+		t.Fatal(err)
+	}
+
+	// Assert
+	if len(forge.activityDeadlines) == 0 || len(forge.headDeadlines) == 0 {
+		t.Fatalf("activity deadlines %v, head deadlines %v; want both read", forge.activityDeadlines, forge.headDeadlines)
+	}
+	if shared := forge.activityDeadlines[0]; !forge.headDeadlines[0].After(shared) {
+		t.Fatalf("the goblin's area was read under the GitHub read's deadline %v (its own: %v)", shared, forge.headDeadlines[0])
 	}
 }
 

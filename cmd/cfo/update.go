@@ -13,6 +13,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/fpresta0607/code-goblins/internal/fleetconfig"
 	"github.com/fpresta0607/code-goblins/internal/home"
 	"github.com/fpresta0607/code-goblins/internal/install"
 	"github.com/fpresta0607/code-goblins/internal/lock"
@@ -213,6 +214,16 @@ func installUpdate(h home.Home, stdout, stderr io.Writer) int {
 	}
 	updateInterrupt("swapped")
 
+	// A key the candidate no longer reads makes it refuse config/fleet.json,
+	// and with it every start, so it goes before the supervisor starts; one
+	// that cannot be taken out puts the previous build back, which reads it.
+	retired, err := fleetconfig.RetireKeys(h.Root)
+	if err != nil {
+		return rollBack(h, journal, address, err, stdout, stderr)
+	}
+	if retired != "" {
+		fmt.Fprintf(stdout, "Settings: %s.\n", retired)
+	}
 	started, err := startSupervisor(h, filepath.Join(programs, "goblins.exe"), address)
 	if err != nil {
 		return rollBack(h, journal, address, err, stdout, stderr)

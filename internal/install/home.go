@@ -11,6 +11,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/fpresta0607/code-goblins/internal/fleetconfig"
 	"github.com/fpresta0607/code-goblins/internal/fsx"
 	"github.com/fpresta0607/code-goblins/internal/harnessmap"
 	"github.com/fpresta0607/code-goblins/internal/home"
@@ -84,6 +85,9 @@ func (s Service) writeHome(report *reporter) error {
 		}
 	}
 	if err := s.seedPolicy(report); err != nil {
+		return err
+	}
+	if err := s.retireFleetSettings(report); err != nil {
 		return err
 	}
 	if err := s.copyBinary(report); err != nil {
@@ -229,6 +233,20 @@ func (s Service) removeUnshipped(previous, manifest []string) (int, error) {
 		removed++
 	}
 	return removed, nil
+}
+
+// retireFleetSettings takes out of config/fleet.json the keys this build no
+// longer reads, which every read of the file, and every start, would
+// otherwise refuse, and says so.
+func (s Service) retireFleetSettings(report *reporter) error {
+	said, err := fleetconfig.RetireKeys(s.Root)
+	if err != nil {
+		return fmt.Errorf("install: %w", err)
+	}
+	if said != "" {
+		report.change("fleet settings", said)
+	}
+	return nil
 }
 
 func (s Service) seedPolicy(report *reporter) error {
