@@ -92,7 +92,12 @@ func For(root string, builtIn []byte) (*Voice, error) {
 	if err != nil {
 		return nil, err
 	}
-	return &Voice{Settings: settings, Dir: filepath.Join(root, "caches", "voice")}, nil
+	return &Voice{Settings: settings, Dir: Folder(root)}, nil
+}
+
+// Folder is where the home at root keeps dictation's engine and model.
+func Folder(root string) string {
+	return filepath.Join(root, "caches", "voice")
 }
 
 // Load reads the settings and refuses any that do not pin both downloads.
@@ -181,29 +186,32 @@ func (v *Voice) Ready() error {
 // Name is the model's name.
 func (v *Voice) Name() string { return v.Settings.Model.Name }
 
-// Summary names the model and the engine and says whether they are there.
-func (v *Voice) Summary() string {
-	name := fmt.Sprintf("%s %s on %s %s", v.Settings.Model.Name, v.Settings.Model.Version, v.Settings.Engine.Name, v.Settings.Engine.Version)
-	if missing := v.Missing(); missing > 0 {
-		return fmt.Sprintf("%s, not fetched yet: the first dictation downloads it once, %d MB, into %s", name, missing>>20, v.Dir)
+// Absent is whichever of the engine and the model is not there, in the order
+// Fetch downloads them.
+func (v *Voice) Absent() []Part {
+	var absent []Part
+	for _, part := range []Part{v.Settings.Engine, v.Settings.Model} {
+		if v.ready(part) != nil {
+			absent = append(absent, part)
+		}
 	}
-	return name + ", ready in " + v.Dir
+	return absent
 }
 
 // Missing is how many bytes Fetch still has to download: the pinned sizes
 // of the engine and the model, whichever is not there.
 func (v *Voice) Missing() int64 {
 	var missing int64
-	for _, part := range []Part{v.Settings.Engine, v.Settings.Model} {
-		if v.ready(part) != nil {
-			missing += part.Size
-		}
+	for _, part := range v.Absent() {
+		missing += part.Size
 	}
 	return missing
 }
 
 // Fetch downloads whichever of the engine and the model is not there,
-// telling progress how many of the bytes Missing counted have arrived.
+// telling progress how many of the bytes Missing counted have arrived, and
+// then removes every other engine and model a fetch kept here, so a newer
+// pin replaces the one before it rather than sitting beside it.
 func (v *Voice) Fetch(ctx context.Context, progress func(done, total int64)) error {
 	total := v.Missing()
 	var finished int64
@@ -217,6 +225,7 @@ func (v *Voice) Fetch(ctx context.Context, progress func(done, total int64)) err
 		finished += part.Size
 		progress(finished, total)
 	}
+	v.removeSuperseded()
 	return nil
 }
 

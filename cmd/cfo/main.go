@@ -8,6 +8,7 @@ import (
 	"flag"
 	"fmt"
 	"io"
+	"net/http"
 	"os"
 	"path/filepath"
 	"slices"
@@ -214,6 +215,9 @@ type commandRuntime struct {
 	repositoryOf func(ctx context.Context, checkout string) (string, error)
 	// requestHelper asks the supervisor for a goblin's helper.
 	requestHelper func(home.Home, supervisor.HelperRequest) (supervisor.HelperStart, error)
+	// dictationClient downloads dictation's engine and model; nil is the
+	// one the voice package makes, which follows only https.
+	dictationClient *http.Client
 	// switchAFK asks the supervisor to turn AFK mode on or off, and logAFK to
 	// log a decision made under it; nil is the supervisor's pipe.
 	switchAFK func(h home.Home, on bool, asked string) error
@@ -471,6 +475,8 @@ func runWithRuntime(args []string, stdout, stderr io.Writer, runtime commandRunt
 		return runInstall(append([]string{"--uninstall"}, args[1:]...), stdout, stderr)
 	case "doctor":
 		return runDoctor(args[1:], stdout, stderr, runtime)
+	case "dictation":
+		return runDictation(args[1:], stdout, stderr, runtime)
 	case "dev-drive":
 		return runDevDrive(args[1:], stdout, stderr, runtime)
 	case "home":

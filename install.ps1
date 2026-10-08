@@ -724,8 +724,15 @@ public static extern IntPtr SendMessageTimeout(IntPtr hWnd, uint Msg, UIntPtr wP
     }
 
     # The tools the fleet drives publish their own skills, installed once at
-    # user scope so every harness and every project sees them.
+    # user scope so every harness and every project sees them. npx fetches the
+    # skills CLI into npm's shared cache, and a fetch that breaks there leaves
+    # an entry every later npx of it fails on, as npm's "Lock compromised" did
+    # on a CI runner on 2026-10-07; so a failed skill install is tried again
+    # with a fresh npm cache of the install's own, which the skills after it
+    # use too, and which is removed once they are in.
     Write-Detail ""
+    $sharedNpmCache = $env:npm_config_cache
+    $freshNpmCache = ""
     foreach ($skill in @("gh-axi", "chrome-devtools-axi", "no-mistakes")) {
         if (-not (Get-Command npx.cmd -ErrorAction SilentlyContinue)) {
             Write-Detail ("PREREQ   {0,-20} skill needs Node.js: winget install OpenJS.NodeJS.LTS" -f $skill)
@@ -739,7 +746,14 @@ public static extern IntPtr SendMessageTimeout(IntPtr hWnd, uint Msg, UIntPtr wP
         $skillArgs = @("-y", "skills@$skillsCliVersion", "add", "kunchenguid/$skill", "--skill", $skill, "-g", "-y", "-a", "claude-code", "-a", "codex", "-a", "pi", "--copy")
         Write-Detail ("skill    {0,-20} npx {1}" -f $skill, ($skillArgs[1..($skillArgs.Count - 1)] -join " "))
         $code = Invoke-Logged "npx.cmd" $skillArgs
-        if ($code -ne 0) {
+        if ($code -ne 0 -and -not $freshNpmCache) {
+            $freshNpmCache = Join-Path ([IO.Path]::GetTempPath()) ("code-goblins-npm-" + [Guid]::NewGuid().ToString("N"))
+            New-Item -ItemType Directory -Path $freshNpmCache | Out-Null
+            $env:npm_config_cache = $freshNpmCache
+            Write-Detail ("RETRY    {0,-20} skill install exited with code {1}; trying once more with a fresh npm cache, {2}" -f $skill, $code, $freshNpmCache)
+            $code = Invoke-Logged "npx.cmd" $skillArgs
+        }
+        elseif ($code -ne 0) {
             Write-Detail ("RETRY    {0,-20} skill install exited with code {1}; trying once more" -f $skill, $code)
             Start-Sleep -Seconds 2
             $code = Invoke-Logged "npx.cmd" $skillArgs
@@ -748,6 +762,10 @@ public static extern IntPtr SendMessageTimeout(IntPtr hWnd, uint Msg, UIntPtr wP
             Write-Detail ("WARN     {0,-20} skill install exited with code {1}" -f $skill, $code)
             $failedInstalls += "$skill skill"
         }
+    }
+    if ($freshNpmCache) {
+        $env:npm_config_cache = $sharedNpmCache
+        Remove-Item -LiteralPath $freshNpmCache -Recurse -Force -ErrorAction SilentlyContinue
     }
     # The board's native lifecycle hooks, for each harness installed here.
     foreach ($harness in @("claude", "codex", "pi")) {
@@ -758,6 +776,17 @@ public static extern IntPtr SendMessageTimeout(IntPtr hWnd, uint Msg, UIntPtr wP
             Write-Detail ("WARN     {0,-20} native hooks were not installed; see the line above" -f $harness)
             $failedInstalls += "$harness hooks"
         }
+    }
+
+    # Dictation works at the first press: the build the home now holds
+    # downloads the speech engine and model it pins, keeps each only when it
+    # matches its pinned SHA-256, and puts them where dictation looks; one
+    # already there is not downloaded again, and one an earlier build pinned
+    # is replaced. It never fails the install: the first dictation sets up
+    # whatever is still missing, as it always could.
+    Write-Doing "Setting up dictation"
+    if ((Invoke-Logged $dest @("dictation", "setup")) -ne 0) {
+        Write-Note "Dictation could not be set up now, so it finishes setting itself up the first time you dictate; the log says why."
     }
 
     # Code Goblins in the Start menu opens the app. Where this install put the

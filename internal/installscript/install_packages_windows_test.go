@@ -7,6 +7,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/fpresta0607/code-goblins/internal/fsx"
 	"github.com/fpresta0607/code-goblins/internal/installtest"
 	"github.com/fpresta0607/code-goblins/internal/onboarding"
 )
@@ -75,6 +76,56 @@ func TestTheInstallPinsEveryPackageItFetchesFromNpm(t *testing.T) {
 		if at <= 0 || pinned[installer.Source[:at]] != installer.Source[at+1:] {
 			t.Errorf("the quick start installs %s as %q, want the version install.ps1 pins: %v", agent, installer.Source, pinned)
 		}
+	}
+}
+
+// npx fetches the skills CLI into npm's shared cache, and a fetch that breaks
+// there, as npm's "Lock compromised" did on a CI runner on 2026-10-07, leaves
+// an entry every later npx of that CLI fails on. So a skill install that
+// fails is tried again with a fresh npm cache of the install's own, the rest
+// go straight to it, and it is removed once the skills are in. The stand-in
+// npx fails whenever it runs on the shared cache.
+func TestOneLineInstallTriesASkillAgainWithAFreshNpmCache(t *testing.T) {
+	// Arrange
+	folder := t.TempDir()
+	calls := filepath.Join(folder, installtest.NpxCalls)
+	npx := "@if \"%npm_config_cache%\"==\"\" (echo shared %6>>\"" + calls + "\"& exit /b 1)\r\n" +
+		"@echo fresh %6 %npm_config_cache%>>\"" + calls + "\"\r\n" +
+		"@if not exist \"%npm_config_cache%\" exit /b 2\r\n" +
+		"@exit /b 0\r\n"
+
+	// Act
+	output, _, temp := runInstallWithLavishDownload(t, installScript(t), []byte("not the release the script pins"), map[string]string{"npx": npx})
+
+	// Assert
+	recorded, err := os.ReadFile(calls)
+	if err != nil {
+		t.Fatalf("npx was never called: %v\n%s", err, output)
+	}
+	lines := strings.Split(strings.TrimSpace(strings.ReplaceAll(string(recorded), "\r\n", "\n")), "\n")
+	if len(lines) != 4 || lines[0] != "shared gh-axi" {
+		t.Fatalf("npx was called as %q, want gh-axi on the shared cache, then each skill once on a fresh one", lines)
+	}
+	var cache string
+	for index, skill := range []string{"gh-axi", "chrome-devtools-axi", "no-mistakes"} {
+		fields := strings.SplitN(lines[index+1], " ", 3)
+		if len(fields) != 3 || fields[0] != "fresh" || fields[1] != skill {
+			t.Fatalf("call %d was %q, want %s on the fresh cache", index+2, lines[index+1], skill)
+		}
+		if cache == "" {
+			cache = fields[2]
+		}
+		// A runner's temporary folder can be spelt with 8.3 short names on
+		// one side and long ones on the other.
+		if fields[2] != cache || !strings.HasPrefix(strings.ToLower(fsx.LongPath(cache)), strings.ToLower(fsx.LongPath(temp))) {
+			t.Errorf("%s ran with the npm cache %q, want the one fresh cache in the temporary folder", skill, fields[2])
+		}
+	}
+	if _, err := os.Stat(cache); !os.IsNotExist(err) {
+		t.Errorf("the fresh npm cache %s outlived the install: %v", cache, err)
+	}
+	if note := installNote.FindString(output); strings.Contains(note, "skill") {
+		t.Errorf("the install's Note is %q, want every skill installed:\n%s", note, output)
 	}
 }
 

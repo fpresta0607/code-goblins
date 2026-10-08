@@ -32,8 +32,9 @@ const (
 )
 
 // workerIdle is how long a loaded engine waits for the next dictation before
-// it is ended.
-var workerIdle = 2 * time.Minute
+// it is ended. It stays loaded between dictations, holding about 140 MB, and
+// a dictation after a longer pause loads it again as the keys are pressed.
+var workerIdle = 30 * time.Minute
 
 // workerEnvironment is all of this process's environment the worker gets:
 // what Windows needs to start a program and find its temporary folder, and no
@@ -89,8 +90,9 @@ type worker struct {
 	log    workerLog
 	exited chan struct{}
 	idle   *time.Timer
-	// uses counts the dictations it answered, so an idle timer that fired
-	// while another dictation had the turn knows it is out of date.
+	// uses counts the dictations it answered and the warmings that kept it,
+	// so an idle timer that fired while another had the turn knows it is out
+	// of date.
 	uses int
 }
 
@@ -237,8 +239,49 @@ func (v *Voice) exchange(ctx context.Context, sound []byte) (string, error) {
 	return reply.Text, nil
 }
 
+// Warm loads the engine ahead of a dictation, as the keys are pressed, so
+// the words come soon after they are let go, and keeps a loaded one for
+// another idle time. It starts nothing where a dictation could not run: with
+// the engine or the model missing, or no room for them.
+func (v *Voice) Warm(ctx context.Context) error {
+	if err := v.take(ctx); err != nil {
+		return err
+	}
+	defer v.give()
+	if err := v.Ready(); err != nil {
+		return err
+	}
+	available, commit, err := v.Memory()
+	if err != nil {
+		return fmt.Errorf("read the machine's memory: %w", err)
+	}
+	if available < Room || commit < Room {
+		return NoRoom{Available: available, Commit: commit}
+	}
+	if v.worker != nil {
+		select {
+		case <-v.worker.exited:
+			v.retire()
+		default:
+			v.worker.idle.Stop()
+		}
+	}
+	if v.worker == nil {
+		w, err := v.startWorker()
+		if err != nil {
+			return fmt.Errorf("start the dictation engine: %w", err)
+		}
+		v.worker = w
+	}
+	w := v.worker
+	w.uses++
+	uses := w.uses
+	w.idle = time.AfterFunc(workerIdle, func() { v.idleOut(w, uses) })
+	return nil
+}
+
 // idleOut ends w when it is still the worker and has answered no dictation
-// since its uses-th.
+// and had no warming since its uses-th.
 func (v *Voice) idleOut(w *worker, uses int) {
 	select {
 	case <-v.turn:
