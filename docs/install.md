@@ -71,8 +71,8 @@ In order, it:
    If either shortcut cannot be created, the install continues, records a `WARN` with the reason in its log, and names the failed shortcut in its closing note.
    Where this install put the desktop window in the home, both shortcuts start `goblins-window.exe` alone with no terminal.
    [The desktop window](native-board.md#the-desktop-window) describes how it finds its board.
-   Where the home only kept a window it already held, as an install from a release that ships none leaves it, the entry runs `goblins --window` itself, with its console minimized: a window from before this may not open the app when started alone.
-   In a home with no window it runs `goblins`, the quick start, in a window of its own.
+   Where the home only kept a window it already held, as an install from a release that ships none leaves it, both shortcuts run `goblins --window`, with the console minimized: a window from before this may not open the app when started alone.
+   In a home with no window, both shortcuts run `goblins`, the quick start, in a window of its own.
 9. Runs `goblins doctor` into the log, names any tool it could not install in one line, and opens the app; a home with no app runs the [quick start](#the-quick-start) in a window of its own.
    The desktop shell opens the window, as a double-click does, so Explorer remains its parent and the board can prove that AFK mode and **Update** are yours.
    If the window is not a Windows program or the desktop shell cannot open it, the install logs why and tries starting it directly; if it cannot open, the existing note points you to Code Goblins in the Start menu.
