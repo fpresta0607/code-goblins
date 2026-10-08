@@ -74,8 +74,7 @@ jobs:
           go run github.com/tc-hib/go-winres@v0.3.3 make --in winres.json --arch amd64 --product-version ${{ github.ref_name }} --file-version ${{ github.ref_name }}
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           Pop-Location
-          # The setup installs the release that builds it, from the
-          # repository that publishes it.
+          # See docs/install.md for setup compatibility and download behavior.
           go build -trimpath -tags production -ldflags "-H windowsgui -X main.repository=${{ github.repository }} -X main.tag=${{ github.ref_name }}" -o CodeGoblinsSetup.exe ./cmd/goblins-setup
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
       - uses: actions/upload-artifact@v4

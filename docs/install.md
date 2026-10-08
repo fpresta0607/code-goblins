@@ -1,6 +1,9 @@
 # Installing Code Goblins
 
-`CodeGoblinsSetup.exe` and the one-line PowerShell install are the same install, and you can rerun either at any time to update.
+Starting with the first release after v0.5.4, `CodeGoblinsSetup.exe` installs the newest release, whichever release made the setup.
+The one-line PowerShell install does the same, and you can rerun either at any time to update.
+Setups already published with v0.4.0 through v0.5.4 still install their own release.
+Delete any older `CodeGoblinsSetup.exe` you kept and download the setup again from the latest release.
 Each puts the Code Goblins app and the `cfo` command line (also called `goblins`) together in one folder, adds that folder to your PATH and Code Goblins to the Start menu, installs the tools the goblins use where they are missing, and opens the app.
 Use the setup if you want a window, the one line if you live in a terminal.
 
@@ -15,7 +18,8 @@ irm https://github.com/fpresta0607/code-goblins/releases/latest/download/install
 It needs no clone and no Go, and `goblins` works in the same window as soon as it finishes.
 
 The setup first says what it will install, where, and what it changes, and starts when you press **Install** (or **Update**, where Code Goblins is already there).
-It downloads the install script of its own release and runs it out of sight; the one-line install runs that script in your window.
+The setup downloads the newest release's install script and runs it out of sight.
+The one-line install runs that script in your window.
 Either way you see the same four steps, `[1/4] Download Code Goblins`, `[2/4] Check the download`, `[3/4] Install Code Goblins and its tools` and `[4/4] Open Code Goblins`, with a line under the third saying which tool it is installing and when it is setting up dictation, a `Note:` line for anything to know, and nothing else.
 Every other detail goes to the install's log, `CodeGoblinsInstall.log` in your temp folder.
 When something stops the install, it says in one sentence what happened and what to do, and names the log; the setup offers **Show details**, **Open the log** and **Try again**.
@@ -162,8 +166,9 @@ Each program's file properties (right-click, Properties, Details) name the produ
 - **The one-line install** runs nothing unless the downloaded `cfo.exe` matches the release's `SHA256SUMS`.
   Windows PowerShell does not mark that download as coming from the internet, so SmartScreen does not prompt.
 - **`CodeGoblinsSetup.exe`** is saved with a browser, which marks it, so while it is unsigned SmartScreen stops it once with "Windows protected your PC" and an Unknown publisher.
-  Check it first: `(Get-FileHash .\CodeGoblinsSetup.exe -Algorithm SHA256).Hash` must equal the first field of the release's `SHA256SUMS` line for it, in any letter case.
-  Then **More info**, **Run anyway** runs it, and what it installs is checked against the same `SHA256SUMS` by the install script.
+  Check it first: `(Get-FileHash .\CodeGoblinsSetup.exe -Algorithm SHA256).Hash` must equal the first field of the `CodeGoblinsSetup.exe` line in the `SHA256SUMS` of the release you downloaded the setup from, in any letter case.
+  Then **More info**, **Run anyway** runs it.
+  The install script checks the programs it installs against the newest release's `SHA256SUMS`.
 - **A `cfo.exe` saved from a browser** is marked, and SmartScreen stops it with "Windows protected your PC" and an Unknown publisher.
   Check it first: `(Get-FileHash .\cfo.exe -Algorithm SHA256).Hash` must equal the first field of the release's `SHA256SUMS` line for `cfo.exe`, in any letter case.
   Then **More info**, **Run anyway** runs it.
