@@ -419,6 +419,7 @@ It is the one-step replacement for quitting, WIP-committing, cleaning up, and re
 
 When a goblin's harness starts being refused by its provider, `cfo fleet-view` shows it as `harness-erroring` and the watcher wakes the CFO with the fault and what to do about it.
 A fault in the output of a command the goblin ran, under Claude Code's tool call or Codex's `• Ran`, is the command's, never the harness's.
+A warning that a limit nears, such as Claude Code's "You've used 76% of your weekly limit · resets Oct 13, 10am", is no refusal: the harness works on, so it raises nothing.
 The standing answers live in `data/routing.json`, as rules of this shape:
 
 ```json
