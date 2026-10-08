@@ -523,10 +523,18 @@ The latency regression uses one native console event per read, as libuv does, an
 One slow key in a run is a hosted runner's scheduling noise (504 ms seen with the test's job to itself); two slow keys fail, and a failure names the slow keys by number.
 Installing a build or restarting `serve` leaves existing hosts running their original code; the persistent policy takes effect in newly launched hosts, so resume each existing session only when its active work permits a host restart.
 
-Every native terminal also runs an input waker: the host's own program again, attached to the terminal's pseudo console and told each time the host writes input or resizes the terminal.
-Windows' inbox conhost (10.0.26100, as Windows 11 and GitHub's runners ship it) makes a program's waiting console read outside its console lock, so input written at that moment can sit unread until more arrives, when the program waits in a blocking read, `ReadConsoleInputW` or `ReadConsoleW`, while another of its threads prints.
-The same race can crash conhost, a null read in `ConsoleWaitBlock::~ConsoleWaitBlock`, which ends the terminal: on GitHub's runners it ended 28 of 4,200 runs of `TestTypedKeysReachAProgramThatPrintsWhileItReads`.
+Every native terminal runs on Microsoft's own console host, `conpty.dll` and `OpenConsole.exe` from its ConPTY package (1.25.260930003, MIT, listed in `THIRD_PARTY_NOTICES`), which cfo.exe embeds.
+Windows' inbox conhost (10.0.26100, as Windows 11 and GitHub's runners ship it) makes a program's waiting console read outside its console lock, so a key typed at that moment either sits unread until more input arrives or crashes conhost, a null read in `ConsoleWaitBlock::~ConsoleWaitBlock` that ends the terminal.
 microsoft/terminal#18816 fixed both in a conhost Windows does not ship yet.
+On GitHub's runners the crash ended 28 of 4,200 runs of `TestTypedKeysReachAProgramThatPrintsWhileItReads` on the inbox conhost and none of 3,500 on OpenConsole.
+The host writes the two files to `%LOCALAPPDATA%\cfo\conpty\<version>`, a folder whose access list lets only this Windows user in, keeps each open so nothing can write, rename or delete it, and loads them only once each one's SHA-256 matches the copy cfo.exe embeds.
+When they cannot be written or loaded, the terminal runs on the inbox conhost and the CFO is woken once, a `check` wake keyed `conpty` starting `console_host:` with the reason.
+OpenConsole asks its terminal for its device attributes as it starts and takes the first answer typed after that as the answer, and every later one reaches the program as typed input.
+The host answers that query itself, as the board's xterm.js would (`ESC[?1;2c`), and leaves it out of the terminal's output, so no viewer, nor one replaying the terminal from its start, types an answer into the program, and a query the program asks itself gets its viewer's answer.
+
+Every native terminal also runs an input waker: the host's own program again, attached to the terminal's pseudo console and told each time the host writes input or resizes the terminal.
+It is for the inbox conhost, which can queue input without waking a program that waits for it in a blocking read, `ReadConsoleInputW` or `ReadConsoleW`, while another of its threads prints, so the input sits unread until more arrives.
+On OpenConsole the waker finds nothing unread.
 The waker counts the console's unread input 25 ms after the last write and again at doubling intervals up to 1.6 s, and while any is unread it writes a menu event, which wakes the reader and which every reader skips, so input a program was left waiting for arrives within about 25 ms and a program that reads promptly never sees one.
 It outlives Ctrl-C and Ctrl-Break, ends with its console, and notes its wakes in the host's log at most once a minute.
 `TestTypedKeysReachAProgramThatPrintsWhileItReads` types 3,000 keys into a program that echoes each while it prints and fails on any key left unread for 2 s, and on a terminal that ends first it says how the program and the console server exited, with the program's own reason from its log, and `TestInputLeftUnreadIsFollowedByAWakeEveryReaderSkips` checks the wake itself.
