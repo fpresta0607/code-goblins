@@ -7,6 +7,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/fpresta0607/code-goblins/internal/fsx"
 	"github.com/fpresta0607/code-goblins/internal/installtest"
 	"github.com/fpresta0607/code-goblins/internal/onboarding"
 )
@@ -114,7 +115,9 @@ func TestOneLineInstallTriesASkillAgainWithAFreshNpmCache(t *testing.T) {
 		if cache == "" {
 			cache = fields[2]
 		}
-		if fields[2] != cache || !strings.HasPrefix(cache, temp) {
+		// A runner's temporary folder can be spelt with 8.3 short names on
+		// one side and long ones on the other.
+		if fields[2] != cache || !strings.HasPrefix(strings.ToLower(fsx.LongPath(cache)), strings.ToLower(fsx.LongPath(temp))) {
 			t.Errorf("%s ran with the npm cache %q, want the one fresh cache in the temporary folder", skill, fields[2])
 		}
 	}
