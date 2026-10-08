@@ -30,7 +30,7 @@ var genericTitles = []string{
 	"Line Tidier", "Byte Builder", "Spec Reader", "Detail Hound", "Plan Maker",
 	"Code Whittler", "Bit Twiddler", "Puzzle Solver", "Gear Turner", "Thread Weaver",
 	"Module Maker", "Config Keeper", "Tidy Coder", "Code Plumber", "Bit Painter",
-	"Edge Case Chaser", "Loose End Tier", "Brace Wrangler", "Commit Poet", "Loop Juggler",
+	"Edge Case Chaser", "Loose End Finder", "Brace Wrangler", "Commit Poet", "Loop Juggler",
 	"Idea Sprinkler", "Code Cobbler", "Logic Knitter", "Byte Polisher", "Chief Fiddler",
 }
 
