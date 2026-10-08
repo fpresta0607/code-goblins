@@ -16,6 +16,7 @@ import (
 	"path/filepath"
 	"slices"
 	"strings"
+	"time"
 
 	"github.com/fpresta0607/code-goblins/internal/fsx"
 )
@@ -126,6 +127,21 @@ type DevDriveConfig struct {
 	// Root is the folder on the Dev Drive the heavy folders moved to, empty
 	// until they did.
 	Root string `json:"root,omitempty"`
+	// MovedAt is when they moved: a goblin's terminal started before it
+	// still builds against the home's own caches.
+	MovedAt time.Time `json:"moved_at,omitzero"`
+}
+
+// WriteDevDriveConfig writes root's config\dev-drive.json.
+func WriteDevDriveConfig(root string, config DevDriveConfig) error {
+	data, err := json.MarshalIndent(config, "", "  ")
+	if err != nil {
+		return err
+	}
+	if err := os.MkdirAll(filepath.Dir(DevDriveConfigPath(root)), 0o755); err != nil {
+		return err
+	}
+	return fsx.AtomicWriteFile(DevDriveConfigPath(root), append(data, '\n'))
 }
 
 // DevDriveConfigPath is root's config\dev-drive.json.

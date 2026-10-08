@@ -121,6 +121,7 @@ func Sweep(ctx context.Context, cfg Config) Record {
 		cfg.removeTempLeaks(processes, &record)
 		cfg.trimRetiredTasks(processes, &record)
 		cfg.keepRecentBackups(processes, &record)
+		cfg.retireMovedCaches(&record)
 	}
 	cfg.trimCaches(ctx, &record)
 	cfg.reportProjectsRoot(&record)
