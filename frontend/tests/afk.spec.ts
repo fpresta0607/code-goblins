@@ -157,28 +157,78 @@ test("the toggle is in the header in the panel's Task view and its Terminal view
   }
 });
 
-// The Overlord, 2026-10-08: "everything error wise goes to cfo". A refusal
-// of his own press is said in a few words beside it, and goes by itself.
-test("a refusal is said in a few words for a moment, in the question and under the header, and the toggle stays as it was", async ({ page }) => {
+// The Overlord, 2026-10-08: "this yellow text i hate. as an error". A refusal
+// of his own press is an error he can read: what did not happen, then the
+// supervisor's words in full, in the question and under the header, and it
+// stays until he closes it.
+test("a refusal is shown in full as an error, in the question and under the header, until he closes it, and the toggle stays as it was", async ({ page }) => {
   await page.clock.install();
   const supervisor = await open(page, snapshot(), { asked: [], refuses: true, announces: true });
-  const said = /^AFK mode is the Supreme Overlord's switch, and the program.*…$/;
   await openCfoPanel(page);
   await toggle(page).click();
   const asks = page.locator("dialog.afk-dialog");
   await asks.getByRole("button", { name: "Turn AFK on" }).click();
-  await expect(asks.getByRole("status")).toHaveText(said);
+  await expect(asks.getByRole("alert")).toHaveText("AFK did not turn on" + REFUSAL + ".");
   await expect(toggle(page)).toHaveAttribute("aria-checked", "false");
   await asks.getByRole("button", { name: "Cancel" }).click();
-  await expect(header(page).locator(".click-feedback")).toHaveCount(0);
+  await expect(header(page).getByRole("alert")).toHaveCount(0);
 
   await push(page, snapshot({ afk: on() }));
   await toggle(page).click();
-  await expect(header(page).locator(".click-feedback")).toHaveText(said);
+  const refusal = header(page).getByRole("alert");
+  await expect(refusal).toHaveText("AFK did not turn off" + REFUSAL + ".");
   await expect(toggle(page)).toHaveAttribute("aria-checked", "true");
-  await page.clock.fastForward(6000);
-  await expect(header(page).locator(".click-feedback")).toHaveCount(0);
+  await page.clock.fastForward(60_000);
+  await expect(refusal).toBeVisible();
+  await refusal.getByRole("button", { name: "Close the message" }).click();
+  await expect(header(page).getByRole("alert")).toHaveCount(0);
   expect(supervisor.asked.map((ask) => ask.on)).toEqual([true, false]);
+});
+
+// A turn-on refused after he closed the question still says which way he
+// pressed: AFK did not turn on, under the header.
+test("a refusal that arrives after he cancelled Go AFK says AFK did not turn on", async ({ page }) => {
+  await open(page, snapshot());
+  let answer = () => {};
+  const answered = new Promise<void>((resolve) => { answer = resolve; });
+  await page.route("**/api/afk", async (route) => {
+    if (route.request().method() !== "POST") return route.fallback();
+    await answered;
+    await route.fulfill({ status: 403, json: { error: REFUSAL } });
+  });
+  await openCfoPanel(page);
+  await toggle(page).click();
+  const asks = page.locator("dialog.afk-dialog");
+  await asks.getByRole("button", { name: "Turn AFK on" }).click();
+  await expect(asks.getByRole("button", { name: "Turning AFK on…" })).toBeDisabled();
+  await asks.getByRole("button", { name: "Cancel" }).click();
+  await expect(asks).toHaveCount(0);
+  answer();
+  await expect(header(page).getByRole("alert")).toHaveText("AFK did not turn on" + REFUSAL + ".");
+  await expect(toggle(page)).toHaveAttribute("aria-checked", "false");
+});
+
+// The Overlord, 2026-10-08: "hate that loading message doesnt happen on button
+// when i click turn off". The button he pressed says it is working until the
+// supervisor answers.
+test("Turn AFK off says it is working until the supervisor answers", async ({ page }) => {
+  await open(page, snapshot({ afk: on({}, 8 * HOURS) }));
+  let answer = () => {};
+  const answered = new Promise<void>((resolve) => { answer = resolve; });
+  await page.route("**/api/afk", async (route) => {
+    if (route.request().method() !== "POST") return route.fallback();
+    await answered;
+    await route.fulfill({ json: { state: "off" } });
+  });
+  await page.locator(".board-column").first().click({ position: { x: 8, y: 8 } });
+  await offer(page).getByRole("button", { name: "Turn AFK off" }).click();
+  const working = offer(page).getByRole("button", { name: "Turning AFK off…" });
+  await expect(working).toBeDisabled();
+  await expect(working).toHaveAttribute("aria-busy", "true");
+  await expect(working.locator(".card-start-spinner")).toBeVisible();
+  answer();
+  await expect(offer(page)).toHaveCount(0);
+  await expect(report(page)).toContainText("AFK report");
 });
 
 // The Overlord, 2026-10-08: "held for you in afk mode not needed it should
@@ -394,18 +444,34 @@ test("his first click or key after the CFO turned AFK on at his ask offers the s
   expect(supervisor.asked).toEqual([]);
 });
 
-test("the report lists what is held first, then how much of each thing the CFO did, each decision with its link and what it stood on, and what was spent, and opens again from the header", async ({ page }) => {
+test("the report lists what still waits on him first, then how much of each thing the CFO did, each decision with its link and what it stood on in a drawer of its own, and what was spent, and opens again from the header", async ({ page }) => {
   await open(page, snapshot({ questions: [QUESTIONS[0]], afk: KEPT }));
   // A page that opens after AFK mode turned off shows no report by itself.
   await expect(report(page)).toHaveCount(0);
   await openCfoPanel(page);
   await header(page).getByRole("button", { name: "Open the last AFK report" }).click();
   await expect(report(page).locator(".afk-report-title")).toContainText("Turned on from your board, off from your terminal.");
-  await expect(report(page).locator(".afk-tally li")).toHaveText(["Held for you 2", "Left for you 1", "Merged 1", "Merge words with no merge recorded 1", "Deployed 0", "Answered for goblins 1", "Other decisions 1", "Paused at a floor 1", "Goblins finished 1"]);
+  // Held for you counts only what still waits on him in the Command Center.
+  await expect(report(page).locator(".afk-tally li")).toHaveText(["Held for you 1", "Left for you 1", "Merged 1", "Merge words with no merge recorded 1", "Deployed 0", "Answered for goblins 1", "Other decisions 1", "Paused at a floor 1", "Goblins finished 1"]);
   // Coming back he reads what is held before what was decided.
   expect(await report(page).locator("section").evaluateAll((sections) => sections.map((section) => section.getAttribute("aria-label")))).toEqual(["Held for you", "Left for you", "Merged", "Merge words with no merge recorded", "Answered for goblins", "Other decisions", "Paused at a floor", "Goblins finished", "Spent"]);
   // A section with nothing in it is counted above and not listed.
   await expect(report(page).getByRole("region", { name: "Deployed" })).toHaveCount(0);
+
+  // The Overlord, 2026-10-08: "really long merged and goblins completed rows
+  // should be collapsed in panel like drawer". What still waits on him is
+  // open, and every other section is a drawer, closed until he opens it.
+  for (const name of ["Merged", "Answered for goblins", "Other decisions", "Paused at a floor", "Goblins finished"]) {
+    const section = report(page).getByRole("region", { name, exact: true });
+    await expect(section.locator("details.afk-drawer")).not.toHaveAttribute("open");
+    await expect(section.locator("li")).toHaveCount(0);
+    await section.locator("summary").click();
+    await expect(section.locator("li")).toHaveCount(1);
+  }
+  for (const name of ["Left for you", "Merge words with no merge recorded"]) {
+    await expect(report(page).getByRole("region", { name, exact: true }).locator("details")).toHaveCount(0);
+  }
+  await expect(report(page).getByRole("region", { name: "Goblins finished" })).toContainText("nw-login-rate");
 
   // What only he can do was left for him in the backlog and worked around, and
   // it still waits on him.
@@ -434,25 +500,36 @@ test("the report lists what is held first, then how much of each thing the CFO d
   await expect(paused).toContainText("Evidence: 3.1 GB of memory and 8.0 GB of commit free on two readings in a row");
   await expect(paused.locator(".delivery path")).toHaveAttribute("d", "M8 5v14M16 5v14");
 
+  // The Overlord, 2026-10-08: "held for you is truly only when command center
+  // needs me". What he answered since is not held for him, and nothing there
+  // wears a check.
   const held = report(page).getByRole("region", { name: "Held for you" }).locator("li");
-  await expect(held).toHaveCount(2);
-  await expect(held.nth(0).locator(".afk-recommends")).toHaveText("The CFO recommends: Hold it.");
-  await expect(held.nth(1).locator(".afk-recommends")).toHaveText("nw-checkout-tax recommended: Hold it.");
-  await expect(held.nth(1)).toContainText("You answered it: Keep it for now.");
-  // What was spent is a row for each allowance used: its mark, its name, a
-  // graph with a red arrow at its percent when AFK turned off and a hollow one
-  // where it stood when AFK turned on, and the percents themselves.
-  const spent = report(page).getByRole("region", { name: "Spent" }).locator("li");
-  await expect(spent).toHaveText(["Claude week41% → 49%", "Claude session42% → 3%", "Codex week4%", "Codex credits12.5 spent"]);
-  await expect(spent.nth(0).getByRole("img", { name: "Claude week 41% used at AFK on and 49% at AFK off" })).toBeVisible();
-  await expect(spent.nth(0).locator(".afk-spent-arrow")).toHaveCount(2);
-  await expect(spent.nth(0).locator(".afk-spent-arrow:not(.then)")).toHaveAttribute("style", "left: 49%;");
-  await expect(spent.nth(0).locator(".afk-spent-arrow.then")).toHaveAttribute("style", "left: 41%;");
-  await expect(spent.nth(1).getByRole("img")).toHaveAccessibleName("Claude session 42% used at AFK on and 3% at AFK off after it reset");
-  await expect(spent.nth(2).locator(".afk-spent-arrow")).toHaveCount(1);
-  await expect(spent.nth(3).getByRole("img")).toHaveCount(0);
-  expect(await report(page).getByRole("region", { name: "Spent" }).evaluate((section) => section.textContent)).not.toMatch(/not read|0%/);
-
+  await expect(held).toHaveCount(1);
+  await expect(held.locator(".afk-recommends")).toHaveText("The CFO recommends: Hold it.");
+  await expect(report(page).getByRole("region", { name: "Held for you" })).not.toContainText("You answered it");
+  await expect(held.locator(".delivery")).toHaveClass(/uncertain/);
+  // The Overlord, 2026-10-08: "dont need to show 5 hour limit make it simpler
+  // like how much is left in weekly limits only and credits only iff used".
+  // Spent is a row for each weekly limit and each credit balance spent: its
+  // mark, its name, a bar with what was used before AFK in gray and what AFK
+  // used in green under a green arrow from where it stood to where it ended,
+  // what is left, and how much AFK used. Claude's five-hour session is not
+  // shown, and a reading not taken shows no line saying it was not.
+  const spentSection = report(page).getByRole("region", { name: "Spent" });
+  await expect(spentSection.locator("h3 .afk-spent-legend")).toHaveText("Before AFK While AFK Left");
+  const spent = spentSection.locator("li");
+  await expect(spent).toHaveText(["Claude weekly limit51% leftAFK used 8%", "Codex weekly limit96% left", "Codex credits12.5 credits spent"]);
+  await expect(spent.nth(0).getByRole("img", { name: "Claude weekly limit: 51% left, from 41% to 49% used while AFK was on" })).toBeVisible();
+  await expect(spent.nth(0).locator(".afk-spent-before")).toHaveAttribute("style", "width: 41%;");
+  await expect(spent.nth(0).locator(".afk-spent-used")).toHaveAttribute("style", "left: 41%; width: 8%;");
+  await expect(spent.nth(0).locator(".afk-spent-arrow")).toHaveAttribute("style", "left: 41%; width: 8%;");
+  await expect(spent.nth(0).locator(".afk-spent-change.used")).toHaveText("AFK used 8%");
+  // Read only when AFK turned off, the Codex limit shows what is left and no
+  // bar: what it used before AFK and while it was on cannot be told apart.
+  await expect(spent.nth(1).getByRole("img")).toHaveCount(0);
+  await expect(spent.nth(1).locator(".afk-spent-change")).toHaveCount(0);
+  await expect(spent.nth(2).getByRole("img")).toHaveCount(0);
+  expect(await spentSection.evaluate((section) => section.textContent)).not.toMatch(/not read|session|5-hour|five/i);
   // Something it held still waits on him, so its one button at the bottom is
   // the Command Center, which it opens.
   const actions = report(page).locator(".afk-report-actions button");
@@ -468,7 +545,9 @@ test("with nothing it held still waiting on him, the report's one button at the 
   await page.route("**/api/afk/report", (route) => route.fulfill({ json: { ...REPORT, held: [REPORT.held[1]], spent: [] } }));
   await openCfoPanel(page);
   await header(page).getByRole("button", { name: "Open the last AFK report" }).click();
-  await expect(report(page).locator(".afk-tally li").first()).toHaveText("Held for you 1");
+  // What he answered since needs nothing more of him, so nothing is held.
+  await expect(report(page).locator(".afk-tally li").first()).toHaveText("Held for you 0");
+  await expect(report(page).getByRole("region", { name: "Held for you" })).toHaveCount(0);
   await expect(report(page).getByRole("region", { name: "Spent" })).toHaveCount(0);
   const actions = report(page).locator(".afk-report-actions button");
   await expect(actions).toHaveText(["Back to the board"]);

@@ -1,12 +1,13 @@
 import { useEffect, useId, useRef } from "react";
 import { Avatar } from "./Avatar";
 import { Icon } from "./Icon";
+import { AfkRefusal } from "./afk-refusal";
 import "./afk.css";
-import { ClickFeedback } from "./click-feedback";
 
 // The question before AFK mode turns on, since it hands the CFO the Overlord's
 // authority until he turns it off. Cancel has the focus, so Enter alone turns
-// nothing on.
+// nothing on. Turn AFK on says it is working while the supervisor answers, and
+// a refusal is shown in full above the buttons.
 export function AfkOnDialog({ pending, problem, onTurnOn, onClose }: {
   pending: boolean; problem: string; onTurnOn: () => void; onClose: () => void;
 }) {
@@ -24,9 +25,9 @@ export function AfkOnDialog({ pending, problem, onTurnOn, onClose }: {
     <h2 id={title}>Go AFK?</h2>
     <p id={description}>The CFO runs the fleet under your authority until you turn AFK off, and logs every decision it makes. Nothing on the board prompts you meanwhile.</p>
     <p className="preservation-notice"><Icon name="shield" />What is yours alone is held for you, never decided.</p>
-    <ClickFeedback text={problem} />
+    <AfkRefusal on problem={problem} />
     <div className="stop-task-choices">
-      <button className="primary" disabled={pending} onClick={onTurnOn}>Turn AFK on</button>
+      <button className="primary" disabled={pending} aria-busy={pending} onClick={onTurnOn}>{pending ? <><span className="card-start-spinner" aria-hidden="true" />Turning AFK on…</> : "Turn AFK on"}</button>
       <button onClick={onClose}>Cancel</button>
     </div>
   </dialog>;

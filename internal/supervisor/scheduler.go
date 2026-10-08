@@ -15,8 +15,9 @@ import (
 
 // Scheduling is what the scheduler made of its last reading with memory
 // free, for the board's memory meter and the CFO's idle wake: Text says what
-// it started or resumed, else why nothing started, and Waiting is the work
-// that could run now and did not, each with why.
+// it started or resumed, else why waiting work did not start, and is empty
+// when nothing waits. Waiting is the work that could run now and did not,
+// each with why.
 type Scheduling struct {
 	At      time.Time     `json:"at"`
 	Text    string        `json:"text"`
@@ -141,7 +142,9 @@ func (s *Service) schedule(ctx context.Context, now time.Time, watched *fleetWak
 			record.Text += fmt.Sprintf(" (and %d more)", len(record.Waiting)-1)
 		}
 	default:
-		record.Text = "nothing waits to start"
+		// Nothing waits, so the board says nothing under its meters, as the
+		// Overlord asked on 2026-10-08.
+		record.Text = ""
 	}
 	var refusal StartRefusal
 	if errors.As(problems, &refusal) {
