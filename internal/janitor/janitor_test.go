@@ -118,6 +118,43 @@ func TestSweepRemovesACleanExtraWorktreeWhoseWorkIsOnTheDefaultBranch(t *testing
 	}
 }
 
+// A home whose heavy folders moved to a Dev Drive has orphans in both places:
+// new worktrees on the drive and those of tasks made before the move in the
+// home's own folder. The janitor returns both, as it does in a home that never
+// moved, and takes a finished task's scratch from either.
+func TestSweepTidiesBothFoldersOfAHomeOnADevDrive(t *testing.T) {
+	// Arrange
+	f := newSweepFixture(t)
+	f.home.DevDrive = filepath.Join(t.TempDir(), "CodeGoblins")
+	onDrive := f.worktree(t, "gone-task-proof")
+	inHome := filepath.Join(f.home.Root, "worktrees", "app", "older-task-proof")
+	gitIn(t, f.project, "worktree", "add", "-q", "--detach", inHome, "origin/main")
+	beforeMove := reap.WorktreeDir{Path: inHome, Project: f.project, TaskID: "older-task-proof", Registration: reap.RegistrationListed, Created: f.now.Add(-2 * time.Hour)}
+	deadScratch := []string{folder(t, filepath.Join(f.home.Scratch(), "gone-task"), true), folder(t, filepath.Join(f.home.Root, "scratch", "older-task"), true)}
+	liveScratch := []string{folder(t, filepath.Join(f.home.Scratch(), "live"), true), folder(t, filepath.Join(f.home.Root, "scratch", "live-before"), true)}
+	cfg := f.config(reap.Inventory{
+		Worktrees: []reap.WorktreeDir{onDrive, beforeMove},
+		Tasks:     []reap.Task{{ID: "live", Meta: state.TaskMeta{ID: "live"}}, {ID: "live-before", Meta: state.TaskMeta{ID: "live-before"}}},
+		Processes: []reap.Process{selfProcess(t)},
+	})
+	cfg.TempDir = t.TempDir()
+
+	// Act
+	record := Sweep(context.Background(), cfg)
+
+	// Assert
+	for _, gone := range append([]string{onDrive.Path, inHome}, deadScratch...) {
+		if _, err := os.Stat(gone); !os.IsNotExist(err) {
+			t.Errorf("%s survived: %v; kept %+v notes %v", gone, err, record.Kept, record.Notes)
+		}
+	}
+	for _, kept := range liveScratch {
+		if _, err := os.Stat(kept); err != nil {
+			t.Errorf("a live task's scratch %s was removed: %v", kept, err)
+		}
+	}
+}
+
 // A worktree an older build put in a checkout's .worktrees is found through
 // the projects root, which every home on the machine shares, so no record of
 // this home says it is this fleet's rather than another home's: the janitor

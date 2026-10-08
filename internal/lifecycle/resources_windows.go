@@ -59,9 +59,7 @@ func ownResources(ctx context.Context, h home.Home, meta state.TaskMeta, command
 	var resources Resources
 	stateDir := h.State
 	project := filepath.Base(filepath.Clean(meta.Project))
-	own := filepath.Join(h.Worktrees(), project, meta.ID)
-	legacy := filepath.Join(meta.Project, home.LegacyWorktreesDir, home.LegacyWorktreePrefix+meta.ID)
-	if !filepath.IsAbs(meta.Project) || (!strings.EqualFold(filepath.Clean(meta.Worktree), own) && !strings.EqualFold(filepath.Clean(meta.Worktree), legacy)) {
+	if !filepath.IsAbs(meta.Project) || !slices.ContainsFunc(h.OwnWorktrees(meta.Project, meta.ID), func(own string) bool { return strings.EqualFold(filepath.Clean(meta.Worktree), own) }) {
 		return resources, errors.New("task worktree is not its isolated project worktree")
 	}
 	if !strings.EqualFold(filepath.Clean(meta.TaskTmp), filepath.Join(stateDir, "tasktmp", meta.ID)) {
@@ -70,13 +68,17 @@ func ownResources(ctx context.Context, h home.Home, meta state.TaskMeta, command
 	resources.Directories = []string{meta.Worktree, meta.TaskTmp}
 	for _, extra := range meta.Extras {
 		name := filepath.Base(filepath.Clean(extra))
-		if !strings.EqualFold(filepath.Dir(filepath.Clean(extra)), filepath.Join(h.Worktrees(), project)) || !strings.HasPrefix(strings.ToLower(name), strings.ToLower(meta.ID)+"-") {
+		if !slices.ContainsFunc(h.WorktreeRoots(), func(root string) bool {
+			return strings.EqualFold(filepath.Dir(filepath.Clean(extra)), filepath.Join(root, project))
+		}) || !strings.HasPrefix(strings.ToLower(name), strings.ToLower(meta.ID)+"-") {
 			return resources, errors.New("task extra worktree is not one beside its own")
 		}
 		resources.Directories = append(resources.Directories, extra)
 	}
 	if meta.Scratch != "" {
-		if !strings.EqualFold(filepath.Clean(meta.Scratch), filepath.Join(h.Scratch(), meta.ID)) {
+		if !slices.ContainsFunc(h.ScratchRoots(), func(root string) bool {
+			return strings.EqualFold(filepath.Clean(meta.Scratch), filepath.Join(root, meta.ID))
+		}) {
 			return resources, errors.New("task scratch folder does not match its task identity")
 		}
 		resources.Directories = append(resources.Directories, meta.Scratch)

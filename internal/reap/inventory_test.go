@@ -281,6 +281,52 @@ func TestWorktreesConfirmRegistrationWithTheRepository(t *testing.T) {
 	}
 }
 
+// A home whose heavy folders moved to a Dev Drive keeps the worktrees of tasks
+// made before the move in its own worktrees folder, so the scan lists both, and
+// the owner of either is found.
+func TestWorktreesScansTheDevDriveAndTheHomesOwnFolder(t *testing.T) {
+	// Arrange
+	root := t.TempDir()
+	projects := filepath.Join(root, "dev")
+	checkout := filepath.Join(projects, "repo")
+	gitInit(t, checkout)
+	h := withRecords(t, filepath.Join(root, "home"))
+	h.DevDrive = filepath.Join(root, "devdrive", "CodeGoblins")
+	moved := filepath.Join(h.DevDrive, "worktrees", "repo", "new-task")
+	kept := filepath.Join(h.Root, "worktrees", "repo", "old-task")
+	for _, worktree := range []string{moved, kept} {
+		command := exec.Command("git", "worktree", "add", "--detach", worktree)
+		command.Dir = checkout
+		if out, err := command.CombinedOutput(); err != nil {
+			t.Fatalf("git worktree add: %v: %s", err, out)
+		}
+	}
+	collector := Collector{Home: h, Commands: execx.OSRunner{}, ProjectsRoot: func() (string, error) { return projects, nil }}
+
+	// Act
+	var notes []string
+	registration := map[string]Registration{}
+	for _, worktree := range collector.worktrees(context.Background(), nil, &notes) {
+		registration[worktree.Path] = worktree.Registration
+	}
+
+	// Assert
+	for _, worktree := range []string{moved, kept} {
+		if registration[worktree] != RegistrationListed {
+			t.Errorf("%s was not scanned and confirmed; scanned %v, notes %q", worktree, registration, notes)
+		}
+	}
+	for _, worktree := range []string{moved, kept} {
+		if err := state.WriteTaskMeta(h.State, state.TaskMeta{ID: filepath.Base(worktree), Project: checkout, Worktree: worktree}); err != nil {
+			t.Fatal(err)
+		}
+		owner, known, err := WorktreeOwner(h.State, h.WorktreeRoots(), checkout, filepath.Join(worktree, "internal"))
+		if err != nil || !known || owner.ID != filepath.Base(worktree) {
+			t.Errorf("WorktreeOwner(%s) = %+v, %v, %v; want task %s", worktree, owner.ID, known, err, filepath.Base(worktree))
+		}
+	}
+}
+
 // TestWorktreesConfirmRegistrationThroughAJunction: git answers with the
 // junction's target while the scan joins the junction's own name, so comparing
 // the two spellings reports every live worktree in a junctioned checkout as an

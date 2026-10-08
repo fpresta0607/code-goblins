@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { babyFor, canvasChildren, finished, forHowLong, formatMemory, isDimmed, running, silentChild, stateWord, summarize } from "./fleet-tree.ts";
+import { babyFor, finished, hasRunningChildren, forHowLong, formatMemory, isDimmed, running, silentChild, stateWord, summarize } from "./fleet-tree.ts";
 import { makeRoom, NODE_HEIGHT, NODE_WIDTH, settle, waitingOn, workflowNodes } from "./workflow.ts";
 import { parseSnapshot, type FleetTree, type TreeNode } from "./types.ts";
 
@@ -54,16 +54,17 @@ test("a goblin's children at a glance: counts by state, and how many of each kin
     child({ id: "e", kind: "shell", state: "silent", last_activity: ago(14) }), child({ id: "f", kind: "subagent", state: "failed", finished: ago(2) }),
   ];
   const summary = summarize(tree(children));
-  assert.deepEqual({ ...summary, kinds: summary.kinds }, { working: 1, silent: 2, idle: 1, finished: 2, kinds: [["subagent", 1], ["shell", 2], ["server", 1]] });
+  assert.deepEqual({ ...summary, kinds: summary.kinds }, { working: 1, silent: 2, idle: 1, kinds: [["subagent", 1], ["shell", 2], ["server", 1]] });
   assert.deepEqual(running(tree(children)).map((node) => node.id), ["a", "c", "d", "e"]);
   assert.deepEqual(finished(tree(children)).map((node) => node.id), ["f", "b"], "newest first");
   assert.equal(silentChild(tree(children))?.id, "d", "the one silent longest");
   assert.equal(silentChild(tree([children[0]])), undefined);
 });
 
-test("the canvas shows every running child and only the newest finished ones", () => {
-  const children = [child({ id: "run", state: "working" }), ...[1, 2, 3, 4, 5].map((minutes) => child({ id: "done" + minutes, state: "done", finished: ago(minutes) }))];
-  assert.deepEqual(canvasChildren(tree(children)).map((node) => node.id), ["run", "done1", "done2", "done3"]);
+test("a goblin has children to draw on the canvas only while one still runs or idles", () => {
+  for (const [states, isDrawn] of [
+    [[], false], [["done"], false], [["done", "failed"], false], [["working", "done"], true], [["waiting"], true], [["silent"], true],
+  ] as [string[], boolean][]) assert.equal(hasRunningChildren(tree(states.map((state, i) => child({ id: "c" + i, state })))), isDrawn, states.join(", "));
 });
 
 test("rows under a goblin whose children show move down to make room, and keep their rows", () => {
