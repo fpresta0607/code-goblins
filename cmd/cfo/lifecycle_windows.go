@@ -69,24 +69,10 @@ func defaultTaskLifecycle(ctx context.Context, h home.Home, request lifecycle.Re
 		},
 		Prepare: pauseInstruction(runtime, h),
 		Stop: func(ctx context.Context, meta state.TaskMeta, record *state.Lifecycle) ([]string, error) {
-			bounded, cancel := context.WithTimeout(ctx, 10*time.Second)
-			defer cancel()
+			var stopped []string
 			var err error
-			resources, err = lifecycle.TaskResources(bounded, h, meta, gate)
-			stopped, teardown, stopErr := lifecycle.StopResources(bounded, resources)
-			for _, process := range teardown {
-				isTracked := false
-				for _, prior := range record.Teardown {
-					if prior.PID == process.PID && prior.Started.Equal(process.Started) {
-						isTracked = true
-						break
-					}
-				}
-				if !isTracked {
-					record.Teardown = append(record.Teardown, process)
-				}
-			}
-			return stopped, errors.Join(err, stopErr)
+			resources, stopped, err = lifecycle.StopTask(ctx, h, meta, gate, record)
+			return stopped, err
 		},
 		Checkpoint: func(ctx context.Context, meta state.TaskMeta, record *state.Lifecycle) error {
 			if resources.Gate.ID == "" {

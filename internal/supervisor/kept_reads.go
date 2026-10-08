@@ -151,9 +151,21 @@ func ask(path string, isListed bool, list map[string]fs.FileInfo) (fs.FileInfo, 
 // like any other; a result that failed for another reason is never kept.
 // What it returns is shared with later callers, who must not change it.
 func kept[T any](k *keptReads, kind string, paths []string, read func() (T, error)) (T, error) {
+	return keptAsking(k, k.look, kind, paths, read)
+}
+
+// keptWritten is kept for files the caller has just written during a build,
+// which the build last saw as they were before the write: it asks the disk
+// itself, so the next build finds them as they are now and opens none.
+func keptWritten[T any](k *keptReads, kind string, paths []string, read func() (T, error)) (T, error) {
+	return keptAsking(k, os.Stat, kind, paths, read)
+}
+
+// keptAsking is kept, asking look what the disk says of each path.
+func keptAsking[T any](k *keptReads, look func(path string) (fs.FileInfo, error), kind string, paths []string, read func() (T, error)) (T, error) {
 	signs := make([]fileSign, len(paths))
 	for i, path := range paths {
-		info, err := k.look(path)
+		info, err := look(path)
 		switch {
 		case err == nil:
 			signs[i] = fileSign{size: info.Size(), mod: info.ModTime()}

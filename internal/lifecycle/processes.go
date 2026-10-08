@@ -13,6 +13,19 @@ type Identity struct {
 	Started time.Time `json:"started"`
 }
 
+// UnfinishedStop is a stop that ended the task's terminal, which ends its
+// harness and the job under it and frees what the goblin held, while the
+// rest of the stop did not finish: the sweep for the task's other processes,
+// which on a machine short of memory runs out of time, or the read of its
+// gate's state, which waits on a busy no-mistakes daemon.
+type UnfinishedStop struct{ Err error }
+
+func (e UnfinishedStop) Error() string {
+	return "its terminal ended, but the rest of its stop did not finish: " + e.Err.Error()
+}
+
+func (e UnfinishedStop) Unwrap() error { return e.Err }
+
 type Process struct {
 	PID       int
 	ParentPID int
