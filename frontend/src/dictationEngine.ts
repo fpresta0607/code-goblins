@@ -1,6 +1,6 @@
 import { request } from "./api";
 import { speechRecognition, type Recognizer } from "./dictation";
-import { downsample, endInQuiet, localRecognizer, type Recording, type Sound } from "./localDictation";
+import { DictationSetUp, downsample, localRecognizer, Pieces, type Recording, type Sound } from "./localDictation";
 import { object, string } from "./types";
 
 // Which recognizer dictation runs on in this page. The board's own is the
@@ -10,50 +10,59 @@ import { object, string } from "./types";
 
 // The speech model hears at this rate, so a recording is brought down to it.
 const RATE = 16000;
-// The browser's recorder writes Opus, which is at this rate. Decoding at it
-// and averaging down to the model's rate takes about 0.1 s for a six-second
-// line; decoding straight to the model's rate makes the browser resample it
-// with a filter that took two seconds, most of the wait after the keys are
-// let go.
-const RECORDED_RATE = 48000;
+// The worklet the page records through, which the build copies from
+// public/assets.
+const CAPTURE = "/assets/dictation-capture.js";
 const BROWSER_KEY = "cfo-dictation-browser-v1";
 
-// record captures a microphone track with the browser's own recorder until
-// it is stopped, then decodes what was recorded into samples at the model's
-// rate. Nothing but the browser is needed, in a tab or in the desktop app.
-export function record(track: MediaStreamTrack): Recording {
-  const recorder = new MediaRecorder(new MediaStream([track]));
-  const parts: Blob[] = [];
-  recorder.ondataavailable = (event) => { if (event.data.size) parts.push(event.data); };
-  recorder.start();
+// record captures a microphone track's samples as they arrive, through the
+// capture worklet, and hands on each piece of what is said at the model's
+// rate as soon as it ends in a pause. stop asks the worklet for what it still
+// holds and returns what followed the last piece. Nothing but the browser is
+// needed, in a tab or in the desktop app.
+export function record(track: MediaStreamTrack, piece: (sound: Sound) => void): Recording {
+  const context = new AudioContext();
+  void context.resume();
+  let stopped = false;
+  const pieces = new Pieces(context.sampleRate, (sound) => { if (!stopped) piece(downsample(sound, RATE)); });
+  let flushed = () => {};
+  const capture = context.audioWorklet.addModule(CAPTURE).then(() => {
+    const node = new AudioWorkletNode(context, "dictation-capture", { numberOfOutputs: 0 });
+    node.port.onmessage = (event: MessageEvent<Float32Array | null>) => {
+      if (event.data) { if (!stopped) pieces.push(event.data); } else flushed();
+    };
+    context.createMediaStreamSource(new MediaStream([track])).connect(node);
+    return node;
+  });
+  capture.catch(() => undefined);
   return {
-    stop: () => new Promise((resolve, reject) => {
-      recorder.onstop = () => { decode(new Blob(parts, { type: recorder.mimeType })).then(resolve, reject); };
-      recorder.stop();
-    }),
-    cancel: () => { recorder.ondataavailable = null; if (recorder.state !== "inactive") recorder.stop(); },
+    stop: async () => {
+      try {
+        const node = await capture;
+        await new Promise<void>((resolve) => { flushed = resolve; node.port.postMessage("flush"); });
+        return downsample(pieces.rest(), RATE);
+      } finally {
+        stopped = true;
+        void context.close();
+      }
+    },
+    cancel: () => { stopped = true; void context.close(); },
   };
 }
 
-// decode turns a recording into one channel of samples at the model's rate,
-// ending half a second after its last loud part. A recording too short to
-// hold any sound decodes to none.
-async function decode(recording: Blob): Promise<Sound> {
-  const silence: Sound = { samples: new Float32Array(0), rate: RATE };
-  if (!recording.size) return silence;
-  const context = new OfflineAudioContext(1, 1, RECORDED_RATE);
-  try {
-    const sound = await context.decodeAudioData(await recording.arrayBuffer());
-    return endInQuiet(downsample({ samples: sound.getChannelData(0), rate: sound.sampleRate }, RATE));
-  } catch {
-    return silence;
-  }
-}
-
 // recogniseWith has the supervisor recognise a WAV sound, as the board whose
-// token is instance. What the supervisor refuses with is thrown as it wrote it.
+// token is instance. What the supervisor refuses with is thrown as it wrote
+// it, as a DictationSetUp while its speech model is being set up.
 export function recogniseWith(instance: () => string): (sound: Uint8Array<ArrayBuffer>, signal: AbortSignal) => Promise<string> {
-  return async (sound, signal) => string(object(await request("/api/dictation", signal, { method: "POST", headers: { "Content-Type": "audio/wav", "X-CFO-Token": instance() }, body: sound })).text);
+  return async (sound, signal) => {
+    try {
+      return string(object(await request("/api/dictation", signal, { method: "POST", headers: { "Content-Type": "audio/wav", "X-CFO-Token": instance() }, body: sound })).text);
+    } catch (error) {
+      const status = signal.aborted ? null : await dictationStatus().catch(() => null);
+      if (status && status.state !== "ready") throw new DictationSetUp(error instanceof Error ? error.message : String(error));
+      throw error;
+    }
+  };
 }
 
 // warmWith has the supervisor load its engine as a dictation begins, as the

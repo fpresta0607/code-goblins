@@ -1,9 +1,14 @@
 import { useState } from "react";
 import { createRoot } from "react-dom/client";
+import { knowInstance } from "../../src/api";
 import { useDictation } from "../../src/useDictation";
 import { useVoice } from "../../src/useVoice";
 import { VoiceBubble } from "../../src/VoiceBubble";
 import "../../src/styles.css";
+
+// The board learns its token from the supervisor's snapshot; a report to the
+// CFO carries it.
+knowInstance("test-instance");
 
 // One native terminal pane with its voice bubble: the terminal is a text box
 // whose keys reach dictation as the real terminal's do, and what dictation or

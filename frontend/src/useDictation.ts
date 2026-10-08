@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
+import { reportToCfo } from "./api";
 import { Dictation, dictationKey, openMicrophone } from "./dictation";
 import { dictationStatus, modelName, recognizerFor } from "./dictationEngine";
 
@@ -108,9 +109,11 @@ export function useDictation(type: (text: string) => void, instance: string) {
         setNote({ text, lasting: false });
         if (text) void follow();
       };
+      // Words that could not be had go to the CFO, not onto the board.
+      const failed = (reason: string) => reportToCfo("dictation", reason);
       // A set-up that failed was shown until now.
       setNote((prior) => prior.lasting && !following.current ? NO_NOTE : prior);
-      dictation.current ??= new Dictation({ heard, listening: setListening, problem }, () => recognizerFor(() => token.current), navigator.language || "en-US", openMicrophone);
+      dictation.current ??= new Dictation({ heard, listening: setListening, problem, failed }, () => recognizerFor(() => token.current), navigator.language || "en-US", openMicrophone);
       dictation.current.start();
     }
     if (meaning.action === "stop") {
