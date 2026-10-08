@@ -159,6 +159,37 @@ func installOnAScratchMachine(t *testing.T, dir string, args ...string) (root, p
 	return filepath.Join(local, "CodeGoblins"), profile, envFile
 }
 
+// An install from a build that carries no board would put a page saying the
+// board was not built in place of the board, so it is refused before anything
+// changes and says how to build one that carries it. An uninstall needs no
+// board and goes on.
+func TestInstallRefusesABuildWithoutItsBoard(t *testing.T) {
+	// Arrange
+	boardBuilt = func() bool { return false }
+	t.Cleanup(func() { boardBuilt = func() bool { return true } })
+	local := t.TempDir()
+	t.Setenv("LOCALAPPDATA", local)
+	t.Setenv(install.UserEnvFileVariable, filepath.Join(t.TempDir(), "user-env.json"))
+
+	// Act
+	var stdout, stderr bytes.Buffer
+	code := runInstall(nil, &stdout, &stderr)
+
+	// Assert
+	if code != 1 {
+		t.Fatalf("cfo install from a build without its board exited %d, want 1:\n%s%s", code, stdout.String(), stderr.String())
+	}
+	for _, want := range []string{"carries no board", "npm run build", "nothing was changed"} {
+		if !strings.Contains(stderr.String(), want) {
+			t.Errorf("the refusal does not say %q:\n%s", want, stderr.String())
+		}
+	}
+	if _, err := os.Stat(filepath.Join(local, "CodeGoblins")); !os.IsNotExist(err) {
+		t.Errorf("the refused install made the home anyway: %v", err)
+	}
+	installOnAScratchMachine(t, t.TempDir(), "--uninstall")
+}
+
 // --dev-drive keeps the person's answer to the setup's Dev Drive offer in the
 // home: on asks the board for the first step's Command Center item, off keeps
 // the offer away, and without it nothing is recorded.
