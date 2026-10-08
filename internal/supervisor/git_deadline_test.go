@@ -1,6 +1,7 @@
 package supervisor
 
 import (
+	"cmp"
 	"context"
 	"errors"
 	"fmt"
@@ -19,7 +20,12 @@ const CUSTODY_GIT_PHASE_VARIABLE = "CFO_TEST_CUSTODY_GIT_PHASE"
 
 // TestMain runs this test binary as a git that never answers when it is
 // started under that name, the stand-in for a git slowed past its deadline,
-// and as a process holding the watcher lock when started as one.
+// and as a process holding the watcher lock when started as one. Otherwise it
+// runs the tests with git's search for a repository stopped at the folder
+// t.TempDir makes its folders in: a task whose worktree is a plain temp
+// folder has its git reads run there, and where the temp folders sit inside a
+// checkout, as a goblin's scratch sits inside the home's, they read that
+// checkout instead of failing.
 func TestMain(m *testing.M) {
 	if name := filepath.Base(os.Args[0]); strings.EqualFold(strings.TrimSuffix(name, filepath.Ext(name)), "git") {
 		if path := os.Getenv(CUSTODY_GIT_PHASE_VARIABLE); path != "" {
@@ -46,6 +52,9 @@ func TestMain(m *testing.M) {
 			os.Exit(1)
 		}
 		os.Exit(0)
+	}
+	if err := os.Setenv("GIT_CEILING_DIRECTORIES", cmp.Or(os.Getenv("GOTMPDIR"), os.TempDir())); err != nil {
+		panic(err)
 	}
 	os.Exit(m.Run())
 }
