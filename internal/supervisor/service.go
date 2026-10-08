@@ -122,13 +122,16 @@ type Options struct {
 }
 
 type Service struct {
-	Store                *Store
-	Options              Options
-	Git                  Git
-	Instance             string
-	Started              time.Time
-	mu                   sync.Mutex
-	lastError            string
+	Store     *Store
+	Options   Options
+	Git       Git
+	Instance  string
+	Started   time.Time
+	mu        sync.Mutex
+	lastError string
+	// boardErrors keeps an error the board would have shown the Overlord
+	// from waking the CFO more than once an hour (board_errors.go).
+	boardErrors          boardErrors
 	isNativeInboxFailing bool
 	nativeInboxRepair    error
 	reconciled           time.Time

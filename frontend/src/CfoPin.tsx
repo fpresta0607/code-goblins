@@ -10,6 +10,7 @@ import { harnessMark } from "./connectors";
 import { harnessTip } from "./workflow";
 import { SubscriptionDial } from "./subscription-dial";
 import "./cfo-pin.css";
+import { ClickFeedback, useClickFeedback } from "./click-feedback";
 
 // The CFO pinned above the board's columns: at rest a plain bar, a card like
 // the columns under it, that says how many goblins are at work, with its
@@ -36,25 +37,24 @@ import "./cfo-pin.css";
 export function CfoPin({ snapshot, now, onOpen, onCommand, onStart }: { snapshot: Snapshot; now: number; onOpen: (source: HTMLElement) => void; onCommand: () => void; onStart: () => void }) {
   const { waiting, line } = cfoSummary(snapshot);
   const [reopening, setReopening] = useState(false);
-  const [failure, setFailure] = useState("");
+  const [feedback, showFeedback] = useClickFeedback();
   // The board shows the reopened CFO from its next snapshot, so a reopen
   // that worked has nothing more to do here.
   const reopen = async () => {
     setReopening(true);
-    setFailure("");
+    showFeedback("");
     try {
       await request("/api/cfo/reopen", undefined, { method: "POST", headers: { "Content-Type": "application/json", "X-CFO-Token": snapshot.instance }, body: "{}" });
-    } catch (error) {
-      setFailure(message(error));
-    } finally {
+    } catch (error: unknown) { showFeedback(message(error)); } finally {
       setReopening(false);
     }
   };
   if (snapshot.cfo_closed) return <div className="cfo-pin">
     <div className="cfo-rest" role="group" aria-label="CFO">
       <span className="cfo-rest-portrait"><Avatar persona="cfo" /></span>
-      <p>The CFO is closed. Goblins keep running.{failure && <span className="warning-text" role="alert"> {failure}</span>}</p>
+      <p>The CFO is closed.</p>
       <button className="labelled-button primary" disabled={reopening} onClick={reopen}><Icon name="play" />{reopening ? "Reopening the CFO…" : "Reopen the CFO"}</button>
+      <ClickFeedback text={feedback} />
     </div>
   </div>;
   const absent = !snapshot.cfo_runs;

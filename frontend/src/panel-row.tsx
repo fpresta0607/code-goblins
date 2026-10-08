@@ -28,7 +28,7 @@ const GAP = 8;
 // is cut: the controls the row cannot hold at full size go into More, the
 // least important first, and at the narrowest widths the switch shows its
 // icons without its words (see rowFit). notice is drawn under the row's end,
-// such as why Open in terminal was refused.
+// such as what a press of Open in terminal met.
 export function PanelRow({ view, onView, controls, corner, notice }: {
   view?: PanelView; onView?: (view: PanelView) => void; controls: PanelControl[]; corner: ReactNode; notice?: ReactNode;
 }) {

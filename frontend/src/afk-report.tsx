@@ -42,9 +42,9 @@ export function AfkReportPage({ tasks, now, onClose, onCommand }: { tasks: Task[
       </div>
       <button className="icon-button" aria-label="Close the report" data-tip="Close" data-tip-align="end" onClick={onClose}><Icon name="close" /></button>
     </div>
-    {error && <div className="error-box" role="alert"><p>{error}</p><button className="icon-button" aria-label="Load the report again" data-tip="Retry" data-tip-align="start" onClick={reload}><Icon name="refresh" /></button></div>}
+    {error && <button className="icon-button raised" aria-label="Load the report again" data-tip="Retry" data-tip-align="start" onClick={reload}><Icon name="refresh" /></button>}
     {data === undefined && !error && <p className="loading" role="status">Loading the report</p>}
-    {data === null && <p className="muted">No stretch of AFK mode has ended yet, so there is no report.</p>}
+    {data === null && <p className="muted">No report yet.</p>}
     {data && <>
       <ul className="afk-tally" aria-label="In all">{tally.map(([name, count]) => <li key={name} className={count ? undefined : "none"}>{name} <span className="column-count">{count}</span></li>)}</ul>
       {data.held.length > 0 && <section aria-label="Held for you">

@@ -196,6 +196,8 @@ func (h *HTTP) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		h.restartCFO(w, r)
 	case r.URL.Path == "/api/cfo/update" && r.Method == "POST":
 		h.updateCFO(w, r)
+	case r.URL.Path == "/api/cfo/report" && r.Method == "POST":
+		h.reportBoardError(w, r)
 	case r.URL.Path == "/api/start-at-login" && r.Method == "POST":
 		h.setStartAtLogin(w, r)
 	case r.URL.Path == "/api/dev-drive" && r.Method == "POST":

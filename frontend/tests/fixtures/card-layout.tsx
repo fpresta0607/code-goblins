@@ -45,9 +45,9 @@ function Fixture() {
     document.addEventListener("keydown", close);
     return () => document.removeEventListener("keydown", close);
   }, []);
-  const board = <Board snapshot={snapshot} layout="stacked" selected={selected} now={now} presentations={presentations} onSelect={select} onTerminal={() => {}} onOpenCfo={() => {}} onOpenCommand={() => {}} onStartCfo={() => {}} cardStart={() => ({ blocked: "", problem: "", onStart: () => {} })} />;
+  const board = <Board snapshot={snapshot} layout="stacked" selected={selected} now={now} presentations={presentations} onSelect={select} onTerminal={() => {}} onOpenCfo={() => {}} onOpenCommand={() => {}} onStartCfo={() => {}} cardStart={() => ({ blocked: "", onStart: () => Promise.resolve("") })} />;
   if (search.has("queue")) return <aside className="context-pane" style={{ width: "calc(100vw - 16px)" }}><div className="panel-content"><section className="cfo-queue" aria-label="Queued tasks">
-    <QueuedTasks snapshot={snapshot} selected={selected} now={now} presentations={presentations} cardStart={() => ({ blocked: "", problem: "", onStart: () => {} })} onSelect={select} />
+    <QueuedTasks snapshot={snapshot} selected={selected} now={now} presentations={presentations} cardStart={() => ({ blocked: "", onStart: () => Promise.resolve("") })} onSelect={select} />
   </section></div></aside>;
   return width ? <main className="canvas-region" style={{ width }}>{board}</main> : board;
 }

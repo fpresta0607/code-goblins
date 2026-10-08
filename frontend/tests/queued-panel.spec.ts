@@ -162,8 +162,9 @@ test("Adjust this task has Save changes, labelled, under its text box, and no Se
   await expect(panel(page).getByText("Send", { exact: false })).toHaveCount(0);
   const box = (await form.getByRole("textbox").boundingBox())!;
   expect((await row.boundingBox())!.y).toBeGreaterThan(box.y + box.height);
-  // Save changes says what it does; no line under it says it again.
-  await expect(form.locator("p.muted")).toHaveText(["First line is the title. Following lines are the detail."]);
+  // Save changes says what it does, and no line under the form explains it
+  // (the Overlord, 2026-10-08: "less text is better").
+  await expect(form.locator("p.muted")).toHaveCount(0);
   await form.getByRole("textbox").fill("A better title\n\nIts new detail.");
   await form.getByRole("button", { name: "Save changes" }).click();
   await expect.poll(() => posted).toEqual([{ path: "/api/tasks/adjust", body: expect.objectContaining({ task: "queued-one", revision: "q1", text: "A better title\n\nIts new detail.", action: "save" }) }]);

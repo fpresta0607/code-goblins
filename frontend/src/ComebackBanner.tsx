@@ -22,7 +22,7 @@ export function ComebackBanner({ comeback }: { comeback?: Comeback }) {
     try { localStorage.setItem(DISMISSED_KEY, comeback.signed_in); } catch { /* the line comes back on a reload */ }
   };
   return <div className={"update-banner comeback-banner" + (line.isDone ? "" : " working")} role="status">
-    <span>{line.text}{line.detail && <> <span className="comeback-detail">{line.detail}</span></>}</span>
+    <span>{line.text}</span>
     {line.isDone && <button onClick={dismiss}>Dismiss</button>}
   </div>;
 }

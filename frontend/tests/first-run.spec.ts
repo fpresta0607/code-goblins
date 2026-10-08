@@ -189,7 +189,7 @@ test("the projects folder is optional: one he looked at is sent, and one with no
   await page.getByRole("button", { name: "Look" }).click();
 
   // Assert
-  await expect(page.getByRole("alert")).toHaveText(noCheckout);
+  await expect(page.locator(".first-run-step .click-feedback")).toHaveText("No git checkout is in this folder.");
   await expect(start).toBeDisabled();
 
   // Act: a folder with one.
@@ -216,7 +216,7 @@ for (const [name, entered] of [["an empty field", ""], ["only spaces", "   "]]) 
     await page.getByRole("button", { name: "Look" }).click();
 
     // Assert
-    await expect(page.getByRole("alert")).toHaveText(unreadable);
+    await expect(page.locator(".first-run-step .click-feedback")).toHaveText(unreadable);
     await expect(start).toBeEnabled();
     await start.click();
     await expect(page.getByRole("status", { name: "Outcome" })).toHaveText("The CFO's terminal opens");

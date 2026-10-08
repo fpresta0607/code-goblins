@@ -392,7 +392,6 @@ button:focus:not(:focus-visible), summary:focus:not(:focus-visible), [tabindex]:
 
 .canvas-controls > button { border-radius: 50%; }
 .canvas-controls output { min-width: 62px; text-align: center; color: #bcd2e3; font-size: .9375rem; }
-.layout-notice { position: absolute; bottom: 76px; left: 18px; right: 18px; padding: 10px; background: #241e12; color: var(--amber); font-size: .9375rem; border-radius: 10px; }
 .context-pane { display: flex; flex-direction: column; min-width: 0; min-height: 0; overflow: hidden; border: 1px solid var(--glass-border); border-radius: var(--radius); background: var(--glass-bg), var(--hero-surface); box-shadow: var(--glass-shadow); }
 .icon-button { display: grid; place-items: center; width: 44px; height: 44px; min-height: 44px; padding: 0; background: transparent; border-color: transparent; border-radius: 50%; flex: none; }
 .icon-button:hover { background: #ffffff0f; }
@@ -405,25 +404,15 @@ button:focus:not(:focus-visible), summary:focus:not(:focus-visible), [tabindex]:
 .icon-button.raised:hover:not(:disabled) { transform: var(--lift); border-color: var(--glass-border-hover); box-shadow: var(--glass-shadow-hover); background: var(--glass-bg-hover), var(--hero-surface); }
 .empty-state { display: grid; align-content: center; gap: 14px; min-height: 350px; padding: 24px; text-align: center; color: var(--muted); max-width: 36rem; margin: 0 auto; }
 .empty-state h2 { color: #edf4f3; }
-.error-box p { margin: 0; }
-.error-box .raw-details { margin-top: 6px; }
-.connection-banner, .error-box { border: 1px solid #735338; border-radius: var(--radius); background: #292116; color: #f1c598; padding: 14px; margin-bottom: 18px; overflow-wrap: anywhere; font-size: .9375rem; }
-.connection-banner { margin: 16px; }
 /* A newer board is served: one quiet line with its reload. */
 .update-banner { display: flex; flex: none; align-items: center; justify-content: space-between; gap: 12px; padding: 6px 8px 6px 16px; border: 1px solid var(--glass-border-hover); border-radius: var(--radius); background: var(--glass-bg-hover); color: #c9f2e2; font-weight: 700; }
 .update-banner .primary { min-height: 36px; padding: 6px 16px; }
 /* After a restart: what is coming back, then what resumed. */
 .comeback-banner.working { color: var(--mint); }
-.comeback-detail { font-weight: 400; color: var(--muted); }
 /* Start at login in the CFO's Workspace: what it does, and its switch. */
 .start-at-login { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; margin-top: 12px; padding-top: 12px; border-top: 1px solid var(--border); }
-.start-at-login p { margin: 4px 0 0; color: var(--muted); }
 .start-at-login .afk-toggle { flex: none; }
-/* A newer release waits: the same slim line in the electric ring the Update
-   item wears, pointing to it. */
-.error-box button { display: block; margin-top: 10px; }
 .render-error { display: flex; align-items: center; gap: 12px; margin: 0; }
-.render-error span { flex: 1; }
 .render-error button { flex: none; margin: 0; }
 summary { cursor: pointer; }
 .decision { padding: 14px 0; overflow-wrap: anywhere; border-bottom: 1px solid var(--border); }
@@ -504,7 +493,6 @@ button.line-number { min-height: 32px; display: flex; align-items: flex-start; j
 .action-list li > div { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; }
 .action-list time { margin-left: auto; color: var(--muted); font-size: .9375rem; }
 .action-list p { margin-top: 8px; overflow-wrap: anywhere; color: var(--muted); }
-.warning-text { color: var(--amber); }
 .delivery { display: inline-grid; place-items: center; color: var(--muted); }
 .delivery .icon { width: 20px; height: 20px; }
 .delivery.succeeded { color: var(--mint); }
@@ -524,7 +512,6 @@ button.line-number { min-height: 32px; display: flex; align-items: flex-start; j
 .node-task { margin-top: 6px; }
 .node-status { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; margin-top: 12px; font-size: .9375rem; }
 .badge { color: #c4e0d4; }
-.lineage-warning { color: var(--amber); font-size: .9375rem; overflow-wrap: anywhere; }
 .workflow-space .workflow-children { display: grid; gap: 20px; margin: 20px 0 0 10px; padding-left: 16px; border-left: 1px solid var(--glass-border-hover); }
 .compact-communication-pulse { position: absolute; left: -17px; top: -20px; width: 2px; height: 40px; overflow: hidden; background: #57e5bf55; animation: effect-life ease-in-out forwards; }
 .compact-communication-pulse::after { content: ""; position: absolute; left: -2px; top: -12px; width: 6px; height: 12px; border-radius: 999px; background: #86ffe0; animation: compact-guidance 1.2s ease-out infinite; }
@@ -669,7 +656,6 @@ button.dialogue-portrait:hover::before { background: #2e241b; }
 .panel-more-menu { position: absolute; top: calc(100% + 6px); right: 0; z-index: 5; display: grid; gap: 4px; width: max-content; padding: 8px; border: 1px solid var(--glass-border-hover); border-radius: var(--radius); background: var(--tip-surface); box-shadow: 0 8px 24px rgba(0, 0, 0, 0.6); }
 .panel-more-menu .labelled-button { justify-content: flex-start; min-height: 40px; border-color: transparent; background: transparent; box-shadow: none; }
 .panel-more-menu .labelled-button:hover, .panel-more-menu .labelled-button:focus-visible { background: #ffffff0f; }
-.window-error { position: absolute; top: calc(100% + 6px); right: 0; z-index: 4; width: max-content; max-width: min(360px, 80vw); margin: 0; padding: 8px 12px; border: 1px solid #735338; border-radius: 10px; background: #292116f2; color: #f1c598; box-shadow: var(--glass-shadow); overflow-wrap: anywhere; }
 .panel-pill { display: flex; padding: 4px; border: 1px solid var(--glass-border); border-radius: 999px; background: var(--field-bg); box-shadow: inset 0 2px 6px #0007; }
 .panel-pill button { display: inline-flex; align-items: center; gap: 8px; min-height: 40px; padding: 6px 18px; border-color: transparent; border-radius: 999px; background: transparent; color: var(--muted); font-family: var(--font-display); font-size: 1.0625rem; }
 .panel-pill button .icon { width: 20px; height: 20px; }
@@ -738,7 +724,7 @@ button.dialogue-portrait:hover::before { background: #2e241b; }
 .terminal-state.live { color: var(--mint); }
 .terminal-state.live .status-dot { background: var(--accent-green); }
 .terminal-state.quiet { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
-.terminal-error { position: absolute; left: 12px; right: 12px; bottom: 70px; z-index: 2; margin: 0; padding: 10px 14px; border: 1px solid #735338; border-radius: var(--radius); background: #292116f2; color: #f1c598; box-shadow: var(--glass-shadow); overflow-wrap: anywhere; }
+.terminal-note { position: absolute; left: 12px; right: 12px; bottom: 70px; z-index: 2; margin: 0; padding: 10px 14px; border: 1px solid #735338; border-radius: var(--radius); background: #292116f2; color: #f1c598; box-shadow: var(--glass-shadow); overflow-wrap: anywhere; }
 .terminal-empty { display: grid; place-items: center; align-content: center; gap: 16px; flex: 1; padding: 32px; color: var(--muted); text-align: center; }
 .terminal-empty > .icon { width: 36px; height: 36px; }
 /* A native terminal owns its scrollback and is sized to the panel, so the
@@ -825,13 +811,12 @@ button.dialogue-portrait:hover::before { background: #2e241b; }
 .comment-overlay header strong { font-weight: 800; font-size: 1.0625rem; }
 .comment-overlay header .muted { overflow-wrap: anywhere; }
 .comment-overlay textarea { width: 100%; min-height: 84px; max-height: 240px; background: var(--field-bg); }
-.comment-overlay .warning-text { margin: 0; overflow-wrap: anywhere; }
-.comment-overlay footer { display: flex; align-items: center; gap: 6px; }
-.comment-overlay footer .muted { flex: 1; font-size: .9375rem; }
+.comment-overlay .comment-trouble { margin: 0; overflow-wrap: anywhere; }
+.comment-overlay footer { display: flex; align-items: center; justify-content: flex-end; gap: 6px; }
 .comment-overlay .send:not(:disabled) { background: var(--accent-green); color: #03130c; }
 .comment-overlay.sent { grid-template-columns: auto minmax(0, 1fr) auto auto; align-items: center; gap: 8px; padding: 6px 8px 6px 14px; }
 .comment-sent-text { margin: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.comment-overlay.sent .warning-text { grid-column: 1 / -1; }
+.comment-overlay.sent .comment-trouble { grid-column: 1 / -1; }
 @media (max-width: 50rem) { .comment-overlay.floating { left: 8px; width: calc(100% - 16px); } }
 /* Waiting is a calmer sand, whoever it is on, and a wait on a goblin links to
    it from the panel's status line. */
@@ -988,8 +973,6 @@ a.wait-open { min-height: 44px; border: 1px solid var(--accent-green); border-ra
    how long a queued task has waited. */
 .card-clock { justify-self: start; display: inline-flex; align-items: center; gap: 5px; color: var(--muted); font-size: 1rem; font-variant-numeric: tabular-nums; line-height: 1.4; }
 .card-clock .icon { width: 14px; height: 14px; }
-.card-stalled { justify-self: start; display: inline-flex; align-items: center; gap: 5px; color: var(--amber); font-size: 1rem; line-height: 1.4; }
-.card-stalled .icon { flex: none; width: 14px; height: 14px; }
 /* The CFO's Task view lists the queue below its workspace. */
 .cfo-queue { display: grid; gap: 12px; margin-top: 20px; padding-top: 24px; border-top: 1px solid var(--border); }
 .cfo-queue h3 { display: flex; gap: 10px; align-items: center; margin: 0; }
@@ -1062,7 +1045,6 @@ a.wait-open { min-height: 44px; border: 1px solid var(--accent-green); border-ra
 @media (any-pointer: coarse) { .rank { pointer-events: auto; touch-action: none; } }
 .ranked-item.dragging .task-card-shell { transform: scale(1.02) rotate(-.6deg); border-color: var(--mint); box-shadow: 0 18px 40px #000a, 0 0 0 2px var(--mint); }
 .ranked-item.dragging .rank { border-color: var(--mint); }
-.order-error { margin: 12px 0 0; color: #f6d79e; }
 @media (prefers-reduced-motion: reduce) { .ranked-item.dragging .task-card-shell { transform: none; } }
 /* Run items: a command the CFO needs run, shown verbatim before it runs. */
 .run-card { display: grid; gap: 14px; padding: 22px; border: 1px solid var(--glass-border); border-radius: var(--radius); background: var(--glass-bg); box-shadow: var(--glass-shadow); font-size: 1.0625rem; }
@@ -1176,7 +1158,6 @@ a.wait-open { min-height: 44px; border: 1px solid var(--accent-green); border-ra
 .phase-paused .status-dot, .phase-pausing .status-dot, .phase-resuming .status-dot { background: var(--amber); }
 .phase-stopped, .phase-stopping { color: var(--muted); }
 .phase-stopped .status-dot, .phase-stopping .status-dot { background: #7891ad; }
-.task-action-problem { margin: 10px 0; color: var(--amber); overflow-wrap: anywhere; }
 .task-action-progress { margin: 8px 0; color: var(--mint); }
 .lifecycle-panel { display: grid; gap: 24px; padding-top: 24px; }
 /* What the action row says about itself sits close under it. */
@@ -1208,7 +1189,6 @@ a.wait-open { min-height: 44px; border: 1px solid var(--accent-green); border-ra
 .preservation-notice .icon { flex: none; }
 .danger { color: #ff9292; }
 .stop-task-choices .danger { border-color: #fa7272; background: var(--field-bg); }
-.windows-teardown { display: block; font-size: max(16px, 1rem); line-height: 1.5; color: var(--amber); overflow-wrap: anywhere; }
 @container (max-width: 420px) {
   .task-card-shell { grid-template-columns: minmax(0, 1fr) auto; grid-template-areas: "card card" "links links" "side mark" "notes notes"; }
   .task-card-shell > .card-harness { align-self: center; }

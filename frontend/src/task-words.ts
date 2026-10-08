@@ -220,12 +220,16 @@ export interface Summary {
 // its goblin's latest report.
 export function taskSummary(task: Task, tasks: Task[], status = ""): Summary {
   const said = summaryOf(task, tasks);
-  return QUIET_STATUSES.has(status) && said.sentence ? { ...said, sentence: "", details: [said.sentence, ...said.details] } : said;
+  const isQuiet = QUIET_STATUSES.has(status) || said.isFailure || task.phase === "failed" || task.lifecycle?.phase === "failed";
+  return isQuiet && said.sentence ? { ...said, sentence: "", details: [said.sentence, ...said.details] } : said;
 }
 
 // The Overlord, 2026-10-05, on the review of these screens: "dont need text
 // under working" and "dont need text under pause fialed". Under these two the
-// panel says nothing; what it would say is the first thing behind Details.
+// panel says nothing; what it would say is the first thing behind Details. A
+// failure, and a pause, resume or stop that did not finish, says nothing
+// either: its error is the CFO's to hear (2026-10-08, "everything error wise
+// goes to cfo"), and the panel keeps it behind Details.
 const QUIET_STATUSES = new Set(["Working", "Pause did not finish"]);
 
 function summaryOf(task: Task, tasks: Task[]): Summary {
@@ -235,8 +239,8 @@ function summaryOf(task: Task, tasks: Task[]): Summary {
   // A pause or stop someone asked for that did not finish is no failure of
   // the goblin's; a goblin that did not start again is.
   if (record?.phase === "failed" && FAILED_ACTION[record.action]) return { sentence: join(FAILED_ACTION[record.action], teardown), details: [...record.problems, ...task.teardown], isFailure: record.action === "resume" };
-  if (task.phase === "paused") return { sentence: join(resumes(record?.pause, tasks, pausedWithParent(task, tasks)), record && !record.handoff_saved ? "The goblin's last saved notes are kept." : "", teardown), details: [...(record?.problems || []), ...task.teardown], isFailure: false };
-  if (["pausing", "resuming", "stopping", "stopped"].includes(task.phase)) return { sentence: teardown, details: task.teardown, isFailure: false };
+  if (task.phase === "paused") return { sentence: resumes(record?.pause, tasks, pausedWithParent(task, tasks)), details: [...(record?.problems || []), ...task.teardown], isFailure: false };
+  if (["pausing", "resuming", "stopping", "stopped"].includes(task.phase)) return { sentence: "", details: task.teardown, isFailure: false };
   // A queued task's status says it all; the Overlord wants no wait line.
   if (task.phase === "queued") return { sentence: "", details: [], isFailure: false };
   // A failed or blocked task with no report of its own says its evidence.

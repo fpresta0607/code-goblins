@@ -25,10 +25,10 @@ test("the board names the conversation the CFO could not resume in the CFO's pan
   // Act
   await board(page, snapshot);
 
-  // Assert: the fixture's stream ends at once, so the board's own line about
-  // its connection may show, and nothing else does.
-  await expect(page.locator(".connection-banner").filter({ hasText: /could not be resumed|not registered/ })).toHaveCount(0);
+  // Assert
   const bar = page.getByRole("group", { name: "CFO" });
+  await expect(bar).toBeVisible();
+  await expect(page.getByText(/could not be resumed|not registered/).filter({ visible: true })).toHaveCount(0);
   await expect(bar.locator("p")).toHaveText("The board cannot reach the CFO.");
   await expect(bar.locator("p")).toHaveAttribute("data-tip", UNREGISTERED);
   await bar.getByRole("button", { name: "Open the CFO's terminal" }).last().click();

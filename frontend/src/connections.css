@@ -5,7 +5,6 @@
 .connections-toolbar { display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 4px 0 16px; }
 .connections-toolbar p { font-weight: 700; }
 .connections-panel .icon-button { min-width: 44px; min-height: 44px; flex-shrink: 0; }
-.connections-panel .connections-error { color: var(--red); padding: 12px 0; }
 .connections-group { margin-top: 24px; }
 .connection-notice { display: grid; gap: 12px; justify-items: start; }
 .connections-group h4 { margin: 0 0 8px; color: #edf4f3; font-weight: 700; }

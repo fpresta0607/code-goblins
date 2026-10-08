@@ -96,7 +96,7 @@ test.describe("once pressed", () => {
     await openCfoPanel(page);
 
     // Assert
-    await expect(header(page).getByRole("status")).toHaveText("The CFO restarts onto the Claude Code update when its turn ends, on the same conversation.");
+    await expect(header(page).getByRole("status")).toHaveText("Restarts onto the Claude Code update when its turn ends.");
     await page.screenshot({ path: testInfo.outputPath("cfo-header-update-pending.png") });
 
     // Act

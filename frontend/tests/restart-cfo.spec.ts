@@ -65,7 +65,7 @@ test("Enter in the dialog restarts the CFO once, with the board's token", async 
   await expect(page.getByRole("alert")).toHaveCount(0);
 });
 
-test("a CFO that could not be restarted says why beside its Restart", async ({ page }) => {
+test("a CFO that could not be restarted says so in a few words beside its Restart", async ({ page }) => {
   // Arrange
   const reason = "the CFO could not be restarted: pi has no way to resume a conversation, so the CFO is left running: close it and run goblins to start it on a new conversation";
   const { release } = await open(page, { status: 500, body: { error: reason } });
@@ -76,7 +76,8 @@ test("a CFO that could not be restarted says why beside its Restart", async ({ p
   await page.getByRole("dialog", { name: "Restart the CFO?" }).getByRole("button", { name: "Restart the CFO" }).click();
 
   // Assert
-  await expect(page.getByRole("alert")).toHaveText(reason);
+  await expect(page.locator(".click-feedback")).toHaveText(/^The CFO could not be restarted: pi has no way to resume a…$/);
+  await expect(page.getByRole("alert")).toHaveCount(0);
   await expect(page.getByRole("button", { name: "Restart the CFO" })).toBeEnabled();
 });
 

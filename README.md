@@ -414,7 +414,7 @@ Pause allows five seconds for a stopping point and handoff, then ends the task's
 A machine service the goblin started for its work is never one of them: Docker Desktop with everything it runs, and the no-mistakes daemon with every other goblin's gate agents, keep running through a pause, a stop, a cleanup, a switch, a forced reap and the goblin's terminal closing; the daemon's agents at work on the task's own gate are still ended.
 Such a service holds the folder it was started from, so start it from outside the worktree, or cleanup cannot remove the worktree while it runs.
 Pause and Stop count a process as stopped once Windows reports an exit status, even if Windows is still releasing its resources.
-Such processes remain listed as **Finishing Windows teardown** on the card and in status until their birth-checked identities disappear; their memory is not reported as freed early, and Resume does not wait for them.
+Such processes remain named behind Details in the goblin's panel and in status until their birth-checked identities disappear; their memory is not reported as freed early, and Resume does not wait for them.
 Its worktree, branch and session stay available, and the Paused card says when it paused, what was kept and whether a handoff was saved.
 Every pause records why it paused and what resumes it.
 The board's Pause records `overlord`, which only the Overlord's Resume clears.
@@ -476,7 +476,7 @@ When a session is retired, paused or stopped, its Terminal view shows that state
 An open terminal follows its task into retired history instead of losing the panel or trying to reconnect to a retired session.
 A goblin reporting a delivered pull request can keep working; that report alone never closes its terminal.
 While a session is resuming or stopping, its terminal slot reads **Resuming session...** or **Stopping session...** and opens no connection; a resumed session connects only once its new session is live.
-After a failed resume it reads **Resume failed. See Task for details.** and still opens no connection; **Resume** in the Task view retries, and the terminal connects only once the resumed session is live.
+After a failed resume it reads **Resume failed.** and still opens no connection; **Resume** in the Task view retries, and the terminal connects only once the resumed session is live.
 A pause, resume or stop lists what it kept under **What’s preserved**, such as the worktree and the task session and branch, and what it ended under **Stopped resources**; why it happened is the status and sentence in the header.
 A goblin's panel, and the CFO's, opens on its **Terminal** view, and a pill at the top switches to its **Task** view, on the pill's right, and back in one tap.
 A queued task, a task still pausing or stopping, and a merged pull request listed in history without a goblin session have no Terminal view, so each panel is its Task view alone, with no pill.
@@ -604,7 +604,7 @@ A goblin's item closes by itself once nobody waits on it: a wait when the goblin
 Several items stack up one card at a time, the CFO's first and then goblins in the In progress order, each goblin's by longest wait, then goblins you have not placed, by longest wait: each card's action row has **Back**, its place such as 2 of 4, and **Next** on the left and its answer on the right, and you can swipe; closing keeps every item for later.
 The moment you send, a check draws with **Sent** and the next open item follows by itself while the answer is delivered in the background; the last one ends on **You're all done** and the Command Center closes.
 It always opens at the top of its item, and each next item starts at its top.
-An answer the board refused comes back on its card with what went wrong, and **Retry** sends it again; refused after you moved on or closed the Command Center, it opens nothing, and its row under **Waiting on you** reads **Not sent** with what went wrong.
+An answer the board refused comes back on its card with a few words of what went wrong, and **Retry** sends it again; refused after you moved on or closed the Command Center, it opens nothing, and it keeps waiting under **Waiting on you** until you send it again.
 An answer typed for a CFO or goblin that is inside a turn reads sent, with one check, and delivered once it is read; it is never a warning by itself.
 An item you acted on never comes back by itself: an answer whose delivery failed or never arrived reads in **History** with a warning and what to do.
 Clicking outside the Command Center, or outside its inbox, closes it.
