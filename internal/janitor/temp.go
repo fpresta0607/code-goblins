@@ -83,7 +83,7 @@ func (cfg Config) removeTempLeaks(processes []string, record *Record) {
 		for _, task := range cfg.Inventory.Tasks {
 			live[strings.ToLower(task.ID)] = true
 		}
-		for _, root := range []string{cfg.Home.Scratch(), cfg.LegacyGoTmp} {
+		for _, root := range append(cfg.Home.ScratchRoots(), cfg.LegacyGoTmp) {
 			if root == "" {
 				continue
 			}

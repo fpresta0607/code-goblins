@@ -76,7 +76,7 @@ func (c Collector) Collect(ctx context.Context) (Inventory, []string, error) {
 		return Inventory{}, nil, errors.New("reap: home state directory is required")
 	}
 	var notes []string
-	inv := Inventory{SelfPIDs: selfAncestry(), Session: c.Session, StateDir: c.Home.State, ScratchRoot: c.Home.Scratch()}
+	inv := Inventory{SelfPIDs: selfAncestry(), Session: c.Session, StateDir: c.Home.State, ScratchRoots: c.Home.ScratchRoots()}
 
 	scan, err := state.ScanIDs(c.Home.State)
 	if err != nil {
@@ -506,7 +506,7 @@ func heldIDs(stateDir string, tasks []Task, notes *[]string) map[string]string {
 	return held
 }
 
-// homeWorktrees lists every folder under the home's worktrees folder,
+// homeWorktrees lists every folder under each of the home's worktree roots,
 // <project folder>\<name>, each placed with the checkout it belongs to: the
 // project its task's record names, or else the repository its .git file
 // leads to. A folder whose checkout cannot be found is listed with its
@@ -523,28 +523,29 @@ func (c Collector) homeWorktrees(ctx context.Context, tasks []Task, seen map[str
 	registered := map[string][]os.FileInfo{}
 	answered := map[string]bool{}
 	var found []WorktreeDir
-	root := c.Home.Worktrees()
-	for _, folder := range readDirNames(root) {
-		for _, name := range readDirNames(filepath.Join(root, folder)) {
-			path := filepath.Join(root, folder, name)
-			if info, err := os.Stat(path); err != nil || !info.IsDir() || seen[normalizePath(path)] {
-				continue
-			}
-			seen[normalizePath(path)] = true
-			project, ok := recorded[normalizePath(path)]
-			if !ok {
-				project, ok = checkoutOf(path)
-			}
-			dir := WorktreeDir{Path: path, Project: project, TaskID: name, Created: createdAt(path)}
-			if ok {
-				if _, asked := answered[project]; !asked {
-					registered[project], answered[project] = c.registeredWorktrees(ctx, project, notes)
+	for _, root := range c.Home.WorktreeRoots() {
+		for _, folder := range readDirNames(root) {
+			for _, name := range readDirNames(filepath.Join(root, folder)) {
+				path := filepath.Join(root, folder, name)
+				if info, err := os.Stat(path); err != nil || !info.IsDir() || seen[normalizePath(path)] {
+					continue
 				}
-				dir.Registration = registrationOf(path, registered[project], answered[project])
-			} else {
-				*notes = append(*notes, fmt.Sprintf("%s: no task record names it and its .git file leads to no checkout; it cannot be confirmed to be a worktree", path))
+				seen[normalizePath(path)] = true
+				project, ok := recorded[normalizePath(path)]
+				if !ok {
+					project, ok = checkoutOf(path)
+				}
+				dir := WorktreeDir{Path: path, Project: project, TaskID: name, Created: createdAt(path)}
+				if ok {
+					if _, asked := answered[project]; !asked {
+						registered[project], answered[project] = c.registeredWorktrees(ctx, project, notes)
+					}
+					dir.Registration = registrationOf(path, registered[project], answered[project])
+				} else {
+					*notes = append(*notes, fmt.Sprintf("%s: no task record names it and its .git file leads to no checkout; it cannot be confirmed to be a worktree", path))
+				}
+				found = append(found, dir)
 			}
-			found = append(found, dir)
 		}
 	}
 	return found
@@ -762,9 +763,9 @@ func (c Collector) placeHarnesses(processes []Process) {
 
 // WorktreeOwner reads the task that owns the worktree at path, by the rule
 // ownerOf states, from the records in stateDir. A path that is in no fleet
-// worktree, in the home's worktreesRoot or where an older build put one, is
-// owned only by a record that names it.
-func WorktreeOwner(stateDir, worktreesRoot, project, path string) (Task, bool, error) {
+// worktree, under one of worktreesRoots, the home's WorktreeRoots, or where
+// an older build put one, is owned only by a record that names it.
+func WorktreeOwner(stateDir string, worktreesRoots []string, project, path string) (Task, bool, error) {
 	scan, err := state.ScanIDs(stateDir)
 	if err != nil {
 		return Task{}, false, err
@@ -785,7 +786,7 @@ func WorktreeOwner(stateDir, worktreesRoot, project, path string) (Task, bool, e
 		worktrees = append(worktrees, WorktreeDir{Path: meta.Worktree, Created: createdAt(meta.Worktree)})
 	}
 	dir := WorktreeDir{Path: path, Project: project, Created: createdAt(path)}
-	if place, ok := home.LocateWorktree(worktreesRoot, path); ok {
+	if place, ok := home.LocateWorktree(worktreesRoots, path); ok {
 		dir.TaskID = place.Name
 	}
 	task, known := ownerOf(dir, tasks, worktrees, unreadable)

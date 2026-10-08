@@ -130,7 +130,7 @@ func Sweep(ctx context.Context, cfg Config) Record {
 	}
 	record.Buckets = Measure(cfg.Home, metas)
 	cfg.reportDataSize(&record)
-	if reading, err := disk.Read(cfg.Home.Root); err == nil {
+	if reading, err := disk.ReadLeast(cfg.Home.Root, cfg.Home.DevDrive); err == nil {
 		record.Disk = reading
 	} else {
 		record.Notes = append(record.Notes, "free disk could not be read: "+err.Error())

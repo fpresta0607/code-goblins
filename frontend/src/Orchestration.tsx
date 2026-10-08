@@ -6,7 +6,7 @@ import { Chevron } from "./Chevron";
 import { Icon } from "./Icon";
 import { ownsTaskSession } from "./lineageTree";
 import { arrange, asksOverlord, expireTraffic, fitScale, fleetTraffic, makeRoom, NODE_HEIGHT, NODE_WIDTH, nodeStatus, personaFor, PULSE_MS, reportTraffic, settle, statusPhase, waitingOn, workflowNodes, type Point, type WorkflowNode } from "./workflow";
-import { canvasChildren, hasChildren } from "./fleet-tree";
+import { hasRunningChildren, running } from "./fleet-tree";
 import { TreeCount } from "./TreeCount";
 import { TreeChild } from "./TreeChild";
 
@@ -41,16 +41,16 @@ export function Orchestration({ snapshot, selected, connected, effects, onSelect
 }) {
   const nodes = useMemo(() => workflowNodes(snapshot), [snapshot]);
   const awaited = useMemo(() => waitingOn(snapshot, nodes), [snapshot, nodes]);
-  // A goblin's children show collapsed to a count under its card until it is
-  // opened; an open goblin's children stand under it, and the rows below
-  // make room for them.
+  // A goblin's running children show collapsed to a count under its card
+  // until it is opened; an open goblin's children stand under it, and the
+  // rows below make room for them. Finished children are not drawn.
   const [openTrees, setOpenTrees] = useState<Set<string>>(new Set());
   const trees = useMemo(() => Object.fromEntries(nodes.flatMap((node): [string, FleetTree][] => {
     const tree = node.task && ownsTaskSession(node.session, node.task) ? node.task.tree : undefined;
-    return tree && hasChildren(tree) ? [[node.id, tree]] : [];
+    return tree && hasRunningChildren(tree) ? [[node.id, tree]] : [];
   })), [nodes]);
   const below = useMemo(() => Object.fromEntries(Object.entries(trees).map(([id, tree]): [string, number] =>
-    [id, TREE_GAP + COUNT_HEIGHT + (openTrees.has(id) ? canvasChildren(tree).length * CHILD_STEP : 0)])), [trees, openTrees]);
+    [id, TREE_GAP + COUNT_HEIGHT + (openTrees.has(id) ? running(tree).length * CHILD_STEP : 0)])), [trees, openTrees]);
   const automatic = useMemo(() => makeRoom(arrange(nodes, awaited), below), [nodes, awaited, below]);
   const [layout, setLayout] = useState(readLayout);
   const positions = useMemo(() => settle(automatic, layout.positions, below), [automatic, layout.positions, below]);
@@ -268,7 +268,7 @@ export function Orchestration({ snapshot, selected, connected, effects, onSelect
             return [<div key={"tree:" + node.id} className={"tree-branch" + (isOpen ? "" : " closed")} style={{ left: p.x, top: p.y + NODE_HEIGHT + TREE_GAP, width: NODE_WIDTH }}>
               <TreeCount tree={tree} title={node.title} expanded={isOpen} onToggle={toggle} />
               {isOpen && <ul className="tree-rail" aria-label={"What runs under " + node.title}>
-                {canvasChildren(tree).map((child) => <li key={child.id}><TreeChild node={child} now={now} /></li>)}
+                {running(tree).map((child) => <li key={child.id}><TreeChild node={child} now={now} /></li>)}
               </ul>}
             </div>];
           })}

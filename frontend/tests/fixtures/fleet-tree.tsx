@@ -8,7 +8,7 @@ import { parseSnapshot } from "../../src/types";
 import "../../src/styles.css";
 
 // The busy fleet of the approved mockups: one goblin with two sub-agents and
-// a dev server, one in its gate, one idle. ?view picks what shows: the canvas
+// a dev server, one in its gate, one idle whose only sub-agent finished. ?view picks what shows: the canvas
 // (the default), the lineage list the canvas becomes at phone width, the
 // goblin panel's What's working, or the board's cards, where a goblin with a
 // silent child says so.
@@ -39,7 +39,8 @@ const snapshot = parseSnapshot({
     task({ id: "cg-fleet-tree", title: "Build the fleet tree", project: "code-goblins", phase: "working", tree: tree("cg-fleet-tree", view === "canvas" || view === "lineage" ? builder : busier, megabytes(2662), megabytes(1024)) }),
     task({ id: "acme-billing", title: "Stream the billing CSV export", project: "acme-api", phase: "review", gate_step: "test",
       tree: tree("acme-billing", [child({ id: "gate:01M3", kind: "gate", label: "Gate: test", detail: "test step running", state: "working", started: ago(6), last_line: "go test ./...", memory: megabytes(1126) })], megabytes(2000), megabytes(700)) }),
-    task({ id: "acme-checkout", title: "Fix the flaky checkout test", project: "acme-web", phase: "idle", runtime: { state: "idle", reason: "at its prompt", at: ago(2) }, tree: tree("acme-checkout", [], megabytes(600), megabytes(600)) }),
+    task({ id: "acme-checkout", title: "Fix the flaky checkout test", project: "acme-web", phase: "idle", runtime: { state: "idle", reason: "at its prompt", at: ago(2) },
+      tree: tree("acme-checkout", [child({ id: "subagent:toolu_C", kind: "subagent", label: "Find the flaky assertion", detail: "Explore", state: "done", started: ago(30), finished: ago(20), last_activity: ago(20) })], megabytes(600), megabytes(600)) }),
   ],
 });
 

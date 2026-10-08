@@ -412,7 +412,7 @@ func writeSessionLock(stateDir string, ownerPID int, session string, ew *werr) b
 func writeStorage(h home.Home, now time.Time, ew *werr) {
 	line := "STORAGE: "
 	settings, settingsErr := fleetconfig.Read(h.Root)
-	reading, err := disk.Read(h.Root)
+	reading, err := disk.ReadLeast(h.Root, h.DevDrive)
 	switch {
 	case err != nil:
 		line += "free disk UNREADABLE (" + err.Error() + ")"

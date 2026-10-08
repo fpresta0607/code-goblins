@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"time"
 
@@ -31,7 +32,7 @@ func gateTask(root string, runtime commandRuntime) (string, error) {
 	}
 	// A goblin's own worktree in the home has the gate's shape too,
 	// <root>\worktrees\<project>\<task>, and is no gate run.
-	if fsx.SamePath(worktrees, h.Worktrees()) {
+	if slices.ContainsFunc(h.WorktreeRoots(), func(root string) bool { return fsx.SamePath(worktrees, root) }) {
 		return taskID(os.Getenv), nil
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
@@ -59,7 +60,7 @@ func gateTask(root string, runtime commandRuntime) (string, error) {
 }
 
 func gateWorktreeTask(h home.Home, project, worktree string) (string, error) {
-	owner, known, err := reap.WorktreeOwner(h.State, h.Worktrees(), project, worktree)
+	owner, known, err := reap.WorktreeOwner(h.State, h.WorktreeRoots(), project, worktree)
 	if err != nil {
 		return "", err
 	}
@@ -67,10 +68,9 @@ func gateWorktreeTask(h home.Home, project, worktree string) (string, error) {
 		return "", errors.New("the gate's source worktree belongs to no fleet task")
 	}
 	// A name alone is no proof: the owner's record must name its own
-	// worktree where spawn puts it, in the home or where an older build did.
-	own := filepath.Join(h.Worktrees(), filepath.Base(filepath.Clean(project)), owner.ID)
-	legacy := filepath.Join(project, home.LegacyWorktreesDir, home.LegacyWorktreePrefix+owner.ID)
-	if !fsx.SamePath(owner.Meta.Project, project) || !fsx.SamePath(owner.Meta.Worktree, own) && !fsx.SamePath(owner.Meta.Worktree, legacy) {
+	// worktree where spawn puts it, in one of the home's worktree folders or
+	// where an older build did.
+	if !fsx.SamePath(owner.Meta.Project, project) || !slices.ContainsFunc(h.OwnWorktrees(project, owner.ID), func(own string) bool { return fsx.SamePath(owner.Meta.Worktree, own) }) {
 		return "", errors.New("task metadata does not match the gate's source project and worktree")
 	}
 	return owner.ID, nil

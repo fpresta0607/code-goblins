@@ -68,10 +68,10 @@ export const running = (tree?: FleetTree) => (tree?.children || []).filter((node
 export const finished = (tree?: FleetTree) => (tree?.children || []).filter(isFinished)
   .sort((one, other) => (known(other.finished) || "").localeCompare(known(one.finished) || ""));
 
-export interface TreeSummary { working: number; silent: number; idle: number; finished: number; kinds: [Baby, number][] }
+export interface TreeSummary { working: number; silent: number; idle: number; kinds: [Baby, number][] }
 
-// summarize is a goblin's children at a glance: how many work, are silent,
-// idle or finished, and how many of each kind are still running.
+// summarize is a goblin's children at a glance: how many work, are silent or
+// idle, and how many of each kind are still running.
 export function summarize(tree?: FleetTree): TreeSummary {
   const children = tree?.children || [];
   const counts = new Map<Baby, number>();
@@ -80,7 +80,6 @@ export function summarize(tree?: FleetTree): TreeSummary {
     working: children.filter((node) => node.state === "working").length,
     silent: children.filter((node) => node.state === "silent").length,
     idle: children.filter(isIdle).length,
-    finished: children.filter(isFinished).length,
     kinds: BABIES.flatMap((baby): [Baby, number][] => counts.has(baby) ? [[baby, counts.get(baby)!]] : []),
   };
 }
@@ -92,14 +91,14 @@ export function silentChild(tree?: FleetTree): TreeNode | undefined {
     .sort((one, other) => (known(one.last_activity) || "").localeCompare(known(other.last_activity) || ""))[0];
 }
 
-// hasChildren says the goblin has anything under it to show.
+// hasChildren says the goblin has anything under it to show in its panel,
+// finished children included.
 export const hasChildren = (tree?: FleetTree) => (tree?.children.length || 0) > 0;
 
-// canvasChildren are the children an open goblin shows under its card: every
-// one still running and the newest few that finished, so the canvas stays
-// calm; its panel lists them all.
-export const CANVAS_FINISHED = 3;
-export const canvasChildren = (tree?: FleetTree) => [...running(tree), ...finished(tree).slice(0, CANVAS_FINISHED)];
+// hasRunningChildren says the goblin has a child still running or idle,
+// which is all the canvas and the lineage list draw under it; its panel lists
+// the finished ones too.
+export const hasRunningChildren = (tree?: FleetTree) => running(tree).length > 0;
 
 // isHeldByTree is whether a session is a sub-agent a native hook reported whose
 // goblin's family tree holds it, or a helper goblin's whose parent's tree

@@ -197,7 +197,7 @@ func (s *Service) pageOwners() (func(file string) (pageOwner, bool), error) {
 				id = task
 			}
 		}
-		if place, found := home.LocateWorktree(filepath.Join(h.Root, home.WorktreesDir), file); found && id == "" {
+		if place, found := home.LocateWorktree(h.WorktreeRoots(), file); found && id == "" {
 			id = place.Name
 		}
 		for _, folder := range []string{h.Data, filepath.Join(h.State, "tasktmp")} {
