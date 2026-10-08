@@ -5,6 +5,9 @@ import (
 	"encoding/json"
 	"strings"
 	"testing"
+	"time"
+
+	"github.com/fpresta0607/code-goblins/internal/services"
 )
 
 func render(t *testing.T, report Report) string {
@@ -82,6 +85,7 @@ func TestRenderMarkdownOnAnEmptyReportSaysSoInEverySection(t *testing.T) {
 		"No stack is running.",
 		"No project declares a deploy target.",
 		"No project declares or implies a local stack.",
+		"No local services are held. `cfo services up <project> --task <id>` starts a project's for a task.",
 	} {
 		if !strings.Contains(out, empty) {
 			t.Errorf("output is missing %q\n%s", empty, out)
@@ -147,5 +151,52 @@ func TestTruncateKeepsShortValuesWhole(t *testing.T) {
 	}
 	if got := Truncate("abcdefghij", 8); got != "abcde..." {
 		t.Errorf("Truncate = %q, want %q", got, "abcde...")
+	}
+}
+
+// The local services section names each stack cfo services holds, who holds
+// it, what cfo started of it and the memory it was measured to take, so the
+// CFO sees a stack's cost before dispatching beside it.
+func TestRenderMarkdownShowsEachLocalServicesStackWithItsHoldersAndMemory(t *testing.T) {
+	at := time.Date(2026, 10, 8, 14, 2, 0, 0, time.UTC)
+	report := Build("", Inventory{Services: services.Record{
+		Engine: services.Engine{StartedByCFO: true, Since: at},
+		Stacks: map[string]services.Stack{
+			"PrecisionDocs-AI": {
+				Project: "PrecisionDocs-AI", Owned: true, Since: at,
+				Holders: []services.Hold{{Task: "pd-a", Since: at}, {Task: "pd-b", Since: at}},
+				Cost:    services.Cost{Bytes: 2560 << 20, MeasuredAt: at},
+			},
+			"siqsermon":     {Project: "siqsermon", Started: []string{"redis"}, Holders: []services.Hold{{Task: "sermon-a", Since: at}}, Since: at},
+			"peakCraftsman": {Project: "peakCraftsman", Cost: services.Cost{Bytes: 1 << 30, MeasuredAt: at}},
+		},
+	}})
+	out := render(t, report)
+	for _, want := range []string{
+		"## Local services",
+		"| Project | State | Held by | cfo started | Memory |",
+		"| PrecisionDocs-AI | up since 2026-10-08T14:02:00Z | pd-a, pd-b | the whole stack | 2.5 GB, measured 2026-10-08T14:02:00Z |",
+		"| peakCraftsman | down | nobody | - | 1.0 GB, measured 2026-10-08T14:02:00Z |",
+		"| siqsermon | up since 2026-10-08T14:02:00Z | sermon-a | redis | not measured yet |",
+		"cfo started the Docker engine at 2026-10-08T14:02:00Z for these stacks, and stops it once none of them runs.",
+	} {
+		if !strings.Contains(out, want) {
+			t.Errorf("output is missing %q\n%s", want, out)
+		}
+	}
+	containers, local := strings.Index(out, "## Containers"), strings.Index(out, "## Local services")
+	if containers < 0 || local < containers {
+		t.Errorf("Local services at %d, Containers at %d; want it right after the containers it runs as", local, containers)
+	}
+}
+
+// A stack already running when cfo came is shared and never stopped by a
+// release, and the report says so rather than naming nothing cfo started.
+func TestRenderMarkdownSaysASharedStackIsNotCFOsToStop(t *testing.T) {
+	report := Build("", Inventory{Services: services.Record{Stacks: map[string]services.Stack{
+		"PrecisionDocs-AI": {Project: "PrecisionDocs-AI", Holders: []services.Hold{{Task: "pd-a"}}},
+	}}})
+	if out := render(t, report); !strings.Contains(out, "| PrecisionDocs-AI | up | pd-a | nothing, it was already running | not measured yet |") {
+		t.Errorf("output does not name the shared stack as already running\n%s", out)
 	}
 }

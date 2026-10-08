@@ -22,6 +22,7 @@ import (
 	"time"
 
 	"github.com/fpresta0607/code-goblins/internal/janitor"
+	"github.com/fpresta0607/code-goblins/internal/services"
 )
 
 // Schema names the typed report, matching the convention fleet-view set.
@@ -68,6 +69,9 @@ type Inventory struct {
 	Storage janitor.Buckets
 	// Janitor is the janitor's last sweep, absent before the first.
 	Janitor *janitor.Record
+	// Services are the local services stacks cfo services started or shares
+	// for tasks, with who holds each, and whether cfo started the engine.
+	Services services.Record
 	// SystemRoot is the Windows directory. A process running there is the
 	// operating system's own, never a project's, and saying so needs the
 	// real value rather than an assumption about the drive letter.

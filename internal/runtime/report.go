@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"github.com/fpresta0607/code-goblins/internal/janitor"
+	"github.com/fpresta0607/code-goblins/internal/services"
 )
 
 // Report is the typed answer to all five questions, shared by the JSON and
@@ -16,6 +17,10 @@ type Report struct {
 	Home   string `json:"home"`
 	// Stacks are the container groups, one per owner and stack name.
 	Stacks []Stack `json:"stacks"`
+	// Services are the local services stacks cfo services started or shares
+	// for tasks: who holds each, what cfo started of it and what it was
+	// measured to cost, and whether cfo started the Docker engine.
+	Services services.Record `json:"services"`
 	// LooseVolumes are named volumes no container references. They are the
 	// quiet half of the disk bill: 11 GB of them here, none attached to
 	// anything.
@@ -178,6 +183,7 @@ func Build(home string, inv Inventory) Report {
 		Schema:       Schema,
 		Home:         home,
 		Stacks:       buildStacks(inv, attribution),
+		Services:     inv.Services,
 		LooseVolumes: buildLooseVolumes(inv, attribution),
 		Servers:      buildServers(inv, attribution),
 		Folded:       buildFolded(inv),

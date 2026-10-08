@@ -10,6 +10,7 @@ import (
 	"testing"
 
 	"github.com/fpresta0607/code-goblins/internal/home"
+	"github.com/fpresta0607/code-goblins/internal/services"
 )
 
 // stubDocker and stubSystem stand in for the two sources that have no test
@@ -215,5 +216,41 @@ func TestCollectChecksEveryWorkingDirectoryOnDisk(t *testing.T) {
 	}
 	if found, checked := inv.Present[normalize(missing)]; !checked || found {
 		t.Errorf("present[%q] = %v/%v, want checked and missing", missing, found, checked)
+	}
+}
+
+// The stacks cfo services holds for tasks are read from the home's own
+// record, so the report names who holds each without asking Docker.
+func TestCollectReadsTheLocalServicesTheHomeHolds(t *testing.T) {
+	h := collectorHome(t)
+	record := services.Record{Stacks: map[string]services.Stack{"PrecisionDocs-AI": {
+		Project: "PrecisionDocs-AI", Owned: true, Holders: []services.Hold{{Task: "live-task"}},
+	}}}
+	if err := services.WriteRecord(h.State, record); err != nil {
+		t.Fatal(err)
+	}
+	inv, err := Collector{Home: h, Docker: stubDocker{}, System: stubSystem{}}.Collect(context.Background())
+	if err != nil {
+		t.Fatalf("Collect: %v", err)
+	}
+	if got := inv.Services.Stacks["PrecisionDocs-AI"].HolderIDs(); len(got) != 1 || got[0] != "live-task" {
+		t.Errorf("services = %+v, want PrecisionDocs-AI held by live-task", inv.Services)
+	}
+}
+
+// A services record that cannot be read is named like every other blind
+// source: read as empty it would say no stack is held while one runs.
+func TestCollectNamesAServicesRecordItCouldNotRead(t *testing.T) {
+	h := collectorHome(t)
+	if err := os.WriteFile(filepath.Join(h.State, services.RecordName), []byte("{not json"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	inv, err := Collector{Home: h, Docker: stubDocker{}, System: stubSystem{}}.Collect(context.Background())
+	if err != nil {
+		t.Fatalf("Collect returned an error instead of degrading: %v", err)
+	}
+	joined := strings.Join(inv.Notes, "\n")
+	if !strings.Contains(joined, "LOCAL SERVICES UNREADABLE") || !strings.Contains(joined, " - ") {
+		t.Errorf("notes = %q, want one naming the services record with a remedy", joined)
 	}
 }
