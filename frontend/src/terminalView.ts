@@ -5,7 +5,9 @@ import { copyText } from "./clipboard.ts";
 import { clipboardInput, terminalKey } from "./terminal-keys";
 import { FrameWriter } from "./terminalFrames";
 import { stripPasteEscapes } from "./terminalInput";
-import { ackDue, DEFAULT_FONT_SIZE, type FitEvent, type FitState, fontSizeFor, inputMessages, nextFit, panelFit, parseHistory, parseSize } from "./terminalStream";
+import { ackDue, DEFAULT_FONT_SIZE, type FitEvent, type FitState, followFontSize, fontSizeFor, inputMessages, nextFit, panelFit, parseHistory, parseSize } from "./terminalStream";
+import { PinnedLine } from "./pinned-line";
+import { attachZoomGesture } from "./terminal-zoom";
 
 const FALLBACK_FONT = '"Cascadia Mono", Consolas, monospace';
 const THEME = { background: "#071015", foreground: "#d8e9e2", cursor: "#6ee7b7", selectionBackground: "#286856" };
@@ -27,6 +29,10 @@ export interface ViewEvents {
   // lets it through, and null means it is not dictation's.
   dictate: (event: KeyboardEvent) => boolean | null;
   harness: () => string;
+  // While he reads the history, where it ends, the top of the panel's last
+  // row in px from the panel's top, which Jump to bottom sits above; null at
+  // the live end.
+  reading: (end: number | null) => void;
 }
 
 // TerminalView is one connection to a native terminal and the xterm that
@@ -66,6 +72,13 @@ export class TerminalView {
   private frame = 0;
   private settle: ReturnType<typeof setTimeout> | undefined;
   private fallback: ReturnType<typeof setTimeout> | undefined;
+  private readonly pin: PinnedLine;
+  private pinFrame = 0;
+  private historyEnd: number | null = null;
+  // Whether the program shows its cursor, which the pinned line draws as it.
+  private isCursorShown = true;
+  private readonly stopFollowing: () => void;
+  private readonly stopZooming: () => void;
 
   constructor(container: HTMLElement, url: URL, fontSize: number, events: ViewEvents) {
     this.events = events;
@@ -84,6 +97,16 @@ export class TerminalView {
     }
     this.term.textarea?.setAttribute("aria-label", "Terminal input");
     this.term.parser.registerOscHandler(52, () => true);
+    this.pin = new PinnedLine(this.element);
+    for (const [final, isShown] of [["h", true], ["l", false]] as const) {
+      this.term.parser.registerCsiHandler({ prefix: "?", final }, (params) => {
+        if (params.includes(25)) this.isCursorShown = isShown;
+        return false;
+      });
+    }
+    this.term.onScroll(() => this.repin());
+    this.term.onWriteParsed(() => this.repin());
+    this.term.onResize(() => this.repin());
     this.frames = new FrameWriter((data, done) => this.term.write(data, done), undefined, () => this.readyIfDrawn());
     void document.fonts.load(fontSize + 'px "JetBrains Mono"').then(() => {
       if (!this.disposed && document.fonts.check(fontSize + 'px "JetBrains Mono"')) { this.term.options.fontFamily = '"JetBrains Mono", ' + FALLBACK_FONT; this.refit(); }
@@ -103,9 +126,13 @@ export class TerminalView {
     this.element.addEventListener("pointerdown", this.startCopy);
     this.element.addEventListener("paste", this.pasteClipboard, true);
     this.term.attachCustomKeyEventHandler((event) => this.key(event));
-    this.rendered = this.term.onRender(() => { if (this.step("draw")) this.refit(); });
+    this.rendered = this.term.onRender(() => { if (this.step("draw")) this.refit(); this.repin(); });
     this.resize = new ResizeObserver(() => this.refit());
     this.resize.observe(this.element);
+    // A size chosen in any terminal, by the keys or the right button and the
+    // wheel, is this one's too.
+    this.stopFollowing = followFontSize((size) => this.setFont(size));
+    this.stopZooming = attachZoomGesture(this.element, window, () => this.term.options.fontSize ?? DEFAULT_FONT_SIZE, (size) => { this.setFont(size); this.events.font(size); });
   }
 
   get ready(): boolean { return this.isReady; }
@@ -133,6 +160,17 @@ export class TerminalView {
     this.term.paste(stripPasteEscapes(text));
   }
 
+  // jumpToBottom returns to the live end and hands the terminal the keyboard.
+  // xterm scrolls from the position its viewport last drew, which it brings
+  // up to a resize only on its next frame, so a jump in between lands short
+  // and goes again once xterm has drawn.
+  jumpToBottom(): void {
+    this.term.scrollToBottom();
+    this.term.focus();
+    const buffer = this.term.buffer.active;
+    if (buffer.viewportY < buffer.baseY) requestAnimationFrame(() => { if (!this.disposed) this.term.scrollToBottom(); });
+  }
+
   setFont(size: number): void {
     if (this.term.options.fontSize === size) return;
     this.term.options.fontSize = size;
@@ -142,6 +180,10 @@ export class TerminalView {
   dispose(): void {
     this.disposed = true;
     cancelAnimationFrame(this.frame);
+    cancelAnimationFrame(this.pinFrame);
+    this.stopFollowing();
+    this.stopZooming();
+    this.pin.dispose();
     clearTimeout(this.settle);
     clearTimeout(this.fallback);
     this.resize.disconnect();
@@ -236,6 +278,20 @@ export class TerminalView {
     this.sized = true;
     report();
     this.fallback = setTimeout(() => this.markReady(), READY_FALLBACK_MS);
+  }
+
+  // repin draws the pinned line and tells where the history ends once a
+  // frame, after whatever moved the screen, the cursor or the scroll.
+  private repin(): void {
+    if (this.pinFrame) return;
+    this.pinFrame = requestAnimationFrame(() => {
+      this.pinFrame = 0;
+      if (this.disposed) return;
+      const end = this.pin.update(this.term, this.isCursorShown);
+      if (end === this.historyEnd) return;
+      this.historyEnd = end;
+      this.events.reading(end);
+    });
   }
 
   // step moves the fit on by one event and says whether to claim now.
