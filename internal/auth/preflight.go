@@ -82,7 +82,8 @@ func (p SpawnPreflight) Preflight(ctx context.Context, project string) (Result, 
 	// Adopting is safe to do unattended: it reads only files and tools
 	// already on this machine, and writes only into this project's own scope.
 	// The one value it replaces is one this project's own gitignored .env has
-	// since changed, which is the Overlord rotating a credential.
+	// changed since the last scan read it, which is the Overlord rotating a
+	// credential.
 	adopted, unscanned, err := Discover(ctx, store, p.Runner, manifest, project)
 	if err != nil {
 		return Result{}, err
@@ -151,18 +152,24 @@ func (p SpawnPreflight) Preflight(ctx context.Context, project string) (Result, 
 // they mean different things: one filled an empty slot, the other replaced a
 // value every goblin dispatched until now was carrying.
 //
+// A stored value a .env disagreed with on its first reading is named too: the
+// file was passed over, and an edit that did not take must not look like one
+// that did.
+//
 // Origins are file paths and tool names. No value appears here, and none ever
 // may: this line goes to the spawn output, which `cfo peek` reads back and
 // which lives in a pane's scrollback.
 func AdoptionLine(adopted []Adopted) string {
-	var refreshed, added []string
+	var refreshed, added, kept []string
 	for _, item := range adopted {
-		entry := item.Name + " from " + item.Origin
-		if item.Refreshed {
-			refreshed = append(refreshed, entry)
-			continue
+		switch {
+		case item.Kept:
+			kept = append(kept, item.Name+" over "+item.Origin)
+		case item.Refreshed:
+			refreshed = append(refreshed, item.Name+" from "+item.Origin)
+		default:
+			added = append(added, item.Name+" from "+item.Origin)
 		}
-		added = append(added, entry)
 	}
 	var parts []string
 	if len(refreshed) > 0 {
@@ -170,6 +177,9 @@ func AdoptionLine(adopted []Adopted) string {
 	}
 	if len(added) > 0 {
 		parts = append(parts, fmt.Sprintf("adopted %d (%s)", len(added), strings.Join(added, ", ")))
+	}
+	if len(kept) > 0 {
+		parts = append(parts, fmt.Sprintf("kept %d stored over a .env value read for the first time (%s), edit that line to rotate", len(kept), strings.Join(kept, ", ")))
 	}
 	return strings.Join(parts, "; ")
 }
