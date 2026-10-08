@@ -2,6 +2,7 @@ package supervisor
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"github.com/fpresta0607/code-goblins/internal/herdr"
 	"github.com/fpresta0607/code-goblins/internal/monitor"
@@ -11,6 +12,7 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
+	"strings"
 	"testing"
 	"time"
 )
@@ -123,6 +125,38 @@ func TestSnapshotNamesALiveTaskByItsTitle(t *testing.T) {
 
 		if err != nil || len(view.Tasks) == 0 || view.Tasks[0].Title != want {
 			t.Errorf("the snapshot names the task %+v (%v), want %q", view.Tasks, err, want)
+		}
+	}
+}
+
+// The board reads a live goblin's name and title from the snapshot's
+// goblin_name and goblin_title, and its task id stays the handle.
+func TestSnapshotCarriesTheGoblinsNameAndTitleForTheBoard(t *testing.T) {
+	// Arrange
+	store, h := testStore(t)
+	meta, err := state.ReadTaskMeta(h.State, "task-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	meta.GoblinName, meta.GoblinTitle = "Jerry", "Code Designer"
+	if err := state.WriteTaskMeta(h.State, meta); err != nil {
+		t.Fatal(err)
+	}
+
+	// Act
+	view, err := (&Service{Store: store}).Snapshot()
+
+	// Assert
+	if err != nil || len(view.Tasks) == 0 {
+		t.Fatalf("snapshot tasks = %+v, %v", view.Tasks, err)
+	}
+	data, err := json.Marshal(view.Tasks[0])
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{`"id":"task-1"`, `"goblin_name":"Jerry"`, `"goblin_title":"Code Designer"`} {
+		if !strings.Contains(string(data), want) {
+			t.Errorf("task JSON = %s, want %s", data, want)
 		}
 	}
 }

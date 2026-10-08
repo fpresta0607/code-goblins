@@ -365,7 +365,7 @@ func (s *Service) switchAFKAs(from, asked string, on bool) error {
 		// What the board's view kept of the stretch before goes with its
 		// report.
 		s.reads.forget(afkLogKind+current.Session, filepath.Join(stateDir, "afk.audit"))
-		return s.afkNotice(switchedSays(from, asked, "on") + ": he is away until he turns it off, and nothing prompts him meanwhile. Decide what its authority covers yourself and log each decision, and leave what stays his alone held for him. Its terms stand above this queue.")
+		return s.afkNotice(switchedSays(from, asked, "on") + ": he is away until he turns it off, and nothing prompts him meanwhile. Decide everything its authority covers yourself and log each decision. Ask him nothing and hold nothing for him: what only he can do gets a backlog row and a cfo afk log --kind left line, and the work goes around it. Its terms stand above this queue.")
 	}
 	current.Ended, current.EndedFrom, current.EndedAsked = now, from, asked
 	if err := afk.SaveReport(stateDir, s.afkReport(current, allowance)); err != nil {

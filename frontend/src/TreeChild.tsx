@@ -4,12 +4,13 @@ import { babyFor, forHowLong, formatMemory, isDimmed, phaseOf, stateWord } from 
 
 // One child of a goblin as a small card under it: its baby goblin, what it
 // is doing, its state and for how long, and its memory. Idle and finished
-// children are dimmed; a silent one shows its last line in its tip.
+// children are dimmed; a silent one shows its last line in its tip, and a
+// named helper its task.
 export function TreeChild({ node, now }: { node: TreeNode; now: number }) {
   const phase = phaseOf(node), when = forHowLong(node, now), memory = formatMemory(node.memory);
   const detail = node.kind === "subagent" || node.kind === "process" ? node.detail : "";
   return <div className={"tree-child" + (isDimmed(node) ? " dim" : "")} data-state={node.state}
-    {...(node.state === "silent" && node.last_line ? { "data-tip": "Last line: " + node.last_line } : {})}>
+    {...(node.state === "silent" && node.last_line ? { "data-tip": "Last line: " + node.last_line } : node.task ? { "data-tip": node.task } : {})}>
     <BabyGoblin baby={babyFor(node)} silent={node.state === "silent"} />
     <span className="tree-child-copy">
       <strong>{node.label}</strong>

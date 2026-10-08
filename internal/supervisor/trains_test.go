@@ -147,6 +147,28 @@ func TestTheSupervisorStartsATrainWhenTwoGoblinsFinishedPullRequestsWaitGreen(t 
 	}
 }
 
+// A train's cars name the goblins whose pull requests ride, by the names
+// their records hold.
+func TestTrainGoblinsCarryEachGoblinsNameAndTitle(t *testing.T) {
+	// Arrange
+	h := home.Home{State: t.TempDir()}
+	checkout := t.TempDir()
+	if err := state.WriteTaskMeta(h.State, state.TaskMeta{ID: "g11", Project: checkout, Harness: "claude", Backend: "native", SpawnGen: "s1", GoblinName: "Jerry", GoblinTitle: "Code Designer"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := state.AppendStatus(h.State, "g11", "done: PR https://github.com/o/r/pull/11"); err != nil {
+		t.Fatal(err)
+	}
+
+	// Act
+	goblins := TrainGoblins(h.State, checkout)
+
+	// Assert
+	if len(goblins) != 1 || goblins[0].Task != "g11" || goblins[0].Name != "Jerry" || goblins[0].Title != "Code Designer" {
+		t.Fatalf("goblins = %+v, want g11 named Jerry the Code Designer", goblins)
+	}
+}
+
 // Tonight's goblins: each reported its pull request done and went on to its
 // next one, which is what a goblin with more to build does. A pull request a
 // goblin reported done in its current run rides whatever it reported after.

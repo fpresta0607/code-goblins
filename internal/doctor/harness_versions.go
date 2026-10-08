@@ -21,13 +21,15 @@ import (
 )
 
 // Release is where a harness's publisher offers its newest version: the URL
-// answering with it, the source's name for the line, and the command that
-// installs that version, which for npm takes the version at its end.
+// answering with it and the source's name for the line. A harness installed
+// from npm names its Package, and npm installs the newest version of it; one
+// with an installer of its own names the command, Update, that installs the
+// newest.
 type Release struct {
-	URL    string
-	Source string
-	Update string
-	IsNPM  bool
+	URL     string
+	Source  string
+	Package string
+	Update  string
 }
 
 // Releases are the harnesses' release sources by harness name.
@@ -39,8 +41,8 @@ type Releases map[string]Release
 // one unauthenticated GET that costs nothing.
 var HarnessReleases = Releases{
 	"claude": {URL: "https://downloads.claude.ai/claude-code-releases/latest", Source: "Claude Code's latest channel", Update: "claude update"},
-	"codex":  {URL: "https://registry.npmjs.org/@openai/codex/latest", Source: "npm", Update: "npm install -g @openai/codex@", IsNPM: true},
-	"pi":     {URL: "https://registry.npmjs.org/@earendil-works/pi-coding-agent/latest", Source: "npm", Update: "npm install -g @earendil-works/pi-coding-agent@", IsNPM: true},
+	"codex":  {URL: "https://registry.npmjs.org/@openai/codex/latest", Source: "npm", Package: "@openai/codex"},
+	"pi":     {URL: "https://registry.npmjs.org/@earendil-works/pi-coding-agent/latest", Source: "npm", Package: "@earendil-works/pi-coding-agent"},
 }
 
 // ReleasesVariable names a URL that stands in for every harness's release
@@ -108,8 +110,8 @@ func (releases Releases) Versions(ctx context.Context, client *http.Client, prob
 			version.Newest = newest
 			if newerVersion(newest, version.Installed) {
 				version.Update = release.Update
-				if release.IsNPM {
-					version.Update += newest
+				if release.Package != "" {
+					version.Update = "npm install -g " + release.Package + "@" + newest
 				}
 			}
 		})
@@ -139,7 +141,7 @@ func (release Release) newest(ctx context.Context, client *http.Client) (string,
 		return "", fmt.Errorf("%s answered %s", release.Source, response.Status)
 	}
 	version := strings.TrimSpace(string(body))
-	if release.IsNPM {
+	if release.Package != "" {
 		var manifest struct {
 			Version string `json:"version"`
 		}

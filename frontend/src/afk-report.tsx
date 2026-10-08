@@ -12,7 +12,7 @@ import "./afk.css";
 
 // The mark each kind of decision, and a goblin paused at a floor, wears in
 // the report.
-const MARKS: Record<string, IconName> = { merge: "merge", deploy: "external", migration: "database", install: "download", answer: "comment", other: "check", pause: "pause" };
+const MARKS: Record<string, IconName> = { left: "clock", merge: "merge", deploy: "external", migration: "database", install: "download", answer: "comment", other: "check", pause: "pause" };
 
 // The report of the last stretch of AFK mode, as one page over the board: who
 // turned it on and off, how many of each thing there is, what is held for the
@@ -47,17 +47,19 @@ export function AfkReportPage({ tasks, now, onClose, onCommand }: { tasks: Task[
     {data === null && <p className="muted">No report yet.</p>}
     {data && <>
       <ul className="afk-tally" aria-label="In all">{tally.map(([name, count]) => <li key={name} className={count ? undefined : "none"}>{name} <span className="column-count">{count}</span></li>)}</ul>
-      <section aria-label="Held for you">
+      {data.held.length > 0 && <section aria-label="Held for you">
         <h3>Held for you <span className="column-count">{data.held.length}</span></h3>
         <AfkHeldList held={data.held} tasks={tasks} />
-      </section>
+      </section>}
       {data.sections.filter((section) => section.entries.length > 0).map((section) => <section key={section.title} aria-label={section.title}>
         <h3>{section.title} <span className="column-count">{section.entries.length}</span></h3>
         <ul className="inbox-list afk-decisions">{section.entries.map((entry) => {
           const says = decisionSays(entry);
           const unmerged = entry.kind === "merge" && entry.outcome !== "merged";
+          // What was left for him still waits on him.
+          const waits = unmerged || entry.kind === "left";
           return <li key={entry.at + entry.kind + entry.what}>
-            <span className={"delivery " + (unmerged ? "uncertain" : "succeeded")}><Icon name={unmerged ? "warning" : MARKS[entry.kind] || "check"} /></span>
+            <span className={"delivery " + (waits ? "uncertain" : "succeeded")}><Icon name={unmerged ? "warning" : MARKS[entry.kind] || "check"} /></span>
             <div className="inbox-text">
               <strong>{says.href ? <a href={says.href} target="_blank" rel="noreferrer">{says.text}</a> : says.text}{says.outcome && ": " + says.outcome}</strong>
               <ShowMore text={says.basis} className="afk-evidence" />

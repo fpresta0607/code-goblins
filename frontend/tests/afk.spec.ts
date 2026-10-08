@@ -1,8 +1,8 @@
 import { expect, test, type Page, type Route } from "./site";
 
 // AFK mode on the board: the toggle in the CFO panel's header, what the CFO's
-// bar holds for the Overlord while it is on, the offer when he is back and the
-// report when it turns off. The supervisor is played here: the board's stream
+// bar says while it is on, the offer when he is back and the report when it
+// turns off. The supervisor is played here: the board's stream
 // is held open and each snapshot is pushed to it, and what the board asks is
 // collected.
 const HOURS = 60 * 60 * 1000;
@@ -26,6 +26,7 @@ const KEPT = { state: "off", report: "afk-20261002T034000.000Z" };
 const REPORT = {
   found: true, session: KEPT.report, since: "2026-10-02T03:40:00Z", ended: "2026-10-02T12:05:00Z", lasted: "8h25m", from: BOARD, ended_from: "his own terminal (powershell.exe pid 5151)",
   sections: [
+    { title: "Left for you", entries: [{ at: "2026-10-02T06:12:00Z", kind: "left", what: "Sign in to Vercel for nw-search-index", evidence: "his own sign-in, backlog row nw-search-vercel-sign-in, nw-search-index moved on to the ranking work", outcome: "" }] },
     { title: "Merged", entries: [{ at: "2026-10-02T04:31:00Z", kind: "merge", what: "https://github.com/northwind/northwind-api/pull/412", link: "https://github.com/northwind/northwind-api/pull/412", evidence: "head 3f9c2ab; 5 checks completed green", outcome: "merged" }] },
     { title: "Merge words with no merge recorded", entries: [{ at: "2026-10-02T10:58:00Z", kind: "merge", what: "https://github.com/northwind/northwind-api/pull/417", link: "https://github.com/northwind/northwind-api/pull/417", evidence: "head 77aa01c; 5 checks completed green", outcome: "" }] },
     { title: "Deployed", entries: [] },
@@ -109,13 +110,6 @@ const header = (page: Page) => page.locator(".panel-header");
 const toggle = (page: Page) => page.getByRole("switch", { name: "AFK mode" });
 const offer = (page: Page) => page.locator("dialog.afk-dialog").filter({ hasText: "Welcome back" });
 const report = (page: Page) => page.locator("dialog.afk-report");
-const heldPanel = (page: Page) => bar(page).locator(".afk-held-panel");
-// The list of what is held opens only on his click.
-async function openHeld(page: Page) {
-  await expect(heldPanel(page)).not.toHaveAttribute("open", "");
-  await heldPanel(page).locator("summary").click();
-  await expect(heldPanel(page)).toHaveAttribute("open", "");
-}
 // The toggle is in the header of the CFO's panel, which the CFO's bar opens.
 async function openCfoPanel(page: Page) {
   await bar(page).getByRole("button", { name: "Open the CFO's terminal" }).last().click();
@@ -148,7 +142,7 @@ test("the CFO panel's header carries the AFK toggle beside its status: off at re
   await push(page, snapshot({ afk: on() }));
   await expect(asks).toHaveCount(0);
   await expect(toggle(page)).toHaveAttribute("aria-checked", "true");
-  await expect(bar(page).locator(".cfo-rest > p")).toHaveText(/^AFK since .+, from your board\. 0 decided, 0 held for you\.$/);
+  await expect(bar(page).locator(".cfo-rest > p")).toHaveText(/^AFK since .+, from your board\. 0 decided\.$/);
   // Off asks nothing first: it only gives him his decisions back.
   await toggle(page).click();
   await expect.poll(() => supervisor.asked.at(-1)).toEqual({ on: false, token: "fixture" });
@@ -187,56 +181,50 @@ test("a refusal is said in a few words for a moment, in the question and under t
   expect(supervisor.asked.map((ask) => ask.on)).toEqual([true, false]);
 });
 
-test("while AFK is on nothing glows on the bar though things wait on him, it lists what is held once he opens the list, and Answer opens that item in the Command Center", async ({ page }) => {
+// The Overlord, 2026-10-08: "held for you in afk mode not needed it should
+// just show the command center button to open whats to be answered". AFK mode
+// is complete autopilot, so the bar lists nothing held for him: whatever waits
+// is a click away on Open Command Center, which does not glow while he is away.
+test("while AFK is on the bar stays at rest and lists nothing held, and an outline Open Command Center is its one way to what waits", async ({ page }) => {
   await open(page, snapshot({ questions: QUESTIONS }));
-  // With AFK off the same items put a glowing Open Command Center on the bar.
-  const glowing = bar(page).getByRole("button", { name: /^Open Command Center/ });
-  await expect(glowing).toHaveAccessibleName("Open Command Center: 2 waiting on you");
+  // With AFK off the same items bring the CFO's lantern box with its lantern
+  // Open Command Center.
+  const command = bar(page).getByRole("button", { name: /^Open Command Center/ });
+  await expect(command).toHaveAccessibleName("Open Command Center: 2 waiting on you");
+  await expect(bar(page).locator(".dialogue")).toHaveCount(1);
+  await expect(command).not.toHaveClass(/outline/);
 
   await push(page, snapshot({ questions: QUESTIONS, afk: on({ decided: 4, held: HELD }) }));
-  await expect(glowing).toHaveCount(0);
-  await expect(bar(page).locator(".cfo-rest > p")).toHaveText(/^AFK since .+\. 4 decided, 2 held for you\.$/);
-  await openHeld(page);
-  const rows = bar(page).locator(".afk-held li");
-  await expect(rows).toHaveCount(2);
-  await expect(rows.nth(0)).toContainText("CFO");
-  await expect(rows.nth(0).locator(".afk-recommends")).toHaveText("The CFO recommends: Hold it.");
-  await expect(rows.nth(0)).toContainText("Still waiting on you.");
-  await expect(rows.nth(1)).toContainText("nw-checkout-tax");
-  await expect(rows.nth(1).locator(".afk-recommends")).toHaveText("nw-checkout-tax recommends: Hold it.");
-  await expect(rows.nth(1)).toContainText("Still waiting on you. Meanwhile: working: moved on to the refund path.");
+  await expect(bar(page).locator(".cfo-rest > p")).toHaveText(/^AFK since .+\. 4 decided\.$/);
+  await expect(bar(page).locator(".dialogue")).toHaveCount(0);
+  await expect(bar(page).getByText(/held/i)).toHaveCount(0);
+  await expect(bar(page).locator(".afk-held, details")).toHaveCount(0);
+  await expect(bar(page).locator(".cfo-rest").getByRole("button", { name: "Open Command Center: 2 waiting on you" })).toHaveClass(/outline/);
   await expect(page.locator("dialog.question-modal")).not.toBeVisible();
 
-  await rows.nth(1).getByRole("button", { name: /^Answer nw-checkout-tax/ }).click();
-  const center = page.locator("dialog.question-modal");
-  await expect(center).toBeVisible();
-  await expect(center.locator(".question-card")).toContainText("Delete the old branch fix/tax-rounding-v1?");
+  await command.click();
+  await expect(page.locator("dialog.question-modal")).toBeVisible();
 });
 
-test("the list is there and empty while nothing is held, and stays shut when an item comes while he is away", async ({ page }) => {
+test("with AFK on and nothing waiting the bar has no Command Center button, and an item that comes while he is away adds it and opens nothing", async ({ page }) => {
   await open(page, snapshot({ afk: on() }));
-  const panel = bar(page).locator(".afk-held-panel");
-  await expect(panel.locator("summary")).toHaveText("Held for you 0");
-  await expect(panel).not.toHaveAttribute("open", "");
+  const command = bar(page).getByRole("button", { name: /^Open Command Center/ });
+  await expect(command).toHaveCount(0);
   await push(page, snapshot({ questions: [QUESTIONS[0]], afk: on({ held: [HELD[0]] }) }));
-  await expect(panel.locator("summary")).toHaveText("Held for you 1");
-  await expect(panel).not.toHaveAttribute("open", "");
-  await panel.locator("summary").click();
-  await expect(panel.locator(".afk-held li")).toHaveCount(1);
+  await expect(command).toHaveAccessibleName("Open Command Center: 1 waiting on you");
+  await page.waitForTimeout(300);
+  await expect(page.locator("dialog.question-modal")).not.toBeVisible();
 });
 
-test("a board that loads, or reconnects, with AFK already on and items already held keeps the list shut until he opens it", async ({ page }) => {
+test("a board that loads, or reconnects, with AFK already on and items already waiting opens nothing by itself", async ({ page }) => {
   await open(page, snapshot({ questions: QUESTIONS, afk: on({ decided: 4, held: HELD }) }));
-  await expect(heldPanel(page).locator("summary")).toHaveText("Held for you 2");
-  await expect(heldPanel(page)).not.toHaveAttribute("open", "");
-  await expect(heldPanel(page).locator(".afk-held li")).toHaveCount(0);
+  const command = bar(page).getByRole("button", { name: /^Open Command Center/ });
+  await expect(command).toHaveAccessibleName("Open Command Center: 2 waiting on you");
   await page.reload();
   await expect.poll(() => push(page, snapshot({ questions: QUESTIONS, afk: on({ decided: 4, held: HELD }) }))).toBeGreaterThan(0);
-  await expect(heldPanel(page).locator("summary")).toHaveText("Held for you 2");
+  await expect(command).toHaveAccessibleName("Open Command Center: 2 waiting on you");
   await page.waitForTimeout(300);
-  await expect(heldPanel(page)).not.toHaveAttribute("open", "");
-  await openHeld(page);
-  await expect(heldPanel(page).locator(".afk-held li")).toHaveCount(2);
+  await expect(page.locator("dialog.question-modal")).not.toBeVisible();
 });
 
 for (const response of ["successful", "failed"] as const) test(`a late ${response} announcement reply opens nothing and sends no notification after AFK turns on`, async ({ page }) => {
@@ -257,7 +245,7 @@ for (const response of ["successful", "failed"] as const) test(`a late ${respons
   await push(page, snapshot({ questions: [QUESTIONS[0]] }));
   await expect.poll(() => inFlight.some((route) => (route.request().postDataJSON() as { keys: string[] }).keys.includes("alert:question:q-drop-table@" + QUESTIONS[0].created_at))).toBe(true);
   await push(page, snapshot({ questions: [QUESTIONS[0]], afk: on({ held: [HELD[0]] }) }));
-  await expect(bar(page).locator(".cfo-rest > p")).toHaveText(/1 held for you\.$/);
+  await expect(bar(page).getByRole("button", { name: "Open Command Center: 1 waiting on you" })).toBeVisible();
   for (const route of inFlight.splice(0)) await route.fulfill(response === "successful"
     ? { json: { claimed: (route.request().postDataJSON() as { keys: string[] }).keys } }
     : { status: 503, json: { error: "The supervisor is restarting" } });
@@ -283,7 +271,7 @@ test("with AFK on, a new item raises no alert and opens nothing, even when the s
   const asked = page.waitForResponse((response) => new URL(response.url()).pathname === "/api/announce");
   await push(page, snapshot({ questions: [QUESTIONS[1]], afk: on({ held: [HELD[1]] }) }));
   await asked;
-  await expect(bar(page).locator(".cfo-rest > p")).toHaveText(/1 held for you\.$/);
+  await expect(bar(page).getByRole("button", { name: "Open Command Center: 1 waiting on you" })).toBeVisible();
   await page.waitForTimeout(500);
   expect(await notes()).toEqual([]);
   await expect(page.locator("dialog.question-modal")).not.toBeVisible();
@@ -301,7 +289,7 @@ test("his first click after he has been gone still does what he meant and offers
   // Nothing opens by itself while he is away.
   await expect(offer(page)).toHaveCount(0);
   await page.locator(".task-card").filter({ hasText: "nw-search-index" }).first().click();
-  await expect(offer(page)).toContainText("The CFO decided 7 and holds 2 for you.");
+  await expect(offer(page)).toContainText("The CFO decided 7.");
   await expect(offer(page)).toContainText("turned on from your board.");
   // What he was typing when it opened presses neither button.
   await expect(offer(page)).toBeFocused();
@@ -370,9 +358,9 @@ test("a stretch the CFO turned on at his ask says so on the bar, and the offer a
   await page.clock.install();
   const byTheCFO = { from: "the CFO at his ask (claude pid 4242)", asked: "I'm stepping away, turn AFK on" };
   await open(page, snapshot({ afk: on({ ...byTheCFO, decided: 1 }, 8 * HOURS) }));
-  await expect(bar(page).locator(".cfo-rest > p")).toHaveText(/^AFK since .+, turned on by the CFO at your ask\. 1 decided, 0 held for you\.$/);
+  await expect(bar(page).locator(".cfo-rest > p")).toHaveText(/^AFK since .+, turned on by the CFO at your ask\. 1 decided\.$/);
   await page.locator(".board-column").first().click({ position: { x: 8, y: 8 } });
-  await expect(offer(page)).toContainText("turned on by the CFO at your ask: “I'm stepping away, turn AFK on”. The CFO decided 1 and holds 0 for you.");
+  await expect(offer(page)).toContainText("turned on by the CFO at your ask: “I'm stepping away, turn AFK on”. The CFO decided 1.");
   await offer(page).getByRole("button", { name: "Stay AFK" }).click();
 
   // He turns it off himself, from the board, and the report says who made
@@ -413,12 +401,18 @@ test("the report lists what is held first, then how much of each thing the CFO d
   await openCfoPanel(page);
   await header(page).getByRole("button", { name: "Open the last AFK report" }).click();
   await expect(report(page).locator(".afk-report-title")).toContainText("Turned on from your board, off from your terminal.");
-  await expect(report(page).locator(".afk-tally li")).toHaveText(["Held for you 2", "Merged 1", "Merge words with no merge recorded 1", "Deployed 0", "Answered for goblins 1", "Other decisions 1", "Paused at a floor 1", "Goblins finished 1"]);
+  await expect(report(page).locator(".afk-tally li")).toHaveText(["Held for you 2", "Left for you 1", "Merged 1", "Merge words with no merge recorded 1", "Deployed 0", "Answered for goblins 1", "Other decisions 1", "Paused at a floor 1", "Goblins finished 1"]);
   // Coming back he reads what is held before what was decided.
-  expect(await report(page).locator("section").evaluateAll((sections) => sections.map((section) => section.getAttribute("aria-label")))).toEqual(["Held for you", "Merged", "Merge words with no merge recorded", "Answered for goblins", "Other decisions", "Paused at a floor", "Goblins finished", "Spent"]);
+  expect(await report(page).locator("section").evaluateAll((sections) => sections.map((section) => section.getAttribute("aria-label")))).toEqual(["Held for you", "Left for you", "Merged", "Merge words with no merge recorded", "Answered for goblins", "Other decisions", "Paused at a floor", "Goblins finished", "Spent"]);
   // A section with nothing in it is counted above and not listed.
   await expect(report(page).getByRole("region", { name: "Deployed" })).toHaveCount(0);
 
+  // What only he can do was left for him in the backlog and worked around, and
+  // it still waits on him.
+  const left = report(page).getByRole("region", { name: "Left for you" }).locator("li");
+  await expect(left.locator("strong")).toHaveText("Sign in to Vercel for nw-search-index");
+  await expect(left).toContainText("Evidence: his own sign-in, backlog row nw-search-vercel-sign-in");
+  await expect(left.locator(".delivery")).toHaveClass(/uncertain/);
   const merged = report(page).getByRole("region", { name: "Merged", exact: true }).locator("li");
   await expect(merged).toContainText("northwind-api #412: merged");
   await expect(merged).toContainText("Evidence: head 3f9c2ab; 5 checks completed green");
@@ -484,6 +478,14 @@ test("with nothing it held still waiting on him, the report's one button at the 
   await header(page).getByRole("button", { name: "Open the last AFK report" }).click();
   await page.keyboard.press("Escape");
   await expect(report(page)).toHaveCount(0);
+
+  // With nothing that waited on him there is no Held for you to read, as for
+  // any other heading with nothing under it.
+  await page.route("**/api/afk/report", (route) => route.fulfill({ json: { ...REPORT, held: [], spent: [] } }));
+  await header(page).getByRole("button", { name: "Open the last AFK report" }).click();
+  await expect(report(page).locator(".afk-tally li").first()).toHaveText("Held for you 0");
+  await expect(report(page).getByRole("region", { name: "Left for you" })).toBeVisible();
+  await expect(report(page).getByRole("region", { name: "Held for you" })).toHaveCount(0);
 });
 
 test("a switch that cannot be read is shown off, its tip says how to reset it, and what waits on him still leads", async ({ page }) => {
@@ -507,11 +509,10 @@ const within = (page: Page, selector: string) => page.locator(selector).evaluate
 const smallest = (page: Page) => bar(page).evaluate((pin) => Math.min(...[...pin.querySelectorAll("p, span, strong, small, time, button, summary")].filter((element) => (element.textContent || "").trim() !== "").map((element) => parseFloat(getComputedStyle(element).fontSize))));
 const fits = (page: Page) => page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth);
 
-test("on a phone the bar keeps its line, its terminal and what is held inside it, and the toggle stays in the CFO panel's header, with nothing wider than the page", async ({ page }) => {
+test("on a phone the bar keeps its line, its terminal and Open Command Center inside it, and the toggle stays in the CFO panel's header, with nothing wider than the page", async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 });
   await open(page, snapshot({ questions: QUESTIONS, afk: on({ decided: 4, held: HELD }) }));
-  await openHeld(page);
-  await expect(bar(page).locator(".afk-held li")).toHaveCount(2);
+  await expect(bar(page).getByRole("button", { name: "Open Command Center: 2 waiting on you" })).toBeVisible();
   expect(await within(page, ".cfo-rest")).toBe(true);
   expect(await smallest(page)).toBeGreaterThanOrEqual(15);
   await openCfoPanel(page);
@@ -527,8 +528,7 @@ test.describe("in the desktop window", () => {
 
   test("the toggle sits on the header's first row", async ({ page }) => {
     await open(page, snapshot({ questions: QUESTIONS, afk: on({ decided: 4, held: HELD }) }));
-    await openHeld(page);
-    await expect(bar(page).locator(".afk-held li")).toHaveCount(2);
+    await expect(bar(page).getByRole("button", { name: "Open Command Center: 2 waiting on you" })).toBeVisible();
     await openCfoPanel(page);
     for (const view of ["Task", "Terminal"]) {
       await page.locator(".panel-pill").getByRole("button", { name: view, exact: true }).click();

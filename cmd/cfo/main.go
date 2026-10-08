@@ -66,7 +66,7 @@ commands:
   uninstall the same as install --uninstall
   home      migrate [--apply --plan <digest>] [--memory-from <dir>]: lay out a home whose data predates the layout; without --apply a dry run that lists every file it would move, create or change, proves none is dropped and prints the plan digest --apply --plan makes; move [--to <dir>] [--apply --plan <digest>]: move an older build's home, such as a checkout, to the per-user home, with the same dry run, digest and read-back
   dev-drive say whether the home's worktrees, scratch and package caches are on a Dev Drive, a drive Windows 11 formats for developer work that Defender scans in performance mode (not an exclusion), whether this machine has or can have one, and why not; setup: ask for the next step, which the board puts in the Command Center as one item to run; move --to <folder>: put new goblins' worktrees, scratch and caches in <folder> on a trusted Dev Drive, keeping every started goblin's folders where they are
-  doctor    check the tools cfo needs (git, gh, claude, herdr, codex, pi, tasks-axi, quota-axi, no-mistakes, gh-axi, chrome-devtools-axi)
+  doctor    check the tools cfo needs (git, gh, claude, herdr, codex, pi, tasks-axi, quota-axi, no-mistakes, gh-axi, chrome-devtools-axi) and each harness's version beside its newest; --fix installs the newest Codex and pi once each starts to its composer in a terminal of its own, while nothing runs from its install
   pipeline  config-drift | config-apply | migrate <id> | run <id> [--branch <b>] --intent <text> | respond <id> [--branch <b> | --run <run>] --action <fix|approve> [--findings <ids>] [--instructions <text>] | recover <id> [--branch <b> | --run <run>]; --branch or --run acts in whichever of the task's worktrees, an extra one included, has that branch checked out
   drain     print or acknowledge the wake queue and recovery episode
   watch     run one triage cycle by hand (manual diagnostics; the hooks are the production entry)
@@ -101,7 +101,7 @@ commands:
   cfo pr check <id> <url>
   cfo pr merge <url> [--method <merge|squash|rebase>] [--delete-branch] [--verified "<what verified it>"]   where the base requires a merge queue it adds the pull request to the queue instead, never with --admin; while AFK mode is on this is the CFO's own merge word: it needs --verified, a goblin's pull request whose head holds its base's tip unless a merge queue tests the merge, and no --delete-branch, and it is logged with its evidence before it merges
   cfo pr train <project>   a merge train: merge every green pull request goblins finished onto main in queue order on a train branch, open a train PR that is never merged, let CI test them together once, then merge each in order and check main's tree equals the train's; a red run is halved until the PR that breaks it is found, every half that passes lands, and its goblin gets the failure; held (label hold), draft and conflicting PRs never ride; joins the train already running there, and waits until it is over
-  cfo afk on [--asked "<his words>"] | off [--asked "<his words>"] | status | report | log --kind <merge|deploy|migration|install|answer|other> --what "<what>" --evidence "<evidence>" [--link <url>]   AFK mode, the Supreme Overlord's switch for running the fleet while he is away: on and off are his, made from a terminal of his own and refused in a goblin's; the registered CFO makes them only at his ask, with --asked and his words quoted exactly, which the switch and the report keep; off prints the report of the stretch; status says who turned it on, what was decided so far and what is held for him; log is the registered CFO recording a decision it made under the authority, with its evidence
+  cfo afk on [--asked "<his words>"] | off [--asked "<his words>"] | status | report | log --kind <left|merge|deploy|migration|install|answer|other> --what "<what>" --evidence "<evidence>" [--link <url>]   AFK mode, the Supreme Overlord's switch for running the fleet while he is away: on and off are his, made from a terminal of his own and refused in a goblin's; the registered CFO makes them only at his ask, with --asked and his words quoted exactly, which the switch and the report keep; off prints the report of the stretch; status says who turned it on, what was decided so far and what is held for him; log is the registered CFO recording a decision it made under the authority, with its evidence
   cfo merge-local <id>
   cfo cleanup <id>   return a finished task's worktree, every extra worktree it recorded and its scratch folder, refusing while any of them holds uncommitted work and keeping work that is not on the default branch as a local archive tag
   cfo worktree add <id> <name> [--ref <commit>] | remove <id> <name>   give a task an extra worktree, <id>-<name>, beside its own in the home, recorded on the task so cleanup removes it with the task, or return one early
@@ -470,7 +470,7 @@ func runWithRuntime(args []string, stdout, stderr io.Writer, runtime commandRunt
 	case "uninstall":
 		return runInstall(append([]string{"--uninstall"}, args[1:]...), stdout, stderr)
 	case "doctor":
-		return runDoctor(stdout, runtime)
+		return runDoctor(args[1:], stdout, stderr, runtime)
 	case "dev-drive":
 		return runDevDrive(args[1:], stdout, stderr, runtime)
 	case "home":

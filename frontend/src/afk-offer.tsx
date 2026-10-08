@@ -1,6 +1,6 @@
 import { useEffect, useId, useRef } from "react";
 import { Avatar } from "./Avatar";
-import { afkTime, stillHeld, switchedBy, type Occasion } from "./afk";
+import { afkTime, switchedBy, type Occasion } from "./afk";
 import type { Afk } from "./types";
 import "./afk.css";
 import { ClickFeedback } from "./click-feedback";
@@ -23,12 +23,11 @@ export function AfkOffer({ afk, occasion, now, pending, problem, onTurnOff, onSt
     element?.focus();
     return () => { element?.close(); if (source instanceof HTMLElement && source.isConnected) source.focus(); };
   }, []);
-  const held = stillHeld(afk).length;
   const who = switchedBy(afk.from, afk.asked);
   return <dialog ref={dialog} tabIndex={-1} className="stop-task-dialog afk-dialog" aria-labelledby={title} aria-describedby={description} onKeyDown={(event) => { if (event.key === "Escape") event.stopPropagation(); }} onCancel={(event) => { event.preventDefault(); onStay(); }}>
     <Avatar persona="cfo" />
     <h2 id={title}>{occasion === "asked" ? "The CFO turned AFK on" : "Welcome back"}</h2>
-    <p id={description}>AFK has been on since {afkTime(afk.since, now)}{who && ", turned on " + who}. The CFO decided {afk.decided} and holds {held} for you.</p>
+    <p id={description}>AFK has been on since {afkTime(afk.since, now)}{who && ", turned on " + who}. The CFO decided {afk.decided}.</p>
     <ClickFeedback text={problem} />
     <div className="stop-task-choices">
       <button className="primary" disabled={pending} onClick={onTurnOff}>Turn AFK off</button>

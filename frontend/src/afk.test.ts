@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { AFK_OFF, AWAY_MS, afkLine, afkTime, decisionSays, heldRecommends, heldSays, heldWho, offerFor, parseAfkReport, reportAction, safeLink, stillHeld, switchedBy, turnedOff, allowanceSays, type AfkDecision, type AfkAllowance, type Occasion, type ReportAction } from "./afk.ts";
+import { AFK_OFF, AWAY_MS, afkLine, afkTime, decisionSays, heldRecommends, heldSays, heldWho, offerFor, parseAfkReport, reportAction, safeLink, stillWaiting, switchedBy, turnedOff, allowanceSays, type AfkDecision, type AfkAllowance, type Occasion, type ReportAction } from "./afk.ts";
 import { parseSnapshot, type Afk, type AfkHeld } from "./types.ts";
 
 const NOW = Date.parse("2026-10-02T12:31:00Z");
@@ -26,13 +26,13 @@ test("a state the board does not know stops the board rather than read as off", 
   assert.throws(() => snapshot({ afk: { state: "on", held: [{ item: "question:q", waiting: "yes" }] } }), /Invalid response boolean/);
 });
 
-test("the bar says since when AFK mode is on and who turned it on, how much the CFO decided and how much still waits on him", () => {
+test("the bar says since when AFK mode is on, who turned it on and how much the CFO decided, and nothing of what is held, since nothing is held for him", () => {
   const cases: [string, Afk, string][] = [
     ["off says nothing", afk({ state: "off", since: "" }), ""],
-    ["on with nothing yet", afk(), "AFK since 2:10 AM, from your board. 0 decided, 0 held for you."],
-    ["on by the CFO at his ask, without his words, which the offer and the report quote", afk({ ...BY_THE_CFO, decided: 1 }), "AFK since 2:10 AM, turned on by the CFO at your ask. 1 decided, 0 held for you."],
-    ["on from his terminal, counting only what still waits", afk({ from: "his own terminal (powershell.exe pid 5151)", decided: 4, held: [held(), held({ item: "run:restart-db", waiting: false, now: "succeeded" }), held({ item: "review:waiting-task-1-7", task: "task-1" })] }), "AFK since 2:10 AM, from your terminal. 4 decided, 2 held for you."],
-    ["on with no word of where", afk({ from: "" }), "AFK since 2:10 AM. 0 decided, 0 held for you."],
+    ["on with nothing yet", afk(), "AFK since 2:10 AM, from your board. 0 decided."],
+    ["on by the CFO at his ask, without his words, which the offer and the report quote", afk({ ...BY_THE_CFO, decided: 1 }), "AFK since 2:10 AM, turned on by the CFO at your ask. 1 decided."],
+    ["on from his terminal, whatever waits", afk({ from: "his own terminal (powershell.exe pid 5151)", decided: 4, held: [held(), held({ item: "run:restart-db", waiting: false, now: "succeeded" }), held({ item: "review:waiting-task-1-7", task: "task-1" })] }), "AFK since 2:10 AM, from your terminal. 4 decided."],
+    ["on with no word of where", afk({ from: "" }), "AFK since 2:10 AM. 0 decided."],
     ["a switch that cannot be read is not taken for on", afk({ state: "unreadable", since: "" }), ""],
   ];
   for (const [name, value, want] of cases) assert.equal(afkLine(value, NOW, "UTC", "en-US"), want, name);
@@ -52,7 +52,7 @@ test("a held item says whose it is, what became of it and what its goblin did me
   assert.equal(heldSays(held({ waiting: false, now: "you answered it: Keep it held" })), "You answered it: Keep it held.");
   assert.equal(heldSays(held({ task: "pd-billing-admin", meanwhile: "working: moved on to the invoice export." })), "Still waiting on you. Meanwhile: working: moved on to the invoice export.");
   assert.equal(heldSays(held({ now: "" })), "");
-  assert.deepEqual(stillHeld(afk({ held: [held(), held({ item: "run:x", waiting: false })] })).map((one) => one.item), ["question:drop-legacy-invoices"]);
+  assert.deepEqual(stillWaiting([held(), held({ item: "run:x", waiting: false })]).map((one) => one.item), ["question:drop-legacy-invoices"]);
 });
 
 test("a held item says what was recommended for it and by whom: in the present while it waits on him, in the past once it does not, and nothing when nothing was", () => {

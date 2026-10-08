@@ -80,7 +80,10 @@ type Node struct {
 	Label string `json:"label"`
 	// Detail says more: an agent's type, a job's programs, a gate's step.
 	Detail string `json:"detail,omitempty"`
-	State  State  `json:"state"`
+	// Task is a named helper goblin's task, which its label leaves to its
+	// tip.
+	Task  string `json:"task,omitempty"`
+	State State  `json:"state"`
 	// Started is when the child started, LastActivity when it last showed
 	// any (a transcript entry, output, an event, processor use), and
 	// Finished when it ended.

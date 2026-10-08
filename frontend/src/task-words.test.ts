@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { listItem, pausedWithParent, pauseStatus, plainText, reportBody, summary, taskSummary, withoutHarness, teardownSentence } from "./task-words.ts";
-import { parseSnapshot, type CIDuration, type Task } from "./types.ts";
+import { goblinName, listItem, pausedWithParent, pauseStatus, plainText, reportBody, summary, taskName, taskSummary, withoutHarness, teardownSentence } from "./task-words.ts";
+import { parseSnapshot, type CIDuration, type PauseCondition, type Task } from "./types.ts";
 
 const task = (fields: Record<string, unknown>): Task => parseSnapshot({ healthy: true, tasks: [{ id: "a", title: "a", phase: "working", generation: "s1", verified: false, ...fields }] }).tasks[0];
 const lifecycle = (fields: Record<string, unknown>) => ({ phase: "paused", action: "pause", at: "2026-10-05T16:30:06Z", kept: [], stopped: [], problems: [], handoff_saved: true, validation_restarts: false, ...fields });
@@ -17,6 +17,25 @@ test("a title or a note loses the harness a backlog row names after a semicolon,
     ["", ""],
   ];
   for (const [title, shown] of cases) assert.equal(withoutHarness(title), shown, title);
+});
+
+test("a named goblin is called by its name and title, and its task keeps its own words", () => {
+  const named = task({ id: "cg-x", title: "Show goblin names; Claude Code", goblin_name: "Jerry", goblin_title: "Code Designer" });
+  const unnamed = task({ id: "cg-y", title: "Refund totals; Codex" });
+  const untitled = task({ id: "cg-z", title: "" });
+  assert.equal(goblinName(named), "Jerry - Code Designer");
+  assert.equal(taskName(named), "Show goblin names");
+  assert.equal(goblinName(unnamed), "Refund totals");
+  assert.equal(goblinName(untitled), "cg-z");
+  assert.equal(taskName(untitled), "cg-z");
+});
+
+test("a paused card names the goblin it waits on or resumes with by its goblin name", () => {
+  const otis = task({ id: "b", title: "B work", goblin_name: "Otis", goblin_title: "Bug Hunter" });
+  const dependency: PauseCondition = { reason: "dependency", until: "task:b", at: "2026-10-05T16:30:06Z" };
+  const overlord: PauseCondition = { reason: "overlord", until: "", at: "2026-10-05T16:30:06Z" };
+  assert.equal(pauseStatus(dependency, [otis], []), "Waiting on Otis - Bug Hunter");
+  assert.equal(pauseStatus(overlord, [otis], [], otis), "Resumes with Otis - Bug Hunter");
 });
 
 test("a report loses the state word the status already says", () => {
