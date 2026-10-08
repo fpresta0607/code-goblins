@@ -87,6 +87,23 @@ func (api *windowsSherpaAPI) waveData(handle uintptr) (sherpaWave, error) {
 	}, nil
 }
 
+// waveSamples copies the samples of a decoded sound out of the engine.
+func (api *windowsSherpaAPI) waveSamples(wave sherpaWave) ([]float32, error) {
+	samples := make([]float32, max(0, wave.NumSamples))
+	if len(samples) == 0 {
+		return samples, nil
+	}
+	size := uintptr(len(samples)) * unsafe.Sizeof(samples[0])
+	var read uintptr
+	if err := windows.ReadProcessMemory(windows.CurrentProcess(), wave.Samples, (*byte)(unsafe.Pointer(&samples[0])), size, &read); err != nil {
+		return nil, err
+	}
+	if read != size {
+		return nil, errors.New("the decoded sound could not be read in full")
+	}
+	return samples, nil
+}
+
 func (api *windowsSherpaAPI) freeWave(handle uintptr) {
 	_, _, _ = api.freeWaveProc.Call(handle)
 }
@@ -100,8 +117,10 @@ func (api *windowsSherpaAPI) destroyStream(handle uintptr) {
 	_, _, _ = api.destroyStreamProc.Call(handle)
 }
 
-func (api *windowsSherpaAPI) acceptWaveform(stream uintptr, wave sherpaWave) {
-	_, _, _ = api.acceptWaveformProc.Call(stream, uintptr(wave.SampleRate), wave.Samples, uintptr(wave.NumSamples))
+// acceptWaveform hands the engine samples, which it copies before it
+// returns.
+func (api *windowsSherpaAPI) acceptWaveform(stream uintptr, rate int32, samples []float32) {
+	_, _, _ = api.acceptWaveformProc.Call(stream, uintptr(rate), uintptr(unsafe.Pointer(&samples[0])), uintptr(len(samples)))
 }
 
 func (api *windowsSherpaAPI) decode(recognizer, stream uintptr) {

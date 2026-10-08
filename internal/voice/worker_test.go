@@ -41,6 +41,10 @@ func writeWorkerFixture(t *testing.T, voice *Voice, role, record string) {
 	}
 }
 
+// standInScheduling asks for the scheduling the real worker asks for, where
+// the system has any to ask for.
+var standInScheduling = func() error { return nil }
+
 // standInWorker is this test binary started as `voice-worker`. Beside a
 // worker-fixture.json it answers as its role says; without one it is the
 // real worker, which the live test runs.
@@ -53,6 +57,9 @@ func standInWorker(arguments []string) int {
 	folder := filepath.Dir(options.Library)
 	data, err := os.ReadFile(filepath.Join(folder, "worker-fixture.json"))
 	if errors.Is(err, os.ErrNotExist) {
+		if err := standInScheduling(); err != nil {
+			fmt.Fprintln(os.Stderr, err)
+		}
 		recognize, err := OpenWorker(options)
 		if err == nil {
 			err = RunWorker(os.Stdin, os.Stdout, os.Stderr, recognize)

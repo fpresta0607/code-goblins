@@ -1,0 +1,8 @@
+voice is super important so long messages have to come through in full every time
+when I hold the keys for a couple of minutes the whole thing should be typed into the terminal
+so dictation did work but it took forever so we need to try a different model
+the websocket handler leaks a goroutine when the terminal closes so add a context and a timeout
+errors go to the cfo and never sit as a line of text on the board
+the steward app needs a new release on the phone with the household calendar fixed
+when the session limit resets resume every paused goblin in the order they stopped
+add a regression test for the bug first and prove it fails before you fix anything
