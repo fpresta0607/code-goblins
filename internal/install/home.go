@@ -21,7 +21,7 @@ import (
 // following a blank line, the marker lists the contract files the install
 // wrote, one slash-separated path per line, so the next install can remove
 // those its binary no longer ships; a checkout's lists none.
-const markerText = "This folder is a Code Goblins CFO home that cfo install set up.\r\n" +
+const markerText = "This folder is a Code Goblins CFO home, which cfo install or cfo update marked.\r\n" +
 	"The CFO hooks act here only while this file exists, so leave it in place.\r\n" +
 	"Below are the contract files it wrote; the next install removes any its binary no longer ships.\r\n" +
 	"\r\n"
@@ -93,7 +93,7 @@ func (s Service) writeHome(report *reporter) error {
 	if err := s.copyBinary(report); err != nil {
 		return err
 	}
-	if err := s.copyWindow(report); err != nil {
+	if err := s.copyWindow(s.bin(), report); err != nil {
 		return err
 	}
 	if err := s.retireRootBinaries(report); err != nil {
@@ -122,7 +122,7 @@ func (s Service) writeHome(report *reporter) error {
 			report.same("contract", fmt.Sprintf("all %d files already current in %s", len(manifest), s.Root))
 		}
 	}
-	if _, err := writeIfDifferent(markerPath, []byte(markerText+strings.Join(manifest, "\r\n")+"\r\n")); err != nil {
+	if _, err := writeIfDifferent(markerPath, marker(manifest)); err != nil {
 		return fmt.Errorf("install: mark %s as a CFO home: %w", s.Root, err)
 	}
 	switch {
@@ -134,6 +134,28 @@ func (s Service) writeHome(report *reporter) error {
 		report.same("home", s.Root+" is set up")
 	}
 	return nil
+}
+
+// marker is the content of home.InstalledMarker for a home whose install
+// wrote the contract files manifest names.
+func marker(manifest []string) []byte {
+	return []byte(markerText + strings.Join(manifest, "\r\n") + "\r\n")
+}
+
+// MarkHome writes home.InstalledMarker into the home at root when it has
+// none, as a checkout an older build made the home lacks: that build took the
+// checkout for its home without one, and this build takes no folder for a
+// home without it. It reports whether it wrote one; a marker already there,
+// with the contract files an install listed in it, is kept as it is.
+func MarkHome(root string) (bool, error) {
+	path := filepath.Join(root, home.InstalledMarker)
+	if _, err := os.Stat(path); !errors.Is(err, fs.ErrNotExist) {
+		return false, err
+	}
+	if err := atomicWriteFile(path, marker(nil)); err != nil {
+		return false, fmt.Errorf("install: mark %s as a CFO home: %w", root, err)
+	}
+	return true, nil
 }
 
 // writeContract writes the contract into the home and returns every file it
@@ -299,14 +321,14 @@ func (s Service) copyBinary(report *reporter) error {
 // goblins starts where it sits beside goblins.exe.
 const windowName = "goblins-window.exe"
 
-// copyWindow puts the desktop window shipped beside the running binary in the
-// home beside goblins.exe. A window that is open is moved aside as the binary
-// is. A build with no window beside it, such as one built from source, leaves
-// the home as it is: goblins keeps a window the home already holds, and
-// otherwise shows the board in the browser.
-func (s Service) copyWindow(report *reporter) error {
+// copyWindow puts the desktop window shipped beside the running binary in
+// programs, the folder of the home's goblins.exe, beside it. A window that is
+// open is moved aside as the binary is. A build with no window beside it, such
+// as one built from source, leaves the home as it is: goblins keeps a window
+// the home already holds, and otherwise shows the board in the browser.
+func (s Service) copyWindow(programs string, report *reporter) error {
 	source := filepath.Join(filepath.Dir(s.Binary), windowName)
-	target := filepath.Join(s.bin(), windowName)
+	target := filepath.Join(programs, windowName)
 	data, err := fsx.ReadFile(source)
 	if errors.Is(err, fs.ErrNotExist) {
 		if _, err := os.Stat(target); err == nil {
@@ -324,22 +346,23 @@ func (s Service) copyWindow(report *reporter) error {
 		return err
 	}
 	if !changed {
-		report.same("window", windowName+" in "+s.bin()+" is already this build")
+		report.same("window", windowName+" in "+programs+" is already this build")
 		return nil
 	}
-	report.change("window", fmt.Sprintf("copied %s to %s in %s", source, windowName, s.bin()))
+	report.change("window", fmt.Sprintf("copied %s to %s in %s", source, windowName, programs))
 	if running {
 		report.detail("the previous window still runs; quit it from its tray icon and goblins opens this one")
 	}
 	return nil
 }
 
-// CarryWindow puts the desktop window shipped beside binary in the home at
-// root, as an install does, and writes what it did to out. cfo update carries
-// it once the candidate serves: the window is a program of its own that shows
-// any build's board, so it follows an update and takes no part in it.
-func CarryWindow(root, binary string, out io.Writer) error {
-	return Service{Root: root, Binary: binary}.copyWindow(&reporter{out: out})
+// CarryWindow puts the desktop window shipped beside binary in programs, the
+// folder of the home's goblins.exe, as an install does, and writes what it did
+// to out. cfo update carries it once the candidate serves: the window is a
+// program of its own that shows any build's board, so it follows an update and
+// takes no part in it.
+func CarryWindow(programs, binary string, out io.Writer) error {
+	return Service{Binary: binary}.copyWindow(programs, &reporter{out: out})
 }
 
 // windowPicture is the notifications' picture the desktop window writes

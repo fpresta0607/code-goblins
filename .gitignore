@@ -24,8 +24,8 @@ config/
 !/config/verify.json
 !/config/voice.json
 /cfo.exe
-# The marker of a checkout an older build made the CFO home, which cfo install
-# writes so this build takes it for the home in use.
+# The marker of a checkout an older build made the CFO home, which install and
+# update write so this build takes it for the home in use.
 /.cfo-home
 # A go build in the clone, and what an older install.cmd -Dev built there:
 # both names and the desktop window, and a copy still running moved aside.
@@ -39,6 +39,14 @@ config/
 /cfo.exe.*.old
 /goblins.exe.*.old
 /goblins-window.exe.*.old
+# What cfo update stages and moves aside where a checkout home keeps its build
+# at its root: a copy something still runs stays until the janitor removes it.
+/cfo.exe.update-new
+/goblins.exe.update-new
+/cfo.exe.update-restore
+/goblins.exe.update-restore
+/cfo.exe.*.update-old
+/goblins.exe.*.update-old
 /frontend/node_modules/
 # The board npm run build writes for cfo.exe to embed. The placeholder page a
 # build without it serves is the one file under dist that is committed.

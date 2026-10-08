@@ -164,7 +164,7 @@ func (s *Service) offerUpdate(latest release.Release, installed string) error {
 	quote := func(value string) string { return "'" + strings.ReplaceAll(value, "'", "''") + "'" }
 	h := s.Store.Home
 	command := "$ErrorActionPreference = 'Stop'\n$env:CFO_HOME = " + quote(h.Root) + "\n$env:CFO_STATE_OVERRIDE = " + quote(h.State) + "\n" +
-		"& " + quote(filepath.Join(h.Bin(), "goblins.exe")) + " update --to " + latest.Tag + " --run " + id + "\nexit $LASTEXITCODE\n"
+		"& " + quote(filepath.Join(h.Programs(), "goblins.exe")) + " update --to " + latest.Tag + " --run " + id + "\nexit $LASTEXITCODE\n"
 	signing, publisher := release.Signing(latest.Notes)
 	offer := &ReleaseOffer{From: installed, To: latest.Tag, Page: latest.Page, Published: latest.Published, Notes: release.WhatsNew(latest.Notes, 3),
 		Signing: signing, Publisher: publisher, Sum: release.NotedSum(latest.Notes, release.Program)}

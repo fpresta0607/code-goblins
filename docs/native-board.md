@@ -1154,7 +1154,8 @@ A newer release published meanwhile replaces a waiting item, which reads Replace
 The Command Center lists it as Code Goblins with the release goblin, `Update to <new> from <old>`, a download icon and the same ring, the bar's alert announces it once as Code Goblins, and History keeps how it ended.
 The item is the release's one signal on the board: no banner points to it, since everything that asks him something reaches him in the Command Center.
 A board built from a clone, whose version is not a release's, gets no item: its clone updates it, with `git pull` and `.\install.cmd -Dev`.
-The desktop window follows the update into `bin`, and an open one keeps showing the board on the new build until it is quit from its tray icon and opened again, which the updated card says.
+The item runs the home's own `goblins.exe` where the home keeps it, in `bin`, or at the root of a home a build before `bin` set up.
+The desktop window follows the update beside `goblins.exe`, and an open one keeps showing the board on the new build until it is quit from its tray icon and opened again, which the updated card says.
 
 ## Credential requests
 
