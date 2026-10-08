@@ -25,6 +25,8 @@ type startMenuInstall struct {
 	local string
 	// programs is the session's Start-menu programs folder.
 	programs string
+	// desktop is the session's desktop.
+	desktop string
 }
 
 // runInstallForStartMenu runs command, which runs install.ps1, in Windows
@@ -48,10 +50,13 @@ func runInstallForStartMenu(t *testing.T, base string, stubs map[string]string, 
 		"}\n" +
 		"function Start-Sleep { param([int]$Seconds) }\n"
 	cmd, local, temp := StrippedCommand(t, base, all, WindowsPowerShell(), "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-Command", internet+command)
-	programs := ""
+	programs, desktop := "", ""
 	for _, variable := range cmd.Env {
 		if appData, found := strings.CutPrefix(variable, "APPDATA="); found {
 			programs = filepath.Join(appData, "Microsoft", "Windows", "Start Menu", "Programs")
+		}
+		if folder, found := strings.CutPrefix(variable, "CODE_GOBLINS_DESKTOP="); found {
+			desktop = folder
 		}
 	}
 	cmd.Env = append(cmd.Env, standInVariable+"=1", standInRecordVariable+"="+record)
@@ -65,7 +70,7 @@ func runInstallForStartMenu(t *testing.T, base string, stubs map[string]string, 
 	if err != nil && !os.IsNotExist(err) {
 		t.Fatal(err)
 	}
-	return startMenuInstall{output: Said(output, temp), record: string(recorded), local: local, programs: programs}
+	return startMenuInstall{output: Said(output, temp), record: string(recorded), local: local, programs: programs, desktop: desktop}
 }
 
 // serveReleaseWithWindow serves a release holding binary as cfo.exe and, when
@@ -95,9 +100,22 @@ func serveReleaseWithWindow(t *testing.T, binary, window []byte) string {
 // the arguments it gives it, read from the shortcut as Windows reads it.
 func startMenuEntry(t *testing.T, run startMenuInstall) (target, arguments string) {
 	t.Helper()
-	shortcut := filepath.Join(run.programs, "Code Goblins.lnk")
+	return shortcutAt(t, filepath.Join(run.programs, "Code Goblins.lnk"), run.output)
+}
+
+// desktopEntry is what the Code Goblins shortcut on the session's desktop
+// starts, as startMenuEntry reads the Start-menu entry.
+func desktopEntry(t *testing.T, run startMenuInstall) (target, arguments string) {
+	t.Helper()
+	return shortcutAt(t, filepath.Join(run.desktop, "Code Goblins.lnk"), run.output)
+}
+
+// shortcutAt is the program the shortcut starts and the arguments it gives
+// it, read as Windows reads them.
+func shortcutAt(t *testing.T, shortcut, output string) (target, arguments string) {
+	t.Helper()
 	if _, err := os.Stat(shortcut); err != nil {
-		t.Fatalf("the install made no Start-menu entry: %v\n%s", err, run.output)
+		t.Fatalf("the install made no shortcut at %s: %v\n%s", shortcut, err, output)
 	}
 	out, err := execx.Command(WindowsPowerShell(), "-NoProfile", "-NonInteractive", "-Command",
 		"$shortcut = (New-Object -ComObject WScript.Shell).CreateShortcut('"+shortcut+"'); Write-Output \"target=$($shortcut.TargetPath)\"; Write-Output \"arguments=$($shortcut.Arguments)\"").CombinedOutput()
@@ -219,6 +237,12 @@ func TestOneLineInstallStartsAloneOnlyTheWindowItDelivered(t *testing.T) {
 			wantTarget := fsx.LongPath(filepath.Join(bin, test.program))
 			if !strings.EqualFold(fsx.LongPath(target), wantTarget) || arguments != test.arguments {
 				t.Errorf("Code Goblins in the Start menu runs %q with %q, want %q with %q:\n%s", target, arguments, wantTarget, test.arguments, run.output)
+			}
+			// The Overlord, 2026-10-08: "make sure installer and desktop
+			// shortcut get created seamlessly". The desktop gets the same
+			// Code Goblins as the Start menu.
+			if onDesktop, desktopArguments := desktopEntry(t, run); !strings.EqualFold(fsx.LongPath(onDesktop), wantTarget) || desktopArguments != test.arguments {
+				t.Errorf("Code Goblins on the desktop runs %q with %q, want %q with %q, as the Start menu's does:\n%s", onDesktop, desktopArguments, wantTarget, test.arguments, run.output)
 			}
 			if !strings.Contains(run.record, "cfo install\r\n") || strings.Contains(run.record, "--window-built") {
 				t.Errorf("want cfo install run as it is, told of no window built here:\n%s\n%s", run.record, run.output)

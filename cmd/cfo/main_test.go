@@ -187,6 +187,11 @@ func TestMain(m *testing.M) {
 	if err != nil {
 		panic(err)
 	}
+	// An uninstall a test runs removes the desktop shortcut from a folder of
+	// its own, never from this machine's desktop.
+	if err := os.Setenv(install.DesktopVariable, configDir); err != nil {
+		panic(err)
+	}
 	if err := os.Setenv("CLAUDE_CONFIG_DIR", configDir); err != nil {
 		panic(err)
 	}

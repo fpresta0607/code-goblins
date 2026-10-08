@@ -75,6 +75,9 @@ type Service struct {
 	// StartMenuShortcut is the Code Goblins shortcut the install script puts
 	// in the Start menu, which an uninstall removes.
 	StartMenuShortcut string
+	// DesktopShortcut is the Code Goblins shortcut the install script puts on
+	// the desktop, which an uninstall removes.
+	DesktopShortcut string
 	// StartAtLoginKey is the key under HKEY_CURRENT_USER holding the
 	// programs Windows starts at login. An uninstall clears it of the desktop
 	// window's entry for this home, and an install makes that entry start
@@ -183,6 +186,9 @@ func (s Service) Uninstall(out io.Writer) error {
 	if err := s.removeStartMenuShortcut(report); err != nil {
 		return err
 	}
+	if err := s.removeDesktopShortcut(report); err != nil {
+		return err
+	}
 	if err := s.removeStartAtLogin(report); err != nil {
 		return err
 	}
@@ -275,6 +281,43 @@ func (s Service) removeStartMenuShortcut(report *reporter) error {
 		report.change("start menu", "removed "+shortcut)
 	}
 	return nil
+}
+
+// removeDesktopShortcut removes the Code Goblins shortcut the install script
+// put on the desktop, when there is one.
+func (s Service) removeDesktopShortcut(report *reporter) error {
+	if s.DesktopShortcut == "" {
+		return nil
+	}
+	err := os.Remove(s.DesktopShortcut)
+	switch {
+	case errors.Is(err, fs.ErrNotExist):
+		report.same("desktop", "no shortcut at "+s.DesktopShortcut)
+		return nil
+	case err != nil:
+		return fmt.Errorf("install: remove the desktop shortcut %s: %w", s.DesktopShortcut, err)
+	}
+	report.change("desktop", "removed "+s.DesktopShortcut)
+	return nil
+}
+
+// DesktopVariable names the folder the install puts the desktop shortcut in,
+// in place of the user's desktop, as a test's own folder.
+const DesktopVariable = "CODE_GOBLINS_DESKTOP"
+
+// DesktopShortcutPath is where the install script puts the Code Goblins
+// shortcut on the desktop: in the folder DesktopVariable names, or else on the
+// desktop Windows shows, which OneDrive may keep, or nothing when neither can
+// be found.
+func DesktopShortcutPath() string {
+	folder := os.Getenv(DesktopVariable)
+	if folder == "" {
+		folder = userDesktop()
+	}
+	if folder == "" {
+		return ""
+	}
+	return filepath.Join(folder, "Code Goblins.lnk")
 }
 
 // StartMenuShortcutPath is where the install script puts the Code Goblins
