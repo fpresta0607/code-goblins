@@ -4,7 +4,6 @@
    order fleet-tree.ts names them. */
 .baby-goblin { display: inline-block; flex: none; width: 44px; height: 44px; background: url('/assets/goblin-babies.png') 0 0 / 300% 300% no-repeat; }
 .baby-goblin.small { width: 24px; height: 24px; }
-.baby-goblin.silent { border-radius: 50%; box-shadow: 0 0 0 2px var(--amber), 0 0 12px #f3c57855; }
 .baby-subagent { background-position: 0 0; }
 .baby-shell { background-position: 50% 0; }
 .baby-monitor { background-position: 100% 0; }
@@ -16,16 +15,15 @@
 .baby-other { background-position: 100% 100%; }
 .baby-helper { background-position: 0 0; }
 
-.phase-silent .status-dot { background: var(--amber); box-shadow: 0 0 0 3px #f3c57833; }
-.phase-silent.plain-status { color: #f6d79e; }
-.phase-idle .status-dot, .phase-done .status-dot { background: #7891ad; }
+/* A silent child is a plain state like an idle one, never yellow: what has
+   gone wrong is the CFO's to tell. */
+.phase-idle .status-dot, .phase-done .status-dot, .phase-silent .status-dot { background: #7891ad; }
 .phase-idle.plain-status, .phase-done.plain-status { color: #a6b8c8; }
 
 /* A goblin's running children collapsed to a count, the same rounded
    rectangle as the rows it opens. */
 .tree-count { display: inline-flex; align-items: center; gap: 10px; min-height: 38px; padding: 4px 12px 4px 10px; border: 1px solid var(--glass-border-hover); border-radius: var(--radius); background: var(--glass-bg), var(--hero-surface); box-shadow: var(--glass-shadow); font-size: .9375rem; font-weight: 700; color: #c4d4df; white-space: nowrap; }
 .tree-count:hover { border-color: var(--accent-green); }
-.tree-count.has-silent { border-color: #f3c57888; }
 .tree-count svg { width: 16px; height: 16px; flex: none; color: #bed2d9; }
 .tree-tally { display: inline-flex; align-items: center; gap: 2px; color: var(--mint); }
 .tree-count-words { display: inline-flex; align-items: center; gap: 6px; }
@@ -34,16 +32,23 @@
 
 /* Each of a goblin's children as a small card: its baby goblin, what it
    does, its state and for how long, and its memory; on a rail in the
-   lineage list. */
-.tree-rail { display: grid; gap: 8px; width: 100%; margin: 0; padding: 0 0 0 22px; list-style: none; border-left: 1px solid var(--glass-border-hover); }
+   lineage list, which runs down beside them to the last one's turn and at
+   each turns into the middle of its top. Pressing one opens its panel. */
+.tree-rail { box-sizing: border-box; display: grid; gap: 20px; width: 100%; margin: 0; padding: 20px 0 0 22px; list-style: none; }
+.tree-rail > li { position: relative; }
+.tree-rail > li::before { content: ""; position: absolute; left: -22px; top: -20px; bottom: 0; border-left: 1px solid var(--glass-border-hover); }
+.tree-rail > li:last-child::before { bottom: auto; height: 10px; }
+.tree-rail > li::after { content: ""; position: absolute; left: -22px; top: -10px; box-sizing: border-box; width: calc(50% + 22px); height: 10px; border: solid var(--glass-border-hover); border-width: 1px 1px 0 0; border-top-right-radius: 8px; }
 .tree-child { position: relative; display: grid; grid-template-columns: 44px minmax(0, 1fr) auto; align-items: center; gap: 10px; min-height: 60px; padding: 6px 12px 6px 8px; border: 1px solid var(--glass-border); border-radius: var(--radius); background: var(--glass-bg), var(--hero-surface); box-shadow: var(--glass-shadow); }
-.tree-rail .tree-child::before { content: ""; position: absolute; left: -23px; top: 50%; width: 22px; border-top: 1px solid var(--glass-border-hover); }
+.tree-rail .tree-child { width: 100%; text-align: left; }
+.tree-rail .tree-child-copy strong { white-space: normal; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
+button.tree-child:hover { border-color: var(--glass-border-hover); }
+.tree-child.selected { border-color: var(--accent-green); box-shadow: var(--selected-glow); }
 .tree-child.dim, .working-row.dim { opacity: .55; }
-.tree-child-copy { display: grid; min-width: 0; line-height: 1.3; }
+.tree-child-copy { display: grid; gap: 4px; min-width: 0; line-height: 1.3; }
 .tree-child-copy strong { font-size: 1rem; font-weight: 800; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.tree-child-copy .plain-status { font-size: .875rem; gap: 6px; white-space: nowrap; overflow: hidden; }
+.state-chip { display: inline-flex; align-items: center; justify-self: start; gap: 6px; max-width: 100%; padding: 1px 9px; border: 1px solid var(--glass-border); border-radius: 999px; background: rgba(255, 255, 255, 0.04); color: #c4d4df; font-size: .875rem; font-weight: 700; line-height: 1.4; white-space: nowrap; overflow: hidden; }
 .tree-child-copy .status-dot { width: 7px; height: 7px; }
-.tree-child-detail { min-width: 0; overflow: hidden; text-overflow: ellipsis; color: var(--muted); font-weight: 600; }
 .tree-memory { font-size: .875rem; font-weight: 700; color: #b9cad6; white-space: nowrap; }
 
 /* A goblin's running children on the canvas: each a baby goblin hanging on
@@ -59,16 +64,19 @@
 .tree-branches .baby-goblin { width: 40px; height: 40px; }
 .tree-branches .tree-child-copy { width: 100%; justify-items: center; }
 .tree-branches .tree-child-copy strong { font-size: .875rem; line-height: 1.25; white-space: normal; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
-.tree-branches .tree-child-copy .plain-status { justify-content: center; max-width: 100%; font-size: .8125rem; }
+.tree-branches .state-chip { justify-self: center; font-size: .8125rem; }
 .tree-branches .tree-memory { font-size: .8125rem; }
 
 /* The lineage list at phone width: the count under the goblin, its children
    on a rail. */
-.workflow-branch > .tree-lineage { margin: 10px 0 0 12px; display: grid; gap: 8px; justify-items: start; }
+.workflow-branch > .tree-lineage { margin: 10px 0 0 12px; display: grid; grid-template-columns: minmax(0, 1fr); gap: 8px; justify-items: start; }
+.tree-lineage > .tree-count { max-width: 100%; flex-wrap: wrap; white-space: normal; }
 
-/* The goblin's card counts what runs under it; a silent child is named in
-   its panel, not on the card. */
-.card-tree { display: inline-flex; align-items: center; flex-wrap: wrap; gap: 4px 10px; color: #b9cad6; font-size: .9375rem; font-weight: 700; }
+/* The goblin's card counts what runs under it, and pressing the count shows
+   them on the canvas; a silent child is named in its panel, not on the
+   card. */
+.card-tree { display: inline-flex; align-items: center; flex-wrap: wrap; gap: 4px 10px; min-height: 0; padding: 0; border: 0; border-radius: 6px; background: none; color: #b9cad6; font-size: .9375rem; font-weight: 700; }
+.card-tree:hover { background: var(--ghost-bg); box-shadow: 0 0 0 4px var(--ghost-bg); }
 .card-tree .tree-tally { gap: 2px; }
 
 /* What's working in the goblin's panel. */
@@ -79,7 +87,7 @@
 .working-what { display: grid; gap: 2px; min-width: 0; }
 .working-what strong { font-weight: 800; overflow-wrap: anywhere; }
 .working-what small { color: var(--muted); font-size: .875rem; overflow-wrap: anywhere; }
-.working-last-line { font-family: var(--font-mono); font-size: .8125rem; color: #e7d3a3; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.working-last-line { font-family: var(--font-mono); font-size: .8125rem; color: #b9cad6; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .working-meta { display: grid; grid-template-columns: 96px 64px 72px; align-items: center; gap: 12px; justify-items: end; font-size: .9375rem; }
 .working-meta .plain-status { justify-self: start; font-size: .9375rem; }
 .working-for { color: #c4d4df; font-weight: 700; }

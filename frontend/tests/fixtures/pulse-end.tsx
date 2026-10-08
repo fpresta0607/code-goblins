@@ -44,7 +44,7 @@ function PulseEnd() {
     <div id="effects" style={{ height: 900, display: "flex", flexDirection: "column" }}>
       {mode.startsWith("compact-")
         ? <Lineage snapshot={snapshot} project="" selected={null} effects={effects} presentations={[]} now={FIXED_NOW} onSelect={() => {}} />
-        : <Orchestration snapshot={snapshot} selected="" connected effects={effects} presentations={[]} now={FIXED_NOW} onSelect={() => {}} />}
+        : <Orchestration snapshot={snapshot} selected="" connected effects={effects} presentations={[]} now={FIXED_NOW} onSelect={() => {}} onChild={() => {}} />}
     </div>
   </main>;
 }

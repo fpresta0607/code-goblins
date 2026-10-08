@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { babyFor, BABY_HEIGHT, BABY_WIDTH, branchLayout, finished, hasRunningChildren, forHowLong, formatMemory, isDimmed, running, stateWord, summarize } from "./fleet-tree.ts";
+import { babyFor, babyName, BABY_HEIGHT, BABY_WIDTH, branchLayout, finished, hasRunningChildren, forHowLong, formatMemory, isDimmed, running, stateWord, summarize, titleFor } from "./fleet-tree.ts";
 import { arrange, makeRoom, NODE_HEIGHT, NODE_WIDTH, settle, waitingOn, workflowNodes, type Extent } from "./workflow.ts";
 import { parseSnapshot, type FleetTree, type TreeNode } from "./types.ts";
 
@@ -22,9 +22,11 @@ test("each child is drawn as the baby goblin of its kind, a job as what it does"
   ] as [Partial<TreeNode>, string][]) assert.equal(babyFor(child(fields)), baby, JSON.stringify(fields));
 });
 
-test("a child reads as working, idle, waiting, done, failed or silent, and idle and finished ones are dimmed", () => {
+// The Overlord, 2026-10-08: "why are the idle ones unclickable". An idle
+// child can be opened like any other, so only a finished one is dimmed.
+test("a child reads as working, idle, waiting, done, failed or silent, and only finished ones are dimmed", () => {
   for (const [fields, word, dimmed] of [
-    [{ state: "working" }, "Working", false], [{ kind: "process", state: "waiting" }, "Idle", true], [{ kind: "gate", state: "waiting" }, "Waiting", false],
+    [{ state: "working" }, "Working", false], [{ kind: "process", state: "waiting" }, "Idle", false], [{ kind: "gate", state: "waiting" }, "Waiting", false],
     [{ state: "done" }, "Done", true], [{ state: "failed" }, "Failed", true], [{ state: "silent" }, "Silent", false],
   ] as [Partial<TreeNode>, string, boolean][]) {
     assert.equal(stateWord(child(fields)), word);
@@ -112,9 +114,22 @@ test("a goblin's running children hang in about as many columns as rows, each cl
       assert.ok(one.x >= 0 && one.y > 0 && one.x + BABY_WIDTH <= branches.width && one.y + BABY_HEIGHT <= branches.height, count + " children: inside the block " + JSON.stringify(one));
       for (const other of branches.places.slice(i + 1)) assert.ok(Math.abs(one.x - other.x) >= BABY_WIDTH || Math.abs(one.y - other.y) >= BABY_HEIGHT, count + " children: " + JSON.stringify([one, other]));
     }
-    assert.equal(branches.ends.length, count, count + " children: a line ends at each");
-    assert.equal(branches.lines.length, count === 1 ? 1 : 1 + columns + count, count + " children: a trunk and bar, a spine a column and a twig a child");
-    assert.equal(branches.drops.length, count === 1 ? 1 : 1 + columns, count + " children: lines run down at the middle and each spine");
+    assert.equal(branches.drops.length, 2 + (count === 1 ? 0 : columns - 1), count + " children: lines run down at the middle and beside each column");
+  }
+});
+
+// The Overlord, 2026-10-08: "branches should connect to the top of their baby
+// goblins".
+test("each child's branch runs from the middle of the card's bottom to the middle of the child's top", () => {
+  for (const count of [1, 2, 3, 4, 5, 9, 10, 17]) {
+    const branches = branchLayout(count, NODE_WIDTH);
+    assert.equal(branches.lines.length, count, count + " children: a branch to each");
+    for (const [i, line] of branches.lines.entries()) {
+      const points = [...line.matchAll(/(-?[\d.]+),(-?[\d.]+)/g)].map((match) => ({ x: Number(match[1]), y: Number(match[2]) }));
+      assert.deepEqual(points[0], { x: branches.width / 2, y: 0 }, count + " children: branch " + i + " starts under the card");
+      assert.deepEqual(points.at(-1), { x: branches.places[i].x + BABY_WIDTH / 2, y: branches.places[i].y }, count + " children: branch " + i + " ends at its child's top");
+      assert.deepEqual(branches.ends[i], points.at(-1), count + " children: its end is marked");
+    }
   }
 });
 
@@ -215,4 +230,29 @@ test("a goblin waiting on the helper hung under it draws no dashed line to it", 
   assert.deepEqual(waitingOn(helperWait, workflowNodes(helperWait)), {});
   const otherWait = snapshot([{ ...waiting, waiting_on: "o" }, helper, other]);
   assert.deepEqual(waitingOn(otherWait, workflowNodes(otherWait)), { "task:g": "task:o" });
+});
+
+// The Overlord, 2026-10-08: "the same goblin naming convention like Kip Jr.
+// Kip II etc with a job title for that specific agent session".
+test("a baby goblin's title is the one who does what its own description says, or else its kind's", () => {
+  for (const [fields, title] of [
+    [{ label: "Start the board" }, "Board Starter"], [{ label: "Test dictation" }, "Dictation Tester"],
+    [{ label: "Map harness plumbing" }, "Plumbing Mapper"], [{ label: "Research MCP OAuth" }, "OAuth Researcher"],
+    [{ label: "Run the affected Go tests", kind: "shell" }, "Test Runner"], [{ label: "Measure the branches" }, "Branch Measurer"],
+    [{ label: "Verify the replies." }, "Reply Verifier"], [{ label: "review hosted producer" }, "Producer Reviewer"], [{ label: "Explore" }, "Explorer"],
+    [{ label: "Dev server :5173", kind: "process", group: "dev-server" }, "Server Keeper"], [{ label: "CI checks on PR 398", kind: "monitor" }, "Watcher"],
+    [{ label: 'C:\\WINDOWS\\System32\\cmd.exe /d /s /c "npm run dev"', kind: "process", group: "other" }, "Process Wrangler"], [{ label: "Sub-agent" }, "Scout"],
+  ] as [Partial<TreeNode>, string][]) assert.equal(titleFor(child(fields)), title, JSON.stringify(fields));
+});
+
+test("baby goblins are named after their goblin in the order they started, Jr. then II and on, and a helper keeps its own name", () => {
+  const children = [
+    child({ id: "c", label: "Check the list", started: ago(30) }), child({ id: "a", label: "Start the board", started: ago(50) }),
+    child({ id: "h", kind: "helper", label: "Pip - Rail Fitter", started: ago(45) }), child({ id: "b", label: "Test dictation", started: ago(40), state: "done" }),
+    ...Array.from({ length: 8 }, (_, i) => child({ id: "z" + i, label: "Trace the export", started: ago(20 - i) })),
+  ];
+  const goblin = parseSnapshot({ healthy: true, tasks: [{ id: "g", title: "Fix it", goblin_name: "Kip", goblin_title: "Echo Chaser", phase: "working", verified: false, tree: tree(children) }] }).tasks[0];
+  const name = (id: string) => babyName(goblin, children.find((node) => node.id === id)!);
+  assert.deepEqual(["a", "b", "c", "z0", "z7", "h"].map(name), ["Kip Jr. - Board Starter", "Kip II - Dictation Tester", "Kip III - List Checker", "Kip IV - Export Tracer", "Kip XI - Export Tracer", "Pip - Rail Fitter"]);
+  assert.equal(babyName({ ...goblin, goblin_name: "" }, children[1]), "Board Starter", "a goblin with no name yet: the title alone");
 });

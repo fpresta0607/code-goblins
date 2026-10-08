@@ -1,5 +1,5 @@
 import { useState, type ReactNode } from "react";
-import type { BoardActivity, Session, Snapshot, Task } from "./types";
+import type { BoardActivity, Session, Snapshot, Task, TreeNode } from "./types";
 import { PanelHeader } from "./PanelHeader";
 import { TaskView } from "./Details";
 import { WorkspaceDetails } from "./WorkspaceDetails";
@@ -14,6 +14,7 @@ import { TaskAdjustment } from "./task-adjustment";
 import { LifecycleDetails } from "./lifecycle-details";
 import { PanelRow, type PanelControl } from "./panel-row";
 import { RestartCfoButton } from "./restart-cfo-button";
+import { BabyHeader } from "./baby-header";
 
 export type PanelView = "task" | "terminal";
 
@@ -23,15 +24,16 @@ export type PanelView = "task" | "terminal";
 // live while the board is open, so switching goblins never reconnects.
 // The CFO's Task view also lists every queued task, as the Tasks column does,
 // says which conversation it could not resume when it came back, and has
-// Restart.
-export function GoblinPanel({ task, node, snapshot, connected, reviews, view, now, presentations, cardStart, onView, onAnswer, onOpenTask, row }: {
-  task?: Task; node?: Session; snapshot: Snapshot; connected: boolean; reviews: ReviewControls;
+// Restart. A goblin's baby goblin (child) has the same panel, with its name
+// and its task above its terminal, which is all it shows.
+export function GoblinPanel({ task, node, child, snapshot, connected, reviews, view, now, presentations, cardStart, onView, onAnswer, onOpenTask, row }: {
+  task?: Task; node?: Session; child?: TreeNode; snapshot: Snapshot; connected: boolean; reviews: ReviewControls;
   view: PanelView; now: number; presentations: BoardActivity[]; onView: (view: PanelView) => void; onAnswer: (key: string) => void; onOpenTask: (task: Task) => void;
   // row is the top row's controls, corner button and notice (see PanelRow).
   cardStart: CardStarter; row: { controls: PanelControl[]; corner: ReactNode; notice?: ReactNode };
 }) {
   const owner = !!task && ownsTaskSession(node, task);
-  const terminal = panelViews(task, node).includes("terminal");
+  const terminal = !child && panelViews(task, node).includes("terminal");
   // A failure's Open the log opens the Activity section and brings it into view.
   const [isLogOpen, setLogOpen] = useState(false);
   const openLog = () => {
@@ -40,7 +42,7 @@ export function GoblinPanel({ task, node, snapshot, connected, reviews, view, no
   };
   return <section className={"goblin-panel" + (view === "terminal" ? " showing-terminal" : "")} aria-labelledby="panel-title">
     <PanelRow view={terminal ? view : undefined} onView={onView} {...row} />
-    <PanelHeader task={task} node={node} snapshot={snapshot} compact={view === "terminal"} onAnswer={onAnswer} onOpenTask={onOpenTask} onOpenLog={openLog} />
+    {child && task ? <BabyHeader goblin={task} child={child} now={now} /> : <PanelHeader task={task} node={node} snapshot={snapshot} compact={view === "terminal"} onAnswer={onAnswer} onOpenTask={onOpenTask} onOpenLog={openLog} />}
     <div className="panel-task" hidden={view !== "task"}>
       {task && <div className="panel-content lifecycle-panel">
         <TaskControls task={task} snapshot={snapshot} labelled />

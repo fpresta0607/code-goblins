@@ -1,9 +1,10 @@
 import { useState } from "react";
-import type { Session, Snapshot, Task } from "./types";
+import type { Session, Snapshot, Task, TreeNode } from "./types";
 import { ownsTaskSession } from "./lineageTree";
 import { NativeTerminal } from "./NativeTerminal";
 import { HostTerminal } from "./HostTerminal";
 import { TerminalEmpty } from "./TerminalEmpty";
+import { AgentTerminal } from "./agent-terminal";
 import { EndedSession } from "./ended-session";
 import { sessionEnd } from "./session-end";
 import { CFO_KEY, cfoView, goblinView, idleView, keepLive } from "./terminalOrder";
@@ -12,12 +13,15 @@ import { CFO_KEY, cfoView, goblinView, idleView, keepLive } from "./terminalOrde
 // while the board is open, so a switch only shows another terminal, with no
 // reconnect, no replay and no blank frame. A native terminal keeps its own
 // socket; Herdr views stay within Herdr's stream limit. The shown terminal
-// fills the panel; the Overlord picks the goblin on the board.
-export function TerminalDeck({ snapshot, task, node, cfo, shown, connected, focus, onOwner }: {
-  snapshot: Snapshot; task?: Task; node?: Session; cfo: boolean; shown: boolean; connected: boolean; focus: number; onOwner?: () => void;
+// fills the panel; the Overlord picks the goblin on the board. A goblin's
+// sub-agent (child) shows its own record as its terminal; any other baby
+// goblin shows its goblin's terminal.
+export function TerminalDeck({ snapshot, task, node, child, cfo, shown, connected, focus, onOwner }: {
+  snapshot: Snapshot; task?: Task; node?: Session; child?: TreeNode; cfo: boolean; shown: boolean; connected: boolean; focus: number; onOwner?: () => void;
 }) {
   const owner = !!task && (!!task.generation || !!sessionEnd(task)) && (!node || ownsTaskSession(node, task));
-  const key = cfo ? CFO_KEY : owner ? task.id : "";
+  const agent = child?.kind === "subagent" ? child : undefined;
+  const key = cfo ? CFO_KEY : owner && !agent ? task.id : "";
   const [live, setLive] = useState<string[]>([]);
   const herdr = (candidate: string) => {
     if (candidate === CFO_KEY) return cfoView(snapshot).kind === "herdr";
@@ -54,8 +58,9 @@ export function TerminalDeck({ snapshot, task, node, cfo, shown, connected, focu
             : <TerminalEmpty text={view.text} />}
         </div>;
       })}
+      {shown && agent && task && <div className="deck-slot"><AgentTerminal task={task} child={agent} visible={connected} /></div>}
       {/* A queued task or a child session has no terminal of its own to keep. */}
-      {shown && !key && <div className="deck-slot"><TerminalEmpty text={idle.text} onOwner={node ? onOwner : undefined} /></div>}
+      {shown && !key && !agent && <div className="deck-slot"><TerminalEmpty text={idle.text} onOwner={node ? onOwner : undefined} /></div>}
     </div>
   </div>;
 }
