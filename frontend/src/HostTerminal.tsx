@@ -35,6 +35,9 @@ export function HostTerminal({ query, harness, label, instance, visible, shown, 
   const [attempt, setAttempt] = useState(0);
   const [copied, setCopied] = useState(false);
   const [hasScreen, setHasScreen] = useState(false);
+  // While he reads the history, where it ends, which Jump to bottom sits
+  // above; null at the live end.
+  const [historyEnd, setHistoryEnd] = useState<number | null>(null);
   const voice = useVoice(hostPane(query));
   const dictation = useDictation((text) => { current.current?.paste(text); voice.remember(text); }, instance);
   const dictate = dictation.key;
@@ -72,6 +75,7 @@ export function HostTerminal({ query, harness, label, instance, visible, shown, 
         prior?.dispose();
         retries.current = 0;
         setHasScreen(true);
+        setHistoryEnd(null);
         setReconnecting(false);
         setPhase("live");
         if (shownValue.current && (wantFocus.current || container.closest(".context-pane")?.contains(document.activeElement))) view.focus();
@@ -96,6 +100,7 @@ export function HostTerminal({ query, harness, label, instance, visible, shown, 
       font: storeFontSize,
       dictate,
       harness: () => harnessValue.current,
+      reading: (end) => { if (current.current === view) setHistoryEnd(end); },
     });
     staged.current = view;
     view.show(shownValue.current);
@@ -114,6 +119,7 @@ export function HostTerminal({ query, harness, label, instance, visible, shown, 
     {phase === "live" && (reconnecting || !visible) && <span className="terminal-state terminal-reconnecting" role="status"><span className="status-dot" />Reconnecting</span>}
     {phase === "closed" && <div className={hasScreen ? "terminal-closed" : "terminal-cover"} role="status"><Icon name="terminal" /><button className="primary" disabled={!visible} onClick={() => { retries.current = 0; setPhase(current.current ? "live" : "connecting"); setReconnecting(!!current.current); setAttempt((prior) => prior + 1); }}>Reconnect</button></div>}
     {copied && <span className="terminal-state terminal-copied" role="status">Copied</span>}
+    {phase === "live" && historyEnd !== null && <button type="button" className="icon-button raised terminal-jump" aria-label="Jump to bottom" data-tip="Jump to bottom" data-tip-align="end" style={{ top: historyEnd - 8 }} onClick={() => current.current?.jumpToBottom()}><Icon name="arrow-down" /></button>}
     <VoiceBubble voice={voice} listening={dictation.listening} level={dictation.level} model={dictation.model} onPaste={(text) => { current.current?.paste(text); current.current?.focus(); }} />
     {dictation.note && <p className="terminal-note" role="status">{dictation.note}</p>}
   </section>;
