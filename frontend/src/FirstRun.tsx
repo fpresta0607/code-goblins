@@ -2,8 +2,9 @@ import { useState, type KeyboardEvent } from "react";
 import { message, request, useResource } from "./api";
 import { Avatar } from "./Avatar";
 import { Icon, type IconName } from "./Icon";
+import { devDriveOffer } from "./dev-drive-offer";
 import { startState } from "./firstRunStart";
-import { parseSetup, type SignIn } from "./types";
+import { parseSetup, type DevDriveView, type SignIn } from "./types";
 
 const AGENT_ICONS: Record<string, IconName> = { claude: "claude", codex: "codex", pi: "pi" };
 // What the page says of an installed agent's sign-in, as its own status
@@ -21,8 +22,9 @@ const SIGN_IN: Record<SignIn, { text: string; icon: IconName; tone: string }> = 
 // asks for no project: the CFO works across every project from its home. The
 // projects folder, where goblins find a project by its name, is his to enter
 // or leave. A quiet link shows the board without a CFO, so goblins at work
-// stay in view.
-export function FirstRun({ instance, onStarted, onBoard }: { instance: string; onStarted: () => void; onBoard: () => void }) {
+// stay in view. Once, it offers a Dev Drive, opt-in, or says in one line why
+// this machine can have none; Start keeps the answer.
+export function FirstRun({ instance, devDrive, onStarted, onBoard }: { instance: string; devDrive?: DevDriveView; onStarted: () => void; onBoard: () => void }) {
   // typed is what the Overlord typed in the field, which shows the recorded
   // folder until he types; asked is the folder last looked at, and null,
   // which an empty Look goes back to, opens on the recorded one.
@@ -31,6 +33,8 @@ export function FirstRun({ instance, onStarted, onBoard }: { instance: string; o
   const [picked, setPicked] = useState("");
   const [starting, setStarting] = useState(false);
   const [failure, setFailure] = useState("");
+  const [wantsDevDrive, setWantsDevDrive] = useState(false);
+  const offer = devDriveOffer(devDrive);
   const setup = useResource("/api/setup?root=" + encodeURIComponent(asked ?? ""), parseSetup);
   const folder = typed ?? setup.data?.projects_root ?? "";
   if (setup.error) return <section className="first-run"><p className="warning-text" role="alert">{setup.error}</p><button onClick={setup.reload}>Try again</button></section>;
@@ -47,6 +51,10 @@ export function FirstRun({ instance, onStarted, onBoard }: { instance: string; o
     setStarting(true);
     setFailure("");
     try {
+      // The Dev Drive answer is kept first: ticked asks for its first
+      // Command Center item, and either answer, the plain line included,
+      // ends the offer.
+      if (offer) await request("/api/dev-drive", undefined, { method: "POST", headers: { "Content-Type": "application/json", "X-CFO-Token": instance }, body: JSON.stringify({ want: offer === "offer" && wantsDevDrive }) });
       // A folder is sent only once he has looked at one: the CFO starts
       // without it, and the recorded folder stays as it is.
       await request("/api/setup/start", undefined, { method: "POST", headers: { "Content-Type": "application/json", "X-CFO-Token": instance }, body: JSON.stringify({ root: asked === null ? "" : data.projects_root, agent }) });
@@ -99,6 +107,11 @@ export function FirstRun({ instance, onStarted, onBoard }: { instance: string; o
       {data.problem ? <p className="warning-text" role="alert">{data.problem}</p>
         : <p className="muted">{data.checkouts.length ? `Goblins find ${data.checkouts.length === 1 ? "1 project" : data.checkouts.length + " projects"} here by name: ${data.checkouts.join(", ")}.` : "The folder that holds your git checkouts, where goblins find a project by its name."}</p>}
     </form>
+    {offer === "offer" && devDrive && <div className="first-run-step">
+      <label className="first-run-choice"><input type="checkbox" checked={wantsDevDrive} onChange={(event) => setWantsDevDrive(event.target.checked)} />Put the goblins' worktrees and caches on a Dev Drive <span className="muted">(optional)</span></label>
+      <p className="muted">{devDrive.explain} Each step that needs you comes to the Command Center as its own item.</p>
+    </div>}
+    {offer === "unavailable" && devDrive && <p className="muted">Dev Drive: {devDrive.line}.</p>}
     {failure && <p className="warning-text" role="alert">{failure}</p>}
     <div className="first-run-actions">
       <span className="muted">{blocked}</span>
