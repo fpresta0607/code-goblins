@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/url"
+	"slices"
 	"sync"
 	"time"
 	"unicode/utf8"
@@ -67,13 +68,13 @@ func (r *nativeRelay) size(cols, rows int) {
 	r.sizes = append(r.sizes, relaySize{at: r.received, message: []byte(fmt.Sprintf(`{"type":"size","cols":%d,"rows":%d}`, cols, rows))})
 }
 
-// announce tells every view of task's terminal, the sender's too, the size
-// the terminal took, for a host from before hosts told their viewers each
-// resize themselves.
-func (h *HTTP) announce(task string, cols, rows int) {
+// announce tells every view of the terminal key names, the sender's too, the
+// size the terminal took, for a host from before hosts told their viewers
+// each resize themselves.
+func (h *HTTP) announce(key string, cols, rows int) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
-	for relay := range h.relays[task] {
+	for relay := range h.relays[key] {
 		relay.mu.Lock()
 		relay.size(cols, rows)
 		relay.mu.Unlock()
@@ -121,7 +122,11 @@ func (h *HTTP) nativeTerminal(w http.ResponseWriter, r *http.Request) {
 		_ = view.Close(websocket.StatusPolicyViolation, err.Error())
 		return
 	}
-	record, err := host.ReadRecord(h.Service.Store.Home.State, binding.id)
+	if binding.isLocalOnly && offMachine(r, h.Host) != "" {
+		_ = view.Close(websocket.StatusPolicyViolation, "Values are typed only on the board's own page on this PC.")
+		return
+	}
+	record, err := host.ReadRecord(binding.dir, binding.id)
 	if err != nil {
 		_ = view.Close(websocket.StatusPolicyViolation, "No terminal is running for "+binding.name+".")
 		return
@@ -147,16 +152,16 @@ func (h *HTTP) nativeTerminal(w http.ResponseWriter, r *http.Request) {
 
 	relay := &nativeRelay{wake: make(chan struct{}, 1), history: []byte(fmt.Sprintf(`{"type":"history","bytes":%d}`, terminal.History()))}
 	h.mu.Lock()
-	if h.relays[binding.id] == nil {
-		h.relays[binding.id] = map[*nativeRelay]struct{}{}
+	if h.relays[binding.key] == nil {
+		h.relays[binding.key] = map[*nativeRelay]struct{}{}
 	}
-	h.relays[binding.id][relay] = struct{}{}
+	h.relays[binding.key][relay] = struct{}{}
 	h.mu.Unlock()
 	defer func() {
 		h.mu.Lock()
-		delete(h.relays[binding.id], relay)
-		if len(h.relays[binding.id]) == 0 {
-			delete(h.relays, binding.id)
+		delete(h.relays[binding.key], relay)
+		if len(h.relays[binding.key]) == 0 {
+			delete(h.relays, binding.key)
 		}
 		h.mu.Unlock()
 	}()
@@ -304,7 +309,7 @@ func (h *HTTP) nativeTerminal(w http.ResponseWriter, r *http.Request) {
 				return
 			}
 			if !terminal.IsToldSizes() {
-				h.announce(binding.id, control.Cols, control.Rows)
+				h.announce(binding.key, control.Cols, control.Rows)
 			}
 			continue
 		}
@@ -322,16 +327,35 @@ func (h *HTTP) nativeTerminal(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-// nativeBinding is the terminal a native view shows: a task's, or the
-// registered CFO's. check repeats what opening it proved: it returns an error
-// once the view must close, and custody, the reason typing is held while a
-// gate owns the task.
+// nativeBinding is the terminal a native view shows: a task's, the
+// registered CFO's, or a run item's on its card. Its host records itself as
+// id in the state directory dir, and key names it among every view's: every
+// run item's terminal is recorded as run, in the item's own directory. check
+// repeats what opening it proved: it returns an error once the view must
+// close, and custody, the reason typing is held while a gate owns the task.
+// A view of a terminal where values are typed opens only on the board's own
+// page on this PC.
 type nativeBinding struct {
-	id, name string
-	check    func(ctx context.Context) (custody, err error)
+	id, name, dir, key string
+	isLocalOnly        bool
+	check              func(ctx context.Context) (custody, err error)
 }
 
 func (s *Service) nativeBinding(query url.Values) (nativeBinding, error) {
+	// A view of a run item's terminal names the item, which shows its
+	// terminal while its command runs.
+	if id := query.Get("run"); id != "" {
+		r, found := s.runOnCard(id, "")
+		if !found {
+			return nativeBinding{}, errors.New("This command is not running.")
+		}
+		return nativeBinding{id: runTerminal, name: "this command", dir: runDir(s.Store.Home.State, r), key: "run:" + id, isLocalOnly: r.CredentialRequest != "", check: func(context.Context) (error, error) {
+			if _, found := s.runOnCard(id, r.RunAction); !found {
+				return nil, errors.New("The command ended.")
+			}
+			return nil, nil
+		}}, nil
+	}
 	// A view of the CFO names the terminal it expects the CFO in, so a CFO
 	// that moved is opened again rather than shown in a view of another.
 	if want := query.Get("cfo"); want != "" {
@@ -342,7 +366,7 @@ func (s *Service) nativeBinding(query url.Values) (nativeBinding, error) {
 		if id != want {
 			return nativeBinding{}, errors.New("The CFO runs in another terminal now. Open the CFO again.")
 		}
-		return nativeBinding{id: id, name: "the CFO", check: func(context.Context) (error, error) {
+		return nativeBinding{id: id, name: "the CFO", dir: s.Store.Home.State, key: id, check: func(context.Context) (error, error) {
 			if readCFOState(s.Store.Home.State).terminal != id {
 				return nil, errors.New("The CFO no longer runs in this terminal. Open the CFO again.")
 			}
@@ -354,13 +378,26 @@ func (s *Service) nativeBinding(query url.Values) (nativeBinding, error) {
 	if err != nil {
 		return nativeBinding{}, err
 	}
-	return nativeBinding{id: meta.ID, name: "this task", check: func(ctx context.Context) (error, error) {
+	return nativeBinding{id: meta.ID, name: "this task", dir: s.Store.Home.State, key: meta.ID, check: func(ctx context.Context) (error, error) {
 		current, err := s.nativeTask(selection)
 		if err != nil {
 			return nil, err
 		}
 		return s.validateTerminalControl(ctx, current), nil
 	}}, nil
+}
+
+// runOnCard is the run item id while its command runs in its terminal, and,
+// when action is set, still under the Run that action pressed.
+func (s *Service) runOnCard(id, action string) (Run, bool) {
+	runs := s.Store.Snapshot().Runs
+	i := slices.IndexFunc(runs, func(r Run) bool {
+		return r.ID == id && r.State == "running" && r.Terminal && (action == "" || r.RunAction == action)
+	})
+	if i < 0 {
+		return Run{}, false
+	}
+	return runs[i], true
 }
 
 // nativeTask is the task a view selected, while that generation is current

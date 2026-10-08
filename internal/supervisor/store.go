@@ -531,7 +531,7 @@ func (s *Store) queue(a Action) (Action, error) {
 	}
 	answer := a.Kind == "cfo_answer" || a.Kind == "goblin_answer"
 	change := a.Kind == "answer_change"
-	item := a.Kind == "review_answer" || a.Kind == "review_clear" || a.Kind == "question_clear" || a.Kind == "run"
+	item := a.Kind == "review_answer" || a.Kind == "review_clear" || a.Kind == "question_clear" || a.Kind == "run" || a.Kind == "run_stop"
 	if !item && a.RunID != "" {
 		return Action{}, errors.New("only a run action names a run item")
 	}
@@ -639,7 +639,7 @@ func (s *Store) queue(a Action) (Action, error) {
 func (s *Store) queueItemAction(a Action) (Action, error) {
 	answer := a.Kind == "review_answer"
 	opened := a.Kind == "review_clear" && (a.Text == "Opened" || a.Text == "Downloaded")
-	if a.Generation == "" || answer && strings.TrimSpace(a.Text) == "" || !answer && !opened && a.Text != "" || a.TaskID != "" || a.File != "" || a.Head != "" || a.Revision != "" || a.DiffID != "" || a.Line != 0 || a.EndLine != 0 || a.Side != "" || a.Session != "" || a.EventID != "" || (a.Kind == "question_clear") != (a.QuestionID != "") || (a.Kind == "review_answer" || a.Kind == "review_clear") != (a.ReviewID != "") || (a.Kind == "run") != (a.RunID != "") {
+	if a.Generation == "" || answer && strings.TrimSpace(a.Text) == "" || !answer && !opened && a.Text != "" || a.TaskID != "" || a.File != "" || a.Head != "" || a.Revision != "" || a.DiffID != "" || a.Line != 0 || a.EndLine != 0 || a.Side != "" || a.Session != "" || a.EventID != "" || (a.Kind == "question_clear") != (a.QuestionID != "") || (a.Kind == "review_answer" || a.Kind == "review_clear") != (a.ReviewID != "") || (a.Kind == "run" || a.Kind == "run_stop") != (a.RunID != "") {
 		return Action{}, errors.New("an item action names only its item, that item's identity and, for an answer, its text")
 	}
 	review := -1
@@ -657,6 +657,13 @@ func (s *Store) queueItemAction(a Action) (Action, error) {
 		if question < 0 {
 			return Action{}, errors.New("only a question waiting on you or closed without an answer can be cleared; refresh the board")
 		}
+	}
+	// Stop names a command running in its terminal; the action that runs
+	// later ends it.
+	if a.Kind == "run_stop" && !slices.ContainsFunc(s.db.Runs, func(r Run) bool {
+		return r.ID == a.RunID && r.Identity == a.Generation && r.State == "running" && r.Terminal
+	}) {
+		return Action{}, errors.New("that command is not running on its card; refresh the board")
 	}
 	// A run item runs once: the action claims it here, under the store lock.
 	run := -1

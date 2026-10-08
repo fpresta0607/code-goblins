@@ -1,12 +1,15 @@
-import { expect, test, type Page } from "./site";
+import { doneCards, expect, recordDoneCards, test, type Page } from "./site";
 
 // The Overlord, 2026-10-02, on a goblin's waiting card whose command sat in a
 // paragraph: "this should be copy and paste?", then "sorry not copy and paste
 // but run in powershell button". A goblin's command is a run card named for
 // the goblin: the exact command, a copy button as the fallback, and one button
-// that runs it in a window he can use.
+// that runs it in a terminal on the card.
 const GOBLIN = "cg-goblins-quickstart";
 const WHY = "Sign in to GitHub so I can push the branch";
+
+// xterm draws in the DOM, where a test reads it, without WebGL.
+test.use({ launchOptions: { args: ["--disable-webgl"] } });
 
 async function openItsCard(page: Page) {
   await page.goto("/tests/fixtures/goblin-run.html");
@@ -48,22 +51,27 @@ test("a goblin's command is a run card named for the goblin, run with one click"
   expect(sent).not.toHaveProperty("command");
 });
 
-test("a command running in its own window shows its state, never an empty output box", async ({ page }) => {
+test("a goblin's command runs in a terminal on its card, never in a window of its own", async ({ page }) => {
   // Arrange
+  await page.routeWebSocket("**/api/terminal/native?*", (socket) => {
+    socket.send(JSON.stringify({ type: "history", bytes: 0 }));
+    socket.send(Buffer.from("! First copy your one-time code: 1A2B-3C4D\r\n"));
+  });
   const dialog = await openItsCard(page);
 
   // Act
   await page.evaluate(() => window.runStep("running"));
 
   // Assert
-  await expect(dialog.getByRole("status")).toContainText("Running");
-  await expect(dialog.locator(".run-terminal")).toHaveCount(0);
-  await expect(dialog.getByText("It runs in its own window")).toBeVisible();
+  await expect(dialog.locator(".run-head .run-state")).toContainText("Running");
+  await expect(dialog.locator(".run-live .xterm-rows")).toContainText("First copy your one-time code");
+  await expect(dialog.getByText("own window")).toHaveCount(0);
 
   // Act
+  await recordDoneCards(page);
   await page.evaluate(() => window.runStep("finished"));
 
   // Assert
-  await expect(dialog.getByRole("status")).toContainText("Finished · exit 0");
-  await expect(dialog.locator(".run-terminal")).toHaveCount(0);
+  await expect.poll(() => doneCards(page)).toContainEqual(expect.stringContaining("Complete"));
+  await expect(dialog.locator(".run-live")).toHaveCount(0);
 });

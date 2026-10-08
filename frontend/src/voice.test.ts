@@ -48,10 +48,11 @@ test("a broken or unavailable store reads as no dictations and never throws", ()
   assert.deepEqual(readDictations(null, "cfo"), []);
 });
 
-test("a native host's pane is its goblin's task whatever its generation, or the CFO", () => {
+test("a native host's pane is its goblin's task whatever its generation, a run item's terminal, or the CFO", () => {
   for (const [query, pane] of [
     ["task=t-1&generation=g-1", "t-1"],
     ["task=t-1&generation=g-2", "t-1"],
+    ["run=sign-in-1", "run:sign-in-1"],
     ["cfo=cfo%3A1", "cfo"],
     ["", "cfo"],
   ]) assert.equal(hostPane(query), pane, query);
