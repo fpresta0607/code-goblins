@@ -3,6 +3,7 @@ package supervisor
 import (
 	"context"
 	"errors"
+	"fmt"
 	"io/fs"
 	"os"
 	"path/filepath"
@@ -11,6 +12,7 @@ import (
 
 	"github.com/fpresta0607/code-goblins/internal/home"
 	"github.com/fpresta0607/code-goblins/internal/state"
+	"github.com/fpresta0607/code-goblins/internal/wake"
 )
 
 const (
@@ -54,7 +56,12 @@ func (s *Service) sweepPages(ctx context.Context) {
 // feedback has it taken and delivered, once: to the goblin while it runs,
 // otherwise to the CFO as a review wake naming the task. The open page of a
 // retired goblin is ended, with a reply on the page saying why. A page no
-// fleet task presented, and a page a poller watches, are left alone.
+// fleet task presented, and a page a poller watches, are left alone. A page
+// whose file is gone, as a retired goblin's cleanup files its folders away,
+// counts as ended: lavish-axi resolves a page's real path before anything
+// else, so it can neither end nor poll it, and on 2026-10-07 the sweep met
+// that failure every ten minutes. The CFO is told once of any prompt the
+// Overlord left there, which nothing can take any more.
 func (s *Service) sweepSessions(ctx context.Context) error {
 	sessions, err := s.Options.PageSessions()
 	if err != nil {
@@ -78,8 +85,21 @@ func (s *Service) sweepSessions(ctx context.Context) error {
 			continue
 		}
 		retired := owner.task != "" && !s.Store.taskStands(owner.task)
+		_, statErr := os.Stat(session.File)
+		isGone := errors.Is(statErr, fs.ErrNotExist)
 		var err error
 		switch {
+		case isGone && session.Pending > 0:
+			prompts := fmt.Sprintf("%d prompts", session.Pending)
+			if session.Pending == 1 {
+				prompts = "1 prompt"
+			}
+			detail := "the page " + session.File + " is gone, so the " + prompts + " the Overlord left on it cannot be taken; ask him what he sent there"
+			var isNew bool
+			if _, isNew, err = wake.AppendFirst(s.Store.Home.State, "page-gone:"+key, "review", owner.key, detail); err == nil && isNew {
+				_, err = wake.PublishEpisode(s.Store.Home.State)
+			}
+		case isGone:
 		case retired && session.Status != "ended":
 			// Ended first, so the page refuses anything he sends from now
 			// on, saying the review ended, and the poll after it takes all

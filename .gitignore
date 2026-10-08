@@ -24,6 +24,9 @@ config/
 !/config/verify.json
 !/config/voice.json
 /cfo.exe
+# The marker of a checkout an older build made the CFO home, which cfo install
+# writes so this build takes it for the home in use.
+/.cfo-home
 # A go build in the clone, and what an older install.cmd -Dev built there:
 # both names and the desktop window, and a copy still running moved aside.
 /goblins.exe

@@ -119,7 +119,7 @@ func (s *Service) acceptHelper(request HelperRequest) (HelperStart, error) {
 	if err != nil {
 		return HelperStart{}, fmt.Errorf("free disk cannot be read, so nothing starts: %w", err)
 	}
-	if err := CheckLaunch(s.Store.Home, memory, disk); err != nil {
+	if err := CheckLaunch(memory, disk); err != nil {
 		return HelperStart{}, fmt.Errorf("%w; ask again in ten minutes", err)
 	}
 	// The helper's status log is written before its brief, so the brief

@@ -159,6 +159,12 @@ type Service struct {
 	cfoWakeErr   error
 	fleetErr     error
 	ciUnreadable error
+	// errorLines holds when each line of the supervisor's own errors was last
+	// met, errorsUntold the new ones no wake has told the CFO of yet, and
+	// errorsWoke when one last did.
+	errorLines   map[string]time.Time
+	errorsUntold []string
+	errorsWoke   time.Time
 	workProgress map[string]WorkProgress
 	ciDurations  []CIDuration
 	sameArea     map[string]sameArea
@@ -325,6 +331,9 @@ func (s *Service) publish(err error) {
 			err = withoutStorage(err)
 		}
 	}
+	// Unreadable CI is left out: it wakes the CFO as ci_unreadable or
+	// pr_unread, once its failure holds.
+	s.wakeForNewErrors(err, time.Now())
 	s.mu.Lock()
 	err = errors.Join(err, s.ciUnreadable)
 	if err != nil {
@@ -1492,11 +1501,6 @@ func (s *Service) Snapshot() (Snapshot, error) {
 	if dispatch := s.Options.Dispatch; dispatch != nil {
 		if memory, err := dispatch.Memory(); err == nil {
 			memory.Floor, memory.Next = memoryFloor, memoryNext
-			if capacity, err := ReadFleetCapacity(s.Store.Home, memory); err == nil {
-				memory.Capacity = &capacity
-			} else {
-				out.Issues = append(slices.Clone(out.Issues), err.Error())
-			}
 			// Naming who holds commit reads every process, so it is done
 			// only while commit is what the meter shows.
 			if memory.CommitAvailable < memory.Available {

@@ -275,9 +275,11 @@ button:disabled, textarea:disabled { cursor: default; opacity: .55; }
 .persona-debugger, .persona-security, .persona-database, .persona-designer, .persona-documentation, .persona-operations { background-image: url('/assets/goblin-specialists.png'); }
 .persona-researcher, .persona-performance, .persona-integrations, .persona-git, .persona-accessibility, .persona-releases { background-image: url('/assets/goblin-specialists-2.png'); }
 .orchestration { flex: 1; min-height: 500px; position: relative; }
-.flow-canvas { display: flex; flex-direction: column; height: 100%; overflow: auto; touch-action: none; background: radial-gradient(circle, #51716675 1px, transparent 1px) 0 0 / 24px 24px; }
-.flow-space { flex: none; margin: auto; }
-.flow-world { position: relative; transform-origin: 0 0; }
+/* The canvas moves and zooms like a map, so it clips rather than scrolls:
+   nothing, a focused card included, can scroll it out from under its view. */
+.flow-canvas { position: relative; display: flex; flex-direction: column; height: 100%; overflow: clip; touch-action: none; cursor: grab; background: radial-gradient(circle, #51716675 1px, transparent 1px) 0 0 / 24px 24px; }
+.flow-canvas:active { cursor: grabbing; }
+.flow-world { position: absolute; left: 0; top: 0; transform-origin: 0 0; }
 .flow-connections { position: absolute; inset: 0; pointer-events: none; overflow: visible; }
 .connection-line path { fill: none; stroke: #637b8c; stroke-width: 2; }
 .connection-line circle { fill: #bad4ec; }
@@ -304,6 +306,9 @@ button:disabled, textarea:disabled { cursor: default; opacity: .55; }
 .flow-node .card-copy small { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .node-disclosure { position: absolute; left: 50%; bottom: -18px; transform: translateX(-50%); display: grid; place-items: center; width: 36px; height: 36px; min-height: 36px; padding: 0; border-color: var(--glass-border); border-radius: 50%; background: var(--glass-bg), var(--hero-surface); color: #bed2d9; }
 .node-disclosure svg { display: block; width: 18px; height: 18px; }
+/* On the canvas a goblin's chevron folds its branches too, so it hangs low
+   enough to leave the last line of the card's status clear. */
+.flow-node .node-disclosure { bottom: -24px; }
 .project-label { display: block; font-size: .9375rem; line-height: 1.4; color: #9bb3c1; overflow-wrap: anywhere; }
 .review-placeholder { margin: auto; padding: 40px 28px; text-align: center; color: var(--muted); }
 .review-placeholder .goblin-avatar { margin: 0 auto 18px; }
