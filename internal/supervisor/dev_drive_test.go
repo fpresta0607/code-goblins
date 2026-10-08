@@ -228,3 +228,36 @@ func TestTheBoardKeepsTheAnswerToTheDevDriveOffer(t *testing.T) {
 		t.Errorf("a board without the setting = %d, want 409", response.Code)
 	}
 }
+
+// An answer given outside the board, by cfo dev-drive setup or the install,
+// reaches the watch at its next tick, not at its half-hourly look.
+func TestTheWatchNoticesAnAnswerGivenElsewhere(t *testing.T) {
+	// Arrange
+	machine := devDriveMachine()
+	s := devDriveService(t, &machine)
+	s.devDriveTick = 10 * time.Millisecond
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan struct{})
+	go func() { defer close(done); s.watchDevDrive(ctx) }()
+	t.Cleanup(func() { cancel(); <-done })
+	for deadline := time.Now().Add(5 * time.Second); s.devDriveViewNow() == nil; time.Sleep(10 * time.Millisecond) {
+		if time.Now().After(deadline) {
+			t.Fatal("the watch made no first look")
+		}
+	}
+
+	// Act
+	if err := home.AnswerDevDrive(s.Store.Home.Root, true, time.Now().UTC()); err != nil {
+		t.Fatal(err)
+	}
+
+	// Assert
+	for deadline := time.Now().Add(5 * time.Second); len(devDriveItems(s)) == 0; time.Sleep(10 * time.Millisecond) {
+		if time.Now().After(deadline) {
+			t.Fatal("the answer given elsewhere made no item")
+		}
+	}
+	if items := devDriveItems(s); items[0].DevDrive != "create" {
+		t.Errorf("items = %+v, want the create item", items)
+	}
+}

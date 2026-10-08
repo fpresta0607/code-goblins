@@ -1,5 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
+import { devDriveOffer } from "./dev-drive-offer.ts";
 import { parseSnapshot } from "./types.ts";
 
 const snapshot = (value: Record<string, unknown> = {}) => parseSnapshot({ healthy: true, instance: "fixture", ...value });
@@ -17,4 +18,15 @@ test("a step waiting and a button the board does not know offer nothing to press
   const drive = snapshot({ dev_drive: { state: "absent", line: "", explain: "", choice: "wanted", waiting: "create", action: "format-everything" } }).dev_drive;
   assert.equal(drive?.action, "");
   assert.equal(drive?.waiting, "create");
+});
+
+test("the first run offers a Dev Drive once, where this machine can have one", () => {
+  const drive = (state: string, choice = "") => ({ state, line: "", explain: "", choice, waiting: "", action: "" as const });
+  assert.equal(devDriveOffer(drive("absent")), "offer");
+  assert.equal(devDriveOffer(drive("present")), "offer");
+  assert.equal(devDriveOffer(drive("unavailable")), "unavailable");
+  assert.equal(devDriveOffer(drive("absent", "declined")), null);
+  assert.equal(devDriveOffer(drive("absent", "wanted")), null);
+  assert.equal(devDriveOffer(drive("on")), null);
+  assert.equal(devDriveOffer(undefined), null);
 });
