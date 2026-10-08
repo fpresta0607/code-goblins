@@ -12,26 +12,31 @@ Go standard library and modules compiled into the commands under cmd/:
   git.sr.ht/~jackmordaunt/go-toast/v2 v2.0.3: MIT [2]
   github.com/adrg/xdg v0.5.3: MIT [3]
   github.com/coder/websocket v1.8.15: ISC [4]
-  github.com/go-ole/go-ole v1.3.0: MIT [5]
-  github.com/mattn/go-colorable v0.1.14: MIT [6]
-  github.com/mattn/go-isatty v0.0.20: MIT [7]
-  github.com/wailsapp/wails/v3 v3.0.0-beta.26: MIT [8]
+  github.com/danielgatis/go-utf8 v1.0.1: MIT [5]
+  github.com/danielgatis/go-vte v1.0.11: MIT [5]
+  github.com/go-ole/go-ole v1.3.0: MIT [6]
+  github.com/mattn/go-colorable v0.1.14: MIT [7]
+  github.com/mattn/go-isatty v0.0.20: MIT [8]
+  github.com/wailsapp/wails/v3 v3.0.0-beta.26: MIT [9]
   golang.org/x/sys v0.48.0: BSD-3-Clause [1]
-  gopkg.in/yaml.v3 v3.0.1: MIT AND Apache-2.0 [9]
+  gopkg.in/yaml.v3 v3.0.1: MIT AND Apache-2.0 [10]
+
+Microsoft's console host, embedded into cfo.exe:
+  Microsoft.Windows.Console.ConPTY 1.25.260930003 (conpty.dll and OpenConsole.exe): MIT [11]
 
 npm packages bundled into the board:
-  npm @xterm/addon-webgl 0.19.0: MIT [10]
-  npm @xterm/xterm 6.0.0: MIT [11]
-  npm prismjs 1.30.0: MIT [12]
-  npm react 19.3.0: MIT [13]
-  npm react-dom 19.3.0: MIT [13]
-  npm scheduler 0.28.0: MIT [13]
+  npm @xterm/addon-webgl 0.19.0: MIT [12]
+  npm @xterm/xterm 6.0.0: MIT [13]
+  npm prismjs 1.30.0: MIT [14]
+  npm react 19.3.0: MIT [15]
+  npm react-dom 19.3.0: MIT [15]
+  npm scheduler 0.28.0: MIT [15]
 
 Board assets with their own licence, served under /assets:
-  assets/cline-kanban-LICENSE.txt: Apache-2.0 [14]
-  assets/fonts/jetbrains-mono-OFL.txt: OFL-1.1 [15]
-  assets/fonts/nunito-OFL.txt: OFL-1.1 [16]
-  assets/fonts/pixelify-sans-OFL.txt: OFL-1.1 [17]
+  assets/cline-kanban-LICENSE.txt: Apache-2.0 [16]
+  assets/fonts/jetbrains-mono-OFL.txt: OFL-1.1 [17]
+  assets/fonts/nunito-OFL.txt: OFL-1.1 [18]
+  assets/fonts/pixelify-sans-OFL.txt: OFL-1.1 [19]
 
 Licence texts
 
@@ -171,6 +176,30 @@ OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
 
 [5] ------------------------------------------------------------------------
 
+MIT License
+
+Copyright (c) 2020 Daniel Gatis
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+
+[6] ------------------------------------------------------------------------
+
 The MIT License (MIT)
 
 Copyright © 2013-2017 Yasuhiro Matsumoto, <mattn.jp@gmail.com>
@@ -193,7 +222,7 @@ LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 
-[6] ------------------------------------------------------------------------
+[7] ------------------------------------------------------------------------
 
 The MIT License (MIT)
 
@@ -217,7 +246,7 @@ LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 
-[7] ------------------------------------------------------------------------
+[8] ------------------------------------------------------------------------
 
 Copyright (c) Yasuhiro MATSUMOTO <mattn.jp@gmail.com>
 
@@ -229,7 +258,7 @@ The above copyright notice and this permission notice shall be included in all c
 
 THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
-[8] ------------------------------------------------------------------------
+[9] ------------------------------------------------------------------------
 
 MIT License
 
@@ -253,7 +282,7 @@ LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 
-[9] ------------------------------------------------------------------------
+[10] ------------------------------------------------------------------------
 
 This project is covered by two different licenses: MIT and Apache.
 
@@ -319,7 +348,31 @@ WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 See the License for the specific language governing permissions and
 limitations under the License.
 
-[10] ------------------------------------------------------------------------
+[11] ------------------------------------------------------------------------
+
+Copyright (c) Microsoft Corporation. All rights reserved.
+
+MIT License
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED *AS IS*, WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+
+[12] ------------------------------------------------------------------------
 
 Copyright (c) 2018, The xterm.js authors (https://github.com/xtermjs/xterm.js)
 
@@ -341,7 +394,7 @@ LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 THE SOFTWARE.
 
-[11] ------------------------------------------------------------------------
+[13] ------------------------------------------------------------------------
 
 Copyright (c) 2017-2019, The xterm.js authors (https://github.com/xtermjs/xterm.js)
 Copyright (c) 2014-2016, SourceLair Private Company (https://www.sourcelair.com)
@@ -365,7 +418,7 @@ LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 THE SOFTWARE.
 
-[12] ------------------------------------------------------------------------
+[14] ------------------------------------------------------------------------
 
 MIT LICENSE
 
@@ -389,7 +442,7 @@ LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 THE SOFTWARE.
 
-[13] ------------------------------------------------------------------------
+[15] ------------------------------------------------------------------------
 
 MIT License
 
@@ -413,7 +466,7 @@ LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 
-[14] ------------------------------------------------------------------------
+[16] ------------------------------------------------------------------------
 
                                  Apache License
                            Version 2.0, January 2004
@@ -617,7 +670,7 @@ SOFTWARE.
    See the License for the specific language governing permissions and
    limitations under the License.
 
-[15] ------------------------------------------------------------------------
+[17] ------------------------------------------------------------------------
 
 Copyright 2020 The JetBrains Mono Project Authors (https://github.com/JetBrains/JetBrainsMono)
 
@@ -713,7 +766,7 @@ DAMAGES, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
 FROM, OUT OF THE USE OR INABILITY TO USE THE FONT SOFTWARE OR FROM
 OTHER DEALINGS IN THE FONT SOFTWARE.
 
-[16] ------------------------------------------------------------------------
+[18] ------------------------------------------------------------------------
 
 Copyright 2014 The Nunito Project Authors (https://github.com/googlefonts/nunito)
 
@@ -809,7 +862,7 @@ DAMAGES, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
 FROM, OUT OF THE USE OR INABILITY TO USE THE FONT SOFTWARE OR FROM
 OTHER DEALINGS IN THE FONT SOFTWARE.
 
-[17] ------------------------------------------------------------------------
+[19] ------------------------------------------------------------------------
 
 Copyright 2021 The Pixelify Sans Project Authors (https://github.com/eifetx/Pixelify-Sans)
 

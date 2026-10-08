@@ -1,7 +1,10 @@
 # Installing Code Goblins
 
-`CodeGoblinsSetup.exe` and the one-line PowerShell install are the same install, and you can rerun either at any time to update.
-Each puts the Code Goblins app and the `cfo` command line (also called `goblins`) together in one folder, adds that folder to your PATH and Code Goblins to the Start menu, installs the tools the goblins use where they are missing, and opens the app.
+Starting with the first release after v0.5.4, `CodeGoblinsSetup.exe` installs the newest release, whichever release made the setup.
+The one-line PowerShell install does the same, and you can rerun either at any time to update.
+Setups already published with v0.4.0 through v0.5.4 still install their own release.
+Delete any older `CodeGoblinsSetup.exe` you kept and download the setup again from the latest release.
+For the common install choices and what they add, see [Install](../README.md#install).
 Use the setup if you want a window, the one line if you live in a terminal.
 
 ## To use it
@@ -15,7 +18,8 @@ irm https://github.com/fpresta0607/code-goblins/releases/latest/download/install
 It needs no clone and no Go, and `goblins` works in the same window as soon as it finishes.
 
 The setup first says what it will install, where, and what it changes, and starts when you press **Install** (or **Update**, where Code Goblins is already there).
-It downloads the install script of its own release and runs it out of sight; the one-line install runs that script in your window.
+The setup downloads the newest release's install script and runs it out of sight.
+The one-line install runs that script in your window.
 Either way you see the same four steps, `[1/4] Download Code Goblins`, `[2/4] Check the download`, `[3/4] Install Code Goblins and its tools` and `[4/4] Open Code Goblins`, with a line under the third saying which tool it is installing and when it is setting up dictation, a `Note:` line for anything to know, and nothing else.
 Every other detail goes to the install's log, `CodeGoblinsInstall.log` in your temp folder.
 When something stops the install, it says in one sentence what happened and what to do, and names the log; the setup offers **Show details**, **Open the log** and **Try again**.
@@ -32,7 +36,7 @@ The install never stops to ask you to run anything first; it decides by what it 
 | --- | --- |
 | Nothing yet | Installs into `%LOCALAPPDATA%\CodeGoblins`. |
 | An earlier install | Updates it in place and keeps your settings, policy and fleet. |
-| The command line only | Updates it and adds the app and its Start menu entry. |
+| The command line only | Updates it and adds the app, with the shortcuts described below. |
 | `CFO_HOME` naming another folder that holds a fleet, such as a clone an older build made the home | Keeps using that folder and says so in one line: the programs go into its `bin`, those at its root are brought up to date too, and in a clone the files git tracks are left as they are, while the clone gets the `.cfo-home` marker, which git ignores, that makes it the home in use. Moving it to the standard folder is [`cfo home move`](#where-your-data-lives), whenever you choose. |
 | The board, the CFO or goblins running | Restarts only the board on the new build, on the address it served; no goblin's or the CFO's terminal is touched, and a build that does not start gives the board back to the one before. |
 | An install that stopped part way | Finishes it: every step is safe to run again. |
@@ -65,10 +69,14 @@ In order, it:
 7. Sets up dictation, saying "Setting up dictation": the home's own build, with `cfo dictation setup`, downloads the speech engine and model it pins in `config\voice.json`, 51 MB, keeps each only when it matches its pinned SHA-256 and no program in it links a networking library, and puts them in the home's `caches\voice`, where the board's dictation looks, so the first dictation works at once.
    One already there is not downloaded again, and one an earlier build pinned is removed once the new one is in place, so a machine never keeps two models.
    A failure never fails the install: it notes that dictation finishes setting itself up the first time you dictate, and the log says why.
-8. Adds Code Goblins to your Start menu.
-   Where this install put the desktop window in the home, the entry starts `goblins-window.exe` alone with no terminal; [The desktop window](native-board.md#the-desktop-window) describes how it finds its board.
-   Where the home only kept a window it already held, as an install from a release that ships none leaves it, the entry runs `goblins --window` itself, with its console minimized: a window from before this may not open the app when started alone.
-   In a home with no window it runs `goblins`, the quick start, in a window of its own.
+8. Adds matching **Code Goblins** shortcuts to your Start menu and your desktop.
+   The desktop shortcut follows Windows' desktop folder, including OneDrive redirection.
+   Every install recreates either shortcut if it was removed.
+   If either shortcut cannot be created, the install continues, records a `WARN` with the reason in its log, and names the failed shortcut in its closing note.
+   Where this install put the desktop window in the home, both shortcuts start `goblins-window.exe` alone with no terminal.
+   [The desktop window](native-board.md#the-desktop-window) describes how it finds its board.
+   Where the home only kept a window it already held, as an install from a release that ships none leaves it, both shortcuts run `goblins --window`, with the console minimized: a window from before this may not open the app when started alone.
+   In a home with no window, both shortcuts run `goblins`, the quick start, in a window of its own.
 9. Runs `goblins doctor` into the log, names any tool it could not install in one line, and opens the app; a home with no app runs the [quick start](#the-quick-start) in a window of its own.
    The desktop shell opens the window, as a double-click does, so Explorer remains its parent and the board can prove that AFK mode and **Update** are yours.
    If the window is not a Windows program or the desktop shell cannot open it, the install logs why and tries starting it directly; if it cannot open, the existing note points you to Code Goblins in the Start menu.
@@ -78,7 +86,8 @@ A running program cannot be replaced, only renamed, so the previous build moves 
 An open desktop window likewise keeps running the previous window until you quit it from its tray icon, and Code Goblins in the Start menu then opens the new one.
 
 An install that delivers its desktop window into the home takes the place of a copy that was installed on its own, in `%LOCALAPPDATA%\CodeGoblinsWindow` with **Code Goblins Window** in the Start menu.
-That entry is removed, since Code Goblins opens the window now, and Start at login starts this home where it started that copy.
+That entry is removed only after this install saves its Code Goblins Start-menu shortcut, since Code Goblins opens the window now.
+Start at login starts this home where it started that copy.
 The copy itself, the program and the picture of its notifications, is removed once no window runs from it: one that is open is named and left, and the next install removes it.
 Anything else in that folder is left where it is, and so is the window's WebView2 profile, `%APPDATA%\goblins-window.exe`, which both copies use, so the board keeps its layout.
 An install that only retains the home's existing window keeps the standalone program, picture, folder and Start-menu entry unchanged.
@@ -136,7 +145,7 @@ It runs only as the home's own `goblins` or `cfo`, and it says four steps as it 
 2. `[2/4] Check the download`: it keeps a program only when it matches the release's `SHA256SUMS`, and, for a release whose `install.ps1` names a publisher, only when Windows reports it validly signed by that publisher, the same checks the one-line install makes.
    It names each program's SHA-256, and says when the release is unsigned, which every release is until Code Goblins has a signing identity.
    A program that fails a check is never run, and nothing in the home changes.
-3. `[3/4] Install Code Goblins <version>`: the downloaded build installs itself with its own `update`, which keeps the build it replaces, swaps `cfo.exe` and `goblins.exe` where the home keeps them, in `bin` or, in a home a build before `bin` set up, at its root, restarts only the board on the address it served, and puts the previous build back when the new one does not serve.
+3. `[3/4] Install Code Goblins <version>`: the downloaded build installs itself with its own [`update`](../README.md#core-commands), which swaps `cfo.exe` and `goblins.exe` where the home keeps them, in `bin` or, in a home a build before `bin` set up, at its root, restarts only the board on the address it served, and puts the previous build back when the new one does not serve.
    The desktop window follows beside `goblins.exe`; an open window keeps running the earlier one until you quit it from its tray icon, and Code Goblins in the Start menu then opens the new one.
 4. `[4/4] Bring the home up to date`: the new build's `install` brings the home's contract, skills and hooks up to date, where this machine's install names this home; the board, already on the new build, is not restarted again.
 
@@ -162,8 +171,9 @@ Each program's file properties (right-click, Properties, Details) name the produ
 - **The one-line install** runs nothing unless the downloaded `cfo.exe` matches the release's `SHA256SUMS`.
   Windows PowerShell does not mark that download as coming from the internet, so SmartScreen does not prompt.
 - **`CodeGoblinsSetup.exe`** is saved with a browser, which marks it, so while it is unsigned SmartScreen stops it once with "Windows protected your PC" and an Unknown publisher.
-  Check it first: `(Get-FileHash .\CodeGoblinsSetup.exe -Algorithm SHA256).Hash` must equal the first field of the release's `SHA256SUMS` line for it, in any letter case.
-  Then **More info**, **Run anyway** runs it, and what it installs is checked against the same `SHA256SUMS` by the install script.
+  Check it first: `(Get-FileHash .\CodeGoblinsSetup.exe -Algorithm SHA256).Hash` must equal the first field of the `CodeGoblinsSetup.exe` line in the `SHA256SUMS` of the release you downloaded the setup from, in any letter case.
+  Then **More info**, **Run anyway** runs it.
+  The install script checks the programs it installs against the newest release's `SHA256SUMS`.
 - **A `cfo.exe` saved from a browser** is marked, and SmartScreen stops it with "Windows protected your PC" and an Unknown publisher.
   Check it first: `(Get-FileHash .\cfo.exe -Algorithm SHA256).Hash` must equal the first field of the release's `SHA256SUMS` line for `cfo.exe`, in any letter case.
   Then **More info**, **Run anyway** runs it.
@@ -207,7 +217,7 @@ The home is outside every repository: goblins work in git worktrees of your chec
 The janitor keeps the home small, and the board and `cfo runtime` show what it holds; [AGENTS.md](../AGENTS.md#the-cfo-home) describes each folder.
 It all stays on your machine: Code Goblins needs no backup repository, account or service for it.
 Backing the home up, for example its `data` folder to a private git repository, is only your own choice.
-`goblins uninstall` removes the hooks, the board's native hooks, the environment and the Start-menu shortcut the install set, the desktop window's Start at login entry where it starts a program in that home, and dictation's speech engine and model in `caches\voice`, and keeps the home folder, with its state and data, until you delete it.
+`goblins uninstall` removes the hooks, the board's native hooks, the environment and the Start-menu and desktop shortcuts the install set, the desktop window's Start at login entry where it starts a program in that home, and dictation's speech engine and model in `caches\voice`, and keeps the home folder, with its state and data, until you delete it.
 While the board has the engine loaded it cannot be removed, so the uninstall changes nothing and says to quit Code Goblins with `goblins stop` first.
 
 ## Your projects folder

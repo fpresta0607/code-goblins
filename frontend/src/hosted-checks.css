@@ -3,5 +3,5 @@
 a.card-checks:hover, a.card-checks:focus-visible { text-decoration: underline; }
 .hosted-pending { color: var(--blue); }
 .hosted-failed { color: var(--red); }
-.hosted-cancelled { color: var(--amber); }
+.hosted-cancelled { color: var(--muted); }
 .hosted-passed, .hosted-approved { color: var(--mint); }

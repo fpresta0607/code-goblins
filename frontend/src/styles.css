@@ -267,6 +267,18 @@ button:disabled, textarea:disabled { cursor: default; opacity: .55; }
 .phase-failed.plain-status { color: #f5b1a8; }
 .phase-review.plain-status { color: #cfc0f3; }
 .phase-waiting.plain-status { color: #e7d3a3; }
+/* A goblin that waits only on its pull request's test reads in the test's
+   tone, as its merge train's card and its checks do: blue while it is tested,
+   mint once it passed or landed, red when it broke and grey for a cancelled
+   run or a pull request its train left off. */
+.phase-pr-pending .status-dot { background: var(--blue); box-shadow: 0 0 0 3px #4aa3ff33; }
+.phase-pr-pending.plain-status { color: #9ccdff; }
+.phase-pr-passed .status-dot { background: var(--mint); }
+.phase-pr-passed.plain-status { color: var(--mint); }
+.phase-pr-failed .status-dot { background: var(--red); }
+.phase-pr-failed.plain-status { color: #f5b1a8; }
+.phase-pr-cancelled .status-dot { background: #7891ad; }
+.phase-pr-cancelled.plain-status { color: var(--muted); }
 .column-empty { color: #8293a1; font-size: .9375rem; padding: 16px 0; }
 .goblin-avatar { display: block; width: 88px; height: 88px; flex: none; background-image: url('/assets/goblin-personas.png'); background-size: 300% 200%; background-repeat: no-repeat; }
 .goblin-avatar.small { width: 72px; height: 72px; }
@@ -680,6 +692,23 @@ button.dialogue-portrait:hover::before { background: #2e241b; }
 .panel-header h2 { font-size: clamp(1.625rem, 2.4vw, 2rem); line-height: 1.2; overflow-wrap: anywhere; }
 /* A named goblin's task, under its name. */
 .panel-goblin-task { margin: 0; color: #c4d4df; font-size: 1.125rem; font-weight: 600; overflow-wrap: anywhere; }
+/* A queued task's line is a button in the same type, with a small caret
+   beside it, that turns into a box of that type holding its title and
+   detail, with Save and Cancel at its end. Each keeps the 8 px the panel's
+   controls keep from the row under it. */
+.task-line { display: flex; align-items: flex-start; gap: 6px; justify-self: start; min-width: 0; min-height: 0; margin-bottom: 4px; padding: 0; border: 0; border-radius: 4px; background: none; text-align: left; line-height: 1.5; }
+.task-line > span { min-width: 0; }
+.task-line .icon { flex: none; width: 18px; height: 18px; margin-top: 5px; color: var(--muted); transform: rotate(90deg); transition: color .15s ease; }
+.task-line:hover:not(:disabled) .icon, .task-line:focus-visible .icon { color: var(--mint); }
+.task-line:focus-visible { outline-width: 2px; outline-offset: 2px; }
+.task-edit { display: flex; flex-wrap: wrap; align-items: flex-end; gap: 8px; margin-bottom: 4px; padding: 2px 2px 2px 12px; border: 1px solid var(--glass-border-hover); border-radius: var(--radius); background: var(--field-bg); }
+.task-edit:focus-within { border-color: var(--mint); }
+.task-edit textarea { flex: 1 1 12rem; min-width: 0; min-height: 0; padding: 9px 0; border: 0; background: none; color: #c4d4df; font-size: 1.125rem; font-weight: 600; line-height: 1.5; resize: none; field-sizing: content; overflow-wrap: anywhere; }
+.task-edit textarea:focus-visible { outline: none; }
+.task-edit[aria-busy="true"] textarea { opacity: .6; cursor: progress; }
+.task-edit-actions { display: flex; gap: 8px; margin-left: auto; }
+/* Why a save was refused, in a few muted words under the box. */
+.task-edit + .click-feedback { color: var(--muted); }
 .panel-header .project-label { font-size: 1.0625rem; }
 .panel-header .muted { color: var(--muted); }
 .panel-status { font-size: 1.0625rem; }
@@ -721,7 +750,10 @@ button.dialogue-portrait:hover::before { background: #2e241b; }
 /* The terminal runs edge to edge like a Herdr pane: no border, no card, no
    caption. State and the few controls float over its corners. */
 .native-terminal { position: relative; display: flex; flex: 1; min-width: 0; min-height: 0; }
-.terminal-surface { flex: 1; min-width: 0; min-height: 200px; overflow: hidden; background: #071015; }
+/* The panel clips what it holds and is never a scroll container, so nothing
+   scrolled into view inside it, such as xterm's input while a grid refits,
+   can move the screen within it. */
+.terminal-surface { flex: 1; min-width: 0; min-height: 200px; overflow: clip; background: #071015; }
 /* A Herdr pane's screen is fitted whole to the panel and sits at its bottom,
    so the input line stays at the bottom of the panel; nothing scrolls. */
 .native-terminal:not(.host-terminal) .terminal-surface { display: flex; flex-direction: column; justify-content: flex-end; align-items: center; padding: 8px 14px; }
@@ -749,7 +781,7 @@ button.dialogue-portrait:hover::before { background: #2e241b; }
    panel never scrolls around it; until its screen is whole a full-pane state
    covers it. */
 .host-terminal { flex-direction: column; }
-.host-terminal .terminal-surface { position: relative; overflow: hidden; }
+.host-terminal .terminal-surface { position: relative; }
 /* One connection's xterm: staged out of sight until its screen is whole. */
 .terminal-view { position: absolute; inset: 0; }
 /* The view pads its grid evenly to the panel, with the input line at the
@@ -767,6 +799,12 @@ button.dialogue-portrait:hover::before { background: #2e241b; }
 @keyframes terminal-spin { to { transform: rotate(360deg); } }
 @media (prefers-reduced-motion: reduce) { .terminal-spinner { animation-duration: 2.4s; } }
 .terminal-copied { position: absolute; top: 10px; right: 12px; z-index: 2; color: var(--mint); }
+/* While he reads a terminal's history, the line he types on stays pinned over
+   the panel's last row, drawn by a one-row terminal of its own, with a rule
+   between it and the history; Jump to bottom sits just above it, in the
+   middle, clear of the voice bubble's corner. */
+.terminal-pin { position: absolute; z-index: 1; overflow: hidden; pointer-events: none; box-shadow: 0 -1px 0 #1d3a32; }
+.terminal-jump { position: absolute; left: 50%; z-index: 2; translate: -50% -100%; }
 /* Dictation listens while Ctrl+Shift+Space is held. */
 /* The voice bubble sits in its own strip under the terminal's screen, so it
    never covers the terminal's text. It stays still while idle: only
@@ -1041,8 +1079,9 @@ a.wait-open { min-height: 44px; border: 1px solid var(--accent-green); border-ra
 .card-start-problem { margin: 6px 4px 0; color: var(--amber); font-size: .875rem; overflow-wrap: anywhere; }
 @media (prefers-reduced-motion: reduce) { .memory-fill { transition: none; } .card-start-spinner { animation-duration: 2.4s; } }
 /* Tasks and In progress are in priority order, top first: each card's
-   number is its place and turns into a grip on hover or focus, and a dragged
-   card lifts while the others slide aside. A finger drags by the number. */
+   number is its place and stays in sight on hover, on focus and in a drag, and
+   a dragged card lifts while the others slide aside. A finger drags by the
+   number. */
 .task-cards.ranked { position: relative; }
 .task-cards.sorting { user-select: none; }
 .ranked-item { position: relative; min-width: 0; }
@@ -1057,9 +1096,8 @@ a.wait-open { min-height: 44px; border: 1px solid var(--accent-green); border-ra
   .task-cards.sorting .task-card { cursor: grabbing; }
 }
 .rank { position: absolute; z-index: 1; left: 13px; top: 22px; width: 26px; height: 26px; display: grid; place-items: center; border: 1px solid var(--glass-border); border-radius: 8px; background: var(--field-bg); color: #c4d4df; font-size: 1rem; font-weight: 800; font-variant-numeric: tabular-nums; pointer-events: none; }
-.rank .grip { display: none; width: 14px; height: 14px; fill: currentColor; }
-.ranked-item:hover .rank-number, .ranked-item:focus-within .rank-number, .ranked-item.dragging .rank-number { display: none; }
-.ranked-item:hover .grip, .ranked-item:focus-within .grip, .ranked-item.dragging .grip { display: block; }
+/* A card rises over the others on hover and focus, and its number over it. */
+.ranked-item:hover .rank, .ranked-item:focus-within .rank { z-index: 4; }
 @media (any-pointer: coarse) { .rank { pointer-events: auto; touch-action: none; } }
 .ranked-item.dragging .task-card-shell { transform: scale(1.02) rotate(-.6deg); border-color: var(--mint); box-shadow: 0 18px 40px #000a, 0 0 0 2px var(--mint); }
 .ranked-item.dragging .rank { border-color: var(--mint); }
@@ -1172,8 +1210,8 @@ a.wait-open { min-height: 44px; border: 1px solid var(--accent-green); border-ra
 /* On a phone a row of two still fits on one line. */
 @media (max-width: 40rem) { .labelled-button { gap: 6px; padding-inline: 10px 12px; } }
 .card-secondary { color: var(--muted); font-size: 1rem; overflow-wrap: anywhere; }
-.phase-paused, .phase-pausing, .phase-resuming { color: var(--amber); }
-.phase-paused .status-dot, .phase-pausing .status-dot, .phase-resuming .status-dot { background: var(--amber); }
+.phase-paused, .phase-pausing, .phase-resuming { color: var(--muted); }
+.phase-paused .status-dot, .phase-pausing .status-dot, .phase-resuming .status-dot { background: #a6beda; }
 .phase-stopped, .phase-stopping { color: var(--muted); }
 .phase-stopped .status-dot, .phase-stopping .status-dot { background: #7891ad; }
 .lifecycle-panel { display: grid; gap: 24px; padding-top: 24px; }
@@ -1181,18 +1219,11 @@ a.wait-open { min-height: 44px; border: 1px solid var(--accent-green); border-ra
 /* A finished task has no action row, so its record needs no line over it. */
 .lifecycle-panel > .lifecycle-details:first-child { border-top: 0; padding-top: 0; }
 .lifecycle-details { display: grid; gap: 14px; border-top: 1px solid var(--glass-border); padding-top: 22px; }
-.lifecycle-details h3, .lifecycle-details p, .task-adjustment p { margin: 0; }
+.lifecycle-details h3, .lifecycle-details p { margin: 0; }
 .lifecycle-details ul { list-style: none; padding: 0; margin: 0; display: grid; gap: 12px; }
 .lifecycle-details li { display: flex; align-items: flex-start; gap: 12px; overflow-wrap: anywhere; }
 .lifecycle-details li .icon { color: var(--mint); flex: none; }
 .lifecycle-details time { color: var(--muted); font-weight: 400; }
-.task-adjustment { display: grid; gap: 16px; border-top: 1px solid var(--glass-border); padding-top: 24px; }
-.task-adjustment h3 { margin: 0; }
-.task-adjustment textarea { width: 100%; min-height: 170px; resize: vertical; line-height: 1.6; }
-.task-note { display: flex; gap: 14px; padding: 18px; border: 1px solid var(--glass-border); border-radius: var(--radius); background: var(--glass-bg); box-shadow: var(--glass-shadow); }
-.task-note > .icon { flex: none; }
-.task-note strong { color: var(--mint); font-weight: 500; }
-.task-note p { margin-top: 8px; white-space: pre-wrap; overflow-wrap: anywhere; }
 .stop-task-dialog { width: min(480px, calc(100vw - 28px)); max-height: calc(100dvh - 28px); overflow: auto; padding: 28px; border: 1px solid var(--glass-border-hover); border-radius: var(--radius); color: #edf4f3; background: var(--glass-bg), var(--hero-surface); box-shadow: var(--glass-shadow-hover); text-align: center; }
 .stop-task-dialog::backdrop { background: #03050aba; backdrop-filter: blur(6px); }
 .stop-task-dialog > .goblin-avatar { margin: 0 auto 18px; width: 66px; height: 66px; }

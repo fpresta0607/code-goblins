@@ -9,7 +9,9 @@ import (
 // check runs and none has failed, failed as soon as one has, cancelled when
 // they ended with one cancelled and none failed, and passed when every one
 // passed. Failed names the checks that failed or were cancelled, and Link is
-// the first one's page. Approved says a reviewer approved the pull request.
+// the first one's page, or while they are pending the first running one's,
+// the run that tests the pull request. Approved says a reviewer approved the
+// pull request.
 type HostedChecks struct {
 	Head     string    `json:"head"`
 	State    string    `json:"state"`
@@ -29,10 +31,14 @@ func recordHostedChecks(w *fleetWakes, pr ghPullRequest, now time.Time) {
 	}
 	hosted := HostedChecks{Head: pr.HeadRefOid, Checks: len(pr.Checks), Approved: pr.ReviewDecision == "APPROVED", At: now}
 	var running, failed, cancelled bool
+	var runningLink string
 	for _, check := range pr.Checks {
 		switch {
 		case !check.concluded():
 			running = true
+			if runningLink == "" {
+				runningLink = check.link()
+			}
 			continue
 		case check.passed():
 			continue
@@ -50,7 +56,7 @@ func recordHostedChecks(w *fleetWakes, pr ghPullRequest, now time.Time) {
 	case failed:
 		hosted.State = "failed"
 	case running:
-		hosted.State = "pending"
+		hosted.State, hosted.Link = "pending", runningLink
 	case cancelled:
 		hosted.State = "cancelled"
 	default:

@@ -15,17 +15,17 @@ import (
 
 var consoleCreation sync.Mutex
 
-func createInteractiveConsole(size windows.Coord, input, output windows.Handle, console *windows.Handle) error {
+func createInteractiveConsole(host consoleHost, size windows.Coord, input, output windows.Handle, console *windows.Handle) error {
 	consoleCreation.Lock()
 	defer consoleCreation.Unlock()
 	var started, finished windows.Filetime
 	windows.GetSystemTimePreciseAsFileTime(&started)
-	if err := windows.CreatePseudoConsole(size, input, output, 0, console); err != nil {
+	if err := host.create(size, input, output, 0, console); err != nil {
 		return err
 	}
 	windows.GetSystemTimePreciseAsFileTime(&finished)
-	if err := scheduleConsoleServer(started, finished); err != nil {
-		windows.ClosePseudoConsole(*console)
+	if err := scheduleConsoleServer(host.server, started, finished); err != nil {
+		host.close(*console)
 		return err
 	}
 	return nil
@@ -33,8 +33,8 @@ func createInteractiveConsole(size windows.Coord, input, output windows.Handle, 
 
 // ConPTY does not expose its console server's process handle. Find only the
 // new direct child from this serialized creation window, then verify its
-// creation time and image on the handle used for the policy change.
-func scheduleConsoleServer(started, finished windows.Filetime) error {
+// creation time and image, server, on the handle used for the policy change.
+func scheduleConsoleServer(server string, started, finished windows.Filetime) error {
 	processes, err := proc.Processes()
 	if err != nil {
 		return err
@@ -46,7 +46,7 @@ func scheduleConsoleServer(started, finished windows.Filetime) error {
 		}
 	}()
 	for _, process := range processes {
-		if process.ParentPID != os.Getpid() || !strings.EqualFold(process.ExeBase, "conhost.exe") {
+		if process.ParentPID != os.Getpid() || !strings.EqualFold(process.ExeBase, filepath.Base(server)) {
 			continue
 		}
 		handle, err := windows.OpenProcess(windows.PROCESS_QUERY_LIMITED_INFORMATION|windows.PROCESS_SET_INFORMATION, false, uint32(process.PID))
@@ -75,12 +75,8 @@ func scheduleConsoleServer(started, finished windows.Filetime) error {
 		if err := windows.QueryFullProcessImageName(candidate, 0, &image[0], &length); err != nil {
 			return fmt.Errorf("conpty: console server image: %w", err)
 		}
-		systemDirectory, err := windows.GetSystemDirectory()
-		if err != nil {
-			return err
-		}
-		if !strings.EqualFold(windows.UTF16ToString(image[:length]), filepath.Join(systemDirectory, "conhost.exe")) {
-			return fmt.Errorf("conpty: console server image is not the system conhost")
+		if !strings.EqualFold(windows.UTF16ToString(image[:length]), server) {
+			return fmt.Errorf("conpty: console server image is not %s", server)
 		}
 	}
 	if candidate == 0 {

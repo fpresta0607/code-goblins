@@ -1,7 +1,7 @@
 // Command goblins-setup is CodeGoblinsSetup.exe, the one file a person
 // downloads and opens to install Code Goblins with no terminal. It is only a
-// window around the release's own install script, the one the one-line
-// install runs: it says what the install will put where, runs the script out
+// window around the newest release's install script, the one the one-line
+// install runs, whichever release published it: it says what the install will put where, runs the script out
 // of sight once Install is pressed, shows its plain steps, says in one
 // sentence why when it stops, and opens the app once it is done. So there is
 // one install, whichever way it is started.

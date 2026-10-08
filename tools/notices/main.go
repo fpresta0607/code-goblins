@@ -1,7 +1,8 @@
 // Command notices writes THIRD_PARTY_NOTICES, the licence of everything a
 // Code Goblins release ships: the Go standard library and every module
-// compiled into the commands under cmd/, the npm packages bundled into the
-// board, and the board's own licensed assets. With -check it writes nothing
+// compiled into the commands under cmd/, Microsoft's console host embedded
+// into cfo.exe, the npm packages bundled into the board, and the board's own
+// licensed assets. With -check it writes nothing
 // and fails when the file is stale or when anything shipped is under a
 // copyleft or unrecognised licence. Build-only tools, such as Vite and its
 // MPL-2.0 lightningcss, ship nothing and are not read.
@@ -73,6 +74,10 @@ func run(root string, check bool) error {
 	if err != nil {
 		return err
 	}
+	consoleSection, consoleProblems, err := consoleHostComponents(filepath.Join(root, "internal", "conpty", "openconsole"))
+	if err != nil {
+		return err
+	}
 	npmSection, npmProblems, err := npmComponents(filepath.Join(root, "frontend"))
 	if err != nil {
 		return err
@@ -82,8 +87,8 @@ func run(root string, check bool) error {
 	if err != nil {
 		return err
 	}
-	problems := slices.Concat(goProblems, npmProblems, assetProblems)
-	return apply(filepath.Join(root, noticesFile), render([]section{goSection, npmSection, assetSection}), problems, check)
+	problems := slices.Concat(goProblems, consoleProblems, npmProblems, assetProblems)
+	return apply(filepath.Join(root, noticesFile), render([]section{goSection, consoleSection, npmSection, assetSection}), problems, check)
 }
 
 // apply writes content to path, or with check compares it. Problems refuse
@@ -255,6 +260,27 @@ func assetComponents(assets string, known []component) (section, []string, error
 		return nil
 	})
 	return s, problems, err
+}
+
+// consoleHostComponents lists the Microsoft ConPTY package whose conpty.dll
+// and OpenConsole.exe dir holds, which cfo.exe embeds, by the version and
+// licence beside them.
+func consoleHostComponents(dir string) (section, []string, error) {
+	version, err := fsx.ReadFile(filepath.Join(dir, "VERSION"))
+	if err != nil {
+		return section{}, nil, err
+	}
+	text, err := licenceText(dir)
+	if err != nil {
+		return section{}, nil, err
+	}
+	name := "Microsoft.Windows.Console.ConPTY " + strings.TrimSpace(string(version)) + " (conpty.dll and OpenConsole.exe)"
+	var problems []string
+	licence, err := classify(text)
+	if err != nil {
+		problems = append(problems, name+": "+err.Error())
+	}
+	return section{heading: "Microsoft's console host, embedded into cfo.exe", components: []component{{name: name, licence: licence, text: text}}}, problems, nil
 }
 
 // licenceText joins a package's licence and notice files, in name order.

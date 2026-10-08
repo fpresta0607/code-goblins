@@ -138,7 +138,7 @@ irm https://github.com/fpresta0607/code-goblins/releases/latest/download/install
 ```
 
 Both are the same install, so use whichever you like: the setup if you want a window, the one line if you live in a terminal.
-Each puts the Code Goblins app and the `cfo` command line (also called `goblins`) together in one folder, `%LOCALAPPDATA%\CodeGoblins`, adds that folder to your PATH and Code Goblins to the Start menu, installs the tools the goblins use where they are missing, and opens [the desktop app](#the-desktop-app).
+Each puts the Code Goblins app and the `cfo` command line (also called `goblins`) together in one folder, `%LOCALAPPDATA%\CodeGoblins`, adds its `bin` folder to your PATH and Code Goblins to the Start menu and the desktop, installs the tools the goblins use where they are missing, and opens [the desktop app](#the-desktop-app).
 Each also merges the CFO's hooks and a few permission rules into your Claude Code settings, `~/.claude/settings.json`, keeping your own and backing the file up first: the rules let a Claude Code CFO in auto mode put questions, run items, reviews and documents in front of you in the Command Center, which [Safety model](#safety-model) explains.
 Each also turns on **Start at login**, so Code Goblins starts in the tray when you sign in and brings back what a restart ended; untick it in the setup to keep it off, and [Opening, closing and restarting](#opening-closing-and-restarting) says how to change it later.
 Where this machine can have a Dev Drive, the setup and the board's first page each offer once, unticked, to put the goblins' worktrees and caches on one, with a sentence saying what it is and that it is not a Defender exclusion; a machine that cannot have one is told why in one line and works as before ([A Dev Drive for the busiest folders](#a-dev-drive-for-the-busiest-folders-optional)).
@@ -290,8 +290,7 @@ Hook setup, evidence rules and terminal limits are in [the native board guide](d
 The board also runs in a desktop window of its own, `goblins-window.exe`: the same board in Microsoft's WebView2, with a tray icon and Windows notifications.
 It holds no fleet state, and quitting it leaves the supervisor, the CFO and every goblin running.
 Its source is `cmd/goblins-window` in this repository, and it sits in the CFO home's `bin` beside `goblins.exe`: `.\install.cmd -Dev` builds it, unsigned, says so, and installs it there, and the one-line install and `CodeGoblinsSetup.exe` put it there from a release that ships it, as releases from v0.4.0 on do.
-Where an install put it in the home, opening it is enough: Code Goblins in the Start menu starts the window alone, with no terminal, and it finds the supervisor or starts it and shows the board, where the first-run page starts the CFO while none runs.
-A window the home only kept from before, under an install that ships none, still opens from Code Goblins, which then runs `goblins --window`.
+Opening it uses [the app's normal launch path](#opening-closing-and-restarting); [the install guide](docs/install.md#which-home-it-installs) describes how each shortcut starts a newly installed or retained window.
 When the board cannot open, the window says why in a message of its own, in the words `goblins` would use in a terminal.
 `goblins --window` does the same from a terminal, and **Open the board** in the quick start opens the window in place of the browser.
 Closing the window hides it to its tray, whose menu has **Open the board**, **Start at login**, which opens the app in the tray when you sign in, with no terminal either, and **Quit the window**.
@@ -317,7 +316,8 @@ Code Goblins runs in the background, in processes of their own: the supervisor, 
 None of them belongs to a window.
 The board in a browser, the desktop window and `goblins attach` are only views: closing any of them leaves the supervisor, the CFO and every goblin running.
 Closing the desktop window hides it to its tray, and **Quit the window** in the tray ends the window alone.
-Opening the app, from the Start menu or at sign-in, finds this home's supervisor, or starts it out of sight, outside any terminal, and then shows the board.
+Open **Code Goblins** from your desktop shortcut or the Start menu, or let it open at sign-in: it finds this home's supervisor, or starts it out of sight, outside any terminal, and then shows the board.
+The board's first-run page starts the CFO while none runs.
 `goblins stop` stops only the supervisor: the CFO and the goblins keep working in their terminals.
 
 A restart or a sign-out ends all of those processes, and Code Goblins brings them back by itself.
@@ -377,7 +377,8 @@ A Completed card shows what its pull request really did, the way GitHub does: **
 Without a PR, Finished requires pushed task commits or the artifact the brief requested.
 A task ended by Stop, or cleaned up without delivery, says **Stopped**, with when and why.
 Every Completed card leads with its PR title, or its task title without a PR, then repository and state together, then its PR link when present; task IDs and branch names are secondary detail.
-A number on each card shows its place and turns into a grip on hover or focus: drag a card to move it and the others slide aside to make room, or focus it and press **Alt+Up** or **Alt+Down**.
+A number on each card shows its place, and stays in sight on hover, on focus and while the card is dragged.
+Drag a card to move it and the others slide aside to make room, or focus it and press **Alt+Up** or **Alt+Down**.
 A card goes to any place in its list, the first included: held at the top or bottom edge of the board it waits while the board scrolls under it, and held over a page arrow in Tasks it turns the page and goes with it.
 On a touch screen, drag a card by its number.
 **Alt+Up** or **Alt+Down** past the page's edge moves a card on and turns the page with it.
@@ -511,6 +512,8 @@ Disabled or withheld MCP servers say why they are unavailable, and no secret val
 The CFO's Task view lists every queued task under its workspace, in the same priority order as the Tasks column and with the same memory meter, drag and **Start**.
 The Terminal view is the goblin's live terminal, edge to edge.
 A goblin in a native terminal (what `cfo spawn` starts for every goblin) is drawn from its terminal's own output at the panel's size, in a 20 px font, with an even inset and the input line at the bottom: type straight into it, scroll its history with the wheel (no scroll bar is drawn; a Claude Code goblin draws in the interface your Claude Code `tui` setting names, as the CFO does, so in fullscreen its input line stays put and Claude Code offers its own jump to the bottom), and use **Ctrl+Plus**, **Ctrl+Minus** and **Ctrl+0** to change the font size, which gives the terminal fewer or more columns rather than shrinking what it shows.
+A program that draws inline, such as a PowerShell command on its Command Center card, keeps the line it waits on pinned at the bottom while you scroll its history, with **Jump to bottom** above it, and typing returns to the live end.
+Holding the right mouse button and turning the wheel zooms the text the same steps, and one saved size applies to every terminal on the board, kept per device.
 The monitor supervises it from its terminal as it does a goblin in Herdr, and it asks, reports and receives the Overlord's answers through its own terminal.
 `cfo switch` changes its harness, model or effort in place, and after a reboot, which ends every native terminal, `goblins resume` brings every goblin back in its own session, as `cfo switch <id> --harness <the harness it ran>` does for one.
 Opening it replays the terminal's history out of sight and shows it once its screen is whole, so it never opens blank or half drawn, and a full-pane state shows while it connects.
@@ -902,7 +905,10 @@ To update a running home to the newest release, run `goblins update` in a termin
 `goblins update --check` says whether a newer release is published and what is new, and changes nothing.
 The update is yours alone: it refuses to run under the CFO, a goblin or any agent.
 
-To install a newer build into a running home, run the candidate build itself with `update`: it swaps both `cfo.exe` and `goblins.exe` where the home keeps them, restarts only the supervisor, and puts the previous build back if the new one does not serve; that folder keeps the two builds before the current one and no more.
+To install a newer build into a running home, run the candidate build itself with `update`: it swaps both `cfo.exe` and `goblins.exe` where the home keeps them, restarts only the supervisor, and puts the previous build back if the new one does not serve.
+That folder keeps the current build alone; cleanup reports aside copies it cannot remove, including running copies, and the janitor retries on a later pass.
+The janitor leaves that folder alone while an update is unfinished.
+The update keeps verified copies in `state\update` for rollback and `--recover`; cleanup never removes them.
 The candidate must meet the [source-build requirements](#development).
 The home keeps them in its `bin`, or, where a build before `bin` set it up, such as a checkout an older build made the home, at its root, where they are updated until an install lays the home out with `bin`.
 The journal of an earlier update that finished is history, whatever home it names; only an unfinished one, whose copies are its way back, stops an update.
@@ -920,7 +926,7 @@ It stays local and private: nothing in it is pushed anywhere, and no repository 
 
 ```text
 <CFO home>\
-  bin\                            cfo.exe, goblins.exe and the desktop window, on PATH; the current build and two before it
+  bin\                            cfo.exe, goblins.exe and the desktop window, on PATH
   state\                          the fleet's own record: tasks, status logs, the wake queue, the board
   config\                         the gate policy, fleet.json (the disk floor, the caches cap and github_owners), and dev-drive.json once the next three folders moved to a Dev Drive
   worktrees\<project>\<task>\     each goblin's worktree of your checkout, and its extra worktrees beside it
@@ -950,7 +956,7 @@ If you want one, make `data\` a git repository and push it to a private remote o
 `data\.gitignore` keeps binaries, archives and logs out of it.
 
 The home stays small on its own: the binaries, records under 200 MB, capped caches, and about 0.2 GB for each running goblin, which leaves when its work merges.
-Once an hour the janitor removes what the fleet left behind: a worktree in the home no task owns once its work is on the default branch or kept as a local `archive/<branch>` tag, old builds past the two before the current one, temporary folders nothing has written to for a day, a retired task's scratch, logs and evidence (its brief, report, decisions, handoffs and status log stay, and so does anything it handed you), backups past the newest two of each kind, and cache space over the cap, using each tool's own prune.
+Once an hour the janitor removes what the fleet left behind: a worktree in the home no task owns once its work is on the default branch or kept as a local `archive/<branch>` tag, aside copies under the [build update policy](#core-commands), temporary folders nothing has written to for a day, a retired task's scratch, logs and evidence (its brief, report, decisions, handoffs and status log stay, and so does anything it handed you), backups past the newest two of each kind, and cache space over the cap, using each tool's own prune.
 It never touches uncommitted work or your checkouts, touches Docker only to stop a project's local services that cfo started for goblins once no running goblin holds them, and reports what it will not remove: a worktree no task records, a new folder in your projects root that is no checkout, and a `data\` over 200 MB.
 `cfo runtime` shows what each part of the home holds, and the board shows free disk under free memory, in one box.
 
@@ -1012,8 +1018,9 @@ The core is intentionally local-first:
 - `internal/spawn/` — task dispatch and worktree preparation.
 - `internal/herdr/` — terminal/session integration.
 - `internal/terminal/` - the terminal backend that the fleet commands, the board's supervisor, the monitor and the CFO launcher drive; Herdr is the only one today, and `terminaltest` holds an in-memory one for tests.
-- `internal/conpty/` - runs one process in a Windows pseudo console, inside a job object, for the native terminal host; a process that asks to break away (a goblin host, a detached serve) leaves the job, and everything else ends with the terminal.
+- `internal/conpty/` - runs one process in a Windows pseudo console, inside a job object, for the native terminal host, on Microsoft's OpenConsole, which `cfo.exe` embeds; a process that asks to break away (a goblin host, a detached serve) leaves the job, and everything else ends with the terminal.
 - `internal/host/` - `cfo host`: one goblin terminal per process, outliving the supervisor and every window, served over a named pipe only this Windows user can open; its screen is read from its console, exactly as the terminal's program sees it, for `cfo peek`.
+- `internal/vtscreen/` - the screen a host keeps from its terminal's output, so the host answers the program's terminal queries itself, keeps them from every viewer, and repaints a viewer on a resize or a late connect.
 - `internal/fleet/` — fleet truth, targeting, steering and inspection.
 - `internal/supervise/` / `internal/watch/` — unattended supervision and recovery.
 - `internal/pipeline/` — durable validation policy and decision gates.

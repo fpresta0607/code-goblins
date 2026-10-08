@@ -27,7 +27,6 @@ export interface Task extends Evaluation {
   teardown: string[];
   detail: string;
   queue_revision: string;
-  notes: string[];
   action_error: string;
   pending_engine?: { harness: string; model: string; effort: string; when: string };
   // harness_update is an update of the harness the goblin runs, installed
@@ -157,8 +156,9 @@ export interface DevDriveView { state: string; line: string; explain: string; ch
 // pending while one runs and none has failed, failed as soon as one has,
 // cancelled when they ended with one cancelled, and passed when all passed;
 // failed names the checks that failed or were cancelled and link is the first
-// one's page; approved says a reviewer approved the pull request.
-export interface HostedChecks { state: string; checks: number; failed: string[]; link: string; approved: boolean }
+// one's page, or while they run the first running one's; approved says a
+// reviewer approved the pull request.
+export interface HostedChecks { head: string; state: string; checks: number; failed: string[]; link: string; approved: boolean }
 // LocalChecks is the newest cfo gate test run of a task's change: the commit,
 // the level it ran and the one required, passed or failed, how long it took
 // and waited for its turn, and the packages or commands that failed.
@@ -176,8 +176,8 @@ export interface MergeTrain { id: string; repository: string; base: string; pr: 
 // TrainCar is one pull request on a train: state is riding, waiting,
 // landed, culprit, conflict or returned, and note says why.
 // goblin and goblin_title are the name and title of the goblin that reported
-// it done.
-export interface TrainCar { number: number; url: string; title: string; task: string; goblin: string; goblin_title: string; state: string; note: string }
+// it done, and head the commit of it that rode.
+export interface TrainCar { number: number; url: string; title: string; task: string; goblin: string; goblin_title: string; head: string; state: string; note: string }
 // Ticket is a task's issue: its number, its link and where it stands, one
 // of queued, in progress, pr open, paused, blocked, merged or closed.
 export interface Ticket { number: number; url: string; state: string }
@@ -695,7 +695,7 @@ function parseMergeTrain(value: unknown): MergeTrain {
   return {
     id: string(t.id), repository: string(t.repository), base: string(t.base), pr: string(t.pr), state: string(t.state), runs: number(t.runs),
     started: string(t.started), finished: string(t.finished), note: string(t.note),
-    cars: array(t.cars).map((car) => { const c = object(car); return { number: number(c.number), url: string(c.url), title: string(c.title), task: string(c.task), goblin: string(c.goblin), goblin_title: string(c.goblin_title), state: string(c.state), note: string(c.note) }; }),
+    cars: array(t.cars).map((car) => { const c = object(car); return { number: number(c.number), url: string(c.url), title: string(c.title), task: string(c.task), goblin: string(c.goblin), goblin_title: string(c.goblin_title), head: string(c.head), state: string(c.state), note: string(c.note) }; }),
   };
 }
 function parseComebackEntry(value: unknown): ComebackEntry {
@@ -771,7 +771,7 @@ export function parseSnapshot(value: unknown): Snapshot {
         lifecycle: t.lifecycle == null ? undefined : ((record) => ({ phase: string(record.phase), action: string(record.action), at: string(record.at), kept: strings(record.kept), stopped: strings(record.stopped), problems: strings(record.problems), handoff_saved: boolean(record.handoff_saved), validation_restarts: boolean(record.validation_restarts),
           ...(record.with_parent === undefined ? {} : { with_parent: boolean(record.with_parent) }),
           ...(record.pause == null ? {} : { pause: ((pause) => ({ reason: string(pause.reason), until: string(pause.until), at: string(pause.at) }))(object(record.pause)) }) }))(object(t.lifecycle)),
-        teardown: strings(t.teardown), detail: string(t.detail), queue_revision: string(t.queue_revision), notes: strings(t.notes), action_error: string(t.action_error), branch: string(t.branch),
+        teardown: strings(t.teardown), detail: string(t.detail), queue_revision: string(t.queue_revision), action_error: string(t.action_error), branch: string(t.branch),
         pending_engine: t.pending_engine == null ? undefined : ((choice) => ({ harness: string(choice.harness), model: string(choice.model), effort: string(choice.effort), when: string(choice.when) }))(object(t.pending_engine)),
         ...(t.harness_update == null ? {} : { harness_update: parseHarnessUpdate(object(t.harness_update)) }),
         switching: t.switching === undefined ? false : boolean(t.switching),
@@ -812,7 +812,7 @@ export function parseSnapshot(value: unknown): Snapshot {
         ...(t.ticket == null ? {} : { ticket: ((ticket) => ({ number: number(ticket.number), url: string(ticket.url), state: string(ticket.state) }))(object(t.ticket)) }),
         overlaps: array(t.overlaps).map((value) => { const o = object(value); return { ...parsePerson(o), what: string(o.what), url: string(o.url) }; }),
         ...(t.comeback == null ? {} : { comeback: parseComebackEntry(t.comeback) }),
-        ...(t.hosted_checks == null ? {} : { hosted_checks: ((c) => ({ state: string(c.state), checks: number(c.checks), failed: strings(c.failed), link: string(c.link), approved: c.approved === undefined ? false : boolean(c.approved) }))(object(t.hosted_checks)) }),
+        ...(t.hosted_checks == null ? {} : { hosted_checks: ((c) => ({ head: string(c.head), state: string(c.state), checks: number(c.checks), failed: strings(c.failed), link: string(c.link), approved: c.approved === undefined ? false : boolean(c.approved) }))(object(t.hosted_checks)) }),
         ...(t.tree == null ? {} : { tree: parseTree(t.tree) }),
         ...(t.local_checks == null ? {} : { local_checks: ((c) => ({ commit: string(c.commit), level: string(c.level), required_level: string(c.required_level), status: string(c.status), duration_seconds: number(c.duration_seconds), queue_seconds: number(c.queue_seconds), failed: strings(c.failed), at: string(c.at) }))(object(t.local_checks)) }),
         ...(t.deployment == null ? {} : { deployment: ((d) => ({ commit: string(d.commit), state: string(d.state), workflows: strings(d.workflows), link: string(d.link), at: string(d.at) }))(object(t.deployment)) }),

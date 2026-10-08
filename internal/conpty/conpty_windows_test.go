@@ -95,6 +95,10 @@ func echoChild() {
 				continue
 			}
 			fmt.Printf("service %d\n", service.Process.Pid)
+		case line == "ask":
+			// The program's own device attributes query, which its terminal
+			// answers with what it types next.
+			fmt.Print("asking\x1b[c")
 		case strings.HasPrefix(line, "exit "):
 			code, _ := strconv.Atoi(strings.TrimPrefix(line, "exit "))
 			os.Exit(code)

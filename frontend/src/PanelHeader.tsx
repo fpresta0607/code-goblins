@@ -16,10 +16,12 @@ import { RawDetails } from "./raw-details";
 import { turnStatus } from "./start";
 import { PeopleRow } from "./people-row";
 import { TicketLink } from "./ticket-link";
-import { HostedChecksLink } from "./hosted-checks-link";
+import { PullRequestTestLink } from "./pull-request-test-link";
+import { pullRequestTest } from "./pull-request-test";
 import { DeploymentLink } from "./deployment-link";
 import { LocalChecksLink } from "./local-checks-link";
 import { ClickFeedback, useClickFeedback } from "./click-feedback";
+import { TaskAdjustment } from "./task-adjustment";
 
 // Who the goblin is, what it is doing now and what the Overlord can do about
 // it. Its status is the one place the panel says the task's state, with one
@@ -36,15 +38,17 @@ export function PanelHeader({ task, node, snapshot, compact, onAnswer, onOpenTas
   const asking = owner && asksOverlord(snapshot, task.id);
   const cfoSession = snapshot.sessions.find((session) => session.role === "cfo");
   const title = cfo ? "CFO" : node ? sessionTitle(node, task) : task ? goblinName(task) : "";
+  const trains = snapshot.merge_trains ?? [];
   const status = cfo
     ? nodeStatus({ id: "cfo", title, session: cfoSession, relation: "", status: snapshot.registration ? "Registration stale" : cfoSession ? undefined : "Supervising" })
-    : owner && turnStatus(task, snapshot.memory, snapshot.disk) || nodeStatus({ id: title, title, task, session: node, relation: "" }, asking, snapshot.tasks);
-  const phase = cfo ? (snapshot.registration ? "stale" : cfoSession?.runtime?.state || cfoSession?.phase || "working") : owner ? statusPhase(task) : node?.runtime?.state || node?.phase || "";
+    : owner && turnStatus(task, snapshot.memory, snapshot.disk) || nodeStatus({ id: title, title, task, session: node, relation: "" }, asking, snapshot.tasks, trains);
+  const phase = cfo ? (snapshot.registration ? "stale" : cfoSession?.runtime?.state || cfoSession?.phase || "working") : owner ? statusPhase(task, trains) : node?.runtime?.state || node?.phase || "";
   const said = owner ? taskSummary(task, snapshot.tasks, status) : undefined;
   // What a queued task's wait line leaves out: the CFO's note on it, or what
   // says it already finished.
   const note = owner && task.phase === "queued" && (task.finished || task.dependencies.length) ? withoutHarness(task.finished || task.reason) : "";
   const pr = owner ? safePullRequest(task.pr) : "";
+  const test = owner ? pullRequestTest(task, trains) : undefined;
   const badge = pullRequestBadge(pr);
   const awaited = owner ? waitingTarget(snapshot, task) : undefined;
   // What this goblin waits on the Overlord for: a question, a review item or
@@ -64,7 +68,7 @@ export function PanelHeader({ task, node, snapshot, compact, onAnswer, onOpenTas
     <Avatar persona={cfo ? "cfo" : personaFor(task, node)} small />
     <div className="panel-identity">
       <h2 id="panel-title">{title}</h2>
-      {owner && task.goblin_name && <p className="panel-goblin-task">{taskName(task)}</p>}
+      {owner && task.phase === "queued" ? <TaskAdjustment key={task.id} task={task} snapshot={snapshot} /> : owner && task.goblin_name && <p className="panel-goblin-task">{taskName(task)}</p>}
       {!compact && task?.project && <div className="project-line"><p className="project-label">{task.project}</p><PeopleRow snapshot={snapshot} task={task} /></div>}
       <p className={"panel-status plain-status phase-" + phase}><span className="status-dot" />{status}{awaited && <button className="status-link" aria-label={"Open " + goblinName(awaited) + ", which this goblin is waiting on"} data-tip={"Open " + goblinName(awaited)} onClick={() => onOpenTask(awaited)}><Icon name="next" /></button>}</p>
       {!compact && !owner && node && task && <p className="muted">Part of {goblinName(task)}</p>}
@@ -84,7 +88,7 @@ export function PanelHeader({ task, node, snapshot, compact, onAnswer, onOpenTas
       {task.ticket && <TicketLink ticket={task.ticket} className="icon-button raised pill-link" />}
       {pr && <a className="icon-button raised pill-link" href={pr} target="_blank" rel="noreferrer" aria-label={"Open pull request " + pullRequestLabel(pr)} data-tip="Open pull request">{badge.github ? <svg className="icon brand-glyph" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d={BRAND_MARKS.github.path} /></svg> : <Icon name="pull-request" />}<span>{badge.label}</span></a>}
       {owner && task.local_checks && <LocalChecksLink checks={task.local_checks} taskId={task.id} className="icon-button raised pill-link" />}
-      {pr && task.hosted_checks && <HostedChecksLink checks={task.hosted_checks} pr={pr} className="icon-button raised pill-link" />}
+      {pr && test && <PullRequestTestLink test={test} approved={!!task.hosted_checks?.approved} className="icon-button raised pill-link" />}
       {owner && task.deployment && <DeploymentLink deployment={task.deployment} className="icon-button raised pill-link" />}
       <ClickFeedback text={feedback} />
     </div>}

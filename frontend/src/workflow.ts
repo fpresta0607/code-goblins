@@ -1,7 +1,8 @@
-import type { Session, Snapshot, Task } from "./types.ts";
+import type { MergeTrain, Session, Snapshot, Task } from "./types.ts";
 import { lineageRoots, ownsTaskSession, sessionTitle, tasksWithoutSession } from "./lineageTree.ts";
-import { goblinName } from "./task-words.ts";
+import { goblinName, isPausedForItsPullRequest } from "./task-words.ts";
 import { isHeldByTree, isHelperHeld } from "./fleet-tree.ts";
+import { awaitedTest } from "./pull-request-test.ts";
 
 export type Persona = "cfo" | "builder" | "reviewer" | "tester" | "planner" | "finisher" | "general"
   | "debugger" | "security" | "database" | "designer" | "documentation" | "operations"
@@ -33,9 +34,12 @@ export function zoomAt(view: View, scale: number, pointer: Point): View {
   return { scale: next, x: pointer.x - (pointer.x - view.x) * next / view.scale, y: pointer.y - (pointer.y - view.y) * next / view.scale };
 }
 
+// A goblin paused until its own pull request merges, or until its CI run on
+// it finishes, is not paused at its work: it stays in In progress while its
+// pull request is tested.
 export function taskColumn(task: Task): "Tasks" | "In progress" | "Paused" | "Completed" {
   if (task.archived || task.phase === "stopped" || task.phase === "stopping") return "Completed";
-  if (["paused", "pausing", "resuming"].includes(task.phase)) return "Paused";
+  if (["paused", "pausing", "resuming"].includes(task.phase) && !isPausedForItsPullRequest(task)) return "Paused";
   if (task.phase === "queued") return "Tasks";
   return task.phase === "done" && task.verified ? "Completed" : "In progress";
 }
@@ -170,20 +174,26 @@ const FAILED_ACTIONS: Record<string, { status: string; phase: string }> = {
 const actionFailed = (task: Task) => task.lifecycle?.phase === "failed" && !["pausing", "resuming", "stopping"].includes(task.phase) ? FAILED_ACTIONS[task.lifecycle.action] : undefined;
 
 // statusPhase is the phase a task's status is drawn in: the action's for one
-// that did not finish, and failed for a goblin that did not come back.
-export function statusPhase(task: Task): string {
-  return actionFailed(task)?.phase || (task.comeback?.state === "stopped" ? "failed" : task.phase);
+// that did not finish, its pull request's test's tone for one that waits on
+// it, and failed for a goblin that did not come back. trains are the
+// board's merge trains.
+export function statusPhase(task: Task, trains: MergeTrain[] = []): string {
+  const awaited = awaitedTest(task, trains);
+  return actionFailed(task)?.phase || (awaited ? "pr-" + awaited.tone : task.comeback?.state === "stopped" ? "failed" : task.phase);
 }
 
 // A wait on another goblin names it by its goblin name while tasks, the
-// board's, hold it.
-export function nodeStatus(node: WorkflowNode, asking = false, tasks: Task[] = []): string {
+// board's, hold it. A goblin that waits only on its pull request's test reads
+// that test, on a merge train among trains, the board's, or in its own CI.
+export function nodeStatus(node: WorkflowNode, asking = false, tasks: Task[] = [], trains: MergeTrain[] = []): string {
   if (node.status) return node.status;
   const unfinished = node.task && actionFailed(node.task);
   if (unfinished) return unfinished.status;
   if (node.task?.starting) return "Starting";
   // A queued task has no session to stop: Stop removes it from the queue.
   if (node.task?.phase === "stopping" && !node.task.generation) return "Removing";
+  const awaited = node.task && ownsTaskSession(node.session, node.task) ? awaitedTest(node.task, trains) : undefined;
+  if (awaited) return awaited.text;
   if (node.task && ["paused", "pausing", "resuming", "stopping", "stopped"].includes(node.task.phase)) return statusText(node.task.phase);
   if (node.task?.comeback?.state === "waiting") return "Comes back after the restart when memory allows";
   if (node.task?.comeback?.state === "stopped") return "Did not come back after the restart";

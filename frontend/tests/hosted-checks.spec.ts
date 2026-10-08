@@ -64,7 +64,7 @@ for (const viewport of [{ name: "in his window", width: 1707, height: 1067 }, { 
       const passed = card(page, "Export the audit trail").locator(".card-checks");
       await expect(passed).toHaveText(["Local tests passed", "Checks passed", "Approved"]);
       await expect(passed.nth(1)).toHaveAttribute("href", REPO + "/pull/56/checks");
-      await expect(card(page, "Retry the webhook").locator("a.card-checks")).toHaveText("Checks running");
+      await expect(card(page, "Retry the webhook").locator("a.card-checks")).toHaveText("Testing");
       await expect(card(page, "Fix the docs links").locator(".hosted-checks")).toHaveCount(0);
       const local = card(page, "Say why a billing sync fails").locator("a.local-checks");
       await expect(local).toHaveText("Local tests failed");

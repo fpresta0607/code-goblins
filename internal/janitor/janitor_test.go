@@ -521,8 +521,7 @@ func TestSweepTrimsTheCachesWithTheLeastRecentlyUsedToolFirst(t *testing.T) {
 
 // A home a build before bin set up keeps its build at its root, where its
 // updates move the builds they replace aside: the sweep keeps that folder to
-// the current build and the two before it, as it keeps bin, and says what it
-// freed there.
+// the current build alone, as it keeps bin, and says what it freed there.
 func TestSweepKeepsTheBuildsOfAHomeWhoseBuildIsAtItsRoot(t *testing.T) {
 	// Arrange
 	f := newSweepFixture(t)
@@ -553,12 +552,12 @@ func TestSweepKeepsTheBuildsOfAHomeWhoseBuildIsAtItsRoot(t *testing.T) {
 	// Assert
 	for _, b := range builds {
 		_, err := os.Stat(filepath.Join(f.home.Root, b.name))
-		if gone := os.IsNotExist(err); gone != (b.build == "build 1") {
-			t.Errorf("%s (%s) gone = %v, want only build 1, older than the two before the current one, gone", b.name, b.build, gone)
+		if gone := os.IsNotExist(err); gone != (b.build != "build 4") {
+			t.Errorf("%s (%s) gone = %v, want every copy moved aside gone and the current build 4 kept", b.name, b.build, gone)
 		}
 	}
-	if item, ok := has(record.Removed, f.home.Root); !ok || item.Bytes != int64(2*len("build 1")) {
-		t.Errorf("removed = %+v, want build 1's two copies from %s", record.Removed, f.home.Root)
+	if item, ok := has(record.Removed, f.home.Root); !ok || item.Bytes != int64(4*len("build 1")) {
+		t.Errorf("removed = %+v, want the four copies moved aside from %s", record.Removed, f.home.Root)
 	}
 }
 
