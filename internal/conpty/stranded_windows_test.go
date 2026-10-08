@@ -75,6 +75,7 @@ func TestStrandedInputChild(t *testing.T) {
 			if _, err := fmt.Printf("\rkey-%04d\n", sequence); err != nil {
 				fail("echo the key", err)
 			}
+			fmt.Fprintf(progress, "DIAG echoed key-%04d at %s\n", sequence, time.Now().UTC().Format("15:04:05.000000"))
 		}
 	}
 }
@@ -148,6 +149,7 @@ func TestTypedKeysReachAProgramThatPrintsWhileItReads(t *testing.T) {
 		}
 	}()
 	var shown string
+	received := 0
 	echoed := func(marker string, limit time.Duration) bool {
 		timer := time.NewTimer(limit)
 		defer timer.Stop()
@@ -158,6 +160,7 @@ func TestTypedKeysReachAProgramThatPrintsWhileItReads(t *testing.T) {
 					t.Fatalf("the terminal ended before %q: %s; %s", marker, terminalEnd(console, readErr, shown, progressPath), serverEnds())
 				}
 				shown += string(chunk)
+				received += len(chunk)
 				if len(shown) > 8192 {
 					shown = shown[len(shown)-8192:]
 				}
@@ -181,7 +184,11 @@ func TestTypedKeysReachAProgramThatPrintsWhileItReads(t *testing.T) {
 		}
 
 		// Assert
-		if !echoed(fmt.Sprintf("key-%04d", sequence), 2*time.Second) {
+		if before := received; !echoed(fmt.Sprintf("key-%04d", sequence), 2*time.Second) {
+			during := received - before
+			waited := time.Now()
+			late := echoed(fmt.Sprintf("key-%04d", sequence), 20*time.Second)
+			t.Logf("DIAG %d bytes arrived in the 2s without the echo; the echo arrived late: %t, %s after; shown tail %q", during, late, time.Since(waited).Round(time.Millisecond), shown[max(0, len(shown)-300):])
 			progress, _ := os.ReadFile(progressPath)
 			lines := strings.Split(strings.TrimSpace(string(progress)), "\n")
 			if strings.Contains(string(progress), fmt.Sprintf("as key-%04d", sequence)) {
