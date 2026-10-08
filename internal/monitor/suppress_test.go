@@ -2,11 +2,13 @@ package monitor
 
 import (
 	"context"
+	"fmt"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/fpresta0607/code-goblins/internal/herdr"
+	"github.com/fpresta0607/code-goblins/internal/wake"
 )
 
 const (
@@ -176,6 +178,72 @@ func TestARunningToolOnThePaneHoldsBackUnchangedIdleForTheBudget(t *testing.T) {
 		if !strings.Contains(wakes[0].Detail, want) {
 			t.Errorf("wake detail %q lacks %q", wakes[0].Detail, want)
 		}
+	}
+}
+
+// A native terminal keeps no counters, so between turns the monitor read such
+// a goblin by its status log alone, and a goblin whose screen was filling with
+// output or whose transcript was being written woke unchanged_idle all the
+// same. Output written to its screen, or its transcript written, within the
+// stall window is liveness. A clock ticking in a row the harness redraws by
+// itself is not: a tool its pane shows running still wakes once the busy
+// budget has passed with nothing moving, and a goblin whose screen and records
+// are still wakes once.
+func TestANativeGoblinsOutputAndTranscriptAreLivenessBetweenTurns(t *testing.T) {
+	for _, test := range []struct {
+		name         string
+		pane         func(minute int) string
+		isTranscript bool
+		wantWakes    int
+	}{
+		{"output keeps coming", func(minute int) string { return fmt.Sprintf("ok  \tinternal/package%d\t3.2s", minute) }, false, 0},
+		{"transcript keeps growing", func(int) string { return "● Reading the suite's output." }, true, 0},
+		{"screen and records still", func(int) string { return "● Reading the suite's output." }, false, 1},
+		{"only a tool's clock moves", func(minute int) string { return fmt.Sprintf("  ⎿  Running… (%dm 0s · timeout 10m)", minute) }, false, 1},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			// Arrange
+			now := time.Date(2026, 10, 8, 1, 30, 0, 0, time.UTC)
+			service, probe, progress, meta := progressService(t, &now)
+
+			// Act: fifteen scans a minute apart, past the stall window and the
+			// busy budget.
+			var wakes []string
+			for minute := range 15 {
+				now = now.Add(time.Minute)
+				sample := sampleForStatus(meta, herdr.AgentUnknown, test.pane(minute))
+				sample.CountersUnavailable = true
+				probe.samples[meta.ID] = sample
+				if test.isTranscript {
+					progress.sample.TranscriptAt = now
+				}
+				result, err := service.Scan(context.Background())
+				if err != nil {
+					t.Fatal(err)
+				}
+				if result.Event == nil {
+					continue
+				}
+				wakes = append(wakes, result.Event.Detail)
+				record, err := service.Publish(*result.Event)
+				if err != nil {
+					t.Fatal(err)
+				}
+				if err := wake.AckThrough(service.StateDir, record.Seq); err != nil {
+					t.Fatal(err)
+				}
+			}
+
+			// Assert
+			if len(wakes) != test.wantWakes {
+				t.Fatalf("wakes = %q, want %d", wakes, test.wantWakes)
+			}
+			for _, detail := range wakes {
+				if !strings.HasPrefix(detail, string(UnchangedIdle)+":") {
+					t.Errorf("wake %q, want unchanged_idle", detail)
+				}
+			}
+		})
 	}
 }
 

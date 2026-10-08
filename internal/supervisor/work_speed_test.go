@@ -2,7 +2,10 @@ package supervisor
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
+	"fmt"
+	"os"
 	"path/filepath"
 	"slices"
 	"strings"
@@ -10,6 +13,11 @@ import (
 	"time"
 
 	"github.com/fpresta0607/code-goblins/internal/execx"
+	"github.com/fpresta0607/code-goblins/internal/fleettree"
+	"github.com/fpresta0607/code-goblins/internal/herdr"
+	"github.com/fpresta0607/code-goblins/internal/home"
+	"github.com/fpresta0607/code-goblins/internal/host"
+	"github.com/fpresta0607/code-goblins/internal/monitor"
 	"github.com/fpresta0607/code-goblins/internal/state"
 )
 
@@ -319,6 +327,164 @@ func TestAParentWaitingOnItsHelperProgressesWithItsHelper(t *testing.T) {
 				t.Fatalf("parent waiting on a paused helper drew %d progress wakes, want 1", got)
 			}
 		})
+	}
+}
+
+// toolCallGoblin is a native Claude goblin inside one long tool call, read a
+// minute at a time as the supervisor reads it: its family tree through the
+// board's reader, over a harness whose one job is the tool call, and the
+// monitor's latest look at its screen. It commits, pushes and reports nothing.
+type toolCallGoblin struct {
+	service *Service
+	home    home.Home
+	clock   time.Time
+	// toolCPU is the processor time the tool call has used, screen the
+	// digest the monitor read of the goblin's screen, and conversation the
+	// goblin's own Claude Code transcript.
+	toolCPU      time.Duration
+	screen       string
+	conversation string
+}
+
+func newToolCallGoblin(t *testing.T, now time.Time) *toolCallGoblin {
+	t.Helper()
+	service, h := fleetService(t)
+	liveGoblin(t, h, "slow-task", h.Root)
+	launched := now.Add(-time.Hour)
+	data, err := json.Marshal(host.Record{ID: "slow-task", HostPID: os.Getpid(), ChildPID: 100, ChildStart: launched, Started: launched, Pipe: "fixture", Token: "fixture"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	writeFile(t, filepath.Join(h.State, "hosts", "slow-task.json"), string(data))
+	userHome := t.TempDir()
+	goblin := &toolCallGoblin{service: service, home: h, clock: now, toolCPU: time.Second, screen: "the suite's first lines", conversation: filepath.Join(userHome, ".claude", "projects", "slow-task", "session-1.jsonl")}
+	writeFile(t, goblin.conversation, `{"type":"user","timestamp":"`+now.Format(time.RFC3339)+`"}`+"\n")
+	if err := os.Chtimes(goblin.conversation, now, now); err != nil {
+		t.Fatal(err)
+	}
+	service.Options.Tree = &fleettree.Reader{
+		Home:     userHome,
+		Recorded: func(state.TaskMeta) string { return "session-1" },
+		Now:      func() time.Time { return goblin.clock },
+		Processes: func() ([]fleettree.Process, error) {
+			return []fleettree.Process{
+				{PID: 100, ParentPID: 1, Exe: "claude.exe", Created: 1, Started: launched},
+				{PID: 102, ParentPID: 100, Exe: "bash.exe", Created: 2, Started: launched.Add(20 * time.Minute)},
+				{PID: 103, ParentPID: 102, Exe: "node.exe", Created: 3, Started: launched.Add(20*time.Minute + time.Second), CPU: goblin.toolCPU},
+			}, nil
+		},
+		Listeners:   func() (map[int][]int, error) { return nil, nil },
+		CommandLine: func(pid int) (string, error) { return map[int]string{102: `bash -c "npm run test:browser"`, 103: "node --test"}[pid], nil },
+	}
+	service.Options.Progress = &progressGit{head: strings.Repeat("a", 40), pushed: strings.Repeat("a", 40)}
+	writeFile(t, filepath.Join(h.State, "slow-task.status"), now.Format(time.RFC3339)+" working: Running the 432-test browser suite\n")
+	return goblin
+}
+
+// read takes the supervisor's readings at minute: the monitor's look at the
+// screen, the board's tree, then the stall check.
+func (g *toolCallGoblin) read(t *testing.T, at time.Time) {
+	t.Helper()
+	g.clock = at
+	if err := monitor.WriteObservation(g.home.State, monitor.Observation{TaskID: "slow-task", Endpoint: (herdr.Target{}).String(), EndpointVerdict: monitor.ProbePresent, Digest: g.screen, LastObserved: at, LastSeen: at, LastProgress: at, Health: monitor.HealthBusy, Reason: monitor.None}); err != nil {
+		t.Fatal(err)
+	}
+	g.service.readTrees(t.Context())
+	if err := g.service.checkFleet(t.Context(), at); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// On 2026-10-08 the CFO drew about 30 progress_stalled wakes in nine hours for
+// goblins plainly at work: a 432-test browser suite, a 200-run stress
+// acceptance, a speech-model benchmark. A goblin inside one long tool call
+// commits, pushes and reports nothing, but it is working while the tool's
+// processes use the processor, its screen fills with output, or its
+// transcript grows.
+func TestEvidenceOfWorkKeepsALongToolCallFromStalling(t *testing.T) {
+	for _, test := range []struct {
+		evidence string
+		work     func(t *testing.T, goblin *toolCallGoblin, at time.Time)
+	}{
+		{"its own processes", func(_ *testing.T, goblin *toolCallGoblin, _ time.Time) { goblin.toolCPU += 30 * time.Second }},
+		{"screen output", func(_ *testing.T, goblin *toolCallGoblin, at time.Time) {
+			goblin.screen = "ok " + at.Format("15:04") + " - board renders"
+		}},
+		{"transcript", func(t *testing.T, goblin *toolCallGoblin, at time.Time) {
+			file, err := os.OpenFile(goblin.conversation, os.O_WRONLY|os.O_APPEND, 0o600)
+			if err != nil {
+				t.Fatal(err)
+			}
+			_, err = fmt.Fprintf(file, "{\"type\":\"user\",\"timestamp\":%q}\n", at.Format(time.RFC3339))
+			if err := errors.Join(err, file.Close(), os.Chtimes(goblin.conversation, at, at)); err != nil {
+				t.Fatal(err)
+			}
+		}},
+	} {
+		t.Run(test.evidence, func(t *testing.T) {
+			// Arrange
+			now := time.Date(2026, 10, 8, 1, 30, 0, 0, time.UTC)
+			goblin := newToolCallGoblin(t, now)
+
+			// Act: 45 readings a minute apart, the work showing at each.
+			for minute := 0; minute <= 45; minute++ {
+				at := now.Add(time.Duration(minute) * time.Minute)
+				test.work(t, goblin, at)
+				goblin.read(t, at)
+			}
+
+			// Assert
+			if got := progressWakeCount(t, goblin.service); got != 0 {
+				t.Fatalf("a long tool call showing %s drew %d progress_stalled wakes, want none", test.evidence, got)
+			}
+			watched, err := readFleetWakes(goblin.home.State)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if progress := watched.Progress["slow-task"]; progress.Source != test.evidence || !progress.At.Equal(now.Add(45*time.Minute)) {
+				t.Fatalf("progress = %+v, want %s at the last reading", progress, test.evidence)
+			}
+		})
+	}
+}
+
+// A goblin whose screen, transcript and processes are all still for the
+// window has stopped: it wakes once, and again only after evidence of
+// progress has come and stopped again.
+func TestAWedgedGoblinWithAStillScreenAndAnIdleTreeWakesOnce(t *testing.T) {
+	// Arrange
+	now := time.Date(2026, 10, 8, 1, 30, 0, 0, time.UTC)
+	goblin := newToolCallGoblin(t, now)
+	readUntil := func(from, to int) {
+		for minute := from; minute <= to; minute++ {
+			goblin.read(t, now.Add(time.Duration(minute)*time.Minute))
+		}
+	}
+
+	// Act and assert: still for 41 minutes, then output, then still again.
+	readUntil(0, 19)
+	if got := progressWakeCount(t, goblin.service); got != 0 {
+		t.Fatalf("progress wakes = %d inside the window, want none", got)
+	}
+	readUntil(20, 41)
+	if got := progressWakeCount(t, goblin.service); got != 1 {
+		t.Fatalf("a still goblin drew %d progress wakes over 41 minutes, want exactly one", got)
+	}
+	goblin.screen = "the suite printed again"
+	readUntil(42, 61)
+	if got := progressWakeCount(t, goblin.service); got != 1 {
+		t.Fatalf("progress wakes = %d within the window after new output, want still one", got)
+	}
+	readUntil(62, 62)
+	if got := progressWakeCount(t, goblin.service); got != 2 {
+		t.Fatalf("progress wakes = %d once the output stopped for the window again, want two", got)
+	}
+	records := fleetWakeRecords(t, goblin.home, "check")
+	detail := records[len(records)-1].Detail
+	for _, want := range []string{"progress_stalled: slow-task has shown no", "screen output", "transcript", "its own processes", "last progress: screen output"} {
+		if !strings.Contains(detail, want) {
+			t.Errorf("wake %q lacks %q", detail, want)
+		}
 	}
 }
 

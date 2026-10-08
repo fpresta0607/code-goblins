@@ -359,7 +359,7 @@ func (s Service) classify(ctx context.Context, meta state.TaskMeta, prior Observ
 		observation.LastSeen = now
 		observation.LastProgress = now
 	}
-	digest := fmt.Sprintf("%x", sha256.Sum256(sample.Capture))
+	digest := harness.OutputDigest(strings.Split(strings.ReplaceAll(string(sample.Capture), "\r\n", "\n"), "\n"))
 
 	// A harness being refused by its provider is checked first. It is read
 	// from pane text, so routing.Detect takes a rate limit only on a line
@@ -368,6 +368,9 @@ func (s Service) classify(ctx context.Context, meta state.TaskMeta, prior Observ
 		return erroringObservation(observation, digest, fault, detail, now), sample
 	}
 
+	// A terminal that keeps no counters, as a native one keeps none, shows its
+	// liveness on its screen instead: output written to it since the last scan.
+	isOutputMoved := sample.CountersUnavailable && observation.Digest != "" && observation.Digest != digest
 	observation.Digest = digest
 
 	// Any status other than working ends the busy stretch: the next working
@@ -467,12 +470,12 @@ func (s Service) classify(ctx context.Context, meta state.TaskMeta, prior Observ
 	case herdr.AgentIdle:
 		// Between turns: liveness comes from the agent's own counters and the
 		// status log. No movement for the stall window = genuinely wedged.
-		return s.idleClassification(ctx, meta, observation, sample, now, tally), sample
+		return s.idleClassification(ctx, meta, observation, sample, isOutputMoved, now, tally), sample
 	case herdr.AgentUnknown:
 		// A registered agent whose activity is momentarily indeterminate is
 		// not an endpoint failure. Treat it like idle: it stays quiet unless
 		// its counters and status log both freeze for the stall window.
-		return s.idleClassification(ctx, meta, observation, sample, now, tally), sample
+		return s.idleClassification(ctx, meta, observation, sample, isOutputMoved, now, tally), sample
 	default:
 		return unknownObservation(observation, EndpointUnknown, "endpoint activity is unknown", now), sample
 	}
@@ -824,9 +827,11 @@ func (s Service) statusVerbObservation(observation Observation, id string, now t
 }
 
 // idleClassification handles agent_status idle. Rising state_change_seq or
-// revision (or a status-log write) is liveness: the goblin is working. Only a
-// pane with no counter movement for the stall window is genuinely wedged.
-func (s Service) idleClassification(ctx context.Context, meta state.TaskMeta, observation Observation, sample EndpointSample, now time.Time, tally *Tally) Observation {
+// revision (or a status-log write) is liveness: the goblin is working. So is
+// output written to the screen of a terminal that keeps no counters,
+// isOutputMoved. Only a pane with no such movement for the stall window is
+// genuinely wedged.
+func (s Service) idleClassification(ctx context.Context, meta state.TaskMeta, observation Observation, sample EndpointSample, isOutputMoved bool, now time.Time, tally *Tally) Observation {
 	id := meta.ID
 	if gated, ok := s.statusVerbObservation(observation, id, now, sample); ok {
 		return gated
@@ -834,7 +839,7 @@ func (s Service) idleClassification(ctx context.Context, meta state.TaskMeta, ob
 
 	stamp := s.statusStamp(id)
 	countersMoved := !sample.CountersUnavailable && (sample.StateChangeSeq != observation.StateChangeSeq || sample.Revision != observation.Revision)
-	if countersMoved || (stamp != "" && stamp != observation.StatusStamp) {
+	if countersMoved || isOutputMoved || (stamp != "" && stamp != observation.StatusStamp) {
 		if !sample.CountersUnavailable {
 			observation.StateChangeSeq = sample.StateChangeSeq
 			observation.Revision = sample.Revision
@@ -862,8 +867,8 @@ func (s Service) idleClassification(ctx context.Context, meta state.TaskMeta, ob
 // grace period. A goblin legitimately thinking or running a quiet subprocess
 // can sit at an unchanged pane for minutes; it is only stale once it has been
 // genuinely idle (no counter or status-log movement) for the idle threshold,
-// and neither work its pane shows running nor a background job or monitor of
-// its own is moving.
+// neither work its pane shows running nor a background job or monitor of its
+// own is moving, and its transcript was not written within the stall window.
 func (s Service) idleObservation(ctx context.Context, meta state.TaskMeta, observation Observation, sample EndpointSample, now time.Time, tally *Tally) Observation {
 	if observation.IdleSince == nil {
 		observation.IdleSince = timePointer(now)
@@ -877,6 +882,7 @@ func (s Service) idleObservation(ctx context.Context, meta state.TaskMeta, obser
 			}
 		} else {
 			waiting, lingering = s.ownWork(ctx, meta, sample, &observation, now)
+			waiting = waiting || observation.EvidenceAt != nil && now.Sub(*observation.EvidenceAt) < s.stallAfter()
 		}
 	}
 	if now.Sub(*observation.IdleSince) < s.stallAfter() || waiting {
