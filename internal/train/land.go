@@ -25,6 +25,7 @@ func (e Engine) land(ctx context.Context, t *Train) error {
 		}
 		if base != t.BaseSHA {
 			t.Moved++
+			t.endRun(RunMoved, "")
 			if t.Moved >= maxMoved {
 				return e.finish(ctx, t, StateFailed, fmt.Sprintf("%s moved during %d runs in a row, so nothing they tested could land: hold other merges to %s, then start the train again", t.Base, t.Moved, t.Base))
 			}
@@ -35,6 +36,7 @@ func (e Engine) land(ctx context.Context, t *Train) error {
 			return err
 		}
 		if len(changed) > 0 {
+			t.endRun(RunChanged, "")
 			return e.rebuild(ctx, t, "nothing merged, since "+strings.Join(changed, "; ")+", so the rest is tested again without it")
 		}
 		t.Landing = true
@@ -48,6 +50,7 @@ func (e Engine) land(ctx context.Context, t *Train) error {
 			return err
 		}
 	}
+	t.endRun(RunLanded, "")
 	matches, landed, err := e.holdsTheRun(ctx, *t)
 	if err != nil {
 		return err

@@ -463,3 +463,105 @@ func TestATrainKeepsMovingAfterTheGoblinsOfItsRepositoryLeft(t *testing.T) {
 		t.Fatalf("train = %+v, %v, want it still testing with no error", kept, err)
 	}
 }
+
+// batchTrain is a finished train of o/r that started at minute, with cars
+// as "number=state".
+func batchTrain(minute int, state string, runs int, cars ...string) train.Train {
+	started := time.Date(2026, 10, 8, 19, 0, 0, 0, time.UTC).Add(time.Duration(minute) * time.Minute)
+	t := train.Train{Schema: train.Schema, ID: fmt.Sprintf("r-%d", minute), Repository: "o/r", Base: "main", PR: fmt.Sprintf("https://github.com/o/r/pull/%d", 900+minute), State: state, Runs: runs, Started: started}
+	if state != train.StateTesting {
+		t.Finished = started.Add(20 * time.Minute)
+	}
+	for _, car := range cars {
+		number, carState, _ := strings.Cut(car, "=")
+		t.Cars = append(t.Cars, train.Car{Number: len(t.Cars) + 1, URL: "https://github.com/o/r/pull/" + number, State: carState})
+	}
+	return t
+}
+
+// batchIDs says each shown train as its id and the ids it folds in.
+func batchIDs(shown []MergeTrainView) []string {
+	var ids []string
+	for _, view := range shown {
+		id := view.ID
+		for _, earlier := range view.Earlier {
+			id += " <" + earlier.ID
+		}
+		ids = append(ids, id)
+	}
+	return ids
+}
+
+// The Overlord, 2026-10-08: "merge train failed and landed of the same merge
+// train...should not duplicate". A train that landed nothing is folded into
+// the later train that took its pull requests on, so each batch shows once.
+func TestTheBoardShowsOneTrainForEachBatchOfPullRequests(t *testing.T) {
+	for name, test := range map[string]struct {
+		trains []train.Train
+		want   []string
+	}{
+		"a failed train folds into the train that landed its pull requests": {
+			trains: []train.Train{batchTrain(60, train.StateLanded, 1, "517=landed", "519=landed", "520=landed", "524=landed", "523=conflict"), batchTrain(0, train.StateFailed, 3, "517=returned", "519=returned")},
+			want:   []string{"r-60 <r-0"},
+		},
+		"a failed train folds into the running train that retries it": {
+			trains: []train.Train{batchTrain(60, train.StateTesting, 1, "517=riding", "519=riding"), batchTrain(0, train.StateFailed, 3, "517=returned", "519=returned")},
+			want:   []string{"r-60 <r-0"},
+		},
+		"trains that landed nothing fold oldest first into the one that landed": {
+			trains: []train.Train{batchTrain(120, train.StateLanded, 1, "517=landed"), batchTrain(60, train.StateStopped, 2, "517=culprit"), batchTrain(0, train.StateFailed, 3, "517=returned")},
+			want:   []string{"r-120 <r-0 <r-60"},
+		},
+		"a train that landed nothing and was not retried shows once": {
+			trains: []train.Train{batchTrain(60, train.StateLanded, 1, "520=landed", "524=landed"), batchTrain(0, train.StateFailed, 3, "517=returned", "519=returned")},
+			want:   []string{"r-60", "r-0"},
+		},
+		"a train that landed some shows on its own beside the train that landed the rest": {
+			trains: []train.Train{batchTrain(60, train.StateLanded, 1, "519=landed"), batchTrain(0, train.StateStopped, 3, "517=landed", "519=culprit")},
+			want:   []string{"r-60", "r-0"},
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			// Act
+			shown := trainBatches(test.trains)
+
+			// Assert
+			if got := batchIDs(shown); !slices.Equal(got, test.want) {
+				t.Fatalf("shown = %q, want %q", got, test.want)
+			}
+		})
+	}
+}
+
+// A batch shows while its last train runs or for six hours after it
+// finished, with every train folded into it, however long before those
+// finished.
+func TestTheBoardKeepsABatchByItsLastTrain(t *testing.T) {
+	// Arrange
+	service, h := fleetService(t)
+	failed, landed := batchTrain(0, train.StateFailed, 3, "517=returned"), batchTrain(60, train.StateLanded, 1, "517=landed")
+	for _, record := range []train.Train{failed, landed} {
+		data, err := json.Marshal(record)
+		if err != nil {
+			t.Fatal(err)
+		}
+		writeFile(t, filepath.Join(train.Dir(h.State), record.ID+".json"), string(data))
+	}
+	soon, late := landed.Finished.Add(trainsShownFor-time.Minute), landed.Finished.Add(trainsShownFor)
+
+	// Act
+	shownSoon := service.keepTrains(soon)
+	soonShown := slices.Clone(service.trains)
+	shownLate := service.keepTrains(late)
+
+	// Assert
+	if shownSoon != nil || shownLate != nil {
+		t.Fatal(shownSoon, shownLate)
+	}
+	if got := batchIDs(soonShown); !slices.Equal(got, []string{"r-60 <r-0"}) || soonShown[0].Earlier[0].Runs != 3 {
+		t.Fatalf("shown %q, want the landed train with the failed one, which finished %s before, folded in", got, trainsShownFor)
+	}
+	if len(service.trains) != 0 {
+		t.Fatalf("shown %q, want nothing once the landed train is past its time", batchIDs(service.trains))
+	}
+}

@@ -73,6 +73,24 @@ const (
 	CarReturned = "returned"
 )
 
+// How a run ended. A run CI still tests has no result.
+const (
+	// RunLanded passed and its riders merged.
+	RunLanded = "landed"
+	// RunFailed was red.
+	RunFailed = "failed"
+	// RunMoved passed, but the base moved during it, so it was tested again.
+	RunMoved = "moved"
+	// RunChanged passed, but a rider changed after it rode, so the rest was
+	// tested again without it.
+	RunChanged = "changed"
+	// RunRepushed was built again before CI decided it, as when GitHub never
+	// showed its push.
+	RunRepushed = "repushed"
+	// RunStopped ended with the train before CI decided it.
+	RunStopped = "stopped"
+)
+
 // Train is one merge train, as its record keeps it.
 type Train struct {
 	Schema string `json:"schema"`
@@ -93,8 +111,10 @@ type Train struct {
 	BaseSHA string    `json:"base_sha,omitempty"`
 	Head    string    `json:"head,omitempty"`
 	Pushed  time.Time `json:"pushed,omitzero"`
-	// Runs counts the CI runs the train started.
-	Runs int `json:"runs"`
+	// Runs counts the CI runs the train started, and History keeps each
+	// one, in order. A record from before runs were kept has none.
+	Runs    int   `json:"runs"`
+	History []Run `json:"history,omitempty"`
 	// Landing says the run passed and its riders are being merged, so a
 	// step cut short in the middle merges the rest rather than reading CI.
 	Landing bool `json:"landing,omitempty"`
@@ -129,6 +149,20 @@ type Car struct {
 	Note        string `json:"note,omitempty"`
 }
 
+// Run is one CI run of a train: its number among the train's runs, the
+// pull requests it tested, the base commit it was built on, its own commit,
+// when it was pushed and how it ended, with its first failed check's page
+// when it was red.
+type Run struct {
+	Number int       `json:"number"`
+	Riders []int     `json:"riders"`
+	Base   string    `json:"base"`
+	Head   string    `json:"head"`
+	Pushed time.Time `json:"pushed"`
+	Result string    `json:"result,omitempty"`
+	Link   string    `json:"link,omitempty"`
+}
+
 // IsFinished says whether the train is over.
 func (t Train) IsFinished() bool {
 	return t.State != StateTesting
@@ -138,6 +172,14 @@ func (t Train) IsFinished() bool {
 // run CI passed on and the base it was built on.
 func (t Train) Evidence() string {
 	return fmt.Sprintf("merge train %s: CI passed on %s at %s, built on %s at %s", t.ID, t.PR, short(t.Head), t.Base, short(t.BaseSHA))
+}
+
+// endRun records how the run CI tests ended, once: a run that already ended
+// keeps its result.
+func (t *Train) endRun(result, link string) {
+	if last := len(t.History) - 1; last >= 0 && t.History[last].Result == "" {
+		t.History[last].Result, t.History[last].Link = result, link
+	}
 }
 
 // carsIn returns the indexes of the train's cars in state, in train order.

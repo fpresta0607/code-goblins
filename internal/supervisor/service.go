@@ -35,7 +35,6 @@ import (
 	"github.com/fpresta0607/code-goblins/internal/state"
 	"github.com/fpresta0607/code-goblins/internal/supervise"
 	"github.com/fpresta0607/code-goblins/internal/tickets"
-	"github.com/fpresta0607/code-goblins/internal/train"
 	"github.com/fpresta0607/code-goblins/internal/verify"
 	"github.com/fpresta0607/code-goblins/internal/wake"
 	"github.com/fpresta0607/code-goblins/internal/watch"
@@ -207,7 +206,7 @@ type Service struct {
 	devDriveView   *DevDriveView
 	// trains are the merge trains the board shows, as keepTrains last read
 	// them.
-	trains []train.Train
+	trains []MergeTrainView
 	// runRequests takes one run request at a time, so two with one ID never
 	// both write a script.
 	runRequests sync.Mutex
@@ -1197,8 +1196,9 @@ type Snapshot struct {
 	// board built from a clone, for the board's banner.
 	Release *ReleaseView `json:"release,omitempty"`
 	// MergeTrains are the merge trains running, and those that finished in
-	// the last hours, newest first, each a card with its pull requests.
-	MergeTrains []train.Train `json:"merge_trains"`
+	// the last hours, newest first, each a card with its pull requests and
+	// the trains before it that it took on.
+	MergeTrains []MergeTrainView `json:"merge_trains"`
 }
 
 // setItems makes items the snapshot's Command Center items.
@@ -1221,7 +1221,7 @@ func (s *Service) Snapshot() (Snapshot, error) {
 		out.Issues = append(slices.Clone(out.Issues), s.localReadErr.Error())
 	}
 	out.CIDurations = slices.Clone(s.ciDurations)
-	out.MergeTrains = append([]train.Train{}, s.trains...)
+	out.MergeTrains = append([]MergeTrainView{}, s.trains...)
 	if s.progressReadErr != nil {
 		out.Issues = append(slices.Clone(out.Issues), s.progressReadErr.Error())
 	}
