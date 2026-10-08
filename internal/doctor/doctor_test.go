@@ -11,6 +11,7 @@ import (
 	"strconv"
 	"strings"
 	"testing"
+	"time"
 
 	"golang.org/x/sys/windows"
 
@@ -602,6 +603,10 @@ func TestHookPairingRecognizesShellFormCommands(t *testing.T) {
 func TestMain(m *testing.M) {
 	if strings.EqualFold(filepath.Base(os.Args[0]), "claude.exe") {
 		fmt.Println(fakeClaudeVersion)
+		os.Exit(0)
+	}
+	if os.Getenv(sleeperVariable) != "" {
+		time.Sleep(time.Minute)
 		os.Exit(0)
 	}
 	for _, name := range []string{"CFO_HOME", "CFO_STATE_OVERRIDE", "CFO_ROLE"} {
