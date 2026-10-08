@@ -171,23 +171,82 @@ func withGate(ctx context.Context, meta state.TaskMeta, gate pipeline.Reader, re
 	return resources, nil
 }
 
+// stopBound bounds identifying a task's resources and sweeping its
+// processes; its terminals end on a wait of their own.
+const stopBound = 10 * time.Second
+
+// StopTask ends what a task holds, for a pause or a stop: its terminals
+// first, which ends its goblin, then whatever the sweep finds in its
+// directories and its terminals' jobs. Once its terminals have ended, a
+// gate whose state could not be read in time, as while the no-mistakes
+// daemon runs other sessions' gates, or a sweep that ran out of time, is an
+// UnfinishedStop. Each process still finishing its Windows teardown is kept
+// in record.
+func StopTask(ctx context.Context, h home.Home, meta state.TaskMeta, gate pipeline.Reader, record *state.Lifecycle) (Resources, []string, error) {
+	bounded, cancel := context.WithTimeout(ctx, stopBound)
+	defer cancel()
+	resources, err := TaskResources(bounded, h, meta, gate)
+	stopped, teardown, stopErr := StopResources(bounded, resources)
+	for _, process := range teardown {
+		if !slices.ContainsFunc(record.Teardown, func(prior state.TeardownProcess) bool {
+			return prior.PID == process.PID && prior.Started.Equal(process.Started)
+		}) {
+			record.Teardown = append(record.Teardown, process)
+		}
+	}
+	var unfinished UnfinishedStop
+	if err != nil && len(resources.Hosts) > 0 && (stopErr == nil || errors.As(stopErr, &unfinished)) {
+		return resources, stopped, UnfinishedStop{Err: errors.Join(err, unfinished.Err)}
+	}
+	return resources, stopped, errors.Join(err, stopErr)
+}
+
 func StopResources(ctx context.Context, resources Resources) ([]string, []state.TeardownProcess, error) {
 	return stopResources(ctx, resources, Terminate)
 }
+
+// hostStopWait bounds ending the task's terminals, which goes ahead whatever
+// is left of the bound on the rest of the stop.
+const hostStopWait = 10 * time.Second
 
 func stopResources(ctx context.Context, resources Resources, stop func(context.Context, Identity) (bool, error)) ([]string, []state.TeardownProcess, error) {
 	stopped := []string{}
 	var teardown []state.TeardownProcess
 	finished := map[Identity]bool{}
-	// The first sweep ends the hosts, so their jobs are kept for the services
-	// in them before it.
+	// Ending a host ends its job, so the services in it are kept first.
 	if err := keepServicesPastHosts(resources.Hosts); err != nil {
 		return stopped, teardown, err
+	}
+	// The terminals end first, by their own identities, on a wait of their
+	// own: ending one ends the goblin's harness and the job under it, which
+	// hold its memory, and the sweep below reads every process on the
+	// machine, which on a machine short of memory can run out of time before
+	// it ends anything. Once they have ended, what the sweep meets is an
+	// UnfinishedStop.
+	hosts, cancel := context.WithTimeout(context.WithoutCancel(ctx), hostStopWait)
+	defer cancel()
+	for _, host := range resources.Hosts {
+		label := fmt.Sprintf("terminal host pid %d", host.PID)
+		isTeardown, err := stop(hosts, host)
+		if err != nil {
+			return stopped, teardown, fmt.Errorf("%s: %w", label, err)
+		}
+		stopped = append(stopped, label)
+		finished[host] = true
+		if isTeardown {
+			teardown = append(teardown, state.TeardownProcess{PID: host.PID, Started: host.Started, Name: "terminal host"})
+		}
+	}
+	unfinished := func(err error) error {
+		if len(resources.Hosts) > 0 {
+			return UnfinishedStop{Err: err}
+		}
+		return err
 	}
 	for sweep := 0; sweep < 4; sweep++ {
 		processes, err := Inventory(ctx, resources.Directories, resources.Hosts)
 		if err != nil {
-			return stopped, teardown, err
+			return stopped, teardown, unfinished(err)
 		}
 		var pending []Process
 		for _, process := range processes {
@@ -224,17 +283,17 @@ func stopResources(ctx context.Context, resources Resources, stop func(context.C
 			}
 		}
 		if failures != nil {
-			return stopped, teardown, failures
+			return stopped, teardown, unfinished(failures)
 		}
 		select {
 		case <-ctx.Done():
-			return stopped, teardown, ctx.Err()
+			return stopped, teardown, unfinished(ctx.Err())
 		case <-time.After(75 * time.Millisecond):
 		}
 	}
 	remaining, err := Inventory(ctx, resources.Directories, resources.Hosts)
 	if err != nil {
-		return stopped, teardown, err
+		return stopped, teardown, unfinished(err)
 	}
 	if len(remaining) > 0 {
 		var names []string
@@ -244,7 +303,7 @@ func stopResources(ctx context.Context, resources Resources, stop func(context.C
 			}
 		}
 		if len(names) > 0 {
-			return stopped, teardown, fmt.Errorf("task processes remain: %s", strings.Join(names, ", "))
+			return stopped, teardown, unfinished(fmt.Errorf("task processes remain: %s", strings.Join(names, ", ")))
 		}
 	}
 	return stopped, teardown, nil

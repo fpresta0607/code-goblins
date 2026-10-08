@@ -49,7 +49,7 @@ var version = "dev"
 
 const usage = `usage: cfo <command> [args]
 
-Run as goblins with no command, from any folder, it is the quick start: one Enter at a time it checks which of Claude Code, Codex and pi this machine has and is signed in to, offers to install or sign in to the one you choose, finds the supervisor or starts one in the background, and starts the CFO in the Code Goblins home when none runs, in a native terminal of its own that outlives every window. It ends on one screen with the board's link: Enter shows the CFO's terminal here, and B or Ctrl+click on the link opens the board. Later runs skip what is already set up, and a running CFO keeps its terminal and its harness. goblins setup shows the choice of agent again. goblins --harness claude|codex|pi names the agent instead of asking, remembered for later starts. goblins --board finds or starts the supervisor the same way and opens the board in the browser every time, without starting or showing a CFO in this terminal. Where the desktop window, goblins-window.exe, sits beside goblins, B opens the board in it instead of the browser; goblins --window shows the window without starting or showing a CFO here, and goblins --window --background, which the window runs when Windows starts it at login, keeps it in the tray.
+Run as goblins with no command, from any folder, it is the quick start: one Enter at a time it checks which of Claude Code, Codex and pi this machine has and is signed in to, offers to install or sign in to the one you choose, finds the supervisor or starts one in the background, and starts the CFO in the Code Goblins home when none runs, in a native terminal of its own that outlives every window. It ends on one screen with the board's link: Enter shows the CFO's terminal here, and B or Ctrl+click on the link opens the board. Later runs skip what is already set up, and a running CFO keeps its terminal and its harness. goblins setup shows the choice of agent again. goblins --harness claude|codex|pi names the agent instead of asking, remembered for later starts. goblins --board finds or starts the supervisor the same way and opens the board in the browser every time, without starting or showing a CFO in this terminal. Where the desktop window, goblins-window.exe, sits beside goblins, B opens the board in it instead of the browser; goblins --window shows the window without starting or showing a CFO here, and goblins --window --background keeps it in the tray. goblins --window --locate, which the window runs when it is started alone, from the Start menu or at login, finds or starts the supervisor and prints the board's address and the state folder for the window to show.
 
 commands:
   version   print the cfo version
@@ -417,6 +417,9 @@ func runWithRuntime(args []string, stdout, stderr io.Writer, runtime commandRunt
 	if runtime.goblins && len(args) == 1 && args[0] == "--board" {
 		return runBoardLauncher(stdout, stderr, runtime)
 	}
+	if runtime.goblins && len(args) == 2 && args[0] == "--window" && args[1] == "--locate" {
+		return runWindowLocator(stdout, stderr, runtime)
+	}
 	if runtime.goblins && len(args) > 0 && args[0] == "--window" && (len(args) == 1 || len(args) == 2 && args[1] == "--background") {
 		return runWindowLauncher(stdout, stderr, runtime, len(args) == 2)
 	}
@@ -590,7 +593,7 @@ func runWithRuntime(args []string, stdout, stderr io.Writer, runtime commandRunt
 			fmt.Fprintln(stderr, err)
 			return 1
 		}
-		if err := digest.Compose(h, resolveSessionOwnerPID(), "", stdout); err != nil {
+		if err := digest.Compose(h, resolveSessionOwnerPID(h.State), "", stdout); err != nil {
 			fmt.Fprintf(stdout, "SESSION START DEGRADED: %s\n", err)
 		}
 		return 0

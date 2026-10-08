@@ -1,6 +1,8 @@
 package harness
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"regexp"
 	"strings"
 	"unicode/utf8"
@@ -288,6 +290,21 @@ func RunningWork(screen []string) (string, bool) {
 		}
 	}
 	return "", false
+}
+
+// OutputDigest is a digest of what has been written to screen: every row but
+// those RunningWork reads, which a harness redraws by itself while work runs,
+// with its spinner, its clock and its interrupt hint. Two screens that differ
+// only in those rows have the same digest, so a turn whose clock ticks on with
+// nothing written reads as still.
+func OutputDigest(screen []string) string {
+	hash := sha256.New()
+	for _, row := range screen {
+		if _, isRunning := RunningWork([]string{row}); !isRunning {
+			hash.Write([]byte(row + "\n"))
+		}
+	}
+	return hex.EncodeToString(hash.Sum(nil))
 }
 
 // compactScreen joins screen without any whitespace, since a harness wraps a

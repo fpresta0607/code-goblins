@@ -1419,6 +1419,9 @@ func (s *Service) Snapshot() (Snapshot, error) {
 			out.Tasks = append(out.Tasks, brief)
 		}
 	}
+	if err := s.nameQueued(out.Tasks); err != nil {
+		out.Issues = append(slices.Clone(out.Issues), "Queued goblins are not named: "+err.Error())
+	}
 	s.starts.Lock()
 	starting := s.starting
 	startErrors, changing, changeErrors := maps.Clone(s.startErrors), maps.Clone(s.changing), maps.Clone(s.changeErrors)

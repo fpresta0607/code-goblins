@@ -15,6 +15,7 @@ import (
 
 	"github.com/fpresta0607/code-goblins/internal/execx"
 	"github.com/fpresta0607/code-goblins/internal/fsx"
+	"github.com/fpresta0607/code-goblins/internal/goblinname"
 	"github.com/fpresta0607/code-goblins/internal/harness"
 	"github.com/fpresta0607/code-goblins/internal/host"
 	"github.com/fpresta0607/code-goblins/internal/lock"
@@ -56,13 +57,12 @@ func TestSpawnPublishesTheTaskTitle(t *testing.T) {
 }
 
 // A goblin gets its fun name and title at spawn, published with its record
-// so the board names it from the moment it exists, and the title fits the
-// work its brief names.
-func TestSpawnGivesTheGoblinANameAndATitleThatFitsItsBrief(t *testing.T) {
+// so the board names it from the moment it exists, and the title names the
+// subject of the work its brief describes.
+func TestSpawnGivesTheGoblinANameAndATitleThatNamesItsWork(t *testing.T) {
 	// Arrange
 	f := newQuickFixture(t)
-	writeFile(t, f.request.BriefPath, "# Brief task-7\n\n## Task\n\nShow each goblin's name on the board cards and the canvas.\n\nDelivery contract: mode=no-mistakes\n")
-	boardTitles := []string{"Pixel Wrangler", "Layout Whisperer", "Button Polisher", "Card Shuffler", "Color Mixer", "Screen Painter"}
+	writeFile(t, f.request.BriefPath, "# Brief task-7\n\n## Task\n\nKeep the Fly token green until it expires.\n\nDelivery contract: mode=no-mistakes\n")
 
 	// Act
 	result, err := f.service.Spawn(context.Background(), f.request)
@@ -72,11 +72,37 @@ func TestSpawnGivesTheGoblinANameAndATitleThatFitsItsBrief(t *testing.T) {
 		t.Fatal(err)
 	}
 	meta, err := state.ReadTaskMeta(f.stateDir, f.request.ID)
-	if err != nil || meta.GoblinName == "" || !slices.Contains(boardTitles, meta.GoblinTitle) {
-		t.Fatalf("metadata: %+v %v, want a name and one of %v", meta, err, boardTitles)
+	if err != nil || meta.GoblinName == "" || meta.GoblinTitle != "Token Tamer" {
+		t.Fatalf("metadata: %+v %v, want a name and the title Token Tamer", meta, err)
 	}
 	if want := "goblin: " + meta.GoblinName + " - " + meta.GoblinTitle; !strings.Contains(result.Output, "\n"+want+"\n") && !strings.HasSuffix(result.Output, "\n"+want) {
 		t.Fatalf("output = %q, want the line %q", result.Output, want)
+	}
+}
+
+// A queued task already has its goblin's name and title on its card, and its
+// spawn keeps them, so the goblin is called the same in Tasks and In
+// progress.
+func TestSpawnKeepsTheNameAndTitleTheTaskWasQueuedWith(t *testing.T) {
+	// Arrange
+	f := newQuickFixture(t)
+	queued, err := goblinname.Reserve(f.stateDir, []goblinname.Work{{ID: f.request.ID, Title: "Smooth resumes"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := queued[f.request.ID]
+	f.request.Title = "Keep the Fly token green"
+
+	// Act
+	_, err = f.service.Spawn(context.Background(), f.request)
+
+	// Assert
+	if err != nil {
+		t.Fatal(err)
+	}
+	meta, err := state.ReadTaskMeta(f.stateDir, f.request.ID)
+	if err != nil || want.Name == "" || meta.GoblinName != want.Name || meta.GoblinTitle != want.Title {
+		t.Fatalf("metadata: %+v %v, want the queued pair %+v", meta, err, want)
 	}
 }
 

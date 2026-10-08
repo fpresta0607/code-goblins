@@ -13,6 +13,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/fpresta0607/code-goblins/internal/boardweb"
 	"github.com/fpresta0607/code-goblins/internal/fleetconfig"
 	"github.com/fpresta0607/code-goblins/internal/home"
 	"github.com/fpresta0607/code-goblins/internal/install"
@@ -57,6 +58,22 @@ var (
 	recordUpdate    = update.Record
 )
 
+// boardBuilt is a seam for the board preflight: CI's Go jobs build no board,
+// but their test binaries stand in for builds that carry one.
+var boardBuilt = boardweb.Built
+
+// noBoard says why a build that carries no board is not installed, and how
+// to make one that does.
+const noBoard = "this build carries no board, so it would show a page saying the board was not built in place of the board: in the checkout it was built from, run npm ci and then npm run build in the frontend folder, then build cfo.exe again"
+
+func refuseUnbuiltBoard(command string, stderr io.Writer) bool {
+	if boardBuilt() {
+		return false
+	}
+	fmt.Fprintf(stderr, "cfo %s: %s, and run its %s; nothing was changed\n", command, noBoard, command)
+	return true
+}
+
 // serveProcess is a supervisor by pid and start time, so it is never
 // mistaken for a process that reused its pid.
 type serveProcess struct {
@@ -86,14 +103,6 @@ func runUpdate(args []string, stdout, stderr io.Writer, runtime commandRuntime) 
 		fmt.Fprintln(stderr, err)
 		return 1
 	}
-	if h, err = pinHome(h); err != nil {
-		fmt.Fprintln(stderr, err)
-		return 1
-	}
-	if err := os.MkdirAll(update.Dir(h.State), 0o700); err != nil {
-		fmt.Fprintln(stderr, err)
-		return 1
-	}
 	program, err := os.Executable()
 	if err != nil {
 		fmt.Fprintln(stderr, err)
@@ -103,6 +112,17 @@ func runUpdate(args []string, stdout, stderr io.Writer, runtime commandRuntime) 
 	if !installed && (*check || *to != "" || *pressed != "") || *pressed != "" && (*to == "" || *check) {
 		fmt.Fprintln(stderr, "cfo update: --check, --to and --run update a home from a release, so run them as the home's own goblins or cfo, and --run goes with --to")
 		return 2
+	}
+	if !installed && !*recover && refuseUnbuiltBoard("update", stderr) {
+		return 1
+	}
+	if h, err = pinHome(h); err != nil {
+		fmt.Fprintln(stderr, err)
+		return 1
+	}
+	if err := os.MkdirAll(update.Dir(h.State), 0o700); err != nil {
+		fmt.Fprintln(stderr, err)
+		return 1
 	}
 	if installed {
 		return releaseUpdate(h, *check, *to, *pressed, stdout, stderr)

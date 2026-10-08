@@ -73,6 +73,11 @@ func runStandInBuild() (int, bool) {
 	if len(os.Args) < 2 {
 		return 2, true
 	}
+	// A stand-in carries its board unless its test says it was built from a
+	// checkout that never built one.
+	if os.Getenv("CFO_TEST_NO_BOARD") != "" {
+		boardBuilt = func() bool { return false }
+	}
 	switch os.Args[1] {
 	case "serve":
 		return standInServe(build), true
