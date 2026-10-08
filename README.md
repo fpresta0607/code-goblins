@@ -911,8 +911,17 @@ It is optional: a machine that cannot have one, such as Windows 10, one with Def
 With one, the home's three busiest folders, `worktrees\`, `scratch\` and `caches\`, live in `CodeGoblins\` at the Dev Drive's root.
 Everything else stays where it is: the home's `state\`, `data\`, `config\` and `bin\`, and your own checkouts.
 `cfo dev-drive` says whether this machine has or can have one and where the folders are, and `cfo doctor` says it in one line, with the fix.
-`cfo dev-drive move --to D:\CodeGoblins` moves them onto a trusted Dev Drive and records it in `config\dev-drive.json`.
+
+Setting one up is a button: **Set up** under **Dev Drive** in the CFO's Workspace panel on the board.
+Each step that needs you then arrives as its own Command Center item, one at a time, each saying in one line what it does and what it changes, each safe to run twice:
+
+1. **Create the Code Goblins Dev Drive** (administrator, so Windows asks you to confirm): a dynamically expanding VHDX, 200 GB at most and less on a smaller disk, at `C:\DevDrives\CodeGoblins.vhdx`, formatted as a Dev Drive on the first free letter from D:, and a startup task that attaches it at every boot, since Windows does not attach a VHD again after a restart. A machine that already has a Dev Drive skips this and uses it.
+2. **Trust the Dev Drive**, only when Windows does not trust it (administrator): `fsutil devdrv trust`, which is what turns performance mode on, and `fsutil devdrv query` to show it.
+3. **Move Code Goblins' worktrees, scratch and package caches**: `cfo dev-drive move --to D:\CodeGoblins`, which records it in `config\dev-drive.json` and restarts the board so it builds there too.
+
 Nothing is copied: new goblins start on the Dev Drive, a goblin already started keeps its folders until it finishes, and the janitor removes the home's old package caches once nothing started before the move is running.
+If the drive is ever missing after a restart, an **Attach** item comes to the Command Center by itself.
+A step that failed shows its output on its item, and **Try again** on the panel brings it back.
 
 A home that an older build set up in a code-goblins checkout moves with `cfo home move`: its dry run lists every file it would move with its SHA-256, the counts before and after and a digest proving nothing is dropped, and `cfo home move --apply --plan <digest>`, at a quiet point with the supervisor stopped, moves it by rename, so it needs no room for a second copy, reads it all back, and installs the build into the new home.
 [AGENTS.md](AGENTS.md#the-cfo-home) describes each file in full.

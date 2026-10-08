@@ -61,6 +61,9 @@ type Machine struct {
 	SystemDrive string
 	SystemFree  uint64
 	Volumes     []Volume
+	// Letters are the drive letters in use, bit 0 for A:, every kind of
+	// drive counted.
+	Letters uint32
 }
 
 // The first Windows with Dev Drives is Windows 11 build 22621.2338; every
@@ -172,6 +175,10 @@ func (r Report) Untrusted() bool {
 	return (r.State == StatePresent || r.State == StateOn) && r.Volume.Trust != Trusted
 }
 
+// BoardSteps says where a person sets a Dev Drive up: every step is a
+// Command Center item, made once the board's setting is pressed.
+const BoardSteps = "Set up under Dev Drive in the board's Workspace panel puts each step in the Command Center"
+
 // Explain is the sentence every surface uses to say what a Dev Drive is.
 const Explain = "A Dev Drive is a drive Windows 11 formats for developer work: Microsoft Defender keeps scanning it, in performance mode, so opening a file no longer waits for the scan. It is not a Defender exclusion."
 
@@ -181,22 +188,26 @@ func Describe(m Machine, h home.Home) Report {
 		v, found := m.VolumeOf(h.DevDrive)
 		switch {
 		case !found:
-			return Report{State: StateMissing, Line: fmt.Sprintf("the home's worktrees, scratch and caches are set to %s, but %s is not there, so no goblin starts; attach the Dev Drive again (the create item on the board does it)", h.DevDrive, filepath.VolumeName(h.DevDrive))}
+			return Report{State: StateMissing, Line: fmt.Sprintf("the home's worktrees, scratch and caches are set to %s, but %s is not there, so no goblin starts; the Attach item in the Command Center attaches it again", h.DevDrive, filepath.VolumeName(h.DevDrive))}
 		case !v.Dev:
 			return Report{State: StateOn, Volume: v, Line: fmt.Sprintf("the home's worktrees, scratch and caches are on %s, but %s is not a Dev Drive, so Defender scans it as any drive", h.DevDrive, v.Letter())}
 		}
-		return Report{State: StateOn, Volume: v, Line: fmt.Sprintf("on: the home's worktrees, scratch and caches are on %s, %s", h.DevDrive, trustPhrase(v))}
+		line := fmt.Sprintf("on: the home's worktrees, scratch and caches are on %s, %s", h.DevDrive, trustPhrase(v))
+		if v.Trust == Untrusted {
+			line += "; " + BoardSteps
+		}
+		return Report{State: StateOn, Volume: v, Line: line}
 	}
 	if v, found := m.Reusable(); found {
 		if reason := m.Unavailable(); reason != "" {
 			return Report{State: StateUnavailable, Volume: v, Line: fmt.Sprintf("not used: %s is a Dev Drive, but %s; Code Goblins keeps its worktrees and caches in the home, as always", v.Letter(), reason)}
 		}
-		return Report{State: StatePresent, Volume: v, Line: fmt.Sprintf("present, not used yet: %s is %s; the home's worktrees, scratch and caches can move to %s", v.Letter(), trustPhrase(v), Folder(v))}
+		return Report{State: StatePresent, Volume: v, Line: fmt.Sprintf("present, not used yet: %s is %s; the home's worktrees, scratch and caches can move to %s; %s", v.Letter(), trustPhrase(v), Folder(v), BoardSteps)}
 	}
 	if reason := m.CannotCreate(); reason != "" {
 		return Report{State: StateUnavailable, Line: "not available here: " + reason + "; Code Goblins keeps its worktrees and caches in the home, as always"}
 	}
-	return Report{State: StateAbsent, Line: fmt.Sprintf("absent: this machine can have one (%s), and it is optional", strings.TrimSuffix(Explain, "."))}
+	return Report{State: StateAbsent, Line: fmt.Sprintf("absent: this machine can have one (%s), and it is optional; %s", strings.TrimSuffix(Explain, "."), BoardSteps)}
 }
 
 func trustPhrase(v Volume) string {
