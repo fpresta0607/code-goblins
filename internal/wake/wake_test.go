@@ -10,6 +10,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/fpresta0607/code-goblins/internal/state"
 )
 
 func TestAppendAssignsSequence(t *testing.T) {
@@ -553,5 +555,45 @@ func TestAProseAskIsAQuestionOwedWithItsWords(t *testing.T) {
 	}
 	if otherGoblin || idleAsks {
 		t.Errorf("another goblin's ask or an idle wake read as this goblin's question: %t %t", otherGoblin, idleAsks)
+	}
+}
+
+// A goblin's wakes name it as "Name (id)", read from its record when the
+// queue is read, so the CFO can talk about it by name. The id stays the
+// handle a cfo command takes.
+func TestPendingAndRenderNameAGoblinByNameAndID(t *testing.T) {
+	// Arrange
+	dir := t.TempDir()
+	if err := state.WriteTaskMeta(dir, state.TaskMeta{ID: "cg-x", Harness: "claude", GoblinName: "Jerry", GoblinTitle: "Code Designer"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := state.WriteOutcome(dir, state.Outcome{ID: "cg-done", GoblinName: "Mabel", GoblinTitle: "Bug Hunter", Phase: "stopped", At: time.Now()}); err != nil {
+		t.Fatal(err)
+	}
+	for _, rec := range [][2]string{{"cg-x", "blocked: which store?"}, {"cg-x", "working: running the tests"}, {"cg-done", "done: PR https://example.test/pull/24"}, {"cg-anon", "working: reading"}} {
+		if _, err := Append(dir, "notify", rec[0], rec[1]); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	// Act
+	records, err := Pending(dir)
+	var out bytes.Buffer
+	renderErr := Render(&out, records, Episode{}, time.Now())
+
+	// Assert
+	if err != nil || renderErr != nil {
+		t.Fatalf("pending %v, render %v", err, renderErr)
+	}
+	for _, want := range []string{
+		"DECISION  Jerry (cg-x)  blocked",
+		"answer with `cfo send cg-x",
+		"notify  Jerry (cg-x): working: running the tests",
+		"notify  Mabel (cg-done): done: PR https://example.test/pull/24",
+		"notify  cg-anon: working: reading",
+	} {
+		if !strings.Contains(out.String(), want) {
+			t.Errorf("render = %q, want it to contain %q", out.String(), want)
+		}
 	}
 }

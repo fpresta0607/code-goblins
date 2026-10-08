@@ -44,6 +44,11 @@ type TaskMeta struct {
 	// --title, else its backlog row's, or the one cfo title wrote since;
 	// empty when it had none.
 	Title string
+	// GoblinName and GoblinTitle are the fun first name and title the goblin
+	// was given at spawn, such as Jerry and Code Designer, which the board,
+	// the merge train and the CFO call it by.
+	GoblinName  string
+	GoblinTitle string
 	// Scratch is the task's scratch folder under the home, which its pane's
 	// TEMP, TMP and GOTMPDIR name and which goes with the task. A task an
 	// older build spawned has none; its Go temporary directory is
@@ -255,6 +260,8 @@ func ReadTaskMeta(stateDir, id string) (TaskMeta, error) {
 		HerdrTabID:       kv["herdr_tab_id"],
 		HerdrPaneID:      kv["herdr_pane_id"],
 		Title:            kv["title"],
+		GoblinName:       kv["goblin_name"],
+		GoblinTitle:      kv["goblin_title"],
 		Scratch:          kv["scratch"],
 		Parent:           kv["parent"],
 	}
@@ -340,6 +347,8 @@ func WriteTaskMeta(stateDir string, meta TaskMeta) error {
 		"herdr_tab_id":       meta.HerdrTabID,
 		"herdr_pane_id":      meta.HerdrPaneID,
 		"title":              meta.Title,
+		"goblin_name":        meta.GoblinName,
+		"goblin_title":       meta.GoblinTitle,
 		"scratch":            meta.Scratch,
 		"extras":             strings.Join(meta.Extras, extrasSeparator),
 		"parent":             meta.Parent,
@@ -391,6 +400,8 @@ func validateTaskMetaValues(meta TaskMeta) error {
 		{"herdr_tab_id", meta.HerdrTabID},
 		{"herdr_pane_id", meta.HerdrPaneID},
 		{"title", meta.Title},
+		{"goblin_name", meta.GoblinName},
+		{"goblin_title", meta.GoblinTitle},
 		{"scratch", meta.Scratch},
 	}
 	for _, extra := range meta.Extras {

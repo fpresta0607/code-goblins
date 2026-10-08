@@ -15,6 +15,17 @@ export function withoutHarness(text: string): string {
   return text.replace(HARNESS_SUFFIX, "").trim();
 }
 
+// taskName is what a task works on: its title, else its id.
+export function taskName(task: Pick<Task, "id" | "title">): string {
+  return withoutHarness(task.title) || task.id;
+}
+
+// goblinName is how the board calls a goblin: its name and title, as "Jerry -
+// Code Designer", once it has one, else what it works on.
+export function goblinName(task: Pick<Task, "id" | "title" | "goblin_name" | "goblin_title">): string {
+  return task.goblin_name ? [task.goblin_name, task.goblin_title].filter(Boolean).join(" - ") : taskName(task);
+}
+
 // A goblin's report starts with its state, which the status above it says.
 const STATE_WORD = /^(?:(?:working|blocked|failed|done|lifecycle-[a-z]+):|waiting on [^\s:]+:|Waiting on the CFO:)\s*/;
 
@@ -117,7 +128,7 @@ export function pausedWithParent(task: Task, tasks: Task[]): Task | undefined {
 function resumes(pause: PauseCondition | undefined, tasks: Task[], parent?: Task): string {
   const byItself = "It resumes by itself ";
   const [kind, target] = pause?.until.split(/:(.*)/s) || [];
-  if (parent && pause?.reason === "overlord") return byItself + "when " + inSentence(withoutHarness(parent.title) || parent.id) + " runs again.";
+  if (parent && pause?.reason === "overlord") return byItself + "when " + inSentence(goblinName(parent)) + " runs again.";
   switch (pause?.reason) {
     case "memory": return byItself + "once 5 GB of memory is free.";
     case "allowance": return byItself + "when the allowance resets, " + when(pause.until) + ".";
@@ -128,7 +139,7 @@ function resumes(pause: PauseCondition | undefined, tasks: Task[], parent?: Task
       if (kind === "pr") return byItself + "when " + plainText(target).replace(/\.$/, "") + " merges.";
       if (kind === "date") return byItself + "on " + when(target) + ".";
       const awaited = tasks.find((candidate) => candidate.id === target);
-      return byItself + "when " + (awaited ? inSentence(withoutHarness(awaited.title) || awaited.id) : "the task it waits on") + " finishes.";
+      return byItself + "when " + (awaited ? inSentence(goblinName(awaited)) : "the task it waits on") + " finishes.";
     }
   }
   return "It stays paused until you resume it.";
@@ -142,7 +153,7 @@ export function pauseStatus(pause: PauseCondition | undefined, tasks: Task[], du
   switch (pause?.reason) {
     case "memory": return "Memory: resumes at 5 GB free";
     case "allowance": return "Allowance: resumes " + when(pause.until);
-    case "overlord": return parent ? "Resumes with " + (withoutHarness(parent.title) || parent.id) : "Paused by you";
+    case "overlord": return parent ? "Resumes with " + goblinName(parent) : "Paused by you";
     case "question": return "Waiting for your answer";
     case "ci": case "deploy": {
       const usual = usualMinutes(durations, repositoryOf(target.split("@")[0]), pause.reason);
@@ -152,7 +163,7 @@ export function pauseStatus(pause: PauseCondition | undefined, tasks: Task[], du
       if (kind === "pr") return "Waiting on " + plainText(target).replace(/\.$/, "") + " to merge";
       if (kind === "date") return "Resumes " + when(target);
       const awaited = tasks.find((candidate) => candidate.id === target);
-      return "Waiting on " + (awaited ? withoutHarness(awaited.title) || awaited.id : "another task");
+      return "Waiting on " + (awaited ? goblinName(awaited) : "another task");
     }
   }
   return "Paused";

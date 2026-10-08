@@ -339,6 +339,37 @@ func TestCompletedStoppedCardRetainsTaskTitleRepositoryAndPullRequest(t *testing
 	}
 }
 
+func TestCompletedCardKeepsTheGoblinsNameAndTitle(t *testing.T) {
+	cases := []struct {
+		name   string
+		record func(stateDir string) error
+	}{
+		{name: "a cleaned up goblin", record: func(stateDir string) error {
+			return state.WriteOutcome(stateDir, state.Outcome{ID: "delivered", Title: "Delivered title", GoblinName: "Jerry", GoblinTitle: "Code Designer", Project: "example", Phase: "stopped", At: time.Now()})
+		}},
+		{name: "a stopped goblin", record: func(stateDir string) error {
+			return state.WriteLifecycle(stateDir, state.Lifecycle{ID: "delivered", Operation: "stop-1", Action: "stop", Phase: "stopped", Title: "Delivered title", GoblinName: "Jerry", GoblinTitle: "Code Designer", Project: "example", Updated: time.Now()})
+		}},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			// Arrange
+			h := home.Home{State: t.TempDir(), Data: t.TempDir()}
+			if err := tc.record(h.State); err != nil {
+				t.Fatal(err)
+			}
+
+			// Act
+			tasks := finishedTasks(h, time.Now())
+
+			// Assert
+			if len(tasks) != 1 || tasks[0].GoblinName != "Jerry" || tasks[0].GoblinTitle != "Code Designer" {
+				t.Fatalf("Completed = %+v, want the goblin's name and title kept", tasks)
+			}
+		})
+	}
+}
+
 func TestMergedPullRequestsJoinTheTaskThatReportedThem(t *testing.T) {
 	at := time.Date(2026, 9, 23, 16, 0, 0, 0, time.UTC)
 	history := withMergedPRs([]Task{{ID: "finished:a", Title: "a", Archived: true, Evaluation: Evaluation{Phase: "done", PR: "https://example/pr/1", At: at}}}, []MergedPR{

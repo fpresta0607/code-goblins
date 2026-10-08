@@ -22,6 +22,7 @@ import (
 	"time"
 
 	"github.com/fpresta0607/code-goblins/internal/fsx"
+	"github.com/fpresta0607/code-goblins/internal/goblinname"
 )
 
 // Schema names the shape of a train's record.
@@ -119,10 +120,13 @@ type Car struct {
 	// Head is the commit that rides: the pull request merges only while its
 	// head is still this commit.
 	Head string `json:"head"`
-	// Task is the goblin that reported the pull request done.
-	Task  string `json:"task"`
-	State string `json:"state"`
-	Note  string `json:"note,omitempty"`
+	// Task is the goblin that reported the pull request done, and Goblin
+	// and GoblinTitle its fun name and title.
+	Task        string `json:"task"`
+	Goblin      string `json:"goblin,omitempty"`
+	GoblinTitle string `json:"goblin_title,omitempty"`
+	State       string `json:"state"`
+	Note        string `json:"note,omitempty"`
 }
 
 // IsFinished says whether the train is over.
@@ -145,6 +149,16 @@ func (t Train) carsIn(state string) []int {
 		}
 	}
 	return found
+}
+
+// riders names the cars at indexes with their goblins, as "#1 from Jerry
+// (cg-x), #2 from Mo (cg-y)".
+func (t Train) riders(indexes []int) string {
+	names := make([]string, 0, len(indexes))
+	for _, i := range indexes {
+		names = append(names, fmt.Sprintf("#%d from %s", t.Cars[i].Number, goblinname.Called(t.Cars[i].Goblin, t.Cars[i].Task)))
+	}
+	return strings.Join(names, ", ")
 }
 
 // numbers names the cars at indexes as "#1, #2".

@@ -11,19 +11,22 @@ import (
 )
 
 type Outcome struct {
-	ID         string    `json:"id"`
-	Generation string    `json:"generation"`
-	Title      string    `json:"title"`
-	Project    string    `json:"project"`
-	Harness    string    `json:"harness,omitempty"`
-	Model      string    `json:"model,omitempty"`
-	Effort     string    `json:"effort,omitempty"`
-	Branch     string    `json:"branch,omitempty"`
-	Phase      string    `json:"phase"`
-	Reason     string    `json:"reason"`
-	PR         string    `json:"pr,omitempty"`
-	Evidence   string    `json:"evidence,omitempty"`
-	At         time.Time `json:"at"`
+	ID         string `json:"id"`
+	Generation string `json:"generation"`
+	Title      string `json:"title"`
+	// GoblinName and GoblinTitle are the name and title the goblin had.
+	GoblinName  string    `json:"goblin_name,omitempty"`
+	GoblinTitle string    `json:"goblin_title,omitempty"`
+	Project     string    `json:"project"`
+	Harness     string    `json:"harness,omitempty"`
+	Model       string    `json:"model,omitempty"`
+	Effort      string    `json:"effort,omitempty"`
+	Branch      string    `json:"branch,omitempty"`
+	Phase       string    `json:"phase"`
+	Reason      string    `json:"reason"`
+	PR          string    `json:"pr,omitempty"`
+	Evidence    string    `json:"evidence,omitempty"`
+	At          time.Time `json:"at"`
 }
 
 func WriteOutcome(directory string, outcome Outcome) error {
