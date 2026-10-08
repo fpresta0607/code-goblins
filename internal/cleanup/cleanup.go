@@ -57,6 +57,10 @@ type Service struct {
 	// task cleanup finds delivered leaves ## Queued for ## Done. Without it
 	// the backlog is left alone.
 	Data string
+	// ReleaseServices releases the local services stacks the task held, once
+	// its record is retired, and says what it did: the last holder's release
+	// stops what cfo started. Nil releases nothing.
+	ReleaseServices func(ctx context.Context, task string) ([]string, error)
 }
 
 // Result reports the exact returned task identity.
@@ -213,8 +217,27 @@ func (s Service) Cleanup(ctx context.Context, id string) (result Result, err err
 	if scratchErr != nil {
 		result.Output += fmt.Sprintf("\nwarning: %v; the janitor removes it once the handle clears", scratchErr)
 	}
+	result.Output += s.releaseServices(ctx, id)
 	result.Output += s.closeRow(outcome)
 	return result, nil
+}
+
+// releaseServices releases the local services a retired task held and says
+// what it did. A release that fails leaves the stack to the janitor, which
+// stops one no live task holds, so the cleanup it follows stands.
+func (s Service) releaseServices(ctx context.Context, id string) string {
+	if s.ReleaseServices == nil {
+		return ""
+	}
+	lines, err := s.ReleaseServices(ctx, id)
+	if err != nil {
+		return "\nwarning: its local services were not released (" + err.Error() + "), so the janitor stops them once no live task holds them"
+	}
+	output := ""
+	for _, line := range lines {
+		output += "\n" + line
+	}
+	return output
 }
 
 // closeRow moves a delivered task's row from ## Queued to ## Done, and says
@@ -325,6 +348,7 @@ func (s Service) forceArchive(ctx context.Context, meta state.TaskMeta, id, work
 	if scratchErr != nil {
 		result.Output += fmt.Sprintf("\nwarning: %v; the janitor removes it once the handle clears", scratchErr)
 	}
+	result.Output += s.releaseServices(ctx, id)
 	result.Output += s.closeRow(outcome)
 	return result, nil
 }

@@ -23,6 +23,7 @@ import (
 	"github.com/fpresta0607/code-goblins/internal/host"
 	"github.com/fpresta0607/code-goblins/internal/lock"
 	"github.com/fpresta0607/code-goblins/internal/pipeline"
+	"github.com/fpresta0607/code-goblins/internal/services"
 	"github.com/fpresta0607/code-goblins/internal/state"
 	"github.com/fpresta0607/code-goblins/internal/worktree"
 )
@@ -157,6 +158,10 @@ func (s Service) Spawn(ctx context.Context, req Request) (result Result, err err
 		return Result{}, err
 	}
 	if err := validateHelperRequest(req); err != nil {
+		return Result{}, err
+	}
+	isServicesNeeded, err := s.briefNeedsServices(req.BriefPath, project)
+	if err != nil {
 		return Result{}, err
 	}
 	var selection *pipeline.Selection
@@ -396,6 +401,9 @@ func (s Service) Spawn(ctx context.Context, req Request) (result Result, err err
 	if selection != nil {
 		launch.Instruction += selection.Instruction(req.ID, filepath.Join(taskTmp, "pipeline.json"))
 	}
+	if isServicesNeeded {
+		launch.Instruction += servicesInstruction(result.Meta)
+	}
 	if len(provision.Install) > 0 {
 		// The card says what the goblin does first until its own first
 		// report, which this line comes before.
@@ -419,6 +427,9 @@ func (s Service) Spawn(ctx context.Context, req Request) (result Result, err err
 	}
 	if len(provision.Install) > 0 {
 		result.Output += "\ndependencies: the goblin installs them as its first step, in its own terminal: " + strings.Join(provision.Install, " && ")
+	}
+	if isServicesNeeded {
+		result.Output += "\nservices: the goblin holds " + auth.ProjectName(project) + "'s local services for its full-stack check with cfo services up, and releases them with cfo services down"
 	}
 	if len(provision.LinkSkipped) > 0 {
 		result.Output += "\nlink: " + strings.Join(provision.LinkSkipped, ", ") + " already present in the worktree (the project's own checked-out file), so the default share was skipped"
@@ -792,6 +803,55 @@ func dependencyInstruction(worktree string, install []string) string {
 	return " Your worktree's dependencies are not installed yet: before you build or test anything, run " + strings.Join(commands, ", then ") + " in " + worktree + ", stopping at the first that fails." +
 		" On this machine an install can take many minutes, so run it where your tool's time limit cannot cut it short, such as in the background, and wait for it to end." +
 		" Install only into this worktree, never another's."
+}
+
+// briefNeedsServices reports whether the brief's Delivery section says the
+// task needs its project's local services (services: needed), and refuses
+// one that says so for a project that declares none, or a services line
+// spawn does not know.
+func (s Service) briefNeedsServices(briefPath, project string) (bool, error) {
+	data, err := fsx.ReadFile(briefPath)
+	if err != nil {
+		return false, fmt.Errorf("spawn: read brief: %w", err)
+	}
+	isNeeded, section := false, ""
+	for _, line := range strings.Split(strings.ReplaceAll(string(data), "\r\n", "\n"), "\n") {
+		if heading, found := strings.CutPrefix(line, "## "); found {
+			section = strings.TrimSpace(heading)
+			continue
+		}
+		key, value, found := strings.Cut(strings.TrimSpace(line), ":")
+		if section != "Delivery" || !found || strings.TrimSpace(key) != "services" {
+			continue
+		}
+		if strings.TrimSpace(value) != "needed" {
+			return false, fmt.Errorf("spawn: the brief's Delivery line %q is not one spawn knows: write services: needed, or leave the line out", strings.TrimSpace(line))
+		}
+		isNeeded = true
+	}
+	if !isNeeded {
+		return false, nil
+	}
+	_, err = services.LoadManifest(s.Worktrees.DataDir, project)
+	if errors.Is(err, os.ErrNotExist) {
+		return false, fmt.Errorf("spawn: the brief needs %s's local services, but the project declares none: write %s", auth.ProjectName(project), services.ManifestPath(s.Worktrees.DataDir, project))
+	}
+	if err != nil {
+		return false, fmt.Errorf("spawn: the brief needs %s's local services: %w", auth.ProjectName(project), err)
+	}
+	return true, nil
+}
+
+// servicesInstruction tells a goblin whose brief needs its project's local
+// services the one command that holds them and the one that releases them.
+func servicesInstruction(meta state.TaskMeta) string {
+	exe, err := os.Executable()
+	if err != nil {
+		exe = "cfo"
+	}
+	return " Your brief needs " + auth.ProjectName(meta.Project) + "'s local services for its full-stack check." +
+		" Before that check run " + exe + " services up " + meta.Project + " --task " + meta.ID + ", which starts them, or shares them with the tasks already holding them, and waits while memory is short, saying why." +
+		" Once the check is done run " + exe + " services down " + meta.Project + " --task " + meta.ID + ", and your cleanup releases them if you have not."
 }
 
 // notifyInstruction tells a goblin how to report its outcome through cfo
