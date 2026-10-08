@@ -57,7 +57,7 @@ for (const width of [1440, 390]) {
           return {
             smallest: Math.min(...texts.map((element) => parseFloat(getComputedStyle(element).fontSize))),
             outside: [...box.children].filter((child) => { const rect = child.getBoundingClientRect(); return rect.left < inside.left || rect.right > inside.right || rect.bottom > inside.bottom; }).map((child) => child.className),
-            underBar: bar.nextElementSibling && !bar.nextElementSibling.matches(".sr-only, .memory-capacity, .disk-meter") ? bar.nextElementSibling.className : "",
+            underBar: bar.nextElementSibling && !bar.nextElementSibling.matches(".sr-only, .disk-meter") ? bar.nextElementSibling.className : "",
             overflows: box.scrollWidth > box.clientWidth,
           };
         });

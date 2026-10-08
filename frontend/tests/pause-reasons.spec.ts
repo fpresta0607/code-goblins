@@ -86,16 +86,18 @@ test.describe("on the wide board", () => {
     await expect(card(page, "urgent").locator(".next-chip")).toHaveText("Production defect: jumps the queue");
   });
 
-  test("the meter shows the goblins live against the cap, and the setting while memory lowers it", async ({ page }) => {
-    await open(page, machine(9, { live: 3, limit: 8, configured: 8, slots: 5 }), [task("queued-one", "queued", { generation: "", brief: true })]);
+  // The Overlord, 2026-10-08, of "Goblins live 14 of 14" and "Memory allows
+  // 14 of the 128 set" in the meter: "remove the text".
+  test("the meter says nothing of the cap on live goblins", async ({ page }) => {
+    await open(page, machine(5.2, { live: 3, limit: 3, configured: 8, slots: 0 }), [task("queued-one", "queued", { generation: "", brief: true })]);
     const meter = board(page).getByRole("group", { name: "Memory", exact: true });
-    await expect(meter.locator(".memory-capacity")).toHaveText("Goblins live3 of 8");
+    await expect(meter).toBeVisible();
+    await expect(meter).not.toContainText("Goblins live");
     await expect(meter).not.toContainText("Memory allows");
   });
 
   test("with no free slot, Start and Resume say so before the click", async ({ page }) => {
     await open(page, machine(5.2, { live: 3, limit: 3, configured: 8, slots: 0 }), [task("queued-one", "queued", { generation: "", brief: true }), ...PAUSED]);
-    await expect(board(page).getByRole("group", { name: "Memory", exact: true })).toContainText("Memory allows 3 of the 8 set");
     for (const button of [board(page).getByRole("button", { name: "Start queued-one" }), board(page).getByRole("button", { name: "Resume paused-pull" })]) {
       await expect(button).toHaveAttribute("aria-disabled", "true");
       await expect(button).toHaveAttribute("data-tip", "No free slot: 3 of 3 goblins live");

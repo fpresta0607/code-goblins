@@ -1,4 +1,4 @@
-import type { Disk, FleetCapacity, Memory, PauseCondition, Scheduling, Snapshot, Task } from "./types";
+import type { Disk, Memory, PauseCondition, Scheduling, Snapshot, Task } from "./types";
 import { queuedTasks } from "./workflow.ts";
 import { pausedWithParent } from "./task-words.ts";
 
@@ -158,12 +158,6 @@ export function startOutcome(accepted: AcceptedStart, snapshot: Snapshot): "open
 // The chip on the top queued task, the one the CFO starts next.
 export function nextChip(memory: Memory | null): string {
   return memory && memoryBlock(memory) ? `Next at ${gigabytes(memory.next)} GB` : "Next up";
-}
-
-// The cap on live goblins under the memory meter: how many are live against
-// it, and, while free memory and commit lower it, the setting it lowers.
-export function capacityLine(capacity: FleetCapacity): { live: string; note: string } {
-  return { live: `${capacity.live} of ${capacity.limit}`, note: capacity.limit < capacity.configured ? `Memory allows ${capacity.limit} of the ${capacity.configured} set` : "" };
 }
 
 // Why a Start or Resume cannot run while no slot is left under the cap, or

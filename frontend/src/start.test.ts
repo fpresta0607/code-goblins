@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { capacityLine, diskBlock, diskScale, diskState, freeGigabytes, holdersLine, memoryBlock, meterScale, meterState, nextChip, nextInOrder, poolWarning, queueBlock, refusalStands, scheduleLine, slotBlock, startBlock, startOrder, startOutcome, tighter } from "./start.ts";
+import { diskBlock, diskScale, diskState, freeGigabytes, holdersLine, memoryBlock, meterScale, meterState, nextChip, nextInOrder, poolWarning, queueBlock, refusalStands, scheduleLine, slotBlock, startBlock, startOrder, startOutcome, tighter } from "./start.ts";
 import { nodeStatus } from "./workflow.ts";
 import { parseSnapshot, type Disk, type Memory, type Snapshot, type Task } from "./types.ts";
 
@@ -180,14 +180,6 @@ test("a passing refusal lapses once a newer snapshot shows Start no longer block
 // capped is a machine with ample memory and the given live goblins, cap,
 // configured maximum and slots left.
 const capped = (live: number, limit: number, configured: number): Memory => ({ ...memory(9), capacity: { live, limit, configured, slots: Math.max(0, limit - live) } });
-
-test("the cap line says how many goblins are live against the cap, and the setting when memory lowers it", () => {
-  const cases: [string, Memory, { live: string; note: string }][] = [
-    ["under the setting", capped(3, 8, 8), { live: "3 of 8", note: "" }],
-    ["memory lowers the cap", capped(5, 5, 8), { live: "5 of 5", note: "Memory allows 5 of the 8 set" }],
-  ];
-  for (const [name, machine, want] of cases) assert.deepEqual(capacityLine(machine.capacity!), want, name);
-});
 
 test("a Start or Resume past the cap is refused on the board with its reason", () => {
   // Arrange

@@ -255,7 +255,8 @@ test("a card's tip is gone as soon as the pointer leaves the part it names", asy
 test("a card's tip shows on keyboard focus, clear of the card, and goes with the focus", async ({ page }) => {
   await board(page, 1000);
   const shell = page.locator(".task-card-shell").filter({ has: page.locator(".card-pr[href$='/205']") });
-  await shell.locator(".card-pr").focus();
+  // The terminal button comes after the card's other controls.
+  await shell.getByRole("button", { name: /^Stop / }).focus();
   await page.keyboard.press("Tab");
   const terminal = shell.getByRole("button", { name: /^Open the terminal of / });
   await expect(terminal).toBeFocused();
@@ -275,7 +276,7 @@ test("a keyboard-focused part's tip follows its card when the page scrolls", asy
   const shell = page.locator(".task-card-shell").filter({ has: page.locator(".card-pr[href$='/205']") });
   // The screen is shorter than the board, so the page has room to scroll.
   await page.setViewportSize({ width: 1000, height: 1000 });
-  await shell.locator(".card-pr").focus();
+  await shell.getByRole("button", { name: /^Stop / }).focus();
   await page.keyboard.press("Tab");
   const terminal = shell.getByRole("button", { name: /^Open the terminal of / });
   await expect(terminal).toBeFocused();
