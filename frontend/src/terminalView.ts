@@ -161,9 +161,14 @@ export class TerminalView {
   }
 
   // jumpToBottom returns to the live end and hands the terminal the keyboard.
+  // xterm scrolls from the position its viewport last drew, which it brings
+  // up to a resize only on its next frame, so a jump in between lands short
+  // and goes again once xterm has drawn.
   jumpToBottom(): void {
     this.term.scrollToBottom();
     this.term.focus();
+    const buffer = this.term.buffer.active;
+    if (buffer.viewportY < buffer.baseY) requestAnimationFrame(() => { if (!this.disposed) this.term.scrollToBottom(); });
   }
 
   setFont(size: number): void {
