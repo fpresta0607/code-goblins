@@ -91,32 +91,36 @@ func identify(handle syscall.Handle, pid int, start time.Time) (Identity, error)
 	}
 	identity.Image = syscall.UTF16ToString(image[:size])
 
-	parameters, err := parameterBlock(handle, pid)
-	if err != nil {
-		return Identity{}, fmt.Errorf("%w: %v", ErrCommandLineUnreadable, err)
-	}
-	read := func(offset uintptr) (string, error) {
-		descriptor := make([]byte, 16)
-		if err := readMemory(handle, parameters+offset, descriptor); err != nil {
-			return "", err
+	err := walkSteady(handle, pid, func() (uintptr, error) {
+		parameters, err := parameterBlock(handle, pid)
+		if err != nil {
+			return 0, fmt.Errorf("%w: %v", ErrCommandLineUnreadable, err)
 		}
-		return unicodeString(handle, pid, descriptor, 0, nil)
-	}
-	line, err := read(paramsOffsetCommandLine)
+		read := func(offset uintptr) (string, error) {
+			descriptor := make([]byte, 16)
+			if err := readMemory(handle, parameters+offset, descriptor); err != nil {
+				return "", err
+			}
+			return unicodeString(handle, pid, descriptor, 0, nil)
+		}
+		line, err := read(paramsOffsetCommandLine)
+		if err != nil {
+			return parameters, fmt.Errorf("%w: %v", ErrCommandLineUnreadable, err)
+		}
+		if identity.Arguments, err = splitCommandLine(line); err != nil {
+			return parameters, err
+		}
+		if identity.Directory, err = read(paramsOffsetCurrentDirectory); err != nil {
+			return parameters, fmt.Errorf("%w: %v", ErrDirectoryUnreadable, err)
+		}
+		address, err := readPointer(handle, parameters+unsafe.Offsetof(windows.RTL_USER_PROCESS_PARAMETERS{}.Environment))
+		if err != nil || address == 0 {
+			return parameters, fmt.Errorf("read process %d's environment: %v", pid, err)
+		}
+		identity.Environment, err = environmentAt(handle, address)
+		return parameters, err
+	})
 	if err != nil {
-		return Identity{}, fmt.Errorf("%w: %v", ErrCommandLineUnreadable, err)
-	}
-	if identity.Arguments, err = splitCommandLine(line); err != nil {
-		return Identity{}, err
-	}
-	if identity.Directory, err = read(paramsOffsetCurrentDirectory); err != nil {
-		return Identity{}, fmt.Errorf("%w: %v", ErrDirectoryUnreadable, err)
-	}
-	address, err := readPointer(handle, parameters+unsafe.Offsetof(windows.RTL_USER_PROCESS_PARAMETERS{}.Environment))
-	if err != nil || address == 0 {
-		return Identity{}, fmt.Errorf("read process %d's environment: %v", pid, err)
-	}
-	if identity.Environment, err = environmentAt(handle, address); err != nil {
 		return Identity{}, err
 	}
 	return identity, nil
