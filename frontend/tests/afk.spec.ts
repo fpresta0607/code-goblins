@@ -157,21 +157,27 @@ test("the toggle is in the header in the panel's Task view and its Terminal view
   }
 });
 
-test("a refusal is said in the supervisor's words, in the question and under the header, and the toggle stays as it was", async ({ page }) => {
+// The Overlord, 2026-10-08: "everything error wise goes to cfo". A refusal
+// of his own press is said in a few words beside it, and goes by itself.
+test("a refusal is said in a few words for a moment, in the question and under the header, and the toggle stays as it was", async ({ page }) => {
+  await page.clock.install();
   const supervisor = await open(page, snapshot(), { asked: [], refuses: true, announces: true });
+  const said = /^AFK mode is the Supreme Overlord's switch, and the program.*…$/;
   await openCfoPanel(page);
   await toggle(page).click();
   const asks = page.locator("dialog.afk-dialog");
   await asks.getByRole("button", { name: "Turn AFK on" }).click();
-  await expect(asks.getByRole("alert")).toHaveText(REFUSAL);
+  await expect(asks.getByRole("status")).toHaveText(said);
   await expect(toggle(page)).toHaveAttribute("aria-checked", "false");
   await asks.getByRole("button", { name: "Cancel" }).click();
-  await expect(header(page).locator(".afk-problem")).toHaveCount(0);
+  await expect(header(page).locator(".click-feedback")).toHaveCount(0);
 
   await push(page, snapshot({ afk: on() }));
   await toggle(page).click();
-  await expect(header(page).getByRole("alert")).toHaveText(REFUSAL);
+  await expect(header(page).locator(".click-feedback")).toHaveText(said);
   await expect(toggle(page)).toHaveAttribute("aria-checked", "true");
+  await page.clock.fastForward(6000);
+  await expect(header(page).locator(".click-feedback")).toHaveCount(0);
   expect(supervisor.asked.map((ask) => ask.on)).toEqual([true, false]);
 });
 
@@ -482,12 +488,13 @@ test("with nothing it held still waiting on him, the report's one button at the 
   await expect(report(page).getByRole("region", { name: "Held for you" })).toHaveCount(0);
 });
 
-test("a switch that cannot be read is shown off, says how to reset it, and still lets what waits on him lead", async ({ page }) => {
+test("a switch that cannot be read is shown off, its tip says how to reset it, and what waits on him still leads", async ({ page }) => {
   const supervisor = await open(page, snapshot({ questions: [QUESTIONS[0]], afk: { state: "unreadable" } }));
   await expect(bar(page).getByRole("button", { name: "Open Command Center: 1 waiting on you" })).toBeVisible();
   await openCfoPanel(page);
   await expect(toggle(page)).toHaveAttribute("aria-checked", "false");
-  await expect(header(page).getByRole("status")).toHaveText("AFK's switch cannot be read, so nothing is decided for you. Press the toggle to reset it.");
+  await expect(toggle(page)).toHaveAttribute("data-tip", "Reset AFK to off");
+  await expect(header(page).getByText(/cannot be read/)).toHaveCount(0);
   // His press resets it: it asks for off, and asks nothing first.
   await toggle(page).click();
   await expect.poll(() => supervisor.asked).toEqual([{ on: false, token: "fixture" }]);

@@ -5,6 +5,7 @@ import { Icon } from "./Icon";
 import { age } from "./presentation";
 import { object, string, type ReleaseOffer, type Run } from "./types";
 import { updateOutcome, updateProgress } from "./update-progress";
+import { ClickFeedback, useClickFeedback } from "./click-feedback";
 
 // How often the card reads what a running update printed, as a run card does.
 const OUTPUT_READ_MS = 1000;
@@ -15,6 +16,8 @@ const OUTPUT_READ_MS = 1000;
 // a run card follows its command, step by step from what it prints, and ends
 // on how it went in one line; once updated, the page reloads on the new board.
 export function UpdateCard({ run, offer, connected, sending, error, onRun, onRetry, pager }: { run: Run; offer: ReleaseOffer; connected: boolean; sending: boolean; error: string; onRun: () => void; onRetry?: () => void; pager?: ReactNode }) {
+  const [feedback, showFeedback] = useClickFeedback();
+  useEffect(() => { if (error) showFeedback(error); }, [error, showFeedback]);
 
   const [printed, setPrinted] = useState("");
   const running = run.state === "running";
@@ -64,9 +67,9 @@ export function UpdateCard({ run, offer, connected, sending, error, onRun, onRet
     {progress.result && !running && <p className={"update-result " + (updated ? "ok" : "back")}>{updated ? offer.to + " runs. The board reloads on it now." : progress.result}</p>}
     {updated && <p className="update-effect">The desktop app moves to {offer.to} once you quit it from its tray icon and open it again.</p>}
     {run.state === "withdrawn" && run.reason && <p className="update-effect">{run.reason[0].toUpperCase() + run.reason.slice(1)}.</p>}
-    {error && <p className="warning-text" role="alert">{error}</p>}
     {(running || output) && <details className="update-output"><summary>Output</summary><pre className="run-output">{output || "Waiting for output"}</pre></details>}
     {(run.state === "ready" || pager || onRetry) && <div className="card-actions">
+      <ClickFeedback text={feedback} />
       {pager}
       {run.state === "ready" && <button className="primary update-button" type="button" disabled={!connected || sending} onClick={onRun}><Icon name="download" />Update</button>}
       {onRetry && <button className="primary update-button" type="button" onClick={onRetry}><Icon name="refresh" />Try again</button>}

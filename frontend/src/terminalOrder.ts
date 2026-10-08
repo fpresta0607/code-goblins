@@ -52,12 +52,12 @@ export type DeckView = { kind: "host"; query: string } | { kind: "herdr" } | { k
 export function cfoView(snapshot: Pick<Snapshot, "cfo_terminal" | "cfo_terminal_since" | "cfo_runs" | "cfo_closed">): DeckView {
   if (snapshot.cfo_terminal) return { kind: "host", query: new URLSearchParams({ cfo: snapshot.cfo_terminal, ...(snapshot.cfo_terminal_since ? { since: snapshot.cfo_terminal_since } : {}) }).toString() };
   if (snapshot.cfo_runs) return { kind: "herdr" };
-  return { kind: "empty", text: snapshot.cfo_closed ? "The CFO is closed. Reopen it from the board." : "No CFO is running." };
+  return { kind: "empty", text: snapshot.cfo_closed ? "The CFO is closed." : "No CFO is running." };
 }
 
 export function goblinView(task: Task): DeckView {
   if (task.phase === "resuming" || task.phase === "stopping") return { kind: "empty", text: task.phase === "resuming" ? "Resuming session..." : "Stopping session..." };
-  if (task.lifecycle?.action === "resume" && task.lifecycle.phase === "failed") return { kind: "empty", text: "Resume failed. See Task for details." };
+  if (task.lifecycle?.action === "resume" && task.lifecycle.phase === "failed") return { kind: "empty", text: "Resume failed." };
   return task.backend === "native" ? { kind: "host", query: new URLSearchParams({ task: task.id, generation: task.generation }).toString() } : { kind: "herdr" };
 }
 

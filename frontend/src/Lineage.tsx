@@ -50,7 +50,7 @@ export function Lineage({ snapshot, project, selected, onSelect, effects, presen
     ...helperTasks.filter((task) => task.parent === id).map((task) => renderTask(task, true)),
   ];
   const render = (node: Session, ancestors: Set<string>, isHelper = false) => {
-    if (ancestors.has(node.id)) return <li className="lineage-warning" key={node.id}>Cyclic link refused: {node.native_id || node.id}</li>;
+    if (ancestors.has(node.id)) return null;
     const seen = new Set([...ancestors, node.id]);
     const task = snapshot.tasks.find((task) => task.id === node.task_id);
     const owner = ownsTaskSession(node, task);

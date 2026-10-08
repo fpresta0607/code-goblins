@@ -54,7 +54,7 @@ test("an answer typed for a busy CFO reads sent, then delivered, and never warns
   await expect(list.getByRole("img", { name: "You answered" })).toHaveCount(1);
 });
 
-test("an answer the board refuses after he closed its card stays waiting, and its row says it was not sent", async ({ page }) => {
+test("an answer the board refuses after he closed its card stays waiting, and its card offers Retry", async ({ page }) => {
   // Arrange: the board answers only once the test lets it.
   const refusal = "The board restarted. Reload it and send again.";
   let refuse = () => {};
@@ -76,16 +76,17 @@ test("an answer the board refuses after he closed its card stays waiting, and it
   refuse();
   await refused;
 
-  // Assert: nothing opens, and the item still waits with what went wrong.
+  // Assert: nothing opens, and the item still waits. Its row says nothing of
+  // the refusal, and its card offers Retry with a few words of it.
   await page.waitForTimeout(1500);
   await expect(dialog).toBeHidden();
   await page.getByLabel("Command Center, 1 waiting on you").click();
   const row = page.locator(".command-center-menu section[aria-label='Waiting on you'] li");
-  await expect(row.locator("small")).toHaveText("Not sent: " + refusal);
+  await expect(row.locator("small")).toHaveCount(0);
   await row.getByRole("button", { name: /^Answer/ }).click();
-  await expect(dialog.getByRole("alert")).toContainText(refusal);
-  await expect(dialog.getByRole("alert")).toContainText("An unchanged retry keeps its request identity.");
+  await expect(dialog.locator(".click-feedback")).toHaveText(refusal);
   await expect(dialog.getByRole("button", { name: "Retry" })).toBeVisible();
+  await expect(dialog.getByRole("alert")).toHaveCount(0);
 });
 
 test("an answer the CFO never picks up keeps its card closed, and History says what to do", async ({ page }) => {

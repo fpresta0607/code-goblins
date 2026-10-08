@@ -1,4 +1,4 @@
-import { useState, type ReactNode } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import { copyText } from "./clipboard";
 import { type Run, type Task } from "./types";
 import { Avatar } from "./Avatar";
@@ -9,6 +9,7 @@ import { runLabel, shellLabel, shellMark } from "./connectors";
 import { age } from "./presentation";
 import { personaFor } from "./workflow";
 import { RunTerminal } from "./run-terminal";
+import { ClickFeedback, useClickFeedback } from "./click-feedback";
 
 // A command the CFO, or a goblin, needs the Overlord to run: who asks when it
 // is a goblin's own, why, the shell, the exact text that runs and where, and
@@ -19,6 +20,8 @@ import { RunTerminal } from "./run-terminal";
 // command shows its terminal once he confirmed Windows' own prompt. The
 // browser never sends the command; Run names the stored item.
 export function RunCard({ run, goblin, connected, instance, sending, error, onRun, pager }: { run: Run; goblin?: Task; connected: boolean; instance: string; sending: boolean; error: string; onRun: () => void; pager?: ReactNode }) {
+  const [feedback, showFeedback] = useClickFeedback();
+  useEffect(() => { if (error) showFeedback(error); }, [error, showFeedback]);
   const [copied, setCopied] = useState(false);
   const running = run.state === "running";
   const mark = runMark(run);
@@ -37,8 +40,7 @@ export function RunCard({ run, goblin, connected, instance, sending, error, onRu
       <button type="button" className="icon-button" aria-label="Copy command" data-tip={copied ? "Copied" : "Copy command"} data-tip-align="end" onClick={copy}><Icon name={copied ? "check" : "copy"} /></button>
     </div>
     {run.cwd && <p className="run-cwd"><Icon name="folder" /><span>{run.cwd}</span></p>}
-    {run.reason && !mark.label.includes(run.reason) && <p className={mark.trouble ? "warning-text" : "muted"}>{run.reason}</p>}
-    {error && <p className="warning-text" role="alert">{error}</p>}
+    {run.reason && !mark.trouble && !mark.label.includes(run.reason) && <p className="muted">{run.reason}</p>}
     {running && (run.terminal
       ? <RunTerminal run={run} instance={instance} connected={connected} />
       : <p className="muted run-waiting" role="status"><Icon name={run.admin ? "shield" : "terminal"} />{run.admin ? "Confirm the Windows prompt to run it as administrator. It runs here once you do." : "Starting its terminal"}</p>)}
@@ -47,6 +49,7 @@ export function RunCard({ run, goblin, connected, instance, sending, error, onRu
       <pre className="run-output">{run.output}</pre>
     </section>}
     {(run.state === "ready" || pager) && <div className="card-actions">
+      <ClickFeedback text={feedback} />
       {pager}
       {run.state === "ready" && <>
         {run.admin && <small className="muted">Windows will ask to confirm.</small>}

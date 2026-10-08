@@ -5,8 +5,9 @@ import { message, request } from "./api";
 import { diskBlock, memoryBlock, queueBlock } from "./start";
 import { Icon } from "./Icon";
 import { StopTaskDialog } from "./stop-task-dialog";
-import { plainText, withoutHarness } from "./task-words";
+import { withoutHarness } from "./task-words";
 import { harnessName } from "./workflow";
+import { ClickFeedback, useClickFeedback } from "./click-feedback";
 
 // A task's controls: icons on its card, where start starts a queued task and
 // onAdjust opens its panel, and labelled buttons in its panel's action row,
@@ -22,7 +23,7 @@ export function TaskControls({ task, snapshot, start, trailing, labelled = false
 }) {
   const [confirmation, setConfirmation] = useState<{ generation: string; revision: string } | null>(null);
   const [pending, setPending] = useState<{ action: string; revision: number | null } | null>(null);
-  const [problem, setProblem] = useState("");
+  const [feedback, showFeedback] = useClickFeedback();
   const attempt = useRef<{ payload: string; operation: string } | null>(null);
   if (pending?.revision != null && snapshot.revision >= pending.revision) setPending(null);
   if (confirmation && (confirmation.generation !== task.generation || confirmation.revision !== task.queue_revision)) setConfirmation(null);
@@ -37,14 +38,14 @@ export function TaskControls({ task, snapshot, start, trailing, labelled = false
   const canUpdate = isUpdatePending || !!task.harness_update && !canResume && !task.archived && !isQueued;
   const update = async () => {
     if (isChanging) return;
-    setProblem("");
+    showFeedback("");
     try {
       await request("/api/tasks/engine", undefined, { method: "POST", headers: { "Content-Type": "application/json", "X-CFO-Token": snapshot.instance }, body: JSON.stringify({ task: task.id, generation: task.generation, when: isUpdatePending ? "cancel" : "update" }) });
-    } catch (error: unknown) { setProblem(message(error)); }
+    } catch (error: unknown) { showFeedback(message(error)); }
   };
   const act = async (action: "pause" | "resume" | "stop") => {
     if (isChanging) return;
-    setConfirmation(null); setProblem("");
+    setConfirmation(null); showFeedback("");
     const payload = JSON.stringify({ task: task.id, generation: task.generation, revision: task.queue_revision, action });
     if (attempt.current?.payload !== payload) attempt.current = { payload, operation: crypto.randomUUID() };
     setPending({ action, revision: null });
@@ -53,10 +54,9 @@ export function TaskControls({ task, snapshot, start, trailing, labelled = false
       if (typeof response.revision !== "number") throw new Error("The board did not confirm this action. Refresh before retrying.");
       setPending({ action, revision: response.revision });
       attempt.current = null;
-    } catch (error: unknown) { setProblem(message(error)); setPending(null); }
+    } catch (error: unknown) { showFeedback(message(error)); setPending(null); }
   };
   if (task.archived || task.phase === "stopped") return null;
-  const problemText = plainText(problem || task.action_error || start?.problem || "");
   const name = withoutHarness(task.title) || task.id;
   const end = isQueued ? "Remove" : "Stop";
   const ending = isQueued ? "Removing" : "Stopping";
@@ -70,7 +70,7 @@ export function TaskControls({ task, snapshot, start, trailing, labelled = false
   const text = (action: string) => labelled && <span>{action}</span>;
   return <>
     <div className="task-controls" role="group" aria-label={"Controls for " + name}>
-      {isQueued && start && !queueBlock(task) && <button {...face("Start", "", start.blocked)} aria-disabled={!!start.blocked || isChanging} onClick={(event) => { if (!isChanging) start.onStart(event.currentTarget); }}><Icon name="play" />{text("Start")}</button>}
+      {isQueued && start && !queueBlock(task) && <button {...face("Start", "", start.blocked)} aria-disabled={!!start.blocked || isChanging} onClick={(event) => { if (!isChanging) { showFeedback(""); void start.onStart(event.currentTarget).then(showFeedback); } }}><Icon name="play" />{text("Start")}</button>}
       {isQueued && onAdjust && <button {...face("Adjust")} disabled={isChanging} onClick={(event) => onAdjust(event.currentTarget)}><Icon name="edit" /></button>}
       {canUpdate && <button className={labelled ? "labelled-button" : "icon-button raised"} aria-label={(isUpdatePending ? "Cancel the update of " : "Update ") + name} data-tip={isUpdatePending ? "Take the update back" : harnessName(task.harness) + " was updated. Restart this goblin onto it at its next stopping point. Its conversation is kept."} data-tip-align="start" disabled={isChanging} onClick={() => void update()}><Icon name={isUpdatePending ? "clock" : "download"} />{text(isUpdatePending ? "Cancel update" : "Update")}</button>}
       {canPause && <button {...face("Pause")} disabled={isChanging} onClick={() => void act("pause")}><Icon name="pause" />{text("Pause")}</button>}
@@ -78,9 +78,9 @@ export function TaskControls({ task, snapshot, start, trailing, labelled = false
       <button {...face(end, " danger")} disabled={isChanging} onClick={() => setConfirmation({ generation: task.generation, revision: task.queue_revision })}><Icon name="trash" />{text(end)}</button>
       {trailing}
     </div>
-    {(isChanging || problemText) && <div className="task-notes">
+    {(isChanging || feedback) && <div className="task-notes">
+      <ClickFeedback text={feedback} />
       {isChanging && <p className="task-action-progress" role="status">{pending ? { pause: "Pausing", resume: "Resuming", stop: ending }[pending.action] : task.switching ? (isUpdatePending ? "Updating " + harnessName(task.harness) : "Switching engine") : task.starting ? "Starting" : task.phase === "pausing" ? "Pausing" : task.phase === "resuming" ? "Resuming" : ending}...</p>}
-      {problemText && <p className="task-action-problem" role="alert">{problemText}</p>}
     </div>}
     {confirmation && <StopTaskDialog task={task} canPause={canPause} onPause={() => void act("pause")} onStop={() => void act("stop")} onClose={() => setConfirmation(null)} />}
   </>;

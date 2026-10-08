@@ -340,7 +340,7 @@ for (const backend of ["native", "herdr"] as const) {
     await page.getByRole("button", { name: /^Terminal fixes and handoff/ }).first().click();
     const panel = page.locator(".goblin-panel");
     await panel.getByRole("group", { name: "Panel view" }).getByRole("button", { name: "Terminal" }).click();
-    await expect(page.getByText("Resume failed. See Task for details.", { exact: true })).toBeVisible();
+    await expect(page.getByText("Resume failed.", { exact: true })).toBeVisible();
     await expect(page.getByRole("textbox", { name: "Terminal input", exact: true })).toHaveCount(0);
     expect(await connections()).toEqual([]);
 

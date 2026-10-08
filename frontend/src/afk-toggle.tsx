@@ -1,18 +1,18 @@
 import { useState, type ReactNode } from "react";
 import { Icon } from "./Icon";
-import { UNREADABLE } from "./afk";
 import { useAfkActions } from "./afk-actions";
 import { AfkOnDialog } from "./afk-on-dialog";
 import { useAfkSwitch } from "./useAfkSwitch";
 import type { Afk } from "./types";
 import "./afk.css";
+import { ClickFeedback } from "./click-feedback";
 
 // The AFK toggle in the CFO panel's header, beside the CFO's status: a small
 // switch with its label. Only the Overlord turns it, which the supervisor
-// proves of the program that asks, so a refusal is said under the header in
-// the supervisor's words. Turning it on asks first. Turning it off needs no
-// question: it only gives him his decisions back, and it is how a switch that
-// cannot be read is reset, which the header says while it cannot be read.
+// proves of the program that asks, and a refusal says so in a few words for
+// a moment. Turning it on asks first. Turning it off needs no question:
+// it only gives him his decisions back, and it is how a switch that cannot be
+// read is reset, which its tip says while it cannot be read.
 // While it is off, the report of the last stretch opens from the button
 // beside it. leading is a control shown before them, on the same row at
 // every width.
@@ -34,8 +34,7 @@ export function AfkToggle({ afk, instance, leading }: { afk: Afk; instance: stri
         <span className="afk-toggle-track" aria-hidden="true"><span className="afk-toggle-thumb" /></span>
       </button>
     </div>
-    {afk.state === "unreadable" && !problem && <p className="afk-problem" role="status">{UNREADABLE}</p>}
-    {problem && !asking && <p className="afk-problem" role="alert">{problem}</p>}
+    {!asking && <ClickFeedback text={problem} />}
     {asking && <AfkOnDialog pending={pending} problem={problem} onTurnOn={() => void turnOn()} onClose={() => { setAsking(false); clear(); }} />}
   </>;
 }

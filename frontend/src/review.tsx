@@ -1,9 +1,10 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { message, request } from "./api";
 import { alreadyKnown, deliveryMark, submissionFor, type Submission } from "./feedback";
 import { Icon } from "./Icon";
 import { parseAction, type Action, type FileDiff, type ReviewSelection, type Snapshot, type Task } from "./types";
 import { parsePatchToRows, reviewRange } from "./diff";
+import { ClickFeedback, useClickFeedback } from "./click-feedback";
 
 interface ReviewDraft {
   selection: ReviewSelection;
@@ -64,6 +65,9 @@ export type ReviewControls = ReturnType<typeof useReview>;
 // shrinks to a chip whose check marks show delivery.
 export function ReviewComment({ diff, reviews, connected, floating }: { diff: FileDiff; reviews: ReviewControls; connected: boolean; floating: boolean }) {
   const key = reviews.keyFor(diff), draft = reviews.drafts[key];
+  const [feedback, showFeedback] = useClickFeedback();
+  const error = draft?.error || "";
+  useEffect(() => { if (error) showFeedback(error); }, [error, showFeedback]);
   if (!draft || draft.hidden) return null;
   const action = reviews.outcome(draft);
   const selection = draft.selection;
@@ -72,6 +76,8 @@ export function ReviewComment({ diff, reviews, connected, floating }: { diff: Fi
   const stale = selection.head !== diff.head || selection.diff_id !== diff.fingerprint;
   const staleGeneration = selection.generation !== reviews.generation;
   const blocked = !connected || draft.sending || !draft.text.trim() || !!action || !valid || stale || staleGeneration;
+  // Why Send cannot run is in its tip.
+  const sendTip = !valid ? "Select up to 200 lines in a row" : stale ? "This diff changed. Select the current lines" : staleGeneration ? "This task restarted. Select its current lines" : "Send to the CFO";
   const cancel = () => { if (!draft.sending) reviews.change(key, { hidden: true }); };
   const kind = "comment-overlay" + (floating ? " floating" : "");
   if (action) {
@@ -81,24 +87,20 @@ export function ReviewComment({ diff, reviews, connected, floating }: { diff: Fi
       <p className="comment-sent-text"><strong>{range}</strong> {draft.text}</p>
       <button className="icon-button" aria-label="New comment on these lines" data-tip="New comment" data-tip-align="end" onClick={() => reviews.change(key, { text: "", submission: null, receipt: undefined, error: "" })}><Icon name="comment" /></button>
       <button className="icon-button" aria-label="Close" data-tip="Close" data-tip-align="end" onClick={cancel}><Icon name="close" /></button>
-      {mark.trouble && <p className="warning-text">{mark.label}{action.message && " " + action.message}</p>}
+      {mark.trouble && <p className="comment-trouble">{mark.label}</p>}
     </div>;
   }
   return <section className={kind} aria-label={"Comment to the CFO on " + range + " of " + diff.path}>
     <header><strong>{range}</strong><span className="muted">{diff.path} · HEAD {selection.head.slice(0, 8)}{selection.revision && " · Commit " + selection.revision.slice(0, 8)}</span></header>
     <textarea aria-label={"Comment to the CFO on " + range} rows={3} maxLength={16000} value={draft.text} disabled={draft.sending}
-      placeholder="Describe the change you want..." onChange={(event) => reviews.change(key, { text: event.target.value, error: "" })}
+      placeholder="Describe the change you want. Enter sends." onChange={(event) => reviews.change(key, { text: event.target.value, error: "" })}
       onKeyDown={(event) => {
         if (event.key === "Escape") { event.preventDefault(); event.stopPropagation(); cancel(); }
         if (event.key === "Enter" && !event.shiftKey && !event.nativeEvent.isComposing) { event.preventDefault(); if (!blocked) void reviews.send(diff); }
       }} />
-    {!valid && <p className="warning-text">Select up to 200 contiguous visible diff lines.</p>}
-    {stale && <p className="warning-text">This diff changed. Select the current lines before sending.</p>}
-    {staleGeneration && <p className="warning-text" role="alert">This task restarted or was replaced. This comment belongs to its previous session. Reselect the current lines to review the new session.</p>}
-    {draft.error && <p className="warning-text" role="alert">{draft.error} An unchanged retry keeps its request identity.</p>}
     <footer>
-      <span className="muted">Enter sends · Shift+Enter new line · Esc cancels</span>
-      <button className="icon-button send" disabled={blocked} aria-label="Send to the CFO" data-tip="Send to the CFO" data-tip-align="end" onClick={() => void reviews.send(diff)}><Icon name={draft.sending ? "clock" : "send"} /></button>
+      <ClickFeedback text={feedback} />
+      <button className="icon-button send" disabled={blocked} aria-label="Send to the CFO" data-tip={sendTip} data-tip-align="end" onClick={() => void reviews.send(diff)}><Icon name={draft.sending ? "clock" : "send"} /></button>
       <button className="icon-button" disabled={draft.sending} aria-label="Cancel comment" data-tip="Cancel" data-tip-align="end" onClick={cancel}><Icon name="close" /></button>
     </footer>
   </section>;
