@@ -2,11 +2,14 @@ package monitor
 
 import (
 	"context"
+	"crypto/sha256"
+	"fmt"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/fpresta0607/code-goblins/internal/herdr"
+	"github.com/fpresta0607/code-goblins/internal/wake"
 )
 
 const (
@@ -176,6 +179,140 @@ func TestARunningToolOnThePaneHoldsBackUnchangedIdleForTheBudget(t *testing.T) {
 		if !strings.Contains(wakes[0].Detail, want) {
 			t.Errorf("wake detail %q lacks %q", wakes[0].Detail, want)
 		}
+	}
+}
+
+// A native terminal keeps no counters, so between turns the monitor read such
+// a goblin by its status log alone, and a goblin whose screen was filling with
+// output or whose transcript was being written woke unchanged_idle all the
+// same. Output written to its screen, or its transcript written, within the
+// stall window is liveness. A clock ticking in a row the harness redraws by
+// itself is not: a tool its pane shows running still wakes once the busy
+// budget has passed with nothing moving, and a goblin whose screen and records
+// are still wakes once.
+func TestANativeGoblinsOutputAndTranscriptAreLivenessBetweenTurns(t *testing.T) {
+	for _, test := range []struct {
+		name         string
+		pane         func(minute int) string
+		isTranscript bool
+		wantWakes    int
+	}{
+		{"output keeps coming", func(minute int) string { return fmt.Sprintf("ok  \tinternal/package%d\t3.2s", minute) }, false, 0},
+		{"transcript keeps growing", func(int) string { return "● Reading the suite's output." }, true, 0},
+		{"screen and records still", func(int) string { return "● Reading the suite's output." }, false, 1},
+		{"only a tool's clock moves", func(minute int) string { return fmt.Sprintf("  ⎿  Running… (%dm 0s · timeout 10m)", minute) }, false, 1},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			// Arrange
+			now := time.Date(2026, 10, 8, 1, 30, 0, 0, time.UTC)
+			service, probe, progress, meta := progressService(t, &now)
+
+			// Act: fifteen scans a minute apart, past the stall window and the
+			// busy budget.
+			var wakes []string
+			for minute := range 15 {
+				now = now.Add(time.Minute)
+				sample := sampleForStatus(meta, herdr.AgentUnknown, test.pane(minute))
+				sample.CountersUnavailable = true
+				probe.samples[meta.ID] = sample
+				if test.isTranscript {
+					progress.sample.TranscriptAt = now
+				}
+				result, err := service.Scan(context.Background())
+				if err != nil {
+					t.Fatal(err)
+				}
+				if result.Event == nil {
+					continue
+				}
+				wakes = append(wakes, result.Event.Detail)
+				record, err := service.Publish(*result.Event)
+				if err != nil {
+					t.Fatal(err)
+				}
+				if err := wake.AckThrough(service.StateDir, record.Seq); err != nil {
+					t.Fatal(err)
+				}
+			}
+
+			// Assert
+			if len(wakes) != test.wantWakes {
+				t.Fatalf("wakes = %q, want %d", wakes, test.wantWakes)
+			}
+			for _, detail := range wakes {
+				if !strings.HasPrefix(detail, string(UnchangedIdle)+":") {
+					t.Errorf("wake %q, want unchanged_idle", detail)
+				}
+			}
+		})
+	}
+}
+
+// Between turns a transcript written within the stall window holds an
+// unchanged_idle wake, but the processor use of a job that has since ended is
+// no such evidence: the goblin sits at its prompt with nothing of its own
+// running, and wakes at once.
+func TestAnEndedJobsProcessorUseHoldsNoIdleWake(t *testing.T) {
+	// Arrange: a native goblin idle past the stall window whose own job used
+	// the processor at the last judged reading.
+	now := time.Date(2026, 10, 8, 13, 0, 0, 0, time.UTC)
+	service, probe, progress, meta := progressService(t, &now)
+	sample := sampleForStatus(meta, herdr.AgentUnknown, "● Running the suite in the background.")
+	sample.CountersUnavailable = true
+	probe.samples[meta.ID] = sample
+	progress.sample.Jobs, progress.cpuStep = []string{"go.exe (pid 51)"}, 4*time.Second
+	for _, step := range []time.Duration{0, time.Minute, time.Minute} {
+		now = now.Add(step)
+		result, err := service.Scan(context.Background())
+		if err != nil {
+			t.Fatal(err)
+		}
+		if result.Event != nil {
+			t.Fatalf("a job using the processor woke the CFO: %+v", result.Event)
+		}
+	}
+
+	// Act: the job ends before the next judged reading.
+	progress.sample.Jobs = nil
+	now = now.Add(10 * time.Second)
+	result, err := service.Scan(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Assert
+	if result.Event == nil || !strings.HasPrefix(result.Event.Detail, string(UnchangedIdle)+":") {
+		t.Fatalf("event = %+v, observations = %+v, want unchanged_idle now", result.Event, result.Observations)
+	}
+}
+
+// A monitor from before output was read kept a digest of the whole capture,
+// which never equals the digest of the output on the same screen. Read as
+// output written, it gave every native goblin between turns a fresh idle clock
+// at the upgrade, so a wedged one woke a whole stall window late.
+func TestAnOlderMonitorsDigestIsNotOutputBetweenTurns(t *testing.T) {
+	// Arrange: an older monitor already found this screen idle past the stall
+	// window.
+	now := time.Date(2026, 10, 8, 13, 0, 0, 0, time.UTC)
+	service, probe, _, meta := progressService(t, &now)
+	screen := "● Reading the suite's output."
+	idleSince := now.Add(-2 * service.StallAfter)
+	if err := WriteObservation(service.StateDir, Observation{TaskID: meta.ID, Endpoint: endpointString(meta), EndpointVerdict: ProbePresent, Digest: fmt.Sprintf("%x", sha256.Sum256(capture(screen))), LastObserved: now.Add(-time.Minute), LastSeen: idleSince, LastProgress: idleSince, IdleSince: &idleSince, Health: HealthIdle, Reason: None}); err != nil {
+		t.Fatal(err)
+	}
+	sample := sampleForStatus(meta, herdr.AgentUnknown, screen)
+	sample.CountersUnavailable = true
+	probe.samples[meta.ID] = sample
+
+	// Act
+	result, err := service.Scan(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Assert
+	if result.Event == nil || !strings.HasPrefix(result.Event.Detail, string(UnchangedIdle)+":") {
+		t.Fatalf("event = %+v, observations = %+v, want unchanged_idle now", result.Event, result.Observations)
 	}
 }
 
