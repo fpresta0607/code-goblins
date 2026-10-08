@@ -69,7 +69,7 @@ for (const viewport of [{ name: "in his window", width: 1707, height: 1067 }, { 
       const local = card(page, "Say why a billing sync fails").locator("a.local-checks");
       await expect(local).toHaveText("Local tests failed");
       await expect(local).toHaveAttribute("href", "/api/tasks/nw-sync/checks");
-      await expect(local).toHaveAttribute("data-tip", "Failed: internal/supervisor; affected level, 18m, 5m of it waiting for its turn");
+      await expect(local).toHaveAttribute("data-tip", "Failed: internal/supervisor. Affected level, 18m, 5m of it waiting for its turn");
       expect(await crowded(page, "Say why a billing sync fails")).toEqual({ parts: 4, outside: 0, overlaps: 0 });
       expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true);
     });

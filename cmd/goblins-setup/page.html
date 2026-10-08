@@ -102,6 +102,7 @@
       <div><dt>Adds</dt><dd>The cfo command line to your PATH, and Code Goblins to the Start menu</dd></div>
       <div><dt>Tools</dt><dd>Git, GitHub CLI, Claude Code and the others goblins use, where they are missing</dd></div>
       <div><dt>At login</dt><dd><label class="choice"><input type="checkbox" id="start-at-login" checked><span>Start Code Goblins when I sign in<small>After a restart, your CFO and goblins come back by themselves.</small></span></label></dd></div>
+      <div id="dev-drive-row" hidden><dt>Dev Drive</dt><dd id="dev-drive-offer" hidden><label class="choice"><input type="checkbox" id="dev-drive"><span>Put the goblins' worktrees and caches on a Dev Drive (optional)<small id="dev-drive-explain"></small></span></label></dd><dd id="dev-drive-note" hidden></dd></div>
     </dl>
   </section>
 
@@ -132,6 +133,7 @@
   const text = (id, value) => { document.getElementById(id).textContent = value; };
   let updating = false;
   let folder = "";
+  let devDriveOffered = false;
 
   // setupPlan shows what the install will do before it starts: the folder,
   // whether it updates Code Goblins already there, and a line about it.
@@ -143,6 +145,12 @@
     text("title", updating ? "Update Code Goblins" : "Install Code Goblins");
     text("install", updating ? "Update" : "Install");
     document.getElementById("start-at-login").checked = plan.start_at_login;
+    devDriveOffered = plan.dev_drive_offer;
+    text("dev-drive-explain", (plan.dev_drive_explain || "") + " Each step that needs you comes to the board's Command Center as its own item.");
+    text("dev-drive-note", plan.dev_drive_note || "");
+    document.getElementById("dev-drive-offer").hidden = !devDriveOffered;
+    document.getElementById("dev-drive-note").hidden = !plan.dev_drive_note;
+    document.getElementById("dev-drive-row").hidden = !devDriveOffered && !plan.dev_drive_note;
   }
 
   function setupStarted() {
@@ -202,11 +210,13 @@
       details.scrollTop = details.scrollHeight;
     }
   });
-  // Install and Try again carry the Start at login box.
+  // Install and Try again carry the Start at login box, and the Dev Drive
+  // box where the window showed one.
   const startAtLogin = document.getElementById("start-at-login");
+  const devDrive = document.getElementById("dev-drive");
   for (const button of document.querySelectorAll("[data-send]")) {
     button.addEventListener("click", () => {
-      const send = button.dataset.send === "install" ? "install:" + (startAtLogin.checked ? "on" : "off") : button.dataset.send;
+      const send = button.dataset.send === "install" ? "install:" + (startAtLogin.checked ? "on" : "off") + ":" + (devDriveOffered ? (devDrive.checked ? "on" : "off") : "") : button.dataset.send;
       window.chrome?.webview?.postMessage("setup:" + send);
     });
   }

@@ -12,8 +12,9 @@ export type CardStarter = (task: Task) => CardStart;
 // goblin's session when it is up. A refused start, or a press on a blocked
 // one, shows its reason on the card: one whose cause passes by itself until a
 // newer snapshot shows Start no longer blocked, any other until the card's
-// Start is pressed again. A spawn that failed shows the reason the supervisor
-// recorded, never the last Start's while this one is awaited. The board holds
+// Start is pressed again. A spawn of his Start that failed shows the reason
+// the supervisor recorded; a start the supervisor tried by itself shows
+// nothing on the card, since its failure goes to the CFO. The board holds
 // one for every list of queued tasks, so each shows the same Start; there is
 // none before the first snapshot.
 export function useStart(snapshot: Snapshot | null, awaited: AcceptedStart | null, onStarted: (accepted: AcceptedStart) => void): CardStarter | null {
@@ -50,7 +51,7 @@ export function useStart(snapshot: Snapshot | null, awaited: AcceptedStart | nul
     const blocked = blockOf(task);
     return {
       blocked,
-      problem: refusals[task.id]?.reason || (awaited?.id === task.id && startOutcome(awaited, snapshot) === "wait" ? "" : task.start_error),
+      problem: refusals[task.id]?.reason || (awaited?.id === task.id && startOutcome(awaited, snapshot) === "failed" ? task.start_error : ""),
       onStart: () => {
         if (!blocked) void start(task);
         else if (blocked !== "Starting") refuse(task.id, { reason: blocked, revision: snapshot.revision, passing: true });

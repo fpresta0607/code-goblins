@@ -122,10 +122,12 @@ export function leadAndRest(text: string): { lead: string; rest: string } {
 
 export const inlineElements = (text: string, code: CodeRenderer = plainCode): ReactNode => createElement(Fragment, null, ...inline(spans(text), code));
 
-// The message on one line, for a list row: marks dropped, bullets joined, and
-// a table left out, since its values only read in the card.
+// The message on one line, for a list row: marks dropped, each bullet a
+// sentence of its own, and a table left out, since its values only read in
+// the card.
 export function plainMessage(text: string): string {
+  const sentence = (item: string) => item.charAt(0).toUpperCase() + item.slice(1) + (/[.!?:]$/.test(item) ? "" : ".");
   return messageBlocks(text).flatMap((block) => block.kind === "paragraph"
     ? [block.spans.map((span) => span.text).join("").replace(/\s*\n\s*/g, " ")]
-    : block.kind === "list" ? [block.items.map((item) => item.map((span) => span.text).join("")).join("; ")] : []).join(" ");
+    : block.kind === "list" ? block.items.map((item) => sentence(item.map((span) => span.text).join("").trim())) : []).join(" ");
 }

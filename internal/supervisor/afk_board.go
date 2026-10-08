@@ -1,7 +1,6 @@
 package supervisor
 
 import (
-	"context"
 	"errors"
 	"fmt"
 	"net"
@@ -85,10 +84,8 @@ func (h *HTTP) switchAFKFromBoard(w http.ResponseWriter, r *http.Request) {
 		apiError(w, http.StatusForbidden, err.Error())
 		return
 	}
-	ctx, cancel := context.WithTimeout(r.Context(), runRequestTimeout)
-	defer cancel()
 	h.Service.runRequests.Lock()
-	err = h.Service.switchAFKAs(ctx, from, "", *input.On)
+	err = h.Service.switchAFKAs(from, "", *input.On)
 	h.Service.runRequests.Unlock()
 	// Off while it is already off asks for nothing new.
 	if err != nil && !errors.Is(err, afk.ErrNotOn) {
@@ -106,10 +103,10 @@ func (h *HTTP) switchAFKFromBoard(w http.ResponseWriter, r *http.Request) {
 }
 
 // afkReportPage is the report of a stretch as the board's page reads it: the
-// decisions under their headings, how long it lasted and what was spent in
-// the words the CFO's text uses, and no list left out. Asked and EndedAsked
-// are the Overlord's words for a switch the CFO made at his ask, and empty
-// for one he made himself.
+// decisions under their headings, how long it lasted, each allowance used
+// with its percent at either end for the board to draw, and no list left out.
+// Asked and EndedAsked are the Overlord's words for a switch the CFO made at
+// his ask, and empty for one he made himself.
 type afkReportPage struct {
 	Found      bool          `json:"found"`
 	Session    string        `json:"session"`
@@ -123,7 +120,7 @@ type afkReportPage struct {
 	Sections   []afk.Section `json:"sections"`
 	Finished   []afk.Finish  `json:"finished"`
 	Held       []afk.Held    `json:"held"`
-	Spent      []string      `json:"spent"`
+	Spent      []afk.Used    `json:"spent"`
 	Notes      []string      `json:"notes"`
 }
 
@@ -146,7 +143,7 @@ func (h *HTTP) afkReport(w http.ResponseWriter, _ *http.Request) {
 		Sections: report.Sections(),
 		Finished: append([]afk.Finish{}, report.Finished...),
 		Held:     heldAsNow(h.Service.Store.Snapshot(), report.Held, report.Ended),
-		Spent:    append([]string{}, afk.Spent(report.Before, report.After)...),
+		Spent:    append([]afk.Used{}, afk.Spent(report.Before, report.After)...),
 		Notes:    append([]string{}, report.Notes...),
 	})
 }

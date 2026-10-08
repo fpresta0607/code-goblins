@@ -623,6 +623,37 @@ func TestInstallWithNoUserSettingsFileCreatesOne(t *testing.T) {
 	}
 }
 
+// The live home held {"max_live_goblins":128} when goblin slots went to
+// memory alone, and a build that no longer reads a key refuses the file, so
+// an install that left it would refuse every start. The install takes it out,
+// keeps the rest, and says so.
+func TestInstallTakesTheRetiredGoblinCountOutOfTheFleetSettings(t *testing.T) {
+	// Arrange
+	f := newFixture(t, "", nil)
+	settings := filepath.Join(f.root, "config", "fleet.json")
+	if err := os.MkdirAll(filepath.Dir(settings), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(settings, []byte(`{"max_live_goblins":128,"disk_floor_gb":20}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	// Act
+	output := f.install()
+
+	// Assert
+	data, err := os.ReadFile(settings)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(data), "max_live_goblins") || !strings.Contains(string(data), `"disk_floor_gb": 20`) {
+		t.Errorf("config/fleet.json after the install:\n%s\nwant the count gone and disk_floor_gb kept", data)
+	}
+	if !strings.Contains(output, "max_live_goblins") {
+		t.Errorf("the install did not say it took max_live_goblins out:\n%s", output)
+	}
+}
+
 func TestInstallRemovesTheRepoHooksBlockAndKeepsTheRest(t *testing.T) {
 	f := newFixture(t, adopterSettings, nil)
 	f.writeRepoSettings(`{

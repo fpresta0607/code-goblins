@@ -74,13 +74,19 @@ func (s *Service) engineCatalog(ctx context.Context, runner execx.Runner) (Engin
 				if id == "" || !spawnValue.MatchString(id) {
 					return
 				}
-				if !slices.ContainsFunc(item.Models, func(model EngineModel) bool { return model.ID == id }) {
-					name := id
-					if id == "default" {
-						name = "Default"
+				// A model the harness's own catalog offers keeps its name and
+				// efforts, and takes the fleet's effort when it names none.
+				if at := slices.IndexFunc(item.Models, func(model EngineModel) bool { return model.ID == id }); at >= 0 {
+					if item.Models[at].DefaultEffort == "" {
+						item.Models[at].DefaultEffort = effort
 					}
-					item.Models = append(item.Models, EngineModel{ID: id, Name: name, Efforts: harness.Efforts(kind), DefaultEffort: effort})
+					return
 				}
+				name := id
+				if id == "default" {
+					name = "Default"
+				}
+				item.Models = append(item.Models, EngineModel{ID: id, Name: name, Efforts: harness.Efforts(kind), DefaultEffort: effort})
 			}
 			add(harness.DefaultModel(kind), defaultEffort)
 			if kind != harness.Claude {
@@ -135,13 +141,20 @@ func readEngineModels(root string, kind harness.Kind) ([]EngineModel, error) {
 	switch kind {
 	case harness.Claude:
 		var cache struct {
+			Account struct {
+				Organization string `json:"organizationUuid"`
+			} `json:"oauthAccount"`
 			Models []struct{ Value, Label string } `json:"additionalModelOptionsCache"`
 		}
 		if err := json.Unmarshal(data, &cache); err != nil {
 			return nil, err
 		}
+		models, err = readClaudeCatalog(root, cache.Account.Organization)
+		if err != nil {
+			return nil, err
+		}
 		for _, model := range cache.Models {
-			if spawnValue.MatchString(model.Value) {
+			if spawnValue.MatchString(model.Value) && !slices.ContainsFunc(models, func(listed EngineModel) bool { return listed.ID == model.Value }) {
 				name := model.Label
 				if name == "" {
 					name = model.Value
@@ -233,6 +246,78 @@ func readEngineModels(root string, kind harness.Kind) ([]EngineModel, error) {
 		}
 	default:
 		return nil, fmt.Errorf("no model catalog for %s", kind)
+	}
+	return models, nil
+}
+
+// claudeCatalog is the model catalog Claude Code keeps from its servers.
+type claudeCatalog struct {
+	FetchedAt int64 `json:"fetchedAt"`
+	Catalog   struct {
+		Config struct {
+			Models []struct {
+				ID       string `json:"id"`
+				Name     string `json:"name"`
+				Thinking struct {
+					Options []struct {
+						ID string `json:"id"`
+					} `json:"effort_options"`
+				} `json:"thinking"`
+			} `json:"models"`
+		} `json:"config"`
+	} `json:"catalog"`
+}
+
+// readClaudeCatalog is the model list Claude Code itself was given for the
+// organization it is signed in to: the newest of the catalogs it keeps for
+// its own command line (the files whose names end -cc.json; -ccd.json is the
+// desktop app's), each model with the efforts it offers. Claude Code names
+// each file after the organization, so a catalog of an account it was signed
+// in to before is never read. It is empty when no organization is signed in.
+func readClaudeCatalog(root, organization string) ([]EngineModel, error) {
+	models := []EngineModel{}
+	if organization == "" {
+		return models, nil
+	}
+	directory := filepath.Join(root, ".claude", "cache", "model-catalog")
+	entries, err := os.ReadDir(directory)
+	if errors.Is(err, os.ErrNotExist) {
+		return models, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	var newest claudeCatalog
+	for _, entry := range entries {
+		if entry.IsDir() || !strings.HasPrefix(entry.Name(), organization+"-") || !strings.HasSuffix(entry.Name(), "-cc.json") {
+			continue
+		}
+		data, err := fsx.ReadFile(filepath.Join(directory, entry.Name()))
+		if err != nil {
+			return nil, err
+		}
+		var catalog claudeCatalog
+		if err := json.Unmarshal(data, &catalog); err != nil {
+			return nil, fmt.Errorf("%s: %w", entry.Name(), err)
+		}
+		if catalog.FetchedAt > newest.FetchedAt {
+			newest = catalog
+		}
+	}
+	for _, model := range newest.Catalog.Config.Models {
+		if !spawnValue.MatchString(model.ID) {
+			continue
+		}
+		item := EngineModel{ID: model.ID, Name: model.Name, Efforts: []string{}}
+		if item.Name == "" {
+			item.Name = item.ID
+		}
+		for _, option := range model.Thinking.Options {
+			if slices.Contains(harness.Efforts(harness.Claude), option.ID) {
+				item.Efforts = append(item.Efforts, option.ID)
+			}
+		}
+		models = append(models, item)
 	}
 	return models, nil
 }

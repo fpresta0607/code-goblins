@@ -176,7 +176,11 @@ func runServe(args []string, stdout, stderr io.Writer, runtime commandRuntime) i
 	// nothing back.
 	var comeback *supervisor.Comeback
 	var startAtLogin *supervisor.StartAtLogin
+	var devDrive *supervisor.DevDrive
 	if !*example {
+		// The board's Dev Drive setting reads this machine; an example board
+		// shows none.
+		devDrive = &supervisor.DevDrive{Read: runtime.readDevDrive}
 		// The board's Start at login is the setting the install, the setup
 		// and the desktop window's tray change.
 		login := boardStartAtLogin(h)
@@ -205,6 +209,12 @@ func runServe(args []string, stdout, stderr io.Writer, runtime commandRuntime) i
 	if *example {
 		tree = nil
 	}
+	// This cfo binary hosts a run item's terminal, as it hosts a goblin's.
+	self, err := os.Executable()
+	if err != nil {
+		fmt.Fprintln(stderr, err)
+		return 1
+	}
 	s, err := supervisor.Start(ctx, h, supervisor.Options{
 		Dictation:        dictation,
 		Example:          *example,
@@ -216,7 +226,7 @@ func runServe(args []string, stdout, stderr io.Writer, runtime commandRuntime) i
 		Reconcile:        func(ctx context.Context) error { return watch.Reconcile(ctx, config) },
 		VerifyDelivery:   (supervisor.Git{}).VerifyDelivery,
 		VerifyReports:    verify.Reports,
-		Runs:             supervisor.OSRunLauncher{},
+		Runs:             supervisor.OSRunLauncher{HostCommand: []string{self, "host"}},
 		PollPage:         (axi.Lavish{Commands: execx.OSRunner{}}).Poll,
 		PageSessions:     (axi.Lavish{}).Sessions,
 		EndPage:          (axi.Lavish{Commands: execx.OSRunner{}}).End,
@@ -230,10 +240,10 @@ func runServe(args []string, stdout, stderr io.Writer, runtime commandRuntime) i
 		// writes, and its refresh is cfo auth store's own.
 		Credentials:        auth.OpenStore,
 		RefreshCredentials: boardCredentialRefresh(runtime),
-		Allowance:          readAFKAllowance(runtime),
 		Quota:              runtime.quota,
 		Comeback:           comeback,
 		StartAtLogin:       startAtLogin,
+		DevDrive:           devDrive,
 		Tree:               tree,
 		Releases:           releases,
 	})

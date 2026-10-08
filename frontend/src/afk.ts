@@ -1,4 +1,4 @@
-import { array, object, parseAfkHeld, string, strings, type Afk, type AfkHeld } from "./types.ts";
+import { array, boolean, number, object, parseAfkHeld, string, strings, type Afk, type AfkHeld } from "./types.ts";
 import { pullRequestLabel } from "./workflow.ts";
 
 // AFK mode on the board: what the supervisor reports of the Overlord's switch,
@@ -17,13 +17,30 @@ export interface AfkSection {
 export interface AfkFinish {
   task: string; pr: string; at: string;
 }
+// AfkAllowance is one allowance under the report's Spent: a window's percent
+// used when AFK mode turned on and when it turned off, null for a reading not
+// taken, with reset when the window reset in between, or for credits what was
+// spent of them in unit.
+export interface AfkAllowance {
+  provider: string; window: string; on: number | null; off: number | null; reset: boolean; credits: boolean; spent: number; unit: string;
+}
 // AfkReport is the report of a stretch of AFK mode: what the CFO decided, what
 // each goblin finished, what is held for the Overlord and what was spent.
 // asked and ended_asked hold his words when the CFO made that switch at his
 // ask, and are empty when he made it himself.
 export interface AfkReport {
   session: string; since: string; ended: string; lasted: string; from: string; asked: string; ended_from: string; ended_asked: string;
-  sections: AfkSection[]; finished: AfkFinish[]; held: AfkHeld[]; spent: string[]; notes: string[];
+  sections: AfkSection[]; finished: AfkFinish[]; held: AfkHeld[]; spent: AfkAllowance[]; notes: string[];
+}
+
+const percent = (value: unknown): number | null => value == null ? null : number(value);
+
+function parseAfkAllowance(value: unknown): AfkAllowance {
+  const a = object(value);
+  return {
+    provider: string(a.provider), window: string(a.window), on: percent(a.on), off: percent(a.off),
+    reset: a.reset == null ? false : boolean(a.reset), credits: a.credits == null ? false : boolean(a.credits), spent: number(a.spent), unit: string(a.unit),
+  };
 }
 
 // parseAfkReport reads the supervisor's answer to GET /api/afk/report, which
@@ -45,9 +62,25 @@ export function parseAfkReport(value: unknown): AfkReport | null {
     }),
     finished: array(v.finished).map((value) => { const f = object(value); return { task: string(f.task), pr: string(f.pr), at: string(f.at) }; }),
     held: array(v.held).map(parseAfkHeld),
-    spent: strings(v.spent),
+    spent: array(v.spent).map(parseAfkAllowance),
     notes: strings(v.notes),
   };
+}
+
+const shown = (value: number): string => String(Math.round(value * 10) / 10);
+
+// allowanceSays is one allowance under Spent as the report shows it: its name,
+// its percent at either end or the credits spent, and the words a screen
+// reader says for its graph.
+export function allowanceSays(allowance: AfkAllowance): { name: string; value: string; label: string } {
+  const name = allowance.provider.charAt(0).toUpperCase() + allowance.provider.slice(1) + " " + allowance.window;
+  if (allowance.credits) return { name, value: shown(allowance.spent) + " spent", label: name + " " + shown(allowance.spent) + " " + allowance.unit + " spent" };
+  const { on, off } = allowance;
+  if (on !== null && off !== null) {
+    return { name, value: shown(on) + "% → " + shown(off) + "%", label: name + " " + shown(on) + "% used at AFK on and " + shown(off) + "% at AFK off" + (allowance.reset ? " after it reset" : "") };
+  }
+  const [read, at] = on !== null ? [on, "on"] : [off ?? 0, "off"];
+  return { name, value: shown(read) + "%", label: name + " " + shown(read) + "% used at AFK " + at };
 }
 
 // afkTime is a time as the board says it: the time of day, with the day in
@@ -65,6 +98,11 @@ export function afkTime(at: string, now: number, zone?: string, locale?: string)
 // stillHeld those of the stretch that is on.
 export const stillWaiting = (held: AfkHeld[]): AfkHeld[] => held.filter((one) => one.waiting);
 export const stillHeld = (afk: Afk): AfkHeld[] => stillWaiting(afk.held);
+
+// ReportAction is the report's main button: the Command Center while anything
+// it held still waits on him, and the board otherwise.
+export type ReportAction = "command" | "board";
+export const reportAction = (held: AfkHeld[]): ReportAction => stillWaiting(held).length > 0 ? "command" : "board";
 
 // AFK_OFF is the switch as a board with no snapshot yet knows it: off.
 export const AFK_OFF: Afk = { state: "off", since: "", from: "", asked: "", decided: 0, held: [], report: "" };

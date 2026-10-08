@@ -38,10 +38,10 @@ test("once everything is back the line says what resumed", () => {
 test("a goblin or the CFO that did not come back is named, and its card or bar says why", () => {
   const five = ["a", "b", "c", "d", "e"].map((id) => entry(id, "back"));
   assert.deepEqual(comebackLine(comeback(entry("cfo", "back"), ...five, entry("cg-site-hero", "stopped", "Codex is not signed in"))), {
-    text: "Resumed the CFO and 5 of 6 goblins after a restart.", detail: "cg-site-hero did not come back; its card says why.", isDone: true,
+    text: "Resumed the CFO and 5 of 6 goblins after a restart.", detail: "cg-site-hero did not come back. Its card says why.", isDone: true,
   });
   assert.deepEqual(comebackLine(comeback(undefined, entry("a", "stopped"), entry("b", "stopped"))), {
-    text: "Resumed 0 of 2 goblins after a restart.", detail: "a and b did not come back; their cards say why.", isDone: true,
+    text: "Resumed 0 of 2 goblins after a restart.", detail: "a and b did not come back. Their cards say why.", isDone: true,
   });
   assert.deepEqual(comebackLine(comeback(entry("cfo", "stopped", "its conversation s-1 could not be resumed; Reopen on its bar tries its conversation again and starts it on a new one where that cannot be resumed"), entry("a", "back"))), {
     text: "Resumed 1 goblin after a restart.", detail: "The CFO did not come back: its conversation s-1 could not be resumed; Reopen on its bar tries its conversation again and starts it on a new one where that cannot be resumed.", isDone: true,

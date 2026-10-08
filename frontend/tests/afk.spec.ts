@@ -35,7 +35,12 @@ const REPORT = {
   ],
   finished: [{ task: "nw-login-rate", pr: "https://github.com/northwind/northwind-api/pull/412", at: "2026-10-02T04:12:00Z" }],
   held: [HELD[0], { ...HELD[1], waiting: false, now: "you answered it: Keep it for now" }],
-  spent: ["claude week: 41% used when it turned on, 49% when it turned off (8 points)"],
+  spent: [
+    { provider: "claude", window: "week", on: 41, off: 49 },
+    { provider: "claude", window: "session", on: 42, off: 3, reset: true },
+    { provider: "codex", window: "week", off: 4 },
+    { provider: "codex", window: "credits", credits: true, spent: 12.5, unit: "credits" },
+  ],
   notes: [],
 };
 // The supervisor's own words for a board that an agent's program shows.
@@ -126,7 +131,7 @@ test("the CFO panel's header carries the AFK toggle beside its status: off at re
   await expect(header(page).getByRole("switch")).toHaveCount(1);
   await expect(toggle(page)).toHaveText("AFK");
   await expect(toggle(page)).toHaveAttribute("aria-checked", "false");
-  await expect(bar(page).locator(".cfo-rest")).toContainText("All quiet. The CFO supervises 3 goblins.");
+  await expect(bar(page).locator(".cfo-rest")).toContainText("All quiet. 3 goblins at work.");
 
   // On asks, with the focus on Cancel: Enter alone turns nothing on.
   await toggle(page).click();
@@ -315,11 +320,32 @@ test("his first click after he has been gone still does what he meant and offers
   await page.locator(".board-column").first().click({ position: { x: 8, y: 8 } });
   await offer(page).getByRole("button", { name: "Turn AFK off" }).click();
   await expect.poll(() => supervisor.asked).toEqual([{ on: false, token: "fixture" }]);
-  await expect(report(page)).toHaveCount(0);
-  await push(page, snapshot({ questions: QUESTIONS, afk: KEPT }));
+  // The supervisor keeps the report before it answers, so the report shows
+  // as soon as it answers, whenever the board's next snapshot comes.
   await expect(offer(page)).toHaveCount(0);
   await expect(report(page)).toContainText("AFK report");
   await expect(report(page)).toContainText("8h25m");
+  await push(page, snapshot({ questions: QUESTIONS, afk: KEPT }));
+  await expect(report(page)).toHaveCount(1);
+});
+
+test("turning AFK off from the toggle shows the report as soon as the supervisor answers, and the snapshot after it brings no second one", async ({ page }) => {
+  const supervisor = await open(page, snapshot({ afk: on() }));
+  await openCfoPanel(page);
+  await toggle(page).click();
+  await expect.poll(() => supervisor.asked).toEqual([{ on: false, token: "fixture" }]);
+  await expect(report(page)).toContainText("8h25m");
+  await page.keyboard.press("Escape");
+  await expect(report(page)).toHaveCount(0);
+  await push(page, snapshot({ afk: KEPT }));
+  await expect(toggle(page)).toHaveAttribute("aria-checked", "false");
+  await page.waitForTimeout(300);
+  await expect(report(page)).toHaveCount(0);
+  // A stretch that ends elsewhere, from his terminal, still shows its report
+  // when the snapshot says so.
+  await push(page, snapshot({ afk: on() }));
+  await push(page, snapshot({ afk: { ...KEPT, report: "afk-20261002T130000.000Z" } }));
+  await expect(report(page)).toContainText("AFK report");
 });
 
 test("a press on the toggle itself is his answer, so it offers nothing", async ({ page }) => {
@@ -375,7 +401,7 @@ test("his first click or key after the CFO turned AFK on at his ask offers the s
 });
 
 test("the report lists what is held first, then how much of each thing the CFO did, each decision with its link and what it stood on, and what was spent, and opens again from the header", async ({ page }) => {
-  await open(page, snapshot({ afk: KEPT }));
+  await open(page, snapshot({ questions: [QUESTIONS[0]], afk: KEPT }));
   // A page that opens after AFK mode turned off shows no report by itself.
   await expect(report(page)).toHaveCount(0);
   await openCfoPanel(page);
@@ -413,9 +439,41 @@ test("the report lists what is held first, then how much of each thing the CFO d
   await expect(held.nth(0).locator(".afk-recommends")).toHaveText("The CFO recommends: Hold it.");
   await expect(held.nth(1).locator(".afk-recommends")).toHaveText("nw-checkout-tax recommended: Hold it.");
   await expect(held.nth(1)).toContainText("You answered it: Keep it for now.");
-  await expect(report(page).getByRole("region", { name: "Spent" })).toContainText("claude week: 41% used when it turned on, 49% when it turned off (8 points)");
+  // What was spent is a row for each allowance used: its mark, its name, a
+  // graph with a red arrow at its percent when AFK turned off and a hollow one
+  // where it stood when AFK turned on, and the percents themselves.
+  const spent = report(page).getByRole("region", { name: "Spent" }).locator("li");
+  await expect(spent).toHaveText(["Claude week41% → 49%", "Claude session42% → 3%", "Codex week4%", "Codex credits12.5 spent"]);
+  await expect(spent.nth(0).getByRole("img", { name: "Claude week 41% used at AFK on and 49% at AFK off" })).toBeVisible();
+  await expect(spent.nth(0).locator(".afk-spent-arrow")).toHaveCount(2);
+  await expect(spent.nth(0).locator(".afk-spent-arrow:not(.then)")).toHaveAttribute("style", "left: 49%;");
+  await expect(spent.nth(0).locator(".afk-spent-arrow.then")).toHaveAttribute("style", "left: 41%;");
+  await expect(spent.nth(1).getByRole("img")).toHaveAccessibleName("Claude session 42% used at AFK on and 3% at AFK off after it reset");
+  await expect(spent.nth(2).locator(".afk-spent-arrow")).toHaveCount(1);
+  await expect(spent.nth(3).getByRole("img")).toHaveCount(0);
+  expect(await report(page).getByRole("region", { name: "Spent" }).evaluate((section) => section.textContent)).not.toMatch(/not read|0%/);
 
-  await report(page).getByRole("button", { name: "Back to the board" }).click();
+  // Something it held still waits on him, so its one button at the bottom is
+  // the Command Center, which it opens.
+  const actions = report(page).locator(".afk-report-actions button");
+  await expect(actions).toHaveText(["Open Command Center"]);
+  await expect(actions).toHaveClass(/primary/);
+  await actions.click();
+  await expect(report(page)).toHaveCount(0);
+  await expect(page.locator("dialog.question-modal")).toBeVisible();
+});
+
+test("with nothing it held still waiting on him, the report's one button at the bottom is Back to the board, and with nothing used it has no Spent", async ({ page }) => {
+  await open(page, snapshot({ afk: KEPT }));
+  await page.route("**/api/afk/report", (route) => route.fulfill({ json: { ...REPORT, held: [REPORT.held[1]], spent: [] } }));
+  await openCfoPanel(page);
+  await header(page).getByRole("button", { name: "Open the last AFK report" }).click();
+  await expect(report(page).locator(".afk-tally li").first()).toHaveText("Held for you 1");
+  await expect(report(page).getByRole("region", { name: "Spent" })).toHaveCount(0);
+  const actions = report(page).locator(".afk-report-actions button");
+  await expect(actions).toHaveText(["Back to the board"]);
+  await expect(actions).toHaveClass(/primary/);
+  await actions.click();
   await expect(report(page)).toHaveCount(0);
   await header(page).getByRole("button", { name: "Open the last AFK report" }).click();
   await page.keyboard.press("Escape");

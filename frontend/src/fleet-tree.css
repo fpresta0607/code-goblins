@@ -32,11 +32,9 @@
 .tree-count-words .status-dot { width: 8px; height: 8px; }
 .tree-count-memory { color: #b9cad6; }
 
-/* A goblin's children on the canvas: the count under its card, and when it
-   is open, each child on a branch below it. */
-.tree-branch { position: absolute; display: grid; gap: 8px; justify-items: start; }
-.tree-branch .tree-count { justify-self: center; }
-.tree-branch.closed { justify-items: center; }
+/* Each of a goblin's children as a small card: its baby goblin, what it
+   does, its state and for how long, and its memory; on a rail in the
+   lineage list. */
 .tree-rail { display: grid; gap: 8px; width: 100%; margin: 0; padding: 0 0 0 22px; list-style: none; border-left: 1px solid var(--glass-border-hover); }
 .tree-child { position: relative; display: grid; grid-template-columns: 44px minmax(0, 1fr) auto; align-items: center; gap: 10px; min-height: 60px; padding: 6px 12px 6px 8px; border: 1px solid var(--glass-border); border-radius: var(--radius); background: var(--glass-bg), var(--hero-surface); box-shadow: var(--glass-shadow); }
 .tree-rail .tree-child::before { content: ""; position: absolute; left: -23px; top: 50%; width: 22px; border-top: 1px solid var(--glass-border-hover); }
@@ -48,16 +46,30 @@
 .tree-child-detail { min-width: 0; overflow: hidden; text-overflow: ellipsis; color: var(--muted); font-weight: 600; }
 .tree-memory { font-size: .875rem; font-weight: 700; color: #b9cad6; white-space: nowrap; }
 
+/* A goblin's running children on the canvas: each a baby goblin hanging on
+   a branch under its card, the size fleet-tree.ts lays them out at, or, once
+   the goblin is folded, their count. */
+.tree-branch { position: absolute; display: grid; justify-items: center; }
+.tree-branches { position: absolute; margin: 0; padding: 0; list-style: none; }
+.tree-branches > li { position: absolute; }
+.branch-lines { position: absolute; left: 0; top: 0; overflow: visible; }
+.branch-lines path { fill: none; stroke: #56707f; stroke-width: 2; stroke-linecap: round; }
+.branch-lines circle { fill: #bad4ec; }
+.tree-branches .tree-child { grid-template-columns: minmax(0, 1fr); justify-items: center; align-content: start; gap: 2px; width: 166px; height: 124px; min-height: 0; padding: 8px 8px 6px; text-align: center; }
+.tree-branches .baby-goblin { width: 40px; height: 40px; }
+.tree-branches .tree-child-copy { width: 100%; justify-items: center; }
+.tree-branches .tree-child-copy strong { font-size: .875rem; line-height: 1.25; white-space: normal; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
+.tree-branches .tree-child-copy .plain-status { justify-content: center; max-width: 100%; font-size: .8125rem; }
+.tree-branches .tree-memory { font-size: .8125rem; }
+
 /* The lineage list at phone width: the count under the goblin, its children
    on a rail. */
 .workflow-branch > .tree-lineage { margin: 10px 0 0 12px; display: grid; gap: 8px; justify-items: start; }
 
-/* The goblin's card names a silent child with its last line. */
+/* The goblin's card counts what runs under it; a silent child is named in
+   its panel, not on the card. */
 .card-tree { display: inline-flex; align-items: center; flex-wrap: wrap; gap: 4px 10px; color: #b9cad6; font-size: .9375rem; font-weight: 700; }
 .card-tree .tree-tally { gap: 2px; }
-.card-silent { display: grid; gap: 2px; margin-top: 2px; padding: 6px 10px; border-left: 3px solid var(--amber); border-radius: 6px; background: rgba(243, 197, 120, 0.07); font-size: .9375rem; min-width: 0; }
-.card-silent b { color: #f6d79e; font-weight: 800; overflow-wrap: anywhere; }
-.card-silent code { font-family: var(--font-mono); font-size: .8125rem; color: #e7d3a3; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 
 /* What's working in the goblin's panel. */
 .working-summary { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 18px; margin: 0 0 14px; font-weight: 700; color: #c4d4df; }

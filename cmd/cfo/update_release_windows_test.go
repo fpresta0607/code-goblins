@@ -79,14 +79,14 @@ func (u *updateHome) updateFromRelease(server *releaseServer, installed string, 
 	u.t.Helper()
 	machine := u.t.TempDir()
 	environment := filepath.Join(machine, "user-env.json")
-	values, err := json.Marshal(map[string]string{"CFO_HOME": u.root, "Path": `C:\Windows;` + u.bin})
+	values, err := json.Marshal(map[string]string{"CFO_HOME": u.root, "Path": `C:\Windows;` + u.programs})
 	if err != nil {
 		u.t.Fatal(err)
 	}
 	if err := os.WriteFile(environment, values, 0o600); err != nil {
 		u.t.Fatal(err)
 	}
-	cmd := exec.Command(filepath.Join(u.bin, "cfo.exe"), append([]string{"update"}, arguments...)...)
+	cmd := exec.Command(filepath.Join(u.programs, "cfo.exe"), append([]string{"update"}, arguments...)...)
 	cmd.Dir = u.root
 	cmd.Env = append(os.Environ(), "CFO_TEST_UPDATE_ROOT="+u.root, "CFO_TEST_UPDATE_SERVE_WAIT=8s", "CFO_TEST_HANDOVER_WAIT=2s",
 		"CFO_TEST_VERSION="+installed, release.APIVariable+"="+server.URL+"/latest",
@@ -154,6 +154,31 @@ func TestAnUpdateFromAReleaseInstallsItAndRestartsOnlyTheBoard(t *testing.T) {
 	}
 	if contract, err := os.ReadFile(filepath.Join(u.root, "AGENTS.md")); err != nil || !bytes.Contains(contract, []byte("Chief Fuckaround Officer")) {
 		t.Errorf("the home's contract was not brought up to date (%v)", err)
+	}
+}
+
+// A home whose build is at its root, as a build before bin set it up, takes
+// Update the same way: it runs the goblins.exe at its root, the release
+// installs itself there, and its install then lays the home out with bin.
+func TestAnUpdateFromAReleaseInstallsIntoAHomeWithItsBuildAtItsRoot(t *testing.T) {
+	// Arrange
+	u := newRootUpdateHome(t, "previous", "candidate")
+	oldSupervisor, cfoHost := u.serving()
+	candidate := buildBytes(t, "candidate")
+	server := newReleaseServer(t, "v0.5.0", map[string][]byte{"cfo.exe": candidate})
+
+	// Act
+	code, output := u.updateFromRelease(server, "v0.4.2", nil)
+
+	// Assert
+	u.installedHere(code, output, candidate, oldSupervisor, cfoHost)
+	if !strings.Contains(output, "Updated: Code Goblins v0.5.0 runs.") {
+		t.Errorf("the update did not end on Updated:\n%s", output)
+	}
+	for _, name := range update.Aliases {
+		if got, err := os.ReadFile(filepath.Join(u.bin, name)); err != nil || !bytes.Equal(got, candidate) {
+			t.Errorf("the install did not lay %s out in bin (%v):\n%s", name, err, output)
+		}
 	}
 }
 

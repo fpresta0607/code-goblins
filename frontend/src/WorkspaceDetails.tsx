@@ -1,5 +1,5 @@
 import { useResource } from "./api";
-import { object, string, strings, type Run, type Session, type StartAtLoginView, type Task } from "./types";
+import { object, string, strings, type Run, type Session, type StartAtLoginView, type DevDriveView, type Task } from "./types";
 import { harnessName } from "./workflow";
 import { ownsTaskSession, sessionModel } from "./lineageTree";
 import { harnessMark, modelMark } from "./connectors";
@@ -9,6 +9,7 @@ import { ConnectionsPanel } from "./connections-panel";
 import { EngineSelector } from "./engine-selector";
 import { RawDetails } from "./raw-details";
 import { StartAtLoginSetting } from "./StartAtLoginSetting";
+import { DevDriveSetting } from "./dev-drive-setting";
 
 function parse(value: unknown) {
   const v = object(value);
@@ -24,7 +25,7 @@ function splitModel(model: string): { name: string; basis: string } {
 // Where the work lives and what it runs on: the Workspace and Connections
 // sections of a panel, each closed until it is opened, like the sections
 // below them. The CFO's Workspace also holds Start at login.
-export function WorkspaceDetails({ task, node, runs, instance, startAtLogin, onRepair }: { task?: Task; node?: Session; runs?: Run[]; instance: string; startAtLogin?: StartAtLoginView; onRepair?: (key: string) => void }) {
+export function WorkspaceDetails({ task, node, runs, instance, startAtLogin, devDrive, onRepair }: { task?: Task; node?: Session; runs?: Run[]; instance: string; startAtLogin?: StartAtLoginView; devDrive?: DevDriveView; onRepair?: (key: string) => void }) {
   const child = !!node && !ownsTaskSession(node, task);
   const queued = !!task && !task.generation;
   const isArchived = !!task?.archived;
@@ -37,11 +38,12 @@ export function WorkspaceDetails({ task, node, runs, instance, startAtLogin, onR
   const provider = modelMark(model.name);
   return <>
     <Disclosure kind="workspace-details" title="Workspace">
-      {unlinked ? <p className="muted">No working folder was reported for this session.</p> : isArchived ? <p className="workspace-project">{task?.project || "Project not recorded"}</p> : queued ? <><p className="workspace-project">{task.project || "Project not specified"}</p><p className="muted">Not started yet.</p></> : resource.error ? <div role="alert"><p>The workspace could not be read.</p><RawDetails lines={[resource.error]} /></div> : !details ? <p className="loading" role="status">Reading workspace…</p> : <>
+      {unlinked ? <p className="muted">No working folder.</p> : isArchived ? <p className="workspace-project">{task?.project || "Project not recorded"}</p> : queued ? <><p className="workspace-project">{task.project || "Project not specified"}</p><p className="muted">Not started yet.</p></> : resource.error ? <div role="alert"><p>The workspace could not be read.</p><RawDetails lines={[resource.error]} /></div> : !details ? <p className="loading" role="status">Reading workspace…</p> : <>
         <dl>{[["Repository", details.repository], ["Branch", details.branch], [child ? "Owning task folder" : task ? "Working folder" : "CFO project root", details.root]].filter(([, value]) => value).map(([label, value]) => <div key={label}><dt>{label}</dt><dd>{value}</dd></div>)}</dl>
         {details.notes.map((note) => <p key={note}>{note}</p>)}
       </>}
       {!task && !node && startAtLogin && <StartAtLoginSetting setting={startAtLogin} instance={instance} />}
+      {!task && !node && devDrive && <DevDriveSetting drive={devDrive} instance={instance} />}
     </Disclosure>
     <Disclosure kind="connections" title="Connections">
       {task && !child ? <EngineSelector key={task.id + task.generation} task={task} instance={instance} /> : <ul className="connection-list" aria-label="Harness and model">

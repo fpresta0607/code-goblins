@@ -307,6 +307,28 @@ test("while the request's terminal is open the card says so and takes no save or
   await expect(card.getByRole("button", { name: "Run in a terminal on this PC" })).toBeDisabled();
 });
 
+// The terminal runs on the card itself, where he types each value, on the
+// board on this PC.
+test("the request's terminal runs on its card, where he types each value", async ({ page }) => {
+  // Arrange
+  const views: string[] = [];
+  await page.routeWebSocket("**/api/terminal/native?*", (socket) => {
+    views.push(socket.url());
+    socket.send(JSON.stringify({ type: "history", bytes: 0 }));
+  });
+  await answer(page);
+  const card = await openCard(page);
+
+  // Act
+  await page.evaluate((id) => window.board?.runs([{ id: "credential-1", identity: "c".repeat(64), title: "Type STRIPE_SECRET_KEY", shell: "powershell", state: "running", terminal: true, created_at: "2026-10-01T03:10:00Z", credential_request: id, credential_names: ["STRIPE_SECRET_KEY"] }]), STRIPE);
+
+  // Assert
+  await expect(card.locator(".credential-terminal-open")).toContainText("Type each value in the terminal below");
+  await expect(card.getByRole("region", { name: "Terminal of Type STRIPE_SECRET_KEY" })).toBeVisible();
+  await expect.poll(() => views.map((url) => new URL(url).searchParams.get("run"))).toContain("credential-1");
+  await expect(card.getByRole("button", { name: "Save" })).toBeDisabled();
+});
+
 test("a board opened from another machine shows no value field and no Run, only the commands to copy", async ({ page }) => {
   // Arrange: the board takes values only under 127.0.0.1, localhost or ::1,
   // and this origin is none of them.

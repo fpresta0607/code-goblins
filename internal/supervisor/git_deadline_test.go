@@ -11,6 +11,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/fpresta0607/code-goblins/internal/host"
 )
 
 const CUSTODY_GIT_PHASE_VARIABLE = "CFO_TEST_CUSTODY_GIT_PHASE"
@@ -35,6 +37,15 @@ func TestMain(m *testing.M) {
 	}
 	if stateDir := os.Getenv(lockHolderVariable); stateDir != "" {
 		os.Exit(holdWatcherLock(stateDir, os.Getenv(lockHolderModeVariable)))
+	}
+	// A run item's launcher starts this binary as cfo host, which hosts the
+	// item's terminal as cfo host does.
+	if os.Getenv(runHostVariable) != "" && len(os.Args) > 1 && os.Args[1] == "host" {
+		if err := host.RunArgs(os.Args[2:]); err != nil {
+			fmt.Fprintln(os.Stderr, err)
+			os.Exit(1)
+		}
+		os.Exit(0)
 	}
 	os.Exit(m.Run())
 }

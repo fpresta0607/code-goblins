@@ -300,7 +300,7 @@ export class TerminalView {
   private readonly pasteClipboard = (event: ClipboardEvent): void => {
     event.preventDefault();
     event.stopImmediatePropagation();
-    const input = clipboardInput(event);
+    const input = clipboardInput(event, this.events.harness());
     if (input && "text" in input) this.paste(input.text);
     else if (input) this.term.input(input.key, true);
   };
