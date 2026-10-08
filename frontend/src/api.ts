@@ -35,6 +35,23 @@ export async function announce(instance: string, keys: string[]): Promise<string
     return Array.isArray(claimed) ? claimed.filter((key): key is string => typeof key === "string") : null;
   } catch { return null; }
 }
+// The supervisor instance this board talks to, from its latest snapshot: a
+// report to the CFO carries it, as every board action does.
+let instance = "";
+export function knowInstance(id: string): void { instance = id; }
+
+// reportToCfo gives the CFO a failure only this board saw, such as a
+// clipboard or a microphone it could not use or a read that failed, rather
+// than showing it to the Overlord: the Overlord, 2026-10-08, "everything error
+// wise goes to cfo and cfo decides what to tell me in command center". A
+// refusal of his own click is said beside it for a moment (ClickFeedback),
+// and the supervisor's own errors reach the CFO from the supervisor. A
+// report that cannot be sent has nowhere else to go.
+export function reportToCfo(where: string, text: string): void {
+  if (!instance || !text.trim()) return;
+  fetch("/api/cfo/report", { method: "POST", headers: { "Content-Type": "application/json", "X-CFO-Token": instance }, body: JSON.stringify({ where, text }) }).catch(() => undefined);
+}
+
 export function message(error: unknown): string {
   return error instanceof Error ? error.message : "Request failed";
 }
@@ -57,8 +74,9 @@ export function useResource<T>(
         if (!controller.signal.aborted) setResult({ path, data });
       })
       .catch((error: unknown) => {
-        if (!controller.signal.aborted)
-          setResult({ path, error: message(error) });
+        if (controller.signal.aborted) return;
+        reportToCfo("reading " + path, message(error));
+        setResult({ path, error: message(error) });
       });
     return () => controller.abort();
   }, [path, parse, version]);

@@ -120,13 +120,16 @@ type Options struct {
 }
 
 type Service struct {
-	Store                *Store
-	Options              Options
-	Git                  Git
-	Instance             string
-	Started              time.Time
-	mu                   sync.Mutex
-	lastError            string
+	Store     *Store
+	Options   Options
+	Git       Git
+	Instance  string
+	Started   time.Time
+	mu        sync.Mutex
+	lastError string
+	// boardErrors keeps an error the board would have shown the Overlord
+	// from waking the CFO more than once an hour (board_errors.go).
+	boardErrors          boardErrors
 	isNativeInboxFailing bool
 	nativeInboxRepair    error
 	reconciled           time.Time
@@ -1002,8 +1005,8 @@ type Task struct {
 	// ReportedAt is when the goblin wrote its latest report, so the board
 	// can tell whether it reported since an answer it was given.
 	ReportedAt time.Time `json:"reported_at"`
-	Handoff       bool      `json:"handoff"`
-	RetiredAt     time.Time `json:"retired_at"`
+	Handoff    bool      `json:"handoff"`
+	RetiredAt  time.Time `json:"retired_at"`
 	// Archived marks completed history rather than a live task, Merged that
 	// its pull request merged into its base, and Closed that GitHub closed it
 	// without merging.
