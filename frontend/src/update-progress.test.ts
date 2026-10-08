@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { releaseBanner, updateOutcome, updateProgress, updateSucceededRecently } from "./update-progress.ts";
+import { updateOutcome, updateProgress, updateSucceededRecently } from "./update-progress.ts";
 import { parseSnapshot, type Run } from "./types.ts";
 
 const offer = { from: "v0.4.2", to: "v0.5.0", page: "https://github.com/fpresta0607/code-goblins/releases/tag/v0.5.0", published: "2026-10-06T14:02:00Z", notes: ["An update arrives in the Command Center"], signing: "unsigned", publisher: "", sum: "3f9a" };
@@ -76,20 +76,4 @@ test("a board update counts as recent only when its item succeeded in the last t
   const withoutRuns = snapshot([]);
   delete withoutRuns.runs;
   assert.equal(updateSucceededRecently(withoutRuns, now), false, "a snapshot without runs");
-});
-
-test("the banner points to the update while one waits, and to the clone's steps for a board built from source", () => {
-  const snapshot = (changes: Record<string, unknown>) => parseSnapshot({ instance: "i", healthy: true, tasks: [], ...changes });
-  const available = { installed: "v0.4.2", tag: "v0.5.0", page: offer.page, published: offer.published, source: false };
-  const cases: [string, ReturnType<typeof snapshot>, string, ReturnType<typeof releaseBanner>][] = [
-    ["nothing published", snapshot({}), "", null],
-    ["an update waits", snapshot({ release: available, runs: [run({})] }), "", { kind: "update", tag: "v0.5.0", installed: "v0.4.2", page: offer.page, item: "run:update-v0.5.0-1" }],
-    ["an update runs", snapshot({ release: available, runs: [run({ state: "running" })] }), "", { kind: "update", tag: "v0.5.0", installed: "v0.4.2", page: offer.page, item: "run:update-v0.5.0-1" }],
-    ["no item for it yet", snapshot({ release: available }), "", null],
-    ["hidden until the next version", snapshot({ release: available, runs: [run({})] }), "v0.5.0", null],
-    ["hidden for an older version", snapshot({ release: available, runs: [run({})] }), "v0.4.9", { kind: "update", tag: "v0.5.0", installed: "v0.4.2", page: offer.page, item: "run:update-v0.5.0-1" }],
-    ["a board built from source", snapshot({ release: { ...available, installed: "main-8c10c45b", source: true } }), "", { kind: "source", tag: "v0.5.0", installed: "main-8c10c45b", page: offer.page, item: "" }],
-    ["AFK mode", snapshot({ release: available, runs: [run({})], afk: { state: "on" } }), "", null],
-  ];
-  for (const [name, given, hidden, want] of cases) assert.deepEqual(releaseBanner(given, hidden), want, name);
 });

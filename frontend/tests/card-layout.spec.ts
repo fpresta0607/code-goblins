@@ -1,4 +1,4 @@
-import { expect, test, type Locator, type Page } from "./site";
+import { expect, holdStream, test, type Locator, type Page } from "./site";
 
 declare global {
   interface Window { tipOutlived?: Promise<number> }
@@ -255,7 +255,8 @@ test("a card's tip is gone as soon as the pointer leaves the part it names", asy
 test("a card's tip shows on keyboard focus, clear of the card, and goes with the focus", async ({ page }) => {
   await board(page, 1000);
   const shell = page.locator(".task-card-shell").filter({ has: page.locator(".card-pr[href$='/205']") });
-  await shell.locator(".card-pr").focus();
+  // The terminal button comes after the card's other controls.
+  await shell.getByRole("button", { name: /^Stop / }).focus();
   await page.keyboard.press("Tab");
   const terminal = shell.getByRole("button", { name: /^Open the terminal of / });
   await expect(terminal).toBeFocused();
@@ -275,7 +276,7 @@ test("a keyboard-focused part's tip follows its card when the page scrolls", asy
   const shell = page.locator(".task-card-shell").filter({ has: page.locator(".card-pr[href$='/205']") });
   // The screen is shorter than the board, so the page has room to scroll.
   await page.setViewportSize({ width: 1000, height: 1000 });
-  await shell.locator(".card-pr").focus();
+  await shell.getByRole("button", { name: /^Stop / }).focus();
   await page.keyboard.press("Tab");
   const terminal = shell.getByRole("button", { name: /^Open the terminal of / });
   await expect(terminal).toBeFocused();
@@ -352,4 +353,41 @@ test("a card shows its harness mark with the harness, model and effort in its ti
   await expect(mark).toHaveAttribute("aria-label", "Codex · gpt-6-astra · xhigh");
   await expect(mark).toHaveAttribute("data-tip", "Codex · gpt-6-astra · xhigh");
   await expect(mark.locator("svg path")).toHaveCount(1);
+});
+
+// The Overlord, 2026-10-07: "format and indent can fill whole box why so
+// uneven". In his window, beside the CFO's panel, a live card's lines under
+// its title start at the card's left edge, and its controls, Update among
+// them, sit on one row with its harness mark.
+test.describe("in his window, beside the CFO's panel", () => {
+  test.use({ viewport: { width: 1707, height: 1067 }, deviceScaleFactor: 1.5 });
+
+  test("a live card uses its whole width and keeps its controls on one row", async ({ page }) => {
+    // Arrange
+    const live = { id: "cg-board-trim", title: "Trim the board's header, meters and cards", project: "code-goblins", phase: "working", verified: false, generation: "g1", since: "2026-10-07T20:00:00Z", harness: "claude", harness_update: { harness: "claude", installed: "2026-10-07T20:30:00Z" } };
+    await holdStream(page, { healthy: true, instance: "fixture", cfo_runs: true, cfo_harness: "claude", revision: 1, attention: [], tasks: [live] });
+    await page.route("**/api/**", (route) => route.fulfill({ status: 404, json: { error: "No fixture for this resource" } }));
+    await page.goto("/");
+    await page.keyboard.press("Control+Alt+1");
+    const shell = page.locator(".task-card-shell").filter({ hasText: "Trim the board's" });
+    await expect(shell).toBeVisible();
+
+    // Act
+    const layout = await shell.evaluate((card) => {
+      const inner = card.querySelector(".task-card")!.getBoundingClientRect();
+      const rows = [...card.querySelectorAll<HTMLElement>(".task-controls > button")].map((button) => Math.round(button.getBoundingClientRect().top));
+      const mark = card.querySelector(".card-harness")!.getBoundingClientRect(), first = card.querySelector(".task-controls > button")!.getBoundingClientRect();
+      return {
+        controls: rows.length,
+        rows: new Set(rows).size,
+        markOnTheRow: mark.top < first.bottom && mark.bottom > first.top,
+        metaAtTheLeft: Math.round(card.querySelector(".card-meta")!.getBoundingClientRect().left - inner.left),
+      };
+    });
+
+    // Assert: Update, Pause, Stop and the terminal, one row, the mark beside them.
+    expect(layout).toEqual({ controls: 4, rows: 1, markOnTheRow: true, metaAtTheLeft: 0 });
+    await expect(shell.getByRole("button", { name: /^Pause / })).toBeVisible();
+    await expect(shell.getByRole("button", { name: /^Stop / })).toBeVisible();
+  });
 });

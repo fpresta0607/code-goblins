@@ -67,7 +67,7 @@ export function RunCard({ run, goblin, connected, sending, error, onRun, pager }
         <button className="primary run-button" type="button" disabled={!connected || sending} onClick={onRun}><Icon name="play" />{runLabel(run.shell, run.admin)}</button>
       </>}
     </div>}
-    {running && !captured && <p className="muted">It runs in its own window, which stays open for you; its output stays there.</p>}
+    {running && !captured && <p className="muted">It runs in its own window, which stays open for you. Its output stays there.</p>}
     {captured && (running || run.output) && <section className="run-terminal" aria-label="Command output">
       <header><span>{running ? "Running" : "Output"}</span>{run.exit_code !== null && <span className={"exit-code" + (run.exit_code === 0 ? " succeeded" : " failed")}>exit {run.exit_code}</span>}</header>
       <pre ref={screen} className="run-output">{output || (running ? "Waiting for output" : "")}</pre>

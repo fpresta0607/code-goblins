@@ -56,19 +56,3 @@ export function updateSucceededRecently(snapshot: Snapshot | null, now: number):
     return !!run.update && run.state === "succeeded" && elapsed >= 0 && elapsed <= UPDATE_RELOAD_WINDOW_MS;
   });
 }
-
-export interface ReleaseBanner { kind: "update" | "source"; tag: string; installed: string; page: string; item: string }
-
-// releaseBanner is the slim line under the board's header while a newer
-// release waits: one that points to its Update item, or, on a board built
-// from a clone, one that says the clone updates it. It says nothing in AFK
-// mode, nothing once hidden for this version, and nothing for an update with
-// no item to point to.
-export function releaseBanner(snapshot: Snapshot, hidden: string): ReleaseBanner | null {
-  const release = snapshot.release;
-  if (!release || hidden === release.tag || snapshot.afk.state === "on") return null;
-  const base = { tag: release.tag, installed: release.installed, page: release.page };
-  if (release.source) return { kind: "source", ...base, item: "" };
-  const run = (snapshot.runs || []).find((candidate) => candidate.update?.to === release.tag && (candidate.state === "ready" || candidate.state === "running"));
-  return run ? { kind: "update", ...base, item: "run:" + run.id } : null;
-}

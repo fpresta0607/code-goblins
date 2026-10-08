@@ -28,7 +28,7 @@ export function CfoUpdate({ snapshot, onProblem }: { snapshot: Snapshot; onProbl
       setSending(false);
     }
   };
-  const tip = update.pending ? "Take the update back" : name + " was updated. Restart the CFO onto it at its next stopping point; its conversation is kept.";
+  const tip = update.pending ? "Take the update back" : name + " was updated. Restart the CFO onto it at its next stopping point. Its conversation is kept.";
   return <button className={"harness-update" + (update.pending ? " pending" : "")} aria-label={update.pending ? "Cancel the " + name + " update" : "Update " + name} data-tip={tip} data-tip-align="end" disabled={isSending} onClick={() => void press()}>
     <Icon name={update.pending ? "clock" : "download"} />{update.pending ? "Cancel update" : "Update"}
   </button>;

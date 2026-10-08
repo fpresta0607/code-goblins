@@ -126,7 +126,7 @@ test("the CFO panel's header carries the AFK toggle beside its status: off at re
   await expect(header(page).getByRole("switch")).toHaveCount(1);
   await expect(toggle(page)).toHaveText("AFK");
   await expect(toggle(page)).toHaveAttribute("aria-checked", "false");
-  await expect(bar(page).locator(".cfo-rest")).toContainText("All quiet. The CFO supervises 3 goblins.");
+  await expect(bar(page).locator(".cfo-rest")).toContainText("All quiet. 3 goblins at work.");
 
   // On asks, with the focus on Cancel: Enter alone turns nothing on.
   await toggle(page).click();

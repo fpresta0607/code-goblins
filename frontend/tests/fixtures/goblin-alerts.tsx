@@ -36,10 +36,10 @@ function Page() {
   const center = () => { setSaid("opened the Command Center"); setFocus({ key: "", at: Date.now() }); };
   return <main style={{ display: "grid", alignContent: "start", gap: 28, minHeight: "100vh", boxSizing: "border-box", padding: 24, background: "linear-gradient(#07101565, #07101565), url('/assets/goblin-workshop.png') right bottom / cover" }}>
     <section className="task-board" aria-label="Task board">
-      <CfoPin snapshot={asking} onOpen={terminal} onCommand={center} onStart={() => setSaid("started the CFO")} />
+      <CfoPin snapshot={asking} now={Date.now()} onOpen={terminal} onCommand={center} onStart={() => setSaid("started the CFO")} />
       <section className="board-column" aria-label="Working"><h2>Working</h2></section>
     </section>
-    <CfoPin snapshot={quiet} onOpen={terminal} onCommand={center} onStart={() => setSaid("started the CFO")} />
+    <CfoPin snapshot={quiet} now={Date.now()} onOpen={terminal} onCommand={center} onStart={() => setSaid("started the CFO")} />
     <output aria-label="Opened">{said}</output>
     <Alerts snapshot={snapshot} onOpen={(key) => setSaid("opened the Command Center at " + key)} />
     <CommandCenter snapshot={reviewing} connected presentations={[]} focus={focus} onUnsent={ignore} />
