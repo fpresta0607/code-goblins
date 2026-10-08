@@ -29,5 +29,7 @@ export function showMoreLabel(expanded: boolean, overflowing: boolean): "Show mo
 export function panelViews(task?: Task, node?: Session): PanelView[] {
   if (task && sessionEnd(task)) return ["task", "terminal"];
   if (task && (task.archived || ["pausing", "stopping"].includes(task.phase))) return ["task"];
-  return task && !task.generation && !node ? ["task"] : ["task", "terminal"];
+  // A queued task whose Start is on its way takes a message in its Terminal
+  // view until its terminal is up.
+  return task && !task.generation && !task.starting && !node ? ["task"] : ["task", "terminal"];
 }

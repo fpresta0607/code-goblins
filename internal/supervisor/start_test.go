@@ -23,13 +23,15 @@ import (
 
 const gigabyte = 1 << 30
 
-// spawnRecorder stands in for cfo spawn: it records each call and answers
-// with the outcome the test gives it, after release when release is set.
+// spawnRecorder stands in for cfo spawn: it records each call, does what
+// during does, as cfo writes a task's record before it ends, and answers with
+// the outcome the test gives it, after release when release is set.
 type spawnRecorder struct {
 	mu      sync.Mutex
 	calls   [][]string
 	output  string
 	err     error
+	during  func(args []string)
 	release chan struct{}
 }
 
@@ -37,6 +39,9 @@ func (r *spawnRecorder) spawn(_ context.Context, args []string) (string, error) 
 	r.mu.Lock()
 	r.calls = append(r.calls, args)
 	r.mu.Unlock()
+	if r.during != nil {
+		r.during(args)
+	}
 	if r.release != nil {
 		<-r.release
 	}
@@ -76,13 +81,13 @@ func diskWithFree(free uint64) Disk {
 
 // Start under the disk floor dispatches nothing, and its refusal names what is
 // free and the floor; at the floor exactly it starts.
-func TestStartUnderTheDiskFloorIsRefusedNamingTheFreeSpaceAndTheFloor(t *testing.T) {
+func TestStartUnderTheDiskFloorWaitsItsTurnAndStartsAtTheFloor(t *testing.T) {
 	tests := []struct {
-		name    string
-		free    uint64
-		refused bool
+		name      string
+		free      uint64
+		isWaiting bool
 	}{
-		{name: "under the floor", free: 14*gigabyte + 900*1024*1024, refused: true},
+		{name: "under the floor", free: 14*gigabyte + 900*1024*1024, isWaiting: true},
 		{name: "at the floor", free: 15 * gigabyte},
 	}
 	for _, test := range tests {
@@ -95,22 +100,17 @@ func TestStartUnderTheDiskFloorIsRefusedNamingTheFreeSpaceAndTheFloor(t *testing
 
 			// Act
 			response := postStart(handler, `{"task":"next-task"}`, "board.local", "http://board.local", orderToken)
-			if response.Code == 202 {
+			card := cardOf(t, handler, "next-task")
+			if !test.isWaiting {
 				waitStarted(t, handler, "next-task")
 			}
 
 			// Assert
-			if !test.refused {
-				if response.Code != 202 {
-					t.Fatalf("start=%d %s, want the task started at the floor", response.Code, response.Body)
-				}
-				return
+			if response.Code != 202 {
+				t.Fatalf("start=%d %s, want it accepted", response.Code, response.Body)
 			}
-			if response.Code != 409 || !strings.Contains(response.Body.String(), "free disk on C: is 14.9 GB, under the 15 GB disk floor") {
-				t.Fatalf("start=%d %s, want a refusal naming the free disk and the floor", response.Code, response.Body)
-			}
-			if calls := spawner.recorded(); len(calls) != 0 {
-				t.Fatalf("the refused start dispatched %v", calls)
+			if calls := spawner.recorded(); test.isWaiting != (len(calls) == 0) || test.isWaiting && (!card.Asked || !card.Starting) {
+				t.Fatalf("cfo ran %v and the card shows %+v, want it waiting its turn %v", calls, card, test.isWaiting)
 			}
 		})
 	}
@@ -177,11 +177,14 @@ func TestSnapshotDoesNotWaitForAStartReadingMachineMemory(t *testing.T) {
 		}
 	}
 	end()
-	if err := <-startFinished; err == nil {
-		t.Error("a failed memory reading started the task")
+	if err := <-startFinished; err != nil {
+		t.Errorf("the Start was refused: %v", err)
 	}
-	if len(handler.Service.changing) != 0 || handler.Service.starting != "" {
-		t.Error("a refused Start kept its reservation")
+	if card := cardOf(t, handler, "next-task"); card.Starting || card.Asked || !strings.Contains(card.StartError, "memory reading failed") {
+		t.Errorf("card = %+v, want the failed memory reading on it and nothing starting", card)
+	}
+	if len(handler.Service.changing) != 0 || handler.Service.starting != "" || len(handler.Service.asked) != 0 {
+		t.Error("a failed Start kept its reservation")
 	}
 }
 
@@ -211,8 +214,8 @@ func TestSharedSnapshotStopsShowingAStartRefusedAfterItsMemoryRead(t *testing.T)
 	if index := slices.IndexFunc(during.Tasks, func(task Task) bool { return task.ID == "next-task" }); index < 0 || !during.Tasks[index].Starting {
 		t.Fatalf("the snapshot built while Start read memory does not show it starting: %+v", during.Tasks)
 	}
-	if err := <-startFinished; err == nil {
-		t.Fatal("a failed memory reading started the task")
+	if err := <-startFinished; err != nil {
+		t.Fatalf("the Start was refused: %v", err)
 	}
 
 	// Act
@@ -306,9 +309,6 @@ func TestStartRefusesWithAClearReason(t *testing.T) {
 		want      string
 		passing   bool
 	}{
-		{name: "memory just under the 5 GB start mark reads under it", available: 5*gigabyte - gigabyte/40, row: "- **next-task** - Ship it", brief: plainBrief, body: `{"task":"next-task"}`, want: "Only 4.9 GB of memory is free", passing: true},
-		{name: "memory just under the 4 GB floor reads under it", available: 4*gigabyte - 1, row: "- **next-task** - Ship it", brief: plainBrief, body: `{"task":"next-task"}`, want: "Only 3.9 GB of memory is free", passing: true},
-		{name: "memory under the 4 GB floor", available: 3*gigabyte + gigabyte/2, row: "- **next-task** - Ship it", brief: plainBrief, body: `{"task":"next-task"}`, want: "3.5 GB of memory is free; Start needs 5 GB to keep the 4 GB floor", passing: true},
 		{name: "no brief or project", available: 16 * gigabyte, row: "- **next-task** - Ship it", body: `{"task":"next-task"}`, want: "names no project"},
 		{name: "a task that already runs", available: 16 * gigabyte, row: "- **next-task** - Ship it", brief: plainBrief, live: true, body: `{"task":"next-task"}`, want: "already runs"},
 		{name: "a task nothing queued", available: 16 * gigabyte, row: "- **other** - Other", body: `{"task":"next-task"}`, want: "is not queued"},
@@ -345,16 +345,15 @@ func TestStartRefusesWithAClearReason(t *testing.T) {
 	}
 }
 
-func TestStartNeedsFiveGigabytesOfBothMemoryAndCommitAndNamesWhatIsShort(t *testing.T) {
+func TestAStartWaitsItsTurnForFiveGigabytesOfBothMemoryAndCommit(t *testing.T) {
 	tests := []struct {
 		name              string
 		available, commit uint64
-		want, notWant     string
 	}{
-		{name: "memory short", available: 3*gigabyte + gigabyte/2, commit: 40 * gigabyte, want: "Only 3.5 GB of memory is free; Start needs 5 GB to keep the 4 GB floor", notWant: "commit"},
-		{name: "commit short", available: 16 * gigabyte, commit: 2*gigabyte + gigabyte/2, want: "Only 2.5 GB of commit (RAM plus page file) is free; Start needs 5 GB to keep the 4 GB floor", notWant: "of memory"},
-		{name: "commit just under the 5 GB start mark reads under it", available: 16 * gigabyte, commit: 5*gigabyte - gigabyte/40, want: "Only 4.9 GB of commit (RAM plus page file) is free", notWant: "of memory"},
-		{name: "both short", available: 3*gigabyte + gigabyte/2, commit: 2*gigabyte + gigabyte/2, want: "Only 3.5 GB of memory and 2.5 GB of commit (RAM plus page file) are free; Start needs 5 GB to keep the 4 GB floor"},
+		{name: "memory short", available: 3*gigabyte + gigabyte/2, commit: 40 * gigabyte},
+		{name: "commit short", available: 16 * gigabyte, commit: 2*gigabyte + gigabyte/2},
+		{name: "commit just under the 5 GB start mark reads under it", available: 16 * gigabyte, commit: 5*gigabyte - gigabyte/40},
+		{name: "both short", available: 3*gigabyte + gigabyte/2, commit: 2*gigabyte + gigabyte/2},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
@@ -367,15 +366,11 @@ func TestStartNeedsFiveGigabytesOfBothMemoryAndCommitAndNamesWhatIsShort(t *test
 			response := postStart(handler, `{"task":"next-task"}`, "board.local", "http://board.local", orderToken)
 
 			// Assert
-			refusal := decodeRefusal(t, response)
-			if response.Code != 409 || !strings.Contains(refusal.Error, test.want) || !refusal.Passing {
-				t.Fatalf("start = %d %s, want a passing 409 saying %q", response.Code, response.Body, test.want)
-			}
-			if test.notWant != "" && strings.Contains(refusal.Error, test.notWant) {
-				t.Fatalf("refusal %q names %q, which is not short", refusal.Error, test.notWant)
+			if card := cardOf(t, handler, "next-task"); response.Code != 202 || !card.Asked || !card.Starting {
+				t.Fatalf("start = %d %s, card = %+v, want it accepted and waiting its turn", response.Code, response.Body, card)
 			}
 			if calls := spawner.recorded(); len(calls) != 0 {
-				t.Fatalf("a refused start ran cfo spawn %v", calls)
+				t.Fatalf("a start waiting for memory ran cfo spawn %v", calls)
 			}
 		})
 	}
@@ -545,26 +540,6 @@ func TestStartRetryAnswersARevisionFromWhichTheOldFailureIsGone(t *testing.T) {
 		if task.ID == "next-task" && (task.StartError != "" || !task.Starting) {
 			t.Fatalf("card = %+v, want it starting without the old failure", task)
 		}
-	}
-}
-
-func TestStartTakesOneTaskAtATime(t *testing.T) {
-	// Arrange
-	spawner := &spawnRecorder{release: make(chan struct{})}
-	handler, h := startBoard(t, 16*gigabyte, spawner)
-	queueBriefedTask(t, h, "- **next-task** - Ship it\n- **second** - Also", plainBrief)
-	writeFile(t, filepath.Join(h.Data, "second", "brief.md"), plainBrief)
-
-	// Act
-	first := postStart(handler, `{"task":"next-task"}`, "board.local", "http://board.local", orderToken)
-	second := postStart(handler, `{"task":"second"}`, "board.local", "http://board.local", orderToken)
-	close(spawner.release)
-	waitStarted(t, handler, "next-task")
-
-	// Assert
-	refusal := decodeRefusal(t, second)
-	if first.Code != 202 || second.Code != 409 || !strings.Contains(refusal.Error, "next-task is starting") || !refusal.Passing {
-		t.Fatalf("starts = %d, %d %s; want the second refused while the first starts, passing once it is up", first.Code, second.Code, second.Body)
 	}
 }
 

@@ -126,7 +126,22 @@ func (h *HTTP) nativeTerminal(w http.ResponseWriter, r *http.Request) {
 		_ = view.Close(websocket.StatusPolicyViolation, "Values are typed only on the board's own page on this PC.")
 		return
 	}
-	record, err := host.ReadRecord(binding.dir, binding.id)
+	// A goblin's session shows on the board as soon as its start or resume
+	// writes it, a second or more before its terminal's host runs, so its
+	// view waits for the host while the start or resume runs.
+	var record host.Record
+	for {
+		isLaunching := binding.isLaunching != nil && binding.isLaunching()
+		record, err = host.ReadRecord(binding.dir, binding.id)
+		if err == nil || !isLaunching {
+			break
+		}
+		select {
+		case <-r.Context().Done():
+			return
+		case <-time.After(launchWatchEvery):
+		}
+	}
 	if err != nil {
 		_ = view.Close(websocket.StatusPolicyViolation, "No terminal is running for "+binding.name+".")
 		return
@@ -334,11 +349,13 @@ func (h *HTTP) nativeTerminal(w http.ResponseWriter, r *http.Request) {
 // repeats what opening it proved: it returns an error once the view must
 // close, and custody, the reason typing is held while a gate owns the task.
 // A view of a terminal where values are typed opens only on the board's own
-// page on this PC.
+// page on this PC. isLaunching, when set, says the terminal's host may not run
+// yet because its goblin starts or resumes now.
 type nativeBinding struct {
 	id, name, dir, key string
 	isLocalOnly        bool
 	check              func(ctx context.Context) (custody, err error)
+	isLaunching        func() bool
 }
 
 func (s *Service) nativeBinding(query url.Values) (nativeBinding, error) {
@@ -384,6 +401,10 @@ func (s *Service) nativeBinding(query url.Values) (nativeBinding, error) {
 			return nil, err
 		}
 		return s.validateTerminalControl(ctx, current), nil
+	}, isLaunching: func() bool {
+		s.starts.Lock()
+		defer s.starts.Unlock()
+		return s.starting == meta.ID || s.changing[meta.ID] == "resume"
 	}}, nil
 }
 

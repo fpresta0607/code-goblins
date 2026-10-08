@@ -61,6 +61,12 @@ type Request struct {
 	// It runs only once the id is proven free, because the alias check
 	// refuses any existing directory of the id, this spawn's own included.
 	Capsule func(taskTmp string) (briefPath string, err error)
+	// BeforeLaunch, when set, is the last word before the goblin's terminal
+	// launches: a check its caller began at once and answers only now, such
+	// as who else works in the task's area, so its seconds of reading run
+	// beside the start rather than before it. Its error refuses the start,
+	// which is taken down leaving no trace of a task.
+	BeforeLaunch func() error
 }
 
 // Result contains the exact published task identity and user-facing outcome.
@@ -397,6 +403,14 @@ func (s Service) Spawn(ctx context.Context, req Request) (result Result, err err
 	// Every goblin is told to report its outcome through cfo notify, so the
 	// CFO is woken with the actual PR URL, question, or failure reason instead
 	// of the watcher guessing from its screen.
+	if req.BeforeLaunch != nil {
+		if err := req.BeforeLaunch(); err != nil {
+			if teardownErr := s.teardownLaunch(ctx, nativeHost, project, wt.Path, scratch, result.Meta.ID); teardownErr != nil {
+				return result, errors.Join(err, teardownErr)
+			}
+			return result, err
+		}
+	}
 	launch.Instruction = spawnInstruction(req.BriefPath, result.Meta, provision.Install)
 	if selection != nil {
 		launch.Instruction += selection.Instruction(req.ID, filepath.Join(taskTmp, "pipeline.json"))

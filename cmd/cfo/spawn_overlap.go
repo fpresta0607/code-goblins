@@ -77,6 +77,18 @@ func warnIncompleteCheck(stderr io.Writer, unread []string) {
 	fmt.Fprintf(stderr, "cfo spawn: the check for teammates' work was incomplete, %s not read: %s\n", count, strings.Join(shown, "; "))
 }
 
+// teammateRead is what the read of who else works in a task's area found:
+// the overlaps, what it could not read, and why it failed.
+type teammateRead struct {
+	overlap tickets.Overlaps
+	unread  []string
+	err     error
+}
+
+// errOverlapRefused is a start refused before its terminal launched because a
+// teammate has work in its area, which refuseOverlap has said.
+var errOverlapRefused = errors.New("cfo spawn: a teammate has work in flight where this task works")
+
 // refuseOverlap says what a teammate has in flight in the task's area and
 // how the CFO starts the task beside it.
 func refuseOverlap(stderr io.Writer, overlap tickets.Overlaps) {

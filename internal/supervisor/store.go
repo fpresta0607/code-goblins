@@ -18,6 +18,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/fpresta0607/code-goblins/internal/fleet"
 	"github.com/fpresta0607/code-goblins/internal/fsx"
 	"github.com/fpresta0607/code-goblins/internal/home"
 	"github.com/fpresta0607/code-goblins/internal/nativehook"
@@ -532,13 +533,14 @@ func (s *Store) queue(a Action) (Action, error) {
 	answer := a.Kind == "cfo_answer" || a.Kind == "goblin_answer"
 	change := a.Kind == "answer_change"
 	item := a.Kind == "review_answer" || a.Kind == "review_clear" || a.Kind == "question_clear" || a.Kind == "run" || a.Kind == "run_stop"
+	message := a.Kind == "message"
 	if !item && a.RunID != "" {
 		return Action{}, errors.New("only a run action names a run item")
 	}
 	if !answer && !change && a.AnswerKind != "" {
 		return Action{}, errors.New("answer kind is only valid for a question")
 	}
-	if a.Kind != "evaluate" && a.Kind != "review" && !answer && !change && !item {
+	if a.Kind != "evaluate" && a.Kind != "review" && !answer && !change && !item && !message {
 		return Action{}, errors.New("unsupported action; task lifecycle cannot be dragged or assigned")
 	}
 	if len(a.Text) > 16000 || len(a.File) > 4096 {
@@ -560,6 +562,27 @@ func (s *Store) queue(a Action) (Action, error) {
 		if a.QuestionID == "" {
 			return Action{}, errors.New("invalid user question context")
 		}
+	} else if message && a.TaskID == "" {
+		// A message to the CFO goes to whichever CFO runs when it is
+		// delivered, so it names none.
+		if a.Generation != "" || a.File != "" || a.Head != "" || a.Revision != "" || a.DiffID != "" || a.Line != 0 || a.EndLine != 0 || a.Side != "" || a.Session != "" || a.EventID != "" || a.QuestionID != "" || a.ReviewID != "" {
+			return Action{}, errors.New("a message to the CFO carries only its text")
+		}
+	} else if message {
+		// A message goes to its task's goblin whichever session runs when it
+		// is delivered, and to a queued task's once its Start brings one up.
+		if a.File != "" || a.Head != "" || a.Revision != "" || a.DiffID != "" || a.Line != 0 || a.EndLine != 0 || a.Side != "" || a.Session != "" || a.EventID != "" || a.QuestionID != "" || a.ReviewID != "" {
+			return Action{}, errors.New("a message to a goblin carries only its task and text")
+		}
+		meta, err := state.ReadTaskMeta(s.Home.State, a.TaskID)
+		if errors.Is(err, os.ErrNotExist) {
+			if _, queuedErr := fleet.ReadQueuedTask(s.Home, a.TaskID); queuedErr != nil {
+				return Action{}, errors.Join(err, queuedErr)
+			}
+		} else if err != nil {
+			return Action{}, err
+		}
+		a.Generation = meta.SpawnGen
 	} else {
 		meta, err := state.ReadTaskMeta(s.Home.State, a.TaskID)
 		if err != nil {

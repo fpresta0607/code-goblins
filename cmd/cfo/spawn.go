@@ -115,23 +115,34 @@ func runSpawn(args []string, stdout, stderr io.Writer, runtime commandRuntime) i
 	// that stopped short of something still refuses on what it did find.
 	// A helper works inside its parent's area by definition, which its
 	// parent's own spawn already checked, so it reads no teammate's work.
+	// The read, seconds of GitHub calls, runs beside the rest of the start,
+	// and its answer is asked for only before the goblin's terminal launches.
 	var overlap tickets.Overlaps
 	hasOverlap := false
+	teammates := make(chan teammateRead, 1)
 	if *parent == "" {
-		var unread []string
-		overlap, unread, err = teammateOverlap(runtime, h, args[0], checkout, string(briefText), time.Now())
-		hasOverlap = len(overlap.Files) > 0 || len(overlap.Issues) > 0
-		if len(unread) > 0 {
-			warnIncompleteCheck(stderr, unread)
+		go func() {
+			found, unread, err := teammateOverlap(runtime, h, args[0], checkout, string(briefText), time.Now())
+			teammates <- teammateRead{found, unread, err}
+		}()
+	} else {
+		teammates <- teammateRead{}
+	}
+	checkTeammates := func() error {
+		read := <-teammates
+		overlap, hasOverlap = read.overlap, len(read.overlap.Files) > 0 || len(read.overlap.Issues) > 0
+		if len(read.unread) > 0 {
+			warnIncompleteCheck(stderr, read.unread)
 		}
 		switch {
-		case errors.Is(err, tickets.ErrNotGitHub):
-		case err != nil:
-			fmt.Fprintf(stderr, "cfo spawn: who else works in this area could not be read, so the task starts unchecked: %v\n", err)
+		case errors.Is(read.err, tickets.ErrNotGitHub):
+		case read.err != nil:
+			fmt.Fprintf(stderr, "cfo spawn: who else works in this area could not be read, so the task starts unchecked: %v\n", read.err)
 		case hasOverlap && strings.TrimSpace(*overlapOK) == "":
 			refuseOverlap(stderr, overlap)
-			return 1
+			return errOverlapRefused
 		}
+		return nil
 	}
 	assessment := routing.Classify(string(briefText))
 	routed := *harnessName == ""
@@ -268,7 +279,14 @@ func runSpawn(args []string, stdout, stderr io.Writer, runtime commandRuntime) i
 		Title:     title,
 		Parent:    *parent,
 		Capsule:   writeCapsule,
+		// The read of teammates' work answers before the terminal launches.
+		BeforeLaunch: checkTeammates,
 	})
+	// A refusal of the overlap was said as it was made; whatever else the
+	// spawn met while taking the start down is said here.
+	if err == errOverlapRefused {
+		return 1
+	}
 	if err != nil {
 		fmt.Fprintln(stderr, err)
 		return 1

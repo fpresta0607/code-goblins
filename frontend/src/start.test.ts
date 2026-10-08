@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { diskBlock, diskScale, diskState, freeGigabytes, holdersLine, memoryBlock, meterScale, meterState, nextChip, nextInOrder, poolWarning, queueBlock, scheduleLine, startBlock, startOrder, startOutcome, tighter } from "./start.ts";
+import { diskBlock, diskScale, diskState, freeGigabytes, holdersLine, memoryBlock, meterScale, meterState, nextChip, nextInOrder, poolWarning, queueBlock, scheduleLine, startBlock, startOrder, startOutcome, tighter, turnStatus } from "./start.ts";
 import { nodeStatus } from "./workflow.ts";
 import { parseSnapshot, type Disk, type Memory, type Snapshot, type Task } from "./types.ts";
 
@@ -62,14 +62,28 @@ test("commit the machine does not report is unknown, not zero, so the meter show
   assert.equal(tighter(memory(7.5, 0)).isCommit, true, "commit that is reported and used up is still the tighter");
 });
 
-test("Start is offered while a queued task can start, and otherwise says why not", () => {
-  assert.equal(startBlock(task(), memory(5), false), "");
-  assert.equal(startBlock(task(), memory(4.9), false), "Needs 5 GB free to keep the 4 GB floor");
-  assert.equal(startBlock(task(), null, false), "", "a board that cannot read memory leaves the check to the supervisor");
-  assert.equal(startBlock(task({ brief: false }), memory(5), false), "");
-  assert.equal(startBlock(task(), memory(3.9), false), "Needs 5 GB free to keep the 4 GB floor");
-  assert.equal(startBlock(task(), memory(5), true), "Another task is starting");
-  assert.equal(startBlock(task({ starting: true }), memory(5), true), "Starting", "its own start in flight");
+// The Overlord, 2026-10-08: "it took multiple clicks". One click starts a
+// queued task: a Start clicked while another goblin starts or resumes, or
+// while memory or disk is short, waits its turn on the supervisor, so only
+// what the task itself waits on, or its own start under way, holds it.
+test("Start is one click whatever else starts and whatever memory or disk is free", () => {
+  assert.equal(startBlock(task()), "");
+  assert.equal(startBlock(task({ brief: false })), "");
+  assert.equal(startBlock(task({ starting: true })), "Starting", "its own start under way");
+  assert.equal(startBlock(task({ dependencies: ["other"] })), "Waiting on other");
+});
+
+test("a Start or Resume that waits its turn says what it waits for on its card", () => {
+  // Arrange
+  const asked = task({ starting: true, asked: true });
+  const resuming = task({ phase: "resuming", generation: "s1", asked: true });
+
+  // Act and assert
+  assert.equal(turnStatus(asked, memory(4.2), disk(30)), "Starts at 5 GB free");
+  assert.equal(turnStatus(resuming, memory(16, 4.2), disk(30)), "Resumes at 5 GB free");
+  assert.equal(turnStatus(asked, memory(8), disk(13)), "Starts once disk frees");
+  assert.equal(turnStatus(asked, memory(8), disk(30)), "", "behind another start it says Starting");
+  assert.equal(turnStatus(task({ starting: true }), memory(4.2), disk(30)), "", "a start under way needs no wait");
 });
 
 test("a queued task that already finished offers no Start, and its card says so and why", () => {
@@ -79,7 +93,7 @@ test("a queued task that already finished offers no Start, and its card says so 
 
   // Act and assert
   assert.equal(queueBlock(finished), why);
-  assert.equal(startBlock(finished, memory(9), false), why);
+  assert.equal(startBlock(finished), why);
   assert.equal(nodeStatus({ id: finished.id, title: finished.id, task: finished, relation: "" }), "Already finished");
   assert.equal(queueBlock(task()), "", "work nothing says finished still starts");
 });
@@ -107,10 +121,7 @@ test("the meter shows commit instead of memory only while commit is the tighter"
   assert.deepEqual(meterScale({ ...memory(16, 2), commit_limit: 5 * GB }), { fill: 40, floor: 80, next: 100 }, "a commit limit under the bar's span spans its own");
 });
 
-test("Start, Resume and the next task name commit when it is the one short, and clear once both reach 5 GB", () => {
-  assert.equal(startBlock(task(), memory(4.9, 40), false), "Needs 5 GB free to keep the 4 GB floor");
-  assert.equal(startBlock(task(), memory(16, 4.9), false), "Needs 5 GB of commit free to keep the 4 GB floor");
-  assert.equal(startBlock(task(), memory(5, 5), false), "");
+test("the next task names commit when it is the one short, and clears once both reach 5 GB", () => {
   assert.equal(memoryBlock(memory(16, 2.5)), "5 GB of commit free to keep the 4 GB floor");
   assert.equal(memoryBlock(memory(4.9, 2.5)), "5 GB of commit free to keep the 4 GB floor", "both short names the tighter");
   assert.equal(memoryBlock(memory(5, 5)), "");
@@ -164,26 +175,6 @@ test("an accepted Start opens its goblin once its session is up, stops on a fail
 
     // Assert
     assert.equal(outcome, want, name);
-  }
-});
-
-// On 2026-10-07 the board refused a Start with "No free slot: 8 of 8 goblins
-// live" while 9 GB was free. Memory alone says whether a Start can run.
-test("a Start goes by memory alone", () => {
-  // Arrange
-  const cases: [string, Memory | null, string][] = [
-    ["9 GB free", memory(9), ""],
-    ["30 GB free", memory(30), ""],
-    ["under the next-start mark", memory(4.5), "Needs 5 GB free to keep the 4 GB floor"],
-    ["a board that reads no memory", null, ""],
-  ];
-
-  for (const [name, machine, want] of cases) {
-    // Act
-    const blocked = startBlock(task(), machine, false);
-
-    // Assert
-    assert.equal(blocked, want, name);
   }
 });
 
@@ -266,8 +257,6 @@ test("a start under the disk floor names the floor and the free disk", () => {
   assert.equal(diskBlock(null), "");
   assert.equal(diskBlock(disk(20)), "");
   assert.equal(diskBlock(disk(13.85)), "15 GB of free disk (13.8 GB free)");
-  assert.equal(startBlock(task(), memory(8), false, disk(13.85)), "Needs 15 GB of free disk (13.8 GB free)");
-  assert.equal(startBlock(task(), memory(8), false, disk(30)), "");
 });
 
 test("a snapshot carries the disk reading, and none when the board cannot read it", () => {
