@@ -251,7 +251,7 @@ func defaultCommandRuntime() commandRuntime {
 			service := spawn.Service{
 				Worktrees:    worktree.Service{Commands: commands, DataDir: h.Data, Root: h.Worktrees()},
 				Harness:      harness.DefaultRegistry(),
-				Auth:         auth.SpawnPreflight{DataDir: h.Data, Home: h.Root, Runner: commands},
+				Auth:         auth.SpawnPreflight{DataDir: h.Data, Caches: h.Caches(), Runner: commands},
 				Commands:     commands,
 				HomeRoot:     h.Root,
 				StateDir:     h.State,
@@ -284,7 +284,7 @@ func defaultCommandRuntime() commandRuntime {
 			service := spawn.Service{
 				Worktrees:    worktree.Service{Commands: commands, DataDir: h.Data, Root: h.Worktrees()},
 				Harness:      harness.DefaultRegistry(),
-				Auth:         auth.SpawnPreflight{DataDir: h.Data, Home: h.Root, Runner: commands},
+				Auth:         auth.SpawnPreflight{DataDir: h.Data, Caches: h.Caches(), Runner: commands},
 				Commands:     commands,
 				HomeRoot:     h.Root,
 				StateDir:     h.State,
