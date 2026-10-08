@@ -52,6 +52,13 @@ func runHomeMove(args []string, stdout, stderr io.Writer) int {
 		fmt.Fprint(stderr, homeMoveUsage)
 		return 2
 	}
+	if *apply && !planDigest.MatchString(*planned) {
+		fmt.Fprintf(stderr, "cfo home move: --plan %s is not a plan digest\n", *planned)
+		return 2
+	}
+	if *apply && refuseUnbuiltBoard("home move", stderr) {
+		return 1
+	}
 	h, err := home.Resolve()
 	if err != nil {
 		fmt.Fprintf(stderr, "cfo home move: %v\n", err)
@@ -100,10 +107,6 @@ func runHomeMove(args []string, stdout, stderr io.Writer) int {
 		return 0
 	}
 
-	if !planDigest.MatchString(*planned) {
-		fmt.Fprintf(stderr, "cfo home move: --plan %s is not a plan digest\n", *planned)
-		return 2
-	}
 	approved, err := fsx.ReadFile(moveListingPath(target, *planned))
 	if err != nil {
 		fmt.Fprintf(stderr, "cfo home move: no dry run printed plan %s for %s: %v\n", *planned, target, err)

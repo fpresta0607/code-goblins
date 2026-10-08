@@ -47,7 +47,7 @@ func TestAssignGivesANameAndTitleFromTheCatalogAndRemembersIt(t *testing.T) {
 	stateDir := t.TempDir()
 
 	// Act
-	pair, err := Assign(stateDir, "Refund totals in the export")
+	pair, err := Assign(stateDir, Work{ID: "nw-sum", Title: "Make the numbers add up"})
 
 	// Assert
 	if err != nil {
@@ -76,7 +76,7 @@ func TestAssignNeverGivesANameALiveGoblinHolds(t *testing.T) {
 	}
 
 	// Act
-	pair, err := Assign(stateDir, "")
+	pair, err := Assign(stateDir, Work{})
 
 	// Assert
 	if err != nil || pair.Name != free {
@@ -112,7 +112,7 @@ func TestPickNeverGivesANameALiveGoblinHoldsWhateverItsCase(t *testing.T) {
 			free := firstNames[7]
 
 			// Act
-			pair, err := pick("", heldBut(tc.spelled, free), nil)
+			pair, err := pick(Work{}, heldBut(tc.spelled, free), nil)
 
 			// Assert
 			if err != nil || pair.Name != free {
@@ -124,7 +124,7 @@ func TestPickNeverGivesANameALiveGoblinHoldsWhateverItsCase(t *testing.T) {
 
 func TestPickRefusesWhenEveryNameIsHeldByALiveGoblin(t *testing.T) {
 	// Act
-	pair, err := pick("", heldBut(asSpelled), nil)
+	pair, err := pick(Work{}, heldBut(asSpelled), nil)
 
 	// Assert
 	if err == nil {
@@ -142,7 +142,7 @@ func TestPickKeepsClearOfTheNamesTheLastSpawnsUsed(t *testing.T) {
 	// spawns would land on the right name a third of the time; many picks
 	// leave it no such luck.
 	for range 50 {
-		pair, err := pick("", heldBut(asSpelled, free...), recent)
+		pair, err := pick(Work{}, heldBut(asSpelled, free...), recent)
 		if err != nil || pair.Name != free[2] {
 			t.Fatalf("pair = %+v, %v, want %s, the one free name no recent spawn used", pair, err, free[2])
 		}
@@ -155,7 +155,7 @@ func TestPickReusesARecentNameOnlyWhenNoOtherIsFree(t *testing.T) {
 	free := firstNames[0]
 
 	// Act
-	pair, err := pick("", heldBut(asSpelled, free), []Pair{{Name: free, Title: "Bug Hunter"}})
+	pair, err := pick(Work{}, heldBut(asSpelled, free), []Pair{{Name: free, Title: "Bug Hunter"}})
 
 	// Assert
 	if err != nil || pair.Name != free {
@@ -170,7 +170,7 @@ func TestAssignForgetsPairsOlderThanTheRecentWindow(t *testing.T) {
 	// Act
 	var assigned []Pair
 	for range RecentWindow + 5 {
-		pair, err := Assign(stateDir, "")
+		pair, err := Assign(stateDir, Work{})
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -191,44 +191,101 @@ func TestAssignForgetsPairsOlderThanTheRecentWindow(t *testing.T) {
 	}
 }
 
-func TestAssignFitsTheTitleToTheWorkWhereTheHintMakesItObvious(t *testing.T) {
+// The Overlord, 2026-10-08: "make their role title a little more specific
+// to the task they are actually doing but still keep it short and fun". A
+// title names the subject of the work, here for real rows of the fleet's
+// backlog.
+func TestAssignNamesTheSubjectOfRealBacklogTasks(t *testing.T) {
 	cases := []struct {
-		name   string
-		hint   string
-		titles []string
+		work Work
+		want string
 	}{
-		{name: "a board task", hint: "Show goblin names on the board cards and the canvas", titles: themeTitles("board")},
-		{name: "a flaky test hunt", hint: "Hunt the flaky gate test that hangs", titles: themeTitles("bugs")},
-		{name: "a docs task", hint: "Rewrite the README guide", titles: themeTitles("docs")},
-		{name: "a task id alone", hint: "cg-merge-train", titles: themeTitles("delivery")},
-		{name: "nothing obvious", hint: "Refund totals in the export", titles: genericTitles},
-		{name: "no hint", hint: "", titles: genericTitles},
+		{work: Work{ID: "pd-whats-new", Title: "Announce the PrecisionDocs connector changes inside the app with a What's new that looks great"}, want: "Whats-New Wizard"},
+		{work: Work{ID: "cg-voice-long", Title: `A long dictation of any length is heard and typed in full, never "Nothing was heard" (Moonshine tiny since PR 488); Claude Code`}, want: "Voice Whisperer"},
+		{work: Work{ID: "cg-resume-smooth", Title: "One click starts or resumes a goblin quickly, a message to a busy goblin is queued, and no yellow error line shows; Claude Code"}, want: "Resume Wrangler"},
+		{work: Work{ID: "cg-tree-polish", Title: "On the Orchestration family tree, branches meet the top of each baby goblin and a click on a baby goblin opens its agent terminal; Claude Code"}, want: "Branch Bender"},
+		{work: Work{ID: "cg-fly-token-durable", Title: "PrecisionDocs' fly service stays green until its token's own expiry, so PrecisionDocs goblins are never refused for Fly; Claude Code"}, want: "Token Tamer"},
+		{work: Work{ID: "cg-openconsole", Title: "Goblin terminals run on OpenConsole (ConPTY 1.25) with a host screen model that answers its cursor query and repaints viewers, so keys never strand and conhost's crash cannot kill a terminal; Claude Code"}, want: "Console Captain"},
+		{work: Work{ID: "cg-stall-evidence", Title: "A goblin is called stalled only when its screen, transcript and process tree all stop, so the CFO is never woken for a goblin that is plainly busy; Claude Code"}, want: "Stall Sleuth"},
+		{work: Work{ID: "cg-test-hygiene", Title: "Tests stop reading the live checkout or timing out under load, and proc.Processes fills or drops Start (cg-harness-capacity's findings); Claude Code"}, want: "Test Tamer"},
+		{work: Work{ID: "cfo-no-mistakes-update", Title: "Install no-mistakes built from his fork (fpresta0607/no-mistakes main 8cf1c98e3 or later) in a quiet window"}, want: "Gate Guardian"},
+		{work: Work{ID: "pd-agent-api-v2-later", Title: "The agent API rows left after area A: row 26 and row 27"}, want: "API Artisan"},
+		{work: Work{ID: "cg-readme-pictures", Title: "The README's pictures show today's Code Goblins (board, family tree, desktop window, Scrawl review), light and accurate"}, want: "Picture Painter"},
+		{work: Work{ID: "cg-repo-tickets", Title: "Tickets and contributors in collaborative repos"}, want: "Ticket Tamer"},
+		{work: Work{ID: "cg-helper-goblins", Title: "Goblins start helper goblins through the supervisor: memory admission, one helper per goblin, no helpers of helpers, the parent merges"}, want: "Helper Herder"},
+		{work: Work{ID: "cg-tidy-home", Title: "One home for everything Code Goblins writes, kept small (overlord.md, 2026-10-05); Claude Code"}, want: "Home Keeper"},
+		{work: Work{ID: "cg-merge-train", Title: "A merge train lands many green PRs with one CI run, bisecting on failure"}, want: "Train Conductor"},
+		{work: Work{ID: "cg-quick-tour", Title: "A very quick tour for new users: how Code Goblins works and how to use the board, on first open; Claude Code"}, want: "Tour Guide"},
 	}
 	for _, tc := range cases {
-		t.Run(tc.name, func(t *testing.T) {
+		t.Run(tc.work.ID, func(t *testing.T) {
 			// Arrange
 			stateDir := t.TempDir()
 
 			// Act
-			pair, err := Assign(stateDir, tc.hint)
+			pair, err := Assign(stateDir, tc.work)
 
 			// Assert
-			if err != nil || !slices.Contains(tc.titles, pair.Title) {
-				t.Fatalf("pair = %+v, %v, want a title from %v", pair, err, tc.titles)
+			if err != nil || pair.Title != tc.want {
+				t.Fatalf("pair = %+v, %v, want the title %q", pair, err, tc.want)
 			}
 		})
 	}
 }
 
-func TestAssignGivesAFreshTitleEveryTimeAndFallsBackToAGenericOne(t *testing.T) {
+func TestAssignReadsTheTaskSectionOnlyWhenTheTitleAndIDNameNoSubject(t *testing.T) {
+	cases := []struct {
+		name string
+		work Work
+		want string
+	}{
+		{name: "the title names one", work: Work{ID: "cg-x1", Title: "Smooth resumes", Task: "Hear long dictation. The voice must be heard in full."}, want: "Resume Wrangler"},
+		{name: "the id names one", work: Work{ID: "cg-resume-smooth", Title: "Make it right", Task: "Hear long dictation. The voice must be heard in full."}, want: "Resume Wrangler"},
+		{name: "only the Task section names one", work: Work{ID: "cg-x1", Title: "Make it right", Task: "Hear long dictation. The voice must be heard in full."}, want: "Voice Whisperer"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			// Act
+			pair, err := Assign(t.TempDir(), tc.work)
+
+			// Assert
+			if err != nil || pair.Title != tc.want {
+				t.Fatalf("pair = %+v, %v, want the title %q", pair, err, tc.want)
+			}
+		})
+	}
+}
+
+func TestAssignGivesAGenericTitleOnlyWhenTheTaskNamesNoSubject(t *testing.T) {
+	cases := []struct {
+		name string
+		work Work
+	}{
+		{name: "nothing named", work: Work{ID: "nw-sum", Title: "Make the numbers add up", Task: "The totals should come out right."}},
+		{name: "nothing given", work: Work{}},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			// Act
+			pair, err := Assign(t.TempDir(), tc.work)
+
+			// Assert
+			if err != nil || !slices.Contains(genericTitles, pair.Title) {
+				t.Fatalf("pair = %+v, %v, want a generic title", pair, err)
+			}
+		})
+	}
+}
+
+func TestAssignGivesEachGoblinOnOneSubjectAnotherTitleNamingIt(t *testing.T) {
 	// Arrange
 	stateDir := t.TempDir()
-	board := themeTitles("board")
+	work := Work{ID: "cg-token", Title: "Keep the Fly token green"}
 
 	// Act
 	var titles []string
-	for range len(board) + 1 {
-		pair, err := Assign(stateDir, "board cards")
+	for range RecentWindow {
+		pair, err := Assign(stateDir, work)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -236,12 +293,13 @@ func TestAssignGivesAFreshTitleEveryTimeAndFallsBackToAGenericOne(t *testing.T) 
 	}
 
 	// Assert
-	themed := titles[:len(board)]
-	if !slices.Equal(slices.Sorted(slices.Values(themed)), slices.Sorted(slices.Values(board))) {
-		t.Fatalf("titles = %v, want each board title once before any repeats", titles)
+	if titles[0] != "Token Tamer" {
+		t.Fatalf("first title = %q, want Token Tamer", titles[0])
 	}
-	if last := titles[len(board)]; !slices.Contains(genericTitles, last) {
-		t.Fatalf("title %q once every board title is recent, want a generic one", last)
+	for i, title := range titles {
+		if !strings.HasPrefix(title, "Token ") || slices.Contains(titles[:i], title) {
+			t.Fatalf("titles = %v, want each a new title naming the token", titles)
+		}
 	}
 }
 
@@ -297,16 +355,154 @@ func TestBackfillOfANamedFleetChangesNothing(t *testing.T) {
 	}
 }
 
-func TestHintReadsTheTaskSectionOfTheBriefOnly(t *testing.T) {
+func TestWorkOfReadsTheTaskSectionOfTheBriefOnly(t *testing.T) {
 	// Arrange
 	brief := "# Brief cg-x\n\n## Task\n\nShow names on the board.\nAnd the canvas.\n\n## Constraints\n\nNever touch the merge train.\n"
 
 	// Act
-	hint := Hint("Goblin names", "cg-x", brief)
+	work := WorkOf("cg-x", "Goblin names", brief)
 
 	// Assert
-	if hint != "Goblin names cg-x Show names on the board.\nAnd the canvas." {
-		t.Fatalf("hint = %q", hint)
+	if want := (Work{ID: "cg-x", Title: "Goblin names", Task: "Show names on the board.\nAnd the canvas."}); work != want {
+		t.Fatalf("work = %+v, want %+v", work, want)
+	}
+}
+
+// A task gets its goblin's pair when it is queued and keeps it while it
+// waits, and every queued task gets a name of its own.
+func TestReserveNamesEachQueuedTaskOnceAndKeepsItsPair(t *testing.T) {
+	// Arrange
+	stateDir := t.TempDir()
+	voice, resume := Work{ID: "cg-voice-long", Title: "Long dictation is heard in full"}, Work{ID: "cg-resume-smooth", Title: "Smooth resumes"}
+	token := Work{ID: "cg-fly-token", Title: "Keep the Fly token green"}
+
+	// Act
+	first, err := Reserve(stateDir, []Work{voice, resume})
+	if err != nil {
+		t.Fatal(err)
+	}
+	second, err := Reserve(stateDir, []Work{voice, resume, token})
+
+	// Assert
+	if err != nil {
+		t.Fatal(err)
+	}
+	if first[voice.ID].Title != "Voice Whisperer" || first[resume.ID].Title != "Resume Wrangler" {
+		t.Fatalf("first = %+v, want Voice Whisperer and Resume Wrangler", first)
+	}
+	if second[voice.ID] != first[voice.ID] || second[resume.ID] != first[resume.ID] || second[token.ID].Title != "Token Tamer" {
+		t.Fatalf("second = %+v, want the first pairs kept and a Token Tamer", second)
+	}
+	names := map[string]bool{}
+	for _, pair := range second {
+		if !slices.Contains(firstNames, pair.Name) || names[pair.Name] {
+			t.Fatalf("pairs = %+v, want a catalog name of its own for each", second)
+		}
+		names[pair.Name] = true
+	}
+	if kept, err := ReadQueued(stateDir); err != nil || !maps.Equal(kept, second) {
+		t.Fatalf("kept = %+v, %v, want %+v", kept, err, second)
+	}
+}
+
+func TestReserveForgetsATaskNoLongerQueued(t *testing.T) {
+	// Arrange
+	stateDir := t.TempDir()
+	gone, staying := Work{ID: "cg-gone"}, Work{ID: "cg-staying"}
+	first, err := Reserve(stateDir, []Work{gone, staying})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Act
+	second, err := Reserve(stateDir, []Work{staying})
+
+	// Assert
+	if err != nil || !maps.Equal(second, map[string]Pair{staying.ID: first[staying.ID]}) {
+		t.Fatalf("second = %+v, %v, want only %s's pair %+v", second, err, staying.ID, first[staying.ID])
+	}
+}
+
+// The rules of names hold across queued and live tasks: one full fleet end
+// to end each way.
+func TestReserveNeverGivesANameALiveGoblinHolds(t *testing.T) {
+	// Arrange
+	stateDir := t.TempDir()
+	free := firstNames[len(firstNames)/3]
+	for i, name := range firstNames {
+		if name != free {
+			liveGoblin(t, stateDir, fmt.Sprintf("task-%d", i), Pair{Name: name, Title: "Code Designer"})
+		}
+	}
+
+	// Act
+	pairs, err := Reserve(stateDir, []Work{{ID: "cg-queued"}})
+
+	// Assert
+	if err != nil || pairs["cg-queued"].Name != free {
+		t.Fatalf("pairs = %+v, %v, want the one name no live goblin holds, %s", pairs, err, free)
+	}
+}
+
+func TestAssignNeverGivesANameAQueuedTaskHolds(t *testing.T) {
+	// Arrange: queued tasks hold every name but one.
+	stateDir := t.TempDir()
+	var queued []Work
+	for i := range len(firstNames) - 1 {
+		queued = append(queued, Work{ID: fmt.Sprintf("queued-%d", i)})
+	}
+	held, err := Reserve(stateDir, queued)
+	if err != nil {
+		t.Fatal(err)
+	}
+	free := slices.DeleteFunc(slices.Clone(firstNames), func(name string) bool {
+		return slices.ContainsFunc(slices.Collect(maps.Values(held)), func(pair Pair) bool { return pair.Name == name })
+	})
+
+	// Act
+	pair, err := Assign(stateDir, Work{ID: "cg-not-queued"})
+
+	// Assert
+	if err != nil || len(free) != 1 || pair.Name != free[0] {
+		t.Fatalf("pair = %+v, %v, want the one name no queued task holds, %v", pair, err, free)
+	}
+}
+
+func TestAssignGivesAQueuedTaskThePairItWasQueuedWith(t *testing.T) {
+	// Arrange
+	stateDir := t.TempDir()
+	queued, err := Reserve(stateDir, []Work{{ID: "cg-x", Title: "Smooth resumes"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Act: the spawn's own title names another subject.
+	pair, err := Assign(stateDir, Work{ID: "cg-x", Title: "Keep the Fly token green"})
+
+	// Assert
+	if err != nil || pair != queued["cg-x"] {
+		t.Fatalf("pair = %+v, %v, want the queued pair %+v", pair, err, queued["cg-x"])
+	}
+	if recent, err := readRecent(stateDir); err != nil || !slices.Equal(recent, []Pair{pair}) {
+		t.Fatalf("recent = %v, %v, want the spawn's pair", recent, err)
+	}
+}
+
+func TestBackfillGivesALiveGoblinThePairItWasQueuedWith(t *testing.T) {
+	// Arrange
+	stateDir := t.TempDir()
+	queued, err := Reserve(stateDir, []Work{{ID: "nw-sync", Title: "Smooth resumes"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	liveGoblin(t, stateDir, "nw-sync", Pair{})
+
+	// Act
+	err = Backfill(stateDir)
+
+	// Assert
+	if record := readRecord(t, stateDir, "nw-sync"); err != nil || record["goblin_name"] != queued["nw-sync"].Name || record["goblin_title"] != queued["nw-sync"].Title {
+		t.Fatalf("record = %v, %v, want the queued pair %+v", record, err, queued["nw-sync"])
 	}
 }
 
@@ -324,13 +520,23 @@ func TestCatalogNamesAreShortSingleWordsWithNoRepeats(t *testing.T) {
 		t.Fatalf("%d names, want room for %d recent spawns and a large fleet", len(firstNames), RecentWindow)
 	}
 	titles := slices.Clone(genericTitles)
-	for _, theme := range themes {
-		titles = append(titles, theme.titles...)
+	words := map[string]bool{}
+	for _, subject := range subjects {
+		if words[subject.word] || len(subject.names) == 0 {
+			t.Errorf("subject %q repeats or has no names", subject.word)
+		}
+		words[subject.word] = true
+		for _, name := range subject.names {
+			if name != strings.ToLower(name) || strings.Join(strings.Fields(name), " ") != name {
+				t.Errorf("subject %q's name %q is not lower case words", subject.word, name)
+			}
+		}
+		titles = append(titles, subject.titles()...)
 	}
 	seenTitle := map[string]bool{}
 	for _, title := range titles {
-		if seenTitle[title] || len(title) > 20 || strings.ContainsAny(title, ";\u2014") {
-			t.Errorf("title %q repeats, runs past 20 characters or holds a semicolon or em dash", title)
+		if seenTitle[title] || len(title) > 20 || strings.ContainsAny(title, ";\u2014") || len(strings.Fields(title)) < 2 || len(strings.Fields(title)) > 3 {
+			t.Errorf("title %q repeats, runs past 20 characters or 3 words, or holds a semicolon or em dash", title)
 		}
 		seenTitle[title] = true
 	}
@@ -346,13 +552,4 @@ func TestCalledNamesAGoblinByNameAndID(t *testing.T) {
 			t.Errorf("Called(%q, %q) = %q, want %q", tc.name, tc.id, got, tc.want)
 		}
 	}
-}
-
-func themeTitles(key string) []string {
-	for _, theme := range themes {
-		if theme.key == key {
-			return theme.titles
-		}
-	}
-	panic("no theme " + key)
 }

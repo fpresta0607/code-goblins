@@ -350,6 +350,29 @@ func TestRunningWorkIsReadFromAnyHarnessPane(t *testing.T) {
 	}
 }
 
+// A screen whose only movement is the harness's own clock, spinner or hint
+// shows no new output, and a row written to it does: on 2026-10-08 the CFO
+// was woken about 30 times for goblins whose screens were filling with test
+// output, and a wedged goblin's spinner ticks on all the same.
+func TestOutputDigestMovesOnlyWithOutput(t *testing.T) {
+	for name, test := range map[string]struct {
+		before, after []string
+		isMoved       bool
+	}{
+		"claude tool clock":   {[]string{"  Bash(npm test)", "  ⎿  Running… (22s · timeout 10m)", "❯", "  ⏵⏵ bypass permissions on (shift+tab to cycle) · esc to interrupt"}, []string{"  Bash(npm test)", "  ⎿  Running… (23s · timeout 10m)", "❯", "  ⏵⏵ bypass permissions on (shift+tab to cycle) · esc to interrupt"}, false},
+		"claude spinner":      {[]string{"● Bash(go test ./...)", "✽ Skedaddling… (42m 36s · ↓ 9.8k tokens)", "❯"}, []string{"● Bash(go test ./...)", "✶ Skedaddling… (42m 37s · ↓ 9.8k tokens)", "❯"}, false},
+		"codex status row":    {[]string{"• Ran go test ./...", "• Working (5s • esc to interrupt)", "› Ask Codex to do anything"}, []string{"• Ran go test ./...", "◦ Working (6s • esc to interrupt)", "› Ask Codex to do anything"}, false},
+		"pi rule":             {[]string{"read file.go", "── ⠸ Working ──", "0.0%/1.0M (auto)"}, []string{"read file.go", "── ⠼ Working ──", "0.0%/1.0M (auto)"}, false},
+		"claude tool output":  {[]string{"  Bash(npm test)", "  ⎿  ok 431 - board renders", "  ⎿  Running… (22s · timeout 10m)", "❯"}, []string{"  Bash(npm test)", "  ⎿  ok 432 - board renders the train", "  ⎿  Running… (23s · timeout 10m)", "❯"}, true},
+		"codex command lines": {[]string{"• Running go test ./...", "  └ ok  internal/monitor 3.1s", "• Working (5s • esc to interrupt)"}, []string{"• Running go test ./...", "  └ ok  internal/supervisor 9.4s", "• Working (6s • esc to interrupt)"}, true},
+		"a reply at the end":  {[]string{"● Tests pass.", "❯", "  ⏵⏵ bypass permissions on (shift+tab to cycle)"}, []string{"● Tests pass. Opening the pull request.", "❯", "  ⏵⏵ bypass permissions on (shift+tab to cycle)"}, true},
+	} {
+		if isMoved := OutputDigest(test.before) != OutputDigest(test.after); isMoved != test.isMoved {
+			t.Errorf("%s: output moved = %v, want %v", name, isMoved, test.isMoved)
+		}
+	}
+}
+
 // Text is typed into a CFO's composer only while it holds nothing, so a line
 // somebody left unsent is never typed over: Codex shows its placeholder only
 // while its composer is empty, and pi's editor is the rows between its last

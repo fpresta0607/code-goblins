@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"maps"
 	"math/rand/v2"
 	"os"
 	"path/filepath"
@@ -37,8 +38,15 @@ func (p Pair) String() string {
 // the Overlord meets a new goblin each spawn rather than one he just saw.
 const RecentWindow = 20
 
+// maxTitle is the longest title, in characters, so a title stays short.
+const maxTitle = 20
+
 // recentFile keeps the latest pairs, oldest first, in the state directory.
 const recentFile = ".goblin-names.json"
+
+// queuedFile keeps the pair of each queued task by its id, so a task keeps
+// the goblin it was queued with into its spawn.
+const queuedFile = ".goblin-names-queued.json"
 
 // lockName serialises every pick, so two goblins starting at once can never
 // both take a name.
@@ -61,10 +69,17 @@ func Called(name, id string) string {
 	return name + " (" + id + ")"
 }
 
-// Hint is what a goblin's title is fitted to: its task's title, its id and
+// Work is what a goblin's title is fitted to: its task's id and title, and
 // the Task section of its brief, which says what the work is without the
 // constraints that name other goblins' work.
-func Hint(title, id, brief string) string {
+type Work struct {
+	ID    string
+	Title string
+	Task  string
+}
+
+// WorkOf is the work of task id, titled title, that brief describes.
+func WorkOf(id, title, brief string) Work {
 	var task []string
 	inTask := false
 	for line := range strings.Lines(brief) {
@@ -77,53 +92,103 @@ func Hint(title, id, brief string) string {
 			task = append(task, line)
 		}
 	}
-	return strings.Join(slices.DeleteFunc([]string{title, id, strings.TrimSpace(strings.Join(task, ""))}, func(part string) bool { return part == "" }), " ")
+	return Work{ID: id, Title: title, Task: strings.TrimSpace(strings.Join(task, ""))}
 }
 
-// Assign gives a goblin starting now a pair: a name no live goblin holds
-// and, while any is free, none of the last RecentWindow spawns used, with a
-// title fitting the work hint names, or a generic one, kept clear of the
-// titles live goblins hold and recent spawns used. It records the pair among
-// the recent ones.
-func Assign(stateDir, hint string) (pair Pair, err error) {
-	err = withLock(stateDir, func(live, recent []Pair) ([]Pair, error) {
-		var pickErr error
-		pair, pickErr = pick(hint, live, recent)
-		if pickErr != nil {
-			return nil, pickErr
+// Assign gives a goblin starting now a pair: the one its task was queued
+// with, or else a name no live goblin or queued task holds and, while any is
+// free, none of the last RecentWindow spawns used, with a title naming the
+// subject of work, or a generic one when work names none. It records the
+// pair among the recent ones.
+func Assign(stateDir string, work Work) (pair Pair, err error) {
+	err = withLock(stateDir, func(names *held) error {
+		var found bool
+		if pair, found = names.queued[work.ID]; !found {
+			var pickErr error
+			if pair, pickErr = pick(work, names.all(), names.recent); pickErr != nil {
+				return pickErr
+			}
 		}
-		return []Pair{pair}, nil
+		names.recent = append(names.recent, pair)
+		return nil
 	})
 	return pair, err
 }
 
-// Backfill gives every live goblin whose record has no name a pair, so a
-// goblin started before names existed is named like the rest. A record
-// another command is writing is left for the next pass.
+// Reserve gives each queued task without a pair one, by the rules Assign
+// follows, and forgets the pair of any task no longer among queued, so the
+// card of a queued task names its goblin before it starts. It returns the
+// pair of each queued task it could name.
+func Reserve(stateDir string, queued []Work) (pairs map[string]Pair, err error) {
+	err = withLock(stateDir, func(names *held) error {
+		kept := map[string]Pair{}
+		for _, work := range queued {
+			if pair, found := names.queued[work.ID]; found {
+				kept[work.ID] = pair
+			}
+		}
+		names.queued = kept
+		defer func() { pairs = maps.Clone(names.queued) }()
+		for _, work := range queued {
+			if _, found := names.queued[work.ID]; found {
+				continue
+			}
+			pair, err := pick(work, names.all(), names.recent)
+			if err != nil {
+				return err
+			}
+			names.queued[work.ID] = pair
+		}
+		return nil
+	})
+	return pairs, err
+}
+
+// QueuedPath is the file that keeps the queued tasks' pairs.
+func QueuedPath(stateDir string) string {
+	return filepath.Join(stateDir, queuedFile)
+}
+
+// ReadQueued reads the queued tasks' pairs by task id.
+func ReadQueued(stateDir string) (map[string]Pair, error) {
+	queued := map[string]Pair{}
+	if err := readJSON(QueuedPath(stateDir), &queued); err != nil {
+		return nil, err
+	}
+	return queued, nil
+}
+
+// Backfill gives every live goblin whose record has no name a pair, the one
+// its task was queued with where it has one, so a goblin started before
+// names existed is named like the rest. A record another command is writing
+// is left for the next pass.
 func Backfill(stateDir string) error {
 	metas, err := unnamed(stateDir)
 	if err != nil || len(metas) == 0 {
 		return err
 	}
-	return withLock(stateDir, func(live, recent []Pair) ([]Pair, error) {
-		var added []Pair
+	return withLock(stateDir, func(names *held) error {
 		var errs []error
 		for _, meta := range metas {
-			// A brief no longer there leaves the title to fit the task's
-			// title and id alone.
-			brief, _ := fsx.ReadFile(meta.Brief)
-			pair, err := pick(Hint(meta.Title, meta.ID, string(brief)), slices.Concat(live, added), slices.Concat(recent, added))
-			if err != nil {
-				return added, errors.Join(append(errs, err)...)
+			pair, found := names.queued[meta.ID]
+			if !found {
+				// A brief no longer there leaves the title to fit the
+				// task's title and id alone.
+				brief, _ := fsx.ReadFile(meta.Brief)
+				var err error
+				if pair, err = pick(WorkOf(meta.ID, meta.Title, string(brief)), names.all(), names.recent); err != nil {
+					return errors.Join(append(errs, err)...)
+				}
 			}
 			named, err := name(stateDir, meta.ID, pair)
 			if err != nil {
 				errs = append(errs, err)
 			} else if named {
-				added = append(added, pair)
+				names.live = append(names.live, pair)
+				names.recent = append(names.recent, pair)
 			}
 		}
-		return added, errors.Join(errs...)
+		return errors.Join(errs...)
 	})
 }
 
@@ -165,10 +230,23 @@ func name(stateDir, id string, pair Pair) (named bool, err error) {
 	return true, state.WriteMeta(path, record)
 }
 
-// withLock hands choose the pairs live goblins hold and the recent ones
-// under the pick lock, and keeps the pairs it gave among the last
-// RecentWindow.
-func withLock(stateDir string, choose func(live, recent []Pair) ([]Pair, error)) error {
+// held is what a pick keeps clear of: the pairs live goblins hold, those
+// queued tasks hold by task id, and the last RecentWindow spawns.
+type held struct {
+	live   []Pair
+	queued map[string]Pair
+	recent []Pair
+}
+
+// all is every pair a live goblin or a queued task holds.
+func (names *held) all() []Pair {
+	return slices.Concat(names.live, slices.Collect(maps.Values(names.queued)))
+}
+
+// withLock hands change the pairs held now under the pick lock, and keeps
+// what change makes of the queued pairs and the recent ones, the last
+// RecentWindow of those.
+func withLock(stateDir string, change func(*held) error) error {
 	picking.Lock()
 	defer picking.Unlock()
 	if err := os.MkdirAll(stateDir, 0o755); err != nil {
@@ -182,16 +260,23 @@ func withLock(stateDir string, choose func(live, recent []Pair) ([]Pair, error))
 	if err != nil {
 		return err
 	}
+	queued, err := ReadQueued(stateDir)
+	if err != nil {
+		return err
+	}
 	recent, err := readRecent(stateDir)
 	if err != nil {
 		return err
 	}
-	added, err := choose(live, recent)
-	if len(added) == 0 {
-		return err
+	names := held{live: live, queued: maps.Clone(queued), recent: slices.Clone(recent)}
+	errs := []error{change(&names)}
+	if !maps.Equal(names.queued, queued) {
+		errs = append(errs, writeJSON(QueuedPath(stateDir), names.queued))
 	}
-	recent = append(recent, added...)
-	return errors.Join(err, writeRecent(stateDir, recent[max(0, len(recent)-RecentWindow):]))
+	if !slices.Equal(names.recent, recent) {
+		errs = append(errs, writeJSON(filepath.Join(stateDir, recentFile), names.recent[max(0, len(names.recent)-RecentWindow):]))
+	}
+	return errors.Join(errs...)
 }
 
 // livePairs reads the pair of every live goblin that has one.
@@ -210,60 +295,136 @@ func livePairs(stateDir string) ([]Pair, error) {
 }
 
 func readRecent(stateDir string) ([]Pair, error) {
-	data, err := fsx.ReadFile(filepath.Join(stateDir, recentFile))
-	if errors.Is(err, os.ErrNotExist) {
-		return nil, nil
-	}
-	if err != nil {
-		return nil, err
-	}
 	var recent []Pair
-	if err := json.Unmarshal(data, &recent); err != nil {
-		return nil, fmt.Errorf("goblin names: %s cannot be read: %w", recentFile, err)
-	}
-	return recent, nil
+	err := readJSON(filepath.Join(stateDir, recentFile), &recent)
+	return recent, err
 }
 
-func writeRecent(stateDir string, recent []Pair) error {
-	data, err := json.Marshal(recent)
+// readJSON reads path into value, leaving value as it is when there is no
+// file.
+func readJSON(path string, value any) error {
+	data, err := fsx.ReadFile(path)
+	if errors.Is(err, os.ErrNotExist) {
+		return nil
+	}
 	if err != nil {
 		return err
 	}
-	return fsx.AtomicWriteFile(filepath.Join(stateDir, recentFile), data)
-}
-
-// pick chooses a pair for work hint names, clear of the live and recent
-// pairs.
-func pick(hint string, live, recent []Pair) (Pair, error) {
-	held := used(live, func(p Pair) string { return p.Name })
-	seen := used(slices.Concat(live, recent), func(p Pair) string { return p.Name })
-	names := firstOf(fresh(firstNames, seen), fresh(firstNames, held))
-	if len(names) == 0 {
-		return Pair{}, errors.New("goblin names: every name is held by a live goblin")
+	if err := json.Unmarshal(data, value); err != nil {
+		return fmt.Errorf("goblin names: %s cannot be read: %w", filepath.Base(path), err)
 	}
-	titlesSeen := used(slices.Concat(live, recent), func(p Pair) string { return p.Title })
-	titles := firstOf(fresh(themed(hint), titlesSeen), fresh(genericTitles, titlesSeen), genericTitles)
-	return Pair{Name: names[rand.IntN(len(names))], Title: titles[rand.IntN(len(titles))]}, nil
+	return nil
 }
 
-// themed is the titles of the theme hint names most often, nil when it
-// names none.
-func themed(hint string) []string {
-	words := strings.FieldsFunc(strings.ToLower(hint), func(r rune) bool { return !unicode.IsLetter(r) && !unicode.IsDigit(r) })
-	var best []string
-	bestHits := 0
-	for _, theme := range themes {
-		hits := 0
-		for _, word := range words {
-			if slices.Contains(theme.words, word) {
-				hits++
+func writeJSON(path string, value any) error {
+	data, err := json.Marshal(value)
+	if err != nil {
+		return err
+	}
+	return fsx.AtomicWriteFile(path, data)
+}
+
+// pick chooses a pair for work, clear of the held and recent pairs.
+func pick(work Work, held, recent []Pair) (Pair, error) {
+	heldNames := used(held, func(p Pair) string { return p.Name })
+	seen := used(slices.Concat(held, recent), func(p Pair) string { return p.Name })
+	names := firstOf(fresh(firstNames, seen), fresh(firstNames, heldNames))
+	if len(names) == 0 {
+		return Pair{}, errors.New("goblin names: every name is held by a live goblin or a queued task")
+	}
+	titlesSeen := used(slices.Concat(held, recent), func(p Pair) string { return p.Title })
+	var title string
+	if subject := subjectOf(work); subject != nil {
+		// The subject's best title not in use, else its best.
+		titles := subject.titles()
+		title = firstOf(fresh(titles, titlesSeen), titles)[0]
+	} else {
+		titles := firstOf(fresh(genericTitles, titlesSeen), genericTitles)
+		title = titles[rand.IntN(len(titles))]
+	}
+	return Pair{Name: names[rand.IntN(len(names))], Title: title}, nil
+}
+
+// subjectOf is the subject work names most often, nil when it names none.
+// Its id and title say what the work is, so the id's words count twice and
+// the Task section is read only when neither names a subject.
+func subjectOf(work Work) *subject {
+	counts := make([]int, len(subjects))
+	count(words(work.ID), 2, counts)
+	count(words(work.Title), 1, counts)
+	if slices.Max(counts) == 0 {
+		count(words(work.Task), 1, counts)
+	}
+	best := 0
+	for i, n := range counts {
+		if n > counts[best] {
+			best = i
+		}
+	}
+	if counts[best] == 0 {
+		return nil
+	}
+	return &subjects[best]
+}
+
+// count adds weight to the count of each subject text names, each time it
+// names it, reading text word by word and taking the longest name that
+// starts at each, so a family tree counts once.
+func count(text []string, weight int, counts []int) {
+	for at := 0; at < len(text); {
+		best, length := -1, 0
+		for i, subject := range subjects {
+			for _, name := range subject.names {
+				parts := strings.Fields(name)
+				if len(parts) > length && at+len(parts) <= len(text) && slices.EqualFunc(text[at:at+len(parts)], parts, forms) {
+					best, length = i, len(parts)
+				}
 			}
 		}
-		if hits > bestHits {
-			best, bestHits = theme.titles, hits
+		if best < 0 {
+			at++
+			continue
+		}
+		counts[best] += weight
+		at += length
+	}
+}
+
+// words are text's words in lower case, an apostrophe dropped so "What's"
+// reads as "whats", and a hyphen parting two so "no-mistakes" reads as "no
+// mistakes".
+func words(text string) []string {
+	text = strings.NewReplacer("'", "", "\u2019", "").Replace(strings.ToLower(text))
+	return strings.FieldsFunc(text, func(r rune) bool { return !unicode.IsLetter(r) && !unicode.IsDigit(r) })
+}
+
+// forms reports whether word is name or name with an s, es, d, ed or ing
+// ending, or ies for a final y, so "branches", "stalled", "queued" and
+// "resuming" name a branch, a stall, a queue and a resume.
+func forms(word, name string) bool {
+	if word == name {
+		return true
+	}
+	for _, ending := range []string{"s", "es", "d", "ed", "ing"} {
+		if stem, found := strings.CutSuffix(word, ending); found && (stem == name || ending == "ing" && stem+"e" == name) {
+			return true
 		}
 	}
-	return best
+	stem, found := strings.CutSuffix(word, "ies")
+	return found && stem+"y" == name
+}
+
+// titles are a subject's titles, best first: its word with its own roles,
+// then the roles that share its first letter, then any role, each no longer
+// than maxTitle.
+func (s subject) titles() []string {
+	var titles []string
+	for _, role := range slices.Concat(s.roles, alliterative[unicode.ToLower([]rune(s.word)[0])], roles) {
+		if title := s.word + " " + role; len(title) <= maxTitle && !slices.Contains(titles, title) {
+			titles = append(titles, title)
+		}
+	}
+	return titles
 }
 
 func used(pairs []Pair, part func(Pair) string) map[string]bool {
