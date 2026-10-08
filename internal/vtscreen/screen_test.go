@@ -45,6 +45,12 @@ func TestTheCursorReportSaysWhereTheProgramsOutputLeftTheCursor(t *testing.T) {
 		"repeated characters":                 {"a\x1b[3b", "\x1b[1;5R"},
 		"a new line in newline mode":          {"\x1b[20habc\n", "\x1b[2;1R"},
 		"a region past the bottom":            {"\x1b[2;99r\x1b[?6h\x1b[99;1H", "\x1b[4;1R"},
+		"a cell deleted at a pending wrap":    {strings.Repeat("x", 10) + "\x1b[Pa", "\x1b[1;10R"},
+		"a cell inserted at a pending wrap":   {strings.Repeat("x", 10) + "\x1b[@a", "\x1b[1;10R"},
+		"a cell erased at a pending wrap":     {strings.Repeat("x", 10) + "\x1b[Xa", "\x1b[1;10R"},
+		"a tab at a pending wrap":             {strings.Repeat("x", 10) + "\ta", "\x1b[2;2R"},
+		"a back tab at a pending wrap":        {strings.Repeat("x", 10) + "\x1b[Z", "\x1b[1;10R"},
+		"a C1 control drawn as nothing":       {"a\u009bb", "\x1b[1;3R"},
 	}
 	for name, test := range tests {
 		t.Run(name, func(t *testing.T) {
@@ -76,7 +82,7 @@ func TestARunOfMarksKeepsABoundedFew(t *testing.T) {
 	_, answers := s.Write([]byte("e" + strings.Repeat("​", 200000) + "\x1b[6n"))
 
 	// Assert
-	if marks := s.main.lines[0][0].marks; len(marks) > maxMarks {
+	if marks := s.main.rows[0].cells[0].marks; len(marks) > maxMarks {
 		t.Errorf("the cell keeps %d bytes of marks, want at most %d", len(marks), maxMarks)
 	}
 	if string(answers) != "\x1b[1;2R" {
@@ -93,34 +99,35 @@ func TestQueriesAreKeptFromViewersAndAnsweredAsATerminalAnswers(t *testing.T) {
 	tests := map[string]struct {
 		output, forward, answers string
 	}{
-		"cursor position":            {"\x1b[6n", "", "\x1b[1;1R"},
-		"extended cursor position":   {"\x1b[?6n", "", "\x1b[?1;1R"},
-		"device attributes":          {"\x1b[c", "", "\x1b[?1;2c"},
-		"device attributes with 0":   {"\x1b[0c", "", "\x1b[?1;2c"},
-		"status":                     {"\x1b[5n", "", "\x1b[0n"},
-		"secondary attributes":       {"\x1b[>c", "", ""},
-		"tertiary attributes":        {"\x1b[=c", "", ""},
-		"terminal version":           {"\x1b[>0q", "", ""},
-		"kitty keyboard flags":       {"\x1b[?u", "", ""},
-		"colour scheme":              {"\x1b[?996n", "", ""},
-		"a private mode":             {"\x1b[?2004$p", "", ""},
-		"an ANSI mode":               {"\x1b[4$p", "", ""},
-		"the text area's size":       {"\x1b[18t", "", ""},
-		"the background colour":      {"\x1b]11;?\a", "", ""},
-		"the foreground colour":      {"\x1b]10;?\x1b\\", "", ""},
-		"a palette colour":           {"\x1b]4;1;?\a", "", ""},
-		"the clipboard":              {"\x1b]52;c;?\a", "", ""},
-		"a setting":                  {"\x1bP$qm\x1b\\", "", ""},
-		"a capability":               {"\x1bP+q544e\x1b\\", "", ""},
-		"the window shown":           {"\x1b[1t", "\x1b[1t", ""},
-		"a title":                    {"\x1b]0;claude\x1b\\", "\x1b]0;claude\x1b\\", ""},
-		"a background colour set":    {"\x1b]11;rgb:00/00/00\a", "\x1b]11;rgb:00/00/00\a", ""},
-		"kitty keyboard flags set":   {"\x1b[>7u", "\x1b[>7u", ""},
-		"a mode set":                 {"\x1b[?2004h", "\x1b[?2004h", ""},
-		"a cursor style":             {"\x1b[2 q", "\x1b[2 q", ""},
-		"a hyperlink":                {"\x1b]8;;https://x\x1b\\a\x1b]8;;\x1b\\", "\x1b]8;;https://x\x1b\\a\x1b]8;;\x1b\\", ""},
-		"text around a dropped one":  {"a\x1b[?ub", "ab", ""},
-		"two queries and their text": {"x\x1b[?u\x1b[cy", "xy", "\x1b[?1;2c"},
+		"cursor position":             {"\x1b[6n", "", "\x1b[1;1R"},
+		"extended cursor position":    {"\x1b[?6n", "", "\x1b[?1;1R"},
+		"device attributes":           {"\x1b[c", "", "\x1b[?1;2c"},
+		"device attributes with 0":    {"\x1b[0c", "", "\x1b[?1;2c"},
+		"status":                      {"\x1b[5n", "", "\x1b[0n"},
+		"secondary attributes":        {"\x1b[>c", "", ""},
+		"tertiary attributes":         {"\x1b[=c", "", ""},
+		"terminal version":            {"\x1b[>0q", "", ""},
+		"kitty keyboard flags":        {"\x1b[?u", "", ""},
+		"colour scheme":               {"\x1b[?996n", "", ""},
+		"a private mode":              {"\x1b[?2004$p", "", ""},
+		"an ANSI mode":                {"\x1b[4$p", "", ""},
+		"the text area's size":        {"\x1b[18t", "", ""},
+		"the background colour":       {"\x1b]11;?\a", "", ""},
+		"the foreground colour":       {"\x1b]10;?\x1b\\", "", ""},
+		"a palette colour":            {"\x1b]4;1;?\a", "", ""},
+		"the clipboard":               {"\x1b]52;c;?\a", "", ""},
+		"a colour by a padded number": {"\x1b]011;?\a", "", ""},
+		"a setting":                   {"\x1bP$qm\x1b\\", "", ""},
+		"a capability":                {"\x1bP+q544e\x1b\\", "", ""},
+		"the window shown":            {"\x1b[1t", "\x1b[1t", ""},
+		"a title":                     {"\x1b]0;claude\x1b\\", "\x1b]0;claude\x1b\\", ""},
+		"a background colour set":     {"\x1b]11;rgb:00/00/00\a", "\x1b]11;rgb:00/00/00\a", ""},
+		"kitty keyboard flags set":    {"\x1b[>7u", "\x1b[>7u", ""},
+		"a mode set":                  {"\x1b[?2004h", "\x1b[?2004h", ""},
+		"a cursor style":              {"\x1b[2 q", "\x1b[2 q", ""},
+		"a hyperlink":                 {"\x1b]8;;https://x\x1b\\a\x1b]8;;\x1b\\", "\x1b]8;;https://x\x1b\\a\x1b]8;;\x1b\\", ""},
+		"text around a dropped one":   {"a\x1b[?ub", "ab", ""},
+		"two queries and their text":  {"x\x1b[?u\x1b[cy", "xy", "\x1b[?1;2c"},
 	}
 	for name, test := range tests {
 		t.Run(name, func(t *testing.T) {
@@ -197,7 +204,7 @@ func TestARepaintWaitsForTheEndOfASequencePassedOnAsItComes(t *testing.T) {
 	if repaint != nil {
 		t.Fatalf("the resize passed on %q during the sequence, want nothing yet", repaint)
 	}
-	if !bytes.HasPrefix(end, []byte("bb\a\x1b[?2026h")) || !bytes.Equal(end[3:], s.Repaint()) {
+	if !bytes.HasPrefix(end, []byte("bb\a\x1b[?2026h")) || !bytes.Equal(end[3:], s.repaint(false)) {
 		t.Fatalf("the sequence's end passed on %q, want its end and then the repaint", end)
 	}
 }
@@ -262,6 +269,48 @@ func TestAResizeMovesTheCursorAsATerminalDoes(t *testing.T) {
 	}
 }
 
+// A line the program wrote longer than the screen is wide is wrapped anew
+// at each width, as xterm.js reflows it, so narrowing the screen and
+// widening it again loses none of it. The cursor's own line is left to the
+// program, as xterm.js leaves it.
+func TestAResizeReflowsTheMainScreensLines(t *testing.T) {
+	// Arrange
+	s := newScreen(t, 10, 5)
+	s.Write([]byte("abcdefghijklmno\r\nprompt"))
+
+	// Act
+	_, narrowErr := s.Resize(5, 5)
+	narrow := s.Rows()
+	_, wideErr := s.Resize(20, 5)
+	wide := s.Rows()
+
+	// Assert
+	if narrowErr != nil || wideErr != nil {
+		t.Fatal(narrowErr, wideErr)
+	}
+	if want := []string{"abcde", "fghij", "klmno", "promp", "     "}; strings.Join(narrow, "|") != strings.Join(want, "|") {
+		t.Errorf("at 5 columns the screen shows %q, want %q", narrow, want)
+	}
+	if want := "abcdefghijklmno"; strings.TrimRight(wide[0], " ") != want || !strings.HasPrefix(wide[1], "promp") {
+		t.Errorf("back at 20 columns the screen shows %q, want %q on the first row and the cut prompt on the next", wide, want)
+	}
+}
+
+// The alternate screen keeps nothing once the program leaves it, as in
+// xterm.js, so a repaint never draws what no viewer still shows.
+func TestLeavingTheAlternateScreenClearsIt(t *testing.T) {
+	// Arrange
+	s := newScreen(t, 10, 3)
+
+	// Act
+	s.Write([]byte("\x1b[?47hx\x1b[?47l\x1b[?47h"))
+
+	// Assert
+	if rows := s.Rows(); strings.TrimSpace(strings.Join(rows, "")) != "" {
+		t.Fatalf("the alternate screen shows %q again, want it blank", rows)
+	}
+}
+
 // A resize to the size the screen has repaints it too, as the system conhost
 // does, and changes nothing else, not even a pending wrap: a viewer sends
 // its size as it connects and counts on that repaint to show the screen
@@ -277,7 +326,7 @@ func TestAResizeToTheSameSizeRepaintsAndChangesNothing(t *testing.T) {
 	repaint, err := s.Resize(10, 5)
 
 	// Assert
-	if err != nil || !bytes.Equal(repaint, unchanged.Repaint()) {
+	if err != nil || !bytes.Equal(repaint, unchanged.repaint(false)) {
 		t.Fatalf("passed on %q (%v), want the repaint of the screen as it was", repaint, err)
 	}
 	sameScreen(t, unchanged, s)

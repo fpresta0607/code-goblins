@@ -497,8 +497,13 @@ Every later refusal closes the socket with its reason, which a browser can read:
 The view is bound to its terminal once, by the host's pipe, whose server process must be the host the record names, so a key costs no check and starts no process.
 The first message is the text `{"type":"history","bytes":N}`, the number of output bytes that follow as the host's history, even when it is empty.
 Output arrives as binary messages, the history first; typing goes back as binary messages, and a resize as the text message `{"type":"resize","cols":C,"rows":R}`.
-The host repaints the whole screen from its own copy on every resize, even to the size it already has, as the inbox conhost repaints and OpenConsole does not, so a view replays the history and then sends its size, and its screen is whole however much of the history the host still keeps; the host starts a replay at the next line or escape sequence past its 4 MiB limit, never inside one.
-A replay that no longer starts at the terminal's start ends with the same repaint, so a view that sends no size, such as one that only watches, shows the whole screen too.
+The host repaints the whole screen from its own copy on every resize, even to the size it already has, as the inbox conhost repaints and OpenConsole does not, so a view replays the history and then sends its size, and its screen is whole however much of the history the host still keeps.
+Its copy resizes as xterm.js resizes its own: a line wider than the new width is wrapped anew and a line a wrap split is joined again, all but the line the cursor is on, which xterm.js too leaves to the program.
+Lines a view brings back from its scrollback as the terminal grows are drawn over by the repaint, as they were by the inbox conhost's.
+The repaint writes a wrapped line on past the row's end, so a view marks it wrapped and reflows it too, and it places the cell after a wide character by its column, since the board's xterm.js draws an emoji one cell wide.
+A resize's repaint sets none of the modes the program set, which every view that followed the output already has, since xterm.js reports the focus each time it is asked for focus reports.
+The host starts a replay at the next line or escape sequence past its 4 MiB limit, never inside one.
+A replay that no longer starts at the terminal's start ends with a repaint that sets the program's modes too, so a view that sends no size, such as one that only watches, shows the whole screen and takes the keys the program expects.
 Every view of the terminal, the one that sent the resize too, is told each size the terminal took as `{"type":"size","cols":C,"rows":R}` at its place in the output: after what the terminal wrote before the resize and before what it wrote after, whichever viewer resized it, `cfo attach` in an Open window included, and the history carries the sizes it was written at the same way.
 A view changes its grid only there, once xterm has parsed the output before it, never ahead of the terminal, so output is always drawn on the grid it was written for rather than wrapping and landing at the wrong columns.
 A view draws another viewer's size until it is typed into, which sizes the terminal to it, and `cfo attach` takes the terminal back the same way with its next key.
@@ -529,7 +534,8 @@ Windows' inbox conhost (10.0.26100, as Windows 11 and GitHub's runners ship it) 
 microsoft/terminal#18816 fixed both in a conhost Windows does not ship yet.
 On GitHub's runners the crash ended 28 of 4,200 runs of `TestTypedKeysReachAProgramThatPrintsWhileItReads` on the inbox conhost and none of 3,500 on OpenConsole.
 The host writes the two files to `cfo\conpty\<version>` in this Windows user's own LocalAppData, as the user's profile names it whatever `LOCALAPPDATA` and `USERPROFILE` say, so a test that points them at a folder of its own never loads the files from a folder it deletes as it ends.
-That folder's access list lets only this Windows user in; the host keeps each file open so nothing can write, rename or delete it, and loads them only once each one's SHA-256 matches the copy cfo.exe embeds.
+That folder's access list lets only this Windows user in.
+The host keeps each file open so nothing can write, rename or delete it, and loads them only once each one's SHA-256 matches the copy cfo.exe embeds.
 When they cannot be written or loaded, the terminal runs on the inbox conhost and the CFO is woken once, a `check` wake keyed `conpty` starting `console_host:` with the reason.
 OpenConsole asks its terminal for its device attributes as it starts and takes the first answer typed after that as the answer, and every later one reaches the program as typed input.
 The console answers that query itself, as the board's xterm.js would (`ESC[?1;2c`), and leaves it out of the terminal's output, so no viewer, nor one replaying the terminal from its start, types an answer into the program.

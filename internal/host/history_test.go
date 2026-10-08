@@ -153,7 +153,7 @@ func repaintAfter(t *testing.T, cols, rows int, output string, resized [2]int) s
 }
 
 // A resize is marked at its place in the output, for a late viewer's replay
-// and for every live viewer, with the screen's repaint after it; a size the
+// and for every live viewer, with the screen's repaint after it, and a size the
 // terminal cannot take is not.
 func TestHistoryMarksEachResizeAtItsPlace(t *testing.T) {
 	output := newTestHistory(t, 80, 24)
@@ -233,7 +233,7 @@ func TestHistoryRepaintsOnAResizeToTheSameSize(t *testing.T) {
 // need its output drained to finish. The size and the screen's repaint come
 // first, since the screen takes the size before the pseudo console does, so
 // a query the program asks once the pseudo console has resized is answered
-// at the new size; what the terminal writes meanwhile is kept after them.
+// at the new size, and what the terminal writes meanwhile is kept after them.
 func TestHistoryKeepsOutputWrittenWhileAResizeApplies(t *testing.T) {
 	output := newTestHistory(t, 80, 24)
 	_, _, live, detach := output.attach()
@@ -377,7 +377,7 @@ func withoutRepaints(output []byte, sizes []geometry) (string, []geometry) {
 }
 
 // Trimming the kept output keeps the size its new start was written at, and
-// moves the later sizes with the output; the replay of output that lost its
+// moves the later sizes with the output, and the replay of output that lost its
 // start ends with the screen's repaint.
 func TestHistoryTrimKeepsTheSizeItsStartWasWrittenAt(t *testing.T) {
 	output := newTestHistory(t, 80, 24)

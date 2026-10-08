@@ -8,8 +8,8 @@
 // character one cell wide, so the cursor they report is wrong on any line
 // with a wide character, and charmbracelet/x/vt is published only as
 // pseudo-versions and brings about ten modules. The parsing is go-vte's, a
-// port of the parser Alacritty uses, which follows the DEC state machine;
-// the state is this package's.
+// port of the parser Alacritty uses, which follows the DEC state machine.
+// The screen's state is this package's own.
 package vtscreen
 
 import (
@@ -148,7 +148,12 @@ func (s *Screen) Write(output []byte) (forward, answers []byte) {
 	for _, b := range output {
 		if s.isStreaming {
 			s.forward = append(s.forward, b)
-			s.parser.Advance(b)
+			// go-vte keeps every byte of an SOS, PM or APC string, which the
+			// screen never reads, so past the limit only a byte that can end
+			// one reaches it.
+			if s.parser.State() != vte.SosPmApcStringState || b == 0x07 || b == 0x18 || b == 0x1a || b == 0x1b {
+				s.parser.Advance(b)
+			}
 			if s.parser.State() == vte.GroundState {
 				s.endUnit()
 			}
@@ -175,12 +180,12 @@ func (s *Screen) Write(output []byte) (forward, answers []byte) {
 }
 
 // endUnit follows the end of a sequence or a character: the next starts
-// afresh, and a repaint that waited for this end is passed on.
+// afresh, and a resize's repaint that waited for this end is passed on.
 func (s *Screen) endUnit() {
 	s.isDropped, s.isStreaming = false, false
 	if s.isRepaintDue {
 		s.isRepaintDue = false
-		s.forward = append(s.forward, s.Repaint()...)
+		s.forward = append(s.forward, s.repaint(false)...)
 	}
 }
 
@@ -189,9 +194,11 @@ func (s *Screen) endUnit() {
 // drawn again, even at the size it had, as the system conhost repaints on
 // every resize, since OpenConsole repaints on none while each viewer resizes
 // its own copy of the screen its own way, and a viewer that sends its size
-// as it connects counts on the repaint to show the screen whole. During a
-// sequence passed on as it comes, the repaint follows that sequence's end,
-// in a later Write.
+// as it connects counts on the repaint to show the screen whole. Viewers
+// that followed the output keep the modes the program set, so this repaint
+// sets none of them again: xterm.js reports the focus each time it is asked
+// to. During a sequence passed on as it comes, the repaint follows that
+// sequence's end, in a later Write.
 func (s *Screen) Resize(cols, rows int) ([]byte, error) {
 	if err := checkSize(cols, rows); err != nil {
 		return nil, err
@@ -203,33 +210,35 @@ func (s *Screen) Resize(cols, rows int) ([]byte, error) {
 		s.isRepaintDue = true
 		return nil, nil
 	}
-	return s.Repaint(), nil
+	return s.repaint(false), nil
 }
 
-// resize gives the screen a new size, keeping each screen's cursor where
-// xterm.js keeps it.
+// resize gives the screen a new size as xterm.js resizes its own: the main
+// screen's lines wrapped anew at a new width, the alternate screen's rows
+// cut or filled at their ends, and rows lost or gained around each screen's
+// cursor.
 func (s *Screen) resize(cols, rows int) {
-	if s.cursor.isWrapPending && cols > s.cols {
-		s.cursor.x++
-	}
-	s.cursor.isWrapPending = false
-	active, inactive := s.main, s.alt
+	// The main screen's cursor is the live one, or while the alternate
+	// screen is in use the one entering it saved.
+	mainCursor, altCursor := &s.cursor, &s.saved[1].cursor
 	if s.isAlt {
-		active, inactive = s.alt, s.main
+		mainCursor, altCursor = &s.saved[0].cursor, &s.cursor
 	}
-	s.cursor.y = active.resize(cols, rows, s.cursor.y)
-	inactiveSaved := &s.saved[0]
-	if !s.isAlt {
-		inactiveSaved = &s.saved[1]
+	if cols != s.cols {
+		mainCursor.y = s.main.reflow(cols, mainCursor.y)
 	}
-	inactiveSaved.y = inactive.resize(cols, rows, inactiveSaved.y)
+	mainCursor.y = s.main.fit(cols, rows, mainCursor.y)
+	altCursor.y = s.alt.fit(cols, rows, altCursor.y)
+	// A cursor with a wrap pending sits past the last column, as xterm.js
+	// keeps it, which a wider screen makes the column after it.
+	for _, at := range []*cursor{&s.cursor, &s.saved[0].cursor, &s.saved[1].cursor} {
+		if at.isWrapPending && cols > s.cols {
+			at.x++
+		}
+		at.x, at.y = min(at.x, cols-1), min(at.y, rows-1)
+		at.isWrapPending = false
+	}
 	s.cols, s.rows = cols, rows
-	s.cursor.x = min(s.cursor.x, cols-1)
-	s.cursor.y = min(s.cursor.y, rows-1)
-	for i := range s.saved {
-		s.saved[i].x, s.saved[i].y = min(s.saved[i].x, cols-1), min(s.saved[i].y, rows-1)
-		s.saved[i].isWrapPending = false
-	}
 	s.top, s.bottom = 0, rows-1
 	s.tabs = defaultTabs(cols, s.tabs)
 }
@@ -238,14 +247,14 @@ func (s *Screen) resize(cols, rows int) {
 // blank cell as a space.
 func (s *Screen) Rows() []string {
 	rows := make([]string, 0, s.rows)
-	for _, line := range s.screen().lines {
-		var row []byte
-		for _, c := range line {
+	for _, r := range s.screen().rows {
+		var text []byte
+		for _, c := range r.cells {
 			if c.width != 0 {
-				row = c.appendShown(row)
+				text = c.appendShown(text)
 			}
 		}
-		rows = append(rows, string(row))
+		rows = append(rows, string(text))
 	}
 	return rows
 }

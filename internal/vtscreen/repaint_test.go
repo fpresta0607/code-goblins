@@ -19,6 +19,7 @@ var outputs = map[string]string{
 	"line drawing and a save":  "\x1b[2;3H\x1b[1m\x1b7\x1b[22m\r\nnext\x1b(0lqqk\x0e\x1b)0",
 	"modes reset":              "\x1b[?7l" + strings.Repeat("n", 25) + "\x1b[?2004h\x1b[?2004l\x1b[?25l",
 	"synchronized output":      "\x1b[?2026hbefore\x1b[?2026l\x1b[?2026hduring",
+	"lines that wrap":          "first\r\n" + strings.Repeat("0123456789", 5) + "\r\n日本語の" + strings.Repeat("長い行", 4) + "\r\nlast",
 }
 
 // A viewer that replayed only the end of a terminal's output, as one that
@@ -73,6 +74,65 @@ func TestARepaintAsksNothing(t *testing.T) {
 				t.Fatalf("a viewer shown the repaint answered %q and passed on %q, want no answers and all of it", answers, forward)
 			}
 		})
+	}
+}
+
+// A resize's repaint sets none of the modes the program set, which every
+// viewer that followed the output already has: xterm.js answers a focus
+// reports request with a report each time, typed into the program and taken
+// by the board as the Overlord typing. A repaint for a viewer that missed
+// the output sets them all.
+func TestAResizeRepaintSetsNoModeTheProgramSet(t *testing.T) {
+	// Arrange
+	s := newScreen(t, 20, 6)
+	s.Write([]byte("\x1b[?1004h\x1b[?9001h\x1b[?2004h\x1b[?1h\x1b[3 q"))
+
+	// Act
+	repaint, err := s.Resize(30, 6)
+
+	// Assert
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, mode := range []string{"\x1b[?1004h", "\x1b[?9001h", "\x1b[?2004h", "\x1b[?1h", "\x1b[3 q"} {
+		if bytes.Contains(repaint, []byte(mode)) {
+			t.Errorf("the resize's repaint sets %q again", mode)
+		}
+		if !bytes.Contains(s.Repaint(), []byte(mode)) {
+			t.Errorf("the repaint for a viewer that missed the output does not set %q", mode)
+		}
+	}
+}
+
+// DECSTR resets every mode the program set, as xterm.js does, so a later
+// repaint does not set them again behind the program's back.
+func TestASoftResetForgetsTheProgramsModes(t *testing.T) {
+	// Arrange
+	s := newScreen(t, 20, 6)
+
+	// Act
+	s.Write([]byte("\x1b[?2004h\x1b[?1h\x1b[!p"))
+
+	// Assert
+	if repaint := s.Repaint(); bytes.Contains(repaint, []byte("\x1b[?2004h")) || bytes.Contains(repaint, []byte("\x1b[?1h")) {
+		t.Fatalf("the repaint after DECSTR sets the modes it reset: %q", repaint)
+	}
+}
+
+// A repaint places each cell after a wide character by its column, so a
+// viewer that draws the wide character one cell wide, as the board's
+// xterm.js draws emoji, still shows what follows where the program put it.
+func TestARepaintPlacesTheCellAfterAWideCharacterByItsColumn(t *testing.T) {
+	// Arrange
+	s := newScreen(t, 20, 3)
+	s.Write([]byte("✅ done"))
+
+	// Act
+	repaint := s.Repaint()
+
+	// Assert
+	if !bytes.Contains(repaint, []byte("✅\x1b[3G done")) {
+		t.Fatalf("the repaint draws %q, want the cell after the wide character placed at column 3", repaint)
 	}
 }
 
@@ -154,10 +214,14 @@ func sameCells(t *testing.T, name string, want, got *grid) {
 		}
 		return c
 	}
-	for y := range want.lines {
-		for x := range want.lines[y] {
-			if shown(want.lines[y][x]) != shown(got.lines[y][x]) {
-				t.Fatalf("%s screen cell %d,%d is %+v, want %+v\nrows %q\nwant %q", name, y, x, got.lines[y][x], want.lines[y][x], rowsOf(got), rowsOf(want))
+	for y := range want.rows {
+		// A first row's mark depends on rows no viewer still holds.
+		if y > 0 && want.rows[y].isWrapped != got.rows[y].isWrapped {
+			t.Fatalf("%s screen row %d continues the row above %v, want %v\nrows %q", name, y, got.rows[y].isWrapped, want.rows[y].isWrapped, rowsOf(want))
+		}
+		for x := range want.rows[y].cells {
+			if shown(want.rows[y].cells[x]) != shown(got.rows[y].cells[x]) {
+				t.Fatalf("%s screen cell %d,%d is %+v, want %+v\nrows %q\nwant %q", name, y, x, got.rows[y].cells[x], want.rows[y].cells[x], rowsOf(got), rowsOf(want))
 			}
 		}
 	}
@@ -172,12 +236,12 @@ func sameSaved(t *testing.T, name string, want, got savedCursor) {
 
 func rowsOf(g *grid) []string {
 	var rows []string
-	for _, line := range g.lines {
-		var row strings.Builder
-		for _, c := range line {
-			row.Write(c.appendShown(nil))
+	for _, r := range g.rows {
+		var text strings.Builder
+		for _, c := range r.cells {
+			text.Write(c.appendShown(nil))
 		}
-		rows = append(rows, row.String())
+		rows = append(rows, text.String())
 	}
 	return rows
 }

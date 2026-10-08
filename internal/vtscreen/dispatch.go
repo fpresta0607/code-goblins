@@ -2,6 +2,7 @@ package vtscreen
 
 import (
 	"bytes"
+	"strconv"
 	"unicode/utf8"
 
 	"github.com/danielgatis/go-vte"
@@ -21,15 +22,19 @@ var lineDrawing = []rune(" ◆▒␉␌␍␊°±␤␋┘┐┌└┼⎺⎻─�
 
 // colorQueries are the OSC commands whose "?" asks the terminal for a
 // colour, or for the clipboard.
-var colorQueries = map[string]bool{"4": true, "5": true, "10": true, "11": true, "12": true, "13": true, "14": true, "15": true, "16": true, "17": true, "18": true, "19": true, "52": true}
+var colorQueries = map[int]bool{4: true, 5: true, 10: true, 11: true, 12: true, 13: true, 14: true, 15: true, 16: true, 17: true, 18: true, 19: true, 52: true}
 
 // unmodeled are the DEC private modes a repaint does not set as the
 // program left them: the ones the screen acts on itself, and a column
 // switch, which would resize the viewer.
 var unmodeled = map[int]bool{3: true, 6: true, 7: true, 25: true, 47: true, 1047: true, 1048: true, 1049: true}
 
-// Print draws a character at the cursor.
+// Print draws a character at the cursor. A C1 control decoded as a
+// character draws nothing, since xterm.js takes it as a control.
 func (s *Screen) Print(r rune) {
+	if r >= 0x80 && r < 0xa0 {
+		return
+	}
 	if r >= 0x5f && r <= 0x7e && s.charsets[s.shift] {
 		r = lineDrawing[r-0x5f]
 	}
@@ -47,14 +52,14 @@ func (s *Screen) Print(r rune) {
 func (s *Screen) printCell(r rune, width int) {
 	g := s.screen()
 	if s.cursor.isWrapPending && s.isAutowrap {
-		s.newLine()
+		s.wrap()
 	}
 	if width == 2 && s.cursor.x == s.cols-1 {
 		if !s.isAutowrap {
 			return
 		}
 		g.erase(s.cursor.y, s.cursor.x, s.cols, s.pen)
-		s.newLine()
+		s.wrap()
 	}
 	if s.isInsert {
 		g.insertCells(s.cursor.y, s.cursor.x, width, s.pen)
@@ -80,7 +85,7 @@ func (s *Screen) combine(r rune) {
 	if s.cursor.isWrapPending {
 		x = s.cursor.x
 	}
-	line := s.screen().lines[s.cursor.y]
+	line := s.screen().rows[s.cursor.y].cells
 	if x > 0 && line[x].width == 0 {
 		x--
 	}
@@ -91,10 +96,17 @@ func (s *Screen) combine(r rune) {
 }
 
 // newLine moves the cursor to the start of the next row, scrolling at the
-// bottom of the scrolling region, as a wrap does.
+// bottom of the scrolling region.
 func (s *Screen) newLine() {
 	s.cursor.x = 0
 	s.index()
+}
+
+// wrap goes on to the next row as output reaching the edge does, which
+// marks that row as the one before it continued.
+func (s *Screen) wrap() {
+	s.newLine()
+	s.screen().rows[s.cursor.y].isWrapped = true
 }
 
 // index moves the cursor down a row, scrolling the region up at its
@@ -144,9 +156,12 @@ func (s *Screen) Execute(b byte) {
 }
 
 // tab moves the cursor n tab stops right, or back for a negative n, never
-// past the screen's edge.
+// past the screen's edge. With a wrap pending it does nothing, as in
+// xterm.js.
 func (s *Screen) tab(n int) {
-	s.cursor.isWrapPending = false
+	if s.cursor.isWrapPending {
+		return
+	}
 	for ; n > 0 && s.cursor.x < s.cols-1; n-- {
 		for s.cursor.x++; s.cursor.x < s.cols-1 && !s.tabs[s.cursor.x]; s.cursor.x++ {
 		}
@@ -177,7 +192,10 @@ func (s *Screen) Hook(params [][]uint16, intermediates []byte, ignore bool, r ru
 // would reach the program as typed input, and the clipboard is the viewer's
 // own.
 func (s *Screen) OscDispatch(params [][]byte, bellTerminated bool) {
-	if len(params) < 2 || !colorQueries[string(params[0])] {
+	if len(params) < 2 {
+		return
+	}
+	if command, err := strconv.Atoi(string(params[0])); err != nil || !colorQueries[command] {
 		return
 	}
 	for _, param := range params[1:] {
@@ -230,9 +248,10 @@ func (s *Screen) EscDispatch(intermediates []byte, ignore bool, b byte) {
 // the cursor home.
 func (s *Screen) alignmentTest() {
 	g := s.screen()
-	for y := range g.lines {
-		for x := range g.lines[y] {
-			g.lines[y][x] = cell{char: 'E', width: 1}
+	for y := range g.rows {
+		g.rows[y].isWrapped = false
+		for x := range g.rows[y].cells {
+			g.rows[y].cells[x] = cell{char: 'E', width: 1}
 		}
 	}
 	s.top, s.bottom = 0, s.rows-1
@@ -302,9 +321,8 @@ func (s *Screen) control(params [][]uint16, r rune) {
 	n := param(params, 0, 1)
 	switch r {
 	case '@':
-		if !s.cursor.isWrapPending {
-			g.insertCells(s.cursor.y, s.cursor.x, n, s.pen)
-		}
+		s.cursor.isWrapPending = false
+		g.insertCells(s.cursor.y, s.cursor.x, n, s.pen)
 	case 'A':
 		s.moveUp(n)
 	case 'B', 'e':
@@ -332,6 +350,7 @@ func (s *Screen) control(params [][]uint16, r rune) {
 	case 'K':
 		s.eraseLine(param(params, 0, 0))
 	case 'L', 'M':
+		s.cursor.isWrapPending = false
 		if s.cursor.y < s.top || s.cursor.y > s.bottom {
 			return
 		}
@@ -340,15 +359,13 @@ func (s *Screen) control(params [][]uint16, r rune) {
 		} else {
 			g.scrollUp(s.cursor.y, s.bottom, n, s.pen)
 		}
-		s.cursor.x, s.cursor.isWrapPending = 0, false
+		s.cursor.x = 0
 	case 'P':
-		if !s.cursor.isWrapPending {
-			g.deleteCells(s.cursor.y, s.cursor.x, n, s.pen)
-		}
+		s.cursor.isWrapPending = false
+		g.deleteCells(s.cursor.y, s.cursor.x, n, s.pen)
 	case 'X':
-		if !s.cursor.isWrapPending {
-			g.erase(s.cursor.y, s.cursor.x, s.cursor.x+n, s.pen)
-		}
+		s.cursor.isWrapPending = false
+		g.erase(s.cursor.y, s.cursor.x, s.cursor.x+n, s.pen)
 	case 'S':
 		g.scrollUp(s.top, s.bottom, n, s.pen)
 	case 'T':
@@ -451,27 +468,24 @@ func (s *Screen) setMode(mode int, isSet bool) {
 		}
 	case 25:
 		s.isCursorHidden = !isSet
-	case 47, 1047:
-		if !isSet && mode == 1047 && s.isAlt {
-			s.clearAlt()
+	case 47, 1047, 1049:
+		// As in xterm.js, every switch clears the alternate screen, and
+		// leaving with 1049 restores the saved cursor even on the main
+		// screen.
+		if mode == 1049 && isSet && !s.isAlt {
+			s.saveCursor()
 		}
-		s.isAlt = isSet
+		if isSet != s.isAlt {
+			s.isAlt = isSet
+			s.alt = newGrid(s.cols, s.rows)
+		}
+		if mode == 1049 && !isSet {
+			s.restoreCursor()
+		}
 	case 1048:
 		if isSet {
 			s.saveCursor()
 		} else {
-			s.restoreCursor()
-		}
-	case 1049:
-		// As xterm.js does, leaving restores the saved cursor even on the
-		// main screen.
-		switch {
-		case isSet && !s.isAlt:
-			s.saveCursor()
-			s.isAlt = true
-			s.clearAlt()
-		case !isSet:
-			s.isAlt = false
 			s.restoreCursor()
 		}
 	}
@@ -484,12 +498,9 @@ func (s *Screen) setMode(mode int, isSet bool) {
 	s.modes[mode] = isSet
 }
 
-func (s *Screen) clearAlt() {
-	s.alt = newGrid(s.cols, s.rows)
-}
-
 // softReset is DECSTR: the modes, margins, style and saved cursor of a
-// terminal that starts, with the screen left as it is.
+// terminal that starts, with the screen left as it is. As in xterm.js, it
+// resets every DEC private mode the program set.
 func (s *Screen) softReset() {
 	s.isInsert, s.isOriginMode, s.isAutowrap, s.isCursorHidden, s.isKeypadMode = false, false, true, false, false
 	s.top, s.bottom = 0, s.rows-1
@@ -497,6 +508,7 @@ func (s *Screen) softReset() {
 	s.charsets, s.shift = [4]bool{}, 0
 	s.saved = [2]savedCursor{}
 	s.cursor.isWrapPending = false
+	s.modes, s.modeOrder = map[int]bool{}, nil
 }
 
 // moveUp moves the cursor up n rows, stopping at the scrolling region's top
@@ -531,35 +543,51 @@ func (s *Screen) moveTo(y, x int) {
 	s.cursor.isWrapPending = false
 }
 
+// eraseDisplay is ED. A row erased from its start no longer continues the
+// row above it, as in xterm.js.
 func (s *Screen) eraseDisplay(mode int) {
 	g := s.screen()
 	switch mode {
 	case 0:
-		g.erase(s.cursor.y, s.eraseFrom(), s.cols, s.pen)
+		s.eraseLine(0)
 		for y := s.cursor.y + 1; y < s.rows; y++ {
 			g.erase(y, 0, s.cols, s.pen)
+			g.rows[y].isWrapped = false
 		}
 	case 1:
 		for y := 0; y < s.cursor.y; y++ {
 			g.erase(y, 0, s.cols, s.pen)
+			g.rows[y].isWrapped = false
 		}
 		g.erase(s.cursor.y, 0, s.cursor.x+1, s.pen)
+		g.rows[s.cursor.y].isWrapped = false
+		if s.cursor.x+1 >= s.cols && s.cursor.y+1 < s.rows {
+			g.rows[s.cursor.y+1].isWrapped = false
+		}
 	case 2:
 		for y := range s.rows {
 			g.erase(y, 0, s.cols, s.pen)
+			g.rows[y].isWrapped = false
 		}
 	}
 }
 
+// eraseLine is EL. A row erased from its start no longer continues the row
+// above it, as in xterm.js.
 func (s *Screen) eraseLine(mode int) {
 	g := s.screen()
 	switch mode {
 	case 0:
-		g.erase(s.cursor.y, s.eraseFrom(), s.cols, s.pen)
+		from := s.eraseFrom()
+		g.erase(s.cursor.y, from, s.cols, s.pen)
+		if from == 0 {
+			g.rows[s.cursor.y].isWrapped = false
+		}
 	case 1:
 		g.erase(s.cursor.y, 0, s.cursor.x+1, s.pen)
 	case 2:
 		g.erase(s.cursor.y, 0, s.cols, s.pen)
+		g.rows[s.cursor.y].isWrapped = false
 	}
 }
 

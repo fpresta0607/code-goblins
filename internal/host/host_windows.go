@@ -122,7 +122,9 @@ func Run(stateDir string, spec Spec) error {
 			typed := answers
 			answers = nil
 			answering.Unlock()
-			_, _ = console.Write(typed)
+			if len(typed) > 0 {
+				_, _ = console.Write(typed)
+			}
 		}
 	}()
 	// outputEnded closes once the terminal's output is read to its end, which
