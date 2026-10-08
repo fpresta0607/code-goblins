@@ -6,8 +6,11 @@
 package home
 
 import (
+	"bytes"
+	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"io/fs"
 	"os"
 	"path/filepath"
@@ -17,11 +20,16 @@ import (
 	"github.com/fpresta0607/code-goblins/internal/fsx"
 )
 
-// Home names the three directories everything else keys on.
+// Home names the three directories everything else keys on, and the folder
+// on a Dev Drive its heavy folders moved to, if they did.
 type Home struct {
 	Root  string
 	State string
 	Data  string
+	// DevDrive is the folder on a Dev Drive that holds the home's
+	// worktrees, scratch and caches, which config\dev-drive.json names;
+	// empty while they live in Root, as on every machine without one.
+	DevDrive string
 }
 
 // The folders a home holds beside state\ and data\, the one layout every
@@ -45,14 +53,102 @@ const (
 // Bin is the folder holding the home's installed binaries.
 func (h Home) Bin() string { return filepath.Join(h.Root, BinDir) }
 
-// Worktrees is the folder holding every goblin worktree.
-func (h Home) Worktrees() string { return filepath.Join(h.Root, WorktreesDir) }
+// Worktrees is the folder new goblin worktrees go to.
+func (h Home) Worktrees() string { return filepath.Join(h.heavy(), WorktreesDir) }
 
-// Scratch is the folder holding every task's scratch folder.
-func (h Home) Scratch() string { return filepath.Join(h.Root, ScratchDir) }
+// Scratch is the folder new tasks' scratch folders go to.
+func (h Home) Scratch() string { return filepath.Join(h.heavy(), ScratchDir) }
 
 // Caches is the shared package-cache root.
-func (h Home) Caches() string { return filepath.Join(h.Root, CachesDir) }
+func (h Home) Caches() string { return filepath.Join(h.heavy(), CachesDir) }
+
+// WorktreeRoots are every folder a goblin worktree of this home can be in:
+// the one new worktrees go to, then, once they moved to a Dev Drive, the
+// home's own, where a task made before the move keeps its worktree until it
+// ends. Anything that finds a task from a path, or checks a task's recorded
+// path before acting on it, checks them all.
+func (h Home) WorktreeRoots() []string { return h.roots(WorktreesDir) }
+
+// ScratchRoots are every folder a task's scratch folder can be in, as
+// WorktreeRoots are for worktrees.
+func (h Home) ScratchRoots() []string { return h.roots(ScratchDir) }
+
+// OwnWorktrees are every place spawn can have put task id's own worktree of
+// project: <root>\<project folder>\<id> under each worktree root, then
+// <project>\.worktrees\gb-<id>, where an older build put it. A task record
+// naming any other folder is not to be trusted as that task's worktree.
+func (h Home) OwnWorktrees(project, id string) []string {
+	var own []string
+	for _, root := range h.WorktreeRoots() {
+		own = append(own, filepath.Join(root, filepath.Base(filepath.Clean(project)), id))
+	}
+	return append(own, filepath.Join(project, LegacyWorktreesDir, LegacyWorktreePrefix+id))
+}
+
+func (h Home) heavy() string {
+	if h.DevDrive != "" {
+		return h.DevDrive
+	}
+	return h.Root
+}
+
+func (h Home) roots(folder string) []string {
+	roots := []string{filepath.Join(h.heavy(), folder)}
+	if h.DevDrive != "" {
+		roots = append(roots, filepath.Join(h.Root, folder))
+	}
+	return roots
+}
+
+// DevDriveFile is the file in the home's config folder that moves its
+// worktrees, scratch and caches to a folder on a Dev Drive. Without it they
+// live in the home.
+const DevDriveFile = "dev-drive.json"
+
+// DevDriveConfig is config\dev-drive.json. A reader keeps the keys it knows
+// and passes over the rest, so a build from before a key was added still
+// reads a file a later build wrote.
+type DevDriveConfig struct {
+	// Root is the folder on the Dev Drive the heavy folders moved to, empty
+	// until they did.
+	Root string `json:"root,omitempty"`
+}
+
+// DevDriveConfigPath is root's config\dev-drive.json.
+func DevDriveConfigPath(root string) string {
+	return filepath.Join(root, "config", DevDriveFile)
+}
+
+// ReadDevDriveConfig reads root's config\dev-drive.json; a missing file is
+// the zero config. A file that does not mean one JSON object naming an
+// absolute folder is refused rather than read as "no Dev Drive", which would
+// put new worktrees back in the home while the old ones sit on the drive.
+func ReadDevDriveConfig(root string) (DevDriveConfig, error) {
+	path := DevDriveConfigPath(root)
+	data, err := fsx.ReadFile(path)
+	if errors.Is(err, fs.ErrNotExist) {
+		return DevDriveConfig{}, nil
+	}
+	if err != nil {
+		return DevDriveConfig{}, err
+	}
+	var config DevDriveConfig
+	decoder := json.NewDecoder(bytes.NewReader(data))
+	if err := decoder.Decode(&config); err != nil {
+		return DevDriveConfig{}, fmt.Errorf("home: %s: %w", path, err)
+	}
+	if err := decoder.Decode(new(json.RawMessage)); !errors.Is(err, io.EOF) {
+		return DevDriveConfig{}, fmt.Errorf("home: %s must hold one JSON object", path)
+	}
+	if config.Root == "" {
+		return config, nil
+	}
+	if !filepath.IsAbs(config.Root) {
+		return DevDriveConfig{}, fmt.Errorf("home: %s names %q, which is not an absolute folder", path, config.Root)
+	}
+	config.Root = filepath.Clean(config.Root)
+	return config, nil
+}
 
 // DefaultRoot is the per-user home every install uses,
 // %LOCALAPPDATA%\CodeGoblins. CFO_HOME overrides it, for a test or a
@@ -149,7 +245,11 @@ func resolve() (Home, error) {
 	if err != nil {
 		return Home{}, err
 	}
-	h := Home{Root: root, State: filepath.Join(root, "state"), Data: filepath.Join(root, "data")}
+	config, err := ReadDevDriveConfig(root)
+	if err != nil {
+		return Home{}, err
+	}
+	h := Home{Root: root, State: filepath.Join(root, "state"), Data: filepath.Join(root, "data"), DevDrive: config.Root}
 	if s := os.Getenv("CFO_STATE_OVERRIDE"); s != "" {
 		h.State = s
 	}
@@ -282,13 +382,17 @@ const (
 )
 
 // LocateWorktree finds the fleet worktree dir is inside, the directory itself
-// or one of its parents, in either layout: <worktreesRoot>\<project>\<name>
-// in the home, or <checkout>\.worktrees\gb-<name> where an older build put
-// it. A path inside neither is no fleet worktree, so a project checkout or an
-// unrelated directory never gets a task attributed to it.
-func LocateWorktree(worktreesRoot, dir string) (WorktreePlace, bool) {
+// or one of its parents, in either layout: <root>\<project>\<name> under any
+// of worktreesRoots, the home's WorktreeRoots, or
+// <checkout>\.worktrees\gb-<name> where an older build put it. A path inside
+// none is no fleet worktree, so a project checkout or an unrelated directory
+// never gets a task attributed to it.
+func LocateWorktree(worktreesRoots []string, dir string) (WorktreePlace, bool) {
 	cleaned := strings.TrimRight(filepath.Clean(dir), `\/`)
-	if worktreesRoot != "" {
+	for _, worktreesRoot := range worktreesRoots {
+		if worktreesRoot == "" {
+			continue
+		}
 		root := strings.TrimRight(filepath.Clean(worktreesRoot), `\/`)
 		if rel, err := filepath.Rel(root, cleaned); err == nil && filepath.IsLocal(rel) {
 			if parts := strings.Split(rel, string(filepath.Separator)); len(parts) >= 2 {

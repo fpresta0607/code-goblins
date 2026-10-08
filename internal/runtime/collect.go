@@ -56,7 +56,7 @@ func (c Collector) Collect(ctx context.Context) (Inventory, error) {
 		Retired:       map[string]bool{},
 		Present:       map[string]bool{},
 		SystemRoot:    os.Getenv("SystemRoot"),
-		WorktreesRoot: c.Home.Worktrees(),
+		WorktreeRoots: c.Home.WorktreeRoots(),
 	}
 	if inv.SystemRoot == "" {
 		inv.SystemRoot = os.Getenv("windir")

@@ -359,11 +359,12 @@ type Inventory struct {
 	// with any other --state belongs to a scratch CFO home some goblin's test
 	// or proof set up, not to the fleet.
 	StateDir string
-	// ScratchRoot is this home's scratch folder, where each goblin's TEMP,
-	// TMP and GOTMPDIR point, one folder per task: a program run from there
-	// names its task as one run from an older build's Go temporary directory
-	// does, and a process working there works in that task's own directory.
-	ScratchRoot     string
+	// ScratchRoots are this home's scratch folders, where each goblin's
+	// TEMP, TMP and GOTMPDIR point, one folder per task: a program run from
+	// there names its task as one run from an older build's Go temporary
+	// directory does, and a process working there works in that task's own
+	// directory.
+	ScratchRoots    []string
 	Tasks           []Task
 	OrphanStatusIDs []string
 	Panes           []Pane
@@ -563,7 +564,7 @@ func classifyProcesses(inv Inventory, supervised, fleet map[int]bool, tasks map[
 				// its own could ever be right about.
 				continue
 			}
-			fixture, underFixture := fixtureServer(process, byPID, inv.Session, inv.StateDir, inv.ScratchRoot, owns)
+			fixture, underFixture := fixtureServer(process, byPID, inv.Session, inv.StateDir, inv.ScratchRoots, owns)
 			owner := ""
 			if underFixture {
 				dirs := fixture.Dirs
@@ -991,8 +992,8 @@ const fixtureAncestry = 8
 // home's host carries its harness's command line after --, and a program run
 // from a goblin's Go temporary directory may be the stand-in itself, so each
 // is checked as its own fixture origin too.
-func fixtureServer(process Process, byPID map[int]Process, session, stateDir, scratchRoot string, owns func(dir, task string) bool) (fixtureOrigin, bool) {
-	if origin, ok := nativeFixture(process, stateDir, scratchRoot, owns); ok {
+func fixtureServer(process Process, byPID map[int]Process, session, stateDir string, scratchRoots []string, owns func(dir, task string) bool) (fixtureOrigin, bool) {
+	if origin, ok := nativeFixture(process, stateDir, scratchRoots, owns); ok {
 		return origin, true
 	}
 	current := process
@@ -1007,7 +1008,7 @@ func fixtureServer(process Process, byPID map[int]Process, session, stateDir, sc
 			}
 			return fixtureOrigin{}, false
 		}
-		if origin, ok := nativeFixture(parent, stateDir, scratchRoot, owns); ok {
+		if origin, ok := nativeFixture(parent, stateDir, scratchRoots, owns); ok {
 			return origin, true
 		}
 		current = parent
@@ -1019,11 +1020,11 @@ func fixtureServer(process Process, byPID map[int]Process, session, stateDir, sc
 // session runs its stand-ins from: the native terminal host of another CFO
 // home, or a program run from a goblin's Go temporary directory and from that
 // goblin's own worktree or scratch directory.
-func nativeFixture(process Process, stateDir, scratchRoot string, owns func(dir, task string) bool) (fixtureOrigin, bool) {
+func nativeFixture(process Process, stateDir string, scratchRoots []string, owns func(dir, task string) bool) (fixtureOrigin, bool) {
 	if dirs, scratch := scratchHost(process, stateDir); scratch {
 		return fixtureOrigin{Process: process, Dirs: append([]string{process.Cwd}, dirs...), ScratchHome: true}, true
 	}
-	if task, ok := goTestTask(process, scratchRoot); ok && owns(process.Cwd, task) {
+	if task, ok := goTestTask(process, scratchRoots); ok && owns(process.Cwd, task) {
 		return fixtureOrigin{Process: process, GoTestTask: task}, true
 	}
 	return fixtureOrigin{}, false
@@ -1040,8 +1041,10 @@ func runsForTask(dir, task string, inv Inventory, tasks map[string]Task, unreada
 	if inv.StateDir != "" && pathWithin(dir, filepath.Join(inv.StateDir, "tasktmp", task)) {
 		return true
 	}
-	if inv.ScratchRoot != "" && pathWithin(dir, inv.ScratchRoot+`\`+task) {
-		return true
+	for _, root := range inv.ScratchRoots {
+		if root != "" && pathWithin(dir, root+`\`+task) {
+			return true
+		}
 	}
 	worktree, ok := worktreeHolding(scratchpadOwner(dir, inv.Worktrees), inv.Worktrees)
 	if !ok {
@@ -1069,20 +1072,23 @@ type fixtureOrigin struct {
 }
 
 // goTestTask is the task whose Go temporary directory process's program runs
-// from: its scratch folder, <scratchRoot>\<task id>, or for a goblin an older
-// build spawned %LOCALAPPDATA%\cfo\gotmp\<fleet>\<task id> (state.GoTmpDir). A
-// goblin's Go test builds its test binary there, and the stand-ins it starts
-// run from the test's own temporary directory under it, so the path names the
-// goblin the test may be; runsForTask decides whether it is.
-func goTestTask(process Process, scratchRoot string) (string, bool) {
+// from: its scratch folder, <scratch root>\<task id> under any of the home's
+// scratch roots, or for a goblin an older build spawned
+// %LOCALAPPDATA%\cfo\gotmp\<fleet>\<task id> (state.GoTmpDir). A goblin's Go
+// test builds its test binary there, and the stand-ins it starts run from the
+// test's own temporary directory under it, so the path names the goblin the
+// test may be; runsForTask decides whether it is.
+func goTestTask(process Process, scratchRoots []string) (string, bool) {
 	args := commandArgs(process.CommandLine)
 	if len(args) == 0 {
 		return "", false
 	}
-	if root := strings.TrimSuffix(normalizePath(scratchRoot), `\`); root != "" {
-		if rest, ok := strings.CutPrefix(normalizePath(args[0]), root+`\`); ok {
-			task, _, _ := strings.Cut(rest, `\`)
-			return task, task != ""
+	for _, scratchRoot := range scratchRoots {
+		if root := strings.TrimSuffix(normalizePath(scratchRoot), `\`); root != "" {
+			if rest, ok := strings.CutPrefix(normalizePath(args[0]), root+`\`); ok {
+				task, _, _ := strings.Cut(rest, `\`)
+				return task, task != ""
+			}
 		}
 	}
 	parts := strings.FieldsFunc(args[0], func(r rune) bool { return r == '\\' || r == '/' })

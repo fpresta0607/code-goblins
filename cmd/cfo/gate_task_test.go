@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"encoding/json"
 	"errors"
 	"io"
 	"os"
@@ -12,6 +13,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/fpresta0607/code-goblins/internal/fsx"
 	"github.com/fpresta0607/code-goblins/internal/home"
 	"github.com/fpresta0607/code-goblins/internal/state"
 )
@@ -135,6 +137,81 @@ func TestAGateRunNamesItsOwnerDespiteTheInheritedTask(t *testing.T) {
 				t.Errorf("exit=%d, task=%q, turns=%q, stderr=%q; want %s from the gate's source worktree", exit, report.Task, turns.String(), stderr.String(), test.owner)
 			}
 		})
+	}
+}
+
+// A home whose heavy folders moved to a Dev Drive puts new worktrees there and
+// keeps those of tasks made before the move in its own folder: a gate run of
+// either names its owner.
+func TestAGateRunNamesItsOwnerInEitherWorktreeFolderOfAMovedHome(t *testing.T) {
+	for name, onTheDrive := range map[string]bool{"a worktree on the Dev Drive": true, "a worktree made before the move": false} {
+		t.Run(name, func(t *testing.T) {
+			// Arrange
+			project, gateRoot, worktree := gateTaskFixture(t, "cg-example")
+			// git worktree move records the long spelling of a path, and a
+			// CI runner's temporary folder has a short one (RUNNER~1), so
+			// every folder here is spelled long, as spawn's always are.
+			cfoHome, err := fsx.Canonical(os.Getenv("CFO_HOME"))
+			if err != nil {
+				t.Fatal(err)
+			}
+			t.Setenv("CFO_HOME", cfoHome)
+			devDrive, err := fsx.Canonical(t.TempDir())
+			if err != nil {
+				t.Fatal(err)
+			}
+			devDrive = filepath.Join(devDrive, "CodeGoblins")
+			writeDevDriveConfig(t, cfoHome, devDrive)
+			parent := cfoHome
+			if onTheDrive {
+				parent = devDrive
+			}
+			owner := filepath.Join(parent, "worktrees", filepath.Base(project), "cg-example")
+			if err := os.MkdirAll(filepath.Dir(owner), 0o755); err != nil {
+				t.Fatal(err)
+			}
+			if output, err := exec.Command("git", "-C", project, "worktree", "move", filepath.Join(project, ".worktrees", "gb-cg-example"), owner).CombinedOutput(); err != nil {
+				t.Fatalf("git worktree move: %s (%v)", output, err)
+			}
+			if err := state.WriteTaskMeta(filepath.Join(cfoHome, "state"), state.TaskMeta{ID: "cg-example", Project: project, Worktree: owner}); err != nil {
+				t.Fatal(err)
+			}
+			writeGateSource(t, gateRoot, project, worktree, "feature")
+			runtime := standIn()
+			runtime.gateRun = func(command []string, _ string, _ []string, stdout, stderr io.Writer) (int, error) {
+				if command[1] == "test" {
+					if exit := runGateTurns(io.Discard, stderr, plenty); exit != 0 {
+						t.Errorf("turns exited %d", exit)
+					}
+				}
+				return 0, nil
+			}
+
+			// Act
+			var stdout, stderr bytes.Buffer
+			exit := gateTestWith(runtime, &stdout, &stderr)
+
+			// Assert
+			if report, _ := lastReport(t); exit != 0 || report.Task != "cg-example" {
+				t.Errorf("exit=%d, task=%q, stderr=%q; want the gate run named for cg-example", exit, report.Task, stderr.String())
+			}
+		})
+	}
+}
+
+// writeDevDriveConfig moves root's heavy folders to devDrive, as cfo
+// dev-drive move does.
+func writeDevDriveConfig(t *testing.T, root, devDrive string) {
+	t.Helper()
+	data, err := json.Marshal(home.DevDriveConfig{Root: devDrive})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(root, "config"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(home.DevDriveConfigPath(root), data, 0o644); err != nil {
+		t.Fatal(err)
 	}
 }
 
