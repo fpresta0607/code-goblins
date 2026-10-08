@@ -14,10 +14,11 @@ type sherpaAPI interface {
 	createRecognizer(*sherpaOfflineRecognizerConfig) uintptr
 	readWave([]byte) uintptr
 	waveData(uintptr) (sherpaWave, error)
+	waveSamples(sherpaWave) ([]float32, error)
 	freeWave(uintptr)
 	createStream(uintptr) uintptr
 	destroyStream(uintptr)
-	acceptWaveform(uintptr, sherpaWave)
+	acceptWaveform(stream uintptr, rate int32, samples []float32)
 	decode(uintptr, uintptr)
 	resultJSON(uintptr) uintptr
 	readJSON(uintptr) ([]byte, error)
@@ -64,24 +65,43 @@ func newSherpaRecognizer(options WorkerOptions, api sherpaAPI) (*sherpaRecognize
 	return &sherpaRecognizer{api: api, handle: handle}, nil
 }
 
-// Recognize returns the words in sound, a WAV file's bytes, and frees what
-// the engine made for it.
+// Recognize returns the words in sound, a WAV file's bytes, recognised in
+// the pieces the model hears well, and frees what the engine made for it.
 func (r *sherpaRecognizer) Recognize(sound []byte) (string, error) {
 	wave := r.api.readWave(sound)
 	if wave == 0 {
 		return "", errors.New("the sound is not a WAV file the engine can read")
 	}
 	defer r.api.freeWave(wave)
-	samples, err := r.api.waveData(wave)
+	data, err := r.api.waveData(wave)
 	if err != nil {
 		return "", fmt.Errorf("read the sound the engine decoded: %w", err)
 	}
+	samples, err := r.api.waveSamples(data)
+	if err != nil {
+		return "", fmt.Errorf("read the sound the engine decoded: %w", err)
+	}
+	var words []string
+	for _, piece := range pieces(samples, int(data.SampleRate)) {
+		text, err := r.recognizePiece(data.SampleRate, piece)
+		if err != nil {
+			return "", err
+		}
+		if text != "" {
+			words = append(words, text)
+		}
+	}
+	return strings.Join(words, " "), nil
+}
+
+// recognizePiece returns the words in one piece of a sound.
+func (r *sherpaRecognizer) recognizePiece(rate int32, piece []float32) (string, error) {
 	stream := r.api.createStream(r.handle)
 	if stream == 0 {
 		return "", errors.New("the engine could not start recognising")
 	}
 	defer r.api.destroyStream(stream)
-	r.api.acceptWaveform(stream, samples)
+	r.api.acceptWaveform(stream, rate, piece)
 	r.api.decode(r.handle, stream)
 	result := r.api.resultJSON(stream)
 	if result == 0 {

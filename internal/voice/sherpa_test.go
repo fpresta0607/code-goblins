@@ -1,6 +1,7 @@
 package voice
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
@@ -29,6 +30,14 @@ type fakeSherpaAPI struct {
 	settings map[string]string
 	threads  int32
 	calls    []string
+	// sound is what the engine decodes every WAV to, at 16 kHz: four
+	// samples of silence when it is nil.
+	sound []float32
+	// heard, when set, is what each decode answers in turn in place of
+	// result, and accepted is each waveform the engine was handed.
+	heard    []string
+	decoded  int
+	accepted [][]float32
 }
 
 func newFakeSherpaAPI(t *testing.T, failure string) *fakeSherpaAPI {
@@ -89,7 +98,10 @@ func (api *fakeSherpaAPI) waveData(wave uintptr) (sherpaWave, error) {
 	if api.failure == "wave-data" {
 		return sherpaWave{}, errors.New("unreadable")
 	}
-	return sherpaWave{Samples: 1, SampleRate: 16000, NumSamples: 4}, nil
+	if api.sound == nil {
+		api.sound = make([]float32, 4)
+	}
+	return sherpaWave{Samples: 1, SampleRate: 16000, NumSamples: int32(len(api.sound))}, nil
 }
 
 func (api *fakeSherpaAPI) freeWave(wave uintptr) { api.call("free-wave", wave) }
@@ -101,8 +113,17 @@ func (api *fakeSherpaAPI) createStream(recognizer uintptr) uintptr {
 
 func (api *fakeSherpaAPI) destroyStream(stream uintptr) { api.call("destroy-stream", stream) }
 
-func (api *fakeSherpaAPI) acceptWaveform(stream uintptr, wave sherpaWave) {
-	api.call("accept-waveform", stream, uintptr(wave.SampleRate))
+func (api *fakeSherpaAPI) waveSamples(wave sherpaWave) ([]float32, error) {
+	api.call("wave-samples", uintptr(wave.NumSamples))
+	if api.failure == "wave-samples" {
+		return nil, errors.New("unreadable")
+	}
+	return api.sound[:wave.NumSamples], nil
+}
+
+func (api *fakeSherpaAPI) acceptWaveform(stream uintptr, rate int32, samples []float32) {
+	api.call("accept-waveform", stream, uintptr(rate))
+	api.accepted = append(api.accepted, samples)
 }
 
 func (api *fakeSherpaAPI) decode(recognizer, stream uintptr) {
@@ -121,6 +142,10 @@ func (api *fakeSherpaAPI) readJSON(result uintptr) ([]byte, error) {
 		return nil, errors.New("unreadable")
 	case "not-json":
 		return []byte("Done!"), nil
+	}
+	if api.heard != nil {
+		api.decoded++
+		return json.Marshal(map[string]string{"text": api.heard[api.decoded-1]})
 	}
 	return api.result, nil
 }
@@ -276,7 +301,7 @@ func TestTheRecognizerLoadsTheModelOnceAndFreesWhatEachSoundNeeded(t *testing.T)
 			t.Fatalf("heard %q, want %q", text, want)
 		}
 	}
-	once := "read-wave wave-data[33] create-stream[11] accept-waveform[22 16000] decode[11 22] result-json[22] read-json[44] free-json[44] destroy-stream[22] free-wave[33]"
+	once := "read-wave wave-data[33] wave-samples[4] create-stream[11] accept-waveform[22 16000] decode[11 22] result-json[22] read-json[44] free-json[44] destroy-stream[22] free-wave[33]"
 	if got := strings.Join(api.calls, " "); got != "create-recognizer "+once+" "+once {
 		t.Fatalf("the engine was called\n%s\nwant\n%s", got, "create-recognizer "+once+" "+once)
 	}
@@ -290,6 +315,7 @@ func TestEveryFailureFreesWhatTheEngineMadeAndNothingTwice(t *testing.T) {
 	for failure, frees := range map[string]string{
 		"read-wave":     "",
 		"wave-data":     "free-wave[33]",
+		"wave-samples":  "free-wave[33]",
 		"create-stream": "free-wave[33]",
 		"result-json":   "destroy-stream[22] free-wave[33]",
 		"read-json":     "free-json[44] destroy-stream[22] free-wave[33]",
