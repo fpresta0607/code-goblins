@@ -147,13 +147,40 @@ func TestTheSupervisorStartsATrainWhenTwoGoblinsFinishedPullRequestsWaitGreen(t 
 	}
 }
 
+// Tonight's goblins: each reported its pull request done and went on to its
+// next one, which is what a goblin with more to build does. A pull request a
+// goblin reported done in its current run rides whatever it reported after.
+func TestTheSupervisorStartsATrainForGoblinsThatWentOnWorkingAfterTheirDoneReport(t *testing.T) {
+	// Arrange
+	service, h := fleetService(t)
+	project := newTrainProject(t)
+	first, second := project.pull(465), project.pull(467)
+	reportDone(t, h, "cg-harness-capacity", project.checkout, "done: PR "+first.URL, "working: building its third pull request")
+	reportDone(t, h, "cg-dev-drive", project.checkout, "done: PR "+second.URL, "working: building its last pull request", "blocked: which drive letter?")
+
+	// Act
+	err := service.runTrain(context.Background(), project, project.checkout, []train.PullRequest{first, second})
+
+	// Assert
+	if err != nil {
+		t.Fatal(err)
+	}
+	trains, err := train.List(h.State)
+	if err != nil || len(trains) != 1 {
+		t.Fatalf("trains = %+v, %v, want one", trains, err)
+	}
+	if cars := trains[0].Cars; len(cars) != 2 || cars[0].Number != 465 || cars[1].Number != 467 {
+		t.Fatalf("cars = %+v, want #465 and #467", cars)
+	}
+}
+
 func TestTheSupervisorLeavesALoneFinishedPullRequestToTheCFO(t *testing.T) {
 	// Arrange
 	service, h := fleetService(t)
 	project := newTrainProject(t)
 	first, working := project.pull(21), project.pull(22)
 	reportDone(t, h, "g21", project.checkout, "done: PR "+first.URL)
-	reportDone(t, h, "g22", project.checkout, "done: PR "+working.URL, "working: fixing the review")
+	reportDone(t, h, "g22", project.checkout, "working: building #22, not done with it yet")
 
 	// Act
 	err := service.runTrain(context.Background(), project, project.checkout, []train.PullRequest{first, working})
@@ -196,27 +223,44 @@ func TestATrainsMergesReachAFKModesLogOnlyWhileItIsOn(t *testing.T) {
 	}
 }
 
-func TestDoneReportsReadOnlyTheDoneReportsSinceTheLatestOtherReport(t *testing.T) {
+// Every pull request a goblin reported done in its current run is read back
+// with when it was first reported done, whatever the goblin reported after:
+// working on its next pull request, being blocked, or reporting it again. A
+// report from before the run began is the last run's.
+func TestDoneReportsReadEveryPullRequestReportedDoneInThisRun(t *testing.T) {
 	// Arrange
-	at := time.Date(2026, 10, 7, 12, 0, 0, 0, time.UTC)
+	spawned := time.Date(2026, 10, 7, 12, 0, 0, 0, time.UTC)
 	line := func(minute int, event string) string {
-		return at.Add(time.Duration(minute)*time.Minute).Format(time.RFC3339) + " " + event
+		return spawned.Add(time.Duration(minute)*time.Minute).Format(time.RFC3339) + " " + event
 	}
 	lines := []string{
-		line(0, "done: PR https://github.com/o/r/pull/1"),
-		line(1, "working: back at it"),
-		line(2, "done: PR https://github.com/o/r/pull/2"),
-		line(3, "notify-handled: {}"),
-		line(4, "done: PR https://github.com/o/r/pull/3 ready"),
-		line(5, "done: PR https://github.com/o/r/pull/2"),
+		line(-5, "done: PR https://github.com/o/r/pull/9"),
+		line(1, "done: PR https://github.com/o/r/pull/1"),
+		line(2, "working: back at it"),
+		line(3, "done: PR https://github.com/o/r/pull/2"),
+		line(4, "notify-handled: {}"),
+		line(5, "blocked: which base?"),
+		line(6, "done: PR https://github.com/o/r/pull/3 ready"),
+		line(7, "done: PR https://github.com/o/r/pull/2"),
+		line(8, "working: building the next pull request"),
 	}
 
 	// Act
-	done := doneReports(lines, time.Time{})
+	done := doneReports(lines, spawned)
 
 	// Assert
-	if len(done) != 2 || !done["https://github.com/o/r/pull/2"].Equal(at.Add(2*time.Minute)) || !done["https://github.com/o/r/pull/3"].Equal(at.Add(4*time.Minute)) {
-		t.Fatalf("done = %v, want #2 at its first report of the run and #3", done)
+	want := map[string]time.Time{
+		"https://github.com/o/r/pull/1": spawned.Add(time.Minute),
+		"https://github.com/o/r/pull/2": spawned.Add(3 * time.Minute),
+		"https://github.com/o/r/pull/3": spawned.Add(6 * time.Minute),
+	}
+	if len(done) != len(want) {
+		t.Fatalf("done = %v, want %v", done, want)
+	}
+	for url, at := range want {
+		if !done[url].Equal(at) {
+			t.Errorf("%s done at %v, want %v, its first report of the run", url, done[url], at)
+		}
 	}
 }
 
