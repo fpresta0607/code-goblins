@@ -3,11 +3,13 @@ package installtest
 import (
 	"bytes"
 	"crypto/sha256"
+	"encoding/json"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 
@@ -232,6 +234,130 @@ func TestOneLineInstallStartsAloneOnlyTheWindowItDelivered(t *testing.T) {
 				if got, err := os.ReadFile(filepath.Join(run.programs, "Code Goblins Window.lnk")); err != nil || string(got) != standalone {
 					t.Errorf("the entry of a window installed on its own = %q (%v), want it left as it was", got, err)
 				}
+			}
+		})
+	}
+}
+
+func TestInstallOpensWindowsProgramsThroughTheDesktopShell(t *testing.T) {
+	tests := map[string]struct {
+		Window          string
+		Shell           string
+		ShouldFailStart bool
+		WantEvents      []string
+		WantDetail      string
+	}{
+		"a Windows program":      {"MZ test window", "", false, []string{"activate", "desktop", "shell"}, ""},
+		"a placeholder":          {"test window", "", false, []string{"start"}, "is not a Windows program"},
+		"an empty file":          {"", "", false, []string{"start"}, "is not a Windows program"},
+		"a truncated header":     {"M", "", false, []string{"start"}, "is not a Windows program"},
+		"an unavailable shell":   {"MZ test window", "unavailable", false, []string{"activate", "start"}, "shell unavailable"},
+		"no desktop":             {"MZ test window", "no-desktop", false, []string{"activate", "desktop", "start"}, "desktop shell is not available"},
+		"a failed shell launch":  {"MZ test window", "launch-fails", false, []string{"activate", "desktop", "shell", "start"}, "shell launch failed"},
+		"both launch paths fail": {"MZ test window", "launch-fails", true, []string{"activate", "desktop", "shell", "start"}, "fallback launch failed"},
+	}
+	inputs, err := json.Marshal(tests)
+	if err != nil {
+		t.Fatal(err)
+	}
+	record := t.TempDir()
+	command := `class Activator {
+    static [object] CreateInstance([type]$Class) {
+        Add-Content -LiteralPath $env:CODE_GOBLINS_TEST_WINDOW_EVENTS -Value (@{kind='activate'; clsid=$Class.GUID.ToString()} | ConvertTo-Json -Compress)
+        if ($env:CODE_GOBLINS_TEST_DESKTOP_SHELL -eq 'unavailable') { throw 'shell unavailable' }
+        $application = [pscustomobject]@{}
+        $application | Add-Member -MemberType ScriptMethod -Name ShellExecute -Value {
+            param($program, $arguments, $directory, $verb, $show)
+            Add-Content -LiteralPath $env:CODE_GOBLINS_TEST_WINDOW_EVENTS -Value (@{kind='shell'; program=$program; arguments=$arguments; directory=$directory; verb=$verb; show=$show} | ConvertTo-Json -Compress)
+            if ($env:CODE_GOBLINS_TEST_DESKTOP_SHELL -eq 'launch-fails') { throw 'shell launch failed' }
+        }
+        $shellWindows = [pscustomobject]@{Desktop=[pscustomobject]@{Document=[pscustomobject]@{Application=$application}}}
+        $shellWindows | Add-Member -MemberType ScriptMethod -Name FindWindowSW -Value {
+            param([ref]$location, [ref]$root, $windowClass, [ref]$handle, $options)
+            Add-Content -LiteralPath $env:CODE_GOBLINS_TEST_WINDOW_EVENTS -Value (@{kind='desktop'; location=$location.Value; root=$root.Value; window_class=$windowClass; options=$options} | ConvertTo-Json -Compress)
+            if ($env:CODE_GOBLINS_TEST_DESKTOP_SHELL -eq 'no-desktop') { return $null }
+            $handle.Value = 1
+            return $this.Desktop
+        }
+        return $shellWindows
+    }
+}
+function Start-Process {
+    param($FilePath, $WorkingDirectory, $ErrorAction)
+    Add-Content -LiteralPath $env:CODE_GOBLINS_TEST_WINDOW_EVENTS -Value (@{kind='start'; program=$FilePath; directory=$WorkingDirectory} | ConvertTo-Json -Compress)
+    if ($env:CODE_GOBLINS_TEST_FAIL_WINDOW_START -eq 'true') { throw 'fallback launch failed' }
+}
+`
+	command += "$cases = ConvertFrom-Json -InputObject '" + strings.ReplaceAll(string(inputs), "'", "''") + "'\n" +
+		"foreach ($case in $cases.PSObject.Properties) {\n" +
+		"  $env:CODE_GOBLINS_TEST_WINDOW_EVENTS = Join-Path '" + strings.ReplaceAll(record, "'", "''") + "' ($case.Name + '.jsonl')\n" +
+		"  $env:CODE_GOBLINS_LOG = Join-Path '" + strings.ReplaceAll(record, "'", "''") + "' ($case.Name + '.log')\n" +
+		"  $env:CODE_GOBLINS_TEST_DESKTOP_SHELL = $case.Value.Shell\n" +
+		"  $env:CODE_GOBLINS_TEST_FAIL_WINDOW_START = [string]$case.Value.ShouldFailStart\n" +
+		"  [IO.File]::WriteAllBytes((Join-Path $env:LOCALAPPDATA 'CodeGoblins\\bin\\goblins-window.exe'), [Text.Encoding]::UTF8.GetBytes($case.Value.Window))\n" +
+		"  Get-Content -Raw -LiteralPath '" + strings.ReplaceAll(installScript(t), "'", "''") + "' | Invoke-Expression\n" +
+		"}\nexit $LASTEXITCODE"
+	base := serveReleaseWithWindow(t, standIn(t), []byte("MZ test window"))
+	seed := func(local, programs string) {
+		if err := os.MkdirAll(filepath.Join(local, "CodeGoblins", "bin"), 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	run := runInstallForStartMenu(t, base, nil, command, seed)
+
+	for name, test := range tests {
+		t.Run(name, func(t *testing.T) {
+			recorded, err := os.ReadFile(filepath.Join(record, name+".jsonl"))
+			if err != nil {
+				t.Fatalf("no window launch recorded: %v\n%s", err, run.output)
+			}
+			var gotEvents []string
+			for _, line := range strings.Split(strings.TrimSpace(string(recorded)), "\n") {
+				var event struct {
+					Kind, CLSID, Program, Arguments, Directory, Verb string
+					Show, Options                                    int
+					WindowClass                                      int `json:"window_class"`
+					Location, Root                                   *string
+				}
+				if err := json.Unmarshal([]byte(line), &event); err != nil {
+					t.Fatal(err)
+				}
+				gotEvents = append(gotEvents, event.Kind)
+				switch event.Kind {
+				case "activate":
+					if event.CLSID != "9ba05972-f6a8-11cf-a442-00a0c90a8f39" {
+						t.Errorf("activated %s, want ShellWindows", event.CLSID)
+					}
+				case "desktop":
+					if event.WindowClass != 8 || event.Options != 1 || event.Location != nil || event.Root != nil {
+						t.Errorf("desktop lookup = %+v, want the desktop's dispatch interface", event)
+					}
+				case "shell", "start":
+					home := filepath.Join(run.local, "CodeGoblins")
+					if !strings.EqualFold(fsx.LongPath(event.Program), fsx.LongPath(filepath.Join(home, "bin", "goblins-window.exe"))) || !strings.EqualFold(fsx.LongPath(event.Directory), fsx.LongPath(home)) || event.Arguments != "" {
+						t.Errorf("window launch = %+v, want this home's window alone", event)
+					}
+					if event.Kind == "shell" && (event.Verb != "open" || event.Show != 1) {
+						t.Errorf("shell launch = %+v, want the window opened normally", event)
+					}
+				}
+			}
+			if !slices.Equal(gotEvents, test.WantEvents) {
+				t.Errorf("launch events = %q, want %q:\n%s", gotEvents, test.WantEvents, run.output)
+			}
+			log, err := os.ReadFile(filepath.Join(record, name+".log"))
+			if err != nil {
+				t.Fatal(err)
+			}
+			if test.WantDetail != "" && !strings.Contains(string(log), test.WantDetail) {
+				t.Errorf("install does not explain %q:\n%s", test.WantDetail, log)
+			}
+			if strings.Contains(string(log), "Code Goblins did not open by itself") != test.ShouldFailStart {
+				t.Errorf("failed-launch note does not match start result:\n%s", log)
+			}
+			if !strings.Contains(string(log), "Done: Code Goblins is installed") {
+				t.Errorf("install did not complete:\n%s", log)
 			}
 		})
 	}
