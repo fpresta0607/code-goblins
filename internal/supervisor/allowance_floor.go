@@ -88,9 +88,7 @@ func (s *Service) pauseAtAllowanceFloor(ctx context.Context, watched *fleetWakes
 	watched.AllowanceFloors = map[string]allowanceFloor{}
 	report, skipped := quota.Report{}, "no quota reader"
 	if s.Options.Quota != nil {
-		probe, cancel := context.WithTimeout(ctx, 20*time.Second)
-		report, skipped = s.Options.Quota(probe)
-		cancel()
+		report, skipped = s.readQuota(ctx, 20*time.Second)
 	}
 	if skipped != "" {
 		// A session seen used up still wakes the CFO when it renews.

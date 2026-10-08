@@ -200,7 +200,7 @@ func TestAPauseAtTheMemoryFloorIsLoggedWithItsReadingsAndOutcome(t *testing.T) {
 			if len(pauses) != 1 || pauses[0].Task != newer.ID || pauses[0].What != "at the memory floor" || !strings.Contains(pauses[0].Evidence, "3.1 GB of memory") || !strings.Contains(pauses[0].Evidence, "4 GB floor") || pauses[0].Outcome != test.outcome {
 				t.Fatalf("logged pauses = %+v, want the newest goblin's pause with its readings and outcome %q", pauses, test.outcome)
 			}
-			if report := s.afkReport(switched, nil, "not read in this test"); len(report.Paused) != 1 || report.Paused[0] != pauses[0] {
+			if report := s.afkReport(switched, nil); len(report.Paused) != 1 || report.Paused[0] != pauses[0] {
 				t.Errorf("the report's pauses = %+v, want the logged pause", report.Paused)
 			}
 		})

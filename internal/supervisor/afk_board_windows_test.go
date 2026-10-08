@@ -1,7 +1,6 @@
 package supervisor
 
 import (
-	"context"
 	"encoding/json"
 	"errors"
 	"maps"
@@ -253,9 +252,7 @@ func TestTheBoardsSwitchTurnsAFKModeOnAndOffAndTheBoardIsShownIt(t *testing.T) {
 	// Arrange
 	store, h := testStore(t)
 	s := boardService(store)
-	s.Options.Allowance = func(context.Context) ([]afk.Allowance, string) {
-		return []afk.Allowance{{Provider: "claude", Window: "week", PercentUsed: 40}}, ""
-	}
+	holdReading(t, s, 40)
 	asOverlordsBoard(s)
 	before, err := s.Snapshot()
 	if err != nil {
@@ -320,7 +317,7 @@ func TestTheBoardsSwitchTurnsAFKModeOnAndOffAndTheBoardIsShownIt(t *testing.T) {
 		} `json:"sections"`
 		Finished []afk.Finish `json:"finished"`
 		Held     []afk.Held   `json:"held"`
-		Spent    []string     `json:"spent"`
+		Spent    []afk.Used   `json:"spent"`
 		Notes    []string     `json:"notes"`
 	}
 	if err := json.Unmarshal([]byte(reportBody), &page); reportCode != 200 || err != nil {
@@ -336,8 +333,8 @@ func TestTheBoardsSwitchTurnsAFKModeOnAndOffAndTheBoardIsShownIt(t *testing.T) {
 	if page.Finished == nil || page.Held == nil || page.Notes == nil {
 		t.Errorf("the report page leaves out a list with nothing in it, want each one there and empty: %s", reportBody)
 	}
-	if len(page.Spent) != 1 || !strings.Contains(page.Spent[0], "claude week: 40% used when it turned on") {
-		t.Errorf("spent = %q, want the reading when it turned on beside the one when it turned off", page.Spent)
+	if len(page.Spent) != 1 || page.Spent[0].Window != "week" || page.Spent[0].On == nil || *page.Spent[0].On != 40 || page.Spent[0].Off == nil || *page.Spent[0].Off != 40 {
+		t.Errorf("spent = %+v, want the reading when it turned on beside the one when it turned off", page.Spent)
 	}
 }
 

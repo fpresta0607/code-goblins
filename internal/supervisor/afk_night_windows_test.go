@@ -36,9 +36,8 @@ func TestANightUnderAFKMode(t *testing.T) {
 	store, h := testStore(t)
 	primaryFixture(t, store)
 	meta, record, goblin, cfo := goblinFixture(t, store)
-	s := &Service{Store: store, Instance: "test-instance", Options: Options{CFO: cfo, Allowance: func(context.Context) ([]afk.Allowance, string) {
-		return []afk.Allowance{{Provider: "claude", Window: "week", PercentUsed: 40}}, ""
-	}}}
+	s := &Service{Store: store, Instance: "test-instance", Options: Options{CFO: cfo}}
+	holdReading(t, s, 40)
 	runPipe(t, s)
 	ctx := context.Background()
 	pr := "https://github.com/acme/api/pull/12"
