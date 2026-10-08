@@ -98,8 +98,9 @@
 .afk-spent-legend i { display: inline-block; width: 12px; height: 6px; border-radius: 999px; }
 .afk-spent-legend i.before { background: rgba(163, 179, 194, 0.45); }
 .afk-spent-legend i.used { margin-left: 8px; background: var(--accent-green); }
+.afk-spent-legend i.left { margin-left: 8px; background: rgba(163, 179, 194, 0.16); }
 .afk-spent { display: grid; gap: 8px; list-style: none; margin: 0; padding: 0; }
-.afk-spent li { display: grid; grid-template-columns: auto minmax(7rem, 11rem) minmax(0, 1fr) 12.5rem; align-items: center; gap: 12px; min-height: 52px; padding: 10px 14px; border: 1px solid var(--glass-border); border-radius: var(--radius); background: var(--ghost-bg); }
+.afk-spent li { display: grid; grid-template-columns: auto minmax(9rem, 13rem) minmax(0, 1fr) 14rem; align-items: center; gap: 12px; min-height: 52px; padding: 10px 14px; border: 1px solid var(--glass-border); border-radius: var(--radius); background: var(--ghost-bg); }
 .afk-spent-mark { display: grid; place-items: center; width: 30px; height: 30px; border-radius: 8px; background: var(--field-bg); color: #e8eef2; }
 .afk-spent-mark .icon { width: 18px; height: 18px; }
 .afk-spent-name { color: #dfe9ef; overflow-wrap: anywhere; }

@@ -4,7 +4,7 @@ import { Disclosure } from "./Disclosure";
 import { Icon, type IconName } from "./Icon";
 import { ShowMore } from "./ShowMore";
 import { AfkHeldList } from "./afk-held";
-import { afkTime, decisionSays, parseAfkReport, reportAction, safeLink, stillWaiting, switchedBy, type AfkDecision, type AfkReport } from "./afk";
+import { afkTime, decisionSays, parseAfkReport, reportAction, safeLink, shownUnder, stillWaiting, switchedBy, type AfkDecision, type AfkReport } from "./afk";
 import { AfkSpent } from "./afk-spent";
 import { useResource } from "./api";
 import { pullRequestLabel } from "./workflow";
@@ -42,6 +42,7 @@ export function AfkReportPage({ tasks, now, onClose, onCommand }: { tasks: Task[
   // Held for you is only what still waits on him: an item he answered since
   // needs nothing more of him.
   const waiting = data ? stillWaiting(data.held) : [];
+  const spent = data ? data.spent.filter(shownUnder) : [];
   const tally: [string, number][] = data ? [["Held for you", waiting.length], ...data.sections.map((section): [string, number] => [section.title, section.entries.length]), ["Goblins finished", data.finished.length]] : [];
   return <dialog ref={dialog} className="question-modal afk-report" aria-labelledby={title} onKeyDown={(event) => { if (event.key === "Escape") event.stopPropagation(); }} onCancel={(event) => { event.preventDefault(); onClose(); }}>
     <div className="command-center-heading">
@@ -89,9 +90,9 @@ export function AfkReportPage({ tasks, now, onClose, onCommand }: { tasks: Task[
           </li>)}</ul>
         </Disclosure>
       </section>}
-      {data.spent.length > 0 && <section aria-label="Spent">
-        <h3>Spent <span className="afk-spent-legend"><i className="before" />Before AFK <i className="used" />Used while AFK was on</span></h3>
-        <AfkSpent spent={data.spent} />
+      {spent.length > 0 && <section aria-label="Spent">
+        <h3>Spent <span className="afk-spent-legend"><i className="before" />Before AFK <i className="used" />While AFK <i className="left" />Left</span></h3>
+        <AfkSpent spent={spent} />
       </section>}
       {data.notes.length > 0 && <section aria-label="Not read">
         <h3>Not read</h3>

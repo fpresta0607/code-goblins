@@ -485,29 +485,26 @@ test("the report lists what still waits on him first, then how much of each thin
   await expect(held.locator(".afk-recommends")).toHaveText("The CFO recommends: Hold it.");
   await expect(report(page).getByRole("region", { name: "Held for you" })).not.toContainText("You answered it");
   await expect(held.locator(".delivery")).toHaveClass(/uncertain/);
-  // What was spent is a row for each allowance used: its mark, its name, a bar
-  // with what was used before AFK in gray and what AFK used in green under a
-  // green arrow from where it stood to where it ended, the percents, and how
-  // much AFK used. A window that reset started from nothing, and a reading not
-  // taken shows only what was read, with no line saying it was not.
+  // The Overlord, 2026-10-08: "dont need to show 5 hour limit make it simpler
+  // like how much is left in weekly limits only and credits only iff used".
+  // Spent is a row for each weekly limit and each credit balance spent: its
+  // mark, its name, a bar with what was used before AFK in gray and what AFK
+  // used in green under a green arrow from where it stood to where it ended,
+  // what is left, and how much AFK used. Claude's five-hour session is not
+  // shown, and a reading not taken shows no line saying it was not.
   const spentSection = report(page).getByRole("region", { name: "Spent" });
-  await expect(spentSection.locator("h3")).toContainText("Before AFK");
-  await expect(spentSection.locator("h3")).toContainText("Used while AFK was on");
+  await expect(spentSection.locator("h3 .afk-spent-legend")).toHaveText("Before AFK While AFK Left");
   const spent = spentSection.locator("li");
-  await expect(spent).toHaveText(["Claude week41% → 49%+8%", "Claude session42% → 3%reset", "Codex week4%", "Codex credits12.5 spent"]);
-  await expect(spent.nth(0).getByRole("img", { name: "Claude week 41% used at AFK on and 49% at AFK off" })).toBeVisible();
+  await expect(spent).toHaveText(["Claude weekly limit51% leftAFK used 8%", "Codex weekly limit96% left", "Codex credits12.5 credits spent"]);
+  await expect(spent.nth(0).getByRole("img", { name: "Claude weekly limit: 51% left, from 41% to 49% used while AFK was on" })).toBeVisible();
   await expect(spent.nth(0).locator(".afk-spent-before")).toHaveAttribute("style", "width: 41%;");
   await expect(spent.nth(0).locator(".afk-spent-used")).toHaveAttribute("style", "left: 41%; width: 8%;");
   await expect(spent.nth(0).locator(".afk-spent-arrow")).toHaveAttribute("style", "left: 41%; width: 8%;");
-  await expect(spent.nth(0).locator(".afk-spent-change.used")).toHaveText("+8%");
-  await expect(spent.nth(1).getByRole("img")).toHaveAccessibleName("Claude session 42% used at AFK on and 3% at AFK off after it reset");
-  await expect(spent.nth(1).locator(".afk-spent-arrow")).toHaveAttribute("style", "left: 0%; width: 3%;");
-  await expect(spent.nth(1).locator(".afk-spent-change")).not.toHaveClass(/used/);
-  await expect(spent.nth(2).locator(".afk-spent-before")).toHaveAttribute("style", "width: 4%;");
-  await expect(spent.nth(2).locator(".afk-spent-arrow, .afk-spent-used, .afk-spent-change")).toHaveCount(0);
-  await expect(spent.nth(3).getByRole("img")).toHaveCount(0);
-  expect(await spentSection.evaluate((section) => section.textContent)).not.toMatch(/not read/);
-
+  await expect(spent.nth(0).locator(".afk-spent-change.used")).toHaveText("AFK used 8%");
+  await expect(spent.nth(1).locator(".afk-spent-before")).toHaveAttribute("style", "width: 4%;");
+  await expect(spent.nth(1).locator(".afk-spent-arrow, .afk-spent-used, .afk-spent-change")).toHaveCount(0);
+  await expect(spent.nth(2).getByRole("img")).toHaveCount(0);
+  expect(await spentSection.evaluate((section) => section.textContent)).not.toMatch(/not read|session|5-hour|five/i);
   // Something it held still waits on him, so its one button at the bottom is
   // the Command Center, which it opens.
   const actions = report(page).locator(".afk-report-actions button");

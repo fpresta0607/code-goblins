@@ -5,12 +5,12 @@ import "./afk.css";
 // The mark each provider wears under Spent.
 const MARKS: Record<string, IconName> = { claude: "claude", codex: "codex", pi: "pi" };
 
-// What was spent while AFK mode was on, one allowance to a row: its mark, its
-// name, a bar of the percent used and the percents themselves. Gray is what
-// was used before AFK turned on, and green, with a green arrow from where it
-// stood then to where it stood when AFK turned off, is what AFK used, which
-// the change beside the percents says too. Credits have no percent, so a
-// credit balance says what was spent.
+// What was spent while AFK mode was on, one weekly limit or credit balance to
+// a row: its mark, its name, a bar of the limit and how much of it is left.
+// Gray is what was used before AFK turned on, green, with a green arrow from
+// where it stood then to where it stood when AFK turned off, is what AFK used,
+// which the chip beside what is left says too, and the empty rest is what is
+// left. Credits have no percent, so a credit balance says what was spent.
 export function AfkSpent({ spent }: { spent: AfkAllowance[] }) {
   return <ul className="afk-spent">{spent.map((allowance) => {
     const says = allowanceSays(allowance);
