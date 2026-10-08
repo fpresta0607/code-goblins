@@ -104,6 +104,9 @@ type Run struct {
 	// it, only the Overlord runs it, and its window stays out of sight while
 	// its card shows how it goes.
 	Update *ReleaseOffer `json:"update,omitempty"`
+	// DevDrive is the Dev Drive step the board made this item for: create,
+	// attach, trust or move.
+	DevDrive string `json:"dev_drive,omitempty"`
 }
 
 // RunRequest is what cfo run-request asks for; CommandFile is read once.
@@ -699,6 +702,10 @@ func (s *Service) endRun(ctx context.Context, r Run, state string, code *int, re
 	// its release is still the newest.
 	if r.Update != nil && (code == nil || *code != 0) {
 		s.lookAgain()
+	}
+	// The Dev Drive's next step follows the one that ended.
+	if r.DevDrive != "" {
+		s.devDriveAgain()
 	}
 	// A goblin's own command answers the goblin that asked for it.
 	if r.Task != "" {

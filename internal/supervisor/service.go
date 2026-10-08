@@ -105,6 +105,9 @@ type Options struct {
 	// StartAtLogin is whether Windows starts this home at login; without it
 	// the board shows no such setting.
 	StartAtLogin *StartAtLogin
+	// DevDrive is the board's Dev Drive setting and the Command Center items
+	// that set one up; without it the board shows neither.
+	DevDrive *DevDrive
 	// Tree reads each live goblin's family tree for its card; Start gives it
 	// the board's record of each goblin's conversation. Without it no card
 	// shows one.
@@ -185,6 +188,16 @@ type Service struct {
 	// release watch, which releaseNow asks for another look.
 	release    *ReleaseView
 	releaseNow chan struct{}
+	// devDriveNow asks the Dev Drive watch for another look; devDriveConfig
+	// serializes its changes to config\dev-drive.json with the board's, and
+	// devDriveView is what it last found, under devDriveViewMu.
+	devDriveNow chan struct{}
+	// devDriveTick is how often the watch reads the config file; zero is a
+	// minute, and a test sets it shorter.
+	devDriveTick   time.Duration
+	devDriveConfig sync.Mutex
+	devDriveViewMu sync.Mutex
+	devDriveView   *DevDriveView
 	// trains are the merge trains the board shows, as keepTrains last read
 	// them.
 	trains []train.Train
@@ -281,7 +294,7 @@ func Start(ctx context.Context, h home.Home, options Options) (*Service, error) 
 		return nil, err
 	}
 	ctx, cancel := context.WithCancel(ctx)
-	s := &Service{Store: store, Options: options, Instance: hex.EncodeToString(id[:]), Started: time.Now().UTC(), subscribers: map[chan struct{}]struct{}{}, done: make(chan struct{}), work: make(chan struct{}, 1), looks: make(chan chan struct{}), releaseNow: make(chan struct{}, 1), cancel: cancel}
+	s := &Service{Store: store, Options: options, Instance: hex.EncodeToString(id[:]), Started: time.Now().UTC(), subscribers: map[chan struct{}]struct{}{}, done: make(chan struct{}), work: make(chan struct{}, 1), looks: make(chan chan struct{}), releaseNow: make(chan struct{}, 1), devDriveNow: make(chan struct{}, 1), cancel: cancel}
 	if options.Tickets != nil {
 		s.tickets = newTicketKeeper(h, options.Tickets)
 	}
@@ -449,6 +462,14 @@ func (s *Service) run(ctx context.Context) {
 		}
 	}()
 	defer func() { s.cancel(); <-releasesDone }()
+	devDriveDone := make(chan struct{})
+	go func() {
+		defer close(devDriveDone)
+		if s.Options.DevDrive != nil {
+			s.watchDevDrive(ctx)
+		}
+	}()
+	defer func() { s.cancel(); <-devDriveDone }()
 	// A single inbox watcher, independent of task count. A timeout also
 	// recovers notifications lost during atomic renames or an AV filter fault.
 	notified := make(chan struct{}, 1)
@@ -1005,8 +1026,8 @@ type Task struct {
 	// ReportedAt is when the goblin wrote its latest report, so the board
 	// can tell whether it reported since an answer it was given.
 	ReportedAt time.Time `json:"reported_at"`
-	Handoff       bool      `json:"handoff"`
-	RetiredAt     time.Time `json:"retired_at"`
+	Handoff    bool      `json:"handoff"`
+	RetiredAt  time.Time `json:"retired_at"`
 	// Archived marks completed history rather than a live task, Merged that
 	// its pull request merged into its base, and Closed that GitHub closed it
 	// without merging.
@@ -1126,6 +1147,8 @@ type Snapshot struct {
 	// StartAtLogin is whether Windows starts this home at login, absent on a
 	// board that cannot change it.
 	StartAtLogin *StartAtLoginView `json:"start_at_login,omitempty"`
+	// DevDrive is the Dev Drive setting, absent on a board without it.
+	DevDrive *DevDriveView `json:"dev_drive,omitempty"`
 	// Memory is the machine's free memory for the Tasks meter, absent on a
 	// board that cannot start goblins or cannot read it.
 	Memory *Memory `json:"memory,omitempty"`
@@ -1203,6 +1226,7 @@ func (s *Service) Snapshot() (Snapshot, error) {
 	} else {
 		out.StartAtLogin = view
 	}
+	out.DevDrive = s.devDriveViewNow()
 	// The registration problem comes from the same read as the rest, so the
 	// board never shows a running CFO beside the problem of one it replaced.
 	// What the recovery cycle found is added only for the registration it

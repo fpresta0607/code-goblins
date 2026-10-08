@@ -181,6 +181,7 @@ button:disabled, textarea:disabled { cursor: default; opacity: .55; }
 .first-run-step { display: grid; gap: 8px; margin: 0; min-width: 0; }
 .first-run-step > label { font-weight: 700; }
 .first-run-step > label .muted { font-weight: 400; }
+.first-run-choice { display: flex; align-items: center; gap: 8px; }
 .first-run-step p { margin: 0; font-size: .9375rem; }
 .first-run-folder { display: flex; gap: 8px; }
 .first-run-folder input { flex: 1 1 0; width: 0; min-width: 0; font-family: var(--font-mono); }

@@ -176,7 +176,11 @@ func runServe(args []string, stdout, stderr io.Writer, runtime commandRuntime) i
 	// nothing back.
 	var comeback *supervisor.Comeback
 	var startAtLogin *supervisor.StartAtLogin
+	var devDrive *supervisor.DevDrive
 	if !*example {
+		// The board's Dev Drive setting reads this machine; an example board
+		// shows none.
+		devDrive = &supervisor.DevDrive{Read: runtime.readDevDrive}
 		// The board's Start at login is the setting the install, the setup
 		// and the desktop window's tray change.
 		login := boardStartAtLogin(h)
@@ -240,6 +244,7 @@ func runServe(args []string, stdout, stderr io.Writer, runtime commandRuntime) i
 		Quota:              runtime.quota,
 		Comeback:           comeback,
 		StartAtLogin:       startAtLogin,
+		DevDrive:           devDrive,
 		Tree:               tree,
 		Releases:           releases,
 	})
