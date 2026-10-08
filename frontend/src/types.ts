@@ -141,6 +141,10 @@ export interface Comeback { signed_in: string; cfo?: ComebackEntry; goblins: Com
 // StartAtLoginView is whether Windows starts this home at login, or why it
 // cannot be started at login.
 export interface StartAtLoginView { on: boolean; unavailable: string }
+// DevDriveView is the home's Dev Drive: its state and the line saying it, the
+// sentence explaining what one is, the person's answer to the offer, the step
+// whose Command Center item waits, and the button to press, if any.
+export interface DevDriveView { state: string; line: string; explain: string; choice: string; waiting: string; action: "" | "set-up" | "try-again" | "attach" }
 // HostedChecks is a pull request's hosted checks at its head: state is
 // pending while one runs and none has failed, failed as soon as one has,
 // cancelled when they ended with one cancelled, and passed when all passed;
@@ -306,6 +310,8 @@ export interface Snapshot {
   // start_at_login is whether Windows starts this home at login; absent on a
   // board that cannot change it.
   start_at_login?: StartAtLoginView;
+  // dev_drive is the home's Dev Drive; absent on a board without the setting.
+  dev_drive?: DevDriveView;
   // build names the board bundle the supervisor serves.
   build: string;
   // cfo_runs says a CFO is registered and running or starting; without one
@@ -567,13 +573,13 @@ export function string(value: unknown): string {
   if (typeof value !== "string") throw new Error("Invalid response text");
   return value;
 }
-function number(value: unknown): number {
+export function number(value: unknown): number {
   if (value == null) return 0;
   if (typeof value !== "number" || !Number.isFinite(value))
     throw new Error("Invalid response number");
   return value;
 }
-function boolean(value: unknown): boolean {
+export function boolean(value: unknown): boolean {
   if (typeof value !== "boolean") throw new Error("Invalid response boolean");
   return value;
 }
@@ -687,6 +693,14 @@ function parseComebackEntry(value: unknown): ComebackEntry {
   const state = string(entry.state);
   return { id: string(entry.id), state: state === "waiting" || state === "back" || state === "stopped" ? state : "", reason: string(entry.reason) };
 }
+function parseDevDrive(drive: Record<string, unknown>): DevDriveView {
+  const optional = (value: unknown) => value === undefined ? "" : string(value);
+  const action = optional(drive.action);
+  return {
+    state: string(drive.state), line: string(drive.line), explain: string(drive.explain), choice: optional(drive.choice), waiting: optional(drive.waiting),
+    action: action === "set-up" || action === "try-again" || action === "attach" ? action : "",
+  };
+}
 export function parseSnapshot(value: unknown): Snapshot {
   const v = object(value);
   return {
@@ -715,6 +729,7 @@ export function parseSnapshot(value: unknown): Snapshot {
     cfo_conversation_left: v.cfo_conversation_left === undefined ? "" : string(v.cfo_conversation_left),
     cfo_update: v.cfo_update == null ? null : ((update) => ({ ...parseHarnessUpdate(update), pending: update.pending === undefined ? false : boolean(update.pending), updating: update.updating === undefined ? false : boolean(update.updating), problem: update.problem === undefined ? "" : string(update.problem) }))(object(v.cfo_update)),
     ...(v.start_at_login == null ? {} : { start_at_login: ((setting) => ({ on: boolean(setting.on), unavailable: setting.unavailable === undefined ? "" : string(setting.unavailable) }))(object(v.start_at_login)) }),
+    ...(v.dev_drive == null ? {} : { dev_drive: parseDevDrive(object(v.dev_drive)) }),
     ...(v.comeback == null ? {} : { comeback: ((c) => ({ signed_in: string(c.signed_in), ...(c.cfo == null ? {} : { cfo: parseComebackEntry(c.cfo) }), goblins: array(c.goblins).map(parseComebackEntry) }))(object(v.comeback)) }),
     build: string(v.build),
     cfo_runs: v.cfo_runs === undefined || boolean(v.cfo_runs),

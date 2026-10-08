@@ -16,7 +16,6 @@ import (
 	"sync"
 	"time"
 
-	"github.com/fpresta0607/code-goblins/internal/afk"
 	"github.com/fpresta0607/code-goblins/internal/auth"
 	"github.com/fpresta0607/code-goblins/internal/axi"
 	"github.com/fpresta0607/code-goblins/internal/connections"
@@ -94,17 +93,19 @@ type Options struct {
 	// and tells each to re-source it, as cfo auth store does after it writes,
 	// and returns the tasks it told.
 	RefreshCredentials func(ctx context.Context, project string) ([]string, error)
-	// Allowance reads what quota-axi says of each provider's allowance, or
-	// says why it could not; AFK mode's report sets the reading taken when it
-	// turned on beside the one taken when it turned off.
-	Allowance func(ctx context.Context) ([]afk.Allowance, string)
-	Quota     func(ctx context.Context) (quota.Report, string)
+	// Quota reads quota-axi, on the supervisor's own timers only: AFK mode's
+	// report sets the reading last taken before it turned on beside the one
+	// last taken before it turned off.
+	Quota func(ctx context.Context) (quota.Report, string)
 	// Comeback brings the fleet back after a restart or sign-out; without it
 	// nothing comes back by itself.
 	Comeback *Comeback
 	// StartAtLogin is whether Windows starts this home at login; without it
 	// the board shows no such setting.
 	StartAtLogin *StartAtLogin
+	// DevDrive is the board's Dev Drive setting and the Command Center items
+	// that set one up; without it the board shows neither.
+	DevDrive *DevDrive
 	// Tree reads each live goblin's family tree for its card; Start gives it
 	// the board's record of each goblin's conversation. Without it no card
 	// shows one.
@@ -188,6 +189,16 @@ type Service struct {
 	// release watch, which releaseNow asks for another look.
 	release    *ReleaseView
 	releaseNow chan struct{}
+	// devDriveNow asks the Dev Drive watch for another look; devDriveConfig
+	// serializes its changes to config\dev-drive.json with the board's, and
+	// devDriveView is what it last found, under devDriveViewMu.
+	devDriveNow chan struct{}
+	// devDriveTick is how often the watch reads the config file; zero is a
+	// minute, and a test sets it shorter.
+	devDriveTick   time.Duration
+	devDriveConfig sync.Mutex
+	devDriveViewMu sync.Mutex
+	devDriveView   *DevDriveView
 	// trains are the merge trains the board shows, as keepTrains last read
 	// them.
 	trains []train.Train
@@ -256,6 +267,9 @@ type Service struct {
 	// reads is what the snapshot remembers of the fleet's files.
 	reads                keptReads
 	subscriptionReadings map[string]quota.WeeklyReading
+	// allowance is the last reading quota-axi gave of each provider's
+	// allowance, which AFK mode's switch takes rather than reading its own.
+	allowance map[string]keptAllowance
 }
 
 // snapshotRefresh is how often every board gets a fresh snapshot with nothing
@@ -284,7 +298,7 @@ func Start(ctx context.Context, h home.Home, options Options) (*Service, error) 
 		return nil, err
 	}
 	ctx, cancel := context.WithCancel(ctx)
-	s := &Service{Store: store, Options: options, Instance: hex.EncodeToString(id[:]), Started: time.Now().UTC(), subscribers: map[chan struct{}]struct{}{}, done: make(chan struct{}), work: make(chan struct{}, 1), looks: make(chan chan struct{}), releaseNow: make(chan struct{}, 1), cancel: cancel}
+	s := &Service{Store: store, Options: options, Instance: hex.EncodeToString(id[:]), Started: time.Now().UTC(), subscribers: map[chan struct{}]struct{}{}, done: make(chan struct{}), work: make(chan struct{}, 1), looks: make(chan chan struct{}), releaseNow: make(chan struct{}, 1), devDriveNow: make(chan struct{}, 1), cancel: cancel}
 	if options.Tickets != nil {
 		s.tickets = newTicketKeeper(h, options.Tickets)
 	}
@@ -452,6 +466,14 @@ func (s *Service) run(ctx context.Context) {
 		}
 	}()
 	defer func() { s.cancel(); <-releasesDone }()
+	devDriveDone := make(chan struct{})
+	go func() {
+		defer close(devDriveDone)
+		if s.Options.DevDrive != nil {
+			s.watchDevDrive(ctx)
+		}
+	}()
+	defer func() { s.cancel(); <-devDriveDone }()
 	// A single inbox watcher, independent of task count. A timeout also
 	// recovers notifications lost during atomic renames or an AV filter fault.
 	notified := make(chan struct{}, 1)
@@ -1129,6 +1151,8 @@ type Snapshot struct {
 	// StartAtLogin is whether Windows starts this home at login, absent on a
 	// board that cannot change it.
 	StartAtLogin *StartAtLoginView `json:"start_at_login,omitempty"`
+	// DevDrive is the Dev Drive setting, absent on a board without it.
+	DevDrive *DevDriveView `json:"dev_drive,omitempty"`
 	// Memory is the machine's free memory for the Tasks meter, absent on a
 	// board that cannot start goblins or cannot read it.
 	Memory *Memory `json:"memory,omitempty"`
@@ -1206,6 +1230,7 @@ func (s *Service) Snapshot() (Snapshot, error) {
 	} else {
 		out.StartAtLogin = view
 	}
+	out.DevDrive = s.devDriveViewNow()
 	// The registration problem comes from the same read as the rest, so the
 	// board never shows a running CFO beside the problem of one it replaced.
 	// What the recovery cycle found is added only for the registration it

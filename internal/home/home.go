@@ -130,6 +130,39 @@ type DevDriveConfig struct {
 	// MovedAt is when they moved: a goblin's terminal started before it
 	// still builds against the home's own caches.
 	MovedAt time.Time `json:"moved_at,omitzero"`
+	// Choice is the person's answer to the offer of a Dev Drive:
+	// DevDriveWanted or DevDriveDeclined, empty while nobody answered.
+	Choice string `json:"choice,omitempty"`
+	// AskedAt is when the person last asked for the next step: set up, try
+	// again, attach.
+	AskedAt time.Time `json:"asked_at,omitzero"`
+	// Offered is when the Command Center item for each step was last made,
+	// so one ask makes one item per step.
+	Offered map[string]time.Time `json:"offered,omitempty"`
+	// VHD is the file the create step made the Dev Drive in, which the
+	// attach step attaches again.
+	VHD string `json:"vhd,omitempty"`
+}
+
+// The answers to the offer of a Dev Drive.
+const (
+	DevDriveWanted   = "wanted"
+	DevDriveDeclined = "declined"
+)
+
+// AnswerDevDrive records the person's answer to the offer of a Dev Drive in
+// root's config\dev-drive.json, from the setup or the board: wanted, asked at
+// now, so the board makes the next step's Command Center item, or declined.
+func AnswerDevDrive(root string, want bool, now time.Time) error {
+	config, err := ReadDevDriveConfig(root)
+	if err != nil {
+		return err
+	}
+	config.Choice = DevDriveDeclined
+	if want {
+		config.Choice, config.AskedAt = DevDriveWanted, now
+	}
+	return WriteDevDriveConfig(root, config)
 }
 
 // WriteDevDriveConfig writes root's config\dev-drive.json.

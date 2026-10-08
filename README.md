@@ -141,6 +141,7 @@ Both are the same install, so use whichever you like: the setup if you want a wi
 Each puts the Code Goblins app and the `cfo` command line (also called `goblins`) together in one folder, `%LOCALAPPDATA%\CodeGoblins`, adds that folder to your PATH and Code Goblins to the Start menu, installs the tools the goblins use where they are missing, and opens [the desktop app](#the-desktop-app).
 Each also merges the CFO's hooks and a few permission rules into your Claude Code settings, `~/.claude/settings.json`, keeping your own and backing the file up first: the rules let a Claude Code CFO in auto mode put questions, run items, reviews and documents in front of you in the Command Center, which [Safety model](#safety-model) explains.
 Each also turns on **Start at login**, so Code Goblins starts in the tray when you sign in and brings back what a restart ended; untick it in the setup to keep it off, and [Opening, closing and restarting](#opening-closing-and-restarting) says how to change it later.
+Where this machine can have a Dev Drive, the setup and the board's first page each offer once, unticked, to put the goblins' worktrees and caches on one, with a sentence saying what it is and that it is not a Defender exclusion; a machine that cannot have one is told why in one line and works as before ([A Dev Drive for the busiest folders](#a-dev-drive-for-the-busiest-folders-optional)).
 Each says the same four steps as it goes (download, check, install, open) and keeps every detail in `%TEMP%\CodeGoblinsInstall.log`; a failure says in one sentence what happened and what to do.
 Run either again at any time to update: it never asks you to run anything first.
 Once Code Goblins runs, a newer release comes to you as its own item in the board's Command Center, **Update Code Goblins**, with what is new and one **Update** button ([Update Code Goblins](docs/native-board.md#update-code-goblins)).
@@ -924,8 +925,17 @@ It is optional: a machine that cannot have one, such as Windows 10, one with Def
 With one, the home's three busiest folders, `worktrees\`, `scratch\` and `caches\`, live in `CodeGoblins\` at the Dev Drive's root.
 Everything else stays where it is: the home's `state\`, `data\`, `config\` and `bin\`, and your own checkouts.
 `cfo dev-drive` says whether this machine has or can have one and where the folders are, and `cfo doctor` says it in one line, with the fix.
-`cfo dev-drive move --to D:\CodeGoblins` moves them onto a trusted Dev Drive and records it in `config\dev-drive.json`.
+
+Setting one up is a button: **Set up** under **Dev Drive** in the CFO's Workspace panel on the board.
+Each step that needs you then arrives as its own Command Center item, one at a time, each saying in one line what it does and what it changes, each safe to run twice:
+
+1. **Create the Code Goblins Dev Drive** (administrator, so Windows asks you to confirm): a dynamically expanding VHDX, 200 GB at most and less on a smaller disk, at `C:\DevDrives\CodeGoblins.vhdx`, formatted as a Dev Drive on the first free letter from D:, and a startup task that attaches it at every boot, since Windows does not attach a VHD again after a restart. A machine that already has a Dev Drive skips this and uses it.
+2. **Trust the Dev Drive**, only when Windows does not trust it (administrator): `fsutil devdrv trust`, which is what turns performance mode on, and `fsutil devdrv query` to show it.
+3. **Move Code Goblins' worktrees, scratch and package caches**: `cfo dev-drive move --to D:\CodeGoblins`, which records it in `config\dev-drive.json` and restarts the board so it builds there too.
+
 Nothing is copied: new goblins start on the Dev Drive, a goblin already started keeps its folders until it finishes, and the janitor removes the home's old package caches once nothing started before the move is running.
+If the drive is ever missing after a restart, an **Attach** item comes to the Command Center by itself.
+A step that failed shows its output on its item, and **Try again** on the panel brings it back.
 
 A home that an older build set up in a code-goblins checkout moves with `cfo home move`: its dry run lists every file it would move with its SHA-256, the counts before and after and a digest proving nothing is dropped, and `cfo home move --apply --plan <digest>`, at a quiet point with the supervisor stopped, moves it by rename, so it needs no room for a second copy, reads it all back, and installs the build into the new home.
 [AGENTS.md](AGENTS.md#the-cfo-home) describes each file in full.

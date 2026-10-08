@@ -13,6 +13,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/fpresta0607/code-goblins/internal/home"
 	"github.com/fpresta0607/code-goblins/internal/install"
 )
 
@@ -82,31 +83,7 @@ func fakeSourceCheckout(t *testing.T) string {
 // machine's own folders written as placeholders.
 func installedTree(t *testing.T, dir string) (map[string]string, map[string]string) {
 	t.Helper()
-	machine := t.TempDir()
-	profile := filepath.Join(machine, "profile")
-	local := filepath.Join(profile, "AppData", "Local")
-	for _, folder := range []string{local, filepath.Join(profile, ".claude")} {
-		if err := os.MkdirAll(folder, 0o755); err != nil {
-			t.Fatal(err)
-		}
-	}
-	envFile := filepath.Join(machine, "user-env.json")
-	t.Setenv(install.UserEnvFileVariable, envFile)
-	t.Setenv("LOCALAPPDATA", local)
-	t.Setenv("APPDATA", filepath.Join(profile, "AppData", "Roaming"))
-	t.Setenv("USERPROFILE", profile)
-	t.Setenv("HOME", profile)
-	for _, name := range []string{"CLAUDE_CONFIG_DIR", "CODEX_HOME", "PI_CODING_AGENT_DIR", "CFO_HOME", "CFO_STATE_OVERRIDE", "CFO_PROJECTS_ROOT"} {
-		t.Setenv(name, "")
-	}
-	t.Chdir(dir)
-
-	var stdout, stderr bytes.Buffer
-	if code := runInstall(nil, &stdout, &stderr); code != 0 {
-		t.Fatalf("cfo install from %s exited %d:\n%s%s", dir, code, stdout.String(), stderr.String())
-	}
-
-	root := filepath.Join(local, "CodeGoblins")
+	root, profile, envFile := installOnAScratchMachine(t, dir)
 	tree := map[string]string{}
 	err := filepath.WalkDir(root, func(path string, entry fs.DirEntry, err error) error {
 		if err != nil || entry.IsDir() {
@@ -149,6 +126,63 @@ func installedTree(t *testing.T, dir string) (map[string]string, map[string]stri
 		}
 	}
 	return tree, env
+}
+
+// installOnAScratchMachine runs cfo install with args from dir on a machine of
+// its own: a profile, a per-user folder and a user environment in temporary
+// folders. It returns the home it made, the profile and the environment file.
+func installOnAScratchMachine(t *testing.T, dir string, args ...string) (root, profile, envFile string) {
+	t.Helper()
+	machine := t.TempDir()
+	profile = filepath.Join(machine, "profile")
+	local := filepath.Join(profile, "AppData", "Local")
+	for _, folder := range []string{local, filepath.Join(profile, ".claude")} {
+		if err := os.MkdirAll(folder, 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	envFile = filepath.Join(machine, "user-env.json")
+	t.Setenv(install.UserEnvFileVariable, envFile)
+	t.Setenv("LOCALAPPDATA", local)
+	t.Setenv("APPDATA", filepath.Join(profile, "AppData", "Roaming"))
+	t.Setenv("USERPROFILE", profile)
+	t.Setenv("HOME", profile)
+	for _, name := range []string{"CLAUDE_CONFIG_DIR", "CODEX_HOME", "PI_CODING_AGENT_DIR", "CFO_HOME", "CFO_STATE_OVERRIDE", "CFO_PROJECTS_ROOT"} {
+		t.Setenv(name, "")
+	}
+	t.Chdir(dir)
+
+	var stdout, stderr bytes.Buffer
+	if code := runInstall(args, &stdout, &stderr); code != 0 {
+		t.Fatalf("cfo install from %s exited %d:\n%s%s", dir, code, stdout.String(), stderr.String())
+	}
+	return filepath.Join(local, "CodeGoblins"), profile, envFile
+}
+
+// --dev-drive keeps the person's answer to the setup's Dev Drive offer in the
+// home: on asks the board for the first step's Command Center item, off keeps
+// the offer away, and without it nothing is recorded.
+func TestInstallKeepsTheAnswerToTheDevDriveOffer(t *testing.T) {
+	for name, test := range map[string]struct {
+		args   []string
+		choice string
+		asked  bool
+	}{
+		"ticked":    {[]string{"--dev-drive", "on"}, home.DevDriveWanted, true},
+		"unticked":  {[]string{"--dev-drive", "off"}, home.DevDriveDeclined, false},
+		"not shown": {nil, "", false},
+	} {
+		t.Run(name, func(t *testing.T) {
+			// Act
+			root, _, _ := installOnAScratchMachine(t, t.TempDir(), test.args...)
+
+			// Assert
+			config, err := home.ReadDevDriveConfig(root)
+			if err != nil || config.Choice != test.choice || config.AskedAt.IsZero() == test.asked || config.Root != "" {
+				t.Errorf("config = %+v, %v; want choice %q, asked %v, nothing moved", config, err, test.choice, test.asked)
+			}
+		})
+	}
 }
 
 func dropLines(lines []string, containing string) []string {

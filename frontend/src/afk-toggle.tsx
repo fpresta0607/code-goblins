@@ -19,10 +19,12 @@ import { ClickFeedback } from "./click-feedback";
 export function AfkToggle({ afk, instance, leading }: { afk: Afk; instance: string; leading?: ReactNode }) {
   const [asking, setAsking] = useState(false);
   const { pending, problem, turn, clear } = useAfkSwitch(instance);
-  const { openReport } = useAfkActions();
+  const { openReport, turnedOff } = useAfkActions();
   const on = afk.state === "on";
   const turnOn = async () => { if (await turn(true)) setAsking(false); };
-  const press = () => { if (afk.state === "off") { clear(); setAsking(true); } else void turn(false); };
+  // A switch that cannot be read is reset to off and keeps no report.
+  const turnOff = async () => { if (await turn(false) && on) turnedOff(); };
+  const press = () => { if (afk.state === "off") { clear(); setAsking(true); } else void turnOff(); };
   return <>
     <div className="afk-header">
       {leading}

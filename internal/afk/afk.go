@@ -176,8 +176,9 @@ func asEvidence(asked string) string {
 
 // TurnOn turns AFK mode on from where the Overlord did it, with the allowance
 // read then, and reports whether it changed anything: one already on stays as
-// it is. The log line is written first, so a switch the log does not hold
-// never happened.
+// it is. The report of the stretch before goes first, so reports never pile
+// up, then the log line is written, so a switch the log does not hold never
+// happened.
 func TurnOn(stateDir, from string, allowance []Allowance, now time.Time) (State, bool, error) {
 	return turnOn(stateDir, from, "", allowance, now)
 }
@@ -197,6 +198,9 @@ func turnOn(stateDir, from, asked string, allowance []Allowance, now time.Time) 
 	state, err := Read(stateDir)
 	if err != nil || state.On {
 		return state, false, err
+	}
+	if err := os.Remove(filepath.Join(stateDir, reportFile)); err != nil && !errors.Is(err, os.ErrNotExist) {
+		return State{}, false, fmt.Errorf("AFK mode stays off: the report of the stretch before could not be removed: %w", err)
 	}
 	now = now.UTC()
 	state = State{On: true, Session: "afk-" + now.Format("20060102T150405.000Z"), Since: now, From: from, Asked: asked, Allowance: allowance}

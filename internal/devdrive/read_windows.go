@@ -49,7 +49,7 @@ func Read(ctx context.Context, commands execx.Runner) (Machine, error) {
 		return Machine{}, err
 	}
 	m.SystemFree = reading.Free
-	m.Volumes, err = volumes()
+	m.Volumes, m.Letters, err = volumes()
 	return m, err
 }
 
@@ -75,11 +75,11 @@ func defenderRealTime(ctx context.Context, commands execx.Runner) (bool, string)
 	return false, "Get-MpComputerStatus answered " + strconv.Quote(strings.TrimSpace(string(result.Stdout)))
 }
 
-// volumes lists every fixed drive with a letter.
-func volumes() ([]Volume, error) {
+// volumes lists every fixed drive with a letter, and every letter in use.
+func volumes() ([]Volume, uint32, error) {
 	mask, err := windows.GetLogicalDrives()
 	if err != nil {
-		return nil, err
+		return nil, 0, err
 	}
 	var found []Volume
 	for index := range 26 {
@@ -89,7 +89,7 @@ func volumes() ([]Volume, error) {
 		root := string(rune('A'+index)) + `:\`
 		rootName, err := windows.UTF16PtrFromString(root)
 		if err != nil {
-			return nil, err
+			return nil, 0, err
 		}
 		if windows.GetDriveType(rootName) != windows.DRIVE_FIXED {
 			continue
@@ -107,7 +107,7 @@ func volumes() ([]Volume, error) {
 		}
 		found = append(found, v)
 	}
-	return found, nil
+	return found, mask, nil
 }
 
 // The persistent volume state a Dev Drive carries, from winioctl.h.
