@@ -333,9 +333,9 @@ export function Orchestration({ snapshot, selected, connected, effects, onSelect
           const activity = activityDisplay(connected ? effects : [],node.session?.id || "",parent?.session?.id || "");
           const effect = activity.received || activity.created;
           const p = point(node.id), owner = ownsTaskSession(node.session, node.task);
-          const phase = owner && node.task ? statusPhase(node.task) : node.session?.runtime?.state || node.session?.phase;
+          const phase = owner && node.task ? statusPhase(node.task, snapshot.merge_trains) : node.session?.runtime?.state || node.session?.phase;
           const children = nodes.some((child) => child.parent === node.id) || !!trees[node.id];
-          const asking = owner && asksOverlord(snapshot, node.task?.id || ""), status = nodeStatus(node, asking, snapshot.tasks);
+          const asking = owner && asksOverlord(snapshot, node.task?.id || ""), status = nodeStatus(node, asking, snapshot.tasks, snapshot.merge_trains);
           return <article key={node.id} className={"flow-node" + (activity.created ? " node-enter" : "") + (selected === node.id ? " selected" : "")} style={{ left: p.x, top: p.y, width: NODE_WIDTH, height: NODE_HEIGHT }}>
             {effect && <span key={effect.id} ref={playFrom(effect.expires - EFFECT_MS)} className="activity-glow" aria-hidden="true" />}
             <button className="flow-node-main" onPointerDown={(event) => startDrag(event, node)} onPointerMove={moveDrag} onPointerUp={endDrag} onPointerCancel={endDrag}

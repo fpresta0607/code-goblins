@@ -4,16 +4,22 @@ import { hostedChecksLook } from "./hosted-checks.ts";
 import type { HostedChecks } from "./types.ts";
 
 const pr = "https://github.com/o/r/pull/209";
-const checks = (overrides: Partial<HostedChecks>): HostedChecks => ({ state: "pending", checks: 9, failed: [], link: "", approved: false, ...overrides });
+const checks = (overrides: Partial<HostedChecks>): HostedChecks => ({ head: "", state: "pending", checks: 9, failed: [], link: "", approved: false, ...overrides });
 
 test("each state of a pull request's checks reads in plain words and opens its checks", () => {
   for (const [state, text, tip, tone] of [
-    ["pending", "Checks running", "9 checks, still running", "pending"],
+    ["pending", "Testing", "9 checks, still running", "pending"],
     ["passed", "Checks passed", "All 9 checks passed", "passed"],
   ] as const) {
     const look = hostedChecksLook(checks({ state }), pr);
     assert.deepEqual(look, { text, tip, tone, url: pr + "/checks" });
   }
+});
+
+test("checks still running read Testing, as a pull request on a merge train does, and open the run that tests it", () => {
+  const look = hostedChecksLook(checks({ state: "pending", link: "https://github.com/o/r/actions/runs/5/job/50" }), pr);
+
+  assert.deepEqual(look, { text: "Testing", tip: "9 checks, still running", tone: "pending", url: "https://github.com/o/r/actions/runs/5/job/50" });
 });
 
 test("a failure names the failed checks and opens the first one's own page", () => {

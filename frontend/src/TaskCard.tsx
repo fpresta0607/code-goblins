@@ -11,7 +11,8 @@ import { asksOverlord, harnessName, harnessTip, nodeStatus, personaFor, pullRequ
 import { goblinName, pausedWithParent, pauseStatus, plainText, taskName } from "./task-words";
 import { TicketLink } from "./ticket-link";
 import { SameAreaAvatars } from "./same-area-avatars";
-import { HostedChecksLink } from "./hosted-checks-link";
+import { PullRequestTestLink } from "./pull-request-test-link";
+import { pullRequestTest } from "./pull-request-test";
 import { DeploymentLink } from "./deployment-link";
 import { LocalChecksLink } from "./local-checks-link";
 import { BabyGoblin } from "./BabyGoblin";
@@ -32,6 +33,9 @@ import { formatMemory, summarize } from "./fleet-tree";
 // task says nothing of what it waits for, whose note is in its panel behind
 // More; a paused or finished task shows when, and its status says what: a
 // paused one, in place of Paused, why it waits and what resumes it. A goblin
+// that waits only on its pull request's test, live or paused until it merges,
+// says where that test stands, the same as its merge train's card, and its
+// pull request's chip opens the same page. A goblin
 // gone quiet, and windows still closing, are the CFO's to hear, never warnings
 // on the card. next marks the one card the order for a free slot takes first.
 export interface CardStart { blocked: string; onStart: (source: HTMLElement) => Promise<string> }
@@ -59,11 +63,12 @@ export function TaskCard({ task, snapshot, selected, presentations, now, rank, n
   const name = isNamed ? goblinName(task) : taskName(task);
   const tip = isNamed ? { "data-tip": taskName(task), "data-tip-align": "start" } : clipped ? { "data-tip": name, "data-tip-align": "start" } : {};
   const pr = safePullRequest(task.pr), icon = pullRequestIcon(task), asking = asksOverlord(snapshot, task.id);
+  const trains = snapshot.merge_trains ?? [], test = pullRequestTest(task, trains), phase = statusPhase(task, trains);
   const waiting = task.phase === "queued";
-  const clock = column === "Completed" || column === "Paused" ? "" : clockText(task.since, now, waiting ? "waiting" : "running");
+  const clock = column === "Completed" || column === "Paused" || task.phase === "paused" ? "" : clockText(task.since, now, waiting ? "waiting" : "running");
   const clockBadge = clock && <span className="card-clock"><Icon name="clock" /><span className="sr-only">{waiting ? "Waiting for" : "Running for"} </span>{clock}</span>;
   const ended = (column === "Paused" || column === "Completed") && task.at ? new Date(task.at) : null;
-  const status = statusPhase(task) === "paused" ? pauseStatus(task.lifecycle?.pause, snapshot.tasks, snapshot.ci_durations, pausedWithParent(task, snapshot.tasks)) : nodeStatus({ id: task.id, title: task.title, task, relation: "" }, asking, snapshot.tasks);
+  const status = phase === "paused" ? pauseStatus(task.lifecycle?.pause, snapshot.tasks, snapshot.ci_durations, pausedWithParent(task, snapshot.tasks)) : nodeStatus({ id: task.id, title: task.title, task, relation: "" }, asking, snapshot.tasks, trains);
   const parent = task.parent && snapshot.tasks.find((other) => other.id === task.parent);
   const parentName = parent ? goblinName(parent) : task.parent;
   // What runs under a live goblin, as baby goblins with a count each, which
@@ -77,7 +82,7 @@ export function TaskCard({ task, snapshot, selected, presentations, now, rank, n
     <Avatar persona={personaFor(task)} />
     <span className="card-copy"><span className="card-head">{presentations.some((event) => event.task_id === task.id) && <span className="browser-indicator">Browser active</span>}{next && <span className={"next-chip" + (next.tone ? " " + next.tone : "")}>{next.text}</span>}<strong className="card-title">{name}</strong></span>
       {rank && <span className="sr-only">, {rank}</span>}
-      <span className="card-meta">{task.project && <span className="card-repo">{task.project}</span>}<span className={"plain-status phase-" + statusPhase(task) + (task.archived && task.phase !== "stopped" ? " pr-" + icon : "")}><span className="status-dot" /><span className="card-status-text">{status}</span></span>{clockBadge}{ended && Number.isFinite(ended.getTime()) && <span className="card-clock"><Icon name="clock" /><time dateTime={task.at}>{ended.toLocaleString(undefined, { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" })}</time></span>}</span>
+      <span className="card-meta">{task.project && <span className="card-repo">{task.project}</span>}<span className={"plain-status phase-" + phase + (task.archived && task.phase !== "stopped" ? " pr-" + icon : "")}><span className="status-dot" /><span className="card-status-text">{status}</span></span>{clockBadge}{ended && Number.isFinite(ended.getTime()) && <span className="card-clock"><Icon name="clock" /><time dateTime={task.at}>{ended.toLocaleString(undefined, { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" })}</time></span>}</span>
       {parentName && <span className="card-secondary">Helper of {parentName}</span>}
       {task.pending_engine?.when === "update"
         ? <span className="card-secondary">{task.switching ? "Updating " + harnessName(task.harness) + "..." : "Updates " + harnessName(task.harness) + " at its next stopping point"}</span>
@@ -94,7 +99,7 @@ export function TaskCard({ task, snapshot, selected, presentations, now, rank, n
       {count}
       {pr && <a className={"card-pr pr-" + icon} href={pr} target="_blank" rel="noreferrer" aria-label={"Open pull request " + pullRequestLabel(pr)} {...column === "Completed" && task.branch ? { "data-tip": task.branch, "data-tip-align": "start" } : {}}><Icon name={icon} />{pullRequestLabel(pr)}</a>}
       {task.local_checks && <LocalChecksLink checks={task.local_checks} taskId={task.id} className="card-checks" />}
-      {pr && task.hosted_checks && <HostedChecksLink checks={task.hosted_checks} pr={pr} className="card-checks" />}
+      {pr && test && <PullRequestTestLink test={test} approved={!!task.hosted_checks?.approved} className="card-checks" />}
       {task.deployment && <DeploymentLink deployment={task.deployment} className="card-checks" />}
       {task.ticket && <TicketLink ticket={task.ticket} className="card-ticket" />}
       <SameAreaAvatars overlaps={task.overlaps} />
