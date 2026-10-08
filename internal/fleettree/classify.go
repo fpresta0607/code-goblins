@@ -107,13 +107,35 @@ func shellCommand(commandLine string) string {
 	return strings.ReplaceAll(match[1], `'\''`, `'`)
 }
 
-// commandLabel is a short label for what a job's first process runs: the
-// command its shell evaluates, else its command line, on one line.
-func commandLabel(commandLine string) string {
-	if command := shellCommand(commandLine); command != "" {
-		commandLine = command
+// cmdWrapper is cmd.exe running one command, as Windows starts npm's and
+// node's children: cmd.exe /d /s /c "<command>".
+var cmdWrapper = regexp.MustCompile(`(?i)^(?:"(?:[^"]*\\)?cmd(?:\.exe)?"|(?:\S*\\)?cmd(?:\.exe)?)(?:\s+/[a-z])*\s+(.*)$`)
+
+// programPath is the folder and .exe of a command's program, which say
+// nothing of what it does.
+var programPath = regexp.MustCompile(`(?i)^(?:"(?:[^"]*\\)?([^"\\]+?)(?:\.exe)?"|(?:\S*\\)?([^\s\\]+?)(?:\.exe)?)(\s|$)`)
+
+// commandTask is what a job's first process runs, as it was typed: the
+// command its shell evaluates or cmd.exe runs, its program named without
+// its folder, on one line.
+func commandTask(commandLine string) string {
+	command := shellCommand(commandLine)
+	if command == "" {
+		command = strings.TrimSpace(commandLine)
+		if match := cmdWrapper.FindStringSubmatch(command); match != nil {
+			command = strings.TrimSpace(match[1])
+			if len(command) > 1 && strings.HasPrefix(command, `"`) && strings.HasSuffix(command, `"`) {
+				command = command[1 : len(command)-1]
+			}
+		}
+		command = programPath.ReplaceAllString(command, "$1$2$3")
 	}
-	return bounded(strings.Join(strings.Fields(commandLine), " "), 80)
+	return task(command)
+}
+
+// commandLabel is a short label for what a job's first process runs.
+func commandLabel(commandLine string) string {
+	return bounded(commandTask(commandLine), 80)
 }
 
 // bounded cuts text to at most limit characters, marking the cut.

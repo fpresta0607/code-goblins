@@ -1,5 +1,5 @@
 import { useState } from "react";
-import type { BoardActivity, Session, Snapshot, Task } from "./types";
+import type { BoardActivity, Session, Snapshot, Task, TreeNode } from "./types";
 import { activityDisplay, EFFECT_MS, playFrom, presentationShownOn, type ActivityEffect } from "./activity";
 import { asksOverlord, nodeStatus } from "./workflow";
 import { Avatar } from "./Avatar";
@@ -10,7 +10,15 @@ import { goblinName, taskName, withoutHarness } from "./task-words";
 import { hasRunningChildren, isHeldByTree, isHelperHeld } from "./fleet-tree";
 import { TreeUnder } from "./TreeUnder";
 
-export interface Selection { session?: string; task?: string }
+// child is a baby goblin of the task's goblin, by its id in the goblin's
+// family tree.
+export interface Selection { session?: string; task?: string; child?: string }
+
+// childSelection is what opening a goblin's baby goblin selects: a helper
+// goblin's own task, since a helper is a goblin of its own, or else the baby
+// goblin in its goblin's panel.
+export const childSelection = (task: Task, child: TreeNode): Selection =>
+  child.kind === "helper" ? { task: child.id.replace(/^helper:/, "") } : { task: task.id, child: child.id };
 
 export function Lineage({ snapshot, project, selected, onSelect, effects, presentations, now }: {
   presentations:BoardActivity[];
@@ -84,7 +92,7 @@ export function Lineage({ snapshot, project, selected, onSelect, effects, presen
           </button>}
         </div>
       </div>
-      {owner && task?.tree && hasRunningChildren(task.tree) && <TreeUnder tree={task.tree} title={title} now={now} />}
+      {owner && task?.tree && hasRunningChildren(task.tree) && <TreeUnder goblin={task} tree={task.tree} title={title} now={now} selected={selected?.task === task.id ? selected.child : undefined} onOpen={(child, source) => onSelect(childSelection(task, child), source)} />}
       {!isCollapsed && descendants.length > 0 && <ul className="workflow-children" aria-label={"Children of " + title}>
         {descendants}
       </ul>}
@@ -105,7 +113,7 @@ export function Lineage({ snapshot, project, selected, onSelect, effects, presen
           </button>
         </div>
       </div>
-      {task.tree && hasRunningChildren(task.tree) && <TreeUnder tree={task.tree} title={title} now={now} />}
+      {task.tree && hasRunningChildren(task.tree) && <TreeUnder goblin={task} tree={task.tree} title={title} now={now} selected={selected?.task === task.id ? selected.child : undefined} onOpen={(child, source) => onSelect(childSelection(task, child), source)} />}
       {helpers.length > 0 && <ul className="workflow-children" aria-label={"Children of " + title}>{helpers}</ul>}
     </li>;
   };

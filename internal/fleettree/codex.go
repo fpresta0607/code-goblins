@@ -140,9 +140,10 @@ func (r *Reader) codexConversation(ctx context.Context, worktree, session string
 const codexChildrenDepth = 3
 
 // codexChildren are the child agents a Codex thread spawned, and theirs, each
-// read from its own rollout.
-func codexChildren(metas map[string]rolloutMeta, root string) []Node {
+// read from its own rollout, and each one's rollout by its node's id.
+func codexChildren(metas map[string]rolloutMeta, root string) ([]Node, map[string]string) {
 	var children []Node
+	rollouts := map[string]string{}
 	parents := map[string]string{root: ""}
 	for depth := 0; depth < codexChildrenDepth; depth++ {
 		next := map[string]string{}
@@ -154,6 +155,7 @@ func codexChildren(metas map[string]rolloutMeta, root string) []Node {
 			node := codexChild(path, meta)
 			node.Parent = parentNode
 			children = append(children, node)
+			rollouts[node.ID] = path
 			next[meta.id] = node.ID
 		}
 		if len(next) == 0 {
@@ -161,7 +163,7 @@ func codexChildren(metas map[string]rolloutMeta, root string) []Node {
 		}
 		parents = next
 	}
-	return children
+	return children, rollouts
 }
 
 // codexChild reads one child agent's rollout: it works from a task_started
