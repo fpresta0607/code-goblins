@@ -4,7 +4,7 @@ import { updateOutcome, updateProgress, updateSucceededRecently } from "./update
 import { parseSnapshot, type Run } from "./types.ts";
 
 const offer = { from: "v0.4.2", to: "v0.5.0", page: "https://github.com/fpresta0607/code-goblins/releases/tag/v0.5.0", published: "2026-10-06T14:02:00Z", notes: ["An update arrives in the Command Center"], signing: "unsigned", publisher: "", sum: "3f9a" };
-const run = (changes: Partial<Run>): Run => ({ id: "update-v0.5.0-1", identity: "u".repeat(64), title: "Update Code Goblins from v0.4.2 to v0.5.0", shell: "powershell", admin: false, command: "goblins update --to v0.5.0", cwd: "C:\\home", state: "ready", exit_code: null, output: "", reason: "", created_at: "2026-10-06T14:05:00Z", expires_at: "", ran_at: "", finished_at: "", connection_task: "", connection_generation: "", credential_request: "", credential_names: [], task: "", interactive: false, update: offer, ...changes });
+const run = (changes: Partial<Run>): Run => ({ id: "update-v0.5.0-1", identity: "u".repeat(64), title: "Update Code Goblins from v0.4.2 to v0.5.0", shell: "powershell", admin: false, command: "goblins update --to v0.5.0", cwd: "C:\\home", state: "ready", exit_code: null, output: "", reason: "", created_at: "2026-10-06T14:05:00Z", expires_at: "", ran_at: "", finished_at: "", connection_task: "", connection_generation: "", credential_request: "", credential_names: [], task: "", terminal: false, update: offer, ...changes });
 
 // What goblins update prints, as cmd/cfo/update_release.go prints it.
 const printed = {
