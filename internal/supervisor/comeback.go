@@ -118,7 +118,7 @@ func (s *Service) launchRoom(memory Memory) error {
 	if err != nil {
 		return fmt.Errorf("free disk cannot be read: %w", err)
 	}
-	return CheckLaunch(s.Store.Home, memory, disk)
+	return CheckLaunch(memory, disk)
 }
 
 // planComeback returns the comeback for this sign-in, planned and recorded

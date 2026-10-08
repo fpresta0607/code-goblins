@@ -12,9 +12,7 @@ import { freeGigabytes, holdersLine, memoryMarks, meterScale, meterState, poolWa
 // its bar's tip names the apps holding the most of it; a leaking paged pool
 // is named there too. Free disk, when the snapshot has it, is the second
 // meter in the same box, under memory. Nothing under a bar is more words than
-// that, as the Overlord asked on 2026-10-07 ("dont need extra text under"),
-// and the cap on live goblins is no line of its own ("remove the text"): a
-// Start or Resume it holds says so in its tip.
+// that, as the Overlord asked on 2026-10-07 ("dont need extra text under").
 export function MemoryMeter({ memory, scheduling = null, disk = null }: { memory: Memory; scheduling?: Scheduling | null; disk?: Disk | null }) {
   const state = meterState(memory, scheduling), scale = meterScale(memory), shown = tighter(memory), scheduled = scheduleLine(memory, scheduling);
   const tip = [memoryMarks(memory), holdersLine(memory), poolWarning(memory)].filter(Boolean).join(" ");
