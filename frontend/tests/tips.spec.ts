@@ -230,3 +230,37 @@ test("a tip's surface is solid, with an edge, and stands out from the card under
   // The cards are close to black (their base is #04060a); the tip is a step lighter.
   expect(look.light).toBeGreaterThan(60);
 });
+
+// The Overlord, 2026-10-07: "tool tip hover text box should appear after 2
+// second hover not immediately". The keyboard's focus still shows a tip at
+// once.
+test("a tip shows once the pointer has rested on its part for 2 seconds, and at once on keyboard focus", async ({ page }) => {
+  // Arrange
+  await page.clock.install();
+  await open(page);
+  const part = page.locator(".cfo-pin").getByRole("button", { name: "Open the CFO's terminal" }).last();
+
+  // Act
+  await part.hover();
+  await page.clock.runFor(1500);
+
+  // Assert: not yet.
+  await expect(page.getByRole("tooltip")).toHaveCount(0);
+
+  // Act
+  await page.clock.runFor(600);
+
+  // Assert
+  await expect(page.getByRole("tooltip")).toHaveText("Open the CFO's terminal");
+
+  // Act: the pointer leaves, and the keyboard comes to the part.
+  await page.mouse.move(0, 0);
+  await expect(page.getByRole("tooltip")).toHaveCount(0);
+  await part.focus();
+  await page.keyboard.press("Shift+Tab");
+  await page.keyboard.press("Tab");
+
+  // Assert: at once, well inside the pointer's wait.
+  await expect(part).toBeFocused();
+  await expect(page.getByRole("tooltip")).toHaveText("Open the CFO's terminal", { timeout: 1000 });
+});

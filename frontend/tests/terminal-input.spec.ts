@@ -1,4 +1,12 @@
-import { expect, test } from "./site";
+import { expect, test, type Page } from "./site";
+
+// Puts only an image on the clipboard, as a screenshot does.
+const copyImage = (page: Page) => page.evaluate(async () => {
+  const canvas = document.createElement("canvas");
+  const image = await new Promise<Blob | null>((resolve) => canvas.toBlob(resolve, "image/png"));
+  if (!image) throw new Error("no image");
+  await navigator.clipboard.write([new ClipboardItem({ "image/png": image })]);
+});
 
 for (const backend of ["native", "herdr"] as const) {
   test.describe(backend + " terminal input", () => {
@@ -21,8 +29,10 @@ for (const backend of ["native", "herdr"] as const) {
       } else {
         await page.addInitScript(() => {
           const originalFetch = window.fetch;
+          const counted = Object.assign(window, { streams: 0 });
           window.fetch = (resource, options) => {
             if (resource === "/api/terminal/stream") {
+              counted.streams++;
               const body = JSON.parse(String(options?.body));
               const encoder = new TextEncoder();
               return Promise.resolve(new Response(new ReadableStream({ start(controller) {
@@ -55,7 +65,7 @@ for (const backend of ["native", "herdr"] as const) {
       ["Home", "\x1b[H"], ["End", "\x1b[F"], ["PageUp", "\x1b[5~"], ["PageDown", "\x1b[6~"],
       ["Control+a", "\x01"], ["Control+e", "\x05"], ["Control+u", "\x15"], ["Control+k", "\x0b"],
       ["Control+w", "\x17"], ["Control+l", "\x0c"], ["Control+r", "\x12"], ["Control+d", "\x04"], ["Control+z", "\x1a"],
-      ["Alt+b", "\x1bb"], ["Alt+ArrowLeft", "\x1b[1;3D"],
+      ["Alt+b", "\x1bb"], ["Alt+v", "\x1bv"], ["Alt+ArrowLeft", "\x1b[1;3D"],
       ]) {
         inputs.length = 0;
         await page.keyboard.press(key);
@@ -94,17 +104,49 @@ for (const backend of ["native", "herdr"] as const) {
 
     for (const [key, expected] of [["Control+v", ""], ["Control+Shift+v", ""]]) {
       test(key + " with only an image on the clipboard sends " + (expected ? "SYN as xterm does" : "nothing"), async ({ page }) => {
-        await page.evaluate(async () => {
-          const canvas = document.createElement("canvas");
-          const image = await new Promise<Blob | null>((resolve) => canvas.toBlob(resolve, "image/png"));
-          if (!image) throw new Error("no image");
-          await navigator.clipboard.write([new ClipboardItem({ "image/png": image })]);
-        });
+        await copyImage(page);
         await page.keyboard.press(key);
         await page.keyboard.press("x");
         await expect.poll(() => Buffer.concat(inputs).toString("utf8")).toBe(expected + "x");
       });
     }
+
+    // Claude Code and pi attach the clipboard's image on Alt+V on Windows, and
+    // Codex on Ctrl+V, as a pseudo console here showed.
+    for (const role of ["cfo", "goblin"]) {
+      for (const [harness, expected] of [["claude", "\x1bv"], ["pi", "\x1bv"], ["codex", "\x16"], ["bash", "\x16"]]) {
+        test("Control+v with only an image sends the key the " + role + "'s " + harness + " attaches an image on", async ({ page }) => {
+          await page.goto("/tests/fixtures/terminal-input.html?" + new URLSearchParams({ harness, role }) + "#" + backend);
+          await expect(page.getByText("Connecting", { exact: true })).toHaveCount(0);
+          await expect(page.getByText("Connecting to the terminal", { exact: true })).toHaveCount(0);
+          await page.getByRole("textbox", { name: "Terminal input", exact: true }).focus();
+          await copyImage(page);
+          inputs.length = 0;
+
+          await page.keyboard.press("Control+v");
+          await page.keyboard.press("x");
+
+          await expect.poll(() => Buffer.concat(inputs).toString("utf8")).toBe(expected + "x");
+        });
+      }
+    }
+
+    test("a hook reporting claude changes the image key without reconnecting", async ({ page }) => {
+      const streams = () => backend === "native" ? Promise.resolve(connections) : page.evaluate(() => (window as unknown as { streams: number }).streams);
+      await copyImage(page);
+      await page.keyboard.press("Control+v");
+      await page.keyboard.press("x");
+      await expect.poll(() => Buffer.concat(inputs).toString("utf8")).toBe("\x16x");
+      const before = await streams();
+
+      await page.evaluate(() => (window as unknown as { reportHarness: (harness: string) => void }).reportHarness("claude"));
+      inputs.length = 0;
+      await page.keyboard.press("Control+v");
+      await page.keyboard.press("x");
+
+      await expect.poll(() => Buffer.concat(inputs).toString("utf8")).toBe("\x1bvx");
+      expect(await streams()).toBe(before);
+    });
 
     test("the browser context-menu paste event uses the same clipboard path", async ({ page }) => {
       await page.getByRole("textbox", { name: "Terminal input", exact: true }).evaluate((element) => {

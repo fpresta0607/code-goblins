@@ -37,7 +37,7 @@ export function WorkspaceDetails({ task, node, runs, instance, startAtLogin, onR
   const provider = modelMark(model.name);
   return <>
     <Disclosure kind="workspace-details" title="Workspace">
-      {unlinked ? <p className="muted">No working folder was reported for this session.</p> : isArchived ? <p className="workspace-project">{task?.project || "Project not recorded"}</p> : queued ? <><p className="workspace-project">{task.project || "Project not specified"}</p><p className="muted">Not started yet.</p></> : resource.error ? <div role="alert"><p>The workspace could not be read.</p><RawDetails lines={[resource.error]} /></div> : !details ? <p className="loading" role="status">Reading workspace…</p> : <>
+      {unlinked ? <p className="muted">No working folder.</p> : isArchived ? <p className="workspace-project">{task?.project || "Project not recorded"}</p> : queued ? <><p className="workspace-project">{task.project || "Project not specified"}</p><p className="muted">Not started yet.</p></> : resource.error ? <div role="alert"><p>The workspace could not be read.</p><RawDetails lines={[resource.error]} /></div> : !details ? <p className="loading" role="status">Reading workspace…</p> : <>
         <dl>{[["Repository", details.repository], ["Branch", details.branch], [child ? "Owning task folder" : task ? "Working folder" : "CFO project root", details.root]].filter(([, value]) => value).map(([label, value]) => <div key={label}><dt>{label}</dt><dd>{value}</dd></div>)}</dl>
         {details.notes.map((note) => <p key={note}>{note}</p>)}
       </>}

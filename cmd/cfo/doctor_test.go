@@ -4,6 +4,8 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strings"
@@ -156,6 +158,52 @@ func TestRunDoctorReportsAMissingWingetAndStaysHealthy(t *testing.T) {
 	}
 	if exit != 0 {
 		t.Errorf("exit = %d, want 0: a missing winget must not make doctor unhealthy\n%s", exit, stdout.String())
+	}
+}
+
+// Doctor sets each working harness's installed version beside the newest its
+// publisher offers, with the command that installs it, and an older or
+// unread one never makes the machine unhealthy.
+func TestRunDoctorNamesEachHarnessVersionBesideTheNewest(t *testing.T) {
+	// Arrange
+	server := httptest.NewServer(http.HandlerFunc(func(response http.ResponseWriter, request *http.Request) {
+		switch request.URL.Path {
+		case "/claude":
+			_, _ = response.Write([]byte("1.0.0\n"))
+		case "/codex":
+			_, _ = response.Write([]byte(`{"name":"@openai/codex","version":"1.2.0"}`))
+		default:
+			http.NotFound(response, request)
+		}
+	}))
+	defer server.Close()
+	bin := t.TempDir()
+	for _, name := range []string{
+		"git", "gh", "tasks-axi", "quota-axi", "no-mistakes", "gh-axi", "chrome-devtools-axi", "lavish-axi", "winget",
+		"claude", "codex", "pi",
+	} {
+		fakeDoctorTool(t, bin, name)
+	}
+	t.Setenv("PATH", bin)
+	t.Setenv("CFO_HOME", t.TempDir())
+	t.Setenv(doctor.ReleasesVariable, server.URL)
+
+	// Act
+	var stdout, stderr bytes.Buffer
+	exit := run([]string{"doctor"}, &stdout, &stderr)
+
+	// Assert
+	for _, want := range []string{
+		"version  claude     1.0.0 installed, the newest on Claude Code's latest channel",
+		"version  codex      1.0.0 installed, 1.2.0 on npm: npm install -g @openai/codex@1.2.0",
+		"version  pi         1.0.0 installed; the newest could not be read: npm answered 404 Not Found",
+	} {
+		if !strings.Contains(stdout.String(), want) {
+			t.Errorf("doctor lacks %q\n%s", want, stdout.String())
+		}
+	}
+	if exit != 0 {
+		t.Errorf("exit = %d, want 0: an older or unread harness version is not unhealthy\n%s", exit, stdout.String())
 	}
 }
 

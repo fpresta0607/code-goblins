@@ -33,24 +33,24 @@ async function board(page: Page, disk: object) {
   return column;
 }
 
-// The meter's layout: every visible label inside it at body size, the two marks'
-// labels apart, nothing scrolling sideways, and the disk meter the second
-// meter in the memory meter's box, under memory's own scale.
+// The meter's layout: every visible label inside it at body size, nothing
+// written under its bar, nothing scrolling sideways, and the disk meter the
+// second meter in the memory meter's box, under memory's own bar.
 async function layout(column: ReturnType<Page["getByRole"]>) {
   return column.evaluate((tasks) => {
     const meter = tasks.querySelector<HTMLElement>('[aria-label="Disk"]')!;
     const memoryBox = tasks.querySelector<HTMLElement>('[aria-label="Memory"]')!;
     const box = memoryBox.getBoundingClientRect();
-    const memoryScale = memoryBox.querySelector<HTMLElement>(":scope > .memory-scale")!.getBoundingClientRect();
+    const memoryBar = memoryBox.querySelector<HTMLElement>(":scope > .memory-bar")!.getBoundingClientRect();
     const inside = meter.getBoundingClientRect();
     const texts = [...meter.querySelectorAll<HTMLElement>(":scope > :not(.sr-only), :scope > * > span, :scope > * > strong")].filter((element) => element.textContent?.trim());
-    const [wake, floor] = [".memory-scale > .floor", ".memory-scale > .next"].map((selector) => meter.querySelector<HTMLElement>(selector)!.getBoundingClientRect());
+    const bar = meter.querySelector<HTMLElement>(":scope > .memory-bar")!;
     return {
       smallest: Math.min(...texts.map((element) => parseFloat(getComputedStyle(element).fontSize))),
       outside: [...meter.children].filter((child) => !child.classList.contains("sr-only")).filter((child) => { const rect = child.getBoundingClientRect(); return rect.left < inside.left || rect.right > inside.right || rect.bottom > inside.bottom; }).map((child) => child.className),
-      labelsApart: wake.right <= floor.left,
+      underBar: bar.nextElementSibling && !bar.nextElementSibling.matches(".sr-only") ? bar.nextElementSibling.className : "",
       overflows: meter.scrollWidth > meter.clientWidth,
-      stackedInTheMemoryBox: meter.parentElement === memoryBox && inside.top >= memoryScale.bottom && inside.left >= box.left && inside.right <= box.right && inside.bottom <= box.bottom,
+      stackedInTheMemoryBox: meter.parentElement === memoryBox && inside.top >= memoryBar.bottom && inside.left >= box.left && inside.right <= box.right && inside.bottom <= box.bottom,
     };
   });
 }
@@ -73,10 +73,11 @@ test.describe("in the Overlord's window, 1707 px wide with the CFO's panel open"
       await page.screenshot({ path: testInfo.outputPath(`disk-${state}-1707.png`) });
 
       // Assert
-      expect(measured).toEqual({ smallest: 16, outside: [], labelsApart: true, overflows: false, stackedInTheMemoryBox: true });
+      expect(measured).toEqual({ smallest: 16, outside: [], underBar: "", overflows: false, stackedInTheMemoryBox: true });
       const meter = column.getByRole("group", { name: "Disk" });
       await expect(meter.locator(".memory-line")).toHaveText(`Disk free (C:)${(disk.free / GB).toFixed(1)} GB`);
       await expect(meter.locator(".memory-fill")).toHaveClass(new RegExp(state === "roomy" ? "ready" : state === "floor" ? "waiting" : "under"));
+      await expect(meter.locator(".memory-bar")).toHaveAttribute("data-tip", "Red mark: 10 GB, where the CFO is woken. White mark: the 15 GB floor. No goblin or gate test run starts under it.");
     });
   }
 
@@ -105,6 +106,6 @@ test.describe("on a phone, 390 px wide", () => {
     await column.screenshot({ path: testInfo.outputPath("disk-floor-390.png") });
 
     // Assert
-    expect(measured).toEqual({ smallest: 16, outside: [], labelsApart: true, overflows: false, stackedInTheMemoryBox: true });
+    expect(measured).toEqual({ smallest: 16, outside: [], underBar: "", overflows: false, stackedInTheMemoryBox: true });
   });
 });

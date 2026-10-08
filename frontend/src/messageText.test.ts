@@ -43,7 +43,7 @@ test("the blocks name each paragraph and list with its bold spans", () => {
 });
 
 test("a one-line summary drops the marks and the line breaks", () => {
-  assert.equal(plainMessage("Ship it?\n\n- **Verdict:** not yet\n- one defect"), "Ship it? Verdict: not yet; one defect");
+  assert.equal(plainMessage("Ship it?\n\n- **Verdict:** not yet\n- one defect"), "Ship it? Verdict: not yet. One defect.");
   assert.equal(plainMessage("a ** b"), "a ** b");
   assert.equal(plainMessage("Which layout?\nThe grid\n  keeps cards aligned."), "Which layout? The grid keeps cards aligned.");
 });

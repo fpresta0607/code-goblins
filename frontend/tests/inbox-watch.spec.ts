@@ -21,6 +21,8 @@ test("waiting on you lists what needs him, and a goblin's own test run stays off
   await expect(waiting.getByRole("link", { name: "Watch: Watch the checkout walkthrough I am running for you" })).toHaveAttribute("href", "http://127.0.0.1:5174/checkout");
   await expect(page.getByText("Kill switch for the board")).toHaveCount(0);
   await expect(page.getByText("Browser walkthrough running")).toHaveCount(0);
-  await expect(page.getByText("Everything that needs you is listed here. A goblin's own test runs stay off this list.")).toBeVisible();
+  // The list says nothing about itself: the Overlord, 2026-10-07, "less text
+  // is better".
+  await expect(page.getByText("Everything that needs you is listed here")).toHaveCount(0);
   await expect(page, "the tab's title counts what the badge counts").toHaveTitle("(2) Inbox watch fixture");
 });

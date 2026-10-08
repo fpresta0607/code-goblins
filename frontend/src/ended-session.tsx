@@ -15,7 +15,7 @@ export function EndedSession({ task, kind }: { task: Task; kind: NonNullable<Ret
     <div className="ended-session-content">
       <span className="ended-session-icon"><Icon name={kind === "retired" ? "terminal" : kind === "paused" ? "pause-circle" : "stop-circle"} /></span>
       <h2>Session {kind}</h2>
-      {hasTime && <p className="ended-session-time">{label} <time dateTime={at} title={date.toLocaleString()}>{date.toLocaleDateString(undefined, { month: "short", day: "numeric" })} at {date.toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit", hour12: false })}</time></p>}
+      {hasTime && <p className="ended-session-time">{label} <time dateTime={at} data-tip={date.toLocaleString()}>{date.toLocaleDateString(undefined, { month: "short", day: "numeric" })} at {date.toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit", hour12: false })}</time></p>}
       {report.sentence && <div className="ended-session-report"><p><Icon name="task" />Last report</p><p>{report.sentence}</p><RawDetails lines={report.details} /></div>}
       {task.handoff && <a className="ended-session-handoff" href={"/api/tasks/" + encodeURIComponent(task.id.replace(/^finished:/, "")) + "/handoff"} target="_blank" rel="noreferrer"><Icon name="file" />Open handoff</a>}
     </div>
