@@ -19,7 +19,7 @@ import (
 // markerText explains home.InstalledMarker to whoever finds it. After it,
 // following a blank line, the marker lists the contract files the install
 // wrote, one slash-separated path per line, so the next install can remove
-// those its binary no longer ships.
+// those its binary no longer ships; a checkout's lists none.
 const markerText = "This folder is a Code Goblins CFO home that cfo install set up.\r\n" +
 	"The CFO hooks act here only while this file exists, so leave it in place.\r\n" +
 	"Below are the contract files it wrote; the next install removes any its binary no longer ships.\r\n" +
@@ -73,7 +73,9 @@ func (s Service) writeHome(report *reporter) error {
 		created = append(created, folder)
 	}
 	// A checkout carries the contract itself, as files git tracks, so the
-	// install writes none of it there, and no marker: git vouches for it.
+	// install writes none of it there. The marker still goes in, untracked:
+	// a checkout an older build made the home is the home in use, and this
+	// build takes no folder for one without it.
 	var manifest []string
 	written := 0
 	if !s.Checkout {
@@ -115,14 +117,14 @@ func (s Service) writeHome(report *reporter) error {
 		} else {
 			report.same("contract", fmt.Sprintf("all %d files already current in %s", len(manifest), s.Root))
 		}
-		if _, err := writeIfDifferent(markerPath, []byte(markerText+strings.Join(manifest, "\r\n")+"\r\n")); err != nil {
-			return fmt.Errorf("install: mark %s as a CFO home: %w", s.Root, err)
-		}
+	}
+	if _, err := writeIfDifferent(markerPath, []byte(markerText+strings.Join(manifest, "\r\n")+"\r\n")); err != nil {
+		return fmt.Errorf("install: mark %s as a CFO home: %w", s.Root, err)
 	}
 	switch {
 	case len(created) > 0:
 		report.change("home", "set up "+s.Root+" with "+strings.Join(created, ", "))
-	case !hadMarker && !s.Checkout:
+	case !hadMarker:
 		report.change("home", "marked "+s.Root+" as a CFO home again")
 	default:
 		report.same("home", s.Root+" is set up")

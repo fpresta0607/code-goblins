@@ -274,8 +274,10 @@ func resolve() (Home, error) {
 
 // InstalledMarker is the file `cfo install` writes into every home it sets
 // up, and what makes a folder a home: a source checkout holds AGENTS.md and
-// may hold a state folder a test or an older build left, and is never one.
-// The repository never tracks one, so no checkout or worktree carries it.
+// may hold a state folder a test or an older build left, and is never one
+// unless it is the home in use, as a checkout an older build made the home
+// is, which install marks. The repository ignores the file, so such a
+// checkout carries it untracked and none of its worktrees carries it.
 const InstalledMarker = ".cfo-home"
 
 // IsPrimary reports whether h is a genuine primary home: AGENTS.md present,
