@@ -108,6 +108,9 @@ type fleetWakes struct {
 	Health          map[string]reportedPRHealth `json:"health,omitempty"`
 	BackOff         map[string]time.Time        `json:"backoff,omitempty"`
 	AllowanceFloors map[string]allowanceFloor   `json:"allowance_floors,omitempty"`
+	// AllowanceWalls holds, by provider and window, each session window seen
+	// used up while goblins ran on it, until it renews.
+	AllowanceWalls map[string]allowanceWall `json:"allowance_walls,omitempty"`
 	// RedRuns holds, by repository, the red push runs of its main the CFO
 	// was woken for.
 	RedRuns map[string][]int64 `json:"red_runs,omitempty"`
