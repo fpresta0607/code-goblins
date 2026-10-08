@@ -1,0 +1,76 @@
+name: conpty-probe
+
+# Temporary: counts stranded keys and console host crashes in the typed-keys
+# test on the hosted runner's image, on the inbox conhost and on the embedded
+# OpenConsole, and times console calls after a resize. Runs only on a push
+# to a probe branch.
+on:
+  push:
+    branches: ['probe/conpty-*']
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - host: inbox
+            runs: 1500
+          - host: openconsole
+            runs: 2000
+    runs-on: windows-latest
+    timeout-minutes: 80
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-go@v5
+        with:
+          go-version: stable
+      - name: The image
+        shell: pwsh
+        run: |
+          [System.Environment]::OSVersion.VersionString
+          (Get-ItemProperty 'HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion').UBR
+          $env:ImageVersion
+          (Get-Item "$env:WINDIR\System32\conhost.exe").VersionInfo.FileVersion
+          (Get-FileHash "$env:WINDIR\System32\conhost.exe").Hash
+      - name: The typed-keys test, ${{ matrix.runs }} times
+        continue-on-error: true
+        shell: pwsh
+        run: |
+          if ('${{ matrix.host }}' -eq 'inbox') { $env:CONPTY_PROBE_INBOX = '1' }
+          go test ./internal/conpty -run '^TestTypedKeysReachAProgramThatPrintsWhileItReads$' -count=${{ matrix.runs }} -v -timeout 70m 2>&1 | Tee-Object -FilePath typed-keys.log | Select-String -Pattern '^--- FAIL|c0000005|console host|^(ok|FAIL)\s' | ForEach-Object { $_.Line.Substring(0, [Math]::Min(600, $_.Line.Length)) }
+        env:
+          CFO_HOME: ${{ runner.temp }}\cfo-go-tests
+          CFO_STATE_OVERRIDE: ${{ runner.temp }}\cfo-go-tests\state
+      - name: The resize test, 20 times
+        if: matrix.host == 'openconsole'
+        continue-on-error: true
+        shell: pwsh
+        run: go test ./internal/host -run '^TestAResizeNeverStallsTheProgram$' -count=20 -v -timeout 20m 2>&1 | Select-String -Pattern 'slowest|^--- |^(ok|FAIL)\s' | ForEach-Object { $_.Line }
+        env:
+          CFO_HOME: ${{ runner.temp }}\cfo-go-tests
+          CFO_STATE_OVERRIDE: ${{ runner.temp }}\cfo-go-tests\state
+      - name: Counts
+        if: always()
+        shell: pwsh
+        run: |
+          $log = Get-Content typed-keys.log -ErrorAction SilentlyContinue
+          $runs = @($log | Select-String '^=== RUN   TestTypedKeysReachAProgramThatPrintsWhileItReads$').Count
+          $passed = @($log | Select-String '^--- PASS: TestTypedKeysReachAProgramThatPrintsWhileItReads').Count
+          $failed = @($log | Select-String '^--- FAIL: TestTypedKeysReachAProgramThatPrintsWhileItReads').Count
+          $crashed = @($log | Select-String 'console server exited with code 0xc0000005').Count
+          $stranded = 0
+          $isStranded = $false
+          foreach ($line in $log) {
+            if ($line -match '^=== RUN   TestTypedKeysReachAProgramThatPrintsWhileItReads$') {
+              if ($isStranded) { $stranded++ }
+              $isStranded = $false
+            } elseif ($line -match 'input sat unread in the console') {
+              $isStranded = $true
+            }
+          }
+          if ($isStranded) { $stranded++ }
+          "${{ matrix.host }}: $runs runs, $passed passed, $failed failed, $crashed console host crashes, $stranded runs with a key left unread until the waker woke it"
