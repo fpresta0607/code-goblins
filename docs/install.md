@@ -1,7 +1,7 @@
 # Installing Code Goblins
 
 `CodeGoblinsSetup.exe` and the one-line PowerShell install are the same install, and you can rerun either at any time to update.
-Each puts the Code Goblins app and the `cfo` command line (also called `goblins`) together in one folder, adds that folder to your PATH and Code Goblins to the Start menu and the desktop, installs the tools the goblins use where they are missing, and opens the app.
+For the common install choices and what they add, see [Install](../README.md#install).
 Use the setup if you want a window, the one line if you live in a terminal.
 
 ## To use it
@@ -32,7 +32,7 @@ The install never stops to ask you to run anything first; it decides by what it 
 | --- | --- |
 | Nothing yet | Installs into `%LOCALAPPDATA%\CodeGoblins`. |
 | An earlier install | Updates it in place and keeps your settings, policy and fleet. |
-| The command line only | Updates it and adds the app and its Start menu entry. |
+| The command line only | Updates it and adds the app, with the shortcuts described below. |
 | `CFO_HOME` naming another folder that holds a fleet, such as a clone an older build made the home | Keeps using that folder and says so in one line: the programs go into its `bin`, those at its root are brought up to date too, and in a clone the files git tracks are left as they are, while the clone gets the `.cfo-home` marker, which git ignores, that makes it the home in use. Moving it to the standard folder is [`cfo home move`](#where-your-data-lives), whenever you choose. |
 | The board, the CFO or goblins running | Restarts only the board on the new build, on the address it served; no goblin's or the CFO's terminal is touched, and a build that does not start gives the board back to the one before. |
 | An install that stopped part way | Finishes it: every step is safe to run again. |
@@ -65,7 +65,10 @@ In order, it:
 7. Sets up dictation, saying "Setting up dictation": the home's own build, with `cfo dictation setup`, downloads the speech engine and model it pins in `config\voice.json`, 51 MB, keeps each only when it matches its pinned SHA-256 and no program in it links a networking library, and puts them in the home's `caches\voice`, where the board's dictation looks, so the first dictation works at once.
    One already there is not downloaded again, and one an earlier build pinned is removed once the new one is in place, so a machine never keeps two models.
    A failure never fails the install: it notes that dictation finishes setting itself up the first time you dictate, and the log says why.
-8. Adds Code Goblins to your Start menu and your desktop.
+8. Adds matching **Code Goblins** shortcuts to your Start menu and your desktop.
+   The desktop shortcut follows Windows' desktop folder, including OneDrive redirection.
+   Every install recreates either shortcut if it was removed.
+   If either shortcut cannot be created, the install continues, records a `WARN` with the reason in its log, and names the failed shortcut in its closing note.
    Where this install put the desktop window in the home it starts `goblins-window.exe` alone, which opens the app with no terminal: it runs `goblins --window` out of sight, which finds or starts the supervisor and opens the board in the window.
    Where the home only kept a window it already held, as an install from a release that ships none leaves it, the entry runs `goblins --window` itself, with its console minimized: a window from before this may not open the app when started alone.
    In a home with no window it runs `goblins`, the quick start, in a window of its own.
@@ -76,7 +79,8 @@ A running program cannot be replaced, only renamed, so the previous build moves 
 An open desktop window likewise keeps running the previous window until you quit it from its tray icon, and Code Goblins in the Start menu then opens the new one.
 
 An install that delivers its desktop window into the home takes the place of a copy that was installed on its own, in `%LOCALAPPDATA%\CodeGoblinsWindow` with **Code Goblins Window** in the Start menu.
-That entry is removed, since Code Goblins opens the window now, and Start at login starts this home where it started that copy.
+That entry is removed only after this install saves its Code Goblins Start-menu shortcut, since Code Goblins opens the window now.
+Start at login starts this home where it started that copy.
 The copy itself, the program and the picture of its notifications, is removed once no window runs from it: one that is open is named and left, and the next install removes it.
 Anything else in that folder is left where it is, and so is the window's WebView2 profile, `%APPDATA%\goblins-window.exe`, which both copies use, so the board keeps its layout.
 An install that only retains the home's existing window keeps the standalone program, picture, folder and Start-menu entry unchanged.
