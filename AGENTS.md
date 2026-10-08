@@ -680,7 +680,7 @@ It is laid out the same way on every machine:
 
 | Path | What it holds |
 | --- | --- |
-| `bin\` | `cfo.exe` and `goblins.exe`, the same program under two names, and the desktop window, on PATH. It keeps the current build alone, and `<candidate> update` keeps the build it replaced in `state\update` to roll back to. |
+| `bin\` | `cfo.exe` and `goblins.exe`, the same program under two names, and the desktop window, on PATH. Build retention follows the README's build update guidance. |
 | `state\` | The fleet's own record, which `cfo` writes and you never edit: task records, status logs, the wake queue and the board's database; `harnesses.json`, where each harness keeps its configuration and skills; `janitor.json`, the janitor's last sweep; `services.json`, the local services stacks `cfo services` holds for tasks; `archive\`, each retired task's text record; and `backups\`. |
 | `data\` | Your data, laid out as the next table shows. |
 | `config\` | `pipeline.json`, the gate policy, and `fleet.json`, the fleet's settings: `disk_floor_gb` (15, checked on the home's drive and on its Dev Drive), `disk_wake_gb` (10), `caches_cap_gb` (20), `temp_patterns`, the fleet's folders in the machine's temporary folder, and `github_owners`, the organizations whose repositories the fleet owns beside the account `gh` works as. No setting counts goblins: memory alone decides how many run, and `cfo install` and `cfo update` take a `max_live_goblins` an older build left there out of the file and say so, since this build refuses a key it does not read. `dev-drive.json`, which `cfo dev-drive move` writes, names the folder on a Dev Drive that holds the next three rows' folders instead of the home. |
@@ -726,7 +726,7 @@ The watcher runs the janitor in the background at most once an hour and keeps it
 Every check that decides a removal refuses when it cannot read what it checks, and it never touches Docker volumes, the Overlord's checkouts, caches outside the home, or uncommitted work; work not on a project's default branch is kept as a local tag, `archive/<branch>`, before its worktree goes.
 
 - A worktree in the home's `worktrees` folder that no task records goes once its work is safe: clean and on the default branch, or clean with commits of its own, first kept as an archive tag. One holding uncommitted work is never touched and is reported. A worktree an older build put in a checkout's `.worktrees` is only reported, however clean, and only when this home's records name it, as `cfo reap` finds it: it is found through a checkout every home on the machine shares, and `cfo cleanup` or `cfo reap` retires it.
-- Build cleanup follows the README's home retention policy.
+- Build cleanup follows the README's build update guidance.
 - A folder in the machine's temporary folder that `temp_patterns` names, and a finished task's scratch folder, go once nothing in them was written for a day and no running process names them.
 - A retired task keeps its text record: a day after cleanup archived it, its folder in `state\archive` keeps its Markdown, plain-text and status files and loses its scratch, logs, build output and evidence, and once filing moves its data folder to `data\archive\finished`, that folder keeps the same and its `deliverables`. A document handed to the Overlord with `cfo deliver` is kept in `state\reviews` either way. A folder holding a git repository is never trimmed and is reported.
 - `state\backups` keeps the newest two backups of each kind.
