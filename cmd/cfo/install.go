@@ -10,6 +10,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 
 	codegoblins "github.com/fpresta0607/code-goblins"
 	"github.com/fpresta0607/code-goblins/internal/execx"
@@ -41,6 +42,7 @@ func runInstall(args []string, stdout, stderr io.Writer) int {
 	uninstall := fs.Bool("uninstall", false, "remove what cfo install added")
 	projectsRoot := fs.String("projects-root", "", "the folder that holds your checkouts, so --project can take a bare name")
 	startAtLogin := fs.String("start-at-login", "", "on or off: whether Windows starts Code Goblins in the tray at login, which brings back what a restart ended; the home keeps the choice, and without it an install keeps the choice the home holds, on where it holds none")
+	devDrive := fs.String("dev-drive", "", "on or off: the answer to the setup's offer of a Dev Drive for the goblins' worktrees, scratch and caches; on asks the board for its first step, off keeps the offer away, and without it nothing is recorded")
 	if err := fs.Parse(args); err != nil {
 		return 2
 	}
@@ -58,6 +60,10 @@ func runInstall(args []string, stdout, stderr io.Writer) int {
 	}
 	if *uninstall && *startAtLogin != "" {
 		fmt.Fprintln(stderr, "cfo install: --start-at-login cannot be combined with --uninstall")
+		return 2
+	}
+	if *devDrive != "" && *devDrive != "on" && *devDrive != "off" || *uninstall && *devDrive != "" {
+		fmt.Fprintln(stderr, "cfo install: --dev-drive is on or off, and no part of an uninstall")
 		return 2
 	}
 
@@ -112,6 +118,12 @@ func runInstall(args []string, stdout, stderr io.Writer) int {
 	if err := service.Install(stdout); err != nil {
 		fmt.Fprintln(stderr, err)
 		return 1
+	}
+	if *devDrive != "" {
+		if err := home.AnswerDevDrive(root, *devDrive == "on", time.Now().UTC()); err != nil {
+			fmt.Fprintln(stderr, "cfo install: keep the Dev Drive answer: "+err.Error())
+			return 1
+		}
 	}
 	if serving {
 		board.restart(h, stdout)

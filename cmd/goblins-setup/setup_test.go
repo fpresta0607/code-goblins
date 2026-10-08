@@ -12,6 +12,9 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/fpresta0607/code-goblins/internal/devdrive"
+	"github.com/fpresta0607/code-goblins/internal/home"
 )
 
 // cfoStandInVariable makes this test binary a stand-in for a tool whose every
@@ -306,6 +309,57 @@ func TestTheSetupHandsTheScriptTheChoiceOfStartAtLogin(t *testing.T) {
 			}
 			if !slices.Contains(shown, Progress{Note: "given [" + want + "]"}) {
 				t.Errorf("the script was given %+v, want [%s]", shown, want)
+			}
+		})
+	}
+}
+
+// The setup hands the install script the answer to its Dev Drive offer:
+// -DevDrive when the box is ticked, -NoDevDrive when it is not, and neither
+// where the setup showed no box.
+func TestTheSetupHandsTheScriptTheAnswerToTheDevDriveOffer(t *testing.T) {
+	for answer, want := range map[string]string{"on": "-DevDrive", "off": "-NoDevDrive", "": ""} {
+		t.Run("answer "+answer, func(t *testing.T) {
+			// Arrange
+			setup := published(t, "Write-Host ('Note: given [' + ($args -join ' ') + ']')", http.StatusOK)
+			setup.DevDrive = answer
+			var shown []Progress
+
+			// Act
+			err := setup.Install(context.Background(), func(progress Progress) { shown = append(shown, progress) })
+
+			// Assert
+			if err != nil {
+				t.Fatal(err)
+			}
+			if !slices.Contains(shown, Progress{Note: "given [" + want + "]"}) {
+				t.Errorf("the script was given %+v, want [%s]", shown, want)
+			}
+		})
+	}
+}
+
+// The setup offers a Dev Drive, unticked, only to a home that holds no answer
+// on a machine that can have one, and tells a machine that cannot why, once.
+func TestTheSetupOffersADevDriveOnlyWhereItCanHelp(t *testing.T) {
+	ready := devdrive.Machine{Build: 26200, Revision: 9457, Defender: true, SystemDrive: "C:", SystemFree: 374 << 30}
+	windows10 := ready
+	windows10.Build = 19045
+	for name, test := range map[string]struct {
+		machine devdrive.Machine
+		config  home.DevDriveConfig
+		offer   bool
+		note    string
+	}{
+		"a machine that can have one":   {ready, home.DevDriveConfig{}, true, ""},
+		"an answer already given":       {ready, home.DevDriveConfig{Choice: home.DevDriveDeclined}, false, ""},
+		"a home already on a Dev Drive": {ready, home.DevDriveConfig{Root: `D:\CodeGoblins`}, false, ""},
+		"Windows 10":                    {windows10, home.DevDriveConfig{}, false, "Not available here: this Windows (build 19045.9457) is older than Windows 11 build 22621.2338"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			offer, note := devDriveOffer(test.machine, test.config, `C:\Users\op\AppData\Local\CodeGoblins`)
+			if offer != test.offer || !strings.HasPrefix(note, test.note) || (test.note == "") != (note == "") {
+				t.Errorf("offer %v, note %q; want %v, %q", offer, note, test.offer, test.note)
 			}
 		})
 	}
