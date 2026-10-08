@@ -259,6 +259,19 @@ func TestPisComposerIsReadyAfterItsFirstTurn(t *testing.T) {
 	}
 }
 
+// After a compaction pi does not know its context use until the next turn and
+// shows the meter as "?", as seen live on pi 0.85.1 on 2026-10-08: a pi CFO
+// that read as busy there was never typed the wake its compaction raised.
+func TestPisComposerIsReadyAfterACompaction(t *testing.T) {
+	screens, _ := NativeScreens(Pi)
+	rule := strings.Repeat("─", 40)
+	ready := []string{" [compaction]", " Compacted from 5,245 tokens (ctrl+o to expand)", rule, "", rule, "↑7.0k ↓543 R9.2k CH88.2% $0.056 (sub) ?/272k (auto)                    gpt-5.5 • low"}
+
+	if !screens.IsReady(ready) || !screens.ComposerEmpty(ready) {
+		t.Errorf("%q reads as ready %v, empty %v; want both", ready, screens.IsReady(ready), screens.ComposerEmpty(ready))
+	}
+}
+
 // On 2026-09-28 the monitor woke the CFO with "agent turn ended; waiting on
 // input" for a native Claude Code goblin 29 minutes into one turn. Claude
 // Code 2.1.283 draws its spinner from one of three glyph lists, one of them
