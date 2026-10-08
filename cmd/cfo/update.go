@@ -68,6 +68,14 @@ var boardBuilt = boardweb.Built
 // to make one that does.
 const noBoard = "this build carries no board, so it would show a page saying the board was not built in place of the board: in the checkout it was built from, run npm ci and then npm run build in the frontend folder, then build cfo.exe again"
 
+func refuseUnbuiltBoard(command string, stderr io.Writer) bool {
+	if boardBuilt() {
+		return false
+	}
+	fmt.Fprintf(stderr, "cfo %s: %s, and run its %s; nothing was changed\n", command, noBoard, command)
+	return true
+}
+
 // serveProcess is a supervisor by pid and start time, so it is never
 // mistaken for a process that reused its pid.
 type serveProcess struct {
@@ -107,8 +115,7 @@ func runUpdate(args []string, stdout, stderr io.Writer, runtime commandRuntime) 
 		fmt.Fprintln(stderr, "cfo update: --check, --to and --run update a home from a release, so run them as the home's own goblins or cfo, and --run goes with --to")
 		return 2
 	}
-	if !installed && !*recover && !boardBuilt() {
-		fmt.Fprintf(stderr, "cfo update: %s, and run its update; nothing was changed\n", noBoard)
+	if !installed && !*recover && refuseUnbuiltBoard("update", stderr) {
 		return 1
 	}
 	if h, err = pinHome(h); err != nil {
