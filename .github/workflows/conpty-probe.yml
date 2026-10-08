@@ -1,0 +1,47 @@
+name: conpty-probe
+
+# Temporary: reproduces the typed-keys terminal ending on the hosted runner's
+# conhost. Runs only on a push to a probe branch.
+on:
+  push:
+    branches: ['probe/conpty-*']
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    runs-on: windows-latest
+    timeout-minutes: 40
+    env:
+      CFO_HOME: ${{ runner.temp }}\cfo-go-tests
+      CFO_STATE_OVERRIDE: ${{ runner.temp }}\cfo-go-tests\state
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-go@v5
+        with:
+          go-version: stable
+      - name: Windows and conhost versions
+        shell: pwsh
+        run: |
+          [System.Environment]::OSVersion.VersionString
+          (Get-Item "$env:WINDIR\System32\conhost.exe").VersionInfo | Format-List FileVersion, ProductVersion
+      - name: Menu events against a waiting read
+        continue-on-error: true
+        shell: pwsh
+        run: go test ./internal/conpty -run '^TestZZMenuProbe$' -count=3 -v -timeout 10m
+      - name: The typed-keys test alone, 400 times
+        continue-on-error: true
+        shell: pwsh
+        run: go test ./internal/conpty -run '^TestTypedKeysReachAProgramThatPrintsWhileItReads$' -count=400 -timeout 25m
+      - name: The whole package, 10 times
+        continue-on-error: true
+        shell: pwsh
+        run: go test ./internal/conpty -count=10 -timeout 25m
+      - name: Console host crashes
+        if: always()
+        shell: pwsh
+        run: |
+          Get-WinEvent -FilterHashtable @{ LogName = 'Application'; Id = 1000, 1001, 1002 } -ErrorAction SilentlyContinue |
+            Where-Object { $_.Message -match 'conhost|OpenConsole' } |
+            ForEach-Object { "$($_.TimeCreated) id=$($_.Id)"; $_.Message }

@@ -1,6 +1,7 @@
 package conpty
 
 import (
+	"errors"
 	"flag"
 	"fmt"
 	"os"
@@ -30,13 +31,19 @@ func TestStrandedInputChild(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer progress.Close()
+	fail := func(what string, err error) {
+		var code windows.Errno
+		errors.As(err, &code)
+		fmt.Fprintf(progress, "DIAG failed to %s: %v (errno %d) at %s\n", what, err, uintptr(code), time.Now().UTC().Format("15:04:05.000000"))
+		t.Fatal(err)
+	}
 	input := windows.Handle(os.Stdin.Fd())
 	var mode uint32
 	if err := windows.GetConsoleMode(input, &mode); err != nil {
-		t.Fatal(err)
+		fail("get the console mode", err)
 	}
 	if err := windows.SetConsoleMode(input, mode&^uint32(windows.ENABLE_LINE_INPUT|windows.ENABLE_ECHO_INPUT|windows.ENABLE_PROCESSED_INPUT|windows.ENABLE_VIRTUAL_TERMINAL_INPUT)); err != nil {
-		t.Fatal(err)
+		fail("set the console mode", err)
 	}
 	// The load has a console handle of its own, so the echo never waits for
 	// it in Go's lock on os.Stdout, only in the console.
@@ -57,15 +64,16 @@ func TestStrandedInputChild(t *testing.T) {
 	for {
 		var read uint32
 		if err := windows.ReadConsole(input, &characters[0], uint32(len(characters)), &read, nil); err != nil {
-			t.Fatal(err)
+			fail("read the console", err)
 		}
+		fmt.Fprintf(progress, "DIAG ReadConsole returned %d at %s\n", read, time.Now().UTC().Format("15:04:05.000000"))
 		for _, character := range characters[:read] {
 			sequence++
 			if _, err := fmt.Fprintf(progress, "read %04x as key-%04d at %s\n", character, sequence, time.Now().UTC().Format("15:04:05.000000")); err != nil {
-				t.Fatal(err)
+				fail("log the key", err)
 			}
 			if _, err := fmt.Printf("\rkey-%04d\n", sequence); err != nil {
-				t.Fatal(err)
+				fail("echo the key", err)
 			}
 		}
 	}
@@ -80,12 +88,35 @@ func TestStrandedInputChild(t *testing.T) {
 // when the program has just gone back to its read.
 func TestTypedKeysReachAProgramThatPrintsWhileItReads(t *testing.T) {
 	progressPath := filepath.Join(t.TempDir(), "keys-read.log")
+	before := map[int]bool{}
+	for _, pid := range consoleServers(t) {
+		before[pid] = true
+	}
 	console, err := Start(Spec{
 		Args: []string{os.Args[0], "-test.run=^TestStrandedInputChild$", "--", "stranded-input-child", progressPath},
 		Cols: 120, Rows: 40,
 	})
 	if err != nil {
 		t.Fatal(err)
+	}
+	// DIAG: hold every console server this Start made, to read how it ended.
+	var servers []windows.Handle
+	for _, pid := range consoleServers(t) {
+		if !before[pid] {
+			if server, err := windows.OpenProcess(windows.PROCESS_QUERY_LIMITED_INFORMATION|windows.SYNCHRONIZE, false, uint32(pid)); err == nil {
+				servers = append(servers, server)
+				defer windows.CloseHandle(server)
+			}
+		}
+	}
+	serverEnds := func() string {
+		var ends []string
+		for _, server := range servers {
+			var code uint32
+			windows.GetExitCodeProcess(server, &code)
+			ends = append(ends, fmt.Sprintf("%#x", code))
+		}
+		return fmt.Sprintf("DIAG console servers %d, exit codes %v", len(servers), ends)
 	}
 	output := make(chan []byte, 256)
 	stopping, ended := make(chan struct{}), make(chan struct{})
@@ -124,7 +155,7 @@ func TestTypedKeysReachAProgramThatPrintsWhileItReads(t *testing.T) {
 			select {
 			case chunk, isOpen := <-output:
 				if !isOpen {
-					t.Fatalf("the terminal ended before %q: %s", marker, terminalEnd(console, readErr, shown, progressPath))
+					t.Fatalf("the terminal ended before %q: %s; %s", marker, terminalEnd(console, readErr, shown, progressPath), serverEnds())
 				}
 				shown += string(chunk)
 				if len(shown) > 8192 {
@@ -176,7 +207,7 @@ func terminalEnd(console *Console, readErr error, shown, progressPath string) st
 	}
 	progress, _ := os.ReadFile(progressPath)
 	lines := strings.Split(strings.TrimSpace(string(progress)), "\n")
-	return fmt.Sprintf("its output ended with %v; %s; it last showed %q; the program last read %q", readErr, exit, shown[max(0, len(shown)-1024):], lines[max(0, len(lines)-3):])
+	return fmt.Sprintf("its output ended with %v; %s; it last showed %q; the program last read %q", readErr, exit, shown[max(0, len(shown)-1024):], lines[max(0, len(lines)-8):])
 }
 
 // TestUnreadInputChild sends Ctrl-C and Ctrl-Break to every process attached
