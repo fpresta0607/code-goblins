@@ -7,17 +7,18 @@ import { Icon } from "./Icon";
 import { StopTaskDialog } from "./stop-task-dialog";
 import { plainText, withoutHarness } from "./task-words";
 import { harnessName } from "./workflow";
-import "./harness-update.css";
 
 // A task's controls: icons on its card, where start starts a queued task and
 // onAdjust opens its panel, and labelled buttons in its panel's action row,
 // which leaves both to the card. A queued task has not started, so it is
 // removed rather than stopped. While an update of a live goblin's harness
 // waits, Update restarts it onto it, on its own conversation, at the end of
-// its turn; pressed again before then it takes the press back.
-// leading is a control shown first in the group, such as a card's terminal button.
-export function TaskControls({ task, snapshot, start, leading, labelled = false, onAdjust }: {
-  task: Task; snapshot: Snapshot; start?: CardStart; leading?: ReactNode; labelled?: boolean; onAdjust?: (source: HTMLElement) => void;
+// its turn; pressed again before then it takes the press back. Update looks
+// like the other controls and shows only while an update waits.
+// trailing is a control shown last in the group, such as a card's terminal
+// button, so one that shows only on hover never leaves a gap before the rest.
+export function TaskControls({ task, snapshot, start, trailing, labelled = false, onAdjust }: {
+  task: Task; snapshot: Snapshot; start?: CardStart; trailing?: ReactNode; labelled?: boolean; onAdjust?: (source: HTMLElement) => void;
 }) {
   const [confirmation, setConfirmation] = useState<{ generation: string; revision: string } | null>(null);
   const [pending, setPending] = useState<{ action: string; revision: number | null } | null>(null);
@@ -49,7 +50,7 @@ export function TaskControls({ task, snapshot, start, leading, labelled = false,
     setPending({ action, revision: null });
     try {
       const response = object(await request("/api/tasks/lifecycle", undefined, { method: "POST", headers: { "Content-Type": "application/json", "X-CFO-Token": snapshot.instance }, body: JSON.stringify({ task: task.id, generation: task.generation, revision: task.queue_revision, action, operation: attempt.current.operation }) }));
-      if (typeof response.revision !== "number") throw new Error("The board did not confirm this action; refresh before retrying.");
+      if (typeof response.revision !== "number") throw new Error("The board did not confirm this action. Refresh before retrying.");
       setPending({ action, revision: response.revision });
       attempt.current = null;
     } catch (error: unknown) { setProblem(message(error)); setPending(null); }
@@ -69,13 +70,13 @@ export function TaskControls({ task, snapshot, start, leading, labelled = false,
   const text = (action: string) => labelled && <span>{action}</span>;
   return <>
     <div className="task-controls" role="group" aria-label={"Controls for " + name}>
-      {leading}
       {isQueued && start && !queueBlock(task) && <button {...face("Start", "", start.blocked)} aria-disabled={!!start.blocked || isChanging} onClick={(event) => { if (!isChanging) start.onStart(event.currentTarget); }}><Icon name="play" />{text("Start")}</button>}
       {isQueued && onAdjust && <button {...face("Adjust")} disabled={isChanging} onClick={(event) => onAdjust(event.currentTarget)}><Icon name="edit" /></button>}
-      {canUpdate && <button className={(labelled ? "labelled-button" : "icon-button raised") + " harness-update-control" + (isUpdatePending ? " pending" : "")} aria-label={(isUpdatePending ? "Cancel the update of " : "Update ") + name} data-tip={isUpdatePending ? "Take the update back" : harnessName(task.harness) + " was updated. Restart this goblin onto it at its next stopping point; its conversation is kept."} data-tip-align="start" disabled={isChanging} onClick={() => void update()}><Icon name={isUpdatePending ? "clock" : "download"} />{text(isUpdatePending ? "Cancel update" : "Update")}</button>}
+      {canUpdate && <button className={labelled ? "labelled-button" : "icon-button raised"} aria-label={(isUpdatePending ? "Cancel the update of " : "Update ") + name} data-tip={isUpdatePending ? "Take the update back" : harnessName(task.harness) + " was updated. Restart this goblin onto it at its next stopping point. Its conversation is kept."} data-tip-align="start" disabled={isChanging} onClick={() => void update()}><Icon name={isUpdatePending ? "clock" : "download"} />{text(isUpdatePending ? "Cancel update" : "Update")}</button>}
       {canPause && <button {...face("Pause")} disabled={isChanging} onClick={() => void act("pause")}><Icon name="pause" />{text("Pause")}</button>}
       {canResume && <button {...face("Resume", "", resumeBlock)} aria-disabled={!!resumeBlock || isChanging} onClick={() => { if (!resumeBlock && !isChanging) void act("resume"); }}><Icon name="play" />{text("Resume")}</button>}
       <button {...face(end, " danger")} disabled={isChanging} onClick={() => setConfirmation({ generation: task.generation, revision: task.queue_revision })}><Icon name="trash" />{text(end)}</button>
+      {trailing}
     </div>
     {(isChanging || problemText) && <div className="task-notes">
       {isChanging && <p className="task-action-progress" role="status">{pending ? { pause: "Pausing", resume: "Resuming", stop: ending }[pending.action] : task.switching ? (isUpdatePending ? "Updating " + harnessName(task.harness) : "Switching engine") : task.starting ? "Starting" : task.phase === "pausing" ? "Pausing" : task.phase === "resuming" ? "Resuming" : ending}...</p>}

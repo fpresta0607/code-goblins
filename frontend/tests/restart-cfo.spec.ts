@@ -3,6 +3,8 @@ import { expect, test, type Page } from "./site";
 // The Overlord's requirement, 2026-09-29, after the CFO's screen froze while
 // its session kept working: goblins resume restarts it in place on its
 // conversation, "and the board offers the same as a Restart CFO action".
+// On 2026-10-07, looking at it on the CFO's bar: "i dont like this restart the
+// cfo button here", so it lives in the CFO's panel.
 async function open(page: Page, answer: { status: number; body: Record<string, unknown> }, hash = "") {
   const requests: { token: string | null; body: string | null }[] = [];
   let release = () => {};
@@ -18,6 +20,15 @@ async function open(page: Page, answer: { status: number; body: Record<string, u
 }
 
 test.use({ viewport: { width: 1280, height: 720 } });
+
+test("the CFO's bar has no Restart, and the CFO's panel has it", async ({ page }) => {
+  // Act
+  await open(page, { status: 200, body: {} });
+
+  // Assert
+  await expect(page.getByRole("group", { name: "CFO" }).getByRole("button", { name: /Restart/ })).toHaveCount(0);
+  await expect(page.getByRole("region", { name: "CFO panel" }).getByRole("button", { name: "Restart the CFO" })).toBeVisible();
+});
 
 test("Restart asks first, and Cancel restarts nothing", async ({ page }, testInfo) => {
   // Arrange
@@ -54,7 +65,7 @@ test("Enter in the dialog restarts the CFO once, with the board's token", async 
   await expect(page.getByRole("alert")).toHaveCount(0);
 });
 
-test("a CFO that could not be restarted says why on its bar", async ({ page }) => {
+test("a CFO that could not be restarted says why beside its Restart", async ({ page }) => {
   // Arrange
   const reason = "the CFO could not be restarted: pi has no way to resume a conversation, so the CFO is left running: close it and run goblins to start it on a new conversation";
   const { release } = await open(page, { status: 500, body: { error: reason } });

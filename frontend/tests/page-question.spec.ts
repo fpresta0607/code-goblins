@@ -17,7 +17,7 @@ test("a question with an open review page is one card that shows the question an
   await expect(dialog.getByRole("radio")).toHaveCount(0);
   await expect(dialog.getByRole("link", { name: "Open review" })).toHaveCount(1);
   await expect(dialog.getByRole("link", { name: "Open review" })).toHaveAttribute("href", "http://127.0.0.1:4387/session/ec2ef7d06dddccbb");
-  const status = dialog.getByText("Waiting for your answer. Reply in the page's conversation box; your answer closes this card.");
+  const status = dialog.getByText("Waiting for your answer. Reply in the page's conversation box. Your answer closes this card.");
   await expect(status).toBeVisible();
   // The card opens its page from its one Open review button and shows no page
   // tile, and the status reads on one line with its icon beside it.
@@ -39,5 +39,5 @@ test("a page whose window closed says so and that nothing is lost", async ({ pag
   await page.evaluate(() => window.closeWindow?.());
 
   // Assert
-  await expect(page.getByRole("dialog").getByText(/Its window closed at .+\. Reopen it to answer; nothing you send there is lost\./)).toBeVisible();
+  await expect(page.getByRole("dialog").getByText(/Its window closed at .+\. Reopen it to answer\. Nothing you send there is lost\./)).toBeVisible();
 });

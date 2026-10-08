@@ -143,7 +143,7 @@ Each also merges the CFO's hooks and a few permission rules into your Claude Cod
 Each also turns on **Start at login**, so Code Goblins starts in the tray when you sign in and brings back what a restart ended; untick it in the setup to keep it off, and [Opening, closing and restarting](#opening-closing-and-restarting) says how to change it later.
 Each says the same four steps as it goes (download, check, install, open) and keeps every detail in `%TEMP%\CodeGoblinsInstall.log`; a failure says in one sentence what happened and what to do.
 Run either again at any time to update: it never asks you to run anything first.
-Once Code Goblins runs, a newer release comes to you as its own item in the board's Command Center, **Update Code Goblins**, with what is new and one **Update** button, and a slim banner at the top points to it ([Update Code Goblins](docs/native-board.md#update-code-goblins)).
+Once Code Goblins runs, a newer release comes to you as its own item in the board's Command Center, **Update Code Goblins**, with what is new and one **Update** button ([Update Code Goblins](docs/native-board.md#update-code-goblins)).
 
 <img src="docs/images/update-item.webp" alt="The Update Code Goblins item in the Command Center: v0.5.1 to v0.6.0, what is new, the unsigned-release line with the SHA-256 it checks, and the Update button" width="732" />
 
@@ -492,7 +492,7 @@ Disabled or withheld MCP servers say why they are unavailable, and no secret val
 
 The CFO's Task view lists every queued task under its workspace, in the same priority order as the Tasks column and with the same memory meter, drag and **Start**.
 The Terminal view is the goblin's live terminal, edge to edge.
-A goblin in a native terminal (what `cfo spawn` starts for every goblin) is drawn from its terminal's own output at the panel's size, in a 20 px font, with an even inset and the input line at the bottom: type straight into it, scroll its history with the wheel (no scroll bar is drawn; a Claude Code goblin starts in Claude's classic interface, not its fullscreen one, so its history is the terminal's own and scrolls at once), and use **Ctrl+Plus**, **Ctrl+Minus** and **Ctrl+0** to change the font size, which gives the terminal fewer or more columns rather than shrinking what it shows.
+A goblin in a native terminal (what `cfo spawn` starts for every goblin) is drawn from its terminal's own output at the panel's size, in a 20 px font, with an even inset and the input line at the bottom: type straight into it, scroll its history with the wheel (no scroll bar is drawn; a Claude Code goblin draws in the interface your Claude Code `tui` setting names, as the CFO does, so in fullscreen its input line stays put and Claude Code offers its own jump to the bottom), and use **Ctrl+Plus**, **Ctrl+Minus** and **Ctrl+0** to change the font size, which gives the terminal fewer or more columns rather than shrinking what it shows.
 The monitor supervises it from its terminal as it does a goblin in Herdr, and it asks, reports and receives the Overlord's answers through its own terminal.
 `cfo switch` changes its harness, model or effort in place, and after a reboot, which ends every native terminal, `goblins resume` brings every goblin back in its own session, as `cfo switch <id> --harness <the harness it ran>` does for one.
 Opening it replays the terminal's history out of sight and shows it once its screen is whole, so it never opens blank or half drawn, and a full-pane state shows while it connects.

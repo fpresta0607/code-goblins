@@ -41,6 +41,6 @@ export function WhatsWorking({ tree, now }: { tree: FleetTree; now: number }) {
       <ul className="working-list" aria-label="Finished">{ended.map((node) => <WorkingRow key={node.id} node={node} now={now} />)}</ul>
     </details>}
     <p className="working-freshness">Read {age(tree.fetched_at)} from the goblin's records and processes.{tree.own_memory > 0 && ` The goblin itself holds ${formatMemory(tree.own_memory)}.`}</p>
-    {tree.unread.length > 0 && <p className="working-unread">Not read: {tree.unread.join("; ")}</p>}
+    {tree.unread.length > 0 && <p className="working-unread">Not read: {tree.unread.join(". ")}</p>}
   </div>;
 }

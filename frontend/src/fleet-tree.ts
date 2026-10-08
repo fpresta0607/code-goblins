@@ -85,13 +85,6 @@ export function summarize(tree?: FleetTree): TreeSummary {
   };
 }
 
-// silentChild is the child that has been silent longest, which the goblin's
-// card names with its last line; none while no child is silent.
-export function silentChild(tree?: FleetTree): TreeNode | undefined {
-  return (tree?.children || []).filter((node) => node.state === "silent")
-    .sort((one, other) => (known(one.last_activity) || "").localeCompare(known(other.last_activity) || ""))[0];
-}
-
 // hasChildren says the goblin has anything under it to show.
 export const hasChildren = (tree?: FleetTree) => (tree?.children.length || 0) > 0;
 

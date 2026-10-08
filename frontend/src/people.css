@@ -11,8 +11,9 @@
 .card-ticket .icon { width: 18px; height: 18px; }
 .card-ticket:hover, .card-ticket:focus-visible { text-decoration: underline; }
 
-.same-area-avatars { display: inline-flex; align-items: center; gap: 6px; }
+.same-area-avatars { display: inline-flex; flex-wrap: wrap; align-items: center; gap: 6px; min-width: 0; max-width: 100%; }
 .same-area-person { display: inline-flex; border-radius: 50%; box-shadow: 0 0 0 2px var(--amber); }
+.same-area-more { display: inline-grid; place-items: center; min-width: 24px; height: 24px; padding: 0 6px; border: 1px solid var(--glass-border-hover); border-radius: 999px; background: var(--field-bg); color: #dff7ee; font-size: 1rem; font-weight: 800; line-height: 1; }
 
 /* A goblin's project and its people share a line, wrapping under it when
    the panel is narrow. */

@@ -49,7 +49,7 @@ for (const [width, height] of [[1280, 800], [390, 844]]) {
       // Assert: beside the switch, on one row with it at every width.
       await expect(update).toBeVisible();
       await header(page).screenshot({ path: testInfo.outputPath(`cfo-header-update-${width}.png`) });
-      await expect(update).toHaveAttribute("data-tip", "Claude Code was updated. Restart the CFO onto it at its next stopping point; its conversation is kept.");
+      await expect(update).toHaveAttribute("data-tip", "Claude Code was updated. Restart the CFO onto it at its next stopping point. Its conversation is kept.");
       const button = (await update.boundingBox())!, toggle = (await header(page).getByRole("switch", { name: "AFK mode" }).boundingBox())!;
       expect(Math.abs(button.y + button.height / 2 - (toggle.y + toggle.height / 2))).toBeLessThan(4);
       expect(toggle.x - (button.x + button.width)).toBeLessThan(32);
@@ -69,7 +69,7 @@ for (const [width, height] of [[1280, 800], [390, 844]]) {
 
       // Assert
       await expect(update).toBeVisible();
-      await expect(update).toHaveAttribute("data-tip", "Claude Code was updated. Restart this goblin onto it at its next stopping point; its conversation is kept.");
+      await expect(update).toHaveAttribute("data-tip", "Claude Code was updated. Restart this goblin onto it at its next stopping point. Its conversation is kept.");
       expect(await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth)).toBe(0);
       await card(page).screenshot({ path: testInfo.outputPath(`goblin-card-update-${width}.png`) });
 

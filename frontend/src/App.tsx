@@ -18,7 +18,6 @@ import { PANEL_IMPORTANCE, PanelRow, type PanelControl } from "./panel-row";
 import { CFO_KEY, MAXIMIZED_KEYS, firstOpen, maximizedFor, maximizedView, paneTrack, switchOrder } from "./terminalOrder";
 import { useSwitchKeys } from "./useSwitchKeys";
 import { unsentComment, updateAction } from "./boardUpdate";
-import { ReleaseBanner } from "./release-banner";
 import { updateSucceededRecently } from "./update-progress";
 import { windowTarget } from "./terminalWindow";
 import { message, request } from "./api";
@@ -315,15 +314,12 @@ export function App() {
     </header>
     {updated && <div className="update-banner" role="status"><span>The board was updated.</span><button className="primary" onClick={() => location.reload()}>Reload</button></div>}
     {snapshot && <ComebackBanner comeback={snapshot.comeback} />}
-    {snapshot && !updated && <ReleaseBanner snapshot={snapshot} onOpen={(key) => setCommandFocus({ key, at: Date.now() })} />}
     {snapshot && <Alerts snapshot={snapshot} onOpen={(key) => setCommandFocus({ key, at: Date.now() })} />}
     {firstRun ? <main className="first-run-region" aria-label="First run">
       {snapshot && <FirstRun instance={snapshot.instance} onStarted={() => { setFirstRunChoice("started"); setView("Board"); switchTo(CFO_KEY); }} onBoard={() => setFirstRunChoice("board")} />}
     </main> : <div ref={workspace} className={"workspace" + (paneOpen ? " with-pane" : "") + (view === "Board" && boardLayout === "kanban" ? " kanban" : "") + (resizing && divided ? " resizing" : "")} style={layout}>
       <main ref={canvas} className="canvas-region" aria-label={view} hidden={panelWide}>
-        {(error || snapshot?.error) && <div className="connection-banner" role="alert">{error || snapshot?.error}</div>}
-        {snapshot?.registration && <div className="connection-banner" role="alert">{snapshot.registration}</div>}
-        {snapshot?.cfo_conversation_left && <div className="connection-banner" role="status">{snapshot.cfo_conversation_left}</div>}
+        {error && <div className="connection-banner" role="alert">{error}</div>}
         {!snapshot || !cardStart ? <div className="empty-state" role="status"><h2>Connecting to the supervisor</h2><p>Loading tasks and native sessions.</p></div>
           : view === "Board" ? <Board presentations={presentations} snapshot={snapshot} layout={boardLayout} selected={task?.id} now={now} onSelect={(task, source) => select({ task: task.id }, source)} onTerminal={(task, source) => select({ task: task.id }, source, "terminal")} onOpenCfo={(source) => { returnFocus.current = source; switchTo(CFO_KEY); }} onOpenCommand={() => setCommandFocus({ key: "", at: Date.now() })} onStartCfo={() => setFirstRunChoice("")} cardStart={cardStart} />
             : compact ? <Lineage presentations={presentations} effects={effects} snapshot={snapshot} now={now} project="" selected={selectedSession ? { session: selectedSession.id } : selected} onSelect={select} />

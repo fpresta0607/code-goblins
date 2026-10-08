@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { babyFor, canvasChildren, finished, forHowLong, formatMemory, isDimmed, running, silentChild, stateWord, summarize } from "./fleet-tree.ts";
+import { babyFor, canvasChildren, finished, forHowLong, formatMemory, isDimmed, running, stateWord, summarize } from "./fleet-tree.ts";
 import { makeRoom, NODE_HEIGHT, NODE_WIDTH, settle, waitingOn, workflowNodes } from "./workflow.ts";
 import { parseSnapshot, type FleetTree, type TreeNode } from "./types.ts";
 
@@ -57,8 +57,6 @@ test("a goblin's children at a glance: counts by state, and how many of each kin
   assert.deepEqual({ ...summary, kinds: summary.kinds }, { working: 1, silent: 2, idle: 1, finished: 2, kinds: [["subagent", 1], ["shell", 2], ["server", 1]] });
   assert.deepEqual(running(tree(children)).map((node) => node.id), ["a", "c", "d", "e"]);
   assert.deepEqual(finished(tree(children)).map((node) => node.id), ["f", "b"], "newest first");
-  assert.equal(silentChild(tree(children))?.id, "d", "the one silent longest");
-  assert.equal(silentChild(tree([children[0]])), undefined);
 });
 
 test("the canvas shows every running child and only the newest finished ones", () => {
