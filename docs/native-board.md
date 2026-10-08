@@ -800,7 +800,8 @@ Without `-tags production` the window has WebView2's developer tools and the bro
 `goblins --window` starts it that way where it sits beside `goblins.exe`, after finding or starting the supervisor as `goblins --board` does, with its output appended to `state\window.log`; a window of the same home already running takes the start as its second instance and comes to the front.
 Each home has a window of its own: the home the user's own environment names, by `CFO_HOME` or else the per-user home, keeps the one instance and Windows' one notification registration for Code Goblins, and a window on any other home, such as a scratch home or a second install, is an instance of its own, keyed by its state folder, so opening it brings its own board to the front and never the first home's window.
 `goblins --window --background` starts it in its tray, and where no window sits beside `goblins.exe` either exits 1 and says so.
-Started with neither `--board` nor `--state`, as the Start menu's Code Goblins and **Start at login** start it, the program is the app's launcher: it runs the `goblins.exe` beside it with `--window`, and `--background` when it was given that, in a console that is never shown, and exits once that has started the window on the board.
+Started with neither `--board` nor `--state`, as the Start menu's Code Goblins, the desktop's and **Start at login** start it, the program asks the `goblins.exe` beside it where the board is: it runs `goblins --window --locate` in a console that is never shown, which finds or starts the supervisor and prints the board's address and the state folder, and then shows that board itself, in its tray with `--background`.
+So the window stays the process Windows started, and its parents reach the desktop, which is how the supervisor knows its board as the Overlord's own when he switches AFK mode or presses **Update**; a window `goblins` started would be the child of a process that has exited, which proves no one's.
 So a supervisor is started in one way only, by `goblins`, whoever opens the app.
 A click on a notification while no window runs opens the app the same way: Windows then starts the program alone, with `-Embedding`.
 When `goblins` fails, the launcher shows the last sixteen lines it wrote to stderr in a message box titled Code Goblins and exits 1; with no `goblins.exe` beside it, the box says that Code Goblins is not installed there.
@@ -829,7 +830,7 @@ The board's dictation works in it as in a browser tab, because the page records 
 
 ### Restarts
 
-A restart or a sign-out ends the supervisor and every `cfo host`; Start at login starts the window alone, in the tray, which runs `goblins --window --background`, which starts the supervisor detached from any terminal.
+A restart or a sign-out ends the supervisor and every `cfo host`; Start at login starts the window alone, in the tray, which runs `goblins --window --locate`, which starts the supervisor detached from any terminal.
 The supervisor then brings back what the sign-in before this one left running, the comeback, recorded in `state\comeback.json`.
 It reads when this sign-in began from Windows (`LsaGetLogonSessionData` for the process's logon session), since a restart and a sign-out both end every process of the sign-in before.
 The first supervisor of a sign-in plans the comeback once, at its first memory check and before memory is read, so a sign-in whose memory never reaches the floor still records itself: the registered CFO's terminal, and each live native goblin's terminal, that started in the sign-in before (at or after the last comeback's sign-in and before this one) and no longer answers, plus whatever an earlier comeback had not reached.

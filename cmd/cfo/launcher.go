@@ -141,6 +141,28 @@ func runWindowLauncher(stdout, stderr io.Writer, runtime commandRuntime, backgro
 	return 0
 }
 
+// runWindowLocator is goblins --window --locate, which the desktop window runs
+// when it is started alone, from the Start menu, the desktop or Start at
+// login: it finds or starts the supervisor as goblins --window does and prints
+// the board's address and the fleet's state folder, one to a line, for that
+// window to show the board itself. The window the shell started then stays the
+// window, so its parents reach the desktop, which is how the supervisor knows
+// the board as the Overlord's own when he switches AFK mode or presses Update.
+func runWindowLocator(stdout, stderr io.Writer, runtime commandRuntime) int {
+	h, err := runtime.resolveHome()
+	if err != nil {
+		fmt.Fprintln(stderr, err)
+		return 1
+	}
+	board, _, ok := launchBoard(context.Background(), runtime, h, io.Discard, stderr)
+	if !ok {
+		return 1
+	}
+	fmt.Fprintln(stdout, board)
+	fmt.Fprintln(stdout, h.State)
+	return 0
+}
+
 // runBoardLauncher is goblins --board. It finds or starts the supervisor as
 // goblins does and opens the board in the browser every time, and starts or
 // shows no CFO in this terminal: the board shows the CFO, and its first-run
