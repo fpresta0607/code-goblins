@@ -275,7 +275,7 @@ func (s Service) Spawn(ctx context.Context, req Request) (result Result, err err
 	if err != nil {
 		return Result{}, fmt.Errorf("spawn: read brief: %w", err)
 	}
-	goblin, err := goblinname.Assign(s.StateDir, goblinname.Hint(req.Title, req.ID, string(brief)))
+	goblin, err := goblinname.Assign(s.StateDir, goblinname.WorkOf(req.ID, req.Title, string(brief)))
 	if err != nil {
 		return Result{}, fmt.Errorf("spawn: %w", err)
 	}

@@ -360,9 +360,9 @@ The header switches between two views, one at a time, each with a contextual pan
   <img src="docs/images/orchestration.webp" alt="Orchestration view over the goblin workshop at night: the CFO above five goblins in three repositories, a count of what runs under each goblin that runs anything, and the selected goblin's live native terminal in the right panel" width="900" />
 </p>
 
-Every goblin gets a fun first name and title when it spawns, such as Jerry - Code Designer, new each time.
+Every goblin gets a fun first name and a title that names its work, such as Vera - Voice Whisperer for long dictation, as soon as its task is queued, and keeps them when it starts.
 A live goblin's card, its car on a merge train, its card on the Orchestration canvas and its panel show that name beside its avatar, with its task in the tip once the pointer rests on it and under its name in the panel, and the CFO calls it by that name.
-Each card shows that name, or the task's short title for a queued or completed task, and a muted line with its repo and status.
+Each card shows that name, a queued task's included, or the task's short title once it has completed, and a muted line with its repo and status.
 The goblin's own words are in its panel.
 Each card carries the mark of the harness its goblin runs (Codex, Claude Code, pi, Kimi or a terminal for any other), and its tip names the harness, model and effort.
 The CFO's bar carries the mark of the harness the CFO runs, and its tip names the harness and its model.
@@ -416,6 +416,7 @@ In-progress cards have **Pause** and **Stop** icons, and paused cards have **Res
 A queued card has **Remove** where they have Stop: a task that has not started has nothing to stop.
 A task's panel carries its controls as labelled buttons, in one row under its header: **Remove** for a queued task, whose Start stays on its card, and **Pause** or **Resume** and **Stop** for one that has started.
 Pause allows five seconds for a stopping point and handoff, then ends the task's processes, including its detached browser sessions, dev servers and tests.
+It ends the goblin's terminal first, which ends its agent and everything under it, so a busy goblin that misses its stopping point is still paused, with its session kept for its resume, even when the search for its other processes runs out of time on a machine short of memory.
 A machine service the goblin started for its work is never one of them: Docker Desktop with everything it runs, and the no-mistakes daemon with every other goblin's gate agents, keep running through a pause, a stop, a cleanup, a switch, a forced reap and the goblin's terminal closing; the daemon's agents at work on the task's own gate are still ended.
 Such a service holds the folder it was started from, so start it from outside the worktree, or cleanup cannot remove the worktree while it runs.
 Pause and Stop count a process as stopped once Windows reports an exit status, even if Windows is still releasing its resources.
@@ -426,6 +427,7 @@ The board's Pause records `overlord`, which only the Overlord's Resume clears.
 The CLI takes what resumes the goblin: `cfo pause <id> --until <RFC3339 time>`, `--until-task <id>` or `--until-pr <GitHub PR URL>` pauses it until that time, until that task delivers or until that pull request merges, and the supervisor resumes it then by itself, as for a goblin paused until an allowance's weekly reset.
 Otherwise it takes `--reason <reason>`: `memory`, `allowance`, `overlord`, `dependency`, `question`, `ci` or `deploy`; a pause that names nothing that resumes it is refused.
 An allowance pause takes `--until <RFC3339 reset time>`; a dependency takes `--until task:<id>`, `pr:<GitHub PR URL>` or `date:<RFC3339 time>`; a question takes `--until <question id>`.
+Pausing a goblin that is already paused changes what resumes it, and stops nothing again.
 For CI or deploy, name the exact awaited head with `--until pr:<GitHub PR URL>@<40-character SHA>` or `run:<GitHub Actions run URL>@<40-character SHA>`.
 Pause for CI or deploy only when waiting on that run is the goblin's remaining work.
 The supervisor resumes memory pauses after two consecutive readings of at least 5 GB free memory and commit, allowance pauses at their reset, dependencies when the named task finishes or PR merges or date arrives, questions when the Overlord answers, and CI/deploy pauses on the matching `ci_finished` record.
@@ -434,7 +436,7 @@ Resume requires the same 5 GB of free memory and of free commit, and continues a
 Start, spawn and Resume check memory and commit alone for room: there is no cap on how many goblins run, and the 4 GB floor is what they keep.
 An older build's `max_live_goblins` in `config/fleet.json` is taken out by `cfo install` and `cfo update`, which say so, since a key the build does not read makes it refuse the file and every start with it.
 At 5 percent remaining in a measured weekly allowance window, the same supervisor scheduler requests each affected goblin's handoff and pauses it until the applicable weekly windows reset.
-While [AFK mode](#afk-mode) is on it pauses at the memory floor too: after two readings in a row under 4 GB of free memory or commit, the newest goblin that is not pushing or merging is paused with the reason `memory`, one at a time.
+It pauses at the memory floor too, whether or not [AFK mode](#afk-mode) is on: after two readings in a row under 4 GB of free memory or commit, the newest goblin that is not pushing or merging is paused with the reason `memory`, one at a time.
 Short session or model windows do not trigger this reserve, and missing or stale quota remains unknown.
 A used-up session window is waited out rather than paused: nothing starts or resumes on its harness until it renews, and then the CFO is woken once with the goblins it stopped, to send on any that sits idle.
 The CFO also hears once when a window a running goblin draws on passes 85 percent used.
@@ -442,7 +444,9 @@ On the board, a paused card says in place of Paused why it waits and what resume
 Under the 5 GB mark, Start and Resume say what they need on the card instead of being refused after the click; the memory meter shows no count of goblins or cap.
 **Next** marks the one card the free-slot order takes first: a reported production defect, which says it jumps the queue, then a paused goblin whose pause has cleared or clears with memory, oldest pause first, then the top of the queue, passing over a task whose last start failed, which waits for its Start.
 A live goblin with no real progress for 20 minutes says for how long on its card.
-After 20 minutes with no new commit, push, gate-step change or changed status report, the supervisor raises one `progress_stalled` check wake to the CFO; real progress resets it, and intentional pauses do not raise it.
+After 20 minutes with no new commit, push, gate-step change, changed status report, new output on the goblin's screen, transcript write or processor use by its own processes, the supervisor raises one `progress_stalled` check wake to the CFO.
+Any of them resets it, and intentional pauses do not raise it.
+A goblin inside one long tool call whose child uses the processor, or whose screen fills with output, is working, and the clock a harness redraws by itself on its screen is not output.
 Progress probes run together under one 10-second deadline, so stalled probes do not accumulate delays between memory readings.
 A goblin whose latest report is a wait on its own helper takes the helper's progress as its own, on its card and in this check, and draws no wake while the helper is watched, since the helper's own check reports its stall.
 An allowance pause that failed for the current task generation and reset waits for intervention while unrelated cleared work can continue.
@@ -712,8 +716,8 @@ Spent
 ```
 
 AFK mode shares the supervisor's allowance pause at 5 percent weekly remaining and its automatic resume at the reset.
-While it is on, the fleet also pauses cleanly at the memory floor: when two readings in a row find free memory or commit under 4 GB, the supervisor pauses the newest goblin that is not pushing or merging, keeping its handoff, one goblin at a time, and resumes it once memory and commit are back at 5 GB.
-Each pause at either floor is in the report under **Paused at a floor**, with the readings it stood on and how it went.
+The fleet also pauses cleanly at the memory floor, whether or not it is on: when two readings in a row find free memory or commit under 4 GB, the supervisor pauses the newest goblin that is not pushing or merging, keeping its handoff, one goblin at a time, and resumes it once memory and commit are back at 5 GB.
+Each pause at either floor while it is on is in the report under **Paused at a floor**, with the readings it stood on and how it went.
 
 ### Open in VS Code
 
@@ -884,6 +888,7 @@ To update a running home to the newest release, run `goblins update` in a termin
 The update is yours alone: it refuses to run under the CFO, a goblin or any agent.
 
 To install a newer build into a running home, run the candidate build itself with `update`: it swaps both `cfo.exe` and `goblins.exe` where the home keeps them, restarts only the supervisor, and puts the previous build back if the new one does not serve; that folder keeps the two builds before the current one and no more.
+The candidate must meet the [source-build requirements](#development).
 The home keeps them in its `bin`, or, where a build before `bin` set it up, such as a checkout an older build made the home, at its root, where they are updated until an install lays the home out with `bin`.
 The journal of an earlier update that finished is history, whatever home it names; only an unfinished one, whose copies are its way back, stops an update.
 A `goblins-window.exe` beside the candidate follows it into the home beside `goblins.exe` once the candidate serves; an open window keeps running the previous one until you quit it from its tray icon, and a window that could not be replaced leaves the update done and is named.
@@ -958,6 +963,7 @@ If the drive is ever missing after a restart, an **Attach** item comes to the Co
 A step that failed shows its output on its item, and **Try again** on the panel brings it back.
 
 A home that an older build set up in a code-goblins checkout moves with `cfo home move`: its dry run lists every file it would move with its SHA-256, the counts before and after and a digest proving nothing is dropped, and `cfo home move --apply --plan <digest>`, at a quiet point with the supervisor stopped, moves it by rename, so it needs no room for a second copy, reads it all back, and installs the build into the new home.
+The build applying the move must meet the [source-build requirements](#development).
 [AGENTS.md](AGENTS.md#the-cfo-home) describes each file in full.
 
 ## Safety model
@@ -1016,6 +1022,10 @@ Code Goblins is becoming a native Windows desktop app.
 ## Development
 
 A source build runs `npm ci` and `npm run build` in `frontend` before `go build`: `cfo.exe` embeds the board they build, and one built without it serves a page saying the board was not built.
+`<candidate.exe> update`, `cfo install` without `--uninstall`, and `cfo home move --apply --plan <digest>` refuse a build that carries no board before changing anything, and exit 1.
+The refusal names `npm ci` and `npm run build` in `frontend`, followed by rebuilding `cfo.exe`, and says `nothing was changed`.
+There is no bypass.
+Plan-only `cfo home move`, `cfo install --uninstall` and `cfo update --recover` remain available without a board; an update run by the installed build still follows the release-update path.
 `go vet` and `go test` need Go alone.
 
 ```powershell

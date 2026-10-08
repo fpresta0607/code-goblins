@@ -1,10 +1,10 @@
 import { expect, holdStream, test, type Page } from "./site";
 
 // Every goblin goes by its fun name and title, with its avatar, on its card,
-// on the merge train, on the Orchestration canvas and at the head of its
-// panel, and its task sits in the tip its card or canvas card shows after the
-// pointer rests on it and under its name in the panel. The supervisor is
-// played by one held snapshot.
+// a queued task's card in Tasks included, on the merge train, on the
+// Orchestration canvas and at the head of its panel, and its task sits in the
+// tip its card or canvas card shows after the pointer rests on it and under
+// its name in the panel. The supervisor is played by one held snapshot.
 const REPO = "https://github.com/northwind/northwind-api";
 const since = new Date(Date.now() - 42 * 60_000).toISOString();
 const SNAPSHOT = {
@@ -13,6 +13,7 @@ const SNAPSHOT = {
   tasks: [
     { id: "nw-sync", title: "Say why a billing sync fails", goblin_name: "Jerry", goblin_title: "Code Designer", project: "northwind-api", phase: "working", verified: false, generation: "nw-sync-1", harness: "claude", since },
     { id: "nw-export", title: "Export the audit trail", goblin_name: "Mabel", goblin_title: "Bug Hunter", project: "northwind-api", phase: "working", verified: false, generation: "nw-export-1", harness: "codex", pr: REPO + "/pull/55", since },
+    { id: "nw-voice", title: "Hear a long dictation in full; Claude Code", goblin_name: "Vera", goblin_title: "Voice Whisperer", project: "northwind-app", phase: "queued", verified: false, generation: "", brief: true, harness: "claude", model: "claude-opus-5-5", effort: "xhigh", since },
     { id: "finished:nw-rates", title: "Cache the exchange rates", goblin_name: "Otis", goblin_title: "Speed Tuner", project: "northwind-api", phase: "done", archived: true, merged: true, verified: true, generation: "", pr: REPO + "/pull/51", at: since },
   ],
   merge_trains: [{
@@ -46,6 +47,23 @@ for (const viewport of [{ name: "in his window", width: 1707, height: 1067 }, { 
       await expect(jerry(page).locator(".goblin-avatar")).toBeVisible();
       await jerry(page).locator(".card-title").hover();
       await expect(page.getByRole("tooltip")).toHaveText("Say why a billing sync fails");
+    });
+
+    // The Overlord, 2026-10-08: "please make sure you name goblins that are
+    // tasks too".
+    test("a queued task's card names its goblin with its avatar and harness, and shows its task in its tip", async ({ page }) => {
+      // Arrange
+      await open(page);
+      const queued = page.getByRole("region", { name: "Tasks", exact: true }).locator(".task-card-shell").filter({ hasText: "northwind-app" });
+
+      // Act
+      await queued.locator(".card-title").hover();
+
+      // Assert
+      await expect(queued.locator(".card-title")).toHaveText("Vera - Voice Whisperer");
+      await expect(queued.locator(".goblin-avatar")).toBeVisible();
+      await expect(queued.locator(".card-harness")).toBeVisible();
+      await expect(page.getByRole("tooltip")).toHaveText("Hear a long dictation in full");
     });
 
     test("a completed card leads with what it delivered", async ({ page }) => {

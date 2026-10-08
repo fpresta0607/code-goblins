@@ -66,6 +66,9 @@ func runInstall(args []string, stdout, stderr io.Writer) int {
 		fmt.Fprintln(stderr, "cfo install: --dev-drive is on or off, and no part of an uninstall")
 		return 2
 	}
+	if !*uninstall && refuseUnbuiltBoard("install", stderr) {
+		return 1
+	}
 
 	target, err := installTarget()
 	if err != nil {

@@ -12,7 +12,7 @@ import (
 )
 
 // goblinsName is the program an install puts beside this one: it finds the
-// supervisor or starts it, and starts this window on its board.
+// supervisor or starts it, and says where its board is.
 const goblinsName = "goblins.exe"
 
 // saidLines is how many of the last lines goblins said the user is shown: room
@@ -21,36 +21,39 @@ const goblinsName = "goblins.exe"
 // last twelve lines of that log.
 const saidLines = 16
 
-// launch opens the app from the window program alone, as the Start menu and
-// Start at login start it: it runs the goblins beside window with --window,
-// which finds the supervisor or starts it as goblins does in a terminal and
-// then starts this program on the board, in the tray alone with background.
+// locate finds the board for the window program started alone, as the Start
+// menu, the desktop and Start at login start it: it runs the goblins beside
+// window with --window --locate, which finds the supervisor or starts it as
+// goblins does in a terminal and prints the board's address and the fleet's
+// state folder, one to a line. This program then shows that board itself, so
+// the window stays the process the shell started and its parents reach the
+// desktop, which is how the supervisor knows the board as the Overlord's own.
 // There stays one way to start a supervisor. goblins is a console program and
 // this one has no console, so it is started with one that is never shown and
 // opening the app shows no terminal. It returns what to tell the user when
-// the board did not open, and nothing when it did.
-func launch(window string, background bool) string {
+// the board was not found, and nothing when it was.
+func locate(window string) (board, stateDir, message string) {
 	goblins := filepath.Join(filepath.Dir(window), goblinsName)
 	if _, err := os.Stat(goblins); errors.Is(err, fs.ErrNotExist) {
-		return "Code Goblins is not installed beside this window: " + goblins + " is missing.\n\nRun the Code Goblins install again."
+		return "", "", "Code Goblins is not installed beside this window: " + goblins + " is missing.\n\nRun the Code Goblins install again."
 	}
-	args := []string{"--window"}
-	if background {
-		args = append(args, "--background")
-	}
-	command := execx.Command(goblins, args...)
+	command := execx.Command(goblins, "--window", "--locate")
 	command.Dir = filepath.Dir(window)
-	var said strings.Builder
+	var found, said strings.Builder
+	command.Stdout = &found
 	command.Stderr = &said
 	err := command.Run()
 	if err == nil {
-		return ""
+		if lines := strings.Split(lastLines(found.String(), 2), "\n"); len(lines) == 2 {
+			return lines[0], lines[1], ""
+		}
+		err = errors.New(goblins + " did not say where the board is")
 	}
 	why := lastLines(said.String(), saidLines)
 	if why == "" {
 		why = err.Error()
 	}
-	return "Code Goblins could not open the board.\n\n" + why + "\n\nTo see more, open a terminal and run: goblins"
+	return "", "", "Code Goblins could not open the board.\n\n" + why + "\n\nTo see more, open a terminal and run: goblins"
 }
 
 // lastLines returns the last count lines of text that say anything.

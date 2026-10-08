@@ -3,8 +3,9 @@
 // one instance and start at login. It holds no engine logic, so closing it
 // leaves the supervisor, the CFO and every goblin running. Started with the
 // board's address and the fleet's state folder it is the window; started with
-// neither, as the Start menu and Start at login start it, it opens the app by
-// running the goblins beside it, which starts it again on the board.
+// neither, as the Start menu and Start at login start it, it asks the goblins
+// beside it, which finds or starts the supervisor, where the board is, and is
+// the window on that board itself.
 package main
 
 import (
@@ -14,6 +15,7 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -43,18 +45,22 @@ func main() {
 	if err != nil {
 		log.Fatal(err)
 	}
+	launcher := os.Getenv(launcherVariable)
 	if *board == "" && *stateDir == "" {
-		if message := launch(self, *background); message != "" {
+		found, state, message := locate(self)
+		if message != "" {
 			tell(message)
 			os.Exit(1)
 		}
-		return
+		*board, *stateDir = found, state
+		// Recording the sibling launcher keeps Start at login on the standalone
+		// --background entry instead of pinning this board's address.
+		launcher = filepath.Join(filepath.Dir(self), goblinsName)
 	}
 	if *board == "" || *stateDir == "" {
-		fmt.Fprintln(os.Stderr, "goblins-window: --board and --state go together; with neither, the window runs the goblins beside it")
+		fmt.Fprintln(os.Stderr, "goblins-window: --board and --state go together; with neither, the window asks the goblins beside it")
 		os.Exit(2)
 	}
-	launcher := os.Getenv(launcherVariable)
 	login := loginCommand(launcher, self, *board, *stateDir)
 	userEnv, err := userEnvironment()
 	if err != nil {

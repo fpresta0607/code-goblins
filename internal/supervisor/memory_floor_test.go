@@ -59,6 +59,17 @@ func readFleet(t *testing.T, s *Service, now time.Time, minutes ...int) {
 	}
 }
 
+// awaitRecorded waits until cfo has been run count times, a run still under
+// way included: the floor's pause runs cfo from a goroutine of its own.
+func awaitRecorded(t *testing.T, spawner *spawnRecorder, count int) [][]string {
+	t.Helper()
+	deadline := time.Now().Add(3 * time.Second)
+	for len(spawner.recorded()) < count && time.Now().Before(deadline) {
+		time.Sleep(10 * time.Millisecond)
+	}
+	return spawner.recorded()
+}
+
 // pausedFor writes the lifecycle record a finished pause of meta leaves.
 func pausedFor(t *testing.T, h home.Home, meta state.TaskMeta, reason, phase string, at time.Time) {
 	t.Helper()
@@ -71,12 +82,23 @@ func pausedFor(t *testing.T, h home.Home, meta state.TaskMeta, reason, phase str
 	}
 }
 
-func TestAFKModePausesTheNewestGoblinAtTheMemoryFloor(t *testing.T) {
-	for name, low := range map[string][2]float64{"memory under the floor": {3.9, 8}, "commit under the floor": {8, 3.9}} {
+// The Overlord, 2026-10-08: "nothing pauses automatically by default?? it
+// should work regardless of afk thats a critical core feature". Free memory
+// fell to 1.9 GB that day with AFK mode off and nothing paused.
+func TestTheNewestGoblinPausesAtTheMemoryFloorWhetherAFKModeIsOnOrOff(t *testing.T) {
+	for name, test := range map[string]struct {
+		low     [2]float64
+		isAFKOn bool
+	}{
+		"memory under the floor, AFK off": {[2]float64{3.9, 8}, false},
+		"commit under the floor, AFK off": {[2]float64{8, 3.9}, false},
+		"memory under the floor, AFK on":  {[2]float64{3.9, 8}, true},
+		"commit under the floor, AFK on":  {[2]float64{8, 3.9}, true},
+	} {
 		t.Run(name, func(t *testing.T) {
 			// Arrange
 			spawner := &spawnRecorder{}
-			s, _, _, newer, now := floorBoard(t, true, spawner, low, low)
+			s, _, _, newer, now := floorBoard(t, test.isAFKOn, spawner, test.low, test.low)
 
 			// Act
 			readFleet(t, s, now, 0)
@@ -96,22 +118,6 @@ func TestAFKModePausesTheNewestGoblinAtTheMemoryFloor(t *testing.T) {
 	}
 }
 
-// The floor is a safety rail of AFK mode: while he is here the CFO and he
-// decide what to pause, so nothing pauses by itself.
-func TestNothingPausesAtTheMemoryFloorWhileAFKModeIsOff(t *testing.T) {
-	// Arrange
-	spawner := &spawnRecorder{}
-	s, _, _, _, now := floorBoard(t, false, spawner, [2]float64{3, 3}, [2]float64{3, 3}, [2]float64{3, 3})
-
-	// Act
-	readFleet(t, s, now, 0, 1, 2)
-
-	// Assert
-	if calls := spawner.recorded(); len(calls) != 0 {
-		t.Fatalf("dispatches = %v, want none while AFK mode is off", calls)
-	}
-}
-
 // One goblin is paused at a time: while a pause or any other change is under
 // way nothing more is paused, and once it is done two fresh readings under
 // the floor are needed before the next newest is paused, so a pause has the
@@ -124,7 +130,7 @@ func TestTheMemoryFloorPausesOneGoblinAtATime(t *testing.T) {
 
 	// Act
 	readFleet(t, s, now, 0, 1)
-	inFlight := spawner.recorded()
+	inFlight := awaitRecorded(t, spawner, 1)
 	readFleet(t, s, now, 2, 3)
 	whileInFlight := spawner.recorded()
 	close(spawner.release)
