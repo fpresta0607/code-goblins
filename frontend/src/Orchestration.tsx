@@ -13,8 +13,9 @@ import { TreeChild } from "./TreeChild";
 // v1 saved every card's place at each drag, which pinned the whole canvas.
 const layoutKey = "cfo-orchestration-layout-v2";
 
-// Under a folded goblin's card: the gap to its count, and the count's height.
-const TREE_GAP = 18, COUNT_HEIGHT = 40;
+// Under a folded goblin's card: the gap to its count, clear of the card's
+// chevron, and the count's height.
+const TREE_GAP = 28, COUNT_HEIGHT = 40;
 
 // How far a notch of the wheel zooms: about a sixth.
 const WHEEL_ZOOM = .0015;
@@ -53,7 +54,7 @@ export function Orchestration({ snapshot, selected, connected, effects, onSelect
   })), [nodes]);
   const branches = useMemo(() => Object.fromEntries(Object.entries(trees).map(([id, tree]) => [id, branchLayout(running(tree).length, NODE_WIDTH)])), [trees]);
   const extents = useMemo(() => Object.fromEntries(Object.keys(trees).map((id): [string, Extent] => collapsed.has(id)
-    ? [id, { width: NODE_WIDTH, below: TREE_GAP + COUNT_HEIGHT }] : [id, { width: branches[id].width, below: branches[id].height }])), [trees, branches, collapsed]);
+    ? [id, { width: NODE_WIDTH, below: TREE_GAP + COUNT_HEIGHT, drops: [0] }] : [id, { width: branches[id].width, below: branches[id].height, drops: branches[id].drops }])), [trees, branches, collapsed]);
   const below = useMemo(() => Object.fromEntries(Object.entries(extents).map(([id, extent]) => [id, extent.below])), [extents]);
   // The graph fills the visible canvas, centered, and Arrange lays it out in
   // the rows that show it largest there, until a zoom or a pan by hand takes

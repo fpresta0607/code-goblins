@@ -305,6 +305,9 @@ button:disabled, textarea:disabled { cursor: default; opacity: .55; }
 .flow-node .card-copy small { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .node-disclosure { position: absolute; left: 50%; bottom: -18px; transform: translateX(-50%); display: grid; place-items: center; width: 36px; height: 36px; min-height: 36px; padding: 0; border-color: var(--glass-border); border-radius: 50%; background: var(--glass-bg), var(--hero-surface); color: #bed2d9; }
 .node-disclosure svg { display: block; width: 18px; height: 18px; }
+/* On the canvas a goblin's chevron folds its branches too, so it hangs low
+   enough to leave the last line of the card's status clear. */
+.flow-node .node-disclosure { bottom: -24px; }
 .project-label { display: block; font-size: .9375rem; line-height: 1.4; color: #9bb3c1; overflow-wrap: anywhere; }
 .review-placeholder { margin: auto; padding: 40px 28px; text-align: center; color: var(--muted); }
 .review-placeholder .goblin-avatar { margin: 0 auto 18px; }

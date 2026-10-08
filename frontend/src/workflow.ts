@@ -275,9 +275,11 @@ const COLUMN = NODE_WIDTH + 44, ROW = 244;
 const GAP = 44;
 
 // What hangs under a card on the canvas: how wide it is, centred under the
-// card and never narrower than it, and how far under the card it reaches.
-export interface Extent { width: number; below: number }
-const CARD: Extent = { width: NODE_WIDTH, below: 0 };
+// card and never narrower than it, how far under the card it reaches, and
+// where, from the card's middle, each line runs down from it: its own
+// middle, and the spine of each column of its branches.
+export interface Extent { width: number; below: number; drops: number[] }
+const CARD: Extent = { width: NODE_WIDTH, below: 0, drops: [0] };
 
 // Two cards clash when what each takes, the card and what hangs under it, is
 // nearer to the other's than the gap, both across and down.
@@ -351,19 +353,19 @@ export function arrange(nodes: WorkflowNode[], canvas: { width: number; height: 
     if (rows.length > 1) {
       const widest = Math.max(...rows.map((row) => row.reduce((sum, child) => sum + columns(child), 0))), first = leaf;
       // Each row after the first is offset so no connector into it drops
-      // down the middle of a goblin above, where it would run down that
-      // goblin's own trunk: by half a card where it can be, as through the
-      // gaps of a row of single cards, else by the eighth of a card nearest
-      // that keeps clear.
-      const middles: number[] = [];
+      // down a line that runs down from a goblin above, a middle or a
+      // spine of its branches, where it would read as that goblin's child:
+      // by half a card where it can be, as through the gaps of a row of
+      // single cards, else by the eighth of a card nearest that keeps clear.
+      const drops: number[] = [];
       rows.forEach((row, index) => {
         const at = (offset: number) => row.map((child, i) => first + offset + row.slice(0, i).reduce((sum, other) => sum + columns(other), 0) + (columns(child) - 1) / 2);
-        const covered = (offset: number) => at(offset).filter((middle) => middles.some((above) => Math.abs(middle - above) < .1)).length;
+        const covered = (offset: number) => at(offset).filter((middle) => drops.some((drop) => Math.abs(middle - drop) < .1)).length;
         const offset = index ? [.5, .25, .75, 0, .375, .625, .125, .875].reduce((best, next) => covered(next) < covered(best) ? next : best) : 0;
         at(offset).forEach((middle, i) => {
           visited.add(row[i].id);
           positions[row[i].id] = { x: 40 + middle * COLUMN, y: 72 + (depth + 1 + index) * ROW };
-          middles.push(middle);
+          drops.push(...takes(row[i].id).drops.map((drop) => middle + drop / COLUMN));
         });
       });
       leaf += widest + 1;

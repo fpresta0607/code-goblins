@@ -92,12 +92,18 @@ test("a goblin the Overlord moved keeps its open children clear of every card ar
   const arranged = { "task:a": { x: 0, y: 0 }, "task:b": { x: 0, y: 488 } };
   const placed = { "task:a": { x: 0, y: 300 } };
   const below = { "task:a": 400 };
-  const shown = settle(arranged, placed, { "task:a": { width: NODE_WIDTH, below: below["task:a"] } });
+  const shown = settle(arranged, placed, { "task:a": { width: NODE_WIDTH, below: below["task:a"], drops: [0] } });
   const a = shown["task:a"], b = shown["task:b"];
   assert.deepEqual(a, placed["task:a"], "his card stays where he put it");
   const clear = b.x >= a.x + NODE_WIDTH || b.x + NODE_WIDTH <= a.x || b.y >= a.y + NODE_HEIGHT + below["task:a"] || b.y + NODE_HEIGHT <= a.y;
   assert.ok(clear, `the card at ${JSON.stringify(b)} sits among the children under the moved goblin at ${JSON.stringify(a)}`);
 });
+
+// What hangs under a goblin's card with count running children.
+const extent = (count: number): Extent => {
+  const branches = branchLayout(count, NODE_WIDTH);
+  return { width: branches.width, below: branches.height, drops: branches.drops };
+};
 
 test("a goblin's running children hang in about as many columns as rows, each clear of the others, under a block at least as wide as its card", () => {
   for (const [count, columns] of [[1, 1], [2, 2], [3, 2], [4, 2], [5, 3], [9, 3], [10, 4], [17, 4]]) {
@@ -110,6 +116,7 @@ test("a goblin's running children hang in about as many columns as rows, each cl
     }
     assert.equal(branches.ends.length, count, count + " children: a line ends at each");
     assert.equal(branches.lines.length, count === 1 ? 1 : 1 + columns + count, count + " children: a trunk and bar, a spine a column and a twig a child");
+    assert.equal(branches.drops.length, count === 1 ? 1 : 1 + columns, count + " children: lines run down at the middle and each spine");
   }
 });
 
@@ -117,8 +124,8 @@ test("a goblin whose branches are wider than its card keeps every other card and
   const snapshot = parseSnapshot({ healthy: true, tasks: ["a", "b", "c", "d", "e"].map((id) => ({ id, phase: "working", verified: false })) });
   const nodes = workflowNodes(snapshot);
   for (const extents of [
-    { "task:b": { width: branchLayout(9, NODE_WIDTH).width, below: branchLayout(9, NODE_WIDTH).height } },
-    { "task:a": { width: branchLayout(4, NODE_WIDTH).width, below: branchLayout(4, NODE_WIDTH).height }, "task:c": { width: branchLayout(16, NODE_WIDTH).width, below: branchLayout(16, NODE_WIDTH).height } },
+    { "task:b": extent(9) },
+    { "task:a": extent(4), "task:c": extent(16) },
   ] as Record<string, Extent>[]) for (const canvas of [{ width: 2400, height: 800 }, { width: 836, height: 956 }]) {
     const below = Object.fromEntries(Object.entries(extents).map(([id, extent]) => [id, extent.below]));
     const positions = makeRoom(arrange(nodes, canvas, {}, extents), below);
@@ -132,18 +139,17 @@ test("a goblin whose branches are wider than its card keeps every other card and
   }
 });
 
-test("a connector to a later row of goblins never drops down the middle of a goblin above it, where its trunk runs", () => {
+test("a connector to a later row of goblins never drops down a line of a goblin above it, its middle or a spine of its branches", () => {
   const ids = ["billing", "checkout", "search", "docs", "ledger", "export", "rates"];
   const nodes = workflowNodes(parseSnapshot({ healthy: true, tasks: ids.map((id) => ({ id, phase: "working", verified: false })) }));
-  const wide = (count: number): Extent => ({ width: branchLayout(count, NODE_WIDTH).width, below: branchLayout(count, NODE_WIDTH).height });
-  for (const extents of [{}, { "task:billing": wide(5) }, { "task:billing": wide(5), "task:docs": wide(9), "task:rates": wide(2) }] as Record<string, Extent>[]) {
-    for (const canvas of [{ width: 836, height: 956 }, { width: 600, height: 1400 }]) {
+  for (const extents of [{}, { "task:billing": extent(5) }, { "task:billing": extent(5), "task:docs": extent(9), "task:rates": extent(2) }, { "task:search": extent(3), "task:export": extent(12) }] as Record<string, Extent>[]) {
+    for (const canvas of [{ width: 836, height: 956 }, { width: 800, height: 760 }, { width: 1400, height: 900 }]) {
       const positions = arrange(nodes, canvas, {}, extents);
-      const cards = nodes.filter((node) => node.task).map((node) => positions[node.id]);
-      const rows = [...new Set(cards.map((point) => point.y))].sort((one, other) => one - other);
+      const cards = nodes.filter((node) => node.task).map((node) => ({ point: positions[node.id], drops: extents[node.id]?.drops || [0] }));
+      const rows = [...new Set(cards.map((card) => card.point.y))].sort((one, other) => one - other);
       assert.ok(rows.length > 1, JSON.stringify({ canvas, rows }));
-      for (const card of cards) for (const above of cards.filter((other) => other.y < card.y)) {
-        assert.ok(Math.abs(card.x - above.x) >= (NODE_WIDTH + 44) / 10, JSON.stringify({ extents: Object.keys(extents), canvas, card, above }));
+      for (const card of cards) for (const above of cards.filter((other) => other.point.y < card.point.y)) for (const drop of above.drops) {
+        assert.ok(Math.abs(card.point.x - (above.point.x + drop)) >= (NODE_WIDTH + 44) / 10, JSON.stringify({ extents: Object.keys(extents), canvas, card: card.point, above: above.point, drop }));
       }
     }
   }

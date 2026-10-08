@@ -107,11 +107,12 @@ export const BABY_WIDTH = 166, BABY_HEIGHT = 124;
 const TWIG = 18, COLUMN_GAP = 14, ROW_GAP = 14, DROP = 44, BEND = 8;
 
 // Branches are a goblin's running children laid out under its card: where
-// each baby goblin sits, the lines that join them to the card, and the end of
-// each line at a baby. Every point is from the top left of the block, which
-// is centred under the card, as wide as the card at least, with its top at
-// the card's bottom.
-export interface Branches { width: number; height: number; places: { x: number; y: number }[]; lines: string[]; ends: { x: number; y: number }[] }
+// each baby goblin sits, the lines that join them to the card, the end of
+// each line at a baby, and where each line that runs down sits from the
+// card's middle. Every point is from the top left of the block, which is
+// centred under the card, as wide as the card at least, with its top at the
+// card's bottom.
+export interface Branches { width: number; height: number; places: { x: number; y: number }[]; lines: string[]; ends: { x: number; y: number }[]; drops: number[] }
 
 // branchLayout hangs count baby goblins under a card in about as many
 // columns as rows, up to four columns: one hangs straight under the card;
@@ -122,7 +123,7 @@ export function branchLayout(count: number, cardWidth: number): Branches {
   const step = TWIG + BABY_WIDTH + COLUMN_GAP, span = columns * step - COLUMN_GAP;
   const width = Math.max(cardWidth, span), centre = width / 2, left = (width - span) / 2;
   const height = DROP + rows * (BABY_HEIGHT + ROW_GAP) - ROW_GAP;
-  if (columns === 1) return { width, height, places: [{ x: centre - BABY_WIDTH / 2, y: DROP }], lines: [`M${centre},0 L${centre},${DROP}`], ends: [{ x: centre, y: DROP }] };
+  if (columns === 1) return { width, height, places: [{ x: centre - BABY_WIDTH / 2, y: DROP }], lines: [`M${centre},0 L${centre},${DROP}`], ends: [{ x: centre, y: DROP }], drops: [0] };
   const bar = DROP / 2, spine = (column: number) => left + column * step, last = spine(columns - 1);
   const places = Array.from({ length: count }, (_, i) => ({ x: spine(i % columns) + TWIG, y: DROP + Math.floor(i / columns) * (BABY_HEIGHT + ROW_GAP) }));
   const middle = (place: { y: number }) => place.y + BABY_HEIGHT / 2;
@@ -132,7 +133,7 @@ export function branchLayout(count: number, cardWidth: number): Branches {
     lines.push(`M${spine(column)},${bar + BEND} L${spine(column)},${middle(lowest) - BEND}`);
   }
   for (const place of places) lines.push(`M${place.x - TWIG},${middle(place) - BEND} Q${place.x - TWIG},${middle(place)} ${place.x - TWIG + BEND},${middle(place)} L${place.x},${middle(place)}`);
-  return { width, height, places, lines, ends: places.map((place) => ({ x: place.x, y: middle(place) })) };
+  return { width, height, places, lines, ends: places.map((place) => ({ x: place.x, y: middle(place) })), drops: [0, ...Array.from({ length: columns }, (_, column) => spine(column) - centre)] };
 }
 
 // isHeldByTree is whether a session is a sub-agent a native hook reported whose
