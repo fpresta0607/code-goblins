@@ -7,6 +7,7 @@ export interface AfkSwitch {
   // problem is what his press met, for a moment.
   problem: string;
   turn: (on: boolean) => Promise<boolean>;
+  clear: () => void;
 }
 
 // useAfkSwitch asks the supervisor to turn AFK mode on or off from this board.
@@ -28,5 +29,5 @@ export function useAfkSwitch(instance: string): AfkSwitch {
       setPending(false);
     }
   };
-  return { pending, problem, turn };
+  return { pending, problem, turn, clear: () => showProblem("") };
 }

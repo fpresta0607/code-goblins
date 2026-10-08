@@ -410,7 +410,7 @@ Pause allows five seconds for a stopping point and handoff, then ends the task's
 A machine service the goblin started for its work is never one of them: Docker Desktop with everything it runs, and the no-mistakes daemon with every other goblin's gate agents, keep running through a pause, a stop, a cleanup, a switch, a forced reap and the goblin's terminal closing; the daemon's agents at work on the task's own gate are still ended.
 Such a service holds the folder it was started from, so start it from outside the worktree, or cleanup cannot remove the worktree while it runs.
 Pause and Stop count a process as stopped once Windows reports an exit status, even if Windows is still releasing its resources.
-Such processes remain named in the goblin's panel and in status until their birth-checked identities disappear; their memory is not reported as freed early, and Resume does not wait for them.
+Such processes remain named behind Details in the goblin's panel and in status until their birth-checked identities disappear; their memory is not reported as freed early, and Resume does not wait for them.
 Its worktree, branch and session stay available, and the Paused card says when it paused, what was kept and whether a handoff was saved.
 Every pause records why it paused and what resumes it.
 The board's Pause records `overlord`, which only the Overlord's Resume clears.

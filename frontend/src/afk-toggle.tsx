@@ -18,11 +18,11 @@ import { ClickFeedback } from "./click-feedback";
 // every width.
 export function AfkToggle({ afk, instance, leading }: { afk: Afk; instance: string; leading?: ReactNode }) {
   const [asking, setAsking] = useState(false);
-  const { pending, problem, turn } = useAfkSwitch(instance);
+  const { pending, problem, turn, clear } = useAfkSwitch(instance);
   const { openReport } = useAfkActions();
   const on = afk.state === "on";
   const turnOn = async () => { if (await turn(true)) setAsking(false); };
-  const press = () => { if (afk.state === "off") setAsking(true); else void turn(false); };
+  const press = () => { if (afk.state === "off") { clear(); setAsking(true); } else void turn(false); };
   return <>
     <div className="afk-header">
       {leading}
@@ -33,6 +33,6 @@ export function AfkToggle({ afk, instance, leading }: { afk: Afk; instance: stri
       </button>
     </div>
     {!asking && <ClickFeedback text={problem} />}
-    {asking && <AfkOnDialog pending={pending} problem={problem} onTurnOn={() => void turnOn()} onClose={() => setAsking(false)} />}
+    {asking && <AfkOnDialog pending={pending} problem={problem} onTurnOn={() => void turnOn()} onClose={() => { setAsking(false); clear(); }} />}
   </>;
 }
