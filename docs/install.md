@@ -164,8 +164,9 @@ Each program's file properties (right-click, Properties, Details) name the produ
 - **The one-line install** runs nothing unless the downloaded `cfo.exe` matches the release's `SHA256SUMS`.
   Windows PowerShell does not mark that download as coming from the internet, so SmartScreen does not prompt.
 - **`CodeGoblinsSetup.exe`** is saved with a browser, which marks it, so while it is unsigned SmartScreen stops it once with "Windows protected your PC" and an Unknown publisher.
-  Check it first: `(Get-FileHash .\CodeGoblinsSetup.exe -Algorithm SHA256).Hash` must equal the first field of the release's `SHA256SUMS` line for it, in any letter case.
-  Then **More info**, **Run anyway** runs it, and what it installs is checked against the same `SHA256SUMS` by the install script.
+  Check it first: `(Get-FileHash .\CodeGoblinsSetup.exe -Algorithm SHA256).Hash` must equal the first field of the `CodeGoblinsSetup.exe` line in the `SHA256SUMS` of the release you downloaded the setup from, in any letter case.
+  Then **More info**, **Run anyway** runs it.
+  The install script checks the programs it installs against the newest release's `SHA256SUMS`.
 - **A `cfo.exe` saved from a browser** is marked, and SmartScreen stops it with "Windows protected your PC" and an Unknown publisher.
   Check it first: `(Get-FileHash .\cfo.exe -Algorithm SHA256).Hash` must equal the first field of the release's `SHA256SUMS` line for `cfo.exe`, in any letter case.
   Then **More info**, **Run anyway** runs it.
