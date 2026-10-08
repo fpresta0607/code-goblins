@@ -551,6 +551,7 @@ func (panickingStore) Get(auth.Key) (string, bool, error) { return "", false, ni
 func (panickingStore) Set(_ auth.Key, value string) error { panic(value) }
 func (panickingStore) Keys() ([]auth.Key, error)          { return nil, nil }
 func (panickingStore) Describe() string                   { return "panicking store" }
+func (s panickingStore) Seen() auth.Store                 { return s }
 
 // After a save and every kind of refusal, the value is in the credential
 // store and nowhere in the home, the board's snapshot or its event stream.

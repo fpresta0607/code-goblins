@@ -141,6 +141,10 @@ func runAuthPreflight(args []string, stdout, stderr io.Writer, runtime commandRu
 			fmt.Fprintf(stderr, "cfo auth: %s\n", line)
 		}
 		for _, item := range append(adopted, migrated...) {
+			if item.Kept {
+				fmt.Fprintf(stdout, "kept stored %s: %s offered a different value, read there for the first time. Edit that line to rotate it.\n", item.Key, item.Origin)
+				continue
+			}
 			verb := "adopted"
 			if item.Refreshed {
 				verb = "refreshed"

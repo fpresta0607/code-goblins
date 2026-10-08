@@ -192,7 +192,10 @@ The bare value is left where it is until nothing references it.
 Migration only claims a name exactly one project's manifest declares: a bare `DATABASE_URL` that two projects declare cannot say whose database it names, so it stays put and the report prints the `cfo auth copy` that would claim it deliberately.
 
 A project's own gitignored `.env` is the one origin allowed to overwrite.
-The Supreme Overlord editing that file is how a credential is rotated, so a value that differs from the store refreshes it and the dispatch line names what changed, by name and origin, never by value.
+The Supreme Overlord editing that file is how a credential is rotated, so a value that has changed since the last scan read it refreshes the store and the dispatch line names what changed, by name and origin, never by value.
+A value that only differs from the store is not a rotation: the store keeps a fingerprint of what each file last offered for each key (its Seen record, beside the credential, never the value and never listed), so a credential stored afterwards with `cfo auth store`, a credential card or a run item stays until that `.env` line is edited.
+A file value read for the first time has no history, so it never replaces a stored one either: the dispatch line and `cfo auth --fix` report it as kept, and editing that line rotates it.
+Comparing values alone put PrecisionDocs' older `.env` Fly token back over a freshly stored org token on the next dispatch, so the token read unauthorized an hour after it read green.
 When more than one env file carries a name, dotenv's own layering decides which one may rotate it: `.env.local` beats `.env.development` beats `.env`, and at equal filename the file nearer the project root beats a nested package's.
 When one env file carries both a declared name and a declared alias for the same credential, the manifest breaks that tie: the declared name first, then the alias targets in declared order.
 The two rules are not peers - the file decides first, and the manifest's order only settles a tie inside one file - so a dev default in `.env` never outranks a rotation written to `.env.local` under an alias.

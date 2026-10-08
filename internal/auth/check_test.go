@@ -95,6 +95,7 @@ func (r *fakeRunner) call(name string) (execx.Request, bool) {
 type memoryStore struct {
 	values map[string]string
 	setErr error
+	seen   *memoryStore
 }
 
 func newMemoryStore(values map[string]string) *memoryStore {
@@ -132,6 +133,22 @@ func (s *memoryStore) Keys() ([]Key, error) {
 }
 
 func (s *memoryStore) Describe() string { return "memory store" }
+
+func (s *memoryStore) Seen() Store {
+	if s.seen == nil {
+		s.seen = newMemoryStore(nil)
+	}
+	return s.seen
+}
+
+// readBefore records that a previous scan read value from the project's .env
+// for key, which is the history a rotation is measured against.
+func readBefore(t *testing.T, store Store, key Key, value string) {
+	t.Helper()
+	if err := store.Seen().Set(key, envFingerprint(value)); err != nil {
+		t.Fatal(err)
+	}
+}
 
 // clearEnv removes names from the process environment for one test, so a
 // developer's own credentials cannot make a test pass.

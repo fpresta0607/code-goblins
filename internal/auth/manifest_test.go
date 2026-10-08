@@ -257,7 +257,9 @@ func TestDiscoverAdoptsProjectEnvFilesAndRefreshesWhatTheyRotated(t *testing.T) 
 		{Name: "stripe", Method: MethodEnv, Env: []string{"STRIPE_SECRET_KEY"}},
 		{Name: "sentry", Method: MethodEnv, Env: []string{"SENTRY_DSN"}},
 	}}
-	store := newMemoryStore(map[string]string{"precisiondocs/STRIPE_SECRET_KEY": "sk_deliberate"})
+	// A previous scan adopted the old value; the file has changed since.
+	store := newMemoryStore(map[string]string{"precisiondocs/STRIPE_SECRET_KEY": "sk_before_rotation"})
+	readBefore(t, store, Scoped("precisiondocs", "STRIPE_SECRET_KEY"), "sk_before_rotation")
 
 	adopted, _, err := Discover(context.Background(), store, gitIgnoresEverything(), manifest, project)
 	if err != nil {
