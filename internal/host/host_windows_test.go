@@ -21,6 +21,7 @@ import (
 	"golang.org/x/sys/windows"
 
 	"github.com/fpresta0607/code-goblins/internal/proc"
+	"github.com/fpresta0607/code-goblins/internal/vtscreen"
 )
 
 // The test binary plays every part. As the command in a terminal it answers
@@ -115,6 +116,28 @@ func echoChild() {
 				continue
 			}
 			fmt.Printf("size %dx%d\n", info.Window.Right-info.Window.Left+1, info.Window.Bottom-info.Window.Top+1)
+		case line == "measure":
+			// How long the console takes to say where its cursor is, which
+			// after a resize it asks its terminal.
+			start := time.Now()
+			var info windows.ConsoleScreenBufferInfo
+			err := windows.GetConsoleScreenBufferInfo(windows.Handle(os.Stdout.Fd()), &info)
+			fmt.Printf("measured %d us at %dx%d %v\n", time.Since(start).Microseconds(), info.Window.Right-info.Window.Left+1, info.Window.Bottom-info.Window.Top+1, err)
+		case strings.HasPrefix(line, "ask "):
+			// A query as a program asks its terminal, and the answer it
+			// reads back.
+			query, end := queries[strings.TrimPrefix(line, "ask ")].query, queries[strings.TrimPrefix(line, "ask ")].end
+			fmt.Printf("answered %q\n", ask(query, end))
+		case line == "trim-flood":
+			// A header at the top, then more output below it than a host
+			// replays, drawn in place so the header is never drawn again.
+			fmt.Print("\x1b[H\x1b[2JHEADER")
+			filler := strings.Repeat("f", 70)
+			for i := 0; i < 70000; i++ {
+				fmt.Printf("\x1b[%d;1H%06d %s", 2+i%23, i, filler)
+			}
+			// On the last row, with no new line, which would scroll.
+			fmt.Print("\x1b[25;1Hflooded")
 		case line == "spawn":
 			grandchild := exec.Command(os.Args[0], "sleep-child")
 			// Detached from the console, like a dev server a harness leaves
@@ -151,6 +174,40 @@ func echoChild() {
 			fmt.Println("got", line)
 		}
 	}
+}
+
+// queries are what echo-child asks its terminal for "ask": each query and the
+// byte its answer ends with.
+var queries = map[string]struct {
+	query string
+	end   byte
+}{
+	// A cursor move first, so the answer says where the move left it.
+	"cursor": {"\x1b[5;7H\x1b[6n", 'R'},
+	// The kitty keyboard query, with the device attributes after it as
+	// the answer every terminal gives, so a program learns at once that
+	// the first is not supported.
+	"keyboard": {"\x1b[?u\x1b[c", 'c'},
+}
+
+// ask writes query to this process's console, reads its terminal's answer
+// as typed input up to and with end, and returns it.
+func ask(query string, end byte) string {
+	in := windows.Handle(os.Stdin.Fd())
+	var mode uint32
+	_ = windows.GetConsoleMode(in, &mode)
+	_ = windows.SetConsoleMode(in, windows.ENABLE_VIRTUAL_TERMINAL_INPUT)
+	defer windows.SetConsoleMode(in, mode)
+	fmt.Print(query)
+	var answer []byte
+	one := make([]byte, 1)
+	for len(answer) == 0 || answer[len(answer)-1] != end {
+		if _, err := os.Stdin.Read(one); err != nil {
+			return fmt.Sprintf("%s then %v", answer, err)
+		}
+		answer = append(answer, one[0])
+	}
+	return string(answer)
 }
 
 // launcher starts a host for the state directory and terminal id it is given,
@@ -425,6 +482,101 @@ func TestAViewerResizesTheTerminal(t *testing.T) {
 	defer stop()
 
 	v.waitFor(t, "size 100x30")
+}
+
+// A resize never stalls the program in the terminal. After each one the
+// console server asks the terminal where its cursor is, the next time the
+// program needs it, and waits up to 500 ms for the answer, which the host
+// gives at once from its screen and no viewer ever sees.
+func TestAResizeNeverStallsTheProgram(t *testing.T) {
+	_, record := launch(t)
+	v := view(t, record)
+	v.waitFor(t, "ready")
+
+	var slowest time.Duration
+	for _, size := range [][2]int{{100, 30}, {90, 30}, {90, 20}, {120, 40}} {
+		if err := v.Resize(size[0], size[1]); err != nil {
+			t.Fatalf("Resize: %v", err)
+		}
+		// The console takes a resize on a thread of its own, so the program
+		// is asked until it reads the new size.
+		at := fmt.Sprintf("%dx%d", size[0], size[1])
+		for read := ""; read != at; {
+			typeLine(t, v, "measure")
+			match := v.waitFor(t, `measured (\d+) us at (\d+x\d+) <nil>`)
+			micros, _ := strconv.Atoi(match[1])
+			slowest = max(slowest, time.Duration(micros)*time.Microsecond)
+			read = match[2]
+			v.screen.Reset()
+		}
+	}
+
+	t.Logf("the slowest console call after a resize took %v", slowest)
+	if slowest > 100*time.Millisecond {
+		t.Fatalf("a console call after a resize took %v, want it unstalled", slowest)
+	}
+}
+
+// What the program asks its terminal is answered by the host, as a terminal
+// answers it, and kept from every viewer, which would otherwise type an
+// answer of its own into the program, once for each viewer open and again
+// for each one that replays the terminal later.
+func TestTheHostAnswersTheProgramsQueriesAndKeepsThemFromViewers(t *testing.T) {
+	for name, test := range map[string]struct {
+		answer string
+		kept   []string
+	}{
+		"cursor":   {"\x1b[5;7R", []string{"\x1b[6n"}},
+		"keyboard": {"\x1b[?1;2c", []string{"\x1b[?u", "\x1b[c"}},
+	} {
+		t.Run(name, func(t *testing.T) {
+			_, record := launch(t)
+			v := view(t, record)
+			v.waitFor(t, "ready")
+
+			typeLine(t, v, "ask "+name)
+			match := v.waitFor(t, `answered "(.*)"`)
+			late := replay(t, record)
+
+			if answer, err := strconv.Unquote(`"` + match[1] + `"`); err != nil || answer != test.answer {
+				t.Errorf("the program read %q (%v), want %q", answer, err, test.answer)
+			}
+			for _, seen := range []string{v.screen.String(), late} {
+				for _, query := range test.kept {
+					if strings.Contains(seen, query) {
+						t.Errorf("a viewer was shown the query %q:\n%q", query, seen)
+					}
+				}
+			}
+		})
+	}
+}
+
+// A viewer that connects once the host has trimmed its history shows the
+// whole screen, though what is left of the history never draws all of it:
+// the replay ends with the host's repaint.
+func TestAViewerThatConnectsAfterTheHistoryIsTrimmedShowsTheWholeScreen(t *testing.T) {
+	_, record := launch(t)
+	v := connect(t, record)
+	v.waitFor(t, "ready")
+	typeLine(t, v, "trim-flood")
+	var history string
+	for deadline := time.Now().Add(60 * time.Second); !strings.Contains(history, "flooded"); time.Sleep(200 * time.Millisecond) {
+		if time.Now().After(deadline) {
+			t.Fatal("the flood never reached the host's history")
+		}
+		history = replay(t, record)
+	}
+	screen, err := vtscreen.New(80, 25)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	screen.Write([]byte(history))
+
+	if rows := screen.Rows(); !strings.HasPrefix(rows[0], "HEADER") || !strings.HasPrefix(rows[24], "flooded") {
+		t.Fatalf("a viewer replaying the trimmed history shows %q, want the header on top and the last line at the bottom", rows)
+	}
 }
 
 // A viewer that connects later first sees everything the terminal showed.
