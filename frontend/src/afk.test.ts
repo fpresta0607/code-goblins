@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { AFK_OFF, AWAY_MS, afkLine, afkTime, decisionSays, heldRecommends, heldSays, heldWho, offerFor, parseAfkReport, reportAction, safeLink, stillWaiting, switchedBy, turnedOff, allowanceSays, type AfkDecision, type AfkAllowance, type Occasion, type ReportAction } from "./afk.ts";
+import { AFK_OFF, AWAY_MS, afkLine, afkTime, decisionSays, heldRecommends, heldSays, heldWho, offerFor, parseAfkReport, reportAction, safeLink, stillWaiting, switchedBy, turnedOff, allowanceGraph, allowanceSays, shownUnder, type AfkDecision, type AfkAllowance, type Occasion, type ReportAction } from "./afk.ts";
 import { parseSnapshot, type Afk, type AfkHeld } from "./types.ts";
 
 const NOW = Date.parse("2026-10-02T12:31:00Z");
@@ -155,16 +155,43 @@ test("the report's Spent reads each allowance as the percent used at either end,
   assert.throws(() => parseAfkReport({ found: true, spent: [{ provider: "claude", window: "week", on: "29%" }] }), /Invalid response number/);
 });
 
-test("an allowance under Spent is named for its provider and window and says its percent at either end, or the credits spent", () => {
-  const allowance = (changes: Partial<AfkAllowance>): AfkAllowance => ({ provider: "claude", window: "week", on: null, off: null, reset: false, credits: false, spent: 0, unit: "", ...changes });
-  const cases: [string, AfkAllowance, { name: string; value: string; label: string }][] = [
-    ["read at both ends", allowance({ on: 29, off: 35 }), { name: "Claude week", value: "29% → 35%", label: "Claude week 29% used at AFK on and 35% at AFK off" }],
-    ["a window that reset", allowance({ window: "session", on: 42, off: 3, reset: true }), { name: "Claude session", value: "42% → 3%", label: "Claude session 42% used at AFK on and 3% at AFK off after it reset" }],
-    ["read only at turn-on", allowance({ window: "Fable week", on: 12.5 }), { name: "Claude Fable week", value: "12.5%", label: "Claude Fable week 12.5% used at AFK on" }],
-    ["read only at turn-off", allowance({ provider: "codex", off: 4 }), { name: "Codex week", value: "4%", label: "Codex week 4% used at AFK off" }],
-    ["credits", allowance({ provider: "codex", window: "credits", credits: true, spent: 12.5, unit: "credits" }), { name: "Codex credits", value: "12.5 spent", label: "Codex credits 12.5 credits spent" }],
+const allowance = (changes: Partial<AfkAllowance>): AfkAllowance => ({ provider: "claude", window: "week", on: null, off: null, reset: false, credits: false, spent: 0, unit: "", ...changes });
+
+test("Spent shows each weekly limit and the credits spent, and no shorter window such as Claude's five hours", () => {
+  const cases: [string, AfkAllowance, boolean][] = [
+    ["Claude's week", allowance({ on: 29, off: 35 }), true],
+    ["a model's week", allowance({ window: "Fable week", on: 12.5 }), true],
+    ["Codex's week", allowance({ provider: "codex", off: 4 }), true],
+    ["Claude's five-hour session", allowance({ window: "session", on: 42, off: 3, reset: true }), false],
+    ["credits", allowance({ provider: "codex", window: "credits", credits: true, spent: 12.5, unit: "credits" }), true],
+  ];
+  for (const [name, value, want] of cases) assert.equal(shownUnder(value), want, name);
+});
+
+test("a weekly limit under Spent says how much of it is left when AFK turned off and how much AFK used, and credits what was spent", () => {
+  const cases: [string, AfkAllowance, { name: string; value: string; change: string; label: string }][] = [
+    ["read at both ends", allowance({ on: 29, off: 35 }), { name: "Claude weekly limit", value: "65% left", change: "AFK used 6%", label: "Claude weekly limit: 65% left, from 29% to 35% used while AFK was on" }],
+    ["one percent used", allowance({ provider: "codex", on: 1, off: 2 }), { name: "Codex weekly limit", value: "98% left", change: "AFK used 1%", label: "Codex weekly limit: 98% left, from 1% to 2% used while AFK was on" }],
+    ["none used", allowance({ on: 52, off: 52 }), { name: "Claude weekly limit", value: "48% left", change: "AFK used 0%", label: "Claude weekly limit: 48% left, from 52% to 52% used while AFK was on" }],
+    ["a limit that renewed", allowance({ on: 92, off: 3, reset: true }), { name: "Claude weekly limit", value: "97% left", change: "renewed", label: "Claude weekly limit: 97% left, renewed while AFK was on" }],
+    ["read only at turn-on", allowance({ window: "Fable week", on: 12.5 }), { name: "Claude Fable weekly limit", value: "87.5% left", change: "", label: "Claude Fable weekly limit: 87.5% left at AFK on" }],
+    ["read only at turn-off", allowance({ provider: "codex", off: 4 }), { name: "Codex weekly limit", value: "96% left", change: "", label: "Codex weekly limit: 96% left at AFK off" }],
+    ["credits", allowance({ provider: "codex", window: "credits", credits: true, spent: 12.5, unit: "credits" }), { name: "Codex credits", value: "12.5 credits spent", change: "", label: "Codex credits: 12.5 credits spent" }],
   ];
   for (const [name, value, want] of cases) assert.deepEqual(allowanceSays(value), want, name);
+});
+
+test("an allowance's graph marks what was used before AFK and the stretch AFK used, from nothing after a reset, and there is no graph for a limit read at one end or for credits", () => {
+  const cases: [string, AfkAllowance, { before: number; from: number; to: number } | null][] = [
+    ["read at both ends", allowance({ on: 29, off: 35 }), { before: 29, from: 29, to: 35 }],
+    ["a window that reset", allowance({ on: 42, off: 3, reset: true }), { before: 0, from: 0, to: 3 }],
+    // 52% read only when AFK turned off may all have been used while it was
+    // on, so none of it is drawn as used before.
+    ["read only at turn-off", allowance({ off: 52 }), null],
+    ["read only at turn-on", allowance({ on: 12.5 }), null],
+    ["credits", allowance({ credits: true, spent: 12.5 }), null],
+  ];
+  for (const [name, value, want] of cases) assert.deepEqual(allowanceGraph(value), want, name);
 });
 
 test("the report's main button is the Command Center while anything it held still waits on him, and the board otherwise", () => {

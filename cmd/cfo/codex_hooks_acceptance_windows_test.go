@@ -103,12 +103,17 @@ func TestInstalledCodexHooksReportTurnsAndWatcherReceipts(t *testing.T) {
 	if err := json.Unmarshal(after, &installed); err != nil {
 		t.Fatal(err)
 	}
-	command := `powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -File "` + filepath.ToSlash(filepath.Join(configDir, "cfo-native-hook.ps1")) + `"`
+	// Codex hooks run cfo directly, or through the helper where a path would
+	// need quoting.
+	commands := []string{
+		filepath.ToSlash(binary) + " native-hook codex --home " + filepath.ToSlash(p.home.Root) + " --state " + filepath.ToSlash(p.home.State),
+		`powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -File "` + filepath.ToSlash(filepath.Join(configDir, "cfo-native-hook.ps1")) + `"`,
+	}
 	for _, event := range []string{"SessionStart", "UserPromptSubmit", "PostToolUse", "Stop", "SessionEnd", "SubagentStart", "SubagentStop", "Interrupt"} {
 		owned := 0
 		for _, group := range installed.Hooks[event] {
 			for _, hook := range group.Hooks {
-				if hook.Command == command && hook.Type == "command" && hook.Timeout > 0 && hook.Timeout <= 3 {
+				if slices.Contains(commands, hook.Command) && hook.Type == "command" && hook.Timeout > 0 && hook.Timeout <= 3 {
 					owned++
 				}
 			}

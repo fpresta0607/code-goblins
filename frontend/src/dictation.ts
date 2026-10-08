@@ -58,7 +58,10 @@ export function dictationProblem(error: string): string {
   }
 }
 
-export interface DictationEvents { heard: (text: string) => void; listening: (on: boolean) => void; problem: (note: string) => void }
+// problem is a note for the Overlord, about his microphone or a dictation
+// that heard nothing, and failed is a dictation whose words could not be had,
+// which goes to the CFO rather than onto the board.
+export interface DictationEvents { heard: (text: string) => void; listening: (on: boolean) => void; problem: (note: string) => void; failed: (reason: string) => void }
 
 // A Capture is one open microphone: its track, which the recognizer listens
 // to, and how loud it is right now, which the voice bubble's waveform shows.
@@ -138,8 +141,11 @@ export class Dictation {
       for (let i = event.resultIndex; i < event.results.length; i++) phrases.push(event.results[i][0].transcript);
     };
     recognizer.onerror = (event) => {
-      const note = event.message || dictationProblem(event.error);
-      if (note) this.events.problem(note);
+      if (event.error === "supervisor" || event.error === "unheard") this.events.failed(event.message || event.error);
+      else {
+        const note = event.message || dictationProblem(event.error);
+        if (note) this.events.problem(note);
+      }
       this.finish(recognizer, "");
     };
     recognizer.onend = () => this.finish(recognizer, spoken(phrases));
@@ -222,7 +228,7 @@ export class Dictation {
     if (result?.text === null) {
       result.timer = setTimeout(() => {
         if (this.pending.get(recognizer)?.text !== null) return;
-        this.events.problem("Dictation did not finish within 120 seconds. Its words were not typed.");
+        this.events.failed("Dictation did not finish within 120 seconds of the keys being let go, so its words were not typed.");
         this.finish(recognizer, "");
         recognizer.abort();
       }, RECOGNITION_MS);

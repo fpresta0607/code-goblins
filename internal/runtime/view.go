@@ -34,6 +34,7 @@ func RenderMarkdown(w io.Writer, report Report) error {
 	renderNotes(out, report.Notes)
 
 	renderContainers(out, report)
+	renderServices(out, report)
 	renderServers(out, report)
 	renderHeadroom(out, report)
 	renderDeployments(out, report)
@@ -95,6 +96,46 @@ func renderContainers(out *writer, report Report) {
 		}
 	}
 	renderLooseVolumes(out, report.LooseVolumes)
+}
+
+// renderServices is each stack cfo services holds for tasks: who holds it,
+// what cfo started of it, which a release stops, and the memory it was
+// measured to take.
+func renderServices(out *writer, report Report) {
+	out.line("")
+	out.line("## Local services")
+	out.line("")
+	stacks := report.Services.Sorted()
+	if len(stacks) == 0 {
+		out.line("No local services are held. `cfo services up <project> --task <id>` starts a project's for a task.")
+		return
+	}
+	out.line("| Project | State | Held by | cfo started | Memory |")
+	out.line("| --- | --- | --- | --- | --- |")
+	for _, stack := range stacks {
+		state, holders, started := "down", "nobody", "-"
+		if stack.IsUp() {
+			state, holders, started = "up", strings.Join(stack.HolderIDs(), ", "), "nothing, it was already running"
+			if !stack.Since.IsZero() {
+				state += " since " + stamp(stack.Since)
+			}
+		}
+		switch {
+		case stack.Owned:
+			started = "the whole stack"
+		case len(stack.Started) > 0:
+			started = strings.Join(stack.Started, ", ")
+		}
+		memory := "not measured yet"
+		if stack.Cost.Bytes > 0 {
+			memory = Bytes(int64(stack.Cost.Bytes)) + ", measured " + stamp(stack.Cost.MeasuredAt)
+		}
+		out.row(stack.Project, state, holders, started, memory)
+	}
+	if engine := report.Services.Engine; engine.StartedByCFO {
+		out.line("")
+		out.line("cfo started the Docker engine at " + stamp(engine.Since) + " for these stacks, and stops it once none of them runs.")
+	}
 }
 
 func renderLooseVolumes(out *writer, volumes []LooseVolume) {

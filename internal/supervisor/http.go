@@ -449,6 +449,10 @@ func (h *HTTP) task(w http.ResponseWriter, r *http.Request) {
 		apiError(w, 404, "Task metadata unavailable")
 		return
 	}
+	if parts[1] == "agent" {
+		h.agentLines(w, meta, r.URL.Query().Get("node"))
+		return
+	}
 	if parts[1] == "activity" {
 		lines, err := statusTail(h.Service.Store.Home.State, meta.ID)
 		if err != nil {

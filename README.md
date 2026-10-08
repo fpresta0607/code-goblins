@@ -300,7 +300,8 @@ An install takes the place of a copy of the window that was installed on its own
 
 #### Dictating in the app
 
-Click into a terminal in the window, Claude Code's, Codex's, pi's or the CFO's, hold **Ctrl+Shift+Space**, speak, and let go: what you said is typed into that terminal as one line, and **Enter** sends it.
+Click into a terminal in the window, Claude Code's, Codex's, pi's or the CFO's, hold **Ctrl+Shift+Space**, speak for as long as you like, and let go: what you said is typed into that terminal as one line, and **Enter** sends it.
+A long message is heard in pieces while you speak, so three minutes come back as fast as a short line, every word in order.
 A speech model the supervisor runs on this PC hears it, so your voice never leaves the PC, and dictation costs nothing and needs no account.
 The install sets the model up, Moonshine tiny, so the first dictation works at once.
 If the install could not, as offline, the first dictation downloads it, 28 MB, and the note under the terminal says how far it is as it arrives, then **Dictation is ready**; what you said that first time is not kept, so say it again once it is ready.
@@ -533,7 +534,8 @@ A Claude Code pane with no scrollback of its own, such as Claude Code's fullscre
 New native hosts explicitly request interactive Windows scheduling, so typing and dictated bursts remain responsive when their hidden console would otherwise be treated as background work.
 Updating the executable or restarting the board does not change hosts that are already running; apply the host update when each session can be safely resumed, preserving active work.
 Every terminal pane has a voice bubble in its bottom-right corner, in a strip of its own under the terminal.
-Hold **Ctrl+Shift+Space** to dictate into the terminal that has the keyboard: while the keys are held the bubble's waveform moves with your voice and lies as a flat dotted line while you are silent, and releasing them types what was heard as one line, which **Enter** sends.
+Hold **Ctrl+Shift+Space** to dictate into the terminal that has the keyboard, for as long as you like: while the keys are held the bubble's waveform moves with your voice and lies as a flat dotted line while you are silent, and releasing them types what was heard as one line, which **Enter** sends.
+A long message is heard in pieces while you speak, so it comes back as fast as a short line.
 What you say is recognised by a speech model the supervisor runs on this PC, so it costs nothing, needs no account and never leaves the machine; the install sets the model up, so the first dictation works at once, and where it could not, the first dictation downloads it, 28 MB, shows how far it is under the terminal and says when dictation is ready, and the words of that first dictation are not kept.
 The model starts loading as you press the keys and stays loaded for 30 minutes after you dictate, so a line comes back in a blink, and then gives its memory back.
 The bubble names the model while it listens.
@@ -656,6 +658,9 @@ It is your switch: the supervisor reads the program that asks, and refuses a gob
 Those words are kept with the switch, in the log, on the board and in the report, so you see what it was switched for.
 The supervisor cannot check that the words are yours: the CFO's contract allows the switch only on your own ask in your conversation with it, never on its own judgment, for a goblin, or on text that reached it any other way.
 On the board, turning it on asks first and turning it off does not.
+While the supervisor answers, the button shows a spinner and **Turning AFK on…** or **Turning AFK off…**, and the header toggle spins too.
+If the switch is refused, a red box in the dialog or under the CFO panel header says **AFK did not turn on** or **AFK did not turn off**, with the supervisor's full reason.
+The message stays until you close it or try the switch again.
 Use the board in the Code Goblins window or in a browser you started from the desktop: a board on another machine, or one reached through a proxy, cannot turn it.
 Use a terminal that is not run as administrator: the supervisor cannot read an elevated one, and refuses what it cannot read.
 Use PowerShell or cmd, opened from the desktop or in Windows Terminal: Git Bash cuts a command off from its parents, and the supervisor refuses one it cannot follow to the desktop.
@@ -675,12 +680,21 @@ While it is on:
 
 At your first click or key on the board after five minutes with none, the board offers to turn it off.
 When the CFO turned it on at your ask, your very first click or key offers it at once, quoting your words, so a switch made on your words meets you before anything else.
-Turning it off shows the report of the stretch on the board as one page: who turned it on and off, how much of each thing there is, what waited on you with what was recommended for it and what became of it, what was left for you, then what merged, deployed and installed, each with its link and its verification, the goblins paused at a floor, what each goblin finished, and what was used of each allowance as a small graph, leaving out what was not used or not read.
-Its button at the bottom is Open Command Center while something still waits on you there, and Back to the board otherwise.
+Turning it off shows the report of the stretch on the board as one page: who turned it on and off, how much of each thing there is, then **Held for you**, listing and counting only items still waiting on you in the Command Center, with their recommendations and their goblins' progress.
+Next come what was left for you, what merged, deployed and installed, each with its link and its verification, the goblins paused at a floor, what each goblin finished, and **Spent**.
+Decision sections and **Goblins finished** are drawers, closed until you open them; **Left for you** and merge words with no merge stay open because they still need you.
+**Spent** and the short **Not read** section stay open too.
+Spent shows only weekly limits and credit balances that were spent, leaving out five-hour limits.
+A weekly limit shows what is left, such as **51% left**, beside **AFK used 8%**, or **renewed** if the limit renewed during AFK.
+Equal-length bars show usage before AFK in gray, usage while AFK in green under a green arrow, and what is left as the empty rest, with the legend **Before AFK While AFK Left**.
+With a reading at only one end, the row shows only what is left, with no bar, change chip or line saying a reading was not taken.
+Credit rows show the amount spent without a percent bar.
+Its button at the bottom is Open Command Center while a held item still waits on you, and Back to the board otherwise.
 The button beside the toggle opens the last report again.
-Each time you open it, held items show their current disposition first.
+Each time you open it, Held for you is checked again, so an item you answered no longer appears or counts there.
 `cfo afk status` shows who turned it on and when, what the CFO has decided so far and what waits on you in the Command Center.
-`cfo afk off` prints the same report, `cfo afk report` prints it again, and every decision stays in `state\afk.audit`.
+`cfo afk off` prints a text report, `cfo afk report` prints it again, and every decision stays in `state\afk.audit`.
+The text report keeps held items' current dispositions and allowance readings at both ends, as in the example below; the board uses the presentation above.
 If the switch itself ever cannot be read, a press on the board's toggle or `cfo afk off` puts it back to off.
 
 ```text
@@ -760,6 +774,7 @@ cfo send <target> <text...>
 cfo peek <target> [lines]
 cfo fleet-view [--json]
 cfo runtime [--json]
+cfo services up <project> --task <id> [--wait <duration>] | down <project> --task <id>
 cfo tickets <project> [--brief <file>] [--files <paths>] [--json]
 cfo pipeline migrate <id>
 cfo pipeline run <id> --intent <text>
@@ -936,7 +951,7 @@ If you want one, make `data\` a git repository and push it to a private remote o
 
 The home stays small on its own: the binaries, records under 200 MB, capped caches, and about 0.2 GB for each running goblin, which leaves when its work merges.
 Once an hour the janitor removes what the fleet left behind: a worktree in the home no task owns once its work is on the default branch or kept as a local `archive/<branch>` tag, old builds past the two before the current one, temporary folders nothing has written to for a day, a retired task's scratch, logs and evidence (its brief, report, decisions, handoffs and status log stay, and so does anything it handed you), backups past the newest two of each kind, and cache space over the cap, using each tool's own prune.
-It never touches uncommitted work, your checkouts or Docker, and it reports what it will not remove: a worktree no task records, a new folder in your projects root that is no checkout, and a `data\` over 200 MB.
+It never touches uncommitted work or your checkouts, touches Docker only to stop a project's local services that cfo started for goblins once no running goblin holds them, and reports what it will not remove: a worktree no task records, a new folder in your projects root that is no checkout, and a `data\` over 200 MB.
 `cfo runtime` shows what each part of the home holds, and the board shows free disk under free memory, in one box.
 
 ### A Dev Drive for the busiest folders (optional)
@@ -1060,6 +1075,10 @@ MIT. See [LICENSE](LICENSE). First Mate lineage remains acknowledged as required
 Code Goblins can now describe each project's real runtime in `data/projects/<project>/project.json`: databases, caches, vector stores, object storage, frontends, backends, workers, queues, local/remote services, providers, health checks, deploy commands, verification policy, security policy, routing lanes, and budgets. Credential **names** may appear there; credential values stay in the existing auth store.
 
 At spawn, CFO produces a compact durable **task capsule** and **runtime capsule** instead of replaying the CFO transcript. Without `--harness`, deterministic rules classify the brief and select an execution lane from the fleet's `data/routing.json` (a project manifest's `routing` block overrides it), checking quota-axi headroom first and falling to the next usable lane; explicit harness/model/effort flags still win. A redirected task can be marked with `cfo supersede`, which makes rejected unshipped work disposable and requires cleanup evidence.
+
+A goblin whose check needs a project's local services, such as a backend with its Redis, runs `cfo services up <project> --task <id>` instead of Docker itself.
+The project declares the compose file and the services in `data/projects/<project>/services.json`, and cfo starts Docker Desktop's engine and one shared stack only while free memory stays above the fleet's floor with the stack's measured cost added, waiting and saying why until it does.
+The last goblin to release the stack, its cleanup or the janitor stops what cfo started, the engine included, and `cfo runtime` and the board show each stack, who holds it and its memory.
 
 Delivery is evidence-driven: tiered verification and security commands write structured results, project deployment contracts prevent “CI green” from being mistaken for “production deployed,” and `cfo pr merge` verifies the exact PR head and merges with `--match-head-commit` so a newer unverified SHA cannot slip through; where the base requires GitHub's merge queue it adds that head to the queue, which tests it on the base's tip before merging.
 

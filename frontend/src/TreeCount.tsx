@@ -15,7 +15,7 @@ export function TreeCount({ tree, title, expanded, onToggle }: { tree: FleetTree
     summary.silent && summary.silent + " silent",
     !summary.working && !summary.silent && summary.idle && summary.idle + " idle",
   ].filter(Boolean).join(", ");
-  return <button className={"tree-count" + (summary.silent ? " has-silent" : "")} aria-expanded={expanded}
+  return <button className="tree-count" aria-expanded={expanded}
     aria-label={(expanded ? "Hide" : "Show") + " what runs under " + title + ": " + words + (memory ? ", " + memory : "")} onClick={onToggle}>
     {summary.kinds.map(([baby, count]) => <span key={baby} className="tree-tally"><BabyGoblin baby={baby} small />{count}</span>)}
     {words && <span className={"tree-count-words" + (summary.silent ? " phase-silent" : summary.working ? " phase-working" : "")}><span className="status-dot" />{words}</span>}

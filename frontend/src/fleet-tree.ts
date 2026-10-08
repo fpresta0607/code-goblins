@@ -1,4 +1,4 @@
-import type { FleetTree, Session, Snapshot, TreeNode } from "./types.ts";
+import type { FleetTree, Session, Snapshot, Task, TreeNode } from "./types.ts";
 import { clockText } from "./cards.ts";
 
 // Baby is the baby goblin a child is drawn as: its kind, and for a job of
@@ -27,8 +27,9 @@ export const isFinished = (node: TreeNode) => node.state === "done" || node.stat
 // decision.
 const isIdle = (node: TreeNode) => node.state === "waiting" && node.kind !== "gate";
 
-// Idle and finished children are dimmed: the eye goes to what works.
-export const isDimmed = (node: TreeNode) => isFinished(node) || isIdle(node);
+// Finished children are dimmed. An idle one is not, since it can still be
+// opened: the Overlord, 2026-10-08, "why are the idle ones unclickable".
+export const isDimmed = isFinished;
 
 // phaseOf is the status class a child's dot and words take.
 export function phaseOf(node: TreeNode): string {
@@ -54,6 +55,72 @@ export function forHowLong(node: TreeNode, now: number): string {
   }
   return clockText(node.state === "working" ? known(node.started) : known(node.last_activity) || known(node.started), now, "running");
 }
+
+// What a baby goblin of each kind is called when its own description says
+// nothing a title can be made of.
+const KIND_TITLES: Record<Baby, string> = {
+  subagent: "Scout", shell: "Shell Runner", monitor: "Watcher", gate: "Gatekeeper", server: "Server Keeper",
+  test: "Test Runner", build: "Builder", browser: "Browser Pilot", other: "Process Wrangler", helper: "Helper",
+};
+
+// The one who does each thing a description can start with.
+const DOERS: Record<string, string> = {
+  add: "Adder", analyze: "Analyst", audit: "Auditor", build: "Builder", check: "Checker", clean: "Cleaner", compare: "Comparer",
+  confirm: "Confirmer", count: "Counter", debug: "Debugger", design: "Designer", draft: "Drafter", explore: "Explorer", fetch: "Fetcher",
+  find: "Finder", fix: "Fixer", gather: "Gatherer", inspect: "Inspector", investigate: "Investigator", list: "Lister", locate: "Locator",
+  map: "Mapper", measure: "Measurer", migrate: "Migrator", monitor: "Monitor", plan: "Planner", poll: "Poller", probe: "Prober",
+  prove: "Prover", read: "Reader", refactor: "Refactorer", render: "Renderer", research: "Researcher", review: "Reviewer", run: "Runner",
+  scan: "Scanner", search: "Searcher", start: "Starter", summarize: "Summarizer", survey: "Surveyor", test: "Tester", trace: "Tracer",
+  track: "Tracker", update: "Updater", verify: "Verifier", watch: "Watcher", write: "Writer",
+};
+
+// Words a description's object is never.
+const SMALL_WORDS = new Set(["a", "an", "the", "of", "for", "to", "in", "on", "at", "and", "or", "with", "by", "from", "its", "it", "this", "that", "all", "each", "every"]);
+
+// titleFor is a short fun title for what a baby goblin does, made from its
+// own description as the one who does it: "Start the board" is a Board
+// Starter, "Test dictation" a Dictation Tester. A description that starts
+// with no such deed leaves the title of its kind.
+export function titleFor(node: TreeNode): string {
+  const words = node.label.split(/\s+/).map((word) => word.replace(/^[^\p{L}\d]+|[^\p{L}\d]+$/gu, "")).filter(Boolean);
+  const doer = words.length ? DOERS[words[0].toLowerCase()] : undefined;
+  if (!doer) return KIND_TITLES[babyFor(node)];
+  const object = words.slice(1).reverse().find((word) => /^\p{L}[\p{L}\d'-]*$/u.test(word) && !SMALL_WORDS.has(word.toLowerCase()));
+  if (!object) return doer;
+  const one = object !== object.toLowerCase() ? object
+    : /(ch|sh|x|ss)es$/.test(object) ? object.slice(0, -2) : /ies$/.test(object) ? object.slice(0, -3) + "y"
+      : /[^su]s$/.test(object) && object.length > 3 ? object.slice(0, -1) : object;
+  return one[0].toUpperCase() + one.slice(1) + " " + doer;
+}
+
+// The ordinal after a goblin's name its baby goblins take in turn: Jr., then
+// II, III and on.
+function ordinal(index: number): string {
+  if (!index) return "Jr.";
+  let rest = index + 1, numeral = "";
+  for (const [value, letters] of [[100, "C"], [90, "XC"], [50, "L"], [40, "XL"], [10, "X"], [9, "IX"], [5, "V"], [4, "IV"], [1, "I"]] as [number, string][]) {
+    for (; rest >= value; rest -= value) numeral += letters;
+  }
+  return numeral;
+}
+
+// babyName is what a goblin's baby goblin is called: after its goblin, in
+// the order they started, Kip Jr., then Kip II, Kip III and on, each with a
+// title for its own job, as goblins are called by name and title. A helper
+// is a goblin of its own and keeps its own name.
+export function babyName(goblin: Task, node: TreeNode): string {
+  if (node.kind === "helper") return node.label;
+  const title = titleFor(node);
+  if (!goblin.goblin_name) return title;
+  const order = (goblin.tree?.children || []).filter((child) => child.kind !== "helper")
+    .sort((one, other) => one.started.localeCompare(other.started) || one.id.localeCompare(other.id));
+  return goblin.goblin_name + " " + ordinal(Math.max(0, order.findIndex((child) => child.id === node.id))) + " - " + title;
+}
+
+// babyTask is what a baby goblin was asked to do, which its tip and its
+// panel say: a sub-agent's prompt, a background command, a helper's task,
+// or else what it does.
+export const babyTask = (node: TreeNode) => node.task || node.label;
 
 // formatMemory is a child's or a goblin's memory, empty for none.
 export function formatMemory(bytes: number): string {
@@ -93,40 +160,63 @@ export const hasChildren = (tree?: FleetTree) => (tree?.children.length || 0) > 
 // the finished ones too.
 export const hasRunningChildren = (tree?: FleetTree) => running(tree).length > 0;
 
-// A baby goblin on its branch, and the branches' measures: the twig from a
-// spine to a baby, the gaps between columns and rows, the drop from the
-// goblin's card to the first row, and the bend of a joint.
+// A baby goblin on its branch, and the branches' measures: the room beside a
+// column where its spine runs, the gaps between columns and rows, the drop
+// from the goblin's card to the first row, and the bend of a joint.
 export const BABY_WIDTH = 166, BABY_HEIGHT = 124;
-const TWIG = 18, COLUMN_GAP = 14, ROW_GAP = 14, DROP = 44, BEND = 8;
+const TWIG = 18, COLUMN_GAP = 14, ROW_GAP = 28, DROP = 44, BEND = 8;
+
+interface Point { x: number; y: number }
+
+// elbows is the line through points, which turn only at right angles, with
+// each turn rounded.
+export function elbows(points: Point[]): string {
+  const distinct = points.filter((point, i) => !i || point.x !== points[i - 1].x || point.y !== points[i - 1].y);
+  const turns = distinct.filter((point, i) => !i || i === distinct.length - 1
+    || !(distinct[i - 1].x === point.x && point.x === distinct[i + 1].x || distinct[i - 1].y === point.y && point.y === distinct[i + 1].y));
+  const length = (one: Point, other: Point) => Math.abs(one.x - other.x) + Math.abs(one.y - other.y);
+  const toward = (from: Point, to: Point, by: number) => ({ x: from.x + Math.sign(to.x - from.x) * by, y: from.y + Math.sign(to.y - from.y) * by });
+  let path = `M${turns[0].x},${turns[0].y}`;
+  for (let i = 1; i < turns.length - 1; i++) {
+    const [before, turn, after] = [turns[i - 1], turns[i], turns[i + 1]];
+    const bend = Math.min(BEND, length(before, turn) / 2, length(turn, after) / 2);
+    const [into, out] = [toward(turn, before, bend), toward(turn, after, bend)];
+    path += ` L${into.x},${into.y} Q${turn.x},${turn.y} ${out.x},${out.y}`;
+  }
+  const end = turns[turns.length - 1];
+  return turns.length > 1 ? path + ` L${end.x},${end.y}` : path;
+}
 
 // Branches are a goblin's running children laid out under its card: where
-// each baby goblin sits, the lines that join them to the card, the end of
-// each line at a baby, and where each line that runs down sits from the
-// card's middle. Every point is from the top left of the block, which is
-// centred under the card, as wide as the card at least, with its top at the
-// card's bottom.
-export interface Branches { width: number; height: number; places: { x: number; y: number }[]; lines: string[]; ends: { x: number; y: number }[]; drops: number[] }
+// each baby goblin sits, the branch from the card to each, which ends at the
+// middle of the baby's top, and where each line that runs down sits from the
+// card's middle. bar is how far under the card the branches part, and lane
+// is where, from the card's middle, a line runs down past every baby goblin
+// to a goblin under them. Every point is from the top left of the block,
+// which is centred under the card, as wide as the card at least, with its
+// top at the card's bottom.
+export interface Branches { width: number; height: number; places: Point[]; lines: string[]; ends: Point[]; drops: number[]; bar: number; lane: number }
 
 // branchLayout hangs count baby goblins under a card in about as many
-// columns as rows, up to four columns: one hangs straight under the card;
-// more hang each from a twig off its column's spine, the spines joined to
-// the card by a trunk and a bar, so a big family grows down, not across.
+// columns as rows, up to four columns, centred under it, so a big family
+// grows down, not across. A trunk drops from the card to a bar, and from the
+// bar a branch drops into the top of each baby of the first row; a baby
+// lower down is reached by the spine beside its column, which turns into the
+// gap above it and drops into its top.
 export function branchLayout(count: number, cardWidth: number): Branches {
   const columns = Math.min(4, Math.ceil(Math.sqrt(count))), rows = Math.ceil(count / columns);
-  const step = TWIG + BABY_WIDTH + COLUMN_GAP, span = columns * step - COLUMN_GAP;
-  const width = Math.max(cardWidth, span), centre = width / 2, left = (width - span) / 2;
-  const height = DROP + rows * (BABY_HEIGHT + ROW_GAP) - ROW_GAP;
-  if (columns === 1) return { width, height, places: [{ x: centre - BABY_WIDTH / 2, y: DROP }], lines: [`M${centre},0 L${centre},${DROP}`], ends: [{ x: centre, y: DROP }], drops: [0] };
-  const bar = DROP / 2, spine = (column: number) => left + column * step, last = spine(columns - 1);
-  const places = Array.from({ length: count }, (_, i) => ({ x: spine(i % columns) + TWIG, y: DROP + Math.floor(i / columns) * (BABY_HEIGHT + ROW_GAP) }));
-  const middle = (place: { y: number }) => place.y + BABY_HEIGHT / 2;
-  const lines = [`M${centre},0 L${centre},${bar} M${spine(0)},${bar + BEND} Q${spine(0)},${bar} ${spine(0) + BEND},${bar} L${last - BEND},${bar} Q${last},${bar} ${last},${bar + BEND}`];
-  for (let column = 0; column < columns; column++) {
-    const lowest = places.filter((_, i) => i % columns === column).at(-1)!;
-    lines.push(`M${spine(column)},${bar + BEND} L${spine(column)},${middle(lowest) - BEND}`);
-  }
-  for (const place of places) lines.push(`M${place.x - TWIG},${middle(place) - BEND} Q${place.x - TWIG},${middle(place)} ${place.x - TWIG + BEND},${middle(place)} L${place.x},${middle(place)}`);
-  return { width, height, places, lines, ends: places.map((place) => ({ x: place.x, y: middle(place) })), drops: [0, ...Array.from({ length: columns }, (_, column) => spine(column) - centre)] };
+  const step = TWIG + BABY_WIDTH + COLUMN_GAP, span = columns * step - TWIG - COLUMN_GAP;
+  const width = Math.max(cardWidth, span + 2 * TWIG), centre = width / 2, first = centre - span / 2;
+  const height = DROP + rows * (BABY_HEIGHT + ROW_GAP) - ROW_GAP, bar = DROP / 2;
+  const spine = (column: number) => first + column * step - TWIG;
+  const places = Array.from({ length: count }, (_, i) => ({ x: first + (i % columns) * step, y: DROP + Math.floor(i / columns) * (BABY_HEIGHT + ROW_GAP) }));
+  const ends = places.map((place) => ({ x: place.x + BABY_WIDTH / 2, y: place.y }));
+  const lines = places.map((place, i) => {
+    const end = ends[i], column = i % columns, gap = place.y - ROW_GAP / 2;
+    const down = place.y === DROP ? [{ x: end.x, y: bar }] : [{ x: spine(column), y: bar }, { x: spine(column), y: gap }, { x: end.x, y: gap }];
+    return elbows([{ x: centre, y: 0 }, { x: centre, y: bar }, ...down, end]);
+  });
+  return { width, height, places, lines, ends, bar, lane: spine(0) - centre, drops: [0, ...Array.from({ length: columns }, (_, column) => spine(column) - centre)] };
 }
 
 // isHeldByTree is whether a session is a sub-agent a native hook reported whose

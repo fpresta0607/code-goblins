@@ -28,7 +28,7 @@ export function meterState(memory: Memory, scheduling: Scheduling | null = null)
   const { isCommit, free } = tighter(memory);
   if (free < memory.floor) return { tone: "under", text: `Under the ${gigabytes(memory.floor)} GB floor: nothing starts until ${isCommit ? "commit" : "memory"} frees.` };
   if (free < memory.next) return { tone: "waiting", text: `The next task starts at ${gigabytes(memory.next)} GB free.` };
-  return { tone: "ready", text: scheduling ? "Enough memory: " + scheduling.text : "Enough memory for the next task" };
+  return { tone: "ready", text: scheduling?.text ? "Enough memory: " + scheduling.text : "Enough memory for the next task" };
 }
 
 // The meter's line under its bar while memory is free: what the supervisor

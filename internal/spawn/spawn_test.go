@@ -1261,3 +1261,63 @@ func sortedKeys(t *testing.T, stateDir, id string) []string {
 	slices.Sort(keys)
 	return keys
 }
+
+// A brief that needs its project's local services for a project that
+// declares none is refused before anything is built: the goblin would only
+// find out at its full-stack check.
+func TestSpawnRefusesABriefThatNeedsServicesItsProjectDoesNotDeclare(t *testing.T) {
+	// Arrange
+	f := newFixture(t)
+	writeFile(t, f.brief, "Delivery contract: mode=no-mistakes\nDo the work.\n\n## Delivery\n\nkind: ship\nmode: no-mistakes\nservices: needed\n")
+
+	// Act
+	_, err := f.service.Spawn(context.Background(), f.request)
+
+	// Assert
+	want := "spawn: the brief needs primary's local services, but the project declares none: write " + filepath.Join(f.dataDir, "projects", "primary", "services.json")
+	if err == nil || !strings.Contains(err.Error(), want) {
+		t.Fatalf("Spawn = %v, want %q", err, want)
+	}
+	if _, statErr := os.Stat(state.TaskMetaPath(f.stateDir, "task-7")); !errors.Is(statErr, os.ErrNotExist) {
+		t.Fatalf("a refused spawn published its task: stat error = %v", statErr)
+	}
+	if f.git.acquired != "" {
+		t.Fatalf("acquired worktree %q, want none", f.git.acquired)
+	}
+}
+
+// A services line spawn does not know is refused rather than read as no
+// need, so a typo cannot start a goblin without its services.
+func TestSpawnRefusesAServicesLineItDoesNotKnow(t *testing.T) {
+	f := newFixture(t)
+	writeFile(t, f.brief, "Delivery contract: mode=no-mistakes\n\n## Delivery\n\nservices: yes\n")
+
+	_, err := f.service.Spawn(context.Background(), f.request)
+
+	if err == nil || !strings.Contains(err.Error(), `spawn: the brief's Delivery line "services: yes" is not one spawn knows: write services: needed, or leave the line out`) {
+		t.Fatalf("Spawn = %v, want the services line refused", err)
+	}
+}
+
+// The goblin is told the one command that holds its project's services and
+// the one that releases them, with its own task id.
+func TestServicesInstructionNamesTheCommandsThatHoldAndReleaseThem(t *testing.T) {
+	exe, err := os.Executable()
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := servicesInstruction(state.TaskMeta{ID: "pd-check", Project: `C:\dev\PrecisionDocs-AI`})
+	for _, want := range []string{
+		"Your brief needs PrecisionDocs-AI's local services for its full-stack check.",
+		"run " + exe + ` services up C:\dev\PrecisionDocs-AI --task pd-check`,
+		"run " + exe + ` services down C:\dev\PrecisionDocs-AI --task pd-check`,
+		"waits while memory is short",
+	} {
+		if !strings.Contains(got, want) {
+			t.Errorf("instruction = %q, want %q", got, want)
+		}
+	}
+	if strings.Contains(got, ";") {
+		t.Errorf("instruction = %q, want no semicolons", got)
+	}
+}

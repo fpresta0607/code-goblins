@@ -67,11 +67,13 @@ Its hooks go back where they stood in each event's list, as `cfo install`'s do i
 It does not change models, gate policy, approval settings, or Codex hook trust.
 Review the exact installed Codex definitions in `/hooks` before they can run.
 
-Claude and Codex helpers pipe hook stdin to `cfo native-hook <harness>` using bounded PowerShell commands.
+Claude's helper pipes hook stdin to `cfo native-hook claude` using a bounded PowerShell command.
+Codex runs each hook command inside the session's own shell, `powershell.exe -NoProfile -Command` on Windows, so its hooks run `cfo native-hook codex` directly: a helper there would start a second PowerShell for every event, and live on Codex 0.160 that took longer than the 3-second limit, so every hook timed out.
+The direct command is written without quotes and with forward slashes, which PowerShell, cmd and bash read alike, so where the executable, home or state path would need quoting Codex keeps the helper.
 Pi's extension calls the same executable directly from its native event handlers.
 Hooks record identity and lifecycle metadata, not prompts, tool arguments, or transcripts.
 They atomically spool an event and return without Git, network, gate, or browser work.
-The installer records the absolute executable/home/state paths, so reinstall the owned helper after moving the executable.
+The installer records the absolute executable/home/state paths, so reinstall the owned hooks after moving the executable; a reinstall replaces the hooks an earlier install wrote, in either form.
 
 | Harness signal | Native meaning |
 | --- | --- |
@@ -80,6 +82,8 @@ The installer records the absolute executable/home/state paths, so reinstall the
 | Stop | Settled; requests task evaluation |
 | SessionEnd | Harness session ended |
 | Codex Interrupt | Interrupted; requests evaluation |
+| Codex PreCompact / Pi session_before_compact | The CFO's checkpoint is written; no turn starts or ends |
+| Codex PostCompact / Pi session_compact | One wake names the CFO's checkpoint; no turn starts or ends |
 | SubagentStart / SubagentStop | Reported child started / settled |
 | Pi session_start / agent_start / tool_execution_end | Started / active |
 | Pi agent_settled with no pending messages | Settled after continuations and retries |
@@ -171,6 +175,7 @@ An order that is not exactly the queue the file holds, because a row was added, 
 The board shows the dropped order until a snapshot from the revision the save answered with arrives, and a refused order goes back with the reason under its column.
 The snapshot's `memory` is the machine's available physical memory, the standby list included, and its available commit (RAM plus page file, which every process's private memory is charged against and which a new process needs even while physical memory looks free), both read with `GlobalMemoryStatusEx`, beside the fleet's 4 GB floor and the 5 GB mark at which the next queued task starts; the meter at the head of Tasks shows it as a number and a bar spanning twice the 5 GB mark, or the machine's memory if that is less, marked at the floor and at the mark, whose fill turns amber under the mark and red under the floor, and the first queued task that is not blocked is marked Next up.
 The snapshot's `scheduling` is what the scheduler made of its last reading with memory free: `text`, what it started or resumed or why nothing waiting started, which the meter shows as a line under its bar, and `waiting`, each task or paused goblin that could run and did not, with why; it is absent while memory is short, while a restart's goblins come back and on a board that cannot start goblins.
+When nothing waits to start, `text` is empty and the board shows no line under the meters; the memory meter's screen-reader text is **Enough memory for the next task**.
 It also carries the kernel's paged and nonpaged pool sizes, read with `GetPerformanceInfo`, since a paged pool that keeps growing is a driver leaking memory, and, while commit is the tighter of the two, `holders`: the three apps holding the most commit, each counting its first process and every process it started, so the Codex app's MCP servers count as its program rather than as python, read from one system process list.
 The meter shows whichever of free memory and free commit is the tighter, memory on a tie, labelled "Commit free (memory plus page file)" when it is commit and followed by one line naming those apps; Start's tooltip, the Next chip and Resume's tooltip follow the tighter one too, and one amber line warns when the paged pool passes 4 GB, memory Windows holds that no goblin can use and that a restart of the PC frees.
 The snapshot's `subscriptions` lists `claude` and `codex` only while a registered CFO, or a goblin whose terminal the monitor saw active, busy, idle, parked or harness-erroring within the last two minutes, runs that harness; a paused, ended, archived or launching task, a saved model and quota data alone never show one.
@@ -319,15 +324,15 @@ AFK mode is complete autopilot, so the bar lists nothing held for him: Open Comm
 A click or key on the board after five minutes with none, counted from when AFK mode turned on, is taken for the Overlord coming back: the click or key does what he meant, and the board then offers to turn AFK mode off or stay.
 When the CFO turned it on at his ask, his first click or key since the switch brings the same offer at once, titled The CFO turned AFK on, so a switch made on his words meets him before anything else; his next waits five minutes as usual.
 The offer says who turned it on, with his words when the CFO did at his ask, and takes the focus itself, so keys he was typing press neither button, and Escape stays.
-When AFK mode turns off while the page is open, the report of the stretch opens as one page over the board, read from `GET /api/afk/report`: who turned it on and off, how many of each thing there is, what waited on him, when something did, with what was recommended for it and what became of it as it stands now, which he reads first, then each heading that holds something with its rows, Left for you first, each row linking to what it names when that is an https link and folding its evidence to two lines with Show more, then what each goblin finished and what was spent.
+When AFK mode turns off while the page is open, the report of the stretch opens as one page over the board, read from `GET /api/afk/report`.
+See [AFK mode in the README](../README.md#afk-mode) for its waiting counts, drawers, Spent display and report actions.
+Each decision row links to what it names only when that is an https link and folds its evidence to two lines with Show more.
 His own off from the board's toggle or offer shows the report as soon as the supervisor answers, since the supervisor keeps the report before it answers, and the snapshot after it brings no second one.
-Spent draws each allowance used as its provider's mark, its name and a small bar of the percent used, with a red arrow where it stood when AFK turned off and a hollow red arrow where it stood when it turned on, the stretch used between them red on the bar, and credits as what was spent of them.
-With nothing used there is no Spent.
-Its one button at the bottom is Open Command Center while anything it held still waits on him, and Back to the board otherwise.
 An answer is named by its goblin, since the log keeps a question's id.
 Selecting a card or node opens the same goblin panel from either view: a header with the goblin, its plain status and icon actions, then a Terminal view and a Task view one tap apart on a pill at its top, Terminal first.
 The CFO's header carries the toggle of AFK mode beside its status, in the Task view and the Terminal view alike: a small switch labelled AFK, in the board's green while it is on.
-Turning it on asks first, in a question whose Cancel has the focus, and turning it off asks nothing; a refusal is shown under the header in the supervisor's words, and a switch that cannot be read shows off and says that a press on the toggle resets it.
+The turn-on question focuses Cancel, and a switch that cannot be read shows off with a tip saying that a press resets it.
+The [README](../README.md#afk-mode) describes the switch's loading and refusal displays.
 The header that carries it wraps, so on a panel at its narrowest the toggle drops under the status rather than cover it, and it is there at every width.
 While AFK mode is off and a report is kept, an icon button beside the toggle opens that report again.
 The header's status is the one place the panel says the task's state (`frontend/src/task-words.ts` translates what the fleet wrote, at display time, and changes no record).
@@ -368,9 +373,11 @@ Unreported child models remain unreported even when their owning task declares a
 Dragging a card or using Alt plus an arrow key changes only its saved browser position; connectors retain their reported parent identity.
 The tree fits and centers itself in the visible canvas, scaled up to fill it but never past 125% and down as far as 10%, so the whole of any tree shows, and refits whenever the panel opens or closes, the window resizes, a goblin appears or leaves, or a dragged card is dropped.
 The canvas moves and zooms like a map instead of scrolling: dragging it, from empty space, a line or a baby goblin, moves the view, and the wheel or a trackpad pinch zooms between 10% and 150% about the point under the pointer; the plus and minus buttons and keys zoom about the middle.
+Every line of the tree, from a goblin to a goblin under it and from a goblin to each of its baby goblins, starts at the middle of its parent's bottom and ends at the middle of its child's top, at every zoom, after a drag and after Arrange (`frontend/tests/tree-branches.spec.ts`).
 Moving or zooming the view stops the automatic fit until Fit, or the 0 key, restores it.
 A family of goblins with no cards under them wraps into the rows that show it largest in the canvas's shape: one row in a wide canvas, more in a tall, narrow one such as the canvas beside an open panel.
 Each row after the first is offset, by half a card where it can be, so its connectors drop clear of every line that runs down from a goblin above, its middle or a spine of its branches, and so never read as that goblin's; a connector to a later row drops straight from its parent behind the cards and branches between.
+A connector from a goblin whose baby goblins hang open leaves by their trunk and runs down beside them, so it never passes behind one of its own baby goblins.
 A goblin whose branches are wider than its card takes as many columns as they need, so no card or branch covers another.
 A goblin waiting on another sits in the row under the one it waits on, half a card over, and the dashed line between them runs straight down what the two cards share; a sibling with nothing under it gives up that place and takes the nearest free one, and a chain or a cycle of waits keeps its family places.
 Only a card the Overlord moves is saved, so the canvas keeps arranging every card he has not placed himself.
@@ -389,16 +396,30 @@ A Codex goblin's child agents come from their own rollouts, which name the threa
 A job is one process the harness started after its first two minutes, with everything under it, named by what it does: a test run or build by its command line, a dev server by the port it listens on, a browser, or other; each shows its private memory, and the goblin's card and panel show the memory of the harness and everything under it.
 Each child carries a state: working, waiting (an idle job, or a gate waiting on a decision), done, failed, or silent, a working child with no activity for ten minutes, the monitor's stall interval.
 Each also carries when its source last changed and when it was read.
-Each child is drawn as a baby goblin whose prop says its kind (a magnifying glass for a sub-agent, a laptop for a shell, binoculars for a monitor, glasses and a shield for the gate, an antenna for a dev server, goggles for a test run, a hard hat for a build, a tablet for a browser), and its tip names it.
+Each child is drawn as a baby goblin whose prop says its kind (a magnifying glass for a sub-agent, a laptop for a shell, binoculars for a monitor, glasses and a shield for the gate, an antenna for a dev server, goggles for a test run, a hard hat for a build, a tablet for a browser).
+Its tip, after the same two second rest as every tip, is its task: a sub-agent's prompt, a background shell's or monitor's command, what a job runs without its shell or its program's folder, a helper's task, or else what it does.
+A baby goblin is named after its goblin in the order its goblin's children started, Kip Jr., then Kip II, Kip III and on, with a short title for its own job, as goblins are called by name and title.
+The title is made from its own description as the one who does it, such as Board Starter for Start the board or Dictation Tester for Test dictation, and is its kind's own, such as Server Keeper or Process Wrangler, when the description starts with no such deed.
+A helper goblin keeps its own name.
 A [helper goblin](../AGENTS.md#helper-goblins) the supervisor started for a goblin is a child of that goblin's tree too, drawn with the sub-agent's head and named Helper goblin in its tip: its title, its own tree's memory, and where its own records say it stands, working or silent by its own activity, waiting while it is paused or asks its parent, done once it reported done and failed once it reported failure.
 A helper its parent's tree holds is not drawn again as a card of its own on the canvas or in the lineage list, as a held sub-agent is not; one no tree holds, such as a paused goblin's, keeps its card and hangs under its parent's card, the parent's session or, with none reported, its task, never under the CFO, and every helper's card on the board says whose helper it is.
-On the canvas a goblin's running children hang on branches under its card, each a baby goblin with what it does, its state and for how long, and its memory, idle ones dimmed, and the rows below make room.
-They hang in about as many columns as rows, up to four columns, each column on a spine with a twig to each child, so a big family grows down rather than across.
+On the canvas a goblin's running children hang on branches under its card, each a baby goblin with its name and title, its state and for how long in a plain chip, and its memory, and the rows below make room.
+None is dimmed, idle and silent ones included, since each can be opened, none shows a command line, and none is yellow: a silent one's chip and dot are as plain as an idle one's.
+They hang in about as many columns as rows, up to four columns, centred under the card, so a big family grows down rather than across.
+A trunk drops from the card to a bar, and from the bar a branch drops into the middle of the top of each baby goblin in the first row.
+A baby goblin lower down is reached by the spine beside its column, which turns into the gap above it and drops into the middle of its top.
 The chevron under the card folds them, with any cards under it, to their count, the same rounded rectangle as the baby goblins: a head and a number for each kind still running, how many work, are silent or idle, and their memory; pressing the count opens them again.
 A finished child is not drawn there, so a goblin whose children have all finished shows neither; its panel still lists them.
-At phone width the lineage list shows the count under the goblin's card, and pressing it opens each child on a rail.
+At phone width the lineage list shows the count under the goblin's card, and pressing it opens each child on a rail, which runs down beside them and turns into the middle of each one's top, as the rail of a goblin's goblins does into the middle of each card's top.
 The goblin's panel opens with What's working: its counts, then one row per running child with what it does, its state, for how long and its memory, a silent child's last line, the finished ones folded away, and when it was read.
-A goblin's card counts what runs under it and names the child that has gone silent longest with its last line.
+A goblin's card counts what runs under it, and pressing the count opens the Orchestration canvas with that goblin and its baby goblins in the middle.
+Baby goblins live on the canvas and in the lineage list, never as cards of their own on the board's columns.
+
+Pressing a baby goblin, on the canvas or on its rail, opens the same panel a goblin opens, with the baby goblin's name and its task on one line above its terminal.
+A sub-agent's terminal is its own record as its goblin's harness keeps it, Claude Code's transcript of the sub-agent or a Codex child agent's rollout, which the board reads again every two seconds while it shows and draws as Claude Code draws a conversation: the task after >, what the agent said and each tool it called after ●, and under a call the first line of what came back after ⎿.
+A sub-agent runs inside its goblin's harness and has no terminal of its own to type into, so this terminal only reads.
+`GET /api/tasks/<id>/agent?node=<child id>` answers its newest lines, only for a sub-agent the goblin's tree holds and from the record the supervisor's own read of that tree found, never a path the browser names.
+A helper goblin opens its own panel and terminal, since it is a goblin of its own, and any other baby goblin opens its goblin's terminal under the baby goblin's name and task.
 None of it wakes the CFO: the monitor's stale and idle rules read their progress evidence through the same reader, so a goblin counts as working while any child works, and the board and the wakes never disagree about it.
 A child without its own reported native transport explains that limitation without borrowing its owning task's terminal or model.
 Bounded accepted-message receipts produce a brief travelling connector pulse and receiving-card glow where exact caller native identity proves the reported parent.
@@ -565,16 +586,24 @@ Every terminal pane, native or Herdr, shows a voice bubble in its bottom-right c
 It is drawn like the board's dialogue boxes: a microphone in a stepped pixel frame, outlined in Bone while idle and in Moss while it records, and its first-visit hint and recent messages open in the same leather dialogue frame.
 That frame is at most 400 px wide and never wider than its terminal less 28 px, so in a panel dragged narrow it is whole; until 2 October 2026 it was sized by the window, and a narrow panel cut off its left side.
 Holding Ctrl+Shift+Space in a terminal, native or Herdr, dictates into it through the speech model the supervisor runs on this PC, in a browser tab and in the desktop window alike.
-At each press the board opens the microphone once and records that track with the browser's own recorder, and while the keys are held the bubble's bars are recent samples of that same capture's level, each a dot below the loudness of a voice, so silence and a room's hum show a flat dotted line; nothing runs while the bubble is idle.
-As the recording begins the page tells the supervisor, with `POST /api/dictation/warm`, so it loads the speech engine while the words are said; releasing any of the three keys decodes the recording to one channel at 16 kHz, posts it as a WAV to `POST /api/dictation` on the board's own address, and types the words the supervisor answers as one line through the terminal's paste, so nothing is sent until Enter; the page asks nothing else of anyone while it dictates.
+At each press the board opens the microphone once and records that track through the small audio worklet the board serves at `/assets/dictation-capture.js`, which hands the page its samples as they arrive, and while the keys are held the bubble's bars are recent samples of that same capture's level, each a dot below the loudness of a voice, so silence and a room's hum show a flat dotted line; nothing runs while the bubble is idle.
+As the recording begins the page tells the supervisor, with `POST /api/dictation/warm`, so it loads the speech engine while the words are said.
+A dictation of any length goes in pieces while the keys are held: a piece of four seconds or more is handed on once 0.3 s of quiet follows speech in it, and one that reaches twenty seconds with no such pause, as in a noisy room, is cut where it was quietest.
+Each piece goes as soon as it ends, in one channel at 16 kHz, as a WAV to `POST /api/dictation` on the board's own address, one at a time and in order, so its words are recognised while the Overlord is still speaking.
+Releasing any of the three keys sends what followed the last piece, and the words of every piece are typed together, in order, as one line through the terminal's paste, so nothing is sent until Enter, and the page asks nothing else of anyone while it dictates.
+Once anything loud was said, room noise after the last piece and a piece with nothing loud in it are not sent, because the model writes words of its own into a room's hiss, such as "It is a good idea."
+A dictation with nothing loud in it at all, as from a quiet microphone, is sent whole, as it is.
 A dictation typed right after another, with no key pressed in the terminal between them, starts with a space, so the two do not run together; the recent dictations keep the words alone.
 The microphone closes and the bubble goes idle at the release, without waiting for the words, and the next dictation can start while the words of the last are still on their way; the words of each are typed when recognition finishes.
 A native terminal's paste follows the program's own bracketed paste mode, and the Herdr view, whose screen is redrawn from frames, always sends a bracketed paste, as its clipboard paste does.
 Releasing the keys anywhere on the page, the window losing focus or the page being hidden also stops listening, so the microphone never stays open once the terminal loses the keys.
-A blocked or missing microphone or silence is explained in a note for six seconds, and so is whatever the supervisor refuses a dictation with, in the supervisor's own words: a machine with no memory to spare, a board reached from another machine.
+A blocked or missing microphone or silence is explained in a note for six seconds, and only those: a dictation with speech in it is never told as nothing heard.
+A piece whose words could not be had is asked for again half a second later and once more two seconds after that, with its sound kept, and when that does not help, the supervisor's words, such as a machine with no memory to spare or a board reached from another machine, go to the CFO through `POST /api/cfo/report` and nothing is shown on the board or typed, as every failure the board sees goes to the CFO.
+So does a dictation with speech in it that the engine answered no words for, and one whose words were not in within 120 seconds of the release.
 A blocked microphone is explained where it is allowed again: in a browser tab, the browser's site settings; in the desktop app, whose window grants the page every permission itself, Windows Settings > Privacy & security > Microphone, with Microphone access and Let desktop apps access your microphone turned on.
 The install sets the speech model up, so a dictation finds it ready; where it could not, the first dictation sets it up, and the note stays and follows it, asking the supervisor each second: how many of its megabytes have arrived, then that it is being checked and unpacked; it ends with "Dictation is ready: hold Ctrl+Shift+Space and speak.", or with why the set-up failed, which stays until the next dictation.
 The words of a dictation the set-up refused are not kept, and the note says to dictate again when it is ready.
+Such a refusal is shown at once and not asked again, since asking again would not set the model up sooner.
 While it listens the bubble's tip names the model, and the foot of its list says what heard the recent dictations.
 A browser with a speech recognition of its own offers **Use this browser's speech recognition instead** there, off until it is ticked and kept in that browser: Edge and Chrome recognise speech in their vendors' online services, so with it the audio leaves the machine while the keys are held, and the tip and the list say that this is what listens. The desktop window has no such recognition and offers no choice.
 Clicking the bubble lists the pane's five most recent dictations, newest first, for that pane's goblin or the CFO, kept in this browser only, ten each for the twenty used last, so a relaunched goblin keeps its own; the board reads no other dictation app.
@@ -597,9 +626,11 @@ Offline, the answer names the address to download and the file to save it as in 
 The page's warming, or else the first dictation, starts the engine in a process of its own, a hidden `cfo voice-worker` that loads sherpa-onnx's library and the model once, and the next dictations go to it while it is loaded, one at a time, through a pipe: the sound is never written to a file, and the worker gets none of the fleet's environment beyond what Windows needs to start it.
 Loading starts as the keys are pressed, so it is done before they are let go, and the engine stays loaded between dictations, holding about 140 MB.
 The worker asks Windows for the scheduling `cfo serve` asks for: a board started at login runs hidden, and Windows otherwise throttles the hidden worker, which then took 4 to 5 s to answer.
-On this PC, with the fleet busy, the words of a five-second line are in the terminal 0.3 to 0.7 s after the keys are let go, the first press after the board starts and one after a pause included: about 0.1 to 0.3 s for the page to decode the recording, then about 0.1 s for the engine.
-The page decodes the recorder's Opus at its own 48 kHz and averages it down to the model's 16 kHz, because decoding straight to 16 kHz made the browser resample it with a filter that took 1 to 3 s while the fleet kept the processor busy.
-It then ends the sound half a second after its last loud part, cutting a longer quiet end and making up a shorter one with silence: Moonshine writes until it hears the end of the line, so a sound cut mid-word ran on, repeating itself, and a long quiet end could make it answer nothing.
+The engine hears a sound in pieces of at most eight seconds, because Moonshine tiny answers no words at all for a sound of 9.3 s or more, which made every long dictation "Nothing was heard." until 8 October 2026.
+A longer sound is cut at its quietest places, a piece with nothing loud in it is left out when the sound has speech elsewhere, and the words of the pieces are joined in order.
+Each piece ends half a second after its last loud part, cutting a longer quiet end and making up a shorter one with silence: Moonshine writes until it hears the end of the line, so a sound cut mid-word ran on, repeating itself, and a long quiet end could make it answer nothing.
+The page records at the microphone's own rate, usually 48 kHz, and averages each piece down to the model's 16 kHz.
+On this PC, with the fleet busy, the words of a dictation of any length, from a five-second line to three minutes, are in the terminal 0.1 to 1.5 s after the keys are let go, since only what followed the last piece is still to be heard, and the engine holds about 155 MB at every length.
 It is ended after 30 minutes without a dictation, when it breaks or a dictation is abandoned, when there is no room for it, and when the supervisor stops, and the next dictation loads it again; a fault in the engine ends that process, never the board.
 It needs 1 GB of free memory and of free commit and says so when the machine has less, which is far under the fleet's 4 GB floor on purpose: dictation is how the Overlord types, and it must not refuse because the fleet is busy.
 `cfo doctor` says dictation is ready, naming the model, its version and the engine, or names what is missing, how many megabytes, and the fix, `cfo dictation setup`.
@@ -845,7 +876,7 @@ For a window that `goblins` started or that located its board when started alone
 The install writes the window alone only where it put the window in the home itself, from a release that ships it or, with `-Dev`, from the build it just made; where the home only kept a window it already held, the install writes that home's `goblins.exe --window --background`, which opens any window.
 An install that retained the home's window keeps the earlier standalone window, its picture, folder and Start-menu entry unchanged.
 A value an earlier window wrote, which ran the `goblins.exe` beside it with `--window --background` in a terminal at every sign-in, is rewritten to this one the next time `goblins` starts the window, so the tray shows **Start at login** as on and clearing it once removes the value.
-The board's dictation works in it as in a browser tab, because the page records with the browser engine's own recorder and the supervisor recognises the sound; WebView2's speech recognition, which has no service behind it, is not used.
+The board's dictation works in it as in a browser tab, because the page records through the browser engine's own audio worklet and the supervisor recognises the sound; WebView2's speech recognition, which has no service behind it, is not used.
 
 ### Restarts
 
@@ -1347,7 +1378,7 @@ The log's file and each held goblin's status log are read for a snapshot only wh
 `GET /api/afk/report` is that report as the board's page reads it: `{"found": false}` while no stretch has ended, and otherwise who turned it on and off (`from` and `ended_from`, with his words in `asked` and `ended_asked` for a switch the CFO made), its decisions under the headings `cfo afk report` prints, what each goblin finished, what was held with what became of each item as it stands now, how long it lasted and what was spent, with every list present.
 `spent` holds each allowance used: `provider` and `window`, the percent used when it turned on and when it turned off as `on` and `off`, each absent for a reading not taken, and `reset` when the window reset in between, or for a credit balance `credits` with what was `spent` of it in `unit`.
 A window at 0% wherever it was read is left out, and so is a credit balance not read at both ends or that did not fall, in the page and in the text alike.
-The page and the text list what waited on him first, then what the CFO left for him under Left for you, then the rest it decided.
+The board's filtering and presentation are documented in [the README](../README.md#afk-mode).
 
 `cfo afk log`, `cfo pr merge` and `cfo answer` send a decision as `afk-log`, which the supervisor writes only for a process it proves runs under the registered CFO, the proof a question takes, and only while AFK mode is on.
 A decision names its kind (`left`, `merge`, `deploy`, `migration`, `install`, `answer` or `other`), what was decided and the evidence it stands on; one without evidence is refused.
@@ -1379,8 +1410,8 @@ His `cfo afk on` is refused until the switch reads again, since it would guess a
 
 The report is built from the stretch's lines of the log, the `done: PR <url>` lines every status log and archived status log holds from that stretch, each held item with what became of it on the board and its goblin's latest report since, and the allowance read when it turned on beside the one read when it turned off.
 A held question the log holds an answer decision for is a decision, so the report and `cfo afk status` list it there and not as held.
-Only the log says so: a held question the board closed as the CFO's with no decision logged stays in the report as held, not waiting, and says no decision was logged for it.
-A held question the CFO answered after the stretch ended, under the standing rules where nothing is logged, reads `answered by the CFO after AFK mode ended` when the report is read again; an answer with no time recorded, or one at or before the end, keeps the word that no decision was logged.
+Only the log says so: a held question the board closed as the CFO's with no decision logged stays in the report's `held` data, not waiting, and says no decision was logged for it.
+In the report data, a held question the CFO answered after the stretch ended, under the standing rules where nothing is logged, says `answered by the CFO after AFK mode ended` when read again; an answer with no time recorded, or one at or before the end, keeps the word that no decision was logged.
 What could not be read, a log line or an allowance, is named in the report rather than left out.
 
 ## Nonblocking presentation notices

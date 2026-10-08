@@ -1,4 +1,4 @@
-import { existsSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { test as base, type BrowserContext, type Page } from "@playwright/test";
@@ -22,6 +22,17 @@ export const ORIGIN = "http://127.0.0.1:1";
 export async function servePages(context: BrowserContext, origin = ORIGIN, hadTour = true): Promise<void> {
   const site = process.env.BOARD_TEST_SITE!;
   if (hadTour) await context.addInitScript(() => localStorage.setItem("cfo-tour", "seen"));
+  // Chromium fetches an audio worklet's module past these routes, so the
+  // capture worklet dictation records through, which the board serves from
+  // its own address, is handed to the page from the build as a blob.
+  await context.addInitScript((source) => {
+    if (typeof AudioWorklet === "undefined") return;
+    const add = AudioWorklet.prototype.addModule;
+    AudioWorklet.prototype.addModule = function (url, options) {
+      const own = new URL(String(url), location.href).pathname === "/assets/dictation-capture.js";
+      return add.call(this, own ? URL.createObjectURL(new Blob([source], { type: "text/javascript" })) : url, options);
+    };
+  }, readFileSync(path.join(site, "assets", "dictation-capture.js"), "utf8"));
   await context.route(origin + "/**", (route) => {
     const { pathname } = new URL(route.request().url());
     const file = path.join(site, pathname === "/" ? "index.html" : decodeURIComponent(pathname));

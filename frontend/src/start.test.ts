@@ -34,6 +34,18 @@ test("with memory free the meter names what the supervisor started or resumed, o
   assert.deepEqual(failed?.waiting, [{ id: "next-task", why: "its last start failed: refused" }]);
 });
 
+// The Overlord, 2026-10-08: "below memory disk remove the text please not
+// needed". With nothing waiting the supervisor says nothing, and so does the
+// meter: no line under its bar, and its words for a screen reader end whole.
+test("with nothing waiting the meter says nothing under its bar", () => {
+  // Arrange
+  const idle = parseSnapshot({ healthy: true, scheduling: { at: "2026-10-08T12:00:00Z", text: "" } }).scheduling;
+
+  // Act and assert
+  assert.equal(scheduleLine(memory(8), idle), "");
+  assert.deepEqual(meterState(memory(8), idle), { tone: "ready", text: "Enough memory for the next task" });
+});
+
 test("the memory bar spans twice the start mark, so the floor and start marks sit apart and a full bar means the next task starts", () => {
   assert.deepEqual(meterScale(memory(4.5)), { fill: 45, floor: 40, next: 50 }, "the 4 GB floor and 5 GB next mark span a 10 GB bar");
   assert.deepEqual(meterScale(memory(20)), { fill: 100, floor: 40, next: 50 }, "memory well past the mark fills the bar");

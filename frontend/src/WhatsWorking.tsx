@@ -10,7 +10,7 @@ function WorkingRow({ node, now }: { node: TreeNode; now: number }) {
   const phase = phaseOf(node);
   const said = node.state === "silent" || node.state === "failed" ? node.last_line : "";
   return <li className={"working-row" + (isDimmed(node) ? " dim" : "")} data-state={node.state}>
-    <BabyGoblin baby={babyFor(node)} silent={node.state === "silent"} />
+    <BabyGoblin baby={babyFor(node)} />
     <span className="working-what"><strong>{node.label}</strong>
       {said ? <code className="working-last-line">{said}</code> : node.detail && <small>{node.detail}</small>}</span>
     <span className="working-meta">

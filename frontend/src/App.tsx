@@ -3,9 +3,9 @@ import { useRuntimeStream } from "./stream";
 import { useItemState } from "./use-item-state";
 import { useTaskClicks } from "./use-task-clicks";
 import { withClicks } from "./task-clicks";
-import { Lineage, type Selection } from "./Lineage";
+import { childSelection, Lineage, type Selection } from "./Lineage";
 import { Board, type BoardLayout } from "./Board";
-import { Orchestration } from "./Orchestration";
+import { Orchestration, type CanvasFocus } from "./Orchestration";
 import { CommandCenter, type CommandFocus } from "./CommandCenter";
 import { ComebackBanner } from "./ComebackBanner";
 import { useActivity } from "./useActivity";
@@ -83,6 +83,8 @@ export function App() {
   const clicks = useTaskClicks();
   const snapshot = useMemo(() => held && withClicks(held, clicks), [held, clicks]);
   const [view, setView] = useState<"Board" | "Orchestration">("Board");
+  // The goblin a card's count asked the canvas to show.
+  const [canvasFocus, setCanvasFocus] = useState<CanvasFocus>();
   const [boardLayout, setBoardLayout] = useState<BoardLayout>(() => stored(BOARD_LAYOUT_KEY) === "stacked" ? "stacked" : "kanban");
   const nextLayout: BoardLayout = boardLayout === "kanban" ? "stacked" : "kanban";
   // A panel opens on its terminal, in either view.
@@ -145,6 +147,8 @@ export function App() {
     || snapshot?.tasks.find((task) => task.id === "finished:" + selectedTaskID);
   const selectedSession = task?.archived && (!node || node.role === "goblin") ? undefined
     : node || (task && snapshot?.sessions.find((session) => ownsTaskSession(session, task)));
+  // A baby goblin opened from its goblin's family tree.
+  const child = selected?.child ? task?.tree?.children.find((each) => each.id === selected.child) : undefined;
   const reviews = useReview(task, snapshot);
   const [now,setNow]=useState(Date.now);
   useEffect(()=>{const timer=setInterval(()=>setNow(Date.now()),1000);return()=>clearInterval(timer);},[]);
@@ -234,7 +238,8 @@ export function App() {
   const cfoShown = !selected && (view === "Orchestration" || cfoOpen);
   const showsPanel = !!snapshot && paneOpen && (view === "Orchestration" || !!task || cfoOpen);
   // A queued task has no terminal yet, so its panel shows its Task view.
-  const shownView: PanelView = panelViews(selected ? task : undefined, selected ? selectedSession : undefined).includes(panelView) ? panelView : "task";
+  // A baby goblin's panel is its terminal alone.
+  const shownView: PanelView = child ? "terminal" : panelViews(selected ? task : undefined, selected ? selectedSession : undefined).includes(panelView) ? panelView : "task";
   const terminalShown = showsPanel && shownView === "terminal";
   if (terminalShown && !terminalOpened) setTerminalOpened(true);
   if (showsPanel && cfoShown && cfoPanelView !== shownView) setCfoPanelView(shownView);
@@ -265,7 +270,7 @@ export function App() {
   const layout: CSSProperties | undefined = panelWide ? { gridTemplateColumns: "minmax(0, 1fr)" } : paneOpen && paneSize && !compact ? { gridTemplateColumns: `minmax(0, 1fr) 10px ${paneTrack(paneSize)}` } : undefined;
   // Open in terminal shows the terminal in a Windows Terminal window of its
   // own, beside the board; a refusal says so under the button for a moment.
-  const shownWindow = snapshot && terminalShown ? windowTarget(snapshot, cfoShown, selected ? task : undefined) : null;
+  const shownWindow = snapshot && terminalShown && !child ? windowTarget(snapshot, cfoShown, selected ? task : undefined) : null;
   const shownKey = JSON.stringify(shownWindow);
   const openWindow = async () => {
     if (!snapshot || !shownWindow) return;
@@ -326,22 +331,25 @@ export function App() {
     </main> : <div ref={workspace} className={"workspace" + (paneOpen ? " with-pane" : "") + (view === "Board" && boardLayout === "kanban" ? " kanban" : "") + (resizing && divided ? " resizing" : "")} style={layout}>
       <main ref={canvas} className="canvas-region" aria-label={view} hidden={panelWide}>
         {!snapshot || !cardStart ? <div className="empty-state" role="status"><h2>Connecting to the supervisor</h2><p>Loading tasks and native sessions.</p></div>
-          : view === "Board" ? <Board presentations={presentations} snapshot={snapshot} layout={boardLayout} selected={task?.id} now={now} onSelect={(task, source) => select({ task: task.id }, source)} onTerminal={(task, source) => select({ task: task.id }, source, "terminal")} onOpenCfo={(source) => { returnFocus.current = source; switchTo(CFO_KEY); }} onOpenCommand={() => setCommandFocus({ key: "", at: Date.now() })} onStartCfo={() => setFirstRunChoice("")} cardStart={cardStart} />
-            : compact ? <Lineage presentations={presentations} effects={effects} snapshot={snapshot} now={now} project="" selected={selectedSession ? { session: selectedSession.id } : selected} onSelect={select} />
-              : <Orchestration presentations={presentations} effects={effects} snapshot={snapshot} now={now} connected={connected} selected={selectedSession ? "session:" + selectedSession.id : selected?.task ? "task:" + selected.task : ""}
-                onSelect={(node, source) => select(node.session ? { session: node.session.id } : node.task ? { task: node.task.id } : {}, source)} />}
+          : view === "Board" ? <Board presentations={presentations} snapshot={snapshot} layout={boardLayout} selected={task?.id} now={now} onSelect={(task, source) => select({ task: task.id }, source)} onTerminal={(task, source) => select({ task: task.id }, source, "terminal")} onOpenCfo={(source) => { returnFocus.current = source; switchTo(CFO_KEY); }} onOpenCommand={() => setCommandFocus({ key: "", at: Date.now() })} onStartCfo={() => setFirstRunChoice("")} cardStart={cardStart}
+            onCount={(task) => { setView("Orchestration"); setPanelView("terminal"); setCanvasFocus({ task: task.id, at: Date.now() }); }} />
+            : compact ? <Lineage presentations={presentations} effects={effects} snapshot={snapshot} now={now} project="" selected={!child && selectedSession ? { session: selectedSession.id } : selected} onSelect={select} />
+              : <Orchestration presentations={presentations} effects={effects} snapshot={snapshot} now={now} connected={connected} focus={canvasFocus}
+                selected={child ? "child:" + child.id : selectedSession ? "session:" + selectedSession.id : selected?.task ? "task:" + selected.task : ""}
+                onSelect={(node, source) => select(node.session ? { session: node.session.id } : node.task ? { task: node.task.id } : {}, source)}
+                onChild={(task, baby, source) => select(childSelection(task, baby), source)} />}
       </main>
       {divided && <PaneDivider workspace={workspace} pane={pane} width={paneSize} onWidth={setPaneSize} onResizing={setResizing} onDone={(width) => store(PANE_WIDTH_KEY, String(width))} />}
       <aside ref={pane} className="context-pane" hidden={!paneOpen} tabIndex={-1} aria-label={view === "Board" ? "Task review" : "Goblin panel"}>
         {snapshot && cardStart && paneOpen && (!showsPanel
           ? <><PanelRow {...row} />
             <section className="review-placeholder"><Avatar persona="reviewer" /><h2>Review the work</h2><p>Select a task to see what it is doing and what changed.</p></section></>
-          : <GoblinPanel key={selectionEpoch + ":" + (selectedSession?.id || task?.id || "cfo") + ":" + (task?.generation || "")}
-            task={selected ? task : undefined} node={selected ? selectedSession : undefined} snapshot={snapshot} connected={connected} reviews={reviews}
+          : <GoblinPanel key={selectionEpoch + ":" + (selectedSession?.id || task?.id || "cfo") + ":" + (task?.generation || "") + ":" + (child?.id || "")}
+            task={selected ? task : undefined} node={selected ? selectedSession : undefined} child={child} snapshot={snapshot} connected={connected} reviews={reviews}
             view={shownView} now={now} presentations={presentations} cardStart={cardStart} onView={setPanelView} row={row} onAnswer={(key) => setCommandFocus({ key, at: Date.now() })}
             onOpenTask={(next) => select({ task: next.id }, pane.current || document.body)} />)}
         {snapshot && terminalOpened && <Suspense fallback={terminalShown ? <div className="terminal-deck"><div className="deck-stage"><div className="terminal-cover" role="status"><span className="terminal-spinner" aria-hidden="true" /><p>Connecting to the terminal</p></div></div></div> : null}>
-          <TerminalDeck snapshot={snapshot} task={selected ? task : undefined} node={selected ? selectedSession : undefined} cfo={cfoShown} shown={terminalShown} connected={connected} focus={switchFocus}
+          <TerminalDeck snapshot={snapshot} task={selected ? task : undefined} node={selected ? selectedSession : undefined} child={child} cfo={cfoShown} shown={terminalShown} connected={connected} focus={switchFocus}
             onOwner={task && snapshot.sessions.some((session) => ownsTaskSession(session, task)) ? () => { setSelected({ task: task.id }); setSelectionEpoch((epoch) => epoch + 1); } : undefined} />
         </Suspense>}
       </aside>
