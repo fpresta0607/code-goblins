@@ -13,6 +13,7 @@ Thanks for wanting to contribute to code-goblins.
 ## Checks
 
 A source build runs `npm ci` and `npm run build` in `frontend` before `go build`: `cfo.exe` embeds the board they build, and one built without it serves a page saying the board was not built.
+See [Development](README.md#development) for the requirements before installing a source build.
 `go vet` and `go test` need Go alone.
 The build lands in `internal/boardweb/dist/board`, which git ignores: a board change commits its source, never its build.
 

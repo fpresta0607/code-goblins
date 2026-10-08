@@ -3,6 +3,8 @@ package main
 import (
 	"bytes"
 	"encoding/json"
+	"io/fs"
+	"maps"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -68,6 +70,62 @@ func legacyMachine(t *testing.T) (string, string) {
 }
 
 var planLine = regexp.MustCompile(`(?m)^plan: ([0-9a-f]{64})`)
+
+func TestHomeMoveApplyRefusesABuildWithoutItsBoard(t *testing.T) {
+	from, _ := legacyMachine(t)
+	previousBoardBuilt := boardBuilt
+	boardBuilt = func() bool { return false }
+	t.Cleanup(func() { boardBuilt = previousBoardBuilt })
+	digest := moveDryRun(t)
+
+	type entrySnapshot struct {
+		isDirectory bool
+		content     string
+	}
+	snapshot := func() map[string]entrySnapshot {
+		entries := map[string]entrySnapshot{}
+		machine := filepath.Dir(from)
+		err := filepath.WalkDir(machine, func(path string, entry fs.DirEntry, err error) error {
+			if err != nil {
+				return err
+			}
+			relative, err := filepath.Rel(machine, path)
+			if err != nil {
+				return err
+			}
+			if entry.IsDir() {
+				entries[relative] = entrySnapshot{isDirectory: true}
+				return nil
+			}
+			content, err := os.ReadFile(path)
+			if err != nil {
+				return err
+			}
+			entries[relative] = entrySnapshot{content: string(content)}
+			return nil
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		return entries
+	}
+	before := snapshot()
+
+	var stdout, stderr bytes.Buffer
+	code := runHomeMove([]string{"--apply", "--plan", digest}, &stdout, &stderr)
+
+	if code != 1 {
+		t.Fatalf("home move from a build without its board exited %d, want 1:\n%s%s", code, stdout.String(), stderr.String())
+	}
+	for _, want := range []string{"carries no board", "npm ci", "npm run build", ", and run its home move; nothing was changed"} {
+		if !strings.Contains(stderr.String(), want) {
+			t.Errorf("the refusal does not say %q:\n%s", want, stderr.String())
+		}
+	}
+	if !maps.Equal(before, snapshot()) {
+		t.Error("the refused home move changed the source home, target home, or user configuration")
+	}
+}
 
 // moveDryRun runs cfo home move without --apply and returns its plan's digest.
 func moveDryRun(t *testing.T) string {

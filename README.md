@@ -882,6 +882,7 @@ To update a running home to the newest release, run `goblins update` in a termin
 The update is yours alone: it refuses to run under the CFO, a goblin or any agent.
 
 To install a newer build into a running home, run the candidate build itself with `update`: it swaps both `cfo.exe` and `goblins.exe` where the home keeps them, restarts only the supervisor, and puts the previous build back if the new one does not serve; that folder keeps the two builds before the current one and no more.
+The candidate must meet the [source-build requirements](#development).
 The home keeps them in its `bin`, or, where a build before `bin` set it up, such as a checkout an older build made the home, at its root, where they are updated until an install lays the home out with `bin`.
 The journal of an earlier update that finished is history, whatever home it names; only an unfinished one, whose copies are its way back, stops an update.
 A `goblins-window.exe` beside the candidate follows it into the home beside `goblins.exe` once the candidate serves; an open window keeps running the previous one until you quit it from its tray icon, and a window that could not be replaced leaves the update done and is named.
@@ -956,6 +957,7 @@ If the drive is ever missing after a restart, an **Attach** item comes to the Co
 A step that failed shows its output on its item, and **Try again** on the panel brings it back.
 
 A home that an older build set up in a code-goblins checkout moves with `cfo home move`: its dry run lists every file it would move with its SHA-256, the counts before and after and a digest proving nothing is dropped, and `cfo home move --apply --plan <digest>`, at a quiet point with the supervisor stopped, moves it by rename, so it needs no room for a second copy, reads it all back, and installs the build into the new home.
+The build applying the move must meet the [source-build requirements](#development).
 [AGENTS.md](AGENTS.md#the-cfo-home) describes each file in full.
 
 ## Safety model
@@ -1014,6 +1016,10 @@ Code Goblins is becoming a native Windows desktop app.
 ## Development
 
 A source build runs `npm ci` and `npm run build` in `frontend` before `go build`: `cfo.exe` embeds the board they build, and one built without it serves a page saying the board was not built.
+`<candidate.exe> update`, `cfo install` without `--uninstall`, and `cfo home move --apply --plan <digest>` refuse a build that carries no board before changing anything, and exit 1.
+The refusal names `npm ci` and `npm run build` in `frontend`, followed by rebuilding `cfo.exe`, and says `nothing was changed`.
+There is no bypass.
+Plan-only `cfo home move`, `cfo install --uninstall` and `cfo update --recover` remain available without a board; an update run by the installed build still follows the release-update path.
 `go vet` and `go test` need Go alone.
 
 ```powershell
