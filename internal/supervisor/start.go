@@ -76,7 +76,6 @@ type Memory struct {
 	Floor           uint64         `json:"floor"`
 	Next            uint64         `json:"next"`
 	Holders         []CommitHolder `json:"holders,omitempty"`
-	Capacity        *FleetCapacity `json:"capacity,omitempty"`
 }
 
 // shortfall says how much of memory, of commit or of both is free when it is

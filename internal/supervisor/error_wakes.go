@@ -19,8 +19,11 @@ const (
 // wakeForNewErrors tells the CFO, as one check wake keyed supervisor, each
 // line of err it was not told of within errorRemembered. The board is no
 // place for them: on 2026-10-07 a failure the page sweep met every ten
-// minutes filled it with a box the Overlord could do nothing about.
-func (s *Service) wakeForNewErrors(err error, now time.Time) error {
+// minutes filled it with a box the Overlord could do nothing about. A wake
+// the queue does not take keeps its lines for the next publish to tell, and
+// its own failure stays off the board: the queue lives in the state folder,
+// whose lasting failure the store's own storage failure reports.
+func (s *Service) wakeForNewErrors(err error, now time.Time) {
 	s.mu.Lock()
 	if s.errorLines == nil {
 		s.errorLines = map[string]time.Time{}
@@ -44,7 +47,7 @@ func (s *Service) wakeForNewErrors(err error, now time.Time) error {
 	untold := s.errorsUntold
 	if len(untold) == 0 || now.Sub(s.errorsWoke) < errorWakeGap {
 		s.mu.Unlock()
-		return nil
+		return
 	}
 	s.errorsUntold, s.errorsWoke = nil, now
 	s.mu.Unlock()
@@ -52,7 +55,5 @@ func (s *Service) wakeForNewErrors(err error, now time.Time) error {
 		s.mu.Lock()
 		s.errorsUntold, s.errorsWoke = append(untold, s.errorsUntold...), time.Time{}
 		s.mu.Unlock()
-		return err
 	}
-	return nil
 }

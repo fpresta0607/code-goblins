@@ -74,40 +74,6 @@ func TestSchedulerStartsTheNextTaskWithEightGoblinsLiveAndNineGBFree(t *testing.
 	}
 }
 
-func TestFleetCapacityGoesByMemoryAlone(t *testing.T) {
-	for _, testCase := range []struct {
-		name              string
-		live              int
-		available, commit uint64
-		wantLimit         int
-		wantSlots         int
-	}{
-		{name: "memory constrains", available: 6 * gigabyte, commit: 20 * gigabyte, wantLimit: 2, wantSlots: 2},
-		{name: "commit constrains", available: 20 * gigabyte, commit: 5 * gigabyte, wantLimit: 1, wantSlots: 1},
-		{name: "the floor reserves gates", available: 4 * gigabyte, commit: 20 * gigabyte},
-		{name: "just under the next-start mark", available: 5*gigabyte - 1, commit: 20 * gigabyte},
-		{name: "eight live at 9 GB free", live: 8, available: 9 * gigabyte, commit: 40 * gigabyte, wantLimit: 13, wantSlots: 5},
-		{name: "twenty live at 30 GB free", live: 20, available: 30 * gigabyte, commit: 40 * gigabyte, wantLimit: 46, wantSlots: 26},
-	} {
-		t.Run(testCase.name, func(t *testing.T) {
-			// Arrange
-			_, h := fleetService(t)
-			liveGoblins(t, h, testCase.live)
-
-			// Act
-			capacity, err := ReadFleetCapacity(h, Memory{Available: testCase.available, CommitAvailable: testCase.commit})
-
-			// Assert
-			if err != nil {
-				t.Fatal(err)
-			}
-			if want := (FleetCapacity{Live: testCase.live, Limit: testCase.wantLimit, Slots: testCase.wantSlots}); capacity != want {
-				t.Fatalf("capacity=%+v, want %+v", capacity, want)
-			}
-		})
-	}
-}
-
 func TestSchedulerDoesNotResumeIntoAnotherAllowancePause(t *testing.T) {
 	spawner := &spawnRecorder{}
 	handler, h := startBoard(t, 8*gigabyte, spawner)

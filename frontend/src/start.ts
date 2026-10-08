@@ -1,4 +1,4 @@
-import type { Disk, FleetCapacity, Memory, PauseCondition, Scheduling, Snapshot, Task } from "./types";
+import type { Disk, Memory, PauseCondition, Scheduling, Snapshot, Task } from "./types";
 import { queuedTasks } from "./workflow.ts";
 import { pausedWithParent } from "./task-words.ts";
 
@@ -147,12 +147,6 @@ export function startOutcome(accepted: AcceptedStart, snapshot: Snapshot): "open
 // The chip on the top queued task, the one the CFO starts next.
 export function nextChip(memory: Memory | null): string {
   return memory && memoryBlock(memory) ? `Next at ${gigabytes(memory.next)} GB` : "Next up";
-}
-
-// The goblins live under the memory meter, against how many free memory and
-// commit carry.
-export function capacityLine(capacity: FleetCapacity): string {
-  return `${capacity.live} of ${capacity.limit}`;
 }
 
 export interface NextUp { id: string; text: string; tone: "" | "waiting" | "defect" }

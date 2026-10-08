@@ -2,6 +2,7 @@ package supervisor
 
 import (
 	"errors"
+	"os"
 	"strings"
 	"testing"
 	"time"
@@ -51,12 +52,9 @@ func TestASupervisorErrorWakesTheCFOOnceWhenItIsNew(t *testing.T) {
 		before := len(supervisorErrorWakes(t, s))
 
 		// Act
-		err := s.wakeForNewErrors(reading.err, now.Add(reading.after))
+		s.wakeForNewErrors(reading.err, now.Add(reading.after))
 
 		// Assert
-		if err != nil {
-			t.Fatal(err)
-		}
 		raised := supervisorErrorWakes(t, s)[before:]
 		if len(raised) != min(1, len(reading.want)) {
 			t.Fatalf("at %s: wakes %q, want %q", reading.after, raised, reading.want)
@@ -69,6 +67,32 @@ func TestASupervisorErrorWakesTheCFOOnceWhenItIsNew(t *testing.T) {
 		if reading.after == 11*time.Minute && strings.Contains(raised[0], "priority.html") {
 			t.Fatalf("a line already woken for woke again: %q", raised[0])
 		}
+	}
+}
+
+// A wake the queue does not take, as while the state folder fails, keeps its
+// lines for the next publish, and its own failure never reaches the board,
+// where it would pass the storage grace by (CI on PR 464, 2026-10-08).
+func TestAnErrorWakeTheQueueRefusesIsToldAtTheNextPublish(t *testing.T) {
+	// Arrange
+	store, _ := failingStore(t)
+	s := &Service{Store: store}
+	now := time.Date(2026, 10, 8, 1, 0, 0, 0, time.UTC)
+
+	// Act
+	s.publish(errors.New("run pipe closed"))
+	refused := s.lastError
+	if err := os.MkdirAll(store.Home.State, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	s.wakeForNewErrors(nil, now)
+
+	// Assert
+	if refused != "run pipe closed" {
+		t.Errorf("the board shows %q, want only the published error", refused)
+	}
+	if wakes := supervisorErrorWakes(t, s); len(wakes) != 1 || !strings.Contains(wakes[0], "run pipe closed") {
+		t.Fatalf("wakes = %q, want the refused line told once the queue takes it", wakes)
 	}
 }
 

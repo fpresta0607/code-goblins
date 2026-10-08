@@ -1,7 +1,7 @@
 import type { Disk, Memory, Scheduling } from "./types";
 import { DiskMeter } from "./DiskMeter";
 import { Icon } from "./Icon";
-import { capacityLine, freeGigabytes, holdersLine, meterScale, meterState, poolWarning, scheduleLine, tighter } from "./start";
+import { freeGigabytes, holdersLine, meterScale, meterState, poolWarning, scheduleLine, tighter } from "./start";
 
 // Free memory at the head of Tasks, on a bar marked with the floor under
 // which nothing starts and the mark at which the next task starts (see
@@ -13,12 +13,11 @@ import { capacityLine, freeGigabytes, holdersLine, meterScale, meterState, poolW
 // so that neither leaves the box. While commit (memory plus
 // page file) is the tighter of the two, the meter shows commit instead and
 // names the apps holding the most of it; a leaking paged pool gets a line of
-// its own. Under it, the goblins live against how many memory carries. Free
-// disk, when the snapshot has it, is the second meter in the same box, under
-// memory.
+// its own. Free disk, when the snapshot has it, is the second meter in the
+// same box, under memory.
 export function MemoryMeter({ memory, scheduling = null, disk = null }: { memory: Memory; scheduling?: Scheduling | null; disk?: Disk | null }) {
   const state = meterState(memory, scheduling), scale = meterScale(memory), shown = tighter(memory), scheduled = scheduleLine(memory, scheduling);
-  const holders = holdersLine(memory), warning = poolWarning(memory), capacity = memory.capacity && capacityLine(memory.capacity);
+  const holders = holdersLine(memory), warning = poolWarning(memory);
   return <div className="memory" role="group" aria-label="Memory">
     <div className="memory-line"><span>{shown.isCommit ? "Commit free (memory plus page file)" : "Memory free"}</span><strong>{freeGigabytes(shown.free)} GB</strong></div>
     <div className="memory-bar" aria-hidden="true">
@@ -34,7 +33,6 @@ export function MemoryMeter({ memory, scheduling = null, disk = null }: { memory
     {scheduled && <p className="memory-schedule" aria-hidden="true">{scheduled}</p>}
     {holders && <p className="memory-holders">{holders}</p>}
     {warning && <p className="memory-warning"><Icon name="warning" />{warning}</p>}
-    {capacity && <div className="memory-line memory-capacity"><span>Goblins live</span><strong>{capacity}</strong></div>}
     <p className="sr-only">{state.text}</p>
     {disk && <DiskMeter disk={disk} />}
   </div>;

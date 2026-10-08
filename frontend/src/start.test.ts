@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { capacityLine, diskBlock, diskScale, diskState, freeGigabytes, holdersLine, memoryBlock, meterScale, meterState, nextChip, nextInOrder, poolWarning, queueBlock, refusalStands, scheduleLine, startBlock, startOutcome, tighter } from "./start.ts";
+import { diskBlock, diskScale, diskState, freeGigabytes, holdersLine, memoryBlock, meterScale, meterState, nextChip, nextInOrder, poolWarning, queueBlock, refusalStands, scheduleLine, startBlock, startOutcome, tighter } from "./start.ts";
 import { nodeStatus } from "./workflow.ts";
 import { parseSnapshot, type Disk, type Memory, type Snapshot, type Task } from "./types.ts";
 
@@ -177,26 +177,14 @@ test("a passing refusal lapses once a newer snapshot shows Start no longer block
   }
 });
 
-// carrying is a machine with available GB free and goblins live, carrying one
-// more goblin for each gigabyte over the 4 GB floor, as the supervisor counts.
-const carrying = (available: number, goblins: number): Memory => {
-  const slots = Math.max(0, Math.floor(available - 4));
-  return { ...memory(available), capacity: { live: goblins, limit: goblins + slots, slots } };
-};
-
-test("the line under the meter says how many goblins are live against how many memory carries", () => {
-  assert.equal(capacityLine(carrying(9, 8).capacity!), "8 of 13");
-  assert.equal(capacityLine(carrying(4.5, 3).capacity!), "3 of 3");
-});
-
 // On 2026-10-07 the board refused a Start with "No free slot: 8 of 8 goblins
 // live" while 9 GB was free. Memory alone says whether a Start can run.
-test("a Start goes by memory alone, however many goblins are live", () => {
+test("a Start goes by memory alone", () => {
   // Arrange
   const cases: [string, Memory | null, string][] = [
-    ["eight live at 9 GB free", carrying(9, 8), ""],
-    ["twenty live at 30 GB free", carrying(30, 20), ""],
-    ["under the next-start mark", carrying(4.5, 3), "Needs 5 GB free to keep the 4 GB floor"],
+    ["9 GB free", memory(9), ""],
+    ["30 GB free", memory(30), ""],
+    ["under the next-start mark", memory(4.5), "Needs 5 GB free to keep the 4 GB floor"],
     ["a board that reads no memory", null, ""],
   ];
 

@@ -17,6 +17,7 @@ import (
 	"io/fs"
 	"path/filepath"
 	"regexp"
+	"strings"
 
 	"github.com/fpresta0607/code-goblins/internal/fsx"
 )
@@ -55,6 +56,51 @@ func Defaults() Settings {
 		TempPatterns:    []string{"Test*", "go-build*", "cfo-*", "playwright*", "scoped_dir*", "fallow-audit*", "pd-*"},
 		CheckForUpdates: true,
 	}
+}
+
+// retiredKeys are settings an older build read and this one does not, with
+// why. Read refuses a key it does not know, so an install or an update takes
+// these out of a home's file, never leaving every read, and with it every
+// start, refusing a setting the Overlord's home was given before.
+var retiredKeys = []struct{ key, why string }{
+	{"max_live_goblins", "goblin slots go by memory alone"},
+}
+
+// RetireKeys takes out of root's config/fleet.json the keys this build no
+// longer reads, keeps every other key as it was, and says what it took out,
+// or nothing when there was nothing to take. A missing file, and one that is
+// not one JSON object, is left for Read to report.
+func RetireKeys(root string) (string, error) {
+	path := filepath.Join(root, "config", "fleet.json")
+	data, err := fsx.ReadFile(path)
+	if errors.Is(err, fs.ErrNotExist) {
+		return "", nil
+	}
+	if err != nil {
+		return "", err
+	}
+	var settings map[string]json.RawMessage
+	if err := json.Unmarshal(data, &settings); err != nil || settings == nil {
+		return "", nil
+	}
+	var taken []string
+	for _, retired := range retiredKeys {
+		if _, found := settings[retired.key]; found {
+			delete(settings, retired.key)
+			taken = append(taken, retired.key+" ("+retired.why+")")
+		}
+	}
+	if len(taken) == 0 {
+		return "", nil
+	}
+	kept, err := json.MarshalIndent(settings, "", "  ")
+	if err != nil {
+		return "", err
+	}
+	if err := fsx.AtomicWriteFile(path, append(kept, '\n')); err != nil {
+		return "", fmt.Errorf("take retired settings out of %s: %w", path, err)
+	}
+	return "took " + strings.Join(taken, ", ") + " out of " + path + ", since this build no longer reads it", nil
 }
 
 // githubLogin is a GitHub account or organization name.
