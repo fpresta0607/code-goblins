@@ -868,7 +868,7 @@ It stays local and private: nothing in it is pushed anywhere, and no repository 
 <CFO home>\
   bin\                            cfo.exe, goblins.exe and the desktop window, on PATH; the current build and two before it
   state\                          the fleet's own record: tasks, status logs, the wake queue, the board
-  config\                         the gate policy, and fleet.json: the live goblin cap, the disk floor and the caches cap
+  config\                         the gate policy, fleet.json (the live goblin cap, the disk floor and the caches cap), and dev-drive.json once the next three folders moved to a Dev Drive
   worktrees\<project>\<task>\     each goblin's worktree of your checkout, and its extra worktrees beside it
   scratch\<task>\                 each goblin's temporary files, which go with the task
   caches\                         the package caches goblins share, kept under 20 GB
@@ -899,6 +899,20 @@ The home stays small on its own: the binaries, records under 200 MB, capped cach
 Once an hour the janitor removes what the fleet left behind: a worktree in the home no task owns once its work is on the default branch or kept as a local `archive/<branch>` tag, old builds past the two before the current one, temporary folders nothing has written to for a day, a retired task's scratch, logs and evidence (its brief, report, decisions, handoffs and status log stay, and so does anything it handed you), backups past the newest two of each kind, and cache space over the cap, using each tool's own prune.
 It never touches uncommitted work, your checkouts or Docker, and it reports what it will not remove: a worktree no task records, a new folder in your projects root that is no checkout, and a `data\` over 200 MB.
 `cfo runtime` shows what each part of the home holds, and the board shows free disk under free memory, in one box.
+
+### A Dev Drive for the busiest folders (optional)
+
+Goblins spend much of their time on disk: installing dependencies, building, and starting the test programs they have just built.
+On Windows 11 a Dev Drive makes that faster.
+A Dev Drive is a drive Windows formats for developer work: Microsoft Defender keeps scanning it, in performance mode, so opening a file no longer waits for the scan.
+It is not a Defender exclusion, and Code Goblins never adds one or changes a Defender setting.
+It is optional: a machine that cannot have one, such as Windows 10, one with Defender's real-time protection off, or one with under 100 GB free for a new drive, works exactly as before, and `cfo doctor` says why in one line.
+
+With one, the home's three busiest folders, `worktrees\`, `scratch\` and `caches\`, live in `CodeGoblins\` at the Dev Drive's root.
+Everything else stays where it is: the home's `state\`, `data\`, `config\` and `bin\`, and your own checkouts.
+`cfo dev-drive` says whether this machine has or can have one and where the folders are, and `cfo doctor` says it in one line, with the fix.
+`cfo dev-drive move --to D:\CodeGoblins` moves them onto a trusted Dev Drive and records it in `config\dev-drive.json`.
+Nothing is copied: new goblins start on the Dev Drive, a goblin already started keeps its folders until it finishes, and the janitor removes the home's old package caches once nothing started before the move is running.
 
 A home that an older build set up in a code-goblins checkout moves with `cfo home move`: its dry run lists every file it would move with its SHA-256, the counts before and after and a digest proving nothing is dropped, and `cfo home move --apply --plan <digest>`, at a quiet point with the supervisor stopped, moves it by rename, so it needs no room for a second copy, reads it all back, and installs the build into the new home.
 [AGENTS.md](AGENTS.md#the-cfo-home) describes each file in full.
