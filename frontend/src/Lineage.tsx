@@ -84,7 +84,7 @@ export function Lineage({ snapshot, project, selected, onSelect, effects, presen
             <Avatar persona={personaFor(task, node)} small /><span className="node-role">{sessionRole(node)}</span>
             <strong>{title}</strong>{presentations.some(a=>presentationShownOn(a,node,task))&&<span className="browser-indicator">Browser active</span>}{task?.project && <span className="project-label">{task.project}</span>}
             {(!owner || task?.goblin_name) && node.role !== "cfo" && task?.title && <span className="node-task">Task: {withoutHarness(task.title)}</span>}
-            <span className="node-status">{nodeStatus({ id: node.id, title, task, session: node, relation }, owner && asksOverlord(snapshot, task?.id || ""), snapshot.tasks)}</span>
+            <span className="node-status">{nodeStatus({ id: node.id, title, task, session: node, relation }, owner && asksOverlord(snapshot, task?.id || ""), snapshot.tasks, snapshot.merge_trains)}</span>
           </button>
           {descendants.length > 0 && <button className="node-disclosure" aria-expanded={!isCollapsed}
             aria-label={(isCollapsed ? "Expand" : "Collapse") + " children of " + title} onClick={() => toggle(node.id)}>
@@ -109,7 +109,7 @@ export function Lineage({ snapshot, project, selected, onSelect, effects, presen
             onClick={(event) => onSelect({ task: task.id }, event.currentTarget)}>
             <Avatar persona={personaFor(task)} small /><span className="node-role">Task</span><strong>{title}</strong>{presentations.some(a=>presentationShownOn(a,undefined,task))&&<span className="browser-indicator">Browser active</span>}{task.project && <span className="project-label">{task.project}</span>}
             {task.goblin_name && <span className="node-task">Task: {taskName(task)}</span>}
-            <span className="node-status">{nodeStatus({ id: task.id, title: task.title, task, relation: "" }, asksOverlord(snapshot, task.id), snapshot.tasks)}</span>
+            <span className="node-status">{nodeStatus({ id: task.id, title: task.title, task, relation: "" }, asksOverlord(snapshot, task.id), snapshot.tasks, snapshot.merge_trains)}</span>
           </button>
         </div>
       </div>

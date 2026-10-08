@@ -123,6 +123,16 @@ export function pausedWithParent(task: Task, tasks: Task[]): Task | undefined {
   return task.lifecycle?.with_parent ? tasks.find((other) => other.id === task.parent) : undefined;
 }
 
+// isPausedForItsPullRequest says a goblin's pause, or the pause or resume
+// under way, waits on its own pull request: until it merges, or until its CI
+// run on it finishes. Its work is done and its pull request is under test, so
+// the board shows that rather than a pause.
+export function isPausedForItsPullRequest(task: Task): boolean {
+  const pause = task.lifecycle?.pause;
+  if (!task.pr || !pause || !["paused", "pausing", "resuming"].includes(task.phase)) return false;
+  return pause.reason === "dependency" && pause.until === "pr:" + task.pr || pause.reason === "ci" && pause.until.startsWith("pr:" + task.pr + "@");
+}
+
 // What resumes a paused goblin, from its pause's condition, or for a helper
 // the Overlord paused with its parent, from that parent.
 function resumes(pause: PauseCondition | undefined, tasks: Task[], parent?: Task): string {
@@ -239,7 +249,7 @@ function summaryOf(task: Task, tasks: Task[]): Summary {
   // A pause or stop someone asked for that did not finish is no failure of
   // the goblin's; a goblin that did not start again is.
   if (record?.phase === "failed" && FAILED_ACTION[record.action]) return { sentence: join(FAILED_ACTION[record.action], teardown), details: [...record.problems, ...task.teardown], isFailure: record.action === "resume" };
-  if (task.phase === "paused") return { sentence: resumes(record?.pause, tasks, pausedWithParent(task, tasks)), details: [...(record?.problems || []), ...task.teardown], isFailure: false };
+  if (task.phase === "paused") return { sentence: isPausedForItsPullRequest(task) ? "" : resumes(record?.pause, tasks, pausedWithParent(task, tasks)), details: [...(record?.problems || []), ...task.teardown], isFailure: false };
   if (["pausing", "resuming", "stopping", "stopped"].includes(task.phase)) return { sentence: "", details: task.teardown, isFailure: false };
   // A queued task's status says it all; the Overlord wants no wait line.
   if (task.phase === "queued") return { sentence: "", details: [], isFailure: false };

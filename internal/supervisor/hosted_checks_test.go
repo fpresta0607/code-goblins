@@ -57,11 +57,11 @@ func cardChecks(t *testing.T, s *Service, id string, now time.Time) map[string]a
 }
 
 // A live goblin's pull request carries its hosted checks onto its card from
-// each CI poll: pending while one runs and none has failed, failed as soon as
-// one has, with the failed checks named and the first one's page linked,
-// cancelled when they ended with one cancelled, and passed when all passed,
-// with the reviewer's approval beside it. A status context's page is its
-// target.
+// each CI poll: pending while one runs and none has failed, with the first
+// running one's page linked, failed as soon as one has, with the failed
+// checks named and the first one's page linked, cancelled when they ended
+// with one cancelled, and passed when all passed, with the reviewer's
+// approval beside it. A status context's page is its target.
 func TestHostedChecksReachTheCardOfTheGoblinWhosePullRequestTheyAreOn(t *testing.T) {
 	for _, test := range []struct {
 		name   string
@@ -69,7 +69,8 @@ func TestHostedChecksReachTheCardOfTheGoblinWhosePullRequestTheyAreOn(t *testing
 		checks []string
 		want   map[string]any
 	}{
-		{"one still running", "", []string{testRunning, lintPassed}, map[string]any{"state": "pending", "head": "3d7072f8aa", "checks": float64(2)}},
+		{"one still running", "", []string{testRunning, lintPassed}, map[string]any{"state": "pending", "head": "3d7072f8aa", "checks": float64(2), "link": "https://github.com/o/r/actions/runs/5/job/50"}},
+		{"one still running after one was cancelled", "", []string{testCancelled, lintRunning}, map[string]any{"state": "pending", "head": "3d7072f8aa", "checks": float64(2), "failed": []any{"test"}, "link": "https://github.com/o/r/actions/runs/5/job/51"}},
 		{"one failed while another runs", "REVIEW_REQUIRED", []string{testFailed, lintRunning}, map[string]any{"state": "failed", "head": "3d7072f8aa", "checks": float64(2), "failed": []any{"test"}, "link": "https://github.com/o/r/actions/runs/5/job/50"}},
 		{"a status context failed", "", []string{testPassed, scanFailed}, map[string]any{"state": "failed", "head": "3d7072f8aa", "checks": float64(2), "failed": []any{"GitGuardian Security Checks"}, "link": "https://dashboard.gitguardian.com/workspace/1/incidents"}},
 		{"one was cancelled", "", []string{testCancelled, lintPassed}, map[string]any{"state": "cancelled", "head": "3d7072f8aa", "checks": float64(2), "failed": []any{"test"}, "link": "https://github.com/o/r/actions/runs/5/job/50"}},
