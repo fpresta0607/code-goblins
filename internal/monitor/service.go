@@ -647,6 +647,7 @@ const jobSampleInterval = time.Minute
 // folded in, and the processes are left as last read.
 func (s Service) sampleProgress(ctx context.Context, meta state.TaskMeta, sample EndpointSample, observation *Observation, stretch, now time.Time) ([]string, bool, error) {
 	progress, err := s.Progress.InspectProgress(ctx, meta, sample)
+	observation.TranscriptAt = progress.TranscriptAt.UTC()
 	if written := progress.TranscriptAt.UTC(); !progress.TranscriptAt.IsZero() && (observation.EvidenceAt == nil || written.After(*observation.EvidenceAt)) {
 		observation.EvidenceAt = timePointer(written)
 	}
@@ -886,7 +887,7 @@ func (s Service) idleObservation(ctx context.Context, meta state.TaskMeta, obser
 			}
 		} else {
 			waiting, lingering = s.ownWork(ctx, meta, sample, &observation, now)
-			waiting = waiting || observation.EvidenceAt != nil && now.Sub(*observation.EvidenceAt) < s.stallAfter()
+			waiting = waiting || !observation.TranscriptAt.IsZero() && now.Sub(observation.TranscriptAt) < s.stallAfter()
 		}
 	}
 	if now.Sub(*observation.IdleSince) < s.stallAfter() || waiting {
