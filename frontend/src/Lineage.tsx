@@ -7,7 +7,7 @@ import { Chevron } from "./Chevron";
 import { personaFor } from "./workflow";
 import { lineageRoots, ownsTaskSession, projectSessions, sessionRole, sessionTitle, tasksWithoutSession } from "./lineageTree";
 import { withoutHarness } from "./task-words";
-import { hasChildren, isHeldByTree, isHelperHeld } from "./fleet-tree";
+import { hasRunningChildren, isHeldByTree, isHelperHeld } from "./fleet-tree";
 import { TreeUnder } from "./TreeUnder";
 
 export interface Selection { session?: string; task?: string }
@@ -84,7 +84,7 @@ export function Lineage({ snapshot, project, selected, onSelect, effects, presen
           </button>}
         </div>
       </div>
-      {owner && task?.tree && hasChildren(task.tree) && <TreeUnder tree={task.tree} title={title} now={now} />}
+      {owner && task?.tree && hasRunningChildren(task.tree) && <TreeUnder tree={task.tree} title={title} now={now} />}
       {!isCollapsed && descendants.length > 0 && <ul className="workflow-children" aria-label={"Children of " + title}>
         {descendants}
       </ul>}
@@ -104,7 +104,7 @@ export function Lineage({ snapshot, project, selected, onSelect, effects, presen
           </button>
         </div>
       </div>
-      {task.tree && hasChildren(task.tree) && <TreeUnder tree={task.tree} title={title} now={now} />}
+      {task.tree && hasRunningChildren(task.tree) && <TreeUnder tree={task.tree} title={title} now={now} />}
       {helpers.length > 0 && <ul className="workflow-children" aria-label={"Children of " + title}>{helpers}</ul>}
     </li>;
   };
