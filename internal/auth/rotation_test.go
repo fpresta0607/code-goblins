@@ -91,6 +91,224 @@ func TestAToolTokenNeverReplacesADeliberatelyStoredCredential(t *testing.T) {
 	}
 }
 
+// TestAStoredCredentialOutlivesAnEnvFileThatDidNotChange is the PrecisionDocs
+// incident of 2026-10-08. The project's .env still carried an older Fly token,
+// a run item stored a fresh org token with cfo auth store, and the next
+// preflight put the .env token back because the two values differed, so the
+// stored token read unauthorized an hour after it read green. Only a .env that
+// changed is the Overlord rotating a credential; one that merely differs from
+// the store is the older of the two.
+func TestAStoredCredentialOutlivesAnEnvFileThatDidNotChange(t *testing.T) {
+	clearEnv(t, "FLY_API_TOKEN")
+	t.Setenv(StoreDirEnv, t.TempDir())
+	dataDir := t.TempDir()
+	writeManifest(t, dataDir, "PrecisionDocs-AI", Manifest{
+		Project:  "PrecisionDocs-AI",
+		Services: []Service{{Name: "fly", Method: MethodEnv, Env: []string{"FLY_API_TOKEN"}}},
+	})
+	project := filepath.Join(t.TempDir(), "PrecisionDocs-AI")
+	if err := os.MkdirAll(project, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(project, ".env"), []byte("FLY_API_TOKEN=fly_older_app_token\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	preflight := SpawnPreflight{DataDir: dataDir, Runner: gitIgnoresEverything()}
+	if _, err := preflight.Preflight(context.Background(), project); err != nil {
+		t.Fatalf("first preflight: %v", err)
+	}
+
+	// What `cfo auth store --project PrecisionDocs-AI FLY_API_TOKEN` writes.
+	store, err := OpenStore()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := store.Set(Scoped(project, "FLY_API_TOKEN"), "fly_new_org_token"); err != nil {
+		t.Fatal(err)
+	}
+
+	for _, dispatch := range []string{"second", "third"} {
+		result, err := preflight.Preflight(context.Background(), project)
+		if err != nil {
+			t.Fatalf("%s preflight: %v", dispatch, err)
+		}
+		if result.Env["FLY_API_TOKEN"] != "fly_new_org_token" {
+			t.Errorf("%s preflight injected %q, want the token stored after the .env was last read", dispatch, Redact(result.Env["FLY_API_TOKEN"]))
+		}
+		if strings.Contains(result.Warning, "refreshed") {
+			t.Errorf("%s preflight warning %q reports a refresh from a .env nobody edited", dispatch, result.Warning)
+		}
+	}
+	stored, _, err := store.Get(Scoped(project, "FLY_API_TOKEN"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if stored != "fly_new_org_token" {
+		t.Errorf("store holds %q after the preflights, want the stored token kept", Redact(stored))
+	}
+}
+
+// TestAnEnvValueReadForTheFirstTimeNeverReplacesAStoredOne covers a value
+// whose history cfo has never seen: a store and a .env that disagree on the
+// first read, which is every project the first time this build reads it.
+// Nothing says the file is the newer of the two, and replacing a stored value
+// on a guess is how one disappears without anyone choosing it, so the stored
+// value stays and the report says which file was passed over.
+func TestAnEnvValueReadForTheFirstTimeNeverReplacesAStoredOne(t *testing.T) {
+	clearEnv(t, "FLY_API_TOKEN")
+	project := filepath.Join(t.TempDir(), "PrecisionDocs-AI")
+	if err := os.MkdirAll(project, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	envFile := filepath.Join(project, ".env")
+	if err := os.WriteFile(envFile, []byte("FLY_API_TOKEN=fly_older_app_token\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	manifest := Manifest{Services: []Service{{Name: "fly", Method: MethodEnv, Env: []string{"FLY_API_TOKEN"}}}}
+	store := newMemoryStore(map[string]string{"PrecisionDocs-AI/FLY_API_TOKEN": "fly_new_org_token"})
+
+	adopted, _, err := Discover(context.Background(), store, gitIgnoresEverything(), manifest, project)
+	if err != nil {
+		t.Fatalf("Discover: %v", err)
+	}
+	if store.values["PrecisionDocs-AI/FLY_API_TOKEN"] != "fly_new_org_token" {
+		t.Errorf("FLY_API_TOKEN = %q, want the stored token kept over a .env value read for the first time", Redact(store.values["PrecisionDocs-AI/FLY_API_TOKEN"]))
+	}
+	for _, item := range adopted {
+		if item.Refreshed {
+			t.Errorf("reported %+v as a refresh, but nothing was replaced", item)
+		}
+	}
+	if len(adopted) != 1 || !adopted[0].Kept || adopted[0].Origin != envFile {
+		t.Fatalf("adopted = %+v, want the passed-over file reported as kept", adopted)
+	}
+	line := AdoptionLine(adopted)
+	for _, want := range []string{"kept 1", "FLY_API_TOKEN over " + envFile} {
+		if !strings.Contains(line, want) {
+			t.Errorf("line %q does not report %q", line, want)
+		}
+	}
+	if strings.Contains(line, "fly_older_app_token") || strings.Contains(line, "fly_new_org_token") {
+		t.Error("the kept line printed a credential value")
+	}
+
+	// The reading is remembered, so the next scan of the same file is silent.
+	again, _, err := Discover(context.Background(), store, gitIgnoresEverything(), manifest, project)
+	if err != nil {
+		t.Fatalf("second Discover: %v", err)
+	}
+	if len(again) != 0 {
+		t.Errorf("second scan reported %+v, want nothing for a file that has not changed", again)
+	}
+}
+
+// TestEditingTheEnvFileAfterAStoreStillRotates holds the other half: keeping a
+// stored value over an unchanged file must not freeze the file out. The
+// Overlord editing that line later is a newer decision than the store, so it
+// reaches the store and the next goblin.
+func TestEditingTheEnvFileAfterAStoreStillRotates(t *testing.T) {
+	clearEnv(t, "FLY_API_TOKEN")
+	t.Setenv(StoreDirEnv, t.TempDir())
+	dataDir := t.TempDir()
+	writeManifest(t, dataDir, "PrecisionDocs-AI", Manifest{
+		Project:  "PrecisionDocs-AI",
+		Services: []Service{{Name: "fly", Method: MethodEnv, Env: []string{"FLY_API_TOKEN"}}},
+	})
+	project := filepath.Join(t.TempDir(), "PrecisionDocs-AI")
+	if err := os.MkdirAll(project, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	envFile := filepath.Join(project, ".env")
+	write := func(value string) {
+		t.Helper()
+		if err := os.WriteFile(envFile, []byte("FLY_API_TOKEN="+value+"\n"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	preflight := SpawnPreflight{DataDir: dataDir, Runner: gitIgnoresEverything()}
+	write("fly_older_app_token")
+	if _, err := preflight.Preflight(context.Background(), project); err != nil {
+		t.Fatalf("first preflight: %v", err)
+	}
+	store, err := OpenStore()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := store.Set(Scoped(project, "FLY_API_TOKEN"), "fly_new_org_token"); err != nil {
+		t.Fatal(err)
+	}
+	kept, err := preflight.Preflight(context.Background(), project)
+	if err != nil {
+		t.Fatalf("second preflight: %v", err)
+	}
+	if kept.Env["FLY_API_TOKEN"] != "fly_new_org_token" {
+		t.Fatalf("second preflight injected %q, want the stored token over the unchanged .env", Redact(kept.Env["FLY_API_TOKEN"]))
+	}
+
+	write("fly_rotated_in_env")
+	result, err := preflight.Preflight(context.Background(), project)
+	if err != nil {
+		t.Fatalf("third preflight: %v", err)
+	}
+	if result.Env["FLY_API_TOKEN"] != "fly_rotated_in_env" {
+		t.Errorf("third preflight injected %q, want the value the .env was edited to", Redact(result.Env["FLY_API_TOKEN"]))
+	}
+	for _, want := range []string{"refreshed", "FLY_API_TOKEN", envFile} {
+		if !strings.Contains(result.Warning, want) {
+			t.Errorf("warning %q does not report %q", result.Warning, want)
+		}
+	}
+}
+
+// TestASeenRecordHoldsNoValueAndIsNeverACredential keeps the record that
+// makes the rule work from becoming a leak or a credential of its own. It
+// lives beside the credentials, so it must hold a fingerprint rather than a
+// second copy of the secret, never appear in a listing, and never be
+// resolved or injected into a pane.
+func TestASeenRecordHoldsNoValueAndIsNeverACredential(t *testing.T) {
+	clearEnv(t, "FLY_API_TOKEN")
+	root := t.TempDir()
+	store, err := OpenFileStore(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	project := filepath.Join(t.TempDir(), "PrecisionDocs-AI")
+	if err := os.MkdirAll(project, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(project, ".env"), []byte("FLY_API_TOKEN=fly_from_env_file\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	manifest := Manifest{Services: []Service{{Name: "fly", Method: MethodEnv, Env: []string{"FLY_API_TOKEN"}}}}
+
+	if _, _, err := Discover(context.Background(), store, gitIgnoresEverything(), manifest, project); err != nil {
+		t.Fatalf("Discover: %v", err)
+	}
+
+	key := Scoped(project, "FLY_API_TOKEN")
+	recorded, found, err := store.Seen().Get(key)
+	if err != nil || !found {
+		t.Fatalf("Seen().Get = (%v, %v), want the reading recorded", found, err)
+	}
+	if strings.Contains(recorded, "fly_from_env_file") {
+		t.Error("the Seen record holds the credential value instead of a fingerprint")
+	}
+	keys, err := store.Keys()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(keys) != 1 || keys[0] != key {
+		t.Errorf("Keys() = %v, want only the credential and never its Seen record", keys)
+	}
+	extras, err := StoredExtras(store, "PrecisionDocs-AI", Manifest{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(extras) != 1 || extras["FLY_API_TOKEN"] != "fly_from_env_file" {
+		t.Errorf("StoredExtras injected %d names, want only the credential", len(extras))
+	}
+}
+
 func TestAManifestWithAnUnknownFieldFailsToLoad(t *testing.T) {
 	dataDir := t.TempDir()
 	path := ManifestPath(dataDir, "clock-in")
@@ -445,6 +663,7 @@ func TestTheLocalEnvFileOwnsANameOverTheSharedOne(t *testing.T) {
 	// As a refresh over a stored value: the dev default must not win, or the
 	// stored credential is destroyed on every dispatch.
 	stored := newMemoryStore(map[string]string{"precisiondocs/DATABASE_URL": "postgres://prod/was-rotated"})
+	readBefore(t, stored, Scoped("precisiondocs", "DATABASE_URL"), "postgres://prod/was-rotated")
 	if _, _, err := Discover(context.Background(), stored, gitIgnoresEverything(), manifest, project); err != nil {
 		t.Fatalf("Discover over a stored value: %v", err)
 	}
@@ -475,6 +694,7 @@ func TestARotatedAliasLineReachesTheDeclaredKey(t *testing.T) {
 		t.Fatal(err)
 	}
 	store := newMemoryStore(map[string]string{"precisiondocs/DATABASE_URL": "postgres://host/before_rotation"})
+	readBefore(t, store, Scoped("precisiondocs", "DATABASE_URL"), "postgres://host/before_rotation")
 
 	adopted, _, err := Discover(context.Background(), store, gitIgnoresEverything(), manifest, project)
 	if err != nil {
@@ -530,6 +750,7 @@ func TestASecondServicesAliasStillReachesTheLiveKey(t *testing.T) {
 	// The key the analytics service actually reaches: the declared name is
 	// unset in this project's scope, so the alias is what answers.
 	store := newMemoryStore(map[string]string{"precisiondocs/PG_URL": "postgres://host/before_rotation"})
+	readBefore(t, store, Scoped("precisiondocs", "PG_URL"), "postgres://host/before_rotation")
 
 	adopted, _, err := Discover(context.Background(), store, gitIgnoresEverything(), manifest, project)
 	if err != nil {
@@ -583,6 +804,7 @@ func TestTheLocalFilesAliasBeatsTheSharedFilesDeclaredName(t *testing.T) {
 		}
 	}
 	store := newMemoryStore(map[string]string{"precisiondocs/DATABASE_URL": "postgres://prod/before"})
+	readBefore(t, store, Scoped("precisiondocs", "DATABASE_URL"), "postgres://prod/before")
 
 	adopted, _, err := Discover(context.Background(), store, gitIgnoresEverything(), manifest, project)
 	if err != nil {
@@ -695,6 +917,7 @@ func TestTheDeclaredLineBeatsTheAliasLineInOneFile(t *testing.T) {
 		t.Fatal(err)
 	}
 	store := newMemoryStore(map[string]string{"precisiondocs/DATABASE_URL": "postgres://pooled/before"})
+	readBefore(t, store, Scoped("precisiondocs", "DATABASE_URL"), "postgres://pooled/before")
 
 	adopted, _, err := Discover(context.Background(), store, gitIgnoresEverything(), manifest, project)
 	if err != nil {
@@ -912,6 +1135,7 @@ func TestARotatedEnvValueReachesACredentialStoredUnderAnAlias(t *testing.T) {
 		t.Fatal(err)
 	}
 	store := newMemoryStore(map[string]string{"precisiondocs/PG_URL": "postgres://host/before_rotation"})
+	readBefore(t, store, Scoped("precisiondocs", "PG_URL"), "postgres://host/before_rotation")
 
 	adopted, _, err := Discover(context.Background(), store, gitIgnoresEverything(), manifest, project)
 	if err != nil {
@@ -960,6 +1184,7 @@ func TestARotatedEnvValueReachesTheAliasKeyWhenTheFileCarriesTheDeclaredName(t *
 		t.Fatal(err)
 	}
 	store := newMemoryStore(map[string]string{"precisiondocs/PG_URL": "postgres://host/before_rotation"})
+	readBefore(t, store, Scoped("precisiondocs", "PG_URL"), "postgres://host/before_rotation")
 
 	if _, _, err := Discover(context.Background(), store, gitIgnoresEverything(), manifest, project); err != nil {
 		t.Fatalf("Discover: %v", err)
@@ -1073,6 +1298,17 @@ func TestAdoptionLineNamesWhatChangedAndNeverAValue(t *testing.T) {
 			t.Errorf("line %q does not report %q", line, want)
 		}
 	}
+	kept := AdoptionLine([]Adopted{
+		{Name: "FLY_API_TOKEN", Key: Scoped("PrecisionDocs-AI", "FLY_API_TOKEN"), Origin: "/p/PrecisionDocs-AI/.env", Kept: true},
+	})
+	for _, want := range []string{"kept 1", "FLY_API_TOKEN over /p/PrecisionDocs-AI/.env", "edit that line"} {
+		if !strings.Contains(kept, want) {
+			t.Errorf("line %q does not report %q", kept, want)
+		}
+	}
+	if strings.Contains(kept, "refreshed") || strings.Contains(kept, "adopted") {
+		t.Errorf("line %q reports a write for a value that was kept", kept)
+	}
 	if AdoptionLine(nil) != "" {
 		t.Error("a preflight that changed nothing still printed an adoption line")
 	}
@@ -1141,6 +1377,7 @@ func TestTwoCredentialsLandingOnOneKeyProduceOneWrite(t *testing.T) {
 		{Name: "reporting", Method: MethodEnv, Env: []string{"PG_URL"}},
 	}}
 	store := newMemoryStore(map[string]string{"proj/PG_URL": "postgres://before/appdb"})
+	readBefore(t, store, Scoped("proj", "PG_URL"), "postgres://before/appdb")
 
 	adopted, _, err := Discover(context.Background(), store, gitIgnoresEverything(), manifest, project)
 	if err != nil {
@@ -1201,6 +1438,7 @@ func TestAnEnvSharedWithALiveWorktreeIsNotAnAdoptionOrigin(t *testing.T) {
 
 	manifest := Manifest{Services: []Service{{Name: "stripe", Method: MethodEnv, Env: []string{"STRIPE_SECRET_KEY"}}}}
 	store := newMemoryStore(map[string]string{"clock-in/STRIPE_SECRET_KEY": "sk_deliberately_stored"})
+	readBefore(t, store, Scoped("clock-in", "STRIPE_SECRET_KEY"), "sk_deliberately_stored")
 
 	adopted, skipped, err := Discover(context.Background(), store, gitIgnoresEverything(), manifest, project)
 	if err != nil {
