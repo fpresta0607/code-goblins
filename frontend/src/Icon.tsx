@@ -22,6 +22,7 @@ const PATHS = {
   terminal: "M4.5 5h15A1.5 1.5 0 0 1 21 6.5v11a1.5 1.5 0 0 1-1.5 1.5h-15A1.5 1.5 0 0 1 3 17.5v-11A1.5 1.5 0 0 1 4.5 5ZM7 10l2.5 2L7 14M12 15h5",
   plus: "M12 5v14M5 12h14",
   minus: "M5 12h14",
+  "arrow-down": "M12 5v14M6 13l6 6 6-6",
   fit: "M4 9V5a1 1 0 0 1 1-1h4M15 4h4a1 1 0 0 1 1 1v4M20 15v4a1 1 0 0 1-1 1h-4M9 20H5a1 1 0 0 1-1-1v-4",
   maximize: "M4 9V4h5M4 4l6 6M20 9V4h-5M20 4l-6 6M4 15v5h5M4 20l6-6M20 15v5h-5M20 20l-6-6",
   restore: "M4 10h6V4M4 4l6 6M20 10h-6V4M20 4l-6 6M4 14h6v6M4 20l6-6M20 14h-6v6M20 20l-6-6",

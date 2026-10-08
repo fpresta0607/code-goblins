@@ -7,14 +7,17 @@ import ts from "typescript";
 // The Overlord, 2026-10-08: "again everything error wise goes to cfo and cfo
 // decides what to tell me in command center", and of a line saying how and
 // when a panel was read: "i dont need descriptive text everywhere like this".
-// The board keeps four kinds of words about trouble: a one or two word status
+// The board keeps five kinds of words about trouble: a one or two word status
 // on a card, a disabled button's reason in its tip, a few words beside what
-// he clicked that go by themselves (ClickFeedback), and one short line while
-// the supervisor is down. This reads the board's source for every other way
-// of showing him an error, and for a line explaining where a number came
-// from or how fresh it is.
+// he clicked that go by themselves (ClickFeedback), one short line while the
+// supervisor is down, and the box that says his AFK switch was refused, in
+// full, which he chose on 2026-10-08 over a few words that went by themselves
+// ("this yellow text i hate. as an error"). This reads the board's source for
+// every other way of showing him an error, and for a line explaining where a
+// number came from or how fresh it is.
 const SOURCE = path.dirname(new URL(import.meta.url).pathname.replace(/^\/([A-Za-z]:)/, "$1"));
 const FEEDBACK = "click-feedback.tsx";
+const REFUSAL = "afk-refusal.tsx";
 
 // The roles and classes the board used for error boxes and warning lines.
 const ERROR_CLASSES = /\b(warning-text|task-action-problem|error-box|terminal-error|connections-error|order-error|afk-problem|connection-banner|layout-notice|lineage-warning|card-stalled|windows-teardown|memory-warning|card-silent|window-error)\b/;
@@ -40,6 +43,7 @@ function findingsIn(file: string, code: string): Finding[] {
   const found: Finding[] = [];
   const at = (node: ts.Node, what: string) => found.push({ file: path.basename(file), line: source.getLineAndCharacterOfPosition(node.getStart(source)).line + 1, what });
   const visit = (node: ts.Node) => {
+    if (path.basename(file) === REFUSAL) return;
     if (ts.isJsxAttribute(node)) {
       const name = node.name.getText(source), value = node.initializer && ts.isStringLiteral(node.initializer) ? node.initializer.text : node.initializer?.getText(source) || "";
       if (name === "role" && /alert/.test(value)) at(node, 'role="alert"');

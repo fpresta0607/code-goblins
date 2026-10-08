@@ -1,6 +1,6 @@
-import { test } from "node:test";
+import { test, type TestContext } from "node:test";
 import assert from "node:assert/strict";
-import { ackDue, ACK_STEP, closedReason, DEFAULT_FONT_SIZE, type FitEvent, fontSizeFor, INPUT_MESSAGE, inputMessages, MAX_FONT_SIZE, MIN_FONT_SIZE, nextFit, panelFit, parseHistory, parseSize, reconnects, usableSize } from "./terminalStream.ts";
+import { ackDue, ACK_STEP, closedReason, DEFAULT_FONT_SIZE, type FitEvent, followFontSize, fontSizeFor, INPUT_MESSAGE, inputMessages, MAX_FONT_SIZE, MIN_FONT_SIZE, nextFit, panelFit, parseHistory, parseSize, reconnects, storedFontSize, storeFontSize, usableSize } from "./terminalStream.ts";
 
 test("output is acknowledged in steps, and at once when the terminal has caught up", () => {
   const cases: [number, number, number, boolean][] = [
@@ -108,4 +108,82 @@ test("a panel too small for a usable grid, or an unmeasured cell, gives no fit",
   assert.equal(panelFit(800, 100, { width: 10, height: 24 }, 10), null);
   assert.equal(panelFit(800, 600, { width: 0, height: 24 }, 10), null);
   assert.equal(panelFit(800, 600, { width: 10, height: 0 }, 10), null);
+});
+
+// browser gives a test this device's storage, which can refuse writes as a
+// private window does, and the page's window.
+function browser(t: TestContext, items = new Map<string, string>(), isRefused = false) {
+  const storage = { getItem: (key: string) => items.get(key) ?? null, setItem: (key: string, value: string) => { if (isRefused) throw new Error("storage refused"); items.set(key, value); } };
+  const view = new EventTarget();
+  Object.defineProperty(globalThis, "localStorage", { value: storage, configurable: true });
+  Object.defineProperty(globalThis, "window", { value: view, configurable: true });
+  t.after(() => { Reflect.deleteProperty(globalThis, "localStorage"); Reflect.deleteProperty(globalThis, "window"); });
+  return { items, view };
+}
+
+test("a size chosen in one terminal reaches every open terminal at once and every one opened later", (t) => {
+  // Arrange
+  browser(t);
+  const first: number[] = [], second: number[] = [];
+  const closeFirst = followFontSize((size) => first.push(size));
+  followFontSize((size) => second.push(size));
+
+  // Act
+  storeFontSize(24);
+
+  // Assert
+  assert.deepEqual(first, [24]);
+  assert.deepEqual(second, [24]);
+  assert.equal(storedFontSize(), 24);
+
+  // Act: a closed terminal follows no more.
+  closeFirst();
+  storeFontSize(16);
+
+  // Assert
+  assert.deepEqual(first, [24]);
+  assert.deepEqual(second, [24, 16]);
+  assert.equal(storedFontSize(), 16);
+});
+
+test("a size chosen in another page of the board on this device reaches the terminals here", (t) => {
+  // Arrange
+  const { items, view } = browser(t);
+  const sizes: number[] = [];
+  followFontSize((size) => sizes.push(size));
+
+  // Act
+  items.set("cfo-terminal-font-size", "26");
+  view.dispatchEvent(Object.assign(new Event("storage"), { key: "cfo-terminal-font-size" }));
+  view.dispatchEvent(Object.assign(new Event("storage"), { key: "cfo-panel-width" }));
+
+  // Assert
+  assert.deepEqual(sizes, [26]);
+});
+
+test("a size the browser refuses to keep still reaches the open terminals", (t) => {
+  // Arrange
+  browser(t, new Map(), true);
+  const sizes: number[] = [];
+  followFontSize((size) => sizes.push(size));
+
+  // Act
+  storeFontSize(22);
+
+  // Assert
+  assert.deepEqual(sizes, [22]);
+});
+
+test("a kept size outside 12 to 28 px, or none, draws at 20 px", (t) => {
+  const cases: [string | null, number][] = [[null, 20], ["11", 20], ["29", 20], ["abc", 20], ["12", 12], ["28", 28], ["23", 23]];
+  for (const [kept, size] of cases) {
+    // Arrange
+    browser(t, new Map(kept === null ? [] : [["cfo-terminal-font-size", kept]]));
+
+    // Act
+    const drawn = storedFontSize();
+
+    // Assert
+    assert.equal(drawn, size, String(kept));
+  }
 });

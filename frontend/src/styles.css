@@ -722,7 +722,10 @@ button.dialogue-portrait:hover::before { background: #2e241b; }
 /* The terminal runs edge to edge like a Herdr pane: no border, no card, no
    caption. State and the few controls float over its corners. */
 .native-terminal { position: relative; display: flex; flex: 1; min-width: 0; min-height: 0; }
-.terminal-surface { flex: 1; min-width: 0; min-height: 200px; overflow: hidden; background: #071015; }
+/* The panel clips what it holds and is never a scroll container, so nothing
+   scrolled into view inside it, such as xterm's input while a grid refits,
+   can move the screen within it. */
+.terminal-surface { flex: 1; min-width: 0; min-height: 200px; overflow: clip; background: #071015; }
 /* A Herdr pane's screen is fitted whole to the panel and sits at its bottom,
    so the input line stays at the bottom of the panel; nothing scrolls. */
 .native-terminal:not(.host-terminal) .terminal-surface { display: flex; flex-direction: column; justify-content: flex-end; align-items: center; padding: 8px 14px; }
@@ -750,7 +753,7 @@ button.dialogue-portrait:hover::before { background: #2e241b; }
    panel never scrolls around it; until its screen is whole a full-pane state
    covers it. */
 .host-terminal { flex-direction: column; }
-.host-terminal .terminal-surface { position: relative; overflow: hidden; }
+.host-terminal .terminal-surface { position: relative; }
 /* One connection's xterm: staged out of sight until its screen is whole. */
 .terminal-view { position: absolute; inset: 0; }
 /* The view pads its grid evenly to the panel, with the input line at the
@@ -768,6 +771,12 @@ button.dialogue-portrait:hover::before { background: #2e241b; }
 @keyframes terminal-spin { to { transform: rotate(360deg); } }
 @media (prefers-reduced-motion: reduce) { .terminal-spinner { animation-duration: 2.4s; } }
 .terminal-copied { position: absolute; top: 10px; right: 12px; z-index: 2; color: var(--mint); }
+/* While he reads a terminal's history, the line he types on stays pinned over
+   the panel's last row, drawn by a one-row terminal of its own, with a rule
+   between it and the history; Jump to bottom sits just above it, in the
+   middle, clear of the voice bubble's corner. */
+.terminal-pin { position: absolute; z-index: 1; overflow: hidden; pointer-events: none; box-shadow: 0 -1px 0 #1d3a32; }
+.terminal-jump { position: absolute; left: 50%; z-index: 2; translate: -50% -100%; }
 /* Dictation listens while Ctrl+Shift+Space is held. */
 /* The voice bubble sits in its own strip under the terminal's screen, so it
    never covers the terminal's text. It stays still while idle: only

@@ -21,10 +21,8 @@ export function useClickFeedback(): [string, (text: string) => void] {
 }
 
 // Feedback on the Overlord's own click: a few words beside what he clicked,
-// which go by themselves. It is the one way the board tells him something he
-// did not work, as he ruled on 2026-10-08 ("everything error wise goes to cfo
-// and cfo decides what to tell me in command center"); every other error goes
-// to the CFO.
+// which go by themselves. The persistent AFK switch refusal uses AfkRefusal
+// instead.
 export function ClickFeedback({ text }: { text: string }) {
   if (!text) return null;
   return <span className="click-feedback" role="status">{summary(plainText(text), LONGEST)}</span>;
