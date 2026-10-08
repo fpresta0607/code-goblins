@@ -1,6 +1,6 @@
 import { request } from "./api";
 import { speechRecognition, type Recognizer } from "./dictation";
-import { downsample, localRecognizer, type Recording, type Sound } from "./localDictation";
+import { downsample, endInQuiet, localRecognizer, type Recording, type Sound } from "./localDictation";
 import { object, string } from "./types";
 
 // Which recognizer dictation runs on in this page. The board's own is the
@@ -35,15 +35,16 @@ export function record(track: MediaStreamTrack): Recording {
   };
 }
 
-// decode turns a recording into one channel of samples at the model's rate.
-// A recording too short to hold any sound decodes to none.
+// decode turns a recording into one channel of samples at the model's rate,
+// ending half a second after its last loud part. A recording too short to
+// hold any sound decodes to none.
 async function decode(recording: Blob): Promise<Sound> {
   const silence: Sound = { samples: new Float32Array(0), rate: RATE };
   if (!recording.size) return silence;
   const context = new OfflineAudioContext(1, 1, RECORDED_RATE);
   try {
     const sound = await context.decodeAudioData(await recording.arrayBuffer());
-    return downsample({ samples: sound.getChannelData(0), rate: sound.sampleRate }, RATE);
+    return endInQuiet(downsample({ samples: sound.getChannelData(0), rate: sound.sampleRate }, RATE));
   } catch {
     return silence;
   }

@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { downsample, localRecognizer, wav, type Recording, type Sound } from "./localDictation.ts";
+import { downsample, endInQuiet, localRecognizer, wav, type Recording, type Sound } from "./localDictation.ts";
 import { Dictation, type Recognizer } from "./dictation.ts";
 
 const settle = () => new Promise((resolve) => setTimeout(resolve, 0));
@@ -60,6 +60,35 @@ test("a rate that is not a multiple of the model's is averaged over runs of its 
   assert.equal(sound.rate, 16000);
   assert.equal(sound.samples.length, 160, "441 samples at 44.1 kHz are 10 ms, 160 samples at 16 kHz");
   assert.ok(sound.samples.every((sample, index) => index === 0 || sample > sound.samples[index - 1]), "a rising line stays rising");
+});
+
+// A sound of loud and quiet runs at 100 samples a second, each 0.01 s one
+// sample: loud is 0.5, quiet 0.
+function runs(...parts: [number, number][]): Sound {
+  const samples: number[] = [];
+  for (const [level, seconds] of parts) for (let i = 0; i < Math.round(seconds * 100); i++) samples.push(level);
+  return { samples: Float32Array.from(samples), rate: 100 };
+}
+
+test("a sound ending in a long quiet ends half a second after its last loud part", () => {
+  const sound = endInQuiet(runs([0, .2], [.5, 1], [0, .3], [.5, .4], [0, 3]));
+  assert.equal(sound.samples.length, 240, "0.2 s quiet, 1 s loud, 0.3 s quiet, 0.4 s loud, then 0.5 s of the 3 s quiet");
+  assert.equal(sound.samples[189], .5, "the last loud part is whole");
+  assert.ok(sound.samples.subarray(190).every((sample) => sample === 0));
+});
+
+test("a sound cut off while loud, as when the keys are let go mid-word, gets half a second of silence", () => {
+  const sound = endInQuiet(runs([0, .2], [.5, 1]));
+  assert.equal(sound.samples.length, 170);
+  assert.equal(sound.samples[119], .5);
+  assert.ok(sound.samples.subarray(120).every((sample) => sample === 0));
+});
+
+test("a sound with nothing loud in it is kept as it is", () => {
+  const quiet = runs([0, 2]);
+  assert.equal(endInQuiet(quiet), quiet);
+  const hum = runs([.005, 2]);
+  assert.equal(endInQuiet(hum), hum, "a room's hum under the loud mark is not speech");
 });
 
 test("a recording at or under the model's rate is kept as it is", () => {

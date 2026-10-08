@@ -105,10 +105,6 @@ func (api *fakeSherpaAPI) acceptWaveform(stream uintptr, wave sherpaWave) {
 	api.call("accept-waveform", stream, uintptr(wave.SampleRate))
 }
 
-func (api *fakeSherpaAPI) acceptSilence(stream uintptr, rate, samples int32) {
-	api.call("accept-silence", stream, uintptr(rate), uintptr(samples))
-}
-
 func (api *fakeSherpaAPI) decode(recognizer, stream uintptr) {
 	api.call("decode", recognizer, stream)
 }
@@ -280,10 +276,7 @@ func TestTheRecognizerLoadsTheModelOnceAndFreesWhatEachSoundNeeded(t *testing.T)
 			t.Fatalf("heard %q, want %q", text, want)
 		}
 	}
-	// The words, then half a second of silence: a model that writes until it
-	// hears the end, as Moonshine does, ends the line there rather than run
-	// on when the keys were let go mid-word.
-	once := "read-wave wave-data[33] create-stream[11] accept-waveform[22 16000] accept-silence[22 16000 8000] decode[11 22] result-json[22] read-json[44] free-json[44] destroy-stream[22] free-wave[33]"
+	once := "read-wave wave-data[33] create-stream[11] accept-waveform[22 16000] decode[11 22] result-json[22] read-json[44] free-json[44] destroy-stream[22] free-wave[33]"
 	if got := strings.Join(api.calls, " "); got != "create-recognizer "+once+" "+once {
 		t.Fatalf("the engine was called\n%s\nwant\n%s", got, "create-recognizer "+once+" "+once)
 	}

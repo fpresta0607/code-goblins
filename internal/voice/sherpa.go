@@ -18,7 +18,6 @@ type sherpaAPI interface {
 	createStream(uintptr) uintptr
 	destroyStream(uintptr)
 	acceptWaveform(uintptr, sherpaWave)
-	acceptSilence(stream uintptr, rate, samples int32)
 	decode(uintptr, uintptr)
 	resultJSON(uintptr) uintptr
 	readJSON(uintptr) ([]byte, error)
@@ -83,10 +82,6 @@ func (r *sherpaRecognizer) Recognize(sound []byte) (string, error) {
 	}
 	defer r.api.destroyStream(stream)
 	r.api.acceptWaveform(stream, samples)
-	// Half a second of silence after the words lets a model that writes
-	// until it hears the end, as Moonshine does, end the line there rather
-	// than run on, repeating itself, when the keys were let go mid-word.
-	r.api.acceptSilence(stream, samples.SampleRate, samples.SampleRate/2)
 	r.api.decode(r.handle, stream)
 	result := r.api.resultJSON(stream)
 	if result == 0 {

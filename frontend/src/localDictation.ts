@@ -54,6 +54,33 @@ export function downsample(sound: Sound, rate: number): Sound {
   return { samples, rate };
 }
 
+// A part of a sound is loud when its 10 ms reach this RMS, -40 dB of full
+// scale: above a room's hum, below a voice.
+const LOUD = 0.01;
+
+// endInQuiet ends a sound half a second after its last loud part: a longer
+// quiet end is cut, and a shorter one, as when the keys are let go mid-word,
+// is made up with silence. A model that writes until it hears the end, as
+// Moonshine does, then ends the line there rather than running on, repeating
+// itself, and a long quiet end does not make it answer nothing. A sound with
+// nothing loud in it is kept as it is.
+export function endInQuiet(sound: Sound): Sound {
+  const step = Math.max(1, Math.round(sound.rate / 100));
+  let end = 0;
+  for (let at = 0; at < sound.samples.length; at += step) {
+    const part = sound.samples.subarray(at, at + step);
+    let sum = 0;
+    for (const sample of part) sum += sample * sample;
+    if (Math.sqrt(sum / part.length) >= LOUD) end = at + part.length;
+  }
+  if (!end) return sound;
+  const keep = end + Math.round(sound.rate / 2);
+  if (sound.samples.length >= keep) return { samples: sound.samples.subarray(0, keep), rate: sound.rate };
+  const samples = new Float32Array(keep);
+  samples.set(sound.samples);
+  return { samples, rate: sound.rate };
+}
+
 // localRecognizer is a recognizer the board's dictation drives as it drives
 // the browser's: start records the track it is handed with open, and stop
 // ends the recording before it returns, so the microphone can close at once,
