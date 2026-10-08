@@ -81,11 +81,10 @@ func TestStrandedInputChild(t *testing.T) {
 // program is printing. Windows' inbox conhost (10.0.26100) can leave a key in
 // the console's input, unread, while the program waits in a blocking read and
 // another of its threads prints: the key stays there until something else is
-// typed, or conhost crashes reading a null pointer in ConsoleWaitBlock's
-// destructor and the terminal ends (microsoft/terminal#18816 fixed both, in a
-// conhost Windows does not ship yet). Each key is typed once the program has
-// echoed the one before, as a person types, which is when the program has
-// just gone back to its read.
+// typed, or conhost crashes (microsoft/terminal#18816 fixed both, in the
+// OpenConsole consoles run on). Each key is typed once the program has echoed
+// the one before, as a person types, which is when the program has just gone
+// back to its read.
 func TestTypedKeysReachAProgramThatPrintsWhileItReads(t *testing.T) {
 	progressPath := filepath.Join(t.TempDir(), "keys-read.log")
 	before := map[int]bool{}

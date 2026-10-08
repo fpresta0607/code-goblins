@@ -91,6 +91,12 @@ func Run(stateDir string, spec Spec) error {
 	if err != nil {
 		return err
 	}
+	if problem := conpty.ConsoleHostProblem(); problem != nil {
+		fmt.Fprintf(os.Stderr, "host: %v\n", problem)
+		if err := reportConsoleHostProblem(stateDir, problem); err != nil {
+			fmt.Fprintf(os.Stderr, "host: tell the CFO the terminal runs on the system conhost: %v\n", err)
+		}
+	}
 	record, pipe, err := announce(stateDir, spec.ID, console.PID(), hex.EncodeToString(proof[:]))
 	if err != nil {
 		_ = console.Close()
@@ -98,16 +104,47 @@ func Run(stateDir string, spec Spec) error {
 	}
 	defer removeRecord(stateDir, spec.ID, record.HostPID)
 
-	output := newHistory(spec.Cols, spec.Rows)
+	output, err := newHistory(spec.Cols, spec.Rows)
+	if err != nil {
+		_ = console.Close()
+		return err
+	}
+	// The terminal's screen answers its program's queries, typed in by a
+	// goroutine of their own so the output reader never waits on the
+	// console's input: a console that reads no input until its output is
+	// read would stall both.
+	var answering sync.Mutex
+	var answers []byte
+	answered := make(chan struct{}, 1)
+	go func() {
+		for range answered {
+			answering.Lock()
+			typed := answers
+			answers = nil
+			answering.Unlock()
+			if len(typed) > 0 {
+				_, _ = console.Write(typed)
+			}
+		}
+	}()
 	// outputEnded closes once the terminal's output is read to its end, which
 	// comes only after its process has exited and its pseudo console closed.
 	outputEnded := make(chan struct{})
 	go func() {
+		defer close(answered)
 		for {
 			chunk := make([]byte, 32<<10)
 			n, err := console.Read(chunk)
 			if n > 0 {
-				output.write(chunk[:n])
+				if answer := output.write(chunk[:n]); len(answer) > 0 {
+					answering.Lock()
+					answers = append(answers, answer...)
+					answering.Unlock()
+					select {
+					case answered <- struct{}{}:
+					default:
+					}
+				}
 			}
 			if err != nil {
 				output.end()
