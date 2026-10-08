@@ -13,9 +13,6 @@ jobs:
   probe:
     runs-on: windows-latest
     timeout-minutes: 40
-    env:
-      CFO_HOME: ${{ runner.temp }}\cfo-go-tests
-      CFO_STATE_OVERRIDE: ${{ runner.temp }}\cfo-go-tests\state
     steps:
       - uses: actions/checkout@v6
       - uses: actions/setup-go@v5
@@ -30,14 +27,23 @@ jobs:
         continue-on-error: true
         shell: pwsh
         run: go test ./internal/conpty -run '^TestZZMenuProbe$' -count=3 -v -timeout 10m
+        env:
+          CFO_HOME: ${{ runner.temp }}\cfo-go-tests
+          CFO_STATE_OVERRIDE: ${{ runner.temp }}\cfo-go-tests\state
       - name: The typed-keys test alone, 400 times
         continue-on-error: true
         shell: pwsh
         run: go test ./internal/conpty -run '^TestTypedKeysReachAProgramThatPrintsWhileItReads$' -count=400 -timeout 25m
+        env:
+          CFO_HOME: ${{ runner.temp }}\cfo-go-tests
+          CFO_STATE_OVERRIDE: ${{ runner.temp }}\cfo-go-tests\state
       - name: The whole package, 10 times
         continue-on-error: true
         shell: pwsh
         run: go test ./internal/conpty -count=10 -timeout 25m
+        env:
+          CFO_HOME: ${{ runner.temp }}\cfo-go-tests
+          CFO_STATE_OVERRIDE: ${{ runner.temp }}\cfo-go-tests\state
       - name: Console host crashes
         if: always()
         shell: pwsh
