@@ -276,6 +276,8 @@ type Service struct {
 	// reads is what the snapshot remembers of the fleet's files.
 	reads                keptReads
 	subscriptionReadings map[string]quota.WeeklyReading
+	// quotaReadAt is when the supervisor last began a quota-axi read.
+	quotaReadAt time.Time
 	// allowance is the last reading quota-axi gave of each provider's
 	// allowance, which AFK mode's switch takes rather than reading its own.
 	allowance map[string]keptAllowance
