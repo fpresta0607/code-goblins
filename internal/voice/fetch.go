@@ -117,9 +117,10 @@ func (v *Voice) fetch(ctx context.Context, part Part, progress func(done int64))
 const supersededPrefix = ".superseded-"
 
 // removeSuperseded removes the folders of the engines and models these
-// settings no longer pin. A folder is first moved aside whole, so one still in use, such as an engine an earlier
-// build's worker has loaded, cannot be moved and stays whole for a later
-// fetch to remove, rather than being half removed under the build using it.
+// settings no longer pin. A folder is first moved aside whole, so one still
+// in use, such as an engine an earlier build's worker has loaded, cannot be
+// moved and stays whole for a later fetch to remove, rather than being half
+// removed under the build using it.
 func (v *Voice) removeSuperseded() {
 	entries, err := os.ReadDir(v.Dir)
 	if err != nil {
