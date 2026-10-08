@@ -359,7 +359,15 @@ func (s Service) classify(ctx context.Context, meta state.TaskMeta, prior Observ
 		observation.LastSeen = now
 		observation.LastProgress = now
 	}
-	digest := harness.OutputDigest(strings.Split(strings.ReplaceAll(string(sample.Capture), "\r\n", "\n"), "\n"))
+	digest := fmt.Sprintf("%x", sha256.Sum256(sample.Capture))
+
+	// A native terminal keeps no counters, so between turns its liveness shows
+	// on its screen instead: output written to it since a scan that also found
+	// it between turns. The screen a turn leaves as it ends is the turn ending,
+	// which its status already says.
+	output := harness.OutputDigest(strings.Split(strings.ReplaceAll(string(sample.Capture), "\r\n", "\n"), "\n"))
+	isOutputMoved := sample.CountersUnavailable && observation.BusySince == nil && observation.OutputDigest != "" && observation.OutputDigest != output
+	observation.OutputDigest = output
 
 	// A harness being refused by its provider is checked first. It is read
 	// from pane text, so routing.Detect takes a rate limit only on a line
@@ -367,12 +375,6 @@ func (s Service) classify(ctx context.Context, meta state.TaskMeta, prior Observ
 	if fault, detail, found := routing.Detect(string(sample.Capture)); found {
 		return erroringObservation(observation, digest, fault, detail, now), sample
 	}
-
-	// A native terminal keeps no counters, so between turns its liveness shows
-	// on its screen instead: output written to it since a scan that also found
-	// it between turns. The screen a turn leaves as it ends is the turn ending,
-	// which its status already says.
-	isOutputMoved := sample.CountersUnavailable && observation.BusySince == nil && observation.Digest != "" && observation.Digest != digest
 	observation.Digest = digest
 
 	// Any status other than working ends the busy stretch: the next working

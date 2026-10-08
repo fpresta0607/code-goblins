@@ -149,6 +149,9 @@ type Observation struct {
 	LastObserved        time.Time    `json:"last_observed"`
 	LastSeen            time.Time    `json:"last_seen"`
 	LastProgress        time.Time    `json:"last_progress"`
+	// OutputDigest is harness.OutputDigest of the screen, kept apart from
+	// Digest so a reading made before it existed is never compared with it.
+	OutputDigest string `json:"output_digest,omitempty"`
 	// BusySince is when the agent last began an unbroken working stretch. A
 	// goblin blocked in a foreground shell reads working forever, so this is
 	// the only clock that can tell a long turn from a wedged one.

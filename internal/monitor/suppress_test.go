@@ -2,6 +2,7 @@ package monitor
 
 import (
 	"context"
+	"crypto/sha256"
 	"fmt"
 	"strings"
 	"testing"
@@ -244,6 +245,36 @@ func TestANativeGoblinsOutputAndTranscriptAreLivenessBetweenTurns(t *testing.T) 
 				}
 			}
 		})
+	}
+}
+
+// A monitor from before output was read kept a digest of the whole capture,
+// which never equals the digest of the output on the same screen. Read as
+// output written, it gave every native goblin between turns a fresh idle clock
+// at the upgrade, so a wedged one woke a whole stall window late.
+func TestAnOlderMonitorsDigestIsNotOutputBetweenTurns(t *testing.T) {
+	// Arrange: an older monitor already found this screen idle past the stall
+	// window.
+	now := time.Date(2026, 10, 8, 13, 0, 0, 0, time.UTC)
+	service, probe, _, meta := progressService(t, &now)
+	screen := "● Reading the suite's output."
+	idleSince := now.Add(-2 * service.StallAfter)
+	if err := WriteObservation(service.StateDir, Observation{TaskID: meta.ID, Endpoint: endpointString(meta), EndpointVerdict: ProbePresent, Digest: fmt.Sprintf("%x", sha256.Sum256(capture(screen))), LastObserved: now.Add(-time.Minute), LastSeen: idleSince, LastProgress: idleSince, IdleSince: &idleSince, Health: HealthIdle, Reason: None}); err != nil {
+		t.Fatal(err)
+	}
+	sample := sampleForStatus(meta, herdr.AgentUnknown, screen)
+	sample.CountersUnavailable = true
+	probe.samples[meta.ID] = sample
+
+	// Act
+	result, err := service.Scan(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Assert
+	if result.Event == nil || !strings.HasPrefix(result.Event.Detail, string(UnchangedIdle)+":") {
+		t.Fatalf("event = %+v, observations = %+v, want unchanged_idle now", result.Event, result.Observations)
 	}
 }
 

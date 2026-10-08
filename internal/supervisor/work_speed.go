@@ -230,7 +230,7 @@ func (s *Service) workEvidence(meta state.TaskMeta, tree fleettree.Tree, isTreeR
 		observation.LastObserved.Before(spawnTime(meta.SpawnGen)) || now.Sub(observation.LastObserved) > evidenceFresh || observation.LastObserved.After(now.Add(time.Minute)) {
 		missing = append(missing, "its screen, which the monitor has not read in the last two minutes")
 	} else {
-		screen = observation.Digest
+		screen = observation.OutputDigest
 	}
 	if !isTreeRead || tree.Generation != meta.SpawnGen || now.Sub(tree.FetchedAt) > evidenceFresh {
 		return screen, records, busy, append(missing, "its transcript and processes, which the board has not read in the last two minutes")

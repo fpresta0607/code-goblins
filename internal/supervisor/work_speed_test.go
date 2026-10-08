@@ -386,7 +386,7 @@ func newToolCallGoblin(t *testing.T, now time.Time) *toolCallGoblin {
 func (g *toolCallGoblin) read(t *testing.T, at time.Time) {
 	t.Helper()
 	g.clock = at
-	if err := monitor.WriteObservation(g.home.State, monitor.Observation{TaskID: "slow-task", Endpoint: (herdr.Target{}).String(), EndpointVerdict: monitor.ProbePresent, Digest: g.screen, LastObserved: at, LastSeen: at, LastProgress: at, Health: monitor.HealthBusy, Reason: monitor.None}); err != nil {
+	if err := monitor.WriteObservation(g.home.State, monitor.Observation{TaskID: "slow-task", Endpoint: (herdr.Target{}).String(), EndpointVerdict: monitor.ProbePresent, Digest: g.screen, OutputDigest: g.screen, LastObserved: at, LastSeen: at, LastProgress: at, Health: monitor.HealthBusy, Reason: monitor.None}); err != nil {
 		t.Fatal(err)
 	}
 	g.service.readTrees(t.Context())
