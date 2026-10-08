@@ -76,7 +76,6 @@ type Memory struct {
 	Floor           uint64         `json:"floor"`
 	Next            uint64         `json:"next"`
 	Holders         []CommitHolder `json:"holders,omitempty"`
-	Capacity        *FleetCapacity `json:"capacity,omitempty"`
 }
 
 // shortfall says how much of memory, of commit or of both is free when it is
@@ -218,7 +217,7 @@ func (s *Service) startQueued(id string, isOverlord bool) error {
 	if err != nil {
 		return StartRefusal{Reason: "Free disk cannot be read, so nothing starts: " + err.Error()}
 	}
-	if err := CheckLaunch(s.Store.Home, memory, disk); err != nil {
+	if err := CheckLaunch(memory, disk); err != nil {
 		return StartRefusal{Reason: err.Error(), Passing: true}
 	}
 	if plan.missingBrief != nil {
