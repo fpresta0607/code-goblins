@@ -111,8 +111,14 @@ func (service Service) Run(ctx context.Context, request Request) (result state.L
 	if meta.SpawnGen != request.Generation && !isSameResume {
 		return result, errors.New("task session changed; refresh before trying again")
 	}
+	// A paused task paused again takes the new condition in place, so what
+	// resumes it can be changed; what its pause stopped and kept stays, and
+	// nothing is stopped again.
 	if request.Action == "pause" && prior.Generation == meta.SpawnGen && prior.Phase == "paused" {
-		return service.finish(prior)
+		result = prior
+		result.Operation, result.RequestGeneration, result.Reason, result.Pause = request.Operation, request.Generation, request.Reason, pause
+		result.Watched, result.NoticeSent = request.IsWatched, false
+		return service.finish(result)
 	}
 	isAlreadyRunning := false
 	if request.Action == "resume" {
@@ -241,6 +247,14 @@ func (service Service) Run(ctx context.Context, request Request) (result state.L
 		}
 		result.Stopped, err = service.Operations.Stop(ctx, meta, &result)
 		result.Stopped = append(result.Stopped, helpers...)
+		// A pause takes effect once the goblin's terminal has ended, whatever
+		// the sweep for its other processes met: a busy goblin that missed
+		// its stopping point is the one holding the memory a pause is for,
+		// and its session is kept for its resume.
+		if request.Action == "pause" && errors.As(err, new(UnfinishedStop)) {
+			result.Problems = append(result.Problems, err.Error())
+			err = nil
+		}
 		if err == nil && service.Operations.Checkpoint != nil {
 			err = service.Operations.Checkpoint(ctx, meta, &result)
 		}
