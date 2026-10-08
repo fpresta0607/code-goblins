@@ -836,17 +836,18 @@ public static extern IntPtr SendMessageTimeout(IntPtr hWnd, uint Msg, UIntPtr wP
             }
             $shortcut.Save()
             Write-Detail ("shortcut {0,-20} {1}" -f "Code Goblins", $shortcutPath)
+            # A window this install delivered replaces the standalone entry,
+            # once its own entry is saved in the Start menu.
+            $earlierShortcut = Join-Path $programs "Code Goblins Window.lnk"
+            if ($place.Name -eq "Start-menu" -and $deliveredWindow -and (Test-Path -LiteralPath $earlierShortcut)) {
+                Remove-Item -LiteralPath $earlierShortcut -Force
+                Write-Detail ("removed  {0,-20} {1}" -f "Code Goblins Window", $earlierShortcut)
+            }
         }
         catch {
             Write-Detail ("WARN     {0,-20} the {1} shortcut was not made: {2}" -f "Code Goblins", $place.Name, $_.Exception.Message)
             $failedInstalls += "$($place.Name) shortcut"
         }
-    }
-    # A window this install delivered replaces the standalone entry.
-    $earlierShortcut = Join-Path $programs "Code Goblins Window.lnk"
-    if ($deliveredWindow -and (Test-Path -LiteralPath $earlierShortcut)) {
-        Remove-Item -LiteralPath $earlierShortcut -Force
-        Write-Detail ("removed  {0,-20} {1}" -f "Code Goblins Window", $earlierShortcut)
     }
 
     Write-Detail ""
