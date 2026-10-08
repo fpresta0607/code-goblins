@@ -11,12 +11,14 @@ import (
 	"sync"
 	"testing"
 	"time"
+
+	"github.com/fpresta0607/code-goblins/internal/vtscreen"
 )
 
 // A viewer that stops reading is dropped once it is further behind than a
 // replay reaches, rather than waited on, and the others keep receiving.
 func TestHistoryDropsAViewerThatCannotKeepUp(t *testing.T) {
-	output := newHistory(80, 24)
+	output := newTestHistory(t, 80, 24)
 	_, _, stalled, _ := output.attach()
 	_, _, reading, _ := output.attach()
 	chunk := []byte(strings.Repeat("x", 64<<10))
@@ -42,7 +44,7 @@ func TestHistoryDropsAViewerThatCannotKeepUp(t *testing.T) {
 // A viewer still reading through a burst of output is not dropped, however
 // many writes the burst came in: ConPTY writes about one chunk per line.
 func TestHistoryKeepsAViewerThatFallsBehindDuringABurst(t *testing.T) {
-	output := newHistory(80, 24)
+	output := newTestHistory(t, 80, 24)
 	_, _, viewer, _ := output.attach()
 	line := []byte(strings.Repeat("s", 100) + "\r\n")
 	for i := 0; i < 2000; i++ {
@@ -60,11 +62,12 @@ func TestHistoryKeepsAViewerThatFallsBehindDuringABurst(t *testing.T) {
 	}
 }
 
-// Only the latest output up to the limit is replayed to late viewers, and
-// the output kept for them is trimmed to its tail once it passes twice the
-// limit.
+// Only the latest output up to the limit is replayed to late viewers, then
+// the screen's repaint, since the replay no longer starts at the terminal's
+// start, and the output kept for them is trimmed to its tail once it passes
+// twice the limit.
 func TestHistoryKeepsOnlyTheLatestOutput(t *testing.T) {
-	output := newHistory(80, 24)
+	output := newTestHistory(t, 80, 24)
 	for _, fill := range []string{"a", "b", "c"} {
 		output.write(bytes.Repeat([]byte(fill), historyLimit))
 	}
@@ -73,8 +76,9 @@ func TestHistoryKeepsOnlyTheLatestOutput(t *testing.T) {
 	past, _, _, detach := output.attach()
 	defer detach()
 
-	if len(past) != historyLimit || past[0] != 'c' || !strings.HasSuffix(string(past), "latest") {
-		t.Errorf("history is %d bytes from %q to %q, want the last %d, the third write's then the latest output", len(past), past[0], past[len(past)-6:], historyLimit)
+	replay, isRepainted := bytes.CutSuffix(past, output.screen.Repaint())
+	if len(replay) != historyLimit || replay[0] != 'c' || !bytes.HasSuffix(replay, []byte("latest")) || !isRepainted {
+		t.Errorf("history is %d bytes from %q, repainted %v, want the last %d, the third write's then the latest output, then the repaint", len(replay), replay[0], isRepainted, historyLimit)
 	}
 	if kept := len(output.kept); kept > 2*historyLimit {
 		t.Errorf("the history keeps %d bytes, want at most %d", kept, 2*historyLimit)
@@ -98,19 +102,20 @@ func TestHistoryReplayStartsOnABoundary(t *testing.T) {
 		"on the limit itself": {"a\x1b[K", 1, "\x1b[Kbb"},
 	} {
 		t.Run(name, func(t *testing.T) {
-			output := newHistory(80, 24)
+			output := newTestHistory(t, 80, 24)
 			output.write([]byte(replay.head + strings.Repeat("b", historyLimit+replay.cut-len(replay.head))))
 
 			past, _, _, detach := output.attach()
 			detach()
 
+			past, _ = bytes.CutSuffix(past, output.screen.Repaint())
 			if !strings.HasPrefix(string(past), replay.want) || len(past) > historyLimit {
 				t.Errorf("the replay starts %q and holds %d bytes, want it to start %q within the %d-byte limit", past[:min(len(past), 24)], len(past), replay.want, historyLimit)
 			}
 		})
 	}
 	t.Run("trimming", func(t *testing.T) {
-		output := newHistory(80, 24)
+		output := newTestHistory(t, 80, 24)
 		// The trim falls five bytes into the colour code.
 		output.write([]byte(strings.Repeat("a", historyLimit) + colour + "\r\n"))
 		output.write([]byte(strings.Repeat("c", historyLimit+5-len(colour)-2)))
@@ -121,18 +126,45 @@ func TestHistoryReplayStartsOnABoundary(t *testing.T) {
 	})
 }
 
+// newTestHistory is a history of a terminal of cols by rows cells.
+func newTestHistory(t *testing.T, cols, rows int) *history {
+	t.Helper()
+	output, err := newHistory(cols, rows)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return output
+}
+
+// repaintAfter is the repaint a terminal of cols by rows cells passes on
+// when it shows output and is then resized to resized.
+func repaintAfter(t *testing.T, cols, rows int, output string, resized [2]int) string {
+	t.Helper()
+	screen, err := vtscreen.New(cols, rows)
+	if err != nil {
+		t.Fatal(err)
+	}
+	screen.Write([]byte(output))
+	repaint, err := screen.Resize(resized[0], resized[1])
+	if err != nil {
+		t.Fatal(err)
+	}
+	return string(repaint)
+}
+
 // A resize is marked at its place in the output, for a late viewer's replay
-// and for every live viewer, once it took; a resize that failed is not.
+// and for every live viewer, with the screen's repaint after it; a size the
+// terminal cannot take is not.
 func TestHistoryMarksEachResizeAtItsPlace(t *testing.T) {
-	output := newHistory(80, 24)
+	output := newTestHistory(t, 80, 24)
 	_, _, live, detach := output.attach()
 	defer detach()
 	output.write([]byte("before"))
 	if err := output.resize(100, 30, func() error { return nil }); err != nil {
 		t.Fatal(err)
 	}
-	if err := output.resize(1, 1, func() error { return errors.New("refused") }); err == nil {
-		t.Fatal("a failed resize reported success")
+	if err := output.resize(1, 1, func() error { return nil }); err == nil {
+		t.Fatal("a size no terminal can take reported success")
 	}
 	output.write([]byte("after"))
 
@@ -140,45 +172,70 @@ func TestHistoryMarksEachResizeAtItsPlace(t *testing.T) {
 	detachLate()
 	taken, told, _ := live.next()
 
-	if want := []geometry{{0, 80, 24}, {6, 100, 30}}; string(past) != "beforeafter" || !reflect.DeepEqual(sizes, want) {
-		t.Errorf("the replay is %q at %v, want %q at %v", past, sizes, "beforeafter", want)
+	want := "before" + repaintAfter(t, 80, 24, "before", [2]int{100, 30}) + "after"
+	if wantSizes := []geometry{{0, 80, 24}, {6, 100, 30}}; string(past) != want || !reflect.DeepEqual(sizes, wantSizes) {
+		t.Errorf("the replay is %q at %v, want %q at %v", past, sizes, want, wantSizes)
 	}
-	if want := []geometry{{6, 100, 30}}; string(taken) != "beforeafter" || !reflect.DeepEqual(told, want) {
-		t.Errorf("the live viewer took %q with %v, want %q with %v", taken, told, "beforeafter", want)
+	if wantSizes := []geometry{{6, 100, 30}}; string(taken) != want || !reflect.DeepEqual(told, wantSizes) {
+		t.Errorf("the live viewer took %q with %v, want %q with %v", taken, told, want, wantSizes)
 	}
 }
 
-// Of resizes with no output between them only the last is kept, since
-// nothing was drawn at the others, so resizing a window keeps no more sizes
-// than the output it draws.
-func TestHistoryKeepsTheLastOfResizesWithNoOutputBetween(t *testing.T) {
-	output := newHistory(80, 24)
+// A size the pseudo console refuses, as one that has closed does, leaves
+// the terminal at the size before it, for the history and its screen alike.
+func TestHistoryPutsBackTheSizeBeforeOneThePseudoConsoleRefused(t *testing.T) {
+	output := newTestHistory(t, 80, 24)
+	output.write([]byte("before"))
+
+	err := output.resize(100, 30, func() error { return errors.New("refused") })
+	output.write([]byte("\x1b[99;99H"))
+	_, sizes, _, detach := output.attach()
+	detach()
+	answer := output.write([]byte("\x1b[6n"))
+
+	if err == nil {
+		t.Fatal("a refused resize reported success")
+	}
+	if last := sizes[len(sizes)-1]; last.Cols != 80 || last.Rows != 24 {
+		t.Errorf("the replay's sizes are %v, want them to end at 80x24", sizes)
+	}
+	if string(answer) != "\x1b[24;80R" {
+		t.Errorf("the screen answers %q, want the cursor at the corner of 80x24", answer)
+	}
+}
+
+// A resize to the size the terminal has repaints its screen too, as the
+// system conhost does, since a viewer sends its size as it connects and
+// counts on the repaint to show the screen whole.
+func TestHistoryRepaintsOnAResizeToTheSameSize(t *testing.T) {
+	output := newTestHistory(t, 80, 24)
 	_, _, live, detach := output.attach()
 	defer detach()
 	output.write([]byte("x"))
-	for cols := 90; cols <= 120; cols += 10 {
-		if err := output.resize(cols, 30, func() error { return nil }); err != nil {
-			t.Fatal(err)
-		}
+
+	if err := output.resize(80, 24, func() error { return nil }); err != nil {
+		t.Fatal(err)
 	}
 
-	_, sizes, _, detachLate := output.attach()
+	past, sizes, _, detachLate := output.attach()
 	detachLate()
-	_, told, _ := live.next()
-
-	if want := []geometry{{0, 80, 24}, {1, 120, 30}}; !reflect.DeepEqual(sizes, want) {
-		t.Errorf("the replay's sizes are %v, want %v", sizes, want)
+	taken, told, _ := live.next()
+	want := "x" + repaintAfter(t, 80, 24, "x", [2]int{80, 24})
+	if wantSizes := []geometry{{0, 80, 24}, {1, 80, 24}}; string(past) != want || !reflect.DeepEqual(sizes, wantSizes) {
+		t.Errorf("the replay is %q at %v, want %q at %v", past, sizes, want, wantSizes)
 	}
-	if want := []geometry{{1, 120, 30}}; !reflect.DeepEqual(told, want) {
-		t.Errorf("the live viewer was told %v, want %v", told, want)
+	if wantSizes := []geometry{{1, 80, 24}}; string(taken) != want || !reflect.DeepEqual(told, wantSizes) {
+		t.Errorf("the live viewer took %q with %v, want %q with %v", taken, told, want, wantSizes)
 	}
 }
 
 // Output keeps flowing while the pseudo console applies a resize, which can
-// need its output drained to finish: what the terminal writes meanwhile is
-// kept, before the size, which is marked once the resize is known applied.
+// need its output drained to finish. The size and the screen's repaint come
+// first, since the screen takes the size before the pseudo console does, so
+// a query the program asks once the pseudo console has resized is answered
+// at the new size; what the terminal writes meanwhile is kept after them.
 func TestHistoryKeepsOutputWrittenWhileAResizeApplies(t *testing.T) {
-	output := newHistory(80, 24)
+	output := newTestHistory(t, 80, 24)
 	_, _, live, detach := output.attach()
 	defer detach()
 	output.write([]byte("before"))
@@ -205,11 +262,12 @@ func TestHistoryKeepsOutputWrittenWhileAResizeApplies(t *testing.T) {
 	past, sizes, _, detachLate := output.attach()
 	detachLate()
 	taken, told, _ := live.next()
-	if want := []geometry{{0, 80, 24}, {12, 100, 30}}; string(past) != "beforeduringafter" || !reflect.DeepEqual(sizes, want) {
-		t.Errorf("the replay is %q at %v, want %q at %v", past, sizes, "beforeduringafter", want)
+	want := "before" + repaintAfter(t, 80, 24, "before", [2]int{100, 30}) + "duringafter"
+	if wantSizes := []geometry{{0, 80, 24}, {6, 100, 30}}; string(past) != want || !reflect.DeepEqual(sizes, wantSizes) {
+		t.Errorf("the replay is %q at %v, want %q at %v", past, sizes, want, wantSizes)
 	}
-	if want := []geometry{{12, 100, 30}}; string(taken) != "beforeduringafter" || !reflect.DeepEqual(told, want) {
-		t.Errorf("the live viewer took %q with %v, want %q with %v", taken, told, "beforeduringafter", want)
+	if wantSizes := []geometry{{6, 100, 30}}; string(taken) != want || !reflect.DeepEqual(told, wantSizes) {
+		t.Errorf("the live viewer took %q with %v, want %q with %v", taken, told, want, wantSizes)
 	}
 }
 
@@ -217,7 +275,7 @@ func TestHistoryKeepsOutputWrittenWhileAResizeApplies(t *testing.T) {
 // order, and each size lands between two writes, never inside one, in the
 // order the resizes were made, for a live viewer and a late replay alike.
 func TestHistoryPlacesConcurrentResizesBetweenWrites(t *testing.T) {
-	output := newHistory(80, 24)
+	output := newTestHistory(t, 80, 24)
 	_, _, live, detach := output.attach()
 	defer detach()
 	var mu sync.Mutex
@@ -251,27 +309,29 @@ func TestHistoryPlacesConcurrentResizesBetweenWrites(t *testing.T) {
 	output.write([]byte("<end>"))
 	written.WriteString("<end>")
 
-	var taken strings.Builder
+	var taken []byte
 	var marks []geometry
-	for !strings.HasSuffix(taken.String(), "<end>") {
+	for !bytes.HasSuffix(taken, []byte("<end>")) {
 		chunk, sizes, open := live.next()
 		if !open {
 			t.Fatal("the live viewer was dropped")
 		}
 		for _, size := range sizes {
-			marks = append(marks, geometry{At: taken.Len() + size.At, Cols: size.Cols, Rows: size.Rows})
+			marks = append(marks, geometry{At: len(taken) + size.At, Cols: size.Cols, Rows: size.Rows})
 		}
-		taken.Write(chunk)
+		taken = append(taken, chunk...)
 	}
 
-	if taken.String() != written.String() {
-		t.Fatalf("the live viewer took %d bytes that differ from the %d written", taken.Len(), written.Len())
+	program, marks := withoutRepaints(taken, marks)
+	if program != written.String() {
+		t.Fatalf("the live viewer took %d bytes of the program's that differ from the %d written", len(program), written.Len())
 	}
-	_, replayed, _, detachLate := output.attach()
+	past, replayed, _, detachLate := output.attach()
 	detachLate()
 	if replayed[0] != (geometry{At: 0, Cols: 80, Rows: 24}) {
 		t.Fatalf("the replay starts at size %v, want the initial 80x24 at byte 0", replayed[0])
 	}
+	_, replayed = withoutRepaints(past, replayed)
 	for name, sizes := range map[string][]geometry{"live": marks, "replayed": replayed[1:]} {
 		if len(sizes) == 0 || sizes[len(sizes)-1].Cols != 219 {
 			t.Errorf("%s sizes end %v, want the last resize, 219 columns", name, sizes[max(0, len(sizes)-1):])
@@ -287,30 +347,62 @@ func TestHistoryPlacesConcurrentResizesBetweenWrites(t *testing.T) {
 	}
 }
 
+// repaintStart and repaintEnd open and close every repaint of a screen
+// whose program is not in the middle of synchronized output.
+var repaintStart, repaintEnd = []byte("\x1b[?2026h"), []byte("\x1b[?2026l")
+
+// withoutRepaints is output with the screen's repaints taken out, and sizes
+// moved with the output that is left.
+func withoutRepaints(output []byte, sizes []geometry) (string, []geometry) {
+	var left []byte
+	moved := make([]int, len(output)+1)
+	for i := 0; i < len(output); {
+		if bytes.HasPrefix(output[i:], repaintStart) {
+			end := i + bytes.Index(output[i:], repaintEnd) + len(repaintEnd)
+			for ; i < end; i++ {
+				moved[i] = len(left)
+			}
+			continue
+		}
+		moved[i] = len(left)
+		left = append(left, output[i])
+		i++
+	}
+	moved[len(output)] = len(left)
+	movedSizes := make([]geometry, len(sizes))
+	for i, size := range sizes {
+		movedSizes[i] = geometry{At: moved[size.At], Cols: size.Cols, Rows: size.Rows}
+	}
+	return string(left), movedSizes
+}
+
 // Trimming the kept output keeps the size its new start was written at, and
-// moves the later sizes with the output.
+// moves the later sizes with the output; the replay of output that lost its
+// start ends with the screen's repaint.
 func TestHistoryTrimKeepsTheSizeItsStartWasWrittenAt(t *testing.T) {
-	output := newHistory(80, 24)
+	output := newTestHistory(t, 80, 24)
 	output.write(bytes.Repeat([]byte("a"), historyLimit))
 	_ = output.resize(100, 30, func() error { return nil })
 	output.write(bytes.Repeat([]byte("b"), historyLimit))
 	_ = output.resize(120, 40, func() error { return nil })
-	// The trim falls ten bytes into the b's, which have no line or escape
-	// sequence to start on.
 	output.write(bytes.Repeat([]byte("c"), 10))
 
 	past, sizes, _, detach := output.attach()
 	detach()
 
-	if want := []geometry{{0, 100, 30}, {historyLimit - 10, 120, 40}}; past[0] != 'b' || !reflect.DeepEqual(sizes, want) {
+	second := bytes.Index(past, repaintStart)
+	if want := []geometry{{0, 100, 30}, {second, 120, 40}}; past[0] != 'b' || !reflect.DeepEqual(sizes, want) {
 		t.Errorf("the replay starts %q at %v, want the b's at %v", past[0], sizes, want)
+	}
+	if !bytes.HasSuffix(past, output.screen.Repaint()) {
+		t.Error("the replay does not end with the screen's repaint")
 	}
 }
 
 // A viewer that attaches after the terminal ended gets the history and an
 // ended feed.
 func TestHistoryAfterTheEndStillReplays(t *testing.T) {
-	output := newHistory(80, 24)
+	output := newTestHistory(t, 80, 24)
 	output.write([]byte("last words"))
 	output.end()
 

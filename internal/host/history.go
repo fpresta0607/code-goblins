@@ -2,15 +2,18 @@ package host
 
 import (
 	"bytes"
+	"errors"
 	"sync"
 	"unicode/utf8"
+
+	"github.com/fpresta0607/code-goblins/internal/vtscreen"
 )
 
 // historyLimit bounds the terminal output a host replays to a late viewer.
 // The kept output is trimmed back to it in batches, once it doubles, so a
-// write does not copy the whole history. A viewer repaints its screen with a
-// resize once the replay ends, since the pseudo console redraws its whole
-// window on every resize, so the replay only has to supply the scrollback.
+// write does not copy the whole history. A replay that no longer starts at
+// the terminal's first output ends with a repaint of the whole screen, so a
+// late viewer shows the screen whole however much of it the replay drew.
 const historyLimit = 4 << 20
 
 // geometry is the terminal's size in cells from byte At of an output on.
@@ -70,10 +73,16 @@ func replayStart(output []byte, cut int) int {
 }
 
 // history is the terminal's recent output, the sizes it was written at, and
-// whoever is watching it live.
+// whoever is watching it live. Its screen is the terminal of record: what
+// the program writes goes through it, which answers the program's queries
+// and keeps them from viewers, so viewers are passed and replay the output
+// without them.
 type history struct {
 	mu   sync.Mutex
 	kept []byte
+	// isTrimmed is whether kept has lost the terminal's first output.
+	isTrimmed bool
+	screen    *vtscreen.Screen
 	// sizes are kept's sizes in order; the first, at 0, is the size kept
 	// starts at.
 	sizes   []geometry
@@ -97,62 +106,107 @@ type feed struct {
 }
 
 // newHistory starts the history of a terminal of cols by rows cells.
-func newHistory(cols, rows int) *history {
-	return &history{sizes: []geometry{{Cols: cols, Rows: rows}}, viewers: map[*feed]struct{}{}}
+func newHistory(cols, rows int) (*history, error) {
+	screen, err := vtscreen.New(cols, rows)
+	if err != nil {
+		return nil, err
+	}
+	return &history{screen: screen, sizes: []geometry{{Cols: cols, Rows: rows}}, viewers: map[*feed]struct{}{}}, nil
 }
 
-// write keeps chunk and queues it for every viewer. A viewer is dropped,
+// write takes output the terminal's program wrote, keeps and queues for
+// every viewer what its screen passes on, and returns what the screen
+// answers the program.
+func (h *history) write(chunk []byte) (answers []byte) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	forward, answers := h.screen.Write(chunk)
+	h.pass(forward)
+	return answers
+}
+
+// pass keeps output and queues it for every viewer. A viewer is dropped,
 // never waited on, once it is further behind than a replay reaches, so the
 // terminal never stalls behind a slow window and a viewer holds no more than
 // the history does. The bound is in bytes, not writes: ConPTY writes about
 // one chunk per line, so an ordinary burst of a few thousand lines is
-// thousands of writes while a viewer is still reading through it.
-func (h *history) write(chunk []byte) {
-	h.mu.Lock()
-	defer h.mu.Unlock()
-	h.kept = append(h.kept, chunk...)
+// thousands of writes while a viewer is still reading through it. The
+// caller holds h.mu.
+func (h *history) pass(output []byte) {
+	if len(output) == 0 {
+		return
+	}
+	h.kept = append(h.kept, output...)
 	if len(h.kept) > 2*historyLimit {
 		cut := replayStart(h.kept, len(h.kept)-historyLimit)
 		h.kept = append(h.kept[:0], h.kept[cut:]...)
 		h.sizes = sizesFrom(h.sizes, cut)
+		h.isTrimmed = true
 	}
 	for viewer := range h.viewers {
-		if len(viewer.pending)+len(chunk) > historyLimit {
+		if len(viewer.pending)+len(output) > historyLimit {
 			h.stop(viewer)
 			continue
 		}
-		viewer.pending = append(viewer.pending, chunk...)
+		viewer.pending = append(viewer.pending, output...)
 		viewer.wake()
 	}
 }
 
-// resize applies a resize with apply and, once it took, marks the new size
-// at its place in the output, for the history and every viewer.
+// resize gives the terminal a new size: its screen first, so a query the
+// program asks once the pseudo console has resized is answered at the new
+// size, with the size marked at its place in the output for the history and
+// every viewer and the screen's repaint after it, then the pseudo console,
+// with apply. A size apply refuses puts the size before it back.
 func (h *history) resize(cols, rows int, apply func() error) error {
 	h.sizing.Lock()
 	defer h.sizing.Unlock()
-	if err := apply(); err != nil {
+	h.mu.Lock()
+	previous := h.sizes[len(h.sizes)-1]
+	err := h.take(cols, rows)
+	h.mu.Unlock()
+	if err != nil {
 		return err
 	}
-	h.mu.Lock()
-	defer h.mu.Unlock()
+	if err := apply(); err != nil {
+		h.mu.Lock()
+		defer h.mu.Unlock()
+		return errors.Join(err, h.take(previous.Cols, previous.Rows))
+	}
+	return nil
+}
+
+// take resizes the screen, marks the size at its place in the output for
+// the history and every viewer, and passes on the screen's repaint, since a
+// pseudo console does not repaint on a resize while each viewer resizes its
+// own copy of the screen its own way. The caller holds h.mu.
+func (h *history) take(cols, rows int) error {
+	repaint, err := h.screen.Resize(cols, rows)
+	if err != nil {
+		return err
+	}
 	h.sizes = withSize(h.sizes, geometry{At: len(h.kept), Cols: cols, Rows: rows})
 	for viewer := range h.viewers {
 		viewer.sizes = withSize(viewer.sizes, geometry{At: len(viewer.pending), Cols: cols, Rows: rows})
 		viewer.wake()
 	}
+	h.pass(repaint)
 	return nil
 }
 
 // attach returns the output so far with the sizes it was written at, and a
 // feed that starts exactly where it ends, which ends when the terminal ends
-// or detach is called.
+// or detach is called. Output that no longer starts at the terminal's first
+// ends with the screen's repaint.
 func (h *history) attach() ([]byte, []geometry, *feed, func()) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 	viewer := &feed{output: h, ready: make(chan struct{}, 1)}
 	start := replayStart(h.kept, len(h.kept)-historyLimit)
 	past, sizes := append([]byte(nil), h.kept[start:]...), sizesFrom(h.sizes, start)
+	if start > 0 || h.isTrimmed {
+		past = append(past, h.screen.Repaint()...)
+	}
 	if h.closed {
 		h.stop(viewer)
 		return past, sizes, viewer, func() {}
