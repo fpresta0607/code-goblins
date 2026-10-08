@@ -145,3 +145,23 @@ func init() {
 		return filepath.Join(filepath.Dir(path), "OpenConsole.exe"), nil
 	}
 }
+
+// Probe, not committed: the first bytes each console host writes.
+func TestZZFirstBytes(t *testing.T) {
+	progressPath := filepath.Join(t.TempDir(), "keys-read.log")
+	console, err := Start(Spec{Args: []string{os.Args[0], "-test.run=^TestStrandedInputChild$", "--", "stranded-input-child", progressPath}, Cols: 120, Rows: 40})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer console.Close()
+	var seen []byte
+	buffer := make([]byte, 4096)
+	for deadline := time.Now().Add(2 * time.Second); time.Now().Before(deadline) && len(seen) < 300; {
+		n, err := console.Read(buffer)
+		seen = append(seen, buffer[:n]...)
+		if err != nil {
+			break
+		}
+	}
+	t.Logf("first bytes: %q", seen[:min(len(seen), 300)])
+}

@@ -53,17 +53,9 @@ jobs:
       - name: Through OpenConsole, 1500 times
         continue-on-error: true
         shell: pwsh
-        run: go test ./internal/conpty -run '^TestTypedKeysReachAProgramThatPrintsWhileItReads$' -count=1500 -timeout 35m
+        run: go test ./internal/conpty -run '^TestTypedKeysReachAProgramThatPrintsWhileItReads$' -count=2000 -timeout 45m
         env:
           CONPTY_PROBE_DLL: D:\conpty\conpty.dll
-          CONPTY_PROBE_DUMPS: '1'
-          CFO_HOME: ${{ runner.temp }}\cfo-go-tests
-          CFO_STATE_OVERRIDE: ${{ runner.temp }}\cfo-go-tests\state
-      - name: Through the inbox conhost, 500 times
-        continue-on-error: true
-        shell: pwsh
-        run: go test ./internal/conpty -run '^TestTypedKeysReachAProgramThatPrintsWhileItReads$' -count=500 -timeout 20m
-        env:
           CONPTY_PROBE_DUMPS: '1'
           CFO_HOME: ${{ runner.temp }}\cfo-go-tests
           CFO_STATE_OVERRIDE: ${{ runner.temp }}\cfo-go-tests\state
