@@ -13,6 +13,7 @@ const SNAPSHOT = {
   tasks: [
     { id: "nw-sync", title: "Say why a billing sync fails", goblin_name: "Jerry", goblin_title: "Code Designer", project: "northwind-api", phase: "working", verified: false, generation: "nw-sync-1", harness: "claude", since },
     { id: "nw-export", title: "Export the audit trail", goblin_name: "Mabel", goblin_title: "Bug Hunter", project: "northwind-api", phase: "working", verified: false, generation: "nw-export-1", harness: "codex", pr: REPO + "/pull/55", since },
+    { id: "finished:nw-rates", title: "Cache the exchange rates", goblin_name: "Otis", goblin_title: "Speed Tuner", project: "northwind-api", phase: "done", archived: true, merged: true, verified: true, generation: "", pr: REPO + "/pull/51", at: since },
   ],
   merge_trains: [{
     id: "northwind-api-20261008-020000", repository: "northwind/northwind-api", base: "main", pr: REPO + "/pull/900", state: "testing", runs: 1,
@@ -45,6 +46,12 @@ for (const viewport of [{ name: "in his window", width: 1707, height: 1067 }, { 
       await expect(jerry(page).locator(".goblin-avatar")).toBeVisible();
       await jerry(page).locator(".card-title").hover();
       await expect(page.getByRole("tooltip")).toHaveText("Say why a billing sync fails");
+    });
+
+    test("a completed card leads with what it delivered", async ({ page }) => {
+      await open(page);
+      const done = page.locator(".task-card-shell").filter({ has: page.locator(".card-pr[href$='/51']") });
+      await expect(done.locator(".card-title")).toHaveText("Cache the exchange rates");
     });
 
     test("the merge train names each pull request's goblin with its avatar, and its task in the tip", async ({ page }) => {

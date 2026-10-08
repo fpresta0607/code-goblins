@@ -356,7 +356,10 @@ The header switches between two views, one at a time, each with a contextual pan
   <img src="docs/images/orchestration.webp" alt="Orchestration view over the goblin workshop at night: the CFO above five goblins in three repositories, a count of what runs under each goblin that runs anything, and the selected goblin's live native terminal in the right panel" width="900" />
 </p>
 
-Each card shows the task's short title and a muted line with its repo and status; the goblin's own words are in its panel.
+Every goblin gets a fun first name and title when it spawns, such as Jerry - Code Designer, new each time.
+A live goblin's card, its car on a merge train, its card on the Orchestration canvas and its panel show that name beside its avatar, with its task in the tip once the pointer rests on it and under its name in the panel, and the CFO calls it by that name.
+Each card shows that name, or the task's short title for a queued or completed task, and a muted line with its repo and status.
+The goblin's own words are in its panel.
 Each card carries the mark of the harness its goblin runs (Codex, Claude Code, pi, Kimi or a terminal for any other), and its tip names the harness, model and effort.
 The CFO's bar carries the mark of the harness the CFO runs, and its tip names the harness and its model.
 On a narrow screen the columns stack and a card's repo and status wrap onto more lines and its name onto up to three, so nothing scrolls sideways; a name cut at three lines shows in full in a tip on hover or keyboard focus.

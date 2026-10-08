@@ -38,8 +38,9 @@ export function TaskCard({ task, snapshot, selected, presentations, now, rank, n
   onSelect: (task: Task, source: HTMLElement) => void;
   onTerminal: (task: Task, source: HTMLElement) => void;
 }) {
-  // A named goblin's card shows its task in a tip on hover or focus. Any
-  // other title still shortened shows in full in its tip: that card carries
+  // A live goblin goes by its name and shows its task in a tip on hover or
+  // focus, and a completed card leads with what it delivered. Any other
+  // title still shortened shows in full in its tip: that card carries
   // data-tip only while its title is shortened.
   const [clipped, setClipped] = useState(false);
   const card = useRef<HTMLButtonElement>(null);
@@ -47,11 +48,12 @@ export function TaskCard({ task, snapshot, selected, presentations, now, rank, n
     const title = event.currentTarget.querySelector<HTMLElement>(".card-title");
     setClipped(!!title && title.scrollHeight > title.clientHeight + 1);
   };
-  const name = goblinName(task);
-  const tip = task.goblin_name ? { "data-tip": taskName(task), "data-tip-align": "start" } : clipped ? { "data-tip": name, "data-tip-align": "start" } : {};
+  const column = taskColumn(task);
+  const isNamed = task.goblin_name !== "" && column !== "Completed";
+  const name = isNamed ? goblinName(task) : taskName(task);
+  const tip = isNamed ? { "data-tip": taskName(task), "data-tip-align": "start" } : clipped ? { "data-tip": name, "data-tip-align": "start" } : {};
   const pr = safePullRequest(task.pr), icon = pullRequestIcon(task), asking = asksOverlord(snapshot, task.id);
   const waiting = task.phase === "queued";
-  const column = taskColumn(task);
   const clock = column === "Completed" || column === "Paused" ? "" : clockText(task.since, now, waiting ? "waiting" : "running");
   const clockBadge = clock && <span className="card-clock"><Icon name="clock" /><span className="sr-only">{waiting ? "Waiting for" : "Running for"} </span>{clock}</span>;
   const ended = (column === "Paused" || column === "Completed") && task.at ? new Date(task.at) : null;
