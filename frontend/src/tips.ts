@@ -74,8 +74,9 @@ function place(node: HTMLElement, part: HTMLElement) {
 
 // A tip shows once the pointer has rested on its part this long; the
 // keyboard's focus shows it at once. The Overlord, 2026-10-07: "tool tip hover
-// text box should appear after 2 second hover not immediately".
-export const TIP_REST_MS = 2000;
+// text box should appear after 2 second hover not immediately", and
+// 2026-10-08: "goblin tool tip on hover should be .5 seconds faster".
+export const TIP_REST_MS = 1500;
 
 // Shows the board's tips until the function it returns is called. Every part
 // that carries data-tip shows that text in one tip floating over the whole

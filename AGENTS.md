@@ -109,10 +109,14 @@ A helper its parent no longer needs is stopped with `cfo kill <helper> --reason 
 
 ### Goblin names
 
-Every goblin gets a fun first name and title when it spawns, such as Jerry - Code Designer, from a list in the binary.
-The name is one no live goblin holds and none of the last 20 spawns used, and the title fits the work where the task's title, id or the Task section of its brief makes it obvious, such as Pixel Wrangler for board work or Bug Hunter for a flaky test.
-`cfo spawn` prints the pair on a `goblin:` line, the task's record keeps it, and the supervisor gives one to any live goblin that has none.
-The board, the merge train and the orchestration canvas show the name, title and harness icon in place of the task id, and the task sits in the panel and the hover tooltip.
+Every goblin gets a fun first name and title, such as Jerry - Code Designer, from a list in the binary, as soon as its task is queued.
+The supervisor names each queued task the board shows and keeps the pair in `state/.goblin-names-queued.json`, and `cfo spawn` gives the task that same pair, so its name is the same in Tasks and In progress.
+A task spawned without being queued first gets its pair at spawn.
+The name is one no live goblin or queued task holds and none of the last 20 spawns used.
+The title names the subject of the work in two or three words, read from the task's id and title, or from the Task section of its brief when those name none, such as Voice Whisperer for long dictation, Resume Wrangler for smooth resumes or Token Tamer for a Fly token fix.
+A task that names no subject the binary knows gets a generic title, such as Code Designer.
+`cfo spawn` prints the pair on a `goblin:` line, the task's record keeps it, and the supervisor gives one to any live goblin that has none, the pair it was queued with where it has one.
+The board, the merge train and the orchestration canvas show the name, title and harness icon in place of the task id, a queued task's card included, and the task sits in the panel and the hover tooltip.
 `cfo fleet-view`, the wake queue and a merge train's pull request name each goblin as `Name (id)`.
 Call goblins by name when you tell the Supreme Overlord about them.
 The id stays the handle every `cfo` command takes.
