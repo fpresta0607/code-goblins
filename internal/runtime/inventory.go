@@ -60,9 +60,10 @@ type Inventory struct {
 	Retired map[string]bool
 	// Checkouts is every project main checkout on disk, by absolute path.
 	Checkouts []Checkout
-	// WorktreesRoot is the home's worktrees folder, where every goblin
-	// worktree spawn makes lives.
-	WorktreesRoot string
+	// WorktreeRoots are the home's worktree folders, where every goblin
+	// worktree spawn makes lives: the home's own, and a Dev Drive's once the
+	// home's heavy folders moved there.
+	WorktreeRoots []string
 	// Storage is what the home holds on disk, by bucket.
 	Storage janitor.Buckets
 	// Janitor is the janitor's last sweep, absent before the first.

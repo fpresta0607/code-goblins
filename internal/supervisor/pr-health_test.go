@@ -85,7 +85,7 @@ func TestPRHealthReportsEveryUnhealthyHead(t *testing.T) {
 		checks     string
 		hasGoblin  bool
 		isFork     bool
-		wantKey    string
+		wantOwner  string
 		wantDetail string
 	}{
 		{"conflicting goblin", "CONFLICTING", 3, "[]", true, false, "cg-health", "conflicts"},
@@ -105,19 +105,19 @@ func TestPRHealthReportsEveryUnhealthyHead(t *testing.T) {
 			}
 
 			wakes := fleetWakeRecords(t, h, "pr")
-			if len(wakes) != 1 || !strings.Contains(wakes[0].Detail, test.wantDetail) {
-				t.Fatalf("health wakes = %+v, want one naming %s", wakes, test.wantDetail)
+			if len(wakes) != 1 || wakes[0].Key != "health:o/r" || !strings.Contains(wakes[0].Detail, test.wantDetail) {
+				t.Fatalf("health wakes = %+v, want one for o/r naming %s", wakes, test.wantDetail)
 			}
-			if test.wantKey != "" {
-				if wakes[0].Key != test.wantKey {
-					t.Fatalf("owner = %q, want %q", wakes[0].Key, test.wantKey)
+			if test.wantOwner != "" {
+				if !strings.Contains(wakes[0].Detail, test.wantOwner+"'s PR #209") || !strings.Contains(wakes[0].Detail, "tell "+test.wantOwner) {
+					t.Fatalf("wake %q does not name its goblin %s", wakes[0].Detail, test.wantOwner)
 				}
 				for _, instruction := range []string{"merge commit", "regenerate", "one CI run", "never force-push"} {
 					if !strings.Contains(wakes[0].Detail, instruction) {
 						t.Errorf("wake %q lacks safe update %q", wakes[0].Detail, instruction)
 					}
 				}
-			} else if wakes[0].Key == "cg-health" || !strings.Contains(wakes[0].Detail, "never pushes") {
+			} else if strings.Contains(wakes[0].Detail, "tell cg-health") || !strings.Contains(wakes[0].Detail, "never pushes") {
 				t.Fatalf("teammate's PR was owned or writable: %+v", wakes[0])
 			}
 		})
@@ -254,8 +254,8 @@ func TestPRHealthBatchesAllOpenHeadsInOneComparisonCall(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if wakes := fleetWakeRecords(t, h, "pr"); len(wakes) != 2 {
-		t.Fatalf("two unhealthy heads produced %+v", wakes)
+	if wakes := fleetWakeRecords(t, h, "pr"); len(wakes) != 1 || !strings.Contains(wakes[0].Detail, "#209") || !strings.Contains(wakes[0].Detail, "#210") {
+		t.Fatalf("two unhealthy heads produced %+v, want one wake naming both", wakes)
 	}
 	var comparisonCalls int
 	for _, request := range forge.requests {
@@ -269,8 +269,8 @@ func TestPRHealthBatchesAllOpenHeadsInOneComparisonCall(t *testing.T) {
 			}
 		}
 	}
-	if comparisonCalls != 1 || len(forge.requests) != 3 {
-		t.Fatalf("GitHub requests = %+v, want list, one comparison batch and main runs", forge.requests)
+	if comparisonCalls != 1 || len(forge.requests) != 4 {
+		t.Fatalf("GitHub requests = %+v, want list, the account gh works as, one comparison batch and main runs", forge.requests)
 	}
 }
 
@@ -460,7 +460,7 @@ func TestPRUnreadWakesOncePerHeadWhateverThePollErrors(t *testing.T) {
 		{14 * time.Minute, "head-two", true, 2, 1},
 		{20 * time.Minute, "head-two", false, 2, 1},
 	} {
-		forge.pulls = healthPull(reading.head, "UNKNOWN", false, "[]")
+		forge.pulls = healthPull(reading.head, "MERGEABLE", false, "[]")
 		forge.comparisons = fmt.Sprintf(`{"data":{"repository":{"ref":{"pr209":null}}},"errors":[{"message":"timeout %d"}]}`, poll)
 		if reading.isRead {
 			forge.comparisons = healthComparison(reading.head, 2)
