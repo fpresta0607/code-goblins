@@ -102,15 +102,12 @@ export function allowanceSays(allowance: AfkAllowance): { name: string; value: s
 // allowanceGraph is where an allowance's graph under Spent marks, as percents
 // of its bar: before is what was used before AFK mode turned on, and from and
 // to the stretch it used while on, which its arrow spans. A window that reset
-// in between used its whole stretch from nothing, a reading not taken marks
-// what was read with no stretch, and credits have no graph.
+// in between used its whole stretch from nothing. A limit read at only one
+// end has no graph, since what was used before AFK and while it was on cannot
+// be told apart, and neither do credits.
 export function allowanceGraph(allowance: AfkAllowance): { before: number; from: number; to: number } | null {
   const { on, off } = allowance;
-  if (allowance.credits || on === null && off === null) return null;
-  if (on === null || off === null) {
-    const read = on ?? off ?? 0;
-    return { before: read, from: read, to: read };
-  }
+  if (allowance.credits || on === null || off === null) return null;
   if (allowance.reset) return { before: 0, from: 0, to: off };
   return { before: Math.min(on, off), from: Math.min(on, off), to: off };
 }

@@ -181,12 +181,14 @@ test("a weekly limit under Spent says how much of it is left when AFK turned off
   for (const [name, value, want] of cases) assert.deepEqual(allowanceSays(value), want, name);
 });
 
-test("an allowance's graph marks what was used before AFK and the stretch AFK used, from nothing after a reset, with no stretch for a reading not taken, and no graph for credits", () => {
+test("an allowance's graph marks what was used before AFK and the stretch AFK used, from nothing after a reset, and there is no graph for a limit read at one end or for credits", () => {
   const cases: [string, AfkAllowance, { before: number; from: number; to: number } | null][] = [
     ["read at both ends", allowance({ on: 29, off: 35 }), { before: 29, from: 29, to: 35 }],
     ["a window that reset", allowance({ on: 42, off: 3, reset: true }), { before: 0, from: 0, to: 3 }],
-    ["read only at turn-off", allowance({ off: 52 }), { before: 52, from: 52, to: 52 }],
-    ["read only at turn-on", allowance({ on: 12.5 }), { before: 12.5, from: 12.5, to: 12.5 }],
+    // 52% read only when AFK turned off may all have been used while it was
+    // on, so none of it is drawn as used before.
+    ["read only at turn-off", allowance({ off: 52 }), null],
+    ["read only at turn-on", allowance({ on: 12.5 }), null],
     ["credits", allowance({ credits: true, spent: 12.5 }), null],
   ];
   for (const [name, value, want] of cases) assert.deepEqual(allowanceGraph(value), want, name);

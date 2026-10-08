@@ -185,6 +185,29 @@ test("a refusal is shown in full as an error, in the question and under the head
   expect(supervisor.asked.map((ask) => ask.on)).toEqual([true, false]);
 });
 
+// A turn-on refused after he closed the question still says which way he
+// pressed: AFK did not turn on, under the header.
+test("a refusal that arrives after he cancelled Go AFK says AFK did not turn on", async ({ page }) => {
+  await open(page, snapshot());
+  let answer = () => {};
+  const answered = new Promise<void>((resolve) => { answer = resolve; });
+  await page.route("**/api/afk", async (route) => {
+    if (route.request().method() !== "POST") return route.fallback();
+    await answered;
+    await route.fulfill({ status: 403, json: { error: REFUSAL } });
+  });
+  await openCfoPanel(page);
+  await toggle(page).click();
+  const asks = page.locator("dialog.afk-dialog");
+  await asks.getByRole("button", { name: "Turn AFK on" }).click();
+  await expect(asks.getByRole("button", { name: "Turning AFK on…" })).toBeDisabled();
+  await asks.getByRole("button", { name: "Cancel" }).click();
+  await expect(asks).toHaveCount(0);
+  answer();
+  await expect(header(page).getByRole("alert")).toHaveText("AFK did not turn on" + REFUSAL + ".");
+  await expect(toggle(page)).toHaveAttribute("aria-checked", "false");
+});
+
 // The Overlord, 2026-10-08: "hate that loading message doesnt happen on button
 // when i click turn off". The button he pressed says it is working until the
 // supervisor answers.
@@ -501,8 +524,10 @@ test("the report lists what still waits on him first, then how much of each thin
   await expect(spent.nth(0).locator(".afk-spent-used")).toHaveAttribute("style", "left: 41%; width: 8%;");
   await expect(spent.nth(0).locator(".afk-spent-arrow")).toHaveAttribute("style", "left: 41%; width: 8%;");
   await expect(spent.nth(0).locator(".afk-spent-change.used")).toHaveText("AFK used 8%");
-  await expect(spent.nth(1).locator(".afk-spent-before")).toHaveAttribute("style", "width: 4%;");
-  await expect(spent.nth(1).locator(".afk-spent-arrow, .afk-spent-used, .afk-spent-change")).toHaveCount(0);
+  // Read only when AFK turned off, the Codex limit shows what is left and no
+  // bar: what it used before AFK and while it was on cannot be told apart.
+  await expect(spent.nth(1).getByRole("img")).toHaveCount(0);
+  await expect(spent.nth(1).locator(".afk-spent-change")).toHaveCount(0);
   await expect(spent.nth(2).getByRole("img")).toHaveCount(0);
   expect(await spentSection.evaluate((section) => section.textContent)).not.toMatch(/not read|session|5-hour|five/i);
   // Something it held still waits on him, so its one button at the bottom is

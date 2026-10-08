@@ -19,7 +19,7 @@ import "./afk.css";
 // every width.
 export function AfkToggle({ afk, instance, leading }: { afk: Afk; instance: string; leading?: ReactNode }) {
   const [asking, setAsking] = useState(false);
-  const { pending, problem, turn, clear } = useAfkSwitch(instance);
+  const { pending, problem, pressedOn, turn, clear } = useAfkSwitch(instance);
   const { openReport, turnedOff } = useAfkActions();
   const on = afk.state === "on";
   const turnOn = async () => { if (await turn(true)) setAsking(false); };
@@ -36,7 +36,7 @@ export function AfkToggle({ afk, instance, leading }: { afk: Afk; instance: stri
         <span className="afk-toggle-track" aria-hidden="true"><span className="afk-toggle-thumb" /></span>
       </button>
     </div>
-    {!asking && <AfkRefusal on={false} problem={problem} onClose={clear} />}
+    {!asking && <AfkRefusal on={pressedOn} problem={problem} onClose={clear} />}
     {asking && <AfkOnDialog pending={pending} problem={problem} onTurnOn={() => void turnOn()} onClose={() => { setAsking(false); clear(); }} />}
   </>;
 }
