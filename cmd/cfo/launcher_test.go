@@ -919,6 +919,35 @@ func TestGoblinsWindowShowsOnlyTheWindow(t *testing.T) {
 	}
 }
 
+// goblins --window --locate, which the window started alone runs, finds the
+// supervisor and prints the board's address and the state folder, one to a
+// line and nothing else, for that window to show: it starts no window of its
+// own, opens no browser, and starts or shows no CFO.
+func TestGoblinsWindowLocateNamesTheBoardAndOpensNoWindow(t *testing.T) {
+	// Arrange
+	f := newLauncherFixture(t, func(home.Home) (<-chan struct{}, error) {
+		t.Fatal("goblins started a second supervisor")
+		return nil, nil
+	})
+	f.cfoLive = false
+	board := fakeBoard(t, busySnapshot)
+	f.record(board)
+
+	// Act
+	exit, stdout, stderr := f.launch("--window", "--locate")
+
+	// Assert
+	if exit != 0 {
+		t.Fatalf("exit=%d stderr=%q", exit, stderr)
+	}
+	if want := board + "\n" + f.home.State + "\n"; stdout != want {
+		t.Errorf("stdout %q, want only the board and the state folder, %q", stdout, want)
+	}
+	if len(f.windows) != 0 || len(f.opened) != 0 || len(f.nativeStarts) != 0 || len(f.attached) != 0 {
+		t.Errorf("windows %q, browser %q, CFO starts %q, attached %q; want none", f.windows, f.opened, f.nativeStarts, f.attached)
+	}
+}
+
 // With no window beside goblins, goblins --window says so and fails rather
 // than opening something else.
 func TestGoblinsWindowFailsWithoutTheWindow(t *testing.T) {

@@ -791,9 +791,8 @@ public static extern IntPtr SendMessageTimeout(IntPtr hWnd, uint Msg, UIntPtr wP
 
     # Code Goblins in the Start menu opens the app. Where this install put the
     # desktop window in the home, built or downloaded just now, the entry
-    # starts that program alone: it runs goblins out of sight, which finds the
-    # supervisor or starts it, and opens the board in the window, so no
-    # terminal shows; it starts no CFO, which the board's first-run page does.
+    # starts that program alone so its desktop ancestry stays intact while it
+    # locates the board out of sight.
     # A window the home only kept, as a release with none leaves the one from
     # before, may be from before a window started alone opened the app, so the
     # entry runs goblins --window, which opens any window, with its console
@@ -850,21 +849,48 @@ public static extern IntPtr SendMessageTimeout(IntPtr hWnd, uint Msg, UIntPtr wP
         Write-Note ("These could not be installed, so only what needs them is left out: {0}. The log says why." -f ($failedInstalls -join ", "))
     }
 
-    # Last, the app: opening it is enough, as Code Goblins in the Start menu
-    # opens it. It finds the supervisor or starts it and shows the board, whose
-    # first-run page starts the CFO. A home with no app, as a release that
-    # ships none leaves, runs the quick start in this window instead: it starts
-    # the supervisor, and where nobody can answer it, as in the setup, it
-    # accepts nothing.
+    # Last, the app: the desktop shell opens it, as Code Goblins in the Start
+    # menu does. It finds the supervisor or starts it and shows the board,
+    # whose first-run page starts the CFO. A home with no app, as a release
+    # that ships none leaves, runs the quick start in this window instead: it
+    # starts the supervisor, and where nobody can answer it, as in the setup,
+    # it accepts nothing.
     Write-Step "Open Code Goblins"
     $opened = $false
     if ($opensWindow) {
         try {
-            Start-Process -FilePath $window -WorkingDirectory $InstallDir -ErrorAction Stop
-            $opened = $true
+            $program = [IO.File]::OpenRead($window)
+            try {
+                $isWindowsProgram = $program.ReadByte() -eq 0x4D -and $program.ReadByte() -eq 0x5A
+            }
+            finally {
+                $program.Dispose()
+            }
+            if ($isWindowsProgram) {
+                $shellWindows = [Activator]::CreateInstance([type]::GetTypeFromCLSID("9BA05972-F6A8-11CF-A442-00A0C90A8F39"))
+                $hwnd = 0
+                $desktop = $shellWindows.FindWindowSW([ref]$null, [ref]$null, 8, [ref]$hwnd, 1)
+                if ($null -eq $desktop) {
+                    throw "The desktop shell is not available."
+                }
+                $desktop.Document.Application.ShellExecute($window, '', $InstallDir, 'open', 1)
+                $opened = $true
+            }
+            else {
+                Write-Detail "$window is not a Windows program; opening it with Start-Process instead."
+            }
         }
         catch {
-            Write-Detail "$window did not start: $($_.Exception.Message)"
+            Write-Detail "The desktop shell could not open ${window}: $($_.Exception.Message)"
+        }
+        if (-not $opened) {
+            try {
+                Start-Process -FilePath $window -WorkingDirectory $InstallDir -ErrorAction Stop
+                $opened = $true
+            }
+            catch {
+                Write-Detail "$window did not start: $($_.Exception.Message)"
+            }
         }
     }
     elseif (Test-Path -LiteralPath $goblins) {
