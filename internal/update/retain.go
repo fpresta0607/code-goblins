@@ -14,15 +14,11 @@ import (
 // update in progress and is never one.
 var asideCopy = regexp.MustCompile(`(?i)^(cfo\.exe|goblins\.exe|goblins-window\.exe)\.([0-9]+\.update-old|[A-Za-z0-9]+\.old|held-[A-Za-z0-9]+)(\.[A-Za-z0-9]+\.old)*$`)
 
-// RemoveAsideCopies removes from programs, the folder holding the home's build
-// (bin, or the root of a home a build before bin set up), every copy of one of
-// its programs that an update or an install moved aside, so the folder holds
-// the current build alone, as the Overlord asked on 2026-10-08 ("no redudant
-// exe files"). An update's own verified copy of the build it replaced, which
-// its rollback restores from, lives in the state folder and is never touched
-// here, and nothing else in the folder is either. It returns the bytes it
-// freed and each copy something still runs, which Windows cannot remove and a
-// later pass removes once nothing runs it.
+// RemoveAsideCopies removes recognized aside copies from the home's programs
+// folder (bin, or the root of a legacy home). Installed aliases, staged updates
+// and verified rollback copies in state/update are untouched.
+// It returns the bytes freed and the paths that could not be removed, including
+// running copies that Windows keeps until a later pass can remove them.
 func RemoveAsideCopies(programs string) (int64, []string) {
 	entries, err := os.ReadDir(programs)
 	if err != nil {

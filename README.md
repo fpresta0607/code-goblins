@@ -883,7 +883,9 @@ To update a running home to the newest release, run `goblins update` in a termin
 `goblins update --check` says whether a newer release is published and what is new, and changes nothing.
 The update is yours alone: it refuses to run under the CFO, a goblin or any agent.
 
-To install a newer build into a running home, run the candidate build itself with `update`: it swaps both `cfo.exe` and `goblins.exe` where the home keeps them, restarts only the supervisor, and puts the previous build back if the new one does not serve; that folder keeps the current build alone, and the update keeps the one it replaced in `state\update` for its rollback.
+To install a newer build into a running home, run the candidate build itself with `update`: it swaps both `cfo.exe` and `goblins.exe` where the home keeps them, restarts only the supervisor, and puts the previous build back if the new one does not serve.
+That folder keeps the current build alone; cleanup reports aside copies it cannot remove, including running copies, and the janitor retries on a later pass.
+The update keeps verified copies in `state\update` for rollback and `--recover`; cleanup never removes them.
 The candidate must meet the [source-build requirements](#development).
 The home keeps them in its `bin`, or, where a build before `bin` set it up, such as a checkout an older build made the home, at its root, where they are updated until an install lays the home out with `bin`.
 The journal of an earlier update that finished is history, whatever home it names; only an unfinished one, whose copies are its way back, stops an update.
@@ -931,7 +933,7 @@ If you want one, make `data\` a git repository and push it to a private remote o
 `data\.gitignore` keeps binaries, archives and logs out of it.
 
 The home stays small on its own: the binaries, records under 200 MB, capped caches, and about 0.2 GB for each running goblin, which leaves when its work merges.
-Once an hour the janitor removes what the fleet left behind: a worktree in the home no task owns once its work is on the default branch or kept as a local `archive/<branch>` tag, old builds moved aside once nothing runs them, temporary folders nothing has written to for a day, a retired task's scratch, logs and evidence (its brief, report, decisions, handoffs and status log stay, and so does anything it handed you), backups past the newest two of each kind, and cache space over the cap, using each tool's own prune.
+Once an hour the janitor removes what the fleet left behind: a worktree in the home no task owns once its work is on the default branch or kept as a local `archive/<branch>` tag, old builds moved aside once nothing runs them and no update is unfinished, temporary folders nothing has written to for a day, a retired task's scratch, logs and evidence (its brief, report, decisions, handoffs and status log stay, and so does anything it handed you), backups past the newest two of each kind, and cache space over the cap, using each tool's own prune.
 It never touches uncommitted work, your checkouts or Docker, and it reports what it will not remove: a worktree no task records, a new folder in your projects root that is no checkout, and a `data\` over 200 MB.
 `cfo runtime` shows what each part of the home holds, and the board shows free disk under free memory, in one box.
 
