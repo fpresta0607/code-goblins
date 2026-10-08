@@ -698,7 +698,8 @@ Known exited/replaced sessions are refused, but the board does not claim to elim
 
 Workspace details show the working folder separately from the Connections dropdown's asynchronous health checks; both are sections closed until opened, with the same header as Changes.
 The task's Connections start with Harness, Model and Effort selectors, with the real harness mark and efforts beside the model; the CFO and child sessions retain their reported read-only engine rows.
-`GET /api/engines` reads installed, signed-in harnesses and their local model catalogs: Codex's `models_cache.json`, Claude Code's `additionalModelOptionsCache`, pi's `models-store.json` and configured model in `settings.json`, plus fleet routing and the adapter's default model.
+`GET /api/engines` reads installed, signed-in harnesses and their local model catalogs: Codex's `models_cache.json`, Claude Code's own catalog for the organization `~/.claude.json` says it is signed in to (the newest `~/.claude/cache/model-catalog/<organization>-*-cc.json`, with each model's effort options) and its `additionalModelOptionsCache`, pi's `models-store.json` and configured model in `settings.json`, plus fleet routing and the adapter's default model.
+A model a harness catalog lists keeps the catalog's name and efforts; a routing lane or the default model only adds its effort as the model's default when the catalog names none, so Opus 5.5 still opens at the fleet's xhigh.
 The model catalog is not a model-name list embedded in the board; each model's reasoning levels are limited to those the installed adapter accepts, and an unavailable current value remains visible with its reason.
 `POST /api/tasks/engine` binds live changes to the task's spawn generation and queued changes to the backlog revision.
 A queued choice changes the settings Start reads under the backlog lock; a paused choice is saved in `state/engine/<id>.json` and consumed only after Resume succeeds.

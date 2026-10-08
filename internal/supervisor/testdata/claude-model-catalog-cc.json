@@ -1,0 +1,226 @@
+{
+  "version": 2,
+  "fetchedAt": 1791415559001,
+  "staleAt": 1791419368622,
+  "catalog": {
+    "surface": "cc",
+    "config": {
+      "id": "cc",
+      "models": [
+        {
+          "id": "claude-opus-5-5",
+          "name": "Opus 5.5",
+          "short_name": "Opus",
+          "description": "For complex work and everyday tasks",
+          "section": "main",
+          "notice": {
+            "title": null,
+            "text": "Opus draws down usage faster than Sonnet",
+            "cta": null,
+            "is_dismissible": false
+          },
+          "capabilities": {
+            "compass": true,
+            "gsuite_tools": true,
+            "mm_images": true,
+            "mm_pdf": true,
+            "web_search": true
+          },
+          "thinking": {
+            "type": "effort",
+            "description": "Higher effort means more thorough responses, but takes longer and uses your limits faster.",
+            "effort_options": [
+              {
+                "id": "low",
+                "name": "Low"
+              },
+              {
+                "id": "medium",
+                "name": "Medium",
+                "badge": {
+                  "message": "Recommended",
+                  "variant": "neutral"
+                }
+              },
+              {
+                "id": "high",
+                "name": "High"
+              },
+              {
+                "id": "xhigh",
+                "name": "Extra"
+              },
+              {
+                "id": "max",
+                "name": "Max",
+                "badge": {
+                  "message": "3.5× or more usage",
+                  "variant": "warning"
+                },
+                "tooltip": {
+                  "content": "Claude thinks longer with Max effort and can consume 3.5× or more usage than Medium."
+                }
+              }
+            ]
+          },
+          "quick_select": true,
+          "min_claude_code_version": "2.1.280"
+        },
+        {
+          "id": "claude-sonnet-5-5",
+          "name": "Sonnet 5.5",
+          "short_name": "Sonnet",
+          "description": "Most efficient for simpler tasks",
+          "section": "main",
+          "capabilities": {
+            "compass": true,
+            "gsuite_tools": true,
+            "mm_images": true,
+            "mm_pdf": true,
+            "web_search": true
+          },
+          "thinking": {
+            "type": "effort",
+            "description": "Higher effort means more thorough responses, but takes longer and uses your limits faster.",
+            "effort_options": [
+              {
+                "id": "low",
+                "name": "Low"
+              },
+              {
+                "id": "medium",
+                "name": "Medium",
+                "badge": {
+                  "message": "Recommended",
+                  "variant": "neutral"
+                }
+              },
+              {
+                "id": "high",
+                "name": "High"
+              },
+              {
+                "id": "xhigh",
+                "name": "Extra"
+              },
+              {
+                "id": "max",
+                "name": "Max",
+                "tooltip": {
+                  "content": "May use excessive tokens resulting in long response times and may hit token limits. Use sparingly for the hardest tasks."
+                }
+              }
+            ]
+          },
+          "quick_select": true
+        },
+        {
+          "id": "claude-haiku-4-5-20251001",
+          "name": "Haiku 4.5",
+          "short_name": "Haiku",
+          "section": "overflow",
+          "capabilities": {
+            "compass": true,
+            "gsuite_tools": true,
+            "mm_images": true,
+            "mm_pdf": true,
+            "web_search": true
+          },
+          "thinking": {
+            "type": "none"
+          },
+          "auto_permission_mode": "unavailable",
+          "auto_permission_mode_note": "Requires Claude 4.6 or newer"
+        }
+      ]
+    },
+    "state": {
+      "id": "cc",
+      "model": "claude-opus-5-5",
+      "selection_source": "user_setting",
+      "thinking": {
+        "type": "effort",
+        "effort": "high"
+      },
+      "thinking_by_model": [
+        {
+          "id": "claude-fable-5-1",
+          "thinking": {
+            "type": "effort",
+            "effort": "high"
+          }
+        },
+        {
+          "id": "claude-opus-5-5",
+          "thinking": {
+            "type": "effort",
+            "effort": "high"
+          }
+        },
+        {
+          "id": "claude-sonnet-5-5",
+          "thinking": {
+            "type": "effort",
+            "effort": "medium"
+          }
+        },
+        {
+          "id": "claude-haiku-5-5",
+          "thinking": {
+            "type": "effort",
+            "effort": "medium"
+          }
+        },
+        {
+          "id": "claude-fable-5",
+          "thinking": {
+            "type": "effort",
+            "effort": "high"
+          }
+        },
+        {
+          "id": "claude-opus-5",
+          "thinking": {
+            "type": "effort",
+            "effort": "xhigh"
+          }
+        },
+        {
+          "id": "claude-opus-4-8",
+          "thinking": {
+            "type": "effort",
+            "effort": "high"
+          }
+        },
+        {
+          "id": "claude-opus-4-7",
+          "thinking": {
+            "type": "effort",
+            "effort": "xhigh"
+          }
+        },
+        {
+          "id": "claude-opus-4-6",
+          "thinking": {
+            "type": "effort",
+            "effort": "high"
+          }
+        },
+        {
+          "id": "claude-sonnet-5",
+          "thinking": {
+            "type": "effort",
+            "effort": "high"
+          }
+        },
+        {
+          "id": "claude-sonnet-4-6",
+          "thinking": {
+            "type": "effort",
+            "effort": "high"
+          }
+        }
+      ]
+    }
+  }
+}
