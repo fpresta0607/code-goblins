@@ -160,11 +160,15 @@ export const hasChildren = (tree?: FleetTree) => (tree?.children.length || 0) > 
 // the finished ones too.
 export const hasRunningChildren = (tree?: FleetTree) => running(tree).length > 0;
 
-// A baby goblin on its branch, and the branches' measures: the room beside a
-// column where its spine runs, the gaps between columns and rows, the drop
-// from the goblin's card to the first row, and the bend of a joint.
-export const BABY_WIDTH = 166, BABY_HEIGHT = 124;
-const TWIG = 18, COLUMN_GAP = 14, ROW_GAP = 28, DROP = 44, BEND = 8;
+// A baby goblin on its branch, and the branches' measures: the gap between
+// two lines side by side, the room a line keeps from a baby goblin beside it,
+// the narrowest gap between columns, the gap between rows, how far under the
+// card the first line turns aside, clear of the card's chevron, how far a
+// line drops into a baby goblin after its last turn, the drop to the first
+// row when no line turns, the room the card's bottom keeps from its corners,
+// and the bend of a joint.
+export const BABY_WIDTH = 166, BABY_HEIGHT = 124, LINE_GAP = 8;
+const CLEAR = 12, COLUMN_GAP = 32, ROW_GAP = 28, FIRST = 32, TAIL = 18, DROP = 44, CORNERS = 32, BEND = 8;
 
 interface Point { x: number; y: number }
 
@@ -190,33 +194,76 @@ export function elbows(points: Point[]): string {
 // Branches are a goblin's running children laid out under its card: where
 // each baby goblin sits, the branch from the card to each, which ends at the
 // middle of the baby's top, and where each line that runs down sits from the
-// card's middle. bar is how far under the card the branches part, and lane
-// is where, from the card's middle, a line runs down past every baby goblin
-// to a goblin under them. Every point is from the top left of the block,
-// which is centred under the card, as wide as the card at least, with its
-// top at the card's bottom.
-export interface Branches { width: number; height: number; places: Point[]; lines: string[]; ends: Point[]; drops: number[]; bar: number; lane: number }
+// card's middle. passes are the routes, outermost first, of the connectors
+// to goblins under them, from the card down beside every baby goblin to the
+// block's bottom. Every point is from the top left of the block, which is
+// centred under the card, as wide as the card at least, with its top at the
+// card's bottom.
+export interface Branches { width: number; height: number; places: Point[]; lines: string[]; ends: Point[]; passes: Point[][]; drops: number[] }
 
 // branchLayout hangs count baby goblins under a card in about as many
 // columns as rows, up to four columns, centred under it, so a big family
-// grows down, not across. A trunk drops from the card to a bar, and from the
-// bar a branch drops into the top of each baby of the first row; a baby
-// lower down is reached by the spine beside its column, which turns into the
-// gap above it and drops into its top.
-export function branchLayout(count: number, cardWidth: number): Branches {
-  const columns = Math.min(4, Math.ceil(Math.sqrt(count))), rows = Math.ceil(count / columns);
-  const step = TWIG + BABY_WIDTH + COLUMN_GAP, span = columns * step - TWIG - COLUMN_GAP;
-  const width = Math.max(cardWidth, span + 2 * TWIG), centre = width / 2, first = centre - span / 2;
-  const height = DROP + rows * (BABY_HEIGHT + ROW_GAP) - ROW_GAP, bar = DROP / 2;
-  const spine = (column: number) => first + column * step - TWIG;
-  const places = Array.from({ length: count }, (_, i) => ({ x: first + (i % columns) * step, y: DROP + Math.floor(i / columns) * (BABY_HEIGHT + ROW_GAP) }));
+// grows down, not across, with room beside them for passes connectors to
+// goblins under them. Every line leaves the card's bottom on its own, the
+// lines side by side a line's gap apart in the order they run, so none sits
+// on another and none crosses another. A line to a baby of the first row
+// drops into its top; one to a baby lower down drops through the gap beside
+// its column on the side of the card's middle, turns into the gap above it
+// and drops into its top. A line that has to run aside first turns in a step
+// of its own, the outermost first, nearest the card.
+export function branchLayout(count: number, cardWidth: number, passes = 0): Branches {
+  const columns = Math.min(4, Math.ceil(Math.sqrt(count))), rows = Math.ceil(count / columns), middle = (columns - 1) / 2;
+  // The gap after column g is gap g. The middle column of three takes its
+  // turns through the gap either side with fewer lines.
+  const gaps: number[] = [], load = Array.from({ length: Math.max(0, columns - 1) }, () => 0);
+  const through = (i: number, gap: number) => { gaps[i] = gap; load[gap]++; };
+  for (let i = columns; i < count; i++) if (i % columns !== middle) through(i, i % columns < middle ? i % columns : i % columns - 1);
+  for (let i = columns; i < count; i++) if (i % columns === middle) through(i, load[middle] < load[middle - 1] ? middle : middle - 1);
+  const room = (lines: number) => Math.max(COLUMN_GAP, (lines - 1) * LINE_GAP + 2 * CLEAR);
+  const widths = load.map((_, gap) => Math.max(room(load[gap]), room(load[load.length - 1 - gap])));
+  const lefts = widths.reduce((at, gap) => [...at, at[at.length - 1] + BABY_WIDTH + gap], [0]);
+  const span = lefts[lefts.length - 1] + BABY_WIDTH, side = 2 * CLEAR + Math.max(0, passes - 1) * LINE_GAP;
+  const width = Math.max(cardWidth, span + 2 * side), centre = width / 2, first = centre - span / 2;
+  // In a gap the lines into the column before it run nearest that column and
+  // those into the column after it nearest that one, each the outer the
+  // sooner it turns off, so a line turning off crosses none still running.
+  const lanes: number[] = [];
+  load.forEach((_, gap) => {
+    const into = (column: number) => Array.from({ length: count }, (_, i) => i).filter((i) => gaps[i] === gap && i % columns === column);
+    const order = [...into(gap), ...into(gap + 1).reverse()];
+    const at = first + lefts[gap] + BABY_WIDTH + widths[gap] / 2;
+    order.forEach((i, j) => { lanes[i] = at + (j - (order.length - 1) / 2) * LINE_GAP; });
+  });
+  const sideLane = (pass: number) => first - CLEAR - (passes - 1 - pass) * LINE_GAP;
+  // Where each line runs down, the passes first, then each baby goblin's.
+  const descents = [...Array.from({ length: passes }, (_, pass) => sideLane(pass)),
+    ...Array.from({ length: count }, (_, i) => i < columns ? first + lefts[i] + BABY_WIDTH / 2 : lanes[i])];
+  // The lines leave the card in the order they run down, centred under it
+  // and nudged by no more than a line's gap so the one nearest its middle
+  // drops straight.
+  const order = descents.map((_, line) => line).sort((one, other) => descents[one] - descents[other]);
+  const spacing = Math.min(LINE_GAP, (cardWidth - 2 * CORNERS) / Math.max(1, order.length - 1));
+  const fan = order.map((_, k) => centre + (k - (order.length - 1) / 2) * spacing);
+  const nearest = order.reduce((best, line, k) => Math.abs(descents[line] - centre) < Math.abs(descents[order[best]] - centre) ? k : best, 0);
+  const nudge = descents[order[nearest]] - fan[nearest];
+  const ports: number[] = [];
+  order.forEach((line, k) => { ports[line] = fan[k] + (Math.abs(nudge) <= spacing ? nudge : 0); });
+  const aside = order.filter((line) => descents[line] < ports[line]), across = order.filter((line) => descents[line] > ports[line]).reverse();
+  const turnsAt: number[] = [];
+  [aside, across].forEach((turning) => turning.forEach((line, step) => { turnsAt[line] = FIRST + step * LINE_GAP; }));
+  const steps = Math.max(aside.length, across.length);
+  const top = steps ? FIRST + (steps - 1) * LINE_GAP + TAIL : DROP;
+  const height = top + rows * (BABY_HEIGHT + ROW_GAP) - ROW_GAP;
+  const leave = (line: number) => [{ x: ports[line], y: 0 }, ...turnsAt[line] === undefined ? [] : [{ x: ports[line], y: turnsAt[line] }, { x: descents[line], y: turnsAt[line] }]];
+  const places = Array.from({ length: count }, (_, i) => ({ x: first + lefts[i % columns], y: top + Math.floor(i / columns) * (BABY_HEIGHT + ROW_GAP) }));
   const ends = places.map((place) => ({ x: place.x + BABY_WIDTH / 2, y: place.y }));
   const lines = places.map((place, i) => {
-    const end = ends[i], column = i % columns, gap = place.y - ROW_GAP / 2;
-    const down = place.y === DROP ? [{ x: end.x, y: bar }] : [{ x: spine(column), y: bar }, { x: spine(column), y: gap }, { x: end.x, y: gap }];
-    return elbows([{ x: centre, y: 0 }, { x: centre, y: bar }, ...down, end]);
+    const gap = place.y - ROW_GAP / 2;
+    return elbows([...leave(passes + i), ...i < columns ? [] : [{ x: lanes[i], y: gap }, { x: ends[i].x, y: gap }], ends[i]]);
   });
-  return { width, height, places, lines, ends, bar, lane: spine(0) - centre, drops: [0, ...Array.from({ length: columns }, (_, column) => spine(column) - centre)] };
+  const middles = widths.map((gap, after) => first + lefts[after] + BABY_WIDTH + gap / 2 - centre);
+  return { width, height, places, lines, ends, drops: [0, sideLane(passes - 1) - centre, ...middles],
+    passes: Array.from({ length: passes }, (_, pass) => [...leave(pass), { x: descents[pass], y: height }]) };
 }
 
 // isHeldByTree is whether a session is a sub-agent a native hook reported whose
