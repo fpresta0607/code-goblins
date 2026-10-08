@@ -1,4 +1,4 @@
-import { expect, holdStream, test, type Page } from "./site";
+import { expect, holdStream, test, type Locator, type Page } from "./site";
 
 // The Overlord, 2026-10-07, looking at Claude Code's "Update installed ·
 // Restart to update" in the CFO's terminal: "there should be an easy update
@@ -72,6 +72,11 @@ for (const [width, height] of [[1280, 800], [390, 844]]) {
       await expect(update).toHaveAttribute("data-tip", "Claude Code was updated. Restart this goblin onto it at its next stopping point. Its conversation is kept.");
       expect(await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth)).toBe(0);
       await card(page).screenshot({ path: testInfo.outputPath(`goblin-card-update-${width}.png`) });
+
+      // The Overlord, 2026-10-07: "update button on task cards is ugly". It
+      // wears the look of the card's other controls.
+      const look = (button: Locator) => button.evaluate((element) => { const style = getComputedStyle(element); return [style.width, style.borderTopColor, style.color, style.boxShadow, style.backgroundColor].join(" | "); });
+      expect(await look(update)).toBe(await look(card(page).getByRole("button", { name: "Pause Export invoices as CSV" })));
 
       // Act
       await update.click();

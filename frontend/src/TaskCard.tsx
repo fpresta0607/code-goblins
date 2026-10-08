@@ -18,10 +18,11 @@ import { BabyGoblin } from "./BabyGoblin";
 import { formatMemory, summarize } from "./fleet-tree";
 
 // A task's card on the board: its portrait beside its title, up to three
-// lines, then across the card's whole width a muted line with the repo and the
-// status, both wrapping onto further lines, and a quiet clock of how long its
-// session has run or how long it has waited; the goblin's own words stay in
-// its panel, and so does what runs under it, a silent child included. rank,
+// lines, then across the card's whole width one muted line with the repo, the
+// status and a quiet clock of how long its session has run or how long it has
+// waited, or when it paused or finished, wrapping onto further lines only
+// when it must; the goblin's own words stay in its panel, and so does what
+// runs under it, a silent child included. rank,
 // when the card sits in an ordered list, is read out with it. Its pull request
 // takes a row of its own under that, and its controls sit beside it or, on a
 // narrow card, in one row under it, with the mark of the harness it runs at
@@ -66,16 +67,14 @@ export function TaskCard({ task, snapshot, selected, presentations, now, rank, n
     <Avatar persona={personaFor(task)} />
     <span className="card-copy"><span className="card-head">{presentations.some((event) => event.task_id === task.id) && <span className="browser-indicator">Browser active</span>}{next && <span className={"next-chip" + (next.tone ? " " + next.tone : "")}>{next.text}</span>}<strong className="card-title">{name}</strong></span>
       {rank && <span className="sr-only">, {rank}</span>}
-      <span className="card-meta">{task.project && <span className="card-repo">{task.project}</span>}<span className={"plain-status phase-" + statusPhase(task) + (task.archived && task.phase !== "stopped" ? " pr-" + icon : "")}><span className="status-dot" /><span className="card-status-text">{status}</span></span></span>
+      <span className="card-meta">{task.project && <span className="card-repo">{task.project}</span>}<span className={"plain-status phase-" + statusPhase(task) + (task.archived && task.phase !== "stopped" ? " pr-" + icon : "")}><span className="status-dot" /><span className="card-status-text">{status}</span></span>{clockBadge}{ended && Number.isFinite(ended.getTime()) && <span className="card-clock"><Icon name="clock" /><time dateTime={task.at}>{ended.toLocaleString(undefined, { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" })}</time></span>}</span>
       {parentName && <span className="card-secondary">Helper of {parentName}</span>}
-      {clockBadge}
       {stalled && <span className="card-stalled"><Icon name="warning" />{stalled}</span>}
       {kinds.length > 0 && <span className="card-tree">{kinds.map(([baby, count]) => <span key={baby} className="tree-tally"><BabyGoblin baby={baby} small />{count}</span>)}{task.tree && formatMemory(task.tree.memory)}</span>}
       {task.pending_engine?.when === "update"
         ? <span className="card-secondary">{task.switching ? "Updating " + harnessName(task.harness) + "..." : "Updates " + harnessName(task.harness) + " at its next stopping point"}</span>
         : task.pending_engine && <span className="card-secondary">{task.pending_engine.when === "resume" ? "Resume with" : "Pending:"} {task.pending_engine.model} {task.pending_engine.effort}</span>}
       {task.switching && task.pending_engine?.when !== "update" && <span className="card-secondary">Switching engine...</span>}
-      {ended && Number.isFinite(ended.getTime()) && <span className="card-clock"><Icon name="clock" /><time dateTime={task.at}>{ended.toLocaleString(undefined, { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" })}</time></span>}
       {column === "Completed" && task.phase === "stopped" && task.reason && <span className="card-secondary">{plainText(task.reason)}</span>}
       {task.teardown.length > 0 && <span className="windows-teardown">{teardownSentence(task.teardown)}</span>}
     </span>
@@ -85,13 +84,13 @@ export function TaskCard({ task, snapshot, selected, presentations, now, rank, n
     <button ref={card} className="task-card"
       aria-pressed={selected} onClick={(event) => onSelect(task, event.currentTarget)} onPointerEnter={measure} onFocus={measure} {...tip}>{content}</button>
     {(pr || column === "Completed" || task.ticket || task.overlaps.length > 0 || task.local_checks || task.deployment) && <div className="card-links">
-      {pr && <a className={"card-pr pr-" + icon} href={pr} target="_blank" rel="noreferrer" aria-label={"Open pull request " + pullRequestLabel(pr)}><Icon name={icon} />{pullRequestLabel(pr)}</a>}
+      {pr && <a className={"card-pr pr-" + icon} href={pr} target="_blank" rel="noreferrer" aria-label={"Open pull request " + pullRequestLabel(pr)} {...column === "Completed" && task.branch ? { "data-tip": task.branch, "data-tip-align": "start" } : {}}><Icon name={icon} />{pullRequestLabel(pr)}</a>}
       {task.local_checks && <LocalChecksLink checks={task.local_checks} taskId={task.id} className="card-checks" />}
       {pr && task.hosted_checks && <HostedChecksLink checks={task.hosted_checks} pr={pr} className="card-checks" />}
       {task.deployment && <DeploymentLink deployment={task.deployment} className="card-checks" />}
       {task.ticket && <TicketLink ticket={task.ticket} className="card-ticket" />}
       <SameAreaAvatars overlaps={task.overlaps} />
-      {column === "Completed" && <span className="card-secondary card-history-id">{task.branch || task.id.replace(/^finished:/, "")}</span>}
+      {column === "Completed" && !pr && <span className="card-secondary card-history-id">{task.branch || task.id.replace(/^finished:/, "")}</span>}
     </div>}
     <TaskControls task={task} snapshot={snapshot} start={start} trailing={terminal} onAdjust={(source) => onSelect(task, source)} />
     {task.harness && <span className="card-harness" onClick={() => onSelect(task, card.current!)}><ConnectorMark mark={harnessMark(task.harness)} label={harnessTip(task.harness, task.model, task.effort)} align="end" /></span>}

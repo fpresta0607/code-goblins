@@ -596,8 +596,9 @@ button.line-number { min-height: 32px; display: flex; align-items: flex-start; j
    A box steps up once as it arrives and is still after that. The stepped
    fills and frames are drawn behind each box, portrait and button, never
    clipping them, so focus rings and tooltips show in full. */
-/* The goblin palette, shared by the dialogue boxes and the voice dock. */
-.dialogue, .voice-dock { --hide: #241C15; --soot: #0D0A07; --lantern: #F2B447; --moss: #86B36B; --bone: #EFE6D2; --edge: #5C4631; --bone-dim: #C4B79F; --pixel-corners: polygon(0 4px, 2px 4px, 2px 2px, 4px 2px, 4px 0, calc(100% - 4px) 0, calc(100% - 4px) 2px, calc(100% - 2px) 2px, calc(100% - 2px) 4px, 100% 4px, 100% calc(100% - 4px), calc(100% - 2px) calc(100% - 4px), calc(100% - 2px) calc(100% - 2px), calc(100% - 4px) calc(100% - 2px), calc(100% - 4px) 100%, 4px 100%, 4px calc(100% - 2px), 2px calc(100% - 2px), 2px calc(100% - 4px), 0 calc(100% - 4px)); }
+/* The goblin palette, shared by the dialogue boxes, the voice dock and
+   everything that waits for the Overlord (lantern.css). */
+:root { --hide: #241C15; --soot: #0D0A07; --lantern: #F2B447; --moss: #86B36B; --bone: #EFE6D2; --edge: #5C4631; --bone-dim: #C4B79F; --pixel-corners: polygon(0 4px, 2px 4px, 2px 2px, 4px 2px, 4px 0, calc(100% - 4px) 0, calc(100% - 4px) 2px, calc(100% - 2px) 2px, calc(100% - 2px) 4px, 100% 4px, 100% calc(100% - 4px), calc(100% - 2px) calc(100% - 4px), calc(100% - 2px) calc(100% - 2px), calc(100% - 4px) calc(100% - 2px), calc(100% - 4px) 100%, 4px 100%, 4px calc(100% - 2px), 2px calc(100% - 2px), 2px calc(100% - 4px), 0 calc(100% - 4px)); }
 .dialogue { position: relative; display: grid; justify-items: start; min-width: 0; container-type: inline-size; filter: drop-shadow(1px 0 0 var(--glass-border-hover)) drop-shadow(-1px 0 0 var(--glass-border-hover)) drop-shadow(0 1px 0 var(--glass-border-hover)) drop-shadow(0 -1px 0 var(--glass-border-hover)) drop-shadow(3px 3px 0 var(--soot)) drop-shadow(0 0 12px rgba(0, 229, 155, 0.18)); transform-origin: bottom left; animation: dialogue-in .18s steps(3, end) both; }
 .dialogue-box, .dialogue-portrait, .pixel-button, .dialogue .pixel-icon, .voice-card .pixel-icon { position: relative; isolation: isolate; }
 .dialogue-box::before, .dialogue-portrait::before, .pixel-button::before, .dialogue .pixel-icon::before, .voice-card .pixel-icon::before { content: ""; position: absolute; inset: 0; z-index: -1; clip-path: var(--pixel-corners); }
@@ -1188,4 +1189,11 @@ a.wait-open { min-height: 44px; border: 1px solid var(--accent-green); border-ra
   .task-card-shell { grid-template-columns: minmax(0, 1fr) auto; grid-template-areas: "card card" "links links" "side mark" "notes notes"; }
   .task-card-shell > .card-harness { align-self: center; }
   .task-card-shell > .task-controls { margin-top: 10px; }
+}
+/* A card as narrow as a column beside the CFO's panel in the Overlord's window
+   keeps its four controls and its harness mark on one row. */
+@container (max-width: 300px) {
+  .task-card-shell > .task-controls { gap: 6px; }
+  .task-card-shell > .task-controls .icon-button { width: 36px; height: 36px; min-height: 36px; }
+  .task-card-shell > .card-harness .mark { width: 36px; height: 36px; }
 }

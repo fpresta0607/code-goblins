@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { createRoot } from "react-dom/client";
-import { CommandCenter, type CommandFocus } from "../../src/CommandCenter";
+import { CommandCenter } from "../../src/CommandCenter";
 import { parseSnapshot } from "../../src/types";
 import "../../src/styles.css";
 
@@ -30,10 +30,9 @@ declare global { interface Window { updateStep: (name: keyof typeof snapshots) =
 
 function Page() {
   const [shown, setShown] = useState<keyof typeof snapshots>("ready");
-  const [focus, setFocus] = useState<CommandFocus | null>(null);
   useEffect(() => { window.updateStep = setShown; }, []);
   return <main data-step={shown} style={{ minHeight: "100vh", padding: 24, display: "grid", alignContent: "start", gap: 12 }}>
-    <CommandCenter snapshot={snapshots[shown]} connected presentations={[]} focus={focus} onUnsent={ignore} />
+    <CommandCenter snapshot={snapshots[shown]} connected presentations={[]} focus={null} onUnsent={ignore} />
   </main>;
 }
 

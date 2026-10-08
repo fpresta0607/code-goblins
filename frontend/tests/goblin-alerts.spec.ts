@@ -153,3 +153,33 @@ test("the CFO's bar wears the mark of the harness the CFO runs, at rest and whil
   }
   await expect(page.locator(".toasts .mark")).toHaveCount(0);
 });
+
+// The Overlord, 2026-10-07: "with lantern bars back make sure alerts match it
+// correct?". What waits for him wears the lantern box: the Command Center's
+// count, its rows of what waits, and an item's card with its one action.
+test("the Command Center's count, its waiting rows and an item's card wear the lantern box", async ({ page }) => {
+  // Arrange
+  await open(page);
+  const HIDE = "rgb(36, 28, 21)";
+  const before = (locator: Locator) => locator.evaluate((element) => { const style = getComputedStyle(element, "::before"); return [style.backgroundColor, style.clipPath.startsWith("polygon")].join(" "); });
+
+  // Assert: the count on the Command Center's button.
+  const badge = page.locator(".command-center-menu > summary .count-badge");
+  await expect(badge).toHaveCSS("background-color", LANTERN);
+
+  // Act
+  await page.locator(".command-center-menu > summary").click();
+
+  // Assert: each row of what waits, and its count.
+  const row = page.locator(".inbox-list.waiting li").first();
+  expect(await before(row)).toBe(HIDE + " true");
+  await expect(page.locator(".command-center-updates h3 .column-count").first()).toHaveCSS("background-color", LANTERN);
+
+  // Act
+  await row.getByRole("button", { name: /^Answer / }).click();
+
+  // Assert: the item's card and its action.
+  const card = page.locator("dialog.question-modal .question-card");
+  expect(await before(card)).toBe(HIDE + " true");
+  expect(await filled(card.locator("button.primary"))).toBe(LANTERN);
+});

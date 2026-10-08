@@ -14,7 +14,7 @@ import { taskColumn } from "./workflow";
 const COLUMNS = [
   { name: "Tasks", list: "queued", empty: "Nothing queued" },
   { name: "In progress", list: "progress", empty: "No work in progress" },
-  { name: "Completed", list: "", empty: "Delivered and stopped tasks will appear here" },
+  { name: "Completed", list: "", empty: "Nothing finished yet" },
 ] as const;
 
 export type BoardLayout = "kanban" | "stacked";

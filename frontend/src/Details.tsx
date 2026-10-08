@@ -142,7 +142,7 @@ function Activity({ task, snapshot }: { task?: Task; snapshot: Snapshot }) {
     {activity.error ? <ErrorBox what="The log could not be read." error={activity.error} retry={activity.reload} /> :
       activity.data?.length ? <ol className="activity-list">
         {activity.data.slice().reverse().map((line, i) => <li key={i}>{line}</li>)}
-      </ol> : task?.generation && !activity.data ? <p className="loading" role="status">Loading activity…</p> : <p className="muted">No task status records yet.</p>}
+      </ol> : task?.generation && !activity.data ? <p className="loading" role="status">Loading activity…</p> : <p className="muted">No activity yet.</p>}
     {actions.length > 0 && <section className="action-history">
       <h3>Action delivery</h3>
       <ol className="action-list">{actions.map((action) => {
@@ -167,7 +167,7 @@ export function TaskView({ task, snapshot, connected, reviews, log, now, onRepai
   return <div className="panel-content">
       {task.tree && hasChildren(task.tree) && <Disclosure title="What's working" kind="working-section" defaultOpen={running(task.tree).length > 0}><WhatsWorking tree={task.tree} now={now} /></Disclosure>}
       <WorkspaceDetails task={task} runs={snapshot.runs} instance={snapshot.instance} onRepair={onRepair} />
-      {task.generation ? <Disclosure title="Changes" kind="changes-section"><Changes task={task} reviews={reviews} connected={connected} /></Disclosure> : <p className="muted padded">Changes will appear when this task starts.</p>}
+      {task.generation ? <Disclosure title="Changes" kind="changes-section"><Changes task={task} reviews={reviews} connected={connected} /></Disclosure> : <p className="muted padded">No changes yet.</p>}
       <Disclosure id="task-activity" title="Activity" open={log.open} onOpenChange={log.onOpenChange}><Activity task={task} snapshot={snapshot} /></Disclosure>
       {task.generation && <Disclosure title="History"><History task={task} reviews={reviews} connected={connected} /></Disclosure>}
     </div>;
