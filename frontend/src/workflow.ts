@@ -1,6 +1,6 @@
 import type { MergeTrain, Session, Snapshot, Task } from "./types.ts";
 import { lineageRoots, ownsTaskSession, sessionTitle, tasksWithoutSession } from "./lineageTree.ts";
-import { goblinName, isPausedForItsPullRequest } from "./task-words.ts";
+import { goblinName } from "./task-words.ts";
 import { isHeldByTree, isHelperHeld } from "./fleet-tree.ts";
 import { awaitedTest } from "./pull-request-test.ts";
 
@@ -34,14 +34,21 @@ export function zoomAt(view: View, scale: number, pointer: Point): View {
   return { scale: next, x: pointer.x - (pointer.x - view.x) * next / view.scale, y: pointer.y - (pointer.y - view.y) * next / view.scale };
 }
 
-// A goblin paused until its own pull request merges, or until its CI run on
-// it finishes, is not paused at its work: it stays in In progress while its
-// pull request is tested. A queued task the supervisor is starting leaves
-// Tasks at once, while one whose Start waits its turn stays there, so the
-// card the Overlord clicked does not move until the supervisor starts it.
+// Paused holds only goblins whose terminals were stopped to free memory: a
+// memory pause, the floor's or the CFO's, and the Overlord's own Pause, as
+// does a pause from before conditions were kept, which needs his Resume too
+// (the Overlord, 2026-10-08: "paused is completely stopped terminals for
+// memory reasons"). A goblin paused to wait on something, its own pull
+// request or merge train, another task, a question, an allowance reset, CI
+// or a deploy, is still at its work and stays in In progress. A queued task
+// the supervisor is starting leaves Tasks at once, while one whose Start
+// waits its turn stays there, so the card the Overlord clicked does not move
+// until the supervisor starts it.
+const PAUSED_FOR_MEMORY = new Set(["memory", "overlord", ""]);
+
 export function taskColumn(task: Task): "Tasks" | "In progress" | "Paused" | "Completed" {
   if (task.archived || task.phase === "stopped" || task.phase === "stopping") return "Completed";
-  if (["paused", "pausing", "resuming"].includes(task.phase) && !isPausedForItsPullRequest(task)) return "Paused";
+  if (["paused", "pausing", "resuming"].includes(task.phase) && PAUSED_FOR_MEMORY.has(task.lifecycle?.pause?.reason ?? "")) return "Paused";
   if (task.phase === "queued") return task.starting && !task.asked ? "In progress" : "Tasks";
   return task.phase === "done" && task.verified ? "Completed" : "In progress";
 }

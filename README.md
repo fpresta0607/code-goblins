@@ -107,7 +107,8 @@ When that run is green, each pull request merges with a merge commit in the same
 When it is red, the train is halved until the one pull request that breaks it is found: every half that passes lands, and that pull request's goblin gets the failing checks.
 A pull request that conflicts with the ones ahead of it stays off and its goblin is told to merge main; drafts and pull requests labelled `hold` (recovery, security, money paths, or anything the Overlord said to wait on) never ride.
 
-The supervisor starts a train by itself when two or more green goblin pull requests wait on one main, and the board shows each train as one card with its pull requests.
+The supervisor starts a train by itself when two or more green goblin pull requests wait on one main, and the board shows each batch as one card with what it tests or landed, folding a train that landed nothing into the train that retried it.
+A click on that card opens the train's panel: every pull request of the batch with its goblin, and every CI run with how it ended.
 `cfo pr train <project>` starts one by hand, or joins the one running, and waits until it is over.
 See [Merge trains](AGENTS.md#merge-trains).
 
@@ -348,7 +349,8 @@ The header switches between two views, one at a time, each with a contextual pan
 - **Board** is task review.
   Real tasks sit in **Tasks**, **In progress** and **Completed**, side by side as a kanban; the layout button in the top bar switches to a stacked layout, one column under another, and your browser remembers the choice.
   An open panel leaves the kanban the width its three columns need whenever the window can hold both; in a window too narrow for that the board stacks and the layout button says why.
-  Paused tasks sit at the bottom of In progress, under a **Paused** divider, and keep their Resume and Stop.
+  Goblins stopped for memory, or by your own Pause, sit at the bottom of In progress, under a **Paused** divider, and keep their Resume and Stop.
+  A goblin paused to wait on something, such as its pull request's merge train, stays among the working cards.
   Completed holds delivered work and tasks explicitly stopped, with each pull request shown once under its repository.
   Failed work and work awaiting review stay in progress with a plain status.
   Selecting a card opens its changes (only the changed lines for a file over 256 KiB), activity and commit history.

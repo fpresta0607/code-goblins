@@ -34,6 +34,7 @@ import { watchTips } from "./tips";
 import { QuickTourDialog } from "./quick-tour-dialog";
 import { VOICE_HINT_KEY } from "./voice";
 import { ClickFeedback, useClickFeedback } from "./click-feedback";
+import { TrainPanel } from "./train-panel";
 
 // The terminals load xterm, so the deck arrives the first time one is shown.
 const TerminalDeck = lazy(() => import("./TerminalDeck").then((module) => ({ default: module.TerminalDeck })));
@@ -149,6 +150,8 @@ export function App() {
     : node || (task && snapshot?.sessions.find((session) => ownsTaskSession(session, task)));
   // A baby goblin opened from its goblin's family tree.
   const child = selected?.child ? task?.tree?.children.find((each) => each.id === selected.child) : undefined;
+  // A merge train opened from its card.
+  const train = selected?.train ? snapshot?.merge_trains?.find((each) => each.id === selected.train) : undefined;
   const reviews = useReview(task, snapshot);
   const [now,setNow]=useState(Date.now);
   useEffect(()=>{const timer=setInterval(()=>setNow(Date.now()),1000);return()=>clearInterval(timer);},[]);
@@ -174,7 +177,7 @@ export function App() {
     returnFocus.current = source;
     // An empty selection is the supervisor root drawn for the CFO.
     const session = snapshot?.sessions.find((session) => session.id === next.session);
-    const cfo = !next.session && !next.task || session?.role === "cfo";
+    const cfo = !next.session && !next.task && !next.train || session?.role === "cfo";
     setSelected(cfo ? null : { ...next, task: next.task || session?.task_id });
     setCfoOpen(cfo);
     setPanelView(panel);
@@ -236,11 +239,11 @@ export function App() {
     requestAnimationFrame(() => returnFocus.current?.isConnected && returnFocus.current.focus());
   };
   const cfoShown = !selected && (view === "Orchestration" || cfoOpen);
-  const showsPanel = !!snapshot && paneOpen && (view === "Orchestration" || !!task || cfoOpen);
+  const showsPanel = !!snapshot && paneOpen && (view === "Orchestration" || !!task || !!train || cfoOpen);
   // A queued task has no terminal yet, so its panel shows its Task view.
   // A baby goblin's panel is its terminal alone.
   const shownView: PanelView = child ? "terminal" : panelViews(selected ? task : undefined, selected ? selectedSession : undefined).includes(panelView) ? panelView : "task";
-  const terminalShown = showsPanel && shownView === "terminal";
+  const terminalShown = showsPanel && !train && shownView === "terminal";
   if (terminalShown && !terminalOpened) setTerminalOpened(true);
   if (showsPanel && cfoShown && cfoPanelView !== shownView) setCfoPanelView(shownView);
   useSwitchKeys(snapshot ? switchOrder(snapshot.tasks) : [], cfoShown ? CFO_KEY : task?.id || "", switchTo);
@@ -331,7 +334,7 @@ export function App() {
     </main> : <div ref={workspace} className={"workspace" + (paneOpen ? " with-pane" : "") + (view === "Board" && boardLayout === "kanban" ? " kanban" : "") + (resizing && divided ? " resizing" : "")} style={layout}>
       <main ref={canvas} className="canvas-region" aria-label={view} hidden={panelWide}>
         {!snapshot || !cardStart ? <div className="empty-state" role="status"><h2>Connecting to the supervisor</h2><p>Loading tasks and native sessions.</p></div>
-          : view === "Board" ? <Board presentations={presentations} snapshot={snapshot} layout={boardLayout} selected={task?.id} now={now} onSelect={(task, source) => select({ task: task.id }, source)} onTerminal={(task, source) => select({ task: task.id }, source, "terminal")} onOpenCfo={(source) => { returnFocus.current = source; switchTo(CFO_KEY); }} onOpenCommand={() => setCommandFocus({ key: "", at: Date.now() })} onStartCfo={() => setFirstRunChoice("")} cardStart={cardStart}
+          : view === "Board" ? <Board presentations={presentations} snapshot={snapshot} layout={boardLayout} selected={task?.id} selectedTrain={train?.id} now={now} onSelect={(task, source) => select({ task: task.id }, source)} onSelectTrain={(train, source) => select({ train: train.id }, source, "task")} onTerminal={(task, source) => select({ task: task.id }, source, "terminal")} onOpenCfo={(source) => { returnFocus.current = source; switchTo(CFO_KEY); }} onOpenCommand={() => setCommandFocus({ key: "", at: Date.now() })} onStartCfo={() => setFirstRunChoice("")} cardStart={cardStart}
             onCount={(task) => { setView("Orchestration"); setPanelView("terminal"); setCanvasFocus({ task: task.id, at: Date.now() }); }} />
             : compact ? <Lineage presentations={presentations} effects={effects} snapshot={snapshot} now={now} project="" selected={!child && selectedSession ? { session: selectedSession.id } : selected} onSelect={select} />
               : <Orchestration presentations={presentations} effects={effects} snapshot={snapshot} now={now} connected={connected} focus={canvasFocus}
@@ -344,6 +347,7 @@ export function App() {
         {snapshot && cardStart && paneOpen && (!showsPanel
           ? <><PanelRow {...row} />
             <section className="review-placeholder"><Avatar persona="reviewer" /><h2>Review the work</h2><p>Select a task to see what it is doing and what changed.</p></section></>
+          : train ? <TrainPanel key={selectionEpoch + ":train:" + train.id} train={train} tasks={snapshot.tasks} row={row} />
           : <GoblinPanel key={selectionEpoch + ":" + (selectedSession?.id || task?.id || "cfo") + ":" + (task?.generation || "") + ":" + (child?.id || "")}
             task={selected ? task : undefined} node={selected ? selectedSession : undefined} child={child} snapshot={snapshot} connected={connected} reviews={reviews}
             view={shownView} now={now} presentations={presentations} cardStart={cardStart} onView={setPanelView} row={row} onAnswer={(key) => setCommandFocus({ key, at: Date.now() })}

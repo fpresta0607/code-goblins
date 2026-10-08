@@ -1,4 +1,4 @@
-import type { BoardActivity, Snapshot, Task } from "./types";
+import type { BoardActivity, MergeTrain, Snapshot, Task } from "./types";
 import { CfoPin } from "./CfoPin";
 import { FitList } from "./FitList";
 import { isTrainOver } from "./merge-train";
@@ -23,11 +23,13 @@ export type BoardLayout = "kanban" | "stacked";
 // one under another. Paused tasks keep their work inside In progress, under a
 // divider after its working cards, and show only while one is paused. In
 // progress shows every goblin at once; Tasks, Paused and Completed page past
-// ten cards.
-export function Board({ snapshot, layout, selected, now, onSelect, onTerminal, onCount, onOpenCfo, onOpenCommand, onStartCfo, cardStart, presentations }: {
+// ten cards. A merge train's card opens its panel, and selectedTrain is the
+// train whose panel shows.
+export function Board({ snapshot, layout, selected, selectedTrain, now, onSelect, onSelectTrain, onTerminal, onCount, onOpenCfo, onOpenCommand, onStartCfo, cardStart, presentations }: {
   presentations:BoardActivity[]; layout: BoardLayout;
-  snapshot: Snapshot; selected?: string; now: number;
+  snapshot: Snapshot; selected?: string; selectedTrain?: string; now: number;
   onSelect: (task: Task, source: HTMLElement) => void;
+  onSelectTrain: (train: MergeTrain, source: HTMLElement) => void;
   onTerminal: (task: Task, source: HTMLElement) => void;
   // onCount shows a goblin's baby goblins, on the Orchestration canvas.
   onCount: (task: Task) => void;
@@ -40,11 +42,9 @@ export function Board({ snapshot, layout, selected, now, onSelect, onTerminal, o
   const card = (task: Task, rank?: string) => <TaskCard key={task.id} task={task} snapshot={snapshot} selected={selected === task.id} presentations={presentations} now={now} rank={rank} next={task.id === next?.id ? next : undefined} onSelect={onSelect} onTerminal={onTerminal} onCount={onCount} />;
   const paused = snapshot.tasks.filter((task) => taskColumn(task) === "Paused");
   // A running merge train heads In progress and a finished one Completed,
-  // each as one card with its pull requests.
-  const trains = (isOver: boolean) => {
-    const shown = (snapshot.merge_trains ?? []).filter((train) => isTrainOver(train) === isOver);
-    return shown.length > 0 && <div className="train-cards">{shown.map((train) => <MergeTrainCard key={train.id} train={train} tasks={snapshot.tasks} />)}</div>;
-  };
+  // each as one card with its pull requests, and a column holding one is not
+  // empty.
+  const trainsIn = (name: string) => name === "Tasks" ? [] : (snapshot.merge_trains ?? []).filter((train) => isTrainOver(train) === (name === "Completed"));
   return <section className={"task-board" + (layout === "stacked" ? " stacked" : "")} aria-label="Task board">
     <CfoPin snapshot={snapshot} now={now} onOpen={onOpenCfo} onCommand={onOpenCommand} onStart={onStartCfo} />
     {COLUMNS.map((column) => {
@@ -52,10 +52,11 @@ export function Board({ snapshot, layout, selected, now, onSelect, onTerminal, o
       // A goblin starting heads In progress, where the supervisor puts it
       // once its start ends, so it never moves on the way.
       const tasks = column.name === "In progress" ? [...listed.filter((task) => task.starting), ...listed.filter((task) => !task.starting)] : listed;
-      const empty = <p className="column-empty">{column.empty}</p>;
+      const trains = trainsIn(column.name);
+      const empty = trains.length > 0 ? null : <p className="column-empty">{column.empty}</p>;
       return <section key={column.name} className="board-column" aria-label={column.name}>
         <h2>{column.name}<span className="column-count">{tasks.length}</span></h2>
-        {column.name !== "Tasks" && trains(column.name === "Completed")}
+        {trains.length > 0 && <div className="train-cards">{trains.map((train) => <MergeTrainCard key={train.id} train={train} tasks={snapshot.tasks} selected={train.id === selectedTrain} onSelect={onSelectTrain} />)}</div>}
         {column.list === "queued" ? <QueuedTasks snapshot={snapshot} selected={selected} now={now} presentations={presentations} cardStart={cardStart} onSelect={onSelect} />
           : <RenderBoundary scope="list">{column.list ? <RankedCards list={column.list} tasks={tasks} instance={snapshot.instance} revision={snapshot.revision} empty={empty} renderCard={card} />
             : <FitList items={tasks} keyOf={(task) => task.id} empty={empty} renderItem={(task) => card(task)} />}</RenderBoundary>}

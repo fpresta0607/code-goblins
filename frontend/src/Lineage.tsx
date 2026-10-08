@@ -13,7 +13,7 @@ import { TreeUnder } from "./TreeUnder";
 
 // child is a baby goblin of the task's goblin, by its id in the goblin's
 // family tree.
-export interface Selection { session?: string; task?: string; child?: string }
+export interface Selection { session?: string; task?: string; child?: string; train?: string }
 
 // childSelection is what opening a goblin's baby goblin selects: a helper
 // goblin's own task, since a helper is a goblin of its own, or else the baby
