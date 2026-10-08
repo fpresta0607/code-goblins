@@ -73,9 +73,9 @@ class FakeRecognizer implements Recognizer {
 
 function dictation(recognition: new () => Recognizer = FakeRecognizer) {
   FakeRecognizer.made = [];
-  const heard: string[] = [], listening: boolean[] = [], problems: string[] = [];
-  const subject = new Dictation({ heard: (text) => heard.push(text), listening: (on) => listening.push(on), problem: (note) => problems.push(note) }, () => recognition, "en-GB");
-  return { subject, heard, listening, problems };
+  const heard: string[] = [], listening: boolean[] = [], problems: string[] = [], failures: string[] = [];
+  const subject = new Dictation({ heard: (text) => heard.push(text), listening: (on) => listening.push(on), problem: (note) => problems.push(note), failed: (reason) => failures.push(reason) }, () => recognition, "en-GB");
+  return { subject, heard, listening, problems, failures };
 }
 
 test("releasing the keys types every final phrase heard while they were held, once", () => {
@@ -143,7 +143,7 @@ function listened(recognition: new () => Recognizer = TrackRecognizer) {
   FakeRecognizer.made = [];
   const mic = microphone();
   const heard: string[] = [], listening: boolean[] = [], problems: string[] = [];
-  const subject = new Dictation({ heard: (text) => heard.push(text), listening: (on) => listening.push(on), problem: (note) => problems.push(note) }, () => recognition, "en-GB", mic.open);
+  const subject = new Dictation({ heard: (text) => heard.push(text), listening: (on) => listening.push(on), problem: (note) => problems.push(note), failed: () => {} }, () => recognition, "en-GB", mic.open);
   return { subject, mic, heard, listening, problems };
 }
 
@@ -249,7 +249,7 @@ test("overlapping dictations type in capture order when replies finish in revers
 test("an empty or refused earlier dictation releases later words without typing a gap", () => {
   const refusal = "Dictation needs 1 GB of free memory and 1 GB of free commit.";
   for (const gap of ["empty", "refused", "canceled", "silence"]) {
-    const { subject, heard, problems } = dictation(SlowRecognizer);
+    const { subject, heard, problems, failures } = dictation(SlowRecognizer);
     try {
       subject.start();
       subject.stop();
@@ -264,9 +264,9 @@ test("an empty or refused earlier dictation releases later words without typing 
       else if (gap === "canceled") first.abort();
       else first.onerror?.(gap === "refused" ? { error: "supervisor", message: refusal } : { error: "no-speech" });
       assert.deepEqual(heard, ["and merge it"]);
-      if (gap === "refused") assert.equal(problems.at(-1), refusal);
-      else if (gap === "silence") assert.equal(problems.at(-1), "Nothing was heard.");
-      else assert.deepEqual(problems.filter(Boolean), []);
+      if (gap === "silence") assert.equal(problems.at(-1), "Nothing was heard.");
+      else assert.deepEqual(problems.filter(Boolean), [], "a refusal goes to the CFO, never onto the board");
+      assert.deepEqual(failures, gap === "refused" ? [refusal] : []);
       first.answer("late first words");
       second.answer("duplicate later words");
       assert.deepEqual(heard, ["and merge it"], "a gap drains later words once");
@@ -278,8 +278,8 @@ test("an empty or refused earlier dictation releases later words without typing 
 
 test("a recognition deadline aborts the stalled dictation and releases later words once", (context) => {
   context.mock.timers.enable({ apis: ["setTimeout"] });
-  const { subject, heard, listening, problems } = dictation(SlowRecognizer);
-  const timeout = "Dictation did not finish within 120 seconds. Its words were not typed.";
+  const { subject, heard, listening, problems, failures } = dictation(SlowRecognizer);
+  const timeout = "Dictation did not finish within 120 seconds of the keys being let go, so its words were not typed.";
   try {
     subject.start();
     const first = FakeRecognizer.made[0];
@@ -303,7 +303,8 @@ test("a recognition deadline aborts the stalled dictation and releases later wor
     assert.equal(first.abortCount, 1);
     assert.equal(second.abortCount, 0, "a finished later reply is retained while it waits");
     assert.deepEqual(heard, ["then merge it"]);
-    assert.equal(problems.at(-1), timeout);
+    assert.equal(failures.at(-1), timeout);
+    assert.deepEqual(problems.filter(Boolean), [], "a dictation that timed out goes to the CFO, never onto the board");
     assert.equal(listening.at(-1), true, "an earlier timeout never closes the current capture");
     first.answer("too late");
     second.answer("duplicate");
@@ -338,7 +339,7 @@ test("a recognition deadline aborts the stalled dictation and releases later wor
     context.mock.timers.tick(1);
     assert.equal(later.abortCount, 1, "the next deadline runs from its own release, without restarting at the queue front");
     assert.deepEqual(heard, ["then merge it", "current capture", "after both gaps"]);
-    assert.equal(problems.filter((note) => note === timeout).length, 3);
+    assert.equal(failures.filter((reason) => reason === timeout).length, 3);
     earlier.answer("late earlier");
     later.answer("late later");
     assert.deepEqual(heard, ["then merge it", "current capture", "after both gaps"]);

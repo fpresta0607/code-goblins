@@ -1,4 +1,7 @@
-import { expect, ORIGIN, test, type Page, type Request, type Route } from "./site";
+import { rmSync, writeFileSync } from "node:fs";
+import os from "node:os";
+import path from "node:path";
+import { expect, ORIGIN, servePages, test, type Page, type Request, type Route } from "./site";
 
 // Chromium's fake microphone (periodic beeps) stands in for the Overlord's. The
 // supervisor's speech model is a route that keeps each sound it is posted and
@@ -24,16 +27,20 @@ const MICROPHONE = "M12 3.5a3 3 0 0 0-3 3v5a3 3 0 0 0 6 0v-5a3 3 0 0 0-3-3ZM5.5 
 // The board must never ask it.
 const OLD_VOICE_REPLY = { state: "running", entries: [{ text: "Show me what needs my attention.", timestamp: "2026-09-29T12:45:00", time_epoch: 1790000700 }], has_skipped: false };
 
-// A sound the page posted to the supervisor, as its WAV header and samples say.
-interface Posted { token: string; type: string; tags: string; channels: number; rate: number; bits: number; samples: number; peak: number }
+// A sound the page posted to the supervisor, as its WAV header and samples
+// say, when, and how many seconds pass in it before anything loud.
+interface Posted { token: string; type: string; tags: string; channels: number; rate: number; bits: number; samples: number; peak: number; lead: number; at: number }
 
 function posted(body: Buffer, headers: Record<string, string>): Posted {
-  let peak = 0;
-  for (let at = 44; at + 1 < body.length; at += 2) peak = Math.max(peak, Math.abs(body.readInt16LE(at)));
+  let peak = 0, lead = -1;
+  for (let at = 44; at + 1 < body.length; at += 2) {
+    peak = Math.max(peak, Math.abs(body.readInt16LE(at)));
+    if (lead < 0 && Math.abs(body.readInt16LE(at)) > 3000) lead = (at - 44) / 2 / body.readUInt32LE(24);
+  }
   return {
     token: headers["x-cfo-token"] || "", type: headers["content-type"] || "",
     tags: [0, 8, 12, 36].map((at) => body.toString("latin1", at, at + 4)).join(" "),
-    channels: body.readUInt16LE(22), rate: body.readUInt32LE(24), bits: body.readUInt16LE(34), samples: (body.length - 44) / 2, peak,
+    channels: body.readUInt16LE(22), rate: body.readUInt32LE(24), bits: body.readUInt16LE(34), samples: (body.length - 44) / 2, peak, lead, at: Date.now(),
   };
 }
 
@@ -43,7 +50,9 @@ function posted(body: Buffer, headers: Record<string, string>): Posted {
 // and with refusal the supervisor refuses every dictation in those words.
 // With status the supervisor answers what it says of its speech model from
 // that, read at each ask, in place of always ready.
-async function openPane(page: Page, { hint = false, dictations = [] as { text: string; at: number }[], panes = 1, app = false, browser = false, refusal = "", replies = null as Route[] | null, status = null as (() => { state: string; note?: string }) | null } = {}) {
+// With words the supervisor answers each sound posted with what words says
+// for how many came before it.
+async function openPane(page: Page, { hint = false, dictations = [] as { text: string; at: number }[], panes = 1, app = false, browser = false, refusal = "", replies = null as Route[] | null, status = null as (() => { state: string; note?: string }) | null, words = null as ((count: number) => string) | null } = {}) {
   const asked: string[] = [], posts: Posted[] = [];
   await page.route("**/api/voice", (route) => { asked.push(route.request().url()); return route.fulfill({ json: OLD_VOICE_REPLY }); });
   // The supervisor accepts the warming a dictation begins with and answers at once.
@@ -53,7 +62,7 @@ async function openPane(page: Page, { hint = false, dictations = [] as { text: s
     if (request.method() === "GET") return route.fulfill({ json: { engine: "test-model", ...(status ? status() : { state: "ready" }) } });
     posts.push(posted(request.postDataBuffer()!, request.headers()));
     if (replies) { replies.push(route); return; }
-    return refusal ? route.fulfill({ status: 503, json: { error: refusal } }) : route.fulfill({ json: { text: "ship the voice bubble", engine: "test-model" } });
+    return refusal ? route.fulfill({ status: 503, json: { error: refusal } }) : route.fulfill({ json: { text: words ? words(posts.length - 1) : "ship the voice bubble", engine: "test-model" } });
   });
   await page.addInitScript(({ hint, dictations, app, browser, is_held }) => {
     if (!hint) localStorage.setItem("cfo-voice-hint-v1", "dismissed");
@@ -222,21 +231,32 @@ test("a set-up of the speech model that fails stays shown until the next dictati
   await expect.poll(() => page.locator("output").textContent()).toBe("now it types");
 });
 
-test("a dictation refused for another reason only shows why, and asks nothing more of the speech model", async ({ page }) => {
+// The reports the board gave the CFO.
+async function cfoReports(page: Page): Promise<{ where: string; text: string }[]> {
+  const reports: { where: string; text: string }[] = [];
+  await page.route("**/api/cfo/report", (route) => { reports.push(route.request().postDataJSON() as { where: string; text: string }); return route.fulfill({ status: 202, json: { reported: true } }); });
+  return reports;
+}
+
+test("a dictation refused for another reason is asked for again, then goes to the CFO, never onto the board, and asks nothing more of the speech model", async ({ page }) => {
+  const refusal = "Dictation needs 1 GB of free memory and 1 GB of free commit, and this PC has 0.5 GB and 3.0 GB.";
   let asks = 0;
-  const { pane } = await openPane(page, { app: true, refusal: "Dictation needs 1 GB of free memory and 1 GB of free commit, and this PC has 0.5 GB and 3.0 GB.", status: () => { asks++; return { state: "ready" }; } });
+  const reports = await cfoReports(page);
+  const { pane, posts } = await openPane(page, { app: true, refusal, status: () => { asks++; return { state: "ready" }; } });
   await dictate(page);
-  await expect(pane.getByRole("status")).toHaveText("Dictation needs 1 GB of free memory and 1 GB of free commit, and this PC has 0.5 GB and 3.0 GB.");
-  await page.waitForTimeout(2500);
+  await expect.poll(() => reports).toEqual([{ where: "dictation", text: refusal }]);
+  expect(posts, "the sound was kept and asked for twice more").toHaveLength(3);
+  await expect(pane.getByRole("status")).toHaveCount(0);
+  await expect(page.locator("output")).toHaveText("");
   const asked = asks;
   await page.waitForTimeout(2500);
-  expect(asks, "the page stops asking once the model is ready").toBe(asked);
-  await expect(pane.getByRole("status")).toHaveCount(0, { timeout: 10000 });
+  expect(asks, "the page stops asking about the speech model").toBe(asked);
 });
 
-test("a stalled dictation is canceled without blocking later words", async ({ page }) => {
+test("a stalled dictation is canceled without blocking later words, and goes to the CFO, never onto the board", async ({ page }) => {
   await page.clock.install({ time: new Date("2026-10-04T20:00:00Z") });
   const replies: Route[] = [], failed: Request[] = [];
+  const reports = await cfoReports(page);
   const { bubble, pane, posts } = await openPane(page, { app: true, replies });
   page.on("requestfailed", (request) => failed.push(request));
   await page.clock.pauseAt(new Date("2026-10-04T21:00:00Z"));
@@ -258,7 +278,8 @@ test("a stalled dictation is canceled without blocking later words", async ({ pa
   expect(failed).toEqual([]);
   await expect(pane.getByRole("status")).toHaveCount(0);
   await page.clock.fastForward(1);
-  await expect(pane.getByRole("status")).toHaveText("Dictation did not finish within 120 seconds. Its words were not typed.");
+  await expect.poll(() => reports).toEqual([{ where: "dictation", text: "Dictation did not finish within 120 seconds of the keys being let go, so its words were not typed." }]);
+  await expect(pane.getByRole("status")).toHaveCount(0);
   await expect(page.locator("output")).toHaveText("after the stalled capture");
   await expect.poll(() => failed.includes(replies[0].request())).toBe(true);
   expect(replies[0].request().failure()?.errorText).toBe("net::ERR_ABORTED");
@@ -349,12 +370,14 @@ test("dictating asks nothing outside the board's own address, and the supervisor
   expect(requests.filter((request) => request.includes("/api/") && request !== "GET " + ORIGIN + "/api/dictation")).toEqual(["POST " + ORIGIN + "/api/dictation/warm", "POST " + ORIGIN + "/api/dictation"]);
 });
 
-test("what the supervisor refuses with is shown as it wrote it, and nothing is typed", async ({ page }) => {
-  const refusal = "The speech model is being downloaded, once: 45 of 103 MB. Dictate again when it is there.";
+test("what the supervisor refuses with reaches the CFO as it wrote it, and nothing is typed or shown", async ({ page }) => {
+  const refusal = "The dictation engine failed: EOF: the engine stopped.";
+  const reports = await cfoReports(page);
   const { pane, posts } = await openPane(page, { refusal });
   await dictate(page);
-  await expect(pane.getByRole("status")).toHaveText(refusal);
-  expect(posts).toHaveLength(1);
+  await expect.poll(() => reports).toEqual([{ where: "dictation", text: refusal }]);
+  expect(posts).toHaveLength(3);
+  await expect(pane.getByRole("status")).toHaveCount(0);
   await expect(page.locator("output")).toHaveText("");
 });
 
@@ -553,3 +576,57 @@ for (const [where, app, expected] of [["the desktop app", true, WINDOWS_BLOCKED]
     });
   }
 }
+
+// A long dictation for the fake microphone: a second of near silence, then
+// phrases of 3 s, a tone whose pitch moves like a voice, each followed by 0.6 s
+// of near silence, for seconds, as a 16 kHz WAV written for this run.
+function phrases(seconds: number): Buffer {
+  const rate = 16000, count = seconds * rate;
+  const wav = Buffer.alloc(44 + count * 2);
+  wav.write("RIFF", 0); wav.writeUInt32LE(36 + count * 2, 4); wav.write("WAVEfmt ", 8);
+  wav.writeUInt32LE(16, 16); wav.writeUInt16LE(1, 20); wav.writeUInt16LE(1, 22); wav.writeUInt32LE(rate, 24); wav.writeUInt32LE(rate * 2, 28); wav.writeUInt16LE(2, 32); wav.writeUInt16LE(16, 34);
+  wav.write("data", 36); wav.writeUInt32LE(count * 2, 40);
+  let phase = 0;
+  for (let at = 0; at < count; at++) {
+    const isSpeech = at >= rate && (at - rate) % (3.6 * rate) < 3 * rate;
+    phase += 2 * Math.PI * (180 + 80 * Math.sin(at / rate * 2)) / rate;
+    wav.writeInt16LE(Math.round(isSpeech ? 9000 * Math.sin(phase) : 20 * Math.sin(at * 7.3)), 44 + at * 2);
+  }
+  return wav;
+}
+
+// The fake microphone plays a file only to a browser launched with it, so
+// this test launches one of its own.
+test("a long dictation is recognised in pieces while it is said, through the capture worklet, and typed whole and in order as soon as the keys are let go", async ({ playwright }) => {
+  test.setTimeout(90000);
+  const sound = path.join(os.tmpdir(), `board-long-dictation-${process.pid}.wav`);
+  writeFileSync(sound, phrases(30));
+  const browser = await playwright.chromium.launch({ args: ["--use-fake-device-for-media-stream", "--use-fake-ui-for-media-stream", "--autoplay-policy=no-user-gesture-required", `--use-file-for-fake-audio-capture=${sound}%noloop`] });
+  try {
+    const context = await browser.newContext({ baseURL: ORIGIN, viewport: { width: 1440, height: 1200 }, permissions: ["microphone"] });
+    await servePages(context);
+    const page = await context.newPage();
+    const { posts } = await openPane(page, { app: true, words: (count) => `piece ${count + 1}.` });
+    await holdShortcut(page, 0);
+    await expect.poll(() => page.evaluate(() => window.voiceProbe!.captures.length)).toBe(1);
+    await page.waitForTimeout(24000);
+    const released = Date.now();
+    await releaseShortcut(page);
+    await expect(page.locator("output")).not.toHaveText("");
+    const typedMs = Date.now() - released;
+    const early = posts.filter((post) => post.at < released);
+    expect(early.length, "pieces are recognised while the keys are still held").toBeGreaterThanOrEqual(3);
+    await expect(page.locator("output")).toHaveText(posts.map((_, count) => `piece ${count + 1}.`).join(" "));
+    expect(typedMs, "only the last piece waits for the keys to be let go").toBeLessThan(2000);
+    for (const post of posts) {
+      expect(post).toMatchObject({ channels: 1, rate: 16000, bits: 16 });
+      expect(post.samples).toBeLessThanOrEqual(20 * 16000);
+      expect(post.peak).toBeGreaterThan(3000);
+    }
+    expect(posts.reduce((total, post) => total + post.samples, 0), "every second held reached the supervisor").toBeGreaterThan(22 * 16000);
+    expect(posts[0].lead, "the recording ran before the first word, so none of it was lost").toBeGreaterThan(.3);
+  } finally {
+    await browser.close();
+    rmSync(sound, { force: true });
+  }
+});
