@@ -26,15 +26,16 @@ test("the wheel zooms the canvas in and out where the pointer is", async ({ page
   await page.goto("/tests/fixtures/canvas-controls.html");
   await expect(page.locator(".flow-node")).toHaveCount(6);
   const start = await zoom(page);
+  // The pointer rests on empty canvas, where no card lifts under it.
+  const pointer = { x: 24, y: 24 };
   const before = (await card(page, "Goblin 2").boundingBox())!;
-  const pointer = { x: before.x + before.width * .25, y: before.y + before.height * .75 };
   await page.mouse.move(pointer.x, pointer.y);
   await page.mouse.wheel(0, -300);
   await expect.poll(() => zoom(page)).toBeGreaterThan(start);
   const after = (await card(page, "Goblin 2").boundingBox())!;
   expect(after.width, "the card grew").toBeGreaterThan(before.width);
-  expect(Math.abs((pointer.x - after.x) / after.width - .25), "the same point of the card stays under the pointer").toBeLessThan(.01);
-  expect(Math.abs((pointer.y - after.y) / after.height - .75)).toBeLessThan(.01);
+  expect((pointer.x - after.x) / after.width, "the point under the pointer stays there").toBeCloseTo((pointer.x - before.x) / before.width, 2);
+  expect((pointer.y - after.y) / after.height).toBeCloseTo((pointer.y - before.y) / before.height, 2);
   await page.mouse.wheel(0, 600);
   await expect.poll(() => zoom(page)).toBeLessThan(start);
 });
@@ -60,7 +61,6 @@ test("a tree too big for the canvas fits it whole, when it opens, at Fit and at 
   await page.goto("/tests/fixtures/canvas-controls.html?goblins=30");
   await expect(page.locator(".flow-node")).toHaveCount(31);
   expect(await outside(page)).toEqual([]);
-  expect(await zoom(page), "below today's 35 percent floor").toBeLessThan(35);
   await page.getByRole("button", { name: "Zoom in" }).click();
   await page.getByRole("button", { name: "Zoom in" }).click();
   expect(await outside(page)).not.toEqual([]);

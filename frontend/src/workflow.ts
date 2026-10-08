@@ -321,8 +321,8 @@ function rowsFor<T>(children: T[], columns: (child: T) => number, below: (child:
 // Positioning changes presentation only. Cycles retain a visible node but do
 // not become recursively laid-out family relationships. A family of goblins
 // with no cards under them wraps into the rows that show it largest in the
-// canvas, each row after the first offset by half a card so its connectors
-// drop through the gaps of the row above, and a goblin takes as many grid
+// canvas, each row after the first offset so its connectors drop clear of
+// the middles of the goblins above, and a goblin takes as many grid
 // columns as what hangs under its card needs (extents). A goblin waiting on
 // another sits in the row under it, half a card over, so the dashed line
 // between them is short and its own connector drops through a gap; a sibling
@@ -350,13 +350,21 @@ export function arrange(nodes: WorkflowNode[], canvas: { width: number; height: 
       ? rowsFor(children, columns, (child) => takes(child.id).below, canvas) : [children];
     if (rows.length > 1) {
       const widest = Math.max(...rows.map((row) => row.reduce((sum, child) => sum + columns(child), 0))), first = leaf;
+      // Each row after the first is offset so no connector into it drops
+      // down the middle of a goblin above, where it would run down that
+      // goblin's own trunk: by half a card where it can be, as through the
+      // gaps of a row of single cards, else by the eighth of a card nearest
+      // that keeps clear.
+      const middles: number[] = [];
       rows.forEach((row, index) => {
-        let column = first + (index % 2) / 2;
-        for (const child of row) {
-          visited.add(child.id);
-          positions[child.id] = { x: 40 + (column + (columns(child) - 1) / 2) * COLUMN, y: 72 + (depth + 1 + index) * ROW };
-          column += columns(child);
-        }
+        const at = (offset: number) => row.map((child, i) => first + offset + row.slice(0, i).reduce((sum, other) => sum + columns(other), 0) + (columns(child) - 1) / 2);
+        const covered = (offset: number) => at(offset).filter((middle) => middles.some((above) => Math.abs(middle - above) < .1)).length;
+        const offset = index ? [.5, .25, .75, 0, .375, .625, .125, .875].reduce((best, next) => covered(next) < covered(best) ? next : best) : 0;
+        at(offset).forEach((middle, i) => {
+          visited.add(row[i].id);
+          positions[row[i].id] = { x: 40 + middle * COLUMN, y: 72 + (depth + 1 + index) * ROW };
+          middles.push(middle);
+        });
       });
       leaf += widest + 1;
       const x = 40 + (first + (widest - 1) / 2 + .25) * COLUMN;

@@ -132,6 +132,23 @@ test("a goblin whose branches are wider than its card keeps every other card and
   }
 });
 
+test("a connector to a later row of goblins never drops down the middle of a goblin above it, where its trunk runs", () => {
+  const ids = ["billing", "checkout", "search", "docs", "ledger", "export", "rates"];
+  const nodes = workflowNodes(parseSnapshot({ healthy: true, tasks: ids.map((id) => ({ id, phase: "working", verified: false })) }));
+  const wide = (count: number): Extent => ({ width: branchLayout(count, NODE_WIDTH).width, below: branchLayout(count, NODE_WIDTH).height });
+  for (const extents of [{}, { "task:billing": wide(5) }, { "task:billing": wide(5), "task:docs": wide(9), "task:rates": wide(2) }] as Record<string, Extent>[]) {
+    for (const canvas of [{ width: 836, height: 956 }, { width: 600, height: 1400 }]) {
+      const positions = arrange(nodes, canvas, {}, extents);
+      const cards = nodes.filter((node) => node.task).map((node) => positions[node.id]);
+      const rows = [...new Set(cards.map((point) => point.y))].sort((one, other) => one - other);
+      assert.ok(rows.length > 1, JSON.stringify({ canvas, rows }));
+      for (const card of cards) for (const above of cards.filter((other) => other.y < card.y)) {
+        assert.ok(Math.abs(card.x - above.x) >= (NODE_WIDTH + 44) / 10, JSON.stringify({ extents: Object.keys(extents), canvas, card, above }));
+      }
+    }
+  }
+});
+
 test("a sub-agent its goblin's tree holds is a baby goblin under it, not a card of its own", () => {
   const sessions = [
     { id: "own", native_id: "own", harness: "claude", role: "goblin", task_id: "g" },
