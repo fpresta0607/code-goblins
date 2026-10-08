@@ -2,15 +2,16 @@ import { useState, type ReactNode } from "react";
 import { Icon } from "./Icon";
 import { useAfkActions } from "./afk-actions";
 import { AfkOnDialog } from "./afk-on-dialog";
+import { AfkRefusal } from "./afk-refusal";
 import { useAfkSwitch } from "./useAfkSwitch";
 import type { Afk } from "./types";
 import "./afk.css";
-import { ClickFeedback } from "./click-feedback";
 
 // The AFK toggle in the CFO panel's header, beside the CFO's status: a small
-// switch with its label. Only the Overlord turns it, which the supervisor
-// proves of the program that asks, and a refusal says so in a few words for
-// a moment. Turning it on asks first. Turning it off needs no question:
+// switch with its label, which spins while the supervisor answers. Only the
+// Overlord turns it, which the supervisor proves of the program that asks,
+// and a refusal is shown in full on a row of its own under the header until
+// he closes it. Turning it on asks first. Turning it off needs no question:
 // it only gives him his decisions back, and it is how a switch that cannot be
 // read is reset, which its tip says while it cannot be read.
 // While it is off, the report of the last stretch opens from the button
@@ -29,12 +30,13 @@ export function AfkToggle({ afk, instance, leading }: { afk: Afk; instance: stri
     <div className="afk-header">
       {leading}
       {afk.state === "off" && afk.report && <button className="icon-button raised" aria-label="Open the last AFK report" data-tip="Last AFK report" data-tip-align="end" onClick={openReport}><Icon name="file" /></button>}
-      <button className="afk-toggle" role="switch" aria-checked={on} aria-label="AFK mode" data-tip={on ? "Turn AFK off" : afk.state === "off" ? "Turn AFK on" : "Reset AFK to off"} data-tip-align="end" disabled={pending} onClick={press}>
+      <button className="afk-toggle" role="switch" aria-checked={on} aria-label="AFK mode" aria-busy={pending} data-tip={on ? "Turn AFK off" : afk.state === "off" ? "Turn AFK on" : "Reset AFK to off"} data-tip-align="end" disabled={pending} onClick={press}>
         <span className="afk-toggle-label">AFK</span>
+        {pending && <span className="card-start-spinner" aria-hidden="true" />}
         <span className="afk-toggle-track" aria-hidden="true"><span className="afk-toggle-thumb" /></span>
       </button>
     </div>
-    {!asking && <ClickFeedback text={problem} />}
+    {!asking && <AfkRefusal on={false} problem={problem} onClose={clear} />}
     {asking && <AfkOnDialog pending={pending} problem={problem} onTurnOn={() => void turnOn()} onClose={() => { setAsking(false); clear(); }} />}
   </>;
 }

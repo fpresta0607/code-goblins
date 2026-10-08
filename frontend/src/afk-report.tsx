@@ -1,9 +1,10 @@
 import { useEffect, useId, useRef } from "react";
 import { Avatar } from "./Avatar";
+import { Disclosure } from "./Disclosure";
 import { Icon, type IconName } from "./Icon";
 import { ShowMore } from "./ShowMore";
 import { AfkHeldList } from "./afk-held";
-import { afkTime, decisionSays, parseAfkReport, reportAction, safeLink, switchedBy, type AfkReport } from "./afk";
+import { afkTime, decisionSays, parseAfkReport, reportAction, safeLink, stillWaiting, switchedBy, type AfkDecision, type AfkReport } from "./afk";
 import { AfkSpent } from "./afk-spent";
 import { useResource } from "./api";
 import { pullRequestLabel } from "./workflow";
@@ -14,13 +15,20 @@ import "./afk.css";
 // the report.
 const MARKS: Record<string, IconName> = { left: "clock", merge: "merge", deploy: "external", migration: "database", install: "download", answer: "comment", other: "check", pause: "pause" };
 
+// What still waits on the Overlord among a section's decisions: what was left
+// for him, and a merge word with no merge made.
+const waitsOnHim = (entry: AfkDecision): boolean => entry.kind === "left" || entry.kind === "merge" && entry.outcome !== "merged";
+
 // The report of the last stretch of AFK mode, as one page over the board: who
-// turned it on and off, how many of each thing there is, what is held for the
-// Overlord and what became of it, which he reads first, then what the CFO
+// turned it on and off, how many of each thing there is, what still waits on
+// the Overlord in the Command Center, which he reads first, then what the CFO
 // merged, deployed, migrated, installed and answered, each with its link and
 // the evidence it stood on, the goblins paused at a floor, what each goblin
-// finished, and what was spent. It
-// opens when AFK mode turns off, and again from the CFO panel's header.
+// finished, and what was spent. A section that holds anything still waiting
+// on him is open; every other folds into a drawer, closed until he opens it,
+// as a task's panel folds its sections, so a long stretch's merges, installs
+// and finished goblins do not bury what needs him. It opens when AFK mode
+// turns off, and again from the CFO panel's header.
 export function AfkReportPage({ tasks, now, onClose, onCommand }: { tasks: Task[]; now: number; onClose: () => void; onCommand: () => void }) {
   const dialog = useRef<HTMLDialogElement>(null);
   const title = useId();
@@ -31,7 +39,10 @@ export function AfkReportPage({ tasks, now, onClose, onCommand }: { tasks: Task[
     element?.showModal();
     return () => { element?.close(); if (source instanceof HTMLElement && source.isConnected) source.focus(); };
   }, []);
-  const tally: [string, number][] = data ? [["Held for you", data.held.length], ...data.sections.map((section): [string, number] => [section.title, section.entries.length]), ["Goblins finished", data.finished.length]] : [];
+  // Held for you is only what still waits on him: an item he answered since
+  // needs nothing more of him.
+  const waiting = data ? stillWaiting(data.held) : [];
+  const tally: [string, number][] = data ? [["Held for you", waiting.length], ...data.sections.map((section): [string, number] => [section.title, section.entries.length]), ["Goblins finished", data.finished.length]] : [];
   return <dialog ref={dialog} className="question-modal afk-report" aria-labelledby={title} onKeyDown={(event) => { if (event.key === "Escape") event.stopPropagation(); }} onCancel={(event) => { event.preventDefault(); onClose(); }}>
     <div className="command-center-heading">
       <Avatar persona="cfo" />
@@ -47,37 +58,39 @@ export function AfkReportPage({ tasks, now, onClose, onCommand }: { tasks: Task[
     {data === null && <p className="muted">No report yet.</p>}
     {data && <>
       <ul className="afk-tally" aria-label="In all">{tally.map(([name, count]) => <li key={name} className={count ? undefined : "none"}>{name} <span className="column-count">{count}</span></li>)}</ul>
-      {data.held.length > 0 && <section aria-label="Held for you">
-        <h3>Held for you <span className="column-count">{data.held.length}</span></h3>
-        <AfkHeldList held={data.held} tasks={tasks} />
+      {waiting.length > 0 && <section aria-label="Held for you">
+        <h3>Held for you <span className="column-count">{waiting.length}</span></h3>
+        <AfkHeldList held={waiting} tasks={tasks} />
       </section>}
-      {data.sections.filter((section) => section.entries.length > 0).map((section) => <section key={section.title} aria-label={section.title}>
-        <h3>{section.title} <span className="column-count">{section.entries.length}</span></h3>
-        <ul className="inbox-list afk-decisions">{section.entries.map((entry) => {
+      {data.sections.filter((section) => section.entries.length > 0).map((section) => {
+        const heading = <>{section.title} <span className="column-count">{section.entries.length}</span></>;
+        const list = <ul className="inbox-list afk-decisions">{section.entries.map((entry) => {
           const says = decisionSays(entry);
           const unmerged = entry.kind === "merge" && entry.outcome !== "merged";
-          // What was left for him still waits on him.
-          const waits = unmerged || entry.kind === "left";
           return <li key={entry.at + entry.kind + entry.what}>
-            <span className={"delivery " + (waits ? "uncertain" : "succeeded")}><Icon name={unmerged ? "warning" : MARKS[entry.kind] || "check"} /></span>
+            <span className={"delivery " + (waitsOnHim(entry) ? "uncertain" : "succeeded")}><Icon name={unmerged ? "warning" : MARKS[entry.kind] || "check"} /></span>
             <div className="inbox-text">
               <strong>{says.href ? <a href={says.href} target="_blank" rel="noreferrer">{says.text}</a> : says.text}{says.outcome && ": " + says.outcome}</strong>
               <ShowMore text={says.basis} className="afk-evidence" />
             </div>
             <time dateTime={entry.at}>{afkTime(entry.at, now)}</time>
           </li>;
-        })}</ul>
-      </section>)}
+        })}</ul>;
+        return <section key={section.title} aria-label={section.title}>
+          {section.entries.some(waitsOnHim) ? <><h3>{heading}</h3>{list}</> : <Disclosure kind="afk-drawer" title={heading}>{list}</Disclosure>}
+        </section>;
+      })}
       {data.finished.length > 0 && <section aria-label="Goblins finished">
-        <h3>Goblins finished <span className="column-count">{data.finished.length}</span></h3>
-        <ul className="inbox-list afk-decisions">{data.finished.map((finish) => <li key={finish.task + finish.pr}>
-          <span className="delivery succeeded"><Icon name="pull-request" /></span>
-          <span className="inbox-text"><strong>{finish.task}</strong>{safeLink(finish.pr) ? <a href={finish.pr} target="_blank" rel="noreferrer">{pullRequestLabel(finish.pr)}</a> : finish.pr}</span>
-          <time dateTime={finish.at}>{afkTime(finish.at, now)}</time>
-        </li>)}</ul>
+        <Disclosure kind="afk-drawer" title={<>Goblins finished <span className="column-count">{data.finished.length}</span></>}>
+          <ul className="inbox-list afk-decisions">{data.finished.map((finish) => <li key={finish.task + finish.pr}>
+            <span className="delivery succeeded"><Icon name="pull-request" /></span>
+            <span className="inbox-text"><strong>{finish.task}</strong>{safeLink(finish.pr) ? <a href={finish.pr} target="_blank" rel="noreferrer">{pullRequestLabel(finish.pr)}</a> : finish.pr}</span>
+            <time dateTime={finish.at}>{afkTime(finish.at, now)}</time>
+          </li>)}</ul>
+        </Disclosure>
       </section>}
       {data.spent.length > 0 && <section aria-label="Spent">
-        <h3>Spent</h3>
+        <h3>Spent <span className="afk-spent-legend"><i className="before" />Before AFK <i className="used" />Used while AFK was on</span></h3>
         <AfkSpent spent={data.spent} />
       </section>}
       {data.notes.length > 0 && <section aria-label="Not read">
@@ -86,7 +99,7 @@ export function AfkReportPage({ tasks, now, onClose, onCommand }: { tasks: Task[
       </section>}
     </>}
     <div className="afk-report-actions">
-      {reportAction(data?.held ?? []) === "command" ? <button className="primary" onClick={onCommand}>Open Command Center</button> : <button className="primary" onClick={onClose}>Back to the board</button>}
+      {reportAction(waiting) === "command" ? <button className="primary" onClick={onCommand}>Open Command Center</button> : <button className="primary" onClick={onClose}>Back to the board</button>}
     </div>
   </dialog>;
 }

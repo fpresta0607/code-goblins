@@ -70,17 +70,38 @@ export function parseAfkReport(value: unknown): AfkReport | null {
 const shown = (value: number): string => String(Math.round(value * 10) / 10);
 
 // allowanceSays is one allowance under Spent as the report shows it: its name,
-// its percent at either end or the credits spent, and the words a screen
-// reader says for its graph.
-export function allowanceSays(allowance: AfkAllowance): { name: string; value: string; label: string } {
+// its percent at either end or the credits spent, how much of it AFK mode used,
+// and the words a screen reader says for its graph. A window that reset in
+// between started again from nothing, and a reading not taken leaves no change
+// to say, so none is said, never a line saying it was not read, as he asked on
+// 2026-10-07.
+export function allowanceSays(allowance: AfkAllowance): { name: string; value: string; change: string; label: string } {
   const name = allowance.provider.charAt(0).toUpperCase() + allowance.provider.slice(1) + " " + allowance.window;
-  if (allowance.credits) return { name, value: shown(allowance.spent) + " spent", label: name + " " + shown(allowance.spent) + " " + allowance.unit + " spent" };
+  if (allowance.credits) return { name, value: shown(allowance.spent) + " spent", change: "", label: name + " " + shown(allowance.spent) + " " + allowance.unit + " spent" };
   const { on, off } = allowance;
   if (on !== null && off !== null) {
-    return { name, value: shown(on) + "% → " + shown(off) + "%", label: name + " " + shown(on) + "% used at AFK on and " + shown(off) + "% at AFK off" + (allowance.reset ? " after it reset" : "") };
+    const used = off - on;
+    const change = allowance.reset ? "reset" : (used < 0 ? "−" : "+") + shown(Math.abs(used)) + "%";
+    return { name, value: shown(on) + "% → " + shown(off) + "%", change, label: name + " " + shown(on) + "% used at AFK on and " + shown(off) + "% at AFK off" + (allowance.reset ? " after it reset" : "") };
   }
   const [read, at] = on !== null ? [on, "on"] : [off ?? 0, "off"];
-  return { name, value: shown(read) + "%", label: name + " " + shown(read) + "% used at AFK " + at };
+  return { name, value: shown(read) + "%", change: "", label: name + " " + shown(read) + "% used at AFK " + at };
+}
+
+// allowanceGraph is where an allowance's graph under Spent marks, as percents
+// of its bar: before is what was used before AFK mode turned on, and from and
+// to the stretch it used while on, which its arrow spans. A window that reset
+// in between used its whole stretch from nothing, a reading not taken marks
+// what was read with no stretch, and credits have no graph.
+export function allowanceGraph(allowance: AfkAllowance): { before: number; from: number; to: number } | null {
+  const { on, off } = allowance;
+  if (allowance.credits || on === null && off === null) return null;
+  if (on === null || off === null) {
+    const read = on ?? off ?? 0;
+    return { before: read, from: read, to: read };
+  }
+  if (allowance.reset) return { before: 0, from: 0, to: off };
+  return { before: Math.min(on, off), from: Math.min(on, off), to: off };
 }
 
 // afkTime is a time as the board says it: the time of day, with the day in

@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { AFK_OFF, AWAY_MS, afkLine, afkTime, decisionSays, heldRecommends, heldSays, heldWho, offerFor, parseAfkReport, reportAction, safeLink, stillWaiting, switchedBy, turnedOff, allowanceSays, type AfkDecision, type AfkAllowance, type Occasion, type ReportAction } from "./afk.ts";
+import { AFK_OFF, AWAY_MS, afkLine, afkTime, decisionSays, heldRecommends, heldSays, heldWho, offerFor, parseAfkReport, reportAction, safeLink, stillWaiting, switchedBy, turnedOff, allowanceGraph, allowanceSays, type AfkDecision, type AfkAllowance, type Occasion, type ReportAction } from "./afk.ts";
 import { parseSnapshot, type Afk, type AfkHeld } from "./types.ts";
 
 const NOW = Date.parse("2026-10-02T12:31:00Z");
@@ -155,16 +155,30 @@ test("the report's Spent reads each allowance as the percent used at either end,
   assert.throws(() => parseAfkReport({ found: true, spent: [{ provider: "claude", window: "week", on: "29%" }] }), /Invalid response number/);
 });
 
-test("an allowance under Spent is named for its provider and window and says its percent at either end, or the credits spent", () => {
-  const allowance = (changes: Partial<AfkAllowance>): AfkAllowance => ({ provider: "claude", window: "week", on: null, off: null, reset: false, credits: false, spent: 0, unit: "", ...changes });
-  const cases: [string, AfkAllowance, { name: string; value: string; label: string }][] = [
-    ["read at both ends", allowance({ on: 29, off: 35 }), { name: "Claude week", value: "29% → 35%", label: "Claude week 29% used at AFK on and 35% at AFK off" }],
-    ["a window that reset", allowance({ window: "session", on: 42, off: 3, reset: true }), { name: "Claude session", value: "42% → 3%", label: "Claude session 42% used at AFK on and 3% at AFK off after it reset" }],
-    ["read only at turn-on", allowance({ window: "Fable week", on: 12.5 }), { name: "Claude Fable week", value: "12.5%", label: "Claude Fable week 12.5% used at AFK on" }],
-    ["read only at turn-off", allowance({ provider: "codex", off: 4 }), { name: "Codex week", value: "4%", label: "Codex week 4% used at AFK off" }],
-    ["credits", allowance({ provider: "codex", window: "credits", credits: true, spent: 12.5, unit: "credits" }), { name: "Codex credits", value: "12.5 spent", label: "Codex credits 12.5 credits spent" }],
+const allowance = (changes: Partial<AfkAllowance>): AfkAllowance => ({ provider: "claude", window: "week", on: null, off: null, reset: false, credits: false, spent: 0, unit: "", ...changes });
+
+test("an allowance under Spent is named for its provider and window and says its percent at either end and how much AFK used, or the credits spent", () => {
+  const cases: [string, AfkAllowance, { name: string; value: string; change: string; label: string }][] = [
+    ["read at both ends", allowance({ on: 29, off: 35 }), { name: "Claude week", value: "29% → 35%", change: "+6%", label: "Claude week 29% used at AFK on and 35% at AFK off" }],
+    ["one percent used", allowance({ provider: "codex", on: 1, off: 2 }), { name: "Codex week", value: "1% → 2%", change: "+1%", label: "Codex week 1% used at AFK on and 2% at AFK off" }],
+    ["none used", allowance({ on: 52, off: 52 }), { name: "Claude week", value: "52% → 52%", change: "+0%", label: "Claude week 52% used at AFK on and 52% at AFK off" }],
+    ["a window that reset", allowance({ window: "session", on: 42, off: 3, reset: true }), { name: "Claude session", value: "42% → 3%", change: "reset", label: "Claude session 42% used at AFK on and 3% at AFK off after it reset" }],
+    ["read only at turn-on", allowance({ window: "Fable week", on: 12.5 }), { name: "Claude Fable week", value: "12.5%", change: "", label: "Claude Fable week 12.5% used at AFK on" }],
+    ["read only at turn-off", allowance({ provider: "codex", off: 4 }), { name: "Codex week", value: "4%", change: "", label: "Codex week 4% used at AFK off" }],
+    ["credits", allowance({ provider: "codex", window: "credits", credits: true, spent: 12.5, unit: "credits" }), { name: "Codex credits", value: "12.5 spent", change: "", label: "Codex credits 12.5 credits spent" }],
   ];
   for (const [name, value, want] of cases) assert.deepEqual(allowanceSays(value), want, name);
+});
+
+test("an allowance's graph marks what was used before AFK and the stretch AFK used, from nothing after a reset, with no stretch for a reading not taken, and no graph for credits", () => {
+  const cases: [string, AfkAllowance, { before: number; from: number; to: number } | null][] = [
+    ["read at both ends", allowance({ on: 29, off: 35 }), { before: 29, from: 29, to: 35 }],
+    ["a window that reset", allowance({ on: 42, off: 3, reset: true }), { before: 0, from: 0, to: 3 }],
+    ["read only at turn-off", allowance({ off: 52 }), { before: 52, from: 52, to: 52 }],
+    ["read only at turn-on", allowance({ on: 12.5 }), { before: 12.5, from: 12.5, to: 12.5 }],
+    ["credits", allowance({ credits: true, spent: 12.5 }), null],
+  ];
+  for (const [name, value, want] of cases) assert.deepEqual(allowanceGraph(value), want, name);
 });
 
 test("the report's main button is the Command Center while anything it held still waits on him, and the board otherwise", () => {

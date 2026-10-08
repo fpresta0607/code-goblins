@@ -115,8 +115,8 @@ func TestTheCFOIsWokenAgainWhileRunnableWorkWaitsAndNothingStarts(t *testing.T) 
 }
 
 // The board names what the scheduler did at its last reading with memory
-// free: what it started or resumed, else why nothing waiting started, else
-// that nothing waits.
+// free: what it started or resumed, else why nothing waiting started, and
+// says nothing when nothing waits.
 func TestTheSnapshotNamesWhatTheSchedulerDid(t *testing.T) {
 	cases := []struct {
 		name    string
@@ -133,7 +133,7 @@ func TestTheSnapshotNamesWhatTheSchedulerDid(t *testing.T) {
 		{name: "its last start failed", arrange: func(t *testing.T, h home.Home) {
 			queueBriefedTask(t, h, "- **next-task** - Ship it (repo: code-goblins)", plainBrief)
 		}, fail: true, want: "nothing starts: next-task: its last start failed: refused: the auth preflight is red"},
-		{name: "nothing waits", arrange: func(t *testing.T, h home.Home) {}, want: "nothing waits to start"},
+		{name: "nothing waits", arrange: func(t *testing.T, h home.Home) {}, want: ""},
 	}
 	for _, testCase := range cases {
 		t.Run(testCase.name, func(t *testing.T) {

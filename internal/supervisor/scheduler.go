@@ -141,7 +141,9 @@ func (s *Service) schedule(ctx context.Context, now time.Time, watched *fleetWak
 			record.Text += fmt.Sprintf(" (and %d more)", len(record.Waiting)-1)
 		}
 	default:
-		record.Text = "nothing waits to start"
+		// Nothing waits, so the board says nothing under its meters, as the
+		// Overlord asked on 2026-10-08.
+		record.Text = ""
 	}
 	var refusal StartRefusal
 	if errors.As(problems, &refusal) {
