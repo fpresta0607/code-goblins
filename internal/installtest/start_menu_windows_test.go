@@ -387,6 +387,41 @@ function Start-Process {
 	}
 }
 
+func TestUnavailableDesktopDoesNotStopInstall(t *testing.T) {
+	for name, setup := range map[string]string{
+		"unavailable drive": "$env:CODE_GOBLINS_DESKTOP = 'UnavailableDesktop:\\' + $env:CODE_GOBLINS_DESKTOP\n",
+		"folder is a file":  "New-Item -ItemType File -Path $env:CODE_GOBLINS_DESKTOP -Force | Out-Null\n",
+	} {
+		t.Run(name, func(t *testing.T) {
+			base := serveReleaseWithWindow(t, standIn(t), nil)
+			command := setup + "Get-Content -Raw -LiteralPath '" + installScript(t) + "' | Invoke-Expression; Write-Output \"install-exit=$LASTEXITCODE\"; exit $LASTEXITCODE"
+
+			run := runInstallForStartMenu(t, base, nil, command, nil)
+
+			if !strings.Contains(run.output, "Done: Code Goblins is installed in ") || !strings.Contains(run.output, "install-exit=0") || strings.Contains(run.output, "Failed:") {
+				t.Errorf("an unavailable desktop stopped the install:\n%s", run.output)
+			}
+			hasWarning, hasFailedInstallNote := false, false
+			for _, line := range strings.Split(run.output, "\n") {
+				if strings.HasPrefix(line, "WARN ") && strings.Contains(line, "the desktop shortcut was not made:") {
+					hasWarning = true
+				}
+				if strings.HasPrefix(line, "Note: These could not be installed,") && strings.Contains(line, "desktop shortcut") {
+					hasFailedInstallNote = true
+				}
+			}
+			if !hasWarning || !hasFailedInstallNote {
+				t.Errorf("the unavailable desktop has no warning or named failed-install note:\n%s", run.output)
+			}
+			target, arguments := startMenuEntry(t, run)
+			wantTarget := fsx.LongPath(filepath.Join(run.local, "CodeGoblins", "bin", "goblins.exe"))
+			if !strings.EqualFold(fsx.LongPath(target), wantTarget) || arguments != "" {
+				t.Errorf("Code Goblins in the Start menu runs %q with %q, want %q alone:\n%s", target, arguments, wantTarget, run.output)
+			}
+		})
+	}
+}
+
 func TestCoreOnlyReinstallKeepsTheStandaloneShortcut(t *testing.T) {
 	// Arrange
 	base := serveReleaseWithWindow(t, standIn(t), nil)

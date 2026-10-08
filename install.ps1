@@ -810,8 +810,11 @@ public static extern IntPtr SendMessageTimeout(IntPtr hWnd, uint Msg, UIntPtr wP
     $programs = Join-Path $env:APPDATA "Microsoft\Windows\Start Menu\Programs"
     $desktop = if ($env:CODE_GOBLINS_DESKTOP) { $env:CODE_GOBLINS_DESKTOP } else { [Environment]::GetFolderPath("Desktop") }
     foreach ($place in @(@{ Name = "Start-menu"; Folder = $programs }, @{ Name = "desktop"; Folder = $desktop })) {
-        $shortcutPath = Join-Path $place.Folder "Code Goblins.lnk"
         try {
+            if ([string]::IsNullOrEmpty($place.Folder)) {
+                throw "The $($place.Name) folder path is empty."
+            }
+            $shortcutPath = Join-Path $place.Folder "Code Goblins.lnk"
             New-Item -ItemType Directory -Force -Path $place.Folder -ErrorAction Stop | Out-Null
             $shortcut = (New-Object -ComObject WScript.Shell).CreateShortcut($shortcutPath)
             $shortcut.WorkingDirectory = $InstallDir
