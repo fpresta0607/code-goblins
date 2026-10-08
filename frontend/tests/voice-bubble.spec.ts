@@ -250,9 +250,10 @@ test("a dictation refused for another reason is asked for again, then goes to th
   expect(asks, "the page stops asking about the speech model").toBe(asked);
 });
 
-test("a stalled dictation is canceled without blocking later words", async ({ page }) => {
+test("a stalled dictation is canceled without blocking later words, and goes to the CFO, never onto the board", async ({ page }) => {
   await page.clock.install({ time: new Date("2026-10-04T20:00:00Z") });
   const replies: Route[] = [], failed: Request[] = [];
+  const reports = await cfoReports(page);
   const { bubble, pane, posts } = await openPane(page, { app: true, replies });
   page.on("requestfailed", (request) => failed.push(request));
   await page.clock.pauseAt(new Date("2026-10-04T21:00:00Z"));
@@ -274,7 +275,8 @@ test("a stalled dictation is canceled without blocking later words", async ({ pa
   expect(failed).toEqual([]);
   await expect(pane.getByRole("status")).toHaveCount(0);
   await page.clock.fastForward(1);
-  await expect(pane.getByRole("status")).toHaveText("Dictation did not finish within 120 seconds. Its words were not typed.");
+  await expect.poll(() => reports).toEqual([{ where: "dictation", text: "Dictation did not finish within 120 seconds of the keys being let go, so its words were not typed." }]);
+  await expect(pane.getByRole("status")).toHaveCount(0);
   await expect(page.locator("output")).toHaveText("after the stalled capture");
   await expect.poll(() => failed.includes(replies[0].request())).toBe(true);
   expect(replies[0].request().failure()?.errorText).toBe("net::ERR_ABORTED");
