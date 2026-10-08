@@ -26,9 +26,9 @@ import (
 	"github.com/fpresta0607/code-goblins/internal/wake"
 )
 
-// maxReviews bounds the review list. An open item, or a wait its goblin still
-// stands on, is never dropped to make room: a new one waits in the inbox until
-// an older one closes.
+// maxReviews bounds the review list. An open item, a wait its goblin still
+// stands on, or an item whose page is still watched is never dropped to make
+// room: a new one waits in the inbox until an older one closes.
 const maxReviews = 128
 
 // maxReviewImages is the most images one review carries.
@@ -60,9 +60,17 @@ type Review struct {
 	ImageCount int      `json:"image_count,omitempty"`
 	Lavish     string   `json:"lavish,omitempty"`
 	// LavishPage is the HTML file of a Lavish page, a goblin's or the CFO's
-	// own, which the supervisor polls for the Overlord's feedback while the
-	// item is open.
+	// own, which the supervisor polls for the Overlord's feedback until the
+	// review on it settles, whatever becomes of the item.
 	LavishPage string `json:"lavish_page,omitempty"`
+	// PageSettled is when the review on the item's page settled: the
+	// Overlord answered or ended it there, an agent ended it, it could not be
+	// polled, or its goblin's task was retired. The page is watched until
+	// then, after the item closes too, so nothing he sends there goes unread.
+	PageSettled *time.Time `json:"page_settled,omitempty"`
+	// Link is the web link a goblin's wait gives as where the Overlord goes,
+	// the only link its card opens.
+	Link string `json:"link,omitempty"`
 	// Document is a delivered file, copied beside the item's images; an item
 	// with a document carries nothing else to look at.
 	Document *ReviewDocument `json:"document,omitempty"`
@@ -80,6 +88,10 @@ type Review struct {
 	// WindowClosedAt is when the review window of the item's page last
 	// disconnected; the review goes on, and the board says the window closed.
 	WindowClosedAt *time.Time `json:"window_closed_at,omitempty"`
+	// RevisingSince is when the Overlord sent a revision from the item's page
+	// without ending its review: the item then waits on its reporter's next
+	// version, which replaces the page in this same item, not on him.
+	RevisingSince *time.Time `json:"revising_since,omitempty"`
 	// Question is, on the board only, the goblin's pending question this
 	// item's page carries, so the Command Center shows the two as one.
 	Question  string    `json:"question,omitempty"`
@@ -104,8 +116,13 @@ func validReview(r Review) error {
 		}
 	}
 	if r.Lavish != "" {
-		if problem := presentationURLProblem(r.Lavish); problem != "" {
+		if problem := PresentationURLProblem(r.Lavish); problem != "" {
 			return errors.New("a review's Scrawl link " + problem)
+		}
+	}
+	if r.Link != "" {
+		if problem := PresentationURLProblem(r.Link); problem != "" {
+			return errors.New("a wait's link " + problem)
 		}
 	}
 	if r.LavishPage != "" {
@@ -124,7 +141,7 @@ func validReview(r Review) error {
 }
 
 func sameReview(a, b Review) bool {
-	return a.Identity == b.Identity && a.Task == b.Task && a.Title == b.Title && a.Lavish == b.Lavish && a.LavishPage == b.LavishPage && slices.Equal(a.ImageSums, b.ImageSums) &&
+	return a.Identity == b.Identity && a.Task == b.Task && a.Title == b.Title && a.Lavish == b.Lavish && a.LavishPage == b.LavishPage && a.Link == b.Link && slices.Equal(a.ImageSums, b.ImageSums) &&
 		(a.Document == nil) == (b.Document == nil) && (a.Document == nil || *a.Document == *b.Document)
 }
 
@@ -610,7 +627,7 @@ func (s *Store) acceptReview(r Review) error {
 		}
 		if len(s.db.Reviews) >= maxReviews {
 			closed := slices.IndexFunc(s.db.Reviews, func(old Review) bool {
-				return old.State != "open" && !s.answering(old) && !s.holdsWait(old)
+				return old.State != "open" && !s.answering(old) && !s.holdsWait(old) && !s.watchesPage(old)
 			})
 			if closed < 0 {
 				return ErrDeferred
@@ -620,7 +637,7 @@ func (s *Store) acceptReview(r Review) error {
 			}
 			s.db.Reviews = slices.Delete(s.db.Reviews, closed, closed+1)
 		}
-		r.ImageCount, r.Reason, r.Answer, r.AnswerID, r.Delivered = 0, "", "", "", false
+		r.ImageCount, r.Reason, r.Answer, r.AnswerID, r.Delivered, r.PageSettled = 0, "", "", "", false, nil
 		s.db.Reviews = append(s.db.Reviews, r)
 	case "withdrawn":
 		if i < 0 {
@@ -664,8 +681,33 @@ func (s *Store) acceptReview(r Review) error {
 			return s.save()
 		}
 		return nil
+	case "version":
+		// A wait's next version of its page replaces the item in place: the
+		// same item, with its new words and links, waiting on the Overlord
+		// again, so the Command Center never opens a second one for it.
+		if i < 0 {
+			if _, err := os.Stat(reviewInboxPath(s.Home.State, r.ID, "open")); err == nil {
+				return ErrDeferred
+			}
+			return errors.New("no review with that ID for its next version")
+		}
+		prior := &s.db.Reviews[i]
+		if prior.Identity != r.Identity || prior.Task != r.Task || prior.LavishPage == "" || prior.LavishPage != r.LavishPage {
+			return errors.New("only a page's reporter can replace it with the next version of that page")
+		}
+		if s.answering(*prior) {
+			return ErrDeferred
+		}
+		next := *prior
+		next.Title, next.Lavish, next.Link = r.Title, r.Lavish, r.Link
+		next.State, next.Reason, next.Answer, next.AnswerID, next.Delivered, next.AnsweredBy, next.AnsweredIn = "open", "", "", "", false, "", ""
+		next.RevisingSince, next.WindowClosedAt, next.PageSettled, next.CreatedAt, next.UpdatedAt = nil, nil, nil, r.UpdatedAt, r.UpdatedAt
+		if err := validReview(next); err != nil {
+			return err
+		}
+		*prior = next
 	default:
-		return errors.New("a review report is open, withdrawn or cleared")
+		return errors.New("a review report is open, a next version, withdrawn or cleared")
 	}
 	return s.save()
 }
@@ -734,15 +776,16 @@ func waitStands(r Review, reportedAt time.Time, report string) bool {
 }
 
 // pruneReviews drops closed items, with their copied images, a set time after
-// they closed. Open items, items whose answer is on its way and a wait its
-// goblin still stands on are never pruned.
+// they closed. Open items, items whose answer is on its way, a wait its
+// goblin still stands on and an item whose page is still watched are never
+// pruned.
 func (s *Store) pruneReviews(now time.Time) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	kept := make([]Review, 0, len(s.db.Reviews))
 	var removed []Review
 	for _, r := range s.db.Reviews {
-		if r.State != "open" && !s.answering(r) && now.Sub(r.UpdatedAt) > closedReviewRetention && !s.holdsWait(r) {
+		if r.State != "open" && !s.answering(r) && now.Sub(r.UpdatedAt) > closedReviewRetention && !s.holdsWait(r) && !s.watchesPage(r) {
 			removed = append(removed, r)
 			continue
 		}
@@ -803,13 +846,14 @@ func (s *Service) answerReview(ctx context.Context, a Action) (Evaluation, error
 	if r.Task == "" {
 		result, err = s.Options.CFO.Send(ctx, r.Identity, fmt.Sprintf("Answer to your review item %s (%s): %s", r.ID, r.Title, a.Text))
 	} else {
-		result, err = s.Options.CFO.SendGoblin(ctx, r.Task, r.Identity, fmt.Sprintf("The Overlord answered your review item %s (%s): %s", r.ID, r.Title, a.Text))
+		text := fmt.Sprintf("The Overlord answered your review item %s (%s): %s", r.ID, r.Title, a.Text)
+		result, err = s.Options.CFO.SendGoblin(ctx, r.Task, r.Identity, text)
 		if errors.Is(err, ErrRejected) {
 			return s.answerReviewToCFO(ctx, r, a.Text)
 		}
-	}
-	if errors.Is(err, fleet.ErrQueuedBehindTurn) {
-		result, err = s.behindGoblinsTurn(r.Task, sent, "Submitted while its reporter was working; it takes the answer when its current turn ends."), nil
+		if errors.Is(err, fleet.ErrQueuedForToolCall) {
+			result, err = s.behindGoblinsTurn(r.Task, sent, text, "Submitted while its reporter was working; it takes the answer at its next tool call, or as its current turn ends."), nil
+		}
 	}
 	if err != nil {
 		return result, err
@@ -854,7 +898,7 @@ func (s *Service) answerReviewToCFO(ctx context.Context, r Review, answer string
 		return result, err
 	}
 	if result.Awaiting != nil {
-		return Evaluation{Reason: r.Task + " had restarted or ended, so the answer went to the CFO, which reads it when its current turn ends.", Awaiting: result.Awaiting}, nil
+		return Evaluation{Reason: r.Task + " had restarted or ended, so the answer went to the CFO, which takes it at its next tool call, or as its current turn ends.", Awaiting: result.Awaiting}, nil
 	}
 	return Evaluation{Reason: r.Task + " had restarted or ended, so the CFO received the answer."}, nil
 }
@@ -907,8 +951,46 @@ func (h *HTTP) reviewImage(w http.ResponseWriter, r *http.Request) {
 // PublishWait puts a goblin's wait on the Overlord in the Command Center as an
 // item for him until he answers or clears it, or the goblin reports again. It
 // names the item waiting-<task>-<wake sequence>, which retireItems relies on.
-func PublishWait(h home.Home, taskID string, seq int, why, lavish, page string) error {
-	return PublishReview(h, taskID, fmt.Sprintf("waiting-%s-%d", taskID, seq), "Waiting on you: "+why, lavish, page, nil)
+// why keeps the goblin's lines, so its card can show a table of values, and
+// link is the web link it gives as where he goes, if any. A wait on a page
+// the goblin already has open in an item is the page's next version, which
+// replaces that item rather than opening another.
+func PublishWait(h home.Home, taskID string, seq int, why, lavish, page, link string) error {
+	wait := Review{ID: fmt.Sprintf("waiting-%s-%d", taskID, seq), Task: taskID, Title: "Waiting on you: " + why, Lavish: lavish, LavishPage: page, Link: link}
+	if page != "" {
+		reviews, err := reportedReviews(h.State)
+		if err != nil {
+			return err
+		}
+		if i := slices.IndexFunc(reviews, func(r Review) bool {
+			return r.State == "open" && r.Task == taskID && r.LavishPage == page && strings.HasPrefix(r.ID, "waiting-"+taskID+"-")
+		}); i >= 0 {
+			wait.ID = reviews[i].ID
+			return publishVersion(h, wait)
+		}
+	}
+	return publishItem(h, wait, func(*Review, string) (bool, error) { return false, nil })
+}
+
+// publishVersion records the next version of its reporter's open item r,
+// proven the way publishItem proves a new one.
+func publishVersion(h home.Home, r Review) error {
+	identity, release, err := reviewReporter(h, r.Task)
+	if err != nil {
+		return err
+	}
+	defer release()
+	now := time.Now().UTC()
+	r.Identity, r.State, r.CreatedAt, r.UpdatedAt = identity, "version", now, now
+	if err := validReview(r); err != nil {
+		return err
+	}
+	unlock, err := reviewPublishLock(h.State)
+	if err != nil {
+		return err
+	}
+	defer unlock()
+	return recordReview(h.State, r)
 }
 
 // retireItems withdraws a goblin's items nobody waits on any more, so the
@@ -944,7 +1026,10 @@ func (s *Store) retireItems() error {
 			continue
 		case strings.HasPrefix(r.ID, "waiting-"+r.Task+"-"):
 			standingAt, standing := standingReport(lines, time.Time{})
-			if waitStands(r, standingAt, standing) {
+			// A wait whose revision the goblin is making stands while it works
+			// on the next version, which replaces the page in this item.
+			revising := r.RevisingSince != nil && !strings.HasPrefix(report, "done: ") && !strings.HasPrefix(report, "failed: ")
+			if revising || waitStands(r, standingAt, standing) {
 				continue
 			}
 			reason = r.Task + " reported again: " + standing
@@ -1028,6 +1113,27 @@ func (s *Store) windowClosed(id string, at time.Time) error {
 	}
 	s.db.Reviews[i].WindowClosedAt = &at
 	return s.save()
+}
+
+// reviseReview marks the open item id as waiting on its reporter's next
+// version, which the Overlord asked for on its page at at.
+func (s *Store) reviseReview(id string, at time.Time) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	i := slices.IndexFunc(s.db.Reviews, func(r Review) bool { return r.ID == id && r.State == "open" })
+	if i < 0 {
+		return nil
+	}
+	s.db.Reviews[i].RevisingSince = &at
+	return s.save()
+}
+
+// asksOnPage reports whether item r's page carries a goblin's question still
+// waiting, which the Overlord's word on the page answers.
+func (s *Store) asksOnPage(r Review) bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return slices.ContainsFunc(s.db.Questions, func(q Question) bool { return carriesQuestion(r, q) })
 }
 
 func (s *Store) withdrawReview(id, reason string) error {

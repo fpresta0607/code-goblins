@@ -127,6 +127,9 @@ func WriteCheckpoint(h home.Home, now time.Time) error {
 		if _, isBlocking := wake.BlockingNotify(record); isBlocking && record.Answered == "" {
 			hasQuestion = true
 			ew.printf("%s %s\n", record.Key, record.Detail)
+		} else if question, asked := wake.ProseAsk(record, record.Key); asked {
+			hasQuestion = true
+			ew.printf("%s %s\n", record.Key, question)
 		}
 	}
 	if wakeErr != nil {

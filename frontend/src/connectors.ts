@@ -43,6 +43,14 @@ export function shellLabel(shell: string): string {
   return ({ powershell: "Windows PowerShell", pwsh: "PowerShell 7", bash: "Git Bash" } as Record<string, string>)[shell] || shell;
 }
 
+// The one button on a run card says where the command runs, in the
+// Overlord's words for it ("run in powershell button"); an elevated item
+// says that instead, since Windows asks him first.
+export function runLabel(shell: string, admin: boolean): string {
+  if (admin) return "Run as administrator";
+  return "Run in " + (({ powershell: "PowerShell", pwsh: "PowerShell 7", bash: "Git Bash" } as Record<string, string>)[shell] || shell);
+}
+
 export function connectorMark(name: string, kind: "mcp" | "credential"): Mark {
   const key = name.toLowerCase().replace(/[^a-z0-9]/g, "");
   return SERVICES.find(([pattern]) => key && pattern.test(key))?.[1] || (kind === "mcp" ? { brand: "mcp" } : { glyph: "key" });

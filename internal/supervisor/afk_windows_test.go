@@ -10,7 +10,6 @@ import (
 	"path/filepath"
 	"slices"
 	"strings"
-	"sync"
 	"sync/atomic"
 	"syscall"
 	"testing"
@@ -18,6 +17,7 @@ import (
 
 	"github.com/fpresta0607/code-goblins/internal/afk"
 	"github.com/fpresta0607/code-goblins/internal/proc"
+	"github.com/fpresta0607/code-goblins/internal/quota"
 	"github.com/fpresta0607/code-goblins/internal/state"
 	"github.com/fpresta0607/code-goblins/internal/wake"
 )
@@ -155,9 +155,8 @@ func TestOnlyATerminalOfTheOverlordsOwnSwitchesAFKMode(t *testing.T) {
 func TestTheOverlordsSwitchTurnsAFKModeOnAndTheCFOIsToldInItsQueue(t *testing.T) {
 	// Arrange
 	store, h := testStore(t)
-	s := &Service{Store: store, Options: Options{Allowance: func(context.Context) ([]afk.Allowance, string) {
-		return []afk.Allowance{{Provider: "claude", Window: "week", PercentUsed: 40}}, ""
-	}}}
+	s := &Service{Store: store}
+	holdReading(t, s, 40)
 	asOverlordsTerminal(s)
 	runPipe(t, s)
 
@@ -175,6 +174,10 @@ func TestTheOverlordsSwitchTurnsAFKModeOnAndTheCFOIsToldInItsQueue(t *testing.T)
 	pending, err := wake.Pending(h.State)
 	if err != nil || len(pending) != 1 || pending[0].Kind != "review" || pending[0].Key != "afk" || !strings.Contains(pending[0].Detail, "turned AFK mode on") {
 		t.Errorf("the CFO's queue = %+v, %v, want one notice that the Overlord turned AFK mode on", pending, err)
+	}
+	// AFK mode is complete autopilot: the notice holds nothing for him.
+	if len(pending) == 1 && (strings.Contains(pending[0].Detail, "held for him") || !strings.Contains(pending[0].Detail, "backlog row") || !strings.Contains(pending[0].Detail, "cfo afk log --kind left")) {
+		t.Errorf("the notice = %q, want what only he can do left for him in the backlog, never held for him", pending[0].Detail)
 	}
 	if entries := afkEntries(t, h.State); len(entries) != 1 || entries[0].Kind != afk.KindOn {
 		t.Errorf("the AFK log = %+v, want the line that turned it on", entries)
@@ -366,11 +369,11 @@ func TestWhileAFKModeIsOnTheBoardIsHandedNothingToAnnounce(t *testing.T) {
 	}
 
 	// Act
-	away := askToAnnounce(t, s, `{"keys":["alert:question:q1","open:question:q1"],"news":["alert:task:a:g1:done:pr7"]}`)
+	away := askToAnnounce(t, s, `{"keys":["alert:question:q1","open:question:q1"]}`)
 	if _, err := afk.TurnOff(h.State, "the board", time.Now()); err != nil {
 		t.Fatal(err)
 	}
-	back := askToAnnounce(t, s, `{"keys":["alert:question:q1","open:question:q1","alert:question:q2"],"news":["alert:task:a:g1:done:pr7"]}`)
+	back := askToAnnounce(t, s, `{"keys":["alert:question:q1","open:question:q1","alert:question:q2"]}`)
 
 	// Assert
 	if len(away) != 0 {
@@ -404,7 +407,7 @@ func TestWhileAFKModeIsOnABoardWhoseQuestionCannotBeRecordedIsHandedNothing(t *t
 	}
 
 	// Act
-	claimed := askToAnnounce(t, s, `{"keys":["alert:question:q1","open:question:q1"],"news":["alert:task:a:g1:blocked"]}`)
+	claimed := askToAnnounce(t, s, `{"keys":["alert:question:q1","open:question:q1"]}`)
 
 	// Assert
 	if len(claimed) != 0 {
@@ -518,7 +521,7 @@ func TestOnlyTheOverlordsOffResetsASwitchThatCannotBeRead(t *testing.T) {
 func waitingItems(t *testing.T, store *Store) {
 	t.Helper()
 	now := time.Now().UTC()
-	if err := store.acceptQuestion(Question{ID: "drop-legacy-invoices", Identity: strings.Repeat("c", 64), Text: "Migration 0042 drops legacy_invoices. Apply it?", Options: []string{"Apply it", "Keep it held"}, CreatedAt: now}); err != nil {
+	if err := store.acceptQuestion(Question{ID: "drop-legacy-invoices", Identity: strings.Repeat("c", 64), Text: "Migration 0042 drops legacy_invoices. Apply it?", Options: []string{"Apply it", "Keep it held"}, Recommended: "Keep it held", CreatedAt: now}); err != nil {
 		t.Fatal(err)
 	}
 	if err := store.acceptReview(Review{ID: "waiting-task-1-7", Identity: strings.Repeat("d", 64), Task: "task-1", Title: "Waiting on you: sign in to Vercel", State: "open", CreatedAt: now, UpdatedAt: now}); err != nil {
@@ -558,14 +561,57 @@ func TestAnItemThatWaitsOnTheOverlordWhileAFKModeIsOnIsHeldOnceAndNotAnnounced(t
 	if len(held) != 3 {
 		t.Fatalf("held = %+v, want the question, the wait and the run item, each once", held)
 	}
-	if held[0].Item != "question:drop-legacy-invoices" || held[0].What != "Migration 0042 drops legacy_invoices. Apply it?" || held[0].Task != "" {
-		t.Errorf("held question = %+v, want the CFO's question with its text", held[0])
+	if held[0].Item != "question:drop-legacy-invoices" || held[0].What != "Migration 0042 drops legacy_invoices. Apply it?" || held[0].Task != "" || held[0].Recommendation != "Keep it held" {
+		t.Errorf("held question = %+v, want the CFO's question with its text and its recommendation", held[0])
 	}
-	if held[1].Item != "review:waiting-task-1-7" || held[1].What != "Waiting on you: sign in to Vercel" || held[1].Task != "task-1" {
-		t.Errorf("held wait = %+v, want the goblin's wait with its reason", held[1])
+	if held[1].Item != "review:waiting-task-1-7" || held[1].What != "Waiting on you: sign in to Vercel" || held[1].Task != "task-1" || held[1].Recommendation != "" {
+		t.Errorf("held wait = %+v, want the goblin's wait with its reason and no recommendation", held[1])
 	}
-	if held[2].Item != "run:delete-merged-branches" || held[2].What != "Run delete-merged-branches" {
-		t.Errorf("held run item = %+v, want the command left for him with its title", held[2])
+	if held[2].Item != "run:delete-merged-branches" || held[2].What != "Run delete-merged-branches" || held[2].Recommendation != "" {
+		t.Errorf("held run item = %+v, want the command left for him with its title and no recommendation", held[2])
+	}
+}
+
+// A goblin's question is the CFO's to answer, never his, as the board's
+// Command Center has it: while AFK mode is on it is not held for him, and the
+// digest's list of what waits on him leaves it out. The CFO's own question,
+// a goblin's wait and a command left for him still wait on him.
+func TestAGoblinsQuestionToTheCFOIsNotHeldForTheOverlord(t *testing.T) {
+	// Arrange
+	store, h := testStore(t)
+	s := &Service{Store: store}
+	waitingItems(t, store)
+	store.mu.Lock()
+	store.db.Questions = append(store.db.Questions, Question{ID: "notify-task-1-7", Identity: strings.Repeat("e", 64), Text: "Which store should the export use?", Options: []string{"SQLite", "Postgres"}, Status: "pending", Task: "task-1", Generation: "task-1-g1", Seq: 7, CreatedAt: time.Now().UTC()})
+	err := store.save()
+	store.mu.Unlock()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := afk.TurnOn(h.State, "the board", nil, time.Now()); err != nil {
+		t.Fatal(err)
+	}
+
+	// Act
+	err = s.holdForOverlord(time.Now())
+	open, openErr := OpenItems(h.State)
+
+	// Assert
+	if err := errors.Join(err, openErr); err != nil {
+		t.Fatal(err)
+	}
+	var held []string
+	for _, entry := range afkEntries(t, h.State) {
+		if entry.Kind == afk.KindHeld {
+			held = append(held, entry.Item)
+		}
+	}
+	slices.Sort(held)
+	if want := []string{"question:drop-legacy-invoices", "review:waiting-task-1-7", "run:delete-merged-branches"}; !slices.Equal(held, want) {
+		t.Errorf("held = %q, want %q: the goblin's question is the CFO's to answer", held, want)
+	}
+	if slices.ContainsFunc(open, func(item OpenItem) bool { return item.ID == "notify-task-1-7" }) || len(open) != 3 {
+		t.Errorf("open items = %+v, want what waits on him without the goblin's question", open)
 	}
 }
 
@@ -678,15 +724,8 @@ func TestAHeldItemThatFollowsAReopenedCFOIsNotHeldAgain(t *testing.T) {
 func TestTurningAFKModeOffReportsTheStretch(t *testing.T) {
 	// Arrange
 	store, h := testStore(t)
-	readings := [][]afk.Allowance{
-		{{Provider: "claude", Window: "week", PercentUsed: 40}},
-		{{Provider: "claude", Window: "week", PercentUsed: 47}},
-	}
-	s := &Service{Store: store, Options: Options{Allowance: func(context.Context) ([]afk.Allowance, string) {
-		reading := readings[0]
-		readings = readings[1:]
-		return reading, ""
-	}}}
+	s := &Service{Store: store}
+	holdReading(t, s, 40)
 	asOverlordsTerminal(s)
 	runPipe(t, s)
 	if err := SwitchAFK(h, true); err != nil {
@@ -714,6 +753,7 @@ func TestTurningAFKModeOffReportsTheStretch(t *testing.T) {
 	if err := store.withdrawReview("waiting-task-1-7", "task-1 reported again: working: the invoice export"); err != nil {
 		t.Fatal(err)
 	}
+	holdReading(t, s, 47)
 
 	// Act
 	err := SwitchAFK(h, false)
@@ -795,9 +835,10 @@ func TestAQuestionTheCFOAnsweredIsNotReportedAsHeld(t *testing.T) {
 }
 
 // The board closes a goblin's question as the CFO's once the CFO acks its
-// notify, whether or not it answered. Only a logged answer is a decision, so a
-// held question that closed that way with nothing logged stays in the report
-// as held, saying so.
+// notify, whether or not it answered. A goblin's question is no longer held
+// for the Overlord, but a stretch that began before that may still hold one in
+// its log. Only a logged answer is a decision, so such a held question that
+// closed that way with nothing logged stays in the report as held, saying so.
 func TestAHeldQuestionClosedAsTheCFOsWithNoLoggedDecisionStaysInTheReport(t *testing.T) {
 	// Arrange
 	store, h := testStore(t)
@@ -809,7 +850,7 @@ func TestAHeldQuestionClosedAsTheCFOsWithNoLoggedDecisionStaysInTheReport(t *tes
 		t.Fatal(err)
 	}
 	asked := surfaced(t, store, meta, record, cfo)
-	if err := s.holdForOverlord(time.Now()); err != nil {
+	if err := afk.Hold(h.State, afk.Entry{Item: "question:" + asked.ID, Task: meta.ID, What: asked.Text}, time.Now()); err != nil {
 		t.Fatal(err)
 	}
 	if err := wake.AckThrough(h.State, record.Seq); err != nil {
@@ -841,58 +882,171 @@ func TestAHeldQuestionClosedAsTheCFOsWithNoLoggedDecisionStaysInTheReport(t *tes
 	}
 }
 
-// quota-axi can take as long as the pipe gives a request. The supervisor's
-// cycle never waits behind that reading, and a request that changes nothing
-// reads nothing.
-func TestTheCycleDoesNotWaitForTheAllowanceReadingOfASwitch(t *testing.T) {
+// weekReading is quota-axi's reading of claude's week at used percent.
+func weekReading(used float64) quota.Report {
+	return quota.Report{GeneratedAt: time.Now(), Providers: map[string]quota.Provider{"claude": {Name: "claude", Known: true, Windows: []quota.Window{{ID: "seven_day", Label: "week", PercentUsed: used}}}}}
+}
+
+// holdReading gives the supervisor a reading of claude's week at used
+// percent, as its own timer takes one.
+func holdReading(t *testing.T, s *Service, used float64) {
+	t.Helper()
+	s.Options.Quota = func(context.Context) (quota.Report, string) { return weekReading(used), "" }
+	s.refreshSubscriptionUsage(t.Context())
+}
+
+// A switch reads no allowance of its own: quota-axi took up to 20 seconds of
+// every turn of AFK mode, on or off, while his board waited on it. The switch
+// takes the reading the supervisor last made on its own timer, so a quota-axi
+// that never answers a switch holds up neither turning AFK mode on nor turning
+// it off, and the report still sets the reading when it turned on beside the
+// reading when it turned off.
+func TestTurningAFKModeOnOrOffNeverWaitsOnQuotaAxi(t *testing.T) {
 	// Arrange
 	store, h := testStore(t)
-	var readings atomic.Int32
-	reading, release := make(chan struct{}, 1), make(chan struct{})
-	var released sync.Once
-	free := func() { released.Do(func() { close(release) }) }
-	defer free()
-	s := &Service{Store: store, Options: Options{Allowance: func(context.Context) ([]afk.Allowance, string) {
-		if readings.Add(1) == 1 {
-			reading <- struct{}{}
+	answers, never := make(chan quota.Report, 1), make(chan struct{})
+	var reads atomic.Int32
+	s := &Service{Store: store, Options: Options{Quota: func(context.Context) (quota.Report, string) {
+		reads.Add(1)
+		select {
+		case report := <-answers:
+			return report, ""
+		case <-never:
+			return quota.Report{}, "quota-axi never answered"
 		}
-		<-release
-		return []afk.Allowance{{Provider: "claude", Window: "week", PercentUsed: 40}}, ""
 	}}}
 	asOverlordsTerminal(s)
 	runPipe(t, s)
-	switched := make(chan error, 1)
-	go func() { switched <- SwitchAFK(h, true) }()
-	select {
-	case <-reading:
-	case err := <-switched:
-		t.Fatalf("SwitchAFK = %v before the allowance was read", err)
+	// Cleanups run last first, so the reader lets go before the pipe stops.
+	t.Cleanup(func() { close(never) })
+	// A switch that read quota-axi here would wait on it until the pipe's 20
+	// second deadline, so half of that is waiting on it.
+	switchAFK := func(on bool) error {
+		switched := make(chan error, 1)
+		go func() { switched <- SwitchAFK(h, on) }()
+		select {
+		case err := <-switched:
+			return err
+		case <-time.After(10 * time.Second):
+			t.Fatalf("turning AFK mode on = %v is still waiting after 10 seconds, on a quota-axi that answers no switch", on)
+			return nil
+		}
 	}
 
 	// Act
-	held := make(chan error, 1)
-	go func() { held <- s.holdForOverlord(time.Now()) }()
+	answers <- weekReading(40)
+	s.refreshSubscriptionUsage(t.Context())
+	on := switchAFK(true)
+	answers <- weekReading(47)
+	s.refreshSubscriptionUsage(t.Context())
+	off := switchAFK(false)
 
 	// Assert
-	select {
-	case err := <-held:
-		if err != nil {
-			t.Fatal(err)
-		}
-	case <-time.After(5 * time.Second):
-		t.Fatal("holdForOverlord waited for the allowance reading of a switch")
+	if on != nil || off != nil {
+		t.Fatalf("turning AFK mode on = %v and off = %v, want each made while quota-axi answers no switch", on, off)
 	}
-	free()
-	if err := <-switched; err != nil {
-		t.Fatal(err)
+	if got := reads.Load(); got != 2 {
+		t.Errorf("quota-axi was read %d times, want only the supervisor's own 2 reads and none by a switch", got)
 	}
+	report, found, err := afk.ReadReport(h.State)
+	if err != nil || !found {
+		t.Fatalf("ReadReport = %v, %v, want the report of the stretch", found, err)
+	}
+	if len(report.Before) != 1 || report.Before[0].PercentUsed != 40 || len(report.After) != 1 || report.After[0].PercentUsed != 47 {
+		t.Errorf("allowance = %+v then %+v, want the supervisor's own readings from before each switch", report.Before, report.After)
+	}
+}
+
+// Turning AFK mode on again removes the report of the stretch before, from
+// disk and from what the supervisor remembers of that stretch, so reports
+// never pile up.
+func TestTurningAFKModeOnRemovesTheLastReport(t *testing.T) {
+	// Arrange
+	store, h := testStore(t)
+	s := &Service{Store: store}
+	asOverlordsTerminal(s)
+	runPipe(t, s)
 	if err := SwitchAFK(h, true); err != nil {
 		t.Fatal(err)
 	}
-	if state, err := afk.Read(h.State); err != nil || !state.On || len(state.Allowance) != 1 {
-		t.Errorf("the switch = %+v, %v, want on with the allowance read", state, err)
+	first, err := afk.Read(h.State)
+	if err != nil {
+		t.Fatal(err)
 	}
-	if got := readings.Load(); got != 1 {
-		t.Errorf("the allowance was read %d times, want once: on while on changes nothing", got)
+	if _, err := s.afkView(store.Snapshot()); err != nil {
+		t.Fatal(err)
+	}
+	if err := SwitchAFK(h, false); err != nil {
+		t.Fatal(err)
+	}
+	if _, found, err := afk.ReadReport(h.State); err != nil || !found {
+		t.Fatalf("ReadReport = %v, %v, want the report of the first stretch", found, err)
+	}
+
+	// Act
+	err = SwitchAFK(h, true)
+
+	// Assert
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(filepath.Join(h.State, "afk-report.json")); !errors.Is(err, os.ErrNotExist) {
+		t.Errorf("the last report on disk: %v, want it removed", err)
+	}
+	if report, found, err := ReadAFKReport(h); err != nil || found {
+		t.Errorf("ReadAFKReport = %+v, %v, %v, want no report while the next stretch is on", report, found, err)
+	}
+	s.reads.mu.Lock()
+	defer s.reads.mu.Unlock()
+	for key := range s.reads.reads {
+		if strings.Contains(key, first.Session) {
+			t.Errorf("the supervisor still remembers %q of the stretch before", strings.ReplaceAll(key, "\x00", " "))
+		}
+	}
+}
+
+// The report reads only the status logs that can hold a pull request a goblin
+// finished in the stretch: on 2026-10-08 it opened every log the home and its
+// archive held, and turning AFK mode off took 33 to 59 seconds on a copy of
+// that home. A log last written before the stretch began, or archived before
+// it, holds nothing of it and is never opened. These two say otherwise, which
+// only a reader that opens them would see.
+func TestTheReportReadsNoStatusLogWrittenBeforeTheStretch(t *testing.T) {
+	// Arrange
+	_, h := testStore(t)
+	since := time.Date(2026, 10, 7, 23, 48, 36, 0, time.UTC)
+	ended := since.Add(80 * time.Minute)
+	inside := since.Add(time.Hour).Format(time.RFC3339)
+	write := func(path, line string, written time.Time) {
+		if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(path, []byte(line+"\n"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.Chtimes(path, written, written); err != nil {
+			t.Fatal(err)
+		}
+	}
+	write(filepath.Join(h.State, "old-task.status"), inside+" done: PR https://github.com/acme/api/pull/1", since.Add(-time.Hour))
+	write(filepath.Join(h.State, "archive", "older-task.status."+since.Add(-time.Minute).Format("20060102T150405Z")), inside+" done: PR https://github.com/acme/api/pull/2", since.Add(-time.Minute))
+	write(filepath.Join(h.State, "archive", "oldest-task."+since.Add(-time.Hour).Format("20060102T150405Z"), "oldest-task.status"), inside+" done: PR https://github.com/acme/api/pull/3", since.Add(-time.Hour))
+	write(filepath.Join(h.State, "new-task.status"), inside+" done: PR https://github.com/acme/api/pull/4", since.Add(time.Hour))
+	write(filepath.Join(h.State, "archive", "gone-task.status."+ended.Add(time.Minute).Format("20060102T150405Z")), inside+" done: PR https://github.com/acme/api/pull/5", since.Add(time.Hour))
+
+	// Act
+	finished, err := doneBetween(h.State, since, ended)
+
+	// Assert
+	if err != nil {
+		t.Fatal(err)
+	}
+	var prs []string
+	for _, finish := range finished {
+		prs = append(prs, finish.Task+" "+finish.PR)
+	}
+	slices.Sort(prs)
+	if want := []string{"gone-task https://github.com/acme/api/pull/5", "new-task https://github.com/acme/api/pull/4"}; !slices.Equal(prs, want) {
+		t.Errorf("finished = %q, want only the logs written in the stretch %q", prs, want)
 	}
 }

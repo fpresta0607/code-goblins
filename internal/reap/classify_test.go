@@ -303,7 +303,7 @@ func TestDescendantsRejectsPIDReuse(t *testing.T) {
 // internal/harness without a matching change here would silently blind the
 // sweep to every goblin of that harness.
 func TestHarnessSignaturesMatchAdapters(t *testing.T) {
-	spec := harness.LaunchSpec{BriefPath: `C:\brief.md`, TaskTmp: `C:\tmp`, GoTmp: `C:\gotmp\task`}
+	spec := harness.LaunchSpec{BriefPath: `C:\brief.md`, TaskTmp: `C:\tmp`, Scratch: `C:\gotmp\task`}
 	registry := harness.DefaultRegistry()
 	for kind, signature := range map[harness.Kind]string{
 		harness.Claude: "--dangerously-skip-permissions",
@@ -415,16 +415,22 @@ func TestDecodeProcessesRefusesARawControlByte(t *testing.T) {
 	}
 }
 
-func TestFindingsDigestIsOrderIndependent(t *testing.T) {
-	first := []Finding{{Class: OrphanProcess, PID: 2}, {Class: OrphanMeta, TaskID: "a"}}
-	second := []Finding{{Class: OrphanMeta, TaskID: "a"}, {Class: OrphanProcess, PID: 2}}
-	if FindingsDigest(first) != FindingsDigest(second) {
-		t.Fatal("digest depends on finding order")
+func TestReportKeysChangeWithAFindingsHoldsAndNotWithItsNeighbours(t *testing.T) {
+	process := Finding{Class: OrphanProcess, PID: 2, Detail: "claude.exe started 2026-10-06T14:04:04Z has no pane; unsupervised harness"}
+	before := ReportKeys([]Finding{process, {Class: OrphanMeta, TaskID: "a"}})
+	alone := ReportKeys([]Finding{process})
+	if before[0] != alone[0] {
+		t.Fatal("a finding's key depends on the findings beside it")
 	}
-	third := append([]Finding{}, first...)
-	third = append(third, Finding{Class: OrphanProcess, PID: 3})
-	if FindingsDigest(first) == FindingsDigest(third) {
-		t.Fatal("a new finding did not change the digest")
+	held := process
+	held.refuseUnlessForced("could not determine what this process belongs to", "2")
+	if ReportKeys([]Finding{held})[0] == alone[0] {
+		t.Fatal("a new hold did not change the finding's key")
+	}
+	reused := process
+	reused.Detail = "claude.exe started 2026-10-07T09:00:00Z has no pane; unsupervised harness"
+	if ReportKeys([]Finding{reused})[0] == alone[0] {
+		t.Fatal("another process under a reused pid has the same key")
 	}
 }
 
@@ -537,6 +543,63 @@ func TestClassifyProcessPopulations(t *testing.T) {
 	}
 	if len(findings) != 1 {
 		t.Fatalf("got %d orphan_process findings, want only the genuine orphan: %+v", len(findings), findings)
+	}
+}
+
+// TestClassifyLeavesTheOverlordsOwnTerminalSessionsAlone: on 2026-10-07 the
+// sweep held claude.exe 7812 and 19908 as unidentified orphans every pass
+// since the day before, and both were the Overlord's own Claude Code sessions
+// in Windows Terminal. A harness a terminal window or a shell he opened from
+// Explorer started is his, flags or not; the fleet's own cfo processes run
+// from such a terminal are still the fleet's, and so is what they start.
+func TestClassifyLeavesTheOverlordsOwnTerminalSessionsAlone(t *testing.T) {
+	const (
+		explorerPID = 3000
+		terminalPID = 4520
+		herdrPID    = 100
+		stateDir    = `C:\home\state`
+	)
+	processes := []Process{
+		process(explorerPID, 2900, "explorer.exe", `C:\Windows\Explorer.EXE`, fixtureStart),
+		process(terminalPID, 1200, "WindowsTerminal.exe", `"C:\Program Files\WindowsApps\Microsoft.WindowsTerminal_1.23.1_x64__8wekyb3d8bbwe\WindowsTerminal.exe"`, fixtureStart),
+		process(23300, terminalPID, "powershell.exe", "powershell.exe", fixtureLater),
+		process(7812, 23300, "claude.exe", "claude", fixtureLatest),
+		process(11572, terminalPID, "powershell.exe", "powershell.exe", fixtureLater),
+		process(19908, 11572, "claude.exe", "claude --dangerously-skip-permissions", fixtureLatest),
+		process(5000, explorerPID, "powershell.exe", "powershell.exe", fixtureLater),
+		process(5001, 5000, "codex.exe", "codex --dangerously-bypass-approvals-and-sandbox", fixtureLatest),
+		// The fleet run from his terminal: a cfo host whose harness no live
+		// host record covers is the fleet's orphan, wherever cfo was typed.
+		process(6000, 23300, "cfo.exe", "cfo spawn --id g1", fixtureLater),
+		process(6001, 6000, "cfo.exe", "cfo host --state "+stateDir+" --id g1", fixtureLater),
+		process(6002, 6001, "claude.exe", "claude --dangerously-skip-permissions", fixtureLatest),
+		// And the Herdr orphan the sweep has always reported.
+		process(herdrPID, 1, "herdr.exe", "herdr server", fixtureStart),
+		process(400, herdrPID, "powershell.exe", "powershell -NoExit", fixtureLater),
+		process(31032, 400, "claude.exe", "claude --dangerously-skip-permissions", fixtureLatest),
+	}
+	findings := classOf(Classify(Inventory{FleetRootPIDs: []int{herdrPID}, Processes: processes, StateDir: stateDir}), OrphanProcess)
+
+	reported := make(map[int]bool, len(findings))
+	for _, finding := range findings {
+		reported[finding.PID] = true
+	}
+	for pid, population := range map[int]string{
+		7812:  "his Claude Code session in Windows Terminal",
+		19908: "his Claude Code session in Windows Terminal, run with the fleet's flag",
+		5001:  "his Codex session in a shell he opened from Explorer",
+	} {
+		if reported[pid] {
+			t.Errorf("pid %d (%s) was reported as an orphan", pid, population)
+		}
+	}
+	for pid, population := range map[int]string{
+		6002:  "a fleet harness under a cfo host started from his terminal",
+		31032: "a fleet harness under Herdr",
+	} {
+		if !reported[pid] {
+			t.Errorf("pid %d (%s) was not reported; findings: %+v", pid, population, findings)
+		}
 	}
 }
 

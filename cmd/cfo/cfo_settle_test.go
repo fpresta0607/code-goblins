@@ -138,6 +138,22 @@ func TestTheWatchEndsOnceTheScreenSettles(t *testing.T) {
 	}
 }
 
+func TestTheCFOStartupWatchDismissesTheOptionalDaybreakOffer(t *testing.T) {
+	terminal := &scriptedCFO{t: t, clock: time.Unix(0, 0), screens: []scriptedScreen{
+		{rows: []string{"Set up security for Daybreak mode", "› 1. Set up security", "Press a number to choose · esc to dismiss · type to continue", "› Ask Codex to do anything"}},
+		{rows: []string{"› Ask Codex to do anything"}},
+	}}
+
+	notes := settleCFO("codex", settleScreen(t, harness.Codex), terminal.terminal())
+
+	if len(terminal.answered) != 1 {
+		t.Errorf("answered %q, want exactly one dismissal", terminal.answered)
+	}
+	if !slices.Contains(notes, "Dismissed the optional Daybreak security setup offer in the CFO's terminal with Escape.") {
+		t.Errorf("notes %q, want the Escape dismissal reported", notes)
+	}
+}
+
 // A CFO started with a first prompt redraws its working line all through its
 // first turn, so its screen never settles: a turn in progress is past the
 // startup dialogs and ends the watch at once, with what to choose at a dialog

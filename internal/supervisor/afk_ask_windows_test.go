@@ -2,7 +2,6 @@ package supervisor
 
 import (
 	"bufio"
-	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -171,15 +170,14 @@ func TestTheCFOsSwitchWithoutHisWordsIsRefused(t *testing.T) {
 
 func TestTheAFKSwitchReplyReachesACFOThatReadsItLater(t *testing.T) {
 	for _, testCase := range []struct {
-		name             string
-		asked            string
-		refusal          string
-		readAfter        time.Duration
-		shouldDisconnect bool
+		name      string
+		asked     string
+		refusal   string
+		readAfter time.Duration
 	}{
 		{name: "the switch", asked: hisAskOn, readAfter: 100 * time.Millisecond},
 		{name: "the refusal", asked: strings.Repeat("a", 501), refusal: "in at most 500 characters", readAfter: 100 * time.Millisecond},
-		{name: "the unread reply", asked: strings.Repeat("a", 501), refusal: "in at most 500 characters", readAfter: runReadTimeout + 100*time.Millisecond, shouldDisconnect: true},
+		{name: "a reply read after the I/O bound", asked: strings.Repeat("a", 501), refusal: "in at most 500 characters", readAfter: runReadTimeout + 100*time.Millisecond},
 	} {
 		t.Run(testCase.name, func(t *testing.T) {
 			// Arrange
@@ -211,20 +209,14 @@ func TestTheAFKSwitchReplyReachesACFOThatReadsItLater(t *testing.T) {
 			}
 
 			// Assert
-			if testCase.shouldDisconnect {
-				if err == nil || errors.Is(err, os.ErrDeadlineExceeded) {
-					t.Fatal("a client that never read its reply stayed connected past the I/O bound")
-				}
-			} else {
-				if err != nil {
-					t.Fatalf("the CFO did not receive the reply: %v", err)
-				}
-				if err := json.Unmarshal(line, &reply); err != nil {
-					t.Fatal(err)
-				}
-				if testCase.refusal == "" && reply.Error != "" || testCase.refusal != "" && !strings.Contains(reply.Error, testCase.refusal) {
-					t.Errorf("the reply = %q, want %q", reply.Error, testCase.refusal)
-				}
+			if err != nil {
+				t.Fatalf("the CFO did not receive the reply: %v", err)
+			}
+			if err := json.Unmarshal(line, &reply); err != nil {
+				t.Fatal(err)
+			}
+			if testCase.refusal == "" && reply.Error != "" || testCase.refusal != "" && !strings.Contains(reply.Error, testCase.refusal) {
+				t.Errorf("the reply = %q, want %q", reply.Error, testCase.refusal)
 			}
 			if switched, err := afk.Read(h.State); err != nil || switched.On != (testCase.refusal == "") {
 				t.Errorf("the switch = %+v, %v, want on only for the valid ask", switched, err)
@@ -268,7 +260,7 @@ func TestHisOwnSwitchTurnsOffWhatTheCFOTurnedOnAndTheCFOTurnsOffHisAtHisAsk(t *t
 
 		// Act: the board's switch, once its program is proven his.
 		s.runRequests.Lock()
-		err := s.switchAFKAs(context.Background(), "his own board (goblins-window.exe pid 4242)", "", false)
+		err := s.switchAFKAs("his own board (goblins-window.exe pid 4242)", "", false)
 		s.runRequests.Unlock()
 
 		// Assert

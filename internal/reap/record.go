@@ -43,9 +43,10 @@ type Record struct {
 	// Error is set when the sweep could not complete. An audit that failed is
 	// itself worth reporting: a fleet nobody can see is not a clean fleet.
 	Error string `json:"error,omitempty"`
-	// Digest identifies the finding set, so a watcher can tell a new orphan
-	// from the same orphan it already reported and wake the CFO only once.
-	Digest string `json:"digest"`
+	// Reported holds the ReportKeys of the running findings the CFO was woken
+	// about and that are still found, so the watcher wakes it once for each
+	// and again only when one changes or comes back after going away.
+	Reported []string `json:"reported,omitempty"`
 }
 
 // RecordPath is state/.reap-audit.json.
@@ -73,7 +74,6 @@ func ReadRecord(stateDir string) (Record, error) {
 // WriteRecord persists one audit atomically.
 func WriteRecord(stateDir string, record Record) error {
 	record.Schema = RecordSchema
-	record.Digest = FindingsDigest(record.Findings)
 	data, err := json.Marshal(record)
 	if err != nil {
 		return err
@@ -81,18 +81,23 @@ func WriteRecord(stateDir string, record Record) error {
 	return fsx.AtomicWriteFile(RecordPath(stateDir), append(data, '\n'))
 }
 
-// FindingsDigest is a stable fingerprint of a finding set: the same orphans in
-// any order produce the same value, and one new orphan changes it. It is what
-// keeps a persistent leak from waking the CFO on every watcher cycle while a
-// genuinely new one still wakes it immediately.
-func FindingsDigest(findings []Finding) string {
+// ReportKeys identifies each finding as the CFO is told about it. The holds
+// are part of the identity, so a finding whose refusals change is reported
+// again, and the detail names a process by its start, so a reused pid is
+// another process.
+func ReportKeys(findings []Finding) []string {
 	keys := make([]string, 0, len(findings))
 	for _, finding := range findings {
-		keys = append(keys, fmt.Sprintf("%s|%s|%d|%s", finding.Class, finding.TaskID, finding.PID, normalizePath(finding.Path)))
+		reasons := make([]string, 0, len(finding.Holds))
+		for _, hold := range finding.Holds {
+			reasons = append(reasons, hold.Reason)
+		}
+		sort.Strings(reasons)
+		identity := fmt.Sprintf("%s|%s|%d|%s|%s|%s", finding.Class, finding.TaskID, finding.PID, normalizePath(finding.Path), finding.Detail, strings.Join(reasons, "\n"))
+		sum := sha256.Sum256([]byte(identity))
+		keys = append(keys, hex.EncodeToString(sum[:8]))
 	}
-	sort.Strings(keys)
-	sum := sha256.Sum256([]byte(strings.Join(keys, "\n")))
-	return hex.EncodeToString(sum[:8])
+	return keys
 }
 
 // Actionable is the subset that means something is still running and spending

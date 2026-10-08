@@ -9,6 +9,7 @@ import (
 
 	"github.com/fpresta0607/code-goblins/internal/execx"
 	"github.com/fpresta0607/code-goblins/internal/state"
+	"github.com/fpresta0607/code-goblins/internal/worktree"
 )
 
 type Preservation struct {
@@ -17,7 +18,11 @@ type Preservation struct {
 	Kept      []string
 }
 
-func PreserveWork(ctx context.Context, commands execx.Runner, meta state.TaskMeta) (Preservation, error) {
+// PreserveWork keeps whatever of the task's work is not proven safe
+// elsewhere, and says whether its worktree may go. A helper's work is safe
+// once its parent's branch holds it, which holder, the parent's worktree,
+// shows; holder is empty for any other task.
+func PreserveWork(ctx context.Context, commands execx.Runner, meta state.TaskMeta, holder string) (Preservation, error) {
 	result := Preservation{Kept: []string{"worktree " + meta.Worktree}}
 	git := func(args ...string) (execx.Result, error) {
 		return commands.Run(ctx, execx.Request{Dir: meta.Worktree, Name: "git", Args: args})
@@ -50,6 +55,13 @@ func PreserveWork(ctx context.Context, commands execx.Runner, meta state.TaskMet
 	head, err := git("rev-parse", "HEAD")
 	if err != nil || head.ExitCode != 0 || len(strings.TrimSpace(string(head.Stdout))) == 0 {
 		return result, errors.New("branch head could not be read; worktree kept")
+	}
+	if holder != "" {
+		if isHeld, err := (worktree.RunnerGit{Commands: commands}).HoldsHead(ctx, holder, meta.Worktree); err == nil && isHeld {
+			result.CanRemove = true
+			result.Kept = []string{fmt.Sprintf("branch %s, which its parent %s's branch holds", result.Branch, meta.Parent)}
+			return result, nil
+		}
 	}
 	ref := "refs/heads/" + result.Branch
 	remote, remoteErr := git("ls-remote", "--exit-code", "origin", ref)

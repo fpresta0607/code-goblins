@@ -126,10 +126,15 @@ func proveCFOStart(t *testing.T, p *wakeProof, instructions string) {
 		if err != nil {
 			t.Fatal(err)
 		}
+		// Found while it runs, so the end below reaches it, and no later
+		// process that took its pid once the proof closed the terminal.
+		hostProcess, err := os.FindProcess(launched.HostPID)
+		if err != nil {
+			t.Fatal(err)
+		}
 		t.Cleanup(func() {
-			if process, err := os.FindProcess(launched.HostPID); err == nil {
-				_ = process.Kill()
-			}
+			_ = hostProcess.Kill()
+			_ = hostProcess.Release()
 		})
 		p.cfoTerminal = &launched
 		p.say("CFO %s runs in native terminal cfo, host pid %d, harness pid %d", p.cfo, launched.HostPID, launched.ChildPID)
@@ -181,7 +186,7 @@ func proveCFOStart(t *testing.T, p *wakeProof, instructions string) {
 	// A closed CFO comes back as goblins brings one back: on the conversation
 	// its registration recorded, where the table says its harness resumes.
 	capability, _ := supervisor.CFOCapabilityFor(p.cfo)
-	resume, why, _ := cfoResume(p.home, p.cfo)
+	resume, why := cfoResume(p.home, p.cfo)
 	p.say("goblins brings a closed %s CFO back with %q (%s)", p.cfo, resume, why)
 	if capability.Resumes != (len(resume) > 0) {
 		t.Fatalf("the table says a %s CFO resumes: %v, but goblins would bring it back with %q (%s)", p.cfo, capability.Resumes, resume, why)

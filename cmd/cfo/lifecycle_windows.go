@@ -13,6 +13,7 @@ import (
 	"github.com/fpresta0607/code-goblins/internal/execx"
 	"github.com/fpresta0607/code-goblins/internal/fleet"
 	"github.com/fpresta0607/code-goblins/internal/fsx"
+	"github.com/fpresta0607/code-goblins/internal/harness"
 	"github.com/fpresta0607/code-goblins/internal/herdr"
 	"github.com/fpresta0607/code-goblins/internal/home"
 	"github.com/fpresta0607/code-goblins/internal/host"
@@ -51,15 +52,27 @@ func defaultTaskLifecycle(ctx context.Context, h home.Home, request lifecycle.Re
 	gate := pipeline.Reader{Root: root, Commands: commands}
 	runtime := defaultCommandRuntime()
 	var resources lifecycle.Resources
+	admit := func() error {
+		memory, err := supervisor.MachineMemory()
+		if err != nil {
+			return err
+		}
+		disk, err := supervisor.MachineDisk(h)
+		if err != nil {
+			return fmt.Errorf("free disk cannot be read, so nothing resumes: %w", err)
+		}
+		return supervisor.CheckLaunch(memory, disk)
+	}
 	service := lifecycle.Service{StateDir: h.State, Operations: lifecycle.Operations{
-		Prepare: func(ctx context.Context, meta state.TaskMeta, handoff string) error {
-			return runtime.sendText(ctx, h, meta.ID, lifecycle.PauseInstruction(handoff))
+		Helpers: func(ctx context.Context, meta state.TaskMeta, record *state.Lifecycle) ([]string, error) {
+			return reachHelpers(ctx, h, meta, record, runtime.taskLifecycle)
 		},
+		Prepare: pauseInstruction(runtime, h),
 		Stop: func(ctx context.Context, meta state.TaskMeta, record *state.Lifecycle) ([]string, error) {
 			bounded, cancel := context.WithTimeout(ctx, 10*time.Second)
 			defer cancel()
 			var err error
-			resources, err = lifecycle.TaskResources(bounded, h.State, meta, gate)
+			resources, err = lifecycle.TaskResources(bounded, h, meta, gate)
 			stopped, teardown, stopErr := lifecycle.StopResources(bounded, resources)
 			for _, process := range teardown {
 				isTracked := false
@@ -93,7 +106,7 @@ func defaultTaskLifecycle(ctx context.Context, h home.Home, request lifecycle.Re
 			return nil
 		},
 		Resume: func(ctx context.Context, meta state.TaskMeta, prior state.Lifecycle) error {
-			return resumeTask(ctx, h, runtime, commands, gate, meta, prior)
+			return resumeTask(ctx, h, runtime, commands, gate, meta, prior, admit)
 		},
 		IsRunning: func(ctx context.Context, meta state.TaskMeta) (bool, error) {
 			if meta.Backend == "native" {
@@ -118,7 +131,13 @@ func defaultTaskLifecycle(ctx context.Context, h home.Home, request lifecycle.Re
 			return status == herdr.AgentAlive, err
 		},
 		Archive: func(ctx context.Context, meta state.TaskMeta, record *state.Lifecycle) (lifecycle.Preservation, error) {
-			preserved, err := lifecycle.PreserveWork(ctx, commands, meta)
+			holder := ""
+			if meta.Parent != "" {
+				if parent, err := state.ReadTaskMeta(h.State, meta.Parent); err == nil {
+					holder = parent.Worktree
+				}
+			}
+			preserved, err := lifecycle.PreserveWork(ctx, commands, meta, holder)
 			if err != nil {
 				return preserved, err
 			}
@@ -140,13 +159,7 @@ func defaultTaskLifecycle(ctx context.Context, h home.Home, request lifecycle.Re
 			memory, err := supervisor.MachineMemory()
 			return memory.Available, memory.CommitAvailable, err
 		},
-		Admit: func() error {
-			memory, err := supervisor.MachineMemory()
-			if err != nil {
-				return err
-			}
-			return supervisor.CheckLaunch(h, memory)
-		},
+		Admit: admit,
 		Notify: func(record state.Lifecycle) error {
 			return lifecycle.Report(h.State, record)
 		},
@@ -154,10 +167,18 @@ func defaultTaskLifecycle(ctx context.Context, h home.Home, request lifecycle.Re
 	return service.Run(ctx, request)
 }
 
-func resumeTask(ctx context.Context, h home.Home, runtime commandRuntime, commands execx.Runner, gate pipeline.Reader, meta state.TaskMeta, prior state.Lifecycle) error {
+// resumeTask relaunches a paused task in place. admit is the machine's room,
+// which the relaunch checks again under the home's spawn lock, around its
+// terminal's launch only.
+func resumeTask(ctx context.Context, h home.Home, runtime commandRuntime, commands execx.Runner, gate pipeline.Reader, meta state.TaskMeta, prior state.Lifecycle, admit func() error) error {
 	if meta.Backend != "native" {
 		return fmt.Errorf("resume: task %s runs in backend %q; only a task in a native terminal can resume; retire it with cfo cleanup %s --force-archive", meta.ID, meta.Backend, meta.ID)
 	}
+	choice, choiceErr := state.ReadEngineChoice(h.State, meta.ID)
+	if choiceErr != nil && !errors.Is(choiceErr, os.ErrNotExist) {
+		return choiceErr
+	}
+	hasChoice := choiceErr == nil && choice.Generation == meta.SpawnGen
 	if prior.GateRun != "" {
 		branch, err := commands.Run(ctx, execx.Request{Dir: meta.Worktree, Name: "git", Args: []string{"symbolic-ref", "--short", "HEAD"}})
 		if err != nil || branch.ExitCode != 0 {
@@ -179,6 +200,28 @@ func resumeTask(ctx context.Context, h home.Home, runtime commandRuntime, comman
 	if pausedAt.IsZero() || time.Since(pausedAt) >= 24*time.Hour || pausedAt.After(time.Now()) {
 		session = ""
 	}
-	_, err := runtime.switchTask(ctx, h, spawn.SwitchRequest{ID: meta.ID, Generation: meta.SpawnGen, ForceDirty: true, BriefPath: meta.Brief, IsResume: true, ResumeSession: session, ResumeHandoff: handoff, ResumeNote: prior.ResumeNote})
+	request := spawn.SwitchRequest{ID: meta.ID, Generation: meta.SpawnGen, ForceDirty: true, BriefPath: meta.Brief, IsResume: true, ResumeSession: session, ResumeHandoff: handoff, ResumeNote: prior.ResumeNote, Admit: admit}
+	if hasChoice {
+		request.Harness, request.Model, request.Effort = harness.Kind(choice.Harness), choice.Model, choice.Effort
+		if choice.Harness != meta.Harness {
+			request.ResumeSession = ""
+		}
+	}
+	_, err := runtime.switchTask(ctx, h, request)
+	if err == nil && hasChoice {
+		return state.RemoveEngineChoice(h.State, meta.ID)
+	}
 	return err
+}
+
+// pauseInstruction types the instruction to write its handoff file into the
+// goblin of a task being paused. A goblin in a turn takes it at its next tool
+// call, so the pause then waits for the handoff as for any delivered one.
+func pauseInstruction(runtime commandRuntime, h home.Home) func(context.Context, state.TaskMeta, string) error {
+	return func(ctx context.Context, meta state.TaskMeta, handoff string) error {
+		if err := runtime.sendText(ctx, h, meta.ID, lifecycle.PauseInstruction(handoff)); !errors.Is(err, fleet.ErrQueuedForToolCall) {
+			return err
+		}
+		return nil
+	}
 }

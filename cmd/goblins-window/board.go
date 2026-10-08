@@ -16,6 +16,7 @@ import (
 	"golang.org/x/sys/windows/registry"
 
 	"github.com/fpresta0607/code-goblins/internal/fsx"
+	"github.com/fpresta0607/code-goblins/internal/install"
 )
 
 // boardAddress reads the board's address from the record cfo serve writes in
@@ -142,68 +143,130 @@ func (p *Page) Shown() {
 	p.shown = true
 }
 
-// Item is one thing on the board that waits on the Overlord.
+// Item is one thing on the board that asks the Overlord something: its
+// alert's key as the board's page names it, the item's id with the
+// publishing it stands for, so the page and the window raise one
+// notification for it; who asks; and what it asks, on one plain line.
 type Item struct {
-	ID   string
-	Text string
+	ID    string
+	Asker string
+	Text  string
 }
 
-// waiting lists what a board snapshot holds for the Overlord, which is what
-// the board's page alerts: a pending question that was not asked from an open
-// review page, whose item it is; an open review item; a command ready or
+// waiting lists what a board snapshot holds that asks the Overlord
+// something, which is what the board's page alerts, each in the asker's
+// words as the page says it: a pending question that was not asked from an
+// open review page, whose item it is; an open review item; a command ready or
 // running that no credential card opened, since that terminal shows on its
 // card; and an open request for credentials, by its project alone, so the
 // credential names stay out of a Windows notification. Beside them it returns
 // the keys of what is open on the board without being alerted on its own: a
 // pending question asked from an open review page, which that page's card
-// shows. It names the supervisor's instance too, which every request to the
-// board that changes something carries.
+// shows. A question that names a task is a goblin's, which the CFO answers:
+// it is neither listed nor returned as a key. Nothing else on the board, such
+// as a goblin blocked, failed or done, is an item. It names the supervisor's
+// instance too, which every request to the board that changes something
+// carries.
 func waiting(snapshot []byte) (string, []Item, []string, error) {
 	var view struct {
-		Instance  string `json:"instance"`
+		Instance string `json:"instance"`
+		Tasks    []struct {
+			ID, Title string
+		} `json:"tasks"`
 		Questions []struct {
-			ID, Text, Status, Page string
+			ID, Text, Status, Page, Task string
+			CreatedAt                    string `json:"created_at"`
 		} `json:"questions"`
 		Reviews []struct {
-			ID, Title, State string
+			ID, Title, State, Task, Lavish string
+			CreatedAt                      string `json:"created_at"`
 		} `json:"reviews"`
 		Runs []struct {
-			ID, Title, State  string
-			CredentialRequest string `json:"credential_request"`
+			ID, Title, State, Task string
+			CredentialRequest      string `json:"credential_request"`
+			CreatedAt              string `json:"created_at"`
+			Update                 *struct {
+				From, To string
+			} `json:"update"`
 		} `json:"runs"`
 		Credentials []struct {
-			ID, Project, State string
+			ID, Project, State, Task string
+			CreatedAt                string `json:"created_at"`
 		} `json:"credentials"`
 	}
 	if err := json.Unmarshal(snapshot, &view); err != nil {
 		return "", nil, nil, err
 	}
+	// A goblin speaks by its title, as its card names it, and the CFO for
+	// what names no goblin.
+	speaker := func(task string) string {
+		if task == "" {
+			return "CFO"
+		}
+		for _, t := range view.Tasks {
+			if t.ID == task {
+				if name := withoutHarness(t.Title); name != "" {
+					return name
+				}
+			}
+		}
+		return task
+	}
+	asker := func(task string) string {
+		if task == "" {
+			return "The CFO"
+		}
+		return shortened(speaker(task), nameLimit)
+	}
+	item := func(key, createdAt, task, text string) Item {
+		return Item{ID: key + "@" + createdAt, Asker: speaker(task), Text: shortened(text, textLimit)}
+	}
 	var items []Item
 	var folded []string
 	for _, q := range view.Questions {
-		if q.Status != "pending" {
+		if q.Status != "pending" || q.Task != "" {
 			continue
 		}
 		if q.Page != "" {
-			folded = append(folded, "question:"+q.ID)
+			folded = append(folded, "question:"+q.ID+"@"+q.CreatedAt)
 			continue
 		}
-		lead, _, _ := strings.Cut(strings.TrimSpace(q.Text), "\n")
-		items = append(items, Item{ID: "question:" + q.ID, Text: lead})
+		items = append(items, item("question:"+q.ID, q.CreatedAt, "", asker("")+" asks: "+lead(q.Text)))
 	}
 	for _, r := range view.Reviews {
-		if r.State == "open" {
-			items = append(items, Item{ID: "review:" + r.ID, Text: r.Title})
+		if r.State != "open" {
+			continue
 		}
+		// A goblin's wait on him reads as its reason, without the queue's
+		// prefix or its page's link.
+		if r.Task != "" && strings.HasPrefix(r.ID, "waiting-"+r.Task+"-") {
+			reason := waitPrefix.ReplaceAllString(r.Title, "")
+			if r.Lavish != "" {
+				reason = strings.Replace(reason, " (page "+r.Lavish+")", "", 1)
+			}
+			items = append(items, item("review:"+r.ID, r.CreatedAt, r.Task, asker(r.Task)+" is waiting on you: "+plain(reason)))
+			continue
+		}
+		items = append(items, item("review:"+r.ID, r.CreatedAt, r.Task, asker(r.Task)+" wants your review: "+plain(r.Title)))
 	}
 	for _, r := range view.Runs {
-		if (r.State == "ready" || r.State == "running") && r.CredentialRequest == "" {
-			items = append(items, Item{ID: "run:" + r.ID, Text: r.Title})
+		if r.State != "ready" && r.State != "running" || r.CredentialRequest != "" {
+			continue
+		}
+		switch {
+		case r.Update != nil:
+			release := item("run:"+r.ID, r.CreatedAt, "", "Code Goblins "+r.Update.To+" is ready: update from "+r.Update.From)
+			release.Asker = "Code Goblins"
+			items = append(items, release)
+		case r.Task != "":
+			items = append(items, item("run:"+r.ID, r.CreatedAt, r.Task, asker(r.Task)+" asks you to run a command: "+plain(r.Title)))
+		default:
+			items = append(items, item("run:"+r.ID, r.CreatedAt, "", "A command waits for you to run it: "+r.Title))
 		}
 	}
 	for _, c := range view.Credentials {
 		if c.State == "open" {
-			items = append(items, Item{ID: "credential:" + c.ID, Text: "Credentials wanted for " + c.Project})
+			items = append(items, item("credential:"+c.ID, c.CreatedAt, c.Task, asker(c.Task)+" asks for credentials for "+c.Project))
 		}
 	}
 	return view.Instance, items, folded, nil
@@ -273,15 +336,33 @@ const runValue = "CodeGoblins"
 // it. A flag would stop a window older than its goblins from starting at all.
 const launcherVariable = "CODE_GOBLINS_LAUNCHER"
 
-// loginCommand is what Windows runs at login: the goblins that started the
-// window, which starts the supervisor quietly and the window in the tray, or,
-// for a window started on its own, the window itself on the same board, in
-// the tray, where it follows the supervisor's record once one runs.
+// loginCommand is what Windows runs at login. For a window that goblins
+// started it is the window alone, for the tray, which runs that goblins out of
+// sight, so the supervisor starts first and no terminal shows. For a window
+// started on its own it is the window on the same board, in the tray, where
+// it follows the supervisor's record once one runs.
 func loginCommand(launcher, window, board, stateDir string) string {
 	if launcher != "" {
-		return `"` + launcher + `" --window --background`
+		return `"` + window + `" --background`
 	}
 	return `"` + window + `" --board ` + board + ` --state "` + stateDir + `" --background`
+}
+
+// adoptEarlierLogin makes the login entry an earlier window in this folder
+// wrote, for a window that goblins started, this window's: that entry ran the
+// goblins beside window with --window --background, in a terminal at every
+// login, and becomes login, so the tray shows Start at login as on and turning
+// it off removes the entry. It reports whether it rewrote the entry. Any other
+// entry is left as it is, and a window started on its own adopts none.
+func adoptEarlierLogin(launcher, window, login string) (bool, error) {
+	earlier := `"` + filepath.Join(filepath.Dir(window), goblinsName) + `" --window --background`
+	if launcher == "" || !StartsAtLogin(earlier) {
+		return false, nil
+	}
+	if err := SetStartAtLogin(login, true); err != nil {
+		return false, err
+	}
+	return true, nil
 }
 
 // StartsAtLogin reports whether Windows runs command at login.
@@ -293,6 +374,20 @@ func StartsAtLogin(command string) bool {
 	defer key.Close()
 	value, _, err := key.GetStringValue(runValue)
 	return err == nil && strings.EqualFold(value, command)
+}
+
+// keepStartAtLogin turns Start at login on or off from the tray and keeps the
+// choice in the home at stateDir, as the board's switch does, so an install
+// keeps it.
+func keepStartAtLogin(command, stateDir string, on bool) error {
+	choice := install.StartAtLoginOff
+	if on {
+		choice = install.StartAtLoginOn
+	}
+	if err := install.WriteStartAtLogin(stateDir, choice); err != nil {
+		return err
+	}
+	return SetStartAtLogin(command, on)
 }
 
 // SetStartAtLogin adds the login entry running command, or removes the entry.

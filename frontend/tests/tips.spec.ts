@@ -1,4 +1,4 @@
-import { expect, holdStream, test, type Locator, type Page } from "./site";
+import { expect, holdStream, openItem, test, type Locator, type Page } from "./site";
 
 // Every tip on the board holds its whole text on a solid surface, stays
 // inside the window and is cut off by nothing, wherever its part is: a card,
@@ -12,7 +12,9 @@ const memory = { total: 32 * GB, commit_limit: 48 * GB, floor: 4 * GB, next: 5 *
 const LONG = "Paused goblins resume by themselves when the reason for the pause clears, and the board says which goblin each one was waiting on and for how long it has waited";
 // The title whose tip lay over the memory meter on 2026-10-02, and the longest
 // title the queue held that day.
-const SEEN = "Paused goblins resume by themselves when the reason for the pause clears; Claude Code";
+// Its "; Claude Code" is shown as the card's harness mark now, so the same
+// width of title carries other words.
+const SEEN = "Paused goblins resume by themselves when the reason for the pause clears, in Claude Code";
 const LONGEST = "An OpenClaw-style quick start in the goblins command: detect and install Claude Code, Codex and pi, walk through sign-in, pick the CFO's agent, clear Enter-to-continue steps, and a final screen with the board link or Enter for the CFO terminal";
 const task = (id: string, phase: string, fields: Record<string, unknown> = {}) => ({ id, title: id, project: "code-goblins", phase, verified: false, generation: id + "-1", since, ...fields });
 const TASKS = [
@@ -23,10 +25,10 @@ const TASKS = [
   task("paused-one", "paused", { at: since }),
   task("finished:done-one", "done", { archived: true, merged: true, verified: true, generation: "", branch: "fix/done-one", at: since, pr: "https://github.com/example/code-goblins/pull/198" }),
 ];
-const QUESTION = { id: "q1", identity: "q1", text: "Which layout should the board open in when the window is too narrow for three columns beside the panel?", options: ["Kanban", "Stacked"], recommended: "Kanban", status: "pending", task: "working-one", created_at: since };
+const QUESTION = { id: "q1", identity: "q1", text: "Which layout should the board open in when the window is too narrow for three columns beside the panel?", options: ["Kanban", "Stacked"], recommended: "Kanban", status: "pending", task: "", created_at: since };
 
-// A question waiting on the Overlord opens the Command Center over the board,
-// so only the Command Center's own walk has one.
+// A question waiting on the Overlord counts on the board's bar and badge, so
+// only the Command Center's own walk has one.
 async function open(page: Page, tasks: Record<string, unknown>[] = TASKS, questions: Record<string, unknown>[] = []) {
   const snapshot = { healthy: true, instance: "fixture", cfo_runs: true, cfo_harness: "claude", revision: 1, attention: [], memory, tasks, questions };
   // The walks point at one part after another, so the board must hold still.
@@ -123,6 +125,7 @@ for (const [size, viewport] of [["wide", { width: 1440, height: 900 }], ["phone"
       await open(page);
       await page.locator(".task-card-shell").filter({ has: page.locator(".card-title").getByText("working-two", { exact: true }) }).locator(".task-card").click();
       await expect(page.locator("#panel-title")).toHaveText("working-two");
+      await page.locator(".panel-pill").getByRole("button", { name: "Task", exact: true }).click();
       const { shown, faults } = await walk(page.locator(".context-pane"));
       expect(shown).toBeGreaterThanOrEqual(3);
       expect(faults).toEqual([]);
@@ -131,6 +134,7 @@ for (const [size, viewport] of [["wide", { width: 1440, height: 900 }], ["phone"
     test("every tip in the Command Center is whole, solid and inside the window", async ({ page }) => {
       await open(page, TASKS, [QUESTION]);
       const dialog = page.locator("dialog.question-modal");
+      await openItem(page, "Which layout should the board open in");
       await expect(dialog).toBeVisible();
       const card = await walk(dialog);
       await dialog.getByRole("button", { name: "Close the Command Center", exact: true }).click();
@@ -192,7 +196,7 @@ for (const [layout, width] of [["side by side", 2400], ["stacked", 820]] as cons
 test("a card being dragged shows no tip", async ({ page }) => {
   await page.setViewportSize({ width: 820, height: 900 });
   await open(page, [{ ...TASKS[0], title: LONGEST }, ...TASKS.slice(1)]);
-  const card = page.locator("[data-sort-id='queued-one'] .task-card");
+  const card = page.locator(".task-board [data-sort-id='queued-one'] .task-card");
   await card.hover();
   const tip = page.getByRole("tooltip");
   await expect(tip).toHaveText(LONGEST);
@@ -201,7 +205,7 @@ test("a card being dragged shows no tip", async ({ page }) => {
   await page.mouse.move(x, y);
   await page.mouse.down();
   await page.mouse.move(x, y + 12, { steps: 4 });
-  await expect(page.locator("[data-sort-id='queued-one']")).toHaveClass(/dragging/);
+  await expect(page.locator(".task-board [data-sort-id='queued-one']")).toHaveClass(/dragging/);
   await expect(tip).toHaveCount(0);
   await page.mouse.up();
   await expect(page.locator(".task-cards.sorting")).toHaveCount(0);
@@ -225,4 +229,38 @@ test("a tip's surface is solid, with an edge, and stands out from the card under
   expect(look).toMatchObject({ alpha: 1, image: "none", opacity: "1", edge: 1, edgeAlpha: 1 });
   // The cards are close to black (their base is #04060a); the tip is a step lighter.
   expect(look.light).toBeGreaterThan(60);
+});
+
+// The Overlord, 2026-10-07: "tool tip hover text box should appear after 2
+// second hover not immediately". The keyboard's focus still shows a tip at
+// once.
+test("a tip shows once the pointer has rested on its part for 2 seconds, and at once on keyboard focus", async ({ page }) => {
+  // Arrange
+  await page.clock.install();
+  await open(page);
+  const part = page.locator(".cfo-pin").getByRole("button", { name: "Open the CFO's terminal" }).last();
+
+  // Act
+  await part.hover();
+  await page.clock.runFor(1500);
+
+  // Assert: not yet.
+  await expect(page.getByRole("tooltip")).toHaveCount(0);
+
+  // Act
+  await page.clock.runFor(600);
+
+  // Assert
+  await expect(page.getByRole("tooltip")).toHaveText("Open the CFO's terminal");
+
+  // Act: the pointer leaves, and the keyboard comes to the part.
+  await page.mouse.move(0, 0);
+  await expect(page.getByRole("tooltip")).toHaveCount(0);
+  await part.focus();
+  await page.keyboard.press("Shift+Tab");
+  await page.keyboard.press("Tab");
+
+  // Assert: at once, well inside the pointer's wait.
+  await expect(part).toBeFocused();
+  await expect(page.getByRole("tooltip")).toHaveText("Open the CFO's terminal", { timeout: 1000 });
 });

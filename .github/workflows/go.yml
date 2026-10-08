@@ -4,9 +4,21 @@ on:
   push:
     branches: [main]
   pull_request:
+  # The merge queue tests each group of pull requests on main's tip before it
+  # merges them, and needs the required test check to report on that run.
+  merge_group:
+    types: [checks_requested]
 
 permissions:
   contents: read
+
+concurrency:
+  # A newer commit on a pull request supersedes the run on the older one,
+  # which is cancelled. Every other run, on main, in the merge queue or
+  # started by hand, has a group of its own, so none is ever cancelled or
+  # held waiting.
+  group: ${{ github.workflow }}-${{ github.event_name == 'pull_request' && format('pr-{0}', github.event.pull_request.number) || github.run_id }}
+  cancel-in-progress: true
 
 # The work runs as parallel jobs so a run takes as long as its slowest job,
 # not the sum: the frontend, each slow Go package, and every other Go package
@@ -17,12 +29,15 @@ jobs:
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v6
+      - uses: actions/setup-go@v5
+        with:
+          go-version: stable
       - uses: actions/setup-node@v4
         with:
           node-version: '24.13.0'
           cache: npm
           cache-dependency-path: frontend/package-lock.json
-      - name: Check frontend and regenerate embedded assets
+      - name: Check and build the frontend
         id: frontend
         working-directory: frontend
         shell: pwsh
@@ -41,9 +56,20 @@ jobs:
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           npm run build
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          if (git status --porcelain --untracked-files=all -- ../internal/boardweb/dist) {
-            throw 'Embedded assets differ from the lockfile build. Run npm ci and npm run build in frontend, then commit the assets.'
+          # Where cfo.exe finds no board, it serves a page saying the board
+          # was not built.
+          if (-not (Test-Path ../internal/boardweb/dist/board/index.html)) {
+            throw 'npm run build wrote no internal/boardweb/dist/board/index.html, which cfo.exe embeds the board from.'
           }
+      # With the board built above, boardweb's tests prove cfo.exe embeds and
+      # serves it rather than the placeholder page.
+      - name: Check cfo.exe embeds the board
+        run: go test ./internal/boardweb -count=1
+      # Fails on a copyleft or unrecognised licence in anything a release
+      # ships, or a THIRD_PARTY_NOTICES that no longer lists it. It reads the
+      # packages npm ci installed above, so it runs in this job.
+      - name: Check third-party licences
+        run: go run ./tools/notices -check
       # A browser test that fails leaves its page snapshot (error-context.md)
       # and trace in test-results; keep them, so a failure seen once can be
       # read after the runner is gone.
@@ -66,7 +92,10 @@ jobs:
         # A package slow enough to hold a run back gets jobs of its own. These
         # three spend their time waiting on real terminals and supervisors,
         # which no faster runner shortens, so each gets two: one runs the
-        # tests whose names match run, the other skips exactly those. The
+        # tests whose names match run, the other skips exactly those.
+        # internal/conpty is fast but times keystrokes against bounds: beside
+        # the rest job's other packages, which keep all four cores busy, one
+        # key's echo spent 429 ms waiting for a core, so it runs alone. The
         # rest job runs every package that except does not name, so a new
         # package is tested with no change here.
         # TestGoWorkflowRunsEveryPackageOnce holds the matrix to that: except
@@ -91,8 +120,10 @@ jobs:
           - shard: supervisor-2
             packages: ./internal/supervisor
             skip: ^Test[A-M]
+          - shard: conpty
+            packages: ./internal/conpty
           - shard: rest
-            except: ./cmd/cfo ./internal/spawn ./internal/supervisor
+            except: ./cmd/cfo ./internal/spawn ./internal/supervisor ./internal/conpty
     steps:
       - uses: actions/checkout@v6
       - uses: actions/setup-go@v5
@@ -102,7 +133,7 @@ jobs:
         if: matrix.shard == 'rest'
         shell: pwsh
         run: |
-          foreach ($program in 'cmd/cfo', 'cmd/goblins-window') {
+          foreach ($program in 'cmd/cfo', 'cmd/goblins-window', 'cmd/goblins-setup') {
             Push-Location $program
             go run github.com/tc-hib/go-winres@v0.3.3 make --in winres.json --arch amd64,arm64
             if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
@@ -117,16 +148,15 @@ jobs:
       - name: Ensure SQLite integration tests can run
         shell: pwsh
         run: |
-          # Chocolatey's feed can answer 503 for a moment, so a failed install
-          # is tried again after a wait, three attempts in all, as install.ps1
-          # does for its downloads.
-          if (-not (Get-Command sqlite3 -ErrorAction SilentlyContinue)) {
-            for ($attempt = 1; ; $attempt++) {
-              choco install sqlite --yes --no-progress
-              if ($LASTEXITCODE -eq 0) { break }
-              if ($attempt -eq 3) { throw "choco install sqlite failed 3 times; see above" }
-              Start-Sleep -Seconds (5 * $attempt)
-            }
+          # Chocolatey's feed can answer 503 or 504 for a moment, so an install
+          # that leaves no sqlite3 is tried again after a wait, three attempts
+          # in all, as install.ps1 does for its downloads. Its exit code is no
+          # guide: on 2026-10-07 a 504 left it installing nothing and exiting 0
+          # (run 37631337103), so only sqlite3 itself says it worked.
+          for ($attempt = 1; -not (Get-Command sqlite3 -ErrorAction SilentlyContinue); $attempt++) {
+            if ($attempt -gt 3) { throw "choco install sqlite left no sqlite3 after 3 attempts; see above" }
+            if ($attempt -gt 1) { Start-Sleep -Seconds (5 * ($attempt - 1)) }
+            choco install sqlite --yes --no-progress
           }
           sqlite3 --version
       - if: matrix.shard == 'rest'

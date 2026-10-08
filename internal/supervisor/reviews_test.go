@@ -2,6 +2,7 @@ package supervisor
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -38,6 +39,14 @@ func TestValidReviewRefusesWhatTheBoardCannotShowSafely(t *testing.T) {
 	if err := validReview(page("", link, file)); err != nil {
 		t.Fatalf("the CFO's own page beside its link was refused: %v", err)
 	}
+	withLink := func(link string) Review {
+		r := openReview("waiting-task-1-7", "task-1")
+		r.Link = link
+		return r
+	}
+	if err := validReview(withLink("https://dash.cloudflare.com/precisiondocs/dns")); err != nil {
+		t.Fatalf("a wait with a web link was refused: %v", err)
+	}
 	for name, r := range map[string]Review{
 		"an ID with a slash":  openReview("mockups/review", "task-1"),
 		"an ID too short":     openReview("short", "task-1"),
@@ -54,6 +63,10 @@ func TestValidReviewRefusesWhatTheBoardCannotShowSafely(t *testing.T) {
 		"a relative page":          page("task-1", link, `.lavish\plan.html`),
 		"a page path left unclean": page("task-1", link, `C:\work\..\work\.lavish\plan.html`),
 		"a page that is not HTML":  page("task-1", link, `C:\work\.lavish\plan.txt`),
+		"a script link":            withLink("javascript:alert(1)"),
+		"a file link":              withLink("file:///C:/secret.txt"),
+		"a bare host name":         withLink("mcp.precisiondocs.ai"),
+		"a link without a host":    withLink("https:///dns"),
 	} {
 		if err := validReview(r); err == nil {
 			t.Errorf("%s was accepted", name)
@@ -823,5 +836,45 @@ func TestCFOAuditLinesNeverCountAsTheGoblinsReport(t *testing.T) {
 				t.Fatalf("a wait under an audit line = %+v, want it open", got)
 			}
 		})
+	}
+}
+
+// A wait whose revision its goblin is making stands while the goblin works on
+// the next version, which replaces the page in the same item; it retires once
+// the goblin finishes or fails.
+func TestARevisingWaitStandsWhileItsGoblinWorksOnTheNextVersion(t *testing.T) {
+	// Arrange
+	store, h := testStore(t)
+	if err := state.AppendStatus(h.State, "task-1", "waiting on overlord: look at the plan"); err != nil {
+		t.Fatal(err)
+	}
+	wait := openReview("waiting-task-1-7", "task-1")
+	if err := store.acceptReview(wait); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.reviseReview(wait.ID, time.Now().UTC()); err != nil {
+		t.Fatal(err)
+	}
+	if err := state.AppendStatus(h.State, "task-1", "working: making the cards bigger"); err != nil {
+		t.Fatal(err)
+	}
+
+	// Act
+	working := store.retireItems()
+	stood := store.Snapshot().Reviews[0]
+	if err := state.AppendStatus(h.State, "task-1", "done: PR https://github.com/o/r/pull/9"); err != nil {
+		t.Fatal(err)
+	}
+	finished := store.retireItems()
+
+	// Assert
+	if working != nil || finished != nil {
+		t.Fatal(errors.Join(working, finished))
+	}
+	if stood.State != "open" {
+		t.Errorf("the revising wait while its goblin works = %+v, want it open", stood)
+	}
+	if got := store.Snapshot().Reviews[0]; got.State != "withdrawn" {
+		t.Errorf("the revising wait once its goblin finished = %+v, want it withdrawn", got)
 	}
 }

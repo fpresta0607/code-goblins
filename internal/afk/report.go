@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"slices"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/fpresta0607/code-goblins/internal/fsx"
@@ -39,8 +40,11 @@ type Report struct {
 	Asked      string `json:"asked,omitempty"`
 	EndedFrom  string `json:"ended_from"`
 	EndedAsked string `json:"ended_asked,omitempty"`
-	// Decisions are the stretch's decisions in the order they were made.
+	// Decisions are the stretch's decisions in the order they were made, and
+	// Paused the goblins the supervisor paused at a floor, each with what the
+	// pause stood on and how it went.
 	Decisions []Entry  `json:"decisions"`
+	Paused    []Entry  `json:"paused"`
 	Finished  []Finish `json:"finished"`
 	Held      []Held   `json:"held"`
 	// Before and After are the allowance read when AFK mode turned on and
@@ -74,32 +78,64 @@ type Held struct {
 	Now     string `json:"now"`
 	// Meanwhile is what was done while it waited: its goblin's latest report.
 	Meanwhile string `json:"meanwhile,omitempty"`
+	// Recommendation is the choice recommended for it by whoever asked it,
+	// empty when nothing was.
+	Recommendation string `json:"recommendation,omitempty"`
+}
+
+// Recommends says what was recommended for a held item and by whom: the CFO
+// for its own item, or task, the goblin whose question it is. It is in the
+// present while the item still waits on the Overlord, in the past once it
+// does not, and empty when nothing was recommended.
+func Recommends(task, recommendation string, waiting bool) string {
+	if recommendation == "" {
+		return ""
+	}
+	who, verb := "The CFO", " recommended: "
+	if task != "" {
+		who = task
+	}
+	if waiting {
+		verb = " recommends: "
+	}
+	return who + verb + strings.TrimSuffix(recommendation, ".") + "."
 }
 
 // Decisions folds a stretch's log lines into its decisions, in the order they
 // were made: a later line that carries an outcome closes the decision logged
-// before it for the same kind and subject.
+// before it for the same kind, subject and goblin.
 func Decisions(entries []Entry) []Entry {
-	var decisions []Entry
+	return folded(entries, DecisionKinds)
+}
+
+// Pauses folds a stretch's log lines into the goblins the supervisor paused
+// at a floor, each closed by the line that says how its pause went.
+func Pauses(entries []Entry) []Entry {
+	return folded(entries, []string{KindPause})
+}
+
+// folded is the lines of kinds, each with its outcome folded in.
+func folded(entries []Entry, kinds []string) []Entry {
+	var lines []Entry
 	for _, entry := range entries {
-		if !slices.Contains(DecisionKinds, entry.Kind) {
+		if !slices.Contains(kinds, entry.Kind) {
 			continue
 		}
 		if entry.Outcome != "" {
 			open := -1
-			for i, prior := range decisions {
-				if prior.Kind == entry.Kind && prior.What == entry.What && prior.Outcome == "" {
+			for i, prior := range lines {
+				if prior.Kind == entry.Kind && prior.What == entry.What && prior.Task == entry.Task && prior.Outcome == "" {
 					open = i
 				}
 			}
 			if open >= 0 {
-				decisions[open].Outcome = entry.Outcome
+				lines[open].Outcome = entry.Outcome
 				continue
 			}
 		}
-		decisions = append(decisions, entry)
+		lines = append(lines, entry)
 	}
-	return decisions
+	return lines
 }
 
 // Section is one heading of the report with the decisions under it.
@@ -109,9 +145,10 @@ type Section struct {
 }
 
 // Sections sorts the report's decisions under its headings, in the order the
-// report lists them. A heading the report always shows is there with nothing
-// under it; the others are there only when they hold something. The CFO's
-// text and the board's page are both written from these.
+// report lists them, and the goblins paused at a floor after them. A heading
+// the report always shows is there with nothing under it; the others are
+// there only when they hold something. The CFO's text and the board's page
+// are both written from these.
 func (r Report) Sections() []Section {
 	var sections []Section
 	decided := func(title string, keep func(Entry) bool, always bool) {
@@ -126,6 +163,7 @@ func (r Report) Sections() []Section {
 		}
 	}
 	kind := func(kind string) func(Entry) bool { return func(entry Entry) bool { return entry.Kind == kind } }
+	decided("Left for you", kind(KindLeft), true)
 	decided("Merged", func(entry Entry) bool { return entry.Kind == KindMerge && entry.Outcome == OutcomeMerged }, true)
 	decided("Merge words with no merge recorded", func(entry Entry) bool { return entry.Kind == KindMerge && entry.Outcome != OutcomeMerged }, false)
 	decided("Deployed", kind(KindDeploy), true)
@@ -133,6 +171,9 @@ func (r Report) Sections() []Section {
 	decided("Installed", kind(KindInstall), true)
 	decided("Answered for goblins", kind(KindAnswer), true)
 	decided("Other decisions", kind(KindOther), false)
+	if len(r.Paused) > 0 {
+		sections = append(sections, Section{Title: "Paused at a floor", Entries: r.Paused})
+	}
 	return sections
 }
 
@@ -146,55 +187,82 @@ func number(value float64) string {
 	return strconv.FormatFloat(math.Round(value*10)/10, 'f', -1, 64)
 }
 
+// Used is one allowance under the report's Spent: a window's percent used
+// when AFK mode turned on and when it turned off, nil for a reading not
+// taken, with Reset when the window reset in between, or for a credit balance
+// what was spent of it in Unit.
+type Used struct {
+	Provider string   `json:"provider"`
+	Window   string   `json:"window"`
+	On       *float64 `json:"on,omitempty"`
+	Off      *float64 `json:"off,omitempty"`
+	Reset    bool     `json:"reset,omitempty"`
+	Credits  bool     `json:"credits,omitempty"`
+	Spent    float64  `json:"spent,omitempty"`
+	Unit     string   `json:"unit,omitempty"`
+}
+
 // Spent sets the allowance read when AFK mode turned on beside the one read
-// when it turned off, one line for each provider's window or credit balance.
-// A window that reset in between says so instead of a difference that would
-// mean nothing.
-func Spent(before, after []Allowance) []string {
+// when it turned off, one row for each provider's window or credit balance
+// that was used. A window at 0% wherever it was read is left out, and so is a
+// credit balance that was not read at both ends or did not fall: neither says
+// anything was used. A reading not taken leaves its end out of the row.
+func Spent(before, after []Allowance) []Used {
 	same := func(a, b Allowance) bool { return a.Provider == b.Provider && a.Window == b.Window }
-	reading := func(a Allowance) string {
-		if a.Credits {
-			return number(a.Remaining) + " " + a.Unit + " left"
-		}
-		return number(a.PercentUsed) + "% used"
-	}
-	var lines []string
-	for _, on := range before {
-		name := on.Provider + " " + on.Window + ": "
-		i := slices.IndexFunc(after, func(off Allowance) bool { return same(on, off) })
-		if i < 0 {
-			lines = append(lines, name+reading(on)+" when it turned on; not read when it turned off")
+	used := func(percent *float64) bool { return percent != nil && number(*percent) != "0" }
+	var rows []Used
+	for _, reading := range slices.Concat(before, after) {
+		if slices.ContainsFunc(rows, func(row Used) bool { return row.Provider == reading.Provider && row.Window == reading.Window }) {
 			continue
 		}
-		off := after[i]
-		switch {
-		case on.Credits && on.Unlimited && off.Unlimited:
-			lines = append(lines, name+"unlimited")
-		case on.Credits:
-			line := name + reading(on) + " when it turned on, " + number(off.Remaining) + " when it turned off"
-			if spent := on.Remaining - off.Remaining; spent >= 0 {
-				line += " (" + number(spent) + " spent)"
-			} else {
-				line += "; the balance rose in between"
+		row := Used{Provider: reading.Provider, Window: reading.Window}
+		i := slices.IndexFunc(before, func(on Allowance) bool { return same(on, reading) })
+		j := slices.IndexFunc(after, func(off Allowance) bool { return same(off, reading) })
+		if reading.Credits {
+			if i < 0 || j < 0 || before[i].Unlimited || after[j].Unlimited {
+				continue
 			}
-			lines = append(lines, line)
-		case on.ResetsAt.Sub(off.ResetsAt).Abs() < sameWindow:
-			points := number(off.PercentUsed - on.PercentUsed)
-			unit := " points)"
-			if points == "1" {
-				unit = " point)"
+			row.Credits, row.Spent, row.Unit = true, before[i].Remaining-after[j].Remaining, reading.Unit
+			if row.Spent > 0 && number(row.Spent) != "0" {
+				rows = append(rows, row)
 			}
-			lines = append(lines, name+reading(on)+" when it turned on, "+number(off.PercentUsed)+"% when it turned off ("+points+unit)
-		default:
-			lines = append(lines, name+reading(on)+" when it turned on, "+number(off.PercentUsed)+"% when it turned off; the window reset in between")
+			continue
+		}
+		if i >= 0 {
+			on := before[i].PercentUsed
+			row.On = &on
+		}
+		if j >= 0 {
+			off := after[j].PercentUsed
+			row.Off = &off
+		}
+		row.Reset = i >= 0 && j >= 0 && before[i].ResetsAt.Sub(after[j].ResetsAt).Abs() >= sameWindow
+		if used(row.On) || used(row.Off) {
+			rows = append(rows, row)
 		}
 	}
-	for _, off := range after {
-		if !slices.ContainsFunc(before, func(on Allowance) bool { return same(on, off) }) {
-			lines = append(lines, off.Provider+" "+off.Window+": not read when it turned on; "+reading(off)+" when it turned off")
-		}
+	return rows
+}
+
+// says is a row of Spent as the CFO's text words it.
+func (row Used) says() string {
+	name := row.Provider + " " + row.Window + ": "
+	switch {
+	case row.Credits:
+		return name + number(row.Spent) + " " + row.Unit + " spent"
+	case row.On == nil:
+		return name + number(*row.Off) + "% used when it turned off"
+	case row.Off == nil:
+		return name + number(*row.On) + "% used when it turned on"
+	case row.Reset:
+		return name + number(*row.On) + "% used when it turned on, " + number(*row.Off) + "% when it turned off, after the window reset"
 	}
-	return lines
+	points := number(*row.Off - *row.On)
+	unit := " points)"
+	if points == "1" {
+		unit = " point)"
+	}
+	return name + number(*row.On) + "% used when it turned on, " + number(*row.Off) + "% when it turned off (" + points + unit
 }
 
 // span writes how long a stretch lasted, to the minute.
@@ -226,6 +294,9 @@ func Render(w io.Writer, r Report) error {
 			whose = held.Task + "'s"
 		}
 		say("- %s, %s: %s", held.Item, whose, held.What)
+		if recommends := Recommends(held.Task, held.Recommendation, held.Waiting); recommends != "" {
+			say("  %s", recommends)
+		}
 		line := "  Now: " + held.Now + "."
 		if held.Meanwhile != "" {
 			line += " Meanwhile: " + held.Meanwhile + "."
@@ -262,14 +333,12 @@ func Render(w io.Writer, r Report) error {
 		say("- %s: %s (%s)", finish.Task, finish.PR, finish.At.UTC().Format("15:04 UTC"))
 	}
 
-	say("")
-	say("Spent")
-	spent := Spent(r.Before, r.After)
-	if len(spent) == 0 {
-		say("- no allowance was read")
-	}
-	for _, line := range spent {
-		say("- %s", line)
+	if spent := Spent(r.Before, r.After); len(spent) > 0 {
+		say("")
+		say("Spent")
+		for _, row := range spent {
+			say("- %s", row.says())
+		}
 	}
 
 	if len(r.Notes) > 0 {

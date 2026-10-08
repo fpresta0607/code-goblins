@@ -3,10 +3,12 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"flag"
 	"fmt"
 	"github.com/fpresta0607/code-goblins/internal/evidence"
 	"github.com/fpresta0607/code-goblins/internal/execx"
+	"github.com/fpresta0607/code-goblins/internal/fleet"
 	"github.com/fpresta0607/code-goblins/internal/fsx"
 	"github.com/fpresta0607/code-goblins/internal/hygiene"
 	projectcfg "github.com/fpresta0607/code-goblins/internal/project"
@@ -308,7 +310,10 @@ func runSupersede(args []string, stdout, stderr io.Writer, runtime commandRuntim
 	}
 	_ = state.AppendStatus(h.State, m.ID, "superseded: "+*reason)
 	if runtime.sendText != nil {
-		if e := runtime.sendText(context.Background(), h, m.ID, instruction); e != nil {
+		e := runtime.sendText(context.Background(), h, m.ID, instruction)
+		if errors.Is(e, fleet.ErrQueuedForToolCall) {
+			fmt.Fprintf(stdout, "steer queued for %s: it is in a turn and takes the steer at its next tool call; do not send it again\n", m.ID)
+		} else if e != nil {
 			fmt.Fprintf(stderr, "recorded supersede but steer failed: %v\n", e)
 			return 1
 		}

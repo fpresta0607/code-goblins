@@ -39,20 +39,36 @@ export function deliveryMark(action: Action, goblin = "the goblin"): { icon: Ico
       return { icon: "check-double", label: cfo ? "CFO received" : action.kind === "goblin_answer" ? "Delivered to " + goblin : "Done", trouble: false };
     case "failed": return { icon: "close", label: "Could not deliver", trouble: true };
     case "uncertain": return { icon: "warning", label: action.advice || "Not confirmed. Check " + (cfo ? "the CFO's terminal" : "the goblin's terminal") + " before sending it again.", trouble: true };
+    case "queued": return { icon: "check", label: action.message || "Queued", trouble: false };
     default: return { icon: "check", label: action.awaiting && action.message ? action.message : "Sending", trouble: false };
   }
 }
 
-// A run item's state in plain words, with its exit code once it finished.
+// A run item's state in plain words, as the Overlord said on 2026-10-08:
+// "instead of finished exit zero, just have the same complete notification".
+// A command that ends cleanly is Complete, and one that failed says why: the
+// last line it printed, or why it never finished. Its exit code is History's.
 export function runMark(run: Run): { icon: IconName; label: string; trouble: boolean } {
-  const exit = run.exit_code === null ? "" : " · exit " + run.exit_code;
   switch (run.state) {
     case "ready": return { icon: "play", label: "Ready to run", trouble: false };
     case "running": return { icon: "clock", label: "Running", trouble: false };
-    case "succeeded": return { icon: "check", label: "Finished" + exit, trouble: false };
-    case "failed": return { icon: "warning", label: "Failed" + exit, trouble: true };
+    case "succeeded": return { icon: "check", label: "Complete", trouble: false };
+    case "failed": {
+      const why = run.exit_code === null ? run.reason : lastLine(run.output) || "it exited with code " + run.exit_code;
+      return { icon: "warning", label: why ? "Failed: " + why : "Failed", trouble: true };
+    }
+    // He stopped it himself, which is no trouble to show him.
+    case "stopped": return { icon: "stop-circle", label: "Stopped", trouble: false };
     case "expired": return { icon: "close", label: "Expired", trouble: false };
-    case "withdrawn": return { icon: "close", label: "Withdrawn by the CFO", trouble: false };
+    // A goblin's own command is withdrawn when the goblin moves past it.
+    case "withdrawn": return { icon: "close", label: run.task ? "Withdrawn" : "Withdrawn by the CFO", trouble: false };
     default: return { icon: "clock", label: "Waiting", trouble: false };
   }
+}
+
+// lastLine is the last line of output that holds text, cut to fit a status
+// line.
+function lastLine(output: string): string {
+  const line = output.split(/\r?\n/).map((each) => each.trim()).filter(Boolean).at(-1) || "";
+  return line.length > 160 ? line.slice(0, 157) + "..." : line;
 }

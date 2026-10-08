@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/fpresta0607/code-goblins/internal/execx"
+	"github.com/fpresta0607/code-goblins/internal/state"
 )
 
 type progressGit struct {
@@ -155,6 +156,41 @@ func TestProgressWatchReportsOnceAndResetsOnRealProgress(t *testing.T) {
 	}
 }
 
+// A goblin whose latest report says it waits on something, finished, or
+// asked the CFO expects no commit, push or report until that changes, and
+// each of those has its own wake: ci_finished, done, its question. Twenty
+// quiet minutes after one is nothing new, so progress_stalled stays for a
+// goblin that says it is working.
+func TestProgressWatchLeavesAGoblinThatSaidItWaitsOrFinished(t *testing.T) {
+	for _, report := range []string{
+		"waiting on ci: PR 432 is pushed and its one CI run is going",
+		"waiting on overlord: his sign-in on the page",
+		"done: PR https://github.com/o/r/pull/432",
+		"blocked: Shall I fix the folder trust prompt? options: Fix it (Recommended) | Leave it",
+	} {
+		t.Run(report, func(t *testing.T) {
+			// Arrange
+			service, h := fleetService(t)
+			liveGoblin(t, h, "slow-task", h.Root)
+			service.Options.Progress = &progressGit{head: strings.Repeat("a", 40), pushed: strings.Repeat("a", 40)}
+			now := time.Date(2026, 10, 7, 15, 0, 0, 0, time.UTC)
+			writeFile(t, filepath.Join(h.State, "slow-task.status"), now.Format(time.RFC3339)+" "+report+"\n")
+
+			// Act
+			for _, elapsed := range []time.Duration{0, 25 * time.Minute, 50 * time.Minute} {
+				if err := service.checkFleet(t.Context(), now.Add(elapsed)); err != nil {
+					t.Fatal(err)
+				}
+			}
+
+			// Assert
+			if got := progressWakeCount(t, service); got != 0 {
+				t.Fatalf("progress wakes = %d after %q, want none", got, report)
+			}
+		})
+	}
+}
+
 func TestProgressWatchDoesNotTreatRepeatedReportsOrPausedWaitsAsWork(t *testing.T) {
 	service, h := fleetService(t)
 	liveGoblin(t, h, "slow-task", h.Root)
@@ -177,6 +213,112 @@ func TestProgressWatchDoesNotTreatRepeatedReportsOrPausedWaitsAsWork(t *testing.
 	}
 	if progressWakeCount(t, service) != 1 {
 		t.Fatal("intentional pause reported as a stall")
+	}
+}
+
+// worktreeGit answers each worktree with its own head, pushed as it is.
+type worktreeGit struct{ heads map[string]string }
+
+func (git *worktreeGit) Run(_ context.Context, request execx.Request) (execx.Result, error) {
+	head := git.heads[request.Dir]
+	if request.Args[0] == "rev-parse" {
+		return execx.Result{Stdout: []byte(head)}, nil
+	}
+	return execx.Result{Stdout: []byte("*\trefs/heads/feat/task\t" + head + "\n \trefs/remotes/origin/feat/task\t" + head + "\n")}, nil
+}
+
+func stallWakes(t *testing.T, service *Service, id string) int {
+	t.Helper()
+	count := 0
+	for _, record := range fleetWakeRecords(t, service.Store.Home, "check") {
+		if record.Key == id && strings.HasPrefix(record.Detail, "progress_stalled:") {
+			count++
+		}
+	}
+	return count
+}
+
+func TestAParentWaitingOnItsHelperProgressesWithItsHelper(t *testing.T) {
+	for _, test := range []struct {
+		name     string
+		awaited  string
+		isFolded bool
+	}{
+		{"its helper", "parent-task-h1", true},
+		{"another task", "other-task", false},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			// Arrange: a parent that only waits, on its helper or on another
+			// task, while the awaited goblin commits.
+			service, h := fleetService(t)
+			liveGoblin(t, h, "parent-task", h.Root)
+			liveGoblin(t, h, "other-task", h.Root)
+			helper := state.TaskMeta{ID: "parent-task-h1", Parent: "parent-task", Project: h.Root, Worktree: filepath.Join(h.Root, ".worktrees", "gb-parent-task-h1"), Harness: "claude", Backend: "native", SpawnGen: "s1"}
+			if err := state.WriteTaskMeta(h.State, helper); err != nil {
+				t.Fatal(err)
+			}
+			awaited := filepath.Join(h.Root, ".worktrees", "gb-"+test.awaited)
+			git := &worktreeGit{heads: map[string]string{
+				filepath.Join(h.Root, ".worktrees", "gb-parent-task"): strings.Repeat("a", 40),
+				filepath.Join(h.Root, ".worktrees", "gb-other-task"):  strings.Repeat("a", 40),
+				helper.Worktree: strings.Repeat("a", 40),
+			}}
+			service.Options.Progress = git
+			now := time.Date(2026, 10, 7, 12, 0, 0, 0, time.UTC)
+			writeFile(t, filepath.Join(h.State, "parent-task.status"), now.Format(time.RFC3339)+" waiting on "+test.awaited+": merging its work once it is done\n")
+			if err := service.checkFleet(t.Context(), now); err != nil {
+				t.Fatal(err)
+			}
+			git.heads[awaited] = strings.Repeat("b", 40)
+			if err := service.checkFleet(t.Context(), now.Add(15*time.Minute)); err != nil {
+				t.Fatal(err)
+			}
+
+			// Act: 25 minutes after the parent's own last progress, 10 after
+			// the awaited goblin's commit.
+			err := service.checkFleet(t.Context(), now.Add(25*time.Minute))
+
+			// Assert
+			if err != nil {
+				t.Fatal(err)
+			}
+			watched, err := readFleetWakes(h.State)
+			if err != nil {
+				t.Fatal(err)
+			}
+			progress := watched.Progress["parent-task"]
+			if !test.isFolded {
+				if stallWakes(t, service, "parent-task") != 1 || !progress.At.Equal(now) {
+					t.Fatalf("a wait on a task that is not its helper took that task's progress: wakes=%d progress=%+v", stallWakes(t, service, "parent-task"), progress)
+				}
+				return
+			}
+			if got := stallWakes(t, service, "parent-task"); got != 0 {
+				t.Fatalf("parent waiting on its committing helper drew %d progress wakes, want none", got)
+			}
+			if !progress.At.Equal(now.Add(15*time.Minute)) || progress.Source != "commit (helper parent-task-h1)" {
+				t.Fatalf("parent progress=%+v, want its helper's commit at %s", progress, now.Add(15*time.Minute))
+			}
+			// The helper's own stall is reported once, as the helper's.
+			if err := service.checkFleet(t.Context(), now.Add(36*time.Minute)); err != nil {
+				t.Fatal(err)
+			}
+			if helperWakes, parentWakes := stallWakes(t, service, "parent-task-h1"), stallWakes(t, service, "parent-task"); helperWakes != 1 || parentWakes != 0 {
+				t.Fatalf("a stalled helper drew %d wakes and its waiting parent %d, want 1 and 0", helperWakes, parentWakes)
+			}
+			// A paused helper is watched by nobody, so its parent's stall is
+			// the parent's to report.
+			pause := time.Date(2026, 10, 7, 12, 40, 0, 0, time.UTC)
+			if err := state.WriteLifecycle(h.State, state.Lifecycle{ID: helper.ID, Generation: helper.SpawnGen, Operation: "pause-helper", Action: "pause", Phase: "paused", Started: pause, Updated: pause, Pause: &state.PauseCondition{Reason: "overlord", At: pause}, Reason: "overlord"}); err != nil {
+				t.Fatal(err)
+			}
+			if err := service.checkFleet(t.Context(), now.Add(45*time.Minute)); err != nil {
+				t.Fatal(err)
+			}
+			if got := stallWakes(t, service, "parent-task"); got != 1 {
+				t.Fatalf("parent waiting on a paused helper drew %d progress wakes, want 1", got)
+			}
+		})
 	}
 }
 

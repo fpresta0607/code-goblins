@@ -58,7 +58,6 @@ type launcherFixture struct {
 	cfoLive   bool
 	nativeCFO string
 	focused   []herdr.Endpoint
-	cfoStarts []string
 	attached  []string
 	// nativeStarts are the projects a CFO was started in natively, and
 	// nativeAttached the native terminals shown in this terminal.
@@ -89,6 +88,12 @@ type launcherFixture struct {
 	// resumeEnds makes a CFO started to resume a conversation end at once.
 	nativeArgs []string
 	resumeEnds bool
+	// restarts counts goblins resume's restarts of a running CFO, which end
+	// with restartErr, or else restart it on restartSession, on a new
+	// conversation when resumeEnds; with neither, no CFO runs to restart.
+	restarts       int
+	restartErr     error
+	restartSession string
 	// settleNotes are what the watch of a new native CFO's startup dialogs
 	// says.
 	settleNotes []string
@@ -152,11 +157,6 @@ func newLauncherFixture(t *testing.T, start func(home.Home) (<-chan struct{}, er
 			f.focused = append(f.focused, endpoint)
 			return nil
 		},
-		startCFO: func(_ context.Context, project, harness string) (bool, error) {
-			f.cfoStarts = append(f.cfoStarts, project)
-			f.harnesses = append(f.harnesses, harness)
-			return true, nil
-		},
 		attachHerdr: func(session string) int {
 			f.attached = append(f.attached, session)
 			return 0
@@ -167,9 +167,7 @@ func newLauncherFixture(t *testing.T, start func(home.Home) (<-chan struct{}, er
 			f.nativeArgs = append(f.nativeArgs, strings.Join(args, " "))
 			// A resumed CFO's terminal runs on, unless its harness could not
 			// resume the conversation and ended at once.
-			if len(args) > 0 {
-				f.cfoTerminalRuns = !f.resumeEnds
-			}
+			f.cfoTerminalRuns = len(args) == 0 || !f.resumeEnds
 			return nil
 		},
 		attachNative: func(_, id string, _, _ io.Writer) int {
@@ -204,6 +202,17 @@ func newLauncherFixture(t *testing.T, start func(home.Home) (<-chan struct{}, er
 			})
 		},
 		settleCFO: func(context.Context, string, string) []string { return f.settleNotes },
+		restartCFO: func(home.Home) (supervisor.CFOConversation, bool, error) {
+			f.restarts++
+			if f.restartErr != nil {
+				return supervisor.CFOConversation{}, false, f.restartErr
+			}
+			if f.restartSession == "" {
+				return supervisor.CFOConversation{}, false, errNoRunningCFO
+			}
+			f.cfoTerminalRuns = true
+			return supervisor.CFOConversation{Harness: "claude", Session: f.restartSession}, !f.resumeEnds, nil
+		},
 		choose: func(_ io.Writer, step onboarding.Step) (int, error) {
 			f.screens = append(f.screens, finalScreen{step.Title + "\n" + step.Detail, step.Choices, step.Selected})
 			return f.answer, nil
@@ -218,6 +227,9 @@ func newLauncherFixture(t *testing.T, start func(home.Home) (<-chan struct{}, er
 
 func (f *launcherFixture) launch(args ...string) (int, string, string) {
 	f.t.Helper()
+	// Each launch starts from the CFO state the case supplied.
+	terminalRuns := f.cfoTerminalRuns
+	defer func() { f.cfoTerminalRuns = terminalRuns }()
 	var stdout, stderr bytes.Buffer
 	exit := runWithRuntime(args, &stdout, &stderr, f.runtime)
 	return exit, stdout.String(), stderr.String()
@@ -380,8 +392,8 @@ func TestGoblinsBoardOpensTheBoardAndLeavesTheCFOToIt(t *testing.T) {
 	if !slices.Equal(f.opened, []string{board}) {
 		t.Fatalf("opened %q, want the board once", f.opened)
 	}
-	if len(f.cfoStarts)+len(f.nativeStarts)+len(f.focused)+len(f.attached)+len(f.nativeAttached) != 0 {
-		t.Fatalf("CFO starts=%q native=%q focused=%v attached=%q native attached=%q, want none", f.cfoStarts, f.nativeStarts, f.focused, f.attached, f.nativeAttached)
+	if len(f.nativeStarts)+len(f.focused)+len(f.attached)+len(f.nativeAttached) != 0 {
+		t.Fatalf("CFO starts=%q focused=%v attached=%q native attached=%q, want none", f.nativeStarts, f.focused, f.attached, f.nativeAttached)
 	}
 
 	if exit, _, stderr := f.launch("--board"); exit != 0 || f.starts != 1 || !slices.Equal(f.opened, []string{board, board}) {
@@ -573,8 +585,8 @@ func TestGoblinsStartsNoSecondBoardWhenItsAddressIsInUse(t *testing.T) {
 	exit, stdout, stderr := f.launch()
 
 	// Assert
-	if exit != 1 || stdout != "" || len(f.opened) != 0 || len(f.cfoStarts)+len(f.nativeStarts) != 0 {
-		t.Fatalf("exit=%d stdout=%q opened=%q cfoStarts=%q nativeStarts=%q, want nothing started or shown", exit, stdout, f.opened, f.cfoStarts, f.nativeStarts)
+	if exit != 1 || stdout != "" || len(f.opened) != 0 || len(f.nativeStarts) != 0 {
+		t.Fatalf("exit=%d stdout=%q opened=%q nativeStarts=%q, want nothing started or shown", exit, stdout, f.opened, f.nativeStarts)
 	}
 	if want := "goblins: the board's address 127.0.0.1:4310 is in use by the Code Goblins fleet in C:\\Fleet (supervisor pid 4242), so no second one was started."; !strings.HasPrefix(stderr, want) {
 		t.Errorf("stderr = %q, want it to start %q", stderr, want)
@@ -741,6 +753,7 @@ func TestStatusLineCountsWhatTheBadgeCounts(t *testing.T) {
 	}{
 		"a question asked about its goblin's open review page is that page's one card": {`{"questions":[{"status":"pending","page":"waiting-billing-7"}],"reviews":[{"state":"open"}]}`, 1},
 		"a question of its own and a page":                                             {`{"questions":[{"status":"pending"}],"reviews":[{"state":"open"}]}`, 2},
+		"a page he sent a revision on waits on its goblin, not on him":                 {`{"reviews":[{"state":"open","revising_since":"2026-10-01T05:09:00Z"},{"state":"open"}]}`, 1},
 	} {
 		// Arrange
 		var snapshot launcherSnapshot
@@ -769,7 +782,8 @@ var (
 )
 
 // probeConsole writes how many processes share this process's console, none
-// when it has no console, and whether that console shows a window.
+// when it has no console, whether that console has a window at all, and
+// whether the window shows.
 func probeConsole(report string) int {
 	processes := make([]uint32, 16)
 	count, _, _ := getConsoleProcessList.Call(uintptr(unsafe.Pointer(&processes[0])), uintptr(len(processes)))
@@ -779,15 +793,18 @@ func probeConsole(report string) int {
 		shown, _, _ := isWindowVisible.Call(window)
 		visible = shown != 0
 	}
-	if err := os.WriteFile(report, []byte(fmt.Sprintf("processes=%d visible=%t", count, visible)), 0o600); err != nil {
+	if err := os.WriteFile(report, []byte(fmt.Sprintf("processes=%d window=%t visible=%t", count, window != 0, visible)), 0o600); err != nil {
 		return 1
 	}
 	return 0
 }
 
-// The supervisor goblins starts must have a hidden console of its own: with
-// none, every console program it runs would open a window of its own, and
-// with the terminal's, closing the terminal would end it.
+// The supervisor goblins starts must have a console of its own with no
+// window: with none, every console program it runs would open a window of its
+// own, and with the terminal's, closing the terminal would end it. A console
+// with a window, even a hidden one, is one Windows can hand to Windows
+// Terminal as the default terminal, which shows it, and closing that window
+// ends the supervisor; the window it hands over reads as hidden here.
 func TestDetachedStartGivesAHiddenConsoleOfItsOwn(t *testing.T) {
 	dir := t.TempDir()
 	report := filepath.Join(dir, "console.txt")
@@ -817,8 +834,8 @@ func TestDetachedStartGivesAHiddenConsoleOfItsOwn(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got := string(data); got != "processes=1 visible=false" {
-		t.Fatalf("stand-in console: %s, want a hidden console only it is attached to", got)
+	if got := string(data); got != "processes=1 window=false visible=false" {
+		t.Fatalf("stand-in console: %s, want a console with no window that only it is attached to", got)
 	}
 }
 
@@ -866,7 +883,7 @@ func TestGoblinsOpensTheBrowserWhenTheWindowFails(t *testing.T) {
 	}
 }
 
-// goblins --window --background, which Windows runs at login, finds or starts
+// goblins --window --background, which the window runs at login, finds or starts
 // the supervisor and keeps the window in the tray: it neither opens a browser
 // nor starts or shows a CFO. goblins --window alone shows the window.
 func TestGoblinsWindowShowsOnlyTheWindow(t *testing.T) {
@@ -895,8 +912,8 @@ func TestGoblinsWindowShowsOnlyTheWindow(t *testing.T) {
 			if want := []string{fmt.Sprintf("%s background=%v", board, test.background)}; !slices.Equal(f.windows, want) {
 				t.Errorf("windows %q, want %q", f.windows, want)
 			}
-			if len(f.opened) != 0 || len(f.cfoStarts) != 0 || len(f.nativeStarts) != 0 || len(f.attached) != 0 {
-				t.Errorf("browser %q, CFO starts %q and %q, attached %q; want none", f.opened, f.cfoStarts, f.nativeStarts, f.attached)
+			if len(f.opened) != 0 || len(f.nativeStarts) != 0 || len(f.attached) != 0 {
+				t.Errorf("browser %q, CFO starts %q, attached %q; want none", f.opened, f.nativeStarts, f.attached)
 			}
 		})
 	}
@@ -946,5 +963,67 @@ func TestTheWindowStartsWithoutItsTerminalsProofAndKnowsItsGoblins(t *testing.T)
 	}
 	if len(environment) != 4 {
 		t.Errorf("the caller's environment was changed: %q", environment)
+	}
+}
+
+// A home whose usual board address another home's board or another program
+// holds, as a second home on a machine that already runs a fleet finds it,
+// starts its own board on a free port, so its app opens on its own board and
+// never stops on a box about the port. The usual address held by this home's
+// own supervisor is waited on as before, and an address the person chose must
+// be free.
+func TestASecondHomesBoardStartsOnAFreePortWhereTheUsualAddressIsHeld(t *testing.T) {
+	previous := aliveTimeout
+	aliveTimeout = 500 * time.Millisecond
+	t.Cleanup(func() { aliveTimeout = previous })
+	h := home.Home{Root: filepath.Join(t.TempDir(), "SecondHome")}
+	answering := func(alive string) string {
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			_, _ = w.Write([]byte(alive))
+		}))
+		t.Cleanup(server.Close)
+		return strings.TrimPrefix(server.URL, "http://")
+	}
+	program, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = program.Close() })
+	free, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	unused := free.Addr().String()
+	if err := free.Close(); err != nil {
+		t.Fatal(err)
+	}
+	thisHome, err := json.Marshal(map[string]any{"pid": 4242, "home": h.Root})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, test := range []struct {
+		name, chosen, usual, want string
+		isTaken                   bool
+	}{
+		{name: "another home's board", usual: answering(`{"pid":4242,"home":"C:\\Fleet"}`), want: anyFreePort},
+		{name: "an older board that names no home", usual: answering(`{"pid":4242}`), want: anyFreePort},
+		{name: "another program", usual: program.Addr().String(), want: anyFreePort},
+		{name: "this home's own supervisor, not yet recorded", usual: answering(string(thisHome)), isTaken: true},
+		{name: "a free usual address", usual: unused, want: unused},
+		{name: "a chosen address another program holds", chosen: program.Addr().String(), usual: unused, isTaken: true},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			// Act
+			address, err := serveAddress(context.Background(), h, test.chosen, test.usual)
+
+			// Assert
+			var taken boardAddressTaken
+			if test.isTaken != errors.As(err, &taken) {
+				t.Fatalf("serveAddress = %q, %v; want taken %v", address, err, test.isTaken)
+			}
+			if !test.isTaken && (err != nil || address != test.want) {
+				t.Errorf("serveAddress = %q, %v; want %q", address, err, test.want)
+			}
+		})
 	}
 }

@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"maps"
 	"net/url"
 	"os"
 	"strings"
@@ -13,9 +14,23 @@ import (
 	"github.com/fpresta0607/code-goblins/internal/state"
 )
 
+// pollAwaitedRuns raises ci_finished for each workflow run a paused goblin
+// waits on once it completes on the head the goblin waits for. A run whose
+// read fails is read again on the next poll, and the failure is returned
+// only once the read failed failingPasses polls in a row.
 func (s *Service) pollAwaitedRuns(ctx context.Context, watched *fleetWakes, now time.Time) error {
 	var problems error
 	seen := map[string]bool{}
+	// failed holds each run read this poll and whether its read failed, so a
+	// run two goblins wait on counts one failed poll, not two.
+	failed := map[string]bool{}
+	defer func() {
+		maps.DeleteFunc(watched.Failing, func(read string, _ int) bool {
+			target, isAwaited := strings.CutPrefix(read, "awaited:")
+			_, isRead := failed[target]
+			return isAwaited && !isRead
+		})
+	}()
 	for _, meta := range liveTasks(s.Store.Home.State) {
 		record, err := state.ReadLifecycle(s.Store.Home.State, meta.ID)
 		if errors.Is(err, os.ErrNotExist) {
@@ -39,11 +54,16 @@ func (s *Service) pollAwaitedRuns(ctx context.Context, watched *fleetWakes, now 
 			continue
 		}
 		parts := strings.Split(strings.Trim(parsed.Path, "/"), "/")
-		output, err := runOutput(ctx, s.Options.CI, meta.Project, "gh", "run", "view", parts[4], "--repo", parts[0]+"/"+parts[1], "--json", "databaseId,workflowName,status,conclusion,headSha,url,attempt,startedAt,updatedAt")
-		if err != nil {
-			problems = errors.Join(problems, fmt.Errorf("awaited run %s: %w", target, err))
+		if failed[target] {
 			continue
 		}
+		output, err := runOutput(ctx, s.Options.CI, meta.Project, "gh", "run", "view", parts[4], "--repo", parts[0]+"/"+parts[1], "--json", "databaseId,workflowName,status,conclusion,headSha,url,attempt,startedAt,updatedAt")
+		failed[target] = err != nil
+		if err != nil {
+			problems = errors.Join(problems, watched.failing("awaited:"+target, fmt.Errorf("awaited run %s: %w", target, err)))
+			continue
+		}
+		delete(watched.Failing, "awaited:"+target)
 		var run ghRun
 		if err := json.Unmarshal([]byte(output), &run); err != nil {
 			problems = errors.Join(problems, err)

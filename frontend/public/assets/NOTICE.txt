@@ -18,7 +18,7 @@ Rounded rectangle controls, the native select chevron/skin, and native details/s
 Disclosure.tsx adapts load-on-open and release-on-close disclosure behavior from packages/shared/src/ui.tsx ShiftGroups, using the existing CFO resource hook with stale-response cancellation.
 CFO uses its own self-hosted typography, layered card surfaces, mutually exclusive Board/Orchestration views and one contextual pane; SIQshift reporting labels, charts, WebGL and API contracts are not included.
 The app icon and three transparent goblin sprite atlases were generated with the built-in image generation tool for this project and approved by the user on 2026-09-22.
-They were copied unchanged from the approved production assets; role-specific artwork is chosen deterministically from reported role or task wording, never presented as inferred runtime telemetry.
+They were copied from the approved production assets and, on 2026-10-06, scaled down to three times the largest size the board shows them at (96 pixels), each atlas cell on its own; role-specific artwork is chosen deterministically from reported role or task wording, never presented as inferred runtime telemetry.
 Runtime dependencies: React and React DOM (MIT), PrismJS (MIT), xterm.js and its WebGL addon (MIT).
 React: https://github.com/facebook/react/blob/main/LICENSE
 Prism: https://github.com/PrismJS/prism/blob/master/LICENSE
@@ -40,3 +40,4 @@ The terminal renderer loads only when a goblin panel first shows its Terminal vi
 
 The goblin workshop canvas background was generated for this project and approved by the user on 2026-09-23, then regenerated from that image in the SIQstack palette with Codex's built-in image generation and approved by the user on 2026-09-30; the earlier image is kept at docs/evidence/cg-board-theme/goblin-workshop-before.png.
 The goblin mark (/favicon.svg) was drawn for this project after the approved app icon, and the PNG icons under /assets/icons/ are rendered from it; both were approved by the user on 2026-09-30.
+The baby goblin atlas (goblin-babies.png), one head for each kind of child the family tree shows, was generated for this project on 2026-10-06 with OpenRouter's GPT image model, the board's own goblin art given as the style reference, and approved by the user on 2026-10-07; on 2026-10-07 it was scaled down to three times the largest size the tree shows a head at (44 pixels), each atlas cell on its own.

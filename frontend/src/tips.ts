@@ -72,9 +72,15 @@ function place(node: HTMLElement, part: HTMLElement) {
   node.style.top = spot.top + "px";
 }
 
+// A tip shows once the pointer has rested on its part this long; the
+// keyboard's focus shows it at once. The Overlord, 2026-10-07: "tool tip hover
+// text box should appear after 2 second hover not immediately".
+export const TIP_REST_MS = 2000;
+
 // Shows the board's tips until the function it returns is called. Every part
 // that carries data-tip shows that text in one tip floating over the whole
-// page while the pointer or the keyboard's focus is on the part, so no
+// page once the pointer has rested on the part for TIP_REST_MS, or at once
+// while the keyboard's focus is on it, for as long as either stays, so no
 // scrolling box clips a tip and every tip can be kept on the screen (see
 // place). The tip says what its part's data-tip says now, follows its part as
 // the page scrolls, resizes or changes, and goes as soon as the part is left,
@@ -103,21 +109,36 @@ export function watchTips(): () => void {
   };
   // Watches the page only while a part is pointed at.
   const changes = new MutationObserver(show);
-  const point = (target: EventTarget | null) => {
-    const next = target instanceof Element ? target.closest<HTMLElement>("[data-tip], .task-card") : null;
+  const partOf = (target: EventTarget | null) => target instanceof Element ? target.closest<HTMLElement>("[data-tip], .task-card") : null;
+  // The part the pointer rests on before its tip shows, and the wait.
+  let resting: HTMLElement | null = null;
+  let rest: ReturnType<typeof setTimeout> | undefined;
+  const point = (next: HTMLElement | null) => {
+    clearTimeout(rest);
+    resting = null;
     if (next === part) return;
     part = next;
     changes.disconnect();
     if (part) changes.observe(document.body, { subtree: true, childList: true, attributes: true, attributeFilter: ["data-tip"] });
     show();
   };
+  // The pointer on a part hides any other tip and shows the part's own once
+  // it has rested there; moving within the part does not start the wait again.
+  const pointAt = (target: EventTarget | null) => {
+    const next = partOf(target);
+    if (next === part || next && next === resting) return;
+    point(null);
+    if (!next) return;
+    resting = next;
+    rest = setTimeout(() => point(next), TIP_REST_MS);
+  };
   // A pressed mouse or pen shows no tip until it is released, so a card has
-  // none from the press that starts its drag; a finger shows one for as long
-  // as it is down.
-  const onPointer = (event: PointerEvent) => point(event.buttons && event.pointerType !== "touch" ? null : event.target);
+  // none from the press that starts its drag; a finger held down shows one
+  // for as long as it is down.
+  const onPointer = (event: PointerEvent) => { if (event.buttons && event.pointerType !== "touch") point(null); else pointAt(event.target); };
   // The pointer left the window, or a finger lifted.
   const onOut = (event: PointerEvent) => { if (!event.relatedTarget) point(null); };
-  const onFocus = (event: FocusEvent) => { if (event.target instanceof Element && event.target.matches(":focus-visible")) point(event.target); };
+  const onFocus = (event: FocusEvent) => { if (event.target instanceof Element && event.target.matches(":focus-visible")) point(partOf(event.target)); };
   const onBlur = () => point(null);
   document.addEventListener("pointerover", onPointer);
   document.addEventListener("pointerdown", onPointer);

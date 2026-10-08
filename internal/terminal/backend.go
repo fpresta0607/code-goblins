@@ -37,10 +37,6 @@ type Backend interface {
 	Snapshot(ctx context.Context) (herdr.SessionSnapshot, error)
 	// AgentList reads every registered agent's state and counters.
 	AgentList(ctx context.Context) ([]herdr.AgentRecord, error)
-	// CFOTab returns the CFO's terminal in container and whether an agent
-	// already runs in it. With none running it creates a fresh one in cwd and
-	// retires any old one that holds no agent.
-	CFOTab(ctx context.Context, container herdr.Container, cwd string) (herdr.Endpoint, bool, error)
 	// Focus brings the endpoint's terminal to the front for the next client
 	// that attaches.
 	Focus(ctx context.Context, endpoint herdr.Endpoint) error

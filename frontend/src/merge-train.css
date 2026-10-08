@@ -1,0 +1,37 @@
+/* A merge train's card sits in its column beside the goblins' cards, in
+   their glass, and lists the train's pull requests under what the train is
+   doing. Tones follow a pull request's checks: blue while CI runs, mint for
+   what landed, red for what breaks CI, amber for what waits for the next
+   train. */
+.train-card { position: relative; min-width: 0; display: grid; gap: 8px; padding: 12px 14px; border: 1px solid var(--glass-border); border-radius: var(--radius); background: var(--glass-bg), var(--hero-surface); box-shadow: var(--glass-shadow); }
+.train-cards { display: grid; gap: 10px; margin-bottom: 10px; }
+.train-head { display: flex; align-items: center; gap: 12px; min-width: 0; }
+.train-mark { flex: none; display: grid; place-items: center; width: 44px; height: 44px; border-radius: 50%; background: rgba(171, 125, 248, 0.14); color: var(--merged); }
+.train-mark .icon { width: 22px; height: 22px; }
+.train-title { display: grid; gap: 2px; min-width: 0; }
+.train-title strong { font-size: 1.25rem; line-height: 1.35; font-weight: 800; }
+.train-title .card-repo { color: var(--muted); font-size: 1rem; }
+.train-status { display: inline-flex; align-items: center; gap: 8px; justify-self: start; font-size: 1rem; font-weight: 700; line-height: 1.4; text-decoration: none; overflow-wrap: anywhere; }
+a.train-status:hover, a.train-status:focus-visible { text-decoration: underline; }
+.train-status .status-dot { flex: none; }
+.train-note { margin: 0; color: var(--muted); font-size: .9375rem; line-height: 1.45; overflow-wrap: anywhere; }
+.train-cars { display: grid; gap: 4px; margin: 0; padding: 0; list-style: none; }
+.train-car { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; gap: 10px; font-size: .9375rem; line-height: 1.4; }
+.train-car-number { font-weight: 700; color: inherit; text-decoration: none; font-variant-numeric: tabular-nums; }
+a.train-car-number:hover, a.train-car-number:focus-visible { text-decoration: underline; }
+/* The goblin that made a pull request, by its avatar, name and title. */
+.train-car-goblin { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.train-car-goblin .goblin-avatar { width: 28px; height: 28px; }
+.train-car-title { min-width: 0; overflow: hidden; color: #c4d4df; text-overflow: ellipsis; white-space: nowrap; }
+/* A goblin's name and title is short and says who it is, so it wraps onto
+   a second line rather than being cut. */
+.train-car-title.goblin-called { white-space: normal; overflow-wrap: anywhere; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
+.train-car-state { font-weight: 700; white-space: nowrap; }
+.train-pending { color: var(--blue); }
+.train-passed { color: var(--mint); }
+.train-failed { color: var(--red); }
+.train-cancelled { color: var(--amber); }
+.train-status.train-pending .status-dot { background: var(--blue); }
+.train-status.train-passed .status-dot { background: var(--mint); }
+.train-status.train-failed .status-dot { background: var(--red); }
+.train-status.train-cancelled .status-dot { background: var(--amber); }

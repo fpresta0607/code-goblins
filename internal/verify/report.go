@@ -2,13 +2,17 @@ package verify
 
 import (
 	"cmp"
+	"encoding/json"
 	"errors"
 	"fmt"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"slices"
 	"strings"
 	"time"
+
+	"github.com/fpresta0607/code-goblins/internal/fsx"
 )
 
 // ReportVersion is the version of the report this build writes.
@@ -48,6 +52,11 @@ type Report struct {
 	// level left to a broader one, each with why.
 	Selected []Selection `json:"selected,omitempty"`
 	Left     []Left      `json:"left,omitempty"`
+	// Outside are the changed files the policy puts outside the checks, by
+	// its reason, and Unknown the changed files the policy does not account
+	// for, which make the change require the full level.
+	Outside []Outside `json:"outside,omitempty"`
+	Unknown []string  `json:"unknown,omitempty"`
 	// Checks are the commands of the level, each with what became of it.
 	Checks []Result `json:"checks"`
 	// Status is passed only when every check ran and passed.
@@ -73,6 +82,13 @@ type Selection struct {
 type Left struct {
 	Check string `json:"check"`
 	Why   string `json:"why"`
+}
+
+// Outside is the changed files one rule of the policy puts outside the
+// checks, and why.
+type Outside struct {
+	Why   string   `json:"why"`
+	Files []string `json:"files"`
 }
 
 // StoreDir is the folder verification runs record into: the one
@@ -118,6 +134,44 @@ func Begin(project string, start time.Time, commit, level string) (*os.File, str
 		return nil, "", err
 	}
 	return log, strings.TrimSuffix(log.Name(), ".log") + ".json", nil
+}
+
+// Reports reads the reports the store holds for project, the run that
+// started last first. A run still going has no report yet, and a report that
+// a finishing run removes while they are read is left out.
+func Reports(project string) ([]Report, error) {
+	store, err := StoreDir()
+	if err != nil {
+		return nil, err
+	}
+	dir := filepath.Join(store, "reports", folder(project))
+	entries, err := os.ReadDir(dir)
+	if errors.Is(err, fs.ErrNotExist) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	var reports []Report
+	for _, entry := range entries {
+		if entry.IsDir() || !strings.HasSuffix(entry.Name(), ".json") {
+			continue
+		}
+		data, err := fsx.ReadFile(filepath.Join(dir, entry.Name()))
+		if errors.Is(err, fs.ErrNotExist) {
+			continue
+		}
+		if err != nil {
+			return nil, err
+		}
+		var report Report
+		if err := json.Unmarshal(data, &report); err != nil {
+			return nil, fmt.Errorf("verify: read the report %s: %w", entry.Name(), err)
+		}
+		reports = append(reports, report)
+	}
+	slices.SortFunc(reports, func(a, b Report) int { return b.Start.Compare(a.Start) })
+	return reports, nil
 }
 
 // folder is a project's name as the name of one folder: letters, digits,

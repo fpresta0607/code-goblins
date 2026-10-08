@@ -22,13 +22,15 @@ func pipeName() (string, error) {
 }
 
 // userOnly is a security descriptor that lets this Windows user, and no one
-// else, open the pipe.
+// else, open the pipe. Its medium integrity label lets the board, which runs
+// at medium integrity, open it too when Windows started the host elevated, as
+// it starts an administrator's run item's host.
 func userOnly() (*windows.SecurityAttributes, error) {
 	user, err := windows.GetCurrentProcessToken().GetTokenUser()
 	if err != nil {
 		return nil, fmt.Errorf("host: read this user's identity: %w", err)
 	}
-	descriptor, err := windows.SecurityDescriptorFromString("D:P(A;;GA;;;" + user.User.Sid.String() + ")")
+	descriptor, err := windows.SecurityDescriptorFromString("D:P(A;;GA;;;" + user.User.Sid.String() + ")S:(ML;;NW;;;ME)")
 	if err != nil {
 		return nil, fmt.Errorf("host: build the pipe's security descriptor: %w", err)
 	}

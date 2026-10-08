@@ -35,6 +35,17 @@ const MemoryIndex = "memory/MEMORY.md"
 // data folder, each after its parent.
 var folders = []string{"projects", "memory", "archive", "archive/finished", "archive/parked"}
 
+// IgnoreFile is the data folder's .gitignore, for whoever keeps a backup of
+// it in a git repository of their own.
+const IgnoreFile = ".gitignore"
+
+// ignoreHeader opens the lines that keep a backup of the data folder to its
+// records: binaries, archives and logs belong in a task's scratch, which goes
+// when the task does, and once committed they stay in the backup's history.
+const ignoreHeader = "# Code Goblins: a backup of this folder keeps records, never binaries, archives or logs."
+
+var ignoredInData = []string{"*.exe", "*.dll", "*.msi", "*.zip", "*.7z", "*.rar", "*.tar", "*.gz", "*.tgz", "*.bundle", "*.log", "*.png", "*.jpg", "*.jpeg", "*.gif", "*.webp", "*.mp4", "*.webm", "*.pdf", "*.db", "*.sqlite"}
+
 // seeds are the files every laid-out home starts with, written only where
 // missing.
 var seeds = []struct{ path, content string }{
@@ -96,5 +107,31 @@ func Ensure(dataDir string) (created []string, legacy bool, err error) {
 		}
 		created = append(created, seed.path)
 	}
+	changed, err := ensureIgnored(filepath.Join(dataDir, IgnoreFile))
+	if err != nil {
+		return created, false, err
+	}
+	if changed {
+		created = append(created, IgnoreFile)
+	}
 	return created, false, nil
+}
+
+// ensureIgnored gives the data folder's .gitignore the lines that keep
+// binaries, archives and logs out of a backup, once, after every line already
+// there: the one file Ensure adds to rather than only creates.
+func ensureIgnored(path string) (bool, error) {
+	current, err := fsx.ReadFile(path)
+	if err != nil && !errors.Is(err, fs.ErrNotExist) {
+		return false, err
+	}
+	if strings.Contains(string(current), ignoreHeader) {
+		return false, nil
+	}
+	text := string(current)
+	if text != "" && !strings.HasSuffix(text, "\n") {
+		text += "\n"
+	}
+	text += ignoreHeader + "\n" + strings.Join(ignoredInData, "\n") + "\n"
+	return true, fsx.AtomicWriteFile(path, []byte(text))
 }

@@ -15,6 +15,7 @@ import (
 
 	"github.com/fpresta0607/code-goblins/internal/auth"
 	"github.com/fpresta0607/code-goblins/internal/execx"
+	"github.com/fpresta0607/code-goblins/internal/fleet"
 	"github.com/fpresta0607/code-goblins/internal/home"
 	projectcfg "github.com/fpresta0607/code-goblins/internal/project"
 	"github.com/fpresta0607/code-goblins/internal/spawn"
@@ -140,6 +141,10 @@ func runAuthPreflight(args []string, stdout, stderr io.Writer, runtime commandRu
 			fmt.Fprintf(stderr, "cfo auth: %s\n", line)
 		}
 		for _, item := range append(adopted, migrated...) {
+			if item.Kept {
+				fmt.Fprintf(stdout, "kept stored %s: %s offered a different value, read there for the first time. Edit that line to rotate it.\n", item.Key, item.Origin)
+				continue
+			}
 			verb := "adopted"
 			if item.Refreshed {
 				verb = "refreshed"
@@ -190,7 +195,7 @@ func runAuthPreflight(args []string, stdout, stderr io.Writer, runtime commandRu
 			fmt.Fprintln(stderr, err)
 			return 1
 		}
-		audit := auth.CacheAudit(h.Root, worktreeManifest.Env)
+		audit := auth.CacheAudit(h.Caches(), worktreeManifest.Env)
 		counts := map[string]int{}
 		for _, redirect := range audit {
 			counts[redirect.Source]++
@@ -662,7 +667,8 @@ func deliverRefreshNotice(ctx context.Context, runtime commandRuntime, h home.Ho
 		return false
 	}
 	notice := fmt.Sprintf("credentials refreshed: re-source %s", item.Path)
-	if err := runtime.sendText(ctx, h, "gb-"+item.ID, notice); err != nil {
+	// A goblin in a turn takes the notice at its next tool call.
+	if err := runtime.sendText(ctx, h, "gb-"+item.ID, notice); err != nil && !errors.Is(err, fleet.ErrQueuedForToolCall) {
 		fmt.Fprintf(stderr, "cfo auth: deliver re-source notice to %s: %v\n", item.ID, err)
 		return false
 	}

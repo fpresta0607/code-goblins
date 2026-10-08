@@ -13,5 +13,5 @@ const snapshot = parseSnapshot({ healthy: true, instance: "fixture", tasks: flee
 })) });
 
 createRoot(document.getElementById("root")!).render(<main style={{ height: "100vh", display: "flex", flexDirection: "column" }}>
-  <Orchestration snapshot={snapshot} selected="" connected effects={[]} presentations={[]} onSelect={() => {}} />
+  <Orchestration snapshot={snapshot} selected="" connected effects={[]} presentations={[]} now={Date.parse("2026-10-01T12:00:00Z")} onSelect={() => {}} />
 </main>);

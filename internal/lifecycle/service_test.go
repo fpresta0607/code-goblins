@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -24,7 +25,7 @@ func lifecycleFixture(t *testing.T) (Service, state.TaskMeta) {
 	if err := state.WriteTaskMeta(directory, meta); err != nil {
 		t.Fatal(err)
 	}
-	return Service{StateDir: directory, PauseWait: 10 * time.Millisecond, Operations: Operations{
+	return Service{StateDir: directory, PrepareWait: 10 * time.Millisecond, PauseWait: 10 * time.Millisecond, Operations: Operations{
 		Prepare: func(context.Context, state.TaskMeta, string) error { return nil },
 		Stop: func(context.Context, state.TaskMeta, *state.Lifecycle) ([]string, error) {
 			return []string{"fixture process"}, nil
@@ -36,6 +37,51 @@ func lifecycleFixture(t *testing.T) (Service, state.TaskMeta) {
 		Memory: func() (uint64, uint64, error) { return 5 << 30, 5 << 30, nil },
 		Notify: func(state.Lifecycle) error { return nil },
 	}}, meta
+}
+
+// On 2026-10-07 each goblin the CFO retired woke it again with the pause it
+// had just typed, sixteen times as "paused: Requested by the operator", and
+// five more as the goblin failing when a teardown ran out of time. Whoever
+// typed a request reads its outcome from the command, so finishing it wakes
+// nobody, a retry included; an operation the board or the scheduler started
+// still tells the CFO how it ended.
+func TestOnlyAnOperationNobodyWatchesSendsItsOutcome(t *testing.T) {
+	for _, test := range []struct {
+		name        string
+		isWatched   bool
+		hasStopFail bool
+		wantNotices int
+	}{
+		{"a pause the CFO typed", true, false, 0},
+		{"a pause the CFO typed whose teardown ran out of time", true, true, 0},
+		{"a pause the board asked for", false, false, 1},
+		{"a pause the board asked for whose teardown ran out of time", false, true, 1},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			// Arrange
+			service, meta := lifecycleFixture(t)
+			notices := 0
+			service.Operations.Notify = func(state.Lifecycle) error {
+				notices++
+				return nil
+			}
+			if test.hasStopFail {
+				service.Operations.Stop = func(context.Context, state.TaskMeta, *state.Lifecycle) ([]string, error) {
+					return nil, context.DeadlineExceeded
+				}
+			}
+			request := Request{ID: meta.ID, Generation: meta.SpawnGen, Operation: "pause-1", Action: "pause", Reason: "overlord", IsWatched: test.isWatched}
+
+			// Act
+			record, _ := service.Run(context.Background(), request)
+			_, _ = service.Run(context.Background(), request)
+
+			// Assert
+			if notices != test.wantNotices || !record.NoticeSent {
+				t.Fatalf("notices = %d (record %+v), want %d and the notice settled", notices, record, test.wantNotices)
+			}
+		})
+	}
 }
 
 func TestPauseReleasesResourcesAfterTheStoppingPointDeadline(t *testing.T) {
@@ -84,10 +130,108 @@ func TestPauseRecordsAHandoffAndAnIdempotentCompletion(t *testing.T) {
 		t.Fatalf("handoff not saved: %+v %v", record, err)
 	}
 	// A fresh value represents a service restarted after the request completed.
-	restarted := Service{StateDir: service.StateDir, PauseWait: service.PauseWait, Operations: service.Operations}
+	restarted := Service{StateDir: service.StateDir, PrepareWait: service.PrepareWait, PauseWait: service.PauseWait, Operations: service.Operations}
 	again, err := restarted.Run(context.Background(), request)
 	if err != nil || again.Phase != "paused" || notices != 1 {
 		t.Fatalf("retry = %+v, %v, notices=%d", again, err, notices)
+	}
+}
+
+func TestPauseChecksThePublishedHandoffAfterUnconfirmedDelivery(t *testing.T) {
+	for _, testCase := range []struct {
+		name           string
+		publish        func(string) error
+		isHandoffSaved bool
+	}{
+		{name: "published", publish: func(path string) error {
+			if err := os.WriteFile(path+".partial", []byte("Continue the retained branch."), 0o600); err != nil {
+				return err
+			}
+			return os.Rename(path+".partial", path)
+		}, isHandoffSaved: true},
+		{name: "empty", publish: func(path string) error { return os.WriteFile(path, nil, 0o600) }},
+		{name: "partial", publish: func(path string) error { return os.WriteFile(path+".partial", []byte("Still writing."), 0o600) }},
+		{name: "directory", publish: func(path string) error { return os.Mkdir(path, 0o700) }},
+		{name: "absent", publish: func(string) error { return nil }},
+	} {
+		t.Run(testCase.name, func(t *testing.T) {
+			service, meta := lifecycleFixture(t)
+			retained := filepath.Join(meta.TaskTmp, "handoff.md")
+			if err := os.WriteFile(retained, []byte("Earlier handoff."), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			service.Operations.Prepare = func(_ context.Context, _ state.TaskMeta, path string) error {
+				if err := testCase.publish(path); err != nil {
+					return err
+				}
+				return context.DeadlineExceeded
+			}
+
+			record, err := service.Run(t.Context(), Request{ID: meta.ID, Generation: meta.SpawnGen, Operation: "pause-1", Action: "pause", Reason: "overlord"})
+
+			if err != nil || record.Phase != "paused" || record.HandoffSaved != testCase.isHandoffSaved || (len(record.Problems) == 0) != testCase.isHandoffSaved {
+				t.Fatalf("published handoff=%v: %+v, %v", testCase.isHandoffSaved, record, err)
+			}
+			if data, err := os.ReadFile(retained); err != nil || string(data) != "Earlier handoff." {
+				t.Fatalf("prior handoff changed: %q, %v", data, err)
+			}
+		})
+	}
+}
+
+func TestPauseStartsTheStoppingPointWindowAfterDelivery(t *testing.T) {
+	service, meta := lifecycleFixture(t)
+	service.PrepareWait = time.Second
+	service.PauseWait = 50 * time.Millisecond
+	var accepted, stopped time.Time
+	service.Operations.Prepare = func(ctx context.Context, _ state.TaskMeta, _ string) error {
+		select {
+		case <-time.After(100 * time.Millisecond):
+			accepted = time.Now()
+			return nil
+		case <-ctx.Done():
+			return ctx.Err()
+		}
+	}
+	service.Operations.Stop = func(context.Context, state.TaskMeta, *state.Lifecycle) ([]string, error) {
+		stopped = time.Now()
+		return nil, nil
+	}
+
+	record, err := service.Run(t.Context(), Request{ID: meta.ID, Generation: meta.SpawnGen, Operation: "pause-1", Action: "pause", Reason: "overlord"})
+
+	if err != nil || accepted.IsZero() || stopped.Sub(accepted) < service.PauseWait || stopped.Sub(accepted) > time.Second || record.Phase != "paused" || record.HandoffSaved || len(record.Problems) == 0 {
+		t.Fatalf("stopping-point window after acceptance=%s: %+v, %v", stopped.Sub(accepted), record, err)
+	}
+}
+
+func TestPublishedHandoffCancelsUnconfirmedDeliveryBeforeStopping(t *testing.T) {
+	service, meta := lifecycleFixture(t)
+	service.PrepareWait = time.Minute
+	prepared := make(chan struct{})
+	service.Operations.Prepare = func(ctx context.Context, _ state.TaskMeta, path string) error {
+		defer close(prepared)
+		if err := os.WriteFile(path, []byte("Continue the retained branch."), 0o600); err != nil {
+			return err
+		}
+		<-ctx.Done()
+		return ctx.Err()
+	}
+	isDeliveryFinished := false
+	service.Operations.Stop = func(context.Context, state.TaskMeta, *state.Lifecycle) ([]string, error) {
+		select {
+		case <-prepared:
+			isDeliveryFinished = true
+		default:
+		}
+		return nil, nil
+	}
+	started := time.Now()
+
+	record, err := service.Run(t.Context(), Request{ID: meta.ID, Generation: meta.SpawnGen, Operation: "pause-1", Action: "pause", Reason: "overlord"})
+
+	if elapsed := time.Since(started); err != nil || !record.HandoffSaved || record.Phase != "paused" || !isDeliveryFinished || elapsed >= service.PrepareWait/2 {
+		t.Fatalf("handoff did not finish delivery before stopping after %s: %+v, %v, delivery finished=%v", elapsed, record, err, isDeliveryFinished)
 	}
 }
 
@@ -335,4 +479,69 @@ func TestPauseInstructionPublishesTheHandoffAfterThePush(t *testing.T) {
 	if push < 0 || draft < push || publish < draft {
 		t.Fatalf("handoff is not published last, after the push: %q", instruction)
 	}
+}
+
+// Pausing or stopping a parent pauses or stops its helpers first, through
+// the same operation, and a helper whose own operation fails never holds its
+// parent back: the parent's sweep ends what the helper left. Resume reaches
+// no helper, since each start needs its own memory.
+func TestPauseAndStopReachTheHelpersBeforeTheParentsOwnProcesses(t *testing.T) {
+	for _, test := range []struct{ action, reason, phase, want string }{
+		{"pause", "overlord", "paused", "helpers pause pausing"},
+		{"stop", "Requested by the operator", "stopped", "helpers stop stopping"},
+	} {
+		t.Run(test.action, func(t *testing.T) {
+			// Arrange
+			service, meta := lifecycleFixture(t)
+			var order []string
+			service.Operations.Helpers = func(_ context.Context, parent state.TaskMeta, record *state.Lifecycle) ([]string, error) {
+				order = append(order, "helpers "+record.Action+" "+record.Phase)
+				return []string{"helper task-h2 " + test.phase}, errors.New("helper task-h1: its terminal did not answer")
+			}
+			prepare, stop := service.Operations.Prepare, service.Operations.Stop
+			service.Operations.Prepare = func(ctx context.Context, meta state.TaskMeta, path string) error {
+				order = append(order, "prepare")
+				return prepare(ctx, meta, path)
+			}
+			service.Operations.Stop = func(ctx context.Context, meta state.TaskMeta, record *state.Lifecycle) ([]string, error) {
+				order = append(order, "stop")
+				return stop(ctx, meta, record)
+			}
+
+			// Act
+			record, err := service.Run(context.Background(), Request{ID: meta.ID, Generation: meta.SpawnGen, Operation: "op-1", Action: test.action, Reason: test.reason})
+
+			// Assert
+			if err != nil || record.Phase != test.phase {
+				t.Fatalf("%s = %+v, %v; want %s despite the helper", test.action, record, err, test.phase)
+			}
+			if len(order) == 0 || order[0] != test.want || order[len(order)-1] != "stop" {
+				t.Errorf("order = %v, want the helpers first and the parent's own stop last", order)
+			}
+			if !slices.ContainsFunc(record.Problems, func(problem string) bool { return strings.Contains(problem, "helper task-h1") }) {
+				t.Errorf("problems = %v, want the helper's failure named", record.Problems)
+			}
+			if !slices.Contains(record.Stopped, "fixture process") || !slices.Contains(record.Stopped, "helper task-h2 "+test.phase) {
+				t.Errorf("stopped = %v, want the parent's processes and what became of the helper", record.Stopped)
+			}
+		})
+	}
+	t.Run("resume", func(t *testing.T) {
+		service, meta := lifecycleFixture(t)
+		isReached := false
+		service.Operations.Helpers = func(context.Context, state.TaskMeta, *state.Lifecycle) ([]string, error) {
+			isReached = true
+			return nil, nil
+		}
+		if _, err := service.Run(context.Background(), Request{ID: meta.ID, Generation: meta.SpawnGen, Operation: "op-1", Action: "pause", Reason: "overlord"}); err != nil {
+			t.Fatal(err)
+		}
+		isReached = false
+		if _, err := service.Run(context.Background(), Request{ID: meta.ID, Generation: meta.SpawnGen, Operation: "op-2", Action: "resume"}); err != nil {
+			t.Fatal(err)
+		}
+		if isReached {
+			t.Error("Resume reached the helpers")
+		}
+	})
 }

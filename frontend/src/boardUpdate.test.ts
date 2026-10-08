@@ -32,3 +32,20 @@ test("a code-review comment typed and not yet delivered is unsent, so a reload w
   ];
   for (const [name, args, want] of cases) assert.equal(unsentComment(...args), want, name);
 });
+
+test("a successful board update reloads a visible tab even with the Command Center open, and preserves unsent drafts", () => {
+  const current = { loaded: "abc", served: "def", hidden: false, answering: true, connected: true, updated: true, unsent: false };
+  const cases: [string, Parameters<typeof updateAction>[0], ReturnType<typeof updateAction>][] = [
+    ["the Command Center is open", current, "reload"],
+    ["the Command Center was closed", { ...current, answering: false }, "reload"],
+    ["an answer or diff comment remains unsent", { ...current, unsent: true }, "banner"],
+    ["an unsent draft remains in a hidden tab", { ...current, hidden: true, unsent: true }, "banner"],
+    ["a draft was sent", { ...current, unsent: false }, "reload"],
+    ["the board is reconnecting", { ...current, connected: false }, "banner"],
+    ["the update is no longer recent", { ...current, updated: false }, "banner"],
+    ["the loaded build is already current", { ...current, served: "abc" }, "none"],
+    ["the loaded build is unknown", { ...current, loaded: "" }, "none"],
+    ["the served build is unknown", { ...current, served: "" }, "none"],
+  ];
+  for (const [name, given, want] of cases) assert.equal(updateAction(given), want, name);
+});

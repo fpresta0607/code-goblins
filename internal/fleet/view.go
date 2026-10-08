@@ -10,6 +10,7 @@ import (
 	"unicode"
 
 	"github.com/fpresta0607/code-goblins/internal/crewstate"
+	"github.com/fpresta0607/code-goblins/internal/goblinname"
 )
 
 // RenderJSON writes the complete typed snapshot. It does not inspect files,
@@ -87,7 +88,7 @@ func RenderMarkdown(w io.Writer, snapshot Snapshot) error {
 			if outcome.Phase == "done" {
 				phase = "Finished"
 			}
-			if err := writeLine(w, "| "+strings.Join(markdownFields([]string{outcome.ID, outcome.Title, outcome.Project, phase, outcome.Reason}), " | ")+" |"); err != nil {
+			if err := writeLine(w, "| "+strings.Join(markdownFields([]string{goblinname.Called(outcome.GoblinName, outcome.ID), outcome.Title, outcome.Project, phase, outcome.Reason}), " | ")+" |"); err != nil {
 				return err
 			}
 		}
@@ -116,8 +117,12 @@ func renderTasks(w io.Writer, tasks []TaskRow) error {
 		if task.Current.State == crewstate.Paused {
 			endpoint = "released"
 		}
+		id := goblinname.Called(task.GoblinName, task.ID)
+		if task.Parent != "" {
+			id += " (helper of " + task.Parent + ")"
+		}
 		fields := []string{
-			task.ID,
+			id,
 			currentText(task),
 			dash(string(task.Monitor.Health)),
 			staleText(task.Monitor.StaleSeconds),

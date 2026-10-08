@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/fpresta0607/code-goblins/internal/fleet"
+	"github.com/fpresta0607/code-goblins/internal/fsx"
 	"github.com/fpresta0607/code-goblins/internal/monitor"
 	"github.com/fpresta0607/code-goblins/internal/state"
 )
@@ -183,6 +184,14 @@ func kept[T any](k *keptReads, kind string, paths []string, read func() (T, erro
 	return value, err
 }
 
+// forget drops what kind remembers of paths, for a reading nothing asks for
+// again.
+func (k *keptReads) forget(kind string, paths ...string) {
+	k.mu.Lock()
+	defer k.mu.Unlock()
+	delete(k.reads, kind+"\x00"+strings.Join(paths, "\x00"))
+}
+
 // created is when the file at path was created, zero when it is not there.
 func (s *Service) created(path string) time.Time {
 	info, err := s.reads.look(path)
@@ -204,6 +213,12 @@ func (s *Service) sessionStarted(meta state.TaskMeta) time.Time {
 
 // The readers below are the snapshot's: each reads as the function it names
 // does, once per state of its file.
+
+func (s *Service) cfoConversationLeft() string {
+	path := cfoConversationLeftPath(s.Store.Home.State)
+	data, _ := kept(&s.reads, "cfo-conversation-left", []string{path}, func() ([]byte, error) { return fsx.ReadFile(path) })
+	return cfoConversationLeftNotice(data)
+}
 
 func (s *Service) taskMeta(id string) (state.TaskMeta, error) {
 	directory := s.Store.Home.State

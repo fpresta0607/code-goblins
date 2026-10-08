@@ -48,7 +48,7 @@ func runSpawn(args []string, stdout, stderr io.Writer, runtime commandRuntime) i
 	fs.SetOutput(stderr)
 	project := fs.String("project", "", "project checkout")
 	brief := fs.String("brief", "", "absolute brief file")
-	harnessName := fs.String("harness", "", "claude, codex, pi, or kimi; omitted, the lane table in data/routing.json picks it")
+	harnessName := fs.String("harness", "", "claude, codex, or pi; omitted, the lane table in data/routing.json picks it")
 	mode := fs.String("mode", "no-mistakes", "no-mistakes, direct-PR, or local-only")
 	model := fs.String("model", "", "harness model")
 	effort := fs.String("effort", "", "harness effort")
@@ -57,6 +57,7 @@ func runSpawn(args []string, stdout, stderr io.Writer, runtime commandRuntime) i
 	auto := fs.Bool("auto", false, "route from the lane table; the default without --harness, kept as an alias")
 	overlapOK := fs.String("overlap-ok", "", "start although a teammate has work in the same area, and say why; the reason goes on the task's ticket and status log")
 	givenTitle := fs.String("title", "", "the task's short title for the board and its ticket; omitted, its backlog row's title")
+	parent := fs.String("parent", "", "start the task as a helper of this running goblin: on a branch cut from its last commit, in local-only mode, reporting to it; the supervisor starts helpers for cfo helper start")
 	if err := fs.Parse(args[1:]); err != nil {
 		return 2
 	}
@@ -69,7 +70,7 @@ func runSpawn(args []string, stdout, stderr io.Writer, runtime commandRuntime) i
 		return 2
 	}
 	if *harnessName != "" && !validSpawnHarness(*harnessName) {
-		fmt.Fprintln(stderr, "cfo spawn: --harness must be claude, codex, pi, or kimi")
+		fmt.Fprintln(stderr, "cfo spawn: --harness must be claude, codex, or pi")
 		return 2
 	}
 	if !validSpawnMode(*mode) {
@@ -112,18 +113,25 @@ func runSpawn(args []string, stdout, stderr io.Writer, runtime commandRuntime) i
 	// bound starts the task unchecked and says so. A project with no GitHub
 	// repository has no teammates to read, which is nothing to say. A read
 	// that stopped short of something still refuses on what it did find.
-	overlap, unread, err := teammateOverlap(runtime, h, args[0], checkout, string(briefText), time.Now())
-	hasOverlap := len(overlap.Files) > 0 || len(overlap.Issues) > 0
-	if len(unread) > 0 {
-		warnIncompleteCheck(stderr, unread)
-	}
-	switch {
-	case errors.Is(err, tickets.ErrNotGitHub):
-	case err != nil:
-		fmt.Fprintf(stderr, "cfo spawn: who else works in this area could not be read, so the task starts unchecked: %v\n", err)
-	case hasOverlap && strings.TrimSpace(*overlapOK) == "":
-		refuseOverlap(stderr, overlap)
-		return 1
+	// A helper works inside its parent's area by definition, which its
+	// parent's own spawn already checked, so it reads no teammate's work.
+	var overlap tickets.Overlaps
+	hasOverlap := false
+	if *parent == "" {
+		var unread []string
+		overlap, unread, err = teammateOverlap(runtime, h, args[0], checkout, string(briefText), time.Now())
+		hasOverlap = len(overlap.Files) > 0 || len(overlap.Issues) > 0
+		if len(unread) > 0 {
+			warnIncompleteCheck(stderr, unread)
+		}
+		switch {
+		case errors.Is(err, tickets.ErrNotGitHub):
+		case err != nil:
+			fmt.Fprintf(stderr, "cfo spawn: who else works in this area could not be read, so the task starts unchecked: %v\n", err)
+		case hasOverlap && strings.TrimSpace(*overlapOK) == "":
+			refuseOverlap(stderr, overlap)
+			return 1
+		}
 	}
 	assessment := routing.Classify(string(briefText))
 	routed := *harnessName == ""
@@ -165,7 +173,7 @@ func runSpawn(args []string, stdout, stderr io.Writer, runtime commandRuntime) i
 			return 1
 		}
 		if !validSpawnHarness(choice.Harness) {
-			fmt.Fprintf(stderr, "cfo spawn: lane %q names harness %q, which is not claude, codex, pi, or kimi\n", choice.Name, choice.Harness)
+			fmt.Fprintf(stderr, "cfo spawn: lane %q names harness %q, which is not claude, codex, or pi\n", choice.Name, choice.Harness)
 			return 1
 		}
 		*harnessName, *model, *effort = choice.Harness, choice.Model, choice.Effort
@@ -185,9 +193,9 @@ func runSpawn(args []string, stdout, stderr io.Writer, runtime commandRuntime) i
 	if skipped == "" {
 		if reset, isLow := supervisor.AllowanceReset(report, *harnessName, *model, time.Now().UTC()); isLow {
 			if reset.IsZero() {
-				fmt.Fprintf(stderr, "cfo spawn: %s allowance is at the 3 percent floor; its reset time is unknown\n", *harnessName)
+				fmt.Fprintf(stderr, "cfo spawn: %s allowance is at the 5 percent weekly floor; its reset time is unknown\n", *harnessName)
 			} else {
-				fmt.Fprintf(stderr, "cfo spawn: %s allowance is at the 3 percent floor; resumes at %s\n", *harnessName, reset.UTC().Format(time.RFC3339))
+				fmt.Fprintf(stderr, "cfo spawn: %s allowance is at the 5 percent weekly floor; resumes at %s\n", *harnessName, reset.UTC().Format(time.RFC3339))
 			}
 			return 1
 		}
@@ -258,6 +266,7 @@ func runSpawn(args []string, stdout, stderr io.Writer, runtime commandRuntime) i
 		Effort:    *effort,
 		Class:     *class,
 		Title:     title,
+		Parent:    *parent,
 		Capsule:   writeCapsule,
 	})
 	if err != nil {
@@ -344,7 +353,7 @@ func usableLane(report quota.Report, skipped string) routing.Usable {
 	return func(lane routing.ExecutionLane) (bool, string) {
 		headroom := report.Headroom(lane.Harness, lane.Model)
 		if reset, isLow := supervisor.AllowanceReset(report, lane.Harness, lane.Model, time.Now().UTC()); isLow {
-			note := lane.Harness + " at the 3 percent allowance floor"
+			note := lane.Harness + " at the 5 percent weekly allowance floor"
 			if !reset.IsZero() {
 				note += ", resets " + reset.UTC().Format(time.RFC3339)
 			}
@@ -382,7 +391,7 @@ func herdrSession() string {
 
 func validSpawnHarness(name string) bool {
 	switch harness.Kind(name) {
-	case harness.Claude, harness.Codex, harness.Pi, harness.Kimi:
+	case harness.Claude, harness.Codex, harness.Pi:
 		return true
 	default:
 		return false

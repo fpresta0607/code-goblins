@@ -9,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/fpresta0607/code-goblins/internal/auth"
 	"github.com/fpresta0607/code-goblins/internal/execx"
 	"github.com/fpresta0607/code-goblins/internal/fsx"
 	"github.com/fpresta0607/code-goblins/internal/harness"
@@ -37,11 +38,25 @@ type SwitchRequest struct {
 	ResumeSession string
 	ResumeHandoff string
 	ResumeNote    string
-	Generation    string
+	// Restart starts the task's own harness, model and effort again in
+	// place while it runs, as for an update of its harness installed since
+	// it started, which a switch to the same values otherwise refuses.
+	Restart    bool
+	Generation string
 	// BriefPath is the fallback for a task whose metadata predates the brief
 	// field.
 	BriefPath string
+	// Admit, when set, makes the relaunch a start: Resume and the comeback
+	// add a running terminal, so they take the home's spawn lock as a spawn
+	// does, from the check that the task's terminal is not running to its
+	// host's launch, and are admitted on the machine's room under it by
+	// Admit. A switch only replaces a running harness and sets none.
+	Admit func() error
 }
+
+// ErrNoRoom marks a relaunch Admit refused: the machine has no room for one
+// more running terminal yet, which a later try can find.
+var ErrNoRoom = errors.New("waits for room")
 
 // SwitchResult reports what the switch changed.
 type SwitchResult struct {
@@ -57,8 +72,8 @@ type SwitchResult struct {
 // down: the worktree, the branch, and the task id all survive, so committed
 // work and an open PR are untouched by construction.
 //
-// A same-harness switch resumes through the harness's own session continuation
-// when it has one. A cross-harness switch cannot, so it writes a handoff note
+// A same-harness switch resumes its recorded session when one is supplied.
+// Otherwise it writes a handoff note
 // into the task's temporary directory and instructs the new harness to read it
 // before anything else.
 func (s Service) Switch(ctx context.Context, req SwitchRequest) (result SwitchResult, err error) {
@@ -107,11 +122,14 @@ func (s Service) Switch(ctx context.Context, req SwitchRequest) (result SwitchRe
 	}
 
 	target := requestedTarget(meta, req)
+	if req.Restart {
+		target = switchTarget{Harness: harness.Kind(meta.Harness), Model: meta.Model, Effort: meta.Effort}
+	}
 	if target == (switchTarget{}) {
 		return SwitchResult{}, fmt.Errorf("switch: task %s has no harness to switch", req.ID)
 	}
 
-	if target.same(meta) {
+	if target.same(meta) && !req.Restart {
 		if nativeTerminalRuns(s.StateDir, meta.ID) {
 			if req.IsResume {
 				return SwitchResult{Meta: meta, Resumed: true, Output: "task already resumed " + meta.ID}, nil
@@ -187,17 +205,35 @@ func (s Service) Switch(ctx context.Context, req SwitchRequest) (result SwitchRe
 	if err != nil {
 		return SwitchResult{}, fmt.Errorf("switch: %w", err)
 	}
-	// A relaunch reuses the task's own Go temporary directory and recreates it
-	// if it is missing; cleanup.removeGoTmp documents when it is retired. Both
-	// the path and the directory are knowable now - an unresolvable user cache
-	// directory or an unwritable one is a fleet-wide misconfiguration, and
-	// discovering it after the stop would leave the goblin with no harness.
-	goTmp, err := state.GoTmpDir(s.StateDir, req.ID)
+	// A relaunch reuses the task's own scratch folder and recreates it if it
+	// is missing; cleanup removes it with the task. Both the path and the
+	// folder are knowable now - an unwritable one is a fleet-wide
+	// misconfiguration, and discovering it after the stop would leave the
+	// goblin with no harness.
+	scratch, err := state.TaskScratch(s.StateDir, meta)
 	if err != nil {
 		return SwitchResult{}, err
 	}
-	if err := os.MkdirAll(goTmp, 0o755); err != nil {
-		return SwitchResult{}, fmt.Errorf("switch: create go temporary directory: %w", err)
+	if err := os.MkdirAll(scratch, 0o755); err != nil {
+		return SwitchResult{}, fmt.Errorf("switch: create the task's scratch folder: %w", err)
+	}
+	briefPath := meta.Brief
+	if briefPath == "" {
+		briefPath = req.BriefPath
+	}
+	// The new launch is built while the old harness still runs, so a model or
+	// an effort the new one refuses leaves the goblin as it was.
+	launch, err := adapter.Build(harness.LaunchSpec{
+		BriefPath:       briefPath,
+		TaskTmp:         meta.TaskTmp,
+		Scratch:         scratch,
+		Model:           target.Model,
+		Effort:          target.Effort,
+		MCPConfig:       goblinMCPConfig(meta.TaskTmp),
+		CodexMCPServers: codexServers,
+	})
+	if err != nil {
+		return SwitchResult{}, fmt.Errorf("switch: build harness launch: %w; task %s was left running as it was", err, req.ID)
 	}
 
 	// Stop before anything else is written, so a harness that refuses to exit
@@ -207,15 +243,45 @@ func (s Service) Switch(ctx context.Context, req SwitchRequest) (result SwitchRe
 		return SwitchResult{}, fmt.Errorf("switch: current harness %q has no adapter: %w", meta.Harness, err)
 	}
 	from := describe(meta.Harness, meta.Model, meta.Effort)
+	// A switch re-injects the same credentials a spawn would, but never
+	// refuses on a red service: the goblin is already running, and stranding
+	// work in a stopped harness would cost more than the missing credential.
+	// The probes run before the stop, so one that fails leaves the harness
+	// running, and before any turn, since they can take seconds each.
+	preflight, err := s.preflightCredentials(ctx, project)
+	if err != nil {
+		return SwitchResult{}, fmt.Errorf("%w; task %s was left running as it was", err, req.ID)
+	}
+	endTurn := func() error { return nil }
+	if req.Admit != nil {
+		if endTurn, err = s.takeLaunchTurn(ctx, "the relaunch of "+req.ID); err != nil {
+			return SwitchResult{}, err
+		}
+		defer func() {
+			if turnErr := endTurn(); turnErr != nil {
+				err = errors.Join(err, turnErr)
+			}
+		}()
+		// The start this relaunch can race is a spawn of the same task: it
+		// publishes the task's record before its terminal runs and holds its
+		// turn until it does. A relaunch that read the record in between, as
+		// cfo goblins resume does for every recorded task whose terminal is
+		// not running, finds that terminal running once its own turn comes,
+		// and must leave it alone.
+		if nativeTerminalRuns(s.StateDir, meta.ID) {
+			if req.IsResume {
+				return SwitchResult{Meta: meta, Resumed: true, Output: "task already resumed " + meta.ID}, nil
+			}
+			return SwitchResult{}, fmt.Errorf("switch: task %s already runs; another start launched it while this relaunch waited for its turn", req.ID)
+		}
+		if err := req.Admit(); err != nil {
+			return SwitchResult{}, fmt.Errorf("%w: %w", ErrNoRoom, err)
+		}
+	}
 	// A native terminal ends with its harness, and its job ends everything the
 	// harness started, so nothing is left to wait on.
 	if err := s.stopNative(ctx, meta.ID, current.Control()); err != nil {
 		return SwitchResult{}, err
-	}
-
-	briefPath := meta.Brief
-	if briefPath == "" {
-		briefPath = req.BriefPath
 	}
 
 	launchMeta := meta
@@ -243,7 +309,7 @@ func (s Service) Switch(ctx context.Context, req SwitchRequest) (result SwitchRe
 		}
 	}
 	launchMeta.SpawnGen = meta.SpawnGen
-	handoff, resumed, nativeHost, err := s.relaunchHarness(ctx, launchMeta, target, adapter, project, worktreePath, briefPath, dirty, req.ID, goTmp, manifest.Env, codexServers, req)
+	handoff, resumed, nativeHost, err := s.relaunchHarness(ctx, launchMeta, target, adapter, launch, worktreePath, briefPath, dirty, req.ID, manifest.Env, preflight, req, endTurn)
 	if err != nil {
 		// The failure may have come after the new harness was already
 		// running, so the terminal is checked again before it is described.
@@ -256,9 +322,6 @@ func (s Service) Switch(ctx context.Context, req SwitchRequest) (result SwitchRe
 		if nativeTerminalRuns(s.StateDir, meta.ID) {
 			recovery = fmt.Sprintf("the native terminal still holds a live %s: it started but the switch did not complete cleanly. Work in %s is untouched. Steer the native terminal directly or inspect it with `cfo peek %s` - do NOT rerun `cfo switch`, which would stop a running harness.",
 				to, worktreePath, req.ID)
-		}
-		if errors.Is(err, errBuildLaunch) {
-			recovery += " If the new harness refused an effort, retry with `--effort default` to clear it."
 		}
 		err = fmt.Errorf("%w\n%s", err, recovery)
 		if appendErr := state.AppendStatus(s.StateDir, req.ID, "failed: "+bounded(state.NormalizeStatusDetail(err.Error()), 1000)); appendErr != nil {
@@ -291,54 +354,30 @@ func (s Service) Switch(ctx context.Context, req SwitchRequest) (result SwitchRe
 	return result, nil
 }
 
-var errBuildLaunch = errors.New("switch: build harness launch")
-
-// relaunchHarness builds the target launch, injects credentials, writes the
-// resume instruction or handoff, and starts the new harness. Every step after
-// the old harness has stopped lives here, so any failure returns through the
-// same empty-terminal recovery. Anything knowable before the stop is resolved by
-// Switch and handed in, redirects and Codex's MCP servers included.
-func (s Service) relaunchHarness(ctx context.Context, meta state.TaskMeta, target switchTarget, adapter harness.Adapter, project, worktreePath, briefPath, dirty, id, goTmp string, redirects map[string]string, codexServers []string, request SwitchRequest) (handoff string, resumed bool, nativeHost host.Record, err error) {
-	resumed = target.Harness == harness.Kind(meta.Harness) && len(adapter.Control().ResumeArgs) > 0
+// relaunchHarness injects credentials into the target's launch, writes the
+// resume instruction or handoff, and starts the new harness, ending the
+// relaunch's turn once its host runs. Every step after the old harness has
+// stopped lives here, so any failure returns through the same empty-terminal
+// recovery. Anything knowable before the stop is resolved by Switch and handed
+// in: the built launch, the project's redirects and its credentials.
+func (s Service) relaunchHarness(ctx context.Context, meta state.TaskMeta, target switchTarget, adapter harness.Adapter, launch harness.Launch, worktreePath, briefPath, dirty, id string, redirects map[string]string, preflight auth.Result, request SwitchRequest, endTurn func() error) (handoff string, resumed bool, nativeHost host.Record, err error) {
+	resumed = target.Harness == harness.Kind(meta.Harness) && len(adapter.Control().ResumeArgs) > 0 && request.ResumeSession != ""
 	if request.IsResume {
 		resumed = request.ResumeSession != "" && (target.Harness == harness.Claude || target.Harness == harness.Codex)
-	}
-	launch, err := adapter.Build(harness.LaunchSpec{
-		BriefPath:       briefPath,
-		TaskTmp:         meta.TaskTmp,
-		GoTmp:           goTmp,
-		Model:           target.Model,
-		Effort:          target.Effort,
-		MCPConfig:       goblinMCPConfig(meta.TaskTmp),
-		CodexMCPServers: codexServers,
-	})
-	if err != nil {
-		return "", false, host.Record{}, fmt.Errorf("%w: %w", errBuildLaunch, err)
 	}
 	launch.Dir = worktreePath
 	// The launch is rebuilt from scratch, so the project's declared
 	// environment redirects have to be re-applied or the new harness runs
 	// without the caches the spawned one had.
 	mergeProvisionEnv(launch.Env, redirects)
-	// A switch re-injects the same credentials a spawn would, but never
-	// refuses on a red service: the goblin is already running, and stranding
-	// work in a stopped harness would cost more than the missing credential.
-	preflight, err := s.preflightCredentials(ctx, project)
-	if err != nil {
-		return "", false, host.Record{}, err
-	}
 	mergeProvisionEnv(launch.Env, preflight.Caches)
 	nativeEnvironment(launch.Env, meta)
 
 	if resumed {
 		launch.Env["CFO_PARENT_SESSION_ID"], launch.Env["CFO_PARENT_HARNESS"] = "", ""
-		control := adapter.Control()
-		resumeArgs := control.ResumeArgs
-		if request.IsResume {
-			resumeArgs = []string{"--resume", request.ResumeSession}
-			if target.Harness == harness.Codex {
-				resumeArgs = []string{"resume", request.ResumeSession}
-			}
+		resumeArgs := []string{"--resume", request.ResumeSession}
+		if target.Harness == harness.Codex {
+			resumeArgs = []string{"resume", request.ResumeSession}
 		}
 		// ResumeArgs lead because codex takes its resume as a subcommand.
 		launch.Args = append(append([]string{}, resumeArgs...), launch.Args...)
@@ -349,12 +388,12 @@ func (s Service) relaunchHarness(ctx context.Context, meta state.TaskMeta, targe
 		if err != nil {
 			return "", false, host.Record{}, err
 		}
-		launch.Instruction = handoffInstruction(handoff, briefPath, id)
+		launch.Instruction = handoffInstruction(handoff, briefPath, meta)
 	}
 	if request.IsResume && request.ResumeHandoff != "" {
 		launch.Instruction += " Read the retained pause handoff at " + request.ResumeHandoff + "."
 	}
-	if request.IsResume && request.ResumeNote != "" {
+	if request.ResumeNote != "" {
 		launch.Instruction += "\n" + request.ResumeNote
 	}
 	if meta.PipelineHash != "" {
@@ -366,8 +405,12 @@ func (s Service) relaunchHarness(ctx context.Context, meta state.TaskMeta, targe
 	if err != nil {
 		return handoff, resumed, host.Record{}, fmt.Errorf("switch: read the user's environment: %w", err)
 	}
-	nativeHost, err = s.startNativeHarness(ctx, id, target.Harness, launch, userEnv, preflight.Env)
-	return handoff, resumed, nativeHost, err
+	if nativeHost, err = s.launchNativeHost(id, target.Harness, launch, userEnv, preflight.Env); err != nil {
+		return handoff, resumed, nativeHost, err
+	}
+	// Its release error, if any, reaches Switch's caller with the result.
+	_ = endTurn()
+	return handoff, resumed, nativeHost, s.briefNativeHarness(ctx, id, nativeHost, target.Harness, launch)
 }
 
 // switchTarget is the harness, model, and effort the task should run after
@@ -388,7 +431,7 @@ func (t switchTarget) same(meta state.TaskMeta) bool {
 // so `--model` alone keeps the harness it is already running.
 //
 // Neither a model name nor an effort survives a change of harness - "opus"
-// means nothing to codex, and Kimi has no effort knob at all - so changing
+// means nothing to codex, and pi may lack an effort claude has - so changing
 // harness without naming them resets both to the new harness's defaults
 // rather than carrying values the new harness cannot honour. An effort the
 // operator still passes explicitly is refused loudly when its launch is
@@ -515,17 +558,17 @@ func (s Service) writeHandoff(ctx context.Context, meta state.TaskMeta, target s
 	return path, nil
 }
 
-func handoffInstruction(handoff, briefPath, id string) string {
+func handoffInstruction(handoff, briefPath string, meta state.TaskMeta) string {
 	instruction := "You are taking over a task in progress. Read the handoff at " + handoff + " first"
 	if briefPath != "" {
 		instruction += ", then the brief at " + briefPath
 	}
-	return instruction + ", then continue the work. A question you asked the CFO before the restart was cancelled with it: if you were waiting on an answer, ask it again with cfo notify --blocked." + notifyInstruction(id)
+	return instruction + ", then continue the work. A question you asked the CFO before the restart was cancelled with it: if you were waiting on an answer, ask it again with cfo notify --blocked." + notifyInstruction(meta)
 }
 
 func resumeInstruction(meta state.TaskMeta, target switchTarget) string {
 	return fmt.Sprintf("Your session was restarted as %s (was %s). Your prior context is intact; continue the task where you left off. A question you asked the CFO before the restart was cancelled with it: if you were waiting on an answer, ask it again with cfo notify --blocked.",
-		describe(string(target.Harness), target.Model, target.Effort), describe(meta.Harness, meta.Model, meta.Effort)) + notifyInstruction(meta.ID)
+		describe(string(target.Harness), target.Model, target.Effort), describe(meta.Harness, meta.Model, meta.Effort)) + notifyInstruction(meta)
 }
 
 // recentStatus returns the tail of the task's status log, which is the only

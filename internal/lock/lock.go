@@ -42,6 +42,10 @@ type Info struct {
 	Start    time.Time `json:"start"`
 	Hostname string    `json:"hostname"`
 	Acquired time.Time `json:"acquired"`
+	// Purpose says what the holder of an exclusive lock holds it for, such
+	// as "the start of pp-open-work", so whoever finds it held can say what
+	// it waits on.
+	Purpose string `json:"purpose,omitempty"`
 }
 
 // Alive reports whether the holder's process still runs. FILETIME rounding
@@ -98,7 +102,7 @@ func writeInfo(path string, info *Info) error {
 	if err != nil {
 		return err
 	}
-	f, err := os.OpenFile(path, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o644)
+	f, err := fsx.CreateNew(path, 0o644)
 	if err != nil {
 		return err
 	}
@@ -121,21 +125,45 @@ func AcquireNamedOwner(dir, name string, ownerPID int, session string) (*Info, e
 	return acquire(dir, name, self, true, false)
 }
 
+// AcquireNamedOwnerWithin is AcquireNamedOwner waiting out a live holder for
+// up to wait, for a lock whose holder only reads and writes a file: a loaded
+// machine can slow that for seconds. It looks again 10 ms after the first
+// attempt and twice as long after each next one up to half a second, and
+// past wait returns the holder's ErrHeld.
+func AcquireNamedOwnerWithin(dir, name string, ownerPID int, session string, wait time.Duration) (*Info, error) {
+	deadline := time.Now().Add(wait)
+	pause := 10 * time.Millisecond
+	for {
+		info, err := AcquireNamedOwner(dir, name, ownerPID, session)
+		if !errors.Is(err, ErrHeld) || time.Now().Add(pause).After(deadline) {
+			return info, err
+		}
+		time.Sleep(pause)
+		pause = min(2*pause, 500*time.Millisecond)
+	}
+}
+
 // AcquireExclusiveNamed takes dir/name for the current process without the
 // ordinary session-lock re-acquisition exception. A task spawn needs this
 // stricter form because two concurrent Spawn calls run under one process but
 // must still contend for the task's creation lock.
 func AcquireExclusiveNamed(dir, name string) (*Info, error) {
-	return acquireExclusiveNamed(dir, name, false)
+	return acquireExclusiveNamed(dir, name, "", false)
+}
+
+// AcquireExclusiveNamedFor is AcquireExclusiveNamed recording purpose in the
+// lock's record, so a caller that finds the lock held can name what holds it.
+func AcquireExclusiveNamedFor(dir, name, purpose string) (*Info, error) {
+	return acquireExclusiveNamed(dir, name, purpose, false)
 }
 
 // AcquireExclusiveNamedStrict preserves unreadable custody and never reclaims
 // a live lease, including one from this process whose release is uncertain.
 func AcquireExclusiveNamedStrict(dir, name string) (*Info, error) {
-	return acquireExclusiveNamed(dir, name, true)
+	return acquireExclusiveNamed(dir, name, "", true)
 }
 
-func acquireExclusiveNamed(dir, name string, isStrict bool) (*Info, error) {
+func acquireExclusiveNamed(dir, name, purpose string, isStrict bool) (*Info, error) {
 	key := exclusiveLeaseKey(dir, name)
 	exclusiveLeases.Lock()
 	defer exclusiveLeases.Unlock()
@@ -147,6 +175,7 @@ func acquireExclusiveNamed(dir, name string, isStrict bool) (*Info, error) {
 	if status == statusDead {
 		return nil, fmt.Errorf("%w: pid %d", ErrOwnerDead, self.PID)
 	}
+	self.Purpose = purpose
 	read := ReadNamed
 	if isStrict {
 		read = ReadNamedStrict
@@ -156,7 +185,7 @@ func acquireExclusiveNamed(dir, name string, isStrict bool) (*Info, error) {
 	}
 	if holder, readErr := read(dir, name); readErr == nil && holder.PID == self.PID && holder.OwnerPID == self.PID && holder.Start.Equal(self.Start) && holder.Hostname == self.Hostname && holder.Alive() {
 		if isStrict || holder.Session != exclusiveSpawnSession {
-			return nil, exclusiveHeldError(holder)
+			return nil, heldError(holder)
 		}
 		if reclaimErr := reclaimAbandonedExclusiveLease(dir, name, self); reclaimErr != nil {
 			return nil, reclaimErr
@@ -189,7 +218,8 @@ func acquireExclusiveNamed(dir, name string, isStrict bool) (*Info, error) {
 // created or touched; an unverifiable ownerPID (statusUnknown) still
 // proceeds, fail closed to alive exactly as Alive() does.
 // Strategy: exclusive create with read-back verification, grace period for
-// mid-write files, and retry with a constant backoff on transient errors.
+// mid-write files, and a create that waits out another process's hold on
+// the record, as fsx does for every fleet file.
 func AcquireOwner(dir string, ownerPID int, session string) (*Info, error) {
 	return AcquireNamedOwner(dir, ".lock", ownerPID, session)
 }
@@ -206,11 +236,16 @@ func Acquire(dir string) (*Info, error) {
 // stolen. allowReacquire preserves the session-lock custody contract while
 // task-spawn locks require a same-process concurrent caller to contend.
 func acquire(dir, name string, self *Info, allowReacquire, isStrict bool) (*Info, error) {
-	path := filepath.Join(dir, name)
 	read := ReadNamed
 	if isStrict {
 		read = ReadNamedStrict
 	}
+	return acquireReading(dir, name, self, allowReacquire, isStrict, read)
+}
+
+// acquireReading is acquire, reading each holder's record with read.
+func acquireReading(dir, name string, self *Info, allowReacquire, isStrict bool, read func(dir, name string) (*Info, error)) (*Info, error) {
+	path := filepath.Join(dir, name)
 	unreadableCount := 0
 	unreadableStart := time.Time{}
 
@@ -229,9 +264,10 @@ func acquire(dir, name string, self *Info, allowReacquire, isStrict bool) (*Info
 		}
 
 		if !errors.Is(err, os.ErrExist) {
-			// Transient error (e.g., sharing violation): sleep and retry.
-			time.Sleep(50 * time.Millisecond)
-			continue
+			// The create has already waited out another process holding the
+			// record, a released one still being deleted included, so this
+			// is no contention a further attempt outlasts.
+			return nil, err
 		}
 
 		// File exists; read the holder.
@@ -276,8 +312,7 @@ func acquire(dir, name string, self *Info, allowReacquire, isStrict bool) (*Info
 		}
 
 		if holder.Alive() {
-			return nil, fmt.Errorf("%w: pid %d on %s since %s",
-				ErrHeld, holder.PID, holder.Hostname, holder.Acquired.Format(time.RFC3339))
+			return nil, heldError(holder)
 		}
 
 		// Holder is dead. Re-read immediately to check if it changed
@@ -285,6 +320,12 @@ func acquire(dir, name string, self *Info, allowReacquire, isStrict bool) (*Info
 		holder2, herr2 := read(dir, name)
 		if herr2 != nil {
 			if isStrict {
+				if errors.Is(herr2, os.ErrNotExist) {
+					// The holder removed its own record between the reads, as
+					// a run giving back its turn does: nothing is left to
+					// remove, so create the record again.
+					continue
+				}
 				return nil, herr2
 			}
 			// Re-read is unreadable (file mid-write). Never remove on an
@@ -472,12 +513,15 @@ func reclaimAbandonedExclusiveLease(dir, name string, self *Info) error {
 		return err
 	}
 	if holder.PID != self.PID || holder.OwnerPID != self.PID || !holder.Start.Equal(self.Start) || holder.Hostname != self.Hostname || holder.Session != exclusiveSpawnSession || !holder.Alive() {
-		return exclusiveHeldError(holder)
+		return heldError(holder)
 	}
 	return releaseNamed(dir, name, os.Remove, time.Sleep)
 }
 
-func exclusiveHeldError(holder *Info) error {
+func heldError(holder *Info) error {
+	if holder.Purpose != "" {
+		return fmt.Errorf("%w: %s, pid %d on %s since %s", ErrHeld, holder.Purpose, holder.PID, holder.Hostname, holder.Acquired.Format(time.RFC3339))
+	}
 	return fmt.Errorf("%w: pid %d on %s since %s", ErrHeld, holder.PID, holder.Hostname, holder.Acquired.Format(time.RFC3339))
 }
 

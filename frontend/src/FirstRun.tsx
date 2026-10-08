@@ -1,11 +1,20 @@
-import { useState, type KeyboardEvent } from "react";
+import { useEffect, useState, type KeyboardEvent } from "react";
 import { message, request, useResource } from "./api";
 import { Avatar } from "./Avatar";
 import { Icon, type IconName } from "./Icon";
+import { devDriveOffer } from "./dev-drive-offer";
 import { startState } from "./firstRunStart";
-import { parseSetup } from "./types";
+import { parseSetup, type DevDriveView, type SignIn } from "./types";
+import { ClickFeedback, useClickFeedback } from "./click-feedback";
 
 const AGENT_ICONS: Record<string, IconName> = { claude: "claude", codex: "codex", pi: "pi" };
+// What the page says of an installed agent's sign-in, as its own status
+// command said it, and how it marks it; an answer it did not give is neither.
+const SIGN_IN: Record<SignIn, { text: string; icon: IconName; tone: string }> = {
+  signed_in: { text: "Signed in", icon: "check", tone: "yes" },
+  signed_out: { text: "Not signed in", icon: "close", tone: "no" },
+  unknown: { text: "Sign-in unknown", icon: "question", tone: "" },
+};
 
 // FirstRun is the page the board's root shows while no CFO runs. It shows as
 // done what the terminal quick start already knows, the home the CFO starts
@@ -14,8 +23,9 @@ const AGENT_ICONS: Record<string, IconName> = { claude: "claude", codex: "codex"
 // asks for no project: the CFO works across every project from its home. The
 // projects folder, where goblins find a project by its name, is his to enter
 // or leave. A quiet link shows the board without a CFO, so goblins at work
-// stay in view.
-export function FirstRun({ instance, onStarted, onBoard }: { instance: string; onStarted: () => void; onBoard: () => void }) {
+// stay in view. Once, it offers a Dev Drive, opt-in, or says in one line why
+// this machine can have none; Start keeps the answer.
+export function FirstRun({ instance, devDrive, onStarted, onBoard }: { instance: string; devDrive?: DevDriveView; onStarted: () => void; onBoard: () => void }) {
   // typed is what the Overlord typed in the field, which shows the recorded
   // folder until he types; asked is the folder last looked at, and null,
   // which an empty Look goes back to, opens on the recorded one.
@@ -23,10 +33,15 @@ export function FirstRun({ instance, onStarted, onBoard }: { instance: string; o
   const [asked, setAsked] = useState<string | null>(null);
   const [picked, setPicked] = useState("");
   const [starting, setStarting] = useState(false);
-  const [failure, setFailure] = useState("");
+  const [failure, setFailure] = useClickFeedback();
+  const [folderFeedback, showFolderFeedback] = useClickFeedback();
+  const [wantsDevDrive, setWantsDevDrive] = useState(false);
+  const offer = devDriveOffer(devDrive);
   const setup = useResource("/api/setup?root=" + encodeURIComponent(asked ?? ""), parseSetup);
+  const problem = setup.data?.problem || "";
+  useEffect(() => { if (problem) showFolderFeedback(problem); }, [problem, showFolderFeedback]);
   const folder = typed ?? setup.data?.projects_root ?? "";
-  if (setup.error) return <section className="first-run"><p className="warning-text" role="alert">{setup.error}</p><button onClick={setup.reload}>Try again</button></section>;
+  if (setup.error) return <section className="first-run"><button onClick={setup.reload}><Icon name="refresh" />Try again</button></section>;
   if (!setup.data) return <section className="first-run"><p className="loading" role="status">Reading this machine…</p></section>;
   const data = setup.data;
   if (data.cfo_runs) return <section className="first-run" aria-labelledby="first-run-title">
@@ -40,6 +55,10 @@ export function FirstRun({ instance, onStarted, onBoard }: { instance: string; o
     setStarting(true);
     setFailure("");
     try {
+      // The Dev Drive answer is kept first: ticked asks for its first
+      // Command Center item, and either answer, the plain line included,
+      // ends the offer.
+      if (offer) await request("/api/dev-drive", undefined, { method: "POST", headers: { "Content-Type": "application/json", "X-CFO-Token": instance }, body: JSON.stringify({ want: offer === "offer" && wantsDevDrive }) });
       // A folder is sent only once he has looked at one: the CFO starts
       // without it, and the recorded folder stays as it is.
       await request("/api/setup/start", undefined, { method: "POST", headers: { "Content-Type": "application/json", "X-CFO-Token": instance }, body: JSON.stringify({ root: asked === null ? "" : data.projects_root, agent }) });
@@ -77,7 +96,7 @@ export function FirstRun({ instance, onStarted, onBoard }: { instance: string; o
       {shown && <div className="agent-panel" role="tabpanel" id="agent-panel" aria-labelledby={"agent-tab-" + shown.id}>
         <span className="agent-state">
           <span className={shown.installed ? "yes" : "no"}><Icon name={shown.installed ? "check" : "close"} />{shown.installed ? "Installed" : "Not installed"}</span>
-          <span className={shown.signed_in ? "yes" : "no"}><Icon name={shown.signed_in ? "check" : "close"} />{shown.signed_in ? "Signed in" : "Not signed in"}</span>
+          {shown.installed && <span className={SIGN_IN[shown.sign_in].tone}><Icon name={SIGN_IN[shown.sign_in].icon} />{SIGN_IN[shown.sign_in].text}</span>}
         </span>
         {shown.note && <span className="agent-note">{shown.note}</span>}
         {shown.reason && <small>{shown.reason}</small>}
@@ -89,13 +108,18 @@ export function FirstRun({ instance, onStarted, onBoard }: { instance: string; o
         <input id="projects-folder" value={folder} onChange={(event) => setTyped(event.target.value)} placeholder="C:\dev" spellCheck={false} autoComplete="off" />
         <button type="submit"><Icon name="folder" />Look</button>
       </div>
-      {data.problem ? <p className="warning-text" role="alert">{data.problem}</p>
+      {data.problem ? <ClickFeedback text={folderFeedback} />
         : <p className="muted">{data.checkouts.length ? `Goblins find ${data.checkouts.length === 1 ? "1 project" : data.checkouts.length + " projects"} here by name: ${data.checkouts.join(", ")}.` : "The folder that holds your git checkouts, where goblins find a project by its name."}</p>}
     </form>
-    {failure && <p className="warning-text" role="alert">{failure}</p>}
+    {offer === "offer" && devDrive && <div className="first-run-step">
+      <label className="first-run-choice"><input type="checkbox" checked={wantsDevDrive} onChange={(event) => setWantsDevDrive(event.target.checked)} />Put the goblins' worktrees and caches on a Dev Drive <span className="muted">(optional)</span></label>
+      <p className="muted">{devDrive.explain} Each step that needs you comes to the Command Center as its own item.</p>
+    </div>}
+    {offer === "unavailable" && devDrive && <p className="muted">Dev Drive: {devDrive.line}.</p>}
     <div className="first-run-actions">
       <span className="muted">{blocked}</span>
       <button className="primary" disabled={!!blocked || starting} onClick={start}><Icon name="play" />{starting ? "Starting the CFO…" : "Start the CFO"}</button>
+      <ClickFeedback text={failure} />
     </div>
     <button type="button" className="quiet-link" onClick={onBoard}>Open the board without a CFO</button>
   </section>;

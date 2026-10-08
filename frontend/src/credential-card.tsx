@@ -8,13 +8,15 @@ import { personaFor } from "./workflow";
 import { credentialHeading, credentialSettled, destination, linkLabel, onThisMachine, stillNeeded, storeCommand, terminalNames, valueWarnings } from "./credentials";
 import { CredentialField } from "./credential-field";
 import { CredentialReplaceDialog } from "./credential-replace-dialog";
+import { RunTerminal } from "./run-terminal";
 import "./credential-card.css";
+import { ClickFeedback, useClickFeedback } from "./click-feedback";
 
-// What the board said when it refused a save or a Run: why, and the names the
-// scope holds that it wants him to confirm replacing. It names names only.
-function refusal(error: unknown): { reason: string; existing: string[] } {
+// The names the scope holds that the board wants him to confirm replacing,
+// from its refusal of a save or a Run. It names names only.
+function heldNames(error: unknown): string[] {
   const cause = error instanceof Error && typeof error.cause === "object" && error.cause !== null ? object(error.cause) : {};
-  return { reason: message(error), existing: strings(cause.existing) };
+  return strings(cause.existing);
 }
 
 // Who heard of a saved request: the goblins the board told to reload their
@@ -38,11 +40,11 @@ interface Confirm { names: string[]; action: "save" | "run"; confirmed: string[]
 // submit. A stored value is replaced only once he confirms it, from the card
 // or for its terminal alike.
 export function CredentialCard({ request, snapshot, connected, pager }: { request: CredentialRequest; snapshot: Snapshot; connected: boolean; pager?: ReactNode }) {
+  const [feedback, showFeedback] = useClickFeedback();
   const [values, setValues] = useState<Record<string, string>>({});
   const [round, setRound] = useState(0);
   const [confirm, setConfirm] = useState<Confirm | null>(null);
   const [busy, setBusy] = useState(false);
-  const [error, setError] = useState("");
   const [copied, setCopied] = useState(false);
   const commandBox = useRef<HTMLPreElement>(null);
   const local = onThisMachine(window.location.hostname);
@@ -50,6 +52,8 @@ export function CredentialCard({ request, snapshot, connected, pager }: { reques
   const needed = stillNeeded(request);
   const held = (name: string) => request.existing.includes(name) && !request.saved.includes(name);
   const terminalOpen = (snapshot.runs || []).some((run) => run.credential_request === request.id && (run.state === "ready" || run.state === "running"));
+  // The terminal runs on this card, on the board on his PC alone.
+  const terminal = local ? (snapshot.runs || []).find((run) => run.credential_request === request.id && run.state === "running" && run.terminal) : undefined;
   const task = snapshot.tasks.find((candidate) => candidate.id === request.task);
   const asker = request.task ? task?.title || request.task : "The CFO";
   const typeable = terminalNames(request, []);
@@ -63,42 +67,42 @@ export function CredentialCard({ request, snapshot, connected, pager }: { reques
   const save = async (replace: string[]) => {
     const unconfirmed = filled.filter((name) => held(name) && !replace.includes(name));
     if (unconfirmed.length) return ask(unconfirmed, "save", replace);
-    setBusy(true); setError("");
+    setBusy(true); showFeedback("");
     try {
       await call("/api/credentials/save", undefined, { method: "POST", headers, body: JSON.stringify({ id: request.id, generation: request.generation, values: Object.fromEntries(filled.map((name) => [name, values[name]])), replace }) });
       empty();
     } catch (failure: unknown) {
-      const { reason, existing } = refusal(failure);
+      const existing = heldNames(failure);
       const unasked = existing.filter((name) => !replace.includes(name));
       if (unasked.length) ask(unasked, "save", replace);
-      else { empty(); setError(reason); }
+      else { empty(); showFeedback(message(failure)); }
     } finally { setBusy(false); }
   };
   // Run opens a window on this PC for the names the scope does not hold, and
   // for a held one only once he confirms replacing it.
   const run = async (replace: string[]) => {
     if (!terminalNames(request, replace).length) return ask(needed.filter(held), "run", replace);
-    setBusy(true); setError("");
+    setBusy(true); showFeedback("");
     try {
       await call("/api/credentials/terminal", undefined, { method: "POST", headers, body: JSON.stringify({ id: request.id, generation: request.generation, replace }) });
       empty();
     } catch (failure: unknown) {
-      const { reason, existing } = refusal(failure);
+      const existing = heldNames(failure);
       const unasked = existing.filter((name) => !replace.includes(name));
       if (unasked.length) ask(unasked, "run", replace);
-      else setError(reason);
+      else showFeedback(message(failure));
     } finally { setBusy(false); }
   };
   // A page without the clipboard, such as a board opened over plain http,
-  // selects the commands for Ctrl+C instead.
+  // selects the commands for Ctrl+C instead, and says so beside his click.
   const copy = () => {
     const box = commandBox.current;
     if (!window.isSecureContext && box) {
       window.getSelection()?.selectAllChildren(box);
-      setError("This page cannot reach the clipboard; the commands are selected, so press Ctrl+C.");
+      showFeedback("The commands are selected. Press Ctrl+C.");
       return;
     }
-    navigator.clipboard.writeText(commands.join("\n")).then(() => { setCopied(true); setTimeout(() => setCopied(false), 1400); }, () => setError("The browser did not copy the commands; select them and press Ctrl+C."));
+    navigator.clipboard.writeText(commands.join("\n")).then(() => { setCopied(true); setTimeout(() => setCopied(false), 1400); }, () => showFeedback("Not copied. Select the commands and press Ctrl+C."));
   };
 
   const told = toldLine(request);
@@ -110,9 +114,10 @@ export function CredentialCard({ request, snapshot, connected, pager }: { reques
     <p className="credential-promise">Each value is saved only where its row says. No goblin's chat, log or board record ever sees it.</p>
     {open && !local && <p className="credential-remote"><Icon name="lock" />Values can only be typed on the board on your PC. Here, copy the terminal command instead.</p>}
     {request.state === "saved" && <p className="credential-outcome delivery succeeded"><Icon name="check-double" /><span><strong>{credentialSettled(request)}.</strong>{told && <small>{told}</small>}</span></p>}
-    {!open && request.state !== "saved" && <p className="credential-outcome warning-text"><Icon name="clock" /><span><strong>{request.reason}</strong></span></p>}
-    {request.state === "saved" && request.reason && <p className="warning-text">{request.reason}</p>}
-    {open && terminalOpen && <p className="credential-terminal-open" role="status"><Icon name="terminal" />A terminal is open on this PC: type each value there, where nothing you type is shown. Saving here waits until it closes.</p>}
+    {!open && request.state !== "saved" && <p className="credential-outcome" data-tip={request.reason} data-tip-align="start"><Icon name="clock" /><strong>Closed</strong></p>}
+    {request.state === "saved" && request.reason && <p className="muted">{request.reason}</p>}
+    {open && terminalOpen && <p className="credential-terminal-open" role="status"><Icon name="terminal" />{!local ? "A terminal is open on the board on your PC: type each value there, where nothing you type is shown." : terminal ? "Type each value in the terminal below, where nothing you type is shown." : "A terminal is open on this PC: type each value there, where nothing you type is shown."} Saving here waits until it closes.</p>}
+    {open && terminal && <RunTerminal run={terminal} instance={snapshot.instance} connected={connected} />}
     <div className="credential-table-wrap">
       <table className="credential-table">
         <thead><tr><th scope="col">Name</th><th scope="col">Saved to</th><th scope="col">Used for</th><th scope="col">Get it here</th><th scope="col">Value</th></tr></thead>
@@ -137,9 +142,9 @@ export function CredentialCard({ request, snapshot, connected, pager }: { reques
               : !open ? <span className="muted">Not stored</span>
               : !local ? <span className="credential-pill"><Icon name={held(name) ? "refresh" : "lock"} />{held(name) ? "Stored before: saving replaces it" : "Type it on your PC"}</span>
               : <>
-                <CredentialField key={round} label={"Value for " + name} onValue={(value) => { setValues((prior) => ({ ...prior, [name]: value })); setError(""); }} />
+                <CredentialField key={round} label={"Value for " + name} onValue={(value) => setValues((prior) => ({ ...prior, [name]: value }))} />
                 {held(name) && <small className="credential-note"><Icon name="refresh" />Stored before: saving replaces it</small>}
-                {valueWarnings(hint, values[name] || "").map((warning) => <small key={warning} className="credential-note warning-text"><Icon name="warning" />{warning}</small>)}
+                {valueWarnings(hint, values[name] || "").map((warning) => <small key={warning} className="credential-note" role="img" aria-label={warning} data-tip={warning} data-tip-align="start"><Icon name="warning" /></small>)}
               </>}
             </td>
           </tr>;
@@ -157,8 +162,8 @@ export function CredentialCard({ request, snapshot, connected, pager }: { reques
         {local && <button type="button" className="icon-button raised" aria-label="Run in a terminal on this PC" data-tip="Run in a terminal on this PC" data-tip-align="end" disabled={!connected || busy || terminalOpen} onClick={() => void run([])}><Icon name="play" /></button>}
       </div>
     </div>}
-    {error && <p className="warning-text" role="alert">{error}</p>}
     {(pager || (open && local)) && <div className="card-actions">
+      <ClickFeedback text={feedback} />
       {pager}
       {open && local && <button type="button" className="primary credential-save" disabled={!connected || busy || terminalOpen || filled.length === 0} onClick={() => void save([])}><Icon name="lock" />Save</button>}
     </div>}

@@ -25,9 +25,12 @@ import (
 	"github.com/fpresta0607/code-goblins/internal/home"
 	"github.com/fpresta0607/code-goblins/internal/host"
 	"github.com/fpresta0607/code-goblins/internal/install"
+	"github.com/fpresta0607/code-goblins/internal/lock"
 	"github.com/fpresta0607/code-goblins/internal/pipeline"
+	"github.com/fpresta0607/code-goblins/internal/release"
 	"github.com/fpresta0607/code-goblins/internal/supervisor"
 	"github.com/fpresta0607/code-goblins/internal/terminal"
+	"github.com/fpresta0607/code-goblins/internal/verify"
 	"github.com/fpresta0607/code-goblins/internal/voice"
 	"github.com/fpresta0607/code-goblins/internal/watch"
 )
@@ -155,20 +158,80 @@ func runServe(args []string, stdout, stderr io.Writer, runtime commandRuntime) i
 	if !*example {
 		ticketKeeping = ticketWriter(execx.OSRunner{}, runtime)
 	}
+	// The board looks for a newer release of Code Goblins; an example board
+	// looks only at a release source it is pointed at.
+	var releases *supervisor.Releases
+	if source, err := release.SourceFromEnvironment(); err != nil {
+		fmt.Fprintf(stderr, "cfo serve: the update check is off: %v\n", err)
+	} else if !*example || os.Getenv(release.APIVariable) != "" {
+		releases = &supervisor.Releases{Source: source, Version: version, Client: http.DefaultClient}
+	}
+	var dictation supervisor.Dictation
+	if speech := dictationEngine(h, stderr); speech != nil {
+		dictation = speech
+		defer speech.Close()
+	}
+	// After a restart or sign-out the supervisor brings the CFO and the
+	// goblins that were working back by itself; an example board brings
+	// nothing back.
+	var comeback *supervisor.Comeback
+	var startAtLogin *supervisor.StartAtLogin
+	var devDrive *supervisor.DevDrive
+	if !*example {
+		// The board's Dev Drive setting reads this machine; an example board
+		// shows none.
+		devDrive = &supervisor.DevDrive{Read: runtime.readDevDrive}
+		// The board's Start at login is the setting the install, the setup
+		// and the desktop window's tray change.
+		login := boardStartAtLogin(h)
+		startAtLogin = &supervisor.StartAtLogin{
+			Read: func() (supervisor.StartAtLoginView, error) {
+				on, unavailable, err := login.StartsAtLogin()
+				return supervisor.StartAtLoginView{On: on, Unavailable: unavailable}, err
+			},
+			Set: login.SetStartsAtLogin,
+		}
+		comeback = &supervisor.Comeback{
+			SignedIn: supervisor.SignInBegan,
+			CFO:      func(ctx context.Context) error { return comebackCFO(ctx, h, runtime) },
+			Goblin: func(ctx context.Context, id string) supervisor.GoblinComeback {
+				return comebackGoblin(ctx, h, runtime, id)
+			},
+		}
+	}
+	gate := pipeline.Reader{Root: root, Commands: execx.OSRunner{}}
+	// The board's family tree and the monitor's progress evidence read
+	// through one reader, so they never disagree about what a goblin does.
+	// An example board shows made-up goblins, so it reads no harness's
+	// records on this machine for a tree.
+	config.Tree.Gate = gate
+	tree := config.Tree
+	if *example {
+		tree = nil
+	}
+	// This cfo binary hosts a run item's terminal, as it hosts a goblin's.
+	self, err := os.Executable()
+	if err != nil {
+		fmt.Fprintln(stderr, err)
+		return 1
+	}
 	s, err := supervisor.Start(ctx, h, supervisor.Options{
-		Dictation:        dictationEngine(h, stderr),
+		Dictation:        dictation,
 		Example:          *example,
 		Tickets:          ticketKeeping,
 		CFO:              &supervisor.CFOConnection{State: h.State, Terminals: terminal.HerdrSessions(&herdr.Client{Commands: execx.OSRunner{}, Sockets: herdr.NewSocketCache()})},
-		Gate:             pipeline.Reader{Root: root, Commands: execx.OSRunner{}},
+		Gate:             gate,
 		MergedPRs:        supervisor.GitMergedPRs(supervisor.FleetRepos(h, projects)),
 		PullRequestState: supervisor.GitHubPullRequestState(execx.OSRunner{}),
 		Reconcile:        func(ctx context.Context) error { return watch.Reconcile(ctx, config) },
 		VerifyDelivery:   (supervisor.Git{}).VerifyDelivery,
-		Runs:             supervisor.OSRunLauncher{},
+		VerifyReports:    verify.Reports,
+		Runs:             supervisor.OSRunLauncher{HostCommand: []string{self, "host"}},
 		PollPage:         (axi.Lavish{Commands: execx.OSRunner{}}).Poll,
+		PageSessions:     (axi.Lavish{}).Sessions,
+		EndPage:          (axi.Lavish{Commands: execx.OSRunner{}}).End,
 		FirstRun:         firstRun,
-		Dispatch:         &supervisor.Dispatch{Memory: supervisor.MachineMemory, CommitHolders: supervisor.CommitHolders, Spawn: spawnFromBoard},
+		Dispatch:         &supervisor.Dispatch{Memory: supervisor.MachineMemory, Disk: func() (supervisor.Disk, error) { return supervisor.MachineDisk(h) }, CommitHolders: supervisor.CommitHolders, Spawn: spawnFromBoard},
 		// The CI wakes only read GitHub, as PullRequestState does, so an
 		// example home keeps them.
 		CI:       execx.OSRunner{},
@@ -177,8 +240,12 @@ func runServe(args []string, stdout, stderr io.Writer, runtime commandRuntime) i
 		// writes, and its refresh is cfo auth store's own.
 		Credentials:        auth.OpenStore,
 		RefreshCredentials: boardCredentialRefresh(runtime),
-		Allowance:          readAFKAllowance(runtime),
 		Quota:              runtime.quota,
+		Comeback:           comeback,
+		StartAtLogin:       startAtLogin,
+		DevDrive:           devDrive,
+		Tree:               tree,
+		Releases:           releases,
 	})
 	if err != nil {
 		fmt.Fprintln(stderr, err)
@@ -192,7 +259,11 @@ func runServe(args []string, stdout, stderr io.Writer, runtime commandRuntime) i
 		return 1
 	}
 	defer removeBoardRecord(h.State, os.Getpid())
-	server := &http.Server{Handler: supervisor.NewHTTP(s, listener.Addr().String(), assets), ReadHeaderTimeout: 5 * time.Second, ReadTimeout: 10 * time.Second, IdleTimeout: 30 * time.Second, MaxHeaderBytes: 16 << 10}
+	handler := supervisor.NewHTTP(s, listener.Addr().String(), assets)
+	// After an update to a build that pins a newer speech model, the board
+	// replaces the earlier one now rather than at the first dictation.
+	handler.ReplaceDictation()
+	server := &http.Server{Handler: handler, ReadHeaderTimeout: 5 * time.Second, ReadTimeout: 10 * time.Second, IdleTimeout: 30 * time.Second, MaxHeaderBytes: 16 << 10}
 	go func() {
 		select {
 		case <-ctx.Done():
@@ -253,9 +324,28 @@ func firstRunOn(h home.Home, userHome string, example bool, setMachine func(root
 			// environment first, and it still holds the old root.
 			return os.Setenv(install.ProjectsRootVariable, root)
 		},
-		CFORuns:  func() bool { return supervisor.CFORuns(h.State) },
-		StartCFO: func(agent string) error { return startNativeCFO(h, h.Root, agent, nil) },
+		SignIn:  cfoSignIn(h),
+		CFORuns: func() bool { return supervisor.CFORuns(h.State) },
+		StartCFO: func(agent string) error {
+			launchErr := acquireCFOLaunch(context.Background(), h.State)
+			if launchErr == nil {
+				defer lock.ReleaseExclusiveNamed(h.State, cfoLaunchLock)
+			}
+			if supervisor.CFORuns(h.State) {
+				return nil
+			}
+			if launchErr != nil {
+				return launchErr
+			}
+			return startNativeCFO(h, h.Root, agent, nil)
+		},
+		ReopenCFO:  func() error { return reopenCFO(h, startNativeCFO, supervisor.NativeTerminalRuns) },
+		RestartCFO: func() (supervisor.CFOConversation, bool, error) { return restartCFO(h) },
 	}
+}
+
+func boardStartAtLogin(h home.Home) install.Service {
+	return install.Service{Root: h.Root, StartAtLoginKey: startAtLoginKey()}
 }
 
 // spawnFromBoard runs this cfo binary with args, as a queued task's Start
@@ -277,7 +367,7 @@ func spawnFromBoard(ctx context.Context, args []string) (string, error) {
 // this build pins, or the one the home's own config/voice.json names, kept
 // under the home's caches. Settings that cannot be read leave the board
 // without dictation, and cfo doctor says why.
-func dictationEngine(h home.Home, stderr io.Writer) supervisor.Dictation {
+func dictationEngine(h home.Home, stderr io.Writer) *voice.Voice {
 	speech, err := voice.For(h.Root, codegoblins.Voice)
 	if err != nil {
 		fmt.Fprintln(stderr, "dictation: "+err.Error())

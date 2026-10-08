@@ -1,7 +1,6 @@
 package supervisor
 
 import (
-	"context"
 	"errors"
 	"fmt"
 	"net"
@@ -26,12 +25,13 @@ import (
 
 // overlordsBoard proves the request came from a board of the Overlord's own
 // and says which: the board's own page on this PC, shown by a program he
-// started himself. asked is when the request arrived.
-func (s *Service) overlordsBoard(r *http.Request, board string, asked time.Time) (string, error) {
+// started himself. asked is when the request arrived, and who is what it
+// asks for, as a refusal words it.
+func (s *Service) overlordsBoard(r *http.Request, board string, asked time.Time, who asker) (string, error) {
 	if loopbackProblem(r, board) != "" {
-		return "", errors.New("AFK mode is the Supreme Overlord's switch, and this board is not the board's own page on the PC the fleet runs on, or reached it through a proxy" + onlyHis)
+		return "", errors.New(who.what + ", and this board is not the board's own page on the PC the fleet runs on, or reached it through a proxy" + who.only)
 	}
-	unknown := errors.New("AFK mode is the Supreme Overlord's switch, and the supervisor could not tell which program shows this board, so nothing says it is his" + onlyHis)
+	unknown := errors.New(who.what + ", and the supervisor could not tell which program shows this board, so nothing says it is his" + who.only)
 	peer, err := netip.ParseAddrPort(r.RemoteAddr)
 	if err != nil {
 		return "", unknown
@@ -53,7 +53,7 @@ func (s *Service) overlordsBoard(r *http.Request, board string, asked time.Time)
 	if err != nil {
 		return "", unknown
 	}
-	ancestry, err := s.overlordsOwn(pid, asked, askingBoard)
+	ancestry, err := s.overlordsOwn(pid, asked, who)
 	if err != nil {
 		return "", err
 	}
@@ -79,15 +79,13 @@ func (h *HTTP) switchAFKFromBoard(w http.ResponseWriter, r *http.Request) {
 		apiError(w, http.StatusBadRequest, "Say whether AFK mode turns on or off")
 		return
 	}
-	from, err := h.Service.overlordsBoard(r, h.Host, asked)
+	from, err := h.Service.overlordsBoard(r, h.Host, asked, askingBoard)
 	if err != nil {
 		apiError(w, http.StatusForbidden, err.Error())
 		return
 	}
-	ctx, cancel := context.WithTimeout(r.Context(), runRequestTimeout)
-	defer cancel()
 	h.Service.runRequests.Lock()
-	err = h.Service.switchAFKAs(ctx, from, "", *input.On)
+	err = h.Service.switchAFKAs(from, "", *input.On)
 	h.Service.runRequests.Unlock()
 	// Off while it is already off asks for nothing new.
 	if err != nil && !errors.Is(err, afk.ErrNotOn) {
@@ -105,10 +103,10 @@ func (h *HTTP) switchAFKFromBoard(w http.ResponseWriter, r *http.Request) {
 }
 
 // afkReportPage is the report of a stretch as the board's page reads it: the
-// decisions under their headings, how long it lasted and what was spent in
-// the words the CFO's text uses, and no list left out. Asked and EndedAsked
-// are the Overlord's words for a switch the CFO made at his ask, and empty
-// for one he made himself.
+// decisions under their headings, how long it lasted, each allowance used
+// with its percent at either end for the board to draw, and no list left out.
+// Asked and EndedAsked are the Overlord's words for a switch the CFO made at
+// his ask, and empty for one he made himself.
 type afkReportPage struct {
 	Found      bool          `json:"found"`
 	Session    string        `json:"session"`
@@ -122,7 +120,7 @@ type afkReportPage struct {
 	Sections   []afk.Section `json:"sections"`
 	Finished   []afk.Finish  `json:"finished"`
 	Held       []afk.Held    `json:"held"`
-	Spent      []string      `json:"spent"`
+	Spent      []afk.Used    `json:"spent"`
 	Notes      []string      `json:"notes"`
 }
 
@@ -145,7 +143,7 @@ func (h *HTTP) afkReport(w http.ResponseWriter, _ *http.Request) {
 		Sections: report.Sections(),
 		Finished: append([]afk.Finish{}, report.Finished...),
 		Held:     heldAsNow(h.Service.Store.Snapshot(), report.Held, report.Ended),
-		Spent:    append([]string{}, afk.Spent(report.Before, report.After)...),
+		Spent:    append([]afk.Used{}, afk.Spent(report.Before, report.After)...),
 		Notes:    append([]string{}, report.Notes...),
 	})
 }

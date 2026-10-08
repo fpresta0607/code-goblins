@@ -27,8 +27,12 @@ import (
 // updateHome is a scratch CFO home whose cfo.exe and goblins.exe are one
 // build stand-in, with a candidate build waiting beside them.
 type updateHome struct {
-	t         *testing.T
-	root      string
+	t    *testing.T
+	root string
+	bin  string
+	// programs is the folder holding cfo.exe and goblins.exe: bin, or the
+	// root of a home a build before bin set up.
+	programs  string
 	state     string
 	candidate string
 	previous  []byte
@@ -60,12 +64,14 @@ func newUpdateHome(t *testing.T, previous, candidate string) *updateHome {
 
 func newUpdateHomeIn(t *testing.T, root, previous, candidate string) *updateHome {
 	t.Helper()
-	u := &updateHome{t: t, root: root, state: filepath.Join(root, "state"), started: map[*exec.Cmd]time.Time{}}
-	if err := os.MkdirAll(u.state, 0o700); err != nil {
-		t.Fatal(err)
+	u := &updateHome{t: t, root: root, bin: filepath.Join(root, "bin"), programs: filepath.Join(root, "bin"), state: filepath.Join(root, "state"), started: map[*exec.Cmd]time.Time{}}
+	for _, folder := range []string{u.state, u.bin} {
+		if err := os.MkdirAll(folder, 0o700); err != nil {
+			t.Fatal(err)
+		}
 	}
 	for _, name := range update.Aliases {
-		u.previous = writeBuild(t, filepath.Join(root, name), previous)
+		u.previous = writeBuild(t, filepath.Join(u.bin, name), previous)
 	}
 	u.candidate = filepath.Join(root, "cfo.exe.held-candidate")
 	writeBuild(t, u.candidate, candidate)
@@ -81,7 +87,7 @@ func (u *updateHome) start(program string, arguments ...string) *exec.Cmd {
 	u.t.Helper()
 	cmd := exec.Command(program, arguments...)
 	cmd.Dir = u.root
-	cmd.Env = append(os.Environ(), "CFO_TEST_UPDATE_ROOT="+u.root)
+	cmd.Env = append(os.Environ(), "CFO_TEST_UPDATE_ROOT="+u.root, "CFO_HOME="+u.root)
 	if err := cmd.Start(); err != nil {
 		u.t.Fatal(err)
 	}
@@ -100,8 +106,8 @@ func (u *updateHome) running(cmd *exec.Cmd) bool {
 // terminal host, and waits until the supervisor serves.
 func (u *updateHome) serving() (supervisor, cfoHost *exec.Cmd) {
 	u.t.Helper()
-	supervisor = u.start(filepath.Join(u.root, "goblins.exe"), "serve", "--listen", "127.0.0.1:0")
-	cfoHost = u.start(filepath.Join(u.root, "cfo.exe"), "host", "--id", "cfo")
+	supervisor = u.start(filepath.Join(u.programs, "goblins.exe"), "serve", "--listen", "127.0.0.1:0")
+	cfoHost = u.start(filepath.Join(u.programs, "cfo.exe"), "host", "--id", "cfo")
 	u.awaitBoard()
 	return supervisor, cfoHost
 }
@@ -146,7 +152,7 @@ func (u *updateHome) awaitBoard() boardRecord {
 func (u *updateHome) aliasesAre(want []byte, what string) {
 	u.t.Helper()
 	for _, name := range update.Aliases {
-		got, err := os.ReadFile(filepath.Join(u.root, name))
+		got, err := os.ReadFile(filepath.Join(u.programs, name))
 		if err != nil {
 			u.t.Fatalf("read %s: %v", name, err)
 		}
@@ -214,6 +220,37 @@ func TestUpdateInstallsTheCandidateAndRestartsOnlyTheSupervisor(t *testing.T) {
 	}
 }
 
+// An update from a build that read max_live_goblins takes it out of the
+// home's settings before the candidate's supervisor starts: the candidate
+// refuses a key it no longer reads, and with it every start.
+func TestUpdateTakesTheRetiredGoblinCountOutBeforeItsSupervisorStarts(t *testing.T) {
+	// Arrange
+	u := newUpdateHome(t, "previous", "candidate")
+	u.serving()
+	settings := filepath.Join(u.root, "config", "fleet.json")
+	if err := os.MkdirAll(filepath.Dir(settings), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(settings, []byte(`{"max_live_goblins":128}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	// Act
+	code, output := u.run(nil)
+
+	// Assert
+	if code != updateInstalled {
+		t.Fatalf("update exited %d:\n%s", code, output)
+	}
+	data, err := os.ReadFile(settings)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(data), "max_live_goblins") || !strings.Contains(output, "max_live_goblins") {
+		t.Fatalf("config/fleet.json after the update:\n%s\nwant the count taken out and named in the output:\n%s", data, output)
+	}
+}
+
 // The desktop window beside the candidate follows the update into the home,
 // in place of the window the home held. A window that cannot be put there
 // leaves the update done, since the home's window shows any build's board,
@@ -239,14 +276,17 @@ func TestUpdateCarriesTheDesktopWindowBesideTheCandidate(t *testing.T) {
 	} {
 		t.Run(name, func(t *testing.T) {
 			// Arrange: a candidate in a folder of its own, its window beside it.
-			u := newUpdateHome(t, "previous", "candidate")
+			// The update runs the candidate from there, so the folder goes once
+			// Windows lets go of it, after the home's programs are ended.
 			release := t.TempDir()
+			standin.RemoveAtCleanup(t, release)
+			u := newUpdateHome(t, "previous", "candidate")
 			u.candidate = filepath.Join(release, "cfo.exe")
 			candidate := writeBuild(t, u.candidate, "candidate")
 			if err := os.WriteFile(filepath.Join(release, "goblins-window.exe"), []byte("window 2"), 0o755); err != nil {
 				t.Fatal(err)
 			}
-			window := filepath.Join(u.root, "goblins-window.exe")
+			window := filepath.Join(u.bin, "goblins-window.exe")
 			test.held(t, window)
 			u.serving()
 
@@ -492,20 +532,19 @@ const (
 	recoverFirst = "recover first"
 	// untrusted: this home's journal, but one no update writes.
 	untrusted = "untrusted"
-	// movedHome: a finished update of another home, which may be this home
-	// before it was moved.
-	movedHome = "moved home"
 	// othersWayBack: an unfinished update of another home, whose journal is
 	// that update's way back and is never to be moved aside.
 	othersWayBack = "another's way back"
 )
 
-// A journal that cannot be read, or that is not this home's, finished or not,
-// is never taken for permission: update and recover both refuse and change
-// nothing, the journal and every copy included. Only an unfinished update of
-// this home is answered with a recovery line, and that line is this home's
-// own; a malformed journal of this home is one that cannot be trusted, and
-// only a finished journal of another home may be moved aside.
+// A journal that cannot be read, or an unfinished one, is never taken for
+// permission: update and recover both refuse and change nothing, the journal
+// and every copy included. Only an unfinished update of this home is answered
+// with a recovery line, and that line is this home's own; a malformed journal
+// of this home is one that cannot be trusted, and no refusal leaves a journal
+// for the Overlord to move aside by hand. A finished update of another home is
+// history, which TestUpdateInstallsWhereEachHomeShapeKeepsItsBuild updates
+// over.
 func TestUpdateRefusesAJournalItCannotTrust(t *testing.T) {
 	for _, test := range []struct {
 		name    string
@@ -517,7 +556,6 @@ func TestUpdateRefusesAJournalItCannotTrust(t *testing.T) {
 		{"another alias set", `{"schema":"cfo-update.v1","root":"ROOT","phase":"done","candidate_copy":"STATE\\update\\candidate.exe","aliases":[]}`, untrusted},
 		{"an edited copy", `{"schema":"cfo-update.v1","root":"ROOT","phase":"swapped","candidate_copy":"C:\\elsewhere\\x.exe","aliases":[]}`, untrusted},
 		{"another home's", `{"schema":"cfo-update.v1","root":"C:\\elsewhere","phase":"swapped","aliases":[]}`, othersWayBack},
-		{"another home's finished", `{"schema":"cfo-update.v1","root":"C:\\elsewhere","phase":"done","candidate_copy":"C:\\elsewhere\\state\\update\\candidate.exe","aliases":[]}`, movedHome},
 		{"unfinished here", "", recoverFirst},
 	} {
 		t.Run(test.name, func(t *testing.T) {
@@ -531,7 +569,7 @@ func TestUpdateRefusesAJournalItCannotTrust(t *testing.T) {
 				if err := os.MkdirAll(update.Dir(u.state), 0o700); err != nil {
 					t.Fatal(err)
 				}
-				journal := strings.NewReplacer("ROOT", strings.ReplaceAll(u.root, `\`, `\\`), "STATE", strings.ReplaceAll(u.state, `\`, `\\`)).Replace(test.journal)
+				journal := strings.NewReplacer("ROOT", strings.ReplaceAll(u.bin, `\`, `\\`), "STATE", strings.ReplaceAll(u.state, `\`, `\\`)).Replace(test.journal)
 				if err := os.WriteFile(filepath.Join(update.Dir(u.state), "journal.json"), []byte(journal), 0o600); err != nil {
 					t.Fatal(err)
 				}
@@ -559,10 +597,10 @@ func TestUpdateRefusesAJournalItCannotTrust(t *testing.T) {
 			if (test.refusal == untrusted) != strings.Contains(output, "cannot be trusted") {
 				t.Fatalf("only a malformed journal of this home is refused as one that cannot be trusted:\n%s", output)
 			}
-			if (test.refusal == movedHome) != strings.Contains(output, "aside") {
-				t.Fatalf("only a finished journal of another home may be moved aside:\n%s", output)
+			if strings.Contains(output, "aside by hand") {
+				t.Fatalf("the refusal leaves the Overlord a journal to move aside by hand:\n%s", output)
 			}
-			if (test.refusal == movedHome || test.refusal == othersWayBack) && (!strings.Contains(output, `C:\elsewhere`) || !strings.Contains(output, u.root)) {
+			if test.refusal == othersWayBack && (!strings.Contains(output, `C:\elsewhere`) || !strings.Contains(output, u.root)) {
 				t.Fatalf("the refusal does not name both homes:\n%s", output)
 			}
 			if test.refusal != recoverFirst {
@@ -579,9 +617,9 @@ func TestUpdateRefusesAJournalItCannotTrust(t *testing.T) {
 // with, it serves another.
 func (u *updateHome) strangerServing() *exec.Cmd {
 	u.t.Helper()
-	stranger := exec.Command(filepath.Join(u.root, "goblins.exe"), "serve", "--listen", "127.0.0.1:0")
+	stranger := exec.Command(filepath.Join(u.bin, "goblins.exe"), "serve", "--listen", "127.0.0.1:0")
 	stranger.Dir = u.root
-	stranger.Env = append(os.Environ(), "CFO_TEST_UPDATE_ROOT="+u.root, "CFO_STATE_OVERRIDE="+filepath.Join(u.t.TempDir(), "state"))
+	stranger.Env = append(os.Environ(), "CFO_TEST_UPDATE_ROOT="+u.root, "CFO_HOME="+u.root, "CFO_STATE_OVERRIDE="+filepath.Join(u.t.TempDir(), "state"))
 	if err := stranger.Start(); err != nil {
 		u.t.Fatal(err)
 	}
@@ -611,7 +649,7 @@ func TestUpdateRefusesASupervisorItCannotProveThisHomes(t *testing.T) {
 		}
 	}
 	u.aliasesAre(u.previous, "previous")
-	if staged, _ := filepath.Glob(filepath.Join(u.root, "*.update-*")); len(staged) != 0 {
+	if staged, _ := filepath.Glob(filepath.Join(u.bin, "*.update-*")); len(staged) != 0 {
 		t.Errorf("the refused update touched the aliases: %v", staged)
 	}
 	if !u.running(stranger) {
@@ -664,7 +702,7 @@ func TestRecoverRefusesASupervisorItCannotProveThisHomes(t *testing.T) {
 // the line that finishes it, which then does, and cleans up.
 func TestARollbackItCannotRecordKeepsItsFilesAndStaysRecoverable(t *testing.T) {
 	u := newUpdateHome(t, "previous", "crash")
-	u.start(filepath.Join(u.root, "goblins.exe"), "serve", "--listen", "127.0.0.1:0")
+	u.start(filepath.Join(u.bin, "goblins.exe"), "serve", "--listen", "127.0.0.1:0")
 	u.awaitBoard()
 
 	code, output := u.run([]string{"CFO_TEST_UPDATE_FAIL_RECORD=rolled-back"})
@@ -718,8 +756,8 @@ func TestRecoverRefusesAJournalNamingAFileAnUpdateNeverMovedAside(t *testing.T) 
 		aside func(u *updateHome) string
 	}{
 		{"outside the home", func(u *updateHome) string { return filepath.Join(u.t.TempDir(), "sentinel.txt") }},
-		{"another alias's", func(u *updateHome) string { return filepath.Join(u.root, "goblins.exe.1.update-old") }},
-		{"no number", func(u *updateHome) string { return filepath.Join(u.root, "cfo.exe.abc.update-old") }},
+		{"another alias's", func(u *updateHome) string { return filepath.Join(u.bin, "goblins.exe.1.update-old") }},
+		{"no number", func(u *updateHome) string { return filepath.Join(u.bin, "cfo.exe.abc.update-old") }},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			u := newUpdateHome(t, "previous", "candidate")
@@ -762,11 +800,11 @@ func TestARollbackRemovesOnlyTheFilesItMovedAside(t *testing.T) {
 	kept := map[string][]byte{}
 	for _, name := range []string{"cfo.exe.1.update-old", "goblins.exe.1.update-old", "my-build.exe"} {
 		kept[name] = []byte("not this update's " + name)
-		if err := os.WriteFile(filepath.Join(u.root, name), kept[name], 0o600); err != nil {
+		if err := os.WriteFile(filepath.Join(u.bin, name), kept[name], 0o600); err != nil {
 			t.Fatal(err)
 		}
 	}
-	u.start(filepath.Join(u.root, "goblins.exe"), "serve", "--listen", "127.0.0.1:0")
+	u.start(filepath.Join(u.bin, "goblins.exe"), "serve", "--listen", "127.0.0.1:0")
 	u.awaitBoard()
 
 	code, output := u.run(nil)
@@ -776,12 +814,12 @@ func TestARollbackRemovesOnlyTheFilesItMovedAside(t *testing.T) {
 	}
 	u.previousServes()
 	for name, want := range kept {
-		if got, err := os.ReadFile(filepath.Join(u.root, name)); err != nil || !bytes.Equal(got, want) {
+		if got, err := os.ReadFile(filepath.Join(u.bin, name)); err != nil || !bytes.Equal(got, want) {
 			t.Errorf("%s, not this update's, was changed or removed (%v)", name, err)
 		}
 	}
 	for _, pattern := range []string{"*.update-old", "*.update-new", "*.update-restore"} {
-		matches, _ := filepath.Glob(filepath.Join(u.root, pattern))
+		matches, _ := filepath.Glob(filepath.Join(u.bin, pattern))
 		for _, match := range matches {
 			if _, ok := kept[filepath.Base(match)]; !ok {
 				t.Errorf("the rollback left %s behind", filepath.Base(match))
@@ -837,7 +875,7 @@ func TestASecondUpdateOfAHomeIsRefusedWhileOneRuns(t *testing.T) {
 // previous build, which then serves.
 func TestRollbackTakesTheLockFromAHookBeforeStartingThePreviousBuild(t *testing.T) {
 	u := newUpdateHome(t, "previous", "crash")
-	hook := u.start(filepath.Join(u.root, "cfo.exe"), "hook", "stop-autoarm")
+	hook := u.start(filepath.Join(u.bin, "cfo.exe"), "hook", "stop-autoarm")
 	for deadline := time.Now().Add(10 * time.Second); ; time.Sleep(100 * time.Millisecond) {
 		if _, err := lock.AcquireNamedOwner(u.state, ".watch.lock", hook.Process.Pid, watch.WatcherSession); err == nil {
 			break
@@ -942,10 +980,10 @@ func TestAHomesSupervisorIsKnownByWhereItsRelativeNamesResolve(t *testing.T) {
 		{"a relative CFO_STATE_OVERRIDE from the folder that holds it", parent, []string{"CFO_HOME=" + root, `CFO_STATE_OVERRIDE=my-home\state`}, true},
 		{"both relative from the folder that holds it", parent, []string{"CFO_HOME=my-home", `CFO_STATE_OVERRIDE=my-home\state`}, true},
 		{"a relative state that means another state", parent, []string{"CFO_HOME=" + root, `CFO_STATE_OVERRIDE=other\state`}, false},
-		{"the same relative state from the home's own root", root, []string{`CFO_STATE_OVERRIDE=my-home\state`}, false},
+		{"the same relative state from the home's own root", root, []string{"CFO_HOME=" + root, `CFO_STATE_OVERRIDE=my-home\state`}, false},
 	} {
 		t.Run(test.name, func(t *testing.T) {
-			program := filepath.Join(root, "goblins.exe")
+			program := filepath.Join(root, "bin", "goblins.exe")
 			identity := proc.Identity{Image: program, Arguments: []string{program, "serve", "--listen", "127.0.0.1:0"}, Directory: test.directory, Environment: test.environment}
 
 			err := homeServe(h)(identity)
@@ -955,6 +993,43 @@ func TestAHomesSupervisorIsKnownByWhereItsRelativeNamesResolve(t *testing.T) {
 			}
 			if !test.isHomes && err == nil {
 				t.Fatal("a supervisor of another state was taken for this home's")
+			}
+		})
+	}
+}
+
+// A supervisor started with no CFO_HOME serves the per-user home its own
+// LOCALAPPDATA names, as home.Resolve finds it, whatever folder it runs in: an
+// update takes it for this home's only when that is this home, and never stops
+// the per-user home's supervisor because it was started in this home's root.
+func TestASupervisorWithNoCFOHomeServesItsPerUserHome(t *testing.T) {
+	local := t.TempDir()
+	perUser := home.Home{Root: filepath.Join(local, "CodeGoblins"), State: filepath.Join(local, "CodeGoblins", "state")}
+	checkout := t.TempDir()
+	another := home.Home{Root: checkout, State: filepath.Join(checkout, "state")}
+	for _, test := range []struct {
+		name      string
+		h         home.Home
+		directory string
+		isHomes   bool
+	}{
+		{"the per-user home's supervisor, run from another folder", perUser, t.TempDir(), true},
+		{"the per-user home's supervisor, run from another home's root", another, checkout, false},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			// Arrange
+			program := filepath.Join(test.h.Root, "bin", "goblins.exe")
+			identity := proc.Identity{Image: program, Arguments: []string{program, "serve", "--listen", "127.0.0.1:0"}, Directory: test.directory, Environment: []string{"LOCALAPPDATA=" + local}}
+
+			// Act
+			err := homeServe(test.h)(identity)
+
+			// Assert
+			if test.isHomes && err != nil {
+				t.Fatalf("this home's supervisor was refused: %v", err)
+			}
+			if !test.isHomes && err == nil {
+				t.Fatal("the per-user home's supervisor was taken for another home's")
 			}
 		})
 	}
@@ -977,7 +1052,7 @@ func TestAnUpdateNamedByRelativePathsInstallsIntoItsHome(t *testing.T) {
 				parent := t.TempDir()
 				u := newUpdateHomeIn(t, filepath.Join(parent, "my-home"), "previous", "candidate")
 				if isRelativeSupervisor {
-					running := exec.Command(filepath.Join(u.root, "goblins.exe"), "serve", "--listen", "127.0.0.1:0")
+					running := exec.Command(filepath.Join(u.bin, "goblins.exe"), "serve", "--listen", "127.0.0.1:0")
 					running.Dir = parent
 					running.Env = append(environmentWithout("CFO_HOME", "CFO_STATE_OVERRIDE", "CFO_TEST_UPDATE_ROOT"), test.environment(u)...)
 					running.Env = append(running.Env, "CFO_TEST_UPDATE_RESOLVE=1")
@@ -1390,7 +1465,7 @@ func TestThePrintedRecoveryLineRecoversFromAnotherFolder(t *testing.T) {
 		t.Fatalf("the update printed no recovery line:\n%s", output)
 	}
 	for _, name := range update.Aliases {
-		if err := os.Remove(filepath.Join(root, name)); err != nil {
+		if err := os.Remove(filepath.Join(root, "bin", name)); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -1465,10 +1540,9 @@ func TestRecoverAfterARestartFinishesADegradedUpdateWithTheBoardServing(t *testi
 		t.Fatal(err)
 	}
 	last := journal.Attempts[len(journal.Attempts)-1]
-	if process, err := os.FindProcess(last.PID); err == nil {
-		_ = process.Kill()
-		_ = process.Release()
-	}
+	// Ended only as the process the journal names, never one that took its
+	// pid since.
+	_ = proc.TerminateVerified(last.PID, last.Start, func([]string) error { return nil })
 	for deadline := time.Now().Add(10 * time.Second); processIs(serveProcess{pid: last.PID, start: last.Start}); time.Sleep(100 * time.Millisecond) {
 		if time.Now().After(deadline) {
 			t.Fatal("the backup's supervisor did not end")
@@ -1510,9 +1584,9 @@ func TestRollbackLeavesASupervisorOfAnotherStateRunning(t *testing.T) {
 			t.Fatal("the update never stopped the supervisor")
 		}
 	}
-	foreign := exec.Command(filepath.Join(u.root, "goblins.exe"), "serve", "--listen", "127.0.0.1:0")
+	foreign := exec.Command(filepath.Join(u.bin, "goblins.exe"), "serve", "--listen", "127.0.0.1:0")
 	foreign.Dir = u.root
-	foreign.Env = append(os.Environ(), "CFO_TEST_UPDATE_ROOT="+other, "CFO_STATE_OVERRIDE="+filepath.Join(other, "state"))
+	foreign.Env = append(os.Environ(), "CFO_TEST_UPDATE_ROOT="+other, "CFO_HOME="+other, "CFO_STATE_OVERRIDE="+filepath.Join(other, "state"))
 	if err := foreign.Start(); err != nil {
 		t.Fatal(err)
 	}
@@ -1553,7 +1627,7 @@ func TestRecoverLeavesAProcessAMalformedAttemptNamesRunning(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	journal.Attempts = append(journal.Attempts, update.Attempt{PID: stranger.Process.Pid, Start: strangerStart, Program: `C:\Windows\System32\cmd.exe`}, update.Attempt{PID: stranger.Process.Pid, Start: strangerStart, Program: filepath.Join(u.root, "goblins.exe")})
+	journal.Attempts = append(journal.Attempts, update.Attempt{PID: stranger.Process.Pid, Start: strangerStart, Program: `C:\Windows\System32\cmd.exe`}, update.Attempt{PID: stranger.Process.Pid, Start: strangerStart, Program: filepath.Join(u.bin, "goblins.exe")})
 	if err := update.Record(u.state, &journal, journal.Phase, ""); err != nil {
 		t.Fatal(err)
 	}
@@ -1575,7 +1649,7 @@ func TestRecoverLeavesAProcessAMalformedAttemptNamesRunning(t *testing.T) {
 // update stops it and serves the candidate.
 func TestUpdateStopsTheHomesSupervisorStartedElsewhereWithCFOHome(t *testing.T) {
 	u := newUpdateHome(t, "previous", "candidate")
-	elsewhere := exec.Command(filepath.Join(u.root, "goblins.exe"), "serve", "--listen", "127.0.0.1:0")
+	elsewhere := exec.Command(filepath.Join(u.bin, "goblins.exe"), "serve", "--listen", "127.0.0.1:0")
 	elsewhere.Dir = t.TempDir()
 	elsewhere.Env = append(os.Environ(), "CFO_TEST_UPDATE_ROOT="+u.root, "CFO_HOME="+u.root)
 	if err := elsewhere.Start(); err != nil {
@@ -1604,7 +1678,7 @@ func TestARunningSupervisorIsTheBuildItLoadedNotWhatItsAliasHoldsNow(t *testing.
 	u := newUpdateHome(t, "previous", "candidate")
 	candidate, _ := os.ReadFile(u.candidate)
 	journal := &update.Journal{Aliases: []update.Alias{{Name: "goblins.exe", Previous: hashOf(u.previous)}}}
-	alias := filepath.Join(u.root, "goblins.exe")
+	alias := filepath.Join(u.bin, "goblins.exe")
 	if err := os.WriteFile(alias+".update-new", candidate, 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -1628,21 +1702,16 @@ func TestARunningSupervisorIsTheBuildItLoadedNotWhatItsAliasHoldsNow(t *testing.
 	if runsPreviousBuild(running, journal) {
 		t.Fatal("a candidate supervisor whose alias now holds the previous build was taken for the previous build")
 	}
-	// A process that is still starting cannot always be read: this stand-in
-	// is a copy of the test binary, which sets its environment as it starts,
-	// and a read of its directory or environment taken meanwhile fails ("Only
-	// part of a ReadProcessMemory or WriteProcessMemory request was
-	// completed"). A failed read answers "not the previous build", so the
-	// question is asked until the process has settled. The fleet asks it of
-	// a supervisor that has been serving; asked once here, at once, it
-	// failed about one run in five on a busy machine.
+	// Asked the moment the stand-in starts, while it moves its parameter
+	// block into its heap. A failed read answers "not the previous build",
+	// and a read that crossed the move failed about one ask in five on a busy
+	// machine ("Only part of a ReadProcessMemory or WriteProcessMemory
+	// request was completed") until proc walked the block again when it moved.
 	previousServe := u.start(alias, "host", "--id", "previous")
 	previous := serveProcess{pid: previousServe.Process.Pid, start: u.started[previousServe]}
-	for deadline := time.Now().Add(10 * time.Second); !runsPreviousBuild(previous, journal); time.Sleep(20 * time.Millisecond) {
-		if time.Now().After(deadline) {
-			_, err := proc.Identify(previous.pid, previous.start)
-			t.Fatalf("a process running the previous build was not recognised as it within 10s (reading it: %v)", err)
-		}
+	if !runsPreviousBuild(previous, journal) {
+		_, err := proc.Identify(previous.pid, previous.start)
+		t.Fatalf("a process running the previous build, asked the moment it started, was not recognised as it (reading it: %v)", err)
 	}
 }
 

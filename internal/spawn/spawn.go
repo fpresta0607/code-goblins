@@ -8,6 +8,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -17,6 +18,7 @@ import (
 	"github.com/fpresta0607/code-goblins/internal/auth"
 	"github.com/fpresta0607/code-goblins/internal/execx"
 	"github.com/fpresta0607/code-goblins/internal/fsx"
+	"github.com/fpresta0607/code-goblins/internal/goblinname"
 	"github.com/fpresta0607/code-goblins/internal/harness"
 	"github.com/fpresta0607/code-goblins/internal/host"
 	"github.com/fpresta0607/code-goblins/internal/lock"
@@ -50,6 +52,9 @@ type Request struct {
 	// backlog row, kept on the task so the board names it once the row leaves
 	// the queue.
 	Title string
+	// Parent, for a helper goblin, is the task that asked for it: the helper
+	// works on a branch cut from the parent's last commit and reports to it.
+	Parent string
 	// Capsule, when set, writes the task capsule into the task temporary
 	// directory and returns the brief the goblin reads instead of BriefPath.
 	// It runs only once the id is proven free, because the alias check
@@ -77,16 +82,31 @@ type AuthPreflight interface {
 // Service owns one local spawn. Its collaborators are injected through
 // their established package seams so operation ordering remains deterministic.
 type Service struct {
-	Worktrees   worktree.Service
-	Harness     harness.Registry
-	Auth        AuthPreflight
-	Commands    execx.Runner
-	StateDir    string
+	Worktrees worktree.Service
+	Harness   harness.Registry
+	Auth      AuthPreflight
+	Commands  execx.Runner
+	// HomeRoot and StateDir are the home this spawn runs in. A native
+	// goblin's terminal names both, as CFO_HOME and CFO_STATE_OVERRIDE, so
+	// every cfo command the goblin runs acts on this home, whatever home the
+	// user's environment names.
+	HomeRoot string
+	StateDir string
+	// ProjectsRoot is the projects root the spawning process names, which a
+	// native goblin's terminal names in place of the user's, as the CFO's
+	// terminal does; empty leaves the user's.
+	ProjectsRoot string
+	// ScratchRoot is the home's scratch folder. A task's scratch folder,
+	// which its pane's TEMP, TMP and GOTMPDIR name, is <ScratchRoot>\<id>.
+	ScratchRoot string
 	Project     string
 	Sleep       func(context.Context, time.Duration) error
 	ReleaseLock func(string, string) error
 	PolicyPath  string
 	Admit       func() error
+	// Progress, when set, is told what a start waits on while it waits for
+	// its turn: cfo spawn's standard error.
+	Progress io.Writer
 	// UserEnvironment is the environment a native task starts from: the
 	// variables Windows gives a new process of this user, never this
 	// process's own. Nil reads them from the user's and the machine's
@@ -103,6 +123,13 @@ type Service struct {
 	// after a time: supervisor.NativePromptSince in production. Nil proves a
 	// delivery by the screen alone.
 	PromptSince func(taskID, generation string, since time.Time) (bool, error)
+	// Took reports whether a native task's harness handed text to its model
+	// at or after a time, as the harness's own record of its conversation
+	// shows: a monitor.HostProgress reading it in production. It is the one
+	// proof that a harness in a turn has text typed into it, since a harness
+	// queues such text and hands it over at its next tool call. Nil proves
+	// nothing.
+	Took func(ctx context.Context, meta state.TaskMeta, text string, since time.Time) bool
 }
 
 // Spawn creates and launches exactly one local ship or scout task.
@@ -127,6 +154,9 @@ func (s Service) Spawn(ctx context.Context, req Request) (result Result, err err
 		return Result{}, err
 	}
 	if err := validateDeliveryContract(req); err != nil {
+		return Result{}, err
+	}
+	if err := validateHelperRequest(req); err != nil {
 		return Result{}, err
 	}
 	var selection *pipeline.Selection
@@ -160,28 +190,48 @@ func (s Service) Spawn(ctx context.Context, req Request) (result Result, err err
 		return Result{}, err
 	}
 
+	// What a start only reads runs before its turn, since the turn holds up
+	// every other start and resume: the harness check runs a process, and the
+	// credential probes can reach the network for seconds each.
+	if err := adapter.Validate(ctx, s.commands()); err != nil {
+		return Result{}, fmt.Errorf("spawn: validate harness %s: %w", req.Harness, err)
+	}
+	// The preflight runs before anything is built, so a goblin that would
+	// start without a credential it needs costs no terminal and no worktree.
+	// Dispatching anyway is what let a stale DATABASE_URL reach a goblin, so
+	// a red blocking service stops here; --yolo is the existing override.
+	preflight, err := s.preflightCredentials(ctx, project)
+	if err != nil {
+		return Result{}, err
+	}
+	if preflight.Refusal != "" && !req.Yolo {
+		return Result{}, fmt.Errorf("spawn: %s", preflight.Refusal)
+	}
+	// A goblin starts from the user's environment, never this process's own.
+	userEnv, err := s.userEnvironment()
+	if err != nil {
+		return Result{}, fmt.Errorf("spawn: read the user's environment for a native task: %w", err)
+	}
+	scratch, err := s.scratch(req.ID)
+	if err != nil {
+		return Result{}, err
+	}
+
 	if err := os.MkdirAll(s.StateDir, 0o755); err != nil {
 		return Result{}, fmt.Errorf("spawn: create state directory: %w", err)
 	}
-	// The spawn lock covers the whole dispatch, not just worktree acquisition:
-	// task id alias rejection, metadata publication and the harness launch all
-	// mutate shared fleet state under it. Dependency provisioning (about 5s pnpm, about 22s
-	// uv against warm caches) therefore runs under it too, so concurrent
-	// dispatches into install-strategy projects serialize behind each other's
-	// installer. That is a chosen property: narrowing the lock to Acquire is a
-	// redesign of the spawn critical section, and the cost is a slower
-	// concurrent dispatch, never a wrong one.
-	if _, err := lock.AcquireExclusiveNamed(s.StateDir, spawnLockName); err != nil {
-		return Result{}, fmt.Errorf("spawn: acquire spawn lock: %w", err)
+	// The turn covers what must be serial: the id's alias check, the
+	// admission that counts running terminals, the worktree and branch, the
+	// task record and the terminal's host launch. It ends once the host runs,
+	// so the harness's startup, the brief's delivery and the goblin's
+	// dependency install hold up no other start.
+	endTurn, err := s.takeLaunchTurn(ctx, "the start of "+req.ID)
+	if err != nil {
+		return Result{}, err
 	}
 	defer func() {
-		if releaseErr := s.releaseTaskLock(s.StateDir, spawnLockName); releaseErr != nil {
-			releaseErr = fmt.Errorf("spawn: release spawn lock: %w", releaseErr)
-			if err == nil {
-				err = releaseErr
-			} else {
-				err = errors.Join(err, releaseErr)
-			}
+		if turnErr := endTurn(); turnErr != nil {
+			err = errors.Join(err, turnErr)
 		}
 	}()
 	if err := rejectTaskIDAlias(s.StateDir, req.ID); err != nil {
@@ -189,6 +239,12 @@ func (s Service) Spawn(ctx context.Context, req Request) (result Result, err err
 	}
 	if s.Admit != nil {
 		if err := s.Admit(); err != nil {
+			return Result{}, err
+		}
+	}
+	var helper helperBase
+	if req.Parent != "" {
+		if helper, err = s.helperStart(ctx, req, project); err != nil {
 			return Result{}, err
 		}
 	}
@@ -207,35 +263,26 @@ func (s Service) Spawn(ctx context.Context, req Request) (result Result, err err
 			return Result{}, err
 		}
 	}
+	// The name is picked in the turn, so two goblins starting at once never
+	// share one.
+	brief, err := fsx.ReadFile(req.BriefPath)
+	if err != nil {
+		return Result{}, fmt.Errorf("spawn: read brief: %w", err)
+	}
+	goblin, err := goblinname.Assign(s.StateDir, goblinname.Hint(req.Title, req.ID, string(brief)))
+	if err != nil {
+		return Result{}, fmt.Errorf("spawn: %w", err)
+	}
 	if err := s.ensureProjectSeeded(ctx, project); err != nil {
 		return Result{}, err
 	}
 
-	// The preflight runs before anything is built, so a goblin that would
-	// start without a credential it needs costs no terminal and no worktree.
-	// Dispatching anyway is what let a stale DATABASE_URL reach a goblin, so
-	// a red blocking service stops here; --yolo is the existing override.
-	preflight, err := s.preflightCredentials(ctx, project)
-	if err != nil {
-		return Result{}, err
-	}
-	if preflight.Refusal != "" && !req.Yolo {
-		return Result{}, fmt.Errorf("spawn: %s", preflight.Refusal)
-	}
-	// A goblin starts from the user's environment, never this process's own.
-	userEnv, err := s.userEnvironment()
-	if err != nil {
-		return Result{}, fmt.Errorf("spawn: read the user's environment for a native task: %w", err)
-	}
-
-	// Asked before the worktree exists, because "the first worktree in this
-	// checkout" stops being answerable the moment Acquire succeeds.
-	gitignoreNotice := s.Worktrees.GitignoreNotice(ctx, project)
-	wt, err := s.Worktrees.Acquire(ctx, project, "gb-"+req.ID)
+	wt, err := s.Worktrees.Acquire(ctx, project, req.ID, helper.head)
 	if err != nil {
 		return Result{}, fmt.Errorf("spawn: acquire task worktree: %w", err)
 	}
-	result = partialResult(req, project, taskTmp, wt.Path)
+	result = partialResult(req, project, taskTmp, wt.Path, scratch)
+	result.Meta.GoblinName, result.Meta.GoblinTitle = goblin.Name, goblin.Title
 
 	// Publish metadata as soon as the worktree exists, before the harness can
 	// start: a task whose launch later fails is then addressable and cleanable
@@ -252,7 +299,7 @@ func (s Service) Spawn(ctx context.Context, req Request) (result Result, err err
 	if err := state.WriteTaskMeta(s.StateDir, result.Meta); err != nil {
 		return Result{}, errors.Join(
 			fmt.Errorf("spawn: publish task metadata: %w", err),
-			s.teardownLaunch(ctx, nativeHost, project, wt.Path, result.Meta.ID),
+			s.teardownLaunch(ctx, nativeHost, project, wt.Path, scratch, result.Meta.ID),
 		)
 	}
 
@@ -264,7 +311,7 @@ func (s Service) Spawn(ctx context.Context, req Request) (result Result, err err
 		if err := state.AppendStatus(s.StateDir, result.Meta.ID, line); err != nil {
 			cause = errors.Join(cause, fmt.Errorf("spawn: record launch failure: %w", err))
 		}
-		if err := s.teardownLaunch(ctx, nativeHost, project, wt.Path, result.Meta.ID); err != nil {
+		if err := s.teardownLaunch(ctx, nativeHost, project, wt.Path, scratch, result.Meta.ID); err != nil {
 			cause = errors.Join(cause, err)
 		}
 		return result, cause
@@ -279,39 +326,42 @@ func (s Service) Spawn(ctx context.Context, req Request) (result Result, err err
 	if err := worktree.Validate(ctx, git, project, wt.Path); err != nil {
 		return fail(result, fmt.Errorf("spawn: validate task worktree: %w", err))
 	}
+	if helper.branch != "" {
+		switched, err := s.commands().Run(ctx, execx.Request{Dir: wt.Path, Name: "git", Args: []string{"switch", "--quiet", "--create", helper.branch}})
+		if err == nil && switched.ExitCode != 0 {
+			err = errors.New(strings.TrimSpace(string(switched.Stderr)))
+		}
+		if err != nil {
+			return fail(result, fmt.Errorf("spawn: cut the helper's branch %s from %s: %w", helper.branch, helper.parentBranch, err))
+		}
+	}
 
-	if err := adapter.Validate(ctx, s.commands()); err != nil {
-		return fail(result, fmt.Errorf("spawn: validate harness %s: %w", req.Harness, err))
-	}
-	goTmp, err := state.GoTmpDir(s.StateDir, result.Meta.ID)
-	if err != nil {
-		return fail(result, err)
-	}
 	if err := os.MkdirAll(taskTmp, 0o755); err != nil {
 		return fail(result, fmt.Errorf("spawn: create task temporary directory: %w", err))
 	}
-	if err := os.MkdirAll(goTmp, 0o755); err != nil {
-		return fail(result, fmt.Errorf("spawn: create go temporary directory: %w", err))
+	if err := os.MkdirAll(scratch, 0o755); err != nil {
+		return fail(result, fmt.Errorf("spawn: create the task's scratch folder: %w", err))
 	}
 	if selection != nil {
 		if err := selection.Save(filepath.Join(taskTmp, "pipeline.json")); err != nil {
 			return fail(result, err)
 		}
 	}
-	// The worktree starts as tracked files only; provisioning is what makes it
-	// runnable as if it were the project - shared config, dependencies
-	// installed against the shared package cache, and the token-authenticated
-	// subset of the project's MCP servers. A server that authenticates by
-	// bearerTokenEnvVar reaches the goblin only when the environment its
-	// terminal's host is built with sets that variable. No harness billing key
-	// ever reaches a goblin, whatever its source.
+	// The worktree starts as tracked files only; provisioning shares the
+	// project's config into it, names the install commands its goblin runs
+	// first against the shared package caches its terminal names, and
+	// materializes the token-authenticated subset of the project's MCP
+	// servers. A server that authenticates by bearerTokenEnvVar reaches the
+	// goblin only when the environment its terminal's host is built with sets
+	// that variable. No harness billing key ever reaches a goblin, whatever
+	// its source.
 	hasVariable := func(name string) bool {
 		if auth.IsHarnessBillingKey(name) {
 			return false
 		}
 		return hasNativeVariable(s.nativeHostEnvironment(userEnv, harness.Launch{}, preflight.Env), name)
 	}
-	provision, err := s.Worktrees.Provision(ctx, project, wt.Path, taskTmp, preflight.Caches, hasVariable)
+	provision, err := s.Worktrees.Provision(ctx, project, wt.Path, taskTmp, hasVariable)
 	if err != nil {
 		return fail(result, fmt.Errorf("spawn: provision worktree environment: %w", err))
 	}
@@ -322,7 +372,7 @@ func (s Service) Spawn(ctx context.Context, req Request) (result Result, err err
 	launch, err := adapter.Build(harness.LaunchSpec{
 		BriefPath:       req.BriefPath,
 		TaskTmp:         taskTmp,
-		GoTmp:           goTmp,
+		Scratch:         scratch,
 		Model:           req.Model,
 		Effort:          req.Effort,
 		MCPConfig:       provision.MCPConfig,
@@ -342,31 +392,36 @@ func (s Service) Spawn(ctx context.Context, req Request) (result Result, err err
 	// Every goblin is told to report its outcome through cfo notify, so the
 	// CFO is woken with the actual PR URL, question, or failure reason instead
 	// of the watcher guessing from its screen.
-	launch.Instruction = spawnInstruction(req.BriefPath, req.ID)
+	launch.Instruction = spawnInstruction(req.BriefPath, result.Meta, provision.Install)
 	if selection != nil {
 		launch.Instruction += selection.Instruction(req.ID, filepath.Join(taskTmp, "pipeline.json"))
 	}
-	if nativeHost, err = s.startNativeHarness(ctx, req.ID, req.Harness, launch, userEnv, preflight.Env); err != nil {
+	if len(provision.Install) > 0 {
+		// The card says what the goblin does first until its own first
+		// report, which this line comes before.
+		if err := state.AppendStatus(s.StateDir, req.ID, "working: installing its dependencies first: "+strings.Join(provision.Install, " && ")); err != nil {
+			return fail(result, fmt.Errorf("spawn: record the dependency step: %w", err))
+		}
+	}
+	if nativeHost, err = s.launchNativeHost(req.ID, req.Harness, launch, userEnv, preflight.Env); err != nil {
+		return fail(result, err)
+	}
+	// Its release error, if any, is returned with the result once the brief
+	// is delivered: the goblin is running either way.
+	_ = endTurn()
+	if err := s.briefNativeHarness(ctx, req.ID, nativeHost, req.Harness, launch); err != nil {
 		return fail(result, err)
 	}
 
-	result.Output = successOutput(result.Meta)
+	result.Output = successOutput(result.Meta) + "\ngoblin: " + goblin.String()
 	if notice := containedNotice(nativeHost); notice != "" {
 		result.Output += "\n" + notice
 	}
-	if gitignoreNotice != "" {
-		result.Output += "\n" + gitignoreNotice
-	}
-	if provision.Installed != "" {
-		result.Output += "\ndependencies: " + provision.Installed
+	if len(provision.Install) > 0 {
+		result.Output += "\ndependencies: the goblin installs them as its first step, in its own terminal: " + strings.Join(provision.Install, " && ")
 	}
 	if len(provision.LinkSkipped) > 0 {
 		result.Output += "\nlink: " + strings.Join(provision.LinkSkipped, ", ") + " already present in the worktree (the project's own checked-out file), so the default share was skipped"
-	}
-	if provision.InstallFailed != "" {
-		// Reported, not fatal: the goblin can run the installer itself, and
-		// repairing the lockfile may be the task it was dispatched for.
-		result.Output += "\ndependencies: strategy install failed at " + provision.InstallFailed + "; the goblin was dispatched without them: " + provision.InstallOutput
 	}
 	if len(provision.MCPDropped) > 0 {
 		result.Output += "\nmcp: withheld OAuth-only servers from the goblin: " + strings.Join(provision.MCPDropped, ", ") + " (declare a token-authenticated form in the project .mcp.json to reach goblins)"
@@ -426,9 +481,9 @@ func codexMCPServers(kind harness.Kind) ([]string, error) {
 // reservedLaunchEnv names the environment the launch contract owns. It is
 // explicit rather than read off the launch map at merge time because the
 // contract is written in stages: the adapter stamps GOTMPDIR and CFO_ROLE at
-// build, nativeHostEnvironment adds CFO_STATE_OVERRIDE when it builds the
-// host's environment, and a manifest or credential merged in between must not
-// be able to claim a name the launch has not written yet.
+// build, nativeHostEnvironment adds CFO_HOME and CFO_STATE_OVERRIDE when it
+// builds the host's environment, and a manifest or credential merged in
+// between must not be able to claim a name the launch has not written yet.
 //
 // The cache root belongs to the contract for the same reason: the task's Go
 // temporary directory is derived from os.UserCacheDir, which reads
@@ -436,7 +491,7 @@ func codexMCPServers(kind harness.Kind) ([]string, error) {
 // unset, and HOME alone on darwin. All three are reserved because a manifest
 // that redirected any of them would leave any cfo command run from that terminal
 // computing a different directory than the process that created it.
-var reservedLaunchEnv = []string{"GOTMPDIR", "CFO_STATE_OVERRIDE", "LOCALAPPDATA", "XDG_CACHE_HOME", "HOME", harness.RoleVariable}
+var reservedLaunchEnv = []string{"GOTMPDIR", "TEMP", "TMP", "CFO_HOME", "CFO_STATE_OVERRIDE", "LOCALAPPDATA", "XDG_CACHE_HOME", "HOME", harness.RoleVariable}
 
 // reservedLaunchName reports whether name belongs to the launch contract:
 // one of the names the contract owns, or one the adapter already set on the
@@ -526,6 +581,22 @@ func validateRequest(req Request) error {
 	return nil
 }
 
+// validateHelperRequest refuses a helper that could push or open a pull
+// request: its parent does both, so a helper is a ship task in local-only
+// mode.
+func validateHelperRequest(req Request) error {
+	if req.Parent == "" {
+		return nil
+	}
+	if err := state.ValidTaskID(req.Parent); err != nil {
+		return fmt.Errorf("spawn: parent: %w", err)
+	}
+	if req.Kind != "ship" || req.Mode != "local-only" {
+		return errors.New("spawn: a helper is a ship task in local-only mode: its parent pushes and opens the pull request")
+	}
+	return nil
+}
+
 func requireBrief(req Request) error {
 	if req.BriefPath == "" {
 		return errors.New("spawn: brief path is required")
@@ -610,8 +681,9 @@ func (s Service) worktreeGit() (worktree.Git, error) {
 
 // partialResult is the task's identity before its harness starts: its
 // terminal is the native host named by its id.
-func partialResult(req Request, project, taskTmp, worktree string) Result {
+func partialResult(req Request, project, taskTmp, worktree, scratch string) Result {
 	meta := state.TaskMeta{
+		Scratch:        scratch,
 		ID:             req.ID,
 		Window:         "native",
 		EndpointTaskID: req.ID,
@@ -625,6 +697,7 @@ func partialResult(req Request, project, taskTmp, worktree string) Result {
 		Effort:         valueOrDefault(req.Effort),
 		Backend:        "native",
 		Title:          req.Title,
+		Parent:         req.Parent,
 	}
 	if req.Kind == "ship" {
 		meta.Mode = req.Mode
@@ -634,13 +707,13 @@ func partialResult(req Request, project, taskTmp, worktree string) Result {
 }
 
 // teardownLaunch closes the task's terminal, returns the worktree, removes the
-// Go temporary directory and the task temporary directory, and retires the
+// task's scratch folder and its task temporary directory, and retires the
 // task metadata. It is the clean-failure path: every step after the close is
 // attempted and their failures joined, so one stuck teardown step never leaves
 // the rest undone. It closes only nativeHost, the host its spawn launched, and
 // a terminal that does not close stops the teardown: the task stays
 // addressable, and nothing is removed from under a harness that may still run.
-func (s Service) teardownLaunch(ctx context.Context, nativeHost host.Record, project, worktree, id string) error {
+func (s Service) teardownLaunch(ctx context.Context, nativeHost host.Record, project, worktree, scratch, id string) error {
 	if err := host.Close(s.StateDir, nativeHost, nativeCloseWait); err != nil {
 		return fmt.Errorf("spawn: close native terminal: %w; its worktree, temporary directories and task record are left in place", err)
 	}
@@ -648,15 +721,12 @@ func (s Service) teardownLaunch(ctx context.Context, nativeHost host.Record, pro
 	if err := s.Worktrees.Return(ctx, project, worktree); err != nil {
 		errs = errors.Join(errs, fmt.Errorf("spawn: return task worktree: %w", err))
 	}
-	// Removing the Go temporary directory belongs to this teardown rather than
-	// to a later cleanup: cleanup reads <id>.meta to find a task at all, so
-	// once the metadata is retired nothing can ever remove this directory and
-	// a failed spawn would orphan it under the user cache directory, out of
-	// sight of the state tree.
-	if goTmp, err := state.GoTmpDir(s.StateDir, id); err != nil {
-		errs = errors.Join(errs, err)
-	} else if err := os.RemoveAll(goTmp); err != nil {
-		errs = errors.Join(errs, fmt.Errorf("spawn: remove go temporary directory: %w", err))
+	// Removing the scratch folder belongs to this teardown rather than to a
+	// later cleanup: cleanup reads <id>.meta to find a task at all, so once
+	// the metadata is retired only the janitor's sweep of folders no task
+	// owns would find it.
+	if err := os.RemoveAll(scratch); err != nil {
+		errs = errors.Join(errs, fmt.Errorf("spawn: remove the task's scratch folder: %w", err))
 	}
 	// The task temporary directory goes for the same reason as the Go one, and
 	// with the same urgency: cleanup finds a task through <id>.meta, so once
@@ -672,6 +742,15 @@ func (s Service) teardownLaunch(ctx context.Context, nativeHost host.Record, pro
 		errs = errors.Join(errs, fmt.Errorf("spawn: retire task metadata: %w", err))
 	}
 	return errs
+}
+
+// scratch is the task's scratch folder under the home, refused before anything
+// is built when the home names none.
+func (s Service) scratch(id string) (string, error) {
+	if strings.TrimSpace(s.ScratchRoot) == "" || !filepath.IsAbs(s.ScratchRoot) {
+		return "", fmt.Errorf("spawn: the home's scratch folder %q is not an absolute path", s.ScratchRoot)
+	}
+	return filepath.Join(s.ScratchRoot, id), nil
 }
 
 // ensureProjectSeeded makes an unborn or empty primary project workable before
@@ -690,23 +769,53 @@ func (s Service) ensureProjectSeeded(ctx context.Context, project string) error 
 }
 
 // spawnInstruction is the full first instruction a goblin receives: read the
-// brief, then report outcomes through cfo notify so the CFO is woken with the
-// real payload rather than a guess from its screen.
-func spawnInstruction(briefPath, id string) string {
-	return harness.BriefInstruction(briefPath) + notifyInstruction(id)
+// brief, install the worktree's dependencies first when install names any,
+// then report outcomes through cfo notify so the CFO is woken with the real
+// payload rather than a guess from its screen.
+func spawnInstruction(briefPath string, meta state.TaskMeta, install []string) string {
+	return harness.BriefInstruction(briefPath) + dependencyInstruction(meta.Worktree, install) + notifyInstruction(meta)
+}
+
+// dependencyInstruction tells a goblin to install its worktree's dependencies
+// as its first step, with the commands provisioning named, and nothing when
+// it named none. The spawn leaves the install to the goblin so it holds up no
+// other start; the goblin's tool may cut a long command short, so it is told
+// how long one can take here.
+func dependencyInstruction(worktree string, install []string) string {
+	if len(install) == 0 {
+		return ""
+	}
+	commands := make([]string, len(install))
+	for index, command := range install {
+		commands[index] = "\"" + command + "\""
+	}
+	return " Your worktree's dependencies are not installed yet: before you build or test anything, run " + strings.Join(commands, ", then ") + " in " + worktree + ", stopping at the first that fails." +
+		" On this machine an install can take many minutes, so run it where your tool's time limit cannot cut it short, such as in the background, and wait for it to end." +
+		" Install only into this worktree, never another's."
 }
 
 // notifyInstruction tells a goblin how to report its outcome through cfo
 // notify, so the CFO is woken with the actual payload instead of the watcher
-// guessing from its screen.
-func notifyInstruction(id string) string {
+// guessing from its screen. A helper reports to its parent instead, and a
+// ship goblin is told it may ask for a helper.
+func notifyInstruction(meta state.TaskMeta) string {
 	exe, err := os.Executable()
 	if err != nil {
 		exe = "cfo"
 	}
-	return " Report outcomes to the CFO: on completion with a PR run: " + exe + " notify " + id + " --done --pr <url>. When blocked on a decision run: " + exe + " notify " + id + " --blocked \"<question>\"; the Command Center shows it as body text, so lead with one short sentence that is the actual question, put the details on lines of their own that start with \"- \" (a real line break, such as `n in PowerShell), and mark with **two asterisks** only the verdict or the blocking item, never the whole question; when the question has a fixed set of choices, name them after one literal options: marker separated by |, as in \"<question> options: Fix it next (Recommended) | Keep 300 s\", ending the choice you recommend with (Recommended); each choice is the answer itself as a short phrase, never a bare letter or number like a, b or 2, which notify refuses, and details stay in the \"- \" lines. cfo drain renders those as the decision's options, and the board shows them to the Supreme Overlord, whose answer arrives here as a message. On failure run: " + exe + " notify " + id + " --failed \"<reason>\". To say you are back at work or what you are doing run: " + exe + " notify " + id + " --working \"<what>\"; when you wait on another task, CI, a deploy or the Overlord personally (his sign-in, his click, his page) instead of asking a question run: " + exe + " notify " + id + " --waiting-on <task-id|overlord|ci|deploy|memory> \"<why>\"; a choice the CFO can make, such as whether to start something now or later, is a question, not a wait on the Overlord: ask it with --blocked and options." +
+	if meta.Parent != "" {
+		return helperInstruction(exe, meta)
+	}
+	id := meta.ID
+	offer := ""
+	if meta.Kind == "ship" {
+		offer = helperOffer(exe, id)
+	}
+	return " Report outcomes to the CFO: on completion with a PR run: " + exe + " notify " + id + " --done --pr <url>. When blocked on a decision run: " + exe + " notify " + id + " --blocked \"<question>\"; the CFO reads it as body text, so lead with one short sentence that is the actual question, put the details on lines of their own that start with \"- \" (a real line break, such as `n in PowerShell), and mark with **two asterisks** only the verdict or the blocking item, never the whole question; when the question has a fixed set of choices, name them after one literal options: marker separated by |, as in \"<question> options: Fix it next (Recommended) | Keep 300 s\", ending the choice you recommend with (Recommended); each choice is the answer itself as a short phrase, never a bare letter or number like a, b or 2, which notify refuses, and details stay in the \"- \" lines. cfo drain renders those as the decision's options; the CFO answers it, and his answer arrives here as a message. Never wait on the CFO for a choice you can undo: take the better option, say which with --working, and keep going; a choice you cannot undo or make yourself is a question for --blocked, never one asked in your reply. On failure run: " + exe + " notify " + id + " --failed \"<reason>\". To say you are back at work or what you are doing run: " + exe + " notify " + id + " --working \"<what>\"; when you wait on another task, CI, a deploy or the Overlord personally (his sign-in, his click, his page) instead of asking a question run: " + exe + " notify " + id + " --waiting-on <task-id|overlord|ci|deploy|memory> \"<why>\"; a choice the CFO can make, such as whether to start something now or later, is a question, not a wait on the Overlord: ask it with --blocked and options." +
 		" When the Overlord must answer on a Scrawl page (his review page; call it Scrawl when you name it to him), open it with lavish-axi <html-file> --no-open, then run: " + exe + " notify " + id + " --waiting-on overlord \"<why>\" --lavish <html-file>, and never run lavish-axi poll yourself: the supervisor polls the page, and his answer reaches you through the CFO." +
-		" For a successful browser walkthrough or a Scrawl presentation that needs no answer, use lavish-axi --no-open and report its safe URL with cfo present --id <stable-id> --task " + id + " --generation <CFO_SPAWN_GEN> --kind browser|review --url <safe-url>. Refresh only while live and report --state ended when finished. A viewing choice never pauses your work. See docs/native-board.md; do not publish secrets, query parameters or browser history."
+		" When the page asks him to pick, declare its choices in it with a <script type=\"application/json\" data-lavish-choices> block as the lavish skill shows, each option the answer itself as a short phrase: the page draws them as a radio list and his pick reaches you as the option's exact text; a page without it shows him no choices." +
+		" When the Overlord must run a command himself, such as a sign-in, never paste it into your words: write it to a .ps1 file and run: " + exe + " notify " + id + " --waiting-on overlord \"<why>\" --run <command.ps1>; his card shows the exact command and runs it with one click in a terminal on his card, where he types into it, and you are told how it ended." +
+		" For a successful browser walkthrough or a Scrawl presentation that needs no answer, use lavish-axi --no-open and report its safe URL with cfo present --id <stable-id> --task " + id + " --generation <CFO_SPAWN_GEN> --kind browser|review --url <safe-url>. Refresh only while live and report --state ended when finished. A viewing choice never pauses your work. See docs/native-board.md; do not publish secrets, query parameters or browser history." + offer
 }
 
 func (s Service) releaseTaskLock(dir, name string) error {

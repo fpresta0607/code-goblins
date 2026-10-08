@@ -10,14 +10,15 @@ type Installer struct {
 	Source string
 }
 
-// installers are each agent's installer. None pins a version: the quick start
-// installs the current build, as a later update of the agent would.
+// installers are each agent's installer. An npm package is pinned to the
+// version install.ps1 pins, so a release upstream reaches users only when it
+// is pinned there and here; a test holds the two to the same version.
 var installers = map[string]Installer{
 	// The native build, claude.exe, which a native terminal can start; npm's
 	// package installs a script it cannot.
 	"claude": {Kind: "powershell", Source: "https://claude.ai/install.ps1"},
-	"codex":  {Kind: "npm", Source: "@openai/codex"},
-	"pi":     {Kind: "npm", Source: "@earendil-works/pi-coding-agent"},
+	"codex":  {Kind: "npm", Source: "@openai/codex@0.160.1"},
+	"pi":     {Kind: "npm", Source: "@earendil-works/pi-coding-agent@1.0.4"},
 }
 
 // InstallerFor is the installer of the agent named id, and false for a name

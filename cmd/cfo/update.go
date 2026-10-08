@@ -13,6 +13,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/fpresta0607/code-goblins/internal/fleetconfig"
 	"github.com/fpresta0607/code-goblins/internal/home"
 	"github.com/fpresta0607/code-goblins/internal/install"
 	"github.com/fpresta0607/code-goblins/internal/lock"
@@ -32,6 +33,8 @@ const (
 	// updateDegraded: the previous build serves from its verified copy,
 	// but an alias still needs repair by update --recover.
 	updateDegraded = 5
+	// updateHomeIncomplete: the candidate serves, but the home's refresh failed.
+	updateHomeIncomplete = 6
 )
 
 // Bounds on the steps of an update.
@@ -65,11 +68,16 @@ type serveProcess struct {
 // this home's cfo.exe and goblins.exe, or with --recover to finish an update
 // that ended part way by putting the previous build back. It restarts only
 // the supervisor, never a goblin's or the CFO's terminal, and leaves a board
-// answering either way.
+// answering either way. Run as the home's installed build it updates the home
+// from the newest published release instead, which installs itself the same
+// way.
 func runUpdate(args []string, stdout, stderr io.Writer, runtime commandRuntime) int {
 	f := flag.NewFlagSet("update", flag.ContinueOnError)
 	f.SetOutput(stderr)
 	recover := f.Bool("recover", false, "finish an update that ended part way by putting the previous build back")
+	check := f.Bool("check", false, "say whether a newer release is published, and change nothing")
+	to := f.String("to", "", "the release to update to, refused unless it is still the newest one published")
+	pressed := f.String("run", "", "the Update item the Overlord pressed in the Command Center, whose grant this run takes in place of his terminal")
 	if err := f.Parse(args); err != nil || f.NArg() != 0 {
 		return 2
 	}
@@ -86,6 +94,19 @@ func runUpdate(args []string, stdout, stderr io.Writer, runtime commandRuntime) 
 		fmt.Fprintln(stderr, err)
 		return 1
 	}
+	program, err := os.Executable()
+	if err != nil {
+		fmt.Fprintln(stderr, err)
+		return 1
+	}
+	installed := !*recover && installedBuild(h, program)
+	if !installed && (*check || *to != "" || *pressed != "") || *pressed != "" && (*to == "" || *check) {
+		fmt.Fprintln(stderr, "cfo update: --check, --to and --run update a home from a release, so run them as the home's own goblins or cfo, and --run goes with --to")
+		return 2
+	}
+	if installed {
+		return releaseUpdate(h, *check, *to, *pressed, stdout, stderr)
+	}
 	// One update owns a home at a time, and its recovery the same.
 	if _, err := lock.AcquireExclusiveNamed(update.Dir(h.State), ".lock"); err != nil {
 		fmt.Fprintf(stderr, "cfo update: another update of this home is running: %v\n", err)
@@ -99,33 +120,27 @@ func runUpdate(args []string, stdout, stderr io.Writer, runtime commandRuntime) 
 	return installUpdate(h, stdout, stderr)
 }
 
-// installUpdate installs the running binary.
+// installUpdate installs the running binary, a candidate build that is not
+// one of the home's installed programs.
 func installUpdate(h home.Home, stdout, stderr io.Writer) int {
 	candidate, err := os.Executable()
 	if err != nil {
 		fmt.Fprintln(stderr, err)
 		return 1
 	}
-	for _, name := range update.Aliases {
-		if strings.EqualFold(filepath.Clean(candidate), filepath.Join(h.Root, name)) {
-			fmt.Fprintf(stderr, "cfo update: run the candidate build, not the installed %s\n", name)
-			return 1
-		}
-	}
 	// An earlier update that did not finish, or whose journal cannot be
-	// read or is not this home's, is never overwritten: its verified copies
-	// are the way back.
+	// read, is never overwritten: its verified copies are the way back. A
+	// finished update of another home, such as this one before it moved, is
+	// history: nothing it kept is a way back any more.
 	switch last, err := update.ReadJournal(h.State); {
 	case errors.Is(err, os.ErrNotExist):
-	case err == nil && !sameHomePath(last.Root, h.Root) && last.Phase.Finished():
-		fmt.Fprintf(stderr, "cfo update: the last update's journal is for the home %s, not this home %s; nothing was changed. If this home was moved, move the old journal in %s aside by hand.\n", last.Root, h.Root, update.Dir(h.State))
-		return 1
-	case err == nil && !sameHomePath(last.Root, h.Root):
-		fmt.Fprintf(stderr, "cfo update: the last update's journal is for the home %s, not this home %s, and that update stopped at %s; nothing was changed, and its journal and copies in %s are kept as its way back\n", last.Root, h.Root, last.Phase, update.Dir(h.State))
+	case err == nil && journalFolder(h, last) == "" && last.Phase.Finished():
+	case err == nil && journalFolder(h, last) == "":
+		fmt.Fprintf(stderr, "cfo update: the last update's journal is for %s, not this home %s, and that update stopped at %s; nothing was changed, and its journal and copies in %s are kept as its way back\n", last.Root, h.Root, last.Phase, update.Dir(h.State))
 		return 1
 	default:
 		if err == nil {
-			err = update.Validate(last, h.Root, h.State)
+			err = update.Validate(last, journalFolder(h, last), h.State)
 		}
 		if err != nil {
 			fmt.Fprintf(stderr, "cfo update: the last update's journal cannot be trusted (%v); nothing was changed, and journal.json, candidate.exe and the previous-*.exe copies in %s are kept as they are\n", err, update.Dir(h.State))
@@ -136,6 +151,13 @@ func installUpdate(h home.Home, stdout, stderr io.Writer) int {
 			return 1
 		}
 	}
+	// The build is swapped where the home keeps it: bin, or the root of a
+	// home a build before bin set up.
+	programs := h.Programs()
+	if _, err := os.Stat(filepath.Join(programs, "cfo.exe")); errors.Is(err, os.ErrNotExist) {
+		fmt.Fprintf(stderr, "cfo update: the home %s holds no cfo.exe, in bin or at its root, so it has no build to update; set it up with this build's cfo install; nothing was changed\n", h.Root)
+		return 1
+	}
 	// The update stops only this home's own supervisor, so one it cannot
 	// prove is refused before anything changes, never left serving behind a
 	// rollback that cannot start the previous build.
@@ -144,7 +166,18 @@ func installUpdate(h home.Home, stdout, stderr io.Writer) int {
 		return 1
 	}
 
-	journal, err := update.Prepare(h.Root, h.State, candidate)
+	// A home an older build made of a checkout has no marker, which that
+	// build did not need and the candidate takes a home by; marked first, the
+	// home is one to the candidate's commands and hooks the moment it serves,
+	// and to the previous build after a rollback as before.
+	switch marked, err := install.MarkHome(h.Root); {
+	case err != nil:
+		fmt.Fprintf(stderr, "cfo update: %v; nothing was changed\n", err)
+		return 1
+	case marked:
+		fmt.Fprintf(stdout, "Marked %s as a CFO home with %s, which this build's commands and hooks look for.\n", h.Root, home.InstalledMarker)
+	}
+	journal, err := update.Prepare(programs, h.State, candidate)
 	if err != nil {
 		fmt.Fprintln(stderr, err)
 		return 1
@@ -181,12 +214,22 @@ func installUpdate(h home.Home, stdout, stderr io.Writer) int {
 	}
 	updateInterrupt("swapped")
 
-	started, err := startSupervisor(h, filepath.Join(h.Root, "goblins.exe"), address)
+	// A key the candidate no longer reads makes it refuse config/fleet.json,
+	// and with it every start, so it goes before the supervisor starts; one
+	// that cannot be taken out puts the previous build back, which reads it.
+	retired, err := fleetconfig.RetireKeys(h.Root)
+	if err != nil {
+		return rollBack(h, journal, address, err, stdout, stderr)
+	}
+	if retired != "" {
+		fmt.Fprintf(stdout, "Settings: %s.\n", retired)
+	}
+	started, err := startSupervisor(h, filepath.Join(programs, "goblins.exe"), address)
 	if err != nil {
 		return rollBack(h, journal, address, err, stdout, stderr)
 	}
 	updateInterrupt("started")
-	journal.Attempts = append(journal.Attempts, update.Attempt{PID: started.pid, Start: started.start, Program: filepath.Join(h.Root, "goblins.exe")})
+	journal.Attempts = append(journal.Attempts, update.Attempt{PID: started.pid, Start: started.start, Program: filepath.Join(programs, "goblins.exe")})
 	if err := recordUpdate(h.State, journal, update.Swapped, ""); err != nil {
 		return rollBack(h, journal, address, err, stdout, stderr)
 	}
@@ -200,13 +243,17 @@ func installUpdate(h home.Home, stdout, stderr io.Writer) int {
 		return rollBack(h, journal, address, fmt.Errorf("record the update as done: %w", err), stdout, stderr)
 	}
 	update.CleanUp(journal)
-	fmt.Fprintf(stdout, "Updated: cfo.exe and goblins.exe in %s are %s, and its supervisor (pid %d) serves the board.\n", h.Root, journal.Hash, started.pid)
+	_, running := update.KeepRecent(programs, update.KeptBuilds)
+	for _, kept := range running {
+		fmt.Fprintf(stdout, "Kept %s: something still runs it, and the janitor removes it once nothing does.\n", kept)
+	}
+	fmt.Fprintf(stdout, "Updated: cfo.exe and goblins.exe in %s are %s, and its supervisor (pid %d) serves the board.\n", programs, journal.Hash, started.pid)
 	// The desktop window beside the candidate follows the update into the
-	// home. It takes no part in it: the window of the previous build shows
-	// this build's board, so one that could not be replaced leaves the
-	// update done.
-	if err := install.CarryWindow(h.Root, candidate, stdout); err != nil {
-		fmt.Fprintf(stderr, "cfo update: the update is done, but the desktop window in %s was not replaced, and the one there keeps working: %v\n", h.Root, err)
+	// home, beside goblins.exe. It takes no part in it: the window of the
+	// previous build shows this build's board, so one that could not be
+	// replaced leaves the update done.
+	if err := install.CarryWindow(programs, candidate, stdout); err != nil {
+		fmt.Fprintf(stderr, "cfo update: the update is done, but the desktop window in %s was not replaced, and the one there keeps working: %v\n", programs, err)
 	}
 	return updateInstalled
 }
@@ -221,8 +268,11 @@ func recoverUpdate(h home.Home, stdout, stderr io.Writer) int {
 		fmt.Fprintf(stdout, "No update of the home %s to recover.\n", h.Root)
 		return 0
 	}
+	if err == nil && journalFolder(h, journal) == "" {
+		err = fmt.Errorf("it is for %s, not this home %s", journal.Root, h.Root)
+	}
 	if err == nil {
-		err = update.Validate(journal, h.Root, h.State)
+		err = update.Validate(journal, journalFolder(h, journal), h.State)
 	}
 	if err != nil {
 		fmt.Fprintf(stderr, "cfo update: the update's journal cannot be trusted (%v); nothing was changed\n", err)
@@ -266,7 +316,7 @@ func rollBack(h home.Home, journal *update.Journal, address string, cause error,
 	}
 	var lastErr error
 	for try := 0; try < updateServeTries; try++ {
-		program, held, err := previousProgram(h, journal)
+		program, held, err := previousProgram(journal)
 		if err != nil {
 			lastErr = err
 			break
@@ -366,8 +416,8 @@ func powerShellQuote(text string) string {
 // the caller closes it only once the supervisor has started, so a program
 // whose content is not the previous build never runs; with none proved,
 // nothing is started.
-func previousProgram(h home.Home, journal *update.Journal) (string, *os.File, error) {
-	programs := []string{filepath.Join(h.Root, "goblins.exe")}
+func previousProgram(journal *update.Journal) (string, *os.File, error) {
+	programs := []string{filepath.Join(journal.Root, "goblins.exe")}
 	for _, alias := range journal.Aliases {
 		programs = append(programs, alias.Backup)
 	}
@@ -462,10 +512,10 @@ var homeImages = map[string]bool{"cfo.exe": true, "goblins.exe": true, "previous
 
 // homeServe accepts a process that is this home's supervisor: a program of
 // this home, by the image it has loaded, running serve for this home as
-// home.Resolve finds one, from CFO_HOME or else its working directory, with
-// CFO_STATE_OVERRIDE or else the home's state. A supervisor can run from any
-// folder with CFO_HOME set, and the fleet runs scratch supervisors from the
-// same binary for other homes and states, none of them this home's.
+// home.Resolve finds one, from CFO_HOME or else the per-user home its
+// LOCALAPPDATA names, with CFO_STATE_OVERRIDE or else the home's state. A
+// supervisor can run from any folder, and the fleet runs scratch supervisors
+// from the same binary for other homes and states, none of them this home's.
 func homeServe(h home.Home) func(proc.Identity) error {
 	return func(identity proc.Identity) error {
 		if err := serveRole(identity.Arguments); err != nil {
@@ -478,7 +528,11 @@ func homeServe(h home.Home) func(proc.Identity) error {
 		// relative name resolves against its own working folder.
 		root := identity.Getenv("CFO_HOME")
 		if root == "" {
-			root = identity.Directory
+			local := identity.Getenv("LOCALAPPDATA")
+			if local == "" {
+				return errors.New("it names no home: neither CFO_HOME nor LOCALAPPDATA is set in its environment")
+			}
+			root = filepath.Join(resolvedFrom(identity.Directory, local), "CodeGoblins")
 		} else {
 			root = resolvedFrom(identity.Directory, root)
 		}
@@ -499,6 +553,19 @@ func sameHomePath(a, b string) bool {
 	return strings.EqualFold(filepath.Clean(a), filepath.Clean(b))
 }
 
+// journalFolder is the folder of this home's build that the journal's update
+// swapped: bin, or the root, where a home a build before bin set up keeps its
+// build and its updates swapped it. A journal of another home names neither
+// and gets "".
+func journalFolder(h home.Home, journal update.Journal) string {
+	for _, folder := range []string{h.Bin(), h.Root} {
+		if sameHomePath(journal.Root, folder) {
+			return folder
+		}
+	}
+	return ""
+}
+
 // runsPreviousBuild reports whether the program the supervisor runs now, read
 // from its process, hashes to the build the update replaced.
 func runsPreviousBuild(running serveProcess, journal *update.Journal) bool {
@@ -511,10 +578,16 @@ func runsPreviousBuild(running serveProcess, journal *update.Journal) bool {
 }
 
 // homeProgram reports whether program is one of this home's: an alias in its
-// root, or a verified copy an update keeps.
+// bin, one at its root, where an older install put them and an install keeps
+// them current, or a verified copy an update keeps.
 func homeProgram(h home.Home, program string) bool {
 	directory := filepath.Clean(filepath.Dir(program))
-	return strings.EqualFold(directory, filepath.Clean(h.Root)) || strings.EqualFold(directory, filepath.Clean(update.Dir(h.State)))
+	for _, folder := range []string{h.Bin(), h.Root, update.Dir(h.State)} {
+		if strings.EqualFold(directory, filepath.Clean(folder)) {
+			return true
+		}
+	}
+	return false
 }
 
 // endSupervisor asks the supervisor to stop and waits for it to exit,

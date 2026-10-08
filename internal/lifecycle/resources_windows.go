@@ -6,12 +6,14 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"sync"
 	"time"
 
 	"github.com/fpresta0607/code-goblins/internal/execx"
 	"github.com/fpresta0607/code-goblins/internal/herdr"
+	"github.com/fpresta0607/code-goblins/internal/home"
 	"github.com/fpresta0607/code-goblins/internal/host"
 	"github.com/fpresta0607/code-goblins/internal/pipeline"
 	"github.com/fpresta0607/code-goblins/internal/proc"
@@ -24,18 +26,63 @@ type Resources struct {
 	Gate        pipeline.InterruptedRun
 }
 
-// TaskResources is the task-to-resources boundary. Supervisor-owned helpers
-// can extend this set without changing Pause or Stop's termination rules.
-func TaskResources(ctx context.Context, stateDir string, meta state.TaskMeta, gate pipeline.Reader) (Resources, error) {
+// TaskResources is the task-to-resources boundary. A task's helpers are its
+// own, so their resources join its set without changing Pause or Stop's
+// termination rules: stopping a parent ends whatever its helpers' own stops
+// left. Every directory it names is a task's own by its identity: the
+// worktree spawn made for it in the home, or where an older build put it,
+// the extra worktrees it recorded beside that, its task temporary directory
+// and its scratch folder, so a record that names anything else stops
+// nothing.
+func TaskResources(ctx context.Context, h home.Home, meta state.TaskMeta, gate pipeline.Reader) (Resources, error) {
+	resources, err := ownResources(ctx, h, meta, gate.Commands)
+	if err != nil {
+		return resources, err
+	}
+	helpers, err := state.HelpersOf(h.State, meta.ID)
+	if err != nil {
+		return resources, err
+	}
+	for _, helper := range helpers {
+		owned, err := ownResources(ctx, h, helper, gate.Commands)
+		if err != nil {
+			return resources, fmt.Errorf("helper %s: %w", helper.ID, err)
+		}
+		resources.Directories = append(resources.Directories, owned.Directories...)
+		resources.Hosts = append(resources.Hosts, owned.Hosts...)
+	}
+	return withGate(ctx, meta, gate, resources)
+}
+
+// ownResources are the directories and terminal one task holds itself.
+func ownResources(ctx context.Context, h home.Home, meta state.TaskMeta, commands execx.Runner) (Resources, error) {
 	var resources Resources
-	expected := filepath.Join(meta.Project, ".worktrees", "gb-"+meta.ID)
-	if !filepath.IsAbs(meta.Project) || !strings.EqualFold(filepath.Clean(meta.Worktree), expected) {
+	stateDir := h.State
+	project := filepath.Base(filepath.Clean(meta.Project))
+	if !filepath.IsAbs(meta.Project) || !slices.ContainsFunc(h.OwnWorktrees(meta.Project, meta.ID), func(own string) bool { return strings.EqualFold(filepath.Clean(meta.Worktree), own) }) {
 		return resources, errors.New("task worktree is not its isolated project worktree")
 	}
 	if !strings.EqualFold(filepath.Clean(meta.TaskTmp), filepath.Join(stateDir, "tasktmp", meta.ID)) {
 		return resources, errors.New("task scratch directory does not match its task identity")
 	}
 	resources.Directories = []string{meta.Worktree, meta.TaskTmp}
+	for _, extra := range meta.Extras {
+		name := filepath.Base(filepath.Clean(extra))
+		if !slices.ContainsFunc(h.WorktreeRoots(), func(root string) bool {
+			return strings.EqualFold(filepath.Dir(filepath.Clean(extra)), filepath.Join(root, project))
+		}) || !strings.HasPrefix(strings.ToLower(name), strings.ToLower(meta.ID)+"-") {
+			return resources, errors.New("task extra worktree is not one beside its own")
+		}
+		resources.Directories = append(resources.Directories, extra)
+	}
+	if meta.Scratch != "" {
+		if !slices.ContainsFunc(h.ScratchRoots(), func(root string) bool {
+			return strings.EqualFold(filepath.Clean(meta.Scratch), filepath.Join(root, meta.ID))
+		}) {
+			return resources, errors.New("task scratch folder does not match its task identity")
+		}
+		resources.Directories = append(resources.Directories, meta.Scratch)
+	}
 	slug := strings.Map(func(value rune) rune {
 		if value >= 'a' && value <= 'z' || value >= '0' && value <= '9' {
 			return value
@@ -65,7 +112,7 @@ func TaskResources(ctx context.Context, stateDir string, meta state.TaskMeta, ga
 			resources.Hosts = append(resources.Hosts, Identity{PID: record.HostPID, Started: started})
 		}
 	} else if meta.Backend == "herdr" {
-		client := &herdr.Client{Commands: gate.Commands, Session: meta.HerdrSession}
+		client := &herdr.Client{Commands: commands, Session: meta.HerdrSession}
 		target := herdr.Target{Session: meta.HerdrSession, Pane: meta.HerdrPaneID}
 		info, err := client.PaneProcessInfo(ctx, target)
 		if err != nil {
@@ -86,6 +133,11 @@ func TaskResources(ctx context.Context, stateDir string, meta state.TaskMeta, ga
 			resources.Hosts = append(resources.Hosts, Identity{PID: info.ShellPID, Started: started})
 		}
 	}
+	return resources, nil
+}
+
+// withGate adds the task's open gate run, and its worktree, to resources.
+func withGate(ctx context.Context, meta state.TaskMeta, gate pipeline.Reader, resources Resources) (Resources, error) {
 	if _, err := os.Stat(filepath.Join(gate.Root, "state.sqlite")); errors.Is(err, os.ErrNotExist) {
 		return resources, nil
 	} else if err != nil {
@@ -127,6 +179,11 @@ func stopResources(ctx context.Context, resources Resources, stop func(context.C
 	stopped := []string{}
 	var teardown []state.TeardownProcess
 	finished := map[Identity]bool{}
+	// The first sweep ends the hosts, so their jobs are kept for the services
+	// in them before it.
+	if err := keepServicesPastHosts(resources.Hosts); err != nil {
+		return stopped, teardown, err
+	}
 	for sweep := 0; sweep < 4; sweep++ {
 		processes, err := Inventory(ctx, resources.Directories, resources.Hosts)
 		if err != nil {
@@ -191,4 +248,32 @@ func stopResources(ctx context.Context, resources Resources, stop func(context.C
 		}
 	}
 	return stopped, teardown, nil
+}
+
+// keepServicesPastHosts stops a task host's job from ending a machine service
+// in it (proc.Service) when the host ends: teardown ends the host, and with it
+// the job's last handle, which would end every process still in the job.
+func keepServicesPastHosts(hosts []Identity) error {
+	if len(hosts) == 0 {
+		return nil
+	}
+	services, err := proc.RunningServices()
+	if err != nil {
+		return fmt.Errorf("identify the machine services running: %w", err)
+	}
+	for _, host := range hosts {
+		if started, exists := proc.StartTime(host.PID); !exists || !started.Equal(host.Started) {
+			continue
+		}
+		members, err := proc.JobProcesses(host.PID)
+		if err != nil {
+			return fmt.Errorf("read task host %d job: %w", host.PID, err)
+		}
+		if slices.ContainsFunc(members, func(member proc.Entry) bool { return services[member.PID] != proc.NoService }) {
+			if err := proc.KeepJobsOnClose(host.PID); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
 }

@@ -13,7 +13,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/fpresta0607/code-goblins/internal/auth"
 	"github.com/fpresta0607/code-goblins/internal/execx"
 	"github.com/fpresta0607/code-goblins/internal/fsx"
 	"github.com/fpresta0607/code-goblins/internal/harness"
@@ -53,6 +52,31 @@ func TestSpawnPublishesTheTaskTitle(t *testing.T) {
 	meta, err := state.ReadTaskMeta(f.stateDir, f.request.ID)
 	if err != nil || meta.Title != f.request.Title {
 		t.Fatalf("metadata: %+v %v, want the title %q", meta, err, f.request.Title)
+	}
+}
+
+// A goblin gets its fun name and title at spawn, published with its record
+// so the board names it from the moment it exists, and the title fits the
+// work its brief names.
+func TestSpawnGivesTheGoblinANameAndATitleThatFitsItsBrief(t *testing.T) {
+	// Arrange
+	f := newQuickFixture(t)
+	writeFile(t, f.request.BriefPath, "# Brief task-7\n\n## Task\n\nShow each goblin's name on the board cards and the canvas.\n\nDelivery contract: mode=no-mistakes\n")
+	boardTitles := []string{"Pixel Wrangler", "Layout Whisperer", "Button Polisher", "Card Shuffler", "Color Mixer", "Screen Painter"}
+
+	// Act
+	result, err := f.service.Spawn(context.Background(), f.request)
+
+	// Assert
+	if err != nil {
+		t.Fatal(err)
+	}
+	meta, err := state.ReadTaskMeta(f.stateDir, f.request.ID)
+	if err != nil || meta.GoblinName == "" || !slices.Contains(boardTitles, meta.GoblinTitle) {
+		t.Fatalf("metadata: %+v %v, want a name and one of %v", meta, err, boardTitles)
+	}
+	if want := "goblin: " + meta.GoblinName + " - " + meta.GoblinTitle; !strings.Contains(result.Output, "\n"+want+"\n") && !strings.HasSuffix(result.Output, "\n"+want) {
+		t.Fatalf("output = %q, want the line %q", result.Output, want)
 	}
 }
 
@@ -220,23 +244,26 @@ func TestSpawnShipPublishesANativeTaskAndBriefsItsHarness(t *testing.T) {
 	if meta.TaskTmp == "" || meta.SpawnGen == "" {
 		t.Errorf("metadata = %+v, want tasktmp and spawn generation", meta)
 	}
-	if got, want := sortedKeys(t, f.stateDir, f.request.ID), []string{"backend", "brief", "effort", "endpoint_task_id", "harness", "kind", "mode", "model", "project", "spawn_gen", "tasktmp", "window", "worktree", "yolo"}; !reflect.DeepEqual(got, want) {
+	if got, want := sortedKeys(t, f.stateDir, f.request.ID), []string{"backend", "brief", "effort", "endpoint_task_id", "goblin_name", "goblin_title", "harness", "kind", "mode", "model", "project", "scratch", "spawn_gen", "tasktmp", "window", "worktree", "yolo"}; !reflect.DeepEqual(got, want) {
 		t.Errorf("metadata keys = %v, want %v", got, want)
 	}
-	goTmp := goTmpDir(t, f.stateDir, meta.ID)
-	if info, statErr := os.Stat(goTmp); statErr != nil || !info.IsDir() {
-		t.Fatalf("GOTMPDIR = %q, stat = %v, want existing directory", goTmp, statErr)
+	scratch := taskScratch(f.stateDir, meta.ID)
+	if meta.Scratch != scratch {
+		t.Errorf("recorded scratch = %q, want %q", meta.Scratch, scratch)
 	}
-	// Go writes build and test temporaries under GOTMPDIR, t.TempDir()
-	// included. Pointed inside the checkout it made every test a goblin ran
-	// create files in the tree the goblin was editing.
+	if info, statErr := os.Stat(scratch); statErr != nil || !info.IsDir() {
+		t.Fatalf("scratch = %q, stat = %v, want existing directory", scratch, statErr)
+	}
+	// Go writes build and test temporaries under GOTMPDIR and everything else
+	// under TEMP, t.TempDir() included. Pointed inside the checkout they made
+	// every test a goblin ran create files in the tree it was editing.
 	for _, inside := range []string{f.stateDir, f.worktree, f.project} {
-		if rel, relErr := filepath.Rel(inside, goTmp); relErr == nil && !strings.HasPrefix(rel, "..") {
-			t.Errorf("GOTMPDIR = %q, want it outside %q", goTmp, inside)
+		if rel, relErr := filepath.Rel(inside, scratch); relErr == nil && !strings.HasPrefix(rel, "..") {
+			t.Errorf("scratch = %q, want it outside %q", scratch, inside)
 		}
 	}
 	env := named(f.events(t), "env")[0].Env
-	for name, want := range map[string]string{"CFO_TASK_ID": "task-7", "CFO_ROLE": harness.RoleGoblin, "GOTMPDIR": goTmp, "CFO_STATE_OVERRIDE": f.stateDir} {
+	for name, want := range map[string]string{"CFO_TASK_ID": "task-7", "CFO_ROLE": harness.RoleGoblin, "GOTMPDIR": scratch, "TEMP": scratch, "TMP": scratch, "CFO_STATE_OVERRIDE": f.stateDir} {
 		if got := env[name]; got == nil || *got != want {
 			t.Errorf("the harness started with %s = %v, want %q", name, got, want)
 		}
@@ -268,7 +295,7 @@ func TestSpawnScoutOmitsShipFields(t *testing.T) {
 	if result.Meta.Mode != "" || result.Meta.Yolo != "" {
 		t.Errorf("scout metadata = %+v, want omitted mode and yolo", result.Meta)
 	}
-	if got, want := sortedKeys(t, f.stateDir, f.request.ID), []string{"backend", "brief", "effort", "endpoint_task_id", "harness", "kind", "model", "project", "spawn_gen", "tasktmp", "window", "worktree"}; !reflect.DeepEqual(got, want) {
+	if got, want := sortedKeys(t, f.stateDir, f.request.ID), []string{"backend", "brief", "effort", "endpoint_task_id", "goblin_name", "goblin_title", "harness", "kind", "model", "project", "scratch", "spawn_gen", "tasktmp", "window", "worktree"}; !reflect.DeepEqual(got, want) {
 		t.Errorf("scout metadata keys = %v, want %v", got, want)
 	}
 }
@@ -318,39 +345,32 @@ func TestSpawnDisclosesATrackedMCPConfigOnlyWhenSomethingWasWithheld(t *testing.
 	}
 }
 
-func TestSpawnWarnsOnceWhenTheCheckoutDoesNotIgnoreWorktrees(t *testing.T) {
-	const warning = "does not ignore .worktrees/"
-
-	covered := newQuickFixture(t)
-	result, err := covered.service.Spawn(context.Background(), covered.request)
+// A goblin's worktree lives in the home, named for its project's folder and
+// its task, never in the project: the checkout gains no folder and no file.
+func TestSpawnPutsTheWorktreeUnderTheHomeAndLeavesTheProjectAlone(t *testing.T) {
+	// Arrange
+	f := newQuickFixture(t)
+	before, err := os.ReadDir(f.project)
 	if err != nil {
-		t.Fatalf("Spawn: %v", err)
-	}
-	if strings.Contains(result.Output, warning) {
-		t.Errorf("a checkout whose .gitignore covers .worktrees/ was warned:\n%s", result.Output)
+		t.Fatal(err)
 	}
 
-	uncovered := newQuickFixture(t)
-	uncovered.runner.worktreesUncovered = true
-	if result, err = uncovered.service.Spawn(context.Background(), uncovered.request); err != nil {
+	// Act
+	if _, err := f.service.Spawn(context.Background(), f.request); err != nil {
 		t.Fatalf("Spawn: %v", err)
-	}
-	if got := strings.Count(result.Output, warning); got != 1 {
-		t.Errorf("the warning appears %d times, want exactly once:\n%s", got, result.Output)
-	}
-	if !strings.Contains(result.Output, filepath.Join(uncovered.project, ".gitignore")) {
-		t.Errorf("the warning does not name the file to edit:\n%s", result.Output)
 	}
 
-	// A checkout that already holds a worktree has had its warning.
-	later := newQuickFixture(t)
-	later.runner.worktreesUncovered = true
-	makeDir(t, filepath.Join(later.project, ".worktrees", "gb-earlier"))
-	if result, err = later.service.Spawn(context.Background(), later.request); err != nil {
-		t.Fatalf("Spawn: %v", err)
+	// Assert
+	want := filepath.Join(f.service.Worktrees.Root, "primary", "task-7")
+	if f.git.acquired != want {
+		t.Errorf("the worktree was asked for at %q, want %q", f.git.acquired, want)
 	}
-	if strings.Contains(result.Output, warning) {
-		t.Errorf("a checkout that already holds a worktree was warned again:\n%s", result.Output)
+	after, err := os.ReadDir(f.project)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(after) != len(before) {
+		t.Errorf("the project holds %v after the spawn, want only what it held before, %v", after, before)
 	}
 }
 
@@ -415,7 +435,7 @@ func TestSpawnKeepsTheLaunchContractOverCaseAliasedRedirects(t *testing.T) {
 		}
 	}
 	for name, want := range map[string]string{
-		"GOTMPDIR":                 goTmpDir(t, f.stateDir, result.Meta.ID),
+		"GOTMPDIR":                 taskScratch(f.stateDir, result.Meta.ID),
 		"CFO_STATE_OVERRIDE":       f.stateDir,
 		"CFO_ROLE":                 harness.RoleGoblin,
 		"PLAYWRIGHT_BROWSERS_PATH": `C:\cache\ms-playwright`,
@@ -423,39 +443,6 @@ func TestSpawnKeepsTheLaunchContractOverCaseAliasedRedirects(t *testing.T) {
 		if got := env[name]; got == nil || *got != want {
 			t.Errorf("the harness started with %s = %v, want %q", name, got, want)
 		}
-	}
-}
-
-func TestSpawnDispatchesAndReportsWhenTheDependencyInstallFails(t *testing.T) {
-	f := newQuickFixture(t)
-	// Strategy install is the default and its command is auto-detected from a
-	// lockfile, so no project opted into it. A drifted lockfile must not turn
-	// every dispatch into this repo into a failure.
-	writeFile(t, filepath.Join(f.worktree, "pnpm-lock.yaml"), "lockfileVersion: '9.0'\n")
-	f.runner.installer = "pnpm"
-	f.runner.installerStderr = "ERR_PNPM_OUTDATED_LOCKFILE  Cannot install with frozen-lockfile\n"
-
-	result, err := f.service.Spawn(context.Background(), f.request)
-	if err != nil {
-		t.Fatalf("Spawn: %v, want the goblin dispatched anyway", err)
-	}
-	if !slices.Contains(f.fixture.events, "install") {
-		t.Fatalf("events = %v, want the detected installer to have run", f.fixture.events)
-	}
-	if !strings.Contains(result.Output, "pnpm install --frozen-lockfile") ||
-		!strings.Contains(result.Output, "ERR_PNPM_OUTDATED_LOCKFILE") {
-		t.Errorf("output = %q, want the failed install command and its cause reported", result.Output)
-	}
-	// Nothing was torn down: the task is published, its worktree kept, and
-	// the harness got its brief.
-	if _, err := state.ReadTaskMeta(f.stateDir, f.request.ID); err != nil {
-		t.Fatalf("read metadata after a failed install: %v", err)
-	}
-	if f.git.returned != 0 {
-		t.Errorf("worktree returns = %d; want the dispatch left intact", f.git.returned)
-	}
-	if submitted := named(f.events(t), "submitted"); len(submitted) != 1 {
-		t.Errorf("submitted = %+v, want the brief delivered after the failed install", submitted)
 	}
 }
 
@@ -646,23 +633,6 @@ func TestSpawnSurfacesTaskLockReleaseFailure(t *testing.T) {
 	})
 }
 
-func TestSpawnRefusesAContendedLockAndSpawnsOnceItIsReleased(t *testing.T) {
-	f := newQuickFixture(t)
-	if _, err := lock.AcquireExclusiveNamed(f.stateDir, spawnLockName); err != nil {
-		t.Fatalf("AcquireExclusiveNamed setup: %v", err)
-	}
-	_, err := f.service.Spawn(context.Background(), f.request)
-	if !errors.Is(err, lock.ErrHeld) {
-		t.Fatalf("Spawn contention error = %v, want ErrHeld", err)
-	}
-	if err := lock.ReleaseNamed(f.stateDir, spawnLockName); err != nil {
-		t.Fatalf("ReleaseNamed setup lock: %v", err)
-	}
-	if _, err := f.service.Spawn(context.Background(), f.request); err != nil {
-		t.Fatalf("Spawn after lock release: %v", err)
-	}
-}
-
 func TestSpawnRejectsCaseAliasBeforeTerminalOrWorktreeMutation(t *testing.T) {
 	f := newQuickFixture(t)
 	f.request.ID = "Foo"
@@ -707,7 +677,7 @@ func TestSpawnRejectsCaseInsensitiveMetadataExtensionBeforeTerminalOrWorktreeMut
 	if _, err := f.service.Spawn(context.Background(), request); err == nil || !strings.Contains(err.Error(), "case-insensitive") {
 		t.Fatalf("case-insensitive extension Spawn error = %v, want collision refusal", err)
 	}
-	if f.runner.calls != 0 || len(f.events) != 0 {
+	if f.runner.calls != 0 || len(mutations(f.events)) != 0 {
 		t.Errorf("commands = %d and events = %v, want none before the metadata-alias refusal", f.runner.calls, f.events)
 	}
 }
@@ -765,7 +735,7 @@ func TestSpawnRejectsCaseAliasOfARetainedTaskTemporaryDirectory(t *testing.T) {
 	if _, err := f.service.Spawn(context.Background(), request); err == nil || !strings.Contains(err.Error(), "case-insensitive") {
 		t.Fatalf("alias Spawn error = %v, want collision refusal", err)
 	}
-	if f.runner.calls != 0 || len(f.events) != 0 {
+	if f.runner.calls != 0 || len(mutations(f.events)) != 0 {
 		t.Errorf("commands = %d and events = %v after alias rejection, want none before a second task mutation", f.runner.calls, f.events)
 	}
 }
@@ -781,16 +751,9 @@ func TestSpawnRejectsCaseAliasOfALiveTask(t *testing.T) {
 	if _, err := f.service.Spawn(context.Background(), request); err == nil || !strings.Contains(err.Error(), "case-insensitive") {
 		t.Fatalf("alias Spawn error = %v, want collision refusal", err)
 	}
-	if f.runner.calls != 0 || len(f.events) != 0 {
+	if f.runner.calls != 0 || len(mutations(f.events)) != 0 {
 		t.Errorf("commands = %d and events = %v after alias rejection, want none before a second task mutation", f.runner.calls, f.events)
 	}
-}
-
-// refusingPreflight stops a dispatch the way a red blocking service does.
-type refusingPreflight struct{}
-
-func (refusingPreflight) Preflight(context.Context, string) (auth.Result, error) {
-	return auth.Result{Refusal: "a blocking service is red"}, nil
 }
 
 // The capsule is written into the id's own task temporary directory only after
@@ -798,7 +761,6 @@ func (refusingPreflight) Preflight(context.Context, string) (auth.Result, error)
 // the capsule with it, so the retry is not refused by the failed attempt.
 func TestSpawnRemovesTheCapsuleOfASpawnThatFailsBeforePublishing(t *testing.T) {
 	f := newQuickFixture(t)
-	f.request.Yolo = false
 	taskTmp := filepath.Join(f.stateDir, "tasktmp", f.request.ID)
 	request := f.request
 	request.Capsule = func(dir string) (string, error) {
@@ -811,17 +773,16 @@ func TestSpawnRemovesTheCapsuleOfASpawnThatFailsBeforePublishing(t *testing.T) {
 		}
 		return brief, os.WriteFile(brief, []byte("Delivery contract: mode=no-mistakes\nDo the work.\n\n## CFO durable task capsule\n"), 0o600)
 	}
-	credentials := f.service.Auth
-	f.service.Auth = refusingPreflight{}
+	f.git.acquireErr = errors.New("worktree: add worktree refused")
 
-	if _, err := f.service.Spawn(context.Background(), request); err == nil || !strings.Contains(err.Error(), "a blocking service is red") {
-		t.Fatalf("Spawn error = %v, want the preflight refusal", err)
+	if _, err := f.service.Spawn(context.Background(), request); err == nil || !strings.Contains(err.Error(), "add worktree refused") {
+		t.Fatalf("Spawn error = %v, want the worktree refusal", err)
 	}
 	if _, err := os.Stat(taskTmp); !errors.Is(err, os.ErrNotExist) {
 		t.Fatalf("capsule directory %q survived the failed spawn: %v", taskTmp, err)
 	}
 
-	f.service.Auth = credentials
+	f.git.acquireErr = nil
 	result, err := f.service.Spawn(context.Background(), request)
 	if err != nil {
 		t.Fatalf("retry Spawn error = %v, want the same id spawned with its capsule", err)
@@ -876,22 +837,29 @@ func TestNotifyInstructionTeachesWorkingAndWaitingReports(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	instruction := notifyInstruction("task-7")
+	instruction := notifyInstruction(state.TaskMeta{ID: "task-7"})
 
 	for _, want := range []string{
 		exe + " notify task-7 --working \"<what>\"",
 		exe + " notify task-7 --waiting-on <task-id|overlord|ci|deploy|memory> \"<why>\"",
 		exe + " notify task-7 --waiting-on overlord \"<why>\" --lavish <html-file>",
+		exe + " notify task-7 --waiting-on overlord \"<why>\" --run <command.ps1>",
+		"runs it with one click in a terminal on his card, where he types into it",
 		"never run lavish-axi poll yourself",
 		"lead with one short sentence that is the actual question",
 		"lines of their own that start with \"- \"",
 		"mark with **two asterisks** only the verdict or the blocking item",
 		"the Overlord personally (his sign-in, his click, his page)",
 		"a choice the CFO can make, such as whether to start something now or later, is a question, not a wait on the Overlord: ask it with --blocked and options",
+		"the CFO answers it, and his answer arrives here as a message",
+		"Never wait on the CFO for a choice you can undo: take the better option, say which with --working, and keep going; a choice you cannot undo or make yourself is a question for --blocked, never one asked in your reply.",
 	} {
 		if !strings.Contains(instruction, want) {
 			t.Errorf("instruction = %q, want %q", instruction, want)
 		}
+	}
+	if strings.Contains(instruction, "the board shows them to the Supreme Overlord") {
+		t.Error("goblin questions must name the CFO as their recipient")
 	}
 }
 
@@ -899,7 +867,7 @@ func TestNotifyInstructionTeachesWorkingAndWaitingReports(t *testing.T) {
 // it that; the lavish-axi command and the --lavish flag keep their names.
 func TestNotifyInstructionCallsTheReviewPageScrawl(t *testing.T) {
 	// Act
-	instruction := notifyInstruction("task-7")
+	instruction := notifyInstruction(state.TaskMeta{ID: "task-7"})
 
 	// Assert
 	for _, want := range []string{
@@ -914,6 +882,27 @@ func TestNotifyInstructionCallsTheReviewPageScrawl(t *testing.T) {
 	}
 	if strings.Contains(instruction, "Lavish") {
 		t.Errorf("instruction = %q, want the page named Scrawl, never Lavish", instruction)
+	}
+}
+
+// The Overlord, 2026-10-02: "in Scrawl the actual radio choice selection at
+// the bottom doesn't exist anymore". A Scrawl page draws its choices only
+// when it declares them, so the brief says how, and that his pick comes back
+// as the option's exact text.
+func TestNotifyInstructionTellsAPageThatAsksHimToPickToDeclareItsChoices(t *testing.T) {
+	// Act
+	instruction := notifyInstruction(state.TaskMeta{ID: "task-7"})
+
+	// Assert
+	for _, want := range []string{
+		`<script type="application/json" data-lavish-choices>`,
+		"radio list",
+		"the option's exact text",
+		"a page without it shows him no choices",
+	} {
+		if !strings.Contains(instruction, want) {
+			t.Errorf("instruction = %q, want %q", instruction, want)
+		}
 	}
 }
 
@@ -965,8 +954,15 @@ type fixture struct {
 	git      *worktreeGit
 }
 
-// goTmpDir returns the per-task Go temporary directory a spawn under the
-// isolated user cache directory creates.
+// taskScratch is the scratch folder a spawn makes for task id in the
+// fixture's home, beside its state folder.
+func taskScratch(stateDir, id string) string {
+	return filepath.Join(filepath.Dir(stateDir), "scratch", id)
+}
+
+// goTmpDir returns the Go temporary directory an older build gave a task,
+// under the isolated user cache directory, which a task recorded with no
+// scratch folder still uses.
 func goTmpDir(t *testing.T, stateDir, id string) string {
 	t.Helper()
 	dir, err := state.GoTmpDir(stateDir, id)
@@ -1010,7 +1006,10 @@ func newFixture(t *testing.T) *fixture {
 	// A Codex spawn or switch reads the MCP servers of CODEX_HOME's
 	// config.toml, which is never this machine's own.
 	t.Setenv("CODEX_HOME", t.TempDir())
-	root := t.TempDir()
+	// Canonical, as every folder made under it is, so the scratch and
+	// worktrees folders are spelled as the state folder is, short names in a
+	// runner's temp path included.
+	root := makeDir(t, t.TempDir())
 	stateDir := makeDir(t, filepath.Join(root, "state"))
 	dataDir := makeDir(t, filepath.Join(root, "data"))
 	project := makeDir(t, filepath.Join(root, "primary"))
@@ -1026,12 +1025,15 @@ func newFixture(t *testing.T) *fixture {
 		Worktrees: worktree.Service{
 			Commands: fixture.runner,
 			Git:      fixture.git,
+			Root:     filepath.Join(root, "worktrees"),
 			DataDir:  dataDir,
 			Sleep:    func(context.Context, time.Duration) error { return nil },
 		},
+		ScratchRoot: filepath.Join(root, "scratch"),
 		Harness: harness.Registry{Adapters: map[harness.Kind]harness.Adapter{
 			harness.Claude: fixtureAdapter{events: &fixture.events, specs: &fixture.specs},
 		}},
+		HomeRoot:        root,
 		StateDir:        stateDir,
 		Project:         project,
 		UserEnvironment: func() ([]string, error) { return os.Environ(), nil },
@@ -1052,6 +1054,12 @@ func newFixture(t *testing.T) *fixture {
 		Effort:    "high",
 	}
 	return fixture
+}
+
+// mutations is events without the harness check, which a spawn runs before
+// its turn because it only reads.
+func mutations(events []string) []string {
+	return slices.DeleteFunc(slices.Clone(events), func(event string) bool { return event == "validate-harness" })
 }
 
 // hasTerminal reports whether task id has a native terminal record.
@@ -1112,28 +1120,42 @@ func (a fixtureAdapter) Build(spec harness.LaunchSpec) (harness.Launch, error) {
 	}
 	return harness.Launch{
 		Args:       []string{"--dangerously-skip-permissions"},
-		Env:        map[string]string{"GOTMPDIR": spec.GoTmp},
+		Env:        map[string]string{"GOTMPDIR": spec.Scratch, "TEMP": spec.Scratch, "TMP": spec.Scratch},
 		PromptFile: spec.BriefPath,
 	}, nil
 }
 
 type worktreeGit struct {
-	events    *[]string
+	events     *[]string
+	acquireErr error
+	acquired   string
 	top       string
 	topErr    error
 	returnErr error
 	returned  int
 }
 
-func (g *worktreeGit) Acquire(_ context.Context, project, holder string) (string, error) {
+func (g *worktreeGit) Acquire(_ context.Context, project, path, ref string) (string, error) {
 	*g.events = append(*g.events, "worktree-acquire")
-	if !strings.HasPrefix(holder, "gb-") {
-		return "", fmt.Errorf("unexpected holder %q", holder)
+	if g.acquireErr != nil {
+		return "", g.acquireErr
+	}
+	g.acquired = path
+	if !filepath.IsAbs(path) || ref != "" {
+		return "", fmt.Errorf("unexpected worktree %q on %q", path, ref)
 	}
 	if project == "" {
 		return "", fmt.Errorf("project is required")
 	}
 	return g.top, nil
+}
+
+func (g *worktreeGit) Landing(context.Context, string) (worktree.Landing, error) {
+	return worktree.Landing{Landed: true}, nil
+}
+
+func (g *worktreeGit) ArchiveTag(context.Context, string, worktree.Landing, string) (string, error) {
+	return "", fmt.Errorf("spawn never archives")
 }
 
 func (g *worktreeGit) WorktreeTop(context.Context, string) (string, error) {
@@ -1161,22 +1183,10 @@ type commandRunner struct {
 	installer       string
 	installerStderr string
 	mcpTracked      bool
-	// worktreesUncovered models a checkout whose own .gitignore says nothing
-	// about .worktrees/, so only the clone's info/exclude hides it.
-	worktreesUncovered bool
 }
 
 func (r *commandRunner) Run(_ context.Context, req execx.Request) (execx.Result, error) {
 	r.calls++
-	if req.Name == "git" && len(req.Args) > 1 && req.Args[0] == "check-ignore" && req.Args[1] == "-v" {
-		// Spawn asks which file ignores .worktrees/; git answers with the
-		// deciding rule's source in front.
-		source := ".gitignore"
-		if r.worktreesUncovered {
-			source = ".git/info/exclude"
-		}
-		return execx.Result{Stdout: []byte(source + ":1:.worktrees/\t.worktrees/\n")}, nil
-	}
 	if req.Name == "git" && len(req.Args) > 0 && req.Args[0] == "check-ignore" {
 		return execx.Result{}, nil
 	}

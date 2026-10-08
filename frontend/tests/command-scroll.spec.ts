@@ -9,10 +9,11 @@ const scrollTop = (dialog: Locator) => dialog.evaluate((element) => element.scro
 test.use({ viewport: { width: 1280, height: 720 } });
 
 test("the Command Center opens at the top of its item every time", async ({ page }) => {
-  // Arrange: new questions open the stack by themselves; he scrolls down the
-  // first card and closes the Command Center.
+  // Arrange: he opens the first question, scrolls down its card and closes
+  // the Command Center.
   await page.goto("/tests/fixtures/command-scroll.html");
   const dialog = page.getByRole("dialog");
+  await page.getByRole("button", { name: "Open", exact: true }).click();
   await expect(dialog.getByText("May I build the Paused divider as drawn?")).toBeVisible();
   expect(await dialog.evaluate((element) => element.scrollHeight > element.clientHeight)).toBe(true);
   await dialog.evaluate((element) => element.scrollTo(0, element.scrollHeight));
@@ -36,6 +37,7 @@ test("moving to the next item shows it from its top", async ({ page }) => {
   // Arrange
   await page.goto("/tests/fixtures/command-scroll.html");
   const dialog = page.getByRole("dialog");
+  await page.getByRole("button", { name: "Open", exact: true }).click();
   await expect(dialog.getByText("May I build the Paused divider as drawn?")).toBeVisible();
   await dialog.evaluate((element) => element.scrollTo(0, element.scrollHeight));
 

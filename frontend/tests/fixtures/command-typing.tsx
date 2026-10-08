@@ -8,10 +8,10 @@ declare global {
   interface Window { ask?: (id: string) => void }
 }
 
-// A board with a comment box the Overlord types in. ask is a goblin's new
-// question arriving, as the supervisor's snapshot brings it.
+// A board with a comment box the Overlord types in. ask is a new question
+// the CFO has for him arriving, as the supervisor's snapshot brings it.
 const question = (id: string) => ({
-  id, identity: "q".repeat(64), task: "cg-board-polish", generation: "1", seq: 1, status: "pending", created_at: new Date().toISOString(),
+  id, identity: "q".repeat(64), task: "", status: "pending", created_at: new Date().toISOString(),
   text: "May I build the layout switch as drawn?", options: ["Build as drawn", "Change it first"], recommended: "Build as drawn",
 });
 const base = { healthy: true, instance: "fixture", revision: 1, tasks: [{ id: "cg-board-polish", title: "Polish the board", phase: "blocked", generation: "1", verified: false }] };

@@ -35,20 +35,64 @@ func (r Removal) String() string {
 	return fmt.Sprintf("%s %s: %s: %s", r.Commit, r.Subject, r.File, r.What)
 }
 
-// Result is what one check examined and what it found. Commits counts the
-// gate commits read, so a check that read nothing says so rather than
-// passing silently.
+// Result is what one check examined and what it found. Head is the commit it
+// read. Commits counts the gate commits read and Approved those left out
+// because an approved head reaches them, so a check that read nothing says
+// so rather than passing silently.
 type Result struct {
 	Base     string
+	Head     string
 	Commits  int
+	Approved int
 	Removals []Removal
+}
+
+// checkedLinePrefix begins the first line of every report, which names the
+// HEAD the check read. When a person approves or skips the park, no-mistakes
+// keeps the report, first line included, as that round's summary, so the
+// summary says which head they let through.
+const checkedLinePrefix = "tests kept: checked HEAD "
+
+// checkedLine matches that line exactly. Only a summary's first line is
+// read, because the lines below it quote commit subjects, which the gate's
+// fixer writes.
+var checkedLine = regexp.MustCompile(`^` + regexp.QuoteMeta(checkedLinePrefix) + `([0-9a-f]{40})\r?$`)
+
+// CheckedLine is the first line of every report: the HEAD it read.
+func CheckedLine(head string) string {
+	return checkedLinePrefix + head
+}
+
+// ApprovedHeads reads, once each, the heads that the summaries of parks a
+// person approved or skipped name on their first line.
+func ApprovedHeads(summaries []string) []string {
+	var heads []string
+	seen := map[string]bool{}
+	for _, summary := range summaries {
+		first, _, _ := strings.Cut(summary, "\n")
+		if match := checkedLine.FindStringSubmatch(first); match != nil && !seen[match[1]] {
+			seen[match[1]] = true
+			heads = append(heads, match[1])
+		}
+	}
+	return heads
 }
 
 // Check reads the gate commits between the branch's merge base with the
 // default branch and HEAD in dir, and lists every test they deleted or
-// skipped.
-func Check(ctx context.Context, git execx.Runner, dir string) (Result, error) {
+// skipped. A gate commit that one of the approved heads reaches is left out
+// and counted: the approved heads are those of earlier parks a person
+// approved or skipped, and every gate commit up to such a head was either
+// clean there or in the report they let through. That holds for the commit
+// wherever it travels, so it is left out on any branch carrying it, while a
+// commit nobody approved is read however many remote branches hold it. A
+// head this repository lacks is ignored.
+func Check(ctx context.Context, git execx.Runner, dir string, approved []string) (Result, error) {
 	base, err := mergeBase(ctx, git, dir)
+	if err != nil {
+		return Result{}, err
+	}
+	head, err := run(ctx, git, dir, "rev-parse", "HEAD")
 	if err != nil {
 		return Result{}, err
 	}
@@ -56,11 +100,19 @@ func Check(ctx context.Context, git execx.Runner, dir string) (Result, error) {
 	if err != nil {
 		return Result{}, err
 	}
-	result := Result{Base: base}
+	unapproved, err := unapprovedCommits(ctx, git, dir, base, approved)
+	if err != nil {
+		return Result{}, err
+	}
+	result := Result{Base: base, Head: strings.TrimSpace(head)}
 	tallies := map[string]*skipTally{}
 	for _, line := range strings.Split(strings.TrimSpace(log), "\n") {
 		sha, subject, ok := strings.Cut(line, "\x1f")
 		if !ok || !strings.HasPrefix(subject, GateCommitPrefix) {
+			continue
+		}
+		if unapproved != nil && !unapproved[sha] {
+			result.Approved++
 			continue
 		}
 		diff, err := run(ctx, git, dir, "-c", "core.quotePath=false", "show", "--format=", "--no-color", "--unified=0", "--find-renames", sha)
@@ -88,6 +140,29 @@ func Check(ctx context.Context, git execx.Runner, dir string) (Result, error) {
 	}
 	result.Removals = append(result.Removals, skips...)
 	return result, nil
+}
+
+// unapprovedCommits is the set of commits since base that no approved head
+// reaches, or nil when there is no approved head, so every commit is read.
+// Each head is passed negated rather than after --not, so no head can be
+// read as an option.
+func unapprovedCommits(ctx context.Context, git execx.Runner, dir, base string, approved []string) (map[string]bool, error) {
+	if len(approved) == 0 {
+		return nil, nil
+	}
+	args := []string{"rev-list", "--ignore-missing", "HEAD", "^" + base}
+	for _, head := range approved {
+		args = append(args, "^"+head)
+	}
+	out, err := run(ctx, git, dir, args...)
+	if err != nil {
+		return nil, err
+	}
+	commits := map[string]bool{}
+	for _, sha := range strings.Fields(out) {
+		commits[sha] = true
+	}
+	return commits, nil
 }
 
 // gateCommit names the gate commit that last touched a file.

@@ -267,7 +267,7 @@ func (f *fleetE2EFixture) Seed(harnessName string) {
 	if err != nil {
 		f.t.Fatal(err)
 	}
-	worktreePath, err := f.git.Acquire(ctx, f.project, "gb-"+harnessName)
+	worktreePath, err := f.git.Acquire(ctx, f.project, filepath.Join(f.home.Worktrees(), filepath.Base(f.project), harnessName), "")
 	if err != nil {
 		f.t.Fatal(err)
 	}
@@ -679,18 +679,25 @@ type fleetE2EReturn struct {
 	worktree string
 }
 
-func (g *fleetE2EGit) Acquire(_ context.Context, project, holder string) (string, error) {
-	if !strings.HasPrefix(holder, "gb-") {
-		return "", fmt.Errorf("acquire is missing gb- holder: %q", holder)
-	}
+func (g *fleetE2EGit) Acquire(_ context.Context, project, path, _ string) (string, error) {
 	if !samePath(project, g.fixture.project) {
 		return "", fmt.Errorf("acquire ran outside the project: %q", project)
 	}
-	path := filepath.Join(g.fixture.home.Root, "worktrees", strings.TrimPrefix(holder, "gb-"))
+	if !strings.HasPrefix(strings.ToLower(path), strings.ToLower(g.fixture.home.Worktrees())+string(filepath.Separator)) {
+		return "", fmt.Errorf("acquire placed the worktree outside the home's worktrees folder: %q", path)
+	}
 	if err := os.MkdirAll(path, 0o755); err != nil {
 		return "", err
 	}
 	return path, nil
+}
+
+func (g *fleetE2EGit) Landing(context.Context, string) (worktree.Landing, error) {
+	return worktree.Landing{Landed: true}, nil
+}
+
+func (g *fleetE2EGit) ArchiveTag(context.Context, string, worktree.Landing, string) (string, error) {
+	return "", fmt.Errorf("the fleet fixture's work is always landed")
 }
 
 func (g *fleetE2EGit) WorktreeTop(_ context.Context, dir string) (string, error) {

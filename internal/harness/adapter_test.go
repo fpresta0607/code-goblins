@@ -25,7 +25,7 @@ func (r *fakeRunner) Run(_ context.Context, request execx.Request) (execx.Result
 func TestDefaultRegistryAcceptsOnlyPlan3Harnesses(t *testing.T) {
 	registry := DefaultRegistry()
 
-	for _, kind := range []Kind{Claude, Codex, Pi, Kimi} {
+	for _, kind := range []Kind{Claude, Codex, Pi} {
 		adapter, err := registry.Get(kind)
 		if err != nil {
 			t.Fatalf("Get(%q): %v", kind, err)
@@ -35,7 +35,7 @@ func TestDefaultRegistryAcceptsOnlyPlan3Harnesses(t *testing.T) {
 		}
 	}
 
-	for _, kind := range []Kind{"grok", "opencode", "raw command", "unknown"} {
+	for _, kind := range []Kind{"kimi", "grok", "opencode", "raw command", "unknown"} {
 		if _, err := registry.Get(kind); err == nil {
 			t.Errorf("Get(%q) returned nil error", kind)
 		}
@@ -58,7 +58,6 @@ func TestControlContractForSwitch(t *testing.T) {
 		{Claude, []string{"escape"}, "/exit", []string{"--continue"}},
 		{Codex, []string{"escape"}, "/quit", []string{"resume", "--last"}},
 		{Pi, []string{"escape"}, "/quit", nil},
-		{Kimi, []string{"escape"}, "/quit", []string{"--continue"}},
 	}
 	registry := DefaultRegistry()
 	for _, test := range cases {
@@ -119,7 +118,7 @@ func equalStrings(left, right []string) bool {
 // and its goblin would start unstamped.
 func TestEveryAdapterStampsTheGoblinRole(t *testing.T) {
 	registry := DefaultRegistry()
-	for _, kind := range []Kind{Claude, Codex, Pi, Kimi} {
+	for _, kind := range []Kind{Claude, Codex, Pi} {
 		adapter, err := registry.Get(kind)
 		if err != nil {
 			t.Fatalf("Get(%s): %v", kind, err)
@@ -134,7 +133,7 @@ func TestEveryAdapterStampsTheGoblinRole(t *testing.T) {
 				t.Fatalf("Validate(pi): %v", err)
 			}
 		}
-		launch, err := adapter.Build(LaunchSpec{BriefPath: `C:\briefs\task.md`, TaskTmp: `C:\tasks\task`, GoTmp: `C:\gotmp\task`})
+		launch, err := adapter.Build(LaunchSpec{BriefPath: `C:\briefs\task.md`, TaskTmp: `C:\tasks\task`, Scratch: `C:\gotmp\task`})
 		if err != nil {
 			t.Fatalf("Build(%s): %v", kind, err)
 		}
@@ -147,10 +146,10 @@ func TestEveryAdapterStampsTheGoblinRole(t *testing.T) {
 // A launch with no Go temporary directory would leave the goblin inheriting
 // the operator's own %TEMP%, which is what the per-task directory exists to
 // prevent, so the build refuses it rather than falling back.
-func TestBuildRequiresAnAbsoluteGoTmp(t *testing.T) {
+func TestBuildRequiresAnAbsoluteScratch(t *testing.T) {
 	for _, goTmp := range []string{"", "   ", `gotmp\task`} {
-		if _, err := DefaultRegistry().Adapters[Claude].Build(LaunchSpec{BriefPath: `C:\briefs\task.md`, TaskTmp: `C:\tasks\task`, GoTmp: goTmp}); err == nil {
-			t.Errorf("Build(GoTmp=%q) = nil, want refusal", goTmp)
+		if _, err := DefaultRegistry().Adapters[Claude].Build(LaunchSpec{BriefPath: `C:\briefs\task.md`, TaskTmp: `C:\tasks\task`, Scratch: goTmp}); err == nil {
+			t.Errorf("Build(Scratch=%q) = nil, want refusal", goTmp)
 		}
 	}
 }

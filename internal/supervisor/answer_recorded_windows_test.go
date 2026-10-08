@@ -31,7 +31,7 @@ func TestCFOAnswerToABusyGoblinIsRecordedSoTheBoardRefusesAnother(t *testing.T) 
 
 	// Assert
 	if err != nil || chosen != "SQLite" || !queued {
-		t.Fatalf("answer = %q, queued %v, %v; want SQLite recorded as queued behind the goblin's turn", chosen, queued, err)
+		t.Fatalf("answer = %q, queued %v, %v; want SQLite recorded as queued for the goblin's next tool call", chosen, queued, err)
 	}
 	if typed := goblin.lines(t); len(typed) != 1 {
 		t.Fatalf("the goblin received %q, want the answer submitted once", typed)

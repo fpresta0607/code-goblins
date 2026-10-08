@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"slices"
 	"strings"
 	"time"
 
@@ -79,6 +80,17 @@ func (s *Service) checkProgress(ctx context.Context, watched *fleetWakes, now ti
 			delete(watched.Progress, id)
 		}
 	}
+	// Every goblin's own progress is measured before any stall is judged, so
+	// a parent waiting on its helper can take the helper's as its own.
+	measured := map[string]bool{}
+	awaitedHelper := map[string]string{}
+	helpers := map[string]state.TaskMeta{}
+	for _, meta := range tasks {
+		if meta.Parent != "" {
+			helpers[strings.ToLower(meta.ID)] = meta
+		}
+	}
+measuring:
 	for len(pending) > 0 {
 		var observed observation
 		select {
@@ -88,7 +100,7 @@ func (s *Service) checkProgress(ctx context.Context, watched *fleetWakes, now ti
 			for id := range pending {
 				problems = errors.Join(problems, fmt.Errorf("progress for %s: %w", id, probe.Err()))
 			}
-			return problems
+			break measuring
 		}
 		if observed.err != nil {
 			problems = errors.Join(problems, observed.err)
@@ -127,16 +139,38 @@ func (s *Service) checkProgress(ctx context.Context, watched *fleetWakes, now ti
 			prior.At, prior.Source, prior.Woken = now, source, false
 		}
 		prior.Head, prior.Pushed, prior.Gate, prior.Report = head, pushed, gate, report
+		watched.Progress[meta.ID] = prior
+		measured[meta.ID] = true
+		standingAt, standing := standingReport(lines, spawnTime(meta.SpawnGen))
+		phase, _, target, isReported := reportedProgress(s.statusTail, meta.ID, database.Reviews, standingAt, standing)
+		if helper, isHelper := helpers[strings.ToLower(target)]; isReported && phase == "waiting" && isHelper && strings.EqualFold(helper.Parent, meta.ID) {
+			awaitedHelper[meta.ID] = helper.ID
+		}
+	}
+	for id := range measured {
+		prior := watched.Progress[id]
+		// While a goblin waits on its helper, the helper's progress is its
+		// own, and a helper that stalls reports that itself; a paused one
+		// reports nothing, so its parent's stall is the parent's to report.
+		helper, isWaiting := awaitedHelper[id]
+		if progress := watched.Progress[helper]; isWaiting && progress.At.After(prior.At) {
+			prior.At, prior.Source, prior.Woken = progress.At, progress.Source+" (helper "+helper+")", false
+		}
 		prior.Seconds = max(0, int64(now.Sub(prior.At)/time.Second))
-		if now.Sub(prior.At) >= PROGRESS_THRESHOLD && !prior.Woken {
-			detail := fmt.Sprintf("progress_stalled: %s has made no new commit, push, gate step or status report for %d minutes; last progress: %s; next: inspect its work and decide whether it should pause", meta.ID, prior.Seconds/60, prior.Source)
-			if err := raiseFleetWake(s.Store.Home.State, "check", meta.ID, detail); err != nil {
+		// A goblin whose latest report is done, a question, or a wait on CI,
+		// a deploy, the Overlord or memory expects no progress until that
+		// changes, and each of those wakes the CFO on its own when it does.
+		kind := reportKind(prior.Report)
+		isReportedElsewhere := kind == "done" || kind == "blocked" || kind == "failed" || slices.ContainsFunc([]string{"ci", "deploy", "overlord", "memory"}, func(on string) bool { return strings.HasPrefix(prior.Report, "waiting on "+on+": ") })
+		if now.Sub(prior.At) >= PROGRESS_THRESHOLD && !prior.Woken && !(isWaiting && measured[helper]) && !isReportedElsewhere {
+			detail := fmt.Sprintf("progress_stalled: %s has made no new commit, push, gate step or status report for %d minutes; last progress: %s; next: inspect its work and decide whether it should pause", id, prior.Seconds/60, prior.Source)
+			if err := raiseFleetWake(s.Store.Home.State, "check", id, detail); err != nil {
 				problems = errors.Join(problems, err)
 			} else {
 				prior.Woken = true
 			}
 		}
-		watched.Progress[meta.ID] = prior
+		watched.Progress[id] = prior
 	}
 	return problems
 }

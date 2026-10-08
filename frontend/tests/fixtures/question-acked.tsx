@@ -8,10 +8,9 @@ declare global {
   interface Window { ackByCFO?: () => void }
 }
 
-// A goblin asks the Overlord a question, he answers it in chat, and the CFO
-// relays his answer with cfo send and retires the notify with --ack-blocking.
-// The question opens the Command Center by itself; ackByCFO is the supervisor
-// closing the question once its notify left the wake queue.
+// A goblin asks the CFO a question, and the CFO answers it and retires the
+// notify with --ack-blocking. The question is never the Overlord's; ackByCFO
+// is the supervisor closing it once its notify left the wake queue.
 const at = "2026-10-01T13:20:00Z";
 const question = {
   id: "notify-cg-board-theme-3640", identity: "a".repeat(64), task: "cg-board-theme", generation: "1", seq: 3640,

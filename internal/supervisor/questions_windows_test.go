@@ -160,8 +160,8 @@ func TestQuestionAnswerDeliveredOnlyOnceToCFOAndCrashUncertain(t *testing.T) {
 }
 
 // An answer the board submits to a goblin or the CFO that is busy inside a
-// long turn waits in its input until the turn ends, so it is sent, typed
-// once and awaiting its harness's report, never failed or unconfirmed: the
+// long tool call waits for its next tool call, so it is sent, typed once and
+// awaiting its harness's record, never failed or unconfirmed: the
 // Overlord sees it on its way, and a goblin's notify reads answered so nobody
 // asks it again.
 func TestABoardAnswerToABusyAskerIsSentNotUnconfirmed(t *testing.T) {
@@ -217,10 +217,10 @@ func TestABoardAnswerToABusyAskerIsSentNotUnconfirmed(t *testing.T) {
 	}
 }
 
-// The senders say plainly that a delivery waits behind a busy asker's turn,
-// and never call it delivered: a goblin's reports it as queued behind the
-// turn, which each caller then settles, and the CFO's as sent and awaiting
-// the CFO's report. Either way the text is typed once.
+// The senders say plainly that a delivery waits for a busy asker's next tool
+// call, and never call it delivered: a goblin's reports it as queued for that
+// tool call, which each caller then settles, and the CFO's as sent and
+// awaiting the CFO's record. Either way the text is typed once.
 func TestASendToABusyAskerSaysItWaitsBehindItsTurn(t *testing.T) {
 	for _, asker := range []string{"goblin", "cfo"} {
 		t.Run(asker, func(t *testing.T) {
@@ -246,8 +246,8 @@ func TestASendToABusyAskerSaysItWaitsBehindItsTurn(t *testing.T) {
 			result, err := send()
 
 			// Assert
-			if asker == "goblin" && !errors.Is(err, fleet.ErrQueuedBehindTurn) {
-				t.Fatalf("err = %v, want the busy goblin's delivery reported as queued behind its turn", err)
+			if asker == "goblin" && !errors.Is(err, fleet.ErrQueuedForToolCall) {
+				t.Fatalf("err = %v, want the busy goblin's delivery reported as queued for its next tool call", err)
 			}
 			if asker == "cfo" && (err != nil || result.Awaiting == nil || result.Reason != sentToCFO) {
 				t.Fatalf("result = %+v, %v; want the busy CFO's delivery sent and awaiting its report", result, err)

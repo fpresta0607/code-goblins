@@ -112,6 +112,26 @@ func TestADecisionIsLoggedInTheStretchItWasMadeIn(t *testing.T) {
 	}
 }
 
+// AFK mode is complete autopilot: what only the Overlord can do is never asked
+// of him or held for him. The CFO gives it a backlog row, works around it and
+// logs it as left for him, which his report lists.
+func TestWhatOnlyHeCanDoIsLoggedAsLeftForHim(t *testing.T) {
+	// Arrange
+	dir, on := turnedOn(t)
+
+	// Act
+	logged, err := Log(dir, Entry{Kind: KindLeft, What: "Sign in to Vercel for pd-auth", Evidence: "his own sign-in; backlog row pd-auth-vercel-sign-in, pd-auth moved to the invoice export"}, night.Add(time.Hour))
+
+	// Assert
+	if err != nil {
+		t.Fatalf("Log = %v, want what is left for him logged", err)
+	}
+	entries, _, _ := Entries(dir, on.Session)
+	if decisions := Decisions(entries); len(decisions) != 1 || decisions[0].Kind != KindLeft || decisions[0].Evidence != logged.Evidence {
+		t.Errorf("decisions = %+v, want what was left for him with its evidence", decisions)
+	}
+}
+
 func TestNothingIsLoggedAsDecidedWhileAFKModeIsOff(t *testing.T) {
 	dir := t.TempDir()
 
@@ -153,7 +173,7 @@ func TestADecisionWithoutEvidenceOrOfAnUnknownKindIsRefused(t *testing.T) {
 
 func TestAnItemIsHeldOnlyWhileAFKModeIsOn(t *testing.T) {
 	dir, on := turnedOn(t)
-	held := Entry{Item: "question:drop-legacy-invoices", What: "Migration 0042 drops legacy_invoices. Apply it?"}
+	held := Entry{Item: "question:drop-legacy-invoices", What: "Migration 0042 drops legacy_invoices. Apply it?", Recommendation: "Keep it held"}
 
 	if err := Hold(dir, held, night.Add(time.Minute)); err != nil {
 		t.Fatal(err)
@@ -163,6 +183,9 @@ func TestAnItemIsHeldOnlyWhileAFKModeIsOn(t *testing.T) {
 	if len(entries) != 2 || entries[1].Kind != KindHeld || entries[1].Item != held.Item || entries[1].What != held.What || entries[1].Session != on.Session {
 		t.Errorf("log = %+v, want the held item in the stretch", entries)
 	}
+	if len(entries) == 2 && entries[1].Recommendation != held.Recommendation {
+		t.Errorf("held line = %+v, want it with what was recommended for it", entries[1])
+	}
 	if err := Hold(dir, Entry{What: "no item"}, night.Add(time.Minute)); err == nil {
 		t.Error("a held line that names no item was accepted")
 	}
@@ -171,6 +194,43 @@ func TestAnItemIsHeldOnlyWhileAFKModeIsOn(t *testing.T) {
 	}
 	if err := Hold(dir, held, night.Add(2*time.Hour)); !errors.Is(err, ErrNotOn) {
 		t.Errorf("Hold while off = %v, want %v", err, ErrNotOn)
+	}
+}
+
+// A goblin the supervisor paused at a floor while AFK mode is on is logged
+// with the readings it stood on, and then with how the pause went. It is the
+// supervisor's safety rail, not a decision of the CFO's, so it counts as none.
+func TestAGoblinPausedAtAFloorIsLoggedWithItsEvidenceAndOutcome(t *testing.T) {
+	// Arrange
+	dir, on := turnedOn(t)
+	pause := Entry{Task: "nw-search-index", What: "at the memory floor", Evidence: "3.1 GB of memory and 6.2 GB of commit free on two readings in a row, under the 4 GB floor"}
+
+	// Act
+	err := errors.Join(Pause(dir, pause, night.Add(time.Minute)), Pause(dir, Entry{Task: pause.Task, What: pause.What, Outcome: "paused"}, night.Add(2*time.Minute)))
+
+	// Assert
+	if err != nil {
+		t.Fatal(err)
+	}
+	entries, _, err := Entries(dir, on.Session)
+	if err != nil {
+		t.Fatal(err)
+	}
+	pauses := Pauses(entries)
+	if len(pauses) != 1 || pauses[0].Kind != KindPause || pauses[0].Task != pause.Task || pauses[0].Evidence != pause.Evidence || pauses[0].Outcome != "paused" {
+		t.Errorf("Pauses = %+v, want the pause with its evidence and its outcome", pauses)
+	}
+	if decisions := Decisions(entries); len(decisions) != 0 {
+		t.Errorf("Decisions = %+v, want none: a pause at a floor is not the CFO's", decisions)
+	}
+	if err := Pause(dir, Entry{What: "at the memory floor", Evidence: "low"}, night.Add(3*time.Minute)); err == nil {
+		t.Error("a pause that names no goblin was logged")
+	}
+	if _, err := TurnOff(dir, "the board", night.Add(time.Hour)); err != nil {
+		t.Fatal(err)
+	}
+	if err := Pause(dir, pause, night.Add(2*time.Hour)); !errors.Is(err, ErrNotOn) {
+		t.Errorf("Pause while off = %v, want %v", err, ErrNotOn)
 	}
 }
 

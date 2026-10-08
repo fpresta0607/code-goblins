@@ -19,11 +19,12 @@ import (
 	"github.com/fpresta0607/code-goblins/internal/fleet"
 	"github.com/fpresta0607/code-goblins/internal/harness"
 	"github.com/fpresta0607/code-goblins/internal/host"
+	"github.com/fpresta0607/code-goblins/internal/install"
 	"github.com/fpresta0607/code-goblins/internal/state"
 	"github.com/fpresta0607/code-goblins/internal/wake"
 )
 
-// A native terminal starts at the size goblins --native starts the CFO at.
+// A native terminal starts at the size goblins starts the CFO at.
 const (
 	nativeCols = 120
 	nativeRows = 40
@@ -59,22 +60,20 @@ var (
 	// harness that takes it in slowly.
 	nativeTypedCap = 10 * time.Minute
 	// nativeQueuedProof bounds how long a delivery to a harness already in
-	// a turn waits for a hook to report it taken, in case the turn was ending.
+	// a turn waits for the harness's record to show it taken, in case the
+	// tool call running was ending.
 	nativeQueuedProof = 5 * time.Second
 )
 
 // maxDialogMoves bounds the focus moves one dialog takes.
 const maxDialogMoves = 8
 
-// startNativeHarness starts the harness in a native terminal of its own, the
-// task's id, and delivers its instruction. It reads the terminal's screen
-// throughout: it answers a startup dialog only once it recognizes it, types
-// the instruction only at the harness's composer, and submits it only once the
-// composer shows it. It returns the record of the host it launched, even when
-// it fails afterwards, and the zero record when it launched none.
-func (s Service) startNativeHarness(ctx context.Context, id string, kind harness.Kind, launch harness.Launch, userEnv []string, credentials map[string]string) (host.Record, error) {
-	screens, ok := harness.NativeScreens(kind)
-	if !ok {
+// launchNativeHost starts the harness in a native terminal of its own, the
+// task's id, and returns its host's record, the zero record when it launched
+// none. It is the last step of a start's turn: from here the host counts as a
+// running terminal, which the next start's admission sees.
+func (s Service) launchNativeHost(id string, kind harness.Kind, launch harness.Launch, userEnv []string, credentials map[string]string) (host.Record, error) {
+	if _, ok := harness.NativeScreens(kind); !ok {
 		return host.Record{}, fmt.Errorf("spawn: %s cannot run in a native terminal yet", kind)
 	}
 	program, err := nativeProgram(kind, launch)
@@ -84,24 +83,46 @@ func (s Service) startNativeHarness(ctx context.Context, id string, kind harness
 	if len(s.HostCommand) == 0 {
 		return host.Record{}, errors.New("spawn: the command that runs a native terminal's host is required")
 	}
+	if !filepath.IsAbs(s.HomeRoot) {
+		return host.Record{}, fmt.Errorf("spawn: the home's root %q is not an absolute path, so the goblin's cfo commands could not name the home that spawned it", s.HomeRoot)
+	}
 	record, err := host.Launch(s.StateDir, s.HostCommand, s.nativeHostEnvironment(userEnv, launch, credentials), host.Spec{ID: id, Args: program, Dir: launch.Dir, Cols: nativeCols, Rows: nativeRows})
 	if err != nil {
 		return host.Record{}, fmt.Errorf("spawn: start native terminal %s: %w", id, err)
 	}
-	untrusted, err := s.awaitNativeReady(ctx, record, screens)
+	return record, nil
+}
+
+// briefNativeHarness waits for the harness in task id's native terminal,
+// which record names, to start and delivers its instruction. It reads the
+// terminal's screen throughout: it answers a startup dialog only once it
+// recognizes it, types the instruction only at the harness's composer, and
+// submits it only once the composer shows it. It runs after the start's turn,
+// so a slow startup holds up no other start.
+func (s Service) briefNativeHarness(ctx context.Context, id string, record host.Record, kind harness.Kind, launch harness.Launch) error {
+	screens, ok := harness.NativeScreens(kind)
+	if !ok {
+		return fmt.Errorf("spawn: %s cannot run in a native terminal yet", kind)
+	}
+	untrusted, working, err := s.awaitNativeReady(ctx, record, screens, launch.Resumed)
 	if err != nil {
-		return record, err
+		return err
 	}
 	if untrusted != "" {
 		if err := s.reportUntrusted(id, kind, launch.Dir, untrusted); err != nil {
-			return record, err
+			return err
 		}
+	}
+	// A resumed conversation that came back in a turn is at work on its task
+	// already, so its instruction is not typed a second time.
+	if working {
+		return nil
 	}
 	instruction, err := s.typedInstruction(id, screens, launch.PromptInstruction())
 	if err != nil {
-		return record, err
+		return err
 	}
-	return record, s.deliverNativeInstruction(ctx, record, screens, instruction, launch.Env["CFO_SPAWN_GEN"])
+	return s.deliverNativeInstruction(ctx, record, screens, state.TaskMeta{ID: id, Harness: string(kind), Worktree: launch.Dir, SpawnGen: launch.Env["CFO_SPAWN_GEN"]}, instruction)
 }
 
 // typedInstructionLimit is the longest instruction typed whole into a harness
@@ -142,16 +163,19 @@ func instructionPointer(path string) string {
 // from a screen that shows none. The composer counts as ready once it has
 // read so throughout nativeReadySettle: Codex 0.154 drew its composer, then
 // its hook review over it a second later, and a brief typed at the first sight
-// of the composer went into the review. It returns what a dialog answered
-// without trust left untrusted, in the dialog's own words, or nothing.
-func (s Service) awaitNativeReady(ctx context.Context, record host.Record, screens harness.Screens) (string, error) {
+// of the composer went into the review. A resumed conversation can come back
+// in a turn, its status row showing it working, as a Codex goblin with a
+// background terminal running did live; once that has held as long as a
+// composer must, it has started and working says so. It returns what a
+// dialog answered without trust left untrusted, in the dialog's own words, or
+// nothing.
+func (s Service) awaitNativeReady(ctx context.Context, record host.Record, screens harness.Screens, resumed bool) (untrusted string, working bool, err error) {
 	deadline := time.Now().Add(nativeStartup)
-	var untrusted string
-	ready := 0
+	ready, busy := 0, 0
 	for {
 		screen, err := s.readNativeScreen(ctx, record)
 		if err != nil {
-			return "", fmt.Errorf("spawn: %w", err)
+			return "", false, fmt.Errorf("spawn: %w", err)
 		}
 		if dialog, found := screens.Dialog(screen); found {
 			if dialog.Summary != nil {
@@ -160,21 +184,26 @@ func (s Service) awaitNativeReady(ctx context.Context, record host.Record, scree
 				}
 			}
 			if err := s.answerDialog(ctx, record, dialog, screen); err != nil {
-				return "", err
+				return "", false, err
 			}
-			ready = 0
+			ready, busy = 0, 0
 			continue
 		}
 		if !screens.IsReady(screen) {
 			ready = 0
 		} else if ready++; ready > readySettleReads() {
-			return untrusted, nil
+			return untrusted, false, nil
+		}
+		if !resumed || !screens.IsWorking(screen) {
+			busy = 0
+		} else if busy++; busy > readySettleReads() {
+			return untrusted, true, nil
 		}
 		if time.Now().After(deadline) {
-			return "", fmt.Errorf("spawn: native terminal %s showed neither a dialog it knows nor its harness's composer within %s; its screen ends:\n%s", record.ID, nativeStartup, host.ScreenTail(screen, 8))
+			return "", false, fmt.Errorf("spawn: native terminal %s showed neither a dialog it knows nor its harness's composer within %s; its screen ends:\n%s", record.ID, nativeStartup, host.ScreenTail(screen, 8))
 		}
 		if err := s.sleep(ctx, nativePoll); err != nil {
-			return "", err
+			return "", false, err
 		}
 	}
 }
@@ -228,9 +257,10 @@ func AnswerDialog(ctx context.Context, record host.Record, dialog harness.Dialog
 // until the option to choose has it, and confirms that option with Enter. Each
 // key waits until its effect shows before the next is sent, so a harness slow
 // to redraw is never sent a key twice, and a dialog still drawing is read
-// again until its focus shows. A dialog no spawn may answer stops the spawn.
+// again until its focus shows. An optional offer with a known Escape hint is
+// dismissed instead. A dialog no spawn may answer stops the spawn.
 func (s Service) answerDialog(ctx context.Context, record host.Record, dialog harness.Dialog, screen []string) error {
-	if dialog.Accept == "" {
+	if dialog.Accept == "" && dialog.EscapeHint == "" {
 		return fmt.Errorf("spawn: native terminal %s shows %s, which a spawn never answers; its screen ends:\n%s", record.ID, dialog.Name, host.ScreenTail(screen, 8))
 	}
 	// Codex 0.154 drew its hook review before it read keys: a Down sent the
@@ -246,6 +276,20 @@ func (s Service) answerDialog(ctx context.Context, record host.Record, dialog ha
 	if !dialog.Shows(screen) {
 		return nil
 	}
+	client, err := host.Dial(record)
+	if err != nil {
+		return fmt.Errorf("spawn: type into native terminal %s: %w", record.ID, err)
+	}
+	defer client.Close()
+	if dialog.EscapeHint != "" {
+		if err := client.Input([]byte("\x1b")); err != nil {
+			return fmt.Errorf("spawn: dismiss %s in native terminal %s: %w", dialog.Name, record.ID, err)
+		}
+		if _, err := s.awaitScreen(ctx, record, nativeKeyEffect, func(screen []string) bool { return !dialog.Shows(screen) }); err != nil {
+			return fmt.Errorf("spawn: native terminal %s still shows %s after Escape: %w", record.ID, dialog.Name, err)
+		}
+		return nil
+	}
 	if _, ok := dialog.Focused(screen); !ok {
 		screen, err = s.awaitScreen(ctx, record, nativeKeyEffect, func(screen []string) bool {
 			_, ok := dialog.Focused(screen)
@@ -255,11 +299,6 @@ func (s Service) answerDialog(ctx context.Context, record host.Record, dialog ha
 			return fmt.Errorf("spawn: native terminal %s shows %s, but not which option has the focus: %w", record.ID, dialog.Name, err)
 		}
 	}
-	client, err := host.Dial(record)
-	if err != nil {
-		return fmt.Errorf("spawn: type into native terminal %s: %w", record.ID, err)
-	}
-	defer client.Close()
 	for moves := 0; dialog.Shows(screen); moves++ {
 		focused, _ := dialog.Focused(screen)
 		if dialog.Chosen(focused) {
@@ -288,14 +327,17 @@ func (s Service) answerDialog(ctx context.Context, record host.Record, dialog ha
 	return nil
 }
 
-// deliverNativeInstruction submits the instruction to the harness of
-// generation generation and returns once the harness is proven to have taken
-// it: its native hooks report a prompt taken since the submit, or its screen
-// shows it working when it was not working before. Typed into a harness
-// already in a turn, the text waits in its composer for that turn to end, so
-// with no hook report soon after the submit it is not proven taken and the
-// error says it waits behind the turn.
-func (s Service) deliverNativeInstruction(ctx context.Context, record host.Record, screens harness.Screens, instruction, generation string) error {
+// deliverNativeInstruction submits the instruction to the harness of task
+// meta and returns once the harness is proven to have taken it. A harness
+// idle at its composer takes it as the prompt of a new turn: its native hooks
+// report a prompt taken since the submit, or its screen shows it working when
+// it was not working before. A harness already in a turn queues it and hands
+// it to its model at its next tool call, never interrupting the call that
+// runs, and runs its prompt hook as it queues it, so only its own record of
+// the conversation proves it taken; with none soon after the submit the
+// error says it is queued for that tool call. Either way it is typed and
+// submitted once.
+func (s Service) deliverNativeInstruction(ctx context.Context, record host.Record, screens harness.Screens, meta state.TaskMeta, instruction string) error {
 	before, err := s.readNativeScreen(ctx, record)
 	if err != nil {
 		return err
@@ -312,8 +354,11 @@ func (s Service) deliverNativeInstruction(ctx context.Context, record host.Recor
 	deadline := time.Now().Add(within)
 	pressed, presses := time.Now(), 0
 	for {
-		if s.PromptSince != nil {
-			if taken, err := s.PromptSince(record.ID, generation, submitted); err == nil && taken {
+		if busy && s.Took != nil && s.Took(ctx, meta, instruction, submitted) {
+			return nil
+		}
+		if !busy && s.PromptSince != nil {
+			if taken, err := s.PromptSince(record.ID, meta.SpawnGen, submitted); err == nil && taken {
 				return nil
 			}
 		}
@@ -337,7 +382,7 @@ func (s Service) deliverNativeInstruction(ctx context.Context, record host.Recor
 		}
 		if time.Now().After(deadline) {
 			if busy {
-				return fmt.Errorf("spawn: native terminal %s took the text while its harness was in a turn, and no hook reported the harness taking it within %s: %w", record.ID, within, fleet.ErrQueuedBehindTurn)
+				return fmt.Errorf("spawn: native terminal %s has the text submitted: %w", record.ID, fleet.ErrQueuedForToolCall)
 			}
 			return fmt.Errorf("spawn: native terminal %s never showed its harness working on the instruction: not within %s; its screen ends:\n%s", record.ID, within, host.ScreenTail(screen, 8))
 		}
@@ -576,8 +621,12 @@ var inheritedSessionVariables = []string{"CLAUDECODE", "CLAUDE_CODE_ENTRYPOINT",
 // this user, never the spawning process's own, so nothing of the session that
 // ran cfo spawn reaches the goblin; without the harness billing keys or any
 // session marker; then the project's credentials, then the launch's variables
-// (CFO_ROLE=goblin and the task's identity among them) and CFO_STATE_OVERRIDE,
-// which win. This block is how its credentials reach the harness at start.
+// (CFO_ROLE=goblin and the task's identity among them) and the spawning
+// home's CFO_HOME and CFO_STATE_OVERRIDE, and the projects root the spawner
+// names, where it names one, which win: the user's environment names the
+// machine's installed home and projects root, which for a second home on the
+// machine are another's. This block is how its credentials reach the harness at
+// start.
 // Names compare without case, as Windows compares them.
 func (s Service) nativeHostEnvironment(userEnv []string, launch harness.Launch, credentials map[string]string) []string {
 	names := map[string]string{}
@@ -602,7 +651,11 @@ func (s Service) nativeHostEnvironment(userEnv []string, launch harness.Launch, 
 	for name, value := range launch.Env {
 		set(name, value)
 	}
+	set("CFO_HOME", s.HomeRoot)
 	set("CFO_STATE_OVERRIDE", s.StateDir)
+	if s.ProjectsRoot != "" {
+		set(install.ProjectsRootVariable, s.ProjectsRoot)
+	}
 	env := make([]string, 0, len(values))
 	for upper, value := range values {
 		env = append(env, names[upper]+"="+value)

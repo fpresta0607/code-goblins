@@ -2,13 +2,18 @@ package axi
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
+	"fmt"
+	"os"
+	"path/filepath"
 	"slices"
 	"strconv"
 	"strings"
 	"time"
 
 	"github.com/fpresta0607/code-goblins/internal/execx"
+	"github.com/fpresta0607/code-goblins/internal/fsx"
 )
 
 // Lavish invokes lavish-axi, the Overlord's review surface, to open a page
@@ -49,13 +54,19 @@ func (l Lavish) Open(ctx context.Context, file string) (string, error) {
 	return url, nil
 }
 
-// Poll waits up to timeout for the Overlord's feedback on the page. Delivery
-// consumes the feedback, so a page must have one poller: a cancelled poll
-// ends its whole process tree, leaving no poll behind to take the feedback.
-func (l Lavish) Poll(ctx context.Context, file string, timeout time.Duration) (PagePoll, error) {
+// Poll waits up to timeout for the Overlord's feedback on the page, first
+// posting reply, when there is one, to the page's conversation panel.
+// Delivery consumes the feedback, so a page must have one poller: a cancelled
+// poll ends its whole process tree, leaving no poll behind to take the
+// feedback.
+func (l Lavish) Poll(ctx context.Context, file, reply string, timeout time.Duration) (PagePoll, error) {
+	args := []string{"poll", file}
+	if reply != "" {
+		args = append(args, "--agent-reply", reply)
+	}
 	result, err := run(ctx, l.Commands, "lavish-axi poll "+file, execx.Request{
 		Name:     "lavish-axi",
-		Args:     []string{"poll", file, "--timeout-ms", strconv.FormatInt(timeout.Milliseconds(), 10)},
+		Args:     append(args, "--timeout-ms", strconv.FormatInt(timeout.Milliseconds(), 10)),
 		KillTree: true,
 	})
 	if err != nil {
@@ -67,6 +78,64 @@ func (l Lavish) Poll(ctx context.Context, file string, timeout time.Duration) (P
 		return PagePoll{}, errors.New("axi: lavish-axi poll reported no session status for " + file)
 	}
 	return PagePoll{Status: status, Ended: sessionField(output, "session_ended") == "true", EndedBy: sessionField(output, "ended_by"), Prompts: promptTexts(output), Output: output}, nil
+}
+
+// End ends the page's review session as an agent, so the page says the
+// review has ended and takes nothing more. Feedback queued before the end
+// stays for the next poll to deliver.
+func (l Lavish) End(ctx context.Context, file string) error {
+	_, err := command(ctx, l.Commands, "lavish-axi end "+file, "lavish-axi", "end", file)
+	return err
+}
+
+// PageSession is one review session lavish-axi keeps: its page, its status
+// (open, feedback or ended), who ended an ended one, and how many of the
+// Overlord's prompts wait on it undelivered.
+type PageSession struct {
+	File    string
+	Status  string
+	EndedBy string
+	Pending int
+}
+
+// Sessions lists every review session lavish-axi keeps, read from its state
+// file where lavish-axi itself keeps it: LAVISH_AXI_STATE_DIR, else
+// .lavish-axi in the user's profile. Reading delivers nothing; only a poll
+// takes the feedback waiting on a page. No state file is no sessions.
+func (l Lavish) Sessions() ([]PageSession, error) {
+	dir := os.Getenv("LAVISH_AXI_STATE_DIR")
+	if dir == "" {
+		profile, err := os.UserHomeDir()
+		if err != nil {
+			return nil, err
+		}
+		dir = filepath.Join(profile, ".lavish-axi")
+	}
+	data, err := fsx.ReadFile(filepath.Join(dir, "state.json"))
+	if errors.Is(err, os.ErrNotExist) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	var stored struct {
+		Sessions map[string]struct {
+			File           string            `json:"file"`
+			Status         string            `json:"status"`
+			EndedBy        string            `json:"ended_by"`
+			PendingPrompts int               `json:"pending_prompts"`
+			Prompts        []json.RawMessage `json:"prompts"`
+		} `json:"sessions"`
+	}
+	if err := json.Unmarshal(data, &stored); err != nil {
+		return nil, fmt.Errorf("axi: lavish-axi's state file is unreadable: %w", err)
+	}
+	sessions := make([]PageSession, 0, len(stored.Sessions))
+	for _, session := range stored.Sessions {
+		sessions = append(sessions, PageSession{File: session.File, Status: session.Status, EndedBy: session.EndedBy, Pending: max(session.PendingPrompts, len(session.Prompts))})
+	}
+	slices.SortFunc(sessions, func(a, b PageSession) int { return strings.Compare(a.File, b.File) })
+	return sessions, nil
 }
 
 // promptTexts reads the prompt column of the top-level TOON `prompts` table,

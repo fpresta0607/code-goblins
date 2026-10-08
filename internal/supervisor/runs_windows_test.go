@@ -6,7 +6,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -23,7 +22,7 @@ import (
 	"github.com/fpresta0607/code-goblins/internal/proc"
 )
 
-// fakeRunLauncher records each launch in place of opening a window.
+// fakeRunLauncher records each launch in place of starting a terminal.
 type fakeRunLauncher struct {
 	mu       sync.Mutex
 	launches []RunLaunch
@@ -150,6 +149,34 @@ func TestRunRequestStoresTheCommandAsTheScriptItRuns(t *testing.T) {
 			}
 			if err := PublishRun(h, req); err == nil || !strings.Contains(err.Error(), "already used") {
 				t.Fatalf("republishing the ID with other text = %v, want it refused", err)
+			}
+		})
+	}
+}
+
+func TestRunRequestExecutesACommandFileWithOrWithoutAUtf8BOM(t *testing.T) {
+	for _, prefix := range []string{"", "\xef\xbb\xbf"} {
+		t.Run(fmt.Sprintf("prefix_%x", prefix), func(t *testing.T) {
+			// Arrange
+			store, h := testStore(t)
+			_, _, _, connection := primaryFixture(t, store)
+			runPipe(t, &Service{Store: store, Options: Options{CFO: connection}})
+			file := commandFile(t, prefix+"Write-Output 'scratch-run-result-7421'\r\n")
+
+			// Act
+			if err := PublishRun(h, RunRequest{ID: "utf8-command-proof", Title: "Check the command file", Shell: "powershell", CommandFile: file}); err != nil {
+				t.Fatal(err)
+			}
+			run := store.Snapshot().Runs[0]
+			ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+			defer cancel()
+			program := exec.CommandContext(ctx, filepath.Join(os.Getenv("SystemRoot"), "System32", "WindowsPowerShell", "v1.0", "powershell.exe"), "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", filepath.Join(runDir(h.State, run), "command.ps1"))
+			program.SysProcAttr = &syscall.SysProcAttr{CreationFlags: createNoWindow}
+			output, err := program.CombinedOutput()
+
+			// Assert
+			if err != nil || strings.TrimSpace(string(output)) != "scratch-run-result-7421" {
+				t.Fatalf("published command execution = %q, %v; want the whole command to run", output, err)
 			}
 		})
 	}
@@ -460,7 +487,7 @@ func TestRunOutputShowsWhatARunningCommandPrinted(t *testing.T) {
 	}
 }
 
-// A run whose window closes before its command finishes, or whose elevation
+// A run whose terminal closes before its command finishes, or whose elevation
 // Windows does not start, ends failed with that reason and no exit code, and
 // the CFO is told it did not finish.
 func TestRunThatDoesNotFinishEndsWithItsReason(t *testing.T) {
@@ -471,10 +498,10 @@ func TestRunThatDoesNotFinishEndsWithItsReason(t *testing.T) {
 		reason   string
 	}{
 		{
-			name: "window closed",
+			name: "terminal closed",
 			// This PID with another start time is a process that is gone.
 			started: func(*testing.T) RunStarted { return RunStarted{PID: os.Getpid(), Start: time.Unix(1, 0)} },
-			reason:  "its window closed before the command finished",
+			reason:  "its terminal closed before the command finished",
 		},
 		{
 			name:     "elevation declined",
@@ -536,7 +563,7 @@ func TestRunWhoseStartWasInterruptedEnds(t *testing.T) {
 	if err := s.finishRuns(context.Background()); err != nil {
 		t.Fatal(err)
 	}
-	if got := store.Snapshot().Runs[0]; got.State != "failed" || !strings.HasPrefix(got.Reason, "its start was interrupted, so whether its window opened is unknown") {
+	if got := store.Snapshot().Runs[0]; got.State != "failed" || !strings.HasPrefix(got.Reason, "its start was interrupted, so whether its terminal opened is unknown") {
 		t.Fatalf("an item whose start was interrupted = %+v, want it failed with the reason", got)
 	}
 }
@@ -641,139 +668,5 @@ func TestRunActionIDReusedForAnotherItemIsRefused(t *testing.T) {
 	got := store.Snapshot()
 	if i := slices.IndexFunc(got.Runs, func(r Run) bool { return r.ID == second.ID }); got.Runs[i].State != "ready" || len(got.Actions) != 1 {
 		t.Fatalf("runs %+v with actions %+v, want the other item ready and one action", got.Runs, got.Actions)
-	}
-}
-
-// The PowerShell runner shows a prompt with no line ending as soon as it is
-// written, takes the answer typed in the window, and keeps the output, stderr
-// included, and the exit code. It runs the generated runner for real, in a
-// console with no window, its input and output connected to this test.
-func TestPowerShellRunnerShowsAPromptBeforeItIsAnswered(t *testing.T) {
-	exists := func(path string) bool {
-		info, err := os.Stat(path)
-		return err == nil && !info.IsDir()
-	}
-	shell, err := runShellPath("powershell", exec.LookPath, exists, os.Getenv("SystemRoot"))
-	if err != nil {
-		t.Skip(err)
-	}
-	dir := t.TempDir()
-	script := filepath.Join(dir, "command.ps1")
-	command := "\xef\xbb\xbf[Console]::Out.Write('Your name: ')\r\n$name = [Console]::In.ReadLine()\r\nWrite-Output \"hello $name\"\r\n[Console]::Error.WriteLine('careful')\r\nexit 7\r\n"
-	if err := os.WriteFile(script, []byte(command), 0600); err != nil {
-		t.Fatal(err)
-	}
-	runner, args := runnerScript(RunLaunch{Shell: "powershell", Script: script, Dir: dir, Cwd: dir}, shell)
-	if err := os.WriteFile(args[len(args)-1], runner, 0600); err != nil {
-		t.Fatal(err)
-	}
-	cmd := exec.Command(shell, args...)
-	cmd.SysProcAttr = &syscall.SysProcAttr{CreationFlags: createNoWindow}
-	stdin, err := cmd.StdinPipe()
-	if err != nil {
-		t.Fatal(err)
-	}
-	stdout, err := cmd.StdoutPipe()
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := cmd.Start(); err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() {
-		_ = stdin.Close()
-		_ = cmd.Process.Kill()
-		_ = cmd.Wait()
-	})
-	chunks := make(chan string, 256)
-	go func() {
-		defer close(chunks)
-		buffer := make([]byte, 4096)
-		for {
-			n, err := stdout.Read(buffer)
-			if n > 0 {
-				chunks <- string(buffer[:n])
-			}
-			if err != nil {
-				return
-			}
-		}
-	}()
-	var shown strings.Builder
-	waitFor := func(text string) {
-		t.Helper()
-		deadline := time.After(30 * time.Second)
-		for !strings.Contains(shown.String(), text) {
-			select {
-			case chunk, ok := <-chunks:
-				if !ok {
-					t.Fatalf("the runner ended showing %q, want %q", shown.String(), text)
-				}
-				shown.WriteString(chunk)
-			case <-deadline:
-				t.Fatalf("the window shows %q, want %q before anything is typed", shown.String(), text)
-			}
-		}
-	}
-	waitFor("Your name: ")
-	if _, err := io.WriteString(stdin, "Overlord\r\n"); err != nil {
-		t.Fatal(err)
-	}
-	waitFor("Press Enter")
-	if _, err := io.WriteString(stdin, "\r\n"); err != nil {
-		t.Fatal(err)
-	}
-	if err := cmd.Wait(); err != nil {
-		t.Fatalf("runner = %v, want it to end once Enter is pressed", err)
-	}
-	output := readRunOutput(dir)
-	if !strings.Contains(output, "hello Overlord") || !strings.Contains(output, "careful") {
-		t.Fatalf("output.log = %q, want the answered prompt's output and stderr", output)
-	}
-	if code, ok := readRunExit(dir); !ok || code != 7 {
-		t.Fatalf("exit.txt = %d %v, want 7", code, ok)
-	}
-}
-
-// A run window takes what the Overlord types in it: the item's script reads
-// its window's console, not an empty input, so a prompt such as cfo auth
-// store's hidden one waits for an answer. It opens a real window.
-func TestRunWindowGivesTheItemItsConsoleAsInput(t *testing.T) {
-	// Arrange
-	exists := func(path string) bool {
-		info, err := os.Stat(path)
-		return err == nil && !info.IsDir()
-	}
-	if _, err := runShellPath("powershell", exec.LookPath, exists, os.Getenv("SystemRoot")); err != nil {
-		t.Skip(err)
-	}
-	dir := t.TempDir()
-	script := filepath.Join(dir, "command.ps1")
-	if err := os.WriteFile(script, []byte("\xef\xbb\xbfWrite-Output \"input redirected: $([Console]::IsInputRedirected)\"\r\n"), 0600); err != nil {
-		t.Fatal(err)
-	}
-
-	// Act
-	started, err := OSRunLauncher{}.Launch(context.Background(), RunLaunch{Shell: "powershell", Script: script, Dir: dir, Cwd: dir})
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() {
-		if window, err := os.FindProcess(started.PID); err == nil {
-			_ = window.Kill()
-			_, _ = window.Wait()
-		}
-	})
-	deadline := time.Now().Add(30 * time.Second)
-	for _, ok := readRunExit(dir); !ok; _, ok = readRunExit(dir) {
-		if time.Now().After(deadline) {
-			t.Fatal("the run window never finished its script")
-		}
-		time.Sleep(50 * time.Millisecond)
-	}
-
-	// Assert
-	if output := readRunOutput(dir); !strings.Contains(output, "input redirected: False") {
-		t.Fatalf("output.log = %q, want the script to read its window's console", output)
 	}
 }

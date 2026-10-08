@@ -459,6 +459,35 @@ func TestAcquireExclusiveNamedContendsButRetainsItsOwnVerifiedRecord(t *testing.
 	}
 }
 
+func TestAcquireExclusiveNamedForNamesWhatHoldsTheLock(t *testing.T) {
+	// Arrange: another live process holds the lock for a start, which the
+	// foreign host stands in for, since this process's own lease is refused
+	// before its record is read.
+	dir, name := t.TempDir(), ".spawn.lock"
+	if _, err := AcquireExclusiveNamedFor(dir, name, "the start of pp-open-work"); err != nil {
+		t.Fatalf("AcquireExclusiveNamedFor: %v", err)
+	}
+	recorded, err := ReadNamed(dir, name)
+	if err != nil || recorded.Purpose != "the start of pp-open-work" {
+		t.Fatalf("record = %+v, %v; want the purpose recorded", recorded, err)
+	}
+	if err := ReleaseExclusiveNamed(dir, name); err != nil {
+		t.Fatal(err)
+	}
+	recorded.Hostname = "some-other-host"
+	if err := writeInfo(filepath.Join(dir, name), recorded); err != nil {
+		t.Fatal(err)
+	}
+
+	// Act
+	_, err = AcquireExclusiveNamedFor(dir, name, "the start of cg-next")
+
+	// Assert
+	if !errors.Is(err, ErrHeld) || !strings.Contains(err.Error(), "the start of pp-open-work, pid ") {
+		t.Fatalf("contended acquire = %v, want ErrHeld naming the start that holds it", err)
+	}
+}
+
 func TestReleaseExclusiveNamedRetriesTransientRemovalThenAllowsRetry(t *testing.T) {
 	dir := t.TempDir()
 	name := ".spawn-task.lock"
@@ -666,6 +695,57 @@ func TestAcquireExclusiveNamedContendsAcrossWindowsCaseVariant(t *testing.T) {
 	}
 }
 
+// A strict acquire that finds a holder gone reads its record again before it
+// removes it, so it never removes a record another run has just written. A
+// holder that removes its own record and ends between those two reads, as a
+// run giving back its admission turn does, leaves nothing to remove: the
+// acquire takes the lock instead of reporting the vanished record as an
+// error, which failed the run waiting for that turn.
+func TestStrictAcquireTakesALockWhoseHolderLeftBetweenItsReads(t *testing.T) {
+	// Arrange: a complete record of a holder that has ended, which its holder
+	// removes after the acquire's first read of it.
+	dir, name := t.TempDir(), "slot-1"
+	ended := exec.Command("cmd", "/c", "exit 0")
+	if err := ended.Run(); err != nil {
+		t.Fatal(err)
+	}
+	hostname, _ := os.Hostname()
+	pid := ended.ProcessState.Pid()
+	gone := &Info{PID: pid, OwnerPID: pid, Start: time.Now().Add(-time.Hour), Hostname: hostname, Acquired: time.Now().Add(-time.Hour)}
+	path := filepath.Join(dir, name)
+	if err := writeInfo(path, gone); err != nil {
+		t.Fatal(err)
+	}
+	self, status := ownerInfo(os.Getpid(), "")
+	if status == statusDead {
+		t.Fatal("current process unexpectedly dead")
+	}
+	reads := 0
+	read := func(dir, name string) (*Info, error) {
+		reads++
+		if reads == 2 {
+			if err := os.Remove(path); err != nil {
+				t.Fatal(err)
+			}
+		}
+		return ReadNamedStrict(dir, name)
+	}
+
+	// Act
+	info, err := acquireReading(dir, name, self, false, true, read)
+
+	// Assert
+	if reads < 2 {
+		t.Fatalf("the record was read %d time(s), so the acquire never reached the second read this tests", reads)
+	}
+	if err != nil || info == nil {
+		t.Fatalf("acquire = %+v, %v; want the lock taken once its holder left", info, err)
+	}
+	if recorded, err := ReadNamedStrict(dir, name); err != nil || recorded.PID != self.PID || !recorded.Start.Equal(self.Start) {
+		t.Errorf("the lock records %+v, %v; want this process", recorded, err)
+	}
+}
+
 // deadHoldersRecord writes dir/name naming a process that has ended.
 func deadHoldersRecord(t *testing.T, dir, name string) string {
 	t.Helper()
@@ -729,5 +809,36 @@ func TestAcquireGivesUpOnAReaderThatNeverLetsADeadHoldersRecordGo(t *testing.T) 
 	}
 	if waited := time.Since(began); waited > 5*time.Second {
 		t.Errorf("the acquire waited %s, want it bounded", waited)
+	}
+}
+
+// A live holder that never lets go is waited on only for the wait asked for:
+// past it the acquire returns the holder's ErrHeld.
+func TestAcquireNamedOwnerWithinGivesUpOnALiveHolderAfterItsWait(t *testing.T) {
+	// Arrange
+	dir := t.TempDir()
+	holder := exec.Command("ping", "-n", "30", "127.0.0.1")
+	if err := holder.Start(); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = holder.Process.Kill(); _ = holder.Wait() })
+	if _, err := AcquireNamedOwner(dir, ".wake-queue.lock", holder.Process.Pid, "wake"); err != nil {
+		t.Fatal(err)
+	}
+	const wait = 300 * time.Millisecond
+
+	// Act
+	began := time.Now()
+	_, err := AcquireNamedOwnerWithin(dir, ".wake-queue.lock", os.Getpid(), "wake", wait)
+	waited := time.Since(began)
+
+	// Assert
+	if !errors.Is(err, ErrHeld) {
+		t.Fatalf("AcquireNamedOwnerWithin over a holder that never let go = %v, want ErrHeld", err)
+	}
+	// It stops short of a pause that would end past the wait, so it can give
+	// up up to one pause early.
+	if waited < wait/4 || waited > 5*time.Second {
+		t.Errorf("the acquire waited %s, want about %s", waited, wait)
 	}
 }

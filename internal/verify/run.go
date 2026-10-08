@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"github.com/fpresta0607/code-goblins/internal/execx"
+	"github.com/fpresta0607/code-goblins/internal/fsx"
 	"github.com/fpresta0607/code-goblins/internal/project"
 	"os"
 	"path/filepath"
@@ -22,7 +23,24 @@ type Result struct {
 	Status          string    `json:"status,omitempty"`
 	TimedOut        bool      `json:"timed_out,omitempty"`
 	Output          string    `json:"output,omitempty"`
+	// Packages are what became of each package a test command ran.
+	Packages []PackageResult `json:"packages,omitempty"`
 }
+
+// PackageResult is what became of one package's tests: passed, failed,
+// build_failed when it did not compile, no_tests when it has no test files,
+// or unfinished when its tests were still running as the run ended. Tests is
+// how many top-level tests started, Failed names the tests that failed and
+// Unfinished the ones that started and never ended, as a test that hangs.
+type PackageResult struct {
+	Package    string   `json:"package"`
+	Status     string   `json:"status"`
+	Seconds    float64  `json:"seconds"`
+	Tests      int      `json:"tests,omitempty"`
+	Failed     []string `json:"failed,omitempty"`
+	Unfinished []string `json:"unfinished,omitempty"`
+}
+
 type Runner struct{ Commands execx.Runner }
 
 func (r Runner) Run(ctx context.Context, commands []project.Command, scope, task, commit, dir string, timeout time.Duration) ([]Result, error) {
@@ -68,5 +86,5 @@ func Save(path string, v any) error {
 	if e != nil {
 		return e
 	}
-	return os.WriteFile(path, append(b, '\n'), 0644)
+	return fsx.AtomicWriteFile(path, append(b, '\n'))
 }

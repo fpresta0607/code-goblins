@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"flag"
 	"fmt"
 	"io"
@@ -13,7 +14,7 @@ import (
 	"github.com/fpresta0607/code-goblins/internal/afk"
 	"github.com/fpresta0607/code-goblins/internal/axi"
 	"github.com/fpresta0607/code-goblins/internal/execx"
-	"github.com/fpresta0607/code-goblins/internal/home"
+	"github.com/fpresta0607/code-goblins/internal/fleet"
 	"github.com/fpresta0607/code-goblins/internal/state"
 	"github.com/fpresta0607/code-goblins/internal/supervisor"
 	"github.com/fpresta0607/code-goblins/internal/wake"
@@ -31,13 +32,34 @@ import (
 //	cfo notify <task-id> --working "<what>"
 //	cfo notify <task-id> --waiting-on <task-id|overlord|ci|deploy|memory> "<why>"
 //	cfo notify <task-id> --waiting-on overlord "<why>" --lavish <html-file>
+//	cfo notify <task-id> --waiting-on overlord "<why>" --link <https-url>
+//	cfo notify <task-id> --waiting-on overlord "<why>" --run <command.ps1|command.sh>
+//
+// A wait or a question whose answer is a command the Overlord must run, such
+// as a sign-in, names the command's file with --run: his Command Center shows
+// the exact command on a run card named for the goblin, and one click runs it
+// in a terminal on that card, where he types into it. A .ps1 file runs in
+// Windows PowerShell and a .sh file in Git Bash, in the goblin's worktree,
+// never elevated; the goblin is told how it ended.
+//
+// A wait on the Overlord leads with one sentence, and the values he must
+// enter somewhere follow it as a Markdown table, each value in backticks:
+//
+//	cfo notify <task-id> --waiting-on overlord "Add these DNS records in **Cloudflare**, then tell me
+//	| Type | Name | Content |
+//	| --- | --- | --- |
+//	| CNAME | `mcp` | `mcp-precisiondocs.fly.dev` |" --link https://dash.cloudflare.com
 //
 // Only a question and a wait on the Overlord wake the CFO: working, and a
 // wait on another task, CI, a deploy or memory, are status for the board. A wait that
 // names a Lavish page puts the page on its card, and the supervisor polls it:
 // the Overlord's feedback there goes to the CFO, never to a poll of the
 // goblin's own.
-func runNotify(args []string, stdout, stderr io.Writer) int {
+//
+// A helper reports to its parent instead: its done, which needs no pull
+// request, its question and its failure are typed into its parent's
+// terminal, and wake the CFO only when that terminal cannot take them.
+func runNotify(args []string, stdout, stderr io.Writer, runtime commandRuntime) int {
 	if len(args) == 0 {
 		fmt.Fprintln(stderr, "cfo notify: task ID is required")
 		return 2
@@ -55,8 +77,10 @@ func runNotify(args []string, stdout, stderr io.Writer) int {
 	blocked := fs.String("blocked", "", "report a question the goblin is blocked on: one short sentence that is the question, details on lines starting with \"- \", and **bold** only on the verdict or the blocking item")
 	failed := fs.String("failed", "", "report a failure reason")
 	working := fs.String("working", "", "report what you are working on now")
-	waitingOn := fs.String("waiting-on", "", "report what you wait on, another task's ID, overlord, ci, deploy or memory, followed by why")
+	waitingOn := fs.String("waiting-on", "", "report what you wait on, another task's ID, overlord, ci, deploy or memory, followed by why. For overlord, lead with one sentence; values he must enter somewhere go in a Markdown table on the lines after it, a header row, a separator row and one row each (\"| Type | Name |\", \"| --- | --- |\", \"| CNAME | `mcp` |\"), each value in backticks so his card copies it with one click")
 	lavish := fs.String("lavish", "", "with --waiting-on overlord, the HTML file of the Scrawl page the Overlord answers on")
+	link := fs.String("link", "", "with --waiting-on overlord, the https link the Overlord goes to, which his card opens; an address only named in the text is never opened")
+	run := fs.String("run", "", "with --waiting-on overlord or --blocked, a .ps1 or .sh file holding a command the Overlord must run, such as a sign-in: his card shows the exact command and runs it with one click in a terminal on his card, where he types into it")
 	var images []string
 	fs.Func("image", "a review image for a --blocked question's choice; repeat it once for each choice, in order", func(v string) error {
 		images = append(images, v)
@@ -90,11 +114,12 @@ func runNotify(args []string, stdout, stderr io.Writer) int {
 		fmt.Fprintln(stderr, "cfo notify: exactly one of --done, --blocked, --failed, --working or --waiting-on is required")
 		return 2
 	case *done:
-		if *pr == "" {
-			fmt.Fprintln(stderr, "cfo notify: --done requires --pr <url>")
-			return 2
+		// Only a helper is done without a pull request; whether this task
+		// is one is read with its record below.
+		verb = "done"
+		if *pr != "" {
+			detail = "PR " + *pr
 		}
-		verb, detail = "done", "PR "+*pr
 	case *blocked != "":
 		verb, detail = "blocked", *blocked
 	case *failed != "":
@@ -118,6 +143,48 @@ func runNotify(args []string, stdout, stderr io.Writer) int {
 	// The page is checked and opened before anything is recorded, so a page
 	// that cannot be shown fails the notify instead of leaving a wait on a
 	// card the Overlord cannot answer.
+	if *link != "" {
+		if verb != "waiting on overlord" {
+			fmt.Fprintln(stderr, "cfo notify: --link goes with --waiting-on overlord: it names where the Overlord goes")
+			return 2
+		}
+		if problem := supervisor.PresentationURLProblem(*link); problem != "" {
+			fmt.Fprintf(stderr, "cfo notify: --link %s\n", problem)
+			return 2
+		}
+	}
+	// The command is read before anything is recorded, so a file that
+	// cannot be run fails the notify instead of leaving a wait on a card
+	// with nothing to run.
+	var runShell, runCommand string
+	if *run != "" {
+		switch {
+		case verb != "waiting on overlord" && verb != "blocked":
+			fmt.Fprintln(stderr, "cfo notify: --run goes with --waiting-on overlord or --blocked: it names a command the Overlord runs")
+			return 2
+		case *lavish != "":
+			fmt.Fprintln(stderr, "cfo notify: --run and --lavish do not go together: he answers on the page or runs the command")
+			return 2
+		}
+		switch strings.ToLower(filepath.Ext(*run)) {
+		case ".ps1":
+			runShell = "powershell"
+		case ".sh":
+			runShell = "bash"
+		default:
+			fmt.Fprintln(stderr, "cfo notify: --run takes a .ps1 file, which runs in Windows PowerShell, or a .sh file, which runs in Git Bash")
+			return 2
+		}
+		var err error
+		if runCommand, err = supervisor.ReadRunCommand(*run); err != nil {
+			fmt.Fprintf(stderr, "cfo notify: --run %v\n", err)
+			return 2
+		}
+		if strings.TrimSpace(runCommand) == "" {
+			fmt.Fprintf(stderr, "cfo notify: --run %s is empty\n", *run)
+			return 2
+		}
+	}
 	var page, pageURL string
 	if *lavish != "" {
 		if verb != "waiting on overlord" {
@@ -139,12 +206,29 @@ func runNotify(args []string, stdout, stderr io.Writer) int {
 		detail += " (page " + pageURL + ")"
 	}
 
-	h, err := home.Resolve()
+	h, err := runtime.resolveHome()
 	if err != nil {
 		fmt.Fprintln(stderr, err)
 		return 1
 	}
+	parent, worktree := "", ""
+	if meta, err := state.ReadTaskMeta(h.State, id); err == nil {
+		parent, worktree = meta.Parent, meta.Worktree
+	}
+	if verb == "done" && *pr == "" {
+		if parent == "" {
+			fmt.Fprintln(stderr, "cfo notify: --done requires --pr <url>")
+			return 2
+		}
+		detail = "ready for " + parent + " to merge"
+	}
 	line := verb + ": " + state.NormalizeStatusDetail(detail)
+	if *link != "" {
+		line += " (link " + *link + ")"
+	}
+	if *run != "" {
+		line += " (runs " + filepath.Base(*run) + ")"
+	}
 	// Images are checked before anything is recorded, so a bad path fails the
 	// whole notify instead of waking the CFO with a question the Overlord
 	// cannot see.
@@ -168,10 +252,38 @@ func runNotify(args []string, stdout, stderr io.Writer) int {
 		fmt.Fprintf(stdout, "notified %s %s\n", id, line)
 		return 0
 	}
-	record, err := wake.Append(h.State, "notify", id, line)
+	if report := helperReport(id, parent, verb, line); report != "" {
+		err := runtime.sendText(context.Background(), h, parent, report)
+		if err == nil || errors.Is(err, fleet.ErrQueuedForToolCall) {
+			supervisor.Reported(h.State)
+			fmt.Fprintf(stdout, "notified %s's parent %s %s\n", id, parent, line)
+			return 0
+		}
+		fmt.Fprintf(stderr, "cfo notify: %s's terminal did not take the report, so the CFO is told instead: %v\n", parent, err)
+		line += "; it could not reach its parent " + parent + ": " + state.NormalizeStatusDetail(err.Error())
+	}
+	// A pull request's head is reported done once: a goblin asked to wrap up
+	// often reports the same finished head again, sometimes with more words
+	// after its link.
+	var record wake.Record
+	isNew := true
+	head := ""
+	if verb == "done" && *pr != "" && worktree != "" {
+		head, _ = gitOutput(execx.OSRunner{}, worktree, "rev-parse", "HEAD")
+	}
+	if head != "" {
+		link, _, _ := strings.Cut(strings.TrimSpace(*pr), " ")
+		record, isNew, err = wake.AppendFirst(h.State, "done/"+id+"/"+link+"@"+head, "notify", id, line)
+	} else {
+		record, err = wake.Append(h.State, "notify", id, line)
+	}
 	if err != nil {
 		fmt.Fprintln(stderr, "cfo notify: wake the CFO: "+err.Error())
 		return 1
+	}
+	if !isNew {
+		fmt.Fprintf(stdout, "%s already reported %s done at %s, so the CFO was not woken again\n", id, *pr, head)
+		return 0
 	}
 	if _, err := wake.PublishEpisode(h.State); err != nil {
 		fmt.Fprintln(stderr, "cfo notify: publish recovery episode: "+err.Error())
@@ -180,16 +292,29 @@ func runNotify(args []string, stdout, stderr io.Writer) int {
 	// The CFO is already woken; the Command Center copy is a second route
 	// to the Overlord, so its failure is reported and never fails the notify,
 	// except for a page: only its item gets the page polled.
-	if verb == "waiting on overlord" {
-		if err := supervisor.PublishWait(h, id, record.Seq, state.NormalizeStatusDetail(detail), pageURL, page); err != nil {
+	// A command rides on its own card, the run card: a wait that carries one
+	// is that card alone, and a question keeps its card beside it.
+	if runCommand != "" {
+		why, _, _ := strings.Cut(strings.TrimSpace(detail), "\n")
+		if err := supervisor.PublishGoblinRun(h, id, record.Seq, why, runShell, runCommand); err != nil {
+			fmt.Fprintln(stderr, "cfo notify: the Command Center cannot show this command, the CFO still has it: "+err.Error())
+		}
+	}
+	switch {
+	case verb == "waiting on overlord" && runCommand != "":
+		// Its run card is the wait.
+	case verb == "waiting on overlord":
+		if err := supervisor.PublishWait(h, id, record.Seq, strings.TrimSpace(detail), pageURL, page, *link); err != nil {
 			if page != "" {
 				fmt.Fprintf(stderr, "cfo notify: the Command Center cannot show this wait (%v), so nothing watches the page %s and the Overlord's answer on it reaches nobody; the CFO has the wait, ask in text with --blocked instead\n", err, page)
 				return 1
 			}
 			fmt.Fprintln(stderr, "cfo notify: the Command Center cannot show this wait, the CFO still has it: "+err.Error())
 		}
-	} else if err := supervisor.SurfaceNotify(h.State, id, record, verb+": "+strings.TrimSpace(detail), images); err != nil {
-		fmt.Fprintln(stderr, "cfo notify: the Command Center cannot show this question, the CFO still has it: "+err.Error())
+	default:
+		if err := supervisor.SurfaceNotify(h.State, id, record, verb+": "+strings.TrimSpace(detail), images); err != nil {
+			fmt.Fprintln(stderr, "cfo notify: the Command Center cannot show this question, the CFO still has it: "+err.Error())
+		}
 	}
 	// The board shows the report now, not at its next refresh.
 	supervisor.Reported(h.State)
@@ -197,9 +322,28 @@ func runNotify(args []string, stdout, stderr io.Writer) int {
 	// While AFK mode is on nothing prompts the Overlord, so a goblin that
 	// waits on him is told to move to what does not depend on him.
 	if switched, err := afk.Read(h.State); verb == "waiting on overlord" && err == nil && switched.On {
-		fmt.Fprintf(stdout, "AFK mode is on: the Overlord is away until he turns it off, so this wait is held for him and nothing prompts him. If any of your work does not depend on it, move to that next piece now and report it with cfo notify %s --working \"<what>\".\n", id)
+		fmt.Fprintf(stdout, "AFK mode is on: the Overlord is away until he turns it off and nothing is asked of him, so the CFO leaves this for him in the backlog. If any of your work does not depend on it, move to that next piece now and report it with cfo notify %s --working \"<what>\".\n", id)
 	}
 	return 0
+}
+
+// helperReport is what a helper's report says in its parent's terminal,
+// with the command that acts on it, on one line so the terminal takes it
+// whole; empty for a task that is no helper and for a report only the
+// board shows.
+func helperReport(id, parent, verb, line string) string {
+	_, said, _ := strings.Cut(line, ": ")
+	switch {
+	case parent == "":
+		return ""
+	case verb == "done":
+		return "Your helper " + id + " is done: its work is committed on its branch, " + said + ". Merge it into your branch with: cfo helper merge " + parent
+	case verb == "blocked":
+		return "Your helper " + id + " asks: " + said + " Answer it with: cfo send " + id + " \"<answer>\""
+	case verb == "failed":
+		return "Your helper " + id + " failed: " + said + ". Tell it what to do with: cfo send " + id + " \"<what>\", or stop it with: cfo kill " + id + " --reason \"<why>\""
+	}
+	return ""
 }
 
 // pageOpenTimeout bounds opening a Lavish page, which starts lavish-axi's

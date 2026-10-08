@@ -1,0 +1,16 @@
+/* The Update button for a harness update: on the CFO's header, a pill in the
+   AFK switch's group, so the two stay on one row at every width, that wears
+   the board's green like a switch that is on, so it reads as the one thing to
+   press, and amber while a press waits for the end of the CFO's turn. A
+   goblin's Update is a plain control like its others. The line saying what
+   the press waits for takes a row of its own under the header's. */
+.harness-update { display: inline-flex; align-items: center; gap: 7px; min-height: 36px; padding: 4px 14px 4px 10px; border: 1px solid var(--accent-green); border-radius: 999px; background: var(--field-bg); color: #f4fbff; font-family: var(--font-display); font-size: 1rem; white-space: nowrap; box-shadow: 0 0 14px #00e59b2e; }
+.harness-update .icon { width: 18px; height: 18px; color: var(--accent-green); }
+.harness-update:hover:not(:disabled) { border-color: var(--mint); }
+.harness-update.pending { border-color: var(--amber); box-shadow: 0 0 14px #f3c5782a; }
+.harness-update.pending .icon { color: var(--amber); }
+.harness-update:disabled { opacity: .7; }
+.cfo-update-line { flex: 1 0 100%; display: flex; align-items: center; gap: 8px; margin: 0; color: #e7d3a3; overflow-wrap: anywhere; }
+.cfo-update-line .icon { flex: none; width: 16px; height: 16px; color: var(--amber); }
+.cfo-update-line.problem { display: block; color: var(--amber); }
+@media (prefers-reduced-motion: reduce) { .harness-update { transition: none; } }

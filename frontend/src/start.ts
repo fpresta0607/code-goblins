@@ -1,4 +1,6 @@
-import type { Memory, Snapshot, Task } from "./types";
+import type { Disk, Memory, PauseCondition, Scheduling, Snapshot, Task } from "./types";
+import { queuedTasks } from "./workflow.ts";
+import { pausedWithParent } from "./task-words.ts";
 
 const gigabytes = (bytes: number) => Math.round(bytes / 2 ** 30 * 10) / 10;
 
@@ -18,14 +20,22 @@ export function tighter(memory: Memory): { isCommit: boolean; free: number; tota
     : { isCommit: false, free: memory.available, total: memory.total };
 }
 
-// The memory meter at the head of Tasks: the CFO starts the next queued task
-// once memory reaches the mark, and nothing starts under the floor. The board
-// itself starts nothing on its own.
-export function meterState(memory: Memory): { tone: "ready" | "waiting" | "under"; text: string } {
+// The memory meter at the head of Tasks: the supervisor starts the next
+// queued task, or resumes a paused goblin whose pause cleared, once memory
+// reaches the mark, and nothing starts under the floor. With memory free it
+// says what the supervisor started or resumed, or why nothing waiting did.
+export function meterState(memory: Memory, scheduling: Scheduling | null = null): { tone: "ready" | "waiting" | "under"; text: string } {
   const { isCommit, free } = tighter(memory);
   if (free < memory.floor) return { tone: "under", text: `Under the ${gigabytes(memory.floor)} GB floor: nothing starts until ${isCommit ? "commit" : "memory"} frees.` };
-  if (free < memory.next) return { tone: "waiting", text: `The CFO starts the next task at ${gigabytes(memory.next)} GB free.` };
-  return { tone: "ready", text: "Enough memory: the CFO starts the next task." };
+  if (free < memory.next) return { tone: "waiting", text: `The next task starts at ${gigabytes(memory.next)} GB free.` };
+  return { tone: "ready", text: scheduling ? "Enough memory: " + scheduling.text : "Enough memory for the next task" };
+}
+
+// The meter's line under its bar while memory is free: what the supervisor
+// started or resumed at its last reading, or why nothing waiting started.
+export function scheduleLine(memory: Memory, scheduling: Scheduling | null): string {
+  if (!scheduling || meterState(memory).tone !== "ready") return "";
+  return scheduling.text.charAt(0).toUpperCase() + scheduling.text.slice(1);
 }
 
 // The memory bar spans twice the mark at which the CFO starts the next task,
@@ -37,6 +47,11 @@ export function meterScale(memory: Memory): { fill: number; floor: number; next:
   const span = Math.min(total, 2 * memory.next);
   const percent = (bytes: number) => Math.min(100, Math.max(0, bytes / span * 100));
   return { fill: percent(free), floor: percent(memory.floor), next: percent(memory.next) };
+}
+
+// What the memory bar's two marks mean, for its tip.
+export function memoryMarks(memory: Memory): string {
+  return `Red mark: the ${gigabytes(memory.floor)} GB floor. Nothing starts under it. White mark: ${gigabytes(memory.next)} GB, where the next task starts.`;
 }
 
 // What a start or a resume needs while memory or commit is under the mark,
@@ -62,33 +77,54 @@ export function holdersLine(memory: Memory): string {
 const PAGED_POOL_WARNING = 4 * 2 ** 30;
 
 export function poolWarning(memory: Memory): string {
-  return memory.paged_pool > PAGED_POOL_WARNING ? `Paged pool ${held(memory.paged_pool)} GB: a driver is leaking memory; a reboot frees it.` : "";
+  return memory.paged_pool > PAGED_POOL_WARNING ? `Paged pool ${held(memory.paged_pool)} GB: Windows holds this in its kernel paged pool, where no goblin can use it. Restarting the PC frees it.` : "";
+}
+
+// The disk meter under the memory meter: under the floor no goblin or gate
+// test run starts, and under the lower mark the CFO is woken.
+export function diskState(disk: Disk): { tone: "ready" | "waiting" | "under"; text: string } {
+  if (disk.free < disk.wake) return { tone: "under", text: `Under the ${gigabytes(disk.wake)} GB mark: the CFO is woken, and nothing starts until disk frees.` };
+  if (disk.free < disk.floor) return { tone: "waiting", text: `Under the ${gigabytes(disk.floor)} GB floor: no goblin or gate test run starts until disk frees.` };
+  return { tone: "ready", text: "Enough disk for the next start." };
+}
+
+// What the disk bar's two marks mean, for its tip.
+export function diskMarks(disk: Disk): string {
+  return `Red mark: ${gigabytes(disk.wake)} GB, where the CFO is woken. White mark: the ${gigabytes(disk.floor)} GB floor. No goblin or gate test run starts under it.`;
+}
+
+// The disk bar spans twice the floor, or the whole drive if that is less, so
+// both marks sit well inside it: the fill and both marks as percents of the
+// bar.
+export function diskScale(disk: Disk): { fill: number; wake: number; floor: number } {
+  const span = Math.min(disk.total || 2 * disk.floor, 2 * disk.floor) || 1;
+  const percent = (bytes: number) => Math.min(100, Math.max(0, bytes / span * 100));
+  return { fill: percent(disk.free), wake: percent(disk.wake), floor: percent(disk.floor) };
+}
+
+// What a start or a resume needs while the disk is under the floor, or empty
+// when it is not.
+export function diskBlock(disk: Disk | null): string {
+  return disk && disk.free < disk.floor ? `${gigabytes(disk.floor)} GB of free disk (${freeGigabytes(disk.free)} GB free)` : "";
 }
 
 // Why a queued task's Start cannot run now, or empty when it can. The
 // supervisor checks all of it again; this only saves a refused click.
-export function startBlock(task: Task, memory: Memory | null, anotherStarting: boolean): string {
+export function startBlock(task: Task, memory: Memory | null, anotherStarting: boolean, disk: Disk | null = null): string {
   if (task.starting) return "Starting";
   if (queueBlock(task)) return queueBlock(task);
   if (memoryBlock(memory)) return "Needs " + memoryBlock(memory);
+  if (diskBlock(disk)) return "Needs " + diskBlock(disk);
   if (anotherStarting) return "Another task is starting";
   return "";
 }
 
+// Why a queued task does not start whatever memory there is: it already
+// finished, or it waits on other tasks.
 export function queueBlock(task: Task): string {
-  return task.phase === "queued" && task.dependencies.length ? task.reason || "Waiting on " + task.dependencies.join(", ") : "";
-}
-
-// A Start's refusal on its card, the snapshot revision it arrived at, and
-// whether its cause passes by itself where the board sees it, as memory under
-// the floor or another Start running do.
-export interface Refusal { reason: string; revision: number; passing: boolean }
-
-// Whether a refusal still stands: a passing one lapses once a newer snapshot
-// shows its task's Start no longer blocked, as once the task that was starting
-// is up; any other stays until its Start is pressed again.
-export function refusalStands(refusal: Refusal, snapshot: Snapshot, blocked: string): boolean {
-  return !refusal.passing || snapshot.revision <= refusal.revision || blocked !== "";
+  if (task.phase !== "queued") return "";
+  if (task.finished) return task.finished;
+  return task.dependencies.length ? task.reason || "Waiting on " + task.dependencies.join(", ") : "";
 }
 
 // A Start the supervisor accepted, and the revision from which every snapshot
@@ -108,5 +144,59 @@ export function startOutcome(accepted: AcceptedStart, snapshot: Snapshot): "open
 
 // The chip on the top queued task, the one the CFO starts next.
 export function nextChip(memory: Memory | null): string {
-  return memory && memoryBlock(memory) ? `Next, at ${gigabytes(memory.next)} GB free` : "Next up";
+  return memory && memoryBlock(memory) ? `Next at ${gigabytes(memory.next)} GB` : "Next up";
+}
+
+export interface NextUp { id: string; text: string; tone: "" | "waiting" | "defect" }
+
+// The one card that says Next, by the supervisor's order for a free slot
+// (internal/supervisor/scheduler.go): a reported production defect first;
+// then a paused goblin whose pause has cleared, oldest pause first, which
+// for a pause for memory is once memory is back; then the top of the queue
+// that can start. A pause that waits on the Overlord, a pull request, a task,
+// CI or a date still ahead holds no slot: the supervisor resumes it at the
+// first reading after it clears. A queued task whose last start failed waits
+// for its Start, so the supervisor passes over it too.
+export function nextInOrder(snapshot: Snapshot, now: number): NextUp | null {
+  const tone = memoryBlock(snapshot.memory) ? "waiting" : "";
+  const queued = startable(snapshot);
+  if (queued[0]?.priority === "production-defect") return { id: queued[0].id, text: "Production defect: jumps the queue", tone: "defect" };
+  // A helper paused with its parent resumes once its parent runs again.
+  const isBackWithParent = (task: Task) => {
+    const parent = pausedWithParent(task, snapshot.tasks);
+    return !!parent && (!parent.lifecycle || parent.lifecycle.phase === "running");
+  };
+  const resumable = snapshot.tasks.filter((task) => task.phase === "paused" && task.lifecycle?.pause && (isClearing(task.lifecycle.pause, now) || isBackWithParent(task)))
+    .sort((left, right) => Date.parse(left.lifecycle!.pause!.at) - Date.parse(right.lifecycle!.pause!.at) || left.id.localeCompare(right.id));
+  if (resumable.length) return { id: resumable[0].id, text: "Next up", tone };
+  return queued.length ? { id: queued[0].id, text: nextChip(snapshot.memory), tone } : null;
+}
+
+// The queued tasks the supervisor can start, in the order it starts them
+// (internal/supervisor/scheduler.go): a reported production defect first, then
+// the rest in the queue's order. A task held by what it waits on, or whose
+// last start failed, is not among them.
+function startable(snapshot: Snapshot): Task[] {
+  const queued = queuedTasks(snapshot).filter((task) => !queueBlock(task) && !task.start_error);
+  const defect = queued.find((task) => task.priority === "production-defect");
+  return defect ? [defect, ...queued.filter((task) => task !== defect)] : queued;
+}
+
+// The Tasks column top first, as the supervisor starts them: every task it can
+// start, in its order, so Next up is first, then every task held by what it
+// waits on or by a failed start, in the queue's order. The Overlord, 2026-10-07:
+// "for priority next up should be at the top of the column the positional
+// should align with priority".
+export function startOrder(snapshot: Snapshot): Task[] {
+  const first = startable(snapshot);
+  return [...first, ...queuedTasks(snapshot).filter((task) => !first.includes(task))];
+}
+
+// Whether a pause has cleared as far as the board sees it, or clears with
+// memory alone.
+function isClearing(pause: PauseCondition, now: number): boolean {
+  const [kind, target] = pause.until.split(/:(.*)/s);
+  if (pause.reason === "memory") return true;
+  if (pause.reason === "allowance") return Date.parse(pause.until) <= now;
+  return pause.reason === "dependency" && kind === "date" && Date.parse(target) <= now;
 }

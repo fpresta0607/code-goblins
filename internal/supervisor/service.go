@@ -16,13 +16,16 @@ import (
 	"sync"
 	"time"
 
-	"github.com/fpresta0607/code-goblins/internal/afk"
 	"github.com/fpresta0607/code-goblins/internal/auth"
 	"github.com/fpresta0607/code-goblins/internal/axi"
 	"github.com/fpresta0607/code-goblins/internal/connections"
 	"github.com/fpresta0607/code-goblins/internal/execx"
 	"github.com/fpresta0607/code-goblins/internal/fleet"
+	"github.com/fpresta0607/code-goblins/internal/fleettree"
+	"github.com/fpresta0607/code-goblins/internal/goblinname"
+	"github.com/fpresta0607/code-goblins/internal/harness"
 	"github.com/fpresta0607/code-goblins/internal/home"
+	"github.com/fpresta0607/code-goblins/internal/host"
 	"github.com/fpresta0607/code-goblins/internal/lock"
 	"github.com/fpresta0607/code-goblins/internal/monitor"
 	"github.com/fpresta0607/code-goblins/internal/nativehook"
@@ -31,6 +34,9 @@ import (
 	"github.com/fpresta0607/code-goblins/internal/quota"
 	"github.com/fpresta0607/code-goblins/internal/state"
 	"github.com/fpresta0607/code-goblins/internal/supervise"
+	"github.com/fpresta0607/code-goblins/internal/tickets"
+	"github.com/fpresta0607/code-goblins/internal/train"
+	"github.com/fpresta0607/code-goblins/internal/verify"
 	"github.com/fpresta0607/code-goblins/internal/wake"
 	"github.com/fpresta0607/code-goblins/internal/watch"
 )
@@ -55,11 +61,20 @@ type Options struct {
 	// Tickets keeps a GitHub issue for each task in a repository other
 	// people work in; without it no ticket is kept.
 	Tickets *Tickets
+	// VerifyReports reads a project's cfo gate test reports, the newest
+	// first, which put each task's newest run on its card; without it no
+	// card shows one.
+	VerifyReports func(project string) ([]verify.Report, error)
 	// Runs opens run items' windows; without it no item can run.
 	Runs RunLauncher
 	// PollPage waits up to a timeout for the Overlord's feedback on a Lavish
 	// page; without it no page is polled.
-	PollPage func(ctx context.Context, file string, timeout time.Duration) (axi.PagePoll, error)
+	PollPage func(ctx context.Context, file, reply string, timeout time.Duration) (axi.PagePoll, error)
+	// PageSessions lists every review session lavish-axi keeps without
+	// taking anything from them, and EndPage ends one page's review; without
+	// both nothing sweeps the pages no poller watches.
+	PageSessions func() ([]axi.PageSession, error)
+	EndPage      func(ctx context.Context, file string) error
 	// FirstRun is what the first-run page reads and changes on this
 	// machine; without it the board can start no CFO.
 	FirstRun *FirstRun
@@ -80,21 +95,44 @@ type Options struct {
 	// and tells each to re-source it, as cfo auth store does after it writes,
 	// and returns the tasks it told.
 	RefreshCredentials func(ctx context.Context, project string) ([]string, error)
-	// Allowance reads what quota-axi says of each provider's allowance, or
-	// says why it could not; AFK mode's report sets the reading taken when it
-	// turned on beside the one taken when it turned off.
-	Allowance func(ctx context.Context) ([]afk.Allowance, string)
-	Quota     func(ctx context.Context) (quota.Report, string)
+	// Quota reads quota-axi, on the supervisor's own timers only: AFK mode's
+	// report sets the reading last taken before it turned on beside the one
+	// last taken before it turned off.
+	Quota func(ctx context.Context) (quota.Report, string)
+	// Comeback brings the fleet back after a restart or sign-out; without it
+	// nothing comes back by itself.
+	Comeback *Comeback
+	// StartAtLogin is whether Windows starts this home at login; without it
+	// the board shows no such setting.
+	StartAtLogin *StartAtLogin
+	// DevDrive is the board's Dev Drive setting and the Command Center items
+	// that set one up; without it the board shows neither.
+	DevDrive *DevDrive
+	// Tree reads each live goblin's family tree for its card; Start gives it
+	// the board's record of each goblin's conversation. Without it no card
+	// shows one.
+	Tree *fleettree.Reader
+	// Releases is where the board looks for a newer release of Code
+	// Goblins; without it the board never looks and makes no Update item.
+	Releases *Releases
+	// ReadScreen reads a native terminal's console, and ProgramInstalled
+	// when a harness's program was installed, for the harness updates the
+	// board offers; nil reads the machine's.
+	ReadScreen       func(host.Record) ([]string, error)
+	ProgramInstalled func(harness.Kind) (string, time.Time, error)
 }
 
 type Service struct {
-	Store                *Store
-	Options              Options
-	Git                  Git
-	Instance             string
-	Started              time.Time
-	mu                   sync.Mutex
-	lastError            string
+	Store     *Store
+	Options   Options
+	Git       Git
+	Instance  string
+	Started   time.Time
+	mu        sync.Mutex
+	lastError string
+	// boardErrors keeps an error the board would have shown the Overlord
+	// from waking the CFO more than once an hour (board_errors.go).
+	boardErrors          boardErrors
 	isNativeInboxFailing bool
 	nativeInboxRepair    error
 	reconciled           time.Time
@@ -120,13 +158,56 @@ type Service struct {
 	// recovery cycle. ciUnreadable is why each watched repository's CI
 	// cannot be read, as of the last fleet reading; publish joins it into
 	// whatever it publishes for as long as the failure lasts.
-	historyErr      error
-	cfoWakeErr      error
-	fleetErr        error
-	ciUnreadable    error
-	workProgress    map[string]WorkProgress
-	ciDurations     []CIDuration
+	historyErr   error
+	cfoWakeErr   error
+	fleetErr     error
+	ciUnreadable error
+	// errorLines holds when each line of the supervisor's own errors was last
+	// met, errorsUntold the new ones no wake has told the CFO of yet, and
+	// errorsWoke when one last did.
+	errorLines   map[string]time.Time
+	errorsUntold []string
+	errorsWoke   time.Time
+	workProgress map[string]WorkProgress
+	ciDurations  []CIDuration
+	sameArea     map[string]sameArea
+	// overlapReads holds, by repository, the overlap read still under way,
+	// which the next CI poll takes on where it left off; only the fleet
+	// readings touch it.
+	overlapReads map[string]*tickets.OpenWork
+	hostedChecks map[string]HostedChecks
+	deploys      map[string]Deployment
+	localReports map[string][]verify.Report
+	localReadErr error
+	// trees is each live goblin's family tree as keepTrees last read it.
+	trees           map[string]fleettree.Tree
 	progressReadErr error
+
+	// cfoUpdateRead and harnessUpdates are the harness updates the last look
+	// found waiting for the CFO and for each goblin; cfoUpdating says the
+	// CFO's pressed update runs now, and cfoUpdateProblem why the last one
+	// did not.
+	cfoUpdateRead    *harnessUpdateRead
+	harnessUpdates   map[string]harnessUpdateRead
+	cfoUpdating      bool
+	cfoUpdateProblem string
+	// release is the newest release as the banner shows it, kept by the
+	// release watch, which releaseNow asks for another look.
+	release    *ReleaseView
+	releaseNow chan struct{}
+	// devDriveNow asks the Dev Drive watch for another look; devDriveConfig
+	// serializes its changes to config\dev-drive.json with the board's, and
+	// devDriveView is what it last found, under devDriveViewMu.
+	devDriveNow chan struct{}
+	// devDriveTick is how often the watch reads the config file; zero is a
+	// minute, and a test sets it shorter.
+	devDriveTick   time.Duration
+	devDriveConfig sync.Mutex
+	devDriveViewMu sync.Mutex
+	devDriveView   *DevDriveView
+	// trains are the merge trains the board shows, as keepTrains last read
+	// them.
+	trains []train.Train
 	// runRequests takes one run request at a time, so two with one ID never
 	// both write a script.
 	runRequests sync.Mutex
@@ -138,16 +219,32 @@ type Service struct {
 	starting     string
 	startErrors  map[string]string
 	changing     map[string]string
+	engineFrom   map[string]state.TaskMeta
+	engineIdle   map[string]engineIdleReading
 	changeErrors map[string]taskChangeError
+	// scheduling is what the scheduler made of its last reading with memory
+	// free; mu guards it.
+	scheduling *Scheduling
+	// isCFOComingBack says the comeback is bringing the CFO back now; starts
+	// guards it too.
+	isCFOComingBack bool
+	// comeback takes one change to the comeback record at a time, and
+	// signedIn is when this sign-in began, read once.
+	comeback sync.Mutex
+	signedIn time.Time
 	// credentialSaves takes one credential save at a time, and
 	// credentialWork waits for the refresh and the CFO's notice each save
 	// starts after it answers.
 	credentialSaves sync.Mutex
 	credentialWork  sync.WaitGroup
-	// pages stops each open item's page poller; pageWork waits for them.
-	pagesMu  sync.Mutex
-	pages    map[string]context.CancelFunc
-	pageWork sync.WaitGroup
+	// pages are the pages a poller watches now, by pageKey; pageSwept is when
+	// the last sweep of every review session ended and pageSweeping whether
+	// one runs. pageWork waits for the pollers and the sweep.
+	pagesMu      sync.Mutex
+	pages        map[string]bool
+	pageSwept    time.Time
+	pageSweeping bool
+	pageWork     sync.WaitGroup
 	// afkChange takes one change to AFK mode at a time: a switch, a logged
 	// decision or the items held. held are the items already held in the
 	// stretch heldSession names.
@@ -174,7 +271,11 @@ type Service struct {
 	snapshots     sharedSnapshots
 	buildSnapshot func() (Snapshot, error)
 	// reads is what the snapshot remembers of the fleet's files.
-	reads keptReads
+	reads                keptReads
+	subscriptionReadings map[string]quota.WeeklyReading
+	// allowance is the last reading quota-axi gave of each provider's
+	// allowance, which AFK mode's switch takes rather than reading its own.
+	allowance map[string]keptAllowance
 }
 
 // snapshotRefresh is how often every board gets a fresh snapshot with nothing
@@ -203,9 +304,12 @@ func Start(ctx context.Context, h home.Home, options Options) (*Service, error) 
 		return nil, err
 	}
 	ctx, cancel := context.WithCancel(ctx)
-	s := &Service{Store: store, Options: options, Instance: hex.EncodeToString(id[:]), Started: time.Now().UTC(), subscribers: map[chan struct{}]struct{}{}, done: make(chan struct{}), work: make(chan struct{}, 1), looks: make(chan chan struct{}), cancel: cancel}
+	s := &Service{Store: store, Options: options, Instance: hex.EncodeToString(id[:]), Started: time.Now().UTC(), subscribers: map[chan struct{}]struct{}{}, done: make(chan struct{}), work: make(chan struct{}, 1), looks: make(chan chan struct{}), releaseNow: make(chan struct{}, 1), devDriveNow: make(chan struct{}, 1), cancel: cancel}
 	if options.Tickets != nil {
 		s.tickets = newTicketKeeper(h, options.Tickets)
+	}
+	if options.Tree != nil {
+		options.Tree.Recorded = store.recordedSession
 	}
 	go s.run(ctx)
 	return s, nil
@@ -237,6 +341,9 @@ func (s *Service) publish(err error) {
 			err = withoutStorage(err)
 		}
 	}
+	// Unreadable CI is left out: it wakes the CFO as ci_unreadable or
+	// pr_unread, once its failure holds.
+	s.wakeForNewErrors(err, time.Now())
 	s.mu.Lock()
 	err = errors.Join(err, s.ciUnreadable)
 	if err != nil {
@@ -317,6 +424,12 @@ func (s *Service) run(ctx context.Context) {
 		s.keepHistory(ctx, historyRefresh, historyWatch)
 	}()
 	defer func() { s.cancel(); <-historyDone }()
+	usageDone := make(chan struct{})
+	go func() {
+		defer close(usageDone)
+		s.keepSubscriptionUsage(ctx, time.Minute)
+	}()
+	defer func() { s.cancel(); <-usageDone }()
 	awakeDone := make(chan struct{})
 	go func() {
 		defer close(awakeDone)
@@ -337,6 +450,36 @@ func (s *Service) run(ctx context.Context) {
 		}
 	}()
 	defer func() { s.cancel(); <-ticketsDone }()
+	updatesDone := make(chan struct{})
+	go func() {
+		defer close(updatesDone)
+		s.keepHarnessUpdates(ctx, harnessUpdateEvery)
+	}()
+	defer func() { s.cancel(); <-updatesDone }()
+	treesDone := make(chan struct{})
+	go func() {
+		defer close(treesDone)
+		if s.Options.Tree != nil {
+			s.keepTrees(ctx)
+		}
+	}()
+	defer func() { s.cancel(); <-treesDone }()
+	releasesDone := make(chan struct{})
+	go func() {
+		defer close(releasesDone)
+		if s.Options.Releases != nil {
+			s.watchReleases(ctx)
+		}
+	}()
+	defer func() { s.cancel(); <-releasesDone }()
+	devDriveDone := make(chan struct{})
+	go func() {
+		defer close(devDriveDone)
+		if s.Options.DevDrive != nil {
+			s.watchDevDrive(ctx)
+		}
+	}()
+	defer func() { s.cancel(); <-devDriveDone }()
 	// A single inbox watcher, independent of task count. A timeout also
 	// recovers notifications lost during atomic renames or an AV filter fault.
 	notified := make(chan struct{}, 1)
@@ -412,7 +555,10 @@ func (s *Service) run(ctx context.Context) {
 func (s *Service) cycle(ctx context.Context, recover bool) {
 	watched, fleetReadErr := readFleetWakes(s.Store.Home.State)
 	s.mu.Lock()
-	s.workProgress, s.ciDurations, s.progressReadErr = watched.Progress, watched.Durations, fleetReadErr
+	s.workProgress, s.ciDurations, s.sameArea, s.progressReadErr = watched.Progress, watched.Durations, watched.SameArea, fleetReadErr
+	s.hostedChecks, s.deploys = watched.Hosted, watched.Deploys
+	localReports, localReadErr := s.readLocalReports()
+	s.localReports, s.localReadErr = localReports, localReadErr
 	s.mu.Unlock()
 	before := s.Store.Snapshot().Revision
 	ingestErr := s.Store.Ingest()
@@ -432,19 +578,25 @@ func (s *Service) cycle(ctx context.Context, recover bool) {
 	reconcileErr = errors.Join(reconcileErr, s.Store.ingestAnswers())
 	reconcileErr = errors.Join(reconcileErr, s.Store.ingestActivity())
 	reconcileErr = errors.Join(reconcileErr, s.Store.ingestReviews())
+	reconcileErr = errors.Join(reconcileErr, s.Store.ingestGoblinRuns())
 	reconcileErr = errors.Join(reconcileErr, s.ingestCredentialRequests())
 	reconcileErr = errors.Join(reconcileErr, s.expireCredentials(time.Now()))
 	reconcileErr = errors.Join(reconcileErr, s.Store.expireRuns(time.Now()))
 	reconcileErr = errors.Join(reconcileErr, s.finishRuns(ctx))
 	reconcileErr = errors.Join(reconcileErr, s.Store.retireItems())
+	reconcileErr = errors.Join(reconcileErr, s.Store.retireGoblinRuns())
 	if cfo := readCFOState(s.Store.Home.State); cfo.registered && cfo.problem == "" {
 		reconcileErr = errors.Join(reconcileErr, s.Store.followCFO(cfo.identity), s.retellRuns(ctx))
 	}
 	reconcileErr = errors.Join(reconcileErr, s.Store.supersedeQuestions())
+	reconcileErr = errors.Join(reconcileErr, s.Store.keepCFOQuiet(time.Now().UTC()))
 	reconcileErr = errors.Join(reconcileErr, s.Store.settleDeliveries(time.Now().UTC(), s.lookAtTerminal))
+	reconcileErr = errors.Join(reconcileErr, s.Store.settleQueuedSends(time.Now().UTC(), s.lookAtQueuedSend))
+	reconcileErr = errors.Join(reconcileErr, s.applyEngineChoices(ctx, time.Now().UTC()))
 	reconcileErr = errors.Join(reconcileErr, s.holdForOverlord(time.Now().UTC()))
 	s.reconcilePresentations()
 	s.watchPages(ctx)
+	s.sweepPages(ctx)
 	if recover {
 		if s.Options.Reconcile != nil {
 			reconcileErr = errors.Join(reconcileErr, s.Options.Reconcile(ctx))
@@ -457,6 +609,9 @@ func (s *Service) cycle(ctx context.Context, recover bool) {
 		reconcileErr = errors.Join(reconcileErr, s.Store.pruneReviews(time.Now()))
 		reconcileErr = errors.Join(reconcileErr, s.Store.pruneRuns(time.Now()))
 		reconcileErr = errors.Join(reconcileErr, s.Store.pruneCredentials(time.Now()))
+		// A goblin live before names existed is named here, so the board
+		// never mixes names and ids.
+		reconcileErr = errors.Join(reconcileErr, goblinname.Backfill(s.Store.Home.State))
 		s.mu.Lock()
 		s.reconciled = time.Now().UTC()
 		s.mu.Unlock()
@@ -485,7 +640,7 @@ func (s *Service) keepHistory(ctx context.Context, every, watch time.Duration) {
 	for {
 		if next := s.historyMark(); next != mark || time.Since(rebuilt) >= every {
 			mark, rebuilt = next, time.Now()
-			err := s.refreshHistory(ctx, time.Now().UTC())
+			err := errors.Join(s.closeDeliveredRows(), s.refreshHistory(ctx, time.Now().UTC()))
 			s.mu.Lock()
 			s.historyErr = err
 			s.mu.Unlock()
@@ -660,7 +815,7 @@ func (s *Service) process(ctx context.Context) {
 		boundedCtx, cancel := context.WithTimeout(ctx, actionTimeout)
 		err := s.Store.ProcessOne(boundedCtx, s.execute)
 		cancel()
-		if err != nil {
+		if err != nil && !errors.Is(err, ErrDeferred) {
 			s.publish(err)
 			return
 		}
@@ -672,11 +827,14 @@ func (s *Service) execute(ctx context.Context, a Action) (Evaluation, error) {
 	if a.Kind == "feedback" || a.Kind == "cfo_message" {
 		return Evaluation{}, fmt.Errorf("%w: obsolete action kind %q is not accepted", ErrRejected, a.Kind)
 	}
-	if a.Kind != "evaluate" && a.Kind != "review" && a.Kind != "cfo_answer" && a.Kind != "goblin_answer" && a.Kind != "review_answer" && a.Kind != "review_clear" && a.Kind != "question_clear" && a.Kind != "run" {
+	if a.Kind != "evaluate" && a.Kind != "review" && a.Kind != "cfo_answer" && a.Kind != "goblin_answer" && a.Kind != "answer_change" && a.Kind != "review_answer" && a.Kind != "review_clear" && a.Kind != "question_clear" && a.Kind != "run" && a.Kind != "run_stop" {
 		return Evaluation{}, fmt.Errorf("%w: unsupported action kind %q", ErrRejected, a.Kind)
 	}
 	if a.Kind == "run" {
 		return s.startRun(ctx, a)
+	}
+	if a.Kind == "run_stop" {
+		return s.stopRun(ctx, a)
 	}
 	if a.Kind == "review_answer" {
 		return s.answerReview(ctx, a)
@@ -684,30 +842,37 @@ func (s *Service) execute(ctx context.Context, a Action) (Evaluation, error) {
 	// A clear closed its item when the board took it. The CFO asked a
 	// dismissed question, or holds the goblin's notify that did, so it hears
 	// here that the Overlord dismissed it.
-	tellDismissed := func(evaluation Evaluation, dismissed Question) Evaluation {
-		whose := "your question " + dismissed.ID
-		if dismissed.Task != "" {
-			whose = fmt.Sprintf("%s's question %s, whose notify %d still waits for you", dismissed.Task, dismissed.ID, dismissed.Seq)
-		}
-		if err := s.tellCFO(ctx, "The Overlord dismissed "+whose+" from the Command Center: answered elsewhere or no longer needed. It asked: "+dismissed.Text); err != nil {
-			evaluation.Reason += " The CFO could not be told: " + bounded(err.Error(), 300)
-		}
-		return evaluation
-	}
 	if a.Kind == "review_clear" || a.Kind == "question_clear" {
 		evaluation := Evaluation{Reason: "Cleared from the Command Center."}
 		if a.Kind == "question_clear" && len(a.Dismissed) > 0 {
 			evaluation.Reason = "Dismissed from the Command Center."
 		}
-		for _, q := range s.Store.Snapshot().Questions {
-			if slices.Contains(a.Dismissed, q.ID) {
-				evaluation = tellDismissed(evaluation, q)
+		var notices []string
+		for _, question := range s.Store.Snapshot().Questions {
+			if !slices.Contains(a.Dismissed, question.ID) {
+				continue
+			}
+			whose := "your question " + question.ID
+			if question.Task != "" {
+				whose = fmt.Sprintf("%s's question %s, whose notify %d still waits for you", question.Task, question.ID, question.Seq)
+			}
+			notices = append(notices, "The Overlord dismissed "+whose+" from the Command Center: answered elsewhere or no longer needed. It asked: "+question.Text)
+		}
+		if len(notices) > 0 {
+			if err := s.tellCFO(ctx, strings.Join(notices, "\n")); err != nil {
+				if errors.Is(err, ErrDeferred) {
+					return Evaluation{Reason: "Dismissed. The CFO will be told when its input is ready."}, err
+				}
+				evaluation.Reason += " The CFO could not be told: " + bounded(err.Error(), 300)
 			}
 		}
 		return evaluation, nil
 	}
 	if a.Kind == "goblin_answer" {
 		return s.answerGoblin(ctx, a)
+	}
+	if a.Kind == "answer_change" {
+		return s.changeAnswer(ctx, a)
 	}
 	if a.Kind == "cfo_answer" {
 		if s.Options.CFO == nil {
@@ -864,11 +1029,20 @@ type Task struct {
 	Session      string          `json:"session"`
 	Dependencies []string        `json:"dependencies"`
 	Runtime      RuntimeEvidence `json:"runtime"`
+	// Parent is the goblin a helper works for; empty for every other task.
+	Parent string `json:"parent,omitempty"`
+	// GoblinName and GoblinTitle are the goblin's fun name and title, which
+	// the board shows in place of its id.
+	GoblinName  string `json:"goblin_name,omitempty"`
+	GoblinTitle string `json:"goblin_title,omitempty"`
 	// Activity is the task's own latest status line, and Report the kind of
 	// its latest report.
-	Activity   string    `json:"activity"`
-	Report     string    `json:"report"`
-	LastReport string    `json:"last_report"`
+	Activity   string `json:"activity"`
+	Report     string `json:"report"`
+	LastReport string `json:"last_report"`
+	// ReportedAt is when the goblin wrote its latest report, so the board
+	// can tell whether it reported since an answer it was given.
+	ReportedAt time.Time `json:"reported_at"`
 	Handoff    bool      `json:"handoff"`
 	RetiredAt  time.Time `json:"retired_at"`
 	// Archived marks completed history rather than a live task, Merged that
@@ -881,18 +1055,45 @@ type Task struct {
 	// brief was written; zero when neither is known.
 	Since time.Time `json:"since"`
 	// Brief says queued work has its brief, which a Start needs; Starting
-	// that its Start runs cfo spawn now, and StartError why its last Start
-	// failed.
-	Brief         bool             `json:"brief"`
-	Starting      bool             `json:"starting"`
-	StartError    string           `json:"start_error"`
-	Lifecycle     *LifecycleStatus `json:"lifecycle,omitempty"`
-	Teardown      []string         `json:"teardown,omitempty"`
-	ActionError   string           `json:"action_error,omitempty"`
-	QueueRevision string           `json:"queue_revision,omitempty"`
-	Detail        string           `json:"detail,omitempty"`
-	Notes         []string         `json:"notes,omitempty"`
-	Progress      *WorkProgress    `json:"progress,omitempty"`
+	// that its Start runs cfo spawn now, StartError why its last Start
+	// failed, and Finished why it never starts again by itself: what says it
+	// already finished.
+	Brief         bool                `json:"brief"`
+	Starting      bool                `json:"starting"`
+	StartError    string              `json:"start_error"`
+	Finished      string              `json:"finished,omitempty"`
+	Lifecycle     *LifecycleStatus    `json:"lifecycle,omitempty"`
+	Teardown      []string            `json:"teardown,omitempty"`
+	ActionError   string              `json:"action_error,omitempty"`
+	QueueRevision string              `json:"queue_revision,omitempty"`
+	Detail        string              `json:"detail,omitempty"`
+	PendingEngine *state.EngineChoice `json:"pending_engine,omitempty"`
+	HarnessUpdate *HarnessUpdate      `json:"harness_update,omitempty"`
+	Switching     bool                `json:"switching,omitempty"`
+	Notes         []string            `json:"notes,omitempty"`
+	Progress      *WorkProgress       `json:"progress,omitempty"`
+	// Priority is a queued task's backlog priority; production-defect starts
+	// it ahead of the rest, and the board says it jumped the order.
+	Priority string `json:"priority,omitempty"`
+	// Ticket is the task's issue in a repository other people work in, and
+	// Overlaps their open work in a live goblin's area, as its last overlap
+	// read found it.
+	Ticket   *TaskTicket `json:"ticket,omitempty"`
+	Overlaps []Overlap   `json:"overlaps,omitempty"`
+	// HostedChecks is what its pull request's hosted checks said at the last
+	// CI poll, and LocalChecks its change's newest cfo gate test run.
+	HostedChecks *HostedChecks `json:"hosted_checks,omitempty"`
+	LocalChecks  *LocalChecks  `json:"local_checks,omitempty"`
+	// Deployment is how the deploy of its merged pull request stands, apart
+	// from its checks.
+	Deployment *Deployment `json:"deployment,omitempty"`
+	// Comeback is where a live goblin the last restart ended is in coming
+	// back: waiting for its turn, or stopped with the reason.
+	Comeback *state.ComebackEntry `json:"comeback,omitempty"`
+	// Tree is what a live goblin has running under it: its sub-agents,
+	// background shells and monitors, its jobs of processes with their
+	// memory, and its gate run.
+	Tree *fleettree.Tree `json:"tree,omitempty"`
 	Evaluation
 }
 
@@ -911,6 +1112,7 @@ type Snapshot struct {
 	Retired    []string        `json:"retired"`
 	Actions    []Action        `json:"actions"`
 	Decisions  []wake.Record   `json:"decisions"`
+	CFOQuiet   *CFOQuiet       `json:"cfo_quiet,omitempty"`
 	Issues     []string        `json:"issues"`
 	Questions  []Question      `json:"questions"`
 	Activity   []BoardActivity `json:"activity"`
@@ -935,20 +1137,59 @@ type Snapshot struct {
 	// yet; the board opens that terminal for whatever it asks there, and no
 	// registration problem is shown while it lasts.
 	CFOStarting bool `json:"cfo_starting"`
+	// CFOClosed says the home's CFO registered and has since ended, with no
+	// terminal up for a new one. The board then shows no first-run page and
+	// no registration problem: it says the CFO is closed and offers Reopen.
+	CFOClosed bool `json:"cfo_closed"`
 	// CFOTerminal names the native terminal the board shows the CFO in (see
 	// cfoState), and is empty while the CFO runs in Herdr or not at all.
 	CFOTerminal string `json:"cfo_terminal"`
+	// CFOTerminalSince is when the host of that terminal started, so a view
+	// of a CFO whose terminal was replaced, as a restart replaces it, is
+	// opened again on the new host.
+	CFOTerminalSince time.Time `json:"cfo_terminal_since,omitzero"`
 	// CFOHarness names the harness the registered CFO runs, such as claude or
 	// codex, for the mark beside the CFO on the board; it is empty while no
 	// CFO is registered.
 	CFOHarness string `json:"cfo_harness"`
+	// CFOConversationLeft names the conversation the CFO could not resume
+	// when it last came back, and is empty when it came back on its own.
+	CFOConversationLeft string `json:"cfo_conversation_left"`
+	// CFOUpdate is an update of the harness the CFO runs, installed since it
+	// started, for the Update button on its header; absent while none waits.
+	CFOUpdate *CFOUpdate `json:"cfo_update,omitempty"`
+	// Comeback is what the supervisor brings back after the last restart or
+	// sign-out, for the board's line; absent when it brings nothing back.
+	Comeback *state.Comeback `json:"comeback,omitempty"`
+	// StartAtLogin is whether Windows starts this home at login, absent on a
+	// board that cannot change it.
+	StartAtLogin *StartAtLoginView `json:"start_at_login,omitempty"`
+	// DevDrive is the Dev Drive setting, absent on a board without it.
+	DevDrive *DevDriveView `json:"dev_drive,omitempty"`
 	// Memory is the machine's free memory for the Tasks meter, absent on a
 	// board that cannot start goblins or cannot read it.
-	Memory      *Memory      `json:"memory,omitempty"`
-	CIDurations []CIDuration `json:"ci_durations,omitempty"`
+	Memory *Memory `json:"memory,omitempty"`
+	// Scheduling is what the scheduler started, resumed or found waiting at
+	// its last reading with memory free, for the meter's line; absent while
+	// memory is short or nothing schedules.
+	Scheduling *Scheduling `json:"scheduling,omitempty"`
+	// Disk is the free space of the home's drive for the meter beside
+	// memory, absent on a board that cannot read it.
+	Disk          *Disk               `json:"disk,omitempty"`
+	CIDurations   []CIDuration        `json:"ci_durations,omitempty"`
+	Subscriptions []SubscriptionUsage `json:"subscriptions"`
 	// AFK is AFK mode, the Overlord's switch for running the fleet while he
 	// is away, as the board shows it.
 	AFK AFKView `json:"afk"`
+	// Projects names who else works in each collaborative project on the
+	// board.
+	Projects []ProjectPeople `json:"projects"`
+	// Release is a newer published release of Code Goblins, or any on a
+	// board built from a clone, for the board's banner.
+	Release *ReleaseView `json:"release,omitempty"`
+	// MergeTrains are the merge trains running, and those that finished in
+	// the last hours, newest first, each a card with its pull requests.
+	MergeTrains []train.Train `json:"merge_trains"`
 }
 
 // setItems makes items the snapshot's Command Center items.
@@ -964,8 +1205,14 @@ func (s *Service) Snapshot() (Snapshot, error) {
 	d := s.Store.Snapshot()
 	s.mu.Lock()
 	out := Snapshot{Example: s.Options.Example, Instance: s.Instance, Revision: s.revision, Started: s.Started, At: time.Now().UTC(), Reconciled: s.reconciled, Error: s.lastError, Tasks: []Task{}, Attention: []string{}, Sessions: []Session{}, Retired: d.Retired, Actions: d.Actions, Issues: d.Issues}
-	progress := maps.Clone(s.workProgress)
+	progress, sameAreas, hostedChecks, localReports, deploys, trees := maps.Clone(s.workProgress), maps.Clone(s.sameArea), maps.Clone(s.hostedChecks), maps.Clone(s.localReports), maps.Clone(s.deploys), maps.Clone(s.trees)
+	out.Release = s.release
+	out.Scheduling = s.scheduling
+	if s.localReadErr != nil {
+		out.Issues = append(slices.Clone(out.Issues), s.localReadErr.Error())
+	}
 	out.CIDurations = slices.Clone(s.ciDurations)
+	out.MergeTrains = append([]train.Train{}, s.trains...)
 	if s.progressReadErr != nil {
 		out.Issues = append(slices.Clone(out.Issues), s.progressReadErr.Error())
 	}
@@ -977,11 +1224,26 @@ func (s *Service) Snapshot() (Snapshot, error) {
 		}
 	}
 	s.mu.Unlock()
+	var taskTickets map[string]TaskTicket
+	out.Projects = []ProjectPeople{}
 	if s.tickets != nil {
 		out.Issues = append(slices.Clone(out.Issues), s.tickets.Issues()...)
+		taskTickets, out.Projects = s.tickets.Shown()
 	}
 	cfo := readCFOState(s.Store.Home.State)
-	out.CFOTerminal, out.CFORuns, out.CFOStarting, out.CFOHarness = cfo.terminal, cfo.registered || cfo.starting, cfo.starting, cfo.harness
+	out.CFOTerminal, out.CFORuns, out.CFOStarting, out.CFOClosed, out.CFOHarness = cfo.terminal, cfo.registered || cfo.starting, cfo.starting, cfo.closed, cfo.harness
+	out.CFOTerminalSince = cfo.since
+	out.CFOConversationLeft = s.cfoConversationLeft()
+	if cfo.registered {
+		out.CFOUpdate = s.cfoUpdateView(cfo.since)
+	}
+	out.Comeback = s.comebackView()
+	if view, issue := s.startAtLoginView(); issue != "" {
+		out.Issues = append(slices.Clone(out.Issues), issue)
+	} else {
+		out.StartAtLogin = view
+	}
+	out.DevDrive = s.devDriveViewNow()
 	// The registration problem comes from the same read as the rest, so the
 	// board never shows a running CFO beside the problem of one it replaced.
 	// What the recovery cycle found is added only for the registration it
@@ -1017,6 +1279,12 @@ func (s *Service) Snapshot() (Snapshot, error) {
 	out.Decisions, err = wake.Pending(s.Store.Home.State)
 	if err != nil {
 		return out, err
+	}
+	if !d.CFOQuietSince.IsZero() {
+		out.CFOQuiet = cfoQuietNotice(out.Decisions, out.At)
+		if out.CFOQuiet != nil {
+			out.CFOQuiet.Since = d.CFOQuietSince
+		}
 	}
 	entries, err := os.ReadDir(s.Store.Home.State)
 	if err != nil {
@@ -1065,22 +1333,29 @@ func (s *Service) Snapshot() (Snapshot, error) {
 			evaluation = Evaluation{Phase: "review", Reason: "Session settled; evaluation is queued", At: node.UpdatedAt}
 		}
 		// A goblin's own newer report says what it is doing, unless a question
-		// or the gate holds it or its work already merged. A question it asked
-		// since replaces no such report: once answered, the goblin stands on
-		// it again.
+		// or the gate holds it or its work already merged. A question asked
+		// beside a dependency wait replaces no such wait.
 		standingAt, standing := standingReport(lines, spawned)
-		if phase, reason, target, ok := reportedProgress(s.statusTail, id, d.Reviews, standingAt, standing); ok && !isGateHeld {
+		phase, reason, target, isReported := reportedProgress(s.statusTail, id, d.Reviews, standingAt, standing)
+		if isReported && !isGateHeld {
 			evaluation.Phase, evaluation.Reason, evaluation.WaitingOn = phase, reason, target
 		}
-		if !isGateHeld && (evaluation.Phase == "working" || evaluation.Phase == "review") && (reportKind(standing) == "working" || reportKind(standing) == "done") && !runtime.At.Before(standingAt) {
+		// Answering or acknowledging a report does not resume its task. A
+		// standing dependency wait still survives a question asked beside it.
+		if kind := reportKind(report); !isGateHeld && (kind == "blocked" || kind == "failed") && !(isReported && phase == "waiting") {
+			evaluation.Phase, evaluation.Reason, evaluation.WaitingOn = kind, strings.TrimPrefix(report, kind+": "), ""
+		}
+		if !isGateHeld && (evaluation.Phase == "working" || evaluation.Phase == "review") && !runtime.At.Before(standingAt) {
 			if runtime.State == string(monitor.HealthIdle) || runtime.State == string(monitor.HealthParked) {
 				evaluation.Phase, evaluation.Reason, evaluation.WaitingOn = "idle", runtime.Reason, ""
+			} else if runtime.State == "unavailable" {
+				evaluation.Phase, evaluation.Reason, evaluation.WaitingOn = "unavailable", runtime.Reason, ""
 			} else if runtime.working() && evaluation.Phase == "review" {
 				evaluation.Phase, evaluation.Reason = "working", runtime.Reason
 			}
 		}
 		activity, pr := statusActivity(lines, spawned)
-		lastReport, _ := taskSessionSummary(lines, spawned)
+		lastReport, lastReportedAt, _ := taskSessionSummary(lines, spawned)
 		if verb, detail, ok := waitingQuestion(decisions, id); ok {
 			evaluation.Phase, evaluation.Reason, evaluation.WaitingOn = verb, "Waiting on the CFO: "+detail, ""
 			activity = detail
@@ -1093,7 +1368,7 @@ func (s *Service) Snapshot() (Snapshot, error) {
 			title = id
 			untitled[id] = true
 		}
-		out.Tasks = append(out.Tasks, Task{ID: id, Title: title, Project: filepath.Base(meta.Project), Harness: meta.Harness, Backend: meta.Backend, Model: meta.Model, Effort: meta.Effort, Mode: meta.Mode, Generation: meta.SpawnGen, Session: d.TaskSessions[id], Dependencies: []string{}, Runtime: runtime, Activity: activity, LastReport: lastReport, Since: s.sessionStarted(meta), Report: reportKind(report), Evaluation: evaluation})
+		out.Tasks = append(out.Tasks, Task{ID: id, Title: title, GoblinName: meta.GoblinName, GoblinTitle: meta.GoblinTitle, Parent: meta.Parent, Project: filepath.Base(meta.Project), Harness: meta.Harness, Backend: meta.Backend, Model: meta.Model, Effort: meta.Effort, Mode: meta.Mode, Generation: meta.SpawnGen, Session: d.TaskSessions[id], Dependencies: []string{}, Runtime: runtime, Activity: activity, LastReport: lastReport, ReportedAt: lastReportedAt, Since: s.sessionStarted(meta), Report: reportKind(report), Evaluation: evaluation})
 		if len(out.Tasks) >= maxSessions {
 			break
 		}
@@ -1147,13 +1422,19 @@ func (s *Service) Snapshot() (Snapshot, error) {
 	s.starts.Lock()
 	starting := s.starting
 	startErrors, changing, changeErrors := maps.Clone(s.startErrors), maps.Clone(s.changing), maps.Clone(s.changeErrors)
+	engineFrom := maps.Clone(s.engineFrom)
 	s.starts.Unlock()
+	finished := readFinishedWork(s.Store.Home, history)
 	for i := range out.Tasks {
 		task := &out.Tasks[i]
 		task.Starting = task.ID == starting
 		if task.Phase == "queued" {
 			if queued, err := s.queuedTask(task.ID); err == nil {
-				task.QueueRevision, task.Detail = queued.Revision, queued.Detail
+				task.QueueRevision, task.Detail, task.Priority = queued.Revision, queued.Detail, queued.Row.Priority
+				brief := filepath.Join(s.Store.Home.Data, task.ID, "brief.md")
+				named, _ := kept(&s.reads, "brief-settings", []string{brief}, func() (map[string]string, error) { return briefSettings(brief), nil })
+				settings := queuedEngine(queued.Row, named)
+				task.Harness, task.Model, task.Effort, task.Mode = settings.harness, settings.model, settings.effort, settings.mode
 				if queued.IsBriefOnly {
 					task.Title = queued.Row.Title
 				}
@@ -1166,6 +1447,7 @@ func (s *Service) Snapshot() (Snapshot, error) {
 			_, briefErr := s.reads.look(filepath.Join(s.Store.Home.Data, task.ID, "brief.md"))
 			task.Brief = briefErr == nil
 			task.StartError = startErrors[task.ID]
+			task.Finished = s.finishedCard(finished, task.ID)
 		}
 		record, lifecycleErr := s.lifecycle(task.ID)
 		isCurrent := record.Generation == task.Generation || record.Generation == "queued" && task.Phase == "queued" && record.Phase == "stopping"
@@ -1189,11 +1471,32 @@ func (s *Service) Snapshot() (Snapshot, error) {
 				task.Archived = true
 			}
 		}
+		choice, err := kept(&s.reads, "engine-choice", []string{filepath.Join(s.Store.Home.State, "engine", task.ID+".json")}, func() (state.EngineChoice, error) { return state.ReadEngineChoice(s.Store.Home.State, task.ID) })
+		if err == nil && choice.Generation == task.Generation {
+			task.PendingEngine = &choice
+		}
+		task.HarnessUpdate = s.goblinUpdate(task.ID, task.Generation)
 		if failure, ok := changeErrors[task.ID]; ok && failure.Generation == task.Generation && (lifecycleErr != nil || failure.Operation == record.Operation && failure.Updated.Equal(record.Updated)) {
 			task.ActionError = failure.Message
 		}
-		if phase := map[string]string{"pause": "pausing", "resume": "resuming", "stop": "stopping"}[changing[task.ID]]; phase != "" {
-			task.Phase = phase
+		if out.Comeback != nil {
+			if index := slices.IndexFunc(out.Comeback.Goblins, func(entry state.ComebackEntry) bool {
+				return entry.ID == task.ID && entry.Generation == task.Generation && entry.State != state.ComebackBack
+			}); index >= 0 {
+				task.Comeback = &out.Comeback.Goblins[index]
+				if task.Comeback.State == state.ComebackStopped {
+					task.ActionError = "Did not come back after the restart: " + strings.TrimRight(task.Comeback.Reason, ". ") + ". The CFO was told."
+				}
+			}
+		}
+		if action := changing[task.ID]; action != "" {
+			if action == "switch" {
+				task.Switching = true
+				prior := engineFrom[task.ID]
+				task.Harness, task.Model, task.Effort = prior.Harness, prior.Model, prior.Effort
+			} else {
+				task.Phase = map[string]string{"pause": "pausing", "resume": "resuming", "stop": "stopping"}[action]
+			}
 		}
 	}
 	for i := range out.Tasks {
@@ -1202,15 +1505,22 @@ func (s *Service) Snapshot() (Snapshot, error) {
 			progress.Seconds = max(0, int64(out.At.Sub(progress.At)/time.Second))
 			task.Progress = &progress
 		}
+		if area, exists := sameAreas[task.ID]; exists && area.Generation == task.Generation && !task.Archived {
+			task.Overlaps = area.Overlaps
+		}
+		if hosted, exists := hostedChecks[task.PR]; exists && task.PR != "" && !task.Archived {
+			task.HostedChecks = &hosted
+		}
+		if report, found := newestRun(localReports[task.Project], *task); found && !task.Archived {
+			task.LocalChecks = localChecks(report)
+		}
+		if tree, exists := trees[task.ID]; exists && tree.Generation == task.Generation && !task.Archived {
+			task.Tree = &tree
+		}
 	}
 	if dispatch := s.Options.Dispatch; dispatch != nil {
 		if memory, err := dispatch.Memory(); err == nil {
 			memory.Floor, memory.Next = memoryFloor, memoryNext
-			if capacity, err := ReadFleetCapacity(s.Store.Home, memory); err == nil {
-				memory.Capacity = &capacity
-			} else {
-				out.Issues = append(slices.Clone(out.Issues), err.Error())
-			}
 			// Naming who holds commit reads every process, so it is done
 			// only while commit is what the meter shows.
 			if memory.CommitAvailable < memory.Available {
@@ -1219,6 +1529,11 @@ func (s *Service) Snapshot() (Snapshot, error) {
 				}
 			}
 			out.Memory = &memory
+		}
+		if dispatch.Disk != nil {
+			if disk, err := dispatch.Disk(); err == nil {
+				out.Disk = &disk
+			}
 		}
 	}
 	for _, done := range history {
@@ -1246,6 +1561,12 @@ func (s *Service) Snapshot() (Snapshot, error) {
 		if state.ValidTaskID(id) == nil {
 			task.Handoff = s.hasHandoff(id, archived)
 		}
+		if ticket, exists := taskTickets[id]; exists {
+			task.Ticket = &ticket
+		}
+		if deployment, exists := deploys[task.PR]; exists && task.PR != "" {
+			task.Deployment = &deployment
+		}
 	}
 	if len(out.Decisions) > 100 {
 		out.Decisions = out.Decisions[len(out.Decisions)-100:]
@@ -1259,5 +1580,6 @@ func (s *Service) Snapshot() (Snapshot, error) {
 			out.Inbox++
 		}
 	}
+	out.Subscriptions = s.subscriptionUsage(cfo, out)
 	return out, nil
 }

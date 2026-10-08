@@ -8,11 +8,11 @@ This directory holds the skills Code Goblins itself provides, each tracked once,
 
 ## Which harness reads this directory
 
-- **Codex, Pi and Kimi** read `.agents/skills/` in the project directly.
+- **Codex and Pi** read `.agents/skills/` in the project directly.
 - **Claude Code** reads `.claude/skills/`, which `install.cmd -Dev` makes a directory junction to this directory.
   Without `install.cmd -Dev`, create it from the repository root: `cmd /c mklink /J .claude\skills .agents\skills`.
 
-A skill with the same name at user scope competes with the copy here: Claude Code uses the user copy, Codex lists both, and Pi and Kimi use this one.
+A skill with the same name at user scope competes with the copy here: Claude Code uses the user copy, Codex lists both, and Pi uses this one.
 Keep one copy of each name per machine.
 [docs/load-map.md](../../docs/load-map.md) has the full load order for every harness.
 

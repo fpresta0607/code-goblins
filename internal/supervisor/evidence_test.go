@@ -29,6 +29,7 @@ func TestFleetEvaluationPrefersAWaitingQuestionThenTheGateThenHerdr(t *testing.T
 	none := RuntimeEvidence{State: "unknown", Reason: "Current Herdr liveness evidence is unavailable"}
 	ready := Evaluation{Phase: "ready", Generation: "gen2", PR: "https://example/pr/1"}
 	question := []wake.Record{{Seq: 3, Kind: "notify", Key: "g1", Detail: "blocked: Which schema? options: a | b"}}
+	asked := []wake.Record{{Seq: 4, Kind: "stale", Key: "g1", Detail: proseAsk}}
 	for _, c := range []struct {
 		name       string
 		evaluation Evaluation
@@ -41,6 +42,8 @@ func TestFleetEvaluationPrefersAWaitingQuestionThenTheGateThenHerdr(t *testing.T
 		{"another task's question does not block this one", ready, busy, []wake.Record{{Kind: "notify", Key: "g2", Detail: "blocked: other"}}, "ready", ""},
 		{"a question answered on the board no longer blocks", ready, busy, []wake.Record{{Seq: 3, Kind: "notify", Key: "g1", Detail: "blocked: Which schema? options: a | b", Answered: "b"}}, "ready", ""},
 		{"a done notify is not a question", Evaluation{}, busy, []wake.Record{{Kind: "notify", Key: "g1", Detail: "done: PR https://example/pr/1"}}, "working", "Herdr reports busy"},
+		{"a question asked in prose waits like a notify", ready, busy, asked, "blocked", "Waiting on the CFO: Which layout do you want?"},
+		{"an idle goblin asked nothing", Evaluation{}, idle, []wake.Record{{Seq: 4, Kind: "stale", Key: "g1", Detail: "goblin_idle: at its prompt for 3m"}}, "idle", "Herdr reports idle"},
 		{"the gate outranks the pane", ready, busy, nil, "ready", ""},
 		{"a busy pane is working", Evaluation{Phase: "review", Generation: "gen2"}, busy, nil, "working", "Herdr reports busy"},
 		{"an idle pane is awaiting input", Evaluation{}, idle, nil, "idle", "Herdr reports idle"},
@@ -96,6 +99,43 @@ func TestSnapshotShowsWhatTheFleetKnowsForATaskNoHookReported(t *testing.T) {
 	}
 }
 
+// proseAsk is the monitor's wake for a goblin that ended its turn asking in
+// prose, as it raises it.
+const proseAsk = `goblin_asks: g1 ended its turn asking in prose instead of with cfo notify --blocked and waits at its prompt for the answer; next: answer it with cfo send g1 "<your answer>" (cfo answer takes only a notify's question). It asked: "Which layout do you want?"`
+
+// A goblin that ended its turn asking in prose shows on the board as waiting
+// on the CFO with its question, as one that asked with cfo notify --blocked
+// does, until it reports again.
+func TestSnapshotShowsAGoblinThatAskedInProseAsWaitingOnTheCFO(t *testing.T) {
+	// Arrange
+	store, h := testStore(t)
+	now := time.Now().UTC()
+	writeFile(t, state.StatusPath(h.State, "task-1"), now.Add(-time.Minute).Format(time.RFC3339)+" working: building the layout\n")
+	if _, err := wake.Append(h.State, "stale", "task-1", strings.ReplaceAll(proseAsk, "g1", "task-1")); err != nil {
+		t.Fatal(err)
+	}
+	service := &Service{Store: store}
+
+	// Act
+	view, err := service.Snapshot()
+	if err != nil {
+		t.Fatal(err)
+	}
+	writeFile(t, state.StatusPath(h.State, "task-1"), now.Add(-time.Minute).Format(time.RFC3339)+" working: building the layout\n"+now.Add(time.Minute).Format(time.RFC3339)+" working: grid layout, as the CFO answered\n")
+	after, err := service.Snapshot()
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Assert
+	if got := view.Tasks[0]; got.Phase != "blocked" || got.Reason != "Waiting on the CFO: Which layout do you want?" || got.Activity != "Which layout do you want?" {
+		t.Fatalf("asking task = phase %q reason %q activity %q, want it waiting on the CFO with its question", got.Phase, got.Reason, got.Activity)
+	}
+	if got := after.Tasks[0]; got.Phase == "blocked" {
+		t.Fatalf("after its next report the task still reads %q: %q", got.Phase, got.Reason)
+	}
+}
+
 // A goblin's own failed report leaves its phase to the evidence, so the board
 // alerts on it only through the report kind the snapshot carries.
 func TestSnapshotReportNamesTheKindOfATasksLatestReport(t *testing.T) {
@@ -125,6 +165,74 @@ func TestSnapshotReportNamesTheKindOfATasksLatestReport(t *testing.T) {
 		}
 		if sent.Report != c.report {
 			t.Errorf("after %q the snapshot sends report %q, want %q", c.line, sent.Report, c.report)
+		}
+	}
+}
+
+// A blocked or failed notify the CFO handled still holds the task, as the hold
+// tests in hold_status_test.go require, through a reconnect and later gate
+// transitions, and the gate's own block holds it while it lasts.
+func TestAHandledNotifyHoldsTheTaskThroughReconnectAndGateTransitions(t *testing.T) {
+	for _, verb := range []string{"blocked", "failed"} {
+		for _, handling := range []string{"answer then drain", "drain without a waiting snapshot"} {
+			t.Run(verb+"/"+handling, func(t *testing.T) {
+				store, h := testStore(t)
+				service := &Service{Store: store}
+				before := time.Now().Add(-time.Minute).UTC().Truncate(time.Second)
+				meta, err := state.ReadTaskMeta(h.State, "task-1")
+				if err != nil {
+					t.Fatal(err)
+				}
+				meta.SpawnGen = fmt.Sprintf("s%d", before.Add(-time.Second).UnixNano())
+				if err := state.WriteTaskMeta(h.State, meta); err != nil {
+					t.Fatal(err)
+				}
+				question := verb + ": Which fix? options: Retry | Revert"
+				lines := before.Format(time.RFC3339) + " working: implementing the fix\n" + before.Add(time.Second).Format(time.RFC3339) + " " + question + "\n"
+				if err := os.WriteFile(state.StatusPath(h.State, "task-1"), []byte(lines), 0600); err != nil {
+					t.Fatal(err)
+				}
+				record, err := wake.Append(h.State, "notify", "task-1", question)
+				if err != nil {
+					t.Fatal(err)
+				}
+				if handling == "answer then drain" {
+					view, err := service.Snapshot()
+					if err != nil || view.Tasks[0].Phase != verb {
+						t.Fatalf("waiting snapshot = %+v, %v; want the question waiting", view.Tasks, err)
+					}
+					if err := wake.MarkAnswered(h.State, record.Seq, wake.AnsweredByCFO, "Retry"); err != nil {
+						t.Fatal(err)
+					}
+					view, err = service.Snapshot()
+					if err != nil || view.Tasks[0].Report != verb {
+						t.Errorf("answered snapshot = %+v, %v; want the %s report held", view.Tasks, err, verb)
+					}
+				}
+				if err := wake.AckThrough(h.State, record.Seq); err != nil {
+					t.Fatal(err)
+				}
+				// Reopen the store and service: the stream may miss every waiting snapshot.
+				store, err = Open(h)
+				if err != nil {
+					t.Fatal(err)
+				}
+				service = &Service{Store: store}
+				for _, phase := range []string{"review", "blocked", "review"} {
+					store.db.Tasks["task-1"] = Evaluation{Phase: phase, Reason: "gate " + phase, Generation: meta.SpawnGen, At: time.Now()}
+					if err := store.save(); err != nil {
+						t.Fatal(err)
+					}
+					view, err := service.Snapshot()
+					if err != nil {
+						t.Fatal(err)
+					}
+					isGateBlock := phase == "blocked"
+					if task := view.Tasks[0]; task.Report != verb || isGateBlock && (task.Phase != "blocked" || task.Reason != "gate blocked") || !isGateBlock && task.Phase != verb {
+						t.Errorf("after handling, gate %s sends %+v; want the %s report holding the task, or the gate's own block", phase, task, verb)
+					}
+				}
+			})
 		}
 	}
 }
@@ -228,6 +336,37 @@ func TestCompletedStoppedCardRetainsTaskTitleRepositoryAndPullRequest(t *testing
 		if task.Phase != "stopped" || task.Project != "example" || task.Title == strings.TrimPrefix(task.ID, "finished:") || task.ID == "finished:delivered" && task.PR == "" {
 			t.Fatalf("inconsistent Completed card: %+v", task)
 		}
+	}
+}
+
+func TestCompletedCardKeepsTheGoblinsNameAndTitle(t *testing.T) {
+	cases := []struct {
+		name   string
+		record func(stateDir string) error
+	}{
+		{name: "a cleaned up goblin", record: func(stateDir string) error {
+			return state.WriteOutcome(stateDir, state.Outcome{ID: "delivered", Title: "Delivered title", GoblinName: "Jerry", GoblinTitle: "Code Designer", Project: "example", Phase: "stopped", At: time.Now()})
+		}},
+		{name: "a stopped goblin", record: func(stateDir string) error {
+			return state.WriteLifecycle(stateDir, state.Lifecycle{ID: "delivered", Operation: "stop-1", Action: "stop", Phase: "stopped", Title: "Delivered title", GoblinName: "Jerry", GoblinTitle: "Code Designer", Project: "example", Updated: time.Now()})
+		}},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			// Arrange
+			h := home.Home{State: t.TempDir(), Data: t.TempDir()}
+			if err := tc.record(h.State); err != nil {
+				t.Fatal(err)
+			}
+
+			// Act
+			tasks := finishedTasks(h, time.Now())
+
+			// Assert
+			if len(tasks) != 1 || tasks[0].GoblinName != "Jerry" || tasks[0].GoblinTitle != "Code Designer" {
+				t.Fatalf("Completed = %+v, want the goblin's name and title kept", tasks)
+			}
+		})
 	}
 }
 
@@ -498,11 +637,24 @@ func TestGitMergedPRsReadsMergeCommitsOfEachFleetRepository(t *testing.T) {
 	run("merge", "-q", "--no-ff", "fix/wake", "-m", "Merge pull request #31 from o/fix/wake")
 	run("commit", "-q", "--allow-empty", "-m", "Merge pull request #99 from o/not-a-merge")
 	run("update-ref", "refs/remotes/origin/main", "HEAD")
+	// The checkouts sit inside another repository, as a goblin's scratch sits
+	// inside the home's checkout, and none of them may read its merges.
+	git(dir, "init", "-q", "--initial-branch=main")
+	git(dir, "config", "user.email", "t@t")
+	git(dir, "config", "user.name", "t")
+	git(dir, "remote", "add", "origin", "https://github.com/o/outer.git")
+	git(dir, "commit", "-q", "--allow-empty", "-m", "outer base")
+	git(dir, "switch", "-q", "-c", "outer")
+	git(dir, "commit", "-q", "--allow-empty", "-m", "the outer fix")
+	git(dir, "switch", "-q", "main")
+	git(dir, "merge", "-q", "--no-ff", "outer", "-m", "Merge pull request #500 from o/outer")
+	git(dir, "update-ref", "refs/remotes/origin/main", "HEAD")
 	// A checkout with no GitHub remote has nothing to link and is skipped.
 	other := filepath.Join(dir, "local-only")
-	if err := os.MkdirAll(filepath.Join(other, ".git"), 0o755); err != nil {
+	if err := os.MkdirAll(other, 0o755); err != nil {
 		t.Fatal(err)
 	}
+	git(other, "init", "-q", "--initial-branch=main")
 
 	// A master checkout that never fetched has no default branch to read,
 	// which is not an error and does not hide the other repositories.
@@ -813,6 +965,10 @@ func TestAFinishedTaskReadsItsPullRequestStateFromGitHub(t *testing.T) {
 	}
 }
 
+// A pull request GitHub keeps not answering for reads Finished, is asked
+// again on each refresh, and is reported once it went unanswered on three
+// refreshes in a row; from then on it is asked, and reported, only after the
+// recheck interval.
 func TestAPullRequestGitHubCouldNotReadStaysFinishedAndIsReported(t *testing.T) {
 	store, h := testStore(t)
 	if err := os.WriteFile(filepath.Join(h.State, "unread.status"), []byte("done: PR https://github.com/o/r/pull/7\n"), 0o644); err != nil {
@@ -832,24 +988,71 @@ func TestAPullRequestGitHubCouldNotReadStaysFinishedAndIsReported(t *testing.T) 
 		t.Fatal(snapshotErr)
 	}
 
-	if !errors.Is(err, failure) {
-		t.Fatalf("refreshHistory error = %v, want GitHub's failure reported", err)
+	if err != nil {
+		t.Fatalf("refreshHistory error = %v, want one unanswered ask left unreported", err)
 	}
 	index := slices.IndexFunc(view.Tasks, func(task Task) bool { return task.ID == "finished:unread" })
 	if index < 0 || view.Tasks[index].Merged || view.Tasks[index].Closed {
 		t.Fatalf("tasks = %+v, want the unread pull request to read Finished", view.Tasks)
 	}
-	if err := service.refreshHistory(t.Context(), now.Add(time.Minute)); err != nil || asks != 1 {
-		t.Fatalf("a minute later: error %v after %d asks, want no new ask", err, asks)
+	if err := service.refreshHistory(t.Context(), now.Add(time.Minute)); err != nil || asks != 2 {
+		t.Fatalf("a minute later: error %v after %d asks, want it asked again and left unreported", err, asks)
 	}
-	if err := service.refreshHistory(t.Context(), now.Add(pullRequestRecheck)); !errors.Is(err, failure) || asks != 2 {
-		t.Fatalf("after the recheck interval: error %v after %d asks, want one more ask", err, asks)
+	if err := service.refreshHistory(t.Context(), now.Add(2*time.Minute)); !errors.Is(err, failure) || asks != 3 {
+		t.Fatalf("on the third refresh: error %v after %d asks, want it asked again and GitHub's failure reported", err, asks)
+	}
+	if err := service.refreshHistory(t.Context(), now.Add(3*time.Minute)); err != nil || asks != 3 {
+		t.Fatalf("a minute after it was reported: error %v after %d asks, want no new ask", err, asks)
+	}
+	if err := service.refreshHistory(t.Context(), now.Add(2*time.Minute+pullRequestRecheck)); !errors.Is(err, failure) || asks != 4 {
+		t.Fatalf("after the recheck interval: error %v after %d asks, want one more ask, reported", err, asks)
+	}
+}
+
+// On 2026-10-08 gh could not read siqstack-cms PR 50 under the fleet's load,
+// woke the CFO, and read it in about 600 ms minutes later. A pull request
+// GitHub did not answer for is asked again on the next refresh, and one
+// failed ask is never reported.
+func TestAPullRequestReadThatTimesOutOnceIsAskedAgainOnTheNextRefreshAndNeverReported(t *testing.T) {
+	// Arrange
+	store, h := testStore(t)
+	if err := os.WriteFile(filepath.Join(h.State, "slow.status"), []byte("done: PR https://github.com/o/r/pull/50\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	answers := []error{context.DeadlineExceeded, nil}
+	asks := 0
+	service := &Service{Store: store, Options: Options{PullRequestState: func(context.Context, string) (PullRequestInfo, error) {
+		answer := answers[min(asks, len(answers)-1)]
+		asks++
+		if answer != nil {
+			return PullRequestInfo{}, fmt.Errorf("gh could not read https://github.com/o/r/pull/50: %w", answer)
+		}
+		return PullRequestInfo{State: "MERGED", Title: "The PR title"}, nil
+	}}}
+	now := time.Now().UTC()
+
+	// Act
+	first := service.refreshHistory(t.Context(), now)
+	second := service.refreshHistory(t.Context(), now.Add(time.Minute))
+
+	// Assert
+	if first != nil || second != nil {
+		t.Fatalf("refreshes returned %v and %v, want a read that timed out once left unreported", first, second)
+	}
+	view, err := service.Snapshot()
+	if err != nil {
+		t.Fatal(err)
+	}
+	index := slices.IndexFunc(view.Tasks, func(task Task) bool { return task.ID == "finished:slow" })
+	if asks != 2 || index < 0 || !view.Tasks[index].Merged {
+		t.Fatalf("asked %d times with tasks %+v, want the pull request asked again a minute later and shown merged", asks, view.Tasks)
 	}
 }
 
 // All asks of one refresh share pullRequestBudget, so a GitHub that does not
 // answer holds the supervisor's loop only that long; what was not asked is
-// asked on the next refresh.
+// asked on the next refresh, and so is the ask the budget cut off, which is
+// not reported for one refresh.
 func TestASlowGitHubHoldsARefreshOnlyForTheBudget(t *testing.T) {
 	store, h := testStore(t)
 	for pr := 1; pr <= 3; pr++ {
@@ -877,16 +1080,16 @@ func TestASlowGitHubHoldsARefreshOnlyForTheBudget(t *testing.T) {
 	if elapsed > pullRequestBudget+3*time.Second {
 		t.Fatalf("the refresh took %v, want it to end soon after the %v budget", elapsed, pullRequestBudget)
 	}
-	if !errors.Is(err, context.DeadlineExceeded) || len(asked) != 1 {
-		t.Fatalf("first refresh: error %v after asking %v, want one ask cut off by the budget and reported", err, asked)
+	if err != nil || len(asked) != 1 {
+		t.Fatalf("first refresh: error %v after asking %v, want one ask cut off by the budget and not reported", err, asked)
 	}
 	blocked := asked[0]
 	asked = nil
 	if err := service.refreshHistory(t.Context(), now.Add(time.Minute)); err != nil {
 		t.Fatal(err)
 	}
-	if len(asked) != 2 || slices.Contains(asked, blocked) {
-		t.Fatalf("next refresh asked %v, want the two pull requests the budget left and not %s", asked, blocked)
+	if len(asked) != 3 || !slices.Contains(asked, blocked) {
+		t.Fatalf("next refresh asked %v, want the two pull requests the budget left and %s again", asked, blocked)
 	}
 }
 
@@ -997,5 +1200,38 @@ func TestCompletedLiveTaskUsesItsPullRequestTitleAndRepository(t *testing.T) {
 	}
 	if before == service.historyMark() {
 		t.Fatal("stopping an undispatched task did not invalidate Completed")
+	}
+}
+
+// A helper its parent merged delivered into its parent's branch before the
+// merge retired it through Stop, so Completed shows it Finished with why, as
+// its outcome records; a stop of the same generation never relabels a
+// delivered outcome, and one of another generation leaves it alone.
+func TestCompletedShowsAMergedHelperFinishedThoughTheMergeStoppedIt(t *testing.T) {
+	for _, test := range []struct {
+		name, outcome, generation, want string
+	}{
+		{"a merged helper", "done", "s1", "done"},
+		{"an unmerged helper", "stopped", "s1", "stopped"},
+		{"an older delivery", "done", "s0", "stopped"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			// Arrange
+			h := home.Home{State: t.TempDir(), Data: t.TempDir()}
+			if err := state.WriteOutcome(h.State, state.Outcome{ID: "g1-h1", Generation: test.generation, Title: "Accounts migration", Project: "app", Phase: test.outcome, Evidence: "merged into its parent g1's branch", At: time.Now()}); err != nil {
+				t.Fatal(err)
+			}
+			if err := state.WriteLifecycle(h.State, state.Lifecycle{ID: "g1-h1", Generation: "s1", Operation: "merge-1", Action: "stop", Phase: "stopped", Title: "Accounts migration", Project: "app", Reason: "Merged into its parent g1's branch feat/x", Updated: time.Now()}); err != nil {
+				t.Fatal(err)
+			}
+
+			// Act
+			tasks := finishedTasks(h, time.Now())
+
+			// Assert
+			if len(tasks) != 1 || tasks[0].Phase != test.want || tasks[0].Reason != "Merged into its parent g1's branch feat/x" {
+				t.Errorf("Completed = %+v, want one %s card saying why", tasks, test.want)
+			}
+		})
 	}
 }

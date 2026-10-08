@@ -1,6 +1,7 @@
 package supervisor
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"io"
@@ -10,29 +11,48 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"strings"
+	"sync"
 	"testing"
 	"testing/fstest"
 )
 
 // firstRunMachine is a machine as the first-run page sees it: a projects
 // folder holding the checkouts alpha and beta beside a plain folder and a
-// file, a home where Claude Code and Codex are signed in, Claude Code and
-// Codex on PATH, and a Code Goblins home that remembers no agent yet. It
-// records every projects root set, every agent remembered and the agent of
-// every CFO started.
+// file, Claude Code and Codex on PATH, each saying it is signed in, with
+// their sign-ins saved in the home, and a Code Goblins home that remembers no
+// agent yet. It records every projects root set, every agent asked whether
+// it is signed in, every agent remembered and the agent of every CFO started.
 type firstRunMachine struct {
 	run      *FirstRun
 	root     string
+	home     string
 	cfoHome  string
 	saved    string
 	recorded []string
 	started  []string
+	// signIns is what each agent's status command says, and asked is every
+	// agent asked, which Setup asks at once.
+	signIns map[string]SignInState
+	askedMu sync.Mutex
+	asked   []string
+	// runs is whether a CFO runs, reopened counts the CFOs brought back,
+	// and reopenErr is what bringing one back ends with; restarted counts
+	// the restarts of a running one, which end with restartErr or else on
+	// its conversation, unless restartEnds says its harness could not
+	// resume it.
+	runs        bool
+	reopened    int
+	reopenErr   error
+	restarted   int
+	restartErr  error
+	restartEnds bool
 }
 
 func newFirstRunMachine(t *testing.T) *firstRunMachine {
 	t.Helper()
-	m := &firstRunMachine{root: t.TempDir()}
+	m := &firstRunMachine{root: t.TempDir(), home: t.TempDir(), signIns: map[string]SignInState{"claude": SignedIn, "codex": SignedIn}}
 	for _, dir := range []string{"alpha/.git", "beta/.git", "notes"} {
 		if err := os.MkdirAll(filepath.Join(m.root, filepath.FromSlash(dir)), 0o700); err != nil {
 			t.Fatal(err)
@@ -41,9 +61,8 @@ func newFirstRunMachine(t *testing.T) *firstRunMachine {
 	if err := os.WriteFile(filepath.Join(m.root, "readme.txt"), []byte("not a project\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	home := t.TempDir()
 	for _, file := range []string{".claude/.credentials.json", ".codex/auth.json"} {
-		path := filepath.Join(home, filepath.FromSlash(file))
+		path := filepath.Join(m.home, filepath.FromSlash(file))
 		if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
 			t.Fatal(err)
 		}
@@ -53,7 +72,7 @@ func newFirstRunMachine(t *testing.T) *firstRunMachine {
 	}
 	m.cfoHome = filepath.Join(t.TempDir(), "CodeGoblins")
 	m.run = &FirstRun{
-		Home:       home,
+		Home:       m.home,
 		CFOHome:    m.cfoHome,
 		SavedAgent: func() string { return m.saved },
 		SaveAgent:  func(agent string) error { m.saved = agent; return nil },
@@ -68,8 +87,25 @@ func newFirstRunMachine(t *testing.T) *firstRunMachine {
 		},
 		ProjectsRoot:    func() (string, error) { return "", nil },
 		SetProjectsRoot: func(dir string) error { m.recorded = append(m.recorded, dir); return nil },
-		CFORuns:         func() bool { return false },
+		CFORuns:         func() bool { return m.runs },
 		StartCFO:        func(agent string) error { m.started = append(m.started, agent); return nil },
+		ReopenCFO:       func() error { m.reopened++; return m.reopenErr },
+		RestartCFO: func() (CFOConversation, bool, error) {
+			m.restarted++
+			if m.restartErr != nil {
+				return CFOConversation{}, false, m.restartErr
+			}
+			return CFOConversation{Harness: "claude", Session: "a1b2c3d4-session"}, !m.restartEnds, nil
+		},
+		SignIn: func(_ context.Context, agent string) SignInState {
+			m.askedMu.Lock()
+			defer m.askedMu.Unlock()
+			m.asked = append(m.asked, agent)
+			if state, ok := m.signIns[agent]; ok {
+				return state
+			}
+			return SignInUnknown
+		},
 	}
 	return m
 }
@@ -83,16 +119,16 @@ func TestFirstRunShowsTheFoldersProjectsAndEachAgent(t *testing.T) {
 	m := newFirstRunMachine(t)
 
 	// Act
-	setup := m.run.Setup(m.root)
+	setup := m.run.Setup(t.Context(), m.root)
 
 	// Assert
 	if setup.ProjectsRoot != m.root || strings.Join(setup.Checkouts, ",") != "alpha,beta" || setup.Problem != "" || setup.CFORuns {
 		t.Fatalf("setup = %+v, want the folder with alpha and beta", setup)
 	}
 	want := []SetupAgent{
-		{ID: "claude", Name: "Claude Code", Recommended: true, Note: "the best experience", Installed: true, SignedIn: true},
-		{ID: "codex", Name: "Codex", Note: "woken by a typed line; no digest or guards", Installed: true, SignedIn: true},
-		{ID: "pi", Name: "pi", Note: "woken by a typed line; no digest, guards or resume", Reason: "Install pi to start the CFO"},
+		{ID: "claude", Name: "Claude Code", Recommended: true, Note: "the best experience", Installed: true, SignIn: SignedIn},
+		{ID: "codex", Name: "Codex", Note: "woken by a typed line; no digest or guards", Installed: true, SignIn: SignedIn},
+		{ID: "pi", Name: "pi", Note: "woken by a typed line; no digest, guards or resume", SignIn: SignInUnknown, Reason: "Install pi to start the CFO"},
 	}
 	if len(setup.Agents) != len(want) {
 		t.Fatalf("agents = %+v, want %+v", setup.Agents, want)
@@ -101,6 +137,72 @@ func TestFirstRunShowsTheFoldersProjectsAndEachAgent(t *testing.T) {
 		if setup.Agents[i] != want[i] {
 			t.Errorf("agent %d = %+v, want %+v", i, setup.Agents[i], want[i])
 		}
+	}
+}
+
+// The page says what each agent's own status command says, in the
+// environment the CFO's terminal starts with, never whether a sign-in file
+// sits in the home this supervisor sees. Found 2026-10-06 in a scratch
+// profile: the page said Not signed in while the CFO's terminal started
+// Claude Code signed in with the PC user's own account.
+func TestFirstRunSaysWhatEachAgentsOwnStatusCommandSays(t *testing.T) {
+	for _, c := range []struct {
+		name    string
+		saved   bool
+		says    SignInState
+		wantSay SignInState
+	}{
+		{"signed in with no sign-in saved in the home the supervisor sees", false, SignedIn, SignedIn},
+		{"signed out though a sign-in file is in that home", true, SignedOut, SignedOut},
+		{"a status command that did not say", true, SignInUnknown, SignInUnknown},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			// Arrange
+			m := newFirstRunMachine(t)
+			if !c.saved {
+				if err := os.RemoveAll(filepath.Join(m.home, ".claude")); err != nil {
+					t.Fatal(err)
+				}
+			}
+			m.signIns["claude"] = c.says
+
+			// Act
+			claude := m.run.Setup(t.Context(), m.root).Agents[0]
+
+			// Assert
+			if claude.ID != "claude" || claude.SignIn != c.wantSay {
+				t.Fatalf("Claude Code = %+v, want the sign-in %q", claude, c.wantSay)
+			}
+		})
+	}
+}
+
+// Only an installed agent is asked, and Start asks none: it needs only why
+// an agent cannot start, so a status command never slows it.
+func TestFirstRunAsksOnlyInstalledAgentsAndStartAsksNone(t *testing.T) {
+	// Arrange
+	m := newFirstRunMachine(t)
+
+	// Act
+	m.run.Setup(t.Context(), m.root)
+
+	// Assert
+	slices.Sort(m.asked)
+	if !slices.Equal(m.asked, []string{"claude", "codex"}) {
+		t.Fatalf("Setup asked %q, want Claude Code and Codex, the installed agents", m.asked)
+	}
+
+	// Arrange
+	m.asked = nil
+
+	// Act
+	if err := m.run.Start("", "claude"); err != nil {
+		t.Fatal(err)
+	}
+
+	// Assert
+	if len(m.asked) != 0 {
+		t.Fatalf("Start asked %q whether they are signed in, want none asked", m.asked)
 	}
 }
 
@@ -115,7 +217,7 @@ func TestFirstRunShowsTheHomeAndTheAgentTheQuickStartRemembered(t *testing.T) {
 			m.saved = saved
 
 			// Act
-			setup := m.run.Setup("")
+			setup := m.run.Setup(t.Context(), "")
 
 			// Assert
 			if setup.Home != m.cfoHome || setup.Agent != saved {
@@ -131,7 +233,7 @@ func TestFirstRunOpensOnTheRecordedProjectsFolder(t *testing.T) {
 	m.run.ProjectsRoot = func() (string, error) { return m.root, nil }
 
 	// Act
-	setup := m.run.Setup("")
+	setup := m.run.Setup(t.Context(), "")
 
 	// Assert
 	if setup.ProjectsRoot != m.root || len(setup.Checkouts) != 2 {
@@ -147,7 +249,7 @@ func TestFirstRunSaysWhyAFolderOffersNoProject(t *testing.T) {
 		{"a folder without a checkout", filepath.Join(m.root, "notes"), "No git checkout is in this folder"},
 	} {
 		t.Run(c.name, func(t *testing.T) {
-			setup := m.run.Setup(c.root)
+			setup := m.run.Setup(t.Context(), c.root)
 
 			if !strings.HasPrefix(setup.Problem, c.problem) || len(setup.Checkouts) != 0 {
 				t.Fatalf("setup = %+v, want the problem %q", setup, c.problem)
@@ -172,7 +274,7 @@ func TestFirstRunSaysWhyClaudeCodeCannotStart(t *testing.T) {
 			}
 
 			// Act
-			claude := m.run.Setup(m.root).Agents[0]
+			claude := m.run.Setup(t.Context(), m.root).Agents[0]
 
 			// Assert
 			if claude.ID != "claude" || claude.Reason != c.reason {
@@ -437,6 +539,116 @@ func TestTheBoardServesTheFirstRunPageAndStartsTheCFO(t *testing.T) {
 	case <-changes:
 	default:
 		t.Fatal("a start sent the board no fresh snapshot, so it shows no CFO until the next ping")
+	}
+}
+
+// The board's Reopen brings a closed CFO back, as goblins does, and tells
+// the board at once. It brings none back beside a CFO that runs, says why a
+// CFO could not come back, and a board that starts no CFO says so.
+func TestTheBoardReopensAClosedCFO(t *testing.T) {
+	for _, tc := range []struct {
+		name      string
+		arrange   func(m *firstRunMachine, s *Service)
+		code      int
+		reason    string
+		reopened  int
+		announced bool
+	}{
+		{"a closed CFO", func(*firstRunMachine, *Service) {}, http.StatusOK, `"reopened":true`, 1, true},
+		{"a CFO that runs", func(m *firstRunMachine, _ *Service) { m.runs = true }, http.StatusConflict, "The CFO already runs", 0, false},
+		{"a CFO that cannot come back", func(m *firstRunMachine, _ *Service) { m.reopenErr = errors.New("claude is not on PATH") }, http.StatusInternalServerError, "the CFO could not be reopened: claude is not on PATH", 1, false},
+		{"a board that starts no CFO", func(_ *firstRunMachine, s *Service) { s.Options.FirstRun = nil }, http.StatusConflict, "This board cannot start a CFO", 0, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			// Arrange
+			m := newFirstRunMachine(t)
+			store, _ := testStore(t)
+			s := &Service{Store: store, Instance: "instance-1", Options: Options{FirstRun: m.run}, subscribers: map[chan struct{}]struct{}{}}
+			tc.arrange(m, s)
+			handler := NewHTTP(s, "board.local", fstest.MapFS{})
+			changes, unsubscribe := s.subscribe()
+			defer unsubscribe()
+			req := httptest.NewRequest("POST", "http://board.local/api/cfo/reopen", strings.NewReader("{}"))
+			req.Header.Set("Origin", "http://board.local")
+			req.Header.Set("X-CFO-Token", "instance-1")
+			req.Header.Set("Content-Type", "application/json")
+			response := httptest.NewRecorder()
+
+			// Act
+			handler.ServeHTTP(response, req)
+
+			// Assert
+			if response.Code != tc.code || !strings.Contains(response.Body.String(), tc.reason) || m.reopened != tc.reopened {
+				t.Fatalf("POST /api/cfo/reopen = %d %s, reopened %d; want %d with %q and %d reopened", response.Code, response.Body.String(), m.reopened, tc.code, tc.reason, tc.reopened)
+			}
+			announced := false
+			select {
+			case <-changes:
+				announced = true
+			default:
+			}
+			if announced != tc.announced {
+				t.Errorf("the board was sent a fresh snapshot: %v, want %v", announced, tc.announced)
+			}
+		})
+	}
+}
+
+// The board's Restart does what goblins resume does for a CFO that runs, as
+// for one whose screen froze: it restarts it on its conversation and says
+// whether it came back on it. It restarts nothing while no CFO runs, and a
+// CFO it could not restart says why.
+func TestTheBoardRestartsARunningCFO(t *testing.T) {
+	for _, tc := range []struct {
+		name      string
+		arrange   func(m *firstRunMachine, s *Service)
+		body      string
+		code      int
+		reply     string
+		restarted int
+		announced bool
+	}{
+		{"a running CFO", func(m *firstRunMachine, _ *Service) { m.runs = true }, "{}", http.StatusOK, `"restarted":true,"resumed":true,"session":"a1b2c3d4-session"`, 1, true},
+		{"a CFO whose harness could not resume its conversation", func(m *firstRunMachine, _ *Service) { m.runs, m.restartEnds = true, true }, "{}", http.StatusOK, `"resumed":false`, 1, true},
+		{"no CFO running", func(*firstRunMachine, *Service) {}, "{}", http.StatusConflict, "No CFO runs to restart", 0, false},
+		{"a CFO left running", func(m *firstRunMachine, _ *Service) {
+			m.runs, m.restartErr = true, errors.New("the CFO in native terminal cfo registered no conversation it can come back on, so it is left running")
+		}, "{}", http.StatusInternalServerError, "the CFO could not be restarted: the CFO in native terminal cfo registered no conversation", 1, false},
+		{"a body field the route does not take", func(m *firstRunMachine, _ *Service) { m.runs = true }, `{"now":true}`, http.StatusBadRequest, "Invalid request JSON", 0, false},
+		{"a board that starts no CFO", func(_ *firstRunMachine, s *Service) { s.Options.FirstRun = nil }, "{}", http.StatusConflict, "This board cannot start a CFO", 0, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			// Arrange
+			m := newFirstRunMachine(t)
+			store, _ := testStore(t)
+			s := &Service{Store: store, Instance: "instance-1", Options: Options{FirstRun: m.run}, subscribers: map[chan struct{}]struct{}{}}
+			tc.arrange(m, s)
+			handler := NewHTTP(s, "board.local", fstest.MapFS{})
+			changes, unsubscribe := s.subscribe()
+			defer unsubscribe()
+			req := httptest.NewRequest("POST", "http://board.local/api/cfo/restart", strings.NewReader(tc.body))
+			req.Header.Set("Origin", "http://board.local")
+			req.Header.Set("X-CFO-Token", "instance-1")
+			req.Header.Set("Content-Type", "application/json")
+			response := httptest.NewRecorder()
+
+			// Act
+			handler.ServeHTTP(response, req)
+
+			// Assert
+			if response.Code != tc.code || !strings.Contains(response.Body.String(), tc.reply) || m.restarted != tc.restarted {
+				t.Fatalf("POST /api/cfo/restart = %d %s, restarted %d; want %d with %q and %d restarted", response.Code, response.Body.String(), m.restarted, tc.code, tc.reply, tc.restarted)
+			}
+			announced := false
+			select {
+			case <-changes:
+				announced = true
+			default:
+			}
+			if announced != tc.announced {
+				t.Errorf("the board was sent a fresh snapshot: %v, want %v", announced, tc.announced)
+			}
+		})
 	}
 }
 

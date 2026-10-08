@@ -6,14 +6,12 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
-	"slices"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/fpresta0607/code-goblins/internal/afk"
 	"github.com/fpresta0607/code-goblins/internal/home"
-	"github.com/fpresta0607/code-goblins/internal/quota"
 	"github.com/fpresta0607/code-goblins/internal/supervisor"
 )
 
@@ -276,7 +274,7 @@ func TestAFKStatusListsWhatWasDecidedAndWhatIsHeld(t *testing.T) {
 		}
 	}
 	for _, held := range []afk.Entry{
-		{Item: "question:drop-legacy-invoices", What: "Migration 0042 drops legacy_invoices. Apply it?"},
+		{Item: "question:drop-legacy-invoices", What: "Migration 0042 drops legacy_invoices. Apply it?", Recommendation: "Keep it held"},
 		{Item: "question:notify-pd-billing-12", Task: "pd-billing", What: "Which store?"},
 		{Item: "review:waiting-pd-auth-7", Task: "pd-auth", What: "Waiting on you: sign in to Vercel"},
 	} {
@@ -295,7 +293,7 @@ func TestAFKStatusListsWhatWasDecidedAndWhatIsHeld(t *testing.T) {
 	for _, phrase := range []string{
 		"AFK MODE IS ON", overlordsShell, "never decided for him",
 		"Decided so far (2)", "merge: " + pr + " (merged)", "answer: pd-billing: notify-pd-billing-12",
-		"Held for you so far (2)", "question:drop-legacy-invoices, the CFO's: Migration 0042 drops legacy_invoices. Apply it?", "review:waiting-pd-auth-7, pd-auth's: Waiting on you: sign in to Vercel",
+		"Held for you so far (2)", "question:drop-legacy-invoices, the CFO's: Migration 0042 drops legacy_invoices. Apply it?\n  The CFO recommends: Keep it held.\n", "review:waiting-pd-auth-7, pd-auth's: Waiting on you: sign in to Vercel",
 	} {
 		if !strings.Contains(stdout, phrase) {
 			t.Errorf("status does not say %q:\n%s", phrase, stdout)
@@ -381,33 +379,6 @@ func TestThePRMergeCommandReadsAFKModeFromTheHome(t *testing.T) {
 			t.Fatalf("exit=%d stderr=%q requests=%d, want the merge refused before GitHub is asked anything", exit, stderr.String(), len(runner.requests))
 		}
 	})
-}
-
-// The report says what was spent from quota-axi's reading of every provider
-// it measured: each window's use and any credit balance. A provider whose
-// numbers quota-axi itself calls stale is no reading.
-func TestAFKAllowanceKeepsEachMeasuredWindowAndCreditBalance(t *testing.T) {
-	// Arrange
-	reset := time.Date(2026, 10, 7, 9, 0, 0, 0, time.UTC)
-	report := quota.Report{Providers: map[string]quota.Provider{
-		"claude": {Name: "claude", Windows: []quota.Window{{ID: "five_hour", Label: "session", PercentUsed: 88, ResetsAt: reset}, {ID: "seven_day", Label: "week", PercentUsed: 1}}},
-		"codex":  {Name: "codex", Windows: []quota.Window{{ID: "weekly", PercentUsed: 40}}, Credits: &quota.Credits{Remaining: 12, Unit: "credits"}},
-		"kimi":   {Name: "kimi", Stale: true, Windows: []quota.Window{{ID: "weekly", Label: "week", PercentUsed: 5}}},
-	}}
-
-	// Act
-	got := afkAllowance(report)
-
-	// Assert
-	want := []afk.Allowance{
-		{Provider: "claude", Window: "session", PercentUsed: 88, ResetsAt: reset},
-		{Provider: "claude", Window: "week", PercentUsed: 1},
-		{Provider: "codex", Window: "weekly", PercentUsed: 40},
-		{Provider: "codex", Window: "credits", Credits: true, Remaining: 12, Unit: "credits"},
-	}
-	if !slices.Equal(got, want) {
-		t.Errorf("afkAllowance = %+v, want %+v", got, want)
-	}
 }
 
 // The registered CFO makes the switch at the Overlord's ask with --asked,

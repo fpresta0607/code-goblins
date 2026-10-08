@@ -639,7 +639,7 @@ func TestConfigFromEnvInstallsStructuralProber(t *testing.T) {
 	if native, ok := backends.Native.(monitor.NativeProber); !ok || native.StateDir != dir {
 		t.Errorf("ConfigFromEnv native prober = %#v, want a monitor.NativeProber reading this home's hosts", backends.Native)
 	}
-	if progress, ok := cfg.Monitor.Progress.(monitor.HostProgress); !ok || progress.StateDir != dir {
+	if progress, ok := cfg.Monitor.Progress.(*monitor.HostProgress); !ok || progress.StateDir != dir {
 		t.Errorf("ConfigFromEnv Progress = %#v, want monitor.HostProgress reading this home's hosts", cfg.Monitor.Progress)
 	}
 	if cfg.Monitor.StateDir != dir {
@@ -923,6 +923,76 @@ func TestSweepOrphansDoesNotRewakeOnTheSameOrphan(t *testing.T) {
 	}
 	if reason := sweepOrphans(context.Background(), reapConfig(dir, grown)); !strings.Contains(reason, "2 orphan_process") {
 		t.Fatalf("third sweep = %q, want a wake naming both orphans", reason)
+	}
+}
+
+// TestSweepOrphansWakesOnlyForARunningFindingNotYetReported replays
+// 2026-10-07: one held claude.exe the CFO had already been told about, while
+// retired tasks' status logs came and went and a sweep failed in between,
+// woke the CFO every few minutes with nothing new. Only a running finding it
+// has not been told about may wake it.
+func TestSweepOrphansWakesOnlyForARunningFindingNotYetReported(t *testing.T) {
+	dir := t.TempDir()
+	sweep := func(inv reap.Inventory) string {
+		if record, err := reap.ReadRecord(dir); err == nil {
+			record.Time = time.Now().UTC().Add(-2 * time.Hour)
+			if err := reap.WriteRecord(dir, record); err != nil {
+				t.Fatal(err)
+			}
+		}
+		return sweepOrphans(context.Background(), reapConfig(dir, inv))
+	}
+	withStatus := func(ids ...string) reap.Inventory {
+		inv := orphanFleet()
+		inv.OrphanStatusIDs = ids
+		return inv
+	}
+	second := orphanFleet()
+	second.Processes = append(second.Processes, reap.Process{PID: 31033, ParentPID: 400, Name: "claude.exe", CommandLine: "claude --dangerously-skip-permissions", Start: time.Date(2026, 9, 5, 7, 3, 0, 0, time.UTC)})
+
+	if reason := sweep(orphanFleet()); !strings.HasPrefix(reason, "orphan:") {
+		t.Fatalf("first sweep = %q, want the held process reported once", reason)
+	}
+	quiet := []struct {
+		name string
+		inv  reap.Inventory
+	}{
+		{"a retired task's status log appears", withStatus("cg-retired")},
+		{"another appears beside it", withStatus("cg-retired", "cg-retired-2")},
+		{"both are archived", orphanFleet()},
+		{"a new one appears", withStatus("cg-retired-3")},
+	}
+	for _, step := range quiet {
+		if reason := sweep(step.inv); reason != "" {
+			t.Errorf("%s: sweep = %q, want no wake while the only running finding was already reported", step.name, reason)
+		}
+	}
+	cfg := baseConfig(dir)
+	cfg.ReapEvery = time.Hour
+	cfg.Reap = &reap.Service{Home: home.Home{State: dir}, Inventory: failingInventory{}}
+	if record, err := reap.ReadRecord(dir); err == nil {
+		record.Time = time.Now().UTC().Add(-2 * time.Hour)
+		_ = reap.WriteRecord(dir, record)
+	}
+	if reason := sweepOrphans(context.Background(), cfg); reason != "" {
+		t.Fatalf("failed sweep = %q, want no wake", reason)
+	}
+	if reason := sweep(orphanFleet()); reason != "" {
+		t.Errorf("sweep after a failed one = %q, want no wake for the process reported before the failure", reason)
+	}
+	if reason := sweep(second); !strings.Contains(reason, "2 orphan_process") {
+		t.Errorf("new process sweep = %q, want a wake naming both", reason)
+	}
+	if reason := sweep(orphanFleet()); reason != "" {
+		t.Errorf("sweep after the new process ended = %q, want no wake for a finding that went away", reason)
+	}
+
+	records, err := wake.Pending(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(records) != 2 {
+		t.Errorf("orphan wakes = %d (%+v), want 2: the first report and the new process", len(records), records)
 	}
 }
 

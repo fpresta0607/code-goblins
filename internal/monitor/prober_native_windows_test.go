@@ -132,8 +132,8 @@ func TestANativeProberSaysWhenItCannotSeeTheTerminal(t *testing.T) {
 	recordNativeHost(t, stateDir, "g3")
 	kimi, _ := NativeProber{StateDir: stateDir, ReadScreen: screenOf("> ")}.Inspect(context.Background(), nativeMeta("g3", "kimi"))
 
-	if noHost.Verdict != ProbeMissing || !strings.Contains(noHost.Detail, "no running host") || !strings.Contains(noHost.Detail, "cfo switch g1") {
-		t.Errorf("no host = %+v, want missing", noHost)
+	if noHost.Verdict != ProbeMissing || !strings.Contains(noHost.Detail, "no running host") || !strings.Contains(noHost.Detail, "goblins resume brings it back in place") || !strings.Contains(noHost.Detail, "cfo switch g1 --harness claude") {
+		t.Errorf("no host = %+v, want missing, with commands that bring it back as written", noHost)
 	}
 	if deadHost.Verdict != ProbeMissing || !strings.Contains(deadHost.Detail, "does not answer") {
 		t.Errorf("a host that does not answer = %+v, want missing", deadHost)
@@ -281,12 +281,34 @@ func TestHostProgressReadsANativeHarnessFromItsTerminal(t *testing.T) {
 
 	_, missing := prober.InspectProgress(context.Background(), meta, EndpointSample{Harness: "claude"})
 	record := recordNativeHost(t, stateDir, "g1")
-	harnessPID, err := prober.harnessPID(context.Background(), meta, EndpointSample{Harness: "claude"})
+	harnessPID, started, err := prober.harness(context.Background(), meta, EndpointSample{Harness: "claude"})
 
 	if missing == nil {
 		t.Error("a native task with no host gave progress evidence")
 	}
-	if err != nil || harnessPID != record.ChildPID {
-		t.Errorf("harness pid = %d, %v; want the terminal's program, pid %d, not its host, pid %d", harnessPID, err, record.ChildPID, record.HostPID)
+	if err != nil || harnessPID != record.ChildPID || !started.Equal(record.ChildStart) {
+		t.Errorf("harness = pid %d started %v, %v; want the terminal's program, pid %d started %v, not its host, pid %d", harnessPID, started, err, record.ChildPID, record.ChildStart, record.HostPID)
+	}
+}
+
+// A goblin whose terminal a restart ended and that the supervisor's comeback
+// brings back says so, rather than sending the CFO to bring it back by hand.
+func TestANativeProberSaysTheComebackBringsBackAGoblinARestartEnded(t *testing.T) {
+	// Arrange
+	stateDir := t.TempDir()
+	meta := nativeMeta("g1", "claude")
+	if err := state.WriteComeback(stateDir, state.Comeback{Goblins: []state.ComebackEntry{{ID: meta.ID, Generation: meta.SpawnGen, State: state.ComebackWaiting}}}); err != nil {
+		t.Fatal(err)
+	}
+
+	// Act
+	sample, err := NativeProber{StateDir: stateDir, ReadScreen: screenOf("> ")}.Inspect(context.Background(), meta)
+
+	// Assert
+	if err != nil {
+		t.Fatal(err)
+	}
+	if sample.Verdict != ProbeMissing || !strings.Contains(sample.Detail, "the supervisor brings it back by itself") || strings.Contains(sample.Detail, "goblins resume") {
+		t.Errorf("sample = %+v, want missing, saying the supervisor brings it back", sample)
 	}
 }

@@ -2,6 +2,8 @@ package axi
 
 import (
 	"context"
+	"os"
+	"path/filepath"
 	"slices"
 	"strings"
 	"testing"
@@ -35,6 +37,16 @@ const (
 		"  \"\",LOVE EVERY BIT OF IT,\"\",message,Freeform message\r\n" +
 		"  u7,\"Make it bigger, then \\\"ship\\\" it\",h1,element,Heading\r\n" +
 		"next_step: \"Apply the feedback.\"\r\n"
+	// The Code Goblins build 0.1.79-codegoblins.3 printed this, live, when the
+	// Overlord picked an option a Scrawl page declared in its
+	// data-lavish-choices block (2026-10-05): the prompt is the option's exact
+	// text, and the text column is the question.
+	lavishChoice = "session:\n" +
+		"  file: \"C:\\\\work\\\\.lavish\\\\plan.html\"\n" +
+		"  status: feedback\n" +
+		"prompts[1]{uid,prompt,selector,tag,text}:\n" +
+		"  \"1\",Use tabs for each section,\"script[data-lavish-choices]\",choice,Which layout should the settings page use?\n" +
+		"next_step: \"Apply the requested changes.\"\n"
 	lavishEndedByAgent = "session:\n" +
 		"  file: \"C:\\\\work\\\\.lavish\\\\plan.html\"\n" +
 		"  status: ended\n" +
@@ -67,7 +79,7 @@ func TestLavishPollReadsTheSessionStatusAndKeepsTheOutput(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			runner := &fakeRunner{result: execx.Result{Stdout: []byte(test.output)}}
 
-			poll, err := (Lavish{Commands: runner}).Poll(context.Background(), `C:\work\.lavish\plan.html`, 90*time.Second)
+			poll, err := (Lavish{Commands: runner}).Poll(context.Background(), `C:\work\.lavish\plan.html`, "", 90*time.Second)
 
 			if err != nil || poll.Status != test.status || poll.Ended != test.ended || poll.EndedBy != test.endedBy || poll.Output != test.output {
 				t.Fatalf("Poll = %+v, %v; want status %q, ended %v by %q and the whole output", poll, err, test.status, test.ended, test.endedBy)
@@ -75,6 +87,23 @@ func TestLavishPollReadsTheSessionStatusAndKeepsTheOutput(t *testing.T) {
 			assertRequest(t, runner, execx.Request{Name: "lavish-axi", Args: []string{"poll", `C:\work\.lavish\plan.html`, "--timeout-ms", "90000"}, KillTree: true})
 		})
 	}
+}
+
+// A poll can carry a reply the Overlord reads in the page's conversation
+// panel, such as that his revision was received and what happens next.
+func TestLavishPollCarriesAReplyToThePage(t *testing.T) {
+	// Arrange
+	runner := &fakeRunner{result: execx.Result{Stdout: []byte(lavishWaiting)}}
+	reply := "Revision received. task-1 makes the next version, which replaces this page."
+
+	// Act
+	_, err := (Lavish{Commands: runner}).Poll(context.Background(), `C:\work\.lavish\plan.html`, reply, 90*time.Second)
+
+	// Assert
+	if err != nil {
+		t.Fatal(err)
+	}
+	assertRequest(t, runner, execx.Request{Name: "lavish-axi", Args: []string{"poll", `C:\work\.lavish\plan.html`, "--agent-reply", reply, "--timeout-ms", "90000"}, KillTree: true})
 }
 
 // A poll's prompts are what the Overlord wrote on the page, read from the
@@ -87,13 +116,14 @@ func TestLavishPollReadsWhatTheOverlordWrote(t *testing.T) {
 		want   []string
 	}{
 		"two prompts, one quoted": {lavishTwoPrompts, []string{"LOVE EVERY BIT OF IT", `Make it bigger, then "ship" it`}},
+		"a declared choice":       {lavishChoice, []string{"Use tabs for each section"}},
 		"no prompt column":        {lavishFeedbackEnded, nil},
 		"no prompts":              {lavishWaiting, nil},
 	} {
 		t.Run(name, func(t *testing.T) {
 			runner := &fakeRunner{result: execx.Result{Stdout: []byte(test.output)}}
 
-			poll, err := (Lavish{Commands: runner}).Poll(context.Background(), `C:\work\.lavish\plan.html`, time.Second)
+			poll, err := (Lavish{Commands: runner}).Poll(context.Background(), `C:\work\.lavish\plan.html`, "", time.Second)
 
 			if err != nil || !slices.Equal(poll.Prompts, test.want) {
 				t.Fatalf("Poll = %+v, %v; want prompts %q", poll, err, test.want)
@@ -111,12 +141,70 @@ func TestLavishReadsOnlyTheSessionObject(t *testing.T) {
 	} {
 		t.Run(name, func(t *testing.T) {
 			runner := &fakeRunner{result: execx.Result{Stdout: []byte(output)}}
-			if _, err := (Lavish{Commands: runner}).Poll(context.Background(), "x", time.Second); err == nil || !strings.Contains(err.Error(), "no session status") {
+			if _, err := (Lavish{Commands: runner}).Poll(context.Background(), "x", "", time.Second); err == nil || !strings.Contains(err.Error(), "no session status") {
 				t.Errorf("Poll = %v, want it refused for having no session status", err)
 			}
 			if _, err := (Lavish{Commands: runner}).Open(context.Background(), "x"); err == nil || !strings.Contains(err.Error(), "no address") {
 				t.Errorf("Open = %v, want it refused for having no address", err)
 			}
 		})
+	}
+}
+
+// Ending a page ends its review session as an agent.
+func TestLavishEndEndsThePagesSession(t *testing.T) {
+	// Arrange
+	runner := &fakeRunner{result: execx.Result{Stdout: []byte("session:\n  file: \"C:\\\\work\\\\.lavish\\\\plan.html\"\n  status: ended\n")}}
+
+	// Act
+	err := (Lavish{Commands: runner}).End(context.Background(), `C:\work\.lavish\plan.html`)
+
+	// Assert
+	if err != nil {
+		t.Fatal(err)
+	}
+	assertRequest(t, runner, execx.Request{Name: "lavish-axi", Args: []string{"end", `C:\work\.lavish\plan.html`}})
+}
+
+// The sessions are read from lavish-axi's state file without running it, so
+// reading takes nothing from a page: each session's page, status, who ended
+// it and how many prompts wait on it undelivered, counted from the prompts
+// themselves when the count lags them. No state file is no sessions.
+func TestLavishSessionsReadsEverySessionWithoutTakingItsFeedback(t *testing.T) {
+	// Arrange
+	dir := t.TempDir()
+	t.Setenv("LAVISH_AXI_STATE_DIR", dir)
+	none, noneErr := (Lavish{}).Sessions()
+	stored := `{"sessions":{
+		"b2":{"key":"b2","file":"C:\\work\\b.html","status":"ended","ended_by":"user","pending_prompts":0,"prompts":[],"chat":[{"role":"user","text":"done"}]},
+		"a1":{"key":"a1","file":"C:\\work\\a.html","status":"feedback","pending_prompts":1,"prompts":[{"prompt":"Ship it"},{"prompt":"Bigger cards"}]}
+	}}`
+	if err := os.WriteFile(filepath.Join(dir, "state.json"), []byte(stored), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	// Act
+	sessions, err := (Lavish{}).Sessions()
+
+	// Assert
+	if noneErr != nil || len(none) != 0 {
+		t.Fatalf("Sessions without a state file = %+v, %v; want none", none, noneErr)
+	}
+	want := []PageSession{{File: `C:\work\a.html`, Status: "feedback", Pending: 2}, {File: `C:\work\b.html`, Status: "ended", EndedBy: "user"}}
+	if err != nil || !slices.Equal(sessions, want) {
+		t.Fatalf("Sessions = %+v, %v; want %+v", sessions, err, want)
+	}
+}
+
+// A state file lavish-axi left half written is an error, never no sessions.
+func TestLavishSessionsRefusesAnUnreadableStateFile(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("LAVISH_AXI_STATE_DIR", dir)
+	if err := os.WriteFile(filepath.Join(dir, "state.json"), []byte(`{"sessions":{"a1":{"file":`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	if sessions, err := (Lavish{}).Sessions(); err == nil {
+		t.Fatalf("Sessions = %+v, want an error for a half-written state file", sessions)
 	}
 }

@@ -2,14 +2,18 @@ package supervisor
 
 import (
 	"context"
+	"encoding/json"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/fpresta0607/code-goblins/internal/monitor"
 )
 
 // sentAnswer queues the Overlord's answer to a CFO question and delivers it
-// as typed and submitted into the CFO's terminal at since, with no report
-// from the CFO's hook yet.
+// as typed and submitted into the CFO's terminal at since, not yet taken.
 func sentAnswer(t *testing.T, store *Store, since time.Time) Action {
 	t.Helper()
 	_, identity, _, _ := primaryFixture(t, store)
@@ -30,17 +34,6 @@ func sentAnswer(t *testing.T, store *Store, since time.Time) Action {
 	return a
 }
 
-// tookPrompt records the CFO's hook reporting a prompt taken in its terminal.
-func tookPrompt(t *testing.T, store *Store, at time.Time) {
-	t.Helper()
-	store.mu.Lock()
-	defer store.mu.Unlock()
-	store.db.Sessions["claude/cfo-1"] = Session{ID: "claude/cfo-1", NativeID: "cfo-1", Harness: "claude", Role: "cfo", Phase: "active", HostID: "cfo-host", PromptAt: at, UpdatedAt: at}
-	if err := store.save(); err != nil {
-		t.Fatal(err)
-	}
-}
-
 // outcome is what the board shows of the answer and its question.
 func outcome(store *Store) (Action, Question) {
 	snapshot := store.Snapshot()
@@ -51,12 +44,15 @@ var (
 	idle    = func(Awaiting) terminalLook { return terminalLook{} }
 	working = func(Awaiting) terminalLook { return terminalLook{Working: true} }
 	gone    = func(Awaiting) terminalLook { return terminalLook{Gone: true} }
+	// took is a terminal whose harness's record of the conversation shows
+	// the text taken.
+	took = func(Awaiting) terminalLook { return terminalLook{Took: true} }
 )
 
 // The Overlord, 2026-10-01, on answers that had all arrived: "Delivery
 // unconfirmed ... I get these command center blips and errors, fix". The CFO
 // took each some seconds after the confirmation window. Such an answer reads
-// sent, then delivered once the hook reports it, and never warns.
+// sent, then delivered once the CFO's record shows it taken, and never warns.
 func TestAnAnswerTheCFOTakesLateReadsSentThenDelivered(t *testing.T) {
 	// Arrange
 	store, _ := testStore(t)
@@ -67,8 +63,7 @@ func TestAnAnswerTheCFOTakesLateReadsSentThenDelivered(t *testing.T) {
 	sent, asked := outcome(store)
 	waiting := store.settleDeliveries(since.Add(20*time.Second), idle)
 	still, _ := outcome(store)
-	tookPrompt(t, store, since.Add(25*time.Second))
-	settled := store.settleDeliveries(since.Add(26*time.Second), idle)
+	settled := store.settleDeliveries(since.Add(26*time.Second), took)
 	delivered, answered := outcome(store)
 
 	// Assert
@@ -81,18 +76,18 @@ func TestAnAnswerTheCFOTakesLateReadsSentThenDelivered(t *testing.T) {
 	if still.Status != "running" {
 		t.Errorf("twenty seconds on with no report: action %s %q, want it still sent", still.Status, still.Message)
 	}
-	if delivered.Status != "succeeded" || delivered.Awaiting != nil || !strings.Contains(delivered.Message, "hook reported") {
-		t.Errorf("after the hook's report: action %s %q, want it delivered", delivered.Status, delivered.Message)
+	if delivered.Status != "succeeded" || delivered.Awaiting != nil || !strings.Contains(delivered.Message, "record of the conversation") {
+		t.Errorf("once taken: action %s %q, want it delivered", delivered.Status, delivered.Message)
 	}
 	if answered.Status != "succeeded" || answered.AnsweredBy != "overlord" || answered.AnsweredOption != "One" {
 		t.Errorf("question = %+v, want it answered by the Overlord with One", answered)
 	}
 }
 
-// An answer whose terminal shows no turn for the quiet limit with still no
-// report never arrived: only then does it warn, in words that say what to do,
-// and a report that comes later still delivers it.
-func TestAnAnswerThatNeverArrivesWarnsInPlainWordsAndALateReportStillDeliversIt(t *testing.T) {
+// An answer whose terminal shows no turn for the quiet limit with the answer
+// still not taken never arrived: only then does it warn, in words that say
+// what to do, and a take that comes later still delivers it.
+func TestAnAnswerThatNeverArrivesWarnsInPlainWordsAndALateTakeStillDeliversIt(t *testing.T) {
 	// Arrange
 	store, _ := testStore(t)
 	since := time.Now().UTC().Add(-time.Hour)
@@ -103,8 +98,7 @@ func TestAnAnswerThatNeverArrivesWarnsInPlainWordsAndALateReportStillDeliversIt(
 	patient, _ := outcome(store)
 	late := store.settleDeliveries(since.Add(deliveryQuiet+time.Second), idle)
 	warned, question := outcome(store)
-	tookPrompt(t, store, since.Add(deliveryQuiet+time.Minute))
-	after := store.settleDeliveries(since.Add(deliveryQuiet+2*time.Minute), idle)
+	after := store.settleDeliveries(since.Add(deliveryQuiet+2*time.Minute), took)
 	delivered, answered := outcome(store)
 
 	// Assert
@@ -118,12 +112,13 @@ func TestAnAnswerThatNeverArrivesWarnsInPlainWordsAndALateReportStillDeliversIt(
 		t.Errorf("past the quiet limit: action %s %q, question %s; want a warning that says what to do", warned.Status, warned.Message, question.Status)
 	}
 	if delivered.Status != "succeeded" || delivered.Advice != "" || answered.Status != "succeeded" {
-		t.Errorf("after a late report: action %s advice %q, question %s; want both delivered and no advice left", delivered.Status, delivered.Advice, answered.Status)
+		t.Errorf("after a late take: action %s advice %q, question %s; want both delivered and no advice left", delivered.Status, delivered.Advice, answered.Status)
 	}
 }
 
-// An answer waits behind a turn for as long as the terminal shows the turn:
-// the quiet limit counts only from the last look that showed it working.
+// An answer waits for as long as the terminal shows the turn, as a long tool
+// call keeps it from being taken: the quiet limit counts only from the last
+// look that showed it working.
 func TestAnAnswerBehindALongTurnNeverWarnsWhileItsTerminalShowsTheTurn(t *testing.T) {
 	// Arrange
 	store, _ := testStore(t)
@@ -184,8 +179,7 @@ func TestARestartKeepsASentAnswerSent(t *testing.T) {
 		t.Fatal(err)
 	}
 	kept, question := outcome(reopened)
-	tookPrompt(t, reopened, since.Add(30*time.Second))
-	settled := reopened.settleDeliveries(since.Add(31*time.Second), idle)
+	settled := reopened.settleDeliveries(since.Add(31*time.Second), took)
 	delivered, _ := outcome(reopened)
 
 	// Assert
@@ -196,7 +190,7 @@ func TestARestartKeepsASentAnswerSent(t *testing.T) {
 		t.Errorf("after the restart: action %s %q, question %s; want it still sent", kept.Status, kept.Message, question.Status)
 	}
 	if delivered.Status != "succeeded" {
-		t.Errorf("after the hook's report: action %s, want it delivered", delivered.Status)
+		t.Errorf("once taken: action %s, want it delivered", delivered.Status)
 	}
 }
 
@@ -221,10 +215,11 @@ func TestASecondAnswerIsRefusedWhileTheFirstIsSent(t *testing.T) {
 	}
 }
 
-// A goblin's harness reports taking what waited behind its turn, so its
-// delivery is sent and then delivered; a task whose record is gone names
-// nothing the board can wait on, so its delivery reads as it did.
-func TestAGoblinsDeliveryBehindItsTurnAwaitsItsHook(t *testing.T) {
+// A goblin's harness takes what was typed during its turn at its next tool
+// call, so its delivery is sent, awaiting the goblin's record of exactly the
+// line typed; a task whose record is gone names nothing the board can wait
+// on, so its delivery reads as it did.
+func TestAGoblinsDeliveryInItsTurnAwaitsItsRecord(t *testing.T) {
 	// Arrange
 	store, h := testStore(t)
 	s := &Service{Store: store}
@@ -232,22 +227,22 @@ func TestAGoblinsDeliveryBehindItsTurnAwaitsItsHook(t *testing.T) {
 	meta := makeNative(t, h.State, "task-1")
 
 	// Act
-	sent := s.behindGoblinsTurn("task-1", since, "Submitted while it was working.")
-	gone := s.behindGoblinsTurn("task-9", since, "Submitted while it was working.")
+	sent := s.behindGoblinsTurn("task-1", since, "Use the grid.", "Submitted while it was working.")
+	gone := s.behindGoblinsTurn("task-9", since, "Use the grid.", "Submitted while it was working.")
 
 	// Assert
-	if sent.Awaiting == nil || sent.Awaiting.Task != "task-1" || sent.Awaiting.Generation != meta.SpawnGen || sent.Reason != sentToGoblin {
-		t.Errorf("a goblin's delivery = %+v, want it sent and awaiting the goblin's hook", sent)
+	if sent.Awaiting == nil || sent.Awaiting.Task != "task-1" || sent.Awaiting.Generation != meta.SpawnGen || sent.Awaiting.Digest != monitor.TextDigest("CFO: Use the grid.") || sent.Reason != sentToGoblin {
+		t.Errorf("a goblin's delivery = %+v, want it sent and awaiting the goblin's record of the line typed", sent)
 	}
 	if gone.Awaiting != nil || gone.Reason != "Submitted while it was working." {
 		t.Errorf("the delivery of a task with no record = %+v, want it to read as it did", gone)
 	}
 }
 
-// An answer to a goblin's review item that waits behind the goblin's turn is
-// sent, not delivered: the item reads delivered only once the goblin's hook
-// reports taking it.
-func TestAReviewAnswerBehindAGoblinsTurnIsDeliveredOnlyWhenItsHookReports(t *testing.T) {
+// An answer to a goblin's review item typed during the goblin's turn is
+// sent, not delivered: the item reads delivered only once the goblin's record
+// shows it taken.
+func TestAReviewAnswerInAGoblinsTurnIsDeliveredOnlyOnceItsRecordShowsIt(t *testing.T) {
 	// Arrange
 	store, _ := testStore(t)
 	since := time.Now().UTC().Add(-time.Minute)
@@ -267,10 +262,7 @@ func TestAReviewAnswerBehindAGoblinsTurnIsDeliveredOnlyWhenItsHookReports(t *tes
 
 	// Act
 	sent := store.Snapshot().Reviews[0]
-	store.mu.Lock()
-	store.db.Sessions["codex/worker-1"] = Session{ID: "codex/worker-1", NativeID: "worker-1", Harness: "codex", Role: "goblin", Phase: "active", TaskID: "task-1", Generation: "g1", PromptAt: since.Add(40 * time.Second)}
-	store.mu.Unlock()
-	settled := store.settleDeliveries(since.Add(41*time.Second), idle)
+	settled := store.settleDeliveries(since.Add(41*time.Second), took)
 	delivered := store.Snapshot().Reviews[0]
 
 	// Assert
@@ -281,7 +273,78 @@ func TestAReviewAnswerBehindAGoblinsTurnIsDeliveredOnlyWhenItsHookReports(t *tes
 		t.Errorf("behind the goblin's turn: review %s delivered=%t, want it answered and not yet delivered", sent.State, sent.Delivered)
 	}
 	if !delivered.Delivered || store.Snapshot().Actions[0].Status != "succeeded" {
-		t.Errorf("after the goblin's hook reported: delivered=%t action %s, want it delivered", delivered.Delivered, store.Snapshot().Actions[0].Status)
+		t.Errorf("once taken: delivered=%t action %s, want it delivered", delivered.Delivered, store.Snapshot().Actions[0].Status)
+	}
+}
+
+// A goblin's prompt hook runs when its harness queues text typed during a
+// turn, not when the goblin takes it: Claude Code 2.1.292 ran it ten seconds
+// before taking a steer into its turn, live on 2026-10-06. So a hook report
+// never marks an answer queued in a goblin's turn delivered.
+func TestAHookReportDoesNotDeliverAnAnswerQueuedInAGoblinsTurn(t *testing.T) {
+	// Arrange
+	store, _ := testStore(t)
+	since := time.Now().UTC().Add(-time.Minute)
+	r := openReview("plan-task-1", "task-1")
+	if err := store.acceptReview(r); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.Queue(Action{ID: "answer-review-1", Kind: "review_answer", ReviewID: r.ID, Generation: r.Identity, Text: "Go with the grid"}); err != nil {
+		t.Fatal(err)
+	}
+	deliver := func(context.Context, Action) (Evaluation, error) {
+		return Evaluation{Reason: sentToGoblin, Awaiting: &Awaiting{Task: "task-1", Generation: "g1", Since: since}}, nil
+	}
+	if err := store.ProcessOne(context.Background(), deliver); err != nil {
+		t.Fatal(err)
+	}
+	store.mu.Lock()
+	store.db.Sessions["claude/worker-1"] = Session{ID: "claude/worker-1", NativeID: "worker-1", Harness: "claude", Role: "goblin", Phase: "active", TaskID: "task-1", Generation: "g1", PromptAt: since.Add(2 * time.Second)}
+	store.mu.Unlock()
+
+	// Act
+	settled := store.settleDeliveries(since.Add(10*time.Second), working)
+	snapshot := store.Snapshot()
+
+	// Assert
+	if settled != nil {
+		t.Fatal(settled)
+	}
+	if snapshot.Reviews[0].Delivered || snapshot.Actions[0].Status != "running" {
+		t.Errorf("after the goblin's hook reported the queued answer: delivered=%t action %s, want it still on its way", snapshot.Reviews[0].Delivered, snapshot.Actions[0].Status)
+	}
+}
+
+// A CFO that clears or compacts its conversation moves to a new session,
+// which it registers while primary.json keeps the first: an answer it takes
+// there is delivered all the same, found in the session it holds now.
+func TestAnAnswerTheCFOTakesInTheSessionItMovedToIsDelivered(t *testing.T) {
+	// Arrange
+	records := useConversations(t)
+	store, h := testStore(t)
+	primary := primaryRegistration{Host: "cfo", Agent: "claude", Process: thisProcess(t)}
+	primary.Process.Session = "11111111-aaaa-4bbb-8ccc-000000000001"
+	data, err := json.Marshal(primary)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(h.State, "primary.json"), data, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	moved := "22222222-aaaa-4bbb-8ccc-000000000002"
+	if err := recordCFOConversation(h.State, primary, moved); err != nil {
+		t.Fatal(err)
+	}
+	since := time.Now().UTC().Add(-time.Second)
+	typed := "Overlord: Use the grid"
+	takenInRecord(t, records, "claude", moved, "", typed)
+
+	// Act
+	look := (&Service{Store: store}).lookAtTerminal(Awaiting{Host: "cfo", Harness: "claude", Since: since, Digest: monitor.TextDigest(typed), Session: primary.Process.Session})
+
+	// Assert
+	if !look.Took {
+		t.Errorf("look = %+v, want the answer found taken in the session the CFO moved to", look)
 	}
 }
 
@@ -318,8 +381,7 @@ func TestAReviewAnswerAwaitedOnTheCFOIsDeliveredOnlyToItsOwnReporter(t *testing.
 			}
 
 			// Act
-			tookPrompt(t, store, since.Add(40*time.Second))
-			settled := store.settleDeliveries(since.Add(41*time.Second), idle)
+			settled := store.settleDeliveries(since.Add(41*time.Second), took)
 			snapshot := store.Snapshot()
 
 			// Assert
@@ -327,10 +389,10 @@ func TestAReviewAnswerAwaitedOnTheCFOIsDeliveredOnlyToItsOwnReporter(t *testing.
 				t.Fatal(settled)
 			}
 			if snapshot.Actions[0].Status != "succeeded" {
-				t.Errorf("after the CFO's hook reported: action %s, want it succeeded", snapshot.Actions[0].Status)
+				t.Errorf("once the CFO took it: action %s, want it succeeded", snapshot.Actions[0].Status)
 			}
 			if snapshot.Reviews[0].Delivered != test.delivered {
-				t.Errorf("after the CFO's hook reported: delivered=%t, want %t", snapshot.Reviews[0].Delivered, test.delivered)
+				t.Errorf("once the CFO took it: delivered=%t, want %t", snapshot.Reviews[0].Delivered, test.delivered)
 			}
 		})
 	}

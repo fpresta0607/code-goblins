@@ -3,6 +3,7 @@ package supervisor
 import (
 	"context"
 	"fmt"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -139,12 +140,12 @@ func TestPresentationURLNamesTheRuleAndKeepsTailnetLinks(t *testing.T) {
 		"https://example.com/reset-token/x":    "credential (token)",
 		"review page":                          "absolute URL",
 	} {
-		if problem := presentationURLProblem(raw); !strings.Contains(problem, rule) {
+		if problem := PresentationURLProblem(raw); !strings.Contains(problem, rule) {
 			t.Errorf("%s: problem = %q, want the %q rule named", raw, problem, rule)
 		}
 	}
 	for _, raw := range []string{"https://example.com/review", "http://localhost:4387/session/f26e", "http://sermon.tailcc4238.ts.net:4387/session/f26e1c33babf6415", "http://100.122.0.50:4387/session/f26e"} {
-		if problem := presentationURLProblem(raw); problem != "" {
+		if problem := PresentationURLProblem(raw); problem != "" {
 			t.Errorf("%s refused: %s", raw, problem)
 		}
 	}
@@ -168,5 +169,43 @@ func TestSpoolActivityWaitsForTheIngestLock(t *testing.T) {
 	}
 	if err := <-released; err != nil {
 		t.Fatal(err)
+	}
+}
+
+// The Overlord, 2026-09-28, seeing cg-board-kill's own test walkthroughs in
+// the Command Center: "why is this in command center". A presentation reaches
+// him only when its goblin asks him to watch it, with one line saying what
+// to watch, which the board keeps as written; a line that is not one short
+// line is refused.
+func TestAPresentationAsksTheOverlordToWatchOnlyWithItsOwnLine(t *testing.T) {
+	// Arrange
+	store, h := testStore(t)
+	now := time.Now().UTC()
+	if err := store.Accept(event(t, h, "SessionStart", "worker", "", now)); err != nil {
+		t.Fatal(err)
+	}
+	node := store.Snapshot().TaskSessions["task-1"]
+	watched := BoardActivity{ID: "checkout-walkthrough", Kind: "browser", TaskID: "task-1", Generation: "g1", Target: node, State: "active", URL: "http://127.0.0.1:5173/checkout", At: now, Until: now.Add(time.Minute), Watch: "Watch the checkout walkthrough I am running for you"}
+	refused := map[string]BoardActivity{}
+	for name, line := range map[string]string{"two lines": "Watch this\nand this", "a long line": strings.Repeat("w", 301)} {
+		a := watched
+		a.ID, a.Watch = "refused-"+strings.ReplaceAll(name, " ", "-"), line
+		refused[name] = a
+	}
+
+	// Act
+	err := store.acceptActivity(watched)
+
+	// Assert
+	if err != nil {
+		t.Fatal(err)
+	}
+	if i := slices.IndexFunc(store.Snapshot().Activity, func(a BoardActivity) bool { return a.ID == watched.ID }); i < 0 || store.Snapshot().Activity[i].Watch != watched.Watch {
+		t.Fatalf("activity = %+v, want the walkthrough with its line", store.Snapshot().Activity)
+	}
+	for name, a := range refused {
+		if err := store.acceptActivity(a); err == nil {
+			t.Errorf("%s was accepted", name)
+		}
 	}
 }

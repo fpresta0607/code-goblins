@@ -35,8 +35,9 @@ func writePNG(t *testing.T, path string) []byte {
 	return buf.Bytes()
 }
 
-// A goblin's review image must be a real image inside its own worktree,
-// task scratch or data directory, reached without following a link.
+// A goblin's review image must be a real image inside its own worktree, an
+// extra worktree it recorded, its task scratch, its scratch folder or its data
+// directory, reached without following a link.
 func TestReviewImagesStayInsideTheTaskAndAreImages(t *testing.T) {
 	_, h := testStore(t)
 	meta, err := state.ReadTaskMeta(h.State, "task-1")
@@ -44,10 +45,12 @@ func TestReviewImagesStayInsideTheTaskAndAreImages(t *testing.T) {
 		t.Fatal(err)
 	}
 	meta.TaskTmp = filepath.Join(h.Root, "tasktmp")
+	meta.Scratch = filepath.Join(h.Root, "scratch", "task-1")
+	meta.Extras = []string{filepath.Join(h.Root, "worktrees", "app", "task-1-docs")}
 	if err := state.WriteTaskMeta(h.State, meta); err != nil {
 		t.Fatal(err)
 	}
-	inside := []string{filepath.Join(meta.Worktree, "shots", "a.png"), filepath.Join(h.Data, "task-1", "b.png"), filepath.Join(meta.TaskTmp, "c.png")}
+	inside := []string{filepath.Join(meta.Worktree, "shots", "a.png"), filepath.Join(h.Data, "task-1", "b.png"), filepath.Join(meta.TaskTmp, "c.png"), filepath.Join(meta.Scratch, "d.png"), filepath.Join(meta.Extras[0], "e.png")}
 	for _, path := range inside {
 		writePNG(t, path)
 	}

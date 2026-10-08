@@ -26,7 +26,7 @@ func TestInstallReplacesAHomeBuildThatIsStillRunning(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	running := filepath.Join(f.root, "goblins.exe")
+	running := filepath.Join(f.bin, "goblins.exe")
 	if err := os.WriteFile(running, ping, 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -50,11 +50,11 @@ func TestInstallReplacesAHomeBuildThatIsStillRunning(t *testing.T) {
 	output := f.install()
 
 	for _, name := range []string{"cfo.exe", "goblins.exe"} {
-		if got := readFile(t, filepath.Join(f.root, name)); got != "build 2" {
+		if got := readFile(t, filepath.Join(f.bin, name)); got != "build 2" {
 			t.Errorf("%s = %q, want the new build", name, got)
 		}
 	}
-	aside, err := filepath.Glob(filepath.Join(f.root, "*.old"))
+	aside, err := filepath.Glob(filepath.Join(f.bin, "*.old"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -68,7 +68,7 @@ func TestInstallReplacesAHomeBuildThatIsStillRunning(t *testing.T) {
 	stop()
 	output = f.install()
 
-	if left, _ := filepath.Glob(filepath.Join(f.root, "*.old")); len(left) != 0 {
+	if left, _ := filepath.Glob(filepath.Join(f.bin, "*.old")); len(left) != 0 {
 		t.Errorf("copies left once nothing runs them: %v", left)
 	}
 	if strings.Contains(output, "the previous build still runs") {
@@ -89,7 +89,7 @@ func TestInstallReplacesADesktopWindowThatIsStillOpen(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	open := filepath.Join(f.root, "goblins-window.exe")
+	open := filepath.Join(f.bin, "goblins-window.exe")
 	if err := os.WriteFile(open, ping, 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -115,7 +115,7 @@ func TestInstallReplacesADesktopWindowThatIsStillOpen(t *testing.T) {
 	if got := readFile(t, open); got != "window 2" {
 		t.Errorf("goblins-window.exe = %q, want the new window", got)
 	}
-	aside, err := filepath.Glob(filepath.Join(f.root, "*.old"))
+	aside, err := filepath.Glob(filepath.Join(f.bin, "*.old"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -129,7 +129,7 @@ func TestInstallReplacesADesktopWindowThatIsStillOpen(t *testing.T) {
 	stop()
 	f.install()
 
-	if left, _ := filepath.Glob(filepath.Join(f.root, "*.old")); len(left) != 0 {
+	if left, _ := filepath.Glob(filepath.Join(f.bin, "*.old")); len(left) != 0 {
 		t.Errorf("copies left once the window is closed: %v", left)
 	}
 }

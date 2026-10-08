@@ -1,23 +1,32 @@
 package supervisor
 
 import (
+	"cmp"
 	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"path/filepath"
+	"slices"
 	"strings"
 	"time"
 
 	"github.com/fpresta0607/code-goblins/internal/execx"
 )
 
+// mergeabilityGrace is how long a head behind the default branch waits for
+// GitHub to work out whether it conflicts.
+const mergeabilityGrace = 10 * time.Minute
+
 type reportedPRHealth struct {
-	Head            string    `json:"head"`
-	HasBehindWake   bool      `json:"behind,omitempty"`
-	HasConflictWake bool      `json:"conflicting,omitempty"`
-	HasUnreadWake   bool      `json:"unread,omitempty"`
-	At              time.Time `json:"at"`
+	Head            string `json:"head"`
+	HasBehindWake   bool   `json:"behind,omitempty"`
+	HasConflictWake bool   `json:"conflicting,omitempty"`
+	HasUnreadWake   bool   `json:"unread,omitempty"`
+	// UnknownSince is when a poll first found GitHub had not yet worked out
+	// whether the head conflicts, while it still has not.
+	UnknownSince time.Time `json:"unknown_since,omitzero"`
+	At           time.Time `json:"at"`
 }
 
 // unreadPRs is why a repository's pull request health was not all read on
@@ -37,8 +46,10 @@ type prComparison struct {
 	} `json:"baseTarget"`
 }
 
-// comparePullRequests compares every open head with repo's default branch in
-// one GraphQL request. It returns the comparisons read, the heads whose own
+// comparePullRequests compares the head of each pull request in open, all
+// listed by the checkout repo, with the default branch in one GraphQL
+// request. It asks the repository the pull requests' own addresses name, as
+// GitHub gave them, never one a remote of the checkout names. It returns the comparisons read, the heads whose own
 // comparison came back missing or invalid in an otherwise readable response,
 // and why anything was not read; a request that fails as a whole names no
 // head.
@@ -51,15 +62,7 @@ func comparePullRequests(ctx context.Context, runner execx.Runner, repo string, 
 	if err != nil {
 		return comparisons, nil, "", fmt.Errorf("PR health: compare the open pull requests of %s: %w", repo, err)
 	}
-	origin, err := runOutput(ctx, runner, repo, "git", "config", "--get", "remote.origin.url")
-	if err != nil {
-		return comparisons, nil, branch, fmt.Errorf("PR health: compare the open pull requests of %s: %w", repo, err)
-	}
-	remote := githubRemote.FindStringSubmatch(origin)
-	if remote == nil {
-		return comparisons, nil, branch, fmt.Errorf("PR health: cannot compare the non-GitHub origin of %s", repo)
-	}
-	owner, name, _ := strings.Cut(remote[1], "/")
+	owner, name := pullRequestRepository(open[0].URL)
 	var query strings.Builder
 	fmt.Fprintf(&query, "query{repository(owner:%q,name:%q){ref(qualifiedName:%q){", owner, name, "refs/heads/"+branch)
 	for _, pr := range open {
@@ -111,36 +114,81 @@ func comparePullRequests(ctx context.Context, runner execx.Runner, repo string, 
 	return comparisons, unread, branch, unreadable
 }
 
-func reportPRHealth(stateDir string, w *fleetWakes, owner string, pr ghPullRequest, branch string, behind int, now time.Time) error {
-	record := w.Health[pr.URL]
+// prHealthChange is an open pull request whose head has fallen into a
+// condition the CFO was not woken for: a conflict with its base, or a head
+// behind the default branch, and the goblin whose pull request it is, if any.
+type prHealthChange struct {
+	pr            ghPullRequest
+	goblin        string
+	behind        int
+	isConflicting bool
+}
+
+// healthChange says whether pr's head, as record last saw it, has fallen into
+// a condition the CFO was not woken for. GitHub works out whether a head
+// conflicts only once it is asked, and lists it UNKNOWN until then, so a
+// behind head waits up to mergeabilityGrace for that answer: reporting it
+// behind and then conflicting woke twice for one head that never changed.
+func healthChange(record reportedPRHealth, pr ghPullRequest, behind int, now time.Time) (prHealthChange, bool) {
+	isAwaitingGitHub := !record.UnknownSince.IsZero() && now.Sub(record.UnknownSince) < mergeabilityGrace
 	isConflicting := pr.Mergeable == "CONFLICTING"
-	if isConflicting && record.HasConflictWake || !isConflicting && (behind == 0 || record.HasBehindWake) || !w.due("health:"+pr.URL, ciWakeGap, now) {
+	if isConflicting && record.HasConflictWake || !isConflicting && (behind == 0 || record.HasBehindWake || isAwaitingGitHub) {
+		return prHealthChange{}, false
+	}
+	return prHealthChange{pr: pr, behind: behind, isConflicting: isConflicting}, true
+}
+
+// reportPRHealth raises one pr_health wake for a poll's pull requests whose
+// heads fell into a condition the CFO was not woken for, all of one
+// repository, so a poll that finds dozens raises one wake, never one each.
+// A pull request whose head and condition stay as they were is not named
+// again. The wake waits out ciWakeGap after the repository's last one.
+func reportPRHealth(stateDir string, w *fleetWakes, changes []prHealthChange, branch string, now time.Time) error {
+	if len(changes) == 0 {
 		return nil
 	}
-	condition := fmt.Sprintf("is %d commits behind %s", behind, branch)
-	if isConflicting {
-		base := pr.BaseRefName
-		if base == "" {
-			base = branch
-		}
-		condition = "conflicts with its base " + base
+	owner, name := pullRequestRepository(changes[0].pr.URL)
+	repository := owner + "/" + name
+	key := "health:" + repository
+	if !w.due(key, ciWakeGap, now) {
+		return nil
 	}
-	key := pr.URL
-	detail := fmt.Sprintf("pr_health: %s's PR #%d (%s) at %s %s (%s); the fleet reports it and never pushes to it", pr.Author.Login, pr.Number, pr.HeadRefName, pr.HeadRefOid, condition, pr.URL)
-	if owner != "" {
-		key = owner
-		detail = fmt.Sprintf("pr_health: %s's PR #%d (%s) at %s %s (%s); next: tell %s to merge the default branch in with a merge commit, regenerate generated files rather than hand-merging them, run one CI run, and never force-push", owner, pr.Number, pr.HeadRefName, pr.HeadRefOid, condition, pr.URL, owner)
+	var entries, goblins []string
+	hasTeammates := false
+	for _, change := range changes {
+		pr := change.pr
+		condition := fmt.Sprintf("is %d commits behind %s", change.behind, branch)
+		if change.isConflicting {
+			condition = "conflicts with its base " + cmp.Or(pr.BaseRefName, branch) + ", so its workflows cannot run"
+		}
+		whose := change.goblin
+		if whose == "" {
+			whose, hasTeammates = pr.Author.Login, true
+		} else if !slices.Contains(goblins, whose) {
+			goblins = append(goblins, whose)
+		}
+		entries = append(entries, fmt.Sprintf("%s's PR #%d (%s) at %s %s (%s)", whose, pr.Number, pr.HeadRefName, pr.HeadRefOid, condition, pr.URL))
+	}
+	detail := fmt.Sprintf("pr_health: %s: %s", repository, strings.Join(entries, "; "))
+	if len(goblins) > 0 {
+		detail += fmt.Sprintf("; next: tell %s to merge the default branch in with a merge commit, regenerate generated files rather than hand-merging them, run one CI run, and never force-push", strings.Join(goblins, " and "))
+	}
+	if hasTeammates {
+		detail += "; the fleet reports a teammate's pull request and never pushes to it"
 	}
 	if err := raiseFleetWake(stateDir, "pr", key, detail); err != nil {
 		return err
 	}
-	if isConflicting {
-		record.HasConflictWake = true
-	} else {
-		record.HasBehindWake = true
+	for _, change := range changes {
+		record := w.Health[change.pr.URL]
+		if change.isConflicting {
+			record.HasConflictWake = true
+		} else {
+			record.HasBehindWake = true
+		}
+		w.Health[change.pr.URL] = record
 	}
-	w.Health[pr.URL] = record
-	w.woke("health:"+pr.URL, now)
+	w.woke(key, now)
 	return nil
 }
 

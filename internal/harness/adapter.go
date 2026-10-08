@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"path/filepath"
+	"slices"
 	"strings"
 
 	"github.com/fpresta0607/code-goblins/internal/execx"
@@ -19,7 +20,6 @@ const (
 	Claude Kind = "claude"
 	Codex  Kind = "codex"
 	Pi     Kind = "pi"
-	Kimi   Kind = "kimi"
 )
 
 // LaunchSpec contains the task-specific values used to build one harness
@@ -28,9 +28,10 @@ const (
 type LaunchSpec struct {
 	BriefPath string
 	TaskTmp   string
-	// GoTmp is the directory GOTMPDIR points at, created by the caller and
-	// deliberately outside the fleet checkout; see state.GoTmpDir.
-	GoTmp           string
+	// Scratch is the task's scratch folder, created by the caller, which the
+	// pane's TEMP, TMP and GOTMPDIR name: build output, test homes, logs and
+	// proof files land there, outside every checkout, and go with the task.
+	Scratch         string
 	TurnEndedPath   string
 	Model           string
 	Effort          string
@@ -39,9 +40,7 @@ type LaunchSpec struct {
 	// token-authenticated subset of the project's .mcp.json), materialized
 	// under the task's temporary directory and empty when nothing qualified.
 	// Only the claude adapter reads it, through --mcp-config; codex ignores
-	// it and uses the operator's own codex configuration, and kimi has no
-	// config flag and loads the copy provisioning leaves at the worktree root
-	// when that path was safe to write.
+	// it and uses the operator's own codex configuration.
 	MCPConfig string
 	// CodexMCPServers names the MCP servers the operator's own Codex
 	// configuration defines, which the codex adapter turns off: a goblin
@@ -136,7 +135,6 @@ func DefaultRegistry() Registry {
 		Claude: claudeAdapter{},
 		Codex:  codexAdapter{},
 		Pi:     &piAdapter{},
-		Kimi:   kimiAdapter{},
 	}}
 }
 
@@ -157,12 +155,14 @@ func buildBase(spec LaunchSpec) (Launch, error) {
 	if strings.TrimSpace(spec.TaskTmp) == "" || !filepath.IsAbs(spec.TaskTmp) {
 		return Launch{}, errors.New("harness: TaskTmp must be absolute")
 	}
-	if strings.TrimSpace(spec.GoTmp) == "" || !filepath.IsAbs(spec.GoTmp) {
-		return Launch{}, errors.New("harness: GoTmp must be absolute")
+	if strings.TrimSpace(spec.Scratch) == "" || !filepath.IsAbs(spec.Scratch) {
+		return Launch{}, errors.New("harness: Scratch must be absolute")
 	}
 	return Launch{
 		Env: map[string]string{
-			"GOTMPDIR": spec.GoTmp,
+			"GOTMPDIR": spec.Scratch,
+			"TEMP":     spec.Scratch,
+			"TMP":      spec.Scratch,
 			// Every goblin pane is stamped with its role, and the CFO's
 			// hooks read it to stay out of the way. It belongs in the launch
 			// contract rather than in the project credentials a preflight
@@ -191,12 +191,7 @@ func DefaultModel(kind Kind) string {
 }
 
 func validSharedEffort(effort string) bool {
-	switch effort {
-	case "low", "medium", "high", "xhigh", "max":
-		return true
-	default:
-		return false
-	}
+	return slices.Contains(Efforts(Claude), effort)
 }
 
 func validateExecutable(ctx context.Context, runner execx.Runner, executable string, args ...string) (execx.Result, error) {

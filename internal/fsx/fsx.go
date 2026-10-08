@@ -57,6 +57,10 @@ func Remove(path string) error {
 // process holding the file before it reports the failure.
 var transientBudget = 5 * time.Second
 
+// sleep is time.Sleep, which a test replaces to count the waits the budget
+// bounds apart from the file work around them.
+var sleep = time.Sleep
+
 // retryTransient runs op until it succeeds, fails for any reason other than
 // another process holding the file, or would outlast transientBudget,
 // waiting 10 ms after the first attempt and twice as long after each next
@@ -69,7 +73,7 @@ func retryTransient(op func() error) error {
 		if err == nil || !heldByAnother(err) || time.Now().Add(wait).After(deadline) {
 			return err
 		}
-		time.Sleep(wait)
+		sleep(wait)
 		wait = min(2*wait, 500*time.Millisecond)
 	}
 }

@@ -21,9 +21,18 @@ type Request struct {
 	Reason     string
 	Until      string
 	Session    string
+	// IsWatched says whoever asked reads the outcome from the command they
+	// typed, so finishing the operation sends no notice: the CFO retiring a
+	// goblin must not be woken by its own pause.
+	IsWatched bool
 }
 
 type Operations struct {
+	// Helpers pauses or stops the task's helpers as the task itself is
+	// paused or stopped, first, so each gets its own record, and says what
+	// became of each; one that fails is the task's problem to name, never a
+	// reason to keep it running.
+	Helpers    func(context.Context, state.TaskMeta, *state.Lifecycle) ([]string, error)
 	Prepare    func(context.Context, state.TaskMeta, string) error
 	Stop       func(context.Context, state.TaskMeta, *state.Lifecycle) ([]string, error)
 	Checkpoint func(context.Context, state.TaskMeta, *state.Lifecycle) error
@@ -36,9 +45,10 @@ type Operations struct {
 }
 
 type Service struct {
-	StateDir   string
-	PauseWait  time.Duration
-	Operations Operations
+	StateDir    string
+	PrepareWait time.Duration
+	PauseWait   time.Duration
+	Operations  Operations
 }
 
 func (service Service) Run(ctx context.Context, request Request) (result state.Lifecycle, err error) {
@@ -110,10 +120,10 @@ func (service Service) Run(ctx context.Context, request Request) (result state.L
 		if prior.Generation != meta.SpawnGen && !isInterruptedResume || prior.Phase != "paused" && !(prior.Action == "resume" && (prior.Phase == "failed" || prior.Phase == "resuming")) {
 			return result, errors.New("only a paused task can resume")
 		}
-		if _, err := lock.AcquireExclusiveNamed(service.StateDir, ".spawn.lock"); err != nil {
-			return result, fmt.Errorf("another task is starting: %w", err)
-		}
-		defer func() { err = errors.Join(err, lock.ReleaseExclusiveNamed(service.StateDir, ".spawn.lock")) }()
+		// These checks refuse early, before the record changes. The relaunch
+		// itself takes the home's spawn lock only around its terminal's
+		// launch and admits it again under it, so a gate restart or a slow
+		// harness startup here holds up no other start.
 		if isInterruptedResume && service.Operations.IsRunning != nil {
 			isAlreadyRunning, err = service.Operations.IsRunning(ctx, meta)
 			if err != nil {
@@ -142,7 +152,7 @@ func (service Service) Run(ctx context.Context, request Request) (result state.L
 			}
 		}
 	}
-	result = state.Lifecycle{ID: request.ID, Generation: meta.SpawnGen, RequestGeneration: request.Generation, Operation: request.Operation, Action: request.Action, Started: time.Now().UTC(), Reason: request.Reason, Title: meta.Title, Project: meta.Project, Kept: []string{"worktree " + meta.Worktree, "task session and branch"}, Session: prior.Session}
+	result = state.Lifecycle{ID: request.ID, Generation: meta.SpawnGen, RequestGeneration: request.Generation, Operation: request.Operation, Action: request.Action, Started: time.Now().UTC(), Reason: request.Reason, Title: meta.Title, GoblinName: meta.GoblinName, GoblinTitle: meta.GoblinTitle, Project: meta.Project, Kept: []string{"worktree " + meta.Worktree, "task session and branch"}, Session: prior.Session, Watched: request.IsWatched}
 	if prior.Phase != "running" {
 		result.GateRun, result.GateIntent, result.GateHead = prior.GateRun, prior.GateIntent, prior.GateHead
 	}
@@ -175,30 +185,62 @@ func (service Service) Run(ctx context.Context, request Request) (result state.L
 		}
 		result.Phase = "running"
 	} else {
+		var helpers []string
+		if service.Operations.Helpers != nil {
+			var helperErr error
+			if helpers, helperErr = service.Operations.Helpers(ctx, meta, &result); helperErr != nil {
+				result.Problems = append(result.Problems, helperErr.Error())
+			}
+		}
 		if request.Action == "pause" {
 			wait := service.PauseWait
 			if wait <= 0 {
 				wait = 5 * time.Second
 			}
-			prepare, cancel := context.WithTimeout(ctx, wait)
-			prepareErr := service.Operations.Prepare(prepare, meta, result.Handoff)
-			for prepareErr == nil {
+			deliveryWait := service.PrepareWait
+			if deliveryWait <= 0 {
+				deliveryWait = time.Minute
+			}
+			prepare, cancelPrepare := context.WithTimeout(ctx, deliveryWait)
+			prepared := make(chan error, 1)
+			go func() { prepared <- service.Operations.Prepare(prepare, meta, result.Handoff) }()
+			waiting, cancelWait := prepare, cancelPrepare
+			ticker := time.NewTicker(20 * time.Millisecond)
+		waitForHandoff:
+			for {
+				// A published final handoff proves completion even if native delivery missed the working screen.
 				if info, statErr := os.Stat(result.Handoff); statErr == nil && info.Mode().IsRegular() && info.Size() > 0 {
 					result.HandoffSaved = true
 					break
 				}
 				select {
-				case <-prepare.Done():
-					prepareErr = prepare.Err()
-				case <-time.After(20 * time.Millisecond):
+				case prepareErr := <-prepared:
+					prepared = nil
+					if prepareErr != nil {
+						break waitForHandoff
+					}
+					cancelPrepare()
+					waiting, cancelWait = context.WithTimeout(ctx, wait)
+				case <-waiting.Done():
+					break waitForHandoff
+				case <-ticker.C:
 				}
 			}
-			cancel()
+			ticker.Stop()
+			cancelWait()
+			cancelPrepare()
+			if prepared != nil {
+				<-prepared
+			}
+			if info, statErr := os.Stat(result.Handoff); statErr == nil && info.Mode().IsRegular() && info.Size() > 0 {
+				result.HandoffSaved = true
+			}
 			if !result.HandoffSaved {
 				result.Problems = append(result.Problems, "Stopping-point deadline reached or request failed; no new handoff was saved")
 			}
 		}
 		result.Stopped, err = service.Operations.Stop(ctx, meta, &result)
+		result.Stopped = append(result.Stopped, helpers...)
 		if err == nil && service.Operations.Checkpoint != nil {
 			err = service.Operations.Checkpoint(ctx, meta, &result)
 		}
@@ -241,7 +283,7 @@ func (service Service) finish(record state.Lifecycle) (state.Lifecycle, error) {
 		return record, err
 	}
 	if record.Phase == "stopped" && record.Generation == "queued" {
-		if err := state.WriteOutcome(service.StateDir, state.Outcome{ID: record.ID, Generation: record.Generation, Title: record.Title, Project: record.Project, Phase: "stopped", Reason: record.Reason, At: record.Updated}); err != nil {
+		if err := state.WriteOutcome(service.StateDir, state.Outcome{ID: record.ID, Generation: record.Generation, Title: record.Title, GoblinName: record.GoblinName, GoblinTitle: record.GoblinTitle, Project: record.Project, Phase: "stopped", Reason: record.Reason, At: record.Updated}); err != nil {
 			return record, err
 		}
 	}
@@ -254,8 +296,10 @@ func (service Service) finish(record state.Lifecycle) (state.Lifecycle, error) {
 			return record, err
 		}
 	}
-	if err := service.Operations.Notify(record); err != nil {
-		return record, err
+	if !record.Watched {
+		if err := service.Operations.Notify(record); err != nil {
+			return record, err
+		}
 	}
 	record.NoticeSent = true
 	return record, service.save(&record)

@@ -9,11 +9,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/fpresta0607/code-goblins/internal/harness"
 	"github.com/fpresta0607/code-goblins/internal/home"
 	"github.com/fpresta0607/code-goblins/internal/spawn"
-	"github.com/fpresta0607/code-goblins/internal/state"
-	"github.com/fpresta0607/code-goblins/internal/worktree"
 )
 
 func TestRunSpawnPassesValidatedRequestAndEnvironment(t *testing.T) {
@@ -195,18 +192,18 @@ func TestRunSpawnPrintsSpeedHintWhenTelemetryHasOne(t *testing.T) {
 	var gotHarness string
 	deps.speedHint = func(_ context.Context, name string) string {
 		gotHarness = name
-		return "speed hint: kimi avg 12.3 min/invocation across 37 measured invocations"
+		return "speed hint: pi avg 12.3 min/invocation across 37 measured invocations"
 	}
 
 	var stdout, stderr bytes.Buffer
-	exit := runWithRuntime([]string{"spawn", "g5", "--project", `C:\project`, "--brief", briefFile(t), "--harness", "kimi"}, &stdout, &stderr, deps)
+	exit := runWithRuntime([]string{"spawn", "g5", "--project", `C:\project`, "--brief", briefFile(t), "--harness", "pi"}, &stdout, &stderr, deps)
 	if exit != 0 {
 		t.Fatalf("exit = %d, want 0; stderr=%s", exit, stderr.String())
 	}
-	if gotHarness != "kimi" {
-		t.Errorf("speed hint harness = %q, want kimi", gotHarness)
+	if gotHarness != "pi" {
+		t.Errorf("speed hint harness = %q, want pi", gotHarness)
 	}
-	want := "spawned g5\n" + explicitRouteLine + "speed hint: kimi avg 12.3 min/invocation across 37 measured invocations\n"
+	want := "spawned g5\n" + explicitRouteLine + "speed hint: pi avg 12.3 min/invocation across 37 measured invocations\n"
 	if stdout.String() != want || stderr.Len() != 0 {
 		t.Errorf("stdout=%q stderr=%q, want result output plus speed hint", stdout.String(), stderr.String())
 	}
@@ -261,32 +258,34 @@ func testCommandRuntimeForHome(h home.Home) commandRuntime {
 	}
 }
 
-// Through the real spawn service, a kimi goblin is refused before any
-// terminal opens, because kimi has no native screens yet.
-func TestRunSpawnRefusesANativeKimiGoblin(t *testing.T) {
-	fixture := newFleetE2EFixture(t)
-	brief := filepath.Join(fixture.home.Root, "kimi.brief.md")
-	if err := os.WriteFile(brief, []byte("Delivery contract: mode=local-only\n"), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	deps := fixture.runtime
-	deps.spawn = func(ctx context.Context, h home.Home, request spawn.Request) (spawn.Result, error) {
-		return spawn.Service{
-			Worktrees: worktree.Service{Commands: fixture.runner, Git: fixture.git, Sleep: noWait},
-			Harness:   harness.DefaultRegistry(),
-			StateDir:  h.State,
-			Sleep:     noWait,
-		}.Spawn(ctx, request)
-	}
+// Kimi is not a harness for now: spawn and switch refuse the name as they
+// refuse any that is not claude, codex or pi, before anything starts.
+func TestSpawnAndSwitchRefuseKimiAsAHarness(t *testing.T) {
+	for _, test := range []struct {
+		name string
+		args []string
+		want string
+	}{
+		{"spawn", []string{"spawn", "g6", "--project", `C:\project`, "--brief", briefFile(t), "--harness", "kimi"}, "cfo spawn: --harness must be claude, codex, or pi"},
+		{"switch", []string{"switch", "g6", "--harness", "kimi"}, "cfo switch: --harness must be claude, codex, or pi"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			// Arrange
+			deps := testCommandRuntime(t)
+			isStarted := false
+			deps.spawn = func(context.Context, home.Home, spawn.Request) (spawn.Result, error) {
+				isStarted = true
+				return spawn.Result{}, nil
+			}
+			var stdout, stderr bytes.Buffer
 
-	var stdout, stderr bytes.Buffer
-	exit := runWithRuntime([]string{"spawn", "kimi-native", "--project", fixture.project, "--brief", brief, "--harness", "kimi", "--mode", "local-only"}, &stdout, &stderr, deps)
+			// Act
+			exit := runWithRuntime(test.args, &stdout, &stderr, deps)
 
-	if exit == 0 || !strings.Contains(stderr.String(), "kimi cannot run in a native terminal yet") {
-		t.Fatalf("native kimi exit=%d stdout=%q stderr=%q, want it refused", exit, stdout.String(), stderr.String())
+			// Assert
+			if exit != 2 || !strings.Contains(stderr.String(), test.want) || isStarted {
+				t.Fatalf("exit=%d stderr=%q started=%t, want kimi refused with %q", exit, stderr.String(), isStarted, test.want)
+			}
+		})
 	}
-	if _, err := state.ReadTaskMeta(fixture.home.State, "kimi-native"); err == nil {
-		t.Error("a refused native kimi spawn left task metadata behind")
-	}
-	t.Logf("native kimi refused: %s", strings.TrimSpace(stderr.String()))
 }

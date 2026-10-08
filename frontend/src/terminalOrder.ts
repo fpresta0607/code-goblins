@@ -47,14 +47,17 @@ export function switchTarget(order: DeckEntry[], current: string, key: SwitchKey
 export type DeckView = { kind: "host"; query: string } | { kind: "herdr" } | { kind: "empty"; text: string };
 
 // A registered CFO with no native terminal is the live CFO still in Herdr.
-export function cfoView(snapshot: Pick<Snapshot, "cfo_terminal" | "cfo_runs">): DeckView {
-  if (snapshot.cfo_terminal) return { kind: "host", query: "cfo=" + encodeURIComponent(snapshot.cfo_terminal) };
-  return snapshot.cfo_runs ? { kind: "herdr" } : { kind: "empty", text: "No CFO is running." };
+// A view of a native CFO names when its terminal's host started, so a host
+// that replaced it, as a restart does, is viewed afresh.
+export function cfoView(snapshot: Pick<Snapshot, "cfo_terminal" | "cfo_terminal_since" | "cfo_runs" | "cfo_closed">): DeckView {
+  if (snapshot.cfo_terminal) return { kind: "host", query: new URLSearchParams({ cfo: snapshot.cfo_terminal, ...(snapshot.cfo_terminal_since ? { since: snapshot.cfo_terminal_since } : {}) }).toString() };
+  if (snapshot.cfo_runs) return { kind: "herdr" };
+  return { kind: "empty", text: snapshot.cfo_closed ? "The CFO is closed." : "No CFO is running." };
 }
 
 export function goblinView(task: Task): DeckView {
   if (task.phase === "resuming" || task.phase === "stopping") return { kind: "empty", text: task.phase === "resuming" ? "Resuming session..." : "Stopping session..." };
-  if (task.lifecycle?.action === "resume" && task.lifecycle.phase === "failed") return { kind: "empty", text: "Resume failed. See Task for details." };
+  if (task.lifecycle?.action === "resume" && task.lifecycle.phase === "failed") return { kind: "empty", text: "Resume failed." };
   return task.backend === "native" ? { kind: "host", query: new URLSearchParams({ task: task.id, generation: task.generation }).toString() } : { kind: "herdr" };
 }
 
@@ -71,19 +74,24 @@ export function keepLive(open: string[], key: string, herdr: (key: string) => bo
   return [key, ...open.filter((other) => other !== key)].filter((entry) => !herdr(entry) || ++kept <= HERDR_LIVE);
 }
 
-// The panel is maximized per view: a goblin's terminal on the Board opens
-// maximized, where its fitted screen is large enough to read, and the task
-// view beside the board. Orchestration follows the task view's choice, so its
-// graph, where goblins are picked, stays beside the panel. Each view keeps the
-// Overlord's last choice.
+// The panel opens beside the board and is maximized per view: the Board's
+// terminal view and its task view each keep the Overlord's last choice.
+// Orchestration follows the task view's choice, so its graph, where goblins
+// are picked, stays beside the panel.
 export const MAXIMIZED_KEYS = { task: "cfo-pane-maximized", terminal: "cfo-terminal-maximized" } as const;
 
 export function maximizedView(workspace: "Board" | "Orchestration", panel: "task" | "terminal"): "task" | "terminal" {
   return workspace === "Board" ? panel : "task";
 }
 
-export function maximizedFor(view: "task" | "terminal", stored: string | null): boolean {
-  return stored === null ? view === "terminal" : stored === "true";
+export function maximizedFor(stored: string | null): boolean {
+  return stored === "true";
+}
+
+// firstOpen says this browser has never shown the board: nothing records a
+// first open, and it keeps no panel layout from before that record existed.
+export function firstOpen(recorded: string | null, kept: (string | null)[]): boolean {
+  return recorded === null && kept.every((value) => value === null);
 }
 
 export function paneWidth(requested: number, workspace: number): number {

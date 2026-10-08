@@ -443,3 +443,79 @@ func recordHost(t *testing.T, stateDir, id string) {
 		t.Fatal(err)
 	}
 }
+
+// fleet-view names the goblin a helper works for, in its JSON and on its
+// Markdown row, so the CFO sees each helper beside its parent.
+func TestFleetViewNamesAHelpersParent(t *testing.T) {
+	// Arrange
+	h := snapshotHome(t)
+	writeSnapshotMeta(t, h, "g1", t.TempDir(), t.TempDir())
+	helper := writeSnapshotMeta(t, h, "g1-h1", t.TempDir(), t.TempDir())
+	helper.Parent = "g1"
+	if err := state.WriteTaskMeta(h.State, helper); err != nil {
+		t.Fatal(err)
+	}
+
+	// Act
+	snapshot, err := BuildSnapshot(t.Context(), h, &snapshotEndpoint{})
+	var markdown, data bytes.Buffer
+	markdownErr, jsonErr := RenderMarkdown(&markdown, snapshot), RenderJSON(&data, snapshot)
+
+	// Assert
+	if err != nil || markdownErr != nil || jsonErr != nil {
+		t.Fatalf("snapshot %v, markdown %v, json %v", err, markdownErr, jsonErr)
+	}
+	if !strings.Contains(markdown.String(), "| g1-h1 (helper of g1) |") || strings.Contains(markdown.String(), "| g1 (helper") {
+		t.Errorf("fleet view does not name g1-h1 as g1's helper alone:\n%s", markdown.String())
+	}
+	var decoded struct {
+		Tasks []struct {
+			ID     string `json:"id"`
+			Parent string `json:"parent"`
+		} `json:"tasks"`
+	}
+	if err := json.Unmarshal(data.Bytes(), &decoded); err != nil {
+		t.Fatal(err)
+	}
+	for _, task := range decoded.Tasks {
+		if want := map[string]string{"g1": "", "g1-h1": "g1"}[task.ID]; task.Parent != want {
+			t.Errorf("task %s has parent %q in JSON, want %q", task.ID, task.Parent, want)
+		}
+	}
+}
+
+// fleet-view names each goblin as "Name (id)", live or completed, so the CFO
+// can talk about it by name, and keeps the bare id for one with no name.
+func TestFleetViewNamesEachGoblinByNameAndID(t *testing.T) {
+	// Arrange
+	h := snapshotHome(t)
+	named := writeSnapshotMeta(t, h, "g1", t.TempDir(), t.TempDir())
+	named.GoblinName, named.GoblinTitle = "Jerry", "Code Designer"
+	if err := state.WriteTaskMeta(h.State, named); err != nil {
+		t.Fatal(err)
+	}
+	writeSnapshotMeta(t, h, "g2", t.TempDir(), t.TempDir())
+	if err := state.WriteOutcome(h.State, state.Outcome{ID: "g0", Title: "Shipped work", GoblinName: "Mabel", GoblinTitle: "Bug Hunter", Phase: "stopped", At: time.Now()}); err != nil {
+		t.Fatal(err)
+	}
+
+	// Act
+	snapshot, err := BuildSnapshot(t.Context(), h, &snapshotEndpoint{})
+	var markdown, data bytes.Buffer
+	markdownErr, jsonErr := RenderMarkdown(&markdown, snapshot), RenderJSON(&data, snapshot)
+
+	// Assert
+	if err != nil || markdownErr != nil || jsonErr != nil {
+		t.Fatalf("snapshot %v, markdown %v, json %v", err, markdownErr, jsonErr)
+	}
+	for _, want := range []string{"| Jerry (g1) |", "| g2 |", "| Mabel (g0) | Shipped work |"} {
+		if !strings.Contains(markdown.String(), want) {
+			t.Errorf("fleet view lacks %q:\n%s", want, markdown.String())
+		}
+	}
+	for _, want := range []string{`"id":"g1"`, `"goblin_name":"Jerry"`, `"goblin_title":"Code Designer"`} {
+		if !strings.Contains(data.String(), want) {
+			t.Errorf("fleet view JSON lacks %s:\n%s", want, data.String())
+		}
+	}
+}

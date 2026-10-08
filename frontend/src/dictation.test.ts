@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { Dictation, dictationKey, dictationProblem, spoken, type Capture, type Recognizer } from "./dictation.ts";
+import { Dictation, dictationKey, dictationProblem, inDesktopApp, microphoneProblem, spoken, type Capture, type Recognizer } from "./dictation.ts";
 
 const key = (type: string, code: string, changes: Partial<{ key: string; ctrlKey: boolean; shiftKey: boolean; altKey: boolean; metaKey: boolean; repeat: boolean }> = {}) =>
   ({ type, code, key: code === "Space" ? " " : code, ctrlKey: true, shiftKey: true, altKey: false, metaKey: false, repeat: false, ...changes });
@@ -26,6 +26,19 @@ test("what was heard is typed as one line of plain words", () => {
   assert.equal(spoken(["line one\nline two"]), "line one line two", "a line break would press Enter");
   assert.equal(spoken(["", "  "]), "");
   assert.equal(spoken([]), "");
+});
+
+test("a refused microphone says where to allow it: Windows in the desktop app, the browser in a tab", () => {
+  for (const name of ["NotAllowedError", "SecurityError"]) {
+    assert.match(microphoneProblem(name, true), /^The microphone is blocked for Code Goblins by Windows\. .*Windows Settings > Privacy & security > Microphone/);
+    assert.doesNotMatch(microphoneProblem(name, true), /browser/);
+    assert.equal(microphoneProblem(name, false), dictationProblem("not-allowed"));
+  }
+  for (const app of [true, false]) {
+    assert.match(microphoneProblem("NotFoundError", app), /No microphone/);
+    assert.match(microphoneProblem("AbortError", app), /could not be opened/);
+  }
+  assert.equal(inDesktopApp(), false, "the unit tests run with no window");
 });
 
 test("a recognition failure is explained in plain words, and a deliberate stop says nothing", () => {

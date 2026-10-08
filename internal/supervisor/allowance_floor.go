@@ -5,8 +5,11 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"slices"
+	"strings"
 	"time"
 
+	"github.com/fpresta0607/code-goblins/internal/afk"
 	"github.com/fpresta0607/code-goblins/internal/host"
 	"github.com/fpresta0607/code-goblins/internal/quota"
 	"github.com/fpresta0607/code-goblins/internal/state"
@@ -22,12 +25,55 @@ func AllowanceReset(report quota.Report, provider, model string, now time.Time) 
 	if !ok || reading.Stale || !reading.Known {
 		return time.Time{}, false
 	}
+	scope := boundScope(reading, model)
+	var reset time.Time
+	isLow := false
+	for _, window := range reading.Windows {
+		isWeekly := window.Kind == "weekly" || window.Kind == "model" && window.WindowSeconds == 7*24*60*60
+		if !isWeekly || !slices.Contains(scope.BoundedBy, window.ID) || window.PercentUsed < 100-5 {
+			continue
+		}
+		if !window.ResetsAt.IsZero() && !now.Before(window.ResetsAt) {
+			continue
+		}
+		isLow = true
+		if window.ResetsAt.IsZero() {
+			return time.Time{}, true
+		}
+		if window.ResetsAt.After(reset) {
+			reset = window.ResetsAt
+		}
+	}
+	return reset, isLow
+}
+
+// sessionReset is when a used-up session window that bounds provider's model
+// scope frees again. A session is never kept as a reserve, as the week is:
+// once it is used up, nothing starts or resumes on it until it renews, and
+// the goblins it stopped are waited out rather than paused.
+func sessionReset(report quota.Report, provider, model string, now time.Time) (time.Time, bool) {
+	reading, ok := report.Providers[provider]
+	if !ok || reading.Stale || !reading.Known {
+		return time.Time{}, false
+	}
+	scope := boundScope(reading, model)
+	var reset time.Time
+	for _, window := range reading.Windows {
+		if window.Kind == "session" && window.PercentUsed >= 100 && slices.Contains(scope.BoundedBy, window.ID) && window.ResetsAt.After(now) && window.ResetsAt.After(reset) {
+			reset = window.ResetsAt
+		}
+	}
+	return reset, !reset.IsZero()
+}
+
+// boundScope is the scope a goblin on model draws from: the model's own when
+// quota-axi measures one, otherwise every model's.
+func boundScope(reading quota.Provider, model string) quota.Scope {
 	scope, ok := reading.Scopes["model:"+model]
 	if !ok || model == "" {
 		scope = reading.Scopes["all_models"]
 	}
-	isLow := scope.Known && scope.PercentRemaining <= 3 && (scope.ResetsAt.IsZero() || now.Before(scope.ResetsAt))
-	return scope.ResetsAt, isLow
+	return scope
 }
 
 func allowanceBlocked(watched *fleetWakes, provider, model string, now time.Time) bool {
@@ -39,32 +85,42 @@ func allowanceBlocked(watched *fleetWakes, provider, model string, now time.Time
 }
 
 func (s *Service) pauseAtAllowanceFloor(ctx context.Context, watched *fleetWakes, now time.Time) error {
-	if s.Options.Quota == nil || s.Options.Dispatch == nil || s.Options.Dispatch.Spawn == nil {
-		return nil
-	}
-	probe, cancel := context.WithTimeout(ctx, 20*time.Second)
-	report, skipped := s.Options.Quota(probe)
-	cancel()
-	if skipped != "" {
-		return nil
-	}
 	watched.AllowanceFloors = map[string]allowanceFloor{}
+	report, skipped := quota.Report{}, "no quota reader"
+	if s.Options.Quota != nil {
+		report, skipped = s.readQuota(ctx, 20*time.Second)
+	}
+	if skipped != "" {
+		// A session seen used up still wakes the CFO when it renews.
+		return s.raiseAllowanceWakes(quota.Report{}, watched, now)
+	}
 	for provider, reading := range report.Providers {
 		if reading.Stale || !reading.Known {
 			continue
 		}
-		for name, scope := range reading.Scopes {
-			watched.AllowanceFloors[provider+"/"+name] = allowanceFloor{IsLow: scope.Known && scope.PercentRemaining <= 3, Reset: scope.ResetsAt}
+		for name := range reading.Scopes {
+			model := strings.TrimPrefix(name, "model:")
+			if name == "all_models" {
+				model = ""
+			}
+			reset, isLow := AllowanceReset(report, provider, model, now)
+			if !isLow {
+				reset, isLow = sessionReset(report, provider, model, now)
+			}
+			watched.AllowanceFloors[provider+"/"+name] = allowanceFloor{IsLow: isLow, Reset: reset}
 		}
 	}
-	var problems error
+	problems := s.raiseAllowanceWakes(report, watched, now)
+	if s.Options.Dispatch == nil || s.Options.Dispatch.Spawn == nil {
+		return problems
+	}
 	for _, meta := range liveTasks(s.Store.Home.State) {
 		reset, isLow := AllowanceReset(report, meta.Harness, meta.Model, now)
 		if !isLow {
 			continue
 		}
 		if reset.IsZero() {
-			problems = errors.Join(problems, fmt.Errorf("%s allowance is at the 3 percent floor without a reset time; no pause condition can be recorded", meta.Harness))
+			problems = errors.Join(problems, fmt.Errorf("%s allowance is at the 5 percent weekly floor without a reset time; no pause condition can be recorded", meta.Harness))
 			continue
 		}
 		if meta.Backend != "native" {
@@ -94,30 +150,70 @@ func (s *Service) pauseAtAllowanceFloor(ctx context.Context, watched *fleetWakes
 				continue
 			}
 		}
-		s.starts.Lock()
-		if s.starting == meta.ID || s.changing[meta.ID] != "" {
-			s.starts.Unlock()
-			continue
+		evidence := fmt.Sprintf("%s's weekly allowance is at the 5 percent floor until it resets at %s", meta.Harness, reset.UTC().Format(time.RFC3339))
+		if _, err := s.pauseAtFloor(meta, record, "allowance", reset.UTC().Format(time.RFC3339), evidence); err != nil {
+			problems = errors.Join(problems, err)
 		}
-		if s.changing == nil {
-			s.changing = map[string]string{}
-			s.changeErrors = map[string]taskChangeError{}
-		}
-		s.changing[meta.ID] = "pause"
-		s.starts.Unlock()
-		go s.runAllowancePause(meta, record, reset)
 	}
 	return problems
 }
 
-func (s *Service) runAllowancePause(meta state.TaskMeta, prior state.Lifecycle, reset time.Time) {
-	operation := fmt.Sprintf("allowance-pause-%d", time.Now().UnixNano())
-	output, err := s.Options.Dispatch.Spawn(context.Background(), []string{"pause", meta.ID, "--generation", meta.SpawnGen, "--operation", operation, "--reason", "allowance", "--until", reset.UTC().Format(time.RFC3339)})
+// pauseAtFloor pauses meta's goblin for a floor in the background, through
+// the lifecycle as the Overlord's own Pause does: reason is the floor's pause
+// reason and until its resume condition, empty for none. While AFK mode is
+// on its log keeps the pause with evidence, what it stands on, and then with
+// how it went, for the report of the stretch. It begins nothing while a start
+// or another change of the goblin is under way, and says whether it began.
+func (s *Service) pauseAtFloor(meta state.TaskMeta, prior state.Lifecycle, reason, until, evidence string) (bool, error) {
 	s.starts.Lock()
-	delete(s.changing, meta.ID)
-	if err != nil {
-		s.changeErrors[meta.ID] = taskChangeError{Message: spawnFailure(output, err), Generation: meta.SpawnGen, Operation: prior.Operation, Updated: prior.Updated}
+	if s.starting == meta.ID || s.changing[meta.ID] != "" {
+		s.starts.Unlock()
+		return false, nil
 	}
+	if s.changing == nil {
+		s.changing = map[string]string{}
+		s.changeErrors = map[string]taskChangeError{}
+	}
+	s.changing[meta.ID] = "pause"
 	s.starts.Unlock()
-	s.notify()
+	what := "at the " + reason + " floor"
+	logged := s.logFloorPause(afk.Entry{Task: meta.ID, What: what, Evidence: evidence})
+	go func() {
+		args := []string{"pause", meta.ID, "--generation", meta.SpawnGen, "--operation", fmt.Sprintf("%s-pause-%d", reason, time.Now().UnixNano()), "--reason", reason}
+		if until != "" {
+			args = append(args, "--until", until)
+		}
+		output, err := s.Options.Dispatch.Spawn(context.Background(), args)
+		outcome := "paused"
+		if err != nil {
+			outcome = "the pause failed: " + spawnFailure(output, err)
+		}
+		unlogged := s.logFloorPause(afk.Entry{Task: meta.ID, What: what, Outcome: outcome})
+		problem := ""
+		switch {
+		case err != nil:
+			problem = spawnFailure(output, err)
+		case unlogged != nil:
+			problem = "paused at the " + reason + " floor, but " + unlogged.Error()
+		}
+		s.starts.Lock()
+		delete(s.changing, meta.ID)
+		if problem != "" {
+			s.changeErrors[meta.ID] = taskChangeError{Message: problem, Generation: meta.SpawnGen, Operation: prior.Operation, Updated: prior.Updated}
+		}
+		s.starts.Unlock()
+		s.notify()
+	}()
+	return true, logged
+}
+
+// logFloorPause keeps a line of a pause at a floor in AFK mode's log while it
+// is on; while it is off there is no stretch to keep it in.
+func (s *Service) logFloorPause(entry afk.Entry) error {
+	s.afkChange.Lock()
+	defer s.afkChange.Unlock()
+	if err := afk.Pause(s.Store.Home.State, entry, time.Now()); err != nil && !errors.Is(err, afk.ErrNotOn) {
+		return fmt.Errorf("AFK mode's log did not take the pause of %s %s: %w", entry.Task, entry.What, err)
+	}
+	return nil
 }

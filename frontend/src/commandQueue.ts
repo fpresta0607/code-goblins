@@ -2,16 +2,22 @@ import type { IconName } from "./Icon.tsx";
 import { object, string, type Action, type BoardActivity, type CredentialRequest, type Question, type Review, type ReviewDocument, type Run, type Snapshot } from "./types.ts";
 import { deliveryMark, runMark, type Submission } from "./feedback.ts";
 import { credentialSettled } from "./credentials.ts";
+import { plainMessage } from "./messageText.ts";
+import { updateOutcome } from "./update-progress.ts";
 
-// Everything the Overlord is asked lives in one queue: a goblin's or the CFO's
-// question, a review item (images, a Lavish page, or a wait on him), a
+// Everything the board holds as an item lives in one queue: a goblin's or the
+// CFO's question, a review item (images, a Lavish page, or a wait on him), a
 // command the CFO needs him to run, or a request for credential values.
 export type Item = { kind: "question"; key: string; question: Question } | { kind: "review"; key: string; review: Review } | { kind: "run"; key: string; run: Run }
   | { kind: "credential"; key: string; request: CredentialRequest };
 
-// A question its goblin asked while its review page is open is that page's
-// item: the page's card shows it, so it never waits as a card of its own.
-const foldedIntoPage = (item: Item) => item.kind === "question" && !!item.question.page;
+// forOverlord says whether an item is his: a question the CFO asks him, what
+// the CFO passes up, a goblin's wait or page addressed to him, a command and
+// a credential request. A goblin's question is the CFO's to answer, never
+// his: it does not wait on him, alert him or open anything, and is in
+// History once answered. One it asked while its review page is open is shown
+// by that page's card.
+export const forOverlord = (item: Item) => item.kind !== "question" || !item.question.task;
 
 // A terminal a credential card opened shows on that card, not as a run of its own.
 export const asItems = (snapshot: Snapshot): Item[] => [
@@ -20,13 +26,19 @@ export const asItems = (snapshot: Snapshot): Item[] => [
   ...(snapshot.runs || []).filter((run) => !run.credential_request).map((run): Item => ({ kind: "run", key: "run:" + run.id, run })),
   ...(snapshot.credentials || []).map((request): Item => ({ kind: "credential", key: "credential:" + request.id, request })),
 ];
-const task = (item: Item) => item.kind === "credential" ? item.request.task : item.kind === "question" ? item.question.task : item.kind === "review" ? item.review.task : "";
+const task = (item: Item) => item.kind === "credential" ? item.request.task : item.kind === "question" ? item.question.task : item.kind === "review" ? item.review.task : item.run.task;
 const created = (item: Item) => Date.parse(item.kind === "credential" ? item.request.created_at : item.kind === "question" ? item.question.created_at : item.kind === "review" ? item.review.created_at : item.run.created_at) || Number.MAX_SAFE_INTEGER;
-const closed = (item: Item) => Date.parse(item.kind === "credential" ? item.request.closed_at || item.request.created_at : item.kind === "question" ? item.question.answered_at || item.question.created_at
-  : item.kind === "review" ? item.review.updated_at : item.run.finished_at || item.run.ran_at || item.run.created_at) || 0;
+// When an item closed, as its History row says.
+export const closedAt = (item: Item) => item.kind === "credential" ? item.request.closed_at || item.request.created_at : item.kind === "question" ? item.question.answered_at || item.question.created_at
+  : item.kind === "review" ? item.review.updated_at : item.run.finished_at || item.run.ran_at || item.run.created_at;
+const closed = (item: Item) => Date.parse(closedAt(item)) || 0;
 // A run stays in the stack while it runs, so its card shows the result.
 export const isOpen = (item: Item) => item.kind === "credential" ? item.request.state === "open" : item.kind === "question" ? item.question.status === "pending"
   : item.kind === "review" ? item.review.state === "open" : item.run.state === "ready" || item.run.state === "running";
+
+// An open item waits on him, except a page he sent a revision on: that waits
+// on its goblin's next version, which replaces the page in the same item.
+const waitsOnHim = (item: Item) => isOpen(item) && !(item.kind === "review" && item.review.revising_since);
 
 // An item the Overlord answered outside the Command Center, such as on its own
 // page or in chat as the CFO recorded: its card finishes as one he answered
@@ -54,18 +66,21 @@ export const waitsOnOverlord = (review: Review) => !!review.task && review.id.st
 // "Waiting on you: " and a page's link, which the card opens instead.
 export const waitReason = (review: Review) => review.title.replace(/^Waiting on you:\s*/, "").replace(review.lavish ? " (page " + review.lavish + ")" : "", "");
 
+// A review item on one line, for a list row or a button's label: a wait as
+// the goblin's words alone, anything else as its title.
+export const reviewLine = (review: Review) => plainMessage(waitsOnOverlord(review) ? waitReason(review) : review.title);
+
 // What a wait points at, so its card says it plainly and opens it: the page
-// the goblin named, else its own newest question still waiting, else a file
-// it delivered, else a web link in its words. Null when it names nothing.
+// the goblin named, else a file it delivered, else the web link it gave as the
+// link (cfo notify --link), never an address it only names in its words, and
+// never its question to the CFO. Null when it names nothing.
 export type WaitTarget = { kind: "item"; key: string; label: string; says: string } | { kind: "page"; url: string; label: string; says: string };
 export function waitTarget(review: Review, snapshot: Snapshot): WaitTarget | null {
   if (review.lavish) return { kind: "page", url: review.lavish, label: "Open review", says: "It waits on your answer on its review page." };
-  const question = (snapshot.questions || []).filter((candidate) => candidate.task === review.task && candidate.status === "pending").sort((a, b) => Date.parse(b.created_at) - Date.parse(a.created_at))[0];
-  if (question) return { kind: "item", key: "question:" + question.id, label: "Open its question", says: "It waits on your answer to its question." };
   const file = (snapshot.reviews || []).find((candidate) => candidate.task === review.task && candidate.state === "open" && candidate.document);
   if (file?.document) return { kind: "item", key: "review:" + file.id, label: "Open the file", says: "It waits on you to open " + file.document.name + "." };
-  const link = /https?:\/\/[^\s<>"'()]+/.exec(review.title)?.[0].replace(/[.,;:!?]+$/, "");
-  if (link && URL.canParse(link)) return { kind: "page", url: link, label: "Open the link", says: "It waits on you at " + new URL(link).host + "." };
+  const link = URL.canParse(review.link) ? new URL(review.link) : null;
+  if (link && (link.protocol === "https:" || link.protocol === "http:")) return { kind: "page", url: review.link, label: "Open the link", says: "It waits on you at " + link.host + "." };
   return null;
 }
 
@@ -87,19 +102,18 @@ export function cardKey(snapshot: Snapshot, key: string): string {
 export function waitingItems(snapshot: Snapshot, kept: ReadonlySet<string> = new Set()): Item[] {
   const place = (item: Item) => { const at = snapshot.attention.indexOf(task(item)); return at < 0 ? snapshot.attention.length : at; };
   return asItems(snapshot)
-    .filter((item) => !foldedIntoPage(item) && (isOpen(item) || kept.has(item.key)))
+    .filter((item) => forOverlord(item) && (waitsOnHim(item) || kept.has(item.key)))
     .sort((a, b) => Number(!!task(a)) - Number(!!task(b)) || place(a) - place(b) || created(a) - created(b));
 }
 
-// Every item still open, a question its page's card carries too: what the
-// board has already announced, whichever card shows it.
+// Every item of his still open: what the board has already announced.
 export function openKeys(snapshot: Snapshot): Set<string> {
-  return new Set(asItems(snapshot).filter(isOpen).map((item) => item.key));
+  return new Set(asItems(snapshot).filter((item) => forOverlord(item) && isOpen(item)).map((item) => item.key));
 }
 
 // The newest item a goblin has waiting on the Overlord, if any.
 export function newestItemOf(snapshot: Snapshot, id: string): Item | undefined {
-  return asItems(snapshot).filter((item) => isOpen(item) && task(item) === id).sort((a, b) => created(b) - created(a))[0];
+  return asItems(snapshot).filter((item) => forOverlord(item) && isOpen(item) && task(item) === id).sort((a, b) => created(b) - created(a))[0];
 }
 
 // The item to show after the one at key: the next open item, wrapping to the
@@ -107,7 +121,7 @@ export function newestItemOf(snapshot: Snapshot, id: string): Item | undefined {
 // so. Null means nothing else waits on him.
 export function nextOpenKey(stack: Item[], key: string, sent: ReadonlySet<string> = new Set()): string | null {
   const index = stack.findIndex((item) => item.key === key);
-  const waiting = (item: Item) => item.key !== key && isOpen(item) && !sent.has(item.key);
+  const waiting = (item: Item) => item.key !== key && waitsOnHim(item) && !sent.has(item.key);
   return (stack.slice(index + 1).find(waiting) || stack.slice(0, Math.max(0, index)).find(waiting))?.key || null;
 }
 
@@ -115,12 +129,13 @@ export function nextOpenKey(stack: Item[], key: string, sent: ReadonlySet<string
 export interface SentDraft { submission: Submission | null; sending: boolean; error: string; receipt?: Action }
 
 // SendState is what an item's card shows after Send. A send is done the moment
-// it is made: its check shows at once and delivery goes on quietly. It is
-// confirmed once delivered, and failed only when the request was refused or
-// delivery failed or went unconfirmed, which a card still on screen shows.
+// it is made: its check shows at once and delivery goes on quietly. It reads
+// Sending until the supervisor has it, Queued while it waits for its terminal
+// and Sent after, and failed only when the request was refused or delivery
+// failed or went unconfirmed, which a card still on screen shows.
 // Once its action is known, the action alone decides; a draft edited after a
 // refusal has sent nothing.
-export interface SendState { failed: boolean; confirmed: boolean; heading: string; cleared: boolean }
+export interface SendState { failed: boolean; heading: string; cleared: boolean }
 
 export function sendState(draft: SentDraft, actions: Action[]): SendState | undefined {
   const { submission } = draft;
@@ -131,8 +146,9 @@ export function sendState(draft: SentDraft, actions: Action[]): SendState | unde
   const cleared = sent.kind === "review_clear" || sent.kind === "question_clear";
   return {
     failed: outcome ? deliveryMark(outcome).trouble : !!draft.error,
-    confirmed: outcome?.status === "succeeded",
-    heading: cleared ? string(sent.text) || (sent.kind === "question_clear" ? "Dismissed" : "Cleared") : "Sent",
+    heading: cleared ? string(sent.text) || (sent.kind === "question_clear" ? "Dismissed" : "Cleared")
+      : outcome?.status === "queued" ? "Queued"
+      : draft.sending && !outcome || outcome?.status === "running" && !outcome.awaiting ? "Sending" : "Sent",
     cleared,
   };
 }
@@ -146,14 +162,18 @@ export function notSent(draft: SentDraft, item: Item | undefined, actions: Actio
   return !!submission && !draft.sending && !!draft.error && !accepted && !!item && isOpen(item);
 }
 
-// holdsUnsent says whether any card of an item still waiting keeps a choice
-// or written text the Overlord has not sent, or whose send failed, which a
-// reload would lose.
+// holdsUnsent says whether any card of an item still waiting, or a change to
+// the CFO's answer made from History, keeps a choice or written text the
+// Overlord has not sent, is sending it, or saw its send fail, which a reload
+// would lose. A draft left on an item that closed is no longer his to send;
+// one he is sending counts whatever the item shows, since the board shows it
+// answered the moment he sends it.
 export function holdsUnsent(drafts: Record<string, SentDraft & { selection: string; written: string }>, snapshot: Snapshot): boolean {
   return Object.entries(drafts).some(([key, draft]) => {
     const item = itemFor(snapshot, key);
+    const isLive = draft.sending || key.startsWith("change:") || !!item && isOpen(item);
     const state = sendState(draft, snapshot.actions);
-    return !!item && isOpen(item) && (!!draft.selection || !!draft.written.trim()) && (!state || state.failed);
+    return isLive && (!!draft.selection || !!draft.written.trim()) && (draft.sending || !state || state.failed);
   });
 }
 
@@ -195,7 +215,7 @@ export function answeredLabel(question: Question): string {
   switch (questionOutcome(question)) {
     case "pending": return "Waiting on you";
     // Superseded is a replaced asker; the backend's message says which.
-    case "superseded": return question.message || "Superseded; the asker was replaced";
+    case "superseded": return question.message || "Superseded. The asker was replaced.";
     case "cleared": return question.message || "Closed without an answer";
     case "failed": return "Your answer did not reach " + (question.task ? "the goblin" : "the CFO");
     case "uncertain": return "Not confirmed: check " + (question.task ? "the goblin's" : "the CFO's") + " terminal";
@@ -208,7 +228,43 @@ export function answeredLabel(question: Question): string {
   if (!question.answer) return who + " answered it";
   // A board answer still on its way says so until its reader has it.
   const onItsWay = question.status === "succeeded" ? "" : " (not yet delivered to " + (question.task ? "the goblin" : "the CFO") + ")";
-  return (question.answer_kind === "other" ? who + " wrote: " + question.answer : who + " chose " + question.answer) + onItsWay;
+  return (question.answer_kind === "other" ? who + " wrote: " + question.answer : who + " chose " + (cfoReason(question) ? question.answered_option : question.answer)) + onItsWay;
+}
+
+// The reason the CFO gave with its choice: cfo answer --note joins it to the
+// choice as "<choice>. <reason>".
+const cfoReason = (question: Question) => question.answered_by === "cfo" && question.answered_option && question.answer.startsWith(question.answered_option + ". ")
+  ? question.answer.slice(question.answered_option.length + 2) : "";
+
+// The line under an answer in History: the CFO's reason, or the CFO's answer
+// his change replaced.
+export function answerReason(question: Question): string {
+  if (question.replaced_answer) return "Replaced the CFO's answer: " + question.replaced_answer;
+  const reason = cfoReason(question);
+  return reason ? "Reason: " + reason : "";
+}
+
+// Who answered, as History marks it: you, the CFO, or the CFO while you were
+// away. A question nobody answered, or whose answer is still on its way or
+// did not arrive, keeps the mark of what became of it, so its row reads sent,
+// then delivered.
+export function answerMark(question: Question): "" | "you" | "cfo" | "away" {
+  if (questionOutcome(question) !== "answered" || question.status !== "succeeded") return "";
+  if (question.answered_by !== "cfo") return "you";
+  return question.answered_away ? "away" : "cfo";
+}
+
+// Whether he can still change the CFO's answer to a goblin's question to his
+// own: the goblin that asked is still the one running and has reported
+// nothing since, so it has not acted on it, and no change is on its way. The
+// supervisor checks the same again before the goblin hears a word.
+export function canChange(question: Question, snapshot: Snapshot): boolean {
+  if (!question.task || question.status !== "succeeded" || question.answered_by !== "cfo" || question.answer_id || !question.answered_at) return false;
+  const task = snapshot.tasks.find((candidate) => candidate.id === question.task);
+  if (!task || task.generation !== question.generation) return false;
+  const change = snapshot.actions.find((action) => action.id === question.change_id);
+  if (change && change.status !== "failed") return false;
+  return !task.reported_at || Date.parse(task.reported_at) <= Date.parse(question.answered_at);
 }
 
 export function outcomeIcon(outcome: QuestionOutcome): IconName {
@@ -238,7 +294,12 @@ export function settledLabel(item: Item, actions: Action[]): string {
   if (item.kind === "credential") return credentialSettled(item.request);
   const advice = (answer: string) => actions.find((action) => action.id === answer)?.advice || "";
   if (item.kind === "question") return questionOutcome(item.question) === "uncertain" && advice(item.question.answer_id) || answeredLabel(item.question);
-  if (item.kind === "run") return runMark(item.run).label + (item.run.reason ? ": " + item.run.reason : "");
+  // A command's exit code is kept here, beside how it ended; one he stopped
+  // needs no reason, which speaks of him to the CFO.
+  if (item.kind === "run") {
+    const label = item.run.update ? updateOutcome(item.run).label + " " + item.run.update.to : runMark(item.run).label + (item.run.exit_code === null ? "" : " · exit " + item.run.exit_code);
+    return label + (item.run.reason && item.run.state !== "stopped" && !label.includes(item.run.reason) ? ": " + item.run.reason : "");
+  }
   const { state, answer, reason, task } = item.review;
   const asker = task ? "the goblin" : "the CFO";
   if (state === "withdrawn") return "Withdrawn: " + reason;
@@ -263,7 +324,7 @@ export function settledIcon(item: Item, actions: Action[]): { icon: IconName; to
     if (outcome === "answered" && item.question.status !== "succeeded") return { icon: "check", tone: "queued" };
     return { icon: outcomeIcon(outcome), tone: outcome === "answered" ? "succeeded" : outcome };
   }
-  if (item.kind === "run") return { icon: runMark(item.run).icon, tone: item.run.state };
+  if (item.kind === "run") return { icon: (item.run.update ? updateOutcome(item.run) : runMark(item.run)).icon, tone: item.run.state };
   if (item.review.state !== "answered") return { icon: "close", tone: item.review.state };
   if (answeredElsewhere(item)) return { icon: "check-double", tone: "succeeded" };
   const outcome = answerOutcome(item.review, actions);

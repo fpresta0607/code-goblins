@@ -282,7 +282,7 @@ func TestEveryCFOHarnessHasOneWayItIsWoken(t *testing.T) {
 		"claude": CFOWakeStopHook,
 		"codex":  CFOWakeTyped,
 		"pi":     CFOWakeTyped,
-		"kimi":   CFOWakeNone,
+		"grok":   CFOWakeNone,
 		"":       CFOWakeNone,
 	} {
 		if got := CFOWakeFor(agent); got != want {

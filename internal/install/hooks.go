@@ -17,6 +17,7 @@ import (
 	"strings"
 
 	"github.com/fpresta0607/code-goblins/internal/guard"
+	"github.com/fpresta0607/code-goblins/internal/home"
 )
 
 // shellFormPrefix opened every hook command installs wrote before the hooks
@@ -70,7 +71,7 @@ func Hooks(root string) []Hook {
 		{Name: "stop-autoarm", Event: "Stop", Timeout: 28800, AsyncRewake: true},
 	}
 	for i := range hooks {
-		hooks[i].Command = filepath.Join(root, "cfo.exe")
+		hooks[i].Command = filepath.Join(root, home.BinDir, "cfo.exe")
 		hooks[i].Args = []string{"hook", hooks[i].Name}
 	}
 	return hooks

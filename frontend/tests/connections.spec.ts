@@ -1,6 +1,10 @@
 import { expect, test } from "./site";
 
 const checkedAt = "2026-09-29T14:56:12Z";
+const engines = { harnesses: [{ id: "codex", name: "Codex", models: [{ id: "gpt-6-astra", name: "gpt-6-astra", efforts: ["xhigh"], default_effort: "xhigh" }] }] };
+test.beforeEach(async ({ page }) => {
+  await page.route("**/api/engines", (route) => route.fulfill({ json: engines }));
+});
 const entries = [
   { id: "mcp:github", name: "GitHub", kind: "mcp", status: "connected", source: "Codex", checked_at: checkedAt },
   { id: "mcp:context7", name: "Context7", kind: "mcp", status: "unauthorized", detail: "Sign-in required.", checked_at: checkedAt, actions: ["login"] },
@@ -19,7 +23,9 @@ for (const viewport of [{ width: 1280, height: 1400 }, { width: 390, height: 844
     page.on("pageerror", (error) => errors.push(error.message));
     await page.route("**/api/**", async (route) => {
       const url = new URL(route.request().url());
-      if (url.pathname === "/api/workspace") {
+      if (url.pathname === "/api/engines") {
+        await route.fulfill({ json: engines });
+      } else if (url.pathname === "/api/workspace") {
         await route.fulfill({ json: { repository: "code-goblins", root: "C:/scratch/work", harness: "codex", model: "Reported: gpt-6-astra", notes: [] } });
       } else if (url.pathname === "/api/connections" && route.request().method() === "GET") {
         checks++;
@@ -100,6 +106,8 @@ for (const shouldDelayCheckingResponse of [false, true]) {
   });
 }
 
+// The Overlord, 2026-10-08: "everything error wise goes to cfo". A check that
+// timed out says so in two words where the panel says what it is doing.
 test("a slow check leaves the dropdown usable and ends in an honest timeout", async ({ page }) => {
   let hasTimedOut = false;
   await page.route("**/api/workspace**", (route) => route.fulfill({ json: { repository: "scratch", harness: "claude", notes: [] } }));
@@ -114,10 +122,12 @@ test("a slow check leaves the dropdown usable and ends in an honest timeout", as
   await expect(page.getByText("Checking connections...", { exact: true })).toBeHidden();
   hasTimedOut = true;
   await disclosure.click();
-  await expect(page.getByRole("alert")).toContainText("Connection check timed out.");
+  await expect(page.getByText("Check failed", { exact: true })).toBeVisible();
+  await expect(page.getByText("Connection check timed out.")).toHaveCount(0);
+  await expect(page.getByRole("alert")).toHaveCount(0);
 });
 
-test("OAuth opens its sign-in and a failed repair remains visible", async ({ page, context }) => {
+test("OAuth opens its sign-in and a failed repair is said in a few words beside it", async ({ page, context }) => {
   let isRejected = true;
   await context.route("https://example.invalid/**", (route) => route.fulfill({ body: "Scratch sign-in", contentType: "text/html" }));
   await page.route("**/api/workspace**", (route) => route.fulfill({ json: { repository: "scratch", harness: "claude", notes: [] } }));
@@ -129,7 +139,7 @@ test("OAuth opens its sign-in and a failed repair remains visible", async ({ pag
   await page.goto("/tests/fixtures/connections.html");
   await page.getByText("Connections", { exact: true }).click();
   await page.getByRole("button", { name: "Sign in to Context7" }).click();
-  await expect(page.getByRole("alert")).toHaveText("Task restarted. Refresh connections.");
+  await expect(page.locator(".connections-panel .click-feedback")).toHaveText("Task restarted. Refresh connections.");
   isRejected = false;
   const opened = page.waitForEvent("popup");
   await page.getByRole("button", { name: "Sign in to Context7" }).click();

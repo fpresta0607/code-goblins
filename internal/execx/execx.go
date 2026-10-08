@@ -48,7 +48,10 @@ type OSRunner struct{}
 
 // Run starts and waits for the requested process. A normal non-zero exit is a
 // result, not an execution error, so callers can distinguish tool refusals
-// from failures to start or wait for the process.
+// from failures to start or wait for the process. A run its context ended
+// returns the context's error with what the process wrote before it ended,
+// since a tool that answered and then hung is a different fault from one
+// that never answered; it never exited, so its exit code is left zero.
 func (OSRunner) Run(ctx context.Context, req Request) (Result, error) {
 	cmd := command(ctx, req)
 	cmd.WaitDelay = 2 * time.Second
@@ -62,7 +65,7 @@ func (OSRunner) Run(ctx context.Context, req Request) (Result, error) {
 	}
 	waitErr := cmd.Wait()
 	if err := ctx.Err(); err != nil {
-		return Result{}, err
+		return Result{Stdout: stdout.Bytes(), Stderr: stderr.Bytes()}, err
 	}
 
 	result := Result{

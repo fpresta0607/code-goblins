@@ -49,12 +49,15 @@ type credentialW struct {
 // credentialManagerStore keeps secrets in Windows Credential Manager, where
 // they are encrypted at rest under the logged-in user rather than sitting in
 // a readable file.
-type credentialManagerStore struct{}
+type credentialManagerStore struct {
+	// target prefixes every entry this store reads, writes and lists.
+	target string
+}
 
 func openCredentialManager() (Store, error) {
 	// Prove the vault answers before claiming it: a read of a name that does
 	// not exist must come back as "not found", not as a load failure.
-	store := credentialManagerStore{}
+	store := credentialManagerStore{target: credentialTarget}
 	if _, _, err := store.Get(Shared("CFO_CREDENTIAL_STORE_PROBE")); err != nil {
 		return nil, err
 	}
@@ -65,11 +68,17 @@ func (credentialManagerStore) Describe() string {
 	return "Windows Credential Manager"
 }
 
-func (credentialManagerStore) Get(key Key) (string, bool, error) {
+// Seen keeps its records under cfo:.env-seen/, which the credential listing
+// reads as a scope no project can have and skips.
+func (s credentialManagerStore) Seen() Store {
+	return credentialManagerStore{target: s.target + seenScope + "/"}
+}
+
+func (s credentialManagerStore) Get(key Key) (string, bool, error) {
 	if !key.Valid() {
 		return "", false, fmt.Errorf("auth: invalid credential key %q", key.String())
 	}
-	target, err := syscall.UTF16PtrFromString(credentialTarget + key.String())
+	target, err := syscall.UTF16PtrFromString(s.target + key.String())
 	if err != nil {
 		return "", false, err
 	}
@@ -95,11 +104,11 @@ func (credentialManagerStore) Get(key Key) (string, bool, error) {
 	return string(blob), true, nil
 }
 
-func (credentialManagerStore) Set(key Key, value string) error {
+func (s credentialManagerStore) Set(key Key, value string) error {
 	if !key.Valid() {
 		return fmt.Errorf("auth: invalid credential key %q", key.String())
 	}
-	target, err := syscall.UTF16PtrFromString(credentialTarget + key.String())
+	target, err := syscall.UTF16PtrFromString(s.target + key.String())
 	if err != nil {
 		return err
 	}
@@ -128,8 +137,8 @@ func (credentialManagerStore) Set(key Key, value string) error {
 	return nil
 }
 
-func (credentialManagerStore) Keys() ([]Key, error) {
-	filter, err := syscall.UTF16PtrFromString(credentialTarget + "*")
+func (s credentialManagerStore) Keys() ([]Key, error) {
+	filter, err := syscall.UTF16PtrFromString(s.target + "*")
 	if err != nil {
 		return nil, err
 	}
@@ -154,7 +163,7 @@ func (credentialManagerStore) Keys() ([]Key, error) {
 			continue
 		}
 		name := syscall.UTF16ToString(unsafe.Slice(credential.TargetName, targetNameLen(credential.TargetName)))
-		scoped, found := strings.CutPrefix(name, credentialTarget)
+		scoped, found := strings.CutPrefix(name, s.target)
 		if !found {
 			continue
 		}

@@ -288,3 +288,38 @@ func TestStoreDirIsTheOverrideElseTheUsersCacheAndNeverThatFromATest(t *testing.
 		t.Errorf("storeDir in a test binary with no override = %v; want a refusal naming CFO_VERIFY_DIR", refused)
 	}
 }
+
+// Reports reads back a project's reports, the run that started last first,
+// and none of another project's; a project with no store folder has none, and
+// a report that does not read is named rather than skipped.
+func TestReportsReadsAProjectsReportsNewestFirst(t *testing.T) {
+	// Arrange
+	t.Setenv("CFO_VERIFY_DIR", t.TempDir())
+	run(t, "code-goblins", started.Add(time.Minute), "1111111111111111")
+	run(t, "code-goblins", started.Add(time.Hour), "2222222222222222")
+	run(t, "code-goblins", started, "3333333333333333")
+	run(t, "another-project", started.Add(2*time.Hour), "4444444444444444")
+
+	// Act
+	reports, err := Reports("code-goblins")
+	none, noneErr := Reports("never-run")
+
+	// Assert
+	var commits []string
+	for _, report := range reports {
+		commits = append(commits, report.Commit)
+	}
+	if err != nil || strings.Join(commits, " ") != "2222222222222222 1111111111111111 3333333333333333" {
+		t.Errorf("Reports = %q, %v; want the three of code-goblins, newest first", commits, err)
+	}
+	if none != nil || noneErr != nil {
+		t.Errorf("Reports of a project never run = %v, %v; want none", none, noneErr)
+	}
+	broken := run(t, "code-goblins", started.Add(3*time.Hour), "5555555555555555")
+	if err := os.WriteFile(broken, []byte("{not json"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := Reports("code-goblins"); err == nil || !strings.Contains(err.Error(), filepath.Base(broken)) {
+		t.Errorf("Reports with a report that does not read = %v, want an error naming it", err)
+	}
+}

@@ -62,10 +62,24 @@ type cleanupGit struct {
 	top       string
 	returnErr error
 	returned  [][2]string
+	// unlanded names the worktrees whose HEAD is not on the default branch,
+	// and tagged the archive tags made for them.
+	unlanded map[string]bool
+	tagged   []string
 }
 
-func (g *cleanupGit) Acquire(context.Context, string, string) (string, error) {
+func (g *cleanupGit) Acquire(context.Context, string, string, string) (string, error) {
 	return "", errors.New("cleanup tests never acquire")
+}
+
+func (g *cleanupGit) Landing(_ context.Context, dir string) (worktree.Landing, error) {
+	return worktree.Landing{Head: "0123456789abcdef", Landed: !g.unlanded[filepath.Base(dir)]}, nil
+}
+
+func (g *cleanupGit) ArchiveTag(_ context.Context, dir string, _ worktree.Landing, name string) (string, error) {
+	tag := "archive/" + name
+	g.tagged = append(g.tagged, tag)
+	return tag, nil
 }
 
 func (g *cleanupGit) WorktreeTop(_ context.Context, dir string) (string, error) {
@@ -213,6 +227,10 @@ func (f *cleanupFixture) assertMetadataPreserved(t *testing.T) {
 
 func TestCleanupReturnsCleanInactiveWorktree(t *testing.T) {
 	fixture := newCleanupFixture(t)
+	fixture.meta.Model, fixture.meta.Effort = "recorded-model", "xhigh"
+	if err := state.WriteTaskMeta(fixture.stateDir, fixture.meta); err != nil {
+		t.Fatal(err)
+	}
 
 	result, err := fixture.service.Cleanup(context.Background(), "g1")
 	if err != nil {
@@ -227,6 +245,10 @@ func TestCleanupReturnsCleanInactiveWorktree(t *testing.T) {
 	}
 	if _, err := os.Stat(filepath.Join(fixture.stateDir, "g1.meta")); !errors.Is(err, os.ErrNotExist) {
 		t.Fatalf("metadata survives successful cleanup: %v", err)
+	}
+	outcome, err := state.ReadOutcome(fixture.stateDir, "g1")
+	if err != nil || outcome.Harness != fixture.meta.Harness || outcome.Model != fixture.meta.Model || outcome.Effort != fixture.meta.Effort {
+		t.Fatalf("engine did not survive cleanup: %+v, %v", outcome, err)
 	}
 	status, err := state.TailStatus(fixture.stateDir, "g1", 5)
 	if err != nil || len(status) != 1 {
@@ -536,8 +558,8 @@ func TestCleanupArchivesEvenWhenTheGoTemporaryDirectoryIsPinned(t *testing.T) {
 	if _, err := os.Stat(filepath.Join(archived, entries[0].Name(), "auth.ps1")); !errors.Is(err, os.ErrNotExist) {
 		t.Errorf("a pinned go temporary directory skipped the credential scrub: %v", err)
 	}
-	if !strings.Contains(result.Output, "go temporary directory") {
-		t.Errorf("Output = %q, want the go temporary directory warning", result.Output)
+	if !strings.Contains(result.Output, "scratch folder") {
+		t.Errorf("Output = %q, want the scratch folder warning", result.Output)
 	}
 }
 

@@ -21,6 +21,7 @@ interface Posted { path: string; body: Record<string, unknown> }
 
 // posted collects what the board asked the supervisor to change.
 async function open(page: Page, posted: Posted[] = []) {
+  await page.addInitScript(() => localStorage.setItem("cfo-first-open", "shown"));
   const snapshot = { healthy: true, instance: "fixture", cfo_runs: true, revision: 1, attention: [], memory, tasks: [...QUEUED, ...WORKING, ...PAUSED, ...DONE] };
   await page.route("**/api/**", async (route) => {
     const path = new URL(route.request().url()).pathname;
@@ -136,6 +137,7 @@ test("a board of 30 goblins in progress shows them all and runs no animation onc
   const working = numbered(30, (number) => task("working-" + number, "working", { harness: "codex" }));
   const snapshot = { healthy: true, instance: "fixture", cfo_runs: true, revision: 1, attention: [], memory, tasks: working };
   await page.addInitScript(() => {
+    localStorage.setItem("cfo-first-open", "shown");
     const frame = window.requestAnimationFrame.bind(window);
     window.framesAsked = 0;
     window.requestAnimationFrame = (callback) => { window.framesAsked!++; return frame(callback); };
