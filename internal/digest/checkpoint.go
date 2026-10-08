@@ -18,6 +18,18 @@ import (
 
 const CheckpointFile = "compact-checkpoint.md"
 
+// FreshCheckpoint returns the checkpoint's path and when it was written, and
+// whether it was written within the last 15 minutes: older than that, it
+// cannot be the one written before the compaction that just finished.
+func FreshCheckpoint(stateDir string, now time.Time) (string, time.Time, bool) {
+	path := filepath.Join(stateDir, CheckpointFile)
+	info, err := os.Stat(path)
+	if err != nil || !info.Mode().IsRegular() || now.Sub(info.ModTime()) > 15*time.Minute {
+		return path, time.Time{}, false
+	}
+	return path, info.ModTime(), true
+}
+
 // WriteCheckpoint snapshots disk state without acknowledging or changing it.
 func WriteCheckpoint(h home.Home, now time.Time) error {
 	var text bytes.Buffer
