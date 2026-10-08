@@ -53,12 +53,14 @@ var (
 	githubPullRequest  = regexp.MustCompile(`^https://github\.com/[\w.-]+/[\w.-]+/pull/\d+$`)
 )
 
-// pullRequestState is what GitHub last answered for a pull request, and when:
-// OPEN, CLOSED or MERGED, or empty when it did not answer.
+// pullRequestState is what GitHub last answered for a pull request: OPEN,
+// CLOSED or MERGED, or empty when it never did; when it was last asked; and
+// how many asks in a row it has not answered since.
 type pullRequestState struct {
-	state string
-	title string
-	at    time.Time
+	state    string
+	title    string
+	at       time.Time
+	failures int
 }
 
 type PullRequestInfo struct {
@@ -628,8 +630,11 @@ func withMergedPRs(history []Task, merged []MergedPR) []Task {
 // withPullRequestStates asks GitHub about each finished task's pull request
 // that no fleet history shows merged, and marks it merged (a squash merge
 // leaves no merge commit) or closed without merging. A merged or closed pull
-// request is not asked about again; an open one, or one GitHub did not
-// answer for, waits pullRequestRecheck. All asks of one refresh share
+// request is not asked about again, and an open one waits pullRequestRecheck.
+// One GitHub did not answer for keeps what it last answered and is asked
+// again on the next refresh; its failure is returned only once it went
+// unanswered failingPasses refreshes in a row, and from then on it waits
+// pullRequestRecheck between asks. All asks of one refresh share
 // pullRequestBudget, so a slow GitHub never holds the supervisor's loop much
 // longer; a pull request not asked before it runs out is asked on the next
 // refresh.
@@ -651,13 +656,21 @@ func (s *Service) withPullRequestStates(ctx context.Context, history []Task, now
 		}
 		shown[task.PR] = true
 		known, ok := s.pullRequests[task.PR]
-		if !ok || (known.state != "MERGED" && known.state != "CLOSED" || known.title == "") && now.Sub(known.at) >= pullRequestRecheck {
+		isFailing := known.failures > 0 && known.failures < failingPasses
+		if !ok || isFailing || (known.state != "MERGED" && known.state != "CLOSED" || known.title == "") && now.Sub(known.at) >= pullRequestRecheck {
 			if budget.Err() != nil {
 				continue
 			}
 			answer, err := s.Options.PullRequestState(budget, task.PR)
-			errs = errors.Join(errs, err)
-			known = pullRequestState{state: answer.State, title: answer.Title, at: now}
+			if err != nil {
+				known.at = now
+				known.failures++
+				if known.failures >= failingPasses {
+					errs = errors.Join(errs, err)
+				}
+			} else {
+				known = pullRequestState{state: answer.State, title: answer.Title, at: now}
+			}
 			s.pullRequests[task.PR] = known
 		}
 		task.Merged, task.Closed = task.Merged || known.state == "MERGED", known.state == "CLOSED"

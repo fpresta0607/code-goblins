@@ -208,22 +208,25 @@ func TestMemoryReadyWakesOnlyForWorkWaitingOnIt(t *testing.T) {
 // listed. noOrigin says the repository has no origin remote, ghFailure is
 // what gh prints when it cannot read the repository, and ghCalls counts the
 // gh calls made in it. viewer is the account gh works as, o by default.
+// runListTimeouts is how many more listings of the repository's push runs
+// time out, as they did under the fleet's load.
 type fakeForge struct {
-	mu             sync.Mutex
-	repo           string
-	worktree       string
-	pulls          string
-	runs           string
-	jobs           string
-	branch         string
-	noOrigin       bool
-	noOriginHead   bool
-	originBranches []string
-	ghFailure      string
-	ghCalls        int
-	listCalls      int
-	runListDirs    []string
-	viewer         string
+	mu              sync.Mutex
+	repo            string
+	worktree        string
+	pulls           string
+	runs            string
+	jobs            string
+	branch          string
+	noOrigin        bool
+	noOriginHead    bool
+	originBranches  []string
+	ghFailure       string
+	ghCalls         int
+	listCalls       int
+	runListDirs     []string
+	runListTimeouts int
+	viewer          string
 }
 
 func (f *fakeForge) Run(_ context.Context, req execx.Request) (execx.Result, error) {
@@ -288,6 +291,10 @@ func (f *fakeForge) Run(_ context.Context, req execx.Request) (execx.Result, err
 		return execx.Result{Stdout: []byte(cmp.Or(f.viewer, "o") + "\n")}, nil
 	case strings.HasPrefix(command, "gh run list"):
 		f.runListDirs = append(f.runListDirs, filepath.Clean(req.Dir))
+		if inRepo && f.runListTimeouts > 0 {
+			f.runListTimeouts--
+			return execx.Result{}, context.DeadlineExceeded
+		}
 		return answer(f.runs)
 	case strings.HasPrefix(command, "gh run view"):
 		return execx.Result{Stdout: []byte(f.jobs)}, nil
@@ -883,15 +890,15 @@ func TestCIUnreadableIgnoresARepositoryWithNoOrigin(t *testing.T) {
 
 // A repository gh cannot read keeps its named error at every reading,
 // polling or not, and wakes the CFO once, when the same failure was met on
-// two polls in a row, however long it then lasts.
-func TestCIUnreadableWakesOnceForAFailureMetOnTwoPolls(t *testing.T) {
+// three polls in a row, however long it then lasts.
+func TestCIUnreadableWakesOnceForAFailureMetOnThreePolls(t *testing.T) {
 	s, h, _, project := unreadableForge(t)
 	polled := time.Date(2026, 9, 30, 12, 0, 0, 0, time.UTC)
 
 	for _, reading := range []struct {
 		after time.Duration
 		woke  int
-	}{{0, 0}, {time.Minute, 0}, {2 * time.Minute, 1}, {3 * time.Minute, 1}, {4 * time.Minute, 1}, {6 * time.Minute, 1}} {
+	}{{0, 0}, {time.Minute, 0}, {2 * time.Minute, 0}, {3 * time.Minute, 0}, {4 * time.Minute, 1}, {6 * time.Minute, 1}, {8 * time.Minute, 1}} {
 		err := s.checkFleet(context.Background(), polled.Add(reading.after))
 		if err == nil || !strings.Contains(err.Error(), "list the push runs of "+project) || !strings.Contains(err.Error(), "gh auth login") {
 			t.Fatalf("the reading at %s returned %v, want the named error of %s", reading.after, err, project)
@@ -907,7 +914,7 @@ func TestCIUnreadableWakesOnceForAFailureMetOnTwoPolls(t *testing.T) {
 	}
 }
 
-// A different failure wakes again once it too was met on two polls, a
+// A different failure wakes again once it too was met on three polls, a
 // failure that clears wakes nobody and leaves no record in
 // state/fleet-wakes.json, and the same failure coming back wakes again.
 func TestCIUnreadableWakesAgainForAChangedOrReturningFailure(t *testing.T) {
@@ -923,7 +930,7 @@ func TestCIUnreadableWakesAgainForAChangedOrReturningFailure(t *testing.T) {
 	for _, step := range []struct {
 		failure string
 		woke    int
-	}{{signedOut, 0}, {signedOut, 1}, {"HTTP 404: Not Found", 1}, {"HTTP 404: Not Found", 2}} {
+	}{{signedOut, 0}, {signedOut, 0}, {signedOut, 1}, {"HTTP 404: Not Found", 1}, {"HTTP 404: Not Found", 1}, {"HTTP 404: Not Found", 2}} {
 		forge.ghFailure = step.failure
 		if woke, _ := poll(); woke != step.woke {
 			t.Fatalf("after a poll failing with %q the CFO was woken %d times, want %d", step.failure, woke, step.woke)
@@ -948,11 +955,52 @@ func TestCIUnreadableWakesAgainForAChangedOrReturningFailure(t *testing.T) {
 		t.Fatalf("state/fleet-wakes.json still remembers a failure of %s: %s", project, failure)
 	}
 	forge.ghFailure = signedOut
-	if woke, _ := poll(); woke != 2 {
-		t.Fatalf("the failure met once after it cleared woke the CFO %d times, want 2", woke)
+	for range 2 {
+		if woke, _ := poll(); woke != 2 {
+			t.Fatalf("the failure met on fewer than three polls after it cleared woke the CFO %d times, want 2", woke)
+		}
 	}
 	if woke, _ := poll(); woke != 3 {
-		t.Fatalf("the failure back on two polls woke the CFO %d times, want 3", woke)
+		t.Fatalf("the failure back on three polls woke the CFO %d times, want 3", woke)
+	}
+}
+
+// On 2026-10-08 the listing of code-goblins's push runs on main timed out
+// under the fleet's load, woke the CFO as ci_unreadable, and took about
+// 600 ms minutes later. A listing that times out on two polls and reads on
+// the third wakes nobody.
+func TestCIRunListThatTimesOutTwiceThenReadsNeverWakesTheCFO(t *testing.T) {
+	// Arrange
+	s, h := fleetService(t)
+	project := t.TempDir()
+	liveGoblin(t, h, "cg-wakes", project)
+	forge := forgeFor(project, "cg-wakes")
+	forge.branch, forge.pulls, forge.runs = "feat/wakes", "[]", "[]"
+	forge.runListTimeouts = 2
+	s.Options.CI = forge
+	now := time.Date(2026, 10, 8, 12, 0, 0, 0, time.UTC)
+
+	for poll := range 3 {
+		// Act
+		now = now.Add(ciPollEvery)
+		_ = s.checkFleet(context.Background(), now)
+
+		// Assert
+		if woke := fleetWakeRecords(t, h, "ci"); len(woke) != 0 {
+			t.Fatalf("poll %d woke the CFO for a listing that timed out on %d polls: %+v", poll+1, min(poll+1, 2), woke)
+		}
+	}
+	listings := 0
+	for _, dir := range forge.runListDirs {
+		if dir == filepath.Clean(project) {
+			listings++
+		}
+	}
+	if forge.runListTimeouts != 0 || listings != 3 {
+		t.Fatalf("push runs of %s were listed %d times with %d timeouts left, want three listings, two of them timed out", project, listings, forge.runListTimeouts)
+	}
+	if remembered, err := readFleetWakes(h.State); err != nil || len(remembered.Unreadable) != 0 {
+		t.Fatalf("unreadable = %+v, %v, want nothing once the listing read again", remembered.Unreadable, err)
 	}
 }
 
@@ -962,12 +1010,12 @@ func TestCIUnreadableWakesAgainForAChangedOrReturningFailure(t *testing.T) {
 func TestCIUnreadableStandsAcrossARestartWithoutWakingAgain(t *testing.T) {
 	s, h, _, project := unreadableForge(t)
 	now := time.Date(2026, 9, 30, 12, 0, 0, 0, time.UTC)
-	for range 2 {
+	for range failingPasses {
 		now = now.Add(ciPollEvery)
 		_ = s.checkFleet(context.Background(), now)
 	}
 	if woke := fleetWakeRecords(t, h, "ci"); len(woke) != 1 {
-		t.Fatalf("a failure met twice woke %d times, want one", len(woke))
+		t.Fatalf("a failure met on three polls woke %d times, want one", len(woke))
 	}
 	restarted := &Service{Store: s.Store, Options: s.Options}
 
@@ -1129,12 +1177,12 @@ func TestCIUnreadableRecordOutlivesAPollCutShort(t *testing.T) {
 			other := t.TempDir()
 			liveGoblin(t, h, "cg-other", other)
 			now := time.Date(2026, 9, 30, 12, 0, 0, 0, time.UTC)
-			for range 2 {
+			for range failingPasses {
 				now = now.Add(ciPollEvery)
 				_ = s.checkFleet(context.Background(), now)
 			}
 			if woke := fleetWakeRecords(t, h, "ci"); len(woke) != 1 {
-				t.Fatalf("a failure met twice woke %d times, want one", len(woke))
+				t.Fatalf("a failure met on three polls woke %d times, want one", len(woke))
 			}
 			ctx, cancel := context.WithCancel(context.Background())
 			defer cancel()

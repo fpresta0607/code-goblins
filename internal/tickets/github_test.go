@@ -11,8 +11,9 @@ import (
 	"github.com/fpresta0607/code-goblins/internal/execx"
 )
 
-// fakeGitHub answers gh the way GitHub would, from canned responses, and
-// records every call so a test can check what was asked and how often.
+// fakeGitHub answers gh the way GitHub would, from canned responses, after
+// delay, and records every call, and each one's deadline, so a test can check
+// what was asked and how often.
 type fakeGitHub struct {
 	graphql         []string
 	graphqlExitCode int
@@ -21,11 +22,17 @@ type fakeGitHub struct {
 	restFail        map[string]string
 	remote          string
 	failGh          string
+	delay           time.Duration
 	calls           [][]string
+	deadlines       []time.Time
 }
 
-func (f *fakeGitHub) Run(_ context.Context, req execx.Request) (execx.Result, error) {
+func (f *fakeGitHub) Run(ctx context.Context, req execx.Request) (execx.Result, error) {
 	f.calls = append(f.calls, append([]string{req.Name}, req.Args...))
+	if deadline, ok := ctx.Deadline(); ok {
+		f.deadlines = append(f.deadlines, deadline)
+	}
+	time.Sleep(f.delay)
 	if req.Name == "git" {
 		if f.remote == "" {
 			return execx.Result{ExitCode: 2, Stderr: []byte("error: No such remote 'origin'")}, nil
@@ -412,20 +419,102 @@ func TestReadKeepsReadableGraphQLErrorDataOnNonzeroExit(t *testing.T) {
 	}
 }
 
-func TestReadOpenWorkKeepsMetadataWithoutBranchCompares(t *testing.T) {
-	first := firstPageWithPullFileCount(1)
-	gh := &fakeGitHub{graphql: []string{first}}
-
-	activity, err := (GitHub{Commands: gh}).ReadOpenWork(context.Background(), "fpresta0607/northwind-api", testNow)
-
+// The overlap read asks for no branch, whatever the repository has: it
+// compares no branch's files, so none can meet a goblin's area.
+func TestOpenWorkReadsOpenItemsAndMetadataAndNoBranch(t *testing.T) {
+	// Arrange
+	gh := &fakeGitHub{graphql: []string{firstPageWithPullFileCount(1)}}
+	work, err := StartOpenWork("fpresta0607/northwind-api", testNow)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(activity.Branches) != 4 || len(activity.Events) != 6 || len(activity.PullRequests) != 2 || len(activity.Issues) != 1 || activity.Viewer.Login != "fpresta0607" || activity.DefaultHead != "main0001" {
-		t.Fatalf("narrow read lost collaboration or open-item metadata: %+v", activity)
+
+	// Act
+	pages, err := (GitHub{Commands: gh}).Continue(context.Background(), work, 5, time.Minute)
+
+	// Assert
+	if err != nil || pages != 1 || !work.IsWhole() {
+		t.Fatalf("read %d pages, whole %v, error %v, want the one page and the read whole", pages, work.IsWhole(), err)
 	}
-	if len(activity.Unread) != 0 || len(gh.calls) != 1 {
-		t.Fatalf("narrow read attempted a branch compare: calls %v, unread %v", gh.calls, activity.Unread)
+	activity := work.Activity()
+	if len(activity.Branches) != 0 || len(activity.Events) != 6 || len(activity.PullRequests) != 2 || len(activity.Issues) != 1 || activity.Viewer.Login != "fpresta0607" {
+		t.Fatalf("the overlap read lost open items or metadata, or read branches: %+v", activity)
+	}
+	if refs, _ := argValue(gh.calls[0], "refs"); refs != "false" || len(gh.calls) != 1 || len(activity.Unread) != 0 {
+		t.Fatalf("calls %v with unread %v, want one query asking for no branch", gh.calls, activity.Unread)
+	}
+}
+
+// Each Continue reads at most its pages, each on a deadline of its own, and a
+// page that fails is asked for again by the next Continue, where the read
+// left off.
+func TestOpenWorkReadsItsPagesAPassAtATimeAndAsksAgainForOneThatFailed(t *testing.T) {
+	// Arrange
+	first := strings.Replace(firstPageWithPullFileCount(1), `"pullRequests":{"pageInfo":{"hasNextPage":false,"endCursor":"P1"}`, `"pullRequests":{"pageInfo":{"hasNextPage":true,"endCursor":"P1"}`, 1)
+	second := `{"data":{"repository":{"nameWithOwner":"fpresta0607/northwind-api","pullRequests":{"pageInfo":{"hasNextPage":false,"endCursor":"P2"},"nodes":[
+	 {"number":401,"title":"older work","createdAt":"2026-09-20T13:30:00Z","changedFiles":1,"files":{"nodes":[{"path":"services/old.py"}]},"author":{"__typename":"User","login":"ana-teammate"}}]}}}}`
+	gh := &fakeGitHub{graphql: []string{first, `{"data":{"repository":null},"errors":[{"message":"timeout"}]}`, second}, delay: 20 * time.Millisecond}
+	github := GitHub{Commands: gh}
+	work, err := StartOpenWork("fpresta0607/northwind-api", testNow)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Act and Assert
+	if pages, err := github.Continue(context.Background(), work, 1, time.Minute); pages != 1 || err != nil || work.IsWhole() {
+		t.Fatalf("the first pass read %d pages with %v, whole %v, want its one page and the read not whole", pages, err, work.IsWhole())
+	}
+	if pages, err := github.Continue(context.Background(), work, 2, time.Minute); pages != 0 || err == nil || !strings.Contains(err.Error(), "timeout") || work.IsWhole() {
+		t.Fatalf("the failing pass read %d pages with %v, want none, the page's failure and the read not whole", pages, err)
+	}
+	if pages, err := github.Continue(context.Background(), work, 2, time.Minute); pages != 1 || err != nil || !work.IsWhole() {
+		t.Fatalf("the last pass read %d pages with %v, whole %v, want the page that failed and the read whole", pages, err, work.IsWhole())
+	}
+	calls := gh.graphqlCalls()
+	for _, call := range calls[1:] {
+		if after, _ := argValue(call, "pullsAfter"); after != "P1" {
+			t.Fatalf("calls %v, want the failed page asked again after P1", calls)
+		}
+		if first, _ := argValue(call, "first"); first != "false" {
+			t.Fatalf("calls %v, want the read not started over", calls)
+		}
+	}
+	if pulls := work.Activity().PullRequests; len(pulls) != 3 || pulls[2].Number != 401 {
+		t.Fatalf("pull requests = %+v, want both pages read once each", pulls)
+	}
+	if len(gh.deadlines) != 3 || !gh.deadlines[1].After(gh.deadlines[0]) || !gh.deadlines[2].After(gh.deadlines[1]) {
+		t.Fatalf("deadlines = %v, want each page on a deadline of its own", gh.deadlines)
+	}
+}
+
+// A page of a large pull request's files that fails is asked for again too.
+func TestOpenWorkAsksAgainForAFilesPageThatFailed(t *testing.T) {
+	// Arrange
+	const endpoint = "repos/fpresta0607/northwind-api/pulls/409/files?per_page=100"
+	var firstFiles []string
+	for number := 0; number < 100; number++ {
+		firstFiles = append(firstFiles, fmt.Sprintf("schema/file-%03d.json", number))
+	}
+	firstFiles[0] = "schema/v1/contract.json"
+	gh := &fakeGitHub{graphql: []string{firstPageWithPullFileCount(102)}, rest: map[string]string{endpoint + "&page=1": strings.Join(firstFiles, "\n") + "\n"}, restFail: map[string]string{endpoint + "&page=2": "HTTP 502: page unavailable"}}
+	github := GitHub{Commands: gh}
+	work, err := StartOpenWork("fpresta0607/northwind-api", testNow)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Act and Assert
+	if pages, err := github.Continue(context.Background(), work, 5, time.Minute); pages != 2 || err == nil || work.IsWhole() {
+		t.Fatalf("the failing pass read %d pages with %v, want the query and the first files page, then the failure", pages, err)
+	}
+	delete(gh.restFail, endpoint+"&page=2")
+	gh.rest[endpoint+"&page=2"] = "schema/last-a.json\nschema/last-b.json\n"
+	if pages, err := github.Continue(context.Background(), work, 5, time.Minute); pages != 1 || err != nil || !work.IsWhole() {
+		t.Fatalf("the last pass read %d pages with %v, whole %v, want the files page that failed and the read whole", pages, err, work.IsWhole())
+	}
+	activity := work.Activity()
+	if files := activity.PullRequests[1].Files; len(files) != 102 || len(activity.Unread) != 0 {
+		t.Fatalf("large pull request files = %d with unread %v, want all 102 and nothing unread", len(files), activity.Unread)
 	}
 }
 

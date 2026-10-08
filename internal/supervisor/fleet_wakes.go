@@ -71,6 +71,12 @@ const (
 	ciRecordFor = 7 * 24 * time.Hour
 	// ghCallTimeout bounds one gh or git call.
 	ghCallTimeout = 30 * time.Second
+	// failingPasses is how many passes in a row a GitHub read the supervisor
+	// makes on a timer fails before the CFO hears of it. On 2026-10-08 single
+	// reads timed out under the fleet's load and each woke the CFO, and
+	// minutes later the same reads took about 600 ms: a read that fails once
+	// is read again on the next pass.
+	failingPasses = 3
 )
 
 // fleetWakes is what the fleet wakes remember between readings, in
@@ -128,6 +134,10 @@ type fleetWakes struct {
 	OverlapPolled  map[string]time.Time     `json:"overlap_polled,omitempty"`
 	OverlapUnread  map[string]string        `json:"overlap_unread,omitempty"`
 	OverlapNotices map[string]overlapNotice `json:"overlap_notices,omitempty"`
+	// Failing counts, by read, the passes in a row on which a GitHub read
+	// failed, until a pass reads it again: the overlap read of a repository,
+	// an awaited run, and the account gh works as for a merge train.
+	Failing map[string]int `json:"failing,omitempty"`
 	// SameArea holds, by task, the teammates' open work each live goblin's
 	// area meets, for its card.
 	SameArea map[string]sameArea `json:"same_area,omitempty"`
@@ -154,10 +164,11 @@ type unstartedWorkflows struct {
 	Since time.Time `json:"since"`
 }
 
-// unreadableRepo is the failure a repository's last poll met, and whether
-// the CFO was woken for it.
+// unreadableRepo is the failure a repository's last poll met, on how many
+// polls in a row it was met, and whether the CFO was woken for it.
 type unreadableRepo struct {
 	Failure string `json:"failure"`
+	Polls   int    `json:"polls,omitempty"`
 	Woke    bool   `json:"woke,omitempty"`
 }
 
@@ -204,6 +215,24 @@ func (w *fleetWakes) woke(key string, now time.Time) {
 		w.Woke = map[string]time.Time{}
 	}
 	w.Woke[key] = now
+}
+
+// failing counts one more pass in a row on which the GitHub read named read
+// failed with err, or forgets the read on a pass err is nil, and returns err
+// once the read has failed failingPasses passes in a row, nil before.
+func (w *fleetWakes) failing(read string, err error) error {
+	if err == nil {
+		delete(w.Failing, read)
+		return nil
+	}
+	if w.Failing == nil {
+		w.Failing = map[string]int{}
+	}
+	w.Failing[read]++
+	if w.Failing[read] < failingPasses {
+		return nil
+	}
+	return err
 }
 
 // keepFleetWakes reads memory every fleetWatchEvery and CI every ciPollEvery
@@ -543,7 +572,7 @@ func (s *Service) pollCI(ctx context.Context, w *fleetWakes, now time.Time, curr
 		listed, pullsUnreadable, pullsErr := pollPullRequests(ctx, pollRunner, s.Store.Home.State, w, repo, mine, owners, now)
 		mainUnreadable, mainErr := pollMain(ctx, pollRunner, s.Store.Home.State, w, repo, now)
 		overlapErr := s.pollOverlaps(ctx, pollRunner, w, repo, mine, currentTime)
-		trainErr := s.runTrain(ctx, pollRunner, repo, listed)
+		trainErr := s.runTrain(ctx, pollRunner, w, repo, listed)
 		if ctx.Err() != nil {
 			return errors.Join(errs, pullsErr, mainErr)
 		}
@@ -587,10 +616,10 @@ func (s *Service) pollCI(ctx context.Context, w *fleetWakes, now time.Time, curr
 }
 
 // reportUnreadable remembers why repo's CI could not be read and raises
-// ci_unreadable once the same failure was met on two polls in a row: once
-// for as long as it stays the same, and again for a different failure or
-// for one that cleared and came back. A repository that reads again is
-// forgotten and wakes nobody.
+// ci_unreadable once the same failure was met on failingPasses polls in a
+// row: once for as long as it stays the same, and again for a different
+// failure or for one that cleared and came back. A repository that reads
+// again is forgotten and wakes nobody.
 func reportUnreadable(stateDir string, w *fleetWakes, repo string, failure error, now time.Time) error {
 	if failure == nil {
 		delete(w.Unreadable, repo)
@@ -601,10 +630,11 @@ func reportUnreadable(stateDir string, w *fleetWakes, repo string, failure error
 	}
 	record, key := w.Unreadable[repo], "ci:repo:"+repo
 	if record.Failure != failure.Error() {
-		w.Unreadable[repo] = unreadableRepo{Failure: failure.Error()}
-		return nil
+		record = unreadableRepo{Failure: failure.Error()}
 	}
-	if record.Woke || !w.due(key, ciWakeGap, now) {
+	record.Polls++
+	w.Unreadable[repo] = record
+	if record.Woke || record.Polls < failingPasses || !w.due(key, ciWakeGap, now) {
 		return nil
 	}
 	detail := fmt.Sprintf("ci_unreadable: %s; next: sign gh in with gh auth login, or point origin at GitHub, or set origin's default branch with git remote set-head origin -a; no CI wake comes from this repository until it reads again", record.Failure)
@@ -683,6 +713,8 @@ func (w *fleetWakes) watch(goblins []ciGoblin, now time.Time) []string {
 			delete(w.PRUnread, repo)
 			delete(w.OverlapPolled, repo)
 			delete(w.OverlapUnread, repo)
+			delete(w.Failing, "overlap:"+repo)
+			delete(w.Failing, "train viewer:"+repo)
 			delete(w.BackOff, repo)
 			continue
 		}
