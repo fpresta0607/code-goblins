@@ -1,9 +1,10 @@
 name: install
 
-# Proves both installs on a clean Windows user profile, which a GitHub-hosted
+# Proves the installs on a clean Windows user profile, which a GitHub-hosted
 # runner is by construction: the one-line install, with this commit's own
 # build served as the release and installed exactly as `irm ... | iex` would,
-# and `.\install.cmd -Dev` from this checkout.
+# the setup program's install of that same release, and `.\install.cmd -Dev`
+# from this checkout. Each ends with dictation ready.
 on:
   pull_request:
     paths:
@@ -16,6 +17,10 @@ on:
       - cmd/cfo/native.go
       - cmd/cfo/main.go
       - cmd/cfo/doctor.go
+      - cmd/cfo/dictation.go
+      - cmd/goblins-setup/**
+      - config/voice.json
+      - internal/voice/**
       - internal/home/**
       - internal/install/**
       - internal/nativehook/**
@@ -34,6 +39,10 @@ on:
       - cmd/cfo/native.go
       - cmd/cfo/main.go
       - cmd/cfo/doctor.go
+      - cmd/cfo/dictation.go
+      - cmd/goblins-setup/**
+      - config/voice.json
+      - internal/voice/**
       - internal/home/**
       - internal/install/**
       - internal/nativehook/**
@@ -64,10 +73,17 @@ permissions:
 
 jobs:
   one-line:
+    # The setup program runs the install script in Windows PowerShell, out of
+    # sight, as CodeGoblinsSetup.exe does once Install is pressed.
+    name: ${{ matrix.via }} (${{ matrix.shell }})
     strategy:
       fail-fast: false
       matrix:
         shell: [powershell, pwsh]
+        via: [one-line]
+        include:
+          - shell: powershell
+            via: setup
     runs-on: windows-latest
     # The bootstrap runs third-party installers; one that waits for input
     # fails the job instead of holding the runner for hours.
@@ -101,6 +117,8 @@ jobs:
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           $hash = (Get-FileHash release/cfo.exe -Algorithm SHA256).Hash.ToLowerInvariant()
           [IO.File]::WriteAllText("$PWD/release/SHA256SUMS", "$hash  cfo.exe`n")
+          # The setup program downloads the release's own install script.
+          Copy-Item install.ps1 release/install.ps1
           Start-Process python -ArgumentList "-m", "http.server", "8765", "--bind", "127.0.0.1", "--directory", "release" -WindowStyle Hidden
           # The next step downloads at once, so wait until the server answers.
           $deadline = (Get-Date).AddSeconds(30)
@@ -109,6 +127,7 @@ jobs:
             catch { if ((Get-Date) -gt $deadline) { throw "the release server did not answer within 30 seconds" }; Start-Sleep -Milliseconds 250 }
           }
       - name: Install with the one-line command
+        if: ${{ matrix.via == 'one-line' }}
         env:
           CODE_GOBLINS_RELEASE_BASE: ${{ !inputs.release && 'http://127.0.0.1:8765' || '' }}
           REAL_RELEASE: ${{ inputs.release }}
@@ -125,6 +144,18 @@ jobs:
           # The install ends with goblins doctor, whose verdict the next step
           # reads line by line.
           $global:LASTEXITCODE = 0
+      - name: Install with the setup program
+        if: ${{ matrix.via == 'setup' }}
+        env:
+          CODE_GOBLINS_RELEASE_BASE: ${{ !inputs.release && 'http://127.0.0.1:8765' || '' }}
+          CODE_GOBLINS_SETUP_RELEASE: ${{ !inputs.release && 'http://127.0.0.1:8765' || format('https://github.com/{0}/releases/latest/download', github.repository) }}
+        run: |
+          # The setup's own install, without its window: it downloads the
+          # release's install script and runs it out of sight, reading the
+          # steps it says. The test installs onto this runner, so it runs only
+          # where CODE_GOBLINS_SETUP_RELEASE names the release to install.
+          go test ./cmd/goblins-setup -run '^TestTheSetupInstallsWithDictationReadyOnAFreshRunner$' -count=1 -timeout 25m -v
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
       - name: Check the installed home
         env:
           REAL_RELEASE: ${{ inputs.release }}
@@ -155,10 +186,22 @@ jobs:
           # right an ordinary Windows user may not have. Codex and pi each read
           # the shared ~\.agents\skills as well as their own folder, and the
           # skills CLI lays pi's copy in the shared one since its 1.7.1.
+          # A skill comes from GitHub through npx, so one that is missing says
+          # which it is: a fetch the install could not make and named in its
+          # closing note, with what npm said, or a skill the install left out
+          # without saying so.
+          $installLog = Get-Content -Raw -LiteralPath (Join-Path $env:TEMP "CodeGoblinsInstall.log")
           foreach ($skill in "gh-axi", "chrome-devtools-axi", "no-mistakes") {
             foreach ($folders in @(".claude\skills"), @(".pi\agent\skills", ".agents\skills"), @(".codex\skills", ".agents\skills")) {
               $found = @($folders | ForEach-Object { Join-Path $env:USERPROFILE "$_\$skill" } | Where-Object { Test-Path -LiteralPath (Join-Path $_ "SKILL.md") })
-              if ($found.Count -eq 0) { throw "the one-line install left the $skill skill in none of $($folders -join ', ')" }
+              if ($found.Count -eq 0) {
+                $failed = [regex]::Match($installLog, "(?ms)^skill\s+$([regex]::Escape($skill))\s.*?^WARN\s+$([regex]::Escape($skill))\s+skill install exited with code (-?\d+)")
+                if ($failed.Success) {
+                  $npm = @([regex]::Matches($failed.Value, "(?m)^npm error code \S+") | ForEach-Object { $_.Value.Trim() } | Select-Object -Unique) -join "; "
+                  throw "the install could not fetch the $skill skill and named it in its closing note: npx exited with code $($failed.Groups[1].Value) after its retry ($npm), so $($folders -join ', ') hold none; a failed fetch, not a broken install"
+                }
+                throw "the one-line install left the $skill skill in none of $($folders -join ', '), and its log does not say the fetch failed"
+              }
               if ((Get-Item -LiteralPath $found[0]).LinkType) { throw "$($found[0]) is a link, want a copy" }
             }
           }
@@ -166,6 +209,11 @@ jobs:
           $doctor | Write-Host
           $failing = @($doctor | Where-Object { $_ -match "^(MISSING|broken)\s" })
           if ($failing.Count -gt 0) { throw "goblins doctor reports something missing or broken: $($failing -join '; ')" }
+          # The install set dictation up, so the first press works at once:
+          # the engine and the model it pins are where dictation looks.
+          if (-not ($doctor -match "^dictation: ready: ")) { throw "goblins doctor does not report dictation ready: $($doctor -match '^dictation:')" }
+          $parts = @(Get-ChildItem -LiteralPath (Join-Path $cfoHome "caches\voice") -Directory | Where-Object { Test-Path -LiteralPath (Join-Path $_.FullName "verified.json") })
+          if ($parts.Count -ne 2) { throw "caches\voice holds $($parts.Count) verified parts, want the engine and the model: $($parts.Name -join ', ')" }
           # no-mistakes is the release this checkout's install.ps1 pins, where
           # no-mistakes' own installer puts it; a published release's script
           # may pin an earlier one. Only stdout holds the version: stderr may
@@ -210,6 +258,10 @@ jobs:
             $count = @($commands -match $hook).Count
             if ($count -ne 1) { throw "after a second install SessionStart holds $count hooks matching $hook, want 1" }
           }
+          # The second install finds dictation's engine and model in place and
+          # downloads neither again.
+          $log = Get-Content -Raw (Join-Path $env:TEMP "CodeGoblinsInstall.log")
+          if ($log -notmatch "dictation: ready: .*, already in .*, so nothing was downloaded") { throw "the second install did not find dictation already set up" }
           $global:LASTEXITCODE = 0
       - name: Uninstall
         run: |
@@ -231,6 +283,7 @@ jobs:
           $left = @(@($settings.hooks.PSObject.Properties.Value.hooks | ForEach-Object { @($_.command) + @($_.args) -join " " }) -match "cfo\.exe hook |cfo-native-hook\.ps1")
           if ($left.Count -gt 0) { throw "hooks survived the uninstall: $($left -join '; ')" }
           if (-not (Test-Path -LiteralPath (Join-Path $cfoHome "state"))) { throw "the uninstall removed the home's state" }
+          if (Test-Path -LiteralPath (Join-Path $cfoHome "caches\voice")) { throw "dictation's engine and model survived the uninstall" }
           $global:LASTEXITCODE = 0
       # The install keeps every detail it does not print in its log, which
       # the job's output never shows; keep it, so a failed install can be
@@ -239,7 +292,7 @@ jobs:
         if: failure()
         uses: actions/upload-artifact@v4
         with:
-          name: install-log-one-line-${{ matrix.shell }}
+          name: install-log-${{ matrix.via }}-${{ matrix.shell }}
           path: ~/AppData/Local/Temp/CodeGoblinsInstall.log
           if-no-files-found: ignore
           retention-days: 14
@@ -302,6 +355,7 @@ jobs:
           $doctor | Write-Host
           $failing = @($doctor | Where-Object { $_ -match "^(MISSING|broken)\s" })
           if ($failing.Count -gt 0) { throw "goblins doctor reports something missing or broken: $($failing -join '; ')" }
+          if (-not ($doctor -match "^dictation: ready: ")) { throw "goblins doctor does not report dictation ready: $($doctor -match '^dictation:')" }
           $deadline = (Get-Date).AddMinutes(1)
           do { & goblins status | Out-Null } while ($LASTEXITCODE -ne 0 -and (Get-Date) -lt $deadline -and -not (Start-Sleep -Seconds 2))
           if ($LASTEXITCODE -ne 0) { throw "no supervisor runs a minute after -Dev opened Code Goblins" }

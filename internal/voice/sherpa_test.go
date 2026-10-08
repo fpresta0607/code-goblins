@@ -70,6 +70,7 @@ func (api *fakeSherpaAPI) createRecognizer(config *sherpaOfflineRecognizerConfig
 		"encoder": cString(model.Transducer.Encoder), "decoder": cString(model.Transducer.Decoder), "joiner": cString(model.Transducer.Joiner),
 		"tokens": cString(model.Tokens), "provider": cString(model.Provider), "model type": cString(model.ModelType),
 		"decoding": cString(config.DecodingMethod), "paraformer": cString(model.Paraformer.Model), "language model": cString(config.LmConfig.Model),
+		"moonshine encoder": cString(model.Moonshine.Encoder), "moonshine merged decoder": cString(model.Moonshine.MergedDecoder),
 	}
 	api.threads = model.NumThreads
 	if config.FeatConfig.SampleRate != 16000 || config.FeatConfig.FeatureDim != 80 || config.MaxActivePaths != 4 || model.Debug != 0 {
@@ -166,6 +167,63 @@ func TestTheWorkerTakesEachModelSettingOnceAndNothingElse(t *testing.T) {
 	}
 }
 
+func moonshineArguments(folder string) []string {
+	return []string{
+		filepath.Join(folder, "sherpa-onnx-c-api.dll"),
+		"--num-threads=2",
+		"--moonshine-encoder=" + filepath.Join(folder, "encoder_model.ort"),
+		"--moonshine-merged-decoder=" + filepath.Join(folder, "decoder_model_merged.ort"),
+		"--tokens=" + filepath.Join(folder, "tokens.txt"),
+	}
+}
+
+// The worker takes one model, a transducer or a Moonshine model, whole: half
+// of either, or parts of both, is refused.
+func TestTheWorkerTakesOneWholeModelATransducerOrAMoonshineModel(t *testing.T) {
+	folder := t.TempDir()
+	transducer, moonshine := workerArguments(folder), moonshineArguments(folder)
+	options, err := ParseWorkerArguments(moonshine)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if options.MoonshineEncoder != strings.TrimPrefix(moonshine[2], "--moonshine-encoder=") || options.MoonshineMergedDecoder != strings.TrimPrefix(moonshine[3], "--moonshine-merged-decoder=") || options.Threads != 2 || options.Encoder != "" {
+		t.Fatalf("the worker read %+v", options)
+	}
+	for name, arguments := range map[string][]string{
+		"a Moonshine model without its decoder": moonshine[:4:4],
+		"a Moonshine model with a joiner":       append(append([]string(nil), moonshine...), transducer[4]),
+		"a transducer with a Moonshine encoder": append(append([]string(nil), transducer...), moonshine[2]),
+		"no model at all":                       {moonshine[0], moonshine[1], moonshine[4]},
+	} {
+		if _, err := ParseWorkerArguments(arguments); err == nil {
+			t.Errorf("%s was taken: %q", name, arguments)
+		}
+	}
+}
+
+// A Moonshine model is handed to the engine as one, and no transducer with it.
+func TestAMoonshineModelIsHandedToTheEngineAsOne(t *testing.T) {
+	folder := t.TempDir()
+	options, err := ParseWorkerArguments(moonshineArguments(folder))
+	if err != nil {
+		t.Fatal(err)
+	}
+	api := newFakeSherpaAPI(t, "")
+	if _, err := newSherpaRecognizer(options, api); err != nil {
+		t.Fatal(err)
+	}
+	want := map[string]string{
+		"moonshine encoder": filepath.Join(folder, "encoder_model.ort"), "moonshine merged decoder": filepath.Join(folder, "decoder_model_merged.ort"),
+		"tokens": filepath.Join(folder, "tokens.txt"), "provider": "cpu", "decoding": "greedy_search",
+		"encoder": "", "decoder": "", "joiner": "", "model type": "",
+	}
+	for name, value := range want {
+		if api.settings[name] != value {
+			t.Errorf("the engine was handed %s %q, want %q", name, api.settings[name], value)
+		}
+	}
+}
+
 func TestTheShippedSettingsAreWhatTheWorkerTakes(t *testing.T) {
 	settings, err := Load(filepath.Join("..", "..", "config", "voice.json"))
 	if err != nil {
@@ -180,7 +238,7 @@ func TestTheShippedSettingsAreWhatTheWorkerTakes(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if filepath.Base(options.Library) != "sherpa-onnx-c-api.dll" || options.Encoder != voice.folder(settings.Model)+"/encoder.int8.onnx" {
+	if filepath.Base(options.Library) != "sherpa-onnx-c-api.dll" || options.MoonshineEncoder != voice.folder(settings.Model)+"/encoder_model.ort" || options.MoonshineMergedDecoder != voice.folder(settings.Model)+"/decoder_model_merged.ort" {
 		t.Fatalf("the shipped settings load %+v", options)
 	}
 }

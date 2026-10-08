@@ -2,7 +2,8 @@ package voice
 
 // These follow c-api.h of sherpa-onnx v1.13.8 (commit 11afbd00), field for
 // field: the engine reads the whole configuration, so every model's settings
-// are declared although dictation fills in only the transducer's. Another
+// are declared although dictation fills in only a transducer's or a
+// Moonshine model's. Another
 // engine version is checked against its own c-api.h before it is pinned.
 type sherpaFeatureConfig struct {
 	SampleRate int32

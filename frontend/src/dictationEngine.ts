@@ -1,6 +1,6 @@
 import { request } from "./api";
 import { speechRecognition, type Recognizer } from "./dictation";
-import { localRecognizer, type Recording, type Sound } from "./localDictation";
+import { downsample, endInQuiet, localRecognizer, type Recording, type Sound } from "./localDictation";
 import { object, string } from "./types";
 
 // Which recognizer dictation runs on in this page. The board's own is the
@@ -8,8 +8,14 @@ import { object, string } from "./types";
 // recognise the sound. The browser's speech recognition, which sends the sound
 // to the browser's maker, is a fallback the Overlord turns on himself.
 
-// The speech model hears at this rate, so a recording is decoded to it.
+// The speech model hears at this rate, so a recording is brought down to it.
 const RATE = 16000;
+// The browser's recorder writes Opus, which is at this rate. Decoding at it
+// and averaging down to the model's rate takes about 0.1 s for a six-second
+// line; decoding straight to the model's rate makes the browser resample it
+// with a filter that took two seconds, most of the wait after the keys are
+// let go.
+const RECORDED_RATE = 48000;
 const BROWSER_KEY = "cfo-dictation-browser-v1";
 
 // record captures a microphone track with the browser's own recorder until
@@ -29,16 +35,16 @@ export function record(track: MediaStreamTrack): Recording {
   };
 }
 
-// decode turns a recording into one channel of samples. A recording too
-// short to hold any sound decodes to none.
+// decode turns a recording into one channel of samples at the model's rate,
+// ending half a second after its last loud part. A recording too short to
+// hold any sound decodes to none.
 async function decode(recording: Blob): Promise<Sound> {
   const silence: Sound = { samples: new Float32Array(0), rate: RATE };
   if (!recording.size) return silence;
-  // Decoding into a context at the model's rate resamples to it.
-  const context = new OfflineAudioContext(1, 1, RATE);
+  const context = new OfflineAudioContext(1, 1, RECORDED_RATE);
   try {
     const sound = await context.decodeAudioData(await recording.arrayBuffer());
-    return { samples: sound.getChannelData(0), rate: sound.sampleRate };
+    return endInQuiet(downsample({ samples: sound.getChannelData(0), rate: sound.sampleRate }, RATE));
   } catch {
     return silence;
   }
@@ -48,6 +54,14 @@ async function decode(recording: Blob): Promise<Sound> {
 // token is instance. What the supervisor refuses with is thrown as it wrote it.
 export function recogniseWith(instance: () => string): (sound: Uint8Array<ArrayBuffer>, signal: AbortSignal) => Promise<string> {
   return async (sound, signal) => string(object(await request("/api/dictation", signal, { method: "POST", headers: { "Content-Type": "audio/wav", "X-CFO-Token": instance() }, body: sound })).text);
+}
+
+// warmWith has the supervisor load its engine as a dictation begins, as the
+// board whose token is instance. Nothing waits on it: a dictation that could
+// not run says why when it is sent. Its empty answer is read to the end, so
+// the request ends there.
+export function warmWith(instance: () => string): () => void {
+  return () => { fetch("/api/dictation/warm", { method: "POST", headers: { "X-CFO-Token": instance() } }).then((response) => response.text()).catch(() => {}); };
 }
 
 function store(): Storage | null {
@@ -75,7 +89,7 @@ export function setUsesBrowser(on: boolean): void {
 
 // recognizerFor is the recognizer the next dictation runs on.
 export function recognizerFor(instance: () => string): new () => Recognizer {
-  return (usesBrowser() && speechRecognition()) || localRecognizer(record, recogniseWith(instance));
+  return (usesBrowser() && speechRecognition()) || localRecognizer(record, recogniseWith(instance), warmWith(instance));
 }
 
 // DictationStatus is what the supervisor says of its speech model: ready,

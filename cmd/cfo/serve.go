@@ -259,7 +259,11 @@ func runServe(args []string, stdout, stderr io.Writer, runtime commandRuntime) i
 		return 1
 	}
 	defer removeBoardRecord(h.State, os.Getpid())
-	server := &http.Server{Handler: supervisor.NewHTTP(s, listener.Addr().String(), assets), ReadHeaderTimeout: 5 * time.Second, ReadTimeout: 10 * time.Second, IdleTimeout: 30 * time.Second, MaxHeaderBytes: 16 << 10}
+	handler := supervisor.NewHTTP(s, listener.Addr().String(), assets)
+	// After an update to a build that pins a newer speech model, the board
+	// replaces the earlier one now rather than at the first dictation.
+	handler.ReplaceDictation()
+	server := &http.Server{Handler: handler, ReadHeaderTimeout: 5 * time.Second, ReadTimeout: 10 * time.Second, IdleTimeout: 30 * time.Second, MaxHeaderBytes: 16 << 10}
 	go func() {
 		select {
 		case <-ctx.Done():

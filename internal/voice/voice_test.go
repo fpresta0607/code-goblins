@@ -458,7 +458,7 @@ func TestTheShippedSettingsPinBothDownloads(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if settings.Model.Name != "parakeet-tdt-110m" || settings.Engine.Name != "sherpa-onnx" {
+	if settings.Model.Name != "moonshine-tiny-en" || settings.Engine.Name != "sherpa-onnx" {
 		t.Fatalf("the shipped settings name %s on %s", settings.Model.Name, settings.Engine.Name)
 	}
 	if !slices.ContainsFunc(settings.Engine.Files, func(file string) bool { return path.Base(file) == settings.Program }) {
@@ -482,17 +482,20 @@ func TestAHomeUsesItsOwnSettingsAndOtherwiseTheBuilds(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if voice.Settings.Model.Name != "parakeet-tdt-110m" || voice.Dir != filepath.Join(root, "caches", "voice") {
+	shipped, err := parse(builtIn)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if voice.Settings.Model.Name != shipped.Model.Name || voice.Dir != filepath.Join(root, "caches", "voice") {
 		t.Fatalf("a home with no settings of its own got %s in %s", voice.Settings.Model.Name, voice.Dir)
 	}
-	want := "parakeet-tdt-110m en-36000-int8 on sherpa-onnx 1.13.8, not fetched yet: the first dictation downloads it once, 125 MB, into " + voice.Dir
-	if got := voice.Summary(); got != want {
-		t.Fatalf("summary %q, want %q", got, want)
+	if absent := voice.Absent(); len(absent) != 2 || absent[0].Name != shipped.Engine.Name || absent[1].Name != shipped.Model.Name {
+		t.Fatalf("a home that fetched nothing lacks %+v, want the engine and the model", absent)
 	}
 	if err := os.MkdirAll(filepath.Join(root, "config"), 0o700); err != nil {
 		t.Fatal(err)
 	}
-	own := strings.Replace(string(builtIn), `"parakeet-tdt-110m"`, `"another-model"`, 1)
+	own := strings.Replace(string(builtIn), `"`+shipped.Model.Name+`"`, `"another-model"`, 1)
 	if err := os.WriteFile(filepath.Join(root, "config", "voice.json"), []byte(own), 0o600); err != nil {
 		t.Fatal(err)
 	}
@@ -509,10 +512,9 @@ func TestAHomeUsesItsOwnSettingsAndOtherwiseTheBuilds(t *testing.T) {
 	}
 }
 
-func TestSummarySaysWhenTheModelIsThere(t *testing.T) {
+func TestNothingIsAbsentOnceTheEngineAndTheModelAreThere(t *testing.T) {
 	voice, _ := engine(t, "hears", 8<<30)
-	want := "model 1.0 on engine 1.0, ready in " + voice.Dir
-	if got := voice.Summary(); got != want {
-		t.Fatalf("summary %q, want %q", got, want)
+	if absent := voice.Absent(); len(absent) != 0 || voice.Missing() != 0 {
+		t.Fatalf("a fetched engine and model lack %+v, %d bytes", absent, voice.Missing())
 	}
 }

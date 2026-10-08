@@ -13,10 +13,12 @@ import (
 	"testing"
 	"time"
 
+	codegoblins "github.com/fpresta0607/code-goblins"
 	"github.com/fpresta0607/code-goblins/internal/doctor"
 	"github.com/fpresta0607/code-goblins/internal/harness"
 	"github.com/fpresta0607/code-goblins/internal/install"
 	"github.com/fpresta0607/code-goblins/internal/standin"
+	"github.com/fpresta0607/code-goblins/internal/voice"
 )
 
 func TestRunDoctorPrintsTheLaneTableBesideTheSwitchRules(t *testing.T) {
@@ -416,16 +418,36 @@ func TestRunDoctorReportsStaleWakesHeldBackBesideThoseRaised(t *testing.T) {
 	}
 }
 
-func TestRunDoctorNamesTheDictationModelAndWhetherItIsThere(t *testing.T) {
+func TestRunDoctorSaysDictationIsReadyOrWhatIsMissingAndTheFix(t *testing.T) {
 	root := t.TempDir()
 	t.Setenv("CFO_HOME", root)
+	pinned, err := voice.For(root, codegoblins.Voice)
+	if err != nil {
+		t.Fatal(err)
+	}
 
 	var stdout, stderr bytes.Buffer
 	run([]string{"doctor"}, &stdout, &stderr)
-	want := "dictation: parakeet-tdt-110m en-36000-int8 on sherpa-onnx 1.13.8, not fetched yet: the first dictation downloads it once, 125 MB, into " + filepath.Join(root, "caches", "voice")
+	engine, model := pinned.Settings.Engine, pinned.Settings.Model
+	want := fmt.Sprintf("dictation: not set up: %s %s and %s %s missing, %d MB, from %s; run `cfo dictation setup`, or the first dictation fetches it",
+		engine.Name, engine.Version, model.Name, model.Version, (engine.Size+model.Size)>>20, filepath.Join(root, "caches", "voice"))
 	if !strings.Contains(stdout.String(), want) {
 		t.Errorf("stdout lacks %q\n%s", want, stdout.String())
 	}
+
+	// A home the setup put the engine and the model in is ready.
+	server, _ := servedParts(t)
+	h := dictationHome(t, server.URL, partArchiveSHA256)
+	if code := runWithRuntime([]string{"dictation", "setup"}, &bytes.Buffer{}, &bytes.Buffer{}, dictationRuntime(h, server.Client())); code != 0 {
+		t.Fatalf("cfo dictation setup = %d", code)
+	}
+	t.Setenv("CFO_HOME", h.Root)
+	stdout.Reset()
+	run([]string{"doctor"}, &stdout, &stderr)
+	if want := "dictation: ready: model 1.0 on engine 1.0, in " + filepath.Join(h.Root, "caches", "voice") + "\n"; !strings.Contains(stdout.String(), want) {
+		t.Errorf("stdout lacks %q\n%s", want, stdout.String())
+	}
+	t.Setenv("CFO_HOME", root)
 
 	// A home with settings of its own is read from them, and settings that
 	// pin nothing are named as unreadable rather than passed over.
@@ -437,7 +459,7 @@ func TestRunDoctorNamesTheDictationModelAndWhetherItIsThere(t *testing.T) {
 	}
 	stdout.Reset()
 	run([]string{"doctor"}, &stdout, &stderr)
-	if !strings.Contains(stdout.String(), "dictation: settings unreadable (") || strings.Contains(stdout.String(), "parakeet") {
+	if !strings.Contains(stdout.String(), "dictation: settings unreadable (") || strings.Contains(stdout.String(), model.Name) {
 		t.Errorf("stdout does not say the home's own settings are unreadable\n%s", stdout.String())
 	}
 }

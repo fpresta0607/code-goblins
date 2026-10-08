@@ -35,9 +35,32 @@ type fakeSpeech struct {
 	sounds   [][]byte
 	text     string
 	err      error
+	// replaces says an earlier pin's engine or model is here, and warms
+	// counts the warmings.
+	replaces bool
+	warms    int
 }
 
 func (f *fakeSpeech) Name() string { return "test-model" }
+
+func (f *fakeSpeech) Replaces() bool {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.replaces
+}
+
+func (f *fakeSpeech) Warm(context.Context) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.warms++
+	return nil
+}
+
+func (f *fakeSpeech) warmed() int {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.warms
+}
 
 func (f *fakeSpeech) Ready() error {
 	f.mu.Lock()

@@ -16,7 +16,7 @@ It needs no clone and no Go, and `goblins` works in the same window as soon as i
 
 The setup first says what it will install, where, and what it changes, and starts when you press **Install** (or **Update**, where Code Goblins is already there).
 It downloads the install script of its own release and runs it out of sight; the one-line install runs that script in your window.
-Either way you see the same four steps, `[1/4] Download Code Goblins`, `[2/4] Check the download`, `[3/4] Install Code Goblins and its tools` and `[4/4] Open Code Goblins`, with a line under the third saying which tool it is installing, a `Note:` line for anything to know, and nothing else.
+Either way you see the same four steps, `[1/4] Download Code Goblins`, `[2/4] Check the download`, `[3/4] Install Code Goblins and its tools` and `[4/4] Open Code Goblins`, with a line under the third saying which tool it is installing and when it is setting up dictation, a `Note:` line for anything to know, and nothing else.
 Every other detail goes to the install's log, `CodeGoblinsInstall.log` in your temp folder.
 When something stops the install, it says in one sentence what happened and what to do, and names the log; the setup offers **Show details**, **Open the log** and **Try again**.
 Closing the setup ends the install, and running it again finishes it.
@@ -62,11 +62,14 @@ In order, it:
 5. Installs the skills of gh-axi, chrome-devtools-axi and no-mistakes at user scope, for Claude Code, Codex and pi, through the version of the skills CLI `install.ps1` pins.
    A skill whose install fails is tried once more; one that fails again is named in the closing note, and the rest of the install goes on.
 6. Installs the board's native lifecycle hooks for each of Claude Code, Codex and pi that is installed.
-7. Adds Code Goblins to your Start menu.
+7. Sets up dictation, saying "Setting up dictation": the home's own build, with `cfo dictation setup`, downloads the speech engine and model it pins in `config\voice.json`, 51 MB, keeps each only when it matches its pinned SHA-256 and no program in it links a networking library, and puts them in the home's `caches\voice`, where the board's dictation looks, so the first dictation works at once.
+   One already there is not downloaded again, and one an earlier build pinned is removed once the new one is in place, so a machine never keeps two models.
+   A failure never fails the install: it notes that dictation finishes setting itself up the first time you dictate, and the log says why.
+8. Adds Code Goblins to your Start menu.
    Where this install put the desktop window in the home it starts `goblins-window.exe` alone, which opens the app with no terminal: it runs `goblins --window` out of sight, which finds or starts the supervisor and opens the board in the window.
    Where the home only kept a window it already held, as an install from a release that ships none leaves it, the entry runs `goblins --window` itself, with its console minimized: a window from before this may not open the app when started alone.
    In a home with no window it runs `goblins`, the quick start, in a window of its own.
-8. Runs `goblins doctor` into the log, names any tool it could not install in one line, and opens the app; a home with no app runs the [quick start](#the-quick-start) in a window of its own.
+9. Runs `goblins doctor` into the log, names any tool it could not install in one line, and opens the app; a home with no app runs the [quick start](#the-quick-start) in a window of its own.
 
 Rerun it to update: it brings the home's contract, skills and program up to date, and keeps your projects folder and any policy you tuned.
 A running program cannot be replaced, only renamed, so the previous build moves aside and the new one takes its name; a supervisor that runs is then restarted on the new build, as `cfo update` restarts it.
@@ -135,6 +138,8 @@ It runs only as the home's own `goblins` or `cfo`, and it says four steps as it 
    The desktop window follows beside `goblins.exe`; an open window keeps running the earlier one until you quit it from its tray icon, and Code Goblins in the Start menu then opens the new one.
 4. `[4/4] Bring the home up to date`: the new build's `install` brings the home's contract, skills and hooks up to date, where this machine's install names this home; the board, already on the new build, is not restarted again.
 
+A new build that pins a different speech model than the one the home holds downloads it as its board starts, and removes the earlier one once the new one is in place; one that pins the same model keeps it.
+
 It ends on one line: `Updated:`, `Rolled back:` with why the new build did not serve, or `Failed:` with what stopped it before anything changed.
 When the new build serves but its install cannot refresh the home, or the machine's installed home cannot be read, it keeps that build, ends on `Updated:` saying what remains to do, and exits 6; run `goblins install` to finish.
 Updating another home deliberately skips that refresh and exits 0.
@@ -200,7 +205,8 @@ The home is outside every repository: goblins work in git worktrees of your chec
 The janitor keeps the home small, and the board and `cfo runtime` show what it holds; [AGENTS.md](../AGENTS.md#the-cfo-home) describes each folder.
 It all stays on your machine: Code Goblins needs no backup repository, account or service for it.
 Backing the home up, for example its `data` folder to a private git repository, is only your own choice.
-`goblins uninstall` removes the hooks, the board's native hooks, the environment and the Start-menu shortcut the install set, and the desktop window's Start at login entry where it starts a program in that home, and keeps the home folder, with its state and data, until you delete it.
+`goblins uninstall` removes the hooks, the board's native hooks, the environment and the Start-menu shortcut the install set, the desktop window's Start at login entry where it starts a program in that home, and dictation's speech engine and model in `caches\voice`, and keeps the home folder, with its state and data, until you delete it.
+While the board has the engine loaded it cannot be removed, so the uninstall changes nothing and says to quit Code Goblins with `goblins stop` first.
 
 ## Your projects folder
 

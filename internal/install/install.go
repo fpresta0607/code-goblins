@@ -16,6 +16,7 @@ import (
 	"github.com/fpresta0607/code-goblins/internal/harnessmap"
 	"github.com/fpresta0607/code-goblins/internal/home"
 	"github.com/fpresta0607/code-goblins/internal/nativehook"
+	"github.com/fpresta0607/code-goblins/internal/voice"
 )
 
 // homeVariable is the variable that tells cfo where the fleet lives, and the
@@ -161,6 +162,9 @@ func (s Service) Uninstall(out io.Writer) error {
 	if _, err := s.formerHome(); err != nil {
 		return err
 	}
+	if err := s.removeDictation(report); err != nil {
+		return err
+	}
 	if err := s.removeUserSettings(report); err != nil {
 		return err
 	}
@@ -187,6 +191,33 @@ func (s Service) Uninstall(out io.Writer) error {
 	}
 	report.same("home", "kept "+s.Root+" with its state and data; delete the folder to remove them")
 	return s.finish(report, "cfo install --uninstall: nothing to remove")
+}
+
+// removeDictation removes the speech engine and model the install set
+// dictation up with. Their folder is moved aside whole before it is removed,
+// so an engine a running board still has loaded refuses the uninstall with
+// nothing changed, rather than leaving half an engine behind.
+func (s Service) removeDictation(report *reporter) error {
+	dir := voice.Folder(s.Root)
+	if _, err := os.Stat(dir); errors.Is(err, fs.ErrNotExist) {
+		report.same("dictation", "no speech engine or model in "+dir)
+		return nil
+	} else if err != nil {
+		return fmt.Errorf("install: inspect dictation's speech engine and model in %s: %w", dir, err)
+	}
+	aside, err := os.MkdirTemp(filepath.Dir(dir), "voice-removed-")
+	if err != nil {
+		return fmt.Errorf("install: remove dictation's speech engine and model in %s: %w", dir, err)
+	}
+	if err := os.Rename(dir, filepath.Join(aside, filepath.Base(dir))); err != nil {
+		_ = os.Remove(aside)
+		return fmt.Errorf("install: dictation's speech engine in %s is in use, so nothing was removed; quit Code Goblins with goblins stop, then run the uninstall again: %w", dir, err)
+	}
+	if err := os.RemoveAll(aside); err != nil {
+		return fmt.Errorf("install: remove dictation's speech engine and model, moved to %s: %w", aside, err)
+	}
+	report.change("dictation", "removed dictation's speech engine and model in "+dir)
+	return nil
 }
 
 // removeNativeHooks removes the board's native lifecycle hooks from each
