@@ -681,6 +681,23 @@ button.dialogue-portrait:hover::before { background: #2e241b; }
 .panel-header h2 { font-size: clamp(1.625rem, 2.4vw, 2rem); line-height: 1.2; overflow-wrap: anywhere; }
 /* A named goblin's task, under its name. */
 .panel-goblin-task { margin: 0; color: #c4d4df; font-size: 1.125rem; font-weight: 600; overflow-wrap: anywhere; }
+/* A queued task's line is a button in the same type, with a small caret
+   beside it, that turns into a box of that type holding its title and
+   detail, with Save and Cancel at its end. Each keeps the 8 px the panel's
+   controls keep from the row under it. */
+.task-line { display: flex; align-items: flex-start; gap: 6px; justify-self: start; min-width: 0; min-height: 0; margin-bottom: 4px; padding: 0; border: 0; border-radius: 4px; background: none; text-align: left; line-height: 1.5; }
+.task-line > span { min-width: 0; }
+.task-line .icon { flex: none; width: 18px; height: 18px; margin-top: 5px; color: var(--muted); transform: rotate(90deg); transition: color .15s ease; }
+.task-line:hover:not(:disabled) .icon, .task-line:focus-visible .icon { color: var(--mint); }
+.task-line:focus-visible { outline-width: 2px; outline-offset: 2px; }
+.task-edit { display: flex; flex-wrap: wrap; align-items: flex-end; gap: 8px; margin-bottom: 4px; padding: 2px 2px 2px 12px; border: 1px solid var(--glass-border-hover); border-radius: var(--radius); background: var(--field-bg); }
+.task-edit:focus-within { border-color: var(--mint); }
+.task-edit textarea { flex: 1 1 12rem; min-width: 0; min-height: 0; padding: 9px 0; border: 0; background: none; color: #c4d4df; font-size: 1.125rem; font-weight: 600; line-height: 1.5; resize: none; field-sizing: content; overflow-wrap: anywhere; }
+.task-edit textarea:focus-visible { outline: none; }
+.task-edit[aria-busy="true"] textarea { opacity: .6; cursor: progress; }
+.task-edit-actions { display: flex; gap: 8px; margin-left: auto; }
+/* Why a save was refused, in a few muted words under the box. */
+.task-edit + .click-feedback { color: var(--muted); }
 .panel-header .project-label { font-size: 1.0625rem; }
 .panel-header .muted { color: var(--muted); }
 .panel-status { font-size: 1.0625rem; }
@@ -1194,18 +1211,11 @@ a.wait-open { min-height: 44px; border: 1px solid var(--accent-green); border-ra
 /* A finished task has no action row, so its record needs no line over it. */
 .lifecycle-panel > .lifecycle-details:first-child { border-top: 0; padding-top: 0; }
 .lifecycle-details { display: grid; gap: 14px; border-top: 1px solid var(--glass-border); padding-top: 22px; }
-.lifecycle-details h3, .lifecycle-details p, .task-adjustment p { margin: 0; }
+.lifecycle-details h3, .lifecycle-details p { margin: 0; }
 .lifecycle-details ul { list-style: none; padding: 0; margin: 0; display: grid; gap: 12px; }
 .lifecycle-details li { display: flex; align-items: flex-start; gap: 12px; overflow-wrap: anywhere; }
 .lifecycle-details li .icon { color: var(--mint); flex: none; }
 .lifecycle-details time { color: var(--muted); font-weight: 400; }
-.task-adjustment { display: grid; gap: 16px; border-top: 1px solid var(--glass-border); padding-top: 24px; }
-.task-adjustment h3 { margin: 0; }
-.task-adjustment textarea { width: 100%; min-height: 170px; resize: vertical; line-height: 1.6; }
-.task-note { display: flex; gap: 14px; padding: 18px; border: 1px solid var(--glass-border); border-radius: var(--radius); background: var(--glass-bg); box-shadow: var(--glass-shadow); }
-.task-note > .icon { flex: none; }
-.task-note strong { color: var(--mint); font-weight: 500; }
-.task-note p { margin-top: 8px; white-space: pre-wrap; overflow-wrap: anywhere; }
 .stop-task-dialog { width: min(480px, calc(100vw - 28px)); max-height: calc(100dvh - 28px); overflow: auto; padding: 28px; border: 1px solid var(--glass-border-hover); border-radius: var(--radius); color: #edf4f3; background: var(--glass-bg), var(--hero-surface); box-shadow: var(--glass-shadow-hover); text-align: center; }
 .stop-task-dialog::backdrop { background: #03050aba; backdrop-filter: blur(6px); }
 .stop-task-dialog > .goblin-avatar { margin: 0 auto 18px; width: 66px; height: 66px; }

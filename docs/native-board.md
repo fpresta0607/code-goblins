@@ -338,9 +338,12 @@ Details under the sentence shows the report or the supervisor's problems exactly
 The Terminal view header is compact, showing only the goblin, its status and the icon buttons, since the live screen shows the latest output.
 The Task view holds the workspace, connections, changes, activity and commit history, each a section closed until it is opened; the Terminal view is that goblin's live native terminal, edge to edge.
 The Task view opens with one action row under the header, the task's own controls as labelled buttons: Remove for a queued task, whose Start is on its card alone, and Pause or Resume, and Stop, for a task that has started.
-A queued task's Adjust this task form follows that row, always open, with Save changes under its text box; the Adjust pencil is on the card only, where it opens the panel.
+A queued task is edited in its header, where its task line under the goblin's name carries a small caret: the caret, or a click on the line, turns that line into a box in the same type holding the task's title and detail, which grows with its text.
+Enter or the check saves it through `POST /api/tasks/adjust` on the revision the box opened on, Shift+Enter adds a line, and Escape or the cross puts the line back unchanged.
+While it saves the box shows that it is busy, and a refused save keeps the box and its text and says why under it in a few muted words for a moment.
+Nothing follows the action row for it, and the Adjust pencil is on the card only, where it opens the panel.
 A pause or stop lists what it kept under What’s preserved, each as a short label without its path or hash, and what it ended under Stopped resources; it repeats neither the status nor its reason.
-The panel sends no note to the CFO: the supervisor still accepts the `note` action of `POST /api/tasks/adjust` and a snapshot's task notes still show under the form, but nothing on the board files one.
+The panel sends no note to the CFO: the supervisor still accepts the `note` action of `POST /api/tasks/adjust`, but nothing on the board files or shows one.
 The CFO's Task view holds its workspace and connections and then every queued task, the same list as the Tasks column, in the same order, with the same memory meter, drag, keyboard moves and Start; an order or a start made in either shows in both.
 Board and Orchestration both open a goblin, and the CFO, on its Terminal view; Orchestration's Terminal view defaults to the registered CFO; once opened, both views stay mounted, so switching keeps scroll position and selection.
 There is still no standalone message composer: typing happens in the terminal itself.
