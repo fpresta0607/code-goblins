@@ -1,7 +1,7 @@
 // Package janitor keeps the CFO home small without anyone asking. The
 // watcher's sweep runs it: it removes the worktrees in its home no task owns
 // once their work is safe (on the default branch, or kept as a local archive
-// tag first), keeps bin to the current build and the two before it, removes
+// tag first), keeps bin to the current build alone, removes
 // the fleet's temporary folders a day after anything last touched them, keeps
 // a retired task's folders to their text record and deliverables, keeps the
 // newest two backups of each kind, trims the shared caches back under their
@@ -115,7 +115,7 @@ func ReadRecord(stateDir string) (Record, error) {
 func Sweep(ctx context.Context, cfg Config) Record {
 	record := Record{Time: cfg.Now.UTC()}
 	cfg.tidyWorktrees(ctx, &record)
-	cfg.keepRecentBuilds(&record)
+	cfg.keepCurrentBuild(&record)
 	processes, ok := cfg.readableProcesses(&record)
 	if ok {
 		cfg.removeTempLeaks(processes, &record)
@@ -139,20 +139,19 @@ func Sweep(ctx context.Context, cfg Config) Record {
 	return record
 }
 
-// keepRecentBuilds keeps the folder holding the home's build, bin or the root
-// of a home a build before bin set up, to the current build and the two
-// before it, unless an update is under way, whose staged and moved-aside
-// copies are its way back.
-func (cfg Config) keepRecentBuilds(record *Record) {
+// keepCurrentBuild keeps the folder holding the home's build, bin or the root
+// of a home a build before bin set up, to the current build alone, unless an
+// update is under way, whose staged and moved-aside copies are its way back.
+func (cfg Config) keepCurrentBuild(record *Record) {
 	programs := cfg.Home.Programs()
 	journal, err := update.ReadJournal(cfg.Home.State)
 	if err == nil && !journal.Phase.Finished() {
 		record.Notes = append(record.Notes, "an update is under way, so "+programs+" was left as it is")
 		return
 	}
-	freed, left := update.KeepRecent(programs, update.KeptBuilds)
+	freed, left := update.RemoveAsideCopies(programs)
 	if freed > 0 {
-		record.Removed = append(record.Removed, Item{Kind: "bin", Path: programs, Bytes: freed, Detail: "builds older than the two before the current one"})
+		record.Removed = append(record.Removed, Item{Kind: "bin", Path: programs, Bytes: freed, Detail: "earlier builds moved aside"})
 	}
 	for _, path := range left {
 		record.Kept = append(record.Kept, Item{Kind: "bin", Path: path, Detail: "an old build something still runs"})
