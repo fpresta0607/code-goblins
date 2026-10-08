@@ -303,12 +303,14 @@ func ProbeHarnesses(ctx context.Context) []HarnessProbe {
 			probes = append(probes, HarnessProbe{Name: tool.name, Detail: "resolves to " + path + ", a script a native terminal cannot start (" + fix + ")"})
 			continue
 		}
-		probes = append(probes, probeHarness(ctx, tool.name, path))
+		probes = append(probes, ProbeHarness(ctx, tool.name, path))
 	}
 	return probes
 }
 
-func probeHarness(ctx context.Context, name, path string) HarnessProbe {
+// ProbeHarness runs the harness program at path with --version under
+// ProbeTimeout and says whether it answered, and with which version line.
+func ProbeHarness(ctx context.Context, name, path string) HarnessProbe {
 	probeCtx, cancel := context.WithTimeout(ctx, ProbeTimeout)
 	defer cancel()
 	out, err := execx.CommandContext(probeCtx, path, "--version").Output()

@@ -215,7 +215,7 @@ export function answeredLabel(question: Question): string {
   switch (questionOutcome(question)) {
     case "pending": return "Waiting on you";
     // Superseded is a replaced asker; the backend's message says which.
-    case "superseded": return question.message || "Superseded; the asker was replaced";
+    case "superseded": return question.message || "Superseded. The asker was replaced.";
     case "cleared": return question.message || "Closed without an answer";
     case "failed": return "Your answer did not reach " + (question.task ? "the goblin" : "the CFO");
     case "uncertain": return "Not confirmed: check " + (question.task ? "the goblin's" : "the CFO's") + " terminal";

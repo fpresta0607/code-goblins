@@ -41,7 +41,7 @@ export function RunCard({ run, goblin, connected, instance, sending, error, onRu
     {error && <p className="warning-text" role="alert">{error}</p>}
     {running && (run.terminal
       ? <RunTerminal run={run} instance={instance} connected={connected} />
-      : <p className="muted run-waiting" role="status"><Icon name={run.admin ? "shield" : "terminal"} />{run.admin ? "Confirm the Windows prompt to run it as administrator; it runs here once you do." : "Starting its terminal"}</p>)}
+      : <p className="muted run-waiting" role="status"><Icon name={run.admin ? "shield" : "terminal"} />{run.admin ? "Confirm the Windows prompt to run it as administrator. It runs here once you do." : "Starting its terminal"}</p>)}
     {!running && run.output && <section className="run-terminal" aria-label="Command output">
       <header><span>Output</span></header>
       <pre className="run-output">{run.output}</pre>

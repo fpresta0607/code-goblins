@@ -140,7 +140,7 @@ test("an administrator's command waits on its card for Windows' prompt, with no 
   await step(page, "elevating");
 
   // Assert
-  await expect(dialog.getByRole("status").filter({ hasText: "Confirm the Windows prompt" })).toContainText("it runs here once you do");
+  await expect(dialog.getByRole("status").filter({ hasText: "Confirm the Windows prompt" })).toContainText("It runs here once you do");
   await expect(dialog.locator(".run-live")).toHaveCount(0);
   expect(wire.views).toEqual([]);
 });

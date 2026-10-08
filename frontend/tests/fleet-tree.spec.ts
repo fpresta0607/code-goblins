@@ -69,13 +69,17 @@ test("the goblin panel lists what is working with state, time and memory, a sile
   await expect(page.locator(".working-freshness")).toContainText("The goblin itself holds 1.0 GB.");
 });
 
-test("a goblin's card counts what runs under it and names a child gone silent, with its last line", async ({ page }) => {
+// The Overlord, 2026-10-07, on the yellow "Silent 6h 41m: ..." banner a
+// goblin's card carried: "yellow banner absolutely hate it as well". A child
+// gone silent is named in the goblin's panel (the test above), never on its
+// card.
+test("a goblin's card counts what runs under it and names no child gone silent", async ({ page }) => {
   await page.goto("/tests/fixtures/fleet-tree.html?view=cards");
   const card = page.locator(".task-card-shell").filter({ hasText: "Build the fleet tree" });
   expect(await card.locator(".card-tree").getByRole("img").evaluateAll((heads) => heads.map((head) => head.getAttribute("aria-label")))).toEqual(["Sub-agent", "Background shell", "Dev server", "Test run"]);
-  await expect(card.locator(".card-silent b")).toHaveText("Silent 14m: Run the affected Go tests");
-  await expect(card.locator(".card-silent code")).toHaveText("ok   internal/monitor 41.2s");
-  await expect(page.locator(".task-card-shell").filter({ hasText: "Fix the flaky checkout test" }).locator(".card-tree, .card-silent")).toHaveCount(0);
+  await expect(card).not.toContainText("Silent");
+  await expect(card).not.toContainText("Run the affected Go tests");
+  await expect(page.locator(".task-card-shell").filter({ hasText: "Fix the flaky checkout test" }).locator(".card-tree")).toHaveCount(0);
 });
 
 test("at phone width the lineage list opens a goblin's running children on a rail, finished ones left off, with nothing wider than the screen", async ({ page }) => {
