@@ -231,24 +231,26 @@ test("a tip's surface is solid, with an edge, and stands out from the card under
   expect(look.light).toBeGreaterThan(60);
 });
 
-// The Overlord, 2026-10-07: "tool tip hover text box should appear after 2
-// second hover not immediately". The keyboard's focus still shows a tip at
-// once.
-test("a tip shows once the pointer has rested on its part for 2 seconds, and at once on keyboard focus", async ({ page }) => {
-  // Arrange
+// The Overlord, 2026-10-08: "goblin tool tip on hover should be .5 seconds
+// faster", so 1.5 seconds, down from 2. The keyboard's focus still shows a
+// tip at once.
+test("a tip shows once the pointer has rested on its part for 1.5 seconds, and at once on keyboard focus", async ({ page }) => {
+  // Arrange: the clock stands still, so only runFor moves it and no wait of
+  // the assertions lets the rest pass.
   await page.clock.install();
   await open(page);
+  await page.clock.pauseAt(await page.evaluate(() => Date.now()) + 1000);
   const part = page.locator(".cfo-pin").getByRole("button", { name: "Open the CFO's terminal" }).last();
 
   // Act
   await part.hover();
-  await page.clock.runFor(1500);
+  await page.clock.runFor(1400);
 
   // Assert: not yet.
   await expect(page.getByRole("tooltip")).toHaveCount(0);
 
   // Act
-  await page.clock.runFor(600);
+  await page.clock.runFor(150);
 
   // Assert
   await expect(page.getByRole("tooltip")).toHaveText("Open the CFO's terminal");
