@@ -1,8 +1,9 @@
 import { expect, test, type Page } from "./site";
 
-// Every card and every goblin's children on the canvas, as boxes.
+// Every card, every baby goblin and every folded count on the canvas, as
+// boxes.
 async function boxes(page: Page) {
-  return page.locator(".flow-node, .tree-branch").evaluateAll((nodes) => nodes.map((node) => {
+  return page.locator(".flow-node, .tree-branch, .tree-branches > li").evaluateAll((nodes) => nodes.map((node) => {
     const box = node.getBoundingClientRect();
     return { name: (node.querySelector("strong")?.textContent || "") + (node.matches(".tree-branch") ? " children" : ""), left: box.left, top: box.top, right: box.right, bottom: box.bottom };
   }));
@@ -12,23 +13,10 @@ const covered = async (page: Page) => (await boxes(page)).flatMap((one, i, all) 
   .filter((other) => one.left < other.right && other.left < one.right && one.top < other.bottom && other.top < one.bottom)
   .map((other) => one.name + " and " + other.name));
 
-test("each goblin's children show as a count under its card, collapsed, and none for a goblin whose children all finished", async ({ page }) => {
+test("each goblin's running children hang on branches under its card as baby goblins, idle ones dimmed, finished ones and a goblin whose children all finished left off", async ({ page }) => {
   await page.goto("/tests/fixtures/fleet-tree.html");
-  await expect(page.locator(".tree-count")).toHaveCount(2);
-  await expect(page.locator(".tree-child")).toHaveCount(0);
-  const builder = page.getByRole("button", { name: /under Build the fleet tree/ });
-  await expect(builder).toHaveAttribute("aria-label", "Show what runs under Build the fleet tree: 1 working, 412 MB");
-  await expect(builder.getByRole("img", { name: "Sub-agent" })).toHaveCount(1);
-  await expect(builder.getByRole("img", { name: "Dev server" })).toHaveCount(1);
-  await expect(page.getByRole("button", { name: /under Stream the billing CSV export: 1 working, 1\.1 GB/ })).toBeVisible();
-  await expect(page.getByRole("button", { name: /under Fix the flaky checkout test/ })).toHaveCount(0);
-  expect(await covered(page)).toEqual([]);
-});
-
-test("a count opens its goblin's running children as baby goblins with their states, idle ones dimmed and finished ones left off, and the canvas makes room", async ({ page }) => {
-  await page.goto("/tests/fixtures/fleet-tree.html");
-  await page.getByRole("button", { name: /under Build the fleet tree/ }).click();
-  const children = page.getByRole("list", { name: "What runs under Build the fleet tree" }).locator(".tree-child");
+  const branches = page.getByRole("list", { name: "What runs under Build the fleet tree" });
+  const children = branches.locator(".tree-child");
   await expect(children).toHaveCount(2);
   await expect(children.nth(0)).toContainText("Map harness plumbing");
   await expect(children.nth(0)).toContainText("Working 4m · Explore");
@@ -39,11 +27,30 @@ test("a count opens its goblin's running children as baby goblins with their sta
   await expect(children.nth(1)).toHaveClass(/dim/);
   await expect(children.filter({ hasText: "Research MCP OAuth" })).toHaveCount(0);
   expect(await children.getByRole("img").evaluateAll((heads) => heads.map((head) => head.getAttribute("data-tip")))).toEqual(["Sub-agent", "Dev server"]);
+  await expect(branches.locator(".branch-lines path"), "a trunk and bar, a spine for each of two columns and a twig to each child").toHaveCount(5);
+  await expect(page.getByRole("list", { name: "What runs under Stream the billing CSV export" }).locator(".tree-child")).toHaveCount(1);
+  await expect(page.getByRole("list", { name: "What runs under Fix the flaky checkout test" })).toHaveCount(0);
+  await expect(page.getByRole("button", { name: /descendants of Fix the flaky checkout test/ })).toHaveCount(0);
+  await expect(page.locator(".tree-count")).toHaveCount(0);
+  const card = (await page.locator(".flow-node").filter({ hasText: "Build the fleet tree" }).boundingBox())!;
+  for (const child of await children.all()) expect((await child.boundingBox())!.y, "under the goblin's card").toBeGreaterThan(card.y + card.height);
+  expect(await covered(page)).toEqual([]);
+});
+
+test("the chevron folds a goblin's branches to their count, the same rounded rectangle as the baby goblins, and the count opens them again", async ({ page }) => {
+  await page.goto("/tests/fixtures/fleet-tree.html");
+  await page.getByRole("button", { name: "Collapse descendants of Build the fleet tree" }).click();
+  await expect(page.getByRole("list", { name: "What runs under Build the fleet tree" })).toHaveCount(0);
+  const count = page.getByRole("button", { name: /under Build the fleet tree/ });
+  await expect(count).toHaveAttribute("aria-label", "Show what runs under Build the fleet tree: 1 working, 412 MB");
+  await expect(count.getByRole("img", { name: "Sub-agent" })).toHaveCount(1);
+  await expect(count.getByRole("img", { name: "Dev server" })).toHaveCount(1);
   const corner = (selector: string) => page.locator(selector).first().evaluate((node) => getComputedStyle(node).borderTopLeftRadius);
-  expect(await corner(".tree-count"), "the count is the same rounded rectangle as the rows it opens").toBe(await corner(".tree-child"));
+  expect(await corner(".tree-count"), "the count is the same rounded rectangle as the baby goblins").toBe(await corner(".tree-child"));
   await expect.poll(() => covered(page)).toEqual([]);
-  await page.getByRole("button", { name: /Hide what runs under Build the fleet tree/ }).click();
-  await expect(page.locator(".tree-child")).toHaveCount(0);
+  await count.click();
+  await expect(page.getByRole("list", { name: "What runs under Build the fleet tree" }).locator(".tree-child")).toHaveCount(2);
+  await expect(page.locator(".tree-count")).toHaveCount(0);
 });
 
 test("the goblin panel lists what is working with state, time and memory, a silent child's last line, and the finished folded away", async ({ page }) => {

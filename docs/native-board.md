@@ -335,14 +335,17 @@ Replayed, stale, reparenting, or cyclic input cannot silently change the tree.
 Unknown and retired parents remain visible, and task dependencies are rendered separately from spawned/delegated links.
 Unreported child models remain unreported even when their owning task declares a model and effort.
 Dragging a card or using Alt plus an arrow key changes only its saved browser position; connectors retain their reported parent identity.
-The tree fits and centers itself in the visible canvas, scaled up to fill it but never past 125% and never below 35%, and refits whenever the panel opens or closes, the window resizes, a goblin appears or leaves, or a dragged card is dropped.
-Zooming, or panning a view that actually scrolls, stops the automatic fit until Fit is pressed, which restores it.
-A family of more than three leaf goblins wraps into two rows, the second offset by half a card so its connectors drop through gaps in the first instead of behind a sibling.
+The tree fits and centers itself in the visible canvas, scaled up to fill it but never past 125% and down as far as 10%, so the whole of any tree shows, and refits whenever the panel opens or closes, the window resizes, a goblin appears or leaves, or a dragged card is dropped.
+The canvas moves and zooms like a map instead of scrolling: dragging it, from empty space, a line or a baby goblin, moves the view, and the wheel or a trackpad pinch zooms between 10% and 150% about the point under the pointer; the plus and minus buttons and keys zoom about the middle.
+Moving or zooming the view stops the automatic fit until Fit, or the 0 key, restores it.
+A family of goblins with no cards under them wraps into the rows that show it largest in the canvas's shape: one row in a wide canvas, more in a tall, narrow one such as the canvas beside an open panel.
+Each row after the first is offset, by half a card where it can be, so its connectors drop clear of every line that runs down from a goblin above, its middle or a spine of its branches, and so never read as that goblin's; a connector to a later row drops straight from its parent behind the cards and branches between.
+A goblin whose branches are wider than its card takes as many columns as they need, so no card or branch covers another.
 A goblin waiting on another sits in the row under the one it waits on, half a card over, and the dashed line between them runs straight down what the two cards share; a sibling with nothing under it gives up that place and takes the nearest free one, and a chain or a cycle of waits keeps its family places.
 Only a card the Overlord moves is saved, so the canvas keeps arranging every card he has not placed himself.
 A card he placed stays where he put it, and an arranged card whose place it covers takes the nearest free place, along its row first and then the rows below, so the canvas never arranges a card onto another.
 A connector pulses for a few seconds when its goblin reports a new status line or files a wake record; a report that lands while the board is hidden never plays later.
-Arrange resets positions, and storage failures remain visible.
+Arrange resets positions and opens every folded card, then frames the tree again; storage failures remain visible.
 Narrow screens use a collapsible nested list that names the actual parent when indentation is capped.
 
 ### The family tree
@@ -358,9 +361,11 @@ Each also carries when its source last changed and when it was read.
 Each child is drawn as a baby goblin whose prop says its kind (a magnifying glass for a sub-agent, a laptop for a shell, binoculars for a monitor, glasses and a shield for the gate, an antenna for a dev server, goggles for a test run, a hard hat for a build, a tablet for a browser), and its tip names it.
 A [helper goblin](../AGENTS.md#helper-goblins) the supervisor started for a goblin is a child of that goblin's tree too, drawn with the sub-agent's head and named Helper goblin in its tip: its title, its own tree's memory, and where its own records say it stands, working or silent by its own activity, waiting while it is paused or asks its parent, done once it reported done and failed once it reported failure.
 A helper its parent's tree holds is not drawn again as a card of its own on the canvas or in the lineage list, as a held sub-agent is not; one no tree holds, such as a paused goblin's, keeps its card and hangs under its parent's card, the parent's session or, with none reported, its task, never under the CFO, and every helper's card on the board says whose helper it is.
-On the canvas a goblin's running children are collapsed to a count under its card, the same rounded rectangle as the rows it opens: a head and a number for each kind still running, how many work, are silent or idle, and their memory; pressing it opens each child on a branch under the card, where idle ones are dimmed, and the rows below make room.
-A finished child is not drawn there, so a goblin whose children have all finished shows no count; its panel still lists them.
-At phone width the lineage list opens them the same way under the goblin's card.
+On the canvas a goblin's running children hang on branches under its card, each a baby goblin with what it does, its state and for how long, and its memory, idle ones dimmed, and the rows below make room.
+They hang in about as many columns as rows, up to four columns, each column on a spine with a twig to each child, so a big family grows down rather than across.
+The chevron under the card folds them, with any cards under it, to their count, the same rounded rectangle as the baby goblins: a head and a number for each kind still running, how many work, are silent or idle, and their memory; pressing the count opens them again.
+A finished child is not drawn there, so a goblin whose children have all finished shows neither; its panel still lists them.
+At phone width the lineage list shows the count under the goblin's card, and pressing it opens each child on a rail.
 The goblin's panel opens with What's working: its counts, then one row per running child with what it does, its state, for how long and its memory, a silent child's last line, the finished ones folded away, and when it was read.
 A goblin's card counts what runs under it and names the child that has gone silent longest with its last line.
 None of it wakes the CFO: the monitor's stale and idle rules read their progress evidence through the same reader, so a goblin counts as working while any child works, and the board and the wakes never disagree about it.

@@ -8,6 +8,7 @@ import (
 	"slices"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/fpresta0607/code-goblins/internal/fsx"
 )
@@ -465,4 +466,28 @@ func writeDevDriveConfig(t *testing.T, root, content string) {
 func jsonString(s string) string {
 	data, _ := json.Marshal(s)
 	return string(data)
+}
+
+func TestWriteDevDriveConfigRoundTripsWhatResolveReads(t *testing.T) {
+	// Arrange
+	root := t.TempDir()
+	drive := filepath.Join(t.TempDir(), "CodeGoblins")
+	moved := time.Date(2026, 10, 8, 1, 2, 3, 0, time.UTC)
+
+	// Act
+	err := WriteDevDriveConfig(root, DevDriveConfig{Root: drive, MovedAt: moved})
+
+	// Assert
+	if err != nil {
+		t.Fatal(err)
+	}
+	config, err := ReadDevDriveConfig(root)
+	if err != nil || config.Root != drive || !config.MovedAt.Equal(moved) {
+		t.Fatalf("read back %+v, %v; want %s moved at %s", config, err, drive, moved)
+	}
+	t.Setenv("CFO_HOME", root)
+	t.Setenv("CFO_STATE_OVERRIDE", "")
+	if h, err := Resolve(); err != nil || h.DevDrive != drive {
+		t.Errorf("Resolve = %+v, %v; want its Dev Drive folder %s", h, err, drive)
+	}
 }
