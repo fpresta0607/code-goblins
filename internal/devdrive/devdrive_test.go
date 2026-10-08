@@ -92,6 +92,54 @@ func TestAHomeOnItsDevDriveIsOnOrMissing(t *testing.T) {
 	}
 }
 
+// The board's Workspace panel says the Dev Drive in one short note under the
+// row's name and button (the Overlord, 2026-10-08: "text can be note below
+// it"): the doctor's line, with its status word and its semicolons, and the
+// sentence saying what a Dev Drive is a second time are not for the board.
+func TestEveryStateHasOneShortNoteForTheBoard(t *testing.T) {
+	drive := func(trust Trust) Volume {
+		return Volume{Root: `D:\`, FileSystem: "ReFS", Dev: true, Trust: trust, Free: 190 * gigabyte}
+	}
+	with := func(change func(*Machine), volumes ...Volume) Machine {
+		m := ready()
+		m.Volumes = append(m.Volumes, volumes...)
+		if change != nil {
+			change(&m)
+		}
+		return m
+	}
+	root := `C:\Users\op\AppData\Local\CodeGoblins`
+	moved := home.Home{Root: root, DevDrive: `D:\CodeGoblins`}
+	for name, test := range map[string]struct {
+		machine Machine
+		home    home.Home
+		note    string
+	}{
+		"none yet":                  {with(nil), home.Home{Root: root}, "An optional drive that Defender scans in performance mode, so files open faster."},
+		"one here, not used yet":    {with(nil, drive(Trusted)), home.Home{Root: root}, "D: is a Dev Drive the worktrees and caches can move to."},
+		"on a trusted Dev Drive":    {with(nil, drive(Trusted)), moved, `The worktrees and caches are on D:\CodeGoblins.`},
+		"on one of unknown trust":   {with(nil, drive(TrustUnknown)), moved, `The worktrees and caches are on D:\CodeGoblins.`},
+		"on an untrusted Dev Drive": {with(nil, drive(Untrusted)), moved, "Windows does not trust D: yet, so performance mode is off."},
+		"on a plain drive":          {with(nil), home.Home{Root: root, DevDrive: `C:\CodeGoblins`}, "The worktrees and caches are on C:, which is not a Dev Drive."},
+		"its drive not attached":    {with(nil), moved, "D: is not attached, so no goblin starts."},
+		"none can be made":          {with(func(m *Machine) { m.SystemFree = 99 * gigabyte }), home.Home{Root: root}, "Not available here because C: has 99 GB free, under the 100 GB a new Dev Drive needs."},
+		"one here it cannot use":    {with(func(m *Machine) { m.Defender = false }, drive(Trusted)), home.Home{Root: root}, "D: is not used because Microsoft Defender's real-time protection is off, and a Dev Drive's performance mode needs it on."},
+	} {
+		t.Run(name, func(t *testing.T) {
+			// Act
+			report := Describe(test.machine, test.home)
+
+			// Assert
+			if report.Note != test.note {
+				t.Errorf("note = %q, want %q", report.Note, test.note)
+			}
+			if strings.ContainsAny(report.Note, ";\u2014") || strings.Contains(report.Note, "exclusion") {
+				t.Errorf("note %q has a semicolon, a dash or the explanation again", report.Note)
+			}
+		})
+	}
+}
+
 func TestANewDevDriveIsSizedToLeaveTheSystemDriveRoom(t *testing.T) {
 	for free, want := range map[uint64]int{374 * gigabyte: 200, 250 * gigabyte: 200, 180 * gigabyte: 130, 100 * gigabyte: 50, 60 * gigabyte: 50} {
 		m := ready()

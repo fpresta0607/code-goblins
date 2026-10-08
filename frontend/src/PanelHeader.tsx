@@ -21,14 +21,16 @@ import { DeploymentLink } from "./deployment-link";
 import { LocalChecksLink } from "./local-checks-link";
 import { ClickFeedback, useClickFeedback } from "./click-feedback";
 import { TaskAdjustment } from "./task-adjustment";
+import { RestartCfoButton } from "./restart-cfo-button";
 
 // Who the goblin is, what it is doing now and what the Overlord can do about
 // it. Its status is the one place the panel says the task's state, with one
 // plain sentence under it and the words that sentence leaves out behind
 // Details; a failure links to the task's log. The CFO drawn without a task has
-// no worktree to open; its header carries the AFK toggle beside its status,
-// with Update before it while an update of the CFO's harness waits, and under
-// them what a press of Update waits for or why it did not restart the CFO.
+// no worktree to open; its header carries Restart right below its name on
+// its Task view, the AFK toggle beside its status, with Update before it
+// while an update of the CFO's harness waits, and under them what a press of
+// Update waits for or why it did not restart the CFO.
 export function PanelHeader({ task, node, snapshot, compact, onAnswer, onOpenTask, onOpenLog }: { task?: Task; node?: Session; snapshot: Snapshot; compact: boolean; onAnswer: (key: string) => void; onOpenTask: (task: Task) => void; onOpenLog: () => void }) {
   const [opening, setOpening] = useState(false);
   const [feedback, showFeedback] = useClickFeedback();
@@ -67,6 +69,7 @@ export function PanelHeader({ task, node, snapshot, compact, onAnswer, onOpenTas
     <Avatar persona={cfo ? "cfo" : personaFor(task, node)} small />
     <div className="panel-identity">
       <h2 id="panel-title">{title}</h2>
+      {cfo && !compact && <RestartCfoButton snapshot={snapshot} />}
       {owner && task.phase === "queued" ? <TaskAdjustment key={task.id} task={task} snapshot={snapshot} /> : owner && task.goblin_name && <p className="panel-goblin-task">{taskName(task)}</p>}
       {!compact && task?.project && <div className="project-line"><p className="project-label">{task.project}</p><PeopleRow snapshot={snapshot} task={task} /></div>}
       <p className={"panel-status plain-status phase-" + phase}><span className="status-dot" />{status}{awaited && <button className="status-link" aria-label={"Open " + goblinName(awaited) + ", which this goblin is waiting on"} data-tip={"Open " + goblinName(awaited)} onClick={() => onOpenTask(awaited)}><Icon name="next" /></button>}</p>

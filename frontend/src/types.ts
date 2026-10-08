@@ -146,9 +146,10 @@ export interface Comeback { signed_in: string; cfo?: ComebackEntry; goblins: Com
 // cannot be started at login.
 export interface StartAtLoginView { on: boolean; unavailable: string }
 // DevDriveView is the home's Dev Drive: its state and the line saying it, the
-// sentence explaining what one is, the person's answer to the offer, the step
-// whose Command Center item waits, and the button to press, if any.
-export interface DevDriveView { state: string; line: string; explain: string; choice: string; waiting: string; action: "" | "set-up" | "try-again" | "attach" }
+// short note the Workspace panel shows under its row, the sentence explaining
+// what one is, the person's answer to the offer, the step whose Command
+// Center item waits, and the button to press, if any.
+export interface DevDriveView { state: string; line: string; note: string; explain: string; choice: string; waiting: string; action: "" | "set-up" | "try-again" | "attach" }
 // HostedChecks is a pull request's hosted checks at its head: state is
 // pending while one runs and none has failed, failed as soon as one has,
 // cancelled when they ended with one cancelled, and passed when all passed;
@@ -704,7 +705,7 @@ function parseDevDrive(drive: Record<string, unknown>): DevDriveView {
   const optional = (value: unknown) => value === undefined ? "" : string(value);
   const action = optional(drive.action);
   return {
-    state: string(drive.state), line: string(drive.line), explain: string(drive.explain), choice: optional(drive.choice), waiting: optional(drive.waiting),
+    state: string(drive.state), line: string(drive.line), note: string(drive.note), explain: string(drive.explain), choice: optional(drive.choice), waiting: optional(drive.waiting),
     action: action === "set-up" || action === "try-again" || action === "attach" ? action : "",
   };
 }
