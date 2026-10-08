@@ -413,12 +413,18 @@ export function makeRoom(positions: Record<string, Point>, below: Record<string,
 
 // settle is where each card shows: where the Overlord placed it by hand, else
 // its arranged place, or the free place nearest to it when a card he placed
-// covers that, so no card ever covers another, nor what hangs under it.
-export function settle(arranged: Record<string, Point>, placed: Record<string, Point>, extents: Record<string, Extent> = {}): Record<string, Point> {
+// covers that, so no card ever covers another, nor what hangs under it. A
+// goblin arranged under the goblin it waits on (waits) keeps to the places
+// under that goblin first: half a card either side, then the rows below.
+export function settle(arranged: Record<string, Point>, placed: Record<string, Point>, extents: Record<string, Extent> = {}, waits: Record<string, string> = {}): Record<string, Point> {
   const positions: Record<string, Point> = {};
   for (const id of Object.keys(arranged)) if (placed[id]) positions[id] = placed[id];
   for (const [id, want] of Object.entries(arranged)) if (!placed[id]) {
-    positions[id] = nearestFree(want, Object.entries(positions).map(([other, point]) => ({ point, takes: extents[other] || CARD })), extents[id] || CARD);
+    const taken = Object.entries(positions).map(([other, point]) => ({ point, takes: extents[other] || CARD }));
+    const takes = extents[id] || CARD, awaited = arranged[waits[id]];
+    const isUnder = awaited && want.y > awaited.y && Math.abs(want.x - awaited.x) < NODE_WIDTH;
+    const under = isUnder ? [0, 1, 2, 3].flatMap((row) => [want.x, 2 * awaited.x - want.x].map((x) => ({ x, y: want.y + row * ROW }))) : [];
+    positions[id] = under.find((place) => place.x >= 0 && !taken.some((other) => clashes(place, other.point, takes, other.takes))) || nearestFree(want, taken, takes);
   }
   return positions;
 }

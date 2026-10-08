@@ -365,6 +365,17 @@ test("no card covers another, whatever the Overlord placed by hand", () => {
   assert.deepEqual(settle(arranged, {}), arranged);
 });
 
+test("a goblin arranged under the one it waits on stays under it when a card the Overlord placed takes its place, whatever the canvas", () => {
+  const snapshot = fleet(FLEET.length, { "cg-board-theme": "cg-cfo-wakes" });
+  const nodes = workflowNodes(snapshot), waits = waitingOn(snapshot, nodes);
+  for (const canvas of [CANVAS, { width: 900, height: 700 }, { width: 836, height: 956 }, { width: 390, height: 844 }]) {
+    const shown = settle(arrange(nodes, canvas, waits), PLACED_BY_HAND, {}, waits);
+    const waiting = shown["task:cg-board-theme"], awaited = shown["task:cg-cfo-wakes"];
+    assert.ok(waiting.y > awaited.y && Math.abs(waiting.x - awaited.x) < NODE_WIDTH, `${canvas.width} by ${canvas.height}: ${JSON.stringify({ waiting, awaited })}`);
+    assert.deepEqual(overlaps(shown), [], `${canvas.width} by ${canvas.height}`);
+  }
+});
+
 test("a connector pulses only when a goblin reports something new", () => {
   const snapshot = (activity: string, decisions: {seq:number,key:string}[] = []) => parseSnapshot({healthy:true,
     tasks:[{id:"a", phase:"working", verified:false, activity}, {id:"old", phase:"done", verified:false, archived:true, activity}],
