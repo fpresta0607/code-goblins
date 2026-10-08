@@ -15,38 +15,63 @@ const RATE = 16000;
 const CAPTURE = "/assets/dictation-capture.js";
 const BROWSER_KEY = "cfo-dictation-browser-v1";
 
+// The page's one audio context for dictation, with the capture worklet
+// loaded into it. It is made as the keys are pressed, while the microphone
+// opens, and kept for the next dictation, suspended in between: a worklet
+// loaded only once the microphone was open lost a dictation's first second.
+let capturing: Promise<AudioContext> | null = null;
+let recordings = 0;
+
+function captureContext(): Promise<AudioContext> {
+  if (!capturing) {
+    const context = new AudioContext();
+    const loaded = context.audioWorklet.addModule(CAPTURE).then(() => context);
+    loaded.catch(() => { capturing = null; void context.close(); });
+    capturing = loaded;
+  }
+  return capturing;
+}
+
 // record captures a microphone track's samples as they arrive, through the
 // capture worklet, and hands on each piece of what is said at the model's
 // rate as soon as it ends in a pause. stop asks the worklet for what it still
 // holds and returns what followed the last piece. Nothing but the browser is
 // needed, in a tab or in the desktop app.
 export function record(track: MediaStreamTrack, piece: (sound: Sound) => void): Recording {
-  const context = new AudioContext();
-  void context.resume();
   let stopped = false;
-  const pieces = new Pieces(context.sampleRate, (sound) => { if (!stopped) piece(downsample(sound, RATE)); });
   let flushed = () => {};
-  const capture = context.audioWorklet.addModule(CAPTURE).then(() => {
+  const capture = captureContext().then((context) => {
+    recordings++;
+    void context.resume();
+    const pieces = new Pieces(context.sampleRate, (sound) => { if (!stopped) piece(downsample(sound, RATE)); });
     const node = new AudioWorkletNode(context, "dictation-capture", { numberOfOutputs: 0 });
     node.port.onmessage = (event: MessageEvent<Float32Array | null>) => {
       if (event.data) { if (!stopped) pieces.push(event.data); } else flushed();
     };
-    context.createMediaStreamSource(new MediaStream([track])).connect(node);
-    return node;
+    const source = context.createMediaStreamSource(new MediaStream([track]));
+    source.connect(node);
+    return { context, pieces, node, source };
   });
   capture.catch(() => undefined);
+  const end = () => {
+    stopped = true;
+    void capture.then(({ context, node, source }) => {
+      source.disconnect();
+      node.port.close();
+      if (--recordings === 0) void context.suspend();
+    }, () => undefined);
+  };
   return {
     stop: async () => {
       try {
-        const node = await capture;
+        const { pieces, node } = await capture;
         await new Promise<void>((resolve) => { flushed = resolve; node.port.postMessage("flush"); });
         return downsample(pieces.rest(), RATE);
       } finally {
-        stopped = true;
-        void context.close();
+        end();
       }
     },
-    cancel: () => { stopped = true; void context.close(); },
+    cancel: end,
   };
 }
 
@@ -96,9 +121,13 @@ export function setUsesBrowser(on: boolean): void {
   } catch { /* the choice lasts until the page is closed */ }
 }
 
-// recognizerFor is the recognizer the next dictation runs on.
+// recognizerFor is the recognizer the next dictation runs on. The board's
+// own starts loading its capture worklet at once, while the microphone opens.
 export function recognizerFor(instance: () => string): new () => Recognizer {
-  return (usesBrowser() && speechRecognition()) || localRecognizer(record, recogniseWith(instance), warmWith(instance));
+  const browser = usesBrowser() && speechRecognition();
+  if (browser) return browser;
+  void captureContext().catch(() => undefined);
+  return localRecognizer(record, recogniseWith(instance), warmWith(instance));
 }
 
 // DictationStatus is what the supervisor says of its speech model: ready,

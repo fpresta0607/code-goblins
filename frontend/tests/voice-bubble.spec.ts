@@ -28,16 +28,19 @@ const MICROPHONE = "M12 3.5a3 3 0 0 0-3 3v5a3 3 0 0 0 6 0v-5a3 3 0 0 0-3-3ZM5.5 
 const OLD_VOICE_REPLY = { state: "running", entries: [{ text: "Show me what needs my attention.", timestamp: "2026-09-29T12:45:00", time_epoch: 1790000700 }], has_skipped: false };
 
 // A sound the page posted to the supervisor, as its WAV header and samples
-// say, and when.
-interface Posted { token: string; type: string; tags: string; channels: number; rate: number; bits: number; samples: number; peak: number; at: number }
+// say, when, and how many seconds pass in it before anything loud.
+interface Posted { token: string; type: string; tags: string; channels: number; rate: number; bits: number; samples: number; peak: number; lead: number; at: number }
 
 function posted(body: Buffer, headers: Record<string, string>): Posted {
-  let peak = 0;
-  for (let at = 44; at + 1 < body.length; at += 2) peak = Math.max(peak, Math.abs(body.readInt16LE(at)));
+  let peak = 0, lead = -1;
+  for (let at = 44; at + 1 < body.length; at += 2) {
+    peak = Math.max(peak, Math.abs(body.readInt16LE(at)));
+    if (lead < 0 && Math.abs(body.readInt16LE(at)) > 3000) lead = (at - 44) / 2 / body.readUInt32LE(24);
+  }
   return {
     token: headers["x-cfo-token"] || "", type: headers["content-type"] || "",
     tags: [0, 8, 12, 36].map((at) => body.toString("latin1", at, at + 4)).join(" "),
-    channels: body.readUInt16LE(22), rate: body.readUInt32LE(24), bits: body.readUInt16LE(34), samples: (body.length - 44) / 2, peak, at: Date.now(),
+    channels: body.readUInt16LE(22), rate: body.readUInt32LE(24), bits: body.readUInt16LE(34), samples: (body.length - 44) / 2, peak, lead, at: Date.now(),
   };
 }
 
@@ -574,9 +577,9 @@ for (const [where, app, expected] of [["the desktop app", true, WINDOWS_BLOCKED]
   }
 }
 
-// A long dictation for the fake microphone: phrases of 3 s, a tone whose pitch
-// moves like a voice, each followed by 0.6 s of near silence, for seconds, as
-// a 16 kHz WAV written for this run.
+// A long dictation for the fake microphone: a second of near silence, then
+// phrases of 3 s, a tone whose pitch moves like a voice, each followed by 0.6 s
+// of near silence, for seconds, as a 16 kHz WAV written for this run.
 function phrases(seconds: number): Buffer {
   const rate = 16000, count = seconds * rate;
   const wav = Buffer.alloc(44 + count * 2);
@@ -585,7 +588,7 @@ function phrases(seconds: number): Buffer {
   wav.write("data", 36); wav.writeUInt32LE(count * 2, 40);
   let phase = 0;
   for (let at = 0; at < count; at++) {
-    const isSpeech = at % (3.6 * rate) < 3 * rate;
+    const isSpeech = at >= rate && (at - rate) % (3.6 * rate) < 3 * rate;
     phase += 2 * Math.PI * (180 + 80 * Math.sin(at / rate * 2)) / rate;
     wav.writeInt16LE(Math.round(isSpeech ? 9000 * Math.sin(phase) : 20 * Math.sin(at * 7.3)), 44 + at * 2);
   }
@@ -621,6 +624,7 @@ test("a long dictation is recognised in pieces while it is said, through the cap
       expect(post.peak).toBeGreaterThan(3000);
     }
     expect(posts.reduce((total, post) => total + post.samples, 0), "every second held reached the supervisor").toBeGreaterThan(22 * 16000);
+    expect(posts[0].lead, "the recording ran before the first word, so none of it was lost").toBeGreaterThan(.3);
   } finally {
     await browser.close();
     rmSync(sound, { force: true });
