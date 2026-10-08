@@ -72,21 +72,24 @@ type Allowance struct {
 }
 
 // The kinds of line the log holds: the switch, an item held for the Overlord,
-// and the decisions the CFO makes under the authority.
+// a goblin the supervisor paused at a floor, and the decisions the CFO makes
+// under the authority, what it left for him among them.
 const (
 	KindOn        = "on"
 	KindOff       = "off"
 	KindHeld      = "held"
+	KindPause     = "pause"
 	KindMerge     = "merge"
 	KindAnswer    = "answer"
 	KindDeploy    = "deploy"
 	KindMigration = "migration"
 	KindInstall   = "install"
 	KindOther     = "other"
+	KindLeft      = "left"
 )
 
 // DecisionKinds are the kinds Log takes, in the order the report lists them.
-var DecisionKinds = []string{KindMerge, KindDeploy, KindMigration, KindInstall, KindAnswer, KindOther}
+var DecisionKinds = []string{KindLeft, KindMerge, KindDeploy, KindMigration, KindInstall, KindAnswer, KindOther}
 
 // Entry is one line of the log.
 type Entry struct {
@@ -106,6 +109,9 @@ type Entry struct {
 	// held item's key in the Command Center.
 	Task string `json:"task,omitempty"`
 	Item string `json:"item,omitempty"`
+	// Recommendation is the choice recommended for a held question by whoever
+	// asked it: the CFO for its own, or the goblin whose question it is.
+	Recommendation string `json:"recommendation,omitempty"`
 }
 
 // ErrNotOn refuses what only happens while AFK mode is on.
@@ -171,8 +177,9 @@ func asEvidence(asked string) string {
 
 // TurnOn turns AFK mode on from where the Overlord did it, with the allowance
 // read then, and reports whether it changed anything: one already on stays as
-// it is. The log line is written first, so a switch the log does not hold
-// never happened.
+// it is. The report of the stretch before goes first, so reports never pile
+// up, then the log line is written, so a switch the log does not hold never
+// happened.
 func TurnOn(stateDir, from string, allowance []Allowance, now time.Time) (State, bool, error) {
 	return turnOn(stateDir, from, "", allowance, now)
 }
@@ -192,6 +199,9 @@ func turnOn(stateDir, from, asked string, allowance []Allowance, now time.Time) 
 	state, err := Read(stateDir)
 	if err != nil || state.On {
 		return state, false, err
+	}
+	if err := os.Remove(filepath.Join(stateDir, reportFile)); err != nil && !errors.Is(err, os.ErrNotExist) {
+		return State{}, false, fmt.Errorf("AFK mode stays off: the report of the stretch before could not be removed: %w", err)
 	}
 	now = now.UTC()
 	state = State{On: true, Session: "afk-" + now.Format("20060102T150405.000Z"), Since: now, From: from, Asked: asked, Allowance: allowance}
@@ -270,6 +280,18 @@ func Hold(stateDir string, entry Entry, now time.Time) error {
 		return errors.New("a held line names its item")
 	}
 	entry.Kind = KindHeld
+	_, err := record(stateDir, entry, now)
+	return err
+}
+
+// Pause records a goblin the supervisor paused at a floor, in the stretch
+// that is on: first with the readings the pause stood on, then with how it
+// went. It is the supervisor's safety rail, not a decision of the CFO's.
+func Pause(stateDir string, entry Entry, now time.Time) error {
+	if strings.TrimSpace(entry.Task) == "" {
+		return errors.New("a paused line names its goblin")
+	}
+	entry.Kind = KindPause
 	_, err := record(stateDir, entry, now)
 	return err
 }

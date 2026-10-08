@@ -19,6 +19,7 @@ func runPresent(args []string, stdout, stderr io.Writer, runtime commandRuntime)
 	f.StringVar(&a.Kind, "kind", "", "browser or review")
 	f.StringVar(&a.URL, "url", "", "https, or plain http on this machine or the tailnet, without credentials, query or fragment")
 	f.StringVar(&a.State, "state", "active", "active or ended")
+	f.StringVar(&a.Watch, "watch", "", "one line asking the Overlord to watch it, such as \"Watch the checkout walkthrough I am running for you\"; only a presentation with it reaches his Command Center, and a test run of your own leaves it out")
 	ttl := f.Duration("ttl", 5*time.Minute, "evidence expiry, at most 30m; refresh only while activity is actually live")
 	if err := f.Parse(args); err != nil || f.NArg() != 0 {
 		return 2

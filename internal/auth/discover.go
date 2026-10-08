@@ -3,6 +3,8 @@ package auth
 import (
 	"bufio"
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -38,7 +40,8 @@ var flyConfigRelative = filepath.Join(".fly", "config.yml")
 
 // Adopted records one credential that was found already present somewhere and
 // registered in this project's scope, so the Overlord is never asked for
-// something the machine already has.
+// something the machine already has, or one a .env offered that the scan
+// chose not to register.
 type Adopted struct {
 	Name   string
 	Key    Key
@@ -48,6 +51,11 @@ type Adopted struct {
 	// two read differently in a report: a refresh means a credential the
 	// Overlord rotated has just reached the store.
 	Refreshed bool
+	// Kept marks a stored value a .env disagreed with and did not replace,
+	// because the scan read that file's value for the first time and nothing
+	// says it is the newer of the two. Nothing was written; it is reported so
+	// a .env edit that did not take is never silent.
+	Kept bool
 }
 
 // Discover registers credentials the machine already holds into this
@@ -62,9 +70,16 @@ type Adopted struct {
 // committed to a repository is never mistaken for a local secret.
 //
 // One origin may overwrite: a project's own gitignored .env file refreshes a
-// value this project's scope already holds when the two differ, because the
-// Overlord editing that file is the deliberate act of rotating a credential
-// and every goblin dispatched afterwards would otherwise carry the dead one.
+// value this project's scope already holds when the file's value has changed
+// since the last scan read it, because the Overlord editing that file is the
+// deliberate act of rotating a credential and every goblin dispatched
+// afterwards would otherwise carry the dead one. A file that only differs from
+// the store is not that act: the store's Seen record still holds what the
+// file offered last time, so a value stored afterwards with cfo auth store, a
+// credential card or a run item is the newer decision and stays. A value read
+// for the first time has no history at all, so it never replaces a stored one
+// either; it is reported as kept. Comparing values alone put a project's older
+// .env token back over a freshly stored Fly org token on the next dispatch.
 // The refreshed key is the one that actually answers the name, which may be a
 // declared alias, so a credential stored under an alias rotates like any
 // other instead of quietly outliving the file it came from.
@@ -109,18 +124,34 @@ func Discover(ctx context.Context, store Store, runner execx.Runner, manifest Ma
 		return adopted, skipped, err
 	}
 	for _, write := range writes {
-		if err := store.Set(write.key, write.rotation.value); err != nil {
+		switch {
+		case write.store:
+			if err := store.Set(write.key, write.rotation.value); err != nil {
+				return adopted, skipped, err
+			}
+			if !write.refresh {
+				delete(wanted, write.rotation.credential)
+			}
+			adopted = append(adopted, Adopted{
+				Name:      write.rotation.credential,
+				Key:       write.key,
+				Origin:    write.rotation.path,
+				Refreshed: write.refresh,
+			})
+		case write.kept:
+			adopted = append(adopted, Adopted{
+				Name:   write.rotation.credential,
+				Key:    write.key,
+				Origin: write.rotation.path,
+				Kept:   true,
+			})
+		}
+		// Recorded only once the store holds what the record describes, so a
+		// write that failed is retried by the next scan instead of being
+		// remembered as done.
+		if err := recordSeen(store.Seen(), write.key, write.rotation.value); err != nil {
 			return adopted, skipped, err
 		}
-		if !write.refresh {
-			delete(wanted, write.rotation.credential)
-		}
-		adopted = append(adopted, Adopted{
-			Name:      write.rotation.credential,
-			Key:       write.key,
-			Origin:    write.rotation.path,
-			Refreshed: write.refresh,
-		})
 	}
 
 	if wanted["GITHUB_TOKEN"] && runner != nil {
@@ -671,16 +702,22 @@ func unquote(value string) string {
 	return value
 }
 
-// envWrite is one store write a .env rotation resolved to: the key it lands
-// on, and whether that key already held a different value.
+// envWrite is what one .env rotation resolved to on the key it lands on:
+// a write, a stored value kept, or nothing to do because the store already
+// holds it. Every one of them is a reading of the file the Seen record takes.
 type envWrite struct {
 	rotation envRotation
 	key      Key
-	refresh  bool
+	// store marks a value that is written: a first adoption, or a refresh
+	// when refresh is set as well.
+	store   bool
+	refresh bool
+	// kept marks a stored value the file disagreed with on its first reading.
+	kept bool
 }
 
 // planWrites resolves each rotation to the single store key it would write,
-// and keeps one write per key.
+// and keeps one outcome per key.
 //
 // The run deduplicates by credential and the store deduplicates by key, and
 // those are not the same set. A refresh targets whichever key in a
@@ -723,13 +760,15 @@ func planWrites(store Store, scope string, chains map[string][]string, wanted ma
 // that already holds a value, walked in the order Resolver.lookup consults
 // them so the live key is the one that changes. A key further down the chain
 // is one resolution never reaches, and writing it would leave the live one
-// stale. A value the store already holds is not a write at all.
+// stale. A value the store already holds is not a write at all, and neither
+// is a value that differs from the store without having changed in the file:
+// only a file whose value moved since the Seen record took it is a rotation.
 func resolveWrite(store Store, scope string, chains map[string][]string, wanted map[string]bool, rotation envRotation) (envWrite, bool, error) {
 	if strings.TrimSpace(rotation.value) == "" {
 		return envWrite{}, false, nil
 	}
 	if wanted[rotation.credential] {
-		return envWrite{rotation: rotation, key: Scoped(scope, rotation.credential)}, true, nil
+		return envWrite{rotation: rotation, key: Scoped(scope, rotation.credential), store: true}, true, nil
 	}
 	for _, candidate := range chains[rotation.credential] {
 		key := Scoped(scope, candidate)
@@ -740,12 +779,45 @@ func resolveWrite(store Store, scope string, chains map[string][]string, wanted 
 		if !found || existing == "" {
 			continue
 		}
+		write := envWrite{rotation: rotation, key: key}
 		if existing == rotation.value {
-			return envWrite{}, false, nil
+			return write, true, nil
 		}
-		return envWrite{rotation: rotation, key: key, refresh: true}, true, nil
+		seen, read, err := store.Seen().Get(key)
+		if err != nil {
+			return envWrite{}, false, err
+		}
+		switch {
+		case !read:
+			write.kept = true
+		case seen != envFingerprint(rotation.value):
+			write.store, write.refresh = true, true
+		}
+		return write, true, nil
 	}
 	return envWrite{}, false, nil
+}
+
+// envFingerprint is what a Seen record keeps of a .env value: enough to tell
+// that the file changed, and nothing that can stand in for the value.
+func envFingerprint(value string) string {
+	sum := sha256.Sum256([]byte(value))
+	return "sha256:" + hex.EncodeToString(sum[:])
+}
+
+// recordSeen remembers what a .env offered for key, writing only when that
+// differs from what is already remembered, so a dispatch that changed nothing
+// writes nothing.
+func recordSeen(seen Store, key Key, value string) error {
+	fingerprint := envFingerprint(value)
+	recorded, found, err := seen.Get(key)
+	if err != nil {
+		return err
+	}
+	if found && recorded == fingerprint {
+		return nil
+	}
+	return seen.Set(key, fingerprint)
 }
 
 // LinkCheckFailedLine names the local files whose hard link count could not be

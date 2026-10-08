@@ -1,16 +1,19 @@
 // Package proc walks Windows process ancestry (parent-of-parent links) via the
-// Toolhelp32 snapshot API, resolving each hop's creation time to detect PID
+// system process list, resolving each hop's creation time to detect PID
 // reuse. It is the Windows replacement for upstream's /proc-based harness
 // ancestry walk.
 package proc
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"strings"
 	"syscall"
 	"time"
 	"unsafe"
+
+	"golang.org/x/sys/windows"
 )
 
 // Windows access right allowing process metadata queries without wider rights.
@@ -29,40 +32,51 @@ func Self() int {
 	return os.Getpid()
 }
 
-// snapshotEntry holds the fields of a process needed for ancestry walking,
-// captured from a single Toolhelp32 snapshot.
+// snapshotEntry holds the fields of a process the system process list gives,
+// all read at the one moment the list was taken.
 type snapshotEntry struct {
 	parentPID uint32
 	exeBase   string
+	start     time.Time
 }
 
-// snapshotProcesses returns every running process keyed by PID, taken from a
-// single CreateToolhelp32Snapshot call.
+// snapshotProcesses returns every running process keyed by PID, from one
+// system process list, which needs no handle to any process and carries each
+// one's creation time.
 func snapshotProcesses() (map[uint32]snapshotEntry, error) {
-	handle, err := syscall.CreateToolhelp32Snapshot(syscall.TH32CS_SNAPPROCESS, 0)
-	if err != nil {
-		return nil, fmt.Errorf("proc: CreateToolhelp32Snapshot: %w", err)
-	}
-	defer syscall.CloseHandle(handle)
-
-	processes := make(map[uint32]snapshotEntry)
-	var entry syscall.ProcessEntry32
-	entry.Size = uint32(unsafe.Sizeof(entry))
-
-	err = syscall.Process32First(handle, &entry)
-	for err == nil {
-		processes[entry.ProcessID] = snapshotEntry{
-			parentPID: entry.ParentProcessID,
-			exeBase:   syscall.UTF16ToString(entry.ExeFile[:]),
+	buffer := make([]byte, 1<<20)
+	for {
+		var needed uint32
+		err := windows.NtQuerySystemInformation(windows.SystemProcessInformation, unsafe.Pointer(&buffer[0]), uint32(len(buffer)), &needed)
+		if err == nil {
+			break
 		}
-		err = syscall.Process32Next(handle, &entry)
+		if !errors.Is(err, windows.STATUS_INFO_LENGTH_MISMATCH) {
+			return nil, fmt.Errorf("proc: NtQuerySystemInformation: %w", err)
+		}
+		// The list grows between calls as processes start.
+		buffer = make([]byte, max(int(needed), 2*len(buffer)))
+	}
+	processes := make(map[uint32]snapshotEntry)
+	for offset := uint32(0); ; {
+		entry := (*windows.SYSTEM_PROCESS_INFORMATION)(unsafe.Pointer(&buffer[offset]))
+		created := windows.Filetime{LowDateTime: uint32(entry.CreateTime), HighDateTime: uint32(entry.CreateTime >> 32)}
+		processes[uint32(entry.UniqueProcessID)] = snapshotEntry{
+			parentPID: uint32(entry.InheritedFromUniqueProcessID),
+			exeBase:   entry.ImageName.String(),
+			start:     time.Unix(0, created.Nanoseconds()).UTC(),
+		}
+		if entry.NextEntryOffset == 0 {
+			break
+		}
+		offset += entry.NextEntryOffset
 	}
 	return processes, nil
 }
 
-// Processes lists every running process from one Toolhelp32 snapshot, with
-// its parent and executable. Start is left zero: resolving it opens each
-// process, and a caller needs it for a few entries at most.
+// Processes lists every running process from one system process list, with
+// its parent, executable and start, the creation time Identify proves it by.
+// No process is opened, so the list costs the same however many there are.
 func Processes() ([]Entry, error) {
 	processes, err := snapshotProcesses()
 	if err != nil {
@@ -70,7 +84,7 @@ func Processes() ([]Entry, error) {
 	}
 	entries := make([]Entry, 0, len(processes))
 	for pid, process := range processes {
-		entries = append(entries, Entry{PID: int(pid), ParentPID: int(process.parentPID), ExeBase: process.exeBase})
+		entries = append(entries, Entry{PID: int(pid), ParentPID: int(process.parentPID), ExeBase: process.exeBase, Start: process.start})
 	}
 	return entries, nil
 }

@@ -32,6 +32,9 @@ func primaryHomeFixture(t *testing.T) home.Home {
 	if err := os.WriteFile(filepath.Join(root, "AGENTS.md"), []byte("# fixture"), 0o644); err != nil {
 		t.Fatal(err)
 	}
+	if err := os.WriteFile(filepath.Join(root, home.InstalledMarker), nil, 0o644); err != nil {
+		t.Fatal(err)
+	}
 	state := filepath.Join(root, "state")
 	if err := os.MkdirAll(state, 0o755); err != nil {
 		t.Fatal(err)

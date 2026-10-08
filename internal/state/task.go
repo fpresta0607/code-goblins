@@ -44,7 +44,28 @@ type TaskMeta struct {
 	// --title, else its backlog row's, or the one cfo title wrote since;
 	// empty when it had none.
 	Title string
+	// GoblinName and GoblinTitle are the fun first name and title the goblin
+	// was given at spawn, such as Jerry and Code Designer, which the board,
+	// the merge train and the CFO call it by.
+	GoblinName  string
+	GoblinTitle string
+	// Scratch is the task's scratch folder under the home, which its pane's
+	// TEMP, TMP and GOTMPDIR name and which goes with the task. A task an
+	// older build spawned has none; its Go temporary directory is
+	// GoTmpDir's.
+	Scratch string
+	// Extras are the extra worktrees `cfo worktree add` made for the task
+	// beside its own, which go with it.
+	Extras []string
+	// Parent is the goblin a helper works for: the task that asked the
+	// supervisor for it, whose branch its own is cut from and to which it
+	// reports. Empty for every task the CFO dispatched.
+	Parent string
 }
+
+// extrasSeparator joins a task's extra worktrees in its record. Windows
+// refuses it in a file name, so no path can hold it.
+const extrasSeparator = "|"
 
 // ArchiveDirName holds the scratch directories of finished tasks, one per
 // cleanup. It is a directory under the state tree so the spawn-time id
@@ -83,7 +104,9 @@ func MetadataLockName(id string) string {
 	return ".metadata-" + id + ".lock"
 }
 
-// GoTmpDir is the per-task directory a goblin's GOTMPDIR points at. Go puts
+// GoTmpDir is the per-task directory an older build pointed a goblin's
+// GOTMPDIR at, before tasks had a scratch folder in the home; a task that
+// build spawned still uses it, and cleanup removes it with the task. Go puts
 // build and test temporaries there, t.TempDir() included, so it is
 // deliberately outside the fleet checkout: pointed inside it, every test a
 // goblin runs creates files in the tree the goblin is editing. It lives here
@@ -164,6 +187,17 @@ func GoTmpDir(stateDir, id string) (string, error) {
 	return filepath.Join(cache, "cfo", "gotmp", fleet, id), nil
 }
 
+// TaskScratch is the folder a task's pane's TEMP, TMP and GOTMPDIR name: the
+// scratch folder its record names, or, for a task an older build spawned with
+// none, its Go temporary directory, which is where that build pointed
+// GOTMPDIR.
+func TaskScratch(stateDir string, meta TaskMeta) (string, error) {
+	if meta.Scratch != "" {
+		return meta.Scratch, nil
+	}
+	return GoTmpDir(stateDir, meta.ID)
+}
+
 // ValidTaskID rejects IDs that would escape or ambiguously name a task's
 // state files. IDs are deliberately ASCII-only because they also become Herdr
 // tab labels and wake keys.
@@ -226,6 +260,13 @@ func ReadTaskMeta(stateDir, id string) (TaskMeta, error) {
 		HerdrTabID:       kv["herdr_tab_id"],
 		HerdrPaneID:      kv["herdr_pane_id"],
 		Title:            kv["title"],
+		GoblinName:       kv["goblin_name"],
+		GoblinTitle:      kv["goblin_title"],
+		Scratch:          kv["scratch"],
+		Parent:           kv["parent"],
+	}
+	if extras := kv["extras"]; extras != "" {
+		meta.Extras = strings.Split(extras, extrasSeparator)
 	}
 	if meta.Kind == "" {
 		meta.Kind = "ship"
@@ -306,6 +347,11 @@ func WriteTaskMeta(stateDir string, meta TaskMeta) error {
 		"herdr_tab_id":       meta.HerdrTabID,
 		"herdr_pane_id":      meta.HerdrPaneID,
 		"title":              meta.Title,
+		"goblin_name":        meta.GoblinName,
+		"goblin_title":       meta.GoblinTitle,
+		"scratch":            meta.Scratch,
+		"extras":             strings.Join(meta.Extras, extrasSeparator),
+		"parent":             meta.Parent,
 	}
 	if meta.Kind == "ship" {
 		fields["mode"] = meta.Mode
@@ -320,6 +366,14 @@ func WriteTaskMeta(stateDir string, meta TaskMeta) error {
 }
 
 func validateTaskMetaValues(meta TaskMeta) error {
+	if meta.Parent != "" {
+		if err := ValidTaskID(meta.Parent); err != nil {
+			return fmt.Errorf("state: task metadata parent: %w", err)
+		}
+		if strings.EqualFold(meta.Parent, meta.ID) {
+			return fmt.Errorf("state: task %s cannot be its own parent", meta.ID)
+		}
+	}
 	fields := []struct {
 		name  string
 		value string
@@ -346,6 +400,18 @@ func validateTaskMetaValues(meta TaskMeta) error {
 		{"herdr_tab_id", meta.HerdrTabID},
 		{"herdr_pane_id", meta.HerdrPaneID},
 		{"title", meta.Title},
+		{"goblin_name", meta.GoblinName},
+		{"goblin_title", meta.GoblinTitle},
+		{"scratch", meta.Scratch},
+	}
+	for _, extra := range meta.Extras {
+		if extra == "" || strings.Contains(extra, extrasSeparator) {
+			return fmt.Errorf("state: task metadata extra worktree %q is empty or holds %q", extra, extrasSeparator)
+		}
+		fields = append(fields, struct {
+			name  string
+			value string
+		}{"extras", extra})
 	}
 	for _, field := range fields {
 		if control, found := firstControlCharacter(field.value); found {

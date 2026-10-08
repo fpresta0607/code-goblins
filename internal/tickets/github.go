@@ -201,147 +201,274 @@ type activityResponse struct {
 	} `json:"errors"`
 }
 
-// Read reads one repository's activity as of now.
+// Read reads one repository's activity as of now, all of it within ctx. A
+// later page that fails names what it would have read in Activity.Unread,
+// but a first page that fails fails the read.
 func (g GitHub) Read(ctx context.Context, repository string, now time.Time) (Activity, error) {
-	return g.read(ctx, repository, now, true)
-}
-
-// ReadOpenWork keeps collaboration and open-item evidence without spending
-// additional reads on the changed files of branches without pull requests.
-func (g GitHub) ReadOpenWork(ctx context.Context, repository string, now time.Time) (Activity, error) {
-	return g.read(ctx, repository, now, false)
-}
-
-func (g GitHub) read(ctx context.Context, repository string, now time.Time, shouldCompareBranches bool) (Activity, error) {
-	owner, name, ok := strings.Cut(repository, "/")
-	if !ok || owner == "" || name == "" {
-		return Activity{}, fmt.Errorf("repository %q is not owner/name", repository)
+	read, err := newReading(repository, now, "issues", "pulls", "refs")
+	if err != nil {
+		return Activity{}, err
 	}
-	activity := Activity{Repository: repository}
-	since := now.Add(-CollaborationWindow).UTC().Format(time.RFC3339)
-	include := map[string]bool{"first": true, "issues": true, "pulls": true, "refs": true}
-	cursors := map[string]string{}
-	pullFiles := map[int]int{}
-	for round := 0; include["issues"] || include["pulls"] || include["refs"]; round++ {
-		if round == maxPageRounds {
-			for _, connection := range []string{"issues", "pulls", "refs"} {
-				if include[connection] {
-					activity.Unread = append(activity.Unread, fmt.Sprintf("open %s past the first %d pages", connectionNoun[connection], maxPageRounds))
-				}
-			}
-			break
-		}
-		response, err := g.query(ctx, owner, name, since, include, cursors)
-		if err != nil && response.Data.Repository == nil {
-			if include["first"] {
+	for !read.isDone() {
+		if err := g.next(ctx, read); err != nil {
+			if read.include["first"] {
 				return Activity{}, err
 			}
-			for _, connection := range []string{"issues", "pulls", "refs"} {
-				if include[connection] {
-					activity.Unread = append(activity.Unread, fmt.Sprintf("open %s after the first %d pages: %v", connectionNoun[connection], round, err))
-				}
-			}
-			break
-		}
-		if err != nil {
-			activity.Unread = append(activity.Unread, err.Error())
-		} else {
-			for _, failure := range response.Errors {
-				activity.Unread = append(activity.Unread, fmt.Sprintf("GitHub left part of %s unread: %s", repository, failure.Message))
-			}
-		}
-		data := response.Data
-		if include["first"] {
-			if data.Viewer != nil {
-				activity.Viewer = Actor{Login: data.Viewer.Login, Name: data.Viewer.Name}
-			}
-			readFirstRound(&activity, response)
-		}
-		repo := data.Repository
-		include["first"] = false
-		missing := map[string]bool{"issues": repo.Issues == nil, "pulls": repo.PullRequests == nil, "refs": repo.Refs == nil}
-		for _, connection := range []string{"issues", "pulls", "refs"} {
-			if include[connection] && missing[connection] {
-				activity.Unread = append(activity.Unread, fmt.Sprintf("open %s on page %d: the connection was not read", connectionNoun[connection], round+1))
-				include[connection] = false
-			}
-		}
-		if include["issues"] {
-			for _, node := range repo.Issues.Nodes {
-				issue := Issue{Number: node.Number, Title: node.Title, Body: node.Body, URL: node.URL, CreatedAt: node.CreatedAt, Author: node.Author.actor(), Assignees: []string{}, Labels: []string{}}
-				for _, assignee := range node.Assignees.Nodes {
-					issue.Assignees = append(issue.Assignees, assignee.Login)
-				}
-				for _, label := range node.Labels.Nodes {
-					issue.Labels = append(issue.Labels, label.Name)
-				}
-				activity.Issues = append(activity.Issues, issue)
-			}
-			include["issues"], cursors["issuesAfter"] = repo.Issues.PageInfo.HasNextPage, repo.Issues.PageInfo.EndCursor
-		}
-		if include["pulls"] {
-			for _, node := range repo.PullRequests.Nodes {
-				pull := PullRequest{Number: node.Number, Title: node.Title, URL: node.URL, IsDraft: node.IsDraft, HeadRef: node.HeadRefName, FromFork: node.IsCrossRepository, CreatedAt: node.CreatedAt, UpdatedAt: node.UpdatedAt, Author: node.Author.actor(), Files: []string{}}
-				for _, file := range node.Files.Nodes {
-					pull.Files = append(pull.Files, file.Path)
-				}
-				pullFiles[node.Number] = node.ChangedFiles
-				activity.PullRequests = append(activity.PullRequests, pull)
-			}
-			include["pulls"], cursors["pullsAfter"] = repo.PullRequests.PageInfo.HasNextPage, repo.PullRequests.PageInfo.EndCursor
-		}
-		if include["refs"] {
-			for _, node := range repo.Refs.Nodes {
-				activity.Branches = append(activity.Branches, Branch{Name: node.Name, Head: node.Target.Oid, CommittedAt: node.Target.CommittedDate, Author: node.Target.Author.actor()})
-			}
-			include["refs"], cursors["refsAfter"] = repo.Refs.PageInfo.HasNextPage, repo.Refs.PageInfo.EndCursor
+			read.giveUp(err)
 		}
 	}
-	for i, pull := range activity.PullRequests {
-		changedFiles := pullFiles[pull.Number]
-		if changedFiles <= len(pull.Files) {
-			continue
-		}
-		knownFiles := map[string]bool{}
-		activity.PullRequests[i].Files = nil
-		for _, file := range pull.Files {
-			if !knownFiles[file] {
-				activity.PullRequests[i].Files = append(activity.PullRequests[i].Files, file)
-				knownFiles[file] = true
-			}
-		}
-		pagesRead := 0
-		hasReadFailure := false
-		lastPage := min((changedFiles+99)/100, maxPageRounds)
-		for page := 1; page <= lastPage; page++ {
-			files, err := g.lines(ctx, "api", fmt.Sprintf("repos/%s/pulls/%d/files?per_page=100&page=%d", repository, pull.Number, page), "--jq", ".[].filename")
-			if err != nil {
-				activity.Unread = append(activity.Unread, fmt.Sprintf("the changed files of pull request %d past the first %d: %v", pull.Number, len(knownFiles), err))
-				hasReadFailure = true
-				break
-			}
-			pagesRead = page
-			for _, file := range files {
-				if !knownFiles[file] {
-					activity.PullRequests[i].Files = append(activity.PullRequests[i].Files, file)
-					knownFiles[file] = true
-				}
-			}
-			if len(files) < min(100, changedFiles-(page-1)*100) {
-				break
-			}
-		}
-		if !hasReadFailure && len(knownFiles) < changedFiles {
-			activity.Unread = append(activity.Unread, fmt.Sprintf("the changed files of pull request %d: read %d of %d files after the first %d pages", pull.Number, len(knownFiles), changedFiles, pagesRead))
-		}
-	}
-	if shouldCompareBranches {
-		g.compareBranches(ctx, &activity, now)
-	}
-	return activity, nil
+	g.compareBranches(ctx, &read.activity, now)
+	return read.activity, nil
 }
 
+// OpenWork is the supervisor's overlap read of one repository, taken a few
+// pages a pass: the account gh works as, the dated acts that show who works
+// there, and every open issue and pull request with the files it changes.
+// It reads no branch. The overlap read compares no branch's files, so no
+// branch can meet a goblin's area, and GitHub lists branches by name, never
+// by their last push: on 2026-10-08 paging through the 403 branches of
+// fpresta0607/code-goblins under one deadline every ten minutes timed out
+// pass after pass.
+type OpenWork struct {
+	read *reading
+}
+
+// StartOpenWork begins an overlap read of repository as of now. It asks
+// GitHub nothing until Continue.
+func StartOpenWork(repository string, now time.Time) (*OpenWork, error) {
+	read, err := newReading(repository, now, "issues", "pulls")
+	if err != nil {
+		return nil, err
+	}
+	return &OpenWork{read: read}, nil
+}
+
+// Continue reads at most pages more pages of work, each on a deadline of its
+// own, and returns how many it read. It stops at the first page that fails
+// and returns why: work keeps its place, so the next Continue asks for that
+// page again rather than starting over.
+func (g GitHub) Continue(ctx context.Context, work *OpenWork, pages int, deadline time.Duration) (int, error) {
+	read := 0
+	for read < pages && !work.read.isDone() {
+		page, cancel := context.WithTimeout(ctx, deadline)
+		err := g.next(page, work.read)
+		cancel()
+		if err != nil {
+			return read, err
+		}
+		read++
+	}
+	return read, nil
+}
+
+// Activity is what work has read so far.
+func (w *OpenWork) Activity() Activity {
+	return w.read.activity
+}
+
+// IsWhole reports whether work has read everything it reads.
+func (w *OpenWork) IsWhole() bool {
+	return w.read.isDone()
+}
+
+// reading is one read of a repository's activity, taken one gh call at a
+// time: a round of the GraphQL query while a connection has pages, then a
+// page of the files of each pull request that changes more than the hundred
+// the query lists. A call that fails leaves the reading as it was, so its
+// caller either asks again or gives up what the call was reading.
+type reading struct {
+	activity           Activity
+	owner, name, since string
+	include            map[string]bool
+	cursors            map[string]string
+	rounds             int
+	changedFiles       map[int]int
+	files              []pullFiles
+}
+
+// pullFiles is a pull request whose files are read page by page: where it is
+// in the activity's pull requests, the files known, the pages read and the
+// last page asked for.
+type pullFiles struct {
+	index, pages, last int
+	known              map[string]bool
+}
+
+var connections = []string{"issues", "pulls", "refs"}
+
 var connectionNoun = map[string]string{"issues": "issues", "pulls": "pull requests", "refs": "branches"}
+
+func newReading(repository string, now time.Time, paged ...string) (*reading, error) {
+	owner, name, ok := strings.Cut(repository, "/")
+	if !ok || owner == "" || name == "" {
+		return nil, fmt.Errorf("repository %q is not owner/name", repository)
+	}
+	read := &reading{activity: Activity{Repository: repository}, owner: owner, name: name, since: now.Add(-CollaborationWindow).UTC().Format(time.RFC3339), include: map[string]bool{"first": true}, cursors: map[string]string{}, changedFiles: map[int]int{}}
+	for _, connection := range paged {
+		read.include[connection] = true
+	}
+	return read, nil
+}
+
+func (r *reading) isPaging() bool {
+	return r.include["issues"] || r.include["pulls"] || r.include["refs"]
+}
+
+func (r *reading) isDone() bool {
+	return !r.include["first"] && !r.isPaging() && len(r.files) == 0
+}
+
+// next reads the reading's next page.
+func (g GitHub) next(ctx context.Context, r *reading) error {
+	if r.include["first"] || r.isPaging() {
+		return g.nextRound(ctx, r)
+	}
+	return g.nextFiles(ctx, r)
+}
+
+// nextRound reads one round of the GraphQL query: everything the first time,
+// then the next page of each connection that has one. After maxPageRounds
+// rounds a connection's further pages are named unread.
+func (g GitHub) nextRound(ctx context.Context, r *reading) error {
+	response, err := g.query(ctx, r.owner, r.name, r.since, r.include, r.cursors)
+	if err != nil && response.Data.Repository == nil {
+		return err
+	}
+	activity := &r.activity
+	if err != nil {
+		activity.Unread = append(activity.Unread, err.Error())
+	} else {
+		for _, failure := range response.Errors {
+			activity.Unread = append(activity.Unread, fmt.Sprintf("GitHub left part of %s unread: %s", activity.Repository, failure.Message))
+		}
+	}
+	data := response.Data
+	if r.include["first"] {
+		if data.Viewer != nil {
+			activity.Viewer = Actor{Login: data.Viewer.Login, Name: data.Viewer.Name}
+		}
+		readFirstRound(activity, response)
+	}
+	repo := data.Repository
+	r.include["first"] = false
+	missing := map[string]bool{"issues": repo.Issues == nil, "pulls": repo.PullRequests == nil, "refs": repo.Refs == nil}
+	for _, connection := range connections {
+		if r.include[connection] && missing[connection] {
+			activity.Unread = append(activity.Unread, fmt.Sprintf("open %s on page %d: the connection was not read", connectionNoun[connection], r.rounds+1))
+			r.include[connection] = false
+		}
+	}
+	if r.include["issues"] {
+		for _, node := range repo.Issues.Nodes {
+			issue := Issue{Number: node.Number, Title: node.Title, Body: node.Body, URL: node.URL, CreatedAt: node.CreatedAt, Author: node.Author.actor(), Assignees: []string{}, Labels: []string{}}
+			for _, assignee := range node.Assignees.Nodes {
+				issue.Assignees = append(issue.Assignees, assignee.Login)
+			}
+			for _, label := range node.Labels.Nodes {
+				issue.Labels = append(issue.Labels, label.Name)
+			}
+			activity.Issues = append(activity.Issues, issue)
+		}
+		r.include["issues"], r.cursors["issuesAfter"] = repo.Issues.PageInfo.HasNextPage, repo.Issues.PageInfo.EndCursor
+	}
+	if r.include["pulls"] {
+		for _, node := range repo.PullRequests.Nodes {
+			pull := PullRequest{Number: node.Number, Title: node.Title, URL: node.URL, IsDraft: node.IsDraft, HeadRef: node.HeadRefName, FromFork: node.IsCrossRepository, CreatedAt: node.CreatedAt, UpdatedAt: node.UpdatedAt, Author: node.Author.actor(), Files: []string{}}
+			for _, file := range node.Files.Nodes {
+				pull.Files = append(pull.Files, file.Path)
+			}
+			r.changedFiles[node.Number] = node.ChangedFiles
+			activity.PullRequests = append(activity.PullRequests, pull)
+		}
+		r.include["pulls"], r.cursors["pullsAfter"] = repo.PullRequests.PageInfo.HasNextPage, repo.PullRequests.PageInfo.EndCursor
+	}
+	if r.include["refs"] {
+		for _, node := range repo.Refs.Nodes {
+			activity.Branches = append(activity.Branches, Branch{Name: node.Name, Head: node.Target.Oid, CommittedAt: node.Target.CommittedDate, Author: node.Target.Author.actor()})
+		}
+		r.include["refs"], r.cursors["refsAfter"] = repo.Refs.PageInfo.HasNextPage, repo.Refs.PageInfo.EndCursor
+	}
+	r.rounds++
+	if r.rounds == maxPageRounds {
+		for _, connection := range connections {
+			if r.include[connection] {
+				activity.Unread = append(activity.Unread, fmt.Sprintf("open %s past the first %d pages", connectionNoun[connection], maxPageRounds))
+				r.include[connection] = false
+			}
+		}
+	}
+	if !r.isPaging() {
+		r.queueFiles()
+	}
+	return nil
+}
+
+// queueFiles lines up each pull request that changes more files than the
+// GraphQL query listed, with the files it did list once each.
+func (r *reading) queueFiles() {
+	for i, pull := range r.activity.PullRequests {
+		changed := r.changedFiles[pull.Number]
+		if changed <= len(pull.Files) {
+			continue
+		}
+		known := map[string]bool{}
+		r.activity.PullRequests[i].Files = nil
+		for _, file := range pull.Files {
+			if !known[file] {
+				r.activity.PullRequests[i].Files = append(r.activity.PullRequests[i].Files, file)
+				known[file] = true
+			}
+		}
+		r.files = append(r.files, pullFiles{index: i, last: min((changed+99)/100, maxPageRounds), known: known})
+	}
+}
+
+// nextFiles reads the next page of the first pull request whose files are
+// still being read, and names the files left unread once it reads its last.
+func (g GitHub) nextFiles(ctx context.Context, r *reading) error {
+	pending := &r.files[0]
+	pull := &r.activity.PullRequests[pending.index]
+	page := pending.pages + 1
+	files, err := g.lines(ctx, "api", fmt.Sprintf("repos/%s/pulls/%d/files?per_page=100&page=%d", r.activity.Repository, pull.Number, page), "--jq", ".[].filename")
+	if err != nil {
+		return err
+	}
+	pending.pages = page
+	for _, file := range files {
+		if !pending.known[file] {
+			pull.Files = append(pull.Files, file)
+			pending.known[file] = true
+		}
+	}
+	changed := r.changedFiles[pull.Number]
+	if page < pending.last && len(files) >= min(100, changed-(page-1)*100) {
+		return nil
+	}
+	if len(pending.known) < changed {
+		r.activity.Unread = append(r.activity.Unread, fmt.Sprintf("the changed files of pull request %d: read %d of %d files after the first %d pages", pull.Number, len(pending.known), changed, page))
+	}
+	r.files = r.files[1:]
+	return nil
+}
+
+// giveUp names what the call that failed was reading as unread and moves
+// past it: every connection it was paging, or the rest of the files of the
+// pull request it was reading.
+func (r *reading) giveUp(err error) {
+	if r.isPaging() {
+		for _, connection := range connections {
+			if r.include[connection] {
+				r.activity.Unread = append(r.activity.Unread, fmt.Sprintf("open %s after the first %d pages: %v", connectionNoun[connection], r.rounds, err))
+				r.include[connection] = false
+			}
+		}
+		r.queueFiles()
+		return
+	}
+	pending := r.files[0]
+	r.activity.Unread = append(r.activity.Unread, fmt.Sprintf("the changed files of pull request %d past the first %d: %v", r.activity.PullRequests[pending.index].Number, len(pending.known), err))
+	r.files = r.files[1:]
+}
 
 // readFirstRound reads what only the first round asks for: the default
 // branch and the dated acts that show who works here.

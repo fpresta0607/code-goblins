@@ -44,9 +44,10 @@ import (
 const gateAgentVariable = "NO_MISTAKES_GATE"
 
 // agentHarnesses are the programs an agent runs as, by executable name: each
-// harness the fleet starts, and node, which runs the ones installed as npm
+// harness the fleet starts, kimi, which it no longer starts but which is still
+// an agent wherever it runs, and node, which runs the ones installed as npm
 // scripts.
-var agentHarnesses = []string{string(harness.Claude), string(harness.Codex), string(harness.Pi), string(harness.Kimi), "node"}
+var agentHarnesses = []string{string(harness.Claude), string(harness.Codex), string(harness.Pi), "kimi", "node"}
 
 // agentVariables are environment variables a harness sets for every command
 // it runs: Claude Code's own, and the one agents share to say a command is
@@ -98,20 +99,37 @@ func LogAFKDecision(h home.Home, entry afk.Entry) error {
 // words it: the command at the other end of the pipe, or the program that
 // shows the board.
 type asker struct {
+	// what opens every refusal with whose act it is, and only ends it with
+	// who may do it.
+	what, only string
 	// runs opens a refusal that says where it runs.
 	runs string
 	// cut says whose parents stop short of the desktop, and the way out.
 	cut string
 }
 
+const afkWhat = "AFK mode is the Supreme Overlord's switch"
+
 var (
 	askingCommand = asker{
+		what: afkWhat,
+		only: onlyHis,
 		runs: "this command runs",
 		cut:  "as it cannot those of a command run in Git Bash or under a program that replaces its own process, so nothing says it is his: run it in PowerShell or cmd",
 	}
 	askingBoard = asker{
+		what: afkWhat,
+		only: onlyHis,
 		runs: "the program that shows this board runs",
 		cut:  "as it cannot those of a browser whose opener has since exited, so nothing says it is his: open the board in the Code Goblins window or a browser he starts from the desktop, or run cfo afk on in PowerShell or cmd",
+	}
+	// updatingBoard asks for the Update item: updating Code Goblins is his
+	// alone, in AFK mode or out of it.
+	updatingBoard = asker{
+		what: "Updating Code Goblins is the Supreme Overlord's alone",
+		only: ": he presses Update on a board of his own, or runs goblins update in a terminal of his own",
+		runs: "the program that shows this board runs",
+		cut:  "as it cannot those of a browser whose opener has since exited, so nothing says it is his: open the board in the Code Goblins window or a browser he starts from the desktop",
 	}
 )
 
@@ -142,29 +160,45 @@ func (s *Service) overlordsOwn(pid int, asked time.Time, who asker) ([]proc.Entr
 	// supervisor cannot read, and it is the Overlord who meets that, so the
 	// refusal says so.
 	if err != nil || len(ancestry) == 0 || ancestry[0].Start.After(asked) {
-		return nil, errors.New("AFK mode is the Supreme Overlord's switch, and the supervisor could not read the process that asked for it, as it cannot one run as administrator, so nothing says it is his" + onlyHis)
+		return nil, errors.New(who.what + ", and the supervisor could not read the process that asked for it, as it cannot one run as administrator, so nothing says it is his" + who.only)
 	}
-	refuse := func(where string) ([]proc.Entry, error) {
-		return nil, errors.New("AFK mode is the Supreme Overlord's switch, and " + who.runs + " " + where + onlyHis)
+	if where := agentMark(s.Store.Home.State, ancestry, env); where != "" {
+		return nil, errors.New(who.what + ", and " + who.runs + " " + where + who.only)
 	}
+	// The same cut with those variables removed too, as Git Bash's env leaves
+	// a command, has nothing left that marks an agent. Parents that stop short
+	// of the desktop are parents the supervisor could not read, and Git Bash
+	// cuts the Overlord's own the same way, so the refusal names the way out.
+	if fromDesktop(ancestry) < 0 {
+		return nil, errors.New(who.what + ", and the supervisor could not follow its parents to the desktop, " + who.cut + who.only)
+	}
+	return ancestry, nil
+}
+
+// agentMark says where a process with these parents, itself first, and this
+// environment runs when something marks it as an agent's, and is empty when
+// nothing does: a goblin's or a gate agent's environment, the home's
+// registered CFO among its parents, a terminal the fleet runs an agent in, or
+// an agent harness above it or in its environment.
+func agentMark(stateDir string, ancestry []proc.Entry, env []string) string {
 	switch {
 	case environmentValue(env, harness.RoleVariable) == harness.RoleGoblin:
-		return refuse("in a goblin's terminal")
+		return "in a goblin's terminal"
 	case environmentValue(env, gateAgentVariable) != "":
-		return refuse("as a gate agent")
+		return "as a gate agent"
 	}
-	if primary, _, err := readPrimary(s.Store.Home.State); err == nil && descendsFrom(ancestry, primary.Process) {
-		return refuse(fmt.Sprintf("under the registered CFO (%s pid %d)", primary.Agent, primary.Process.PID))
+	if primary, _, err := readPrimary(stateDir); err == nil && descendsFrom(ancestry, primary.Process) {
+		return fmt.Sprintf("under the registered CFO (%s pid %d)", primary.Agent, primary.Process.PID)
 	}
 	if id := environmentValue(env, host.IDVariable); id != "" {
-		return refuse("in native terminal " + id + ", which runs the CFO or a goblin")
+		return "in native terminal " + id + ", which runs the CFO or a goblin"
 	}
 	if environmentValue(env, "HERDR_PANE_ID") != "" {
-		return refuse("in a Herdr pane, where the CFO or a goblin runs")
+		return "in a Herdr pane, where the CFO or a goblin runs"
 	}
 	for _, entry := range ancestry {
 		if slices.Contains(agentHarnesses, strings.TrimSuffix(strings.ToLower(entry.ExeBase), ".exe")) {
-			return refuse(fmt.Sprintf("under an agent harness (%s pid %d)", entry.ExeBase, entry.PID))
+			return fmt.Sprintf("under an agent harness (%s pid %d)", entry.ExeBase, entry.PID)
 		}
 	}
 	// A command whose parents are cut off, as Git Bash's timeout leaves one,
@@ -172,17 +206,30 @@ func (s *Service) overlordsOwn(pid int, asked time.Time, who asker) ([]proc.Entr
 	// environment is still there.
 	for _, name := range agentVariables {
 		if environmentValue(env, name) != "" {
-			return refuse("under an agent harness (its environment carries " + name + ")")
+			return "under an agent harness (its environment carries " + name + ")"
 		}
 	}
-	// The same cut with those variables removed too, as Git Bash's env leaves
-	// a command, has nothing left that marks an agent. Parents that stop short
-	// of the desktop are parents the supervisor could not read, and Git Bash
-	// cuts the Overlord's own the same way, so the refusal names the way out.
-	if fromDesktop(ancestry) < 0 {
-		return nil, errors.New("AFK mode is the Supreme Overlord's switch, and the supervisor could not follow its parents to the desktop, " + who.cut + onlyHis)
+	return ""
+}
+
+// UpdaterRefusal says why the process with these parents, itself first, and
+// this environment may not update Code Goblins from a release, or nothing
+// when it may: an update is the Supreme Overlord's alone, so whatever marks
+// the process as an agent's refuses it, as AFK mode's switch refuses it, and
+// so do parents that stop short of the desktop, where nothing says the
+// terminal is his.
+func UpdaterRefusal(stateDir string, ancestry []proc.Entry, env []string) error {
+	const only = ": he runs goblins update in a terminal of his own, or presses Update in the Command Center"
+	if len(ancestry) == 0 {
+		return errors.New("updating Code Goblins is the Supreme Overlord's alone, and this command could not read its own process, so nothing says it is his" + only)
 	}
-	return ancestry, nil
+	if where := agentMark(stateDir, ancestry, env); where != "" {
+		return errors.New("updating Code Goblins is the Supreme Overlord's alone, and this command runs " + where + only)
+	}
+	if fromDesktop(ancestry) < 0 {
+		return errors.New("updating Code Goblins is the Supreme Overlord's alone, and this command could not follow its parents to the desktop, as it cannot those of a command run in Git Bash or under a program that replaces its own process, so nothing says it is his: run it in PowerShell or cmd, or press Update in the Command Center")
+	}
+	return nil
 }
 
 // fromDesktop is where a process's parents reach the Windows desktop or
@@ -250,7 +297,7 @@ func (s *Service) switchAFK(ctx context.Context, pid int, connected time.Time, o
 		if err != nil {
 			return err
 		}
-		return s.switchAFKAs(ctx, from, "", on)
+		return s.switchAFKAs(from, "", on)
 	}
 	asked, err := afk.HisWords(asked)
 	if err != nil {
@@ -261,7 +308,7 @@ func (s *Service) switchAFK(ctx context.Context, pid int, connected time.Time, o
 		return err
 	}
 	defer release()
-	return s.switchAFKAs(ctx, by, asked, on)
+	return s.switchAFKAs(by, asked, on)
 }
 
 // switchedSays opens the CFO's notice of a switch with who made it: the
@@ -275,23 +322,14 @@ func switchedSays(from, asked, to string) string {
 
 // switchAFKAs turns AFK mode on or off for who its caller has proven asks: the
 // Overlord from a terminal or a board of his own, which from names, or the
-// registered CFO at his ask, which from names with his words in asked. Turning
-// it on reads the allowance and tells the CFO through its wake queue; turning
-// it off keeps the report of the stretch first, so a stretch never ends
-// without one, and tells the CFO to write it into its terminal. Its caller
-// holds runRequests.
-func (s *Service) switchAFKAs(ctx context.Context, from, asked string, on bool) error {
+// registered CFO at his ask, which from names with his words in asked. It
+// waits on no program: the allowance it keeps is the supervisor's last
+// reading. Turning it on removes the report of the stretch before and tells
+// the CFO through its wake queue; turning it off keeps the report of the
+// stretch first, so a stretch never ends without one, and tells the CFO to
+// write it into its terminal. Its caller holds runRequests.
+func (s *Service) switchAFKAs(from, asked string, on bool) error {
 	stateDir := s.Store.Home.State
-	// quota-axi is read with afkChange free, so the supervisor's cycle never
-	// waits behind it, and only for a switch that will be made. Requests for
-	// the switch are taken one at a time, so it reads the same again below.
-	s.afkChange.Lock()
-	before, err := afk.Read(stateDir)
-	s.afkChange.Unlock()
-	allowance, unread := []afk.Allowance(nil), "this supervisor reads no allowance"
-	if err == nil && on != before.On && s.Options.Allowance != nil {
-		allowance, unread = s.Options.Allowance(ctx)
-	}
 	s.afkChange.Lock()
 	defer s.afkChange.Unlock()
 	current, err := afk.Read(stateDir)
@@ -314,6 +352,7 @@ func (s *Service) switchAFKAs(ctx context.Context, from, asked string, on bool) 
 		return afk.ErrNotOn
 	}
 	now := time.Now().UTC()
+	allowance := s.heldAllowance(now)
 	if on {
 		if asked == "" {
 			_, _, err = afk.TurnOn(stateDir, from, allowance, now)
@@ -323,10 +362,13 @@ func (s *Service) switchAFKAs(ctx context.Context, from, asked string, on bool) 
 		if err != nil {
 			return err
 		}
-		return s.afkNotice(switchedSays(from, asked, "on") + ": he is away until he turns it off, and nothing prompts him meanwhile. Decide what its authority covers yourself and log each decision, and leave what stays his alone held for him. Its terms stand above this queue.")
+		// What the board's view kept of the stretch before goes with its
+		// report.
+		s.reads.forget(afkLogKind+current.Session, filepath.Join(stateDir, "afk.audit"))
+		return s.afkNotice(switchedSays(from, asked, "on") + ": he is away until he turns it off, and nothing prompts him meanwhile. Decide everything its authority covers yourself and log each decision. Ask him nothing and hold nothing for him: what only he can do gets a backlog row and a cfo afk log --kind left line, and the work goes around it. Its terms stand above this queue.")
 	}
 	current.Ended, current.EndedFrom, current.EndedAsked = now, from, asked
-	if err := afk.SaveReport(stateDir, s.afkReport(current, allowance, unread)); err != nil {
+	if err := afk.SaveReport(stateDir, s.afkReport(current, allowance)); err != nil {
 		return fmt.Errorf("AFK mode stays on: the report of its stretch could not be kept: %w", err)
 	}
 	if asked == "" {
@@ -368,25 +410,28 @@ func (s *Service) afkOn() bool {
 	return err == nil && switched.On
 }
 
-// heldItem is a Command Center item that waits on the Overlord.
+// heldItem is a Command Center item that waits on the Overlord, with the
+// choice its asker recommends when it is a question that names one.
 type heldItem struct {
-	kind, id, task, what string
+	kind, id, task, what, recommendation string
 }
 
 func (item heldItem) key() string { return item.kind + ":" + item.id }
 
 // waitingOnOverlord are the items that wait on the Overlord: what the board
-// would announce to him, and a credential request, which only he can fill.
+// would announce to him, and a credential request, which only he can fill. A
+// goblin's question waits on the CFO, which answers it, so of the questions
+// only the CFO's own are his, as the board's forOverlord has it.
 func waitingOnOverlord(d Database) []heldItem {
 	var items []heldItem
 	for _, q := range d.Questions {
-		if q.Status == "pending" {
-			items = append(items, heldItem{"question", q.ID, q.Task, q.Text})
+		if q.Status == "pending" && q.Task == "" {
+			items = append(items, heldItem{"question", q.ID, q.Task, q.Text, q.Recommended})
 		}
 	}
 	for _, r := range d.Reviews {
 		if r.State == "open" {
-			items = append(items, heldItem{"review", r.ID, r.Task, r.Title})
+			items = append(items, heldItem{"review", r.ID, r.Task, r.Title, ""})
 		}
 	}
 	for _, r := range d.Runs {
@@ -394,12 +439,12 @@ func waitingOnOverlord(d Database) []heldItem {
 		// connection's repair, is ready only for the moment after his own
 		// click, and was never something that waited on him.
 		if r.State == "ready" && r.CredentialRequest == "" && r.ConnectionTask == "" {
-			items = append(items, heldItem{"run", r.ID, "", r.Title})
+			items = append(items, heldItem{"run", r.ID, "", r.Title, ""})
 		}
 	}
 	for _, c := range d.Credentials {
 		if c.State == "open" {
-			items = append(items, heldItem{"credential", c.ID, c.Task, "Credentials for " + c.Project + " (" + strings.Join(c.Names, ", ") + "): " + c.Why})
+			items = append(items, heldItem{"credential", c.ID, c.Task, "Credentials for " + c.Project + " (" + strings.Join(c.Names, ", ") + "): " + c.Why, ""})
 		}
 	}
 	return items
@@ -433,7 +478,7 @@ func (s *Service) holdForOverlord(now time.Time) error {
 		if s.held[item.key()] {
 			continue
 		}
-		if err := afk.Hold(stateDir, afk.Entry{Item: item.key(), Task: item.task, What: bounded(item.what, 2000)}, now); err != nil {
+		if err := afk.Hold(stateDir, afk.Entry{Item: item.key(), Task: item.task, What: bounded(item.what, 2000), Recommendation: item.recommendation}, now); err != nil {
 			return err
 		}
 		s.held[item.key()] = true
@@ -441,10 +486,11 @@ func (s *Service) holdForOverlord(now time.Time) error {
 	return nil
 }
 
-// afkReport is the report of the stretch ended holds: the log's decisions,
-// what each goblin reported done, each held item with what became of it, and
-// the allowance read when it turned on beside after, read now.
-func (s *Service) afkReport(ended afk.State, after []afk.Allowance, unread string) afk.Report {
+// afkReport is the report of the stretch ended holds: the log's decisions and
+// pauses at a floor, what each goblin reported done, each held item with what
+// became of it, and the allowance read when it turned on beside after, read
+// when it turned off. A reading not taken is left out, never noted.
+func (s *Service) afkReport(ended afk.State, after []afk.Allowance) afk.Report {
 	stateDir := s.Store.Home.State
 	report := afk.Report{Session: ended.Session, Since: ended.Since, Ended: ended.Ended, From: ended.From, Asked: ended.Asked, EndedFrom: ended.EndedFrom, EndedAsked: ended.EndedAsked, Before: ended.Allowance, After: after}
 	entries, unreadable, err := afk.Entries(stateDir, ended.Session)
@@ -454,13 +500,7 @@ func (s *Service) afkReport(ended afk.State, after []afk.Allowance, unread strin
 	case unreadable > 0:
 		report.Notes = append(report.Notes, fmt.Sprintf("%d line(s) of the log could not be read, in this stretch or another", unreadable))
 	}
-	if len(ended.Allowance) == 0 {
-		report.Notes = append(report.Notes, "the allowance was not read when AFK mode turned on")
-	}
-	if len(after) == 0 {
-		report.Notes = append(report.Notes, "the allowance was not read when AFK mode turned off: "+unread)
-	}
-	report.Decisions = afk.Decisions(entries)
+	report.Decisions, report.Paused = afk.Decisions(entries), afk.Pauses(entries)
 	finished, err := doneBetween(stateDir, ended.Since, ended.Ended)
 	if err != nil {
 		report.Notes = append(report.Notes, "what the goblins finished could not be read in full: "+err.Error())
@@ -487,7 +527,7 @@ func (s *Service) heldOf(d Database, entries, decisions []afk.Entry) []afk.Held 
 			continue
 		}
 		waiting, now := heldNow(d, entry.Item, time.Time{})
-		one := afk.Held{Item: entry.Item, Task: entry.Task, What: entry.What, At: entry.At, Waiting: waiting, Now: now}
+		one := afk.Held{Item: entry.Item, Task: entry.Task, What: entry.What, At: entry.At, Waiting: waiting, Now: now, Recommendation: entry.Recommendation}
 		if entry.Task != "" {
 			// A status line is stamped to the second.
 			lines, _ := s.statusTail(entry.Task)
@@ -520,6 +560,10 @@ type AFKView struct {
 	Report string `json:"report,omitempty"`
 }
 
+// afkLogKind, with a stretch's session, names what the board's view keeps of
+// that stretch's log.
+const afkLogKind = "afk-log "
+
 // afkView reads AFK mode for a snapshot of d. A log that cannot be read leaves
 // the view without what the log holds, and is the error returned.
 func (s *Service) afkView(d Database) (AFKView, error) {
@@ -531,7 +575,7 @@ func (s *Service) afkView(d Database) (AFKView, error) {
 		view.State = "unreadable"
 	case switched.On:
 		view.State, view.Since, view.From, view.Asked = "on", &switched.Since, switched.From, switched.Asked
-		entries, err := kept(&s.reads, "afk-log "+switched.Session, []string{filepath.Join(stateDir, "afk.audit")}, func() ([]afk.Entry, error) {
+		entries, err := kept(&s.reads, afkLogKind+switched.Session, []string{filepath.Join(stateDir, "afk.audit")}, func() ([]afk.Entry, error) {
 			entries, _, err := afk.Entries(stateDir, switched.Session)
 			return entries, err
 		})
@@ -639,28 +683,44 @@ func heldNow(d Database, item string, ended time.Time) (waiting bool, now string
 }
 
 // doneBetween are the pull requests goblins reported done from since to
-// ended, read from every status log the state directory and its archive
-// still hold, oldest first.
+// ended, read from the status logs the state directory and its archive still
+// hold, oldest first. A log last written before the stretch began, or
+// archived before it, holds nothing of it and is not opened: the home holds
+// hundreds of logs, opening a file costs this machine up to 80 ms, and
+// opening them all held turning AFK mode off for up to a minute.
 func doneBetween(stateDir string, since, ended time.Time) ([]afk.Finish, error) {
+	began := since.Truncate(time.Second)
 	logs := map[string]string{}
 	entries, err := os.ReadDir(stateDir)
 	if err != nil {
 		return nil, err
 	}
 	for _, entry := range entries {
-		if id, ok := strings.CutSuffix(entry.Name(), ".status"); ok && !entry.IsDir() && state.ValidTaskID(id) == nil {
-			logs[filepath.Join(stateDir, entry.Name())] = id
+		id, ok := strings.CutSuffix(entry.Name(), ".status")
+		if !ok || entry.IsDir() || state.ValidTaskID(id) != nil {
+			continue
 		}
+		// The listing carries each file's time, so asking it opens nothing.
+		if info, err := entry.Info(); err == nil && info.ModTime().Before(began) {
+			continue
+		}
+		logs[filepath.Join(stateDir, entry.Name())] = id
 	}
 	archive := filepath.Join(stateDir, state.ArchiveDirName)
 	archived, err := os.ReadDir(archive)
 	if err != nil && !errors.Is(err, os.ErrNotExist) {
 		return nil, err
 	}
+	// An archived log's name ends with when it was archived, and nothing
+	// writes to it after.
+	archivedBefore := func(stamp string) bool {
+		at, err := time.Parse("20060102T150405Z", stamp)
+		return err == nil && at.Before(began)
+	}
 	for _, entry := range archived {
-		if m := archivedStatusFile.FindStringSubmatch(entry.Name()); m != nil && !entry.IsDir() {
+		if m := archivedStatusFile.FindStringSubmatch(entry.Name()); m != nil && !entry.IsDir() && !archivedBefore(m[2]) {
 			logs[filepath.Join(archive, entry.Name())] = m[1]
-		} else if m := archivedTaskDir.FindStringSubmatch(entry.Name()); m != nil && entry.IsDir() {
+		} else if m := archivedTaskDir.FindStringSubmatch(entry.Name()); m != nil && entry.IsDir() && !archivedBefore(m[2]) {
 			logs[filepath.Join(archive, entry.Name(), m[1]+".status")] = m[1]
 		}
 	}

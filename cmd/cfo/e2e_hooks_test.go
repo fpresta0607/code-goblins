@@ -18,7 +18,10 @@ import (
 	"testing"
 	"time"
 
+	codegoblins "github.com/fpresta0607/code-goblins"
+	"github.com/fpresta0607/code-goblins/internal/execx"
 	"github.com/fpresta0607/code-goblins/internal/fsx"
+	"github.com/fpresta0607/code-goblins/internal/harnessmap"
 	"github.com/fpresta0607/code-goblins/internal/home"
 	"github.com/fpresta0607/code-goblins/internal/install"
 )
@@ -577,11 +580,22 @@ func loadRegisteredCommands(t *testing.T, exe string) map[string]registeredHook 
 	t.Helper()
 	settingsPath := filepath.Join(t.TempDir(), "settings.json")
 	root := homeWithBinary(t, exe)
+	skills, err := fs.Sub(codegoblins.Skills, ".agents/skills")
+	if err != nil {
+		t.Fatal(err)
+	}
+	// The skills go to a profile of the test's own, never this machine's.
 	service := install.Service{
 		Root:         root,
 		UserSettings: settingsPath,
 		RepoSettings: filepath.Join(t.TempDir(), "absent.json"),
 		Env:          inertEnvStore{},
+		Contract:     codegoblins.Contract,
+		Policy:       codegoblins.Policy,
+		Skills:       skills,
+		Binary:       exe,
+		Harnesses:    harnessmap.Find(func(string) string { return "" }, t.TempDir()),
+		Link:         junction(execx.OSRunner{}),
 	}
 	if err := service.Install(io.Discard); err != nil {
 		t.Fatalf("install into %s: %v", settingsPath, err)
@@ -596,7 +610,7 @@ func loadRegisteredCommands(t *testing.T, exe string) map[string]registeredHook 
 	}
 
 	commands := make(map[string]registeredHook)
-	binary := filepath.Join(root, "cfo.exe")
+	binary := filepath.Join(root, "bin", "cfo.exe")
 	record := func(entry settingsHookEntry) {
 		if entry.Command == binary && len(entry.Args) == 2 && entry.Args[0] == "hook" {
 			commands[entry.Args[1]] = registeredHook{Command: entry.Command, Args: entry.Args, Timeout: entry.Timeout, AsyncRewake: entry.AsyncRewake}
@@ -620,8 +634,8 @@ func loadRegisteredCommands(t *testing.T, exe string) map[string]registeredHook 
 	return commands
 }
 
-// homeWithBinary is a primary fleet home that also holds cfo.exe, which is
-// what a real $CFO_HOME looks like and the binary the hooks cfo install
+// homeWithBinary is a primary fleet home that also holds bin\cfo.exe, which
+// is what a real $CFO_HOME looks like and the binary the hooks cfo install
 // registers for it run.
 func homeWithBinary(t *testing.T, exe string) string {
 	t.Helper()
@@ -630,7 +644,10 @@ func homeWithBinary(t *testing.T, exe string) string {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(home, "cfo.exe"), data, 0o755); err != nil {
+	if err := os.MkdirAll(filepath.Join(home, "bin"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(home, "bin", "cfo.exe"), data, 0o755); err != nil {
 		t.Fatal(err)
 	}
 	return home

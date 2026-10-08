@@ -75,6 +75,18 @@ func Needed(stateDir string) (bool, string, error) {
 	return true, fmt.Sprintf("%d task(s) in flight", n), nil
 }
 
+// StopHook returns the Claude Code Stop hook that holds the auto-arm lock
+// now, proved alive: the session it runs under has ended its turn, and the
+// hook waits on the wake queue. Whose session that is, the caller proves by
+// the hook's parents.
+func StopHook(stateDir string) (lock.Info, bool) {
+	holder, err := lock.ReadNamed(stateDir, autoarmLockName)
+	if err != nil || holder.Session != autoarmSession || !holder.VerifiedAlive() {
+		return lock.Info{}, false
+	}
+	return *holder, true
+}
+
 // WatcherHealthy reports whether stateDir's .watch.lock names a live holder
 // and monitor's typed LastCycle is younger than grace. Both conjuncts are
 // required because a lock record alone cannot prove a live watcher loop.
@@ -283,25 +295,22 @@ func AlarmFired(stateDir string) bool {
 	return markerExists(stateDir, alarmedFile)
 }
 
+// budgetLockWait is how long a budget change waits for a live holder of
+// state/.turnend-claude-blocks.lock: turnend-guard and stop-autoarm both
+// take it at every Stop, and a loaded machine can slow the other's read and
+// write of the budget for seconds.
+const budgetLockWait = 5 * time.Second
+
 // withBudgetLock holds state/.turnend-claude-blocks.lock as a lock.Info
-// record through the Task 5 named-lock family for fn's duration, retried on
-// lock.ErrHeld up to 10 times at 50ms. A dead holder is stolen by the lock
+// record through the Task 5 named-lock family for fn's duration, waiting out
+// a live holder within budgetLockWait. A dead holder is stolen by the lock
 // package itself, so a process killed mid-charge cannot wedge the home.
 func withBudgetLock(stateDir string, fn func() error) error {
-	var lastErr error
-	for attempt := 0; attempt < 10; attempt++ {
-		if _, err := lock.AcquireNamedOwner(stateDir, budgetLockName, os.Getpid(), "budget"); err != nil {
-			if errors.Is(err, lock.ErrHeld) {
-				lastErr = err
-				time.Sleep(50 * time.Millisecond)
-				continue
-			}
-			return err
-		}
-		defer lock.ReleaseNamed(stateDir, budgetLockName)
-		return fn()
+	if _, err := lock.AcquireNamedOwnerWithin(stateDir, budgetLockName, os.Getpid(), "budget", budgetLockWait); err != nil {
+		return err
 	}
-	return lastErr
+	defer lock.ReleaseNamed(stateDir, budgetLockName)
+	return fn()
 }
 
 func readBudget(stateDir string) (session string, count int, err error) {

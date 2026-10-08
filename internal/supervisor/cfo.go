@@ -17,10 +17,13 @@ import (
 	"time"
 
 	"github.com/fpresta0607/code-goblins/internal/fsx"
+	"github.com/fpresta0607/code-goblins/internal/harness"
 	"github.com/fpresta0607/code-goblins/internal/herdr"
 	"github.com/fpresta0607/code-goblins/internal/host"
 	"github.com/fpresta0607/code-goblins/internal/lock"
+	"github.com/fpresta0607/code-goblins/internal/monitor"
 	"github.com/fpresta0607/code-goblins/internal/proc"
+	"github.com/fpresta0607/code-goblins/internal/spawn"
 	"github.com/fpresta0607/code-goblins/internal/state"
 	"github.com/fpresta0607/code-goblins/internal/terminal"
 )
@@ -259,7 +262,8 @@ func (c *CFOConnection) verify(primary primaryRegistration) error {
 	if !primary.Process.VerifiedAlive() {
 		return processGone(primary)
 	}
-	return terminalLeft(c.State, primary)
+	_, err := terminalLeft(c.State, primary)
+	return err
 }
 
 // processGone is the problem of a registration whose process no longer runs.
@@ -268,14 +272,16 @@ func processGone(primary primaryRegistration) error {
 }
 
 // terminalLeft is the problem of a native registration whose terminal no
-// longer runs the registered process, or nil while it does. The host's job
-// ends its terminal's program with the host, so while the program the record
-// names runs, its host serves it.
-func terminalLeft(stateDir string, primary primaryRegistration) error {
-	if record, err := host.ReadRecord(stateDir, primary.Host); err != nil || record.ChildPID != primary.Process.PID {
-		return registrationProblem("The registered CFO's native terminal " + primary.Host + " ended or runs another program")
+// longer runs the registered process, or nil, with the record of the
+// terminal's host, while it does. The host's job ends its terminal's program
+// with the host, so while the program the record names runs, its host serves
+// it.
+func terminalLeft(stateDir string, primary primaryRegistration) (host.Record, error) {
+	record, err := host.ReadRecord(stateDir, primary.Host)
+	if err != nil || record.ChildPID != primary.Process.PID {
+		return host.Record{}, registrationProblem("The registered CFO's native terminal " + primary.Host + " ended or runs another program")
 	}
-	return nil
+	return record, nil
 }
 
 // check reports why the board cannot reach the registered CFO right now, or
@@ -313,7 +319,7 @@ func LiveCFO(stateDir string) (herdr.Endpoint, bool) {
 	return herdr.Endpoint{Target: primary.Target, WorkspaceID: primary.Workspace, TabID: primary.Tab, PaneID: primary.Target.Pane}, true
 }
 
-// NativeCFOTerminal is the native terminal goblins --native and the board's
+// NativeCFOTerminal is the native terminal goblins and the board's
 // first-run page start the CFO in.
 const NativeCFOTerminal = "cfo"
 
@@ -353,14 +359,23 @@ type cfoState struct {
 	// where the Overlord may first have to answer it. It is empty while the
 	// CFO runs in Herdr or not at all.
 	terminal string
+	// since is when the host of that terminal started, and zero when its
+	// record cannot be read.
+	since time.Time
 	// harness is the harness the registered CFO runs, as it registered.
 	harness string
 	// identity is the fingerprint of the registration this read found, and
 	// empty when it found none it could read.
 	identity string
+	// closed says the home's CFO registered and its process has since ended,
+	// with no terminal up for a new one: he closed it, it crashed, or the
+	// machine restarted. That is no problem to report, since nothing about
+	// the registration is wrong: the board says the CFO is closed and offers
+	// to reopen it, as goblins brings it back.
+	closed bool
 	// problem says why the board cannot reach the CFO this read found, with
-	// the fix. It is empty while the board can, and while the CFO is starting
-	// and has not registered yet.
+	// the fix. It is empty while the board can, while the CFO is starting and
+	// has not registered yet, and while the CFO is closed.
 	problem string
 }
 
@@ -369,17 +384,23 @@ func readCFOState(stateDir string) cfoState {
 	if err == nil && primary.Process.VerifiedAlive() {
 		cfo := cfoState{registered: true, terminal: primary.Host, harness: primary.Agent, identity: identity}
 		if primary.Host != "" {
-			if err := terminalLeft(stateDir, primary); err != nil {
+			record, err := terminalLeft(stateDir, primary)
+			if err != nil {
 				cfo.problem = err.Error()
 			}
+			cfo.since = record.Started
 		}
 		return cfo
 	}
 	if NativeTerminalRuns(stateDir, NativeCFOTerminal) {
-		return cfoState{starting: true, terminal: NativeCFOTerminal}
+		cfo := cfoState{starting: true, terminal: NativeCFOTerminal}
+		if record, err := host.ReadRecord(stateDir, NativeCFOTerminal); err == nil {
+			cfo.since = record.Started
+		}
+		return cfo
 	}
 	if err == nil {
-		err = processGone(primary)
+		return cfoState{closed: true, identity: identity}
 	}
 	return cfoState{identity: identity, problem: err.Error()}
 }
@@ -431,20 +452,17 @@ func (c *CFOConnection) Send(ctx context.Context, identity, text string) (Evalua
 const nativeSubmitSettle = 300 * time.Millisecond
 
 // nativeConfirm bounds how long a delivery to the native CFO waits after
-// submission for the CFO's hook to report it taken before the delivery is left
-// sent and awaiting that report; nativeConfirmPoll spaces the looks.
+// submission to be shown taken before the delivery is left sent and awaiting
+// that; nativeConfirmPoll spaces the looks.
 const (
 	nativeConfirm     = 5 * time.Second
 	nativeConfirmPoll = 250 * time.Millisecond
 )
 
-// sendNative types text into the registered CFO's native terminal once and
-// submits it, each part confirmed written by the terminal's host. It is
-// delivered once the CFO's own prompt hook, naming the terminal it runs in,
-// reports taking it. A CFO inside a turn, or one slow to start its next,
-// reports only later, so a delivery not yet reported is sent and awaits the
-// report, which settleDeliveries hears; it is no error, and it is never typed
-// again.
+// sendNative waits for an empty composer, types once and confirms the text
+// before Enter. A prompt hook or a new working turn proves acceptance by an
+// idle CFO; input submitted during a turn is taken at the CFO's next tool
+// call, and only the CFO's own record of its conversation proves it.
 func (c *CFOConnection) sendNative(ctx context.Context, primary primaryRegistration, text string) (Evaluation, error) {
 	if err := c.verify(primary); err != nil {
 		return Evaluation{}, fmt.Errorf("%w: %v", ErrRejected, err)
@@ -453,6 +471,16 @@ func (c *CFOConnection) sendNative(ctx context.Context, primary primaryRegistrat
 	if err != nil {
 		return Evaluation{}, fmt.Errorf("%w: %v", ErrRejected, err)
 	}
+	screens, readable := harness.NativeScreens(harness.Kind(primary.Agent))
+	if !readable {
+		return Evaluation{Reason: "The CFO's input cannot be read. Your answer is queued; nothing was sent."}, ErrDeferred
+	}
+	read := c.ReadScreen
+	if read == nil {
+		read = host.ReadScreen
+	}
+	c.typing.Lock()
+	defer c.typing.Unlock()
 	delivery, err := host.DialDelivery(record)
 	if errors.Is(err, host.ErrNoDelivery) {
 		return Evaluation{}, fmt.Errorf("%w: %v; start the CFO again so its terminal can confirm what the board sends", ErrRejected, err)
@@ -461,16 +489,62 @@ func (c *CFOConnection) sendNative(ctx context.Context, primary primaryRegistrat
 		return Evaluation{}, fmt.Errorf("%w: the CFO's native terminal does not answer; nothing was sent", ErrRejected)
 	}
 	defer delivery.Close()
-	c.typing.Lock()
-	defer c.typing.Unlock()
+	before, err := read(record)
+	if err != nil {
+		return Evaluation{Reason: "The CFO's input cannot be read. Your answer is queued; nothing was sent."}, ErrDeferred
+	}
+	if dialog, shown := screens.Dialog(before); shown {
+		if dialog.EscapeHint == "" {
+			return Evaluation{Reason: "The CFO has a dialog open. Your answer is queued; nothing was sent."}, ErrDeferred
+		}
+		if err := spawn.AnswerDialog(ctx, record, dialog, before); err != nil {
+			return Evaluation{Reason: "The CFO's optional notice has not closed. Your answer is queued; nothing was sent."}, ErrDeferred
+		}
+		before, err = read(record)
+		if err != nil {
+			return Evaluation{Reason: "The CFO's input cannot be read. Your answer is queued; nothing was sent."}, ErrDeferred
+		}
+	}
+	busy := screens.IsWorking(before)
+	if !screens.ComposerEmpty(before) || !busy && !screens.IsReady(before) {
+		return Evaluation{Reason: "The CFO's input is not empty and ready. Your answer is queued; nothing was sent."}, ErrDeferred
+	}
+	instruction := oneLine("Overlord: " + text)
 	submitted := time.Now()
-	if err := delivery.Write([]byte(oneLine("Overlord: " + text))); err != nil {
+	if err := delivery.Write([]byte(instruction)); err != nil {
 		return Evaluation{}, fmt.Errorf("the message may have reached the CFO's native terminal only in part: %w", err)
+	}
+	for deadline := time.Now().Add(nativeConfirm); ; {
+		screen, err := read(record)
+		if err != nil {
+			return Evaluation{}, fmt.Errorf("the message was typed but the CFO's input cannot be read: %w", err)
+		}
+		if _, shown := screens.Dialog(screen); shown {
+			return Evaluation{}, errors.New("The answer was typed but a dialog opened before submission. Inspect the CFO's terminal; nothing was submitted.")
+		}
+		if screens.Shows(screen, instruction) {
+			break
+		}
+		if time.Now().After(deadline) {
+			return Evaluation{}, errors.New("The answer was typed but never showed in the CFO's input. Inspect its terminal; nothing was submitted.")
+		}
+		select {
+		case <-time.After(nativeConfirmPoll):
+		case <-ctx.Done():
+			return Evaluation{}, fmt.Errorf("the message was typed into the CFO's native terminal but not submitted: %w", ctx.Err())
+		}
 	}
 	select {
 	case <-time.After(nativeSubmitSettle):
 	case <-ctx.Done():
 		return Evaluation{}, fmt.Errorf("the message was typed into the CFO's native terminal but not submitted: %w", ctx.Err())
+	}
+	screen, err := read(record)
+	if err != nil {
+		return Evaluation{}, fmt.Errorf("the message was typed but the CFO's input cannot be read: %w", err)
+	}
+	if _, shown := screens.Dialog(screen); shown || !screens.Shows(screen, instruction) {
+		return Evaluation{}, errors.New("The CFO's input changed before submission. Inspect its terminal; nothing was submitted.")
 	}
 	submit := "\r"
 	if primary.Agent == "codex" {
@@ -481,12 +555,41 @@ func (c *CFOConnection) sendNative(ctx context.Context, primary primaryRegistrat
 	if err := delivery.Write([]byte(submit)); err != nil {
 		return Evaluation{}, fmt.Errorf("the message was typed into the CFO's native terminal, and whether its submit key reached it is unknown: %w", err)
 	}
+	// A CFO in a turn takes the answer at its next tool call, and its prompt
+	// hook runs as its harness queues the answer, before the CFO has it, so
+	// only its own record of the conversation proves it taken.
+	digest := monitor.TextDigest(instruction)
+	session := cfoSession(c.State, primary)
+	conversation := monitor.Conversation{Harness: primary.Agent, Session: session}
+	pressed, presses := time.Now(), 0
 	for deadline := time.Now().Add(nativeConfirm); ; {
-		if taken, err := NativeHostPromptSince(c.State, primary.Host, submitted); err == nil && taken {
-			return Evaluation{Reason: "Taken by the CFO in its native terminal, as its hook reported."}, nil
+		if busy && conversations().Took(ctx, conversation, digest, submitted) {
+			return Evaluation{Reason: "Taken by the CFO at its next tool call, as its own record of the conversation shows."}, nil
+		}
+		if !busy {
+			if taken, err := NativeHostPromptSince(c.State, primary.Host, submitted); err == nil && taken {
+				return Evaluation{Reason: "Taken by the CFO in its native terminal, as its hook reported."}, nil
+			}
+		}
+		screen, err := read(record)
+		if err != nil {
+			return Evaluation{}, fmt.Errorf("the answer was submitted but the CFO's screen cannot be read: %w", err)
+		}
+		_, dialog := screens.Dialog(screen)
+		if !busy && !dialog && screens.IsWorking(screen) && screens.ComposerEmpty(screen) {
+			return Evaluation{Reason: "Taken by the CFO in its native terminal, which started working on your answer."}, nil
+		}
+		if !busy && !dialog && screens.PasteTakesEnter && !screens.IsWorking(screen) && presses < 3 && time.Since(pressed) >= time.Duration(presses+1)*time.Second && screens.Shows(screen, instruction) {
+			if err := delivery.Write([]byte(submit)); err != nil {
+				return Evaluation{}, fmt.Errorf("the answer is in the CFO's input, and whether its submit key reached it is unknown: %w", err)
+			}
+			pressed, presses = time.Now(), presses+1
 		}
 		if time.Now().After(deadline) {
-			return Evaluation{Reason: sentToCFO, Awaiting: &Awaiting{Host: primary.Host, Harness: primary.Agent, Since: submitted}}, nil
+			if dialog || !busy && !screens.IsWorking(screen) && !screens.ComposerEmpty(screen) {
+				return Evaluation{}, errors.New("The answer remains in the CFO's input without confirmation that it was submitted. Inspect its terminal before sending again.")
+			}
+			return Evaluation{Reason: sentToCFO, Awaiting: &Awaiting{Host: primary.Host, Harness: primary.Agent, Since: submitted, Digest: digest, Session: session}}, nil
 		}
 		select {
 		case <-time.After(nativeConfirmPoll):

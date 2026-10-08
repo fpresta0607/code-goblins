@@ -94,7 +94,7 @@ func pipelineCommand(ctx context.Context, h home.Home, root string, commands exe
 	}
 	flags := flag.NewFlagSet("pipeline", flag.ContinueOnError)
 	flags.SetOutput(io.Discard)
-	var intent string
+	var intent, wantBranch, wantRun string
 	var response pipeline.Response
 	if args[0] == "run" {
 		flags.StringVar(&intent, "intent", "", "task intent")
@@ -104,6 +104,12 @@ func pipelineCommand(ctx context.Context, h home.Home, root string, commands exe
 		flags.StringVar(&response.Instructions, "instructions", "", "guidance for selected findings")
 		flags.StringVar(&response.Accept, "accept", "", "with approve: every open ask-user and auto-fix finding the CFO accepts as it stands")
 	}
+	if args[0] == "run" || args[0] == "respond" || args[0] == "recover" {
+		flags.StringVar(&wantBranch, "branch", "", "the branch, checked out in one of the task's worktrees, to act on")
+	}
+	if args[0] == "respond" || args[0] == "recover" {
+		flags.StringVar(&wantRun, "run", "", "the run, the latest of a branch checked out in one of the task's worktrees, to act on")
+	}
 	if err := flags.Parse(args[2:]); err != nil {
 		return err
 	}
@@ -112,6 +118,9 @@ func pipelineCommand(ctx context.Context, h home.Home, root string, commands exe
 	}
 	if args[0] == "run" && strings.TrimSpace(intent) == "" {
 		return errors.New("pipeline: --intent is required")
+	}
+	if wantBranch != "" && wantRun != "" {
+		return errors.New("pipeline: name a branch or a run, not both")
 	}
 	if response.Accept != "" {
 		// Taking open findings as they stand is the CFO's decision, never a
@@ -174,11 +183,15 @@ func pipelineCommand(ctx context.Context, h home.Home, root string, commands exe
 			return fmt.Errorf("pipeline: shared config drift (%s); request idle config-apply, never change a running daemon", strings.Join(drift, ", "))
 		}
 	}
-	branchResult, err := commands.Run(ctx, execx.Request{Dir: meta.Worktree, Name: "git", Args: []string{"symbolic-ref", "--quiet", "--short", "HEAD"}})
-	if err != nil || branchResult.ExitCode != 0 {
-		return errors.New("pipeline: named task branch required")
+	if wantRun != "" {
+		if wantBranch, err = reader.RunBranch(ctx, meta.Project, wantRun); err != nil {
+			return err
+		}
 	}
-	branch := strings.TrimSpace(string(branchResult.Stdout))
+	gated, branch, err := taskWorktree(ctx, commands, meta, wantBranch)
+	if err != nil {
+		return err
+	}
 	if branch == "" || branch == "main" || branch == "master" {
 		return errors.New("pipeline: isolated feature branch required")
 	}
@@ -186,7 +199,7 @@ func pipelineCommand(ctx context.Context, h home.Home, root string, commands exe
 		return migratePipelinePolicy(ctx, h, root, reader.Idle, meta, selection, out)
 	}
 	if args[0] == "recover" {
-		result, err := reader.RecoverKeepLocal(ctx, meta.Project, meta.Worktree, branch, nativeEnv(root))
+		result, err := reader.RecoverKeepLocal(ctx, meta.Project, gated, branch, nativeEnv(root))
 		if len(result.NativeOutput) > 0 {
 			fmt.Fprint(out, string(result.NativeOutput))
 		}
@@ -202,6 +215,9 @@ func pipelineCommand(ctx context.Context, h home.Home, root string, commands exe
 		if err != nil {
 			return err
 		}
+		if wantRun != "" && gate.RunID != wantRun {
+			return fmt.Errorf("pipeline: run %s is no longer the latest run of %s; its gate is run %s's", wantRun, branch, gate.RunID)
+		}
 		nativeArgs, err = pipeline.ResponseArgs(selection, gate, response)
 		if err != nil {
 			return err
@@ -212,11 +228,11 @@ func pipelineCommand(ctx context.Context, h home.Home, root string, commands exe
 			}
 		}
 	} else {
-		if err := reader.CheckStart(ctx, meta.Project, meta.Worktree, branch, selection.Policy); err != nil {
+		if err := reader.CheckStart(ctx, meta.Project, gated, branch, selection.Policy); err != nil {
 			return err
 		}
 	}
-	result, err := commands.Run(ctx, execx.Request{Dir: meta.Worktree, Env: nativeEnv(root), Name: "no-mistakes", Args: nativeArgs})
+	result, err := commands.Run(ctx, execx.Request{Dir: gated, Env: nativeEnv(root), Name: "no-mistakes", Args: nativeArgs})
 	if len(result.Stdout) > 0 {
 		fmt.Fprint(out, string(result.Stdout))
 	}
@@ -230,6 +246,38 @@ func pipelineCommand(ctx context.Context, h home.Home, root string, commands exe
 		return fmt.Errorf("pipeline: native command exited %d", result.ExitCode)
 	}
 	return nil
+}
+
+// taskWorktree is the worktree a gate command acts in and the branch checked
+// out there: the task's own worktree, or, for a branch named with --branch or
+// --run, whichever of the task's worktrees has it checked out, its own or an
+// extra one cfo worktree add recorded. A native command answers the latest
+// run of the branch checked out where it runs, so the branch decides where.
+func taskWorktree(ctx context.Context, commands execx.Runner, meta state.TaskMeta, branch string) (string, string, error) {
+	checkedOut := func(path string) (string, bool) {
+		result, err := commands.Run(ctx, execx.Request{Dir: path, Name: "git", Args: []string{"symbolic-ref", "--quiet", "--short", "HEAD"}})
+		if err != nil || result.ExitCode != 0 {
+			return "", false
+		}
+		return strings.TrimSpace(string(result.Stdout)), true
+	}
+	if branch == "" {
+		head, ok := checkedOut(meta.Worktree)
+		if !ok {
+			return "", "", errors.New("pipeline: named task branch required")
+		}
+		return meta.Worktree, head, nil
+	}
+	for _, path := range append([]string{meta.Worktree}, meta.Extras...) {
+		if head, ok := checkedOut(path); !ok || head != branch {
+			continue
+		}
+		if err := worktree.Validate(ctx, worktree.RunnerGit{Commands: commands}, meta.Project, path); err != nil {
+			return "", "", err
+		}
+		return path, branch, nil
+	}
+	return "", "", fmt.Errorf("pipeline: branch %s is checked out in none of task %s's worktrees", branch, meta.ID)
 }
 
 func migratePipelinePolicy(ctx context.Context, h home.Home, root string, idle func(context.Context) (func() error, error), meta state.TaskMeta, old pipeline.Selection, out io.Writer) (err error) {

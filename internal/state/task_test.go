@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"reflect"
 	"runtime"
 	"strings"
 	"testing"
@@ -105,7 +106,7 @@ func TestWriteTaskMetaIsDeterministicAndRoundTripsHerdrFields(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got != meta {
+	if !reflect.DeepEqual(got, meta) {
 		t.Errorf("round trip = %+v, want %+v", got, meta)
 	}
 
@@ -130,12 +131,36 @@ func TestWriteTaskMetaRoundTripsTheTaskTitle(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got != meta {
+	if !reflect.DeepEqual(got, meta) {
 		t.Errorf("round trip = %+v, want %+v", got, meta)
 	}
 	meta.Title = "Two\nlines"
 	if err := WriteTaskMeta(dir, meta); err == nil || !strings.Contains(err.Error(), "title") {
 		t.Errorf("a title with a line break = %v, want refused", err)
+	}
+}
+
+// A goblin keeps the name and title it was given at spawn, which the board,
+// the merge train and the CFO call it by.
+func TestWriteTaskMetaRoundTripsTheGoblinsNameAndTitle(t *testing.T) {
+	// Arrange
+	dir := t.TempDir()
+	meta := TaskMeta{ID: "g1", Window: "native", Worktree: `C:\work\g1`, Harness: "claude", Kind: "ship", Backend: "native", GoblinName: "Jerry", GoblinTitle: "Code Designer"}
+
+	// Act
+	err := WriteTaskMeta(dir, meta)
+
+	// Assert
+	if err != nil {
+		t.Fatalf("WriteTaskMeta: %v", err)
+	}
+	values, err := ReadMeta(filepath.Join(dir, "g1.meta"))
+	if err != nil || values["goblin_name"] != "Jerry" || values["goblin_title"] != "Code Designer" {
+		t.Fatalf("record = %v, %v, want goblin_name and goblin_title", values, err)
+	}
+	got, err := ReadTaskMeta(dir, "g1")
+	if err != nil || !reflect.DeepEqual(got, meta) {
+		t.Fatalf("round trip = %+v, %v, want %+v", got, err, meta)
 	}
 }
 
@@ -217,6 +242,8 @@ func TestWriteTaskMetaRejectsControlCharactersInEveryValue(t *testing.T) {
 		{"herdr_workspace_id", func(meta *TaskMeta) { meta.HerdrWorkspaceID = "bad\nother" }},
 		{"herdr_tab_id", func(meta *TaskMeta) { meta.HerdrTabID = "bad\nother" }},
 		{"herdr_pane_id", func(meta *TaskMeta) { meta.HerdrPaneID = "bad\nother" }},
+		{"goblin_name", func(meta *TaskMeta) { meta.GoblinName = "bad\nother" }},
+		{"goblin_title", func(meta *TaskMeta) { meta.GoblinTitle = "bad\nother" }},
 	}
 	for _, field := range fields {
 		t.Run(field.name, func(t *testing.T) {
@@ -414,5 +441,59 @@ func TestGoTmpDirRefusesAnExtendedLengthStateDir(t *testing.T) {
 	}
 	if _, err := GoTmpDir(root, "g1"); err != nil {
 		t.Fatalf("GoTmpDir refused the plain spelling %q: %v", root, err)
+	}
+}
+
+func TestWriteTaskMetaRoundTripsScratchAndExtraWorktrees(t *testing.T) {
+	// Arrange
+	dir := t.TempDir()
+	meta := TaskMeta{ID: "g1", Window: "native", Worktree: `C:\home\worktrees\app\g1`, Harness: "claude", Kind: "ship", Backend: "native",
+		Scratch: `C:\home\scratch\g1`, Extras: []string{`C:\home\worktrees\app\g1-proof`, `C:\home\worktrees\app\g1-ci`}}
+
+	// Act
+	if err := WriteTaskMeta(dir, meta); err != nil {
+		t.Fatalf("WriteTaskMeta: %v", err)
+	}
+	got, err := ReadTaskMeta(dir, "g1")
+
+	// Assert
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(got, meta) {
+		t.Errorf("round trip = %+v, want %+v", got, meta)
+	}
+	for _, extras := range [][]string{{""}, {`C:\a|b`}, {"two\nlines"}} {
+		meta.Extras = extras
+		if err := WriteTaskMeta(dir, meta); err == nil {
+			t.Errorf("extras %q were written, want refused", extras)
+		}
+	}
+}
+
+// A helper's record names the goblin that asked for it, which is what makes
+// it a helper: the caps, its reports, its branch and its place on the board
+// all follow from that one value, so it is a task ID and never the task's own.
+func TestWriteTaskMetaRoundTripsTheParentOfAHelper(t *testing.T) {
+	// Arrange
+	dir := t.TempDir()
+	meta := TaskMeta{ID: "g1-h1", Window: "native", Worktree: `C:\home\worktrees\app\g1-h1`, Harness: "claude", Kind: "ship", Mode: "local-only", Backend: "native", Parent: "g1"}
+
+	// Act
+	err := WriteTaskMeta(dir, meta)
+	got, readErr := ReadTaskMeta(dir, "g1-h1")
+
+	// Assert
+	if err != nil || readErr != nil {
+		t.Fatalf("write = %v, read = %v", err, readErr)
+	}
+	if !reflect.DeepEqual(got, meta) {
+		t.Errorf("round trip = %+v, want %+v", got, meta)
+	}
+	for _, parent := range []string{"g1-h1", "bad parent", ".g1"} {
+		meta.Parent = parent
+		if err := WriteTaskMeta(dir, meta); err == nil || !strings.Contains(err.Error(), "parent") {
+			t.Errorf("parent %q = %v, want refused", parent, err)
+		}
 	}
 }

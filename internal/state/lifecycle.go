@@ -19,6 +19,8 @@ type Lifecycle struct {
 	Generation        string            `json:"generation"`
 	RequestGeneration string            `json:"request_generation"`
 	Title             string            `json:"title,omitempty"`
+	GoblinName        string            `json:"goblin_name,omitempty"`
+	GoblinTitle       string            `json:"goblin_title,omitempty"`
 	Project           string            `json:"project,omitempty"`
 	Operation         string            `json:"operation"`
 	Action            string            `json:"action"`
@@ -39,6 +41,9 @@ type Lifecycle struct {
 	Kept              []string          `json:"kept,omitempty"`
 	Problems          []string          `json:"problems,omitempty"`
 	NoticeSent        bool              `json:"notice_sent"`
+	// Watched says the request's own caller reads its outcome, so no notice
+	// is sent for it.
+	Watched bool `json:"watched,omitempty"`
 }
 
 type TeardownProcess struct {

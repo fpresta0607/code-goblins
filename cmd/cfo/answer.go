@@ -56,7 +56,7 @@ func runAnswer(args []string, stdout, stderr io.Writer, runtime commandRuntime) 
 		return 1
 	}
 	if queued {
-		fmt.Fprintf(stdout, "answered %s: %s (queued: the goblin was working and takes it when its current turn ends; recorded, so do not send it again)\n", args[0], chosen)
+		fmt.Fprintf(stdout, "answered %s: %s (queued: the goblin was in a turn and takes it at its next tool call, or as its turn ends; recorded, so do not send it again)\n", args[0], chosen)
 		return 0
 	}
 	fmt.Fprintf(stdout, "answered %s: %s\n", args[0], chosen)

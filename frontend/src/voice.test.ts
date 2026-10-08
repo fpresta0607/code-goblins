@@ -19,6 +19,13 @@ test("the board's own dictations stay in this browser, newest first, a bounded f
   assert.deepEqual(readDictations(storage, "task:build").map((message) => message.text), ["for the goblin"]);
 });
 
+test("a dictation typed after another is kept without the space that separated them", () => {
+  const storage = new MemoryStorage();
+  rememberDictation(storage, "cfo", "open the pull request", 1000);
+  rememberDictation(storage, "cfo", " then run the tests", 2000);
+  assert.deepEqual(readDictations(storage, "cfo").map((message) => message.text), ["then run the tests", "open the pull request"]);
+});
+
 test("only the panes used most recently keep their dictations", () => {
   const storage = new MemoryStorage();
   for (let i = 0; i <= BOARD_PANES; i++) rememberDictation(storage, "task:" + i, "said in pane " + i, 1000 + i);
@@ -41,10 +48,11 @@ test("a broken or unavailable store reads as no dictations and never throws", ()
   assert.deepEqual(readDictations(null, "cfo"), []);
 });
 
-test("a native host's pane is its goblin's task whatever its generation, or the CFO", () => {
+test("a native host's pane is its goblin's task whatever its generation, a run item's terminal, or the CFO", () => {
   for (const [query, pane] of [
     ["task=t-1&generation=g-1", "t-1"],
     ["task=t-1&generation=g-2", "t-1"],
+    ["run=sign-in-1", "run:sign-in-1"],
     ["cfo=cfo%3A1", "cfo"],
     ["", "cfo"],
   ]) assert.equal(hostPane(query), pane, query);

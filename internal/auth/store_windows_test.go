@@ -69,8 +69,40 @@ func TestCredentialManagerReportsAnUnknownKeyAsAbsentNotAnError(t *testing.T) {
 	}
 }
 
+// TestCredentialManagerNeverListsASeenRecordAsACredential holds the vault to
+// the rule the file store gets from its directory layout: a Seen record sits
+// under the same cfo: prefix the credential listing enumerates, so the
+// listing must read it as a scope no project can have and skip it.
+func TestCredentialManagerNeverListsASeenRecordAsACredential(t *testing.T) {
+	if key, ok := parseVaultKey(seenScope + "/" + selfTestKey.String()); ok {
+		t.Errorf("parseVaultKey read a Seen record as the credential %q", key.String())
+	}
+
+	store, err := openCredentialManager()
+	if err != nil {
+		t.Skipf("Windows Credential Manager unavailable: %v", err)
+	}
+	fingerprint := envFingerprint("cfo self-test reading")
+	if err := store.Seen().Set(selfTestKey, fingerprint); err != nil {
+		t.Fatalf("Seen().Set: %v", err)
+	}
+	recorded, found, err := store.Seen().Get(selfTestKey)
+	if err != nil || !found || recorded != fingerprint {
+		t.Fatalf("Seen().Get = (%q, %v, %v), want the fingerprint just recorded", recorded, found, err)
+	}
+	keys, err := store.Keys()
+	if err != nil {
+		t.Fatalf("Keys: %v", err)
+	}
+	for _, key := range keys {
+		if strings.Contains(key.String(), seenScope) {
+			t.Errorf("Keys() listed the Seen record %q as a credential", key.String())
+		}
+	}
+}
+
 func TestCredentialManagerRefusesAKeyThatIsNotAnEnvironmentName(t *testing.T) {
-	store := credentialManagerStore{}
+	store := credentialManagerStore{target: credentialTarget}
 	if err := store.Set(Shared("bad key"), "value"); err == nil {
 		t.Error("Set with an invalid name = nil, want a refusal")
 	}

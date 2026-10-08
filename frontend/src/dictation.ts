@@ -80,11 +80,27 @@ export async function openMicrophone(): Promise<Capture> {
   };
 }
 
-function captureProblem(error: unknown): string {
-  const name = error instanceof Error ? error.name : "";
-  if (name === "NotAllowedError" || name === "SecurityError") return dictationProblem("not-allowed");
+// inDesktopApp says whether the page runs in the desktop app, whose WebView2
+// puts its own object in the page as chrome.webview, which no browser tab has.
+// Under the unit tests there is no window at all.
+export function inDesktopApp(): boolean {
+  return typeof window !== "undefined" && !!(window as unknown as { chrome?: { webview?: unknown } }).chrome?.webview;
+}
+
+// microphoneProblem explains a microphone that could not be opened, by the
+// error's name. The desktop app's WebView2 grants the page every permission
+// itself, so a microphone refused there was refused by Windows, which is
+// where it is allowed again.
+export function microphoneProblem(name: string, app: boolean): string {
+  if (name === "NotAllowedError" || name === "SecurityError") {
+    return app ? "The microphone is blocked for Code Goblins by Windows. Turn on Microphone access and Let desktop apps access your microphone in Windows Settings > Privacy & security > Microphone, then hold Ctrl+Shift+Space again." : dictationProblem("not-allowed");
+  }
   if (name === "NotFoundError" || name === "NotReadableError") return dictationProblem("audio-capture");
   return "Dictation stopped: the microphone could not be opened.";
+}
+
+function captureProblem(error: unknown): string {
+  return microphoneProblem(error instanceof Error ? error.name : "", inDesktopApp());
 }
 
 const RECOGNITION_MS = 120_000;

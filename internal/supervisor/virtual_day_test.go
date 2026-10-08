@@ -114,7 +114,7 @@ func TestScratchHomeVirtualDayResumesThreeReasonsWithoutReplacingWork(t *testing
 		t.Fatal(err)
 	}
 	finished := day.Add(20 * time.Hour)
-	if err := reportChecks(h.State, &watched, "ci-task", ghPullRequest{URL: pull, HeadRefOid: head, Checks: []ghCheck{{Name: "test", Status: "COMPLETED", Conclusion: "SUCCESS", StartedAt: finished.Add(-13 * time.Minute).Format(time.RFC3339), CompletedAt: finished.Format(time.RFC3339)}}}, finished); err != nil {
+	if err := reportChecks(h.State, &watched, "ci-task", ghPullRequest{URL: pull, HeadRefOid: head, Checks: []ghCheck{{Name: "test", Status: "COMPLETED", Conclusion: "SUCCESS", StartedAt: finished.Add(-13 * time.Minute).Format(time.RFC3339), CompletedAt: finished.Format(time.RFC3339)}}}, false, finished); err != nil {
 		t.Fatal(err)
 	}
 	if err := writeFleetWakes(h.State, watched); err != nil {

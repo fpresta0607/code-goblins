@@ -20,6 +20,7 @@ import (
 	"github.com/fpresta0607/code-goblins/internal/claudehook"
 	"github.com/fpresta0607/code-goblins/internal/crewstate"
 	"github.com/fpresta0607/code-goblins/internal/execx"
+	"github.com/fpresta0607/code-goblins/internal/fleettree"
 	"github.com/fpresta0607/code-goblins/internal/fsx"
 	"github.com/fpresta0607/code-goblins/internal/herdr"
 	"github.com/fpresta0607/code-goblins/internal/home"
@@ -56,6 +57,9 @@ type Config struct {
 	Heartbeat    time.Duration
 	HeartbeatMax time.Duration
 	Monitor      *monitor.Service
+	// Tree is the reader the monitor's progress evidence reads through, the
+	// board's family tree reader, which cfo serve shares with the board.
+	Tree *fleettree.Reader
 	// Routing is the standing answer to a harness that starts erroring. An
 	// empty policy simply means every fault wakes the CFO undecided.
 	Routing routing.Policy
@@ -75,6 +79,10 @@ type Config struct {
 	// task folders into the archive and stale briefs into parked (see
 	// layout.File). Zero leaves the data alone.
 	FileEvery time.Duration
+
+	// JanitorEvery bounds how often the orphan sweep starts the janitor's
+	// pass over the home (see internal/janitor). Zero leaves the home alone.
+	JanitorEvery time.Duration
 
 	// WaitEvent is Task 9's filesystem-notification seam, replacing the
 	// plain Sleep(ctx, Poll) wait between checks. Its bool return has two
@@ -156,19 +164,32 @@ func ConfigFromEnv(h home.Home) Config {
 	// socket, found once through Herdr's status, rather than starting a
 	// herdr process each time.
 	sockets := herdr.NewSocketCache()
+	// The harnesses' transcripts tell both how a goblin's work moves and what
+	// it last said, read through the family tree reader. Alone, as cfo watch,
+	// it takes the conversation the board recorded from the board's file;
+	// cfo serve hands the same reader the board's record in memory.
+	cfg.Tree = &fleettree.Reader{Home: userHome, Recorded: func(meta state.TaskMeta) string {
+		// A record that cannot be read proves no conversation, and the
+		// harness's own record of its process still can.
+		session, _ := fleettree.OwnedSession(h.State, meta)
+		return session
+	}}
+	transcripts := &monitor.HostProgress{
+		Panes:    &herdr.Client{Commands: execx.OSRunner{}, Session: session, Sockets: sockets},
+		StateDir: h.State,
+		Home:     userHome,
+		Tree:     cfg.Tree,
+	}
 	cfg.Monitor = &monitor.Service{
 		StateDir: h.State,
 		Probe: monitor.BackendProber{
 			Herdr:  monitor.NewHerdrProber(&herdr.Client{Commands: execx.OSRunner{}, Session: session, Sockets: sockets}),
 			Native: monitor.NativeProber{StateDir: h.State},
 		},
-		Gate: &monitor.RecentGateProber{Probe: monitor.ExecGateProber{}},
-		Progress: monitor.HostProgress{
-			Panes:    &herdr.Client{Commands: execx.OSRunner{}, Session: session, Sockets: sockets},
-			StateDir: h.State,
-			Home:     userHome,
-		},
-		Polls:        monitor.ProcessPolls{},
+		Gate:         &monitor.RecentGateProber{Probe: monitor.ExecGateProber{}},
+		Progress:     transcripts,
+		Replies:      transcripts,
+		Polls:        monitor.ProcessPolls{StateDir: h.State, WorktreeRoots: h.WorktreeRoots()},
 		Heartbeat:    heartbeat,
 		HeartbeatMax: heartbeatMax,
 	}
@@ -177,6 +198,7 @@ func ConfigFromEnv(h home.Home) Config {
 	// supervision does.
 	cfg.ReapEvery = clampMin1s(claudehook.Seconds("CFO_REAP_EVERY", 600))
 	cfg.FileEvery = 10 * time.Minute
+	cfg.JanitorEvery = time.Hour
 	cfg.Reap = &reap.Service{
 		Home: h,
 		Inventory: reap.Collector{
@@ -188,6 +210,7 @@ func ConfigFromEnv(h home.Home) Config {
 
 			ProjectsRoot:     install.MachineProjectsRoot,
 			WorkingDirectory: proc.WorkingDirectory,
+			Environment:      proc.Environment,
 		},
 		Commands: execx.OSRunner{},
 	}
@@ -534,16 +557,20 @@ func fileData(ctx context.Context, cfg Config, last *time.Time) {
 }
 
 // sweepOrphans runs the orphan audit when it is due, persists the result for
-// the session-start digest, and wakes the CFO the first time a given set of
-// orphans appears.
+// the session-start digest, and wakes the CFO when a running finding appears
+// that it has not been told about.
 //
-// The wake fires on a change in the finding set, never on its mere existence:
-// a leak that has already been reported and consciously left alone must not
-// re-wake the CFO on every cycle, while one new unsupervised harness must wake
-// it immediately. A sweep that fails is recorded as a failure rather than
-// swallowed, because "cannot see the fleet" and "the fleet is clean" must
-// never render the same. Nothing here is fatal to the watcher: supervision of
-// the goblins that DO have panes matters more than the sweep.
+// The wake fires on something new, never on a finding's mere existence nor on
+// the rest of the set moving around it: a leak that has already been reported
+// and consciously left alone must not re-wake the CFO when a retired task's
+// status log comes and goes beside it, while one new unsupervised harness must
+// wake it immediately. A worktree or a status log waits for cfo reap and the
+// session-start digest, as Actionable says. A sweep that fails is recorded as
+// a failure rather than swallowed, because "cannot see the fleet" and "the
+// fleet is clean" must never render the same, and it keeps what was reported,
+// because a sweep that saw nothing has not seen anything go away. Nothing here
+// is fatal to the watcher: supervision of the goblins that DO have panes
+// matters more than the sweep.
 func sweepOrphans(ctx context.Context, cfg Config) string {
 	if cfg.Reap == nil || cfg.ReapEvery <= 0 {
 		return ""
@@ -562,28 +589,43 @@ func sweepOrphans(ctx context.Context, cfg Config) string {
 	}
 	record.Findings = result.Findings
 	record.Notes = result.Notes
+	record.Reported = previous.Reported
 	if auditErr != nil {
 		record.Error = auditErr.Error()
-	}
-	if writeErr := reap.WriteRecord(cfg.Home.State, record); writeErr != nil {
-		return ""
-	}
-	if auditErr != nil {
+		_ = reap.WriteRecord(cfg.Home.State, record)
 		return ""
 	}
 
 	actionable := reap.Actionable(record.Findings)
-	if len(actionable) == 0 || reap.FindingsDigest(record.Findings) == previous.Digest {
+	running := reap.ReportKeys(actionable)
+	told := make(map[string]bool, len(previous.Reported))
+	for _, key := range previous.Reported {
+		told[key] = true
+	}
+	record.Reported = nil
+	isNew := false
+	for _, key := range running {
+		if told[key] {
+			record.Reported = append(record.Reported, key)
+		} else {
+			isNew = true
+		}
+	}
+	reason := ""
+	if isNew {
+		detail := reap.Summary(record.Findings) + "; still running: " + reap.Summary(actionable) + "; run cfo reap to see them, cfo reap --apply to retire everything else, and cfo reap --force <pid> --apply to end one of these, because a kill is authorised only by naming its pid"
+		if _, err := wake.Append(cfg.Home.State, "orphan", "orphans", detail); err == nil {
+			record.Reported = running
+			if _, err := wake.PublishEpisode(cfg.Home.State); err == nil {
+				reason = "orphan:" + detail
+			}
+		}
+	}
+	if writeErr := reap.WriteRecord(cfg.Home.State, record); writeErr != nil {
 		return ""
 	}
-	detail := reap.Summary(record.Findings) + "; still running: " + reap.Summary(actionable) + "; run cfo reap to see them, cfo reap --apply to retire everything else, and cfo reap --force <pid> --apply to end one of these, because a kill is authorised only by naming its pid"
-	if _, err := wake.Append(cfg.Home.State, "orphan", "orphans", detail); err != nil {
-		return ""
-	}
-	if _, err := wake.PublishEpisode(cfg.Home.State); err != nil {
-		return ""
-	}
-	return "orphan:" + detail
+	tidyHome(cfg, result.Inventory)
+	return reason
 }
 
 // routeHarnessError answers a provider failure with the fleet's standing

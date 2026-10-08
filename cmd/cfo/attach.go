@@ -228,12 +228,18 @@ const cfoFirstPrompt = "You are the CFO of this Code Goblins home. First run the
 
 // cfoStartArguments are the arguments a CFO's harness starts with: args, such
 // as the ones that resume a conversation, and for a harness the supervisor
-// wakes by typing, the first prompt that registers it, last.
+// wakes by typing, the first prompt that registers it, last. Codex draws
+// inline, as a Codex goblin does, so its history stays in the board
+// terminal's scrollback and a drag there selects text.
 func cfoStartArguments(harness string, args []string) []string {
+	args = slices.Clone(args)
+	if harness == "codex" {
+		args = append(args, "--no-alt-screen")
+	}
 	if supervisor.CFOWakeFor(harness) != supervisor.CFOWakeTyped {
 		return args
 	}
-	return append(slices.Clone(args), cfoFirstPrompt)
+	return append(args, cfoFirstPrompt)
 }
 
 // startNativeCFO starts harness as the CFO of home h in native terminal cfo,
@@ -248,15 +254,25 @@ func startNativeCFO(h home.Home, project, harness string, args []string) error {
 	if err != nil {
 		return err
 	}
+	env, err := cfoTerminalEnvironment(h)
+	if err != nil {
+		return err
+	}
+	_, err = host.Launch(h.State, []string{self, "host"}, env, host.Spec{ID: supervisor.NativeCFOTerminal, Args: program, Dir: project, Cols: 120, Rows: 40})
+	return err
+}
+
+// cfoTerminalEnvironment is the environment the CFO's native terminal of
+// home h starts with: the one Windows gives a new process of this user, made
+// the CFO's by nativeCFOEnvironment.
+func cfoTerminalEnvironment(h home.Home) ([]string, error) {
 	userEnv, err := spawn.UserEnvironment()
 	if err != nil {
-		return fmt.Errorf("read the user's environment: %w", err)
+		return nil, fmt.Errorf("read the user's environment: %w", err)
 	}
 	// An unresolvable projects root leaves the user's own setting in place.
 	projects, _ := install.MachineProjectsRoot()
-	env := nativeCFOEnvironment(userEnv, os.Environ(), h, projects)
-	_, err = host.Launch(h.State, []string{self, "host"}, env, host.Spec{ID: supervisor.NativeCFOTerminal, Args: program, Dir: project, Cols: 120, Rows: 40})
-	return err
+	return nativeCFOEnvironment(userEnv, os.Environ(), h, projects), nil
 }
 
 // nativeCFOProgram is the command line a native terminal starts harness with

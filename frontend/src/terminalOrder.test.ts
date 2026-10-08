@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { CFO_KEY, MAXIMIZED_KEYS, cfoView, goblinView, idleView, keepLive, maximizedFor, maximizedView, paneTrack, paneWidth, switchKey, switchOrder, switchTarget, type DeckView } from "./terminalOrder.ts";
+import { CFO_KEY, MAXIMIZED_KEYS, cfoView, firstOpen, goblinView, idleView, keepLive, maximizedFor, maximizedView, paneTrack, paneWidth, switchKey, switchOrder, switchTarget, type DeckView } from "./terminalOrder.ts";
 import type { Session, Task } from "./types.ts";
 import { parseSnapshot } from "./types.ts";
 
@@ -22,7 +22,8 @@ const key = (code: string, changes: Partial<{ ctrlKey: boolean; altKey: boolean;
 
 test("a slot with no terminal shows an empty state that belongs to no backend", () => {
   const cases: [string, DeckView, string][] = [
-    ["no CFO runs", cfoView({ cfo_terminal: "", cfo_runs: false }), "No CFO is running."],
+    ["no CFO runs", cfoView({ cfo_terminal: "", cfo_terminal_since: "", cfo_runs: false, cfo_closed: false }), "No CFO is running."],
+    ["the CFO was closed", cfoView({ cfo_terminal: "", cfo_terminal_since: "", cfo_runs: false, cfo_closed: true }), "The CFO is closed."],
     ["a queued task", idleView(task("queued", { generation: "" })), "This task has not started yet."],
     ["a child of a task", idleView(task("alpha"), { id: "child" } as Session), "This child has no separate terminal."],
     ["a child with no task", idleView(undefined, { id: "child" } as Session), "This child has no separate terminal."],
@@ -32,10 +33,20 @@ test("a slot with no terminal shows an empty state that belongs to no backend", 
 });
 
 test("a CFO or goblin still in Herdr keeps Herdr's view, and a native one shows from its host", () => {
-  assert.deepEqual(cfoView({ cfo_terminal: "", cfo_runs: true }), { kind: "herdr" });
+  assert.deepEqual(cfoView({ cfo_terminal: "", cfo_terminal_since: "", cfo_runs: true, cfo_closed: false }), { kind: "herdr" });
   assert.deepEqual(goblinView(task("alpha")), { kind: "herdr" });
-  assert.deepEqual(cfoView({ cfo_terminal: "cfo", cfo_runs: true }), { kind: "host", query: "cfo=cfo" });
+  assert.deepEqual(cfoView({ cfo_terminal: "cfo", cfo_terminal_since: "", cfo_runs: true, cfo_closed: false }), { kind: "host", query: "cfo=cfo" });
   assert.deepEqual(goblinView(task("alpha", { backend: "native" })), { kind: "host", query: "task=alpha&generation=g1" });
+});
+
+// A restart replaces the CFO's terminal host under the same terminal, so its
+// view names when that host started, as a goblin's names its generation: a
+// new host is a new view, never the old host's ended screen.
+test("the CFO's view names when its terminal's host started, so a restarted CFO is viewed afresh", () => {
+  const before = cfoView({ cfo_terminal: "cfo", cfo_terminal_since: "2026-10-05T09:00:00Z", cfo_runs: true, cfo_closed: false });
+  const after = cfoView({ cfo_terminal: "cfo", cfo_terminal_since: "2026-10-05T09:05:00Z", cfo_runs: true, cfo_closed: false });
+  assert.deepEqual(before, { kind: "host", query: "cfo=cfo&since=2026-10-05T09%3A00%3A00Z" });
+  assert.notDeepEqual(after, before);
 });
 
 test("a resuming or stopping goblin shows its transition instead of connecting to the old generation", () => {
@@ -48,7 +59,7 @@ test("a resuming or stopping goblin shows its transition instead of connecting t
 test("a failed resume shows no terminal until a retry is resuming", () => {
   const failed = { phase: "failed", action: "resume", at: "", kept: [], stopped: [], problems: [], handoff_saved: false, validation_restarts: false };
   for (const backend of ["native", "herdr"]) {
-    assert.deepEqual(goblinView(task("alpha", { backend, phase: "unavailable", lifecycle: failed })), { kind: "empty", text: "Resume failed. See Task for details." });
+    assert.deepEqual(goblinView(task("alpha", { backend, phase: "unavailable", lifecycle: failed })), { kind: "empty", text: "Resume failed." });
     assert.deepEqual(goblinView(task("alpha", { backend, phase: "resuming", lifecycle: failed })), { kind: "empty", text: "Resuming session..." });
   }
 });
@@ -98,20 +109,27 @@ test("a saved panel width is held to the same bounds in any window", () => {
   assert.equal(paneTrack(800), "clamp(360px, 800px, calc(100% - 290px))");
 });
 
-test("a goblin's terminal opens maximized and the task view beside the board, each keeping his last choice", () => {
-  assert.equal(maximizedFor("terminal", null), true, "a terminal he never sized opens maximized");
-  assert.equal(maximizedFor("task", null), false, "the task view opens beside the board");
-  assert.equal(maximizedFor("terminal", "false"), false, "a terminal he restored stays restored");
-  assert.equal(maximizedFor("task", "true"), true, "a task view he maximized stays maximized");
+test("every panel view opens beside the board until he maximizes it, each keeping his last choice", () => {
+  assert.equal(maximizedFor(null), false, "a view he never sized opens beside the board, a terminal included");
+  assert.equal(maximizedFor("false"), false, "a view he restored stays restored");
+  assert.equal(maximizedFor("true"), true, "a view he maximized stays maximized");
   assert.notEqual(MAXIMIZED_KEYS.terminal, MAXIMIZED_KEYS.task, "each view keeps its own choice");
 });
 
-test("only the Board opens a terminal maximized; Orchestration keeps its graph beside the panel", () => {
-  assert.equal(maximizedView("Board", "terminal"), "terminal", "a goblin's terminal on the Board follows the terminal choice");
+test("the Board's terminal and task views each follow their own choice; Orchestration follows the task view's", () => {
+  assert.equal(maximizedView("Board", "terminal"), "terminal", "a terminal on the Board follows the terminal choice");
   assert.equal(maximizedView("Board", "task"), "task", "the Board's task view follows the task choice");
   assert.equal(maximizedView("Orchestration", "terminal"), "task", "an Orchestration terminal follows the task choice");
   assert.equal(maximizedView("Orchestration", "task"), "task");
-  assert.equal(maximizedFor(maximizedView("Orchestration", "terminal"), null), false, "a first click on Orchestration shows the graph");
-  assert.equal(maximizedFor(maximizedView("Orchestration", "terminal"), "true"), true, "Orchestration keeps a maximize he chose");
-  assert.equal(maximizedFor(maximizedView("Board", "terminal"), null), true, "a goblin's terminal on the Board opens maximized");
+});
+
+test("a browser's first open is one that records none and keeps no panel layout", () => {
+  const cases: [string, string | null, (string | null)[], boolean][] = [
+    ["a browser that never showed the board", null, [null, null, null], true],
+    ["one whose first open is recorded", "shown", [null, null, null], false],
+    ["one that keeps a panel width from before the record existed", null, ["520", null, null], false],
+    ["one that keeps a maximize choice from before the record existed", null, [null, null, "false"], false],
+    ["one with both", "shown", ["520", "true", "true"], false],
+  ];
+  for (const [name, recorded, kept, want] of cases) assert.equal(firstOpen(recorded, kept), want, name);
 });

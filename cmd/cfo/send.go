@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"flag"
 	"fmt"
 	"io"
@@ -64,7 +65,12 @@ func runSend(args []string, stdout, stderr io.Writer, runtime commandRuntime) in
 		fmt.Fprintln(stderr, "cfo send: command runtime is incomplete")
 		return 1
 	}
-	if err := runtime.sendText(context.Background(), h, target, text); err != nil {
+	err = runtime.sendText(context.Background(), h, target, text)
+	if errors.Is(err, fleet.ErrQueuedForToolCall) {
+		fmt.Fprintf(stdout, "queued for %s: it is in a turn, so its harness hands the text to it at its next tool call, once the call running now ends, or as its turn ends if it calls no tool first. It was typed once: do not send it again.\n", target)
+		return 0
+	}
+	if err != nil {
 		fmt.Fprintln(stderr, err)
 		return 1
 	}

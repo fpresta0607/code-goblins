@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { connectorMark, harnessMark, modelMark, shellLabel, shellMark } from "./connectors.ts";
+import { connectorMark, harnessMark, modelMark, runLabel, shellLabel, shellMark } from "./connectors.ts";
 import { harnessTip } from "./workflow.ts";
 
 test("every connector name the fleet declares resolves to its service mark", () => {
@@ -59,5 +59,23 @@ test("a run's shell shows its mark and full name", () => {
   for (const [shell, mark, label] of cases) {
     assert.deepEqual(shellMark(shell), mark, shell);
     assert.equal(shellLabel(shell), label, shell);
+  }
+});
+
+test("the one button on a run card says where the command runs", () => {
+  // Arrange
+  const cases: [string, boolean, string][] = [
+    ["powershell", false, "Run in PowerShell"],
+    ["pwsh", false, "Run in PowerShell 7"],
+    ["bash", false, "Run in Git Bash"],
+    ["powershell", true, "Run as administrator"],
+  ];
+
+  for (const [shell, admin, want] of cases) {
+    // Act
+    const label = runLabel(shell, admin);
+
+    // Assert
+    assert.equal(label, want, shell);
   }
 });

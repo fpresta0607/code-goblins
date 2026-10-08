@@ -41,15 +41,18 @@ type Screens struct {
 // shows, by moving the focus, the option whose row starts with one of Focus,
 // down to the option that starts with Accept, then confirming that option with
 // Enter.
-// A dialog without Accept is never answered: it stops the spawn. Summary marks
+// EscapeHint instead names the footer of an optional offer dismissed with
+// Escape, never accepted. A dialog without either is never answered: it stops
+// the spawn. Summary marks
 // a dialog whose answer leaves untrusted what it lists: the row it matches says
 // how much, and the spawn reports it.
 type Dialog struct {
-	Name    string
-	Markers []string
-	Focus   []string
-	Accept  string
-	Summary *regexp.Regexp
+	Name       string
+	Markers    []string
+	Focus      []string
+	Accept     string
+	EscapeHint string
+	Summary    *regexp.Regexp
 }
 
 // NativeScreens returns what kind shows on its own screen, and false for a
@@ -76,12 +79,19 @@ func NativeScreens(kind Kind) (Screens, bool) {
 			// three glyph lists; one has "*" where the others have "✳".
 			Working: regexp.MustCompile(`^[·✢✳*✶✻✽] \S.*…`),
 			Pasted:  []string{"[Pasted text #"},
+			// Claude Code 2.1.288 encloses its bare prompt between rules.
+			Empty:         regexp.MustCompile(`^[>❯][ \x{00a0}]*$`),
+			RuledComposer: true,
 		}, true
 	case Codex:
 		return Screens{
 			Dialogs: []Dialog{
+				{Name: "the optional Daybreak security setup offer", Markers: []string{"Set up security for Daybreak mode"}, EscapeHint: "Press a number to choose · esc to dismiss · type to continue"},
 				{Name: "the update prompt", Markers: []string{"Update available!"}, Focus: []string{"›"}, Accept: "2. Skip"},
 				{Name: "the directory trust prompt", Markers: []string{"Do you trust the contents of this directory?"}, Focus: []string{"›"}, Accept: "1. Yes, continue"},
+				// Codex 0.160 asks this in its place, live on 2026-10-07 in a
+				// project it was never told to trust; Escape there quits Codex.
+				{Name: "the folder trust prompt", Markers: []string{"Trust this folder?"}, Focus: []string{"›"}, Accept: "1. Trust and continue"},
 				// Trusting hooks is the Overlord's decision, never a spawn's: a
 				// goblin continues without trusting them, so they do not run,
 				// and the spawn reports them.
@@ -91,12 +101,15 @@ func NativeScreens(kind Kind) (Screens, bool) {
 			// placeholder, at start and after a turn (the binary also holds
 			// "Ask a follow-up question"), above a footer naming the
 			// model and folder ("gpt-6-astra low · ~\..."); a footer that
-			// counts the context left shows while text waits behind a turn. A
+			// counts the context left shows while text waits in a turn. A
 			// turn in progress shows only in the status row, as in "• Working
-			// (5s • esc to interrupt)", whose glyph alternates with ◦: a reply
-			// may say "Working" anywhere else.
+			// (5s • esc to interrupt)", whose glyph alternates with ◦ and may
+			// be blank, and whose heading may name the step instead of
+			// Working. A reply, the composer or a shell may quote that text, so
+			// only a row of that shape counts: no prompt or quote before the
+			// elapsed time and the interrupt hint.
 			Ready:           regexp.MustCompile(`^› (Ask Codex to do anything|Ask a follow-up question)|context left`),
-			Working:         regexp.MustCompile(`esc to interrupt|^\s*• Working \(`),
+			Working:         regexp.MustCompile(`^\s*([•◦]\s+)?[^\s"'›>][^"'›>]*\([^()]*esc to interrupt\)|^\s*[•◦] Working \(`),
 			Pasted:          []string{"[Pasted Content"},
 			PasteTakesEnter: true,
 			Undrawn:         true,
@@ -139,6 +152,9 @@ func (s Screens) Dialog(screen []string) (Dialog, bool) {
 // Shows reports whether screen shows the dialog.
 func (d Dialog) Shows(screen []string) bool {
 	compact := compactScreen(screen)
+	if d.EscapeHint != "" && !strings.Contains(compact, compactScreen([]string{d.EscapeHint})) {
+		return false
+	}
 	for _, marker := range d.Markers {
 		if strings.Contains(compact, compactScreen([]string{marker})) {
 			return true
@@ -148,9 +164,10 @@ func (d Dialog) Shows(screen []string) bool {
 }
 
 // IsReady reports whether screen shows the composer waiting for input and no
-// turn in progress.
+// turn or recognized dialog in progress.
 func (s Screens) IsReady(screen []string) bool {
-	return anyRow(screen, s.Ready) && !s.IsWorking(screen)
+	_, hasDialog := s.Dialog(screen)
+	return !hasDialog && anyRow(screen, s.Ready) && !s.IsWorking(screen)
 }
 
 // IsWorking reports whether screen shows a turn in progress.
@@ -163,11 +180,11 @@ func (s Screens) IsWorking(screen []string) bool {
 // unsent. It is false whenever that cannot be read, including for a harness
 // whose empty composer it does not know.
 func (s Screens) ComposerEmpty(screen []string) bool {
-	if s.Empty != nil {
-		return anyRow(screen, s.Empty)
+	if _, hasDialog := s.Dialog(screen); hasDialog {
+		return false
 	}
 	if !s.RuledComposer {
-		return false
+		return s.Empty != nil && anyRow(screen, s.Empty)
 	}
 	var rules []int
 	for i, row := range screen {
@@ -178,7 +195,11 @@ func (s Screens) ComposerEmpty(screen []string) bool {
 	if len(rules) < 2 || rules[len(rules)-1]-rules[len(rules)-2] < 2 {
 		return false
 	}
-	for _, row := range screen[rules[len(rules)-2]+1 : rules[len(rules)-1]] {
+	composer := screen[rules[len(rules)-2]+1 : rules[len(rules)-1]]
+	if s.Empty != nil {
+		return len(composer) == 1 && s.Empty.MatchString(strings.TrimSpace(composer[0]))
+	}
+	for _, row := range composer {
 		if strings.TrimSpace(row) != "" {
 			return false
 		}
@@ -241,9 +262,10 @@ func (d Dialog) Focused(screen []string) (string, bool) {
 // a background job it will report back from, whichever harness drew it: the
 // interrupt hint Claude Code and Codex show while a turn runs, Codex's status
 // row, pi's rule, Claude Code's spinner and the "Running…" under a tool in
-// progress, and the count of background shells in Claude Code's footer. The
-// line that ends a Claude Code turn says "1 shell still running" and stays on
-// screen after the shell ends, so only the footer's count is read.
+// progress, the count of background shells in Claude Code's footer, and its
+// spinner row while a turn waits on background agents or tasks it started.
+// The line that ends a Claude Code turn says "1 shell still running" and stays
+// on screen after the shell ends, so only the footer's count is read.
 var runningWork = []*regexp.Regexp{
 	regexp.MustCompile(`esc to interrupt`),
 	regexp.MustCompile(`^[•◦]\s+Working \(`),
@@ -251,6 +273,7 @@ var runningWork = []*regexp.Regexp{
 	regexp.MustCompile(`[\x{2800}-\x{28FF}]\s+Working`),
 	regexp.MustCompile(`^[·✢✳*✶✻✽] \S.*…`),
 	regexp.MustCompile(`(^|·)\s*\d+ shells?\s*(·|$)`),
+	regexp.MustCompile(`^[·✢✳*✶✻✽] Waiting for \d+ background `),
 }
 
 // RunningWork returns the first row of screen that shows a tool, a turn or a

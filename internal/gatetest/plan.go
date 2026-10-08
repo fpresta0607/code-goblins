@@ -39,6 +39,12 @@ type Plan struct {
 	Choices []Choice
 	// Everything says a module file changed, which reaches every package.
 	Everything bool
+	// Outside are the changed files the policy puts outside the Go checks, by
+	// its reason, and Unknown the changed files it does not account for,
+	// which make the change require the full level. Both are empty under a
+	// policy that classifies nothing.
+	Outside []Set
+	Unknown []string
 	// Vet and Tests are the packages Level vets and tests, as import paths
 	// or ./... for every package, and Left is each test run Level leaves to
 	// a broader level, with why.
@@ -148,11 +154,11 @@ func gather(ctx context.Context, runner execx.Runner, dir string) (findings, err
 }
 
 // build makes the plan from what was found. The change requires the affected
-// level, or the full one when a module file changed or the policy cannot be
-// read: what the build cannot be sure of widens the run. The plan runs asked,
-// or the required level when asked is empty. The policy is the default
-// branch's, as the commit at base has it, so a branch cannot loosen the
-// policy it is planned by.
+// level, or the full one when a module file changed, the policy cannot be
+// read, or a changed file is one the policy does not account for: what the
+// build cannot be sure of widens the run. The plan runs asked, or the required
+// level when asked is empty. The policy is the default branch's, as the commit
+// at base has it, so a branch cannot loosen the policy it is planned by.
 func build(found findings, asked Level) Plan {
 	plan := Plan{
 		Root:        found.root,
@@ -165,17 +171,27 @@ func build(found findings, asked Level) Plan {
 		Required:    Affected,
 		Why:         "the default for a change",
 	}
-	plan.Choices, plan.Everything = Select(found.root, found.module, found.changed, found.packages)
+	var policy Policy
 	var slow map[string]bool
 	if found.hasPolicy {
-		policy, err := ParsePolicy([]byte(found.policy))
+		parsed, err := ParsePolicy([]byte(found.policy))
 		if err != nil {
 			plan.Policy = fmt.Sprintf("built-in defaults, as %s at %.8s cannot be read", PolicyPath, found.base)
 			plan.Required, plan.Why = Full, strings.TrimPrefix(err.Error(), "gatetest: ")
 		} else {
+			policy = parsed
 			plan.Policy = fmt.Sprintf("%s version %d at %.8s", PolicyPath, policy.Version, found.base)
 			slow = slowPaths(found.root, found.packages, policy)
 		}
+	}
+	reach := Classify(found.root, found.module, found.changed, found.packages, policy)
+	plan.Choices, plan.Everything, plan.Outside, plan.Unknown = reach.Choices, reach.Everything, reach.Outside, reach.Unknown
+	if len(plan.Unknown) > 0 {
+		subject := plan.Unknown[0] + " is"
+		if len(plan.Unknown) > 1 {
+			subject = fmt.Sprintf("%s and %d more files are", plan.Unknown[0], len(plan.Unknown)-1)
+		}
+		plan.Required, plan.Why = Full, subject+" in no package, under no contract and not listed as outside the Go checks"
 	}
 	if plan.Everything {
 		plan.Required, plan.Why = Full, "go.mod or go.sum changed"

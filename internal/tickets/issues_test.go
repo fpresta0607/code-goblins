@@ -665,7 +665,7 @@ func TestEnsureLabelsCreatesEachLabelOnceAndAcceptsExistingOnes(t *testing.T) {
 		}
 		names = append(names, call.Fields["name"][0])
 	}
-	want := []string{"cfo: queued", "cfo: in progress", "cfo: pr open", "cfo: paused", "cfo: blocked", "goblin: claude", "goblin: codex", "goblin: pi", "goblin: kimi"}
+	want := []string{"cfo: queued", "cfo: in progress", "cfo: pr open", "cfo: paused", "cfo: blocked", "goblin: claude", "goblin: codex", "goblin: pi"}
 	if !slices.Equal(names, want) {
 		t.Fatalf("labels created = %v, want %v", names, want)
 	}

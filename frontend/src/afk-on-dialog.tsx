@@ -2,6 +2,7 @@ import { useEffect, useId, useRef } from "react";
 import { Avatar } from "./Avatar";
 import { Icon } from "./Icon";
 import "./afk.css";
+import { ClickFeedback } from "./click-feedback";
 
 // The question before AFK mode turns on, since it hands the CFO the Overlord's
 // authority until he turns it off. Cancel has the focus, so Enter alone turns
@@ -23,7 +24,7 @@ export function AfkOnDialog({ pending, problem, onTurnOn, onClose }: {
     <h2 id={title}>Go AFK?</h2>
     <p id={description}>The CFO runs the fleet under your authority until you turn AFK off, and logs every decision it makes. Nothing on the board prompts you meanwhile.</p>
     <p className="preservation-notice"><Icon name="shield" />What is yours alone is held for you, never decided.</p>
-    {problem && <p className="task-action-problem" role="alert">{problem}</p>}
+    <ClickFeedback text={problem} />
     <div className="stop-task-choices">
       <button className="primary" disabled={pending} onClick={onTurnOn}>Turn AFK on</button>
       <button onClick={onClose}>Cancel</button>

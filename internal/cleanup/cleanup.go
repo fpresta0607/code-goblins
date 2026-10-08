@@ -1,13 +1,16 @@
-// Package cleanup returns one clean, proven-inactive task worktree and closes
-// its task tab. It never deletes a worktree itself, stops an agent at work, or
-// discards changes: the only lifecycle calls it makes are the Herdr tab close
-// of the exact recorded tab (after the endpoint is proven agent-free), the
-// close of a native task's terminal (after its harness is proven idle at its
-// composer, which the close ends) and worktree.Service.Return, and only after
-// every guard has proven the exact recorded task safe to release. The one
-// directory it removes outright holds no work - the task's Go temporary
-// directory, retired with the record because it lives outside the state tree
-// the archive rename carries away; see Service.removeGoTmp.
+// Package cleanup returns one clean, proven-inactive task's worktrees and
+// closes its task tab. It never deletes a worktree itself, stops an agent at
+// work, or discards changes: the only lifecycle calls it makes are the Herdr
+// tab close of the exact recorded tab (after the endpoint is proven
+// agent-free), the close of a native task's terminal (after its harness is
+// proven idle at its composer, which the close ends) and
+// worktree.Service.Return for the task's worktree and every extra one it
+// recorded, and only after every guard has proven the exact recorded task
+// safe to release and every one of its worktrees clean. Work that is not on
+// the default branch is kept as a local archive tag before its worktree goes.
+// The one directory it removes outright holds no work - the task's scratch
+// folder, retired with the record because it lives outside the state tree the
+// archive rename carries away; see Service.removeScratch.
 package cleanup
 
 import (
@@ -21,9 +24,11 @@ import (
 	"time"
 
 	"github.com/fpresta0607/code-goblins/internal/execx"
+	"github.com/fpresta0607/code-goblins/internal/fleet"
 	"github.com/fpresta0607/code-goblins/internal/fsx"
 	"github.com/fpresta0607/code-goblins/internal/harness"
 	"github.com/fpresta0607/code-goblins/internal/herdr"
+	"github.com/fpresta0607/code-goblins/internal/home"
 	"github.com/fpresta0607/code-goblins/internal/host"
 	"github.com/fpresta0607/code-goblins/internal/lock"
 	"github.com/fpresta0607/code-goblins/internal/state"
@@ -48,6 +53,10 @@ type Service struct {
 	// even one idle at its composer, so nothing is closed: a caller that must
 	// never end a process, as reap must not, leaves that to cfo cleanup.
 	LeaveRunningTerminals bool
+	// Data is the home's data directory, whose backlog.md queues the task: a
+	// task cleanup finds delivered leaves ## Queued for ## Done. Without it
+	// the backlog is left alone.
+	Data string
 }
 
 // Result reports the exact returned task identity.
@@ -124,8 +133,16 @@ func (s Service) Cleanup(ctx context.Context, id string) (result Result, err err
 	if err := worktree.Validate(ctx, git, project, worktreePath); err != nil {
 		return Result{}, fmt.Errorf("cleanup: validate worktree: %w", err)
 	}
-	if err := s.requireClean(ctx, worktreePath); err != nil {
+	extras, err := s.recordedExtras(ctx, git, project, meta)
+	if err != nil {
 		return Result{}, err
+	}
+	// Every worktree the task holds is proven clean before anything changes,
+	// so a refusal leaves the task exactly as it was.
+	for _, path := range append(extras, worktreePath) {
+		if err := s.requireClean(ctx, path); err != nil {
+			return Result{}, err
+		}
 	}
 	idle, err := s.requireInactive(ctx, meta)
 	if err != nil {
@@ -147,8 +164,22 @@ func (s Service) Cleanup(ctx context.Context, id string) (result Result, err err
 	}
 
 	outcome := s.outcome(ctx, meta, "Worktree returned by cleanup")
-	if err := s.Worktrees.Return(ctx, project, worktreePath); err != nil {
+	var archived []string
+	for _, path := range extras {
+		tag, err := s.returnWorktree(ctx, git, project, path)
+		if err != nil {
+			return Result{}, fmt.Errorf("cleanup: return extra worktree: %w", err)
+		}
+		if tag != "" {
+			archived = append(archived, tag)
+		}
+	}
+	tag, err := s.returnWorktree(ctx, git, project, worktreePath)
+	if err != nil {
 		return Result{}, fmt.Errorf("cleanup: return worktree: %w", err)
+	}
+	if tag != "" {
+		archived = append(archived, tag)
 	}
 
 	if err := state.WriteOutcome(s.StateDir, outcome); err != nil {
@@ -160,23 +191,84 @@ func (s Service) Cleanup(ctx context.Context, id string) (result Result, err err
 	if err := state.RemoveTaskMeta(s.StateDir, id); err != nil {
 		return Result{}, fmt.Errorf("cleanup: retire task metadata: %w", err)
 	}
-	archived, archiveErr := s.archive(id)
-	goTmpErr := s.removeGoTmp(id)
+	archive, archiveErr := s.archive(id)
+	scratchErr := s.removeScratch(meta)
 
 	result.Meta = meta
 	result.Output = fmt.Sprintf("cleaned %s worktree=%s", id, worktreePath)
-	if archived != "" {
-		result.Output += " archive=" + archived
+	for _, extra := range extras {
+		result.Output += " extra=" + extra
+	}
+	if archive != "" {
+		result.Output += " archive=" + archive
+	}
+	for _, tag := range archived {
+		result.Output += "\nkept unlanded work as the local tag " + tag
 	}
 	if archiveErr != nil {
 		// The task is genuinely cleaned; only the id is still taken. Say so
 		// plainly rather than failing a completed cleanup.
 		result.Output += fmt.Sprintf("\nwarning: retained state for %s could not be archived, so respawning that id will be refused: %v", id, archiveErr)
 	}
-	if goTmpErr != nil {
-		result.Output += fmt.Sprintf("\nwarning: %v; remove it by hand once the handle clears", goTmpErr)
+	if scratchErr != nil {
+		result.Output += fmt.Sprintf("\nwarning: %v; the janitor removes it once the handle clears", scratchErr)
 	}
+	result.Output += s.closeRow(outcome)
 	return result, nil
+}
+
+// closeRow moves a delivered task's row from ## Queued to ## Done, and says
+// so, or why it could not: the task is retired either way, and the
+// supervisor moves a row left behind once it can.
+func (s Service) closeRow(outcome state.Outcome) string {
+	if s.Data == "" || outcome.Phase != "done" {
+		return ""
+	}
+	err := fleet.CompleteQueuedTask(home.Home{State: s.StateDir, Data: s.Data}, outcome.ID)
+	switch {
+	case errors.Is(err, fleet.ErrNotQueued):
+		return ""
+	case err != nil:
+		return "\nwarning: its backlog row stays under ## Queued for now (" + err.Error() + "); the supervisor moves it to ## Done once it can"
+	}
+	return "\nits backlog row is under ## Done"
+}
+
+// recordedExtras resolves the extra worktrees the task recorded, each proven
+// a worktree of the task's project and never the project itself. One already
+// gone has nothing left to return and is skipped.
+func (s Service) recordedExtras(ctx context.Context, git worktree.Git, project string, meta state.TaskMeta) ([]string, error) {
+	var extras []string
+	for _, recorded := range meta.Extras {
+		path, err := fsx.Canonical(recorded)
+		if errors.Is(err, fs.ErrNotExist) {
+			continue
+		}
+		if err != nil {
+			return nil, fmt.Errorf("cleanup: canonicalize extra worktree %q: %w", recorded, err)
+		}
+		if err := worktree.Validate(ctx, git, project, path); err != nil {
+			return nil, fmt.Errorf("cleanup: validate extra worktree: %w", err)
+		}
+		extras = append(extras, path)
+	}
+	return extras, nil
+}
+
+// returnWorktree keeps a clean worktree's unlanded work as a local archive
+// tag, then returns the worktree, and names the tag it made, if any.
+func (s Service) returnWorktree(ctx context.Context, git worktree.Git, project, path string) (string, error) {
+	landing, err := git.Landing(ctx, path)
+	if err != nil {
+		return "", err
+	}
+	tag := ""
+	if !landing.Landed {
+		if tag, err = git.ArchiveTag(ctx, path, landing, filepath.Base(path)); err != nil {
+			return "", err
+		}
+	}
+	return tag, s.Worktrees.Return(ctx, project, path)
 }
 
 // forceArchive retires a task record without touching its worktree. It is the
@@ -215,9 +307,12 @@ func (s Service) forceArchive(ctx context.Context, meta state.TaskMeta, id, work
 		return Result{}, fmt.Errorf("cleanup: retire task metadata: %w", err)
 	}
 	archived, archiveErr := s.archive(id)
-	goTmpErr := s.removeGoTmp(id)
+	scratchErr := s.removeScratch(meta)
 
 	result := Result{Meta: meta, Output: fmt.Sprintf("force-archived %s; worktree %s left in place, remove it by hand when its handle clears", id, worktreePath)}
+	for _, extra := range meta.Extras {
+		result.Output += "; extra worktree " + extra + " left in place"
+	}
 	if archived != "" {
 		result.Output += " archive=" + archived
 	}
@@ -227,9 +322,10 @@ func (s Service) forceArchive(ctx context.Context, meta state.TaskMeta, id, work
 	if archiveErr != nil {
 		result.Output += fmt.Sprintf("\nwarning: retained state for %s could not be archived, so respawning that id will be refused: %v", id, archiveErr)
 	}
-	if goTmpErr != nil {
-		result.Output += fmt.Sprintf("\nwarning: %v; remove it by hand once the handle clears", goTmpErr)
+	if scratchErr != nil {
+		result.Output += fmt.Sprintf("\nwarning: %v; the janitor removes it once the handle clears", scratchErr)
 	}
+	result.Output += s.closeRow(outcome)
 	return result, nil
 }
 
@@ -265,23 +361,24 @@ func (s Service) archive(id string) (string, error) {
 	return dir, nil
 }
 
-// removeGoTmp removes the task's Go temporary directory, which holds build and
-// test scratch a finished task no longer needs and which, living outside the
+// removeScratch removes the task's scratch folder (for a task an older build
+// spawned, its Go temporary directory), which holds the build output, test
+// homes and logs a finished task no longer needs and which, living outside the
 // state tree, the archive rename does not carry away.
 //
 // It is deliberately not part of archive(). On Windows a handle still open
-// under GOTMPDIR - a killed go test binary, a background process the goblin
+// under the folder - a killed go test binary, a background process the goblin
 // started, antivirus - makes RemoveAll fail, and forceArchive exists for
 // exactly that pinned-by-a-dead-handle case. Inside archive() such a failure
 // would skip the credential scrub and the rename, so a locked build directory
 // would leave the project's secrets on disk and the id still claimed.
-func (s Service) removeGoTmp(id string) error {
-	goTmp, err := state.GoTmpDir(s.StateDir, id)
+func (s Service) removeScratch(meta state.TaskMeta) error {
+	scratch, err := state.TaskScratch(s.StateDir, meta)
 	if err != nil {
 		return err
 	}
-	if err := os.RemoveAll(goTmp); err != nil {
-		return fmt.Errorf("go temporary directory %s could not be removed: %w", goTmp, err)
+	if err := os.RemoveAll(scratch); err != nil {
+		return fmt.Errorf("scratch folder %s could not be removed: %w", scratch, err)
 	}
 	return nil
 }

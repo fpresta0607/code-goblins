@@ -1,8 +1,8 @@
-import { ORIGIN, expect, servePages, test, type Page, type Route } from "./site";
+import { expect, test, type Page, type Route } from "./site";
 
 // AFK mode on the board: the toggle in the CFO panel's header, what the CFO's
-// bar holds for the Overlord while it is on, the offer when he is back and the
-// report when it turns off. The supervisor is played here: the board's stream
+// bar says while it is on, the offer when he is back and the report when it
+// turns off. The supervisor is played here: the board's stream
 // is held open and each snapshot is pushed to it, and what the board asks is
 // collected.
 const HOURS = 60 * 60 * 1000;
@@ -10,10 +10,12 @@ const BOARD = "his own board (goblins-window.exe pid 4242)";
 const task = (id: string, fields: Record<string, unknown> = {}) => ({ id, title: id, project: "northwind-api", phase: "working", verified: false, generation: id + "-1", ...fields });
 const TASKS = [task("nw-invoice-export"), task("nw-checkout-tax"), task("nw-search-index")];
 const question = (id: string, text: string, asker = "") => ({ id, text, options: ["Hold it", "Do it"], recommended: "Hold it", status: "pending", task: asker, generation: asker ? asker + "-1" : "", created_at: new Date(Date.now() - HOURS).toISOString() });
-const QUESTIONS = [question("q-drop-table", "Migration 0042 drops the legacy_invoices table. Apply it?"), question("q-old-branch", "Delete the old branch fix/tax-rounding-v1?", "nw-checkout-tax")];
+// The second is a goblin's question the CFO passed up to him: a goblin's own
+// question is the CFO's to answer, never waits on him and is never held.
+const QUESTIONS = [question("q-drop-table", "Migration 0042 drops the legacy_invoices table. Apply it?"), question("q-old-branch", "nw-checkout-tax asks: Delete the old branch fix/tax-rounding-v1?")];
 const HELD = [
-  { item: "question:q-drop-table", task: "", what: "Migration 0042 drops the legacy_invoices table. Apply it?", at: QUESTIONS[0].created_at, waiting: true, now: "still waiting on you", meanwhile: "" },
-  { item: "question:q-old-branch", task: "nw-checkout-tax", what: "Delete the old branch fix/tax-rounding-v1?", at: QUESTIONS[1].created_at, waiting: true, now: "still waiting on you", meanwhile: "working: moved on to the refund path" },
+  { item: "question:q-drop-table", task: "", what: "Migration 0042 drops the legacy_invoices table. Apply it?", at: QUESTIONS[0].created_at, waiting: true, now: "still waiting on you", meanwhile: "", recommendation: "Hold it" },
+  { item: "question:q-old-branch", task: "nw-checkout-tax", what: "Delete the old branch fix/tax-rounding-v1?", at: QUESTIONS[1].created_at, waiting: true, now: "still waiting on you", meanwhile: "working: moved on to the refund path", recommendation: "Hold it" },
 ];
 let revision = 0;
 const snapshot = (fields: Record<string, unknown> = {}) => ({ healthy: true, instance: "fixture", cfo_runs: true, cfo_harness: "claude", revision: ++revision, attention: [], tasks: TASKS, sessions: [{ id: "cfo-1", harness: "claude", role: "cfo", model: "claude-opus-5-5" }], ...fields });
@@ -24,15 +26,22 @@ const KEPT = { state: "off", report: "afk-20261002T034000.000Z" };
 const REPORT = {
   found: true, session: KEPT.report, since: "2026-10-02T03:40:00Z", ended: "2026-10-02T12:05:00Z", lasted: "8h25m", from: BOARD, ended_from: "his own terminal (powershell.exe pid 5151)",
   sections: [
+    { title: "Left for you", entries: [{ at: "2026-10-02T06:12:00Z", kind: "left", what: "Sign in to Vercel for nw-search-index", evidence: "his own sign-in, backlog row nw-search-vercel-sign-in, nw-search-index moved on to the ranking work", outcome: "" }] },
     { title: "Merged", entries: [{ at: "2026-10-02T04:31:00Z", kind: "merge", what: "https://github.com/northwind/northwind-api/pull/412", link: "https://github.com/northwind/northwind-api/pull/412", evidence: "head 3f9c2ab; 5 checks completed green", outcome: "merged" }] },
     { title: "Merge words with no merge recorded", entries: [{ at: "2026-10-02T10:58:00Z", kind: "merge", what: "https://github.com/northwind/northwind-api/pull/417", link: "https://github.com/northwind/northwind-api/pull/417", evidence: "head 77aa01c; 5 checks completed green", outcome: "" }] },
     { title: "Deployed", entries: [] },
     { title: "Answered for goblins", entries: [{ at: "2026-10-02T04:05:00Z", kind: "answer", what: "notify-nw-invoice-export-12", task: "nw-invoice-export", evidence: "asked: Which CSV dialect? answered: RFC 4180" }] },
     { title: "Other decisions", entries: [{ at: "2026-10-02T05:00:00Z", kind: "other", what: "Restarted the dev server", link: "javascript:alert(1)", evidence: "it had stopped answering" }] },
+    { title: "Paused at a floor", entries: [{ at: "2026-10-02T06:40:00Z", kind: "pause", what: "at the memory floor", task: "nw-search-index", evidence: "3.1 GB of memory and 8.0 GB of commit free on two readings in a row, under the 4 GB floor; nw-search-index was the newest goblin not pushing or merging", outcome: "paused" }] },
   ],
   finished: [{ task: "nw-login-rate", pr: "https://github.com/northwind/northwind-api/pull/412", at: "2026-10-02T04:12:00Z" }],
   held: [HELD[0], { ...HELD[1], waiting: false, now: "you answered it: Keep it for now" }],
-  spent: ["claude week: 41% used when it turned on, 49% when it turned off (8 points)"],
+  spent: [
+    { provider: "claude", window: "week", on: 41, off: 49 },
+    { provider: "claude", window: "session", on: 42, off: 3, reset: true },
+    { provider: "codex", window: "week", off: 4 },
+    { provider: "codex", window: "credits", credits: true, spent: 12.5, unit: "credits" },
+  ],
   notes: [],
 };
 // The supervisor's own words for a board that an agent's program shows.
@@ -48,12 +57,16 @@ interface Supervisor { asked: Asked[]; refuses: boolean; announces: boolean }
 async function open(page: Page, first: object, supervisor: Supervisor = { asked: [], refuses: false, announces: true }): Promise<Supervisor> {
   await page.addInitScript(() => {
     const streams: EventTarget[] = [];
+    // What held the page's main thread, kept for slowPush below.
+    const longFrames: unknown[] = [];
+    const pushedAt: number[] = [];
+    new PerformanceObserver((list) => { for (const entry of list.getEntries()) longFrames.push(entry.toJSON()); }).observe({ type: "long-animation-frame", buffered: true });
     class HeldStream extends EventTarget {
       onerror: unknown = null;
       constructor() { super(); streams.push(this); }
       close() { streams.splice(streams.indexOf(this), 1); }
     }
-    Object.assign(window, { EventSource: HeldStream, pushSnapshot: (value: unknown) => { for (const stream of streams) stream.dispatchEvent(new MessageEvent("snapshot", { data: JSON.stringify(value) })); return streams.length; } });
+    Object.assign(window, { EventSource: HeldStream, longFrames, pushedAt, pushSnapshot: (value: unknown) => { pushedAt.push(performance.now()); for (const stream of streams) stream.dispatchEvent(new MessageEvent("snapshot", { data: JSON.stringify(value) })); return streams.length; } });
   });
   await page.route("**/api/**", async (route) => {
     const request = route.request();
@@ -66,10 +79,29 @@ async function open(page: Page, first: object, supervisor: Supervisor = { asked:
     else await route.fulfill({ status: 404, json: { error: "No fixture for this resource" } });
   });
   await page.goto("/");
-  await expect.poll(() => push(page, first)).toBeGreaterThan(0);
+  const started = Date.now();
+  try {
+    await expect.poll(() => push(page, first)).toBeGreaterThan(0);
+  } finally {
+    if (Date.now() - started > SLOW_PUSH_MS) await slowPush(page, Date.now() - started);
+  }
   await expect(page.locator(".board-column").first()).toBeVisible();
   await page.evaluate(() => document.fonts.ready);
   return supervisor;
+}
+// On CI runners the first push has twice waited over five seconds on the
+// page's main thread, which drew nothing meanwhile (runs 37360134485 and
+// 37517175728), and that does not happen on a developer machine. A push that
+// slow attaches the page's long animation frames, each with the scripts,
+// style and layout and rendering it spent its time on, and when the pushes
+// were made, so the next one names what held the thread.
+const SLOW_PUSH_MS = 2000;
+async function slowPush(page: Page, waited: number) {
+  const held = await page.evaluate(() => {
+    const { longFrames, pushedAt } = window as unknown as { longFrames: unknown[]; pushedAt: number[] };
+    return { now: performance.now(), pushedAt, longFrames };
+  });
+  await test.info().attach("long animation frames", { contentType: "application/json", body: JSON.stringify({ waited, ...held }, null, 1) });
 }
 const push = (page: Page, value: object) => page.evaluate((next) => (window as unknown as { pushSnapshot: (value: unknown) => number }).pushSnapshot(next), value);
 
@@ -78,13 +110,6 @@ const header = (page: Page) => page.locator(".panel-header");
 const toggle = (page: Page) => page.getByRole("switch", { name: "AFK mode" });
 const offer = (page: Page) => page.locator("dialog.afk-dialog").filter({ hasText: "Welcome back" });
 const report = (page: Page) => page.locator("dialog.afk-report");
-const heldPanel = (page: Page) => bar(page).locator(".afk-held-panel");
-// The list of what is held opens only on his click.
-async function openHeld(page: Page) {
-  await expect(heldPanel(page)).not.toHaveAttribute("open", "");
-  await heldPanel(page).locator("summary").click();
-  await expect(heldPanel(page)).toHaveAttribute("open", "");
-}
 // The toggle is in the header of the CFO's panel, which the CFO's bar opens.
 async function openCfoPanel(page: Page) {
   await bar(page).getByRole("button", { name: "Open the CFO's terminal" }).last().click();
@@ -100,7 +125,7 @@ test("the CFO panel's header carries the AFK toggle beside its status: off at re
   await expect(header(page).getByRole("switch")).toHaveCount(1);
   await expect(toggle(page)).toHaveText("AFK");
   await expect(toggle(page)).toHaveAttribute("aria-checked", "false");
-  await expect(bar(page).locator(".cfo-rest")).toContainText("All quiet. The CFO supervises 3 goblins.");
+  await expect(bar(page).locator(".cfo-rest")).toContainText("All quiet. 3 goblins at work.");
 
   // On asks, with the focus on Cancel: Enter alone turns nothing on.
   await toggle(page).click();
@@ -117,7 +142,7 @@ test("the CFO panel's header carries the AFK toggle beside its status: off at re
   await push(page, snapshot({ afk: on() }));
   await expect(asks).toHaveCount(0);
   await expect(toggle(page)).toHaveAttribute("aria-checked", "true");
-  await expect(bar(page).locator(".cfo-rest > p")).toHaveText(/^AFK since .+, from your board\. 0 decided, 0 held for you\.$/);
+  await expect(bar(page).locator(".cfo-rest > p")).toHaveText(/^AFK since .+, from your board\. 0 decided\.$/);
   // Off asks nothing first: it only gives him his decisions back.
   await toggle(page).click();
   await expect.poll(() => supervisor.asked.at(-1)).toEqual({ on: false, token: "fixture" });
@@ -132,72 +157,74 @@ test("the toggle is in the header in the panel's Task view and its Terminal view
   }
 });
 
-test("a refusal is said in the supervisor's words, in the question and under the header, and the toggle stays as it was", async ({ page }) => {
+// The Overlord, 2026-10-08: "everything error wise goes to cfo". A refusal
+// of his own press is said in a few words beside it, and goes by itself.
+test("a refusal is said in a few words for a moment, in the question and under the header, and the toggle stays as it was", async ({ page }) => {
+  await page.clock.install();
   const supervisor = await open(page, snapshot(), { asked: [], refuses: true, announces: true });
+  const said = /^AFK mode is the Supreme Overlord's switch, and the program.*…$/;
   await openCfoPanel(page);
   await toggle(page).click();
   const asks = page.locator("dialog.afk-dialog");
   await asks.getByRole("button", { name: "Turn AFK on" }).click();
-  await expect(asks.getByRole("alert")).toHaveText(REFUSAL);
+  await expect(asks.getByRole("status")).toHaveText(said);
   await expect(toggle(page)).toHaveAttribute("aria-checked", "false");
   await asks.getByRole("button", { name: "Cancel" }).click();
-  await expect(header(page).locator(".afk-problem")).toHaveCount(0);
+  await expect(header(page).locator(".click-feedback")).toHaveCount(0);
 
   await push(page, snapshot({ afk: on() }));
   await toggle(page).click();
-  await expect(header(page).getByRole("alert")).toHaveText(REFUSAL);
+  await expect(header(page).locator(".click-feedback")).toHaveText(said);
   await expect(toggle(page)).toHaveAttribute("aria-checked", "true");
+  await page.clock.fastForward(6000);
+  await expect(header(page).locator(".click-feedback")).toHaveCount(0);
   expect(supervisor.asked.map((ask) => ask.on)).toEqual([true, false]);
 });
 
-test("while AFK is on nothing glows on the bar though things wait on him, it lists what is held once he opens the list, and Answer opens that item in the Command Center", async ({ page }) => {
+// The Overlord, 2026-10-08: "held for you in afk mode not needed it should
+// just show the command center button to open whats to be answered". AFK mode
+// is complete autopilot, so the bar lists nothing held for him: whatever waits
+// is a click away on Open Command Center, which does not glow while he is away.
+test("while AFK is on the bar stays at rest and lists nothing held, and an outline Open Command Center is its one way to what waits", async ({ page }) => {
   await open(page, snapshot({ questions: QUESTIONS }));
-  // With AFK off the same items put a glowing Open Command Center on the bar.
-  const glowing = bar(page).getByRole("button", { name: /^Open Command Center/ });
-  await expect(glowing).toHaveAccessibleName("Open Command Center: 2 waiting on you");
+  // With AFK off the same items bring the CFO's lantern box with its lantern
+  // Open Command Center.
+  const command = bar(page).getByRole("button", { name: /^Open Command Center/ });
+  await expect(command).toHaveAccessibleName("Open Command Center: 2 waiting on you");
+  await expect(bar(page).locator(".dialogue")).toHaveCount(1);
+  await expect(command).not.toHaveClass(/outline/);
 
   await push(page, snapshot({ questions: QUESTIONS, afk: on({ decided: 4, held: HELD }) }));
-  await expect(glowing).toHaveCount(0);
-  await expect(bar(page).locator(".cfo-rest > p")).toHaveText(/^AFK since .+\. 4 decided, 2 held for you\.$/);
-  await openHeld(page);
-  const rows = bar(page).locator(".afk-held li");
-  await expect(rows).toHaveCount(2);
-  await expect(rows.nth(0)).toContainText("CFO");
-  await expect(rows.nth(0)).toContainText("Still waiting on you.");
-  await expect(rows.nth(1)).toContainText("nw-checkout-tax");
-  await expect(rows.nth(1)).toContainText("Still waiting on you. Meanwhile: working: moved on to the refund path.");
+  await expect(bar(page).locator(".cfo-rest > p")).toHaveText(/^AFK since .+\. 4 decided\.$/);
+  await expect(bar(page).locator(".dialogue")).toHaveCount(0);
+  await expect(bar(page).getByText(/held/i)).toHaveCount(0);
+  await expect(bar(page).locator(".afk-held, details")).toHaveCount(0);
+  await expect(bar(page).locator(".cfo-rest").getByRole("button", { name: "Open Command Center: 2 waiting on you" })).toHaveClass(/outline/);
   await expect(page.locator("dialog.question-modal")).not.toBeVisible();
 
-  await rows.nth(1).getByRole("button", { name: /^Answer nw-checkout-tax/ }).click();
-  const center = page.locator("dialog.question-modal");
-  await expect(center).toBeVisible();
-  await expect(center.locator(".question-card")).toContainText("Delete the old branch fix/tax-rounding-v1?");
+  await command.click();
+  await expect(page.locator("dialog.question-modal")).toBeVisible();
 });
 
-test("the list is there and empty while nothing is held, and stays shut when an item comes while he is away", async ({ page }) => {
+test("with AFK on and nothing waiting the bar has no Command Center button, and an item that comes while he is away adds it and opens nothing", async ({ page }) => {
   await open(page, snapshot({ afk: on() }));
-  const panel = bar(page).locator(".afk-held-panel");
-  await expect(panel.locator("summary")).toHaveText("Held for you 0");
-  await expect(panel).not.toHaveAttribute("open", "");
+  const command = bar(page).getByRole("button", { name: /^Open Command Center/ });
+  await expect(command).toHaveCount(0);
   await push(page, snapshot({ questions: [QUESTIONS[0]], afk: on({ held: [HELD[0]] }) }));
-  await expect(panel.locator("summary")).toHaveText("Held for you 1");
-  await expect(panel).not.toHaveAttribute("open", "");
-  await panel.locator("summary").click();
-  await expect(panel.locator(".afk-held li")).toHaveCount(1);
+  await expect(command).toHaveAccessibleName("Open Command Center: 1 waiting on you");
+  await page.waitForTimeout(300);
+  await expect(page.locator("dialog.question-modal")).not.toBeVisible();
 });
 
-test("a board that loads, or reconnects, with AFK already on and items already held keeps the list shut until he opens it", async ({ page }) => {
+test("a board that loads, or reconnects, with AFK already on and items already waiting opens nothing by itself", async ({ page }) => {
   await open(page, snapshot({ questions: QUESTIONS, afk: on({ decided: 4, held: HELD }) }));
-  await expect(heldPanel(page).locator("summary")).toHaveText("Held for you 2");
-  await expect(heldPanel(page)).not.toHaveAttribute("open", "");
-  await expect(heldPanel(page).locator(".afk-held li")).toHaveCount(0);
+  const command = bar(page).getByRole("button", { name: /^Open Command Center/ });
+  await expect(command).toHaveAccessibleName("Open Command Center: 2 waiting on you");
   await page.reload();
   await expect.poll(() => push(page, snapshot({ questions: QUESTIONS, afk: on({ decided: 4, held: HELD }) }))).toBeGreaterThan(0);
-  await expect(heldPanel(page).locator("summary")).toHaveText("Held for you 2");
+  await expect(command).toHaveAccessibleName("Open Command Center: 2 waiting on you");
   await page.waitForTimeout(300);
-  await expect(heldPanel(page)).not.toHaveAttribute("open", "");
-  await openHeld(page);
-  await expect(heldPanel(page).locator(".afk-held li")).toHaveCount(2);
+  await expect(page.locator("dialog.question-modal")).not.toBeVisible();
 });
 
 for (const response of ["successful", "failed"] as const) test(`a late ${response} announcement reply opens nothing and sends no notification after AFK turns on`, async ({ page }) => {
@@ -216,10 +243,9 @@ for (const response of ["successful", "failed"] as const) test(`a late ${respons
   const inFlight: Route[] = [];
   await page.route("**/api/announce", (route) => { inFlight.push(route); });
   await push(page, snapshot({ questions: [QUESTIONS[0]] }));
-  await expect.poll(() => inFlight.some((route) => (route.request().postDataJSON() as { keys: string[] }).keys.includes("open:question:q-drop-table"))).toBe(true);
-  await expect.poll(() => inFlight.some((route) => (route.request().postDataJSON() as { keys: string[] }).keys.includes("alert:question:q-drop-table"))).toBe(true);
+  await expect.poll(() => inFlight.some((route) => (route.request().postDataJSON() as { keys: string[] }).keys.includes("alert:question:q-drop-table@" + QUESTIONS[0].created_at))).toBe(true);
   await push(page, snapshot({ questions: [QUESTIONS[0]], afk: on({ held: [HELD[0]] }) }));
-  await expect(bar(page).locator(".cfo-rest > p")).toHaveText(/1 held for you\.$/);
+  await expect(bar(page).getByRole("button", { name: "Open Command Center: 1 waiting on you" })).toBeVisible();
   for (const route of inFlight.splice(0)) await route.fulfill(response === "successful"
     ? { json: { claimed: (route.request().postDataJSON() as { keys: string[] }).keys } }
     : { status: 503, json: { error: "The supervisor is restarting" } });
@@ -230,18 +256,31 @@ for (const response of ["successful", "failed"] as const) test(`a late ${respons
 });
 
 test("with AFK on, a new item raises no alert and opens nothing, even when the supervisor cannot be asked what was announced", async ({ page }) => {
+  await page.addInitScript(() => {
+    class Note {
+      static permission = "granted";
+      static requestPermission = async () => "granted";
+      constructor(public title: string, public options: { body: string }) { (window as unknown as { notes: string[] }).notes.push(options.body); }
+      close() {}
+    }
+    Object.assign(window, { notes: [], Notification: Note });
+    Object.defineProperty(document, "hidden", { configurable: true, get: () => true });
+  });
+  const notes = () => page.evaluate(() => (window as unknown as { notes: string[] }).notes);
   await open(page, snapshot({ afk: on() }), { asked: [], refuses: false, announces: false });
   const asked = page.waitForResponse((response) => new URL(response.url()).pathname === "/api/announce");
   await push(page, snapshot({ questions: [QUESTIONS[1]], afk: on({ held: [HELD[1]] }) }));
   await asked;
-  await expect(bar(page).locator(".cfo-rest > p")).toHaveText(/1 held for you\.$/);
+  await expect(bar(page).getByRole("button", { name: "Open Command Center: 1 waiting on you" })).toBeVisible();
   await page.waitForTimeout(500);
-  await expect(page.locator(".toasts .dialogue")).toHaveCount(0);
+  expect(await notes()).toEqual([]);
   await expect(page.locator("dialog.question-modal")).not.toBeVisible();
   // The same failed ask with AFK off announces from what this browser
-  // remembers, as it always has.
+  // remembers, as it always has: the item that is new since is notified, and
+  // the one that arrived while he was away never is.
   await push(page, snapshot({ questions: QUESTIONS }));
-  await expect(page.locator(".toasts .dialogue")).toContainText("Migration 0042 drops the legacy_invoices table. Apply it?");
+  await expect.poll(notes).toEqual(["The CFO asks: Migration 0042 drops the legacy_invoices table. Apply it?"]);
+  await expect(page.locator("dialog.question-modal")).not.toBeVisible();
 });
 
 test("his first click after he has been gone still does what he meant and offers to turn AFK off: keys typed blind press nothing, Stay AFK keeps it on, and Turn AFK off shows the report", async ({ page }) => {
@@ -250,7 +289,7 @@ test("his first click after he has been gone still does what he meant and offers
   // Nothing opens by itself while he is away.
   await expect(offer(page)).toHaveCount(0);
   await page.locator(".task-card").filter({ hasText: "nw-search-index" }).first().click();
-  await expect(offer(page)).toContainText("The CFO decided 7 and holds 2 for you.");
+  await expect(offer(page)).toContainText("The CFO decided 7.");
   await expect(offer(page)).toContainText("turned on from your board.");
   // What he was typing when it opened presses neither button.
   await expect(offer(page)).toBeFocused();
@@ -275,11 +314,32 @@ test("his first click after he has been gone still does what he meant and offers
   await page.locator(".board-column").first().click({ position: { x: 8, y: 8 } });
   await offer(page).getByRole("button", { name: "Turn AFK off" }).click();
   await expect.poll(() => supervisor.asked).toEqual([{ on: false, token: "fixture" }]);
-  await expect(report(page)).toHaveCount(0);
-  await push(page, snapshot({ questions: QUESTIONS, afk: KEPT }));
+  // The supervisor keeps the report before it answers, so the report shows
+  // as soon as it answers, whenever the board's next snapshot comes.
   await expect(offer(page)).toHaveCount(0);
   await expect(report(page)).toContainText("AFK report");
   await expect(report(page)).toContainText("8h25m");
+  await push(page, snapshot({ questions: QUESTIONS, afk: KEPT }));
+  await expect(report(page)).toHaveCount(1);
+});
+
+test("turning AFK off from the toggle shows the report as soon as the supervisor answers, and the snapshot after it brings no second one", async ({ page }) => {
+  const supervisor = await open(page, snapshot({ afk: on() }));
+  await openCfoPanel(page);
+  await toggle(page).click();
+  await expect.poll(() => supervisor.asked).toEqual([{ on: false, token: "fixture" }]);
+  await expect(report(page)).toContainText("8h25m");
+  await page.keyboard.press("Escape");
+  await expect(report(page)).toHaveCount(0);
+  await push(page, snapshot({ afk: KEPT }));
+  await expect(toggle(page)).toHaveAttribute("aria-checked", "false");
+  await page.waitForTimeout(300);
+  await expect(report(page)).toHaveCount(0);
+  // A stretch that ends elsewhere, from his terminal, still shows its report
+  // when the snapshot says so.
+  await push(page, snapshot({ afk: on() }));
+  await push(page, snapshot({ afk: { ...KEPT, report: "afk-20261002T130000.000Z" } }));
+  await expect(report(page)).toContainText("AFK report");
 });
 
 test("a press on the toggle itself is his answer, so it offers nothing", async ({ page }) => {
@@ -298,9 +358,9 @@ test("a stretch the CFO turned on at his ask says so on the bar, and the offer a
   await page.clock.install();
   const byTheCFO = { from: "the CFO at his ask (claude pid 4242)", asked: "I'm stepping away, turn AFK on" };
   await open(page, snapshot({ afk: on({ ...byTheCFO, decided: 1 }, 8 * HOURS) }));
-  await expect(bar(page).locator(".cfo-rest > p")).toHaveText(/^AFK since .+, turned on by the CFO at your ask\. 1 decided, 0 held for you\.$/);
+  await expect(bar(page).locator(".cfo-rest > p")).toHaveText(/^AFK since .+, turned on by the CFO at your ask\. 1 decided\.$/);
   await page.locator(".board-column").first().click({ position: { x: 8, y: 8 } });
-  await expect(offer(page)).toContainText("turned on by the CFO at your ask: “I'm stepping away, turn AFK on”. The CFO decided 1 and holds 0 for you.");
+  await expect(offer(page)).toContainText("turned on by the CFO at your ask: “I'm stepping away, turn AFK on”. The CFO decided 1.");
   await offer(page).getByRole("button", { name: "Stay AFK" }).click();
 
   // He turns it off himself, from the board, and the report says who made
@@ -310,19 +370,49 @@ test("a stretch the CFO turned on at his ask says so on the bar, and the offer a
   await expect(report(page).locator(".afk-report-title")).toContainText("Turned on by the CFO at your ask: “I'm stepping away, turn AFK on”, off from your board.");
 });
 
+test("his first click or key after the CFO turned AFK on at his ask offers the switch back at once with his words, and the usual wait follows his answer", async ({ page }) => {
+  await page.clock.install();
+  const byTheCFO = { from: "the CFO at his ask (claude pid 4242)", asked: "I'm heading to bed, turn AFK on" };
+  const supervisor = await open(page, snapshot({ afk: on(byTheCFO) }));
+  const switched = page.locator("dialog.afk-dialog").filter({ hasText: "The CFO turned AFK on" });
+  // Nothing opens by itself after the switch.
+  await expect(switched).toHaveCount(0);
+
+  await page.locator(".task-card").filter({ hasText: "nw-search-index" }).first().click();
+  await expect(switched).toContainText("turned on by the CFO at your ask: “I'm heading to bed, turn AFK on”.");
+  await expect(offer(page)).toHaveCount(0);
+  await expect(switched).toBeFocused();
+  await switched.getByRole("button", { name: "Stay AFK" }).click();
+  await expect(page.locator("dialog.afk-dialog")).toHaveCount(0);
+  // The click that brought the offer opened the task he clicked.
+  await expect(page.locator("#panel-title")).toHaveText("nw-search-index");
+
+  // He has answered it, so his next click and key offer nothing.
+  await page.locator(".board-column").first().click({ position: { x: 8, y: 8 } });
+  await page.keyboard.press("Shift");
+  await expect(page.locator("dialog.afk-dialog")).toHaveCount(0);
+  expect(supervisor.asked).toEqual([]);
+});
+
 test("the report lists what is held first, then how much of each thing the CFO did, each decision with its link and what it stood on, and what was spent, and opens again from the header", async ({ page }) => {
-  await open(page, snapshot({ afk: KEPT }));
+  await open(page, snapshot({ questions: [QUESTIONS[0]], afk: KEPT }));
   // A page that opens after AFK mode turned off shows no report by itself.
   await expect(report(page)).toHaveCount(0);
   await openCfoPanel(page);
   await header(page).getByRole("button", { name: "Open the last AFK report" }).click();
   await expect(report(page).locator(".afk-report-title")).toContainText("Turned on from your board, off from your terminal.");
-  await expect(report(page).locator(".afk-tally li")).toHaveText(["Held for you 2", "Merged 1", "Merge words with no merge recorded 1", "Deployed 0", "Answered for goblins 1", "Other decisions 1", "Goblins finished 1"]);
+  await expect(report(page).locator(".afk-tally li")).toHaveText(["Held for you 2", "Left for you 1", "Merged 1", "Merge words with no merge recorded 1", "Deployed 0", "Answered for goblins 1", "Other decisions 1", "Paused at a floor 1", "Goblins finished 1"]);
   // Coming back he reads what is held before what was decided.
-  expect(await report(page).locator("section").evaluateAll((sections) => sections.map((section) => section.getAttribute("aria-label")))).toEqual(["Held for you", "Merged", "Merge words with no merge recorded", "Answered for goblins", "Other decisions", "Goblins finished", "Spent"]);
+  expect(await report(page).locator("section").evaluateAll((sections) => sections.map((section) => section.getAttribute("aria-label")))).toEqual(["Held for you", "Left for you", "Merged", "Merge words with no merge recorded", "Answered for goblins", "Other decisions", "Paused at a floor", "Goblins finished", "Spent"]);
   // A section with nothing in it is counted above and not listed.
   await expect(report(page).getByRole("region", { name: "Deployed" })).toHaveCount(0);
 
+  // What only he can do was left for him in the backlog and worked around, and
+  // it still waits on him.
+  const left = report(page).getByRole("region", { name: "Left for you" }).locator("li");
+  await expect(left.locator("strong")).toHaveText("Sign in to Vercel for nw-search-index");
+  await expect(left).toContainText("Evidence: his own sign-in, backlog row nw-search-vercel-sign-in");
+  await expect(left.locator(".delivery")).toHaveClass(/uncertain/);
   const merged = report(page).getByRole("region", { name: "Merged", exact: true }).locator("li");
   await expect(merged).toContainText("northwind-api #412: merged");
   await expect(merged).toContainText("Evidence: head 3f9c2ab; 5 checks completed green");
@@ -337,24 +427,74 @@ test("the report lists what is held first, then how much of each thing the CFO d
   await expect(other).toContainText("Restarted the dev server");
   await expect(other.getByRole("link")).toHaveCount(0);
 
+  // A goblin the supervisor paused at the memory floor wears the pause mark,
+  // with the readings the pause stood on.
+  const paused = report(page).getByRole("region", { name: "Paused at a floor" }).locator("li");
+  await expect(paused.locator("strong")).toHaveText("nw-search-index: at the memory floor: paused");
+  await expect(paused).toContainText("Evidence: 3.1 GB of memory and 8.0 GB of commit free on two readings in a row");
+  await expect(paused.locator(".delivery path")).toHaveAttribute("d", "M8 5v14M16 5v14");
+
   const held = report(page).getByRole("region", { name: "Held for you" }).locator("li");
   await expect(held).toHaveCount(2);
+  await expect(held.nth(0).locator(".afk-recommends")).toHaveText("The CFO recommends: Hold it.");
+  await expect(held.nth(1).locator(".afk-recommends")).toHaveText("nw-checkout-tax recommended: Hold it.");
   await expect(held.nth(1)).toContainText("You answered it: Keep it for now.");
-  await expect(report(page).getByRole("region", { name: "Spent" })).toContainText("claude week: 41% used when it turned on, 49% when it turned off (8 points)");
+  // What was spent is a row for each allowance used: its mark, its name, a
+  // graph with a red arrow at its percent when AFK turned off and a hollow one
+  // where it stood when AFK turned on, and the percents themselves.
+  const spent = report(page).getByRole("region", { name: "Spent" }).locator("li");
+  await expect(spent).toHaveText(["Claude week41% → 49%", "Claude session42% → 3%", "Codex week4%", "Codex credits12.5 spent"]);
+  await expect(spent.nth(0).getByRole("img", { name: "Claude week 41% used at AFK on and 49% at AFK off" })).toBeVisible();
+  await expect(spent.nth(0).locator(".afk-spent-arrow")).toHaveCount(2);
+  await expect(spent.nth(0).locator(".afk-spent-arrow:not(.then)")).toHaveAttribute("style", "left: 49%;");
+  await expect(spent.nth(0).locator(".afk-spent-arrow.then")).toHaveAttribute("style", "left: 41%;");
+  await expect(spent.nth(1).getByRole("img")).toHaveAccessibleName("Claude session 42% used at AFK on and 3% at AFK off after it reset");
+  await expect(spent.nth(2).locator(".afk-spent-arrow")).toHaveCount(1);
+  await expect(spent.nth(3).getByRole("img")).toHaveCount(0);
+  expect(await report(page).getByRole("region", { name: "Spent" }).evaluate((section) => section.textContent)).not.toMatch(/not read|0%/);
 
-  await report(page).getByRole("button", { name: "Back to the board" }).click();
+  // Something it held still waits on him, so its one button at the bottom is
+  // the Command Center, which it opens.
+  const actions = report(page).locator(".afk-report-actions button");
+  await expect(actions).toHaveText(["Open Command Center"]);
+  await expect(actions).toHaveClass(/primary/);
+  await actions.click();
+  await expect(report(page)).toHaveCount(0);
+  await expect(page.locator("dialog.question-modal")).toBeVisible();
+});
+
+test("with nothing it held still waiting on him, the report's one button at the bottom is Back to the board, and with nothing used it has no Spent", async ({ page }) => {
+  await open(page, snapshot({ afk: KEPT }));
+  await page.route("**/api/afk/report", (route) => route.fulfill({ json: { ...REPORT, held: [REPORT.held[1]], spent: [] } }));
+  await openCfoPanel(page);
+  await header(page).getByRole("button", { name: "Open the last AFK report" }).click();
+  await expect(report(page).locator(".afk-tally li").first()).toHaveText("Held for you 1");
+  await expect(report(page).getByRole("region", { name: "Spent" })).toHaveCount(0);
+  const actions = report(page).locator(".afk-report-actions button");
+  await expect(actions).toHaveText(["Back to the board"]);
+  await expect(actions).toHaveClass(/primary/);
+  await actions.click();
   await expect(report(page)).toHaveCount(0);
   await header(page).getByRole("button", { name: "Open the last AFK report" }).click();
   await page.keyboard.press("Escape");
   await expect(report(page)).toHaveCount(0);
+
+  // With nothing that waited on him there is no Held for you to read, as for
+  // any other heading with nothing under it.
+  await page.route("**/api/afk/report", (route) => route.fulfill({ json: { ...REPORT, held: [], spent: [] } }));
+  await header(page).getByRole("button", { name: "Open the last AFK report" }).click();
+  await expect(report(page).locator(".afk-tally li").first()).toHaveText("Held for you 0");
+  await expect(report(page).getByRole("region", { name: "Left for you" })).toBeVisible();
+  await expect(report(page).getByRole("region", { name: "Held for you" })).toHaveCount(0);
 });
 
-test("a switch that cannot be read is shown off, says how to reset it, and still lets what waits on him lead", async ({ page }) => {
+test("a switch that cannot be read is shown off, its tip says how to reset it, and what waits on him still leads", async ({ page }) => {
   const supervisor = await open(page, snapshot({ questions: [QUESTIONS[0]], afk: { state: "unreadable" } }));
   await expect(bar(page).getByRole("button", { name: "Open Command Center: 1 waiting on you" })).toBeVisible();
   await openCfoPanel(page);
   await expect(toggle(page)).toHaveAttribute("aria-checked", "false");
-  await expect(header(page).getByRole("status")).toHaveText("AFK's switch cannot be read, so nothing is decided for you. Press the toggle to reset it.");
+  await expect(toggle(page)).toHaveAttribute("data-tip", "Reset AFK to off");
+  await expect(header(page).getByText(/cannot be read/)).toHaveCount(0);
   // His press resets it: it asks for off, and asks nothing first.
   await toggle(page).click();
   await expect.poll(() => supervisor.asked).toEqual([{ on: false, token: "fixture" }]);
@@ -369,11 +509,10 @@ const within = (page: Page, selector: string) => page.locator(selector).evaluate
 const smallest = (page: Page) => bar(page).evaluate((pin) => Math.min(...[...pin.querySelectorAll("p, span, strong, small, time, button, summary")].filter((element) => (element.textContent || "").trim() !== "").map((element) => parseFloat(getComputedStyle(element).fontSize))));
 const fits = (page: Page) => page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth);
 
-test("on a phone the bar keeps its line, its terminal and what is held inside it, and the toggle stays in the CFO panel's header, with nothing wider than the page", async ({ page }) => {
+test("on a phone the bar keeps its line, its terminal and Open Command Center inside it, and the toggle stays in the CFO panel's header, with nothing wider than the page", async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 });
   await open(page, snapshot({ questions: QUESTIONS, afk: on({ decided: 4, held: HELD }) }));
-  await openHeld(page);
-  await expect(bar(page).locator(".afk-held li")).toHaveCount(2);
+  await expect(bar(page).getByRole("button", { name: "Open Command Center: 2 waiting on you" })).toBeVisible();
   expect(await within(page, ".cfo-rest")).toBe(true);
   expect(await smallest(page)).toBeGreaterThanOrEqual(15);
   await openCfoPanel(page);
@@ -383,46 +522,42 @@ test("on a phone the bar keeps its line, its terminal and what is held inside it
   expect(await fits(page)).toBe(true);
 });
 
-test("in the desktop window the toggle sits on the header's first row, and on a panel at its narrowest it is still there and inside the header", async ({ browser }) => {
-  // His window: maximized on a 2560 by 1600 screen at 150 percent.
-  const context = await browser.newContext({ viewport: { width: 1707, height: 1067 }, deviceScaleFactor: 1.5, baseURL: ORIGIN });
-  await servePages(context);
-  const page = await context.newPage();
-  await open(page, snapshot({ questions: QUESTIONS, afk: on({ decided: 4, held: HELD }) }));
-  await openHeld(page);
-  await expect(bar(page).locator(".afk-held li")).toHaveCount(2);
-  await openCfoPanel(page);
-  for (const view of ["Task", "Terminal"]) {
-    await page.locator(".panel-pill").getByRole("button", { name: view, exact: true }).click();
-    const rows = await header(page).evaluate((element) => [".goblin-avatar", ".afk-toggle"].map((selector) => { const box = element.querySelector(selector)!.getBoundingClientRect(); return [Math.round(box.top), Math.round(box.bottom)]; }));
-    // The toggle is beside the CFO's portrait, name and status, not under them.
-    expect(rows[1][0], view + " view").toBeLessThan(rows[0][1]);
-    expect(rows[1][1], view + " view").toBeGreaterThan(rows[0][0]);
-    expect(await within(page, ".panel-header"), view + " view").toBe(true);
-  }
-  expect(await within(page, ".cfo-rest")).toBe(true);
-  expect(await fits(page)).toBe(true);
-  await context.close();
+// His window: maximized on a 2560 by 1600 screen at 150 percent.
+test.describe("in the desktop window", () => {
+  test.use({ viewport: { width: 1707, height: 1067 }, deviceScaleFactor: 1.5 });
+
+  test("the toggle sits on the header's first row", async ({ page }) => {
+    await open(page, snapshot({ questions: QUESTIONS, afk: on({ decided: 4, held: HELD }) }));
+    await expect(bar(page).getByRole("button", { name: "Open Command Center: 2 waiting on you" })).toBeVisible();
+    await openCfoPanel(page);
+    for (const view of ["Task", "Terminal"]) {
+      await page.locator(".panel-pill").getByRole("button", { name: view, exact: true }).click();
+      const rows = await header(page).evaluate((element) => [".goblin-avatar", ".afk-toggle"].map((selector) => { const box = element.querySelector(selector)!.getBoundingClientRect(); return [Math.round(box.top), Math.round(box.bottom)]; }));
+      // The toggle is beside the CFO's portrait, name and status, not under them.
+      expect(rows[1][0], view + " view").toBeLessThan(rows[0][1]);
+      expect(rows[1][1], view + " view").toBeGreaterThan(rows[0][0]);
+      expect(await within(page, ".panel-header"), view + " view").toBe(true);
+    }
+    expect(await within(page, ".cfo-rest")).toBe(true);
+    expect(await fits(page)).toBe(true);
+  });
 
   // The panel dragged to its narrowest, 360 pixels: the header wraps rather
   // than hide or cover the toggle.
-  const narrow = await browser.newContext({ viewport: { width: 1707, height: 1067 }, deviceScaleFactor: 1.5, baseURL: ORIGIN });
-  await servePages(narrow);
-  const small = await narrow.newPage();
-  await small.addInitScript(() => localStorage.setItem("cfo-pane-width", "360"));
-  await open(small, snapshot({ afk: on() }));
-  await openCfoPanel(small);
-  for (const view of ["Task", "Terminal"]) {
-    await small.locator(".panel-pill").getByRole("button", { name: view, exact: true }).click();
-    if (view === "Terminal") await small.getByRole("button", { name: "Restore the panel", exact: true }).click();
-    expect(Math.round((await small.locator(".context-pane").boundingBox())!.width), view + " view").toBe(360);
-    await expect(toggle(small)).toBeVisible();
-    expect(await within(small, ".panel-header"), view + " view").toBe(true);
-    const overlap = await header(small).evaluate((element) => {
-      const status = element.querySelector(".panel-status")!.getBoundingClientRect(), switched = element.querySelector(".afk-toggle")!.getBoundingClientRect();
-      return status.right > switched.left && status.left < switched.right && status.bottom > switched.top && status.top < switched.bottom;
-    });
-    expect(overlap, view + " view: the status and the toggle overlap").toBe(false);
-  }
-  await narrow.close();
+  test("on a panel at its narrowest the toggle is still there and inside the header", async ({ page }) => {
+    await page.addInitScript(() => localStorage.setItem("cfo-pane-width", "360"));
+    await open(page, snapshot({ afk: on() }));
+    await openCfoPanel(page);
+    for (const view of ["Task", "Terminal"]) {
+      await page.locator(".panel-pill").getByRole("button", { name: view, exact: true }).click();
+      expect(Math.round((await page.locator(".context-pane").boundingBox())!.width), view + " view").toBe(360);
+      await expect(toggle(page)).toBeVisible();
+      expect(await within(page, ".panel-header"), view + " view").toBe(true);
+      const overlap = await header(page).evaluate((element) => {
+        const status = element.querySelector(".panel-status")!.getBoundingClientRect(), switched = element.querySelector(".afk-toggle")!.getBoundingClientRect();
+        return status.right > switched.left && status.left < switched.right && status.bottom > switched.top && status.top < switched.bottom;
+      });
+      expect(overlap, view + " view: the status and the toggle overlap").toBe(false);
+    }
+  });
 });

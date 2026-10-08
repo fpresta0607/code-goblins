@@ -35,6 +35,20 @@ const (
 // so a garbage Length field cannot turn into a huge allocation.
 const maxParameterBytes = 64 * 1024
 
+// A process moves its environment and then its parameter block into its own
+// heap as it starts, frees the block CreateProcess built, and can put
+// something else at that address at once. It points its PEB at the new block
+// before it frees the old one, so a walk that still finds the PEB pointing at
+// the block it started from once it is done read nothing freed. One that does
+// not may have read a partial copy, zeros or another allocation's bytes, and
+// walks the new block again. The block moves once, so maxWalks bounds a
+// target that never holds still.
+const maxWalks = 3
+
+// errKeptMoving reports a process whose parameter block moved during every
+// walk of it.
+var errKeptMoving = errors.New("parameter block moved during every read")
+
 var (
 	ntdll                     = syscall.NewLazyDLL("ntdll.dll")
 	ntQueryInformationProcess = ntdll.NewProc("NtQueryInformationProcess")
@@ -92,41 +106,50 @@ func Arguments(pid int) ([]string, error) {
 }
 
 // Parameters returns the directory pid is running in and the arguments it was
-// started with, read through one handle and one walk of its parameter block.
-// A fresh first-page snapshot can contain both strings, avoiding separate
-// remote reads for them. Values outside that snapshot are read individually.
-// A value that could not be read is empty, and err says why.
+// started with, read through one handle and one steady walk of its parameter
+// block. A fresh first-page snapshot can contain both strings, avoiding
+// separate remote reads for them. Values outside that snapshot are read
+// individually. A value that could not be read is empty, and err says why.
 func Parameters(pid int) (string, []string, error) {
-	unreadable := func(err error) (string, []string, error) {
-		return "", nil, fmt.Errorf("%w: %w: %v", ErrDirectoryUnreadable, ErrCommandLineUnreadable, err)
+	unreadable := func(err error) error {
+		return fmt.Errorf("%w: %w: %v", ErrDirectoryUnreadable, ErrCommandLineUnreadable, err)
 	}
 	handle, err := syscall.OpenProcess(processQueryInformation|processVMRead, false, uint32(pid))
 	if err != nil {
-		return unreadable(fmt.Errorf("open process %d: %v", pid, err))
+		return "", nil, unreadable(fmt.Errorf("open process %d: %v", pid, err))
 	}
 	defer syscall.CloseHandle(handle)
-	parameters, err := parameterBlock(handle, pid)
-	if err != nil {
-		return unreadable(err)
-	}
-	// Do not prefetch into the next page, which could have a guard on it.
-	pageSize := uintptr(os.Getpagesize())
-	snapshot := make([]byte, max(pageSize-parameters%pageSize, paramsOffsetCommandLine+16))
-	if err := readMemory(handle, parameters, snapshot); err != nil {
-		return unreadable(err)
-	}
-	directory, directoryErr := unicodeString(handle, pid, snapshot[paramsOffsetCurrentDirectory:], parameters, snapshot)
-	if directoryErr != nil {
-		directoryErr = fmt.Errorf("%w: %v", ErrDirectoryUnreadable, directoryErr)
-	}
+	var directory string
 	var arguments []string
-	line, argumentsErr := unicodeString(handle, pid, snapshot[paramsOffsetCommandLine:], parameters, snapshot)
-	if argumentsErr != nil {
-		argumentsErr = fmt.Errorf("%w: %v", ErrCommandLineUnreadable, argumentsErr)
-	} else {
-		arguments, argumentsErr = splitCommandLine(line)
+	err = walkSteady(handle, pid, func() (uintptr, error) {
+		directory, arguments = "", nil
+		parameters, err := parameterBlock(handle, pid)
+		if err != nil {
+			return 0, unreadable(err)
+		}
+		// Do not prefetch into the next page, which could have a guard on it.
+		pageSize := uintptr(os.Getpagesize())
+		snapshot := make([]byte, max(pageSize-parameters%pageSize, paramsOffsetCommandLine+16))
+		if err := readMemory(handle, parameters, snapshot); err != nil {
+			return parameters, unreadable(err)
+		}
+		var directoryErr error
+		directory, directoryErr = unicodeString(handle, pid, snapshot[paramsOffsetCurrentDirectory:], parameters, snapshot)
+		if directoryErr != nil {
+			directoryErr = fmt.Errorf("%w: %v", ErrDirectoryUnreadable, directoryErr)
+		}
+		line, argumentsErr := unicodeString(handle, pid, snapshot[paramsOffsetCommandLine:], parameters, snapshot)
+		if argumentsErr != nil {
+			argumentsErr = fmt.Errorf("%w: %v", ErrCommandLineUnreadable, argumentsErr)
+		} else {
+			arguments, argumentsErr = splitCommandLine(line)
+		}
+		return parameters, errors.Join(directoryErr, argumentsErr)
+	})
+	if errors.Is(err, errKeptMoving) {
+		return "", nil, unreadable(err)
 	}
-	return directory, arguments, errors.Join(directoryErr, argumentsErr)
+	return directory, arguments, err
 }
 
 // splitCommandLine splits a command line by Windows' own CommandLineToArgvW.
@@ -157,15 +180,43 @@ func parameterString(pid int, offset uintptr) (string, error) {
 	}
 	defer syscall.CloseHandle(handle)
 
-	parameters, err := parameterBlock(handle, pid)
+	var value string
+	err = walkSteady(handle, pid, func() (uintptr, error) {
+		parameters, err := parameterBlock(handle, pid)
+		if err != nil {
+			return 0, err
+		}
+		descriptor := make([]byte, 16)
+		if err := readMemory(handle, parameters+offset, descriptor); err != nil {
+			return parameters, err
+		}
+		value, err = unicodeString(handle, pid, descriptor, 0, nil)
+		return parameters, err
+	})
 	if err != nil {
 		return "", err
 	}
-	descriptor := make([]byte, 16)
-	if err := readMemory(handle, parameters+offset, descriptor); err != nil {
-		return "", err
+	return value, nil
+}
+
+// walkSteady runs walk, a read of pid's memory that returns the parameter
+// block it walked (zero when it found none), until the PEB still points at
+// that block once the walk is done.
+func walkSteady(handle syscall.Handle, pid int, walk func() (uintptr, error)) error {
+	for range maxWalks {
+		parameters, err := walk()
+		if parameters == 0 || stillAt(handle, pid, parameters) {
+			return err
+		}
 	}
-	return unicodeString(handle, pid, descriptor, 0, nil)
+	return fmt.Errorf("process %d: %w", pid, errKeptMoving)
+}
+
+// stillAt reports whether pid's PEB points at the parameter block at
+// parameters. A PEB that could not be read proves nothing, so it does not.
+func stillAt(handle syscall.Handle, pid int, parameters uintptr) bool {
+	current, err := parameterBlock(handle, pid)
+	return err == nil && current == parameters
 }
 
 // parameterBlock returns the address of pid's process parameter block.
@@ -253,7 +304,7 @@ func readMemory(handle syscall.Handle, address uintptr, buffer []byte) error {
 		uintptr(unsafe.Pointer(&read)),
 	)
 	if ok == 0 {
-		return fmt.Errorf("read %d bytes at 0x%x: %v", len(buffer), address, err)
+		return fmt.Errorf("read %d bytes at 0x%x: %w", len(buffer), address, err)
 	}
 	if int(read) != len(buffer) {
 		return fmt.Errorf("read %d of %d bytes at 0x%x", read, len(buffer), address)

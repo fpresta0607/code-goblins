@@ -1,9 +1,9 @@
 package supervisor
 
 import (
-	"context"
 	"encoding/json"
 	"errors"
+	"maps"
 	"net"
 	"net/http"
 	"net/http/httptest"
@@ -131,7 +131,7 @@ func TestOnlyABoardOfTheOverlordsOwnSwitchesAFKMode(t *testing.T) {
 			}
 
 			// Act
-			from, err := s.overlordsBoard(request, credentialBoardHost, time.Now())
+			from, err := s.overlordsBoard(request, credentialBoardHost, time.Now(), askingBoard)
 
 			// Assert
 			if c.refusal == "" {
@@ -252,9 +252,7 @@ func TestTheBoardsSwitchTurnsAFKModeOnAndOffAndTheBoardIsShownIt(t *testing.T) {
 	// Arrange
 	store, h := testStore(t)
 	s := boardService(store)
-	s.Options.Allowance = func(context.Context) ([]afk.Allowance, string) {
-		return []afk.Allowance{{Provider: "claude", Window: "week", PercentUsed: 40}}, ""
-	}
+	holdReading(t, s, 40)
 	asOverlordsBoard(s)
 	before, err := s.Snapshot()
 	if err != nil {
@@ -319,7 +317,7 @@ func TestTheBoardsSwitchTurnsAFKModeOnAndOffAndTheBoardIsShownIt(t *testing.T) {
 		} `json:"sections"`
 		Finished []afk.Finish `json:"finished"`
 		Held     []afk.Held   `json:"held"`
-		Spent    []string     `json:"spent"`
+		Spent    []afk.Used   `json:"spent"`
 		Notes    []string     `json:"notes"`
 	}
 	if err := json.Unmarshal([]byte(reportBody), &page); reportCode != 200 || err != nil {
@@ -328,15 +326,15 @@ func TestTheBoardsSwitchTurnsAFKModeOnAndOffAndTheBoardIsShownIt(t *testing.T) {
 	if !page.Found || page.Session != switched.Session || page.Lasted != "under a minute" || page.From != "his own board (goblins-window.exe pid 4242)" {
 		t.Errorf("the report page = %+v, want the stretch that just ended", page)
 	}
-	if len(page.Sections) == 0 || page.Sections[0].Title != "Merged" || len(page.Sections[0].Entries) != 1 || page.Sections[0].Entries[0].What != pr || page.Sections[0].Entries[0].Evidence != "gate run 41 passed" {
-		t.Errorf("the report's sections = %+v, want the merge under Merged with its evidence", page.Sections)
+	if len(page.Sections) < 2 || page.Sections[0].Title != "Left for you" || page.Sections[1].Title != "Merged" || len(page.Sections[1].Entries) != 1 || page.Sections[1].Entries[0].What != pr || page.Sections[1].Entries[0].Evidence != "gate run 41 passed" {
+		t.Errorf("the report's sections = %+v, want nothing left for him, then the merge under Merged with its evidence", page.Sections)
 	}
 	// The page reads every list, so one with nothing in it is still a list.
 	if page.Finished == nil || page.Held == nil || page.Notes == nil {
 		t.Errorf("the report page leaves out a list with nothing in it, want each one there and empty: %s", reportBody)
 	}
-	if len(page.Spent) != 1 || !strings.Contains(page.Spent[0], "claude week: 40% used when it turned on") {
-		t.Errorf("spent = %q, want the reading when it turned on beside the one when it turned off", page.Spent)
+	if len(page.Spent) != 1 || page.Spent[0].Window != "week" || page.Spent[0].On == nil || *page.Spent[0].On != 40 || page.Spent[0].Off == nil || *page.Spent[0].Off != 40 {
+		t.Errorf("spent = %+v, want the reading when it turned on beside the one when it turned off", page.Spent)
 	}
 }
 
@@ -494,6 +492,38 @@ func TestTheSnapshotShowsWhatWasDecidedAndWhatIsHeldWhileAFKModeIsOn(t *testing.
 	}
 }
 
+// What the Overlord would have been asked while he is away is held with the
+// choice recommended for it, so the board's list of what is held says it;
+// an item that recommends nothing says nothing.
+func TestTheSnapshotSaysWhatWasRecommendedForEachHeldItem(t *testing.T) {
+	// Arrange
+	store, h := testStore(t)
+	s := boardService(store)
+	if _, _, err := afk.TurnOn(h.State, "his own board (goblins-window.exe pid 4242)", nil, time.Now()); err != nil {
+		t.Fatal(err)
+	}
+	waitingItems(t, store)
+	if err := s.holdForOverlord(time.Now()); err != nil {
+		t.Fatal(err)
+	}
+
+	// Act
+	snapshot, err := s.Snapshot()
+
+	// Assert
+	if err != nil {
+		t.Fatal(err)
+	}
+	recommended := map[string]string{}
+	for _, one := range snapshot.AFK.Held {
+		recommended[one.Item] = one.Recommendation
+	}
+	want := map[string]string{"question:drop-legacy-invoices": "Keep it held", "review:waiting-task-1-7": "", "run:delete-merged-branches": ""}
+	if !maps.Equal(recommended, want) {
+		t.Errorf("held recommendations = %q, want %q", recommended, want)
+	}
+}
+
 // A command the board made itself, for a credential card's terminal or a
 // connection's repair, is ready only for the moment after the Overlord's own
 // click. It never waited on him, so it is not held.
@@ -603,8 +633,8 @@ func TestTheReportReadLaterShowsEachHeldItemAsItStandsNow(t *testing.T) {
 			t.Errorf("before he acted, %s = %+v, want it still waiting on him", item, one)
 		}
 	}
-	if question := after["question:drop-legacy-invoices"]; question.Waiting || question.Now != "you answered it: Keep it held" {
-		t.Errorf("the question after his answer = %+v, want that he answered it", question)
+	if question := after["question:drop-legacy-invoices"]; question.Waiting || question.Now != "you answered it: Keep it held" || question.Recommendation != "Keep it held" {
+		t.Errorf("the question after his answer = %+v, want that he answered it, beside what the CFO recommended", question)
 	}
 	if wait := after["review:waiting-task-1-7"]; wait.Waiting || wait.Now != "withdrawn: task-1 reported again: working" {
 		t.Errorf("the wait after it was withdrawn = %+v, want it withdrawn", wait)

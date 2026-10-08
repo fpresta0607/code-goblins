@@ -1,18 +1,21 @@
 # pin-installer.ps1 - write the install.ps1 a release publishes.
 #
-# release.yml runs it once the release's programs are signed:
+# release.yml runs it once the release's programs are as they will be
+# published:
 #
 #   ./tools/pin-installer.ps1 -Repository owner/name -Tag v1.2.3 -Publisher "Name" -Destination release/install.ps1
 #
 # The copy it writes downloads from that repository's release of that tag,
 # never the latest release or another repository's, and installs only
-# programs validly signed by that publisher. It writes nothing when a value
-# cannot be written into the script as it is, or when install.ps1 does not
-# name each of the three exactly once.
+# programs validly signed by that publisher. An unsigned release leaves
+# -Publisher out: its copy names no publisher, checks the release's
+# SHA256SUMS alone and says so. It writes nothing when a value cannot be
+# written into the script as it is, or when install.ps1 does not name each
+# of them exactly once.
 param(
     [Parameter(Mandatory)][string]$Repository,
     [Parameter(Mandatory)][string]$Tag,
-    [Parameter(Mandatory)][string]$Publisher,
+    [string]$Publisher,
     [Parameter(Mandatory)][string]$Destination
 )
 $ErrorActionPreference = "Stop"
@@ -26,7 +29,7 @@ if ($Tag -notmatch '^v[0-9A-Za-z._+-]+$') {
 # A release download carries no charset, which Windows PowerShell reads as
 # Latin-1, so the script stays plain ASCII; and the publisher goes between
 # double quotes, where " ` and $ would mean something else.
-if ($Publisher -notmatch '^[\x20-\x7E]+$' -or $Publisher -match '["`$]') {
+if ($PSBoundParameters.ContainsKey('Publisher') -and ($Publisher -notmatch '^[\x20-\x7E]+$' -or $Publisher -match '["`$]')) {
     throw "The publisher name '$Publisher' cannot be written into install.ps1 as it is"
 }
 

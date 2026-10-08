@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { createRoot } from "react-dom/client";
+import { knowInstance } from "../../src/api";
 import { FitList } from "../../src/FitList";
 import { QueuedTasks } from "../../src/QueuedTasks";
 import { RankedCards } from "../../src/RankedCards";
@@ -21,7 +22,7 @@ function RenderErrors() {
     <section aria-label="Affected list">
       {mode === "queued" ? <QueuedTasks snapshot={snapshot} now={0} presentations={[]} onSelect={() => {}} cardStart={() => {
         if (hasFailure) throw new Error("Fixture list failed to render");
-        return { blocked: "", problem: "", onStart: () => {} };
+        return { blocked: "", onStart: () => Promise.resolve("") };
       }} /> : mode === "ranked" ? <RankedCards tasks={snapshot.tasks} list="progress" instance="fixture" revision={0} empty={null} renderCard={card} />
         : <FitList items={snapshot.tasks} keyOf={(task) => task.id} empty={null} renderItem={card} />}
     </section>
@@ -29,4 +30,5 @@ function RenderErrors() {
   </main>;
 }
 
+knowInstance("fixture");
 createRoot(document.getElementById("root")!).render(<RenderErrors />);

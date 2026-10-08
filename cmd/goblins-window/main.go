@@ -1,14 +1,14 @@
 // Command goblins-window is the Code Goblins desktop window: a Wails window
 // around the board cfo serve already serves, with a tray icon, notifications,
 // one instance and start at login. It holds no engine logic, so closing it
-// leaves the supervisor, the CFO and every goblin running. It is started with
-// the board's address and the fleet's state folder.
+// leaves the supervisor, the CFO and every goblin running. Started with the
+// board's address and the fleet's state folder it is the window; started with
+// neither, as the Start menu and Start at login start it, it opens the app by
+// running the goblins beside it, which starts it again on the board.
 package main
 
 import (
-	"crypto/sha256"
 	_ "embed"
-	"encoding/hex"
 	"flag"
 	"fmt"
 	"log"
@@ -34,23 +34,35 @@ func main() {
 	background := flag.Bool("background", false, "start in the tray without showing the window")
 	profile := flag.String("profile", "", "the WebView2 profile folder, in place of the user's own; a window on a profile of its own is an instance of its own and raises no Windows notification")
 	browserArgs := flag.String("webview-args", "", "more arguments for the WebView2 browser, separated by spaces, as the window's tests need for its DevTools port")
+	// Windows starts the program with -Embedding when a notification is
+	// clicked while no window runs. It is then started alone, and opens the
+	// app as it does from the Start menu.
+	flag.Bool("Embedding", false, "given by Windows when a click on a notification starts the program")
 	flag.Parse()
-	if *board == "" || *stateDir == "" {
-		fmt.Fprintln(os.Stderr, "goblins-window: --board and --state are required; goblins starts it")
-		os.Exit(2)
-	}
 	self, err := os.Executable()
 	if err != nil {
 		log.Fatal(err)
 	}
-	login := loginCommand(os.Getenv(launcherVariable), self, *board, *stateDir)
-	// The window's tests run on a profile of their own, beside the user's
-	// window and never as its second instance.
-	instance := "dev.codegoblins.window"
+	if *board == "" && *stateDir == "" {
+		if message := launch(self, *background); message != "" {
+			tell(message)
+			os.Exit(1)
+		}
+		return
+	}
+	if *board == "" || *stateDir == "" {
+		fmt.Fprintln(os.Stderr, "goblins-window: --board and --state go together; with neither, the window runs the goblins beside it")
+		os.Exit(2)
+	}
+	launcher := os.Getenv(launcherVariable)
+	login := loginCommand(launcher, self, *board, *stateDir)
+	userEnv, err := userEnvironment()
+	if err != nil {
+		log.Printf("read the user's own environment, to tell whether this is the user's own home: %v", err)
+	}
+	known := windowIdentity(*stateDir, *profile, userEnv)
 	var windows application.WindowsOptions
 	if *profile != "" {
-		sum := sha256.Sum256([]byte(*profile))
-		instance += "." + hex.EncodeToString(sum[:8])
 		windows.WebviewUserDataPath = *profile
 	}
 	windows.AdditionalBrowserArgs = strings.Fields(*browserArgs)
@@ -63,14 +75,15 @@ func main() {
 			window.Focus()
 		}
 	}
-	// A window on a profile of its own, as the window's tests start, claims
-	// nothing from its board and raises no Windows notification: registering
-	// for them names this program to Windows as the one a click on the user's
-	// own window's notifications starts, and a claim it raises nothing for
-	// takes the alert from a page on that board.
+	// A window on a profile of its own, as the window's tests start, or on a
+	// home other than the user's own claims nothing from its board and raises
+	// no Windows notification: registering for them names this program to
+	// Windows as the one a click on the user's own window's notifications
+	// starts, and a claim it raises nothing for takes the alert from a page on
+	// that board.
 	var notifier *Notifier
 	var services []application.Service
-	if *profile == "" {
+	if known.notifies {
 		toasts := notifications.New()
 		services = append(services, application.NewService(toasts))
 		notifier = &Notifier{
@@ -120,7 +133,7 @@ func main() {
 			}
 		},
 		SingleInstance: &application.SingleInstanceOptions{
-			UniqueID: instance,
+			UniqueID: known.instance,
 			// A second goblins brings this window to the front.
 			OnSecondInstanceLaunch: func(application.SecondInstanceData) { show() },
 		},
@@ -159,9 +172,17 @@ func main() {
 
 	menu := app.NewMenu()
 	menu.Add("Open the board").OnClick(func(*application.Context) { show() })
+	if adopted, err := adoptEarlierLogin(launcher, self, login); err != nil {
+		log.Printf("start at login: %v", err)
+	} else if adopted {
+		log.Printf("start at login now runs %s", login)
+	}
+	// Start at login is one setting with the board's and the setup's: the
+	// choice is kept in the home, so an install keeps it, and the tray shows
+	// a change the board made.
 	atLogin := menu.AddCheckbox("Start at login", StartsAtLogin(login))
 	atLogin.OnClick(func(ctx *application.Context) {
-		if err := SetStartAtLogin(login, atLogin.Checked()); err != nil {
+		if err := keepStartAtLogin(login, *stateDir, atLogin.Checked()); err != nil {
 			atLogin.SetChecked(!atLogin.Checked())
 			log.Printf("start at login: %v", err)
 		}
@@ -183,6 +204,12 @@ func main() {
 			// WebView2 exists there is nothing to load a page into.
 			if time.Since(started) < startGrace {
 				continue
+			}
+			if _, err := adoptEarlierLogin(launcher, self, login); err != nil {
+				log.Printf("start at login: %v", err)
+			}
+			if now := StartsAtLogin(login); now != atLogin.Checked() {
+				atLogin.SetChecked(now)
 			}
 			url, moved := follow.Next()
 			fresh, answers := watcher.New(url)

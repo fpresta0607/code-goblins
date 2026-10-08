@@ -1,0 +1,7 @@
+.card-checks { display: inline-flex; align-items: center; gap: 6px; font-size: 1rem; font-weight: 700; text-decoration: none; }
+.card-checks .icon { width: 18px; height: 18px; }
+a.card-checks:hover, a.card-checks:focus-visible { text-decoration: underline; }
+.hosted-pending { color: var(--blue); }
+.hosted-failed { color: var(--red); }
+.hosted-cancelled { color: var(--amber); }
+.hosted-passed, .hosted-approved { color: var(--mint); }

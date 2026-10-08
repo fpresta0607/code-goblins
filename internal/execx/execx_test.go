@@ -23,6 +23,10 @@ func TestOSRunnerHelper(t *testing.T) {
 		os.Exit(7)
 	case "sleep":
 		time.Sleep(10 * time.Second)
+	case "answer-then-sleep":
+		fmt.Fprintln(os.Stdout, "answered")
+		fmt.Fprintln(os.Stderr, "still working")
+		time.Sleep(10 * time.Second)
 	case "orphan-stdout":
 		// Like an npm .cmd shim: the direct child starts a grandchild that
 		// inherits its stdout, so killing the direct child leaves the pipe open.
@@ -157,19 +161,19 @@ func TestOSRunnerReturnsStartError(t *testing.T) {
 	}
 }
 
-func TestOSRunnerReturnsContextCancellation(t *testing.T) {
-	ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
+func TestOSRunnerReturnsContextCancellationWithTheOutputSoFar(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 	defer cancel()
 
-	result, err := (OSRunner{}).Run(ctx, helperRequest(t.TempDir(), []string{"EXECX_HELPER=1", "EXECX_MODE=sleep"}))
+	result, err := (OSRunner{}).Run(ctx, helperRequest(t.TempDir(), []string{"EXECX_HELPER=1", "EXECX_MODE=answer-then-sleep"}))
 	if err == nil {
 		t.Fatal("Run returned nil error after context cancellation")
 	}
 	if !errors.Is(err, context.DeadlineExceeded) {
 		t.Errorf("error = %v, want context deadline exceeded", err)
 	}
-	if len(result.Stdout) != 0 || len(result.Stderr) != 0 || result.ExitCode != 0 {
-		t.Errorf("result = %+v, want zero result on cancellation", result)
+	if string(result.Stdout) != "answered\n" || string(result.Stderr) != "still working\n" || result.ExitCode != 0 {
+		t.Errorf("result = {Stdout: %q, Stderr: %q, ExitCode: %d}, want what the process wrote before the deadline and no exit code", result.Stdout, result.Stderr, result.ExitCode)
 	}
 }
 

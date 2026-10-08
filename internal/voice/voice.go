@@ -1,6 +1,7 @@
 // Package voice is the board's dictation engine on this machine: a pinned
-// speech model and the program that runs it, fetched once and checked against
-// their checksums, then run on a sound file with no network.
+// speech model and the library that runs it, fetched once and checked against
+// their checksums, then loaded by a worker process that recognises sound sent
+// to it through a pipe, with no network.
 package voice
 
 import (
@@ -16,29 +17,32 @@ import (
 	"path/filepath"
 	"regexp"
 	"strings"
+	"sync"
 
-	"github.com/fpresta0607/code-goblins/internal/execx"
 	"github.com/fpresta0607/code-goblins/internal/fsx"
 )
 
-// Room is the free memory and the free commit a dictation needs. The engine
-// takes about a quarter of it for about a second, so dictation refuses only
-// when the machine has no room at all, never because the fleet is busy.
+// Room is the free memory and the free commit a dictation needs. The loaded
+// engine takes about a quarter of it until it has been idle a while, so
+// dictation refuses only when the machine has no room at all, never because
+// the fleet is busy.
 const Room = 1 << 30
 
 // Part is one pinned download, the engine or the model: an archive, its
-// SHA-256 and the files of it that are kept.
+// SHA-256 and size in bytes, and the files of it that are kept.
 type Part struct {
 	Name    string   `json:"name"`
 	Version string   `json:"version"`
 	URL     string   `json:"url"`
 	SHA256  string   `json:"sha256"`
+	Size    int64    `json:"size"`
 	Files   []string `json:"files"`
 }
 
 // Settings is the one setting dictation has: which engine, which model, and
-// how the engine is started on the model. In Args, {model} stands for the
-// folder the model's files are kept in.
+// how the engine loads the model. Program is the engine's library the worker
+// loads, and Args are the worker's settings for the model, in which {model}
+// stands for the folder the model's files are kept in.
 type Settings struct {
 	Engine  Part     `json:"engine"`
 	Model   Part     `json:"model"`
@@ -53,6 +57,14 @@ type Voice struct {
 	Dir      string
 	Client   *http.Client
 	Memory   func() (available, commit uint64, err error)
+
+	// turn holds a token while no one uses the worker: a dictation, the idle
+	// timer and Close each take it before touching worker.
+	start   sync.Once
+	turn    chan struct{}
+	closed  chan struct{}
+	closing sync.Once
+	worker  *worker
 }
 
 // NoRoom refuses a dictation the machine has no memory for.
@@ -80,7 +92,12 @@ func For(root string, builtIn []byte) (*Voice, error) {
 	if err != nil {
 		return nil, err
 	}
-	return &Voice{Settings: settings, Dir: filepath.Join(root, "caches", "voice")}, nil
+	return &Voice{Settings: settings, Dir: Folder(root)}, nil
+}
+
+// Folder is where the home at root keeps dictation's engine and model.
+func Folder(root string) string {
+	return filepath.Join(root, "caches", "voice")
 }
 
 // Load reads the settings and refuses any that do not pin both downloads.
@@ -115,6 +132,9 @@ func (s Settings) check() error {
 	if s.Program == "" || filepath.Base(s.Program) != s.Program {
 		return fmt.Errorf("program %q must be the name of one of the engine's files", s.Program)
 	}
+	if _, err := parseModelSettings(s.Args); err != nil {
+		return fmt.Errorf("args: %w", err)
+	}
 	return nil
 }
 
@@ -128,6 +148,9 @@ func (p Part) check() error {
 	}
 	if !sha256Hex.MatchString(p.SHA256) {
 		return fmt.Errorf("%s: its sha256 must be 64 lowercase hexadecimal digits", p.Name)
+	}
+	if p.Size <= 0 {
+		return fmt.Errorf("%s: its size must be the archive's size in bytes", p.Name)
 	}
 	if len(p.Files) == 0 {
 		return fmt.Errorf("%s: it names no files to keep", p.Name)
@@ -163,83 +186,75 @@ func (v *Voice) Ready() error {
 // Name is the model's name.
 func (v *Voice) Name() string { return v.Settings.Model.Name }
 
-// Summary names the model and the engine and says whether they are there.
-func (v *Voice) Summary() string {
-	name := fmt.Sprintf("%s %s on %s %s", v.Settings.Model.Name, v.Settings.Model.Version, v.Settings.Engine.Name, v.Settings.Engine.Version)
-	if v.Ready() != nil {
-		return name + ", not fetched yet: the first dictation downloads it once into " + v.Dir
+// Absent is whichever of the engine and the model is not there, in the order
+// Fetch downloads them.
+func (v *Voice) Absent() []Part {
+	var absent []Part
+	for _, part := range []Part{v.Settings.Engine, v.Settings.Model} {
+		if v.ready(part) != nil {
+			absent = append(absent, part)
+		}
 	}
-	return name + ", ready in " + v.Dir
+	return absent
+}
+
+// Missing is how many bytes Fetch still has to download: the pinned sizes
+// of the engine and the model, whichever is not there.
+func (v *Voice) Missing() int64 {
+	var missing int64
+	for _, part := range v.Absent() {
+		missing += part.Size
+	}
+	return missing
 }
 
 // Fetch downloads whichever of the engine and the model is not there,
-// telling progress how much of a part's download has arrived.
-func (v *Voice) Fetch(ctx context.Context, progress func(part string, done, total int64)) error {
+// telling progress how many of the bytes Missing counted have arrived, and
+// then removes every other engine and model a fetch kept here, so a newer
+// pin replaces the one before it rather than sitting beside it.
+func (v *Voice) Fetch(ctx context.Context, progress func(done, total int64)) error {
+	total := v.Missing()
+	var finished int64
 	for _, part := range []Part{v.Settings.Engine, v.Settings.Model} {
 		if v.ready(part) == nil {
 			continue
 		}
-		if err := v.fetch(ctx, part, progress); err != nil {
+		if err := v.fetch(ctx, part, func(done int64) { progress(min(finished+done, total), total) }); err != nil {
 			return err
 		}
+		finished += part.Size
+		progress(finished, total)
 	}
+	v.removeSuperseded()
 	return nil
 }
 
-// Recognize returns the words in sound, a WAV file's bytes. The sound is
-// written where only this user can read it, for as long as the engine runs.
+// Recognize returns the words in sound, a WAV file's bytes. The engine is
+// loaded by the first dictation and kept for the next until it has been idle
+// for workerIdle, and ended sooner when it breaks, a dictation is abandoned,
+// or there is no room for it.
 func (v *Voice) Recognize(ctx context.Context, sound []byte) (string, error) {
+	if len(sound) == 0 || len(sound) > MAX_SOUND_BYTES {
+		return "", fmt.Errorf("a dictation's sound must be 1 byte to %d MB", MAX_SOUND_BYTES>>20)
+	}
+	if err := v.take(ctx); err != nil {
+		return "", err
+	}
+	defer v.give()
 	if err := v.Ready(); err != nil {
+		v.retire()
 		return "", err
 	}
 	available, commit, err := v.Memory()
 	if err != nil {
+		v.retire()
 		return "", fmt.Errorf("read the machine's memory: %w", err)
 	}
 	if available < Room || commit < Room {
+		v.retire()
 		return "", NoRoom{Available: available, Commit: commit}
 	}
-	file, err := os.CreateTemp("", "cfo-dictation-*.wav")
-	if err != nil {
-		return "", err
-	}
-	defer func() { _ = fsx.Remove(file.Name()) }()
-	_, err = file.Write(sound)
-	if closeErr := file.Close(); err == nil {
-		err = closeErr
-	}
-	if err != nil {
-		return "", err
-	}
-	engine := v.folder(v.Settings.Engine)
-	args := make([]string, 0, len(v.Settings.Args)+1)
-	for _, arg := range v.Settings.Args {
-		args = append(args, strings.ReplaceAll(arg, "{model}", v.folder(v.Settings.Model)))
-	}
-	command := execx.CommandContext(ctx, filepath.Join(engine, v.Settings.Program), append(args, file.Name())...)
-	command.Dir = engine
-	var log bytes.Buffer
-	command.Stderr = &log
-	output, err := command.Output()
-	if err != nil {
-		return "", fmt.Errorf("the dictation engine failed: %w: %s", err, lastLines(log.Bytes(), 3))
-	}
-	return heard(output)
-}
-
-// heard reads the words from what the engine printed on its standard output:
-// one JSON object with the text beside its timestamps. What it says about the
-// run goes to its standard error and is not read for words.
-func heard(output []byte) (string, error) {
-	_, after, found := strings.Cut(string(output), `"text":`)
-	if !found {
-		return "", fmt.Errorf("the dictation engine answered without words: %s", lastLines(output, 3))
-	}
-	var text string
-	if err := json.NewDecoder(strings.NewReader(after)).Decode(&text); err != nil {
-		return "", fmt.Errorf("the dictation engine's words could not be read: %w", err)
-	}
-	return strings.TrimSpace(text), nil
+	return v.exchange(ctx, sound)
 }
 
 func lastLines(output []byte, count int) string {

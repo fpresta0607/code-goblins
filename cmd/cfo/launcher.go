@@ -95,7 +95,8 @@ type launcherSnapshot struct {
 		Page   string `json:"page"`
 	} `json:"questions"`
 	Reviews []struct {
-		State string `json:"state"`
+		State         string `json:"state"`
+		RevisingSince string `json:"revising_since"`
 	} `json:"reviews"`
 	Runs []struct {
 		State string `json:"state"`
@@ -118,8 +119,9 @@ var (
 	snapshotTimeout = 3 * time.Second
 )
 
-// runWindowLauncher is goblins --window, which Windows runs at login with
-// --background: it finds or starts the supervisor as goblins does and shows
+// runWindowLauncher is goblins --window, which the desktop window runs when
+// it is started alone, with --background at login: it finds or starts the
+// supervisor as goblins does and shows
 // the desktop window, in the tray alone with background, and starts or shows
 // no CFO.
 func runWindowLauncher(stdout, stderr io.Writer, runtime commandRuntime, background bool) int {
@@ -170,10 +172,11 @@ func launchBoard(ctx context.Context, runtime commandRuntime, h home.Home, stdou
 		var taken boardAddressTaken
 		switch {
 		case errors.As(startErr, &taken):
-			// The board's address is the same every time, so a board is
-			// never started on another one because this one is in use. Only
-			// this home's own supervisor, started a moment ago by another
-			// goblins and not yet recorded, is waited for below.
+			// An address taken here is the one the person chose, or the
+			// usual one held by this home's own supervisor, started a moment
+			// ago by another goblins and not yet recorded, which is waited
+			// for below; another home's board on the usual address gives
+			// this one a free port of its own (see serveAddress).
 			if !sameHomePath(taken.home, h.Root) && !anotherSupervisorStarting(h.State) {
 				fmt.Fprintf(stderr, "goblins: %v\n", taken)
 				return "", false, false
@@ -312,7 +315,8 @@ func anotherSupervisorStarting(stateDir string) bool {
 // goblins are working, and how much waits on the Overlord: the header badge's
 // count of pending questions, open review items and run items ready or
 // running, where a question its goblin asked about its own open review page
-// is that page's one item.
+// is that page's one item, and a page he sent a revision on waits on its
+// goblin's next version, not on him.
 func statusLine(snapshot launcherSnapshot) string {
 	cfo := "CFO supervising"
 	if snapshot.Registration != "" {
@@ -331,7 +335,7 @@ func statusLine(snapshot launcherSnapshot) string {
 		}
 	}
 	for _, review := range snapshot.Reviews {
-		if review.State == "open" {
+		if review.State == "open" && review.RevisingSince == "" {
 			waiting++
 		}
 	}
@@ -374,15 +378,12 @@ const (
 const errorSharingViolation = syscall.Errno(32)
 
 // startDetachedServe starts this binary's serve in the home on the board's
-// address, detached from this terminal. An address already in use starts
-// nothing and is a boardAddressTaken. The returned channel closes when the
+// address, detached from this terminal, as serveAddress picks it. An address
+// it cannot take starts nothing. The returned channel closes when the
 // supervisor exits.
 func startDetachedServe(h home.Home) (<-chan struct{}, error) {
-	address := boardAddress()
-	if !loopbackAddress(address) {
-		return nil, fmt.Errorf("%s is %q, not a numeric loopback address such as %s", boardAddressVariable, address, defaultBoardAddress)
-	}
-	if err := boardAddressFree(context.Background(), address); err != nil {
+	address, err := serveAddress(context.Background(), h, strings.TrimSpace(os.Getenv(boardAddressVariable)), defaultBoardAddress)
+	if err != nil {
 		return nil, err
 	}
 	executable, err := os.Executable()
@@ -399,6 +400,33 @@ func startDetachedServe(h home.Home) (<-chan struct{}, error) {
 		close(exited)
 	}()
 	return exited, nil
+}
+
+// anyFreePort asks for a free port of the system's choosing on loopback.
+const anyFreePort = "127.0.0.1:0"
+
+// serveAddress is the address a supervisor for h is started on: the one the
+// person chose with CFO_BOARD_ADDRESS, which must be free, or else the usual
+// one. The usual address held by another Code Goblins home's board, as on a
+// machine where a fleet already runs, or by another program, gives this home
+// a free port of its own instead, so its app opens on its own board and
+// never stops on a box about the port; goblins finds that board through its
+// record. The usual address held by this home's own supervisor, started a
+// moment ago and not yet recorded, is its boardAddressTaken, which the
+// launcher waits on.
+func serveAddress(ctx context.Context, h home.Home, chosen, usual string) (string, error) {
+	if chosen != "" {
+		if !loopbackAddress(chosen) {
+			return "", fmt.Errorf("%s is %q, not a numeric loopback address such as %s", boardAddressVariable, chosen, defaultBoardAddress)
+		}
+		return chosen, boardAddressFree(ctx, chosen)
+	}
+	err := boardAddressFree(ctx, usual)
+	var taken boardAddressTaken
+	if errors.As(err, &taken) && !sameHomePath(taken.home, h.Root) {
+		return anyFreePort, nil
+	}
+	return usual, err
 }
 
 // boardAddressTaken says the board's address cannot be listened on, and
@@ -486,8 +514,9 @@ var errNoWindow = errors.New("no desktop window beside goblins")
 const windowProgram = "goblins-window.exe"
 
 // windowLauncherVariable names this goblins to the window it starts, as
-// cmd/goblins-window reads it: Start at login then runs this goblins, which
-// starts the supervisor before the window.
+// cmd/goblins-window reads it: its Start at login then starts the window
+// alone, which runs the goblins beside it, so the supervisor starts before
+// the window and no terminal shows.
 const windowLauncherVariable = "CODE_GOBLINS_LAUNCHER"
 
 // openWindow starts the desktop window beside this binary on board, in the

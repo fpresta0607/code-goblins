@@ -21,13 +21,16 @@ disable_project_settings: true
 # code; no-mistakes v1.75.1 has no per-repo env setting, so for everything an
 # agent runs it is stated in every intent instead.
 
-# The test step's baseline is `cfo gate test`: go vet and go test on the
-# packages the branch changed and the packages that import them directly,
-# each named with why. An agent-chosen step ran the whole suite on this
-# loaded machine, where supervisor alone takes about 22 minutes, and hit the
-# 30-minute test agent limit with no failing test; CI still runs every
-# package. It runs the installed cfo, so it works once the CFO installs a
-# build that has `cfo gate test`.
+# The test step's baseline is `cfo gate test`, which with no level runs the
+# fast level: go vet on every package the branch's change reaches, each named
+# with why, and the tests of the changed packages config/verify.json does not
+# list as slow. The gate's ci step then waits for CI, which runs every
+# package, so CI is the check of the affected level the change requires;
+# running that level here as well took a median of 33 minutes on this loaded
+# machine and ran the slowest packages twice. An agent-chosen step ran the
+# whole suite here, where supervisor alone takes about 22 minutes, and hit
+# the 30-minute test agent limit with no failing test. It runs the installed
+# cfo, so it works once the CFO installs a build that has `cfo gate test`.
 commands:
   test: "cfo gate test"
 
@@ -58,9 +61,10 @@ auto_fix:
 # file than they removed while HEAD still has their skips there (counted per
 # gate commit, so a reworded or moved skip still shows and a merged main never
 # counts), which parks the run with an ask-user finding: approve accepts it,
-# fix restores the test. It reads every gate commit since the merge base, so a
-# later gate run on a branch whose gate deletion was already approved parks
-# again, and approving again clears it. It runs the installed cfo, the trusted
+# fix restores the test. A gate commit under the head of an earlier park a
+# person approved or skipped, read from the gate's database, is left out on
+# any branch carrying it; one the rebase step rewrote after the approval is a
+# new commit and parks once more. It runs the installed cfo, the trusted
 # binary, so it works once the CFO installs a build that has `cfo gate`.
 gates:
   - name: tests-kept

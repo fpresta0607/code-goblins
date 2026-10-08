@@ -80,6 +80,8 @@ type wakeProof struct {
 	// cfoTerminal is the CFO's native terminal once it has started, whose
 	// screen a wait that gives up records.
 	cfoTerminal *host.Record
+	// rollout is the Codex rollout of the steer proof's goblin, once found.
+	rollout string
 	// seen is every record the queue has held since the proof began, by
 	// sequence, so a record the CFO acked between two looks still counts.
 	mu   sync.Mutex

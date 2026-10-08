@@ -91,13 +91,44 @@ func TestAwaitedRunPollReportsOnlyTheExactHeadAndItsCompletedAttempt(t *testing.
 	}
 }
 
+// An awaited run whose read times out under the fleet's load is read again
+// on the next poll and reported only once the read failed on three polls in
+// a row; a poll that reads it starts the count again.
+func TestAnAwaitedRunReadIsReportedOnlyOnTheThirdFailingPollInARow(t *testing.T) {
+	// Arrange
+	service, h := fleetService(t)
+	now := time.Now().UTC()
+	target := "https://github.com/owner/repo/actions/runs/42"
+	pausedGoblin(t, h, "waiting-task", "deploy", "run:"+target+"@"+strings.Repeat("a", 40), now.Add(-time.Hour))
+	forge := forgeFor(h.Root, "waiting-task")
+	forge.jobs = fmt.Sprintf(`{"databaseId":42,"workflowName":"deploy","status":"in_progress","conclusion":"","headSha":%q,"url":%q,"attempt":1}`, strings.Repeat("a", 40), target)
+	service.Options.CI = forge
+	watched := fleetWakes{}
+	timedOut := `Get "https://api.github.com/repos/owner/repo/actions/runs/42": context deadline exceeded`
+
+	for poll, step := range []struct {
+		failure      string
+		shouldReport bool
+	}{{timedOut, false}, {timedOut, false}, {timedOut, true}, {"", false}, {timedOut, false}} {
+		forge.ghFailure = step.failure
+
+		// Act
+		err := service.pollAwaitedRuns(t.Context(), &watched, now.Add(time.Duration(poll)*ciPollEvery))
+
+		// Assert
+		if (err != nil) != step.shouldReport {
+			t.Fatalf("poll %d returned %v, want an error only on the third failing poll in a row", poll+1, err)
+		}
+	}
+}
+
 func TestCIPauseUsesFreshConfirmationWithoutRepeatingTheCompletionWake(t *testing.T) {
 	service, h := fleetService(t)
 	now := time.Now().UTC()
 	head := strings.Repeat("a", 40)
 	pr := ghPullRequest{Number: 42, URL: "https://github.com/owner/repo/pull/42", HeadRefOid: head, Checks: []ghCheck{{Name: "test", Status: "COMPLETED", Conclusion: "SUCCESS"}}}
 	watched := fleetWakes{}
-	if err := reportChecks(h.State, &watched, "waiting-task", pr, now.Add(-time.Hour)); err != nil {
+	if err := reportChecks(h.State, &watched, "waiting-task", pr, false, now.Add(-time.Hour)); err != nil {
 		t.Fatal(err)
 	}
 	meta := pausedGoblin(t, h, "waiting-task", "ci", "pr:"+pr.URL+"@"+head, now.Add(-time.Minute))
@@ -106,7 +137,7 @@ func TestCIPauseUsesFreshConfirmationWithoutRepeatingTheCompletionWake(t *testin
 		t.Fatal(err)
 	}
 
-	if err := reportChecks(h.State, &watched, meta.ID, pr, now); err != nil {
+	if err := reportChecks(h.State, &watched, meta.ID, pr, false, now); err != nil {
 		t.Fatal(err)
 	}
 	isReady, err := service.pauseCleared(t.Context(), *condition.Pause, now, &watched)

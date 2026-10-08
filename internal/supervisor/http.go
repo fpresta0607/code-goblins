@@ -17,6 +17,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -59,8 +60,8 @@ type HTTP struct {
 	// build names the bundle in Assets: its index.html names every hashed
 	// file of the bundle, so any rebuild changes it.
 	build string
-	// dictation is the engine's one download; dictationWork waits for it,
-	// and dictationSlot runs one engine at a time.
+	// dictation is the engine's one download; dictationWork waits for it
+	// and for each warming, and dictationSlot runs one engine at a time.
 	dictation         dictationFetch
 	dictationWork     sync.WaitGroup
 	dictationSlot     chan struct{}
@@ -81,7 +82,9 @@ func NewHTTP(s *Service, host string, assets fs.FS) *HTTP {
 func (h *HTTP) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("X-Content-Type-Options", "nosniff")
 	w.Header().Set("Referrer-Policy", "no-referrer")
-	w.Header().Set("Content-Security-Policy", "default-src 'self'; script-src 'self'; style-src 'self'; style-src-attr 'unsafe-inline'; img-src 'self' data:; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'")
+	// The only image from outside the board is a GitHub avatar of someone
+	// who works in a project.
+	w.Header().Set("Content-Security-Policy", "default-src 'self'; script-src 'self'; style-src 'self'; style-src-attr 'unsafe-inline'; img-src 'self' data: https://avatars.githubusercontent.com; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'")
 	w.Header().Set("Cache-Control", "no-store")
 	if r.Host != h.Host {
 		apiError(w, 403, "Untrusted Host")
@@ -144,6 +147,8 @@ func (h *HTTP) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		h.dictationStatus(w)
 	case r.URL.Path == "/api/dictation" && r.Method == "POST":
 		h.dictate(w, r)
+	case r.URL.Path == "/api/dictation/warm" && r.Method == "POST":
+		h.warmDictation(w, r)
 	case r.URL.Path == "/api/connections" && r.Method == "GET":
 		h.readConnections(w, r)
 	case r.URL.Path == "/api/connections/check" && r.Method == "POST":
@@ -172,10 +177,33 @@ func (h *HTTP) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		h.lifecycleTask(w, r)
 	case r.URL.Path == "/api/tasks/adjust" && r.Method == "POST":
 		h.adjustTask(w, r)
+	case r.URL.Path == "/api/tasks/engine" && r.Method == "POST":
+		h.selectTaskEngine(w, r)
 	case r.URL.Path == "/api/setup" && r.Method == "GET":
 		h.setup(w, r)
+	case r.URL.Path == "/api/engines" && r.Method == "GET":
+		ctx, cancel := context.WithTimeout(r.Context(), 8*time.Second)
+		defer cancel()
+		catalog, err := h.Service.engineCatalog(ctx, execx.OSRunner{})
+		if err != nil {
+			apiError(w, 500, err.Error())
+			return
+		}
+		respond(w, 200, catalog)
 	case r.URL.Path == "/api/setup/start" && r.Method == "POST":
 		h.startCFO(w, r)
+	case r.URL.Path == "/api/cfo/reopen" && r.Method == "POST":
+		h.reopenCFO(w, r)
+	case r.URL.Path == "/api/cfo/restart" && r.Method == "POST":
+		h.restartCFO(w, r)
+	case r.URL.Path == "/api/cfo/update" && r.Method == "POST":
+		h.updateCFO(w, r)
+	case r.URL.Path == "/api/cfo/report" && r.Method == "POST":
+		h.reportBoardError(w, r)
+	case r.URL.Path == "/api/start-at-login" && r.Method == "POST":
+		h.setStartAtLogin(w, r)
+	case r.URL.Path == "/api/dev-drive" && r.Method == "POST":
+		h.setDevDrive(w, r)
 	case strings.HasPrefix(r.URL.Path, "/api/questions/") && r.Method == "GET":
 		h.questionImage(w, r)
 	case strings.HasPrefix(r.URL.Path, "/api/reviews/") && r.Method == "GET":
@@ -339,6 +367,7 @@ func (h *HTTP) stream(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *HTTP) action(w http.ResponseWriter, r *http.Request) {
+	asked := time.Now()
 	if !strings.HasPrefix(r.Header.Get("Content-Type"), "application/json") {
 		apiError(w, 415, "JSON required")
 		return
@@ -381,6 +410,14 @@ func (h *HTTP) action(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	a := Action{ID: input.ID, Kind: input.Kind, TaskID: input.TaskID, Generation: input.Generation, Text: input.Text, File: input.File, Line: input.Line, EndLine: input.EndLine, Side: input.Side, Head: input.Head, Revision: input.Revision, DiffID: input.DiffID, QuestionID: input.QuestionID, ReviewID: input.ReviewID, RunID: input.RunID, AnswerKind: input.AnswerKind}
+	// An update is the Overlord's alone: Update runs only for a board of
+	// his own, proven as AFK mode's switch proves one.
+	if a.Kind == "run" && slices.ContainsFunc(h.Service.Store.Snapshot().Runs, func(run Run) bool { return run.ID == a.RunID && run.Update != nil }) {
+		if _, err := h.Service.overlordsBoard(r, h.Host, asked, updatingBoard); err != nil {
+			apiError(w, http.StatusForbidden, err.Error())
+			return
+		}
+	}
 	var err error
 	if a.Kind == "review" {
 		a, err = h.Service.Store.QueueReview(a, h.Service.Options.CFO)
@@ -417,6 +454,20 @@ func (h *HTTP) task(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		respond(w, 200, lines)
+		return
+	}
+	if parts[1] == "checks" {
+		lines, found, err := h.Service.localChecksLog(meta)
+		switch {
+		case err != nil:
+			apiError(w, 503, err.Error())
+		case !found:
+			apiError(w, 404, "No cfo gate test run of this task is kept")
+		default:
+			w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+			w.Header().Set("X-Content-Type-Options", "nosniff")
+			_, _ = io.WriteString(w, strings.Join(lines, "\n")+"\n")
+		}
 		return
 	}
 	if parts[1] != "files" && parts[1] != "diff" && parts[1] != "history" {
@@ -487,10 +538,16 @@ func (h *HTTP) task(w http.ResponseWriter, r *http.Request) {
 }
 
 func statusTail(dir, id string) ([]string, error) {
-	f, err := fsx.Open(filepath.Join(dir, id+".status"))
+	lines, err := fileTail(filepath.Join(dir, id+".status"), 80)
 	if errors.Is(err, os.ErrNotExist) {
 		return []string{}, nil
 	}
+	return lines, err
+}
+
+// fileTail is the last keep lines of a file's last 64 KiB, redacted.
+func fileTail(path string, keep int) ([]string, error) {
+	f, err := fsx.Open(path)
 	if err != nil {
 		return nil, err
 	}
@@ -511,8 +568,8 @@ func statusTail(dir, id string) ([]string, error) {
 	if start > 0 && len(lines) > 0 {
 		lines = lines[1:]
 	}
-	if len(lines) > 80 {
-		lines = lines[len(lines)-80:]
+	if len(lines) > keep {
+		lines = lines[len(lines)-keep:]
 	}
 	return lines, nil
 }

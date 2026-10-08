@@ -14,13 +14,16 @@ import (
 	"sync"
 	"testing"
 	"time"
+	"unsafe"
 
 	"golang.org/x/sys/windows"
 
 	"github.com/fpresta0607/code-goblins/internal/auth"
 	"github.com/fpresta0607/code-goblins/internal/execx"
 	"github.com/fpresta0607/code-goblins/internal/harness"
+	"github.com/fpresta0607/code-goblins/internal/home"
 	"github.com/fpresta0607/code-goblins/internal/host"
+	"github.com/fpresta0607/code-goblins/internal/install"
 	"github.com/fpresta0607/code-goblins/internal/state"
 	"github.com/fpresta0607/code-goblins/internal/wake"
 )
@@ -34,7 +37,8 @@ const nativeSpawnHost = "native-spawn-host"
 // fakeCodexMode picks what it shows: codex's update prompt, then its trust
 // prompt and composer by default, its composer at once ("ready"), or its hook
 // review prompt ("hooks"), nothing
-// a spawn would recognize ("silent"), or no console at all ("detached"). Half
+// a spawn would recognize ("silent"), or a screen nothing can read, the
+// console's input waker ended ("unreadable"). Half
 // drawn ("halfdrawn"), its update prompt shows its header alone at first, and
 // no focus for a moment after a move. At its composer, a prompt can open as
 // the typing starts ("late"), a submitted line can leave it looking idle
@@ -68,10 +72,11 @@ type codexEvent struct {
 	Text  string             `json:"text,omitempty"`
 	PID   int                `json:"pid,omitempty"`
 	Env   map[string]*string `json:"env,omitempty"`
+	Home  *home.Home         `json:"home,omitempty"`
 }
 
 // recordedEnv is what the fake codex records of its environment.
-var recordedEnv = []string{"CFO_TASK_ID", "CFO_ROLE", "GOTMPDIR", "CFO_STATE_OVERRIDE", "CFO_HOST_ID", "FIXTURE_TOKEN", "PLAYWRIGHT_BROWSERS_PATH", "LOCALAPPDATA", "XDG_CACHE_HOME", "HOME", "UV_CACHE_DIR", "DATABASE_URL", "OPENAI_API_KEY", "HERDR_PANE_ID", "CLAUDECODE", "CLAUDE_CODE_ENTRYPOINT", "CLAUDE_CODE_GIT_BASH_PATH", "CODEX_SANDBOX_NETWORK_DISABLED", "CLAUDE_CODE_CHILD_SESSION", "CLAUDE_CODE_SESSION_ID", "CLAUDE_CODE_MESSAGING_SOCKET", "CLAUDE_CODE_MESSAGING_TOKEN", "CLAUDE_PID", "HERDR_TAB_ID", "HERDR_WORKSPACE_ID", "A_SESSION_ONLY_VARIABLE", "USERS_OWN_SETTING"}
+var recordedEnv = []string{"CFO_TASK_ID", "CFO_ROLE", "GOTMPDIR", "TEMP", "TMP", "CFO_HOME", "CFO_STATE_OVERRIDE", "CFO_PROJECTS_ROOT", "CFO_HOST_ID", "FIXTURE_TOKEN", "PLAYWRIGHT_BROWSERS_PATH", "LOCALAPPDATA", "XDG_CACHE_HOME", "HOME", "UV_CACHE_DIR", "DATABASE_URL", "OPENAI_API_KEY", "HERDR_PANE_ID", "CLAUDECODE", "CLAUDE_CODE_ENTRYPOINT", "CLAUDE_CODE_GIT_BASH_PATH", "CODEX_SANDBOX_NETWORK_DISABLED", "CLAUDE_CODE_CHILD_SESSION", "CLAUDE_CODE_SESSION_ID", "CLAUDE_CODE_MESSAGING_SOCKET", "CLAUDE_CODE_MESSAGING_TOKEN", "CLAUDE_PID", "HERDR_TAB_ID", "HERDR_WORKSPACE_ID", "A_SESSION_ONLY_VARIABLE", "USERS_OWN_SETTING"}
 
 // fakeHarness shows codex's own startup screens, as captured on this machine,
 // and answers keys the way codex does. It records its environment, every key
@@ -96,10 +101,29 @@ func fakeHarness() {
 		}
 	}
 	record(codexEvent{Event: "env", PID: os.Getpid(), Env: env, Text: strings.Join(os.Args[1:], " ")})
+	// The home every cfo command run in the goblin's terminal resolves.
+	if resolved, err := home.Resolve(); err != nil {
+		record(codexEvent{Event: "home", Text: err.Error()})
+	} else {
+		record(codexEvent{Event: "home", Home: &resolved})
+	}
 	mode := os.Getenv(fakeCodexMode)
-	if mode == "detached" {
-		_, _, _ = windows.NewLazySystemDLL("kernel32.dll").NewProc("FreeConsole").Call()
-		record(codexEvent{Event: "detached"})
+	if mode == "unreadable" {
+		// The console's input waker, which reads its screen, is the one
+		// other process attached to it.
+		pids := make([]uint32, 16)
+		count, _, _ := windows.NewLazySystemDLL("kernel32.dll").NewProc("GetConsoleProcessList").Call(uintptr(unsafe.Pointer(&pids[0])), uintptr(len(pids)))
+		for _, pid := range pids[:min(int(count), len(pids))] {
+			if int(pid) == os.Getpid() {
+				continue
+			}
+			if process, err := windows.OpenProcess(windows.PROCESS_TERMINATE|windows.SYNCHRONIZE, false, pid); err == nil {
+				_ = windows.TerminateProcess(process, 1)
+				_, _ = windows.WaitForSingleObject(process, 10000)
+				_ = windows.CloseHandle(process)
+			}
+		}
+		record(codexEvent{Event: "unreadable"})
 		time.Sleep(time.Minute)
 		return
 	}
@@ -110,7 +134,16 @@ func fakeHarness() {
 	go func() {
 		reader := bufio.NewReader(os.Stdin)
 		for {
-			key, err := readKey(reader)
+			var key string
+			var err error
+			if strings.HasPrefix(mode, "daybreak") {
+				// This offer takes a bare Escape, with no arrow sequence.
+				var character rune
+				character, _, err = reader.ReadRune()
+				key = string(character)
+			} else {
+				key, err = readKey(reader)
+			}
 			if err != nil {
 				close(keys)
 				return
@@ -130,6 +163,16 @@ func fakeHarness() {
 	}
 	composer := func(text string) {
 		draw("", "› "+text, "", "  ? for shortcuts                                                                    100% context left")
+	}
+	if mode == "resumed-working" {
+		if len(os.Args) > 1 && os.Args[1] == "resume" {
+			draw("    +151 lines (ctrl+t to view transcript)", "", "Working (1m 51s • esc to interrupt) · 1 background terminal running · /ps to view · /stop to close", "", "› Ask Codex to do anything", "", "  GPT-6.1-Sol xhigh · "+mustGetwd())
+			for key := range keys {
+				record(codexEvent{Event: "typed into resumed turn", Text: key})
+			}
+			return
+		}
+		mode = "ready"
 	}
 	if mode != "ready" && !codexStartup(mode, keys, record, draw, composer) {
 		return
@@ -230,6 +273,35 @@ func fakeHarness() {
 // codexStartup shows codex's own startup screens, as captured on this
 // machine, and reports whether they ended at its composer.
 func codexStartup(mode string, keys <-chan string, record func(codexEvent), draw func(rows ...string), composer func(text string)) bool {
+	if strings.HasPrefix(mode, "daybreak") {
+		var draft strings.Builder
+		offer := func() {
+			text := draft.String()
+			if text == "" {
+				text = "Ask Codex to do anything"
+			}
+			draw("Set up security for Daybreak mode", "Set up Advanced Account Security with a hardware security key. You can keep using Codex while you finish setup.", "", "› 1. Set up security", "", "Press a number to choose · esc to dismiss · type to continue", "", "› "+text, "100% context left")
+		}
+		offer()
+		for key := range keys {
+			switch key {
+			case "\x1b":
+				record(codexEvent{Event: "security dismissal attempted", Text: key})
+				if mode == "daybreak-stuck" {
+					continue
+				}
+				record(codexEvent{Event: "security dismissed", Text: key})
+				return true
+			case "\r":
+				record(codexEvent{Event: "security enrollment", Text: key})
+			default:
+				draft.WriteString(key)
+				record(codexEvent{Event: "typed into security offer", Text: key})
+				offer()
+			}
+		}
+		return false
+	}
 	// Nothing may be typed before a screen asks for a key.
 	pause := time.Second
 	if mode == "halfdrawn" {
@@ -534,6 +606,52 @@ func ended(pid int) bool {
 	return event == windows.WAIT_OBJECT_0
 }
 
+func TestANativeSpawnDismissesTheOptionalDaybreakOfferWithoutEnrollment(t *testing.T) {
+	f := newNativeFixture(t, harness.Codex, "daybreak")
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+	defer cancel()
+
+	_, err := f.service.Spawn(ctx, f.request)
+
+	if err != nil {
+		t.Errorf("native spawn: %v", err)
+	}
+	events := f.events(t)
+	if dismissals := named(events, "security dismissed"); len(dismissals) != 1 || dismissals[0].Text != "\x1b" {
+		t.Errorf("dismissals %v, want exactly one Escape", dismissals)
+	}
+	for _, event := range []string{"security enrollment", "typed into security offer"} {
+		if got := named(events, event); len(got) != 0 {
+			t.Errorf("unexpected %s: %d keys", event, len(got))
+		}
+	}
+	if submissions := named(events, "submitted"); len(submissions) != 1 {
+		t.Errorf("submissions %v, want exactly one instruction", submissions)
+	}
+}
+
+func TestANativeSpawnDoesNotContinueUntilTheDaybreakOfferDisappears(t *testing.T) {
+	previous := nativeKeyEffect
+	nativeKeyEffect = 3 * time.Second
+	t.Cleanup(func() { nativeKeyEffect = previous })
+	f := newNativeFixture(t, harness.Codex, "daybreak-stuck")
+
+	_, err := f.service.Spawn(context.Background(), f.request)
+
+	if err == nil || !strings.Contains(err.Error(), "still shows the optional Daybreak security setup offer after Escape") {
+		t.Errorf("native spawn: %v, want an unconfirmed dismissal error", err)
+	}
+	events := f.events(t)
+	if attempts := named(events, "security dismissal attempted"); len(attempts) != 1 || attempts[0].Text != "\x1b" {
+		t.Errorf("dismissal attempts %v, want exactly one Escape", attempts)
+	}
+	for _, event := range []string{"security dismissed", "security enrollment", "typed into security offer", "submitted"} {
+		if got := named(events, event); len(got) != 0 {
+			t.Errorf("unexpected %s: %d events", event, len(got))
+		}
+	}
+}
+
 // A native spawn answers codex's update prompt with Skip and its trust prompt
 // with Yes, each only once it shows, then types the instruction once and
 // submits it once codex's composer shows it. The goblin gets its project
@@ -574,11 +692,11 @@ func TestANativeSpawnAnswersCodexsStartupAndDeliversItsInstructionOnce(t *testin
 			if submitted := named(events, "submitted"); len(submitted) != 1 || submitted[0].Text != pointer {
 				t.Errorf("submitted = %+v, want the line pointing at the instruction once:\n%s", submitted, pointer)
 			}
-			if instruction := spawnInstruction(f.brief, "task-7"); written != instruction+"\n" {
+			if instruction := spawnInstruction(f.brief, state.TaskMeta{ID: "task-7", Kind: "ship"}, nil); written != instruction+"\n" {
 				t.Errorf("instruction.md = %q, want the whole instruction:\n%s", written, instruction)
 			}
 			env := named(events, "env")[0].Env
-			want := map[string]string{"CFO_TASK_ID": "task-7", "CFO_ROLE": harness.RoleGoblin, "GOTMPDIR": goTmpDir(t, f.stateDir, "task-7"), "CFO_STATE_OVERRIDE": f.stateDir, "CFO_HOST_ID": "task-7", "FIXTURE_TOKEN": "t0ken", "CLAUDE_CODE_GIT_BASH_PATH": gitBash}
+			want := map[string]string{"CFO_TASK_ID": "task-7", "CFO_ROLE": harness.RoleGoblin, "GOTMPDIR": taskScratch(f.stateDir, "task-7"), "TEMP": taskScratch(f.stateDir, "task-7"), "TMP": taskScratch(f.stateDir, "task-7"), "CFO_STATE_OVERRIDE": f.stateDir, "CFO_HOST_ID": "task-7", "FIXTURE_TOKEN": "t0ken", "CLAUDE_CODE_GIT_BASH_PATH": gitBash}
 			for name, value := range want {
 				if got := env[name]; got == nil || *got != value {
 					t.Errorf("the goblin's %s = %v, want %q", name, got, value)
@@ -769,13 +887,18 @@ func TestAFailedNativeSpawnLeavesATerminalItDidNotStartRunning(t *testing.T) {
 	if err != nil {
 		t.Fatalf("start the terminal that already runs: %v", err)
 	}
+	// Found while it runs, so the end below reaches it and no later process
+	// that took its pid.
+	existingHost, err := os.FindProcess(existing.HostPID)
+	if err != nil {
+		t.Fatal(err)
+	}
 	t.Cleanup(func() {
 		if err := host.Close(f.stateDir, existing, nativeCloseWait); err != nil {
 			t.Errorf("close the terminal that already ran: %v", err)
-			if process, err := os.FindProcess(existing.HostPID); err == nil {
-				_ = process.Kill()
-			}
+			_ = existingHost.Kill()
 		}
+		_ = existingHost.Release()
 	})
 
 	_, err = f.service.Spawn(context.Background(), f.request)
@@ -833,7 +956,7 @@ func TestATeardownKeepsANativeTaskWhoseHostMayStillRun(t *testing.T) {
 			meta := filepath.Join(f.stateDir, "task-7.meta")
 			writeFile(t, meta, "{}")
 
-			err = f.service.teardownLaunch(context.Background(), launched, f.project, f.worktree, "task-7")
+			err = f.service.teardownLaunch(context.Background(), launched, f.project, f.worktree, filepath.Join(f.stateDir, "scratch-task-7"), "task-7")
 
 			_, metaErr := os.Stat(meta)
 			if test.isKeptInPlace {
@@ -905,17 +1028,17 @@ func TestANativeSpawnNeverTypesIntoAScreenItDoesNotKnow(t *testing.T) {
 }
 
 // A screen that cannot be read stops the spawn with the read's error: it
-// never counts as a screen with no dialog on it. Claude is the terminal's
-// own program, so its leaving the console leaves nothing to read it through.
+// never counts as a screen with no dialog on it. The console's input waker
+// reads its screen, so with the waker ended nothing can.
 func TestANativeSpawnStopsWhenItCannotReadTheScreen(t *testing.T) {
 	previous := nativeReadGrace
 	nativeReadGrace = 2 * time.Second
 	t.Cleanup(func() { nativeReadGrace = previous })
-	f := newNativeFixture(t, harness.Claude, "detached")
+	f := newNativeFixture(t, harness.Claude, "unreadable")
 
 	_, err := f.service.Spawn(context.Background(), f.request)
 
-	if err == nil || !strings.Contains(err.Error(), "terminal task-7") || !strings.Contains(err.Error(), "attach to the console") {
+	if err == nil || !strings.Contains(err.Error(), "terminal task-7") || !strings.Contains(err.Error(), "input waker") {
 		t.Fatalf("Spawn error = %v, want the failed read of terminal task-7", err)
 	}
 }
@@ -1033,7 +1156,7 @@ func (a nativeAdapter) Build(spec harness.LaunchSpec) (harness.Launch, error) {
 	}
 	launch := harness.Launch{
 		Args:       []string{"--dangerously-skip-permissions"},
-		Env:        map[string]string{"GOTMPDIR": spec.GoTmp, harness.RoleVariable: harness.RoleGoblin},
+		Env:        map[string]string{"GOTMPDIR": spec.Scratch, "TEMP": spec.Scratch, "TMP": spec.Scratch, harness.RoleVariable: harness.RoleGoblin},
 		PromptFile: spec.BriefPath,
 	}
 	if a.kind == harness.Codex {
@@ -1184,5 +1307,73 @@ func TestANativeGoblinDoesNotInheritTheCallersTerminalSettings(t *testing.T) {
 		if !hasNativeVariable(env, name) {
 			t.Errorf("the goblin starts without %s", name)
 		}
+	}
+}
+
+// Every cfo command a goblin runs acts on the home that spawned it, root and
+// state alike, whatever home the user's environment names. A second home on
+// the machine spawns its goblins from a user environment whose CFO_HOME is the
+// first install's: on 2026-10-07 a scratch home's goblin resolved that home's
+// root with its own home's state, so it merged its helper but could not
+// retire it, and its cfo kill was refused as needing a primary home.
+func TestANativeGoblinResolvesTheHomeThatSpawnedIt(t *testing.T) {
+	// Arrange
+	f := newQuickFixture(t)
+	f.userEnv = append(f.userEnv, "CFO_HOME="+t.TempDir())
+	spawningRoot := filepath.Dir(f.stateDir)
+
+	// Act
+	if _, err := f.service.Spawn(context.Background(), f.request); err != nil {
+		t.Fatalf("Spawn: %v", err)
+	}
+
+	// Assert
+	resolved := named(f.events(t), "home")
+	if len(resolved) != 1 || resolved[0].Home == nil {
+		t.Fatalf("the goblin's home.Resolve = %+v, want one resolved home", resolved)
+	}
+	if got := *resolved[0].Home; !strings.EqualFold(got.Root, spawningRoot) || !strings.EqualFold(got.State, f.stateDir) {
+		t.Errorf("the goblin resolves root %s and state %s, want the spawning home's root %s and state %s", got.Root, got.State, spawningRoot, f.stateDir)
+	}
+}
+
+// recordedValue is a recorded variable's value, or that it was not set.
+func recordedValue(value *string) string {
+	if value == nil {
+		return "not set"
+	}
+	return *value
+}
+
+// A goblin's terminal names the projects root its spawner names, as the CFO's
+// terminal does, so a home started with a projects root of its own never
+// gives its goblins the machine's, which the user's environment names; a
+// spawner that names none leaves the user's.
+func TestANativeGoblinKeepsTheProjectsRootItsSpawnerNames(t *testing.T) {
+	machineRoot := `C:\dev`
+	for name, test := range map[string]struct {
+		spawners string
+		want     string
+	}{
+		"a projects root of its own": {`C:\scratch\projects`, `C:\scratch\projects`},
+		"none of its own":            {"", machineRoot},
+	} {
+		t.Run(name, func(t *testing.T) {
+			// Arrange
+			f := newQuickFixture(t)
+			f.userEnv = append(f.userEnv, install.ProjectsRootVariable+"="+machineRoot)
+			f.service.ProjectsRoot = test.spawners
+
+			// Act
+			if _, err := f.service.Spawn(context.Background(), f.request); err != nil {
+				t.Fatalf("Spawn: %v", err)
+			}
+
+			// Assert
+			got := named(f.events(t), "env")[0].Env[install.ProjectsRootVariable]
+			if got == nil || *got != test.want {
+				t.Errorf("the goblin's %s is %v, want %q", install.ProjectsRootVariable, recordedValue(got), test.want)
+			}
+		})
 	}
 }

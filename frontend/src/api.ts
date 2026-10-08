@@ -22,21 +22,36 @@ export async function request(
 const HIDDEN_TAB_WAIT_MS = 1500;
 
 // announce asks the supervisor which of these the board has not announced
-// yet, and gets back those it may announce now: an alert, a Windows
-// notification, the Command Center opening by itself. The supervisor hands
-// each key to one request, so no item is announced twice, in another tab,
-// after a reload or after the supervisor restarts. keys are items, announced
-// once; news is a goblin's news, which is a new event when the same words
-// come again later. Null means the supervisor could not be asked, and the
-// caller falls back on what this browser remembers.
-export async function announce(instance: string, keys: string[], news: string[] = []): Promise<string[] | null> {
-  if (!keys.length && !news.length) return [];
+// yet, and gets back those it may announce now with a Windows notification.
+// The supervisor hands each key to one request, so no item is announced
+// twice, in another tab, after a reload or after the supervisor restarts.
+// Null means the supervisor could not be asked, and the caller falls back on
+// what this browser remembers.
+export async function announce(instance: string, keys: string[]): Promise<string[] | null> {
+  if (!keys.length) return [];
   if (document.hidden) await new Promise((resolve) => setTimeout(resolve, HIDDEN_TAB_WAIT_MS));
   try {
-    const { claimed } = object(await request("/api/announce", undefined, { method: "POST", headers: { "Content-Type": "application/json", "X-CFO-Token": instance }, body: JSON.stringify({ keys, news }) }));
+    const { claimed } = object(await request("/api/announce", undefined, { method: "POST", headers: { "Content-Type": "application/json", "X-CFO-Token": instance }, body: JSON.stringify({ keys }) }));
     return Array.isArray(claimed) ? claimed.filter((key): key is string => typeof key === "string") : null;
   } catch { return null; }
 }
+// The supervisor instance this board talks to, from its latest snapshot: a
+// report to the CFO carries it, as every board action does.
+let instance = "";
+export function knowInstance(id: string): void { instance = id; }
+
+// reportToCfo gives the CFO a failure only this board saw, such as a read
+// that failed, a stream it could not parse or a card it could not draw, rather
+// than showing it to the Overlord: the Overlord, 2026-10-08, "everything error
+// wise goes to cfo and cfo decides what to tell me in command center". A
+// refusal of his own click is said beside it for a moment (ClickFeedback),
+// and the supervisor's own errors reach the CFO from the supervisor. A
+// report that cannot be sent has nowhere else to go.
+export function reportToCfo(where: string, text: string): void {
+  if (!instance || !text.trim()) return;
+  fetch("/api/cfo/report", { method: "POST", headers: { "Content-Type": "application/json", "X-CFO-Token": instance }, body: JSON.stringify({ where, text }) }).catch(() => undefined);
+}
+
 export function message(error: unknown): string {
   return error instanceof Error ? error.message : "Request failed";
 }
@@ -59,8 +74,9 @@ export function useResource<T>(
         if (!controller.signal.aborted) setResult({ path, data });
       })
       .catch((error: unknown) => {
-        if (!controller.signal.aborted)
-          setResult({ path, error: message(error) });
+        if (controller.signal.aborted) return;
+        reportToCfo("reading " + path, message(error));
+        setResult({ path, error: message(error) });
       });
     return () => controller.abort();
   }, [path, parse, version]);

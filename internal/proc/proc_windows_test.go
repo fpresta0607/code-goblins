@@ -4,6 +4,7 @@ import (
 	"os"
 	"os/exec"
 	"runtime"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -64,6 +65,40 @@ func TestAncestryOfChildProcessSeesUs(t *testing.T) {
 	}
 }
 
+// Processes gives each process the start Identify proves it by, so an entry
+// can go straight to Identify. Left zero, every process was refused.
+func TestProcessesGivesEachProcessTheStartIdentifyProvesItBy(t *testing.T) {
+	// Arrange
+	child := exec.Command("cmd", "/c", "ping -n 3 127.0.0.1 >NUL")
+	if err := child.Start(); err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = child.Process.Kill(); _, _ = child.Process.Wait() }()
+	created, ok := StartTime(child.Process.Pid)
+	if !ok {
+		t.Fatal("premise: the child's start time cannot be read")
+	}
+
+	// Act
+	processes, err := Processes()
+
+	// Assert
+	if err != nil {
+		t.Fatal(err)
+	}
+	at := slices.IndexFunc(processes, func(entry Entry) bool { return entry.PID == child.Process.Pid })
+	if at < 0 {
+		t.Fatalf("the child, pid %d, is not listed", child.Process.Pid)
+	}
+	listed := processes[at]
+	if listed.ParentPID != os.Getpid() || !strings.EqualFold(listed.ExeBase, "cmd.exe") || !listed.Start.Equal(created) {
+		t.Fatalf("child = %+v, want parent %d, cmd.exe and start %s", listed, os.Getpid(), created)
+	}
+	if _, err := Identify(listed.PID, listed.Start); err != nil {
+		t.Fatalf("Identify refuses the listed child: %v", err)
+	}
+}
+
 // Windows PowerShell's Start-Process -Wait waits for every process in the job
 // it puts the started process in, including one whose parent has already
 // exited, the way a harness leaves a server behind. JobProcesses lists
@@ -95,10 +130,15 @@ func TestJobProcessesListsWhatStartProcessWaitIsWaitingOn(t *testing.T) {
 	if ping.PID == 0 {
 		t.Fatal("the waiting shell's job never listed the ping its exited cmd left running")
 	}
+	// Found while it runs, so the end below reaches it and no later process
+	// that took its pid.
+	pinging, err := os.FindProcess(ping.PID)
+	if err != nil {
+		t.Fatalf("find the ping, pid %d: %v", ping.PID, err)
+	}
 	t.Cleanup(func() {
-		if process, err := os.FindProcess(ping.PID); err == nil {
-			_ = process.Kill()
-		}
+		_ = pinging.Kill()
+		_ = pinging.Release()
 	})
 	if jobbed, err := JobProcesses(os.Getpid()); err != nil || len(jobbed) != 0 {
 		t.Fatalf("a process with no wait of its own = %+v, %v; want nothing", jobbed, err)

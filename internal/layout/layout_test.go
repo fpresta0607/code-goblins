@@ -65,7 +65,7 @@ func headings(t *testing.T, path string) []string {
 	return found
 }
 
-var laidOut = []string{Marker, "archive", "archive/finished", "archive/parked", Backlog, "memory", MemoryIndex, "projects"}
+var laidOut = []string{IgnoreFile, Marker, "archive", "archive/finished", "archive/parked", Backlog, "memory", MemoryIndex, "projects"}
 
 func TestEnsureLaysOutANewHome(t *testing.T) {
 	cases := map[string]func(t *testing.T, data string){
@@ -165,6 +165,40 @@ func TestEnsureRepairsALaidOutHomeWithoutOverwriting(t *testing.T) {
 	files := tree(t, data)
 	if files[Backlog] != "# Backlog\n\n## Queued\n- [ ] g1 - the operator's task\n" || files["g1/brief.md"] != "brief\n" {
 		t.Errorf("Ensure overwrote the operator's files: %v", files)
+	}
+}
+
+// A backup of the data folder keeps records only: a .gitignore that lacks the
+// lines keeping binaries, archives and logs out gains them once, and every
+// line the operator wrote stays.
+func TestEnsureKeepsBinariesArchivesAndLogsOutOfABackup(t *testing.T) {
+	// Arrange
+	data := filepath.Join(t.TempDir(), "data")
+	if _, _, err := Ensure(data); err != nil {
+		t.Fatal(err)
+	}
+	write(t, filepath.Join(data, IgnoreFile), "tasktmp/\n__pycache__/")
+
+	// Act
+	created, _, err := Ensure(data)
+	again, _, againErr := Ensure(data)
+
+	// Assert
+	if err != nil || againErr != nil {
+		t.Fatalf("Ensure: %v, %v", err, againErr)
+	}
+	if !slices.Equal(created, []string{IgnoreFile}) || len(again) != 0 {
+		t.Errorf("created %v then %v, want the .gitignore changed once", created, again)
+	}
+	text := tree(t, data)[IgnoreFile]
+	if !strings.HasPrefix(text, "tasktmp/\n__pycache__/\n") || strings.Count(text, ignoreHeader) != 1 {
+		t.Errorf(".gitignore = %q, want the operator's lines and one block after them", text)
+	}
+	lines := strings.Split(text, "\n")
+	for _, pattern := range []string{"*.exe", "*.zip", "*.log", "*.png"} {
+		if !slices.Contains(lines, pattern) {
+			t.Errorf(".gitignore lacks %s:\n%s", pattern, text)
+		}
 	}
 }
 

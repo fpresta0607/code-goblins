@@ -71,6 +71,58 @@ func captureSpawn(deps *commandRuntime, output string) *spawn.Request {
 	return &got
 }
 
+func TestRunSpawnHonorsFivePercentWeeklyReserve(t *testing.T) {
+	for _, isExplicit := range []bool{false, true} {
+		for _, testCase := range []struct {
+			name, kind, used, remaining string
+			isStale, shouldRefuse       bool
+		}{
+			{name: "weekly 4.99 remaining", kind: "weekly", used: "95.01", remaining: "4.99", shouldRefuse: true},
+			{name: "weekly 5 remaining", kind: "weekly", used: "95", remaining: "5", shouldRefuse: true},
+			{name: "weekly 5.01 remaining", kind: "weekly", used: "94.99", remaining: "5.01"},
+			{name: "session only", kind: "session", used: "98", remaining: "2"},
+			{name: "weekly use unknown", kind: "weekly", used: `"unknown"`, remaining: "2"},
+			{name: "stale provider", kind: "weekly", used: "98", remaining: "2", isStale: true},
+		} {
+			t.Run(fmt.Sprintf("%s explicit %v", testCase.name, isExplicit), func(t *testing.T) {
+				_, deps := routedRuntime(t, `{"rules":[],"default_lane":"build","lanes":{"build":{"harness":"codex","model":"weekly-model","effort":"high"}}}`)
+				got := captureSpawn(&deps, "spawned weekly-task")
+				now := time.Now().UTC().Truncate(time.Second)
+				reset := now.Add(7 * 24 * time.Hour)
+				seconds := 604800
+				if testCase.kind == "session" {
+					seconds = 18000
+				}
+				data := fmt.Sprintf(`{"generatedAt":%q,"providers":[{"provider":"codex","state":{"stale":%t},
+					"windows":[{"id":"window","kind":%q,"windowSeconds":%d,"percentUsed":%s,"resetsAt":%q}],
+					"quotaSemantics":{"status":"known","effectiveAvailability":[{"scope":"all_models","status":"known",
+						"effectivePercentRemaining":%s,"boundedBy":["window"],"runway":{"limitingWindowId":"window"}}]}}]}`,
+					now.Format(time.RFC3339), testCase.isStale, testCase.kind, seconds, testCase.used, reset.Format(time.RFC3339), testCase.remaining)
+				report, err := quota.Parse([]byte(data), now)
+				if err != nil {
+					t.Fatal(err)
+				}
+				deps.quota = func(context.Context) (quota.Report, string) { return report, "" }
+				args := []string{"spawn", "weekly-task", "--project", `C:\project`, "--brief", briefWith(t, "Repair the weekly allowance reserve.")}
+				if isExplicit {
+					args = append(args, "--harness", "codex", "--model", "weekly-model")
+				}
+				var stdout, stderr bytes.Buffer
+
+				exit := runWithRuntime(args, &stdout, &stderr, deps)
+
+				if testCase.shouldRefuse {
+					if exit != 1 || got.ID != "" || !strings.Contains(stderr.String(), "5 percent weekly") || !strings.Contains(stderr.String(), reset.Format(time.RFC3339)) {
+						t.Fatalf("weekly reserve refusal exit=%d spawn=%+v stderr=%s", exit, *got, stderr.String())
+					}
+				} else if exit != 0 || got.ID != "weekly-task" {
+					t.Fatalf("usable or unknown quota prevented spawn: exit=%d spawn=%+v stderr=%s", exit, *got, stderr.String())
+				}
+			})
+		}
+	}
+}
+
 func TestRunSpawnRoutesFromTheFleetTableWithoutHarness(t *testing.T) {
 	h, deps := routedRuntime(t, shippedRoutingJSON(t))
 	got := captureSpawn(&deps, "spawned g10")

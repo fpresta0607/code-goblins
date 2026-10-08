@@ -52,3 +52,17 @@ func OpenAppend(path string, perm os.FileMode) (*os.File, error) {
 	})
 	return file, err
 }
+
+// CreateNew creates path for writing with perm only if it is missing: an
+// existing file is an error satisfying errors.Is(err, os.ErrExist). A create
+// that meets another process's brief hold on the name, as a file deleted
+// while that process still has it open is held until it lets go, waits it
+// out.
+func CreateNew(path string, perm os.FileMode) (*os.File, error) {
+	var file *os.File
+	err := retryTransient(func() (err error) {
+		file, err = os.OpenFile(path, os.O_CREATE|os.O_EXCL|os.O_WRONLY, perm)
+		return err
+	})
+	return file, err
+}

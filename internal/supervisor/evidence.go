@@ -53,12 +53,14 @@ var (
 	githubPullRequest  = regexp.MustCompile(`^https://github\.com/[\w.-]+/[\w.-]+/pull/\d+$`)
 )
 
-// pullRequestState is what GitHub last answered for a pull request, and when:
-// OPEN, CLOSED or MERGED, or empty when it did not answer.
+// pullRequestState is what GitHub last answered for a pull request: OPEN,
+// CLOSED or MERGED, or empty when it never did; when it was last asked; and
+// how many asks in a row it has not answered since.
 type pullRequestState struct {
-	state string
-	title string
-	at    time.Time
+	state    string
+	title    string
+	at       time.Time
+	failures int
 }
 
 type PullRequestInfo struct {
@@ -292,7 +294,7 @@ func fleetEvaluation(evaluation Evaluation, meta state.TaskMeta, runtime Runtime
 		return evaluation
 	}
 	switch evaluation.Phase {
-	case "blocked", "ready", "merged", "done":
+	case "blocked", "failed", "ready", "merged", "done":
 		return evaluation
 	}
 	switch {
@@ -306,12 +308,17 @@ func fleetEvaluation(evaluation Evaluation, meta state.TaskMeta, runtime Runtime
 	return evaluation
 }
 
-// waitingQuestion is the blocked or failed notify a task is still waiting on;
-// one the Overlord answered on the board no longer holds the goblin.
+// waitingQuestion is the blocked or failed notify a task is still waiting on,
+// or the question the monitor read in its last reply when it asked in prose
+// instead, which waits the same way; one the Overlord answered on the board no
+// longer holds the goblin.
 func waitingQuestion(records []wake.Record, id string) (string, string, bool) {
 	for i := len(records) - 1; i >= 0; i-- {
 		if verb, ok := wake.BlockingNotify(records[i]); ok && records[i].Key == id && records[i].Answered == "" {
 			return verb, strings.TrimSpace(strings.TrimPrefix(records[i].Detail, verb+":")), true
+		}
+		if question, ok := wake.ProseAsk(records[i], id); ok {
+			return "blocked", question, true
 		}
 	}
 	return "", "", false
@@ -437,7 +444,9 @@ func statusActivity(lines []string, spawned time.Time) (string, string) {
 	return bounded(activity, 4000), pr
 }
 
-func taskSessionSummary(lines []string, spawned time.Time) (report string, retired time.Time) {
+// taskSessionSummary is a task's latest report with when it was written, and
+// when cleanup retired it, as far as its status log says.
+func taskSessionSummary(lines []string, spawned time.Time) (report string, reportedAt time.Time, retired time.Time) {
 	for i := len(lines) - 1; i >= 0; i-- {
 		stamp, event := state.SplitStatus(lines[i])
 		if !spawned.IsZero() && stamp.Before(spawned.Truncate(time.Second)) {
@@ -450,10 +459,10 @@ func taskSessionSummary(lines []string, spawned time.Time) (report string, retir
 				retired = stamp
 			}
 		} else if report == "" && reportKind(event) != "" {
-			report = redact(bounded(event, 4000))
+			report, reportedAt = redact(bounded(event, 4000)), stamp
 		}
 	}
-	return report, retired
+	return report, reportedAt, retired
 }
 
 // finishedTasks are tasks cfo cleanup finished within the history window,
@@ -512,7 +521,7 @@ func finishedTasks(h home.Home, now time.Time) []Task {
 			continue
 		}
 		_, pr := statusActivity(lines, time.Time{})
-		report, retired := taskSessionSummary(lines, time.Time{})
+		report, _, retired := taskSessionSummary(lines, time.Time{})
 		phase, reason := "stopped", "Stopped without recorded delivery"
 		if pr != "" {
 			phase, reason = "done", "Delivered pull request; task cleaned up"
@@ -560,16 +569,22 @@ func finishedTasks(h home.Home, now time.Time) []Task {
 					continue
 				}
 				generation = outcome.Generation
-				task = Task{ID: "finished:" + id, Title: outcome.Title, Project: filepath.Base(outcome.Project), Branch: outcome.Branch, Archived: true, Dependencies: []string{}, Evaluation: Evaluation{Phase: outcome.Phase, PR: outcome.PR, Reason: outcome.Reason, At: outcome.At}}
+				task = Task{ID: "finished:" + id, Title: outcome.Title, GoblinName: outcome.GoblinName, GoblinTitle: outcome.GoblinTitle, Project: filepath.Base(outcome.Project), Branch: outcome.Branch, Harness: outcome.Harness, Model: outcome.Model, Effort: outcome.Effort, Archived: true, Dependencies: []string{}, Evaluation: Evaluation{Phase: outcome.Phase, PR: outcome.PR, Reason: outcome.Reason, At: outcome.At}}
 			} else {
 				record, err := state.ReadLifecycle(stateDir, id)
 				if err != nil || record.Phase != "stopped" {
 					continue
 				}
 				generation = record.Generation
-				task = Task{ID: "finished:" + id, Title: record.Title, Project: filepath.Base(record.Project), Archived: true, Dependencies: []string{}, Lifecycle: lifecycleStatus(record), Teardown: record.TeardownLabels(), Evaluation: Evaluation{Phase: "stopped", Reason: record.Reason, At: record.Updated}}
+				task = Task{ID: "finished:" + id, Title: record.Title, GoblinName: record.GoblinName, GoblinTitle: record.GoblinTitle, Project: filepath.Base(record.Project), Archived: true, Dependencies: []string{}, Lifecycle: lifecycleStatus(record), Teardown: record.TeardownLabels(), Evaluation: Evaluation{Phase: "stopped", Reason: record.Reason, At: record.Updated}}
+				// A stop never relabels what its own generation delivered: a
+				// helper its parent merged is retired through Stop.
+				if outcome, err := state.ReadOutcome(stateDir, id); err == nil && outcome.Generation == record.Generation && outcome.Phase == "done" {
+					task.Phase = "done"
+				}
 				if at := slices.IndexFunc(tasks, func(existing Task) bool { return existing.ID == task.ID }); at >= 0 {
 					task.PR, task.Branch = tasks[at].PR, tasks[at].Branch
+					task.Harness, task.Model, task.Effort = tasks[at].Harness, tasks[at].Model, tasks[at].Effort
 				}
 			}
 			if task.Title == "" {
@@ -583,7 +598,7 @@ func finishedTasks(h home.Home, now time.Time) []Task {
 			}
 			if status, ok := found[id]; ok && generation != "queued" {
 				if lines, err := fsx.ReadLines(status.path); err == nil {
-					task.LastReport, task.RetiredAt = taskSessionSummary(lines, spawnTime(generation))
+					task.LastReport, _, task.RetiredAt = taskSessionSummary(lines, spawnTime(generation))
 				}
 			}
 			tasks = slices.DeleteFunc(tasks, func(existing Task) bool { return existing.ID == task.ID })
@@ -615,8 +630,11 @@ func withMergedPRs(history []Task, merged []MergedPR) []Task {
 // withPullRequestStates asks GitHub about each finished task's pull request
 // that no fleet history shows merged, and marks it merged (a squash merge
 // leaves no merge commit) or closed without merging. A merged or closed pull
-// request is not asked about again; an open one, or one GitHub did not
-// answer for, waits pullRequestRecheck. All asks of one refresh share
+// request is not asked about again, and an open one waits pullRequestRecheck.
+// One GitHub did not answer for keeps what it last answered and is asked
+// again on the next refresh; its failure is returned only once it went
+// unanswered failingPasses refreshes in a row, and from then on it waits
+// pullRequestRecheck between asks. All asks of one refresh share
 // pullRequestBudget, so a slow GitHub never holds the supervisor's loop much
 // longer; a pull request not asked before it runs out is asked on the next
 // refresh.
@@ -638,13 +656,21 @@ func (s *Service) withPullRequestStates(ctx context.Context, history []Task, now
 		}
 		shown[task.PR] = true
 		known, ok := s.pullRequests[task.PR]
-		if !ok || (known.state != "MERGED" && known.state != "CLOSED" || known.title == "") && now.Sub(known.at) >= pullRequestRecheck {
+		isFailing := known.failures > 0 && known.failures < failingPasses
+		if !ok || isFailing || (known.state != "MERGED" && known.state != "CLOSED" || known.title == "") && now.Sub(known.at) >= pullRequestRecheck {
 			if budget.Err() != nil {
 				continue
 			}
 			answer, err := s.Options.PullRequestState(budget, task.PR)
-			errs = errors.Join(errs, err)
-			known = pullRequestState{state: answer.State, title: answer.Title, at: now}
+			if err != nil {
+				known.at = now
+				known.failures++
+				if known.failures >= failingPasses {
+					errs = errors.Join(errs, err)
+				}
+			} else {
+				known = pullRequestState{state: answer.State, title: answer.Title, at: now}
+			}
 			s.pullRequests[task.PR] = known
 		}
 		task.Merged, task.Closed = task.Merged || known.state == "MERGED", known.state == "CLOSED"

@@ -1,4 +1,4 @@
-import { useState, type ReactNode } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import type { Action, BoardActivity, Question, Snapshot } from "./types";
 import { deliveryMark, type Submission } from "./feedback";
 import { Avatar } from "./Avatar";
@@ -7,7 +7,9 @@ import { age } from "./presentation";
 import { answeredBy, answeredLabel, chosenOption, outcomeIcon, questionOutcome } from "./commandQueue";
 import { questionAnswer, questionChoices, questionSelection } from "./questionChoices";
 import { messageElements } from "./messageText";
+import { copyValues } from "./CopyValue";
 import { personaFor } from "./workflow";
+import { ClickFeedback, useClickFeedback } from "./click-feedback";
 
 export interface Draft { selection: string; written: string; submission: Submission | null; sending: boolean; error: string; receipt?: Action }
 export const EMPTY_DRAFT: Draft = { selection: "", written: "", submission: null, sending: false, error: "" };
@@ -19,6 +21,8 @@ export function QuestionCard({ question, snapshot, connected, draft, review, onD
   question: Question; snapshot: Snapshot; connected: boolean; draft: Draft; review?: BoardActivity;
   onDraft: (changes: Partial<Draft>) => void; onSend: () => void; onDismiss: () => void; onImage: (index: number) => void; pager?: ReactNode;
 }) {
+  const [feedback, showFeedback] = useClickFeedback();
+  useEffect(() => { if (draft.error) showFeedback(draft.error); }, [draft.error, showFeedback]);
   const outcome = draft.submission ? snapshot.actions.find((action) => action.id === draft.submission?.id) || draft.receipt : undefined;
   const pending = question.status === "pending" && !outcome;
   const settled = questionOutcome(question);
@@ -37,7 +41,7 @@ export function QuestionCard({ question, snapshot, connected, draft, review, onD
   return <form className="question-card" aria-labelledby={"question-" + question.id} onSubmit={(event) => { event.preventDefault(); onSend(); }}>
     <p className="asker"><Avatar persona={question.task ? personaFor(task) : "cfo"} small /><span><strong>{asker}</strong> asks · {question.status !== "pending" ? "asked " + age(question.created_at) : "waiting " + age(question.created_at).replace(/ ago$/, "")}</span></p>
     {/* The question reads as body text: only what its asker marked is bold. */}
-    <div className="question-body" id={"question-" + question.id} tabIndex={-1}>{messageElements(question.text)}</div>
+    <div className="question-body" id={"question-" + question.id} tabIndex={-1}>{messageElements(question.text, copyValues)}</div>
     {review && <a className="icon-button raised pill-link open-inline" href={review.url} target="_blank" rel="noreferrer"><Icon name="external" /><span>Open review</span></a>}
     {images.length > 0 && <div className="question-thumbs" aria-label="Images for this question">
       {images.map((choice, index) => <button type="button" key={choice.value} aria-label={"View the image for " + choice.text + " full size"} onClick={() => onImage(index)}>
@@ -54,13 +58,13 @@ export function QuestionCard({ question, snapshot, connected, draft, review, onD
         : <label className="question-choice"><input type="radio" name={"answer-" + question.id} checked={displayed.selection === "other"} onChange={() => onDraft({ selection: "other", error: "", receipt: undefined })} /><span className="question-option"><span>Other</span><small>Write your own answer.</small></span></label>}
       {displayed.selection === "other" && <label className="written-answer"><span className="sr-only">Your written answer</span><textarea rows={3} maxLength={4000} placeholder={"Tell " + (question.task ? asker : "the CFO") + " what you prefer..."} value={displayed.written} onChange={(event) => onDraft({ written: event.target.value, error: "", receipt: undefined })} /></label>}
     </fieldset>
-    {draft.error && !outcome && question.status === "pending" && <p className="warning-text" role="alert">{draft.error} An unchanged retry keeps its request identity.</p>}
     {mark ? <p className={"question-outcome delivery " + outcome?.status} role="status"><Icon name={mark.icon} />{mark.label}</p>
       // An answer the board never saw marks no choice, so its line carries the check.
       : closed && !question.answer ? <p className="question-outcome delivery succeeded" role="status"><Icon name="check-double" />{answeredLabel(question)}{question.answered_at && " · " + age(question.answered_at)}</p>
       : closed ? <p className="question-outcome answered-by" role="status">{answeredBy(question)}{question.answered_at && " · " + age(question.answered_at)}</p>
         : settled !== "pending" && <p className={"question-outcome delivery " + settled} role="status"><Icon name={outcomeIcon(settled)} />{answeredLabel(question)}</p>}
     <div className="card-actions">
+      <ClickFeedback text={feedback} />
       {pager}
       {pending && <button type="button" className="icon-button raised" disabled={!connected || draft.sending} aria-label="Dismiss this question" data-tip="Dismiss: answered elsewhere or no longer needed" onClick={onDismiss}><Icon name="close" /></button>}
       {pending && <button className="primary send-decision" type="submit" disabled={!connected || !payload || draft.sending}><Icon name={draft.sending ? "clock" : "send"} />{draft.sending ? "Sending" : draft.error ? "Retry" : "Send decision"}</button>}

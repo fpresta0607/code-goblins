@@ -1,3 +1,12 @@
+// HarnessUpdate is an update of the harness a terminal runs that was
+// installed after it started: line is the harness's own words for it on its
+// screen and installed when its program was installed since, whichever
+// showed it.
+export interface HarnessUpdate { harness: string; line: string; installed: string }
+// CFOUpdate is the CFO's, with its Update button's state: pending once he
+// pressed it, until the CFO's turn ends; updating while the restart runs;
+// problem why the last press did not restart it.
+export interface CFOUpdate extends HarnessUpdate { pending: boolean; updating: boolean; problem: string }
 export interface RuntimeEvidence {
   state: string;
   reason: string;
@@ -20,10 +29,21 @@ export interface Task extends Evaluation {
   queue_revision: string;
   notes: string[];
   action_error: string;
+  pending_engine?: { harness: string; model: string; effort: string; when: string };
+  // harness_update is an update of the harness the goblin runs, installed
+  // since it started, for the Update button on its card.
+  harness_update?: HarnessUpdate;
+  switching?: boolean;
   branch: string;
+  // parent is the goblin a helper works for, empty for every other task.
+  parent: string;
   runtime?: RuntimeEvidence;
   id: string;
   title: string;
+  // goblin_name and goblin_title are the fun name and title the goblin was
+  // given at spawn, empty before it has one.
+  goblin_name: string;
+  goblin_title: string;
   project: string;
   harness: string;
   // backend is the terminal the task runs in: native, herdr, or empty before it starts.
@@ -37,6 +57,8 @@ export interface Task extends Evaluation {
   activity: string;
   handoff?: boolean;
   last_report?: string;
+  // reported_at is when the goblin wrote its latest report.
+  reported_at?: string;
   retired_at?: string;
   // report is the kind of the goblin's latest report: working, blocked,
   // failed, done, waiting, or empty.
@@ -53,26 +75,156 @@ export interface Task extends Evaluation {
   // was written; empty when neither is known.
   since: string;
   // brief says queued work has its brief, which Start needs; starting that
-  // its Start runs cfo spawn now, and start_error why its last Start failed.
+  // its Start runs cfo spawn now, start_error why its last Start failed, and
+  // finished why it never starts again by itself: what says it already
+  // finished.
   brief: boolean;
   starting: boolean;
   start_error: string;
+  finished: string;
+  // priority is a queued task's backlog priority: production-defect starts
+  // it ahead of every other start and resume.
+  priority: string;
+  // progress is a live goblin's last real progress: a commit, a push, a gate
+  // step or a new status report, and when.
+  progress?: WorkProgress;
+  // ticket is the GitHub issue kept for a task in a repository other people
+  // work in, and overlaps is their open work in the same area as a live
+  // goblin's branch.
+  ticket?: Ticket;
+  overlaps: Overlap[];
+  // hosted_checks is what its pull request's hosted checks said at the last
+  // CI poll, local_checks its change's newest cfo gate test run, and
+  // deployment how the deploy of its merge stands, apart.
+  hosted_checks?: HostedChecks;
+  local_checks?: LocalChecks;
+  // tree is what a live goblin has running under it, absent for one that
+  // runs nothing the supervisor could read.
+  tree?: FleetTree;
+  deployment?: Deployment;
+  // comeback is where a live goblin the last restart ended is in coming
+  // back: waiting for its turn, or stopped with the reason.
+  comeback?: ComebackEntry;
 }
+// FleetTree is a goblin and what runs under it as the supervisor last read
+// it: memory is its harness and everything under it, own_memory the harness
+// alone, both private bytes; unread names evidence that could not be read.
+export interface FleetTree {
+  task_id: string; generation: string; harness: string; memory: number; own_memory: number; conversation_at: string;
+  children: TreeNode[]; unread: string[]; source_updated_at: string; fetched_at: string;
+}
+// TreeNode is one child of a goblin: a sub-agent, a background shell or
+// monitor, a job of processes (whose group says what it does: dev-server,
+// test, build, browser or other) or its gate run. state is working, waiting,
+// done, failed or silent; memory is its processes' private bytes.
+// task is a named helper goblin's task, which its label leaves to its tip.
+export interface TreeNode {
+  id: string; kind: string; group: string; parent: string; label: string; detail: string; task: string; state: string;
+  started: string; last_activity: string; finished: string; last_line: string; memory: number;
+  source_updated_at: string; fetched_at: string;
+}
+function parseTree(value: unknown): FleetTree {
+  const t = object(value);
+  return {
+    task_id: string(t.task_id), generation: string(t.generation), harness: string(t.harness), memory: number(t.memory), own_memory: number(t.own_memory),
+    conversation_at: string(t.conversation_at), unread: strings(t.unread), source_updated_at: string(t.source_updated_at), fetched_at: string(t.fetched_at),
+    children: array(t.children).map((child) => {
+      const c = object(child);
+      return { id: string(c.id), kind: string(c.kind), group: string(c.group), parent: string(c.parent), label: string(c.label), detail: string(c.detail), task: string(c.task), state: string(c.state),
+        started: string(c.started), last_activity: string(c.last_activity), finished: string(c.finished), last_line: string(c.last_line), memory: number(c.memory),
+        source_updated_at: string(c.source_updated_at), fetched_at: string(c.fetched_at) };
+    }),
+  };
+}
+export interface WorkProgress { at: string; source: string }
+// ComebackEntry is the CFO or one goblin the supervisor brings back after a
+// restart or sign-out: waiting for its turn, back, or stopped with the reason.
+export interface ComebackEntry { id: string; state: "waiting" | "back" | "stopped" | ""; reason: string }
+// Comeback is what the supervisor brings back after the last restart or
+// sign-out: the CFO first, then each goblin that was working.
+export interface Comeback { signed_in: string; cfo?: ComebackEntry; goblins: ComebackEntry[] }
+// StartAtLoginView is whether Windows starts this home at login, or why it
+// cannot be started at login.
+export interface StartAtLoginView { on: boolean; unavailable: string }
+// DevDriveView is the home's Dev Drive: its state and the line saying it, the
+// sentence explaining what one is, the person's answer to the offer, the step
+// whose Command Center item waits, and the button to press, if any.
+export interface DevDriveView { state: string; line: string; explain: string; choice: string; waiting: string; action: "" | "set-up" | "try-again" | "attach" }
+// HostedChecks is a pull request's hosted checks at its head: state is
+// pending while one runs and none has failed, failed as soon as one has,
+// cancelled when they ended with one cancelled, and passed when all passed;
+// failed names the checks that failed or were cancelled and link is the first
+// one's page; approved says a reviewer approved the pull request.
+export interface HostedChecks { state: string; checks: number; failed: string[]; link: string; approved: boolean }
+// LocalChecks is the newest cfo gate test run of a task's change: the commit,
+// the level it ran and the one required, passed or failed, how long it took
+// and waited for its turn, and the packages or commands that failed.
+export interface LocalChecks { commit: string; level: string; required_level: string; status: string; duration_seconds: number; queue_seconds: number; failed: string[]; at: string }
+// Deployment is how the deploy of a merged pull request stands, from the
+// default branch's deploy workflows for its merge commit: state is deploying,
+// deployed, failed or cancelled, workflows names them, and link is the page
+// of the run that failed or was cancelled, else of the newest one.
+export interface Deployment { commit: string; state: string; workflows: string[]; link: string; at: string }
+// MergeTrain is a merge train: green pull requests merged onto base on a
+// branch of its own, which its pull request lets CI test together once.
+// state is testing, landed, stopped or failed, runs counts its CI runs, and
+// note says what happened last.
+export interface MergeTrain { id: string; repository: string; base: string; pr: string; state: string; runs: number; started: string; finished: string; note: string; cars: TrainCar[] }
+// TrainCar is one pull request on a train: state is riding, waiting,
+// landed, culprit, conflict or returned, and note says why.
+// goblin and goblin_title are the name and title of the goblin that reported
+// it done.
+export interface TrainCar { number: number; url: string; title: string; task: string; goblin: string; goblin_title: string; state: string; note: string }
+// Ticket is a task's issue: its number, its link and where it stands, one
+// of queued, in progress, pr open, paused, blocked, merged or closed.
+export interface Ticket { number: number; url: string; state: string }
+// Person is someone on GitHub: a login, or only a git name for a commit that
+// links to no account, and an avatar.
+export interface Person { login: string; name: string; avatar_url: string }
+// Overlap is one piece of a teammate's open work, such as "PR #1446", that
+// changes the files a goblin's branch changes or names its area.
+export interface Overlap extends Person { what: string; url: string }
+// ProjectPeople are the people other than the Overlord, bots aside, active in
+// a project's repository in the last 30 days, most recent first.
+export interface ProjectPeople { name: string; repository: string; contributors: Person[] }
 export interface LifecycleStatus {
   phase: string; action: string; at: string; kept: string[]; stopped: string[]; problems: string[];
   handoff_saved: boolean; validation_restarts: boolean;
+  // with_parent is a helper's pause or stop its parent's made: paused, it
+  // resumes once its parent runs again.
+  with_parent?: boolean;
+  // pause is what a paused task waits for: memory, allowance, overlord,
+  // dependency, question, ci or deploy, with until naming the reset time,
+  // task:, pr:, date:, question id or awaited run; absent on an older pause.
+  pause?: PauseCondition;
 }
+export interface PauseCondition { reason: string; until: string; at: string }
+// Scheduling is what the supervisor's scheduler made of its last reading with
+// memory free: text says what it started or resumed, else why nothing
+// waiting started, and waiting is the work that could run and did not.
+export interface Scheduling {
+  at: string;
+  text: string;
+  waiting: { id: string; why: string }[];
+}
+
 // Memory is the machine's free memory and free commit (memory plus page file)
 // in bytes beside the fleet's floor, under which nothing starts, and the mark
-// at which the CFO starts the next queued task; with the kernel's pools and,
-// while commit is the tighter, the apps holding the most of it.
+// at which the next queued task starts; with the kernel's pools and, while
+// commit is the tighter, the apps holding the most of it.
 export interface Memory {
   available: number; total: number; commit_available: number; commit_limit: number;
   paged_pool: number; nonpaged_pool: number; floor: number; next: number; holders: CommitHolder[];
 }
+// CIDuration is how long one finished CI run or deploy took in a repository.
+export interface CIDuration { repository: string; kind: string; seconds: number }
 // CommitHolder is one app's commit: its first process and every process it
 // started.
 export interface CommitHolder { name: string; commit: number }
+// Disk is the free space of the home's drive in bytes beside the floor under
+// which no goblin or gate test run starts and the lower mark at which the CFO
+// is woken.
+export interface Disk { drive: string; free: number; total: number; floor: number; wake: number }
 export interface Session {
   runtime?: RuntimeEvidence;
   id: string;
@@ -121,9 +273,21 @@ export interface Decision {
 }
 export interface BoardActivity {
   cfo_identity?:string; live?:boolean;
+  // watch is the line a goblin writes when it asks the Overlord to watch this
+  // presentation; only such a presentation reaches his Command Center.
+  watch?:string;
   id:string; kind:string; task_id:string; generation:string; source:string; target:string; state:string; url:string; at:string; until:string;
 }
+export interface SubscriptionUsage {
+  provider: "claude" | "codex";
+  status: "available" | "unavailable" | "stale" | "auth_required";
+  percent_remaining: number | null;
+  read_at: string;
+  resets_at: string;
+  source: "oauth" | "api" | "";
+}
 export interface Snapshot {
+  subscriptions?: SubscriptionUsage[];
   activity?: BoardActivity[];
   example: boolean;
   instance: string;
@@ -136,8 +300,25 @@ export interface Snapshot {
   registration: string;
   // The native terminal the registered CFO runs in; empty while it runs in Herdr.
   cfo_terminal: string;
+  // When the host of that terminal started; a new one, as after a restart,
+  // is viewed afresh.
+  cfo_terminal_since: string;
   // The harness the registered CFO runs, such as claude; empty while none is registered.
   cfo_harness: string;
+  // The conversation the CFO could not resume when it last came back, and how
+  // to resume it by hand; empty when it came back on its own.
+  cfo_conversation_left: string;
+  // cfo_update is an update of the harness the CFO runs, installed since it
+  // started, for the Update button on its header; null while none waits.
+  cfo_update: CFOUpdate | null;
+  // comeback is what the supervisor brings back after the last restart or
+  // sign-out; absent when it brings nothing back.
+  comeback?: Comeback;
+  // start_at_login is whether Windows starts this home at login; absent on a
+  // board that cannot change it.
+  start_at_login?: StartAtLoginView;
+  // dev_drive is the home's Dev Drive; absent on a board without the setting.
+  dev_drive?: DevDriveView;
   // build names the board bundle the supervisor serves.
   build: string;
   // cfo_runs says a CFO is registered and running or starting; without one
@@ -148,6 +329,11 @@ export interface Snapshot {
   // onboarding and sign-in, a Codex or pi CFO when its first prompt runs cfo
   // register.
   cfo_starting: boolean;
+  cfo_quiet: { since: string; count: number; oldest_age: number } | null;
+  // cfo_closed says the home's CFO registered and has since ended, with no
+  // terminal up for a new one: the board says so and offers Reopen, and
+  // shows no first-run page.
+  cfo_closed: boolean;
   inbox: number;
   tasks: Task[];
   sessions: Session[];
@@ -163,14 +349,30 @@ export interface Snapshot {
   credentials?: CredentialRequest[];
   // memory is absent on a board that cannot start goblins or read it.
   memory: Memory | null;
+  // scheduling is what the supervisor started or resumed at its last
+  // reading with memory free, or why nothing waiting started; null while
+  // memory is short or nothing schedules.
+  scheduling: Scheduling | null;
+  ci_durations: CIDuration[];
+  // disk is absent on a board that cannot read it.
+  disk: Disk | null;
   afk: Afk;
+  // projects names who else works in each collaborative project, by the
+  // project name tasks carry.
+  projects: ProjectPeople[];
+  // release is a newer published release, or any where this board was built
+  // from a clone; null when there is none or the check is off.
+  release: ReleaseView | null;
+  // merge_trains are the trains running and those finished in the last
+  // hours, newest first.
+  merge_trains?: MergeTrain[];
 }
 // AfkHeld is an item held for the Overlord while AFK mode is on: its key in
 // the Command Center, its goblin (empty for the CFO's own), what it asks,
-// whether it still waits on him and what became of it, and what its goblin
-// reported meanwhile.
+// whether it still waits on him and what became of it, what its goblin
+// reported meanwhile, and the choice its asker recommends, empty for none.
 export interface AfkHeld {
-  item: string; task: string; what: string; at: string; waiting: boolean; now: string; meanwhile: string;
+  item: string; task: string; what: string; at: string; waiting: boolean; now: string; meanwhile: string; recommendation: string;
 }
 // Afk is AFK mode, the Overlord's switch for running the fleet while he is
 // away: on, off, or unreadable when the supervisor cannot read the switch.
@@ -197,11 +399,18 @@ export interface Question {
   image_count: number;
   // generation is the asking goblin's session; empty for the CFO's question.
   generation: string;
+  // answered_away marks the CFO's answer given while AFK mode was on;
+  // change_id is his board action changing the CFO's answer to his own, and
+  // replaced_answer the CFO's choice it replaced once the goblin has his.
+  answered_away: boolean; change_id: string; replaced_answer: string;
 }
 // A review item waits on the Overlord until he answers or clears it, or its
 // reporter withdraws it: an image review, a Lavish page, or a wait on him.
 export interface Review {
   id: string; identity: string; task: string; title: string; image_count: number; lavish: string;
+  // link is the web link a goblin's wait gave as the place to go, the only
+  // one its card opens.
+  link: string;
   // watched: the supervisor polls the item's Lavish page, so his answer or
   // end of the review there closes the item.
   watched: boolean;
@@ -211,6 +420,9 @@ export interface Review {
   // question is the goblin's pending question this item's page carries, and
   // window_closed_at when the page's review window last closed, if it has.
   question: string; window_closed_at: string;
+  // revising_since is when he sent a revision from the page without ending
+  // its review: the item waits on its goblin's next version, not on him.
+  revising_since: string;
   // document is a delivered file, or null for any other item.
   document: ReviewDocument | null;
   state: string; answer: string; answer_id: string; delivered: boolean; reason: string; created_at: string; updated_at: string;
@@ -229,7 +441,26 @@ export interface Run {
   // credential_request names the credential request whose card opened this
   // terminal, and credential_names the names it stores.
   credential_request: string; credential_names: string[];
+  // task is the goblin whose own command this is, empty for the CFO's;
+  // terminal is whether the item's terminal runs, which its card draws.
+  task: string; terminal: boolean;
+  // update is the release an Update Code Goblins item installs, which the
+  // board shows as its own card; null on every other item.
+  update: ReleaseOffer | null;
 }
+// A newer release of Code Goblins, as the Update item offers it: the version
+// this board runs and the one it installs, when that was published, a few
+// lines of what is new, its notes' page, whether its notes say it is signed
+// and by whom, and the SHA-256 they list for cfo.exe.
+export interface ReleaseOffer {
+  from: string; to: string; page: string; published: string; notes: string[];
+  // signing is "signed", "unsigned", or empty when the notes do not say.
+  signing: string; publisher: string; sum: string;
+}
+// The newest published release where it is newer than this board's build,
+// or any release where the board was built from a clone, which updates from
+// the clone instead.
+export interface ReleaseView { installed: string; tag: string; page: string; published: string; source: boolean }
 // A request for credential values by name: the Overlord pastes each value on
 // its card, and the board stores it in the project's credential scope. It
 // never carries a value.
@@ -291,9 +522,12 @@ export interface SetupAgent {
   recommended: boolean;
   note: string;
   installed: boolean;
-  signed_in: boolean;
+  // What the agent's own status command says, in the environment the CFO's
+  // terminal starts with; unknown is an answer it did not give.
+  sign_in: SignIn;
   reason: string;
 }
+export type SignIn = "signed_in" | "signed_out" | "unknown";
 export interface Commit {
   sha: string;
   short: string;
@@ -346,13 +580,13 @@ export function string(value: unknown): string {
   if (typeof value !== "string") throw new Error("Invalid response text");
   return value;
 }
-function number(value: unknown): number {
+export function number(value: unknown): number {
   if (value == null) return 0;
   if (typeof value !== "number" || !Number.isFinite(value))
     throw new Error("Invalid response number");
   return value;
 }
-function boolean(value: unknown): boolean {
+export function boolean(value: unknown): boolean {
   if (typeof value !== "boolean") throw new Error("Invalid response boolean");
   return value;
 }
@@ -382,6 +616,9 @@ function parseRuntime(value: unknown): RuntimeEvidence | undefined {
   const r = object(value);
   return { state: string(r.state), reason: string(r.reason), at: string(r.at) };
 }
+function parseHarnessUpdate(update: Record<string, unknown>): HarnessUpdate {
+  return { harness: string(update.harness), line: update.line === undefined ? "" : string(update.line), installed: update.installed === undefined ? "" : string(update.installed) };
+}
 function parseCredentialRequest(value: unknown): CredentialRequest {
   const c = object(value);
   const services: Record<string, string[]> = {};
@@ -400,7 +637,7 @@ function parseCredentialRequest(value: unknown): CredentialRequest {
 }
 export function parseAfkHeld(value: unknown): AfkHeld {
   const h = object(value);
-  return { item: string(h.item), task: string(h.task), what: string(h.what), at: string(h.at), waiting: h.waiting === undefined ? false : boolean(h.waiting), now: string(h.now), meanwhile: string(h.meanwhile) };
+  return { item: string(h.item), task: string(h.task), what: string(h.what), at: string(h.at), waiting: h.waiting === undefined ? false : boolean(h.waiting), now: string(h.now), meanwhile: string(h.meanwhile), recommendation: string(h.recommendation) };
 }
 // A supervisor from before AFK mode reached the board sends none, which is off.
 function parseAfk(value: unknown): Afk {
@@ -417,14 +654,15 @@ function itemLists(v: Record<string, unknown>) {
   return {
     questions: array(v.questions).map((value) => {
       const q = object(value);
-      return { id: string(q.id), identity: string(q.identity), text: string(q.text), options: strings(q.options), recommended: string(q.recommended), answer: string(q.answer), answer_kind: string(q.answer_kind), created_at: string(q.created_at), answer_id: string(q.answer_id), status: string(q.status), message: string(q.message), answered_option: string(q.answered_option), answered_by: string(q.answered_by), answered_at: string(q.answered_at), task: string(q.task), image_count: number(q.image_count), generation: string(q.generation), page: string(q.page), answered_in: string(q.answered_in) };
+      return { id: string(q.id), identity: string(q.identity), text: string(q.text), options: strings(q.options), recommended: string(q.recommended), answer: string(q.answer), answer_kind: string(q.answer_kind), created_at: string(q.created_at), answer_id: string(q.answer_id), status: string(q.status), message: string(q.message), answered_option: string(q.answered_option), answered_by: string(q.answered_by), answered_at: string(q.answered_at), task: string(q.task), image_count: number(q.image_count), generation: string(q.generation), page: string(q.page), answered_in: string(q.answered_in),
+        answered_away: q.answered_away === undefined ? false : boolean(q.answered_away), change_id: string(q.change_id), replaced_answer: string(q.replaced_answer) };
     }),
     reviews: array(v.reviews).map((value) => {
       const r = object(value);
-      return { id: string(r.id), identity: string(r.identity), task: string(r.task), title: string(r.title), image_count: number(r.image_count), lavish: string(r.lavish), watched: string(r.lavish_page) !== "",
+      return { id: string(r.id), identity: string(r.identity), task: string(r.task), title: string(r.title), image_count: number(r.image_count), lavish: string(r.lavish), link: string(r.link), watched: string(r.lavish_page) !== "",
         document: r.document === undefined || r.document === null ? null : (({ name, size, kind, link }) => ({ name: string(name), size: number(size), kind: string(kind), link: string(link) }))(object(r.document)),
         state: string(r.state), answer: string(r.answer), answer_id: string(r.answer_id), delivered: r.delivered === undefined ? false : boolean(r.delivered), reason: string(r.reason),
-        answered_by: string(r.answered_by), answered_in: string(r.answered_in), question: string(r.question), window_closed_at: string(r.window_closed_at),
+        answered_by: string(r.answered_by), answered_in: string(r.answered_in), question: string(r.question), window_closed_at: string(r.window_closed_at), revising_since: string(r.revising_since),
         created_at: string(r.created_at), updated_at: string(r.updated_at) };
     }),
     runs: array(v.runs).map((value) => {
@@ -433,7 +671,10 @@ function itemLists(v: Record<string, unknown>) {
         command: string(r.command), cwd: string(r.cwd), state: string(r.state), exit_code: r.exit_code === undefined || r.exit_code === null ? null : number(r.exit_code),
         output: string(r.output), reason: string(r.reason), created_at: string(r.created_at), expires_at: string(r.expires_at), ran_at: string(r.ran_at), finished_at: string(r.finished_at),
         connection_task: string(r.connection_task), connection_generation: string(r.connection_generation),
-        credential_request: string(r.credential_request), credential_names: strings(r.credential_names) };
+        credential_request: string(r.credential_request), credential_names: strings(r.credential_names),
+        task: string(r.task), terminal: r.terminal === undefined ? false : boolean(r.terminal),
+        update: r.update == null ? null : (({ from, to, page, published, notes, signing, publisher, sum }) => ({ from: string(from), to: string(to), page: string(page), published: string(published),
+          notes: strings(notes), signing: string(signing), publisher: string(publisher), sum: string(sum) }))(object(r.update)) };
     }),
     credentials: array(v.credentials).map(parseCredentialRequest),
     actions: array(v.actions).map(parseAction),
@@ -443,9 +684,42 @@ export function parseItems(value: unknown): Items {
   const v = object(value);
   return { instance: string(v.instance), revision: number(v.revision), ...itemLists(v) };
 }
+function parsePerson(p: Record<string, unknown>): Person {
+  return { login: string(p.login), name: string(p.name), avatar_url: string(p.avatar_url) };
+}
+function parseMergeTrain(value: unknown): MergeTrain {
+  const t = object(value);
+  return {
+    id: string(t.id), repository: string(t.repository), base: string(t.base), pr: string(t.pr), state: string(t.state), runs: number(t.runs),
+    started: string(t.started), finished: string(t.finished), note: string(t.note),
+    cars: array(t.cars).map((car) => { const c = object(car); return { number: number(c.number), url: string(c.url), title: string(c.title), task: string(c.task), goblin: string(c.goblin), goblin_title: string(c.goblin_title), state: string(c.state), note: string(c.note) }; }),
+  };
+}
+function parseComebackEntry(value: unknown): ComebackEntry {
+  const entry = object(value);
+  const state = string(entry.state);
+  return { id: string(entry.id), state: state === "waiting" || state === "back" || state === "stopped" ? state : "", reason: string(entry.reason) };
+}
+function parseDevDrive(drive: Record<string, unknown>): DevDriveView {
+  const optional = (value: unknown) => value === undefined ? "" : string(value);
+  const action = optional(drive.action);
+  return {
+    state: string(drive.state), line: string(drive.line), explain: string(drive.explain), choice: optional(drive.choice), waiting: optional(drive.waiting),
+    action: action === "set-up" || action === "try-again" || action === "attach" ? action : "",
+  };
+}
 export function parseSnapshot(value: unknown): Snapshot {
   const v = object(value);
   return {
+    subscriptions: array(v.subscriptions).flatMap((value): SubscriptionUsage[] => {
+      const usage = object(value);
+      if (usage.provider !== "claude" && usage.provider !== "codex") return [];
+      const status = usage.status === "available" || usage.status === "stale" || usage.status === "auth_required" ? usage.status : "unavailable";
+      const remaining = usage.percent_remaining;
+      const isMeasured = status === "available" && usage.source === "oauth" && typeof remaining === "number" && Number.isFinite(remaining) && remaining >= 0 && remaining <= 100;
+      return [{ provider: usage.provider, status: status === "available" && !isMeasured ? "unavailable" : status, percent_remaining: isMeasured ? remaining : null,
+        read_at: string(usage.read_at), resets_at: string(usage.resets_at), source: usage.source === "oauth" || usage.source === "api" ? usage.source : "" }];
+    }),
     afk: parseAfk(v.afk),
     instance: string(v.instance),
     revision: number(v.revision),
@@ -457,29 +731,52 @@ export function parseSnapshot(value: unknown): Snapshot {
     error: string(v.error),
     registration: v.registration === undefined ? "" : string(v.registration),
     cfo_terminal: v.cfo_terminal === undefined ? "" : string(v.cfo_terminal),
+    cfo_terminal_since: v.cfo_terminal_since === undefined ? "" : string(v.cfo_terminal_since),
     cfo_harness: v.cfo_harness === undefined ? "" : string(v.cfo_harness),
+    cfo_conversation_left: v.cfo_conversation_left === undefined ? "" : string(v.cfo_conversation_left),
+    cfo_update: v.cfo_update == null ? null : ((update) => ({ ...parseHarnessUpdate(update), pending: update.pending === undefined ? false : boolean(update.pending), updating: update.updating === undefined ? false : boolean(update.updating), problem: update.problem === undefined ? "" : string(update.problem) }))(object(v.cfo_update)),
+    ...(v.start_at_login == null ? {} : { start_at_login: ((setting) => ({ on: boolean(setting.on), unavailable: setting.unavailable === undefined ? "" : string(setting.unavailable) }))(object(v.start_at_login)) }),
+    ...(v.dev_drive == null ? {} : { dev_drive: parseDevDrive(object(v.dev_drive)) }),
+    ...(v.comeback == null ? {} : { comeback: ((c) => ({ signed_in: string(c.signed_in), ...(c.cfo == null ? {} : { cfo: parseComebackEntry(c.cfo) }), goblins: array(c.goblins).map(parseComebackEntry) }))(object(v.comeback)) }),
     build: string(v.build),
     cfo_runs: v.cfo_runs === undefined || boolean(v.cfo_runs),
     cfo_starting: v.cfo_starting === undefined ? false : boolean(v.cfo_starting),
+    cfo_quiet: v.cfo_quiet == null ? null : ((quiet) => ({ since: string(quiet.since), count: number(quiet.count), oldest_age: number(quiet.oldest_age) }))(object(v.cfo_quiet)),
+    cfo_closed: v.cfo_closed === undefined ? false : boolean(v.cfo_closed),
     inbox: number(v.inbox),
     memory: v.memory === undefined || v.memory === null ? null : (({ available, total, commit_available, commit_limit, paged_pool, nonpaged_pool, floor, next, holders }) => ({
       available: number(available), total: number(total), commit_available: number(commit_available), commit_limit: number(commit_limit),
       paged_pool: number(paged_pool), nonpaged_pool: number(nonpaged_pool), floor: number(floor), next: number(next),
       holders: array(holders).map((value) => { const h = object(value); return { name: string(h.name), commit: number(h.commit) }; }),
     }))(object(v.memory)),
+    scheduling: v.scheduling == null ? null : ((scheduled) => ({ at: string(scheduled.at), text: string(scheduled.text), waiting: array(scheduled.waiting).map((value) => { const w = object(value); return { id: string(w.id), why: string(w.why) }; }) }))(object(v.scheduling)),
+    ci_durations: array(v.ci_durations).map((value) => { const d = object(value); return { repository: string(d.repository), kind: string(d.kind), seconds: number(d.duration_seconds) }; }),
+    disk: v.disk === undefined || v.disk === null ? null : (({ drive, free, total, floor, wake }) => ({
+      drive: string(drive), free: number(free), total: number(total), floor: number(floor), wake: number(wake),
+    }))(object(v.disk)),
+    projects: array(v.projects).map((value) => { const p = object(value); return { name: string(p.name), repository: string(p.repository), contributors: array(p.contributors).map((person) => parsePerson(object(person))) }; }),
+    release: v.release == null ? null : (({ installed, tag, page, published, source }) => ({ installed: string(installed), tag: string(tag), page: string(page), published: string(published), source: boolean(source) }))(object(v.release)),
+    merge_trains: array(v.merge_trains).map(parseMergeTrain),
     retired: strings(v.retired),
     issues: strings(v.issues),
     attention: strings(v.attention),
-    activity: array(v.activity).map(value=>{const a=object(value);return {id:string(a.id),kind:string(a.kind),task_id:string(a.task_id),generation:string(a.generation),cfo_identity:string(a.cfo_identity),live:a.live===undefined?false:boolean(a.live),source:string(a.source),target:string(a.target),state:string(a.state),url:string(a.url),at:string(a.at),until:string(a.until)};}),
+    activity: array(v.activity).map(value=>{const a=object(value);return {id:string(a.id),kind:string(a.kind),task_id:string(a.task_id),generation:string(a.generation),cfo_identity:string(a.cfo_identity),live:a.live===undefined?false:boolean(a.live),source:string(a.source),target:string(a.target),state:string(a.state),url:string(a.url),at:string(a.at),until:string(a.until),watch:string(a.watch)};}),
     ...itemLists(v),
     tasks: array(v.tasks).map((value) => {
       const t = object(value);
       return {
-        lifecycle: t.lifecycle == null ? undefined : ((record) => ({ phase: string(record.phase), action: string(record.action), at: string(record.at), kept: strings(record.kept), stopped: strings(record.stopped), problems: strings(record.problems), handoff_saved: boolean(record.handoff_saved), validation_restarts: boolean(record.validation_restarts) }))(object(t.lifecycle)),
+        lifecycle: t.lifecycle == null ? undefined : ((record) => ({ phase: string(record.phase), action: string(record.action), at: string(record.at), kept: strings(record.kept), stopped: strings(record.stopped), problems: strings(record.problems), handoff_saved: boolean(record.handoff_saved), validation_restarts: boolean(record.validation_restarts),
+          ...(record.with_parent === undefined ? {} : { with_parent: boolean(record.with_parent) }),
+          ...(record.pause == null ? {} : { pause: ((pause) => ({ reason: string(pause.reason), until: string(pause.until), at: string(pause.at) }))(object(record.pause)) }) }))(object(t.lifecycle)),
         teardown: strings(t.teardown), detail: string(t.detail), queue_revision: string(t.queue_revision), notes: strings(t.notes), action_error: string(t.action_error), branch: string(t.branch),
+        pending_engine: t.pending_engine == null ? undefined : ((choice) => ({ harness: string(choice.harness), model: string(choice.model), effort: string(choice.effort), when: string(choice.when) }))(object(t.pending_engine)),
+        ...(t.harness_update == null ? {} : { harness_update: parseHarnessUpdate(object(t.harness_update)) }),
+        switching: t.switching === undefined ? false : boolean(t.switching),
         runtime: parseRuntime(t.runtime),
         id: string(t.id),
         title: string(t.title),
+        goblin_name: string(t.goblin_name),
+        goblin_title: string(t.goblin_title),
         project: string(t.project),
         harness: string(t.harness),
         backend: string(t.backend),
@@ -492,6 +789,7 @@ export function parseSnapshot(value: unknown): Snapshot {
         activity: t.activity === undefined ? "" : string(t.activity),
         handoff: t.handoff === undefined ? false : boolean(t.handoff),
         last_report: string(t.last_report),
+        reported_at: string(t.reported_at),
         retired_at: string(t.retired_at),
         report: t.report === undefined ? "" : string(t.report),
         waiting_on: t.waiting_on === undefined ? "" : string(t.waiting_on),
@@ -503,6 +801,17 @@ export function parseSnapshot(value: unknown): Snapshot {
         brief: t.brief === undefined ? false : boolean(t.brief),
         starting: t.starting === undefined ? false : boolean(t.starting),
         start_error: string(t.start_error),
+        finished: t.finished === undefined ? "" : string(t.finished),
+        priority: t.priority === undefined ? "" : string(t.priority),
+        parent: t.parent === undefined ? "" : string(t.parent),
+        ...(t.progress == null ? {} : { progress: ((progress) => ({ at: string(progress.at), source: string(progress.source) }))(object(t.progress)) }),
+        ...(t.ticket == null ? {} : { ticket: ((ticket) => ({ number: number(ticket.number), url: string(ticket.url), state: string(ticket.state) }))(object(t.ticket)) }),
+        overlaps: array(t.overlaps).map((value) => { const o = object(value); return { ...parsePerson(o), what: string(o.what), url: string(o.url) }; }),
+        ...(t.comeback == null ? {} : { comeback: parseComebackEntry(t.comeback) }),
+        ...(t.hosted_checks == null ? {} : { hosted_checks: ((c) => ({ state: string(c.state), checks: number(c.checks), failed: strings(c.failed), link: string(c.link), approved: c.approved === undefined ? false : boolean(c.approved) }))(object(t.hosted_checks)) }),
+        ...(t.tree == null ? {} : { tree: parseTree(t.tree) }),
+        ...(t.local_checks == null ? {} : { local_checks: ((c) => ({ commit: string(c.commit), level: string(c.level), required_level: string(c.required_level), status: string(c.status), duration_seconds: number(c.duration_seconds), queue_seconds: number(c.queue_seconds), failed: strings(c.failed), at: string(c.at) }))(object(t.local_checks)) }),
+        ...(t.deployment == null ? {} : { deployment: ((d) => ({ commit: string(d.commit), state: string(d.state), workflows: strings(d.workflows), link: string(d.link), at: string(d.at) }))(object(t.deployment)) }),
         phase: string(t.phase),
         reason: string(t.reason),
         head: string(t.head),
@@ -574,7 +883,9 @@ export function parseSetup(value: unknown): Setup {
     problem: string(v.problem),
     agents: array(v.agents).map((value) => {
       const agent = object(value);
-      return { id: string(agent.id), name: string(agent.name), recommended: boolean(agent.recommended), note: string(agent.note), installed: boolean(agent.installed), signed_in: boolean(agent.signed_in), reason: string(agent.reason) };
+      const signIn = string(agent.sign_in);
+      if (signIn !== "signed_in" && signIn !== "signed_out" && signIn !== "unknown") throw new Error("Invalid sign-in state");
+      return { id: string(agent.id), name: string(agent.name), recommended: boolean(agent.recommended), note: string(agent.note), installed: boolean(agent.installed), sign_in: signIn, reason: string(agent.reason) };
     }),
     cfo_runs: boolean(v.cfo_runs),
   };

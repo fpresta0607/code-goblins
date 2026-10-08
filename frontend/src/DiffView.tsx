@@ -104,7 +104,7 @@ export function DiffView({ diff, reviews, connected }: {
       {diff.code_omitted && <span className="diff-note">Changes only: the file is over 256 KiB</span>}
       {mode !== "code" && !diff.binary && <span className="selection-hint">Drag across lines, or click a line number, to comment.</span>}
     </div>
-    {diff.binary ? <div className="padded">Binary file changed. Text preview is unavailable.</div> :
+    {diff.binary ? <div className="padded">Binary file</div> :
       mode === "code" ? <CodePreview code={diff.code} path={diff.path} limit={limit} /> :
         mode === "split" ? <div className="diff-scroll" onMouseDown={dragStart}>
           <div className="split-head"><span>Before</span><span>After</span></div>

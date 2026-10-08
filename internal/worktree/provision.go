@@ -7,7 +7,6 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
-	"sort"
 	"strings"
 
 	"github.com/fpresta0607/code-goblins/internal/execx"
@@ -50,28 +49,24 @@ type ProvisionResult struct {
 	// out. Only defaults are skipped; a declared entry in that state is an
 	// error, because the operator asked for it to be shared.
 	LinkSkipped []string
-	// Installed is the dependency command that ran, empty when none ran or
-	// the run failed.
-	Installed string
-	// InstallFailed is the dependency command that exited non-zero, empty
-	// when none did. Provisioning continues past it; see installDependencies.
-	InstallFailed string
-	// InstallOutput is a bounded single-line tail of the failed command's
-	// output, so the cause reaches the operator at dispatch.
-	InstallOutput string
+	// Install is the project's install commands, in order, which the goblin
+	// runs in the worktree as its first step; empty when the project needs
+	// none. See installCommands.
+	Install []string
 }
 
-// Provision makes one freshly acquired worktree runnable as if it were the
-// project: it shares the declared (or default) config files, materializes the
-// token-authenticated subset of the project's .mcp.json, and provisions
-// dependencies per the project's strategy. Everything it places inside the
-// worktree is first registered in the clone's info/exclude when the project
-// does not already ignore it, so the goblin's git status stays clean and
-// cleanup's dirty-worktree refusal keeps meaning uncommitted goblin work.
-// hasVariable reports whether a variable will be set in the goblin's
-// environment, which decides whether a server that authenticates by
-// bearerTokenEnvVar can be handed to it.
-func (s Service) Provision(ctx context.Context, project, worktreePath, taskTmp string, caches map[string]string, hasVariable func(name string) bool) (ProvisionResult, error) {
+// Provision makes one freshly acquired worktree ready for its goblin: it
+// shares the declared (or default) config files, materializes the
+// token-authenticated subset of the project's .mcp.json, links dependencies
+// for strategy link, and names the install commands for strategy install.
+// Everything it places inside the worktree, and everything those commands
+// will, is first registered in the clone's info/exclude when the project does
+// not already ignore it, so the goblin's git status stays clean and cleanup's
+// dirty-worktree refusal keeps meaning uncommitted goblin work. hasVariable
+// reports whether a variable will be set in the goblin's environment, which
+// decides whether a server that authenticates by bearerTokenEnvVar can be
+// handed to it.
+func (s Service) Provision(ctx context.Context, project, worktreePath, taskTmp string, hasVariable func(name string) bool) (ProvisionResult, error) {
 	if s.Commands == nil {
 		return ProvisionResult{}, errors.New("worktree: command runner is required for provisioning")
 	}
@@ -115,13 +110,11 @@ func (s Service) Provision(ctx context.Context, project, worktreePath, taskTmp s
 			}
 		}
 	case StrategyInstall:
-		install, err := s.installDependencies(ctx, git, manifest, worktreePath, caches)
+		install, err := s.installCommands(ctx, git, manifest, worktreePath)
 		if err != nil {
 			return result, err
 		}
-		result.Installed = install.ran
-		result.InstallFailed = install.failed
-		result.InstallOutput = install.output
+		result.Install = install
 	}
 
 	mcp, err := s.materializeMCP(ctx, git, project, worktreePath, taskTmp, hasVariable)
@@ -190,126 +183,40 @@ func (s Service) junction(ctx context.Context, source, destination string) error
 	return nil
 }
 
-// installResult is what one dependency-install pass produced: the command
-// chain that completed, or the one that failed and why.
-type installResult struct {
-	ran    string
-	failed string
-	output string
-}
-
-// installFailureLimit bounds the failed installer's output on the spawn line.
-const installFailureLimit = 400
-
-// installDependencies runs the project's own installer in the worktree against
-// the shared per-user package cache. The installer is detected from the
-// lockfile unless the manifest overrides it; a Go-only project needs nothing
-// because the module cache is already shared per user.
+// installCommands names the project's own installer for the goblin to run in
+// the worktree as its first step, against the shared package caches its
+// terminal's environment names. The installer is detected from the lockfile
+// unless the manifest overrides it; a Go-only project needs nothing because
+// the module cache is already shared per user.
 //
-// A non-zero installer exit is reported, never fatal. A red credential refuses
-// a spawn because a goblin can never mint a credential itself, but a goblin
-// can always run an installer, and repairing a drifted lockfile may be the
-// very task it was dispatched for. Strategy install is the default and its
-// command is auto-detected from a lockfile, so no project opted into it, and
-// letting a heuristic block every dispatch into a repo is the wrong failure
-// mode; it also matches the rest of provisioning, where a missing link source
-// is skipped rather than fatal. A command that cannot be started at all stays
-// an error, because that is the runner failing rather than the project.
-func (s Service) installDependencies(ctx context.Context, git RunnerGit, manifest Manifest, worktreePath string, caches map[string]string) (installResult, error) {
-	commands := manifest.Dependencies.Install
+// Provisioning never runs it. An install writes tens of thousands of files,
+// which under on-access scanning took one spawn over 30 minutes, and a spawn
+// holds the home's spawn lock until its terminal is up, so every other start
+// and resume waited behind that one install. In the goblin's own terminal it
+// holds up nothing but that goblin, its output is on the goblin's screen, and
+// the goblin is the one that can repair a failing lockfile.
+//
+// What the commands will create is registered as ignored now, while
+// provisioning still owns the clone's info/exclude, so the goblin's git status
+// stays clean once they have run.
+func (s Service) installCommands(ctx context.Context, git RunnerGit, manifest Manifest, worktreePath string) ([]string, error) {
+	var commands []string
+	for _, command := range manifest.Dependencies.Install {
+		if strings.TrimSpace(command) != "" {
+			commands = append(commands, strings.TrimSpace(command))
+		}
+	}
 	if len(commands) == 0 {
 		if detected := detectInstallCommand(worktreePath); detected != "" {
 			commands = []string{detected}
 		}
 	}
-	if len(commands) == 0 {
-		return installResult{}, nil
-	}
 	for _, output := range installOutputs(commands) {
 		if err := s.ensureIgnored(ctx, git, worktreePath, output); err != nil {
-			return installResult{}, err
+			return nil, err
 		}
 	}
-	env := installEnv(caches, manifest.Env)
-	for _, command := range commands {
-		fields := strings.Fields(command)
-		if len(fields) == 0 {
-			continue
-		}
-		result, err := s.Commands.Run(ctx, execx.Request{Dir: worktreePath, Name: fields[0], Args: fields[1:], Env: env})
-		if err != nil {
-			return installResult{}, fmt.Errorf("worktree: install dependencies (%q): %w", command, err)
-		}
-		if result.ExitCode != 0 {
-			// The rest of the chain is abandoned: a later command in a
-			// declared sequence builds on the one that just failed.
-			return installResult{failed: command, output: installFailureTail(result)}, nil
-		}
-	}
-	return installResult{ran: strings.Join(commands, " && ")}, nil
-}
-
-// installEnv is the environment a dependency install runs in: the CFO's own
-// environment, then the shared package caches, then the project's own env
-// block, which wins - the precedence the pane already uses.
-//
-// The install is both the largest consumer of the shared cache and the thing
-// that fills it, so running it against the operator's own caches would leave
-// the redirects doing nothing for the case they exist for. It also costs more
-// than a missed download: pnpm records the store it installed from, so a pane
-// pointed at a different one tears node_modules down and reinstalls on the
-// goblin's first command.
-//
-// A nil result leaves execx inheriting the CFO's environment unchanged, which
-// is what a project with neither caches nor an env block should get.
-func installEnv(caches, projectEnv map[string]string) []string {
-	if len(caches) == 0 && len(projectEnv) == 0 {
-		return nil
-	}
-	merged := map[string]string{}
-	for _, entry := range os.Environ() {
-		// A Windows per-drive pseudo-variable is named "=C:", so the
-		// separator is looked for past the first byte the way os/exec does.
-		// Splitting on the first '=' would give every one of them the empty
-		// name and let them overwrite each other.
-		if entry == "" {
-			continue
-		}
-		separator := strings.Index(entry[1:], "=")
-		if separator < 0 {
-			continue
-		}
-		merged[entry[:separator+1]] = entry[separator+2:]
-	}
-	for _, overrides := range []map[string]string{caches, projectEnv} {
-		for name, value := range overrides {
-			// Windows matches environment names without case, so an override
-			// has to displace the entry it means rather than sit beside it
-			// and leave the child a name defined twice.
-			for existing := range merged {
-				if existing != name && strings.EqualFold(existing, name) {
-					delete(merged, existing)
-				}
-			}
-			merged[name] = value
-		}
-	}
-	env := make([]string, 0, len(merged))
-	for name, value := range merged {
-		env = append(env, name+"="+value)
-	}
-	sort.Strings(env)
-	return env
-}
-
-// installFailureTail flattens a failed installer's output to one bounded line
-// ending where the error is, so a broken lockfile cannot flood the spawn line.
-func installFailureTail(result execx.Result) string {
-	output := strings.Join(strings.Fields(string(combinedOutput(result))), " ")
-	if len(output) > installFailureLimit {
-		output = "..." + output[len(output)-installFailureLimit:]
-	}
-	return output
+	return commands, nil
 }
 
 // detectInstallCommand maps a lockfile to the install command that honors it.
@@ -321,9 +228,9 @@ func installFailureTail(result execx.Result) string {
 // the lockfile without checking it, hiding drift, while --locked asserts the
 // lockfile is up to date and exits non-zero when it is not. That is the exact
 // analogue of pnpm --frozen-lockfile and npm ci, so all four detected
-// installers now fail on drift instead of resolving it. A failed install is
-// reported on the spawn output and never tears down the dispatch, so drift
-// reaches the CFO as a named failure rather than a silently rewritten uv.lock.
+// installers now fail on drift instead of resolving it. The goblin runs the
+// command, so drift reaches it as a named failure on its own screen rather
+// than as a silently rewritten uv.lock.
 func detectInstallCommand(worktreePath string) string {
 	for _, candidate := range []struct{ lockfile, command string }{
 		{"pnpm-lock.yaml", "pnpm install --frozen-lockfile"},

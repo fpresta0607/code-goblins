@@ -1,7 +1,10 @@
 import { expect, test } from "./site";
 import snapshot from "./fixtures/queued-snapshot.json" with { type: "json" };
 
-test("paused, resumed, stopped and restarted cards show Windows teardown at a readable size", async ({ page }) => {
+// The Overlord, 2026-10-08: "everything error wise goes to cfo". A card says
+// nothing of Windows still closing a goblin's programs; its panel names them
+// behind Details.
+test("paused, resumed, stopped and restarted cards leave Windows teardown to the panel's Details", async ({ page }) => {
   const tasks = [...["paused", "working", "stopped"].map((phase) => ({
     id: phase === "stopped" ? "finished:teardown-stop" : `teardown-${phase}`,
     title: `${phase} teardown fixture`, project: "fixture", phase,
@@ -20,14 +23,23 @@ test("paused, resumed, stopped and restarted cards show Windows teardown at a re
   await expect(page.getByRole("region", { name: "Paused", exact: true })).not.toContainText("released");
   for (const phase of ["paused", "working", "stopped", "restarted"]) {
     const card = page.locator(".task-card").filter({ hasText: `${phase} teardown fixture` });
-    const notice = card.getByText("Finishing Windows teardown: chrome.exe pid 42", { exact: true });
-    await expect(notice).toBeVisible();
-    expect(await notice.evaluate((element) => parseFloat(getComputedStyle(element).fontSize))).toBeGreaterThanOrEqual(16);
+    await expect(card).toBeVisible();
+    await expect(card.getByText(/Windows is still closing/)).toHaveCount(0);
     await card.click();
+    await page.locator(".panel-pill").getByRole("button", { name: "Task", exact: true }).click();
     const details = page.locator(".lifecycle-panel");
-    await expect(details.getByText("Finishing Windows teardown: chrome.exe pid 42", { exact: true })).toBeVisible();
+    // The panel names the process behind Details. Working has no line under
+    // it (the Overlord, 2026-10-05), so there the sentence is the first thing
+    // behind Details; a paused goblin's line says only what resumes it.
+    const header = page.locator(".panel-header");
+    const isWorking = phase === "working" || phase === "restarted";
+    if (phase === "paused") await expect(header.locator(".panel-activity")).toHaveText("It stays paused until you resume it.");
+    else await expect(header.locator(".panel-activity")).toHaveCount(0);
+    await header.locator(".raw-details > summary").click();
+    await expect(header.locator(".raw-details-text")).toContainText(isWorking ? "Windows is still closing chrome.exe." : "chrome.exe pid 42");
+    await expect(header.locator(".raw-details-text")).toContainText("chrome.exe pid 42");
     if (phase === "working") {
-      await expect(details.locator(".plain-status")).toContainText("Resumed");
+      await expect(header.locator(".panel-status")).toHaveText("Working");
     }
     if (phase === "paused") {
       await expect(page.getByRole("button", { name: "Resume paused teardown fixture", exact: true }).first()).toBeEnabled();

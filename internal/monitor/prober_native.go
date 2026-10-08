@@ -47,9 +47,14 @@ func (p NativeProber) Inspect(ctx context.Context, meta state.TaskMeta) (Endpoin
 		return unknown(fmt.Sprintf("native task %s runs %s, whose screen the monitor cannot read", meta.ID, meta.Harness)), nil
 	}
 	// A native terminal ends with its harness, and a reboot or sign-out
-	// ends every one; switch restarts the harness in place with its own
-	// resume.
-	resume := fmt.Sprintf("cfo switch %s restarts its harness in place, resuming its session", meta.ID)
+	// ends every one; goblins resume brings them all back in place on their
+	// own resume, and switch one alone.
+	resume := fmt.Sprintf("goblins resume brings it back in place, resuming its session, as cfo switch %s --harness %s does for it alone", meta.ID, meta.Harness)
+	// One the supervisor's comeback after a restart holds comes back by
+	// itself, so nothing is to be done for it.
+	if comeback, err := state.ReadComeback(p.StateDir); err == nil && comeback.Waiting(meta.ID, meta.SpawnGen) {
+		resume = "the machine restarted, and the supervisor brings it back by itself, one goblin at a time as memory allows; nothing is to be done unless its card says it did not come back"
+	}
 	record, err := host.ReadRecord(p.StateDir, meta.ID)
 	if errors.Is(err, fs.ErrNotExist) {
 		return EndpointSample{Verdict: ProbeMissing, Detail: fmt.Sprintf("native terminal %s has no running host; %s", meta.ID, resume)}, nil
@@ -61,9 +66,9 @@ func (p NativeProber) Inspect(ctx context.Context, meta state.TaskMeta) (Endpoin
 	if read == nil {
 		read = host.ReadScreen
 	}
-	// A read attaches a process of its own to the terminal's console, and
-	// one can fail while the terminal is alive and working, so a failed read
-	// is read again before anything is concluded from it.
+	// A read can fail while the terminal is alive and working, as one that
+	// times out on a loaded machine does, so a failed read is read again
+	// before anything is concluded from it.
 	screen, err := read(record)
 	for attempt := 1; err != nil && attempt < screenReads; attempt++ {
 		select {

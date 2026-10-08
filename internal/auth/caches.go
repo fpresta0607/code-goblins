@@ -6,12 +6,11 @@ import (
 	"sort"
 )
 
-// CacheDirName is the shared package-cache root under the CFO home. One root
-// with a subdirectory per ecosystem, because these locations are a property of
-// the machine rather than of any project: a per-project manifest would have to
+// The shared package caches live in one folder, the home's Caches(), with a
+// subdirectory per ecosystem, because these locations are a property of the
+// machine rather than of any project: a per-project manifest would have to
 // repeat the same absolute path in every project that uses the ecosystem, and
 // the first one to disagree would fragment the store it exists to share.
-const CacheDirName = "caches"
 
 // cacheVars are the environment redirects a goblin's pane inherits, in the
 // shape PLAYWRIGHT_BROWSERS_PATH established: a pure redirect to a large
@@ -36,28 +35,31 @@ var cacheVars = []struct {
 	{name: "npm_config_store_dir", dir: "pnpm"},
 	{name: "PLAYWRIGHT_BROWSERS_PATH", dir: "playwright"},
 	{name: "GOMODCACHE", dir: "go-mod"},
+	// Go's build cache and npm's cache are the two largest a goblin fills;
+	// in the home they are under the caches cap the janitor keeps.
+	{name: "GOCACHE", dir: "go-build"},
+	{name: "npm_config_cache", dir: "npm"},
 }
 
-// CacheEnv returns the shared cache redirects for a CFO home. A variable the
-// CFO's own environment already sets is left alone and reported as inherited:
-// an operator who has already pointed an ecosystem at a tuned location has
-// made the decision this function exists to make, and overriding it would
-// strand whatever is already warm there.
+// CacheEnv returns the shared cache redirects under caches, the home's
+// Caches(). A variable the CFO's own environment already sets is left alone
+// and reported as inherited: an operator who has already pointed an ecosystem
+// at a tuned location has made the decision this function exists to make, and
+// overriding it would strand whatever is already warm there.
 //
 // Nothing is created here. Every one of these tools creates its cache root on
 // first write, so a directory made in advance would only be an empty one on
 // every machine that never runs that ecosystem.
-func CacheEnv(home string) map[string]string {
-	if home == "" {
+func CacheEnv(caches string) map[string]string {
+	if caches == "" {
 		return nil
 	}
-	root := filepath.Join(home, CacheDirName)
 	env := map[string]string{}
 	for _, cache := range cacheVars {
 		if existing, set := os.LookupEnv(cache.name); set && existing != "" {
 			continue
 		}
-		env[cache.name] = filepath.Join(root, cache.dir)
+		env[cache.name] = filepath.Join(caches, cache.dir)
 	}
 	return env
 }
@@ -103,11 +105,11 @@ const (
 // It is deliberately not what the launch path uses. CacheEnv still decides
 // what a pane inherits from the CFO, so nothing here can hand a pane back a
 // location the CFO never set.
-func CacheAudit(home string, projectEnv map[string]string) []CacheRedirect {
-	if home == "" {
+func CacheAudit(caches string, projectEnv map[string]string) []CacheRedirect {
+	if caches == "" {
 		return nil
 	}
-	set := CacheEnv(home)
+	set := CacheEnv(caches)
 	audit := make([]CacheRedirect, 0, len(cacheVars))
 	for _, cache := range cacheVars {
 		if declared := projectEnv[cache.name]; declared != "" {

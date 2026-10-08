@@ -7,10 +7,12 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"path/filepath"
 	"slices"
 	"strings"
 	"testing"
 
+	"github.com/fpresta0607/code-goblins/internal/execx"
 	"github.com/fpresta0607/code-goblins/internal/home"
 	"github.com/fpresta0607/code-goblins/internal/onboarding"
 	"github.com/fpresta0607/code-goblins/internal/supervisor"
@@ -32,7 +34,7 @@ func TestGoblinsEndsOnOneScreenWithTheCFOsTerminalAsItsDefault(t *testing.T) {
 	}
 
 	// Act
-	exit, _, stderr := f.launch("--native")
+	exit, _, stderr := f.launch()
 
 	// Assert
 	if exit != 0 || len(f.screens) != 1 {
@@ -63,7 +65,7 @@ func TestGoblinsSaysWhatItAnsweredForANewCFOBeforeTheFinalScreen(t *testing.T) {
 	}
 
 	// Act
-	exit, _, stderr := f.launch("--native")
+	exit, _, stderr := f.launch()
 
 	// Assert
 	if exit != 0 || !strings.Contains(said, "Answered the workspace trust dialog in the CFO's terminal: Yes, I trust this folder.\n") {
@@ -103,7 +105,7 @@ func TestGoblinsAcceptsNothingWhenTheFinalScreenHasNoAnswer(t *testing.T) {
 	}
 
 	// Act
-	exit, _, stderr := f.launch("--native")
+	exit, _, stderr := f.launch()
 
 	// Assert
 	if exit != 1 || !strings.Contains(stderr, "run goblins in a terminal window") {
@@ -129,8 +131,8 @@ func TestGoblinsStartsNoCFOWhenTheAgentStepsEndOnNoAgent(t *testing.T) {
 	if exit != 1 || !strings.Contains(stderr, "setup was cancelled") {
 		t.Fatalf("exit=%d stderr=%q, want the cancelled setup reported", exit, stderr)
 	}
-	if len(f.cfoStarts)+len(f.nativeStarts) != 0 || len(f.screens) != 0 || len(f.opened) != 0 {
-		t.Errorf("cfoStarts=%q nativeStarts=%q screens=%+v opened=%q, want no CFO started and nothing shown or opened", f.cfoStarts, f.nativeStarts, f.screens, f.opened)
+	if len(f.nativeStarts) != 0 || len(f.screens) != 0 || len(f.opened) != 0 {
+		t.Errorf("nativeStarts=%q screens=%+v opened=%q, want no CFO started and nothing shown or opened", f.nativeStarts, f.screens, f.opened)
 	}
 	if !strings.Contains(stdout, "  board   ") {
 		t.Errorf("stdout = %q, want the board's link printed before the agent steps", stdout)
@@ -259,28 +261,8 @@ func TestCancelledAgentStepsLeaveTheRememberedAgentAlone(t *testing.T) {
 	}
 }
 
-// A CFO started in Herdr, which only a Claude Code one is, has nothing
-// watching its startup dialogs, so goblins says what to choose there: Claude
-// Code's trust dialog focuses No, which exits.
-func TestGoblinsSaysWhatToChooseAtTheDialogOfACFOStartedInHerdr(t *testing.T) {
-	// Arrange
-	f := newSessionFixture(t)
-	f.agent = "claude"
-
-	// Act
-	exit, stdout, stderr := f.launch()
-
-	// Assert
-	if exit != 0 || !slices.Equal(f.cfoStarts, []string{f.home.Root}) {
-		t.Fatalf("exit=%d cfoStarts=%q stderr=%q, want the CFO started in Herdr", exit, f.cfoStarts, stderr)
-	}
-	if want := "If Claude Code asks whether you trust this folder, its first choice, No, exits: move to Yes, I trust this folder, then press Enter.\n"; !strings.Contains(stdout, want) {
-		t.Errorf("stdout = %q, want the guidance %q", stdout, want)
-	}
-}
-
-// A Codex or pi CFO starts in a native terminal whether or not --native is
-// given: the supervisor wakes it by typing, which it can do only there.
+// A Codex or pi CFO starts in a native terminal, where the supervisor wakes
+// it by typing, and says so.
 func TestACFOWokenByTypingStartsInANativeTerminal(t *testing.T) {
 	for _, agent := range []string{"codex", "pi"} {
 		t.Run(agent, func(t *testing.T) {
@@ -292,8 +274,8 @@ func TestACFOWokenByTypingStartsInANativeTerminal(t *testing.T) {
 			exit, stdout, stderr := f.launch()
 
 			// Assert
-			if exit != 0 || len(f.cfoStarts) != 0 || !slices.Equal(f.nativeStarts, []string{f.home.Root}) || !slices.Equal(f.harnesses, []string{agent}) {
-				t.Fatalf("exit=%d cfoStarts=%q nativeStarts=%q harnesses=%q stderr=%q, want one native start of %s in the home", exit, f.cfoStarts, f.nativeStarts, f.harnesses, stderr, agent)
+			if exit != 0 || !slices.Equal(f.nativeStarts, []string{f.home.Root}) || !slices.Equal(f.harnesses, []string{agent}) {
+				t.Fatalf("exit=%d nativeStarts=%q harnesses=%q stderr=%q, want one native start of %s in the home", exit, f.nativeStarts, f.harnesses, stderr, agent)
 			}
 			if !strings.Contains(stdout, "is woken by one line typed into this terminal while it sits idle at an empty prompt, once its first prompt has run cfo register.") {
 				t.Errorf("stdout = %q, want it to say how the CFO is woken", stdout)
@@ -330,11 +312,11 @@ func TestGoblinsSaysWhatAlreadyRunsAndStartsNothingBesideIt(t *testing.T) {
 			}
 
 			// Act
-			exit, stdout, stderr := f.launch("--native")
+			exit, stdout, stderr := f.launch()
 
 			// Assert
-			if exit != 0 || f.starts != 0 || len(f.nativeStarts) != c.starts || len(f.cfoStarts) != 0 {
-				t.Fatalf("exit=%d supervisor starts=%d nativeStarts=%q cfoStarts=%q stderr=%q, want no supervisor started and %d CFO", exit, f.starts, f.nativeStarts, f.cfoStarts, stderr, c.starts)
+			if exit != 0 || f.starts != 0 || len(f.nativeStarts) != c.starts {
+				t.Fatalf("exit=%d supervisor starts=%d nativeStarts=%q stderr=%q, want no supervisor started and %d CFO", exit, f.starts, f.nativeStarts, stderr, c.starts)
 			}
 			if !strings.HasSuffix(stdout, want) {
 				t.Errorf("stdout ends\n%q\nwant\n%q", stdout, want)
@@ -378,7 +360,7 @@ func TestEscapeOnTheFinalScreenLeavesTheCFOAndTheBoardRunning(t *testing.T) {
 	}
 
 	// Act
-	exit, stdout, stderr := f.launch("--native")
+	exit, stdout, stderr := f.launch()
 
 	// Assert
 	if exit != 0 || stderr != "" || !strings.HasSuffix(stdout, "\nThe CFO and the board keep running; run goblins to see them again.\n") {
@@ -402,5 +384,53 @@ func TestGoblinsReportsEscapeAtTheChoiceAsACancel(t *testing.T) {
 	// Assert
 	if exit != 1 || stderr != "goblins: setup was cancelled; run goblins to continue\n" {
 		t.Errorf("exit=%d stderr=%q, want the cancel reported in the quick start's words", exit, stderr)
+	}
+}
+
+// statusRunner records every status command run and answers none of them.
+type statusRunner struct{ requests []execx.Request }
+
+func (r *statusRunner) Run(_ context.Context, request execx.Request) (execx.Result, error) {
+	r.requests = append(r.requests, request)
+	return execx.Result{}, nil
+}
+
+// The first-run page asks an agent whether it is signed in as the CFO's
+// terminal will start it: its status command runs with that terminal's
+// environment, and pi's settings and Claude Code's native build are looked
+// for in the home that environment names, never this process's own. Found
+// 2026-10-06 in a scratch profile, where the two homes differ.
+func TestAgentDetectorAsksInTheEnvironmentItIsGiven(t *testing.T) {
+	userHome := t.TempDir()
+	for _, c := range []struct {
+		name, piDirectory string
+		wantPi            string
+	}{
+		{"pi's folder in the home", "", filepath.Join(userHome, ".pi", "agent")},
+		{"pi's folder the environment names", `D:\pi-agent`, `D:\pi-agent`},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			// Arrange
+			env := []string{"USERPROFILE=" + userHome, "CFO_HOME=" + filepath.Join(userHome, "CodeGoblins")}
+			if c.piDirectory != "" {
+				env = append(env, "PI_CODING_AGENT_DIR="+c.piDirectory)
+			}
+			runner := &statusRunner{}
+			detector := agentDetector(env, runner)
+
+			// Act
+			_, err := detector.Probe(t.Context(), "cmd", "/c", "exit")
+
+			// Assert
+			if err != nil {
+				t.Fatal(err)
+			}
+			if len(runner.requests) != 1 || !slices.Equal(runner.requests[0].Env, env) {
+				t.Fatalf("status commands = %+v, want one run with the environment %q", runner.requests, env)
+			}
+			if wantClaude := filepath.Join(userHome, ".local", "bin"); detector.PiDirectory != c.wantPi || detector.ClaudeDirectory != wantClaude {
+				t.Fatalf("pi's folder %q and Claude Code's %q, want %q and %q", detector.PiDirectory, detector.ClaudeDirectory, c.wantPi, wantClaude)
+			}
+		})
 	}
 }

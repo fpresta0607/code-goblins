@@ -64,7 +64,12 @@ func (r commandRuntime) afkLog() func(home.Home, afk.Entry) error {
 // --match-head-commit holds only the head: a commit that lands on the base
 // between the two is not seen. The evidence says which tip was read, so the
 // log shows what CI is known to have tested.
-func afkMergeEvidence(ctx context.Context, pullRequest, verified string, proof prProof, commands execx.Runner) (string, error) {
+//
+// A base that requires a merge queue tests the merge itself: the queue runs
+// CI on the base's tip with the pull requests ahead of it and merges only if
+// that passes, so the head need not hold the tip, and the evidence says the
+// queue decides.
+func afkMergeEvidence(ctx context.Context, pullRequest, verified string, proof prProof, queue mergeQueue, commands execx.Runner) (string, error) {
 	repository, err := pullRequestRepository(pullRequest)
 	if err != nil {
 		return "", err
@@ -85,6 +90,14 @@ func afkMergeEvidence(ctx context.Context, pullRequest, verified string, proof p
 	if proof.BaseRefName == "" {
 		return "", errors.New("GitHub did not say which branch this pull request merges into")
 	}
+	checks := "checks"
+	if proof.Checks == 1 {
+		checks = "check"
+	}
+	if queue.IsRequired {
+		return fmt.Sprintf("verified: %s; head %s; %d %s completed green; mergeable; by %s, the account gh is signed in as; %s requires its merge queue, which tests this head merged on %s's tip with the pull requests ahead of it and merges it only if that passes",
+			verified, proof.HeadRefOID, proof.Checks, checks, proof.Author, proof.BaseRefName, proof.BaseRefName), nil
+	}
 	compared, err := ghText(ctx, commands, "api", "repos/"+repository+"/compare/"+proof.BaseRefName+"..."+proof.HeadRefOID, "--jq", "{behind_by, base: .base_commit.sha}")
 	if err != nil {
 		return "", fmt.Errorf("GitHub did not compare the head with %s: %w", proof.BaseRefName, err)
@@ -98,10 +111,6 @@ func afkMergeEvidence(ctx context.Context, pullRequest, verified string, proof p
 	}
 	if *comparison.BehindBy > 0 {
 		return "", fmt.Errorf("the head is %d commit(s) behind %s, so CI on it did not test %s as it is now: have its goblin merge %s in and let CI run on that head", *comparison.BehindBy, proof.BaseRefName, proof.BaseRefName, proof.BaseRefName)
-	}
-	checks := "checks"
-	if proof.Checks == 1 {
-		checks = "check"
 	}
 	return fmt.Sprintf("verified: %s; head %s; %d %s completed green; mergeable; by %s, the account gh is signed in as; %s's tip %s was in the head when this was read, so the merge ref's first parent was that tip and CI on this head tested the merge of it",
 		verified, proof.HeadRefOID, proof.Checks, checks, proof.Author, proof.BaseRefName, comparison.Base), nil

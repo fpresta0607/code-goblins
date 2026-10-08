@@ -1,4 +1,4 @@
-import { array, object, parseAfkHeld, string, strings, type Afk, type AfkHeld } from "./types.ts";
+import { array, boolean, number, object, parseAfkHeld, string, strings, type Afk, type AfkHeld } from "./types.ts";
 import { pullRequestLabel } from "./workflow.ts";
 
 // AFK mode on the board: what the supervisor reports of the Overlord's switch,
@@ -17,13 +17,30 @@ export interface AfkSection {
 export interface AfkFinish {
   task: string; pr: string; at: string;
 }
+// AfkAllowance is one allowance under the report's Spent: a window's percent
+// used when AFK mode turned on and when it turned off, null for a reading not
+// taken, with reset when the window reset in between, or for credits what was
+// spent of them in unit.
+export interface AfkAllowance {
+  provider: string; window: string; on: number | null; off: number | null; reset: boolean; credits: boolean; spent: number; unit: string;
+}
 // AfkReport is the report of a stretch of AFK mode: what the CFO decided, what
 // each goblin finished, what is held for the Overlord and what was spent.
 // asked and ended_asked hold his words when the CFO made that switch at his
 // ask, and are empty when he made it himself.
 export interface AfkReport {
   session: string; since: string; ended: string; lasted: string; from: string; asked: string; ended_from: string; ended_asked: string;
-  sections: AfkSection[]; finished: AfkFinish[]; held: AfkHeld[]; spent: string[]; notes: string[];
+  sections: AfkSection[]; finished: AfkFinish[]; held: AfkHeld[]; spent: AfkAllowance[]; notes: string[];
+}
+
+const percent = (value: unknown): number | null => value == null ? null : number(value);
+
+function parseAfkAllowance(value: unknown): AfkAllowance {
+  const a = object(value);
+  return {
+    provider: string(a.provider), window: string(a.window), on: percent(a.on), off: percent(a.off),
+    reset: a.reset == null ? false : boolean(a.reset), credits: a.credits == null ? false : boolean(a.credits), spent: number(a.spent), unit: string(a.unit),
+  };
 }
 
 // parseAfkReport reads the supervisor's answer to GET /api/afk/report, which
@@ -45,9 +62,25 @@ export function parseAfkReport(value: unknown): AfkReport | null {
     }),
     finished: array(v.finished).map((value) => { const f = object(value); return { task: string(f.task), pr: string(f.pr), at: string(f.at) }; }),
     held: array(v.held).map(parseAfkHeld),
-    spent: strings(v.spent),
+    spent: array(v.spent).map(parseAfkAllowance),
     notes: strings(v.notes),
   };
+}
+
+const shown = (value: number): string => String(Math.round(value * 10) / 10);
+
+// allowanceSays is one allowance under Spent as the report shows it: its name,
+// its percent at either end or the credits spent, and the words a screen
+// reader says for its graph.
+export function allowanceSays(allowance: AfkAllowance): { name: string; value: string; label: string } {
+  const name = allowance.provider.charAt(0).toUpperCase() + allowance.provider.slice(1) + " " + allowance.window;
+  if (allowance.credits) return { name, value: shown(allowance.spent) + " spent", label: name + " " + shown(allowance.spent) + " " + allowance.unit + " spent" };
+  const { on, off } = allowance;
+  if (on !== null && off !== null) {
+    return { name, value: shown(on) + "% → " + shown(off) + "%", label: name + " " + shown(on) + "% used at AFK on and " + shown(off) + "% at AFK off" + (allowance.reset ? " after it reset" : "") };
+  }
+  const [read, at] = on !== null ? [on, "on"] : [off ?? 0, "off"];
+  return { name, value: shown(read) + "%", label: name + " " + shown(read) + "% used at AFK " + at };
 }
 
 // afkTime is a time as the board says it: the time of day, with the day in
@@ -61,10 +94,13 @@ export function afkTime(at: string, now: number, zone?: string, locale?: string)
   return day(date) === day(new Date(now)) ? time : date.toLocaleDateString(locale, { month: "short", day: "numeric", timeZone: zone }) + ", " + time;
 }
 
-// stillWaiting are the held items that still wait on the Overlord, and
-// stillHeld those of the stretch that is on.
+// stillWaiting are the held items that still wait on the Overlord.
 export const stillWaiting = (held: AfkHeld[]): AfkHeld[] => held.filter((one) => one.waiting);
-export const stillHeld = (afk: Afk): AfkHeld[] => stillWaiting(afk.held);
+
+// ReportAction is the report's main button: the Command Center while anything
+// it held still waits on him, and the board otherwise.
+export type ReportAction = "command" | "board";
+export const reportAction = (held: AfkHeld[]): ReportAction => stillWaiting(held).length > 0 ? "command" : "board";
 
 // AFK_OFF is the switch as a board with no snapshot yet knows it: off.
 export const AFK_OFF: Afk = { state: "off", since: "", from: "", asked: "", decided: 0, held: [], report: "" };
@@ -86,19 +122,16 @@ export function switchedBy(from: string, asked: string): string {
 }
 
 // afkLine is what the CFO's bar says while AFK mode is on: since when, who
-// turned it on and from where, how much the CFO decided and how much still
-// waits on him. His words are left to the offer and the report, which have
-// the room for them. It is empty while AFK mode is not on.
+// turned it on and from where, and how much the CFO decided. Nothing is held
+// for him while it is on, so it counts nothing held. His words are left to the
+// offer and the report, which have the room for them. It is empty while AFK
+// mode is not on.
 export function afkLine(afk: Afk, now: number, zone?: string, locale?: string): string {
   if (afk.state !== "on") return "";
   const who = afk.asked ? "turned on " + AT_YOUR_ASK : switchedBy(afk.from, "");
-  return "AFK since " + afkTime(afk.since, now, zone, locale) + (who ? ", " + who : "") + ". " + afk.decided + " decided, " + stillHeld(afk).length + " held for you.";
+  return "AFK since " + afkTime(afk.since, now, zone, locale) + (who ? ", " + who : "") + ". " + afk.decided + " decided.";
 }
 
-// UNREADABLE is what the CFO panel's header says under its toggle while the
-// switch cannot be read. Such a switch is never taken for on, so the board
-// prompts him as usual, and his press on the toggle puts it back to off.
-export const UNREADABLE = "AFK's switch cannot be read, so nothing is decided for you. Press the toggle to reset it.";
 
 // heldWho names whose a held item is: the goblin's, or the CFO's own.
 export const heldWho = (held: AfkHeld): string => held.task || "CFO";
@@ -109,20 +142,38 @@ export function heldSays(held: AfkHeld): string {
   return [sentence(held.now), held.meanwhile ? sentence("Meanwhile: " + held.meanwhile) : ""].filter(Boolean).join(" ");
 }
 
+// heldRecommends says what was recommended for a held item and by whom: the
+// CFO for its own item, or the goblin whose question it is. It is in the
+// present while the item still waits on him, in the past once it does not,
+// and empty when nothing was recommended.
+export function heldRecommends(held: AfkHeld): string {
+  if (!held.recommendation) return "";
+  return (held.task || "The CFO") + (held.waiting ? " recommends: " : " recommended: ") + held.recommendation.replace(/\.$/, "") + ".";
+}
+
 // AWAY_MS is how long the board sees no click or key before it takes the next
 // one for the Overlord coming back.
 export const AWAY_MS = 5 * 60 * 1000;
 
-// offersOff says whether a click or key at now is the Overlord coming back,
-// which is when the board offers to turn AFK mode off: AFK mode is on, and
-// nothing was clicked or typed on this page for AWAY_MS, counted from when it
-// turned on or from his last click or key (lastTouch, zero for none), the
-// later of the two. So the clicks he makes right after turning it on offer
-// nothing, and the first one after he has been gone does.
-export function offersOff(afk: Afk, lastTouch: number, now: number): boolean {
-  if (afk.state !== "on") return false;
-  const since = Date.parse(afk.since);
-  return now - Math.max(Number.isNaN(since) ? 0 : since, lastTouch) >= AWAY_MS;
+// Occasion is why a click or key brings the offer to turn AFK mode off:
+// "back" when he is back after the board saw none for a while, "asked" when it
+// is his first since the CFO turned it on at his ask, and "" when it brings
+// nothing.
+export type Occasion = "" | "back" | "asked";
+
+// offerFor is what a click or key at now is to the offer. While AFK mode is
+// on it is "back" when nothing was clicked or typed on this page for AWAY_MS,
+// counted from when it turned on or from his last click or key (lastTouch,
+// zero for none), the later of the two, and "asked" when the CFO turned it on
+// at his ask and this is his first click or key since, so a switch made on
+// his words meets him at once. The clicks he makes right after turning it on
+// himself bring nothing, and the first one after he has been gone does.
+export function offerFor(afk: Afk, lastTouch: number, now: number): Occasion {
+  if (afk.state !== "on") return "";
+  const parsed = Date.parse(afk.since);
+  const since = Number.isNaN(parsed) ? 0 : parsed;
+  if (now - Math.max(since, lastTouch) >= AWAY_MS) return "back";
+  return afk.asked && lastTouch < since ? "asked" : "";
 }
 
 // safeLink is url when it is a web link the board may open, and empty for

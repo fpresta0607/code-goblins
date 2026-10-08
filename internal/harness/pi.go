@@ -111,7 +111,7 @@ func parsePiHelp(help string) piCapabilities {
 		return capabilities
 	}
 	lower := strings.ToLower(thinkingLine)
-	for _, effort := range []string{"low", "medium", "high", "xhigh", "max"} {
+	for _, effort := range Efforts(Pi) {
 		capabilities.efforts[effort] = containsToken(lower, effort)
 	}
 	return capabilities

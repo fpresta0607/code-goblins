@@ -90,6 +90,69 @@ func TestBuildRequiresFullWhenThePolicyCannotBeRead(t *testing.T) {
 	}
 }
 
+// A changed file a classifying policy does not account for makes the change
+// require the full level, and the plan names the file: unknown means broader,
+// never narrower.
+func TestBuildRequiresFullWhenAChangedFileIsUnknownToThePolicy(t *testing.T) {
+	for name, test := range map[string]struct {
+		changed []string
+		why     string
+		unknown []string
+	}{
+		"one file": {
+			changed: []string{"a/a.go", "tools/sign.ps1", "README.md"},
+			why:     "tools/sign.ps1 is in no package, under no contract and not listed as outside the Go checks",
+			unknown: []string{"tools/sign.ps1"},
+		},
+		"several files": {
+			changed: []string{"tools/sign.ps1", "tools/pack.ps1", "Makefile"},
+			why:     "Makefile and 2 more files are in no package, under no contract and not listed as outside the Go checks",
+			unknown: []string{"Makefile", "tools/pack.ps1", "tools/sign.ps1"},
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			// Arrange
+			found := branch(test.changed...)
+			found.policy, found.hasPolicy = `{"version": 1, "contracts": [], "outside": [{"paths": ["README.md"], "why": "documentation no Go check reads"}]}`, true
+
+			// Act
+			plan := build(found, "")
+
+			// Assert
+			if plan.Level != Full || plan.Required != Full || plan.Why != test.why || !slices.Equal(plan.Tests, []string{"./..."}) || !slices.Equal(plan.Unknown, test.unknown) {
+				t.Errorf("build = level %s, required %s (%s), tests %q, unknown %q;\nwant full for both because %s, testing ./..., unknown %q", plan.Level, plan.Required, plan.Why, plan.Tests, plan.Unknown, test.why, test.unknown)
+			}
+		})
+	}
+}
+
+// Under a classifying policy the plan selects the packages a contract names,
+// tests them at the fast level too unless they are slow, as it does a changed
+// package, and carries what is outside the Go checks with why. With nothing
+// unknown the change requires the affected level.
+func TestBuildSelectsByContractAndCarriesWhatIsOutside(t *testing.T) {
+	// Arrange
+	found := branch("install.ps1", "pack.ps1", "README.md")
+	found.policy, found.hasPolicy = `{"version": 1, "slow_packages": ["b"], "contracts": [{"paths": ["install.ps1"], "packages": ["c"], "why": "its tests run the script"}, {"paths": ["pack.ps1"], "packages": ["b"], "why": "its tests run the packer"}], "outside": [{"paths": ["README.md"], "why": "documentation no Go check reads"}]}`, true
+
+	// Act
+	required := build(found, "")
+	fast := build(found, Fast)
+
+	// Assert
+	both := []string{"example.com/repo/b", "example.com/repo/c"}
+	if required.Level != Affected || required.Required != Affected || !slices.Equal(required.Tests, both) || len(required.Unknown) != 0 {
+		t.Errorf("build = level %s, required %s, tests %q, unknown %q; want affected for both, testing %q, nothing unknown", required.Level, required.Required, required.Tests, required.Unknown, both)
+	}
+	if len(required.Outside) != 1 || required.Outside[0].String() != "README.md (documentation no Go check reads)" {
+		t.Errorf("build outside = %v; want README.md with the policy's reason", required.Outside)
+	}
+	wantLeft := []string{"tests of example.com/repo/b (a slow package)"}
+	if want := []string{"example.com/repo/c"}; !slices.Equal(fast.Tests, want) || !slices.Equal(fast.Vet, both) || !slices.Equal(deferred(fast.Left), wantLeft) {
+		t.Errorf("build at fast = vet %q, tests %q, left %q; want %q vetted, %q tested, %q left", fast.Vet, fast.Tests, deferred(fast.Left), both, want, wantLeft)
+	}
+}
+
 // A slow package is listed by its directory from the repository root, the
 // root package as a dot, in any spelling of case, as Windows names
 // directories.
@@ -109,5 +172,51 @@ func TestBuildFindsASlowPackageByItsDirectoryFromTheRoot(t *testing.T) {
 	}
 	if want := "config/verify.json version 1 at 11111111"; plan.Policy != want {
 		t.Errorf("plan.Policy = %q; want %q", plan.Policy, want)
+	}
+}
+
+func TestBuildLevelsKeepTheTransitiveClosure(t *testing.T) {
+	all := []string{"example.com/repo/a", "example.com/repo/b", "example.com/repo/c"}
+	for _, test := range []struct {
+		name  string
+		level Level
+		vet   []string
+		tests []string
+		left  []string
+	}{
+		{
+			name:  "fast",
+			level: Fast,
+			vet:   all,
+			tests: []string{"example.com/repo/a"},
+			left: []string{
+				"tests of example.com/repo/b (imports example.com/repo/a)",
+				"tests of example.com/repo/c (imports example.com/repo/b)",
+			},
+		},
+		{name: "affected", level: Affected, vet: all, tests: all},
+		{name: "full", level: Full, vet: []string{"./..."}, tests: []string{"./..."}},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			// Arrange
+			found := branch("a/a.go")
+			found.packages = []Package{pkg("a"), pkg("b", "example.com/repo/a"), pkg("c", "example.com/repo/b")}
+			found.policy, found.hasPolicy = `{"version": 1, "slow_packages": ["b"]}`, true
+
+			// Act
+			plan := build(found, test.level)
+
+			// Assert
+			wantChoices := []Choice{
+				{ImportPath: "example.com/repo/a"},
+				{ImportPath: "example.com/repo/b", Imports: "example.com/repo/a"},
+				{ImportPath: "example.com/repo/c", Imports: "example.com/repo/b"},
+			}
+			if plan.Level != test.level || plan.Required != Affected || !slices.Equal(plan.Choices, wantChoices) ||
+				!slices.Equal(plan.Vet, test.vet) || !slices.Equal(plan.Tests, test.tests) || !slices.Equal(deferred(plan.Left), test.left) {
+				t.Errorf("build = level %s, required %s, choices %v, vet %q, tests %q, left %q; want %s, affected, %v, %q, %q, %q",
+					plan.Level, plan.Required, plan.Choices, plan.Vet, plan.Tests, deferred(plan.Left), test.level, wantChoices, test.vet, test.tests, test.left)
+			}
+		})
 	}
 }

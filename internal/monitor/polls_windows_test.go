@@ -154,8 +154,8 @@ func (f pollFixture) poll(dir string, args ...string) int {
 }
 
 // pollUnder starts parent in parentDir, which starts a lavish-axi stand-in in
-// childDir with args and prints its pid once it runs. Both are stopped by pid
-// when the test ends; an orphaned poll's parent exits before this returns.
+// childDir with args and prints its pid once it runs. Both are stopped when
+// the test ends; an orphaned poll's parent exits before this returns.
 func (f pollFixture) pollUnder(parent, parentDir, childDir string, orphan bool, args ...string) int {
 	f.t.Helper()
 	command := exec.Command(parent, args...)
@@ -183,10 +183,15 @@ func (f pollFixture) pollUnder(parent, parentDir, childDir string, orphan bool, 
 	if err != nil {
 		f.t.Fatalf("the parent stand-in printed %q, want the child pid", line)
 	}
+	// Found while it runs, so the end below reaches it and no later process
+	// that took its pid.
+	child, err := os.FindProcess(pid)
+	if err != nil {
+		f.t.Fatalf("find the poll stand-in, pid %d: %v", pid, err)
+	}
 	f.t.Cleanup(func() {
-		if process, err := os.FindProcess(pid); err == nil {
-			_ = process.Kill()
-		}
+		_ = child.Kill()
+		_ = child.Release()
 	})
 	if orphan {
 		if err := command.Wait(); err != nil {
@@ -257,7 +262,7 @@ func TestProcessPollsPlacesAPollByTheGoblinAboveIt(t *testing.T) {
 	pid := f.pollUnder(f.standIn("claude.exe"), worktree, elsewhere, false, "poll", filepath.Join(elsewhere, "plan.html"))
 
 	dir, err := proc.WorkingDirectory(pid)
-	if err != nil || worktreeTask(dir) != "" {
+	if err != nil || worktreeTask(nil, nil, dir) != "" {
 		t.Fatalf("the poll runs in %q (%v); the fixture needs it outside every worktree", dir, err)
 	}
 	if poll, ok := listed(t, pid); !ok || poll.Task != "pollfix-2" {
@@ -278,7 +283,7 @@ func TestProcessPollsNeverListsAPollCFOStarted(t *testing.T) {
 	if err != nil || len(chain) != 2 || !strings.EqualFold(chain[1].ExeBase, "cfo.exe") {
 		t.Fatalf("chain = %+v (%v); the fixture needs the poll directly under cfo.exe", chain, err)
 	}
-	if dir, err := proc.WorkingDirectory(pid); err != nil || worktreeTask(dir) != "pollfix-3" {
+	if dir, err := proc.WorkingDirectory(pid); err != nil || worktreeTask(nil, nil, dir) != "pollfix-3" {
 		t.Fatalf("the poll runs in %q (%v); the fixture needs it in gb-pollfix-3 so only cfo keeps it out", dir, err)
 	}
 	if poll, ok := listed(t, pid); ok {

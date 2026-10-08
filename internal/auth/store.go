@@ -70,7 +70,17 @@ type Store interface {
 	Keys() ([]Key, error)
 	// Describe names the store in reports.
 	Describe() string
+	// Seen is where this store remembers what a project's .env last offered
+	// for each of its keys: a fingerprint per key, in the same backend as the
+	// credential it describes, never listed or resolved as a credential.
+	// Without it a value that only differs from the store is
+	// indistinguishable from one the Overlord just rotated.
+	Seen() Store
 }
+
+// seenScope holds the Seen records. A project scope may not begin with a dot,
+// so no listing or lookup of credentials can ever reach one.
+const seenScope = ".env-seen"
 
 // StoreDirName is the fallback store location under the user's home.
 const StoreDirName = ".cfo"
@@ -124,6 +134,10 @@ type fileStore struct {
 
 func (s *fileStore) Describe() string {
 	return "file store " + s.root
+}
+
+func (s *fileStore) Seen() Store {
+	return &fileStore{root: filepath.Join(s.root, seenScope)}
 }
 
 func (s *fileStore) path(key Key) (string, error) {

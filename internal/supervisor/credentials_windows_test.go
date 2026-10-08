@@ -83,9 +83,9 @@ func (b *credentialBoard) credentialRun() Run {
 	return Run{}
 }
 
-// The card's Run opens a visible terminal on this PC that runs cfo auth store
-// for each name the request still needs, which reads each value hidden, so a
-// value never passes through the board. Once the terminal finishes, the rows
+// The card's Run opens a terminal on the card that runs cfo auth store for
+// each name the request still needs, which reads each value hidden, so no
+// value is kept on the board. Once the terminal finishes, the rows
 // it stored are checked, and the request closes when every name is stored.
 func TestCredentialTerminalStoresEachValueHiddenAndChecksItsRows(t *testing.T) {
 	// Arrange
@@ -123,7 +123,7 @@ func TestCredentialTerminalStoresEachValueHiddenAndChecksItsRows(t *testing.T) {
 	}
 	launches := launcher.all()
 	if len(launches) != 1 || launches[0].Shell != "powershell" || launches[0].Admin {
-		t.Fatalf("launches = %+v, want one visible PowerShell window", launches)
+		t.Fatalf("launches = %+v, want one PowerShell terminal", launches)
 	}
 	script, err := os.ReadFile(launches[0].Script)
 	if err != nil {

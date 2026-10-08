@@ -8,23 +8,25 @@ import { RenderBoundary } from "./render-boundary";
 import { orderShown, pendingSettled, rankLabel } from "./priority";
 import { useFit } from "./useFit";
 import { useSortable } from "./useSortable";
+import { withoutHarness } from "./task-words";
+import { ClickFeedback, useClickFeedback } from "./click-feedback";
 
 // A board list whose order is its priority, top first: a number on each card
 // shows its place and turns into a grip on hover or focus. Dropping a card
 // saves the order with the supervisor, Tasks as backlog.md's Queued order and
 // In progress as the CFO's attention order, and shows it until the snapshot
-// agrees; a refused order goes back with the reason. In progress shows every
-// goblin's card at once and the board scrolls; Tasks past ten cards shows a
-// page at a time: a drag places a card within its page, a card held over a
-// page arrow turns the page and goes with it, and a keyboard move past the
-// page's edge carries the page with the card.
+// agrees; a refused order goes back and says why for a moment. In progress
+// shows every goblin's card at once and the board scrolls; Tasks past ten
+// cards shows a page at a time: a drag places a card within its page, a card
+// held over a page arrow turns the page and goes with it, and a keyboard move
+// past the page's edge carries the page with the card.
 export function RankedCards({ list, tasks, instance, revision, empty, renderCard }: {
   list: "queued" | "progress"; tasks: Task[]; instance: string; revision: number; empty: ReactNode;
   renderCard: (task: Task, rank: string, index: number) => ReactNode;
 }) {
   const [pending, setPending] = useState<{ order: string[]; revision: number } | null>(null);
-  const [error, setError] = useState("");
   const [note, setNote] = useState("");
+  const [feedback, showFeedback] = useClickFeedback();
   // The order dropped last; an answer for an earlier drop never overrides it.
   const latest = useRef<string[] | null>(null);
   // A saved order is in every snapshot from the revision the save answered
@@ -37,10 +39,10 @@ export function RankedCards({ list, tasks, instance, revision, empty, renderCard
   const fit = useFit(listed.map((task, index) => fitKey(task.id, index)), frameRef, listRef, list === "queued");
   const save = async (order: string[], moved: string) => {
     const before = listed.findIndex((task) => task.id === moved);
-    const title = listed[before]?.title || moved;
+    const title = withoutHarness(listed[before]?.title || "") || moved;
     latest.current = order;
     setPending({ order, revision: Number.MAX_SAFE_INTEGER });
-    setError("");
+    showFeedback("");
     setNote(`Moved ${title} to ${order.indexOf(moved) + 1} of ${order.length}.`);
     fit.show(fitKey(moved, order.indexOf(moved)));
     try {
@@ -50,7 +52,7 @@ export function RankedCards({ list, tasks, instance, revision, empty, renderCard
     } catch (failure: unknown) {
       if (latest.current !== order) return;
       setPending(null);
-      setError(message(failure));
+      showFeedback(message(failure));
       fit.show(fitKey(moved, before));
     }
   };
@@ -83,7 +85,7 @@ export function RankedCards({ list, tasks, instance, revision, empty, renderCard
       </div>}
     </div>
     <Pager ref={pagerRef} start={fit.start} end={fit.end} count={shown.length} onTurn={fit.turn} />
-    {error && <p className="order-error" role="alert">{error}</p>}
+    <ClickFeedback text={feedback} />
     <p className="sr-only" role="status">{note}</p>
   </>;
 }

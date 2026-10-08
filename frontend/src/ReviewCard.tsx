@@ -1,13 +1,15 @@
-import { useState, type ReactNode } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import type { Review, Snapshot } from "./types";
 import { deliveryMark } from "./feedback";
 import { Avatar } from "./Avatar";
 import { Icon } from "./Icon";
 import { age } from "./presentation";
-import { settledIcon, settledLabel, waitReason, waitsOnOverlord, waitTarget, type Item } from "./commandQueue";
+import { reviewLine, settledIcon, settledLabel, waitReason, waitsOnOverlord, waitTarget, type Item } from "./commandQueue";
 import { personaFor } from "./workflow";
-import { messageElements } from "./messageText";
+import { inlineElements, leadAndRest, messageElements } from "./messageText";
+import { copyValues } from "./CopyValue";
 import type { Draft } from "./QuestionCard";
+import { ClickFeedback, useClickFeedback } from "./click-feedback";
 
 export const reviewImages = (review: Review) => Array.from({ length: review.image_count }, (_, n) => "/api/reviews/" + encodeURIComponent(review.id) + "/images/" + n);
 
@@ -15,13 +17,16 @@ export const reviewImages = (review: Review) => Array.from({ length: review.imag
 // then Clear to close it. A page the supervisor watches is answered on the
 // page itself, so its preview is the one way in and the card has no text box;
 // a goblin waiting on the Overlord is a status with no text box that says
-// what it waits on and opens it (its page, question, file or link), with
-// Dismiss beside it; anything else takes a written answer that goes to the
-// asker once.
+// what it waits on and opens it (its page, question, file or link) from its
+// one action button, with Dismiss beside it, and shows no page preview, which
+// would say its words and open its page a second time; anything else takes a
+// written answer that goes to the asker once.
 export function ReviewCard({ review, snapshot, connected, draft, onDraft, onSend, onClear, onOpen, onImage, pager }: {
   review: Review; snapshot: Snapshot; connected: boolean; draft: Draft;
   onDraft: (changes: Partial<Draft>) => void; onSend: () => void; onClear: () => void; onOpen: (key: string) => void; onImage: (index: number) => void; pager?: ReactNode;
 }) {
+  const [feedback, showFeedback] = useClickFeedback();
+  useEffect(() => { if (draft.error) showFeedback(draft.error); }, [draft.error, showFeedback]);
   const [missing, setMissing] = useState<Set<string>>(new Set());
   const outcome = draft.submission ? snapshot.actions.find((action) => action.id === draft.submission?.id) || draft.receipt : undefined;
   const pending = review.state === "open" && !outcome;
@@ -37,28 +42,35 @@ export function ReviewCard({ review, snapshot, connected, draft, onDraft, onSend
   // The goblin's question this page carries, which the card shows as its own.
   const asked = review.question ? (snapshot.questions || []).find((question) => question.id === review.question) : undefined;
   const closedAt = review.window_closed_at ? new Date(review.window_closed_at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) : "";
+  // The goblin's own words, formatted: its lead line heads the card, and the
+  // details, a table of values to enter, or a closing line follow it. Words
+  // that open with a table have no lead line and are all body.
+  const { lead, rest } = leadAndRest(status ? waitReason(review) : review.title);
   return <form className="question-card" aria-labelledby={"review-" + review.id} onSubmit={(event) => { event.preventDefault(); onSend(); }}>
     <p className="asker"><Avatar persona={review.task ? personaFor(task) : "cfo"} small /><span><strong>{asker}</strong> {status ? "is waiting on you" : "asks"} · waiting {age(review.created_at).replace(/ ago$/, "")}</span></p>
-    {asked ? <div className="question-body" id={"review-" + review.id} tabIndex={-1}>{messageElements(asked.text)}</div>
-      : <h3 id={"review-" + review.id} tabIndex={-1}>{status ? waitReason(review) : review.title}</h3>}
+    {asked || !lead ? <div className="question-body" id={"review-" + review.id} tabIndex={-1}>{messageElements(asked ? asked.text : rest, copyValues)}</div>
+      : <h3 id={"review-" + review.id} tabIndex={-1}>{inlineElements(lead, copyValues)}</h3>}
+    {!asked && lead && rest && <div className="question-body">{messageElements(rest, copyValues)}</div>}
     {target && !review.watched && <p className="wait-target">{target.says}</p>}
-    {review.lavish && (!status || review.watched) && <a className="page-preview" href={review.lavish} target="_blank" rel="noreferrer" aria-label={"Open review: " + review.title}>
-      <span className="page-shot" aria-hidden="true"><Icon name="comment" /><strong>{waitReason(review)}</strong><span>Review page</span></span>
+    {review.lavish && !status && <a className="page-preview" href={review.lavish} target="_blank" rel="noreferrer" aria-label={"Open review: " + reviewLine(review)}>
+      <span className="page-shot" aria-hidden="true"><Icon name="comment" /><strong>Scrawl page</strong></span>
       <span className="open-overlay"><Icon name="external" />Open review</span>
     </a>}
-    {review.lavish && pending && review.watched && <p className="review-status">{closedAt
-      ? <><Icon name="refresh" />Its window closed at {closedAt}. Reopen it to answer; nothing you send there is lost.</>
-      : <><Icon name="clock" />Waiting for your answer. Reply in the page's conversation box; your answer closes this card.</>}</p>}
+    {review.lavish && pending && review.watched && <p className="review-status">{review.revising_since
+      ? <><Icon name="check" />Revision received: the next version replaces this page.</>
+      : closedAt
+        ? <><Icon name="refresh" />Its window closed at {closedAt}. Reopen it to answer. Nothing you send there is lost.</>
+        : <><Icon name="clock" />Waiting for your answer. Reply in the page's conversation box. Your answer closes this card.</>}</p>}
     {images.length > 0 && <div className="question-thumbs" aria-label="Images to review">
       {images.map((src, index) => <button type="button" key={src} aria-label={"View image " + (index + 1) + " of " + images.length + " full size"} onClick={() => onImage(index)}>
         {missing.has(src) ? <span className="image-missing"><Icon name="images" /></span> : <img src={src} alt="" onError={() => setMissing((prior) => new Set([...prior, src]))} />}<span>{index + 1}</span>
       </button>)}
     </div>}
     {answersHere && <label className="written-answer"><span className="sr-only">Your answer</span><textarea rows={3} maxLength={4000} placeholder={"Tell " + (review.task ? asker : "the CFO") + " what you think..."} value={draft.written} disabled={draft.sending} onChange={(event) => onDraft({ written: event.target.value, error: "", receipt: undefined })} /></label>}
-    {draft.error && !outcome && review.state === "open" && <p className="warning-text" role="alert">{draft.error} An unchanged retry keeps its request identity.</p>}
     {review.state !== "open" ? <p className={"question-outcome delivery " + settled.tone} role="status"><Icon name={settled.icon} />{settledLabel(item, snapshot.actions)}</p>
       : mark && <p className={"question-outcome delivery " + outcome?.status} role="status"><Icon name={mark.icon} />{mark.label}</p>}
     <div className="card-actions">
+      <ClickFeedback text={feedback} />
       {pager}
       {pending && !status && <button type="button" className="icon-button raised" disabled={!connected || draft.sending} aria-label="Clear this item without answering" data-tip="Clear" onClick={onClear}><Icon name="close" /></button>}
       {pending && status && <button type="button" className={target ? "status-dismiss" : "primary status-dismiss"} disabled={!connected || draft.sending} onClick={onClear}><Icon name="check" />Dismiss</button>}

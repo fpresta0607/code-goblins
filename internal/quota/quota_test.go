@@ -2,7 +2,10 @@ package quota
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
+	"fmt"
+	"math"
 	"os"
 	"path/filepath"
 	"strings"
@@ -15,6 +18,160 @@ import (
 // snapshotTime is a minute after the fixtures' generatedAt, so they read as
 // fresh unless a test moves the clock.
 var snapshotTime = time.Date(2026, 9, 17, 12, 31, 0, 0, time.UTC)
+
+func TestWeeklyReadingSelectsTheProviderAccountWeek(t *testing.T) {
+	report, err := Parse(fixture(t, "projected"), snapshotTime)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for provider, remaining := range map[string]float64{"claude": 99, "codex": 60} {
+		t.Run(provider, func(t *testing.T) {
+			reading := report.Weekly(provider, snapshotTime)
+			if reading.Status != "available" || reading.PercentRemaining == nil || *reading.PercentRemaining != remaining || reading.ResetsAt.IsZero() || reading.ReadAt.IsZero() || reading.Source != "oauth" {
+				t.Fatalf("weekly reading = %+v, want %v%% account weekly remaining with provenance", reading, remaining)
+			}
+		})
+	}
+}
+
+func TestWeeklyReadingNeverReplacesSuppliedUnknownRefreshTime(t *testing.T) {
+	now := time.Date(2026, 10, 3, 13, 7, 0, 0, time.UTC)
+	reset := time.Date(2026, 10, 9, 22, 27, 42, 0, time.UTC)
+	for _, test := range []struct {
+		name   string
+		field  string
+		status string
+		readAt time.Time
+	}{
+		{"absent", "", "available", now},
+		{"fresh", `,"refreshedAt":"2026-10-03T13:06:00Z"`, "available", now.Add(-time.Minute)},
+		{"null", `,"refreshedAt":null`, "unavailable", time.Time{}},
+		{"malformed", `,"refreshedAt":"not-a-date"`, "unavailable", time.Time{}},
+		{"zero", `,"refreshedAt":"0001-01-01T00:00:00Z"`, "unavailable", time.Time{}},
+		{"empty", `,"refreshedAt":""`, "unavailable", time.Time{}},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			data := fmt.Sprintf(`{"generatedAt":"2026-10-03T13:07:00Z","providers":[{"provider":"codex","source":"oauth","state":{"status":"fresh"%s},"quotaSemantics":{"status":"known","effectiveAvailability":[{"scope":"all_models","status":"known","effectivePercentRemaining":75,"runway":{"status":"through_reset","limitingWindowId":"weekly"}}]},"windows":[{"id":"weekly","percentUsed":25,"resetsAt":"2026-10-09T22:27:42Z"}]}]}`, test.field)
+			report, skipped := read(t, &fakeRunner{result: execx.Result{Stdout: []byte(data)}}, now)
+			if skipped != "" {
+				t.Fatalf("refresh metadata changed reader error behavior: %s", skipped)
+			}
+			reading := report.Weekly("codex", now)
+			projection, err := json.Marshal(struct {
+				Provider string `json:"provider"`
+				WeeklyReading
+			}{Provider: "codex", WeeklyReading: reading})
+			if err != nil {
+				t.Fatal(err)
+			}
+			t.Logf("weekly presentation %s %s", test.name, projection)
+			if reading.Status != test.status || !reading.ReadAt.Equal(test.readAt) {
+				t.Errorf("reading = %+v, want %s with read time %s", reading, test.status, test.readAt)
+			}
+			if test.status == "available" {
+				if reading.PercentRemaining == nil || *reading.PercentRemaining != 75 {
+					t.Errorf("valid reading = %+v, want 75%%", reading)
+				}
+			} else if reading.PercentRemaining != nil {
+				t.Errorf("supplied unknown refresh time invented remaining percentage: %+v", reading)
+			}
+			if !reading.ResetsAt.Equal(reset) {
+				t.Errorf("reset lost with refresh metadata: %+v", reading)
+			}
+			if headroom := report.Headroom("codex", ""); headroom != (Headroom{Provider: "codex", Scope: "all_models", Known: true, PercentRemaining: 75, Runway: "through_reset", ResetsAt: reset}) {
+				t.Errorf("refresh metadata changed routing evidence: %+v", headroom)
+			}
+		})
+	}
+}
+
+func TestReadKeepsRefreshMetadataTypeErrors(t *testing.T) {
+	for _, test := range []struct{ value, kind string }{
+		{"25", "number"}, {"true", "bool"}, {"{}", "object"}, {"[]", "array"},
+	} {
+		t.Run(test.kind, func(t *testing.T) {
+			data := fmt.Sprintf(`{"generatedAt":"2026-09-17T12:30:00Z","providers":[{"provider":"codex","state":{"refreshedAt":%s}}]}`, test.value)
+			parsedReport, err := Parse([]byte(data), snapshotTime)
+			var typeError *json.UnmarshalTypeError
+			if !errors.As(err, &typeError) || typeError.Value != test.kind || typeError.Type.String() != "string" {
+				t.Fatalf("parse error = %v, want a typed JSON failure for %s into string", err, test.kind)
+			}
+			report, skipped := read(t, &fakeRunner{result: execx.Result{Stdout: []byte(data)}}, snapshotTime)
+			t.Logf("typed JSON failure %s: %v; Reader rejection: %s", test.kind, err, skipped)
+			if !strings.HasPrefix(skipped, "quota-axi: unparseable snapshot: ") || !strings.Contains(skipped, typeError.Error()) || parsedReport.Headroom("codex", "") != (Headroom{Provider: "codex"}) || report.Headroom("codex", "") != (Headroom{Provider: "codex"}) {
+				t.Fatalf("metadata type failure = %q, parsed %+v, read %+v; want unparseable snapshot with JSON error details and no routing evidence", skipped, parsedReport, report)
+			}
+		})
+	}
+}
+
+func TestWeeklyReadingPreservesBoundsAndRejectsInvalidMeasurements(t *testing.T) {
+	for _, test := range []struct {
+		used      string
+		remaining float64
+		status    string
+	}{
+		{"0", 100, "available"}, {"100", 0, "available"}, {"95", 5, "available"}, {"94.9", 5.1, "available"},
+		{"-1", 0, "unavailable"}, {"101", 0, "unavailable"}, {"null", 0, "unavailable"}, {`"unknown"`, 0, "unavailable"}, {"1e999", 0, "unavailable"},
+	} {
+		t.Run(test.used, func(t *testing.T) {
+			data := fmt.Sprintf(`{"generatedAt":"2026-09-17T12:30:00Z","providers":[{"provider":"codex","source":"oauth","state":{"status":"fresh"},"quotaSemantics":{"status":"known"},"windows":[{"id":"weekly","percentUsed":%s,"resetsAt":"2026-09-20T12:00:00Z"}]}]}`, test.used)
+			report, err := Parse([]byte(data), snapshotTime)
+			if err != nil {
+				t.Fatal(err)
+			}
+			reading := report.Weekly("codex", snapshotTime)
+			if reading.Status != test.status || (test.status == "available" && (reading.PercentRemaining == nil || math.Abs(*reading.PercentRemaining-test.remaining) > 0.000001)) || (test.status != "available" && reading.PercentRemaining != nil) {
+				t.Fatalf("reading = %+v, want %s %v", reading, test.status, test.remaining)
+			}
+			if !reading.ResetsAt.Equal(time.Date(2026, 9, 20, 12, 0, 0, 0, time.UTC)) {
+				t.Fatalf("known reset lost with percentage %s: %+v", test.used, reading)
+			}
+		})
+	}
+}
+
+func TestWeeklyReadingNamesStaleAndSignInStatesWithoutNumbers(t *testing.T) {
+	for _, test := range []struct {
+		state  string
+		now    time.Time
+		status string
+	}{
+		{`"status":"auth_required","error":"private token payload"`, snapshotTime, "auth_required"},
+		{`"status":"fresh","stale":true`, snapshotTime, "stale"},
+		{`"status":"fresh","refreshedAt":"2026-09-17T10:00:00Z"`, snapshotTime, "stale"},
+		{`"status":"fresh"`, snapshotTime.Add(2 * time.Hour), "stale"},
+		{`"status":"fresh"`, snapshotTime.Add(-2 * time.Hour), "unavailable"},
+		{`"status":"failed"`, snapshotTime, "unavailable"},
+	} {
+		t.Run(test.status+test.state, func(t *testing.T) {
+			data := fmt.Sprintf(`{"generatedAt":"2026-09-17T12:30:00Z","providers":[{"provider":"claude","source":"oauth","state":{%s},"quotaSemantics":{"status":"known"},"windows":[{"id":"seven_day","percentUsed":20}]}]}`, test.state)
+			report, _ := Parse([]byte(data), test.now)
+			reading := report.Weekly("claude", test.now)
+			if reading.Status != test.status || reading.PercentRemaining != nil {
+				t.Fatalf("reading = %+v, want %s without a percentage", reading, test.status)
+			}
+		})
+	}
+}
+
+func TestWeeklyReadingNeverUsesAPICreditsOrModelWindows(t *testing.T) {
+	for _, test := range []struct{ source, window string }{
+		{"api", "weekly"}, {"oauth", "model:codex_bengalfox:5h"}, {"oauth", "five_hour"},
+	} {
+		t.Run(test.source+test.window, func(t *testing.T) {
+			data := fmt.Sprintf(`{"generatedAt":"2026-09-17T12:30:00Z","providers":[{"provider":"codex","source":%q,"state":{"status":"fresh"},"quotaSemantics":{"status":"known"},"credits":{"remaining":500},"windows":[{"id":%q,"percentUsed":0}]}]}`, test.source, test.window)
+			report, err := Parse([]byte(data), snapshotTime)
+			if err != nil {
+				t.Fatal(err)
+			}
+			reading := report.Weekly("codex", snapshotTime)
+			if reading.Status != "unavailable" || reading.PercentRemaining != nil {
+				t.Fatalf("non-subscription reading = %+v", reading)
+			}
+		})
+	}
+}
 
 func TestParseKeepsTheMeasuredFractionForAllowanceFloors(t *testing.T) {
 	data := strings.ReplaceAll(string(fixture(t, "projected")), `"effectivePercentRemaining": 12`, `"effectivePercentRemaining": 3.1`)
@@ -182,8 +339,11 @@ func TestReadKeepsEachWindowsUseAndACreditBalance(t *testing.T) {
 	}
 
 	claude := report.Providers["claude"]
-	if len(claude.Windows) != 3 || claude.Windows[0] != (Window{ID: "five_hour", Label: "session", PercentUsed: 88, ResetsAt: time.Date(2026, 9, 17, 17, 20, 0, 570646000, time.UTC)}) || claude.Windows[1].Label != "week" || claude.Windows[1].PercentUsed != 1 {
+	if len(claude.Windows) != 3 || claude.Windows[0] != (Window{ID: "five_hour", Label: "session", Kind: "session", WindowSeconds: 18000, PercentUsed: 88, ResetsAt: time.Date(2026, 9, 17, 17, 20, 0, 570646000, time.UTC)}) || claude.Windows[1].Label != "week" || claude.Windows[1].PercentUsed != 1 {
 		t.Errorf("claude windows = %+v, want its session, week and model windows with what each has used", claude.Windows)
+	}
+	if scope := claude.Scopes["model:fable"]; len(claude.Windows) != 3 || strings.Join(scope.BoundedBy, ",") != "five_hour,seven_day,model:fable" || claude.Windows[1].Kind != "weekly" || claude.Windows[2].Kind != "model" || claude.Windows[2].WindowSeconds != 604800 {
+		t.Errorf("weekly scope metadata lost: windows=%+v scope=%+v", claude.Windows, scope)
 	}
 	if claude.Credits != nil {
 		t.Errorf("claude credits = %+v, want none: quota-axi reported no balance", claude.Credits)

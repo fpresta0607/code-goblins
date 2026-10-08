@@ -17,7 +17,9 @@ import (
 	"unicode"
 
 	"github.com/fpresta0607/code-goblins/internal/fsx"
+	"github.com/fpresta0607/code-goblins/internal/goblinname"
 	"github.com/fpresta0607/code-goblins/internal/lock"
+	"github.com/fpresta0607/code-goblins/internal/state"
 )
 
 const queueFile = ".wake-queue"
@@ -34,9 +36,12 @@ const wakeLockName = ".wake-queue.lock"
 // kinds is the whitelist Append enforces: upstream's four documented wake
 // kinds, the `notify` kind cfo notify appends, the `orphan` kind the reaper's
 // sweep appends, the `review` kind the supervisor appends when the Overlord
-// answers a goblin's item or page, and the `memory`, `ci` and `pr` kinds it
+// answers a goblin's item or page, the `memory`, `ci` and `pr` kinds it
 // appends when memory comes back for waiting work, CI finishes or cannot be
-// read, and a pull request conflicts or falls behind, and no others.
+// read, and a pull request conflicts or falls behind, and the `disk` kind it
+// appends when free disk falls under the mark the CFO is woken at, the
+// `allowance` kind it appends when a subscription window nears its end or
+// renews after it was used up, and no others.
 var kinds = map[string]bool{
 	"signal":    true,
 	"stale":     true,
@@ -48,6 +53,9 @@ var kinds = map[string]bool{
 	"memory":    true,
 	"ci":        true,
 	"pr":        true,
+	"disk":      true,
+	"idle":      true,
+	"allowance": true,
 }
 
 // Record is one durable wake. Seq starts at 1 and is never reused; the ack
@@ -70,6 +78,10 @@ type Record struct {
 	// marker; they are never written into the queue.
 	Answered   string `json:"answered,omitempty"`
 	AnsweredBy string `json:"answered_by,omitempty"`
+	// Goblin is the name of the goblin a record is about, which Pending
+	// attaches from its task's record so the listing names it as "Name
+	// (id)". It is never written into the queue.
+	Goblin string `json:"goblin,omitempty"`
 }
 
 // ackFile persists the highest acknowledged sequence so acked sequences stay
@@ -86,27 +98,16 @@ var mutationMutex sync.Mutex
 // withLock serializes a wake-state read-modify-write behind
 // state/.wake-queue.lock. The process-local mutex serializes goroutines,
 // since the file lock accepts a same-process holder.
-// A live holder is waited out within lockBudget,
-// 10 ms after the first attempt and twice as long after each next one up to
-// half a second, and past it the contention is returned to the caller
-// rather than swallowed; a dead holder is stolen by the lock package
-// itself, so a process killed inside fn cannot wedge the home.
+// A live holder is waited out within lockBudget, and past it the contention
+// is returned to the caller rather than swallowed; a dead holder is stolen
+// by the lock package itself, so a process killed inside fn cannot wedge the
+// home.
 func withLock(dir string, fn func() error) error {
 	mutationMutex.Lock()
 	defer mutationMutex.Unlock()
 
-	deadline := time.Now().Add(lockBudget)
-	wait := 10 * time.Millisecond
-	for {
-		_, err := lock.AcquireNamedOwner(dir, wakeLockName, os.Getpid(), "wake")
-		if err == nil {
-			break
-		}
-		if !errors.Is(err, lock.ErrHeld) || time.Now().Add(wait).After(deadline) {
-			return err
-		}
-		time.Sleep(wait)
-		wait = min(2*wait, 500*time.Millisecond)
+	if _, err := lock.AcquireNamedOwnerWithin(dir, wakeLockName, os.Getpid(), "wake", lockBudget); err != nil {
+		return err
 	}
 	defer lock.ReleaseNamed(dir, wakeLockName)
 	return fn()
@@ -165,7 +166,7 @@ func writeQueue(dir string, records []Record) error {
 // single-writer, and gains AtomicWriteFile's bounded retry on Windows sharing locks.
 func Append(dir, kind, key, detail string) (Record, error) {
 	if !kinds[kind] {
-		return Record{}, fmt.Errorf("wake: unknown kind %q, want one of signal, stale, check, heartbeat, notify, orphan, review, memory, ci, pr", kind)
+		return Record{}, fmt.Errorf("wake: unknown kind %q, want one of signal, stale, check, heartbeat, notify, orphan, review, memory, ci, pr, disk, idle", kind)
 	}
 	var rec Record
 	err := withLock(dir, func() error {
@@ -195,7 +196,27 @@ func Pending(dir string) ([]Record, error) {
 	if err != nil {
 		return nil, err
 	}
-	return attachAnswers(dir, records)
+	return attachAnswers(dir, attachGoblins(dir, records))
+}
+
+// attachGoblins names the goblin each record is about, from its live record
+// or, once it finished, its outcome; a record about no named goblin keeps
+// its bare key.
+func attachGoblins(dir string, records []Record) []Record {
+	names := map[string]string{}
+	for i, rec := range records {
+		name, known := names[rec.Key]
+		if !known {
+			if meta, err := state.ReadTaskMeta(dir, rec.Key); err == nil {
+				name = meta.GoblinName
+			} else if outcome, err := state.ReadOutcome(dir, rec.Key); err == nil {
+				name = outcome.GoblinName
+			}
+			names[rec.Key] = name
+		}
+		records[i].Goblin = name
+	}
+	return records
 }
 
 // ackSequence returns the sequence a reader may safely acknowledge after
@@ -248,7 +269,9 @@ func AckThrough(dir string, seq int) error {
 		for _, rec := range records {
 			if rec.Seq > seq {
 				kept = append(kept, rec)
-			} else if rec.Once != "" {
+				continue
+			}
+			if rec.Once != "" {
 				if err := keepOnce(dir, rec); err != nil {
 					return err
 				}
@@ -382,7 +405,7 @@ func renderRecord(w io.Writer, rec Record, now time.Time) error {
 	}
 	line := fmt.Sprintf("  %d  %-6s  ", rec.Seq, rec.Kind)
 	if rec.Key != rec.Kind {
-		line += terminalText(rec.Key) + ": "
+		line += terminalText(goblinname.Called(rec.Goblin, rec.Key)) + ": "
 	}
 	line += terminalText(rec.Detail)
 	_, err := fmt.Fprintln(w, line)
@@ -436,27 +459,43 @@ func DecisionSignal(rec Record, id string) bool {
 	return rec.Kind == "signal" && rec.Key == id+".status"
 }
 
-// stallAwaitingAnswer and stallGoblinIdle are the detail prefixes the monitor
-// writes for a goblin whose agent turn ended at its prompt, and for one that
-// then sat there idle. They are spelled out here for the same reason
+// stallAwaitingAnswer, stallGoblinIdle and stallGoblinAsks are the detail
+// prefixes the monitor writes for a goblin whose agent turn ended at its
+// prompt, for one that then sat there idle, and for one whose last reply
+// asked in prose; proseAskQuote opens the question the last of them quotes,
+// which ends its detail. They are spelled out here for the same reason
 // BlockingNotify spells out its verbs: the queue stores rendered text, and
 // this package must read that text without importing the monitor.
 const (
 	stallAwaitingAnswer = "awaiting_answer:"
 	stallGoblinIdle     = "goblin_idle:"
+	stallGoblinAsks     = "goblin_asks:"
+	proseAskQuote       = `It asked: "`
 )
 
 // AwaitingAnswerStall is the third arm: the monitor's own stall record for a
-// goblin whose turn ended waiting on input, or that sat idle at its prompt,
-// without filing a notify of its own. Such a goblin asked nothing formally,
-// so the notify and signal arms both miss it - and an answer is owed all the
-// same. That gap is how this class went quiet twice on 2026-09-18.
+// goblin whose turn ended waiting on input, that sat idle at its prompt, or
+// that asked in prose, without filing a notify of its own. Such a goblin
+// asked nothing formally, so the notify and signal arms both miss it - and an
+// answer is owed all the same. That gap is how this class went quiet twice on
+// 2026-09-18.
 //
-// Only those two stalls count. The monitor's own re-asks are stall records
-// too, and counting them would make a goblin unanswered forever: the re-ask
-// would be its own evidence, outliving the record it re-asked about.
+// Only those stalls count. The monitor's own re-asks are stall records too,
+// and counting them would make a goblin unanswered forever: the re-ask would
+// be its own evidence, outliving the record it re-asked about.
 func AwaitingAnswerStall(rec Record, id string) bool {
-	return rec.Kind == "stale" && rec.Key == id && (strings.HasPrefix(rec.Detail, stallAwaitingAnswer) || strings.HasPrefix(rec.Detail, stallGoblinIdle))
+	return rec.Kind == "stale" && rec.Key == id && (strings.HasPrefix(rec.Detail, stallAwaitingAnswer) || strings.HasPrefix(rec.Detail, stallGoblinIdle) || strings.HasPrefix(rec.Detail, stallGoblinAsks))
+}
+
+// ProseAsk is the question the monitor quoted for goblin id when its last
+// reply asked the CFO something in prose instead of with a notify: the board
+// shows that goblin waiting on the CFO with it, as it shows a blocked notify.
+func ProseAsk(rec Record, id string) (string, bool) {
+	if rec.Kind != "stale" || rec.Key != id || !strings.HasPrefix(rec.Detail, stallGoblinAsks) {
+		return "", false
+	}
+	_, question, ok := strings.Cut(rec.Detail, proseAskQuote)
+	return strings.TrimSuffix(question, `"`), ok
 }
 
 // Question is a blocked notify's question and the options it offered. A
@@ -510,7 +549,7 @@ func splitOptions(detail string) (string, []string) {
 // how long each one has been waiting makes impossible to miss.
 func renderDecision(w io.Writer, rec Record, verb, question string, options []string, now time.Time) error {
 	if _, err := fmt.Fprintf(w, "  %d  DECISION  %s  %s, waiting %s\n",
-		rec.Seq, terminalText(rec.Key), verb, waited(now.Sub(rec.Time))); err != nil {
+		rec.Seq, terminalText(goblinname.Called(rec.Goblin, rec.Key)), verb, waited(now.Sub(rec.Time))); err != nil {
 		return err
 	}
 	if _, err := fmt.Fprintf(w, "       question: %s\n", terminalText(question)); err != nil {

@@ -1,16 +1,22 @@
 package install
 
 import (
+	"bytes"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
 	"io/fs"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 
 	"github.com/fpresta0607/code-goblins/internal/execx"
+	"github.com/fpresta0607/code-goblins/internal/harnessmap"
+	"github.com/fpresta0607/code-goblins/internal/home"
 	"github.com/fpresta0607/code-goblins/internal/nativehook"
+	"github.com/fpresta0607/code-goblins/internal/voice"
 )
 
 // homeVariable is the variable that tells cfo where the fleet lives, and the
@@ -32,9 +38,9 @@ const ProjectsRootVariable = "CFO_PROJECTS_ROOT"
 // default, because the file it merges into is someone's personal Claude Code
 // setup and losing their hooks to our installer is the worst failure here.
 type Service struct {
-	// Root is the CFO home: a code-goblins checkout, or a home set up outside
-	// one. It is the value CFO_HOME gets, the directory added to PATH, and the
-	// directory holding cfo.exe.
+	// Root is the CFO home, the per-user home every install uses unless
+	// CFO_HOME names another. It is the value CFO_HOME gets; its bin folder is
+	// the directory added to PATH and the one holding cfo.exe.
 	Root string
 	// UserSettings is the Claude Code user settings file, normally
 	// ~/.claude/settings.json.
@@ -47,12 +53,21 @@ type Service struct {
 	// ProjectsRoot is the folder to record as the projects root. Empty leaves
 	// whatever is recorded alone, so a plain re-install never forgets it.
 	ProjectsRoot string
-	// Contract and Policy are what a home outside a checkout gets from the
-	// binary, and Binary is the running executable, copied into it. All three
-	// are unset for a checkout, which carries its own.
+	// Contract and Policy are what a home gets from the binary, and Binary
+	// is the running executable, copied into its bin folder.
 	Contract fs.FS
 	Policy   fs.FS
 	Binary   string
+	// Skills are the skills the binary ships, one folder each, which go to
+	// the shared skills folder Harnesses names with a junction from Claude
+	// Code's, never into the home.
+	Skills fs.FS
+	// Harnesses is where each harness keeps its configuration on this
+	// machine, recorded in the home for the CFO and goblins to read.
+	Harnesses harnessmap.Map
+	// Link makes the directory junction Claude Code reads a shared skill
+	// through.
+	Link harnessmap.Linker
 	// HarnessDirs are the configuration folders, by harness name, whose
 	// board native hooks (written by `cfo hooks install`) an uninstall
 	// removes.
@@ -65,9 +80,16 @@ type Service struct {
 	// window's entry for this home, and an install makes that entry start
 	// this home where it started an earlier copy of the window.
 	StartAtLoginKey string
+	// StartAtLogin is the person's choice of Start at login made at this
+	// install, on or off, which the home keeps; empty keeps the choice the
+	// home holds, and Start at login is on where it holds none.
+	StartAtLogin string
 	// EarlierWindow is the folder an earlier install kept the desktop window
 	// in, on its own. An install whose home holds the window takes its place.
 	EarlierWindow string
+	// Checkout says Root is a code-goblins checkout an older build made the
+	// home, which carries the contract itself, as files git tracks.
+	Checkout bool
 }
 
 // Install wires the CFO into the machine and reports every change and every
@@ -91,20 +113,20 @@ func (s Service) Install(out io.Writer) error {
 			return fmt.Errorf("install: --projects-root %s is not a directory; name the folder that holds your checkouts", s.ProjectsRoot)
 		}
 	}
-	if err := s.refuseAnotherHome(); err != nil {
+	if s.Contract == nil || s.Policy == nil || s.Skills == nil || s.Binary == "" {
+		return errors.New("install: the contract, the policy, the skills and the running binary are all required to set up a home")
+	}
+	former, err := s.formerHome()
+	if err != nil {
 		return err
 	}
-	if err := s.writeUserHooks(report); err != nil {
+	if err := s.writeUserSettings(report); err != nil {
 		return err
 	}
 	if err := s.clearRepoHooks(report); err != nil {
 		return err
 	}
-	if s.Contract != nil {
-		if err := s.writeHome(report); err != nil {
-			return err
-		}
-	} else if err := s.createCheckoutState(report); err != nil {
+	if err := s.writeHome(report); err != nil {
 		return err
 	}
 	if err := s.layOutData(report); err != nil {
@@ -113,7 +135,7 @@ func (s Service) Install(out io.Writer) error {
 	if err := s.setHome(report); err != nil {
 		return err
 	}
-	if err := s.addToPath(report); err != nil {
+	if err := s.addToPath(report, former); err != nil {
 		return err
 	}
 	if err := s.setProjectsRoot(report); err != nil {
@@ -122,11 +144,10 @@ func (s Service) Install(out io.Writer) error {
 	if err := s.adoptEarlierWindow(report); err != nil {
 		return err
 	}
-	if err := s.finish(report, "cfo install: already installed - nothing changed"); err != nil {
+	if err := s.keepStartAtLogin(report); err != nil {
 		return err
 	}
-	s.warnMissingBinary(out)
-	return nil
+	return s.finish(report, "cfo install: already installed - nothing changed")
 }
 
 // Uninstall reverses Install. An adopter who cannot cleanly back out will
@@ -138,12 +159,13 @@ func (s Service) Uninstall(out io.Writer) error {
 	if _, _, err := s.Env.Get(homeVariable); err != nil {
 		return err
 	}
-	if s.Contract != nil {
-		if err := s.refuseAnotherHome(); err != nil {
-			return err
-		}
+	if _, err := s.formerHome(); err != nil {
+		return err
 	}
-	if err := s.removeUserHooks(report); err != nil {
+	if err := s.removeDictation(report); err != nil {
+		return err
+	}
+	if err := s.removeUserSettings(report); err != nil {
 		return err
 	}
 	if err := s.removeNativeHooks(report); err != nil {
@@ -164,25 +186,37 @@ func (s Service) Uninstall(out io.Writer) error {
 	if err := s.removeStartAtLogin(report); err != nil {
 		return err
 	}
-	if s.Contract != nil {
-		report.same("home", "kept "+s.Root+" with its state and data; delete the folder to remove them")
+	if err := s.removeSkills(report); err != nil {
+		return err
 	}
+	report.same("home", "kept "+s.Root+" with its state and data; delete the folder to remove them")
 	return s.finish(report, "cfo install --uninstall: nothing to remove")
 }
 
-// createCheckoutState gives a checkout its state folder, which makes it a
-// primary home at once, as writeHome does for a home outside one: until then
-// another install would not count the checkout as in use, move CFO_HOME away
-// and leave the checkout's binaries first on PATH.
-func (s Service) createCheckoutState(report *reporter) error {
-	state := filepath.Join(s.Root, "state")
-	if info, err := os.Stat(state); err == nil && info.IsDir() {
+// removeDictation removes the speech engine and model the install set
+// dictation up with. Their folder is moved aside whole before it is removed,
+// so an engine a running board still has loaded refuses the uninstall with
+// nothing changed, rather than leaving half an engine behind.
+func (s Service) removeDictation(report *reporter) error {
+	dir := voice.Folder(s.Root)
+	if _, err := os.Stat(dir); errors.Is(err, fs.ErrNotExist) {
+		report.same("dictation", "no speech engine or model in "+dir)
 		return nil
+	} else if err != nil {
+		return fmt.Errorf("install: inspect dictation's speech engine and model in %s: %w", dir, err)
 	}
-	if err := os.MkdirAll(state, 0o755); err != nil {
-		return fmt.Errorf("install: create %s: %w", state, err)
+	aside, err := os.MkdirTemp(filepath.Dir(dir), "voice-removed-")
+	if err != nil {
+		return fmt.Errorf("install: remove dictation's speech engine and model in %s: %w", dir, err)
 	}
-	report.change("home", "created "+state)
+	if err := os.Rename(dir, filepath.Join(aside, filepath.Base(dir))); err != nil {
+		_ = os.Remove(aside)
+		return fmt.Errorf("install: dictation's speech engine in %s is in use, so nothing was removed; quit Code Goblins with goblins stop, then run the uninstall again: %w", dir, err)
+	}
+	if err := os.RemoveAll(aside); err != nil {
+		return fmt.Errorf("install: remove dictation's speech engine and model, moved to %s: %w", aside, err)
+	}
+	report.change("dictation", "removed dictation's speech engine and model in "+dir)
 	return nil
 }
 
@@ -221,10 +255,10 @@ func (s Service) removeStartMenuShortcut(report *reporter) error {
 	}
 	window := filepath.Join(filepath.Dir(s.StartMenuShortcut), windowShortcutName)
 	shortcuts := []string{s.StartMenuShortcut}
-	if _, err := os.Stat(filepath.Join(s.Root, windowName)); err == nil {
+	if _, err := os.Stat(filepath.Join(s.bin(), windowName)); err == nil {
 		shortcuts = append(shortcuts, window)
 	} else if !errors.Is(err, fs.ErrNotExist) {
-		return fmt.Errorf("install: inspect the desktop window in %s: %w", s.Root, err)
+		return fmt.Errorf("install: inspect the desktop window in %s: %w", s.bin(), err)
 	}
 	for _, shortcut := range shortcuts {
 		err := os.Remove(shortcut)
@@ -277,22 +311,6 @@ func (s Service) finish(report *reporter, idleLine string) error {
 		fmt.Fprintln(report.out, idleLine)
 	}
 	return nil
-}
-
-// warnMissingBinary says loudly what a missing binary means before the first
-// session finds out. Installing before the binary is built is a supported
-// flow, so this warns rather than refuses - but without it, `cfo install`
-// would bless with a success message the exact unsupervised session this
-// package exists to prevent.
-func (s Service) warnMissingBinary(out io.Writer) {
-	binary := filepath.Join(s.Root, "cfo.exe")
-	if _, err := os.Stat(binary); err == nil {
-		return
-	}
-	fmt.Fprintf(out, "\nWARNING: %s does not exist.\n", binary)
-	fmt.Fprintln(out, "Every installed hook runs that binary, so until it exists each one fails to start,")
-	fmt.Fprintln(out, "Claude Code reports a non-blocking hook error, and sessions run UNSUPERVISED.")
-	fmt.Fprintln(out, "Build it from the checkout: go build ./cmd/cfo")
 }
 
 func (s Service) setHome(report *reporter) error {
@@ -426,23 +444,48 @@ func AddToUserPath(dir string) error {
 	return env.Broadcast()
 }
 
-func (s Service) addToPath(report *reporter) error {
+// addToPath puts the home's bin folder on the user PATH, where the hooks and
+// every terminal find cfo and goblins, and takes off the home's root, where an
+// older install put the binaries, and the root of the former home it takes
+// over from, so neither an older build left there nor a cfo.exe built in that
+// checkout ever runs before this home's bin.
+func (s Service) addToPath(report *reporter, former string) error {
 	raw, _, err := s.Env.Get(pathVariable)
 	if err != nil {
 		return err
 	}
 	entries := pathEntries(raw)
+	kept := make([]string, 0, len(entries)+1)
+	present := false
+	var dropped []string
 	for _, entry := range entries {
-		if samePathEntry(entry, s.Root) {
-			report.same("PATH", "already contains "+s.Root)
-			return nil
+		switch {
+		case samePathEntry(entry, s.Root) || former != "" && samePathEntry(entry, former):
+			dropped = append(dropped, entry)
+		case samePathEntry(entry, s.bin()):
+			present = true
+			kept = append(kept, entry)
+		default:
+			kept = append(kept, entry)
 		}
 	}
-	if err := s.Env.Set(pathVariable, strings.Join(append(entries, s.Root), pathSeparator)); err != nil {
+	if present && len(dropped) == 0 {
+		report.same("PATH", "already contains "+s.bin())
+		return nil
+	}
+	if !present {
+		kept = append(kept, s.bin())
+	}
+	if err := s.Env.Set(pathVariable, strings.Join(kept, pathSeparator)); err != nil {
 		return err
 	}
 	report.envChanged = true
-	report.change("PATH", fmt.Sprintf("appended %s, keeping the %d entries already there", s.Root, len(entries)))
+	if !present {
+		report.change("PATH", fmt.Sprintf("appended %s, keeping the %d other entries already there", s.bin(), len(kept)-1))
+	}
+	for _, entry := range dropped {
+		report.change("PATH", "removed "+entry+", where an older build's binaries were")
+	}
 	return nil
 }
 
@@ -454,29 +497,41 @@ func (s Service) removeFromPath(report *reporter) error {
 	entries := pathEntries(raw)
 	kept := make([]string, 0, len(entries))
 	for _, entry := range entries {
-		if samePathEntry(entry, s.Root) {
+		if samePathEntry(entry, s.bin()) || samePathEntry(entry, s.Root) {
 			continue
 		}
 		kept = append(kept, entry)
 	}
 	if len(kept) == len(entries) {
-		report.same("PATH", "does not contain "+s.Root)
+		report.same("PATH", "does not contain "+s.bin())
 		return nil
 	}
 	if err := s.Env.Set(pathVariable, strings.Join(kept, pathSeparator)); err != nil {
 		return err
 	}
 	report.envChanged = true
-	report.change("PATH", fmt.Sprintf("removed %s, keeping the other %d entries", s.Root, len(kept)))
+	report.change("PATH", fmt.Sprintf("removed %s, keeping the other %d entries", s.bin(), len(kept)))
 	return nil
 }
 
-func (s Service) writeUserHooks(report *reporter) error {
+// bin is the home's folder for the installed binaries.
+func (s Service) bin() string {
+	return filepath.Join(s.Root, home.BinDir)
+}
+
+// writeUserSettings merges the CFO hooks and the Command Center allow rules
+// into the user's Claude Code settings in one write, so the one backup holds
+// the file as it stood before either.
+func (s Service) writeUserSettings(report *reporter) error {
 	file, err := loadSettings(s.UserSettings)
 	if err != nil {
 		return err
 	}
 	foreign := file.foreignHookCount()
+	hooksBefore, err := json.Marshal(file.values["hooks"])
+	if err != nil {
+		return err
+	}
 	stood, err := file.pruneCFOHooks()
 	if err != nil {
 		return err
@@ -484,43 +539,131 @@ func (s Service) writeUserHooks(report *reporter) error {
 	if err := file.addCFOHooks(s.Root, stood); err != nil {
 		return err
 	}
-	changed, backup, err := file.save()
+	hooksAfter, err := json.Marshal(file.values["hooks"])
 	if err != nil {
 		return err
 	}
-	if changed {
-		report.change("user hooks", fmt.Sprintf("wrote %d CFO hook groups into %s", len(cfoHookGroups(s.Root)), s.UserSettings))
-		if backup != "" {
-			report.detail("backed up the previous file to " + backup)
+	allow, err := file.allowRules()
+	if err != nil {
+		return err
+	}
+	missing := missingRules(allow)
+	// The record is written before the rules, so no rule is ever added that
+	// it does not name, and put back when the settings write fails, so it
+	// never names a rule the file does not hold, which a rule the adopter
+	// writes there later would answer to.
+	restoreRecord := func() error { return nil }
+	if len(missing) > 0 {
+		recorded, err := readRulesRecord(s.UserSettings)
+		if err != nil {
+			return err
 		}
-	} else {
+		grown := slices.Clone(recorded)
+		for _, rule := range missing {
+			if !slices.Contains(grown, rule) {
+				grown = append(grown, rule)
+			}
+		}
+		if len(grown) > len(recorded) {
+			if err := writeRulesRecord(s.UserSettings, grown); err != nil {
+				return err
+			}
+			restoreRecord = func() error {
+				if recorded == nil {
+					return os.Remove(s.UserSettings + rulesRecordSuffix)
+				}
+				return writeRulesRecord(s.UserSettings, recorded)
+			}
+		}
+		if err := file.setAllowRules(append(allow, missing...)); err != nil {
+			return err
+		}
+	}
+	_, backup, err := file.save()
+	if err != nil {
+		return errors.Join(err, restoreRecord())
+	}
+	if bytes.Equal(hooksBefore, hooksAfter) {
 		report.same("user hooks", "already in "+s.UserSettings)
+	} else {
+		report.change("user hooks", fmt.Sprintf("wrote %d CFO hook groups into %s", len(cfoHookGroups(s.Root)), s.UserSettings))
+	}
+	if len(missing) > 0 {
+		report.change("permissions", fmt.Sprintf("added %d Command Center allow rules to %s: %s", len(missing), s.UserSettings, strings.Join(missing, ", ")))
+		report.detail("so Claude Code's auto mode lets the CFO file questions, run items, reviews, presentations, documents and credential requests for the Overlord")
+	} else {
+		report.same("permissions", fmt.Sprintf("the %d Command Center allow rules are already in %s", len(PermissionRules()), s.UserSettings))
+	}
+	if backup != "" {
+		report.detail("backed up the previous file to " + backup)
 	}
 	report.detail(fmt.Sprintf("left %d hook(s) that are not the CFO's exactly as they were", foreign))
 	return nil
 }
 
-func (s Service) removeUserHooks(report *reporter) error {
+// removeUserSettings takes the CFO hooks and the allow rules cfo install
+// recorded adding out of the user's Claude Code settings in one write, and
+// then the record. A rule the adopter wrote stays, even one install would
+// have added.
+func (s Service) removeUserSettings(report *reporter) error {
 	file, err := loadSettings(s.UserSettings)
+	if err != nil {
+		return err
+	}
+	hooksBefore, err := json.Marshal(file.values["hooks"])
 	if err != nil {
 		return err
 	}
 	if _, err := file.pruneCFOHooks(); err != nil {
 		return err
 	}
-	changed, backup, err := file.save()
+	hooksAfter, err := json.Marshal(file.values["hooks"])
 	if err != nil {
 		return err
 	}
-	if !changed {
-		report.same("user hooks", "none of the CFO's in "+s.UserSettings)
-		return nil
+	recorded, err := readRulesRecord(s.UserSettings)
+	if err != nil {
+		return err
 	}
-	report.change("user hooks", "removed the CFO hooks from "+s.UserSettings)
+	// Only a recorded rule is removed, so with none recorded the permissions
+	// block is not read at all.
+	removed := 0
+	if len(recorded) > 0 {
+		allow, err := file.allowRules()
+		if err != nil {
+			return err
+		}
+		kept := slices.DeleteFunc(slices.Clone(allow), func(rule string) bool { return slices.Contains(recorded, rule) })
+		if removed = len(allow) - len(kept); removed > 0 {
+			if err := file.setAllowRules(kept); err != nil {
+				return err
+			}
+		}
+	}
+	_, backup, err := file.save()
+	if err != nil {
+		return err
+	}
+	if err := os.Remove(s.UserSettings + rulesRecordSuffix); err != nil && !errors.Is(err, fs.ErrNotExist) {
+		return fmt.Errorf("install: remove the record of the rules added to %s: %w", s.UserSettings, err)
+	}
+	hooksChanged := !bytes.Equal(hooksBefore, hooksAfter)
+	if hooksChanged {
+		report.change("user hooks", "removed the CFO hooks from "+s.UserSettings)
+	} else {
+		report.same("user hooks", "none of the CFO's in "+s.UserSettings)
+	}
+	if removed > 0 {
+		report.change("permissions", fmt.Sprintf("removed the %d Command Center allow rules cfo install added to %s, keeping the rest", removed, s.UserSettings))
+	} else {
+		report.same("permissions", "none of the Command Center allow rules cfo install added are in "+s.UserSettings)
+	}
 	if backup != "" {
 		report.detail("backed up the previous file to " + backup)
 	}
-	report.detail(fmt.Sprintf("left %d hook(s) that are not the CFO's exactly as they were", file.foreignHookCount()))
+	if hooksChanged || removed > 0 {
+		report.detail(fmt.Sprintf("left %d hook(s) that are not the CFO's exactly as they were", file.foreignHookCount()))
+	}
 	return nil
 }
 

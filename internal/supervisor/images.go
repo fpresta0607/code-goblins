@@ -25,11 +25,14 @@ const maxReviewImage = 10 << 20
 var reviewImageTypes = map[string]bool{"image/png": true, "image/jpeg": true, "image/gif": true, "image/webp": true}
 
 // reviewImageRoots are the only places a goblin's review image may live: its
-// own worktree, its task scratch directory and its data directory.
+// own worktree and the extra worktrees it recorded, its task scratch
+// directory, its scratch folder and its data directory.
 func reviewImageRoots(h home.Home, meta state.TaskMeta) []string {
-	roots := []string{meta.Worktree, filepath.Join(h.Data, meta.ID)}
-	if meta.TaskTmp != "" {
-		roots = append(roots, meta.TaskTmp)
+	roots := append([]string{meta.Worktree, filepath.Join(h.Data, meta.ID)}, meta.Extras...)
+	for _, root := range []string{meta.TaskTmp, meta.Scratch} {
+		if root != "" {
+			roots = append(roots, root)
+		}
 	}
 	return roots
 }

@@ -111,3 +111,26 @@ func (p Progress) Ready(head string) bool {
 	}
 	return true
 }
+
+// StepDetail is one step of a run with what it is doing: when it started,
+// its last activity and when, and the agent working it.
+type StepDetail struct {
+	Name           string `json:"name"`
+	Status         string `json:"status"`
+	StartedAt      int64  `json:"started_at"`
+	LastActivityAt int64  `json:"last_activity_at"`
+	LastActivity   string `json:"last_activity"`
+	AgentPID       int    `json:"agent_pid"`
+}
+
+// StepDetails reads a run's steps in order with what each is doing. It is a
+// query of its own so a no-mistakes database without these columns costs
+// only this read, never Progress.
+func (r Reader) StepDetails(ctx context.Context, runID string) ([]StepDetail, error) {
+	var steps []StepDetail
+	q := `SELECT step_name AS name,status,COALESCE(started_at,0) AS started_at,COALESCE(last_activity_at,0) AS last_activity_at,COALESCE(last_activity,'') AS last_activity,COALESCE(agent_pid,0) AS agent_pid FROM step_results WHERE run_id=` + sqlString(runID) + ` ORDER BY step_order`
+	if err := r.query(ctx, q, &steps); err != nil {
+		return nil, err
+	}
+	return steps, nil
+}

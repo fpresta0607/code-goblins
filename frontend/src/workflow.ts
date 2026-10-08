@@ -1,5 +1,7 @@
 import type { Session, Snapshot, Task } from "./types.ts";
 import { lineageRoots, ownsTaskSession, sessionTitle, tasksWithoutSession } from "./lineageTree.ts";
+import { goblinName } from "./task-words.ts";
+import { isHeldByTree, isHelperHeld } from "./fleet-tree.ts";
 
 export type Persona = "cfo" | "builder" | "reviewer" | "tester" | "planner" | "finisher" | "general"
   | "debugger" | "security" | "database" | "designer" | "documentation" | "operations"
@@ -8,11 +10,27 @@ export type Point = { x: number; y: number };
 export const NODE_WIDTH = 292;
 export const NODE_HEIGHT = 132;
 
+// The canvas zooms between a tenth and one and a half times, so the whole of
+// any tree fits it.
+export const MIN_ZOOM = .1, MAX_ZOOM = 1.5;
+
 // The orchestration graph grows to fill the visible canvas and centers there,
-// capped at 1.25x so cards never get huge and never below 0.35x.
+// capped at 1.25x so cards never get huge, and shrinks as far as the whole
+// tree needs.
 export function fitScale(graph: { width: number; height: number }, canvas: { width: number; height: number }): number {
   if (graph.width <= 0 || graph.height <= 0 || canvas.width <= 0 || canvas.height <= 0) return 1;
-  return Math.max(.35, Math.min(1.25, (canvas.width - 48) / graph.width, (canvas.height - 48) / graph.height));
+  return Math.max(MIN_ZOOM, Math.min(1.25, (canvas.width - 48) / graph.width, (canvas.height - 48) / graph.height));
+}
+
+// A view of the canvas: how far it is zoomed, and where the graph's origin
+// sits in the canvas.
+export interface View { scale: number; x: number; y: number }
+
+// zoomAt zooms a view to scale, within the zoom range, keeping the point of
+// the graph under the pointer where it is, as a map does.
+export function zoomAt(view: View, scale: number, pointer: Point): View {
+  const next = Math.max(MIN_ZOOM, Math.min(MAX_ZOOM, scale));
+  return { scale: next, x: pointer.x - (pointer.x - view.x) * next / view.scale, y: pointer.y - (pointer.y - view.y) * next / view.scale };
 }
 
 export function taskColumn(task: Task): "Tasks" | "In progress" | "Paused" | "Completed" {
@@ -55,12 +73,15 @@ export function personaFor(task?: Task, node?: Session): Persona {
   if (/\b(build|builder|implement|fix|repair|develop)\b/.test(meaning)) return "builder";
   // No keyword matched: a stable choice per task keeps concurrent goblins
   // apart on the board. It says nothing about the work itself.
-  if (task?.id) {
-    let hash = 0;
-    for (const character of task.id) hash = (hash * 31 + character.charCodeAt(0)) >>> 0;
-    return stablePersonas[hash % stablePersonas.length];
-  }
-  return "general";
+  return task?.id ? stablePersona(task.id) : "general";
+}
+
+// stablePersona is the persona a task id always gets, for a goblin whose work
+// names no specialist or whose task the board no longer holds.
+export function stablePersona(id: string): Persona {
+  let hash = 0;
+  for (const character of id) hash = (hash * 31 + character.charCodeAt(0)) >>> 0;
+  return stablePersonas[hash % stablePersonas.length];
 }
 
 const stablePersonas: Persona[] = ["builder", "reviewer", "tester", "planner", "debugger", "security", "database", "designer",
@@ -114,13 +135,12 @@ export function nativeStatus(phase: string): string {
   return labels[phase] || "No evidence yet";
 }
 
-// asksOverlord is whether a goblin's question is on the board waiting for the
-// Overlord's answer; the CFO's own questions name no task.
+// asksOverlord is whether a goblin explicitly waits on the Overlord.
+// A goblin's question is the CFO's to answer.
 export function asksOverlord(snapshot: Snapshot, taskID: string): boolean {
   if (!taskID) return false;
   const task = snapshot.tasks.find((candidate) => candidate.id === taskID);
-  return task?.phase === "waiting" && task.waiting_on === "overlord"
-    || (snapshot.questions || []).some((question) => question.task === taskID && question.status === "pending");
+  return task?.phase === "waiting" && task.waiting_on === "overlord";
 }
 
 // waitingTarget is the goblin a waiting task waits on, when it is one the
@@ -135,15 +155,43 @@ export function waitingTarget(snapshot: Snapshot, task: Task): Task | undefined 
 const WAITS: Record<string, string> = { overlord: "the CFO", ci: "CI", deploy: "deploy", memory: "memory" };
 const GATE_STEPS: Record<string, string> = { review: "code review", lint: "lint", push: "push", test: "tests", ci: "CI", pr: "PR", document: "docs" };
 
-export function nodeStatus(node: WorkflowNode, asking = false): string {
+// A pause, resume or stop that did not finish is the task's state until the
+// next one starts, whatever its goblin last reported, drawn as that action
+// under way: the CFO or the Overlord asked for a pause or a stop, so one that
+// did not finish is never the goblin failing (the Overlord, 2026-10-07), and
+// the CFO hears of it. Only a goblin that did not start again has failed.
+const FAILED_ACTIONS: Record<string, { status: string; phase: string }> = {
+  pause: { status: "Pause did not finish", phase: "pausing" },
+  resume: { status: "Resume failed", phase: "failed" },
+  stop: { status: "Stop did not finish", phase: "stopping" },
+};
+const actionFailed = (task: Task) => task.lifecycle?.phase === "failed" && !["pausing", "resuming", "stopping"].includes(task.phase) ? FAILED_ACTIONS[task.lifecycle.action] : undefined;
+
+// statusPhase is the phase a task's status is drawn in: the action's for one
+// that did not finish, and failed for a goblin that did not come back.
+export function statusPhase(task: Task): string {
+  return actionFailed(task)?.phase || (task.comeback?.state === "stopped" ? "failed" : task.phase);
+}
+
+// A wait on another goblin names it by its goblin name while tasks, the
+// board's, hold it.
+export function nodeStatus(node: WorkflowNode, asking = false, tasks: Task[] = []): string {
   if (node.status) return node.status;
+  const unfinished = node.task && actionFailed(node.task);
+  if (unfinished) return unfinished.status;
   if (node.task && ["paused", "pausing", "resuming", "stopping", "stopped"].includes(node.task.phase)) return statusText(node.task.phase);
+  if (node.task?.comeback?.state === "waiting") return "Comes back after the restart when memory allows";
+  if (node.task?.comeback?.state === "stopped") return "Did not come back after the restart";
   if (node.task?.archived) return node.task.merged ? "Merged" : node.task.closed ? "Closed" : "Finished";
+  if (node.task?.phase === "queued" && node.task.finished) return "Already finished";
   if (node.task && ownsTaskSession(node.session, node.task)) {
     const { phase, reason, verified } = node.task;
     if (asking) return "Waiting on the CFO";
     if ((phase === "blocked" || phase === "failed") && reason.startsWith("Waiting on the CFO")) return "Waiting on the CFO";
-    if (phase === "waiting" && node.task.waiting_on) return "Waiting on " + (WAITS[node.task.waiting_on] || node.task.waiting_on);
+    if (phase === "waiting" && node.task.waiting_on) {
+      const awaited = tasks.find((candidate) => candidate.id === node.task?.waiting_on);
+      return "Waiting on " + (WAITS[node.task.waiting_on] || (awaited ? goblinName(awaited) : node.task.waiting_on));
+    }
     if (phase === "review" && Object.hasOwn(GATE_STEPS, node.task.gate_step)) return "In review gate: " + GATE_STEPS[node.task.gate_step];
     return phase === "done" && !verified ? "Done, verifying" : statusText(phase);
   }
@@ -166,9 +214,10 @@ export interface WorkflowNode {
 export const CFO_ROOT = "cfo:primary";
 
 export function workflowNodes(snapshot: Snapshot): WorkflowNode[] {
-  const ids = new Set(snapshot.sessions.map((node) => node.id));
+  const sessions = snapshot.sessions.filter((session) => !isHeldByTree(snapshot, session));
+  const ids = new Set(sessions.map((node) => node.id));
   const nodes: WorkflowNode[] = [
-    ...snapshot.sessions.map((session) => {
+    ...sessions.map((session) => {
       const task = snapshot.tasks.find((task) => task.id === session.task_id);
       return {
         id: "session:" + session.id, title: sessionTitle(session, task), task, session,
@@ -178,15 +227,23 @@ export function workflowNodes(snapshot: Snapshot): WorkflowNode[] {
             : snapshot.retired.includes(session.parent) ? "Parent retired" : "Parent unreported",
       };
     }),
-    ...tasksWithoutSession(snapshot.tasks.filter((task) => !task.archived && task.phase !== "queued"), snapshot.sessions).map((task) => ({
-      id: "task:" + task.id, title: task.title || task.id, task, relation: "Session unreported",
+    ...tasksWithoutSession(snapshot.tasks.filter((task) => !task.archived && task.phase !== "queued" && !isHelperHeld(snapshot, task.id)), snapshot.sessions).map((task) => ({
+      id: "task:" + task.id, title: goblinName(task), task, relation: "Session unreported",
     })),
   ];
+  // A helper no family tree holds, such as one whose parent is paused, hangs
+  // under its parent's card: its record names its parent.
+  const owns = (node: WorkflowNode) => node.task !== undefined && ownsTaskSession(node.session, node.task);
+  const helpers = new Set<WorkflowNode>();
+  for (const node of nodes) {
+    const parent = owns(node) && node.task?.parent ? nodes.find((other) => other.task?.id === node.task?.parent && owns(other)) : undefined;
+    if (parent) { node.parent = parent.id; node.relation = "Helper goblin"; helpers.add(node); }
+  }
   // Every live task record was dispatched by the CFO through cfo spawn, so a
   // task no native hook reported hangs under the CFO: the reported session
   // when there is one, otherwise the supervisor root drawn for it. Sessions
   // keep only the parents they reported.
-  const dispatched = nodes.filter((node) => node.id.startsWith("task:"));
+  const dispatched = nodes.filter((node) => node.id.startsWith("task:") && !helpers.has(node));
   if (dispatched.length) {
     let cfo = nodes.find((node) => node.session?.role === "cfo");
     if (!cfo) {
@@ -207,13 +264,14 @@ export function workflowNodes(snapshot: Snapshot): WorkflowNode[] {
 }
 
 // waitingOn maps the card of each goblin waiting on another goblin to the card
-// of the goblin it waits on, as the dashed line between them shows.
+// of the goblin it waits on, as the dashed line between them shows; a helper
+// hung under the goblin waiting on it is shown by their connector instead.
 export function waitingOn(snapshot: Snapshot, nodes: WorkflowNode[]): Record<string, string> {
   const edges: Record<string, string> = {};
   for (const node of nodes) {
     const awaited = node.task && ownsTaskSession(node.session, node.task) ? waitingTarget(snapshot, node.task) : undefined;
     const target = awaited && nodes.find((other) => other.task?.id === awaited.id && ownsTaskSession(other.session, other.task));
-    if (target) edges[node.id] = target.id;
+    if (target && target.parent !== node.id) edges[node.id] = target.id;
   }
   return edges;
 }
@@ -221,30 +279,68 @@ export function waitingOn(snapshot: Snapshot, nodes: WorkflowNode[]): Record<str
 // The canvas grid: a card and its gap across, a row down.
 const COLUMN = NODE_WIDTH + 44, ROW = 244;
 
-// Two cards clash when they are nearer than a card and its gap both across
-// and down.
-const clashes = (one: Point, other: Point) => Math.abs(one.x - other.x) < COLUMN && Math.abs(one.y - other.y) < NODE_HEIGHT + 44;
+// The gap kept between one card, with what shows under it, and the next.
+const GAP = 44;
+
+// What hangs under a card on the canvas: how wide it is, centred under the
+// card and never narrower than it, how far under the card it reaches, and
+// where, from the card's middle, each line runs down from it: its own
+// middle, and the spine of each column of its branches.
+export interface Extent { width: number; below: number; drops: number[] }
+const CARD: Extent = { width: NODE_WIDTH, below: 0, drops: [0] };
+
+// Two cards clash when what each takes, the card and what hangs under it, is
+// nearer to the other's than the gap, both across and down.
+const clashes = (one: Point, other: Point, oneTakes: Extent = CARD, otherTakes: Extent = CARD) =>
+  Math.abs(one.x - other.x) < (oneTakes.width + otherTakes.width) / 2 + COLUMN - NODE_WIDTH
+  && one.y < other.y + NODE_HEIGHT + otherTakes.below + GAP && other.y < one.y + NODE_HEIGHT + oneTakes.below + GAP;
+
+// A card on the canvas and what hangs under it.
+interface Taken { point: Point; takes: Extent }
 
 // nearestFree is the place nearest to where a card wants to be that no other
 // card covers: a column either side along its row, then the rows below it,
 // and else past every card in its row.
-function nearestFree(want: Point, taken: Point[]): Point {
+function nearestFree(want: Point, taken: Taken[], takes: Extent = CARD): Point {
   for (let row = 0; row < 4; row++) for (const step of [0, -1, 1, -2, 2, -3, 3]) {
     const place = { x: want.x + step * COLUMN, y: want.y + row * ROW };
-    if (place.x >= 0 && !taken.some((other) => clashes(place, other))) return place;
+    if (place.x >= 0 && !taken.some((other) => clashes(place, other.point, takes, other.takes))) return place;
   }
-  return { x: Math.max(want.x, ...taken.filter((other) => Math.abs(other.y - want.y) < NODE_HEIGHT + 44).map((other) => other.x + COLUMN)), y: want.y };
+  const inRow = taken.filter((other) => clashes({ x: other.point.x, y: want.y }, other.point, takes, other.takes));
+  return { x: Math.max(want.x, ...inRow.map((other) => other.point.x + (other.takes.width + takes.width) / 2 + COLUMN - NODE_WIDTH)), y: want.y };
+}
+
+// rowsFor splits a family of goblins with no cards under them into the rows
+// that show the family largest in a canvas of this shape: one row in a wide
+// canvas, more in a tall one, each goblin taking as many grid columns as it
+// and what hangs under it need.
+function rowsFor<T>(children: T[], columns: (child: T) => number, below: (child: T) => number, canvas: { width: number; height: number }): T[][] {
+  let best: { rows: T[][]; scale: number } | undefined;
+  for (let count = 1; count <= children.length; count++) {
+    const size = Math.ceil(children.length / count), rows: T[][] = [];
+    for (let i = 0; i < children.length; i += size) rows.push(children.slice(i, i + size));
+    if (best && rows.length === best.rows.length) continue;
+    const width = (Math.max(...rows.map((row) => row.reduce((sum, child) => sum + columns(child), 0))) + (rows.length > 1 ? .5 : 0)) * COLUMN;
+    const height = ROW + rows.reduce((sum, row) => sum + ROW + Math.max(...row.map(below)), 0);
+    const scale = Math.min(canvas.width / width, canvas.height / height);
+    if (!best || scale > best.scale * 1.02) best = { rows, scale };
+  }
+  return best ? best.rows : [children];
 }
 
 // Positioning changes presentation only. Cycles retain a visible node but do
-// not become recursively laid-out family relationships. A goblin waiting on
+// not become recursively laid-out family relationships. A family of goblins
+// with no cards under them wraps into the rows that show it largest in the
+// canvas, each row after the first offset so its connectors drop clear of
+// the middles of the goblins above, and a goblin takes as many grid
+// columns as what hangs under its card needs (extents). A goblin waiting on
 // another sits in the row under it, half a card over, so the dashed line
 // between them is short and its own connector drops through a gap; a sibling
 // with nothing of its own under it gives up that place and takes the nearest
 // free one. Only a card with no children of its own moves, and only under a
 // card that stays in its family's row, so a chain or a cycle of waits keeps
 // its places.
-export function arrange(nodes: WorkflowNode[], waits: Record<string, string> = {}): Record<string, Point> {
+export function arrange(nodes: WorkflowNode[], canvas: { width: number; height: number }, waits: Record<string, string> = {}, extents: Record<string, Extent> = {}): Record<string, Point> {
   const positions: Record<string, Point> = {};
   const visited = new Set<string>();
   const ids = new Set(nodes.map((node) => node.id));
@@ -253,27 +349,45 @@ export function arrange(nodes: WorkflowNode[], waits: Record<string, string> = {
   const below = [...waiting].filter(([, target]) => !waiting.has(target));
   const fixed = new Set(below.flat());
   for (const [id] of below) visited.add(id);
+  const takes = (id: string) => extents[id] || CARD;
+  const columns = (node: WorkflowNode) => Math.ceil((takes(node.id).width + COLUMN - NODE_WIDTH) / COLUMN);
+  const taken = () => Object.entries(positions).map(([id, point]) => ({ point, takes: takes(id) }));
   let leaf = 0;
   const place = (node: WorkflowNode, depth: number): number => {
     visited.add(node.id);
     const children = nodes.filter((child) => child.parent === node.id && !visited.has(child.id));
-    // Two rows, the second offset by half a card so each of its cards sits
-    // under a gap in the first: its connector drops through that gap instead
-    // of behind a sibling, which would read as the wrong parent.
-    if (children.length > 3 && children.every((child) => !nodes.some((other) => other.parent === child.id))) {
-      const columns = Math.ceil(children.length / 2), first = leaf;
-      children.forEach((child, i) => {
-        const row = Math.floor(i / columns);
-        visited.add(child.id);
-        positions[child.id] = { x: 40 + (first + i % columns + row / 2) * COLUMN, y: 72 + (depth + 1 + row) * ROW };
+    const rows = children.length > 1 && children.every((child) => !nodes.some((other) => other.parent === child.id))
+      ? rowsFor(children, columns, (child) => takes(child.id).below, canvas) : [children];
+    if (rows.length > 1) {
+      const widest = Math.max(...rows.map((row) => row.reduce((sum, child) => sum + columns(child), 0))), first = leaf;
+      // Each row after the first is offset so no connector into it drops
+      // down a line that runs down from a goblin above, a middle or a
+      // spine of its branches, where it would read as that goblin's child:
+      // by half a card where it can be, as through the gaps of a row of
+      // single cards, else by the eighth of a card nearest that keeps clear.
+      const drops: number[] = [];
+      rows.forEach((row, index) => {
+        const at = (offset: number) => row.map((child, i) => first + offset + row.slice(0, i).reduce((sum, other) => sum + columns(other), 0) + (columns(child) - 1) / 2);
+        const covered = (offset: number) => at(offset).filter((middle) => drops.some((drop) => Math.abs(middle - drop) < .1)).length;
+        const offset = index ? [.5, .25, .75, 0, .375, .625, .125, .875].reduce((best, next) => covered(next) < covered(best) ? next : best) : 0;
+        at(offset).forEach((middle, i) => {
+          visited.add(row[i].id);
+          positions[row[i].id] = { x: 40 + middle * COLUMN, y: 72 + (depth + 1 + index) * ROW };
+          drops.push(...takes(row[i].id).drops.map((drop) => middle + drop / COLUMN));
+        });
       });
-      leaf += columns + 1;
-      const x = 40 + (first + (columns - 1) / 2 + .25) * COLUMN;
+      leaf += widest + 1;
+      const x = 40 + (first + (widest - 1) / 2 + .25) * COLUMN;
       positions[node.id] = { x, y: 72 + depth * ROW };
       return x;
     }
     const xs = children.filter((child) => !visited.has(child.id)).map((child) => place(child, depth + 1));
-    const x = xs.length ? (xs[0] + xs[xs.length - 1]) / 2 : 40 + leaf++ * COLUMN;
+    let x: number;
+    if (xs.length) x = (xs[0] + xs[xs.length - 1]) / 2;
+    else {
+      x = 40 + (leaf + (columns(node) - 1) / 2) * COLUMN;
+      leaf += columns(node);
+    }
     positions[node.id] = { x, y: 72 + depth * ROW };
     return x;
   };
@@ -284,7 +398,7 @@ export function arrange(nodes: WorkflowNode[], waits: Record<string, string> = {
   for (const [id, target] of below) {
     const awaited = positions[target];
     const under = [awaited.x + COLUMN / 2, awaited.x - COLUMN / 2].filter((x) => x >= 0).map((x) => ({ x, y: awaited.y + ROW }));
-    const covering = (place: Point) => Object.keys(positions).filter((other) => clashes(place, positions[other]));
+    const covering = (place: Point) => Object.keys(positions).filter((other) => clashes(place, positions[other], takes(id), takes(other)));
     const free = under.find((place) => !covering(place).length);
     const blocking = covering(under[0]);
     const sibling = blocking.length === 1 && !fixed.has(blocking[0]) && !parents.has(blocking[0]) ? blocking[0] : "";
@@ -293,19 +407,43 @@ export function arrange(nodes: WorkflowNode[], waits: Record<string, string> = {
       const from = positions[sibling];
       positions[id] = under[0];
       delete positions[sibling];
-      positions[sibling] = nearestFree(from, Object.values(positions));
-    } else positions[id] = nearestFree(under[0], Object.values(positions));
+      positions[sibling] = nearestFree(from, taken(), takes(sibling));
+    } else positions[id] = nearestFree(under[0], taken(), takes(id));
   }
   return positions;
 }
 
+// makeRoom moves the rows of cards under a goblin whose children show
+// beneath its card down far enough that nothing covers them: below is how far
+// under each such card its children reach. Every card of a row moves alike,
+// so the layout keeps its rows.
+export function makeRoom(positions: Record<string, Point>, below: Record<string, number>): Record<string, Point> {
+  const rows = [...new Set(Object.values(positions).map((point) => point.y))].sort((one, other) => one - other);
+  const moved = new Map<number, number>();
+  let shift = 0, reach = -Infinity;
+  for (const y of rows) {
+    shift = Math.max(shift, reach + GAP - y);
+    moved.set(y, y + shift);
+    for (const [id, point] of Object.entries(positions)) if (point.y === y) reach = Math.max(reach, y + shift + NODE_HEIGHT + (below[id] || 0));
+  }
+  return Object.fromEntries(Object.entries(positions).map(([id, point]) => [id, { x: point.x, y: moved.get(point.y)! }]));
+}
+
 // settle is where each card shows: where the Overlord placed it by hand, else
 // its arranged place, or the free place nearest to it when a card he placed
-// covers that, so no card ever covers another.
-export function settle(arranged: Record<string, Point>, placed: Record<string, Point>): Record<string, Point> {
+// covers that, so no card ever covers another, nor what hangs under it. A
+// goblin arranged under the goblin it waits on (waits) keeps to the places
+// under that goblin first: half a card either side, then the rows below.
+export function settle(arranged: Record<string, Point>, placed: Record<string, Point>, extents: Record<string, Extent> = {}, waits: Record<string, string> = {}): Record<string, Point> {
   const positions: Record<string, Point> = {};
   for (const id of Object.keys(arranged)) if (placed[id]) positions[id] = placed[id];
-  for (const [id, want] of Object.entries(arranged)) if (!placed[id]) positions[id] = nearestFree(want, Object.values(positions));
+  for (const [id, want] of Object.entries(arranged)) if (!placed[id]) {
+    const taken = Object.entries(positions).map(([other, point]) => ({ point, takes: extents[other] || CARD }));
+    const takes = extents[id] || CARD, awaited = arranged[waits[id]];
+    const isUnder = awaited && want.y > awaited.y && Math.abs(want.x - awaited.x) < NODE_WIDTH;
+    const under = isUnder ? [0, 1, 2, 3].flatMap((row) => [want.x, 2 * awaited.x - want.x].map((x) => ({ x, y: want.y + row * ROW }))) : [];
+    positions[id] = under.find((place) => place.x >= 0 && !taken.some((other) => clashes(place, other.point, takes, other.takes))) || nearestFree(want, taken, takes);
+  }
   return positions;
 }
 

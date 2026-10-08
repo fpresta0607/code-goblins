@@ -14,17 +14,26 @@ import (
 )
 
 func AppendOnce(directory, identity, kind, key, detail string) (Record, error) {
+	record, isNew, err := AppendFirst(directory, identity, kind, key, detail)
+	if err != nil || isNew {
+		return record, err
+	}
+	return record, sameNotice(record, identity, kind, key, detail)
+}
+
+// AppendFirst appends a wake for identity unless one was appended for it
+// before, still queued or already acknowledged, and reports whether it did.
+// The record it returns is the first one, whatever this detail says.
+func AppendFirst(directory, identity, kind, key, detail string) (Record, bool, error) {
 	if identity == "" || !kinds[kind] {
-		return Record{}, errors.New("a notice identity and known wake kind are required")
+		return Record{}, false, errors.New("a notice identity and known wake kind are required")
 	}
 	var record Record
+	isNew := false
 	err := withLock(directory, func() error {
 		data, err := fsx.ReadFile(oncePath(directory, identity))
 		if err == nil {
-			if err := json.Unmarshal(data, &record); err != nil {
-				return err
-			}
-			return sameNotice(record, identity, kind, key, detail)
+			return json.Unmarshal(data, &record)
 		}
 		if !errors.Is(err, os.ErrNotExist) {
 			return err
@@ -36,9 +45,10 @@ func AppendOnce(directory, identity, kind, key, detail string) (Record, error) {
 		for _, prior := range records {
 			if prior.Once == identity {
 				record = prior
-				return sameNotice(record, identity, kind, key, detail)
+				return nil
 			}
 		}
+		isNew = true
 		floor, err := readAckFloor(directory)
 		if err != nil {
 			return err
@@ -50,7 +60,7 @@ func AppendOnce(directory, identity, kind, key, detail string) (Record, error) {
 		record = Record{Seq: next, Time: time.Now().UTC(), Kind: kind, Key: key, Detail: detail, Once: identity}
 		return writeQueue(directory, append(records, record))
 	})
-	return record, err
+	return record, isNew && err == nil, err
 }
 
 func sameNotice(record Record, identity, kind, key, detail string) error {

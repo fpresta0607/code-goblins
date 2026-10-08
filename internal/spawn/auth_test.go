@@ -157,8 +157,8 @@ func TestSpawnStartsAGoblinWithNoBillingKeyWhenAProjectDeclaresNothing(t *testin
 // writes only at harness start are reserved all the same.
 func TestSpawnKeepsTheLaunchContractOverItsCredentials(t *testing.T) {
 	for name, env := range map[string]map[string]string{
-		"exact names":     {"GOTMPDIR": `C:\hijacked`, "CFO_STATE_OVERRIDE": `C:\hijacked`, "FIXTURE_TOKEN": "t0ken"},
-		"case-aliased":    {"gotmpdir": `C:\hijacked`, "cfo_state_override": `C:\hijacked`, "FIXTURE_TOKEN": "t0ken"},
+		"exact names":     {"GOTMPDIR": `C:\hijacked`, "CFO_HOME": `C:\hijacked`, "CFO_STATE_OVERRIDE": `C:\hijacked`, "FIXTURE_TOKEN": "t0ken"},
+		"case-aliased":    {"gotmpdir": `C:\hijacked`, "cfo_home": `C:\hijacked`, "cfo_state_override": `C:\hijacked`, "FIXTURE_TOKEN": "t0ken"},
 		"the goblin role": {"Cfo_Role": "cfo", "FIXTURE_TOKEN": "t0ken"},
 		"the task's own":  {"cfo_task_id": "another-task", "FIXTURE_TOKEN": "t0ken"},
 	} {
@@ -173,7 +173,8 @@ func TestSpawnKeepsTheLaunchContractOverItsCredentials(t *testing.T) {
 			}
 			started := named(f.events(t), "env")[0].Env
 			for variable, want := range map[string]string{
-				"GOTMPDIR":           goTmpDir(t, f.stateDir, result.Meta.ID),
+				"GOTMPDIR":           taskScratch(f.stateDir, result.Meta.ID),
+				"CFO_HOME":           filepath.Dir(f.stateDir),
 				"CFO_STATE_OVERRIDE": f.stateDir,
 				"CFO_ROLE":           harness.RoleGoblin,
 				"CFO_TASK_ID":        "task-7",
@@ -275,7 +276,7 @@ func TestSpawnCarriesTheSharedCachesInTheGoblinsEnvironment(t *testing.T) {
 	if got := started["UV_CACHE_DIR"]; got == nil || *got != `C:\cfo\caches\uv` {
 		t.Errorf("the goblin started with UV_CACHE_DIR = %v, want the shared uv cache", got)
 	}
-	if got := started["GOTMPDIR"]; got == nil || *got != goTmpDir(t, f.stateDir, result.Meta.ID) {
+	if got := started["GOTMPDIR"]; got == nil || *got != taskScratch(f.stateDir, result.Meta.ID) {
 		t.Errorf("the goblin started with GOTMPDIR = %v, want the task's own", got)
 	}
 }

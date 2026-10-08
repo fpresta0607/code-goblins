@@ -13,6 +13,8 @@ import "../../src/styles.css";
 // narrow screen's nested list. Report and Watch start watching the effects
 // afresh; Follow up reports again and keeps the watch already running.
 const mode = location.hash.slice(1);
+// The canvas's clock, which this fixture's tree-less goblins never read.
+const FIXED_NOW = Date.parse("2026-10-01T12:00:00Z");
 const session = (id: string, role: string, parent: string, task: string) => ({ id, native_id: id, harness: "codex", role, task_id: task, generation: "1", parent, relation: parent ? "Spawned" : "", phase: "working" });
 const base = {
   healthy: true, instance: "fixture",
@@ -41,8 +43,8 @@ function PulseEnd() {
     <button onClick={watch}>Watch</button>
     <div id="effects" style={{ height: 900, display: "flex", flexDirection: "column" }}>
       {mode.startsWith("compact-")
-        ? <Lineage snapshot={snapshot} project="" selected={null} effects={effects} presentations={[]} onSelect={() => {}} />
-        : <Orchestration snapshot={snapshot} selected="" connected effects={effects} presentations={[]} onSelect={() => {}} />}
+        ? <Lineage snapshot={snapshot} project="" selected={null} effects={effects} presentations={[]} now={FIXED_NOW} onSelect={() => {}} />
+        : <Orchestration snapshot={snapshot} selected="" connected effects={effects} presentations={[]} now={FIXED_NOW} onSelect={() => {}} />}
     </div>
   </main>;
 }

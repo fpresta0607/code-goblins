@@ -1,7 +1,8 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { freeGigabytes, holdersLine, memoryBlock, meterScale, meterState, nextChip, poolWarning, refusalStands, startBlock, startOutcome, tighter } from "./start.ts";
-import { parseSnapshot, type Memory, type Snapshot, type Task } from "./types.ts";
+import { diskBlock, diskScale, diskState, freeGigabytes, holdersLine, memoryBlock, meterScale, meterState, nextChip, nextInOrder, poolWarning, queueBlock, scheduleLine, startBlock, startOrder, startOutcome, tighter } from "./start.ts";
+import { nodeStatus } from "./workflow.ts";
+import { parseSnapshot, type Disk, type Memory, type Snapshot, type Task } from "./types.ts";
 
 const GB = 2 ** 30;
 // memory is a machine with available GB of memory and, unless given, ample
@@ -9,12 +10,28 @@ const GB = 2 ** 30;
 const memory = (available: number, commit = 40): Memory => ({ available: available * GB, total: 32 * GB, commit_available: commit * GB, commit_limit: 48 * GB, paged_pool: 0.5 * GB, nonpaged_pool: 0.3 * GB, floor: 4 * GB, next: 5 * GB, holders: [] });
 const task = (changes: Partial<Task> = {}) => parseSnapshot({ healthy: true, tasks: [{ id: "next-task", phase: "queued", brief: true, starting: false, start_error: "", verified: false, ...changes }] }).tasks[0];
 
-test("the meter says when the CFO starts the next task, and never that one starts by itself", () => {
-  assert.deepEqual(meterState(memory(5.2)), { tone: "ready", text: "Enough memory: the CFO starts the next task." });
-  assert.deepEqual(meterState(memory(4)), { tone: "waiting", text: "The CFO starts the next task at 5 GB free." });
-  assert.deepEqual(meterState(memory(4.99)), { tone: "waiting", text: "The CFO starts the next task at 5 GB free." });
-  assert.deepEqual(meterState(memory(5)), { tone: "ready", text: "Enough memory: the CFO starts the next task." });
+test("the meter says when the next task starts", () => {
+  assert.deepEqual(meterState(memory(5.2)), { tone: "ready", text: "Enough memory for the next task" });
+  assert.deepEqual(meterState(memory(4)), { tone: "waiting", text: "The next task starts at 5 GB free." });
+  assert.deepEqual(meterState(memory(4.99)), { tone: "waiting", text: "The next task starts at 5 GB free." });
+  assert.deepEqual(meterState(memory(5)), { tone: "ready", text: "Enough memory for the next task" });
   assert.deepEqual(meterState(memory(3.99)), { tone: "under", text: "Under the 4 GB floor: nothing starts until memory frees." });
+});
+
+test("with memory free the meter names what the supervisor started or resumed, or why nothing waiting started", () => {
+  // Arrange
+  const scheduled = (text: string) => parseSnapshot({ healthy: true, scheduling: { at: "2026-10-07T12:00:00Z", text, waiting: [{ id: "next-task", why: "its last start failed: refused" }] } }).scheduling;
+  const failed = scheduled("nothing starts: next-task: its last start failed: refused");
+
+  // Act and assert
+  assert.deepEqual(meterState(memory(8), scheduled("starting next-task")), { tone: "ready", text: "Enough memory: starting next-task" });
+  assert.deepEqual(meterState(memory(8), failed), { tone: "ready", text: "Enough memory: nothing starts: next-task: its last start failed: refused" });
+  assert.deepEqual(meterState(memory(4.5), scheduled("starting next-task")), { tone: "waiting", text: "The next task starts at 5 GB free." }, "a reading with memory short says nothing of the last one with memory free");
+  assert.equal(scheduleLine(memory(8), scheduled("resuming paused-task")), "Resuming paused-task");
+  assert.equal(scheduleLine(memory(8), failed), "Nothing starts: next-task: its last start failed: refused");
+  assert.equal(scheduleLine(memory(4.5), failed), "");
+  assert.equal(scheduleLine(memory(8), null), "");
+  assert.deepEqual(failed?.waiting, [{ id: "next-task", why: "its last start failed: refused" }]);
 });
 
 test("the memory bar spans twice the start mark, so the floor and start marks sit apart and a full bar means the next task starts", () => {
@@ -28,7 +45,7 @@ test("commit the machine does not report is unknown, not zero, so the meter show
   const unreported = { ...memory(7.5), commit_available: 0, commit_limit: 0 };
   assert.deepEqual(tighter(unreported), { isCommit: false, free: 7.5 * GB, total: 32 * GB });
   assert.deepEqual(meterScale(unreported), { fill: 75, floor: 40, next: 50 });
-  assert.deepEqual(meterState(unreported), { tone: "ready", text: "Enough memory: the CFO starts the next task." });
+  assert.deepEqual(meterState(unreported), { tone: "ready", text: "Enough memory for the next task" });
   assert.equal(memoryBlock(unreported), "");
   assert.equal(tighter(memory(7.5, 0)).isCommit, true, "commit that is reported and used up is still the tighter");
 });
@@ -43,6 +60,18 @@ test("Start is offered while a queued task can start, and otherwise says why not
   assert.equal(startBlock(task({ starting: true }), memory(5), true), "Starting", "its own start in flight");
 });
 
+test("a queued task that already finished offers no Start, and its card says so and why", () => {
+  // Arrange
+  const why = "Already finished: its last report was done (2026-10-06 11:59Z: done: PR 9); it never starts again by itself. Move its row to ## Done, or queue new work under a new id";
+  const finished = task({ finished: why });
+
+  // Act and assert
+  assert.equal(queueBlock(finished), why);
+  assert.equal(startBlock(finished, memory(9), false), why);
+  assert.equal(nodeStatus({ id: finished.id, title: finished.id, task: finished, relation: "" }), "Already finished");
+  assert.equal(queueBlock(task()), "", "work nothing says finished still starts");
+});
+
 test("free memory rounds down, so just under the floor or start mark never reads as ready", () => {
   assert.equal(freeGigabytes(3.97 * GB), "3.9");
   assert.equal(freeGigabytes(4 * GB), "4.0");
@@ -52,7 +81,7 @@ test("free memory rounds down, so just under the floor or start mark never reads
 
 test("the next eligible task waits for 5 GB when memory is short", () => {
   assert.equal(nextChip(memory(5)), "Next up");
-  assert.equal(nextChip(memory(4.2)), "Next, at 5 GB free");
+  assert.equal(nextChip(memory(4.2)), "Next at 5 GB");
   assert.equal(nextChip(null), "Next up");
 });
 
@@ -74,7 +103,7 @@ test("Start, Resume and the next task name commit when it is the one short, and 
   assert.equal(memoryBlock(memory(4.9, 2.5)), "5 GB of commit free to keep the 4 GB floor", "both short names the tighter");
   assert.equal(memoryBlock(memory(5, 5)), "");
   assert.equal(memoryBlock(null), "");
-  assert.equal(nextChip(memory(16, 4.2)), "Next, at 5 GB free");
+  assert.equal(nextChip(memory(16, 4.2)), "Next at 5 GB");
   assert.equal(nextChip(memory(5, 5)), "Next up");
 });
 
@@ -85,9 +114,9 @@ test("the meter names the apps holding the most commit only while commit is the 
   assert.equal(holdersLine(memory(3.4, 2.5)), "", "no holders read, no line");
 });
 
-test("a paged pool past 4 GB warns that a driver is leaking and a reboot frees it", () => {
+test("a paged pool past 4 GB says Windows holds it and a restart frees it", () => {
   assert.equal(poolWarning({ ...memory(7), paged_pool: 4 * GB }), "");
-  assert.equal(poolWarning({ ...memory(7), paged_pool: 15.6 * GB }), "Paged pool 15.6 GB: a driver is leaking memory; a reboot frees it.");
+  assert.equal(poolWarning({ ...memory(7), paged_pool: 15.6 * GB }), "Paged pool 15.6 GB: Windows holds this in its kernel paged pool, where no goblin can use it. Restarting the PC frees it.");
   assert.match(poolWarning({ ...memory(7), paged_pool: 4 * GB + 1 }), /^Paged pool/);
 });
 
@@ -126,24 +155,110 @@ test("an accepted Start opens its goblin once its session is up, stops on a fail
   }
 });
 
-test("a passing refusal lapses once a newer snapshot shows Start no longer blocked, and a standing one stays", () => {
+// On 2026-10-07 the board refused a Start with "No free slot: 8 of 8 goblins
+// live" while 9 GB was free. Memory alone says whether a Start can run.
+test("a Start goes by memory alone", () => {
   // Arrange
-  const passing = { reason: "next-task is starting; start another once it is up", revision: 12, passing: true };
-  const standing = { reason: "The brief for next-task names no project", revision: 12, passing: false };
-  const cases: [string, typeof passing, number, string, boolean][] = [
-    ["a passing refusal, in the snapshot it arrived at", passing, 12, "", true],
-    ["a passing refusal, in an older snapshot", passing, 11, "", true],
-    ["a passing refusal, in a newer snapshot that still blocks it", passing, 13, "Another task is starting", true],
-    ["a passing refusal, in a newer snapshot in which it can start", passing, 13, "", false],
-    ["a standing refusal, in a newer snapshot in which it can start", standing, 13, "", true],
-    ["a standing refusal, many snapshots later", standing, 40, "", true],
+  const cases: [string, Memory | null, string][] = [
+    ["9 GB free", memory(9), ""],
+    ["30 GB free", memory(30), ""],
+    ["under the next-start mark", memory(4.5), "Needs 5 GB free to keep the 4 GB floor"],
+    ["a board that reads no memory", null, ""],
   ];
 
-  for (const [name, refusal, revision, blocked, want] of cases) {
+  for (const [name, machine, want] of cases) {
     // Act
-    const stands = refusalStands(refusal, { revision, tasks: [task()] } as Snapshot, blocked);
+    const blocked = startBlock(task(), machine, false);
 
     // Assert
-    assert.equal(stands, want, name);
+    assert.equal(blocked, want, name);
   }
+});
+
+test("Next sits on the card the supervisor's order for a free slot takes first", () => {
+  // Arrange
+  const now = Date.parse("2026-10-06T12:00:00Z");
+  const paused = (id: string, reason: string, until: string, at: string) => ({ id, phase: "paused", generation: id + "-1", verified: false,
+    lifecycle: { phase: "paused", action: "pause", at, kept: [], stopped: [], problems: [], handoff_saved: true, validation_restarts: false, pause: { reason, until, at } } });
+  const queued = (id: string, fields: Record<string, unknown> = {}) => ({ id, phase: "queued", brief: true, verified: false, ...fields });
+  const board = (machine: Memory, tasks: Record<string, unknown>[]) => parseSnapshot({ healthy: true, memory: machine, tasks });
+  const cases: [string, Snapshot, ReturnType<typeof nextInOrder>][] = [
+    ["only the queue", board(memory(9), [queued("first"), queued("second")]), { id: "first", text: "Next up", tone: "" }],
+    ["the queue while memory is short", board(memory(4.2), [queued("first")]), { id: "first", text: "Next at 5 GB", tone: "waiting" }],
+    ["a queued task waiting on another goblin is passed over", board(memory(9), [queued("held", { dependencies: ["other"] }), queued("free")]), { id: "free", text: "Next up", tone: "" }],
+    ["a queued task that already finished is passed over", board(memory(9), [queued("done", { finished: "Already finished: its last report was done" }), queued("free")]), { id: "free", text: "Next up", tone: "" }],
+    ["a queued task whose last start failed waits for its Start and is passed over", board(memory(9), [queued("failed", { start_error: "spawn: project missing" }), queued("free")]), { id: "free", text: "Next up", tone: "" }],
+    ["a goblin paused for memory resumes before the queue", board(memory(4.2), [queued("first"), paused("later", "memory", "", "2026-10-06T11:00:00Z"), paused("older", "memory", "", "2026-10-06T10:00:00Z")]), { id: "older", text: "Next up", tone: "waiting" }],
+    ["an allowance whose reset passed counts as cleared", board(memory(9), [queued("first"), paused("reset", "allowance", "2026-10-06T11:59:00Z", "2026-10-05T10:00:00Z")]), { id: "reset", text: "Next up", tone: "" }],
+    ["an allowance not yet reset holds no slot", board(memory(9), [queued("first"), paused("later", "allowance", "2026-10-06T13:00:00Z", "2026-10-05T10:00:00Z")]), { id: "first", text: "Next up", tone: "" }],
+    ["a goblin blocked on a date does not stop the queue", board(memory(9), [queued("first"), paused("dated", "dependency", "date:2026-10-07T09:00:00Z", "2026-10-05T10:00:00Z")]), { id: "first", text: "Next up", tone: "" }],
+    ["a goblin waiting on the Overlord never holds Next", board(memory(9), [queued("first"), paused("his", "overlord", "", "2026-10-05T10:00:00Z"), paused("asks", "question", "q-1", "2026-10-05T10:00:00Z")]), { id: "first", text: "Next up", tone: "" }],
+    ["a reported production defect jumps paused goblins and the queue", board(memory(9), [queued("first"), queued("urgent", { priority: "production-defect" }), paused("older", "memory", "", "2026-10-06T10:00:00Z")]), { id: "urgent", text: "Production defect: jumps the queue", tone: "defect" }],
+    ["a helper paused with its parent resumes once its parent runs again", board(memory(9), [queued("first"), { id: "parent", phase: "working", generation: "parent-1", verified: false }, { ...paused("helper", "overlord", "", "2026-10-05T10:00:00Z"), parent: "parent", lifecycle: { ...paused("helper", "overlord", "", "2026-10-05T10:00:00Z").lifecycle, with_parent: true } }]), { id: "helper", text: "Next up", tone: "" }],
+    ["a helper paused with its parent waits while its parent is paused", board(memory(9), [queued("first"), paused("parent", "overlord", "", "2026-10-05T10:00:00Z"), { ...paused("helper", "overlord", "", "2026-10-05T10:00:00Z"), parent: "parent", lifecycle: { ...paused("helper", "overlord", "", "2026-10-05T10:00:00Z").lifecycle, with_parent: true } }]), { id: "first", text: "Next up", tone: "" }],
+    ["nothing to start", board(memory(9), []), null],
+  ];
+
+  for (const [name, snapshot, want] of cases) {
+    // Act
+    const next = nextInOrder(snapshot, now);
+
+    // Assert
+    assert.deepEqual(next, want, name);
+  }
+});
+
+// The Overlord, 2026-10-07: "for priority next up should be at the top of
+// the column the positional should align with priority".
+test("the Tasks column runs in start order: Next up first, then what can start, then what is held", () => {
+  // Arrange
+  const queued = (id: string, fields: Record<string, unknown> = {}) => ({ id, phase: "queued", brief: true, verified: false, ...fields });
+  const board = (tasks: Record<string, unknown>[]) => parseSnapshot({ healthy: true, memory: memory(9), tasks });
+  const cases: [string, Snapshot, string[]][] = [
+    ["the queue's order when everything can start", board([queued("a"), queued("b"), queued("c")]), ["a", "b", "c"]],
+    ["a row blocked by time sits under every row that can start", board([queued("timed", { dependencies: ["time"], reason: "blocked-by: time" }), queued("free"), queued("also-free")]), ["free", "also-free", "timed"]],
+    ["a row that already finished and one whose start failed sit under the rest", board([queued("done", { finished: "Already finished" }), queued("failed", { start_error: "spawn: project missing" }), queued("free")]), ["free", "done", "failed"]],
+    ["a reported production defect is first", board([queued("first"), queued("urgent", { priority: "production-defect" })]), ["urgent", "first"]],
+    ["a held production defect stays with the held", board([queued("first"), queued("urgent", { priority: "production-defect", dependencies: ["other"] })]), ["first", "urgent"]],
+    ["nothing queued", board([]), []],
+  ];
+
+  for (const [name, snapshot, want] of cases) {
+    // Act
+    const order = startOrder(snapshot).map((task) => task.id);
+
+    // Assert
+    assert.deepEqual(order, want, name);
+    const next = nextInOrder(snapshot, Date.parse("2026-10-06T12:00:00Z"));
+    if (next) assert.equal(next.id, order[0], name + ": Next up is the first row");
+  }
+});
+
+// disk is a drive with free GB of 900 free, the fleet's 15 GB floor and 10 GB mark.
+const disk = (free: number): Disk => ({ drive: "C:", free: free * GB, total: 900 * GB, floor: 15 * GB, wake: 10 * GB });
+
+test("the disk meter says when no goblin starts and when the CFO is woken", () => {
+  assert.equal(diskState(disk(48)).tone, "ready");
+  assert.deepEqual(diskState(disk(14.9)), { tone: "waiting", text: "Under the 15 GB floor: no goblin or gate test run starts until disk frees." });
+  assert.equal(diskState(disk(15)).tone, "ready");
+  assert.deepEqual(diskState(disk(9.9)), { tone: "under", text: "Under the 10 GB mark: the CFO is woken, and nothing starts until disk frees." });
+});
+
+test("the disk bar spans twice the floor, with the mark and the floor inside it", () => {
+  assert.deepEqual(diskScale(disk(12)), { fill: 40, wake: 10 / 30 * 100, floor: 50 });
+  assert.deepEqual(diskScale(disk(400)), { fill: 100, wake: 10 / 30 * 100, floor: 50 });
+  assert.deepEqual(diskScale({ ...disk(5), total: 20 * GB }), { fill: 25, wake: 50, floor: 75 }, "a drive smaller than that spans its own size");
+});
+
+test("a start under the disk floor names the floor and the free disk", () => {
+  assert.equal(diskBlock(null), "");
+  assert.equal(diskBlock(disk(20)), "");
+  assert.equal(diskBlock(disk(13.85)), "15 GB of free disk (13.8 GB free)");
+  assert.equal(startBlock(task(), memory(8), false, disk(13.85)), "Needs 15 GB of free disk (13.8 GB free)");
+  assert.equal(startBlock(task(), memory(8), false, disk(30)), "");
+});
+
+test("a snapshot carries the disk reading, and none when the board cannot read it", () => {
+  assert.deepEqual(parseSnapshot({ healthy: true, disk: { drive: "C:", free: 1, total: 2, floor: 3, wake: 4 } }).disk, { drive: "C:", free: 1, total: 2, floor: 3, wake: 4 });
+  assert.equal(parseSnapshot({ healthy: true }).disk, null);
 });

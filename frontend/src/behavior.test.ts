@@ -4,7 +4,10 @@ import { changeSummary, dragRange, isDrag, parsePatchToRows, splitRows, reviewRa
 import { lineageRoots, ownsTaskSession, sessionModel, projectSessions, tasksWithoutSession, sessionTitle } from "./lineageTree.ts";
 import { alreadyKnown, deliveryMark, runMark, submissionFor } from "./feedback.ts";
 import { parseAction, parseSnapshot, decisionText } from "./types.ts";
-import { arrange, settle, waitingOn, workflowNodes, taskColumn, personaFor, nodeStatus, nativeStatus, statusText, asksOverlord, waitingTarget, pullRequestBadge, pullRequestIcon, pullRequestLabel, safePullRequest, fleetTraffic, reportTraffic, expireTraffic, fitScale, CFO_ROOT, NODE_WIDTH, NODE_HEIGHT } from "./workflow.ts";
+import { arrange, settle, waitingOn, workflowNodes, taskColumn, personaFor, nodeStatus, nativeStatus, statusPhase, statusText, asksOverlord, waitingTarget, pullRequestBadge, pullRequestIcon, pullRequestLabel, safePullRequest, fleetTraffic, reportTraffic, expireTraffic, fitScale, zoomAt, MAX_ZOOM, MIN_ZOOM, CFO_ROOT, NODE_WIDTH, NODE_HEIGHT } from "./workflow.ts";
+
+// A canvas of the board's usual shape, wider than it is tall.
+const CANVAS = { width: 1400, height: 900 };
 
 test("board completion and semantic personas require the corresponding evidence", () => {
   const task = parseSnapshot({healthy:true, tasks:[{id:"work",title:"Test keyboard access",phase:"done",generation:"new",verified:false}]}).tasks[0];
@@ -33,7 +36,7 @@ test("arrangement preserves five-level lineage and never invents an orphan paren
     {id:"nested",parent:"child"},{id:"deep",parent:"nested"},{id:"orphan",parent:"missing"},
     {id:"cycle1",parent:"cycle2"},{id:"cycle2",parent:"cycle1"},
   ]});
-  const nodes=workflowNodes(snapshot), positions=arrange(nodes);
+  const nodes=workflowNodes(snapshot), positions=arrange(nodes, CANVAS);
   assert.equal(nodes.find(node=>node.id==="session:orphan")?.parent,undefined);
   assert.equal(Object.keys(positions).length,8);
   assert.ok(positions["session:deep"].y>positions["session:nested"].y);
@@ -213,6 +216,12 @@ test("the board keeps the CFO registration state the supervisor reports", () => 
   assert.equal(parseSnapshot({healthy:true}).registration, "");
 });
 
+test("the board keeps the conversation the CFO could not resume, as the supervisor reports it", () => {
+  const left = "The CFO's conversation a1b2c3d4-session could not be resumed when it came back at 2026-10-03 01:47 UTC, so it started on a new one. That conversation is kept: claude --resume a1b2c3d4-session in the CFO's home opens it by hand.";
+  assert.equal(parseSnapshot({healthy:true, cfo_conversation_left:left}).cfo_conversation_left, left);
+  assert.equal(parseSnapshot({healthy:true}).cfo_conversation_left, "");
+});
+
 test("completed history and fleet statuses read the way the fleet reports them", () => {
   const [live, finished, merged, queued] = parseSnapshot({healthy:true, tasks:[
     {id:"work", phase:"idle", verified:false, activity:"working: gate test step", pr:"https://github.com/o/code-goblins/pull/29"},
@@ -279,7 +288,7 @@ test("dispatched goblins hang under the CFO, and only live work is in the tree",
 
 test("a wide family of goblins wraps into rows that never overlap", () => {
   const nodes = workflowNodes(parseSnapshot({healthy:true, tasks:["a", "b", "c", "d", "e", "f"].map((id) => ({id, phase:"working", verified:false}))}));
-  const positions = arrange(nodes);
+  const positions = arrange(nodes, CANVAS);
   const cards = nodes.filter((node) => node.task).map((node) => positions[node.id]);
   const rows = [...new Set(cards.map((point) => point.y))].sort((a, b) => a - b);
   assert.equal(rows.length, 2);
@@ -306,10 +315,22 @@ const fleet = (count: number, waits: Record<string, string> = {}) => parseSnapsh
 const overlaps = (positions: Record<string, { x: number; y: number }>) => Object.entries(positions).flatMap(([id, one], i, all) => all.slice(i + 1)
   .filter(([, other]) => Math.abs(one.x - other.x) < NODE_WIDTH && Math.abs(one.y - other.y) < NODE_HEIGHT).map(([other]) => id + " and " + other));
 
+test("a family of goblins wraps into the rows that show it largest in the canvas: one in a wide canvas, more in a tall one", () => {
+  const nodes = workflowNodes(fleet(FLEET.length));
+  const rows = (canvas: { width: number; height: number }) => {
+    const positions = arrange(nodes, canvas);
+    return new Set(nodes.filter((node) => node.task).map((node) => positions[node.id].y)).size;
+  };
+  assert.equal(rows({ width: 3200, height: 700 }), 1, "a wide canvas");
+  assert.equal(rows(CANVAS), 2, "the board's usual canvas");
+  assert.ok(rows({ width: 836, height: 956 }) > 2, "his canvas with the CFO panel open: " + rows({ width: 836, height: 956 }) + " rows");
+  assert.equal(rows({ width: 0, height: 0 }), 1, "a canvas not yet measured keeps one row");
+});
+
 test("a goblin waiting on another sits in the row under it, half a card over, and no card covers another", () => {
   for (const count of [3, 5, FLEET.length]) {
     const nodes = workflowNodes(fleet(count, { "cg-board-theme": "cg-cfo-wakes" }));
-    const positions = arrange(nodes, { "task:cg-board-theme": "task:cg-cfo-wakes" });
+    const positions = arrange(nodes, CANVAS, { "task:cg-board-theme": "task:cg-cfo-wakes" });
     const waiting = positions["task:cg-board-theme"], awaited = positions["task:cg-cfo-wakes"];
     assert.equal(waiting.y, awaited.y + 244, count + " goblins: in the row under it");
     assert.equal(Math.abs(waiting.x - awaited.x), (NODE_WIDTH + 44) / 2, count + " goblins: half a card over");
@@ -319,12 +340,12 @@ test("a goblin waiting on another sits in the row under it, half a card over, an
 
 test("a chain or a cycle of waits keeps its places, and only the first link moves under its goblin", () => {
   const nodes = workflowNodes(fleet(FLEET.length));
-  const family = arrange(nodes);
-  const chain = arrange(nodes, { "task:cg-board-theme": "task:cg-cfo-wakes", "task:cg-cfo-wakes": "task:cg-hidden-windows" });
+  const family = arrange(nodes, CANVAS);
+  const chain = arrange(nodes, CANVAS, { "task:cg-board-theme": "task:cg-cfo-wakes", "task:cg-cfo-wakes": "task:cg-hidden-windows" });
   assert.equal(chain["task:cg-cfo-wakes"].y, chain["task:cg-hidden-windows"].y + 244);
   assert.ok([...new Set(Object.values(family).map((point) => point.y))].includes(chain["task:cg-board-theme"].y), "the waiting end of a chain stays in a family row");
   assert.deepEqual(overlaps(chain), []);
-  const cycle = arrange(nodes, { "task:cg-board-theme": "task:cg-cfo-wakes", "task:cg-cfo-wakes": "task:cg-board-theme" });
+  const cycle = arrange(nodes, CANVAS, { "task:cg-board-theme": "task:cg-cfo-wakes", "task:cg-cfo-wakes": "task:cg-board-theme" });
   assert.deepEqual(cycle, family);
 });
 
@@ -334,7 +355,7 @@ test("the dashed line's goblins are the waiting one and the one it waits on, on 
 });
 
 test("no card covers another, whatever the Overlord placed by hand", () => {
-  const arranged = arrange(workflowNodes(fleet(FLEET.length)));
+  const arranged = arrange(workflowNodes(fleet(FLEET.length)), CANVAS);
   assert.notDeepEqual(overlaps({ ...arranged, ...PLACED_BY_HAND }), [], "his placed card covers an arranged one");
   const shown = settle(arranged, PLACED_BY_HAND);
   assert.deepEqual(overlaps(shown), []);
@@ -342,6 +363,17 @@ test("no card covers another, whatever the Overlord placed by hand", () => {
   assert.notDeepEqual(shown["task:pd-connect-quickstart"], arranged["task:pd-connect-quickstart"], "the covered card moves");
   assert.deepEqual(shown["task:cg-cfo-wakes"], arranged["task:cg-cfo-wakes"], "a card nothing covers keeps its place");
   assert.deepEqual(settle(arranged, {}), arranged);
+});
+
+test("a goblin arranged under the one it waits on stays under it when a card the Overlord placed takes its place, whatever the canvas", () => {
+  const snapshot = fleet(FLEET.length, { "cg-board-theme": "cg-cfo-wakes" });
+  const nodes = workflowNodes(snapshot), waits = waitingOn(snapshot, nodes);
+  for (const canvas of [CANVAS, { width: 900, height: 700 }, { width: 836, height: 956 }, { width: 390, height: 844 }]) {
+    const shown = settle(arrange(nodes, canvas, waits), PLACED_BY_HAND, {}, waits);
+    const waiting = shown["task:cg-board-theme"], awaited = shown["task:cg-cfo-wakes"];
+    assert.ok(waiting.y > awaited.y && Math.abs(waiting.x - awaited.x) < NODE_WIDTH, `${canvas.width} by ${canvas.height}: ${JSON.stringify({ waiting, awaited })}`);
+    assert.deepEqual(overlaps(shown), [], `${canvas.width} by ${canvas.height}`);
+  }
 });
 
 test("a connector pulses only when a goblin reports something new", () => {
@@ -404,7 +436,7 @@ test("a goblin waiting on a question says who it is waiting on", () => {
     {id:"cfo-question", identity:"c", task:"", status:"pending", options:["A"]},
   ]});
   const [asks, cfo, stuck] = snapshot.tasks;
-  assert.equal(asksOverlord(snapshot, "asks"), true);
+  assert.equal(asksOverlord(snapshot, "asks"), false, "a goblin's question is the CFO's to answer");
   assert.equal(asksOverlord(snapshot, "stuck"), false, "an answered question no longer waits on the Overlord");
   assert.equal(asksOverlord(snapshot, ""), false, "the CFO's own question belongs to no goblin");
   assert.equal(nodeStatus({id:"a", title:"", task:asks, relation:""}, true), "Waiting on the CFO", "a goblin's question reaches the Overlord through the CFO");
@@ -423,8 +455,7 @@ test("delivery reads as a mark, and only trouble spells itself out", () => {
   // handed to the CFO, so only the review item's delivered flag earns two checks.
   assert.deepEqual(mark("succeeded", "review_answer"), { icon: "check", label: "Sent to the goblin or the CFO", trouble: false });
   assert.deepEqual(mark("running", "review"), { icon: "check", label: "Sending", trouble: false });
-  // A queued answer is on its way; "Queued" read as stuck.
-  assert.deepEqual(mark("queued", "review"), { icon: "check", label: "Sending", trouble: false });
+  assert.deepEqual(mark("queued", "review"), { icon: "check", label: "Queued", trouble: false });
   assert.deepEqual(mark("failed", "review"), { icon: "close", label: "Could not deliver", trouble: true });
   assert.deepEqual(mark("uncertain", "review"), { icon: "warning", label: "Not confirmed. Check the CFO's terminal before sending it again.", trouble: true });
   assert.deepEqual(mark("uncertain", "feedback"), { icon: "warning", label: "Not confirmed. Check the goblin's terminal before sending it again.", trouble: true });
@@ -436,13 +467,13 @@ test("delivery reads as a mark, and only trouble spells itself out", () => {
 // unconfirmed ... I get these command center blips and errors, fix".
 test("an answer typed for a busy CFO reads sent, then delivered, and warns only in words that say what to do", () => {
   // Arrange
-  const sent = "Sent. The CFO reads it when its current turn ends.";
+  const sent = "Sent. The CFO takes it at its next tool call, or as its current turn ends.";
   const advice = "Your answer was typed for the CFO, which has not picked it up. Open its terminal and press Enter if your answer is waiting in its box; if it is not there, type it to the CFO.";
   const answer = (fields: Record<string, unknown>) => deliveryMark(parseAction({ id: "a", kind: "cfo_answer", ...fields }));
 
   // Act
   const waiting = answer({ status: "running", message: sent, awaiting: { host: "cfo", since: "2026-10-01T16:54:54Z" } });
-  const delivered = answer({ status: "succeeded", message: "Taken by the CFO in its terminal, as its hook reported." });
+  const delivered = answer({ status: "succeeded", message: "Taken by the CFO, as its own record of the conversation shows." });
   const lost = answer({ status: "uncertain", message: advice, advice });
 
   // Assert
@@ -451,16 +482,28 @@ test("an answer typed for a busy CFO reads sent, then delivered, and warns only 
   assert.deepEqual(lost, { icon: "warning", label: advice, trouble: true });
 });
 
-test("the orchestration graph fills the canvas, capped so cards never get huge", () => {
+test("the orchestration graph fills the canvas, capped so cards never get huge, and shrinks as far as a big tree needs", () => {
   const cases: [number, number, number, number, number][] = [
     [600, 400, 1448, 948, 1.25],
     [1400, 500, 748, 948, .5],
     [700, 900, 1448, 498, .5],
-    [5000, 5000, 548, 548, .35],
+    [2500, 2500, 548, 548, .2],
+    [5000, 5000, 548, 548, .1],
+    [10000, 10000, 548, 548, .1],
     [800, 600, 0, 0, 1],
   ];
   for (const [graphWidth, graphHeight, canvasWidth, canvasHeight, scale] of cases) {
     assert.equal(fitScale({ width: graphWidth, height: graphHeight }, { width: canvasWidth, height: canvasHeight }), scale, graphWidth + "x" + graphHeight + " in " + canvasWidth + "x" + canvasHeight);
+  }
+});
+
+test("zooming keeps the point under the pointer where it is, within the zoom range", () => {
+  const view = { scale: .5, x: 100, y: 40 }, pointer = { x: 300, y: 240 };
+  const under = (shown: typeof view) => ({ x: (pointer.x - shown.x) / shown.scale, y: (pointer.y - shown.y) / shown.scale });
+  for (const [scale, shown] of [[1, 1], [.25, .25], [1.5, 1.5], [4, MAX_ZOOM], [.01, MIN_ZOOM]]) {
+    const next = zoomAt(view, scale, pointer);
+    assert.equal(next.scale, shown, "zoomed to " + scale);
+    assert.ok(Math.abs(under(next).x - under(view).x) < 1e-9 && Math.abs(under(next).y - under(view).y) < 1e-9, "the point under the pointer moved at " + scale);
   }
 });
 
@@ -535,20 +578,92 @@ test("a waiting goblin says what it waits on, and only a wait on the Overlord re
   assert.equal(statusText("waiting"), "Waiting");
 });
 
-test("a run item states its progress in plain words with its exit code", () => {
+test("a goblin's command the goblin moved past reads withdrawn, without naming the CFO", () => {
+  // Arrange
   const snapshot = parseSnapshot({ healthy: true, runs: [
-    { id: "a", identity: "cfo-1", title: "Rebuild the index", shell: "pwsh", admin: false, command: "Get-Date", cwd: "C:\\work", state: "ready" },
+    { id: "run-billing-7", task: "billing", state: "withdrawn", reason: "billing reported again: working: pushing without it" },
+    { id: "install-main", state: "withdrawn", reason: "the candidate binary is gone" },
+  ] });
+
+  // Act
+  const labels = (snapshot.runs ?? []).map((run) => runMark(run).label);
+
+  // Assert
+  assert.deepEqual(labels, ["Withdrawn", "Withdrawn by the CFO"]);
+  assert.deepEqual((snapshot.runs ?? []).map((run) => [run.task, run.terminal]), [["billing", false], ["", false]]);
+});
+
+// The Overlord, 2026-10-08: "instead of finished exit zero, just have the
+// same complete notification ... it's not really user friendly". A command
+// that ends cleanly is Complete, and a failure is a plain sentence: the last
+// line the command printed, or why it never finished.
+test("a run item states its progress in plain words, never its exit code", () => {
+  const snapshot = parseSnapshot({ healthy: true, runs: [
+    { id: "a", identity: "cfo-1", title: "Rebuild the index", shell: "pwsh", admin: false, command: "Get-Date", cwd: "C:\\work", state: "ready", terminal: true },
     { id: "b", state: "running" },
-    { id: "c", state: "succeeded", exit_code: 0 },
-    { id: "d", state: "failed", exit_code: 2, reason: "The command exited with 2." },
-    { id: "e", state: "failed", reason: "Windows asked to confirm and it was declined." },
+    { id: "c", state: "succeeded", exit_code: 0, output: "Published v0.5.2\n" },
+    { id: "d", state: "failed", exit_code: 2, output: "Uploading assets\r\ngh: release v0.5.2 already exists\r\n\r\n" },
+    { id: "e", state: "failed", reason: "Windows did not start it elevated: The operation was canceled by the user." },
     { id: "f", state: "expired", reason: "It waited more than 24 hours." },
     { id: "g", state: "withdrawn", reason: "the candidate binary is gone" },
+    { id: "h", state: "failed", exit_code: 1, output: "" },
+    { id: "i", state: "stopped", reason: "the Overlord stopped it" },
   ] });
   const runs = snapshot.runs ?? [];
   assert.equal(runs[0].command, "Get-Date");
   assert.equal(runs[0].exit_code, null);
-  const cases: [string, string, boolean][] = [["Ready to run", "play", false], ["Running", "clock", false], ["Finished · exit 0", "check", false],
-    ["Failed · exit 2", "warning", true], ["Failed", "warning", true], ["Expired", "close", false], ["Withdrawn by the CFO", "close", false]];
+  assert.equal(runs[0].terminal, true);
+  const cases: [string, string, boolean][] = [["Ready to run", "play", false], ["Running", "clock", false], ["Complete", "check", false],
+    ["Failed: gh: release v0.5.2 already exists", "warning", true], ["Failed: Windows did not start it elevated: The operation was canceled by the user.", "warning", true],
+    ["Expired", "close", false], ["Withdrawn by the CFO", "close", false], ["Failed: it exited with code 1", "warning", true], ["Stopped", "stop-circle", false]];
   cases.forEach(([label, icon, trouble], index) => assert.deepEqual(runMark(runs[index]), { icon, label, trouble }, runs[index].id));
+});
+
+// A pause or stop that did not finish is the task's status, but never drawn as
+// the goblin failing: the CFO or the Overlord asked for it, and the CFO hears
+// of it (the Overlord, 2026-10-07: a pause or retirement the CFO asked for is
+// never shown as a failure). A goblin that did not start again is.
+test("an action that did not finish is the task's one status, and in-flight work wins over it", () => {
+  const failed = (action: string, phase = "working") => parseSnapshot({ healthy: true, tasks: [{ id: "a", title: "A; Claude Code", phase, generation: "s1", verified: false,
+    lifecycle: { phase: "failed", action, at: "2026-10-05T16:30:06Z", kept: [], stopped: [], problems: ["context deadline exceeded"], handoff_saved: false, validation_restarts: false } }] }).tasks[0];
+  const cases: [string, ReturnType<typeof failed>, string, string][] = [
+    ["a pause that ran out of time, whose goblin still reports working", failed("pause"), "Pause did not finish", "pausing"],
+    ["a pause that ran out of time on a goblin read as failed", failed("pause", "failed"), "Pause did not finish", "pausing"],
+    ["a resume that failed", failed("resume", "unavailable"), "Resume failed", "failed"],
+    ["a stop that did not finish", failed("stop"), "Stop did not finish", "stopping"],
+    ["a new pause under way", failed("pause", "pausing"), "Pausing", "pausing"],
+  ];
+  for (const [name, task, status, phase] of cases) {
+    assert.equal(nodeStatus({ id: "a", title: "", task, relation: "" }), status, name);
+    assert.equal(statusPhase(task), phase, name);
+  }
+  assert.equal(sessionTitle({ ...parseSnapshot({ healthy: true, sessions: [{ id: "n", role: "goblin", task_id: "a" }] }).sessions[0] }, failed("pause")), "A");
+  assert.equal(workflowNodes(parseSnapshot({ healthy: true, tasks: [{ id: "a", title: "A; Codex", phase: "working", generation: "s1", verified: false }] }))[1].title, "A");
+});
+
+test("the canvas calls a named goblin by its name and title, its session or not, and an unnamed one by its task", () => {
+  const snapshot = parseSnapshot({ healthy: true,
+    tasks: [
+      { id: "cg-names", title: "Show goblin names", phase: "working", verified: false, generation: "g1", session: "s1", goblin_name: "Jerry", goblin_title: "Code Designer" },
+      { id: "cg-quiet", title: "Quiet task", phase: "working", verified: false, goblin_name: "Mabel", goblin_title: "Bug Hunter" },
+      { id: "cg-plain", title: "Plain task", phase: "working", verified: false },
+    ],
+    sessions: [{ id: "s1", role: "goblin", task_id: "cg-names", generation: "g1", native_id: "n1", phase: "active" }],
+  });
+  const titles = Object.fromEntries(workflowNodes(snapshot).map((node) => [node.id, node.title]));
+  assert.equal(titles["session:s1"], "Jerry - Code Designer");
+  assert.equal(titles["task:cg-quiet"], "Mabel - Bug Hunter");
+  assert.equal(titles["task:cg-plain"], "Plain task");
+  assert.equal(sessionTitle(snapshot.sessions[0], snapshot.tasks[0]), "Jerry - Code Designer");
+});
+
+test("a goblin waiting on another names it by its goblin name while the board holds it, and by its id once it does not", () => {
+  const snapshot = parseSnapshot({ healthy: true, tasks: [
+    { id: "a", title: "A", phase: "waiting", waiting_on: "b", verified: false },
+    { id: "b", title: "B work", phase: "working", verified: false, goblin_name: "Otis", goblin_title: "Bug Hunter" },
+    { id: "c", title: "C", phase: "waiting", waiting_on: "gone", verified: false },
+  ] });
+  const [a, , c] = snapshot.tasks;
+  assert.equal(nodeStatus({ id: "a", title: "", task: a, relation: "" }, false, snapshot.tasks), "Waiting on Otis - Bug Hunter");
+  assert.equal(nodeStatus({ id: "c", title: "", task: c, relation: "" }, false, snapshot.tasks), "Waiting on gone");
 });

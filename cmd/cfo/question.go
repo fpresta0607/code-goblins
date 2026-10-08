@@ -7,6 +7,7 @@ import (
 	"regexp"
 	"strings"
 
+	"github.com/fpresta0607/code-goblins/internal/afk"
 	"github.com/fpresta0607/code-goblins/internal/supervisor"
 )
 
@@ -29,6 +30,12 @@ func runQuestion(args []string, stdout, stderr io.Writer, runtime commandRuntime
 	if err != nil {
 		fmt.Fprintln(stderr, err)
 		return 1
+	}
+	// AFK mode is complete autopilot: while it is on nothing is asked of the
+	// Overlord, and what only he can do is left for him in the backlog.
+	if switched, err := afk.Read(h.State); err == nil && switched.On {
+		fmt.Fprintln(stderr, "cfo question: AFK mode is on, so nothing is asked of the Overlord. Decide it yourself if its authority covers it. If only he can do it, give it a backlog row in data/backlog.md, log it with cfo afk log --kind left --what \"<what only he can do>\" --evidence \"<why it is his and its backlog row>\", and work around it.")
+		return 2
 	}
 	c := supervisor.CFOConnection{State: h.State}
 	if err := c.PublishQuestion(*id, *text, options, *recommended); err != nil {

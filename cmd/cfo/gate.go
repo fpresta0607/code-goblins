@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"flag"
 	"fmt"
 	"io"
@@ -11,8 +12,12 @@ import (
 	"strings"
 	"time"
 
+	"github.com/fpresta0607/code-goblins/internal/disk"
 	"github.com/fpresta0607/code-goblins/internal/execx"
+	"github.com/fpresta0607/code-goblins/internal/fleetconfig"
 	"github.com/fpresta0607/code-goblins/internal/gatetest"
+	"github.com/fpresta0607/code-goblins/internal/home"
+	"github.com/fpresta0607/code-goblins/internal/pipeline"
 	"github.com/fpresta0607/code-goblins/internal/supervisor"
 	"github.com/fpresta0607/code-goblins/internal/testguard"
 	"github.com/fpresta0607/code-goblins/internal/verify"
@@ -21,7 +26,8 @@ import (
 // runGate runs a check a no-mistakes gate calls from its run worktree.
 // tests-kept exits 1 when the gate's own fix commits deleted or skipped a
 // test, which parks the run with an ask-user finding instead of letting the
-// deletion through unseen. test is the repository's local test step, and
+// deletion through unseen, and leaves out the gate commits a person already
+// let through at an earlier park. test is the repository's local test step, and
 // turns shows which test runs hold the machine's turns and which wait.
 func runGate(args []string, stdout, stderr io.Writer, runtime commandRuntime) int {
 	if len(args) == 0 || !slices.Contains([]string{"tests-kept", "test", "turns"}, args[0]) || (args[0] != "test" && len(args) != 1) {
@@ -41,50 +47,81 @@ func runGate(args []string, stdout, stderr io.Writer, runtime commandRuntime) in
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
 	defer cancel()
-	result, err := testguard.Check(ctx, execx.OSRunner{}, dir)
+	approved, approvalsErr := approvedHeads(ctx)
+	result, err := testguard.Check(ctx, execx.OSRunner{}, dir, approved)
 	if err != nil {
 		fmt.Fprintln(stderr, err)
 		return 2
+	}
+	fmt.Fprintln(stdout, testguard.CheckedLine(result.Head))
+	switch {
+	case approvalsErr != nil:
+		fmt.Fprintf(stdout, "tests kept: approvals given at earlier parks were not read (%v), so every gate commit since the base was read\n", approvalsErr)
+	case result.Approved > 0:
+		fmt.Fprintf(stdout, "tests kept: left out %d gate commit(s) a person already let through at an earlier tests-kept park\n", result.Approved)
 	}
 	if len(result.Removals) == 0 {
 		fmt.Fprintf(stdout, "tests kept: %d gate commit(s) since %.8s checked, and none deleted or skipped a test\n", result.Commits, result.Base)
 		return 0
 	}
-	fmt.Fprintf(stdout, "A gate fix commit deleted or skipped %d test(s), which a gate may do only as an ask-user decision: approve to accept it, or fix to restore them.\n", len(result.Removals))
+	fmt.Fprintf(stdout, "A gate fix commit deleted or skipped %d test(s), which a gate may do only as an ask-user decision: approve to accept it, and later runs leave these commits out, or fix to restore them.\n", len(result.Removals))
 	for _, removal := range result.Removals {
 		fmt.Fprintln(stdout, "- "+removal.String())
 	}
 	return 1
 }
 
+// approvedHeads are the heads of earlier tests-kept parks a person approved
+// or skipped, read from the gate's database, where each park's summary keeps
+// the check's first line. When the database cannot be read the check leaves
+// nothing out, as it did before it read approvals.
+func approvedHeads(ctx context.Context) ([]string, error) {
+	root, err := pipeline.DefaultRoot()
+	if err != nil {
+		return nil, err
+	}
+	summaries, err := pipeline.Reader{Root: root, Commands: execx.OSRunner{}}.ApprovedGateSummaries(ctx)
+	if err != nil {
+		return nil, err
+	}
+	return testguard.ApprovedHeads(summaries), nil
+}
+
 // runGateTest is this repository's local gate test step. It plans what the
 // branch's change requires, prints the plan with why each package is in it,
 // runs go vet and go test at the planned level without the fleet's CFO_HOME
 // and CFO_STATE_OVERRIDE, which a gate step inherits from the goblin's pane,
-// and leaves a report of what it ran. With no --level it runs the level the
-// change requires, the changed packages and the packages that import them
-// directly, or every package once a module file changed, while CI runs every
-// package; --level runs another level and still says what is required, and
-// --plan prints the plan and runs nothing. Every check waits for the run's
-// turn on the machine, and checks that ran past their level's
-// budget do not pass.
+// and leaves a report of what it ran. With no --level it runs the fast level,
+// because CI runs every package on every pull request and so is the check of
+// the level the change requires: the changed packages, the packages that
+// import them directly or transitively and the packages a contract of the
+// policy names for a changed file, or every package once a module file
+// changed or a changed file is one the policy does not account for. Running
+// that level here as well ran the slowest packages twice, here and in CI. The
+// plan also lists the changed files the policy puts outside the Go checks, so
+// what the step does not check is said. --level runs another level and still
+// says what is required, and --plan prints the plan and runs nothing. Every check waits for the run's turn on the machine, and checks
+// that ran past their level's budget do not pass. The tests' output is what
+// go test prints without -v, the log holds every line they wrote, the report
+// what became of each package, and a run that holds a turn says beside it how
+// far its tests are.
 func runGateTest(args []string, dir string, stdout, stderr io.Writer, runtime commandRuntime) int {
 	flags := flag.NewFlagSet("cfo gate test", flag.ContinueOnError)
 	flags.SetOutput(stderr)
-	levelName := flags.String("level", "", "fast, affected or full; the level the change requires when not given")
+	levelName := flags.String("level", "", "fast, affected or full; fast when not given, since CI runs every package")
 	planOnly := flags.Bool("plan", false, "print the plan and run nothing")
 	if err := flags.Parse(args); err != nil || flags.NArg() != 0 {
 		fmt.Fprintln(stderr, "usage: cfo gate test [--level fast|affected|full] [--plan]")
 		return 2
 	}
-	var asked gatetest.Level
+	asked, defaulted := gatetest.Fast, true
 	if *levelName != "" {
 		level, err := gatetest.ParseLevel(*levelName)
 		if err != nil {
 			fmt.Fprintln(stderr, err)
 			return 2
 		}
-		asked = level
+		asked, defaulted = level, false
 	}
 	start := time.Now()
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
@@ -99,10 +136,12 @@ func runGateTest(args []string, dir string, stdout, stderr io.Writer, runtime co
 		commands = append(commands, append([]string{"go", "vet"}, plan.Vet...))
 	}
 	if len(plan.Tests) > 0 {
-		commands = append(commands, append([]string{"go", "test", "-count=1", "-p", "2", "-timeout", "45m"}, plan.Tests...))
+		// -json has go test say what became of each package and each test, which
+		// the run prints as go test prints without it and records by package.
+		commands = append(commands, append([]string{"go", "test", "-json", "-count=1", "-p", "2", "-timeout", "45m"}, plan.Tests...))
 	}
 	if *planOnly {
-		printGatePlan(stdout, plan)
+		printGatePlan(stdout, plan, defaulted)
 		fmt.Fprintln(stdout, "policy: "+plan.Policy)
 		for _, command := range commands {
 			fmt.Fprintln(stdout, "would run: "+strings.Join(command, " "))
@@ -129,26 +168,41 @@ func runGateTest(args []string, dir string, stdout, stderr io.Writer, runtime co
 		Start:         start,
 	}
 	for _, choice := range plan.Choices {
-		why := "changed"
-		if choice.Imports != "" {
-			why = "imports " + choice.Imports
-		}
-		report.Selected = append(report.Selected, verify.Selection{Package: choice.ImportPath, Why: why})
+		report.Selected = append(report.Selected, verify.Selection{Package: choice.ImportPath, Why: choice.Reason()})
 	}
 	for _, left := range plan.Left {
 		report.Left = append(report.Left, verify.Left{Check: left.Check, Why: left.Why})
 	}
+	for _, set := range plan.Outside {
+		report.Outside = append(report.Outside, verify.Outside{Why: set.Why, Files: set.Files})
+	}
+	report.Unknown = plan.Unknown
+	// short is where the step's own output goes, and full takes every line
+	// the tests wrote: the log, when the run has one.
+	short, full := stdout, io.Discard
 	log, reportPath, err := verify.Begin(report.Project, start, plan.Commit, report.Level)
 	if err != nil {
 		fmt.Fprintf(stderr, "cfo gate test: this run leaves no report: %v\n", err)
 	} else {
 		defer log.Close()
 		report.Log = log.Name()
+		full = log
 		stdout, stderr = io.MultiWriter(stdout, log), io.MultiWriter(stderr, log)
 	}
-	printGatePlan(stdout, plan)
+	printGatePlan(stdout, plan, defaulted)
 	if taskErr != nil {
 		fmt.Fprintf(stderr, "cfo gate test: task attribution unavailable: %v\n", taskErr)
+	}
+
+	// A run under the disk floor is refused before it takes a turn: its
+	// tests write build output and test homes, and a full disk fails them
+	// for no reason of their own.
+	if short, err := gateDiskShortfall(runtime, plan.Root); err != nil || short != "" {
+		if err != nil {
+			short = "free disk cannot be read, so the run cannot be shown to leave the disk floor free: " + err.Error()
+		}
+		fmt.Fprintf(stderr, "cfo gate test: %s; a run needs the floor free\n", short)
+		report.Status, report.QueueNote = "failed", short
 	}
 
 	who := fmt.Sprintf("%s at %.8s, %s level, in %s", report.Project, plan.Commit, plan.Level, plan.Root)
@@ -168,7 +222,23 @@ func runGateTest(args []string, dir string, stdout, stderr io.Writer, runtime co
 				continue
 			}
 			check.Start, check.Status = time.Now(), "passed"
-			exit, err := runtime.gateRun(command, dir, env, stdout, stderr)
+			output := stdout
+			var events *gatetest.Events
+			if command[1] == "test" {
+				events = gatetest.NewEvents(short, full)
+				output = events
+			}
+			stopSaying := func() {}
+			if events != nil {
+				stopSaying = sayProgress(turn, events, runtime.gateProgress)
+			}
+			exit, err := runtime.gateRun(command, dir, env, output, stderr)
+			stopSaying()
+			if events != nil {
+				if outputErr := events.End(); outputErr != nil && !errors.Is(err, outputErr) {
+					err = errors.Join(err, outputErr)
+				}
+			}
 			check.ExitCode = exit
 			if err != nil || exit != 0 {
 				check.Status, report.Status = "failed", "failed"
@@ -176,6 +246,9 @@ func runGateTest(args []string, dir string, stdout, stderr io.Writer, runtime co
 			}
 			ran := time.Since(check.Start)
 			check.DurationSeconds = ran.Seconds()
+			if events != nil {
+				check.Packages = recordPackages(stdout, events.Results())
+			}
 			turn.Release()
 			if check.Status == "passed" && ran > budget {
 				check.Status, report.Status = "over_budget", "failed"
@@ -199,7 +272,7 @@ func runGateTest(args []string, dir string, stdout, stderr io.Writer, runtime co
 	}
 	fmt.Fprintln(stdout, verdict)
 	if report.Status == "passed" && !plan.Level.Covers(plan.Required) {
-		fmt.Fprintf(stdout, "cfo gate test: the change still requires the %s level before it merges\n", plan.Required)
+		fmt.Fprintf(stdout, "cfo gate test: the change requires the %s level before it merges, which CI's run of every package checks\n", plan.Required)
 	}
 	if report.Status != "passed" {
 		return 1
@@ -261,6 +334,28 @@ func takeGateTurn(stdout, stderr io.Writer, available func() (supervisor.Memory,
 	return turn, err
 }
 
+// gateDiskShortfall reads the free disk of the drive the run's checkout is on
+// against the disk floor, the one the fleet's home sets when this runs for a
+// home and the default otherwise, and says why the run does not fit, or ""
+// when it does.
+func gateDiskShortfall(runtime commandRuntime, dir string) (string, error) {
+	if runtime.gateDisk != nil {
+		d, err := runtime.gateDisk(dir)
+		return d.Shortfall(), err
+	}
+	settings := fleetconfig.Defaults()
+	if h, err := home.Resolve(); err == nil && home.IsPrimary(h) {
+		if settings, err = fleetconfig.Read(h.Root); err != nil {
+			return "", err
+		}
+	}
+	reading, err := disk.Read(dir)
+	if err != nil {
+		return "", err
+	}
+	return supervisor.Disk{Reading: reading, Floor: fleetconfig.Bytes(settings.DiskFloorGB)}.Shortfall(), nil
+}
+
 // gateBudget is how long the tests of a level may run: twice go test's 45
 // minute package timeout at the affected level, and twice that at the full
 // level, which runs every package. Checks that ran past it do not pass, and
@@ -307,6 +402,9 @@ func runGateTurns(stdout, stderr io.Writer, available func() (supervisor.Memory,
 			line += fmt.Sprintf(" of its %s budget", run.Budget)
 		}
 		fmt.Fprintln(stdout, line)
+		if run.Now != "" {
+			fmt.Fprintln(stdout, "  now: "+run.Now)
+		}
 	}
 	if len(waiting) > 0 {
 		fmt.Fprintln(stdout, "waiting:")
@@ -329,13 +427,22 @@ func runGateTurns(stdout, stderr io.Writer, available func() (supervisor.Memory,
 	return 0
 }
 
+// unknownShown is how many of the files the policy does not account for a
+// plan names before it counts the rest; the report holds them all.
+const unknownShown = 10
+
 // printGatePlan prints the level a plan runs and why, each package the
-// change reaches with why, and each test run the level leaves to a broader
-// one.
-func printGatePlan(w io.Writer, plan gatetest.Plan) {
-	if plan.Level == plan.Required {
+// change reaches with why, each test run the level leaves to a broader one,
+// the changed files the policy puts outside the Go checks, under its reason
+// for each, and the changed files it does not account for. defaulted says the
+// level is the one a run without --level takes.
+func printGatePlan(w io.Writer, plan gatetest.Plan, defaulted bool) {
+	switch {
+	case plan.Level == plan.Required:
 		fmt.Fprintf(w, "cfo gate test: level %s: %s\n", plan.Level, plan.Why)
-	} else {
+	case defaulted:
+		fmt.Fprintf(w, "cfo gate test: level %s, the default, since CI runs every package; the change requires %s: %s\n", plan.Level, plan.Required, plan.Why)
+	default:
 		fmt.Fprintf(w, "cfo gate test: level %s, asked for; the change requires %s: %s\n", plan.Level, plan.Required, plan.Why)
 	}
 	switch {
@@ -344,9 +451,9 @@ func printGatePlan(w io.Writer, plan gatetest.Plan) {
 	case plan.Everything:
 		fmt.Fprintf(w, "cfo gate test: go.mod or go.sum changed since %.8s, which reaches every package\n", plan.Base)
 	case plan.Level == gatetest.Full:
-		fmt.Fprintf(w, "cfo gate test: every package is tested; %d changed since %.8s or import one that did\n", len(plan.Choices), plan.Base)
+		fmt.Fprintf(w, "cfo gate test: every package is tested; the change since %.8s reaches %d package(s)\n", plan.Base, len(plan.Choices))
 	default:
-		fmt.Fprintf(w, "cfo gate test: %d package(s) changed since %.8s or import one directly; CI runs every package\n", len(plan.Choices), plan.Base)
+		fmt.Fprintf(w, "cfo gate test: the change since %.8s reaches %d package(s); CI runs every package\n", plan.Base, len(plan.Choices))
 	}
 	for _, choice := range plan.Choices {
 		fmt.Fprintln(w, "- "+choice.String())
@@ -355,6 +462,21 @@ func printGatePlan(w io.Writer, plan gatetest.Plan) {
 		fmt.Fprintf(w, "left to the %s level:\n", plan.Required)
 		for _, left := range plan.Left {
 			fmt.Fprintln(w, "- "+left.String())
+		}
+	}
+	if len(plan.Outside) > 0 {
+		fmt.Fprintln(w, "changed files outside the Go checks:")
+		for _, set := range plan.Outside {
+			fmt.Fprintln(w, "- "+set.String())
+		}
+	}
+	if len(plan.Unknown) > 0 {
+		fmt.Fprintln(w, "changed files the policy does not account for:")
+		for _, file := range plan.Unknown[:min(len(plan.Unknown), unknownShown)] {
+			fmt.Fprintln(w, "- "+file)
+		}
+		if more := len(plan.Unknown) - unknownShown; more > 0 {
+			fmt.Fprintf(w, "- and %d more\n", more)
 		}
 	}
 }
@@ -367,4 +489,113 @@ func taskID(getenv func(string) string) string {
 		return ""
 	}
 	return getenv("CFO_TASK_ID")
+}
+
+// sayProgress has a run say beside its turn, every interval until the
+// returned function is called, how far its tests are. A gate shows a step's
+// output only once the step has ended, so the turn's card is where a run's
+// progress is read while it lasts, with cfo gate turns.
+func sayProgress(turn verify.Turn, events *gatetest.Events, every time.Duration) (stop func()) {
+	done, stopped := make(chan struct{}), make(chan struct{})
+	go func() {
+		defer close(stopped)
+		ticker := time.NewTicker(every)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-done:
+				return
+			case now := <-ticker.C:
+				turn.Say(progressLine(events, now))
+			}
+		}
+	}()
+	return func() {
+		close(done)
+		<-stopped
+	}
+}
+
+// progressShown is how many running tests a progress line names before it
+// counts the rest.
+const progressShown = 3
+
+// progressLine is what a run says of its tests beside its turn: how many
+// packages are done, which tests are running and for how long, and the last
+// line of the step's output.
+func progressLine(events *gatetest.Events, now time.Time) string {
+	running, done, last := events.Progress()
+	line := fmt.Sprintf("go test: %d package(s) done", done)
+	var names []string
+	for _, run := range running[:min(len(running), progressShown)] {
+		name := run.ImportPath
+		if run.Test != "" {
+			name += " " + run.Test
+		}
+		names = append(names, fmt.Sprintf("%s for %s", name, now.Sub(run.Since).Round(time.Second)))
+	}
+	if len(names) > 0 {
+		line += "; running " + strings.Join(names, ", ")
+	}
+	if more := len(running) - progressShown; more > 0 {
+		line += fmt.Sprintf(" and %d more", more)
+	}
+	if last != "" {
+		line += "; last output: " + last
+	}
+	return line
+}
+
+// recordPackages turns what became of each package's tests into the report's
+// form, and when any did not pass says which, and which tests in them, after
+// the tests' own output: one place to read what failed.
+func recordPackages(stdout io.Writer, results []gatetest.PackageResult) []verify.PackageResult {
+	var recorded []verify.PackageResult
+	var failures []string
+	for _, result := range results {
+		recorded = append(recorded, verify.PackageResult{Package: result.ImportPath, Status: result.Status, Seconds: result.Seconds, Tests: result.Tests, Failed: result.Failed, Unfinished: result.Unfinished})
+		if result.Status != "passed" && result.Status != "no_tests" {
+			failures = append(failures, notPassed(result))
+		}
+	}
+	if len(failures) > 0 {
+		fmt.Fprintf(stdout, "cfo gate test: go test did not pass in %d of %d package(s):\n", len(failures), len(results))
+		for _, failure := range failures {
+			fmt.Fprintln(stdout, "- "+failure)
+		}
+	}
+	return recorded
+}
+
+// namedTests is how many test names a line gives before it counts the rest.
+const namedTests = 5
+
+// notPassed says what became of a package that did not pass: the tests that
+// failed, the tests that never finished, as one that hangs, or that it did
+// not compile.
+func notPassed(result gatetest.PackageResult) string {
+	named := func(tests []string) string {
+		if more := len(tests) - namedTests; more > 0 {
+			return fmt.Sprintf("%s and %d more", strings.Join(tests[:namedTests], ", "), more)
+		}
+		return strings.Join(tests, ", ")
+	}
+	var what []string
+	if len(result.Failed) > 0 {
+		what = append(what, named(result.Failed)+" failed")
+	}
+	if len(result.Unfinished) > 0 {
+		what = append(what, named(result.Unfinished)+" did not finish")
+	}
+	if len(what) == 0 {
+		switch result.Status {
+		case "build_failed":
+			what = []string{"did not compile"}
+		case "unfinished":
+			what = []string{"did not finish"}
+		default:
+			what = []string{"failed outside any test"}
+		}
+	}
+	return result.ImportPath + ": " + strings.Join(what, "; ")
 }

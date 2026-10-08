@@ -8,8 +8,10 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/fpresta0607/code-goblins/internal/doctor"
 	"github.com/fpresta0607/code-goblins/internal/host"
 	"github.com/fpresta0607/code-goblins/internal/install"
+	"github.com/fpresta0607/code-goblins/internal/release"
 )
 
 func TestRun(t *testing.T) {
@@ -78,7 +80,7 @@ func TestRunUsageListsFleetCommands(t *testing.T) {
 		t.Fatalf("exit = %d, want 2", exit)
 	}
 	for _, command := range []string{
-		"cfo spawn <id> --project <name|path> --brief <path> [--harness <claude|codex|pi|kimi>]",
+		"cfo spawn <id> --project <name|path> --brief <path> [--harness <claude|codex|pi>]",
 		"cfo send <target> [--key <key>] <text...>",
 		"cfo peek <target> [lines]",
 		"cfo fleet-view [--json]",
@@ -102,6 +104,23 @@ func TestMain(m *testing.M) {
 	if err := os.Setenv(boardAddressVariable, "127.0.0.1:0"); err != nil {
 		fmt.Fprintln(os.Stderr, err)
 		os.Exit(1)
+	}
+	// Nor does any supervisor a test starts look for a release on GitHub:
+	// it looks at a port that refuses at once, unless its test names a
+	// release server of its own.
+	if _, isSet := os.LookupEnv(release.APIVariable); !isSet {
+		if err := os.Setenv(release.APIVariable, "http://127.0.0.1:1/latest"); err != nil {
+			fmt.Fprintln(os.Stderr, err)
+			os.Exit(1)
+		}
+	}
+	// Nor does a doctor a test runs ask npm or Claude Code's channel for the
+	// harnesses' newest versions, unless its test names a source of its own.
+	if _, isSet := os.LookupEnv(doctor.ReleasesVariable); !isSet {
+		if err := os.Setenv(doctor.ReleasesVariable, "http://127.0.0.1:1"); err != nil {
+			fmt.Fprintln(os.Stderr, err)
+			os.Exit(1)
+		}
 	}
 	// A build stand-in an update test installs runs as that build.
 	if code, ok := runStandInBuild(); ok {
@@ -170,6 +189,11 @@ func TestMain(m *testing.M) {
 	// A Codex spawn or switch reads the MCP servers of CODEX_HOME's
 	// config.toml, which is never this machine's own.
 	if err := os.Setenv("CODEX_HOME", configDir); err != nil {
+		panic(err)
+	}
+	// Doctor's harness map reads Pi's folder, which is this machine's own and
+	// absent on a runner with no Pi.
+	if err := os.Setenv("PI_CODING_AGENT_DIR", configDir); err != nil {
 		panic(err)
 	}
 	// The process value answers before the user scope is read, so pinning it

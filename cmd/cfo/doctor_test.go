@@ -2,14 +2,23 @@ package main
 
 import (
 	"bytes"
+	"encoding/json"
 	"fmt"
+	"net/http"
+	"net/http/httptest"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
 	"time"
 
+	codegoblins "github.com/fpresta0607/code-goblins"
 	"github.com/fpresta0607/code-goblins/internal/doctor"
+	"github.com/fpresta0607/code-goblins/internal/harness"
+	"github.com/fpresta0607/code-goblins/internal/install"
+	"github.com/fpresta0607/code-goblins/internal/standin"
+	"github.com/fpresta0607/code-goblins/internal/voice"
 )
 
 func TestRunDoctorPrintsTheLaneTableBesideTheSwitchRules(t *testing.T) {
@@ -28,7 +37,7 @@ func TestRunDoctorPrintsTheLaneTableBesideTheSwitchRules(t *testing.T) {
 	}
 	path := filepath.Join(root, "data", "routing.json")
 	wants := []string{
-		"routing: 2 standing switch rule(s) from " + path,
+		"routing: 1 standing switch rule(s) from " + path,
 		"routing: 4 execution lane(s) from " + path + " (default build, escalate to deep)",
 		fmt.Sprintf("  %-11s %-7s %-8s %-7s %s", "deep", "claude", "fable", "xhigh", "architecture, security, migration, rescue, anything high risk"),
 		fmt.Sprintf("  %-11s %-7s %-8s %-7s %s", "build", "claude", "opus", "high", "ordinary implementation; the default lane"),
@@ -135,8 +144,8 @@ func fakeDoctorTool(t *testing.T, dir, name string) {
 func TestRunDoctorReportsAMissingWingetAndStaysHealthy(t *testing.T) {
 	bin := t.TempDir()
 	for _, name := range []string{
-		"git", "gh", "herdr", "tasks-axi", "quota-axi", "no-mistakes", "gh-axi", "chrome-devtools-axi", "lavish-axi",
-		"claude", "codex", "pi", "kimi",
+		"git", "gh", "tasks-axi", "quota-axi", "no-mistakes", "gh-axi", "chrome-devtools-axi", "lavish-axi",
+		"claude", "codex", "pi",
 	} {
 		fakeDoctorTool(t, bin, name)
 	}
@@ -155,28 +164,196 @@ func TestRunDoctorReportsAMissingWingetAndStaysHealthy(t *testing.T) {
 	}
 }
 
-// Without Herdr, doctor says who needs it and how to get it, and stays
-// healthy: a goblin or CFO in a native terminal needs no Herdr.
-func TestRunDoctorReportsAMissingHerdrAsOptionalAndStaysHealthy(t *testing.T) {
+// Doctor sets each working harness's installed version beside the newest its
+// publisher offers, with the command that installs it, and an older or
+// unread one never makes the machine unhealthy.
+func TestRunDoctorNamesEachHarnessVersionBesideTheNewest(t *testing.T) {
+	// Arrange
+	server := httptest.NewServer(http.HandlerFunc(func(response http.ResponseWriter, request *http.Request) {
+		switch request.URL.Path {
+		case "/claude":
+			_, _ = response.Write([]byte("1.0.0\n"))
+		case "/codex":
+			_, _ = response.Write([]byte(`{"name":"@openai/codex","version":"1.2.0"}`))
+		default:
+			http.NotFound(response, request)
+		}
+	}))
+	defer server.Close()
 	bin := t.TempDir()
 	for _, name := range []string{
 		"git", "gh", "tasks-axi", "quota-axi", "no-mistakes", "gh-axi", "chrome-devtools-axi", "lavish-axi", "winget",
-		"claude", "codex", "pi", "kimi",
+		"claude", "codex", "pi",
+	} {
+		fakeDoctorTool(t, bin, name)
+	}
+	t.Setenv("PATH", bin)
+	t.Setenv("CFO_HOME", t.TempDir())
+	t.Setenv(doctor.ReleasesVariable, server.URL)
+
+	// Act
+	var stdout, stderr bytes.Buffer
+	exit := run([]string{"doctor"}, &stdout, &stderr)
+
+	// Assert
+	for _, want := range []string{
+		"version  claude     1.0.0 installed, the newest on Claude Code's latest channel",
+		"version  codex      1.0.0 installed, 1.2.0 on npm: npm install -g @openai/codex@1.2.0",
+		"version  pi         1.0.0 installed; the newest could not be read: npm answered 404 Not Found",
+	} {
+		if !strings.Contains(stdout.String(), want) {
+			t.Errorf("doctor lacks %q\n%s", want, stdout.String())
+		}
+	}
+	if exit != 0 {
+		t.Errorf("exit = %d, want 0: an older or unread harness version is not unhealthy\n%s", exit, stdout.String())
+	}
+}
+
+// harnessReleaseServer answers each harness's newest version as Claude
+// Code's channel and npm answer it.
+func harnessReleaseServer(t *testing.T, claude, codex, pi string) {
+	t.Helper()
+	server := httptest.NewServer(http.HandlerFunc(func(response http.ResponseWriter, request *http.Request) {
+		switch request.URL.Path {
+		case "/claude":
+			_, _ = response.Write([]byte(claude + "\n"))
+		case "/codex":
+			_, _ = response.Write([]byte(`{"version":"` + codex + `"}`))
+		case "/pi":
+			_, _ = response.Write([]byte(`{"version":"` + pi + `"}`))
+		}
+	}))
+	t.Cleanup(server.Close)
+	t.Setenv(doctor.ReleasesVariable, server.URL)
+}
+
+// doctorBin puts every tool doctor checks on a PATH of its own, each at
+// version 1.0.0, and returns that folder.
+func doctorBin(t *testing.T) string {
+	t.Helper()
+	bin := t.TempDir()
+	for _, name := range []string{
+		"git", "gh", "tasks-axi", "quota-axi", "no-mistakes", "gh-axi", "chrome-devtools-axi", "lavish-axi", "winget",
+		"claude", "codex", "pi",
+	} {
+		fakeDoctorTool(t, bin, name)
+	}
+	t.Setenv("PATH", bin)
+	t.Setenv("CFO_HOME", t.TempDir())
+	return bin
+}
+
+// Installing a harness changes it for the whole machine, so a goblin's and a
+// gate agent's terminal are refused before anything is read.
+func TestRunDoctorFixIsRefusedInAGoblinsOrAGateAgentsTerminal(t *testing.T) {
+	for _, variable := range [][2]string{{harness.RoleVariable, harness.RoleGoblin}, {gateAgentVariable, "1"}} {
+		t.Run(variable[0], func(t *testing.T) {
+			// Arrange
+			t.Setenv(variable[0], variable[1])
+
+			// Act
+			var stdout, stderr bytes.Buffer
+			exit := run([]string{"doctor", "--fix"}, &stdout, &stderr)
+
+			// Assert
+			if exit != 2 || !strings.Contains(stderr.String(), "never a goblin or a gate agent") || stdout.Len() != 0 {
+				t.Fatalf("exit = %d, stderr %q, stdout %q", exit, stderr.String(), stdout.String())
+			}
+		})
+	}
+}
+
+func TestRunDoctorFixSaysWhenNoHarnessIsBehind(t *testing.T) {
+	// Arrange
+	doctorBin(t)
+	harnessReleaseServer(t, "1.0.0", "1.0.0", "1.0.0")
+
+	// Act
+	var stdout, stderr bytes.Buffer
+	exit := run([]string{"doctor", "--fix"}, &stdout, &stderr)
+
+	// Assert
+	if exit != 0 || !strings.Contains(stdout.String(), "fix: no harness is behind the newest version its publisher offers") {
+		t.Fatalf("exit = %d\n%s", exit, stdout.String())
+	}
+}
+
+// A harness behind its newest version waits while anything runs from its
+// install, and nothing is staged or installed meanwhile.
+func TestRunDoctorFixWaitsWhileSomethingRunsFromTheInstall(t *testing.T) {
+	// Arrange
+	bin := doctorBin(t)
+	harnessReleaseServer(t, "1.0.0", "1.2.0", "1.0.0")
+	root := filepath.Join(t.TempDir(), "npm", "node_modules")
+	log := filepath.Join(t.TempDir(), "npm.log")
+	npm := "@echo off\r\necho %* >> \"" + log + "\"\r\nif \"%1\"==\"root\" echo " + root + "\r\nexit /b 0\r\n"
+	if err := os.WriteFile(filepath.Join(bin, "npm.cmd"), []byte(npm), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	vendor := filepath.Join(root, "@openai", "codex", "vendor")
+	if err := os.MkdirAll(vendor, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	standin.RemoveAtCleanup(t, vendor)
+	ping, err := os.ReadFile(filepath.Join(os.Getenv("SystemRoot"), "System32", "PING.EXE"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	program := filepath.Join(vendor, "codex.exe")
+	if err := os.WriteFile(program, ping, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	running := exec.Command(program, "-n", "120", "127.0.0.1")
+	if err := running.Start(); err != nil {
+		t.Fatal(err)
+	}
+	standin.Hold(t, running.Process.Pid)
+
+	// Act
+	var stdout, stderr bytes.Buffer
+	exit := run([]string{"doctor", "--fix"}, &stdout, &stderr)
+
+	// Assert
+	want := fmt.Sprintf("fix      codex      waits: 1 processes run from %s (pid %d)", filepath.Join(root, "@openai", "codex"), running.Process.Pid)
+	if exit != 0 || !strings.Contains(stdout.String(), want) {
+		t.Fatalf("exit = %d, want 0 and %q\n%s", exit, want, stdout.String())
+	}
+	calls, err := os.ReadFile(log)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(calls), "install") {
+		t.Fatalf("npm installed while codex ran from its install: %s", calls)
+	}
+}
+
+// Doctor neither checks nor names Herdr or Kimi: no goblin or CFO starts in
+// Herdr, and a spawn refuses kimi, so a machine with neither is healthy.
+func TestRunDoctorIsHealthyWithoutHerdrOrKimi(t *testing.T) {
+	// Arrange
+	bin := t.TempDir()
+	for _, name := range []string{
+		"git", "gh", "tasks-axi", "quota-axi", "no-mistakes", "gh-axi", "chrome-devtools-axi", "lavish-axi", "winget",
+		"claude", "codex", "pi",
 	} {
 		fakeDoctorTool(t, bin, name)
 	}
 	t.Setenv("PATH", bin)
 	t.Setenv("CFO_HOME", t.TempDir())
 
+	// Act
 	var stdout, stderr bytes.Buffer
 	exit := run([]string{"doctor"}, &stdout, &stderr)
 
-	want := "OPTIONAL herdr not found on PATH (install: irm https://herdr.dev/install.ps1 | iex) - only a goblin or CFO started in Herdr needs it"
-	if !strings.Contains(stdout.String(), want) || strings.Contains(stdout.String(), "MISSING") {
-		t.Errorf("stdout lacks %q or reports something missing\n%s", want, stdout.String())
+	// Assert
+	if exit != 0 || strings.Contains(stdout.String(), "MISSING") || strings.Contains(stdout.String(), "broken") {
+		t.Errorf("exit = %d, want 0 with nothing missing or broken\n%s", exit, stdout.String())
 	}
-	if exit != 0 {
-		t.Errorf("exit = %d, want 0: a missing Herdr must not make doctor unhealthy\n%s", exit, stdout.String())
+	for _, line := range strings.Split(stdout.String(), "\n") {
+		if fields := strings.Fields(line); len(fields) > 1 && (fields[1] == "herdr" || fields[1] == "kimi") {
+			t.Errorf("doctor checks %s: %q\n%s", fields[1], line, stdout.String())
+		}
 	}
 }
 
@@ -187,8 +364,8 @@ func TestRunDoctorReportsAMissingHerdrAsOptionalAndStaysHealthy(t *testing.T) {
 func TestRunDoctorReportsPresentationUnavailableAndStaysHealthy(t *testing.T) {
 	bin := t.TempDir()
 	for _, name := range []string{
-		"git", "gh", "herdr", "tasks-axi", "quota-axi", "no-mistakes", "gh-axi", "chrome-devtools-axi",
-		"claude", "codex", "pi", "kimi",
+		"git", "gh", "tasks-axi", "quota-axi", "no-mistakes", "gh-axi", "chrome-devtools-axi",
+		"claude", "codex", "pi",
 	} {
 		fakeDoctorTool(t, bin, name)
 	}
@@ -241,16 +418,36 @@ func TestRunDoctorReportsStaleWakesHeldBackBesideThoseRaised(t *testing.T) {
 	}
 }
 
-func TestRunDoctorNamesTheDictationModelAndWhetherItIsThere(t *testing.T) {
+func TestRunDoctorSaysDictationIsReadyOrWhatIsMissingAndTheFix(t *testing.T) {
 	root := t.TempDir()
 	t.Setenv("CFO_HOME", root)
+	pinned, err := voice.For(root, codegoblins.Voice)
+	if err != nil {
+		t.Fatal(err)
+	}
 
 	var stdout, stderr bytes.Buffer
 	run([]string{"doctor"}, &stdout, &stderr)
-	want := "dictation: parakeet-tdt-110m en-36000-int8 on sherpa-onnx 1.13.8, not fetched yet: the first dictation downloads it once into " + filepath.Join(root, "caches", "voice")
+	engine, model := pinned.Settings.Engine, pinned.Settings.Model
+	want := fmt.Sprintf("dictation: not set up: %s %s and %s %s missing, %d MB, from %s; run `cfo dictation setup`, or the first dictation fetches it",
+		engine.Name, engine.Version, model.Name, model.Version, (engine.Size+model.Size)>>20, filepath.Join(root, "caches", "voice"))
 	if !strings.Contains(stdout.String(), want) {
 		t.Errorf("stdout lacks %q\n%s", want, stdout.String())
 	}
+
+	// A home the setup put the engine and the model in is ready.
+	server, _ := servedParts(t)
+	h := dictationHome(t, server.URL, partArchiveSHA256)
+	if code := runWithRuntime([]string{"dictation", "setup"}, &bytes.Buffer{}, &bytes.Buffer{}, dictationRuntime(h, server.Client())); code != 0 {
+		t.Fatalf("cfo dictation setup = %d", code)
+	}
+	t.Setenv("CFO_HOME", h.Root)
+	stdout.Reset()
+	run([]string{"doctor"}, &stdout, &stderr)
+	if want := "dictation: ready: model 1.0 on engine 1.0, in " + filepath.Join(h.Root, "caches", "voice") + "\n"; !strings.Contains(stdout.String(), want) {
+		t.Errorf("stdout lacks %q\n%s", want, stdout.String())
+	}
+	t.Setenv("CFO_HOME", root)
 
 	// A home with settings of its own is read from them, and settings that
 	// pin nothing are named as unreadable rather than passed over.
@@ -262,7 +459,7 @@ func TestRunDoctorNamesTheDictationModelAndWhetherItIsThere(t *testing.T) {
 	}
 	stdout.Reset()
 	run([]string{"doctor"}, &stdout, &stderr)
-	if !strings.Contains(stdout.String(), "dictation: settings unreadable (") || strings.Contains(stdout.String(), "parakeet") {
+	if !strings.Contains(stdout.String(), "dictation: settings unreadable (") || strings.Contains(stdout.String(), model.Name) {
 		t.Errorf("stdout does not say the home's own settings are unreadable\n%s", stdout.String())
 	}
 }
@@ -309,5 +506,88 @@ func TestRunDoctorSaysWhatTheCFOsHarnessGets(t *testing.T) {
 				t.Errorf("doctor names %d things the CFO goes without, want %d\n%s", got, tc.lacks, stdout.String())
 			}
 		})
+	}
+}
+
+// cfo doctor says whether the user's Claude Code settings hold the allow
+// rules for the commands that file Command Center items, names the ones
+// missing with the fix, and says when auto mode sets them all aside.
+func TestRunDoctorReportsTheCommandCenterPermissionRules(t *testing.T) {
+	rules := install.PermissionRules()
+	listed := func(rules []string) string {
+		data, err := json.Marshal(rules)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return string(data)
+	}
+	for _, tc := range []struct {
+		name, settings string
+		want           []string
+		absent         []string
+	}{
+		{"no settings file", "", []string{"permissions: 12 of the 12 Command Center allow rules are missing from %s: " + strings.Join(rules, ", "), "they are the Supreme Overlord's to add, with `cfo install`"}, nil},
+		{"all in place", `{"permissions": {"allow": ` + listed(rules) + `}}`, []string{"permissions: the 12 Command Center allow rules are in %s\n"}, []string{"are missing from", "classifyAllShell"}},
+		{"two missing", `{"permissions": {"allow": ` + listed(rules[2:]) + `}}`, []string{"permissions: 2 of the 12 Command Center allow rules are missing from %s: Bash(cfo question *), Bash(cfo run-request *);"}, nil},
+		{"auto mode classifies every shell command", `{"autoMode": {"classifyAllShell": true}, "permissions": {"allow": ` + listed(rules) + `}}`, []string{"permissions: the 12 Command Center allow rules are in %s\n", "permissions: autoMode.classifyAllShell is on in %s, so auto mode sets these rules aside"}, []string{"are missing from"}},
+		{"malformed", `{"permissions": []}`, []string{"permissions: %s unreadable ("}, []string{"are missing from"}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			// Arrange
+			dir := t.TempDir()
+			t.Setenv("CLAUDE_CONFIG_DIR", dir)
+			settings := filepath.Join(dir, "settings.json")
+			if tc.settings != "" {
+				if err := os.WriteFile(settings, []byte(tc.settings), 0o600); err != nil {
+					t.Fatal(err)
+				}
+			}
+			var stdout bytes.Buffer
+
+			// Act
+			reportPermissions(&stdout)
+
+			// Assert
+			for _, want := range tc.want {
+				if want = strings.ReplaceAll(want, "%s", settings); !strings.Contains(stdout.String(), want) {
+					t.Errorf("doctor lacks %q\n%s", want, stdout.String())
+				}
+			}
+			for _, absent := range tc.absent {
+				if strings.Contains(stdout.String(), absent) {
+					t.Errorf("doctor says %q\n%s", absent, stdout.String())
+				}
+			}
+		})
+	}
+}
+
+// Missing Command Center rules are reported and never make doctor
+// unhealthy: a Codex or pi CFO does not read them, and only the Overlord adds
+// them.
+func TestRunDoctorNamesMissingCommandCenterRulesAndStaysHealthy(t *testing.T) {
+	// Arrange
+	bin := t.TempDir()
+	for _, name := range []string{
+		"git", "gh", "tasks-axi", "quota-axi", "no-mistakes", "gh-axi", "chrome-devtools-axi", "lavish-axi", "winget",
+		"claude", "codex", "pi",
+	} {
+		fakeDoctorTool(t, bin, name)
+	}
+	t.Setenv("PATH", bin)
+	t.Setenv("CFO_HOME", t.TempDir())
+	claude := t.TempDir()
+	t.Setenv("CLAUDE_CONFIG_DIR", claude)
+
+	// Act
+	var stdout, stderr bytes.Buffer
+	exit := run([]string{"doctor"}, &stdout, &stderr)
+
+	// Assert
+	if want := "permissions: 12 of the 12 Command Center allow rules are missing from " + filepath.Join(claude, "settings.json"); !strings.Contains(stdout.String(), want) {
+		t.Errorf("stdout lacks %q\n%s", want, stdout.String())
+	}
+	if exit != 0 {
+		t.Errorf("exit = %d, want 0: missing Command Center rules must not make doctor unhealthy\n%s", exit, stdout.String())
 	}
 }

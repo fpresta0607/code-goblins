@@ -20,6 +20,7 @@ import (
 	"github.com/fpresta0607/code-goblins/internal/fleet"
 	"github.com/fpresta0607/code-goblins/internal/fsx"
 	"github.com/fpresta0607/code-goblins/internal/home"
+	"github.com/fpresta0607/code-goblins/internal/host"
 	"github.com/fpresta0607/code-goblins/internal/proc"
 )
 
@@ -45,8 +46,9 @@ const (
 var runShells = []string{"powershell", "pwsh", "bash"}
 
 // Run is a command the CFO needs the Overlord to run, which he runs with one
-// click from the Command Center. The registered primary CFO can create one;
-// the board can also create a connection repair bound to a task generation.
+// click from the Command Center. The registered primary CFO can create one,
+// and a goblin its own through its notify; the board can also create a
+// connection repair bound to a task generation.
 // Its command is the exact text of a script file under state/runs, and Run
 // executes that file, never anything the browser sends.
 type Run struct {
@@ -90,6 +92,21 @@ type Run struct {
 	// terminal, and CredentialNames the names it stores.
 	CredentialRequest string   `json:"credential_request,omitempty"`
 	CredentialNames   []string `json:"credential_names,omitempty"`
+
+	// Task is the goblin whose own command this is, empty for the CFO's.
+	Task string `json:"task,omitempty"`
+	// Terminal is whether the item's terminal runs, which its card draws:
+	// from Run on, and for an administrator's item once Windows started it
+	// elevated.
+	Terminal bool `json:"terminal,omitempty"`
+	// Update is the release an Update Code Goblins item installs: the board
+	// made the item, it waits until a newer release or this build replaces
+	// it, only the Overlord runs it, and its window stays out of sight while
+	// its card shows how it goes.
+	Update *ReleaseOffer `json:"update,omitempty"`
+	// DevDrive is the Dev Drive step the board made this item for: create,
+	// attach, trust or move.
+	DevDrive string `json:"dev_drive,omitempty"`
 }
 
 // RunRequest is what cfo run-request asks for; CommandFile is read once.
@@ -98,29 +115,39 @@ type RunRequest struct {
 	Admin                              bool
 }
 
-// RunLauncher opens a run item's window. Launch returns once the process the
-// item runs under has started; the service finishes the item from what the
-// run leaves in its directory.
+// RunLauncher starts a run item in a terminal the supervisor hosts, which the
+// item's card draws. Launch returns once the process the item runs under has
+// started; the service finishes the item from what the run leaves in its
+// directory.
 type RunLauncher interface {
 	Launch(ctx context.Context, l RunLaunch) (RunStarted, error)
 }
 
-// RunLaunch is one item to open: its shell, whether it runs elevated, the
-// script to execute, the directory the run writes output.log and exit.txt
-// to, and the folder it runs in.
+// RunLaunch is one item to start: its shell, whether it runs elevated, the
+// script to execute, the directory its terminal is recorded in and the run
+// writes exit.txt to, and the folder it runs in.
 type RunLaunch struct {
 	Shell  string
 	Admin  bool
 	Script string
 	Dir    string
 	Cwd    string
+	// Hidden runs it with no terminal, keeping its output in output.log as
+	// it goes, for an item whose card shows how it goes.
+	Hidden bool
 }
 
-// RunStarted is the process a launched item runs under.
+// RunStarted is the process a launched item runs under, and whether its
+// terminal runs already: an administrator's runs once Windows started it.
 type RunStarted struct {
-	PID   int
-	Start time.Time
+	PID      int
+	Start    time.Time
+	Terminal bool
 }
+
+// runTerminal is the id of a run item's terminal, which is recorded in the
+// item's own directory, apart from the CFO's and every goblin's.
+const runTerminal = "run"
 
 func validRun(r Run) error {
 	switch {
@@ -143,7 +170,7 @@ func validRun(r Run) error {
 }
 
 func sameRun(a, b Run) bool {
-	return a.Identity == b.Identity && a.Title == b.Title && a.Shell == b.Shell && a.Admin == b.Admin && a.Command == b.Command && a.Cwd == b.Cwd
+	return a.Identity == b.Identity && a.Task == b.Task && a.Title == b.Title && a.Shell == b.Shell && a.Admin == b.Admin && a.Command == b.Command && a.Cwd == b.Cwd
 }
 
 // runDir holds one item's script and what its run leaves behind. Its name is
@@ -174,7 +201,7 @@ func runDigest(data []byte) string {
 // file Run executes itself, so nothing written straight into the state
 // directory ever reaches the board.
 func PublishRun(h home.Home, req RunRequest) error {
-	command, err := readRunCommand(req.CommandFile)
+	command, err := ReadRunCommand(req.CommandFile)
 	if err != nil {
 		return err
 	}
@@ -194,7 +221,8 @@ func WithdrawRun(h home.Home, id, reason string) error {
 // AFK mode, which the supervisor records only once the sending process is
 // proven to be the CFO. AFK mode's switch (afk-on, afk-off) is the one kind
 // the CFO may not send: the supervisor makes it only for a process proven to
-// be the Overlord's own terminal.
+// be the Overlord's own terminal. A helper is a goblin's ask for a helper
+// goblin, which its own terminal proved before sending.
 type runPipeRequest struct {
 	Kind       string             `json:"kind,omitempty"`
 	ID         string             `json:"id"`
@@ -212,7 +240,15 @@ type runPipeRequest struct {
 	AFK *afk.Entry `json:"afk,omitempty"`
 	// Asked is the Overlord's words when the CFO asks for his AFK switch at
 	// his ask, as the CFO quotes them.
-	Asked string `json:"asked,omitempty"`
+	Asked  string         `json:"asked,omitempty"`
+	Helper *HelperRequest `json:"helper,omitempty"`
+}
+
+// pipeReply is the supervisor's answer to one request over its pipe: why it
+// was refused, or, for a helper, the helper it is starting.
+type pipeReply struct {
+	Error  string       `json:"error,omitempty"`
+	Helper *HelperStart `json:"helper,omitempty"`
 }
 
 // acceptRunRequest records a run item that came over the pipe from process
@@ -248,25 +284,16 @@ func (s *Service) acceptRunRequest(pid int, connected time.Time, req runPipeRequ
 		}
 		return errors.New("run ID already used; a re-run needs a new ID")
 	}
-	dir := runDir(s.Store.Home.State, r)
-	name, script := runScript(r)
-	if err := os.MkdirAll(dir, 0700); err != nil {
+	if err := s.Store.admitRun(r); errors.Is(err, ErrDeferred) {
+		return fmt.Errorf("the board already holds %d run items waiting or running", maxRuns)
+	} else if err != nil {
 		return err
-	}
-	if err := fsx.AtomicWriteFile(filepath.Join(dir, name), script); err != nil {
-		return errors.Join(err, os.RemoveAll(dir))
-	}
-	r.ScriptSum = runDigest(script)
-	if err := s.Store.acceptRun(r); err != nil {
-		if errors.Is(err, ErrDeferred) {
-			err = fmt.Errorf("the board already holds %d run items waiting or running", maxRuns)
-		}
-		return errors.Join(err, os.RemoveAll(dir))
 	}
 	return nil
 }
 
-func readRunCommand(path string) (string, error) {
+// ReadRunCommand reads the command a run item carries from its file, once.
+func ReadRunCommand(path string) (string, error) {
 	f, err := fsx.Open(path)
 	if err != nil {
 		return "", err
@@ -279,7 +306,7 @@ func readRunCommand(path string) (string, error) {
 	if len(data) > maxRunCommand {
 		return "", fmt.Errorf("the command file is over %d KiB", maxRunCommand>>10)
 	}
-	return string(data), nil
+	return strings.TrimPrefix(string(data), "\ufeff"), nil
 }
 
 func (s *Store) acceptRun(r Run) error {
@@ -317,7 +344,8 @@ func (s *Store) acceptRun(r Run) error {
 }
 
 // withdrawRun takes the run item id, which nobody ran yet, off the board for
-// the registered CFO, keeping its reason on the item and in state/runs.audit;
+// the registered CFO, or a goblin's own once the goblin moved past it,
+// keeping its reason on the item and in state/runs.audit;
 // Run on it is refused from then on. Replacing an item is withdrawing it and
 // publishing the new command under a new ID. An item the board made for the
 // Overlord, a connection repair or a credential request's terminal, is not
@@ -342,6 +370,9 @@ func (s *Store) withdrawRun(id, reason string) error {
 	case r.CredentialRequest != "":
 		s.mu.Unlock()
 		return fmt.Errorf("run item %s is the terminal the Overlord opened for a credential request; it is not the CFO's to withdraw", r.ID)
+	case r.Update != nil:
+		s.mu.Unlock()
+		return fmt.Errorf("run item %s is the Overlord's Update to Code Goblins %s; it is not the CFO's to withdraw", r.ID, r.Update.To)
 	case r.State != "ready":
 		s.mu.Unlock()
 		return fmt.Errorf("the run item is already %s, so it cannot be withdrawn", r.State)
@@ -368,7 +399,9 @@ func (s *Store) expireRuns(now time.Time) error {
 	defer s.mu.Unlock()
 	changed := false
 	for i := range s.db.Runs {
-		if r := &s.db.Runs[i]; r.State == "ready" && !now.Before(r.ExpiresAt) {
+		// An Update item waits until a newer release or this build
+		// replaces it.
+		if r := &s.db.Runs[i]; r.State == "ready" && r.Update == nil && !now.Before(r.ExpiresAt) {
 			r.State, r.Reason = "expired", "nobody ran it within 24 hours"
 			changed = true
 		}
@@ -412,13 +445,26 @@ func (s *Store) markRunStarted(id, action string, started RunStarted) error {
 	if i < 0 {
 		return fmt.Errorf("the running item %s is gone", id)
 	}
-	s.db.Runs[i].PID, s.db.Runs[i].Started = started.PID, &started.Start
+	s.db.Runs[i].PID, s.db.Runs[i].Started, s.db.Runs[i].Terminal = started.PID, &started.Start, started.Terminal
 	return s.save()
 }
 
-// finishRun records how a running item ended, once: it reports false when the
-// item already ended.
-func (s *Store) finishRun(id, action string, code *int, output, reason string) (bool, error) {
+// markRunTerminal records that a running item's terminal runs, once Windows
+// started an administrator's.
+func (s *Store) markRunTerminal(id, action string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	i := slices.IndexFunc(s.db.Runs, func(r Run) bool { return r.ID == id && r.RunAction == action && r.State == "running" })
+	if i < 0 || s.db.Runs[i].Terminal {
+		return nil
+	}
+	s.db.Runs[i].Terminal = true
+	return s.save()
+}
+
+// finishRun records how a running item ended, in state, once: it reports
+// false when the item already ended.
+func (s *Store) finishRun(id, action, state string, code *int, output, reason string) (bool, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	i := slices.IndexFunc(s.db.Runs, func(r Run) bool { return r.ID == id && r.RunAction == action })
@@ -427,10 +473,7 @@ func (s *Store) finishRun(id, action string, code *int, output, reason string) (
 	}
 	now := time.Now().UTC()
 	r := &s.db.Runs[i]
-	r.State, r.ExitCode, r.Output, r.Reason, r.FinishedAt = "failed", code, output, reason, &now
-	if code != nil && *code == 0 {
-		r.State = "succeeded"
-	}
+	r.State, r.ExitCode, r.Output, r.Reason, r.FinishedAt = state, code, output, reason, &now
 	return true, s.save()
 }
 
@@ -463,8 +506,9 @@ func (s *Store) noteRun(id, action, note string) error {
 	return s.save()
 }
 
-// startRun opens the item the Overlord pressed Run on, in exactly the shell it
-// names, and returns once it is launched; finishRuns ends it.
+// startRun starts the item the Overlord pressed Run on, in a terminal of
+// exactly the shell it names, and returns once it is launched; finishRuns
+// ends it.
 func (s *Service) startRun(ctx context.Context, a Action) (Evaluation, error) {
 	runs := s.Store.Snapshot().Runs
 	i := slices.IndexFunc(runs, func(r Run) bool { return r.ID == a.RunID && r.Identity == a.Generation && r.RunAction == a.ID })
@@ -490,7 +534,13 @@ func (s *Service) startRun(ctx context.Context, a Action) (Evaluation, error) {
 	case err != nil || runDigest(data) != r.ScriptSum:
 		err = errors.New("its script file is missing or changed")
 	case s.Options.Runs == nil:
-		err = errors.New("this supervisor cannot open run windows")
+		err = errors.New("this supervisor cannot start run terminals")
+	case r.Update != nil:
+		// The command an Update item runs reads this grant as the
+		// Overlord's click, which no terminal of his opened.
+		if err = grantUpdate(s.Store.Home.State, r); err == nil {
+			started, err = s.Options.Runs.Launch(ctx, RunLaunch{Shell: r.Shell, Script: script, Dir: dir, Cwd: r.Cwd, Hidden: true})
+		}
 	default:
 		started, err = s.Options.Runs.Launch(ctx, RunLaunch{Shell: r.Shell, Admin: r.Admin, Script: script, Dir: dir, Cwd: r.Cwd})
 	}
@@ -504,37 +554,104 @@ func (s *Service) startRun(ctx context.Context, a Action) (Evaluation, error) {
 	return Evaluation{Reason: "The run started."}, nil
 }
 
-// finishRuns ends each running item whose command finished, whose window
-// closed before it did, or whose elevation Windows did not start, and one
-// whose Run ended without recording a launch.
+// finishRuns ends each running item whose command finished, keeping what its
+// terminal shows, whose terminal closed before it did, or whose elevation
+// Windows did not start, and one whose Run ended without recording a launch.
+// It marks an administrator's item's terminal running once Windows started
+// it, and closes the terminal of an item that ended, on the pass after it
+// ended: the boards hear how the item ended first, so a card shows its end
+// rather than its terminal closing under it.
 func (s *Service) finishRuns(ctx context.Context) error {
 	var errs error
 	d := s.Store.Snapshot()
 	for _, r := range d.Runs {
 		if r.State != "running" {
+			if r.Started != nil && r.Update == nil {
+				if terminal, err := host.ReadRecord(runDir(s.Store.Home.State, r), runTerminal); err == nil && host.Running(terminal) {
+					errs = errors.Join(errs, closeRunTerminal(terminal))
+				}
+			}
 			continue
 		}
 		if r.Started == nil {
 			if !slices.ContainsFunc(d.Actions, func(a Action) bool { return a.ID == r.RunAction && (a.Status == "queued" || a.Status == "running") }) {
-				errs = errors.Join(errs, s.completeRun(ctx, r, nil, "its start was interrupted, so whether its window opened is unknown"))
+				errs = errors.Join(errs, s.completeRun(ctx, r, nil, "its start was interrupted, so whether its terminal opened is unknown"))
 			}
 			continue
 		}
 		dir := runDir(s.Store.Home.State, r)
+		// A terminal that runs is the item's process: an administrator's
+		// helper only waits for it.
+		terminal, terminalErr := host.ReadRecord(dir, runTerminal)
+		alive := runProcessAlive(r.PID, *r.Started)
+		if terminalErr == nil {
+			alive = host.Running(terminal)
+		}
 		if code, ok := readRunExit(dir); ok {
+			if terminalErr == nil {
+				errs = errors.Join(errs, keepRunScreen(dir, terminal))
+			}
 			errs = errors.Join(errs, s.completeRun(ctx, r, &code, ""))
 		} else if declined, err := fsx.ReadFile(filepath.Join(dir, "declined.txt")); err == nil {
 			errs = errors.Join(errs, s.completeRun(ctx, r, nil, "Windows did not start it elevated: "+bounded(strings.TrimSpace(string(declined)), 300)))
-		} else if !runProcessAlive(r.PID, *r.Started) {
+		} else if !alive {
 			// The run may have written its exit code just before it ended.
 			if code, ok := readRunExit(dir); ok {
 				errs = errors.Join(errs, s.completeRun(ctx, r, &code, ""))
 			} else {
-				errs = errors.Join(errs, s.completeRun(ctx, r, nil, "its window closed before the command finished"))
+				errs = errors.Join(errs, s.completeRun(ctx, r, nil, "its terminal closed before the command finished"))
 			}
+		} else if terminalErr == nil && !r.Terminal {
+			errs = errors.Join(errs, s.Store.markRunTerminal(r.ID, r.RunAction))
 		}
 	}
 	return errs
+}
+
+// keepRunScreen keeps what an item's terminal shows as the item's output:
+// once its command ended, while its runner waits for that, or as he stops it.
+func keepRunScreen(dir string, terminal host.Record) error {
+	rows, err := host.ReadScreen(terminal)
+	if err != nil {
+		return err
+	}
+	return fsx.AtomicWriteFile(filepath.Join(dir, "output.log"), []byte(host.ScreenTail(rows, 0)))
+}
+
+// closeRunTerminal asks an item's terminal to end everything in it, without
+// waiting for its host to go.
+func closeRunTerminal(terminal host.Record) error {
+	client, err := host.Dial(terminal)
+	if err != nil {
+		return err
+	}
+	return errors.Join(client.CloseTerminal(), client.Close())
+}
+
+// stopRun ends the command the Overlord pressed Stop on: it keeps what its
+// terminal shows and records the item stopped, and finishRuns closes the
+// terminal and everything in it on its next pass. A command that finished
+// meanwhile keeps its exit code.
+func (s *Service) stopRun(ctx context.Context, a Action) (Evaluation, error) {
+	runs := s.Store.Snapshot().Runs
+	i := slices.IndexFunc(runs, func(r Run) bool { return r.ID == a.RunID && r.Identity == a.Generation && r.State == "running" })
+	if i < 0 {
+		return Evaluation{}, fmt.Errorf("%w: the command already ended", ErrRejected)
+	}
+	r := runs[i]
+	dir := runDir(s.Store.Home.State, r)
+	terminal, err := host.ReadRecord(dir, runTerminal)
+	if err != nil {
+		return Evaluation{}, fmt.Errorf("%w: its terminal is not running", ErrRejected)
+	}
+	kept := keepRunScreen(dir, terminal)
+	var ended error
+	if code, ok := readRunExit(dir); ok {
+		ended = s.completeRun(ctx, r, &code, "")
+	} else {
+		ended = s.endRun(ctx, r, "stopped", nil, "the Overlord stopped it")
+	}
+	return Evaluation{Reason: "Stopped."}, errors.Join(kept, ended)
 }
 
 func runProcessAlive(pid int, start time.Time) bool {
@@ -542,10 +659,20 @@ func runProcessAlive(pid int, start time.Time) bool {
 	return err == nil && len(entries) == 1 && entries[0].Start.Equal(start)
 }
 
-// completeRun records how an item ended, appends its audit line and hands the
-// result to the CFO as its answer, so the CFO continues without asking
-// whether it worked. The full output stays on the item.
+// completeRun records how an item ended by its exit code, or failed with
+// reason when it has none.
 func (s *Service) completeRun(ctx context.Context, r Run, code *int, reason string) error {
+	state := "failed"
+	if code != nil && *code == 0 {
+		state = "succeeded"
+	}
+	return s.endRun(ctx, r, state, code, reason)
+}
+
+// endRun records how an item ended, in state, appends its audit line and
+// hands the result to the CFO as its answer, so the CFO continues without
+// asking whether it worked. The full output stays on the item.
+func (s *Service) endRun(ctx context.Context, r Run, state string, code *int, reason string) error {
 	// A credential request takes no save between its terminal ending and the
 	// terminal's rows being checked.
 	if r.CredentialRequest != "" {
@@ -553,7 +680,7 @@ func (s *Service) completeRun(ctx context.Context, r Run, code *int, reason stri
 		defer s.credentialSaves.Unlock()
 	}
 	output := readRunOutput(runDir(s.Store.Home.State, r))
-	ended, err := s.Store.finishRun(r.ID, r.RunAction, code, output, reason)
+	ended, err := s.Store.finishRun(r.ID, r.RunAction, state, code, output, reason)
 	if err != nil || !ended {
 		return err
 	}
@@ -571,6 +698,31 @@ func (s *Service) completeRun(ctx context.Context, r Run, code *int, reason stri
 		checks, _ := s.connections()
 		checks.Get(r.ConnectionTask+"\n"+r.ConnectionGeneration, true)
 	}
+	// An update that did not install gets an item of its own again while
+	// its release is still the newest.
+	if r.Update != nil && (code == nil || *code != 0) {
+		s.lookAgain()
+	}
+	// The Dev Drive's next step follows the one that ended.
+	if r.DevDrive != "" {
+		s.devDriveAgain()
+	}
+	// A goblin's own command answers the goblin that asked for it.
+	if r.Task != "" {
+		why := bounded(strings.Join(strings.Fields(r.Title), " "), 200)
+		text := fmt.Sprintf("The Overlord ran your command (%s), and it did not finish: %s.", why, reason)
+		if code != nil {
+			text = fmt.Sprintf("The Overlord ran your command (%s); it finished with exit code %d.", why, *code)
+		}
+		delivery := errors.New("no goblin transport")
+		if s.Options.CFO != nil {
+			_, delivery = s.Options.CFO.SendGoblin(ctx, r.Task, r.Identity, text)
+		}
+		if delivery != nil && !errors.Is(delivery, fleet.ErrQueuedForToolCall) {
+			err = errors.Join(err, s.Store.noteRun(r.ID, r.RunAction, "the goblin could not be told: "+bounded(delivery.Error(), 300)))
+		}
+		return err
+	}
 	text := fmt.Sprintf("Run item %s (%s) did not finish: %s.", r.ID, r.Title, reason)
 	if code != nil {
 		text = fmt.Sprintf("Run item %s (%s) finished with exit code %d.", r.ID, r.Title, *code)
@@ -582,7 +734,7 @@ func (s *Service) completeRun(ctx context.Context, r Run, code *int, reason stri
 		return errors.Join(err, s.Store.untoldRun(r.ID, r.RunAction, text))
 	}
 	delivery := s.tellCFO(ctx, text)
-	if r.By == "cfo" && errors.Is(delivery, ErrRejected) {
+	if r.By == "cfo" && (errors.Is(delivery, ErrRejected) || errors.Is(delivery, ErrDeferred)) {
 		return errors.Join(err, s.Store.untoldRun(r.ID, r.RunAction, text))
 	}
 	if delivery != nil {
@@ -601,6 +753,9 @@ func (s *Service) retellRuns(ctx context.Context) error {
 			continue
 		}
 		delivery := s.tellCFO(ctx, r.Untold)
+		if errors.Is(delivery, ErrDeferred) {
+			continue
+		}
 		if errors.Is(delivery, ErrRejected) {
 			return errors.Join(errs, delivery)
 		}
@@ -629,9 +784,7 @@ func (s *Service) tellCFO(ctx context.Context, text string) error {
 	if err != nil {
 		return fmt.Errorf("%w: the CFO registration is unreadable", ErrRejected)
 	}
-	if _, err = s.Options.CFO.Send(ctx, identity, text); errors.Is(err, fleet.ErrQueuedBehindTurn) {
-		return nil
-	}
+	_, err = s.Options.CFO.Send(ctx, identity, text)
 	return err
 }
 

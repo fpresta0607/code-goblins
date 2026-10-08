@@ -21,10 +21,53 @@ type Dictation interface {
 	Name() string
 	// Ready says what is missing, or nil when the engine can recognise.
 	Ready() error
-	// Fetch downloads what is missing, telling progress as it arrives.
-	Fetch(ctx context.Context, progress func(part string, done, total int64)) error
+	// Missing is how many bytes Fetch has to download.
+	Missing() int64
+	// Fetch downloads what is missing, telling progress as it arrives, and
+	// removes an engine or model an earlier pin left.
+	Fetch(ctx context.Context, progress func(done, total int64)) error
+	// Replaces says an engine or model the build no longer pins is here, as
+	// after an update to a build that pins a newer one.
+	Replaces() bool
+	// Warm loads the engine ahead of a dictation.
+	Warm(ctx context.Context) error
 	// Recognize returns the words in a WAV sound.
 	Recognize(ctx context.Context, sound []byte) (string, error)
+}
+
+// ReplaceDictation starts fetching the engine and model this build pins when
+// an earlier build's are here in their place, as after an update that pins a
+// newer model, so the first dictation after the update finds them ready and
+// the earlier ones are removed. A home that never set dictation up is left
+// to its install and its first dictation.
+func (h *HTTP) ReplaceDictation() {
+	speech := h.Service.Options.Dictation
+	if speech == nil || speech.Ready() == nil || !speech.Replaces() {
+		return
+	}
+	h.fetchDictation(speech)
+}
+
+// warmDictation loads the engine as a dictation begins, so its words come
+// soon after the keys are let go. It takes no body, and answers at once; a
+// dictation that could not run says why when it is sent.
+func (h *HTTP) warmDictation(w http.ResponseWriter, r *http.Request) {
+	if offMachine(r, h.Host) != "" {
+		apiError(w, http.StatusForbidden, "The board dictates only on the PC it runs on, from its own page at 127.0.0.1, so what you say never leaves that PC.")
+		return
+	}
+	if r.ContentLength != 0 {
+		apiError(w, http.StatusBadRequest, "Warming the dictation engine takes no body")
+		return
+	}
+	if speech := h.Service.Options.Dictation; speech != nil && speech.Ready() == nil {
+		h.dictationWork.Add(1)
+		go func() {
+			defer h.dictationWork.Done()
+			_ = speech.Warm(context.Background())
+		}()
+	}
+	w.WriteHeader(http.StatusAccepted)
 }
 
 // dictationLimit bounds one dictation's sound: about four minutes of the 16
@@ -41,20 +84,20 @@ const dictationPatience = 30 * time.Minute
 type dictationFetch struct {
 	mu      sync.Mutex
 	running bool
-	// part is the download that is arriving, the engine or the model.
-	part  string
+	// done of total bytes have arrived.
 	done  int64
 	total int64
 	// problem is why the last download failed, until the next one starts.
 	problem string
 }
 
-// note says how far the download is.
+// note says how far the download is: the bytes that have arrived, then the
+// check of the archives once all have.
 func (f *dictationFetch) note() string {
-	if f.total <= 0 {
-		return "Dictation is being set up, once. Dictate again when it is there."
+	if f.total > 0 && f.done >= f.total {
+		return "Dictation is being set up, once: checking and unpacking its speech model. Dictate again when it is ready."
 	}
-	return fmt.Sprintf("Dictation is being set up, once: downloading %s, %d of %d MB. Dictate again when it is there.", f.part, f.done>>20, f.total>>20)
+	return fmt.Sprintf("Dictation is being set up, once: downloading its speech model, %d of %d MB, which stays on this PC. Dictate again when it is ready.", f.done>>20, f.total>>20)
 }
 
 // fetchDictation starts the engine's download unless one runs, and returns
@@ -68,7 +111,7 @@ func (h *HTTP) fetchDictation(speech Dictation) string {
 		return fetch.note()
 	}
 	note := fetch.problem
-	fetch.running, fetch.part, fetch.done, fetch.total, fetch.problem = true, "", 0, 0, ""
+	fetch.running, fetch.done, fetch.total, fetch.problem = true, 0, speech.Missing(), ""
 	if note == "" {
 		note = fetch.note()
 	}
@@ -78,9 +121,9 @@ func (h *HTTP) fetchDictation(speech Dictation) string {
 		// The download outlives the request that started it.
 		ctx, cancel := context.WithTimeout(context.Background(), h.dictationPatience)
 		defer cancel()
-		err := speech.Fetch(ctx, func(part string, done, total int64) {
+		err := speech.Fetch(ctx, func(done, total int64) {
 			fetch.mu.Lock()
-			fetch.part, fetch.done, fetch.total = part, done, total
+			fetch.done, fetch.total = done, total
 			fetch.mu.Unlock()
 		})
 		fetch.mu.Lock()

@@ -359,7 +359,7 @@ func TestAPausedTaskWhoseTerminalIsGoneWakesOncePerResurface(t *testing.T) {
 	if _, err := service.Publish(*paused.Event); err != nil {
 		t.Fatal(err)
 	}
-	probe.samples["g1"] = EndpointSample{Verdict: ProbeMissing, Detail: "native terminal g1's host does not answer; cfo switch g1 restarts its harness in place, resuming its session"}
+	probe.samples["g1"] = EndpointSample{Verdict: ProbeMissing, Detail: "native terminal g1's host does not answer; goblins resume brings it back in place, resuming its session, as cfo switch g1 --harness codex does for it alone"}
 
 	// Act
 	var wakes []Event

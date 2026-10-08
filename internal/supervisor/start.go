@@ -39,17 +39,21 @@ const (
 )
 
 var (
-	spawnHarnesses = []string{"claude", "codex", "pi", "kimi"}
+	spawnHarnesses = []string{"claude", "codex", "pi"}
 	spawnModes     = []string{"no-mistakes", "direct-PR", "local-only"}
-	spawnValue     = regexp.MustCompile(`^[A-Za-z0-9._:-]{1,64}$`)
+	spawnValue     = regexp.MustCompile(`^[A-Za-z0-9._:/\[\]~-]{1,200}$`)
 	briefSetting   = regexp.MustCompile(`(?i)^\s*(harness|model|effort|mode)\s*:\s*(\S+)\s*$`)
 )
 
 // Dispatch is what a queued task's Start reads and runs on this machine:
 // its memory, and cfo spawn itself. Without it the board starts no goblin.
 type Dispatch struct {
+	Idle func(context.Context, state.TaskMeta) (bool, error)
 	// Memory reads the machine's physical memory, commit and kernel pools.
 	Memory func() (Memory, error)
+	// Disk reads the free space of the home's drive and the disk floor; nil
+	// reads the machine's.
+	Disk func() (Disk, error)
 	// CommitHolders names the apps holding the most commit.
 	CommitHolders func() ([]CommitHolder, error)
 	// Spawn runs cfo with args and returns what it printed.
@@ -72,7 +76,6 @@ type Memory struct {
 	Floor           uint64         `json:"floor"`
 	Next            uint64         `json:"next"`
 	Holders         []CommitHolder `json:"holders,omitempty"`
-	Capacity        *FleetCapacity `json:"capacity,omitempty"`
 }
 
 // shortfall says how much of memory, of commit or of both is free when it is
@@ -198,7 +201,7 @@ func (s *Service) startQueued(id string, isOverlord bool) error {
 			}
 		}
 	}()
-	plan, err := planStart(s.Store.Home, id)
+	plan, err := planStart(s.Store.Home, id, s.finishedWork())
 	if err != nil {
 		return err
 	}
@@ -210,7 +213,11 @@ func (s *Service) startQueued(id string, isOverlord bool) error {
 	if short := memory.shortfall(); short != "" {
 		return StartRefusal{Reason: short + "; Start needs 5 GB to keep the 4 GB floor", Passing: true}
 	}
-	if err := CheckLaunch(s.Store.Home, memory); err != nil {
+	disk, err := s.machineDisk()
+	if err != nil {
+		return StartRefusal{Reason: "Free disk cannot be read, so nothing starts: " + err.Error()}
+	}
+	if err := CheckLaunch(memory, disk); err != nil {
 		return StartRefusal{Reason: err.Error(), Passing: true}
 	}
 	if plan.missingBrief != nil {
@@ -239,7 +246,7 @@ func (s *Service) runStart(dispatch *Dispatch, plan startPlan) {
 			s.publish(err)
 		}
 	}()
-	output, err := dispatch.Spawn(context.Background(), plan.args())
+	output, err := s.runPastTheSpawnLock(dispatch, plan.args())
 	failure := ""
 	if err != nil {
 		failure = spawnFailure(output, err)
@@ -291,12 +298,12 @@ func spawnFailure(output string, err error) string {
 }
 
 // planStart is the cfo spawn a Start of id runs, or why it cannot: id must be
-// queued work with a brief and a project, and not already running. Harness,
-// model, effort and mode come from the backlog row, then the brief, then the
-// fleet's defaults.
-func planStart(h home.Home, id string) (startPlan, error) {
+// queued work with a brief and a project, not already running and not
+// already finished. Harness, model, effort and mode come from the backlog
+// row, then the brief, then the fleet's defaults.
+func planStart(h home.Home, id string, finished *finishedWork) (startPlan, error) {
 	if _, err := os.Stat(filepath.Join(h.State, id+".meta")); err == nil {
-		return startPlan{}, StartRefusal{Reason: id + " already runs; open it from In progress"}
+		return startPlan{}, StartRefusal{Reason: id + " already runs; open it from In progress", Held: true}
 	}
 	backlog, err := fleet.ReadBacklog(h)
 	if err != nil {
@@ -304,10 +311,13 @@ func planStart(h home.Home, id string) (startPlan, error) {
 	}
 	queued, err := backlog.ReadQueuedTask(h, id)
 	if errors.Is(err, fleet.ErrNotQueued) {
-		return startPlan{}, StartRefusal{Reason: id + " is not queued"}
+		return startPlan{}, StartRefusal{Reason: id + " is not queued", Held: true}
 	}
 	if err != nil {
 		return startPlan{}, err
+	}
+	if refusal := finished.refusal(id); refusal != "" {
+		return startPlan{}, StartRefusal{Reason: refusal, Held: true}
 	}
 	row := queued.Row
 	brief := filepath.Join(h.Data, id, "brief.md")
@@ -316,7 +326,7 @@ func planStart(h home.Home, id string) (startPlan, error) {
 		return startPlan{}, briefErr
 	}
 	if len(row.BlockedByIDs) > 0 {
-		return startPlan{}, StartRefusal{Reason: id + " is waiting on " + strings.Join(row.BlockedByIDs, ", ") + ": " + row.BlockedReason}
+		return startPlan{}, StartRefusal{Reason: id + " is waiting on " + strings.Join(row.BlockedByIDs, ", ") + ": " + row.BlockedReason, Held: true}
 	}
 	plan := startPlan{id: id, brief: brief, project: briefProject(brief), isProductionDefect: row.Priority == "production-defect"}
 	if plan.project == "" {
@@ -325,24 +335,8 @@ func planStart(h home.Home, id string) (startPlan, error) {
 	if plan.project == "" {
 		return startPlan{}, StartRefusal{Reason: "The brief for " + id + " names no project"}
 	}
-	named := briefSettings(brief)
-	pick := func(fromRow, key, fallback string) string {
-		switch {
-		case fromRow != "":
-			return fromRow
-		case named[key] != "":
-			return named[key]
-		}
-		return fallback
-	}
-	plan.harness = pick(row.Harness, "harness", defaultHarness)
-	fallbackModel, fallbackEffort := "", ""
-	if plan.harness == defaultHarness {
-		fallbackModel, fallbackEffort = defaultModel, defaultEffort
-	}
-	plan.model = pick(row.Model, "model", fallbackModel)
-	plan.effort = pick(row.Effort, "effort", fallbackEffort)
-	plan.mode = pick(row.Mode, "mode", "")
+	settings := queuedEngine(row, briefSettings(brief))
+	plan.harness, plan.model, plan.effort, plan.mode = settings.harness, settings.model, settings.effort, settings.mode
 	switch {
 	case !slices.Contains(spawnHarnesses, plan.harness):
 		return startPlan{}, StartRefusal{Reason: "The backlog row or brief names harness " + plan.harness + ", which cfo spawn does not run"}
@@ -356,6 +350,27 @@ func planStart(h home.Home, id string) (startPlan, error) {
 		plan.missingBrief = &queued
 	}
 	return plan, nil
+}
+
+func queuedEngine(row fleet.BacklogRow, named map[string]string) startPlan {
+	pick := func(fromRow, key, fallback string) string {
+		switch {
+		case fromRow != "":
+			return fromRow
+		case named[key] != "":
+			return named[key]
+		}
+		return fallback
+	}
+	plan := startPlan{harness: pick(row.Harness, "harness", defaultHarness)}
+	fallbackModel, fallbackEffort := "", ""
+	if plan.harness == defaultHarness {
+		fallbackModel, fallbackEffort = defaultModel, defaultEffort
+	}
+	plan.model = pick(row.Model, "model", fallbackModel)
+	plan.effort = pick(row.Effort, "effort", fallbackEffort)
+	plan.mode = pick(row.Mode, "mode", "")
+	return plan
 }
 
 // briefSettings are the harness, model, effort and mode a brief names on

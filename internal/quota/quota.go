@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"math"
 	"strconv"
 	"strings"
 	"time"
@@ -27,7 +28,10 @@ type Report struct {
 
 // Provider is one subscription's headroom by scope.
 type Provider struct {
-	Name string
+	Name        string
+	Source      string
+	Status      string
+	RefreshedAt time.Time
 	// Stale is quota-axi's own verdict that its numbers are old.
 	Stale bool
 	// Known is whether quota-axi understands this provider's quota semantics
@@ -46,10 +50,12 @@ type Provider struct {
 
 // Window is one of a provider's allowance windows and how much of it is used.
 type Window struct {
-	ID          string
-	Label       string
-	PercentUsed float64
-	ResetsAt    time.Time
+	ID            string
+	Label         string
+	Kind          string
+	WindowSeconds float64
+	PercentUsed   float64
+	ResetsAt      time.Time
 }
 
 // Credits is a provider's credit balance.
@@ -61,7 +67,8 @@ type Credits struct {
 
 // Scope is the effective headroom for one scope of a provider.
 type Scope struct {
-	Name string
+	Name      string
+	BoundedBy []string
 	// Known is whether the percentage is measured; an unknown percentage
 	// never reads as zero.
 	Known            bool
@@ -93,9 +100,9 @@ type Headroom struct {
 }
 
 // Headroom reads the evidence for a harness and model. The harness name is
-// the provider name for every harness quota-axi measures (claude, codex,
-// kimi); a model-scoped window is preferred when quota-axi reports one for
-// the model, otherwise the all-models scope bounds it.
+// the provider name for every harness quota-axi measures (claude and codex);
+// a model-scoped window is preferred when quota-axi reports one for the
+// model, otherwise the all-models scope bounds it.
 func (r Report) Headroom(harness, model string) Headroom {
 	h := Headroom{Provider: harness}
 	p, ok := r.Providers[harness]
@@ -160,7 +167,7 @@ func (r Reader) Read(ctx context.Context) (Report, string) {
 		report, err = Parse(payload, now())
 	}
 	if err != nil {
-		return Report{}, strings.Join(strings.Fields(err.Error()), " ")
+		return report, strings.Join(strings.Fields(err.Error()), " ")
 	}
 	return report, ""
 }
@@ -172,11 +179,14 @@ type payload struct {
 	GeneratedAt string `json:"generatedAt"`
 	Providers   []struct {
 		Provider string `json:"provider"`
+		Source   string `json:"source"`
 		Windows  []struct {
-			ID          string          `json:"id"`
-			Label       string          `json:"label"`
-			PercentUsed json.RawMessage `json:"percentUsed"`
-			ResetsAt    string          `json:"resetsAt"`
+			ID            string          `json:"id"`
+			Label         string          `json:"label"`
+			Kind          string          `json:"kind"`
+			WindowSeconds json.RawMessage `json:"windowSeconds"`
+			PercentUsed   json.RawMessage `json:"percentUsed"`
+			ResetsAt      string          `json:"resetsAt"`
 		} `json:"windows"`
 		Credits *struct {
 			Remaining json.RawMessage `json:"remaining"`
@@ -184,12 +194,15 @@ type payload struct {
 			Unit      string          `json:"unit"`
 		} `json:"credits"`
 		State struct {
-			Stale bool `json:"stale"`
+			Stale       bool             `json:"stale"`
+			Status      string           `json:"status"`
+			RefreshedAt refreshTimestamp `json:"refreshedAt"`
 		} `json:"state"`
 		QuotaSemantics struct {
 			Status                string `json:"status"`
 			EffectiveAvailability []struct {
 				Scope                     string          `json:"scope"`
+				BoundedBy                 []string        `json:"boundedBy"`
 				Status                    string          `json:"status"`
 				EffectivePercentRemaining json.RawMessage `json:"effectivePercentRemaining"`
 				Runway                    struct {
@@ -201,6 +214,16 @@ type payload struct {
 			} `json:"effectiveAvailability"`
 		} `json:"quotaSemantics"`
 	} `json:"providers"`
+}
+
+type refreshTimestamp struct {
+	value     string
+	isPresent bool
+}
+
+func (timestamp *refreshTimestamp) UnmarshalJSON(data []byte) error {
+	*timestamp = refreshTimestamp{isPresent: true}
+	return json.Unmarshal(data, &timestamp.value)
 }
 
 // Parse interprets quota-axi --json. It fails on unparseable input, on a
@@ -215,12 +238,14 @@ func Parse(data []byte, now time.Time) (Report, error) {
 	if err != nil {
 		return Report{}, errors.New("quota-axi: snapshot has no generation time")
 	}
-	if now.Sub(generated) > MaxAge {
-		return Report{}, fmt.Errorf("quota-axi: snapshot is stale (generated %s)", generated.UTC().Format(time.RFC3339))
-	}
+	isStale := now.Sub(generated) > MaxAge
 	report := Report{GeneratedAt: generated, Providers: map[string]Provider{}}
 	for _, p := range in.Providers {
-		provider := Provider{Name: p.Provider, Stale: p.State.Stale, Known: p.QuotaSemantics.Status == "known", Scopes: map[string]Scope{}, Resets: map[string]time.Time{}}
+		refreshed := generated
+		if p.State.RefreshedAt.isPresent {
+			refreshed, _ = time.Parse(time.RFC3339Nano, p.State.RefreshedAt.value)
+		}
+		provider := Provider{Name: p.Provider, Source: p.Source, Status: p.State.Status, RefreshedAt: refreshed, Stale: p.State.Stale || isStale, Known: p.QuotaSemantics.Status == "known", Scopes: map[string]Scope{}, Resets: map[string]time.Time{}}
 		for _, w := range p.Windows {
 			at, err := time.Parse(time.RFC3339Nano, w.ResetsAt)
 			if err == nil {
@@ -228,7 +253,8 @@ func Parse(data []byte, now time.Time) (Report, error) {
 			}
 			// A window whose use quota-axi could not measure is no reading.
 			if used, ok := number(w.PercentUsed); ok {
-				provider.Windows = append(provider.Windows, Window{ID: w.ID, Label: w.Label, PercentUsed: used, ResetsAt: at.UTC()})
+				seconds, _ := number(w.WindowSeconds)
+				provider.Windows = append(provider.Windows, Window{ID: w.ID, Label: w.Label, Kind: w.Kind, WindowSeconds: seconds, PercentUsed: used, ResetsAt: at.UTC()})
 			}
 		}
 		if p.Credits != nil {
@@ -237,7 +263,7 @@ func Parse(data []byte, now time.Time) (Report, error) {
 			}
 		}
 		for _, e := range p.QuotaSemantics.EffectiveAvailability {
-			scope := Scope{Name: e.Scope, Runway: e.Runway.Status, ResetsAt: provider.Resets[e.Runway.LimitingWindowID]}
+			scope := Scope{Name: e.Scope, BoundedBy: e.BoundedBy, Runway: e.Runway.Status, ResetsAt: provider.Resets[e.Runway.LimitingWindowID]}
 			if percent, ok := number(e.EffectivePercentRemaining); ok && e.Status == "known" {
 				scope.Known, scope.PercentRemaining = true, percent
 			}
@@ -251,7 +277,58 @@ func Parse(data []byte, now time.Time) (Report, error) {
 		}
 		report.Providers[p.Provider] = provider
 	}
+	if isStale {
+		return report, fmt.Errorf("quota-axi: snapshot is stale (generated %s)", generated.UTC().Format(time.RFC3339))
+	}
 	return report, nil
+}
+
+type WeeklyReading struct {
+	Status           string    `json:"status"`
+	PercentRemaining *float64  `json:"percent_remaining"`
+	ResetsAt         time.Time `json:"resets_at"`
+	ReadAt           time.Time `json:"read_at"`
+	Source           string    `json:"source"`
+}
+
+func (r Report) Weekly(provider string, now time.Time) WeeklyReading {
+	reading := WeeklyReading{Status: "unavailable"}
+	windowID := map[string]string{"claude": "seven_day", "codex": "weekly"}[provider]
+	p, exists := r.Providers[provider]
+	if !exists || windowID == "" {
+		return reading
+	}
+	if p.Source == "oauth" || p.Source == "api" {
+		reading.Source = p.Source
+	}
+	reading.ReadAt = p.RefreshedAt
+	reading.ResetsAt = p.Resets[windowID]
+	if p.Status == "auth_required" {
+		reading.Status = "auth_required"
+		return reading
+	}
+	if reading.ReadAt.IsZero() {
+		return reading
+	}
+	if p.Stale || now.Sub(reading.ReadAt) > MaxAge || now.Sub(r.GeneratedAt) > MaxAge {
+		reading.Status = "stale"
+		return reading
+	}
+	if !p.Known || p.Status != "fresh" || p.Source != "oauth" || reading.ReadAt.After(now.Add(time.Minute)) || r.GeneratedAt.After(now.Add(time.Minute)) {
+		return reading
+	}
+	for _, window := range p.Windows {
+		if window.ID != windowID {
+			continue
+		}
+		if math.IsNaN(window.PercentUsed) || math.IsInf(window.PercentUsed, 0) || window.PercentUsed < 0 || window.PercentUsed > 100 {
+			return reading
+		}
+		remaining := 100 - window.PercentUsed
+		reading.Status, reading.PercentRemaining = "available", &remaining
+		return reading
+	}
+	return reading
 }
 
 // number reads a JSON number, and reports false for anything else (absent,

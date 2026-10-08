@@ -78,6 +78,8 @@ func runStandInBuild() (int, bool) {
 		return standInServe(build), true
 	case "update":
 		return standInUpdate(), true
+	case "install":
+		return standInInstall(), true
 	}
 	// Anything else, a terminal's host or a watcher, idles until ended.
 	time.Sleep(3 * time.Minute)
@@ -142,6 +144,9 @@ func standInServe(build string) int {
 		}
 	}
 	defer lock.ReleaseExclusiveNamed(stateDir, ".watch.lock")
+	// The console it was given, which a test reads to prove the supervisor an
+	// update or an install starts has one of its own with no window.
+	probeConsole(filepath.Join(stateDir, "test-serve-console-"+strconv.Itoa(os.Getpid())))
 	listener, err := net.Listen("tcp", *address)
 	if err != nil {
 		fmt.Fprintln(os.Stderr, err)
@@ -216,8 +221,30 @@ func holdExclusively(path string, wait time.Duration) (syscall.Handle, error) {
 // CFO_TEST_UPDATE_TAMPER replaces the named verified copies with the home's
 // tampered.exe as the rollback begins, and CFO_TEST_UPDATE_PAUSE waits at a
 // step.
+// standInInstall runs the real cfo install as the build, with the waits a test
+// names, so a supervisor the install restarts is this build's stand-in.
+func standInInstall() int {
+	if wait, err := time.ParseDuration(os.Getenv("CFO_TEST_UPDATE_SERVE_WAIT")); err == nil {
+		updateServeWait = wait
+	}
+	if wait, err := time.ParseDuration(os.Getenv("CFO_TEST_HANDOVER_WAIT")); err == nil {
+		watch.HandoverWait = wait
+	}
+	updateStopWait = 5 * time.Second
+	return runInstall(os.Args[2:], os.Stdout, os.Stderr)
+}
+
 func standInUpdate() int {
 	h := standInHome()
+	// A home's installed build updates from a release as the version the
+	// test names, and passes the proof that the Overlord runs it unless the
+	// test asks for the proof.
+	if named := os.Getenv("CFO_TEST_VERSION"); named != "" {
+		version = named
+	}
+	if os.Getenv("CFO_TEST_UPDATE_PROOF") == "" {
+		updaterRefusal = func(home.Home) error { return nil }
+	}
 	if wait, err := time.ParseDuration(os.Getenv("CFO_TEST_UPDATE_SERVE_WAIT")); err == nil {
 		updateServeWait = wait
 	}
@@ -238,7 +265,7 @@ func standInUpdate() int {
 			time.Sleep(20 * time.Second)
 		}
 		if step == "stopped" && breakSwap {
-			_ = os.Remove(filepath.Join(h.Root, "goblins.exe.update-new"))
+			_ = os.Remove(filepath.Join(h.Bin(), "goblins.exe.update-new"))
 		}
 		if step == "rolling-back" && tamper != "" {
 			tampered, err := os.ReadFile(filepath.Join(h.Root, "tampered.exe"))
@@ -255,7 +282,7 @@ func standInUpdate() int {
 			// Held for the rest of the process, as a program reading it
 			// would, so it can be neither moved nor replaced. A test whose
 			// alias could not be held fails on this seam, not the product.
-			if _, err := holdExclusively(filepath.Join(h.Root, hold), holdWait); err != nil {
+			if _, err := holdExclusively(filepath.Join(h.Bin(), hold), holdWait); err != nil {
 				fmt.Fprintf(os.Stderr, "stand-in update: the test's alias %s could not be held: %v\n", hold, err)
 				os.Exit(holdFailedExit)
 			}

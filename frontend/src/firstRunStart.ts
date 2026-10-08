@@ -26,8 +26,10 @@ export function startState(setup: Setup, picked: string, lookedAtFolder: boolean
 export type FirstRunChoice = "" | "started" | "board";
 
 // showsFirstRun is whether the board's root shows the first-run page: whenever
-// no CFO runs, which is how the installer and its shortcut open it, unless he
-// just started one or chose to see the board without a CFO.
-export function showsFirstRun({ cfoRuns, choice }: { cfoRuns: boolean; choice: FirstRunChoice }): boolean {
-  return !cfoRuns && choice === "";
+// no CFO runs in a home that has had none, which is how the installer and its
+// shortcut open it, unless he just started one or chose to see the board
+// without a CFO. A home whose CFO was closed has had one: its board stays,
+// with Reopen on the CFO's bar.
+export function showsFirstRun({ cfoRuns, cfoClosed, choice }: { cfoRuns: boolean; cfoClosed: boolean; choice: FirstRunChoice }): boolean {
+  return !cfoRuns && !cfoClosed && choice === "";
 }

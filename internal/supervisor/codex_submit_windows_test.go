@@ -211,6 +211,7 @@ func codexSubmitEvents(t *testing.T, path string) []codexSubmitEvent {
 func TestACodexBoardDecisionSubmitsTheWholePasteOnceIdleAndBusy(t *testing.T) {
 	for _, mode := range []string{"idle", "busy"} {
 		t.Run(mode, func(t *testing.T) {
+			records := useConversations(t)
 			store, _ := testStore(t)
 			t.Setenv("HERDR_PANE_ID", "")
 			program, err := os.Executable()
@@ -296,6 +297,8 @@ func TestACodexBoardDecisionSubmitsTheWholePasteOnceIdleAndBusy(t *testing.T) {
 					t.Fatalf("exact recipient did not consume the decision: %+v", events)
 				}
 			}
+			// Codex records the decision it took in the session's rollout.
+			takenInRecord(t, records, "codex", "codex-submit-session", "", want)
 			if err := store.Ingest(); err != nil {
 				t.Fatal(err)
 			}

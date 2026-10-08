@@ -15,6 +15,7 @@ import (
 
 	"github.com/fpresta0607/code-goblins/internal/crewstate"
 	"github.com/fpresta0607/code-goblins/internal/execx"
+	"github.com/fpresta0607/code-goblins/internal/fsx"
 	"github.com/fpresta0607/code-goblins/internal/herdr"
 	"github.com/fpresta0607/code-goblins/internal/home"
 	"github.com/fpresta0607/code-goblins/internal/host"
@@ -49,7 +50,7 @@ type Collector struct {
 	Panes     PaneReader
 	Processes ProcessLister
 	// Commands runs git, which is the only source that can say whether a
-	// directory under .worktrees/ is a worktree at all.
+	// directory among the worktrees is a worktree at all.
 	Commands execx.Runner
 	// StatusTail bounds how much of each status log is read to find the
 	// latest verb, matching crewstate.Resolve's own window.
@@ -62,6 +63,11 @@ type Collector struct {
 	// traces a test fixture's stand-in harness back to the goblin or gate
 	// that started it; nil leaves every stand-in unplaced.
 	WorkingDirectory func(pid int) (string, error)
+	// Environment reads the environment a process runs with. It is what
+	// proves a process runs in a native terminal whose host is alive, by the
+	// proof value that terminal's host gave it; nil leaves every process
+	// unproven.
+	Environment func(pid int) ([]string, error)
 }
 
 // Collect reads state, panes, processes and worktree directories once each.
@@ -70,7 +76,7 @@ func (c Collector) Collect(ctx context.Context) (Inventory, []string, error) {
 		return Inventory{}, nil, errors.New("reap: home state directory is required")
 	}
 	var notes []string
-	inv := Inventory{SelfPIDs: selfAncestry(), Session: c.Session, StateDir: c.Home.State}
+	inv := Inventory{SelfPIDs: selfAncestry(), Session: c.Session, StateDir: c.Home.State, ScratchRoots: c.Home.ScratchRoots()}
 
 	scan, err := state.ScanIDs(c.Home.State)
 	if err != nil {
@@ -156,6 +162,7 @@ func (c Collector) Collect(ctx context.Context) (Inventory, []string, error) {
 		notes = append(notes, "no process lister configured; process evidence is missing")
 	}
 	c.nativeHosts(&inv, &notes)
+	c.placeTerminals(&inv)
 
 	return inv, notes, nil
 }
@@ -191,8 +198,66 @@ func (c Collector) nativeHosts(inv *Inventory, notes *[]string) {
 			inv.UnreadableHosts = append(inv.UnreadableHosts, id)
 			continue
 		}
-		inv.NativeHosts = append(inv.NativeHosts, NativeHost{ID: record.ID, HostPID: record.HostPID, Started: record.Started})
+		inv.NativeHosts = append(inv.NativeHosts, NativeHost{ID: record.ID, HostPID: record.HostPID, Started: record.Started, ProofSum: record.ProofSum})
 	}
+}
+
+// placeTerminals proves, for every harness-shaped process and its ancestors,
+// the native terminal of this home it runs in: the one its environment names,
+// when the proof value beside that name is the one the terminal's host
+// recorded. Every process in a terminal inherits both, through an exec that
+// cuts its chain of parents short of the host too, as an MSYS one does.
+func (c Collector) placeTerminals(inv *Inventory) {
+	if c.Environment == nil {
+		return
+	}
+	records := make(map[string]NativeHost, len(inv.NativeHosts))
+	for _, record := range inv.NativeHosts {
+		records[strings.ToLower(record.ID)] = record
+	}
+	index := make(map[int]int, len(inv.Processes))
+	for i, process := range inv.Processes {
+		index[process.PID] = i
+	}
+	read := make(map[int]bool)
+	for _, process := range inv.Processes {
+		if !isHarness(process) {
+			continue
+		}
+		pid := process.PID
+		for range fixtureAncestry + 1 {
+			i, ok := index[pid]
+			if !ok || read[pid] {
+				break
+			}
+			read[pid] = true
+			if env, err := c.Environment(pid); err == nil {
+				inv.Processes[i].Terminal = provenTerminal(env, records)
+			}
+			pid = inv.Processes[i].ParentPID
+		}
+	}
+}
+
+// provenTerminal is the id, as its host record spells it, of the terminal
+// among records that env names and whose recorded proof sum is that of the
+// proof value env carries, or "" when there is none.
+func provenTerminal(env []string, records map[string]NativeHost) string {
+	var id, proof string
+	for _, entry := range env {
+		name, value, _ := strings.Cut(entry, "=")
+		switch {
+		case strings.EqualFold(name, host.IDVariable):
+			id = value
+		case strings.EqualFold(name, host.ProofVariable):
+			proof = value
+		}
+	}
+	record, ok := records[strings.ToLower(id)]
+	if !ok || !(host.Record{ProofSum: record.ProofSum}).Proves(proof) {
+		return ""
+	}
+	return record.ID
 }
 
 func (c Collector) latestVerb(id string) string {
@@ -277,28 +342,34 @@ func (c Collector) readPanes(ctx context.Context) (panes []Pane, unresolved, unp
 	return panes, unresolved, unplaced, nil
 }
 
-// worktrees enumerates every .worktrees/ directory the fleet could own: the
-// CFO home's own, each clone under projects/, and the project of every task
-// that has a record. The last is what reaches a project cloned outside the
-// home, which is most of them.
+// worktrees enumerates every worktree the fleet could own: every folder under
+// the home's worktrees folder, where spawn puts each one, and every
+// .worktrees/ directory an older build used, the CFO home's own, each clone
+// under projects/, and the project of every task that has a record. The last
+// is what reaches a project cloned outside the home, which is most of them.
 //
 // Every checkout under the projects root is scanned as well, because a goblin
 // worktree whose records were all archived sits in a project no task names any
-// more. Only gb-* directories count there: no record says the fleet was ever
-// in such a checkout, so anything else under its .worktrees/ is the operator's
-// own worktree, and this sweep must not so much as report it as an orphan.
+// more.
+//
+// Outside the home's own root and clones, a folder under .worktrees/ counts
+// only when this home's records name it (see claims): a project's checkout and
+// the projects root are every home's on the machine, so another home's goblin
+// worktrees and the operator's own sit there too, and this sweep must not so
+// much as report one as an orphan.
 func (c Collector) worktrees(ctx context.Context, tasks []Task, notes *[]string) []WorktreeDir {
 	roots := map[string]bool{c.Home.Root: true}
 	for _, entry := range readDirNames(filepath.Join(c.Home.Root, "projects")) {
 		roots[filepath.Join(c.Home.Root, "projects", entry)] = true
 	}
 	for _, task := range tasks {
-		if task.Meta.Project != "" {
-			roots[filepath.Clean(task.Meta.Project)] = true
+		if project := filepath.Clean(task.Meta.Project); task.Meta.Project != "" && !roots[project] {
+			roots[project] = false
 		}
 	}
-	// A root's value is whether everything under its .worktrees/ is the
-	// fleet's. A checkout already known from a record keeps true.
+	held := heldIDs(c.Home.State, tasks, notes)
+	// A root's value is whether everything under its .worktrees/ is this
+	// home's. A root already known keeps its value.
 	if c.ProjectsRoot != nil {
 		projectsRoot, err := c.ProjectsRoot()
 		if err != nil {
@@ -323,9 +394,9 @@ func (c Collector) worktrees(ctx context.Context, tasks []Task, notes *[]string)
 	}
 
 	seen := make(map[string]bool)
-	var found []WorktreeDir
+	found := c.homeWorktrees(ctx, tasks, seen, notes)
 	for _, root := range sortedKeys(roots) {
-		dir := filepath.Join(root, ".worktrees")
+		dir := filepath.Join(root, home.LegacyWorktreesDir)
 		entries, err := os.ReadDir(dir)
 		if err != nil {
 			if !errors.Is(err, os.ErrNotExist) {
@@ -339,10 +410,10 @@ func (c Collector) worktrees(ctx context.Context, tasks []Task, notes *[]string)
 		var registered []os.FileInfo
 		var answered, asked bool
 		for _, entry := range entries {
-			if !entry.IsDir() || (!roots[root] && !strings.HasPrefix(entry.Name(), "gb-")) {
+			path := filepath.Join(dir, entry.Name())
+			if !entry.IsDir() || (!roots[root] && !claims(root, path, tasks, held)) {
 				continue
 			}
-			path := filepath.Join(dir, entry.Name())
 			if seen[normalizePath(path)] {
 				continue
 			}
@@ -354,13 +425,160 @@ func (c Collector) worktrees(ctx context.Context, tasks []Task, notes *[]string)
 			found = append(found, WorktreeDir{
 				Path:         path,
 				Project:      root,
-				TaskID:       strings.TrimPrefix(entry.Name(), "gb-"),
+				TaskID:       strings.TrimPrefix(entry.Name(), home.LegacyWorktreePrefix),
 				Registration: registrationOf(path, registered, answered),
 				Created:      createdAt(path),
 			})
 		}
 	}
 	return found
+}
+
+// claims reports whether this home's records name path, a folder under the
+// .worktrees/ of checkout root: a live task's worktree or extra one, a goblin
+// worktree named for a task this home holds any record of, or one named as an
+// extra of such a task, <id>-<suffix>, where that task's record or outcome
+// names root as its checkout, as ownerOf reads an extra.
+func claims(root, path string, tasks []Task, held map[string]string) bool {
+	key := normalizePath(filepath.Clean(path))
+	for _, task := range tasks {
+		for _, recorded := range append([]string{task.Meta.Worktree}, task.Meta.Extras...) {
+			if recorded != "" && normalizePath(filepath.Clean(recorded)) == key {
+				return true
+			}
+		}
+	}
+	name, ok := strings.CutPrefix(strings.ToLower(filepath.Base(path)), home.LegacyWorktreePrefix)
+	if !ok || name == "" {
+		return false
+	}
+	if _, ok := held[name]; ok {
+		return true
+	}
+	for id, project := range held {
+		if project != "" && strings.HasPrefix(name, id+"-") && normalizePath(filepath.Clean(project)) == normalizePath(filepath.Clean(root)) {
+			return true
+		}
+	}
+	return false
+}
+
+// heldIDs maps the id, lowercased as Windows compares it, of every task this
+// home holds a record of to the checkout that record names, where one does:
+// a task record, readable or not, a status log, an outcome, or a record
+// cleanup or the sweep archived, <id>.<stamp> or <id>.status.<stamp>. Only a
+// live task's record and an outcome name a checkout. A folder of records that
+// cannot be read is noted, and its records are not held.
+func heldIDs(stateDir string, tasks []Task, notes *[]string) map[string]string {
+	held := map[string]string{}
+	hold := func(id, project string) {
+		if known := held[strings.ToLower(id)]; known == "" {
+			held[strings.ToLower(id)] = project
+		}
+	}
+	for _, task := range tasks {
+		hold(task.ID, task.Meta.Project)
+	}
+	read := func(dir string) []os.DirEntry {
+		entries, err := os.ReadDir(dir)
+		if err != nil && !errors.Is(err, os.ErrNotExist) {
+			*notes = append(*notes, fmt.Sprintf("%s: UNREADABLE (%s); a goblin worktree only its records there name is not listed", dir, err))
+		}
+		return entries
+	}
+	for _, entry := range read(stateDir) {
+		name := entry.Name()
+		if id, ok := strings.CutSuffix(name, ".meta"); ok && !entry.IsDir() {
+			hold(id, "")
+		} else if id, ok := strings.CutSuffix(name, ".status"); ok && !entry.IsDir() {
+			hold(id, "")
+		}
+	}
+	for _, entry := range read(filepath.Join(stateDir, "outcomes")) {
+		if id, ok := strings.CutSuffix(entry.Name(), ".json"); ok {
+			outcome, _ := state.ReadOutcome(stateDir, id)
+			hold(id, outcome.Project)
+		}
+	}
+	for _, entry := range read(filepath.Join(stateDir, state.ArchiveDirName)) {
+		hold(strings.TrimSuffix(strings.TrimSuffix(entry.Name(), filepath.Ext(entry.Name())), ".status"), "")
+	}
+	return held
+}
+
+// homeWorktrees lists every folder under each of the home's worktree roots,
+// <project folder>\<name>, each placed with the checkout it belongs to: the
+// project its task's record names, or else the repository its .git file
+// leads to. A folder whose checkout cannot be found is listed with its
+// registration unknown, the gated class.
+func (c Collector) homeWorktrees(ctx context.Context, tasks []Task, seen map[string]bool, notes *[]string) []WorktreeDir {
+	recorded := map[string]string{}
+	for _, task := range tasks {
+		for _, path := range append([]string{task.Meta.Worktree}, task.Meta.Extras...) {
+			if path != "" && task.Meta.Project != "" {
+				recorded[normalizePath(filepath.Clean(path))] = filepath.Clean(task.Meta.Project)
+			}
+		}
+	}
+	registered := map[string][]os.FileInfo{}
+	answered := map[string]bool{}
+	var found []WorktreeDir
+	for _, root := range c.Home.WorktreeRoots() {
+		for _, folder := range readDirNames(root) {
+			for _, name := range readDirNames(filepath.Join(root, folder)) {
+				path := filepath.Join(root, folder, name)
+				if info, err := os.Stat(path); err != nil || !info.IsDir() || seen[normalizePath(path)] {
+					continue
+				}
+				seen[normalizePath(path)] = true
+				project, ok := recorded[normalizePath(path)]
+				if !ok {
+					project, ok = checkoutOf(path)
+				}
+				dir := WorktreeDir{Path: path, Project: project, TaskID: name, Created: createdAt(path)}
+				if ok {
+					if _, asked := answered[project]; !asked {
+						registered[project], answered[project] = c.registeredWorktrees(ctx, project, notes)
+					}
+					dir.Registration = registrationOf(path, registered[project], answered[project])
+				} else {
+					*notes = append(*notes, fmt.Sprintf("%s: no task record names it and its .git file leads to no checkout; it cannot be confirmed to be a worktree", path))
+				}
+				found = append(found, dir)
+			}
+		}
+	}
+	return found
+}
+
+// checkoutOf is the checkout a worktree belongs to, read from the gitdir its
+// .git file names: <checkout>\.git\worktrees\<name>, whose commondir leads
+// back to <checkout>\.git.
+func checkoutOf(worktree string) (string, bool) {
+	content, err := fsx.ReadFile(filepath.Join(worktree, ".git"))
+	if err != nil {
+		return "", false
+	}
+	gitDir, ok := strings.CutPrefix(strings.TrimSpace(string(content)), "gitdir:")
+	if !ok {
+		return "", false
+	}
+	gitDir = filepath.Clean(filepath.FromSlash(strings.TrimSpace(gitDir)))
+	if !filepath.IsAbs(gitDir) {
+		gitDir = filepath.Join(worktree, gitDir)
+	}
+	common, err := fsx.ReadFile(filepath.Join(gitDir, "commondir"))
+	if err != nil {
+		return "", false
+	}
+	commonDir := filepath.Clean(filepath.FromSlash(strings.TrimSpace(string(common))))
+	if !filepath.IsAbs(commonDir) {
+		commonDir = filepath.Join(gitDir, commonDir)
+	}
+	if !strings.EqualFold(filepath.Base(commonDir), ".git") {
+		return "", false
+	}
+	return filepath.Dir(commonDir), true
 }
 
 // registeredWorktrees reads the directories a project registers as worktrees,
@@ -383,7 +601,7 @@ func (c Collector) worktrees(ctx context.Context, tasks []Task, notes *[]string)
 // as "answered, and does not list this".
 func (c Collector) registeredWorktrees(ctx context.Context, root string, notes *[]string) ([]os.FileInfo, bool) {
 	if c.Commands == nil {
-		*notes = append(*notes, "no command runner configured; no directory under .worktrees/ can be confirmed to be a worktree")
+		*notes = append(*notes, "no command runner configured; no directory among the worktrees can be confirmed to be a worktree")
 		return nil, false
 	}
 	// The query asks a directory what it registers, which is only a question
@@ -543,9 +761,11 @@ func (c Collector) placeHarnesses(processes []Process) {
 	}
 }
 
-// WorktreeOwner reads the task that owns the directory at path under project's
-// .worktrees/, by the rule ownerOf states, from the records in stateDir.
-func WorktreeOwner(stateDir, project, path string) (Task, bool, error) {
+// WorktreeOwner reads the task that owns the worktree at path, by the rule
+// ownerOf states, from the records in stateDir. A path that is in no fleet
+// worktree, under one of worktreesRoots, the home's WorktreeRoots, or where
+// an older build put one, is owned only by a record that names it.
+func WorktreeOwner(stateDir string, worktreesRoots []string, project, path string) (Task, bool, error) {
 	scan, err := state.ScanIDs(stateDir)
 	if err != nil {
 		return Task{}, false, err
@@ -565,7 +785,10 @@ func WorktreeOwner(stateDir, project, path string) (Task, bool, error) {
 		tasks[id] = Task{ID: id, Meta: meta}
 		worktrees = append(worktrees, WorktreeDir{Path: meta.Worktree, Created: createdAt(meta.Worktree)})
 	}
-	dir := WorktreeDir{Path: path, Project: project, TaskID: strings.TrimPrefix(filepath.Base(path), "gb-"), Created: createdAt(path)}
+	dir := WorktreeDir{Path: path, Project: project, Created: createdAt(path)}
+	if place, ok := home.LocateWorktree(worktreesRoots, path); ok {
+		dir.TaskID = place.Name
+	}
 	task, known := ownerOf(dir, tasks, worktrees, unreadable)
 	return task, known, nil
 }

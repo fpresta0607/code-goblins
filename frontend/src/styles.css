@@ -114,7 +114,9 @@ h3 { font-size: 1.0625rem; }
 button:disabled, textarea:disabled { cursor: default; opacity: .55; }
 :focus-visible { outline: var(--focus-ring); outline-offset: 3px; }
 .app-shell { display: flex; flex-direction: column; height: 100dvh; padding: 12px; gap: 10px; }
-.topbar { position: relative; z-index: 3; display: grid; grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr); align-items: center; gap: 20px; min-height: 72px; flex: none; padding: 10px 24px; border: 1px solid var(--glass-border); border-radius: var(--radius); background: var(--glass-bg); box-shadow: var(--glass-shadow); backdrop-filter: blur(16px); }
+/* Above every pane (they stack to 5), so the Command Center's list opens over
+   a terminal's cover; under toasts and tips. */
+.topbar { position: relative; z-index: 6; display: grid; grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr); align-items: center; gap: 20px; min-height: 72px; flex: none; padding: 10px 24px; border: 1px solid var(--glass-border); border-radius: var(--radius); background: var(--glass-bg); box-shadow: var(--glass-shadow); backdrop-filter: blur(16px); }
 .brand { display: flex; align-items: center; gap: 12px; min-width: 0; color: #edf4f3; }
 .brand img { object-fit: contain; flex: none; }
 .brand h1 { font-size: 1.75rem; white-space: nowrap; background: var(--brand-gradient); -webkit-background-clip: text; background-clip: text; color: transparent; }
@@ -146,8 +148,8 @@ button:disabled, textarea:disabled { cursor: default; opacity: .55; }
 .canvas-region { container-type: inline-size; display: flex; flex-direction: column; min-width: 0; min-height: 0; overflow: auto; border: 1px solid var(--glass-border); border-radius: var(--radius); box-shadow: inset 0 2px 18px #0009; background: linear-gradient(rgba(3, 5, 10, 0.4), rgba(3, 5, 10, 0.4)), url('/assets/goblin-workshop.png') right bottom / cover; position: relative; }
 /* The board is a kanban: Tasks, In progress and Completed side by side, with
    Paused inside In progress; stacked puts them one under another, as a narrow
-   board always does. */
-.task-board { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 22px; min-height: 100%; padding: 28px 24px; }
+   board always does. Each column ends below its last card. */
+.task-board { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); align-items: start; gap: 22px; min-height: 100%; padding: 28px 24px; }
 .task-board.stacked { grid-template-columns: minmax(0, 1fr); align-content: start; gap: 18px; padding: 24px; }
 /* The CFO pinned above the columns is a plain bar, a card like the columns
    under it, with its terminal on its icon and portrait; what it shows while
@@ -179,6 +181,7 @@ button:disabled, textarea:disabled { cursor: default; opacity: .55; }
 .first-run-step { display: grid; gap: 8px; margin: 0; min-width: 0; }
 .first-run-step > label { font-weight: 700; }
 .first-run-step > label .muted { font-weight: 400; }
+.first-run-choice { display: flex; align-items: center; gap: 8px; }
 .first-run-step p { margin: 0; font-size: .9375rem; }
 .first-run-folder { display: flex; gap: 8px; }
 .first-run-folder input { flex: 1 1 0; width: 0; min-width: 0; font-family: var(--font-mono); }
@@ -212,7 +215,13 @@ button:disabled, textarea:disabled { cursor: default; opacity: .55; }
 .board-column h2 { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; font-size: 1.375rem; margin: 0 0 20px; }
 .column-count { font-family: var(--font-body); color: var(--muted); font-size: .9375rem; font-weight: 700; padding: 0 9px; border: 1px solid var(--glass-border); border-radius: 999px; background: var(--ghost-bg); }
 .task-cards { container-type: inline-size; display: grid; align-content: start; gap: 16px; }
-.task-card { position: static; display: flex; align-items: flex-start; gap: 12px; width: 100%; min-width: 0; text-align: left; padding: 0; min-height: 0; border: 0; border-radius: 10px; background: none; box-shadow: none; }
+/* A task card's portrait sits beside its head, the chip and title, and every
+   line under them takes the card's whole width. */
+.task-card { position: static; display: grid; grid-template-columns: auto minmax(0, 1fr); align-items: start; gap: 4px 12px; width: 100%; min-width: 0; text-align: left; padding: 0; min-height: 0; border: 0; border-radius: 10px; background: none; box-shadow: none; }
+.task-card > .goblin-avatar { grid-column: 1; grid-row: 1; }
+.task-card > .card-copy { display: contents; }
+.task-card .card-head { grid-column: 2; grid-row: 1; align-self: center; display: grid; justify-items: start; gap: 4px; min-width: 0; }
+.task-card > .card-copy > :not(.card-head) { grid-column: 1 / -1; }
 .task-card-shell:hover, .flow-node:hover, .workflow-node:hover { transform: var(--lift); border-color: var(--glass-border-hover); background: var(--glass-bg-hover), var(--hero-surface); box-shadow: var(--glass-shadow-hover); }
 .task-card-shell:has(> .task-card:active), .workflow-node:active { transform: none; box-shadow: var(--glass-shadow); }
 .task-card .goblin-avatar { width: 44px; height: 44px; }
@@ -236,7 +245,7 @@ button:disabled, textarea:disabled { cursor: default; opacity: .55; }
 .card-harness .mark svg, .card-harness .mark .icon { width: 22px; height: 22px; }
 .task-card-shell > .task-card::before { content: ""; position: absolute; inset: 0; border-radius: inherit; }
 .card-links > *, .task-card-shell > .task-controls > *, .task-card-shell > .card-harness { position: relative; z-index: 1; }
-.card-links { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 14px; min-width: 0; margin-top: 10px; padding-left: 56px; }
+.card-links { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 14px; min-width: 0; margin-top: 10px; }
 .card-pr { display: inline-flex; align-items: center; gap: 6px; font-size: 1rem; font-weight: 700; color: #6bf0cc; text-decoration: none; }
 .card-pr .icon { width: 18px; height: 18px; }
 .card-pr:hover, .card-pr:focus-visible { text-decoration: underline; }
@@ -272,9 +281,11 @@ button:disabled, textarea:disabled { cursor: default; opacity: .55; }
 .persona-debugger, .persona-security, .persona-database, .persona-designer, .persona-documentation, .persona-operations { background-image: url('/assets/goblin-specialists.png'); }
 .persona-researcher, .persona-performance, .persona-integrations, .persona-git, .persona-accessibility, .persona-releases { background-image: url('/assets/goblin-specialists-2.png'); }
 .orchestration { flex: 1; min-height: 500px; position: relative; }
-.flow-canvas { display: flex; flex-direction: column; height: 100%; overflow: auto; touch-action: none; background: radial-gradient(circle, #51716675 1px, transparent 1px) 0 0 / 24px 24px; }
-.flow-space { flex: none; margin: auto; }
-.flow-world { position: relative; transform-origin: 0 0; }
+/* The canvas moves and zooms like a map, so it clips rather than scrolls:
+   nothing, a focused card included, can scroll it out from under its view. */
+.flow-canvas { position: relative; display: flex; flex-direction: column; height: 100%; overflow: clip; touch-action: none; cursor: grab; background: radial-gradient(circle, #51716675 1px, transparent 1px) 0 0 / 24px 24px; }
+.flow-canvas:active { cursor: grabbing; }
+.flow-world { position: absolute; left: 0; top: 0; transform-origin: 0 0; }
 .flow-connections { position: absolute; inset: 0; pointer-events: none; overflow: visible; }
 .connection-line path { fill: none; stroke: #637b8c; stroke-width: 2; }
 .connection-line circle { fill: #bad4ec; }
@@ -301,12 +312,14 @@ button:disabled, textarea:disabled { cursor: default; opacity: .55; }
 .flow-node .card-copy small { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .node-disclosure { position: absolute; left: 50%; bottom: -18px; transform: translateX(-50%); display: grid; place-items: center; width: 36px; height: 36px; min-height: 36px; padding: 0; border-color: var(--glass-border); border-radius: 50%; background: var(--glass-bg), var(--hero-surface); color: #bed2d9; }
 .node-disclosure svg { display: block; width: 18px; height: 18px; }
+/* On the canvas a goblin's chevron folds its branches too, so it hangs low
+   enough to leave the last line of the card's status clear. */
+.flow-node .node-disclosure { bottom: -24px; }
 .project-label { display: block; font-size: .9375rem; line-height: 1.4; color: #9bb3c1; overflow-wrap: anywhere; }
 .review-placeholder { margin: auto; padding: 40px 28px; text-align: center; color: var(--muted); }
 .review-placeholder .goblin-avatar { margin: 0 auto 18px; }
 .review-placeholder h2 { color: #e4eeeb; margin-bottom: 12px; }
-.workspace-details { grid-column: 1 / -1; min-width: 0; font-size: 1rem; padding-top: 24px; border-top: 1px solid var(--border); margin-top: 20px; }
-.workspace-details h3 { font-size: 1.25rem; margin-bottom: 20px; }
+.workspace-details .disclosure-content { font-size: 1rem; }
 .workspace-details dl { margin: 0; display: grid; gap: 12px; }
 .workspace-details dl > div { display: grid; grid-template-columns: minmax(100px, .38fr) minmax(0,1fr); gap: 16px; }
 .workspace-details dt { color: #acbdc9; }
@@ -314,13 +327,25 @@ button:disabled, textarea:disabled { cursor: default; opacity: .55; }
 .workspace-project { margin-bottom: 12px; }
 
 .workspace-outcome { color: var(--muted); font-size: .9375rem; margin: 12px 0; overflow-wrap: anywhere; }
-.disclosure.connections { margin-top: 22px; }
+.engine-selector { container-type: inline-size; min-width: 0; margin-bottom: 18px; }
+.engine-fields { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.5fr) minmax(0, .8fr); gap: 10px; }
+.engine-fields label { display: grid; min-width: 0; gap: 8px; color: var(--muted); font-size: .9375rem; }
+.engine-fields select { width: 100%; min-width: 0; color: #edf4f3; padding-left: 10px; }
+.engine-harness { display: flex; align-items: center; min-width: 0; position: relative; }
+.engine-harness .mark { position: absolute; left: 8px; width: 24px; height: 24px; pointer-events: none; }
+.engine-harness .mark svg { width: 15px; height: 15px; }
+.engine-harness select { padding-left: 38px; }
+.engine-selector > button { margin-top: 12px; }
+.engine-readonly { display: flex; align-items: center; flex-wrap: wrap; gap: 10px; overflow-wrap: anywhere; }
+.engine-pending { overflow-wrap: anywhere; }
+.engine-pending button { margin-left: 6px; }
+@container (max-width: 390px) { .engine-fields { grid-template-columns: minmax(0, 1fr) minmax(0, .5fr); } .engine-fields label:first-child { grid-column: 1 / -1; } }
 .connections p { color: var(--muted); }
 .connection-list { list-style: none; margin: 0 0 14px; padding: 0; display: grid; }
 .connection-list li { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; gap: 12px; padding: 9px 2px; border-bottom: 1px solid var(--border); }
 .connection-name { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 10px; font-weight: 700; overflow-wrap: anywhere; }
 .connection-name.mono { font-family: var(--font-mono); font-weight: 500; }
-.chip { font-family: var(--font-body); font-size: .9375rem; font-weight: 600; color: var(--muted); padding: 0 10px; border: 1px solid var(--glass-border); border-radius: 999px; white-space: nowrap; }
+.chip { display: inline-block; font-family: var(--font-body); font-size: .9375rem; font-weight: 600; line-height: 1.4; color: var(--muted); padding: 2px 10px; border: 1px solid var(--glass-border); border-radius: 999px; white-space: nowrap; }
 .connection-status { display: inline-flex; align-items: center; gap: 6px; font-weight: 700; color: var(--mint); }
 .connection-status .icon { width: 18px; height: 18px; }
 .connection-status.empty { color: var(--amber); }
@@ -349,6 +374,7 @@ button:disabled, textarea:disabled { cursor: default; opacity: .55; }
 .question-option { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 12px; font-size: 1.125rem; font-weight: 550; min-width: 0; overflow-wrap: anywhere; }
 .question-option small { flex-basis: 100%; color: #b3c0c7; font-size: 1rem; font-weight: 400; }
 .recommendation { color: var(--recommend-ink); background: var(--recommend-fill); padding: 2px 9px; border-radius: 7px; font-size: .9375rem; font-weight: 600; }
+.cfo-answer { color: var(--mint); border: 1px solid var(--glass-border-hover); padding: 1px 9px; border-radius: 7px; font-size: .9375rem; font-weight: 600; white-space: nowrap; }
 .written-answer textarea { width: 100%; background: var(--field-bg); }
 @media (max-width: 40rem) {
   .question-modal { padding: 24px 18px; }
@@ -366,7 +392,6 @@ button:focus:not(:focus-visible), summary:focus:not(:focus-visible), [tabindex]:
 
 .canvas-controls > button { border-radius: 50%; }
 .canvas-controls output { min-width: 62px; text-align: center; color: #bcd2e3; font-size: .9375rem; }
-.layout-notice { position: absolute; bottom: 76px; left: 18px; right: 18px; padding: 10px; background: #241e12; color: var(--amber); font-size: .9375rem; border-radius: 10px; }
 .context-pane { display: flex; flex-direction: column; min-width: 0; min-height: 0; overflow: hidden; border: 1px solid var(--glass-border); border-radius: var(--radius); background: var(--glass-bg), var(--hero-surface); box-shadow: var(--glass-shadow); }
 .icon-button { display: grid; place-items: center; width: 44px; height: 44px; min-height: 44px; padding: 0; background: transparent; border-color: transparent; border-radius: 50%; flex: none; }
 .icon-button:hover { background: #ffffff0f; }
@@ -379,14 +404,15 @@ button:focus:not(:focus-visible), summary:focus:not(:focus-visible), [tabindex]:
 .icon-button.raised:hover:not(:disabled) { transform: var(--lift); border-color: var(--glass-border-hover); box-shadow: var(--glass-shadow-hover); background: var(--glass-bg-hover), var(--hero-surface); }
 .empty-state { display: grid; align-content: center; gap: 14px; min-height: 350px; padding: 24px; text-align: center; color: var(--muted); max-width: 36rem; margin: 0 auto; }
 .empty-state h2 { color: #edf4f3; }
-.connection-banner, .error-box { border: 1px solid #735338; border-radius: var(--radius); background: #292116; color: #f1c598; padding: 14px; margin-bottom: 18px; overflow-wrap: anywhere; font-size: .9375rem; }
-.connection-banner { margin: 16px; }
 /* A newer board is served: one quiet line with its reload. */
 .update-banner { display: flex; flex: none; align-items: center; justify-content: space-between; gap: 12px; padding: 6px 8px 6px 16px; border: 1px solid var(--glass-border-hover); border-radius: var(--radius); background: var(--glass-bg-hover); color: #c9f2e2; font-weight: 700; }
 .update-banner .primary { min-height: 36px; padding: 6px 16px; }
-.error-box button { display: block; margin-top: 10px; }
+/* After a restart: what is coming back, then what resumed. */
+.comeback-banner.working { color: var(--mint); }
+/* Start at login in the CFO's Workspace: what it does, and its switch. */
+.start-at-login { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; margin-top: 12px; padding-top: 12px; border-top: 1px solid var(--border); }
+.start-at-login .afk-toggle { flex: none; }
 .render-error { display: flex; align-items: center; gap: 12px; margin: 0; }
-.render-error span { flex: 1; }
 .render-error button { flex: none; margin: 0; }
 summary { cursor: pointer; }
 .decision { padding: 14px 0; overflow-wrap: anywhere; border-bottom: 1px solid var(--border); }
@@ -406,7 +432,9 @@ summary { cursor: pointer; }
 .section-toolbar p, .count { color: var(--muted); font-size: .9375rem; }
 .section-toolbar button { font-size: .9375rem; }
 .count { margin-left: 6px; }
-.loading, .padded { padding: 24px 12px; color: var(--muted); }
+/* A loading, searching or empty row sits where its content will, with the
+   same room above and below it in every section. */
+.loading, .padded { margin: 0; padding: 12px 0; color: var(--muted); }
 .file-reviews { display: grid; gap: 20px; }
 .file-review { border: 1px solid var(--glass-border); border-radius: var(--radius); background: var(--field-bg); }
 .file-review > summary { padding: 16px; min-width: 0; }
@@ -465,7 +493,6 @@ button.line-number { min-height: 32px; display: flex; align-items: flex-start; j
 .action-list li > div { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; }
 .action-list time { margin-left: auto; color: var(--muted); font-size: .9375rem; }
 .action-list p { margin-top: 8px; overflow-wrap: anywhere; color: var(--muted); }
-.warning-text { color: var(--amber); }
 .delivery { display: inline-grid; place-items: center; color: var(--muted); }
 .delivery .icon { width: 20px; height: 20px; }
 .delivery.succeeded { color: var(--mint); }
@@ -485,7 +512,6 @@ button.line-number { min-height: 32px; display: flex; align-items: flex-start; j
 .node-task { margin-top: 6px; }
 .node-status { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; margin-top: 12px; font-size: .9375rem; }
 .badge { color: #c4e0d4; }
-.lineage-warning { color: var(--amber); font-size: .9375rem; overflow-wrap: anywhere; }
 .workflow-space .workflow-children { display: grid; gap: 20px; margin: 20px 0 0 10px; padding-left: 16px; border-left: 1px solid var(--glass-border-hover); }
 .compact-communication-pulse { position: absolute; left: -17px; top: -20px; width: 2px; height: 40px; overflow: hidden; background: #57e5bf55; animation: effect-life ease-in-out forwards; }
 .compact-communication-pulse::after { content: ""; position: absolute; left: -2px; top: -12px; width: 6px; height: 12px; border-radius: 999px; background: #86ffe0; animation: compact-guidance 1.2s ease-out infinite; }
@@ -563,8 +589,9 @@ button.line-number { min-height: 32px; display: flex; align-items: flex-start; j
    A box steps up once as it arrives and is still after that. The stepped
    fills and frames are drawn behind each box, portrait and button, never
    clipping them, so focus rings and tooltips show in full. */
-/* The goblin palette, shared by the dialogue boxes and the voice dock. */
-.dialogue, .voice-dock { --hide: #241C15; --soot: #0D0A07; --lantern: #F2B447; --moss: #86B36B; --bone: #EFE6D2; --edge: #5C4631; --bone-dim: #C4B79F; --pixel-corners: polygon(0 4px, 2px 4px, 2px 2px, 4px 2px, 4px 0, calc(100% - 4px) 0, calc(100% - 4px) 2px, calc(100% - 2px) 2px, calc(100% - 2px) 4px, 100% 4px, 100% calc(100% - 4px), calc(100% - 2px) calc(100% - 4px), calc(100% - 2px) calc(100% - 2px), calc(100% - 4px) calc(100% - 2px), calc(100% - 4px) 100%, 4px 100%, 4px calc(100% - 2px), 2px calc(100% - 2px), 2px calc(100% - 4px), 0 calc(100% - 4px)); }
+/* The goblin palette, shared by the dialogue boxes, the voice dock and
+   everything that waits for the Overlord (lantern.css). */
+:root { --hide: #241C15; --soot: #0D0A07; --lantern: #F2B447; --moss: #86B36B; --bone: #EFE6D2; --edge: #5C4631; --bone-dim: #C4B79F; --pixel-corners: polygon(0 4px, 2px 4px, 2px 2px, 4px 2px, 4px 0, calc(100% - 4px) 0, calc(100% - 4px) 2px, calc(100% - 2px) 2px, calc(100% - 2px) 4px, 100% 4px, 100% calc(100% - 4px), calc(100% - 2px) calc(100% - 4px), calc(100% - 2px) calc(100% - 2px), calc(100% - 4px) calc(100% - 2px), calc(100% - 4px) 100%, 4px 100%, 4px calc(100% - 2px), 2px calc(100% - 2px), 2px calc(100% - 4px), 0 calc(100% - 4px)); }
 .dialogue { position: relative; display: grid; justify-items: start; min-width: 0; container-type: inline-size; filter: drop-shadow(1px 0 0 var(--glass-border-hover)) drop-shadow(-1px 0 0 var(--glass-border-hover)) drop-shadow(0 1px 0 var(--glass-border-hover)) drop-shadow(0 -1px 0 var(--glass-border-hover)) drop-shadow(3px 3px 0 var(--soot)) drop-shadow(0 0 12px rgba(0, 229, 155, 0.18)); transform-origin: bottom left; animation: dialogue-in .18s steps(3, end) both; }
 .dialogue-box, .dialogue-portrait, .pixel-button, .dialogue .pixel-icon, .voice-card .pixel-icon { position: relative; isolation: isolate; }
 .dialogue-box::before, .dialogue-portrait::before, .pixel-button::before, .dialogue .pixel-icon::before, .voice-card .pixel-icon::before { content: ""; position: absolute; inset: 0; z-index: -1; clip-path: var(--pixel-corners); }
@@ -572,7 +599,18 @@ button.line-number { min-height: 32px; display: flex; align-items: flex-start; j
 .dialogue-box::before, .dialogue-portrait::before { border: 2px solid var(--soot); background: var(--hide); box-shadow: inset 0 0 0 2px var(--edge); }
 .dialogue-portrait { display: grid; place-items: center; width: 64px; height: 64px; min-height: 64px; padding: 0; border: 0; background: transparent; }
 .dialogue-portrait::before { background: #1a140f; }
+button.dialogue-portrait:hover { background: transparent; transform: none; }
+button.dialogue-portrait:hover::before { background: #2e241b; }
 .dialogue-portrait .goblin-avatar { width: 56px; height: 56px; }
+/* The speaker's name on a tab over the box, in lantern, as the CFO's bar
+   wears it while something waits on the Overlord. */
+.dialogue-tab { position: relative; z-index: 1; max-width: calc(100% - 96px); margin: 0 0 -4px 82px; padding: 3px 12px 3px; border: 2px solid var(--soot); border-bottom: 0; background: var(--hide); box-shadow: inset 2px 2px 0 var(--edge), inset -2px 0 0 var(--edge); color: var(--lantern); font: 400 1rem/1.4 var(--font-display); overflow-wrap: anywhere; clip-path: polygon(0 4px, 2px 4px, 2px 2px, 4px 2px, 4px 0, calc(100% - 4px) 0, calc(100% - 4px) 2px, calc(100% - 2px) 2px, calc(100% - 2px) 4px, 100% 4px, 100% 100%, 0 100%); }
+/* A badge beside the portrait, such as the CFO's harness mark, sits in the
+   same stepped frame, drawn behind it so its tip shows in full. */
+.dialogue-who { display: flex; align-items: center; gap: 10px; }
+.dialogue .mark { position: relative; isolation: isolate; width: 40px; height: 40px; border: 0; border-radius: 0; background: transparent; box-shadow: none; }
+.dialogue .mark::before { content: ""; position: absolute; inset: 0; z-index: -1; clip-path: var(--pixel-corners); border: 2px solid var(--soot); background: #1a140f; box-shadow: inset 0 0 0 2px var(--edge); }
+.dialogue .mark svg, .dialogue .mark .icon { width: 22px; height: 22px; }
 .dialogue-text { min-width: 0; font-size: 1rem; line-height: 1.5; }
 .dialogue-text p { margin: 0; overflow-wrap: anywhere; }
 .dialogue-actions { display: flex; flex-wrap: wrap; justify-content: flex-end; align-items: center; gap: 8px; }
@@ -618,7 +656,6 @@ button.line-number { min-height: 32px; display: flex; align-items: flex-start; j
 .panel-more-menu { position: absolute; top: calc(100% + 6px); right: 0; z-index: 5; display: grid; gap: 4px; width: max-content; padding: 8px; border: 1px solid var(--glass-border-hover); border-radius: var(--radius); background: var(--tip-surface); box-shadow: 0 8px 24px rgba(0, 0, 0, 0.6); }
 .panel-more-menu .labelled-button { justify-content: flex-start; min-height: 40px; border-color: transparent; background: transparent; box-shadow: none; }
 .panel-more-menu .labelled-button:hover, .panel-more-menu .labelled-button:focus-visible { background: #ffffff0f; }
-.window-error { position: absolute; top: calc(100% + 6px); right: 0; z-index: 4; width: max-content; max-width: min(360px, 80vw); margin: 0; padding: 8px 12px; border: 1px solid #735338; border-radius: 10px; background: #292116f2; color: #f1c598; box-shadow: var(--glass-shadow); overflow-wrap: anywhere; }
 .panel-pill { display: flex; padding: 4px; border: 1px solid var(--glass-border); border-radius: 999px; background: var(--field-bg); box-shadow: inset 0 2px 6px #0007; }
 .panel-pill button { display: inline-flex; align-items: center; gap: 8px; min-height: 40px; padding: 6px 18px; border-color: transparent; border-radius: 999px; background: transparent; color: var(--muted); font-family: var(--font-display); font-size: 1.0625rem; }
 .panel-pill button .icon { width: 20px; height: 20px; }
@@ -631,16 +668,26 @@ button.line-number { min-height: 32px; display: flex; align-items: flex-start; j
 .panel-header .goblin-avatar { width: 88px; height: 88px; }
 .panel-identity { display: grid; gap: 4px; min-width: 0; }
 .panel-header h2 { font-size: clamp(1.625rem, 2.4vw, 2rem); line-height: 1.2; overflow-wrap: anywhere; }
+/* A named goblin's task, under its name. */
+.panel-goblin-task { margin: 0; color: #c4d4df; font-size: 1.125rem; font-weight: 600; overflow-wrap: anywhere; }
 .panel-header .project-label { font-size: 1.0625rem; }
 .panel-header .muted { color: var(--muted); }
 .panel-status { font-size: 1.0625rem; }
-.panel-activity { color: #c4d4df; overflow-wrap: anywhere; display: block; line-height: 1.5; max-height: calc(1.5em * 3); overflow: hidden; }
-/* The goblin's own words open in full behind Show more, never an ellipsis. */
-.panel-activity.expanded { max-height: none; overflow: visible; }
+/* The one sentence under a task's status, in full, then what it leaves out
+   behind Details and, for a failure, its log, on one line that wraps. */
+.panel-activity { margin: 4px 0 0; color: #c4d4df; overflow-wrap: anywhere; line-height: 1.5; }
+.panel-details-row { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 18px; min-width: 0; }
+.raw-details { min-width: 0; }
+.raw-details > summary { display: inline-block; padding: 2px 0; list-style: none; color: var(--mint); font-size: .9375rem; font-weight: 700; cursor: pointer; }
+.raw-details > summary::-webkit-details-marker { display: none; }
+.raw-details > summary:hover { text-decoration: underline; }
+.raw-details[open] { flex-basis: 100%; }
+.raw-details-text { display: grid; gap: 6px; margin-top: 6px; padding: 10px 12px; border: 1px solid var(--glass-border); border-radius: var(--radius); background: var(--field-bg); color: #b3c5d1; font-family: var(--font-mono); font-size: .875rem; line-height: 1.5; overflow-wrap: anywhere; white-space: pre-wrap; }
+.raw-details-text p { margin: 0; }
 .show-more { display: grid; gap: 6px; justify-items: start; min-width: 0; margin-top: 4px; }
-.show-more .panel-activity { margin: 0; }
-.show-more-toggle { min-height: 0; padding: 0; border: 0; background: none; box-shadow: none; color: var(--mint); font-size: .9375rem; font-weight: 700; }
-.show-more-toggle:hover { text-decoration: underline; }
+.show-more-toggle, .text-button { min-height: 0; padding: 2px 0; border: 0; background: none; box-shadow: none; color: var(--mint); font-size: .9375rem; font-weight: 700; }
+.show-more-toggle:hover, .text-button:hover { text-decoration: underline; }
+.text-link { color: var(--mint); font-size: .9375rem; font-weight: 700; }
 .panel-actions { grid-column: 1 / -1; display: flex; flex-wrap: wrap; align-items: center; gap: 10px; }
 .panel-header .workspace-outcome { grid-column: 1 / -1; margin: 0; }
 .pill-link { width: auto; min-width: 44px; padding: 0 14px 0 10px; border-radius: 999px; display: inline-flex; gap: 6px; color: #dff7ee; font-weight: 800; }
@@ -677,7 +724,7 @@ button.line-number { min-height: 32px; display: flex; align-items: flex-start; j
 .terminal-state.live { color: var(--mint); }
 .terminal-state.live .status-dot { background: var(--accent-green); }
 .terminal-state.quiet { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
-.terminal-error { position: absolute; left: 12px; right: 12px; bottom: 70px; z-index: 2; margin: 0; padding: 10px 14px; border: 1px solid #735338; border-radius: var(--radius); background: #292116f2; color: #f1c598; box-shadow: var(--glass-shadow); overflow-wrap: anywhere; }
+.terminal-note { position: absolute; left: 12px; right: 12px; bottom: 70px; z-index: 2; margin: 0; padding: 10px 14px; border: 1px solid #735338; border-radius: var(--radius); background: #292116f2; color: #f1c598; box-shadow: var(--glass-shadow); overflow-wrap: anywhere; }
 .terminal-empty { display: grid; place-items: center; align-content: center; gap: 16px; flex: 1; padding: 32px; color: var(--muted); text-align: center; }
 .terminal-empty > .icon { width: 36px; height: 36px; }
 /* A native terminal owns its scrollback and is sized to the panel, so the
@@ -721,7 +768,7 @@ button.line-number { min-height: 32px; display: flex; align-items: flex-start; j
 .voice-bubble.recording::before { box-shadow: inset 0 0 0 2px var(--moss); }
 .voice-dot { width: 10px; height: 10px; flex: none; background: #ff5f57; }
 .voice-bars { display: inline-flex; align-items: center; gap: 3px; height: 24px; }
-.voice-bars span { width: 3px; height: 24px; background: var(--moss); transform: scaleY(.2); transition: transform 70ms linear; }
+.voice-bars span { width: 3px; height: 24px; background: var(--moss); transform: scaleY(.125); transition: transform 70ms linear; }
 .voice-card { position: absolute; right: 14px; bottom: calc(100% + 8px); z-index: 4; display: grid; gap: 10px; width: min(400px, calc(100% - 28px)); padding: 18px 20px; color: var(--bone); filter: drop-shadow(3px 3px 0 var(--soot)); }
 .voice-card::before { border: 2px solid var(--soot); background: var(--hide); box-shadow: inset 0 0 0 2px var(--edge); }
 .voice-card p { margin: 0; overflow-wrap: anywhere; }
@@ -743,7 +790,6 @@ button.line-number { min-height: 32px; display: flex; align-items: flex-start; j
   .panel-header.compact { grid-template-columns: 48px minmax(0, 1fr); }
   .panel-header.compact .panel-actions { grid-column: 1 / -1; }
 }
-.panel-content > .workspace-details { border-top: 0; margin-top: 0; padding-top: 20px; }
 
 /* The comment affordance is a speech-bubble icon, never a font glyph,
    positioned on the first line of its row. */
@@ -765,13 +811,12 @@ button.line-number { min-height: 32px; display: flex; align-items: flex-start; j
 .comment-overlay header strong { font-weight: 800; font-size: 1.0625rem; }
 .comment-overlay header .muted { overflow-wrap: anywhere; }
 .comment-overlay textarea { width: 100%; min-height: 84px; max-height: 240px; background: var(--field-bg); }
-.comment-overlay .warning-text { margin: 0; overflow-wrap: anywhere; }
-.comment-overlay footer { display: flex; align-items: center; gap: 6px; }
-.comment-overlay footer .muted { flex: 1; font-size: .9375rem; }
+.comment-overlay .comment-trouble { margin: 0; overflow-wrap: anywhere; }
+.comment-overlay footer { display: flex; align-items: center; justify-content: flex-end; gap: 6px; }
 .comment-overlay .send:not(:disabled) { background: var(--accent-green); color: #03130c; }
 .comment-overlay.sent { grid-template-columns: auto minmax(0, 1fr) auto auto; align-items: center; gap: 8px; padding: 6px 8px 6px 14px; }
 .comment-sent-text { margin: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.comment-overlay.sent .warning-text { grid-column: 1 / -1; }
+.comment-overlay.sent .comment-trouble { grid-column: 1 / -1; }
 @media (max-width: 50rem) { .comment-overlay.floating { left: 8px; width: calc(100% - 16px); } }
 /* Waiting is a calmer sand, whoever it is on, and a wait on a goblin links to
    it from the panel's status line. */
@@ -797,8 +842,8 @@ button.line-number { min-height: 32px; display: flex; align-items: flex-start; j
 .card-stage { position: relative; }
 .question-card { position: relative; display: grid; gap: 16px; padding: 22px; border: 1px solid var(--glass-border); border-radius: var(--radius); background: var(--glass-bg); box-shadow: var(--glass-shadow); font-size: 1.0625rem; touch-action: pan-y; animation: card-in .18s ease-out; }
 @keyframes card-in { from { opacity: 0; transform: translateY(6px); } }
-.question-card .asker { display: flex; align-items: center; gap: 12px; color: #c4d4df; }
-.question-card .asker .goblin-avatar { width: 48px; height: 48px; }
+.question-card .asker, .run-card .asker { display: flex; align-items: center; gap: 12px; color: #c4d4df; }
+.question-card .asker .goblin-avatar, .run-card .asker .goblin-avatar { width: 48px; height: 48px; }
 .question-card h3, .run-card h3 { margin: 0; font-size: 1.375rem; line-height: 1.3; }
 .question-thumbs { display: flex; gap: 10px; overflow-x: auto; padding-bottom: 4px; }
 /* A review page's preview is the one way into it: the whole tile opens it. */
@@ -827,7 +872,7 @@ button.line-number { min-height: 32px; display: flex; align-items: flex-start; j
 .question-thumbs span, .gallery-strip span { position: absolute; left: 6px; bottom: 6px; max-width: calc(100% - 12px); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; padding: 0 8px; border-radius: 999px; background: rgba(3, 5, 10, 0.8); font-weight: 800; }
 .gallery-strip button[aria-pressed="true"] { border-color: var(--accent-green); box-shadow: 0 0 0 2px var(--accent-green); }
 .question-outcome { display: flex; align-items: center; gap: 8px; margin: 0; font-weight: 800; }
-.card-actions { display: flex; align-items: center; justify-content: flex-end; gap: 10px; }
+.card-actions { display: flex; align-items: center; justify-content: flex-end; gap: 10px; flex-wrap: wrap; }
 .send-decision, .status-dismiss, .wait-open { display: inline-flex; align-items: center; gap: 8px; padding-inline: 22px; white-space: nowrap; }
 .send-decision .icon, .status-dismiss .icon, .wait-open .icon { width: 20px; height: 20px; }
 /* A wait that opens a page does it with a link drawn as the primary button. */
@@ -878,7 +923,16 @@ a.wait-open { min-height: 44px; border: 1px solid var(--accent-green); border-ra
 .inbox-text strong { font-weight: 800; }
 .inbox-text small { color: var(--mint); font-size: .9375rem; font-weight: 700; }
 .inbox-list time { color: var(--muted); white-space: nowrap; }
-.inbox-history li { grid-template-columns: auto minmax(0, 1fr); }
+.inbox-history li { grid-template-columns: auto minmax(0, 1fr) auto auto; align-items: start; }
+.inbox-history li > time { padding-top: 2px; }
+.inbox-text small.answer-reason { color: var(--muted); font-weight: 500; }
+/* Who answered: the crown for him, the CFO's face for the CFO, with a moon
+   while he was away. */
+.answer-mark { position: relative; display: inline-grid; place-items: center; width: 40px; height: 40px; flex: none; }
+.answer-mark.you { border-radius: 50%; border: 1px solid var(--amber); background: rgba(243, 197, 120, .1); color: var(--amber); }
+.answer-mark.you .icon { width: 22px; height: 22px; }
+.answer-mark .away-badge { position: absolute; right: -4px; bottom: -4px; display: grid; place-items: center; width: 20px; height: 20px; border-radius: 50%; background: var(--tip-surface); border: 1px solid var(--glass-border-hover); color: var(--mint); }
+.answer-mark .away-badge .icon { width: 13px; height: 13px; }
 @media (max-width: 40rem) {
   .question-modal { padding: 20px 16px; }
   .command-center-heading .goblin-avatar { width: 56px; height: 56px; }
@@ -896,7 +950,6 @@ a.wait-open { min-height: 44px; border: 1px solid var(--accent-green); border-ra
 /* A task card: its title, up to three lines, then a muted line with the
    repo and the status, which wrap onto further lines rather than ending in an
    ellipsis. */
-.task-card .card-copy { gap: 4px; }
 .task-card .browser-indicator { font-size: 1rem; }
 .task-card .card-title { display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; font-size: 1rem; font-weight: 700; line-height: 1.35; overflow-wrap: anywhere; }
 .card-meta { display: flex; flex-wrap: wrap; align-items: center; gap: 2px 8px; min-width: 0; color: var(--muted); font-size: 1rem; line-height: 1.4; }
@@ -923,31 +976,44 @@ a.wait-open { min-height: 44px; border: 1px solid var(--accent-green); border-ra
 /* The CFO's Task view lists the queue below its workspace. */
 .cfo-queue { display: grid; gap: 12px; margin-top: 20px; padding-top: 24px; border-top: 1px solid var(--border); }
 .cfo-queue h3 { display: flex; gap: 10px; align-items: center; margin: 0; }
-.cfo-queue .column-hint { margin: -6px 0 2px; }
 /* Free memory at the head of Tasks, on a bar spanning twice the mark at which
-   the CFO starts the next task, marked with it and the floor; each mark's
-   label sits on its outer side, so the two never meet. Every line is body
-   size, the apps holding the most commit and a leaking paged pool included. */
+   the next task starts, marked with it and the floor, whose tip says what the
+   marks mean. Every line is body size, what the supervisor started or why
+   nothing did included. */
 .memory { display: grid; gap: 6px; margin: 0 0 14px; padding: 10px 12px; border: 1px solid var(--glass-border); border-radius: var(--radius); background: var(--field-bg); }
 .memory-line { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; font-size: 1rem; }
 .memory-line strong { flex: none; font-variant-numeric: tabular-nums; }
 .memory-bar { position: relative; height: 8px; border-radius: 8px; background: rgba(163, 179, 194, 0.14); }
+/* The bar is thin, so its tip answers a pointer a little above and below it. */
+.memory-bar::after { content: ""; position: absolute; inset: -8px 0; }
 .memory-fill { position: absolute; inset: 0 auto 0 0; border-radius: 8px; background: linear-gradient(90deg, var(--accent-green), var(--accent-blue)); transition: width .4s ease, background .2s ease; }
 .memory-fill.waiting { background: var(--amber); }
 .memory-fill.under { background: var(--red); }
 .memory-mark { position: absolute; top: -4px; bottom: -4px; width: 2px; margin-left: -1px; border-radius: 2px; background: #e4eeeb; }
 .memory-mark.floor { background: var(--red); }
-.memory-scale { display: flex; color: var(--muted); font-size: 1rem; white-space: nowrap; }
-.memory-scale > .floor { flex: 0 1 auto; min-width: max-content; padding-right: 6px; text-align: right; }
-.memory-scale > .gap { flex: 0 9999 auto; min-width: 0; }
-.memory-scale > .next { flex: none; padding-left: 6px; }
-.memory-holders, .memory-warning { margin: 0; font-size: 1rem; overflow-wrap: anywhere; }
-.memory-warning { display: flex; gap: 8px; align-items: flex-start; color: var(--amber); }
-.memory-warning .icon { flex: none; width: 20px; height: 20px; margin-top: 2px; }
+.memory-schedule { margin: 0; font-size: 1rem; overflow-wrap: anywhere; }
+.disk-meter { display: grid; gap: 6px; margin-top: 4px; padding-top: 10px; border-top: 1px solid var(--glass-border); }
+.memory > .disk-meter:first-child { margin-top: 0; padding-top: 0; border-top: 0; }
+.task-meters { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; margin-bottom: 14px; }
+.task-meters .memory { flex: 1 1 160px; min-width: 0; margin: 0; }
+.subscription-dial { display: flex; align-items: center; gap: 6px; min-width: 96px; border-radius: var(--radius); cursor: help; }
+.subscription-dial:focus-visible { outline: var(--focus-ring); outline-offset: 3px; }
+.subscription-ring { display: block; flex: none; width: 48px; height: 48px; }
+.subscription-track, .subscription-fill { fill: none; stroke-width: 3px; }
+.subscription-track { stroke: var(--muted); opacity: .24; }
+.subscription-fill { stroke: var(--mint); }
+.subscription-percent { font-size: 1rem; font-variant-numeric: tabular-nums; }
+.subscription-dial.reserve { color: var(--amber); }
+.subscription-dial.reserve .subscription-fill { stroke: var(--amber); }
+.subscription-dial.unknown .subscription-track { stroke-dasharray: 3 3; opacity: .6; }
+.subscription-dial.unknown .subscription-percent { color: var(--muted); }
 /* The task the CFO starts next, and Start on every queued card: one play
    button among the card's controls. */
-.next-chip { justify-self: start; display: inline-flex; align-items: center; padding: 1px 10px; border-radius: 999px; background: #123126; color: #8ff0c9; font-size: 1rem; font-weight: 800; }
+/* A chip sizes to its label and never wraps it; on a card too narrow for the
+   label it ends in an ellipsis rather than growing a second line. */
+.next-chip { justify-self: start; display: inline-block; max-width: 100%; padding: 2px 10px; border-radius: 999px; background: #123126; color: #8ff0c9; font-size: .9375rem; font-weight: 800; line-height: 1.4; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .next-chip.waiting { background: #33290f; color: var(--amber); }
+.next-chip.defect { border-radius: 12px; background: #3a1614; color: #ffb4a8; white-space: normal; }
 .card-start { position: absolute; top: 10px; right: 10px; width: 32px; height: 32px; min-height: 32px; border-radius: 10px; }
 .card-start .icon { width: 14px; height: 14px; fill: currentColor; }
 .card-start[aria-disabled="true"] { opacity: .55; cursor: not-allowed; }
@@ -959,25 +1025,26 @@ a.wait-open { min-height: 44px; border: 1px solid var(--accent-green); border-ra
 /* Tasks and In progress are in priority order, top first: each card's
    number is its place and turns into a grip on hover or focus, and a dragged
    card lifts while the others slide aside. A finger drags by the number. */
-.column-hint { margin: -12px 0 16px; color: var(--muted); font-size: .9375rem; }
 .task-cards.ranked { position: relative; }
 .task-cards.sorting { user-select: none; }
 .ranked-item { position: relative; min-width: 0; }
 .ranked-item:hover, .ranked-item:focus-within { z-index: 3; }
 .ranked-item.dragging { z-index: 5; }
-.ranked-item .task-card-shell, .ranked-item .render-error { padding-left: 44px; }
+/* A ranked card's number sits before its portrait, so the lines under them
+   still take the card's whole width. */
+.ranked-item .render-error { padding-left: 44px; }
+.ranked-item .task-card > .goblin-avatar { margin-left: 34px; }
 @media (hover: hover) and (pointer: fine) {
   .ranked-item .task-card { cursor: grab; }
   .task-cards.sorting .task-card { cursor: grabbing; }
 }
-.rank { position: absolute; z-index: 1; left: 8px; top: 12px; width: 26px; height: 26px; display: grid; place-items: center; border: 1px solid var(--glass-border); border-radius: 8px; background: var(--field-bg); color: #c4d4df; font-size: 1rem; font-weight: 800; font-variant-numeric: tabular-nums; pointer-events: none; }
+.rank { position: absolute; z-index: 1; left: 13px; top: 22px; width: 26px; height: 26px; display: grid; place-items: center; border: 1px solid var(--glass-border); border-radius: 8px; background: var(--field-bg); color: #c4d4df; font-size: 1rem; font-weight: 800; font-variant-numeric: tabular-nums; pointer-events: none; }
 .rank .grip { display: none; width: 14px; height: 14px; fill: currentColor; }
 .ranked-item:hover .rank-number, .ranked-item:focus-within .rank-number, .ranked-item.dragging .rank-number { display: none; }
 .ranked-item:hover .grip, .ranked-item:focus-within .grip, .ranked-item.dragging .grip { display: block; }
 @media (any-pointer: coarse) { .rank { pointer-events: auto; touch-action: none; } }
 .ranked-item.dragging .task-card-shell { transform: scale(1.02) rotate(-.6deg); border-color: var(--mint); box-shadow: 0 18px 40px #000a, 0 0 0 2px var(--mint); }
 .ranked-item.dragging .rank { border-color: var(--mint); }
-.order-error { margin: 12px 0 0; color: #f6d79e; }
 @media (prefers-reduced-motion: reduce) { .ranked-item.dragging .task-card-shell { transform: none; } }
 /* Run items: a command the CFO needs run, shown verbatim before it runs. */
 .run-card { display: grid; gap: 14px; padding: 22px; border: 1px solid var(--glass-border); border-radius: var(--radius); background: var(--glass-bg); box-shadow: var(--glass-shadow); font-size: 1.0625rem; }
@@ -999,9 +1066,69 @@ a.wait-open { min-height: 44px; border: 1px solid var(--accent-green); border-ra
 .run-output { padding: 12px 14px; min-height: 6rem; max-height: 22rem; color: #d8e9e2; }
 .run-cwd { display: flex; align-items: center; gap: 8px; margin: 0; color: var(--muted); font-size: .9375rem; overflow-wrap: anywhere; }
 .run-cwd .icon { width: 18px; height: 18px; flex: none; }
-.run-card .card-actions { flex-wrap: wrap; }
+/* A command's own terminal on its card: tall enough to work in, never taller
+   than the screen leaves, with Stop under it. */
+.run-live { display: grid; gap: 10px; min-width: 0; }
+.run-live .host-terminal { height: clamp(14rem, 52vh, 34rem); border: 1px solid var(--glass-border); border-radius: var(--radius); overflow: hidden; }
+.run-live-actions { display: flex; align-items: center; justify-content: flex-end; gap: 12px; }
+.run-live-actions .warning-text { flex: 1; margin: 0; }
+/* Stop is the lantern box's stepped outline button, the lesser action beside
+   its lantern one. */
+.run-live-actions button { position: relative; isolation: isolate; display: inline-flex; align-items: center; gap: 8px; padding-inline: 22px; border: 0; border-radius: 0; background: transparent; box-shadow: none; color: var(--bone); white-space: nowrap; }
+.run-live-actions button::before { content: ""; position: absolute; inset: 0; z-index: -1; clip-path: var(--pixel-corners); box-shadow: inset 0 0 0 2px var(--bone); }
+.run-live-actions button:hover:not(:disabled) { background: transparent; }
+.run-live-actions button:hover:not(:disabled)::before { background: #ffffff12; }
+.run-live-actions .icon { width: 20px; height: 20px; }
+.run-waiting { display: flex; align-items: center; gap: 8px; margin: 0; }
+.run-waiting .icon { width: 18px; height: 18px; flex: none; }
+.run-head .run-state { min-width: 0; overflow-wrap: anywhere; }
 .run-button { display: inline-flex; align-items: center; gap: 8px; white-space: nowrap; }
 .run-button .icon { width: 18px; height: 18px; fill: currentColor; }
+/* The Update Code Goblins item is an event, not a goblin's question: an
+   electric ring instead of the glass border, the release goblin instead of an
+   asker, and the two versions large. */
+.update-card { display: grid; gap: 16px; padding: 24px; border: 1px solid transparent; border-radius: var(--radius); background: linear-gradient(135deg, rgba(0, 229, 155, 0.07), rgba(3, 5, 10, 0.94) 45%, rgba(0, 140, 255, 0.05)) padding-box, var(--electric-ring) border-box; box-shadow: var(--electric-glow), var(--glass-shadow); font-size: 1.0625rem; }
+.update-head { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+.update-head .goblin-avatar { width: 52px; height: 52px; }
+.update-head .who { display: grid; line-height: 1.25; }
+.update-head .who strong { color: #edf4f3; }
+.update-head .who small { color: var(--muted); font-size: .9375rem; }
+.update-head .chip.release { color: #d9c8ff; border-color: #a855f766; background: #a855f714; }
+.update-head .run-state { margin-left: auto; }
+.run-state.updating { color: #9cc9ff; }
+.update-card h3 { margin: 0; font-size: 1.375rem; line-height: 1.3; }
+.update-versions { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; font-family: var(--font-display); font-size: 2.25rem; line-height: 1.1; }
+.update-versions .from { color: #8fa3b1; }
+.update-versions .to { background: var(--brand-gradient); -webkit-background-clip: text; background-clip: text; color: transparent; }
+@media (forced-colors: active) { .update-versions .to { background: none; color: CanvasText; } }
+.update-versions .icon { width: 28px; height: 28px; color: #8fa3b1; }
+.update-notes { display: grid; gap: 6px; margin: 0; padding-left: 22px; color: #d5e2e8; }
+.update-notes-link { display: inline-flex; align-items: center; gap: 6px; justify-self: start; color: #9cc9ff; font-weight: 700; text-decoration: none; }
+.update-notes-link .icon { width: 18px; height: 18px; }
+.update-trust { display: flex; align-items: flex-start; gap: 10px; margin: 0; padding: 10px 12px; border: 1px solid #f3c57833; border-radius: var(--radius); background: #f3c5780d; color: #ead7ae; font-size: 1rem; }
+.update-trust .icon { width: 20px; height: 20px; flex: none; margin-top: 2px; color: var(--amber); }
+.update-trust code { font-family: var(--font-mono); font-size: .9rem; color: #f1e2bf; overflow-wrap: anywhere; }
+.update-effect { margin: 0; color: var(--muted); }
+.update-steps { list-style: none; margin: 0; padding: 0; display: grid; gap: 8px; }
+.update-steps li { display: flex; align-items: center; gap: 10px; color: #c4d4df; }
+.update-steps li .icon { width: 20px; height: 20px; flex: none; }
+.update-steps li.done { color: #d8e9e2; }
+.update-steps li.done .icon { color: var(--mint); }
+.update-steps li.now { color: #edf4f3; font-weight: 800; }
+.update-steps li.now .icon { color: var(--accent-blue); animation: update-spin 1.1s linear infinite; }
+.update-steps li.todo { color: #7f909c; }
+.update-steps li.failed .icon { color: var(--red); }
+@keyframes update-spin { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) { .update-steps li.now .icon { animation: none; } }
+.update-result { margin: 0; font-weight: 700; }
+.update-result.ok { color: #c9f2e2; }
+.update-result.back { color: #f1c598; }
+.update-output summary { cursor: pointer; color: #9fb5c3; font-weight: 700; }
+.update-output .run-output { margin-top: 8px; min-height: 0; max-height: 12rem; }
+.card-actions .update-button { display: inline-flex; align-items: center; gap: 8px; padding: 10px 22px; }
+.card-actions .update-button .icon { width: 20px; height: 20px; }
+/* Its row in the Command Center's list wears the same ring. */
+.inbox-list li.release-row { border-color: #a855f755; box-shadow: var(--electric-glow), var(--glass-shadow); }
 
 /* The terminal deck below the panel header: every live terminal, one shown
    at a time, filling the panel. */
@@ -1017,7 +1144,7 @@ a.wait-open { min-height: 44px; border: 1px solid var(--accent-green); border-ra
 
 .board-column { container-type: inline-size; }
 .board-column .task-cards { grid-template-columns: minmax(0, 1fr); }
-.task-controls { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; }
+.task-controls { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
 .task-controls .icon-button { width: 42px; height: 42px; min-height: 42px; border-radius: 50%; }
 .task-controls [aria-disabled="true"] { opacity: .5; cursor: not-allowed; }
 /* A button that says what it does: its icon, then its name. */
@@ -1027,12 +1154,10 @@ a.wait-open { min-height: 44px; border: 1px solid var(--accent-green); border-ra
 /* On a phone a row of two still fits on one line. */
 @media (max-width: 40rem) { .labelled-button { gap: 6px; padding-inline: 10px 12px; } }
 .card-secondary { color: var(--muted); font-size: 1rem; overflow-wrap: anywhere; }
-.queue-block { color: var(--amber); font-size: 1rem; }
 .phase-paused, .phase-pausing, .phase-resuming { color: var(--amber); }
 .phase-paused .status-dot, .phase-pausing .status-dot, .phase-resuming .status-dot { background: var(--amber); }
 .phase-stopped, .phase-stopping { color: var(--muted); }
 .phase-stopped .status-dot, .phase-stopping .status-dot { background: #7891ad; }
-.task-action-problem { margin: 10px 0; color: var(--amber); overflow-wrap: anywhere; }
 .task-action-progress { margin: 8px 0; color: var(--mint); }
 .lifecycle-panel { display: grid; gap: 24px; padding-top: 24px; }
 /* What the action row says about itself sits close under it. */
@@ -1064,10 +1189,15 @@ a.wait-open { min-height: 44px; border: 1px solid var(--accent-green); border-ra
 .preservation-notice .icon { flex: none; }
 .danger { color: #ff9292; }
 .stop-task-choices .danger { border-color: #fa7272; background: var(--field-bg); }
-.windows-teardown { display: block; font-size: max(16px, 1rem); line-height: 1.5; color: var(--amber); overflow-wrap: anywhere; }
 @container (max-width: 420px) {
   .task-card-shell { grid-template-columns: minmax(0, 1fr) auto; grid-template-areas: "card card" "links links" "side mark" "notes notes"; }
   .task-card-shell > .card-harness { align-self: center; }
   .task-card-shell > .task-controls { margin-top: 10px; }
-  .card-links { padding-left: 0; }
+}
+/* A card as narrow as a column beside the CFO's panel in the Overlord's window
+   keeps its four controls and its harness mark on one row. */
+@container (max-width: 300px) {
+  .task-card-shell > .task-controls { gap: 6px; }
+  .task-card-shell > .task-controls .icon-button { width: 36px; height: 36px; min-height: 36px; }
+  .task-card-shell > .card-harness .mark { width: 36px; height: 36px; }
 }

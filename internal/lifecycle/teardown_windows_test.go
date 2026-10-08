@@ -32,6 +32,7 @@ func TestPauseReportsDetachedWindowsTeardownWithoutWaitingForTheHandle(t *testin
 		{name: "access denied already terminating", stopError: windows.ERROR_ACCESS_DENIED, exitCode: 1},
 		{name: "access denied still active", stopError: windows.ERROR_ACCESS_DENIED, exitCode: 259, shouldFail: true},
 		{name: "successful termination retained process object", exitCode: 1, hasHeldHandle: true},
+		{name: "access denied retained process object", stopError: windows.ERROR_ACCESS_DENIED, exitCode: 1, hasHeldHandle: true},
 	} {
 		t.Run(testCase.name, func(t *testing.T) {
 			service, meta := lifecycleFixture(t)
@@ -121,8 +122,15 @@ func TestPauseReportsDetachedWindowsTeardownWithoutWaitingForTheHandle(t *testin
 			if err := child.Process.Kill(); err != nil {
 				t.Fatal(err)
 			}
-			_ = child.Wait()
+			var exitError *exec.ExitError
+			if err := child.Wait(); !errors.As(err, &exitError) || exitError.ExitCode() != 1 {
+				t.Fatalf("fixture did not complete termination: %v", err)
+			}
 			if testCase.hasHeldHandle {
+				var exitCode uint32
+				if err := windows.GetExitCodeProcess(retained, &exitCode); err != nil || exitCode != 1 {
+					t.Fatalf("fixture exit status: code=%d error=%v", exitCode, err)
+				}
 				wait, err := windows.WaitForSingleObject(retained, 0)
 				if err != nil || wait != uint32(windows.WAIT_OBJECT_0) {
 					t.Fatalf("terminated fixture is not signaled: wait=%d error=%v", wait, err)
@@ -131,7 +139,11 @@ func TestPauseReportsDetachedWindowsTeardownWithoutWaitingForTheHandle(t *testin
 				if err := windows.GetProcessTimes(retained, &creation, &exit, &kernel, &user); err != nil || !time.Unix(0, creation.Nanoseconds()).Equal(identity.Started) {
 					t.Fatalf("terminated fixture lost its original birth: %v", err)
 				}
-				t.Logf("terminated fixture pid=%d birth=%s remains queryable with signaled held handle", identity.PID, identity.Started.Format(time.RFC3339Nano))
+				queryStarted, exists := proc.StartTime(identity.PID)
+				if !exists || !queryStarted.Equal(identity.Started) {
+					t.Fatalf("exited fixture object must remain queryable: birth=%s exists=%t", queryStarted, exists)
+				}
+				t.Logf("exited fixture remains queryable: pid=%d birth=%s exit=%d wait=%d", identity.PID, identity.Started.UTC().Format(time.RFC3339Nano), exitCode, wait)
 			}
 			fresh, err := state.ReadLifecycle(service.StateDir, meta.ID)
 			if err != nil || len(fresh.Teardown) != 0 {
