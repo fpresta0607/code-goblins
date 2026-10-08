@@ -111,8 +111,14 @@ func (service Service) Run(ctx context.Context, request Request) (result state.L
 	if meta.SpawnGen != request.Generation && !isSameResume {
 		return result, errors.New("task session changed; refresh before trying again")
 	}
+	// A paused task paused again takes the new condition in place, so what
+	// resumes it can be changed; what its pause stopped and kept stays, and
+	// nothing is stopped again.
 	if request.Action == "pause" && prior.Generation == meta.SpawnGen && prior.Phase == "paused" {
-		return service.finish(prior)
+		result = prior
+		result.Operation, result.RequestGeneration, result.Reason, result.Pause = request.Operation, request.Generation, request.Reason, pause
+		result.Watched, result.NoticeSent = request.IsWatched, false
+		return service.finish(result)
 	}
 	isAlreadyRunning := false
 	if request.Action == "resume" {
