@@ -13,7 +13,7 @@ permissions:
 jobs:
   probe:
     runs-on: windows-latest
-    timeout-minutes: 40
+    timeout-minutes: 55
     steps:
       - uses: actions/checkout@v6
       - uses: actions/setup-go@v5
@@ -40,8 +40,9 @@ jobs:
       - name: The typed-keys test alone, 1000 times
         continue-on-error: true
         shell: pwsh
-        run: go test ./internal/conpty -run '^TestTypedKeysReachAProgramThatPrintsWhileItReads$' -count=1000 -timeout 30m
+        run: go test ./internal/conpty -run '^TestTypedKeysReachAProgramThatPrintsWhileItReads$' -count=1500 -timeout 35m
         env:
+          CONPTY_PROBE_DUMPS: '1'
           CFO_HOME: ${{ runner.temp }}\cfo-go-tests
           CFO_STATE_OVERRIDE: ${{ runner.temp }}\cfo-go-tests\state
       - name: Where conhost crashed
