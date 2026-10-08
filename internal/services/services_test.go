@@ -97,6 +97,9 @@ func (f *fakeDocker) Up(_ context.Context, _ Compose, services []string) error {
 
 func (f *fakeDocker) Down(_ context.Context, _ Compose, services []string) error {
 	f.calls = append(f.calls, "down "+strings.Join(services, ","))
+	if !f.engine {
+		return errors.New("the engine is not running")
+	}
 	if len(services) == 0 {
 		services = f.names()
 	}
@@ -709,5 +712,32 @@ func TestUpSaysWhatItStartsBeforeEachSlowStep(t *testing.T) {
 		"cfo services: starting PrecisionDocs-AI's backend, worker-light and what they depend on, which builds any image they lack first and can take many minutes\n"
 	if got := h.out.String(); got != want {
 		t.Errorf("progress = %q, want %q", got, want)
+	}
+}
+
+// When Docker Desktop was quit under a held stack, nothing of it runs, so the
+// last release marks it stopped instead of failing on a compose down the
+// stopped engine cannot answer, which the janitor would retry every hour.
+func TestTheLastReleaseAfterTheEngineWasQuitMarksTheStackStopped(t *testing.T) {
+	// Arrange
+	h := newHarness(t)
+	h.up(t, "task-a")
+	h.docker.engine = false
+	h.docker.running = map[string]bool{}
+	h.docker.calls = nil
+
+	// Act
+	line := h.down(t, "task-a")
+
+	// Assert
+	if len(h.docker.calls) != 0 {
+		t.Fatalf("docker calls = %v, want none against a stopped engine", h.docker.calls)
+	}
+	record := h.record(t)
+	if stack := record.Stacks["PrecisionDocs-AI"]; stack.IsUp() || stack.Owned || record.Engine.StartedByCFO {
+		t.Errorf("record = %+v, want the stack and the engine no longer cfo's", record)
+	}
+	if want := "task-a was the last to hold them: PrecisionDocs-AI's services were already stopped with the Docker engine"; line != want {
+		t.Errorf("line = %q, want %q", line, want)
 	}
 }

@@ -371,9 +371,21 @@ func (s Service) release(ctx context.Context, record *Record, project, task stri
 }
 
 // stop takes down what cfo started of a stack nobody holds, and the engine
-// when cfo started it and nothing else holds or runs on it.
+// when cfo started it and nothing else holds or runs on it. With the engine
+// stopped, as quitting Docker Desktop leaves it, nothing of the stack runs,
+// so it is only marked stopped.
 func (s Service) stop(ctx context.Context, record *Record, project string) (string, error) {
 	stack := record.Stacks[project]
+	engineUp, err := s.Docker.EngineRunning(ctx)
+	if err != nil {
+		return "", err
+	}
+	if !engineUp {
+		stack.Owned, stack.Started, stack.Since = false, nil, time.Time{}
+		record.Stacks[project] = stack
+		record.Engine = Engine{}
+		return project + "'s services were already stopped with the Docker engine", nil
+	}
 	compose := Compose{Dir: stack.Checkout, File: stack.Compose, EnvFile: stack.EnvFile}
 	var before Memory
 	if s.Memory != nil {
