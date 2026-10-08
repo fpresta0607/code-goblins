@@ -4,11 +4,7 @@ import { message, request } from "./api";
 import { Avatar } from "./Avatar";
 import { ConnectorMark } from "./ConnectorMark";
 import { DialogueBox } from "./DialogueBox";
-import { Disclosure } from "./Disclosure";
 import { Icon } from "./Icon";
-import { stillHeld } from "./afk";
-import { useAfkActions } from "./afk-actions";
-import { AfkHeldList } from "./afk-held";
 import { cfoSummary } from "./cfoSummary";
 import { harnessMark } from "./connectors";
 import { harnessTip } from "./workflow";
@@ -33,13 +29,12 @@ import "./cfo-pin.css";
 // The mark of the harness the registered CFO runs sits beside its portrait,
 // with the model of its newest session in that harness in its tip, and the
 // weekly allowance of each subscription in use is a dial beside the bar's
-// buttons, the one place the board shows it. While AFK mode is on the bar says
-// since when and how much was decided and held, and lists under itself what is
-// held for him once he opens the list, which never opens by itself, each item
-// a click from the Command Center.
+// buttons, the one place the board shows it. While AFK mode is on nothing
+// prompts him and nothing is held for him: the bar stays at rest, says since
+// when and how much was decided, and an outline Open Command Center with how
+// many wait is its one way to whatever is there.
 export function CfoPin({ snapshot, now, onOpen, onCommand, onStart }: { snapshot: Snapshot; now: number; onOpen: (source: HTMLElement) => void; onCommand: () => void; onStart: () => void }) {
   const { waiting, line } = cfoSummary(snapshot);
-  const { answer } = useAfkActions();
   const [reopening, setReopening] = useState(false);
   const [failure, setFailure] = useState("");
   // The board shows the reopened CFO from its next snapshot, so a reopen
@@ -69,17 +64,18 @@ export function CfoPin({ snapshot, now, onOpen, onCommand, onStart }: { snapshot
   const command = "Open Command Center";
   const harness = snapshot.cfo_harness;
   const model = snapshot.sessions.filter((session) => session.role === "cfo" && session.harness === harness).at(-1)?.model || "";
-  const held = stillHeld(snapshot.afk);
+  const away = snapshot.afk.state === "on";
   const mark = harness && !absent ? <ConnectorMark mark={harnessMark(harness)} label={harnessTip(harness, model, "")} /> : undefined;
   const status = <p {...unreachable ? { "data-tip": snapshot.registration, "data-tip-align": "start" } : {}}>{shown}</p>;
   const dials = !absent && !!snapshot.subscriptions?.length && <div className="subscription-dials" role="group" aria-label="Weekly subscription allowance">
     {snapshot.subscriptions.map((usage) => <SubscriptionDial key={usage.provider} usage={usage} now={now} />)}
   </div>;
-  if (!absent && waiting > 0) return <div className="cfo-pin">
+  const waits = command + ": " + waiting + " waiting on you";
+  if (!absent && waiting > 0 && !away) return <div className="cfo-pin">
     <DialogueBox persona="cfo" speaker="CFO" label="CFO" portrait={{ label: terminal, onClick: onOpen }} badge={mark}
       actions={<>
         {dials}
-        <button className="pixel-button cfo-command" aria-label={command + ": " + waiting + " waiting on you"} onClick={onCommand}>{command}<span className="cfo-command-count" aria-hidden="true">{waiting}</span></button>
+        <button className="pixel-button cfo-command" aria-label={waits} onClick={onCommand}>{command}<span className="cfo-command-count" aria-hidden="true">{waiting}</span></button>
         <button className="icon-button pixel-icon" aria-label={terminal} data-tip={terminal} data-tip-align="end" onClick={(event) => onOpen(event.currentTarget)}><Icon name="terminal" /></button>
       </>}>
       {status}
@@ -94,10 +90,8 @@ export function CfoPin({ snapshot, now, onOpen, onCommand, onStart }: { snapshot
       {status}
       {dials}
       {absent && <button className="labelled-button primary" onClick={onStart}><Icon name="play" />Start the CFO</button>}
+      {!absent && waiting > 0 && <button className="pixel-button outline cfo-command" aria-label={waits} onClick={onCommand}>{command}<span className="cfo-command-count" aria-hidden="true">{waiting}</span></button>}
       {!absent && <button className="icon-button raised" aria-label={terminal} data-tip={terminal} data-tip-align="end" onClick={(event) => onOpen(event.currentTarget)}><Icon name="terminal" /></button>}
-      {snapshot.afk.state === "on" && <Disclosure kind="afk-held-panel" title={<>Held for you <span className="column-count">{held.length}</span></>}>
-        <AfkHeldList held={held} tasks={snapshot.tasks} onOpen={answer} />
-      </Disclosure>}
     </div>
   </div>;
 }

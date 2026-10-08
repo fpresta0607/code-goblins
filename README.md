@@ -654,19 +654,21 @@ While it is on:
 - The CFO decides what you authorised by itself and logs each decision with its evidence.
   It gives the merge word for a goblin's pull request that is verified, green in CI on a head that holds main's tip and mergeable, names and verifies each deploy, applies a merged migration that adds or changes and reads it back, installs a merged build once the merge queue settles, and answers the goblin questions that are its own to answer.
 - These stay yours, always: a migration or command that drops or deletes data, deleting a branch, a teammate's branch or pull request, spend beyond your account's limits, your own sign-ins and identity checks, and anything a tool refuses.
-  They are never decided for you, and while you are away you are not asked about them either: the CFO holds each for you with the choice it recommends, and you decide it when you are back.
+  They are never decided for you, and while you are away you are not asked about them either.
+  AFK mode is complete autopilot: the CFO gives each a backlog row, works around it, and your report lists it under **Left for you**.
 - The board does not prompt you: the Command Center does not open by itself, and the board shows no alert and sends no Windows notification.
-  What would have waited on you is held for you instead, and a goblin blocked only on it moves to its next piece of work.
-  The CFO's bar says since when AFK is on and who turned it on, how much the CFO decided and how much is held, and **Held for you** under it lists each thing with what was recommended for it and what its goblin did meanwhile; the button on a row opens it in the Command Center, where the recommended choice is marked.
-  The list starts closed and opens only on your click.
+  Nothing is held for you, and a goblin blocked only on something of yours moves to its next piece of work.
+  The CFO's bar says since when AFK is on, who turned it on and how much the CFO decided.
+  **Open Command Center** is there, unlit, only while something already waits in the Command Center.
   The desktop app is quiet too: its window claims what it would notify from the supervisor first, which hands out nothing in AFK mode.
 
 At your first click or key on the board after five minutes with none, the board offers to turn it off.
 When the CFO turned it on at your ask, your very first click or key offers it at once, quoting your words, so a switch made on your words meets you before anything else.
-Turning it off shows the report of the stretch on the board as one page: who turned it on and off, how much of each thing there is, what is held for you with what was recommended for it and what became of it, then what merged, deployed and installed, each with its link and its verification, the goblins paused at a floor, what each goblin finished, and what was spent, read from `quota-axi` when it turned on and when it turned off.
+Turning it off shows the report of the stretch on the board as one page: who turned it on and off, how much of each thing there is, what waited on you with what was recommended for it and what became of it, what was left for you, then what merged, deployed and installed, each with its link and its verification, the goblins paused at a floor, what each goblin finished, and what was used of each allowance as a small graph, leaving out what was not used or not read.
+Its button at the bottom is Open Command Center while something still waits on you there, and Back to the board otherwise.
 The button beside the toggle opens the last report again.
 Each time you open it, held items show their current disposition first.
-`cfo afk status` shows who turned it on and when, what the CFO has decided so far and what is held for you.
+`cfo afk status` shows who turned it on and when, what the CFO has decided so far and what waits on you in the Command Center.
 `cfo afk off` prints the same report, `cfo afk report` prints it again, and every decision stays in `state\afk.audit`.
 If the switch itself ever cannot be read, a press on the board's toggle or `cfo afk off` puts it back to off.
 
@@ -678,6 +680,10 @@ Held for you (1), each as it stands now
 - question:drop-legacy-invoices, the CFO's: Migration 0042 drops legacy_invoices. Apply it?
   The CFO recommends: Keep it held.
   Now: still waiting on you.
+
+Left for you (1)
+- Sign in to Vercel for pd-auth
+  Evidence: your own sign-in, backlog row pd-auth-vercel-sign-in, pd-auth moved on to the invoice export
 
 Merged (1)
 - https://github.com/you/northwind-api/pull/412: merged

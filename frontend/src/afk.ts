@@ -94,10 +94,8 @@ export function afkTime(at: string, now: number, zone?: string, locale?: string)
   return day(date) === day(new Date(now)) ? time : date.toLocaleDateString(locale, { month: "short", day: "numeric", timeZone: zone }) + ", " + time;
 }
 
-// stillWaiting are the held items that still wait on the Overlord, and
-// stillHeld those of the stretch that is on.
+// stillWaiting are the held items that still wait on the Overlord.
 export const stillWaiting = (held: AfkHeld[]): AfkHeld[] => held.filter((one) => one.waiting);
-export const stillHeld = (afk: Afk): AfkHeld[] => stillWaiting(afk.held);
 
 // ReportAction is the report's main button: the Command Center while anything
 // it held still waits on him, and the board otherwise.
@@ -124,13 +122,14 @@ export function switchedBy(from: string, asked: string): string {
 }
 
 // afkLine is what the CFO's bar says while AFK mode is on: since when, who
-// turned it on and from where, how much the CFO decided and how much still
-// waits on him. His words are left to the offer and the report, which have
-// the room for them. It is empty while AFK mode is not on.
+// turned it on and from where, and how much the CFO decided. Nothing is held
+// for him while it is on, so it counts nothing held. His words are left to the
+// offer and the report, which have the room for them. It is empty while AFK
+// mode is not on.
 export function afkLine(afk: Afk, now: number, zone?: string, locale?: string): string {
   if (afk.state !== "on") return "";
   const who = afk.asked ? "turned on " + AT_YOUR_ASK : switchedBy(afk.from, "");
-  return "AFK since " + afkTime(afk.since, now, zone, locale) + (who ? ", " + who : "") + ". " + afk.decided + " decided, " + stillHeld(afk).length + " held for you.";
+  return "AFK since " + afkTime(afk.since, now, zone, locale) + (who ? ", " + who : "") + ". " + afk.decided + " decided.";
 }
 
 // UNREADABLE is what the CFO panel's header says under its toggle while the

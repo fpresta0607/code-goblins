@@ -73,7 +73,7 @@ type Allowance struct {
 
 // The kinds of line the log holds: the switch, an item held for the Overlord,
 // a goblin the supervisor paused at a floor, and the decisions the CFO makes
-// under the authority.
+// under the authority, what it left for him among them.
 const (
 	KindOn        = "on"
 	KindOff       = "off"
@@ -85,10 +85,11 @@ const (
 	KindMigration = "migration"
 	KindInstall   = "install"
 	KindOther     = "other"
+	KindLeft      = "left"
 )
 
 // DecisionKinds are the kinds Log takes, in the order the report lists them.
-var DecisionKinds = []string{KindMerge, KindDeploy, KindMigration, KindInstall, KindAnswer, KindOther}
+var DecisionKinds = []string{KindLeft, KindMerge, KindDeploy, KindMigration, KindInstall, KindAnswer, KindOther}
 
 // Entry is one line of the log.
 type Entry struct {

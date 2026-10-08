@@ -42,12 +42,11 @@ func TestQuestionRefusesAChoiceThatIsOnlyALetterOrNumber(t *testing.T) {
 	}
 }
 
-// While AFK mode is on, what the CFO would have asked the Overlord is held for
-// him with the choice the CFO recommends, so a question with choices and no
-// --recommend is refused before it reaches the supervisor. A written question
-// offers no choice to recommend, and while AFK mode is off nothing is held:
-// both go on to the supervisor, which this test has none of.
-func TestQuestionWhileAFKModeIsOnNamesTheChoiceTheCFORecommends(t *testing.T) {
+// AFK mode is complete autopilot: while it is on nothing is asked of the
+// Overlord, so every question is refused before it reaches the supervisor, with
+// what to do instead. While it is off the question goes on to the supervisor,
+// which this test has none of.
+func TestQuestionWhileAFKModeIsOnIsRefusedAndSaysToLeaveItForHim(t *testing.T) {
 	// Arrange
 	dir := t.TempDir()
 	h := home.Home{Root: dir, State: filepath.Join(dir, "state"), Data: filepath.Join(dir, "data")}
@@ -67,20 +66,20 @@ func TestQuestionWhileAFKModeIsOnNamesTheChoiceTheCFORecommends(t *testing.T) {
 	}
 
 	// Act
-	refusedExit, refused := ask(choices...)
-	recommendedExit, recommended := ask(append(choices, "--recommend", "Keep it held")...)
-	writtenExit, written := ask()
+	refusals := map[string][]string{
+		"with choices":          choices,
+		"with a recommendation": append(choices, "--recommend", "Keep it held"),
+		"written":               nil,
+	}
 
 	// Assert
-	if refusedExit != 2 || !strings.Contains(refused, "AFK mode is on") || !strings.Contains(refused, "--recommend") {
-		t.Errorf("a question with choices and no recommendation while AFK mode is on: exit=%d stderr=%q, want it refused, naming --recommend", refusedExit, refused)
-	}
-	for name, outcome := range map[string]struct {
-		exit   int
-		stderr string
-	}{"with AFK mode off": {offExit, off}, "with a recommendation": {recommendedExit, recommended}, "written": {writtenExit, written}} {
-		if outcome.exit != 1 || strings.Contains(outcome.stderr, "AFK mode is on") {
-			t.Errorf("a question %s: exit=%d stderr=%q, want it past the check and refused only by the missing supervisor", name, outcome.exit, outcome.stderr)
+	for name, args := range refusals {
+		exit, stderr := ask(args...)
+		if exit != 2 || !strings.Contains(stderr, "AFK mode is on") || !strings.Contains(stderr, "backlog row") || !strings.Contains(stderr, "cfo afk log --kind left") {
+			t.Errorf("a question %s while AFK mode is on: exit=%d stderr=%q, want it refused, saying to leave it for him", name, exit, stderr)
 		}
+	}
+	if offExit != 1 || strings.Contains(off, "AFK mode is on") {
+		t.Errorf("a question with AFK mode off: exit=%d stderr=%q, want it past the check and refused only by the missing supervisor", offExit, off)
 	}
 }
