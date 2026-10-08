@@ -377,7 +377,8 @@ A Completed card shows what its pull request really did, the way GitHub does: **
 Without a PR, Finished requires pushed task commits or the artifact the brief requested.
 A task ended by Stop, or cleaned up without delivery, says **Stopped**, with when and why.
 Every Completed card leads with its PR title, or its task title without a PR, then repository and state together, then its PR link when present; task IDs and branch names are secondary detail.
-A number on each card shows its place and turns into a grip on hover or focus: drag a card to move it and the others slide aside to make room, or focus it and press **Alt+Up** or **Alt+Down**.
+A number on each card shows its place, and stays in sight on hover, on focus and while the card is dragged.
+Drag a card to move it and the others slide aside to make room, or focus it and press **Alt+Up** or **Alt+Down**.
 A card goes to any place in its list, the first included: held at the top or bottom edge of the board it waits while the board scrolls under it, and held over a page arrow in Tasks it turns the page and goes with it.
 On a touch screen, drag a card by its number.
 **Alt+Up** or **Alt+Down** past the page's edge moves a card on and turns the page with it.

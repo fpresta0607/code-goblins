@@ -12,7 +12,7 @@ import { withoutHarness } from "./task-words";
 import { ClickFeedback, useClickFeedback } from "./click-feedback";
 
 // A board list whose order is its priority, top first: a number on each card
-// shows its place and turns into a grip on hover or focus. Dropping a card
+// shows its place and stays in sight on hover, focus and drag. Dropping a card
 // saves the order with the supervisor, Tasks as backlog.md's Queued order and
 // In progress as the CFO's attention order, and shows it until the snapshot
 // agrees; a refused order goes back and says why for a moment. In progress
@@ -58,10 +58,7 @@ export function RankedCards({ list, tasks, instance, revision, empty, renderCard
   };
   const { order, onPointerDown, onKeyDown, onClickCapture } = useSortable(listed.map((task) => task.id), (next, moved) => void save(next, moved), fit.start, listRef, { pager: pagerRef, carry: fit.carry });
   const shown = order.map((id) => listed.find((task) => task.id === id)).filter((task): task is Task => !!task);
-  const rank = (index: number) => <span className="rank" aria-hidden="true">
-    <span className="rank-number">{index + 1}</span>
-    <svg className="grip" viewBox="0 0 14 14"><circle cx="4" cy="3" r="1.3" /><circle cx="10" cy="3" r="1.3" /><circle cx="4" cy="7" r="1.3" /><circle cx="10" cy="7" r="1.3" /><circle cx="4" cy="11" r="1.3" /><circle cx="10" cy="11" r="1.3" /></svg>
-  </span>;
+  const rank = (index: number) => <span className="rank" aria-hidden="true">{index + 1}</span>;
   // A finger on a card's rank drags the card, so only a swipe elsewhere turns
   // the page.
   const onFramePointerDown = (event: PointerEvent<HTMLDivElement>) => {
