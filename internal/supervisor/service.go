@@ -23,6 +23,7 @@ import (
 	"github.com/fpresta0607/code-goblins/internal/execx"
 	"github.com/fpresta0607/code-goblins/internal/fleet"
 	"github.com/fpresta0607/code-goblins/internal/fleettree"
+	"github.com/fpresta0607/code-goblins/internal/goblinname"
 	"github.com/fpresta0607/code-goblins/internal/harness"
 	"github.com/fpresta0607/code-goblins/internal/home"
 	"github.com/fpresta0607/code-goblins/internal/host"
@@ -569,6 +570,9 @@ func (s *Service) cycle(ctx context.Context, recover bool) {
 		reconcileErr = errors.Join(reconcileErr, s.Store.pruneReviews(time.Now()))
 		reconcileErr = errors.Join(reconcileErr, s.Store.pruneRuns(time.Now()))
 		reconcileErr = errors.Join(reconcileErr, s.Store.pruneCredentials(time.Now()))
+		// A goblin live before names existed is named here, so the board
+		// never mixes names and ids.
+		reconcileErr = errors.Join(reconcileErr, goblinname.Backfill(s.Store.Home.State))
 		s.mu.Lock()
 		s.reconciled = time.Now().UTC()
 		s.mu.Unlock()
@@ -985,6 +989,10 @@ type Task struct {
 	Runtime      RuntimeEvidence `json:"runtime"`
 	// Parent is the goblin a helper works for; empty for every other task.
 	Parent string `json:"parent,omitempty"`
+	// GoblinName and GoblinTitle are the goblin's fun name and title, which
+	// the board shows in place of its id.
+	GoblinName  string `json:"goblin_name,omitempty"`
+	GoblinTitle string `json:"goblin_title,omitempty"`
 	// Activity is the task's own latest status line, and Report the kind of
 	// its latest report.
 	Activity   string `json:"activity"`
@@ -1315,7 +1323,7 @@ func (s *Service) Snapshot() (Snapshot, error) {
 			title = id
 			untitled[id] = true
 		}
-		out.Tasks = append(out.Tasks, Task{ID: id, Title: title, Parent: meta.Parent, Project: filepath.Base(meta.Project), Harness: meta.Harness, Backend: meta.Backend, Model: meta.Model, Effort: meta.Effort, Mode: meta.Mode, Generation: meta.SpawnGen, Session: d.TaskSessions[id], Dependencies: []string{}, Runtime: runtime, Activity: activity, LastReport: lastReport, ReportedAt: lastReportedAt, Since: s.sessionStarted(meta), Report: reportKind(report), Evaluation: evaluation})
+		out.Tasks = append(out.Tasks, Task{ID: id, Title: title, GoblinName: meta.GoblinName, GoblinTitle: meta.GoblinTitle, Parent: meta.Parent, Project: filepath.Base(meta.Project), Harness: meta.Harness, Backend: meta.Backend, Model: meta.Model, Effort: meta.Effort, Mode: meta.Mode, Generation: meta.SpawnGen, Session: d.TaskSessions[id], Dependencies: []string{}, Runtime: runtime, Activity: activity, LastReport: lastReport, ReportedAt: lastReportedAt, Since: s.sessionStarted(meta), Report: reportKind(report), Evaluation: evaluation})
 		if len(out.Tasks) >= maxSessions {
 			break
 		}

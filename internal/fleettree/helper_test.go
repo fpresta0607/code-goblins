@@ -47,3 +47,18 @@ func TestAHelperIsAChildWhoseStateIsItsOwnReportAndLifecycle(t *testing.T) {
 		})
 	}
 }
+
+// A named helper hangs under its parent by its goblin name and title, as the
+// rest of the board names goblins, with its task beside for its tip.
+func TestANamedHelperIsLabelledByItsGoblinNameAndTitle(t *testing.T) {
+	// Arrange
+	meta := state.TaskMeta{ID: "g1-h1", Parent: "g1", Title: "Accounts migration", GoblinName: "Jerry", GoblinTitle: "Data Herder", SpawnGen: "s" + itoa(at.Add(-time.Hour).UnixNano())}
+
+	// Act
+	node := HelperNode(meta, Tree{FetchedAt: at}, HelperStanding{}, at)
+
+	// Assert
+	if node.Label != "Jerry - Data Herder" || node.Task != "Accounts migration" {
+		t.Errorf("node = %+v, want it labelled Jerry - Data Herder with its task beside", node)
+	}
+}

@@ -96,6 +96,23 @@ func TestRidersQueueInTheOrderGoblinsReportedDone(t *testing.T) {
 	}
 }
 
+// A car keeps the name and title of the goblin that reported it done, so the
+// board and the train pull request name it after the goblin has gone.
+func TestRidersCarryTheGoblinsNameAndTitle(t *testing.T) {
+	t.Parallel()
+	// Arrange
+	pr := greenPull(7)
+	goblins := []Goblin{{Task: "cg-x", Name: "Jerry", Title: "Code Designer", Done: map[string]time.Time{pr.URL: time.Date(2026, 10, 7, 12, 0, 0, 0, time.UTC)}}}
+
+	// Act
+	riders, _ := Riders([]PullRequest{pr}, "main", fleetAccount, goblins, nil)
+
+	// Assert
+	if len(riders) != 1 || riders[0].Task != "cg-x" || riders[0].Goblin != "Jerry" || riders[0].GoblinTitle != "Code Designer" {
+		t.Fatalf("riders = %+v, want #7 carried for Jerry the Code Designer", riders)
+	}
+}
+
 func TestRidersKeepACulpritOffUntilItsHeadChanges(t *testing.T) {
 	t.Parallel()
 	// Arrange

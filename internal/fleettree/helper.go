@@ -5,6 +5,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/fpresta0607/code-goblins/internal/goblinname"
 	"github.com/fpresta0607/code-goblins/internal/state"
 )
 
@@ -18,8 +19,9 @@ type HelperStanding struct {
 }
 
 // HelperNode is a helper goblin as a child of its parent's tree: a goblin of
-// its own that the supervisor started for the parent, named by its title,
-// with its own tree's memory. A paused helper waits, one that reported done
+// its own that the supervisor started for the parent, named by its goblin
+// name and title with its task beside, or by its task's title before it has
+// a name, with its own tree's memory. A paused helper waits, one that reported done
 // or failed has finished, and one that asked its parent waits on the answer;
 // else it works while its own tree shows activity, and is silent once that
 // has stopped for SilentAfter.
@@ -28,6 +30,9 @@ func HelperNode(meta state.TaskMeta, tree Tree, standing HelperStanding, now tim
 		ID: "helper:" + meta.ID, Kind: KindHelper, Label: meta.Title, Detail: "Helper goblin " + meta.ID, State: Working,
 		Started: spawned(meta.SpawnGen), LastActivity: tree.ActivityAt(), Memory: tree.Memory,
 		SourceUpdatedAt: tree.SourceUpdatedAt, FetchedAt: tree.FetchedAt,
+	}
+	if meta.GoblinName != "" {
+		node.Label, node.Task = goblinname.Pair{Name: meta.GoblinName, Title: meta.GoblinTitle}.String(), meta.Title
 	}
 	if node.Label == "" {
 		node.Label = meta.ID

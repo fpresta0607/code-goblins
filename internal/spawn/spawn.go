@@ -18,6 +18,7 @@ import (
 	"github.com/fpresta0607/code-goblins/internal/auth"
 	"github.com/fpresta0607/code-goblins/internal/execx"
 	"github.com/fpresta0607/code-goblins/internal/fsx"
+	"github.com/fpresta0607/code-goblins/internal/goblinname"
 	"github.com/fpresta0607/code-goblins/internal/harness"
 	"github.com/fpresta0607/code-goblins/internal/host"
 	"github.com/fpresta0607/code-goblins/internal/lock"
@@ -262,6 +263,16 @@ func (s Service) Spawn(ctx context.Context, req Request) (result Result, err err
 			return Result{}, err
 		}
 	}
+	// The name is picked in the turn, so two goblins starting at once never
+	// share one.
+	brief, err := fsx.ReadFile(req.BriefPath)
+	if err != nil {
+		return Result{}, fmt.Errorf("spawn: read brief: %w", err)
+	}
+	goblin, err := goblinname.Assign(s.StateDir, goblinname.Hint(req.Title, req.ID, string(brief)))
+	if err != nil {
+		return Result{}, fmt.Errorf("spawn: %w", err)
+	}
 	if err := s.ensureProjectSeeded(ctx, project); err != nil {
 		return Result{}, err
 	}
@@ -271,6 +282,7 @@ func (s Service) Spawn(ctx context.Context, req Request) (result Result, err err
 		return Result{}, fmt.Errorf("spawn: acquire task worktree: %w", err)
 	}
 	result = partialResult(req, project, taskTmp, wt.Path, scratch)
+	result.Meta.GoblinName, result.Meta.GoblinTitle = goblin.Name, goblin.Title
 
 	// Publish metadata as soon as the worktree exists, before the harness can
 	// start: a task whose launch later fails is then addressable and cleanable
@@ -401,7 +413,7 @@ func (s Service) Spawn(ctx context.Context, req Request) (result Result, err err
 		return fail(result, err)
 	}
 
-	result.Output = successOutput(result.Meta)
+	result.Output = successOutput(result.Meta) + "\ngoblin: " + goblin.String()
 	if notice := containedNotice(nativeHost); notice != "" {
 		result.Output += "\n" + notice
 	}

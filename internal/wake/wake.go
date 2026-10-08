@@ -17,7 +17,9 @@ import (
 	"unicode"
 
 	"github.com/fpresta0607/code-goblins/internal/fsx"
+	"github.com/fpresta0607/code-goblins/internal/goblinname"
 	"github.com/fpresta0607/code-goblins/internal/lock"
+	"github.com/fpresta0607/code-goblins/internal/state"
 )
 
 const queueFile = ".wake-queue"
@@ -76,6 +78,10 @@ type Record struct {
 	// marker; they are never written into the queue.
 	Answered   string `json:"answered,omitempty"`
 	AnsweredBy string `json:"answered_by,omitempty"`
+	// Goblin is the name of the goblin a record is about, which Pending
+	// attaches from its task's record so the listing names it as "Name
+	// (id)". It is never written into the queue.
+	Goblin string `json:"goblin,omitempty"`
 }
 
 // ackFile persists the highest acknowledged sequence so acked sequences stay
@@ -190,7 +196,27 @@ func Pending(dir string) ([]Record, error) {
 	if err != nil {
 		return nil, err
 	}
-	return attachAnswers(dir, records)
+	return attachAnswers(dir, attachGoblins(dir, records))
+}
+
+// attachGoblins names the goblin each record is about, from its live record
+// or, once it finished, its outcome; a record about no named goblin keeps
+// its bare key.
+func attachGoblins(dir string, records []Record) []Record {
+	names := map[string]string{}
+	for i, rec := range records {
+		name, known := names[rec.Key]
+		if !known {
+			if meta, err := state.ReadTaskMeta(dir, rec.Key); err == nil {
+				name = meta.GoblinName
+			} else if outcome, err := state.ReadOutcome(dir, rec.Key); err == nil {
+				name = outcome.GoblinName
+			}
+			names[rec.Key] = name
+		}
+		records[i].Goblin = name
+	}
+	return records
 }
 
 // ackSequence returns the sequence a reader may safely acknowledge after
@@ -379,7 +405,7 @@ func renderRecord(w io.Writer, rec Record, now time.Time) error {
 	}
 	line := fmt.Sprintf("  %d  %-6s  ", rec.Seq, rec.Kind)
 	if rec.Key != rec.Kind {
-		line += terminalText(rec.Key) + ": "
+		line += terminalText(goblinname.Called(rec.Goblin, rec.Key)) + ": "
 	}
 	line += terminalText(rec.Detail)
 	_, err := fmt.Fprintln(w, line)
@@ -523,7 +549,7 @@ func splitOptions(detail string) (string, []string) {
 // how long each one has been waiting makes impossible to miss.
 func renderDecision(w io.Writer, rec Record, verb, question string, options []string, now time.Time) error {
 	if _, err := fmt.Fprintf(w, "  %d  DECISION  %s  %s, waiting %s\n",
-		rec.Seq, terminalText(rec.Key), verb, waited(now.Sub(rec.Time))); err != nil {
+		rec.Seq, terminalText(goblinname.Called(rec.Goblin, rec.Key)), verb, waited(now.Sub(rec.Time))); err != nil {
 		return err
 	}
 	if _, err := fmt.Fprintf(w, "       question: %s\n", terminalText(question)); err != nil {

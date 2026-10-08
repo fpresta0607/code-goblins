@@ -54,7 +54,7 @@ func TrainGoblins(stateDir, checkout string) []train.Goblin {
 		}
 		lines, _ := state.TailStatus(stateDir, meta.ID, 200)
 		if done := doneReports(lines, spawnTime(meta.SpawnGen)); len(done) > 0 {
-			goblins = append(goblins, train.Goblin{Task: meta.ID, Done: done})
+			goblins = append(goblins, train.Goblin{Task: meta.ID, Name: meta.GoblinName, Title: meta.GoblinTitle, Done: done})
 		}
 	}
 	return goblins

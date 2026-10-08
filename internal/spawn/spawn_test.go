@@ -55,6 +55,31 @@ func TestSpawnPublishesTheTaskTitle(t *testing.T) {
 	}
 }
 
+// A goblin gets its fun name and title at spawn, published with its record
+// so the board names it from the moment it exists, and the title fits the
+// work its brief names.
+func TestSpawnGivesTheGoblinANameAndATitleThatFitsItsBrief(t *testing.T) {
+	// Arrange
+	f := newQuickFixture(t)
+	writeFile(t, f.request.BriefPath, "# Brief task-7\n\n## Task\n\nShow each goblin's name on the board cards and the canvas.\n\nDelivery contract: mode=no-mistakes\n")
+	boardTitles := []string{"Pixel Wrangler", "Layout Whisperer", "Button Polisher", "Card Shuffler", "Color Mixer", "Screen Painter"}
+
+	// Act
+	result, err := f.service.Spawn(context.Background(), f.request)
+
+	// Assert
+	if err != nil {
+		t.Fatal(err)
+	}
+	meta, err := state.ReadTaskMeta(f.stateDir, f.request.ID)
+	if err != nil || meta.GoblinName == "" || !slices.Contains(boardTitles, meta.GoblinTitle) {
+		t.Fatalf("metadata: %+v %v, want a name and one of %v", meta, err, boardTitles)
+	}
+	if want := "goblin: " + meta.GoblinName + " - " + meta.GoblinTitle; !strings.Contains(result.Output, "\n"+want+"\n") && !strings.HasSuffix(result.Output, "\n"+want) {
+		t.Fatalf("output = %q, want the line %q", result.Output, want)
+	}
+}
+
 func TestSpawnRejectsInvalidIDBeforeFilesystemMutation(t *testing.T) {
 	root := t.TempDir()
 	stateDir := filepath.Join(root, "state-does-not-exist")

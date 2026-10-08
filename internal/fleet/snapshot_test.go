@@ -483,3 +483,39 @@ func TestFleetViewNamesAHelpersParent(t *testing.T) {
 		}
 	}
 }
+
+// fleet-view names each goblin as "Name (id)", live or completed, so the CFO
+// can talk about it by name, and keeps the bare id for one with no name.
+func TestFleetViewNamesEachGoblinByNameAndID(t *testing.T) {
+	// Arrange
+	h := snapshotHome(t)
+	named := writeSnapshotMeta(t, h, "g1", t.TempDir(), t.TempDir())
+	named.GoblinName, named.GoblinTitle = "Jerry", "Code Designer"
+	if err := state.WriteTaskMeta(h.State, named); err != nil {
+		t.Fatal(err)
+	}
+	writeSnapshotMeta(t, h, "g2", t.TempDir(), t.TempDir())
+	if err := state.WriteOutcome(h.State, state.Outcome{ID: "g0", Title: "Shipped work", GoblinName: "Mabel", GoblinTitle: "Bug Hunter", Phase: "stopped", At: time.Now()}); err != nil {
+		t.Fatal(err)
+	}
+
+	// Act
+	snapshot, err := BuildSnapshot(t.Context(), h, &snapshotEndpoint{})
+	var markdown, data bytes.Buffer
+	markdownErr, jsonErr := RenderMarkdown(&markdown, snapshot), RenderJSON(&data, snapshot)
+
+	// Assert
+	if err != nil || markdownErr != nil || jsonErr != nil {
+		t.Fatalf("snapshot %v, markdown %v, json %v", err, markdownErr, jsonErr)
+	}
+	for _, want := range []string{"| Jerry (g1) |", "| g2 |", "| Mabel (g0) | Shipped work |"} {
+		if !strings.Contains(markdown.String(), want) {
+			t.Errorf("fleet view lacks %q:\n%s", want, markdown.String())
+		}
+	}
+	for _, want := range []string{`"id":"g1"`, `"goblin_name":"Jerry"`, `"goblin_title":"Code Designer"`} {
+		if !strings.Contains(data.String(), want) {
+			t.Errorf("fleet view JSON lacks %s:\n%s", want, data.String())
+		}
+	}
+}
