@@ -385,6 +385,7 @@ Beside the meter, a ring around the Claude or OpenAI mark shows that subscriptio
 A mark appears only while a live CFO or goblin terminal runs that harness, and shows **?** when the reading is stale, unavailable or needs a sign-in; hover, focus or hold a ring for its reset time and the reading's age.
 The first eligible task is marked **Next up**.
 The supervisor uses each free slot for the oldest pause whose condition has cleared, then for the queue in the Overlord's order.
+Slots go by memory alone: a start needs 5 GB of memory and of commit free, and no count of goblins holds one back, however many run.
 A future date, an unanswered question or an Overlord pause does not hold the queue.
 The supervisor does this by itself, one start or resume a minute while memory allows, until nothing that could run is left: the fleet never idles while work waits, and nothing waits for the CFO to notice.
 With memory free, a line under the memory meter names what it started or resumed, such as "Starting cg-docs", or why nothing waiting started, such as "Nothing starts: cg-docs: its last start failed: ...".
@@ -421,14 +422,15 @@ Pause for CI or deploy only when waiting on that run is the goblin's remaining w
 The supervisor resumes memory pauses after two consecutive readings of at least 5 GB free memory and commit, allowance pauses at their reset, dependencies when the named task finishes or PR merges or date arrives, questions when the Overlord answers, and CI/deploy pauses on the matching `ci_finished` record.
 Answers to paused goblins are retained for their resume prompt.
 Resume requires the same 5 GB of free memory and of free commit, and continues a saved session less than a day after pausing where supported, otherwise using the saved handoff.
-The live cap is also checked for Start, spawn and Resume: `config/fleet.json` sets `max_live_goblins` (default 8), and memory and commit further reduce the available slots while preserving the 4 GB floor.
+Start, spawn and Resume check memory and commit alone for room: there is no cap on how many goblins run, and the 4 GB floor is what they keep.
+An older build's `max_live_goblins` in `config/fleet.json` is taken out by `cfo install` and `cfo update`, which say so, since a key the build does not read makes it refuse the file and every start with it.
 At 5 percent remaining in a measured weekly allowance window, the same supervisor scheduler requests each affected goblin's handoff and pauses it until the applicable weekly windows reset.
 While [AFK mode](#afk-mode) is on it pauses at the memory floor too: after two readings in a row under 4 GB of free memory or commit, the newest goblin that is not pushing or merging is paused with the reason `memory`, one at a time.
 Short session or model windows do not trigger this reserve, and missing or stale quota remains unknown.
 A used-up session window is waited out rather than paused: nothing starts or resumes on its harness until it renews, and then the CFO is woken once with the goblins it stopped, to send on any that sits idle.
 The CFO also hears once when a window a running goblin draws on passes 85 percent used.
 On the board, a paused card says in place of Paused why it waits and what resumes it, in a few words such as "Memory: resumes at 5 GB free", "Waiting on PR #331 to merge" or "Waiting on CI, usually 13 min", the last from the median of that repository's measured runs.
-The memory meter shows the goblins live against the cap, and the setting while memory lowers the cap; with no free slot, Start and Resume say so on the card instead of being refused after the click.
+Under the 5 GB mark, Start and Resume say what they need on the card instead of being refused after the click; the memory meter shows no count of goblins or cap.
 **Next** marks the one card the free-slot order takes first: a reported production defect, which says it jumps the queue, then a paused goblin whose pause has cleared or clears with memory, oldest pause first, then the top of the queue, passing over a task whose last start failed, which waits for its Start.
 A live goblin with no real progress for 20 minutes says for how long on its card.
 After 20 minutes with no new commit, push, gate-step change or changed status report, the supervisor raises one `progress_stalled` check wake to the CFO; real progress resets it, and intentional pauses do not raise it.
@@ -827,12 +829,15 @@ Beside it sits the avatar of each teammate whose open pull request, branch or is
 A goblin's panel names the people of its project beside the project's name, each with a GitHub avatar and username, whoever is in the goblin's area first.
 The people come from the same hourly read that decides whether a repository gets tickets, and the overlaps from the ten-minute pull request read below, so the board asks GitHub nothing of its own; a project only you work in shows neither.
 
-The same supervisor poll watches the health of every open pull request in its watched repositories, including teammates' and fork pull requests.
+The same supervisor poll watches the health of the fleet's own pull requests: a goblin's wherever it is, and every open pull request in a watched repository the fleet owns, including teammates' and fork pull requests.
+A repository is the fleet's when its GitHub owner, read from the pull request's own address and never from a remote's name, is the account `gh` works as or an organization listed in `config/fleet.json` as `github_owners`, such as `{"github_owners": ["my-org"]}`.
+Another owner's pull requests, such as the upstream's in a checkout of your fork whose `origin` is the upstream, raise nothing.
 It raises a `pr_health` wake for a conflict with the PR's base or a head that is behind the repository's current default branch, even while checks are pending, failed or absent.
-Each condition wakes once per head, survives a restart, and waits at least five minutes after that PR's previous health wake.
-A goblin's wake names its owner and the safe update: merge the default branch in with a merge commit, regenerate generated files, run CI once and never force-push.
-A teammate's wake reports the author and link; the fleet never pushes to their branch.
-The existing poll lists PRs once and batches all head comparisons in one additional GraphQL request per repository, every two minutes.
+One poll raises at most one such wake per repository, naming every pull request whose head fell into a condition the CFO was not woken for, so dozens never arrive as dozens of wakes.
+Each condition wakes once per head and survives a restart; a pull request whose head and condition stay as they were is never named again, a behind head waits up to ten minutes for GitHub to work out whether it conflicts, and a repository's wakes are at least five minutes apart.
+A goblin's pull request is named with its goblin and the safe update: merge the default branch in with a merge commit, regenerate generated files, run CI once and never force-push.
+A teammate's is named with the author and link; the fleet never pushes to their branch.
+The existing poll lists PRs once and batches the watched heads' comparisons in one additional GraphQL request per repository, every two minutes.
 GraphQL POST reads do not use conditional ETags.
 A 403, 429 or exhausted allowance pauses all GitHub reads in that poll for the affected repository across restarts, until its retry or reset time, or an hour when GitHub gives no usable time.
 Missing comparisons and a listing that reaches its 100-PR limit stay visible as unread evidence.
@@ -870,7 +875,7 @@ It stays local and private: nothing in it is pushed anywhere, and no repository 
 <CFO home>\
   bin\                            cfo.exe, goblins.exe and the desktop window, on PATH; the current build and two before it
   state\                          the fleet's own record: tasks, status logs, the wake queue, the board
-  config\                         the gate policy, fleet.json (the live goblin cap, the disk floor and the caches cap), and dev-drive.json once the next three folders moved to a Dev Drive
+  config\                         the gate policy, fleet.json (the disk floor, the caches cap and github_owners), and dev-drive.json once the next three folders moved to a Dev Drive
   worktrees\<project>\<task>\     each goblin's worktree of your checkout, and its extra worktrees beside it
   scratch\<task>\                 each goblin's temporary files, which go with the task
   caches\                         the package caches goblins share, kept under 20 GB

@@ -275,7 +275,7 @@ func defaultCommandRuntime() commandRuntime {
 					if err != nil {
 						return fmt.Errorf("spawn: free disk cannot be read, so nothing starts: %w", err)
 					}
-					return supervisor.CheckLaunch(h, memory, disk)
+					return supervisor.CheckLaunch(memory, disk)
 				},
 			}
 			return service.Spawn(ctx, request)
@@ -382,7 +382,7 @@ func defaultCommandRuntime() commandRuntime {
 			if err != nil {
 				return fmt.Errorf("free disk cannot be read, so nothing comes back: %w", err)
 			}
-			return supervisor.CheckLaunch(h, memory, disk)
+			return supervisor.CheckLaunch(memory, disk)
 		},
 		setupAgent:      setupAgent,
 		choose:          onboarding.AskConsole,

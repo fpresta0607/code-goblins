@@ -35,7 +35,7 @@ type WaitingWork struct {
 // the queue, unless a goblin paused for memory comes back first. It says what
 // it did, and what could run and did not, with why; a board that cannot start
 // goblins schedules nothing and says nothing.
-func (s *Service) schedule(ctx context.Context, now time.Time, memory Memory, watched *fleetWakes) (*Scheduling, error) {
+func (s *Service) schedule(ctx context.Context, now time.Time, watched *fleetWakes) (*Scheduling, error) {
 	if s.Options.Dispatch.Spawn == nil {
 		return nil, nil
 	}
@@ -44,10 +44,6 @@ func (s *Service) schedule(ctx context.Context, now time.Time, memory Memory, wa
 	starting, changing := s.starting, maps.Clone(s.changing)
 	failed, changeErrors := maps.Clone(s.startErrors), maps.Clone(s.changeErrors)
 	s.starts.Unlock()
-	capacity, err := ReadFleetCapacity(s.Store.Home, memory)
-	if err != nil {
-		return record, err
-	}
 	finished := s.finishedWork()
 	var queued []string
 	defect := ""
@@ -127,9 +123,6 @@ func (s *Service) schedule(ctx context.Context, now time.Time, memory Memory, wa
 	case len(changing) > 0:
 		id := slices.Sorted(maps.Keys(changing))[0]
 		record.Text = id + " is " + changingVerbs[changing[id]]
-	case capacity.Slots == 0:
-		record.Waiting = nil
-		record.Text = fmt.Sprintf("no free slot: %d of %d goblins live", capacity.Live, capacity.Limit)
 	case defect != "":
 		record.Text = "starting " + defect + ", a reported production defect"
 		problems = errors.Join(problems, s.startQueued(defect, false))
