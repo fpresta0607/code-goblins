@@ -385,6 +385,81 @@ func TestUninstallTwiceIsANoOp(t *testing.T) {
 	}
 }
 
+// Uninstall removes the speech engine and model the install set dictation up
+// with, and leaves the home's other caches, its state and its data.
+func TestUninstallRemovesDictationsEngineAndModel(t *testing.T) {
+	// Arrange
+	f := newFixture(t, adopterSettings, nil)
+	f.install()
+	dictation := filepath.Join(f.root, "caches", "voice")
+	kept := filepath.Join(f.root, "caches", "go-build", "entry")
+	for _, file := range []string{filepath.Join(dictation, "model-1.0", "tokens.txt"), filepath.Join(dictation, "engine-1.0", "engine.dll"), kept} {
+		if err := os.MkdirAll(filepath.Dir(file), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(file, []byte("kept until uninstall"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	// Act
+	output := f.uninstall()
+	again := f.uninstall()
+
+	// Assert
+	if !strings.Contains(output, "removed dictation's speech engine and model in "+dictation) {
+		t.Errorf("the uninstall output does not report dictation removed:\n%s", output)
+	}
+	if _, err := os.Stat(dictation); !os.IsNotExist(err) {
+		t.Errorf("%s survived the uninstall: %v", dictation, err)
+	}
+	if _, err := os.Stat(kept); err != nil {
+		t.Errorf("the uninstall removed another cache: %v", err)
+	}
+	if !strings.Contains(again, "nothing to remove") {
+		t.Errorf("a second uninstall found more to remove:\n%s", again)
+	}
+}
+
+// An engine a running board still has loaded cannot be removed, so the
+// uninstall refuses with nothing changed and the engine whole, and says to
+// quit Code Goblins first.
+func TestUninstallRefusesWithNothingChangedWhileDictationsEngineIsInUse(t *testing.T) {
+	// Arrange
+	f := newFixture(t, adopterSettings, nil)
+	f.install()
+	engine := filepath.Join(f.root, "caches", "voice", "engine-1.0", "engine.dll")
+	if err := os.MkdirAll(filepath.Dir(engine), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(engine, []byte("loaded"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	loaded, err := os.Open(engine)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer loaded.Close()
+
+	// Act
+	var out strings.Builder
+	err = f.service.Uninstall(&out)
+
+	// Assert
+	if err == nil || !strings.Contains(err.Error(), "goblins stop") {
+		t.Fatalf("Uninstall = %v, want a refusal that says to quit Code Goblins\n%s", err, out.String())
+	}
+	if _, err := os.Stat(engine); err != nil {
+		t.Errorf("the engine in use was not left whole: %v", err)
+	}
+	if f.env.values["CFO_HOME"] != f.root {
+		t.Errorf("CFO_HOME = %q after the refusal, want it kept as %q", f.env.values["CFO_HOME"], f.root)
+	}
+	if left, _ := filepath.Glob(filepath.Join(f.root, "caches", "voice-removed-*")); len(left) != 0 {
+		t.Errorf("the refusal left %v", left)
+	}
+}
+
 // Uninstall also takes out the board's native hooks, which `cfo hooks
 // install` wrote into each harness's own configuration.
 func TestUninstallRemovesTheBoardNativeHooks(t *testing.T) {

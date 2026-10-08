@@ -122,9 +122,9 @@ func reportLongPaths(stdout io.Writer) {
 	fmt.Fprintln(stdout, "git: core.longpaths is off, so a goblin's git can fail on a file deeper than 260 characters in its worktree; turn it on with: git config --global core.longpaths true")
 }
 
-// reportDictation prints the speech model dictation runs on, its version and
-// whether it is there yet. It never counts against the health verdict: the
-// first dictation fetches what is missing.
+// reportDictation says dictation is ready, naming the speech model and the
+// engine it runs on, or names what is missing and the fix. It never counts
+// against the health verdict: the first dictation fetches what is missing.
 func reportDictation(stdout io.Writer) {
 	h, err := home.Resolve()
 	if err != nil {
@@ -135,7 +135,11 @@ func reportDictation(stdout io.Writer) {
 		fmt.Fprintf(stdout, "dictation: settings unreadable (%v)\n", err)
 		return
 	}
-	fmt.Fprintln(stdout, "dictation: "+speech.Summary())
+	if absent := speech.Absent(); len(absent) > 0 {
+		fmt.Fprintf(stdout, "dictation: not set up: %s missing, %d MB, from %s; run `cfo dictation setup`, or the first dictation fetches it\n", partNames(absent), speech.Missing()>>20, speech.Dir)
+		return
+	}
+	fmt.Fprintf(stdout, "dictation: ready: %s %s on %s %s, in %s\n", speech.Settings.Model.Name, speech.Settings.Model.Version, speech.Settings.Engine.Name, speech.Settings.Engine.Version, speech.Dir)
 }
 
 // reportProjectsRoot prints where a bare `--project <name>` is looked up, or

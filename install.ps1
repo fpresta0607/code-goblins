@@ -748,6 +748,17 @@ public static extern IntPtr SendMessageTimeout(IntPtr hWnd, uint Msg, UIntPtr wP
         }
     }
 
+    # Dictation works at the first press: the build the home now holds
+    # downloads the speech engine and model it pins, keeps each only when it
+    # matches its pinned SHA-256, and puts them where dictation looks; one
+    # already there is not downloaded again, and one an earlier build pinned
+    # is replaced. It never fails the install: the first dictation sets up
+    # whatever is still missing, as it always could.
+    Write-Doing "Setting up dictation"
+    if ((Invoke-Logged $dest @("dictation", "setup")) -ne 0) {
+        Write-Note "Dictation could not be set up now, so it finishes setting itself up the first time you dictate; the log says why."
+    }
+
     # Code Goblins in the Start menu opens the app. Where this install put the
     # desktop window in the home, built or downloaded just now, the entry
     # starts that program alone: it runs goblins out of sight, which finds the

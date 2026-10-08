@@ -31,7 +31,7 @@ func TestThePinnedEngineRecognisesASpokenLine(t *testing.T) {
 	if arrived != pinned {
 		t.Fatalf("the fetch ended at %d of the %d pinned bytes", arrived, pinned)
 	}
-	t.Logf("%s; downloaded now: %d bytes", voice.Summary(), arrived)
+	t.Logf("%s %s on %s %s in %s; downloaded now: %d bytes", settings.Model.Name, settings.Model.Version, settings.Engine.Name, settings.Engine.Version, dir, arrived)
 	sound, err := os.ReadFile(filepath.Join("testdata", "open-the-pull-request.wav"))
 	if err != nil {
 		t.Fatal(err)
