@@ -804,6 +804,8 @@ Started with neither `--board` nor `--state`, as the Start menu's Code Goblins, 
 So the window stays the process Windows started, and its parents reach the desktop, which is how the supervisor knows its board as the Overlord's own when he switches AFK mode or presses **Update**; a window `goblins` started would be the child of a process that has exited, which proves no one's.
 So a supervisor is started in one way only, by `goblins`, whoever opens the app.
 A click on a notification while no window runs opens the app the same way: Windows then starts the program alone, with `-Embedding`.
+This cold notification activation is a known gap: COM starts the window without desktop ancestry, so the supervisor refuses AFK mode and **Update** from that window.
+Quit it from the tray and open Code Goblins from the Start menu or desktop shortcut to use those controls.
 When `goblins` fails, the launcher shows the last sixteen lines it wrote to stderr in a message box titled Code Goblins and exits 1; with no `goblins.exe` beside it, the box says that Code Goblins is not installed there.
 Sixteen lines hold all that `goblins` says about a supervisor that did not start: what to do, where `serve.log` is, and the end of that log.
 `.\install.cmd -Dev` builds it into the clone, the one-line install puts it in the home from a release whose `SHA256SUMS` lists it, as releases from v0.4.0 on do, and `cfo update` carries one that sits beside the candidate into the home once the candidate serves.

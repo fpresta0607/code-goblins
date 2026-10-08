@@ -70,6 +70,8 @@ In order, it:
    Where the home only kept a window it already held, as an install from a release that ships none leaves it, the entry runs `goblins --window` itself, with its console minimized: a window from before this may not open the app when started alone.
    In a home with no window it runs `goblins`, the quick start, in a window of its own.
 9. Runs `goblins doctor` into the log, names any tool it could not install in one line, and opens the app; a home with no app runs the [quick start](#the-quick-start) in a window of its own.
+   The desktop shell opens the window, as a double-click does, so Explorer remains its parent and the board can prove that AFK mode and **Update** are yours.
+   If the window is not a Windows program or the desktop shell cannot be reached, the install logs why and tries starting it directly; if it cannot open, the existing note points you to Code Goblins in the Start menu.
 
 Rerun it to update: it brings the home's contract, skills and program up to date, and keeps your projects folder and any policy you tuned.
 A running program cannot be replaced, only renamed, so the previous build moves aside and the new one takes its name; a supervisor that runs is then restarted on the new build, as `cfo update` restarts it.
