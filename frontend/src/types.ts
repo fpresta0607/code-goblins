@@ -167,9 +167,16 @@ export interface LocalChecks { commit: string; level: string; required_level: st
 export interface Deployment { commit: string; state: string; workflows: string[]; link: string; at: string }
 // MergeTrain is a merge train: green pull requests merged onto base on a
 // branch of its own, which its pull request lets CI test together once.
-// state is testing, landed, stopped or failed, runs counts its CI runs, and
-// note says what happened last.
-export interface MergeTrain { id: string; repository: string; base: string; pr: string; state: string; runs: number; started: string; finished: string; note: string; cars: TrainCar[] }
+// state is testing, landed, stopped or failed, runs counts its CI runs and
+// history keeps each, and note says what happened last. earlier are the
+// trains before it that landed nothing and whose pull requests it took on,
+// oldest first, so the board shows each batch once.
+export interface MergeTrain { id: string; repository: string; base: string; pr: string; state: string; runs: number; started: string; finished: string; note: string; cars: TrainCar[]; history: TrainRun[]; earlier: MergeTrain[] }
+// TrainRun is one CI run of a train: its number among the train's runs, the
+// pull requests it tested by number, its base and head commits, when it was
+// pushed, how it ended (landed, failed, moved, changed, repushed or stopped,
+// empty while CI tests it) and a red run's first failed check.
+export interface TrainRun { number: number; riders: number[]; base: string; head: string; pushed: string; result: string; link: string }
 // TrainCar is one pull request on a train: state is riding, waiting,
 // landed, culprit, conflict or returned, and note says why.
 // goblin and goblin_title are the name and title of the goblin that reported
@@ -693,6 +700,8 @@ function parseMergeTrain(value: unknown): MergeTrain {
     id: string(t.id), repository: string(t.repository), base: string(t.base), pr: string(t.pr), state: string(t.state), runs: number(t.runs),
     started: string(t.started), finished: string(t.finished), note: string(t.note),
     cars: array(t.cars).map((car) => { const c = object(car); return { number: number(c.number), url: string(c.url), title: string(c.title), task: string(c.task), goblin: string(c.goblin), goblin_title: string(c.goblin_title), head: string(c.head), state: string(c.state), note: string(c.note) }; }),
+    history: array(t.history).map((run) => { const r = object(run); return { number: number(r.number), riders: array(r.riders).map(number), base: string(r.base), head: string(r.head), pushed: string(r.pushed), result: string(r.result), link: string(r.link) }; }),
+    earlier: array(t.earlier).map(parseMergeTrain),
   };
 }
 function parseComebackEntry(value: unknown): ComebackEntry {
