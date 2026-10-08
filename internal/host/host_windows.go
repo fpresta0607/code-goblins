@@ -91,6 +91,12 @@ func Run(stateDir string, spec Spec) error {
 	if err != nil {
 		return err
 	}
+	if problem := conpty.ConsoleHostProblem(); problem != nil {
+		fmt.Fprintf(os.Stderr, "host: %v\n", problem)
+		if err := reportConsoleHostProblem(stateDir, problem); err != nil {
+			fmt.Fprintf(os.Stderr, "host: tell the CFO the terminal runs on the system conhost: %v\n", err)
+		}
+	}
 	record, pipe, err := announce(stateDir, spec.ID, console.PID(), hex.EncodeToString(proof[:]))
 	if err != nil {
 		_ = console.Close()

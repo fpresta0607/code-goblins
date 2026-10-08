@@ -20,10 +20,12 @@ import (
 // ship it) can queue typed input without waking a program that waits for it
 // in a blocking read, ReadConsoleInputW or ReadConsoleW, while another of its
 // threads prints: the input then waits, read by nothing, until more input
-// arrives. Microsoft's current conhost, which reworked that wakeup in
-// microsoft/terminal#18228, does not; Windows does not ship it yet. So each
-// pseudo console has an input waker: this program again, attached to the same
-// console, told each time input is written. When input it was told of is
+// arrives. Microsoft's current conhost, which fixed that race in
+// microsoft/terminal#18816, does not, and consoles run on it, the OpenConsole
+// this package embeds, unless it cannot be loaded (console_host_windows.go).
+// For the inbox conhost, each pseudo console has an input waker: this
+// program again, attached to the same console, told each time input is
+// written. When input it was told of is
 // still unread a moment later, it writes a menu event into the console's
 // input, which wakes the reader and which every reader ignores, as documented
 // for MENU_EVENT and as libuv, crossterm, .NET and conhost's own character
