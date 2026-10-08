@@ -414,6 +414,7 @@ In-progress cards have **Pause** and **Stop** icons, and paused cards have **Res
 A queued card has **Remove** where they have Stop: a task that has not started has nothing to stop.
 A task's panel carries its controls as labelled buttons, in one row under its header: **Remove** for a queued task, whose Start stays on its card, and **Pause** or **Resume** and **Stop** for one that has started.
 Pause allows five seconds for a stopping point and handoff, then ends the task's processes, including its detached browser sessions, dev servers and tests.
+It ends the goblin's terminal first, which ends its agent and everything under it, so a busy goblin that misses its stopping point is still paused, with its session kept for its resume, even when the search for its other processes runs out of time on a machine short of memory.
 A machine service the goblin started for its work is never one of them: Docker Desktop with everything it runs, and the no-mistakes daemon with every other goblin's gate agents, keep running through a pause, a stop, a cleanup, a switch, a forced reap and the goblin's terminal closing; the daemon's agents at work on the task's own gate are still ended.
 Such a service holds the folder it was started from, so start it from outside the worktree, or cleanup cannot remove the worktree while it runs.
 Pause and Stop count a process as stopped once Windows reports an exit status, even if Windows is still releasing its resources.
@@ -424,6 +425,7 @@ The board's Pause records `overlord`, which only the Overlord's Resume clears.
 The CLI takes what resumes the goblin: `cfo pause <id> --until <RFC3339 time>`, `--until-task <id>` or `--until-pr <GitHub PR URL>` pauses it until that time, until that task delivers or until that pull request merges, and the supervisor resumes it then by itself, as for a goblin paused until an allowance's weekly reset.
 Otherwise it takes `--reason <reason>`: `memory`, `allowance`, `overlord`, `dependency`, `question`, `ci` or `deploy`; a pause that names nothing that resumes it is refused.
 An allowance pause takes `--until <RFC3339 reset time>`; a dependency takes `--until task:<id>`, `pr:<GitHub PR URL>` or `date:<RFC3339 time>`; a question takes `--until <question id>`.
+Pausing a goblin that is already paused changes what resumes it, and stops nothing again.
 For CI or deploy, name the exact awaited head with `--until pr:<GitHub PR URL>@<40-character SHA>` or `run:<GitHub Actions run URL>@<40-character SHA>`.
 Pause for CI or deploy only when waiting on that run is the goblin's remaining work.
 The supervisor resumes memory pauses after two consecutive readings of at least 5 GB free memory and commit, allowance pauses at their reset, dependencies when the named task finishes or PR merges or date arrives, questions when the Overlord answers, and CI/deploy pauses on the matching `ci_finished` record.
@@ -432,7 +434,7 @@ Resume requires the same 5 GB of free memory and of free commit, and continues a
 Start, spawn and Resume check memory and commit alone for room: there is no cap on how many goblins run, and the 4 GB floor is what they keep.
 An older build's `max_live_goblins` in `config/fleet.json` is taken out by `cfo install` and `cfo update`, which say so, since a key the build does not read makes it refuse the file and every start with it.
 At 5 percent remaining in a measured weekly allowance window, the same supervisor scheduler requests each affected goblin's handoff and pauses it until the applicable weekly windows reset.
-While [AFK mode](#afk-mode) is on it pauses at the memory floor too: after two readings in a row under 4 GB of free memory or commit, the newest goblin that is not pushing or merging is paused with the reason `memory`, one at a time.
+It pauses at the memory floor too, whether or not [AFK mode](#afk-mode) is on: after two readings in a row under 4 GB of free memory or commit, the newest goblin that is not pushing or merging is paused with the reason `memory`, one at a time.
 Short session or model windows do not trigger this reserve, and missing or stale quota remains unknown.
 A used-up session window is waited out rather than paused: nothing starts or resumes on its harness until it renews, and then the CFO is woken once with the goblins it stopped, to send on any that sits idle.
 The CFO also hears once when a window a running goblin draws on passes 85 percent used.
@@ -710,8 +712,8 @@ Spent
 ```
 
 AFK mode shares the supervisor's allowance pause at 5 percent weekly remaining and its automatic resume at the reset.
-While it is on, the fleet also pauses cleanly at the memory floor: when two readings in a row find free memory or commit under 4 GB, the supervisor pauses the newest goblin that is not pushing or merging, keeping its handoff, one goblin at a time, and resumes it once memory and commit are back at 5 GB.
-Each pause at either floor is in the report under **Paused at a floor**, with the readings it stood on and how it went.
+The fleet also pauses cleanly at the memory floor, whether or not it is on: when two readings in a row find free memory or commit under 4 GB, the supervisor pauses the newest goblin that is not pushing or merging, keeping its handoff, one goblin at a time, and resumes it once memory and commit are back at 5 GB.
+Each pause at either floor while it is on is in the report under **Paused at a floor**, with the readings it stood on and how it went.
 
 ### Open in VS Code
 

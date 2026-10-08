@@ -119,11 +119,8 @@ var (
 	snapshotTimeout = 3 * time.Second
 )
 
-// runWindowLauncher is goblins --window, which the desktop window runs when
-// it is started alone, with --background at login: it finds or starts the
-// supervisor as goblins does and shows
-// the desktop window, in the tray alone with background, and starts or shows
-// no CFO.
+// runWindowLauncher keeps --window and --window --background working for
+// older windows that ask goblins to open a window rather than locate its board.
 func runWindowLauncher(stdout, stderr io.Writer, runtime commandRuntime, background bool) int {
 	h, err := runtime.resolveHome()
 	if err != nil {
@@ -138,6 +135,28 @@ func runWindowLauncher(stdout, stderr io.Writer, runtime commandRuntime, backgro
 		fmt.Fprintf(stderr, "goblins: the desktop window did not start: %v\n", err)
 		return 1
 	}
+	return 0
+}
+
+// runWindowLocator is goblins --window --locate, which the desktop window runs
+// when it is started alone, from the Start menu, the desktop or Start at
+// login: it finds or starts the supervisor as goblins --window does and prints
+// the board's address and the fleet's state folder, one to a line, for that
+// window to show the board itself. The window the shell started then stays the
+// window, so its parents reach the desktop, which is how the supervisor knows
+// the board as the Overlord's own when he switches AFK mode or presses Update.
+func runWindowLocator(stdout, stderr io.Writer, runtime commandRuntime) int {
+	h, err := runtime.resolveHome()
+	if err != nil {
+		fmt.Fprintln(stderr, err)
+		return 1
+	}
+	board, _, ok := launchBoard(context.Background(), runtime, h, io.Discard, stderr)
+	if !ok {
+		return 1
+	}
+	fmt.Fprintln(stdout, board)
+	fmt.Fprintln(stdout, h.State)
 	return 0
 }
 

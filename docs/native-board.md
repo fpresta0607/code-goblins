@@ -799,15 +799,22 @@ The PNG icons under `/assets/icons/` are rendered from `/favicon.svg`; render th
 ### The desktop window
 
 A desktop window for the board, `goblins-window.exe`, is the program in `cmd/goblins-window`: a Wails v3 window on Microsoft's WebView2 around the board root the supervisor serves, never linked into `cfo.exe`, which every hook runs.
-`go build -trimpath -tags production -ldflags "-H windowsgui" -o goblins-window.exe ./cmd/goblins-window` builds it as a release and `-Dev` do, and it is started with `--board <the board's address> --state <the home's state folder>`.
+`go build -trimpath -tags production -ldflags "-H windowsgui" -o goblins-window.exe ./cmd/goblins-window` builds it as a release and `-Dev` do, and it accepts `--board <the board's address> --state <the home's state folder>`.
 Without `-tags production` the window has WebView2's developer tools and the browser's menu on a right click, which is how to look into the board's page while working on the window.
 `goblins --window` starts it that way where it sits beside `goblins.exe`, after finding or starting the supervisor as `goblins --board` does, with its output appended to `state\window.log`; a window of the same home already running takes the start as its second instance and comes to the front.
 Each home has a window of its own: the home the user's own environment names, by `CFO_HOME` or else the per-user home, keeps the one instance and Windows' one notification registration for Code Goblins, and a window on any other home, such as a scratch home or a second install, is an instance of its own, keyed by its state folder, so opening it brings its own board to the front and never the first home's window.
 `goblins --window --background` starts it in its tray, and where no window sits beside `goblins.exe` either exits 1 and says so.
-Started with neither `--board` nor `--state`, as the Start menu's Code Goblins and **Start at login** start it, the program is the app's launcher: it runs the `goblins.exe` beside it with `--window`, and `--background` when it was given that, in a console that is never shown, and exits once that has started the window on the board.
+Started with neither `--board` nor `--state`, as the Start menu, desktop shortcut and **Start at login** start it, the program runs the `goblins.exe` beside it with `--window --locate` in a hidden console.
+`goblins --window --locate` finds or starts the supervisor and prints only the board's address followed by the state folder, one per line; it opens no window, browser or CFO.
+The original window uses those two lines to show the board itself, or stays in its tray if it was started with `--background`.
+When the desktop shell starts the window alone, its ancestry still reaches Explorer, so the existing [ownership proof](#afk-mode) accepts its AFK switch and **Update**.
+A new window opened with `goblins --window` from a terminal remains the launcher's child; once that launcher exits, the cut ancestry still proves no one's, so AFK mode and **Update** are refused there.
 So a supervisor is started in one way only, by `goblins`, whoever opens the app.
 A click on a notification while no window runs opens the app the same way: Windows then starts the program alone, with `-Embedding`.
+This cold notification activation is a known gap: COM starts the window without desktop ancestry, so the supervisor refuses AFK mode and **Update** from that window.
+Quit it from the tray and open Code Goblins from the Start menu or desktop shortcut to use those controls.
 When `goblins` fails, the launcher shows the last sixteen lines it wrote to stderr in a message box titled Code Goblins and exits 1; with no `goblins.exe` beside it, the box says that Code Goblins is not installed there.
+If `goblins` exits 0 without naming both the board and state folder, as an older build may, the window shows a message box saying the board did not open and exits 1 without showing a board.
 Sixteen lines hold all that `goblins` says about a supervisor that did not start: what to do, where `serve.log` is, and the end of that log.
 `.\install.cmd -Dev` builds it into the clone, the one-line install puts it in the home from a release whose `SHA256SUMS` lists it, as releases from v0.4.0 on do, and `cfo update` carries one that sits beside the candidate into the home once the candidate serves.
 It needs only what the supervisor already provides: the board's address in `state\board.json`, the board's page, `/api/snapshot`, which it reads every 3 seconds for what newly waits on the Overlord, and `/api/announce`, where it claims each of those before it notifies it.
@@ -825,7 +832,7 @@ A window started with `--profile`, as its tests start it, or on a home other tha
 **Start at login** in the tray menu writes the `CodeGoblins` value under `HKCU\Software\Microsoft\Windows\CurrentVersion\Run`, and clearing it removes the value.
 It is one setting with the board's switch, `POST /api/start-at-login` with `{"on": true}` or `false`, the setup's box and `cfo install --start-at-login on|off`: each keeps the choice in `state\start-at-login`, and the tray reads the value again every 3 seconds, so it shows a change made on the board.
 An install sets the value unless that choice is off, and removes this home's value when it is; a value that starts another home is left as it is.
-For a window that `goblins` started, the value runs the window alone with `--background`, which runs that `goblins` as above, so the supervisor starts before the window and no terminal shows at sign-in; `goblins uninstall` removes the value where it starts a program in that home, and an install rewrites it to this home's where it started a copy of the window installed on its own.
+For a window that `goblins` started or that located its board when started alone, the value runs the window alone with `--background`, which locates the board as above, so the supervisor starts before the window and no terminal shows at sign-in; `goblins uninstall` removes the value where it starts a program in that home, and an install rewrites it to this home's where it started a copy of the window installed on its own.
 The install writes the window alone only where it put the window in the home itself, from a release that ships it or, with `-Dev`, from the build it just made; where the home only kept a window it already held, the install writes that home's `goblins.exe --window --background`, which opens any window.
 An install that retained the home's window keeps the earlier standalone window, its picture, folder and Start-menu entry unchanged.
 A value an earlier window wrote, which ran the `goblins.exe` beside it with `--window --background` in a terminal at every sign-in, is rewritten to this one the next time `goblins` starts the window, so the tray shows **Start at login** as on and clearing it once removes the value.
@@ -833,7 +840,7 @@ The board's dictation works in it as in a browser tab, because the page records 
 
 ### Restarts
 
-A restart or a sign-out ends the supervisor and every `cfo host`; Start at login starts the window alone, in the tray, which runs `goblins --window --background`, which starts the supervisor detached from any terminal.
+A restart or a sign-out ends the supervisor and every `cfo host`; [Start at login](#the-desktop-window) brings back the board with its supervisor detached from any terminal.
 The supervisor then brings back what the sign-in before this one left running, the comeback, recorded in `state\comeback.json`.
 It reads when this sign-in began from Windows (`LsaGetLogonSessionData` for the process's logon session), since a restart and a sign-out both end every process of the sign-in before.
 The first supervisor of a sign-in plans the comeback once, at its first memory check and before memory is read, so a sign-in whose memory never reaches the floor still records itself: the registered CFO's terminal, and each live native goblin's terminal, that started in the sign-in before (at or after the last comeback's sign-in and before this one) and no longer answers, plus whatever an earlier comeback had not reached.
@@ -1350,9 +1357,9 @@ Each cycle the supervisor records every item that waits on the Overlord as held,
 A goblin's question waits on the CFO, which answers it, as the Command Center has it (`forOverlord`), so it is never held for him.
 What only he can do is neither asked nor held: `cfo question` refuses while AFK mode is on, and the CFO gives it a backlog row and logs it with `cfo afk log --kind left` instead.
 A run item the board made itself, for a credential card's terminal or a connection's repair, is not held: it is ready only for the moment after his own click.
-While it is on, a memory reading under the floor counts toward the memory floor: after two in a row with free memory or commit under 4 GB, and with no start or other change under way, the supervisor pauses the newest live native goblin, by when its terminal host started, that is not pausing, paused or failed at the memory floor before, and has no git push, merge, pull, rebase, cherry-pick or am, or `gh pr merge`, running under its host.
+Whether or not it is on, a memory reading under the floor counts toward the memory floor: after two in a row with free memory or commit under 4 GB, and with no start or other change under way, the supervisor pauses the newest live native goblin, by when its terminal host started, that is not pausing, paused or failed at the memory floor before, and has no git push, merge, pull, rebase, cherry-pick or am, or `gh pr merge`, running under its host.
 It sends the `memory` pause through the same `cfo pause` the allowance floor sends, so the lifecycle keeps its handoff and the scheduler resumes it after two readings at 5 GB; a change under way, the pause included, starts the count again, so one goblin is paused at a time.
-Each pause at either floor is logged as a `pause` line with the readings it stood on, then its outcome, and the report lists them under Paused at a floor; they are not decisions, so the bar's count leaves them out.
+Each pause at either floor while it is on is logged as a `pause` line with the readings it stood on, then its outcome, and the report lists them under Paused at a floor; they are not decisions, so the bar's count leaves them out.
 An answer recorded as the Overlord's (`cfo answer --record-only --in <where>`) is refused while it is on, by the command and by the supervisor for the same request sent straight over the pipe.
 
 A switch that cannot be read is never taken for on or off.
