@@ -3,6 +3,7 @@
 package conpty
 
 import (
+	"bytes"
 	"errors"
 	"fmt"
 	"os"
@@ -37,6 +38,7 @@ type Spec struct {
 // which Close leaves running (endJob). The console's input waker runs in the
 // job too.
 type Console struct {
+	host       consoleHost
 	pc         windows.Handle
 	in         *os.File
 	out        *os.File
@@ -65,6 +67,10 @@ type Console struct {
 
 	mu     sync.Mutex
 	closed bool
+
+	// isHostQueryAnswered is set once Read has answered the console
+	// server's own device attributes query.
+	isHostQueryAnswered bool
 }
 
 // Start runs spec.Args in a new pseudo console of spec.Cols by spec.Rows.
@@ -103,13 +109,14 @@ func Start(spec Spec) (*Console, error) {
 		return nil, fmt.Errorf("conpty: output pipe: %w", err)
 	}
 	c := &Console{
+		host:    currentConsoleHost(),
 		in:      os.NewFile(uintptr(inWrite), "conpty-input"),
 		out:     os.NewFile(uintptr(outRead), "conpty-output"),
 		typed:   make(chan struct{}, 1),
 		closing: make(chan struct{}),
 		done:    make(chan struct{}),
 	}
-	err = createInteractiveConsole(windows.Coord{X: int16(spec.Cols), Y: int16(spec.Rows)}, inRead, outWrite, &c.pc)
+	err = createInteractiveConsole(c.host, windows.Coord{X: int16(spec.Cols), Y: int16(spec.Rows)}, inRead, outWrite, &c.pc)
 	// The pseudo console holds its own copies of these ends.
 	windows.CloseHandle(inRead)
 	windows.CloseHandle(outWrite)
@@ -119,7 +126,7 @@ func Start(spec Spec) (*Console, error) {
 		return nil, fmt.Errorf("conpty: create pseudo console: %w", err)
 	}
 	if err := c.startProcess(commandLine, dir, env); err != nil {
-		windows.ClosePseudoConsole(c.pc)
+		c.host.close(c.pc)
 		c.in.Close()
 		c.out.Close()
 		return nil, err
@@ -219,7 +226,7 @@ func (c *Console) wait() {
 	c.mu.Lock()
 	c.closed = true
 	c.mu.Unlock()
-	windows.ClosePseudoConsole(c.pc)
+	c.host.close(c.pc)
 	close(c.done)
 }
 
@@ -228,10 +235,43 @@ func (c *Console) PID() int {
 	return c.pid
 }
 
+// hostQuery is the device attributes query OpenConsole sends its terminal as
+// it starts, and hostQueryAnswer the answer the board's xterm.js gives: a
+// VT100 with advanced video, which asks OpenConsole for nothing it would not
+// do anyway.
+const (
+	hostQuery       = "\x1b[c"
+	hostQueryAnswer = "\x1b[?1;2c"
+)
+
 // Read reads what the process wrote to its terminal, escape sequences and
 // all. It returns io.EOF once the process has exited and its output is read.
+//
+// OpenConsole takes the first answer typed after its own device attributes
+// query as that query's answer and passes every later one to the program as
+// if typed. So the console answers OpenConsole's query, the first in its
+// output, and leaves it out: no viewer, nor one replaying the terminal from
+// its start, answers it into the program, and a query the program asks
+// itself gets its viewer's answer.
 func (c *Console) Read(p []byte) (int, error) {
-	return c.out.Read(p)
+	for {
+		n, err := c.out.Read(p)
+		if c.host.asksDeviceAttributes && !c.isHostQueryAnswered {
+			if at := bytes.Index(p[:n], []byte(hostQuery)); at >= 0 {
+				c.isHostQueryAnswered = true
+				copy(p[at:], p[at+len(hostQuery):n])
+				n -= len(hostQuery)
+				c.writing.Lock()
+				// A console whose input no longer takes writes is ending,
+				// which the next Read reports.
+				_, _ = c.in.Write([]byte(hostQueryAnswer))
+				c.writing.Unlock()
+			}
+		}
+		if n > 0 || err != nil {
+			return n, err
+		}
+	}
 }
 
 // heldEndingWait is how long an ending conhost would hold waits for the next
@@ -316,7 +356,7 @@ func (c *Console) Resize(cols, rows int) error {
 	}
 	// A resize reaches the process as an input event, which can be left
 	// unread as typed input can.
-	if err := windows.ResizePseudoConsole(c.pc, windows.Coord{X: int16(cols), Y: int16(rows)}); err != nil {
+	if err := c.host.resize(c.pc, windows.Coord{X: int16(cols), Y: int16(rows)}); err != nil {
 		return err
 	}
 	c.wake()

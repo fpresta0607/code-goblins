@@ -66,8 +66,9 @@ func openProcess(t *testing.T, pid int) windows.Handle {
 	return process
 }
 
-// consoleServers lists this process's direct conhost children, which include
-// servers of earlier tests' consoles that are still exiting.
+// consoleServers lists this process's direct children that run the console
+// server, which include servers of earlier tests' consoles that are still
+// exiting.
 func consoleServers(t *testing.T) []int {
 	t.Helper()
 	processes, err := proc.Processes()
@@ -76,7 +77,7 @@ func consoleServers(t *testing.T) []int {
 	}
 	var servers []int
 	for _, process := range processes {
-		if process.ParentPID == os.Getpid() && strings.EqualFold(process.ExeBase, "conhost.exe") {
+		if process.ParentPID == os.Getpid() && strings.EqualFold(process.ExeBase, filepath.Base(currentConsoleHost().server)) {
 			servers = append(servers, process.PID)
 		}
 	}

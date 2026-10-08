@@ -8,9 +8,12 @@ require golang.org/x/sys v0.48.0
 
 require github.com/coder/websocket v1.8.15
 
+require github.com/danielgatis/go-vte v1.0.11
+
 require (
 	git.sr.ht/~jackmordaunt/go-toast/v2 v2.0.3 // indirect
 	github.com/adrg/xdg v0.5.3 // indirect
+	github.com/danielgatis/go-utf8 v1.0.1 // indirect
 	github.com/go-ole/go-ole v1.3.0 // indirect
 	github.com/godbus/dbus/v5 v5.2.2 // indirect
 	github.com/mattn/go-colorable v0.1.14 // indirect
