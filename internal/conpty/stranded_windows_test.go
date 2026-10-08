@@ -19,7 +19,8 @@ import (
 // os.Stdin.Read, cmd and Python's input() do, with blocking ReadConsoleW
 // calls, and echoes each character it reads while another writer prints
 // continuously. It logs each character to the file it is given as it reads
-// it, so a key that never arrived can be told from an echo that never showed.
+// it, so a key that never arrived can be told from an echo that never showed,
+// and logs there too why it failed, which its console may never show.
 func TestStrandedInputChild(t *testing.T) {
 	arguments := flag.Args()
 	if len(arguments) != 2 || arguments[0] != "stranded-input-child" {
@@ -30,19 +31,24 @@ func TestStrandedInputChild(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer progress.Close()
+	fail := func(what string, err error) {
+		t.Helper()
+		fmt.Fprintf(progress, "failed to %s: %v\n", what, err)
+		t.Fatal(err)
+	}
 	input := windows.Handle(os.Stdin.Fd())
 	var mode uint32
 	if err := windows.GetConsoleMode(input, &mode); err != nil {
-		t.Fatal(err)
+		fail("read the console mode", err)
 	}
 	if err := windows.SetConsoleMode(input, mode&^uint32(windows.ENABLE_LINE_INPUT|windows.ENABLE_ECHO_INPUT|windows.ENABLE_PROCESSED_INPUT|windows.ENABLE_VIRTUAL_TERMINAL_INPUT)); err != nil {
-		t.Fatal(err)
+		fail("set the console mode", err)
 	}
 	// The load has a console handle of its own, so the echo never waits for
 	// it in Go's lock on os.Stdout, only in the console.
 	load, err := os.OpenFile("CONOUT$", os.O_WRONLY, 0)
 	if err != nil {
-		t.Fatal(err)
+		fail("open the console's output", err)
 	}
 	go func() {
 		tick := time.NewTicker(5 * time.Millisecond)
@@ -57,15 +63,15 @@ func TestStrandedInputChild(t *testing.T) {
 	for {
 		var read uint32
 		if err := windows.ReadConsole(input, &characters[0], uint32(len(characters)), &read, nil); err != nil {
-			t.Fatal(err)
+			fail("read the console", err)
 		}
 		for _, character := range characters[:read] {
 			sequence++
 			if _, err := fmt.Fprintf(progress, "read %04x as key-%04d at %s\n", character, sequence, time.Now().UTC().Format("15:04:05.000000")); err != nil {
-				t.Fatal(err)
+				fail("log the key", err)
 			}
 			if _, err := fmt.Printf("\rkey-%04d\n", sequence); err != nil {
-				t.Fatal(err)
+				fail("echo the key", err)
 			}
 		}
 	}
@@ -75,17 +81,29 @@ func TestStrandedInputChild(t *testing.T) {
 // program is printing. Windows' inbox conhost (10.0.26100) can leave a key in
 // the console's input, unread, while the program waits in a blocking read and
 // another of its threads prints: the key stays there until something else is
-// typed (microsoft/terminal#18228 reworked that wakeup). Each key is typed
-// once the program has echoed the one before, as a person types, which is
-// when the program has just gone back to its read.
+// typed, or conhost crashes (microsoft/terminal#18816 fixed both, in the
+// OpenConsole consoles run on). Each key is typed once the program has echoed
+// the one before, as a person types, which is when the program has just gone
+// back to its read.
 func TestTypedKeysReachAProgramThatPrintsWhileItReads(t *testing.T) {
 	progressPath := filepath.Join(t.TempDir(), "keys-read.log")
+	before := map[int]bool{}
+	for _, pid := range consoleServers(t) {
+		before[pid] = true
+	}
 	console, err := Start(Spec{
 		Args: []string{os.Args[0], "-test.run=^TestStrandedInputChild$", "--", "stranded-input-child", progressPath},
 		Cols: 120, Rows: 40,
 	})
 	if err != nil {
 		t.Fatal(err)
+	}
+	// The console's server, held, to tell how it ended if it ends first.
+	var server windows.Handle
+	for _, pid := range consoleServers(t) {
+		if !before[pid] {
+			server = openProcess(t, pid)
+		}
 	}
 	output := make(chan []byte, 256)
 	stopping, ended := make(chan struct{}), make(chan struct{})
@@ -124,7 +142,7 @@ func TestTypedKeysReachAProgramThatPrintsWhileItReads(t *testing.T) {
 			select {
 			case chunk, isOpen := <-output:
 				if !isOpen {
-					t.Fatalf("the terminal ended before %q: %s", marker, terminalEnd(console, readErr, shown, progressPath))
+					t.Fatalf("the terminal ended before %q: %s", marker, terminalEnd(console, server, readErr, shown, progressPath))
 				}
 				shown += string(chunk)
 				if len(shown) > 8192 {
@@ -164,20 +182,36 @@ func TestTypedKeysReachAProgramThatPrintsWhileItReads(t *testing.T) {
 }
 
 // terminalEnd says how a terminal that ended under a test ended: the error
-// its output ended with, how its program exited, what it last showed and
-// what the program last read, which tell a program that failed or was ended
-// from a console that went away under it.
-func terminalEnd(console *Console, readErr error, shown, progressPath string) string {
+// its output ended with, how its program and its console server exited, what
+// it last showed and what the program last logged, which tell a program that
+// failed or was ended from a console server that went away under it, as one
+// that crashed does (0xc0000005).
+func terminalEnd(console *Console, server windows.Handle, readErr error, shown, progressPath string) string {
 	exit := "its program had not exited 5s later"
 	select {
 	case <-console.Done():
 		exit = fmt.Sprintf("its program exited with code %#x", console.ExitCode())
 	case <-time.After(5 * time.Second):
 	}
+	serverEnd := "its console server was not found"
+	if server != 0 {
+		var code uint32
+		switch err := windows.GetExitCodeProcess(server, &code); {
+		case err != nil:
+			serverEnd = fmt.Sprintf("its console server's exit code cannot be read: %v", err)
+		case code == stillActive:
+			serverEnd = "its console server still runs"
+		default:
+			serverEnd = fmt.Sprintf("its console server exited with code %#x", code)
+		}
+	}
 	progress, _ := os.ReadFile(progressPath)
 	lines := strings.Split(strings.TrimSpace(string(progress)), "\n")
-	return fmt.Sprintf("its output ended with %v; %s; it last showed %q; the program last read %q", readErr, exit, shown[max(0, len(shown)-1024):], lines[max(0, len(lines)-3):])
+	return fmt.Sprintf("its output ended with %v; %s; %s; it last showed %q; the program last logged %q", readErr, exit, serverEnd, shown[max(0, len(shown)-1024):], lines[max(0, len(lines)-3):])
 }
+
+// stillActive is the exit code Windows reports for a process still running.
+const stillActive = 259
 
 // TestUnreadInputChild sends Ctrl-C and Ctrl-Break to every process attached
 // to its console, then leaves its input unread until the file it is given

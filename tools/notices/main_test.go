@@ -186,6 +186,37 @@ func TestNPMComponentsAsksForNPMCIWhenAPackageIsNotInstalled(t *testing.T) {
 	}
 }
 
+// The console host cfo.exe embeds is listed by the package and version beside
+// its files, under their licence, and a copyleft one is refused.
+func TestConsoleHostComponentsNameThePackageVersionAndLicence(t *testing.T) {
+	for name, test := range map[string]struct {
+		licence, want string
+		isRefused     bool
+	}{
+		"MIT":      {licence: mitText, want: "Microsoft.Windows.Console.ConPTY 1.25.260930003 (conpty.dll and OpenConsole.exe)=MIT"},
+		"copyleft": {licence: gplText, isRefused: true},
+	} {
+		t.Run(name, func(t *testing.T) {
+			// Arrange
+			dir := writeFiles(t, map[string]string{"VERSION": "1.25.260930003\r\n", "LICENSE": test.licence, "conpty.dll": "library bytes", "OpenConsole.exe": "program bytes"})
+
+			// Act
+			s, problems, err := consoleHostComponents(dir)
+
+			// Assert
+			if err != nil || len(s.components) != 1 {
+				t.Fatalf("consoleHostComponents = %+v, %v", s, err)
+			}
+			if test.isRefused != (len(problems) == 1) {
+				t.Fatalf("problems = %q, want refused %t", problems, test.isRefused)
+			}
+			if got := s.components[0].name + "=" + s.components[0].licence; !test.isRefused && got != test.want {
+				t.Errorf("component = %s, want %s", got, test.want)
+			}
+		})
+	}
+}
+
 func TestAssetComponentsSkipCopiesOfListedLicences(t *testing.T) {
 	assets := writeFiles(t, map[string]string{
 		"react-LICENSE.txt":        strings.ReplaceAll(mitText, "\n", "\r\n") + "\r\n",
