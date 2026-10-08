@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -565,6 +566,36 @@ func newQuickFixture(t *testing.T) *nativeFixture {
 	nativeReadySettle = 2 * nativePoll
 	t.Cleanup(func() { nativeReadySettle = previous })
 	return newNativeFixture(t, harness.Codex, "ready")
+}
+
+// A check the caller ran beside the start, such as who else works in the
+// task's area, refuses it before its terminal launches, and the start leaves
+// no trace: no task record, no worktree, no terminal and no failure in its
+// status log, which the board would show as a finished task.
+func TestACheckThatRefusesBeforeLaunchLeavesNoTrace(t *testing.T) {
+	// Arrange
+	f := newQuickFixture(t)
+	refusal := errors.New("a teammate works in this area")
+	f.request.BeforeLaunch = func() error { return refusal }
+
+	// Act
+	_, err := f.service.Spawn(t.Context(), f.request)
+
+	// Assert
+	if !errors.Is(err, refusal) {
+		t.Fatalf("spawn = %v, want the check's refusal", err)
+	}
+	if _, readErr := state.ReadTaskMeta(f.stateDir, f.request.ID); !errors.Is(readErr, os.ErrNotExist) {
+		t.Fatalf("the refused start left its task record: %v", readErr)
+	}
+	if _, readErr := host.ReadRecord(f.stateDir, f.request.ID); !errors.Is(readErr, os.ErrNotExist) {
+		t.Fatalf("the refused start launched a terminal: %v", readErr)
+	}
+	if lines, _ := state.TailStatus(f.stateDir, f.request.ID, 10); slices.ContainsFunc(lines, func(line string) bool {
+		return strings.HasPrefix(line, "failed:") || strings.Contains(line, " failed:")
+	}) {
+		t.Fatalf("status log = %q, want no failure for a refused start", lines)
+	}
 }
 
 // events reads what the fake codex recorded.

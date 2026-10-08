@@ -221,6 +221,9 @@ type Service struct {
 	engineFrom   map[string]state.TaskMeta
 	engineIdle   map[string]engineIdleReading
 	changeErrors map[string]taskChangeError
+	// asked are the Starts and Resumes the Overlord clicked that wait their
+	// turn, oldest first; starts guards it.
+	asked []askedChange
 	// scheduling is what the scheduler made of its last reading with memory
 	// free; mu guards it.
 	scheduling *Scheduling
@@ -826,8 +829,11 @@ func (s *Service) execute(ctx context.Context, a Action) (Evaluation, error) {
 	if a.Kind == "feedback" || a.Kind == "cfo_message" {
 		return Evaluation{}, fmt.Errorf("%w: obsolete action kind %q is not accepted", ErrRejected, a.Kind)
 	}
-	if a.Kind != "evaluate" && a.Kind != "review" && a.Kind != "cfo_answer" && a.Kind != "goblin_answer" && a.Kind != "answer_change" && a.Kind != "review_answer" && a.Kind != "review_clear" && a.Kind != "question_clear" && a.Kind != "run" && a.Kind != "run_stop" {
+	if a.Kind != "evaluate" && a.Kind != "review" && a.Kind != "cfo_answer" && a.Kind != "goblin_answer" && a.Kind != "answer_change" && a.Kind != "review_answer" && a.Kind != "review_clear" && a.Kind != "question_clear" && a.Kind != "run" && a.Kind != "run_stop" && a.Kind != "message" {
 		return Evaluation{}, fmt.Errorf("%w: unsupported action kind %q", ErrRejected, a.Kind)
+	}
+	if a.Kind == "message" {
+		return s.deliverMessage(ctx, a)
 	}
 	if a.Kind == "run" {
 		return s.startRun(ctx, a)
@@ -1054,11 +1060,14 @@ type Task struct {
 	// brief was written; zero when neither is known.
 	Since time.Time `json:"since"`
 	// Brief says queued work has its brief, which a Start needs; Starting
-	// that its Start runs cfo spawn now, StartError why its last Start
-	// failed, and Finished why it never starts again by itself: what says it
-	// already finished.
+	// that its Start runs cfo spawn now or waits its turn, StartError why its
+	// last Start failed, and Finished why it never starts again by itself:
+	// what says it already finished. Asked says a Start or Resume the
+	// Overlord clicked waits its turn behind another start or resume, or for
+	// memory or disk.
 	Brief         bool                `json:"brief"`
 	Starting      bool                `json:"starting"`
+	Asked         bool                `json:"asked,omitempty"`
 	StartError    string              `json:"start_error"`
 	Finished      string              `json:"finished,omitempty"`
 	Lifecycle     *LifecycleStatus    `json:"lifecycle,omitempty"`
@@ -1426,11 +1435,19 @@ func (s *Service) Snapshot() (Snapshot, error) {
 	starting := s.starting
 	startErrors, changing, changeErrors := maps.Clone(s.startErrors), maps.Clone(s.changing), maps.Clone(s.changeErrors)
 	engineFrom := maps.Clone(s.engineFrom)
+	asked := map[string]string{}
+	for _, change := range s.asked {
+		asked[change.task] = "start"
+		if change.resume != nil {
+			asked[change.task] = "resume"
+		}
+	}
 	s.starts.Unlock()
 	finished := readFinishedWork(s.Store.Home, history)
 	for i := range out.Tasks {
 		task := &out.Tasks[i]
-		task.Starting = task.ID == starting
+		task.Starting = task.ID == starting || asked[task.ID] == "start"
+		task.Asked = asked[task.ID] != ""
 		if task.Phase == "queued" {
 			if queued, err := s.queuedTask(task.ID); err == nil {
 				task.QueueRevision, task.Detail, task.Priority = queued.Revision, queued.Detail, queued.Row.Priority
@@ -1473,6 +1490,17 @@ func (s *Service) Snapshot() (Snapshot, error) {
 			if record.Phase == "stopped" {
 				task.Archived = true
 			}
+			// A pause that failed while its goblin ran took effect once its
+			// terminal ended: the goblin is paused, in the Paused section
+			// (the Overlord, 2026-10-08, of Shirley's card).
+			if pauseTookHold(s.Store.Home.State, task.Backend, record) {
+				task.Phase, task.Reason, task.At = "paused", record.Reason, record.Updated
+				if record.Pause != nil {
+					task.Reason = record.Pause.Description()
+				}
+				task.Activity = task.Reason
+				task.Lifecycle.Phase = "paused"
+			}
 		}
 		choice, err := kept(&s.reads, "engine-choice", []string{filepath.Join(s.Store.Home.State, "engine", task.ID+".json")}, func() (state.EngineChoice, error) { return state.ReadEngineChoice(s.Store.Home.State, task.ID) })
 		if err == nil && choice.Generation == task.Generation {
@@ -1491,6 +1519,9 @@ func (s *Service) Snapshot() (Snapshot, error) {
 					task.ActionError = "Did not come back after the restart: " + strings.TrimRight(task.Comeback.Reason, ". ") + ". The CFO was told."
 				}
 			}
+		}
+		if asked[task.ID] == "resume" {
+			task.Phase = "resuming"
 		}
 		if action := changing[task.ID]; action != "" {
 			if action == "switch" {

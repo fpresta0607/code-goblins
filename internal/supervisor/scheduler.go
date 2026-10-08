@@ -44,6 +44,7 @@ func (s *Service) schedule(ctx context.Context, now time.Time, watched *fleetWak
 	s.starts.Lock()
 	starting, changing := s.starting, maps.Clone(s.changing)
 	failed, changeErrors := maps.Clone(s.startErrors), maps.Clone(s.changeErrors)
+	asked := slices.Clone(s.asked)
 	s.starts.Unlock()
 	finished := s.finishedWork()
 	var queued []string
@@ -124,6 +125,12 @@ func (s *Service) schedule(ctx context.Context, now time.Time, watched *fleetWak
 	case len(changing) > 0:
 		id := slices.Sorted(maps.Keys(changing))[0]
 		record.Text = id + " is " + changingVerbs[changing[id]]
+	case len(asked) > 0:
+		record.Text = "starting " + asked[0].task + ", which the Overlord started"
+		if asked[0].resume != nil {
+			record.Text = "resuming " + asked[0].task + ", which the Overlord resumed"
+		}
+		s.runAsked()
 	case defect != "":
 		record.Text = "starting " + defect + ", a reported production defect"
 		problems = errors.Join(problems, s.startQueued(defect, false))
@@ -213,7 +220,10 @@ func (s *Service) resumeAutomatically(record state.Lifecycle) error {
 	delete(s.changeErrors, record.ID)
 	operation := fmt.Sprintf("auto-resume-%d", time.Now().UnixNano())
 	go func() {
+		launched := make(chan struct{})
+		go s.watchLaunch(record.ID, launched)
 		output, err := s.runPastTheSpawnLock(s.Options.Dispatch, []string{"resume", record.ID, "--generation", record.Generation, "--operation", operation, "--reason", "Pause condition cleared"})
+		close(launched)
 		s.starts.Lock()
 		delete(s.changing, record.ID)
 		if err != nil {
@@ -221,6 +231,7 @@ func (s *Service) resumeAutomatically(record state.Lifecycle) error {
 		}
 		s.starts.Unlock()
 		s.notify()
+		s.runAsked()
 	}()
 	s.notify()
 	return nil

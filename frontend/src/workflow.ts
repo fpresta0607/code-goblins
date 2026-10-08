@@ -165,13 +165,15 @@ export function waitingTarget(snapshot: Snapshot, task: Task): Task | undefined 
 const WAITS: Record<string, string> = { overlord: "the CFO", ci: "CI", deploy: "deploy", memory: "memory" };
 const GATE_STEPS: Record<string, string> = { review: "code review", lint: "lint", push: "push", test: "tests", ci: "CI", pr: "PR", document: "docs" };
 
-// A pause, resume or stop that did not finish is the task's state until the
-// next one starts, whatever its goblin last reported, drawn as that action
-// under way: the CFO or the Overlord asked for a pause or a stop, so one that
-// did not finish is never the goblin failing (the Overlord, 2026-10-07), and
-// the CFO hears of it. Only a goblin that did not start again has failed.
+// A resume or stop that did not finish is the task's state until the next
+// one starts, whatever its goblin last reported, drawn as that action under
+// way: the CFO or the Overlord asked for a stop, so one that did not finish is
+// never the goblin failing (the Overlord, 2026-10-07), and the CFO hears of
+// it. Only a goblin that did not start again has failed. A pause that did not
+// finish has no state of its own: the card says what the goblin does, and one
+// whose session ended the supervisor serves as paused (the Overlord,
+// 2026-10-08, of "Pause did not finish" in yellow on Shirley's card).
 const FAILED_ACTIONS: Record<string, { status: string; phase: string }> = {
-  pause: { status: "Pause did not finish", phase: "pausing" },
   resume: { status: "Resume failed", phase: "failed" },
   stop: { status: "Stop did not finish", phase: "stopping" },
 };
@@ -193,6 +195,9 @@ export function nodeStatus(node: WorkflowNode, asking = false, tasks: Task[] = [
   if (node.status) return node.status;
   const unfinished = node.task && actionFailed(node.task);
   if (unfinished) return unfinished.status;
+  if (node.task?.starting) return "Starting";
+  // A queued task has no session to stop: Stop removes it from the queue.
+  if (node.task?.phase === "stopping" && !node.task.generation) return "Removing";
   const awaited = node.task && ownsTaskSession(node.session, node.task) ? awaitedTest(node.task, trains) : undefined;
   if (awaited) return awaited.text;
   if (node.task && ["paused", "pausing", "resuming", "stopping", "stopped"].includes(node.task.phase)) return statusText(node.task.phase);

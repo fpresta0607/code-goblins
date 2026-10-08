@@ -24,12 +24,13 @@ let revision = 0;
 const board = (fields: Record<string, unknown> = {}) => ({ healthy: true, instance: "board-1", cfo_runs: true, cfo_terminal: "cfo", cfo_harness: "claude", revision: ++revision, attention: [], tasks: working, questions: [], reviews: [], runs: [], credentials: [], actions: [], ...fields });
 // What reached the Overlord on 2026-10-07, and its kin: one goblin done, one
 // failed by its own report, one blocked at its gate, and the retired goblin's
-// pause that did not finish, which an older supervisor served as the goblin
-// failed and waiting on the CFO; then that unanswered report counted as a
-// question left on the CFO for ten minutes.
+// pause that did not finish once its session had ended, which an older
+// supervisor served as the goblin failed and waiting on the CFO and this one
+// serves as paused; then that unanswered report counted as a question left on
+// the CFO for ten minutes.
 const news = () => board({ tasks: [
-  task("pd-small-cleanups", RETIRED, { project: "PrecisionDocs-AI", phase: "failed", report: "", pr: "https://github.com/fpresta0607/PrecisionDocs-AI/pull/1507", reason: "Waiting on the CFO: " + LIFECYCLE_SAID, activity: LIFECYCLE_SAID,
-    lifecycle: { phase: "failed", action: "pause", at: "2026-10-07T14:49:11Z", kept: ["worktree C:\\dev\\PrecisionDocs-AI\\.worktrees\\gb-pd-small-cleanups"], stopped: [], problems: ["Stopping-point deadline reached or request failed; no new handoff was saved", "context deadline exceeded"], handoff_saved: false, validation_restarts: false } }),
+  task("pd-small-cleanups", RETIRED, { project: "PrecisionDocs-AI", phase: "paused", report: "", pr: "https://github.com/fpresta0607/PrecisionDocs-AI/pull/1507", reason: LIFECYCLE_SAID, activity: LIFECYCLE_SAID,
+    lifecycle: { phase: "paused", action: "pause", at: "2026-10-07T14:49:11Z", kept: ["worktree C:\\dev\\PrecisionDocs-AI\\.worktrees\\gb-pd-small-cleanups"], stopped: [], problems: ["Stopping-point deadline reached or request failed; no new handoff was saved", "context deadline exceeded"], handoff_saved: false, validation_restarts: false } }),
   task("cg-probe", "Probe the DNS", { phase: "failed", report: "failed", activity: "failed: go test timed out at 9f3c2a1e" }),
   task("cg-theme", "Board theme", { phase: "blocked", reason: "Pipeline decision required at review; use cfo pipeline respond" }),
 ], cfo_quiet: { since: "2026-10-07T14:59:11Z", count: 1, oldest_age: 600 } });
@@ -127,7 +128,7 @@ test.describe("on the board, in a browser tab", () => {
     expect(asked).toEqual([]);
     await expect(page.locator(".toasts")).toHaveCount(0);
     await expect(card(page)).toBeHidden();
-    await expect(goblin(page, RETIRED).locator(".card-status-text")).toHaveText("Pause did not finish");
+    await expect(goblin(page, RETIRED).locator(".card-status-text")).not.toContainText("did not finish");
     await expect(goblin(page, RETIRED).locator(".plain-status")).not.toHaveClass(/phase-failed/);
     await expect(goblin(page, "Probe the DNS").locator(".card-status-text")).toHaveText("Failed");
   });

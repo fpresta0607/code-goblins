@@ -1151,6 +1151,49 @@ func TestANativeViewClosesWithTheReasonItCannotOpen(t *testing.T) {
 	}
 }
 
+// The board shows a starting goblin's session the moment its task record is
+// written, a second or more before its terminal's host runs, and opens its
+// terminal then: the view waits for the host while the start runs, rather
+// than closing with No terminal is running.
+func TestANativeViewOfAStartingGoblinWaitsForItsTerminal(t *testing.T) {
+	// Arrange
+	h, server := nativeBoard(t, "direct")
+	h.Service.starts.Lock()
+	h.Service.starting = "task-1"
+	h.Service.starts.Unlock()
+
+	// Act
+	v := openNativeView(t, server, viewQuery)
+	time.Sleep(3 * launchWatchEvery)
+	hostTask(t, h)
+
+	// Assert
+	v.waitFor(t, "program ready")
+}
+
+// A start that ends without a terminal, as a failed one does, closes the view
+// that waited for it with the reason, rather than leaving it waiting.
+func TestANativeViewOfAStartThatEndsWithoutATerminalCloses(t *testing.T) {
+	// Arrange
+	h, server := nativeBoard(t, "direct")
+	h.Service.starts.Lock()
+	h.Service.starting = "task-1"
+	h.Service.starts.Unlock()
+	v := openNativeView(t, server, viewQuery)
+	time.Sleep(3 * launchWatchEvery)
+
+	// Act
+	h.Service.starts.Lock()
+	h.Service.starting = ""
+	h.Service.starts.Unlock()
+
+	// Assert
+	closed := v.waitForClose(t)
+	if closed.Code != websocket.StatusPolicyViolation || closed.Reason != "No terminal is running for this task." {
+		t.Errorf("the view closed with %d %q, want No terminal is running", closed.Code, closed.Reason)
+	}
+}
+
 // A task replaced while its view is open closes the view on the next tick.
 func TestANativeViewClosesWhenItsTaskIsReplaced(t *testing.T) {
 	h, server := nativeBoard(t, "direct")

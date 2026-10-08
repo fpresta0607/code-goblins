@@ -275,6 +275,7 @@ func (s *Service) bringGoblinBack(comeback *Comeback, id string, memory Memory) 
 	delete(s.changing, id)
 	s.starts.Unlock()
 	s.reportComeback(err)
+	s.runAsked()
 }
 
 // reportComeback keeps what a comeback step met for the next recovery cycle,
