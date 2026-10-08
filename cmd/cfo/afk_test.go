@@ -6,14 +6,12 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
-	"slices"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/fpresta0607/code-goblins/internal/afk"
 	"github.com/fpresta0607/code-goblins/internal/home"
-	"github.com/fpresta0607/code-goblins/internal/quota"
 	"github.com/fpresta0607/code-goblins/internal/supervisor"
 )
 
@@ -381,33 +379,6 @@ func TestThePRMergeCommandReadsAFKModeFromTheHome(t *testing.T) {
 			t.Fatalf("exit=%d stderr=%q requests=%d, want the merge refused before GitHub is asked anything", exit, stderr.String(), len(runner.requests))
 		}
 	})
-}
-
-// The report says what was spent from quota-axi's reading of every provider
-// it measured: each window's use and any credit balance. A provider whose
-// numbers quota-axi itself calls stale is no reading.
-func TestAFKAllowanceKeepsEachMeasuredWindowAndCreditBalance(t *testing.T) {
-	// Arrange
-	reset := time.Date(2026, 10, 7, 9, 0, 0, 0, time.UTC)
-	report := quota.Report{Providers: map[string]quota.Provider{
-		"claude": {Name: "claude", Windows: []quota.Window{{ID: "five_hour", Label: "session", PercentUsed: 88, ResetsAt: reset}, {ID: "seven_day", Label: "week", PercentUsed: 1}}},
-		"codex":  {Name: "codex", Windows: []quota.Window{{ID: "weekly", PercentUsed: 40}}, Credits: &quota.Credits{Remaining: 12, Unit: "credits"}},
-		"kimi":   {Name: "kimi", Stale: true, Windows: []quota.Window{{ID: "weekly", Label: "week", PercentUsed: 5}}},
-	}}
-
-	// Act
-	got := afkAllowance(report)
-
-	// Assert
-	want := []afk.Allowance{
-		{Provider: "claude", Window: "session", PercentUsed: 88, ResetsAt: reset},
-		{Provider: "claude", Window: "week", PercentUsed: 1},
-		{Provider: "codex", Window: "weekly", PercentUsed: 40},
-		{Provider: "codex", Window: "credits", Credits: true, Remaining: 12, Unit: "credits"},
-	}
-	if !slices.Equal(got, want) {
-		t.Errorf("afkAllowance = %+v, want %+v", got, want)
-	}
 }
 
 // The registered CFO makes the switch at the Overlord's ask with --asked,

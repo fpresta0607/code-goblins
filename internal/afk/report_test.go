@@ -2,6 +2,8 @@ package afk
 
 import (
 	"bytes"
+	"errors"
+	"reflect"
 	"slices"
 	"strconv"
 	"strings"
@@ -171,22 +173,66 @@ func TestAQuietStretchReportsNothingRatherThanNothingAtAll(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	for _, phrase := range []string{"Merged (0)", "Deployed (0)", "Goblins finished (0)", "Held for you (0)", "no allowance was read"} {
+	for _, phrase := range []string{"Merged (0)", "Deployed (0)", "Goblins finished (0)", "Held for you (0)"} {
 		if !strings.Contains(out.String(), phrase) {
 			t.Errorf("a quiet stretch's report does not say %q:\n%s", phrase, out.String())
 		}
 	}
 }
 
+// Spent says what was used. An allowance at 0% wherever it was read, and a
+// reading that could not be taken, are left out rather than written as
+// nothing or as not read, and a stretch that used nothing has no Spent at all.
+// The stretch is the one the Overlord ended at 01:08 UTC on 2026-10-08, whose
+// reading when it turned off came back empty.
+func TestSpentLeavesOutWhatWasNotUsedAndWhatWasNotRead(t *testing.T) {
+	// Arrange
+	reset := night.Add(5 * 24 * time.Hour)
+	stretch := Report{Session: "afk-1", Since: night, Ended: night.Add(80 * time.Minute), From: "the board", EndedFrom: "the board", Before: []Allowance{
+		{Provider: "claude", Window: "session", PercentUsed: 42, ResetsAt: night.Add(time.Hour)},
+		{Provider: "claude", Window: "week", PercentUsed: 29, ResetsAt: reset},
+		{Provider: "claude", Window: "Fable week", ResetsAt: reset},
+		{Provider: "codex", Window: "week", PercentUsed: 1, ResetsAt: reset},
+		{Provider: "codex", Window: "credits", Credits: true, Remaining: 25849.6, Unit: "credits"},
+	}}
+	unused := Report{Session: "afk-2", Since: night, Ended: night.Add(time.Hour), From: "the board", EndedFrom: "the board",
+		Before: []Allowance{{Provider: "claude", Window: "Fable week", ResetsAt: reset}},
+		After:  []Allowance{{Provider: "claude", Window: "Fable week", ResetsAt: reset}, {Provider: "codex", Window: "credits", Credits: true, Remaining: 12, Unit: "credits"}},
+	}
+	var out, quiet bytes.Buffer
+
+	// Act
+	err := errors.Join(Render(&out, stretch), Render(&quiet, unused))
+
+	// Assert
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(out.String(), "Spent\n- claude session: 42% used when it turned on\n- claude week: 29% used when it turned on\n- codex week: 1% used when it turned on\n") {
+		t.Errorf("Spent does not list the three allowances used, each as it was read:\n%s", out.String())
+	}
+	for _, left := range []string{"not read", "Fable week", "credits"} {
+		if strings.Contains(out.String(), left) {
+			t.Errorf("the report says %q, which was not used or not read:\n%s", left, out.String())
+		}
+	}
+	if strings.Contains(quiet.String(), "Spent") || strings.Contains(quiet.String(), "allowance") {
+		t.Errorf("a stretch that used nothing has a Spent section:\n%s", quiet.String())
+	}
+}
+
 func TestSpendIsReadFromTheTwoAllowanceReadings(t *testing.T) {
 	reset := night.Add(3 * time.Hour)
+	percent := func(value float64) *float64 { return &value }
 	for name, tc := range map[string]struct {
 		before, after []Allowance
-		want          string
+		want          []Used
+		says          string
 	}{
 		"a window that kept running": {
 			[]Allowance{{Provider: "claude", Window: "week", PercentUsed: 40, ResetsAt: reset}},
 			[]Allowance{{Provider: "claude", Window: "week", PercentUsed: 47.5, ResetsAt: reset.Add(300 * time.Millisecond)}},
+			[]Used{{Provider: "claude", Window: "week", On: percent(40), Off: percent(47.5)}},
 			"claude week: 40% used when it turned on, 47.5% when it turned off (7.5 points)",
 		},
 		// quota-axi works a window's reset time out again at every reading, so
@@ -194,39 +240,68 @@ func TestSpendIsReadFromTheTwoAllowanceReadings(t *testing.T) {
 		"a window whose reset time moved by a moment": {
 			[]Allowance{{Provider: "claude", Window: "session", PercentUsed: 54, ResetsAt: reset.Add(100 * time.Millisecond)}},
 			[]Allowance{{Provider: "claude", Window: "session", PercentUsed: 55, ResetsAt: reset.Add(-900 * time.Millisecond)}},
+			[]Used{{Provider: "claude", Window: "session", On: percent(54), Off: percent(55)}},
 			"claude session: 54% used when it turned on, 55% when it turned off (1 point)",
 		},
 		"a window that reset in between": {
 			[]Allowance{{Provider: "claude", Window: "session", PercentUsed: 80, ResetsAt: reset}},
 			[]Allowance{{Provider: "claude", Window: "session", PercentUsed: 12, ResetsAt: reset.Add(5 * time.Hour)}},
-			"claude session: 80% used when it turned on, 12% when it turned off; the window reset in between",
+			[]Used{{Provider: "claude", Window: "session", On: percent(80), Off: percent(12), Reset: true}},
+			"claude session: 80% used when it turned on, 12% when it turned off, after the window reset",
+		},
+		"a window used from nothing": {
+			[]Allowance{{Provider: "claude", Window: "Fable week", ResetsAt: reset}},
+			[]Allowance{{Provider: "claude", Window: "Fable week", PercentUsed: 3, ResetsAt: reset}},
+			[]Used{{Provider: "claude", Window: "Fable week", On: percent(0), Off: percent(3)}},
+			"claude Fable week: 0% used when it turned on, 3% when it turned off (3 points)",
 		},
 		"credits": {
 			[]Allowance{{Provider: "codex", Window: "credits", Credits: true, Remaining: 120, Unit: "credits"}},
 			[]Allowance{{Provider: "codex", Window: "credits", Credits: true, Remaining: 95, Unit: "credits"}},
-			"codex credits: 120 credits left when it turned on, 95 when it turned off (25 spent)",
-		},
-		"unlimited credits": {
-			[]Allowance{{Provider: "codex", Window: "credits", Credits: true, Unlimited: true}},
-			[]Allowance{{Provider: "codex", Window: "credits", Credits: true, Unlimited: true}},
-			"codex credits: unlimited",
+			[]Used{{Provider: "codex", Window: "credits", Credits: true, Spent: 25, Unit: "credits"}},
+			"codex credits: 25 credits spent",
 		},
 		"read only when it turned on": {
 			[]Allowance{{Provider: "claude", Window: "week", PercentUsed: 40, ResetsAt: reset}},
 			nil,
-			"claude week: 40% used when it turned on; not read when it turned off",
+			[]Used{{Provider: "claude", Window: "week", On: percent(40)}},
+			"claude week: 40% used when it turned on",
 		},
 		"read only when it turned off": {
 			nil,
 			[]Allowance{{Provider: "claude", Window: "week", PercentUsed: 47, ResetsAt: reset}},
-			"claude week: not read when it turned on; 47% used when it turned off",
+			[]Used{{Provider: "claude", Window: "week", Off: percent(47)}},
+			"claude week: 47% used when it turned off",
+		},
+		"a window at 0% at both ends": {
+			[]Allowance{{Provider: "claude", Window: "Fable week", ResetsAt: reset}},
+			[]Allowance{{Provider: "claude", Window: "Fable week", PercentUsed: 0.04, ResetsAt: reset}},
+			nil, "",
+		},
+		"unlimited credits": {
+			[]Allowance{{Provider: "codex", Window: "credits", Credits: true, Unlimited: true}},
+			[]Allowance{{Provider: "codex", Window: "credits", Credits: true, Unlimited: true}},
+			nil, "",
+		},
+		"credits that rose": {
+			[]Allowance{{Provider: "codex", Window: "credits", Credits: true, Remaining: 95, Unit: "credits"}},
+			[]Allowance{{Provider: "codex", Window: "credits", Credits: true, Remaining: 120, Unit: "credits"}},
+			nil, "",
+		},
+		"credits read at one end": {
+			[]Allowance{{Provider: "codex", Window: "credits", Credits: true, Remaining: 95, Unit: "credits"}},
+			nil,
+			nil, "",
 		},
 	} {
 		t.Run(name, func(t *testing.T) {
-			lines := Spent(tc.before, tc.after)
+			rows := Spent(tc.before, tc.after)
 
-			if len(lines) != 1 || lines[0] != tc.want {
-				t.Errorf("Spent = %q, want %q", lines, tc.want)
+			if !reflect.DeepEqual(rows, tc.want) {
+				t.Fatalf("Spent = %+v, want %+v", rows, tc.want)
+			}
+			if len(rows) == 1 && rows[0].says() != tc.says {
+				t.Errorf("the row says %q, want %q", rows[0].says(), tc.says)
 			}
 		})
 	}

@@ -16,7 +16,6 @@ import (
 	"sync"
 	"time"
 
-	"github.com/fpresta0607/code-goblins/internal/afk"
 	"github.com/fpresta0607/code-goblins/internal/auth"
 	"github.com/fpresta0607/code-goblins/internal/axi"
 	"github.com/fpresta0607/code-goblins/internal/connections"
@@ -94,11 +93,10 @@ type Options struct {
 	// and tells each to re-source it, as cfo auth store does after it writes,
 	// and returns the tasks it told.
 	RefreshCredentials func(ctx context.Context, project string) ([]string, error)
-	// Allowance reads what quota-axi says of each provider's allowance, or
-	// says why it could not; AFK mode's report sets the reading taken when it
-	// turned on beside the one taken when it turned off.
-	Allowance func(ctx context.Context) ([]afk.Allowance, string)
-	Quota     func(ctx context.Context) (quota.Report, string)
+	// Quota reads quota-axi, on the supervisor's own timers only: AFK mode's
+	// report sets the reading last taken before it turned on beside the one
+	// last taken before it turned off.
+	Quota func(ctx context.Context) (quota.Report, string)
 	// Comeback brings the fleet back after a restart or sign-out; without it
 	// nothing comes back by itself.
 	Comeback *Comeback
@@ -266,6 +264,9 @@ type Service struct {
 	// reads is what the snapshot remembers of the fleet's files.
 	reads                keptReads
 	subscriptionReadings map[string]quota.WeeklyReading
+	// allowance is the last reading quota-axi gave of each provider's
+	// allowance, which AFK mode's switch takes rather than reading its own.
+	allowance map[string]keptAllowance
 }
 
 // snapshotRefresh is how often every board gets a fresh snapshot with nothing
