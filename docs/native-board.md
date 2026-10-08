@@ -300,13 +300,12 @@ The glow breathes, and holds still for a reader who asked for reduced motion.
 While no CFO runs the bar says so and offers Start the CFO instead.
 Its terminal icon and its portrait open the CFO's terminal and hand it the keyboard.
 The mark of the harness the registered CFO runs, the snapshot's `cfo_harness`, sits beside its portrait, and its tip adds the model of the CFO's newest session in that harness.
-While [AFK mode](#afk-mode) is on nothing glows on the bar whatever waits on the Overlord, and its line says since when it is on and who turned it on, the Overlord from his board or his terminal or the CFO at his ask, how many decisions the CFO logged and how many items are held.
-Held for you, a disclosure under the bar's line, lists each held item that still waits on him as the Command Center's inbox draws one: whose it is, what it asks, the choice the CFO recommends for its question, what became of it and its goblin's latest report since, and a button that opens that item in the Command Center.
-It never opens by itself, and shows Nothing is held for you when it is empty.
+While [AFK mode](#afk-mode) is on nothing glows on the bar whatever waits on the Overlord, and its line says since when it is on and who turned it on, the Overlord from his board or his terminal or the CFO at his ask, and how many decisions the CFO logged.
+AFK mode is complete autopilot, so the bar lists nothing held for him: Open Command Center, unlit, with how many wait, is its one way to whatever is there, and it is not there while nothing waits.
 A click or key on the board after five minutes with none, counted from when AFK mode turned on, is taken for the Overlord coming back: the click or key does what he meant, and the board then offers to turn AFK mode off or stay.
 When the CFO turned it on at his ask, his first click or key since the switch brings the same offer at once, titled The CFO turned AFK on, so a switch made on his words meets him before anything else; his next waits five minutes as usual.
 The offer says who turned it on, with his words when the CFO did at his ask, and takes the focus itself, so keys he was typing press neither button, and Escape stays.
-When AFK mode turns off while the page is open, the report of the stretch opens as one page over the board, read from `GET /api/afk/report`: who turned it on and off, how many of each thing there is, what was held with what was recommended for it and what became of it as it stands now, which he reads first, then each heading that holds something with its rows, each row linking to what it names when that is an https link and folding its evidence to two lines with Show more, then what each goblin finished and what was spent.
+When AFK mode turns off while the page is open, the report of the stretch opens as one page over the board, read from `GET /api/afk/report`: who turned it on and off, how many of each thing there is, what waited on him, when something did, with what was recommended for it and what became of it as it stands now, which he reads first, then each heading that holds something with its rows, Left for you first, each row linking to what it names when that is an https link and folding its evidence to two lines with Show more, then what each goblin finished and what was spent.
 His own off from the board's toggle or offer shows the report as soon as the supervisor answers, since the supervisor keeps the report before it answers, and the snapshot after it brings no second one.
 Spent draws each allowance used as its provider's mark, its name and a small bar of the percent used, with a red arrow where it stood when AFK turned off and a hollow red arrow where it stood when it turned on, the stretch used between them red on the bar, and credits as what was spent of them.
 With nothing used there is no Spent.
@@ -1239,7 +1238,7 @@ It also fills a plain sign-in form with values it makes up, which a browser does
 
 ## AFK mode
 
-AFK mode is the Overlord's switch for running the fleet while he is away: the CFO decides what his authority covers and logs each decision, what stays his alone is held for him, and nothing on the board prompts him.
+AFK mode is the Overlord's switch for running the fleet while he is away: the CFO decides everything his authority covers and logs each decision, nothing is asked of him or held for him, what only he can do gets a backlog row and is listed in his report, and nothing on the board prompts him.
 `AGENTS.md` holds its terms; this is how the supervisor keeps them.
 
 The supervisor is the only writer of AFK mode's three files in `state/`:
@@ -1247,7 +1246,7 @@ The supervisor is the only writer of AFK mode's three files in `state/`:
 | File | What it holds |
 | --- | --- |
 | `afk.json` | The switch: whether it is on, the stretch it names (`session`), since when and from where, the allowance read then, and after it turned off, when and from where. A switch the CFO made at his ask names the CFO there and keeps his words (`asked`, `ended_asked`). |
-| `afk.audit` | One JSON line for each switch, each decision the CFO logged with its evidence, and each item held for him. Every line carries its stretch, and a switch the CFO made at his ask carries his words as its evidence. |
+| `afk.audit` | One JSON line for each switch, each decision the CFO logged with its evidence, what it left for him among them, and each item that waited on him in the Command Center. Every line carries its stretch, and a switch the CFO made at his ask carries his words as its evidence. |
 | `afk-report.json` | The report of the last stretch that ended. |
 
 `cfo afk on` and `cfo afk off` send `afk-on` or `afk-off` over the supervisor's pipe, the one a run item travels over, and need `cfo serve` running.
@@ -1293,10 +1292,11 @@ The log's file and each held goblin's status log are read for a snapshot only wh
 `GET /api/afk/report` is that report as the board's page reads it: `{"found": false}` while no stretch has ended, and otherwise who turned it on and off (`from` and `ended_from`, with his words in `asked` and `ended_asked` for a switch the CFO made), its decisions under the headings `cfo afk report` prints, what each goblin finished, what was held with what became of each item as it stands now, how long it lasted and what was spent, with every list present.
 `spent` holds each allowance used: `provider` and `window`, the percent used when it turned on and when it turned off as `on` and `off`, each absent for a reading not taken, and `reset` when the window reset in between, or for a credit balance `credits` with what was `spent` of it in `unit`.
 A window at 0% wherever it was read is left out, and so is a credit balance not read at both ends or that did not fall, in the page and in the text alike.
-The page and the text list what is held for him first, then what the CFO decided.
+The page and the text list what waited on him first, then what the CFO left for him under Left for you, then the rest it decided.
 
 `cfo afk log`, `cfo pr merge` and `cfo answer` send a decision as `afk-log`, which the supervisor writes only for a process it proves runs under the registered CFO, the proof a question takes, and only while AFK mode is on.
-A decision names its kind (`merge`, `deploy`, `migration`, `install`, `answer` or `other`), what was decided and the evidence it stands on; one without evidence is refused.
+A decision names its kind (`left`, `merge`, `deploy`, `migration`, `install`, `answer` or `other`), what was decided and the evidence it stands on; one without evidence is refused.
+A `left` line is what only he can do, which the CFO gave a backlog row and worked around, with why it is his as its evidence.
 A merge word is logged before the merge and its outcome after it, as a second line for the same pull request, so the report never shows a merge word as a merge.
 Its evidence names the base tip `cfo pr merge` read a moment before merging; `gh pr merge --match-head-commit` holds only the head, so a commit that lands on the base between that reading and the merge is not seen.
 Where the base requires a merge queue the word adds the pull request to the queue instead, and its evidence says the queue tests the merge on the base's tip; its outcome is that the pull request joined the queue, not that it merged.
@@ -1307,9 +1307,9 @@ What a page asked about then stays recorded, so it is not announced once he is b
 The page holds the same line by itself: while its snapshot says AFK mode is on, a claim it could not ask for hands its alerts and its Command Center nothing, where with AFK mode off it falls back on what the browser remembers.
 A page that was not looking while he was away, such as a tab the browser put to sleep, asks about what it missed when it wakes, and gets it if AFK mode is off by then: he is back, and those items wait on him.
 [The desktop window](#the-desktop-window) is silenced the same way: what its own reading of `/api/snapshot` finds it claims here before it notifies, as the page does, and it is handed nothing.
-Each cycle the supervisor records every item that waits on the Overlord as held, once in a stretch: a pending question the CFO asked him, with the choice it recommended, an open review item or wait, a run item nobody ran, and an open credential request.
+Each cycle the supervisor records every item that waits on the Overlord as held, once in a stretch: a pending question the CFO asked him before it turned on, with the choice it recommended, an open review item or wait, a run item nobody ran, and an open credential request.
 A goblin's question waits on the CFO, which answers it, as the Command Center has it (`forOverlord`), so it is never held for him.
-What only he can decide is held for him rather than asked: the CFO publishes it as a `cfo question` with `--recommend`, which the command refuses without one while AFK mode is on and the question offers choices, or as a run item with the exact command.
+What only he can do is neither asked nor held: `cfo question` refuses while AFK mode is on, and the CFO gives it a backlog row and logs it with `cfo afk log --kind left` instead.
 A run item the board made itself, for a credential card's terminal or a connection's repair, is not held: it is ready only for the moment after his own click.
 While it is on, a memory reading under the floor counts toward the memory floor: after two in a row with free memory or commit under 4 GB, and with no start or other change under way, the supervisor pauses the newest live native goblin, by when its terminal host started, that is not pausing, paused or failed at the memory floor before, and has no git push, merge, pull, rebase, cherry-pick or am, or `gh pr merge`, running under its host.
 It sends the `memory` pause through the same `cfo pause` the allowance floor sends, so the lifecycle keeps its handoff and the scheduler resumes it after two readings at 5 GB; a change under way, the pause included, starts the count again, so one goblin is paused at a time.
