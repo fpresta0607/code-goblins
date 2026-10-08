@@ -543,7 +543,7 @@ test("a waiting goblin says what it waits on, and only a wait on the Overlord re
 test("a goblin's command the goblin moved past reads withdrawn, without naming the CFO", () => {
   // Arrange
   const snapshot = parseSnapshot({ healthy: true, runs: [
-    { id: "run-billing-7", task: "billing", interactive: true, state: "withdrawn", reason: "billing reported again: working: pushing without it" },
+    { id: "run-billing-7", task: "billing", state: "withdrawn", reason: "billing reported again: working: pushing without it" },
     { id: "install-main", state: "withdrawn", reason: "the candidate binary is gone" },
   ] });
 
@@ -552,24 +552,32 @@ test("a goblin's command the goblin moved past reads withdrawn, without naming t
 
   // Assert
   assert.deepEqual(labels, ["Withdrawn", "Withdrawn by the CFO"]);
-  assert.deepEqual((snapshot.runs ?? []).map((run) => [run.task, run.interactive]), [["billing", true], ["", false]]);
+  assert.deepEqual((snapshot.runs ?? []).map((run) => [run.task, run.terminal]), [["billing", false], ["", false]]);
 });
 
-test("a run item states its progress in plain words with its exit code", () => {
+// The Overlord, 2026-10-08: "instead of finished exit zero, just have the
+// same complete notification ... it's not really user friendly". A command
+// that ends cleanly is Complete, and a failure is a plain sentence: the last
+// line the command printed, or why it never finished.
+test("a run item states its progress in plain words, never its exit code", () => {
   const snapshot = parseSnapshot({ healthy: true, runs: [
-    { id: "a", identity: "cfo-1", title: "Rebuild the index", shell: "pwsh", admin: false, command: "Get-Date", cwd: "C:\\work", state: "ready" },
+    { id: "a", identity: "cfo-1", title: "Rebuild the index", shell: "pwsh", admin: false, command: "Get-Date", cwd: "C:\\work", state: "ready", terminal: true },
     { id: "b", state: "running" },
-    { id: "c", state: "succeeded", exit_code: 0 },
-    { id: "d", state: "failed", exit_code: 2, reason: "The command exited with 2." },
-    { id: "e", state: "failed", reason: "Windows asked to confirm and it was declined." },
+    { id: "c", state: "succeeded", exit_code: 0, output: "Published v0.5.2\n" },
+    { id: "d", state: "failed", exit_code: 2, output: "Uploading assets\r\ngh: release v0.5.2 already exists\r\n\r\n" },
+    { id: "e", state: "failed", reason: "Windows did not start it elevated: The operation was canceled by the user." },
     { id: "f", state: "expired", reason: "It waited more than 24 hours." },
     { id: "g", state: "withdrawn", reason: "the candidate binary is gone" },
+    { id: "h", state: "failed", exit_code: 1, output: "" },
+    { id: "i", state: "stopped", reason: "the Overlord stopped it" },
   ] });
   const runs = snapshot.runs ?? [];
   assert.equal(runs[0].command, "Get-Date");
   assert.equal(runs[0].exit_code, null);
-  const cases: [string, string, boolean][] = [["Ready to run", "play", false], ["Running", "clock", false], ["Finished · exit 0", "check", false],
-    ["Failed · exit 2", "warning", true], ["Failed", "warning", true], ["Expired", "close", false], ["Withdrawn by the CFO", "close", false]];
+  assert.equal(runs[0].terminal, true);
+  const cases: [string, string, boolean][] = [["Ready to run", "play", false], ["Running", "clock", false], ["Complete", "check", false],
+    ["Failed: gh: release v0.5.2 already exists", "warning", true], ["Failed: Windows did not start it elevated: The operation was canceled by the user.", "warning", true],
+    ["Expired", "close", false], ["Withdrawn by the CFO", "close", false], ["Failed: it exited with code 1", "warning", true], ["Stopped", "stop-circle", false]];
   cases.forEach(([label, icon, trouble], index) => assert.deepEqual(runMark(runs[index]), { icon, label, trouble }, runs[index].id));
 });
 

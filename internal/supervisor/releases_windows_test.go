@@ -248,7 +248,7 @@ func TestPressingUpdateGrantsItsCommandOnceAndRunsItHidden(t *testing.T) {
 
 	// Assert
 	launches := launcher.all()
-	if len(launches) != 1 || !launches[0].Hidden || launches[0].Admin || launches[0].Interactive {
+	if len(launches) != 1 || !launches[0].Hidden || launches[0].Admin {
 		t.Fatalf("Update launched %+v, want one hidden run", launches)
 	}
 	if err := TakeUpdateGrant(s.Store.Home.State, item.ID, "v0.5.0"); err != nil {

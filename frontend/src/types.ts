@@ -432,9 +432,9 @@ export interface Run {
   // credential_request names the credential request whose card opened this
   // terminal, and credential_names the names it stores.
   credential_request: string; credential_names: string[];
-  // task is the goblin whose own command this is, empty for the CFO's. An
-  // interactive item runs in its own window, which keeps its output.
-  task: string; interactive: boolean;
+  // task is the goblin whose own command this is, empty for the CFO's;
+  // terminal is whether the item's terminal runs, which its card draws.
+  task: string; terminal: boolean;
   // update is the release an Update Code Goblins item installs, which the
   // board shows as its own card; null on every other item.
   update: ReleaseOffer | null;
@@ -663,7 +663,7 @@ function itemLists(v: Record<string, unknown>) {
         output: string(r.output), reason: string(r.reason), created_at: string(r.created_at), expires_at: string(r.expires_at), ran_at: string(r.ran_at), finished_at: string(r.finished_at),
         connection_task: string(r.connection_task), connection_generation: string(r.connection_generation),
         credential_request: string(r.credential_request), credential_names: strings(r.credential_names),
-        task: string(r.task), interactive: r.interactive === undefined ? false : boolean(r.interactive),
+        task: string(r.task), terminal: r.terminal === undefined ? false : boolean(r.terminal),
         update: r.update == null ? null : (({ from, to, page, published, notes, signing, publisher, sum }) => ({ from: string(from), to: string(to), page: string(page), published: string(published),
           notes: strings(notes), signing: string(signing), publisher: string(publisher), sum: string(sum) }))(object(r.update)) };
     }),

@@ -736,10 +736,11 @@ type credentialTerminalInput struct {
 	Replace    []string `json:"replace"`
 }
 
-// openCredentialTerminal opens a visible terminal on this PC that stores the
-// values a request still needs with cfo auth store, which reads each one
-// without showing it, so a value never passes through the board. It takes the
-// save's checks, from this machine only.
+// openCredentialTerminal opens a terminal on the request's card that stores
+// the values a request still needs with cfo auth store, which reads each one
+// without showing it, so no value is kept on the board. It takes the save's
+// checks, from this machine only, and its terminal shows only on the board's
+// own page on this PC.
 func (h *HTTP) openCredentialTerminal(w http.ResponseWriter, r *http.Request) {
 	if problem := loopbackProblem(r, h.Host); problem != "" {
 		apiError(w, http.StatusForbidden, problem)

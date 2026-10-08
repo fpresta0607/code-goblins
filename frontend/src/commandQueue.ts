@@ -294,7 +294,12 @@ export function settledLabel(item: Item, actions: Action[]): string {
   if (item.kind === "credential") return credentialSettled(item.request);
   const advice = (answer: string) => actions.find((action) => action.id === answer)?.advice || "";
   if (item.kind === "question") return questionOutcome(item.question) === "uncertain" && advice(item.question.answer_id) || answeredLabel(item.question);
-  if (item.kind === "run") return (item.run.update ? updateOutcome(item.run).label + " " + item.run.update.to : runMark(item.run).label) + (item.run.reason ? ": " + item.run.reason : "");
+  // A command's exit code is kept here, beside how it ended; one he stopped
+  // needs no reason, which speaks of him to the CFO.
+  if (item.kind === "run") {
+    const label = item.run.update ? updateOutcome(item.run).label + " " + item.run.update.to : runMark(item.run).label + (item.run.exit_code === null ? "" : " · exit " + item.run.exit_code);
+    return label + (item.run.reason && item.run.state !== "stopped" && !label.includes(item.run.reason) ? ": " + item.run.reason : "");
+  }
   const { state, answer, reason, task } = item.review;
   const asker = task ? "the goblin" : "the CFO";
   if (state === "withdrawn") return "Withdrawn: " + reason;

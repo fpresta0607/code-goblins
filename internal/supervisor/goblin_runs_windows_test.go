@@ -4,10 +4,8 @@ import (
 	"context"
 	"encoding/json"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strings"
-	"syscall"
 	"testing"
 	"time"
 
@@ -17,7 +15,7 @@ import (
 // The Overlord, 2026-10-02, on a goblin's waiting card whose command sat in a
 // paragraph: "run in powershell button". A goblin's wait or question can carry
 // a command he runs with one click, shown as the run card the CFO's own
-// requests use, named for the goblin, in a window that stays usable.
+// requests use, named for the goblin, in a terminal on its card.
 
 // waitWithACommand makes the fixture's goblin wait on the Overlord with a
 // command for him to run, as cfo notify --run does, and returns the goblin,
@@ -54,8 +52,8 @@ func TestAGoblinsCommandBecomesARunCardNamedForIt(t *testing.T) {
 	if r.ID != "run-task-1-7" || r.Task != meta.ID || r.Identity != goblinIdentity(meta) || r.Title != "Sign in to GitHub so I can push" {
 		t.Errorf("run = %s for %q as %q titled %q, want the goblin's own item", r.ID, r.Task, r.Identity, r.Title)
 	}
-	if r.State != "ready" || !r.Interactive || r.Admin || r.Shell != "powershell" || r.Cwd != meta.Worktree {
-		t.Errorf("run = %s interactive=%t admin=%t in %s at %s, want a ready command for a usable window in the goblin's worktree", r.State, r.Interactive, r.Admin, r.Shell, r.Cwd)
+	if r.State != "ready" || r.Admin || r.Shell != "powershell" || r.Cwd != meta.Worktree {
+		t.Errorf("run = %s admin=%t in %s at %s, want a ready command in the goblin's worktree", r.State, r.Admin, r.Shell, r.Cwd)
 	}
 	if readErr != nil || !strings.HasSuffix(string(script), "gh auth login\n") || runDigest(script) != r.ScriptSum {
 		t.Errorf("script = %q (%v), want the goblin's command as the file Run executes", script, readErr)
@@ -82,7 +80,7 @@ func TestARunFromTheInboxIsRefusedUnlessItIsALiveGoblinsOwn(t *testing.T) {
 			store, h := testStore(t)
 			meta, _, _, _ := goblinFixture(t, store)
 			now := time.Now().UTC()
-			r := Run{ID: "run-task-1-7", Identity: goblinIdentity(meta), Task: meta.ID, Title: "Sign in", Shell: "powershell", Command: "gh auth login\n", Cwd: meta.Worktree, Interactive: true, State: "ready", CreatedAt: now, ExpiresAt: now.Add(runLifetime)}
+			r := Run{ID: "run-task-1-7", Identity: goblinIdentity(meta), Task: meta.ID, Title: "Sign in", Shell: "powershell", Command: "gh auth login\n", Cwd: meta.Worktree, State: "ready", CreatedAt: now, ExpiresAt: now.Add(runLifetime)}
 			c.change(&r)
 			data, err := json.Marshal(r)
 			if err != nil {
@@ -150,9 +148,9 @@ func TestAGoblinsUnrunCommandIsWithdrawnOnceItReportsAgain(t *testing.T) {
 	}
 }
 
-// One click opens a window he can use, a sign-in or cfo attach included, and
-// the goblin, not the CFO, hears how its command went.
-func TestAGoblinsCommandRunsInAUsableWindowAndTheGoblinIsTold(t *testing.T) {
+// One click runs it in the goblin's worktree, never elevated, and the goblin,
+// not the CFO, hears how its command went.
+func TestAGoblinsCommandRunsAndTheGoblinIsTold(t *testing.T) {
 	// Arrange
 	store, _ := testStore(t)
 	_, goblin, connection, r := waitWithACommand(t, store, "gh auth login\n")
@@ -172,94 +170,13 @@ func TestAGoblinsCommandRunsInAUsableWindowAndTheGoblinIsTold(t *testing.T) {
 	if finished != nil {
 		t.Fatal(finished)
 	}
-	if len(launches) != 1 || !launches[0].Interactive || launches[0].Admin || launches[0].Shell != "powershell" || launches[0].Cwd != r.Cwd {
-		t.Fatalf("launches = %+v, want one usable window in the goblin's worktree", launches)
+	if len(launches) != 1 || launches[0].Admin || launches[0].Shell != "powershell" || launches[0].Cwd != r.Cwd {
+		t.Fatalf("launches = %+v, want one terminal in the goblin's worktree", launches)
 	}
 	if after.State != "succeeded" || after.ExitCode == nil || *after.ExitCode != 0 {
 		t.Errorf("run = %s exit %v, want it finished with exit code 0", after.State, after.ExitCode)
 	}
 	if told := goblin.lines(t); len(told) != 1 || !strings.Contains(told[0], "The Overlord ran your command") || !strings.Contains(told[0], "exit code 0") {
 		t.Errorf("the goblin got %q, want one message that he ran its command and how it ended", told)
-	}
-}
-
-// The window an interactive item opens runs its script in the console itself:
-// nothing is captured to a log, its exit code is written when it ends, and the
-// shell stays for him to use until he closes it.
-func TestAnInteractiveRunnerLeavesTheConsoleToTheCommandAndStaysOpen(t *testing.T) {
-	exists := func(path string) bool {
-		info, err := os.Stat(path)
-		return err == nil && !info.IsDir()
-	}
-	shell, err := runShellPath("powershell", exec.LookPath, exists, os.Getenv("SystemRoot"))
-	if err != nil {
-		t.Skip(err)
-	}
-	// Arrange
-	dir := t.TempDir()
-	script := filepath.Join(dir, "command.ps1")
-	if err := os.WriteFile(script, []byte("\xef\xbb\xbfWrite-Output 'signed in'\r\nexit 7\r\n"), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	runner, args := runnerScript(RunLaunch{Shell: "powershell", Script: script, Dir: dir, Cwd: dir, Interactive: true}, shell)
-	if err := os.WriteFile(args[len(args)-1], runner, 0o600); err != nil {
-		t.Fatal(err)
-	}
-	cmd := exec.Command(shell, args...)
-	cmd.SysProcAttr = &syscall.SysProcAttr{CreationFlags: createNoWindow}
-	stdin, err := cmd.StdinPipe()
-	if err != nil {
-		t.Fatal(err)
-	}
-	var printed strings.Builder
-	cmd.Stdout = &printed
-	if err := cmd.Start(); err != nil {
-		t.Fatal(err)
-	}
-	exited := make(chan error, 1)
-	go func() { exited <- cmd.Wait() }()
-	t.Cleanup(func() {
-		_ = stdin.Close()
-		_ = cmd.Process.Kill()
-	})
-
-	// Act: the command ends, and the shell is then asked to leave.
-	var code []byte
-	deadline := time.Now().Add(60 * time.Second)
-	for time.Now().Before(deadline) {
-		if code, err = os.ReadFile(filepath.Join(dir, "exit.txt")); err == nil {
-			break
-		}
-		time.Sleep(100 * time.Millisecond)
-	}
-	stillOpen := true
-	select {
-	case <-exited:
-		stillOpen = false
-	case <-time.After(1500 * time.Millisecond):
-	}
-	_ = stdin.Close()
-	var left bool
-	select {
-	case <-exited:
-		left = true
-	case <-time.After(30 * time.Second):
-	}
-
-	// Assert
-	if string(code) != "7" {
-		t.Errorf("exit.txt = %q (%v), want the command's exit code 7", code, err)
-	}
-	if !stillOpen {
-		t.Errorf("the shell left when the command ended, want it open for him")
-	}
-	if !left {
-		t.Errorf("the shell stayed after its input closed")
-	}
-	if _, err := os.Stat(filepath.Join(dir, "output.log")); !os.IsNotExist(err) {
-		t.Errorf("output.log exists (%v), want nothing captured from a window he uses himself", err)
-	}
-	if out := printed.String(); !strings.Contains(out, "signed in") || !strings.Contains(out, "exit code 7") || !strings.Contains(out, "stays open") {
-		t.Errorf("the window showed %q, want the command's output, its exit code and that the window stays open", out)
 	}
 }
