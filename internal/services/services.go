@@ -162,6 +162,7 @@ func (s Service) tryUp(ctx context.Context, checkout string, manifest Manifest, 
 		if err := WriteRecord(s.StateDir, record); err != nil {
 			return "", "", err
 		}
+		fmt.Fprintln(s.Out, "cfo services: starting the Docker engine")
 		if err := s.Docker.StartEngine(ctx); err != nil {
 			if running, readErr := s.Docker.EngineRunning(ctx); readErr == nil && !running {
 				record.Engine = Engine{}
@@ -193,6 +194,7 @@ func (s Service) tryUp(ctx context.Context, checkout string, manifest Manifest, 
 	if err := WriteRecord(s.StateDir, record); err != nil {
 		return "", "", err
 	}
+	fmt.Fprintf(s.Out, "cfo services: starting %s's %s and what they depend on, which builds any image they lack first and can take many minutes\n", project, strings.Join(manifest.Services, ", "))
 	if err := s.Docker.Up(ctx, compose, manifest.Services); err != nil {
 		upErr := fmt.Errorf("services: start %s's services: %w", project, err)
 		if !stack.Owned {

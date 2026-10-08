@@ -697,3 +697,17 @@ func TestDownForATaskThatHoldsNothingChangesNothing(t *testing.T) {
 		t.Fatalf("line = %q calls = %v, want nothing released", line, h.docker.calls)
 	}
 }
+
+// A start says what it does before each step that can take minutes, so a
+// goblin waiting on it sees progress rather than silence.
+func TestUpSaysWhatItStartsBeforeEachSlowStep(t *testing.T) {
+	h := newHarness(t)
+
+	h.up(t, "task-a")
+
+	want := "cfo services: starting the Docker engine\n" +
+		"cfo services: starting PrecisionDocs-AI's backend, worker-light and what they depend on, which builds any image they lack first and can take many minutes\n"
+	if got := h.out.String(); got != want {
+		t.Errorf("progress = %q, want %q", got, want)
+	}
+}
