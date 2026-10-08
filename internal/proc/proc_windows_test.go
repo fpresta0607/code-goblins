@@ -4,6 +4,7 @@ import (
 	"os"
 	"os/exec"
 	"runtime"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -61,6 +62,40 @@ func TestAncestryOfChildProcessSeesUs(t *testing.T) {
 	}
 	if !found {
 		t.Errorf("test process missing from child ancestry: %+v", entries)
+	}
+}
+
+// Processes gives each process the start Identify proves it by, so an entry
+// can go straight to Identify. Left zero, every process was refused.
+func TestProcessesGivesEachProcessTheStartIdentifyProvesItBy(t *testing.T) {
+	// Arrange
+	child := exec.Command("cmd", "/c", "ping -n 3 127.0.0.1 >NUL")
+	if err := child.Start(); err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = child.Process.Kill(); _, _ = child.Process.Wait() }()
+	created, ok := StartTime(child.Process.Pid)
+	if !ok {
+		t.Fatal("premise: the child's start time cannot be read")
+	}
+
+	// Act
+	processes, err := Processes()
+
+	// Assert
+	if err != nil {
+		t.Fatal(err)
+	}
+	at := slices.IndexFunc(processes, func(entry Entry) bool { return entry.PID == child.Process.Pid })
+	if at < 0 {
+		t.Fatalf("the child, pid %d, is not listed", child.Process.Pid)
+	}
+	listed := processes[at]
+	if listed.ParentPID != os.Getpid() || !strings.EqualFold(listed.ExeBase, "cmd.exe") || !listed.Start.Equal(created) {
+		t.Fatalf("child = %+v, want parent %d, cmd.exe and start %s", listed, os.Getpid(), created)
+	}
+	if _, err := Identify(listed.PID, listed.Start); err != nil {
+		t.Fatalf("Identify refuses the listed child: %v", err)
 	}
 }
 
