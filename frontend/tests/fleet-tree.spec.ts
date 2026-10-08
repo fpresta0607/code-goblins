@@ -66,7 +66,11 @@ test("the goblin panel lists what is working with state, time and memory, a sile
   await expect(page.getByRole("list", { name: "Finished" })).toBeHidden();
   await page.getByText("2 finished").click();
   await expect(page.getByRole("list", { name: "Finished" }).locator(".working-row")).toHaveCount(2);
-  await expect(page.locator(".working-freshness")).toContainText("The goblin itself holds 1.0 GB.");
+  // No line says how fresh the reading is (the Overlord, 2026-10-08: "i dont
+  // need descriptive text everywhere like this"), and the goblin's own memory
+  // is in the total's tip.
+  await expect(page.locator(".working-freshness")).toHaveCount(0);
+  await expect(page.getByText(/ in all$/)).toHaveAttribute("data-tip", "The goblin itself holds 1.0 GB");
 });
 
 // The Overlord, 2026-10-07, on the yellow "Silent 6h 41m: ..." banner a

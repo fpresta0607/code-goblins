@@ -1,4 +1,4 @@
-import { useState, type ReactNode } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import type { Review, Snapshot } from "./types";
 import { deliveryMark } from "./feedback";
 import { Avatar } from "./Avatar";
@@ -9,6 +9,7 @@ import { personaFor } from "./workflow";
 import { inlineElements, leadAndRest, messageElements } from "./messageText";
 import { copyValues } from "./CopyValue";
 import type { Draft } from "./QuestionCard";
+import { ClickFeedback, useClickFeedback } from "./click-feedback";
 
 export const reviewImages = (review: Review) => Array.from({ length: review.image_count }, (_, n) => "/api/reviews/" + encodeURIComponent(review.id) + "/images/" + n);
 
@@ -24,6 +25,8 @@ export function ReviewCard({ review, snapshot, connected, draft, onDraft, onSend
   review: Review; snapshot: Snapshot; connected: boolean; draft: Draft;
   onDraft: (changes: Partial<Draft>) => void; onSend: () => void; onClear: () => void; onOpen: (key: string) => void; onImage: (index: number) => void; pager?: ReactNode;
 }) {
+  const [feedback, showFeedback] = useClickFeedback();
+  useEffect(() => { if (draft.error) showFeedback(draft.error); }, [draft.error, showFeedback]);
   const [missing, setMissing] = useState<Set<string>>(new Set());
   const outcome = draft.submission ? snapshot.actions.find((action) => action.id === draft.submission?.id) || draft.receipt : undefined;
   const pending = review.state === "open" && !outcome;
@@ -64,10 +67,10 @@ export function ReviewCard({ review, snapshot, connected, draft, onDraft, onSend
       </button>)}
     </div>}
     {answersHere && <label className="written-answer"><span className="sr-only">Your answer</span><textarea rows={3} maxLength={4000} placeholder={"Tell " + (review.task ? asker : "the CFO") + " what you think..."} value={draft.written} disabled={draft.sending} onChange={(event) => onDraft({ written: event.target.value, error: "", receipt: undefined })} /></label>}
-    {draft.error && !outcome && review.state === "open" && <p className="warning-text" role="alert">{draft.error} An unchanged retry keeps its request identity.</p>}
     {review.state !== "open" ? <p className={"question-outcome delivery " + settled.tone} role="status"><Icon name={settled.icon} />{settledLabel(item, snapshot.actions)}</p>
       : mark && <p className={"question-outcome delivery " + outcome?.status} role="status"><Icon name={mark.icon} />{mark.label}</p>}
     <div className="card-actions">
+      <ClickFeedback text={feedback} />
       {pager}
       {pending && !status && <button type="button" className="icon-button raised" disabled={!connected || draft.sending} aria-label="Clear this item without answering" data-tip="Clear" onClick={onClear}><Icon name="close" /></button>}
       {pending && status && <button type="button" className={target ? "status-dismiss" : "primary status-dismiss"} disabled={!connected || draft.sending} onClick={onClear}><Icon name="check" />Dismiss</button>}

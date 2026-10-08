@@ -1,5 +1,4 @@
 import type { FleetTree, TreeNode } from "./types";
-import { age } from "./presentation";
 import { BabyGoblin } from "./BabyGoblin";
 import { Chevron } from "./Chevron";
 import { babyFor, finished, forHowLong, formatMemory, isDimmed, phaseOf, running, stateWord, summarize } from "./fleet-tree";
@@ -23,8 +22,10 @@ function WorkingRow({ node, now }: { node: TreeNode; now: number }) {
 }
 
 // What's working in a goblin's panel: counts and states first, then one row
-// for each child still running, the finished ones folded away, and when the
-// supervisor read it all.
+// for each child still running and the finished ones folded away. How much
+// the goblin itself holds is in the total's tip: the Overlord, 2026-10-08, on
+// a line saying when and how this was read, "i dont need descriptive text
+// everywhere like this".
 export function WhatsWorking({ tree, now }: { tree: FleetTree; now: number }) {
   const summary = summarize(tree), active = running(tree), ended = finished(tree);
   return <div className="whats-working">
@@ -33,14 +34,12 @@ export function WhatsWorking({ tree, now }: { tree: FleetTree; now: number }) {
       {summary.silent > 0 && <span className="plain-status phase-silent"><span className="status-dot" />{summary.silent} silent</span>}
       {summary.idle > 0 && <span className="plain-status phase-idle"><span className="status-dot" />{summary.idle} idle</span>}
       {active.length === 0 && <span className="muted">Nothing running now</span>}
-      {tree.memory > 0 && <span>{formatMemory(tree.memory)} in all</span>}
+      {tree.memory > 0 && <span {...tree.own_memory > 0 ? { "data-tip": "The goblin itself holds " + formatMemory(tree.own_memory) } : {}}>{formatMemory(tree.memory)} in all</span>}
     </p>
     {active.length > 0 && <ul className="working-list" aria-label="Running">{active.map((node) => <WorkingRow key={node.id} node={node} now={now} />)}</ul>}
     {ended.length > 0 && <details className="working-finished">
       <summary><Chevron collapsed />{ended.length} finished</summary>
       <ul className="working-list" aria-label="Finished">{ended.map((node) => <WorkingRow key={node.id} node={node} now={now} />)}</ul>
     </details>}
-    <p className="working-freshness">Read {age(tree.fetched_at)} from the goblin's records and processes.{tree.own_memory > 0 && ` The goblin itself holds ${formatMemory(tree.own_memory)}.`}</p>
-    {tree.unread.length > 0 && <p className="working-unread">Not read: {tree.unread.join(". ")}</p>}
   </div>;
 }

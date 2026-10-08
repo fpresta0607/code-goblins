@@ -1,32 +1,32 @@
 import { useState } from "react";
 import { message, request } from "./api";
+import { useClickFeedback } from "./click-feedback";
 
 export interface AfkSwitch {
   pending: boolean;
-  // problem is the supervisor's refusal, in its words, until the next try.
+  // problem is what his press met, for a moment.
   problem: string;
   turn: (on: boolean) => Promise<boolean>;
-  clear: () => void;
 }
 
 // useAfkSwitch asks the supervisor to turn AFK mode on or off from this board.
-// Whether the request is the Overlord's own is the supervisor's to prove, so a
-// refusal comes back as problem and nothing here decides it.
+// Whether the request is the Overlord's own is the supervisor's to prove, so
+// nothing here decides it, and a refusal comes back as problem for a moment.
 export function useAfkSwitch(instance: string): AfkSwitch {
   const [pending, setPending] = useState(false);
-  const [problem, setProblem] = useState("");
+  const [problem, showProblem] = useClickFeedback();
   const turn = async (on: boolean): Promise<boolean> => {
     setPending(true);
-    setProblem("");
+    showProblem("");
     try {
       await request("/api/afk", undefined, { method: "POST", headers: { "Content-Type": "application/json", "X-CFO-Token": instance }, body: JSON.stringify({ on }) });
       return true;
     } catch (error: unknown) {
-      setProblem(message(error));
+      showProblem(message(error));
       return false;
     } finally {
       setPending(false);
     }
   };
-  return { pending, problem, turn, clear: () => setProblem("") };
+  return { pending, problem, turn };
 }

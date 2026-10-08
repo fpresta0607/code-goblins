@@ -385,18 +385,18 @@ test("the browser's speech recognition is used only once he turns it on, and the
   expect(posts).toHaveLength(1);
 });
 
-test("an error note under the open list never covers it", async ({ page }) => {
+test("a note under the open list never covers it", async ({ page }) => {
   const { bubble, pane } = await openPane(page);
   await bubble.click();
   const recent = page.getByRole("dialog", { name: "Recent messages" });
   await expect(recent).toBeVisible();
   await pane.evaluate((section) => {
     const note = document.createElement("p");
-    note.className = "terminal-error";
+    note.className = "terminal-note";
     note.textContent = "The microphone is blocked.";
     section.append(note);
   });
-  const note = await pane.locator(".terminal-error").boundingBox(), card = await recent.boundingBox();
+  const note = await pane.locator(".terminal-note").boundingBox(), card = await recent.boundingBox();
   expect(note && card && note.y < card.y + card.height).toBe(true);
   const covered = await page.evaluate(({ x, y }) => !document.elementFromPoint(x, y)?.closest(".voice-recent"), { x: card!.x + card!.width / 2, y: note!.y + note!.height / 2 });
   expect(covered).toBe(false);

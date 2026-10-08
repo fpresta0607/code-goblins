@@ -28,7 +28,7 @@ test("a closed CFO is said to be closed in plain words, with Reopen as its one a
   const reopen = page.getByRole("button", { name: "Reopen the CFO" });
 
   // Assert: plain words, one action, and nothing about a pid or a command.
-  await expect(bar).toContainText("The CFO is closed. Goblins keep running.");
+  await expect(bar.locator("p")).toHaveText("The CFO is closed.");
   await expect(bar.getByRole("button")).toHaveCount(1);
   await expect(page.getByText(/pid|cfo register|No CFO is running|Start the CFO/)).toHaveCount(0);
   await page.screenshot({ path: testInfo.outputPath("closed-cfo.png") });
@@ -42,10 +42,10 @@ test("a closed CFO is said to be closed in plain words, with Reopen as its one a
   expect(requests).toEqual([{ token: "fixture", body: "{}" }]);
   release();
   await expect(reopen).toBeEnabled();
-  await expect(page.getByRole("alert")).toHaveCount(0);
+  await expect(page.locator(".click-feedback")).toHaveCount(0);
 });
 
-test("a CFO that could not come back says why, and Reopen can be tried again", async ({ page }) => {
+test("a CFO that could not come back says so in a few words beside Reopen, which can be tried again", async ({ page }) => {
   // Arrange
   const reason = "the CFO could not be reopened: claude is not on PATH";
   const { requests, release } = await open(page, { status: 500, body: { error: reason } });
@@ -55,7 +55,8 @@ test("a CFO that could not come back says why, and Reopen can be tried again", a
   await page.getByRole("button", { name: "Reopen the CFO" }).click();
 
   // Assert
-  await expect(page.getByRole("alert")).toHaveText(reason);
+  await expect(page.locator(".cfo-pin .click-feedback")).toHaveText("The CFO could not be reopened: claude is not on PATH.");
+  await expect(page.getByRole("alert")).toHaveCount(0);
   await expect(page.getByRole("button", { name: "Reopen the CFO" })).toBeEnabled();
   expect(requests).toHaveLength(1);
 });
@@ -75,7 +76,7 @@ test.describe("at the desktop window's size", () => {
     const reopen = page.getByRole("button", { name: "Reopen the CFO" });
 
     // Act
-    const said = bar.getByText("The CFO is closed. Goblins keep running.");
+    const said = bar.getByText("The CFO is closed.", { exact: true });
     const [words, button] = [await said.boundingBox(), await reopen.boundingBox()];
     const sideways = await page.evaluate(() => document.documentElement.scrollWidth > document.documentElement.clientWidth);
 

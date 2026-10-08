@@ -31,6 +31,7 @@ import { useStart } from "./useStart";
 import { watchTips } from "./tips";
 import { QuickTourDialog } from "./quick-tour-dialog";
 import { VOICE_HINT_KEY } from "./voice";
+import { ClickFeedback, useClickFeedback } from "./click-feedback";
 
 // The terminals load xterm, so the deck arrives the first time one is shown.
 const TerminalDeck = lazy(() => import("./TerminalDeck").then((module) => ({ default: module.TerminalDeck })));
@@ -70,7 +71,8 @@ const BOARD_LAYOUT_KEY = "cfo-board-layout";
 const KANBAN_NEEDS_OVER = 960;
 
 export function App() {
-  const { snapshot: received, connection, error } = useRuntimeStream();
+  const [windowFeedback, showWindowFeedback] = useClickFeedback();
+  const { snapshot: received, connection } = useRuntimeStream();
   // What the board draws holds closed every item it knows to be closed, so
   // nothing he acted on waits for the next snapshot to leave.
   const { snapshot, sent } = useItemState(received);
@@ -92,8 +94,6 @@ export function App() {
   const [maximizedChoice, setMaximizedChoice] = useState(() => ({ task: stored(MAXIMIZED_KEYS.task), terminal: stored(MAXIMIZED_KEYS.terminal) }));
   const [terminalOpened, setTerminalOpened] = useState(false);
   const [switchFocus, setSwitchFocus] = useState(0);
-  // windowError is a refused Open in terminal and the terminal it was for.
-  const [windowError, setWindowError] = useState({ shown: "", text: "" });
   const [compact, setCompact] = useState(() => matchMedia("(max-width: 40rem)").matches);
   const [firstRunChoice, setFirstRunChoice] = useState<FirstRunChoice>("");
   // startingShown is whether this page already opened the terminal of a CFO
@@ -118,7 +118,7 @@ export function App() {
   // awaitingStart is the Start the Overlord made, until its task is up or a
   // snapshot of it shows it failed.
   const [awaitingStart, setAwaitingStart] = useState<AcceptedStart | null>(null);
-  const cardStart = useStart(snapshot, awaitingStart, setAwaitingStart);
+  const cardStart = useStart(snapshot, setAwaitingStart);
   const returnFocus = useRef<HTMLElement | null>(null);
   const pane = useRef<HTMLElement>(null);
   const workspace = useRef<HTMLDivElement>(null);
@@ -258,18 +258,18 @@ export function App() {
   const divided = paneOpen && !panelWide && !compact;
   const layout: CSSProperties | undefined = panelWide ? { gridTemplateColumns: "minmax(0, 1fr)" } : paneOpen && paneSize && !compact ? { gridTemplateColumns: `minmax(0, 1fr) 10px ${paneTrack(paneSize)}` } : undefined;
   // Open in terminal shows the terminal in a Windows Terminal window of its
-  // own, beside the board; a refusal says why under the button.
+  // own, beside the board; a refusal says so under the button for a moment.
   const shownWindow = snapshot && terminalShown ? windowTarget(snapshot, cfoShown, selected ? task : undefined) : null;
   const shownKey = JSON.stringify(shownWindow);
   const openWindow = async () => {
     if (!snapshot || !shownWindow) return;
-    setWindowError({ shown: "", text: "" });
+    showWindowFeedback("");
     try {
       await request("/api/terminal/open", undefined, { method: "POST", headers: { "Content-Type": "application/json", "X-CFO-Token": snapshot.instance }, body: shownKey });
-    } catch (e: unknown) { setWindowError({ shown: shownKey, text: message(e) }); }
+    } catch (error: unknown) { showWindowFeedback(message(error)); }
   };
   // The panel's top row (see PanelRow): its controls in the order they are
-  // drawn, its corner button, and why Open in terminal was refused.
+  // drawn, its corner button, and what Open in terminal met.
   const toggleMaximized = () => {
     const choice = String(!maximized);
     setMaximizedChoice((prior) => ({ ...prior, [maximizeView]: choice }));
@@ -283,7 +283,7 @@ export function App() {
     corner: backShown
       ? <button className="labelled-button" aria-label="Back to the CFO" onClick={back}><Icon name="back" /><span>Back</span></button>
       : <button className="icon-button" aria-label="Close panel" data-tip="Close" data-tip-align="end" onClick={close}><Icon name="close" /></button>,
-    notice: shownWindow && windowError.shown === shownKey && <p className="window-error" role="alert">{windowError.text}</p>,
+    notice: windowFeedback && <span className="window-feedback"><ClickFeedback text={windowFeedback} /></span>,
   };
   return <AfkBoard snapshot={snapshot} now={now} onCommand={(key) => setCommandFocus({ key, at: Date.now() })}><div className="app-shell" onKeyDown={(event) => {
     if (event.key === "Escape" && paneOpen && !event.defaultPrevented) { event.preventDefault(); if (backShown) back(); else close(); }
@@ -319,7 +319,6 @@ export function App() {
       {snapshot && <FirstRun instance={snapshot.instance} onStarted={() => { setFirstRunChoice("started"); setView("Board"); switchTo(CFO_KEY); }} onBoard={() => setFirstRunChoice("board")} />}
     </main> : <div ref={workspace} className={"workspace" + (paneOpen ? " with-pane" : "") + (view === "Board" && boardLayout === "kanban" ? " kanban" : "") + (resizing && divided ? " resizing" : "")} style={layout}>
       <main ref={canvas} className="canvas-region" aria-label={view} hidden={panelWide}>
-        {error && <div className="connection-banner" role="alert">{error}</div>}
         {!snapshot || !cardStart ? <div className="empty-state" role="status"><h2>Connecting to the supervisor</h2><p>Loading tasks and native sessions.</p></div>
           : view === "Board" ? <Board presentations={presentations} snapshot={snapshot} layout={boardLayout} selected={task?.id} now={now} onSelect={(task, source) => select({ task: task.id }, source)} onTerminal={(task, source) => select({ task: task.id }, source, "terminal")} onOpenCfo={(source) => { returnFocus.current = source; switchTo(CFO_KEY); }} onOpenCommand={() => setCommandFocus({ key: "", at: Date.now() })} onStartCfo={() => setFirstRunChoice("")} cardStart={cardStart} />
             : compact ? <Lineage presentations={presentations} effects={effects} snapshot={snapshot} now={now} project="" selected={selectedSession ? { session: selectedSession.id } : selected} onSelect={select} />

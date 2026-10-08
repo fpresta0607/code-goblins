@@ -401,7 +401,7 @@ test("a late refusal for an old publication does not mark the reused question's 
   await expect(card(page).getByRole("button", { name: "Send decision" })).toBeEnabled();
 });
 
-test("a send the board refuses puts the item back, with why", async ({ page, context }) => {
+test("a send the board refuses puts the item back, with a few words of why", async ({ page, context }) => {
   // Arrange
   await standInStream(context);
   await announcer(context);
@@ -418,7 +418,8 @@ test("a send the board refuses puts the item back, with why", async ({ page, con
   // Assert
   await expect(badge(page)).toHaveAccessibleName("Command Center, 1 waiting on you");
   await expect(bar(page).getByRole("button", { name: "Open Command Center: 1 waiting on you" })).toBeVisible();
-  await expect(card(page).getByRole("alert")).toContainText("the primary CFO changed; refresh before sending");
+  await expect(card(page).locator(".click-feedback")).toHaveText("The primary CFO changed. Refresh before sending.");
+  await expect(card(page).getByRole("alert")).toHaveCount(0);
 });
 
 test("the CFO's answer reaches the board ahead of the full snapshot, and a snapshot built before it does not undo it", async ({ page, context }) => {

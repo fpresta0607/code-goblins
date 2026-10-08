@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { diskBlock, diskScale, diskState, freeGigabytes, holdersLine, memoryBlock, meterScale, meterState, nextChip, nextInOrder, poolWarning, queueBlock, refusalStands, scheduleLine, startBlock, startOrder, startOutcome, tighter } from "./start.ts";
+import { diskBlock, diskScale, diskState, freeGigabytes, holdersLine, memoryBlock, meterScale, meterState, nextChip, nextInOrder, poolWarning, queueBlock, scheduleLine, startBlock, startOrder, startOutcome, tighter } from "./start.ts";
 import { nodeStatus } from "./workflow.ts";
 import { parseSnapshot, type Disk, type Memory, type Snapshot, type Task } from "./types.ts";
 
@@ -152,28 +152,6 @@ test("an accepted Start opens its goblin once its session is up, stops on a fail
 
     // Assert
     assert.equal(outcome, want, name);
-  }
-});
-
-test("a passing refusal lapses once a newer snapshot shows Start no longer blocked, and a standing one stays", () => {
-  // Arrange
-  const passing = { reason: "next-task is starting; start another once it is up", revision: 12, passing: true };
-  const standing = { reason: "The brief for next-task names no project", revision: 12, passing: false };
-  const cases: [string, typeof passing, number, string, boolean][] = [
-    ["a passing refusal, in the snapshot it arrived at", passing, 12, "", true],
-    ["a passing refusal, in an older snapshot", passing, 11, "", true],
-    ["a passing refusal, in a newer snapshot that still blocks it", passing, 13, "Another task is starting", true],
-    ["a passing refusal, in a newer snapshot in which it can start", passing, 13, "", false],
-    ["a standing refusal, in a newer snapshot in which it can start", standing, 13, "", true],
-    ["a standing refusal, many snapshots later", standing, 40, "", true],
-  ];
-
-  for (const [name, refusal, revision, blocked, want] of cases) {
-    // Act
-    const stands = refusalStands(refusal, { revision, tasks: [task()] } as Snapshot, blocked);
-
-    // Assert
-    assert.equal(stands, want, name);
   }
 });
 

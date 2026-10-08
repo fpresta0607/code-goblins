@@ -13,7 +13,6 @@ import { DiffView } from "./DiffView";
 import { WorkspaceDetails } from "./WorkspaceDetails";
 import { Disclosure } from "./Disclosure";
 import { Icon } from "./Icon";
-import { RawDetails } from "./raw-details";
 import { deliveryMark } from "./feedback";
 import type { ReviewControls } from "./review";
 import { pullRequestBadge, safePullRequest } from "./workflow";
@@ -22,14 +21,10 @@ import { WhatsWorking } from "./WhatsWorking";
 
 // A read that failed says what could not be read, in one sentence, with the
 // supervisor's error behind Details.
-function ErrorBox({ what, error, retry }: { what: string; error: string; retry?: () => void }) {
-  return (
-    <div className="error-box" role="alert">
-      <p>{what}</p>
-      <RawDetails lines={[error]} />
-      {retry && <button className="icon-button raised" aria-label="Retry" data-tip="Retry" data-tip-align="start" onClick={retry}><Icon name="refresh" /></button>}
-    </div>
-  );
+// A read that failed: the CFO hears why (useResource), and the section offers
+// only Retry.
+function RetryRead({ retry }: { retry: () => void }) {
+  return <button className="icon-button raised retry-read" aria-label="Retry" data-tip="Retry" data-tip-align="start" onClick={retry}><Icon name="refresh" /></button>;
 }
 
 function FileReview({ task, path, revision, reviews, connected }: {
@@ -39,7 +34,7 @@ function FileReview({ task, path, revision, reviews, connected }: {
     "/api/tasks/" + encodeURIComponent(task.id) + "/diff?revision=" + encodeURIComponent(revision) + "&path=" + encodeURIComponent(path),
     parseDiff,
   );
-  if (diff.error) return <ErrorBox what="This file's changes could not be read." error={diff.error} retry={diff.reload} />;
+  if (diff.error) return <RetryRead retry={diff.reload} />;
   if (!diff.data) return <p className="loading" role="status">Loading code preview…</p>;
   return <DiffView diff={diff.data} reviews={reviews} connected={connected} />;
 }
@@ -59,7 +54,7 @@ function Changes({ task, revision = "", reviews, connected }: {
       {onGitHub && <a className="text-link" href={onGitHub} target="_blank" rel="noreferrer">Files on GitHub</a>}
       <button className="icon-button raised" aria-label="Refresh changes" data-tip="Refresh changes" data-tip-align="end" onClick={() => { files.reload(); setVersion((prior) => prior + 1); }}><Icon name="refresh" /></button>
     </div>
-    {files.error ? <ErrorBox what="The change set could not be read." error={files.error} retry={files.reload} /> :
+    {files.error ? <RetryRead retry={files.reload} /> :
       !files.data ? <p className="loading" role="status">Reading the change set…</p> :
         !files.data.length ? <p className="muted padded">No previewable changes in this change set.</p> :
           <div className="file-reviews">{files.data.map((file) => <Disclosure
@@ -90,7 +85,7 @@ function History({
     ? selected
     : history.data?.[0]?.sha;
   if (history.error)
-    return <ErrorBox what="The commit history could not be read." error={history.error} retry={history.reload} />;
+    return <RetryRead retry={history.reload} />;
   if (!history.data)
     return (
       <p className="loading" role="status">
@@ -139,7 +134,7 @@ function Activity({ task, snapshot }: { task?: Task; snapshot: Snapshot }) {
   const actions = snapshot.actions.filter((action) => action.task_id === task?.id).slice(-20).reverse();
   const actionLabel = (kind: string) => ({ review: "Review comment", feedback: "Task instruction", evaluate: "Progress check", cfo_message: "CFO message", cfo_answer: "Question answer", goblin_answer: "Question answer" })[kind] || "Action";
   return <>
-    {activity.error ? <ErrorBox what="The log could not be read." error={activity.error} retry={activity.reload} /> :
+    {activity.error ? <RetryRead retry={activity.reload} /> :
       activity.data?.length ? <ol className="activity-list">
         {activity.data.slice().reverse().map((line, i) => <li key={i}>{line}</li>)}
       </ol> : task?.generation && !activity.data ? <p className="loading" role="status">Loading activity…</p> : <p className="muted">No activity yet.</p>}
@@ -150,7 +145,7 @@ function Activity({ task, snapshot }: { task?: Task; snapshot: Snapshot }) {
         return <li key={action.id}>
           <div><strong>{actionLabel(action.kind)}</strong><span className={"delivery " + action.status} role="img" aria-label={delivery.label} data-tip={delivery.label}><Icon name={delivery.icon} /></span><time>{age(action.updated_at)}</time></div>
           {action.text && <p className="action-text">{action.text}</p>}
-          {delivery.trouble && <p className="warning-text">{delivery.label}{action.message && " " + action.message}</p>}
+          {delivery.trouble && <p className="muted">{delivery.label}</p>}
         </li>;
       })}</ol>
     </section>}

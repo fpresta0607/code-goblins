@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { message, request } from "./api";
-import { object, string, type Session, type Snapshot, type Task } from "./types";
+import { type Session, type Snapshot, type Task } from "./types";
 import { Avatar } from "./Avatar";
 import { BRAND_MARKS } from "./brandMarks";
 import { Icon } from "./Icon";
@@ -11,13 +11,14 @@ import { credentialAsk } from "./credentials";
 import { plainMessage } from "./messageText";
 import { AfkToggle } from "./afk-toggle";
 import { CfoUpdate } from "./cfo-update";
-import { plainText, taskSummary, withoutHarness } from "./task-words";
+import { taskSummary, withoutHarness } from "./task-words";
 import { RawDetails } from "./raw-details";
 import { PeopleRow } from "./people-row";
 import { TicketLink } from "./ticket-link";
 import { HostedChecksLink } from "./hosted-checks-link";
 import { DeploymentLink } from "./deployment-link";
 import { LocalChecksLink } from "./local-checks-link";
+import { ClickFeedback, useClickFeedback } from "./click-feedback";
 
 // Who the goblin is, what it is doing now and what the Overlord can do about
 // it. Its status is the one place the panel says the task's state, with one
@@ -28,8 +29,7 @@ import { LocalChecksLink } from "./local-checks-link";
 // them what a press of Update waits for or why it did not restart the CFO.
 export function PanelHeader({ task, node, snapshot, compact, onAnswer, onOpenTask, onOpenLog }: { task?: Task; node?: Session; snapshot: Snapshot; compact: boolean; onAnswer: (key: string) => void; onOpenTask: (task: Task) => void; onOpenLog: () => void }) {
   const [opening, setOpening] = useState(false);
-  const [outcome, setOutcome] = useState("");
-  const [updateProblem, setUpdateProblem] = useState("");
+  const [feedback, showFeedback] = useClickFeedback();
   const cfo = !task && !node;
   const owner = !!task && ownsTaskSession(node, task);
   const asking = owner && asksOverlord(snapshot, task.id);
@@ -52,11 +52,11 @@ export function PanelHeader({ task, node, snapshot, compact, onAnswer, onOpenTas
   const waiting = owner ? waitingItems(snapshot).find((item): item is Exclude<Item, { kind: "run" }> => item.kind !== "run" && (item.kind === "question" ? item.question.task : item.kind === "credential" ? item.request.task : item.review.task) === task.id) : undefined;
   const open = async (target: "vscode" | "folder") => {
     if (!task || opening) return;
-    setOpening(true); setOutcome("");
+    setOpening(true);
+    showFeedback("");
     try {
-      const result = object(await request("/api/workspace/open", undefined, { method: "POST", headers: { "Content-Type": "application/json", "X-CFO-Token": snapshot.instance }, body: JSON.stringify({ task: task.id, generation: task.generation, target }) }));
-      setOutcome(string(result.message));
-    } catch (error: unknown) { setOutcome(plainText(message(error)) + " Nothing is retried automatically."); }
+      await request("/api/workspace/open", undefined, { method: "POST", headers: { "Content-Type": "application/json", "X-CFO-Token": snapshot.instance }, body: JSON.stringify({ task: task.id, generation: task.generation, target }) });
+    } catch (error: unknown) { showFeedback(message(error)); }
     finally { setOpening(false); }
   };
   return <header className={"panel-header" + (compact ? " compact" : "")}>
@@ -73,10 +73,8 @@ export function PanelHeader({ task, node, snapshot, compact, onAnswer, onOpenTas
         {owner && said.isFailure && !task.archived && <button className="text-button" onClick={onOpenLog}>Open the log</button>}
       </div>}
     </div>
-    {cfo && <AfkToggle afk={snapshot.afk} instance={snapshot.instance} leading={<CfoUpdate snapshot={snapshot} onProblem={setUpdateProblem} />} />}
-    {cfo && snapshot.cfo_update && (updateProblem || snapshot.cfo_update.problem
-      ? <p className="cfo-update-line problem" role="alert">{updateProblem || snapshot.cfo_update.problem}</p>
-      : snapshot.cfo_update.pending && <p className="cfo-update-line" role="status"><Icon name="clock" />The CFO restarts onto the {harnessName(snapshot.cfo_update.harness)} update when its turn ends, on the same conversation.</p>)}
+    {cfo && <AfkToggle afk={snapshot.afk} instance={snapshot.instance} leading={<CfoUpdate snapshot={snapshot} />} />}
+    {cfo && snapshot.cfo_update?.pending && <p className="cfo-update-line" role="status"><Icon name="clock" />Restarts onto the {harnessName(snapshot.cfo_update.harness)} update when its turn ends.</p>}
     {owner && !!task.generation && <div className="panel-actions">
       <button className="icon-button raised" disabled={opening || !snapshot.instance} aria-label="Open in VS Code" data-tip="Open in VS Code" data-tip-align="start" onClick={() => void open("vscode")}><img className="brand-icon" src="/assets/vscode.svg" alt="" /></button>
       <button className="icon-button raised" disabled={opening || !snapshot.instance} aria-label="Open folder" data-tip="Open folder" onClick={() => void open("folder")}><Icon name="folder" /></button>
@@ -86,7 +84,7 @@ export function PanelHeader({ task, node, snapshot, compact, onAnswer, onOpenTas
       {owner && task.local_checks && <LocalChecksLink checks={task.local_checks} taskId={task.id} className="icon-button raised pill-link" />}
       {pr && task.hosted_checks && <HostedChecksLink checks={task.hosted_checks} pr={pr} className="icon-button raised pill-link" />}
       {owner && task.deployment && <DeploymentLink deployment={task.deployment} className="icon-button raised pill-link" />}
+      <ClickFeedback text={feedback} />
     </div>}
-    {outcome && <p className="workspace-outcome" role="status">{outcome}</p>}
   </header>;
 }

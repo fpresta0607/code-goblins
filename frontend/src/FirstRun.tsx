@@ -1,9 +1,10 @@
-import { useState, type KeyboardEvent } from "react";
+import { useEffect, useState, type KeyboardEvent } from "react";
 import { message, request, useResource } from "./api";
 import { Avatar } from "./Avatar";
 import { Icon, type IconName } from "./Icon";
 import { startState } from "./firstRunStart";
 import { parseSetup, type SignIn } from "./types";
+import { ClickFeedback, useClickFeedback } from "./click-feedback";
 
 const AGENT_ICONS: Record<string, IconName> = { claude: "claude", codex: "codex", pi: "pi" };
 // What the page says of an installed agent's sign-in, as its own status
@@ -30,10 +31,13 @@ export function FirstRun({ instance, onStarted, onBoard }: { instance: string; o
   const [asked, setAsked] = useState<string | null>(null);
   const [picked, setPicked] = useState("");
   const [starting, setStarting] = useState(false);
-  const [failure, setFailure] = useState("");
+  const [failure, setFailure] = useClickFeedback();
+  const [folderFeedback, showFolderFeedback] = useClickFeedback();
   const setup = useResource("/api/setup?root=" + encodeURIComponent(asked ?? ""), parseSetup);
+  const problem = setup.data?.problem || "";
+  useEffect(() => { if (problem) showFolderFeedback(problem); }, [problem, showFolderFeedback]);
   const folder = typed ?? setup.data?.projects_root ?? "";
-  if (setup.error) return <section className="first-run"><p className="warning-text" role="alert">{setup.error}</p><button onClick={setup.reload}>Try again</button></section>;
+  if (setup.error) return <section className="first-run"><button onClick={setup.reload}><Icon name="refresh" />Try again</button></section>;
   if (!setup.data) return <section className="first-run"><p className="loading" role="status">Reading this machine…</p></section>;
   const data = setup.data;
   if (data.cfo_runs) return <section className="first-run" aria-labelledby="first-run-title">
@@ -96,13 +100,13 @@ export function FirstRun({ instance, onStarted, onBoard }: { instance: string; o
         <input id="projects-folder" value={folder} onChange={(event) => setTyped(event.target.value)} placeholder="C:\dev" spellCheck={false} autoComplete="off" />
         <button type="submit"><Icon name="folder" />Look</button>
       </div>
-      {data.problem ? <p className="warning-text" role="alert">{data.problem}</p>
+      {data.problem ? <ClickFeedback text={folderFeedback} />
         : <p className="muted">{data.checkouts.length ? `Goblins find ${data.checkouts.length === 1 ? "1 project" : data.checkouts.length + " projects"} here by name: ${data.checkouts.join(", ")}.` : "The folder that holds your git checkouts, where goblins find a project by its name."}</p>}
     </form>
-    {failure && <p className="warning-text" role="alert">{failure}</p>}
     <div className="first-run-actions">
       <span className="muted">{blocked}</span>
       <button className="primary" disabled={!!blocked || starting} onClick={start}><Icon name="play" />{starting ? "Starting the CFO…" : "Start the CFO"}</button>
+      <ClickFeedback text={failure} />
     </div>
     <button type="button" className="quiet-link" onClick={onBoard}>Open the board without a CFO</button>
   </section>;

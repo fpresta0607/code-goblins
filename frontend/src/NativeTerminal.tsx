@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { Terminal } from "@xterm/xterm";
 import "@xterm/xterm/css/xterm.css";
-import { message, request } from "./api";
+import { message, reportToCfo, request } from "./api";
 import { copyText } from "./clipboard";
 import { object, string, type Session, type Task } from "./types";
 import { Icon } from "./Icon";
@@ -13,6 +13,7 @@ import { clipboardInput, terminalKey } from "./terminal-keys";
 import { useDictation } from "./useDictation";
 import { useVoice } from "./useVoice";
 import { VoiceBubble } from "./VoiceBubble";
+import { ClickFeedback, useClickFeedback } from "./click-feedback";
 
 const FALLBACK_FONT = '"Cascadia Mono", Consolas, monospace';
 // A panel that changes size asks for its new grid at once, and while it keeps
@@ -23,6 +24,7 @@ const RESIZE_EVERY_MS = 40;
 // One view stream of the pane: sized when it has taken the pane's control and
 // sized it to the panel, or else observing the pane at the pane's own size.
 type Connection = { sized: boolean; abort: AbortController; lease: string; frameSeq: number; full: boolean };
+
 
 // The goblin's live Herdr pane cast into the board. Once shown, an open view
 // takes the pane's control and keeps the pane sized to the panel at the chosen
@@ -60,7 +62,10 @@ export function NativeTerminal({ task, node, harness, instance, visible, shown, 
   }, [focus]);
   const [live, setLive] = useState(false);
   const [status, setStatus] = useState("Connecting");
-  const [error, setError] = useState("");
+  // What his own typing, scrolling, pasting or copying met, for a moment. A
+  // lease the terminal lost is the CFO's to hear (the Overlord, 2026-10-08,
+  // "everything error wise goes to cfo").
+  const [feedback, showFeedback] = useClickFeedback();
   const [copied, setCopied] = useState(false);
   const [inHistory, setInHistory] = useState(false);
   // The history takes the keyboard from the live screen once it is in sight,
@@ -209,7 +214,7 @@ export function NativeTerminal({ task, node, harness, instance, visible, shown, 
       liveValue.current = false;
       setLive(false);
       setStatus("Disconnected");
-      setError(typingHeldReason(reason));
+      reportToCfo("a goblin's terminal", typingHeldReason(reason));
     };
     // Typing goes one input at a time in order, each with the lease's next
     // number.
@@ -262,9 +267,9 @@ export function NativeTerminal({ task, node, harness, instance, visible, shown, 
         past.scrollLines(lines);
         showing = true;
         setInHistory(true);
-        setError("");
+        showFeedback("");
       } catch (e: unknown) {
-        if (!abort.signal.aborted) setError(message(e));
+        if (!abort.signal.aborted) showFeedback(message(e));
       } finally {
         reading = false;
       }
@@ -277,7 +282,7 @@ export function NativeTerminal({ task, node, harness, instance, visible, shown, 
       const command = wheelScroll(lines);
       if (!command || !active) return;
       const turn = wheelTurn({ sized: active.sized, refused: !!refused });
-      if (turn === "refused") { setError(scrollHeldReason(refused)); return; }
+      if (turn === "refused") { showFeedback(scrollHeldReason(refused)); return; }
       if (turn === "take") { taken.push(command); step("typed"); return; }
       queueScroll(queue, command);
       void flush();
@@ -298,7 +303,7 @@ export function NativeTerminal({ task, node, harness, instance, visible, shown, 
         selfScrollRows = rows;
       } catch (e: unknown) {
         if (abort.signal.aborted || lease !== from || judging !== look) return;
-        if (unjudged.length) setError(message(e));
+        if (unjudged.length) showFeedback(message(e));
         unjudged = [];
         return;
       } finally {
@@ -333,14 +338,14 @@ export function NativeTerminal({ task, node, harness, instance, visible, shown, 
       if (!active || abort.signal.aborted) return;
       if (event === "focus" || event === "typed") {
         held = false;
-        if (refused) { refused = ""; setError(""); }
+        if (refused) { refused = ""; showFeedback(""); }
       }
       const action = sizeStep(event, { sized: pending ? pending.sized : active.sized, shown: shownValue.current, held });
       if (action === "take") want(true);
     };
     const send = (text: string) => {
       if (!text || !lease || abort.signal.aborted) return;
-      setError("");
+      showFeedback("");
       step("typed");
       queueInput(queue, text);
       void flush();
@@ -350,7 +355,7 @@ export function NativeTerminal({ task, node, harness, instance, visible, shown, 
     past.onData((text) => { closeHistory(); send(text); });
     const typePaste = (text: string) => {
       try { const paste = bracketedPaste(text); closeHistory(); send(paste); }
-      catch (error) { setError(message(error)); }
+      catch (error) { showFeedback(message(error)); }
     };
     pasteText.current = typePaste;
     const paste = (event: ClipboardEvent) => {
@@ -367,7 +372,7 @@ export function NativeTerminal({ task, node, harness, instance, visible, shown, 
         setCopied(true);
         clearTimeout(copiedTimer);
         copiedTimer = setTimeout(() => setCopied(false), 1400);
-      }, () => setError("Clipboard access was refused. Use the browser's copy command on selected text."));
+      }, () => showFeedback("Clipboard access was refused. Use the browser's copy command on selected text."));
     };
     // Releasing a drag selection copies it, the way Herdr does, wherever the
     // pointer is released; a plain click on the live screen of a pane the
@@ -563,7 +568,7 @@ export function NativeTerminal({ task, node, harness, instance, visible, shown, 
       abort.signal.addEventListener("abort", () => connection.abort.abort(), { once: true });
       pending = connection;
       const replacing = !!active;
-      if (!replacing) { liveValue.current = false; setLive(false); setError(""); setStatus("Connecting"); }
+      if (!replacing) { liveValue.current = false; setLive(false); showFeedback(""); setStatus("Connecting"); }
       const size = sized ? panelGrid(room().width, room().height, font, cell()) : null;
       if (sized && !size) { if (pending === connection) pending = null; return; }
       try {
@@ -626,8 +631,8 @@ export function NativeTerminal({ task, node, harness, instance, visible, shown, 
     };
     void connect(false);
     return () => { lease = ""; liveValue.current = false; abort.abort(); queue.length = 0; clearTimeout(copiedTimer); clearTimeout(regrid); jumper.cancel(); resize.disconnect(); window.removeEventListener(PANEL_RESIZED, dropped); window.removeEventListener("focus", focused); shownChanged.current = null; element.removeEventListener("paste", paste, true); pastElement.removeEventListener("paste", paste, true); element.removeEventListener("pointerdown", startCopy); pastElement.removeEventListener("pointerdown", startCopy); element.removeEventListener("wheel", liveBeside); pastElement.removeEventListener("wheel", historyBeside); window.removeEventListener("pointerup", release); term.dispose(); past.dispose(); terminal.current = null; history.current = null; pasteText.current = null; setInHistory(false); };
-  }, [taskID, generation, session, instance, visible, attempt, unavailable, dictate]);
-  if (unavailable) return <TerminalEmpty text={error} />;
+  }, [taskID, generation, session, instance, visible, attempt, unavailable, dictate, showFeedback]);
+  if (unavailable) return <TerminalEmpty text="Terminal unavailable" />;
   return <section className="native-terminal" aria-label={cfo ? "CFO terminal" : "Goblin terminal"}>
     <div className="terminal-surface" ref={host} />
     <div className={"terminal-surface terminal-history" + (inHistory && live ? "" : " away")} ref={pastHost} aria-hidden={!(inHistory && live)} />
@@ -641,6 +646,6 @@ export function NativeTerminal({ task, node, harness, instance, visible, shown, 
       {!live && status !== "Connecting" && <button className="icon-button raised" disabled={!visible} aria-label="Reconnect" data-tip="Reconnect" data-tip-align="end" onClick={() => setAttempt((prior) => prior + 1)}><Icon name="refresh" /></button>}
     </div>
     <VoiceBubble voice={voice} listening={dictation.listening} level={dictation.level} model={dictation.model} onPaste={(text) => { pasteText.current?.(text); terminal.current?.focus(); }} />
-    {error ? <p className="terminal-error" role="alert">{error}</p> : dictation.note && <p className="terminal-error" role="status">{dictation.note}</p>}
+    {feedback ? <p className="terminal-note"><ClickFeedback text={feedback} /></p> : dictation.note && <p className="terminal-note" role="status">{dictation.note}</p>}
   </section>;
 }

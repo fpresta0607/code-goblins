@@ -1,3 +1,4 @@
+import { useEffect } from "react";
 import type { ReactNode } from "react";
 import type { Review, ReviewDocument, Snapshot } from "./types";
 import { Avatar } from "./Avatar";
@@ -7,6 +8,7 @@ import { age } from "./presentation";
 import { documentFacts, settledIcon, settledLabel, type Item } from "./commandQueue";
 import { personaFor } from "./workflow";
 import type { Draft } from "./QuestionCard";
+import { ClickFeedback, useClickFeedback } from "./click-feedback";
 
 // One delivered document: who sent it, its file icon and facts, and Open and
 // Download. Open shows only when the browser can open the copy or there is a
@@ -16,6 +18,8 @@ export function DocumentCard({ review, document, snapshot, connected, draft, onO
   review: Review; document: ReviewDocument; snapshot: Snapshot; connected: boolean; draft: Draft;
   onOpened: (how: "Opened" | "Downloaded") => void; onClear: () => void; pager?: ReactNode;
 }) {
+  const [feedback, showFeedback] = useClickFeedback();
+  useEffect(() => { if (draft.error) showFeedback(draft.error); }, [draft.error, showFeedback]);
   const task = snapshot.tasks.find((candidate) => candidate.id === review.task);
   const sender = review.task ? task?.title || review.task : "the CFO";
   const file = "/api/reviews/" + encodeURIComponent(review.id) + "/document";
@@ -34,10 +38,10 @@ export function DocumentCard({ review, document, snapshot, connected, draft, onO
       <span className="file-icon" aria-hidden="true"><Icon name="file" /><b>{badge}</b></span>
       <span className="doc-copy"><strong>{document.name}</strong><span>{documentFacts(document, sender)}</span></span>
     </div>
-    {draft.error && !outcome && open && <p className="warning-text" role="alert">{draft.error} An unchanged retry keeps its request identity.</p>}
     {!open ? <p className={"question-outcome delivery " + settled.tone} role="status"><Icon name={settled.icon} />{settledLabel(item, snapshot.actions)}</p>
       : mark && <p className={"question-outcome delivery " + outcome?.status} role="status"><Icon name={mark.icon} />{mark.label}</p>}
     <div className="card-actions">
+      <ClickFeedback text={feedback} />
       {pager}
       {open && <button type="button" className="icon-button raised" disabled={!connected} aria-label="Clear this document without opening it" data-tip="Clear" onClick={onClear}><Icon name="close" /></button>}
       {(document.link || document.kind) && <a className="icon-button raised pill-link" href={document.link || file} target="_blank" rel="noreferrer" onClick={() => opened("Opened")}><Icon name="external" /><span>Open</span></a>}

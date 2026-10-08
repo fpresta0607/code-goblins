@@ -20,7 +20,9 @@ const TREE_GAP = 28, COUNT_HEIGHT = 40;
 // How far a notch of the wheel zooms: about a sixth.
 const WHEEL_ZOOM = .0015;
 
-function readLayout(): { positions: Record<string, Point>; error: string } {
+// The layout he arranged, kept in this browser as a viewing choice: one it
+// cannot read or keep is simply not kept, and the canvas arranges itself.
+function readLayout(): { positions: Record<string, Point> } {
   try {
     const saved: unknown = JSON.parse(localStorage.getItem(layoutKey) || "{}");
     if (typeof saved !== "object" || saved === null || Array.isArray(saved)) throw new Error();
@@ -33,8 +35,8 @@ function readLayout(): { positions: Record<string, Point>; error: string } {
         || point.x < 0 || point.y < 0 || point.x > 50000 || point.y > 50000) throw new Error();
       positions[id] = { x: point.x, y: point.y };
     }
-    return { positions, error: "" };
-  } catch { return { positions: {}, error: "Saved layout is unavailable. Arrange starts a fresh layout." }; }
+    return { positions };
+  } catch { return { positions: {} }; }
 }
 
 export function Orchestration({ snapshot, selected, connected, effects, onSelect, presentations, now }: {
@@ -152,7 +154,7 @@ export function Orchestration({ snapshot, selected, connected, effects, onSelect
     try {
       const retained = Object.fromEntries(nodes.flatMap((node) => layout.positions[node.id] ? [[node.id, layout.positions[node.id]]] : []));
       localStorage.setItem(layoutKey, JSON.stringify(retained));
-    } catch { setLayout((prior) => ({ ...prior, error: "Layout could not be saved in this browser." })); }
+    } catch { /* not kept in this browser */ }
   };
   const startDrag = (event: PointerEvent<HTMLButtonElement>, node: WorkflowNode) => {
     if (event.button !== 0) return;
@@ -311,12 +313,11 @@ export function Orchestration({ snapshot, selected, connected, effects, onSelect
     </div>
     <div className="canvas-controls">
       <button onClick={() => {
-        setLayout({ positions: {}, error: "" }); setCollapsed(new Set()); setView(null);
+        setLayout({ positions: {} }); setCollapsed(new Set()); setView(null);
         try { localStorage.removeItem(layoutKey); }
-        catch { setLayout({ positions: {}, error: "Layout could not be cleared in this browser." }); }
+        catch { /* nothing was kept in this browser */ }
       }} className="icon-button" aria-label="Arrange" data-tip="Arrange" data-tip-align="start"><Icon name="arrange" /></button>
       <div><button className="icon-button" aria-label="Zoom out" data-tip="Zoom out" onClick={() => zoom(scale - .1)}><Icon name="minus" /></button><output aria-label="Zoom">{Math.round(scale * 100)}%</output><button className="icon-button" aria-label="Zoom in" data-tip="Zoom in" onClick={() => zoom(scale + .1)}><Icon name="plus" /></button><button className="icon-button" aria-label="Fit canvas" data-tip="Fit" data-tip-align="end" onClick={fit}><Icon name="fit" /></button></div>
     </div>
-    {layout.error && <p className="layout-notice" role="status">{layout.error}</p>}
   </section>;
 }

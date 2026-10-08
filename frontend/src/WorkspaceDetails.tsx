@@ -5,9 +5,9 @@ import { ownsTaskSession, sessionModel } from "./lineageTree";
 import { harnessMark, modelMark } from "./connectors";
 import { ConnectorMark } from "./ConnectorMark";
 import { Disclosure } from "./Disclosure";
+import { Icon } from "./Icon";
 import { ConnectionsPanel } from "./connections-panel";
 import { EngineSelector } from "./engine-selector";
-import { RawDetails } from "./raw-details";
 import { StartAtLoginSetting } from "./StartAtLoginSetting";
 
 function parse(value: unknown) {
@@ -37,7 +37,7 @@ export function WorkspaceDetails({ task, node, runs, instance, startAtLogin, onR
   const provider = modelMark(model.name);
   return <>
     <Disclosure kind="workspace-details" title="Workspace">
-      {unlinked ? <p className="muted">No working folder.</p> : isArchived ? <p className="workspace-project">{task?.project || "Project not recorded"}</p> : queued ? <><p className="workspace-project">{task.project || "Project not specified"}</p><p className="muted">Not started yet.</p></> : resource.error ? <div role="alert"><p>The workspace could not be read.</p><RawDetails lines={[resource.error]} /></div> : !details ? <p className="loading" role="status">Reading workspace…</p> : <>
+      {unlinked ? <p className="muted">No working folder.</p> : isArchived ? <p className="workspace-project">{task?.project || "Project not recorded"}</p> : queued ? <><p className="workspace-project">{task.project || "Project not specified"}</p><p className="muted">Not started yet.</p></> : resource.error ? <button className="icon-button raised" aria-label="Retry" data-tip="Retry" data-tip-align="start" onClick={resource.reload}><Icon name="refresh" /></button> : !details ? <p className="loading" role="status">Reading workspace…</p> : <>
         <dl>{[["Repository", details.repository], ["Branch", details.branch], [child ? "Owning task folder" : task ? "Working folder" : "CFO project root", details.root]].filter(([, value]) => value).map(([label, value]) => <div key={label}><dt>{label}</dt><dd>{value}</dd></div>)}</dl>
         {details.notes.map((note) => <p key={note}>{note}</p>)}
       </>}

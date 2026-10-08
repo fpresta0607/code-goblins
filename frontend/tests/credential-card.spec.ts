@@ -220,7 +220,7 @@ test("dots cut out of one value field and pasted into another are refused, and t
   // Assert
   expect(await page.evaluate(() => navigator.clipboard.readText())).toBe(dots(value));
   await expect(second).toHaveValue("");
-  await expect(card.getByText("That paste held only a value field's dots, not a value: copy the value again from where it came from")).toBeVisible();
+  await expect(card.getByText("That paste was the hidden dots, not the value.", { exact: true })).toBeVisible();
   await expect(card.getByRole("button", { name: "Save" })).toBeDisabled();
   expect(sent).toEqual([]);
 });
@@ -348,7 +348,7 @@ test("each row says where its value goes, and a saved request checks each row an
   await expect(card.locator("input")).toHaveCount(0);
 });
 
-test("a value that starts the way its format hint warns about is flagged and can still be saved", async ({ page }) => {
+test("a value that starts the way its format hint warns about is flagged, with why in its tip, and can still be saved", async ({ page }) => {
   // Arrange
   const sent = await answer(page);
   const card = await openCard(page);
@@ -357,12 +357,12 @@ test("a value that starts the way its format hint warns about is flagged and can
   await card.getByLabel("Value for STRIPE_SECRET_KEY").fill(canary("sk" + "_live_"));
 
   // Assert
-  await expect(card).toContainText("use a restricted rk_live_ key");
+  await expect(card.getByRole("img", { name: /use a restricted rk_live_ key/ })).toHaveAttribute("data-tip", /use a restricted rk_live_ key/);
   await card.getByRole("button", { name: "Save" }).click();
   await expect.poll(() => sent.length).toBe(1);
 });
 
-test("an expired request says why and takes nothing", async ({ page }) => {
+test("an expired request says it is closed, with why in its tip, and takes nothing", async ({ page }) => {
   // Arrange
   await answer(page);
   const card = await openCard(page);
@@ -371,7 +371,8 @@ test("an expired request says why and takes nothing", async ({ page }) => {
   await page.evaluate((id) => window.board?.request(id, { state: "expired", reason: "Nobody saved it within 24 hours.", closed_at: "2026-10-02T03:00:00Z" }), STRIPE);
 
   // Assert
-  await expect(card).toContainText("Nobody saved it within 24 hours.");
+  await expect(card.locator(".credential-outcome")).toHaveText("Closed");
+  await expect(card.locator(".credential-outcome")).toHaveAttribute("data-tip", "Nobody saved it within 24 hours.");
   await expect(card.locator("input")).toHaveCount(0);
   await expect(card.getByRole("button", { name: "Save" })).toHaveCount(0);
 });

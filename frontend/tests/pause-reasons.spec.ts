@@ -103,9 +103,11 @@ test.describe("on the wide board", () => {
     }
   });
 
-  test("only a live goblin past 20 minutes without progress says for how long", async ({ page }) => {
+  // The Overlord, 2026-10-08: "everything error wise goes to cfo". A goblin
+  // without progress is the CFO's to hear, not a warning on its card.
+  test("a live goblin past 20 minutes without progress has no warning on its card", async ({ page }) => {
     await open(page, machine(9), [...WORKING, ...PAUSED]);
-    await expect(board(page).locator(".card-stalled")).toHaveCount(1);
-    await expect(card(page, "working-stalled").locator(".card-stalled")).toHaveText("No progress for 23m");
+    await expect(card(page, "working-stalled")).toBeVisible();
+    await expect(board(page).getByText(/No progress for/)).toHaveCount(0);
   });
 });

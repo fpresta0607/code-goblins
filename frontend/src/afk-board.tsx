@@ -21,7 +21,7 @@ export function AfkBoard({ snapshot, now, onCommand, children }: { snapshot: Sna
   const [prior, setPrior] = useState<Afk>(afk);
   const [reporting, setReporting] = useState(false);
   const [offering, setOffering] = useState<Occasion>("");
-  const { pending, problem, turn, clear } = useAfkSwitch(snapshot?.instance ?? "");
+  const { pending, problem, turn } = useAfkSwitch(snapshot?.instance ?? "");
   if (prior.state !== afk.state || prior.report !== afk.report) {
     setPrior(afk);
     if (turnedOff(prior, afk)) setReporting(true);
@@ -55,7 +55,7 @@ export function AfkBoard({ snapshot, now, onCommand, children }: { snapshot: Sna
   const actions = useMemo(() => ({ openReport: () => setReporting(true), answer: (item: string) => command.current(item) }), []);
   return <AfkActionsContext.Provider value={actions}>
     {children}
-    {offering && away && <AfkOffer afk={afk} occasion={offering} now={now} pending={pending} problem={problem} onTurnOff={() => void turn(false)} onStay={() => { setOffering(""); clear(); }} />}
+    {offering && away && <AfkOffer afk={afk} occasion={offering} now={now} pending={pending} problem={problem} onTurnOff={() => void turn(false)} onStay={() => setOffering("")} />}
     {reporting && snapshot && <Suspense fallback={null}><AfkReportPage tasks={snapshot.tasks} now={now} onClose={() => setReporting(false)} onCommand={() => { setReporting(false); onCommand(""); }} /></Suspense>}
   </AfkActionsContext.Provider>;
 }

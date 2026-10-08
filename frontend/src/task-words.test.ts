@@ -100,28 +100,29 @@ test("the panel says each state once: a sentence of its own, and the raw words b
     ["waiting, without its state word", task({ phase: "waiting", waiting_on: "ci", activity: "waiting on ci: PR 326's checks" }), { sentence: "PR 326's checks.", details: [], isFailure: false }],
     ["done, whose pull request is its badge", task({ phase: "done", activity: "done: PR https://github.com/o/r/pull/326" }), { sentence: "", details: [], isFailure: false }],
     ["failed by its own report", task({ phase: "failed", report: "failed", activity: "failed: go test timed out at 9f3c2a1e" }),
-      { sentence: "Go test timed out.", details: ["failed: go test timed out at 9f3c2a1e"], isFailure: true }],
+      { sentence: "", details: ["Go test timed out.", "failed: go test timed out at 9f3c2a1e"], isFailure: true }],
     ["paused, whose fresh note could not be saved", task({ phase: "paused", reason: "Paused by the Overlord; resumes on Resume", activity: "Paused by the Overlord; resumes on Resume",
       lifecycle: lifecycle({ handoff_saved: false, problems: ["Stopping-point deadline reached or request failed; no new handoff was saved"], pause: { reason: "overlord", at: "2026-10-05T16:30:06Z" } }) }),
-      { sentence: "It stays paused until you resume it. The goblin's last saved notes are kept.", details: ["Stopping-point deadline reached or request failed; no new handoff was saved"], isFailure: false }],
+      { sentence: "It stays paused until you resume it.", details: ["Stopping-point deadline reached or request failed; no new handoff was saved"], isFailure: false }],
     ["paused for memory", task({ phase: "paused", lifecycle: lifecycle({ pause: { reason: "memory", at: "2026-10-05T16:30:06Z" } }) }),
       { sentence: "It resumes by itself once 5 GB of memory is free.", details: [], isFailure: false }],
     ["paused before pauses had reasons", task({ phase: "paused", lifecycle: lifecycle({}) }), { sentence: "It stays paused until you resume it.", details: [], isFailure: false }],
     ["a pause that ran out of time", task({ activity: raw, lifecycle: lifecycle({ phase: "failed", handoff_saved: false, problems: ["Stopping-point deadline reached or request failed; no new handoff was saved", "context deadline exceeded"] }) }),
-      { sentence: "The pause did not finish, so the goblin is not paused. Its work is kept. Try Pause again.", details: ["Stopping-point deadline reached or request failed; no new handoff was saved", "context deadline exceeded"], isFailure: false }],
+      { sentence: "", details: ["The pause did not finish, so the goblin is not paused. Its work is kept. Try Pause again.", "Stopping-point deadline reached or request failed; no new handoff was saved", "context deadline exceeded"], isFailure: false }],
     ["a resume that failed", task({ phase: "paused", lifecycle: lifecycle({ phase: "failed", action: "resume", problems: ["host did not start"] }) }),
-      { sentence: "The goblin did not start again. Its work is kept. Try Resume again.", details: ["host did not start"], isFailure: true }],
+      { sentence: "", details: ["The goblin did not start again. Its work is kept. Try Resume again.", "host did not start"], isFailure: true }],
     ["a stop that failed", task({ lifecycle: lifecycle({ phase: "failed", action: "stop", problems: ["access denied"] }) }),
-      { sentence: "The stop did not finish. Its work is kept. Try Stop again.", details: ["access denied"], isFailure: false }],
+      { sentence: "", details: ["The stop did not finish. Its work is kept. Try Stop again.", "access denied"], isFailure: false }],
     ["a stop under way", task({ phase: "stopping", activity: "Requested by the operator", lifecycle: lifecycle({ phase: "stopping", action: "stop" }) }), { sentence: "", details: [], isFailure: false }],
     ["still closing programs", task({ teardown: ["uv.exe pid 20880"] }), { sentence: "Windows is still closing uv.exe.", details: ["uv.exe pid 20880"], isFailure: false }],
   ];
   for (const [name, item, said] of cases) assert.deepEqual(taskSummary(item, [item]), said, name);
 });
 
-test("Working and Pause did not finish have no line under them; what it would say is the first thing behind Details", () => {
+test("Working, Pause did not finish and a failure have no line under them; what it would say is the first thing behind Details", () => {
   // The Overlord, 2026-10-05: "dont need text under working", "dont need
-  // text under pause fialed"; the other statuses keep their line.
+  // text under pause fialed", and 2026-10-08: "everything error wise goes to
+  // cfo". The other statuses keep their line.
   const raw = "working: PRs 324 and 326 are green on main 13f9e0be; ready to pause";
   const failed = task({ activity: raw, lifecycle: lifecycle({ phase: "failed", problems: ["context deadline exceeded"] }) });
   const cases: [string, Task, string, { sentence: string; details: string[]; isFailure: boolean }][] = [
@@ -130,7 +131,7 @@ test("Working and Pause did not finish have no line under them; what it would sa
     ["working with nothing to say", task({ activity: "" }), "Working", { sentence: "", details: [], isFailure: false }],
     ["a pause that did not finish", failed, "Pause did not finish", { sentence: "", details: ["The pause did not finish, so the goblin is not paused. Its work is kept. Try Pause again.", "context deadline exceeded"], isFailure: false }],
     ["a question to him keeps its line", task({ activity: raw }), "Waiting on the CFO", { sentence: "PRs 324 and 326 are green on main. Ready to pause.", details: [raw], isFailure: false }],
-    ["a failure keeps its line", task({ phase: "failed", report: "failed", activity: "failed: go test timed out" }), "Failed", { sentence: "Go test timed out.", details: [], isFailure: true }],
+    ["a failure", task({ phase: "failed", report: "failed", activity: "failed: go test timed out" }), "Failed", { sentence: "", details: ["Go test timed out."], isFailure: true }],
   ];
   for (const [name, item, status, said] of cases) assert.deepEqual(taskSummary(item, [item], status), said, name);
 });

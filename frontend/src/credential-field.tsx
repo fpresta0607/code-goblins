@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { Icon } from "./Icon";
+import { ClickFeedback } from "./click-feedback";
 
 const DOT = "•";
 
@@ -80,6 +80,6 @@ export function CredentialField({ label, onValue }: { label: string; onValue: (v
 
   return <>
     <input ref={field} className="credential-input" type="text" autoComplete="off" spellCheck={false} autoCapitalize="off" autoCorrect="off" data-1p-ignore="" data-lpignore="true" aria-label={label} />
-    {refused && <small className="credential-note warning-text"><Icon name="warning" />That paste held only a value field's dots, not a value: copy the value again from where it came from</small>}
+    <ClickFeedback text={refused ? "That paste was the hidden dots, not the value." : ""} />
   </>;
 }

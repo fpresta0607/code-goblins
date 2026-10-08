@@ -3,6 +3,7 @@ import { Avatar } from "./Avatar";
 import { afkTime, stillHeld, switchedBy, type Occasion } from "./afk";
 import type { Afk } from "./types";
 import "./afk.css";
+import { ClickFeedback } from "./click-feedback";
 
 // What the board offers the moment the Overlord is back while AFK mode is on,
 // or at his first click or key after the CFO turned it on at his ask, which
@@ -28,7 +29,7 @@ export function AfkOffer({ afk, occasion, now, pending, problem, onTurnOff, onSt
     <Avatar persona="cfo" />
     <h2 id={title}>{occasion === "asked" ? "The CFO turned AFK on" : "Welcome back"}</h2>
     <p id={description}>AFK has been on since {afkTime(afk.since, now)}{who && ", turned on " + who}. The CFO decided {afk.decided} and holds {held} for you.</p>
-    {problem && <p className="task-action-problem" role="alert">{problem}</p>}
+    <ClickFeedback text={problem} />
     <div className="stop-task-choices">
       <button className="primary" disabled={pending} onClick={onTurnOff}>Turn AFK off</button>
       <button onClick={onStay}>Stay AFK</button>

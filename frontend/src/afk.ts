@@ -95,10 +95,6 @@ export function afkLine(afk: Afk, now: number, zone?: string, locale?: string): 
   return "AFK since " + afkTime(afk.since, now, zone, locale) + (who ? ", " + who : "") + ". " + afk.decided + " decided, " + stillHeld(afk).length + " held for you.";
 }
 
-// UNREADABLE is what the CFO panel's header says under its toggle while the
-// switch cannot be read. Such a switch is never taken for on, so the board
-// prompts him as usual, and his press on the toggle puts it back to off.
-export const UNREADABLE = "AFK's switch cannot be read, so nothing is decided for you. Press the toggle to reset it.";
 
 // heldWho names whose a held item is: the goblin's, or the CFO's own.
 export const heldWho = (held: AfkHeld): string => held.task || "CFO";

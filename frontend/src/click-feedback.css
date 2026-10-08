@@ -1,0 +1,5 @@
+/* Feedback on his own click: a few muted words beside what he clicked, in
+   the waiting amber, that go by themselves. */
+.click-feedback { display: inline-block; max-width: 100%; color: #e7d3a3; font-size: 1rem; line-height: 1.4; overflow-wrap: anywhere; }
+/* Under the panel row's end, over what is below it. */
+.window-feedback { position: absolute; top: calc(100% + 6px); right: 0; z-index: 4; width: max-content; max-width: min(360px, 80vw); padding: 6px 10px; border: 1px solid var(--glass-border); border-radius: 10px; background: var(--field-bg); box-shadow: var(--glass-shadow); }

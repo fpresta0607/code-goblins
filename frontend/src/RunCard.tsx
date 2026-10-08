@@ -9,6 +9,7 @@ import { runMark } from "./feedback";
 import { runLabel, shellLabel, shellMark } from "./connectors";
 import { age } from "./presentation";
 import { personaFor } from "./workflow";
+import { ClickFeedback, useClickFeedback } from "./click-feedback";
 
 // A command the CFO, or a goblin, needs the Overlord to run: who asks when it
 // is a goblin's own, why, the shell, the exact text that runs and where, one
@@ -19,6 +20,8 @@ import { personaFor } from "./workflow";
 // names the stored item.
 const OUTPUT_READ_MS = 1000;
 export function RunCard({ run, goblin, connected, sending, error, onRun, pager }: { run: Run; goblin?: Task; connected: boolean; sending: boolean; error: string; onRun: () => void; pager?: ReactNode }) {
+  const [feedback, showFeedback] = useClickFeedback();
+  useEffect(() => { if (error) showFeedback(error); }, [error, showFeedback]);
   const [copied, setCopied] = useState(false);
   const [printed, setPrinted] = useState("");
   const screen = useRef<HTMLPreElement>(null);
@@ -58,9 +61,9 @@ export function RunCard({ run, goblin, connected, sending, error, onRun, pager }
       <button type="button" className="icon-button" aria-label="Copy command" data-tip={copied ? "Copied" : "Copy command"} data-tip-align="end" onClick={copy}><Icon name={copied ? "check" : "copy"} /></button>
     </div>
     {run.cwd && <p className="run-cwd"><Icon name="folder" /><span>{run.cwd}</span></p>}
-    {run.reason && <p className={mark.trouble ? "warning-text" : "muted"}>{run.reason}</p>}
-    {error && <p className="warning-text" role="alert">{error}</p>}
+    {run.reason && !mark.trouble && <p className="muted">{run.reason}</p>}
     {(run.state === "ready" || pager) && <div className="card-actions">
+      <ClickFeedback text={feedback} />
       {pager}
       {run.state === "ready" && <>
         {run.admin && <small className="muted">Windows will ask you to confirm.</small>}

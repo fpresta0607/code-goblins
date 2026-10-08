@@ -25,7 +25,6 @@
 @media (prefers-reduced-motion: reduce) { .afk-toggle-track, .afk-toggle-thumb { transition: none; } }
 /* A refusal, or a switch that cannot be read, takes a row of its own under
    the header. */
-.afk-problem { flex: 1 0 100%; margin: 0; color: var(--amber); overflow-wrap: anywhere; }
 
 /* The CFO's bar lists what is held under its line while AFK mode is on. */
 .cfo-rest { flex-wrap: wrap; container-type: inline-size; }

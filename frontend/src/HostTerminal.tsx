@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import "@xterm/xterm/css/xterm.css";
+import { reportToCfo } from "./api";
 import { Icon } from "./Icon";
 import { closedReason, reconnects, storedFontSize, storeFontSize } from "./terminalStream";
 import { TerminalView } from "./terminalView";
@@ -31,7 +32,6 @@ export function HostTerminal({ query, harness, label, instance, visible, shown, 
   const retries = useRef(0);
   const [phase, setPhase] = useState<"connecting" | "live" | "closed">("connecting");
   const [reconnecting, setReconnecting] = useState(false);
-  const [reason, setReason] = useState("");
   const [attempt, setAttempt] = useState(0);
   const [copied, setCopied] = useState(false);
   const [hasScreen, setHasScreen] = useState(false);
@@ -84,7 +84,7 @@ export function HostTerminal({ query, harness, label, instance, visible, shown, 
           retry = setTimeout(() => setAttempt((prior) => prior + 1), 400 * retries.current);
           return;
         }
-        setReason(closedReason(code, why));
+        if (why) reportToCfo("a goblin's terminal", closedReason(code, why));
         setReconnecting(false);
         setPhase("closed");
       },
@@ -112,9 +112,9 @@ export function HostTerminal({ query, harness, label, instance, visible, shown, 
     <div className="terminal-surface" ref={surface} />
     {phase === "connecting" && <div className="terminal-cover" role="status"><span className="terminal-spinner" aria-hidden="true" /><p>Connecting to the terminal</p></div>}
     {phase === "live" && (reconnecting || !visible) && <span className="terminal-state terminal-reconnecting" role="status"><span className="status-dot" />Reconnecting</span>}
-    {phase === "closed" && <div className={hasScreen ? "terminal-closed" : "terminal-cover"} role="status"><Icon name="terminal" /><p>{reason}</p><button className="primary" disabled={!visible} onClick={() => { retries.current = 0; setPhase(current.current ? "live" : "connecting"); setReconnecting(!!current.current); setAttempt((prior) => prior + 1); }}>Reconnect</button></div>}
+    {phase === "closed" && <div className={hasScreen ? "terminal-closed" : "terminal-cover"} role="status"><Icon name="terminal" /><button className="primary" disabled={!visible} onClick={() => { retries.current = 0; setPhase(current.current ? "live" : "connecting"); setReconnecting(!!current.current); setAttempt((prior) => prior + 1); }}>Reconnect</button></div>}
     {copied && <span className="terminal-state terminal-copied" role="status">Copied</span>}
     <VoiceBubble voice={voice} listening={dictation.listening} level={dictation.level} model={dictation.model} onPaste={(text) => { current.current?.paste(text); current.current?.focus(); }} />
-    {dictation.note && <p className="terminal-error" role="status">{dictation.note}</p>}
+    {dictation.note && <p className="terminal-note" role="status">{dictation.note}</p>}
   </section>;
 }

@@ -3,12 +3,12 @@ import type { BoardActivity, Snapshot, Task } from "./types";
 import { Avatar } from "./Avatar";
 import { ConnectorMark } from "./ConnectorMark";
 import { Icon } from "./Icon";
-import { clockText, stalledText } from "./cards";
+import { clockText } from "./cards";
 import { harnessMark } from "./connectors";
 import type { NextUp } from "./start";
 import { TaskControls } from "./task-controls";
 import { asksOverlord, harnessName, harnessTip, nodeStatus, personaFor, pullRequestIcon, pullRequestLabel, safePullRequest, statusPhase, taskColumn } from "./workflow";
-import { pausedWithParent, pauseStatus, plainText, teardownSentence, withoutHarness } from "./task-words";
+import { pausedWithParent, pauseStatus, plainText, withoutHarness } from "./task-words";
 import { TicketLink } from "./ticket-link";
 import { SameAreaAvatars } from "./same-area-avatars";
 import { HostedChecksLink } from "./hosted-checks-link";
@@ -31,10 +31,10 @@ import { formatMemory, summarize } from "./fleet-tree";
 // on is named in its status line only. A queued
 // task says nothing of what it waits for, whose note is in its panel behind
 // More; a paused or finished task shows when, and its status says what: a
-// paused one, in place of Paused, why it waits and what resumes it. A live
-// goblin past the threshold without progress says for how long. next marks
-// the one card the order for a free slot takes first.
-export interface CardStart { blocked: string; problem: string; onStart: (source: HTMLElement) => void }
+// paused one, in place of Paused, why it waits and what resumes it. A goblin
+// gone quiet, and windows still closing, are the CFO's to hear, never warnings
+// on the card. next marks the one card the order for a free slot takes first.
+export interface CardStart { blocked: string; onStart: (source: HTMLElement) => Promise<string> }
 export function TaskCard({ task, snapshot, selected, presentations, now, rank, next, start, onSelect, onTerminal }: {
   task: Task; snapshot: Snapshot; selected: boolean; presentations: BoardActivity[]; now: number; rank?: string;
   next?: NextUp; start?: CardStart;
@@ -58,7 +58,6 @@ export function TaskCard({ task, snapshot, selected, presentations, now, rank, n
   const clockBadge = clock && <span className="card-clock"><Icon name="clock" /><span className="sr-only">{waiting ? "Waiting for" : "Running for"} </span>{clock}</span>;
   const ended = (column === "Paused" || column === "Completed") && task.at ? new Date(task.at) : null;
   const status = statusPhase(task) === "paused" ? pauseStatus(task.lifecycle?.pause, snapshot.tasks, snapshot.ci_durations, pausedWithParent(task, snapshot.tasks)) : nodeStatus({ id: task.id, title: task.title, task, relation: "" }, asking);
-  const stalled = stalledText(task, now);
   const parent = task.parent && snapshot.tasks.find((other) => other.id === task.parent);
   const parentName = parent ? withoutHarness(parent.title) || parent.id : task.parent;
   // What runs under a live goblin, as baby goblins with a count each.
@@ -69,14 +68,12 @@ export function TaskCard({ task, snapshot, selected, presentations, now, rank, n
       {rank && <span className="sr-only">, {rank}</span>}
       <span className="card-meta">{task.project && <span className="card-repo">{task.project}</span>}<span className={"plain-status phase-" + statusPhase(task) + (task.archived && task.phase !== "stopped" ? " pr-" + icon : "")}><span className="status-dot" /><span className="card-status-text">{status}</span></span>{clockBadge}{ended && Number.isFinite(ended.getTime()) && <span className="card-clock"><Icon name="clock" /><time dateTime={task.at}>{ended.toLocaleString(undefined, { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" })}</time></span>}</span>
       {parentName && <span className="card-secondary">Helper of {parentName}</span>}
-      {stalled && <span className="card-stalled"><Icon name="warning" />{stalled}</span>}
       {kinds.length > 0 && <span className="card-tree">{kinds.map(([baby, count]) => <span key={baby} className="tree-tally"><BabyGoblin baby={baby} small />{count}</span>)}{task.tree && formatMemory(task.tree.memory)}</span>}
       {task.pending_engine?.when === "update"
         ? <span className="card-secondary">{task.switching ? "Updating " + harnessName(task.harness) + "..." : "Updates " + harnessName(task.harness) + " at its next stopping point"}</span>
         : task.pending_engine && <span className="card-secondary">{task.pending_engine.when === "resume" ? "Resume with" : "Pending:"} {task.pending_engine.model} {task.pending_engine.effort}</span>}
       {task.switching && task.pending_engine?.when !== "update" && <span className="card-secondary">Switching engine...</span>}
       {column === "Completed" && task.phase === "stopped" && task.reason && <span className="card-secondary">{plainText(task.reason)}</span>}
-      {task.teardown.length > 0 && <span className="windows-teardown">{teardownSentence(task.teardown)}</span>}
     </span>
   </>;
   const terminal = !!task.generation && column === "In progress" && <button className="icon-button raised card-terminal" aria-label={"Open the terminal of " + name} data-tip="Terminal" data-tip-align="end" onClick={(event) => onTerminal(task, event.currentTarget)}><Icon name="terminal" /></button>;
