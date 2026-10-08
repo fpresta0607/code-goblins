@@ -300,6 +300,10 @@ A click or key on the board after five minutes with none, counted from when AFK 
 When the CFO turned it on at his ask, his first click or key since the switch brings the same offer at once, titled The CFO turned AFK on, so a switch made on his words meets him before anything else; his next waits five minutes as usual.
 The offer says who turned it on, with his words when the CFO did at his ask, and takes the focus itself, so keys he was typing press neither button, and Escape stays.
 When AFK mode turns off while the page is open, the report of the stretch opens as one page over the board, read from `GET /api/afk/report`: who turned it on and off, how many of each thing there is, what was held with what was recommended for it and what became of it as it stands now, which he reads first, then each heading that holds something with its rows, each row linking to what it names when that is an https link and folding its evidence to two lines with Show more, then what each goblin finished and what was spent.
+His own off from the board's toggle or offer shows the report as soon as the supervisor answers, since the supervisor keeps the report before it answers, and the snapshot after it brings no second one.
+Spent draws each allowance used as its provider's mark, its name and a small bar of the percent used, with a red arrow where it stood when AFK turned off and a hollow red arrow where it stood when it turned on, the stretch used between them red on the bar, and credits as what was spent of them.
+With nothing used there is no Spent.
+Its one button at the bottom is Open Command Center while anything it held still waits on him, and Back to the board otherwise.
 An answer is named by its goblin, since the log keeps a question's id.
 Selecting a card or node opens the same goblin panel from either view: a header with the goblin, its plain status and icon actions, then a Terminal view and a Task view one tap apart on a pill at its top, Terminal first.
 The CFO's header carries the toggle of AFK mode beside its status, in the Task view and the Terminal view alike: a small switch labelled AFK, in the board's green while it is on.
@@ -1248,7 +1252,11 @@ This proof says who asks and nothing of whose words those are: the CFO quotes th
 `AGENTS.md` holds that part, and the record shows him what it was switched for.
 His own switch, from the board or a terminal of his own, turns it either way whoever made the last one.
 
-Turning it on reads the allowance from `quota-axi`, writes the log line before the switch, and puts a `review` notice keyed `afk` in the CFO's wake queue; turning it off keeps the report first, so a stretch never ends without one, and the notice tells the CFO to write it into its terminal.
+Turning it on keeps the allowance, writes the log line before the switch, and puts a `review` notice keyed `afk` in the CFO's wake queue; turning it off keeps the report first, so a stretch never ends without one, and the notice tells the CFO to write it into its terminal.
+A switch waits on no program: the allowance it keeps is the supervisor's last reading of each provider from the `quota-axi` reads it already makes once a minute and on each fleet pass, and a provider's reading older than an hour is none.
+On 2026-10-08 the switch's own read held each turn of AFK mode for up to 20 seconds, and the report opened every status log the home and its archive held, which held turning it off for up to a minute on this machine.
+The report now opens only the status logs written since the stretch began, by the time the folder listing gives and the time an archived log's name ends with.
+Turning it on removes the report of the stretch before, from `state/afk-report.json` and from what the board's view kept of that stretch's log, so reports never pile up.
 The adversary this proof names is an agent that follows its contract and tries the command, the pipe or a wrapper around either.
 A process of the same Windows user that writes `state/afk.json` itself is the boundary the board's other items already have.
 
@@ -1268,7 +1276,9 @@ Its `state` is `off`, `on`, or `unreadable` for a switch that cannot be read, wh
 While it is on it carries `since` and `from`, `asked` (his words, for a switch the CFO made at his ask), `decided` (how many decisions the log holds for the stretch) and `held`: each item the log holds for him in the stretch, with whether it still waits on him, what became of it, its goblin's latest report since and `recommendation`, the choice a held question's asker recommended, empty for none.
 While it is off it carries `report`, the last stretch that ended, whose report is kept.
 The log's file and each held goblin's status log are read for a snapshot only when they have changed since the last one, and a log that cannot be read is said as the snapshot's error.
-`GET /api/afk/report` is that report as the board's page reads it: `{"found": false}` while no stretch has ended, and otherwise who turned it on and off (`from` and `ended_from`, with his words in `asked` and `ended_asked` for a switch the CFO made), its decisions under the headings `cfo afk report` prints, what each goblin finished, what was held with what became of each item as it stands now, how long it lasted and what was spent in the same words, with every list present.
+`GET /api/afk/report` is that report as the board's page reads it: `{"found": false}` while no stretch has ended, and otherwise who turned it on and off (`from` and `ended_from`, with his words in `asked` and `ended_asked` for a switch the CFO made), its decisions under the headings `cfo afk report` prints, what each goblin finished, what was held with what became of each item as it stands now, how long it lasted and what was spent, with every list present.
+`spent` holds each allowance used: `provider` and `window`, the percent used when it turned on and when it turned off as `on` and `off`, each absent for a reading not taken, and `reset` when the window reset in between, or for a credit balance `credits` with what was `spent` of it in `unit`.
+A window at 0% wherever it was read is left out, and so is a credit balance not read at both ends or that did not fall, in the page and in the text alike.
 The page and the text list what is held for him first, then what the CFO decided.
 
 `cfo afk log`, `cfo pr merge` and `cfo answer` send a decision as `afk-log`, which the supervisor writes only for a process it proves runs under the registered CFO, the proof a question takes, and only while AFK mode is on.
