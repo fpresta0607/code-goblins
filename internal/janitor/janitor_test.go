@@ -3,6 +3,7 @@ package janitor
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"fmt"
 	"os"
 	"os/exec"
@@ -14,6 +15,7 @@ import (
 	"github.com/fpresta0607/code-goblins/internal/execx"
 	"github.com/fpresta0607/code-goblins/internal/fleetconfig"
 	"github.com/fpresta0607/code-goblins/internal/home"
+	"github.com/fpresta0607/code-goblins/internal/host"
 	"github.com/fpresta0607/code-goblins/internal/reap"
 	"github.com/fpresta0607/code-goblins/internal/state"
 )
@@ -115,6 +117,108 @@ func TestSweepRemovesACleanExtraWorktreeWhoseWorkIsOnTheDefaultBranch(t *testing
 	}
 	if listed := gitIn(t, f.project, "worktree", "list"); strings.Contains(listed, "gone-task-proof") {
 		t.Errorf("the project still registers it:\n%s", listed)
+	}
+}
+
+// A home whose heavy folders moved to a Dev Drive has orphans in both places:
+// new worktrees on the drive and those of tasks made before the move in the
+// home's own folder. The janitor returns both, as it does in a home that never
+// moved, and takes a finished task's scratch from either.
+func TestSweepTidiesBothFoldersOfAHomeOnADevDrive(t *testing.T) {
+	// Arrange
+	f := newSweepFixture(t)
+	f.home.DevDrive = filepath.Join(t.TempDir(), "CodeGoblins")
+	onDrive := f.worktree(t, "gone-task-proof")
+	inHome := filepath.Join(f.home.Root, "worktrees", "app", "older-task-proof")
+	gitIn(t, f.project, "worktree", "add", "-q", "--detach", inHome, "origin/main")
+	beforeMove := reap.WorktreeDir{Path: inHome, Project: f.project, TaskID: "older-task-proof", Registration: reap.RegistrationListed, Created: f.now.Add(-2 * time.Hour)}
+	deadScratch := []string{folder(t, filepath.Join(f.home.Scratch(), "gone-task"), true), folder(t, filepath.Join(f.home.Root, "scratch", "older-task"), true)}
+	liveScratch := []string{folder(t, filepath.Join(f.home.Scratch(), "live"), true), folder(t, filepath.Join(f.home.Root, "scratch", "live-before"), true)}
+	cfg := f.config(reap.Inventory{
+		Worktrees: []reap.WorktreeDir{onDrive, beforeMove},
+		Tasks:     []reap.Task{{ID: "live", Meta: state.TaskMeta{ID: "live"}}, {ID: "live-before", Meta: state.TaskMeta{ID: "live-before"}}},
+		Processes: []reap.Process{selfProcess(t)},
+	})
+	cfg.TempDir = t.TempDir()
+
+	// Act
+	record := Sweep(context.Background(), cfg)
+
+	// Assert
+	for _, gone := range append([]string{onDrive.Path, inHome}, deadScratch...) {
+		if _, err := os.Stat(gone); !os.IsNotExist(err) {
+			t.Errorf("%s survived: %v; kept %+v notes %v", gone, err, record.Kept, record.Notes)
+		}
+	}
+	for _, kept := range liveScratch {
+		if _, err := os.Stat(kept); err != nil {
+			t.Errorf("a live task's scratch %s was removed: %v", kept, err)
+		}
+	}
+}
+
+// Once a home's caches moved to a Dev Drive, its own package caches are used
+// only by goblin terminals started before the move, which took their cache
+// variables when they started: the janitor keeps them while one runs, then
+// removes them, and never the voice model, which stays in the home.
+func TestSweepRetiresTheHomesOwnCachesOnceNoTerminalFromBeforeTheMoveRuns(t *testing.T) {
+	for name, test := range map[string]struct {
+		started time.Duration
+		retired bool
+	}{
+		"a terminal started before the move still runs": {-2 * time.Hour, false},
+		"every terminal started after the move":         {time.Minute, true},
+	} {
+		t.Run(name, func(t *testing.T) {
+			// Arrange
+			f := newSweepFixture(t)
+			f.home.DevDrive = filepath.Join(t.TempDir(), "CodeGoblins")
+			moved := f.now.Add(-time.Hour)
+			if err := home.WriteDevDriveConfig(f.home.Root, home.DevDriveConfig{Root: f.home.DevDrive, MovedAt: moved}); err != nil {
+				t.Fatal(err)
+			}
+			old := filepath.Join(f.home.Root, "caches")
+			goBuild := folder(t, filepath.Join(old, "go-build", "00"), true)
+			npm := folder(t, filepath.Join(old, "npm", "_cacache"), true)
+			voice := folder(t, filepath.Join(old, "voice", "model"), true)
+			terminal := reap.Process{PID: 4242, CommandLine: `"C:\cg\cfo.exe" host --id goblin`, Start: moved.Add(test.started)}
+			writeHostRecord(t, f.home.State, "goblin", terminal.PID, terminal.Start)
+			cfg := f.config(reap.Inventory{
+				Tasks:     []reap.Task{{ID: "goblin", Meta: state.TaskMeta{ID: "goblin", Backend: "native"}}},
+				Processes: []reap.Process{selfProcess(t), terminal},
+			})
+			cfg.TempDir = t.TempDir()
+
+			// Act
+			record := Sweep(context.Background(), cfg)
+
+			// Assert
+			for _, cache := range []string{goBuild, npm} {
+				if _, err := os.Stat(cache); os.IsNotExist(err) != test.retired {
+					t.Errorf("%s exists = %v, want retired %v; kept %+v removed %+v", cache, err == nil, test.retired, record.Kept, record.Removed)
+				}
+			}
+			if _, err := os.Stat(voice); err != nil {
+				t.Errorf("the voice model was removed: %v", err)
+			}
+			if _, kept := has(record.Kept, old); kept == test.retired {
+				t.Errorf("kept %+v; want the old caches kept only while goblin's terminal runs", record.Kept)
+			}
+		})
+	}
+}
+
+func writeHostRecord(t *testing.T, stateDir, id string, pid int, started time.Time) {
+	t.Helper()
+	data, err := json.Marshal(host.Record{ID: id, Pipe: `\\.\pipe\cfo-test-` + id, Token: "token", Version: 1, HostPID: pid, Started: started})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(stateDir, "hosts"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(stateDir, "hosts", id+".json"), data, 0o600); err != nil {
+		t.Fatal(err)
 	}
 }
 

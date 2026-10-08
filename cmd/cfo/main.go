@@ -16,6 +16,7 @@ import (
 
 	"github.com/fpresta0607/code-goblins/internal/afk"
 	"github.com/fpresta0607/code-goblins/internal/auth"
+	"github.com/fpresta0607/code-goblins/internal/devdrive"
 	"github.com/fpresta0607/code-goblins/internal/digest"
 	"github.com/fpresta0607/code-goblins/internal/execx"
 	"github.com/fpresta0607/code-goblins/internal/fleet"
@@ -64,6 +65,7 @@ commands:
   install   wire the CFO home into the machine (CFO_HOME, PATH, and the Claude Code hooks in your user settings) so a session in any repo is supervised: from any folder, a checkout included, it sets up %LOCALAPPDATA%\CodeGoblins from this binary (the CFO's contract, the default policy, the binary as bin\cfo.exe and bin\goblins.exe, the skills once in ~\.agents\skills with a junction from Claude Code's skills folder, and state\harnesses.json naming where each harness keeps its configuration); --projects-root <dir> records the folder that holds your checkouts so --project can take a bare name; --uninstall reverses the wiring, the board's native hooks, the Start-menu shortcut and the skills it installed included, and keeps the home's files
   uninstall the same as install --uninstall
   home      migrate [--apply --plan <digest>] [--memory-from <dir>]: lay out a home whose data predates the layout; without --apply a dry run that lists every file it would move, create or change, proves none is dropped and prints the plan digest --apply --plan makes; move [--to <dir>] [--apply --plan <digest>]: move an older build's home, such as a checkout, to the per-user home, with the same dry run, digest and read-back
+  dev-drive say whether the home's worktrees, scratch and package caches are on a Dev Drive, a drive Windows 11 formats for developer work that Defender scans in performance mode (not an exclusion), whether this machine has or can have one, and why not; move --to <folder>: put new goblins' worktrees, scratch and caches in <folder> on a trusted Dev Drive, keeping every started goblin's folders where they are
   doctor    check the tools cfo needs (git, gh, claude, herdr, codex, pi, tasks-axi, quota-axi, no-mistakes, gh-axi, chrome-devtools-axi)
   pipeline  config-drift | config-apply | migrate <id> | run <id> [--branch <b>] --intent <text> | respond <id> [--branch <b> | --run <run>] --action <fix|approve> [--findings <ids>] [--instructions <text>] | recover <id> [--branch <b> | --run <run>]; --branch or --run acts in whichever of the task's worktrees, an extra one included, has that branch checked out
   drain     print or acknowledge the wake queue and recovery episode
@@ -198,6 +200,9 @@ type commandRuntime struct {
 	// names resolved: refused where a checkout is needed, a literal scope
 	// where a credential scope is.
 	projectsRoot func() (string, error)
+	// readDevDrive reads what this machine says about Dev Drives, for cfo
+	// dev-drive and cfo doctor.
+	readDevDrive func(context.Context) (devdrive.Machine, error)
 	// repoActivity reads what GitHub says is happening in the repository a
 	// checkout's origin names, for cfo tickets.
 	repoActivity func(ctx context.Context, checkout string, now time.Time) (tickets.Activity, error)
@@ -251,7 +256,7 @@ func defaultCommandRuntime() commandRuntime {
 			service := spawn.Service{
 				Worktrees:    worktree.Service{Commands: commands, DataDir: h.Data, Root: h.Worktrees()},
 				Harness:      harness.DefaultRegistry(),
-				Auth:         auth.SpawnPreflight{DataDir: h.Data, Home: h.Root, Runner: commands},
+				Auth:         auth.SpawnPreflight{DataDir: h.Data, Caches: h.Caches(), Runner: commands},
 				Commands:     commands,
 				HomeRoot:     h.Root,
 				StateDir:     h.State,
@@ -270,7 +275,7 @@ func defaultCommandRuntime() commandRuntime {
 					if err != nil {
 						return fmt.Errorf("spawn: free disk cannot be read, so nothing starts: %w", err)
 					}
-					return supervisor.CheckLaunch(h, memory, disk)
+					return supervisor.CheckLaunch(memory, disk)
 				},
 			}
 			return service.Spawn(ctx, request)
@@ -284,7 +289,7 @@ func defaultCommandRuntime() commandRuntime {
 			service := spawn.Service{
 				Worktrees:    worktree.Service{Commands: commands, DataDir: h.Data, Root: h.Worktrees()},
 				Harness:      harness.DefaultRegistry(),
-				Auth:         auth.SpawnPreflight{DataDir: h.Data, Home: h.Root, Runner: commands},
+				Auth:         auth.SpawnPreflight{DataDir: h.Data, Caches: h.Caches(), Runner: commands},
 				Commands:     commands,
 				HomeRoot:     h.Root,
 				StateDir:     h.State,
@@ -351,6 +356,7 @@ func defaultCommandRuntime() commandRuntime {
 		},
 		quota:        quota.Reader{Commands: execx.OSRunner{}}.Read,
 		projectsRoot: install.MachineProjectsRoot,
+		readDevDrive: func(ctx context.Context) (devdrive.Machine, error) { return devdrive.Read(ctx, execx.OSRunner{}) },
 		goblins:      invokedAsGoblins(),
 		startServe:   startDetachedServe,
 		openURL:      openInBrowser,
@@ -376,7 +382,7 @@ func defaultCommandRuntime() commandRuntime {
 			if err != nil {
 				return fmt.Errorf("free disk cannot be read, so nothing comes back: %w", err)
 			}
-			return supervisor.CheckLaunch(h, memory, disk)
+			return supervisor.CheckLaunch(memory, disk)
 		},
 		setupAgent:      setupAgent,
 		choose:          onboarding.AskConsole,
@@ -465,6 +471,8 @@ func runWithRuntime(args []string, stdout, stderr io.Writer, runtime commandRunt
 		return runInstall(append([]string{"--uninstall"}, args[1:]...), stdout, stderr)
 	case "doctor":
 		return runDoctor(stdout, runtime)
+	case "dev-drive":
+		return runDevDrive(args[1:], stdout, stderr, runtime)
 	case "home":
 		return runHome(args[1:], stdout, stderr)
 	case "pipeline":

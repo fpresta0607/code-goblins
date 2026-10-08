@@ -140,7 +140,7 @@ func (h *HTTP) lifecycleTask(w http.ResponseWriter, r *http.Request) {
 				apiError(w, 409, "Resume needs the free disk read, and it could not be: "+err.Error())
 				return
 			}
-			if err := CheckLaunch(s.Store.Home, memory, disk); err != nil {
+			if err := CheckLaunch(memory, disk); err != nil {
 				apiError(w, 409, err.Error())
 				return
 			}

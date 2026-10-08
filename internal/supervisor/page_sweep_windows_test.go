@@ -2,6 +2,7 @@ package supervisor
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"path/filepath"
 	"slices"
@@ -51,6 +52,9 @@ func (f *fakeScrawl) poll(_ context.Context, page, reply string, _ time.Duration
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.polled = append(f.polled, page)
+	if err := pageExists(page); err != nil {
+		return axi.PagePoll{}, err
+	}
 	if reply != "" {
 		f.replies[page] = append(f.replies[page], reply)
 	}
@@ -69,8 +73,20 @@ func (f *fakeScrawl) end(_ context.Context, page string) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.ended = append(f.ended, page)
+	if err := pageExists(page); err != nil {
+		return err
+	}
 	if session := f.sessions[page]; session.Status != "ended" {
 		session.Status, session.EndedBy = "ended", "agent"
+	}
+	return nil
+}
+
+// pageExists fails as lavish-axi does for a page whose file is gone: it
+// resolves the page's real path first.
+func pageExists(page string) error {
+	if _, err := os.Stat(page); err != nil {
+		return fmt.Errorf("lavish-axi exited 1: ENOENT: no such file or directory, realpath '%s'", page)
 	}
 	return nil
 }
@@ -151,6 +167,7 @@ func TestASweepDeliversARetiredGoblinsUnreadFeedbackToTheCFOOnce(t *testing.T) {
 func TestASweepEndsOnlyTheOpenPagesOfRetiredGoblins(t *testing.T) {
 	// Arrange
 	store, h := testStore(t)
+	store.Home.DevDrive = filepath.Join(t.TempDir(), "CodeGoblins")
 	scrawl := newFakeScrawl()
 	retire(t, h.State, "task-2")
 	presented := writePage(t, filepath.Join(h.Root, "elsewhere", "presented.html"))
@@ -165,7 +182,7 @@ func TestASweepEndsOnlyTheOpenPagesOfRetiredGoblins(t *testing.T) {
 	if err := os.MkdirAll(filepath.Join(h.State, state.ArchiveDirName, "task-3.20261006T120000Z"), 0o700); err != nil {
 		t.Fatal(err)
 	}
-	for _, id := range []string{"task-4", "task-5"} {
+	for _, id := range []string{"task-4", "task-5", "task-6"} {
 		if err := state.AppendStatus(h.State, id, "done: PR https://github.com/example/repo/pull/4"); err != nil {
 			t.Fatal(err)
 		}
@@ -174,8 +191,9 @@ func TestASweepEndsOnlyTheOpenPagesOfRetiredGoblins(t *testing.T) {
 	inOldWorktree := writePage(t, filepath.Join(h.Root, "project", ".worktrees", "gb-task-3", ".lavish", "plan.html"))
 	inTaskScratch := writePage(t, filepath.Join(h.State, "tasktmp", "task-4", "scrawl", "index.html"))
 	inHomeWorktree := writePage(t, filepath.Join(h.Root, "worktrees", "project", "task-5", ".lavish", "plan.html"))
+	inDevDriveWorktree := writePage(t, filepath.Join(store.Home.DevDrive, "worktrees", "project", "task-6", ".lavish", "plan.html"))
 	watched := writePage(t, filepath.Join(h.Data, "task-1", "watched.html"))
-	for _, page := range []string{presented, inData, inOldWorktree, inTaskScratch, inHomeWorktree, writePage(t, filepath.Join(h.Data, "task-1", "review.html")), filepath.Join(h.Root, ".lavish", "cfo.html"), writePage(t, filepath.Join(h.Data, "research", "plan.html")), writePage(t, filepath.Join(t.TempDir(), "notes.html"))} {
+	for _, page := range []string{presented, inData, inOldWorktree, inTaskScratch, inHomeWorktree, inDevDriveWorktree, writePage(t, filepath.Join(h.Data, "task-1", "review.html")), filepath.Join(h.Root, ".lavish", "cfo.html"), writePage(t, filepath.Join(h.Data, "research", "plan.html")), writePage(t, filepath.Join(t.TempDir(), "notes.html"))} {
 		scrawl.add(page, "open")
 	}
 	ended := writePage(t, filepath.Join(h.Data, "task-2", "old.html"))
@@ -191,7 +209,7 @@ func TestASweepEndsOnlyTheOpenPagesOfRetiredGoblins(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := []string{presented, inData, inOldWorktree, inTaskScratch, inHomeWorktree}
+	want := []string{presented, inData, inOldWorktree, inTaskScratch, inHomeWorktree, inDevDriveWorktree}
 	slices.Sort(want)
 	got := slices.Clone(scrawl.ended)
 	slices.Sort(got)
@@ -263,6 +281,56 @@ func TestASweepHandsUnreadFeedbackToTheGoblinThatStillStands(t *testing.T) {
 			}
 			if len(scrawl.ended) != 0 {
 				t.Errorf("ended %q, want a standing goblin's page left open", scrawl.ended)
+			}
+		})
+	}
+}
+
+// On 2026-10-07 the sweep ran lavish-axi end, every ten minutes, for pages a
+// retired goblin's cleanup had filed away (data/cg-board-ux/mockups/
+// priority.html among them); lavish-axi resolves a page's real path first, so
+// each end failed and the failure filled the board. A session whose page is
+// gone is over: nothing can end it, poll it or show it any more, so the sweep
+// counts it ended and asks lavish-axi nothing about it, and tells the CFO
+// once of anything the Overlord sent there that can no longer be read.
+func TestASweepCountsASessionWhosePageIsGoneAsEnded(t *testing.T) {
+	for name, test := range map[string]struct {
+		isRetired bool
+		prompts   []string
+		wantWakes int
+	}{
+		"a retired goblin's open page":             {isRetired: true},
+		"a retired goblin's page with his prompt":  {isRetired: true, prompts: []string{"Bigger"}, wantWakes: 1},
+		"a standing goblin's page with his prompt": {prompts: []string{"Bigger", "Bolder"}, wantWakes: 1},
+	} {
+		t.Run(name, func(t *testing.T) {
+			// Arrange
+			store, h := testStore(t)
+			if test.isRetired {
+				retire(t, h.State, "task-1")
+			}
+			page := filepath.Join(h.Data, "task-1", "mockups", "priority.html")
+			scrawl := newFakeScrawl()
+			scrawl.add(page, "open", test.prompts...)
+			s := sweeper(store, scrawl, nil)
+
+			// Act
+			first := s.sweepSessions(context.Background())
+			second := s.sweepSessions(context.Background())
+
+			// Assert
+			if first != nil || second != nil {
+				t.Fatalf("sweeps over a gone page failed: %v; %v", first, second)
+			}
+			if len(scrawl.ended) != 0 || len(scrawl.polled) != 0 {
+				t.Fatalf("ended %q and polled %q, want lavish-axi asked nothing about a gone page", scrawl.ended, scrawl.polled)
+			}
+			wakes := reviewWakes(t, h.State, "task-1")
+			if len(wakes) != test.wantWakes {
+				t.Fatalf("review wakes = %+v, want %d", wakes, test.wantWakes)
+			}
+			if test.wantWakes > 0 && (!strings.Contains(wakes[0].Detail, page) || !strings.Contains(wakes[0].Detail, fmt.Sprintf("%d prompt", len(test.prompts)))) {
+				t.Fatalf("review wake %q does not name the gone page and what waited on it", wakes[0].Detail)
 			}
 		})
 	}

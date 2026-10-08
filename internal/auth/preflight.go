@@ -19,10 +19,11 @@ import (
 // an OAuth window or re-authenticate a CLI as a side effect.
 type SpawnPreflight struct {
 	DataDir string
-	// Home is the CFO home root, which owns the shared package-cache store
-	// every goblin builds against. It is separate from DataDir because the
-	// caches are a property of the machine, not of any project's manifest.
-	Home   string
+	// Caches is the home's shared package-cache folder, Home.Caches(), every
+	// goblin builds against: in the home, or on the Dev Drive its heavy
+	// folders moved to. It is separate from DataDir because the caches are a
+	// property of the machine, not of any project's manifest.
+	Caches string
 	Runner execx.Runner
 }
 
@@ -48,7 +49,7 @@ func (p SpawnPreflight) Preflight(ctx context.Context, project string) (Result, 
 	// The caches belong to the machine, so they are prepared before anything
 	// is read about the project: a project that declares no credentials still
 	// builds against the shared store rather than downloading its own copy.
-	caches := CacheEnv(p.Home)
+	caches := CacheEnv(p.Caches)
 	manifest, err := LoadManifest(p.DataDir, project)
 	declared := err == nil
 	if err != nil && !errors.Is(err, fs.ErrNotExist) {
