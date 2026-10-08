@@ -345,23 +345,30 @@ func TestPRHealthLeavesTrainsAndThePullRequestsTheyCarryAlone(t *testing.T) {
 	}
 }
 
-// trainCIRunner answers the CI of a train's pull request as still running
-// and refuses every other call, recording each.
-type trainCIRunner struct{ calls []string }
+// trainCIRunner answers the CI of a train's pull request as still running,
+// after timeouts reads of it time out, and refuses every other call,
+// recording each.
+type trainCIRunner struct {
+	calls    []string
+	timeouts int
+}
 
 func (r *trainCIRunner) Run(_ context.Context, request execx.Request) (execx.Result, error) {
 	r.calls = append(r.calls, request.Name+" "+strings.Join(request.Args, " "))
 	if request.Name == "gh" && len(request.Args) > 1 && request.Args[0] == "pr" && request.Args[1] == "view" {
+		if r.timeouts > 0 {
+			r.timeouts--
+			return execx.Result{}, context.DeadlineExceeded
+		}
 		return execx.Result{Stdout: []byte(`{"state":"OPEN","headRefOid":"abc1234","statusCheckRollup":[{"__typename":"CheckRun","name":"test","status":"IN_PROGRESS"}]}`)}, nil
 	}
 	return execx.Result{ExitCode: 1, Stderr: []byte("unexpected")}, nil
 }
 
-func TestATrainKeepsMovingAfterTheGoblinsOfItsRepositoryLeft(t *testing.T) {
-	// Arrange
-	service, h := fleetService(t)
-	runner := &trainCIRunner{}
-	service.Options.CI = runner
+// runningTrain writes a train testing its pull request in a checkout no
+// goblin works in.
+func runningTrain(t *testing.T, h home.Home) train.Train {
+	t.Helper()
 	running := train.Train{
 		Schema: train.Schema, ID: "r-20261007-160000", Repository: "o/r", Checkout: t.TempDir(), Base: "main", Branch: train.BranchPrefix + "20261007-160000",
 		PR: "https://github.com/o/r/pull/900", State: train.StateTesting, Head: "abc1234", BaseSHA: "1234567", Pushed: time.Now().UTC(), Runs: 1,
@@ -372,9 +379,44 @@ func TestATrainKeepsMovingAfterTheGoblinsOfItsRepositoryLeft(t *testing.T) {
 		t.Fatal(err)
 	}
 	writeFile(t, filepath.Join(train.Dir(h.State), running.ID+".json"), string(data))
+	return running
+}
+
+// A train's CI read that times out under the fleet's load is read again on
+// the next poll, as the train's own count of failed steps allows, and reaches
+// the CFO only once the step failed on three polls in a row.
+func TestATrainsCIReadThatTimesOutIsReportedOnlyOnTheThirdFailingPollInARow(t *testing.T) {
+	// Arrange
+	service, h := fleetService(t)
+	runner := &trainCIRunner{timeouts: 3}
+	service.Options.CI = runner
+	running := runningTrain(t, h)
+	now := time.Now().UTC()
+
+	for poll, shouldReport := range []bool{false, false, true, false} {
+		// Act
+		err := service.checkFleet(context.Background(), now.Add(time.Duration(poll)*ciPollEvery))
+
+		// Assert
+		if (err != nil) != shouldReport {
+			t.Fatalf("poll %d returned %v, want an error only on the third failing poll in a row", poll+1, err)
+		}
+	}
+	kept, err := train.Read(h.State, running.ID)
+	if err != nil || kept.State != train.StateTesting || kept.Errors != 0 {
+		t.Fatalf("train = %+v, %v, want it testing again with no error once its CI read", kept, err)
+	}
+}
+
+func TestATrainKeepsMovingAfterTheGoblinsOfItsRepositoryLeft(t *testing.T) {
+	// Arrange
+	service, h := fleetService(t)
+	runner := &trainCIRunner{}
+	service.Options.CI = runner
+	running := runningTrain(t, h)
 
 	// Act
-	err = service.checkFleet(context.Background(), time.Now())
+	err := service.checkFleet(context.Background(), time.Now())
 
 	// Assert
 	if err != nil {

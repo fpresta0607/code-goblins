@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -954,5 +955,208 @@ func TestOverlapReadForgetsTheCardOfACleanedUpGoblin(t *testing.T) {
 	}
 	if area, ok := w.SameArea[meta.ID]; ok {
 		t.Fatalf("same area = %+v, want nothing kept for a goblin the fleet no longer has", area)
+	}
+}
+
+// pagedGitHub answers the overlap read's GraphQL rounds as GitHub would for a
+// repository with branches branches and pulls open pull requests: the first
+// round's metadata, and a page of each connection a round asks for after the
+// cursor it names, a hundred branches and fifty pull requests at a time. The
+// oldest pull request, #1, is the teammate's that changes the goblin's file.
+// timeouts names the pull request cursors whose page times out, and how many
+// more times it does, and rounds holds what each round asked and its
+// deadline.
+type pagedGitHub struct {
+	*overlapForge
+	branches, pulls int
+	created         time.Time
+	timeouts        map[string]int
+	rounds          []pagedRound
+}
+
+type pagedRound struct {
+	flags, cursors map[string]string
+	deadline       time.Time
+}
+
+func pagedFor(forge *overlapForge, branches, pulls int, created time.Time) *pagedGitHub {
+	return &pagedGitHub{overlapForge: forge, branches: branches, pulls: pulls, created: created, timeouts: map[string]int{}}
+}
+
+func (g *pagedGitHub) Run(ctx context.Context, request execx.Request) (execx.Result, error) {
+	if request.Name != "gh" || !strings.Contains(strings.Join(request.Args, " "), "recentIssues") {
+		return g.overlapForge.Run(ctx, request)
+	}
+	round := pagedRound{flags: map[string]string{}, cursors: map[string]string{}}
+	round.deadline, _ = ctx.Deadline()
+	for i := 0; i+1 < len(request.Args); i++ {
+		name, value, _ := strings.Cut(request.Args[i+1], "=")
+		switch request.Args[i] {
+		case "-F":
+			round.flags[name] = value
+		case "-f":
+			if strings.HasSuffix(name, "After") {
+				round.cursors[name] = value
+			}
+		}
+	}
+	g.rounds = append(g.rounds, round)
+	if cursor := round.cursors["pullsAfter"]; round.flags["pulls"] == "true" && g.timeouts[cursor] > 0 {
+		g.timeouts[cursor]--
+		return execx.Result{}, context.DeadlineExceeded
+	}
+	page := func(cursor, prefix string, size, total int) (int, int, map[string]interface{}) {
+		start := 0
+		if cursor != "" {
+			start, _ = strconv.Atoi(strings.TrimPrefix(cursor, prefix))
+		}
+		end := min(start+size, total)
+		return start, end, map[string]interface{}{"hasNextPage": end < total, "endCursor": fmt.Sprintf("%s%d", prefix, end)}
+	}
+	repository := map[string]interface{}{"nameWithOwner": "o/r"}
+	response := map[string]interface{}{"repository": repository}
+	if round.flags["first"] == "true" {
+		response["viewer"] = map[string]string{"login": "overlord"}
+		repository["defaultBranchRef"] = map[string]interface{}{"name": "main", "target": map[string]interface{}{"oid": "base", "history": map[string]interface{}{"nodes": []interface{}{}}}}
+		repository["recentIssues"] = map[string]interface{}{"nodes": []interface{}{}}
+		repository["recentPullRequests"] = map[string]interface{}{"nodes": []interface{}{}}
+	}
+	if round.flags["issues"] == "true" {
+		repository["issues"] = map[string]interface{}{"pageInfo": map[string]interface{}{"hasNextPage": false}, "nodes": []interface{}{}}
+	}
+	if round.flags["pulls"] == "true" {
+		start, end, info := page(round.cursors["pullsAfter"], "P", 50, g.pulls)
+		var nodes []interface{}
+		for i := start; i < end; i++ {
+			number := g.pulls - i
+			path := fmt.Sprintf("other/file-%d.go", number)
+			if number == 1 {
+				path = "app/retry.go"
+			}
+			nodes = append(nodes, map[string]interface{}{"number": number, "url": fmt.Sprintf("https://github.com/o/r/pull/%d", number), "title": "teammate work", "createdAt": g.created, "updatedAt": g.created,
+				"author": map[string]string{"login": "teammate", "__typename": "User"}, "headRefName": fmt.Sprintf("feat/%d", number), "changedFiles": 1, "files": map[string]interface{}{"nodes": []interface{}{map[string]string{"path": path}}}})
+		}
+		repository["pullRequests"] = map[string]interface{}{"pageInfo": info, "nodes": nodes}
+	}
+	if round.flags["refs"] == "true" {
+		start, end, info := page(round.cursors["refsAfter"], "R", 100, g.branches)
+		var nodes []interface{}
+		for i := start; i < end; i++ {
+			nodes = append(nodes, map[string]interface{}{"name": fmt.Sprintf("goblin/branch-%04d", i), "target": map[string]interface{}{"oid": fmt.Sprintf("b%04d", i), "committedDate": g.created, "author": map[string]interface{}{"name": "Overlord", "user": map[string]string{"login": "overlord"}}}})
+		}
+		repository["refs"] = map[string]interface{}{"pageInfo": info, "nodes": nodes}
+	}
+	body, err := json.Marshal(map[string]interface{}{"data": response})
+	return execx.Result{Stdout: body}, err
+}
+
+// overlapErrorWakes returns the supervisor_error wakes that name the overlap
+// read.
+func overlapErrorWakes(t *testing.T, s *Service) []string {
+	t.Helper()
+	var wakes []string
+	for _, detail := range supervisorErrorWakes(t, s) {
+		if strings.Contains(detail, "overlap read") {
+			wakes = append(wakes, detail)
+		}
+	}
+	return wakes
+}
+
+// On 2026-10-08 the overlap read of fpresta0607/code-goblins, which has 403
+// branches, paged through every one of them under one 30-second deadline
+// every ten minutes, timed out after three or four pages and woke the CFO
+// each time. It reads only what can meet a goblin's area, so a repository
+// with ten times the branches costs it the same few pages.
+func TestOverlapReadOfARepositoryWithHundredsOfBranchesReadsTheSameFewPages(t *testing.T) {
+	for _, branches := range []int{403, 4030} {
+		t.Run(fmt.Sprintf("%d branches", branches), func(t *testing.T) {
+			// Arrange
+			service, h, forge, _, now := overlapFixture(t)
+			github := pagedFor(forge, branches, 1, now.Add(-time.Minute))
+			service.Options.CI = github
+
+			// Act
+			err := service.checkFleet(context.Background(), now)
+
+			// Assert
+			if err != nil {
+				t.Fatal(err)
+			}
+			if len(github.rounds) != 1 {
+				t.Fatalf("the overlap read asked GitHub %d times for a repository with %d branches, want one page: %+v", len(github.rounds), branches, github.rounds)
+			}
+			if wakes := fleetWakeRecords(t, h, "pr"); len(wakes) != 1 || !strings.Contains(wakes[0].Detail, "PR #1") {
+				t.Fatalf("pr wakes = %+v, want the teammate's pull request that meets the goblin's area", wakes)
+			}
+		})
+	}
+}
+
+// A page that times out costs its own pass and never the read: each page
+// runs on a deadline of its own, the next poll asks for the page that timed
+// out where the read left off, and the CFO hears nothing of it.
+func TestOverlapReadThatTimesOutOncePicksUpWhereItLeftOffWithoutWakingTheCFO(t *testing.T) {
+	// Arrange
+	service, h, forge, meta, now := overlapFixture(t)
+	service.work, service.subscribers = make(chan struct{}, 1), map[chan struct{}]struct{}{}
+	github := pagedFor(forge, 403, 120, now.Add(-time.Minute))
+	github.timeouts["P50"] = 1
+	service.Options.CI = github
+
+	// Act
+	for _, at := range []time.Time{now, now.Add(ciPollEvery)} {
+		overlapLive(t, h, meta, at)
+		_ = service.checkFleet(context.Background(), at)
+		service.cycle(context.Background(), true)
+	}
+
+	// Assert
+	if wakes := overlapErrorWakes(t, service); len(wakes) != 0 {
+		t.Fatalf("one page that timed out woke the CFO: %q", wakes)
+	}
+	var asked []string
+	for _, round := range github.rounds {
+		asked = append(asked, "first="+round.flags["first"]+" after="+round.cursors["pullsAfter"])
+	}
+	if want := []string{"first=true after=", "first=false after=P50", "first=false after=P50", "first=false after=P100"}; !slices.Equal(asked, want) {
+		t.Fatalf("pages asked = %q, want the page that timed out asked again on the next poll and nothing read twice: %q", asked, want)
+	}
+	for i := 1; i < len(github.rounds); i++ {
+		if !github.rounds[i].deadline.After(github.rounds[i-1].deadline) {
+			t.Fatalf("page %d ran on deadline %v, page %d on %v: want each page on a deadline of its own", i, github.rounds[i-1].deadline, i+1, github.rounds[i].deadline)
+		}
+	}
+	if wakes := fleetWakeRecords(t, h, "pr"); len(wakes) != 1 || !strings.Contains(wakes[0].Detail, "PR #1") {
+		t.Fatalf("pr wakes = %+v, want the teammate's pull request on the last page", wakes)
+	}
+	if w, err := readFleetWakes(h.State); err != nil || len(w.OverlapUnread) != 0 {
+		t.Fatalf("overlap unread = %v, %v, want nothing once the read finished", w.OverlapUnread, err)
+	}
+}
+
+// A read that keeps failing still reaches the CFO, once it failed on three
+// passes in a row.
+func TestOverlapReadThatKeepsFailingWakesTheCFOOnTheThirdPassInARow(t *testing.T) {
+	// Arrange
+	service, h, forge, meta, now := overlapFixture(t)
+	service.work, service.subscribers = make(chan struct{}, 1), map[chan struct{}]struct{}{}
+	forge.failure = `Post "https://api.github.com/graphql": context deadline exceeded`
+
+	for pass, want := range []int{0, 0, 1} {
+		at := now.Add(time.Duration(pass) * ciPollEvery)
+		overlapLive(t, h, meta, at)
+
+		// Act
+		_ = service.checkFleet(context.Background(), at)
+		service.cycle(context.Background(), true)
+
+		// Assert
+		if wakes := overlapErrorWakes(t, service); len(wakes) != want {
+			t.Fatalf("after %d failing passes the CFO had %d overlap wakes, want %d: %q", pass+1, len(wakes), want, wakes)
+		}
+	}
+	if forge.activityCalls != 3 {
+		t.Fatalf("the failing read was asked %d times in three polls, want once a poll", forge.activityCalls)
 	}
 }

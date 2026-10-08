@@ -986,6 +986,46 @@ func TestAPullRequestGitHubCouldNotReadStaysFinishedAndIsReported(t *testing.T) 
 	}
 }
 
+// On 2026-10-08 gh could not read siqstack-cms PR 50 under the fleet's load,
+// woke the CFO, and read it in about 600 ms minutes later. A pull request
+// GitHub did not answer for is asked again on the next refresh, and one
+// failed ask is never reported.
+func TestAPullRequestReadThatTimesOutOnceIsAskedAgainOnTheNextRefreshAndNeverReported(t *testing.T) {
+	// Arrange
+	store, h := testStore(t)
+	if err := os.WriteFile(filepath.Join(h.State, "slow.status"), []byte("done: PR https://github.com/o/r/pull/50\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	answers := []error{context.DeadlineExceeded, nil}
+	asks := 0
+	service := &Service{Store: store, Options: Options{PullRequestState: func(context.Context, string) (PullRequestInfo, error) {
+		answer := answers[min(asks, len(answers)-1)]
+		asks++
+		if answer != nil {
+			return PullRequestInfo{}, fmt.Errorf("gh could not read https://github.com/o/r/pull/50: %w", answer)
+		}
+		return PullRequestInfo{State: "MERGED", Title: "The PR title"}, nil
+	}}}
+	now := time.Now().UTC()
+
+	// Act
+	first := service.refreshHistory(t.Context(), now)
+	second := service.refreshHistory(t.Context(), now.Add(time.Minute))
+
+	// Assert
+	if first != nil || second != nil {
+		t.Fatalf("refreshes returned %v and %v, want a read that timed out once left unreported", first, second)
+	}
+	view, err := service.Snapshot()
+	if err != nil {
+		t.Fatal(err)
+	}
+	index := slices.IndexFunc(view.Tasks, func(task Task) bool { return task.ID == "finished:slow" })
+	if asks != 2 || index < 0 || !view.Tasks[index].Merged {
+		t.Fatalf("asked %d times with tasks %+v, want the pull request asked again a minute later and shown merged", asks, view.Tasks)
+	}
+}
+
 // All asks of one refresh share pullRequestBudget, so a GitHub that does not
 // answer holds the supervisor's loop only that long; what was not asked is
 // asked on the next refresh.
