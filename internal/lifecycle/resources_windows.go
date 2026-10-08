@@ -171,6 +171,36 @@ func withGate(ctx context.Context, meta state.TaskMeta, gate pipeline.Reader, re
 	return resources, nil
 }
 
+// stopBound bounds identifying a task's resources and sweeping its
+// processes; its terminals end on a wait of their own.
+const stopBound = 10 * time.Second
+
+// StopTask ends what a task holds, for a pause or a stop: its terminals
+// first, which ends its goblin, then whatever the sweep finds in its
+// directories and its terminals' jobs. Once its terminals have ended, a
+// gate whose state could not be read in time, as while the no-mistakes
+// daemon runs other sessions' gates, or a sweep that ran out of time, is an
+// UnfinishedStop. Each process still finishing its Windows teardown is kept
+// in record.
+func StopTask(ctx context.Context, h home.Home, meta state.TaskMeta, gate pipeline.Reader, record *state.Lifecycle) (Resources, []string, error) {
+	bounded, cancel := context.WithTimeout(ctx, stopBound)
+	defer cancel()
+	resources, err := TaskResources(bounded, h, meta, gate)
+	stopped, teardown, stopErr := StopResources(bounded, resources)
+	for _, process := range teardown {
+		if !slices.ContainsFunc(record.Teardown, func(prior state.TeardownProcess) bool {
+			return prior.PID == process.PID && prior.Started.Equal(process.Started)
+		}) {
+			record.Teardown = append(record.Teardown, process)
+		}
+	}
+	var unfinished UnfinishedStop
+	if err != nil && len(resources.Hosts) > 0 && (stopErr == nil || errors.As(stopErr, &unfinished)) {
+		return resources, stopped, UnfinishedStop{Err: errors.Join(err, unfinished.Err)}
+	}
+	return resources, stopped, errors.Join(err, stopErr)
+}
+
 func StopResources(ctx context.Context, resources Resources) ([]string, []state.TeardownProcess, error) {
 	return stopResources(ctx, resources, Terminate)
 }
@@ -192,7 +222,7 @@ func stopResources(ctx context.Context, resources Resources, stop func(context.C
 	// hold its memory, and the sweep below reads every process on the
 	// machine, which on a machine short of memory can run out of time before
 	// it ends anything. Once they have ended, what the sweep meets is an
-	// UnfinishedSweep.
+	// UnfinishedStop.
 	hosts, cancel := context.WithTimeout(context.WithoutCancel(ctx), hostStopWait)
 	defer cancel()
 	for _, host := range resources.Hosts {
@@ -209,7 +239,7 @@ func stopResources(ctx context.Context, resources Resources, stop func(context.C
 	}
 	unfinished := func(err error) error {
 		if len(resources.Hosts) > 0 {
-			return UnfinishedSweep{Err: err}
+			return UnfinishedStop{Err: err}
 		}
 		return err
 	}

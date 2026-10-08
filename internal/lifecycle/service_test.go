@@ -137,7 +137,7 @@ func TestAPauseTakesEffectOnceTheTerminalEndsWhateverTheSweepMeets(t *testing.T)
 		return ctx.Err()
 	}
 	service.Operations.Stop = func(context.Context, state.TaskMeta, *state.Lifecycle) ([]string, error) {
-		return []string{"claude.exe pid 42"}, UnfinishedSweep{Err: context.DeadlineExceeded}
+		return []string{"claude.exe pid 42"}, UnfinishedStop{Err: context.DeadlineExceeded}
 	}
 
 	// Act
@@ -158,7 +158,7 @@ func TestAStopFailsWhileTheSweepIsUnfinished(t *testing.T) {
 	// Arrange
 	service, meta := lifecycleFixture(t)
 	service.Operations.Stop = func(context.Context, state.TaskMeta, *state.Lifecycle) ([]string, error) {
-		return nil, UnfinishedSweep{Err: context.DeadlineExceeded}
+		return nil, UnfinishedStop{Err: context.DeadlineExceeded}
 	}
 
 	// Act

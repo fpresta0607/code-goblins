@@ -251,7 +251,7 @@ func (service Service) Run(ctx context.Context, request Request) (result state.L
 		// the sweep for its other processes met: a busy goblin that missed
 		// its stopping point is the one holding the memory a pause is for,
 		// and its session is kept for its resume.
-		if request.Action == "pause" && errors.As(err, new(UnfinishedSweep)) {
+		if request.Action == "pause" && errors.As(err, new(UnfinishedStop)) {
 			result.Problems = append(result.Problems, err.Error())
 			err = nil
 		}

@@ -229,7 +229,7 @@ func TestStopResourcesEndsTheTerminalEvenWhenTheSweepRunsOutOfTime(t *testing.T)
 	})
 
 	// Assert
-	var unfinished UnfinishedSweep
+	var unfinished UnfinishedStop
 	if len(ended) != 1 || ended[0] != terminal || len(stopped) != 1 {
 		t.Fatalf("ended = %v, stopped = %v, want the terminal ended first", ended, stopped)
 	}
