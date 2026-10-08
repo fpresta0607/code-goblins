@@ -16,8 +16,8 @@ const states = {
   wake: { ...drive, free: 6.2 * GB },
 };
 
-async function board(page: Page, disk: object) {
-  const snapshot = { instance: "disk-fixture", revision: 1, healthy: true, cfo_runs: true, attention: [], memory, disk, tasks };
+async function board(page: Page, disk: object, shown: object[] = tasks) {
+  const snapshot = { instance: "disk-fixture", revision: 1, healthy: true, cfo_runs: true, attention: [], memory, disk, tasks: shown };
   await page.route("**/api/**", async (route) => {
     if (new URL(route.request().url()).pathname === "/api/events") {
       await route.fulfill({ contentType: "text/event-stream", body: `event: snapshot\ndata: ${JSON.stringify(snapshot)}\n\n` });
@@ -81,7 +81,7 @@ test.describe("in the Overlord's window, 1707 px wide with the CFO's panel open"
     });
   }
 
-  test("a queued task's Start names free disk under the floor", async ({ page }) => {
+  test("a queued task's Start under the floor is one click", async ({ page }) => {
     // Arrange
     const column = await board(page, states.floor);
 
@@ -89,8 +89,20 @@ test.describe("in the Overlord's window, 1707 px wide with the CFO's panel open"
     const start = column.getByRole("button", { name: "Start Polish settings" });
 
     // Assert
-    await expect(start).toHaveAttribute("aria-disabled", "true");
-    await expect(start).toHaveAttribute("data-tip", "Needs 15 GB of free disk (12.6 GB free)");
+    await expect(start).not.toHaveAttribute("aria-disabled", "true");
+    await expect(start).toHaveAttribute("data-tip", "Start");
+  });
+
+  test("a Start that waits for disk says so on its card", async ({ page }) => {
+    // Arrange: the supervisor holds the clicked Start until disk frees.
+    const waiting = tasks.map((task) => task.id === "polish-settings" ? { ...task, starting: true, asked: true } : task);
+
+    // Act
+    const column = await board(page, states.floor, waiting);
+
+    // Assert
+    const card = column.locator(".task-card-shell").filter({ has: page.locator(".card-title").getByText("Polish settings", { exact: true }) });
+    await expect(card.locator(".card-status-text")).toHaveText("Starts once disk frees");
   });
 });
 
