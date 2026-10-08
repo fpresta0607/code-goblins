@@ -268,6 +268,18 @@ button:disabled, textarea:disabled { cursor: default; opacity: .55; }
 .phase-failed.plain-status { color: #f5b1a8; }
 .phase-review.plain-status { color: #cfc0f3; }
 .phase-waiting.plain-status { color: #e7d3a3; }
+/* A goblin that waits only on its pull request's test reads in the test's
+   tone, as its merge train's card and its checks do: blue while it is tested,
+   mint once it passed or landed, red when it broke and grey for a cancelled
+   run or a pull request its train left off. */
+.phase-pr-pending .status-dot { background: var(--blue); box-shadow: 0 0 0 3px #4aa3ff33; }
+.phase-pr-pending.plain-status { color: #9ccdff; }
+.phase-pr-passed .status-dot { background: var(--mint); }
+.phase-pr-passed.plain-status { color: var(--mint); }
+.phase-pr-failed .status-dot { background: var(--red); }
+.phase-pr-failed.plain-status { color: #f5b1a8; }
+.phase-pr-cancelled .status-dot { background: #7891ad; }
+.phase-pr-cancelled.plain-status { color: var(--muted); }
 .column-empty { color: #8293a1; font-size: .9375rem; padding: 16px 0; }
 .goblin-avatar { display: block; width: 88px; height: 88px; flex: none; background-image: url('/assets/goblin-personas.png'); background-size: 300% 200%; background-repeat: no-repeat; }
 .goblin-avatar.small { width: 72px; height: 72px; }
@@ -1173,8 +1185,8 @@ a.wait-open { min-height: 44px; border: 1px solid var(--accent-green); border-ra
 /* On a phone a row of two still fits on one line. */
 @media (max-width: 40rem) { .labelled-button { gap: 6px; padding-inline: 10px 12px; } }
 .card-secondary { color: var(--muted); font-size: 1rem; overflow-wrap: anywhere; }
-.phase-paused, .phase-pausing, .phase-resuming { color: var(--amber); }
-.phase-paused .status-dot, .phase-pausing .status-dot, .phase-resuming .status-dot { background: var(--amber); }
+.phase-paused, .phase-pausing, .phase-resuming { color: var(--muted); }
+.phase-paused .status-dot, .phase-pausing .status-dot, .phase-resuming .status-dot { background: #a6beda; }
 .phase-stopped, .phase-stopping { color: var(--muted); }
 .phase-stopped .status-dot, .phase-stopping .status-dot { background: #7891ad; }
 .task-action-progress { margin: 8px 0; color: var(--mint); }

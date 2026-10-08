@@ -1,7 +1,7 @@
 /* A merge train's card sits in its column beside the goblins' cards, in
    their glass, and lists the train's pull requests under what the train is
    doing. Tones follow a pull request's checks: blue while CI runs, mint for
-   what landed, red for what breaks CI, amber for what waits for the next
+   what landed, red for what breaks CI, grey for what waits for the next
    train. */
 .train-card { position: relative; min-width: 0; display: grid; gap: 8px; padding: 12px 14px; border: 1px solid var(--glass-border); border-radius: var(--radius); background: var(--glass-bg), var(--hero-surface); box-shadow: var(--glass-shadow); }
 .train-cards { display: grid; gap: 10px; margin-bottom: 10px; }
@@ -30,8 +30,8 @@ a.train-car-number:hover, a.train-car-number:focus-visible { text-decoration: un
 .train-pending { color: var(--blue); }
 .train-passed { color: var(--mint); }
 .train-failed { color: var(--red); }
-.train-cancelled { color: var(--amber); }
+.train-cancelled { color: var(--muted); }
 .train-status.train-pending .status-dot { background: var(--blue); }
 .train-status.train-passed .status-dot { background: var(--mint); }
 .train-status.train-failed .status-dot { background: var(--red); }
-.train-status.train-cancelled .status-dot { background: var(--amber); }
+.train-status.train-cancelled .status-dot { background: #7891ad; }
