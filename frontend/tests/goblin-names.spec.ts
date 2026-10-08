@@ -67,6 +67,15 @@ for (const viewport of [{ name: "in his window", width: 1707, height: 1067 }, { 
       await expect(page.getByRole("tooltip")).toHaveText("fix: retry the webhook");
     });
 
+    test("a merge train car shows its goblin's whole name and title", async ({ page }) => {
+      await open(page);
+      const names = page.locator(".train-car-title");
+      await expect(names).toHaveCount(2);
+      for (const name of await names.all()) {
+        expect(await name.evaluate((element) => element.scrollWidth <= element.clientWidth && element.scrollHeight <= element.clientHeight)).toBe(true);
+      }
+    });
+
     test("a goblin's panel opens on its name and title, then its task", async ({ page }) => {
       await open(page);
       await jerry(page).locator(".card-title").click();

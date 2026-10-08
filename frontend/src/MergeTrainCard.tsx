@@ -34,7 +34,7 @@ export function MergeTrainCard({ train, tasks }: { train: MergeTrain; tasks: Tas
           {c.url ? <a className="train-car-number" href={c.url} target="_blank" rel="noreferrer">{c.label}</a> : <span className="train-car-number">{c.label}</span>}
           <span className="train-car-goblin" {...(car.goblin ? { "data-tip": goblin ? taskName(goblin) : car.title, "data-tip-align": "start" } : {})}>
             <Avatar persona={goblin ? personaFor(goblin) : stablePersona(car.task)} />
-            <span className="train-car-title">{carName(car)}</span>
+            <span className={"train-car-title" + (car.goblin ? " goblin-called" : "")}>{carName(car)}</span>
           </span>
           <span className="train-car-state">{c.text}</span>
         </li>;
