@@ -16,6 +16,13 @@ import (
 	"github.com/fpresta0607/code-goblins/internal/state"
 )
 
+// Arguments are what a host is run with, after the command that runs one, to
+// host spec and record itself under stateDir.
+func Arguments(stateDir string, spec Spec) []string {
+	args := []string{"--state", stateDir, "--id", spec.ID, "--dir", spec.Dir, "--cols", strconv.Itoa(spec.Cols), "--rows", strconv.Itoa(spec.Rows), "--"}
+	return append(args, spec.Args...)
+}
+
 // launchTimeout bounds how long a new host takes to record itself.
 var launchTimeout = 15 * time.Second
 
@@ -44,9 +51,7 @@ func Launch(stateDir string, command, env []string, spec Spec) (Record, error) {
 		return Record{}, err
 	}
 	defer log.Close()
-	args := append(append([]string(nil), command[1:]...), "--state", stateDir, "--id", spec.ID, "--dir", spec.Dir,
-		"--cols", strconv.Itoa(spec.Cols), "--rows", strconv.Itoa(spec.Rows), "--")
-	args = append(args, spec.Args...)
+	args := append(append([]string(nil), command[1:]...), Arguments(stateDir, spec)...)
 	start := func(flags uint32) (*exec.Cmd, error) {
 		cmd := execx.Command(command[0], args...)
 		cmd.Env = env

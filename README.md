@@ -141,6 +141,7 @@ Both are the same install, so use whichever you like: the setup if you want a wi
 Each puts the Code Goblins app and the `cfo` command line (also called `goblins`) together in one folder, `%LOCALAPPDATA%\CodeGoblins`, adds that folder to your PATH and Code Goblins to the Start menu, installs the tools the goblins use where they are missing, and opens [the desktop app](#the-desktop-app).
 Each also merges the CFO's hooks and a few permission rules into your Claude Code settings, `~/.claude/settings.json`, keeping your own and backing the file up first: the rules let a Claude Code CFO in auto mode put questions, run items, reviews and documents in front of you in the Command Center, which [Safety model](#safety-model) explains.
 Each also turns on **Start at login**, so Code Goblins starts in the tray when you sign in and brings back what a restart ended; untick it in the setup to keep it off, and [Opening, closing and restarting](#opening-closing-and-restarting) says how to change it later.
+Where this machine can have a Dev Drive, the setup and the board's first page each offer once, unticked, to put the goblins' worktrees and caches on one, with a sentence saying what it is and that it is not a Defender exclusion; a machine that cannot have one is told why in one line and works as before ([A Dev Drive for the busiest folders](#a-dev-drive-for-the-busiest-folders-optional)).
 Each also sets up [dictation](#dictating-in-the-app), under "Setting up dictation": it downloads the speech model and the engine that runs it, 51 MB, keeps each only when it matches the SHA-256 the build pins, and puts them in the home, so the first time you dictate it simply works.
 If that download fails, the install still ends well and says that dictation finishes setting itself up the first time you dictate.
 Each says the same four steps as it goes (download, check, install, open) and keeps every detail in `%TEMP%\CodeGoblinsInstall.log`; a failure says in one sentence what happened and what to do.
@@ -612,8 +613,10 @@ A goblin waiting on you offers **Answer** in its panel, which opens the stack at
 A question with images shows a thumbnail per choice that opens a full-size, swipeable, zoomable gallery.
 An answer to the CFO goes to the same verified CFO session, and an answer to a goblin goes to that goblin's own terminal, each exactly once; no answer approves a gate or merges anything.
 Each live page offers **Open review** or **Open page** and **Keep in background**; neither pauses work.
-A command the CFO needs you to run arrives as a run card with its shell, an **Admin** badge when it runs elevated, the exact command with a copy button, and one button that says where it runs, such as **Run in PowerShell**; once it runs, the card shows its output as a terminal does, live while it runs, and its exit code when it ends.
-A goblin can hand you a command the same way, on a run card that names the goblin: a sign-in or anything else that needs a real terminal runs in its own window, which stays open for you, and the goblin is told how it ended.
+A command the CFO needs you to run arrives as a run card with its shell, an **Admin** badge when it runs elevated, the exact command with a copy button, and one button that says where it runs, such as **Run in PowerShell**.
+Run turns the card into the command's own terminal, where you type, paste and sign in; no window or tab opens, an administrator's command included once you confirm Windows' prompt, and **Stop** ends it.
+When the command exits the card completes by itself, **Complete** or **Failed:** with the last line it printed, and History keeps its exit code.
+A goblin can hand you a command the same way, on a run card that names the goblin, and the goblin is told how it ended.
 
 <p align="center">
   <img src="docs/images/run-card.webp" alt="A run card: the Windows PowerShell command the CFO needs run and its folder, then after Run, Finished with exit 0 and the captured output" width="560" />
@@ -766,7 +769,7 @@ cfo answer <question-id> --option <choice> [--note "<text>"] --record-only [--in
 cfo review --id <stable-id> --title "<what to look at>" [--task <id>] [--image <path>]... [--lavish <url|html-file>]
 cfo review --clear <stable-id> --reason "<why>"
 cfo deliver --id <stable-id> --title "<what it is>" --file <path> [--url <link>] [--task <id>]
-cfo run-request --id <stable-id> --title "<why>" --shell powershell|pwsh|bash [--admin] [--interactive] [--cwd <dir>] --command-file <path>
+cfo run-request --id <stable-id> --title "<why>" --shell powershell|pwsh|bash [--admin] [--cwd <dir>] --command-file <path>
 cfo run-request --withdraw <id> --reason "<why>"
 ```
 
@@ -863,9 +866,10 @@ To update a running home to the newest release, run `goblins update` in a termin
 `goblins update --check` says whether a newer release is published and what is new, and changes nothing.
 The update is yours alone: it refuses to run under the CFO, a goblin or any agent.
 
-To install a newer build into a running home, run the candidate build itself with `update`: it swaps both `cfo.exe` and `goblins.exe` in the home's `bin`, restarts only the supervisor, and puts the previous build back if the new one does not serve; `bin` keeps the two builds before the current one and no more.
-A home an older build set up in a checkout is moved first, with `cfo home move` (see [Your data](#your-data)).
-A `goblins-window.exe` beside the candidate follows it into the home once the candidate serves; an open window keeps running the previous one until you quit it from its tray icon, and a window that could not be replaced leaves the update done and is named.
+To install a newer build into a running home, run the candidate build itself with `update`: it swaps both `cfo.exe` and `goblins.exe` where the home keeps them, restarts only the supervisor, and puts the previous build back if the new one does not serve; that folder keeps the two builds before the current one and no more.
+The home keeps them in its `bin`, or, where a build before `bin` set it up, such as a checkout an older build made the home, at its root, where they are updated until an install lays the home out with `bin`.
+The journal of an earlier update that finished is history, whatever home it names; only an unfinished one, whose copies are its way back, stops an update.
+A `goblins-window.exe` beside the candidate follows it into the home beside `goblins.exe` once the candidate serves; an open window keeps running the previous one until you quit it from its tray icon, and a window that could not be replaced leaves the update done and is named.
 If an update stops part way, it prints a recovery line that runs the candidate's kept copy and names the home and its state, so it works from any folder with both commands gone; paste it into Windows PowerShell as printed, for example:
 
 ```powershell
@@ -924,8 +928,17 @@ It is optional: a machine that cannot have one, such as Windows 10, one with Def
 With one, the home's three busiest folders, `worktrees\`, `scratch\` and `caches\`, live in `CodeGoblins\` at the Dev Drive's root.
 Everything else stays where it is: the home's `state\`, `data\`, `config\` and `bin\`, and your own checkouts.
 `cfo dev-drive` says whether this machine has or can have one and where the folders are, and `cfo doctor` says it in one line, with the fix.
-`cfo dev-drive move --to D:\CodeGoblins` moves them onto a trusted Dev Drive and records it in `config\dev-drive.json`.
+
+Setting one up is a button: **Set up** under **Dev Drive** in the CFO's Workspace panel on the board.
+Each step that needs you then arrives as its own Command Center item, one at a time, each saying in one line what it does and what it changes, each safe to run twice:
+
+1. **Create the Code Goblins Dev Drive** (administrator, so Windows asks you to confirm): a dynamically expanding VHDX, 200 GB at most and less on a smaller disk, at `C:\DevDrives\CodeGoblins.vhdx`, formatted as a Dev Drive on the first free letter from D:, and a startup task that attaches it at every boot, since Windows does not attach a VHD again after a restart. A machine that already has a Dev Drive skips this and uses it.
+2. **Trust the Dev Drive**, only when Windows does not trust it (administrator): `fsutil devdrv trust`, which is what turns performance mode on, and `fsutil devdrv query` to show it.
+3. **Move Code Goblins' worktrees, scratch and package caches**: `cfo dev-drive move --to D:\CodeGoblins`, which records it in `config\dev-drive.json` and restarts the board so it builds there too.
+
 Nothing is copied: new goblins start on the Dev Drive, a goblin already started keeps its folders until it finishes, and the janitor removes the home's old package caches once nothing started before the move is running.
+If the drive is ever missing after a restart, an **Attach** item comes to the Command Center by itself.
+A step that failed shows its output on its item, and **Try again** on the panel brings it back.
 
 A home that an older build set up in a code-goblins checkout moves with `cfo home move`: its dry run lists every file it would move with its SHA-256, the counts before and after and a digest proving nothing is dropped, and `cfo home move --apply --plan <digest>`, at a quiet point with the supervisor stopped, moves it by rename, so it needs no room for a second copy, reads it all back, and installs the build into the new home.
 [AGENTS.md](AGENTS.md#the-cfo-home) describes each file in full.

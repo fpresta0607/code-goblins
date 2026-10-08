@@ -184,6 +184,14 @@ func kept[T any](k *keptReads, kind string, paths []string, read func() (T, erro
 	return value, err
 }
 
+// forget drops what kind remembers of paths, for a reading nothing asks for
+// again.
+func (k *keptReads) forget(kind string, paths ...string) {
+	k.mu.Lock()
+	defer k.mu.Unlock()
+	delete(k.reads, kind+"\x00"+strings.Join(paths, "\x00"))
+}
+
 // created is when the file at path was created, zero when it is not there.
 func (s *Service) created(path string) time.Time {
 	info, err := s.reads.look(path)

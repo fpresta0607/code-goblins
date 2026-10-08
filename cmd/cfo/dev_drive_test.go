@@ -99,3 +99,22 @@ func TestDevDriveMoveRefusesADriveThatIsNoDevDrive(t *testing.T) {
 		t.Errorf("home = %+v, %v; want nothing moved", h, err)
 	}
 }
+
+// cfo dev-drive setup asks for the next step from a terminal, as Set up on the
+// board does: the home records the answer, and nothing moves.
+func TestDevDriveSetupAsksForTheNextStep(t *testing.T) {
+	// Arrange
+	root := t.TempDir()
+	t.Setenv("CFO_HOME", root)
+	t.Setenv("CFO_STATE_OVERRIDE", "")
+
+	// Act
+	var stdout, stderr bytes.Buffer
+	exit := runWithRuntime([]string{"dev-drive", "setup"}, &stdout, &stderr, runtimeOn(machineWith()))
+
+	// Assert
+	config, err := home.ReadDevDriveConfig(root)
+	if exit != 0 || err != nil || config.Choice != home.DevDriveWanted || config.AskedAt.IsZero() || config.Root != "" || !strings.Contains(stdout.String(), "Command Center") {
+		t.Errorf("exit %d, stdout %q, stderr %q, config %+v, %v; want the answer kept and the Command Center named", exit, stdout.String(), stderr.String(), config, err)
+	}
+}

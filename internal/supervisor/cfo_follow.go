@@ -68,7 +68,7 @@ func (s *Store) follow(identity string) error {
 			named = item{"question", a.QuestionID}
 		case "review_answer", "review_clear":
 			named = item{"review", a.ReviewID}
-		case "run":
+		case "run", "run_stop":
 			named = item{"run", a.RunID}
 		case "review":
 			if a.CFOIdentity != "" {

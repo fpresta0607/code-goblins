@@ -2,7 +2,6 @@ package supervisor
 
 import (
 	"bufio"
-	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -261,7 +260,7 @@ func TestHisOwnSwitchTurnsOffWhatTheCFOTurnedOnAndTheCFOTurnsOffHisAtHisAsk(t *t
 
 		// Act: the board's switch, once its program is proven his.
 		s.runRequests.Lock()
-		err := s.switchAFKAs(context.Background(), "his own board (goblins-window.exe pid 4242)", "", false)
+		err := s.switchAFKAs("his own board (goblins-window.exe pid 4242)", "", false)
 		s.runRequests.Unlock()
 
 		// Assert

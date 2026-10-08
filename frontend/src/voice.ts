@@ -57,10 +57,12 @@ export function rememberDictation(storage: Store | null, pane: string, text: str
 }
 
 // hostPane is the pane a native host's query names: its goblin's task, the
-// same key a Herdr pane uses, so a relaunched goblin keeps its dictations, or
-// the CFO.
+// same key a Herdr pane uses, so a relaunched goblin keeps its dictations, a
+// run item's terminal, or the CFO.
 export function hostPane(query: string): string {
-  return new URLSearchParams(query).get("task") || "cfo";
+  const params = new URLSearchParams(query);
+  const run = params.get("run");
+  return params.get("task") || (run ? "run:" + run : "cfo");
 }
 
 // voiceLevel is how loud a frame of microphone samples is, from 0 for silence

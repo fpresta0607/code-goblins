@@ -3,7 +3,8 @@ import { Avatar } from "./Avatar";
 import { Icon, type IconName } from "./Icon";
 import { ShowMore } from "./ShowMore";
 import { AfkHeldList } from "./afk-held";
-import { afkTime, decisionSays, parseAfkReport, safeLink, stillWaiting, switchedBy, type AfkReport } from "./afk";
+import { afkTime, decisionSays, parseAfkReport, reportAction, safeLink, switchedBy, type AfkReport } from "./afk";
+import { AfkSpent } from "./afk-spent";
 import { useResource } from "./api";
 import { pullRequestLabel } from "./workflow";
 import type { Task } from "./types";
@@ -30,7 +31,6 @@ export function AfkReportPage({ tasks, now, onClose, onCommand }: { tasks: Task[
     element?.showModal();
     return () => { element?.close(); if (source instanceof HTMLElement && source.isConnected) source.focus(); };
   }, []);
-  const waiting = data ? stillWaiting(data.held).length : 0;
   const tally: [string, number][] = data ? [["Held for you", data.held.length], ...data.sections.map((section): [string, number] => [section.title, section.entries.length]), ["Goblins finished", data.finished.length]] : [];
   return <dialog ref={dialog} className="question-modal afk-report" aria-labelledby={title} onKeyDown={(event) => { if (event.key === "Escape") event.stopPropagation(); }} onCancel={(event) => { event.preventDefault(); onClose(); }}>
     <div className="command-center-heading">
@@ -74,18 +74,17 @@ export function AfkReportPage({ tasks, now, onClose, onCommand }: { tasks: Task[
           <time dateTime={finish.at}>{afkTime(finish.at, now)}</time>
         </li>)}</ul>
       </section>}
-      <section aria-label="Spent">
+      {data.spent.length > 0 && <section aria-label="Spent">
         <h3>Spent</h3>
-        {data.spent.length ? <ul className="inbox-list afk-lines">{data.spent.map((line) => <li key={line}>{line}</li>)}</ul> : <p className="muted">No allowance was read.</p>}
-      </section>
+        <AfkSpent spent={data.spent} />
+      </section>}
       {data.notes.length > 0 && <section aria-label="Not read">
         <h3>Not read</h3>
         <ul className="inbox-list afk-lines">{data.notes.map((note) => <li key={note}>{note}</li>)}</ul>
       </section>}
     </>}
     <div className="afk-report-actions">
-      {waiting > 0 && <button onClick={onCommand}>Open Command Center</button>}
-      <button className="primary" onClick={onClose}>Back to the board</button>
+      {reportAction(data?.held ?? []) === "command" ? <button className="primary" onClick={onCommand}>Open Command Center</button> : <button className="primary" onClick={onClose}>Back to the board</button>}
     </div>
   </dialog>;
 }

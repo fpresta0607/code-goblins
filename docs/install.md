@@ -134,8 +134,8 @@ It runs only as the home's own `goblins` or `cfo`, and it says four steps as it 
 2. `[2/4] Check the download`: it keeps a program only when it matches the release's `SHA256SUMS`, and, for a release whose `install.ps1` names a publisher, only when Windows reports it validly signed by that publisher, the same checks the one-line install makes.
    It names each program's SHA-256, and says when the release is unsigned, which every release is until Code Goblins has a signing identity.
    A program that fails a check is never run, and nothing in the home changes.
-3. `[3/4] Install Code Goblins <version>`: the downloaded build installs itself with its own `update`, which keeps the build it replaces, swaps `cfo.exe` and `goblins.exe` in `bin`, restarts only the board on the address it served, and puts the previous build back when the new one does not serve.
-   The desktop window follows into `bin`; an open window keeps running the earlier one until you quit it from its tray icon, and Code Goblins in the Start menu then opens the new one.
+3. `[3/4] Install Code Goblins <version>`: the downloaded build installs itself with its own `update`, which keeps the build it replaces, swaps `cfo.exe` and `goblins.exe` where the home keeps them, in `bin` or, in a home a build before `bin` set up, at its root, restarts only the board on the address it served, and puts the previous build back when the new one does not serve.
+   The desktop window follows beside `goblins.exe`; an open window keeps running the earlier one until you quit it from its tray icon, and Code Goblins in the Start menu then opens the new one.
 4. `[4/4] Bring the home up to date`: the new build's `install` brings the home's contract, skills and hooks up to date, where this machine's install names this home; the board, already on the new build, is not restarted again.
 
 A new build that pins a different speech model than the one the home holds downloads it as its board starts, and removes the earlier one once the new one is in place; one that pins the same model keeps it.
