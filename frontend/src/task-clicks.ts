@@ -22,6 +22,9 @@ export function withClicks(snapshot: Snapshot, clicks: ReadonlyMap<string, TaskC
   }) };
 }
 
+// A Start on its way waits its turn until the supervisor takes it, so the
+// card he clicked reads Starting where it is and leaves Tasks once the
+// supervisor starts it.
 function clicked(task: Task, action: TaskAction): Task {
-  return action === "start" ? { ...task, starting: true } : { ...task, phase: PHASES[action] };
+  return action === "start" ? { ...task, starting: true, asked: true } : { ...task, phase: PHASES[action] };
 }

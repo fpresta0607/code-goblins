@@ -1,8 +1,8 @@
 import { expect, test, type Locator, type Page } from "./site";
 
-// A task's panel has one action row under its header: Remove for a task that
-// has not started, whose Start stays on its card, and Pause or Resume and Stop
-// for one that has. A queued task is removed, never stopped, on its card as in
+// A task's panel has one action row under its header: the card's Start and
+// Remove for a task that has not started, and Pause or Resume and Stop for
+// one that has. A queued task is removed, never stopped, on its card as in
 // its panel, and is edited in place on its task line in the header.
 const since = "2026-10-02T09:00:00Z";
 const memory = { next: 5368709120, floor: 4294967296, total: 34359738368, available: 9442450944, commit_limit: 51539607552, commit_available: 21474836480, paged_pool: 536870912, nonpaged_pool: 322122547 };
@@ -82,16 +82,20 @@ async function clearance(page: Page) {
   return row.y - (header.y + header.height);
 }
 
-test("a queued task's panel has Remove alone, and its Start stays on its card", async ({ page }) => {
+// The Overlord, 2026-10-08, of a queued panel with Remove alone: "why no run
+// button when it says play in panel". A task held by what it waits on has no
+// Start, on its card as in its panel.
+test("a queued task's panel has the card's Start and Remove, and one held by what it waits on has Remove alone", async ({ page }) => {
   const posted: Posted[] = [];
   await open(page, posted);
-  for (const id of ["queued-one", "queued-blocked"]) {
+  for (const [id, shown] of [["queued-one", ["Start", "Remove"]], ["queued-blocked", ["Remove"]]] as const) {
     await select(page, id);
     const row = panel(page).getByRole("group", { name: "Controls for " + id });
-    expect(await names(row), id).toEqual(["Remove"]);
+    expect(await names(row), id).toEqual(shown);
     // A labelled button needs no tip to say its name.
-    await expect(row.getByRole("button")).not.toHaveAttribute("data-tip");
-    await expect(panel(page).getByRole("button", { name: /^(Start|Stop|Adjust) / })).toHaveCount(0);
+    for (const button of await row.getByRole("button").all()) await expect(button).not.toHaveAttribute("data-tip");
+    await expect(panel(page).getByRole("button", { name: /^(Stop|Adjust) / })).toHaveCount(0);
+    await inOneRow(row);
     expect(await clearance(page), id).toBeGreaterThanOrEqual(16);
   }
   const controls = card(page, "queued-one").getByRole("group", { name: "Controls for queued-one" }).getByRole("button");

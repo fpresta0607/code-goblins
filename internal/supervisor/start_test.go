@@ -577,6 +577,43 @@ func TestSnapshotShowsATaskStartingUntilItsSpawnEndsEvenOnceItRuns(t *testing.T)
 	t.Fatal("the snapshot does not list next-task")
 }
 
+// The Overlord, 2026-10-08: Zane's card read "Not started" with Start while
+// the supervisor had already started him. A start the supervisor commits,
+// its scheduler's included, reaches the board at once, as Starting and not
+// as a click waiting its turn, so the board takes it out of Tasks, before
+// cfo spawn writes anything and whatever the scheduler's line says.
+func TestAStartTheSupervisorCommitsReachesTheBoardAtOnceAsStarting(t *testing.T) {
+	// Arrange
+	spawner := &spawnRecorder{release: make(chan struct{})}
+	handler, h := startBoard(t, 16*gigabyte, spawner)
+	queueBriefedTask(t, h, "- **next-task** - Ship it", plainBrief)
+	t.Cleanup(func() {
+		close(spawner.release)
+		waitStarted(t, handler, "next-task")
+	})
+	before := handler.Service.Revision()
+
+	// Act
+	if err := handler.Service.startQueued("next-task", false); err != nil {
+		t.Fatal(err)
+	}
+	published := handler.Service.Revision()
+	awaitCalls(t, spawner, 1)
+
+	// Assert
+	if published == before {
+		t.Fatal("the supervisor started next-task and told the board nothing")
+	}
+	snapshot, err := handler.Service.SnapshotSince(published)
+	if err != nil {
+		t.Fatal(err)
+	}
+	index := slices.IndexFunc(snapshot.Tasks, func(task Task) bool { return task.ID == "next-task" })
+	if index < 0 || snapshot.Tasks[index].Phase != "queued" || !snapshot.Tasks[index].Starting || snapshot.Tasks[index].Asked {
+		t.Fatalf("the published snapshot lists %+v, want next-task queued, starting and not waiting its turn", snapshot.Tasks)
+	}
+}
+
 func TestSnapshotShowsMemoryCommitAndKernelPoolsAgainstTheFloorAndTheNextStart(t *testing.T) {
 	// Arrange
 	reading := Memory{Available: 4*gigabyte + gigabyte/10, Total: 32 * gigabyte, CommitAvailable: 20 * gigabyte, CommitLimit: 48 * gigabyte, PagedPool: 15*gigabyte + 6*gigabyte/10, NonpagedPool: 3*gigabyte + gigabyte/5}

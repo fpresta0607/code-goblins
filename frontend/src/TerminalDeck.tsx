@@ -11,6 +11,7 @@ import { CFO_KEY, cfoView, goblinView, idleView, keepLive } from "./terminalOrde
 import { MessageBox } from "./message-box";
 import { takesMessages } from "./messages";
 import { goblinName } from "./task-words";
+import { taskStatus } from "./task-status";
 
 // The terminal deck: every terminal the Overlord opens stays mounted and live
 // while the board is open, so a switch only shows another terminal, with no
@@ -37,7 +38,7 @@ export function TerminalDeck({ snapshot, task, node, child, cfo, shown, connecte
   const front = shown && key ? key : live[0];
   const next = front ? keepLive(live, front, herdr) : live;
   if (next.length !== live.length || next.some((entry, index) => entry !== live[index])) setLive(next);
-  const idle = idleView(task, node);
+  const idle = idleView(task, node, task && taskStatus(task, snapshot).text);
   const slot = (key: string, here: boolean, view: ReactNode) => <div className="deck-slot" key={key} hidden={!here}>{view}</div>;
   const messaging = (key: string, here: boolean, view: ReactNode, name: string, to?: Task) => <div className="deck-slot with-messages" key={key} hidden={!here}>{view}<MessageBox snapshot={snapshot} task={to} name={name} /></div>;
   return <div className="terminal-deck" hidden={!shown}>

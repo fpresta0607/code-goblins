@@ -155,9 +155,10 @@ function resumes(pause: PauseCondition | undefined, tasks: Task[], parent?: Task
   return "It stays paused until you resume it.";
 }
 
-// What a paused card says in place of Paused: why it waits and what resumes
-// it, in a few words, once; the panel says the same in a sentence. A CI or
-// deploy wait names how long the repository's runs usually take.
+// What a paused goblin says in place of Paused, on its card, its panel and its
+// canvas node: why it waits and what resumes it, in a few words, once; the
+// panel says what resumes it in a sentence under it. A CI or deploy wait
+// names how long the repository's runs usually take.
 export function pauseStatus(pause: PauseCondition | undefined, tasks: Task[], durations: CIDuration[], parent?: Task): string {
   const [kind, target] = pause?.until.split(/:(.*)/s) || [];
   switch (pause?.reason) {
@@ -251,8 +252,9 @@ function summaryOf(task: Task, tasks: Task[]): Summary {
   if (record?.phase === "failed" && FAILED_ACTION[record.action]) return { sentence: join(FAILED_ACTION[record.action], teardown), details: [...record.problems, ...task.teardown], isFailure: record.action === "resume" };
   if (task.phase === "paused") return { sentence: isPausedForItsPullRequest(task) ? "" : resumes(record?.pause, tasks, pausedWithParent(task, tasks)), details: [...(record?.problems || []), ...task.teardown], isFailure: false };
   if (["pausing", "resuming", "stopping", "stopped"].includes(task.phase)) return { sentence: "", details: task.teardown, isFailure: false };
-  // A queued task's status says it all; the Overlord wants no wait line.
-  if (task.phase === "queued") return { sentence: "", details: [], isFailure: false };
+  // A queued task's status says it all; the Overlord wants no wait line. Why
+  // its last start failed is behind Details, and the CFO was told.
+  if (task.phase === "queued") return { sentence: "", details: task.start_error && !task.starting ? [task.start_error] : [], isFailure: false };
   // A failed or blocked task with no report of its own says its evidence.
   const said = reportSaid(reportBody(task.activity) || !["failed", "blocked"].includes(task.phase) ? task.activity : task.reason);
   return { sentence: join(said.sentence, teardown), details: [...said.details, ...task.teardown], isFailure: task.phase === "failed" };

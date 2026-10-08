@@ -262,7 +262,7 @@ button:disabled, textarea:disabled { cursor: default; opacity: .55; }
 .phase-failed .status-dot { background: var(--red); }
 .phase-review .status-dot { background: var(--purple); }
 .phase-waiting .status-dot { background: #d9b76a; }
-.phase-working.plain-status, .phase-busy.plain-status, .phase-active.plain-status { color: #9ccdff; }
+.phase-working.plain-status, .phase-busy.plain-status, .phase-active.plain-status, .phase-started.plain-status { color: #9ccdff; }
 .phase-blocked.plain-status { color: #f6d79e; }
 .phase-failed.plain-status { color: #f5b1a8; }
 .phase-review.plain-status { color: #cfc0f3; }

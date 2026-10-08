@@ -5,7 +5,7 @@ import { Avatar } from "./Avatar";
 import { BRAND_MARKS } from "./brandMarks";
 import { Icon } from "./Icon";
 import { ownsTaskSession, sessionTitle } from "./lineageTree";
-import { asksOverlord, harnessName, nodeStatus, personaFor, pullRequestBadge, pullRequestLabel, safePullRequest, statusPhase, waitingTarget } from "./workflow";
+import { harnessName, nodeStatus, personaFor, pullRequestBadge, pullRequestLabel, safePullRequest, waitingTarget } from "./workflow";
 import { reviewLine, waitingItems, type Item } from "./commandQueue";
 import { credentialAsk } from "./credentials";
 import { plainMessage } from "./messageText";
@@ -13,7 +13,7 @@ import { AfkToggle } from "./afk-toggle";
 import { CfoUpdate } from "./cfo-update";
 import { goblinName, taskName, taskSummary, withoutHarness } from "./task-words";
 import { RawDetails } from "./raw-details";
-import { turnStatus } from "./start";
+import { taskStatus } from "./task-status";
 import { PeopleRow } from "./people-row";
 import { TicketLink } from "./ticket-link";
 import { PullRequestTestLink } from "./pull-request-test-link";
@@ -35,14 +35,14 @@ export function PanelHeader({ task, node, snapshot, compact, onAnswer, onOpenTas
   const [feedback, showFeedback] = useClickFeedback();
   const cfo = !task && !node;
   const owner = !!task && ownsTaskSession(node, task);
-  const asking = owner && asksOverlord(snapshot, task.id);
   const cfoSession = snapshot.sessions.find((session) => session.role === "cfo");
   const title = cfo ? "CFO" : node ? sessionTitle(node, task) : task ? goblinName(task) : "";
   const trains = snapshot.merge_trains ?? [];
-  const status = cfo
-    ? nodeStatus({ id: "cfo", title, session: cfoSession, relation: "", status: snapshot.registration ? "Registration stale" : cfoSession ? undefined : "Supervising" })
-    : owner && turnStatus(task, snapshot.memory, snapshot.disk) || nodeStatus({ id: title, title, task, session: node, relation: "" }, asking, snapshot.tasks, trains);
-  const phase = cfo ? (snapshot.registration ? "stale" : cfoSession?.runtime?.state || cfoSession?.phase || "working") : owner ? statusPhase(task, trains) : node?.runtime?.state || node?.phase || "";
+  // A goblin's own panel reads its task's one status, as its card does; the
+  // CFO and a child session read their sessions'.
+  const { text: status, phase } = owner ? taskStatus(task, snapshot)
+    : cfo ? { text: nodeStatus({ id: "cfo", title, session: cfoSession, relation: "", status: snapshot.registration ? "Registration stale" : cfoSession ? undefined : "Supervising" }), phase: snapshot.registration ? "stale" : cfoSession?.runtime?.state || cfoSession?.phase || "working" }
+      : { text: nodeStatus({ id: title, title, task, session: node, relation: "" }, false, snapshot.tasks, trains), phase: node?.runtime?.state || node?.phase || "" };
   const said = owner ? taskSummary(task, snapshot.tasks, status) : undefined;
   // What a queued task's wait line leaves out: the CFO's note on it, or what
   // says it already finished.
