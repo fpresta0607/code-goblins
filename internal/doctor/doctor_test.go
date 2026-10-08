@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"regexp"
 	"slices"
@@ -22,7 +23,11 @@ import (
 const fakeClaudeVersion = "2.1.0 (Claude Code)"
 
 // fakeClaude copies this test binary into dir as claude.exe, a program as the
-// native build of Claude Code is, which TestMain answers as that build.
+// native build of Claude Code is, which TestMain answers as that build. It
+// starts the copy once before a probe times it: Windows makes the first start
+// of a newly written program wait for the real-time scan of the new file,
+// which grows with the machine's load and outlasted ProbeTimeout under the
+// fleet's, while every later start of the same file skips it.
 func fakeClaude(t *testing.T, dir string) {
 	t.Helper()
 	self, err := os.Executable()
@@ -33,8 +38,12 @@ func fakeClaude(t *testing.T, dir string) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(dir, "claude.exe"), program, 0o755); err != nil {
+	claude := filepath.Join(dir, "claude.exe")
+	if err := os.WriteFile(claude, program, 0o755); err != nil {
 		t.Fatal(err)
+	}
+	if out, err := exec.Command(claude, "--version").Output(); err != nil || strings.TrimSpace(string(out)) != fakeClaudeVersion {
+		t.Fatalf("premise: the fake claude's first start answered %q (%v), want %q", out, err, fakeClaudeVersion)
 	}
 }
 

@@ -40,6 +40,9 @@ func TestInstallKeepsACheckoutHomeAndItsFleetAsTheyAre(t *testing.T) {
 	if err := os.MkdirAll(filepath.Join(f.root, ".git"), 0o755); err != nil {
 		t.Fatal(err)
 	}
+	// The .git above is no repository, so the search for one must stop here,
+	// not reach whatever checkout holds the temp folder.
+	t.Setenv("GIT_CEILING_DIRECTORIES", filepath.Dir(f.root))
 	for _, name := range []string{"cfo.exe", "goblins.exe"} {
 		writeFile(t, filepath.Join(f.root, name), "older build")
 	}

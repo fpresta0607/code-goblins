@@ -637,11 +637,24 @@ func TestGitMergedPRsReadsMergeCommitsOfEachFleetRepository(t *testing.T) {
 	run("merge", "-q", "--no-ff", "fix/wake", "-m", "Merge pull request #31 from o/fix/wake")
 	run("commit", "-q", "--allow-empty", "-m", "Merge pull request #99 from o/not-a-merge")
 	run("update-ref", "refs/remotes/origin/main", "HEAD")
+	// The checkouts sit inside another repository, as a goblin's scratch sits
+	// inside the home's checkout, and none of them may read its merges.
+	git(dir, "init", "-q", "--initial-branch=main")
+	git(dir, "config", "user.email", "t@t")
+	git(dir, "config", "user.name", "t")
+	git(dir, "remote", "add", "origin", "https://github.com/o/outer.git")
+	git(dir, "commit", "-q", "--allow-empty", "-m", "outer base")
+	git(dir, "switch", "-q", "-c", "outer")
+	git(dir, "commit", "-q", "--allow-empty", "-m", "the outer fix")
+	git(dir, "switch", "-q", "main")
+	git(dir, "merge", "-q", "--no-ff", "outer", "-m", "Merge pull request #500 from o/outer")
+	git(dir, "update-ref", "refs/remotes/origin/main", "HEAD")
 	// A checkout with no GitHub remote has nothing to link and is skipped.
 	other := filepath.Join(dir, "local-only")
-	if err := os.MkdirAll(filepath.Join(other, ".git"), 0o755); err != nil {
+	if err := os.MkdirAll(other, 0o755); err != nil {
 		t.Fatal(err)
 	}
+	git(other, "init", "-q", "--initial-branch=main")
 
 	// A master checkout that never fetched has no default branch to read,
 	// which is not an error and does not hide the other repositories.
