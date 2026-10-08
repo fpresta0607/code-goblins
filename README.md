@@ -772,6 +772,7 @@ cfo run-request --withdraw <id> --reason "<why>"
 
 Run `cfo doctor` after installation for the current dependency and harness health report.
 It also sets each harness's installed version beside the newest published one, with the command that installs it, and names the version the Codex desktop app bundles.
+`cfo doctor --fix` then installs the newest Codex and pi: each new version is staged apart and must reach its composer in a terminal of its own, started as a goblin's would be, before npm installs it, and never while anything runs from the install; Claude Code keeps updating itself.
 
 ### Helper goblins
 
