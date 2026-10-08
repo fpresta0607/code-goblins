@@ -191,7 +191,7 @@ func runAuthPreflight(args []string, stdout, stderr io.Writer, runtime commandRu
 			fmt.Fprintln(stderr, err)
 			return 1
 		}
-		audit := auth.CacheAudit(h.Root, worktreeManifest.Env)
+		audit := auth.CacheAudit(h.Caches(), worktreeManifest.Env)
 		counts := map[string]int{}
 		for _, redirect := range audit {
 			counts[redirect.Source]++

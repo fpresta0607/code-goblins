@@ -21,8 +21,9 @@
 .phase-idle .status-dot, .phase-done .status-dot { background: #7891ad; }
 .phase-idle.plain-status, .phase-done.plain-status { color: #a6b8c8; }
 
-/* A goblin's children collapsed to a count. */
-.tree-count { display: inline-flex; align-items: center; gap: 10px; min-height: 38px; padding: 4px 12px 4px 10px; border: 1px solid var(--glass-border-hover); border-radius: 999px; background: var(--glass-bg), var(--hero-surface); box-shadow: var(--glass-shadow); font-size: .9375rem; font-weight: 700; color: #c4d4df; white-space: nowrap; }
+/* A goblin's running children collapsed to a count, the same rounded
+   rectangle as the rows it opens. */
+.tree-count { display: inline-flex; align-items: center; gap: 10px; min-height: 38px; padding: 4px 12px 4px 10px; border: 1px solid var(--glass-border-hover); border-radius: var(--radius); background: var(--glass-bg), var(--hero-surface); box-shadow: var(--glass-shadow); font-size: .9375rem; font-weight: 700; color: #c4d4df; white-space: nowrap; }
 .tree-count:hover { border-color: var(--accent-green); }
 .tree-count.has-silent { border-color: #f3c57888; }
 .tree-count svg { width: 16px; height: 16px; flex: none; color: #bed2d9; }
