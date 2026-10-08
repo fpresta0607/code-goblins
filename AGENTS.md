@@ -415,6 +415,7 @@ While [AFK mode](#afk-mode) is on, merge authority is your own merge word for a 
 Landing pull requests one at a time costs one CI run each, in a row, because every merge makes the other green runs stale.
 A merge train lands them together with one run.
 `cfo pr train <project>` picks the green pull requests goblins finished on the project's default branch in queue order, the one reported done first going first, and merges them onto the branch's tip with merge commits on a branch of its own, `cfo/train-<stamp>`.
+A pull request a goblin reported done in its current run is finished whatever the goblin reports after, such as working on its next pull request or being blocked, so it keeps its place and rides while it is open, green and not in conflict; a head it pushes after the train took the pull request leaves it off that train.
 It builds them from commits alone, so the project checkout's working tree and branches are never touched, and pushes the result with a pull request titled `(do not merge)` that is never merged: CI tests the combination once.
 A pull request that does not merge cleanly with the ones ahead of it is left off, and once the train is over its goblin is told to merge main, once per head.
 When the run is green, the train first reads every rider again: one closed, turned into a draft, labelled `hold` or moved to another head since it rode is left off and the rest is tested again, so the branch never receives part of what CI tested.

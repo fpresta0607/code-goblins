@@ -264,6 +264,31 @@ func TestDoneReportsReadEveryPullRequestReportedDoneInThisRun(t *testing.T) {
 	}
 }
 
+// A done report rides however much its goblin reported after it in the same
+// run: a long run's status log is read whole, never only its newest lines.
+func TestTrainGoblinsReadADoneReportHoweverFarBackInTheRun(t *testing.T) {
+	// Arrange
+	_, h := fleetService(t)
+	checkout := t.TempDir()
+	finished := "https://github.com/o/r/pull/31"
+	lines := []string{"done: PR " + finished}
+	for step := 1; step <= 250; step++ {
+		lines = append(lines, fmt.Sprintf("working: step %d of the next pull request", step))
+	}
+	reportDone(t, h, "g31", checkout, lines...)
+
+	// Act
+	goblins := TrainGoblins(h.State, checkout)
+
+	// Assert
+	if len(goblins) != 1 || len(goblins[0].Done) != 1 {
+		t.Fatalf("goblins = %+v, want g31 with #31 done", goblins)
+	}
+	if _, isDone := goblins[0].Done[finished]; !isDone {
+		t.Fatalf("goblins = %+v, want #31 done", goblins)
+	}
+}
+
 func TestPRHealthLeavesTrainsAndThePullRequestsTheyCarryAlone(t *testing.T) {
 	// Arrange
 	_, h, forge, now := healthService(t, false)
