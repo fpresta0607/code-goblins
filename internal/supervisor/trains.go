@@ -217,16 +217,58 @@ func carriedByTrains(stateDir string) map[string]bool {
 	return carried
 }
 
-// keepTrains keeps the trains the board shows: every running one, and each
-// finished one for trainsShownFor. It forgets trains kept past their time.
+// MergeTrainView is a merge train as the board shows it: one card for each
+// batch of pull requests, so it carries the trains before it that landed
+// nothing and whose pull requests it took on, oldest first.
+type MergeTrainView struct {
+	train.Train
+	Earlier []train.Train `json:"earlier,omitempty"`
+}
+
+// trainBatches folds each finished train that landed nothing into the next
+// train of its repository that took one of its pull requests on, and keeps
+// every other train as it is. trains come newest first, as train.List reads
+// them, and so do the batches.
+func trainBatches(trains []train.Train) []MergeTrainView {
+	var batches []MergeTrainView
+	for _, t := range slices.Backward(trains) {
+		batch := MergeTrainView{Train: t}
+		batches = slices.DeleteFunc(batches, func(before MergeTrainView) bool {
+			if !strings.EqualFold(before.Repository, t.Repository) || landedAny(before.Train) || !takesOn(t, before.Train) {
+				return false
+			}
+			batch.Earlier = append(batch.Earlier, append(before.Earlier, before.Train)...)
+			return true
+		})
+		batches = append(batches, batch)
+	}
+	slices.Reverse(batches)
+	return batches
+}
+
+// landedAny says whether any of t's pull requests landed.
+func landedAny(t train.Train) bool {
+	return slices.ContainsFunc(t.Cars, func(car train.Car) bool { return car.State == train.CarLanded })
+}
+
+// takesOn says whether later carries any of earlier's pull requests.
+func takesOn(later, earlier train.Train) bool {
+	return slices.ContainsFunc(later.Cars, func(car train.Car) bool {
+		return slices.ContainsFunc(earlier.Cars, func(before train.Car) bool { return before.URL == car.URL })
+	})
+}
+
+// keepTrains keeps the trains the board shows, one for each batch: every
+// running one, and each finished one for trainsShownFor. It forgets trains
+// kept past their time.
 func (s *Service) keepTrains(now time.Time) error {
 	stateDir := s.Store.Home.State
 	pruneErr := train.Prune(stateDir, now)
 	trains, err := train.List(stateDir)
-	shown := []train.Train{}
-	for _, t := range trains {
-		if !t.IsFinished() || now.Sub(t.Finished) < trainsShownFor {
-			shown = append(shown, t)
+	shown := []MergeTrainView{}
+	for _, batch := range trainBatches(trains) {
+		if !batch.IsFinished() || now.Sub(batch.Finished) < trainsShownFor {
+			shown = append(shown, batch)
 		}
 	}
 	s.mu.Lock()

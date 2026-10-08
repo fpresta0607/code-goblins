@@ -59,6 +59,9 @@ func TestAdvanceLandsAGreenTrainInOrderAndMainMatchesTheTrain(t *testing.T) {
 	if len(s.told) != 0 {
 		t.Fatalf("goblins told %q, want nothing for a train that landed", s.told)
 	}
+	if got := runLog(landed); !slices.Equal(got, []string{"1 #11 #12 #13 landed"}) || landed.History[0].Base != started.BaseSHA || landed.History[0].Head != started.Head || !landed.History[0].Pushed.Equal(started.Pushed) {
+		t.Fatalf("runs %q (%+v), want its one run on the base and head it tested, landed", got, landed.History)
+	}
 }
 
 func TestAdvanceWaitsWhileTheTrainsChecksRun(t *testing.T) {
@@ -125,6 +128,9 @@ func TestAdvanceRetestsOnTheNewMainWhenMainMovedDuringTheRun(t *testing.T) {
 	}
 	if landed.State != StateLanded || s.tree("refs/heads/main") != s.tree(retest.Head) {
 		t.Fatalf("train = %s, want it landed on the new main", landed.State)
+	}
+	if got := runLog(landed); !slices.Equal(got, []string{"1 #11 #12 moved", "2 #11 #12 landed"}) || landed.History[1].Base != moved {
+		t.Fatalf("runs %q, want the run main moved under and the run that landed on the new main", got)
 	}
 }
 
@@ -294,6 +300,9 @@ func TestLandingRetestsWithoutARiderThatChangedAfterItRode(t *testing.T) {
 			if !strings.Contains(retest.Note, "#12") || s.fileOn(retest.Head, "b.txt") != "" || s.fileOn(retest.Head, "c.txt") != "c\n" {
 				t.Fatalf("note %q; the new run must name #12 and leave it out", retest.Note)
 			}
+			if got := runLog(retest); !slices.Equal(got, []string{"1 #11 #12 #13 changed", "2 #11 #13 open"}) {
+				t.Fatalf("runs %q, want the run a rider changed after and the run without it", got)
+			}
 		})
 	}
 }
@@ -331,6 +340,9 @@ func TestARunWhosePushGitHubNeverShowedIsPushedAgain(t *testing.T) {
 	}
 	if gh.created != 1 || pushed.PR != started.PR {
 		t.Fatalf("train pull requests opened %d, want the first kept", gh.created)
+	}
+	if got := runLog(pushed); !slices.Equal(got, []string{"1 #11 repushed", "2 #11 open"}) {
+		t.Fatalf("runs %q, want the run pushed again and the run CI tests", got)
 	}
 }
 
@@ -414,6 +426,12 @@ func TestCIThatNeverFinishesStopsTheTrainAtItsDeadline(t *testing.T) {
 	if err != nil || stopped.State != StateFailed || !strings.Contains(stopped.Note, "did not finish within") {
 		t.Fatalf("at the deadline: train %+v (%v), want it failed", stopped, err)
 	}
+	if got := runLog(running); !slices.Equal(got, []string{"1 #11 open"}) {
+		t.Fatalf("runs before the deadline %q, want its one run open", got)
+	}
+	if got := runLog(stopped); !slices.Equal(got, []string{"1 #11 stopped"}) {
+		t.Fatalf("runs at the deadline %q, want its run stopped with the train", got)
+	}
 }
 
 func TestATrainStopsWhenMainMovesDuringEveryRun(t *testing.T) {
@@ -441,6 +459,9 @@ func TestATrainStopsWhenMainMovesDuringEveryRun(t *testing.T) {
 	// Assert
 	if stopped.State != StateFailed || stopped.Runs != maxMoved || len(gh.merged) != 0 || !strings.Contains(stopped.Note, "moved during 3 runs in a row") {
 		t.Fatalf("train %s after %d runs, merged %v, note %q", stopped.State, stopped.Runs, gh.merged, stopped.Note)
+	}
+	if got := runLog(stopped); !slices.Equal(got, []string{"1 #11 moved", "2 #11 moved", "3 #11 moved"}) {
+		t.Fatalf("runs %q, want every run main moved under", got)
 	}
 }
 
