@@ -20,49 +20,164 @@ var firstNames = []string{
 	"Yuri", "Yvette", "Zach", "Zane", "Zeke", "Zora",
 }
 
-// genericTitles are the titles for work no theme fits: playful and simple.
+// genericTitles are the titles for work whose task names no subject the
+// catalog knows: playful and simple.
 var genericTitles = []string{
-	"Code Designer", "Bit Shepherd", "Loop Tamer", "Branch Whisperer", "Commit Crafter",
+	"Code Designer", "Bit Shepherd", "Loop Tamer", "Bit Whisperer", "Commit Crafter",
 	"Logic Gardener", "Patch Pilot", "Code Sculptor", "Syntax Surfer", "Byte Barista",
 	"Refactor Ranger", "Function Fixer", "Script Wizard", "Module Mechanic", "Variable Wrangler",
 	"Diff Detective", "Idea Juggler", "Chief Tinkerer", "Bracket Balancer", "Null Ninja",
 	"Stack Stacker", "Code Chef", "Logic Locksmith", "Type Tamer", "Code Carpenter",
 	"Line Tidier", "Byte Builder", "Spec Reader", "Detail Hound", "Plan Maker",
 	"Code Whittler", "Bit Twiddler", "Puzzle Solver", "Gear Turner", "Thread Weaver",
-	"Module Maker", "Config Keeper", "Tidy Coder", "Code Plumber", "Bit Painter",
+	"Module Maker", "Knob Keeper", "Tidy Coder", "Code Plumber", "Bit Painter",
 	"Edge Case Chaser", "Loose End Finder", "Brace Wrangler", "Commit Poet", "Loop Juggler",
 	"Idea Sprinkler", "Code Cobbler", "Logic Knitter", "Byte Polisher", "Chief Fiddler",
 }
 
-// theme is a kind of work a brief can make obvious: the words that name it
-// and the titles that fit it.
-type theme struct {
-	key    string
-	words  []string
-	titles []string
+// subject is a thing a task can be about: the word its titles call it by,
+// the words and phrases that name it in a task, in lower case and singular,
+// and the roles that suit it best.
+type subject struct {
+	word  string
+	names []string
+	roles []string
 }
 
-// themes are tried in order, so the first of two themes a hint names
-// equally often wins.
-var themes = []theme{
-	{key: "board", words: []string{"board", "card", "cards", "canvas", "panel", "panels", "tooltip", "tooltips", "frontend", "ui", "css", "layout", "screen", "screens", "pixel", "pixels", "icon", "icons", "design", "page", "pages", "window", "button", "buttons", "theme", "react"},
-		titles: []string{"Pixel Wrangler", "Layout Whisperer", "Button Polisher", "Card Shuffler", "Color Mixer", "Screen Painter"}},
-	{key: "bugs", words: []string{"test", "tests", "flaky", "flake", "flakes", "bug", "bugs", "crash", "crashes", "hang", "hangs", "race", "regression", "broken", "failing", "debug"},
-		titles: []string{"Bug Hunter", "Flake Catcher", "Crash Detective", "Glitch Tamer", "Gremlin Chaser", "Bug Squasher"}},
-	{key: "docs", words: []string{"doc", "docs", "readme", "documentation", "copy", "wording", "writing", "guide", "prose"},
-		titles: []string{"Word Smith", "Page Turner", "Ink Slinger", "Story Teller"}},
-	{key: "delivery", words: []string{"merge", "train", "ci", "pipeline", "gate", "release", "releases", "deploy", "ship", "landing"},
-		titles: []string{"Train Conductor", "Pipeline Plumber", "Release Wrangler", "Merge Maestro", "Ship Captain"}},
-	{key: "keys", words: []string{"auth", "credential", "credentials", "secret", "secrets", "token", "tokens", "security", "login", "password"},
-		titles: []string{"Key Keeper", "Lock Smith", "Gate Keeper", "Vault Guard"}},
-	{key: "install", words: []string{"install", "installer", "update", "upgrade", "build", "binary", "setup", "package"},
-		titles: []string{"Bolt Tightener", "Toolbox Keeper", "Crate Packer", "Wrench Wielder"}},
-	{key: "terminal", words: []string{"terminal", "terminals", "console", "shell", "pane", "panes", "powershell", "conpty", "keyboard", "cursor"},
-		titles: []string{"Shell Tamer", "Terminal Tinkerer", "Prompt Whisperer", "Cursor Herder"}},
-	{key: "voice", words: []string{"voice", "dictation", "speech", "audio", "microphone"},
-		titles: []string{"Voice Catcher", "Echo Chaser", "Sound Shaper"}},
-	{key: "speed", words: []string{"memory", "disk", "perf", "performance", "speed", "fast", "slow", "cache", "caches", "latency"},
-		titles: []string{"Speed Tuner", "Byte Saver", "Memory Keeper", "Turbo Tuner"}},
-	{key: "data", words: []string{"database", "migration", "migrations", "sql", "schema", "postgres", "supabase", "query", "queries"},
-		titles: []string{"Data Herder", "Table Setter", "Query Wrangler", "Row Counter"}},
+// subjects are the things a title can name. A task naming two of them
+// equally often gets the one listed first, so the more specific come first.
+var subjects = []subject{
+	{word: "Whats-New", names: []string{"whats new", "whatsnew", "announcement", "announce", "changelog"}, roles: []string{"Wizard"}},
+	{word: "Voice", names: []string{"voice", "dictation", "dictate", "speech", "moonshine", "microphone", "audio"}, roles: []string{"Whisperer"}},
+	{word: "Resume", names: []string{"resume", "comeback", "restart"}, roles: []string{"Wrangler"}},
+	{word: "Token", names: []string{"token"}},
+	{word: "Branch", names: []string{"family tree", "tree", "branch"}},
+	{word: "Train", names: []string{"merge train", "train"}, roles: []string{"Conductor"}},
+	{word: "Tooltip", names: []string{"tooltip", "tool tip", "tip"}},
+	{word: "Console", names: []string{"openconsole", "conpty", "conhost", "console", "pty"}},
+	{word: "Keystroke", names: []string{"keystroke", "keypress", "key press", "typing", "input"}, roles: []string{"Keeper"}},
+	{word: "Stall", names: []string{"stall", "stuck", "hang", "freeze", "frozen"}},
+	{word: "Wake", names: []string{"wake", "woken", "wakeup"}},
+	{word: "Flake", names: []string{"flaky", "flake", "flakiness"}, roles: []string{"Catcher"}},
+	{word: "Bug", names: []string{"bug", "crash", "regression", "glitch", "glitchy"}, roles: []string{"Hunter", "Squasher"}},
+	{word: "Test", names: []string{"test", "suite", "spec", "playwright", "coverage"}},
+	{word: "Lint", names: []string{"lint", "linter", "eslint", "gofmt"}},
+	{word: "Gate", names: []string{"no mistakes", "nomistakes", "gate", "pipeline"}},
+	{word: "CI", names: []string{"ci", "github actions"}},
+	{word: "Release", names: []string{"release", "publish"}},
+	{word: "Install", names: []string{"install", "installer", "uninstall", "setup", "one liner"}, roles: []string{"Wizard"}},
+	{word: "Update", names: []string{"update", "upgrade", "updater"}},
+	{word: "Deploy", names: []string{"deploy", "deployment", "vercel"}},
+	{word: "Picture", names: []string{"picture", "image", "screenshot", "photo", "illustration", "mockup"}, roles: []string{"Painter"}},
+	{word: "Readme", names: []string{"readme"}},
+	{word: "Docs", names: []string{"doc", "docs", "documentation", "guide", "wording", "prose"}},
+	{word: "Tour", names: []string{"tour", "onboarding", "walkthrough", "quick start", "quickstart", "first run"}, roles: []string{"Guide"}},
+	{word: "Website", names: []string{"website", "site", "landing page", "homepage", "hero"}},
+	{word: "AFK", names: []string{"afk"}},
+	{word: "Ticket", names: []string{"ticket"}},
+	{word: "Repo", names: []string{"repo", "repository", "checkout"}},
+	{word: "Worktree", names: []string{"worktree"}},
+	{word: "Helper", names: []string{"helper", "baby goblin", "subagent", "sub agent"}},
+	{word: "Home", names: []string{"home"}, roles: []string{"Keeper"}},
+	{word: "Cleanup", names: []string{"cleanup", "clean up", "tidy", "hygiene", "janitor", "reap", "prune", "orphan"}, roles: []string{"Crew"}},
+	{word: "Map", names: []string{"map", "layer", "gis", "parcel"}, roles: []string{"Maker"}},
+	{word: "Ordinance", names: []string{"ordinance", "municode", "zoning", "discovery"}},
+	{word: "Chat", names: []string{"chat", "chatgpt", "conversation"}, roles: []string{"Charmer"}},
+	{word: "Credential", names: []string{"credential", "api key", "auth", "secret", "password", "login", "sign in", "oauth", "vault"}, roles: []string{"Keeper"}},
+	{word: "API", names: []string{"api", "endpoint", "sdk", "mcp", "connector", "webhook"}, roles: []string{"Artisan"}},
+	{word: "Agent", names: []string{"agent"}},
+	{word: "Harness", names: []string{"harness"}},
+	{word: "Quota", names: []string{"quota", "credit", "budget", "rate limit"}},
+	{word: "Email", names: []string{"email", "mail", "resend"}},
+	{word: "Billing", names: []string{"billing", "invoice", "payment", "stripe", "refund", "bank feed", "bank"}, roles: []string{"Baron"}},
+	{word: "Export", names: []string{"export", "import", "csv"}, roles: []string{"Expert"}},
+	{word: "Permission", names: []string{"permission", "allow rule", "allowlist"}},
+	{word: "Security", names: []string{"security", "vulnerability", "sandbox", "csp", "xss", "csrf"}},
+	{word: "Lock", names: []string{"lock", "mutex", "deadlock", "race"}, roles: []string{"Smith"}},
+	{word: "Spawn", names: []string{"spawn", "dispatch"}, roles: []string{"Shepherd"}},
+	{word: "Pause", names: []string{"pause"}},
+	{word: "Queue", names: []string{"queue", "backlog", "scheduler"}},
+	{word: "Idle", names: []string{"idle"}},
+	{word: "Fleet", names: []string{"fleet"}},
+	{word: "Alert", names: []string{"alert", "toast", "notification", "notify"}},
+	{word: "Message", names: []string{"message", "steer", "reply"}},
+	{word: "Question", names: []string{"question", "answer", "decision"}},
+	{word: "Review", names: []string{"review", "scrawl", "lavish", "feedback"}},
+	{word: "Inbox", names: []string{"command center", "inbox"}},
+	{word: "Access", names: []string{"accessibility", "a11y", "screen reader"}},
+	{word: "Screen", names: []string{"screen"}},
+	{word: "Terminal", names: []string{"terminal", "shell", "powershell", "command line", "cursor", "pane"}},
+	{word: "Session", names: []string{"session", "transcript"}},
+	{word: "Process", names: []string{"process", "pid"}},
+	{word: "Proof", names: []string{"proof", "evidence", "verify", "verification"}},
+	{word: "Speed", names: []string{"speed", "fast", "faster", "slow", "perf", "performance", "latency", "benchmark"}, roles: []string{"Tuner"}},
+	{word: "Memory", names: []string{"memory", "ram", "page file"}},
+	{word: "Disk", names: []string{"disk", "dev drive", "storage"}},
+	{word: "Cache", names: []string{"cache"}, roles: []string{"Keeper"}},
+	{word: "Database", names: []string{"database", "db", "postgres", "supabase", "sql", "schema"}},
+	{word: "Migration", names: []string{"migration"}},
+	{word: "Search", names: []string{"search"}},
+	{word: "Log", names: []string{"log", "logging", "telemetry", "trace", "sentry"}},
+	{word: "Chart", names: []string{"chart", "graph", "dashboard", "meter", "dial"}},
+	{word: "Link", names: []string{"link", "url"}},
+	{word: "Network", names: []string{"network", "port", "proxy", "dns", "tailscale"}},
+	{word: "Server", names: []string{"server", "supervisor", "daemon"}, roles: []string{"Shepherd"}},
+	{word: "Git", names: []string{"git", "rebase", "merge conflict"}, roles: []string{"Guru"}},
+	{word: "Merge", names: []string{"merge"}},
+	{word: "PR", names: []string{"pull request"}},
+	{word: "Config", names: []string{"config", "settings", "setting", "env"}},
+	{word: "Hook", names: []string{"hook"}},
+	{word: "Dependency", names: []string{"dependency", "npm", "package", "node modules"}},
+	{word: "Build", names: []string{"build", "compile", "bundle", "vite", "binary"}, roles: []string{"Boss"}},
+	{word: "Clock", names: []string{"clock", "timer", "timeout", "cron"}},
+	{word: "Browser", names: []string{"browser", "chrome"}},
+	{word: "Phone", names: []string{"phone", "mobile", "ios", "android", "expo"}},
+	{word: "History", names: []string{"history", "archive"}, roles: []string{"Keeper"}},
+	{word: "Window", names: []string{"desktop window", "window", "desktop", "tray", "webview"}},
+	{word: "Name", names: []string{"name", "nickname"}},
+	{word: "Title", names: []string{"title"}},
+	{word: "Icon", names: []string{"icon", "avatar", "logo"}},
+	{word: "Color", names: []string{"color", "colour", "theme", "dark mode", "light mode"}, roles: []string{"Mixer"}},
+	{word: "Layout", names: []string{"layout", "spacing", "css", "styling", "font", "typography"}, roles: []string{"Whisperer"}},
+	{word: "Button", names: []string{"button"}, roles: []string{"Polisher"}},
+	{word: "Card", names: []string{"card"}, roles: []string{"Shuffler"}},
+	{word: "Panel", names: []string{"panel", "sidebar", "drawer"}},
+	{word: "Canvas", names: []string{"canvas", "orchestration"}},
+	{word: "Board", names: []string{"board", "kanban", "column"}, roles: []string{"Boss"}},
+}
+
+// alliterative are the roles that begin with each letter, best first, which
+// a subject beginning with that letter takes after its own.
+var alliterative = map[rune][]string{
+	'a': {"Ace", "Artisan", "Alchemist"},
+	'b': {"Bender", "Boss", "Buster", "Baron"},
+	'c': {"Captain", "Charmer", "Conjurer", "Crafter"},
+	'd': {"Doctor", "Dynamo", "Detective"},
+	'e': {"Elf", "Expert", "Engineer"},
+	'f': {"Fixer", "Fiddler", "Forger"},
+	'g': {"Guardian", "Guru", "Gardener"},
+	'h': {"Herder", "Hunter", "Hero"},
+	'i': {"Imp", "Inventor"},
+	'j': {"Juggler", "Jester", "Jockey"},
+	'k': {"Keeper", "Knight"},
+	'l': {"Legend", "Lifeguard"},
+	'm': {"Maestro", "Mechanic", "Medic", "Mender"},
+	'n': {"Ninja", "Navigator"},
+	'o': {"Oracle", "Operator"},
+	'p': {"Pilot", "Polisher", "Painter", "Pro"},
+	'r': {"Ranger", "Rider", "Rascal"},
+	's': {"Sleuth", "Smith", "Sage", "Scout", "Shepherd", "Sorcerer"},
+	't': {"Tamer", "Tinkerer", "Tracker", "Tuner"},
+	'u': {"Usher"},
+	'v': {"Virtuoso", "Voyager", "Valet"},
+	'w': {"Wizard", "Wrangler", "Whisperer", "Warden"},
+	'y': {"Yodeler"},
+	'z': {"Zapper"},
+}
+
+// roles are the roles any subject can take, after its own and the
+// alliterative ones.
+var roles = []string{
+	"Wrangler", "Whisperer", "Wizard", "Tamer", "Tinkerer", "Herder", "Hunter", "Juggler", "Keeper",
+	"Smith", "Sleuth", "Ninja", "Pilot", "Ranger", "Fixer", "Captain", "Maestro", "Guru",
 }
