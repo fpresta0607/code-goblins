@@ -78,6 +78,12 @@ func (e Engine) build(ctx context.Context, t *Train) error {
 	isResumed := t.PR == "" && t.Runs > 0
 	t.BaseSHA, t.Head, t.Pushed = base, head, e.Now().UTC()
 	t.Runs++
+	t.endRun(RunRepushed, "")
+	run := Run{Number: t.Runs, Base: base, Head: head, Pushed: t.Pushed}
+	for _, i := range riders {
+		run.Riders = append(run.Riders, t.Cars[i].Number)
+	}
+	t.History = append(t.History, run)
 	if err := e.save(t); err != nil {
 		return err
 	}

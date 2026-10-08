@@ -106,13 +106,13 @@ test("a goblin paused until its pull request merges stays in In progress with no
   assert.deepEqual([resuming.status, resuming.column], ["Resuming", "In progress"]);
 });
 
-test("a real pause still reads as paused, in the Paused section, with what resumes it", () => {
-  const otherPR = REPO + "/pull/600";
+// The Overlord, 2026-10-08: "paused is completely stopped terminals for
+// memory reasons". Paused holds a goblin stopped for memory, by the floor or
+// by the CFO, or by his own Pause, and nothing else.
+test("a pause for memory reads as paused, in the Paused section, with what resumes it", () => {
   for (const [name, pause, line] of [
     ["the memory floor in the middle of work", { reason: "memory", until: "" }, "It resumes by itself once 5 GB of memory is free."],
     ["his own pause", { reason: "overlord", until: "" }, "It stays paused until you resume it."],
-    ["a wait on another task", { reason: "dependency", until: "task:cg-other" }, "It resumes by itself when the task it waits on finishes."],
-    ["a wait on another goblin's pull request", { reason: "dependency", until: "pr:" + otherPR }, "It resumes by itself when PR #600 merges."],
   ] as const) {
     // Arrange: Sid's own pull request rides a train even while he paused it.
     const paused = board(sid({ phase: "paused", lifecycle: lifecycle(pause), ...checks("passed") }), [train("testing", "riding")]);
@@ -128,6 +128,68 @@ test("a real pause still reads as paused, in the Paused section, with what resum
     // The chip still says where the pull request stands.
     assert.equal(read.chip?.text, "Testing", name);
   }
+  // A pause with no condition, from before conditions were kept, needs his
+  // Resume as his own does.
+  assert.equal(taskColumn(board(sid({ phase: "paused", lifecycle: { ...lifecycle({}), pause: undefined } })).task), "Paused");
+});
+
+test("a goblin paused to wait on something stays in In progress, in grey, whether its terminal runs or rests", () => {
+  for (const [name, pause] of [
+    ["a wait on another task", { reason: "dependency", until: "task:cg-other" }],
+    ["a wait on another goblin's pull request", { reason: "dependency", until: "pr:" + REPO + "/pull/600" }],
+    ["a wait on a date", { reason: "dependency", until: "date:2026-10-09T09:00:00Z" }],
+    ["a wait for his answer", { reason: "question", until: "q-1" }],
+    ["a wait for the allowance to reset", { reason: "allowance", until: "2026-10-09T09:00:00Z" }],
+    ["a wait on a deploy", { reason: "deploy", until: "run:" + REPO + "/actions/runs/9@" + HEAD }],
+  ] as const) {
+    for (const phase of ["paused", "pausing", "resuming"]) {
+      const read = surfaces(board(sid({ phase, lifecycle: lifecycle(pause), ...checks("passed") })));
+      assert.equal(read.column, "In progress", name + ", " + phase);
+    }
+    assert.equal(surfaces(board(sid({ phase: "paused", lifecycle: lifecycle(pause) }))).phase, "paused", name);
+  }
+});
+
+test("a goblin paused until its pull request merges stays in In progress through a train that fails and is retried until the retry lands", () => {
+  // Arrange: the Overlord's 2026-10-08 trains, main moved under the first
+  // three times, and the second landed what the first carried.
+  const runs = (count: number, result: string) => Array.from({ length: count }, (_, index) => ({ number: index + 1, riders: [512], base: "b".repeat(40), head: "c".repeat(40), pushed: "2026-10-08T18:10:00Z", result }));
+  const first = (state: string, carState: string, history: object[]) => ({ ...train(state, carState, { history, runs: history.length }), id: "code-goblins-20261008-180000", pr: REPO + "/pull/899" });
+  const retry = (state: string, carState: string, earlier: object) => ({ ...train(state, carState, { history: runs(1, state === "landed" ? "landed" : "") }), id: "code-goblins-20261008-190000", started: "2026-10-08T19:00:00Z", earlier: [earlier] });
+  const failedFirst = first("failed", "returned", runs(3, "moved"));
+  for (const [step, trains, status, url, tip] of [
+    ["the first train tests it", [first("testing", "riding", runs(1, ""))], "Testing", REPO + "/pull/899", "CI tests #512"],
+    ["the first train failed", [failedFirst], "Rides the next train", REPO + "/pull/899", "Train failed, main kept moving"],
+    ["the retry tests it", [retry("testing", "riding", failedFirst)], "Testing", TRAIN_PR, "CI tests #512, run 4"],
+    ["the retry landed it", [retry("landed", "landed", failedFirst)], "Landed", TRAIN_PR, "Landed on run 4"],
+  ] as const) {
+    // Act
+    const read = surfaces(board(pausedUntilMerge(checks("passed")), [...trains]));
+
+    // Assert
+    assert.equal(read.column, "In progress", step);
+    assert.equal(read.status, status, step);
+    assert.deepEqual([read.chip?.text, read.chip?.url, read.chip?.tip], [status, url, tip], step);
+  }
+});
+
+test("a pull request a train could not merge shows on its goblin's card with what happens next, in grey", () => {
+  // Arrange: Abe's #523 conflicted on the train that landed the rest.
+  const conflicted = train("landed", "conflict", { cars: [{ number: 512, url: PR, title: "Keep memory", task: "cg-sid", goblin: "Sid", goblin_title: "Memory Keeper", head: HEAD, state: "conflict", note: "it conflicts in a.go" }] });
+
+  // Act
+  const read = surfaces(board(sid({ phase: "working", report: "working", ...checks("passed") }), [conflicted]));
+
+  // Assert
+  assert.equal(read.column, "In progress");
+  assert.deepEqual(read.chip, { text: "Merging main to fix a conflict", tone: "cancelled", url: TRAIN_PR, tip: "it conflicts in a.go" });
+});
+
+test("a pull request left behind by a train another took on still reads that train", () => {
+  const left = { ...train("failed", "returned"), id: "code-goblins-20261008-180000", pr: REPO + "/pull/899", cars: [{ number: 512, url: PR, title: "", task: "cg-sid", goblin: "", goblin_title: "", head: HEAD, state: "returned", note: "" }, { number: 513, url: REPO + "/pull/513", title: "", task: "", goblin: "", goblin_title: "", head: "", state: "returned", note: "" }] };
+  const tookOn = { ...train("testing", "riding"), cars: [{ number: 513, url: REPO + "/pull/513", title: "", task: "", goblin: "", goblin_title: "", head: "", state: "riding", note: "" }], earlier: [left] };
+  const read = surfaces(board(pausedUntilMerge(checks("passed")), [tookOn]));
+  assert.deepEqual([read.chip?.text, read.chip?.url], ["Rides the next train", REPO + "/pull/899"]);
 });
 
 test("a goblin at work, blocked or asking after its pull request rode says so, and only its chip reads the train", () => {
