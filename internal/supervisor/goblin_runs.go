@@ -18,8 +18,8 @@ import (
 // A goblin's wait or question can carry a command for the Overlord to run
 // (the Overlord, 2026-10-02: "run in powershell button"). It reaches the board
 // as a run item, the card the CFO's own requests use, named for the goblin:
-// he reads the exact command and runs it with one click, in a window that
-// stays open and usable, so a sign-in or cfo attach works there. The goblin
+// he reads the exact command and runs it with one click, in a terminal on the
+// card, so a sign-in or cfo attach works there. The goblin
 // hears how it ended, and a command nobody ran leaves the board once the
 // goblin moves on.
 
@@ -43,7 +43,7 @@ func PublishGoblinRun(h home.Home, taskID string, seq int, title, shell, command
 		return err
 	}
 	now := time.Now().UTC()
-	r := Run{ID: goblinRunID(taskID, seq), Identity: goblinIdentity(meta), Task: taskID, Title: title, Shell: shell, Command: command, Cwd: meta.Worktree, Interactive: true, State: "ready", CreatedAt: now, ExpiresAt: now.Add(runLifetime)}
+	r := Run{ID: goblinRunID(taskID, seq), Identity: goblinIdentity(meta), Task: taskID, Title: title, Shell: shell, Command: command, Cwd: meta.Worktree, State: "ready", CreatedAt: now, ExpiresAt: now.Add(runLifetime)}
 	if err := validRun(r); err != nil {
 		return err
 	}
@@ -58,8 +58,8 @@ func PublishGoblinRun(h home.Home, taskID string, seq int, title, shell, command
 }
 
 // goblinRun is the run item an inbox record may become: the goblin's own,
-// under its own ID, never elevated, always in a usable window in its
-// worktree. Everything else the record claims is dropped.
+// under its own ID, never elevated, always in its worktree. Everything else
+// the record claims is dropped.
 func goblinRun(stateDir string, claimed Run) (Run, error) {
 	if claimed.Task == "" {
 		return Run{}, errFromInbox
@@ -75,7 +75,7 @@ func goblinRun(stateDir string, claimed Run) (Run, error) {
 	case claimed.Admin:
 		return Run{}, errors.New("a goblin's command never runs as administrator")
 	}
-	r := Run{ID: claimed.ID, Identity: claimed.Identity, Task: claimed.Task, Title: claimed.Title, Shell: claimed.Shell, Command: claimed.Command, Cwd: meta.Worktree, Interactive: true, State: "ready", CreatedAt: claimed.CreatedAt}
+	r := Run{ID: claimed.ID, Identity: claimed.Identity, Task: claimed.Task, Title: claimed.Title, Shell: claimed.Shell, Command: claimed.Command, Cwd: meta.Worktree, State: "ready", CreatedAt: claimed.CreatedAt}
 	return r, validRun(r)
 }
 

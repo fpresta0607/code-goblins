@@ -1,7 +1,6 @@
-import { useEffect, useRef, useState, type ReactNode } from "react";
-import { request } from "./api";
+import { useEffect, useState, type ReactNode } from "react";
 import { copyText } from "./clipboard";
-import { object, string, type Run, type Task } from "./types";
+import { type Run, type Task } from "./types";
 import { Avatar } from "./Avatar";
 import { Icon } from "./Icon";
 import { ConnectorMark } from "./ConnectorMark";
@@ -9,45 +8,25 @@ import { runMark } from "./feedback";
 import { runLabel, shellLabel, shellMark } from "./connectors";
 import { age } from "./presentation";
 import { personaFor } from "./workflow";
+import { RunTerminal } from "./run-terminal";
 import { ClickFeedback, useClickFeedback } from "./click-feedback";
 
 // A command the CFO, or a goblin, needs the Overlord to run: who asks when it
-// is a goblin's own, why, the shell, the exact text that runs and where, one
-// Run button that says where it runs, its live state, and its output as a
-// terminal shows it: read every second while it runs, then with its exit
-// code. An interactive item runs in its own window, which he uses himself,
-// so the card keeps no output. The browser never sends the command; Run
-// names the stored item.
-const OUTPUT_READ_MS = 1000;
-export function RunCard({ run, goblin, connected, sending, error, onRun, pager }: { run: Run; goblin?: Task; connected: boolean; sending: boolean; error: string; onRun: () => void; pager?: ReactNode }) {
+// is a goblin's own, why, the shell, the exact text that runs and where, and
+// one Run button that says where it runs. Run turns the card into the
+// command's own terminal, in place of the notice it once showed: he types
+// there and it completes by itself, Complete or Failed with the last line it
+// printed, keeping the end of what its terminal showed. An administrator's
+// command shows its terminal once he confirmed Windows' own prompt. The
+// browser never sends the command; Run names the stored item.
+export function RunCard({ run, goblin, connected, instance, sending, error, onRun, pager }: { run: Run; goblin?: Task; connected: boolean; instance: string; sending: boolean; error: string; onRun: () => void; pager?: ReactNode }) {
   const [feedback, showFeedback] = useClickFeedback();
   useEffect(() => { if (error) showFeedback(error); }, [error, showFeedback]);
   const [copied, setCopied] = useState(false);
-  const [printed, setPrinted] = useState("");
-  const screen = useRef<HTMLPreElement>(null);
   const running = run.state === "running";
-  const captured = !run.interactive;
-  useEffect(() => {
-    if (!running || !captured) return;
-    let stopped = false;
-    const read = async () => {
-      try {
-        const answer = object(await request("/api/runs/" + encodeURIComponent(run.id) + "/output"));
-        if (!stopped) setPrinted(string(answer.output));
-      } catch {
-        // The next read tries again; the run's state still shows above.
-      }
-    };
-    void read();
-    const timer = setInterval(() => void read(), OUTPUT_READ_MS);
-    return () => { stopped = true; clearInterval(timer); };
-  }, [running, captured, run.id]);
-  const output = running ? printed : run.output;
-  // The screen follows the newest output, as a terminal does.
-  useEffect(() => { if (screen.current) screen.current.scrollTop = screen.current.scrollHeight; }, [output]);
   const mark = runMark(run);
   const copy = () => copyText(run.command).then(() => { setCopied(true); setTimeout(() => setCopied(false), 1400); }, () => {});
-  return <article className="run-card" aria-labelledby={"run-" + run.id}>
+  return <article className={"run-card" + (running && run.terminal ? " live" : "")} aria-labelledby={"run-" + run.id}>
     {run.task && <p className="asker"><Avatar persona={personaFor(goblin)} small /><span><strong>{goblin?.title || run.task}</strong> asks you to run this · {run.state === "ready" ? "waiting " + age(run.created_at).replace(/ ago$/, "") : "asked " + age(run.created_at)}</span></p>}
     <header className="run-head">
       <ConnectorMark mark={shellMark(run.shell)} label={shellLabel(run.shell)} />
@@ -61,19 +40,21 @@ export function RunCard({ run, goblin, connected, sending, error, onRun, pager }
       <button type="button" className="icon-button" aria-label="Copy command" data-tip={copied ? "Copied" : "Copy command"} data-tip-align="end" onClick={copy}><Icon name={copied ? "check" : "copy"} /></button>
     </div>
     {run.cwd && <p className="run-cwd"><Icon name="folder" /><span>{run.cwd}</span></p>}
-    {run.reason && !mark.trouble && <p className="muted">{run.reason}</p>}
+    {run.reason && !mark.trouble && !mark.label.includes(run.reason) && <p className="muted">{run.reason}</p>}
+    {running && (run.terminal
+      ? <RunTerminal run={run} instance={instance} connected={connected} />
+      : <p className="muted run-waiting" role="status"><Icon name={run.admin ? "shield" : "terminal"} />{run.admin ? "Confirm the Windows prompt to run it as administrator. It runs here once you do." : "Starting its terminal"}</p>)}
+    {!running && run.output && <section className="run-terminal" aria-label="Command output">
+      <header><span>Output</span></header>
+      <pre className="run-output">{run.output}</pre>
+    </section>}
     {(run.state === "ready" || pager) && <div className="card-actions">
       <ClickFeedback text={feedback} />
       {pager}
       {run.state === "ready" && <>
-        {run.admin && <small className="muted">Windows will ask you to confirm.</small>}
+        {run.admin && <small className="muted">Windows will ask to confirm.</small>}
         <button className="primary run-button" type="button" disabled={!connected || sending} onClick={onRun}><Icon name="play" />{runLabel(run.shell, run.admin)}</button>
       </>}
     </div>}
-    {running && !captured && <p className="muted">It runs in its own window, which stays open for you. Its output stays there.</p>}
-    {captured && (running || run.output) && <section className="run-terminal" aria-label="Command output">
-      <header><span>{running ? "Running" : "Output"}</span>{run.exit_code !== null && <span className={"exit-code" + (run.exit_code === 0 ? " succeeded" : " failed")}>exit {run.exit_code}</span>}</header>
-      <pre ref={screen} className="run-output">{output || (running ? "Waiting for output" : "")}</pre>
-    </section>}
   </article>;
 }

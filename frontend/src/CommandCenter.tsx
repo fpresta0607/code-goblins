@@ -351,7 +351,7 @@ export function CommandCenter({ snapshot, connected, presentations, focus, onUns
               : elsewhere
               ? <DoneCard key={shownKey} heading={closedBy || "Answered"} label={settledLabel(item, snapshot.actions)} pager={pager} />
               : ranClean
-              ? <DoneCard key={shownKey} heading={runMark(item.run).label} label={item.run.reason} pager={pager} />
+              ? <DoneCard key={shownKey} heading={runMark(item.run).label} label={item.run.state === "stopped" ? "" : item.run.reason} pager={pager} />
               : finishing && sending
               ? <DoneCard key={shownKey} heading={sending.heading}
                 label={sending.cleared ? sending.heading !== "Cleared" ? "It moves to your history." : "" : mark?.label !== sending.heading ? mark?.label || "" : ""} pager={pager} />
@@ -363,7 +363,7 @@ export function CommandCenter({ snapshot, connected, presentations, focus, onUns
               : item.kind === "run" && item.run.update
               ? <UpdateCard key={shownKey} run={item.run} offer={item.run.update} connected={connected} sending={!!drafts[item.key]?.sending} error={drafts[item.key]?.error || ""} onRun={() => run(item.run)} onRetry={retryOf(item.run)} pager={pager} />
               : item.kind === "run"
-              ? <RunCard key={shownKey} run={item.run} goblin={item.run.task ? snapshot.tasks.find((task) => task.id === item.run.task) : undefined} connected={connected} sending={!!drafts[item.key]?.sending} error={drafts[item.key]?.error || ""} onRun={() => run(item.run)} pager={pager} />
+              ? <RunCard key={shownKey} run={item.run} goblin={item.run.task ? snapshot.tasks.find((task) => task.id === item.run.task) : undefined} connected={connected} instance={snapshot.instance} sending={!!drafts[item.key]?.sending} error={drafts[item.key]?.error || ""} onRun={() => run(item.run)} pager={pager} />
               : item.review.document
               ? <DocumentCard key={shownKey} review={item.review} document={item.review.document} snapshot={snapshot} connected={connected} draft={drafts[item.key] || EMPTY_DRAFT} onOpened={(how) => clear(item.review, how)} onClear={() => clear(item.review)} pager={pager} />
               : <ReviewCard key={shownKey} review={item.review} snapshot={snapshot} connected={connected} draft={drafts[item.key] || EMPTY_DRAFT}

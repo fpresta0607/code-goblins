@@ -38,9 +38,9 @@ import (
 // A wait or a question whose answer is a command the Overlord must run, such
 // as a sign-in, names the command's file with --run: his Command Center shows
 // the exact command on a run card named for the goblin, and one click runs it
-// in a window that stays open and usable. A .ps1 file runs in Windows
-// PowerShell and a .sh file in Git Bash, in the goblin's worktree, never
-// elevated; the goblin is told how it ended.
+// in a terminal on that card, where he types into it. A .ps1 file runs in
+// Windows PowerShell and a .sh file in Git Bash, in the goblin's worktree,
+// never elevated; the goblin is told how it ended.
 //
 // A wait on the Overlord leads with one sentence, and the values he must
 // enter somewhere follow it as a Markdown table, each value in backticks:
@@ -80,7 +80,7 @@ func runNotify(args []string, stdout, stderr io.Writer, runtime commandRuntime) 
 	waitingOn := fs.String("waiting-on", "", "report what you wait on, another task's ID, overlord, ci, deploy or memory, followed by why. For overlord, lead with one sentence; values he must enter somewhere go in a Markdown table on the lines after it, a header row, a separator row and one row each (\"| Type | Name |\", \"| --- | --- |\", \"| CNAME | `mcp` |\"), each value in backticks so his card copies it with one click")
 	lavish := fs.String("lavish", "", "with --waiting-on overlord, the HTML file of the Scrawl page the Overlord answers on")
 	link := fs.String("link", "", "with --waiting-on overlord, the https link the Overlord goes to, which his card opens; an address only named in the text is never opened")
-	run := fs.String("run", "", "with --waiting-on overlord or --blocked, a .ps1 or .sh file holding a command the Overlord must run, such as a sign-in: his card shows the exact command and runs it with one click in a window he can use")
+	run := fs.String("run", "", "with --waiting-on overlord or --blocked, a .ps1 or .sh file holding a command the Overlord must run, such as a sign-in: his card shows the exact command and runs it with one click in a terminal on his card, where he types into it")
 	var images []string
 	fs.Func("image", "a review image for a --blocked question's choice; repeat it once for each choice, in order", func(v string) error {
 		images = append(images, v)

@@ -609,8 +609,10 @@ A goblin waiting on you offers **Answer** in its panel, which opens the stack at
 A question with images shows a thumbnail per choice that opens a full-size, swipeable, zoomable gallery.
 An answer to the CFO goes to the same verified CFO session, and an answer to a goblin goes to that goblin's own terminal, each exactly once; no answer approves a gate or merges anything.
 Each live page offers **Open review** or **Open page** and **Keep in background**; neither pauses work.
-A command the CFO needs you to run arrives as a run card with its shell, an **Admin** badge when it runs elevated, the exact command with a copy button, and one button that says where it runs, such as **Run in PowerShell**; once it runs, the card shows its output as a terminal does, live while it runs, and its exit code when it ends.
-A goblin can hand you a command the same way, on a run card that names the goblin: a sign-in or anything else that needs a real terminal runs in its own window, which stays open for you, and the goblin is told how it ended.
+A command the CFO needs you to run arrives as a run card with its shell, an **Admin** badge when it runs elevated, the exact command with a copy button, and one button that says where it runs, such as **Run in PowerShell**.
+Run turns the card into the command's own terminal, where you type, paste and sign in; no window or tab opens, an administrator's command included once you confirm Windows' prompt, and **Stop** ends it.
+When the command exits the card completes by itself, **Complete** or **Failed:** with the last line it printed, and History keeps its exit code.
+A goblin can hand you a command the same way, on a run card that names the goblin, and the goblin is told how it ended.
 
 <p align="center">
   <img src="docs/images/run-card.webp" alt="A run card: the Windows PowerShell command the CFO needs run and its folder, then after Run, Finished with exit 0 and the captured output" width="560" />
@@ -763,7 +765,7 @@ cfo answer <question-id> --option <choice> [--note "<text>"] --record-only [--in
 cfo review --id <stable-id> --title "<what to look at>" [--task <id>] [--image <path>]... [--lavish <url|html-file>]
 cfo review --clear <stable-id> --reason "<why>"
 cfo deliver --id <stable-id> --title "<what it is>" --file <path> [--url <link>] [--task <id>]
-cfo run-request --id <stable-id> --title "<why>" --shell powershell|pwsh|bash [--admin] [--interactive] [--cwd <dir>] --command-file <path>
+cfo run-request --id <stable-id> --title "<why>" --shell powershell|pwsh|bash [--admin] [--cwd <dir>] --command-file <path>
 cfo run-request --withdraw <id> --reason "<why>"
 ```
 
@@ -860,9 +862,10 @@ To update a running home to the newest release, run `goblins update` in a termin
 `goblins update --check` says whether a newer release is published and what is new, and changes nothing.
 The update is yours alone: it refuses to run under the CFO, a goblin or any agent.
 
-To install a newer build into a running home, run the candidate build itself with `update`: it swaps both `cfo.exe` and `goblins.exe` in the home's `bin`, restarts only the supervisor, and puts the previous build back if the new one does not serve; `bin` keeps the two builds before the current one and no more.
-A home an older build set up in a checkout is moved first, with `cfo home move` (see [Your data](#your-data)).
-A `goblins-window.exe` beside the candidate follows it into the home once the candidate serves; an open window keeps running the previous one until you quit it from its tray icon, and a window that could not be replaced leaves the update done and is named.
+To install a newer build into a running home, run the candidate build itself with `update`: it swaps both `cfo.exe` and `goblins.exe` where the home keeps them, restarts only the supervisor, and puts the previous build back if the new one does not serve; that folder keeps the two builds before the current one and no more.
+The home keeps them in its `bin`, or, where a build before `bin` set it up, such as a checkout an older build made the home, at its root, where they are updated until an install lays the home out with `bin`.
+The journal of an earlier update that finished is history, whatever home it names; only an unfinished one, whose copies are its way back, stops an update.
+A `goblins-window.exe` beside the candidate follows it into the home beside `goblins.exe` once the candidate serves; an open window keeps running the previous one until you quit it from its tray icon, and a window that could not be replaced leaves the update done and is named.
 If an update stops part way, it prints a recovery line that runs the candidate's kept copy and names the home and its state, so it works from any folder with both commands gone; paste it into Windows PowerShell as printed, for example:
 
 ```powershell

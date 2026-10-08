@@ -1,4 +1,4 @@
-import { expect, openItem, test, type Page } from "./site";
+import { doneCards, expect, openItem, recordDoneCards, test, type Page } from "./site";
 
 // The Overlord, 2026-10-07: the CFO's command publish-v0.5.2 finished with
 // exit 0 and its card stayed in the Command Center's stack instead of moving
@@ -23,7 +23,7 @@ async function runIt(page: Page) {
   await expect(dialog.getByRole("heading", { name: RUN })).toBeVisible();
   await dialog.getByRole("button", { name: "Run in PowerShell" }).click();
   await step(page, "running");
-  await expect(dialog.getByRole("status")).toContainText("Running");
+  await expect(dialog.locator(".run-head .run-state")).toContainText("Running");
   return dialog;
 }
 async function step(page: Page, name: "running" | "finished" | "errorLine" | "failed" | "withdrawn") {
@@ -37,22 +37,23 @@ async function history(page: Page) {
   return disclosure.locator(".inbox-list li");
 }
 
-for (const [outcome, says] of [["finished", "Finished · exit 0"], ["errorLine", "Finished · exit 0"], ["withdrawn", "Withdrawn by the CFO"]] as const) {
+for (const [outcome, says, kept] of [["finished", "Complete", "Complete · exit 0"], ["errorLine", "Complete", "Complete · exit 0"], ["withdrawn", "Withdrawn by the CFO", "Withdrawn by the CFO"]] as const) {
   test(`a command that ends without trouble (${outcome}) finishes its card, the next item follows, and History says how it ended`, async ({ page }, testInfo) => {
     // Arrange
     const dialog = await runIt(page);
 
     // Act
+    await recordDoneCards(page);
     await step(page, outcome);
 
     // Assert
-    await expect(dialog.locator(".done-card")).toContainText(says);
+    await expect.poll(() => doneCards(page)).toContainEqual(expect.stringContaining(says));
     await expect(dialog.getByRole("heading", { name: RUN })).toHaveCount(0);
     await expect(dialog).toContainText(QUESTION);
     await testInfo.attach("the next item after the command ended", { body: await page.screenshot(), contentType: "image/png" });
     await dialog.getByRole("button", { name: "Close the Command Center" }).click();
     await expect(dialog).toBeHidden();
-    await expect((await history(page)).filter({ hasText: RUN })).toContainText(says);
+    await expect((await history(page)).filter({ hasText: RUN })).toContainText(kept);
   });
 }
 
@@ -66,10 +67,10 @@ test("a command that failed keeps its card on screen with its output, and leaves
 
   // Assert
   await expect(dialog.getByRole("heading", { name: RUN })).toBeVisible();
-  await expect(dialog.getByRole("status")).toContainText("Failed · exit 2");
-  await expect(dialog).toContainText("gh: release v0.5.2 already exists");
+  await expect(dialog.locator(".run-head .run-state")).toHaveText("Failed: gh: release v0.5.2 already exists");
+  await expect(dialog.locator(".run-output")).toContainText("Uploading assets");
   await dialog.getByRole("button", { name: "Close the Command Center" }).click();
-  await expect((await history(page)).filter({ hasText: RUN })).toContainText("Failed · exit 2");
+  await expect((await history(page)).filter({ hasText: RUN })).toContainText("Failed: gh: release v0.5.2 already exists · exit 2");
   await openItem(page, QUESTION);
   await expect(dialog).toContainText(QUESTION);
   await expect(dialog.getByRole("group", { name: "Move between items" })).toHaveCount(0);

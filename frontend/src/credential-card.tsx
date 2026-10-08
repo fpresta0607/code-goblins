@@ -8,6 +8,7 @@ import { personaFor } from "./workflow";
 import { credentialHeading, credentialSettled, destination, linkLabel, onThisMachine, stillNeeded, storeCommand, terminalNames, valueWarnings } from "./credentials";
 import { CredentialField } from "./credential-field";
 import { CredentialReplaceDialog } from "./credential-replace-dialog";
+import { RunTerminal } from "./run-terminal";
 import "./credential-card.css";
 import { ClickFeedback, useClickFeedback } from "./click-feedback";
 
@@ -51,6 +52,8 @@ export function CredentialCard({ request, snapshot, connected, pager }: { reques
   const needed = stillNeeded(request);
   const held = (name: string) => request.existing.includes(name) && !request.saved.includes(name);
   const terminalOpen = (snapshot.runs || []).some((run) => run.credential_request === request.id && (run.state === "ready" || run.state === "running"));
+  // The terminal runs on this card, on the board on his PC alone.
+  const terminal = local ? (snapshot.runs || []).find((run) => run.credential_request === request.id && run.state === "running" && run.terminal) : undefined;
   const task = snapshot.tasks.find((candidate) => candidate.id === request.task);
   const asker = request.task ? task?.title || request.task : "The CFO";
   const typeable = terminalNames(request, []);
@@ -113,7 +116,8 @@ export function CredentialCard({ request, snapshot, connected, pager }: { reques
     {request.state === "saved" && <p className="credential-outcome delivery succeeded"><Icon name="check-double" /><span><strong>{credentialSettled(request)}.</strong>{told && <small>{told}</small>}</span></p>}
     {!open && request.state !== "saved" && <p className="credential-outcome" data-tip={request.reason} data-tip-align="start"><Icon name="clock" /><strong>Closed</strong></p>}
     {request.state === "saved" && request.reason && <p className="muted">{request.reason}</p>}
-    {open && terminalOpen && <p className="credential-terminal-open" role="status"><Icon name="terminal" />A terminal is open on this PC: type each value there, where nothing you type is shown. Saving here waits until it closes.</p>}
+    {open && terminalOpen && <p className="credential-terminal-open" role="status"><Icon name="terminal" />{!local ? "A terminal is open on the board on your PC: type each value there, where nothing you type is shown." : terminal ? "Type each value in the terminal below, where nothing you type is shown." : "A terminal is open on this PC: type each value there, where nothing you type is shown."} Saving here waits until it closes.</p>}
+    {open && terminal && <RunTerminal run={terminal} instance={snapshot.instance} connected={connected} />}
     <div className="credential-table-wrap">
       <table className="credential-table">
         <thead><tr><th scope="col">Name</th><th scope="col">Saved to</th><th scope="col">Used for</th><th scope="col">Get it here</th><th scope="col">Value</th></tr></thead>

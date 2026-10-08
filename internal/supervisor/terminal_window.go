@@ -57,7 +57,7 @@ func (h *HTTP) openTerminalWindow(w http.ResponseWriter, r *http.Request) {
 			apiError(w, 503, "The board cannot find its own program to attach with.")
 			return
 		}
-		if err := h.openWindow(ctx, cfo, "attach", "--state", h.Service.Store.Home.State, binding.id); err != nil {
+		if err := h.openWindow(ctx, cfo, "attach", "--state", binding.dir, binding.id); err != nil {
 			apiError(w, 503, err.Error())
 			return
 		}

@@ -1063,6 +1063,22 @@ a.wait-open { min-height: 44px; border: 1px solid var(--accent-green); border-ra
 .run-output { padding: 12px 14px; min-height: 6rem; max-height: 22rem; color: #d8e9e2; }
 .run-cwd { display: flex; align-items: center; gap: 8px; margin: 0; color: var(--muted); font-size: .9375rem; overflow-wrap: anywhere; }
 .run-cwd .icon { width: 18px; height: 18px; flex: none; }
+/* A command's own terminal on its card: tall enough to work in, never taller
+   than the screen leaves, with Stop under it. */
+.run-live { display: grid; gap: 10px; min-width: 0; }
+.run-live .host-terminal { height: clamp(14rem, 52vh, 34rem); border: 1px solid var(--glass-border); border-radius: var(--radius); overflow: hidden; }
+.run-live-actions { display: flex; align-items: center; justify-content: flex-end; gap: 12px; }
+.run-live-actions .warning-text { flex: 1; margin: 0; }
+/* Stop is the lantern box's stepped outline button, the lesser action beside
+   its lantern one. */
+.run-live-actions button { position: relative; isolation: isolate; display: inline-flex; align-items: center; gap: 8px; padding-inline: 22px; border: 0; border-radius: 0; background: transparent; box-shadow: none; color: var(--bone); white-space: nowrap; }
+.run-live-actions button::before { content: ""; position: absolute; inset: 0; z-index: -1; clip-path: var(--pixel-corners); box-shadow: inset 0 0 0 2px var(--bone); }
+.run-live-actions button:hover:not(:disabled) { background: transparent; }
+.run-live-actions button:hover:not(:disabled)::before { background: #ffffff12; }
+.run-live-actions .icon { width: 20px; height: 20px; }
+.run-waiting { display: flex; align-items: center; gap: 8px; margin: 0; }
+.run-waiting .icon { width: 18px; height: 18px; flex: none; }
+.run-head .run-state { min-width: 0; overflow-wrap: anywhere; }
 .run-button { display: inline-flex; align-items: center; gap: 8px; white-space: nowrap; }
 .run-button .icon { width: 18px; height: 18px; fill: currentColor; }
 /* The Update Code Goblins item is an event, not a goblin's question: an
