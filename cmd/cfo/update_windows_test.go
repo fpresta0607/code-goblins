@@ -230,6 +230,11 @@ func TestUpdateRefusesACandidateWithoutItsBoard(t *testing.T) {
 	u := newUpdateHome(t, "previous", "candidate")
 	supervisor, _ := u.serving()
 	before := u.updateFiles()
+	_, err := os.Stat(update.Dir(u.state))
+	if err != nil && !errors.Is(err, os.ErrNotExist) {
+		t.Fatal(err)
+	}
+	hasUpdateDirectory := err == nil
 
 	// Act
 	code, output := u.run([]string{"CFO_TEST_NO_BOARD=1"})
@@ -245,6 +250,11 @@ func TestUpdateRefusesACandidateWithoutItsBoard(t *testing.T) {
 	}
 	u.aliasesAre(u.previous, "previous")
 	u.unchanged(before)
+	if !hasUpdateDirectory {
+		if _, err := os.Stat(update.Dir(u.state)); !errors.Is(err, os.ErrNotExist) {
+			t.Fatalf("the refusal created state\\update, want it to remain absent: %v", err)
+		}
+	}
 	if !u.running(supervisor) {
 		t.Fatalf("the previous build's supervisor stopped:\n%s", output)
 	}

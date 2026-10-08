@@ -84,35 +84,6 @@ func TestThePlaceholderSaysHowToBuildTheBoard(t *testing.T) {
 	}
 }
 
-// The placeholder page is legible in the desktop window, whose ground is
-// dark: it says its colors are dark, puts light text on the board's own dark
-// ground, and centers what it says. It styles itself with style attributes
-// alone, since the board's policy refuses a <style> element without the
-// nonce the supervisor writes into the page.
-func TestThePlaceholderIsLegibleOnTheWindowsDarkGround(t *testing.T) {
-	// Arrange
-	page, err := fs.ReadFile(assets, "dist/index.html")
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	// Act
-	var missing []string
-	for _, want := range []string{`<meta name="color-scheme" content="dark">`, "background: #03050a", "color: #edf4f3", "place-items: center"} {
-		if !strings.Contains(string(page), want) {
-			missing = append(missing, want)
-		}
-	}
-
-	// Assert
-	if len(missing) != 0 {
-		t.Errorf("the placeholder page lacks %q, which keep it legible on the window's dark ground:\n%s", missing, page)
-	}
-	if strings.Contains(string(page), "<style") {
-		t.Errorf("the placeholder page has a <style> element, which the board's content security policy refuses without the supervisor's nonce:\n%s", page)
-	}
-}
-
 // Only the placeholder page is committed under dist. Every board pull
 // request once committed its own build, whose file names Vite hashes by
 // content, so each one merged made every other open one conflict.

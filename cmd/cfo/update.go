@@ -97,14 +97,6 @@ func runUpdate(args []string, stdout, stderr io.Writer, runtime commandRuntime) 
 		fmt.Fprintln(stderr, err)
 		return 1
 	}
-	if h, err = pinHome(h); err != nil {
-		fmt.Fprintln(stderr, err)
-		return 1
-	}
-	if err := os.MkdirAll(update.Dir(h.State), 0o700); err != nil {
-		fmt.Fprintln(stderr, err)
-		return 1
-	}
 	program, err := os.Executable()
 	if err != nil {
 		fmt.Fprintln(stderr, err)
@@ -114,6 +106,18 @@ func runUpdate(args []string, stdout, stderr io.Writer, runtime commandRuntime) 
 	if !installed && (*check || *to != "" || *pressed != "") || *pressed != "" && (*to == "" || *check) {
 		fmt.Fprintln(stderr, "cfo update: --check, --to and --run update a home from a release, so run them as the home's own goblins or cfo, and --run goes with --to")
 		return 2
+	}
+	if !installed && !*recover && !boardBuilt() {
+		fmt.Fprintf(stderr, "cfo update: %s, and run its update; nothing was changed\n", noBoard)
+		return 1
+	}
+	if h, err = pinHome(h); err != nil {
+		fmt.Fprintln(stderr, err)
+		return 1
+	}
+	if err := os.MkdirAll(update.Dir(h.State), 0o700); err != nil {
+		fmt.Fprintln(stderr, err)
+		return 1
 	}
 	if installed {
 		return releaseUpdate(h, *check, *to, *pressed, stdout, stderr)
@@ -134,10 +138,6 @@ func runUpdate(args []string, stdout, stderr io.Writer, runtime commandRuntime) 
 // installUpdate installs the running binary, a candidate build that is not
 // one of the home's installed programs.
 func installUpdate(h home.Home, stdout, stderr io.Writer) int {
-	if !boardBuilt() {
-		fmt.Fprintf(stderr, "cfo update: %s, and run its update; nothing was changed\n", noBoard)
-		return 1
-	}
 	candidate, err := os.Executable()
 	if err != nil {
 		fmt.Fprintln(stderr, err)
