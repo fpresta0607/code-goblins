@@ -57,7 +57,14 @@ func (f *overlapSpawn) run(extra ...string) (int, string, string) {
 	if f.readHangs {
 		deps.overlapTimeout = time.Millisecond
 	}
-	deps.spawn = func(context.Context, home.Home, spawn.Request) (spawn.Result, error) {
+	deps.spawn = func(_ context.Context, _ home.Home, request spawn.Request) (spawn.Result, error) {
+		// The spawn asks its caller's last word before the terminal
+		// launches, as spawn.Service does.
+		if request.BeforeLaunch != nil {
+			if err := request.BeforeLaunch(); err != nil {
+				return spawn.Result{}, err
+			}
+		}
 		f.spawned = f.spawnErr == nil
 		return spawn.Result{Output: "spawned nw-sync"}, f.spawnErr
 	}
@@ -129,6 +136,52 @@ func TestSpawnStartsBesideATeammateWhenTheCFOSaysWhy(t *testing.T) {
 	}
 	if verb, ok := crewstate.LatestVerb(lines); !ok || verb != "working" {
 		t.Fatalf("latest verb = %q, %v, want the task's own working report, not the CFO's record", verb, ok)
+	}
+}
+
+// The read of who else works in the task's area took 6 to 8 seconds of
+// GitHub calls on 2026-10-08, before anything else of a start ran. It runs
+// beside the start now, and its answer is asked for only before the goblin's
+// terminal launches.
+func TestSpawnReadsTeammatesWorkBesideTheStart(t *testing.T) {
+	// Arrange
+	fixture := newOverlapSpawn(t, "Say why in tasks/billing_sync.py.")
+	release := make(chan struct{})
+	deps := testCommandRuntimeForHome(fixture.home)
+	deps.repoActivity = func(context.Context, string, time.Time) (tickets.Activity, error) {
+		<-release
+		return fixture.activity, nil
+	}
+	began := make(chan struct{})
+	deps.spawn = func(_ context.Context, _ home.Home, request spawn.Request) (spawn.Result, error) {
+		close(began)
+		if err := request.BeforeLaunch(); err != nil {
+			return spawn.Result{}, err
+		}
+		return spawn.Result{Output: "spawned nw-sync"}, nil
+	}
+	var stdout, stderr bytes.Buffer
+	exited := make(chan int, 1)
+
+	// Act
+	go func() {
+		exited <- runWithRuntime([]string{"spawn", "nw-sync", "--project", fixture.checkout, "--brief", fixture.brief, "--harness", "claude"}, &stdout, &stderr, deps)
+	}()
+	var isBesideTheRead bool
+	select {
+	case <-began:
+		isBesideTheRead = true
+	case <-time.After(5 * time.Second):
+	}
+	close(release)
+	code := <-exited
+
+	// Assert
+	if !isBesideTheRead {
+		t.Fatal("the start waited for the read of teammates' work before it began")
+	}
+	if code != 1 || !strings.Contains(stderr.String(), "PR #412 by ana-teammate changes tasks/billing_sync.py") {
+		t.Fatalf("exit = %d, stderr = %s, want the overlap still refused before the terminal launches", code, &stderr)
 	}
 }
 
