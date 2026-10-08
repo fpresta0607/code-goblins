@@ -29,8 +29,8 @@ func TestHarnessVersionsNameTheNewestAndTheCommandThatInstallsIt(t *testing.T) {
 	defer server.Close()
 	releases := Releases{
 		"claude": {URL: server.URL + "/claude", Source: "Claude Code's latest channel", Update: "claude update"},
-		"codex":  {URL: server.URL + "/codex", Source: "npm", Update: "npm install -g @openai/codex@", IsNPM: true},
-		"pi":     {URL: server.URL + "/pi", Source: "npm", Update: "npm install -g @earendil-works/pi-coding-agent@", IsNPM: true},
+		"codex":  {URL: server.URL + "/codex", Source: "npm", Package: "@openai/codex"},
+		"pi":     {URL: server.URL + "/pi", Source: "npm", Package: "@earendil-works/pi-coding-agent"},
 	}
 	probes := []HarnessProbe{
 		{Name: "claude", Detail: "2.1.293 (Claude Code)", OK: true},
@@ -64,7 +64,7 @@ func TestHarnessVersionsNameTheNewestAndTheCommandThatInstallsIt(t *testing.T) {
 
 func TestHarnessVersionsLeaveOutABrokenHarness(t *testing.T) {
 	// Arrange
-	releases := Releases{"codex": {URL: "http://127.0.0.1:1/never-asked", Source: "npm", IsNPM: true}}
+	releases := Releases{"codex": {URL: "http://127.0.0.1:1/never-asked", Source: "npm", Package: "@openai/codex"}}
 
 	// Act
 	versions := releases.Versions(context.Background(), http.DefaultClient, []HarnessProbe{{Name: "codex", Detail: "not found on PATH"}})
