@@ -163,6 +163,7 @@ func (r Report) Sections() []Section {
 		}
 	}
 	kind := func(kind string) func(Entry) bool { return func(entry Entry) bool { return entry.Kind == kind } }
+	decided("Left for you", kind(KindLeft), true)
 	decided("Merged", func(entry Entry) bool { return entry.Kind == KindMerge && entry.Outcome == OutcomeMerged }, true)
 	decided("Merge words with no merge recorded", func(entry Entry) bool { return entry.Kind == KindMerge && entry.Outcome != OutcomeMerged }, false)
 	decided("Deployed", kind(KindDeploy), true)

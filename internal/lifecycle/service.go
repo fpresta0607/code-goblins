@@ -152,7 +152,7 @@ func (service Service) Run(ctx context.Context, request Request) (result state.L
 			}
 		}
 	}
-	result = state.Lifecycle{ID: request.ID, Generation: meta.SpawnGen, RequestGeneration: request.Generation, Operation: request.Operation, Action: request.Action, Started: time.Now().UTC(), Reason: request.Reason, Title: meta.Title, Project: meta.Project, Kept: []string{"worktree " + meta.Worktree, "task session and branch"}, Session: prior.Session, Watched: request.IsWatched}
+	result = state.Lifecycle{ID: request.ID, Generation: meta.SpawnGen, RequestGeneration: request.Generation, Operation: request.Operation, Action: request.Action, Started: time.Now().UTC(), Reason: request.Reason, Title: meta.Title, GoblinName: meta.GoblinName, GoblinTitle: meta.GoblinTitle, Project: meta.Project, Kept: []string{"worktree " + meta.Worktree, "task session and branch"}, Session: prior.Session, Watched: request.IsWatched}
 	if prior.Phase != "running" {
 		result.GateRun, result.GateIntent, result.GateHead = prior.GateRun, prior.GateIntent, prior.GateHead
 	}
@@ -283,7 +283,7 @@ func (service Service) finish(record state.Lifecycle) (state.Lifecycle, error) {
 		return record, err
 	}
 	if record.Phase == "stopped" && record.Generation == "queued" {
-		if err := state.WriteOutcome(service.StateDir, state.Outcome{ID: record.ID, Generation: record.Generation, Title: record.Title, Project: record.Project, Phase: "stopped", Reason: record.Reason, At: record.Updated}); err != nil {
+		if err := state.WriteOutcome(service.StateDir, state.Outcome{ID: record.ID, Generation: record.Generation, Title: record.Title, GoblinName: record.GoblinName, GoblinTitle: record.GoblinTitle, Project: record.Project, Phase: "stopped", Reason: record.Reason, At: record.Updated}); err != nil {
 			return record, err
 		}
 	}

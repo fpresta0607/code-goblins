@@ -12,13 +12,13 @@ import { afkLine } from "./afk.ts";
 // himself. Each fact is a short sentence of its own, its number first, as the
 // Overlord asked on 2026-10-07 ("honestly hate how you print semi colons").
 //
-// While AFK mode is on the bar says so instead, and nothing waits by its
-// count: nothing on the board prompts the Overlord while he is away, and what
-// waits on him is held under the bar.
+// While AFK mode is on the bar says so instead, and still counts what waits:
+// nothing is held for the Overlord while he is away, and Open Command Center,
+// unlit, is the bar's one way to whatever is there.
 export function cfoSummary(snapshot: Snapshot, now = Date.now()): { waiting: number; line: string } {
   const away = afkLine(snapshot.afk, now);
-  if (away) return { waiting: 0, line: away };
   const waiting = waitingItems(snapshot).length;
+  if (away) return { waiting, line: away };
   const goblins = snapshot.tasks.filter((task) => !!task.generation && !task.archived).length;
   const fleet = goblins ? goblins + (goblins === 1 ? " goblin" : " goblins") + " at work." : "No goblins are at work.";
   const quiet = snapshot.cfo_quiet;

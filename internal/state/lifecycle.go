@@ -19,6 +19,8 @@ type Lifecycle struct {
 	Generation        string            `json:"generation"`
 	RequestGeneration string            `json:"request_generation"`
 	Title             string            `json:"title,omitempty"`
+	GoblinName        string            `json:"goblin_name,omitempty"`
+	GoblinTitle       string            `json:"goblin_title,omitempty"`
 	Project           string            `json:"project,omitempty"`
 	Operation         string            `json:"operation"`
 	Action            string            `json:"action"`

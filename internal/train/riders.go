@@ -108,7 +108,10 @@ func checksOutcome(checks []Check) (string, []Check) {
 // after, with when it first reported it.
 type Goblin struct {
 	Task string
-	Done map[string]time.Time
+	// Name and Title are the goblin's fun name and title.
+	Name  string
+	Title string
+	Done  map[string]time.Time
 }
 
 // Riders picks the open pull requests that may ride a train onto base, in
@@ -129,10 +132,10 @@ func Riders(open []PullRequest, base, viewer string, goblins []Goblin, past []Tr
 		if pr.BaseRefName != base || strings.HasPrefix(pr.HeadRefName, BranchPrefix) {
 			continue
 		}
-		task, done := ownerOf(goblins, pr.URL)
+		owner, done := ownerOf(goblins, pr.URL)
 		why := ""
 		switch outcome, _ := checksOutcome(pr.Checks); {
-		case task == "":
+		case owner.Task == "":
 			why = "no goblin reported it done"
 		case pr.Author.Login != viewer:
 			why = "it was opened by " + pr.Author.Login + ", not by " + viewer + ", the account the fleet works as"
@@ -161,7 +164,7 @@ func Riders(open []PullRequest, base, viewer string, goblins []Goblin, past []Tr
 			left = append(left, fmt.Sprintf("#%d %s", pr.Number, why))
 			continue
 		}
-		waiting = append(waiting, queued{Car{Number: pr.Number, URL: pr.URL, Title: pr.Title, Branch: pr.HeadRefName, Head: pr.HeadRefOid, Task: task, State: CarRiding}, done})
+		waiting = append(waiting, queued{Car{Number: pr.Number, URL: pr.URL, Title: pr.Title, Branch: pr.HeadRefName, Head: pr.HeadRefOid, Task: owner.Task, Goblin: owner.Name, GoblinTitle: owner.Title, State: CarRiding}, done})
 	}
 	slices.SortStableFunc(waiting, func(a, b queued) int {
 		return cmp.Or(a.done.Compare(b.done), cmp.Compare(a.car.Number, b.car.Number))
@@ -172,14 +175,14 @@ func Riders(open []PullRequest, base, viewer string, goblins []Goblin, past []Tr
 	return riders, left
 }
 
-// ownerOf names the goblin that reported url done, and when.
-func ownerOf(goblins []Goblin, url string) (string, time.Time) {
+// ownerOf is the goblin that reported url done, and when.
+func ownerOf(goblins []Goblin, url string) (Goblin, time.Time) {
 	for _, goblin := range goblins {
 		if done, ok := goblin.Done[url]; ok {
-			return goblin.Task, done
+			return goblin, done
 		}
 	}
-	return "", time.Time{}
+	return Goblin{}, time.Time{}
 }
 
 func isHeld(pr PullRequest) bool {

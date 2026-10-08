@@ -53,6 +53,9 @@ func TestStartMergesTheRidersOntoMainInQueueOrderAndOpensTheTrainPullRequest(t *
 	if flagValue(create, "--base") != "main" || flagValue(create, "--repo") != "o/r" || flagValue(create, "--title") != "chore(cfo): merge train for PRs #11, #12 (do not merge)" {
 		t.Fatalf("gh pr create = %v", create)
 	}
+	if body := flagValue(create, "--body"); !strings.Contains(body, "#11 from Goblin11 (g11), #12 from Goblin12 (g12)") {
+		t.Fatalf("train pull request body = %q, want each rider named with its goblin", body)
+	}
 	saved, err := Read(s.state, started.ID)
 	if err != nil || saved.Head != started.Head || saved.State != StateTesting {
 		t.Fatalf("saved = %+v, %v", saved, err)

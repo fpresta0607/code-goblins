@@ -567,14 +567,14 @@ func finishedTasks(h home.Home, now time.Time) []Task {
 					continue
 				}
 				generation = outcome.Generation
-				task = Task{ID: "finished:" + id, Title: outcome.Title, Project: filepath.Base(outcome.Project), Branch: outcome.Branch, Harness: outcome.Harness, Model: outcome.Model, Effort: outcome.Effort, Archived: true, Dependencies: []string{}, Evaluation: Evaluation{Phase: outcome.Phase, PR: outcome.PR, Reason: outcome.Reason, At: outcome.At}}
+				task = Task{ID: "finished:" + id, Title: outcome.Title, GoblinName: outcome.GoblinName, GoblinTitle: outcome.GoblinTitle, Project: filepath.Base(outcome.Project), Branch: outcome.Branch, Harness: outcome.Harness, Model: outcome.Model, Effort: outcome.Effort, Archived: true, Dependencies: []string{}, Evaluation: Evaluation{Phase: outcome.Phase, PR: outcome.PR, Reason: outcome.Reason, At: outcome.At}}
 			} else {
 				record, err := state.ReadLifecycle(stateDir, id)
 				if err != nil || record.Phase != "stopped" {
 					continue
 				}
 				generation = record.Generation
-				task = Task{ID: "finished:" + id, Title: record.Title, Project: filepath.Base(record.Project), Archived: true, Dependencies: []string{}, Lifecycle: lifecycleStatus(record), Teardown: record.TeardownLabels(), Evaluation: Evaluation{Phase: "stopped", Reason: record.Reason, At: record.Updated}}
+				task = Task{ID: "finished:" + id, Title: record.Title, GoblinName: record.GoblinName, GoblinTitle: record.GoblinTitle, Project: filepath.Base(record.Project), Archived: true, Dependencies: []string{}, Lifecycle: lifecycleStatus(record), Teardown: record.TeardownLabels(), Evaluation: Evaluation{Phase: "stopped", Reason: record.Reason, At: record.Updated}}
 				// A stop never relabels what its own generation delivered: a
 				// helper its parent merged is retired through Stop.
 				if outcome, err := state.ReadOutcome(stateDir, id); err == nil && outcome.Generation == record.Generation && outcome.Phase == "done" {

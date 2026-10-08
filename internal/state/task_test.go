@@ -140,6 +140,30 @@ func TestWriteTaskMetaRoundTripsTheTaskTitle(t *testing.T) {
 	}
 }
 
+// A goblin keeps the name and title it was given at spawn, which the board,
+// the merge train and the CFO call it by.
+func TestWriteTaskMetaRoundTripsTheGoblinsNameAndTitle(t *testing.T) {
+	// Arrange
+	dir := t.TempDir()
+	meta := TaskMeta{ID: "g1", Window: "native", Worktree: `C:\work\g1`, Harness: "claude", Kind: "ship", Backend: "native", GoblinName: "Jerry", GoblinTitle: "Code Designer"}
+
+	// Act
+	err := WriteTaskMeta(dir, meta)
+
+	// Assert
+	if err != nil {
+		t.Fatalf("WriteTaskMeta: %v", err)
+	}
+	values, err := ReadMeta(filepath.Join(dir, "g1.meta"))
+	if err != nil || values["goblin_name"] != "Jerry" || values["goblin_title"] != "Code Designer" {
+		t.Fatalf("record = %v, %v, want goblin_name and goblin_title", values, err)
+	}
+	got, err := ReadTaskMeta(dir, "g1")
+	if err != nil || !reflect.DeepEqual(got, meta) {
+		t.Fatalf("round trip = %+v, %v, want %+v", got, err, meta)
+	}
+}
+
 func TestWriteTaskMetaOmitsShipOnlyFieldsForScout(t *testing.T) {
 	dir := t.TempDir()
 	meta := TaskMeta{
@@ -218,6 +242,8 @@ func TestWriteTaskMetaRejectsControlCharactersInEveryValue(t *testing.T) {
 		{"herdr_workspace_id", func(meta *TaskMeta) { meta.HerdrWorkspaceID = "bad\nother" }},
 		{"herdr_tab_id", func(meta *TaskMeta) { meta.HerdrTabID = "bad\nother" }},
 		{"herdr_pane_id", func(meta *TaskMeta) { meta.HerdrPaneID = "bad\nother" }},
+		{"goblin_name", func(meta *TaskMeta) { meta.GoblinName = "bad\nother" }},
+		{"goblin_title", func(meta *TaskMeta) { meta.GoblinTitle = "bad\nother" }},
 	}
 	for _, field := range fields {
 		t.Run(field.name, func(t *testing.T) {
