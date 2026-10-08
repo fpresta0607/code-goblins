@@ -13,9 +13,9 @@ import { capacityLine, freeGigabytes, holdersLine, meterScale, meterState, poolW
 // so that neither leaves the box. While commit (memory plus
 // page file) is the tighter of the two, the meter shows commit instead and
 // names the apps holding the most of it; a leaking paged pool gets a line of
-// its own. Under it, the goblins live against the cap on live goblins, with
-// the setting while memory lowers the cap. Free disk, when the snapshot has
-// it, is the second meter in the same box, under memory.
+// its own. Under it, the goblins live against how many memory carries. Free
+// disk, when the snapshot has it, is the second meter in the same box, under
+// memory.
 export function MemoryMeter({ memory, scheduling = null, disk = null }: { memory: Memory; scheduling?: Scheduling | null; disk?: Disk | null }) {
   const state = meterState(memory, scheduling), scale = meterScale(memory), shown = tighter(memory), scheduled = scheduleLine(memory, scheduling);
   const holders = holdersLine(memory), warning = poolWarning(memory), capacity = memory.capacity && capacityLine(memory.capacity);
@@ -34,8 +34,7 @@ export function MemoryMeter({ memory, scheduling = null, disk = null }: { memory
     {scheduled && <p className="memory-schedule" aria-hidden="true">{scheduled}</p>}
     {holders && <p className="memory-holders">{holders}</p>}
     {warning && <p className="memory-warning"><Icon name="warning" />{warning}</p>}
-    {capacity && <div className="memory-line memory-capacity"><span>Goblins live</span><strong>{capacity.live}</strong></div>}
-    {capacity?.note && <p className="memory-holders">{capacity.note}</p>}
+    {capacity && <div className="memory-line memory-capacity"><span>Goblins live</span><strong>{capacity}</strong></div>}
     <p className="sr-only">{state.text}</p>
     {disk && <DiskMeter disk={disk} />}
   </div>;

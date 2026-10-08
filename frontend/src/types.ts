@@ -204,11 +204,11 @@ export interface Scheduling {
 export interface Memory {
   available: number; total: number; commit_available: number; commit_limit: number;
   paged_pool: number; nonpaged_pool: number; floor: number; next: number; holders: CommitHolder[];
-  // capacity is the cap on live goblins: the configured maximum, lowered to
-  // what free memory and commit carry, and the slots left under it.
+  // capacity is how many goblins free memory and commit carry: those live,
+  // the limit memory sets, and the slots left under it.
   capacity?: FleetCapacity;
 }
-export interface FleetCapacity { live: number; limit: number; configured: number; slots: number }
+export interface FleetCapacity { live: number; limit: number; slots: number }
 // CIDuration is how long one finished CI run or deploy took in a repository.
 export interface CIDuration { repository: string; kind: string; seconds: number }
 // CommitHolder is one app's commit: its first process and every process it
@@ -730,7 +730,7 @@ export function parseSnapshot(value: unknown): Snapshot {
       available: number(available), total: number(total), commit_available: number(commit_available), commit_limit: number(commit_limit),
       paged_pool: number(paged_pool), nonpaged_pool: number(nonpaged_pool), floor: number(floor), next: number(next),
       holders: array(holders).map((value) => { const h = object(value); return { name: string(h.name), commit: number(h.commit) }; }),
-      ...(capacity == null ? {} : { capacity: ((c) => ({ live: number(c.live), limit: number(c.limit), configured: number(c.configured), slots: number(c.slots) }))(object(capacity)) }),
+      ...(capacity == null ? {} : { capacity: ((c) => ({ live: number(c.live), limit: number(c.limit), slots: number(c.slots) }))(object(capacity)) }),
     }))(object(v.memory)),
     scheduling: v.scheduling == null ? null : ((scheduled) => ({ at: string(scheduled.at), text: string(scheduled.text), waiting: array(scheduled.waiting).map((value) => { const w = object(value); return { id: string(w.id), why: string(w.why) }; }) }))(object(v.scheduling)),
     ci_durations: array(v.ci_durations).map((value) => { const d = object(value); return { repository: string(d.repository), kind: string(d.kind), seconds: number(d.duration_seconds) }; }),

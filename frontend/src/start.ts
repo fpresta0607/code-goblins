@@ -105,7 +105,6 @@ export function startBlock(task: Task, memory: Memory | null, anotherStarting: b
   if (queueBlock(task)) return queueBlock(task);
   if (memoryBlock(memory)) return "Needs " + memoryBlock(memory);
   if (diskBlock(disk)) return "Needs " + diskBlock(disk);
-  if (slotBlock(memory)) return slotBlock(memory);
   if (anotherStarting) return "Another task is starting";
   return "";
 }
@@ -150,17 +149,10 @@ export function nextChip(memory: Memory | null): string {
   return memory && memoryBlock(memory) ? `Next at ${gigabytes(memory.next)} GB` : "Next up";
 }
 
-// The cap on live goblins under the memory meter: how many are live against
-// it, and, while free memory and commit lower it, the setting it lowers.
-export function capacityLine(capacity: FleetCapacity): { live: string; note: string } {
-  return { live: `${capacity.live} of ${capacity.limit}`, note: capacity.limit < capacity.configured ? `Memory allows ${capacity.limit} of the ${capacity.configured} set` : "" };
-}
-
-// Why a Start or Resume cannot run while no slot is left under the cap, or
-// empty while one is. The supervisor refuses it with the same reason.
-export function slotBlock(memory: Memory | null): string {
-  const capacity = memory?.capacity;
-  return capacity && capacity.slots === 0 ? `No free slot: ${capacity.live} of ${capacity.limit} goblins live` : "";
+// The goblins live under the memory meter, against how many free memory and
+// commit carry.
+export function capacityLine(capacity: FleetCapacity): string {
+  return `${capacity.live} of ${capacity.limit}`;
 }
 
 export interface NextUp { id: string; text: string; tone: "" | "waiting" | "defect" }

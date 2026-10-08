@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { capacityLine, diskBlock, diskScale, diskState, freeGigabytes, holdersLine, memoryBlock, meterScale, meterState, nextChip, nextInOrder, poolWarning, queueBlock, refusalStands, scheduleLine, slotBlock, startBlock, startOutcome, tighter } from "./start.ts";
+import { capacityLine, diskBlock, diskScale, diskState, freeGigabytes, holdersLine, memoryBlock, meterScale, meterState, nextChip, nextInOrder, poolWarning, queueBlock, refusalStands, scheduleLine, startBlock, startOutcome, tighter } from "./start.ts";
 import { nodeStatus } from "./workflow.ts";
 import { parseSnapshot, type Disk, type Memory, type Snapshot, type Task } from "./types.ts";
 
@@ -177,25 +177,26 @@ test("a passing refusal lapses once a newer snapshot shows Start no longer block
   }
 });
 
-// capped is a machine with ample memory and the given live goblins, cap,
-// configured maximum and slots left.
-const capped = (live: number, limit: number, configured: number): Memory => ({ ...memory(9), capacity: { live, limit, configured, slots: Math.max(0, limit - live) } });
+// carrying is a machine with available GB free and goblins live, carrying one
+// more goblin for each gigabyte over the 4 GB floor, as the supervisor counts.
+const carrying = (available: number, goblins: number): Memory => {
+  const slots = Math.max(0, Math.floor(available - 4));
+  return { ...memory(available), capacity: { live: goblins, limit: goblins + slots, slots } };
+};
 
-test("the cap line says how many goblins are live against the cap, and the setting when memory lowers it", () => {
-  const cases: [string, Memory, { live: string; note: string }][] = [
-    ["under the setting", capped(3, 8, 8), { live: "3 of 8", note: "" }],
-    ["memory lowers the cap", capped(5, 5, 8), { live: "5 of 5", note: "Memory allows 5 of the 8 set" }],
-  ];
-  for (const [name, machine, want] of cases) assert.deepEqual(capacityLine(machine.capacity!), want, name);
+test("the line under the meter says how many goblins are live against how many memory carries", () => {
+  assert.equal(capacityLine(carrying(9, 8).capacity!), "8 of 13");
+  assert.equal(capacityLine(carrying(4.5, 3).capacity!), "3 of 3");
 });
 
-test("a Start or Resume past the cap is refused on the board with its reason", () => {
+// On 2026-10-07 the board refused a Start with "No free slot: 8 of 8 goblins
+// live" while 9 GB was free. Memory alone says whether a Start can run.
+test("a Start goes by memory alone, however many goblins are live", () => {
   // Arrange
   const cases: [string, Memory | null, string][] = [
-    ["a slot is free", capped(3, 8, 8), ""],
-    ["the setting is reached", capped(8, 8, 8), "No free slot: 8 of 8 goblins live"],
-    ["memory lowers the cap to what is live", capped(5, 5, 8), "No free slot: 5 of 5 goblins live"],
-    ["a board that reads no cap", memory(9), ""],
+    ["eight live at 9 GB free", carrying(9, 8), ""],
+    ["twenty live at 30 GB free", carrying(30, 20), ""],
+    ["under the next-start mark", carrying(4.5, 3), "Needs 5 GB free to keep the 4 GB floor"],
     ["a board that reads no memory", null, ""],
   ];
 
@@ -204,7 +205,6 @@ test("a Start or Resume past the cap is refused on the board with its reason", (
     const blocked = startBlock(task(), machine, false);
 
     // Assert
-    assert.equal(slotBlock(machine), want, name);
     assert.equal(blocked, want, name);
   }
 });

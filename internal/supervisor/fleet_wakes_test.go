@@ -1,6 +1,7 @@
 package supervisor
 
 import (
+	"cmp"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -206,7 +207,7 @@ func TestMemoryReadyWakesOnlyForWorkWaitingOnIt(t *testing.T) {
 // are the branches its origin has. runListDirs holds where push runs were
 // listed. noOrigin says the repository has no origin remote, ghFailure is
 // what gh prints when it cannot read the repository, and ghCalls counts the
-// gh calls made in it.
+// gh calls made in it. viewer is the account gh works as, o by default.
 type fakeForge struct {
 	mu             sync.Mutex
 	repo           string
@@ -222,6 +223,7 @@ type fakeForge struct {
 	ghCalls        int
 	listCalls      int
 	runListDirs    []string
+	viewer         string
 }
 
 func (f *fakeForge) Run(_ context.Context, req execx.Request) (execx.Result, error) {
@@ -280,6 +282,10 @@ func (f *fakeForge) Run(_ context.Context, req execx.Request) (execx.Result, err
 		}
 		body, err := json.Marshal(comparisons)
 		return execx.Result{Stdout: []byte(`{"data":{"repository":{"ref":` + string(body) + `}}}`)}, err
+	case strings.HasPrefix(command, "gh api user"):
+		// The account gh works as owns the repository the fixtures' pull
+		// requests are in, github.com/o/r, unless a test names another.
+		return execx.Result{Stdout: []byte(cmp.Or(f.viewer, "o") + "\n")}, nil
 	case strings.HasPrefix(command, "gh run list"):
 		f.runListDirs = append(f.runListDirs, filepath.Clean(req.Dir))
 		return answer(f.runs)

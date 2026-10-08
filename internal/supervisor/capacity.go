@@ -2,28 +2,26 @@ package supervisor
 
 import (
 	"errors"
-	"fmt"
 	"os"
 
-	"github.com/fpresta0607/code-goblins/internal/fleetconfig"
 	"github.com/fpresta0607/code-goblins/internal/home"
 	"github.com/fpresta0607/code-goblins/internal/host"
 	"github.com/fpresta0607/code-goblins/internal/state"
 )
 
+// FleetCapacity is how many goblins free memory carries: the goblins whose
+// terminals run, the limit memory sets on them, and the slots left under it.
+// Memory is the only limit: each slot is the room one more goblin needs, the
+// stretch from the floor to the next-start mark, above the floor in the
+// tighter of free memory and free commit.
 type FleetCapacity struct {
-	Live       int `json:"live"`
-	Limit      int `json:"limit"`
-	Configured int `json:"configured"`
-	Slots      int `json:"slots"`
+	Live  int `json:"live"`
+	Limit int `json:"limit"`
+	Slots int `json:"slots"`
 }
 
 func ReadFleetCapacity(h home.Home, memory Memory) (FleetCapacity, error) {
-	settings, err := fleetconfig.Read(h.Root)
-	if err != nil {
-		return FleetCapacity{}, err
-	}
-	capacity := FleetCapacity{Configured: settings.MaxLiveGoblins}
+	var capacity FleetCapacity
 	scan, err := state.ScanIDs(h.State)
 	if err != nil {
 		return capacity, err
@@ -47,29 +45,22 @@ func ReadFleetCapacity(h home.Home, memory Memory) (FleetCapacity, error) {
 			capacity.Live++
 		}
 	}
-	free := min(memory.Available, memory.CommitAvailable)
-	resourceSlots := 0
-	if free >= memoryFloor {
-		resourceSlots = int((free - memoryFloor) / (1 << 30))
+	if free := min(memory.Available, memory.CommitAvailable); free >= memoryFloor {
+		capacity.Slots = int((free - memoryFloor) / (memoryNext - memoryFloor))
 	}
-	capacity.Limit = min(capacity.Configured, capacity.Live+resourceSlots)
-	capacity.Slots = max(0, capacity.Limit-capacity.Live)
+	capacity.Limit = capacity.Live + capacity.Slots
 	return capacity, nil
 }
 
-func CheckLaunch(h home.Home, memory Memory, disk Disk) error {
+// CheckLaunch refuses a start, a resume or a spawn while memory or commit is
+// under the next-start mark or the disk under its floor. No count of goblins
+// refuses one: memory alone says whether another fits.
+func CheckLaunch(memory Memory, disk Disk) error {
 	if short := memory.shortfall(); short != "" {
 		return errors.New(short + "; a start needs 5 GB of memory and commit to keep the 4 GB floor")
 	}
 	if short := disk.Shortfall(); short != "" {
 		return errors.New(diskRefusal(short))
-	}
-	capacity, err := ReadFleetCapacity(h, memory)
-	if err != nil {
-		return err
-	}
-	if capacity.Slots == 0 {
-		return fmt.Errorf("live goblin cap reached: %d live, cap %d (configured maximum %d); wait for a goblin to pause or finish", capacity.Live, capacity.Limit, capacity.Configured)
 	}
 	return nil
 }

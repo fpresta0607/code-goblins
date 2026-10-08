@@ -61,7 +61,7 @@ func defaultTaskLifecycle(ctx context.Context, h home.Home, request lifecycle.Re
 		if err != nil {
 			return fmt.Errorf("free disk cannot be read, so nothing resumes: %w", err)
 		}
-		return supervisor.CheckLaunch(h, memory, disk)
+		return supervisor.CheckLaunch(memory, disk)
 	}
 	service := lifecycle.Service{StateDir: h.State, Operations: lifecycle.Operations{
 		Helpers: func(ctx context.Context, meta state.TaskMeta, record *state.Lifecycle) ([]string, error) {

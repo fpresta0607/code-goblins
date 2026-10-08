@@ -18,6 +18,7 @@ import (
 	"github.com/fpresta0607/code-goblins/internal/disk"
 	"github.com/fpresta0607/code-goblins/internal/execx"
 	"github.com/fpresta0607/code-goblins/internal/fleet"
+	"github.com/fpresta0607/code-goblins/internal/fleetconfig"
 	"github.com/fpresta0607/code-goblins/internal/fsx"
 	"github.com/fpresta0607/code-goblins/internal/home"
 	"github.com/fpresta0607/code-goblins/internal/janitor"
@@ -325,7 +326,7 @@ func (s *Service) checkMemory(ctx context.Context, w *fleetWakes, now time.Time)
 	if low < memoryNext {
 		return planningErr
 	}
-	scheduled, err = s.schedule(ctx, now, memory, w)
+	scheduled, err = s.schedule(ctx, now, w)
 	if err != nil {
 		return errors.Join(planningErr, err)
 	}
@@ -504,7 +505,9 @@ func (s *Service) pollCI(ctx context.Context, w *fleetWakes, now time.Time, curr
 	}
 	w.CIPolled = now
 	goblins := ciGoblins(ctx, runner, s.Store.Home.State)
-	errs := s.pollAwaitedRuns(ctx, w, now)
+	settings, settingsErr := fleetconfig.Read(s.Store.Home.Root)
+	owners := &fleetOwners{named: settings.GitHubOwners}
+	errs := errors.Join(settingsErr, s.pollAwaitedRuns(ctx, w, now))
 	repos := w.watch(goblins, now)
 	for _, repo := range repos {
 		if currentTime().Before(w.BackOff[repo]) {
@@ -534,7 +537,7 @@ func (s *Service) pollCI(ctx context.Context, w *fleetWakes, now time.Time, curr
 			}
 		}
 		pollRunner := githubPollRunner{commands: runner, state: w, repo: repo, now: currentTime}
-		listed, pullsUnreadable, pullsErr := pollPullRequests(ctx, pollRunner, s.Store.Home.State, w, repo, mine, now)
+		listed, pullsUnreadable, pullsErr := pollPullRequests(ctx, pollRunner, s.Store.Home.State, w, repo, mine, owners, now)
 		mainUnreadable, mainErr := pollMain(ctx, pollRunner, s.Store.Home.State, w, repo, now)
 		overlapErr := s.pollOverlaps(ctx, pollRunner, w, repo, mine, currentTime)
 		trainErr := s.runTrain(ctx, pollRunner, repo, listed)
@@ -767,12 +770,15 @@ func (c ghCheck) outcome() string {
 // pollPullRequests lists repo's open pull requests once and raises
 // ci_finished for each one of goblins whose checks have all concluded with
 // a result it was not woken for: its head and each check's conclusion, and
-// pr_health or pr_unread for every open pull request but a merge train's own
-// and those a running train carries, which the train tests on the current
-// base itself. It returns the pull requests as a merge train reads them, and
-// why they could not be listed, apart from what went wrong raising a wake;
-// health left unread stays in w.PRUnread.
-func pollPullRequests(ctx context.Context, runner execx.Runner, stateDir string, w *fleetWakes, repo string, goblins []ciGoblin, now time.Time) (listed []train.PullRequest, unreadable, err error) {
+// pr_health or pr_unread for every open pull request the fleet watches but a
+// merge train's own and those a running train carries, which the train tests
+// on the current base itself. The fleet watches a goblin's own pull requests
+// wherever they are, and every pull request in a repository owners says the
+// fleet owns, a teammate's too; another owner's are none of its business.
+// It returns the pull requests as a merge train reads them, and why they
+// could not be listed, apart from what went wrong raising a wake; health
+// left unread stays in w.PRUnread.
+func pollPullRequests(ctx context.Context, runner execx.Runner, stateDir string, w *fleetWakes, repo string, goblins []ciGoblin, owners *fleetOwners, now time.Time) (listed []train.PullRequest, unreadable, err error) {
 	out, err := runOutput(ctx, runner, repo, "gh", "pr", "list", "--state", "open", "--limit", "100", "--json", train.ListFields)
 	if err != nil {
 		return nil, fmt.Errorf("ci wakes: list the open pull requests of %s: %w", repo, err), nil
@@ -808,10 +814,32 @@ func pollPullRequests(ctx context.Context, runner execx.Runner, stateDir string,
 			errs = errors.Join(errs, reportChecks(stateDir, w, goblin.id, pr, isRunningWorkflows, now))
 		}
 	}
-	comparisons, unreadComparisons, branch, unread := comparePullRequests(ctx, runner, repo, open)
+	var watched []ghPullRequest
+	goblinOf := map[string]string{}
+	var ownersErr error
+	for _, pr := range open {
+		for _, goblin := range goblins {
+			if slices.Contains(goblin.pullRequests, pr.URL) || !pr.IsCrossRepository && goblin.branch != "" && pr.HeadRefName == goblin.branch {
+				goblinOf[pr.URL] = goblin.id
+				break
+			}
+		}
+		isWatched := goblinOf[pr.URL] != ""
+		if !isWatched {
+			var err error
+			if isWatched, err = owners.owns(ctx, runner, repo, pr); err != nil {
+				ownersErr = fmt.Errorf("PR health: the account gh works as could not be read, so only goblins' pull requests in %s were read: %w", repo, err)
+			}
+		}
+		if isWatched {
+			watched = append(watched, pr)
+		}
+	}
+	comparisons, unreadComparisons, branch, unread := comparePullRequests(ctx, runner, repo, watched)
 	if ctx.Err() != nil {
 		return listed, nil, errs
 	}
+	unread = errors.Join(ownersErr, unread)
 	isCapped := len(open) >= 100
 	if isCapped {
 		unread = errors.Join(unread, fmt.Errorf("PR health: %s listed the first 100 open pull requests; any further pull requests were not read", repo))
@@ -820,12 +848,18 @@ func pollPullRequests(ctx context.Context, runner execx.Runner, stateDir string,
 		w.Health = map[string]reportedPRHealth{}
 	}
 	var unreadHeads []ghPullRequest
-	for _, pr := range open {
+	var changes []prHealthChange
+	for _, pr := range watched {
 		record := w.Health[pr.URL]
 		if record.Head != pr.HeadRefOid {
 			record = reportedPRHealth{Head: pr.HeadRefOid}
 		}
 		record.At = now
+		if pr.Mergeable != "UNKNOWN" {
+			record.UnknownSince = time.Time{}
+		} else if record.UnknownSince.IsZero() {
+			record.UnknownSince = now
+		}
 		w.Health[pr.URL] = record
 		if !record.HasUnreadWake && slices.ContainsFunc(unreadComparisons, func(unread ghPullRequest) bool { return unread.URL == pr.URL }) {
 			unreadHeads = append(unreadHeads, pr)
@@ -834,19 +868,16 @@ func pollPullRequests(ctx context.Context, runner execx.Runner, stateDir string,
 		if comparison == nil && pr.Mergeable != "CONFLICTING" || carried[pr.URL] || strings.HasPrefix(pr.HeadRefName, train.BranchPrefix) {
 			continue
 		}
-		var owner string
-		for _, goblin := range goblins {
-			if slices.Contains(goblin.pullRequests, pr.URL) || !pr.IsCrossRepository && goblin.branch != "" && pr.HeadRefName == goblin.branch {
-				owner = goblin.id
-				break
-			}
-		}
 		behind := 0
 		if comparison != nil {
 			behind = *comparison.BehindBy
 		}
-		errs = errors.Join(errs, reportPRHealth(stateDir, w, owner, pr, branch, behind, now))
+		if change, isNew := healthChange(record, pr, behind, now); isNew {
+			change.goblin = goblinOf[pr.URL]
+			changes = append(changes, change)
+		}
 	}
+	errs = errors.Join(errs, reportPRHealth(stateDir, w, changes, branch, now))
 	return listed, nil, errors.Join(errs, reportPRUnread(stateDir, w, repo, unreadHeads, isCapped, unread, now))
 }
 
