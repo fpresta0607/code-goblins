@@ -111,3 +111,37 @@ func init() {
 		windows.SetErrorMode(0)
 	}
 }
+
+// Probe, not committed: CONPTY_PROBE_DLL names Microsoft's conpty.dll from
+// the Microsoft.Windows.Console.ConPTY package, which starts the
+// OpenConsole.exe beside it in place of the system conhost.
+func init() {
+	path := os.Getenv("CONPTY_PROBE_DLL")
+	if path == "" {
+		return
+	}
+	dll := windows.NewLazyDLL(path)
+	create, resize, closeConsole := dll.NewProc("CreatePseudoConsole"), dll.NewProc("ResizePseudoConsole"), dll.NewProc("ClosePseudoConsole")
+	if err := create.Find(); err != nil {
+		panic(err)
+	}
+	coord := func(size windows.Coord) uintptr { return uintptr(*(*uint32)(unsafe.Pointer(&size))) }
+	createPseudoConsole = func(size windows.Coord, in, out windows.Handle, flags uint32, console *windows.Handle) error {
+		if result, _, _ := create.Call(coord(size), uintptr(in), uintptr(out), uintptr(flags), uintptr(unsafe.Pointer(console))); result != 0 {
+			return windows.Errno(result & 0xffff)
+		}
+		return nil
+	}
+	resizePseudoConsole = func(console windows.Handle, size windows.Coord) error {
+		if result, _, _ := resize.Call(uintptr(console), coord(size)); result != 0 {
+			return windows.Errno(result & 0xffff)
+		}
+		return nil
+	}
+	closePseudoConsole = func(console windows.Handle) {
+		closeConsole.Call(uintptr(console))
+	}
+	consoleServerPath = func() (string, error) {
+		return filepath.Join(filepath.Dir(path), "OpenConsole.exe"), nil
+	}
+}

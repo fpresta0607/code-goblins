@@ -76,7 +76,7 @@ func consoleServers(t *testing.T) []int {
 	}
 	var servers []int
 	for _, process := range processes {
-		if process.ParentPID == os.Getpid() && strings.EqualFold(process.ExeBase, "conhost.exe") {
+		if process.ParentPID == os.Getpid() && (strings.EqualFold(process.ExeBase, "conhost.exe") || strings.EqualFold(process.ExeBase, "OpenConsole.exe")) {
 			servers = append(servers, process.PID)
 		}
 	}

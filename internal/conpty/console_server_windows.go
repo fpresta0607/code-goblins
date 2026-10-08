@@ -15,17 +15,28 @@ import (
 
 var consoleCreation sync.Mutex
 
+// Probe seams: the pseudo console calls and the console server they start.
+var (
+	createPseudoConsole = windows.CreatePseudoConsole
+	resizePseudoConsole = windows.ResizePseudoConsole
+	closePseudoConsole  = windows.ClosePseudoConsole
+	consoleServerPath   = func() (string, error) {
+		systemDirectory, err := windows.GetSystemDirectory()
+		return filepath.Join(systemDirectory, "conhost.exe"), err
+	}
+)
+
 func createInteractiveConsole(size windows.Coord, input, output windows.Handle, console *windows.Handle) error {
 	consoleCreation.Lock()
 	defer consoleCreation.Unlock()
 	var started, finished windows.Filetime
 	windows.GetSystemTimePreciseAsFileTime(&started)
-	if err := windows.CreatePseudoConsole(size, input, output, 0, console); err != nil {
+	if err := createPseudoConsole(size, input, output, 0, console); err != nil {
 		return err
 	}
 	windows.GetSystemTimePreciseAsFileTime(&finished)
 	if err := scheduleConsoleServer(started, finished); err != nil {
-		windows.ClosePseudoConsole(*console)
+		closePseudoConsole(*console)
 		return err
 	}
 	return nil
@@ -45,8 +56,12 @@ func scheduleConsoleServer(started, finished windows.Filetime) error {
 			windows.CloseHandle(candidate)
 		}
 	}()
+	serverPath, err := consoleServerPath()
+	if err != nil {
+		return err
+	}
 	for _, process := range processes {
-		if process.ParentPID != os.Getpid() || !strings.EqualFold(process.ExeBase, "conhost.exe") {
+		if process.ParentPID != os.Getpid() || !strings.EqualFold(process.ExeBase, filepath.Base(serverPath)) {
 			continue
 		}
 		handle, err := windows.OpenProcess(windows.PROCESS_QUERY_LIMITED_INFORMATION|windows.PROCESS_SET_INFORMATION, false, uint32(process.PID))
@@ -75,11 +90,7 @@ func scheduleConsoleServer(started, finished windows.Filetime) error {
 		if err := windows.QueryFullProcessImageName(candidate, 0, &image[0], &length); err != nil {
 			return fmt.Errorf("conpty: console server image: %w", err)
 		}
-		systemDirectory, err := windows.GetSystemDirectory()
-		if err != nil {
-			return err
-		}
-		if !strings.EqualFold(windows.UTF16ToString(image[:length]), filepath.Join(systemDirectory, "conhost.exe")) {
+		if !strings.EqualFold(windows.UTF16ToString(image[:length]), serverPath) {
 			return fmt.Errorf("conpty: console server image is not the system conhost")
 		}
 	}

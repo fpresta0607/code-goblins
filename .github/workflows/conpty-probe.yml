@@ -13,7 +13,7 @@ permissions:
 jobs:
   probe:
     runs-on: windows-latest
-    timeout-minutes: 55
+    timeout-minutes: 75
     steps:
       - uses: actions/checkout@v6
       - uses: actions/setup-go@v5
@@ -32,6 +32,9 @@ jobs:
           Set-ItemProperty "$wer\LocalDumps\conhost.exe" DumpFolder 'D:\dumps' -Type ExpandString
           Set-ItemProperty "$wer\LocalDumps\conhost.exe" DumpType 1 -Type DWord
           Set-ItemProperty "$wer\LocalDumps\conhost.exe" DumpCount 10 -Type DWord
+          New-Item -Force "$wer\LocalDumps\OpenConsole.exe" | Out-Null
+          Set-ItemProperty "$wer\LocalDumps\OpenConsole.exe" DumpFolder 'D:\dumps' -Type ExpandString
+          Set-ItemProperty "$wer\LocalDumps\OpenConsole.exe" DumpType 1 -Type DWord
           Set-ItemProperty $wer Disabled 0 -Type DWord
           Set-ItemProperty $wer DontShowUI 1 -Type DWord
           Get-ItemProperty "HKLM:\SOFTWARE\Policies\Microsoft\Windows\Windows Error Reporting" -ErrorAction SilentlyContinue | Format-List
@@ -39,10 +42,27 @@ jobs:
           Start-Service WerSvc
           Get-Service WerSvc | Format-List Status, StartType
           Get-ChildItem 'C:\Program Files (x86)\Windows Kits\10\Debuggers\x64\cdb.exe' -ErrorAction SilentlyContinue
-      - name: The typed-keys test alone, 1000 times
+      - name: Microsoft's ConPTY package
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force D:\conpty | Out-Null
+          Invoke-WebRequest https://api.nuget.org/v3-flatcontainer/microsoft.windows.console.conpty/1.25.260930003/microsoft.windows.console.conpty.1.25.260930003.nupkg -OutFile D:\conpty\conpty.zip
+          Expand-Archive D:\conpty\conpty.zip D:\conpty\package
+          Copy-Item D:\conpty\package\runtimes\win-x64\native\conpty.dll, D:\conpty\package\build\native\runtimes\x64\OpenConsole.exe D:\conpty\
+          Get-ChildItem D:\conpty -File | ForEach-Object { "$($_.Name) $((Get-AuthenticodeSignature $_.FullName).Status)" }
+      - name: Through OpenConsole, 1500 times
         continue-on-error: true
         shell: pwsh
-        run: go test ./internal/conpty -run '^TestTypedKeysReachAProgramThatPrintsWhileItReads$' -count=800 -timeout 30m
+        run: go test ./internal/conpty -run '^TestTypedKeysReachAProgramThatPrintsWhileItReads$' -count=1500 -timeout 35m
+        env:
+          CONPTY_PROBE_DLL: D:\conpty\conpty.dll
+          CONPTY_PROBE_DUMPS: '1'
+          CFO_HOME: ${{ runner.temp }}\cfo-go-tests
+          CFO_STATE_OVERRIDE: ${{ runner.temp }}\cfo-go-tests\state
+      - name: Through the inbox conhost, 500 times
+        continue-on-error: true
+        shell: pwsh
+        run: go test ./internal/conpty -run '^TestTypedKeysReachAProgramThatPrintsWhileItReads$' -count=500 -timeout 20m
         env:
           CONPTY_PROBE_DUMPS: '1'
           CFO_HOME: ${{ runner.temp }}\cfo-go-tests

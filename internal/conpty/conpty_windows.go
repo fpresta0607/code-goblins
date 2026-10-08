@@ -119,7 +119,7 @@ func Start(spec Spec) (*Console, error) {
 		return nil, fmt.Errorf("conpty: create pseudo console: %w", err)
 	}
 	if err := c.startProcess(commandLine, dir, env); err != nil {
-		windows.ClosePseudoConsole(c.pc)
+		closePseudoConsole(c.pc)
 		c.in.Close()
 		c.out.Close()
 		return nil, err
@@ -219,7 +219,7 @@ func (c *Console) wait() {
 	c.mu.Lock()
 	c.closed = true
 	c.mu.Unlock()
-	windows.ClosePseudoConsole(c.pc)
+	closePseudoConsole(c.pc)
 	close(c.done)
 }
 
@@ -316,7 +316,7 @@ func (c *Console) Resize(cols, rows int) error {
 	}
 	// A resize reaches the process as an input event, which can be left
 	// unread as typed input can.
-	if err := windows.ResizePseudoConsole(c.pc, windows.Coord{X: int16(cols), Y: int16(rows)}); err != nil {
+	if err := resizePseudoConsole(c.pc, windows.Coord{X: int16(cols), Y: int16(rows)}); err != nil {
 		return err
 	}
 	c.wake()
