@@ -149,10 +149,25 @@ func (h *HTTP) startTask(w http.ResponseWriter, r *http.Request) {
 	}{true, revision})
 }
 
-// startTask checks that id can start now and starts cfo spawn for it; one
-// task starts at a time, and the board shows it starting until spawn ends.
+// startTask checks that id is queued work that can start and files its Start
+// to run in its turn: one goblin starts or resumes at a time, and only with
+// memory and disk to spare, and the board shows it starting meanwhile. A
+// Start clicked again while it starts or waits changes nothing.
 func (s *Service) startTask(id string) error {
-	return s.startQueued(id, true)
+	if s.Options.Dispatch == nil {
+		return StartRefusal{Reason: "This board cannot start goblins"}
+	}
+	s.starts.Lock()
+	isUnderWay := s.starting == id || s.isAsked(id)
+	s.starts.Unlock()
+	if isUnderWay {
+		return nil
+	}
+	if _, err := planStart(s.Store.Home, id, s.finishedWork()); err != nil {
+		return err
+	}
+	s.ask(askedChange{task: id})
+	return nil
 }
 
 func (s *Service) startQueued(id string, isOverlord bool) error {
@@ -246,7 +261,10 @@ func (s *Service) runStart(dispatch *Dispatch, plan startPlan) {
 			s.publish(err)
 		}
 	}()
+	launched := make(chan struct{})
+	go s.watchLaunch(plan.id, launched)
 	output, err := s.runPastTheSpawnLock(dispatch, plan.args())
+	close(launched)
 	failure := ""
 	if err != nil {
 		failure = spawnFailure(output, err)
@@ -285,6 +303,7 @@ func (s *Service) runStart(dispatch *Dispatch, plan startPlan) {
 	}
 	s.starts.Unlock()
 	s.notify()
+	s.runAsked()
 }
 
 // spawnFailure is why cfo spawn failed: the last line it printed, which is

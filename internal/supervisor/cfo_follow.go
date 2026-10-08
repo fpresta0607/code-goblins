@@ -112,6 +112,8 @@ func (s *Store) waitsForCFO(a Action) bool {
 	switch a.Kind {
 	case "cfo_answer":
 		return true
+	case "message":
+		return a.TaskID == ""
 	case "review":
 		return a.CFOIdentity != ""
 	case "review_answer":

@@ -1,6 +1,8 @@
-import { lazy, Suspense, useEffect, useRef, useState, type CSSProperties } from "react";
+import { lazy, Suspense, useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
 import { useRuntimeStream } from "./stream";
 import { useItemState } from "./use-item-state";
+import { useTaskClicks } from "./use-task-clicks";
+import { withClicks } from "./task-clicks";
 import { childSelection, Lineage, type Selection } from "./Lineage";
 import { Board, type BoardLayout } from "./Board";
 import { Orchestration, type CanvasFocus } from "./Orchestration";
@@ -74,8 +76,12 @@ export function App() {
   const [windowFeedback, showWindowFeedback] = useClickFeedback();
   const { snapshot: received, connection } = useRuntimeStream();
   // What the board draws holds closed every item it knows to be closed, so
-  // nothing he acted on waits for the next snapshot to leave.
-  const { snapshot, sent } = useItemState(received);
+  // nothing he acted on waits for the next snapshot to leave, and shows his
+  // click on a task, Starting, Pausing, Resuming or Stopping, in the frame he
+  // clicks.
+  const { snapshot: held, sent } = useItemState(received);
+  const clicks = useTaskClicks();
+  const snapshot = useMemo(() => held && withClicks(held, clicks), [held, clicks]);
   const [view, setView] = useState<"Board" | "Orchestration">("Board");
   // The goblin a card's count asked the canvas to show.
   const [canvasFocus, setCanvasFocus] = useState<CanvasFocus>();

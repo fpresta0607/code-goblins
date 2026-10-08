@@ -81,13 +81,13 @@ for (const width of [1440, 390]) {
       await expect(meter.locator(".memory-fill")).toHaveClass(/ready/);
     });
 
-    test("commit the tighter shows commit, names the apps holding it, and holds Start", async ({ page }) => {
+    test("commit the tighter shows commit, names the apps holding it, and leaves Start one click", async ({ page }) => {
       const column = await tasksColumn(page, states.commit);
       const meter = column.getByRole("group", { name: "Memory" });
       await expect(meter.locator(".memory-line")).toHaveText("Commit free (memory plus page file)2.5 GB");
       await expect(meter.locator(".memory-bar")).toHaveAttribute("data-tip", /Most commit: ChatGPT 11\.2 GB, claude 5\.7 GB, cfo 4\.3 GB$/);
       await expect(column.locator(".next-chip")).toHaveText("Next at 5 GB");
-      await expect(column.getByRole("button", { name: "Start Polish settings", exact: true })).toHaveAttribute("data-tip", "Needs 5 GB of commit free to keep the 4 GB floor");
+      await expect(column.getByRole("button", { name: "Start Polish settings", exact: true })).not.toHaveAttribute("aria-disabled", "true");
     });
 
     test("with memory free the meter names what the supervisor started, in body-size text inside its box", async ({ page }, testInfo) => {

@@ -1,0 +1,9 @@
+/* A message box at the foot of a terminal slot that cannot take typing now:
+   his latest messages, each with where it is, over the box he writes in. */
+.message-box { display: grid; gap: 10px; padding: 12px 16px 16px; border-top: 1px solid var(--glass-border); background: #071015; }
+.message-list { display: grid; gap: 6px; margin: 0; padding: 0; list-style: none; }
+.message-list > li { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; min-width: 0; }
+.message-text { min-width: 0; overflow-wrap: anywhere; white-space: pre-wrap; color: #d8e9e2; }
+.message-state { flex: none; color: var(--muted); font-size: .875rem; }
+.message-box textarea { width: 100%; min-height: 64px; padding: 10px 12px; border: 1px solid var(--glass-border-hover); border-radius: var(--radius); background: var(--field-bg); }
+.deck-slot.with-messages { flex-direction: column; }

@@ -138,7 +138,7 @@ test("the panel says each state once: a sentence of its own, and the raw words b
   for (const [name, item, said] of cases) assert.deepEqual(taskSummary(item, [item]), said, name);
 });
 
-test("Working, Pause did not finish and a failure have no line under them; what it would say is the first thing behind Details", () => {
+test("Working, a pause that did not finish and a failure have no line under them; what it would say is the first thing behind Details", () => {
   // The Overlord, 2026-10-05: "dont need text under working", "dont need
   // text under pause fialed", and 2026-10-08: "everything error wise goes to
   // cfo". The other statuses keep their line.
@@ -148,7 +148,7 @@ test("Working, Pause did not finish and a failure have no line under them; what 
     ["working", task({ activity: raw }), "Working", { sentence: "", details: ["PRs 324 and 326 are green on main. Ready to pause.", raw], isFailure: false }],
     ["working, already plain", task({ activity: "working: Writing the tests." }), "Working", { sentence: "", details: ["Writing the tests."], isFailure: false }],
     ["working with nothing to say", task({ activity: "" }), "Working", { sentence: "", details: [], isFailure: false }],
-    ["a pause that did not finish", failed, "Pause did not finish", { sentence: "", details: ["The pause did not finish, so the goblin is not paused. Its work is kept. Try Pause again.", "context deadline exceeded"], isFailure: false }],
+    ["a pause that did not finish", failed, "Working", { sentence: "", details: ["The pause did not finish, so the goblin is not paused. Its work is kept. Try Pause again.", "context deadline exceeded"], isFailure: false }],
     ["a question to him keeps its line", task({ activity: raw }), "Waiting on the CFO", { sentence: "PRs 324 and 326 are green on main. Ready to pause.", details: [raw], isFailure: false }],
     ["a failure", task({ phase: "failed", report: "failed", activity: "failed: go test timed out" }), "Failed", { sentence: "", details: ["Go test timed out."], isFailure: true }],
   ];

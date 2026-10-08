@@ -39,6 +39,42 @@ func TestLifecycleCommandsUseTheSameServiceAndSurfaceFailures(t *testing.T) {
 	}
 }
 
+// The supervisor runs its own binary for the board's Resume and for a resume
+// it makes by itself, and the installed supervisor is goblins.exe, so goblins
+// resumes the task it names exactly as cfo does. Only goblins resume with
+// nothing after it restarts the CFO.
+func TestGoblinsResumesTheTaskTheSupervisorNames(t *testing.T) {
+	for _, test := range []struct {
+		name string
+		args []string
+	}{
+		{"the board's Resume", []string{"resume", "task", "--generation", "session-1", "--revision", "", "--operation", "4f1c2a", "--reason", "Requested from the board"}},
+		{"a pause that cleared", []string{"resume", "task", "--generation", "session-1", "--operation", "auto-resume-1", "--reason", "Pause condition cleared"}},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			// Arrange
+			h := primaryHomeFixture(t)
+			if err := state.WriteTaskMeta(h.State, state.TaskMeta{ID: "task", SpawnGen: "session-1"}); err != nil {
+				t.Fatal(err)
+			}
+			var received lifecycle.Request
+			runtime := commandRuntime{goblins: true, resolveHome: func() (home.Home, error) { return h, nil }, taskLifecycle: func(_ context.Context, _ home.Home, request lifecycle.Request, _ string) (state.Lifecycle, error) {
+				received = request
+				return state.Lifecycle{}, nil
+			}}
+			var output, failure bytes.Buffer
+
+			// Act
+			code := runWithRuntime(test.args, &output, &failure, runtime)
+
+			// Assert
+			if code != 0 || received.Action != "resume" || received.ID != "task" || received.Generation != "session-1" {
+				t.Fatalf("goblins %q: exit=%d request=%+v stderr=%q, want the task resumed", test.args, code, received, &failure)
+			}
+		})
+	}
+}
+
 // A lifecycle command typed without --operation is read by whoever typed it,
 // the CFO at its prompt; the board, the scheduler and the allowance floor
 // each name their operation, and nobody reads their command's output.

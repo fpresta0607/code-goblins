@@ -266,8 +266,12 @@ func TestRefusedResumeLeavesTheSharedSnapshotAndItsEarlierFailureUntilOneIsAccep
 	if index := slices.IndexFunc(during.Tasks, func(task Task) bool { return task.ID == meta.ID }); index < 0 || during.Tasks[index].Phase != "resuming" || during.Tasks[index].ActionError != "earlier failure" {
 		t.Fatalf("the snapshot built while Resume read memory: %+v", during.Tasks)
 	}
-	if code := <-refused; code != 409 {
-		t.Fatalf("resume with an unreadable memory=%d", code)
+	if code := <-refused; code != 202 {
+		t.Fatalf("resume with an unreadable memory=%d, want it taken and its failure sent to the CFO", code)
+	}
+	records, err := wake.Pending(h.State)
+	if err != nil || !slices.ContainsFunc(records, func(record wake.Record) bool { return record.Key == meta.ID && strings.Contains(record.Detail, "memory reading failed") }) {
+		t.Fatalf("wakes = %+v, %v, want the CFO told the Resume could not read memory", records, err)
 	}
 
 	// Act
@@ -400,12 +404,12 @@ func TestQueuedStopShowsFailureAfterWritingItsLifecycle(t *testing.T) {
 func TestBoardResumeLetsTheCLIReconcileOnlyAnOperationBoundLaunchBelowFiveGigabytes(t *testing.T) {
 	for _, test := range []struct {
 		phase, action, resumeOperation string
-		status                         int
+		isRun                          bool
 	}{
-		{phase: "paused", action: "pause", status: 409},
-		{phase: "resuming", action: "resume", status: 409},
-		{phase: "resuming", action: "resume", resumeOperation: "prior-resume", status: 202},
-		{phase: "failed", action: "resume", resumeOperation: "prior-resume", status: 202},
+		{phase: "paused", action: "pause"},
+		{phase: "resuming", action: "resume"},
+		{phase: "resuming", action: "resume", resumeOperation: "prior-resume", isRun: true},
+		{phase: "failed", action: "resume", resumeOperation: "prior-resume", isRun: true},
 	} {
 		t.Run(test.phase+"/"+test.resumeOperation, func(t *testing.T) {
 			spawner := &spawnRecorder{}
@@ -418,23 +422,23 @@ func TestBoardResumeLetsTheCLIReconcileOnlyAnOperationBoundLaunchBelowFiveGigaby
 				t.Fatal(err)
 			}
 			response := taskControlRequest(handler, "/api/tasks/lifecycle", map[string]string{"task": meta.ID, "generation": meta.SpawnGen, "operation": "retry-resume", "action": "resume"})
-			if response.Code != test.status {
-				t.Fatalf("resume=%d %s, want %d", response.Code, response.Body, test.status)
+			calls := awaitCalls(t, spawner, 1)
+			if response.Code != 202 || test.isRun != (len(calls) == 1) {
+				t.Fatalf("resume=%d %s, cfo ran %v, want it taken and run at once %v", response.Code, response.Body, calls, test.isRun)
 			}
 		})
 	}
 }
 
-func TestBoardResumeNeedsFiveGigabytesOfBothMemoryAndCommitAndNamesWhatIsShort(t *testing.T) {
+func TestBoardResumeWaitsItsTurnForFiveGigabytesOfBothMemoryAndCommit(t *testing.T) {
 	tests := []struct {
 		name              string
 		available, commit uint64
-		status            int
-		want              string
+		isRun             bool
 	}{
-		{name: "memory short", available: 4 * gigabyte, commit: 40 * gigabyte, status: 409, want: "Only 4.0 GB of memory is free; Resume needs 5 GB to keep the 4 GB floor"},
-		{name: "commit short", available: 16 * gigabyte, commit: 2*gigabyte + gigabyte/2, status: 409, want: "Only 2.5 GB of commit (RAM plus page file) is free; Resume needs 5 GB to keep the 4 GB floor"},
-		{name: "both fine", available: 5 * gigabyte, commit: 5 * gigabyte, status: 202},
+		{name: "memory short", available: 4 * gigabyte, commit: 40 * gigabyte},
+		{name: "commit short", available: 16 * gigabyte, commit: 2*gigabyte + gigabyte/2},
+		{name: "both fine", available: 5 * gigabyte, commit: 5 * gigabyte, isRun: true},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
@@ -453,8 +457,12 @@ func TestBoardResumeNeedsFiveGigabytesOfBothMemoryAndCommitAndNamesWhatIsShort(t
 			response := taskControlRequest(handler, "/api/tasks/lifecycle", map[string]string{"task": meta.ID, "generation": meta.SpawnGen, "operation": "resume-1", "action": "resume"})
 
 			// Assert
-			if response.Code != test.status || !strings.Contains(response.Body.String(), test.want) {
-				t.Fatalf("resume = %d %s, want %d saying %q", response.Code, response.Body, test.status, test.want)
+			calls := awaitCalls(t, spawner, 1)
+			if response.Code != 202 || test.isRun != (len(calls) == 1) {
+				t.Fatalf("resume = %d %s, cfo ran %v, want it taken and run at once %v", response.Code, response.Body, calls, test.isRun)
+			}
+			if card := cardOf(t, handler, meta.ID); !test.isRun && (card.Phase != "resuming" || !card.Asked) {
+				t.Fatalf("card = %+v, want it resuming and waiting its turn for memory", card)
 			}
 		})
 	}

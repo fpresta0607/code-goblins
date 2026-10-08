@@ -84,6 +84,63 @@ func TestOnlyAnOperationNobodyWatchesSendsItsOutcome(t *testing.T) {
 	}
 }
 
+// Shirley's pause on 2026-10-08 failed, though her session was gone, and her
+// card stayed in progress (the Overlord: "shirley was paused but position on
+// board did not move to pause window section"). A pause whose goblin's
+// terminal no longer runs took effect, whatever the rest of its stop met, and
+// one whose terminal still runs did not.
+func TestAPauseWhoseTerminalNoLongerRunsIsPausedWhateverItsStopMet(t *testing.T) {
+	for _, isRunning := range []bool{false, true} {
+		name := "terminal gone"
+		if isRunning {
+			name = "terminal still runs"
+		}
+		t.Run(name, func(t *testing.T) {
+			// Arrange
+			service, meta := lifecycleFixture(t)
+			service.Operations.Stop = func(context.Context, state.TaskMeta, *state.Lifecycle) ([]string, error) {
+				return nil, errors.New("task host ended before identifying its resources")
+			}
+			service.Operations.IsRunning = func(context.Context, state.TaskMeta) (bool, error) { return isRunning, nil }
+
+			// Act
+			record, err := service.Run(context.Background(), Request{ID: meta.ID, Generation: meta.SpawnGen, Operation: "pause-1", Action: "pause", Reason: "memory", Session: "session-1"})
+
+			// Assert
+			if isRunning {
+				if err == nil || record.Phase != "failed" {
+					t.Fatalf("pause = %+v, %v, want it failed while the goblin runs", record, err)
+				}
+				return
+			}
+			if err != nil || record.Phase != "paused" || record.Session != "session-1" || !slices.ContainsFunc(record.Problems, func(problem string) bool { return strings.Contains(problem, "task host ended") }) {
+				t.Fatalf("pause = %+v, %v, want it paused with what its stop met named", record, err)
+			}
+		})
+	}
+}
+
+// A pause that failed while its goblin ran, whose goblin has gone since,
+// resumes: its card shows it paused.
+func TestAFailedPauseWhoseTerminalEndedSinceResumes(t *testing.T) {
+	// Arrange
+	service, meta := lifecycleFixture(t)
+	if err := state.WriteLifecycle(service.StateDir, state.Lifecycle{ID: meta.ID, Generation: meta.SpawnGen, RequestGeneration: meta.SpawnGen, Operation: "pause-1", Action: "pause", Phase: "failed", NoticeSent: true}); err != nil {
+		t.Fatal(err)
+	}
+	resumed := 0
+	service.Operations.Resume = func(context.Context, state.TaskMeta, state.Lifecycle) error { resumed++; return nil }
+	service.Operations.IsRunning = func(context.Context, state.TaskMeta) (bool, error) { return false, nil }
+
+	// Act
+	record, err := service.Run(context.Background(), Request{ID: meta.ID, Generation: meta.SpawnGen, Operation: "resume-1", Action: "resume"})
+
+	// Assert
+	if err != nil || record.Phase != "running" || resumed != 1 {
+		t.Fatalf("resume = %+v, %v, resumed %d times, want it resumed once", record, err, resumed)
+	}
+}
+
 // A paused goblin paused again takes the new condition, so what resumes it
 // can be changed: cfo pause on a paused task used to answer paused and keep
 // the old record, so a goblin paused for memory went on waiting for memory.

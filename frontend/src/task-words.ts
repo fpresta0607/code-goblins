@@ -235,12 +235,12 @@ export function taskSummary(task: Task, tasks: Task[], status = ""): Summary {
 }
 
 // The Overlord, 2026-10-05, on the review of these screens: "dont need text
-// under working" and "dont need text under pause fialed". Under these two the
+// under working" and "dont need text under pause fialed". Under Working the
 // panel says nothing; what it would say is the first thing behind Details. A
 // failure, and a pause, resume or stop that did not finish, says nothing
 // either: its error is the CFO's to hear (2026-10-08, "everything error wise
 // goes to cfo"), and the panel keeps it behind Details.
-const QUIET_STATUSES = new Set(["Working", "Pause did not finish"]);
+const QUIET_STATUSES = new Set(["Working"]);
 
 function summaryOf(task: Task, tasks: Task[]): Summary {
   const record = task.lifecycle;

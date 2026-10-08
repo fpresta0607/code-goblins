@@ -3,6 +3,7 @@ package supervisor
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -43,14 +44,35 @@ type taskChangeError struct {
 	IsIdleRead bool
 }
 
+// lifecycleRequest is a Pause, Resume or Stop clicked on the board, naming
+// the task, its session and queued revision, and the operation that makes a
+// retry of the same click one operation.
+type lifecycleRequest struct {
+	Task       string `json:"task"`
+	Generation string `json:"generation"`
+	Revision   string `json:"revision"`
+	Operation  string `json:"operation"`
+	Action     string `json:"action"`
+}
+
+// taskRefusal is why a Pause, Resume or Stop does not run now. A passing one
+// waits on what passes by itself, another goblin starting or resuming,
+// memory or disk; any other says the click no longer applies, as for a
+// session that changed.
+type taskRefusal struct {
+	reason    string
+	isPassing bool
+}
+
+func (r taskRefusal) Error() string { return r.reason }
+
+// lifecycleTask serves POST /api/tasks/lifecycle. A Resume waits its turn
+// rather than being refused while another goblin starts or resumes, or while
+// memory or disk is short; a Pause or Stop runs at once and takes back a
+// Resume of the same task that still waits. A click on what is already under
+// way is accepted and changes nothing.
 func (h *HTTP) lifecycleTask(w http.ResponseWriter, r *http.Request) {
-	var input struct {
-		Task       string `json:"task"`
-		Generation string `json:"generation"`
-		Revision   string `json:"revision"`
-		Operation  string `json:"operation"`
-		Action     string `json:"action"`
-	}
+	var input lifecycleRequest
 	if err := decodeBody(w, r, &input, 4096); err != nil {
 		apiError(w, 400, err.Error())
 		return
@@ -64,25 +86,95 @@ func (h *HTTP) lifecycleTask(w http.ResponseWriter, r *http.Request) {
 		apiError(w, 409, "This board cannot control task processes")
 		return
 	}
-	s.starts.Lock()
-	if s.starting == input.Task || s.changing[input.Task] != "" {
-		s.starts.Unlock()
-		apiError(w, 409, "This task is already changing")
+	var err error
+	if input.Action == "resume" {
+		err = s.askResume(input)
+	} else {
+		s.withdraw(input.Task)
+		err = s.changeTask(input)
+	}
+	if err != nil {
+		status := 500
+		if errors.As(err, new(taskRefusal)) {
+			status = 409
+		}
+		apiError(w, status, err.Error())
 		return
 	}
-	if input.Action == "resume" {
-		if s.starting != "" {
-			s.starts.Unlock()
-			apiError(w, 409, "Another task is starting; resume once it is up")
-			return
+	s.mu.Lock()
+	revision := s.revision
+	s.mu.Unlock()
+	respond(w, 202, struct {
+		Accepted bool   `json:"accepted"`
+		Revision uint64 `json:"revision"`
+	}{true, revision})
+}
+
+// askResume files a Resume to run in its turn once its click still applies:
+// the session it names is the task's, and the task is paused or its last
+// resume was cut short.
+func (s *Service) askResume(input lifecycleRequest) error {
+	s.starts.Lock()
+	isUnderWay := s.changing[input.Task] == "resume" || s.isAsked(input.Task)
+	s.starts.Unlock()
+	if isUnderWay {
+		return nil
+	}
+	if _, _, _, err := s.checkChange(input); err != nil {
+		return err
+	}
+	s.ask(askedChange{task: input.Task, resume: &input})
+	return nil
+}
+
+// checkChange reads the task a click names and says whether the click still
+// applies: the session it names is the task's, a queued task's Stop names
+// its current revision, and a Resume finds the task paused or its last
+// resume cut short, which isInterrupted says.
+func (s *Service) checkChange(input lifecycleRequest) (meta state.TaskMeta, prior state.Lifecycle, isInterrupted bool, err error) {
+	meta, err = state.ReadTaskMeta(s.Store.Home.State, input.Task)
+	if errors.Is(err, os.ErrNotExist) && input.Action == "stop" {
+		queued, readErr := fleet.ReadQueuedTask(s.Store.Home, input.Task)
+		if readErr != nil || queued.Revision != input.Revision {
+			return meta, prior, false, taskRefusal{reason: "The queued task changed; reopen its card"}
 		}
-		for _, action := range s.changing {
-			if action == "resume" {
-				s.starts.Unlock()
-				apiError(w, 409, "Another task is resuming; try again once it is up")
-				return
-			}
-		}
+	} else if err != nil || input.Generation == "" || input.Generation != meta.SpawnGen {
+		return meta, prior, false, taskRefusal{reason: "The task session changed; refresh its card"}
+	}
+	prior, err = state.ReadLifecycle(s.Store.Home.State, input.Task)
+	if err != nil && !errors.Is(err, os.ErrNotExist) {
+		return meta, prior, false, err
+	}
+	if input.Action != "resume" {
+		return meta, prior, false, nil
+	}
+	isInterrupted = prior.Action == "resume" && (prior.Phase == "resuming" || prior.Phase == "failed") && meta.ResumeOperation == prior.Operation
+	isEndedPause := pauseTookHold(s.Store.Home.State, meta.Backend, prior)
+	if err != nil || prior.Generation != meta.SpawnGen && !isInterrupted || prior.Phase != "paused" && !isEndedPause && !(prior.Action == "resume" && (prior.Phase == "failed" || prior.Phase == "resuming")) {
+		return meta, prior, false, taskRefusal{reason: "Only a paused task can resume"}
+	}
+	return meta, prior, isInterrupted, nil
+}
+
+// changeTask runs a Pause, Resume or Stop through the CLI once the click
+// still applies and, for a Resume, once nothing else starts or resumes and
+// memory and disk allow; what it waits on is a passing taskRefusal. The
+// card shows the change from the moment it is taken, and a change the CLI
+// refuses or fails goes to the CFO unless the CLI's own lifecycle record
+// already told it.
+func (s *Service) changeTask(input lifecycleRequest) error {
+	s.starts.Lock()
+	if s.changing[input.Task] == input.Action {
+		s.starts.Unlock()
+		return nil
+	}
+	if s.starting == input.Task || s.changing[input.Task] != "" {
+		s.starts.Unlock()
+		return taskRefusal{reason: "This task is already changing", isPassing: input.Action == "resume"}
+	}
+	if launching := s.launching(); input.Action == "resume" && launching != "" {
+		s.starts.Unlock()
+		return taskRefusal{reason: launching + " is starting or resuming", isPassing: true}
 	}
 	if s.changing == nil {
 		s.changing = map[string]string{}
@@ -101,49 +193,26 @@ func (h *HTTP) lifecycleTask(w http.ResponseWriter, r *http.Request) {
 			s.notify()
 		}
 	}()
-	meta, err := state.ReadTaskMeta(s.Store.Home.State, input.Task)
-	if errors.Is(err, os.ErrNotExist) && input.Action == "stop" {
-		queued, readErr := fleet.ReadQueuedTask(s.Store.Home, input.Task)
-		if readErr != nil || queued.Revision != input.Revision {
-			apiError(w, 409, "The queued task changed; reopen its card")
-			return
-		}
-	} else if err != nil || input.Generation == "" || input.Generation != meta.SpawnGen {
-		apiError(w, 409, "The task session changed; refresh its card")
-		return
+	_, prior, isInterrupted, err := s.checkChange(input)
+	if err != nil {
+		return err
 	}
-	prior, priorErr := state.ReadLifecycle(s.Store.Home.State, input.Task)
-	if priorErr != nil && !errors.Is(priorErr, os.ErrNotExist) {
-		apiError(w, 500, priorErr.Error())
-		return
-	}
-	if input.Action == "resume" {
-		isInterruptedResume := prior.Action == "resume" && (prior.Phase == "resuming" || prior.Phase == "failed") && meta.ResumeOperation == prior.Operation
-		if priorErr != nil || prior.Generation != meta.SpawnGen && !isInterruptedResume || prior.Phase != "paused" && !(prior.Action == "resume" && (prior.Phase == "failed" || prior.Phase == "resuming")) {
-			apiError(w, 409, "Only a paused task can resume")
-			return
+	// An interrupted launch may already be using its memory. The shared
+	// CLI proves it is running, or enforces the floor before a new launch.
+	if input.Action == "resume" && !isInterrupted {
+		memory, err := s.Options.Dispatch.Memory()
+		if err != nil {
+			return fmt.Errorf("free memory cannot be read, so the goblin does not resume: %w", err)
 		}
-		// An interrupted launch may already be using its memory. The shared
-		// CLI proves it is running, or enforces the floor before a new launch.
-		if !isInterruptedResume {
-			memory, err := s.Options.Dispatch.Memory()
-			if err != nil {
-				apiError(w, 409, "Resume needs 5 GB free to keep the 4 GB floor")
-				return
-			}
-			if short := memory.shortfall(); short != "" {
-				apiError(w, 409, short+"; Resume needs 5 GB to keep the 4 GB floor")
-				return
-			}
-			disk, err := s.machineDisk()
-			if err != nil {
-				apiError(w, 409, "Resume needs the free disk read, and it could not be: "+err.Error())
-				return
-			}
-			if err := CheckLaunch(memory, disk); err != nil {
-				apiError(w, 409, err.Error())
-				return
-			}
+		if short := memory.shortfall(); short != "" {
+			return taskRefusal{reason: short + "; Resume needs 5 GB to keep the 4 GB floor", isPassing: true}
+		}
+		disk, err := s.machineDisk()
+		if err != nil {
+			return fmt.Errorf("free disk cannot be read, so the goblin does not resume: %w", err)
+		}
+		if err := CheckLaunch(memory, disk); err != nil {
+			return taskRefusal{reason: err.Error(), isPassing: true}
 		}
 	}
 	command := input.Action
@@ -163,8 +232,14 @@ func (h *HTTP) lifecycleTask(w http.ResponseWriter, r *http.Request) {
 	s.starts.Unlock()
 	isDispatched = true
 	go func() {
+		launched := make(chan struct{})
+		if input.Action == "resume" {
+			go s.watchLaunch(input.Task, launched)
+		}
 		output, err := s.runPastTheSpawnLock(s.Options.Dispatch, args)
+		close(launched)
 		var failure taskChangeError
+		isToldByItsRecord := false
 		if err != nil {
 			failure = taskChangeError{Message: spawnFailure(output, err), Generation: input.Generation, Operation: prior.Operation, Updated: prior.Updated}
 			if record, readErr := state.ReadLifecycle(s.Store.Home.State, input.Task); readErr == nil && record.Operation == input.Operation && record.RequestGeneration == requestGeneration {
@@ -172,7 +247,11 @@ func (h *HTTP) lifecycleTask(w http.ResponseWriter, r *http.Request) {
 				if failure.Generation == "queued" {
 					failure.Generation = ""
 				}
+				isToldByItsRecord = record.NoticeSent
 			}
+		}
+		if err != nil && !isToldByItsRecord {
+			s.tellCFOOfFailure(input.Task, input.Action+" failed: "+failure.Message)
 		}
 		s.starts.Lock()
 		delete(s.changing, input.Task)
@@ -181,15 +260,10 @@ func (h *HTTP) lifecycleTask(w http.ResponseWriter, r *http.Request) {
 		}
 		s.starts.Unlock()
 		s.notify()
+		s.runAsked()
 	}()
 	s.notify()
-	s.mu.Lock()
-	revision := s.revision
-	s.mu.Unlock()
-	respond(w, 202, struct {
-		Accepted bool   `json:"accepted"`
-		Revision uint64 `json:"revision"`
-	}{true, revision})
+	return nil
 }
 
 type taskAdjustment struct {
