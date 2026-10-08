@@ -112,6 +112,26 @@ func TestADecisionIsLoggedInTheStretchItWasMadeIn(t *testing.T) {
 	}
 }
 
+// AFK mode is complete autopilot: what only the Overlord can do is never asked
+// of him or held for him. The CFO gives it a backlog row, works around it and
+// logs it as left for him, which his report lists.
+func TestWhatOnlyHeCanDoIsLoggedAsLeftForHim(t *testing.T) {
+	// Arrange
+	dir, on := turnedOn(t)
+
+	// Act
+	logged, err := Log(dir, Entry{Kind: KindLeft, What: "Sign in to Vercel for pd-auth", Evidence: "his own sign-in; backlog row pd-auth-vercel-sign-in, pd-auth moved to the invoice export"}, night.Add(time.Hour))
+
+	// Assert
+	if err != nil {
+		t.Fatalf("Log = %v, want what is left for him logged", err)
+	}
+	entries, _, _ := Entries(dir, on.Session)
+	if decisions := Decisions(entries); len(decisions) != 1 || decisions[0].Kind != KindLeft || decisions[0].Evidence != logged.Evidence {
+		t.Errorf("decisions = %+v, want what was left for him with its evidence", decisions)
+	}
+}
+
 func TestNothingIsLoggedAsDecidedWhileAFKModeIsOff(t *testing.T) {
 	dir := t.TempDir()
 

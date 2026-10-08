@@ -18,7 +18,7 @@ const afkUsage = `usage: cfo afk on [--asked "<his words>"] | off [--asked "<his
   off     turn it off and print the report of the stretch; the same switch, made the same way
   status  whether it is on, since when and from where, what was decided so far and what is held for him
   report  print the report of the last stretch that ended
-  log     the registered CFO logs a decision it made under the authority, with its evidence; kind is one of ` + "merge, deploy, migration, install, answer, other"
+  log     the registered CFO logs a decision it made under the authority, with its evidence; kind is one of ` + "left, merge, deploy, migration, install, answer, other"
 
 // runAFK is cfo afk: the Overlord's switch for running the fleet while he is
 // away, what was decided and held under it, and the report it ends with. The
@@ -71,11 +71,11 @@ func runAFK(args []string, stdout, stderr io.Writer, runtime commandRuntime) int
 		fmt.Fprintf(stdout, "AFK mode %s on since %s, turned on %s.\n", is, switched.Since.UTC().Format("2006-01-02 15:04 UTC"), afk.SwitchedBy(switched.From, switched.Asked))
 		if asked != "" {
 			// The CFO reads this, having made the switch at his ask.
-			fmt.Fprintln(stdout, "Say in your reply to him that AFK mode is on. You decide what its authority covers and log each decision; what stays his is held for him without a prompt.")
+			fmt.Fprintln(stdout, "Say in your reply to him that AFK mode is on. You decide everything its authority covers and log each decision. What only he can do gets a backlog row and a cfo afk log --kind left line, and the work goes around it.")
 			fmt.Fprintln(stdout, "His own switch, on the board or in a terminal of his own, turns it off at any time. cfo afk status shows what was decided and held.")
 			return 0
 		}
-		fmt.Fprintln(stdout, "The CFO decides what its authority covers and logs each decision; what stays yours is held for you without a prompt.")
+		fmt.Fprintln(stdout, "The CFO decides everything its authority covers and logs each decision. What only you can do waits in the backlog and in your report.")
 		fmt.Fprintln(stdout, "cfo afk status shows both. cfo afk off turns it off and prints the report.")
 		return 0
 	case "off":
