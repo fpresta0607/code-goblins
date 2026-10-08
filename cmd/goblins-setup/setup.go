@@ -27,11 +27,8 @@ var (
 	tag        = ""
 )
 
-// scriptURL is where the install script this program runs is published: the
-// newest release's, whichever release published this program. A setup kept
-// from an older release, as the Overlord ran one from his Downloads on
-// 2026-10-08, still installs the newest Code Goblins, never its own older
-// build over a newer one.
+// scriptURL ignores tag so retaining this setup cannot pin an install to an
+// older release. See docs/install.md for compatibility details.
 func scriptURL() string {
 	return "https://github.com/" + repository + "/releases/latest/download/install.ps1"
 }
@@ -75,9 +72,8 @@ type Progress struct {
 	Note string
 }
 
-// Setup installs Code Goblins by running the release's own install script,
-// the one the one-line install runs, so there is one install and this
-// program is only its window. Every destination is a field, so a test names
+// Setup runs the install script described in docs/install.md behind a
+// window. Every destination is a field, so a test names
 // a script and folders of its own and never installs anything.
 type Setup struct {
 	// Script is the address of the install script.
