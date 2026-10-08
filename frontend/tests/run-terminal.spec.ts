@@ -157,8 +157,10 @@ test.describe("on a phone", () => {
     const terminal = dialog.locator(".run-live .host-terminal");
     await expect(dialog.locator(".run-live .xterm-rows")).toContainText("Your fly.io email:");
 
-    // Act: a phone's keyboard types as an input method does, text at a time.
-    await terminal.tap();
+    // Act: he taps the terminal's text, and his phone's keyboard types as an
+    // input method does, text at a time.
+    await dialog.locator(".run-live .xterm-screen").tap({ position: { x: 12, y: 12 } });
+    await expect(dialog.getByRole("textbox", { name: "Terminal input" })).toBeFocused();
     await page.keyboard.insertText("me");
 
     // Assert

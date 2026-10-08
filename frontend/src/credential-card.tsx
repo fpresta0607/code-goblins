@@ -115,7 +115,7 @@ export function CredentialCard({ request, snapshot, connected, pager }: { reques
     {request.state === "saved" && <p className="credential-outcome delivery succeeded"><Icon name="check-double" /><span><strong>{credentialSettled(request)}.</strong>{told && <small>{told}</small>}</span></p>}
     {!open && request.state !== "saved" && <p className="credential-outcome warning-text"><Icon name="clock" /><span><strong>{request.reason}</strong></span></p>}
     {request.state === "saved" && request.reason && <p className="warning-text">{request.reason}</p>}
-    {open && terminalOpen && <p className="credential-terminal-open" role="status"><Icon name="terminal" />{terminal ? "Type each value in the terminal below, where nothing you type is shown." : "A terminal is open on the board on your PC: type each value there, where nothing you type is shown."} Saving here waits until it closes.</p>}
+    {open && terminalOpen && <p className="credential-terminal-open" role="status"><Icon name="terminal" />{!local ? "A terminal is open on the board on your PC: type each value there, where nothing you type is shown." : terminal ? "Type each value in the terminal below, where nothing you type is shown." : "A terminal is open on this PC: type each value there, where nothing you type is shown."} Saving here waits until it closes.</p>}
     {open && terminal && <RunTerminal run={terminal} instance={snapshot.instance} connected={connected} />}
     <div className="credential-table-wrap">
       <table className="credential-table">
