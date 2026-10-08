@@ -285,8 +285,8 @@ test("the wheel over a pane that scrolls itself never asks again for a take that
 
 test("a wheel that cannot scroll a pane explains itself in plain words", () => {
   const cases: [string, string][] = [
-    ["pipeline owns this task; use cfo pipeline respond or inspect its delivery evidence", "A review gate owns this goblin's pane now; scroll it in Herdr."],
-    ["pipeline custody has not been returned; use cfo pipeline recover", "A review gate owns this goblin's pane now; scroll it in Herdr."],
+    ["pipeline owns this task; use cfo pipeline respond or inspect its delivery evidence", "A review gate owns this goblin's pane now. Scroll it in Herdr."],
+    ["pipeline custody has not been returned; use cfo pipeline recover", "A review gate owns this goblin's pane now. Scroll it in Herdr."],
     ["Native terminal disconnected.", "The wheel cannot scroll this pane: Native terminal disconnected."],
   ];
   for (const [raw, plain] of cases) assert.equal(scrollHeldReason(raw), plain, raw);

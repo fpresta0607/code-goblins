@@ -198,7 +198,7 @@ test.describe("in the desktop window's size, with the CFO's panel open", () => {
     await testInfo.attach("one quiet item with the CFO's terminal open", { body: await page.screenshot(), contentType: "image/png" });
     await page.getByRole("button", { name: "Close panel", exact: true }).click();
     await send(page, "snapshot", { ...quiet, revision: 4, cfo_quiet: { since: "2026-10-02T12:10:00Z", count: 3, oldest_age: 660 } });
-    await expect(bar(page)).toContainText("The CFO has not answered 3 questions; the oldest has waited 11 minutes. The CFO supervises 1 goblin.");
+    await expect(bar(page)).toContainText("3 questions wait for the CFO (11 min). 1 goblin at work.");
     await page.waitForTimeout(500);
     await expect(toasts(page)).toHaveCount(0);
     await bar(page).getByRole("button", { name: "Open the CFO's terminal" }).first().click();

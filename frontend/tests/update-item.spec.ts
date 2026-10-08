@@ -101,41 +101,17 @@ test("an update that installed says so, and its item moves to History", async ({
   await expect(page.locator(".inbox-list li").filter({ hasText: "Update to v0.5.0 from v0.4.2" })).toContainText("Updated v0.5.0");
 });
 
-test("the slim banner points to the item, and hides until the next version", async ({ page }) => {
-  // Arrange
-  await page.goto("/tests/fixtures/update-item.html");
-  const banner = page.locator(".release-banner");
-  await expect(banner).toContainText("Code Goblins v0.5.0 is ready · you run v0.4.2");
-
+// The Overlord, 2026-10-07: "again all alerts in panel should get brought to me
+// in command center". A newer release reaches him only as its Update item in
+// the Command Center: no banner on the board points to it as well.
+test("a newer release is its Update item alone, with no banner on the board", async ({ page }) => {
   // Act
-  await banner.getByRole("button", { name: "Open" }).click();
+  await page.goto("/tests/fixtures/update-item.html");
 
   // Assert
-  await expect(page.getByRole("dialog").locator(".update-card")).toBeVisible();
-
-  // Act
-  await page.getByRole("button", { name: "Close the Command Center" }).click();
-  await banner.getByRole("button", { name: "Hide until the next version" }).click();
-
-  // Assert: hidden for this version, here and after a reload.
-  await expect(banner).toHaveCount(0);
-  await page.reload();
   await expect(page.getByLabel("Command Center, 1 waiting on you")).toBeVisible();
+  await expect(page.locator("body")).not.toContainText("Code Goblins v0.5.0 is ready");
   await expect(page.locator(".release-banner")).toHaveCount(0);
-});
-
-test("a board built from a clone gets the clone's steps instead of Update", async ({ page }) => {
-  // Arrange
-  await page.goto("/tests/fixtures/update-item.html");
-
-  // Act
-  await page.evaluate(() => window.updateStep("source"));
-
-  // Assert
-  const banner = page.locator(".release-banner");
-  await expect(banner).toContainText("Code Goblins v0.5.0 is out · this board was built from a clone: run git pull, then .\\install.cmd -Dev in the clone");
-  await expect(banner.getByRole("button", { name: "Open" })).toHaveCount(0);
-  await expect(page.getByLabel("Command Center, 1 waiting on you")).toHaveCount(0);
 });
 
 for (const draft of ["answer", "changed answer", "diff comment"] as const) {

@@ -103,9 +103,11 @@ for (const [size, viewport, scale] of [["the Overlord's window", { width: 1707, 
       // Assert: the Overlord, 2026-10-05: "waits for a task doesnt make sens
       // dont ened any addiioantional text". A waiting card says nothing about
       // its wait, and the CFO's note on it stays in its panel behind More.
+      // The list runs in start order (2026-10-07, "next up should be at the
+      // top of the column"): the one task that can start, then those held.
       await expect(tasks.locator(".card-title")).toHaveText([
-        blocked,
         "Updates arrive as their own special Overlord command in the Command Center, with one Update button (checksum-verified, safe swap and rollback, goblins untouched, the desktop window too)",
+        blocked,
         "The already-pushed skip design for tests-kept and the other open hardening items",
       ]);
       await expect(page.locator(".task-board")).not.toContainText(/Waits (for|until)/);

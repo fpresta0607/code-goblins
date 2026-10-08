@@ -28,7 +28,7 @@ export function ChangeCard({ question, snapshot, connected, draft, onDraft, onCh
   const isGone = !task || task.generation !== question.generation;
   const status = !isChangeable && !draft.sending
     ? isGone ? "The goblin that asked has restarted or ended, so the CFO's answer stands." : asker + " has reported since the CFO answered, so the CFO's answer stands."
-    : isFailed ? "Your change did not reach " + asker + "; the CFO's answer stands."
+    : isFailed ? "Your change did not reach " + asker + ". The CFO's answer stands."
     : asker + " has not reported since the CFO answered, so your answer replaces the CFO's.";
   return <form className="question-card change-card" aria-labelledby={"change-" + question.id} onSubmit={(event) => { event.preventDefault(); onChange(); }}>
     <p className="asker"><Avatar persona={personaFor(task)} small /><span><strong>{asker}</strong> asks · answered by the CFO {age(question.answered_at)}</span></p>

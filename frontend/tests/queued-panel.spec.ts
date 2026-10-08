@@ -203,3 +203,27 @@ for (const [size, viewport] of [["wide", { width: 1440, height: 1200 }], ["phone
     expect(await page.evaluate(crowded)).toEqual(["Resume paused-one / Stop paused-one"]);
   });
 }
+
+// The Overlord, 2026-10-07, on an amber box at the head of Tasks saying a
+// start needs more memory: "any alerts that are critical go through cfo to me
+// as needed". A start the supervisor tried by itself and could not make shows
+// nothing on the card: the CFO is told, and the meter shows memory.
+test("a queued card whose supervisor start failed shows no failure", async ({ page }) => {
+  // Arrange
+  const failed = { ...QUEUED, start_error: "memory 4.6 GB free; a start needs 5 GB of memory and commit to keep the 4 GB floor" };
+  await page.addInitScript(() => localStorage.setItem("cfo-first-open", "shown"));
+  await page.route("**/api/**", async (route) => {
+    if (new URL(route.request().url()).pathname === "/api/events") await route.fulfill({ contentType: "text/event-stream", body: events(1, [failed, WORKING]) });
+    else await route.fulfill({ status: 404, json: { error: "No fixture for this resource" } });
+  });
+
+  // Act
+  await page.goto("/");
+  await expect(page.locator(".board-column").first()).toBeVisible();
+
+  // Assert
+  const queued = card(page, "queued-one");
+  await expect(queued).toBeVisible();
+  await expect(queued.getByRole("alert")).toHaveCount(0);
+  await expect(page.getByText("keep the 4 GB floor")).toHaveCount(0);
+});

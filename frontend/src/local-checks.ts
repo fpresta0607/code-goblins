@@ -15,9 +15,9 @@ function duration(seconds: number): string {
 // ended, at which level and in how long, and what failed.
 export function localChecksLook(checks: LocalChecks, taskId: string): LocalChecksLook {
   const passed = checks.status === "passed";
-  let took = checks.level + " level, " + duration(checks.duration_seconds);
+  let took = checks.level.charAt(0).toUpperCase() + checks.level.slice(1) + " level, " + duration(checks.duration_seconds);
   if (checks.queue_seconds > 0) took += ", " + duration(checks.queue_seconds) + " of it waiting for its turn";
-  const failed = checks.failed.length > 0 ? "Failed: " + checks.failed.join(", ") + "; " : "";
+  const failed = checks.failed.length > 0 ? "Failed: " + checks.failed.join(", ") + ". " : "";
   return {
     text: passed ? "Local tests passed" : "Local tests failed",
     tip: (passed ? "" : failed) + took,

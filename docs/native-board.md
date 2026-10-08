@@ -701,8 +701,8 @@ The board's runtime line for a native task names its terminal instead of Herdr.
 `cfo cleanup` returns a native task whose terminal has ended, or whose harness waits at its ready composer with no working marker, in which case it closes the terminal, which ends the harness (decision 2339); any other screen, a screen or host record that cannot be read, and a harness whose screens cfo cannot read are refused with or without `--force-archive`.
 It asks nothing of Herdr for a native task, so a machine without Herdr retires its native goblins; only a Herdr task needs Herdr.
 The orphan sweep (`cfo reap` and the watcher's) refuses when a running Herdr server for its session cannot be read, since every goblin in it would read as an orphan, and sweeps on the native hosts and the process table alone when no Herdr server runs for its session, so no pane can exist; a test fixture's server for another session or a Herdr CLI call does not stop it.
-A missing or stale registration shows on the board as one banner, and in the CFO terminal as its own state, naming what went stale and the fix, `cfo register` in the CFO session.
-Each snapshot takes the banner from the same read of `state/primary.json` as `cfo_runs`, `cfo_starting` and `cfo_terminal`, so a CFO that was closed and opened again never shows running beside the problem of the registration it replaced; what the once-a-minute recovery cycle finds is shown only for the registration it examined.
+A missing or stale registration shows on the board as the CFO's bar saying the board cannot reach the CFO, with what went stale and the fix, `cfo register` in the CFO session, in its tip, and in the CFO terminal as its own state. The board shows no banner for it.
+Each snapshot takes the registration problem from the same read of `state/primary.json` as `cfo_runs`, `cfo_starting` and `cfo_terminal`, so a CFO that was closed and opened again never shows running beside the problem of the registration it replaced; what the once-a-minute recovery cycle finds is shown only for the registration it examined.
 On Windows normal message delivery holds that registration against replacement and validates the live process and start time and that the registered terminal's host still names that process as its program before it types anything.
 Missing or changed identity is refused with nothing typed.
 The CFO's own prompt hook establishes accepted delivery to an idle CFO, and its own record of its conversation to a CFO in a turn; the current native contract cannot prove a model response or provide an atomic process-identity compare-and-send operation.
@@ -713,7 +713,8 @@ Known exited/replaced sessions are refused, but the board does not claim to elim
 
 Workspace details show the working folder separately from the Connections dropdown's asynchronous health checks; both are sections closed until opened, with the same header as Changes.
 The task's Connections start with Harness, Model and Effort selectors, with the real harness mark and efforts beside the model; the CFO and child sessions retain their reported read-only engine rows.
-`GET /api/engines` reads installed, signed-in harnesses and their local model catalogs: Codex's `models_cache.json`, Claude Code's `additionalModelOptionsCache`, pi's `models-store.json` and configured model in `settings.json`, plus fleet routing and the adapter's default model.
+`GET /api/engines` reads installed, signed-in harnesses and their local model catalogs: Codex's `models_cache.json`, Claude Code's own catalog for the organization `~/.claude.json` says it is signed in to (the newest `~/.claude/cache/model-catalog/<organization>-*-cc.json`, with each model's effort options) and its `additionalModelOptionsCache`, pi's `models-store.json` and configured model in `settings.json`, plus fleet routing and the adapter's default model.
+A model a harness catalog lists keeps the catalog's name and efforts; a routing lane or the default model only adds its effort as the model's default when the catalog names none, so Opus 5.5 still opens at the fleet's xhigh.
 The model catalog is not a model-name list embedded in the board; each model's reasoning levels are limited to those the installed adapter accepts, and an unavailable current value remains visible with its reason.
 `POST /api/tasks/engine` binds live changes to the task's spawn generation and queued changes to the backlog revision.
 A queued choice changes the settings Start reads under the backlog lock; a paused choice is saved in `state/engine/<id>.json` and consumed only after Resume succeeds.
@@ -1151,8 +1152,8 @@ It ends Updated, and the page reloads on the new board after a moment; Rolled ba
 An update that did not install has the board look again at once, and a new item for the same release follows, which the card's **Try again** opens.
 A newer release published meanwhile replaces a waiting item, which reads Replaced with why, as does one whose release the board now runs; an item waits for him until then and never expires after a day as a command does.
 The Command Center lists it as Code Goblins with the release goblin, `Update to <new> from <old>`, a download icon and the same ring, the bar's alert announces it once as Code Goblins, and History keeps how it ended.
-A slim banner under the header points to the item while it waits or runs: `Code Goblins <new> is ready · you run <old>`, What's new, **Open**, which shows the item, and a close button that hides it until the next version in this browser; it shows nothing in AFK mode.
-A board built from a clone, whose version is not a release's, gets no item: its banner says the release is out and that the clone updates it, with `git pull` and `.\install.cmd -Dev`.
+The item is the release's one signal on the board: no banner points to it, since everything that asks him something reaches him in the Command Center.
+A board built from a clone, whose version is not a release's, gets no item: its clone updates it, with `git pull` and `.\install.cmd -Dev`.
 The item runs the home's own `goblins.exe` where the home keeps it, in `bin`, or at the root of a home a build before `bin` set up.
 The desktop window follows the update beside `goblins.exe`, and an open one keeps showing the board on the new build until it is quit from its tray icon and opened again, which the updated card says.
 
