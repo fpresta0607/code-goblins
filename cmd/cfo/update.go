@@ -13,6 +13,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/fpresta0607/code-goblins/internal/boardweb"
 	"github.com/fpresta0607/code-goblins/internal/fleetconfig"
 	"github.com/fpresta0607/code-goblins/internal/home"
 	"github.com/fpresta0607/code-goblins/internal/install"
@@ -56,6 +57,16 @@ var (
 	updateInterrupt = func(step string) {}
 	recordUpdate    = update.Record
 )
+
+// boardBuilt reports whether this build embeds the board. A build without
+// it serves a page saying the board was not built in place of the board, so
+// neither an update nor an install puts one in a home. A test's builds,
+// which CI's go jobs make with no board, stand in for builds that carry one.
+var boardBuilt = boardweb.Built
+
+// noBoard says why a build that carries no board is not installed, and how
+// to make one that does.
+const noBoard = "this build carries no board, so it would show a page saying the board was not built in place of the board: in the checkout it was built from, run npm ci and then npm run build in the frontend folder, then build cfo.exe again"
 
 // serveProcess is a supervisor by pid and start time, so it is never
 // mistaken for a process that reused its pid.
@@ -123,6 +134,10 @@ func runUpdate(args []string, stdout, stderr io.Writer, runtime commandRuntime) 
 // installUpdate installs the running binary, a candidate build that is not
 // one of the home's installed programs.
 func installUpdate(h home.Home, stdout, stderr io.Writer) int {
+	if !boardBuilt() {
+		fmt.Fprintf(stderr, "cfo update: %s, and run its update; nothing was changed\n", noBoard)
+		return 1
+	}
 	candidate, err := os.Executable()
 	if err != nil {
 		fmt.Fprintln(stderr, err)

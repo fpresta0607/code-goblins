@@ -40,6 +40,26 @@ func TestAssetsServeTheBoardTheCheckoutBuilt(t *testing.T) {
 	}
 }
 
+// Built says whether this checkout built the board, as the page Vite writes
+// says: CI's frontend job proves it true, and the go jobs, which build no
+// board, prove it false.
+func TestBuiltSaysWhetherTheCheckoutBuiltTheBoard(t *testing.T) {
+	// Arrange
+	_, err := os.Stat(filepath.Join("dist", "board", "index.html"))
+	if err != nil && !errors.Is(err, fs.ErrNotExist) {
+		t.Fatal(err)
+	}
+	want := err == nil
+
+	// Act
+	got := Built()
+
+	// Assert
+	if got != want {
+		t.Errorf("Built() = %t, want %t, as dist/board/index.html says", got, want)
+	}
+}
+
 // The placeholder page says the board was not built and names the command
 // that builds it, and keeps the <head> the supervisor writes the page's
 // nonce and build into.
@@ -61,6 +81,35 @@ func TestThePlaceholderSaysHowToBuildTheBoard(t *testing.T) {
 	// Assert
 	if len(missing) != 0 {
 		t.Errorf("the placeholder page lacks %q:\n%s", missing, page)
+	}
+}
+
+// The placeholder page is legible in the desktop window, whose ground is
+// dark: it says its colors are dark, puts light text on the board's own dark
+// ground, and centers what it says. It styles itself with style attributes
+// alone, since the board's policy refuses a <style> element without the
+// nonce the supervisor writes into the page.
+func TestThePlaceholderIsLegibleOnTheWindowsDarkGround(t *testing.T) {
+	// Arrange
+	page, err := fs.ReadFile(assets, "dist/index.html")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Act
+	var missing []string
+	for _, want := range []string{`<meta name="color-scheme" content="dark">`, "background: #03050a", "color: #edf4f3", "place-items: center"} {
+		if !strings.Contains(string(page), want) {
+			missing = append(missing, want)
+		}
+	}
+
+	// Assert
+	if len(missing) != 0 {
+		t.Errorf("the placeholder page lacks %q, which keep it legible on the window's dark ground:\n%s", missing, page)
+	}
+	if strings.Contains(string(page), "<style") {
+		t.Errorf("the placeholder page has a <style> element, which the board's content security policy refuses without the supervisor's nonce:\n%s", page)
 	}
 }
 

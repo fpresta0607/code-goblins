@@ -1012,6 +1012,7 @@ Code Goblins is becoming a native Windows desktop app.
 ## Development
 
 A source build runs `npm ci` and `npm run build` in `frontend` before `go build`: `cfo.exe` embeds the board they build, and one built without it serves a page saying the board was not built.
+No home ever runs one: `cfo update` and `cfo install` refuse a build that carries no board, and change nothing.
 `go vet` and `go test` need Go alone.
 
 ```powershell
