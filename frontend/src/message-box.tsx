@@ -3,6 +3,7 @@ import type { Snapshot, Task } from "./types";
 import { message, reportToCfo, request } from "./api";
 import { Icon } from "./Icon";
 import { messagesTo, messageState } from "./messages";
+import { goblinName } from "./task-words";
 import { useDictation } from "./useDictation";
 import { VoiceBars } from "./voice-bars";
 import "./message-box.css";
@@ -10,17 +11,18 @@ import "./message-box.css";
 // How many of his latest messages the box shows above itself.
 const SHOWN = 5;
 
-// A message box where a terminal cannot take typing now: a goblin paused,
-// resuming or starting, or no CFO running. Send or Enter sends what he wrote,
-// and the supervisor delivers it once, whatever the goblin or the CFO is
-// doing: typed into its terminal once it runs, or carried by a paused
-// goblin's resume. Holding the microphone, or Ctrl+Shift+Space in the box,
+// A message box where a goblin's terminal cannot take typing now: a goblin
+// paused, resuming or starting. Send or Enter sends what he wrote, and the
+// supervisor delivers it once, whatever the goblin is doing: typed into its
+// terminal once it runs, or carried by a paused goblin's resume. The CFO has
+// no box. Holding the microphone, or Ctrl+Shift+Space in the box,
 // dictates into it as a terminal does. Each message he sent shows with where
 // it is, and those a paused goblin's resume will carry, read from its resume
 // note, can each be deleted, so the resume never carries it (the Overlord,
 // 2026-10-09). One the board could not send or delete stays, and the CFO
-// hears why. task names the goblin, and none means the CFO.
-export function MessageBox({ snapshot, task, name }: { snapshot: Snapshot; task?: Task; name: string }) {
+// hears why.
+export function MessageBox({ snapshot, task }: { snapshot: Snapshot; task: Task }) {
+  const name = goblinName(task);
   const [draft, setDraft] = useState("");
   const [isSending, setSending] = useState(false);
   // The kept message whose delete is on its way.
@@ -33,8 +35,8 @@ export function MessageBox({ snapshot, task, name }: { snapshot: Snapshot; task?
     setDraft((prior) => [prior.trimEnd(), text.trim()].filter(Boolean).join(" "));
     sendID.current = "";
   }, snapshot.instance);
-  const sent = messagesTo(snapshot, task?.id || "").slice(-SHOWN);
-  const kept = task?.lifecycle?.kept_messages ?? [];
+  const sent = messagesTo(snapshot, task.id).slice(-SHOWN);
+  const kept = task.lifecycle?.kept_messages ?? [];
   const post = (body: object) => request("/api/actions", undefined, { method: "POST", headers: { "Content-Type": "application/json", "X-CFO-Token": snapshot.instance }, body: JSON.stringify(body) });
   const send = async () => {
     const text = draft.trim();
@@ -42,7 +44,7 @@ export function MessageBox({ snapshot, task, name }: { snapshot: Snapshot; task?
     sendID.current ||= crypto.randomUUID();
     setSending(true);
     try {
-      await post({ id: sendID.current, kind: "message", task_id: task?.id || "", generation: "", text });
+      await post({ id: sendID.current, kind: "message", task_id: task.id, generation: "", text });
       sendID.current = "";
       setDraft("");
     } catch (error: unknown) {
@@ -56,7 +58,7 @@ export function MessageBox({ snapshot, task, name }: { snapshot: Snapshot; task?
   const withdraw = async (text: string, key: string) => {
     setDeleting(key);
     try {
-      await post({ id: crypto.randomUUID(), kind: "message_withdraw", task_id: task?.id || "", generation: "", text });
+      await post({ id: crypto.randomUUID(), kind: "message_withdraw", task_id: task.id, generation: "", text });
     } catch (error: unknown) {
       reportToCfo("deleting a message to " + name, message(error));
     } finally {

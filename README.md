@@ -402,7 +402,7 @@ The supervisor uses each free slot for the oldest pause whose condition has clea
 Slots go by memory alone: a start needs 5 GB of memory and of commit free, and no count of goblins holds one back, however many run.
 A future date, an unanswered question or an Overlord pause does not hold the queue.
 The supervisor does this by itself, one start or resume a minute while memory allows, until nothing that could run is left: the fleet never idles while work waits, and nothing waits for the CFO to notice.
-With memory free, a line under the memory meter names what it started or resumed, such as "Starting cg-docs", or why nothing waiting started, such as "Nothing starts: cg-docs: its last start failed: ...".
+The memory and disk meters say none of this in words: each is its name, its value and its bar, with nothing written under a bar or between two meters.
 A queued task that already finished never starts again, by itself or from Start: when its last report, live or archived, was done, its pull request or one of its branch merged, or the CFO retired it with `cfo cleanup` or `cfo kill` and no brief was written for it since, its card reads **Already finished** with the evidence in place of Start.
 For a retired task's row still under Queued, the supervisor also tells the CFO once with a `stale_row:` notify.
 When `cfo cleanup` retires a task, its row moves from Queued to Done with its detail lines, whatever the task last reported, so nothing starts it again from its row.
@@ -612,7 +612,8 @@ Choices are a plain list of the answers themselves, the recommended one first an
 Review items share the stack: a goblin's image review or review page, and a goblin waiting on you personally (its sign-in, its click, its page), which shows as a status card with no answer box: it says what the goblin waits on and opens it (**Open the page**, **Open its question**, **Open the file** or **Open the link**), with **Dismiss** beside it.
 A review page shows as a preview named Scrawl page you click to open it (**Open review**), and a goblin's wait with a page opens it from its one **Open review** button, so a card says its words once; a page the board watches is answered on the page itself, and its card finishes when you send or end the review there.
 When a goblin asks a question about its open review page, the Command Center shows one card, the page's: the question, **Open review**, and where the review stands (waiting for your answer, or when its window closed; nothing you send there is lost).
-An answer you send on the page finishes its card with the same check as an answer sent from the card (**Answered**, You answered on its page) and the next item follows; History lists it as answered, never as withdrawn.
+An answer you send on the page finishes its card within a second, with the same check as an answer sent from the card (**Answered**, You answered on its page) and the next item follows. History lists it as answered, never as withdrawn.
+A pick or a note you send just before **Send & End** is part of that one answer, never a revision first.
 
 <p align="center">
   <img src="docs/images/review-page.webp" alt="A Scrawl review page from the goblin streaming the billing export: its result, the numbers that matter and what was checked, a comment being written on the 190 MB figure, and the Conversation panel with the agent listening" width="900" />
@@ -626,7 +627,8 @@ Only an open Command Center item that asks you something alerts you: a question 
 A goblin blocked, failed or done is said on its card, never as an alert, and routine progress never alerts.
 A pause or stop that the CFO or you asked for is never shown as a failure: a stop that did not finish reads **Stop did not finish** on its card, a pause that did not finish shows what the goblin is doing, and the CFO hears of either.
 A goblin whose pause did not finish but whose terminal has ended since is paused, in the Paused section, and resumes.
-A goblin paused, resuming or starting, and the CFO while none runs, has a message box in its Terminal view: what you write there is queued and delivered once, typed into its terminal when it can take it or carried by its resume.
+A goblin paused, resuming or starting has a message box in its Terminal view: what you write there is queued and delivered once, typed into its terminal when it can take it or carried by its resume.
+The CFO has none: while it is off or restarting, its Terminal view only says so.
 Send or Enter sends it, and holding the box's microphone dictates into it as a terminal's dictation does.
 A message kept for a paused goblin's resume has a delete button until the resume carries it.
 If unanswered blocked or failed questions have waited on the CFO for ten minutes, the CFO's bar says how many and how long the oldest has waited, in place of All quiet, until the CFO catches up; that is never an alert and never turns those questions into decisions for you.

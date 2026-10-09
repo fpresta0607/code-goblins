@@ -18,10 +18,9 @@ test("a message says where it is: queued, sent or with the CFO", () => {
   assert.equal(messageState(snapshot([action({ status: "failed", message: "goblin-one was stopped before it could take it; the CFO has it" })]).actions[0]), "With the CFO");
 });
 
-test("a goblin's messages are its own and the CFO's are those that name no goblin", () => {
+test("a goblin's messages are its own, never one that names no goblin", () => {
   const shown = snapshot([action({ id: "a" }), action({ id: "b", task_id: "" }), action({ id: "c", kind: "goblin_answer" })]);
   assert.deepEqual(messagesTo(shown, "goblin-one").map((sent) => sent.id), ["a"]);
-  assert.deepEqual(messagesTo(shown, "").map((sent) => sent.id), ["b"]);
 });
 
 // The Overlord, 2026-10-09, of Bernie's paused panel: "why is there no delete
