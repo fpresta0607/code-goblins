@@ -402,8 +402,10 @@ Slots go by memory alone: a start needs 5 GB of memory and of commit free, and n
 A future date, an unanswered question or an Overlord pause does not hold the queue.
 The supervisor does this by itself, one start or resume a minute while memory allows, until nothing that could run is left: the fleet never idles while work waits, and nothing waits for the CFO to notice.
 With memory free, a line under the memory meter names what it started or resumed, such as "Starting cg-docs", or why nothing waiting started, such as "Nothing starts: cg-docs: its last start failed: ...".
-A queued task that already finished never starts again, by itself or from Start: when its last report, live or archived, was done, or its pull request or one of its branch merged, its card reads **Already finished** with the evidence in place of Start.
+A queued task that already finished never starts again, by itself or from Start: when its last report, live or archived, was done, its pull request or one of its branch merged, or the CFO retired it with `cfo cleanup` or `cfo kill` and no brief was written for it since, its card reads **Already finished** with the evidence in place of Start.
+For a retired task's row still under Queued, the supervisor also tells the CFO once with a `stale_row:` notify.
 When `cfo cleanup` retires a delivered task, its row moves from Queued to Done with its detail lines, and the supervisor moves any row a delivered task left behind.
+A local-only task opens no pull request, so it is delivered when a done line of its current run names its report, `data/<task>/report.md`, and that report is there.
 Work the supervisor cannot start, such as a start that failed or a row that needs the CFO, wakes the CFO with an `idle` wake once it has waited 30 minutes with memory free and nothing started, naming each task and why, and again every 30 minutes it lasts.
 When the CFO's turn ends with no goblin at work while work that could run waits and memory is free, its turn is reopened with the next work named: Claude Code's Stop hook does it, and a Codex or pi CFO's native hook raises the wake the supervisor types into its terminal.
 None of this needs a setting: every home does it.
