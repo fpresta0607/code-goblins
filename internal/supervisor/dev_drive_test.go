@@ -2,6 +2,7 @@ package supervisor
 
 import (
 	"context"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -58,7 +59,8 @@ func endDevDriveItem(t *testing.T, s *Service, code int) {
 }
 
 // Nothing reaches the Command Center until the person asks for a Dev Drive:
-// the panel offers Set up, with the sentence saying what it is.
+// the panel offers Set up, with its one short note, and the first run's offer
+// has the sentence saying what one is.
 func TestNoDevDriveItemIsMadeUntilThePersonAsks(t *testing.T) {
 	// Arrange
 	machine := devDriveMachine()
@@ -72,8 +74,27 @@ func TestNoDevDriveItemIsMadeUntilThePersonAsks(t *testing.T) {
 		t.Fatalf("items made without an ask: %+v", items)
 	}
 	view := s.devDriveViewNow()
-	if view == nil || view.State != "absent" || view.Action != devDriveSetUp || !strings.Contains(view.Explain, "not a Defender exclusion") {
-		t.Errorf("view = %+v, want absent with Set up and the explanation", view)
+	if view == nil || view.State != "absent" || view.Action != devDriveSetUp || view.Note != "An optional drive that Defender scans in performance mode, so files open faster." || !strings.Contains(view.Explain, "not a Defender exclusion") {
+		t.Errorf("view = %+v, want absent with Set up, its note and the explanation", view)
+	}
+}
+
+// A machine that could not be read is said in the panel's note in plain
+// words: the error is cfo doctor's to show, never the board's.
+func TestAnUnreadableMachineIsOnePlainNote(t *testing.T) {
+	// Arrange
+	machine := devDriveMachine()
+	s := devDriveService(t, &machine)
+	s.Options.DevDrive.Read = func(context.Context) (devdrive.Machine, error) {
+		return devdrive.Machine{}, errors.New("Get-Volume: exit status 1")
+	}
+
+	// Act
+	s.keepDevDrive(context.Background())
+
+	// Assert
+	if view := s.devDriveViewNow(); view == nil || view.State != "unreadable" || view.Note != "This machine's drives could not be read." || view.Action != "" {
+		t.Errorf("view = %+v, want unreadable with its plain note and nothing to press", view)
 	}
 }
 

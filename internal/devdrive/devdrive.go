@@ -161,12 +161,14 @@ const (
 	StateMissing State = "missing"
 )
 
-// Report is a home's Dev Drive state, the volume it concerns, and one line
-// saying it, with the fix when there is one.
+// Report is a home's Dev Drive state, the volume it concerns, one line
+// saying it, with the fix when there is one, and the short note the board
+// shows under its Dev Drive row.
 type Report struct {
 	State  State
 	Volume Volume
 	Line   string
+	Note   string
 }
 
 // Untrusted is a report on a Dev Drive Windows does not trust or did not say
@@ -188,26 +190,32 @@ func Describe(m Machine, h home.Home) Report {
 		v, found := m.VolumeOf(h.DevDrive)
 		switch {
 		case !found:
-			return Report{State: StateMissing, Line: fmt.Sprintf("the home's worktrees, scratch and caches are set to %s, but %s is not there, so no goblin starts; the Attach item in the Command Center attaches it again", h.DevDrive, filepath.VolumeName(h.DevDrive))}
+			return Report{State: StateMissing, Line: fmt.Sprintf("the home's worktrees, scratch and caches are set to %s, but %s is not there, so no goblin starts; the Attach item in the Command Center attaches it again", h.DevDrive, filepath.VolumeName(h.DevDrive)),
+				Note: filepath.VolumeName(h.DevDrive) + " is not attached, so no goblin starts."}
 		case !v.Dev:
-			return Report{State: StateOn, Volume: v, Line: fmt.Sprintf("the home's worktrees, scratch and caches are on %s, but %s is not a Dev Drive, so Defender scans it as any drive", h.DevDrive, v.Letter())}
+			return Report{State: StateOn, Volume: v, Line: fmt.Sprintf("the home's worktrees, scratch and caches are on %s, but %s is not a Dev Drive, so Defender scans it as any drive", h.DevDrive, v.Letter()),
+				Note: "The worktrees and caches are on " + v.Letter() + ", which is not a Dev Drive."}
 		}
-		line := fmt.Sprintf("on: the home's worktrees, scratch and caches are on %s, %s", h.DevDrive, trustPhrase(v))
+		report := Report{State: StateOn, Volume: v, Line: fmt.Sprintf("on: the home's worktrees, scratch and caches are on %s, %s", h.DevDrive, trustPhrase(v)), Note: "The worktrees and caches are on " + h.DevDrive + "."}
 		if v.Trust == Untrusted {
-			line += "; " + BoardSteps
+			report.Line += "; " + BoardSteps
+			report.Note = "Windows does not trust " + v.Letter() + " yet, so performance mode is off."
 		}
-		return Report{State: StateOn, Volume: v, Line: line}
+		return report
 	}
 	if v, found := m.Reusable(); found {
 		if reason := m.Unavailable(); reason != "" {
-			return Report{State: StateUnavailable, Volume: v, Line: fmt.Sprintf("not used: %s is a Dev Drive, but %s; Code Goblins keeps its worktrees and caches in the home, as always", v.Letter(), reason)}
+			return Report{State: StateUnavailable, Volume: v, Line: fmt.Sprintf("not used: %s is a Dev Drive, but %s; Code Goblins keeps its worktrees and caches in the home, as always", v.Letter(), reason),
+				Note: v.Letter() + " is not used because " + reason + "."}
 		}
-		return Report{State: StatePresent, Volume: v, Line: fmt.Sprintf("present, not used yet: %s is %s; the home's worktrees, scratch and caches can move to %s; %s", v.Letter(), trustPhrase(v), Folder(v), BoardSteps)}
+		return Report{State: StatePresent, Volume: v, Line: fmt.Sprintf("present, not used yet: %s is %s; the home's worktrees, scratch and caches can move to %s; %s", v.Letter(), trustPhrase(v), Folder(v), BoardSteps),
+			Note: v.Letter() + " is a Dev Drive the worktrees and caches can move to."}
 	}
 	if reason := m.CannotCreate(); reason != "" {
-		return Report{State: StateUnavailable, Line: "not available here: " + reason + "; Code Goblins keeps its worktrees and caches in the home, as always"}
+		return Report{State: StateUnavailable, Line: "not available here: " + reason + "; Code Goblins keeps its worktrees and caches in the home, as always", Note: "Not available here because " + reason + "."}
 	}
-	return Report{State: StateAbsent, Line: fmt.Sprintf("absent: this machine can have one (%s), and it is optional; %s", strings.TrimSuffix(Explain, "."), BoardSteps)}
+	return Report{State: StateAbsent, Line: fmt.Sprintf("absent: this machine can have one (%s), and it is optional; %s", strings.TrimSuffix(Explain, "."), BoardSteps),
+		Note: "An optional drive that Defender scans in performance mode, so files open faster."}
 }
 
 func trustPhrase(v Volume) string {

@@ -38,8 +38,10 @@ async function open(cfo, title) {
   const skip = [...document.querySelectorAll("a, button")].find((element) => /Open the board without a CFO/.test(element.textContent || ""));
   if (skip) { skip.click(); await pause(2500); }
   if (document.querySelector("dialog.question-modal[open]")) { document.querySelector(".question-close")?.click(); await pause(800); }
-  const button = cfo ? document.querySelector(".cfo-pin .dialogue-actions [aria-label=\"Open the CFO's terminal\"]") : document.querySelector(title ? `[aria-label^="Open the terminal of ${CSS.escape(title)}"]` : '[aria-label^="Open the terminal of "]');
-  if (!button) throw new Error("no terminal button");
+  // A click on a live goblin's card opens its terminal.
+  const cards = [...document.querySelectorAll('.task-board .board-column[aria-label="In progress"] .task-card')];
+  const button = cfo ? document.querySelector(".cfo-pin .dialogue-actions [aria-label=\"Open the CFO's terminal\"]") : title ? cards.find((card) => card.querySelector(".card-title")?.textContent.startsWith(title)) : cards[0];
+  if (!button) throw new Error("no terminal to open");
   button.click();
   const slot = () => document.querySelector(".deck-slot:not([hidden])");
   for (let i = 0; i < 300 && !slot()?.querySelector(".terminal-state.live"); i++) await pause(100);

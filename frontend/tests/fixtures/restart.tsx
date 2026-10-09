@@ -34,7 +34,7 @@ function Page() {
   return <main style={{ display: "grid", alignContent: "start", gap: 20, minHeight: "100vh", boxSizing: "border-box", padding: 24 }}>
     <ComebackBanner comeback={snapshot.comeback} />
     <section className="board-column" aria-label="In progress" style={{ display: "grid", gap: 12, maxWidth: 360 }}>
-      {snapshot.tasks.map((task) => <TaskCard key={task.id} task={task} snapshot={snapshot} selected={false} presentations={[]} now={Date.parse("2026-10-06T22:30:00Z")} onSelect={() => {}} onTerminal={() => {}} />)}
+      {snapshot.tasks.map((task) => <TaskCard key={task.id} task={task} snapshot={snapshot} selected={false} presentations={[]} now={Date.parse("2026-10-06T22:30:00Z")} onSelect={() => {}} />)}
     </section>
     <section aria-label="CFO workspace" style={{ maxWidth: 480 }}>
       <StartAtLoginSetting setting={snapshot.start_at_login!} instance={snapshot.instance} />

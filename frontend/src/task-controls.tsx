@@ -1,4 +1,4 @@
-import { useRef, useState, type ReactNode } from "react";
+import { useRef, useState } from "react";
 import { object, type Snapshot, type Task } from "./types";
 import type { CardStart } from "./TaskCard";
 import { message, reportToCfo, request } from "./api";
@@ -16,15 +16,13 @@ import { isOnItsWay, recordClick } from "./use-task-clicks";
 // waits, Update restarts it onto it, on its own conversation, at the end of
 // its turn; pressed again before then it takes the press back. Update looks
 // like the other controls and shows only while an update waits.
-// trailing is a control shown last in the group, such as a card's terminal
-// button, so one that shows only on hover never leaves a gap before the rest.
 // One click does it: the task's status says Pausing, Resuming or Stopping in
 // the frame he clicks, a Resume waits its turn on the supervisor rather than
 // being refused, and a click the supervisor refuses goes to the CFO, never
 // to a line on the board (the Overlord, 2026-10-08, "i hate yellow text line
 // display").
-export function TaskControls({ task, snapshot, start, trailing, labelled = false, onAdjust }: {
-  task: Task; snapshot: Snapshot; start?: CardStart; trailing?: ReactNode; labelled?: boolean; onAdjust?: (source: HTMLElement) => void;
+export function TaskControls({ task, snapshot, start, labelled = false, onAdjust }: {
+  task: Task; snapshot: Snapshot; start?: CardStart; labelled?: boolean; onAdjust?: (source: HTMLElement) => void;
 }) {
   const [confirmation, setConfirmation] = useState<{ generation: string; revision: string } | null>(null);
   const attempt = useRef<{ payload: string; operation: string } | null>(null);
@@ -77,7 +75,6 @@ export function TaskControls({ task, snapshot, start, trailing, labelled = false
       {canPause && <button {...face("Pause")} disabled={isChanging} onClick={() => void act("pause")}><Icon name="pause" />{text("Pause")}</button>}
       {canResume && <button {...face("Resume")} aria-disabled={isChanging} onClick={() => { if (!isChanging) void act("resume"); }}><Icon name="play" />{text("Resume")}</button>}
       <button {...face(end, " danger")} disabled={isChanging} onClick={() => setConfirmation({ generation: task.generation, revision: task.queue_revision })}><Icon name="trash" />{text(end)}</button>
-      {trailing}
     </div>
     {confirmation && <StopTaskDialog task={task} canPause={canPause} onPause={() => void act("pause")} onStop={() => void act("stop")} onClose={() => setConfirmation(null)} />}
   </>;
