@@ -43,7 +43,7 @@ export function ChangeCard({ question, snapshot, connected, draft, onDraft, onCh
     </fieldset>
     <p className="question-outcome answered-by" role="status"><Icon name={isChangeable && !isFailed ? "clock" : "check"} />{status}</p>
     <div className="card-actions">
-      <button type="button" className="icon-button raised" aria-label="Close" data-tip="Close" data-tip-align="end" onClick={onClose}><Icon name="close" /></button>
+      <button type="button" className="icon-button raised" aria-label="Close" data-tip="Close" onClick={onClose}><Icon name="close" /></button>
       {isChangeable && <button className="primary send-decision" type="submit" disabled={!connected || !payload || isCFOChoice || draft.sending}><Icon name={draft.sending ? "clock" : "edit"} />{draft.sending ? "Changing" : "Change to my answer"}</button>}
     </div>
   </form>;

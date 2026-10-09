@@ -18,7 +18,7 @@ export class RenderBoundary extends Component<{ scope: "card" | "list"; children
   render() {
     if (!this.state.hasFailure) return this.props.children;
     return <div className="render-error">
-      <button className="icon-button raised" aria-label={"Show this " + this.props.scope + " again"} data-tip="Retry" data-tip-align="end" onClick={() => this.setState({ hasFailure: false })}><Icon name="refresh" /></button>
+      <button className="icon-button raised" aria-label={"Show this " + this.props.scope + " again"} data-tip="Retry" onClick={() => this.setState({ hasFailure: false })}><Icon name="refresh" /></button>
     </div>;
   }
 }

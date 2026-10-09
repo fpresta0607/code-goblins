@@ -84,7 +84,7 @@ export function DiffView({ diff, reviews, connected }: {
         openComment(event.currentTarget.closest(".diff-view"));
       }}
       onKeyDown={(event) => lineKey(event, line, side)}>
-      {line}<span className="comment-mark" aria-hidden="true" data-tip="Comment on this line" data-tip-align="start"><Icon name="comment" /></span>
+      {line}<span className="comment-mark" aria-hidden="true" data-tip="Comment on this line"><Icon name="comment" /></span>
     </button>;
   };
   const sign = (row: DiffRow) => <span className="diff-sign" aria-hidden="true">{row.variant === "added" ? "+" : row.variant === "removed" ? "-" : " "}</span>;

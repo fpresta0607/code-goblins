@@ -34,7 +34,7 @@ export function RestartCfoButton({ snapshot, isCompact }: { snapshot: Snapshot; 
     }
   };
   return <div className="cfo-restart">
-    {isOffered && <button className="labelled-button" disabled={restarting} data-tip="Starts the CFO again on its conversation, for a screen that froze." data-tip-align="start" onClick={() => setConfirming(true)}><Icon name="refresh" />{restarting ? "Restarting the CFO…" : "Restart the CFO"}</button>}
+    {isOffered && <button className="labelled-button" disabled={restarting} data-tip="Starts the CFO again on its conversation, for a screen that froze." onClick={() => setConfirming(true)}><Icon name="refresh" />{restarting ? "Restarting the CFO…" : "Restart the CFO"}</button>}
     <ClickFeedback text={feedback} />
     {confirming && <RestartCfoDialog onRestart={() => void restart()} onClose={() => setConfirming(false)} />}
   </div>;

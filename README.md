@@ -366,7 +366,7 @@ The header switches between two views, one at a time, each with a contextual pan
 </p>
 
 Every goblin gets a fun first name and a title that names its work, such as Vera - Voice Whisperer for long dictation, as soon as its task is queued, and keeps them when it starts.
-A live goblin's card, its car on a merge train, its card on the Orchestration canvas and its panel show that name beside its avatar, with its task in the tip once the pointer rests on it and under its name in the panel, and the CFO calls it by that name.
+A live goblin's card, its car on a merge train, its card on the Orchestration canvas and its panel show that name beside its avatar, with its task in the tip while the pointer is on it and under its name in the panel, and the CFO calls it by that name.
 Each card shows that name, a queued task's included, or the task's short title once it has completed, and a muted line with its repo and status.
 The goblin's own words are in its panel.
 Each card carries the mark of the harness its goblin runs (Codex, Claude Code, pi, Kimi or a terminal for any other), and its tip names the harness, model and effort.

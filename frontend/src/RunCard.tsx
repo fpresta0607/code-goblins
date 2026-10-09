@@ -40,7 +40,7 @@ export function RunCard({ run, goblin, connected, instance, sending, error, onRu
     {failure && <p className="run-failure">{failure}</p>}
     <div className="run-command">
       <pre><code>{run.command}</code></pre>
-      <button type="button" className="icon-button" aria-label="Copy command" data-tip={copied ? "Copied" : "Copy command"} data-tip-align="end" onClick={copy}><Icon name={copied ? "check" : "copy"} /></button>
+      <button type="button" className="icon-button" aria-label="Copy command" data-tip={copied ? "Copied" : "Copy command"} onClick={copy}><Icon name={copied ? "check" : "copy"} /></button>
     </div>
     {run.cwd && <p className="run-cwd"><Icon name="folder" /><span>{run.cwd}</span></p>}
     {run.reason && !mark.trouble && !mark.label.includes(run.reason) && <p className="muted">{run.reason}</p>}
