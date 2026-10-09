@@ -12,7 +12,7 @@ type GPU struct {
 }
 
 // GPUAdapter is one graphics adapter: the share of its busiest engine that
-// was in use, from 0 to 1, and the program using most of that engine, "" when
+// was in use, from 0 to 1, and the app using most of that engine, "" when
 // none is or it has ended.
 type GPUAdapter struct {
 	Name    string  `json:"name"`

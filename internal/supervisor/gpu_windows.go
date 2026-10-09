@@ -9,8 +9,6 @@ import (
 
 	"golang.org/x/sys/windows"
 	"golang.org/x/sys/windows/registry"
-
-	"github.com/fpresta0607/code-goblins/internal/proc"
 )
 
 var (
@@ -102,10 +100,13 @@ func (m *gpuMeter) read() (GPU, error) {
 	if err != nil {
 		return GPU{}, err
 	}
+	// The app a program belongs to names it, as for the commit holders: a
+	// hidden window's renderer counts as the app whose window it is.
 	names := map[uint32]string{}
-	if processes, err := proc.Processes(); err == nil {
+	if processes, err := machineProcessList(); err == nil {
+		app := appNames(processes)
 		for _, process := range processes {
-			names[uint32(process.PID)] = process.ExeBase
+			names[process.pid] = app(process)
 		}
 	}
 	gpu := readGPU(adapters, uses, func(pid uint32) string { return names[pid] })
