@@ -378,7 +378,12 @@ func TestPipelineMigrateCatchesUpWhileTheDaemonRunsAGate(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	current, err := os.ReadFile(filepath.Join("..", "..", "config", "pipeline.json"))
+	// Version 4 is the policy that names the machine's chain as it stood.
+	chain := legacyPipelineSelection(t, "ordinary").Policy
+	chain.Version, chain.Reviewer = 4, pipeline.Reviewer{}
+	chain.Primary = pipeline.Reviewer{Harness: "codex", Model: "gpt-6.1-sol", Effort: "xhigh"}
+	chain.Fallback = pipeline.Reviewer{Harness: "claude"}
+	current, err := json.Marshal(chain)
 	if err != nil {
 		t.Fatal(err)
 	}
