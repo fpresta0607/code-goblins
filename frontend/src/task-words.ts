@@ -1,4 +1,4 @@
-import type { CIDuration, PauseCondition, Task } from "./types.ts";
+import type { CIDuration, PauseCondition, Task, Wait } from "./types.ts";
 
 // What the board says about a task, in words a person reads: the goblins and
 // the supervisor write for the fleet, with state words, semicolon chains,
@@ -178,6 +178,26 @@ export function pauseStatus(pause: PauseCondition | undefined, tasks: Task[], du
     }
   }
   return "Paused";
+}
+
+// What a queued row says in place of Queued while it waits, on its card, its
+// panel and its Start, in a few words: the first thing it waits for, a task by
+// its goblin's name, and how many more there are.
+export function waitStatus(task: Task, tasks: Task[] = []): string {
+  const [first, ...rest] = task.waits;
+  if (!first) return "";
+  return waitWords(first, tasks) + (rest.length ? `, and ${rest.length} more` : "");
+}
+
+function waitWords(wait: Wait, tasks: Task[]): string {
+  if (wait.problem) return wait.problem;
+  switch (wait.kind) {
+    case "time": return "Starts " + when(wait.until);
+    case "memory": return `Waits for ${Number((wait.bytes / 2 ** 30).toFixed(1))} GB free`;
+    case "pr": return "Waits for " + plainText(wait.target).replace(/\.$/, "") + " to merge";
+  }
+  const awaited = tasks.find((candidate) => candidate.id === wait.target);
+  return "Waits for " + (awaited ? goblinName(awaited) : wait.target);
 }
 
 // The owner/name of a GitHub pull request or run URL, as CI durations name it.

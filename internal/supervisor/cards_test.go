@@ -67,9 +67,9 @@ func TestSnapshotTitlesARunningTaskFromItsRecordBeforeItsQueuedRow(t *testing.T)
 			t.Errorf("%s is titled %q on the board, want %q", id, got, want)
 		}
 	}
-	for id, want := range map[string]string{"titled": "untitled", "untitled": "waiting"} {
-		if got := tasks[id].Dependencies; len(got) != 1 || got[0] != want {
-			t.Errorf("%s depends on %v, want its row's blocker %s", id, got, want)
+	for _, id := range []string{"titled", "untitled"} {
+		if got := tasks[id].Waits; len(got) != 0 {
+			t.Errorf("%s, which runs, waits for %v, want nothing: only a queued card says what it waits for", id, got)
 		}
 	}
 }

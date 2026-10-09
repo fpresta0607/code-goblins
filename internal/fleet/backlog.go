@@ -7,10 +7,14 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"slices"
+	"strconv"
 	"strings"
+	"time"
 
 	"github.com/fpresta0607/code-goblins/internal/fsx"
 	"github.com/fpresta0607/code-goblins/internal/home"
+	"github.com/fpresta0607/code-goblins/internal/state"
 )
 
 var (
@@ -20,9 +24,12 @@ var (
 	wrappedURLPattern  = regexp.MustCompile(`<?https?://[^\s\)\]"<>]+>?`)
 	reportPattern      = regexp.MustCompile(`data/[^\s\)]+/report\.md`)
 	trailingMetadata   = regexp.MustCompile(`(?i)\s*\(\s*(?:(?:repo|kind|priority|hold|hold-kind|harness|model|effort|mode)\s*:\s*[^)]*|(?:since|merged|reported|done)\s+[^)]*)\s*\)\s*$`)
-	blockerToken       = regexp.MustCompile(`(?i)\bblocked-by:\s*([^\s\)]+)`)
-	levelTwoHeading    = regexp.MustCompile(`^##[ \t]+(.+)$`)
-	metadataPatterns   = func() map[string]*regexp.Regexp {
+	// blockerToken is a blocked-by and what it waits for: an amount of free
+	// memory, a time or memory as one word after its keyword, or one word.
+	blockerToken     = regexp.MustCompile(`(?i)\bblocked-by:\s*(memory\s+\d+(?:\.\d+)?\s*gb\b|(?:until|memory)\s+[^\s\)]+|[^\s\)]+)`)
+	memoryAmount     = regexp.MustCompile(`(?i)^(\d+(?:\.\d+)?)gb$`)
+	levelTwoHeading  = regexp.MustCompile(`^##[ \t]+(.+)$`)
+	metadataPatterns = func() map[string]*regexp.Regexp {
 		patterns := map[string]*regexp.Regexp{}
 		for _, key := range []string{"repo", "kind", "priority", "hold-kind", "harness", "model", "effort", "mode"} {
 			patterns[key] = regexp.MustCompile(`(?i)(?:\(|,)\s*` + key + `\s*:\s*([^,)]*)`)
@@ -57,7 +64,9 @@ type BacklogRow struct {
 	BlockedBy     string   `json:"blocked_by"`
 	BlockedByIDs  []string `json:"blocked_by_ids"`
 	BlockedReason string   `json:"blocked_reason"`
-	Artifact      string   `json:"artifact"`
+	// Blockers is what each blocked-by on the row waits for, in its order.
+	Blockers []Blocker `json:"blockers"`
+	Artifact string    `json:"artifact"`
 	// Harness, Model, Effort and Mode are what a row names for its spawn,
 	// such as (harness: codex, model: gpt-6-astra).
 	Harness string `json:"harness,omitempty"`
@@ -65,6 +74,19 @@ type BacklogRow struct {
 	Effort  string `json:"effort,omitempty"`
 	Mode    string `json:"mode,omitempty"`
 	Raw     string `json:"raw"`
+}
+
+// Blocker is one thing a queued row waits for, as a blocked-by on its title
+// line names it: a time (until 2026-10-10T00:00Z), free memory (memory 12
+// GB), a pull request merging (its GitHub URL) or a task delivering (its id).
+// Target is the words as written. Problem says, in plain words, why the
+// scheduler cannot read it, and a blocker with a problem never clears.
+type Blocker struct {
+	Kind    string    `json:"kind"`
+	Target  string    `json:"target"`
+	Until   time.Time `json:"until,omitzero"`
+	Bytes   uint64    `json:"bytes,omitempty"`
+	Problem string    `json:"problem,omitempty"`
 }
 
 // ReadBacklog parses the supported Queued, Parked and Done records without
@@ -150,7 +172,11 @@ func parseBacklogRow(line string) BacklogRow {
 		return BacklogRow{Raw: line}
 	}
 	rest := match[2]
-	blockedByIDs, blockedReason := parseBlockers(rest)
+	blockers, blockedReason := parseBlockers(rest)
+	blockedByIDs := make([]string, len(blockers))
+	for index, blocker := range blockers {
+		blockedByIDs[index] = blocker.Target
+	}
 	blockedBy := ""
 	if len(blockedByIDs) > 0 {
 		blockedBy = blockedByIDs[0]
@@ -165,7 +191,8 @@ func parseBacklogRow(line string) BacklogRow {
 		BlockedBy:     blockedBy,
 		BlockedByIDs:  blockedByIDs,
 		BlockedReason: blockedReason,
-		Artifact:      backlogArtifact(rest),
+		Blockers:      blockers,
+		Artifact:      backlogArtifact(rest, blockers),
 		Harness:       metadataValue(rest, "harness"),
 		Model:         metadataValue(rest, "model"),
 		Effort:        metadataValue(rest, "effort"),
@@ -182,27 +209,59 @@ func metadataValue(text, key string) string {
 	return strings.TrimSpace(match[1])
 }
 
-func parseBlockers(text string) ([]string, string) {
+func parseBlockers(text string) ([]Blocker, string) {
 	matches := blockerToken.FindAllStringSubmatchIndex(text, -1)
 	if len(matches) == 0 {
-		return []string{}, ""
+		return []Blocker{}, ""
 	}
-	blockedByIDs := make([]string, 0, len(matches))
+	blockers := make([]Blocker, 0, len(matches))
 	seen := make(map[string]struct{}, len(matches))
 	for _, match := range matches {
-		id := text[match[2]:match[3]]
-		if _, exists := seen[id]; exists {
+		target := strings.Join(strings.Fields(text[match[2]:match[3]]), " ")
+		if _, exists := seen[target]; exists {
 			continue
 		}
-		seen[id] = struct{}{}
-		blockedByIDs = append(blockedByIDs, id)
+		seen[target] = struct{}{}
+		blockers = append(blockers, parseBlocker(target))
 	}
 	last := matches[len(matches)-1]
 	remaining := strings.TrimSpace(text[last[1]:])
 	if !strings.HasPrefix(remaining, "-") {
-		return blockedByIDs, ""
+		return blockers, ""
 	}
-	return blockedByIDs, cleanBacklogTitle(strings.TrimSpace(strings.TrimPrefix(remaining, "-")))
+	return blockers, cleanBacklogTitle(strings.TrimSpace(strings.TrimPrefix(remaining, "-")))
+}
+
+// parseBlocker reads what one blocked-by waits for, target being its words
+// as written.
+func parseBlocker(target string) Blocker {
+	keyword, value, _ := strings.Cut(target, " ")
+	switch strings.ToLower(keyword) {
+	case "until":
+		for _, layout := range []string{time.RFC3339, "2006-01-02T15:04Z07:00"} {
+			if at, err := time.Parse(layout, value); err == nil {
+				return Blocker{Kind: "time", Target: target, Until: at.UTC()}
+			}
+		}
+		return Blocker{Kind: "time", Target: target, Problem: `Cannot read "` + target + `" as a time`}
+	case "memory":
+		if amount := memoryAmount.FindStringSubmatch(strings.ReplaceAll(value, " ", "")); amount != nil {
+			if gigabytes, err := strconv.ParseFloat(amount[1], 64); err == nil {
+				return Blocker{Kind: "memory", Target: target, Bytes: uint64(gigabytes * (1 << 30))}
+			}
+		}
+		return Blocker{Kind: "memory", Target: target, Problem: `Cannot read "` + target + `" as memory`}
+	}
+	if strings.Contains(target, "://") {
+		if _, err := state.NewPauseCondition("dependency", "pr:"+target, time.Time{}); err != nil {
+			return Blocker{Kind: "pr", Target: target, Problem: `Cannot read "` + target + `" as a pull request`}
+		}
+		return Blocker{Kind: "pr", Target: target}
+	}
+	if state.ValidTaskID(target) != nil {
+		return Blocker{Kind: "task", Target: target, Problem: `Cannot read "` + target + `" as a task`}
+	}
+	return Blocker{Kind: "task", Target: target}
 }
 
 func backlogTitle(rest string) string {
@@ -225,9 +284,12 @@ func cleanBacklogTitle(value string) string {
 	return strings.Join(strings.Fields(value), " ")
 }
 
-func backlogArtifact(rest string) string {
+// backlogArtifact is the row's own pull request, report or local main; a pull
+// request it only waits on is not its own.
+func backlogArtifact(rest string, blockers []Blocker) string {
 	for _, url := range urlPattern.FindAllString(rest, -1) {
-		if strings.Contains(url, "/pull/") {
+		isAwaited := slices.ContainsFunc(blockers, func(blocker Blocker) bool { return blocker.Target == url })
+		if strings.Contains(url, "/pull/") && !isAwaited {
 			return url
 		}
 	}

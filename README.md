@@ -211,11 +211,13 @@ A CFO that ran in a native terminal and was closed, however it ended (`/exit`, C
 A conversation that cannot be resumed starts a new one, and so does one past 20 MB, since CFO sessions stay small, or one in pi, which has no resume; `goblins` says which.
 A CFO that ran in Herdr, or one that starts as another agent, starts a new conversation.
 `goblins resume` restarts a CFO that is running in its native terminal, as for one whose screen froze while the session kept working: it closes that terminal, which ends the agent and interrupts its current response, and starts it again there on the same conversation, while goblins and the board keep running.
-It stops nothing it cannot bring back: a CFO whose conversation cannot be resumed, such as one in pi or one past 20 MB, or whose terminal runs a process that conversation was not recorded for, is left running, and `goblins resume` says why.
+It always restarts it: a conversation it cannot resume, such as one in pi, one past 20 MB or one not recorded for the process its terminal runs, is left as it is, and the CFO starts again there on a new one, with the home's digest, as a closed CFO does, and `goblins resume` says why.
+It leaves the CFO running only when it could not start it again, such as when the CFO's program is not on its PATH.
 Run inside the CFO's own terminal, it would end itself with that terminal, so it leaves the CFO running there and says to run it in another terminal or from the board.
 A restarted CFO whose agent ends within three seconds, as one that cannot resume the conversation does, starts again there on a new one, and `goblins resume` names the conversation it could not resume; one that ends while its startup questions are answered is reported as ended, and `goblins` brings it back.
 A CFO that `goblins` or `goblins resume` starts on a new conversation that way leaves the board saying which conversation could not be resumed and the command that opens it by hand, until the CFO next comes back on its conversation.
 `cfo resume` with no task named is the same command, and the board offers it as **Restart the CFO** in the header of the CFO's panel, right below its name, which asks first since it interrupts what the CFO is doing.
+A restart that started the CFO on a new conversation says so in one line beside it.
 When Claude Code, Codex or pi was updated while the CFO or a goblin runs, as Claude Code's "Update installed · Restart to update" says, the board shows **Update** beside the AFK switch on the CFO's header, and on that goblin's card: your press restarts it onto the update on its own conversation once its turn ends, and nothing restarts until you press it ([Harness updates](docs/native-board.md#harness-updates)).
 With no CFO running in a native terminal it does what `goblins` does, and brings a closed one back.
 Then it brings back every goblin whose terminal ended, as a reboot or sign-out ends them all: each in place, with its worktree, uncommitted work, harness, model and effort, on its own conversation where the board's record proves it is the task's and from a handoff where it does not, and it lists which came back and which need a hand.
@@ -406,7 +408,10 @@ Work the supervisor cannot start, such as a start that failed or a row that need
 When the CFO's turn ends with no goblin at work while work that could run waits and memory is free, its turn is reopened with the next work named: Claude Code's Stop hook does it, and a Codex or pi CFO's native hook raises the wake the supervisor types into its terminal.
 None of this needs a setting: every home does it.
 The Overlord's own Start or Resume overrides that ordering; a queued row marked `(priority: production-defect)` also goes first, with a notify explaining that it jumped the order.
-A blocked task has no Start button or Next up mark and adds no line about what it waits for; the CFO's note on the wait is in its panel behind **More**.
+A queued row waits while its title line carries `blocked-by:` what it waits for, with ` - why` after it, and the supervisor starts it by itself once every wait cleared: `until 2026-10-10T00:00Z` a time, `memory 12 GB` free memory and commit, a task id that task delivering, or a GitHub pull request URL that pull request merging.
+A wait the supervisor cannot read, such as a word that names no task, keeps the row waiting and says why on its card, and so does one that can never clear, such as a task that stopped without delivering or a pull request closed without merging.
+A blocked task has no Start button or Next up mark, and its status says what it waits for in place of Queued, such as **Waits for 12 GB free** or **Starts Oct 10, 7:00 PM**, with no line added.
+The CFO's note on the wait is in its panel behind **More**.
 An eligible queued card has a **Start** play icon with a tooltip, and its panel has the same **Start**.
 It dispatches the task the way the CFO does, through `cfo spawn` with its brief and the harness, model, effort and mode its backlog row or brief names (Claude Code on `claude-opus-5-5` at `xhigh` when they name none), tells the CFO, puts the task at the top of In progress and opens its terminal once its session is up.
 A task the supervisor starts, by your Start or by itself, leaves Tasks at once for the top of In progress and reads **Starting** until its goblin is at work.

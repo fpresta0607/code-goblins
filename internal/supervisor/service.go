@@ -151,6 +151,9 @@ type Service struct {
 	// pullRequests is what GitHub last said about each finished task's pull
 	// request the history shows; only keepHistory touches it.
 	pullRequests map[string]pullRequestState
+	// awaitedPulls holds the state the scheduler last read of each pull
+	// request a queued row waits on: OPEN, CLOSED or MERGED.
+	awaitedPulls map[string]string
 	// historyErr is what the last history refresh met, and cfoWakeErr and
 	// fleetErr what every typed CFO wake and every fleet wake reading met
 	// since the last recovery cycle; the loop reports them with its next
@@ -222,8 +225,12 @@ type Service struct {
 	engineIdle   map[string]engineIdleReading
 	changeErrors map[string]taskChangeError
 	// asked are the Starts and Resumes the Overlord clicked that wait their
-	// turn, oldest first; starts guards it.
-	asked []askedChange
+	// turn, oldest first; starts guards it. isAskedRunning says a runAsked
+	// loop runs them now, and isAskedAgain that it was called again
+	// meanwhile, so that loop looks once more.
+	asked          []askedChange
+	isAskedRunning bool
+	isAskedAgain   bool
 	// scheduling is what the scheduler made of its last reading with memory
 	// free; mu guards it.
 	scheduling *Scheduling
@@ -1026,19 +1033,21 @@ func (s *Service) previewGit(meta state.TaskMeta) Git {
 }
 
 type Task struct {
-	ID           string          `json:"id"`
-	Title        string          `json:"title"`
-	Branch       string          `json:"branch,omitempty"`
-	Project      string          `json:"project"`
-	Harness      string          `json:"harness"`
-	Backend      string          `json:"backend"` // the terminal it runs in: native or herdr
-	Model        string          `json:"model"`
-	Effort       string          `json:"effort"`
-	Mode         string          `json:"mode"`
-	Generation   string          `json:"generation"`
-	Session      string          `json:"session"`
-	Dependencies []string        `json:"dependencies"`
-	Runtime      RuntimeEvidence `json:"runtime"`
+	ID         string `json:"id"`
+	Title      string `json:"title"`
+	Branch     string `json:"branch,omitempty"`
+	Project    string `json:"project"`
+	Harness    string `json:"harness"`
+	Backend    string `json:"backend"` // the terminal it runs in: native or herdr
+	Model      string `json:"model"`
+	Effort     string `json:"effort"`
+	Mode       string `json:"mode"`
+	Generation string `json:"generation"`
+	Session    string `json:"session"`
+	// Waits is what a queued task's row still waits for before the
+	// scheduler starts it, for its card's words.
+	Waits   []fleet.Blocker `json:"waits,omitempty"`
+	Runtime RuntimeEvidence `json:"runtime"`
 	// Parent is the goblin a helper works for; empty for every other task.
 	Parent string `json:"parent,omitempty"`
 	// GoblinName and GoblinTitle are the goblin's fun name and title, which
@@ -1382,7 +1391,7 @@ func (s *Service) Snapshot() (Snapshot, error) {
 			title = id
 			untitled[id] = true
 		}
-		out.Tasks = append(out.Tasks, Task{ID: id, Title: title, GoblinName: meta.GoblinName, GoblinTitle: meta.GoblinTitle, Parent: meta.Parent, Project: filepath.Base(meta.Project), Harness: meta.Harness, Backend: meta.Backend, Model: meta.Model, Effort: meta.Effort, Mode: meta.Mode, Generation: meta.SpawnGen, Session: d.TaskSessions[id], Dependencies: []string{}, Runtime: runtime, Activity: activity, LastReport: lastReport, ReportedAt: lastReportedAt, Since: s.sessionStarted(meta), Report: reportKind(report), Evaluation: evaluation})
+		out.Tasks = append(out.Tasks, Task{ID: id, Title: title, GoblinName: meta.GoblinName, GoblinTitle: meta.GoblinTitle, Parent: meta.Parent, Project: filepath.Base(meta.Project), Harness: meta.Harness, Backend: meta.Backend, Model: meta.Model, Effort: meta.Effort, Mode: meta.Mode, Generation: meta.SpawnGen, Session: d.TaskSessions[id], Runtime: runtime, Activity: activity, LastReport: lastReport, ReportedAt: lastReportedAt, Since: s.sessionStarted(meta), Report: reportKind(report), Evaluation: evaluation})
 		if len(out.Tasks) >= maxSessions {
 			break
 		}
@@ -1411,7 +1420,6 @@ func (s *Service) Snapshot() (Snapshot, error) {
 				if untitled[row.ID] {
 					out.Tasks[i].Title = row.Title
 				}
-				out.Tasks[i].Dependencies = row.BlockedByIDs
 				found = true
 				break
 			}
@@ -1422,7 +1430,7 @@ func (s *Service) Snapshot() (Snapshot, error) {
 			} else if err != nil {
 				return out, err
 			}
-			out.Tasks = append(out.Tasks, Task{ID: row.ID, Title: row.Title, Project: row.Repo, Dependencies: row.BlockedByIDs, Since: s.created(filepath.Join(s.Store.Home.Data, row.ID, "brief.md")), Evaluation: Evaluation{Phase: "queued", Reason: row.BlockedReason}})
+			out.Tasks = append(out.Tasks, Task{ID: row.ID, Title: row.Title, Project: row.Repo, Since: s.created(filepath.Join(s.Store.Home.Data, row.ID, "brief.md")), Evaluation: Evaluation{Phase: "queued", Reason: row.BlockedReason}})
 		}
 	}
 	for _, brief := range queuedBriefs(s.Store.Home, briefReader{s.reads.look, s.briefProject}) {
@@ -1572,6 +1580,14 @@ func (s *Service) Snapshot() (Snapshot, error) {
 		if dispatch.Disk != nil {
 			if disk, err := dispatch.Disk(); err == nil {
 				out.Disk = &disk
+			}
+		}
+	}
+	reading := s.rowReading(out.At, out.Memory)
+	for i := range out.Tasks {
+		if task := &out.Tasks[i]; task.Phase == "queued" {
+			if queued, err := s.queuedTask(task.ID); err == nil {
+				task.Waits = rowWaits(s.Store.Home, backlog, queued.Row, reading)
 			}
 		}
 	}

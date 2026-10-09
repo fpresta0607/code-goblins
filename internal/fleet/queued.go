@@ -181,6 +181,11 @@ func ReadQueuedTask(h home.Home, id string) (QueuedTask, error) {
 	return backlog.ReadQueuedTask(h, id)
 }
 
+// Lists says the backlog has a row for id, in any section.
+func (backlog BacklogRows) Lists(id string) bool {
+	return backlog.listed[id]
+}
+
 // ReadQueuedTask reuses this reading of the backlog; a brief without a row
 // is read separately, without parsing the backlog again for each task.
 func (backlog BacklogRows) ReadQueuedTask(h home.Home, id string) (QueuedTask, error) {

@@ -70,7 +70,7 @@ test("Start is one click whatever else starts and whatever memory or disk is fre
   assert.equal(startBlock(task()), "");
   assert.equal(startBlock(task({ brief: false })), "");
   assert.equal(startBlock(task({ starting: true })), "Starting", "its own start under way");
-  assert.equal(startBlock(task({ dependencies: ["other"] })), "Waiting on other");
+  assert.equal(startBlock(task({ waits: [{ kind: "task", target: "other", until: "", bytes: 0, problem: "" }] })), "Waits for other");
 });
 
 test("a Start or Resume that waits its turn says what it waits for on its card", () => {
@@ -188,7 +188,7 @@ test("Next sits on the card the supervisor's order for a free slot takes first",
   const cases: [string, Snapshot, ReturnType<typeof nextInOrder>][] = [
     ["only the queue", board(memory(9), [queued("first"), queued("second")]), { id: "first", text: "Next up", tone: "" }],
     ["the queue while memory is short", board(memory(4.2), [queued("first")]), { id: "first", text: "Next at 5 GB", tone: "waiting" }],
-    ["a queued task waiting on another goblin is passed over", board(memory(9), [queued("held", { dependencies: ["other"] }), queued("free")]), { id: "free", text: "Next up", tone: "" }],
+    ["a queued task waiting on another goblin is passed over", board(memory(9), [queued("held", { waits: [{ kind: "task", target: "other" }] }), queued("free")]), { id: "free", text: "Next up", tone: "" }],
     ["a queued task that already finished is passed over", board(memory(9), [queued("done", { finished: "Already finished: its last report was done" }), queued("free")]), { id: "free", text: "Next up", tone: "" }],
     ["a queued task whose last start failed waits for its Start and is passed over", board(memory(9), [queued("failed", { start_error: "spawn: project missing" }), queued("free")]), { id: "free", text: "Next up", tone: "" }],
     ["a goblin paused for memory resumes before the queue", board(memory(4.2), [queued("first"), paused("later", "memory", "", "2026-10-06T11:00:00Z"), paused("older", "memory", "", "2026-10-06T10:00:00Z")]), { id: "older", text: "Next up", tone: "waiting" }],
@@ -219,10 +219,10 @@ test("the Tasks column runs in start order: Next up first, then what can start, 
   const board = (tasks: Record<string, unknown>[]) => parseSnapshot({ healthy: true, memory: memory(9), tasks });
   const cases: [string, Snapshot, string[]][] = [
     ["the queue's order when everything can start", board([queued("a"), queued("b"), queued("c")]), ["a", "b", "c"]],
-    ["a row blocked by time sits under every row that can start", board([queued("timed", { dependencies: ["time"], reason: "blocked-by: time" }), queued("free"), queued("also-free")]), ["free", "also-free", "timed"]],
+    ["a row blocked by time sits under every row that can start", board([queued("timed", { waits: [{ kind: "time", target: "until 2026-10-10T00:00Z", until: "2026-10-10T00:00:00Z" }], reason: "after the reset" }), queued("free"), queued("also-free")]), ["free", "also-free", "timed"]],
     ["a row that already finished and one whose start failed sit under the rest", board([queued("done", { finished: "Already finished" }), queued("failed", { start_error: "spawn: project missing" }), queued("free")]), ["free", "done", "failed"]],
     ["a reported production defect is first", board([queued("first"), queued("urgent", { priority: "production-defect" })]), ["urgent", "first"]],
-    ["a held production defect stays with the held", board([queued("first"), queued("urgent", { priority: "production-defect", dependencies: ["other"] })]), ["first", "urgent"]],
+    ["a held production defect stays with the held", board([queued("first"), queued("urgent", { priority: "production-defect", waits: [{ kind: "task", target: "other" }] })]), ["first", "urgent"]],
     ["nothing queued", board([]), []],
   ];
 

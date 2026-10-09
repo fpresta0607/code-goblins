@@ -16,7 +16,7 @@ test("Start creates a missing brief but refuses a dependency block", () => {
   const task = parseSnapshot({ healthy: true, tasks: [{ id: "work", verified: false, phase: "queued", brief: false }] }).tasks[0];
   assert.equal(startBlock(task), "");
   assert.equal(startBlock({ ...task, reason: "Brief ready at data/work/brief.md; not dispatched yet", brief: true }), "");
-  assert.match(startBlock({ ...task, reason: "Waiting on the Overlord", dependencies: ["overlord"] }), /Overlord/);
+  assert.equal(startBlock({ ...task, reason: "his call", waits: [{ kind: "task", target: "overlord", until: "", bytes: 0, problem: "No task is named \"overlord\"" }] }), "No task is named \"overlord\"");
 });
 
 test("snapshot preserves lifecycle results and queued adjustment revision", () => {

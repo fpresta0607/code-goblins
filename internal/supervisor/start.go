@@ -10,6 +10,7 @@ import (
 	"regexp"
 	"slices"
 	"strings"
+	"time"
 
 	"github.com/fpresta0607/code-goblins/internal/fleet"
 	"github.com/fpresta0607/code-goblins/internal/fsx"
@@ -163,7 +164,8 @@ func (s *Service) startTask(id string) error {
 	if isUnderWay {
 		return nil
 	}
-	if _, err := planStart(s.Store.Home, id, s.finishedWork()); err != nil {
+	// The Start reads no memory itself: its turn does, as it starts.
+	if _, err := planStart(s.Store.Home, id, s.finishedWork(), s.rowReading(time.Now().UTC(), nil)); err != nil {
 		return err
 	}
 	s.ask(askedChange{task: id})
@@ -216,15 +218,15 @@ func (s *Service) startQueued(id string, isOverlord bool) error {
 			}
 		}
 	}()
-	plan, err := planStart(s.Store.Home, id, s.finishedWork())
-	if err != nil {
-		return err
-	}
-	plan.isOverlord = isOverlord
 	memory, err := dispatch.Memory()
 	if err != nil {
 		return StartRefusal{Reason: "Free memory cannot be read, so nothing starts: " + err.Error()}
 	}
+	plan, err := planStart(s.Store.Home, id, s.finishedWork(), s.rowReading(time.Now().UTC(), &memory))
+	if err != nil {
+		return err
+	}
+	plan.isOverlord = isOverlord
 	if short := memory.shortfall(); short != "" {
 		return StartRefusal{Reason: short + "; Start needs 5 GB to keep the 4 GB floor", Passing: true}
 	}
@@ -323,7 +325,7 @@ func spawnFailure(output string, err error) string {
 // queued work with a brief and a project, not already running and not
 // already finished. Harness, model, effort and mode come from the backlog
 // row, then the brief, then the fleet's defaults.
-func planStart(h home.Home, id string, finished *finishedWork) (startPlan, error) {
+func planStart(h home.Home, id string, finished *finishedWork, reading rowReading) (startPlan, error) {
 	if _, err := os.Stat(filepath.Join(h.State, id+".meta")); err == nil {
 		return startPlan{}, StartRefusal{Reason: id + " already runs; open it from In progress", Held: true}
 	}
@@ -347,8 +349,8 @@ func planStart(h home.Home, id string, finished *finishedWork) (startPlan, error
 	if briefErr != nil && !errors.Is(briefErr, os.ErrNotExist) {
 		return startPlan{}, briefErr
 	}
-	if len(row.BlockedByIDs) > 0 {
-		return startPlan{}, StartRefusal{Reason: id + " is waiting on " + strings.Join(row.BlockedByIDs, ", ") + ": " + row.BlockedReason, Held: true}
+	if waits := rowWaits(h, backlog, row, reading); len(waits) > 0 {
+		return startPlan{}, waitRefusal(id, row, waits)
 	}
 	plan := startPlan{id: id, brief: brief, project: briefProject(brief), isProductionDefect: row.Priority == "production-defect"}
 	if plan.project == "" {

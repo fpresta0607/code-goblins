@@ -124,7 +124,7 @@ func TestMemoryWorkLeavesOutFinishedWork(t *testing.T) {
 	writeFile(t, filepath.Join(h.State, "archive", "done-task.status.20261006T120000Z"), "2026-10-06T11:59:00Z done: returned worktree C:\\w via cfo cleanup\n")
 
 	// Act
-	queued, _ := memoryWork(h, readFinishedWork(h, nil))
+	queued, _ := memoryWork(h, readFinishedWork(h, nil), rowReading{now: time.Now().UTC()})
 
 	// Assert
 	if len(queued) != 1 || queued[0] != "next-task" {

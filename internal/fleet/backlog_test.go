@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"reflect"
 	"testing"
+	"time"
 
 	"github.com/fpresta0607/code-goblins/internal/home"
 )
@@ -289,5 +290,82 @@ func TestReadBacklogReadsWhatARowNamesForItsSpawn(t *testing.T) {
 	}
 	if alone.Title != "Scout it" || alone.Mode != "local-only" || alone.Harness != "" {
 		t.Errorf("row naming only a mode = %+v", alone)
+	}
+}
+
+// A row says what it waits for in words the scheduler reads: a time, free
+// memory, a pull request merging or a task delivering. What it cannot read
+// keeps the row waiting, with why in plain words, and a pull request it waits
+// on is never taken for the row's own.
+func TestReadBacklogReadsWhatARowWaitsFor(t *testing.T) {
+	cases := []struct {
+		name, blocker string
+		want          Blocker
+	}{
+		{"a time", "until 2026-10-10T00:00Z", Blocker{Kind: "time", Target: "until 2026-10-10T00:00Z", Until: time.Date(2026, 10, 10, 0, 0, 0, 0, time.UTC)}},
+		{"a time with seconds and an offset", "until 2026-10-10T00:00:00-05:00", Blocker{Kind: "time", Target: "until 2026-10-10T00:00:00-05:00", Until: time.Date(2026, 10, 10, 5, 0, 0, 0, time.UTC)}},
+		{"free memory", "memory 12 GB", Blocker{Kind: "memory", Target: "memory 12 GB", Bytes: 12 << 30}},
+		{"free memory in tenths", "memory 1.5GB", Blocker{Kind: "memory", Target: "memory 1.5GB", Bytes: 3 << 29}},
+		{"a pull request", "https://github.com/o/r/pull/7", Blocker{Kind: "pr", Target: "https://github.com/o/r/pull/7"}},
+		{"a task", "other-task", Blocker{Kind: "task", Target: "other-task"}},
+		{"a time it cannot read", "until tomorrow", Blocker{Kind: "time", Target: "until tomorrow", Problem: `Cannot read "until tomorrow" as a time`}},
+		{"memory it cannot read", "memory lots", Blocker{Kind: "memory", Target: "memory lots", Problem: `Cannot read "memory lots" as memory`}},
+		{"a link that is no pull request", "https://github.com/o/r/issues/7", Blocker{Kind: "pr", Target: "https://github.com/o/r/issues/7", Problem: `Cannot read "https://github.com/o/r/issues/7" as a pull request`}},
+		{"a word that is no task", "Quiet_Night!", Blocker{Kind: "task", Target: "Quiet_Night!", Problem: `Cannot read "Quiet_Night!" as a task`}},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			// Arrange
+			h := snapshotHome(t)
+			if err := os.MkdirAll(h.Data, 0o755); err != nil {
+				t.Fatal(err)
+			}
+			content := "## Queued\n- **waiting** - Ship it https://github.com/o/r/pull/42 blocked-by: " + c.blocker + " - the reason (repo: goblins)\n"
+			if err := os.WriteFile(filepath.Join(h.Data, "backlog.md"), []byte(content), 0o644); err != nil {
+				t.Fatal(err)
+			}
+
+			// Act
+			backlog, err := ReadBacklog(h)
+
+			// Assert
+			if err != nil {
+				t.Fatal(err)
+			}
+			row := backlog.Queued[0]
+			if !reflect.DeepEqual(row.Blockers, []Blocker{c.want}) {
+				t.Errorf("blockers = %+v, want %+v", row.Blockers, []Blocker{c.want})
+			}
+			if row.Title != "Ship it" || row.BlockedReason != "the reason" || !reflect.DeepEqual(row.BlockedByIDs, []string{c.blocker}) || row.Repo != "goblins" {
+				t.Errorf("row = %+v, want its title, reason and repo apart from what it waits for", row)
+			}
+			if row.Artifact != "https://github.com/o/r/pull/42" {
+				t.Errorf("artifact = %q, want the row's own pull request, never the one it waits on", row.Artifact)
+			}
+		})
+	}
+}
+
+// A pull request a row only waits on is not the row's own.
+func TestReadBacklogNeverTakesAPullRequestARowWaitsOnForItsOwn(t *testing.T) {
+	// Arrange
+	h := snapshotHome(t)
+	if err := os.MkdirAll(h.Data, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	content := "## Queued\n- **waiting** - Ship it blocked-by: https://github.com/o/r/pull/7 - after it merges (repo: goblins)\n"
+	if err := os.WriteFile(filepath.Join(h.Data, "backlog.md"), []byte(content), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	// Act
+	backlog, err := ReadBacklog(h)
+
+	// Assert
+	if err != nil {
+		t.Fatal(err)
+	}
+	if row := backlog.Queued[0]; row.Artifact != "" {
+		t.Errorf("artifact = %q, want none: the row only waits on that pull request", row.Artifact)
 	}
 }

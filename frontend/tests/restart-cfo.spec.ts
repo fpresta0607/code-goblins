@@ -81,6 +81,27 @@ test("a CFO that could not be restarted says so in a few words beside its Restar
   await expect(page.getByRole("button", { name: "Restart the CFO" })).toBeEnabled();
 });
 
+// The Overlord, 2026-10-09, after Restart refused on a conversation too large
+// to resume, cut off as "Its last conversation is 33…": "this makes no
+// sense". Restart always restarts the CFO, and when it starts on a new
+// conversation the board says so in one plain line, which stays while the
+// restarted CFO starts and its Restart is gone.
+test("a CFO restarted on a new conversation says so in one plain line", async ({ page }, testInfo) => {
+  // Arrange
+  const { release } = await open(page, { status: 200, body: { restarted: true, resumed: false, session: "large-session" } }, "#comes-back-starting");
+  release();
+
+  // Act
+  await page.getByRole("button", { name: "Restart the CFO" }).click();
+  await page.getByRole("dialog", { name: "Restart the CFO?" }).getByRole("button", { name: "Restart the CFO" }).click();
+
+  // Assert
+  await expect(page.locator(".click-feedback")).toHaveText("The CFO restarted on a new conversation.");
+  await expect(page.getByRole("button", { name: "Restart the CFO" })).toHaveCount(0);
+  await expect(page.getByRole("alert")).toHaveCount(0);
+  await page.screenshot({ path: testInfo.outputPath("restart-cfo-new-conversation.png") });
+});
+
 test("a CFO still starting offers no Restart", async ({ page }) => {
   // Act
   await open(page, { status: 200, body: {} }, "#starting");
