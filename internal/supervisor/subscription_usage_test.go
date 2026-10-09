@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"maps"
+	"path/filepath"
 	"slices"
 	"strings"
 	"sync/atomic"
@@ -94,6 +95,50 @@ func TestSnapshotHidesPausedSessionsBeforeCachedLivenessChanges(t *testing.T) {
 			cached, err := monitor.ReadObservation(h.State, "task-1")
 			if err != nil || cached.Health != health {
 				t.Fatalf("test changed cached liveness instead of honoring the pause: %+v, %v", cached, err)
+			}
+		})
+	}
+}
+
+// The dial says the weekly floor the fleet reading last read for its
+// provider, the one the supervisor's pause reads, and none while
+// config/fleet.json cannot be read, whether or not quota could be read.
+func TestSubscriptionUsageSaysTheWeeklyFloorTheFleetReadingRead(t *testing.T) {
+	now := time.Now().UTC()
+	for _, test := range []struct {
+		name, settings, want string
+		isUnreadable         bool
+	}{
+		{name: "claude's floor set", settings: `{"weekly_floor_percent":{"claude":0}}`, want: "claude=0 codex=5"},
+		{name: "the default", want: "claude=5 codex=5"},
+		{name: "a setting that cannot be read", settings: `{"weekly_floor_percent":{"claude":100}}`, want: "claude=none codex=none", isUnreadable: true},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			// Arrange
+			s, h := fleetService(t)
+			if test.settings != "" {
+				writeFile(t, filepath.Join(h.Root, "config", "fleet.json"), test.settings)
+			}
+			goblin := Task{ID: "goblin", Harness: "codex", Generation: "g1", Runtime: RuntimeEvidence{State: "busy", At: now}}
+
+			// Act
+			err := s.pauseAtAllowanceFloor(t.Context(), &fleetWakes{}, now)
+			usage := s.subscriptionUsage(cfoState{registered: true, harness: "claude"}, Snapshot{At: now, Tasks: []Task{goblin}})
+
+			// Assert
+			if isReported := err != nil && strings.Contains(err.Error(), "weekly allowance floor cannot be read"); isReported != test.isUnreadable {
+				t.Fatalf("pass err = %v, want it reported %v", err, test.isUnreadable)
+			}
+			var floors []string
+			for _, provider := range usage {
+				floor := "none"
+				if provider.FloorPercent != nil {
+					floor = fmt.Sprint(*provider.FloorPercent)
+				}
+				floors = append(floors, provider.Provider+"="+floor)
+			}
+			if got := strings.Join(floors, " "); got != test.want {
+				t.Fatalf("floors %s, want %s", got, test.want)
 			}
 		})
 	}
@@ -191,7 +236,7 @@ func TestSubscriptionRefreshProjectsOnlySafeWeeklyFields(t *testing.T) {
 	if err := json.Unmarshal(data, &projected); err != nil {
 		t.Fatal(err)
 	}
-	if fields := slices.Sorted(maps.Keys(projected[0])); !slices.Equal(fields, []string{"percent_remaining", "provider", "read_at", "resets_at", "source", "status"}) || strings.Contains(string(data), "private-balance") {
+	if fields := slices.Sorted(maps.Keys(projected[0])); !slices.Equal(fields, []string{"floor_percent", "percent_remaining", "provider", "read_at", "resets_at", "source", "status"}) || strings.Contains(string(data), "private-balance") {
 		t.Fatalf("unsafe projection: %s", data)
 	}
 
