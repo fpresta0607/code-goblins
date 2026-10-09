@@ -54,6 +54,10 @@ func closeQueuedTask(h home.Home, id string, isDeliveryRequired bool) (err error
 	}
 	path := filepath.Join(h.Data, "backlog.md")
 	data, err := fsx.ReadFile(path)
+	// A home with no backlog queues nothing, so it has no row to close.
+	if errors.Is(err, os.ErrNotExist) {
+		return ErrNotQueued
+	}
 	if err != nil {
 		return err
 	}

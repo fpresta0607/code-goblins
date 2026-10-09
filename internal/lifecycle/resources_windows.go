@@ -35,7 +35,17 @@ type Resources struct {
 // and its scratch folder, so a record that names anything else stops
 // nothing.
 func TaskResources(ctx context.Context, h home.Home, meta state.TaskMeta, gate pipeline.Reader) (Resources, error) {
-	resources, err := ownResources(ctx, h, meta, gate.Commands)
+	resources, err := heldResources(ctx, h, meta, gate.Commands)
+	if err != nil {
+		return resources, err
+	}
+	return withGate(ctx, meta, gate, resources)
+}
+
+// heldResources are what a task and its helpers hold themselves, without the
+// task's gate run.
+func heldResources(ctx context.Context, h home.Home, meta state.TaskMeta, commands execx.Runner) (Resources, error) {
+	resources, err := ownResources(ctx, h, meta, commands)
 	if err != nil {
 		return resources, err
 	}
@@ -44,14 +54,14 @@ func TaskResources(ctx context.Context, h home.Home, meta state.TaskMeta, gate p
 		return resources, err
 	}
 	for _, helper := range helpers {
-		owned, err := ownResources(ctx, h, helper, gate.Commands)
+		owned, err := ownResources(ctx, h, helper, commands)
 		if err != nil {
 			return resources, fmt.Errorf("helper %s: %w", helper.ID, err)
 		}
 		resources.Directories = append(resources.Directories, owned.Directories...)
 		resources.Hosts = append(resources.Hosts, owned.Hosts...)
 	}
-	return withGate(ctx, meta, gate, resources)
+	return resources, nil
 }
 
 // ownResources are the directories and terminal one task holds itself.
@@ -182,10 +192,24 @@ const stopBound = 10 * time.Second
 // daemon runs other sessions' gates, or a sweep that ran out of time, is an
 // UnfinishedStop. Each process still finishing its Windows teardown is kept
 // in record.
+//
+// A memory pause leaves the task's open gate run alone: the run is no part
+// of what it ends, so nothing sweeps the run's worktree, aborts it or records
+// it for a restart, and its goblin picks it back up when it resumes. A run
+// holds an hour or more of review and tests, the pause is taken for the
+// goblin's own memory, and on a machine short of memory the abort itself
+// fails: on 2026-10-09 Murray's memory pause could not abort his live run,
+// and no resume could bring him back.
 func StopTask(ctx context.Context, h home.Home, meta state.TaskMeta, gate pipeline.Reader, record *state.Lifecycle) (Resources, []string, error) {
 	bounded, cancel := context.WithTimeout(ctx, stopBound)
 	defer cancel()
-	resources, err := TaskResources(bounded, h, meta, gate)
+	var resources Resources
+	var err error
+	if record.Action == "pause" && record.Pause != nil && record.Pause.Reason == "memory" {
+		resources, err = heldResources(bounded, h, meta, gate.Commands)
+	} else {
+		resources, err = TaskResources(bounded, h, meta, gate)
+	}
 	stopped, teardown, stopErr := StopResources(bounded, resources)
 	for _, process := range teardown {
 		if !slices.ContainsFunc(record.Teardown, func(prior state.TeardownProcess) bool {
