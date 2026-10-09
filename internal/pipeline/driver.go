@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"path"
 	"path/filepath"
 	"slices"
 	"strings"
@@ -62,23 +63,54 @@ func (r Reader) query(ctx context.Context, sql string, target interface{}) error
 
 // Idle takes the native singleton lock first, then proves that no durable run
 // is active. It neither stops a daemon nor repairs stale state on the operator's behalf.
+// A refusal names the runs in flight it waits for, so nobody stops the daemon under them.
 func (r Reader) Idle(ctx context.Context) (func() error, error) {
 	release, err := lockDaemon(filepath.Join(r.Root, "daemon.lock"))
 	if err != nil {
-		return nil, err
+		runs, queryErr := r.activeRuns(ctx)
+		if queryErr != nil {
+			return nil, err
+		}
+		if len(runs) == 0 {
+			return nil, fmt.Errorf("%w: the no-mistakes daemon is running and no gate run is in flight", ErrBusy)
+		}
+		return nil, waitsFor(runs)
 	}
-	var rows []struct {
-		Count int `json:"n"`
-	}
-	err = r.query(ctx, `SELECT COUNT(*) AS n FROM runs WHERE status IS NULL OR status NOT IN ('completed','failed','cancelled','ci_monitor_interrupted')`, &rows)
-	if err != nil || len(rows) != 1 || rows[0].Count != 0 {
+	runs, err := r.activeRuns(ctx)
+	if err != nil || len(runs) != 0 {
 		releaseErr := release()
 		if err == nil {
-			err = ErrBusy
+			err = waitsFor(runs)
 		}
 		return nil, errors.Join(err, releaseErr)
 	}
 	return release, nil
+}
+
+type activeRun struct {
+	ID     string `json:"id"`
+	Branch string `json:"branch"`
+	Status string `json:"status"`
+	Repo   string `json:"repo"`
+}
+
+func (r Reader) activeRuns(ctx context.Context) ([]activeRun, error) {
+	var runs []activeRun
+	err := r.query(ctx, `SELECT runs.id AS id, runs.branch AS branch, COALESCE(runs.status,'no status') AS status, COALESCE(repos.working_path,'') AS repo FROM runs LEFT JOIN repos ON repos.id=runs.repo_id WHERE runs.status IS NULL OR runs.status NOT IN ('completed','failed','cancelled','ci_monitor_interrupted') ORDER BY runs.created_at, runs.id`, &runs)
+	return runs, err
+}
+
+func waitsFor(runs []activeRun) error {
+	count := "1 gate run"
+	if len(runs) != 1 {
+		count = fmt.Sprintf("%d gate runs", len(runs))
+	}
+	named := make([]string, len(runs))
+	for i, run := range runs {
+		repo := path.Base(strings.ReplaceAll(run.Repo, `\`, "/"))
+		named[i] = fmt.Sprintf("%s (%s %s, %s)", run.ID, repo, run.Branch, run.Status)
+	}
+	return fmt.Errorf("%w: it waits for %s in flight, %s, and changed nothing", ErrBusy, count, strings.Join(named, ", "))
 }
 
 type Gate struct {

@@ -57,28 +57,208 @@ func TestRenderPreservesUnownedConfigAndIsIdempotent(t *testing.T) {
 	if err := yaml.Unmarshal(after, &rendered); err != nil {
 		t.Fatal(err)
 	}
-	if !reflect.DeepEqual(rendered.Agent, []string{"codex"}) {
-		t.Fatalf("primary agent=%v", rendered.Agent)
+	if !reflect.DeepEqual(rendered.Agent, []string{"codex", "claude"}) {
+		t.Fatalf("agent chain=%v", rendered.Agent)
 	}
 	profile := rendered.AgentConfig["codex"]
 	if profile.Model != "gpt-6.1-sol" || profile.Effort != "xhigh" {
 		t.Fatalf("primary profile=%+v", profile)
 	}
-	for _, role := range []string{"reviewer", "fixer"} {
-		profile := rendered.ReviewAgents[role]
-		if profile.Agent != "codex" || profile.Model != "gpt-6.1-sol" || profile.Effort != "xhigh" {
-			t.Fatalf("%s profile=%+v", role, profile)
-		}
+	if _, ok := rendered.AgentConfig["claude"]; ok {
+		t.Fatalf("the Claude fallback gained a profile: %+v", rendered.AgentConfig)
 	}
-	if args := rendered.AgentArgs["codex"]; !reflect.DeepEqual(args, []string{"-c", `service_tier="default"`}) {
-		t.Fatalf("codex raw args=%v, want the standard service tier", args)
+	if rendered.ReviewAgents != nil {
+		t.Fatalf("review roles pinned outside the chain: %+v", rendered.ReviewAgents)
 	}
-	if _, ok := rendered.AgentArgs["claude"]; ok {
-		t.Fatal("legacy CFO-owned Claude arguments remain")
+	if !reflect.DeepEqual(rendered.AgentArgs, gateAgentArgs) {
+		t.Fatalf("agent args=%v, want the standard service tier and no MCP server for either agent", rendered.AgentArgs)
 	}
 	again, drift, err := Render(after, p)
 	if err != nil || len(drift) != 0 || string(again) != string(after) {
 		t.Fatalf("not idempotent: %v %v", drift, err)
+	}
+}
+
+// gateAgentArgs is what version 5 hands each gate agent: the standard service
+// tier, none of the MCP servers the operator's own configuration starts, and
+// the settings from that configuration a gate's Codex keeps working under.
+var gateAgentArgs = map[string][]string{
+	"codex": {"-c", `service_tier="default"`, "--ignore-user-config", "--disable", "plugins", "--disable", "apps",
+		"-c", `personality="pragmatic"`, "-c", `model_auto_compact_token_limit_scope="total"`, "-c", "features.multi_agent=true",
+		"-c", "project_doc_max_bytes=65536"},
+	"claude": {"--strict-mcp-config"},
+}
+
+// No-mistakes passes the gate's model and effort from agent_config itself and
+// skips its own value for either one a raw argument already sets, so the
+// carried settings never name them.
+func TestVersionFiveCodexArgumentsLeaveTheGateItsModelAndEffort(t *testing.T) {
+	rendered, _, err := Render([]byte(machineConfig20261008), testPolicy(t))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var config struct {
+		AgentArgs map[string][]string `yaml:"agent_args_override"`
+	}
+	if err := yaml.Unmarshal(rendered, &config); err != nil {
+		t.Fatal(err)
+	}
+	args := config.AgentArgs["codex"]
+	for i, arg := range args {
+		if arg == "-m" || arg == "--model" || strings.HasPrefix(arg, "-m=") || strings.HasPrefix(arg, "--model=") {
+			t.Fatalf("codex args pin the model with %q: %v", arg, args)
+		}
+		if arg != "-c" || i+1 == len(args) {
+			continue
+		}
+		key, _, _ := strings.Cut(args[i+1], "=")
+		if key = strings.TrimSpace(key); key == "model" || key == "model_reasoning_effort" {
+			t.Fatalf("codex args set %s, which no-mistakes owns: %v", key, args)
+		}
+	}
+}
+
+func versionFour(t *testing.T) Policy {
+	t.Helper()
+	p := testPolicy(t)
+	p.Version = 4
+	return p
+}
+
+func TestVersionFiveStartsGateAgentsWithoutMCPServers(t *testing.T) {
+	after, drift, err := Render([]byte(machineConfig20261008), testPolicy(t))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(drift, []string{"agent_args_override.claude", "agent_args_override.codex"}) {
+		t.Fatalf("drift=%v, want only the gate agents' arguments", drift)
+	}
+	var config struct {
+		Agent     []string            `yaml:"agent"`
+		AgentArgs map[string][]string `yaml:"agent_args_override"`
+	}
+	if err := yaml.Unmarshal(after, &config); err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(config.AgentArgs, gateAgentArgs) || !reflect.DeepEqual(config.Agent, []string{"codex", "claude"}) {
+		t.Fatalf("agent=%v args=%v, want the chain kept and no MCP server for either agent", config.Agent, config.AgentArgs)
+	}
+	if !strings.Contains(string(after), "# Prefer Codex at the user's request; retain Claude as an available fallback.") {
+		t.Fatalf("lost the operator's note on the chain:\n%s", after)
+	}
+	again, drift, err := Render(after, testPolicy(t))
+	if err != nil || len(drift) != 0 || string(again) != string(after) {
+		t.Fatalf("not idempotent: %v %v", drift, err)
+	}
+}
+
+func TestVersionFiveOwnsTheClaudeArguments(t *testing.T) {
+	for _, before := range []string{"agent_args_override:\n  claude: [--model, sonnet]\n", "agent_args_override:\n  claude: [--strict-mcp-config, --mcp-config, servers.json]\n"} {
+		after, drift, err := Render([]byte(before), testPolicy(t))
+		if err != nil {
+			t.Fatal(err)
+		}
+		var config struct {
+			AgentArgs map[string][]string `yaml:"agent_args_override"`
+		}
+		if err := yaml.Unmarshal(after, &config); err != nil {
+			t.Fatal(err)
+		}
+		if !slices.Contains(drift, "agent_args_override.claude") || !reflect.DeepEqual(config.AgentArgs["claude"], gateAgentArgs["claude"]) {
+			t.Fatalf("drift=%v claude=%v, want the gate's own Claude arguments", drift, config.AgentArgs["claude"])
+		}
+	}
+}
+
+// machineConfig20261008 is the shared config's owned shape since the operator
+// gave the gate its Claude fallback on 2026-10-08.
+const machineConfig20261008 = `# no-mistakes global configuration
+# Validation roles inherit this ordered harness chain unless explicitly overridden.
+# Prefer Codex at the user's request; retain Claude as an available fallback.
+agent:
+  - codex
+  - claude
+ci_timeout: "168h"
+session_reuse: true
+agent_path_override: {}
+auto_fix:
+  rebase: 1
+  lint: 1
+  test: 1
+  review: 0
+  document: 10
+  ci: 1
+agent_args_override:
+  codex:
+    - -c
+    - service_tier="default"
+agent_config:
+  codex:
+    effort: xhigh
+    model: gpt-6.1-sol
+# Review and fix roles inherit the same harness chain as other validation steps.
+review_agent_timeout: "1h"
+`
+
+func TestVersionFourRendersTheMachineConfigAsItStandsWithoutDrift(t *testing.T) {
+	after, drift, err := Render([]byte(machineConfig20261008), versionFour(t))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(drift) != 0 || string(after) != machineConfig20261008 {
+		t.Fatalf("drift=%v, want the policy to name the machine's chain as it stands:\n%s", drift, after)
+	}
+}
+
+func TestVersionFourReleasesReviewRolePinsIntoTheChain(t *testing.T) {
+	chain := versionFour(t)
+	previous := chain
+	previous.Version, previous.Fallback = 3, Reviewer{}
+	previous.Reviewer, previous.Fixer = previous.Primary, previous.Primary
+	before, _, err := Render([]byte("review_agents:\n  reviewer_after_round: {agent: claude}\n"), previous)
+	if err != nil {
+		t.Fatal(err)
+	}
+	after, drift, err := Render(before, chain)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(drift, []string{"agent", "review_agents"}) {
+		t.Fatalf("drift=%v, want the chain and the released review roles", drift)
+	}
+	var config map[string]interface{}
+	if err := yaml.Unmarshal(after, &config); err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := config["review_agents"]; ok {
+		t.Fatalf("review roles still pinned outside the chain:\n%s", after)
+	}
+	again, drift, err := Render(after, chain)
+	if err != nil || len(drift) != 0 || string(again) != string(after) {
+		t.Fatalf("not idempotent: %v %v", drift, err)
+	}
+}
+
+func TestApplyWithoutDriftTakesNoIdleWindow(t *testing.T) {
+	applied, _, err := Render([]byte("ci_timeout: 168h\n"), testPolicy(t))
+	if err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(t.TempDir(), "config.yaml")
+	if err := os.WriteFile(path, applied, 0600); err != nil {
+		t.Fatal(err)
+	}
+	c := Config{Path: path, Policy: testPolicy(t), Idle: func(context.Context) (func() error, error) {
+		t.Error("a change of nothing asked for the daemon to be stopped")
+		return nil, ErrBusy
+	}}
+	result, err := c.Apply(context.Background())
+	if err != nil || len(result.Drift) != 0 || result.Backup != "" {
+		t.Fatalf("apply=%+v err=%v", result, err)
+	}
+	now, err := os.ReadFile(path)
+	if err != nil || string(now) != string(applied) {
+		t.Fatalf("config changed: %s %v", now, err)
 	}
 }
 
@@ -97,7 +277,7 @@ func TestRenderOverridesCodexFastServiceTier(t *testing.T) {
 	if err := yaml.Unmarshal(after, &config); err != nil {
 		t.Fatal(err)
 	}
-	if args := config.AgentArgs["codex"]; !reflect.DeepEqual(args, []string{"-c", `service_tier="default"`}) {
+	if args := config.AgentArgs["codex"]; !reflect.DeepEqual(args, gateAgentArgs["codex"]) {
 		t.Fatalf("effective Codex args=%v, want the standard service tier", args)
 	}
 }
@@ -110,9 +290,10 @@ func TestRenderRejectsAmbiguousYAML(t *testing.T) {
 	}
 }
 
+// Up to version 4 the policy does not own Claude's arguments.
 func TestRenderPreservesOperatorOwnedClaudeArguments(t *testing.T) {
 	before := []byte("agent_args_override:\n  claude: [--model, sonnet]\n")
-	after, _, err := Render(before, testPolicy(t))
+	after, _, err := Render(before, versionFour(t))
 	if err != nil {
 		t.Fatal(err)
 	}

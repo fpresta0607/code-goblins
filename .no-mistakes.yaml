@@ -35,8 +35,8 @@ commands:
   test: "cfo gate test"
 
 # This repository does not override the primary pipeline agent.
-# The owned global Codex profile routes test, document, and lint, while global
-# review_agents independently pin review and review-fix to that same profile.
+# Every gate role runs the owned global chain, Codex first and Claude next,
+# with no review role pinned outside it.
 
 # These committed overrides also bound a new gate during the initial rollout.
 # Shared machine settings are rendered only in an explicit idle window.
