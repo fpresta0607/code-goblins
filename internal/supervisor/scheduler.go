@@ -80,7 +80,7 @@ func (s *Service) schedule(ctx context.Context, now time.Time, watched *fleetWak
 			defect = id
 		}
 	}
-	var problems error
+	problems := tellRetiredRows(s.Store.Home.State, finished.retired)
 	var ready []state.Lifecycle
 	memoryPending := ""
 	for _, meta := range liveTasks(s.Store.Home.State) {

@@ -85,6 +85,52 @@ func TestTaskResourcesInterruptsOnlyAnOpenGateRun(t *testing.T) {
 	}
 }
 
+// A memory pause leaves its goblin's open gate run alone: the run is no part
+// of what the pause ends, so nothing sweeps its worktree, aborts it or
+// records it for a restart, and it runs on for the goblin to pick back up.
+// Any other pause interrupts it as before, and so does a stop, of a goblin
+// paused for memory too. On 2026-10-09 Murray's memory pause tried to abort
+// his live run, the abort failed, and no resume could bring him back.
+func TestAMemoryPauseLeavesAnOpenGateRunAlone(t *testing.T) {
+	memory := &state.PauseCondition{Reason: "memory", At: time.Now().UTC()}
+	for _, testCase := range []struct {
+		name, action  string
+		pause         *state.PauseCondition
+		isInterrupted bool
+	}{
+		{name: "a pause for memory", action: "pause", pause: memory},
+		{name: "a pause by the Overlord", action: "pause", pause: &state.PauseCondition{Reason: "overlord", At: time.Now().UTC()}, isInterrupted: true},
+		{name: "a stop", action: "stop", isInterrupted: true},
+		{name: "a stop of a goblin paused for memory", action: "stop", pause: memory, isInterrupted: true},
+	} {
+		t.Run(testCase.name, func(t *testing.T) {
+			// Arrange
+			directory := t.TempDir()
+			stateDir := filepath.Join(directory, "state")
+			gateRoot := filepath.Join(directory, "gate")
+			if err := os.MkdirAll(gateRoot, 0o700); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(filepath.Join(gateRoot, "state.sqlite"), nil, 0o600); err != nil {
+				t.Fatal(err)
+			}
+			meta := state.TaskMeta{ID: "fixture", Backend: "native", Project: directory, Worktree: filepath.Join(directory, ".worktrees", "gb-fixture"), TaskTmp: filepath.Join(stateDir, "tasktmp", "fixture")}
+			record := state.Lifecycle{ID: meta.ID, Action: testCase.action, Pause: testCase.pause}
+
+			// Act
+			resources, _, err := StopTask(t.Context(), home.Home{Root: filepath.Dir(stateDir), State: stateDir}, meta, pipeline.Reader{Root: gateRoot, Commands: gateRunRunner{status: "running"}}, &record)
+
+			// Assert
+			if err != nil {
+				t.Fatal(err)
+			}
+			if isInterrupted := resources.Gate.ID != ""; isInterrupted != testCase.isInterrupted {
+				t.Errorf("gate run interrupted = %v, want %v: %+v", isInterrupted, testCase.isInterrupted, resources.Gate)
+			}
+		})
+	}
+}
+
 func TestStoppingATaskKeepsAnotherTasksGateTestUnderItsGoTemp(t *testing.T) {
 	root := t.TempDir()
 	t.Setenv("LOCALAPPDATA", filepath.Join(root, "localappdata"))

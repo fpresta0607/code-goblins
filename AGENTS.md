@@ -371,8 +371,13 @@ The product does this by itself in every home, with no setting, and wakes you fo
   A waiting card says what it waits for in place of Queued, such as **Waits for 12 GB free** or **Starts Oct 10, 7:00 PM**.
   Work that must not start until you decide belongs under `## Parked`.
 - **Finished work never starts again.** A queued task whose outcome says it delivered, whose last report in its status log, live or archived, was done, or whose pull request, or one of its branch, merged, is refused by the scheduler and by Start, and its card says **Already finished** with the evidence in place of Start.
+  So is a task you retired, with `cfo cleanup` or `cfo kill`, after its row was queued, whatever its row still says.
+  A row has no time of its own, so its brief stands for it: a brief written since the retirement is new work for that id and starts.
+  Instead of starting a retired task's row, the scheduler wakes you once with a `stale_row:` notify keyed by the task.
   Queue new work under a new id.
-- **The queue cleans itself.** When `cfo cleanup` (with or without `--force-archive`, and through `cfo reap --apply`) retires a delivered task, its row moves from `## Queued` to `## Done` with its detail lines, in one write that keeps every other line as it was, and the supervisor moves any row a delivered task left behind.
+- **The queue cleans itself.** When `cfo cleanup` (with or without `--force-archive`, and through `cfo reap --apply`) retires a task, its row moves from `## Queued` to `## Done` with its detail lines, in one write that keeps every other line as it was, whatever the task last reported, so nothing starts it again from its row.
+  The row closes as `done` when the task delivered and as `retired` when it did not, and the supervisor moves any row a delivered task left behind.
+  A local-only task opens no pull request, so it is delivered when a done line of its current run names its report, `data/<task>/report.md`, by its full path or its path in the home, and that report is there.
 - **Work that cannot start wakes you again.** A start that failed is not retried by itself, and its card says why.
   While work like that (a failed start or resume, or a row that needs you, such as one whose brief names no project) waits 30 minutes with memory free and nothing started, an `idle` wake keyed `fleet` names each task and why, and it comes again every 30 minutes that lasts.
 - **Your turn does not end idle.** When your turn ends with no goblin at work while work that could run waits and memory is free, it is reopened with an `idle` wake keyed `turn` naming the next work and the exact command: Claude Code's turn-end guard reopens it, and a Codex or pi CFO's native hook queues the wake the supervisor types into its terminal.
@@ -394,6 +399,10 @@ An Overlord pause needs his Resume, and a legacy pause with no condition also ne
 Pausing or stopping a goblin first pauses or stops each of its [helpers](#helper-goblins) through the same path, each with its own record, handoff request and card, a pause keeping the parent's condition, except a helper the parent is paused to wait on, which keeps working; the parent's own sweep then ends anything a helper's operation left.
 Resume is one card at a time, a helper's included, since each start needs its own memory; a helper paused with its parent needs no Resume of its own, since the scheduler resumes it once its parent runs again, when memory allows.
 Resume keeps the task id, worktree and branch; it continues the saved session less than a day after pausing where supported, then uses the retained handoff.
+A resume the machine has no room for by the time its terminal would start changes nothing: the goblin stays paused as it was, a memory pause still a memory pause, nobody is woken, and the scheduler resumes it before it starts anything new.
+A memory pause leaves the goblin's open gate run running, and its resume tells the goblin which run that is, so it picks the run back up and starts no other.
+Any other pause aborts the run after keeping its commits, and its resume starts the validation again.
+A run a pause could not abort is left to its goblin the same way, and never fails the resume.
 Answers given while paused ride the resume prompt.
 For a free slot, the oldest cleared pause comes before the Overlord's queue order; unresolved pauses do not block new work.
 His Start or Resume overrides that order, and `(priority: production-defect)` marks his reported production defect to jump both, with a notify saying why.

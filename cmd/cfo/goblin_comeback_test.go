@@ -223,7 +223,7 @@ func TestGoblinsResumeLeavesAGoblinItsRelaunchHadNoRoomForWaiting(t *testing.T) 
 		err  error
 		said string
 	}{
-		{"no room", fmt.Errorf("%w: %w", spawn.ErrNoRoom, errors.New("3.1 GB of memory is free")), "waits for room: 3.1 GB of memory is free"},
+		{"no room", fmt.Errorf("%w: %w", state.ErrNoRoom, errors.New("3.1 GB of memory is free")), "waits for room: 3.1 GB of memory is free"},
 		{"turn held", fmt.Errorf("spawn: the relaunch of first waited 10m0s for its turn and stopped: %w", lock.ErrHeld), "waits for room: spawn: the relaunch of first waited 10m0s for its turn"},
 	} {
 		t.Run(c.name, func(t *testing.T) {

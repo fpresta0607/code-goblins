@@ -105,7 +105,7 @@ func bringGoblinBack(ctx context.Context, h home.Home, runtime commandRuntime, i
 		Admit:         func() error { return runtime.admitLaunch(h) },
 	})
 	switch {
-	case errors.Is(err, spawn.ErrNoRoom):
+	case errors.Is(err, state.ErrNoRoom):
 		return goblinComeback{id: id, said: err.Error(), isWaiting: true}, true
 	case errors.Is(err, lock.ErrHeld):
 		return goblinComeback{id: id, said: "waits for room: " + err.Error(), isWaiting: true}, true

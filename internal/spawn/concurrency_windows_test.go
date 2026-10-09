@@ -323,7 +323,7 @@ func TestARelaunchTheMachineHasNoRoomForStartsNothing(t *testing.T) {
 	}})
 
 	// Assert
-	if !errors.Is(err, ErrNoRoom) || err.Error() != "waits for room: 3.1 GB of memory is free" {
+	if !errors.Is(err, state.ErrNoRoom) || err.Error() != "waits for room: 3.1 GB of memory is free" {
 		t.Fatalf("Switch = %v; want it waiting for room, with the reason", err)
 	}
 	if launches := named(f.events(t), "env"); len(launches) != 1 || nativeTerminalRuns(f.stateDir, "task-7") {

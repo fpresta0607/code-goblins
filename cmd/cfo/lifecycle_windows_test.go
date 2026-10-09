@@ -3,7 +3,10 @@ package main
 import (
 	"context"
 	"errors"
+	"fmt"
 	"os"
+	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -117,6 +120,72 @@ func TestResumeUsesSavedEngineOnlyForItsSessionAndKeepsFailedChoices(t *testing.
 			_, readErr := state.ReadEngineChoice(h.State, meta.ID)
 			if test.isFailed && readErr != nil || !test.isFailed && test.generation == meta.SpawnGen && !errors.Is(readErr, os.ErrNotExist) {
 				t.Fatalf("saved choice after Resume = %v", readErr)
+			}
+		})
+	}
+}
+
+// liveGateRunner answers for a task on branch cfo/task whose latest gate run
+// has status, or has no gate run with none.
+type liveGateRunner struct{ status string }
+
+func (runner liveGateRunner) Run(_ context.Context, request execx.Request) (execx.Result, error) {
+	if request.Name != "sqlite3" {
+		return execx.Result{Stdout: []byte("cfo/task\n")}, nil
+	}
+	if runner.status == "" {
+		return execx.Result{Stdout: []byte("[]")}, nil
+	}
+	row := fmt.Sprintf(`[{"id":"run-1","repo_id":"repo-1","branch":"cfo/task","status":%q,"head":"%s","intent":"ship it","worktree":""}]`, runner.status, strings.Repeat("a", 40))
+	return execx.Result{Stdout: []byte(row)}, nil
+}
+
+// A goblin resumed while a gate run of its branch is still running is told
+// which run, so it picks that run back up and starts no other beside it: a
+// memory pause leaves the run alone, and a pause whose abort failed leaves it
+// live too. On 2026-10-09 each resume of Murray, paused for memory with his
+// run live, ended failed, and only a switch by hand brought him back.
+func TestResumeTellsAGoblinWhichGateRunIsStillRunning(t *testing.T) {
+	for _, testCase := range []struct {
+		name, status, pausedRun string
+		isTold                  bool
+	}{
+		{name: "a run a memory pause left alone", status: "running", isTold: true},
+		{name: "a run its pause could not abort", status: "running", pausedRun: "run-1", isTold: true},
+		{name: "a run that finished while it was paused", status: "completed"},
+		{name: "no gate run"},
+	} {
+		t.Run(testCase.name, func(t *testing.T) {
+			// Arrange
+			h := primaryHomeFixture(t)
+			root := t.TempDir()
+			if err := os.WriteFile(filepath.Join(root, "state.sqlite"), nil, 0o600); err != nil {
+				t.Fatal(err)
+			}
+			commands := liveGateRunner{status: testCase.status}
+			var received spawn.SwitchRequest
+			runtime := commandRuntime{switchTask: func(_ context.Context, _ home.Home, request spawn.SwitchRequest) (spawn.SwitchResult, error) {
+				received = request
+				return spawn.SwitchResult{}, nil
+			}}
+			meta := state.TaskMeta{ID: "task", SpawnGen: "generation-1", Backend: "native", Project: "project", Worktree: t.TempDir()}
+			prior := state.Lifecycle{ID: "task", Phase: "paused", Started: time.Now().Add(-time.Hour), ResumeNote: "The Overlord answered: continue", GateRun: testCase.pausedRun, GateIntent: "ship it"}
+
+			// Act
+			err := resumeTask(t.Context(), h, runtime, commands, pipeline.Reader{Root: root, Commands: commands}, meta, prior, nil)
+
+			// Assert
+			if err != nil {
+				t.Fatalf("resume = %v, want the goblin relaunched", err)
+			}
+			if !strings.HasPrefix(received.ResumeNote, prior.ResumeNote) {
+				t.Errorf("resume note = %q, want what the pause kept for it first", received.ResumeNote)
+			}
+			if isTold := strings.Contains(received.ResumeNote, "run-1"); isTold != testCase.isTold {
+				t.Errorf("resume note = %q, told of its run = %v, want %v", received.ResumeNote, isTold, testCase.isTold)
+			}
+			if testCase.isTold && strings.ContainsAny(strings.TrimPrefix(received.ResumeNote, prior.ResumeNote+"\n"), "\r\n") {
+				t.Errorf("resume note = %q, want the run named on one line of its own", received.ResumeNote)
 			}
 		})
 	}
