@@ -70,7 +70,7 @@ Under v4 `agent_args_override.codex` is `[-c, 'service_tier="default"']` and the
 Under v2 and v3 `agent` is `[codex]` and both global `review_agents` roles carry the version's Codex profile.
 The raw Codex argument override forces standard service for every managed role, so a user-level fast or priority preference cannot leak into a gate, while `agent_config` owns model and reasoning effort.
 Removing the Codex executable override makes no-mistakes resolve the native `codex` command from `PATH`; executable overrides for other harnesses remain operator-owned.
-Up to v4 the exact legacy CFO-owned Claude model and effort vector is removed during apply; a differing operator-owned Claude vector is preserved.
+Up to v4 the exact legacy CFO-owned Claude model and effort vector is removed during apply, and a differing operator-owned Claude vector is preserved.
 From v5 the policy owns Claude's arguments as well, since Claude is a gate agent of its chain.
 Document follow-ups and other native settings retain their existing values.
 Spawn never rewrites shared YAML.
