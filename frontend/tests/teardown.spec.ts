@@ -30,15 +30,18 @@ test("paused, resumed, stopped and restarted cards leave Windows teardown to the
     const details = page.locator(".lifecycle-panel");
     // The panel names the process behind Details. Working has no line under
     // it (the Overlord, 2026-10-05), so there the sentence is the first thing
-    // behind Details; a goblin paused with no reason keeps the line its bare
-    // Paused leaves out.
+    // behind Details. A paused goblin has no line either, and its Details is
+    // a description for a person (2026-10-09): what resumes it, then the
+    // program Windows still closes, without its process id.
     const header = page.locator(".panel-header");
     const isWorking = phase === "working" || phase === "restarted";
-    if (phase === "paused") await expect(header.locator(".panel-activity")).toHaveText("It stays paused until you resume it.");
-    else await expect(header.locator(".panel-activity")).toHaveCount(0);
+    await expect(header.locator(".panel-activity")).toHaveCount(0);
     await header.locator(".raw-details > summary").click();
-    await expect(header.locator(".raw-details-text")).toContainText(isWorking ? "Windows is still closing chrome.exe." : "chrome.exe pid 42");
-    await expect(header.locator(".raw-details-text")).toContainText("chrome.exe pid 42");
+    if (phase === "paused") await expect(header.locator(".raw-details-text")).toHaveText("It stays paused until you resume it. Windows is still closing chrome.exe.");
+    else {
+      await expect(header.locator(".raw-details-text")).toContainText(isWorking ? "Windows is still closing chrome.exe." : "chrome.exe pid 42");
+      await expect(header.locator(".raw-details-text")).toContainText("chrome.exe pid 42");
+    }
     if (phase === "working") {
       await expect(header.locator(".panel-status")).toHaveText("Working");
     }

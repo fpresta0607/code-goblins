@@ -50,7 +50,7 @@ const STATES = [
   { state: "waiting on you", title: "SIQstack colors and a clean browser tab for the board", status: "Waiting on the CFO",
     sentence: "The three mockups are on the Scrawl page. Reply build or say what to change.", raw: "waiting on overlord: the three mockups", isFailure: false, isQuiet: false },
   { state: "paused", title: "Memory and subscription dials in one header", status: "Paused by you",
-    sentence: "", raw: "Stopping-point deadline reached or request failed; no new handoff was saved", isFailure: false, isQuiet: false },
+    sentence: "", raw: "Both dials sit in one header at usage-header.tsx. The phone width is next. It stays paused until you resume it.", isFailure: false, isQuiet: false },
   { state: "a pause that did not finish", title: "Paused goblins resume by themselves when the reason for the pause clears", status: "Working",
     sentence: "The pause did not finish, so the goblin is not paused. Its work is kept. Try Pause again.", raw: "context deadline exceeded", isFailure: false, isQuiet: true },
   { state: "failed", title: "PrecisionDocs-AI uses far fewer GitHub Actions minutes", status: "Failed",
@@ -65,8 +65,10 @@ for (const [size, viewport, scale] of [["the Overlord's window", { width: 1707, 
     // (2026-10-05): what it would say is the first thing behind Details. A
     // pause someone asked for that did not finish is no failure of the
     // goblin's (2026-10-07), so it offers no log as a failure does. Paused by
-    // you already says what resumes it, so it has no line either (2026-10-09).
-    test("each panel says its state once, as its one status, with one plain sentence or none, and the raw words behind Details", async ({ page }) => {
+    // you already says what resumes it, so it has no line either, and its
+    // Details says what the goblin did last in place of what its pause could
+    // not do (2026-10-09).
+    test("each panel says its state once, as its one status, with one plain sentence or none, and the words it leaves out behind Details", async ({ page }) => {
       // Arrange
       await open(page);
       for (const { state, title, status, sentence, raw, isFailure, isQuiet } of STATES) {
@@ -85,6 +87,7 @@ for (const [size, viewport, scale] of [["the Overlord's window", { width: 1707, 
         await expect(header.getByRole("button", { name: "Open the log" }), state).toHaveCount(isFailure ? 1 : 0);
         await header.locator(".raw-details > summary").filter({ hasText: "Details" }).click();
         await expect(header.locator(".raw-details-text"), state).toContainText(raw);
+        if (state === "paused") await expect(header.locator(".raw-details-text"), state).toHaveText(raw);
         if (isQuiet) await expect(header.locator(".raw-details-text p").first(), state).toHaveText(sentence);
         await header.locator(".raw-details > summary").filter({ hasText: "Details" }).click();
         expect((await panel(page).locator(".lifecycle-details").allInnerTexts()).join(" "), state).not.toMatch(/Failed|Needs attention|Paused at/);

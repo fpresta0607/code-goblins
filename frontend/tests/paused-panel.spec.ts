@@ -1,4 +1,5 @@
-import { expect, holdStream, test, type Locator, type Page } from "./site";
+import { expect, holdStream, test, type Page } from "./site";
+import { caret, nativeMarkers } from "./caret";
 
 // The Overlord, 2026-10-09 about 13:50Z, with a screenshot of Bernie's paused
 // panel in its Task view: "in paused goblin panels the highlight line, it's
@@ -6,33 +7,48 @@ import { expect, holdStream, test, type Locator, type Page } from "./site";
 // that an actual caret that matches the caret below it". Under Paused by you
 // the panel said "It stays paused until you resume it.", which its status
 // already says, and Stopped resources opened on the browser's own triangle
-// while Workspace under it turns the board's chevron. Here is his goblin as
-// its lifecycle record kept it, with the buttons his header showed. The
-// supervisor is played by one held snapshot.
+// while Workspace under it turns the board's chevron. Later that day, on a
+// panel whose Details read what its pause could not do: "every time I look at
+// the details it is the same text ... that line that says it resumes by
+// itself, that should be part of the details. It should just be a well
+// written, proper case, human readable little description about what that
+// agent did or is doing. Not what you're seeing currently in this terminal
+// window." Here is his goblin as its lifecycle record kept it, with the
+// buttons his header showed and the last thing it reported. The supervisor is
+// played by one held snapshot.
 const REPO = "https://github.com/fpresta0607/PrecisionDocs-AI";
 const at = "2026-10-09T07:11:36Z";
 const HEAD = "@" + "a".repeat(40);
+// What a pause that missed its handoff and its teardown leaves in its record,
+// which the CFO hears and the panel never shows.
+const PROBLEMS = ["Stopping-point deadline reached or request failed; no new handoff was saved", "its terminal ended, but the rest of its stop did not finish: context deadline exceeded"];
 const BERNIE = {
   id: "pd-whats-new", title: "What's new in PrecisionDocs for the connector changes; Claude Code", project: "PrecisionDocs-AI",
   goblin_name: "Bernie", goblin_title: "Merge Maestro", harness: "claude", model: "claude-opus-5-5", backend: "native",
   phase: "paused", verified: false, generation: "s1791515797213332900", since: "2026-10-08T22:00:00Z", at,
-  reason: "Paused by the Overlord; resumes on Resume",
+  reason: "Paused by the Overlord; resumes on Resume", activity: "lifecycle-paused: overlord; worktree C:\\dev\\code-goblins\\worktrees\\PrecisionDocs-AI\\pd-whats-new; task session and branch",
+  last_report: "working: PR 1523 is green at 5f52309400; answering the two review notes on the connector page",
   lifecycle: { phase: "paused", action: "pause", at, handoff_saved: false, validation_restarts: true,
     kept: ["worktree C:\\dev\\code-goblins\\worktrees\\PrecisionDocs-AI\\pd-whats-new", "task session and branch"],
     stopped: ["terminal host pid 27236"],
-    problems: ["Stopping-point deadline reached or request failed; no new handoff was saved", "gate commits are pinned locally but could not merge into the task branch; worktree and run are kept for conflict resolution"],
+    problems: [...PROBLEMS, "gate commits are pinned locally but could not merge into the task branch; worktree and run are kept for conflict resolution"],
     pause: { reason: "overlord", at } },
   ticket: { number: 1516, url: REPO + "/issues/1516", state: "pr open" },
   pr: REPO + "/pull/1523",
   hosted_checks: { head: "5f52309400", state: "passed", checks: 9, at },
 };
 
-// A goblin paused for one reason, or before pauses had reasons.
+// A goblin paused for one reason, or before pauses had reasons, whose pause
+// left the same record as every other and who last reported work of its own.
 const paused = (name: string, pause?: { reason: string; until?: string }) => ({
   id: "paused-" + name.toLowerCase(), title: name + "'s fixture task", project: "code-goblins", goblin_name: name, goblin_title: "Fixture",
   harness: "claude", phase: "paused", verified: false, generation: "s-" + name.toLowerCase(), since: at, at,
-  lifecycle: { phase: "paused", action: "pause", at, kept: [], stopped: [], problems: [], handoff_saved: true, validation_restarts: false, ...(pause && { pause: { until: "", at, ...pause } }) },
+  activity: "lifecycle-paused: " + (pause?.reason || "paused") + "; worktree C:\\dev\\code-goblins\\worktrees\\code-goblins\\" + name.toLowerCase() + "; task session and branch",
+  last_report: `working: ${name} wrote the tests at frontend/tests/${name.toLowerCase()}.spec.ts; the fixes come next`,
+  lifecycle: { phase: "paused", action: "pause", at, kept: [], stopped: [], problems: PROBLEMS, handoff_saved: false, validation_restarts: false, ...(pause && { pause: { until: "", at, ...pause } }) },
 });
+// What that goblin's Details says it did.
+const did = (name: string) => `${name} wrote the tests at ${name.toLowerCase()}.spec.ts. The fixes come next.`;
 
 async function open(page: Page, goblins: object[], name: string) {
   await page.clock.setFixedTime(Date.parse("2026-10-09T13:50:00Z"));
@@ -65,15 +81,6 @@ const PAUSES: [string, { reason: string; until?: string } | undefined, string | 
   ["Tansy", { reason: "dependency", until: "task:pd-whats-new" }, "Waiting on Bernie - Merge Maestro"],
 ];
 
-// The caret a summary draws as a person sees it: its shape, its size, its
-// color, its weight and how far it is turned.
-const caret = (summary: Locator) => summary.evaluate((element) => {
-  const icon = element.querySelector(":scope > svg");
-  if (!icon) return null;
-  const style = getComputedStyle(icon);
-  return { shape: icon.innerHTML, width: style.width, height: style.height, color: style.color, weight: style.strokeWidth, turn: style.transform };
-});
-
 // What Chromium tells a screen reader about the element a selector finds.
 async function announced(page: Page, selector: string) {
   const cdp = await page.context().newCDPSession(page);
@@ -102,21 +109,46 @@ for (const [size, viewport, scale] of [["the Overlord's window", { width: 1707, 
         await expect(header.locator(".panel-activity"), name).toHaveCount(0);
         await expect(header, name).not.toContainText(/It (stays paused|resumes by itself)/);
       }
-
-      // Assert: Bernie's Details still hold what his pause could not do.
-      await select(page, "Bernie");
-      await header.locator(".raw-details > summary").click();
-      await expect(header.locator(".raw-details-text")).toContainText("no new handoff was saved");
     });
 
-    test("a goblin paused before pauses had reasons keeps the line its bare Paused leaves out", async ({ page }) => {
-      // Arrange
-      await open(page, [paused("Old")], "Old");
+    test("a paused goblin's Details is one plain description of what it did last, then what it waits for", async ({ page }) => {
+      // Arrange: a goblin paused for memory, for a task, for a time, for CI
+      // and by him, and one paused before pauses had reasons.
+      await open(page, [BERNIE, ...PAUSES.map(([name, pause]) => paused(name, pause)), paused("Old")], "Bernie");
       const header = panel(page).locator(".panel-header");
+      const details = header.locator(".raw-details-text");
+      const cases: [string, string, string, RegExp][] = [
+        ["Mabel", "Memory: resumes at 5 GB free", did("Mabel"), /^It resumes by itself once 5 GB of memory is free\.$/],
+        ["Tansy", "Waiting on Bernie - Merge Maestro", did("Tansy"), /^It resumes by itself when Bernie - Merge Maestro finishes\.$/],
+        ["Datura", "Resumes ", did("Datura"), /^It resumes by itself on Oct \d+, \d+:00\s[AP]M\.$/],
+        ["Cogsworth", "Waiting on CI", did("Cogsworth"), /^It resumes by itself when its CI run finishes\.$/],
+        ["Bernie", "Paused by you", "PR 1523 is green. Answering the two review notes on the connector page.", /^It stays paused until you resume it\.$/],
+        ["Old", "Paused", did("Old"), /^It stays paused until you resume it\.$/],
+      ];
+      const read: string[] = [];
 
-      // Assert
-      await expect(header.locator(".panel-status")).toHaveText("Paused");
-      await expect(header.locator(".panel-activity")).toHaveText("It stays paused until you resume it.");
+      for (const [name, status, work, waits] of cases) {
+        // Act
+        await select(page, name);
+        await header.locator(".raw-details > summary").click();
+        const text = await details.innerText();
+
+        // Assert: what the goblin last reported, in sentences, then what it
+        // waits for, with nothing of the pause's own record, as the panel's
+        // prose and not as a terminal's lines.
+        await expect(header.locator(".panel-status"), name).toContainText(status);
+        await expect(header.locator(".panel-activity"), name).toHaveCount(0);
+        expect(text.startsWith(work + " "), name + ": " + text).toBe(true);
+        expect(text.slice(work.length + 1), name).toMatch(waits);
+        expect(text, name).not.toMatch(/;|deadline|handoff|did not finish|lifecycle|pid \d|[A-Za-z]:\\/);
+        await expect(details.locator("p"), name).toHaveCount(1);
+        expect(await details.evaluate((element) => getComputedStyle(element).fontFamily === getComputedStyle(document.body).fontFamily), name).toBe(true);
+        read.push(text);
+        await header.locator(".raw-details > summary").click();
+      }
+
+      // Assert: no two goblins' Details read the same.
+      expect(new Set(read).size).toBe(cases.length);
     });
 
     test("Stopped resources starts closed and opens with the panel's caret, never the browser's marker", async ({ page }) => {
@@ -126,36 +158,39 @@ for (const [size, viewport, scale] of [["the Overlord's window", { width: 1707, 
       const summary = stopped.locator("> summary");
       const workspace = panel(page).locator(".panel-content > details").filter({ has: page.locator("> summary", { hasText: "Workspace" }) }).locator("> summary");
 
+      const details = panel(page).locator(".panel-header .raw-details > summary");
+
       // Assert: no dropdown in the panel draws the browser's marker, and
-      // Stopped resources draws Workspace's caret, closed.
-      expect(await panel(page).locator("summary").evaluateAll((summaries) => summaries.filter((element) => {
-        const style = getComputedStyle(element);
-        return style.display === "list-item" && style.listStyleType !== "none";
-      }).map((element) => element.textContent))).toEqual([]);
+      // Stopped resources and Details draw Workspace's caret, closed.
+      expect(await nativeMarkers(panel(page))).toEqual([]);
       await expect(stopped).not.toHaveAttribute("open");
       await expect(panel(page).getByText("terminal host pid 27236")).toBeHidden();
       const closed = await caret(workspace);
       expect(closed).not.toBeNull();
       expect(await caret(summary)).toEqual(closed);
+      await expect(details).toHaveText("Details");
+      expect(await caret(details)).toEqual(closed);
 
-      // Act: open both, Stopped resources from the keyboard.
+      // Act: open all three, Stopped resources from the keyboard.
       await workspace.click();
+      await details.click();
       await summary.focus();
       await page.keyboard.press("Enter");
 
-      // Assert: it opens, and its caret turns as Workspace's does.
+      // Assert: it opens, and each caret turns as Workspace's does.
       await expect(stopped).toHaveAttribute("open");
       await expect(panel(page).getByText("terminal host pid 27236")).toBeVisible();
-      await expect.poll(() => caret(workspace)).not.toEqual(closed);
       const opened = await caret(workspace);
-      await expect.poll(() => caret(summary)).toEqual(opened);
+      expect(opened).not.toEqual(closed);
+      expect(await caret(summary)).toEqual(opened);
+      expect(await caret(details)).toEqual(opened);
 
       // Act: close it again from the keyboard.
       await page.keyboard.press("Space");
 
       // Assert
       await expect(stopped).not.toHaveAttribute("open");
-      await expect.poll(() => caret(summary)).toEqual(closed);
+      expect(await caret(summary)).toEqual(closed);
     });
   });
 }
