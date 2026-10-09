@@ -4,12 +4,14 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/fpresta0607/code-goblins/internal/home"
 	"github.com/fpresta0607/code-goblins/internal/state"
+	"github.com/fpresta0607/code-goblins/internal/wake"
 )
 
 // Finished work never starts again by itself, whatever says it finished: its
@@ -108,6 +110,118 @@ func TestSchedulerNeverRestartsFinishedWork(t *testing.T) {
 			response := postStart(handler, `{"task":"next-task"}`, "board.local", "http://board.local", orderToken)
 			if response.Code != 409 || !strings.Contains(strings.ToLower(response.Body.String()), "already finished") {
 				t.Errorf("Start=%d %s, want it refused as finished", response.Code, response.Body)
+			}
+		})
+	}
+}
+
+// A row the CFO retired its task after it was queued is stale: the scheduler
+// never starts it again by itself, even with the row still under ## Queued,
+// and tells the CFO about the row once instead. A row has no time of its own,
+// so its brief stands for it: a brief written since the retirement is new
+// work for the id and starts, and so does a row queued again after a stop
+// took the queued task off the queue before it ever started. A row with no
+// brief does not, since its start would write one from the row. On 2026-10-09
+// Bruno's local-only scout was retired with its row left under ## Queued, and
+// the scheduler started the same scout again as Trudy a minute later.
+func TestSchedulerTellsTheCFOOfARetiredTasksRowInsteadOfStartingIt(t *testing.T) {
+	cases := []struct {
+		name      string
+		arrange   func(t *testing.T, h home.Home, brief string)
+		wantStart bool
+	}{
+		{
+			name: "retired after its row was queued",
+			arrange: func(t *testing.T, h home.Home, brief string) {
+				queuedAt := time.Now().Add(-2 * time.Hour)
+				if err := os.Chtimes(brief, queuedAt, queuedAt); err != nil {
+					t.Fatal(err)
+				}
+				generation := "s" + strconv.FormatInt(time.Now().Add(-time.Hour).UnixNano(), 10)
+				retired := time.Now().UTC().Add(-time.Minute)
+				writeFile(t, filepath.Join(h.State, "next-task.status"), time.Now().Add(-time.Hour).UTC().Format(time.RFC3339)+" working: proving the strays\n"+retired.Add(-time.Minute).Format(time.RFC3339)+" done: PR none (local-only scout). Report: C:\\home\\data\\next-task\\report.md\n"+retired.Format(time.RFC3339)+" stopped: returned worktree C:\\w via cfo cleanup\n")
+				writeOutcome(t, h, state.Outcome{ID: "next-task", Generation: generation, Title: "Ship it", Project: h.Root, Phase: "stopped", Reason: "Worktree returned by cleanup", At: retired})
+			},
+		},
+		{
+			name: "retired with no brief left for its row",
+			arrange: func(t *testing.T, h home.Home, brief string) {
+				if err := os.Remove(brief); err != nil {
+					t.Fatal(err)
+				}
+				generation := "s" + strconv.FormatInt(time.Now().Add(-time.Hour).UnixNano(), 10)
+				writeOutcome(t, h, state.Outcome{ID: "next-task", Generation: generation, Title: "Ship it", Project: h.Root, Phase: "stopped", Reason: "Worktree returned by cleanup", At: time.Now().UTC().Add(-time.Minute)})
+			},
+		},
+		{
+			name: "its brief was written again since it was retired",
+			arrange: func(t *testing.T, h home.Home, _ string) {
+				generation := "s" + strconv.FormatInt(time.Now().Add(-2*time.Hour).UnixNano(), 10)
+				writeOutcome(t, h, state.Outcome{ID: "next-task", Generation: generation, Title: "Ship it", Project: h.Root, Phase: "stopped", Reason: "Worktree returned by cleanup", At: time.Now().UTC().Add(-time.Hour)})
+			},
+			wantStart: true,
+		},
+		{
+			name: "queued again after a stop took it off the queue unstarted",
+			arrange: func(t *testing.T, h home.Home, brief string) {
+				queuedAt := time.Now().Add(-2 * time.Hour)
+				if err := os.Chtimes(brief, queuedAt, queuedAt); err != nil {
+					t.Fatal(err)
+				}
+				writeOutcome(t, h, state.Outcome{ID: "next-task", Generation: "queued", Title: "Ship it", Project: h.Root, Phase: "stopped", Reason: "Requested from the board", At: time.Now().UTC().Add(-time.Hour)})
+			},
+			wantStart: true,
+		},
+	}
+	for _, testCase := range cases {
+		t.Run(testCase.name, func(t *testing.T) {
+			// Arrange
+			spawner := &spawnRecorder{}
+			handler, h := startBoard(t, 8*gigabyte, spawner)
+			queueBriefedTask(t, h, "- **next-task** - Ship it (repo: code-goblins)", plainBrief)
+			testCase.arrange(t, h, filepath.Join(h.Data, "next-task", "brief.md"))
+
+			// Act
+			for range 2 {
+				if err := handler.Service.checkFleet(t.Context(), time.Now().UTC()); err != nil {
+					t.Fatal(err)
+				}
+			}
+
+			// Assert
+			pending, err := wake.Pending(h.State)
+			if err != nil {
+				t.Fatal(err)
+			}
+			var told []wake.Record
+			for _, record := range pending {
+				if record.Kind == "notify" && record.Key == "next-task" && strings.HasPrefix(record.Detail, "stale_row: ") {
+					told = append(told, record)
+				}
+			}
+			if testCase.wantStart {
+				if calls := awaitDispatch(t, handler.Service, spawner, 1); calls[0][0] != "spawn" || calls[0][1] != "next-task" {
+					t.Fatalf("dispatches=%v, want next-task started", calls)
+				}
+				if len(told) != 0 {
+					t.Errorf("the CFO was told %v, want nothing told of a row queued since", told)
+				}
+				return
+			}
+			awaitDispatch(t, handler.Service, spawner, 0)
+			if calls := spawner.recorded(); len(calls) != 0 {
+				t.Fatalf("a retired task started again from its stale row: %v", calls)
+			}
+			if len(told) != 1 || !strings.Contains(told[0].Detail, "## Queued") || !strings.Contains(told[0].Detail, "retired") {
+				t.Errorf("the CFO was told %+v, want one stale_row notice naming the row and the retirement", told)
+			}
+			card := queuedCard(t, handler, "next-task")
+			if !strings.Contains(card.Finished, "retired") {
+				t.Errorf("card says %q, want why it never starts again", card.Finished)
+			}
+			response := postStart(handler, `{"task":"next-task"}`, "board.local", "http://board.local", orderToken)
+			if response.Code != 409 || !strings.Contains(response.Body.String(), "retired") {
+				t.Errorf("Start=%d %s, want it refused as retired", response.Code, response.Body)
 			}
 		})
 	}
