@@ -151,9 +151,9 @@ type Service struct {
 	// pullRequests is what GitHub last said about each finished task's pull
 	// request the history shows; only keepHistory touches it.
 	pullRequests map[string]pullRequestState
-	// awaitedMerges holds the pull requests queued rows wait on that the
-	// scheduler saw merged.
-	awaitedMerges map[string]bool
+	// awaitedPulls holds the state the scheduler last read of each pull
+	// request a queued row waits on: OPEN, CLOSED or MERGED.
+	awaitedPulls map[string]string
 	// historyErr is what the last history refresh met, and cfoWakeErr and
 	// fleetErr what every typed CFO wake and every fleet wake reading met
 	// since the last recovery cycle; the loop reports them with its next
@@ -1026,17 +1026,17 @@ func (s *Service) previewGit(meta state.TaskMeta) Git {
 }
 
 type Task struct {
-	ID           string          `json:"id"`
-	Title        string          `json:"title"`
-	Branch       string          `json:"branch,omitempty"`
-	Project      string          `json:"project"`
-	Harness      string          `json:"harness"`
-	Backend      string          `json:"backend"` // the terminal it runs in: native or herdr
-	Model        string          `json:"model"`
-	Effort       string          `json:"effort"`
-	Mode         string          `json:"mode"`
-	Generation   string          `json:"generation"`
-	Session      string          `json:"session"`
+	ID         string `json:"id"`
+	Title      string `json:"title"`
+	Branch     string `json:"branch,omitempty"`
+	Project    string `json:"project"`
+	Harness    string `json:"harness"`
+	Backend    string `json:"backend"` // the terminal it runs in: native or herdr
+	Model      string `json:"model"`
+	Effort     string `json:"effort"`
+	Mode       string `json:"mode"`
+	Generation string `json:"generation"`
+	Session    string `json:"session"`
 	// Waits is what a queued task's row still waits for before the
 	// scheduler starts it, for its card's words.
 	Waits   []fleet.Blocker `json:"waits,omitempty"`

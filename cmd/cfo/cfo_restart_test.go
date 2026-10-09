@@ -435,3 +435,24 @@ func TestRestartCFOLeavesACFOItCannotBringBackRunning(t *testing.T) {
 		t.Errorf("the CFO's conversation record = %q, %v after the refusal, want it as it was, %q", after, err, conversation)
 	}
 }
+
+// A restart never closes a CFO it cannot start again: with the CFO's program
+// gone from the restarting process's PATH, the CFO is left running, with why.
+func TestRestartCFOLeavesTheCFORunningWhenItsProgramCannotBeFound(t *testing.T) {
+	// Arrange
+	h := fakeClaudeHome(t)
+	record := nativeCFORunning(t, h, "a1b2c3d4-session")
+	recordConversationOf(t, h.State, record, "claude", "a1b2c3d4-session")
+	t.Setenv("PATH", t.TempDir())
+
+	// Act
+	_, _, err := restartCFO(h)
+
+	// Assert
+	if err == nil || !strings.Contains(err.Error(), "so the CFO is left running") {
+		t.Fatalf("restartCFO error = %v, want the CFO left running", err)
+	}
+	if _, alive := proc.StartTime(record.ChildPID); !alive || !host.Running(record) {
+		t.Errorf("the CFO, pid %d, was stopped", record.ChildPID)
+	}
+}

@@ -31,9 +31,9 @@ var errNoRunningCFO = errors.New("no CFO runs in native terminal cfo")
 // harness that ends at once, as one that cannot resume the conversation does,
 // is started again on a new conversation, and the board names the
 // conversation it could not resume. It leaves the CFO running only where it
-// cannot restart it: its terminal has no record or does not close, or this
-// runs inside that terminal, which closing would end before it started the
-// CFO again. Closing the terminal ends the harness and everything it started;
+// cannot restart it: its terminal has no record or does not close, its
+// program cannot be found, or this runs inside that terminal, which closing
+// would end before it started the CFO again. Closing the terminal ends the harness and everything it started;
 // goblins, each in a terminal of its own, keep running.
 func restartCFO(h home.Home) (supervisor.CFOConversation, string, error) {
 	if _, err := lock.AcquireExclusiveNamed(h.State, cfoLaunchLock); err != nil {
@@ -64,6 +64,9 @@ func restartCFO(h home.Home) (supervisor.CFOConversation, string, error) {
 			return supervisor.CFOConversation{}, "", fmt.Errorf("the CFO registered no conversation it can come back on, and the harness to start it as cannot be read, so it is left running: %w", err)
 		}
 		conversation = supervisor.CFOConversation{Harness: harness}
+	}
+	if _, err := nativeCFOProgram(conversation.Harness); err != nil {
+		return supervisor.CFOConversation{}, "", fmt.Errorf("the CFO's program cannot be found, so the CFO is left running: %w", err)
 	}
 	if err := host.Close(h.State, record, 5*time.Second); err != nil {
 		return supervisor.CFOConversation{}, "", fmt.Errorf("the CFO's terminal could not be closed, so nothing was restarted: %w", err)

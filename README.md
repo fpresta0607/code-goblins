@@ -212,6 +212,7 @@ A conversation that cannot be resumed starts a new one, and so does one past 20 
 A CFO that ran in Herdr, or one that starts as another agent, starts a new conversation.
 `goblins resume` restarts a CFO that is running in its native terminal, as for one whose screen froze while the session kept working: it closes that terminal, which ends the agent and interrupts its current response, and starts it again there on the same conversation, while goblins and the board keep running.
 It always restarts it: a conversation it cannot resume, such as one in pi, one past 20 MB or one not recorded for the process its terminal runs, is left as it is, and the CFO starts again there on a new one, with the home's digest, as a closed CFO does, and `goblins resume` says why.
+It leaves the CFO running only when it could not start it again, such as when the CFO's program is not on its PATH.
 Run inside the CFO's own terminal, it would end itself with that terminal, so it leaves the CFO running there and says to run it in another terminal or from the board.
 A restarted CFO whose agent ends within three seconds, as one that cannot resume the conversation does, starts again there on a new one, and `goblins resume` names the conversation it could not resume; one that ends while its startup questions are answered is reported as ended, and `goblins` brings it back.
 A CFO that `goblins` or `goblins resume` starts on a new conversation that way leaves the board saying which conversation could not be resumed and the command that opens it by hand, until the CFO next comes back on its conversation.
@@ -408,7 +409,7 @@ When the CFO's turn ends with no goblin at work while work that could run waits 
 None of this needs a setting: every home does it.
 The Overlord's own Start or Resume overrides that ordering; a queued row marked `(priority: production-defect)` also goes first, with a notify explaining that it jumped the order.
 A queued row waits while its title line carries `blocked-by:` what it waits for, with ` - why` after it, and the supervisor starts it by itself once every wait cleared: `until 2026-10-10T00:00Z` a time, `memory 12 GB` free memory and commit, a task id that task delivering, or a GitHub pull request URL that pull request merging.
-A wait the supervisor cannot read, such as a word that names no task, keeps the row waiting and says why on its card.
+A wait the supervisor cannot read, such as a word that names no task, keeps the row waiting and says why on its card, and so does one that can never clear, such as a task that stopped without delivering or a pull request closed without merging.
 A blocked task has no Start button or Next up mark, and its status says what it waits for in place of Queued, such as **Waits for 12 GB free** or **Starts Oct 10, 7:00 PM**, with no line added.
 The CFO's note on the wait is in its panel behind **More**.
 An eligible queued card has a **Start** play icon with a tooltip, and its panel has the same **Start**.

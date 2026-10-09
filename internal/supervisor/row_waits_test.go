@@ -2,6 +2,7 @@ package supervisor
 
 import (
 	"context"
+	"errors"
 	"path/filepath"
 	"slices"
 	"strings"
@@ -154,5 +155,85 @@ func TestAWaitingCardCarriesWhatItStillWaitsFor(t *testing.T) {
 	}
 	if len(cleared.Waits) != 0 {
 		t.Errorf("cleared card waits = %+v, want none", cleared.Waits)
+	}
+}
+
+// A pull request a row waits on whose state cannot be read keeps that row
+// waiting, and nothing else: the scheduler still says why other work waits,
+// and the CFO is still woken for it.
+func TestAPullRequestThatCannotBeReadHoldsOnlyItsOwnRow(t *testing.T) {
+	// Arrange
+	spawner := &spawnRecorder{}
+	handler, h := startBoard(t, 8*gigabyte, spawner)
+	writeFile(t, filepath.Join(h.Data, "backlog.md"), "## Queued\n"+
+		"- **pr-task** - Ship after it (repo: code-goblins) blocked-by: https://github.com/o/r/pull/7 - after it merges\n"+
+		"- **night-task** - Quiet night work (repo: code-goblins) blocked-by: quiet-night - needs 12 GB free\n")
+	writeFile(t, filepath.Join(h.Data, "pr-task", "brief.md"), plainBrief)
+	writeFile(t, filepath.Join(h.Data, "night-task", "brief.md"), plainBrief)
+	handler.Service.Options.PullRequestState = func(context.Context, string) (PullRequestInfo, error) {
+		return PullRequestInfo{}, errors.New("gh: could not resolve to a PullRequest")
+	}
+	start := time.Now().UTC().Truncate(time.Minute)
+
+	// Act
+	for minute := range 32 {
+		_ = handler.Service.checkFleet(t.Context(), start.Add(time.Duration(minute)*time.Minute))
+	}
+
+	// Assert
+	if calls := spawner.recorded(); len(calls) != 0 {
+		t.Fatalf("dispatches=%v, want nothing started", calls)
+	}
+	wakes := fleetWakeRecords(t, h, "idle")
+	if len(wakes) != 1 || !strings.Contains(wakes[0].Detail, `night-task: No task is named "quiet-night"`) {
+		t.Fatalf("idle wakes %v, want one naming night-task and why", wakes)
+	}
+}
+
+// A row whose wait can never clear says why, as one the scheduler cannot
+// read does: a task that stopped without delivering, or a pull request
+// closed without merging, would otherwise hold it forever unseen.
+func TestARowWhoseWaitCanNeverClearSaysWhy(t *testing.T) {
+	cases := []struct {
+		name, blocker, why string
+		arrange            func(t *testing.T, h home.Home, service *Service)
+	}{
+		{"a task that stopped", "other-task", "other-task stopped without delivering", func(t *testing.T, h home.Home, _ *Service) {
+			if err := state.WriteOutcome(h.State, state.Outcome{ID: "other-task", Generation: "generation-other-task", Phase: "stopped", Reason: "stopped by the CFO", At: time.Now().UTC()}); err != nil {
+				t.Fatal(err)
+			}
+		}},
+		{"a pull request closed", "https://github.com/o/r/pull/7", "PR #7 closed without merging", func(_ *testing.T, _ home.Home, service *Service) { pullRequestNow(service, "CLOSED") }},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			// Arrange
+			spawner := &spawnRecorder{}
+			handler, h := startBoard(t, 8*gigabyte, spawner)
+			queueBriefedTask(t, h, "- **next-task** - Ship it (repo: code-goblins) blocked-by: "+c.blocker+" - after it", plainBrief)
+			c.arrange(t, h, handler.Service)
+
+			// Act
+			if err := handler.Service.checkFleet(t.Context(), time.Now().UTC()); err != nil {
+				t.Fatal(err)
+			}
+			calls := awaitCalls(t, spawner, 0)
+			card := cardOf(t, handler, "next-task")
+			snapshot, err := handler.Service.Snapshot()
+
+			// Assert
+			if err != nil {
+				t.Fatal(err)
+			}
+			if len(calls) != 0 {
+				t.Fatalf("dispatches=%v, want nothing started", calls)
+			}
+			if len(card.Waits) != 1 || card.Waits[0].Problem != c.why {
+				t.Errorf("card waits = %+v, want one wait saying %q", card.Waits, c.why)
+			}
+			if snapshot.Scheduling == nil || !strings.Contains(snapshot.Scheduling.Text, "next-task: "+c.why) {
+				t.Errorf("scheduling = %+v, want next-task named as waiting, with %q", snapshot.Scheduling, c.why)
+			}
+		})
 	}
 }

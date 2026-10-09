@@ -165,6 +165,40 @@ func TestWorkWaitsWhileAQueuedTaskCouldStart(t *testing.T) {
 	}
 }
 
+// A row that waits for what its blocked-by names is work too: the scheduler
+// starts it by itself once that clears, or it needs the CFO to fix a wait it
+// cannot read, so the CFO's Stop hook stays armed for the wakes either
+// raises. A row that already finished is not.
+func TestWorkWaitsWhileARowWaitsForWhatItsBlockedByNames(t *testing.T) {
+	cases := []struct {
+		name, row        string
+		isFinished, want bool
+	}{
+		{"a time still ahead", "- **next-task** - Ship it (repo: code-goblins) blocked-by: until 2999-01-01T00:00Z - later", false, true},
+		{"memory not yet free", "- **next-task** - Ship it (repo: code-goblins) blocked-by: memory 999 GB - room", false, true},
+		{"a wait it cannot read", "- **next-task** - Ship it (repo: code-goblins) blocked-by: quiet-night - room", false, true},
+		{"a row that already finished", "- **next-task** - Ship it (repo: code-goblins) blocked-by: until 2999-01-01T00:00Z - later", true, false},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			// Arrange
+			h := bareHome(t)
+			queueBriefedTask(t, h, c.row, plainBrief)
+			if c.isFinished {
+				writeFile(t, filepath.Join(h.State, "archive", "next-task.status.20261006T120000Z"), "2026-10-06T11:59:00Z done: returned worktree C:\\w via cfo cleanup\n")
+			}
+
+			// Act
+			isWaiting := WorkWaits(h)
+
+			// Assert
+			if isWaiting != c.want {
+				t.Fatalf("work waits = %v, want %v", isWaiting, c.want)
+			}
+		})
+	}
+}
+
 // bareHome is a home with nothing in it: no goblin, no queue, no wake.
 func bareHome(t *testing.T) home.Home {
 	t.Helper()

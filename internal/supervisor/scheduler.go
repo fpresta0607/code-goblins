@@ -42,8 +42,11 @@ func (s *Service) schedule(ctx context.Context, now time.Time, watched *fleetWak
 	}
 	record := &Scheduling{At: now}
 	// A pull request a queued row waits on that merged lets the row start
-	// at this reading.
-	problems := s.learnAwaitedMerges(ctx)
+	// at this reading. One that cannot be read holds its own row only, and
+	// the board says why, so the rest of the reading and its wakes go on.
+	if err := s.learnAwaitedPulls(ctx); err != nil {
+		s.publish(err)
+	}
 	reading := s.rowReading(now, &memory)
 	s.starts.Lock()
 	starting, changing := s.starting, maps.Clone(s.changing)
@@ -77,6 +80,7 @@ func (s *Service) schedule(ctx context.Context, now time.Time, watched *fleetWak
 			defect = id
 		}
 	}
+	var problems error
 	var ready []state.Lifecycle
 	memoryPending := ""
 	for _, meta := range liveTasks(s.Store.Home.State) {

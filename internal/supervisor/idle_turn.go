@@ -24,11 +24,20 @@ type idleTurn struct {
 	At   time.Time `json:"at"`
 }
 
-// WorkWaits reports whether a queued task a Start could start waits, so the
-// CFO's Stop hook keeps watching for the wakes it raises though no goblin is
-// in flight.
+// WorkWaits reports whether queued work waits, a task a Start could start or
+// a row waiting for what its blocked-by names, which starts by itself once
+// that clears or needs the CFO to fix it, so the CFO's Stop hook keeps
+// watching for the wakes it raises though no goblin is in flight.
 func WorkWaits(h home.Home) bool {
-	return len(startableQueued(h, readFinishedWork(h, nil), rowReading{now: time.Now().UTC()})) > 0
+	finished, reading := readFinishedWork(h, nil), rowReading{now: time.Now().UTC()}
+	for _, id := range queuedCandidates(h) {
+		_, err := planStart(h, id, finished, reading)
+		var refusal StartRefusal
+		if err == nil || errors.As(err, &refusal) && refusal.Waits {
+			return true
+		}
+	}
+	return false
 }
 
 // IdleTurnWake wakes a CFO whose turn ends with no goblin at work while work
