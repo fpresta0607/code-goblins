@@ -60,9 +60,9 @@ const (
 // comeBack takes the next step of the comeback checkMemory planned, at a
 // memory reading at or above the floor: the CFO first, then the next goblin
 // once memory and commit read
-// at or above the next-start mark twice in a row and a launch has room, one
-// at a time. It reports whether anything still waits to come back, while
-// which nothing else starts by itself.
+// at or above the next-start mark twice in a row, the performance cores have
+// room and a launch has room, one at a time. It reports whether anything
+// still waits to come back, while which nothing else starts by itself.
 func (s *Service) comeBack(memory Memory, w *fleetWakes) (bool, error) {
 	comeback := s.Options.Comeback
 	if comeback == nil || s.Options.Example {
@@ -79,6 +79,10 @@ func (s *Service) comeBack(memory Memory, w *fleetWakes) (bool, error) {
 	if !isCFOWaiting && next < 0 {
 		return false, nil
 	}
+	// The CFO comes back whatever the processors do; a goblin waits for room
+	// on the performance cores, so a restart does not bring each back
+	// straight into the last one's builds.
+	isBusy := !isCFOWaiting && s.processorsBusy() != ""
 	s.starts.Lock()
 	if s.starting != "" || len(s.changing) > 0 || s.isCFOComingBack {
 		s.starts.Unlock()
@@ -91,7 +95,7 @@ func (s *Service) comeBack(memory Memory, w *fleetWakes) (bool, error) {
 		s.notify()
 		return true, nil
 	}
-	if w.MemoryAbove < 2 {
+	if w.MemoryAbove < 2 || isBusy {
 		s.starts.Unlock()
 		return true, nil
 	}

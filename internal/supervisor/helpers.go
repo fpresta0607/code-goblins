@@ -122,6 +122,9 @@ func (s *Service) acceptHelper(request HelperRequest) (HelperStart, error) {
 	if err := CheckLaunch(memory, disk); err != nil {
 		return HelperStart{}, fmt.Errorf("%w; ask again in ten minutes", err)
 	}
+	if busy := s.processorsBusy(); busy != "" {
+		return HelperStart{}, fmt.Errorf("%s; ask again in ten minutes", busy)
+	}
 	// The helper's status log is written before its brief, so the brief
 	// never shows on the board as queued work, and its id is never given
 	// twice whatever becomes of the start.

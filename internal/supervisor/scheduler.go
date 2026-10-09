@@ -126,6 +126,18 @@ func (s *Service) schedule(ctx context.Context, now time.Time, watched *fleetWak
 			record.Waiting = append(record.Waiting, WaitingWork{ID: paused.ID, Why: "its last resume failed: " + failure.Message})
 		}
 	}
+	// What would start by itself waits while the performance cores are busy.
+	// A reported production defect does not, nor what the Overlord started.
+	waitsOnProcessors, busy := "", ""
+	switch {
+	case len(ready) > 0:
+		waitsOnProcessors = ready[0].ID
+	case len(queued) > 0 && memoryPending == "":
+		waitsOnProcessors = queued[0]
+	}
+	if waitsOnProcessors != "" && starting == "" && len(changing) == 0 && len(asked) == 0 && defect == "" {
+		busy = s.processorsBusy()
+	}
 	switch {
 	case starting != "":
 		record.Text = starting + " is starting"
@@ -141,6 +153,9 @@ func (s *Service) schedule(ctx context.Context, now time.Time, watched *fleetWak
 	case defect != "":
 		record.Text = "starting " + defect + ", a reported production defect"
 		problems = errors.Join(problems, s.startQueued(defect, false))
+	case busy != "":
+		record.Waiting = append(record.Waiting, WaitingWork{ID: waitsOnProcessors, Why: busy})
+		record.Text = "nothing starts: " + bounded(busy, 120)
 	case len(ready) > 0:
 		record.Text = "resuming " + ready[0].ID
 		problems = errors.Join(problems, s.resumeAutomatically(ready[0]))

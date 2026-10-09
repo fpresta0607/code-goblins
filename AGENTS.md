@@ -408,6 +408,10 @@ For a free slot, the oldest cleared pause comes before the Overlord's queue orde
 His Start or Resume overrides that order, and `(priority: production-defect)` marks his reported production defect to jump both, with a notify saying why.
 Start, spawn and Resume share the memory/commit floor: each needs 5 GB of memory and of commit free, which keeps the 4 GB floor, and memory is the only limit on how many goblins run.
 They share the disk floor too: none starts while the home's drive has less free than `config/fleet.json`'s `disk_floor_gb`, default 15, and the refusal names what is free and the floor; `cfo gate test` starts no run under it either.
+What the supervisor starts by itself also waits for room on the processors: the next queued task, a goblin whose pause cleared, a goblin coming back after a restart and a helper start only once a quarter of the machine's performance cores sat idle over the last minute, so the Overlord's own apps keep room.
+Each install reads its own cores for this: on a processor with performance and efficiency cores only the performance cores count, a core counts as busy while either of its threads is, and on a processor with cores of one kind all of them count.
+The work that waits is named with the reason where the scheduler says what waits, and the `idle` wake tells you of it.
+A Start or Resume the Overlord clicks, a reported production defect and a `cfo spawn` you type do not wait on the processors.
 The board shows disk free under memory, in the memory meter's box, and under `disk_wake_gb`, default 10, the supervisor wakes the CFO once with a `disk` wake, and again only after a reading back at or above the floor.
 The allowance floor is the percent of a measured weekly window the home keeps back, each provider's own as `config/fleet.json`'s `weekly_floor_percent` sets it and 5 percent where it sets none, which `cfo allowance-floor` reads and sets.
 At the floor the scheduler asks for a handoff and records an allowance pause with its weekly reset, the seam AFK mode shares.
