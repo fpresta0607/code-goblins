@@ -448,6 +448,90 @@ func TestEvidenceOfWorkKeepsALongToolCallFromStalling(t *testing.T) {
 	}
 }
 
+// readingMemory reads free memory as *free gigabytes, with commit to spare.
+func readingMemory(free *float64) *Dispatch {
+	return &Dispatch{
+		Memory: func() (Memory, error) {
+			return Memory{Available: uint64(*free * gigabyte), CommitAvailable: 12 * gigabyte, Total: 32 * gigabyte}, nil
+		},
+		Spawn: func(context.Context, []string) (string, error) { return "", nil },
+	}
+}
+
+// On 2026-10-08 the supervisor woke the CFO four times with "progress for
+// <task>: context deadline exceeded" for every goblin at once, three of them
+// while memory read under the 4 GB floor (1.9 GB free at 13:00Z, 3.9 GB at
+// 19:24Z). A read a starved machine slows tells nothing of the goblin or the
+// supervisor, so it is no error, while one that runs out of time with memory
+// at the floor still is.
+func TestAProgressReadAMemoryLowSlowsIsNoSupervisorError(t *testing.T) {
+	for _, test := range []struct {
+		name    string
+		free    float64
+		isError bool
+	}{
+		{"memory under the floor", 1.9, false},
+		{"memory at the floor", 4.5, true},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			// Arrange
+			service, h := fleetService(t)
+			liveGoblin(t, h, "starved-task", h.Root)
+			head := strings.Repeat("a", 40)
+			service.Options.Progress = &stalledGit{progressGit: progressGit{head: head, pushed: head}, stalledDirectories: []string{filepath.Join(h.Root, ".worktrees", "gb-starved-task")}}
+			service.Options.Dispatch = readingMemory(&test.free)
+
+			// Act
+			err := service.checkFleet(t.Context(), time.Now().UTC())
+
+			// Assert
+			if isError := errors.Is(err, context.DeadlineExceeded); isError != test.isError {
+				t.Fatalf("errors = %v at %.1f GB free, want the read's deadline an error %t", err, test.free, test.isError)
+			}
+		})
+	}
+}
+
+// While memory reads under the floor the monitor's look at a screen and the
+// board's reading of a family tree go stale as every read slows, and a goblin
+// working through it would read as still. A goblin whose evidence went unread
+// then is not called stalled: its clock waits for a reading that can see it.
+// With memory at the floor an unread goblin still wakes the CFO, naming what
+// was not read.
+func TestAGoblinWhoseEvidenceAMemoryLowLeftUnreadIsNotCalledStalled(t *testing.T) {
+	for _, test := range []struct {
+		name  string
+		free  float64
+		wakes int
+	}{
+		{"memory under the floor", 1.9, 0},
+		{"memory at the floor", 4.5, 1},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			// Arrange
+			now := time.Date(2026, 10, 8, 14, 44, 0, 0, time.UTC)
+			goblin := newToolCallGoblin(t, now)
+			free := 8.0
+			goblin.service.Options.Dispatch = readingMemory(&free)
+			goblin.read(t, now)
+
+			// Act: 30 readings a minute apart that see neither its screen
+			// nor its tree.
+			free = test.free
+			for minute := 1; minute <= 30; minute++ {
+				if err := goblin.service.checkFleet(t.Context(), now.Add(time.Duration(minute)*time.Minute)); err != nil {
+					t.Fatal(err)
+				}
+			}
+
+			// Assert
+			if got := progressWakeCount(t, goblin.service); got != test.wakes {
+				t.Fatalf("%d progress wakes at %.1f GB free with its evidence unread, want %d", got, test.free, test.wakes)
+			}
+		})
+	}
+}
+
 // A goblin whose screen, transcript and processes are all still for the
 // window has stopped: it wakes once, and again only after evidence of
 // progress has come and stopped again.
