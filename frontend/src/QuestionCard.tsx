@@ -16,7 +16,9 @@ export const EMPTY_DRAFT: Draft = { selection: "", written: "", submission: null
 
 // One question: who asks and how long they have waited, the choices with the
 // recommendation first, Other for a written answer, its own Send, and Dismiss
-// for one he answered elsewhere or no longer needs.
+// for one he answered elsewhere or no longer needs. A decision the CFO
+// answered itself while AFK mode was on opens with its answer checked and
+// marked as the CFO's, and Send keeps it until he chooses another.
 export function QuestionCard({ question, snapshot, connected, draft, review, onDraft, onSend, onDismiss, onImage, pager }: {
   question: Question; snapshot: Snapshot; connected: boolean; draft: Draft; review?: BoardActivity;
   onDraft: (changes: Partial<Draft>) => void; onSend: () => void; onDismiss: () => void; onImage: (index: number) => void; pager?: ReactNode;
@@ -32,14 +34,15 @@ export function QuestionCard({ question, snapshot, connected, draft, review, onD
   const displayed = questionSelection(question, draft, outcome);
   const task = snapshot.tasks.find((candidate) => candidate.id === question.task);
   const asker = question.task ? task?.title || question.task : "The CFO";
-  const payload = questionAnswer(question, draft.selection, draft.written);
+  const payload = questionAnswer(question, displayed.selection, displayed.written);
+  const keeps = pending && !!question.decided && displayed.selection === "option:" + question.decided;
   const choices = questionChoices(question);
   const images = choices.filter((choice) => choice.image);
   const mark = outcome ? deliveryMark(outcome, question.task || undefined) : undefined;
   // An image can vanish with its goblin's worktree; show that, not a broken image.
   const [missing, setMissing] = useState<Set<string>>(new Set());
   return <form className="question-card" aria-labelledby={"question-" + question.id} onSubmit={(event) => { event.preventDefault(); onSend(); }}>
-    <p className="asker"><Avatar persona={question.task ? personaFor(task) : "cfo"} small /><span><strong>{asker}</strong> asks · {question.status !== "pending" ? "asked " + age(question.created_at) : "waiting " + age(question.created_at).replace(/ ago$/, "")}</span></p>
+    <p className="asker"><Avatar persona={question.task ? personaFor(task) : "cfo"} small /><span><strong>{asker}</strong> {question.decided ? "answered while you were away" : "asks"} · {question.status !== "pending" ? "asked " + age(question.created_at) : "waiting " + age(question.created_at).replace(/ ago$/, "")}</span></p>
     {/* The question reads as body text: only what its asker marked is bold. */}
     <div className="question-body" id={"question-" + question.id} tabIndex={-1}>{messageElements(question.text, copyValues)}</div>
     {review && <a className="icon-button raised pill-link open-inline" href={review.url} target="_blank" rel="noreferrer"><Icon name="external" /><span>Open review</span></a>}
@@ -52,7 +55,7 @@ export function QuestionCard({ question, snapshot, connected, draft, review, onD
       {choices.map((option) => <label className={"question-choice" + (closed ? (chosen === option.value ? " chosen" : " dimmed") : "")} key={option.value}>
         {closed ? <span className="choice-mark">{chosen === option.value && <Icon name="check" />}</span>
           : <input type="radio" name={"answer-" + question.id} checked={displayed.selection === "option:" + option.value} onChange={() => onDraft({ selection: "option:" + option.value, error: "", receipt: undefined })} />}
-        <span className="question-option"><span>{option.text}</span>{option.recommended && <span className="recommendation">Recommended</span>}</span>
+        <span className="question-option"><span>{option.text}</span>{option.recommended && <span className="recommendation">Recommended</span>}{option.value === question.decided && <span className="cfo-answer">The CFO's answer</span>}</span>
       </label>)}
       {closed ? question.answer_kind === "other" && <label className="question-choice chosen"><span className="choice-mark"><Icon name="check" /></span><span className="question-option"><span>Other</span><small>{question.answer}</small></span></label>
         : <label className="question-choice"><input type="radio" name={"answer-" + question.id} checked={displayed.selection === "other"} onChange={() => onDraft({ selection: "other", error: "", receipt: undefined })} /><span className="question-option"><span>Other</span><small>Write your own answer.</small></span></label>}
@@ -67,7 +70,7 @@ export function QuestionCard({ question, snapshot, connected, draft, review, onD
       <ClickFeedback text={feedback} />
       {pager}
       {pending && <button type="button" className="icon-button raised" disabled={!connected || draft.sending} aria-label="Dismiss this question" data-tip="Dismiss: answered elsewhere or no longer needed" onClick={onDismiss}><Icon name="close" /></button>}
-      {pending && <button className="primary send-decision" type="submit" disabled={!connected || !payload || draft.sending}><Icon name={draft.sending ? "clock" : "send"} />{draft.sending ? "Sending" : draft.error ? "Retry" : "Send decision"}</button>}
+      {pending && <button className="primary send-decision" type="submit" disabled={!connected || !payload || draft.sending}><Icon name={draft.sending ? "clock" : "send"} />{draft.sending ? "Sending" : draft.error ? "Retry" : keeps ? "Keep the CFO's answer" : "Send decision"}</button>}
     </div>
   </form>;
 }

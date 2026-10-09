@@ -191,7 +191,7 @@ func TestTheReportListsWhatIsHeldBeforeWhatWasDecided(t *testing.T) {
 	// Assert
 	report := out.String()
 	var at []int
-	for _, phrase := range []string{"AFK mode was on from", "Held for you (2)", "Migration 0042 drops legacy_invoices. Apply it?", "Merged (1)", "Answered for goblins (1)", "Goblins finished (1)", "Spent"} {
+	for _, phrase := range []string{"AFK mode was on from", "For you (2)", "Migration 0042 drops legacy_invoices. Apply it?", "Merged (1)", "Answered for goblins (1)", "Goblins finished (1)", "Spent"} {
 		index := strings.Index(report, phrase)
 		if index < 0 {
 			t.Fatalf("the report does not say %q:\n%s", phrase, report)
