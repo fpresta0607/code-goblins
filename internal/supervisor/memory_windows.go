@@ -76,6 +76,16 @@ func MachineMemory() (Memory, error) {
 // system process list, which needs no handle to any process, and names the
 // apps that hold the most (see topCommitHolders).
 func CommitHolders() ([]CommitHolder, error) {
+	processes, err := machineProcessList()
+	if err != nil {
+		return nil, err
+	}
+	return topCommitHolders(processes, commitHolderCount), nil
+}
+
+// machineProcessList reads every process's commit and processor time from
+// one system process list.
+func machineProcessList() ([]processCommit, error) {
 	buffer := make([]byte, 1<<20)
 	for {
 		var needed uint32
@@ -98,11 +108,12 @@ func CommitHolders() ([]CommitHolder, error) {
 			name:    entry.ImageName.String(),
 			created: entry.CreateTime,
 			commit:  uint64(entry.PagefileUsage),
+			cpu:     uint64(entry.UserTime + entry.KernelTime),
 		})
 		if entry.NextEntryOffset == 0 {
 			break
 		}
 		offset += entry.NextEntryOffset
 	}
-	return topCommitHolders(processes, commitHolderCount), nil
+	return processes, nil
 }

@@ -69,6 +69,9 @@ type Processors struct {
 	// supervisor to start a goblin by itself, which the snapshot sets for the
 	// meter's mark.
 	Next float64 `json:"next"`
+	// Busiest names the apps that used the most processor over the reading,
+	// most first (see busiestApps).
+	Busiest []string `json:"busiest,omitempty"`
 }
 
 // processorCore is one core: its efficiency class, higher for a faster kind of
