@@ -428,3 +428,39 @@ func TestAFrameOverTheLimitIsRefused(t *testing.T) {
 		t.Fatalf("readFrame error = %v, want the limit refusal", err)
 	}
 }
+
+// A viewer is told each change in whether key presses sit unread, once, and
+// one that attaches while they do is told so first.
+func TestViewersAreToldWhenKeyPressesSitUnreadAndWhenTheyAreRead(t *testing.T) {
+	output := newTestHistory(t, 80, 24)
+	_, _, early, _ := output.attach()
+
+	output.unread(true)
+	output.unread(true)
+
+	if chunk, sizes, open := early.next(); !open || len(chunk) > 0 || len(sizes) > 0 {
+		t.Fatalf("the change came with output %q, sizes %v, open %v", chunk, sizes, open)
+	}
+	if told := early.takeUnread(); told == nil || !*told {
+		t.Fatalf("the viewer was told %v of keys that sit unread, want true", told)
+	}
+	if told := early.takeUnread(); told != nil {
+		t.Fatalf("the viewer was told %v a second time", *told)
+	}
+	_, _, late, _ := output.attach()
+	if told := late.takeUnread(); told == nil || !*told {
+		t.Fatalf("a viewer that attached while keys sat unread was told %v, want true", told)
+	}
+
+	output.unread(false)
+
+	for name, viewer := range map[string]*feed{"the early viewer": early, "the late viewer": late} {
+		if told := viewer.takeUnread(); told == nil || *told {
+			t.Errorf("%s was told %v once the keys were read, want false", name, told)
+		}
+	}
+	_, _, after, _ := output.attach()
+	if told := after.takeUnread(); told != nil {
+		t.Errorf("a viewer that attached after the keys were read was told %v", *told)
+	}
+}

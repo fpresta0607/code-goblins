@@ -391,8 +391,8 @@ export function Orchestration({ snapshot, selected, connected, effects, onSelect
         setLayout({ positions: {} }); setCollapsed(new Set()); setView(null);
         try { localStorage.removeItem(layoutKey); }
         catch { /* nothing was kept in this browser */ }
-      }} className="icon-button" aria-label="Arrange" data-tip="Arrange" data-tip-align="start"><Icon name="arrange" /></button>
-      <div><button className="icon-button" aria-label="Zoom out" data-tip="Zoom out" onClick={() => zoom(scale - .1)}><Icon name="minus" /></button><output aria-label="Zoom">{Math.round(scale * 100)}%</output><button className="icon-button" aria-label="Zoom in" data-tip="Zoom in" onClick={() => zoom(scale + .1)}><Icon name="plus" /></button><button className="icon-button" aria-label="Fit canvas" data-tip="Fit" data-tip-align="end" onClick={fit}><Icon name="fit" /></button></div>
+      }} className="icon-button" aria-label="Arrange" data-tip="Arrange"><Icon name="arrange" /></button>
+      <div><button className="icon-button" aria-label="Zoom out" data-tip="Zoom out" onClick={() => zoom(scale - .1)}><Icon name="minus" /></button><output aria-label="Zoom">{Math.round(scale * 100)}%</output><button className="icon-button" aria-label="Zoom in" data-tip="Zoom in" onClick={() => zoom(scale + .1)}><Icon name="plus" /></button><button className="icon-button" aria-label="Fit canvas" data-tip="Fit" onClick={fit}><Icon name="fit" /></button></div>
     </div>
   </section>;
 }

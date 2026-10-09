@@ -26,13 +26,17 @@ type Client struct {
 }
 
 // Event is what the host sent: terminal output, the terminal's size from
-// this point in its output on, or the terminal's end with its exit code.
+// this point in its output on, whether key presses sit unread in its input,
+// or the terminal's end with its exit code.
 type Event struct {
 	Output []byte
 	// Cols and Rows are set for a size.
 	Cols, Rows int
-	Exited     bool
-	Code       uint32
+	// Unread is set when the host says key presses have sat unread in the
+	// terminal's input, true, or that its program has read them, false.
+	Unread *bool
+	Exited bool
+	Code   uint32
 }
 
 // Dial connects to the host record names and says hello. The first event it
@@ -49,7 +53,19 @@ func Dial(record Record) (*Client, error) {
 // sends none, and its history is its first output, which View reads now to
 // count it.
 func View(record Record) (*Client, error) {
-	client, answer, err := dial(record, hello{Version: Version, Token: record.Token, Sizes: true})
+	return dialViewer(record, hello{Version: Version, Token: record.Token, Sizes: true})
+}
+
+// Watch connects as View does, as a viewer that is also told when key presses
+// have sat unread in the terminal's input, as a busy program leaves them, and
+// when its program has read them. A host from before that was told tells
+// nothing of it.
+func Watch(record Record) (*Client, error) {
+	return dialViewer(record, hello{Version: Version, Token: record.Token, Sizes: true, Unread: true})
+}
+
+func dialViewer(record Record, greeting hello) (*Client, error) {
+	client, answer, err := dial(record, greeting)
 	if err != nil {
 		return nil, err
 	}
@@ -120,6 +136,12 @@ func (c *Client) Next() (Event, error) {
 			return Event{}, errors.New("host: malformed size frame")
 		}
 		return Event{Cols: cols, Rows: rows}, nil
+	case frameUnread:
+		if len(payload) != 1 {
+			return Event{}, errors.New("host: malformed unread frame")
+		}
+		isUnread := payload[0] != 0
+		return Event{Unread: &isUnread}, nil
 	case frameExit:
 		if len(payload) != 4 {
 			return Event{}, errors.New("host: malformed exit frame")

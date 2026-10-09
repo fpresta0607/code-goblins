@@ -127,13 +127,43 @@ export function afkTime(at: string, now: number, zone?: string, locale?: string)
   return day(date) === day(new Date(now)) ? time : date.toLocaleDateString(locale, { month: "short", day: "numeric", timeZone: zone }) + ", " + time;
 }
 
-// stillWaiting are the held items that still wait on the Overlord.
+// stillWaiting are the items held or left for him that still wait on the
+// Overlord, and settled those that no longer do, each with what became of it.
 export const stillWaiting = (held: AfkHeld[]): AfkHeld[] => held.filter((one) => one.waiting);
+export const settled = (held: AfkHeld[]): AfkHeld[] => held.filter((one) => !one.waiting);
 
-// ReportAction is the report's main button: the Command Center while anything
-// it held still waits on him, and the board otherwise.
-export type ReportAction = "command" | "board";
-export const reportAction = (held: AfkHeld[]): ReportAction => stillWaiting(held).length > 0 ? "command" : "board";
+// counted is a count with its noun, one or many.
+const counted = (count: number, one: string, many: string): string => count + " " + (count === 1 ? one : many);
+
+// listed joins phrases as a sentence lists them: a, b and c.
+const listed = (phrases: string[]): string => phrases.length < 2 ? phrases.join("") : phrases.slice(0, -1).join(", ") + " and " + phrases[phrases.length - 1];
+
+// What the CFO did that the report's headline names, by the heading it is
+// under: what reached his repositories, his production and his machine.
+const HEADLINED: [string, (count: number) => string][] = [
+  ["Merged", (count) => "merged " + counted(count, "pull request", "pull requests")],
+  ["Deployed", (count) => "made " + counted(count, "deploy", "deploys")],
+  ["Migrations applied", (count) => "applied " + counted(count, "migration", "migrations")],
+  ["Installed", (count) => "installed " + counted(count, "build", "builds")],
+];
+
+// afkHeadline is the report's first words, in place of a count for every
+// heading: how long he was away, how many things wait on him, and what the
+// CFO merged, deployed, migrated and installed, which is empty when it did
+// none of those. zone and locale are the reader's own unless a test names
+// them.
+export function afkHeadline(report: AfkReport, now: number, zone?: string, locale?: string): { away: string; waiting: string; did: string } {
+  const open = stillWaiting(report.held).length;
+  const did = HEADLINED.flatMap(([title, says]) => {
+    const count = report.sections.find((section) => section.title === title)?.entries.length ?? 0;
+    return count ? [says(count)] : [];
+  });
+  return {
+    away: "You were away " + report.lasted + ", from " + afkTime(report.since, now, zone, locale) + " to " + afkTime(report.ended, now, zone, locale) + ".",
+    waiting: open ? counted(open, "thing waits", "things wait") + " on you." : "Nothing waits on you.",
+    did: did.length ? "The CFO " + listed(did) + "." : "",
+  };
+}
 
 // AFK_OFF is the switch as a board with no snapshot yet knows it: off.
 export const AFK_OFF: Afk = { state: "off", since: "", from: "", asked: "", decided: 0, held: [], report: "" };

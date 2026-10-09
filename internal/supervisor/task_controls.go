@@ -30,10 +30,18 @@ type LifecycleStatus struct {
 	// WithParent is a helper's pause or stop its parent's made: paused, the
 	// scheduler resumes it once its parent runs again.
 	WithParent bool `json:"with_parent,omitempty"`
+	// KeptMessages are the board messages, as the Overlord wrote them, that a
+	// paused goblin's resume will carry, each of which he can delete before
+	// it does.
+	KeptMessages []string `json:"kept_messages,omitempty"`
 }
 
 func lifecycleStatus(record state.Lifecycle) *LifecycleStatus {
-	return &LifecycleStatus{Phase: record.Phase, Action: record.Action, At: record.Updated, Kept: record.Kept, Stopped: record.Stopped, Problems: record.Problems, HandoffSaved: record.HandoffSaved, Pause: record.Pause, ValidationRestarts: record.GateRun != "" && (record.Phase == "paused" || record.Action == "resume" && record.Phase != "running"), WithParent: state.IsHelperOperation(record.Operation)}
+	status := &LifecycleStatus{Phase: record.Phase, Action: record.Action, At: record.Updated, Kept: record.Kept, Stopped: record.Stopped, Problems: record.Problems, HandoffSaved: record.HandoffSaved, Pause: record.Pause, ValidationRestarts: record.GateRun != "" && (record.Phase == "paused" || record.Action == "resume" && record.Phase != "running"), WithParent: state.IsHelperOperation(record.Operation)}
+	if waitsForResume(record) {
+		_, status.KeptMessages = keptMessages(record.ResumeNote)
+	}
+	return status
 }
 
 type taskChangeError struct {

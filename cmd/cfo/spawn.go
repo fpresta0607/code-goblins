@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/fpresta0607/code-goblins/internal/fleet"
+	"github.com/fpresta0607/code-goblins/internal/fleetconfig"
 	"github.com/fpresta0607/code-goblins/internal/fsx"
 	"github.com/fpresta0607/code-goblins/internal/harness"
 	"github.com/fpresta0607/code-goblins/internal/pipeline"
@@ -154,6 +155,11 @@ func runSpawn(args []string, stdout, stderr io.Writer, runtime commandRuntime) i
 		}
 	}
 	report, skipped := readQuota(runtime)
+	settings, err := fleetconfig.Read(h.Root)
+	if err != nil {
+		fmt.Fprintf(stderr, "cfo spawn: %v\n", err)
+		return 1
+	}
 
 	taskClass, routeLane, repairRounds := *class, "explicit", 0
 	var route string
@@ -178,7 +184,7 @@ func runSpawn(args []string, stdout, stderr io.Writer, runtime commandRuntime) i
 			}
 			inputs.table.Lanes[name] = lane
 		}
-		choice, err := routing.Choose(assessment, inputs.table, usableLane(report, skipped))
+		choice, err := routing.Choose(assessment, inputs.table, usableLane(report, skipped, settings))
 		if err != nil {
 			fmt.Fprintf(stderr, "cfo spawn: %v\n", err)
 			return 1
@@ -202,11 +208,12 @@ func runSpawn(args []string, stdout, stderr io.Writer, runtime commandRuntime) i
 		}
 	}
 	if skipped == "" {
-		if reset, isLow := supervisor.AllowanceReset(report, *harnessName, *model, time.Now().UTC()); isLow {
+		floor := settings.WeeklyFloor(*harnessName)
+		if reset, isLow := supervisor.AllowanceReset(report, *harnessName, *model, floor, time.Now().UTC()); isLow {
 			if reset.IsZero() {
-				fmt.Fprintf(stderr, "cfo spawn: %s allowance is at the 5 percent weekly floor; its reset time is unknown\n", *harnessName)
+				fmt.Fprintf(stderr, "cfo spawn: %s allowance is at its %v percent weekly floor, and its reset time is unknown\n", *harnessName, floor)
 			} else {
-				fmt.Fprintf(stderr, "cfo spawn: %s allowance is at the 5 percent weekly floor; resumes at %s\n", *harnessName, reset.UTC().Format(time.RFC3339))
+				fmt.Fprintf(stderr, "cfo spawn: %s allowance is at its %v percent weekly floor until it resets at %s\n", *harnessName, floor, reset.UTC().Format(time.RFC3339))
 			}
 			return 1
 		}
@@ -362,16 +369,18 @@ func readQuota(runtime commandRuntime) (quota.Report, string) {
 }
 
 // usableLane is the quota check a routed spawn walks its lanes with: a lane
-// whose provider or model scope is exhausted now is unusable; no evidence is
-// usable. A skipped check means no check at all.
-func usableLane(report quota.Report, skipped string) routing.Usable {
+// whose provider or model scope is exhausted now, or at the weekly floor
+// settings keep for its provider, is unusable; no evidence is usable. A
+// skipped check means no check at all.
+func usableLane(report quota.Report, skipped string, settings fleetconfig.Settings) routing.Usable {
 	if skipped != "" {
 		return nil
 	}
 	return func(lane routing.ExecutionLane) (bool, string) {
 		headroom := report.Headroom(lane.Harness, lane.Model)
-		if reset, isLow := supervisor.AllowanceReset(report, lane.Harness, lane.Model, time.Now().UTC()); isLow {
-			note := lane.Harness + " at the 5 percent weekly allowance floor"
+		floor := settings.WeeklyFloor(lane.Harness)
+		if reset, isLow := supervisor.AllowanceReset(report, lane.Harness, lane.Model, floor, time.Now().UTC()); isLow {
+			note := fmt.Sprintf("%s at its %v percent weekly allowance floor", lane.Harness, floor)
 			if !reset.IsZero() {
 				note += ", resets " + reset.UTC().Format(time.RFC3339)
 			}

@@ -3,8 +3,8 @@ import { expect, holdStream, test, type Page } from "./site";
 // Every goblin goes by its fun name and title, with its avatar, on its card,
 // a queued task's card in Tasks included, on the merge train, on the
 // Orchestration canvas and at the head of its panel, and its task sits in the
-// tip its card or canvas card shows after the pointer rests on it and under
-// its name in the panel. The supervisor is played by one held snapshot.
+// tip its card or canvas card shows while the pointer is on it and under its
+// name in the panel. The supervisor is played by one held snapshot.
 const REPO = "https://github.com/northwind/northwind-api";
 const since = new Date(Date.now() - 42 * 60_000).toISOString();
 const SNAPSHOT = {

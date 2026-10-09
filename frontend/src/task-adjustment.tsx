@@ -68,7 +68,7 @@ export function TaskAdjustment({ task, snapshot }: { task: Task; snapshot: Snaps
         }} />
       <span className="task-edit-actions">
         <button className="icon-button" aria-label="Save task" data-tip="Save" disabled={isSending || task.starting || !draft.text.trim()} onClick={() => void save()}>{isSending ? <span className="card-start-spinner" /> : <Icon name="check" />}</button>
-        <button className="icon-button" aria-label="Cancel edit" data-tip="Cancel" data-tip-align="end" disabled={isSending} onClick={cancel}><Icon name="close" /></button>
+        <button className="icon-button" aria-label="Cancel edit" data-tip="Cancel" disabled={isSending} onClick={cancel}><Icon name="close" /></button>
       </span>
     </div>
     <ClickFeedback text={feedback} />

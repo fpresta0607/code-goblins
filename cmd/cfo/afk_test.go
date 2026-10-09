@@ -142,7 +142,7 @@ func TestAFKOffPrintsTheReportOfTheStretch(t *testing.T) {
 	if exit != 0 {
 		t.Fatalf("exit=%d stderr=%q", exit, stderr)
 	}
-	for _, phrase := range []string{"AFK MODE REPORT", "Deployed (1)", "acme production (https://acme.example/health)", "/health reads 200 with commit abc1234", "Held for you (0)"} {
+	for _, phrase := range []string{"AFK MODE REPORT", "Deployed (1)", "acme production (https://acme.example/health)", "/health reads 200 with commit abc1234", "For you (0)"} {
 		if !strings.Contains(stdout, phrase) {
 			t.Errorf("stdout does not say %q:\n%s", phrase, stdout)
 		}
@@ -283,6 +283,26 @@ func TestAFKLogSendsALineLeftForHimWithWhatIsWrongWhatWasTriedAndHisChoices(t *t
 	}
 }
 
+// Under AFK mode the CFO answers a decision itself: --answer is the choice it
+// made and acted on, which the Overlord keeps or changes once back.
+func TestAFKLogSendsTheAnswerTheCFOGaveADecision(t *testing.T) {
+	// Arrange
+	runtime, _ := afkRuntime(t)
+	var sent afk.Entry
+	runtime.logAFK = func(_ home.Home, entry afk.Entry) error { sent = entry; return nil }
+
+	// Act
+	exit, _, stderr := afkCommand(runtime, "log", "--kind", "left", "--what", "Which fallback does the gate policy take?",
+		"--evidence", "the machine config and the policy disagree", "--diagnosis", "the machine config gained a Claude fallback at 19:48Z",
+		"--tried", "a gate run, refused for shared config drift", "--option", "Drop it from the machine config", "--option", "Take it into the policy",
+		"--answer", "Drop it from the machine config")
+
+	// Assert
+	if exit != 0 || sent.Answer != "Drop it from the machine config" {
+		t.Errorf("exit=%d stderr=%q sent=%+v, want the CFO's answer sent with the line", exit, stderr, sent)
+	}
+}
+
 func TestAFKLogRefusesALineLeftForHimThatIsNotDiagnosed(t *testing.T) {
 	left := []string{"--kind", "left", "--what", "Store a new Fly token?", "--evidence", "Fly tokens are his"}
 	for name, args := range map[string][]string{
@@ -290,6 +310,7 @@ func TestAFKLogRefusesALineLeftForHimThatIsNotDiagnosed(t *testing.T) {
 		"nothing tried":                   append(slices.Clone(left), "--diagnosis", "overwritten", "--option", "Now", "--option", "Later"),
 		"one choice":                      append(slices.Clone(left), "--diagnosis", "overwritten", "--tried", "cfo auth --fix", "--option", "Now"),
 		"a diagnosis on another decision": {"--kind", "deploy", "--what", "acme production", "--evidence", "/health reads 200", "--diagnosis", "none"},
+		"an answer on another decision":   {"--kind", "deploy", "--what", "acme production", "--evidence", "/health reads 200", "--answer", "Now"},
 	} {
 		t.Run(name, func(t *testing.T) {
 			// Arrange
@@ -350,6 +371,68 @@ func TestAFKStrikeRefusesWhatItCannotName(t *testing.T) {
 				t.Fatalf("exit=%d stderr=%q sent=%d, want it refused before the supervisor", exit, stderr, sent)
 			}
 		})
+	}
+}
+
+func TestAFKSettleSendsTheLineAndWhatBecameOfIt(t *testing.T) {
+	// Arrange
+	runtime, _ := afkRuntime(t)
+	var settledAt time.Time
+	var settledHow string
+	runtime.settleAFK = func(_ home.Home, at time.Time, how string) error { settledAt, settledHow = at, how; return nil }
+
+	// Act
+	exit, stdout, stderr := afkCommand(runtime, "settle", "--at", "2026-10-09T03:27:41.118Z", "--how", " the run finished on its own ")
+
+	// Assert
+	if exit != 0 || !settledAt.Equal(time.Date(2026, 10, 9, 3, 27, 41, 118000000, time.UTC)) || settledHow != "the run finished on its own" {
+		t.Fatalf("exit=%d stderr=%q at=%s how=%q, want the line and what became of it sent", exit, stderr, settledAt, settledHow)
+	}
+	if !strings.Contains(stdout, "settled the line left at 2026-10-09T03:27:41.118Z") || !strings.Contains(stdout, "never asked in the Command Center") {
+		t.Errorf("stdout = %q, want it to say what it settled and that it asks nothing", stdout)
+	}
+}
+
+func TestAFKSettleRefusesWhatItCannotName(t *testing.T) {
+	for name, args := range map[string][]string{
+		"no line":       {"--how", "the run finished on its own"},
+		"not a time":    {"--at", "last night", "--how", "the run finished on its own"},
+		"no word":       {"--at", "2026-10-09T03:27:41.118Z"},
+		"a blank word":  {"--at", "2026-10-09T03:27:41.118Z", "--how", "  "},
+		"an extra word": {"--at", "2026-10-09T03:27:41.118Z", "--how", "the run", "finished"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			// Arrange
+			runtime, _ := afkRuntime(t)
+			sent := 0
+			runtime.settleAFK = func(home.Home, time.Time, string) error { sent++; return nil }
+
+			// Act
+			exit, _, stderr := afkCommand(runtime, append([]string{"settle"}, args...)...)
+
+			// Assert
+			if exit != 2 || stderr == "" || sent != 0 {
+				t.Fatalf("exit=%d stderr=%q sent=%d, want it refused before the supervisor", exit, stderr, sent)
+			}
+		})
+	}
+}
+
+// A line the log does not hold is the supervisor's to refuse, and the command
+// says so and settles nothing.
+func TestAFKSettleSaysTheSupervisorsRefusalOfALineItDoesNotHold(t *testing.T) {
+	// Arrange
+	runtime, _ := afkRuntime(t)
+	runtime.settleAFK = func(home.Home, time.Time, string) error {
+		return errors.New("this stretch logged no line left for him at 2026-10-09T09:00:00Z")
+	}
+
+	// Act
+	exit, stdout, stderr := afkCommand(runtime, "settle", "--at", "2026-10-09T09:00:00Z", "--how", "done")
+
+	// Assert
+	if exit != 1 || stdout != "" || !strings.Contains(stderr, "cfo afk settle: this stretch logged no line left for him at 2026-10-09T09:00:00Z") {
+		t.Errorf("exit=%d stdout=%q stderr=%q, want the refusal said and nothing settled", exit, stdout, stderr)
 	}
 }
 
@@ -594,10 +677,10 @@ func TestAFKReportPrintsEachHeldItemAsItStandsNow(t *testing.T) {
 	unreadExit, unread, unreadErr := afkCommand(runtime, "report")
 
 	// Assert
-	if waitingExit != 0 || !strings.Contains(waiting, "Held for you (1), each as it stands now") || !strings.Contains(waiting, "Now: still waiting on you.") {
+	if waitingExit != 0 || !strings.Contains(waiting, "For you (1), each as it stands now") || !strings.Contains(waiting, "Now: still waiting on you.") {
 		t.Errorf("before his answer: exit=%d stderr=%q stdout:\n%s\nwant the question held, still waiting, said to be current", waitingExit, waitingErr, waiting)
 	}
-	if answeredExit != 0 || !strings.Contains(answered, "Held for you (1), each as it stands now") || !strings.Contains(answered, "Now: you answered it: Keep it held.") || strings.Contains(answered, "still waiting on you") {
+	if answeredExit != 0 || !strings.Contains(answered, "For you (1), each as it stands now") || !strings.Contains(answered, "Now: you answered it: Keep it held.") || strings.Contains(answered, "still waiting on you") {
 		t.Errorf("after his answer: exit=%d stderr=%q stdout:\n%s\nwant the question held, answered by him", answeredExit, answeredErr, answered)
 	}
 	if unreadExit != 1 || unread != "" || !strings.Contains(unreadErr, "what became of each item held for him cannot be read") {

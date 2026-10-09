@@ -11,7 +11,7 @@ export function DiskMeter({ disk }: { disk: Disk }) {
   const state = diskState(disk), scale = diskScale(disk);
   return <div className="disk-meter" role="group" aria-label="Disk">
     <div className="memory-line"><span>Disk free{disk.drive ? ` (${disk.drive})` : ""}</span><strong>{freeGigabytes(disk.free)} GB</strong></div>
-    <div className="memory-bar" data-tip={diskMarks(disk)} data-tip-align="start">
+    <div className="memory-bar" data-tip={diskMarks(disk)}>
       <span className={"memory-fill " + state.tone} style={{ width: `${scale.fill}%` }} />
       <span className="memory-mark floor" style={{ left: `${scale.wake}%` }} />
       <span className="memory-mark" style={{ left: `${scale.floor}%` }} />

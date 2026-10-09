@@ -15,7 +15,7 @@ export function DialogueBox({ persona, speaker, label, portrait, badge, actions,
   actions: ReactNode; children: ReactNode;
 }) {
   const face = portrait
-    ? <button className="dialogue-portrait" aria-label={portrait.label} data-tip={portrait.label} data-tip-align="start" onClick={(event) => portrait.onClick(event.currentTarget)}><Avatar persona={persona} /></button>
+    ? <button className="dialogue-portrait" aria-label={portrait.label} data-tip={portrait.label} onClick={(event) => portrait.onClick(event.currentTarget)}><Avatar persona={persona} /></button>
     : <span className="dialogue-portrait"><Avatar persona={persona} /></span>;
   return <div className="dialogue" role="group" aria-label={label}>
     {speaker && <span className="dialogue-tab" aria-hidden="true">{speaker}</span>}

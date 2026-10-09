@@ -804,6 +804,60 @@ func spawnPointer(t *testing.T, f *fixture) string {
 	return pointer
 }
 
+// An instruction longer than a harness keeps as typed words, or of more than
+// one line, is never typed whole into any harness: it is written to the
+// task's instruction.md and one short line pointing at it is typed. Typed
+// whole in one burst, Claude Code 2.1.29x collapsed it as "[Pasted text #1]"
+// and handed its model a pasted block with nothing written beside it, which
+// the model does not take as the operator's own words: on 2026-10-09 Uma,
+// Wanda and Lyle each asked whether to proceed with what they were resumed
+// with, and sat until someone said yes.
+func TestAnInstructionIsTypedAsOneShortLineIntoEveryHarness(t *testing.T) {
+	meta := state.TaskMeta{ID: "task-7", Harness: "claude", Model: "claude-opus-5-5", Effort: "xhigh"}
+	resume := resumeInstruction(meta, switchTarget{Harness: harness.Claude, Model: "claude-opus-5-5", Effort: "xhigh"})
+	if len([]rune(resume)) <= typedInstructionLimit {
+		t.Fatalf("the resume instruction is %d characters, so it proves nothing of a long one", len([]rune(resume)))
+	}
+	for _, kind := range []harness.Kind{harness.Claude, harness.Codex, harness.Pi} {
+		for name, testCase := range map[string]struct {
+			instruction string
+			isPointed   bool
+		}{
+			"what a goblin is resumed with":             {resume, true},
+			"a short instruction with a note under it":  {"Continue the task.\nThe Overlord answered: Blue", true},
+			"a short instruction of one line":           {harness.BriefInstruction(`C:\home\data\task-7\brief.md`), false},
+			"a line as long as the longest typed whole": {strings.Repeat("x", typedInstructionLimit), false},
+		} {
+			t.Run(string(kind)+": "+name, func(t *testing.T) {
+				// Arrange
+				service := Service{StateDir: t.TempDir()}
+
+				// Act
+				typed, err := service.typedInstruction("task-7", testCase.instruction)
+
+				// Assert
+				if err != nil {
+					t.Fatal(err)
+				}
+				if !testCase.isPointed {
+					if typed != testCase.instruction {
+						t.Errorf("typed %q, want the instruction itself", typed)
+					}
+					return
+				}
+				path := filepath.Join(service.StateDir, "tasktmp", "task-7", "instruction.md")
+				written, readErr := os.ReadFile(path)
+				if typed != instructionPointer(path) || strings.ContainsAny(typed, "\r\n") || len([]rune(typed)) > typedInstructionLimit {
+					t.Errorf("typed %d characters, want the one short line pointing at %s:\n%s", len([]rune(typed)), path, typed)
+				}
+				if readErr != nil || string(written) != testCase.instruction+"\n" {
+					t.Errorf("instruction.md = %q, %v; want the whole instruction", written, readErr)
+				}
+			})
+		}
+	}
+}
+
 // A harness that can take typed text in slowly, as an idle Codex 0.154 took a
 // 2,940-character brief at about 17 characters a second, is given time for
 // each character; any other is given a key's effect.

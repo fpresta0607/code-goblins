@@ -33,7 +33,7 @@ export function TrainPanel({ train, tasks, row }: { train: MergeTrain; tasks: Ta
       <div className="panel-identity">
         <h2 id="panel-title">Merge train</h2>
         <p className="project-label">{train.repository} into {train.base}</p>
-        <p className={"panel-status train-status train-" + look.tone} {...(train.note ? { "data-tip": train.note, "data-tip-align": "start" } : {})}><span className="status-dot" />{look.text}</p>
+        <p className={"panel-status train-status train-" + look.tone} {...(train.note ? { "data-tip": train.note } : {})}><span className="status-dot" />{look.text}</p>
       </div>
       {look.url && <div className="panel-actions">
         <a className="icon-button raised pill-link" href={look.url} target="_blank" rel="noreferrer" aria-label="Open the train's pull request" data-tip="Open the train's pull request"><svg className="icon brand-glyph" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d={BRAND_MARKS.github.path} /></svg><span>#{look.url.split("/").at(-1)}</span></a>
@@ -52,7 +52,7 @@ export function TrainPanel({ train, tasks, row }: { train: MergeTrain; tasks: Ta
                 <span className="train-panel-name">{carName(car)}</span>
                 <span className={"train-panel-state train-" + c.tone}>{c.text}</span>
               </>;
-              const tip = goblin ? { "data-tip": taskName(goblin), "data-tip-align": "start" } : {};
+              const tip = goblin ? { "data-tip": taskName(goblin) } : {};
               return <li key={car.url}>{c.url ? <a className="train-panel-row" href={c.url} target="_blank" rel="noreferrer" {...tip}>{content}</a> : <span className="train-panel-row" {...tip}>{content}</span>}</li>;
             })}
           </ol>
@@ -67,7 +67,7 @@ export function TrainPanel({ train, tasks, row }: { train: MergeTrain; tasks: Ta
                 return url ? <a key={number} className="train-panel-rider" href={url} target="_blank" rel="noreferrer">#{number}</a> : <span key={number} className="train-panel-rider">#{number}</span>;
               })}</span>
               <span className={"train-panel-state train-" + run.tone}>{run.text}</span>
-              {run.url && <a className="icon-button train-panel-open" href={run.url} target="_blank" rel="noreferrer" aria-label={"Open run " + run.number} data-tip={"Open run " + run.number} data-tip-align="end"><Icon name="external" /></a>}
+              {run.url && <a className="icon-button train-panel-open" href={run.url} target="_blank" rel="noreferrer" aria-label={"Open run " + run.number} data-tip={"Open run " + run.number}><Icon name="external" /></a>}
             </li>)}
           </ol>
         </section>}

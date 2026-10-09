@@ -16,6 +16,7 @@ import (
 	"path/filepath"
 	"reflect"
 	"regexp"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -203,6 +204,18 @@ func TestNativeTerminalProgram(t *testing.T) {
 				continue
 			}
 			fmt.Printf("size %dx%d\n", info.Window.Right-info.Window.Left+1, info.Window.Bottom-info.Window.Top+1)
+		case strings.HasPrefix(line, "start a tool for "):
+			// A harness starting a tool reads nothing meanwhile, as Claude
+			// Code read nothing for a second or more in the Overlord's
+			// terminal on 2026-10-09.
+			busy, err := time.ParseDuration(strings.TrimPrefix(line, "start a tool for "))
+			if err != nil {
+				record("tool error: " + err.Error())
+				continue
+			}
+			record("starting a tool")
+			time.Sleep(busy)
+			record("started the tool")
 		case line == "spill":
 			for i := 0; i < 2000; i++ {
 				fmt.Println(strings.Repeat("s", 100))
@@ -845,6 +858,49 @@ func TestANativeTerminalResizesTheTerminal(t *testing.T) {
 	v.send(t, websocket.MessageText, `{"type":"resize","cols":100,"rows":30}`)
 
 	v.waitForSize(t, "100x30")
+}
+
+// The Overlord pressed Enter on a row of Claude Code's permissions screen on
+// 2026-10-09 and nothing was approved: his Enter reached the terminal at once
+// and sat unread there while Claude Code started a tool, and nothing on the
+// board said so. A key a busy program leaves unread is told to the view while
+// it waits, and the view is told once the program has read it.
+func TestANativeViewIsToldOfAKeyABusyProgramLeavesUnreadUntilItIsRead(t *testing.T) {
+	h, server := nativeBoard(t, "direct")
+	terminal := hostTask(t, h)
+	v := openNativeView(t, server, viewQuery)
+	v.waitFor(t, "program ready")
+	v.send(t, websocket.MessageBinary, "start a tool for 2s\r")
+	if lines := terminal.waitForLines(t, 1); !slices.Contains(lines, "starting a tool") {
+		t.Fatalf("the program never started its tool; it recorded %q", lines)
+	}
+
+	v.send(t, websocket.MessageBinary, "\r")
+
+	v.waitFor(t, `{"type":"unread","unread":true}`)
+	v.waitFor(t, `{"type":"unread","unread":false}`)
+	if lines := terminal.waitForLines(t, 2); !slices.Contains(lines, "started the tool") {
+		t.Fatalf("the program never came back from its tool; it recorded %q", lines)
+	}
+}
+
+// A key the program reads as usual tells a view nothing, so ordinary typing
+// shows nothing on the board.
+func TestANativeViewIsToldNothingOfKeysItsProgramReadsAtOnce(t *testing.T) {
+	h, server := nativeBoard(t, "direct")
+	terminal := hostTask(t, h)
+	v := openNativeView(t, server, viewQuery)
+	v.waitFor(t, "program ready")
+
+	for _, line := range []string{"one", "two", "three"} {
+		v.send(t, websocket.MessageBinary, line+"\r")
+	}
+
+	terminal.waitForLines(t, 3)
+	time.Sleep(time.Second)
+	if v.shows(`"type":"unread"`) {
+		t.Fatal("the view was told of unread keys its program read at once")
+	}
 }
 
 // A resize from any view reaches every view of the terminal, the one that

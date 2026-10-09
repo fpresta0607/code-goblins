@@ -44,6 +44,9 @@ type nativeRelay struct {
 	// history tells the view, before any output, how many of the bytes that
 	// follow replay the terminal's history.
 	history []byte
+	// unread tells the view whether key presses sit unread in the terminal's
+	// input, while the view has not been told that yet.
+	unread []byte
 	// closing is how the view closes once everything before it is sent.
 	closing *websocket.CloseError
 	wake    chan struct{}
@@ -89,7 +92,10 @@ func (h *HTTP) announce(key string, cols, rows int) {
 // sending its size, since the pseudo console redraws its whole window on every
 // resize. Every view, the one that sent it too, is told each size the
 // terminal took at its place in the output, whichever viewer resized it, so
-// it draws each output at the size it was written for. The view is sent
+// it draws each output at the size it was written for. A view is told as
+// `{"type":"unread","unread":true}` when key presses have sat unread in the
+// terminal's input, as a busy program leaves them, and with false once its
+// program has read them. The view is sent
 // at most terminalWindow bytes it has not acknowledged, and one that falls
 // terminalBacklog bytes behind is closed so it reconnects, so the host never
 // waits on a slow window and no byte is dropped from a view that stays. The
@@ -146,7 +152,7 @@ func (h *HTTP) nativeTerminal(w http.ResponseWriter, r *http.Request) {
 		_ = view.Close(websocket.StatusPolicyViolation, "No terminal is running for "+binding.name+".")
 		return
 	}
-	terminal, err := host.View(record)
+	terminal, err := host.Watch(record)
 	if err != nil {
 		_ = view.Close(websocket.StatusPolicyViolation, "The terminal of "+binding.name+" did not answer.")
 		return
@@ -193,6 +199,8 @@ func (h *HTTP) nativeTerminal(w http.ResponseWriter, r *http.Request) {
 				relay.closing = &websocket.CloseError{Code: websocket.StatusNormalClosure, Reason: fmt.Sprintf("The terminal ended with exit code %d.", event.Code)}
 			case event.Cols > 0:
 				relay.size(event.Cols, event.Rows)
+			case event.Unread != nil:
+				relay.unread = []byte(fmt.Sprintf(`{"type":"unread","unread":%t}`, *event.Unread))
 			case len(relay.pending)+len(event.Output) > h.terminalBacklog:
 				relay.pending = nil
 				relay.closing = &websocket.CloseError{Code: websocket.StatusTryAgainLater, Reason: "The view fell behind the terminal's output."}
@@ -212,8 +220,8 @@ func (h *HTTP) nativeTerminal(w http.ResponseWriter, r *http.Request) {
 		defer cancel()
 		for {
 			relay.mu.Lock()
-			history := relay.history
-			relay.history = nil
+			history, unread := relay.history, relay.unread
+			relay.history, relay.unread = nil, nil
 			var size, output []byte
 			if len(relay.sizes) > 0 && relay.sizes[0].at == relay.sent {
 				size = relay.sizes[0].message
@@ -233,14 +241,14 @@ func (h *HTTP) nativeTerminal(w http.ResponseWriter, r *http.Request) {
 				relay.sent += int64(n)
 			}
 			closing := relay.closing
-			if len(relay.pending) > 0 || output != nil || size != nil || history != nil {
+			if len(relay.pending) > 0 || output != nil || size != nil || history != nil || unread != nil {
 				closing = nil
 			}
 			relay.mu.Unlock()
 			for _, message := range []struct {
 				kind websocket.MessageType
 				data []byte
-			}{{websocket.MessageText, history}, {websocket.MessageText, size}, {websocket.MessageBinary, output}} {
+			}{{websocket.MessageText, history}, {websocket.MessageText, size}, {websocket.MessageBinary, output}, {websocket.MessageText, unread}} {
 				if message.data == nil {
 					continue
 				}
@@ -255,7 +263,7 @@ func (h *HTTP) nativeTerminal(w http.ResponseWriter, r *http.Request) {
 				_ = view.Close(closing.Code, closing.Reason)
 				return
 			}
-			if history == nil && size == nil && output == nil {
+			if history == nil && size == nil && output == nil && unread == nil {
 				select {
 				case <-relay.wake:
 				case <-ctx.Done():

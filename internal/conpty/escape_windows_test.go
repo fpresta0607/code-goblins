@@ -90,7 +90,7 @@ func TestKeyRecordChild(t *testing.T) {
 			t.Fatal(err)
 		}
 		if received > 0 && event.Kind == 1 && event.Down != 0 {
-			if _, err := fmt.Fprintf(progress, "key %d character %04x alt %t\n", event.Key, event.Character, event.Control&(leftAltPressed|1) != 0); err != nil {
+			if _, err := fmt.Fprintf(progress, "key %d character %04x alt %t ctrl %t shift %t\n", event.Key, event.Character, event.Control&(leftAltPressed|1) != 0, event.Control&ctrlPressed != 0, event.Control&shiftPressed != 0); err != nil {
 				t.Fatal(err)
 			}
 		}

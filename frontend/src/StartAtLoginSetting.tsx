@@ -23,7 +23,7 @@ export function StartAtLoginSetting({ setting, instance }: { setting: StartAtLog
   };
   return <div className="start-at-login">
     <strong id="start-at-login-name">Start at login</strong>
-    <button className="afk-toggle" role="switch" aria-checked={setting.on} aria-labelledby="start-at-login-name" data-tip={setting.unavailable || "Starts Code Goblins in the tray at sign-in and brings back the CFO and its goblins after a restart."} data-tip-align="end" disabled={pending || !!setting.unavailable} onClick={() => void turn()}>
+    <button className="afk-toggle" role="switch" aria-checked={setting.on} aria-labelledby="start-at-login-name" data-tip={setting.unavailable || "Starts Code Goblins in the tray at sign-in and brings back the CFO and its goblins after a restart."} disabled={pending || !!setting.unavailable} onClick={() => void turn()}>
       <span className="afk-toggle-track" aria-hidden="true"><span className="afk-toggle-thumb" /></span>
     </button>
     <ClickFeedback text={feedback} />

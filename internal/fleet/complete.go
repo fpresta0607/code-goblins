@@ -15,7 +15,18 @@ import (
 
 // CompleteQueuedTask reconciles one retired, delivered task with its backlog
 // source, preserving every continuation line and every unrelated byte.
-func CompleteQueuedTask(h home.Home, id string) (err error) {
+func CompleteQueuedTask(h home.Home, id string) error {
+	return closeQueuedTask(h, id, true)
+}
+
+// RetireQueuedTask moves a retired task's row from ## Queued to ## Done as
+// CompleteQueuedTask does, delivered or not, so nothing starts the task again
+// from its row: a delivered task's row closes as done, any other as retired.
+func RetireQueuedTask(h home.Home, id string) error {
+	return closeQueuedTask(h, id, false)
+}
+
+func closeQueuedTask(h home.Home, id string, isDeliveryRequired bool) (err error) {
 	if err := state.ValidTaskID(id); err != nil {
 		return err
 	}
@@ -35,11 +46,18 @@ func CompleteQueuedTask(h home.Home, id string) (err error) {
 	if err != nil {
 		return err
 	}
-	if outcome.Phase != "done" {
+	ending := "retired"
+	if outcome.Phase == "done" {
+		ending = "done"
+	} else if isDeliveryRequired {
 		return errors.New("backlog completion requires a delivered task outcome")
 	}
 	path := filepath.Join(h.Data, "backlog.md")
 	data, err := fsx.ReadFile(path)
+	// A home with no backlog queues nothing, so it has no row to close.
+	if errors.Is(err, os.ErrNotExist) {
+		return ErrNotQueued
+	}
 	if err != nil {
 		return err
 	}
@@ -109,7 +127,7 @@ func CompleteQueuedTask(h home.Home, id string) (err error) {
 	if outcome.PR != "" && !strings.Contains(header, outcome.PR) {
 		header += " " + outcome.PR
 	}
-	header += " (done " + outcome.At.UTC().Format("2006-01-02") + ")"
+	header += " (" + ending + " " + outcome.At.UTC().Format("2006-01-02") + ")"
 	if strings.HasSuffix(group[0], "\n") {
 		header += newline
 	}
