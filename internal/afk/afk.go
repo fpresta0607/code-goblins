@@ -30,6 +30,10 @@ const (
 	// maxAsked bounds the Overlord's words that a switch made at his ask
 	// carries.
 	maxAsked = 500
+	// maxLeftOptions and maxOption bound the choices of a line left for the
+	// Overlord as the Command Center bounds a question's.
+	maxLeftOptions = 8
+	maxOption      = 500
 )
 
 // State is the switch. A home where it was never turned on reads as the zero
@@ -86,7 +90,14 @@ const (
 	KindInstall   = "install"
 	KindOther     = "other"
 	KindLeft      = "left"
+	// KindStrike strikes through a line the CFO wrote by mistake. It is a
+	// line of its own: the log never loses the line it strikes.
+	KindStrike = "strike"
 )
+
+// minLeftOptions is how many choices a line left for the Overlord offers him
+// at least, as its Command Center question once he is back.
+const minLeftOptions = 2
 
 // DecisionKinds are the kinds Log takes, in the order the report lists them.
 var DecisionKinds = []string{KindLeft, KindMerge, KindDeploy, KindMigration, KindInstall, KindAnswer, KindOther}
@@ -110,8 +121,20 @@ type Entry struct {
 	Task string `json:"task,omitempty"`
 	Item string `json:"item,omitempty"`
 	// Recommendation is the choice recommended for a held question by whoever
-	// asked it: the CFO for its own, or the goblin whose question it is.
+	// asked it: the CFO for its own, or the goblin whose question it is, and
+	// for a line left for the Overlord the one of its Options the CFO
+	// recommends.
 	Recommendation string `json:"recommendation,omitempty"`
+	// Diagnosis and Tried are what a line left for the Overlord carries beside
+	// why it is his: what is wrong, found to its cause, and what the CFO
+	// already tried. Options are the choices his Command Center question
+	// offers him once he is back.
+	Diagnosis string   `json:"diagnosis,omitempty"`
+	Tried     string   `json:"tried,omitempty"`
+	Options   []string `json:"options,omitempty"`
+	// Struck is the CFO's reason for striking a decision through, set on the
+	// decision as the report folds the log, and never written to the log.
+	Struck string `json:"struck,omitempty"`
 }
 
 // ErrNotOn refuses what only happens while AFK mode is on.
@@ -270,8 +293,77 @@ func Log(stateDir string, entry Entry, now time.Time) (Entry, error) {
 		return Entry{}, fmt.Errorf("a decision names what was decided, in at most %d characters", maxWhat)
 	case strings.TrimSpace(entry.Evidence) == "" || len(entry.Evidence) > maxEvidence:
 		return Entry{}, fmt.Errorf("a decision carries its evidence, in at most %d characters", maxEvidence)
+	case entry.Kind == KindLeft:
+		if err := validLeft(entry); err != nil {
+			return Entry{}, err
+		}
 	}
+	entry.Struck = ""
 	return record(stateDir, entry, now)
+}
+
+// validLeft refuses a line left for the Overlord that would hand him
+// something undiagnosed: it says what is wrong and what the CFO already
+// tried, and offers him real choices, one of them recommended or none.
+func validLeft(entry Entry) error {
+	switch {
+	case strings.TrimSpace(entry.Diagnosis) == "" || len(entry.Diagnosis) > maxEvidence:
+		return fmt.Errorf("a line left for him says what is wrong, found to its cause, in at most %d characters", maxEvidence)
+	case strings.TrimSpace(entry.Tried) == "" || len(entry.Tried) > maxEvidence:
+		return fmt.Errorf("a line left for him says what was already tried, in at most %d characters", maxEvidence)
+	case len(entry.Options) < minLeftOptions || len(entry.Options) > maxLeftOptions:
+		return fmt.Errorf("a line left for him offers %d to %d choices, which his Command Center question asks once he is back", minLeftOptions, maxLeftOptions)
+	}
+	seen := map[string]bool{}
+	for _, option := range entry.Options {
+		if strings.TrimSpace(option) == "" || len(option) > maxOption || seen[option] {
+			return fmt.Errorf("the choices of a line left for him are distinct, and each is text of at most %d characters", maxOption)
+		}
+		seen[option] = true
+	}
+	if entry.Recommendation != "" && !seen[entry.Recommendation] {
+		return errors.New("the recommended choice of a line left for him is one of its choices, exactly")
+	}
+	return nil
+}
+
+// Strike strikes through the decision logged at at, a line the CFO wrote by
+// mistake, with the CFO's reason. The line stays in the log as it was
+// written, and the strike is a line of its own after it, which names the
+// line by when it was logged. The strike belongs to the stretch that is on,
+// or to the last one that ended, whose report is kept: the report the
+// Overlord reads next shows the line struck. A line is struck once.
+func Strike(stateDir string, at time.Time, reason string, now time.Time) (Entry, error) {
+	reason = strings.TrimSpace(reason)
+	if reason == "" || len(reason) > maxEvidence {
+		return Entry{}, fmt.Errorf("a strike carries the CFO's reason, in at most %d characters", maxEvidence)
+	}
+	state, err := Read(stateDir)
+	if err != nil {
+		return Entry{}, err
+	}
+	if state.Session == "" {
+		return Entry{}, errors.New("AFK mode was never on in this home, so its log holds no decision to strike")
+	}
+	entries, _, err := Entries(stateDir, "")
+	if err != nil {
+		return Entry{}, err
+	}
+	stamp := at.UTC().Format(time.RFC3339Nano)
+	var target *Entry
+	for i, entry := range entries {
+		switch {
+		case entry.Kind == KindStrike && entry.Item == stamp:
+			return Entry{}, fmt.Errorf("the line logged at %s is struck already", stamp)
+		case entry.At.Equal(at) && entry.Outcome == "" && slices.Contains(DecisionKinds, entry.Kind):
+			target = &entries[i]
+		}
+	}
+	if target == nil {
+		return Entry{}, fmt.Errorf("the log holds no decision of the CFO's logged at %s; name the line by its at, as state/afk.audit has it", stamp)
+	}
+	strike := Entry{At: now.UTC(), Session: state.Session, Kind: KindStrike, What: target.What, Task: target.Task, Item: stamp, Evidence: reason}
+	return strike, appendEntry(stateDir, strike)
 }
 
 // Hold records an item that waits on the Overlord, in the stretch that is on.

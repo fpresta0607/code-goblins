@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
+	"strconv"
 	"strings"
 	"time"
 
@@ -93,6 +94,13 @@ func afkSwitchKind(on bool) string {
 // has proven the calling process runs under that CFO.
 func LogAFKDecision(h home.Home, entry afk.Entry) error {
 	return sendPipeRequest(h.State, runPipeRequest{Kind: "afk-log", AFK: &entry})
+}
+
+// StrikeAFKLine strikes through the line the registered CFO logged at at by
+// mistake, with its reason. The supervisor writes the strike only once it has
+// proven the calling process runs under that CFO.
+func StrikeAFKLine(h home.Home, at time.Time, reason string) error {
+	return sendPipeRequest(h.State, runPipeRequest{Kind: "afk-strike", AFK: &afk.Entry{Item: at.UTC().Format(time.RFC3339Nano), Evidence: reason}})
 }
 
 // asker is what asked the supervisor for the Overlord's switch, as a refusal
@@ -379,7 +387,51 @@ func (s *Service) switchAFKAs(from, asked string, on bool) error {
 	if err != nil {
 		return err
 	}
-	return s.afkNotice(switchedSays(from, asked, "off") + ": he is back and decides again, so the standing rules apply. Write the report of the stretch into your terminal: cfo afk report")
+	return s.afkNotice(switchedSays(from, asked, "off") + ": he is back and decides again, so the standing rules apply. " + s.askLeftForHim(current.Session, now) + "Write the report of the stretch into your terminal: cfo afk report")
+}
+
+// askLeftForHim puts each line the stretch left for the Overlord, and the
+// CFO did not strike, to him in the Command Center as the CFO's own question,
+// with why it is his, what is wrong, what was tried and his choices: what is
+// his reaches him there, never as a list in the CFO's chat. It says what it
+// asked, or what it could not, for the CFO's notice.
+func (s *Service) askLeftForHim(session string, now time.Time) string {
+	stateDir := s.Store.Home.State
+	entries, _, err := afk.Entries(stateDir, session)
+	if err != nil {
+		return "The lines left for him could not be read, so none was asked in the Command Center (" + err.Error() + "): ask each with cfo question. "
+	}
+	var asked, failed []string
+	for _, left := range afk.Decisions(entries) {
+		if left.Kind != afk.KindLeft || left.Struck != "" || len(left.Options) == 0 {
+			continue
+		}
+		_, identity, err := readPrimary(stateDir)
+		if err == nil {
+			q := Question{ID: "afk-left-" + left.At.UTC().Format("20060102T150405.000000000Z"), Identity: identity, Text: leftQuestion(left), Options: slices.Clone(left.Options), Recommended: left.Recommendation, CreatedAt: now}
+			err = s.Store.acceptQuestion(q)
+			if err == nil {
+				asked = append(asked, q.ID)
+				continue
+			}
+		}
+		failed = append(failed, strconv.Quote(left.What)+" ("+err.Error()+")")
+	}
+	says := ""
+	if len(asked) > 0 {
+		says += "What the stretch left for him is in the Command Center as your questions " + strings.Join(asked, ", ") + ". "
+	}
+	if len(failed) > 0 {
+		says += "These lines left for him could not be asked in the Command Center: " + strings.Join(failed, ", ") + ". Ask each with cfo question. "
+	}
+	return says
+}
+
+// leftQuestion is a line left for the Overlord as the Command Center shows
+// his question: what only he can do, then why it is his, what is wrong and
+// what was tried, each on a line of its own.
+func leftQuestion(left afk.Entry) string {
+	return bounded(left.What+"\n- Why it is yours: "+left.Evidence+"\n- Found: "+left.Diagnosis+"\n- Tried: "+left.Tried, 4000)
 }
 
 // afkNotice tells the CFO of the Overlord's switch through its wake queue,
@@ -399,6 +451,19 @@ func (s *Service) logAFKDecision(entry afk.Entry) error {
 	s.afkChange.Lock()
 	defer s.afkChange.Unlock()
 	_, err := afk.Log(s.Store.Home.State, entry, time.Now())
+	return err
+}
+
+// strikeAFKLine strikes the line the registered CFO named over the pipe, by
+// when it was logged, with its reason.
+func (s *Service) strikeAFKLine(strike afk.Entry) error {
+	at, err := time.Parse(time.RFC3339Nano, strike.Item)
+	if err != nil {
+		return errors.New("a strike names its line by when it was logged")
+	}
+	s.afkChange.Lock()
+	defer s.afkChange.Unlock()
+	_, err = afk.Strike(s.Store.Home.State, at, strike.Evidence, time.Now())
 	return err
 }
 

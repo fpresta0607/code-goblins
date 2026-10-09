@@ -6,6 +6,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -245,6 +246,104 @@ func TestAFKLogRefusesADecisionThatSaysTooLittle(t *testing.T) {
 
 			// Act
 			exit, _, stderr := afkCommand(runtime, append([]string{"log"}, args...)...)
+
+			// Assert
+			if exit != 2 || stderr == "" || sent != 0 {
+				t.Fatalf("exit=%d stderr=%q sent=%d, want it refused before the supervisor", exit, stderr, sent)
+			}
+		})
+	}
+}
+
+// What only he can do reaches him diagnosed: the line left for him carries
+// what is wrong, what the CFO already tried, and his choices, which his
+// Command Center question offers once he is back.
+func TestAFKLogSendsALineLeftForHimWithWhatIsWrongWhatWasTriedAndHisChoices(t *testing.T) {
+	// Arrange
+	runtime, h := afkRuntime(t)
+	if exit, _, stderr := afkCommand(runtime, "on"); exit != 0 {
+		t.Fatal(stderr)
+	}
+
+	// Act
+	exit, _, stderr := afkCommand(runtime, "log", "--kind", "left", "--what", "Store a new Fly token for PrecisionDocs?",
+		"--evidence", "Fly tokens are his; backlog row cg-fly-token-durable",
+		"--diagnosis", "the stored token was overwritten at 04:00:21Z by an old .env line",
+		"--tried", "cfo auth --fix, which has no other token to adopt",
+		"--option", "Create the token now", "--option", "Leave PrecisionDocs parked", "--recommend", "Create the token now")
+
+	// Assert
+	entries, _, err := afk.Entries(h.State, "")
+	if exit != 0 || err != nil || len(entries) != 2 {
+		t.Fatalf("exit=%d stderr=%q log=%+v (%v), want the line left for him logged", exit, stderr, entries, err)
+	}
+	left := entries[1]
+	if left.Diagnosis != "the stored token was overwritten at 04:00:21Z by an old .env line" || left.Tried != "cfo auth --fix, which has no other token to adopt" || strings.Join(left.Options, "|") != "Create the token now|Leave PrecisionDocs parked" || left.Recommendation != "Create the token now" {
+		t.Errorf("left = %+v, want its diagnosis, what was tried and his choices", left)
+	}
+}
+
+func TestAFKLogRefusesALineLeftForHimThatIsNotDiagnosed(t *testing.T) {
+	left := []string{"--kind", "left", "--what", "Store a new Fly token?", "--evidence", "Fly tokens are his"}
+	for name, args := range map[string][]string{
+		"no diagnosis":                    append(slices.Clone(left), "--tried", "cfo auth --fix", "--option", "Now", "--option", "Later"),
+		"nothing tried":                   append(slices.Clone(left), "--diagnosis", "overwritten", "--option", "Now", "--option", "Later"),
+		"one choice":                      append(slices.Clone(left), "--diagnosis", "overwritten", "--tried", "cfo auth --fix", "--option", "Now"),
+		"a diagnosis on another decision": {"--kind", "deploy", "--what", "acme production", "--evidence", "/health reads 200", "--diagnosis", "none"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			// Arrange
+			runtime, _ := afkRuntime(t)
+			sent := 0
+			runtime.logAFK = func(home.Home, afk.Entry) error { sent++; return nil }
+
+			// Act
+			exit, _, stderr := afkCommand(runtime, append([]string{"log"}, args...)...)
+
+			// Assert
+			if exit != 2 || stderr == "" || sent != 0 {
+				t.Fatalf("exit=%d stderr=%q sent=%d, want it refused before the supervisor", exit, stderr, sent)
+			}
+		})
+	}
+}
+
+// A bogus line the CFO wrote by mistake is struck through with its reason,
+// never deleted: the command names the line by its at in state/afk.audit.
+func TestAFKStrikeSendsTheLineAndTheReason(t *testing.T) {
+	// Arrange
+	runtime, _ := afkRuntime(t)
+	var struckAt time.Time
+	var struckFor string
+	runtime.strikeAFK = func(_ home.Home, at time.Time, reason string) error { struckAt, struckFor = at, reason; return nil }
+
+	// Act
+	exit, stdout, stderr := afkCommand(runtime, "strike", "--at", "2026-10-09T00:08:18.430129Z", "--reason", "a test line the CFO wrote by mistake")
+
+	// Assert
+	if exit != 0 || !struckAt.Equal(time.Date(2026, 10, 9, 0, 8, 18, 430129000, time.UTC)) || struckFor != "a test line the CFO wrote by mistake" {
+		t.Fatalf("exit=%d stderr=%q at=%s reason=%q, want the line and the reason sent", exit, stderr, struckAt, struckFor)
+	}
+	if !strings.Contains(stdout, "struck the line logged at 2026-10-09T00:08:18.430129Z") {
+		t.Errorf("stdout = %q, want it to say what it struck", stdout)
+	}
+}
+
+func TestAFKStrikeRefusesWhatItCannotName(t *testing.T) {
+	for name, args := range map[string][]string{
+		"no line":        {"--reason", "written by mistake"},
+		"not a time":     {"--at", "yesterday", "--reason", "written by mistake"},
+		"no reason":      {"--at", "2026-10-09T00:08:18.430129Z"},
+		"a blank reason": {"--at", "2026-10-09T00:08:18.430129Z", "--reason", "  "},
+	} {
+		t.Run(name, func(t *testing.T) {
+			// Arrange
+			runtime, _ := afkRuntime(t)
+			sent := 0
+			runtime.strikeAFK = func(home.Home, time.Time, string) error { sent++; return nil }
+
+			// Act
+			exit, _, stderr := afkCommand(runtime, append([]string{"strike"}, args...)...)
 
 			// Assert
 			if exit != 2 || stderr == "" || sent != 0 {

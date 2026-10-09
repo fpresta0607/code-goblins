@@ -66,6 +66,8 @@ func (s *Service) acceptCFOItem(pid int, connected time.Time, req runPipeRequest
 		return s.Store.withdrawRun(req.ID, req.Reason)
 	case req.Kind == "afk-log" && req.AFK != nil:
 		return s.logAFKDecision(*req.AFK)
+	case req.Kind == "afk-strike" && req.AFK != nil:
+		return s.strikeAFKLine(*req.AFK)
 	}
 	return fmt.Errorf("the supervisor takes no %q request of that shape", req.Kind)
 }
