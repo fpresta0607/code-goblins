@@ -718,7 +718,7 @@ The target for a home is small: the binaries, records under 200 MB, capped cache
 The watcher files a laid-out home's data every ten minutes, so finished and abandoned work leaves `data/` without anyone asking:
 
 - A finished task's folder moves to `data/archive/finished/<task>/`. Finished means no task record is left in `state/`, a status log or a state archive entry shows the task was dispatched, and its brief has not changed since; a brief written again for the same id is a new brief.
-- A brief nothing ever dispatched moves to `data/archive/parked/<task>/` once it has sat unchanged for three days, or as soon as a `## Parked` row names it, and gets a `## Parked` row saying where its brief went, so the board stops showing it as Not started.
+- A brief nothing ever dispatched moves to `data/archive/parked/<task>/` once it has sat unchanged for three days, or as soon as a `## Parked` row names it, and gets a `## Parked` row saying where its brief went, so the board stops showing it as Queued.
 - A finished folder stays while an open backlog row names it by task id, or while anything still read names a path into it, such as `data/<task>/handoff.md`: all of `backlog.md`, `overlord.md`, both memory folders (`data/memory/` and Claude Code's own), the brief of every live or undispatched task, and every open Command Center question, review item and run card. A finished folder kept in place is still read, so what its own `brief.md` and `handoff.md` name by path stays too, and so on. A brief with a queued row is queued work however old it is.
 
 To revive a parked brief, move its folder back to `data/<task>/` and its row back under `## Queued`.

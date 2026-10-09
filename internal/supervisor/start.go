@@ -247,6 +247,9 @@ func (s *Service) startQueued(id string, isOverlord bool) error {
 	s.starts.Lock()
 	delete(s.startErrors, id)
 	s.starts.Unlock()
+	// The board shows the start at once, whoever made it: the scheduler's
+	// reading tells it only when its line changes.
+	s.notify()
 	go s.runStart(dispatch, plan)
 	return nil
 }

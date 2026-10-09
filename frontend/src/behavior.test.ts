@@ -413,7 +413,7 @@ test("a pulse ends with its own report however many snapshots follow", () => {
 });
 
 test("every status reads as plain words, never the old evidence jargon", () => {
-  const words: [string, string][] = [["queued","Not started"],["working","Working"],["active","Working"],["started","Starting"],["review","In review gate"],["ready","Checks passed"],
+  const words: [string, string][] = [["queued","Queued"],["working","Working"],["active","Working"],["started","Starting"],["review","In review gate"],["ready","Checks passed"],
     ["done","Delivered"],["merged","Merged, verifying"],["idle","Waiting for input"],["blocked","Blocked"],["failed","Failed"],["unavailable","No fresh evidence"],
     ["stale","No fresh evidence"],["interrupted","Interrupted"],["settled","Turn finished"],["ended","Session ended"],["unknown","No evidence yet"],["","No evidence yet"]];
   for (const [phase, label] of words) assert.equal(statusText(phase), label, phase);

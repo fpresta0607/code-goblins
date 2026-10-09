@@ -61,9 +61,10 @@ export function goblinView(task: Task): DeckView {
   return task.backend === "native" ? { kind: "host", query: new URLSearchParams({ task: task.id, generation: task.generation }).toString() } : { kind: "herdr" };
 }
 
-// A queued task or a child session has no terminal of its own.
-export function idleView(task?: Task, node?: Session): Extract<DeckView, { kind: "empty" }> {
-  if (task && !task.generation) return { kind: "empty", text: "This task has not started yet." };
+// A queued task or a child session has no terminal of its own. A task with
+// none yet shows status, its own, where its terminal will be.
+export function idleView(task?: Task, node?: Session, status = ""): Extract<DeckView, { kind: "empty" }> {
+  if (task && !task.generation) return { kind: "empty", text: status };
   return { kind: "empty", text: node ? "This child has no separate terminal." : "Select a goblin to see its terminal." };
 }
 

@@ -47,7 +47,10 @@ export function Board({ snapshot, layout, selected, selectedTrain, now, onSelect
   return <section className={"task-board" + (layout === "stacked" ? " stacked" : "")} aria-label="Task board">
     <CfoPin snapshot={snapshot} now={now} onOpen={onOpenCfo} onCommand={onOpenCommand} onStart={onStartCfo} />
     {COLUMNS.map((column) => {
-      const tasks = snapshot.tasks.filter((task) => taskColumn(task) === column.name);
+      const listed = snapshot.tasks.filter((task) => taskColumn(task) === column.name);
+      // A goblin starting heads In progress, where the supervisor puts it
+      // once its start ends, so it never moves on the way.
+      const tasks = column.name === "In progress" ? [...listed.filter((task) => task.starting), ...listed.filter((task) => !task.starting)] : listed;
       const trains = trainsIn(column.name);
       const empty = trains.length > 0 ? null : <p className="column-empty">{column.empty}</p>;
       return <section key={column.name} className="board-column" aria-label={column.name}>

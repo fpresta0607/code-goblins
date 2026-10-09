@@ -40,13 +40,16 @@ export function zoomAt(view: View, scale: number, pointer: Point): View {
 // (the Overlord, 2026-10-08: "paused is completely stopped terminals for
 // memory reasons"). A goblin paused to wait on something, its own pull
 // request or merge train, another task, a question, an allowance reset, CI
-// or a deploy, is still at its work and stays in In progress.
+// or a deploy, is still at its work and stays in In progress. A queued task
+// the supervisor is starting leaves Tasks at once, while one whose Start
+// waits its turn stays there, so the card the Overlord clicked does not move
+// until the supervisor starts it.
 const PAUSED_FOR_MEMORY = new Set(["memory", "overlord", ""]);
 
 export function taskColumn(task: Task): "Tasks" | "In progress" | "Paused" | "Completed" {
   if (task.archived || task.phase === "stopped" || task.phase === "stopping") return "Completed";
   if (["paused", "pausing", "resuming"].includes(task.phase) && PAUSED_FOR_MEMORY.has(task.lifecycle?.pause?.reason ?? "")) return "Paused";
-  if (task.phase === "queued") return "Tasks";
+  if (task.phase === "queued") return task.starting && !task.asked ? "In progress" : "Tasks";
   return task.phase === "done" && task.verified ? "Completed" : "In progress";
 }
 
@@ -127,7 +130,7 @@ export function safePullRequest(url: string): string {
 export function statusText(phase: string): string {
   const labels: Record<string, string> = {
     paused: "Paused", pausing: "Pausing", resuming: "Resuming", stopping: "Stopping", stopped: "Stopped",
-    queued: "Not started", working: "Working", active: "Working", started: "Starting",
+    queued: "Queued", working: "Working", active: "Working", started: "Starting",
     review: "In review gate", waiting: "Waiting", ready: "Checks passed", done: "Delivered", merged: "Merged, verifying", idle: "Waiting for input",
     blocked: "Blocked", failed: "Failed", unavailable: "No fresh evidence",
     stale: "No fresh evidence", interrupted: "Interrupted", settled: "Turn finished", ended: "Session ended",
@@ -179,13 +182,18 @@ const FAILED_ACTIONS: Record<string, { status: string; phase: string }> = {
 };
 const actionFailed = (task: Task) => task.lifecycle?.phase === "failed" && !["pausing", "resuming", "stopping"].includes(task.phase) ? FAILED_ACTIONS[task.lifecycle.action] : undefined;
 
+// isStartFailed says a queued task's last start failed and no new one is
+// under way: it waits for Start, and the CFO was told why.
+const isStartFailed = (task: Task) => task.phase === "queued" && !!task.start_error && !task.starting;
+
 // statusPhase is the phase a task's status is drawn in: the action's for one
-// that did not finish, its pull request's test's tone for one that waits on
-// it, and failed for a goblin that did not come back. trains are the
-// board's merge trains.
+// that did not finish, started for one whose start is under way, its pull
+// request's test's tone for one that waits on it, and failed for a goblin
+// that did not come back or a start that failed. trains are the board's
+// merge trains.
 export function statusPhase(task: Task, trains: MergeTrain[] = []): string {
   const awaited = awaitedTest(task, trains);
-  return actionFailed(task)?.phase || (awaited ? "pr-" + awaited.tone : task.comeback?.state === "stopped" ? "failed" : task.phase);
+  return actionFailed(task)?.phase || (task.starting ? "started" : awaited ? "pr-" + awaited.tone : task.comeback?.state === "stopped" || isStartFailed(task) ? "failed" : task.phase);
 }
 
 // A wait on another goblin names it by its goblin name while tasks, the
@@ -196,6 +204,7 @@ export function nodeStatus(node: WorkflowNode, asking = false, tasks: Task[] = [
   const unfinished = node.task && actionFailed(node.task);
   if (unfinished) return unfinished.status;
   if (node.task?.starting) return "Starting";
+  if (node.task && isStartFailed(node.task)) return "Start failed";
   // A queued task has no session to stop: Stop removes it from the queue.
   if (node.task?.phase === "stopping" && !node.task.generation) return "Removing";
   const awaited = node.task && ownsTaskSession(node.session, node.task) ? awaitedTest(node.task, trains) : undefined;
@@ -248,7 +257,7 @@ export function workflowNodes(snapshot: Snapshot): WorkflowNode[] {
             : snapshot.retired.includes(session.parent) ? "Parent retired" : "Parent unreported",
       };
     }),
-    ...tasksWithoutSession(snapshot.tasks.filter((task) => !task.archived && task.phase !== "queued" && !isHelperHeld(snapshot, task.id)), snapshot.sessions).map((task) => ({
+    ...tasksWithoutSession(snapshot.tasks.filter((task) => !task.archived && taskColumn(task) !== "Tasks" && !isHelperHeld(snapshot, task.id)), snapshot.sessions).map((task) => ({
       id: "task:" + task.id, title: goblinName(task), task, relation: "Session unreported",
     })),
   ];
