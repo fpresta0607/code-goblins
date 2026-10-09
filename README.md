@@ -401,7 +401,7 @@ The supervisor uses each free slot for the oldest pause whose condition has clea
 Slots go by memory alone: a start needs 5 GB of memory and of commit free, and no count of goblins holds one back, however many run.
 A future date, an unanswered question or an Overlord pause does not hold the queue.
 The supervisor does this by itself, one start or resume a minute while memory allows, until nothing that could run is left: the fleet never idles while work waits, and nothing waits for the CFO to notice.
-With memory free, a line under the memory meter names what it started or resumed, such as "Starting cg-docs", or why nothing waiting started, such as "Nothing starts: cg-docs: its last start failed: ...".
+The memory and disk meters say none of this in words: each is its name, its value and its bar, with nothing written under a bar or between two meters.
 A queued task that already finished never starts again, by itself or from Start: when its last report, live or archived, was done, or its pull request or one of its branch merged, its card reads **Already finished** with the evidence in place of Start.
 When `cfo cleanup` retires a delivered task, its row moves from Queued to Done with its detail lines, and the supervisor moves any row a delivered task left behind.
 Work the supervisor cannot start, such as a start that failed or a row that needs the CFO, wakes the CFO with an `idle` wake once it has waited 30 minutes with memory free and nothing started, naming each task and why, and again every 30 minutes it lasts.

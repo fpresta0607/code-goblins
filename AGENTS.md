@@ -363,7 +363,7 @@ The product does this by itself in every home, with no setting, and wakes you fo
 
 - **The supervisor starts the work.** `cfo serve` reads memory once a minute, and at each reading with 5 GB of memory and of commit free it takes one slot: a reported production defect, then the oldest paused goblin whose pause cleared, then the top of the queue, unless a goblin paused for memory comes back first.
   Slots go by memory alone: no count of goblins holds a start back, however many run.
-  The line under the board's memory meter names what it started or resumed, or why nothing waiting started.
+  The board's meters say none of it in words: what it could not start reaches you as the `idle` wake below.
 - **A row says what it waits for, and starts when that clears.** A row under `## Queued` waits while its title line carries `blocked-by: <what> - <why>`, and the scheduler starts it by itself at the first reading with memory free after every one of them cleared, with no edit to the row: `until 2026-10-10T00:00Z` (an RFC3339 time, seconds optional) once that time passes, `memory 12 GB` once a reading has that much memory and commit free, a task id once that task's outcome says it delivered, and a GitHub pull request URL once it merged.
   Write a wait in one of those forms, never a word the scheduler cannot read: one it cannot read, such as `blocked-by: quiet-night` where no task has that id, keeps the row waiting, its card says why, and it is work that cannot start, which wakes you.
   So does a wait that can never clear: a task that stopped without delivering, or a pull request closed without merging.
