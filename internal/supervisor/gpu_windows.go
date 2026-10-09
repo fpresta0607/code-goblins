@@ -31,9 +31,6 @@ const (
 	// which draws on the processors and is no graphics adapter.
 	softwareVendor = 0x1414
 	softwareDevice = 0x8c
-	// gpuMoment is how long a reading with no earlier one watches: Windows
-	// refreshes these counters about once a second.
-	gpuMoment = time.Second
 )
 
 // ErrNoGPU is a machine whose Windows counts no graphics engines, as a
@@ -92,7 +89,7 @@ func (m *gpuMeter) read() (GPU, error) {
 		// A machine with no engine in use yet has nothing to collect, which
 		// the second collection below reports.
 		_, _, _ = pdhCollectQueryData.Call(m.query)
-		time.Sleep(gpuMoment)
+		time.Sleep(processorMoment)
 	}
 	if status, _, _ := pdhCollectQueryData.Call(m.query); status != 0 {
 		return GPU{}, fmt.Errorf("%w (collecting: status %#x)", ErrNoGPU, status)
