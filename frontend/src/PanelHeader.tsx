@@ -48,7 +48,7 @@ export function PanelHeader({ task, node, snapshot, compact, onAnswer, onOpenTas
   const said = owner ? taskSummary(task, snapshot.tasks, status) : undefined;
   // What a queued task's wait line leaves out: the CFO's note on it, or what
   // says it already finished.
-  const note = owner && task.phase === "queued" && (task.finished || task.dependencies.length) ? withoutHarness(task.finished || task.reason) : "";
+  const note = owner && task.phase === "queued" && (task.finished || task.waits.length) ? withoutHarness(task.finished || task.reason) : "";
   const pr = owner ? safePullRequest(task.pr) : "";
   const test = owner ? pullRequestTest(task, trains) : undefined;
   const badge = pullRequestBadge(pr);
@@ -70,7 +70,7 @@ export function PanelHeader({ task, node, snapshot, compact, onAnswer, onOpenTas
     <Avatar persona={cfo ? "cfo" : personaFor(task, node)} small />
     <div className="panel-identity">
       <h2 id="panel-title">{title}</h2>
-      {cfo && !compact && <RestartCfoButton snapshot={snapshot} />}
+      {cfo && <RestartCfoButton snapshot={snapshot} isCompact={compact} />}
       {owner && task.phase === "queued" ? <TaskAdjustment key={task.id} task={task} snapshot={snapshot} /> : owner && task.goblin_name && <p className="panel-goblin-task">{taskName(task)}</p>}
       {!compact && task?.project && <div className="project-line"><p className="project-label">{task.project}</p><PeopleRow snapshot={snapshot} task={task} /></div>}
       <p className={"panel-status plain-status phase-" + phase}><span className="status-dot" />{status}{awaited && <button className="status-link" aria-label={"Open " + goblinName(awaited) + ", which this goblin is waiting on"} data-tip={"Open " + goblinName(awaited)} onClick={() => onOpenTask(awaited)}><Icon name="next" /></button>}</p>

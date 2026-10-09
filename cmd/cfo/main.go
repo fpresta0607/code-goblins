@@ -181,9 +181,10 @@ type commandRuntime struct {
 	// so a CFO started in terminal cfo is shown before it registers, never
 	// started twice.
 	nativeTerminalRuns func(stateDir, id string) bool
-	// restartCFO restarts the CFO running in native terminal cfo on its
-	// conversation and returns the conversation and whether it was resumed.
-	restartCFO func(h home.Home) (supervisor.CFOConversation, bool, error)
+	// restartCFO restarts the CFO running in native terminal cfo and returns
+	// the conversation it last registered with and, when it did not come back
+	// on that conversation, why it started a new one.
+	restartCFO func(h home.Home) (supervisor.CFOConversation, string, error)
 	// admitLaunch says why the machine has no room yet for another harness,
 	// or nil when it has, as a spawn admits one.
 	admitLaunch func(h home.Home) error

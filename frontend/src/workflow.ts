@@ -1,6 +1,6 @@
 import type { MergeTrain, Session, Snapshot, Task } from "./types.ts";
 import { lineageRoots, ownsTaskSession, sessionTitle, tasksWithoutSession } from "./lineageTree.ts";
-import { goblinName } from "./task-words.ts";
+import { goblinName, waitStatus } from "./task-words.ts";
 import { isHeldByTree, isHelperHeld, LINE_GAP } from "./fleet-tree.ts";
 import { awaitedTest } from "./pull-request-test.ts";
 
@@ -214,6 +214,7 @@ export function nodeStatus(node: WorkflowNode, asking = false, tasks: Task[] = [
   if (node.task?.comeback?.state === "stopped") return "Did not come back after the restart";
   if (node.task?.archived) return node.task.merged ? "Merged" : node.task.closed ? "Closed" : "Finished";
   if (node.task?.phase === "queued" && node.task.finished) return "Already finished";
+  if (node.task?.phase === "queued" && node.task.waits.length) return waitStatus(node.task, tasks);
   if (node.task && ownsTaskSession(node.session, node.task)) {
     const { phase, reason, verified } = node.task;
     if (asking) return "Waiting on the CFO";

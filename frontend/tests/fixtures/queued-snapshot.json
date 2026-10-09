@@ -23,9 +23,7 @@
                       "brief":  true,
                       "verified":  false,
                       "since":  "2026-09-28T11:00:00Z",
-                      "dependencies":  [
-                                           "memory"
-                                       ]
+                      "waits":  [{ "kind": "task", "target": "memory" }]
                   },
                   {
                       "id":  "cg-review-editor-sync",
@@ -35,9 +33,7 @@
                       "brief":  true,
                       "verified":  false,
                       "since":  "2026-09-28T11:00:00Z",
-                      "dependencies":  [
-                                           "memory"
-                                       ]
+                      "waits":  [{ "kind": "task", "target": "memory" }]
                   },
                   {
                       "id":  "cg-hidden-windows",
@@ -47,9 +43,7 @@
                       "brief":  true,
                       "verified":  false,
                       "since":  "2026-09-28T11:00:00Z",
-                      "dependencies":  [
-                                           "memory"
-                                       ]
+                      "waits":  [{ "kind": "task", "target": "memory" }]
                   },
                   {
                       "id":  "cg-install-no-mistakes-pinned",
@@ -59,9 +53,7 @@
                       "brief":  true,
                       "verified":  false,
                       "since":  "2026-09-28T11:00:00Z",
-                      "dependencies":  [
-                                           "priority"
-                                       ]
+                      "waits":  [{ "kind": "task", "target": "priority" }]
                   },
                   {
                       "id":  "cg-board-unreadable-folder",
@@ -71,9 +63,7 @@
                       "brief":  true,
                       "verified":  false,
                       "since":  "2026-09-28T11:00:00Z",
-                      "dependencies":  [
-                                           "priority"
-                                       ]
+                      "waits":  [{ "kind": "task", "target": "priority" }]
                   },
                   {
                       "id":  "cg-board-update",
@@ -83,9 +73,7 @@
                       "brief":  true,
                       "verified":  false,
                       "since":  "2026-09-28T11:00:00Z",
-                      "dependencies":  [
-                                           "priority"
-                                       ]
+                      "waits":  [{ "kind": "task", "target": "priority" }]
                   },
                   {
                       "id":  "cg-hardening-followups",
@@ -95,9 +83,7 @@
                       "brief":  true,
                       "verified":  false,
                       "since":  "2026-09-28T11:00:00Z",
-                      "dependencies":  [
-                                           "priority"
-                                       ]
+                      "waits":  [{ "kind": "task", "target": "priority" }]
                   },
                   {
                       "id":  "cg-helper-goblins",
@@ -107,9 +93,7 @@
                       "brief":  true,
                       "verified":  false,
                       "since":  "2026-09-28T11:00:00Z",
-                      "dependencies":  [
-                                           "cg-board-kill"
-                                       ]
+                      "waits":  [{ "kind": "task", "target": "cg-board-kill" }]
                   },
                   {
                       "id":  "cfo-no-mistakes-update",
@@ -119,9 +103,7 @@
                       "brief":  true,
                       "verified":  false,
                       "since":  "2026-09-28T11:00:00Z",
-                      "dependencies":  [
-                                           "time"
-                                       ]
+                      "waits":  [{ "kind": "task", "target": "time" }]
                   },
                   {
                       "id":  "pd-land-pr-1265",
@@ -131,9 +113,7 @@
                       "brief":  true,
                       "verified":  false,
                       "since":  "2026-09-28T11:00:00Z",
-                      "dependencies":  [
-                                           "the"
-                                       ]
+                      "waits":  [{ "kind": "task", "target": "the" }]
                   },
                   {
                       "id":  "pd-agent-api-v2-later",
@@ -143,9 +123,7 @@
                       "brief":  true,
                       "verified":  false,
                       "since":  "2026-09-28T11:00:00Z",
-                      "dependencies":  [
-                                           "time"
-                                       ]
+                      "waits":  [{ "kind": "task", "target": "time" }]
                   }
               ]
 }

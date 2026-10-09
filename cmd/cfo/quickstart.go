@@ -60,7 +60,7 @@ func runQuickstart(stdout, stderr io.Writer, runtime commandRuntime, rerun, rest
 	list.Keep()
 	restarted := false
 	if restart {
-		conversation, resumed, err := runtime.restartCFO(h)
+		conversation, fresh, err := runtime.restartCFO(h)
 		switch {
 		case err == nil:
 			notes := runtime.settleCFO(ctx, h.State, conversation.Harness)
@@ -74,11 +74,11 @@ func runQuickstart(stdout, stderr io.Writer, runtime commandRuntime, rerun, rest
 				fmt.Fprintln(stderr, "goblins: the restarted CFO's native terminal ended during startup")
 				return 1
 			}
-			if resumed {
+			if fresh == "" {
 				list.Done("CFO", fmt.Sprintf("restarted on its conversation %s, in native terminal %s", conversation.Session, supervisor.NativeCFOTerminal))
 			} else {
 				list.Done("CFO", fmt.Sprintf("restarted as %s on a new conversation, in native terminal %s", onboarding.Name(conversation.Harness), supervisor.NativeCFOTerminal))
-				list.Note(fmt.Sprintf("Its conversation %s could not be resumed, so the CFO starts a new one.", conversation.Session))
+				list.Note(fresh)
 			}
 			list.Note("Its current response was interrupted; goblins keep running.")
 			for _, note := range append(wakePath(conversation.Harness), notes...) {

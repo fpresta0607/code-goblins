@@ -340,7 +340,10 @@ func firstRunOn(h home.Home, userHome string, example bool, setMachine func(root
 			return startNativeCFO(h, h.Root, agent, nil)
 		},
 		ReopenCFO:  func() error { return reopenCFO(h, startNativeCFO, supervisor.NativeTerminalRuns) },
-		RestartCFO: func() (supervisor.CFOConversation, bool, error) { return restartCFO(h) },
+		RestartCFO: func() (supervisor.CFOConversation, bool, error) {
+			conversation, fresh, err := restartCFO(h)
+			return conversation, fresh == "", err
+		},
 	}
 }
 

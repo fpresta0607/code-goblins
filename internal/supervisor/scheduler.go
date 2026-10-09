@@ -36,11 +36,15 @@ type WaitingWork struct {
 // the queue, unless a goblin paused for memory comes back first. It says what
 // it did, and what could run and did not, with why; a board that cannot start
 // goblins schedules nothing and says nothing.
-func (s *Service) schedule(ctx context.Context, now time.Time, watched *fleetWakes) (*Scheduling, error) {
+func (s *Service) schedule(ctx context.Context, now time.Time, watched *fleetWakes, memory Memory) (*Scheduling, error) {
 	if s.Options.Dispatch.Spawn == nil {
 		return nil, nil
 	}
 	record := &Scheduling{At: now}
+	// A pull request a queued row waits on that merged lets the row start
+	// at this reading.
+	problems := s.learnAwaitedMerges(ctx)
+	reading := s.rowReading(now, &memory)
 	s.starts.Lock()
 	starting, changing := s.starting, maps.Clone(s.changing)
 	failed, changeErrors := maps.Clone(s.startErrors), maps.Clone(s.changeErrors)
@@ -50,7 +54,7 @@ func (s *Service) schedule(ctx context.Context, now time.Time, watched *fleetWak
 	var queued []string
 	defect := ""
 	for _, id := range queuedCandidates(s.Store.Home) {
-		plan, err := planStart(s.Store.Home, id, finished)
+		plan, err := planStart(s.Store.Home, id, finished, reading)
 		var refusal StartRefusal
 		if errors.As(err, &refusal) && refusal.Held {
 			continue
@@ -73,7 +77,6 @@ func (s *Service) schedule(ctx context.Context, now time.Time, watched *fleetWak
 			defect = id
 		}
 	}
-	var problems error
 	var ready []state.Lifecycle
 	memoryPending := ""
 	for _, meta := range liveTasks(s.Store.Home.State) {

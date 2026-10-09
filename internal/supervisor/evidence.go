@@ -552,7 +552,7 @@ func finishedTasks(h home.Home, now time.Time) []Task {
 		if project != "" {
 			project = filepath.Base(project)
 		}
-		tasks = append(tasks, Task{ID: "finished:" + id, Title: title, Project: project, Dependencies: []string{}, Archived: true, LastReport: report, RetiredAt: retired, Evaluation: Evaluation{Phase: phase, PR: pr, Reason: reason, At: f.at}})
+		tasks = append(tasks, Task{ID: "finished:" + id, Title: title, Project: project, Archived: true, LastReport: report, RetiredAt: retired, Evaluation: Evaluation{Phase: phase, PR: pr, Reason: reason, At: f.at}})
 	}
 	for _, directory := range []string{"outcomes", "lifecycle"} {
 		entries, _ := os.ReadDir(filepath.Join(stateDir, directory))
@@ -569,14 +569,14 @@ func finishedTasks(h home.Home, now time.Time) []Task {
 					continue
 				}
 				generation = outcome.Generation
-				task = Task{ID: "finished:" + id, Title: outcome.Title, GoblinName: outcome.GoblinName, GoblinTitle: outcome.GoblinTitle, Project: filepath.Base(outcome.Project), Branch: outcome.Branch, Harness: outcome.Harness, Model: outcome.Model, Effort: outcome.Effort, Archived: true, Dependencies: []string{}, Evaluation: Evaluation{Phase: outcome.Phase, PR: outcome.PR, Reason: outcome.Reason, At: outcome.At}}
+				task = Task{ID: "finished:" + id, Title: outcome.Title, GoblinName: outcome.GoblinName, GoblinTitle: outcome.GoblinTitle, Project: filepath.Base(outcome.Project), Branch: outcome.Branch, Harness: outcome.Harness, Model: outcome.Model, Effort: outcome.Effort, Archived: true, Evaluation: Evaluation{Phase: outcome.Phase, PR: outcome.PR, Reason: outcome.Reason, At: outcome.At}}
 			} else {
 				record, err := state.ReadLifecycle(stateDir, id)
 				if err != nil || record.Phase != "stopped" {
 					continue
 				}
 				generation = record.Generation
-				task = Task{ID: "finished:" + id, Title: record.Title, GoblinName: record.GoblinName, GoblinTitle: record.GoblinTitle, Project: filepath.Base(record.Project), Archived: true, Dependencies: []string{}, Lifecycle: lifecycleStatus(record), Teardown: record.TeardownLabels(), Evaluation: Evaluation{Phase: "stopped", Reason: record.Reason, At: record.Updated}}
+				task = Task{ID: "finished:" + id, Title: record.Title, GoblinName: record.GoblinName, GoblinTitle: record.GoblinTitle, Project: filepath.Base(record.Project), Archived: true, Lifecycle: lifecycleStatus(record), Teardown: record.TeardownLabels(), Evaluation: Evaluation{Phase: "stopped", Reason: record.Reason, At: record.Updated}}
 				// A stop never relabels what its own generation delivered: a
 				// helper its parent merged is retired through Stop.
 				if outcome, err := state.ReadOutcome(stateDir, id); err == nil && outcome.Generation == record.Generation && outcome.Phase == "done" {
@@ -621,7 +621,7 @@ func withMergedPRs(history []Task, merged []MergedPR) []Task {
 			}
 		}
 		if !found {
-			history = append(history, Task{ID: "merged:" + pr.PR, Title: "Pull request #" + filepath.Base(pr.PR), Branch: pr.Branch, Project: filepath.Base(pr.Project), Dependencies: []string{}, Archived: true, Merged: true, Evaluation: Evaluation{Phase: "done", PR: pr.PR, Reason: "Pull request merged", At: time.Unix(pr.At, 0).UTC()}})
+			history = append(history, Task{ID: "merged:" + pr.PR, Title: "Pull request #" + filepath.Base(pr.PR), Branch: pr.Branch, Project: filepath.Base(pr.Project), Archived: true, Merged: true, Evaluation: Evaluation{Phase: "done", PR: pr.PR, Reason: "Pull request merged", At: time.Unix(pr.At, 0).UTC()}})
 		}
 	}
 	return newestHistory(history)
@@ -774,7 +774,7 @@ func queuedBriefs(h home.Home, briefs briefReader) []Task {
 			if checkout != "" {
 				checkout = filepath.Base(checkout)
 			}
-			tasks = append(tasks, Task{ID: id, Title: id, Project: checkout, Dependencies: []string{}, Since: created(info), Evaluation: Evaluation{Phase: "queued", Reason: "Brief ready at data/" + id + "/brief.md; not dispatched yet"}})
+			tasks = append(tasks, Task{ID: id, Title: id, Project: checkout, Since: created(info), Evaluation: Evaluation{Phase: "queued", Reason: "Brief ready at data/" + id + "/brief.md; not dispatched yet"}})
 		}
 	}
 	return tasks

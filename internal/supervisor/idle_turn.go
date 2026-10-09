@@ -28,7 +28,7 @@ type idleTurn struct {
 // CFO's Stop hook keeps watching for the wakes it raises though no goblin is
 // in flight.
 func WorkWaits(h home.Home) bool {
-	return len(startableQueued(h, readFinishedWork(h, nil))) > 0
+	return len(startableQueued(h, readFinishedWork(h, nil), rowReading{now: time.Now().UTC()})) > 0
 }
 
 // IdleTurnWake wakes a CFO whose turn ends with no goblin at work while work
@@ -63,7 +63,8 @@ func IdleTurnWake(h home.Home, memory Memory, now time.Time) (string, error) {
 		return strings.Compare(left.ID, right.ID)
 	})
 	finished := readFinishedWork(h, nil)
-	queued := startableQueued(h, finished)
+	reading := rowReading{now: now, memory: &memory}
+	queued := startableQueued(h, finished, reading)
 	var next string
 	var steps, waiting []string
 	for index, record := range paused {
@@ -79,7 +80,7 @@ func IdleTurnWake(h home.Home, memory Memory, now time.Time) (string, error) {
 			waiting = append(waiting, id)
 			continue
 		}
-		plan, err := planStart(h, id, finished)
+		plan, err := planStart(h, id, finished, reading)
 		if err != nil {
 			return "", err
 		}
@@ -120,12 +121,12 @@ func IdleTurnWake(h home.Home, memory Memory, now time.Time) (string, error) {
 	return detail, fsx.AtomicWriteFile(path, data)
 }
 
-// startableQueued names the queued tasks a Start could start now, in queue
-// order.
-func startableQueued(h home.Home, finished *finishedWork) []string {
+// startableQueued names the queued tasks a Start could start at reading, in
+// queue order.
+func startableQueued(h home.Home, finished *finishedWork, reading rowReading) []string {
 	var queued []string
 	for _, id := range queuedCandidates(h) {
-		if _, err := planStart(h, id, finished); err == nil {
+		if _, err := planStart(h, id, finished, reading); err == nil {
 			queued = append(queued, id)
 		}
 	}
