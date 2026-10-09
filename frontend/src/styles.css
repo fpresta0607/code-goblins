@@ -1256,6 +1256,9 @@ a.wait-open { min-height: 44px; border: 1px solid var(--accent-green); border-ra
 .stop-task-choices button { width: 100%; min-height: 46px; }
 .preservation-notice { display: flex; gap: 10px; align-items: center; padding: 14px; border: 1px solid #4ee2b644; border-radius: var(--radius); background: #163d3740; color: #9af2d7; }
 .preservation-notice .icon { flex: none; }
+/* A dialog's note sits as far under its description as its choices sit under
+   the note. */
+dialog > .preservation-notice { margin-top: 18px; }
 .danger { color: #ff9292; }
 .stop-task-choices .danger { border-color: #fa7272; background: var(--field-bg); }
 @container (max-width: 420px) {
