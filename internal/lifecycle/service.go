@@ -32,8 +32,11 @@ type Operations struct {
 	// paused or stopped, first, so each gets its own record, and says what
 	// became of each; one that fails is the task's problem to name, never a
 	// reason to keep it running.
-	Helpers    func(context.Context, state.TaskMeta, *state.Lifecycle) ([]string, error)
-	Prepare    func(context.Context, state.TaskMeta, string) error
+	Helpers func(context.Context, state.TaskMeta, *state.Lifecycle) ([]string, error)
+	Prepare func(context.Context, state.TaskMeta, string) error
+	// Withdraw tells a goblin whose pause failed while it ran that it is
+	// not paused, taking back the instruction Prepare typed.
+	Withdraw   func(context.Context, state.TaskMeta) error
 	Stop       func(context.Context, state.TaskMeta, *state.Lifecycle) ([]string, error)
 	Checkpoint func(context.Context, state.TaskMeta, *state.Lifecycle) error
 	Resume     func(context.Context, state.TaskMeta, state.Lifecycle) error
@@ -213,11 +216,7 @@ func (service Service) Run(ctx context.Context, request Request) (result state.L
 			if wait <= 0 {
 				wait = 5 * time.Second
 			}
-			deliveryWait := service.PrepareWait
-			if deliveryWait <= 0 {
-				deliveryWait = time.Minute
-			}
-			prepare, cancelPrepare := context.WithTimeout(ctx, deliveryWait)
+			prepare, cancelPrepare := context.WithTimeout(ctx, service.deliveryWait())
 			prepared := make(chan error, 1)
 			go func() { prepared <- service.Operations.Prepare(prepare, meta, result.Handoff) }()
 			waiting, cancelWait := prepare, cancelPrepare
@@ -291,6 +290,19 @@ func (service Service) Run(ctx context.Context, request Request) (result state.L
 	if err != nil {
 		result.Phase = "failed"
 		result.Problems = append(result.Problems, err.Error())
+		// The goblin was told to stop at its stopping point and believes
+		// it is paused once it has, while its session runs on: on
+		// 2026-10-08 Shirley sat idle at her prompt "still paused" until
+		// the CFO told her otherwise.
+		if request.Action == "pause" && service.Operations.Withdraw != nil {
+			withdraw, cancel := context.WithTimeout(ctx, service.deliveryWait())
+			if withdrawErr := service.Operations.Withdraw(withdraw, meta); withdrawErr != nil {
+				result.Problems = append(result.Problems, "could not tell the goblin it is not paused: "+withdrawErr.Error())
+			} else {
+				result.Problems = append(result.Problems, "told the goblin it is not paused, so it carries on")
+			}
+			cancel()
+		}
 	}
 	finished, finishErr := service.finish(result)
 	return finished, errors.Join(err, finishErr)
@@ -301,6 +313,18 @@ func (service Service) Run(ctx context.Context, request Request) (result state.L
 // and by rename so a partly written file never counts.
 func PauseInstruction(handoff string) string {
 	return "Pause requested. You have five seconds to reach a stopping point: finish the step in hand, then push your branch if its mode allows. As your very last action, write your handoff to " + handoff + ".partial and rename it to " + handoff + "; that file ends the wait, and your session and processes stop right after it appears. Retain all work and never bypass a gate."
+}
+
+// PAUSE_WITHDRAWAL takes back a PauseInstruction whose pause failed while the
+// goblin's session ran on.
+const PAUSE_WITHDRAWAL = "The pause did not take effect: your session was not stopped, so you are not paused. Carry on with your work from where you stopped."
+
+// deliveryWait bounds typing a line into the goblin's terminal.
+func (service Service) deliveryWait() time.Duration {
+	if service.PrepareWait <= 0 {
+		return time.Minute
+	}
+	return service.PrepareWait
 }
 
 func (service Service) save(record *state.Lifecycle) error {

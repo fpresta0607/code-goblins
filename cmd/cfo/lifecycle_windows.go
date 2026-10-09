@@ -67,7 +67,8 @@ func defaultTaskLifecycle(ctx context.Context, h home.Home, request lifecycle.Re
 		Helpers: func(ctx context.Context, meta state.TaskMeta, record *state.Lifecycle) ([]string, error) {
 			return reachHelpers(ctx, h, meta, record, runtime.taskLifecycle)
 		},
-		Prepare: pauseInstruction(runtime, h),
+		Prepare:  pauseInstruction(runtime, h),
+		Withdraw: pauseWithdrawal(runtime, h),
 		Stop: func(ctx context.Context, meta state.TaskMeta, record *state.Lifecycle) ([]string, error) {
 			var stopped []string
 			var err error
@@ -206,6 +207,18 @@ func resumeTask(ctx context.Context, h home.Home, runtime commandRuntime, comman
 func pauseInstruction(runtime commandRuntime, h home.Home) func(context.Context, state.TaskMeta, string) error {
 	return func(ctx context.Context, meta state.TaskMeta, handoff string) error {
 		if err := runtime.sendText(ctx, h, meta.ID, lifecycle.PauseInstruction(handoff)); !errors.Is(err, fleet.ErrQueuedForToolCall) {
+			return err
+		}
+		return nil
+	}
+}
+
+// pauseWithdrawal types into the goblin of a pause that failed while it ran
+// that it is not paused. A goblin in a turn takes it after the instruction
+// queued ahead of it.
+func pauseWithdrawal(runtime commandRuntime, h home.Home) func(context.Context, state.TaskMeta) error {
+	return func(ctx context.Context, meta state.TaskMeta) error {
+		if err := runtime.sendText(ctx, h, meta.ID, lifecycle.PAUSE_WITHDRAWAL); !errors.Is(err, fleet.ErrQueuedForToolCall) {
 			return err
 		}
 		return nil
