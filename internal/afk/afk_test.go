@@ -4,6 +4,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -120,15 +121,65 @@ func TestWhatOnlyHeCanDoIsLoggedAsLeftForHim(t *testing.T) {
 	dir, on := turnedOn(t)
 
 	// Act
-	logged, err := Log(dir, Entry{Kind: KindLeft, What: "Sign in to Vercel for pd-auth", Evidence: "his own sign-in; backlog row pd-auth-vercel-sign-in, pd-auth moved to the invoice export"}, night.Add(time.Hour))
+	logged, err := Log(dir, leftForHim(), night.Add(time.Hour))
 
 	// Assert
 	if err != nil {
 		t.Fatalf("Log = %v, want what is left for him logged", err)
 	}
 	entries, _, _ := Entries(dir, on.Session)
-	if decisions := Decisions(entries); len(decisions) != 1 || decisions[0].Kind != KindLeft || decisions[0].Evidence != logged.Evidence {
-		t.Errorf("decisions = %+v, want what was left for him with its evidence", decisions)
+	decisions := Decisions(entries)
+	if len(decisions) != 1 || decisions[0].Kind != KindLeft || decisions[0].Evidence != logged.Evidence {
+		t.Fatalf("decisions = %+v, want what was left for him with its evidence", decisions)
+	}
+	left := decisions[0]
+	if left.Diagnosis != logged.Diagnosis || left.Tried != logged.Tried || !slices.Equal(left.Options, logged.Options) || left.Recommendation != logged.Recommendation {
+		t.Errorf("left = %+v, want its diagnosis, what was tried and his choices kept", left)
+	}
+}
+
+// leftForHim is a line the CFO leaves for the Overlord: what only he can do,
+// why it is his, what is wrong found to its cause, what the CFO already
+// tried, and the choices his Command Center question offers once he is back.
+func leftForHim() Entry {
+	return Entry{
+		Kind: KindLeft, What: "Sign in to Vercel for pd-auth?", Evidence: "his own sign-in; backlog row pd-auth-vercel-sign-in, pd-auth moved to the invoice export",
+		Diagnosis: "the stored Vercel token expired at 01:10Z and Vercel answers 403 to the deploy probe",
+		Tried:     "cfo auth --fix read the store and the .env again, and neither holds a newer token",
+		Options:   []string{"I will sign in", "Skip Vercel for now"}, Recommendation: "I will sign in",
+	}
+}
+
+// A line left for him is what reaches him: it says what is wrong and what the
+// CFO already tried, and offers him real choices, so nothing is handed to him
+// undiagnosed.
+func TestALineLeftForHimWithoutItsDiagnosisWhatWasTriedOrHisChoicesIsRefused(t *testing.T) {
+	for name, change := range map[string]func(*Entry){
+		"no diagnosis":           func(e *Entry) { e.Diagnosis = " " },
+		"nothing tried":          func(e *Entry) { e.Tried = "" },
+		"no choices":             func(e *Entry) { e.Options = nil },
+		"one choice":             func(e *Entry) { e.Options = []string{"I will sign in"} },
+		"the same choice twice":  func(e *Entry) { e.Options = []string{"I will sign in", "I will sign in"} },
+		"a blank choice":         func(e *Entry) { e.Options = []string{"I will sign in", " "} },
+		"a recommendation alone": func(e *Entry) { e.Recommendation = "Sign in tomorrow" },
+	} {
+		t.Run(name, func(t *testing.T) {
+			// Arrange
+			dir, on := turnedOn(t)
+			entry := leftForHim()
+			change(&entry)
+
+			// Act
+			_, err := Log(dir, entry, night.Add(time.Hour))
+
+			// Assert
+			if err == nil {
+				t.Fatalf("Log(%+v) was accepted", entry)
+			}
+			if entries, _, _ := Entries(dir, on.Session); len(entries) != 1 {
+				t.Errorf("log = %+v, want only the switch", entries)
+			}
+		})
 	}
 }
 

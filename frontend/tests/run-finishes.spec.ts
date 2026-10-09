@@ -67,7 +67,8 @@ test("a command that failed keeps its card on screen with its output, and leaves
 
   // Assert
   await expect(dialog.getByRole("heading", { name: RUN })).toBeVisible();
-  await expect(dialog.locator(".run-head .run-state")).toHaveText("Failed: gh: release v0.5.2 already exists");
+  await expect(dialog.locator(".run-head .run-state")).toHaveText("Failed");
+  await expect(dialog.locator(".run-failure")).toHaveText("gh: release v0.5.2 already exists. The CFO has its output and takes the next step.");
   await expect(dialog.locator(".run-output")).toContainText("Uploading assets");
   await dialog.getByRole("button", { name: "Close the Command Center" }).click();
   await expect((await history(page)).filter({ hasText: RUN })).toContainText("Failed: gh: release v0.5.2 already exists · exit 2");

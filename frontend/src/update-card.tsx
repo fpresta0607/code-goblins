@@ -65,7 +65,6 @@ export function UpdateCard({ run, offer, connected, sending, error, onRun, onRet
     </li>)}</ol>}
     {running && <p className="update-effect">The board is away for a few seconds and reconnects by itself.</p>}
     {progress.result && !running && <p className={"update-result " + (updated ? "ok" : "back")}>{updated ? offer.to + " runs. The board reloads on it now." : progress.result}</p>}
-    {updated && <p className="update-effect">The desktop app moves to {offer.to} once you quit it from its tray icon and open it again.</p>}
     {run.state === "withdrawn" && run.reason && <p className="update-effect">{run.reason[0].toUpperCase() + run.reason.slice(1)}.</p>}
     {(running || output) && <details className="update-output"><summary>Output</summary><pre className="run-output">{output || "Waiting for output"}</pre></details>}
     {(run.state === "ready" || pager || onRetry) && <div className="card-actions">

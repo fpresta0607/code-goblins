@@ -383,8 +383,10 @@ func TestADisconnectedWindowLeavesItsItemOpenSayingWhenItClosed(t *testing.T) {
 // withdrawn its page's watch the same way.
 func TestAnAnswerOnAPageReachesTheGoblinWhateverItReportedSince(t *testing.T) {
 	for name, since := range map[string]func(t *testing.T, store *Store, meta state.TaskMeta, asked wake.Record, connection *CFOConnection){
+		// A working report keeps the page's item open, so a later failure is
+		// the status that closes it.
 		"a later status": func(t *testing.T, store *Store, meta state.TaskMeta, _ wake.Record, _ *CFOConnection) {
-			if err := state.AppendStatus(store.Home.State, meta.ID, "working: the backend work continues meanwhile"); err != nil {
+			if err := state.AppendStatus(store.Home.State, meta.ID, "failed: the backend build broke, trying another way meanwhile"); err != nil {
 				t.Fatal(err)
 			}
 		},

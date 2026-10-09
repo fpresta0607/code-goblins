@@ -43,10 +43,13 @@ type Report struct {
 	// Decisions are the stretch's decisions in the order they were made, and
 	// Paused the goblins the supervisor paused at a floor, each with what the
 	// pause stood on and how it went.
-	Decisions []Entry  `json:"decisions"`
-	Paused    []Entry  `json:"paused"`
-	Finished  []Finish `json:"finished"`
-	Held      []Held   `json:"held"`
+	Decisions []Entry `json:"decisions"`
+	Paused    []Entry `json:"paused"`
+	// Struck are the strikes made in the stretch of lines an earlier stretch
+	// logged: its own lines struck are among Decisions, marked.
+	Struck   []Entry  `json:"struck,omitempty"`
+	Finished []Finish `json:"finished"`
+	Held     []Held   `json:"held"`
 	// Before and After are the allowance read when AFK mode turned on and
 	// when it turned off.
 	Before []Allowance `json:"before"`
@@ -103,9 +106,46 @@ func Recommends(task, recommendation string, waiting bool) string {
 
 // Decisions folds a stretch's log lines into its decisions, in the order they
 // were made: a later line that carries an outcome closes the decision logged
-// before it for the same kind, subject and goblin.
+// before it for the same kind, subject and goblin, and a strike marks the
+// decision it names struck, with its reason.
 func Decisions(entries []Entry) []Entry {
-	return folded(entries, DecisionKinds)
+	return marked(folded(entries, DecisionKinds), entries)
+}
+
+// marked is decisions with each one a strike among entries names marked
+// struck.
+func marked(decisions, entries []Entry) []Entry {
+	for _, strike := range entries {
+		if strike.Kind != KindStrike {
+			continue
+		}
+		for i, decision := range decisions {
+			if decision.At.UTC().Format(time.RFC3339Nano) == strike.Item {
+				decisions[i].Struck = strike.Evidence
+			}
+		}
+	}
+	return decisions
+}
+
+// StruckEarlier is the strikes among a stretch's log lines of lines an
+// earlier stretch logged, each with the reason as Struck, so the stretch's
+// report shows them struck.
+func StruckEarlier(entries []Entry) []Entry {
+	logged := map[string]bool{}
+	for _, entry := range entries {
+		if slices.Contains(DecisionKinds, entry.Kind) {
+			logged[entry.At.UTC().Format(time.RFC3339Nano)] = true
+		}
+	}
+	earlier := []Entry{}
+	for _, strike := range entries {
+		if strike.Kind == KindStrike && !logged[strike.Item] {
+			strike.Struck = strike.Evidence
+			earlier = append(earlier, strike)
+		}
+	}
+	return earlier
 }
 
 // Pauses folds a stretch's log lines into the goblins the supervisor paused
@@ -145,16 +185,18 @@ type Section struct {
 }
 
 // Sections sorts the report's decisions under its headings, in the order the
-// report lists them, and the goblins paused at a floor after them. A heading
-// the report always shows is there with nothing under it; the others are
-// there only when they hold something. The CFO's text and the board's page
-// are both written from these.
+// report lists them, the goblins paused at a floor after them, and last what
+// the CFO struck. A heading the report always shows is there with nothing
+// under it; the others are there only when they hold something. A struck
+// line is under Struck by the CFO alone, so it is never taken for something
+// left for him or decided. The CFO's text and the board's page are both
+// written from these.
 func (r Report) Sections() []Section {
 	var sections []Section
 	decided := func(title string, keep func(Entry) bool, always bool) {
 		entries := []Entry{}
 		for _, entry := range r.Decisions {
-			if keep(entry) {
+			if entry.Struck == "" && keep(entry) {
 				entries = append(entries, entry)
 			}
 		}
@@ -173,6 +215,10 @@ func (r Report) Sections() []Section {
 	decided("Other decisions", kind(KindOther), false)
 	if len(r.Paused) > 0 {
 		sections = append(sections, Section{Title: "Paused at a floor", Entries: r.Paused})
+	}
+	struck := slices.Concat(slices.DeleteFunc(slices.Clone(r.Decisions), func(entry Entry) bool { return entry.Struck == "" }), r.Struck)
+	if len(struck) > 0 {
+		sections = append(sections, Section{Title: "Struck by the CFO", Entries: struck})
 	}
 	return sections
 }
@@ -317,13 +363,31 @@ func Render(w io.Writer, r Report) error {
 			if entry.Link != "" && entry.Link != entry.What {
 				line += " (" + entry.Link + ")"
 			}
-			if entry.Kind == KindMerge && entry.Outcome == "" {
+			switch {
+			case entry.Struck != "":
+				line += " (struck)"
+			case entry.Kind == KindMerge && entry.Outcome == "":
 				line += ": no outcome was recorded"
-			} else if entry.Outcome != "" {
+			case entry.Outcome != "":
 				line += ": " + entry.Outcome
 			}
 			say("%s", line)
+			if entry.Struck != "" {
+				say("  Struck: %s", entry.Struck)
+			}
+			// A strike of an earlier stretch's line carries the reason as its
+			// evidence, and names the line by when it was logged.
+			if entry.Kind == KindStrike {
+				say("  Logged: %s", entry.Item)
+				continue
+			}
 			say("  Evidence: %s", entry.Evidence)
+			if entry.Diagnosis != "" {
+				say("  Found: %s", entry.Diagnosis)
+			}
+			if entry.Tried != "" {
+				say("  Tried: %s", entry.Tried)
+			}
 		}
 	}
 
@@ -366,7 +430,8 @@ func SaveReport(stateDir string, r Report) error {
 }
 
 // ReadReport returns the report of the last stretch that ended, and whether
-// there is one.
+// there is one, with each strike the CFO made since it was kept, which
+// belongs to that stretch: the report shows those lines struck too.
 func ReadReport(stateDir string) (Report, bool, error) {
 	data, err := fsx.ReadFile(filepath.Join(stateDir, reportFile))
 	if errors.Is(err, os.ErrNotExist) {
@@ -379,5 +444,10 @@ func ReadReport(stateDir string) (Report, bool, error) {
 	if err := json.Unmarshal(data, &r); err != nil {
 		return Report{}, false, fmt.Errorf("the AFK report (state/%s) cannot be read: %w", reportFile, err)
 	}
+	entries, _, err := Entries(stateDir, r.Session)
+	if err != nil {
+		return Report{}, false, fmt.Errorf("the strikes of the AFK report's stretch cannot be read: %w", err)
+	}
+	r.Decisions, r.Struck = marked(r.Decisions, entries), StruckEarlier(entries)
 	return r, true, nil
 }

@@ -227,6 +227,9 @@ type commandRuntime struct {
 	// log a decision made under it; nil is the supervisor's pipe.
 	switchAFK func(h home.Home, on bool, asked string) error
 	logAFK    func(h home.Home, entry afk.Entry) error
+	// strikeAFK asks the supervisor to strike through a line the CFO logged
+	// by mistake.
+	strikeAFK func(h home.Home, at time.Time, reason string) error
 	// availableMemory reads physical and commit availability for the turn
 	// cfo gate test takes before its checks, gateBudget is how long
 	// the tests of a level may run, and gateRun runs one of the step's

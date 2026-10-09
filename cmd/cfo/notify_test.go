@@ -678,6 +678,9 @@ func TestNotifyCarriesACommandForTheOverlordToRun(t *testing.T) {
 		"a file that is not there":      {[]string{"g1", "--waiting-on", "overlord", "sign in", "--run", filepath.Join(dir, "missing.ps1")}, "--run"},
 		"a file of another kind":        {[]string{"g1", "--waiting-on", "overlord", "sign in", "--run", write("sign-in.txt", "gh auth login\n")}, ".ps1"},
 		"an empty command":              {[]string{"g1", "--waiting-on", "overlord", "sign in", "--run", write("empty.ps1", "  \n")}, "empty"},
+		// A command his click would run nothing of, as repair-home-v0.5.3's
+		// last line did on 2026-10-07, never reaches him.
+		"a command that does not parse": {[]string{"g1", "--waiting-on", "overlord", "sign in", "--run", write("broken.ps1", "\"rules: $(@($settings.permissions.allow | Where-Object { $_ -match '^(Bash|PowerShell)\\(cfo ' }).Count)\"\n")}, "line 1"},
 	} {
 		var stdout, stderr bytes.Buffer
 		if exit := runNotify(c.args, &stdout, &stderr, defaultCommandRuntime()); exit != 2 || !strings.Contains(stderr.String(), c.says) {

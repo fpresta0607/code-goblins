@@ -771,6 +771,17 @@ func (s *Store) holdsWait(r Review) bool {
 
 // waitStands reports whether item r is a goblin's wait on the Overlord and the
 // goblin's standing report is still that wait, not a newer one.
+// endsAWait reports whether a goblin's report after its wait on the Overlord
+// ends that wait: it finished or failed, or waits on him again, which a newer
+// item stands for. A goblin working on beside the wait, waiting on something
+// else meanwhile or asking the CFO still wants his answer, as a goblin that
+// never waits on a choice it can undo does: pd-whats-new's picks were
+// withdrawn by its own working report on 2026-10-08 and asked again fourteen
+// hours later.
+func endsAWait(report string) bool {
+	return strings.HasPrefix(report, "done: ") || strings.HasPrefix(report, "failed: ") || strings.HasPrefix(report, "waiting on overlord: ")
+}
+
 func waitStands(r Review, reportedAt time.Time, report string) bool {
 	return strings.HasPrefix(r.ID, "waiting-"+r.Task+"-") && strings.HasPrefix(report, "waiting on overlord: ") && !reportedAt.After(r.CreatedAt)
 }
@@ -995,8 +1006,8 @@ func publishVersion(h home.Home, r Review) error {
 
 // retireItems withdraws a goblin's items nobody waits on any more, so the
 // Command Center never keeps a request the goblin has moved past: a wait on
-// the Overlord once its task reports anything newer than that wait other than
-// a question, which the goblin waits on beside it, any other item once its
+// the Overlord once its task reports, after that wait, that it finished or
+// failed or waits on him again (see endsAWait), any other item once its
 // task reports done after publishing it, and every item once
 // its task is gone, since a finished or cleaned-up goblin never acts on the
 // answer. A task is gone once its task record is. A goblin's page or images
@@ -1029,7 +1040,7 @@ func (s *Store) retireItems() error {
 			// A wait whose revision the goblin is making stands while it works
 			// on the next version, which replaces the page in this item.
 			revising := r.RevisingSince != nil && !strings.HasPrefix(report, "done: ") && !strings.HasPrefix(report, "failed: ")
-			if revising || waitStands(r, standingAt, standing) {
+			if revising || waitStands(r, standingAt, standing) || !endsAWait(standing) {
 				continue
 			}
 			reason = r.Task + " reported again: " + standing

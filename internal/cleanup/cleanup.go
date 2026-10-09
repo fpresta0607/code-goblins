@@ -135,6 +135,11 @@ func (s Service) Cleanup(ctx context.Context, id string) (result Result, err err
 		return Result{}, err
 	}
 	if err := worktree.Validate(ctx, git, project, worktreePath); err != nil {
+		// A folder with nothing in it is no Git worktree and holds no work,
+		// so the task retires the plain way and the folder goes with it.
+		if entries, readErr := os.ReadDir(worktreePath); readErr == nil && len(entries) == 0 && len(meta.Extras) == 0 {
+			return s.retireEmptyFolder(ctx, meta, id, worktreePath)
+		}
 		return Result{}, fmt.Errorf("cleanup: validate worktree: %w", err)
 	}
 	extras, err := s.recordedExtras(ctx, git, project, meta)
@@ -341,6 +346,56 @@ func (s Service) forceArchive(ctx context.Context, meta state.TaskMeta, id, work
 	}
 	for _, note := range notes {
 		result.Output += "\nnote: " + note
+	}
+	if archiveErr != nil {
+		result.Output += fmt.Sprintf("\nwarning: retained state for %s could not be archived, so respawning that id will be refused: %v", id, archiveErr)
+	}
+	if scratchErr != nil {
+		result.Output += fmt.Sprintf("\nwarning: %v; the janitor removes it once the handle clears", scratchErr)
+	}
+	result.Output += s.releaseServices(ctx, id)
+	result.Output += s.closeRow(outcome)
+	return result, nil
+}
+
+// retireEmptyFolder retires a task whose recorded worktree is an empty
+// folder, no Git worktree, as the plain cleanup retires any other: once no
+// agent runs in its terminal, the terminal closes, the folder is removed,
+// which os.Remove does only while it is still empty, and the task is
+// archived. No branch or worktree is touched, since the folder has none.
+func (s Service) retireEmptyFolder(ctx context.Context, meta state.TaskMeta, id, folder string) (Result, error) {
+	idle, err := s.requireInactive(ctx, meta)
+	if err != nil {
+		return Result{}, err
+	}
+	switch meta.Backend {
+	case "herdr":
+		if err := s.Terminal.CloseTab(ctx, meta.HerdrSession, meta.HerdrTabID); err != nil {
+			return Result{}, fmt.Errorf("cleanup: close task tab: %w", err)
+		}
+	case "native":
+		if err := host.Close(s.StateDir, idle, nativeCloseWait); err != nil {
+			return Result{}, fmt.Errorf("cleanup: close native terminal: %w", err)
+		}
+	}
+	if err := os.Remove(folder); err != nil {
+		return Result{}, fmt.Errorf("cleanup: remove the empty folder %s: %w", folder, err)
+	}
+	outcome := s.outcome(ctx, meta, "Empty worktree folder removed by cleanup")
+	if err := state.WriteOutcome(s.StateDir, outcome); err != nil {
+		return Result{}, err
+	}
+	if err := state.AppendStatus(s.StateDir, id, outcome.Phase+": removed the empty folder "+folder+", which held no Git worktree, via cfo cleanup"); err != nil {
+		return Result{}, fmt.Errorf("cleanup: record the removed folder: %w", err)
+	}
+	if err := state.RemoveTaskMeta(s.StateDir, id); err != nil {
+		return Result{}, fmt.Errorf("cleanup: retire task metadata: %w", err)
+	}
+	archive, archiveErr := s.archive(id)
+	scratchErr := s.removeScratch(meta)
+	result := Result{Meta: meta, Output: fmt.Sprintf("cleaned %s: removed the empty folder %s, which held no Git worktree", id, folder)}
+	if archive != "" {
+		result.Output += " archive=" + archive
 	}
 	if archiveErr != nil {
 		result.Output += fmt.Sprintf("\nwarning: retained state for %s could not be archived, so respawning that id will be refused: %v", id, archiveErr)

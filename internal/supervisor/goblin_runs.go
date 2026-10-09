@@ -163,18 +163,17 @@ func (s *Store) admitRun(r Run) error {
 }
 
 // goblinRunStands reports whether the goblin still waits on the Overlord to
-// run r: its wait on him, or the question that carried the command, is still
-// what it last said, from before the command reached the board.
+// run r: nothing it reported since the command reached the board ends a wait
+// on him (see endsAWait), so it may work on beside the command.
 func goblinRunStands(r Run, lines []string) bool {
-	latestAt, latest := latestReport(lines, time.Time{})
 	standingAt, standing := standingReport(lines, time.Time{})
-	return strings.HasPrefix(standing, "waiting on overlord: ") && !standingAt.After(r.CreatedAt) ||
-		strings.HasPrefix(latest, "blocked: ") && !latestAt.After(r.CreatedAt)
+	return !standingAt.After(r.CreatedAt) || !endsAWait(standing)
 }
 
 // retireGoblinRuns withdraws each goblin's command nobody ran once nobody
-// waits on it: its goblin is gone or was replaced, or reported something
-// newer, as its wait on the Overlord is retired.
+// waits on it: its goblin is gone or was replaced, or reported since that it
+// finished, failed or waits on him again, as its wait on the Overlord is
+// retired.
 func (s *Store) retireGoblinRuns() error {
 	for _, r := range s.Snapshot().Runs {
 		if r.Task == "" || r.State != "ready" || !time.Now().Before(r.ExpiresAt) {

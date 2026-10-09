@@ -83,7 +83,7 @@ In order, it:
 
 Rerun it to update: it brings the home's contract, skills and program up to date, and keeps your projects folder and any policy you tuned.
 A running program cannot be replaced, only renamed, so the previous build moves aside and the new one takes its name; a supervisor that runs is then restarted on the new build, as `cfo update` restarts it.
-An open desktop window likewise keeps running the previous window until you quit it from its tray icon, and Code Goblins in the Start menu then opens the new one.
+An open desktop window moves onto the new one by itself once it is idle.
 
 An install that delivers its desktop window into the home takes the place of a copy that was installed on its own, in `%LOCALAPPDATA%\CodeGoblinsWindow` with **Code Goblins Window** in the Start menu.
 That entry is removed only after this install saves its Code Goblins Start-menu shortcut, since Code Goblins opens the window now.
@@ -146,7 +146,7 @@ It runs only as the home's own `goblins` or `cfo`, and it says four steps as it 
    It names each program's SHA-256, and says when the release is unsigned, which every release is until Code Goblins has a signing identity.
    A program that fails a check is never run, and nothing in the home changes.
 3. `[3/4] Install Code Goblins <version>`: the downloaded build installs itself with its own [`update`](../README.md#core-commands), which swaps `cfo.exe` and `goblins.exe` where the home keeps them, in `bin` or, in a home a build before `bin` set up, at its root, restarts only the board on the address it served, and puts the previous build back when the new one does not serve.
-   The desktop window follows beside `goblins.exe`; an open window keeps running the earlier one until you quit it from its tray icon, and Code Goblins in the Start menu then opens the new one.
+   The desktop window follows beside `goblins.exe`, and an open window moves onto it by itself once it is idle.
 4. `[4/4] Bring the home up to date`: the new build's `install` brings the home's contract, skills and hooks up to date, where this machine's install names this home; the board, already on the new build, is not restarted again.
 
 A new build that pins a different speech model than the one the home holds downloads it as its board starts, and removes the earlier one once the new one is in place; one that pins the same model keeps it.

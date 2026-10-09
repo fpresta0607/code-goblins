@@ -2,7 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { changeSummary, dragRange, isDrag, parsePatchToRows, splitRows, reviewRange } from "./diff.ts";
 import { lineageRoots, ownsTaskSession, sessionModel, projectSessions, tasksWithoutSession, sessionTitle } from "./lineageTree.ts";
-import { alreadyKnown, deliveryMark, runMark, submissionFor } from "./feedback.ts";
+import { alreadyKnown, deliveryMark, runFailure, runMark, submissionFor } from "./feedback.ts";
 import { parseAction, parseSnapshot, decisionText } from "./types.ts";
 import { arrange, settle, waitingOn, workflowNodes, taskColumn, personaFor, nodeStatus, nativeStatus, statusPhase, statusText, asksOverlord, waitingTarget, pullRequestBadge, pullRequestIcon, pullRequestLabel, safePullRequest, fleetTraffic, reportTraffic, expireTraffic, fitScale, zoomAt, MAX_ZOOM, MIN_ZOOM, CFO_ROOT, NODE_WIDTH, NODE_HEIGHT } from "./workflow.ts";
 
@@ -591,6 +591,32 @@ test("a goblin's command the goblin moved past reads withdrawn, without naming t
   // Assert
   assert.deepEqual(labels, ["Withdrawn", "Withdrawn by the CFO"]);
   assert.deepEqual((snapshot.runs ?? []).map((run) => [run.task, run.terminal]), [["billing", false], ["", false]]);
+});
+
+// A run item that fails says in one plain line why, and what happens next:
+// its result went to whoever asked for it, which takes the next step, so the
+// Overlord is never left to work out what to do with a failure himself.
+test("a failed run item says in one line why it failed and who takes the next step", () => {
+  // Arrange
+  const snapshot = parseSnapshot({ healthy: true, runs: [
+    { id: "repair-home-v0.5.3", state: "failed", exit_code: 1, output: "At line:7 char:63\r\n$(subexpression) is missing the closing ')'.\r\n" },
+    { id: "fly-signin-precisiondocs-20261007", state: "failed", exit_code: 1, output: "" },
+    { id: "run-cg-codex-pi-proof-6513", task: "cg-codex-pi-proof", state: "failed", exit_code: null, reason: "Windows did not start it elevated: The operation was canceled by the user." },
+    { id: "publish-v0.5.4", state: "failed", exit_code: 1, output: "gh: not found", reason: "the CFO could not be told: it restarted" },
+    { id: "publish-v0.5.5", state: "succeeded", exit_code: 0, output: "done" },
+  ] });
+
+  // Act
+  const lines = (snapshot.runs ?? []).map(runFailure);
+
+  // Assert
+  assert.deepEqual(lines, [
+    "$(subexpression) is missing the closing ')'. The CFO has its output and takes the next step.",
+    "It exited with code 1. The CFO has its output and takes the next step.",
+    "Windows did not start it elevated: The operation was canceled by the user. The goblin that asked has its output and takes the next step.",
+    "gh: not found. The CFO may not have its output yet: telling it failed.",
+    "",
+  ]);
 });
 
 // The Overlord, 2026-10-08: "instead of finished exit zero, just have the

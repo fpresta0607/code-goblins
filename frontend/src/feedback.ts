@@ -66,6 +66,17 @@ export function runMark(run: Run): { icon: IconName; label: string; trouble: boo
   }
 }
 
+// runFailure is the one plain line a failed run item's card says, and empty
+// for any other: why it failed, and what happens next. Its result goes to
+// whoever asked for it, the CFO or the goblin, which takes the next step.
+export function runFailure(run: Run): string {
+  if (run.state !== "failed") return "";
+  const why = (run.exit_code === null ? run.reason : lastLine(run.output)) || "It exited with code " + run.exit_code;
+  const asker = run.task ? "The goblin that asked" : "The CFO";
+  const next = /could not be told/.test(run.reason) ? asker + " may not have its output yet: telling it failed." : asker + " has its output and takes the next step.";
+  return why.replace(/\.$/, "") + ". " + next;
+}
+
 // lastLine is the last line of output that holds text, cut to fit a status
 // line.
 function lastLine(output: string): string {
