@@ -380,11 +380,15 @@ The panel sends no note to the CFO: the supervisor still accepts the `note` acti
 The CFO's Task view holds its workspace and connections and then every queued task, the same list as the Tasks column, in the same order, with the same memory meter, drag, keyboard moves and Start; an order or a start made in either shows in both.
 Board and Orchestration both open a goblin, and the CFO, on its Terminal view; Orchestration's Terminal view defaults to the registered CFO; once opened, both views stay mounted, so switching keeps scroll position and selection.
 Typing happens in the terminal itself.
-Where a terminal cannot take typing, for a goblin paused, resuming or starting and while no CFO runs, the Terminal view has a message box under what it shows instead: Enter sends a `message` action through `POST /api/actions` with the task's id, or none for the CFO, and the supervisor delivers it once whatever the goblin or the CFO is doing.
+Where a terminal cannot take typing, for a goblin paused, resuming or starting and while no CFO runs, the Terminal view has a message box under what it shows instead: Send or Enter sends a `message` action through `POST /api/actions` with the task's id, or none for the CFO, and the supervisor delivers it once whatever the goblin or the CFO is doing.
+Holding the box's microphone, or Ctrl+Shift+Space in the box, dictates into it with the terminals' own dictation, on the supervisor's speech model, for as long as it is held.
 A paused goblin's message joins its resume note, which its resume prompt carries, and a goblin pausing, resuming or starting, or whose terminal is not up yet, has it wait, then typed into its terminal, where a busy harness takes it at its next tool call.
 A message to the CFO waits until a CFO runs and its input is ready, and goes to whichever CFO that is.
 One that waits ten minutes, or whose goblin ends or stops first, goes to the CFO with its words.
 Each message shows under the box with where it is: Queued, Kept for resume, Sent or With the CFO.
+A message a paused goblin's resume will carry shows Kept for resume, read from its resume note, which the task's lifecycle names in `kept_messages` and which outlasts the message's own action, and it leaves the list once a resume carried it.
+Such a message has a delete button, which sends a `message_withdraw` action naming the goblin and the message's words through `POST /api/actions`: the supervisor takes it out of the resume note under the goblin's lifecycle lock, so the resume never carries it, and the message leaves the list.
+A message typed into its terminal, carried by a resume or unknown is refused.
 The board's own clicks show at once: a Start, Pause, Resume or Stop draws its task as Starting, Pausing, Resuming or Stopping in the frame it is clicked, until a snapshot from the revision the supervisor answered with shows the task, and a double click sends one request.
 Open in VS Code and Open folder require a deliberate click and resolve the selected goblin's fresh, isolated Git worktree.
 The API accepts task identity and an editor enum, never a browser-provided path or command; it starts Code.exe directly with literal arguments and removes Electron Node/development flags from its inherited environment.

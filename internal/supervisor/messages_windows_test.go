@@ -2,6 +2,9 @@ package supervisor
 
 import (
 	"context"
+	"fmt"
+	"net/http"
+	"net/http/httptest"
 	"slices"
 	"strings"
 	"testing"
@@ -117,6 +120,170 @@ func TestAMessageToAResumingGoblinWaitsAndIsTypedOnceItRuns(t *testing.T) {
 	}
 	if ran != nil || len(typed) != 1 || !strings.Contains(typed[0], "skip the docs") {
 		t.Fatalf("once it ran: %v, typed %q, want the message typed once", ran, typed)
+	}
+}
+
+// keptForResume has the supervisor keep the Overlord's messages to meta's
+// paused goblin for its resume, in order.
+func keptForResume(t *testing.T, store *Store, meta state.TaskMeta, texts ...string) {
+	t.Helper()
+	service := &Service{Store: store, Options: Options{CFO: &CFOConnection{State: store.Home.State}}}
+	for _, text := range texts {
+		id := fmt.Sprintf("message-%d", len(store.Snapshot().Actions)+1)
+		messageTo(t, store, meta, id, text)
+		if err := store.ProcessOne(context.Background(), service.execute); err != nil {
+			t.Fatal(err)
+		}
+		if action := actionOf(store, id); action.Message != "Kept for its resume." {
+			t.Fatalf("%s = %+v, want it kept for its resume", id, action)
+		}
+	}
+}
+
+// deleteMessage presses the delete button of a message the board shows kept
+// for task's resume, which asks the action API, with the board's token, to
+// withdraw it.
+func deleteMessage(store *Store, task, id, text string) *httptest.ResponseRecorder {
+	handler := NewHTTP(&Service{Store: store, Instance: "instance-1"}, "board.local", nil)
+	return boardRequest(handler, "POST", "/api/actions", fmt.Sprintf(`{"id":%q,"kind":"message_withdraw","task_id":%q,"generation":"","text":%q}`, id, task, text))
+}
+
+// keptOnCard is what the board's card for task says its resume will carry.
+func keptOnCard(t *testing.T, store *Store, task string) []string {
+	t.Helper()
+	snapshot, err := (&Service{Store: store}).Snapshot()
+	if err != nil {
+		t.Fatal(err)
+	}
+	index := slices.IndexFunc(snapshot.Tasks, func(each Task) bool { return each.ID == task })
+	if index < 0 || snapshot.Tasks[index].Lifecycle == nil {
+		t.Fatalf("tasks = %+v, want %s's card with its lifecycle", snapshot.Tasks, task)
+	}
+	return snapshot.Tasks[index].Lifecycle.KeptMessages
+}
+
+// The Overlord, 2026-10-09, of Bernie's paused panel: "why is there no delete
+// button for paused queued messages?". Deleting a message kept for a paused
+// goblin's resume withdraws it from the resume note, so the resume never
+// carries it, and leaves the rest of the note as it was.
+func TestDeletingAKeptMessageWithdrawsItFromTheResume(t *testing.T) {
+	for _, tc := range []struct {
+		name     string
+		answered string
+		kept     []string
+		deleted  string
+		left     []string
+	}{
+		{"the only message", "", []string{"i can message?"}, "i can message?", nil},
+		{"one of two", "", []string{"i can message?", "then rebase"}, "i can message?", []string{"then rebase"}},
+		{"one of two with the same words", "", []string{"go on", "go on"}, "go on", []string{"go on"}},
+		{"one whose words open another's", "", []string{"go on\nand rebase", "go on"}, "go on", []string{"go on\nand rebase"}},
+		{"one after an answer given while paused", "Use the staging database.", []string{"i can message?"}, "i can message?", nil},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			// Arrange
+			store, h := testStore(t)
+			meta := makeNative(t, h.State, "task-1")
+			atPhase(t, h.State, meta, "pause", "paused")
+			if tc.answered != "" {
+				record, err := state.ReadLifecycle(h.State, meta.ID)
+				if err != nil {
+					t.Fatal(err)
+				}
+				record.ResumeNote = tc.answered
+				if err := state.WriteLifecycle(h.State, record); err != nil {
+					t.Fatal(err)
+				}
+			}
+			keptForResume(t, store, meta, tc.kept...)
+			before := keptOnCard(t, store, meta.ID)
+
+			// Act
+			response := deleteMessage(store, meta.ID, "delete-1", tc.deleted)
+			retried := deleteMessage(store, meta.ID, "delete-1", tc.deleted)
+
+			// Assert
+			if response.Code != http.StatusAccepted || retried.Code != http.StatusAccepted {
+				t.Fatalf("delete = %d %s, retried = %d %s, want both accepted", response.Code, response.Body, retried.Code, retried.Body)
+			}
+			if after := keptOnCard(t, store, meta.ID); !slices.Equal(before, tc.kept) || !slices.Equal(after, tc.left) {
+				t.Fatalf("kept on the card before %q and after %q, want %q then %q", before, after, tc.kept, tc.left)
+			}
+			record, err := state.ReadLifecycle(h.State, meta.ID)
+			if err != nil {
+				t.Fatal(err)
+			}
+			want := []string{}
+			if tc.answered != "" {
+				want = append(want, tc.answered)
+			}
+			for _, text := range tc.left {
+				want = append(want, fromOverlord(text))
+			}
+			if record.ResumeNote != strings.Join(want, "\n") {
+				t.Fatalf("resume note = %q, want %q", record.ResumeNote, strings.Join(want, "\n"))
+			}
+		})
+	}
+}
+
+// A message the goblin already has cannot be deleted: one typed into its
+// terminal, or one its resume carried. Neither can one never kept.
+func TestDeletingAMessageIsRefusedOnceItWasDeliveredOrNeverKept(t *testing.T) {
+	for _, tc := range []struct {
+		name    string
+		deliver func(t *testing.T, store *Store, meta state.TaskMeta) (deleted string)
+	}{
+		{"typed into its terminal", func(t *testing.T, store *Store, meta state.TaskMeta) string {
+			goblin := goblinTerminal(t, store.Home.State, meta.ID)
+			messageTo(t, store, meta, "message-1", "use the staging database")
+			if err := store.ProcessOne(context.Background(), (&Service{Store: store, Options: Options{CFO: &CFOConnection{State: store.Home.State}}}).execute); err != nil {
+				t.Fatal(err)
+			}
+			goblin.waitForLines(t, 1)
+			return "use the staging database"
+		}},
+		{"carried by its resume", func(t *testing.T, store *Store, meta state.TaskMeta) string {
+			atPhase(t, store.Home.State, meta, "pause", "paused")
+			keptForResume(t, store, meta, "check the flaky test first")
+			resumed, err := state.ReadLifecycle(store.Home.State, meta.ID)
+			if err != nil {
+				t.Fatal(err)
+			}
+			resumed.Action, resumed.Phase = "resume", "running"
+			if err := state.WriteLifecycle(store.Home.State, resumed); err != nil {
+				t.Fatal(err)
+			}
+			return "check the flaky test first"
+		}},
+		{"never kept", func(t *testing.T, store *Store, meta state.TaskMeta) string {
+			atPhase(t, store.Home.State, meta, "pause", "paused")
+			keptForResume(t, store, meta, "check the flaky test first")
+			return "check the flaky"
+		}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			// Arrange
+			store, h := testStore(t)
+			meta := makeNative(t, h.State, "task-1")
+			deleted := tc.deliver(t, store, meta)
+			before, beforeErr := state.ReadLifecycle(h.State, meta.ID)
+			actions := len(store.Snapshot().Actions)
+
+			// Act
+			response := deleteMessage(store, meta.ID, "delete-1", deleted)
+
+			// Assert
+			if response.Code != http.StatusConflict || !strings.Contains(response.Body.String(), "task-1 has no such message kept for its resume") {
+				t.Fatalf("delete = %d %s, want it refused as not kept", response.Code, response.Body)
+			}
+			if after := len(store.Snapshot().Actions); after != actions {
+				t.Fatalf("actions went from %d to %d, want none taken", actions, after)
+			}
+			if after, err := state.ReadLifecycle(h.State, meta.ID); beforeErr == nil && (err != nil || after.ResumeNote != before.ResumeNote) {
+				t.Fatalf("resume note = %q, %v, want %q as it was", after.ResumeNote, err, before.ResumeNote)
+			}
+		})
 	}
 }
 

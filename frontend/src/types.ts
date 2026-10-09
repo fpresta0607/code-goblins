@@ -210,6 +210,10 @@ export interface LifecycleStatus {
   // dependency, question, ci or deploy, with until naming the reset time,
   // task:, pr:, date:, question id or awaited run; absent on an older pause.
   pause?: PauseCondition;
+  // kept_messages are his messages, as he wrote them, that a paused
+  // goblin's resume will carry, each of which he can delete before it does.
+  // It is absent where none waits for a resume.
+  kept_messages?: string[];
 }
 export interface PauseCondition { reason: string; until: string; at: string }
 // Wait is one thing a queued row waits for: kind is time, memory, pr or task,
@@ -786,6 +790,7 @@ export function parseSnapshot(value: unknown): Snapshot {
       return {
         lifecycle: t.lifecycle == null ? undefined : ((record) => ({ phase: string(record.phase), action: string(record.action), at: string(record.at), kept: strings(record.kept), stopped: strings(record.stopped), problems: strings(record.problems), handoff_saved: boolean(record.handoff_saved), validation_restarts: boolean(record.validation_restarts),
           ...(record.with_parent === undefined ? {} : { with_parent: boolean(record.with_parent) }),
+          ...(record.kept_messages == null ? {} : { kept_messages: strings(record.kept_messages) }),
           ...(record.pause == null ? {} : { pause: ((pause) => ({ reason: string(pause.reason), until: string(pause.until), at: string(pause.at) }))(object(record.pause)) }) }))(object(t.lifecycle)),
         teardown: strings(t.teardown), detail: string(t.detail), queue_revision: string(t.queue_revision), action_error: string(t.action_error), branch: string(t.branch),
         pending_engine: t.pending_engine == null ? undefined : ((choice) => ({ harness: string(choice.harness), model: string(choice.model), effort: string(choice.effort), when: string(choice.when) }))(object(t.pending_engine)),
