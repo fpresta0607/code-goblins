@@ -398,7 +398,8 @@ Short session or model windows do not trigger this reserve, and missing or stale
 A session window that is used up is waited out rather than paused: until it renews, nothing starts or resumes on its harness, and when it renews one `allowance` wake names the goblins it stopped, since Claude Code goes on by itself only where its screen offered to; peek each and send an idle one on.
 One `allowance` wake also comes when a window bounding a running goblin's model passes 85 percent used, once per window and reset.
 The board shows each paused card's reason and what resumes it in place of Paused, Next on the card the free-slot order takes first (a production defect says it jumps the queue), and a stall line on a live card past 20 minutes without progress; a CI or deploy wait names the repository's median measured run.
-A goblin paused until its own pull request merges, or until its CI run on that pull request finishes, is not shown as paused: it stays in In progress and reads its pull request's test, Testing then Landed or what failed, with the same link as its [merge train](#merge-trains)'s card, or its own CI's state with that run's link.
+The board's Paused section holds only goblins whose terminals were stopped for memory, by a `memory` pause or his own Pause, and a goblin paused to wait on anything else stays in In progress with its wait as its status.
+A goblin paused until its own pull request merges, or until its CI run on that pull request finishes, reads its pull request's test until its train has landed it, Testing then Landed or what failed, with the same link as its [merge train](#merge-trains)'s card, or its own CI's state with that run's link.
 The supervisor raises one `progress_stalled` check wake after 20 minutes without a new commit, push, gate-step change, changed status report, new output on the goblin's screen, transcript write or processor use by its own processes, resets it on any of them, and suppresses it during intentional pauses.
 So a goblin inside one long tool call whose child uses the processor, or whose screen fills with output, is working, and one whose screen, transcript and processes all stay still is raised once, then again only after such progress has come and stopped again.
 Its screen output is the monitor's last look at the screen without the rows the harness redraws by itself (its spinner, its clock and its interrupt hint), and its transcript and processes are the board's last reading of its family tree, each counted only from a reading of the last two minutes, and the wake names what could not be read.
@@ -497,7 +498,11 @@ Each outcome reaches you as a `pr` wake keyed `train:<owner>/<repo>`, starting w
 
 The supervisor runs trains by itself: on its GitHub poll, when two or more green pull requests goblins finished wait on one default branch, it starts a train, and it takes each running train a step on every poll, also once the goblins of its repository have left.
 `cfo pr train` joins the train already running in the project and waits until it is over.
-The board shows each train as one card with its pull requests: a running train heads In progress, and a finished one heads Completed for six hours.
+Each train records every CI run it starts, with the pull requests it tested and how it ended.
+The board shows one card for each batch of pull requests: a train that landed nothing is folded into the later train that took its pull requests on, which counts its runs on from it, and one that landed nothing and was not retried shows once, saying why.
+A running train heads In progress, and a finished one heads Completed for six hours.
+A finished card lists only what its train landed, and a pull request it could not merge or left for the next train shows on its goblin's card with what happens next.
+A click on a train's card opens its panel: every pull request of the batch with its goblin, and every run with the pull requests it tested and how it ended, each one tap from GitHub.
 While a train runs, hold other merges to its branch: a merge outside it makes the train test again.
 PR health wakes leave alone a train's own pull request and the pull requests a running train carries.
 

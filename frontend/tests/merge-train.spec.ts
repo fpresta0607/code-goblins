@@ -56,7 +56,9 @@ for (const viewport of [{ name: "in his window", width: 1707, height: 1067 }, { 
       await expect(status).toHaveText("CI tests #55, #56, run 2");
       await expect(status).toHaveAttribute("href", REPO + "/pull/900");
       await expect(status).toHaveClass(/train-pending/);
-      await expect(running.locator(".train-note")).toHaveText(/first half rides alone next: #55, #56$/);
+      // What happened last is in the status's tip, never a line on the card.
+      await expect(status).toHaveAttribute("data-tip", /first half rides alone next: #55, #56$/);
+      await expect(running.locator("p")).toHaveCount(0);
       await expect(running.locator(".train-car")).toHaveText([/#55.*Retry the webhook.*Testing/, /#56.*Export the audit trail.*Testing/, /#57.*Fix the docs links.*Waits its turn/, /#58.*Rename the sync job.*Waits its turn/]);
       await expect(running.locator(".train-car").first().locator("a")).toHaveAttribute("href", REPO + "/pull/55");
       // The train's card comes before the goblins' cards.
@@ -64,17 +66,15 @@ for (const viewport of [{ name: "in his window", width: 1707, height: 1067 }, { 
       expect(first).toContain("train-card");
     });
 
-    test("a finished train heads Completed and names the pull request that breaks CI", async ({ page }) => {
+    test("a finished train heads Completed and lists only what it landed", async ({ page }) => {
       await open(page);
 
       const finished = column(page, "Completed").locator(".train-card");
       await expect(finished).toHaveCount(1);
-      await expect(finished.locator(".train-status")).toHaveText("#53 breaks CI. Landed #51, #52");
-      await expect(finished.locator(".train-status")).toHaveClass(/train-failed/);
-      const culprit = finished.locator(".train-car").filter({ hasText: "#53" });
-      await expect(culprit).toContainText("Breaks CI");
-      await expect(culprit).toHaveAttribute("data-tip", "failed: test (" + REPO + "/actions/runs/7)");
-      await expect(finished.locator(".train-car").filter({ hasText: "#54" })).toContainText("Next train");
+      await expect(finished.locator(".train-status")).toHaveText("Landed on run 3");
+      await expect(finished.locator(".train-status")).toHaveClass(/train-passed/);
+      await expect(finished.locator(".train-car")).toHaveText([/#51.*Ship the export.*Landed/, /#52.*Cache the rates.*Landed/]);
+      await expect(finished).not.toContainText(/#53|#54/);
       await expect(column(page, "In progress").locator(".train-card")).toHaveCount(1);
     });
 

@@ -1,7 +1,9 @@
 package train
 
 import (
+	"cmp"
 	"context"
+	"fmt"
 	"slices"
 	"strings"
 	"testing"
@@ -15,6 +17,20 @@ func carStates(t Train) []string {
 		states = append(states, "#"+strings.TrimPrefix(car.URL, "https://github.com/o/r/pull/")+"="+car.State)
 	}
 	return states
+}
+
+// runLog says each run of t, in order, as "1 #51 #52 failed", and a run CI
+// still tests as open.
+func runLog(t Train) []string {
+	var runs []string
+	for _, run := range t.History {
+		line := fmt.Sprint(run.Number)
+		for _, number := range run.Riders {
+			line += fmt.Sprintf(" #%d", number)
+		}
+		runs = append(runs, line+" "+cmp.Or(run.Result, "open"))
+	}
+	return runs
 }
 
 func TestARedTrainIsHalvedLandsTheGreenHalfAndBlamesTheCulprit(t *testing.T) {
@@ -86,6 +102,13 @@ func TestARedTrainIsHalvedLandsTheGreenHalfAndBlamesTheCulprit(t *testing.T) {
 	}
 	if !slices.Equal(gh.closed, []string{gh.trainURL}) || s.hasBranch(started.Branch) {
 		t.Fatal("the train pull request was not closed or its branch was kept")
+	}
+	if got := runLog(stopped); !slices.Equal(got, []string{"1 #51 #52 #53 #54 failed", "2 #51 #52 landed", "3 #53 failed"}) {
+		t.Fatalf("runs %q, want each run with its riders and how it ended", got)
+	}
+	failing := "https://github.com/o/r/actions/runs/1"
+	if runs := stopped.History; runs[0].Link != failing || runs[1].Link != "" || runs[2].Link != failing || runs[2].Base != next.BaseSHA || runs[2].Head != next.Head || runs[1].Base != halved.BaseSHA {
+		t.Fatalf("runs %+v, want each red run linking its failed check, on the base and head it tested", runs)
 	}
 }
 

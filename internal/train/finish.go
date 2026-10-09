@@ -14,6 +14,7 @@ import (
 // whose pull request broke the train or conflicted, and the CFO.
 func (e Engine) finish(ctx context.Context, t *Train, state, note string) error {
 	t.State, t.Note, t.Finished, t.Landing = state, note, e.Now().UTC(), false
+	t.endRun(RunStopped, "")
 	for _, i := range append(t.carsIn(CarRiding), t.carsIn(CarWaiting)...) {
 		t.Cars[i].State = CarReturned
 	}

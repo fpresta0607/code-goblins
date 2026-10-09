@@ -12,11 +12,12 @@ export interface PullRequestTest { text: string; tone: Tone; url: string; tip: s
 // pullRequestTest is where a goblin's pull request stands under test. On a
 // merge train it reads as the train's card reads it, with the train's link:
 // the running train that carries it, else the newest finished one while the
-// pull request's head is still the one that rode. Trains come newest first.
-// Otherwise its own checks say it, with their run's link.
+// pull request's head is still the one that rode. Trains come newest first,
+// each before the trains it took on. Otherwise its own checks say it, with
+// their run's link.
 export function pullRequestTest(task: Task, trains: MergeTrain[]): PullRequestTest | undefined {
   if (!task.pr || task.archived) return undefined;
-  const carried = trains.filter((train) => train.cars.some((car) => car.url === task.pr));
+  const carried = trains.flatMap((train) => [train, ...[...train.earlier].reverse()]).filter((train) => train.cars.some((car) => car.url === task.pr));
   const train = carried.find((candidate) => !isTrainOver(candidate)) ?? carried[0];
   const car = train?.cars.find((candidate) => candidate.url === task.pr);
   const head = task.hosted_checks?.head;

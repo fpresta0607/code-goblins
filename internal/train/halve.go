@@ -19,6 +19,7 @@ func (e Engine) halve(ctx context.Context, t *Train, failed []Check) error {
 	if err != nil {
 		return err
 	}
+	t.endRun(RunFailed, firstLink(failed))
 	if red != "" {
 		return e.finish(ctx, t, StateFailed, fmt.Sprintf("CI failed on %s (%s), and %s's own push CI is red at %s (%s), so no pull request is blamed: fix %s first", t.numbers(riders), checkNames(failed), t.Base, short(t.BaseSHA), red, t.Base))
 	}
@@ -35,6 +36,16 @@ func (e Engine) halve(ctx context.Context, t *Train, failed []Check) error {
 		t.Cars[i].State = CarWaiting
 	}
 	return e.rebuild(ctx, t, fmt.Sprintf("CI failed on %s (%s), so its first half rides alone next: %s", t.numbers(riders), checkNames(failed), t.numbers(t.carsIn(CarRiding))))
+}
+
+// firstLink is the page of the first failed check that has one.
+func firstLink(failed []Check) string {
+	for _, check := range failed {
+		if link := check.link(); link != "" {
+			return link
+		}
+	}
+	return ""
 }
 
 // redOnBase names the workflows whose newest push run on the base, at the

@@ -1,0 +1,34 @@
+/* A merge train's panel: the train's mark where a goblin's portrait is,
+   then its pull requests and its runs, one quiet row each, every row a
+   tap target of at least 44 px. Tones are the train card's. */
+.train-panel-mark { width: 88px; height: 88px; }
+.train-panel-mark .icon { width: 40px; height: 40px; }
+.train-panel .panel-status.train-status { justify-self: start; }
+.train-panel-content { display: grid; gap: 0; }
+.train-panel-section { display: grid; gap: 10px; padding: 22px 0; border-bottom: 1px solid var(--border); }
+.train-panel-section h3 { display: flex; gap: 10px; align-items: center; font-size: 1.25rem; }
+.train-panel-rows { display: grid; margin: 0; padding: 0; list-style: none; }
+.train-panel-rows > li + li { border-top: 1px solid var(--border); }
+.train-panel-row { display: grid; grid-template-columns: 4.5rem auto minmax(0, 1fr) auto; align-items: center; gap: 12px; min-height: 52px; padding: 4px 6px; border-radius: 8px; color: inherit; text-decoration: none; font-size: 1.0625rem; }
+a.train-panel-row:hover, a.train-panel-row:focus-visible { background: var(--ghost-bg); }
+a.train-panel-row:hover .train-panel-number, a.train-panel-row:focus-visible .train-panel-number { text-decoration: underline; }
+.train-panel-number { color: var(--mint); font-weight: 800; font-size: 1.125rem; font-variant-numeric: tabular-nums; }
+.train-panel-row .goblin-avatar { width: 34px; height: 34px; }
+.train-panel-name { min-width: 0; color: #dfe9ef; overflow-wrap: anywhere; }
+.train-panel-state { justify-self: end; max-width: 18rem; font-weight: 700; text-align: right; }
+.train-panel-run { grid-template-columns: 4.5rem minmax(0, 1fr) auto 44px; }
+.train-panel-run-number { font-weight: 800; color: #dfe9ef; }
+.train-panel-riders { display: flex; flex-wrap: wrap; gap: 6px; min-width: 0; }
+.train-panel-rider { display: inline-flex; align-items: center; min-height: 32px; padding: 0 10px; border: 1px solid var(--glass-border); border-radius: 999px; background: var(--ghost-bg); color: var(--mint); font-weight: 800; font-size: .9375rem; text-decoration: none; font-variant-numeric: tabular-nums; }
+a.train-panel-rider:hover, a.train-panel-rider:focus-visible { border-color: var(--mint); }
+.train-panel-open { justify-self: end; }
+.train-panel-clock { padding-top: 22px; }
+@media (max-width: 40rem) {
+  .train-panel-mark { width: 64px; height: 64px; }
+  .train-panel-mark .icon { width: 30px; height: 30px; }
+  .train-panel-row { grid-template-columns: 3.75rem auto minmax(0, 1fr); }
+  .train-panel-row .train-panel-state { grid-column: 3; justify-self: start; text-align: left; max-width: none; }
+  .train-panel-run { grid-template-columns: 3.75rem minmax(0, 1fr) 44px; }
+  .train-panel-run .train-panel-state { grid-column: 2; grid-row: 2; }
+  .train-panel-run .train-panel-open { grid-column: 3; grid-row: 1 / span 2; }
+}

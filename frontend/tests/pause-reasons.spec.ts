@@ -47,11 +47,11 @@ for (const width of [1440, 390]) {
     test("each paused card says why it waits and what resumes it, once, inside its card", async ({ page }) => {
       // Arrange
       await open(page, machine(4.6), [task("queued-one", "queued", { generation: "", brief: true }), ...WORKING, ...PAUSED]);
-      const section = board(page).getByRole("region", { name: "Paused", exact: true });
+      const cards = board(page).locator(".task-card-shell").filter({ has: page.locator(".phase-paused") });
 
       // Act
-      const said = await section.locator(".card-status-text").allTextContents();
-      const outside = await section.locator(".task-card-shell").evaluateAll((cards) => cards.filter((shell) => {
+      const said = await Promise.all(PAUSED.map((paused) => card(page, paused.id).locator(".card-status-text").textContent()));
+      const outside = await cards.evaluateAll((shells) => shells.filter((shell) => {
         const box = shell.getBoundingClientRect(), status = shell.querySelector(".plain-status")!.getBoundingClientRect();
         return status.left < box.left || status.right > box.right;
       }).length);
@@ -59,6 +59,21 @@ for (const width of [1440, 390]) {
       // Assert
       expect(said).toEqual(["Memory: resumes at 5 GB free", "Waiting on PR #331 to merge", "Waiting for your answer", "Paused by you", "Waiting on CI, usually 13 min"]);
       expect(outside).toBe(0);
+    });
+
+    // The Overlord, 2026-10-08: "paused is completely stopped terminals for
+    // memory reasons". A goblin paused to wait on something is at its work.
+    test("Paused holds only the goblins stopped for memory and by his own Pause", async ({ page }) => {
+      await open(page, machine(4.6), [...WORKING, ...PAUSED]);
+      const section = board(page).getByRole("region", { name: "Paused", exact: true });
+
+      await expect(section.locator(".card-status-text")).toHaveText(["Memory: resumes at 5 GB free", "Paused by you"]);
+      const progress = board(page).getByRole("region", { name: "In progress", exact: true });
+      for (const id of ["paused-pull", "paused-answer", "paused-ci"]) {
+        const stop = page.getByRole("button", { name: "Stop " + id, exact: true });
+        await expect(progress.locator(".task-card-shell").filter({ has: stop })).toHaveCount(1);
+        await expect(section.locator(".task-card-shell").filter({ has: stop })).toHaveCount(0);
+      }
     });
   });
 }
