@@ -621,7 +621,7 @@ Each item is announced once, by its own id and when it was published, through re
 Your browser remembers the last 100 alerts it showed.
 
 New items also stay under the badge, and the browser tab's title counts what is waiting on you.
-A goblin's item closes by itself once nobody waits on it: a wait when the goblin reports again or the CFO answers it, any item but a delivered document when its goblin finishes or is cleaned up, and the CFO can clear a stale one with a reason.
+A goblin's item closes by itself once nobody waits on it: a wait when the goblin finishes, fails or waits on you again, or the CFO answers it, but never while the goblin works on beside it, any item but a delivered document when its goblin finishes or is cleaned up, and the CFO can clear a stale one with a reason.
 Several items stack up one card at a time, the CFO's first and then goblins in the In progress order, each goblin's by longest wait, then goblins you have not placed, by longest wait: each card's action row has **Back**, its place such as 2 of 4, and **Next** on the left and its answer on the right, and you can swipe; closing keeps every item for later.
 The moment you send, a check draws with **Sent** and the next open item follows by itself while the answer is delivered in the background; the last one ends on **You're all done** and the Command Center closes.
 It always opens at the top of its item, and each next item starts at its top.
@@ -679,7 +679,8 @@ While it is on:
   It gives the merge word for a goblin's pull request that is verified, green in CI on a head that holds main's tip and mergeable, names and verifies each deploy, applies a merged migration that adds or changes and reads it back, installs a merged build once the merge queue settles, and answers the goblin questions that are its own to answer.
 - These stay yours, always: a migration or command that drops or deletes data, deleting a branch, a teammate's branch or pull request, spend beyond your account's limits, your own sign-ins and identity checks, and anything a tool refuses.
   They are never decided for you, and while you are away you are not asked about them either.
-  AFK mode is complete autopilot: the CFO gives each a backlog row, works around it, and your report lists it under **Left for you**.
+  AFK mode is complete autopilot: the CFO gives each a backlog row, works around it, and your report lists it under **Left for you** with what is wrong and what the CFO already tried.
+  When you turn AFK mode off, each of them waits in the Command Center as a question with its choices.
 - The board does not prompt you: the Command Center does not open by itself, and the board shows no alert and sends no Windows notification.
   Nothing is held for you, and a goblin blocked only on something of yours moves to its next piece of work.
   The CFO's bar says since when AFK is on, who turned it on and how much the CFO decided.
@@ -692,6 +693,7 @@ Turning it off shows the report of the stretch on the board as one page: who tur
 Next come what was left for you, what merged, deployed and installed, each with its link and its verification, the goblins paused at a floor, what each goblin finished, and **Spent**.
 Decision sections and **Goblins finished** are drawers, closed until you open them; **Left for you** and merge words with no merge stay open because they still need you.
 **Spent** and the short **Not read** section stay open too.
+A line the CFO logged by mistake and struck is shown struck through under **Struck by the CFO**, with its reason, and never as something that needs you.
 Spent shows only weekly limits and credit balances that were spent, leaving out five-hour limits.
 A weekly limit shows what is left, such as **51% left**, beside **AFK used 8%**, or **renewed** if the limit renewed during AFK.
 Equal-length bars show usage before AFK in gray, usage while AFK in green under a green arrow, and what is left as the empty rest, with the legend **Before AFK While AFK Left**.
@@ -715,8 +717,10 @@ Held for you (1), each as it stands now
   Now: still waiting on you.
 
 Left for you (1)
-- Sign in to Vercel for pd-auth
+- Sign in to Vercel for pd-auth?
   Evidence: your own sign-in, backlog row pd-auth-vercel-sign-in, pd-auth moved on to the invoice export
+  Found: the stored Vercel token expired at 01:10Z and Vercel answers 403 to the deploy probe
+  Tried: cfo auth --fix read the store and the .env again, and neither holds a newer token
 
 Merged (1)
 - https://github.com/you/northwind-api/pull/412: merged

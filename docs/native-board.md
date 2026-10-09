@@ -1095,7 +1095,7 @@ cfo notify <id> --waiting-on <task-id|overlord|ci|deploy|memory> "<why>"
 Both write a status line only, so they wake nobody, and a newer one of them replaces an older blocked or failed reading on the board while the question itself stays in the CFO's queue.
 The task reads `working` with the reason, or `waiting` with the reason and `waiting_on` naming the target, unless a newer question, the gate's own decision, or a merge says otherwise.
 A wait on another task clears itself once that task reports done, and a wait on CI, a deploy or memory lasts until the goblin reports again; the CFO releases any wait with a `--working` line of its own.
-Waiting on the Overlord is the one wait that wakes the CFO: it also opens a review item for him, named `waiting-<task>-<wake sequence>`, which he can answer or clear, and which is withdrawn once the goblin reports anything newer than a question.
+Waiting on the Overlord is the one wait that wakes the CFO: it also opens a review item for him, named `waiting-<task>-<wake sequence>`, which he can answer or clear, and which is withdrawn once the goblin reports, after it, that it finished or failed or waits on him again: a goblin working on beside it, or waiting on something else meanwhile, still wants his answer.
 A question the goblin asks while it waits (`--blocked`) replaces no wait: the goblin waits on the Overlord and on the question at once, the item stays, the task reads blocked while the question is open, and once it is answered the task reads the wait it still stands on.
 So `--waiting-on overlord` is only for a wait on the Overlord personally: his sign-in, his click, his page.
 A choice the CFO can make, such as whether to start something now or after a reset, is an actual question and uses `--blocked` with options.
@@ -1159,7 +1159,7 @@ A `--lavish` link follows the presentation URL rule below, and a refusal names t
 `cfo serve` then polls that page exactly as it polls a page wait, and whatever becomes of it reaches the CFO as a `review` wake, keyed by the goblin or, on the CFO's own item, by the item's ID, and the item closes.
 For another round, publish the page again under a new ID.
 An item stays open until the Overlord clears it (`review_clear`), its reporter withdraws it with a reason, or the supervisor retires it; nothing expires it, and a `cfo serve` restart keeps it.
-The supervisor retires a goblin's item nobody waits on any more, on every reconcile: a wait on the Overlord once its task reports anything newer than a question, any other item once its task reports done after publishing it, and every item of a task that is gone, such as one cleaned up; a goblin's page or images stay while it keeps working, asks or waits, because it still wants the Overlord's look, and the item reads Withdrawn: <task> finished: <report> or <task> is gone.
+The supervisor retires a goblin's item nobody waits on any more, on every reconcile: a wait on the Overlord once its task reports, after it, done, failed or a newer wait on him, any other item once its task reports done after publishing it, and every item of a task that is gone, such as one cleaned up; a goblin's page or images stay while it keeps working, asks or waits, because it still wants the Overlord's look, and the item reads Withdrawn: <task> finished: <report> or <task> is gone.
 A delivered document is never retired, because its copy outlives the goblin: it stays until the Overlord opens, downloads or clears it.
 When the CFO answers a goblin's question with `cfo answer`, the goblin's waits on the Overlord raised up to that question close at once, since it has what it was waiting for, and each reads The CFO answered <task>'s question.; a wait it raised after the question stays open.
 The registered primary CFO can clear any open item with `cfo review --clear <id> --reason "<why>"`, such as one a retired goblin left; the item reads Cleared by the CFO: <why>, and `state/reviews.audit` records every clear the CFO makes, with its time, item, goblin and reason, one per line.
@@ -1258,7 +1258,9 @@ A goblin hands him a command with `cfo notify <task-id> --waiting-on overlord "<
 A wait that carries a command is that run card alone, named for the goblin (`<goblin> asks you to run this`), with the goblin's words as its title; a question keeps its own card beside it.
 The goblin's notify leaves the command in `state/goblin-runs-inbox`, and the supervisor takes from there only what can be a live goblin's own item: it names a task whose running goblin has that identity, its ID is `run-<task>-<notify>`, and it never asks for administrator rights; its folder is set to the goblin's worktree, whatever the record says, and anything else is refused, said once among the board's issues, and removed.
 The CFO's own run items still reach the board only over the supervisor's pipe, and the folder they once came through stays unread.
-When the command ends the goblin, not the CFO, is told that he ran it and its exit code; a goblin's command nobody ran is withdrawn once its goblin reports anything newer, is replaced or is gone, as its wait would be, and reads Withdrawn.
+When the command ends the goblin, not the CFO, is told that he ran it and its exit code; a goblin's command nobody ran is withdrawn once its goblin reports, after it, done, failed or a newer wait on him, is replaced or is gone, as its wait would be, and reads Withdrawn.
+Before a command is published, by `cfo run-request` or `cfo notify --run`, its own shell parses it without running any of it, and a command that does not parse is refused with the line the shell names, since it would run nothing at his click.
+A failed item's card says in one line why it failed and that the CFO, or the goblin that asked, has its output and takes the next step.
 An item runs once and expires 24 hours after it was created; running it again needs a new item.
 The registered CFO withdraws an item nobody ran with `cfo run-request --withdraw <id> --reason "<why>"`, over the same pipe and proof: the item reads Withdrawn by the CFO with the reason, leaves the Command Center for the inbox's history, and `state/runs.audit` records the withdrawal on its own line (when, the item, its script digest, `withdrawn` and the reason); Run on it is refused with that reason from then on.
 Replacing an item is withdrawing it and publishing the new command under a new ID, and an item that already ran or expired cannot be withdrawn.
@@ -1304,7 +1306,9 @@ The Command Center lists it as Code Goblins with the release goblin, `Update to 
 The item is the release's one signal on the board: no banner points to it, since everything that asks him something reaches him in the Command Center.
 A board built from a clone, whose version is not a release's, gets no item: its clone updates it, with `git pull` and `.\install.cmd -Dev`.
 The item runs the home's own `goblins.exe` where the home keeps it, in `bin`, or at the root of a home a build before `bin` set up.
-The desktop window follows the update beside `goblins.exe`, and an open one keeps showing the board on the new build until it is quit from its tray icon and opened again, which the updated card says.
+The desktop window follows the update beside `goblins.exe`, and an open one moves onto it by itself once its page is idle: nothing unsent, no answer in progress, and in the tray or with no click or key for ten minutes.
+The page asks `POST /api/window/move`, and the supervisor, once it has proven the page is shown by his own window as the AFK switch proves it, moves only a window that runs a renamed copy beside the home's `goblins-window.exe`: it ends that window and opens the home's program through the desktop shell, so the new window's parent is the shell and the board still takes it as his.
+A window moved from the tray starts in the tray, which `state/window-move.json` tells it.
 
 ## Credential requests
 
@@ -1395,7 +1399,7 @@ The supervisor is the only writer of AFK mode's three files in `state/`:
 | File | What it holds |
 | --- | --- |
 | `afk.json` | The switch: whether it is on, the stretch it names (`session`), since when and from where, the allowance read then, and after it turned off, when and from where. A switch the CFO made at his ask names the CFO there and keeps his words (`asked`, `ended_asked`). |
-| `afk.audit` | One JSON line for each switch, each decision the CFO logged with its evidence, what it left for him among them, and each item that waited on him in the Command Center. Every line carries its stretch, and a switch the CFO made at his ask carries his words as its evidence. |
+| `afk.audit` | One JSON line for each switch, each decision the CFO logged with its evidence, what it left for him among them, each with its `diagnosis`, what was `tried` and its `options`, each item that waited on him in the Command Center, and each `strike` of a line the CFO logged by mistake, which names that line's `at` as its `item` and carries the reason as its evidence. Every line carries its stretch, a strike the stretch on when it was made or else the last that ended, and a switch the CFO made at his ask carries his words as its evidence. No line is ever removed. |
 | `afk-report.json` | The report of the last stretch that ended. |
 
 `cfo afk on` and `cfo afk off` send `afk-on` or `afk-off` over the supervisor's pipe, the one a run item travels over, and need `cfo serve` running.
@@ -1458,7 +1462,8 @@ A page that was not looking while he was away, such as a tab the browser put to 
 [The desktop window](#the-desktop-window) is silenced the same way: what its own reading of `/api/snapshot` finds it claims here before it notifies, as the page does, and it is handed nothing.
 Each cycle the supervisor records every item that waits on the Overlord as held, once in a stretch: a pending question the CFO asked him before it turned on, with the choice it recommended, an open review item or wait, a run item nobody ran, and an open credential request.
 A goblin's question waits on the CFO, which answers it, as the Command Center has it (`forOverlord`), so it is never held for him.
-What only he can do is neither asked nor held: `cfo question` refuses while AFK mode is on, and the CFO gives it a backlog row and logs it with `cfo afk log --kind left` instead.
+What only he can do is neither asked nor held: `cfo question` refuses while AFK mode is on, and the CFO gives it a backlog row and logs it with `cfo afk log --kind left` instead, with its diagnosis, what was tried and two or more choices.
+When the stretch ends, the supervisor asks each left line the CFO did not strike in the Command Center as the CFO's own question, `afk-left-<when it was logged>`, with those choices, and tells the CFO which it asked and which it could not.
 A run item the board made itself, for a credential card's terminal or a connection's repair, is not held: it is ready only for the moment after his own click.
 Whether or not it is on, a memory reading under the floor counts toward the memory floor: after two in a row with free memory or commit under 4 GB, and with no start or other change under way, the supervisor pauses the newest live native goblin, by when its terminal host started, that is not pausing, paused or failed at the memory floor before, and has no git push, merge, pull, rebase, cherry-pick or am, or `gh pr merge`, running under its host.
 It sends the `memory` pause through the same `cfo pause` the allowance floor sends, so the lifecycle keeps its handoff and the scheduler resumes it after two readings at 5 GB; a change under way, the pause included, starts the count again, so one goblin is paused at a time.
