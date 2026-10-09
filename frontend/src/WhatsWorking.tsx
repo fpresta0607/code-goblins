@@ -1,6 +1,6 @@
 import type { FleetTree, TreeNode } from "./types";
 import { BabyGoblin } from "./BabyGoblin";
-import { Chevron } from "./Chevron";
+import { Disclosure } from "./Disclosure";
 import { babyFor, finished, forHowLong, formatMemory, isDimmed, phaseOf, running, stateWord, summarize } from "./fleet-tree";
 
 // One row of What's working: the child's baby goblin, what it is doing (its
@@ -37,9 +37,8 @@ export function WhatsWorking({ tree, now }: { tree: FleetTree; now: number }) {
       {tree.memory > 0 && <span {...tree.own_memory > 0 ? { "data-tip": "The goblin itself holds " + formatMemory(tree.own_memory) } : {}}>{formatMemory(tree.memory)} in all</span>}
     </p>
     {active.length > 0 && <ul className="working-list" aria-label="Running">{active.map((node) => <WorkingRow key={node.id} node={node} now={now} />)}</ul>}
-    {ended.length > 0 && <details className="working-finished">
-      <summary><Chevron collapsed />{ended.length} finished</summary>
+    {ended.length > 0 && <Disclosure kind="disclosure-line working-finished" title={ended.length + " finished"}>
       <ul className="working-list" aria-label="Finished">{ended.map((node) => <WorkingRow key={node.id} node={node} now={now} />)}</ul>
-    </details>}
+    </Disclosure>}
   </div>;
 }

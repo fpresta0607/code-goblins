@@ -14,6 +14,6 @@ export function LifecycleDetails({ task }: { task: Task }) {
       <ul>{record.kept.map((item) => <li key={item}><Icon name="check" /><span>{listItem(item)}</span></li>)}</ul>
     </>}
     {record.validation_restarts && <p className="preservation-notice"><Icon name="shield" />Validation restarts on Resume.</p>}
-    {record.stopped.length > 0 && <Disclosure title={`Stopped resources (${record.stopped.length})`}><ul>{record.stopped.map((item) => <li key={item}>{item}</li>)}</ul></Disclosure>}
+    {record.stopped.length > 0 && <Disclosure kind="disclosure-line" title={`Stopped resources (${record.stopped.length})`}><ul>{record.stopped.map((item) => <li key={item}>{item}</li>)}</ul></Disclosure>}
   </section>;
 }

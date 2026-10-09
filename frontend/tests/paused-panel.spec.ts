@@ -59,8 +59,10 @@ async function open(page: Page, goblins: object[], name: string) {
   await page.evaluate(() => document.fonts.ready);
 }
 
+// A card is found by its goblin's name, since another's status can name the
+// same goblin as the one it waits on.
 async function select(page: Page, name: string) {
-  await page.locator(".task-card").filter({ hasText: name }).first().click();
+  await page.locator(".task-card").filter({ has: page.locator(".card-title").filter({ hasText: name }) }).first().click();
   await expect(page.locator("#panel-title")).toContainText(name);
   const pill = page.locator(".panel-pill").getByRole("button", { name: "Task", exact: true });
   if (await pill.count()) await pill.click();
@@ -95,6 +97,10 @@ for (const [size, viewport, scale] of [["the Overlord's window", { width: 1707, 
     test.use({ viewport, deviceScaleFactor: scale });
 
     test("a paused panel has no line under its status that only repeats it", async ({ page }) => {
+      // It opens nine goblins' panels one after another at the window's
+      // scale, which a loaded machine stretches past the default time.
+      test.slow();
+
       // Arrange
       await open(page, [BERNIE, ...PAUSES.map(([name, pause]) => paused(name, pause))], "Bernie");
       const header = panel(page).locator(".panel-header");
@@ -112,6 +118,10 @@ for (const [size, viewport, scale] of [["the Overlord's window", { width: 1707, 
     });
 
     test("a paused goblin's Details is one plain description of what it did last, then what it waits for", async ({ page }) => {
+      // It opens six goblins' panels and their Details at the window's
+      // scale, which a loaded machine stretches past the default time.
+      test.slow();
+
       // Arrange: a goblin paused for memory, for a task, for a time, for CI
       // and by him, and one paused before pauses had reasons.
       await open(page, [BERNIE, ...PAUSES.map(([name, pause]) => paused(name, pause)), paused("Old")], "Bernie");
