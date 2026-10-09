@@ -165,6 +165,11 @@ func TestMain(m *testing.M) {
 	if len(os.Args) > 1 && os.Args[1] == authStoreConsole {
 		os.Exit(runAuth(os.Args[2:], os.Stdout, os.Stderr, commandRuntime{}))
 	}
+	// A stand-in session's harness runs this binary as cfo.exe, as Claude
+	// Code runs the home's cfo for a hook or for a command of its tools.
+	if strings.EqualFold(filepath.Base(os.Args[0]), sessionCLI) {
+		os.Exit(runSessionCLI())
+	}
 	// The native CFO test starts this binary as cfo host, and as the
 	// claude.exe its terminal runs.
 	if len(os.Args) > 1 && os.Args[1] == "host" {
@@ -213,5 +218,6 @@ func TestMain(m *testing.M) {
 	}
 	code := m.Run()
 	os.RemoveAll(configDir)
+	removeSessionPrograms()
 	os.Exit(code)
 }

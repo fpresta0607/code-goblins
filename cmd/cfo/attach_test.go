@@ -620,6 +620,7 @@ func runFakeClaude() int {
 		time.Sleep(time.Second)
 		return 1
 	}
+	go serveSessionRequests()
 	_, _ = io.Copy(io.Discard, os.Stdin)
 	return 0
 }
