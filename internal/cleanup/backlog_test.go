@@ -12,20 +12,27 @@ import (
 	"github.com/fpresta0607/code-goblins/internal/state"
 )
 
-// A task cleanup finds delivered leaves ## Queued for ## Done in the cleanup
-// that retires it, with its detail lines and every other line as it was, so
-// the board stops listing finished work as Not started; one it finds
-// undelivered keeps its row. On 2026-10-07 the CFO had left 24 finished rows
-// under Queued.
-func TestCleanupMovesADeliveredTasksQueuedRowToDone(t *testing.T) {
+// A task cleanup retires leaves ## Queued for ## Done in the cleanup that
+// retires it, with its detail lines and every other line as it was, whatever
+// its last status was, so nothing starts it again from its row: closed as
+// done when cleanup finds it delivered and as retired when it does not. On
+// 2026-10-07 the CFO had left 24 finished rows under Queued, and on
+// 2026-10-09 the cleanup of cg-afk-left-in-command-center, paused for memory
+// with its pull request merged and no done report, left its row there.
+func TestCleanupMovesARetiredTasksQueuedRowToDone(t *testing.T) {
 	const backlog = "# Backlog\n\n## Queued\n\n- **other** - Other work\n  detail: keep me\n- **g1** - Ship it (repo: project)\n  detail: line one\n\n  detail: line two\n- **after** - After\n\n## Done\n\n- [x] old - Old (done 2026-10-01)\n"
+	const delivered = "2026-10-07T10:00:00Z done: PR https://github.com/owner/project/pull/42\n"
 	for _, testCase := range []struct {
-		name               string
-		delivered, isForce bool
+		name, status, closed string
+		isPaused, isForce    bool
 	}{
-		{name: "delivered", delivered: true},
-		{name: "delivered and force-archived", delivered: true, isForce: true},
-		{name: "not delivered", delivered: false},
+		{name: "delivered", status: delivered, closed: " https://github.com/owner/project/pull/42 (done "},
+		{name: "delivered and force-archived", status: delivered, closed: " https://github.com/owner/project/pull/42 (done ", isForce: true},
+		{name: "paused for memory with no done report", status: "2026-10-09T14:21:11Z working: writing the tests\n2026-10-09T14:39:15Z lifecycle-paused: memory; task session and branch\n", closed: " (retired ", isPaused: true},
+		{name: "last reported failed", status: "2026-10-09T14:21:11Z failed: the build broke\n", closed: " (retired "},
+		{name: "last reported blocked", status: "2026-10-09T14:21:11Z blocked: which base branch?\n", closed: " (retired "},
+		{name: "reported nothing", closed: " (retired "},
+		{name: "reported nothing and force-archived", closed: " (retired ", isForce: true},
 	} {
 		t.Run(testCase.name, func(t *testing.T) {
 			// Arrange
@@ -35,8 +42,14 @@ func TestCleanupMovesADeliveredTasksQueuedRowToDone(t *testing.T) {
 			if err := os.WriteFile(filepath.Join(data, "backlog.md"), []byte(backlog), 0o600); err != nil {
 				t.Fatal(err)
 			}
-			if testCase.delivered {
-				if err := os.WriteFile(filepath.Join(fixture.stateDir, "g1.status"), []byte("2026-10-07T10:00:00Z done: PR https://github.com/owner/project/pull/42\n"), 0o600); err != nil {
+			if testCase.status != "" {
+				if err := os.WriteFile(filepath.Join(fixture.stateDir, "g1.status"), []byte(testCase.status), 0o600); err != nil {
+					t.Fatal(err)
+				}
+			}
+			if testCase.isPaused {
+				paused := time.Date(2026, 10, 9, 14, 38, 48, 0, time.UTC)
+				if err := state.WriteLifecycle(fixture.stateDir, state.Lifecycle{ID: "g1", Generation: fixture.meta.SpawnGen, Operation: "pause-1", Action: "pause", Phase: "paused", Reason: "memory", Pause: &state.PauseCondition{Reason: "memory", At: paused}, Started: paused, Updated: paused}); err != nil {
 					t.Fatal(err)
 				}
 			}
@@ -56,15 +69,12 @@ func TestCleanupMovesADeliveredTasksQueuedRowToDone(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			want := backlog
-			if testCase.delivered {
-				outcome, err := state.ReadOutcome(fixture.stateDir, "g1")
-				if err != nil {
-					t.Fatal(err)
-				}
-				want = "# Backlog\n\n## Queued\n\n- **other** - Other work\n  detail: keep me\n- **after** - After\n\n## Done\n- [x] g1 - Ship it (repo: project) https://github.com/owner/project/pull/42 (done " + outcome.At.UTC().Format("2006-01-02") + ")\n  detail: line one\n\n  detail: line two\n\n- [x] old - Old (done 2026-10-01)\n"
+			outcome, err := state.ReadOutcome(fixture.stateDir, "g1")
+			if err != nil {
+				t.Fatal(err)
 			}
-			if string(got) != want {
+			want := "# Backlog\n\n## Queued\n\n- **other** - Other work\n  detail: keep me\n- **after** - After\n\n## Done\n- [x] g1 - Ship it (repo: project)" + testCase.closed + outcome.At.UTC().Format("2006-01-02") + ")\n  detail: line one\n\n  detail: line two\n\n- [x] old - Old (done 2026-10-01)\n"
+			if string(got) != want || !strings.Contains(result.Output, "its backlog row is under ## Done") {
 				t.Errorf("backlog =\n%s\nwant\n%s\noutput: %s", got, want, result.Output)
 			}
 		})
@@ -163,13 +173,17 @@ func TestCleanupDeliversALocalOnlyTaskWhoseDoneLineNamesItsReport(t *testing.T) 
 			if err != nil {
 				t.Fatal(err)
 			}
+			closed := "retired"
+			if testCase.isDelivered {
+				closed = "done"
+			}
+			want := "# Backlog\n\n## Queued\n\n- **after** - After\n\n## Done\n- [x] g1 - Prove the strays (repo: project) (" + closed + " " + outcome.At.UTC().Format("2006-01-02") + ")\n\n- [x] old - Old (done 2026-10-01)\n"
 			if !testCase.isDelivered {
-				if outcome.Phase != "stopped" || string(got) != backlog || strings.Contains(result.Output, "## Done") {
-					t.Errorf("outcome=%+v backlog=\n%s\noutput: %s\nwant it undelivered with its row left under ## Queued", outcome, got, result.Output)
+				if outcome.Phase != "stopped" || string(got) != want {
+					t.Errorf("outcome=%+v backlog=\n%s\nwant\n%s\noutput: %s\nwant it undelivered with its row closed as retired", outcome, got, want, result.Output)
 				}
 				return
 			}
-			want := "# Backlog\n\n## Queued\n\n- **after** - After\n\n## Done\n- [x] g1 - Prove the strays (repo: project) (done " + outcome.At.UTC().Format("2006-01-02") + ")\n\n- [x] old - Old (done 2026-10-01)\n"
 			if outcome.Phase != "done" || !strings.Contains(outcome.Evidence, filepath.Join(data, "g1", "report.md")) {
 				t.Errorf("outcome=%+v, want done with its report as the evidence", outcome)
 			}
