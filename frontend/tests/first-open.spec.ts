@@ -146,7 +146,7 @@ test.describe("in the desktop window", () => {
     await besideTheBoard(page);
 
     // Act
-    await page.getByRole("button", { name: "Open the terminal of working-one" }).click();
+    await page.locator(".task-card").filter({ hasText: "working-one" }).click();
 
     // Assert
     await expect(page.locator("#panel-title")).toHaveText("working-one");

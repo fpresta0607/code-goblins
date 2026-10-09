@@ -185,7 +185,7 @@ test.describe("in the desktop window", () => {
     await open(page, running, { "cfo-first-open": "shown" });
     await expect(page.getByRole("heading", { name: "Review the work" })).toBeVisible();
     await expect(tour(page)).toHaveCount(0);
-    await page.getByRole("button", { name: "Open the terminal of working-one" }).click();
+    await page.locator(".task-card").filter({ hasText: "working-one" }).click();
     await expect(page.locator("#panel-title")).toHaveText("working-one");
 
     // Act

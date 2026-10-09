@@ -72,11 +72,12 @@ async function measure(titles, rounds) {
       half: first < 0 ? frames.length : shown.filter((state) => state.text !== final).length,
     };
   };
-  const button = (title) => document.querySelector(`[aria-label="Open the terminal of ${CSS.escape(title)}"]`);
+  // A click on a live goblin's card opens its terminal.
+  const button = (title) => [...document.querySelectorAll(".task-board .task-card")].find((card) => card.querySelector(".card-title")?.textContent === title);
   const markers = {};
   const attach = [];
   for (const title of titles) {
-    await until(() => button(title), 30000, "the terminal button of " + title);
+    await until(() => button(title), 30000, "the card of " + title);
     markers[title] = "marker-" + title;
     attach.push(await watch("", () => button(title).click()));
     const textarea = await until(() => [...document.querySelectorAll(".xterm-helper-textarea")].find((area) => area.offsetParent !== null || area.closest(".terminal-view:not(.staged)")?.offsetParent), 30000, "the terminal input");

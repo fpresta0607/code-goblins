@@ -12,7 +12,6 @@ import { queuedTasks } from "./workflow";
 import { TaskControls } from "./task-controls";
 import { LifecycleDetails } from "./lifecycle-details";
 import { PanelRow, type PanelControl } from "./panel-row";
-import { RestartCfoButton } from "./restart-cfo-button";
 import { BabyHeader } from "./baby-header";
 
 export type PanelView = "task" | "terminal";
@@ -22,9 +21,9 @@ export type PanelView = "task" | "terminal";
 // themselves live in the terminal deck below the panel, which keeps each one
 // live while the board is open, so switching goblins never reconnects.
 // The CFO's Task view also lists every queued task, as the Tasks column does,
-// says which conversation it could not resume when it came back, and has
-// Restart. A goblin's baby goblin (child) has the same panel, with its name
-// and its task above its terminal, which is all it shows.
+// and says which conversation it could not resume when it came back; its
+// Restart is in its header. A goblin's baby goblin (child) has the same
+// panel, with its name and its task above its terminal, which is all it shows.
 export function GoblinPanel({ task, node, child, snapshot, connected, reviews, view, now, presentations, cardStart, onView, onAnswer, onOpenTask, row }: {
   task?: Task; node?: Session; child?: TreeNode; snapshot: Snapshot; connected: boolean; reviews: ReviewControls;
   view: PanelView; now: number; presentations: BoardActivity[]; onView: (view: PanelView) => void; onAnswer: (key: string) => void; onOpenTask: (task: Task) => void;
@@ -50,7 +49,6 @@ export function GoblinPanel({ task, node, child, snapshot, connected, reviews, v
       {!task?.archived && owner ? <TaskView task={task} snapshot={snapshot} connected={connected} reviews={reviews} log={{ open: isLogOpen, onOpenChange: setLogOpen }} now={now} onRepair={onAnswer} /> : <div className="panel-content">
         {!task && !node && snapshot.cfo_conversation_left && <p className="cfo-conversation-left">{snapshot.cfo_conversation_left}</p>}
         <WorkspaceDetails task={task} node={node} runs={snapshot.runs} instance={snapshot.instance} startAtLogin={snapshot.start_at_login} devDrive={snapshot.dev_drive} onRepair={onAnswer} />
-        {!task && !node && <RestartCfoButton snapshot={snapshot} />}
         {!task && !node && <section className="cfo-queue" aria-label="Queued tasks">
           <h3>Tasks<span className="column-count">{queuedTasks(snapshot).length}</span></h3>
           <QueuedTasks snapshot={snapshot} now={now} presentations={presentations} cardStart={cardStart} onSelect={(next) => onOpenTask(next)} />

@@ -425,6 +425,12 @@ button:focus:not(:focus-visible), summary:focus:not(:focus-visible), [tabindex]:
 /* Start at login in the CFO's Workspace: what it does, and its switch. */
 .start-at-login { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; margin-top: 12px; padding-top: 12px; border-top: 1px solid var(--border); }
 .start-at-login .afk-toggle { flex: none; }
+/* The Dev Drive's name and its button share the row's header line, the
+   button on one line at every width, and its one note sits under them. A
+   refusal there is muted, as the note is. */
+.dev-drive-setting { flex-wrap: wrap; align-items: center; row-gap: 4px; }
+.dev-drive-setting > button { flex: none; white-space: nowrap; }
+.dev-drive-setting > p, .dev-drive-setting > .click-feedback { flex: 1 0 100%; margin: 0; color: var(--muted); }
 .render-error { display: flex; align-items: center; gap: 12px; margin: 0; }
 .render-error button { flex: none; margin: 0; }
 summary { cursor: pointer; }
@@ -694,6 +700,12 @@ button.dialogue-portrait:hover::before { background: #2e241b; }
 .panel-header h2 { font-size: clamp(1.625rem, 2.4vw, 2rem); line-height: 1.2; overflow-wrap: anywhere; }
 /* A named goblin's task, under its name. */
 .panel-goblin-task { margin: 0; color: #c4d4df; font-size: 1.125rem; font-weight: 600; overflow-wrap: anywhere; }
+/* The CFO's Restart, under its name on one line at the height of the
+   header's other controls, and what a press could not do beside it in muted
+   words. */
+.cfo-restart { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 12px; margin-bottom: 4px; }
+.cfo-restart .labelled-button { min-height: 36px; padding-block: 4px; }
+.cfo-restart .click-feedback { color: var(--muted); }
 /* A queued task's line is a button in the same type, with a small caret
    beside it, that turns into a box of that type holding its title and
    detail, with Save and Cancel at its end. Each keeps the 8 px the panel's
@@ -997,14 +1009,6 @@ a.wait-open { min-height: 44px; border: 1px solid var(--accent-green); border-ra
   .question-card { padding: 16px; }
 }
 .question-card h3:focus { outline: none; }
-/* A live goblin's controls start with a one-tap way into its terminal. */
-.card-terminal .icon { width: 17px; height: 17px; }
-/* On a screen that can hover, the terminal button shows on hover and focus;
-   the whole card opens the panel. */
-@media (hover: hover) {
-  .card-terminal { opacity: 0; transition: opacity .12s; }
-  .task-card-shell:hover .card-terminal, .task-card-shell:focus-within .card-terminal { opacity: 1; }
-}
 /* A task card: its title, up to three lines, then a muted line with the
    repo and the status, which wrap onto further lines rather than ending in an
    ellipsis. */

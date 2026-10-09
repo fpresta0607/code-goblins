@@ -41,7 +41,7 @@ function render() {
   root.render(<main style={{ display: "flex", minHeight: "100vh" }}>
     <aside style={{ width: 300, flex: "none", padding: 16 }}>
       <TaskCard task={task} snapshot={snapshot} selected presentations={[]} now={Date.parse("2026-09-30T10:00:00Z")}
-        onSelect={() => { document.body.dataset.opened = "task"; }} onTerminal={() => { document.body.dataset.opened = "terminal"; }} />
+        onSelect={() => { document.body.dataset.opened = "task"; }} />
     </aside>
     <div style={{ display: "flex", flex: 1, minWidth: 0, height: "100vh" }}>
       <TerminalDeck snapshot={snapshot} task={task} cfo={false} shown connected focus={1} />

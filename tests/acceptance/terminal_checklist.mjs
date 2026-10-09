@@ -29,7 +29,8 @@ const open = async (title) => {
   const pause = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
   for (const end = performance.now() + 30000; performance.now() < end; await pause(50)) {
     [...document.querySelectorAll("button")].find((button) => button.textContent.includes("Open the board without a CFO"))?.click();
-    const button = document.querySelector(`[aria-label="Open the terminal of ${CSS.escape(title)}"]`);
+    // A click on a live goblin's card opens its terminal.
+    const button = [...document.querySelectorAll(".task-board .task-card")].find((card) => card.querySelector(".card-title")?.textContent === title);
     if (button) { button.click(); break; }
   }
   for (const end = performance.now() + 30000; performance.now() < end; await pause(50)) {
