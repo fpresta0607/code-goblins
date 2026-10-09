@@ -622,7 +622,8 @@ Only an open Command Center item that asks you something alerts you: a question 
 A goblin blocked, failed or done is said on its card, never as an alert, and routine progress never alerts.
 A pause or stop that the CFO or you asked for is never shown as a failure: a stop that did not finish reads **Stop did not finish** on its card, a pause that did not finish shows what the goblin is doing, and the CFO hears of either.
 A goblin whose pause did not finish but whose terminal has ended since is paused, in the Paused section, and resumes.
-A goblin paused, resuming or starting, and the CFO while none runs, has a message box in its Terminal view: what you write there is queued and delivered once, typed into its terminal when it can take it or carried by its resume.
+A goblin paused, resuming or starting has a message box in its Terminal view: what you write there is queued and delivered once, typed into its terminal when it can take it or carried by its resume.
+The CFO has none: while it is off or restarting, its Terminal view only says so.
 Send or Enter sends it, and holding the box's microphone dictates into it as a terminal's dictation does.
 A message kept for a paused goblin's resume has a delete button until the resume carries it.
 If unanswered blocked or failed questions have waited on the CFO for ten minutes, the CFO's bar says how many and how long the oldest has waited, in place of All quiet, until the CFO catches up; that is never an alert and never turns those questions into decisions for you.
