@@ -169,8 +169,13 @@ func (r *pipelineRunner) Run(_ context.Context, q execx.Request) (execx.Result, 
 			return execx.Result{Stdout: []byte("feat/policy")}, nil
 		}
 	case "sqlite3":
-		if strings.Contains(q.Args[len(q.Args)-1], "COUNT(*) AS n FROM runs") {
-			return execx.Result{Stdout: []byte(fmt.Sprintf(`[{"n":%d}]`, r.activeRuns))}, nil
+		if strings.Contains(q.Args[len(q.Args)-1], "FROM runs LEFT JOIN repos") {
+			runs := make([]map[string]string, r.activeRuns)
+			for i := range runs {
+				runs[i] = map[string]string{"id": fmt.Sprintf("01RUN%d", i), "branch": "feat/other", "status": "running", "repo": "C:/work/other"}
+			}
+			data, err := json.Marshal(runs)
+			return execx.Result{Stdout: data}, err
 		}
 		data, err := json.Marshal([]pipeline.Gate{r.gate})
 		return execx.Result{Stdout: data}, err
@@ -200,7 +205,7 @@ func legacyPipelineSelection(t *testing.T, class string) pipeline.Selection {
 	return selection
 }
 
-func TestPipelineMigrateRejectsConfigApplyBeforeIdleLock(t *testing.T) {
+func TestPipelineMigrateRefusesATargetTheSharedConfigDoesNotRun(t *testing.T) {
 	root := t.TempDir()
 	h := home.Home{Root: root, State: filepath.Join(root, "state")}
 	nm := filepath.Join(root, "nm")
@@ -217,19 +222,16 @@ func TestPipelineMigrateRejectsConfigApplyBeforeIdleLock(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(root, "config", "pipeline.json"), current, 0600); err != nil {
 		t.Fatal(err)
 	}
-	policy, err := pipeline.Load(filepath.Join(root, "config", "pipeline.json"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	configPath := filepath.Join(nm, "config.yaml")
-	config, _, err := pipeline.Render([]byte("{}"), policy)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(configPath, config, 0600); err != nil {
-		t.Fatal(err)
-	}
 	old := legacyPipelineSelection(t, "ordinary")
+	// The machine still runs the task's old policy, so the current one is a
+	// target nothing runs yet.
+	config, _, err := pipeline.Render([]byte("{}"), old.Policy)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(nm, "config.yaml"), config, 0600); err != nil {
+		t.Fatal(err)
+	}
 	snapshot := filepath.Join(tmp, "pipeline.json")
 	if err := old.Save(snapshot); err != nil {
 		t.Fatal(err)
@@ -238,32 +240,10 @@ func TestPipelineMigrateRejectsConfigApplyBeforeIdleLock(t *testing.T) {
 	if err := state.WriteTaskMeta(h.State, meta); err != nil {
 		t.Fatal(err)
 	}
-	otherPolicy := old.Policy
-	idleCalls := 0
-	idle := func(ctx context.Context) (func() error, error) {
-		idleCalls++
-		applied, err := (pipeline.Config{
-			Path:   configPath,
-			Policy: otherPolicy,
-			Idle: func(context.Context) (func() error, error) {
-				return func() error { return nil }, nil
-			},
-		}).Apply(ctx)
-		if err != nil {
-			return nil, err
-		}
-		if len(applied.Drift) == 0 {
-			return nil, errors.New("config apply did not change the shared policy")
-		}
-		return func() error { return nil }, nil
-	}
 
-	err = migratePipelinePolicy(context.Background(), h, nm, idle, meta, old, &bytes.Buffer{})
+	err = migratePipelinePolicy(h, nm, meta, old, &bytes.Buffer{})
 	if err == nil || !strings.Contains(err.Error(), "apply current shared config before migrating tasks") {
-		t.Fatalf("migration error=%v, want locked config drift refusal", err)
-	}
-	if idleCalls != 1 {
-		t.Fatalf("idle acquisitions=%d, want 1", idleCalls)
+		t.Fatalf("migration error=%v, want config drift refusal", err)
 	}
 	unchanged, err := pipeline.LoadSelection(snapshot)
 	if err != nil || unchanged != old {
@@ -282,17 +262,19 @@ func TestPipelineMigrateRejectsConfigApplyBeforeIdleLock(t *testing.T) {
 }
 
 func TestPipelineMigrateReplacesOnlyFrozenPolicyAndAudits(t *testing.T) {
+	// A migration changes only the task's own snapshot, so a run in flight
+	// elsewhere on the machine never holds it up.
 	for _, test := range []struct {
-		name         string
-		activeRuns   int
-		useCurrent   bool
-		isVersionTwo bool
+		name           string
+		activeRuns     int
+		isVersionTwo   bool
+		isVersionThree bool
 	}{
 		{name: "active-legacy", activeRuns: 1},
-		{name: "active-current", activeRuns: 1, useCurrent: true},
 		{name: "idle"},
 		{name: "active-v2", activeRuns: 1, isVersionTwo: true},
 		{name: "idle-v2", isVersionTwo: true},
+		{name: "active-v3", activeRuns: 2, isVersionThree: true},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			root := t.TempDir()
@@ -318,18 +300,16 @@ func TestPipelineMigrateReplacesOnlyFrozenPolicyAndAudits(t *testing.T) {
 				t.Fatal(err)
 			}
 			old := legacyPipelineSelection(t, "high-risk")
-			if test.isVersionTwo {
+			if test.isVersionTwo || test.isVersionThree {
 				previous := old.Policy
 				previous.Version = 2
 				previous.Primary = pipeline.Reviewer{Harness: "codex", Model: "gpt-5.6-sol", Effort: "high"}
+				if test.isVersionThree {
+					previous.Version = 3
+					previous.Primary = pipeline.Reviewer{Harness: "codex", Model: "gpt-6.1-sol", Effort: "xhigh"}
+				}
 				previous.Reviewer, previous.Fixer = previous.Primary, previous.Primary
 				old, err = previous.Select(old.Class)
-				if err != nil {
-					t.Fatal(err)
-				}
-			}
-			if test.useCurrent {
-				old, err = policy.Select("high-risk")
 				if err != nil {
 					t.Fatal(err)
 				}
@@ -354,25 +334,7 @@ func TestPipelineMigrateReplacesOnlyFrozenPolicyAndAudits(t *testing.T) {
 			}
 			runner := &pipelineRunner{worktree: wt, activeRuns: test.activeRuns}
 			var out bytes.Buffer
-			err = pipelineCommand(context.Background(), h, nm, runner, []string{"migrate", "task"}, &out)
-			if test.activeRuns != 0 {
-				if !errors.Is(err, pipeline.ErrBusy) {
-					t.Fatalf("active migration error=%v", err)
-				}
-				unchanged, loadErr := pipeline.LoadSelection(snapshot)
-				if loadErr != nil || unchanged != old {
-					t.Fatalf("active migration changed snapshot: %+v %v", unchanged, loadErr)
-				}
-				updated, readErr := state.ReadTaskMeta(h.State, "task")
-				if readErr != nil || updated.PipelineHash != old.Hash || updated.PipelineClass != old.Class {
-					t.Fatalf("active migration changed metadata: %+v %v", updated, readErr)
-				}
-				if status, statusErr := state.TailStatus(h.State, "task", 1); statusErr != nil || len(status) != 0 {
-					t.Fatalf("active migration wrote audit: %v %v", status, statusErr)
-				}
-				return
-			}
-			if err != nil {
+			if err := pipelineCommand(context.Background(), h, nm, runner, []string{"migrate", "task"}, &out); err != nil {
 				t.Fatal(err)
 			}
 			migrated, err := pipeline.LoadSelection(snapshot)
@@ -383,7 +345,7 @@ func TestPipelineMigrateReplacesOnlyFrozenPolicyAndAudits(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			if migrated.Policy.Version != 3 || migrated.Class != old.Class || migrated.ReviewCycles != old.ReviewCycles || updated.PipelineHash != migrated.Hash || updated.PipelineClass != old.Class {
+			if migrated.Policy != policy || migrated.Class != old.Class || migrated.ReviewCycles != old.ReviewCycles || updated.PipelineHash != migrated.Hash || updated.PipelineClass != old.Class {
 				t.Fatalf("snapshot=%+v meta=%+v", migrated, updated)
 			}
 			status, err := state.TailStatus(h.State, "task", 1)
@@ -394,6 +356,102 @@ func TestPipelineMigrateReplacesOnlyFrozenPolicyAndAudits(t *testing.T) {
 				t.Fatalf("migration launched provider command: %+v", runner.native)
 			}
 		})
+	}
+}
+
+// On 2026-10-08 the operator gave the gate a Claude fallback in the shared
+// config, and a task frozen at v3 then refused with shared config drift. The
+// policy catching up with the machine is all it takes: migrate moves the task
+// while the daemon runs a gate, and nothing touches the shared config.
+func TestPipelineMigrateCatchesUpWhileTheDaemonRunsAGate(t *testing.T) {
+	if runtime.GOOS != "windows" {
+		t.Skip("holds the native daemon lock")
+	}
+	root := t.TempDir()
+	h := home.Home{Root: root, State: filepath.Join(root, "state")}
+	nm := filepath.Join(root, "nm")
+	tmp := filepath.Join(h.State, "tasktmp", "task")
+	project := filepath.Join(root, "project")
+	wt := filepath.Join(project, ".worktrees", "gb-task")
+	for _, path := range []string{filepath.Join(root, "config"), nm, tmp, wt} {
+		if err := os.MkdirAll(path, 0700); err != nil {
+			t.Fatal(err)
+		}
+	}
+	// Version 4 is the policy that names the machine's chain as it stood.
+	chain := legacyPipelineSelection(t, "ordinary").Policy
+	chain.Version, chain.Reviewer = 4, pipeline.Reviewer{}
+	chain.Primary = pipeline.Reviewer{Harness: "codex", Model: "gpt-6.1-sol", Effort: "xhigh"}
+	chain.Fallback = pipeline.Reviewer{Harness: "claude"}
+	current, err := json.Marshal(chain)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "config", "pipeline.json"), current, 0600); err != nil {
+		t.Fatal(err)
+	}
+	policy, err := pipeline.Load(filepath.Join(root, "config", "pipeline.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	machine := []byte("# Prefer Codex at the user's request; retain Claude as an available fallback.\nagent:\n  - codex\n  - claude\nauto_fix:\n  rebase: 1\n  lint: 1\n  test: 1\n  review: 0\n  document: 10\n  ci: 1\nagent_args_override:\n  codex:\n    - -c\n    - service_tier=\"default\"\nagent_config:\n  codex:\n    effort: xhigh\n    model: gpt-6.1-sol\n")
+	configPath := filepath.Join(nm, "config.yaml")
+	if err := os.WriteFile(configPath, machine, 0600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(nm, "state.sqlite"), nil, 0600); err != nil {
+		t.Fatal(err)
+	}
+	frozen := legacyPipelineSelection(t, "high-risk").Policy
+	frozen.Version = 3
+	frozen.Primary = pipeline.Reviewer{Harness: "codex", Model: "gpt-6.1-sol", Effort: "xhigh"}
+	frozen.Reviewer, frozen.Fixer = frozen.Primary, frozen.Primary
+	old, err := frozen.Select("high-risk")
+	if err != nil {
+		t.Fatal(err)
+	}
+	snapshot := filepath.Join(tmp, "pipeline.json")
+	if err := old.Save(snapshot); err != nil {
+		t.Fatal(err)
+	}
+	meta := state.TaskMeta{ID: "task", Mode: "no-mistakes", Worktree: wt, Project: project, TaskTmp: tmp, PipelineClass: old.Class, PipelineHash: old.Hash}
+	if err := state.WriteTaskMeta(h.State, meta); err != nil {
+		t.Fatal(err)
+	}
+	runner := &pipelineRunner{worktree: wt}
+	// The daemon holds its singleton lock for as long as it runs.
+	daemon, err := pipeline.Reader{Root: nm, Commands: runner}.Idle(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer daemon()
+	runner.activeRuns = 1
+
+	err = pipelineCommand(context.Background(), h, nm, runner, []string{"run", "task", "--intent", "ship it"}, &bytes.Buffer{})
+	if err == nil || !strings.Contains(err.Error(), "shared config drift") {
+		t.Fatalf("run before migrating=%v, want the frozen v3 policy to drift from the machine", err)
+	}
+	var out bytes.Buffer
+	if err := pipelineCommand(context.Background(), h, nm, runner, []string{"migrate", "task"}, &out); err != nil {
+		t.Fatalf("migrate under a running daemon: %v", err)
+	}
+	migrated, err := pipeline.LoadSelection(snapshot)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if migrated.Policy != policy || migrated.Class != old.Class || migrated.ReviewCycles != old.ReviewCycles {
+		t.Fatalf("snapshot=%+v, want the current policy with the frozen class and cap", migrated)
+	}
+	drift, err := (pipeline.Config{Path: configPath, Policy: migrated.Policy}).Drift()
+	if err != nil || len(drift) != 0 {
+		t.Fatalf("migrated task still drifts: %v %v", drift, err)
+	}
+	after, err := os.ReadFile(configPath)
+	if err != nil || !bytes.Equal(after, machine) {
+		t.Fatalf("migration changed the shared config: %s %v", after, err)
+	}
+	if len(runner.native) != 0 {
+		t.Fatalf("migration launched a native command: %+v", runner.native)
 	}
 }
 
@@ -703,8 +761,7 @@ func TestPipelineMigrationRecoveryRetainsJournalWhenNewPolicyDrifts(t *testing.T
 		t.Fatal(err)
 	}
 
-	runner := &pipelineRunner{}
-	err = resumePipelinePolicyMigration(context.Background(), h, pipeline.Reader{Commands: runner, Root: nm}, meta)
+	err = resumePipelinePolicyMigration(h, nm, meta)
 	if err == nil || !strings.Contains(err.Error(), "apply current shared config before migrating tasks") || !strings.Contains(err.Error(), "agent_path_override.codex") {
 		t.Fatalf("recovery error=%v, want Codex executable drift refusal", err)
 	}

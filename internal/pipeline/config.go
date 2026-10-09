@@ -94,7 +94,11 @@ func Render(before []byte, p Policy) ([]byte, []string, error) {
 	if p.Version > 1 {
 		primary = p.Primary
 	}
-	if err := set(root, "agent", "agent", []string{primary.Harness}); err != nil {
+	agents := []string{primary.Harness}
+	if p.Fallback != (Reviewer{}) {
+		agents = append(agents, p.Fallback.Harness)
+	}
+	if err := set(root, "agent", "agent", agents); err != nil {
 		return nil, nil, err
 	}
 	auto, err := mapping(root, "auto_fix")
@@ -118,10 +122,29 @@ func Render(before []byte, p Policy) ([]byte, []string, error) {
 			return nil, nil, err
 		}
 	} else {
-		if err := removeOwned(args, "claude", "agent_args_override.claude", []string{"--model", "opus", "--effort", "high"}); err != nil {
+		codex := []string{"-c", `service_tier="default"`}
+		if p.Version > 4 {
+			// Gate agents start without the operator's MCP servers. Codex skips
+			// the user config.toml that declares them, which no -c override
+			// can empty because overrides merge into its tables, and the
+			// plugins and apps that bring servers of their own. Claude loads
+			// only servers named with --mcp-config, and the gate names none.
+			codex = append(codex, "--ignore-user-config", "--disable", "plugins", "--disable", "apps")
+			// The user settings a gate's Codex keeps working under are passed
+			// here instead. Model and effort stay out, because no-mistakes
+			// passes them from agent_config. The project_doc_max_bytes pin
+			// needs no-mistakes b05697a or later: an earlier build refuses to
+			// start any gate of a repository that disables project settings
+			// when a raw argument sets it, and a later one passes that
+			// repository's own 0 after the pin, which Codex applies instead.
+			codex = append(codex, "-c", `personality="pragmatic"`, "-c", `model_auto_compact_token_limit_scope="total"`, "-c", "features.multi_agent=true", "-c", "project_doc_max_bytes=65536")
+			if err := set(args, "claude", "agent_args_override.claude", []string{"--strict-mcp-config"}); err != nil {
+				return nil, nil, err
+			}
+		} else if err := removeOwned(args, "claude", "agent_args_override.claude", []string{"--model", "opus", "--effort", "high"}); err != nil {
 			return nil, nil, err
 		}
-		if err := set(args, "codex", "agent_args_override.codex", []string{"-c", `service_tier="default"`}); err != nil {
+		if err := set(args, "codex", "agent_args_override.codex", codex); err != nil {
 			return nil, nil, err
 		}
 		for i := 0; i < len(root.Content); i += 2 {
@@ -142,17 +165,23 @@ func Render(before []byte, p Policy) ([]byte, []string, error) {
 		if err := set(agentConfig, "codex", "agent_config.codex", map[string]string{"model": p.Primary.Model, "effort": p.Primary.Effort}); err != nil {
 			return nil, nil, err
 		}
-		reviewAgents, err := mapping(root, "review_agents")
-		if err != nil {
-			return nil, nil, err
-		}
-		for _, role := range []struct {
-			name    string
-			profile Reviewer
-		}{{"reviewer", p.Reviewer}, {"fixer", p.Fixer}} {
-			value := map[string]string{"agent": role.profile.Harness, "model": role.profile.Model, "effort": role.profile.Effort}
-			if err := set(reviewAgents, role.name, "review_agents."+role.name, value); err != nil {
+		if p.Version > 3 {
+			// Every role runs the chain, which a review role pinned to one
+			// harness would leave without its fallback.
+			remove(root, "review_agents", "review_agents")
+		} else {
+			reviewAgents, err := mapping(root, "review_agents")
+			if err != nil {
 				return nil, nil, err
+			}
+			for _, role := range []struct {
+				name    string
+				profile Reviewer
+			}{{"reviewer", p.Reviewer}, {"fixer", p.Fixer}} {
+				value := map[string]string{"agent": role.profile.Harness, "model": role.profile.Model, "effort": role.profile.Effort}
+				if err := set(reviewAgents, role.name, "review_agents."+role.name, value); err != nil {
+					return nil, nil, err
+				}
 			}
 		}
 	}
@@ -247,6 +276,11 @@ func (c Config) Drift() ([]string, error) {
 }
 
 func (c Config) Apply(ctx context.Context) (result ApplyResult, err error) {
+	// A config that already says what the policy says changes nothing, so it
+	// needs no idle window and never waits on the daemon or its runs.
+	if drift, err := c.Drift(); err != nil || len(drift) == 0 {
+		return result, err
+	}
 	if c.Idle == nil {
 		return result, ErrBusy
 	}
