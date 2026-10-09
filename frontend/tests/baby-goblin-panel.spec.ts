@@ -1,5 +1,4 @@
 import { expect, holdStream, test, type Page } from "./site";
-import { TIP_REST_MS } from "../src/tips";
 import { treeFleet } from "./fixtures/tree-branches-fleet";
 
 // The Overlord, 2026-10-08: "baby goblins should be clickable to open their
@@ -66,17 +65,14 @@ test("clicking any other baby goblin opens its goblin's terminal under the baby 
   await expect(page.getByRole("log")).toHaveCount(0);
 });
 
-test("hovering a baby goblin shows its task after the tip's rest", async ({ page }) => {
+test("hovering a baby goblin shows its task at once", async ({ page }) => {
   await page.clock.install();
   await open(page);
   await page.getByRole("button", { name: "Orchestration", exact: true }).click();
   await expect(baby(page, "Grub Jr. - Plumbing Mapper")).toBeVisible();
-  // Time moves only as the test moves it, however long the machine takes.
+  // Time stands still, so no wait of any length lets a tip show.
   await page.clock.pauseAt(Date.now() + 60_000);
   await baby(page, "Grub Jr. - Plumbing Mapper").hover();
-  await page.clock.runFor(TIP_REST_MS - 100);
-  await expect(page.getByRole("tooltip")).toHaveCount(0);
-  await page.clock.runFor(150);
   await expect(page.getByRole("tooltip")).toHaveText("Find where the harness starts sub-agents and what each one records");
 });
 
@@ -159,6 +155,5 @@ test("a baby goblin shows no raw command line, its task is in its tip and its pa
   const idle = await look(baby(page, "Grub IV - Server Keeper").locator(".state-chip"));
   expect(await look(chip), "the plain text of every state, and the dot of an idle one").toEqual({ color: working.color, dot: idle.dot });
   await silent.hover();
-  await page.clock.runFor(TIP_REST_MS + 100);
   await expect(page.getByRole("tooltip")).toHaveText("python -I survey.py");
 });

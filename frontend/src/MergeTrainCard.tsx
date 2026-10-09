@@ -20,7 +20,7 @@ export function MergeTrainCard({ train, tasks, selected, onSelect }: { train: Me
   const when = train.finished || train.started;
   const at = new Date(when);
   const status = <><span className="status-dot" />{look.text}</>;
-  const tip = train.note ? { "data-tip": train.note, "data-tip-align": "start" } : {};
+  const tip = train.note ? { "data-tip": train.note } : {};
   return <section className={"train-card" + (selected ? " selected" : "")} aria-label={"Merge train " + train.id}
     onClick={(event) => { if (!(event.target as Element).closest("a")) onSelect(train, event.currentTarget); }}>
     <button type="button" className="train-head" aria-pressed={selected} aria-label={"Open merge train " + train.repository + " into " + train.base}>
@@ -33,9 +33,9 @@ export function MergeTrainCard({ train, tasks, selected, onSelect }: { train: Me
     {cars.length > 0 && <ol className="train-cars" aria-label="Pull requests on the train">
       {cars.map((car) => {
         const c = carLook(car), goblin = tasks.find((task) => task.id === car.task);
-        return <li key={car.number} className={"train-car train-" + c.tone} {...(c.tip ? { "data-tip": c.tip, "data-tip-align": "start" } : {})}>
+        return <li key={car.number} className={"train-car train-" + c.tone} {...(c.tip ? { "data-tip": c.tip } : {})}>
           {c.url ? <a className="train-car-number" href={c.url} target="_blank" rel="noreferrer">{c.label}</a> : <span className="train-car-number">{c.label}</span>}
-          <span className="train-car-goblin" {...(car.goblin ? { "data-tip": goblin ? taskName(goblin) : car.title, "data-tip-align": "start" } : {})}>
+          <span className="train-car-goblin" {...(car.goblin ? { "data-tip": goblin ? taskName(goblin) : car.title } : {})}>
             <Avatar persona={goblin ? personaFor(goblin) : stablePersona(car.task)} />
             <span className={"train-car-title" + (car.goblin ? " goblin-called" : "")}>{carName(car)}</span>
           </span>

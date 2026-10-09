@@ -99,7 +99,7 @@ export function Alerts({ snapshot, onOpen }: { snapshot: Snapshot; onOpen: (item
         actions={<>
           <button className="pixel-button" onClick={() => answer(true)}>Turn on</button>
           <button className="pixel-button outline" onClick={() => answer(false)}>Not now</button>
-          <button className="icon-button pixel-icon" aria-label="Dismiss: Windows notifications" data-tip="Dismiss" data-tip-align="end" onClick={() => answer(false)}><Icon name="close" /></button>
+          <button className="icon-button pixel-icon" aria-label="Dismiss: Windows notifications" data-tip="Dismiss" onClick={() => answer(false)}><Icon name="close" /></button>
         </>}>
         <p>Show a Windows notification when something needs you while the board is in the background?</p>
       </DialogueBox>

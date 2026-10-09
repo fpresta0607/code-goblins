@@ -300,10 +300,10 @@ export function App() {
     controls,
     corner: backShown
       ? <button className="labelled-button" aria-label="Back to the CFO" onClick={back}><Icon name="back" /><span>Back</span></button>
-      : <button className="icon-button" aria-label="Close panel" data-tip="Close" data-tip-align="end" onClick={close}><Icon name="close" /></button>,
+      : <button className="icon-button" aria-label="Close panel" data-tip="Close" onClick={close}><Icon name="close" /></button>,
     notice: windowFeedback && <span className="window-feedback"><ClickFeedback text={windowFeedback} /></span>,
   };
-  return <AfkBoard snapshot={snapshot} now={now} onCommand={(key) => setCommandFocus({ key, at: Date.now() })}><div className="app-shell" onKeyDown={(event) => {
+  return <AfkBoard snapshot={snapshot} now={now} onGoThrough={(keys) => setCommandFocus({ key: keys[0], keys, at: Date.now() })}><div className="app-shell" onKeyDown={(event) => {
     if (event.key === "Escape" && paneOpen && !event.defaultPrevented) { event.preventDefault(); if (backShown) back(); else close(); }
   }}>
     <header className="topbar">
@@ -315,13 +315,13 @@ export function App() {
         {(["Board", "Orchestration"] as const).map((name) => <button key={name} aria-pressed={!firstRun && view === name} onClick={() => { if (firstRun) setFirstRunChoice("board"); setView(name); setPanelView("terminal"); }}>{name}</button>)}
       </div>
       <div className="topbar-controls">
-        {snapshot && !firstRun && <button className="icon-button" aria-label="Replay the tour" data-tip="Replay the tour" data-tip-align="end" onClick={startTour}><Icon name="question" /></button>}
+        {snapshot && !firstRun && <button className="icon-button" aria-label="Replay the tour" data-tip="Replay the tour" onClick={startTour}><Icon name="question" /></button>}
         {/* A kanban board too narrow for columns side by side is stacked, so
             there the button changes nothing and says why; a board stacked by
             choice keeps its way back, since the panel yields to a kanban. */}
         {!firstRun && view === "Board" && (boardNarrow && boardLayout === "kanban"
-          ? <button className="icon-button" aria-disabled="true" aria-label="Layout: stacked, the board is too narrow for columns side by side" data-tip="Too narrow for columns side by side, so the board is stacked. Close or narrow the panel, or widen the window." data-tip-align="end"><Icon name="stacked" /></button>
-          : <button className="icon-button" aria-label={nextLayout === "stacked" ? "Stacked layout" : "Kanban layout"} data-tip={nextLayout === "stacked" ? "Stacked layout" : "Kanban layout"} data-tip-align="end"
+          ? <button className="icon-button" aria-disabled="true" aria-label="Layout: stacked, the board is too narrow for columns side by side" data-tip="Too narrow for columns side by side, so the board is stacked. Close or narrow the panel, or widen the window."><Icon name="stacked" /></button>
+          : <button className="icon-button" aria-label={nextLayout === "stacked" ? "Stacked layout" : "Kanban layout"} data-tip={nextLayout === "stacked" ? "Stacked layout" : "Kanban layout"}
             onClick={() => { setBoardLayout(nextLayout); store(BOARD_LAYOUT_KEY, nextLayout); }}><Icon name={boardLayout} /></button>)}
         {snapshot && <CommandCenter snapshot={snapshot} connected={connected} presentations={presentations} focus={commandFocus} onUnsent={setHasUnsentAnswers} onSent={sent} />}
         <div className="connection" role="status">

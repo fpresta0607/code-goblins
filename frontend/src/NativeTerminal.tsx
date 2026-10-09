@@ -643,7 +643,7 @@ export function NativeTerminal({ task, node, harness, instance, visible, shown, 
       {(live || status !== "Connecting") && <span className={"terminal-state" + (live ? " live" : "") + (live && !copied && !inHistory ? " quiet" : "")} role="status">
         <span className="status-dot" />{copied ? "Copied" : live && inHistory ? "History: scroll down or press Esc for live" : status}
       </span>}
-      {!live && status !== "Connecting" && <button className="icon-button raised" disabled={!visible} aria-label="Reconnect" data-tip="Reconnect" data-tip-align="end" onClick={() => setAttempt((prior) => prior + 1)}><Icon name="refresh" /></button>}
+      {!live && status !== "Connecting" && <button className="icon-button raised" disabled={!visible} aria-label="Reconnect" data-tip="Reconnect" onClick={() => setAttempt((prior) => prior + 1)}><Icon name="refresh" /></button>}
     </div>
     <VoiceBubble voice={voice} listening={dictation.listening} level={dictation.level} model={dictation.model} onPaste={(text) => { pasteText.current?.(text); terminal.current?.focus(); }} />
     {feedback ? <p className="terminal-note"><ClickFeedback text={feedback} /></p> : dictation.note && <p className="terminal-note" role="status">{dictation.note}</p>}

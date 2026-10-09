@@ -114,7 +114,7 @@ export function CredentialCard({ request, snapshot, connected, pager }: { reques
     <p className="credential-promise">Each value is saved only where its row says. No goblin's chat, log or board record ever sees it.</p>
     {open && !local && <p className="credential-remote"><Icon name="lock" />Values can only be typed on the board on your PC. Here, copy the terminal command instead.</p>}
     {request.state === "saved" && <p className="credential-outcome delivery succeeded"><Icon name="check-double" /><span><strong>{credentialSettled(request)}.</strong>{told && <small>{told}</small>}</span></p>}
-    {!open && request.state !== "saved" && <p className="credential-outcome" data-tip={request.reason} data-tip-align="start"><Icon name="clock" /><strong>Closed</strong></p>}
+    {!open && request.state !== "saved" && <p className="credential-outcome" data-tip={request.reason}><Icon name="clock" /><strong>Closed</strong></p>}
     {request.state === "saved" && request.reason && <p className="muted">{request.reason}</p>}
     {open && terminalOpen && <p className="credential-terminal-open" role="status"><Icon name="terminal" />{!local ? "A terminal is open on the board on your PC: type each value there, where nothing you type is shown." : terminal ? "Type each value in the terminal below, where nothing you type is shown." : "A terminal is open on this PC: type each value there, where nothing you type is shown."} Saving here waits until it closes.</p>}
     {open && terminal && <RunTerminal run={terminal} instance={snapshot.instance} connected={connected} />}
@@ -144,7 +144,7 @@ export function CredentialCard({ request, snapshot, connected, pager }: { reques
               : <>
                 <CredentialField key={round} label={"Value for " + name} onValue={(value) => setValues((prior) => ({ ...prior, [name]: value }))} />
                 {held(name) && <small className="credential-note"><Icon name="refresh" />Stored before: saving replaces it</small>}
-                {valueWarnings(hint, values[name] || "").map((warning) => <small key={warning} className="credential-note" role="img" aria-label={warning} data-tip={warning} data-tip-align="start"><Icon name="warning" /></small>)}
+                {valueWarnings(hint, values[name] || "").map((warning) => <small key={warning} className="credential-note" role="img" aria-label={warning} data-tip={warning}><Icon name="warning" /></small>)}
               </>}
             </td>
           </tr>;
@@ -159,7 +159,7 @@ export function CredentialCard({ request, snapshot, connected, pager }: { reques
       </div>
       <div className="credential-terminal-actions">
         <button type="button" className="icon-button raised" aria-label="Copy the commands" data-tip={copied ? "Copied" : "Copy"} onClick={copy}><Icon name={copied ? "check" : "copy"} /></button>
-        {local && <button type="button" className="icon-button raised" aria-label="Run in a terminal on this PC" data-tip="Run in a terminal on this PC" data-tip-align="end" disabled={!connected || busy || terminalOpen} onClick={() => void run([])}><Icon name="play" /></button>}
+        {local && <button type="button" className="icon-button raised" aria-label="Run in a terminal on this PC" data-tip="Run in a terminal on this PC" disabled={!connected || busy || terminalOpen} onClick={() => void run([])}><Icon name="play" /></button>}
       </div>
     </div>}
     {(pager || (open && local)) && <div className="card-actions">

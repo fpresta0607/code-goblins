@@ -13,9 +13,5 @@
 .copy-value code { min-width: 0; font-family: var(--font-mono); overflow-wrap: anywhere; }
 .message-table .copy-value { display: flex; justify-content: space-between; }
 .message-table .copy-value code { min-width: 12ch; }
-/* A copy label opens over the row above, inside the table, so the table's
-   scrolling edge never cuts it off. */
-.message-table [data-tip]::after { top: auto; bottom: calc(100% + 8px); left: auto; right: 0; transform: translateY(4px); }
-.message-table [data-tip]:hover::after, .message-table [data-tip]:focus-visible::after { transform: none; }
 .copy-value .icon-button { flex: none; }
 .copy-value .icon-button[data-tip="Copied"] { color: var(--mint); border-color: var(--mint); }

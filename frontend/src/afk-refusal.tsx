@@ -14,6 +14,6 @@ export function AfkRefusal({ on, problem, onClose }: { on: boolean; problem: str
       <strong>{on ? "AFK did not turn on" : "AFK did not turn off"}</strong>
       <p>{plainText(problem)}</p>
     </div>
-    {onClose && <button className="icon-button" aria-label="Close the message" data-tip="Close" data-tip-align="end" onClick={onClose}><Icon name="close" /></button>}
+    {onClose && <button className="icon-button" aria-label="Close the message" data-tip="Close" onClick={onClose}><Icon name="close" /></button>}
   </div>;
 }

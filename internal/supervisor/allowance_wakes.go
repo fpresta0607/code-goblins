@@ -20,9 +20,9 @@ import (
 // once, while goblins run on it, that it nears its end.
 const allowanceWarnAt = 85
 
-// allowanceWall is a session window seen used up while goblins ran on it,
-// kept until it renews so the CFO is woken then to set going again the ones
-// it stopped.
+// allowanceWall is a session or weekly window seen used up while goblins ran
+// on it, kept until it renews so the CFO is woken then to set going again the
+// ones it stopped.
 type allowanceWall struct {
 	Provider string    `json:"provider"`
 	Window   string    `json:"window"`
@@ -32,8 +32,8 @@ type allowanceWall struct {
 
 // raiseAllowanceWakes reads report against the goblins running now: one
 // allowance wake for each window bounding a goblin's model that passed
-// allowanceWarnAt, once per window and reset, and one when a session window
-// seen used up renews, naming the goblins it stopped. Claude Code goes on by
+// allowanceWarnAt, once per window and reset, and one when a session or
+// weekly window seen used up renews, naming the goblins it stopped. Claude Code goes on by
 // itself at a renewal only when its screen offered to, so the CFO looks.
 // Nothing here writes the words a harness refuses with, since the CFO's own
 // terminal shows these wakes.
@@ -63,7 +63,7 @@ func (s *Service) raiseAllowanceWakes(report quota.Report, watched *fleetWakes, 
 				warnings[identity] = &warning{provider: meta.Harness, window: window}
 			}
 			warnings[identity].goblins = append(warnings[identity].goblins, meta.ID)
-			if window.Kind != "session" || window.PercentUsed < 100 {
+			if window.Kind != "session" && !isWeekly(window) || window.PercentUsed < 100 {
 				continue
 			}
 			if watched.AllowanceWalls == nil {

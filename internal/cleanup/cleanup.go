@@ -245,19 +245,22 @@ func (s Service) releaseServices(ctx context.Context, id string) string {
 	return output
 }
 
-// closeRow moves a delivered task's row from ## Queued to ## Done, and says
-// so, or why it could not: the task is retired either way, and the
-// supervisor moves a row left behind once it can.
+// closeRow moves a retired task's row from ## Queued to ## Done, whatever its
+// last status was, and says so, or why it could not: the task is retired
+// either way. The supervisor moves a delivered task's row left behind once it
+// can, and the scheduler never starts any other retired task's row.
 func (s Service) closeRow(outcome state.Outcome) string {
-	if s.Data == "" || outcome.Phase != "done" {
+	if s.Data == "" {
 		return ""
 	}
-	err := fleet.CompleteQueuedTask(home.Home{State: s.StateDir, Data: s.Data}, outcome.ID)
+	err := fleet.RetireQueuedTask(home.Home{State: s.StateDir, Data: s.Data}, outcome.ID)
 	switch {
 	case errors.Is(err, fleet.ErrNotQueued):
 		return ""
-	case err != nil:
+	case err != nil && outcome.Phase == "done":
 		return "\nwarning: its backlog row stays under ## Queued for now (" + err.Error() + "); the supervisor moves it to ## Done once it can"
+	case err != nil:
+		return "\nwarning: its backlog row stays under ## Queued (" + err.Error() + "), where the scheduler does not start it again and wakes you about the row"
 	}
 	return "\nits backlog row is under ## Done"
 }

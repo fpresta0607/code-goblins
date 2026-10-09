@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { diskBlock, diskScale, diskState, freeGigabytes, holdersLine, memoryBlock, meterScale, meterState, nextChip, nextInOrder, poolWarning, queueBlock, scheduleLine, startBlock, startOrder, startOutcome, tighter, turnStatus } from "./start.ts";
+import { diskBlock, diskScale, diskState, freeGigabytes, holdersLine, memoryBlock, meterScale, meterState, nextChip, nextInOrder, poolWarning, queueBlock, startBlock, startOrder, startOutcome, tighter, turnStatus } from "./start.ts";
 import { nodeStatus } from "./workflow.ts";
 import { parseSnapshot, type Disk, type Memory, type Snapshot, type Task } from "./types.ts";
 
@@ -18,32 +18,16 @@ test("the meter says when the next task starts", () => {
   assert.deepEqual(meterState(memory(3.99)), { tone: "under", text: "Under the 4 GB floor: nothing starts until memory frees." });
 });
 
-test("with memory free the meter names what the supervisor started or resumed, or why nothing waiting started", () => {
-  // Arrange
-  const scheduled = (text: string) => parseSnapshot({ healthy: true, scheduling: { at: "2026-10-07T12:00:00Z", text, waiting: [{ id: "next-task", why: "its last start failed: refused" }] } }).scheduling;
-  const failed = scheduled("nothing starts: next-task: its last start failed: refused");
-
-  // Act and assert
-  assert.deepEqual(meterState(memory(8), scheduled("starting next-task")), { tone: "ready", text: "Enough memory: starting next-task" });
-  assert.deepEqual(meterState(memory(8), failed), { tone: "ready", text: "Enough memory: nothing starts: next-task: its last start failed: refused" });
-  assert.deepEqual(meterState(memory(4.5), scheduled("starting next-task")), { tone: "waiting", text: "The next task starts at 5 GB free." }, "a reading with memory short says nothing of the last one with memory free");
-  assert.equal(scheduleLine(memory(8), scheduled("resuming paused-task")), "Resuming paused-task");
-  assert.equal(scheduleLine(memory(8), failed), "Nothing starts: next-task: its last start failed: refused");
-  assert.equal(scheduleLine(memory(4.5), failed), "");
-  assert.equal(scheduleLine(memory(8), null), "");
-  assert.deepEqual(failed?.waiting, [{ id: "next-task", why: "its last start failed: refused" }]);
-});
-
 // The Overlord, 2026-10-08: "below memory disk remove the text please not
-// needed". With nothing waiting the supervisor says nothing, and so does the
-// meter: no line under its bar, and its words for a screen reader end whole.
-test("with nothing waiting the meter says nothing under its bar", () => {
+// needed", and 2026-10-09 on the scheduler's line: "dont display nothing
+// starts text too much text". The board reads nothing the scheduler says:
+// why nothing starts reaches the CFO as a wake.
+test("the board keeps nothing of what the scheduler said", () => {
   // Arrange
-  const idle = parseSnapshot({ healthy: true, scheduling: { at: "2026-10-08T12:00:00Z", text: "" } }).scheduling;
+  const snapshot = parseSnapshot({ healthy: true, scheduling: { at: "2026-10-09T16:05:00Z", text: "nothing starts: next-task: its last start failed: refused", waiting: [{ id: "next-task", why: "its last start failed: refused" }] } });
 
   // Act and assert
-  assert.equal(scheduleLine(memory(8), idle), "");
-  assert.deepEqual(meterState(memory(8), idle), { tone: "ready", text: "Enough memory for the next task" });
+  assert.equal("scheduling" in snapshot, false);
 });
 
 test("the memory bar spans twice the start mark, so the floor and start marks sit apart and a full bar means the next task starts", () => {

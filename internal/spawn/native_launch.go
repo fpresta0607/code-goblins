@@ -118,26 +118,32 @@ func (s Service) briefNativeHarness(ctx context.Context, id string, record host.
 	if working {
 		return nil
 	}
-	instruction, err := s.typedInstruction(id, screens, launch.PromptInstruction())
+	instruction, err := s.typedInstruction(id, launch.PromptInstruction())
 	if err != nil {
 		return err
 	}
 	return s.deliverNativeInstruction(ctx, record, screens, state.TaskMeta{ID: id, Harness: string(kind), Worktree: launch.Dir, SpawnGen: launch.Env["CFO_SPAWN_GEN"]}, instruction)
 }
 
-// typedInstructionLimit is the longest instruction typed whole into a harness
-// that takes typed text in slowly.
+// typedInstructionLimit is the longest instruction typed whole into a
+// harness.
 const typedInstructionLimit = 400
 
 // typedInstruction is what is typed to deliver instruction to the harness in
-// native terminal id: the instruction itself, or, for a harness that takes
-// typed text in slowly and an instruction longer than typedInstructionLimit,
-// a line pointing at the task's instruction.md, where the whole instruction is
-// written. Live after the 2026-09-29 reboot an idle Codex 0.154 took a
-// 2,940-character brief in at about 17 characters a second, and took an Enter
-// pressed while the rest still arrived as part of the text.
-func (s Service) typedInstruction(id string, screens harness.Screens, instruction string) (string, error) {
-	if !screens.Undrawn || utf8.RuneCountInString(instruction) <= typedInstructionLimit {
+// native terminal id: the instruction itself, or, for one longer than
+// typedInstructionLimit or of more than one line, a line pointing at the
+// task's instruction.md, where the whole instruction is written. A harness
+// takes a long burst of typing as a paste. Live after the 2026-09-29 reboot an
+// idle Codex 0.154 took a 2,940-character brief in at about 17 characters a
+// second, and took an Enter pressed while the rest still arrived as part of
+// the text. On 2026-10-09 Claude Code 2.1.29x collapsed what its goblins were
+// resumed with as "[Pasted text #1]" and handed their models a pasted block
+// with nothing written beside it, which a model does not take as the
+// operator's own words: three goblins asked whether to proceed and sat until
+// someone said yes. One short typed line is the operator's own message to
+// every harness.
+func (s Service) typedInstruction(id, instruction string) (string, error) {
+	if utf8.RuneCountInString(instruction) <= typedInstructionLimit && !strings.ContainsAny(instruction, "\r\n") {
 		return instruction, nil
 	}
 	dir := filepath.Join(s.StateDir, "tasktmp", id)

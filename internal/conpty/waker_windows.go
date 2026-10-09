@@ -90,6 +90,10 @@ type waker struct {
 	answer    screenAnswer
 	isEnded   bool
 	answered  chan struct{}
+
+	// unread, when set, is told when key presses have sat unread in the
+	// console's input and when they were read.
+	unread func(isUnread bool)
 }
 
 // startWaker starts this program as the input waker of pseudo console pc,
@@ -204,7 +208,7 @@ func (w *waker) relay(typed, done, closing <-chan struct{}) {
 		for {
 			// An answer for a large screen is one long line.
 			line, err := w.lines.ReadString('\n')
-			if line = strings.TrimRight(line, "\r\n"); line != "" && !w.take(line) {
+			if line = strings.TrimRight(line, "\r\n"); line != "" && !w.take(line) && !w.takeUnread(line) {
 				fmt.Fprintln(os.Stderr, "conpty: "+line)
 			}
 			if err != nil {
@@ -250,11 +254,13 @@ func runWaker(typed io.Reader, report io.Writer) int {
 	}
 	report = &lineWriter{out: report}
 	fmt.Fprintln(report, "ready")
-	written, asked := make(chan struct{}, 1), make(chan struct{}, 1)
+	written, asked, watched := make(chan struct{}, 1), make(chan struct{}, 1), make(chan struct{}, 1)
 	var asks atomic.Uint64
 	go answerScreens(asked, &asks, report)
+	go watchUnread(input, watched, report)
 	go func() {
 		defer close(written)
+		defer close(watched)
 		signals := make([]byte, 64)
 		for {
 			count, err := typed.Read(signals)
@@ -262,14 +268,16 @@ func runWaker(typed io.Reader, report io.Writer) int {
 				return
 			}
 			for _, sent := range signals[:count] {
-				next := written
+				tell := []chan struct{}{written, watched}
 				if sent == screenAsked {
 					asks.Add(1)
-					next = asked
+					tell = []chan struct{}{asked}
 				}
-				select {
-				case next <- struct{}{}:
-				default:
+				for _, next := range tell {
+					select {
+					case next <- struct{}{}:
+					default:
+					}
 				}
 			}
 		}

@@ -11,6 +11,7 @@ import (
 type SubscriptionUsage struct {
 	Provider string `json:"provider"`
 	quota.WeeklyReading
+	FloorPercent *float64 `json:"floor_percent"`
 }
 
 // keepSubscriptionUsage reads quota-axi for the dials only when the
@@ -70,6 +71,9 @@ func (s *Service) keepSubscriptionReadings(report quota.Report, skipped string) 
 	s.notify()
 }
 
+// subscriptionUsage is the dials' reading of each provider the CFO or a
+// goblin runs on now, with the weekly floor the last fleet reading read for
+// it, the one the supervisor paused by, or none while it could not be read.
 func (s *Service) subscriptionUsage(cfo cfoState, snapshot Snapshot) []SubscriptionUsage {
 	active := map[string]bool{}
 	if cfo.registered && cfo.problem == "" && snapshot.Registration == "" {
@@ -95,7 +99,7 @@ func (s *Service) subscriptionUsage(cfo cfoState, snapshot Snapshot) []Subscript
 		}
 	}
 	s.mu.Lock()
-	readings := maps.Clone(s.subscriptionReadings)
+	readings, floors := maps.Clone(s.subscriptionReadings), maps.Clone(s.weeklyFloors)
 	s.mu.Unlock()
 	usage := []SubscriptionUsage{}
 	for _, provider := range []string{"claude", "codex"} {
@@ -109,7 +113,11 @@ func (s *Service) subscriptionUsage(cfo cfoState, snapshot Snapshot) []Subscript
 		if reading.Status == "available" && (snapshot.At.Sub(reading.ReadAt) > quota.MaxAge || !reading.ResetsAt.IsZero() && !reading.ResetsAt.After(snapshot.At)) {
 			reading.Status, reading.PercentRemaining = "stale", nil
 		}
-		usage = append(usage, SubscriptionUsage{Provider: provider, WeeklyReading: reading})
+		shown := SubscriptionUsage{Provider: provider, WeeklyReading: reading}
+		if floor, isRead := floors[provider]; isRead {
+			shown.FloorPercent = &floor
+		}
+		usage = append(usage, shown)
 	}
 	return usage
 }

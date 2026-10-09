@@ -121,6 +121,34 @@ func TestInterruptPreservesTheGateWorktreeBeyondItsRecordedHead(t *testing.T) {
 	}
 }
 
+// A run its goblin's pause could not stop is still live when the goblin
+// resumes: the resume goes on, the goblin picks its run back up, and no
+// replacement is started beside it. On 2026-10-09 Murray was paused for
+// memory with his gate run live, the pause could not abort the run, and each
+// of three resumes ended failed with "paused validation has not stopped; no
+// replacement run was started" until the CFO switched him by hand.
+func TestRestartInterruptedLeavesARunStillLiveToItsGoblin(t *testing.T) {
+	// Arrange
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "state.sqlite"), nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	live := InterruptedRun{ID: "paused-run", RepoID: "repo", Branch: "feat/task", Status: "running", Head: strings.Repeat("a", 40), Intent: "Keep the gate fixes"}
+	runner := &interruptionRunner{run: live, startRun: true}
+	reader := Reader{Root: root, Commands: runner}
+
+	// Act
+	err := reader.RestartInterrupted(context.Background(), "project", t.TempDir(), live)
+
+	// Assert
+	if err != nil {
+		t.Errorf("restart = %v, want the resume to go on with its run still live", err)
+	}
+	if commands := strings.Join(runner.commands, "\n"); strings.Contains(commands, "no-mistakes") {
+		t.Errorf("commands:\n%s\nwant the live run left alone, with no recovery, replacement or abort", commands)
+	}
+}
+
 func TestRestartInterruptedChecksAcceptedRunAfterBoundedWaitExpires(t *testing.T) {
 	for _, starts := range []bool{true, false} {
 		t.Run(map[bool]string{true: "accepted", false: "refused"}[starts], func(t *testing.T) {

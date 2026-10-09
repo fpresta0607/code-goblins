@@ -36,7 +36,7 @@ test("an address only named in a wait's words is never offered as its link", asy
   const dialog = page.getByRole("dialog");
 
   // Act
-  await dialog.getByRole("button", { name: "Next item" }).click();
+  await dialog.getByRole("button", { name: "Skip", exact: true }).click();
 
   // Assert
   await expect(dialog.getByRole("heading", { name: /check that https:\/\/mcp\.precisiondocs\.ai answers/ })).toBeVisible();
@@ -152,8 +152,8 @@ test("a wait that opens with its table shows the table, with no row of pipes as 
   const dialog = page.getByRole("dialog");
 
   // Act
-  await dialog.getByRole("button", { name: "Next item" }).click();
-  await dialog.getByRole("button", { name: "Next item" }).click();
+  await dialog.getByRole("button", { name: "Skip", exact: true }).click();
+  await dialog.getByRole("button", { name: "Skip", exact: true }).click();
 
   // Assert
   await expect(dialog.getByRole("table").getByRole("columnheader")).toHaveText(["Type", "Name"]);

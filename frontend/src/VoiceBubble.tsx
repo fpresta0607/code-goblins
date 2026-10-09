@@ -3,16 +3,8 @@ import { spoken } from "./dictation";
 import { browserOffered, setUsesBrowser, usesBrowser } from "./dictationEngine";
 import { Icon } from "./Icon";
 import { VOICE_HINT_KEY } from "./voice";
+import { VoiceBars } from "./voice-bars";
 import type { Voice } from "./useVoice";
-
-const BARS = 9;
-// While listening, a bar takes the microphone's level this often.
-const SAMPLE_MS = 70;
-// A bar at rest is a dot, one eighth of its height, so while the keys are held
-// in silence the bars are a flat dotted line. A level under QUIET, such as a
-// room's hum, keeps the dot: only a voice moves the bars.
-const REST = 1 / 8;
-const QUIET = 0.08;
 
 function hintDismissed(): boolean {
   try { return localStorage.getItem(VOICE_HINT_KEY) === "dismissed"; } catch { return false; }
@@ -41,25 +33,6 @@ export function VoiceBubble({ voice, listening, level, model, onPaste }: { voice
   const hint = !dismissed && !hintDismissed();
   const [copied, setCopied] = useState("");
   const bubble = useRef<HTMLButtonElement>(null);
-  const bars = useRef<(HTMLSpanElement | null)[]>([]);
-  // Each bar is one recent sample of the microphone's level, newest on the
-  // right; nothing runs while the bubble is idle.
-  useEffect(() => {
-    if (!listening) return;
-    const levels = new Array<number>(BARS).fill(0);
-    let frame = 0, sampled = 0;
-    const draw = (now: number) => {
-      if (now - sampled >= SAMPLE_MS) {
-        sampled = now;
-        levels.shift();
-        levels.push(level());
-        levels.forEach((value, index) => { const bar = bars.current[index]; if (bar) bar.style.transform = `scaleY(${value < QUIET ? REST : REST + (1 - REST) * value})`; });
-      }
-      frame = requestAnimationFrame(draw);
-    };
-    frame = requestAnimationFrame(draw);
-    return () => cancelAnimationFrame(frame);
-  }, [listening, level]);
   useEffect(() => {
     if (!copied) return;
     const timer = setTimeout(() => setCopied(""), 1400);
@@ -83,20 +56,20 @@ export function VoiceBubble({ voice, listening, level, model, onPaste }: { voice
     {hint && !open && <div className="voice-card voice-hint" role="note">
       <p className="voice-card-title">Speak into this terminal</p>
       <p>Hold Ctrl+Shift+Space and speak.</p>
-      <button className="icon-button pixel-icon voice-close" aria-label="Dismiss hint" data-tip="Dismiss hint" data-tip-align="end" onClick={dismiss}><Icon name="close" /></button>
+      <button className="icon-button pixel-icon voice-close" aria-label="Dismiss hint" data-tip="Dismiss hint" onClick={dismiss}><Icon name="close" /></button>
     </div>}
     {open && <section className="voice-card voice-recent" role="dialog" aria-label="Recent messages">
       <p className="voice-card-title">Recent messages</p>
-      <button className="icon-button pixel-icon voice-close" aria-label="Close recent messages" data-tip="Close" data-tip-align="end" onClick={close}><Icon name="close" /></button>
+      <button className="icon-button pixel-icon voice-close" aria-label="Close recent messages" data-tip="Close" onClick={close}><Icon name="close" /></button>
       {voice.messages.length ? <ul>{voice.messages.map((message, index) => {
         const key = message.at + ":" + index;
         return <li key={key}>
           {message.at > 0 && <span className="voice-meta">{clock(message.at)}</span>}
           <p className="voice-text">{message.text}</p>
           <span className="voice-actions">
-            {clipboard && <button className="icon-button pixel-icon" aria-label={"Copy: " + message.text} data-tip={copied === key ? "Copied" : "Copy"} data-tip-align="end"
+            {clipboard && <button className="icon-button pixel-icon" aria-label={"Copy: " + message.text} data-tip={copied === key ? "Copied" : "Copy"}
               onClick={() => { navigator.clipboard.writeText(message.text).then(() => setCopied(key), () => {}); }}><Icon name={copied === key ? "check" : "copy"} /></button>}
-            <button className="icon-button pixel-icon" aria-label={"Paste into this terminal: " + message.text} data-tip="Paste into this terminal" data-tip-align="end"
+            <button className="icon-button pixel-icon" aria-label={"Paste into this terminal: " + message.text} data-tip="Paste into this terminal"
               onClick={() => { onPaste(spoken([message.text])); setOpen(false); }}><Icon name="paste" /></button>
           </span>
         </li>;
@@ -105,8 +78,8 @@ export function VoiceBubble({ voice, listening, level, model, onPaste }: { voice
       {browserOffered() && <p className="voice-empty"><label><input type="checkbox" checked={browser} onChange={(event) => { setUsesBrowser(event.target.checked); chosen((count) => count + 1); }} /> Use this browser's speech recognition instead</label></p>}
     </section>}
     <button ref={bubble} className={"voice-bubble" + (listening ? " recording terminal-listening" : "")}
-      aria-label={listening ? "Listening" : "Recent messages"} aria-expanded={open} data-tip={tip} data-tip-align="end" onClick={toggle}>
-      {listening ? <><span className="voice-dot" aria-hidden="true" /><span className="voice-bars" aria-hidden="true">{Array.from({ length: BARS }, (_, index) => <span key={index} ref={(bar) => { bars.current[index] = bar; }} />)}</span></> : <Icon name="mic" />}
+      aria-label={listening ? "Listening" : "Recent messages"} aria-expanded={open} data-tip={tip} onClick={toggle}>
+      {listening ? <VoiceBars level={level} /> : <Icon name="mic" />}
     </button>
     {listening && <span className="sr-only" role="status">Listening with {engine}</span>}
   </div>;

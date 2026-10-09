@@ -50,13 +50,10 @@ type SwitchRequest struct {
 	// add a running terminal, so they take the home's spawn lock as a spawn
 	// does, from the check that the task's terminal is not running to its
 	// host's launch, and are admitted on the machine's room under it by
-	// Admit. A switch only replaces a running harness and sets none.
+	// Admit. A refusal comes back wrapped in state.ErrNoRoom. A switch only
+	// replaces a running harness and sets none.
 	Admit func() error
 }
-
-// ErrNoRoom marks a relaunch Admit refused: the machine has no room for one
-// more running terminal yet, which a later try can find.
-var ErrNoRoom = errors.New("waits for room")
 
 // SwitchResult reports what the switch changed.
 type SwitchResult struct {
@@ -275,7 +272,7 @@ func (s Service) Switch(ctx context.Context, req SwitchRequest) (result SwitchRe
 			return SwitchResult{}, fmt.Errorf("switch: task %s already runs; another start launched it while this relaunch waited for its turn", req.ID)
 		}
 		if err := req.Admit(); err != nil {
-			return SwitchResult{}, fmt.Errorf("%w: %w", ErrNoRoom, err)
+			return SwitchResult{}, fmt.Errorf("%w: %w", state.ErrNoRoom, err)
 		}
 	}
 	// A native terminal ends with its harness, and its job ends everything the
