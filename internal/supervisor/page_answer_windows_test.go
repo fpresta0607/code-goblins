@@ -9,7 +9,6 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
-	"slices"
 	"strings"
 	"sync"
 	"testing"
@@ -18,7 +17,7 @@ import (
 
 	"github.com/fpresta0607/code-goblins/internal/axi"
 	"github.com/fpresta0607/code-goblins/internal/execx"
-	"github.com/fpresta0607/code-goblins/internal/wake"
+	"github.com/fpresta0607/code-goblins/internal/state"
 )
 
 // What lavish-axi's poll printed of the Overlord's answer to the mockups
@@ -246,11 +245,12 @@ func TestAPageAnswerShowsDoneOnTheBoardWithinASecond(t *testing.T) {
 }
 
 // The boards are told what his send did to its item the moment the page's
-// poller does it: his answer closes the item, and a revision, once nothing
-// more came within pageAnswerSettle, takes it off Waiting on you. Neither
-// waits on the supervisor's cycle, which tells the boards only of what the
-// cycle itself changed, so a change the poller made reached them at the next
-// refresh, up to snapshotRefresh later. Here no cycle runs at all.
+// poller does it: his answer closes the item, a revision, once nothing more
+// came within pageAnswerSettle, takes it off Waiting on you, and an answered
+// item says who has his answer once they do. None waits on the supervisor's
+// cycle, which tells the boards only of what the cycle itself changed, so a
+// change the poller made reached them at the next refresh, up to
+// snapshotRefresh later. Here no cycle runs at all.
 func TestTheBoardsAreToldWhatHisSendDidWithoutWaitingOnACycle(t *testing.T) {
 	for name, test := range map[string]struct {
 		sent     string
@@ -260,6 +260,7 @@ func TestTheBoardsAreToldWhatHisSendDidWithoutWaitingOnACycle(t *testing.T) {
 	}{
 		"his answer closes the item":               {pickedOnThePage, time.Second, func(r Review) bool { return r.State == "answered" }, "answered"},
 		"his revision takes it off Waiting on you": {notedOnThePage, pageAnswerSettle + time.Second, func(r Review) bool { return r.State == "open" && r.RevisingSince != nil }, "open and revising"},
+		"who has his answer shows once it is told": {approvedAsShown, 5 * time.Second, func(r Review) bool { return r.Reason == "You answered on its page; the goblin has it." }, "answered, saying the goblin has it"},
 	} {
 		t.Run(name, func(t *testing.T) {
 			// Arrange
@@ -394,7 +395,8 @@ func TestAPickOfThePagesOptionAnswersItWithoutEndingTheReview(t *testing.T) {
 
 // An agent's end of the review is never his approval. What he sent just
 // before an agent ended it stays a revision its goblin gets, and the CFO is
-// told an agent ended the review, as it is when he had sent nothing.
+// then told an agent ended the review, as it is when he had sent nothing: the
+// two reach the CFO in the order they happened.
 func TestAnAgentsEndOfTheReviewIsNeverHisApproval(t *testing.T) {
 	// Arrange
 	store, h := testStore(t)
@@ -411,14 +413,8 @@ func TestAnAgentsEndOfTheReviewIsNeverHisApproval(t *testing.T) {
 
 	// Assert
 	wakes := reviewWakes(t, h.State, meta.ID)
-	isRevision := func(w wake.Record) bool {
-		return strings.Contains(w.Detail, "asked for a revision on the page "+page)
-	}
-	isAgentsEnd := func(w wake.Record) bool {
-		return strings.Contains(w.Detail, "an agent, not the Overlord, ended the review of "+page)
-	}
-	if len(wakes) != 2 || !slices.ContainsFunc(wakes, isRevision) || !slices.ContainsFunc(wakes, isAgentsEnd) {
-		t.Fatalf("review wakes = %+v, want his revision and the agent's end, and no answer of his", wakes)
+	if len(wakes) != 2 || !strings.Contains(wakes[0].Detail, "asked for a revision on the page "+page) || !strings.Contains(wakes[1].Detail, "an agent, not the Overlord, ended the review of "+page) {
+		t.Fatalf("review wakes = %+v, want his revision and then the agent's end, and no answer of his", wakes)
 	}
 	if told := goblin.lines(t); len(told) != 1 || !strings.Contains(told[0], "asked for a revision on your review page "+page+": Make the header bigger") {
 		t.Fatalf("the goblin got %q, want his note once, as a revision", told)
@@ -510,5 +506,61 @@ func TestAPollThatFailsWhileHisAnswerGoesOnIsAskedAgainAtOnce(t *testing.T) {
 	}
 	if polls != 3 {
 		t.Errorf("polled the page %d times, want 3: the failed poll asked again once", polls)
+	}
+}
+
+// A note he writes on a page whose item has closed is kept the moment a poll
+// takes it, though the goblin is still being told what he sent before it: the
+// poll consumed the note, and Scrawl holds no other copy.
+func TestANoteOnAClosedItemIsKeptBeforeItsTurnToBeTold(t *testing.T) {
+	// Arrange
+	store, h := testStore(t)
+	meta, _, connection, _ := pageOfAGoblin(t, store)
+	deliver := typeIntoGoblin
+	t.Cleanup(func() { typeIntoGoblin = deliver })
+	typing, release := make(chan struct{}, 8), make(chan struct{})
+	typeIntoGoblin = func(context.Context, string, state.TaskMeta, string) error {
+		typing <- struct{}{}
+		<-release
+		return nil
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	polls := 0
+	noteTaken := make(chan struct{})
+	s := &Service{Store: store, Options: Options{CFO: connection, PollPage: func(ctx context.Context, file, reply string, timeout time.Duration) (axi.PagePoll, error) {
+		output := scrawlWaiting
+		switch polls++; polls {
+		case 1:
+			output = pickedOnThePage
+		case 3:
+			output = notedOnThePage
+		case 4:
+			close(noteTaken)
+		case 5:
+			<-ctx.Done()
+			return axi.PagePoll{}, ctx.Err()
+		}
+		return axi.Lavish{Commands: printed(output)}.Poll(ctx, file, reply, timeout)
+	}}}
+
+	// Act
+	s.watchPages(ctx)
+	<-typing
+	<-noteTaken
+	var kept []string
+	for deadline := time.Now().Add(5 * time.Second); len(kept) == 0 && time.Now().Before(deadline); time.Sleep(10 * time.Millisecond) {
+		kept = feedbackFiles(t, h.State, meta.ID)
+	}
+	close(release)
+	cancel()
+	s.pageWork.Wait()
+
+	// Assert
+	if len(kept) != 1 {
+		t.Fatalf("while the goblin was still being told his pick, the feedback kept for his note = %q, want it kept in one file", kept)
+	}
+	if data, err := os.ReadFile(kept[0]); err != nil || !strings.Contains(string(data), "Make the header bigger") {
+		t.Errorf("the kept feedback = %q, %v, want his note", data, err)
 	}
 }

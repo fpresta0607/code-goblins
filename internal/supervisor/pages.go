@@ -220,7 +220,9 @@ func (s *Service) watchPage(ctx context.Context, key string) {
 				continue
 			}
 		}
-		s.handPageToCFO(ctx, r, poll, err)
+		// After everything the teller holds, so the CFO hears what became of
+		// the page after what he sent on it.
+		tell <- func() { s.handPageToCFO(ctx, r, poll, err) }
 		return
 	}
 }
@@ -256,8 +258,9 @@ func (s *Service) answeredOnPage(r Review, poll axi.PagePoll) {
 // passOnAnswer passes on his answer on the page of answer.item and returns the
 // reply the page shows him, or "" when the watch ends: he ended the review on
 // an item he answered, or the poller stopped first. What he sent on an item
-// that had closed before he began is a note its goblin gets, told after
-// everything the page's teller holds, and its reply waits on that delivery.
+// that had closed before he began is a note its goblin gets, kept at once and
+// told after everything the page's teller holds, and its reply waits on that
+// delivery.
 func (s *Service) passOnAnswer(ctx context.Context, answer pageAnswer, tell chan<- func()) string {
 	r := answer.item
 	switch {
@@ -266,8 +269,11 @@ func (s *Service) passOnAnswer(ctx context.Context, answer pageAnswer, tell chan
 		if key == "" {
 			key = r.ID
 		}
+		feedback := s.keepPageFeedback(key, answer.poll)
 		replied := make(chan string, 1)
-		tell <- func() { replied <- s.passOnPageFeedback(ctx, r.LavishPage, r.Task, r.Identity, key, answer.poll) }
+		tell <- func() {
+			replied <- s.passOnPageFeedback(ctx, r.LavishPage, r.Task, r.Identity, key, answer.poll, feedback)
+		}
 		return <-replied
 	case answer.isAnswer:
 		return s.takeAnswer(ctx, r, answer.poll, tell)
@@ -279,10 +285,11 @@ func (s *Service) passOnAnswer(ctx context.Context, answer pageAnswer, tell chan
 // takeAnswer passes on his answer on the page of item r, which closed the
 // moment the poll read it: its goblin gets it in its own terminal and the CFO
 // is told, or the CFO gets it to act on for its own page, and the item then
-// says who has it. The poll consumed the answer, so the wake is retried until
-// the CFO has it. An answer that ended the review settles the page and ends
-// the watch; otherwise the page stays watched for what he sends next, and
-// its reply tells him who his answer goes to.
+// says who has it, which the boards are told. The poll consumed the answer,
+// so the wake is retried until the CFO has it. An answer that ended the
+// review settles the page and ends the watch; otherwise the page stays
+// watched for what he sends next, and its reply tells him who his answer goes
+// to.
 func (s *Service) takeAnswer(ctx context.Context, r Review, poll axi.PagePoll, tell chan<- func()) string {
 	asked := strings.Join(poll.Prompts, "\n")
 	saved, saveErr := savePageFeedback(s.Store.Home.State, r.ID, poll.Output)
@@ -323,6 +330,7 @@ func (s *Service) takeAnswer(ctx context.Context, r Review, poll axi.PagePoll, t
 		if err := s.Store.explainAnswer(pageKey(r.LavishPage), answered); err != nil {
 			s.publish(err)
 		}
+		s.notify()
 	}
 	if poll.Ended {
 		if err := s.Store.settlePage(pageKey(r.LavishPage), Review{}); err != nil {
@@ -344,13 +352,7 @@ func (s *Service) takeAnswer(ctx context.Context, r Review, poll axi.PagePoll, t
 // the page is the CFO's own, the CFO gets it to act on. The poll consumed the
 // revision, so the wake is retried until the CFO has it.
 func (s *Service) takeRevision(ctx context.Context, r Review, poll axi.PagePoll, tell chan<- func()) string {
-	feedback := "his feedback is in "
-	if saved, err := savePageFeedback(s.Store.Home.State, r.ID, poll.Output); err == nil {
-		feedback += saved
-	} else {
-		s.publish(err)
-		feedback = "his feedback could not be saved (" + err.Error() + "): " + bounded(poll.Output, pageFeedbackInline)
-	}
+	feedback := s.keepPageFeedback(r.ID, poll)
 	asked := strings.Join(poll.Prompts, "\n")
 	if asked == "" {
 		asked = feedback
@@ -458,18 +460,12 @@ func (s *Service) handPageToCFO(ctx context.Context, r Review, poll axi.PagePoll
 // passOnPageFeedback hands what the Overlord sent on a page nobody waits on
 // any more, its item closed or never made, to the goblin of task while it
 // runs as identity, else to the CFO, and returns the reply the page shows him:
-// who has it. The CFO is told either way, by a review wake keyed by key, and
-// acts on it itself for its own page (no task) or a retired goblin's. The
-// poll consumed the feedback, so the wake is retried until the CFO has it; an
-// empty reply means the caller stopped first.
-func (s *Service) passOnPageFeedback(ctx context.Context, page, task, identity, key string, poll axi.PagePoll) string {
-	feedback := "his feedback is in "
-	if saved, err := savePageFeedback(s.Store.Home.State, key, poll.Output); err == nil {
-		feedback += saved
-	} else {
-		s.publish(err)
-		feedback = "his feedback could not be saved (" + err.Error() + "): " + bounded(poll.Output, pageFeedbackInline)
-	}
+// who has it. feedback says where it is kept, as keepPageFeedback gives it.
+// The CFO is told either way, by a review wake keyed by key, and acts on it
+// itself for its own page (no task) or a retired goblin's. The poll consumed
+// the feedback, so the wake is retried until the CFO has it; an empty reply
+// means the caller stopped first.
+func (s *Service) passOnPageFeedback(ctx context.Context, page, task, identity, key string, poll axi.PagePoll, feedback string) string {
 	asked := strings.Join(poll.Prompts, "\n")
 	if asked == "" {
 		asked = feedback
@@ -488,6 +484,17 @@ func (s *Service) passOnPageFeedback(ctx context.Context, page, task, identity, 
 		return ""
 	}
 	return reply
+}
+
+// keepPageFeedback saves what a poll took under name and returns how a wake
+// says where it is, or, when it cannot be saved, a wake's worth of its end.
+func (s *Service) keepPageFeedback(name string, poll axi.PagePoll) string {
+	saved, err := savePageFeedback(s.Store.Home.State, name, poll.Output)
+	if err == nil {
+		return "his feedback is in " + saved
+	}
+	s.publish(err)
+	return "his feedback could not be saved (" + err.Error() + "): " + bounded(poll.Output, pageFeedbackInline)
 }
 
 // savePageFeedback keeps a poll's whole output for the CFO to read, since
