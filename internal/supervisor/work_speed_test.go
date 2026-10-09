@@ -18,6 +18,7 @@ import (
 	"github.com/fpresta0607/code-goblins/internal/home"
 	"github.com/fpresta0607/code-goblins/internal/host"
 	"github.com/fpresta0607/code-goblins/internal/monitor"
+	"github.com/fpresta0607/code-goblins/internal/pipeline"
 	"github.com/fpresta0607/code-goblins/internal/state"
 )
 
@@ -569,6 +570,145 @@ func TestAWedgedGoblinWithAStillScreenAndAnIdleTreeWakesOnce(t *testing.T) {
 		if !strings.Contains(detail, want) {
 			t.Errorf("wake %q lacks %q", detail, want)
 		}
+	}
+}
+
+// waitedGate is a goblin's no-mistakes run as the pipeline's reader gives
+// it: the newest run of the branch it is on, or the run with its ID, and the
+// time nine in ten rounds of each step take on the machine.
+type waitedGate struct {
+	branch string
+	run    pipeline.Progress
+	steps  []pipeline.StepDetail
+	usual  map[string]time.Duration
+}
+
+func (g *waitedGate) Progress(_ context.Context, _, branch string) (pipeline.Progress, error) {
+	if branch != g.branch {
+		return pipeline.Progress{}, pipeline.ErrNoProgress
+	}
+	return g.run, nil
+}
+
+func (g *waitedGate) Run(_ context.Context, runID string) (pipeline.Progress, error) {
+	if runID != g.run.RunID {
+		return pipeline.Progress{}, pipeline.ErrNoProgress
+	}
+	return g.run, nil
+}
+
+func (g *waitedGate) StepDetails(context.Context, string) ([]pipeline.StepDetail, error) {
+	return g.steps, nil
+}
+
+func (g *waitedGate) UsualStepTimes(context.Context) (map[string]time.Duration, error) {
+	return g.usual, nil
+}
+
+// newGateGoblin is a toolCallGoblin whose worktree has feat/task checked out
+// and whose tree reads gate as its no-mistakes run, and reads what the
+// goblin reports it waits on as Start has it read.
+func newGateGoblin(t *testing.T, now time.Time, gate *waitedGate) *toolCallGoblin {
+	t.Helper()
+	goblin := newToolCallGoblin(t, now)
+	gitDir := filepath.Join(t.TempDir(), "worktrees", "gb-slow-task")
+	writeFile(t, filepath.Join(goblin.home.Root, ".worktrees", "gb-slow-task", ".git"), "gitdir: "+gitDir+"\n")
+	writeFile(t, filepath.Join(gitDir, "HEAD"), "ref: refs/heads/feat/task\n")
+	goblin.service.Options.Tree.Gate = gate
+	goblin.service.Options.Tree.Awaited = goblin.service.awaited
+	return goblin
+}
+
+// checkWakes is the details of the check wakes raised for slow-task.
+func checkWakes(t *testing.T, goblin *toolCallGoblin) []string {
+	t.Helper()
+	var details []string
+	for _, record := range fleetWakeRecords(t, goblin.home, "check") {
+		if record.Key == "slow-task" {
+			details = append(details, record.Detail)
+		}
+	}
+	return details
+}
+
+// On 2026-10-09 the CFO was woken that Duke (hh-video-gate) had stalled while
+// he waited on his no-mistakes run's test step. The step runs in the shared
+// daemon, not in his own processes, and its agent wrote ten lines in half an
+// hour, so the step's last activity sat still. A goblin whose gate has a step
+// running is working for as long as the step runs in its usual time, and so
+// is one waiting on a run it names, such as one outside its worktree. A gate
+// run that is itself stuck, its step running far past that or parked on an
+// answer, is told to the CFO as that, with the run and the step.
+func TestAGoblinWaitingOnItsGateIsWorkingUntilTheGateIsStuck(t *testing.T) {
+	const runID = "01M4FDZXNS0HTVPE22RFTY8RA5"
+	now := time.Date(2026, 10, 9, 5, 51, 0, 0, time.UTC)
+	started := func(name, status string) pipeline.StepDetail {
+		return pipeline.StepDetail{Name: name, Status: status, StartedAt: now.Unix(), LastActivityAt: now.Unix(), LastActivity: "log: running the suite", AgentPID: 900}
+	}
+	review := pipeline.StepDetail{Name: "review", Status: "completed", StartedAt: now.Add(-time.Hour).Unix(), LastActivityAt: now.Unix()}
+	passed := pipeline.StepDetail{Name: "test", Status: "completed", StartedAt: now.Unix(), LastActivityAt: now.Unix()}
+	for _, test := range []struct {
+		name string
+		// branch is the branch the run is on, and isNamed says the goblin
+		// names the run as its wait.
+		branch  string
+		isNamed bool
+		status  string
+		steps   []pipeline.StepDetail
+		usual   time.Duration
+		// wake starts the one wake 45 still minutes draw, empty for none,
+		// and wants is what it names.
+		wake  string
+		wants []string
+	}{
+		{"a step running in its usual time", "feat/task", false, "running", []pipeline.StepDetail{review, started("test", "running")}, time.Hour, "", nil},
+		{"a step of a run it names outside its worktree", "feat/other", true, "running", []pipeline.StepDetail{review, started("test", "running")}, time.Hour, "", nil},
+		{"a step running far past its usual time", "feat/task", false, "running", []pipeline.StepDetail{review, started("test", "running")}, 10 * time.Minute, "gate_stuck: ", []string{runID, "test step", "29 minutes", "10m0s"}},
+		{"a run parked on an answer", "feat/task", false, "running", []pipeline.StepDetail{started("review", "awaiting_approval")}, time.Hour, "gate_parked: ", []string{runID, "review step"}},
+		{"a goblin truly idle with no gate run", "feat/other", false, "running", []pipeline.StepDetail{review, started("test", "running")}, time.Hour, "progress_stalled: ", nil},
+		{"a goblin truly idle after its gate passed", "feat/task", false, "completed", []pipeline.StepDetail{review, passed}, time.Hour, "progress_stalled: ", nil},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			// Arrange
+			gate := &waitedGate{branch: test.branch, run: pipeline.Progress{RunID: runID, Status: test.status}, steps: test.steps, usual: map[string]time.Duration{"review": test.usual, "test": test.usual}}
+			goblin := newGateGoblin(t, now, gate)
+			if test.isNamed {
+				writeFile(t, filepath.Join(goblin.home.State, "slow-task.status"), now.Format(time.RFC3339)+" waiting on "+runID+": its gate run in the shared checkout\n")
+			}
+
+			// Act: 45 readings a minute apart, the goblin showing nothing
+			// of its own.
+			for minute := 0; minute <= 45; minute++ {
+				goblin.read(t, now.Add(time.Duration(minute)*time.Minute))
+			}
+
+			// Assert
+			wakes := checkWakes(t, goblin)
+			if test.wake == "" {
+				if len(wakes) != 0 {
+					t.Fatalf("wakes = %q, want none while the step runs", wakes)
+				}
+				watched, err := readFleetWakes(goblin.home.State)
+				if err != nil {
+					t.Fatal(err)
+				}
+				if progress := watched.Progress["slow-task"]; !strings.Contains(progress.Source, runID) || !progress.At.Equal(now.Add(45*time.Minute)) {
+					t.Fatalf("progress = %+v, want the run's step at the last reading", progress)
+				}
+				return
+			}
+			if len(wakes) != 1 || !strings.HasPrefix(wakes[0], test.wake) {
+				t.Fatalf("wakes = %q, want one starting %q", wakes, test.wake)
+			}
+			for _, want := range test.wants {
+				if !strings.Contains(wakes[0], want) {
+					t.Errorf("wake %q lacks %q", wakes[0], want)
+				}
+			}
+			if test.wake != "progress_stalled: " && strings.ContainsAny(wakes[0], ";—") {
+				t.Errorf("wake %q holds a semicolon or an em dash", wakes[0])
+			}
+		})
 	}
 }
 

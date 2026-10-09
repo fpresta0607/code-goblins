@@ -3,12 +3,14 @@ package pipeline
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"github.com/fpresta0607/code-goblins/internal/execx"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 )
 
 type custodyProgressRunner struct {
@@ -139,8 +141,8 @@ func TestProgressRequiresReviewTestsCommitPushAndPRAtExactHead(t *testing.T) {
 func TestStepDetailsReadsWhatEachStepIsDoing(t *testing.T) {
 	root := t.TempDir()
 	database := filepath.Join(root, "state.sqlite")
-	sql := `CREATE TABLE step_results(run_id TEXT,step_name TEXT,status TEXT,step_order INTEGER,started_at INTEGER,last_activity_at INTEGER,last_activity TEXT,agent_pid INTEGER);
-INSERT INTO step_results VALUES('run','test','running',2,1791297214,1791325002,'go test ./...',34824),('run','review','completed',1,1791297171,1791297214,'status: completed',NULL),('run','lint','pending',3,NULL,NULL,NULL,NULL),('other','review','running',1,1,1,'x',1);`
+	sql := `CREATE TABLE step_results(run_id TEXT,step_name TEXT,status TEXT,step_order INTEGER,started_at INTEGER,round_started_at INTEGER,last_activity_at INTEGER,last_activity TEXT,agent_pid INTEGER);
+INSERT INTO step_results VALUES('run','test','running',2,1791297214,1791300000,1791325002,'go test ./...',34824),('run','review','completed',1,1791297171,NULL,1791297214,'status: completed',NULL),('run','lint','pending',3,NULL,NULL,NULL,NULL,NULL),('other','review','running',1,1,1,1,'x',1);`
 	result, err := (execx.OSRunner{}).Run(context.Background(), execx.Request{Name: "sqlite3", Args: []string{database, sql}})
 	if err != nil {
 		t.Skipf("sqlite3 unavailable: %v", err)
@@ -153,10 +155,72 @@ INSERT INTO step_results VALUES('run','test','running',2,1791297214,1791325002,'
 
 	want := []StepDetail{
 		{Name: "review", Status: "completed", StartedAt: 1791297171, LastActivityAt: 1791297214, LastActivity: "status: completed"},
-		{Name: "test", Status: "running", StartedAt: 1791297214, LastActivityAt: 1791325002, LastActivity: "go test ./...", AgentPID: 34824},
+		{Name: "test", Status: "running", StartedAt: 1791297214, RoundStartedAt: 1791300000, LastActivityAt: 1791325002, LastActivity: "go test ./...", AgentPID: 34824},
 		{Name: "lint", Status: "pending"},
 	}
 	if err != nil || fmt.Sprint(steps) != fmt.Sprint(want) {
 		t.Fatalf("StepDetails = %+v, %v; want %+v", steps, err, want)
+	}
+}
+
+// stepDatabase is a no-mistakes state database in a new root holding sql,
+// or skips the test where sqlite3 is not installed.
+func stepDatabase(t *testing.T, sql string) Reader {
+	t.Helper()
+	root := t.TempDir()
+	result, err := (execx.OSRunner{}).Run(context.Background(), execx.Request{Name: "sqlite3", Args: []string{filepath.Join(root, "state.sqlite"), sql}})
+	if err != nil {
+		t.Skipf("sqlite3 unavailable: %v", err)
+	}
+	if result.ExitCode != 0 {
+		t.Fatal(string(result.Stderr))
+	}
+	return Reader{Root: root, Commands: execx.OSRunner{}}
+}
+
+// A goblin can name the gate run it waits on, which may be on any branch of
+// any repository.
+func TestRunReadsTheRunWithItsID(t *testing.T) {
+	// Arrange
+	reader := stepDatabase(t, `CREATE TABLE repos(id TEXT,working_path TEXT);
+CREATE TABLE runs(id TEXT,repo_id TEXT,branch TEXT,created_at INTEGER,status TEXT,head_sha TEXT,submitted_head_sha TEXT,review_approved_head_sha TEXT,last_pushed_sha TEXT,pr_url TEXT,pr_state TEXT,ci_ready_at INTEGER,terminal_head_verified_at INTEGER,custody_returned_at INTEGER);
+INSERT INTO repos VALUES('repo','C:\project');
+INSERT INTO runs(id,repo_id,branch,created_at,status,head_sha) VALUES('named','repo','split',1,'running','named'),('newer','repo','split',2,'completed','newer');`)
+
+	// Act
+	named, err := reader.Run(context.Background(), "named")
+	_, missingErr := reader.Run(context.Background(), "gone")
+
+	// Assert
+	if err != nil || named.RunID != "named" || named.Status != "running" || named.Head != "named" {
+		t.Fatalf("Run = %+v, %v; want the named run", named, err)
+	}
+	if !errors.Is(missingErr, ErrNoProgress) {
+		t.Fatalf("Run of an unknown ID = %v, want ErrNoProgress", missingErr)
+	}
+}
+
+// How long a step usually runs is read per round, since a fix round runs
+// the step again, from the time nine in ten completed rounds took.
+func TestUsualStepTimesIsWhatNineInTenRoundsFinishWithin(t *testing.T) {
+	// Arrange: ten completed test rounds of 1 to 10 minutes, one of them
+	// a fix round started an hour after its step, a review round started
+	// before the round column existed, and steps that did not complete.
+	sql := `CREATE TABLE step_results(run_id TEXT,step_name TEXT,status TEXT,started_at INTEGER,round_started_at INTEGER,completed_at INTEGER);`
+	for minutes := 1; minutes <= 10; minutes++ {
+		sql += fmt.Sprintf("INSERT INTO step_results VALUES('r%d','test','completed',1000,1000,%d);", minutes, 1000+minutes*60)
+	}
+	sql += `INSERT INTO step_results VALUES('fix','test','completed',1000,4600,4660);
+INSERT INTO step_results VALUES('old','review','completed',1000,NULL,1300);
+INSERT INTO step_results VALUES('now','test','running',1000,1000,NULL),('cut','lint','failed',1000,1000,99000),('later','lint','pending',NULL,NULL,NULL);`
+	reader := stepDatabase(t, sql)
+
+	// Act
+	usual, err := reader.UsualStepTimes(context.Background())
+
+	// Assert
+	want := map[string]time.Duration{"test": 9 * time.Minute, "review": 5 * time.Minute}
+	if err != nil || fmt.Sprint(usual) != fmt.Sprint(want) {
+		t.Fatalf("UsualStepTimes = %v, %v; want %v", usual, err, want)
 	}
 }

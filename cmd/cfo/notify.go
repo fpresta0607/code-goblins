@@ -30,7 +30,7 @@ import (
 //	cfo notify <task-id> --blocked "<question> options: <answer> (Recommended) | <answer>" --image a.png --image b.png
 //	cfo notify <task-id> --failed "<reason>"
 //	cfo notify <task-id> --working "<what>"
-//	cfo notify <task-id> --waiting-on <task-id|overlord|ci|deploy|memory> "<why>"
+//	cfo notify <task-id> --waiting-on <task-id|run-id|overlord|ci|deploy|memory> "<why>"
 //	cfo notify <task-id> --waiting-on overlord "<why>" --lavish <html-file>
 //	cfo notify <task-id> --waiting-on overlord "<why>" --link <https-url>
 //	cfo notify <task-id> --waiting-on overlord "<why>" --run <command.ps1|command.sh>
@@ -51,10 +51,12 @@ import (
 //	| CNAME | `mcp` | `mcp-precisiondocs.fly.dev` |" --link https://dash.cloudflare.com
 //
 // Only a question and a wait on the Overlord wake the CFO: working, and a
-// wait on another task, CI, a deploy or memory, are status for the board. A wait that
-// names a Lavish page puts the page on its card, and the supervisor polls it:
-// the Overlord's feedback there goes to the CFO, never to a poll of the
-// goblin's own.
+// wait on another task, a gate run, CI, a deploy or memory, are status for
+// the board. A wait on a gate run's ID makes that no-mistakes run the
+// goblin's gate, such as one it started outside its worktree, whose running
+// step is its work. A wait that names a Lavish page puts the page on its
+// card, and the supervisor polls it: the Overlord's feedback there goes to
+// the CFO, never to a poll of the goblin's own.
 //
 // A helper reports to its parent instead: its done, which needs no pull
 // request, its question and its failure are typed into its parent's
@@ -77,7 +79,7 @@ func runNotify(args []string, stdout, stderr io.Writer, runtime commandRuntime) 
 	blocked := fs.String("blocked", "", "report a question the goblin is blocked on: one short sentence that is the question, details on lines starting with \"- \", and **bold** only on the verdict or the blocking item")
 	failed := fs.String("failed", "", "report a failure reason")
 	working := fs.String("working", "", "report what you are working on now")
-	waitingOn := fs.String("waiting-on", "", "report what you wait on, another task's ID, overlord, ci, deploy or memory, followed by why. For overlord, lead with one sentence; values he must enter somewhere go in a Markdown table on the lines after it, a header row, a separator row and one row each (\"| Type | Name |\", \"| --- | --- |\", \"| CNAME | `mcp` |\"), each value in backticks so his card copies it with one click")
+	waitingOn := fs.String("waiting-on", "", "report what you wait on, another task's ID, a gate run's ID, overlord, ci, deploy or memory, followed by why. For overlord, lead with one sentence; values he must enter somewhere go in a Markdown table on the lines after it, a header row, a separator row and one row each (\"| Type | Name |\", \"| --- | --- |\", \"| CNAME | `mcp` |\"), each value in backticks so his card copies it with one click")
 	lavish := fs.String("lavish", "", "with --waiting-on overlord, the HTML file of the Scrawl page the Overlord answers on")
 	link := fs.String("link", "", "with --waiting-on overlord, the https link the Overlord goes to, which his card opens; an address only named in the text is never opened")
 	run := fs.String("run", "", "with --waiting-on overlord or --blocked, a .ps1 or .sh file holding a command the Overlord must run, such as a sign-in: his card shows the exact command and runs it with one click in a terminal on his card, where he types into it")
@@ -129,7 +131,7 @@ func runNotify(args []string, stdout, stderr io.Writer, runtime commandRuntime) 
 	default:
 		target := *waitingOn
 		if len(positional) != 1 || strings.TrimSpace(positional[0]) == "" || target != "overlord" && target != "ci" && target != "deploy" && target != "memory" && (state.ValidTaskID(target) != nil || target == id) {
-			fmt.Fprintln(stderr, "cfo notify: --waiting-on takes another task's ID, overlord, ci, deploy or memory, then why: --waiting-on <task-id|overlord|ci|deploy|memory> \"<why>\"")
+			fmt.Fprintln(stderr, "cfo notify: --waiting-on takes another task's ID, a gate run's ID, overlord, ci, deploy or memory, then why: --waiting-on <task-id|run-id|overlord|ci|deploy|memory> \"<why>\"")
 			return 2
 		}
 		verb, detail = "waiting on "+target, positional[0]
