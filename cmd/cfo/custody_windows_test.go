@@ -13,6 +13,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/fpresta0607/code-goblins/internal/harness"
 	"github.com/fpresta0607/code-goblins/internal/home"
 	"github.com/fpresta0607/code-goblins/internal/lock"
 	"github.com/fpresta0607/code-goblins/internal/wake"
@@ -366,6 +367,15 @@ func TestOnlyTheCFOsOwnSessionActsAsTheCFO(t *testing.T) {
 		t.Errorf("the other session acted as the CFO: %q, want nothing sent or dispatched", did)
 	}
 
+	// Act: a goblin's command under the same harness, as a proof a goblin
+	// runs gives the commands it runs itself.
+	asGoblin := other.run(t, map[string]string{harness.RoleVariable: harness.RoleGoblin}, "", "send", "g2", "carry", "on")
+
+	// Assert
+	if asGoblin.Exit != 0 || acted() != "send g2 carry on\n" {
+		t.Errorf("cfo send from a goblin's process: exit = %d, stderr = %q, acted %q, want it sent: a goblin keeps the commands it has", asGoblin.Exit, asGoblin.Stderr, acted())
+	}
+
 	// Act: the CFO's own session does each.
 	allowed := map[string]sessionResponse{
 		"drain --ack-through": cfo.run(t, nil, "", acknowledge...),
@@ -382,7 +392,7 @@ func TestOnlyTheCFOsOwnSessionActsAsTheCFO(t *testing.T) {
 	if pending() != 0 {
 		t.Errorf("the CFO's own session left %d wake(s) pending, want none", pending())
 	}
-	if did, want := acted(), "send g1 merge main first\nspawn g9\n"; did != want {
+	if did, want := acted(), "send g2 carry on\nsend g1 merge main first\nspawn g9\n"; did != want {
 		t.Errorf("the CFO's own session acted %q, want %q", did, want)
 	}
 }
