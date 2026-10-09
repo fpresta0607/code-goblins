@@ -104,6 +104,9 @@ type Node struct {
 	// monitor judges progress by; process names it the way a wake does.
 	cpu     time.Duration
 	process string
+	// gate is a gate run's step at work or parked, which the supervisor
+	// judges the goblin's wait on it by.
+	gate GateStep
 }
 
 // Tree is one goblin with what runs under it.
@@ -135,6 +138,17 @@ func (t Tree) Working() bool {
 		}
 	}
 	return false
+}
+
+// Gate is the goblin's gate run at a step it runs or is parked at, and ok is
+// false while its run is at none.
+func (t Tree) Gate() (step GateStep, ok bool) {
+	for _, child := range t.Children {
+		if child.Kind == KindGate && child.gate.Run != "" {
+			return child.gate, true
+		}
+	}
+	return GateStep{}, false
 }
 
 // ActivityAt is the latest sign of work the goblin's own records show: its

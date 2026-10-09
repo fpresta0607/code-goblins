@@ -144,8 +144,16 @@ func (g treeGate) Progress(context.Context, string, string) (pipeline.Progress, 
 	return g.progress, nil
 }
 
+func (g treeGate) Run(context.Context, string) (pipeline.Progress, error) {
+	return g.progress, nil
+}
+
 func (g treeGate) StepDetails(context.Context, string) ([]pipeline.StepDetail, error) {
 	return g.steps, nil
+}
+
+func (g treeGate) UsualStepTimes(context.Context) (map[string]time.Duration, error) {
+	return nil, nil
 }
 
 // A goblin whose gate is working counts as working while its own turn shows

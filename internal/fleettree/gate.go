@@ -10,22 +10,47 @@ import (
 	"github.com/fpresta0607/code-goblins/internal/pipeline"
 )
 
-// GateProgress reads a goblin's newest gate run, as pipeline.Reader does.
+// GateProgress reads a goblin's gate run, as pipeline.Reader does: its
+// branch's newest run or the run with the ID it names, the run's steps, and
+// how long a round of each step usually runs on this machine.
 type GateProgress interface {
 	Progress(ctx context.Context, project, branch string) (pipeline.Progress, error)
+	Run(ctx context.Context, runID string) (pipeline.Progress, error)
 	StepDetails(ctx context.Context, runID string) ([]pipeline.StepDetail, error)
+	UsualStepTimes(ctx context.Context) (map[string]time.Duration, error)
 }
 
 // GateEvery is how long one reading of a goblin's gate stands: each starts
 // two sqlite3 processes.
 const GateEvery = time.Minute
 
-// gateReading is one reading of a goblin's gate.
+// UsualEvery is how long one reading of how long gate steps usually run
+// stands: it reads every step the machine's gate has run.
+const UsualEvery = time.Hour
+
+// UsualUnknown is how long a round of a step with none on record is given.
+const UsualUnknown = time.Hour
+
+// gateReading is one reading of a goblin's gate. awaited is what the goblin
+// waited on when it was read.
 type gateReading struct {
 	at       time.Time
+	awaited  string
 	progress pipeline.Progress
 	steps    []pipeline.StepDetail
 	err      error
+}
+
+// GateStep is a goblin's gate run at a step: running it, or parked on an
+// answer there. Round is when the step's latest round started, since a fix
+// round runs the step again, and Usual how long nine in ten of its rounds
+// took on this machine, or UsualUnknown for a step with none on record.
+type GateStep struct {
+	Run    string
+	Step   string
+	Parked bool
+	Round  time.Time
+	Usual  time.Duration
 }
 
 // gateWords says what a step's status means for the run.
@@ -53,9 +78,11 @@ var gateEnded = map[string]struct {
 }
 
 // gateNode is the goblin's gate run as a child: its active step, or how the
-// run ended. A run whose steps started before the goblin's generation is an
-// earlier goblin's, and ok is false for it.
-func gateNode(reading gateReading, born time.Time, processes []Process) (Node, bool) {
+// run ended. A run that ended, and whose steps started before the goblin's
+// generation, is an earlier goblin's, and ok is false for it, while a run
+// still going is the goblin's own, as after a switch started a new
+// generation.
+func gateNode(reading gateReading, born time.Time, processes []Process, usual map[string]time.Duration) (Node, bool) {
 	if reading.progress.RunID == "" || len(reading.steps) == 0 {
 		return Node{}, false
 	}
@@ -66,11 +93,11 @@ func gateNode(reading gateReading, born time.Time, processes []Process) (Node, b
 		}
 		last = later(last, unix(step.LastActivityAt))
 	}
-	if first.IsZero() || !born.IsZero() && first.Before(born) {
+	ended, isEnded := gateEnded[reading.progress.Status]
+	if first.IsZero() || isEnded && !born.IsZero() && first.Before(born) {
 		return Node{}, false
 	}
 	node := Node{ID: "gate:" + reading.progress.RunID, Kind: KindGate, Started: first, LastActivity: last, SourceUpdatedAt: last}
-	ended, isEnded := gateEnded[reading.progress.Status]
 	for _, step := range reading.steps {
 		word, active := gateWords[step.Status]
 		// An ended run's step records name no work going on, only the step
@@ -87,6 +114,14 @@ func gateNode(reading gateReading, born time.Time, processes []Process) (Node, b
 		node.Memory = agentMemory(step.AgentPID, unix(step.StartedAt), processes)
 		if node.State == Failed {
 			node.Finished = node.LastActivity
+			return node, true
+		}
+		node.gate = GateStep{Run: reading.progress.RunID, Step: step.Name, Parked: node.State == Waiting, Round: unix(step.RoundStartedAt), Usual: UsualUnknown}
+		if node.gate.Round.IsZero() {
+			node.gate.Round = unix(step.StartedAt)
+		}
+		if took, isKnown := usual[step.Name]; isKnown {
+			node.gate.Usual = took
 		}
 		return node, true
 	}
