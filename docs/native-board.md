@@ -570,6 +570,12 @@ A program's terminal queries, such as a cursor-position or device-attributes req
 A size under 20 columns or 5 rows, measured while a panel was hidden, or over 1000 columns or 500 rows is ignored and announced to nobody.
 A host tells a viewer sizes only when its handshake asks for them; for a host started before hosts told sizes, the relay tells every view the size each of its own resizes gave the terminal, at the end of the output it had read by then.
 A view acknowledges the output it has drawn with `{"type":"ack","bytes":N}`, N counting every output byte so far: the relay sends a view at most 1 MiB beyond what it acknowledged and keeps reading the host, and a view that falls 8 MiB behind is closed with code 1013 and "The view fell behind the terminal's output.", so the host never waits on a slow window and a view that stays open never loses a byte.
+A view is told when key presses have sat unread in the terminal's input, as `{"type":"unread","unread":true}`, and with `false` once the program has read them.
+A busy program takes a key only once it is free, as Claude Code does while it starts a tool and a shell does while a command runs, and until then nothing on its screen shows the key was pressed.
+The board's terminal says so while they wait, with the note Program busy. Typed keys are waiting. in its top left corner, so a key is not pressed a second time: on a screen where a key switches something on and off, as Enter does on a row of Claude Code's permissions screen, the second press undoes the first, which is how an Enter the Overlord pressed there on 9 October 2026 approved nothing.
+A view opened while keys wait is told so first and shows the note once it is whole.
+A host tells a viewer of it only when the viewer's handshake asks, so `cfo attach` and a relay from before hosts told it are told nothing, and a host from before tells nothing.
+`TestOnlyAViewerThatAskedIsToldOfAKeyABusyProgramLeavesUnread`, `TestANativeViewIsToldOfAKeyABusyProgramLeavesUnreadUntilItIsRead` and `frontend/tests/terminal-keys.spec.ts` cover it.
 Gate custody and the task's generation are checked when the view opens and on every five-second tick; a key sent under custody closes the view with the gate's reason and is not typed, and a resize sent under custody is ignored, so the terminal keeps its size until a resize arrives after custody ends.
 The terminal's end closes the view with its exit code in the reason.
 
@@ -612,6 +618,8 @@ It is for the inbox conhost, which can queue input without waking a program that
 On OpenConsole the waker finds nothing unread.
 The waker counts the console's unread input 25 ms after the last write and again at doubling intervals up to 1.6 s, and while any is unread it writes a menu event, which wakes the reader and which every reader skips, so input a program was left waiting for arrives within about 25 ms and a program that reads promptly never sees one.
 It outlives Ctrl-C and Ctrl-Break, ends with its console, and notes its wakes in the host's log at most once a minute.
+No wake helps a program that is not waiting to read, so the waker also says when typed keys wait on a busy program: after each write it looks at the console's input every 50 ms until none is left unread, every 250 ms once it has sat for 3 s, says so once a key press among it has sat unread for 350 ms, and says when all of it was read.
+A window's focus, a resize and the waker's own wakes are input too, and none of them was typed, so none of them counts (`TestKeysABusyProgramLeavesUnreadAreSaidUnreadAndThenRead`, `TestKeysAProgramReadsAtOnceAreNeverSaidUnread`, `TestInputThatIsNoKeyPressIsNeverSaidUnread`).
 `TestTypedKeysReachAProgramThatPrintsWhileItReads` types 3,000 keys into a program that echoes each while it prints and fails on any key left unread for 2 s, and on a terminal that ends first it says how the program and the console server exited, with the program's own reason from its log, and `TestInputLeftUnreadIsFollowedByAWakeEveryReaderSkips` checks the wake itself.
 Once a terminal has read one key event written as Windows sends it, as `cfo attach` writes every key, the console server, OpenConsole and the inbox conhost alike, holds an input that ends in Escape, or in Escape and a character that starts a longer sequence (`[`, `O`, `P`, `]`, `X`, `^` or `_`), as a sequence still arriving: an Escape typed alone reached the program only with the next key, as Alt and that key, and Alt+P or Alt+] swallowed every key after it.
 The host holds such an ending back for up to 100 ms: the next input takes it on when it comes that soon, as the rest of a key event `cfo attach` split across two writes does, and otherwise it is written as the Windows key events it stands for, Escape or Alt and the character, which conhost delivers at once; `TestAnEscapeTypedAfterAWindowsKeyEventReachesTheProgramAtOnce` and `TestAKeyEventSplitAcrossTwoWritesReachesTheProgramWhole` cover it.
@@ -633,6 +641,31 @@ The update's markers only go where the stream sits between escape sequences and 
 Each connection draws into its own xterm, kept out of sight until the history, the repaint its size asked for and any open update are drawn, so the panel never shows a blank, cleared or half-drawn screen; until the first one is whole a full-pane state says the terminal is connecting.
 A view that fell behind, a restarting board or a dropped connection reconnects on its own up to five times, keeping the last screen in place with a Reconnecting note until the new connection is whole, and does the same while the board's own connection is down; any other close keeps the last screen in view with its reason and Reconnect in a bar across the bottom.
 A paste goes as it is typed, in pieces of at most 64 KiB, in order.
+
+Every key typed in a native terminal goes to its program as xterm sends it, the bytes of a plain terminal, in the CFO's terminal and a goblin's alike, whether the program is idle, busy or on a full screen of its own.
+That is Enter, Escape, Tab and Shift+Tab, Space, Backspace, Insert and Delete, the arrows, Home, End, Page Up and Page Down, F1 to F12, letters, digits and punctuation, Ctrl with a letter, Alt with a letter, and the arrows, Home, End and the page keys with Shift, Alt or Ctrl.
+A program that asked for application cursor keys is sent the arrows, Home and End in that form.
+Claude Code and pi read those bytes as they are.
+A program that reads key records, as Codex does, never sees the bytes: the pseudo console makes of each the key Windows names for it, with its character and its Alt, Ctrl and Shift.
+Bytes cannot tell a few keys from another, as in any terminal that sends bytes, and such a program reads Ctrl+H as Ctrl+Backspace, Ctrl+I as Tab, Ctrl+M as Enter, Ctrl+J as Ctrl+Enter and Ctrl+Space as Ctrl+Shift+2.
+Shift+Enter is the one key sent per harness, as the line break of its composer: a line feed to Claude Code, the Ctrl+J key event to Codex, and Enter to anything else.
+The board keeps these keys for itself:
+
+| Key | What the board does with it |
+| --- | --- |
+| Ctrl+Plus, Ctrl+Minus, Ctrl+0 | Steps or restores the font size |
+| Ctrl+Shift+Space, held | Dictates |
+| Shift+Escape | Leaves the terminal for the panel's pill |
+| Ctrl+Alt+Up, Ctrl+Alt+Down, Ctrl+Alt+1 to 9 | Switches terminals |
+| Ctrl+V, Ctrl+Shift+V, Shift+Insert | Pastes |
+| Ctrl+Shift+C, Ctrl+Insert, Ctrl+C while text is selected | Copies |
+| Shift+Page Up, Shift+Page Down | Scrolls the terminal's own history |
+
+Of these, the screens of Claude Code, Codex and pi name only Ctrl+C and Ctrl+V, and both still reach them: Ctrl+C with nothing selected goes to the program, and Ctrl+V with only an image on the clipboard sends the key the harness attaches an image on.
+Windows Terminal keeps the same keys for the font size, copy and paste.
+Ctrl+Shift with any other letter, Ctrl+/ and Ctrl with 1 or 9 send nothing, since xterm has no bytes for them.
+A browser tab keeps some keys before any page sees them, Ctrl+T, Ctrl+N and Ctrl+W among them, and those never reach a terminal in a tab.
+`frontend/tests/terminal-keys.spec.ts` presses every key of the table in both terminals, for Claude Code, Codex and pi, idle, busy and on a full screen, and `TestEachKeyTheBoardSendsReachesAProgramThatReadsKeyRecordsAsThatKey` reads the key record each one becomes.
 
 Every native terminal the Overlord opens stays live while the board is open, one xterm and one socket each, hidden rather than unmounted, so switching only brings another into sight; the three most recent Herdr views stay live the same way, and each may briefly hold a second stream while it switches to or from sizing its pane, so another window still gets some of Herdr's eight streams.
 The shown terminal fills the panel, with no list beside it; the Overlord picks the goblin on the board.
