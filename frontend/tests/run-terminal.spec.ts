@@ -124,7 +124,7 @@ test("a command that failed says so in a plain sentence with its last line, and 
   // Assert
   await expect(dialog.getByRole("heading", { name: RUN })).toBeVisible();
   await expect(dialog.locator(".run-head .run-state")).toHaveText("Failed");
-  await expect(dialog.locator(".run-failure")).toHaveText("Error: the sign-in was cancelled in the browser. The CFO has its output and takes the next step.");
+  await expect(dialog.locator(".run-failure")).toHaveText("Error: the sign-in was cancelled in the browser. The goblin that asked has its output and takes the next step.");
   await expect(dialog.locator(".run-output")).toContainText("Opening https://fly.io/app/auth/cli");
   await expect(dialog.locator(".run-live")).toHaveCount(0);
   await expect(dialog).not.toContainText("exit 1");
