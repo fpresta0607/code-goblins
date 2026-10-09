@@ -103,6 +103,15 @@ async function settle(terminal: Terminal): Promise<void> {
   await expect.poll(() => Buffer.concat(terminal.inputs.slice(before)).toString("latin1")).toBe(ESC + "[0n");
 }
 
+// What the program is doing while the table is pressed, and how the terminal
+// is put there: nothing, busy with typed keys unread, or on a full screen of
+// its own.
+const STATES: [state: string, enter: (terminal: Terminal) => void][] = [
+  ["idle", () => {}],
+  ["busy", (terminal) => terminal.unread(true)],
+  ["on a full screen", (terminal) => terminal.write(ESC + "[?1049h" + ESC + "[2J" + ESC + "[HFULL SCREEN")],
+];
+
 // pressEach presses every key of the table and returns what each one sent,
 // written as JSON so a difference shows its control characters.
 async function pressEach(page: Page, terminal: Terminal, keys: [string, string][]): Promise<{ sent: Record<string, string>; want: Record<string, string> }> {
@@ -118,26 +127,21 @@ for (const role of ["cfo", "goblin"]) {
   for (const harness of ["claude", "codex", "pi"]) {
     const keys: [string, string][] = [...KEYS, ["Shift+Enter", SHIFT_ENTER[harness]]];
 
-    test("every key reaches the " + role + "'s " + harness + " as a plain terminal sends it, idle, busy and on a full screen", async ({ page }) => {
-      // It presses the whole table three times, each key waiting for what
-      // it sent, which a loaded machine stretches past the default time.
-      test.slow();
-      const terminal = await connect(page);
-      await open(page, role, harness);
+    for (const [state, enter] of STATES) {
+      test("every key reaches the " + role + "'s " + harness + " as a plain terminal sends it, " + state, async ({ page }) => {
+        // It presses the whole table, each key waiting for what it sent,
+        // which a loaded machine stretches past the default time.
+        test.slow();
+        const terminal = await connect(page);
+        await open(page, role, harness);
+        enter(terminal);
+        await settle(terminal);
 
-      const idle = await pressEach(page, terminal, keys);
-      terminal.unread(true);
-      await settle(terminal);
-      const busy = await pressEach(page, terminal, keys);
-      terminal.unread(false);
-      terminal.write(ESC + "[?1049h" + ESC + "[2J" + ESC + "[HFULL SCREEN");
-      await settle(terminal);
-      const fullScreen = await pressEach(page, terminal, keys);
+        const { sent, want } = await pressEach(page, terminal, keys);
 
-      expect(idle.sent, "idle").toEqual(idle.want);
-      expect(busy.sent, "while the program is busy").toEqual(busy.want);
-      expect(fullScreen.sent, "on a full screen of the program's own").toEqual(fullScreen.want);
-    });
+        expect(sent).toEqual(want);
+      });
+    }
   }
 
   test("the " + role + "'s program that asked for application cursor keys is sent them in that form", async ({ page }) => {
