@@ -211,9 +211,9 @@ func runSpawn(args []string, stdout, stderr io.Writer, runtime commandRuntime) i
 		floor := settings.WeeklyFloor(*harnessName)
 		if reset, isLow := supervisor.AllowanceReset(report, *harnessName, *model, floor, time.Now().UTC()); isLow {
 			if reset.IsZero() {
-				fmt.Fprintf(stderr, "cfo spawn: %s allowance is at its %v percent weekly floor; its reset time is unknown\n", *harnessName, floor)
+				fmt.Fprintf(stderr, "cfo spawn: %s allowance is at its %v percent weekly floor, and its reset time is unknown\n", *harnessName, floor)
 			} else {
-				fmt.Fprintf(stderr, "cfo spawn: %s allowance is at its %v percent weekly floor; resumes at %s\n", *harnessName, floor, reset.UTC().Format(time.RFC3339))
+				fmt.Fprintf(stderr, "cfo spawn: %s allowance is at its %v percent weekly floor until it resets at %s\n", *harnessName, floor, reset.UTC().Format(time.RFC3339))
 			}
 			return 1
 		}

@@ -302,8 +302,8 @@ export interface SubscriptionUsage {
   read_at: string;
   resets_at: string;
   source: "oauth" | "api" | "";
-  // The weekly floor the supervisor last paused by, from config/fleet.json;
-  // null while it could not be read.
+  // The weekly floor the supervisor last paused by, from config/fleet.json,
+  // or null while it could not be read.
   floor_percent: number | null;
 }
 export interface Snapshot {

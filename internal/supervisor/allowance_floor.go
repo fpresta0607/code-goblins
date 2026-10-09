@@ -154,7 +154,7 @@ func (s *Service) pauseAtAllowanceFloor(ctx context.Context, watched *fleetWakes
 			continue
 		}
 		if reset.IsZero() {
-			problems = errors.Join(problems, fmt.Errorf("%s allowance is at its %v percent weekly floor without a reset time; no pause condition can be recorded", meta.Harness, floor))
+			problems = errors.Join(problems, fmt.Errorf("%s allowance is at its %v percent weekly floor without a reset time, so no pause condition can be recorded", meta.Harness, floor))
 			continue
 		}
 		if meta.Backend != "native" {
