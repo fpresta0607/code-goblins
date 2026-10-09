@@ -34,11 +34,18 @@ type Classes struct {
 	HighRisk   Class `json:"high-risk"`
 	Mechanical Class `json:"mechanical"`
 }
+
+// A role a version does not name is left out of its JSON and so of its hash:
+// the fallback, which only version 4 names, leaves the hash every older
+// frozen snapshot recorded as it was.
 type Policy struct {
 	Version  int      `json:"version"`
-	Primary  Reviewer `json:"primary,omitempty"`
-	Reviewer Reviewer `json:"reviewer"`
-	Fixer    Reviewer `json:"fixer,omitempty"`
+	Primary  Reviewer `json:"primary,omitzero"`
+	Reviewer Reviewer `json:"reviewer,omitzero"`
+	Fixer    Reviewer `json:"fixer,omitzero"`
+	// Fallback is the harness the gate turns to when the primary cannot run.
+	// From version 4 every role runs that chain, primary first.
+	Fallback Reviewer `json:"fallback,omitzero"`
 	AutoFix  AutoFix  `json:"auto_fix"`
 	Classes  Classes  `json:"classes"`
 }
@@ -78,6 +85,9 @@ func Load(path string) (Policy, error) {
 }
 
 func (p Policy) Validate() error {
+	if p.Version < 4 && p.Fallback != (Reviewer{}) {
+		return errors.New("pipeline: only a version 4 policy names a fallback")
+	}
 	switch p.Version {
 	case 1:
 		if p.Primary != (Reviewer{}) || p.Reviewer != (Reviewer{"claude", "opus", "high"}) || p.Fixer != (Reviewer{}) {
@@ -93,8 +103,12 @@ func (p Policy) Validate() error {
 		if p.Primary != want || p.Reviewer != want || p.Fixer != want {
 			return errors.New("pipeline: primary, reviewer and fixer must be Codex gpt-6.1-sol xhigh")
 		}
+	case 4:
+		if p.Primary != (Reviewer{"codex", "gpt-6.1-sol", "xhigh"}) || p.Fallback != (Reviewer{Harness: "claude"}) || p.Reviewer != (Reviewer{}) || p.Fixer != (Reviewer{}) {
+			return errors.New("pipeline: every role runs Codex gpt-6.1-sol xhigh first and Claude next, so no role names a profile of its own")
+		}
 	default:
-		return errors.New("pipeline: policy version must be 1, 2 or 3")
+		return errors.New("pipeline: policy version must be 1, 2, 3 or 4")
 	}
 	if p.AutoFix != (AutoFix{Review: 0, Test: 1, Lint: 1, Rebase: 1, CI: 1}) {
 		return errors.New("pipeline: automatic review must be 0 and test/lint/rebase/ci follow-ups must be 1")
@@ -200,7 +214,10 @@ func LoadSelection(path string) (Selection, error) {
 
 func (s Selection) Instruction(id, path string) string {
 	roles := "Reviewer is Claude Opus high."
-	if s.Policy.Version > 1 {
+	switch {
+	case s.Policy.Version > 3:
+		roles = fmt.Sprintf("Every gate role runs Codex %s %s first and Claude next. A CFO gate requires the trusted repository primary to inherit that chain or select Codex explicitly.", s.Policy.Primary.Model, s.Policy.Primary.Effort)
+	case s.Policy.Version > 1:
 		roles = fmt.Sprintf("Global primary, reviewer and review-fixer profiles are Codex %s %s; a CFO gate requires the trusted repository primary to inherit that profile or select Codex explicitly.", s.Policy.Primary.Model, s.Policy.Primary.Effort)
 	}
 	return fmt.Sprintf(" Pipeline policy: read %s. Class %s permits %d review repair cycles, then unresolved. Use cfo pipeline run %s --intent <intent> and cfo pipeline respond %s for gate decisions. Never use --yes, skip a gate, or bypass an exhausted budget with native AXI. %s Shared config changes require an explicit idle config-apply; spawn never changes it.", path, s.Class, s.ReviewCycles, id, id, roles)

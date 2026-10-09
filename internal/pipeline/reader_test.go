@@ -135,21 +135,27 @@ func TestRepoPolicyMayLowerAnAutomaticFixButNeverRaiseOne(t *testing.T) {
 }
 
 func TestRepoAgentCannotAlterRenderedGlobalReviewAgents(t *testing.T) {
-	p := testPolicy(t)
+	chain := testPolicy(t)
+	pinned := chain
+	pinned.Version, pinned.Fallback = 3, Reviewer{}
+	pinned.Reviewer, pinned.Fixer = pinned.Primary, pinned.Primary
 	for _, source := range []string{"agent: claude", "agent: codex", "agent: [claude, codex]"} {
-		if err := CheckRepoConfig([]byte(source), p); err != nil {
+		if err := CheckRepoConfig([]byte(source), chain); err != nil {
 			t.Fatalf("repository agent refused: %s: %v", source, err)
 		}
-		rendered, _, err := Render([]byte(source+"\nreview_agents:\n  reviewer: {agent: claude}\n  fixer: {agent: claude}\n"), p)
-		if err != nil {
-			t.Fatal(err)
-		}
+		global := []byte(source + "\nreview_agents:\n  reviewer: {agent: claude}\n  fixer: {agent: claude}\n")
 		var config struct {
+			Agent        []string `yaml:"agent"`
 			ReviewAgents map[string]struct {
 				Agent  string `yaml:"agent"`
 				Model  string `yaml:"model"`
 				Effort string `yaml:"effort"`
 			} `yaml:"review_agents"`
+		}
+		// Version 3 pins both review roles to its Codex profile.
+		rendered, _, err := Render(global, pinned)
+		if err != nil {
+			t.Fatal(err)
 		}
 		if err := yaml.Unmarshal(rendered, &config); err != nil {
 			t.Fatal(err)
@@ -159,6 +165,19 @@ func TestRepoAgentCannotAlterRenderedGlobalReviewAgents(t *testing.T) {
 			if profile.Agent != "codex" || profile.Model != "gpt-6.1-sol" || profile.Effort != "xhigh" {
 				t.Fatalf("repository %q changed global %s profile: %+v", source, role, profile)
 			}
+		}
+		// Version 4 runs every role on its chain, so no role is left pinned
+		// to a harness of the operator's choosing.
+		rendered, _, err = Render(global, chain)
+		if err != nil {
+			t.Fatal(err)
+		}
+		config.Agent, config.ReviewAgents = nil, nil
+		if err := yaml.Unmarshal(rendered, &config); err != nil {
+			t.Fatal(err)
+		}
+		if strings.Join(config.Agent, ",") != "codex,claude" || config.ReviewAgents != nil {
+			t.Fatalf("repository %q left global roles off the chain: agent=%v review_agents=%+v", source, config.Agent, config.ReviewAgents)
 		}
 	}
 }
