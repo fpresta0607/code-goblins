@@ -57,18 +57,18 @@ func TestRenderPreservesUnownedConfigAndIsIdempotent(t *testing.T) {
 	if err := yaml.Unmarshal(after, &rendered); err != nil {
 		t.Fatal(err)
 	}
-	if !reflect.DeepEqual(rendered.Agent, []string{"codex"}) {
-		t.Fatalf("primary agent=%v", rendered.Agent)
+	if !reflect.DeepEqual(rendered.Agent, []string{"codex", "claude"}) {
+		t.Fatalf("agent chain=%v", rendered.Agent)
 	}
 	profile := rendered.AgentConfig["codex"]
 	if profile.Model != "gpt-6.1-sol" || profile.Effort != "xhigh" {
 		t.Fatalf("primary profile=%+v", profile)
 	}
-	for _, role := range []string{"reviewer", "fixer"} {
-		profile := rendered.ReviewAgents[role]
-		if profile.Agent != "codex" || profile.Model != "gpt-6.1-sol" || profile.Effort != "xhigh" {
-			t.Fatalf("%s profile=%+v", role, profile)
-		}
+	if _, ok := rendered.AgentConfig["claude"]; ok {
+		t.Fatalf("the Claude fallback gained a profile: %+v", rendered.AgentConfig)
+	}
+	if rendered.ReviewAgents != nil {
+		t.Fatalf("review roles pinned outside the chain: %+v", rendered.ReviewAgents)
 	}
 	if args := rendered.AgentArgs["codex"]; !reflect.DeepEqual(args, []string{"-c", `service_tier="default"`}) {
 		t.Fatalf("codex raw args=%v, want the standard service tier", args)
@@ -79,6 +79,98 @@ func TestRenderPreservesUnownedConfigAndIsIdempotent(t *testing.T) {
 	again, drift, err := Render(after, p)
 	if err != nil || len(drift) != 0 || string(again) != string(after) {
 		t.Fatalf("not idempotent: %v %v", drift, err)
+	}
+}
+
+// machineConfig20261008 is the shared config's owned shape since the operator
+// gave the gate its Claude fallback on 2026-10-08.
+const machineConfig20261008 = `# no-mistakes global configuration
+# Validation roles inherit this ordered harness chain unless explicitly overridden.
+# Prefer Codex at the user's request; retain Claude as an available fallback.
+agent:
+  - codex
+  - claude
+ci_timeout: "168h"
+session_reuse: true
+agent_path_override: {}
+auto_fix:
+  rebase: 1
+  lint: 1
+  test: 1
+  review: 0
+  document: 10
+  ci: 1
+agent_args_override:
+  codex:
+    - -c
+    - service_tier="default"
+agent_config:
+  codex:
+    effort: xhigh
+    model: gpt-6.1-sol
+# Review and fix roles inherit the same harness chain as other validation steps.
+review_agent_timeout: "1h"
+`
+
+func TestVersionFourRendersTheMachineConfigAsItStandsWithoutDrift(t *testing.T) {
+	after, drift, err := Render([]byte(machineConfig20261008), testPolicy(t))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(drift) != 0 || string(after) != machineConfig20261008 {
+		t.Fatalf("drift=%v, want the policy to name the machine's chain as it stands:\n%s", drift, after)
+	}
+}
+
+func TestVersionFourReleasesReviewRolePinsIntoTheChain(t *testing.T) {
+	chain := testPolicy(t)
+	previous := chain
+	previous.Version, previous.Fallback = 3, Reviewer{}
+	previous.Reviewer, previous.Fixer = previous.Primary, previous.Primary
+	before, _, err := Render([]byte("review_agents:\n  reviewer_after_round: {agent: claude}\n"), previous)
+	if err != nil {
+		t.Fatal(err)
+	}
+	after, drift, err := Render(before, chain)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(drift, []string{"agent", "review_agents"}) {
+		t.Fatalf("drift=%v, want the chain and the released review roles", drift)
+	}
+	var config map[string]interface{}
+	if err := yaml.Unmarshal(after, &config); err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := config["review_agents"]; ok {
+		t.Fatalf("review roles still pinned outside the chain:\n%s", after)
+	}
+	again, drift, err := Render(after, chain)
+	if err != nil || len(drift) != 0 || string(again) != string(after) {
+		t.Fatalf("not idempotent: %v %v", drift, err)
+	}
+}
+
+func TestApplyWithoutDriftTakesNoIdleWindow(t *testing.T) {
+	applied, _, err := Render([]byte("ci_timeout: 168h\n"), testPolicy(t))
+	if err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(t.TempDir(), "config.yaml")
+	if err := os.WriteFile(path, applied, 0600); err != nil {
+		t.Fatal(err)
+	}
+	c := Config{Path: path, Policy: testPolicy(t), Idle: func(context.Context) (func() error, error) {
+		t.Error("a change of nothing asked for the daemon to be stopped")
+		return nil, ErrBusy
+	}}
+	result, err := c.Apply(context.Background())
+	if err != nil || len(result.Drift) != 0 || result.Backup != "" {
+		t.Fatalf("apply=%+v err=%v", result, err)
+	}
+	now, err := os.ReadFile(path)
+	if err != nil || string(now) != string(applied) {
+		t.Fatalf("config changed: %s %v", now, err)
 	}
 }
 

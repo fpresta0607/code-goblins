@@ -79,7 +79,7 @@ func pipelineCommand(ctx context.Context, h home.Home, root string, commands exe
 		if result.Backup != "" {
 			fmt.Fprintln(out, "pipeline config backup:", result.Backup)
 		}
-		if err != nil {
+		if err != nil || len(result.Drift) == 0 {
 			return err
 		}
 		fmt.Fprintln(out, "pipeline config: applied in idle window; daemon remains stopped")
@@ -153,7 +153,7 @@ func pipelineCommand(ctx context.Context, h home.Home, root string, commands exe
 	if !fsx.SamePath(meta.TaskTmp, expectedTmp) {
 		return errors.New("pipeline: task temporary path does not match metadata identity")
 	}
-	if err := resumePipelinePolicyMigration(ctx, h, reader, meta); err != nil {
+	if err := resumePipelinePolicyMigration(h, root, meta); err != nil {
 		return err
 	}
 	meta, err = state.ReadTaskMeta(h.State, id)
@@ -196,7 +196,7 @@ func pipelineCommand(ctx context.Context, h home.Home, root string, commands exe
 		return errors.New("pipeline: isolated feature branch required")
 	}
 	if args[0] == "migrate" {
-		return migratePipelinePolicy(ctx, h, root, reader.Idle, meta, selection, out)
+		return migratePipelinePolicy(h, root, meta, selection, out)
 	}
 	if args[0] == "recover" {
 		result, err := reader.RecoverKeepLocal(ctx, meta.Project, gated, branch, nativeEnv(root))
@@ -280,7 +280,11 @@ func taskWorktree(ctx context.Context, commands execx.Runner, meta state.TaskMet
 	return "", "", fmt.Errorf("pipeline: branch %s is checked out in none of task %s's worktrees", branch, meta.ID)
 }
 
-func migratePipelinePolicy(ctx context.Context, h home.Home, root string, idle func(context.Context) (func() error, error), meta state.TaskMeta, old pipeline.Selection, out io.Writer) (err error) {
+// migratePipelinePolicy moves a task's frozen snapshot to the current policy,
+// which the shared config must already run. It writes only the task's own
+// snapshot, metadata and status, never the shared config, so it needs neither
+// the daemon stopped nor the machine's gate runs finished.
+func migratePipelinePolicy(h home.Home, root string, meta state.TaskMeta, old pipeline.Selection, out io.Writer) (err error) {
 	current, err := pipeline.Load(filepath.Join(h.Root, "config", "pipeline.json"))
 	if err != nil {
 		return err
@@ -289,11 +293,6 @@ func migratePipelinePolicy(ctx context.Context, h home.Home, root string, idle f
 	if err != nil {
 		return err
 	}
-	releaseIdle, err := idle(ctx)
-	if err != nil {
-		return err
-	}
-	defer func() { err = errors.Join(err, releaseIdle()) }()
 	if err := requireAppliedPipelinePolicy(root, current); err != nil {
 		return err
 	}
@@ -393,7 +392,7 @@ func loadPolicyMigrationJournal(path string) (policyMigrationJournal, error) {
 	return journal, journal.validate()
 }
 
-func resumePipelinePolicyMigration(ctx context.Context, h home.Home, reader pipeline.Reader, meta state.TaskMeta) (err error) {
+func resumePipelinePolicyMigration(h home.Home, root string, meta state.TaskMeta) (err error) {
 	journalPath := filepath.Join(meta.TaskTmp, policyMigrationJournalName)
 	journal, err := loadPolicyMigrationJournal(journalPath)
 	if errors.Is(err, os.ErrNotExist) {
@@ -405,12 +404,7 @@ func resumePipelinePolicyMigration(ctx context.Context, h home.Home, reader pipe
 	if journal.TaskID != meta.ID {
 		return errors.New("pipeline: policy migration journal belongs to another task")
 	}
-	releaseIdle, err := reader.Idle(ctx)
-	if err != nil {
-		return err
-	}
-	defer func() { err = errors.Join(err, releaseIdle()) }()
-	if err := requireAppliedPipelinePolicy(reader.Root, journal.New.Policy); err != nil {
+	if err := requireAppliedPipelinePolicy(root, journal.New.Policy); err != nil {
 		return err
 	}
 	if _, err := lock.AcquireExclusiveNamed(h.State, state.CleanupLockName(meta.ID)); err != nil {
