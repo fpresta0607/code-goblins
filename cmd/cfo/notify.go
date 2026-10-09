@@ -184,6 +184,10 @@ func runNotify(args []string, stdout, stderr io.Writer, runtime commandRuntime) 
 			fmt.Fprintf(stderr, "cfo notify: --run %s is empty\n", *run)
 			return 2
 		}
+		if err := supervisor.CheckRunCommand(runShell, runCommand); err != nil {
+			fmt.Fprintf(stderr, "cfo notify: --run %s: %v\n", *run, err)
+			return 2
+		}
 	}
 	var page, pageURL string
 	if *lavish != "" {

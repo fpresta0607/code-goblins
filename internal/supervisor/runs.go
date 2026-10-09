@@ -205,6 +205,9 @@ func PublishRun(h home.Home, req RunRequest) error {
 	if err != nil {
 		return err
 	}
+	if err := CheckRunCommand(req.Shell, command); err != nil {
+		return err
+	}
 	return sendPipeRequest(h.State, runPipeRequest{ID: req.ID, Title: req.Title, Shell: req.Shell, Admin: req.Admin, Cwd: req.Cwd, Command: command})
 }
 

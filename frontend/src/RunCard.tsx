@@ -4,7 +4,7 @@ import { type Run, type Task } from "./types";
 import { Avatar } from "./Avatar";
 import { Icon } from "./Icon";
 import { ConnectorMark } from "./ConnectorMark";
-import { runMark } from "./feedback";
+import { runFailure, runMark } from "./feedback";
 import { runLabel, shellLabel, shellMark } from "./connectors";
 import { age } from "./presentation";
 import { personaFor } from "./workflow";
@@ -15,8 +15,9 @@ import { ClickFeedback, useClickFeedback } from "./click-feedback";
 // is a goblin's own, why, the shell, the exact text that runs and where, and
 // one Run button that says where it runs. Run turns the card into the
 // command's own terminal, in place of the notice it once showed: he types
-// there and it completes by itself, Complete or Failed with the last line it
-// printed, keeping the end of what its terminal showed. An administrator's
+// there and it completes by itself, Complete, or Failed with one line saying
+// why and who takes the next step, keeping the end of what its terminal
+// showed. An administrator's
 // command shows its terminal once he confirmed Windows' own prompt. The
 // browser never sends the command; Run names the stored item.
 export function RunCard({ run, goblin, connected, instance, sending, error, onRun, pager }: { run: Run; goblin?: Task; connected: boolean; instance: string; sending: boolean; error: string; onRun: () => void; pager?: ReactNode }) {
@@ -25,6 +26,7 @@ export function RunCard({ run, goblin, connected, instance, sending, error, onRu
   const [copied, setCopied] = useState(false);
   const running = run.state === "running";
   const mark = runMark(run);
+  const failure = runFailure(run);
   const copy = () => copyText(run.command).then(() => { setCopied(true); setTimeout(() => setCopied(false), 1400); }, () => {});
   return <article className={"run-card" + (running && run.terminal ? " live" : "")} aria-labelledby={"run-" + run.id}>
     {run.task && <p className="asker"><Avatar persona={personaFor(goblin)} small /><span><strong>{goblin?.title || run.task}</strong> asks you to run this · {run.state === "ready" ? "waiting " + age(run.created_at).replace(/ ago$/, "") : "asked " + age(run.created_at)}</span></p>}
@@ -32,9 +34,10 @@ export function RunCard({ run, goblin, connected, instance, sending, error, onRu
       <ConnectorMark mark={shellMark(run.shell)} label={shellLabel(run.shell)} />
       <span className="chip">{shellLabel(run.shell)}</span>
       {run.admin && <span className="chip admin" data-tip="Runs as administrator"><Icon name="shield" />Admin</span>}
-      <span className={"run-state delivery " + (mark.trouble ? "failed" : "succeeded")} role="status"><Icon name={mark.icon} />{mark.label}</span>
+      <span className={"run-state delivery " + (mark.trouble ? "failed" : "succeeded")} role="status"><Icon name={mark.icon} />{failure ? "Failed" : mark.label}</span>
     </header>
     <h3 id={"run-" + run.id}>{run.title}</h3>
+    {failure && <p className="run-failure">{failure}</p>}
     <div className="run-command">
       <pre><code>{run.command}</code></pre>
       <button type="button" className="icon-button" aria-label="Copy command" data-tip={copied ? "Copied" : "Copy command"} data-tip-align="end" onClick={copy}><Icon name={copied ? "check" : "copy"} /></button>

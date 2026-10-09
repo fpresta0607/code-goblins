@@ -1127,6 +1127,7 @@ a.wait-open { min-height: 44px; border: 1px solid var(--accent-green); border-ra
 .exit-code.failed { color: #f1a39c; border-color: #735338; }
 .run-output { padding: 12px 14px; min-height: 6rem; max-height: 22rem; color: #d8e9e2; }
 .run-cwd { display: flex; align-items: center; gap: 8px; margin: 0; color: var(--muted); font-size: .9375rem; overflow-wrap: anywhere; }
+.run-failure { margin: 0; overflow-wrap: anywhere; }
 .run-cwd .icon { width: 18px; height: 18px; flex: none; }
 /* A command's own terminal on its card: tall enough to work in, never taller
    than the screen leaves, with Stop under it. */
