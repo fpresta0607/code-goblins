@@ -84,15 +84,15 @@ func TestRenderPreservesUnownedConfigAndIsIdempotent(t *testing.T) {
 // the settings from that configuration a gate's Codex keeps working under.
 var gateAgentArgs = map[string][]string{
 	"codex": {"-c", `service_tier="default"`, "--ignore-user-config", "--disable", "plugins", "--disable", "apps",
-		"-c", `personality="pragmatic"`, "-c", `model_auto_compact_token_limit_scope="total"`, "-c", "features.multi_agent=true"},
+		"-c", `personality="pragmatic"`, "-c", `model_auto_compact_token_limit_scope="total"`, "-c", "features.multi_agent=true",
+		"-c", "project_doc_max_bytes=65536"},
 	"claude": {"--strict-mcp-config"},
 }
 
-// No-mistakes passes the gate's model and effort itself and keeps a repository
-// that disables project settings at project_doc_max_bytes=0. It skips its own
-// value for any of them a raw argument already sets, and refuses to start such
-// a repository's gate when the raw argument re-opens its AGENTS.md.
-func TestVersionFiveCodexArgumentsLeaveTheGateItsModelEffortAndProjectDoc(t *testing.T) {
+// No-mistakes passes the gate's model and effort from agent_config itself and
+// skips its own value for either one a raw argument already sets, so the
+// carried settings never name them.
+func TestVersionFiveCodexArgumentsLeaveTheGateItsModelAndEffort(t *testing.T) {
 	rendered, _, err := Render([]byte(machineConfig20261008), testPolicy(t))
 	if err != nil {
 		t.Fatal(err)
@@ -112,7 +112,7 @@ func TestVersionFiveCodexArgumentsLeaveTheGateItsModelEffortAndProjectDoc(t *tes
 			continue
 		}
 		key, _, _ := strings.Cut(args[i+1], "=")
-		if key = strings.TrimSpace(key); key == "model" || key == "model_reasoning_effort" || key == "project_doc_max_bytes" {
+		if key = strings.TrimSpace(key); key == "model" || key == "model_reasoning_effort" {
 			t.Fatalf("codex args set %s, which no-mistakes owns: %v", key, args)
 		}
 	}

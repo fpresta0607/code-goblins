@@ -131,9 +131,13 @@ func Render(before []byte, p Policy) ([]byte, []string, error) {
 			// only servers named with --mcp-config, and the gate names none.
 			codex = append(codex, "--ignore-user-config", "--disable", "plugins", "--disable", "apps")
 			// The user settings a gate's Codex keeps working under are passed
-			// here instead. Model, effort and project_doc_max_bytes stay out:
-			// no-mistakes sets those itself, and its own setting must win.
-			codex = append(codex, "-c", `personality="pragmatic"`, "-c", `model_auto_compact_token_limit_scope="total"`, "-c", "features.multi_agent=true")
+			// here instead. Model and effort stay out, because no-mistakes
+			// passes them from agent_config. The project_doc_max_bytes pin
+			// needs no-mistakes b05697a or later: an earlier build refuses to
+			// start any gate of a repository that disables project settings
+			// when a raw argument sets it, and a later one passes that
+			// repository's own 0 after the pin, which Codex applies instead.
+			codex = append(codex, "-c", `personality="pragmatic"`, "-c", `model_auto_compact_token_limit_scope="total"`, "-c", "features.multi_agent=true", "-c", "project_doc_max_bytes=65536")
 			if err := set(args, "claude", "agent_args_override.claude", []string{"--strict-mcp-config"}); err != nil {
 				return nil, nil, err
 			}
