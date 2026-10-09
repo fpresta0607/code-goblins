@@ -235,6 +235,14 @@ func TestDetectNeedsTheShapeOfARefusalForARateLimit(t *testing.T) {
 		{"Claude Code's session-limit banner", "You've hit your session limit · resets 3:30pm (America/Chicago)", true},
 		{"the same banner under a resumed session's tool result", "⎿  You've hit your session limit · resets 12:30am (America/Chicago)", true},
 		{"a goblin recounting the session limit", "the gate died when the account hit your session limit earlier", false},
+		// Claude Code's warning as a limit nears names the limit and its reset
+		// as the refusal does, while the harness works on: on 2026-10-08 it
+		// woke the CFO five times as a rate limit.
+		{"Claude Code's weekly usage notice", "You've used 76% of your weekly limit · resets Oct 13, 10am", false},
+		{"the weekly usage notice with its time zone", "You've used 76% of your weekly limit · resets Oct 13, 10am (America/Chicago)", false},
+		{"the usage notice under a tool result", "  ⎿  You've used 90% of your session limit · resets 3:30pm (America/Chicago)", false},
+		{"a model's usage notice", "You've used 85% of your Opus weekly limit · resets Oct 13, 10am (America/Chicago)", false},
+		{"a refusal below the usage notice", "You've used 76% of your weekly limit · resets Oct 13, 10am\nYou've hit your weekly limit · resets Oct 13, 10am (America/Chicago)", true},
 		{"a retry delay", "rate limited, retry after 30 seconds", true},
 		{"a retry-after header with a value", "429 rate limited, retry-after: 30", true},
 		{"a retry-after header without a status code", "rate limited, retry-after: 30", true},

@@ -78,17 +78,25 @@ function place(node: HTMLElement, part: HTMLElement) {
 // 2026-10-08: "goblin tool tip on hover should be .5 seconds faster".
 export const TIP_REST_MS = 1500;
 
+// A mark that only shows a state, such as a weekly usage dial, the memory
+// meter or a status icon, shows its tip once the pointer has rested on it
+// this long: the Overlord, 2026-10-08, of the usage dial, "make sure hover is
+// quick on it and off it".
+export const TIP_PROMPT_MS = 150;
+const STATUS_MARKS = "[role=img], [role=progressbar], .memory-bar";
+
 // Shows the board's tips until the function it returns is called. Every part
 // that carries data-tip shows that text in one tip floating over the whole
-// page once the pointer has rested on the part for TIP_REST_MS, or at once
-// while the keyboard's focus is on it, for as long as either stays, so no
-// scrolling box clips a tip and every tip can be kept on the screen (see
-// place). The tip says what its part's data-tip says now, follows its part as
-// the page scrolls, resizes or changes, and goes as soon as the part is left,
-// has no tip or has left the page. A task card gains its tip, its shortened
-// title in full, only once it is pointed at, so it counts as a part from the
-// start. A part inside a modal dialog shows its tip inside the dialog, which
-// is drawn over the rest of the page. A card being dragged shows no tip.
+// page once the pointer has rested on the part for TIP_REST_MS, or
+// TIP_PROMPT_MS on a status mark, or at once while the keyboard's focus is on
+// it, for as long as either stays, so no scrolling box clips a tip and every
+// tip can be kept on the screen (see place). The tip says what its part's
+// data-tip says now, follows its part as the page scrolls, resizes or
+// changes, and goes as soon as the part is left, has no tip or has left the
+// page, and at any press. A task card gains its tip, its shortened title in
+// full, only once it is pointed at, so it counts as a part from the start. A
+// part inside a modal dialog shows its tip inside the dialog, which is drawn
+// over the rest of the page. A card being dragged shows no tip.
 export function watchTips(): () => void {
   let part: HTMLElement | null = null, node: HTMLElement | null = null;
   const show = () => {
@@ -131,7 +139,7 @@ export function watchTips(): () => void {
     point(null);
     if (!next) return;
     resting = next;
-    rest = setTimeout(() => point(next), TIP_REST_MS);
+    rest = setTimeout(() => point(next), next.matches(STATUS_MARKS) ? TIP_PROMPT_MS : TIP_REST_MS);
   };
   // A pressed mouse or pen shows no tip until it is released, so a card has
   // none from the press that starts its drag; a finger held down shows one
@@ -141,20 +149,24 @@ export function watchTips(): () => void {
   const onOut = (event: PointerEvent) => { if (!event.relatedTarget) point(null); };
   const onFocus = (event: FocusEvent) => { if (event.target instanceof Element && event.target.matches(":focus-visible")) point(partOf(event.target)); };
   const onBlur = () => point(null);
-  document.addEventListener("pointerover", onPointer);
-  document.addEventListener("pointerdown", onPointer);
-  document.addEventListener("pointerup", onPointer);
-  document.addEventListener("pointerout", onOut);
+  // The pointer is listened to as its events go down to their target, so a
+  // part that keeps a press to itself, as a canvas node starting its drag
+  // does, still takes its tip away.
+  const capture = { capture: true };
+  document.addEventListener("pointerover", onPointer, capture);
+  document.addEventListener("pointerdown", onPointer, capture);
+  document.addEventListener("pointerup", onPointer, capture);
+  document.addEventListener("pointerout", onOut, capture);
   document.addEventListener("focusin", onFocus);
   document.addEventListener("focusout", onBlur);
   addEventListener("scroll", show, { capture: true, passive: true });
   addEventListener("resize", show);
   return () => {
     point(null);
-    document.removeEventListener("pointerover", onPointer);
-    document.removeEventListener("pointerdown", onPointer);
-    document.removeEventListener("pointerup", onPointer);
-    document.removeEventListener("pointerout", onOut);
+    document.removeEventListener("pointerover", onPointer, capture);
+    document.removeEventListener("pointerdown", onPointer, capture);
+    document.removeEventListener("pointerup", onPointer, capture);
+    document.removeEventListener("pointerout", onOut, capture);
     document.removeEventListener("focusin", onFocus);
     document.removeEventListener("focusout", onBlur);
     removeEventListener("scroll", show, { capture: true });

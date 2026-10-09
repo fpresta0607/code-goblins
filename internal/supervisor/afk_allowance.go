@@ -18,14 +18,18 @@ type keptAllowance struct {
 }
 
 // readQuota reads quota-axi within timeout and keeps the allowance it gives of
-// each provider for AFK mode's switch. The switch reads none of its own: on
-// 2026-10-08 the read took up to 20 seconds of each turn of AFK mode while his
-// board waited on it, so a switch takes these readings and waits on no
-// program.
+// each provider for AFK mode's switch, and the weekly readings the dials show.
+// The switch reads none of its own: on 2026-10-08 the read took up to 20
+// seconds of each turn of AFK mode while his board waited on it, so a switch
+// takes these readings and waits on no program.
 func (s *Service) readQuota(ctx context.Context, timeout time.Duration) (quota.Report, string) {
+	s.mu.Lock()
+	s.quotaReadAt = time.Now()
+	s.mu.Unlock()
 	probe, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 	report, skipped := s.Options.Quota(probe)
+	s.keepSubscriptionReadings(report, skipped)
 	if skipped != "" {
 		return report, skipped
 	}

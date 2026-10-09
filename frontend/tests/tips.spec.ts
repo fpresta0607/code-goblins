@@ -29,8 +29,8 @@ const QUESTION = { id: "q1", identity: "q1", text: "Which layout should the boar
 
 // A question waiting on the Overlord counts on the board's bar and badge, so
 // only the Command Center's own walk has one.
-async function open(page: Page, tasks: Record<string, unknown>[] = TASKS, questions: Record<string, unknown>[] = []) {
-  const snapshot = { healthy: true, instance: "fixture", cfo_runs: true, cfo_harness: "claude", revision: 1, attention: [], memory, tasks, questions };
+async function open(page: Page, tasks: Record<string, unknown>[] = TASKS, questions: Record<string, unknown>[] = [], subscriptions: Record<string, unknown>[] = []) {
+  const snapshot = { healthy: true, instance: "fixture", cfo_runs: true, cfo_harness: "claude", revision: 1, attention: [], memory, tasks, questions, subscriptions };
   // The walks point at one part after another, so the board must hold still.
   await holdStream(page, snapshot);
   await page.route("**/api/**", (route) => route.fulfill({ status: 404, json: { error: "No fixture for this resource" } }));
@@ -265,4 +265,120 @@ test("a tip shows once the pointer has rested on its part for 1.5 seconds, and a
   // Assert: at once, well inside the pointer's wait.
   await expect(part).toBeFocused();
   await expect(page.getByRole("tooltip")).toHaveText("Open the CFO's terminal", { timeout: 1000 });
+});
+
+// The Overlord, 2026-10-08, of the weekly usage dial: "make sure hover is
+// quick on it and off it", then "tool tips". A small status mark such as a
+// dial shows its tip promptly, a goblin card still after 1.5 seconds, and
+// every tip goes the moment the pointer leaves its part, with no wait and no
+// fade.
+test("a status mark's tip shows promptly, a goblin card's after 1.5 seconds, and each goes the moment the pointer leaves", async ({ page }) => {
+  // Arrange: the clock stands still, so only runFor moves it.
+  await page.clock.install();
+  const readAt = await page.evaluate(() => new Date().toISOString());
+  await open(page, TASKS, [], [{ provider: "claude", status: "available", percent_remaining: 75, read_at: readAt, resets_at: "2026-12-01T00:00:00Z", source: "oauth" }]);
+  await page.clock.pauseAt(await page.evaluate(() => Date.now()) + 1000);
+  const tip = page.getByRole("tooltip");
+  const dial = page.getByRole("group", { name: "CFO" }).getByRole("progressbar", { name: "Claude 75% weekly remaining" });
+  const card = page.locator(".task-board [data-sort-id='queued-one'] .task-card");
+
+  // Act
+  await dial.hover();
+  await page.clock.runFor(150);
+
+  // Assert
+  await expect(tip).toContainText("Claude 75% weekly remaining");
+  expect(await tip.evaluate((node) => { const style = getComputedStyle(node); return [style.transitionDuration, style.animationName]; })).toEqual(["0s", "none"]);
+
+  // Act: the pointer leaves, and the clock stays still.
+  await page.mouse.move(0, 0);
+
+  // Assert
+  await expect(tip).toHaveCount(0);
+
+  // Act
+  await card.hover();
+  await page.clock.runFor(1400);
+
+  // Assert: not yet.
+  await expect(tip).toHaveCount(0);
+
+  // Act
+  await page.clock.runFor(150);
+
+  // Assert
+  await expect(tip).toHaveText(LONG);
+
+  // Act
+  await page.mouse.move(0, 0);
+
+  // Assert
+  await expect(tip).toHaveCount(0);
+});
+
+// The Overlord, 2026-10-08: no tip is left open after a scroll. A scroll
+// that moves a part out from under the pointer takes its tip away within two
+// frames, as the browser hands the pointer to what is under it now, and a tip
+// the keyboard's focus shows stays with its part through a scroll, which
+// moving the focus can start.
+test("no tip is left open after a scroll moves its part away", async ({ page }) => {
+  // Arrange: enough cards that the Tasks column scrolls.
+  await page.setViewportSize({ width: 1440, height: 700 });
+  const queued = Array.from({ length: 24 }, (_, index) => task("queued-" + index, "queued", { title: LONG, generation: "", brief: true, queue_revision: "q1" }));
+  await open(page, [...queued, ...TASKS.slice(2)]);
+  const card = page.locator(".task-board [data-sort-id='queued-0'] .task-card");
+  const tip = page.getByRole("tooltip");
+  await card.hover();
+  await expect(tip).toHaveText(LONG);
+
+  // Act: the box the card sits in scrolls it 200 pixels, and within two
+  // frames the tip is counted.
+  const shown = await card.evaluate(async (node) => {
+    let box = node.parentElement;
+    while (box && !(box.scrollHeight > box.clientHeight && /auto|scroll/.test(getComputedStyle(box).overflowY))) box = box.parentElement;
+    (box ?? document.scrollingElement!).scrollBy(0, 200);
+    for (let frame = 0; frame < 2; frame++) await new Promise(requestAnimationFrame);
+    return document.querySelectorAll("[role=tooltip]").length;
+  });
+
+  // Assert
+  expect(shown).toBe(0);
+
+  // Act: the keyboard's focus comes to the card, and its box scrolls.
+  await page.mouse.move(0, 0);
+  await card.focus();
+  await page.keyboard.press("Shift+Tab");
+  await page.keyboard.press("Tab");
+  await expect(tip).toHaveText(LONG);
+  await card.evaluate((node) => {
+    let box = node.parentElement;
+    while (box && !(box.scrollHeight > box.clientHeight && /auto|scroll/.test(getComputedStyle(box).overflowY))) box = box.parentElement;
+    (box ?? document.scrollingElement!).scrollBy(0, 40);
+  });
+
+  // Assert: it stays, beside its card.
+  await expect(tip).toHaveText(LONG);
+});
+
+// No tip is left open after a press. A node on the canvas keeps the press
+// that starts its drag to itself, which left its tip over the canvas for the
+// whole drag.
+test("a press takes a tip away, even on a part that keeps the press to itself", async ({ page }) => {
+  // Arrange
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await open(page, [task("working-one", "working", { harness: "codex", goblin_name: "Jerry", goblin_title: "Code Designer" })]);
+  await page.getByRole("button", { name: "Orchestration", exact: true }).click();
+  // Focus leaving a part takes its tip away too, so nothing holds it here.
+  await page.evaluate(() => (document.activeElement as HTMLElement | null)?.blur());
+  const node = page.locator(".flow-node-main[data-tip]").first();
+  const tip = page.getByRole("tooltip");
+  await node.hover();
+  await expect(tip).toBeVisible();
+
+  // Act
+  await page.mouse.down();
+
+  // Assert
+  await expect(tip).toHaveCount(0);
+  await page.mouse.up();
 });

@@ -13,6 +13,13 @@ type SubscriptionUsage struct {
 	quota.WeeklyReading
 }
 
+// keepSubscriptionUsage reads quota-axi for the dials only when the
+// supervisor made no read for a minute and a half: every read refreshes the
+// dials, and the fleet's reading reads once a minute for the allowance floor.
+// On 2026-10-08 both read in the same second each minute, Anthropic's usage
+// endpoint refused one of the two, and the dial showed a reading a minute old
+// as stale. The half minute over keeps a fleet reading that runs late from
+// bringing the dials' own read beside it.
 func (s *Service) keepSubscriptionUsage(ctx context.Context, every time.Duration) {
 	if s.Options.Quota == nil {
 		return
@@ -20,7 +27,12 @@ func (s *Service) keepSubscriptionUsage(ctx context.Context, every time.Duration
 	ticker := time.NewTicker(every)
 	defer ticker.Stop()
 	for {
-		s.refreshSubscriptionUsage(ctx)
+		s.mu.Lock()
+		last := s.quotaReadAt
+		s.mu.Unlock()
+		if last.IsZero() || time.Since(last) >= every*3/2 {
+			s.refreshSubscriptionUsage(ctx)
+		}
 		select {
 		case <-ctx.Done():
 			return
@@ -30,17 +42,30 @@ func (s *Service) keepSubscriptionUsage(ctx context.Context, every time.Duration
 }
 
 func (s *Service) refreshSubscriptionUsage(ctx context.Context) {
-	report, skipped := s.readQuota(ctx, 15*time.Second)
-	readings := map[string]quota.WeeklyReading{}
+	s.readQuota(ctx, 15*time.Second)
+}
+
+// keepSubscriptionReadings takes the dials' readings from one quota-axi read.
+// A measured week replaces a provider's reading, and so does a sign-in the
+// provider asks for. A read that measured nothing, rate limited or failed,
+// leaves the reading before it, which subscriptionUsage shows stale once it
+// is older than quota.MaxAge.
+func (s *Service) keepSubscriptionReadings(report quota.Report, skipped string) {
+	now := time.Now().UTC()
+	s.mu.Lock()
+	if s.subscriptionReadings == nil {
+		s.subscriptionReadings = map[string]quota.WeeklyReading{}
+	}
 	for _, provider := range []string{"claude", "codex"} {
-		reading := report.Weekly(provider, time.Now().UTC())
+		reading := report.Weekly(provider, now)
 		if skipped != "" && reading.Status == "available" {
 			reading.Status, reading.PercentRemaining = "unavailable", nil
 		}
-		readings[provider] = reading
+		if s.subscriptionReadings[provider].Status == "available" && reading.Status != "available" && reading.Status != "auth_required" {
+			continue
+		}
+		s.subscriptionReadings[provider] = reading
 	}
-	s.mu.Lock()
-	s.subscriptionReadings = readings
 	s.mu.Unlock()
 	s.notify()
 }
