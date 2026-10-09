@@ -14,6 +14,11 @@ import (
 	"github.com/fpresta0607/code-goblins/internal/lock"
 )
 
+// ErrNoRoom marks a relaunch refused for room: the machine has no room for
+// one more running terminal yet, nothing was started, and a later try can
+// find room.
+var ErrNoRoom = errors.New("waits for room")
+
 type Lifecycle struct {
 	ID                string            `json:"id"`
 	Generation        string            `json:"generation"`

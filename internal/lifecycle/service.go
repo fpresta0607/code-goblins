@@ -10,7 +10,6 @@ import (
 	"time"
 
 	"github.com/fpresta0607/code-goblins/internal/lock"
-	"github.com/fpresta0607/code-goblins/internal/spawn"
 	"github.com/fpresta0607/code-goblins/internal/state"
 )
 
@@ -206,7 +205,7 @@ func (service Service) Run(ctx context.Context, request Request) (result state.L
 			// new, and nobody is woken. On 2026-10-09 Pablo's resume was
 			// recorded failed for 4.9 GB read under the spawn lock, so
 			// nothing tried him again and three new tasks started first.
-			if errors.Is(err, spawn.ErrNoRoom) {
+			if errors.Is(err, state.ErrNoRoom) {
 				return prior, errors.Join(err, state.WriteLifecycle(service.StateDir, prior))
 			}
 		}

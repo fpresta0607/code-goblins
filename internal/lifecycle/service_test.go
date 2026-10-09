@@ -13,7 +13,6 @@ import (
 	"time"
 
 	"github.com/fpresta0607/code-goblins/internal/crewstate"
-	"github.com/fpresta0607/code-goblins/internal/spawn"
 	"github.com/fpresta0607/code-goblins/internal/state"
 )
 
@@ -494,7 +493,7 @@ func TestAResumeThatOnlyWaitsForRoomLeavesThePauseAsItWas(t *testing.T) {
 	hasRoom := false
 	service.Operations.Resume = func(context.Context, state.TaskMeta, state.Lifecycle) error {
 		if !hasRoom {
-			return fmt.Errorf("%w: %w", spawn.ErrNoRoom, errors.New("Only 4.9 GB of memory is free"))
+			return fmt.Errorf("%w: %w", state.ErrNoRoom, errors.New("Only 4.9 GB of memory is free"))
 		}
 		return nil
 	}
@@ -506,7 +505,7 @@ func TestAResumeThatOnlyWaitsForRoomLeavesThePauseAsItWas(t *testing.T) {
 	resumed, resumeErr := service.Run(t.Context(), Request{ID: meta.ID, Generation: meta.SpawnGen, Operation: "auto-resume-2", Action: "resume", Reason: "Pause condition cleared"})
 
 	// Assert
-	if !errors.Is(refusal, spawn.ErrNoRoom) {
+	if !errors.Is(refusal, state.ErrNoRoom) {
 		t.Errorf("refusal = %v, want it to say the resume waits for room", refusal)
 	}
 	if readErr != nil || !reflect.DeepEqual(left, paused) {
