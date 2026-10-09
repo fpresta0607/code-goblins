@@ -2,6 +2,7 @@ package pipeline
 
 import (
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -24,8 +25,8 @@ func TestCheckedInPolicyNamesCodexThenClaudeForEveryGateRole(t *testing.T) {
 	if err := json.Unmarshal(policy["fallback"], &fallback); err != nil {
 		t.Fatal(err)
 	}
-	if string(policy["version"]) != "4" || primary != (Reviewer{"codex", "gpt-6.1-sol", "xhigh"}) || fallback != (Reviewer{Harness: "claude"}) {
-		t.Fatalf("policy=%s, want v4 Codex gpt-6.1-sol xhigh first and Claude next", data)
+	if string(policy["version"]) != "5" || primary != (Reviewer{"codex", "gpt-6.1-sol", "xhigh"}) || fallback != (Reviewer{Harness: "claude"}) {
+		t.Fatalf("policy=%s, want v5 Codex gpt-6.1-sol xhigh first and Claude next", data)
 	}
 	// Every role runs the chain, so no role names a profile of its own.
 	for _, role := range []string{"reviewer", "fixer"} {
@@ -51,6 +52,8 @@ func TestMigrateSelectionPreservesClassAndReviewCycleCap(t *testing.T) {
 	current.Primary = Reviewer{"codex", "gpt-6.1-sol", "xhigh"}
 	current.Reviewer, current.Fixer = current.Primary, current.Primary
 	chain := Policy{Version: 4, Primary: current.Primary, Fallback: Reviewer{Harness: "claude"}, AutoFix: legacy.AutoFix, Classes: legacy.Classes}
+	quiet := chain
+	quiet.Version = 5
 	for _, transition := range []struct {
 		name     string
 		from, to Policy
@@ -61,6 +64,8 @@ func TestMigrateSelectionPreservesClassAndReviewCycleCap(t *testing.T) {
 		{"v1-to-v4", legacy, chain},
 		{"v2-to-v4", previous, chain},
 		{"v3-to-v4", current, chain},
+		{"v3-to-v5", current, quiet},
+		{"v4-to-v5", chain, quiet},
 	} {
 		for _, class := range []string{"ordinary", "high-risk", "mechanical"} {
 			t.Run(transition.name+"/"+class, func(t *testing.T) {
@@ -123,8 +128,18 @@ func TestVersionThreeRequiresTheAvailableProfileForEveryRole(t *testing.T) {
 	}
 }
 
-func TestVersionFourRequiresCodexFirstAndClaudeNext(t *testing.T) {
-	policy := testPolicy(t)
+func TestChainVersionsRequireCodexFirstAndClaudeNext(t *testing.T) {
+	for _, version := range []int{4, 5} {
+		t.Run(fmt.Sprintf("v%d", version), func(t *testing.T) {
+			policy := testPolicy(t)
+			policy.Version = version
+			testChainPolicyRequiresCodexFirstAndClaudeNext(t, policy)
+		})
+	}
+}
+
+func testChainPolicyRequiresCodexFirstAndClaudeNext(t *testing.T, policy Policy) {
+	t.Helper()
 	if err := policy.Validate(); err != nil {
 		t.Fatal(err)
 	}
@@ -143,7 +158,7 @@ func TestVersionFourRequiresCodexFirstAndClaudeNext(t *testing.T) {
 			p.Version, p.Primary, p.Reviewer, p.Fixer = 2, Reviewer{"codex", "gpt-5.6-sol", "high"}, Reviewer{"codex", "gpt-5.6-sol", "high"}, Reviewer{"codex", "gpt-5.6-sol", "high"}
 		},
 		"v1 with a fallback":    func(p *Policy) { p.Version, p.Primary, p.Reviewer = 1, Reviewer{}, Reviewer{"claude", "opus", "high"} },
-		"an unknown version 5":  func(p *Policy) { p.Version = 5 },
+		"an unknown version 6":  func(p *Policy) { p.Version = 6 },
 		"a raised review fixer": func(p *Policy) { p.AutoFix.Review = 1 },
 	} {
 		t.Run(name, func(t *testing.T) {
@@ -284,8 +299,8 @@ func TestPolicyRejectsInvalidInput(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, input := range []string{
-		string(data) + `{}`, strings.Replace(string(data), `"version": 4`, `"version": 5`, 1),
-		strings.Replace(string(data), `"version": 4`, `"typo": 4`, 1),
+		string(data) + `{}`, strings.Replace(string(data), `"version": 5`, `"version": 6`, 1),
+		strings.Replace(string(data), `"version": 5`, `"typo": 5`, 1),
 		strings.Replace(string(data), `"fallback"`, `"fallbacks"`, 1),
 		strings.Replace(string(data), `"review_cycles": 2`, `"review_cycles": 10`, 1),
 		strings.Replace(string(data), `"review": 0`, `"review": 10`, 1),

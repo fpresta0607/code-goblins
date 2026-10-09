@@ -368,6 +368,8 @@ The Task view header shows one plain sentence under the status: the goblin's lat
 Under Working and any failure the header shows no sentence, at the Overlord's word on 2026-10-05 ("dont need text under working", "dont need text under pause fialed") and 2026-10-08 ("everything error wise goes to cfo"); that sentence is the first line behind Details, the same at every width, and a failure keeps Open the log, which opens and shows Activity.
 Details under the sentence shows the report or the supervisor's problems exactly as written; a read that fails shows Retry, and the CFO hears what could not be read.
 The Terminal view header is compact, showing only the goblin, its status and the icon buttons, since the live screen shows the latest output.
+In both views the goblin's name keeps to one line and its task to at most two, each shown in full in its tip once cut short, and no word breaks.
+Its buttons stay beside them only while all fit on one row, and otherwise take a row of their own under the task, starting where it starts (the Overlord, 2026-10-09: "Place buttons under when super long.").
 The Task view holds the workspace, connections, changes, activity and commit history, each a section closed until it is opened; the Terminal view is that goblin's live native terminal, edge to edge.
 The Task view opens with one action row under the header, the task's own controls as labelled buttons: Remove for a queued task, whose Start is on its card alone, and Pause or Resume, and Stop, for a task that has started.
 A queued task is edited in its header, where its task line under the goblin's name carries a small caret: the caret, or a click on the line, turns that line into a box in the same type holding the task's title and detail, which grows with its text.

@@ -1,5 +1,5 @@
 {
-  "version": 4,
+  "version": 5,
   "primary": {"harness": "codex", "model": "gpt-6.1-sol", "effort": "xhigh"},
   "fallback": {"harness": "claude"},
   "auto_fix": {"review": 0, "test": 1, "lint": 1, "rebase": 1, "ci": 1},

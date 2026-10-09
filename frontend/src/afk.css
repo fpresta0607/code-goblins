@@ -11,7 +11,7 @@
    every width. On wears the board's green. */
 .panel-header.panel-header:has(> .afk-header) { display: flex; flex-wrap: wrap; }
 .panel-header:has(> .afk-header) > .goblin-avatar { flex: none; }
-.panel-header:has(> .afk-header) > .panel-identity { flex: 1 1 0; min-width: min-content; }
+.panel-header:has(> .afk-header) > .panel-heading { flex: 1 1 0; min-width: min-content; }
 .afk-header { display: flex; align-items: center; gap: 8px; flex: none; margin-left: auto; }
 .afk-header .icon-button { width: 36px; height: 36px; min-height: 36px; }
 .afk-header .icon-button .icon { width: 18px; height: 18px; }
