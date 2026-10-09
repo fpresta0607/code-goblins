@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"strings"
@@ -315,6 +316,10 @@ func TestCleanupRefusals(t *testing.T) {
 			name: "nested non-isolated path",
 			setup: func(f *cleanupFixture) {
 				f.git.top = f.project
+				// An empty folder holds nothing and retires plainly.
+				if err := os.WriteFile(filepath.Join(f.worktree, "main.go"), []byte("package main\n"), 0o644); err != nil {
+					t.Fatal(err)
+				}
 			},
 			want: "not worktree root",
 		},
@@ -649,6 +654,11 @@ func TestCleanupRefusesToArchiveWhenCredentialsCannotBeDropped(t *testing.T) {
 func TestForceArchiveRetiresUnvalidatableWorktreeWithoutTouchingIt(t *testing.T) {
 	fixture := newCleanupFixture(t)
 	fixture.git.top = fixture.project // WorktreeTop resolves to the primary: validation fails
+	// A pinned worktree still holds its files; an empty folder is retired by
+	// the normal path.
+	if err := os.WriteFile(filepath.Join(fixture.worktree, "main.go"), []byte("package main\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
 
 	if _, err := fixture.service.Cleanup(context.Background(), "g1"); err == nil {
 		t.Fatal("normal cleanup accepted an unvalidatable worktree")
@@ -674,6 +684,65 @@ func TestForceArchiveRetiresUnvalidatableWorktreeWithoutTouchingIt(t *testing.T)
 	}
 	if len(fixture.runner.tabClosed) != 1 {
 		t.Errorf("tab closes = %v, want the recorded tab closed once", fixture.runner.tabClosed)
+	}
+}
+
+// cfo-no-mistakes-update, 2026-10-09 04:12Z: a local-only task whose
+// recorded worktree was an empty plain folder, no Git worktree at all, so Git
+// read the home's own checkout above it and the plain cleanup refused with
+// "Git top-level C:/dev/code-goblins is not worktree root"; only
+// --force-archive retired it, and left the folder behind. An empty folder
+// holds nothing to lose, so the plain cleanup removes it and retires the task.
+func TestAPlainCleanupRetiresATaskWhoseWorktreeIsAnEmptyFolder(t *testing.T) {
+	// Arrange
+	fixture := newCleanupFixture(t)
+	fixture.git.top = fixture.project
+
+	// Act
+	result, err := fixture.service.Cleanup(context.Background(), "g1")
+
+	// Assert
+	if err != nil {
+		t.Fatalf("Cleanup = %v, want the task retired", err)
+	}
+	if !strings.Contains(result.Output, "removed the empty folder "+fixture.worktree) {
+		t.Errorf("output = %q, want it to say it removed the empty folder", result.Output)
+	}
+	if _, err := os.Stat(fixture.worktree); !errors.Is(err, fs.ErrNotExist) {
+		t.Errorf("the empty folder is still there (%v)", err)
+	}
+	if len(fixture.git.returned) != 0 {
+		t.Errorf("returned %v, want no Git worktree returned: there was none", fixture.git.returned)
+	}
+	if _, err := state.ReadTaskMeta(fixture.stateDir, "g1"); err == nil {
+		t.Error("task metadata still present after cleanup")
+	}
+	if len(fixture.runner.tabClosed) != 1 {
+		t.Errorf("tab closes = %v, want the recorded tab closed once", fixture.runner.tabClosed)
+	}
+}
+
+// A folder that holds anything is not retired that way: what is in it may be
+// work, and only the normal path or --force-archive may decide.
+func TestAPlainCleanupStillRefusesAFolderThatIsNotAWorktreeAndHoldsAnything(t *testing.T) {
+	// Arrange
+	fixture := newCleanupFixture(t)
+	fixture.git.top = fixture.project
+	kept := filepath.Join(fixture.worktree, "notes.md")
+	if err := os.WriteFile(kept, []byte("draft\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	// Act
+	_, err := fixture.service.Cleanup(context.Background(), "g1")
+
+	// Assert
+	if err == nil || !strings.Contains(err.Error(), "validate worktree") {
+		t.Fatalf("Cleanup = %v, want the folder refused", err)
+	}
+	fixture.assertMetadataPreserved(t)
+	if _, err := os.Stat(kept); err != nil {
+		t.Errorf("what the folder held was touched: %v", err)
 	}
 }
 
