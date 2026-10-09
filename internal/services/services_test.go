@@ -752,7 +752,7 @@ func TestTheLastReleaseAfterTheEngineWasQuitMarksTheStackStopped(t *testing.T) {
 // never measures its own drop. The stop that follows gives back only part of
 // what the start took while Docker's VM returns memory slowly, so measuring
 // the stop alone wrote a cost under the estimate (PrecisionDocs, 2026-10-09:
-// the build took 6.9 GB and the stop recorded 3.6 GB, lowering the next
+// the build took 6.7 GB and the stop recorded 3.6 GB, lowering the next
 // start's mark). The stop measures from the memory read before the start.
 func TestAStopAfterAStartCutShortRecordsWhatTheStartTook(t *testing.T) {
 	// Arrange: 12 GB free, the engine takes 2 GB, the build 7 GB more before
