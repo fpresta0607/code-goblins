@@ -47,6 +47,7 @@ func TestACommandThatActsAsTheCFOIsRefusedInAnotherAgentsSession(t *testing.T) {
 		{"reap", "--apply"},
 		{"reap", "--force", "19524"},
 		{"reap", "--force=g1"},
+		{"allowance-floor", "claude", "0"},
 	} {
 		t.Run(strings.Join(args, " "), func(t *testing.T) {
 			// Arrange
@@ -72,6 +73,7 @@ func TestReadingTheFleetIsNotActingAsTheCFO(t *testing.T) {
 		{"drain"},
 		{"reap"},
 		{"reap", "--dry-run", "--json"},
+		{"allowance-floor"},
 		{"fleet-view"},
 		{"peek", "g1"},
 		{"runtime"},
@@ -111,7 +113,7 @@ func TestEveryCommandSaysWhetherItActsAsTheCFO(t *testing.T) {
 		// board's own terminals run.
 		{"notify", "helper", "pipeline", "gate", "worktree", "services", "present", "review", "deliver", "auth"},
 	}
-	sometimes := []string{"drain", "reap"}
+	sometimes := []string{"drain", "reap", "allowance-floor"}
 	source, err := os.ReadFile("main.go")
 	if err != nil {
 		t.Fatal(err)
