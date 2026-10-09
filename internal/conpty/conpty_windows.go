@@ -29,6 +29,10 @@ type Spec struct {
 	// process's.
 	Env        []string
 	Cols, Rows int
+	// Unread, when set, is told when key presses have sat unread in the
+	// console's input for unreadAfter, with true, and with false once the
+	// program has read them. It is called from one goroutine, in order.
+	Unread func(isUnread bool)
 }
 
 // Console is one running pseudo console and the process in it. The process
@@ -131,6 +135,7 @@ func Start(spec Spec) (*Console, error) {
 		c.out.Close()
 		return nil, err
 	}
+	c.waker.unread = spec.Unread
 	go c.waker.relay(c.typed, c.done, c.closing)
 	go c.wait()
 	return c, nil

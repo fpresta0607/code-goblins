@@ -47,6 +47,10 @@ const (
 	// frameAck answers each input frame of a delivery once the host has
 	// written it into the terminal's input: empty, or the write's error.
 	frameAck byte = 'a'
+	// frameUnread tells a viewer that asked for it that key presses have sat
+	// unread in the terminal's input, with one byte 1, and that its program
+	// has read them, with one byte 0.
+	frameUnread byte = 'u'
 )
 
 // maxFrame bounds one frame's payload.
@@ -72,9 +76,14 @@ type hello struct {
 	// bytes replay the history, when it serves one; a host that does not know
 	// it answers as to a viewer that did not ask, whose first output frame is
 	// the history.
-	Sizes   bool   `json:"sizes,omitempty"`
-	History int    `json:"history,omitempty"`
-	Error   string `json:"error,omitempty"`
+	Sizes   bool `json:"sizes,omitempty"`
+	History int  `json:"history,omitempty"`
+	// Unread, from a viewer, asks to be told when key presses have sat unread
+	// in the terminal's input, as a busy program leaves them, and when they
+	// were read. The host's answer carries it back when it tells; a host that
+	// does not know it tells nothing.
+	Unread bool   `json:"unread,omitempty"`
+	Error  string `json:"error,omitempty"`
 }
 
 // sizePayload is a resize or size frame's payload.

@@ -88,6 +88,9 @@ type history struct {
 	sizes   []geometry
 	viewers map[*feed]struct{}
 	closed  bool
+	// isUnread is whether key presses sit unread in the terminal's input, as
+	// its console last said.
+	isUnread bool
 	// sizing keeps resizes in the order they reach the terminal. It is apart
 	// from mu so output keeps flowing while the pseudo console resizes.
 	sizing sync.Mutex
@@ -102,7 +105,10 @@ type feed struct {
 	pending []byte
 	// sizes are the resizes among pending, at their places in it.
 	sizes []geometry
-	ended bool
+	// unread is whether key presses sit unread in the terminal's input, while
+	// the viewer has not taken that yet.
+	unread *bool
+	ended  bool
 }
 
 // newHistory starts the history of a terminal of cols by rows cells.
@@ -194,14 +200,34 @@ func (h *history) take(cols, rows int) error {
 	return nil
 }
 
+// unread takes from the terminal's console whether key presses sit unread in
+// its input, and queues each change for every viewer.
+func (h *history) unread(isUnread bool) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	if h.isUnread == isUnread {
+		return
+	}
+	h.isUnread = isUnread
+	for viewer := range h.viewers {
+		viewer.unread = &isUnread
+		viewer.wake()
+	}
+}
+
 // attach returns the output so far with the sizes it was written at, and a
 // feed that starts exactly where it ends, which ends when the terminal ends
 // or detach is called. Output that no longer starts at the terminal's first
-// ends with the screen's repaint.
+// ends with the screen's repaint. A viewer that attaches while key presses
+// sit unread is told so first.
 func (h *history) attach() ([]byte, []geometry, *feed, func()) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 	viewer := &feed{output: h, ready: make(chan struct{}, 1)}
+	if h.isUnread {
+		isUnread := true
+		viewer.unread = &isUnread
+	}
 	start := replayStart(h.kept, len(h.kept)-historyLimit)
 	past, sizes := append([]byte(nil), h.kept[start:]...), sizesFrom(h.sizes, start)
 	if start > 0 || h.isTrimmed {
@@ -247,14 +273,15 @@ func (f *feed) wake() {
 
 // next waits for output or a resize the viewer has not taken and returns all
 // of it at once, the sizes at their places in the output, or false once the
-// feed has ended and nothing is left.
+// feed has ended and nothing is left. It returns too, with neither, when
+// only what takeUnread returns has changed.
 func (f *feed) next() ([]byte, []geometry, bool) {
 	for {
 		f.output.mu.Lock()
-		output, sizes, ended := f.pending, f.sizes, f.ended
+		output, sizes, ended, isUnreadChanged := f.pending, f.sizes, f.ended, f.unread != nil
 		f.pending, f.sizes = nil, nil
 		f.output.mu.Unlock()
-		if len(output) > 0 || len(sizes) > 0 {
+		if len(output) > 0 || len(sizes) > 0 || isUnreadChanged {
 			return output, sizes, true
 		}
 		if ended {
@@ -262,6 +289,16 @@ func (f *feed) next() ([]byte, []geometry, bool) {
 		}
 		<-f.ready
 	}
+}
+
+// takeUnread returns whether key presses sit unread in the terminal's input,
+// when that has changed since the viewer last took it, and nil otherwise.
+func (f *feed) takeUnread() *bool {
+	f.output.mu.Lock()
+	defer f.output.mu.Unlock()
+	unread := f.unread
+	f.unread = nil
+	return unread
 }
 
 // ended reports whether the terminal's output has ended.
