@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/fpresta0607/code-goblins/internal/lock"
+	"github.com/fpresta0607/code-goblins/internal/spawn"
 	"github.com/fpresta0607/code-goblins/internal/state"
 )
 
@@ -198,6 +199,16 @@ func (service Service) Run(ctx context.Context, request Request) (result state.L
 	if request.Action == "resume" {
 		if !isAlreadyRunning {
 			err = service.Operations.Resume(ctx, meta, prior)
+			// A relaunch refused for room started nothing, so the record
+			// goes back to what it was, as for a Resume refused before the
+			// record changed: a goblin paused for memory stays paused for
+			// memory, the scheduler resumes it before it starts anything
+			// new, and nobody is woken. On 2026-10-09 Pablo's resume was
+			// recorded failed for 4.9 GB read under the spawn lock, so
+			// nothing tried him again and three new tasks started first.
+			if errors.Is(err, spawn.ErrNoRoom) {
+				return prior, errors.Join(err, state.WriteLifecycle(service.StateDir, prior))
+			}
 		}
 		if current, readErr := state.ReadTaskMeta(service.StateDir, meta.ID); readErr == nil {
 			result.Generation = current.SpawnGen
