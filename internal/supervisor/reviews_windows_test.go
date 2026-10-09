@@ -402,9 +402,9 @@ func TestAnsweredReviewSurvivesAFullListUntilDelivered(t *testing.T) {
 	}
 }
 
-// A wait on the Overlord reaches the Command Center as the item the goblin's
-// next report withdraws.
-func TestWaitOnTheOverlordIsTheItemItsNextReportWithdraws(t *testing.T) {
+// A wait on the Overlord reaches the Command Center as an item that stays
+// while the goblin works on and goes once it finishes.
+func TestWaitOnTheOverlordIsTheItemItsFinishWithdraws(t *testing.T) {
 	store, h := testStore(t)
 	meta, _, _, _ := goblinFixture(t, store)
 	if err := state.AppendStatus(h.State, meta.ID, "waiting on overlord: log in to Stripe"); err != nil {
@@ -428,8 +428,17 @@ func TestWaitOnTheOverlordIsTheItemItsNextReportWithdraws(t *testing.T) {
 	if err := store.retireItems(); err != nil {
 		t.Fatal(err)
 	}
+	if got := store.Snapshot().Reviews[0]; got.State != "open" {
+		t.Fatalf("the wait while the goblin works on = %+v, want it open", got)
+	}
+	if err := state.AppendStatus(h.State, meta.ID, "done: PR https://github.com/acme/api/pull/12"); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.retireItems(); err != nil {
+		t.Fatal(err)
+	}
 	if got := store.Snapshot().Reviews[0]; got.State != "withdrawn" {
-		t.Fatalf("the wait after the goblin reported again = %+v, want it withdrawn", got)
+		t.Fatalf("the wait after the goblin finished = %+v, want it withdrawn", got)
 	}
 }
 

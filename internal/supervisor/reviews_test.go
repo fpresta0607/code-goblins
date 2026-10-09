@@ -583,32 +583,55 @@ func TestSnapshotEndsAWaitOnTheOverlordOnceTheAnswerReachesTheGoblin(t *testing.
 	}
 }
 
-// A wait on the Overlord stays in the Command Center while it is the goblin's
-// latest report, and is withdrawn once the goblin reports anything newer.
-func TestWaitOnTheOverlordRetiresWhenTheGoblinReportsAgain(t *testing.T) {
-	store, h := testStore(t)
-	if err := state.AppendStatus(h.State, "task-1", "waiting on overlord: log in to Stripe"); err != nil {
-		t.Fatal(err)
-	}
-	wait := openReview("waiting-task-1-7", "task-1")
-	wait.Title = "Waiting on you: log in to Stripe"
-	if err := store.acceptReview(wait); err != nil {
-		t.Fatal(err)
-	}
-	if err := store.retireItems(); err != nil {
-		t.Fatal(err)
-	}
-	if got := store.Snapshot().Reviews[0]; got.State != "open" {
-		t.Fatalf("a current wait = %+v, want it open", got)
-	}
-	if err := state.AppendStatus(h.State, "task-1", "working: charging the card"); err != nil {
-		t.Fatal(err)
-	}
-	if err := store.retireItems(); err != nil {
-		t.Fatal(err)
-	}
-	if got := store.Snapshot().Reviews[0]; got.State != "withdrawn" || got.Reason != "task-1 reported again: working: charging the card" {
-		t.Fatalf("a wait the goblin moved past = %+v, want it withdrawn with the new report", got)
+// A wait on the Overlord stays in the Command Center while the goblin works
+// on beside it, as a goblin does that never waits on a choice it can undo:
+// pd-whats-new's mockup picks were withdrawn at 12:33Z on 2026-10-08 by its
+// own "working: Mockup is with the Overlord on Scrawl", and were asked again
+// fourteen hours later. The wait is withdrawn once the goblin finishes or
+// fails, or waits on him again, which a newer item stands for.
+func TestAWaitOnTheOverlordStaysWhileTheGoblinWorksOnBesideIt(t *testing.T) {
+	for _, tc := range []struct {
+		report string
+		open   bool
+	}{
+		{"working: Mockup is with the Overlord on Scrawl. Meanwhile building the parts his picks do not change", true},
+		{"waiting on ci: checks on PR 12", true},
+		{"done: PR https://github.com/acme/api/pull/12", false},
+		{"failed: the card was declined", false},
+	} {
+		t.Run(tc.report, func(t *testing.T) {
+			// Arrange
+			store, h := testStore(t)
+			if err := state.AppendStatus(h.State, "task-1", "waiting on overlord: log in to Stripe"); err != nil {
+				t.Fatal(err)
+			}
+			wait := openReview("waiting-task-1-7", "task-1")
+			wait.Title = "Waiting on you: log in to Stripe"
+			if err := store.acceptReview(wait); err != nil {
+				t.Fatal(err)
+			}
+			if err := store.retireItems(); err != nil {
+				t.Fatal(err)
+			}
+			if got := store.Snapshot().Reviews[0]; got.State != "open" {
+				t.Fatalf("a current wait = %+v, want it open", got)
+			}
+			if err := state.AppendStatus(h.State, "task-1", tc.report); err != nil {
+				t.Fatal(err)
+			}
+
+			// Act
+			err := store.retireItems()
+
+			// Assert
+			got := store.Snapshot().Reviews[0]
+			if err != nil || (got.State == "open") != tc.open {
+				t.Fatalf("the wait after %q = %+v (%v), want open %v", tc.report, got, err, tc.open)
+			}
+			if !tc.open && got.Reason != "task-1 reported again: "+tc.report {
+				t.Errorf("reason = %q, want the report that ended the wait", got.Reason)
+			}
+		})
 	}
 }
 

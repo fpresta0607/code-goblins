@@ -114,10 +114,11 @@ func TestARunFromTheInboxIsRefusedUnlessItIsALiveGoblinsOwn(t *testing.T) {
 	}
 }
 
-// A goblin that reports again has moved past what it waited for, so a command
-// nobody ran leaves the Command Center with its wait; one it still waits on
-// stays.
-func TestAGoblinsUnrunCommandIsWithdrawnOnceItReportsAgain(t *testing.T) {
+// A goblin's command stays in the Command Center while the goblin works on
+// beside it: run-cg-codex-pi-proof-6513 was withdrawn on 2026-10-08 by its
+// goblin's own working report, and asked again eight minutes later. It leaves
+// with its wait once the goblin finishes.
+func TestAGoblinsUnrunCommandStaysWhileItWorksAndIsWithdrawnOnceItFinishes(t *testing.T) {
 	// Arrange
 	store, h := testStore(t)
 	meta, _, _, r := waitWithACommand(t, store, "gh auth login\n")
@@ -130,18 +131,23 @@ func TestAGoblinsUnrunCommandIsWithdrawnOnceItReportsAgain(t *testing.T) {
 	store.db.Runs[0].CreatedAt = store.db.Runs[0].CreatedAt.Add(-5 * time.Second)
 	saved := store.save()
 	store.mu.Unlock()
-	if err := state.AppendStatus(h.State, meta.ID, "working: pushing without it"); err != nil {
+	if err := state.AppendStatus(h.State, meta.ID, "working: running the proof in a scratch home meanwhile"); err != nil {
+		t.Fatal(err)
+	}
+	working := store.retireGoblinRuns()
+	still := store.Snapshot().Runs[0]
+	if err := state.AppendStatus(h.State, meta.ID, "done: PR https://github.com/acme/api/pull/12"); err != nil {
 		t.Fatal(err)
 	}
 	moved := store.retireGoblinRuns()
 	gone := store.Snapshot().Runs[0]
 
 	// Assert
-	if standing != nil || saved != nil || moved != nil {
-		t.Fatal(standing, saved, moved)
+	if standing != nil || saved != nil || working != nil || moved != nil {
+		t.Fatal(standing, saved, working, moved)
 	}
-	if kept.State != "ready" {
-		t.Errorf("while the goblin waits: run %s, want it ready", kept.State)
+	if kept.State != "ready" || still.State != "ready" {
+		t.Errorf("while the goblin waits: run %s, then %s while it works on, want it ready", kept.State, still.State)
 	}
 	if gone.State != "withdrawn" || !strings.Contains(gone.Reason, r.Task+" reported again") {
 		t.Errorf("after the goblin reported again: run %s %q, want it withdrawn saying so", gone.State, gone.Reason)
