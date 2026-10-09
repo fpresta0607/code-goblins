@@ -56,6 +56,12 @@ func main() {
 		// Recording the sibling launcher keeps Start at login on the standalone
 		// --background entry instead of pinning this board's address.
 		launcher = filepath.Join(filepath.Dir(self), goblinsName)
+		// The supervisor opens the window this way when it moves one an update
+		// left on its old program, and the window it ended may have been in
+		// the tray.
+		if movedFromTheTray(*stateDir, time.Now()) {
+			*background = true
+		}
 	}
 	if *board == "" || *stateDir == "" {
 		fmt.Fprintln(os.Stderr, "goblins-window: --board and --state go together; with neither, the window asks the goblins beside it")

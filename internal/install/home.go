@@ -351,7 +351,7 @@ func (s Service) copyWindow(programs string, report *reporter) error {
 	}
 	report.change("window", fmt.Sprintf("copied %s to %s in %s", source, windowName, programs))
 	if running {
-		report.detail("the previous window still runs; quit it from its tray icon and goblins opens this one")
+		report.detail("the previous window still runs and moves onto this one by itself once it is idle")
 	}
 	return nil
 }

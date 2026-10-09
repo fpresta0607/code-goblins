@@ -167,6 +167,8 @@ func (h *HTTP) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		h.order(w, r)
 	case r.URL.Path == "/api/announce" && r.Method == "POST":
 		h.announceItems(w, r)
+	case r.URL.Path == "/api/window/move" && r.Method == "POST":
+		h.moveWindowFromBoard(w, r)
 	case r.URL.Path == "/api/afk" && r.Method == "POST":
 		h.switchAFKFromBoard(w, r)
 	case r.URL.Path == "/api/afk/report" && r.Method == "GET":

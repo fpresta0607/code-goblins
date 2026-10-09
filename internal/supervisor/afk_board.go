@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/fpresta0607/code-goblins/internal/afk"
+	"github.com/fpresta0607/code-goblins/internal/proc"
 )
 
 // The board's AFK switch. POST /api/afk turns AFK mode on or off for the
@@ -28,13 +29,23 @@ import (
 // started himself. asked is when the request arrived, and who is what it
 // asks for, as a refusal words it.
 func (s *Service) overlordsBoard(r *http.Request, board string, asked time.Time, who asker) (string, error) {
+	started, err := s.overlordsProgram(r, board, asked, who)
+	if err != nil {
+		return "", err
+	}
+	return fmt.Sprintf("his own board (%s pid %d)", started.ExeBase, started.PID), nil
+}
+
+// overlordsProgram is overlordsBoard's proof, returning the program he
+// started that shows the board.
+func (s *Service) overlordsProgram(r *http.Request, board string, asked time.Time, who asker) (proc.Entry, error) {
 	if loopbackProblem(r, board) != "" {
-		return "", errors.New(who.what + ", and this board is not the board's own page on the PC the fleet runs on, or reached it through a proxy" + who.only)
+		return proc.Entry{}, errors.New(who.what + ", and this board is not the board's own page on the PC the fleet runs on, or reached it through a proxy" + who.only)
 	}
 	unknown := errors.New(who.what + ", and the supervisor could not tell which program shows this board, so nothing says it is his" + who.only)
 	peer, err := netip.ParseAddrPort(r.RemoteAddr)
 	if err != nil {
-		return "", unknown
+		return proc.Entry{}, unknown
 	}
 	// The connection's own end at the supervisor, which is the board's address
 	// unless the request names another loopback name for it.
@@ -43,7 +54,7 @@ func (s *Service) overlordsBoard(r *http.Request, board string, asked time.Time,
 		local, err = netip.ParseAddrPort(address.String())
 	}
 	if err != nil {
-		return "", unknown
+		return proc.Entry{}, unknown
 	}
 	peerOf := s.peerOf
 	if peerOf == nil {
@@ -51,16 +62,15 @@ func (s *Service) overlordsBoard(r *http.Request, board string, asked time.Time,
 	}
 	pid, err := peerOf(peer, local)
 	if err != nil {
-		return "", unknown
+		return proc.Entry{}, unknown
 	}
 	ancestry, err := s.overlordsOwn(pid, asked, who)
 	if err != nil {
-		return "", err
+		return proc.Entry{}, err
 	}
 	// The process that holds the connection is a browser's own child; the
 	// program he started is the one just under the desktop.
-	started := ancestry[max(fromDesktop(ancestry)-1, 0)]
-	return fmt.Sprintf("his own board (%s pid %d)", started.ExeBase, started.PID), nil
+	return ancestry[max(fromDesktop(ancestry)-1, 0)], nil
 }
 
 // switchAFKFromBoard serves POST /api/afk: the board's AFK switch. The body is
