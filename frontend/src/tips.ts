@@ -3,9 +3,6 @@
 const GAP = 8;
 // How close to a tip's corner its arrow may sit, clear of the rounding.
 const ARROW_INSET = 14;
-// How many frames in a row a part must stand in one place before its tip
-// stops being drawn again.
-const STILL_FRAMES = 3;
 
 // The sides of its part a tip tries, in order.
 const SIDES = ["above", "below", "right", "left"] as const;
@@ -39,6 +36,13 @@ function place(node: HTMLElement, part: HTMLElement): DOMRect {
   return anchor;
 }
 
+// Whether a transition or an animation is running, or about to, on the part
+// or on anything around it, which can move the part. One on a pseudo-element
+// moves only that.
+function isMoving(part: HTMLElement): boolean {
+  return document.getAnimations().some(({ pending, playState, effect }) => (pending || playState === "running") && effect instanceof KeyframeEffect && !effect.pseudoElement && !!effect.target?.contains(part));
+}
+
 // Shows the board's tips until the function it returns is called. Every part
 // that carries data-tip shows that text in one tip floating over the whole
 // page, on the frame the pointer or the keyboard's focus comes to the part,
@@ -46,17 +50,19 @@ function place(node: HTMLElement, part: HTMLElement): DOMRect {
 // can be kept on the screen beside its part (see place). While a part is
 // pointed at, its tip says what its part's data-tip says now and follows its
 // part: it is drawn again when the page scrolls, resizes or changes, and on
-// every frame for as long as the part itself moves, as a card lifting under
-// the pointer does. A tip beside a part at rest asks for no frames. It goes
+// every frame for as long as the part itself moves or something runs that
+// can move it, as a card lifting under the pointer does. A tip beside a part
+// at rest asks for no frames. It goes
 // on the frame the part is left, has no tip or has left the page, and at any
 // press. A task card gains its tip, its shortened title in full, only once it
 // is pointed at, so it counts as a part from the start. A part inside a modal
 // dialog shows its tip inside the dialog, which is drawn over the rest of the
 // page. A card being dragged shows no tip.
 export function watchTips(): () => void {
-  let part: HTMLElement | null = null, node: HTMLElement | null = null, frame = 0, still = 0, stood = "";
+  let part: HTMLElement | null = null, node: HTMLElement | null = null, frame = 0, stood = "";
   // Draws the tip against its part as both are now, and again on the next
-  // frame until the part has stood in one place for STILL_FRAMES of them.
+  // frame while the part has moved since the last one or can still be moved
+  // (see isMoving), which a transition that has yet to start can do.
   const draw = () => {
     cancelAnimationFrame(frame);
     if (part && !part.isConnected) return point(null);
@@ -78,9 +84,8 @@ export function watchTips(): () => void {
     if (node.textContent !== text) node.textContent = text;
     const { left, top, width, height } = place(node, part);
     const at = [left, top, width, height].join();
-    still = at === stood ? still + 1 : 0;
+    if (at !== stood || isMoving(part)) frame = requestAnimationFrame(draw);
     stood = at;
-    if (still < STILL_FRAMES) frame = requestAnimationFrame(draw);
   };
   // Draws the tip afresh, since its part may have moved or changed.
   const show = () => {

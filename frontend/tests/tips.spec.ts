@@ -437,31 +437,36 @@ test("a press takes a tip away, even on a part that keeps the press to itself", 
 });
 
 // A tip follows its part only while the part moves. Once the part is still
-// nothing keeps asking for frames, however long the pointer rests on it. The
-// board itself asks for one when a snapshot arrives, so a few in half a
-// second is still, and a tip drawn again on every frame asks for thirty.
-test("a tip beside a part at rest asks for no frames and still touches it", async ({ page }) => {
-  // Arrange
-  await page.addInitScript(() => {
-    const frame = window.requestAnimationFrame.bind(window);
-    window.framesAsked = 0;
-    window.requestAnimationFrame = (callback) => { window.framesAsked!++; return frame(callback); };
+// nothing keeps asking for frames, however long the pointer rests on it,
+// whether the part shows a tip or is a card that has none. The board itself
+// asks for one when a snapshot arrives, so a few in half a second is still,
+// and a tip drawn again on every frame asks for thirty.
+for (const [name, find, shows] of [
+  ["a part with a tip", (shell: Locator) => shell.getByRole("button", { name: /^Pause / }), { shown: 1, faults: [], side: "above" }],
+  ["a card with no tip", (shell: Locator) => shell.locator(".task-card"), { shown: 0, faults: [] }],
+] as const) {
+  test(`a pointer at rest on ${name} asks for no frames`, async ({ page }) => {
+    // Arrange
+    await page.addInitScript(() => {
+      const frame = window.requestAnimationFrame.bind(window);
+      window.framesAsked = 0;
+      window.requestAnimationFrame = (callback) => { window.framesAsked!++; return frame(callback); };
+    });
+    await open(page);
+    const part = find(page.locator(".task-card-shell").filter({ has: page.locator(".card-title").getByText("working-one", { exact: true }) }));
+
+    // Act: the pointer comes to the part, which lifts under it, and rests.
+    await part.hover();
+    await expect.poll(async () => (await part.evaluate(tipFaults)).shown).toBe(shows.shown);
+    await expect.poll(() => page.evaluate(() => document.getAnimations().filter((animation) => animation.playState === "running").length)).toBe(0);
+    const asked = (await page.evaluate(() => window.framesAsked))!;
+    await page.waitForTimeout(500);
+
+    // Assert: nothing asked for frames, and a tip still touches its part.
+    expect((await page.evaluate(() => window.framesAsked))! - asked).toBeLessThan(5);
+    expect(await part.evaluate(tipFaults)).toMatchObject(shows);
   });
-  await open(page);
-  const shell = page.locator(".task-card-shell").filter({ has: page.locator(".card-title").getByText("working-one", { exact: true }) });
-  const pause = shell.getByRole("button", { name: /^Pause / });
-
-  // Act: the pointer comes to Pause, which lifts under it, and rests there.
-  await pause.hover();
-  await expect(page.getByRole("tooltip")).toHaveText("Pause");
-  await expect.poll(() => page.evaluate(() => document.getAnimations().filter((animation) => animation.playState === "running").length)).toBe(0);
-  const asked = (await page.evaluate(() => window.framesAsked))!;
-  await page.waitForTimeout(500);
-
-  // Assert
-  expect((await page.evaluate(() => window.framesAsked))! - asked).toBeLessThan(5);
-  expect(await pause.evaluate(tipFaults)).toMatchObject({ shown: 1, faults: [], side: "above" });
-});
+}
 
 declare global {
   interface Window { framesAsked?: number }
