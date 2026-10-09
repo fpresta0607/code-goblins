@@ -1,9 +1,9 @@
 import { expect, holdStream, openItem, test, type Locator, type Page } from "./site";
 
-// Every tip on the board holds its whole text on a solid surface, stays
-// inside the window and is cut off by nothing, wherever its part is: a card,
-// the CFO's bar, the top bar, a task's panel, the Command Center or the
-// Orchestration canvas, on a wide window and on a phone.
+// Every tip on the board touches its own part, holds its whole text on a
+// solid surface, stays inside the window and is cut off by nothing, wherever
+// its part is: a card, the CFO's bar, the top bar, a task's panel, the
+// Command Center or the Orchestration canvas, on a wide window and on a phone.
 const GB = 2 ** 30;
 const since = "2026-10-02T09:00:00Z";
 // Commit is the tighter of memory and commit, so Start and Resume carry the
@@ -39,11 +39,14 @@ async function open(page: Page, tasks: Record<string, unknown>[] = TASKS, questi
   await page.evaluate(() => document.fonts.ready);
 }
 
-// What is wrong with the tip a part shows now, and how many tips it shows. A
-// tip is the board's floating one, or one a stylesheet draws from the part's
-// ::after, which is measured the same way so that such a tip coming back is
-// held to the same rules.
-function tipFaults(part: Element): { shown: number; faults: string[] } {
+// What is wrong with the tip a part shows now, which side of the part it
+// stands on, and how many tips it shows. A tip is the board's floating one,
+// or one a stylesheet draws from the part's ::after, which is measured the
+// same way so that such a tip coming back is held to the same rules. The
+// floating tip touches its part: the edge it turns to the part is no further
+// from it than its arrow reaches, it lies across the part along that edge, and
+// its arrow sits on that edge, over the part.
+function tipFaults(part: Element): { shown: number; faults: string[]; side: string } {
   const want = part.getAttribute("data-tip") || "";
   const tips: { text: string; box: DOMRect; from: Element; opacity: number; fixed: boolean; style: CSSStyleDeclaration; node?: HTMLElement }[] = [];
   for (const node of document.querySelectorAll<HTMLElement>("[role=tooltip]")) {
@@ -64,12 +67,34 @@ function tipFaults(part: Element): { shown: number; faults: string[] } {
   }
   const name = (element: Element) => element.tagName.toLowerCase() + "." + [...element.classList].join(".");
   const faults: string[] = [];
+  let side = "";
   for (const tip of tips) {
     const say = (what: string) => faults.push("'" + want + "' " + what);
     if (tip.text !== want) say("shows '" + tip.text + "'");
     const { box } = tip;
     if (box.left < 0 || box.top < 0 || box.right > document.documentElement.clientWidth || box.bottom > document.documentElement.clientHeight) say("leaves the window");
-    if (tip.node && (tip.node.scrollWidth > tip.node.clientWidth + 1 || tip.node.scrollHeight > tip.node.clientHeight + 1)) say("does not hold its whole text");
+    if (tip.node) {
+      const text = document.createRange();
+      text.selectNodeContents(tip.node);
+      const words = text.getBoundingClientRect();
+      if (words.left < box.left - 1 || words.top < box.top - 1 || words.right > box.right + 1 || words.bottom > box.bottom + 1) say("does not hold its whole text");
+      const own = part.getBoundingClientRect();
+      const gaps = { above: own.top - box.bottom, below: box.top - own.bottom, right: box.left - own.right, left: own.left - box.right };
+      const isAlong = (at: string) => at === "above" || at === "below";
+      const across = (at: string) => isAlong(at) ? Math.min(box.right, own.right) - Math.max(box.left, own.left) : Math.min(box.bottom, own.bottom) - Math.max(box.top, own.top);
+      const touched = (["above", "below", "right", "left"] as const).find((at) => gaps[at] > -1 && gaps[at] < 9 && across(at) > 0);
+      side = touched ?? "";
+      const arrow = getComputedStyle(tip.node, "::before");
+      if (!touched) say("does not touch its part");
+      else if (arrow.content === "none" || arrow.content === "normal") say("has no arrow");
+      else {
+        const x = box.left + tip.node.clientLeft + parseFloat(arrow.left) + parseFloat(arrow.width) / 2;
+        const y = box.top + tip.node.clientTop + parseFloat(arrow.top) + parseFloat(arrow.height) / 2;
+        const offEdge = { above: Math.abs(y - box.bottom), below: Math.abs(y - box.top), right: Math.abs(x - box.left), left: Math.abs(x - box.right) }[touched];
+        const isOverPart = isAlong(touched) ? x >= own.left - 1 && x <= own.right + 1 : y >= own.top - 1 && y <= own.bottom + 1;
+        if (offEdge > 1.5 || !isOverPart) say("points its arrow away from its part");
+      }
+    }
     if (tip.style.textOverflow === "ellipsis" || tip.style.whiteSpace === "nowrap" && box.width >= parseFloat(tip.style.maxWidth)) say("cuts its text short");
     let opacity = tip.opacity;
     for (let at: Element | null = tip.from; at; at = at.parentElement) {
@@ -86,7 +111,7 @@ function tipFaults(part: Element): { shown: number; faults: string[] } {
     if (alpha && parseFloat(alpha[1]) < 1 || tip.style.backgroundColor === "transparent") say("has a see-through background");
     if (parseFloat(tip.style.fontSize) < 15) say("is " + tip.style.fontSize);
   }
-  return { shown: tips.length, faults };
+  return { shown: tips.length, faults, side };
 }
 
 // Points at every part in scope that has a tip, one at a time, and returns
@@ -158,38 +183,80 @@ test("every tip on the Orchestration canvas is whole, solid and inside the windo
   expect(faults).toEqual([]);
 });
 
-// On 2026-10-02 the tip of the first queued card lay over the memory meter.
-// What a card's tip covers of the meter and of the cards' controls and links.
-async function covers(page: Page, title: string, width: number) {
-  await page.setViewportSize({ width, height: 900 });
-  const queued = (id: string, fields: Record<string, unknown> = {}) => task(id, "queued", { generation: "", brief: true, queue_revision: "q1", ...fields });
-  await open(page, [queued("queued-one", { title }), ...["two", "three", "four", "five"].map((name) => queued("queued-" + name)), ...TASKS.slice(2)]);
-  const tasks = page.getByRole("region", { name: "Tasks", exact: true });
-  await expect(tasks.getByRole("group", { name: "Memory" })).toBeVisible();
-  await tasks.locator("[data-sort-id='queued-one'] .task-card").hover();
-  const tip = page.getByRole("tooltip");
-  await expect(tip).toHaveText(title);
-  return tip.evaluate((node) => {
-    const box = node.getBoundingClientRect();
-    const meets = (other: DOMRect) => Math.min(box.right, other.right) - Math.max(box.left, other.left) > 1 && Math.min(box.bottom, other.bottom) - Math.max(box.top, other.top) > 1;
-    return [...document.querySelectorAll(".memory, .task-card-shell a, .task-card-shell button:not(.task-card)")].filter((part) => meets(part.getBoundingClientRect()))
-      .map((part) => part.getAttribute("aria-label") || part.className);
+// The one rule every tip keeps, on a page holding one part: it touches its
+// own part, above it, else below it, else to its right, else to its left,
+// taking the first side where it fits on the screen whole, with its arrow on
+// the part. A part as tall as the screen leaves no room above or below it.
+const SCREEN = { width: 640, height: 480 };
+async function pointAtPartAt(page: Page, at: { left: number; top: number; width: number; height: number }) {
+  await page.setViewportSize(SCREEN);
+  await page.goto("/tests/fixtures/tip-sides.html");
+  await page.evaluate(() => document.fonts.ready);
+  const part = page.locator("#part");
+  await part.evaluate((element, at) => Object.assign((element as HTMLElement).style, { left: at.left + "px", top: at.top + "px", width: at.width + "px", height: at.height + "px" }), at);
+  await page.mouse.move(at.left + at.width / 2, at.top + at.height / 2);
+  let seen = { shown: 0, faults: [] as string[], side: "" };
+  await expect.poll(async () => (seen = await part.evaluate(tipFaults)).shown).toBe(1);
+  return seen;
+}
+
+for (const [side, room, at] of [
+  ["above", "room everywhere", { left: 300, top: 220, width: 40, height: 40 }],
+  ["below", "no room above it", { left: 300, top: 8, width: 40, height: 40 }],
+  ["right of", "no room above or below it", { left: 8, top: 8, width: 40, height: SCREEN.height - 16 }],
+  ["left of", "room only to its left", { left: SCREEN.width - 48, top: 8, width: 40, height: SCREEN.height - 16 }],
+] as const) {
+  test(`a part with ${room} has its tip ${side} it, touching it`, async ({ page }) => {
+    // Arrange and act
+    const seen = await pointAtPartAt(page, at);
+
+    // Assert
+    expect({ side: seen.side, faults: seen.faults }).toEqual({ side: side.split(" ")[0], faults: [] });
   });
 }
 
-// At 820 px the board is narrow enough to stack and to shorten that title to
-// its three lines.
-for (const [layout, width] of [["side by side", 2400], ["stacked", 820]] as const) {
-  test(`with the columns ${layout}, the first queued card's tip covers neither the memory meter nor another card's controls`, async ({ page }) => {
-    expect(await covers(page, SEEN, width)).toEqual([]);
-  });
+// A part in a corner of the screen keeps its tip against it, never off in a
+// corner of its own.
+for (const [corner, side, at] of [
+  ["top left", "below", { left: 8, top: 8, width: 40, height: 40 }],
+  ["top right", "below", { left: SCREEN.width - 48, top: 8, width: 40, height: 40 }],
+  ["bottom left", "above", { left: 8, top: SCREEN.height - 48, width: 40, height: 40 }],
+  ["bottom right", "above", { left: SCREEN.width - 48, top: SCREEN.height - 48, width: 40, height: 40 }],
+] as const) {
+  test(`a part in the screen's ${corner} corner has its tip ${side} it, touching it`, async ({ page }) => {
+    // Arrange and act
+    const seen = await pointAtPartAt(page, at);
 
-  // A title this long makes a tip taller than the room between two cards, so
-  // it covers the least it can, and that is never the meter.
-  test(`with the columns ${layout}, the tip of the longest title keeps off the memory meter`, async ({ page }) => {
-    expect(await covers(page, LONGEST, width)).not.toContain("Memory");
+    // Assert
+    expect({ side: seen.side, faults: seen.faults }).toEqual({ side, faults: [] });
   });
 }
+
+// Every hover hint is the board's own tip: no part carries a native title,
+// which the browser shows late, at the pointer, in its own style.
+test("no part on the board, a task's panel, the Command Center or the canvas carries a native title", async ({ page }) => {
+  // Arrange
+  const readAt = new Date().toISOString();
+  await open(page, TASKS, [QUESTION], [{ provider: "claude", status: "available", percent_remaining: 75, read_at: readAt, resets_at: "2026-12-01T00:00:00Z", source: "oauth" }]);
+  const titled = () => page.evaluate(() => [...document.querySelectorAll("body [title], svg title")].map((element) => element.outerHTML.slice(0, 160)));
+  const seen: string[] = [];
+
+  // Act: the board, a task's panel, the Command Center, then the canvas.
+  seen.push(...await titled());
+  await page.locator(".task-card-shell").filter({ has: page.locator(".card-title").getByText("working-two", { exact: true }) }).locator(".task-card").click();
+  await page.locator(".panel-pill").getByRole("button", { name: "Task", exact: true }).click();
+  seen.push(...await titled());
+  await openItem(page, "Which layout should the board open in");
+  await expect(page.locator("dialog.question-modal")).toBeVisible();
+  seen.push(...await titled());
+  await page.locator("dialog.question-modal").getByRole("button", { name: "Close the Command Center", exact: true }).click();
+  await page.getByRole("button", { name: "Orchestration", exact: true }).click();
+  await expect(page.locator(".canvas-controls")).toBeVisible();
+  seen.push(...await titled());
+
+  // Assert
+  expect(seen).toEqual([]);
+});
 
 // The tip of a shortened title goes with the press that starts the card's
 // drag, before the drag has moved any card.
@@ -231,89 +298,53 @@ test("a tip's surface is solid, with an edge, and stands out from the card under
   expect(look.light).toBeGreaterThan(60);
 });
 
-// The Overlord, 2026-10-08: "goblin tool tip on hover should be .5 seconds
-// faster", so 1.5 seconds, down from 2. The keyboard's focus still shows a
-// tip at once.
-test("a tip shows once the pointer has rested on its part for 1.5 seconds, and at once on keyboard focus", async ({ page }) => {
-  // Arrange: the clock stands still, so only runFor moves it and no wait of
-  // the assertions lets the rest pass.
-  await page.clock.install();
+// The Overlord, 2026-10-09: "also speed make it instant on hover or off". A
+// tip shows on the frame the pointer or the keyboard's focus comes to its
+// part, takes the next part's place on the frame the pointer moves to it, and
+// goes on the frame the pointer leaves, with no fade either way. Each look is
+// taken in the first frame after the event, so a wait or a fade of any length
+// is seen.
+test("a tip shows, swaps and goes on the frame the pointer or focus moves, with no fade", async ({ page }) => {
+  // Arrange: Pause and Stop sit side by side on a card.
   await open(page);
-  await page.clock.pauseAt(await page.evaluate(() => Date.now()) + 1000);
-  const part = page.locator(".cfo-pin").getByRole("button", { name: "Open the CFO's terminal" }).last();
+  const shell = page.locator(".task-card-shell").filter({ has: page.locator(".card-title").getByText("working-one", { exact: true }) });
+  const pause = shell.getByRole("button", { name: /^Pause / }), stop = shell.getByRole("button", { name: /^Stop / });
+  await page.evaluate(() => {
+    const looks: { event: string; part: string; tips: string[] }[] = [];
+    Object.assign(window, { tipLooks: looks });
+    for (const type of ["pointerover", "pointerout", "focusin", "focusout"]) addEventListener(type, (event) => {
+      const part = event.target instanceof Element ? event.target.closest("[data-tip]")?.getAttribute("data-tip") ?? "" : "";
+      requestAnimationFrame(() => looks.push({ event: type, part, tips: [...document.querySelectorAll<HTMLElement>("[role=tooltip]")].map((tip) => {
+        const style = getComputedStyle(tip);
+        return tip.textContent + (style.opacity !== "1" || style.transitionDuration !== "0s" || style.animationName !== "none" ? " (fading)" : "");
+      }) }));
+    }, true);
+  });
+  const center = async (part: typeof pause) => { const box = (await part.boundingBox())!; return [box.x + box.width / 2, box.y + box.height / 2] as const; };
+  const [pauseX, pauseY] = await center(pause), [stopX, stopY] = await center(stop);
+  const lookAfter = (event: string, part: string) => page.evaluate(([event, part]) => (window as unknown as { tipLooks: { event: string; part: string; tips: string[] }[] }).tipLooks.filter((look) => look.event === event && look.part === part).at(-1)?.tips, [event, part]);
 
-  // Act
-  await part.hover();
-  await page.clock.runFor(1400);
-
-  // Assert: not yet.
-  await expect(page.getByRole("tooltip")).toHaveCount(0);
-
-  // Act
-  await page.clock.runFor(150);
+  // Act: the pointer comes to Pause, moves straight on to Stop, and leaves.
+  await page.mouse.move(pauseX, pauseY);
+  await expect.poll(() => lookAfter("pointerover", "Pause")).toBeDefined();
+  await page.mouse.move(stopX, stopY);
+  await expect.poll(() => lookAfter("pointerover", "Stop")).toBeDefined();
+  await page.mouse.move(1, 1);
+  await expect.poll(() => lookAfter("pointerout", "Stop")).toBeDefined();
 
   // Assert
-  await expect(page.getByRole("tooltip")).toHaveText("Open the CFO's terminal");
+  expect([await lookAfter("pointerover", "Pause"), await lookAfter("pointerover", "Stop"), await lookAfter("pointerout", "Stop")]).toEqual([["Pause"], ["Stop"], []]);
 
-  // Act: the pointer leaves, and the keyboard comes to the part.
-  await page.mouse.move(0, 0);
-  await expect(page.getByRole("tooltip")).toHaveCount(0);
-  await part.focus();
-  await page.keyboard.press("Shift+Tab");
+  // Act: the keyboard's focus comes to Stop, and leaves.
+  await pause.focus();
   await page.keyboard.press("Tab");
-
-  // Assert: at once, well inside the pointer's wait.
-  await expect(part).toBeFocused();
-  await expect(page.getByRole("tooltip")).toHaveText("Open the CFO's terminal", { timeout: 1000 });
-});
-
-// The Overlord, 2026-10-08, of the weekly usage dial: "make sure hover is
-// quick on it and off it", then "tool tips". A small status mark such as a
-// dial shows its tip promptly, a goblin card still after 1.5 seconds, and
-// every tip goes the moment the pointer leaves its part, with no wait and no
-// fade.
-test("a status mark's tip shows promptly, a goblin card's after 1.5 seconds, and each goes the moment the pointer leaves", async ({ page }) => {
-  // Arrange: the clock stands still, so only runFor moves it.
-  await page.clock.install();
-  const readAt = await page.evaluate(() => new Date().toISOString());
-  await open(page, TASKS, [], [{ provider: "claude", status: "available", percent_remaining: 75, read_at: readAt, resets_at: "2026-12-01T00:00:00Z", source: "oauth" }]);
-  await page.clock.pauseAt(await page.evaluate(() => Date.now()) + 1000);
-  const tip = page.getByRole("tooltip");
-  const dial = page.getByRole("group", { name: "CFO" }).getByRole("progressbar", { name: "Claude 75% weekly remaining" });
-  const card = page.locator(".task-board [data-sort-id='queued-one'] .task-card");
-
-  // Act
-  await dial.hover();
-  await page.clock.runFor(150);
+  await expect(stop).toBeFocused();
+  await expect.poll(() => lookAfter("focusin", "Stop")).toBeDefined();
+  await stop.evaluate((button) => (button as HTMLElement).blur());
+  await expect.poll(() => lookAfter("focusout", "Stop")).toBeDefined();
 
   // Assert
-  await expect(tip).toContainText("Claude 75% weekly remaining");
-  expect(await tip.evaluate((node) => { const style = getComputedStyle(node); return [style.transitionDuration, style.animationName]; })).toEqual(["0s", "none"]);
-
-  // Act: the pointer leaves, and the clock stays still.
-  await page.mouse.move(0, 0);
-
-  // Assert
-  await expect(tip).toHaveCount(0);
-
-  // Act
-  await card.hover();
-  await page.clock.runFor(1400);
-
-  // Assert: not yet.
-  await expect(tip).toHaveCount(0);
-
-  // Act
-  await page.clock.runFor(150);
-
-  // Assert
-  await expect(tip).toHaveText(LONG);
-
-  // Act
-  await page.mouse.move(0, 0);
-
-  // Assert
-  await expect(tip).toHaveCount(0);
+  expect([await lookAfter("focusin", "Stop"), await lookAfter("focusout", "Stop")]).toEqual([["Stop"], []]);
 });
 
 // The Overlord, 2026-10-08: no tip is left open after a scroll. A scroll

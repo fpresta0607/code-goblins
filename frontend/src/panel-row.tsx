@@ -62,7 +62,7 @@ export function PanelRow({ view, onView, controls, corner, notice }: {
     <span />
     {view ? pill(fit.hasWords) : <span />}
     <div className="panel-controls">
-      {controls.filter((control) => kept.has(control.id)).map((control) => <button key={control.id} className="icon-button" aria-label={control.label} data-tip={control.name} data-tip-align="end" onClick={control.onPress}><Icon name={control.icon} /></button>)}
+      {controls.filter((control) => kept.has(control.id)).map((control) => <button key={control.id} className="icon-button" aria-label={control.label} data-tip={control.name} onClick={control.onPress}><Icon name={control.icon} /></button>)}
       {kept.size < count && <PanelMore controls={controls.filter((control) => !kept.has(control.id)).sort((a, b) => b.importance - a.importance)} />}
       <div ref={cornerBox} className="panel-corner">{corner}</div>
       {notice}

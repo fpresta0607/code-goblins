@@ -42,7 +42,7 @@ export function EngineSelector({ task, instance }: { task: Task; instance: strin
   };
   return <div className="engine-selector" role="group" aria-label="Task engine">
     {isCompleted ? task.harness || task.model ? <div className="engine-readonly"><ConnectorMark mark={harnessMark(task.harness)} label={harnessName(task.harness)} /><span>{harnessName(task.harness)}</span><span className="mono">{[task.model, task.effort].filter(Boolean).join(" ") || "Model not recorded"}</span></div> : <p className="muted">Engine not recorded</p> : <>
-      {catalog.error ? <button className="icon-button raised" aria-label="Retry" data-tip="Retry" data-tip-align="start" onClick={catalog.reload}><Icon name="refresh" /></button> : !catalog.data ? <p className="loading" role="status">Reading engines…</p> : <>
+      {catalog.error ? <button className="icon-button raised" aria-label="Retry" data-tip="Retry" onClick={catalog.reload}><Icon name="refresh" /></button> : !catalog.data ? <p className="loading" role="status">Reading engines…</p> : <>
         <div className="engine-fields">
           <label htmlFor={label + "-harness"}>Harness<span className="engine-harness"><ConnectorMark mark={harnessMark(choice.harness)} label={harnessName(choice.harness)} /><select id={label + "-harness"} aria-label="Harness" value={choice.harness} disabled={isDisabled} onChange={(event) => {
             const next = catalog.data?.find((item) => item.id === event.target.value), first = next?.models[0];

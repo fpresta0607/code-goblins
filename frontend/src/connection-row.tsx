@@ -14,6 +14,6 @@ export function ConnectionRow({ entry, isBusy, onFix }: { entry: ConnectionEntry
       {entry.detail && <p>{entry.detail}</p>}
       <time dateTime={entry.checkedAt}>{checkedTime(entry.checkedAt)}</time>
     </div>
-    {entry.actions.length > 0 && <div className="connection-actions">{entry.actions.map((action) => <button key={action} type="button" className="icon-button" disabled={isBusy} aria-label={connectionAction(action, entry.name)} data-tip={connectionAction(action, entry.name)} data-tip-align="end" onClick={() => onFix(entry, action)}><Icon name={action.startsWith("store:") ? "key" : action === "cli" ? "terminal" : "external"} /></button>)}</div>}
+    {entry.actions.length > 0 && <div className="connection-actions">{entry.actions.map((action) => <button key={action} type="button" className="icon-button" disabled={isBusy} aria-label={connectionAction(action, entry.name)} data-tip={connectionAction(action, entry.name)} onClick={() => onFix(entry, action)}><Icon name={action.startsWith("store:") ? "key" : action === "cli" ? "terminal" : "external"} /></button>)}</div>}
   </li>;
 }

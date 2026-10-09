@@ -151,7 +151,7 @@ test("a name and a title shown whole carry no tip", async ({ page }) => {
   // Act
   await header.locator("#panel-title").hover();
   await header.locator(".panel-goblin-task").hover();
-  // Longer than a tip waits for a pointer at rest.
+  // Time for the header to measure them and give either a tip, were it cut.
   await page.waitForTimeout(2000);
 
   // Assert

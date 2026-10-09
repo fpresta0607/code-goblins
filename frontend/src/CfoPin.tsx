@@ -66,7 +66,7 @@ export function CfoPin({ snapshot, now, onOpen, onCommand, onStart }: { snapshot
   const model = snapshot.sessions.filter((session) => session.role === "cfo" && session.harness === harness).at(-1)?.model || "";
   const away = snapshot.afk.state === "on";
   const mark = harness && !absent ? <ConnectorMark mark={harnessMark(harness)} label={harnessTip(harness, model, "")} /> : undefined;
-  const status = <p {...unreachable ? { "data-tip": snapshot.registration, "data-tip-align": "start" } : {}}>{shown}</p>;
+  const status = <p {...unreachable ? { "data-tip": snapshot.registration } : {}}>{shown}</p>;
   const dials = !absent && !!snapshot.subscriptions?.length && <div className="subscription-dials" role="group" aria-label="Weekly subscription allowance">
     {snapshot.subscriptions.map((usage) => <SubscriptionDial key={usage.provider} usage={usage} now={now} />)}
   </div>;
@@ -76,7 +76,7 @@ export function CfoPin({ snapshot, now, onOpen, onCommand, onStart }: { snapshot
       actions={<>
         {dials}
         <button className="pixel-button cfo-command" aria-label={waits} onClick={onCommand}>{command}<span className="cfo-command-count" aria-hidden="true">{waiting}</span></button>
-        <button className="icon-button pixel-icon" aria-label={terminal} data-tip={terminal} data-tip-align="end" onClick={(event) => onOpen(event.currentTarget)}><Icon name="terminal" /></button>
+        <button className="icon-button pixel-icon" aria-label={terminal} data-tip={terminal} onClick={(event) => onOpen(event.currentTarget)}><Icon name="terminal" /></button>
       </>}>
       {status}
     </DialogueBox>
@@ -85,13 +85,13 @@ export function CfoPin({ snapshot, now, onOpen, onCommand, onStart }: { snapshot
     <div className="cfo-rest" role="group" aria-label="CFO">
       {absent
         ? <span className="cfo-rest-portrait"><Avatar persona="cfo" /></span>
-        : <button className="cfo-rest-portrait" aria-label={terminal} data-tip={terminal} data-tip-align="start" onClick={(event) => onOpen(event.currentTarget)}><Avatar persona="cfo" /></button>}
+        : <button className="cfo-rest-portrait" aria-label={terminal} data-tip={terminal} onClick={(event) => onOpen(event.currentTarget)}><Avatar persona="cfo" /></button>}
       {mark}
       {status}
       {dials}
       {absent && <button className="labelled-button primary" onClick={onStart}><Icon name="play" />Start the CFO</button>}
       {!absent && waiting > 0 && <button className="pixel-button outline cfo-command" aria-label={waits} onClick={onCommand}>{command}<span className="cfo-command-count" aria-hidden="true">{waiting}</span></button>}
-      {!absent && <button className="icon-button raised" aria-label={terminal} data-tip={terminal} data-tip-align="end" onClick={(event) => onOpen(event.currentTarget)}><Icon name="terminal" /></button>}
+      {!absent && <button className="icon-button raised" aria-label={terminal} data-tip={terminal} onClick={(event) => onOpen(event.currentTarget)}><Icon name="terminal" /></button>}
     </div>
   </div>;
 }

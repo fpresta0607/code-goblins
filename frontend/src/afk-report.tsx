@@ -52,9 +52,9 @@ export function AfkReportPage({ tasks, now, onClose, onCommand }: { tasks: Task[
         {data && <p>On from {afkTime(data.since, now)} to {afkTime(data.ended, now)}, {data.lasted}.</p>}
         {data && <p className="muted">Turned on {switchedBy(data.from, data.asked)}, off {switchedBy(data.ended_from, data.ended_asked)}.</p>}
       </div>
-      <button className="icon-button" aria-label="Close the report" data-tip="Close" data-tip-align="end" onClick={onClose}><Icon name="close" /></button>
+      <button className="icon-button" aria-label="Close the report" data-tip="Close" onClick={onClose}><Icon name="close" /></button>
     </div>
-    {error && <button className="icon-button raised" aria-label="Load the report again" data-tip="Retry" data-tip-align="start" onClick={reload}><Icon name="refresh" /></button>}
+    {error && <button className="icon-button raised" aria-label="Load the report again" data-tip="Retry" onClick={reload}><Icon name="refresh" /></button>}
     {data === undefined && !error && <p className="loading" role="status">Loading the report</p>}
     {data === null && <p className="muted">No report yet.</p>}
     {data && <>
