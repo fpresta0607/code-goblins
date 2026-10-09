@@ -1242,6 +1242,11 @@ a.wait-open { min-height: 44px; border: 1px solid var(--accent-green); border-ra
 .lifecycle-details li { display: flex; align-items: flex-start; gap: 12px; overflow-wrap: anywhere; }
 .lifecycle-details li .icon { color: var(--mint); flex: none; }
 .lifecycle-details time { color: var(--muted); font-weight: 400; }
+/* Stopped resources is a line of the record, not a section of the panel: it
+   opens on the disclosure's chevron without its rule, padding or heading type. */
+.lifecycle-details > .disclosure { border-top: 0; }
+.lifecycle-details > .disclosure > summary { padding: 0; font: inherit; }
+.lifecycle-details > .disclosure > .disclosure-content { padding: 12px 0 0; }
 .stop-task-dialog { width: min(480px, calc(100vw - 28px)); max-height: calc(100dvh - 28px); overflow: auto; padding: 28px; border: 1px solid var(--glass-border-hover); border-radius: var(--radius); color: #edf4f3; background: var(--glass-bg), var(--hero-surface); box-shadow: var(--glass-shadow-hover); text-align: center; }
 .stop-task-dialog::backdrop { background: #03050aba; backdrop-filter: blur(6px); }
 .stop-task-dialog > .goblin-avatar { margin: 0 auto 18px; width: 66px; height: 66px; }

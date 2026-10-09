@@ -30,7 +30,8 @@ test("paused, resumed, stopped and restarted cards leave Windows teardown to the
     const details = page.locator(".lifecycle-panel");
     // The panel names the process behind Details. Working has no line under
     // it (the Overlord, 2026-10-05), so there the sentence is the first thing
-    // behind Details; a paused goblin's line says only what resumes it.
+    // behind Details; a goblin paused with no reason keeps the line its bare
+    // Paused leaves out.
     const header = page.locator(".panel-header");
     const isWorking = phase === "working" || phase === "restarted";
     if (phase === "paused") await expect(header.locator(".panel-activity")).toHaveText("It stays paused until you resume it.");

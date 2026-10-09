@@ -122,9 +122,9 @@ test("the panel says each state once: a sentence of its own, and the raw words b
       { sentence: "", details: ["Go test timed out.", "failed: go test timed out at 9f3c2a1e"], isFailure: true }],
     ["paused, whose fresh note could not be saved", task({ phase: "paused", reason: "Paused by the Overlord; resumes on Resume", activity: "Paused by the Overlord; resumes on Resume",
       lifecycle: lifecycle({ handoff_saved: false, problems: ["Stopping-point deadline reached or request failed; no new handoff was saved"], pause: { reason: "overlord", at: "2026-10-05T16:30:06Z" } }) }),
-      { sentence: "It stays paused until you resume it.", details: ["Stopping-point deadline reached or request failed; no new handoff was saved"], isFailure: false }],
+      { sentence: "", details: ["Stopping-point deadline reached or request failed; no new handoff was saved"], isFailure: false }],
     ["paused for memory", task({ phase: "paused", lifecycle: lifecycle({ pause: { reason: "memory", at: "2026-10-05T16:30:06Z" } }) }),
-      { sentence: "It resumes by itself once 5 GB of memory is free.", details: [], isFailure: false }],
+      { sentence: "", details: [], isFailure: false }],
     ["paused before pauses had reasons", task({ phase: "paused", lifecycle: lifecycle({}) }), { sentence: "It stays paused until you resume it.", details: [], isFailure: false }],
     ["a pause that ran out of time", task({ activity: raw, lifecycle: lifecycle({ phase: "failed", handoff_saved: false, problems: ["Stopping-point deadline reached or request failed; no new handoff was saved", "context deadline exceeded"] }) }),
       { sentence: "", details: ["The pause did not finish, so the goblin is not paused. Its work is kept. Try Pause again.", "Stopping-point deadline reached or request failed; no new handoff was saved", "context deadline exceeded"], isFailure: false }],
@@ -155,20 +155,24 @@ test("Working, a pause that did not finish and a failure have no line under them
   for (const [name, item, status, said] of cases) assert.deepEqual(taskSummary(item, [item], status), said, name);
 });
 
-test("a paused goblin says what resumes it, in words, from its pause's condition", () => {
+test("a paused goblin's panel adds no line under its status, which already says what resumes it", () => {
+  // The Overlord, 2026-10-09, on Bernie's panel: "in paused goblin panels
+  // the highlight line, it's not needed to be presented".
   const blocker = task({ id: "cg-board-kill", title: "Pause, Resume and Stop on the board; Claude Code" });
   const paused = (pause: Record<string, unknown>) => task({ phase: "paused", lifecycle: lifecycle({ pause: { at: "2026-10-05T16:30:06Z", ...pause } }) });
-  const cases: [string, Record<string, unknown>, RegExp][] = [
-    ["allowance", { reason: "allowance", until: "2026-10-09T22:27:00Z" }, /^It resumes by itself when the allowance resets, .+\.$/],
-    ["a question", { reason: "question", until: "q-7" }, /^It resumes by itself when you answer its question\.$/],
-    ["a task", { reason: "dependency", until: "task:cg-board-kill" }, /^It resumes by itself when Pause, Resume and Stop on the board finishes\.$/],
-    ["a task gone from the board", { reason: "dependency", until: "task:cg-old" }, /^It resumes by itself when the task it waits on finishes\.$/],
-    ["a pull request", { reason: "dependency", until: "pr:https://github.com/o/r/pull/12" }, /^It resumes by itself when PR #12 merges\.$/],
-    ["a date", { reason: "dependency", until: "date:2026-10-10T09:00:00Z" }, /^It resumes by itself on .+\.$/],
-    ["CI", { reason: "ci", until: "pr:https://github.com/o/r/pull/12@" + "a".repeat(40) }, /^It resumes by itself when its CI run finishes\.$/],
-    ["a deploy", { reason: "deploy", until: "run:https://github.com/o/r/actions/runs/9@" + "a".repeat(40) }, /^It resumes by itself when its deploy finishes\.$/],
+  const cases: [string, Record<string, unknown>][] = [
+    ["memory", { reason: "memory" }],
+    ["allowance", { reason: "allowance", until: "2026-10-09T22:27:00Z" }],
+    ["the Overlord", { reason: "overlord" }],
+    ["a question", { reason: "question", until: "q-7" }],
+    ["a task", { reason: "dependency", until: "task:cg-board-kill" }],
+    ["a task gone from the board", { reason: "dependency", until: "task:cg-old" }],
+    ["a pull request", { reason: "dependency", until: "pr:https://github.com/o/r/pull/12" }],
+    ["a date", { reason: "dependency", until: "date:2026-10-10T09:00:00Z" }],
+    ["CI", { reason: "ci", until: "pr:https://github.com/o/r/pull/12@" + "a".repeat(40) }],
+    ["a deploy", { reason: "deploy", until: "run:https://github.com/o/r/actions/runs/9@" + "a".repeat(40) }],
   ];
-  for (const [name, pause, said] of cases) assert.match(taskSummary(paused(pause), [blocker]).sentence, said, name);
+  for (const [name, pause] of cases) assert.equal(taskSummary(paused(pause), [blocker]).sentence, "", name);
 });
 
 test("a paused card says why it waits and what resumes it in a few words, in place of Paused", () => {
@@ -203,15 +207,15 @@ test("a paused card says why it waits and what resumes it in a few words, in pla
   }
 });
 
-test("a helper paused with its parent says it resumes with its parent, on its card and in its panel", () => {
+test("a helper paused with its parent says it resumes with its parent in its status, with no line under it", () => {
   const parent = task({ id: "g", title: "Sync the ledger" });
-  for (const [withParent, card, panel] of [
-    [true, "Resumes with Sync the ledger", "It resumes by itself when Sync the ledger runs again."],
-    [false, "Paused by you", "It stays paused until you resume it."],
-  ] as [boolean, string, string][]) {
+  for (const [withParent, card] of [
+    [true, "Resumes with Sync the ledger"],
+    [false, "Paused by you"],
+  ] as [boolean, string][]) {
     const helper = task({ id: "g-h1", parent: "g", phase: "paused", lifecycle: lifecycle({ pause: { reason: "overlord", until: "", at: "2026-10-05T16:30:06Z" }, with_parent: withParent }) });
     const tasks = [parent, helper];
     assert.equal(pauseStatus(helper.lifecycle?.pause, tasks, [], pausedWithParent(helper, tasks)), card);
-    assert.equal(taskSummary(helper, tasks).sentence, panel);
+    assert.equal(taskSummary(helper, tasks).sentence, "");
   }
 });

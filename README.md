@@ -490,8 +490,9 @@ The whole crew:
 
 Clicking a card or a node opens the same goblin panel from either view: who the goblin is, its status, one plain sentence under it, and icon buttons to open its worktree in VS Code or File Explorer and to open its pull request.
 The status is the one place the panel says the task's state, and it is true: a resume or stop that did not finish reads **Resume failed** or **Stop failed** however the goblin last reported, a pause that did not finish shows what the goblin is doing, and a paused task reads **Paused**.
-The sentence under it never repeats the state: it is the goblin's latest report without its leading state word, in sentence case, with no semicolon chains, commit hashes, paths or links, or, for a paused task, what resumes it, and for a failure, what failed and what to do next with **Open the log**, which opens Activity.
+The sentence under it never repeats the state: it is the goblin's latest report without its leading state word, in sentence case, with no semicolon chains, commit hashes, paths or links, and for a failure, what failed and what to do next with **Open the log**, which opens Activity.
 Under **Working** there is no sentence, at the Overlord's word on 2026-10-05; what it would say is the first thing under **Details**.
+A paused task has no sentence either, since its status already says why it waits and what resumes it.
 **Details** under the sentence shows the words it left out exactly as they were written, so a failure can still be diagnosed.
 When a session is retired, paused or stopped, its Terminal view shows that state, the recorded time when known, and the goblin's last report when available.
 **Open handoff** opens its saved handoff as plain text when that file is available.

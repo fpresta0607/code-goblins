@@ -109,9 +109,6 @@ export function teardownSentence(labels: string[]): string {
   return "Windows is still closing " + (names.length === 1 ? names[0] : names.slice(0, -1).join(", ") + " and " + names.at(-1)) + ".";
 }
 
-// A title read inside a sentence starts with a small article.
-const inSentence = (title: string) => title.replace(/^(?:A|An|The)\b/, (article) => article.toLowerCase());
-
 function when(at: string): string {
   const date = new Date(at);
   return Number.isFinite(date.getTime()) ? date.toLocaleString(undefined, { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" }) : "its set time";
@@ -133,32 +130,13 @@ export function isPausedForItsPullRequest(task: Task): boolean {
   return pause.reason === "dependency" && pause.until === "pr:" + task.pr || pause.reason === "ci" && pause.until.startsWith("pr:" + task.pr + "@");
 }
 
-// What resumes a paused goblin, from its pause's condition, or for a helper
-// the Overlord paused with its parent, from that parent.
-function resumes(pause: PauseCondition | undefined, tasks: Task[], parent?: Task): string {
-  const byItself = "It resumes by itself ";
-  const [kind, target] = pause?.until.split(/:(.*)/s) || [];
-  if (parent && pause?.reason === "overlord") return byItself + "when " + inSentence(goblinName(parent)) + " runs again.";
-  switch (pause?.reason) {
-    case "memory": return byItself + "once 5 GB of memory is free.";
-    case "allowance": return byItself + "when the allowance resets, " + when(pause.until) + ".";
-    case "question": return byItself + "when you answer its question.";
-    case "ci": return byItself + "when its CI run finishes.";
-    case "deploy": return byItself + "when its deploy finishes.";
-    case "dependency": {
-      if (kind === "pr") return byItself + "when " + plainText(target).replace(/\.$/, "") + " merges.";
-      if (kind === "date") return byItself + "on " + when(target) + ".";
-      const awaited = tasks.find((candidate) => candidate.id === target);
-      return byItself + "when " + (awaited ? inSentence(goblinName(awaited)) : "the task it waits on") + " finishes.";
-    }
-  }
-  return "It stays paused until you resume it.";
-}
+// What a pause with no reason reads, which says neither why it waits nor
+// what resumes it.
+const BARE_PAUSED = "Paused";
 
 // What a paused goblin says in place of Paused, on its card, its panel and its
-// canvas node: why it waits and what resumes it, in a few words, once; the
-// panel says what resumes it in a sentence under it. A CI or deploy wait
-// names how long the repository's runs usually take.
+// canvas node: why it waits and what resumes it, in a few words, once. A CI
+// or deploy wait names how long the repository's runs usually take.
 export function pauseStatus(pause: PauseCondition | undefined, tasks: Task[], durations: CIDuration[], parent?: Task): string {
   const [kind, target] = pause?.until.split(/:(.*)/s) || [];
   switch (pause?.reason) {
@@ -177,7 +155,7 @@ export function pauseStatus(pause: PauseCondition | undefined, tasks: Task[], du
       return "Waiting on " + (awaited ? goblinName(awaited) : "another task");
     }
   }
-  return "Paused";
+  return BARE_PAUSED;
 }
 
 // What a queued row says in place of Queued while it waits, on its card, its
@@ -247,8 +225,8 @@ export interface Summary {
 }
 
 // taskSummary is the one sentence the panel says under a task's status, which
-// never repeats the status: why it failed and what to do, what resumes it, or
-// its goblin's latest report.
+// never repeats the status: why it failed and what to do, or its goblin's
+// latest report.
 export function taskSummary(task: Task, tasks: Task[], status = ""): Summary {
   const said = summaryOf(task, tasks);
   const isQuiet = QUIET_STATUSES.has(status) || said.isFailure || task.phase === "failed" || task.lifecycle?.phase === "failed";
@@ -270,7 +248,10 @@ function summaryOf(task: Task, tasks: Task[]): Summary {
   // A pause or stop someone asked for that did not finish is no failure of
   // the goblin's; a goblin that did not start again is.
   if (record?.phase === "failed" && FAILED_ACTION[record.action]) return { sentence: join(FAILED_ACTION[record.action], teardown), details: [...record.problems, ...task.teardown], isFailure: record.action === "resume" };
-  if (task.phase === "paused") return { sentence: isPausedForItsPullRequest(task) ? "" : resumes(record?.pause, tasks, pausedWithParent(task, tasks)), details: [...(record?.problems || []), ...task.teardown], isFailure: false };
+  // A paused goblin's status already says why it waits and what resumes it
+  // (the Overlord, 2026-10-09: "in paused goblin panels the highlight line,
+  // it's not needed to be presented"). Only a bare Paused keeps a line.
+  if (task.phase === "paused") return { sentence: pauseStatus(record?.pause, tasks, [], pausedWithParent(task, tasks)) === BARE_PAUSED ? "It stays paused until you resume it." : "", details: [...(record?.problems || []), ...task.teardown], isFailure: false };
   if (["pausing", "resuming", "stopping", "stopped"].includes(task.phase)) return { sentence: "", details: task.teardown, isFailure: false };
   // A queued task's status says it all; the Overlord wants no wait line. Why
   // its last start failed is behind Details, and the CFO was told.
