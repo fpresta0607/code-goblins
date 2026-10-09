@@ -45,6 +45,19 @@ func (service Service) outcome(ctx context.Context, meta state.TaskMeta, reason 
 		outcome.PR, outcome.Phase, outcome.Evidence = values["pr"], "done", "recorded pull request"
 		return outcome
 	}
+	// A local-only task opens no pull request: a done line of its that names
+	// the report the home keeps for it, data/<id>/report.md, by its full path
+	// or its path in the home, delivers it once that report is there. cfo
+	// spawn records every task as a ship task, so a scout spawned local-only
+	// delivers this way.
+	report := ""
+	if meta.Mode == "local-only" && service.Data != "" {
+		report = filepath.Join(service.Data, meta.ID, "report.md")
+		if info, err := os.Stat(report); err != nil || !info.Mode().IsRegular() || info.Size() == 0 {
+			report = ""
+		}
+	}
+	named := strings.ToLower(filepath.Join(filepath.Base(service.Data), meta.ID, "report.md"))
 	lines, _ := state.TailStatus(service.StateDir, meta.ID, 200)
 	nanoseconds, _ := strconv.ParseInt(strings.TrimPrefix(meta.SpawnGen, "s"), 10, 64)
 	for index := len(lines) - 1; index >= 0; index-- {
@@ -54,6 +67,10 @@ func (service Service) outcome(ctx context.Context, meta state.TaskMeta, reason 
 		}
 		if pr, ok := strings.CutPrefix(line, "done: PR "); ok && deliveredPR.MatchString(strings.TrimSpace(pr)) {
 			outcome.PR, outcome.Phase, outcome.Evidence = strings.TrimSpace(pr), "done", "reported pull request"
+			return outcome
+		}
+		if report != "" && strings.HasPrefix(line, "done: ") && strings.Contains(strings.ToLower(filepath.FromSlash(line)), named) {
+			outcome.Phase, outcome.Evidence = "done", "reported its report "+report
 			return outcome
 		}
 	}
