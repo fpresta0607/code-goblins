@@ -80,9 +80,9 @@ export function PanelHeader({ task, node, snapshot, compact, onAnswer, onOpenTas
     <Avatar persona={cfo ? "cfo" : personaFor(task, node)} small />
     <div className="panel-heading">
       <div className="panel-identity" onPointerEnter={measure}>
-        <h2 id="panel-title" data-tip={cut.name ? title : ""} data-tip-align="start">{title}</h2>
+        <h2 id="panel-title" data-tip={cut.name ? title : ""}>{title}</h2>
         {cfo && <RestartCfoButton snapshot={snapshot} isCompact={compact} />}
-        {owner && task.phase === "queued" ? <TaskAdjustment key={task.id} task={task} snapshot={snapshot} /> : goblinTask && <p className="panel-goblin-task" data-tip={cut.task ? goblinTask : ""} data-tip-align="start">{goblinTask}</p>}
+        {owner && task.phase === "queued" ? <TaskAdjustment key={task.id} task={task} snapshot={snapshot} /> : goblinTask && <p className="panel-goblin-task" data-tip={cut.task ? goblinTask : ""}>{goblinTask}</p>}
         {!compact && task?.project && <div className="project-line"><p className="project-label">{task.project}</p><PeopleRow snapshot={snapshot} task={task} /></div>}
         <p className={"panel-status plain-status phase-" + phase}><span className="status-dot" />{status}{awaited && <button className="status-link" aria-label={"Open " + goblinName(awaited) + ", which this goblin is waiting on"} data-tip={"Open " + goblinName(awaited)} onClick={() => onOpenTask(awaited)}><Icon name="next" /></button>}</p>
         {!compact && !owner && node && task && <p className="muted">Part of {goblinName(task)}</p>}
@@ -94,7 +94,7 @@ export function PanelHeader({ task, node, snapshot, compact, onAnswer, onOpenTas
         </div>}
       </div>
       {owner && !!task.generation && <div className="panel-actions">
-        <button className="icon-button raised" disabled={opening || !snapshot.instance} aria-label="Open in VS Code" data-tip="Open in VS Code" data-tip-align="start" onClick={() => void open("vscode")}><img className="brand-icon" src="/assets/vscode.svg" alt="" /></button>
+        <button className="icon-button raised" disabled={opening || !snapshot.instance} aria-label="Open in VS Code" data-tip="Open in VS Code" onClick={() => void open("vscode")}><img className="brand-icon" src="/assets/vscode.svg" alt="" /></button>
         <button className="icon-button raised" disabled={opening || !snapshot.instance} aria-label="Open folder" data-tip="Open folder" onClick={() => void open("folder")}><Icon name="folder" /></button>
         {waiting && <button className="icon-button raised pill-link answer" aria-label={"Answer: " + (waiting.kind === "question" ? plainMessage(waiting.question.text) : waiting.kind === "credential" ? credentialAsk(waiting.request) : reviewLine(waiting.review))} onClick={() => onAnswer(waiting.key)}><Icon name="command-center" /><span>Answer</span></button>}
         {task.ticket && <TicketLink ticket={task.ticket} className="icon-button raised pill-link" />}

@@ -290,7 +290,7 @@ export function CommandCenter({ snapshot, connected, presentations, focus, onUns
   }
   return <>
     <details ref={menu} className="command-center-menu" open={inbox} onToggle={(event) => setInbox(event.currentTarget.open)}>
-      <summary className="icon-button" data-tip="Command Center" data-tip-align="end" aria-label={"Command Center" + (needing ? ", " + needing + " waiting on you" : "")}><Icon name="command-center" />{needing > 0 && <span className="count-badge" aria-hidden="true">{needing}</span>}</summary>
+      <summary className="icon-button" data-tip="Command Center" aria-label={"Command Center" + (needing ? ", " + needing + " waiting on you" : "")}><Icon name="command-center" />{needing > 0 && <span className="count-badge" aria-hidden="true">{needing}</span>}</summary>
       <div className="command-center-updates">
         <h2><Avatar persona="cfo" small />Command Center</h2>
         <section aria-label="Waiting on you">
@@ -299,12 +299,12 @@ export function CommandCenter({ snapshot, connected, presentations, focus, onUns
             <Avatar persona={release(candidate) ? "releases" : taskOf(candidate) ? personaFor(snapshot.tasks.find((task) => task.id === taskOf(candidate))) : "cfo"} small />
             <span className="inbox-text"><strong>{askerOf(candidate)}</strong><span className="inbox-summary">{textOf(candidate)}</span></span>
             <time>{age(created(candidate))}</time>
-            <button className="icon-button raised" aria-label={"Answer " + askerOf(candidate) + ": " + textOf(candidate)} data-tip="Answer" data-tip-align="end" onClick={() => { setInbox(false); setOpen(true); show(candidate.key); }}><Icon name={iconOf(candidate)} /></button>
+            <button className="icon-button raised" aria-label={"Answer " + askerOf(candidate) + ": " + textOf(candidate)} data-tip="Answer" onClick={() => { setInbox(false); setOpen(true); show(candidate.key); }}><Icon name={iconOf(candidate)} /></button>
           </li>)}{watching.map((event) => <li key={"watch:" + event.id}>
             <Avatar persona={event.cfo_identity ? "cfo" : personaFor(snapshot.tasks.find((task) => task.id === event.task_id))} small />
             <span className="inbox-text"><strong>{presenter(event)}</strong><span className="inbox-summary">{event.watch}</span></span>
             <time>{age(event.at)}</time>
-            <a className="icon-button raised" href={event.url} target="_blank" rel="noreferrer" aria-label={"Watch: " + event.watch} data-tip="Watch" data-tip-align="end"><Icon name="watch" /></a>
+            <a className="icon-button raised" href={event.url} target="_blank" rel="noreferrer" aria-label={"Watch: " + event.watch} data-tip="Watch"><Icon name="watch" /></a>
           </li>)}</ul> : <p className="muted">Nothing is waiting on you.</p>}
         </section>
         {settled.length > 0 && <Disclosure kind="inbox-history" title={<>History <span className="column-count">{settled.length}</span></>}>
@@ -316,7 +316,7 @@ export function CommandCenter({ snapshot, connected, presentations, focus, onUns
               {who ? <AnswerMark who={who} /> : <span className={"delivery " + mark.tone}><Icon name={mark.icon} /></span>}
               <span className="inbox-text"><strong>{askerOf(candidate)}</strong><span className="inbox-summary">{textOf(candidate)}</span><small>{settledLabel(candidate, snapshot.actions)}</small>{reason && <small className="answer-reason">{reason}</small>}</span>
               <time>{age(closedAt(candidate))}</time>
-              {candidate.kind === "question" && canChange(candidate.question, snapshot) && <button className="icon-button raised" aria-label={"Change the CFO's answer to " + askerOf(candidate)} data-tip="Change the CFO's answer" data-tip-align="end" onClick={() => { setInbox(false); setChanging(candidate.question.id); }}><Icon name="edit" /></button>}
+              {candidate.kind === "question" && canChange(candidate.question, snapshot) && <button className="icon-button raised" aria-label={"Change the CFO's answer to " + askerOf(candidate)} data-tip="Change the CFO's answer" onClick={() => { setInbox(false); setChanging(candidate.question.id); }}><Icon name="edit" /></button>}
             </li>;
           })}</ul>
         </Disclosure>}
@@ -333,7 +333,7 @@ export function CommandCenter({ snapshot, connected, presentations, focus, onUns
         <header className="command-center-heading">
           <Avatar persona="cfo" />
           <h2 id="command-center-heading">Supreme Overlord<span>Command Center</span></h2>
-          <button type="button" className="icon-button question-close" aria-label="Close the Command Center" data-tip="Close" data-tip-align="end" onClick={close}><Icon name="close" /></button>
+          <button type="button" className="icon-button question-close" aria-label="Close the Command Center" data-tip="Close" onClick={close}><Icon name="close" /></button>
         </header>
         {scope && <p className="from-afk">From your AFK stretch</p>}
         {changeQuestion

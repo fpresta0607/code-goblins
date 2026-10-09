@@ -72,7 +72,7 @@ export function QuickTourDialog({ onEnd }: { onEnd: () => void }) {
           <span className="quick-tour-steps" role="img" aria-label={`Step ${at + 1} of ${STEPS.length}`}>{STEPS.map((_, index) => <span key={index} className={index === at ? "now" : ""} />)}</span>
           <button ref={next} className="pixel-button" onClick={() => { if (last) onEnd(); else setAt(at + 1); }}>{last ? "Done" : "Next"}</button>
         </div>
-        <button className="icon-button pixel-icon quick-tour-skip" aria-label="Skip the tour" data-tip="Skip the tour" data-tip-align="end" onClick={onEnd}><Icon name="close" /></button>
+        <button className="icon-button pixel-icon quick-tour-skip" aria-label="Skip the tour" data-tip="Skip the tour" onClick={onEnd}><Icon name="close" /></button>
       </div>
     </div>
   </dialog>;

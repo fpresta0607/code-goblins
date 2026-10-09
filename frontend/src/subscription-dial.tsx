@@ -10,7 +10,7 @@ export function SubscriptionDial({ usage, now }: { usage: SubscriptionUsage; now
   return <>
     <span className={`subscription-dial${state.isNearReserve ? " reserve" : ""}${state.remaining === null ? " unknown" : ""}`} role={state.remaining === null ? "img" : "progressbar"} tabIndex={0}
       aria-valuemin={state.remaining === null ? undefined : 0} aria-valuemax={state.remaining === null ? undefined : 100} aria-valuenow={state.remaining ?? undefined}
-      aria-label={state.label} aria-describedby={description} data-tip={state.details} data-tip-align="end">
+      aria-label={state.label} aria-describedby={description} data-tip={state.details}>
       <svg className="subscription-ring" viewBox="0 0 52 52" aria-hidden="true" focusable="false">
         <circle className="subscription-track" cx="26" cy="26" r="22" />
         {state.remaining !== null && <circle className="subscription-fill" cx="26" cy="26" r="22" pathLength="100" strokeDasharray={`${state.remaining} 100`} transform="rotate(-90 26 26)" />}

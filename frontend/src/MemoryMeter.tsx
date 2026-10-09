@@ -24,7 +24,7 @@ export function MemoryMeter({ memory, disk = null, processors = null, gpu = null
   const tip = [memoryMarks(memory), holdersLine(memory), poolWarning(memory)].filter(Boolean).join(" ");
   return <div className="memory" role="group" aria-label="Memory">
     <div className="memory-line"><span>{shown.isCommit ? "Commit free (memory plus page file)" : "Memory free"}</span><strong>{freeGigabytes(shown.free)} GB</strong></div>
-    <div className="memory-bar" data-tip={tip} data-tip-align="start">
+    <div className="memory-bar" data-tip={tip}>
       <span className={"memory-fill " + state.tone} style={{ width: `${scale.fill}%` }} />
       <span className="memory-mark floor" style={{ left: `${scale.floor}%` }} />
       <span className="memory-mark" style={{ left: `${scale.next}%` }} />

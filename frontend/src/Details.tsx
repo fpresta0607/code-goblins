@@ -24,7 +24,7 @@ import { WhatsWorking } from "./WhatsWorking";
 // A read that failed: the CFO hears why (useResource), and the section offers
 // only Retry.
 function RetryRead({ retry }: { retry: () => void }) {
-  return <button className="icon-button raised retry-read" aria-label="Retry" data-tip="Retry" data-tip-align="start" onClick={retry}><Icon name="refresh" /></button>;
+  return <button className="icon-button raised retry-read" aria-label="Retry" data-tip="Retry" onClick={retry}><Icon name="refresh" /></button>;
 }
 
 function FileReview({ task, path, revision, reviews, connected }: {
@@ -52,7 +52,7 @@ function Changes({ task, revision = "", reviews, connected }: {
   return <div className="changes">
     <div className="section-toolbar"><p className="muted">{changeSummary(revision, files.data?.length)}</p>
       {onGitHub && <a className="text-link" href={onGitHub} target="_blank" rel="noreferrer">Files on GitHub</a>}
-      <button className="icon-button raised" aria-label="Refresh changes" data-tip="Refresh changes" data-tip-align="end" onClick={() => { files.reload(); setVersion((prior) => prior + 1); }}><Icon name="refresh" /></button>
+      <button className="icon-button raised" aria-label="Refresh changes" data-tip="Refresh changes" onClick={() => { files.reload(); setVersion((prior) => prior + 1); }}><Icon name="refresh" /></button>
     </div>
     {files.error ? <RetryRead retry={files.reload} /> :
       !files.data ? <p className="loading" role="status">Reading the change set…</p> :
