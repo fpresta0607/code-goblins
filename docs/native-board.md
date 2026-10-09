@@ -291,8 +291,8 @@ Every tip on the board, in the desktop window and on the Orchestration canvas is
 The tip holds its whole text: it grows to its text up to 320 px, or the window's width less 16 px, then wraps, breaking a long word if it must, at 16 px on a solid surface a step lighter than the cards, with an edge.
 It is kept inside the window on every side and is gone on the frame the pointer or the focus leaves its part, with no fade, and at any press, even one its part keeps to itself, as a canvas node starting its drag does.
 A pointer that moves from one part straight to the next swaps their tips on that frame.
-Every tip touches its own part, 8 px from it: above the part, else below it, else to its right, else to its left, on the first of those sides where the whole tip fits inside the window.
-Along that side it is centered on the part, moved only as far as the window's edge asks, and a small arrow on its edge points at the part's middle.
+Every tip touches its own part, 8 px from it: above the part, else below it, else to its right, else to its left, on the first of those sides where the whole tip fits inside the window with 8 px to spare.
+Along that side it is centered on the part, moved only as far as the window's edge asks, and a small arrow on its edge points at the part's middle, or as near it as the tip's rounded corner lets it stand.
 No tip opens against a whole card or in a corner of the window, so a tip may lie over what is beside its part, a card's other controls included.
 A tip that fits on no side of its part, as the tip of a very long title can on a short window, goes below the part and is kept inside the window.
 While it shows it is drawn again on every frame, so it follows its part as the page scrolls, resizes or changes and as the part itself moves, as a card lifting under the pointer does, says what its part's tip says now, and goes when that part leaves the page; a part pressed with a mouse or a pen shows no tip until the press is released, so a card being dragged shows none, while a finger shows a tip for as long as it is down.

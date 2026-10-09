@@ -42,8 +42,9 @@ async function open(page: Page, tasks: Record<string, unknown>[] = TASKS, questi
 // floating tip touches its part: the edge it turns to the part stands 8 px
 // from it, the room its arrow spans, wherever the part has moved to since the
 // pointer came, it lies across the part along that edge, and its arrow sits on
-// that edge, over the part.
-function tipFaults(part: Element): { shown: number; faults: string[]; side: string } {
+// that edge, over the part, pointing at it. off is how far the tip's middle
+// is from its part's along that edge.
+function tipFaults(part: Element): { shown: number; faults: string[]; side: string; off: number } {
   const want = part.getAttribute("data-tip") || "";
   const tips: { text: string; box: DOMRect; from: Element; opacity: number; fixed: boolean; style: CSSStyleDeclaration; node?: HTMLElement }[] = [];
   for (const node of document.querySelectorAll<HTMLElement>("[role=tooltip]")) {
@@ -64,7 +65,7 @@ function tipFaults(part: Element): { shown: number; faults: string[]; side: stri
   }
   const name = (element: Element) => element.tagName.toLowerCase() + "." + [...element.classList].join(".");
   const faults: string[] = [];
-  let side = "";
+  let side = "", off = 0;
   for (const tip of tips) {
     const say = (what: string) => faults.push("'" + want + "' " + what);
     if (tip.text !== want) say("shows '" + tip.text + "'");
@@ -81,6 +82,7 @@ function tipFaults(part: Element): { shown: number; faults: string[]; side: stri
       const across = (at: string) => isAlong(at) ? Math.min(box.right, own.right) - Math.max(box.left, own.left) : Math.min(box.bottom, own.bottom) - Math.max(box.top, own.top);
       const touched = (["above", "below", "right", "left"] as const).find((at) => Math.abs(gaps[at] - 8) < 1 && across(at) > 0);
       side = touched ?? "";
+      if (touched) off = Math.abs(isAlong(touched) ? box.left + box.width / 2 - own.left - own.width / 2 : box.top + box.height / 2 - own.top - own.height / 2);
       const arrow = getComputedStyle(tip.node, "::before");
       if (!touched) say("does not touch its part");
       else if (arrow.content === "none" || arrow.content === "normal") say("has no arrow");
@@ -89,7 +91,12 @@ function tipFaults(part: Element): { shown: number; faults: string[]; side: stri
         const y = box.top + tip.node.clientTop + parseFloat(arrow.top) + parseFloat(arrow.height) / 2;
         const offEdge = { above: Math.abs(y - box.bottom), below: Math.abs(y - box.top), right: Math.abs(x - box.left), left: Math.abs(x - box.right) }[touched];
         const isOverPart = isAlong(touched) ? x >= own.left - 1 && x <= own.right + 1 : y >= own.top - 1 && y <= own.bottom + 1;
-        if (offEdge > 1.5 || !isOverPart) say("points its arrow away from its part");
+        // The arrow shows the lower right corner of its square, which its
+        // turn points from the tip at the part.
+        const turn = new DOMMatrixReadOnly(arrow.transform === "none" ? undefined : arrow.transform);
+        const [toX, toY] = { above: [0, 1], below: [0, -1], right: [-1, 0], left: [1, 0] }[touched];
+        const isTurnedToPart = (turn.a + turn.c) * toX + (turn.b + turn.d) * toY > 1;
+        if (offEdge > 1.5 || !isOverPart || !isTurnedToPart) say("points its arrow away from its part");
       }
     }
     if (tip.style.textOverflow === "ellipsis" || tip.style.whiteSpace === "nowrap" && box.width >= parseFloat(tip.style.maxWidth)) say("cuts its text short");
@@ -108,7 +115,7 @@ function tipFaults(part: Element): { shown: number; faults: string[]; side: stri
     if (alpha && parseFloat(alpha[1]) < 1 || tip.style.backgroundColor === "transparent") say("has a see-through background");
     if (parseFloat(tip.style.fontSize) < 15) say("is " + tip.style.fontSize);
   }
-  return { shown: tips.length, faults, side };
+  return { shown: tips.length, faults, side, off };
 }
 
 // Points at every part in scope that has a tip, one at a time, and returns
@@ -121,7 +128,7 @@ async function walk(scope: Locator) {
     if (await part.isDisabled()) continue;
     await part.hover();
     if (!await part.getAttribute("data-tip")) continue;
-    let seen = { shown: 0, faults: [] as string[] };
+    let seen = { shown: 0, faults: [] as string[], side: "", off: 0 };
     await expect.poll(async () => (seen = await part.evaluate(tipFaults)).shown, { message: "a tip for " + await part.getAttribute("data-tip") }).toBe(1);
     // A tip that slides or fades in is judged once it is still.
     await expect.poll(async () => { const before = JSON.stringify(seen); seen = await part.evaluate(tipFaults); return JSON.stringify(seen) === before; }).toBe(true);
@@ -182,8 +189,9 @@ test("every tip on the Orchestration canvas is whole, solid and inside the windo
 
 // The one rule every tip keeps, on a page holding one part: it touches its
 // own part, above it, else below it, else to its right, else to its left,
-// taking the first side where it fits on the screen whole, with its arrow on
-// the part. A part as tall as the screen leaves no room above or below it.
+// taking the first side where it fits on the screen whole, centered on the
+// part, with its arrow on the part. A part as tall as the screen leaves no
+// room above or below it.
 const SCREEN = { width: 640, height: 480 };
 async function pointAtPartAt(page: Page, at: { left: number; top: number; width: number; height: number }) {
   await page.setViewportSize(SCREEN);
@@ -192,8 +200,10 @@ async function pointAtPartAt(page: Page, at: { left: number; top: number; width:
   const part = page.locator("#part");
   await part.evaluate((element, at) => Object.assign((element as HTMLElement).style, { left: at.left + "px", top: at.top + "px", width: at.width + "px", height: at.height + "px" }), at);
   await page.mouse.move(at.left + at.width / 2, at.top + at.height / 2);
-  let seen = { shown: 0, faults: [] as string[], side: "" };
+  let seen = { shown: 0, faults: [] as string[], side: "", off: 0 };
   await expect.poll(async () => (seen = await part.evaluate(tipFaults)).shown).toBe(1);
+  // The tip's font can arrive after its text, so it is judged once it is still.
+  await expect.poll(async () => { const before = JSON.stringify(seen); seen = await part.evaluate(tipFaults); return JSON.stringify(seen) === before; }).toBe(true);
   return seen;
 }
 
@@ -208,9 +218,19 @@ for (const [side, room, at] of [
     const seen = await pointAtPartAt(page, at);
 
     // Assert
-    expect({ side: seen.side, faults: seen.faults }).toEqual({ side: side.split(" ")[0], faults: [] });
+    expect({ side: seen.side, faults: seen.faults, isCentered: seen.off < 1 }).toEqual({ side: side.split(" ")[0], faults: [], isCentered: true });
   });
 }
+
+// A part that fills the screen leaves its tip no side to stand on. The tip
+// still shows, whole and inside the window, over the part.
+test("a part with no room on any side keeps its tip inside the window", async ({ page }) => {
+  // Arrange and act
+  const seen = await pointAtPartAt(page, { left: 8, top: 8, width: SCREEN.width - 16, height: SCREEN.height - 16 });
+
+  // Assert: the one thing wrong with it is that it cannot touch its part.
+  expect(seen.faults).toEqual(["'Pause this goblin at its next stopping point' does not touch its part"]);
+});
 
 // A part in a corner of the screen keeps its tip against it, never off in a
 // corner of its own.

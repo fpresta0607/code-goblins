@@ -29,7 +29,7 @@ function place(node: HTMLElement, part: HTMLElement) {
   const spot = { left: spots[side].left, top: Math.max(GAP, Math.min(spots[side].top, height - GAP - own.height)) };
   const isAcross = side === "above" || side === "below";
   const arrow = isAcross ? anchor.left + anchor.width / 2 - spot.left : anchor.top + anchor.height / 2 - spot.top;
-  node.dataset.side = side;
+  if (node.dataset.side !== side) node.dataset.side = side;
   node.style.setProperty("--arrow", Math.max(ARROW_INSET, Math.min(arrow, (isAcross ? own.width : own.height) - ARROW_INSET)) + "px");
   node.style.left = spot.left + "px";
   node.style.top = spot.top + "px";
@@ -52,8 +52,9 @@ export function watchTips(): () => void {
   let part: HTMLElement | null = null, node: HTMLElement | null = null, frame = 0;
   const show = () => {
     cancelAnimationFrame(frame);
+    if (!part?.isConnected) part = null;
     if (part) frame = requestAnimationFrame(show);
-    const text = part?.isConnected && !part.closest(".sorting") ? part.getAttribute("data-tip") : null;
+    const text = part && !part.closest(".sorting") ? part.getAttribute("data-tip") : null;
     if (!part || !text) {
       node?.remove();
       node = null;
