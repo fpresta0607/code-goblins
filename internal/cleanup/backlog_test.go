@@ -125,6 +125,39 @@ func TestCleanupSaysWhatBecomesOfARowItCannotMove(t *testing.T) {
 	}
 }
 
+// A home with no backlog has no row to move and none to warn about, so a
+// cleanup there says nothing of one: on 2026-10-09 the cleanup of a goblin
+// in a scratch home warned that its row stayed under ## Queued, of a file
+// that was not there.
+func TestCleanupSaysNothingOfARowInAHomeWithNoBacklog(t *testing.T) {
+	for name, status := range map[string]string{
+		"delivered":     "2026-10-07T10:00:00Z done: PR https://github.com/owner/project/pull/42\n",
+		"not delivered": "",
+	} {
+		t.Run(name, func(t *testing.T) {
+			// Arrange
+			fixture := newCleanupFixture(t)
+			fixture.service.Data = t.TempDir()
+			if status != "" {
+				if err := os.WriteFile(filepath.Join(fixture.stateDir, "g1.status"), []byte(status), 0o600); err != nil {
+					t.Fatal(err)
+				}
+			}
+
+			// Act
+			result, err := fixture.service.Cleanup(context.Background(), "g1")
+
+			// Assert
+			if err != nil {
+				t.Fatalf("Cleanup: %v", err)
+			}
+			if strings.Contains(result.Output, "backlog") {
+				t.Errorf("output: %s\nwant nothing said of a backlog row", result.Output)
+			}
+		})
+	}
+}
+
 // A local-only task opens no pull request: its done line delivers it when it
 // names the report the home keeps for it, data/<id>/report.md, and the report
 // is there, so its cleanup moves its row to ## Done as a pull request's does.
