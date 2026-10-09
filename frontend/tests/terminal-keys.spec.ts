@@ -17,7 +17,7 @@ const KEYS: [key: string, sent: string][] = [
   ["Enter", "\r"], ["Escape", ESC], ["Tab", "\t"], ["Shift+Tab", ESC + "[Z"], ["Space", " "], ["Backspace", "\x7f"], ["Delete", ESC + "[3~"], ["Insert", ESC + "[2~"],
   ["ArrowUp", ESC + "[A"], ["ArrowDown", ESC + "[B"], ["ArrowRight", ESC + "[C"], ["ArrowLeft", ESC + "[D"],
   ["Home", ESC + "[H"], ["End", ESC + "[F"], ["PageUp", ESC + "[5~"], ["PageDown", ESC + "[6~"],
-  ["r", "r"], ["y", "y"], ["n", "n"], ["a", "a"], ["Shift+r", "R"], ["1", "1"], ["2", "2"], ["3", "3"], ["/", "/"], ["?", "?"], ["!", "!"], ["#", "#"], ["@", "@"],
+  ["r", "r"], ["y", "y"], ["n", "n"], ["a", "a"], ["Shift+KeyR", "R"], ["1", "1"], ["2", "2"], ["3", "3"], ["/", "/"], ["?", "?"], ["!", "!"], ["#", "#"], ["@", "@"],
   ["Control+Enter", "\r"], ["Alt+Enter", ESC + "\r"], ["Control+Backspace", "\b"], ["Alt+Backspace", ESC + "\x7f"], ["Control+Delete", ESC + "[3;5~"],
   ["Shift+ArrowUp", ESC + "[1;2A"], ["Shift+ArrowDown", ESC + "[1;2B"], ["Shift+ArrowRight", ESC + "[1;2C"], ["Shift+ArrowLeft", ESC + "[1;2D"],
   ["Alt+ArrowUp", ESC + "[1;3A"], ["Alt+ArrowDown", ESC + "[1;3B"], ["Alt+ArrowRight", ESC + "[1;3C"], ["Alt+ArrowLeft", ESC + "[1;3D"],
@@ -119,6 +119,9 @@ for (const role of ["cfo", "goblin"]) {
     const keys: [string, string][] = [...KEYS, ["Shift+Enter", SHIFT_ENTER[harness]]];
 
     test("every key reaches the " + role + "'s " + harness + " as a plain terminal sends it, idle, busy and on a full screen", async ({ page }) => {
+      // It presses the whole table three times, each key waiting for what
+      // it sent, which a loaded machine stretches past the default time.
+      test.slow();
       const terminal = await connect(page);
       await open(page, role, harness);
 
