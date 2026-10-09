@@ -161,7 +161,7 @@ func standInAsTerminalProgram(t *testing.T, stateDir, id string) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	record.ChildPID = os.Getpid()
+	programIsThisProcess(t, &record)
 	data, err := json.Marshal(record)
 	if err != nil {
 		t.Fatal(err)

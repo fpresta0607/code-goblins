@@ -420,7 +420,11 @@ func (terminal hostedTerminal) runs(t *testing.T, pid int) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	record.ChildPID = pid
+	// A record names its program by pid and creation time.
+	record.ChildPID, record.ChildStart = pid, time.Time{}
+	if started, ok := proc.StartTime(pid); ok {
+		record.ChildStart = started
+	}
 	data, err := json.Marshal(record)
 	if err != nil {
 		t.Fatal(err)

@@ -261,6 +261,10 @@ func TestTheCFOTakesTheHomeOverFromASessionThatIsNotItsOwn(t *testing.T) {
 			if !strings.Contains(drained.Stdout, from) {
 				t.Errorf("cfo drain in the CFO's session shows %q, want the wake that says it took the lock over %s", drained.Stdout, from)
 			}
+			// It could not register while the other session held the home.
+			if registered := registeredPID(t, h.State); registered != cfo.pid {
+				t.Errorf("primary.json registers pid %d, want the CFO's harness pid %d", registered, cfo.pid)
+			}
 
 			// Act: the other session starts again and ends a turn.
 			started := other.hook(t, "session-start", hookPayload(t, "desktop-session", "resume", "", ""))

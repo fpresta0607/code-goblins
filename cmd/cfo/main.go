@@ -458,6 +458,10 @@ func runWithRuntime(args []string, stdout, stderr io.Writer, runtime commandRunt
 		fmt.Fprint(stderr, usage)
 		return 2
 	}
+	if refusal := refuseAnotherAgentsSession(args, runtime.resolveHome); refusal != "" {
+		fmt.Fprintln(stderr, refusal)
+		return 1
+	}
 	switch args[0] {
 	case "attach":
 		return runAttach(args[1:], stdout, stderr, runtime)
@@ -593,7 +597,16 @@ func runWithRuntime(args []string, stdout, stderr io.Writer, runtime commandRunt
 			fmt.Fprintln(stderr, err)
 			return 1
 		}
-		if err := digest.Compose(h, resolveSessionOwnerPID(h.State), "", stdout); err != nil {
+		// Only the CFO's own session takes the session lock with its digest.
+		// Any other reads it: the Overlord's own terminal, and a session
+		// that is not the CFO's.
+		program, err := supervisor.OwnSession(h.State)
+		if err != nil {
+			err = digest.ComposeReadOnly(h, err.Error(), stdout)
+		} else {
+			err = digest.Compose(h, program.PID, "", stdout)
+		}
+		if err != nil {
 			fmt.Fprintf(stdout, "SESSION START DEGRADED: %s\n", err)
 		}
 		return 0

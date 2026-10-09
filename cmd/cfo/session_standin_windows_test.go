@@ -83,7 +83,13 @@ func serveSessionRequest(cli, name string) {
 			_ = os.Rename(partial, filepath.Join(sessionRequests, name+".response.json"))
 		}
 	}
+	// A file just renamed into place can be held a moment by whatever scans
+	// new files, so the read waits that out.
 	data, err := os.ReadFile(filepath.Join(sessionRequests, name+".request.json"))
+	for deadline := time.Now().Add(10 * time.Second); err != nil && time.Now().Before(deadline); {
+		time.Sleep(20 * time.Millisecond)
+		data, err = os.ReadFile(filepath.Join(sessionRequests, name+".request.json"))
+	}
 	var request sessionRequest
 	if err == nil {
 		err = json.Unmarshal(data, &request)

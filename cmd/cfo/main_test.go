@@ -216,6 +216,10 @@ func TestMain(m *testing.M) {
 	if err := os.Setenv(install.ProjectsRootVariable, configDir); err != nil {
 		panic(err)
 	}
+	// A test binary an agent runs, as a goblin's or a gate's is, has that
+	// agent's harness among its parents: no test is refused a command that
+	// acts as the CFO for it. A test of the refusal names the session itself.
+	notTheCFO = func(string) error { return nil }
 	code := m.Run()
 	os.RemoveAll(configDir)
 	removeSessionPrograms()
