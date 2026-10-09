@@ -133,7 +133,7 @@ func (s *Service) takePage(ctx context.Context, file string, owner pageOwner, re
 		if err != nil || poll.Status != "feedback" {
 			return err
 		}
-		if reply = s.passOnPageFeedback(ctx, file, owner.task, identity, owner.key, poll); reply == "" {
+		if reply = s.passOnPageFeedback(ctx, file, owner.task, identity, owner.key, poll, s.keepPageFeedback(owner.key, poll)); reply == "" {
 			return nil
 		}
 	}
