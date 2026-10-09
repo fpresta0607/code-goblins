@@ -188,8 +188,10 @@ func (s Service) tryUp(ctx context.Context, checkout string, manifest Manifest, 
 	if !stack.Holds(task) {
 		stack.Holders = append(stack.Holders, Hold{Task: task, Since: s.Now().UTC()})
 	}
+	stack.MemoryBeforeStart = before.Available
 	// Written before the start too, so the janitor can stop what a start
-	// cut short left running once its task is gone.
+	// cut short left running once its task is gone, and the stop can
+	// measure what it took.
 	record.Stacks[project] = stack
 	if err := WriteRecord(s.StateDir, record); err != nil {
 		return "", "", err
@@ -205,6 +207,11 @@ func (s Service) tryUp(ctx context.Context, checkout string, manifest Manifest, 
 			}
 		}
 		stack.Holders = slices.DeleteFunc(stack.Holders, func(hold Hold) bool { return hold.Task == task })
+		if stack.IsUp() {
+			// Its other holders keep it up, so no stop follows to measure
+			// from the reading.
+			stack.MemoryBeforeStart = 0
+		}
 		record.Stacks[project] = stack
 		if !stack.IsUp() {
 			_, stopErr := s.stop(ctx, &record, project)
@@ -231,6 +238,7 @@ func (s Service) tryUp(ctx context.Context, checkout string, manifest Manifest, 
 			stack.Cost = Cost{Bytes: took, MeasuredAt: s.Now().UTC()}
 		}
 	}
+	stack.MemoryBeforeStart = 0
 	record.Stacks[project] = stack
 	if err := WriteRecord(s.StateDir, record); err != nil {
 		return "", "", err
@@ -376,12 +384,13 @@ func (s Service) release(ctx context.Context, record *Record, project, task stri
 // so it is only marked stopped.
 func (s Service) stop(ctx context.Context, record *Record, project string) (string, error) {
 	stack := record.Stacks[project]
+	startedFrom := stack.MemoryBeforeStart
 	engineUp, err := s.Docker.EngineRunning(ctx)
 	if err != nil {
 		return "", err
 	}
 	if !engineUp {
-		stack.Owned, stack.Started, stack.Since = false, nil, time.Time{}
+		stack.Owned, stack.Started, stack.Since, stack.MemoryBeforeStart = false, nil, time.Time{}, 0
 		record.Stacks[project] = stack
 		record.Engine = Engine{}
 		return project + "'s services were already stopped with the Docker engine", nil
@@ -409,7 +418,7 @@ func (s Service) stop(ctx context.Context, record *Record, project string) (stri
 		line = "stopped " + strings.Join(stack.Started, ", ") + ", the services cfo started beside " + project + "'s"
 	}
 	stopped := stack.Owned || len(stack.Started) > 0
-	stack.Owned, stack.Started, stack.Since = false, nil, time.Time{}
+	stack.Owned, stack.Started, stack.Since, stack.MemoryBeforeStart = false, nil, time.Time{}, 0
 	record.Stacks[project] = stack
 	if record.Engine.StartedByCFO && !record.holdsAnything() {
 		engineLine, err := s.stopEngine(ctx, record)
@@ -424,8 +433,11 @@ func (s Service) stop(ctx context.Context, record *Record, project string) (stri
 		if err != nil {
 			return "", fmt.Errorf("services: read memory: %w", err)
 		}
-		if rise := drop(after.Available, before.Available); rise > stack.Cost.Bytes {
-			stack.Cost = Cost{Bytes: rise, MeasuredAt: s.Now().UTC()}
+		// A start cut short never measured itself, and Docker's VM gives its
+		// memory back slowly, so what it took is the drop from before it
+		// began to before this stop where that is more than the rise.
+		if took := max(drop(after.Available, before.Available), drop(startedFrom, before.Available)); took > stack.Cost.Bytes {
+			stack.Cost = Cost{Bytes: took, MeasuredAt: s.Now().UTC()}
 			record.Stacks[project] = stack
 		}
 	}
