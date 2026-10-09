@@ -4,9 +4,12 @@ import (
 	"bufio"
 	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"sync"
 	"testing"
@@ -15,6 +18,7 @@ import (
 
 	"github.com/fpresta0607/code-goblins/internal/axi"
 	"github.com/fpresta0607/code-goblins/internal/execx"
+	"github.com/fpresta0607/code-goblins/internal/wake"
 )
 
 // What lavish-axi's poll printed of the Overlord's answer to the mockups
@@ -42,8 +46,9 @@ const (
 		"prompts[1]{uid,prompt,selector,tag,text}:\n" +
 		"  u7,Make the header bigger,h1,element,Heading\n" +
 		"next_step: \"Apply the requested changes.\"\n"
-	scrawlWaiting = "session:\n  status: waiting\n"
-	scrawlEnded   = "session:\n  status: ended\n  ended_by: user\n"
+	scrawlWaiting        = "session:\n  status: waiting\n"
+	scrawlEnded          = "session:\n  status: ended\n  ended_by: user\n"
+	scrawlEndedByAnAgent = "session:\n  status: ended\n  ended_by: agent\n"
 )
 
 // betweenHisSends is how long after his pick his Send & End reached Scrawl
@@ -240,6 +245,57 @@ func TestAPageAnswerShowsDoneOnTheBoardWithinASecond(t *testing.T) {
 	}
 }
 
+// The boards are told what his send did to its item the moment the page's
+// poller does it: his answer closes the item, and a revision, once nothing
+// more came within pageAnswerSettle, takes it off Waiting on you. Neither
+// waits on the supervisor's cycle, which tells the boards only of what the
+// cycle itself changed, so a change the poller made reached them at the next
+// refresh, up to snapshotRefresh later. Here no cycle runs at all.
+func TestTheBoardsAreToldWhatHisSendDidWithoutWaitingOnACycle(t *testing.T) {
+	for name, test := range map[string]struct {
+		sent     string
+		within   time.Duration
+		isShown  func(Review) bool
+		expected string
+	}{
+		"his answer closes the item":               {pickedOnThePage, time.Second, func(r Review) bool { return r.State == "answered" }, "answered"},
+		"his revision takes it off Waiting on you": {notedOnThePage, pageAnswerSettle + time.Second, func(r Review) bool { return r.State == "open" && r.RevisingSince != nil }, "open and revising"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			// Arrange
+			store, _ := testStore(t)
+			_, _, connection, _ := pageOfAGoblin(t, store)
+			scrawl := newScrawlPage(0)
+			s := &Service{Store: store, Options: Options{CFO: connection, PollPage: scrawl.poll}, subscribers: map[chan struct{}]struct{}{}}
+			board, unsubscribe := s.subscribe()
+			defer unsubscribe()
+			ctx, cancel := context.WithCancel(context.Background())
+			defer func() {
+				cancel()
+				s.pageWork.Wait()
+			}()
+			s.watchPages(ctx)
+			<-scrawl.listening
+
+			// Act
+			scrawl.send(test.sent)
+
+			// Assert
+			for expired := time.After(test.within); ; {
+				select {
+				case <-board:
+					if items, _ := s.Items(); len(items.Reviews) == 1 && test.isShown(items.Reviews[0]) {
+						return
+					}
+				case <-expired:
+					items, _ := s.Items()
+					t.Fatalf("the boards were not told the item is %s within %s, the items they would read = %+v", test.expected, test.within, items.Reviews)
+				}
+			}
+		})
+	}
+}
+
 // An approval with a note is one answer: what he sends on the page just
 // before Send & End, a pick of the option the page declared or a note on an
 // element, reaches the goblin and the CFO with his approval as one answer,
@@ -333,5 +389,126 @@ func TestAPickOfThePagesOptionAnswersItWithoutEndingTheReview(t *testing.T) {
 	}
 	if got := store.Snapshot().Reviews[0]; got.PageSettled == nil {
 		t.Errorf("the page's item after he ended the review = %+v, want its page settled", got)
+	}
+}
+
+// An agent's end of the review is never his approval. What he sent just
+// before an agent ended it stays a revision its goblin gets, and the CFO is
+// told an agent ended the review, as it is when he had sent nothing.
+func TestAnAgentsEndOfTheReviewIsNeverHisApproval(t *testing.T) {
+	// Arrange
+	store, h := testStore(t)
+	meta, goblin, connection, page := pageOfAGoblin(t, store)
+	scrawl := newScrawlPage(0)
+	scrawl.send(notedOnThePage)
+	scrawl.send(scrawlEndedByAnAgent)
+	scrawl.send(scrawlEndedByAnAgent)
+	s := &Service{Store: store, Options: Options{CFO: connection, PollPage: scrawl.poll}}
+
+	// Act
+	s.watchPages(context.Background())
+	s.pageWork.Wait()
+
+	// Assert
+	wakes := reviewWakes(t, h.State, meta.ID)
+	isRevision := func(w wake.Record) bool {
+		return strings.Contains(w.Detail, "asked for a revision on the page "+page)
+	}
+	isAgentsEnd := func(w wake.Record) bool {
+		return strings.Contains(w.Detail, "an agent, not the Overlord, ended the review of "+page)
+	}
+	if len(wakes) != 2 || !slices.ContainsFunc(wakes, isRevision) || !slices.ContainsFunc(wakes, isAgentsEnd) {
+		t.Fatalf("review wakes = %+v, want his revision and the agent's end, and no answer of his", wakes)
+	}
+	if told := goblin.lines(t); len(told) != 1 || !strings.Contains(told[0], "asked for a revision on your review page "+page+": Make the header bigger") {
+		t.Fatalf("the goblin got %q, want his note once, as a revision", told)
+	}
+	if got := store.Snapshot().Reviews[0]; got.State != "withdrawn" || got.AnsweredBy != "" || got.Reason != "An agent ended the review on its page; the CFO was told." {
+		t.Fatalf("the page's item = %+v, want it withdrawn as an agent ended its review, never answered by him", got)
+	}
+}
+
+// A supervisor that stops while it waits for the rest of his answer passes on
+// what he already sent: the poll consumed it, and Scrawl holds no other copy.
+func TestASupervisorThatStopsStillPassesOnWhatHeSent(t *testing.T) {
+	for name, test := range map[string]struct{ sent, told, text string }{
+		"his pick of the option the page declared": {pickedOnThePage, "answered on the page ", "Build it as shown"},
+		"his note on an element":                   {notedOnThePage, "asked for a revision on the page ", "Make the header bigger"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			// Arrange
+			store, h := testStore(t)
+			meta, _, connection, page := pageOfAGoblin(t, store)
+			ctx, cancel := context.WithCancel(context.Background())
+			defer cancel()
+			polls := 0
+			s := &Service{Store: store, Options: Options{CFO: connection, PollPage: func(ctx context.Context, file, reply string, timeout time.Duration) (axi.PagePoll, error) {
+				if polls++; polls == 1 {
+					return axi.Lavish{Commands: printed(test.sent)}.Poll(ctx, file, reply, timeout)
+				}
+				cancel()
+				return axi.PagePoll{}, ctx.Err()
+			}}}
+
+			// Act
+			s.watchPages(ctx)
+			s.pageWork.Wait()
+
+			// Assert
+			if wakes := reviewWakes(t, h.State, meta.ID); len(wakes) != 1 || !strings.Contains(wakes[0].Detail, test.told+page) {
+				t.Fatalf("review wakes = %+v, want the CFO told once what he sent before the supervisor stopped", wakes)
+			}
+			kept := feedbackFiles(t, h.State, "waiting-"+meta.ID+"-7")
+			if len(kept) != 1 {
+				t.Fatalf("feedback files = %q, want what he sent kept in one", kept)
+			}
+			if data, err := os.ReadFile(kept[0]); err != nil || !strings.Contains(string(data), test.text) {
+				t.Errorf("the kept feedback = %q, %v, want what he sent: %q", data, err, test.text)
+			}
+		})
+	}
+}
+
+// A poll that fails while the rest of his answer may be on its way is asked
+// once more at once, so his pick and the approval after it are still one
+// answer. Scrawl stops itself when its last review ends with no window and no
+// poll connected, which fails the poll his Send & End arrives under: the next
+// poll starts Scrawl again and takes what he sent.
+func TestAPollThatFailsWhileHisAnswerGoesOnIsAskedAgainAtOnce(t *testing.T) {
+	// Arrange
+	defer func(pause time.Duration) { pagePollPause = pause }(pagePollPause)
+	pagePollPause = time.Millisecond
+	store, h := testStore(t)
+	meta, goblin, connection, page := pageOfAGoblin(t, store)
+	polls := 0
+	s := &Service{Store: store, Options: Options{CFO: connection, PollPage: func(ctx context.Context, file, reply string, timeout time.Duration) (axi.PagePoll, error) {
+		output := scrawlEnded
+		switch polls++; polls {
+		case 1:
+			output = pickedOnThePage
+		case 2:
+			return axi.PagePoll{}, errors.New("Lavish Editor server connection failed")
+		case 3:
+			output = approvedAsShown
+		}
+		return axi.Lavish{Commands: printed(output)}.Poll(ctx, file, reply, timeout)
+	}}}
+
+	// Act
+	s.watchPages(context.Background())
+	s.pageWork.Wait()
+
+	// Assert
+	if wakes := reviewWakes(t, h.State, meta.ID); len(wakes) != 1 || !strings.Contains(wakes[0].Detail, "answered on the page "+page+" and ended the review") || !strings.Contains(wakes[0].Detail, "Build it as shown") || !strings.Contains(wakes[0].Detail, "Approved as shown.") {
+		t.Fatalf("review wakes = %+v, want one saying he picked and approved", wakes)
+	}
+	if told := goblin.lines(t); len(told) != 1 || !strings.Contains(told[0], "answered on your review page "+page) {
+		t.Fatalf("the goblin got %q, want his pick and his approval once, as his answer", told)
+	}
+	if got := store.Snapshot().Reviews[0]; got.State != "answered" || got.PageSettled == nil {
+		t.Fatalf("the page's item = %+v, want it answered, its page settled", got)
+	}
+	if polls != 3 {
+		t.Errorf("polled the page %d times, want 3: the failed poll asked again once", polls)
 	}
 }

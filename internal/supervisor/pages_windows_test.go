@@ -162,9 +162,13 @@ func TestAnAnswerOnThePageClosesTheQuestionItCarries(t *testing.T) {
 	store, h := testStore(t)
 	_, record, page := askOnAPage(t, store)
 	answer := "session:\n  status: feedback\nprompts[1]{uid,prompt,selector,tag,text}:\n  \"\",Go with SQLite,\"\",message,Freeform message\n"
+	polls := 0
 	s := &Service{Store: store, Options: Options{PollPage: func(_ context.Context, file, _ string, _ time.Duration) (axi.PagePoll, error) {
 		if file != page {
 			t.Errorf("polled %s, want %s", file, page)
+		}
+		if polls++; polls > 1 {
+			return axi.PagePoll{Status: "ended", EndedBy: "user"}, nil
 		}
 		return axi.PagePoll{Status: "feedback", Output: answer}, nil
 	}}}
@@ -603,7 +607,8 @@ func published(s *Service) uint64 {
 }
 
 // The poll consumed the Overlord's answer, so a wake queue that refuses the
-// CFO's wake for a while only delays it, and the wait stays open until then.
+// CFO's wake for a while only delays it. The wait shows his answer at once
+// all the same: it is kept in its feedback file before the wait closes.
 func TestAPageAnswerReachesTheCFOOnceTheWakeQueueTakesIt(t *testing.T) {
 	defer func(pause time.Duration) { pagePollPause = pause }(pagePollPause)
 	pagePollPause = time.Millisecond
@@ -623,8 +628,8 @@ func TestAPageAnswerReachesTheCFOOnceTheWakeQueueTakesIt(t *testing.T) {
 			t.Fatal("the wake queue was never asked again after refusing the CFO's wake")
 		}
 	}
-	if got := store.Snapshot().Reviews[0]; got.State != "open" {
-		t.Fatalf("the wait = %+v while the CFO lacks the answer, want it open", got)
+	if got := store.Snapshot().Reviews[0]; got.State != "answered" || got.Reason != pageAnswerReceived || len(feedbackFiles(t, h.State, got.ID)) != 1 {
+		t.Fatalf("the wait = %+v while the CFO lacks the answer, want it answered, his answer kept", got)
 	}
 	// The poller keeps reading the refused queue, and Windows refuses to
 	// remove a directory another handle has open, so the removal is retried.
@@ -642,8 +647,8 @@ func TestAPageAnswerReachesTheCFOOnceTheWakeQueueTakesIt(t *testing.T) {
 	if wakes := reviewWakes(t, h.State, task); len(wakes) != 1 || !strings.Contains(wakes[0].Detail, "his feedback is in ") {
 		t.Fatalf("review wakes = %+v, want the answer once the queue takes it", wakes)
 	}
-	if got := store.Snapshot().Reviews[0]; got.State != "answered" || got.AnsweredIn != "page" {
-		t.Errorf("the wait = %+v, want it answered on its page once the CFO has it", got)
+	if got := store.Snapshot().Reviews[0]; got.State != "answered" || got.AnsweredIn != "page" || got.Reason != "You answered on its page; the CFO relays it to the goblin." {
+		t.Errorf("the wait = %+v, want it answered on its page, saying who has it once the CFO does", got)
 	}
 }
 
@@ -782,10 +787,11 @@ func pageOfAGoblin(t *testing.T, store *Store) (state.TaskMeta, hostedTerminal, 
 }
 
 // Item 3 of the review-flow brief: revisions sent from the editor update the
-// editor. What he sends on a goblin's page without ending the review is a
-// revision: the goblin gets it in its own terminal, the CFO is told, the item
-// waits on the goblin's next version, and the next poll tells him on the page
-// that it was received and what happens next. The review goes on.
+// editor. What he sends on a goblin's page without ending the review, and
+// nothing more within pageAnswerSettle, is a revision: the goblin gets it in
+// its own terminal, the CFO is told, the item waits on the goblin's next
+// version, and the next poll tells him on the page that it was received and
+// what happens next. The review goes on.
 func TestARevisionOnAPageReachesTheGoblinAndSaysWhatHappensNext(t *testing.T) {
 	// Arrange
 	defer func(pause time.Duration) { pagePollPause = pause }(pagePollPause)
@@ -796,22 +802,38 @@ func TestARevisionOnAPageReachesTheGoblinAndSaysWhatHappensNext(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	var replies []string
-	s := &Service{Store: store, Options: Options{CFO: connection, PollPage: func(_ context.Context, file, reply string, _ time.Duration) (axi.PagePoll, error) {
-		replies = append(replies, reply)
-		if len(replies) == 1 {
+	var timeouts []time.Duration
+	replied := make(chan struct{})
+	s := &Service{Store: store, Options: Options{CFO: connection, PollPage: func(ctx context.Context, file, reply string, timeout time.Duration) (axi.PagePoll, error) {
+		replies, timeouts = append(replies, reply), append(timeouts, timeout)
+		switch len(replies) {
+		case 1:
 			return axi.PagePoll{Status: "feedback", Prompts: []string{"Make the cards bigger"}, Output: revision}, nil
+		case 2:
+			return axi.PagePoll{Status: "waiting"}, nil
 		}
-		cancel()
-		return axi.PagePoll{Status: "waiting"}, nil
+		close(replied)
+		<-ctx.Done()
+		return axi.PagePoll{}, ctx.Err()
 	}}}
 
 	// Act
 	s.watchPages(ctx)
+	<-replied
+	for deadline := time.Now().Add(15 * time.Second); len(reviewWakes(t, h.State, meta.ID)) == 0; time.Sleep(10 * time.Millisecond) {
+		if time.Now().After(deadline) {
+			t.Fatal("the CFO was never told of the revision")
+		}
+	}
+	cancel()
 	s.pageWork.Wait()
 
 	// Assert
-	if len(replies) != 2 || replies[0] != "" || replies[1] != "Revision received. "+meta.ID+" makes the next version, which replaces this page." {
-		t.Fatalf("replies = %q, want none, then that the revision was received and what happens next", replies)
+	if len(replies) != 3 || replies[0] != "" || replies[1] != "" || replies[2] != "Revision received. "+meta.ID+" makes the next version, which replaces this page." {
+		t.Fatalf("replies = %q, want none while his answer could go on, then that the revision was received and what happens next", replies)
+	}
+	if timeouts[1] != pageAnswerSettle {
+		t.Errorf("the poll after his revision waited %s for more, want %s", timeouts[1], pageAnswerSettle)
 	}
 	if told := goblin.lines(t); len(told) != 1 || !strings.Contains(told[0], "asked for a revision on your review page "+page+": Make the cards bigger") || !strings.Contains(told[0], "--lavish "+page) {
 		t.Fatalf("the goblin got %q, want the revision and how to send its next version", told)
