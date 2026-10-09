@@ -1,7 +1,7 @@
 import type { MergeTrain, Session, Snapshot, Task } from "./types.ts";
 import { lineageRoots, ownsTaskSession, sessionTitle, tasksWithoutSession } from "./lineageTree.ts";
 import { goblinName } from "./task-words.ts";
-import { isHeldByTree, isHelperHeld } from "./fleet-tree.ts";
+import { isHeldByTree, isHelperHeld, LINE_GAP } from "./fleet-tree.ts";
 import { awaitedTest } from "./pull-request-test.ts";
 
 export type Persona = "cfo" | "builder" | "reviewer" | "tester" | "planner" | "finisher" | "general"
@@ -306,7 +306,8 @@ const GAP = 44;
 // What hangs under a card on the canvas: how wide it is, centred under the
 // card and never narrower than it, how far under the card it reaches, and
 // where, from the card's middle, each line runs down from it: its own
-// middle, and the spine of each column of its branches.
+// middle, the side of its branches its connectors to goblins under them run
+// down, and each gap between the columns of its branches.
 export interface Extent { width: number; below: number; drops: number[] }
 const CARD: Extent = { width: NODE_WIDTH, below: 0, drops: [0] };
 
@@ -383,9 +384,10 @@ export function arrange(nodes: WorkflowNode[], canvas: { width: number; height: 
       const widest = Math.max(...rows.map((row) => row.reduce((sum, child) => sum + columns(child), 0))), first = leaf;
       // Each row after the first is offset so no connector into it drops
       // down a line that runs down from a goblin above, a middle or a
-      // spine of its branches, where it would read as that goblin's child:
-      // by half a card where it can be, as through the gaps of a row of
-      // single cards, else by the eighth of a card nearest that keeps clear.
+      // line beside or between its branches, where it would read as that
+      // goblin's child: by half a card where it can be, as through the gaps
+      // of a row of single cards, else by the eighth of a card nearest that
+      // keeps clear.
       const drops: number[] = [];
       rows.forEach((row, index) => {
         const at = (offset: number) => row.map((child, i) => first + offset + row.slice(0, i).reduce((sum, other) => sum + columns(other), 0) + (columns(child) - 1) / 2);
@@ -448,6 +450,62 @@ export function makeRoom(positions: Record<string, Point>, below: Record<string,
     for (const [id, point] of Object.entries(positions)) if (point.y === y) reach = Math.max(reach, y + shift + NODE_HEIGHT + (below[id] || 0));
   }
   return Object.fromEntries(Object.entries(positions).map(([id, point]) => [id, { x: point.x, y: moved.get(point.y)! }]));
+}
+
+// A card on the canvas with what hangs under it, as a box a connector keeps
+// clear of.
+export interface Box { left: number; right: number; top: number; bottom: number }
+
+// A connector's way down past the rows between its parent and its card: down
+// at x, then across at turn toward its card.
+export interface Detour { x: number; turn: number }
+
+// detours routes the connectors leaving a parent's bottom at y whose straight
+// drop to its card, among targets, the middles of their tops, would pass
+// behind a card or what hangs under it, among taken, as one to a later row
+// of goblins does through the rows above it. Each runs down the way clear of
+// them nearest its card, a line's gap from the next in it, and turns toward
+// its card in the gap above that card's row, the one further from its card
+// turning lower, so none crosses another. A connector with a clear drop has
+// no detour.
+export function detours(y: number, targets: Point[], taken: Box[]): (Detour | undefined)[] {
+  const distance = (x: number, [from, to]: number[]) => Math.max(0, from - x, x - to);
+  const ways = targets.map((target) => {
+    const between = taken.filter((box) => box.bottom > y && box.top < target.y - GAP / 2)
+      .map((box) => [box.left - LINE_GAP, box.right + LINE_GAP]).sort((one, other) => one[0] - other[0]);
+    if (!between.some(([from, to]) => target.x > from && target.x < to)) return undefined;
+    const clear: number[][] = [];
+    let from = -Infinity;
+    for (const [left, right] of between) {
+      if (left > from) clear.push([from, left]);
+      from = Math.max(from, right);
+    }
+    clear.push([from, Infinity]);
+    return clear.reduce((best, way) => distance(target.x, way) < distance(target.x, best) ? way : best);
+  });
+  // The ways round the left of everything are one, hugging the nearest of
+  // them, and so are those round the right. In a way the connectors turning
+  // left run nearest its left and those turning right nearest its right,
+  // each the outer the sooner it turns off, so one turning off crosses none
+  // still running down.
+  const side = (way: number[]) => way[0] === -Infinity ? "left" : way[1] === Infinity ? "right" : String(way);
+  const xs: number[] = [];
+  for (const key of new Set(ways.flatMap((way) => way ? [side(way)] : []))) {
+    const using = ways.flatMap((way, i) => way && side(way) === key ? [{ i, way }] : []);
+    const from = Math.max(...using.map(({ way }) => way[0])), to = Math.min(...using.map(({ way }) => way[1]));
+    const middle = from === -Infinity ? to : to === Infinity ? from : (from + to) / 2;
+    const order = [...using.filter(({ i }) => targets[i].x < middle).sort((one, other) => targets[one.i].y - targets[other.i].y || targets[one.i].x - targets[other.i].x),
+      ...using.filter(({ i }) => targets[i].x >= middle).sort((one, other) => targets[other.i].y - targets[one.i].y || targets[one.i].x - targets[other.i].x)];
+    const first = from === -Infinity ? to - (order.length - 1) * LINE_GAP : to === Infinity ? from : middle - (order.length - 1) * LINE_GAP / 2;
+    order.forEach(({ i }, j) => { xs[i] = first + j * LINE_GAP; });
+  }
+  const turns: number[] = [];
+  for (const row of new Set(targets.map((target) => target.y))) for (const way of [1, -1]) {
+    const turning = targets.map((_, i) => i).filter((i) => ways[i] && targets[i].y === row && (targets[i].x > xs[i] ? 1 : -1) === way)
+      .sort((one, other) => (xs[one] - xs[other]) * way);
+    turning.forEach((i, j) => { turns[i] = row - GAP / 2 + ((turning.length - 1) / 2 - j) * LINE_GAP; });
+  }
+  return ways.map((way, i) => way && { x: xs[i], turn: turns[i] });
 }
 
 // settle is where each card shows: where the Overlord placed it by hand, else

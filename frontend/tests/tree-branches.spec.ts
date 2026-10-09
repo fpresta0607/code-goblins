@@ -3,12 +3,12 @@ import { expect, test, type Page } from "./site";
 // The Overlord, 2026-10-08: "branches should connect to the top of their baby
 // goblins". Every line of the family tree, from a goblin to a goblin under it
 // and from a goblin to each of its baby goblins, ends at the top center of
-// the child it leads to, starts at the bottom center of its parent, and runs
+// the child it leads to, starts at the bottom of its parent, and runs
 // through no card on its way.
 
 interface Point { x: number; y: number }
 interface Line { start: Point; end: Point; points: Point[] }
-interface Box { name: string; left: number; top: number; right: number; bottom: number }
+interface Box { name: string; left: number; top: number; right: number; bottom: number; isCard: boolean }
 
 // Every line on the canvas, where it starts and ends on the page and a point
 // every few pixels along it.
@@ -24,25 +24,27 @@ const lines = (page: Page): Promise<Line[]> => page.locator(".branch-lines path,
 // Every card and every baby goblin on the canvas.
 const nodes = (page: Page): Promise<Box[]> => page.locator(".flow-node, .tree-branches > li").evaluateAll((elements) => elements.map((element) => {
   const box = element.getBoundingClientRect();
-  return { name: element.querySelector("strong")?.textContent || "", left: box.left, top: box.top, right: box.right, bottom: box.bottom };
+  return { name: element.querySelector("strong")?.textContent || "", left: box.left, top: box.top, right: box.right, bottom: box.bottom, isCard: element.matches(".flow-node") };
 }));
 
 const near = (one: Point, other: Point) => Math.abs(one.x - other.x) <= 1.5 && Math.abs(one.y - other.y) <= 1.5;
 const topCenter = (box: Box) => ({ x: (box.left + box.right) / 2, y: box.top });
-const bottomCenter = (box: Box) => ({ x: (box.left + box.right) / 2, y: box.bottom });
+// Each line leaves its parent's bottom on its own, beside its siblings', so
+// it starts on the bottom of a card clear of its rounded corners.
+const isOnBottom = (point: Point, box: Box) => Math.abs(point.y - box.bottom) <= 1.5 && point.x > box.left + (box.right - box.left) / 10 && point.x < box.right - (box.right - box.left) / 10;
 
 // What is wrong with the canvas's lines as it shows now, by name: a line
 // that ends anywhere but the top center of a child or starts anywhere but the
-// bottom center of a card, a child no line reaches, and, where every card is
+// bottom of a card, a child no line reaches, and, where every card is
 // arranged, a line that runs through a card.
 async function wrongLines(page: Page, isArranged: boolean): Promise<string[]> {
   const [drawn, boxes] = [await lines(page), await nodes(page)];
   const wrong: string[] = [];
   for (const line of drawn) {
     const child = boxes.find((box) => near(line.end, topCenter(box)));
-    const parent = boxes.find((box) => near(line.start, bottomCenter(box)));
+    const parent = boxes.find((box) => box.isCard && isOnBottom(line.start, box));
     if (!child) wrong.push(`a line ends at ${Math.round(line.end.x)},${Math.round(line.end.y)}, the top center of no card or baby goblin`);
-    if (!parent) wrong.push(`a line to ${child?.name || "nothing"} starts at ${Math.round(line.start.x)},${Math.round(line.start.y)}, the bottom center of no card`);
+    if (!parent) wrong.push(`a line to ${child?.name || "nothing"} starts at ${Math.round(line.start.x)},${Math.round(line.start.y)}, the bottom of no card`);
     if (!isArranged) continue;
     for (const box of boxes) {
       if (line.points.some((point) => point.x > box.left + 2 && point.x < box.right - 2 && point.y > box.top + 2 && point.y < box.bottom - 2)) wrong.push(`the line to ${child?.name} runs through ${box.name}`);

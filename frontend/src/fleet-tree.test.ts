@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { babyFor, babyName, BABY_HEIGHT, BABY_WIDTH, branchLayout, finished, hasRunningChildren, forHowLong, formatMemory, isDimmed, running, stateWord, summarize, titleFor } from "./fleet-tree.ts";
-import { arrange, makeRoom, NODE_HEIGHT, NODE_WIDTH, settle, waitingOn, workflowNodes, type Extent } from "./workflow.ts";
+import { babyFor, babyName, BABY_HEIGHT, BABY_WIDTH, branchLayout, elbows, finished, hasRunningChildren, forHowLong, formatMemory, isDimmed, LINE_GAP, running, stateWord, summarize, titleFor } from "./fleet-tree.ts";
+import { arrange, detours, makeRoom, NODE_HEIGHT, NODE_WIDTH, settle, waitingOn, workflowNodes, type Extent } from "./workflow.ts";
 import { parseSnapshot, type FleetTree, type TreeNode } from "./types.ts";
 
 const MINUTE = 60_000;
@@ -118,18 +118,109 @@ test("a goblin's running children hang in about as many columns as rows, each cl
   }
 });
 
+interface Point { x: number; y: number }
+interface Box { left: number; right: number; top: number; bottom: number }
+
+// Where a branch line starts, turns and ends: of every point it names, its
+// turns and the ends of its rounded corners, those not on a straight run.
+const pointsOf = (line: string): Point[] => {
+  const named = [...line.matchAll(/(-?[\d.]+),(-?[\d.]+)/g)].map((match) => ({ x: Number(match[1]), y: Number(match[2]) }));
+  return named.filter((point, i) => !i || i === named.length - 1
+    || !(named[i - 1].x === point.x && point.x === named[i + 1].x || named[i - 1].y === point.y && point.y === named[i + 1].y));
+};
+const segmentsOf = (line: string): Box[] => {
+  const points = pointsOf(line);
+  return points.slice(1).map((to, i) => ({ left: Math.min(points[i].x, to.x), right: Math.max(points[i].x, to.x), top: Math.min(points[i].y, to.y), bottom: Math.max(points[i].y, to.y) }));
+};
+// How near two segments, or a segment and a baby goblin, come.
+const apart = (one: Box, other: Box) => Math.hypot(Math.max(0, one.left - other.right, other.left - one.right), Math.max(0, one.top - other.bottom, other.top - one.bottom));
+const boxOf = (place: Point): Box => ({ left: place.x, right: place.x + BABY_WIDTH, top: place.y, bottom: place.y + BABY_HEIGHT });
+const FAMILIES = Array.from({ length: 24 }, (_, i) => i + 1);
+
 // The Overlord, 2026-10-08: "branches should connect to the top of their baby
 // goblins".
-test("each child's branch runs from the middle of the card's bottom to the middle of the child's top", () => {
-  for (const count of [1, 2, 3, 4, 5, 9, 10, 17]) {
+test("each child's branch leaves the card's bottom and ends at the middle of the child's top", () => {
+  for (const count of FAMILIES) {
     const branches = branchLayout(count, NODE_WIDTH);
     assert.equal(branches.lines.length, count, count + " children: a branch to each");
     for (const [i, line] of branches.lines.entries()) {
-      const points = [...line.matchAll(/(-?[\d.]+),(-?[\d.]+)/g)].map((match) => ({ x: Number(match[1]), y: Number(match[2]) }));
-      assert.deepEqual(points[0], { x: branches.width / 2, y: 0 }, count + " children: branch " + i + " starts under the card");
+      const points = pointsOf(line);
+      assert.equal(points[0].y, 0, count + " children: branch " + i + " starts at the card's bottom");
+      assert.ok(Math.abs(points[0].x - branches.width / 2) < NODE_WIDTH / 2 - 16, count + " children: branch " + i + " starts under the card, clear of its corners: " + points[0].x);
       assert.deepEqual(points.at(-1), { x: branches.places[i].x + BABY_WIDTH / 2, y: branches.places[i].y }, count + " children: branch " + i + " ends at its child's top");
       assert.deepEqual(branches.ends[i], points.at(-1), count + " children: its end is marked");
     }
+  }
+});
+
+// The Overlord, 2026-10-08 about 22:20Z: "child goblin branches are not
+// individually distinguishable and appear to be taking weird routes when
+// spacing lines can be cleaner with less overlap".
+test("a goblin's branches fan out from its card side by side, evenly spaced about its middle", () => {
+  for (const count of FAMILIES.slice(1)) {
+    const branches = branchLayout(count, NODE_WIDTH);
+    const starts = branches.lines.map((line) => pointsOf(line)[0].x).sort((one, other) => one - other);
+    for (const [i, x] of starts.slice(1).entries()) assert.equal(x - starts[i], LINE_GAP, count + " children: " + starts.join(", "));
+    assert.ok(Math.abs((starts[0] + starts.at(-1)!) / 2 - branches.width / 2) <= LINE_GAP / 2, count + " children: about the card's middle: " + starts.join(", "));
+  }
+});
+
+test("sibling branches never meet, and keep a line's gap apart all the way", () => {
+  for (const count of FAMILIES) for (const passes of [0, 1, 2]) {
+    const branches = branchLayout(count, NODE_WIDTH, passes);
+    const lines = [...branches.lines, ...branches.passes.map(elbows)];
+    for (const [i, line] of lines.entries()) for (const [j, other] of lines.entries()) {
+      if (j <= i) continue;
+      const nearest = Math.min(...segmentsOf(line).flatMap((one) => segmentsOf(other).map((two) => apart(one, two))));
+      assert.ok(nearest >= LINE_GAP, `${count} children, ${passes} passing: lines ${i} and ${j} come ${nearest} apart`);
+    }
+  }
+});
+
+test("no branch comes near a baby goblin but its own, which it enters straight down into the middle of its top", () => {
+  for (const count of FAMILIES) for (const passes of [0, 1]) {
+    const branches = branchLayout(count, NODE_WIDTH, passes);
+    const boxes = branches.places.map(boxOf);
+    for (const [i, line] of [...branches.lines, ...branches.passes.map(elbows)].entries()) {
+      const segments = segmentsOf(line);
+      for (const [s, segment] of segments.entries()) for (const [b, box] of boxes.entries()) {
+        if (b === i && s === segments.length - 1) {
+          assert.ok(segment.left === segment.right && segment.bottom === box.top, `${count} children: branch ${i} drops into its child's top`);
+          continue;
+        }
+        assert.ok(apart(segment, box) >= LINE_GAP, `${count} children, ${passes} passing: line ${i} comes ${apart(segment, box)} from child ${b}`);
+      }
+    }
+  }
+});
+
+test("each branch takes the direct way to its child: down, and across toward it, around only the baby goblin under the card's middle", () => {
+  for (const count of FAMILIES) {
+    const branches = branchLayout(count, NODE_WIDTH);
+    const columns = new Set(branches.places.map((place) => place.x)).size;
+    for (const [i, line] of branches.lines.entries()) {
+      const points = pointsOf(line), steps = points.slice(1).map((point, j) => ({ x: point.x - points[j].x, y: point.y - points[j].y }));
+      assert.ok(steps.every((step) => step.y >= 0), `${count} children: branch ${i} never climbs`);
+      const ways = steps.filter((step) => step.x).map((step) => Math.sign(step.x)).filter((way, j, all) => !j || way !== all[j - 1]);
+      const isAround = columns % 2 === 1 && i >= columns && i % columns === (columns - 1) / 2;
+      assert.ok(ways.length <= (isAround ? 2 : 1), `${count} children: branch ${i} turns back across: ${line}`);
+    }
+  }
+});
+
+test("a connector to a goblin under the baby goblins leaves the card's bottom and runs down beside them on a line of its own", () => {
+  for (const count of FAMILIES.slice(0, 10)) for (const passes of [1, 2]) {
+    const branches = branchLayout(count, NODE_WIDTH, passes);
+    assert.equal(branches.passes.length, passes);
+    const left = Math.min(...branches.places.map((place) => place.x));
+    for (const [j, pass] of branches.passes.map(elbows).entries()) {
+      const points = pointsOf(pass);
+      assert.equal(points[0].y, 0, `${count} children: pass ${j} starts at the card's bottom`);
+      assert.equal(points.at(-1)!.y, branches.height, `${count} children: pass ${j} runs down past them all`);
+      assert.ok(points.at(-1)!.x <= left - LINE_GAP && points.at(-1)!.x >= 0, `${count} children: pass ${j} runs down beside them, inside the block: ${pass}`);
+    }
+    const ends = branches.passes.map((pass) => pass.at(-1)!.x);
+    assert.deepEqual(ends, [...ends].sort((one, other) => one - other), "outermost first");
   }
 });
 
@@ -152,7 +243,7 @@ test("a goblin whose branches are wider than its card keeps every other card and
   }
 });
 
-test("a connector to a later row of goblins never drops down a line of a goblin above it, its middle or a spine of its branches", () => {
+test("a connector to a later row of goblins never drops down a line of a goblin above it, its middle or a line beside or between its branches", () => {
   const ids = ["billing", "checkout", "search", "docs", "ledger", "export", "rates"];
   const nodes = workflowNodes(parseSnapshot({ healthy: true, tasks: ids.map((id) => ({ id, phase: "working", verified: false })) }));
   for (const extents of [{}, { "task:billing": extent(5) }, { "task:billing": extent(5), "task:docs": extent(9), "task:rates": extent(2) }, { "task:search": extent(3), "task:export": extent(12) }] as Record<string, Extent>[]) {
@@ -166,6 +257,46 @@ test("a connector to a later row of goblins never drops down a line of a goblin 
       }
     }
   }
+});
+
+// A connector to a later row runs from the bottom of the S curve under its
+// parent, down to the gap above its card's row, across and into its card.
+test("a connector to a later row of goblins runs down clear of every card and baby goblin above it, a line's gap from any other", () => {
+  const ids = ["billing", "checkout", "search", "docs", "ledger", "export"];
+  const nodes = workflowNodes(parseSnapshot({ healthy: true, tasks: ids.map((id) => ({ id, phase: "working", verified: false })) }));
+  let detoured = 0;
+  for (const counts of [[7, 3, 4], [5, 5, 2, 9], [3, 0, 4, 0, 6], [10, 2, 3], [1, 1, 1, 1, 1, 1], [0, 0, 0, 0, 0, 0]]) for (const canvas of [{ width: 836, height: 956 }, { width: 800, height: 760 }, { width: 600, height: 1200 }]) {
+    const layouts = Object.fromEntries(counts.flatMap((count, i) => count ? [["task:" + ids[i], branchLayout(count, NODE_WIDTH)]] : []));
+    const extents: Record<string, Extent> = Object.fromEntries(Object.entries(layouts).map(([id, branches]) => [id, { width: branches.width, below: branches.height, drops: branches.drops }]));
+    const positions = makeRoom(arrange(nodes, canvas, {}, extents), Object.fromEntries(Object.entries(extents).map(([id, extent]) => [id, extent.below])));
+    const taken = nodes.map((node) => {
+      const point = positions[node.id], width = extents[node.id]?.width || NODE_WIDTH;
+      return { left: point.x + (NODE_WIDTH - width) / 2, right: point.x + (NODE_WIDTH + width) / 2, top: point.y, bottom: point.y + NODE_HEIGHT + (extents[node.id]?.below || 0) };
+    });
+    const boxes = nodes.flatMap((node) => {
+      const point = positions[node.id], branches = layouts[node.id], card = { name: node.id, left: point.x, right: point.x + NODE_WIDTH, top: point.y, bottom: point.y + NODE_HEIGHT };
+      return [card, ...(branches?.places || []).map((place, i) => ({ ...boxOf({ x: point.x + (NODE_WIDTH - branches.width) / 2 + place.x, y: point.y + NODE_HEIGHT + place.y }), name: node.id + " child " + i }))];
+    });
+    const cfo = positions[nodes.find((node) => !node.parent)!.id], children = nodes.filter((node) => node.parent);
+    const y = cfo.y + NODE_HEIGHT, targets = children.map((node) => ({ x: positions[node.id].x + NODE_WIDTH / 2, y: positions[node.id].y }));
+    const ways = detours(y, targets, taken);
+    const routes = targets.map((target, i) => {
+      const way = ways[i], top = y + Math.min((target.y - y) / 2, 56) * 2;
+      return way ? [{ x: way.x, y: top }, { x: way.x, y: way.turn }, { x: target.x, y: way.turn }, target] : [{ x: target.x, y: top }, target];
+    });
+    detoured += ways.filter(Boolean).length;
+    for (const [i, route] of routes.entries()) {
+      const name = JSON.stringify({ counts, canvas, to: children[i].id });
+      const segments = segmentsOf(elbows(route));
+      for (const box of boxes.filter((box) => box.name !== children[i].id)) for (const segment of segments) {
+        assert.ok(apart(segment, box) >= (ways[i] ? LINE_GAP : 1), `${name} runs ${apart(segment, box)} from ${box.name}`);
+      }
+      for (const [j, other] of routes.entries()) if (j > i && ways[i] && ways[j]) for (const one of segments) for (const two of segmentsOf(elbows(other))) {
+        assert.ok(apart(one, two) >= LINE_GAP, `${name} comes ${apart(one, two)} from the connector to ${children[j].id}`);
+      }
+    }
+  }
+  assert.ok(detoured > 10, "connectors that had to go around: " + detoured);
 });
 
 test("a sub-agent its goblin's tree holds is a baby goblin under it, not a card of its own", () => {

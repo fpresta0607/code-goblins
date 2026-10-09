@@ -6,8 +6,8 @@ import { Chevron } from "./Chevron";
 import { Icon } from "./Icon";
 import { ownsTaskSession } from "./lineageTree";
 import { taskName } from "./task-words";
-import { arrange, asksOverlord, expireTraffic, fitScale, fleetTraffic, makeRoom, NODE_HEIGHT, NODE_WIDTH, nodeStatus, personaFor, PULSE_MS, reportTraffic, settle, statusPhase, waitingOn, workflowNodes, zoomAt, type Extent, type Point, type View, type WorkflowNode } from "./workflow";
-import { babyName, branchLayout, elbows, hasRunningChildren, running } from "./fleet-tree";
+import { arrange, asksOverlord, detours, expireTraffic, fitScale, fleetTraffic, makeRoom, NODE_HEIGHT, NODE_WIDTH, nodeStatus, personaFor, PULSE_MS, reportTraffic, settle, statusPhase, waitingOn, workflowNodes, zoomAt, type Detour, type Extent, type Point, type View, type WorkflowNode } from "./workflow";
+import { babyName, branchLayout, elbows, hasRunningChildren, LINE_GAP, running } from "./fleet-tree";
 import { TreeCount } from "./TreeCount";
 import { TreeChild } from "./TreeChild";
 
@@ -66,7 +66,9 @@ export function Orchestration({ snapshot, selected, connected, effects, onSelect
     const tree = node.task && ownsTaskSession(node.session, node.task) ? node.task.tree : undefined;
     return tree && hasRunningChildren(tree) ? [[node.id, tree]] : [];
   })), [nodes]);
-  const branches = useMemo(() => Object.fromEntries(Object.entries(trees).map(([id, tree]) => [id, branchLayout(running(tree).length, NODE_WIDTH)])), [trees]);
+  // The connectors to the goblins under a goblin's baby goblins run down
+  // beside them, each on a line of its own.
+  const branches = useMemo(() => Object.fromEntries(Object.entries(trees).map(([id, tree]) => [id, branchLayout(running(tree).length, NODE_WIDTH, nodes.filter((node) => node.parent === id).length)])), [trees, nodes]);
   const extents = useMemo(() => Object.fromEntries(Object.keys(trees).map((id): [string, Extent] => collapsed.has(id)
     ? [id, { width: NODE_WIDTH, below: TREE_GAP + COUNT_HEIGHT, drops: [0] }] : [id, { width: branches[id].width, below: branches[id].height, drops: branches[id].drops }])), [trees, branches, collapsed]);
   const below = useMemo(() => Object.fromEntries(Object.entries(extents).map(([id, extent]) => [id, extent.below])), [extents]);
@@ -79,6 +81,10 @@ export function Orchestration({ snapshot, selected, connected, effects, onSelect
   const positions = useMemo(() => settle(automatic, layout.positions, extents, awaited), [automatic, layout.positions, extents, awaited]);
   const [view, setView] = useState<View | null>(null);
   const [held, setHeld] = useState<View | null>(null);
+  // The card or baby goblin the pointer rests on or the keyboard is on, whose
+  // line from its parent shows lit end to end.
+  const [lit, setLit] = useState("");
+  const lights = (id: string) => ({ onPointerEnter: () => setLit(id), onPointerLeave: () => setLit(""), onFocus: () => setLit(id), onBlur: () => setLit("") });
 
   const viewport = useRef<HTMLDivElement>(null);
   const ignoreClick = useRef(false);
@@ -125,6 +131,15 @@ export function Orchestration({ snapshot, selected, connected, effects, onSelect
   const lefts = visible.map((node) => point(node.id).x + (NODE_WIDTH - (extents[node.id]?.width || NODE_WIDTH)) / 2);
   const rights = visible.map((node) => point(node.id).x + (NODE_WIDTH + (extents[node.id]?.width || NODE_WIDTH)) / 2);
   const ys = visible.map((node) => point(node.id).y);
+  // A connector a straight drop would take behind a card or what hangs under
+  // it, as one to a later row of goblins, runs down clear of them instead.
+  const taken = visible.map((node, i) => ({ left: lefts[i], right: rights[i], top: ys[i], bottom: ys[i] + NODE_HEIGHT + (below[node.id] || 0) }));
+  const ways = new Map(visible.flatMap((parent) => {
+    const children = visible.filter((node) => node.parent === parent.id);
+    if (!children.length || branches[parent.id] && !collapsed.has(parent.id)) return [];
+    const found = detours(point(parent.id).y + NODE_HEIGHT, children.map((child) => ({ x: point(child.id).x + NODE_WIDTH / 2, y: point(child.id).y })), taken.filter((_, i) => visible[i] !== parent));
+    return children.map((child, i): [string, Detour | undefined] => [child.id, found[i]]);
+  }));
   const fitLeft = lefts.length ? Math.min(...lefts) - 40 : 0;
   const fitTop = ys.length ? Math.min(...ys) - 40 : 0;
   const fitWidth = Math.max(1, ...rights.map((right) => right + 40)) - fitLeft;
@@ -246,19 +261,31 @@ export function Orchestration({ snapshot, selected, connected, effects, onSelect
             let parent: string | undefined = node.parent;
             while (parent && !seen.has(parent)) { seen.add(parent); parent = byID.get(parent)?.parent; }
             if (parent) return null;
-            const sx = from.x + NODE_WIDTH / 2, sy = from.y + NODE_HEIGHT;
+            // Each connector leaves its parent's bottom on its own, a line's
+            // gap from the next, in the order they run down.
+            const down = (id: string) => ways.get(id)?.x ?? point(id).x + NODE_WIDTH / 2;
+            const siblings = nodes.filter((other) => other.parent === node.parent).sort((one, other) => down(one.id) - down(other.id));
+            const index = siblings.indexOf(node), sy = from.y + NODE_HEIGHT;
             const ex = to.x + NODE_WIDTH / 2, ey = to.y;
             // Travel sideways just below the parent, then drop straight
-            // down, so a connector to a second row passes through a gap in
-            // the first. For the next row this is the plain S curve. Under a
-            // parent whose baby goblins hang open, it leaves by their trunk
-            // and runs down beside them, so it never passes behind one.
+            // down. For the next row this is the plain S curve. One to a
+            // later row whose drop would pass behind a card or what hangs
+            // under it drops down the clear way nearest instead, and turns
+            // toward its card above that card's row. Under a parent whose
+            // baby goblins hang open, it runs down beside them on its own
+            // line, so it never passes behind one, the outermost turning
+            // lowest, toward the card furthest that way.
             const block = collapsed.has(node.parent) ? undefined : branches[node.parent];
-            const under = block && sy + block.height + LANE_GAP;
-            const drop = Math.min((ey - sy) / 2, 56);
-            const path = block && under && ey - under >= LANE_GAP / 2
-              ? elbows([{ x: sx, y: sy }, { x: sx, y: sy + block.bar }, { x: sx + block.lane, y: sy + block.bar }, { x: sx + block.lane, y: under }, { x: ex, y: under }, { x: ex, y: ey }])
-              : `M${sx},${sy} C${sx},${sy + drop} ${ex},${sy + drop} ${ex},${sy + 2 * drop} L${ex},${ey}`;
+            const left = from.x + (NODE_WIDTH - (block?.width || 0)) / 2;
+            const beside = block?.passes[index].map((turn) => ({ x: left + turn.x, y: sy + turn.y }));
+            const under = sy + (block?.height || 0) + LANE_GAP + ((siblings.length - 1) / 2 - index) * LINE_GAP;
+            const isBeside = beside !== undefined && ey - under >= LANE_GAP / 2;
+            const sx = isBeside ? beside[0].x : from.x + NODE_WIDTH / 2 + (index - (siblings.length - 1) / 2) * LINE_GAP;
+            const drop = Math.min((ey - sy) / 2, 56), way = ways.get(node.id), dx = way?.x ?? ex;
+            const path = isBeside
+              ? elbows([...beside, { x: beside[beside.length - 1].x, y: under }, { x: ex, y: under }, { x: ex, y: ey }])
+              : `M${sx},${sy} C${sx},${sy + drop} ${dx},${sy + drop} ${dx},${sy + 2 * drop}`
+                + (way ? elbows([{ x: dx, y: sy + 2 * drop }, { x: dx, y: way.turn }, { x: ex, y: way.turn }, { x: ex, y: ey }]).replace(/^M/, " L") : ` L${ex},${ey}`);
             const activity = activityDisplay(connected ? effects : [],node.session?.id || "",byID.get(node.parent || "")?.session?.id || "");
             const reports = connected && node.task ? traffic[node.task.id] || [] : [];
             // Each pulse or birth highlight is its own overlay on the
@@ -266,11 +293,11 @@ export function Orchestration({ snapshot, selected, connected, effects, onSelect
             // it is removed, so the connector itself never changes.
             const effect = (key: string, kind: "communicating" | "creating", start: number, life: number) =>
               <g key={key} ref={playFrom(start)} className={"connector-effect " + kind} style={{ animationDuration: life + "ms" }}>
-                <path d={path} /><circle cx={sx} cy={sy} r={4} /><circle cx={ex} cy={ey} r={4} />
+                <path d={path} /><circle cx={ex} cy={ey} r={4} />
                 {kind === "communicating" && <path className="communication-pulse" d={path} />}
               </g>;
-            return <g key={node.id} className={"connection-line relation-" + node.relation}>
-              <path d={path} /><circle cx={sx} cy={sy} r={4} /><circle cx={ex} cy={ey} r={4} />
+            return <g key={node.id} className={"connection-line relation-" + node.relation + (lit === node.id ? " lit" : "")}>
+              <path d={path} /><circle cx={ex} cy={ey} r={4} />
               {activity.creation && effect(activity.creation.id, "creating", activity.creation.expires - EFFECT_MS, EFFECT_MS)}
               {activity.communication && effect(activity.communication.id, "communicating", activity.communication.expires - EFFECT_MS, EFFECT_MS)}
               {reports.map((report) => effect("report:" + report, "communicating", report, PULSE_MS))}
@@ -320,10 +347,11 @@ export function Orchestration({ snapshot, selected, connected, effects, onSelect
           return [<ul key={"tree:" + node.id} className="tree-branches" aria-label={"What runs under " + node.title}
             style={{ left: p.x + (NODE_WIDTH - block.width) / 2, top: p.y + NODE_HEIGHT, width: block.width, height: block.height }}>
             <svg className="branch-lines" width={block.width} height={block.height} aria-hidden="true">
-              {block.lines.map((line) => <path key={line} d={line} />)}
-              {block.ends.map((end) => <circle key={end.x + "," + end.y} cx={end.x} cy={end.y} r={3} />)}
+              {running(tree).map((child, i) => <g key={child.id} className={lit === "child:" + child.id ? "lit" : undefined}>
+                <path d={block.lines[i]} /><circle cx={block.ends[i].x} cy={block.ends[i].y} r={3} />
+              </g>)}
             </svg>
-            {running(tree).map((child, i) => <li key={child.id} style={{ left: block.places[i].x, top: block.places[i].y }}>
+            {running(tree).map((child, i) => <li key={child.id} style={{ left: block.places[i].x, top: block.places[i].y }} {...lights("child:" + child.id)}>
               <TreeChild node={child} name={babyName(task, child)} now={now} isSelected={selected === "child:" + child.id} onOpen={(source) => onChild(task, child, source)} />
             </li>)}
           </ul>];
@@ -336,7 +364,7 @@ export function Orchestration({ snapshot, selected, connected, effects, onSelect
           const phase = owner && node.task ? statusPhase(node.task, snapshot.merge_trains) : node.session?.runtime?.state || node.session?.phase;
           const children = nodes.some((child) => child.parent === node.id) || !!trees[node.id];
           const asking = owner && asksOverlord(snapshot, node.task?.id || ""), status = nodeStatus(node, asking, snapshot.tasks, snapshot.merge_trains);
-          return <article key={node.id} className={"flow-node" + (activity.created ? " node-enter" : "") + (selected === node.id ? " selected" : "")} style={{ left: p.x, top: p.y, width: NODE_WIDTH, height: NODE_HEIGHT }}>
+          return <article key={node.id} className={"flow-node" + (activity.created ? " node-enter" : "") + (selected === node.id ? " selected" : "")} style={{ left: p.x, top: p.y, width: NODE_WIDTH, height: NODE_HEIGHT }} {...lights(node.id)}>
             {effect && <span key={effect.id} ref={playFrom(effect.expires - EFFECT_MS)} className="activity-glow" aria-hidden="true" />}
             <button className="flow-node-main" onPointerDown={(event) => startDrag(event, node)} onPointerMove={moveDrag} onPointerUp={endDrag} onPointerCancel={endDrag}
               onKeyDown={(event) => {
