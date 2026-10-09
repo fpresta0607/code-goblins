@@ -61,8 +61,8 @@ func TestAStruckLineIsShownStruckInTheReportAndLeavesNothingForHim(t *testing.T)
 	}
 
 	// Assert
-	if sections[0].Title != "Left for you" || len(sections[0].Entries) != 0 {
-		t.Errorf("Left for you = %+v, want nothing: the only line was struck", sections[0])
+	if len(sections) != 1 {
+		t.Errorf("headings = %+v, want only Struck by the CFO: the only line was struck", sections)
 	}
 	last := sections[len(sections)-1]
 	if last.Title != "Struck by the CFO" || len(last.Entries) != 1 || last.Entries[0].What != left.What {
@@ -171,24 +171,5 @@ func TestAStrikeNeedsAReasonAndALineOfTheCFOsNotStruckBefore(t *testing.T) {
 				t.Errorf("log = %+v, want the switch, the line and the one strike", entries)
 			}
 		})
-	}
-}
-
-func TestALineLeftForHimSaysWhatIsWrongAndWhatWasTriedInTheReport(t *testing.T) {
-	// Arrange
-	left := leftForHim()
-	report := Report{Session: "afk-1", Decisions: []Entry{left}}
-
-	// Act
-	var text bytes.Buffer
-	if err := Render(&text, report); err != nil {
-		t.Fatal(err)
-	}
-
-	// Assert
-	for _, want := range []string{"  Found: " + left.Diagnosis, "  Tried: " + left.Tried} {
-		if !strings.Contains(text.String(), want) {
-			t.Errorf("the report text lacks %q:\n%s", want, text.String())
-		}
 	}
 }

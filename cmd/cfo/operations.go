@@ -9,6 +9,7 @@ import (
 	"github.com/fpresta0607/code-goblins/internal/evidence"
 	"github.com/fpresta0607/code-goblins/internal/execx"
 	"github.com/fpresta0607/code-goblins/internal/fleet"
+	"github.com/fpresta0607/code-goblins/internal/fleetconfig"
 	"github.com/fpresta0607/code-goblins/internal/fsx"
 	"github.com/fpresta0607/code-goblins/internal/hygiene"
 	projectcfg "github.com/fpresta0607/code-goblins/internal/project"
@@ -112,7 +113,12 @@ func runRoute(args []string, stdout, stderr io.Writer, runtime commandRuntime) i
 		return 1
 	}
 	report, skipped := readQuota(runtime)
-	choice, e := routing.Choose(a, inputs.table, usableLane(report, skipped))
+	settings, e := fleetconfig.Read(h.Root)
+	if e != nil {
+		fmt.Fprintf(stderr, "cfo route: %v\n", e)
+		return 1
+	}
+	choice, e := routing.Choose(a, inputs.table, usableLane(report, skipped, settings))
 	if e != nil {
 		fmt.Fprintln(stderr, e)
 		return 1
