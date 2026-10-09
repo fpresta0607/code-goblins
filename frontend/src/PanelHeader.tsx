@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, type PointerEvent } from "react";
 import { message, request } from "./api";
 import { type Session, type Snapshot, type Task } from "./types";
 import { Avatar } from "./Avatar";
@@ -27,7 +27,10 @@ import { RestartCfoButton } from "./restart-cfo-button";
 // Who the goblin is, what it is doing now and what the Overlord can do about
 // it. Its status is the one place the panel says the task's state, with one
 // plain sentence under it and the words that sentence leaves out behind
-// Details; a failure links to the task's log. The CFO drawn without a task has
+// Details; a failure links to the task's log. The name and the task take the
+// room first, the name on one line and the task on at most two, and the
+// buttons stay beside them only while all fit on one row, else they take a
+// row of their own under them. The CFO drawn without a task has
 // no worktree to open; its header carries Restart right below its name on
 // its Task view, the AFK toggle beside its status, with Update before it
 // while an update of the CFO's harness waits, and under them what a press of
@@ -45,6 +48,13 @@ export function PanelHeader({ task, node, snapshot, compact, onAnswer, onOpenTas
   const { text: status, phase } = owner ? taskStatus(task, snapshot)
     : cfo ? { text: nodeStatus({ id: "cfo", title, session: cfoSession, relation: "", status: snapshot.registration ? "Registration stale" : cfoSession ? undefined : "Supervising" }), phase: snapshot.registration ? "stale" : cfoSession?.runtime?.state || cfoSession?.phase || "working" }
       : { text: nodeStatus({ id: title, title, task, session: node, relation: "" }, false, snapshot.tasks, trains), phase: node?.runtime?.state || node?.phase || "" };
+  const goblinTask = owner && task.phase !== "queued" && task.goblin_name ? taskName(task) : "";
+  // The name or the task cut short shows in full in its tip. Each carries an
+  // empty tip until it is pointed at, so the board's tips count it as a part
+  // from the start, as they count a card.
+  const [cut, setCut] = useState({ name: false, task: false });
+  const isCut = (element: Element | null) => !!element && (element.scrollWidth > element.clientWidth + 1 || element.scrollHeight > element.clientHeight + 1);
+  const measure = (event: PointerEvent<HTMLElement>) => setCut({ name: isCut(event.currentTarget.querySelector("#panel-title")), task: isCut(event.currentTarget.querySelector("p.panel-goblin-task")) });
   const said = owner ? taskSummary(task, snapshot.tasks, status) : undefined;
   // What a queued task's wait line leaves out: the CFO's note on it, or what
   // says it already finished.
@@ -68,32 +78,34 @@ export function PanelHeader({ task, node, snapshot, compact, onAnswer, onOpenTas
   };
   return <header className={"panel-header" + (compact ? " compact" : "")}>
     <Avatar persona={cfo ? "cfo" : personaFor(task, node)} small />
-    <div className="panel-identity">
-      <h2 id="panel-title">{title}</h2>
-      {cfo && <RestartCfoButton snapshot={snapshot} isCompact={compact} />}
-      {owner && task.phase === "queued" ? <TaskAdjustment key={task.id} task={task} snapshot={snapshot} /> : owner && task.goblin_name && <p className="panel-goblin-task">{taskName(task)}</p>}
-      {!compact && task?.project && <div className="project-line"><p className="project-label">{task.project}</p><PeopleRow snapshot={snapshot} task={task} /></div>}
-      <p className={"panel-status plain-status phase-" + phase}><span className="status-dot" />{status}{awaited && <button className="status-link" aria-label={"Open " + goblinName(awaited) + ", which this goblin is waiting on"} data-tip={"Open " + goblinName(awaited)} onClick={() => onOpenTask(awaited)}><Icon name="next" /></button>}</p>
-      {!compact && !owner && node && task && <p className="muted">Part of {goblinName(task)}</p>}
-      {!compact && said?.sentence && <p className="panel-activity">{said.sentence}</p>}
-      {!compact && said && (said.details.length > 0 || said.isFailure || note) && <div className="panel-details-row">
-        <RawDetails lines={said.details} />
-        <RawDetails lines={note ? [note] : []} label="More" />
-        {owner && said.isFailure && !task.archived && <button className="text-button" onClick={onOpenLog}>Open the log</button>}
+    <div className="panel-heading">
+      <div className="panel-identity" onPointerEnter={measure}>
+        <h2 id="panel-title" data-tip={cut.name ? title : ""} data-tip-align="start">{title}</h2>
+        {cfo && <RestartCfoButton snapshot={snapshot} isCompact={compact} />}
+        {owner && task.phase === "queued" ? <TaskAdjustment key={task.id} task={task} snapshot={snapshot} /> : goblinTask && <p className="panel-goblin-task" data-tip={cut.task ? goblinTask : ""} data-tip-align="start">{goblinTask}</p>}
+        {!compact && task?.project && <div className="project-line"><p className="project-label">{task.project}</p><PeopleRow snapshot={snapshot} task={task} /></div>}
+        <p className={"panel-status plain-status phase-" + phase}><span className="status-dot" />{status}{awaited && <button className="status-link" aria-label={"Open " + goblinName(awaited) + ", which this goblin is waiting on"} data-tip={"Open " + goblinName(awaited)} onClick={() => onOpenTask(awaited)}><Icon name="next" /></button>}</p>
+        {!compact && !owner && node && task && <p className="muted">Part of {goblinName(task)}</p>}
+        {!compact && said?.sentence && <p className="panel-activity">{said.sentence}</p>}
+        {!compact && said && (said.details.length > 0 || said.isFailure || note) && <div className="panel-details-row">
+          <RawDetails lines={said.details} />
+          <RawDetails lines={note ? [note] : []} label="More" />
+          {owner && said.isFailure && !task.archived && <button className="text-button" onClick={onOpenLog}>Open the log</button>}
+        </div>}
+      </div>
+      {owner && !!task.generation && <div className="panel-actions">
+        <button className="icon-button raised" disabled={opening || !snapshot.instance} aria-label="Open in VS Code" data-tip="Open in VS Code" data-tip-align="start" onClick={() => void open("vscode")}><img className="brand-icon" src="/assets/vscode.svg" alt="" /></button>
+        <button className="icon-button raised" disabled={opening || !snapshot.instance} aria-label="Open folder" data-tip="Open folder" onClick={() => void open("folder")}><Icon name="folder" /></button>
+        {waiting && <button className="icon-button raised pill-link answer" aria-label={"Answer: " + (waiting.kind === "question" ? plainMessage(waiting.question.text) : waiting.kind === "credential" ? credentialAsk(waiting.request) : reviewLine(waiting.review))} onClick={() => onAnswer(waiting.key)}><Icon name="command-center" /><span>Answer</span></button>}
+        {task.ticket && <TicketLink ticket={task.ticket} className="icon-button raised pill-link" />}
+        {pr && <a className="icon-button raised pill-link" href={pr} target="_blank" rel="noreferrer" aria-label={"Open pull request " + pullRequestLabel(pr)} data-tip="Open pull request">{badge.github ? <svg className="icon brand-glyph" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d={BRAND_MARKS.github.path} /></svg> : <Icon name="pull-request" />}<span>{badge.label}</span></a>}
+        {owner && task.local_checks && <LocalChecksLink checks={task.local_checks} taskId={task.id} className="icon-button raised pill-link" />}
+        {pr && test && <PullRequestTestLink test={test} approved={!!task.hosted_checks?.approved} className="icon-button raised pill-link" />}
+        {owner && task.deployment && <DeploymentLink deployment={task.deployment} className="icon-button raised pill-link" />}
+        <ClickFeedback text={feedback} />
       </div>}
     </div>
     {cfo && <AfkToggle afk={snapshot.afk} instance={snapshot.instance} leading={<CfoUpdate snapshot={snapshot} />} />}
     {cfo && snapshot.cfo_update?.pending && <p className="cfo-update-line" role="status"><Icon name="clock" />Restarts onto the {harnessName(snapshot.cfo_update.harness)} update when its turn ends.</p>}
-    {owner && !!task.generation && <div className="panel-actions">
-      <button className="icon-button raised" disabled={opening || !snapshot.instance} aria-label="Open in VS Code" data-tip="Open in VS Code" data-tip-align="start" onClick={() => void open("vscode")}><img className="brand-icon" src="/assets/vscode.svg" alt="" /></button>
-      <button className="icon-button raised" disabled={opening || !snapshot.instance} aria-label="Open folder" data-tip="Open folder" onClick={() => void open("folder")}><Icon name="folder" /></button>
-      {waiting && <button className="icon-button raised pill-link answer" aria-label={"Answer: " + (waiting.kind === "question" ? plainMessage(waiting.question.text) : waiting.kind === "credential" ? credentialAsk(waiting.request) : reviewLine(waiting.review))} onClick={() => onAnswer(waiting.key)}><Icon name="command-center" /><span>Answer</span></button>}
-      {task.ticket && <TicketLink ticket={task.ticket} className="icon-button raised pill-link" />}
-      {pr && <a className="icon-button raised pill-link" href={pr} target="_blank" rel="noreferrer" aria-label={"Open pull request " + pullRequestLabel(pr)} data-tip="Open pull request">{badge.github ? <svg className="icon brand-glyph" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d={BRAND_MARKS.github.path} /></svg> : <Icon name="pull-request" />}<span>{badge.label}</span></a>}
-      {owner && task.local_checks && <LocalChecksLink checks={task.local_checks} taskId={task.id} className="icon-button raised pill-link" />}
-      {pr && test && <PullRequestTestLink test={test} approved={!!task.hosted_checks?.approved} className="icon-button raised pill-link" />}
-      {owner && task.deployment && <DeploymentLink deployment={task.deployment} className="icon-button raised pill-link" />}
-      <ClickFeedback text={feedback} />
-    </div>}
   </header>;
 }

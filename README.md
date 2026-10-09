@@ -394,8 +394,9 @@ When free commit (memory plus page file) is the shorter of the two, the meter sh
 A line also warns when the kernel's paged pool passes 4 GB: Windows holds that memory, no goblin can use it, and restarting the PC frees it.
 The bar spans 10 GB, with amber below 5 GB and red below the floor.
 In the same box, under memory, **Disk free** shows the free space on the home's drive, on a bar marked at the 15 GB disk floor and the 10 GB mark at which the CFO is woken: amber under the floor, where no goblin and no gate test run starts, and red under the mark.
-Beside the meter, a ring around the Claude or OpenAI mark shows that subscription's weekly allowance remaining as `quota-axi` last read it, with a tick at the 5 percent reserve.
-A mark appears only while a live CFO or goblin terminal runs that harness, and shows **?** when the reading is stale, unavailable or needs a sign-in; hover, focus or hold a ring for its reset time and the reading's age.
+Beside the meter, a ring around the Claude or OpenAI mark shows that subscription's weekly allowance remaining as `quota-axi` last read it, and turns amber within five points of its reserve, the weekly floor the home keeps for that provider.
+A mark appears only while a live CFO or goblin terminal runs that harness, and shows **?** when the reading is stale, unavailable or needs a sign-in; hover, focus or hold a ring for its reset time, the reading's age and the reserve.
+Under a floor of 0 the reserve reads **No reserve, runs to 0%**.
 The first eligible task is marked **Next up**.
 The supervisor uses each free slot for the oldest pause whose condition has cleared, then for the queue in the Overlord's order.
 Slots go by memory alone: a start needs 5 GB of memory and of commit free, and no count of goblins holds one back, however many run.
@@ -447,10 +448,12 @@ Answers to paused goblins are retained for their resume prompt.
 Resume requires the same 5 GB of free memory and of free commit, and continues a saved session less than a day after pausing where supported, otherwise using the saved handoff.
 Start, spawn and Resume check memory and commit alone for room: there is no cap on how many goblins run, and the 4 GB floor is what they keep.
 An older build's `max_live_goblins` in `config/fleet.json` is taken out by `cfo install` and `cfo update`, which say so, since a key the build does not read makes it refuse the file and every start with it.
-At 5 percent remaining in a measured weekly allowance window, the same supervisor scheduler requests each affected goblin's handoff and pauses it until the applicable weekly windows reset.
+At the weekly floor, the percent of a measured weekly allowance window the home keeps back, the same supervisor scheduler requests each affected goblin's handoff and pauses it until the applicable weekly windows reset.
+Each provider has its own floor, 5 percent unless `cfo allowance-floor <claude|codex> <percent>` sets another in `config/fleet.json`, and `cfo allowance-floor` alone says each one.
+At a floor of 0 goblins run on the week until the provider itself refuses.
 It pauses at the memory floor too, whether or not [AFK mode](#afk-mode) is on: after two readings in a row under 4 GB of free memory or commit, the newest goblin that is not pushing or merging is paused with the reason `memory`, one at a time.
 Short session or model windows do not trigger this reserve, and missing or stale quota remains unknown.
-A used-up session window is waited out rather than paused: nothing starts or resumes on its harness until it renews, and then the CFO is woken once with the goblins it stopped, to send on any that sits idle.
+A used-up session window, or a week used up under a floor of 0, is waited out rather than paused: nothing starts or resumes on its harness until it renews, and then the CFO is woken once with the goblins it stopped, to send on any that sits idle.
 The CFO also hears once when a window a running goblin draws on passes 85 percent used.
 On the board, a paused card says in place of Paused why it waits and what resumes it, in a few words such as "Memory: resumes at 5 GB free", "Waiting on PR #331 to merge" or "Waiting on CI, usually 13 min", the last from the median of that repository's measured runs.
 Under the 5 GB mark, Start and Resume say what they need on the card instead of being refused after the click; the memory meter shows no count of goblins or cap.
@@ -621,6 +624,8 @@ A goblin blocked, failed or done is said on its card, never as an alert, and rou
 A pause or stop that the CFO or you asked for is never shown as a failure: a stop that did not finish reads **Stop did not finish** on its card, a pause that did not finish shows what the goblin is doing, and the CFO hears of either.
 A goblin whose pause did not finish but whose terminal has ended since is paused, in the Paused section, and resumes.
 A goblin paused, resuming or starting, and the CFO while none runs, has a message box in its Terminal view: what you write there is queued and delivered once, typed into its terminal when it can take it or carried by its resume.
+Send or Enter sends it, and holding the box's microphone dictates into it as a terminal's dictation does.
+A message kept for a paused goblin's resume has a delete button until the resume carries it.
 If unanswered blocked or failed questions have waited on the CFO for ten minutes, the CFO's bar says how many and how long the oldest has waited, in place of All quiet, until the CFO catches up; that is never an alert and never turns those questions into decisions for you.
 While the board's tab is hidden or its window is minimized, a new item raises a Windows notification once you allow them, naming who asks and saying what in one plain line; the board asks once, with the first item, and clicking the notification opens that item in the Command Center.
 An unfocused window that is still visible sends no Windows notification.
@@ -629,7 +634,8 @@ Your browser remembers the last 100 alerts it showed.
 
 New items also stay under the badge, and the browser tab's title counts what is waiting on you.
 A goblin's item closes by itself once nobody waits on it: a wait when the goblin finishes, fails or waits on you again, or the CFO answers it, but never while the goblin works on beside it, any item but a delivered document when its goblin finishes or is cleaned up, and the CFO can clear a stale one with a reason.
-Several items stack up one card at a time, the CFO's first and then goblins in the In progress order, each goblin's by longest wait, then goblins you have not placed, by longest wait: each card's action row has **Back**, its place such as 2 of 4, and **Next** on the left and its answer on the right, and you can swipe; closing keeps every item for later.
+Several items stack up one card at a time, the CFO's first and then goblins in the In progress order, each goblin's by longest wait, then goblins you have not placed, by longest wait: each card's action row has **Back**, its place such as 2 of 4, and **Skip**, which leaves the card as it is and shows the next, on the left and its answer on the right, and you can swipe.
+Closing keeps every item for later.
 The moment you send, a check draws with **Sent** and the next open item follows by itself while the answer is delivered in the background; the last one ends on **You're all done** and the Command Center closes.
 It always opens at the top of its item, and each next item starts at its top.
 An answer the board refused comes back on its card with a few words of what went wrong, and **Retry** sends it again; refused after you moved on or closed the Command Center, it opens nothing, and it keeps waiting under **Waiting on you** until you send it again.
@@ -686,8 +692,11 @@ While it is on:
   It gives the merge word for a goblin's pull request that is verified, green in CI on a head that holds main's tip and mergeable, names and verifies each deploy, applies a merged migration that adds or changes and reads it back, installs a merged build once the merge queue settles, and answers the goblin questions that are its own to answer.
 - These stay yours, always: a migration or command that drops or deletes data, deleting a branch, a teammate's branch or pull request, spend beyond your account's limits, your own sign-ins and identity checks, and anything a tool refuses.
   They are never decided for you, and while you are away you are not asked about them either.
-  AFK mode is complete autopilot: the CFO gives each a backlog row, works around it, and your report lists it under **Left for you** with what is wrong and what the CFO already tried.
-  When you turn AFK mode off, each of them waits in the Command Center as a question with its choices.
+  AFK mode is complete autopilot: the CFO gives each a backlog row, works around it, and your report lists it with what was held for you.
+  When you turn AFK mode off, each of them waits in the Command Center as a question with what is wrong, what the CFO already tried and its choices.
+  One the CFO saw to while you were away, its backlog row done, its task finished or its own later decision, is settled with what became of it and never asked.
+- Any other decision you would have been asked, the CFO answers itself and acts on.
+  When you turn AFK mode off, each waits in the Command Center with the CFO's answer checked and marked as the CFO's: keep it, or choose another and the CFO undoes or redoes what its answer started.
 - The board does not prompt you: the Command Center does not open by itself, and the board shows no alert and sends no Windows notification.
   Nothing is held for you, and a goblin blocked only on something of yours moves to its next piece of work.
   The CFO's bar says since when AFK is on, who turned it on and how much the CFO decided.
@@ -696,19 +705,26 @@ While it is on:
 
 At your first click or key on the board after five minutes with none, the board offers to turn it off.
 When the CFO turned it on at your ask, your very first click or key offers it at once, quoting your words, so a switch made on your words meets you before anything else.
-Turning it off shows the report of the stretch on the board as one page: who turned it on and off, how much of each thing there is, then **Held for you**, listing and counting only items still waiting on you in the Command Center, with their recommendations and their goblins' progress.
-Next come what was left for you, what merged, deployed and installed, each with its link and its verification, the goblins paused at a floor, what each goblin finished, and **Spent**.
-Decision sections and **Goblins finished** are drawers, closed until you open them; **Left for you** and merge words with no merge stay open because they still need you.
+Turning it off shows the report of the stretch on the board as one page.
+It opens on a headline in plain words, how long you were away, how many things wait on you and what the CFO merged, deployed, migrated and installed, beside who turned it on and off and **Go through them**.
+**For you** lists what was held or left for you that still waits on you in the Command Center, each as it stands now, with its recommendation, the CFO's answer to a decision it made itself, and its goblin's progress.
+What no longer waits, answered or settled with what became of it, folds under **Settled**.
+**What the CFO did** follows, a drawer for each heading that holds something, closed until you open it: what merged, deployed, migrated and installed, each with its link and its verification, what it answered for goblins, the goblins paused at a floor and what each goblin finished.
+Merge words with no merge stay open because they still need you.
 **Spent** and the short **Not read** section stay open too.
+**Go through them** opens the Command Center on what still waits from the stretch, one item at a time on the same card every question has.
+A decision the CFO answered opens with its answer checked and marked as the CFO's: **Keep the CFO's answer** keeps it, and another choice tells the CFO, which undoes or redoes what its answer started.
+What only you can do opens with nothing checked.
+**Back** goes to the one before, and **Skip** leaves one as it is and shows the next.
+The Command Center's list offers **Go through them** too whenever two or more things wait on you.
 A line the CFO logged by mistake and struck is shown struck through under **Struck by the CFO**, with its reason, and never as something that needs you.
 Spent shows only weekly limits and credit balances that were spent, leaving out five-hour limits.
 A weekly limit shows what is left, such as **51% left**, beside **AFK used 8%**, or **renewed** if the limit renewed during AFK.
 Equal-length bars show usage before AFK in gray, usage while AFK in green under a green arrow, and what is left as the empty rest, with the legend **Before AFK While AFK Left**.
 With a reading at only one end, the row shows only what is left, with no bar, change chip or line saying a reading was not taken.
 Credit rows show the amount spent without a percent bar.
-Its button at the bottom is Open Command Center while a held item still waits on you, and Back to the board otherwise.
 The button beside the toggle opens the last report again.
-Each time you open it, Held for you is checked again, so an item you answered no longer appears or counts there.
+Each time you open it, For you is checked again, so an item you answered moves to Settled.
 `cfo afk status` shows who turned it on and when, what the CFO has decided so far and what waits on you in the Command Center.
 `cfo afk off` prints a text report, `cfo afk report` prints it again, and every decision stays in `state\afk.audit`.
 The text report keeps held items' current dispositions and allowance readings at both ends, as in the example below; the board uses the presentation above.
@@ -718,28 +734,20 @@ If the switch itself ever cannot be read, a press on the board's toggle or `cfo 
 AFK MODE REPORT
 AFK mode was on from 2026-10-02 02:10 UTC to 2026-10-02 12:31 UTC (10h21m): turned on from his own terminal (powershell.exe pid 4242), off from his own terminal (powershell.exe pid 5151).
 
-Held for you (1), each as it stands now
+For you (3), each as it stands now
 - question:drop-legacy-invoices, the CFO's: Migration 0042 drops legacy_invoices. Apply it?
   The CFO recommends: Keep it held.
   Now: still waiting on you.
-
-Left for you (1)
-- Sign in to Vercel for pd-auth?
-  Evidence: your own sign-in, backlog row pd-auth-vercel-sign-in, pd-auth moved on to the invoice export
-  Found: the stored Vercel token expired at 01:10Z and Vercel answers 403 to the deploy probe
-  Tried: cfo auth --fix read the store and the .env again, and neither holds a newer token
+- question:afk-left-20261002T031000.000000000Z, the CFO's: Sign in to Vercel for pd-auth?
+  The CFO recommends: I will sign in.
+  Now: still waiting on you.
+- question:afk-left-20261002T044000.000000000Z, the CFO's: Finish or abort your parked gate run?
+  The CFO recommended: Abort it.
+  Now: settled by the CFO: the run finished on its own.
 
 Merged (1)
 - https://github.com/you/northwind-api/pull/412: merged
   Evidence: verified: gate run 41 passed and its test output was read; head 3f1a9c0; 7 checks completed green; mergeable; ...
-
-Deployed (0)
-
-Migrations applied (0)
-
-Installed (0)
-
-Answered for goblins (0)
 
 Goblins finished (1)
 - northwind-invoices: https://github.com/you/northwind-api/pull/412 (03:14 UTC)
@@ -748,7 +756,7 @@ Spent
 - claude week: 40% used when it turned on, 47% when it turned off (7 points)
 ```
 
-AFK mode shares the supervisor's allowance pause at 5 percent weekly remaining and its automatic resume at the reset.
+AFK mode shares the supervisor's allowance pause at each provider's weekly floor and its automatic resume at the reset.
 The fleet also pauses cleanly at the memory floor, whether or not it is on: when two readings in a row find free memory or commit under 4 GB, the supervisor pauses the newest goblin that is not pushing or merging, keeping its handoff, one goblin at a time, and resumes it once memory and commit are back at 5 GB.
 Each pause at either floor while it is on is in the report under **Paused at a floor**, with the readings it stood on and how it went.
 
@@ -944,7 +952,7 @@ It stays local and private: nothing in it is pushed anywhere, and no repository 
 <CFO home>\
   bin\                            cfo.exe, goblins.exe and the desktop window, on PATH
   state\                          the fleet's own record: tasks, status logs, the wake queue, the board
-  config\                         the gate policy, fleet.json (the disk floor, the caches cap and github_owners), and dev-drive.json once the next three folders moved to a Dev Drive
+  config\                         the gate policy, fleet.json (the disk floor, the caches cap, github_owners and the weekly allowance floors), and dev-drive.json once the next three folders moved to a Dev Drive
   worktrees\<project>\<task>\     each goblin's worktree of your checkout, and its extra worktrees beside it
   scratch\<task>\                 each goblin's temporary files, which go with the task
   caches\                         the package caches goblins share, kept under 20 GB

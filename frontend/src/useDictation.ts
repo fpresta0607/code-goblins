@@ -20,9 +20,11 @@ interface Note { text: string; lasting: boolean }
 
 const NO_NOTE: Note = { text: "", lasting: false };
 
-// Push-to-talk dictation for one terminal. Its key handler hands every key to
-// key first: false means the terminal must not see the key, true that it may,
-// and null that the key is not dictation's. What was heard is typed with type.
+// Push-to-talk dictation for one terminal or message box. Its key handler
+// hands every key to key first: false means the terminal must not see the
+// key, true that it may, and null that the key is not dictation's. start and
+// stop listen for as long as a microphone button is held. What was heard is
+// typed with type.
 // level reads the microphone while listening, for the voice bubble's waveform.
 // instance is the board's token, which the supervisor's speech model is asked
 // with, and model is that model's name once the supervisor has said it.
@@ -93,6 +95,25 @@ export function useDictation(type: (text: string) => void, instance: string) {
       document.removeEventListener("visibilitychange", hide);
     };
   }, []);
+  // start listens until stop, as holding the shortcut or a microphone button
+  // does.
+  const start = useCallback(() => {
+    const heard = (text: string) => {
+      typeText.current(followsDictation.current ? " " + text : text);
+      followsDictation.current = true;
+    };
+    const problem = (text: string) => {
+      setNote({ text, lasting: false });
+      if (text) void follow();
+    };
+    // Words that could not be had go to the CFO, not onto the board.
+    const failed = (reason: string) => reportToCfo("dictation", reason);
+    // A set-up that failed was shown until now.
+    setNote((prior) => prior.lasting && !following.current ? NO_NOTE : prior);
+    dictation.current ??= new Dictation({ heard, listening: setListening, problem, failed }, () => recognizerFor(() => token.current), navigator.language || "en-US", openMicrophone);
+    dictation.current.start();
+  }, [follow]);
+  const stop = useCallback(() => dictation.current?.stop(), []);
   const key = useCallback((event: KeyboardEvent): boolean | null => {
     const meaning = dictationKey(event);
     if (!meaning) {
@@ -100,27 +121,10 @@ export function useDictation(type: (text: string) => void, instance: string) {
       return null;
     }
     if (meaning.swallow) event.preventDefault();
-    if (meaning.action === "start") {
-      const heard = (text: string) => {
-        typeText.current(followsDictation.current ? " " + text : text);
-        followsDictation.current = true;
-      };
-      const problem = (text: string) => {
-        setNote({ text, lasting: false });
-        if (text) void follow();
-      };
-      // Words that could not be had go to the CFO, not onto the board.
-      const failed = (reason: string) => reportToCfo("dictation", reason);
-      // A set-up that failed was shown until now.
-      setNote((prior) => prior.lasting && !following.current ? NO_NOTE : prior);
-      dictation.current ??= new Dictation({ heard, listening: setListening, problem, failed }, () => recognizerFor(() => token.current), navigator.language || "en-US", openMicrophone);
-      dictation.current.start();
-    }
-    if (meaning.action === "stop") {
-      dictation.current?.stop();
-    }
+    if (meaning.action === "start") start();
+    if (meaning.action === "stop") stop();
     return !meaning.swallow;
-  }, [follow]);
+  }, [start, stop]);
   const level = useCallback(() => dictation.current?.level() ?? 0, []);
-  return { listening, note: note.text, key, level, model };
+  return { listening, note: note.text, key, start, stop, level, model };
 }

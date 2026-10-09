@@ -387,6 +387,9 @@ button:disabled, textarea:disabled { cursor: default; opacity: .55; }
 .question-option { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 12px; font-size: 1.125rem; font-weight: 550; min-width: 0; overflow-wrap: anywhere; }
 .question-option small { flex-basis: 100%; color: #b3c0c7; font-size: 1rem; font-weight: 400; }
 .recommendation { color: var(--recommend-ink); background: var(--recommend-fill); padding: 2px 9px; border-radius: 7px; font-size: .9375rem; font-weight: 600; }
+.question-modal .from-afk { margin: -8px 0 14px; color: var(--muted); font-size: .9375rem; }
+.command-center-updates h3 .go-through { margin-left: auto; min-height: 36px; padding: 0 14px; font-size: .9375rem; }
+.stack-pager > button { padding: 0 16px; }
 .cfo-answer { color: var(--mint); border: 1px solid var(--glass-border-hover); padding: 1px 9px; border-radius: 7px; font-size: .9375rem; font-weight: 600; white-space: nowrap; }
 .written-answer textarea { width: 100%; background: var(--field-bg); }
 @media (max-width: 40rem) {
@@ -670,7 +673,7 @@ button.dialogue-portrait:hover::before { background: #2e241b; }
 
 /* The goblin panel: a top row with the Task and Terminal pill, a header that
    says who the goblin is and what it is doing, then one of the two views. */
-.goblin-panel { display: flex; flex-direction: column; flex: 1; min-height: 0; }
+.goblin-panel { container: goblin-panel / inline-size; display: flex; flex-direction: column; flex: 1; min-height: 0; }
 /* The panel's top row, on one line at any width: the Task and Terminal
    switch in the middle while there is room, then the controls and the corner
    button, Close or Back, which keep their own width whatever the switch
@@ -694,12 +697,19 @@ button.dialogue-portrait:hover::before { background: #2e241b; }
    button. */
 .panel-pill.icons button { width: 44px; padding: 0; justify-content: center; }
 .panel-pill button[aria-pressed="true"] { color: #f4fbff; border-color: transparent; background: var(--glass-bg-hover) padding-box, linear-gradient(var(--hero-surface), var(--hero-surface)) padding-box, var(--electric-ring) border-box; box-shadow: var(--electric-glow); }
-.panel-header { display: grid; grid-template-columns: 88px minmax(0, 1fr); align-items: center; gap: 14px 20px; padding: 18px 28px 20px; border-bottom: 1px solid var(--border); flex: none; }
+.panel-header { display: grid; grid-template-columns: auto minmax(0, 1fr); align-items: center; gap: 14px 20px; padding: 18px 28px 20px; border-bottom: 1px solid var(--border); flex: none; }
 .panel-header .goblin-avatar { width: 88px; height: 88px; }
 .panel-identity { display: grid; gap: 4px; min-width: 0; }
-.panel-header h2 { font-size: clamp(1.625rem, 2.4vw, 2rem); line-height: 1.2; overflow-wrap: anywhere; }
-/* A named goblin's task, under its name. */
+/* A goblin's name and task take the room first: its buttons stay beside them
+   only while all fit on one row, and otherwise take a row of their own under
+   them, starting where they start. */
+.panel-heading { display: flex; flex-wrap: wrap; align-items: center; gap: 12px 20px; min-width: 0; }
+.panel-heading > .panel-identity { flex: 1 1 auto; }
+/* The name keeps to one line and a named goblin's task, under it, to two,
+   and neither breaks a word. */
+.panel-header h2 { font-size: clamp(1.625rem, 2.4vw, 2rem); line-height: 1.2; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .panel-goblin-task { margin: 0; color: #c4d4df; font-size: 1.125rem; font-weight: 600; overflow-wrap: anywhere; }
+p.panel-goblin-task { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; overflow-wrap: normal; }
 /* The CFO's Restart, under its name on one line at the height of the
    header's other controls, and what a press could not do beside it in muted
    words. */
@@ -744,7 +754,7 @@ button.dialogue-portrait:hover::before { background: #2e241b; }
 .panel-actions { grid-column: 1 / -1; display: flex; flex-wrap: wrap; align-items: center; gap: 10px; }
 .panel-header .workspace-outcome { grid-column: 1 / -1; margin: 0; }
 .pill-link { width: auto; min-width: 44px; padding: 0 14px 0 10px; border-radius: 999px; display: inline-flex; gap: 6px; color: #dff7ee; font-weight: 800; }
-.panel-header.compact { grid-template-columns: 48px minmax(0, 1fr) auto; gap: 10px 14px; padding: 10px 18px 12px; }
+.panel-header.compact { gap: 10px 14px; padding: 10px 18px 12px; }
 .panel-header.compact .goblin-avatar { width: 48px; height: 48px; }
 .panel-header.compact h2 { font-size: 1.375rem; }
 /* A baby goblin's panel: its head where a goblin's portrait is, and its name
@@ -755,7 +765,6 @@ button.dialogue-portrait:hover::before { background: #2e241b; }
 .panel-child-title > span:first-child { flex: 0 1 auto; }
 .panel-child-task { flex: 1 1 0; color: #c4d4df; font-size: 1.125rem; font-weight: 600; }
 .panel-child-task::before { content: "·"; margin-right: 10px; color: var(--muted); }
-.panel-header.compact .panel-actions { grid-column: auto; }
 .panel-task { position: relative; flex: 1; min-height: 0; overflow: hidden auto; scrollbar-gutter: stable; }
 .panel-content { padding: 0 28px 30px; }
 .panel-content > .disclosure { border: 0; border-top: 1px solid var(--border); border-radius: 0; background: transparent; margin: 0; }
@@ -853,12 +862,17 @@ button.dialogue-portrait:hover::before { background: #2e241b; }
 .voice-empty, .voice-footer { color: var(--bone-dim); font-size: .9375rem; }
 .voice-footer { padding-top: 10px; border-top: 1px solid var(--edge); }
 @media (max-width: 50rem) {
-  .panel-header { padding: 16px 18px 18px; grid-template-columns: 64px minmax(0, 1fr); gap: 12px; }
+  .panel-header { padding: 16px 18px 18px; gap: 12px; }
   .panel-header .goblin-avatar { width: 64px; height: 64px; }
   .panel-content { padding-inline: 18px; }
   .panel-pill button { padding-inline: 14px; }
-  .panel-header.compact { grid-template-columns: 48px minmax(0, 1fr); }
-  .panel-header.compact .panel-actions { grid-column: 1 / -1; }
+}
+/* A panel too narrow for the Task view's portrait beside a name on one line
+   gives its header the Terminal view's sizes. */
+@container goblin-panel (max-width: 36rem) {
+  .panel-header { gap: 10px 14px; padding-inline: 18px; }
+  .panel-header .goblin-avatar { width: 48px; height: 48px; }
+  .panel-header h2 { font-size: 1.375rem; }
 }
 
 /* The comment affordance is a speech-bubble icon, never a font glyph,
