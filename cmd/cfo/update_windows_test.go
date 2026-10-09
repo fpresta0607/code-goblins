@@ -1616,12 +1616,22 @@ func TestRollbackLeavesASupervisorOfAnotherStateRunning(t *testing.T) {
 	if err := updating.Start(); err != nil {
 		t.Fatal(err)
 	}
-	for deadline := time.Now().Add(20 * time.Second); ; time.Sleep(100 * time.Millisecond) {
+	updatingStart, _ := proc.StartTime(updating.Process.Pid)
+	u.started[updating] = updatingStart
+	ended := make(chan error, 1)
+	go func() { ended <- updating.Wait() }()
+	// Before it stops the supervisor the update hashes and copies the build
+	// five times, which took 20 seconds on a loaded runner (CI run
+	// 37910705369), so the wait lasts until it stops it or ends, never a
+	// fixed time.
+	for ; ; time.Sleep(100 * time.Millisecond) {
 		if journal, err := update.ReadJournal(u.state); err == nil && journal.Phase == update.Stopped {
 			break
 		}
-		if time.Now().After(deadline) {
-			t.Fatal("the update never stopped the supervisor")
+		select {
+		case err := <-ended:
+			t.Fatalf("the update ended %v before it stopped the supervisor:\n%s", err, output.String())
+		default:
 		}
 	}
 	foreign := exec.Command(filepath.Join(u.bin, "goblins.exe"), "serve", "--listen", "127.0.0.1:0")
@@ -1634,7 +1644,7 @@ func TestRollbackLeavesASupervisorOfAnotherStateRunning(t *testing.T) {
 	u.started[foreign] = foreignStart
 	go func() { _ = foreign.Wait() }()
 
-	err := updating.Wait()
+	err := <-ended
 
 	if exit, ok := err.(*exec.ExitError); !ok || exit.ExitCode() != updateRolledBack {
 		t.Fatalf("update ended %v, want exit %d:\n%s", err, updateRolledBack, output.String())
