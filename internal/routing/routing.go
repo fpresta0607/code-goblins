@@ -382,6 +382,12 @@ func thirdPartyErrorWord(line, keyword string) bool {
 	return false
 }
 
+// usageWarning is the notice Claude Code prints as a limit nears, "You've
+// used 76% of your weekly limit · resets Oct 13, 10am": it names the limit
+// and its reset as the refusal does, but the harness works on, so its reset
+// is no refusal's. On 2026-10-08 it woke the CFO five times as a rate limit.
+var usageWarning = regexp.MustCompile(`used \d+(?:\.\d+)?% of your [a-z -]*limit`)
+
 // retryOrResetTime is a retry or reset time written as one, "retry after 30s"
 // or "try again at Sep 26th", or the reset Claude Code's session-limit banner
 // prints beside the limit, "You've hit your session limit · resets 3:30pm",
@@ -391,9 +397,10 @@ var retryOrResetTime = regexp.MustCompile(`(?:retry-after|retry after|retrying i
 
 // errorShaped reports whether a line is shaped like a provider's own refusal
 // rather than prose about one: a 429 or 403 status, a provider's error type,
-// a harness's "API Error:", a retry or reset time, or Claude Code's own usage
-// and spend limit banners. An error word is not a shape: "API errors, and
-// rate limits" is a goblin listing doc topics.
+// a harness's "API Error:", a retry or reset time other than a usage
+// warning's, or Claude Code's own usage and spend limit banners. An error
+// word is not a shape: "API errors, and rate limits" is a goblin listing doc
+// topics.
 func errorShaped(line string) bool {
 	for _, code := range []string{"429", "403"} {
 		if hasStatusCode(line, code) {
@@ -405,7 +412,7 @@ func errorShaped(line string) bool {
 			return true
 		}
 	}
-	return retryOrResetTime.MatchString(line) || strings.TrimSpace(strings.TrimLeft(line, " \t⎿●✻◐⏺❯›>│")) == "usage limit reached"
+	return retryOrResetTime.MatchString(line) && !usageWarning.MatchString(line) || strings.TrimSpace(strings.TrimLeft(line, " \t⎿●✻◐⏺❯›>│")) == "usage limit reached"
 }
 
 // lineAt returns the single line of text containing index.

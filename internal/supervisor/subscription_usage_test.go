@@ -3,9 +3,11 @@ package supervisor
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"maps"
 	"slices"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -202,11 +204,129 @@ func TestSubscriptionRefreshProjectsOnlySafeWeeklyFields(t *testing.T) {
 	service.Options.Quota = func(context.Context) (quota.Report, string) { return quota.Report{}, "secret-token-error" }
 	service.refreshSubscriptionUsage(context.Background())
 	usage = service.subscriptionUsage(cfoState{registered: true, harness: "codex"}, Snapshot{At: now})
-	if usage[0].Status != "unavailable" || usage[0].PercentRemaining != nil {
-		t.Fatalf("failed read retained a number: %+v", usage)
+	if usage[0].Status != "available" || usage[0].PercentRemaining == nil || *usage[0].PercentRemaining != 76 || !usage[0].ReadAt.Equal(now) {
+		t.Fatalf("failed read dropped the reading before it: %+v", usage)
 	}
 	data, _ = json.Marshal(usage)
 	if strings.Contains(string(data), "secret-token-error") {
 		t.Fatalf("provider error escaped: %s", data)
+	}
+}
+
+// claudeReply is quota-axi's JSON for Claude's week at 25 percent used, in
+// the shape it printed on 2026-10-08, with state as its state object.
+func claudeReply(source, semantics, state string, generated, resets time.Time) []byte {
+	return fmt.Appendf(nil, `{"generatedAt":%q,"providers":[{"provider":"claude","source":%q,"state":{%s},"quotaSemantics":{"status":%q},"windows":[{"id":"seven_day","label":"week","kind":"weekly","percentUsed":25,"resetsAt":%q}]}]}`,
+		generated.Format(time.RFC3339Nano), source, state, semantics, resets.Format(time.RFC3339Nano))
+}
+
+// On 2026-10-08 Anthropic's usage endpoint refused about half of this
+// machine's Claude reads (HTTP 429), and quota-axi then gave its cached
+// numbers marked stale, so the dial read "Reading stale" with a reading a
+// minute old. A refresh that measures nothing, rate limited or failed, leaves
+// the reading before it, which still goes stale by its own age, while a
+// sign-in the provider asks for replaces it at once.
+func TestARefreshThatMeasuresNothingKeepsTheLastReadingUntilItIsOld(t *testing.T) {
+	// Arrange
+	now := time.Now().UTC().Truncate(time.Millisecond)
+	resets := now.Add(72 * time.Hour)
+	fresh, err := quota.Parse(claudeReply("oauth", "known", fmt.Sprintf(`"status":"fresh","stale":false,"refreshedAt":%q`, now.Format(time.RFC3339Nano)), now, resets), now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	limited, err := quota.Parse(claudeReply("cache", "unknown", fmt.Sprintf(`"status":"stale","stale":true,"refreshedAt":%q,"error":"Claude quota endpoint rate limited"`, now.Add(-30*time.Second).Format(time.RFC3339Nano)), now, resets), now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	signedOut, err := quota.Parse([]byte(fmt.Sprintf(`{"generatedAt":%q,"providers":[{"provider":"claude","source":"unavailable","state":{"status":"auth_required","stale":false,"error":"Claude sign-in required"},"quotaSemantics":{"status":"unknown"},"windows":[]}]}`, now.Format(time.RFC3339Nano))), now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	service := &Service{}
+	refresh := func(report quota.Report, skipped string) {
+		service.Options.Quota = func(context.Context) (quota.Report, string) { return report, skipped }
+		service.refreshSubscriptionUsage(t.Context())
+	}
+	dial := func(at time.Time) SubscriptionUsage {
+		return service.subscriptionUsage(cfoState{registered: true, harness: "claude"}, Snapshot{At: at})[0]
+	}
+	measured := func(reading SubscriptionUsage) bool {
+		return reading.Status == "available" && reading.PercentRemaining != nil && *reading.PercentRemaining == 75 && reading.ReadAt.Equal(now) && reading.ResetsAt.Equal(resets)
+	}
+
+	// Act and assert: a good read, then a rate-limited one, then a failed one.
+	refresh(fresh, "")
+	if reading := dial(now); !measured(reading) {
+		t.Fatalf("fresh read = %+v, want 75%% read now", reading)
+	}
+	refresh(limited, "")
+	if reading := dial(now.Add(time.Minute)); !measured(reading) {
+		t.Fatalf("after a rate-limited read the dial = %+v, want the reading before it", reading)
+	}
+	refresh(quota.Report{}, "quota-axi exited with code 1")
+	if reading := dial(now.Add(2 * time.Minute)); !measured(reading) {
+		t.Fatalf("after a failed read the dial = %+v, want the reading before it", reading)
+	}
+
+	// Assert: the kept reading is stale once it is older than quota.MaxAge.
+	if reading := dial(now.Add(quota.MaxAge + time.Minute)); reading.Status != "stale" || reading.PercentRemaining != nil {
+		t.Fatalf("a reading older than %s = %+v, want stale without a number", quota.MaxAge, reading)
+	}
+
+	// Act and assert: a sign-in the provider asks for is no failed read.
+	refresh(signedOut, "")
+	if reading := dial(now.Add(3 * time.Minute)); reading.Status != "auth_required" || reading.PercentRemaining != nil {
+		t.Fatalf("after a signed-out read the dial = %+v, want sign-in required", reading)
+	}
+}
+
+// The allowance floor and the dials each read quota-axi once a minute, and
+// both timers start together, so the supervisor made two reads in the same
+// second each minute and the endpoint refused one of them. The floor's read
+// now refreshes the dials, and the dials' own timer reads only when no read
+// was made for a minute and a half, as when the fleet's reading is not running.
+func TestOneQuotaReadAMinuteServesTheDialsAndTheFloor(t *testing.T) {
+	// Arrange
+	now := time.Now().UTC().Truncate(time.Millisecond)
+	report, err := quota.Parse(claudeReply("oauth", "known", fmt.Sprintf(`"status":"fresh","stale":false,"refreshedAt":%q`, now.Format(time.RFC3339Nano)), now, now.Add(72*time.Hour)), now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var reads atomic.Int32
+	read := func(context.Context) (quota.Report, string) {
+		reads.Add(1)
+		return report, ""
+	}
+	// One pass of the dials' timer: its first pass comes before it waits.
+	dialPass := func(s *Service) {
+		ctx, cancel := context.WithCancel(t.Context())
+		cancel()
+		s.keepSubscriptionUsage(ctx, time.Minute)
+	}
+	floor, _ := fleetService(t)
+	floor.Options.Quota = read
+
+	// Act: the fleet's reading reads quota-axi, and then the dials' timer
+	// comes round.
+	if err := floor.pauseAtAllowanceFloor(t.Context(), &fleetWakes{}, now); err != nil {
+		t.Fatal(err)
+	}
+	dialPass(floor)
+
+	// Assert
+	if got := reads.Load(); got != 1 {
+		t.Fatalf("quota-axi reads = %d, want 1 for the floor and the dials together", got)
+	}
+	if usage := floor.subscriptionUsage(cfoState{registered: true, harness: "claude"}, Snapshot{At: now}); usage[0].Status != "available" || usage[0].PercentRemaining == nil || *usage[0].PercentRemaining != 75 {
+		t.Fatalf("dial after the floor's read = %+v, want its 75%%", usage)
+	}
+
+	// Act: a supervisor whose fleet reading made no read.
+	alone := &Service{Options: Options{Quota: read}}
+	dialPass(alone)
+
+	// Assert
+	if got := reads.Load(); got != 2 {
+		t.Fatalf("quota-axi reads = %d, want the dials' own read when nothing else read", got)
 	}
 }
