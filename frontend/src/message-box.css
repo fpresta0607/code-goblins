@@ -1,9 +1,14 @@
 /* A message box at the foot of a terminal slot that cannot take typing now:
-   his latest messages, each with where it is, over the box he writes in. */
+   his latest messages, each with where it is and a delete while a resume
+   still carries it, over the box he writes in, its microphone and Send. */
 .message-box { display: grid; gap: 10px; padding: 12px 16px 16px; border-top: 1px solid var(--glass-border); background: #071015; }
 .message-list { display: grid; gap: 6px; margin: 0; padding: 0; list-style: none; }
-.message-list > li { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; min-width: 0; }
-.message-text { min-width: 0; overflow-wrap: anywhere; white-space: pre-wrap; color: #d8e9e2; }
+.message-list > li { display: flex; align-items: baseline; gap: 12px; min-width: 0; }
+.message-text { flex: 1; min-width: 0; overflow-wrap: anywhere; white-space: pre-wrap; color: #d8e9e2; }
 .message-state { flex: none; color: var(--muted); font-size: .875rem; }
+.message-delete { align-self: center; width: 32px; height: 32px; min-height: 32px; margin-block: -6px; color: var(--muted); }
+.message-delete .icon { width: 18px; height: 18px; }
 .message-box textarea { width: 100%; min-height: 64px; padding: 10px 12px; border: 1px solid var(--glass-border-hover); border-radius: var(--radius); background: var(--field-bg); }
+.message-actions { display: flex; justify-content: flex-end; align-items: center; gap: 12px; }
+.message-note { margin: 0; padding: 10px 14px; border: 1px solid #735338; border-radius: var(--radius); background: #292116f2; color: #f1c598; overflow-wrap: anywhere; }
 .deck-slot.with-messages { flex-direction: column; }

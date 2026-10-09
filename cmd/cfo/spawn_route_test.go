@@ -123,6 +123,98 @@ func TestRunSpawnHonorsFivePercentWeeklyReserve(t *testing.T) {
 	}
 }
 
+// The weekly floor is the home's setting, one for each provider: the spawn
+// refusal and the lane choice read it and name the percent they used, a floor
+// of 0 starts a goblin with 1 percent of the week left, and a setting that
+// cannot be read starts nothing.
+func TestRunSpawnFollowsTheHomesWeeklyFloor(t *testing.T) {
+	for _, isExplicit := range []bool{false, true} {
+		for _, testCase := range []struct {
+			name, settings, used, wantRefusal string
+			isAtFloor                         bool
+		}{
+			{name: "the default at 5 percent left", used: "95", wantRefusal: "at its 5 percent weekly", isAtFloor: true},
+			{name: "a floor of 0 at 1 percent left", settings: `{"weekly_floor_percent":{"codex":0}}`, used: "99"},
+			{name: "a floor of 0 for claude leaves codex at its own", settings: `{"weekly_floor_percent":{"claude":0}}`, used: "95", wantRefusal: "at its 5 percent weekly", isAtFloor: true},
+			{name: "a floor of 10 at 8 percent left", settings: `{"weekly_floor_percent":{"codex":10}}`, used: "92", wantRefusal: "at its 10 percent weekly", isAtFloor: true},
+			{name: "a floor of 10 at 11 percent left", settings: `{"weekly_floor_percent":{"codex":10}}`, used: "89"},
+			{name: "a setting that cannot be read", settings: `{"weekly_floor_percent":{"codex":100}}`, used: "10", wantRefusal: "weekly_floor_percent"},
+		} {
+			t.Run(fmt.Sprintf("%s explicit %v", testCase.name, isExplicit), func(t *testing.T) {
+				// Arrange
+				h, deps := routedRuntime(t, `{"rules":[],"default_lane":"build","lanes":{"build":{"harness":"codex","model":"weekly-model","effort":"high"}}}`)
+				if testCase.settings != "" {
+					writeTestFile(t, filepath.Join(h.Root, "config", "fleet.json"), testCase.settings)
+				}
+				got := captureSpawn(&deps, "spawned weekly-task")
+				now := time.Now().UTC().Truncate(time.Second)
+				reset := now.Add(7 * 24 * time.Hour)
+				data := fmt.Sprintf(`{"generatedAt":%q,"providers":[{"provider":"codex","state":{"stale":false},
+					"windows":[{"id":"window","kind":"weekly","windowSeconds":604800,"percentUsed":%s,"resetsAt":%q}],
+					"quotaSemantics":{"status":"known","effectiveAvailability":[{"scope":"all_models","status":"known",
+						"effectivePercentRemaining":"unknown","boundedBy":["window"],"runway":{"limitingWindowId":"window"}}]}}]}`,
+					now.Format(time.RFC3339), testCase.used, reset.Format(time.RFC3339))
+				report, err := quota.Parse([]byte(data), now)
+				if err != nil {
+					t.Fatal(err)
+				}
+				deps.quota = func(context.Context) (quota.Report, string) { return report, "" }
+				args := []string{"spawn", "weekly-task", "--project", `C:\project`, "--brief", briefWith(t, "Repair the weekly allowance reserve.")}
+				if isExplicit {
+					args = append(args, "--harness", "codex", "--model", "weekly-model")
+				}
+				var stdout, stderr bytes.Buffer
+
+				// Act
+				exit := runWithRuntime(args, &stdout, &stderr, deps)
+
+				// Assert
+				if testCase.wantRefusal == "" {
+					if exit != 0 || got.ID != "weekly-task" {
+						t.Fatalf("the floor stopped a spawn above it: exit=%d spawn=%+v stderr=%s", exit, *got, stderr.String())
+					}
+					return
+				}
+				if exit != 1 || got.ID != "" || !strings.Contains(stderr.String(), testCase.wantRefusal) || testCase.isAtFloor && !strings.Contains(stderr.String(), reset.Format(time.RFC3339)) {
+					t.Fatalf("exit=%d spawn=%+v stderr=%s, want a refusal saying %q", exit, *got, stderr.String(), testCase.wantRefusal)
+				}
+			})
+		}
+	}
+}
+
+// cfo route previews the lane a spawn would take, so it reads the same floor.
+func TestRunRoutePassesOverALaneAtTheHomesWeeklyFloor(t *testing.T) {
+	for _, testCase := range []struct {
+		name, settings, wantHarness, wantNote string
+	}{
+		{name: "the default", wantHarness: `"Harness": "claude"`},
+		{name: "a floor of 10", settings: `{"weekly_floor_percent":{"claude":10}}`, wantHarness: `"Harness": "codex"`, wantNote: "claude at its 10 percent weekly allowance floor"},
+	} {
+		t.Run(testCase.name, func(t *testing.T) {
+			// Arrange
+			h, deps := routedRuntime(t, codexDeepTable)
+			if testCase.settings != "" {
+				writeTestFile(t, filepath.Join(h.Root, "config", "fleet.json"), testCase.settings)
+			}
+			now := time.Now().UTC().Truncate(time.Second)
+			report := quota.Report{Providers: map[string]quota.Provider{"claude": {Known: true, Windows: []quota.Window{
+				{ID: "seven_day", Kind: "weekly", WindowSeconds: 604800, PercentUsed: 92, ResetsAt: now.Add(time.Hour)},
+			}, Scopes: map[string]quota.Scope{"all_models": {Name: "all_models", Known: true, PercentRemaining: 8, ResetsAt: now.Add(time.Hour), BoundedBy: []string{"seven_day"}}}}}}
+			deps.quota = func(context.Context) (quota.Report, string) { return report, "" }
+			var stdout, stderr bytes.Buffer
+
+			// Act
+			exit := runWithRuntime([]string{"route", "--project", `C:\project`, "Add a dark-mode toggle to the settings page."}, &stdout, &stderr, deps)
+
+			// Assert
+			if exit != 0 || !strings.Contains(stdout.String(), testCase.wantHarness) || !strings.Contains(stdout.String(), testCase.wantNote) {
+				t.Fatalf("exit %d, stdout %s, stderr %s; want %s and %q", exit, stdout.String(), stderr.String(), testCase.wantHarness, testCase.wantNote)
+			}
+		})
+	}
+}
+
 func TestRunSpawnRoutesFromTheFleetTableWithoutHarness(t *testing.T) {
 	h, deps := routedRuntime(t, shippedRoutingJSON(t))
 	got := captureSpawn(&deps, "spawned g10")

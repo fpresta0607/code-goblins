@@ -4,7 +4,7 @@ import { parseSnapshot } from "./types.ts";
 import { subscriptionState } from "./subscription-usage.ts";
 
 const NOW = Date.parse("2026-10-03T13:07:00Z");
-const reading = (changes: Record<string, unknown> = {}) => parseSnapshot({ healthy: true, subscriptions: [{ provider: "codex", status: "available", percent_remaining: 76, source: "oauth", read_at: "2026-10-03T13:06:00Z", resets_at: "2026-10-09T22:27:42Z", ...changes }] }).subscriptions![0];
+const reading = (changes: Record<string, unknown> = {}) => parseSnapshot({ healthy: true, subscriptions: [{ provider: "codex", status: "available", percent_remaining: 76, source: "oauth", read_at: "2026-10-03T13:06:00Z", resets_at: "2026-10-09T22:27:42Z", floor_percent: 5, ...changes }] }).subscriptions![0];
 
 test("the weekly percentage preserves zero and full allowance, marks exactly five percent as reserve and ten as near it", () => {
   for (const [remaining, isReserve, isNearReserve] of [[0, true, true], [5, true, true], [5.1, false, true], [10, false, true], [10.1, false, false], [76, false, false], [100, false, false]] as const) {
@@ -14,6 +14,39 @@ test("the weekly percentage preserves zero and full allowance, marks exactly fiv
     assert.equal(state.isNearReserve, isNearReserve);
     assert.equal(state.text, remaining + "%");
     assert.match(state.label, /OpenAI.*weekly remaining/);
+  }
+});
+
+// The Overlord, 2026-10-09: "keep using claude until at 0". The reserve the
+// dial names is the floor the home keeps for the provider, and a floor of 0
+// keeps none, while the ring still warns in the last five points.
+test("the reserve is the home's floor for the provider, and a floor of 0 keeps none", () => {
+  for (const [floor, remaining, isReserve, isNearReserve, words] of [
+    [0, 1, false, true, "No reserve, runs to 0%"],
+    [0, 0, false, true, "No reserve, runs to 0%"],
+    [0, 5.1, false, false, "No reserve, runs to 0%"],
+    [10, 8, true, true, "10% reserve reached"],
+    [10, 15, false, true, "10% reserve"],
+    [10, 15.1, false, false, "10% reserve"],
+    [2.5, 2.5, true, true, "2.5% reserve reached"],
+  ] as const) {
+    const state = subscriptionState(reading({ floor_percent: floor, percent_remaining: remaining }), NOW);
+    assert.equal(state.isReserve, isReserve, `floor ${floor} at ${remaining}%`);
+    assert.equal(state.isNearReserve, isNearReserve, `floor ${floor} at ${remaining}%`);
+    assert.ok(state.details.endsWith(` ${words}.`), state.details);
+  }
+  const unread = subscriptionState(reading({ floor_percent: 0, status: "stale" }), NOW);
+  assert.ok(unread.details.endsWith(". Reading stale. No reserve, runs to 0%."), unread.details);
+});
+
+test("a floor the supervisor could not read leaves the reserve unknown and unmarked", () => {
+  for (const floor of [null, undefined, -1, 100, "5", NaN]) {
+    const usage = reading({ floor_percent: floor, percent_remaining: 1 });
+    assert.equal(usage.floor_percent, null);
+    const state = subscriptionState(usage, NOW);
+    assert.equal(state.isReserve, false);
+    assert.equal(state.isNearReserve, false);
+    assert.ok(state.details.endsWith(" Reserve unknown."), state.details);
   }
 });
 

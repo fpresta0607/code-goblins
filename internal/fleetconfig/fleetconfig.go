@@ -2,8 +2,9 @@
 // the home: whether the board looks for a newer release, the free disk under
 // which no goblin or gate starts and the lower mark at which the CFO is woken,
 // how large the shared caches may grow, which temporary folders the janitor
-// treats as the fleet's leaks, and the GitHub organizations whose pull
-// requests the fleet watches as its own. How many goblins run is no setting:
+// treats as the fleet's leaks, the GitHub organizations whose pull requests
+// the fleet watches as its own, and the part of each provider's weekly
+// allowance the fleet keeps back. How many goblins run is no setting:
 // memory alone decides it. A missing file is the defaults; a file that does
 // not mean what it says is refused rather than half read.
 package fleetconfig
@@ -15,8 +16,10 @@ import (
 	"fmt"
 	"io"
 	"io/fs"
+	"os"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"strings"
 
 	"github.com/fpresta0607/code-goblins/internal/fsx"
@@ -42,6 +45,29 @@ type Settings struct {
 	// the one gh works as, whose repositories the fleet owns: a teammate's
 	// pull request there is watched as the fleet's own are.
 	GitHubOwners []string `json:"github_owners"`
+	// WeeklyFloorPercent is, by provider, the percent of its weekly
+	// allowance the fleet keeps back: once that little is left, its goblins
+	// pause and none starts until the week resets. A provider it does not
+	// name keeps DefaultWeeklyFloorPercent back; read it with WeeklyFloor.
+	WeeklyFloorPercent map[string]float64 `json:"weekly_floor_percent"`
+}
+
+// DefaultWeeklyFloorPercent is the part of a provider's week a home that never
+// set its floor keeps back.
+const DefaultWeeklyFloorPercent = 5
+
+// WeeklyFloorProviders are the providers whose week the fleet measures, the
+// only ones a floor can be set for.
+var WeeklyFloorProviders = []string{"claude", "codex"}
+
+// WeeklyFloor is the percent of provider's weekly allowance the fleet keeps
+// back. At 0 it keeps none: goblins run on the week until the provider itself
+// refuses.
+func (s Settings) WeeklyFloor(provider string) float64 {
+	if floor, isSet := s.WeeklyFloorPercent[provider]; isSet {
+		return floor
+	}
+	return DefaultWeeklyFloorPercent
 }
 
 // Defaults are the settings a home with no config/fleet.json runs under.
@@ -117,14 +143,20 @@ func Bytes(gigabytes float64) uint64 {
 // Read reads root's config/fleet.json over the defaults: a key it holds
 // replaces the default and a key it leaves out keeps it.
 func Read(root string) (Settings, error) {
-	settings := Defaults()
 	data, err := fsx.ReadFile(filepath.Join(root, "config", "fleet.json"))
 	if errors.Is(err, fs.ErrNotExist) {
-		return settings, nil
+		return Defaults(), nil
 	}
 	if err != nil {
 		return Settings{}, err
 	}
+	return parse(data)
+}
+
+// parse reads data, config/fleet.json's content, over the defaults, refusing
+// a file that does not mean what it says.
+func parse(data []byte) (Settings, error) {
+	settings := Defaults()
 	if !bytes.HasPrefix(bytes.TrimSpace(data), []byte("{")) {
 		return Settings{}, errors.New("config/fleet.json must contain one JSON object")
 	}
@@ -152,5 +184,56 @@ func Read(root string) (Settings, error) {
 			return Settings{}, fmt.Errorf("github_owners: %q is not a GitHub account or organization name", owner)
 		}
 	}
+	for provider, floor := range settings.WeeklyFloorPercent {
+		if !slices.Contains(WeeklyFloorProviders, provider) {
+			return Settings{}, fmt.Errorf("weekly_floor_percent: %q is not a provider whose week the fleet measures, which are %s", provider, strings.Join(WeeklyFloorProviders, " and "))
+		}
+		if !(floor >= 0 && floor < 100) {
+			return Settings{}, fmt.Errorf("weekly_floor_percent: %s's floor must be at least 0 and under 100 percent, not %v", provider, floor)
+		}
+	}
 	return settings, nil
+}
+
+// SetWeeklyFloor sets provider's weekly floor in root's config/fleet.json to
+// percent and keeps every other key as it was, writing the file when the home
+// has none. It refuses, writing nothing, what Read would refuse after it.
+func SetWeeklyFloor(root, provider string, percent float64) error {
+	path := filepath.Join(root, "config", "fleet.json")
+	data, err := fsx.ReadFile(path)
+	if errors.Is(err, fs.ErrNotExist) {
+		data, err = []byte("{}"), nil
+	}
+	if err != nil {
+		return err
+	}
+	if _, err := parse(data); err != nil {
+		return err
+	}
+	var settings map[string]json.RawMessage
+	if err := json.Unmarshal(data, &settings); err != nil {
+		return fmt.Errorf("config/fleet.json: %w", err)
+	}
+	floors := map[string]float64{}
+	if kept, isSet := settings["weekly_floor_percent"]; isSet {
+		if err := json.Unmarshal(kept, &floors); err != nil {
+			return fmt.Errorf("config/fleet.json: weekly_floor_percent: %w", err)
+		}
+	}
+	floors[provider] = percent
+	if settings["weekly_floor_percent"], err = json.Marshal(floors); err != nil {
+		return err
+	}
+	changed, err := json.MarshalIndent(settings, "", "  ")
+	if err != nil {
+		return err
+	}
+	changed = append(changed, '\n')
+	if _, err := parse(changed); err != nil {
+		return err
+	}
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		return err
+	}
+	return fsx.AtomicWriteFile(path, changed)
 }
