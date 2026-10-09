@@ -104,7 +104,7 @@ commands:
   cfo pr check <id> <url>
   cfo pr merge <url> [--method <merge|squash|rebase>] [--delete-branch] [--verified "<what verified it>"]   where the base requires a merge queue it adds the pull request to the queue instead, never with --admin; while AFK mode is on this is the CFO's own merge word: it needs --verified, a goblin's pull request whose head holds its base's tip unless a merge queue tests the merge, and no --delete-branch, and it is logged with its evidence before it merges
   cfo pr train <project>   a merge train: merge every green pull request goblins finished onto main in queue order on a train branch, open a train PR that is never merged, let CI test them together once, then merge each in order and check main's tree equals the train's; a red run is halved until the PR that breaks it is found, every half that passes lands, and its goblin gets the failure; held (label hold), draft and conflicting PRs never ride; joins the train already running there, and waits until it is over
-  cfo afk on [--asked "<his words>"] | off [--asked "<his words>"] | status | report | log --kind <left|merge|deploy|migration|install|answer|other> --what "<what>" --evidence "<evidence>" [--link <url>]   AFK mode, the Supreme Overlord's switch for running the fleet while he is away: on and off are his, made from a terminal of his own and refused in a goblin's; the registered CFO makes them only at his ask, with --asked and his words quoted exactly, which the switch and the report keep; off prints the report of the stretch; status says who turned it on, what was decided so far and what is held for him; log is the registered CFO recording a decision it made under the authority, with its evidence
+  cfo afk on [--asked "<his words>"] | off [--asked "<his words>"] | status | report | log --kind <left|merge|deploy|migration|install|answer|other> --what "<what>" --evidence "<evidence>" [--link <url>] | strike --at <when> --reason "<why>" | settle --at <when> --how "<what became of it>"   AFK mode, the Supreme Overlord's switch for running the fleet while he is away: on and off are his, made from a terminal of his own and refused in a goblin's; the registered CFO makes them only at his ask, with --asked and his words quoted exactly, which the switch and the report keep; off prints the report of the stretch; status says who turned it on, what was decided so far and what is held for him; log is the registered CFO recording a decision it made under the authority, with its evidence; strike strikes a line it logged by mistake, and settle settles a line it left for him and saw to later, which is then never asked in the Command Center
   cfo merge-local <id>
   cfo cleanup <id>   return a finished task's worktree, every extra worktree it recorded and its scratch folder, refusing while any of them holds uncommitted work and keeping work that is not on the default branch as a local archive tag
   cfo worktree add <id> <name> [--ref <commit>] | remove <id> <name>   give a task an extra worktree, <id>-<name>, beside its own in the home, recorded on the task so cleanup removes it with the task, or return one early
@@ -231,6 +231,9 @@ type commandRuntime struct {
 	// strikeAFK asks the supervisor to strike through a line the CFO logged
 	// by mistake.
 	strikeAFK func(h home.Home, at time.Time, reason string) error
+	// settleAFK asks the supervisor to settle a line the CFO left for the
+	// Overlord and saw to later.
+	settleAFK func(h home.Home, at time.Time, how string) error
 	// availableMemory reads physical and commit availability for the turn
 	// cfo gate test takes before its checks, gateBudget is how long
 	// the tests of a level may run, and gateRun runs one of the step's

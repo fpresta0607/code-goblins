@@ -685,8 +685,11 @@ While it is on:
   It gives the merge word for a goblin's pull request that is verified, green in CI on a head that holds main's tip and mergeable, names and verifies each deploy, applies a merged migration that adds or changes and reads it back, installs a merged build once the merge queue settles, and answers the goblin questions that are its own to answer.
 - These stay yours, always: a migration or command that drops or deletes data, deleting a branch, a teammate's branch or pull request, spend beyond your account's limits, your own sign-ins and identity checks, and anything a tool refuses.
   They are never decided for you, and while you are away you are not asked about them either.
-  AFK mode is complete autopilot: the CFO gives each a backlog row, works around it, and your report lists it under **Left for you** with what is wrong and what the CFO already tried.
-  When you turn AFK mode off, each of them waits in the Command Center as a question with its choices.
+  AFK mode is complete autopilot: the CFO gives each a backlog row, works around it, and your report lists it with what was held for you.
+  When you turn AFK mode off, each of them waits in the Command Center as a question with what is wrong, what the CFO already tried and its choices.
+  One the CFO saw to while you were away, its backlog row done, its task finished or its own later decision, is settled with what became of it and never asked.
+- Any other decision you would have been asked, the CFO answers itself and acts on.
+  When you turn AFK mode off, each waits in the Command Center with the CFO's answer checked and marked as the CFO's: keep it, or choose another and the CFO undoes or redoes what its answer started.
 - The board does not prompt you: the Command Center does not open by itself, and the board shows no alert and sends no Windows notification.
   Nothing is held for you, and a goblin blocked only on something of yours moves to its next piece of work.
   The CFO's bar says since when AFK is on, who turned it on and how much the CFO decided.
@@ -695,9 +698,9 @@ While it is on:
 
 At your first click or key on the board after five minutes with none, the board offers to turn it off.
 When the CFO turned it on at your ask, your very first click or key offers it at once, quoting your words, so a switch made on your words meets you before anything else.
-Turning it off shows the report of the stretch on the board as one page: who turned it on and off, how much of each thing there is, then **Held for you**, listing and counting only items still waiting on you in the Command Center, with their recommendations and their goblins' progress.
-Next come what was left for you, what merged, deployed and installed, each with its link and its verification, the goblins paused at a floor, what each goblin finished, and **Spent**.
-Decision sections and **Goblins finished** are drawers, closed until you open them; **Left for you** and merge words with no merge stay open because they still need you.
+Turning it off shows the report of the stretch on the board as one page: who turned it on and off, how much of each thing there is, then **Held for you**, listing and counting only items held or left for you that still wait on you in the Command Center, with their recommendations and their goblins' progress.
+Next come what merged, deployed and installed, each with its link and its verification, the goblins paused at a floor, what each goblin finished, and **Spent**.
+Decision sections and **Goblins finished** are drawers, closed until you open them; merge words with no merge stay open because they still need you.
 **Spent** and the short **Not read** section stay open too.
 A line the CFO logged by mistake and struck is shown struck through under **Struck by the CFO**, with its reason, and never as something that needs you.
 Spent shows only weekly limits and credit balances that were spent, leaving out five-hour limits.
@@ -717,28 +720,20 @@ If the switch itself ever cannot be read, a press on the board's toggle or `cfo 
 AFK MODE REPORT
 AFK mode was on from 2026-10-02 02:10 UTC to 2026-10-02 12:31 UTC (10h21m): turned on from his own terminal (powershell.exe pid 4242), off from his own terminal (powershell.exe pid 5151).
 
-Held for you (1), each as it stands now
+For you (3), each as it stands now
 - question:drop-legacy-invoices, the CFO's: Migration 0042 drops legacy_invoices. Apply it?
   The CFO recommends: Keep it held.
   Now: still waiting on you.
-
-Left for you (1)
-- Sign in to Vercel for pd-auth?
-  Evidence: your own sign-in, backlog row pd-auth-vercel-sign-in, pd-auth moved on to the invoice export
-  Found: the stored Vercel token expired at 01:10Z and Vercel answers 403 to the deploy probe
-  Tried: cfo auth --fix read the store and the .env again, and neither holds a newer token
+- question:afk-left-20261002T031000.000000000Z, the CFO's: Sign in to Vercel for pd-auth?
+  The CFO recommends: I will sign in.
+  Now: still waiting on you.
+- question:afk-left-20261002T044000.000000000Z, the CFO's: Finish or abort your parked gate run?
+  The CFO recommended: Abort it.
+  Now: settled by the CFO: the run finished on its own.
 
 Merged (1)
 - https://github.com/you/northwind-api/pull/412: merged
   Evidence: verified: gate run 41 passed and its test output was read; head 3f1a9c0; 7 checks completed green; mergeable; ...
-
-Deployed (0)
-
-Migrations applied (0)
-
-Installed (0)
-
-Answered for goblins (0)
 
 Goblins finished (1)
 - northwind-invoices: https://github.com/you/northwind-api/pull/412 (03:14 UTC)
