@@ -404,8 +404,9 @@ func (h *HTTP) action(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	// A message goes to whichever CFO or goblin session runs when it is
-	// delivered, so it needs no recipient identity.
-	if input.Generation == "" && input.Kind != "message" {
+	// delivered, and a delete names the message by its goblin and words, so
+	// neither needs a recipient identity.
+	if input.Generation == "" && input.Kind != "message" && input.Kind != "message_withdraw" {
 		apiError(w, 409, "Recipient identity is required; refresh the board")
 		return
 	}

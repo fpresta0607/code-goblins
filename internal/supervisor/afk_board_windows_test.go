@@ -326,8 +326,8 @@ func TestTheBoardsSwitchTurnsAFKModeOnAndOffAndTheBoardIsShownIt(t *testing.T) {
 	if !page.Found || page.Session != switched.Session || page.Lasted != "under a minute" || page.From != "his own board (goblins-window.exe pid 4242)" {
 		t.Errorf("the report page = %+v, want the stretch that just ended", page)
 	}
-	if len(page.Sections) < 2 || page.Sections[0].Title != "Left for you" || page.Sections[1].Title != "Merged" || len(page.Sections[1].Entries) != 1 || page.Sections[1].Entries[0].What != pr || page.Sections[1].Entries[0].Evidence != "gate run 41 passed" {
-		t.Errorf("the report's sections = %+v, want nothing left for him, then the merge under Merged with its evidence", page.Sections)
+	if len(page.Sections) != 1 || page.Sections[0].Title != "Merged" || len(page.Sections[0].Entries) != 1 || page.Sections[0].Entries[0].What != pr || page.Sections[0].Entries[0].Evidence != "gate run 41 passed" {
+		t.Errorf("the report's sections = %+v, want only the merge under Merged with its evidence", page.Sections)
 	}
 	// The page reads every list, so one with nothing in it is still a list.
 	if page.Finished == nil || page.Held == nil || page.Notes == nil {
@@ -710,9 +710,12 @@ func TestTheReportReadLaterSaysWhichHeldQuestionsTheCFOAnsweredAfterAFKModeEnded
 	if err != nil || !found || len(report.Held) != len(cases) || len(page.Held) != len(cases) {
 		t.Fatalf("ReadAFKReport = %+v, %v, %v beside the page's %+v, want each held question in both", report.Held, found, err, page.Held)
 	}
-	for i, c := range cases {
+	byItem := func(held []afk.Held, item string) afk.Held {
+		return held[slices.IndexFunc(held, func(one afk.Held) bool { return one.Item == item })]
+	}
+	for _, c := range cases {
 		t.Run(c.id, func(t *testing.T) {
-			for reader, held := range map[string]afk.Held{"the board's page": page.Held[i], "cfo afk report": report.Held[i]} {
+			for reader, held := range map[string]afk.Held{"the board's page": byItem(page.Held, "question:"+c.id), "cfo afk report": byItem(report.Held, "question:"+c.id)} {
 				if held.Item != "question:"+c.id || held.Waiting != c.waiting || held.Now != c.now {
 					t.Errorf("%s reads %+v, want waiting %v and %q", reader, held, c.waiting, c.now)
 				}

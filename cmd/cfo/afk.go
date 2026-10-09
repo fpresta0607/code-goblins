@@ -13,14 +13,15 @@ import (
 	"github.com/fpresta0607/code-goblins/internal/supervisor"
 )
 
-const afkUsage = `usage: cfo afk on [--asked "<his words>"] | off [--asked "<his words>"] | status | report | log --kind <kind> --what "<what>" --evidence "<evidence>" [--link <url>] | strike --at <when> --reason "<why>"
+const afkUsage = `usage: cfo afk on [--asked "<his words>"] | off [--asked "<his words>"] | status | report | log --kind <kind> --what "<what>" --evidence "<evidence>" [--link <url>] | strike --at <when> --reason "<why>" | settle --at <when> --how "<what became of it>"
 
   on      turn AFK mode on: the Supreme Overlord's switch, made from a terminal of his own; the registered CFO makes it only at his ask, with --asked and his words quoted exactly, and a goblin never
   off     turn it off and print the report of the stretch; the same switch, made the same way
   status  whether it is on, since when and from where, what was decided so far and what is held for him
   report  print the report of the last stretch that ended
-  log     the registered CFO logs a decision it made under the authority, with its evidence; kind is one of left, merge, deploy, migration, install, answer, other. A left line also takes --diagnosis "<what is wrong, found to its cause>", --tried "<what you already tried>" and two or more --option "<choice>" with an optional --recommend "<choice>": his Command Center question once he is back
-  strike  the registered CFO strikes through a line it logged by mistake, named by its at in state/afk.audit, with its reason; the line stays, and the report shows it struck`
+  log     the registered CFO logs a decision it made under the authority, with its evidence; kind is one of left, merge, deploy, migration, install, answer, other. A left line also takes --diagnosis "<what is wrong, found to its cause>", --tried "<what you already tried>" and two or more --option "<choice>" with an optional --recommend "<choice>": his Command Center question once he is back. With --answer "<choice>" it is a decision you made and acted on, asked with your answer checked for him to keep or change; without it, it is what only he can do
+  strike  the registered CFO strikes through a line it logged by mistake, named by its at in state/afk.audit, with its reason; the line stays, and the report shows it struck
+  settle  the registered CFO settles a line it left for him and saw to later in the stretch that is on, named by its at in state/afk.audit, with what became of it; the line stays, it is never asked in the Command Center, and the report shows what became of it`
 
 // runAFK is cfo afk: the Overlord's switch for running the fleet while he is
 // away, what was decided and held under it, and the report it ends with. The
@@ -30,7 +31,7 @@ func runAFK(args []string, stdout, stderr io.Writer, runtime commandRuntime) int
 		fmt.Fprintln(stderr, afkUsage)
 		return 2
 	}
-	if len(args) == 0 || !slices.Contains([]string{"on", "off", "status", "report", "log", "strike"}, args[0]) {
+	if len(args) == 0 || !slices.Contains([]string{"on", "off", "status", "report", "log", "strike", "settle"}, args[0]) {
 		return usage()
 	}
 	if (args[0] == "status" || args[0] == "report") && len(args) != 1 {
@@ -98,6 +99,8 @@ func runAFK(args []string, stdout, stderr io.Writer, runtime commandRuntime) int
 		return runAFKLog(h, args[1:], stdout, stderr, runtime)
 	case "strike":
 		return runAFKStrike(h, args[1:], stdout, stderr, runtime)
+	case "settle":
+		return runAFKSettle(h, args[1:], stdout, stderr, runtime)
 	}
 	return afkStatus(h, stdout, stderr)
 }
@@ -176,6 +179,7 @@ func runAFKLog(h home.Home, args []string, stdout, stderr io.Writer, runtime com
 	var options []string
 	fs.Func("option", "for a left line: one choice his Command Center question offers once he is back; repeat for each", func(value string) error { options = append(options, value); return nil })
 	recommend := fs.String("recommend", "", "for a left line: the choice you recommend, exactly as one --option")
+	answer := fs.String("answer", "", "for a left line you decided yourself: the choice you made and acted on, exactly as one --option, which he keeps or changes once back")
 	if err := fs.Parse(args); err != nil {
 		return 2
 	}
@@ -184,8 +188,8 @@ func runAFKLog(h home.Home, args []string, stdout, stderr io.Writer, runtime com
 	case fs.NArg() != 0:
 		fmt.Fprintf(stderr, "cfo afk log: unexpected argument %q; quote what was decided and its evidence\n", fs.Arg(0))
 		return 2
-	case !left && (*diagnosis != "" || *tried != "" || len(options) > 0 || *recommend != ""):
-		fmt.Fprintln(stderr, "cfo afk log: --diagnosis, --tried, --option and --recommend go with --kind left")
+	case !left && (*diagnosis != "" || *tried != "" || len(options) > 0 || *recommend != "" || *answer != ""):
+		fmt.Fprintln(stderr, "cfo afk log: --diagnosis, --tried, --option, --recommend and --answer go with --kind left")
 		return 2
 	case left && (strings.TrimSpace(*diagnosis) == "" || strings.TrimSpace(*tried) == "" || len(options) < 2):
 		fmt.Fprintln(stderr, "cfo afk log: a left line says what is wrong with --diagnosis, what you already tried with --tried, and offers him two or more --option choices: nothing reaches him undiagnosed")
@@ -200,7 +204,7 @@ func runAFKLog(h home.Home, args []string, stdout, stderr io.Writer, runtime com
 		fmt.Fprintln(stderr, "cfo afk log: --evidence says what the decision stands on; a decision is logged with its evidence")
 		return 2
 	}
-	entry := afk.Entry{Kind: *kind, What: strings.TrimSpace(*what), Evidence: strings.TrimSpace(*evidence), Link: strings.TrimSpace(*link), Diagnosis: strings.TrimSpace(*diagnosis), Tried: strings.TrimSpace(*tried), Options: options, Recommendation: *recommend}
+	entry := afk.Entry{Kind: *kind, What: strings.TrimSpace(*what), Evidence: strings.TrimSpace(*evidence), Link: strings.TrimSpace(*link), Diagnosis: strings.TrimSpace(*diagnosis), Tried: strings.TrimSpace(*tried), Options: options, Recommendation: *recommend, Answer: *answer}
 	if err := runtime.afkLog()(h, entry); err != nil {
 		fmt.Fprintln(stderr, "cfo afk log: "+err.Error())
 		return 1
@@ -247,6 +251,45 @@ func (r commandRuntime) afkStrike() func(home.Home, time.Time, string) error {
 	return supervisor.StrikeAFKLine
 }
 
+// runAFKSettle sends the settle of one line the CFO left for the Overlord and
+// saw to later.
+func runAFKSettle(h home.Home, args []string, stdout, stderr io.Writer, runtime commandRuntime) int {
+	fs := flag.NewFlagSet("afk settle", flag.ContinueOnError)
+	fs.SetOutput(stderr)
+	at := fs.String("at", "", "the line's at, as state/afk.audit has it, such as 2026-10-09T03:27:41.118Z")
+	how := fs.String("how", "", "what became of it: its backlog row done, its task finished, or your later decision")
+	if err := fs.Parse(args); err != nil {
+		return 2
+	}
+	when, err := time.Parse(time.RFC3339Nano, *at)
+	switch {
+	case fs.NArg() != 0:
+		fmt.Fprintf(stderr, "cfo afk settle: unexpected argument %q; quote what became of it\n", fs.Arg(0))
+		return 2
+	case err != nil:
+		fmt.Fprintln(stderr, "cfo afk settle: --at names the line by its at, as state/afk.audit has it, such as 2026-10-09T03:27:41.118Z")
+		return 2
+	case strings.TrimSpace(*how) == "":
+		fmt.Fprintln(stderr, "cfo afk settle: --how says what became of the line; a line is never settled without it")
+		return 2
+	}
+	if err := runtime.afkSettle()(h, when, strings.TrimSpace(*how)); err != nil {
+		fmt.Fprintln(stderr, "cfo afk settle: "+err.Error())
+		return 1
+	}
+	fmt.Fprintf(stdout, "settled the line left at %s: it is never asked in the Command Center, and the report shows what became of it\n", when.UTC().Format(time.RFC3339Nano))
+	return 0
+}
+
+// afkSettle is how the command settles a line: over the supervisor's pipe,
+// unless the runtime names another way.
+func (r commandRuntime) afkSettle() func(home.Home, time.Time, string) error {
+	if r.settleAFK != nil {
+		return r.settleAFK
+	}
+	return supervisor.SettleAFKLine
+}
+
 // afkStatus prints the switch and, while it is on, its terms, what the CFO
 // decided so far and what is held for the Overlord. A question the CFO
 // answered is a decision, so it is not listed as held.
@@ -280,7 +323,12 @@ func afkStatus(h home.Home, stdout, stderr io.Writer) int {
 			line += decision.Task + ": "
 		}
 		line += decision.What
-		if decision.Outcome != "" {
+		switch {
+		case decision.Struck != "":
+			line += " (struck: " + decision.Struck + ")"
+		case decision.Settled != "":
+			line += " (settled: " + decision.Settled + ")"
+		case decision.Outcome != "":
 			line += " (" + decision.Outcome + ")"
 		}
 		fmt.Fprintln(stdout, line)

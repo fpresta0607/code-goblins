@@ -42,7 +42,7 @@ test("moving to the next item shows it from its top", async ({ page }) => {
   await dialog.evaluate((element) => element.scrollTo(0, element.scrollHeight));
 
   // Act
-  await dialog.getByRole("button", { name: "Next item" }).click();
+  await dialog.getByRole("button", { name: "Skip", exact: true }).click();
 
   // Assert
   await expect(dialog.getByText("May I restyle the header as drawn?")).toBeVisible();

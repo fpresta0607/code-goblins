@@ -537,6 +537,9 @@ func (s *Store) queue(a Action) (Action, error) {
 	if !item && a.RunID != "" {
 		return Action{}, errors.New("only a run action names a run item")
 	}
+	if a.Kind == "message_withdraw" {
+		return s.withdrawMessage(a)
+	}
 	if !answer && !change && a.AnswerKind != "" {
 		return Action{}, errors.New("answer kind is only valid for a question")
 	}
