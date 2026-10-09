@@ -5,10 +5,11 @@ import { ConnectorMark } from "./ConnectorMark";
 import { Icon } from "./Icon";
 import { clockText } from "./cards";
 import { harnessMark } from "./connectors";
-import { turnStatus, type NextUp } from "./start";
+import type { NextUp } from "./start";
 import { TaskControls } from "./task-controls";
-import { asksOverlord, harnessName, harnessTip, nodeStatus, personaFor, pullRequestIcon, pullRequestLabel, safePullRequest, statusPhase, taskColumn } from "./workflow";
-import { goblinName, pausedWithParent, pauseStatus, plainText, taskName } from "./task-words";
+import { harnessName, harnessTip, personaFor, pullRequestIcon, pullRequestLabel, safePullRequest, taskColumn } from "./workflow";
+import { goblinName, plainText, taskName } from "./task-words";
+import { taskStatus } from "./task-status";
 import { TicketLink } from "./ticket-link";
 import { SameAreaAvatars } from "./same-area-avatars";
 import { PullRequestTestLink } from "./pull-request-test-link";
@@ -61,13 +62,13 @@ export function TaskCard({ task, snapshot, selected, presentations, now, rank, n
   const isNamed = task.goblin_name !== "" && column !== "Completed";
   const name = isNamed ? goblinName(task) : taskName(task);
   const tip = isNamed ? { "data-tip": taskName(task), "data-tip-align": "start" } : clipped ? { "data-tip": name, "data-tip-align": "start" } : {};
-  const pr = safePullRequest(task.pr), icon = pullRequestIcon(task), asking = asksOverlord(snapshot, task.id);
-  const trains = snapshot.merge_trains ?? [], test = pullRequestTest(task, trains), phase = statusPhase(task, trains);
+  const pr = safePullRequest(task.pr), icon = pullRequestIcon(task);
+  const test = pullRequestTest(task, snapshot.merge_trains ?? []), { text: status, phase } = taskStatus(task, snapshot);
   const waiting = task.phase === "queued";
-  const clock = column === "Completed" || column === "Paused" || task.phase === "paused" ? "" : clockText(task.since, now, waiting ? "waiting" : "running");
+  // A queued task the supervisor is starting has waited, and has not run yet.
+  const clock = column === "Completed" || column === "Paused" || task.phase === "paused" || waiting && column !== "Tasks" ? "" : clockText(task.since, now, waiting ? "waiting" : "running");
   const clockBadge = clock && <span className="card-clock"><Icon name="clock" /><span className="sr-only">{waiting ? "Waiting for" : "Running for"} </span>{clock}</span>;
   const ended = (column === "Paused" || column === "Completed") && task.at ? new Date(task.at) : null;
-  const status = turnStatus(task, snapshot.memory, snapshot.disk) || (phase === "paused" ? pauseStatus(task.lifecycle?.pause, snapshot.tasks, snapshot.ci_durations, pausedWithParent(task, snapshot.tasks)) : nodeStatus({ id: task.id, title: task.title, task, relation: "" }, asking, snapshot.tasks, trains));
   const parent = task.parent && snapshot.tasks.find((other) => other.id === task.parent);
   const parentName = parent ? goblinName(parent) : task.parent;
   // What runs under a live goblin, as baby goblins with a count each, which

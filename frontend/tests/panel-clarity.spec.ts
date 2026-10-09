@@ -49,7 +49,7 @@ const STATES = [
     raw: "on main 04188dad", isFailure: false, isQuiet: true },
   { state: "waiting on you", title: "SIQstack colors and a clean browser tab for the board", status: "Waiting on the CFO",
     sentence: "The three mockups are on the Scrawl page. Reply build or say what to change.", raw: "waiting on overlord: the three mockups", isFailure: false, isQuiet: false },
-  { state: "paused", title: "Memory and subscription dials in one header", status: "Paused",
+  { state: "paused", title: "Memory and subscription dials in one header", status: "Paused by you",
     sentence: "It stays paused until you resume it.", raw: "Stopping-point deadline reached or request failed; no new handoff was saved", isFailure: false, isQuiet: false },
   { state: "a pause that did not finish", title: "Paused goblins resume by themselves when the reason for the pause clears", status: "Working",
     sentence: "The pause did not finish, so the goblin is not paused. Its work is kept. Try Pause again.", raw: "context deadline exceeded", isFailure: false, isQuiet: true },
@@ -122,7 +122,7 @@ for (const [size, viewport, scale] of [["the Overlord's window", { width: 1707, 
       const header = panel(page).locator(".panel-header");
 
       // Assert: its status alone, and its note behind More.
-      await expect(header.locator(".panel-status")).toHaveText("Not started");
+      await expect(header.locator(".panel-status")).toHaveText("Queued");
       await expect(header.locator(".panel-activity")).toHaveCount(0);
       await expect(header).not.toContainText(/Waits (for|until)/);
       await header.locator(".raw-details > summary").filter({ hasText: "More" }).click();

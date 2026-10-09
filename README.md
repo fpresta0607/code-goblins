@@ -407,18 +407,21 @@ When the CFO's turn ends with no goblin at work while work that could run waits 
 None of this needs a setting: every home does it.
 The Overlord's own Start or Resume overrides that ordering; a queued row marked `(priority: production-defect)` also goes first, with a notify explaining that it jumped the order.
 A blocked task has no Start button or Next up mark and adds no line about what it waits for; the CFO's note on the wait is in its panel behind **More**.
-An eligible queued card has a **Start** play icon with a tooltip.
+An eligible queued card has a **Start** play icon with a tooltip, and its panel has the same **Start**.
 It dispatches the task the way the CFO does, through `cfo spawn` with its brief and the harness, model, effort and mode its backlog row or brief names (Claude Code on `claude-opus-5-5` at `xhigh` when they name none), tells the CFO, puts the task at the top of In progress and opens its terminal once its session is up.
+A task the supervisor starts, by your Start or by itself, leaves Tasks at once for the top of In progress and reads **Starting** until its goblin is at work.
+A start that fails reads **Start failed** in red and waits in Tasks for its next Start, with why behind its panel's Details, and the CFO is told.
 When a brief is missing, Start writes it from the queued task and tells the CFO before dispatching.
 Start needs at least 5 GB of free memory and 5 GB of free commit (RAM plus page file, which a new program needs even while memory looks free) and free disk at or above the disk floor, and one task starts or resumes at a time.
-One click is enough: a Start or Resume clicked while another task starts or resumes, or while memory or disk is short, waits its turn and runs as soon as it can, and its card says Starting or Resuming the moment you click.
+One click is enough: a Start or Resume clicked while another task starts or resumes, or while memory or disk is short, waits its turn and runs as soon as it can, and its card says Starting or Resuming the moment you click, or Starts at 5 GB free while memory is short.
 A second click changes nothing, and a refusal goes to the CFO, never to a line on the board.
 A start ends once its goblin has its brief: the goblin installs its worktree's dependencies (`npm ci`, `uv sync` and the like) in its own terminal as its first step, and its card says so, so a long install never holds up the next start or resume.
 A Start or Resume, and each start or resume the supervisor makes by itself, that meets a `cfo spawn` the CFO runs by hand waits for that spawn's turn, which ends once its terminal runs; one that gives up after waiting 10 minutes tries once more as soon as the lock frees.
 
 In-progress cards have **Pause** and **Stop** icons, and paused cards have **Resume** and Stop, with tooltips on hover or keyboard focus.
 A queued card has **Remove** where they have Stop: a task that has not started has nothing to stop.
-A task's panel carries its controls as labelled buttons, in one row under its header: **Remove** for a queued task, whose Start stays on its card, and **Pause** or **Resume** and **Stop** for one that has started.
+A task's panel carries its controls as labelled buttons, in one row under its header: **Start** and **Remove** for a queued task, and **Pause** or **Resume** and **Stop** for one that has started.
+A task reads one status, the same words and the same dot, on its card, its panel, its terminal pane and its Orchestration card: **Queued** while it waits in Tasks, **Starting** while it starts.
 Pause allows five seconds for a stopping point and handoff, then ends the task's processes, including its detached browser sessions, dev servers and tests.
 It ends the goblin's terminal first, which ends its agent and everything under it, so a busy goblin that misses its stopping point is still paused, with its session kept for its resume, even when the search for its other processes runs out of time on a machine short of memory.
 A machine service the goblin started for its work is never one of them: Docker Desktop with everything it runs, and the no-mistakes daemon with every other goblin's gate agents, keep running through a pause, a stop, a cleanup, a switch, a forced reap and the goblin's terminal closing; the daemon's agents at work on the task's own gate are still ended.
@@ -947,7 +950,7 @@ It stays local and private: nothing in it is pushed anywhere, and no repository 
 
 The CFO's memory is kept here rather than inside Claude Code, Codex or Pi, so whichever harness runs the CFO, and whichever project it runs in, it starts from the same memory.
 
-The fleet keeps it tidy on its own: a finished task's folder moves to `archive\finished`, and a brief nobody dispatched for three days moves to `archive\parked` with a row in the backlog's Parked section, so it stops showing as Not started on the board.
+The fleet keeps it tidy on its own: a finished task's folder moves to `archive\finished`, and a brief nobody dispatched for three days moves to `archive\parked` with a row in the backlog's Parked section, so it stops showing as Queued on the board.
 A folder that anything still in use points at, such as a backlog row, your directives, the memory, a live task's brief or an open Command Center item, stays where it is, and every move is listed in `data\archive\filed.md`.
 
 `cfo install` creates this layout in a new home and fills in anything missing later, without overwriting a file.

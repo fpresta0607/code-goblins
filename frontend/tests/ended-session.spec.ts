@@ -133,7 +133,7 @@ test("a task ID reused for queued work closes the old terminal without opening a
 
   await page.evaluate(() => window.reportSession("queued"));
 
-  await expect(page.getByText("This task has not started yet.", { exact: true })).toBeVisible();
+  await expect(page.locator(".terminal-empty")).toHaveText("Queued");
   await expect(page.locator(".xterm-helper-textarea")).toHaveCount(0);
   expect(connections).toBe(1);
 });

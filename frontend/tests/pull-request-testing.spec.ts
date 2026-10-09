@@ -148,12 +148,12 @@ test.describe("in his window", () => {
     await expect(node.locator(".flow-node-main")).toHaveAttribute("aria-label", /^Sid - Memory Keeper\. Testing\./);
   });
 
-  test("a real pause's panel still says its session paused", async ({ page }) => {
+  test("a real pause's panel reads its card's state and still says its session paused", async ({ page }) => {
     await open(page);
 
     await select(page, "Otis - Ledger Clerk");
 
-    await expect(header(page).locator(".panel-status")).toHaveText("Paused");
+    await expect(header(page).locator(".panel-status")).toHaveText("Memory: resumes at 5 GB free");
     await expect(ended(page).locator("h2")).toHaveText("Session paused");
   });
 

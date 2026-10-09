@@ -24,7 +24,7 @@ test("a slot with no terminal shows an empty state that belongs to no backend", 
   const cases: [string, DeckView, string][] = [
     ["no CFO runs", cfoView({ cfo_terminal: "", cfo_terminal_since: "", cfo_runs: false, cfo_closed: false }), "No CFO is running."],
     ["the CFO was closed", cfoView({ cfo_terminal: "", cfo_terminal_since: "", cfo_runs: false, cfo_closed: true }), "The CFO is closed."],
-    ["a queued task", idleView(task("queued", { generation: "" })), "This task has not started yet."],
+    ["a queued task", idleView(task("queued", { generation: "" }), undefined, "Queued"), "Queued"],
     ["a child of a task", idleView(task("alpha"), { id: "child" } as Session), "This child has no separate terminal."],
     ["a child with no task", idleView(undefined, { id: "child" } as Session), "This child has no separate terminal."],
     ["nothing selected", idleView(), "Select a goblin to see its terminal."],

@@ -20,7 +20,9 @@ export type PanelView = "task" | "terminal";
 // view and its live terminal, one tap apart on the pill. The terminals
 // themselves live in the terminal deck below the panel, which keeps each one
 // live while the board is open, so switching goblins never reconnects.
-// The CFO's Task view also lists every queued task, as the Tasks column does,
+// A queued task's panel has the same Start as its card, the board's one
+// Start (the Overlord, 2026-10-08: "why no run button when it says play in
+// panel"). The CFO's Task view also lists every queued task, as the Tasks column does,
 // and says which conversation it could not resume when it came back; its
 // Restart is in its header. A goblin's baby goblin (child) has the same
 // panel, with its name and its task above its terminal, which is all it shows.
@@ -43,7 +45,7 @@ export function GoblinPanel({ task, node, child, snapshot, connected, reviews, v
     {child && task ? <BabyHeader goblin={task} child={child} now={now} /> : <PanelHeader task={task} node={node} snapshot={snapshot} compact={view === "terminal"} onAnswer={onAnswer} onOpenTask={onOpenTask} onOpenLog={openLog} />}
     <div className="panel-task" hidden={view !== "task"}>
       {task && <div className="panel-content lifecycle-panel">
-        <TaskControls task={task} snapshot={snapshot} labelled />
+        <TaskControls task={task} snapshot={snapshot} start={cardStart(task)} labelled />
         <LifecycleDetails task={task} />
       </div>}
       {!task?.archived && owner ? <TaskView task={task} snapshot={snapshot} connected={connected} reviews={reviews} log={{ open: isLogOpen, onOpenChange: setLogOpen }} now={now} onRepair={onAnswer} /> : <div className="panel-content">
