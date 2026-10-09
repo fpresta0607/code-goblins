@@ -110,16 +110,22 @@ func TestRunRequestRefusesAProcessThatIsNotTheCFO(t *testing.T) {
 // executes, so no quoting can change it and a later edit of the file changes
 // nothing; the item runs in the CFO home unless it names a folder.
 func TestRunRequestStoresTheCommandAsTheScriptItRuns(t *testing.T) {
-	command := "Write-Output \"it's $env:USERNAME\" `\n'single' \"double\" $(Get-Date) caf\u00e9\r\nexit 3\n"
+	// Each shell's command quotes, substitutes, carries UTF-8 and a CRLF, and
+	// parses in that shell, which checks it before it is published.
+	powershell := "Write-Output \"it's $env:USERNAME\" `\n'single' \"double\" $(Get-Date) caf\u00e9\r\nexit 3\n"
 	for _, test := range []struct {
-		shell, script string
-		bom           bool
+		shell, script, command string
+		bom                    bool
 	}{
-		{shell: "powershell", script: "command.ps1", bom: true},
-		{shell: "pwsh", script: "command.ps1", bom: true},
-		{shell: "bash", script: "command.sh"},
+		{shell: "powershell", script: "command.ps1", command: powershell, bom: true},
+		{shell: "pwsh", script: "command.ps1", command: powershell, bom: true},
+		{shell: "bash", script: "command.sh", command: "echo \"it's $USERNAME\" \\\n'single' \"double\" $(date) caf\u00e9\r\nexit 3\n"},
 	} {
 		t.Run(test.shell, func(t *testing.T) {
+			if _, err := exec.LookPath(test.shell); test.shell == "pwsh" && err != nil {
+				t.Skip("PowerShell 7 is not installed here, so its command cannot be checked")
+			}
+			command := test.command
 			store, h := testStore(t)
 			_, identity, _, connection := primaryFixture(t, store)
 			runPipe(t, &Service{Store: store, Options: Options{CFO: connection}})
