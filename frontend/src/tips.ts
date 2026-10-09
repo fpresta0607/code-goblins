@@ -3,6 +3,9 @@
 const GAP = 8;
 // How close to a tip's corner its arrow may sit, clear of the rounding.
 const ARROW_INSET = 14;
+// How many frames in a row a part must stand in one place before its tip
+// stops being drawn again.
+const STILL_FRAMES = 3;
 
 // The sides of its part a tip tries, in order.
 const SIDES = ["above", "below", "right", "left"] as const;
@@ -12,8 +15,8 @@ type Side = typeof SIDES[number];
 // else to its left, on the first side where the whole tip fits on the
 // screen. Along that side it is centered on the part and kept on the screen,
 // and its arrow points at the part's middle. A tip that fits on no side goes
-// below its part, kept on the screen.
-function place(node: HTMLElement, part: HTMLElement) {
+// below its part, kept on the screen. Returns where the part stands.
+function place(node: HTMLElement, part: HTMLElement): DOMRect {
   const anchor = part.getBoundingClientRect(), own = node.getBoundingClientRect();
   const { clientWidth: width, clientHeight: height } = document.documentElement;
   const centered = (start: number, length: number, size: number, room: number) => Math.max(GAP, Math.min(start + length / 2 - size / 2, room - GAP - size));
@@ -33,6 +36,7 @@ function place(node: HTMLElement, part: HTMLElement) {
   node.style.setProperty("--arrow", Math.max(ARROW_INSET, Math.min(arrow, (isAcross ? own.width : own.height) - ARROW_INSET)) + "px");
   node.style.left = spot.left + "px";
   node.style.top = spot.top + "px";
+  return anchor;
 }
 
 // Shows the board's tips until the function it returns is called. Every part
@@ -40,22 +44,25 @@ function place(node: HTMLElement, part: HTMLElement) {
 // page, on the frame the pointer or the keyboard's focus comes to the part,
 // for as long as either stays, so no scrolling box clips a tip and every tip
 // can be kept on the screen beside its part (see place). While a part is
-// pointed at its tip is drawn again on every frame, so it says what its
-// part's data-tip says now and follows its part as the page scrolls, resizes
-// or changes and as the part itself moves, as a card lifting under the
-// pointer does. It goes on the frame the part is left, has no tip or has left
-// the page, and at any press. A task card gains its tip, its shortened title
-// in full, only once it is pointed at, so it counts as a part from the start.
-// A part inside a modal dialog shows its tip inside the dialog, which is
-// drawn over the rest of the page. A card being dragged shows no tip.
+// pointed at, its tip says what its part's data-tip says now and follows its
+// part: it is drawn again when the page scrolls, resizes or changes, and on
+// every frame for as long as the part itself moves, as a card lifting under
+// the pointer does. A tip beside a part at rest asks for no frames. It goes
+// on the frame the part is left, has no tip or has left the page, and at any
+// press. A task card gains its tip, its shortened title in full, only once it
+// is pointed at, so it counts as a part from the start. A part inside a modal
+// dialog shows its tip inside the dialog, which is drawn over the rest of the
+// page. A card being dragged shows no tip.
 export function watchTips(): () => void {
-  let part: HTMLElement | null = null, node: HTMLElement | null = null, frame = 0;
-  const show = () => {
+  let part: HTMLElement | null = null, node: HTMLElement | null = null, frame = 0, still = 0, stood = "";
+  // Draws the tip against its part as both are now, and again on the next
+  // frame until the part has stood in one place for STILL_FRAMES of them.
+  const draw = () => {
     cancelAnimationFrame(frame);
-    if (!part?.isConnected) part = null;
-    if (part) frame = requestAnimationFrame(show);
+    if (part && !part.isConnected) return point(null);
     const text = part && !part.closest(".sorting") ? part.getAttribute("data-tip") : null;
     if (!part || !text) {
+      sized.disconnect();
       node?.remove();
       node = null;
       return;
@@ -64,16 +71,33 @@ export function watchTips(): () => void {
       node = document.createElement("div");
       node.className = "tip";
       node.setAttribute("role", "tooltip");
+      sized.observe(node);
     }
     const host = part.closest("dialog") ?? document.body;
     if (node.parentElement !== host) host.append(node);
     if (node.textContent !== text) node.textContent = text;
-    place(node, part);
+    const { left, top, width, height } = place(node, part);
+    const at = [left, top, width, height].join();
+    still = at === stood ? still + 1 : 0;
+    stood = at;
+    if (still < STILL_FRAMES) frame = requestAnimationFrame(draw);
   };
+  // Draws the tip afresh, since its part may have moved or changed.
+  const show = () => {
+    stood = "";
+    draw();
+  };
+  // What wakes a tip at rest: any change to the page but the tip's own,
+  // watched only while a part is pointed at, and the tip's own box changing
+  // size, as it does when its font arrives after its text.
+  const changes = new MutationObserver((records) => { if (records.some((record) => record.target !== node)) show(); });
+  const sized = new ResizeObserver(show);
   const partOf = (target: EventTarget | null) => target instanceof Element ? target.closest<HTMLElement>("[data-tip], .task-card") : null;
   const point = (next: HTMLElement | null) => {
     if (next === part) return;
     part = next;
+    changes.disconnect();
+    if (part) changes.observe(document.body, { subtree: true, childList: true, attributes: true, characterData: true });
     show();
   };
   // A pressed mouse or pen shows no tip until it is released, so a card has
@@ -94,6 +118,8 @@ export function watchTips(): () => void {
   document.addEventListener("pointerout", onOut, capture);
   document.addEventListener("focusin", onFocus);
   document.addEventListener("focusout", onBlur);
+  addEventListener("scroll", show, { capture: true, passive: true });
+  addEventListener("resize", show);
   return () => {
     point(null);
     document.removeEventListener("pointerover", onPointer, capture);
@@ -102,5 +128,7 @@ export function watchTips(): () => void {
     document.removeEventListener("pointerout", onOut, capture);
     document.removeEventListener("focusin", onFocus);
     document.removeEventListener("focusout", onBlur);
+    removeEventListener("scroll", show, { capture: true });
+    removeEventListener("resize", show);
   };
 }

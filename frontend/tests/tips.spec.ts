@@ -435,3 +435,34 @@ test("a press takes a tip away, even on a part that keeps the press to itself", 
   await expect(tip).toHaveCount(0);
   await page.mouse.up();
 });
+
+// A tip follows its part only while the part moves. Once the part is still
+// nothing keeps asking for frames, however long the pointer rests on it. The
+// board itself asks for one when a snapshot arrives, so a few in half a
+// second is still, and a tip drawn again on every frame asks for thirty.
+test("a tip beside a part at rest asks for no frames and still touches it", async ({ page }) => {
+  // Arrange
+  await page.addInitScript(() => {
+    const frame = window.requestAnimationFrame.bind(window);
+    window.framesAsked = 0;
+    window.requestAnimationFrame = (callback) => { window.framesAsked!++; return frame(callback); };
+  });
+  await open(page);
+  const shell = page.locator(".task-card-shell").filter({ has: page.locator(".card-title").getByText("working-one", { exact: true }) });
+  const pause = shell.getByRole("button", { name: /^Pause / });
+
+  // Act: the pointer comes to Pause, which lifts under it, and rests there.
+  await pause.hover();
+  await expect(page.getByRole("tooltip")).toHaveText("Pause");
+  await expect.poll(() => page.evaluate(() => document.getAnimations().filter((animation) => animation.playState === "running").length)).toBe(0);
+  const asked = (await page.evaluate(() => window.framesAsked))!;
+  await page.waitForTimeout(500);
+
+  // Assert
+  expect((await page.evaluate(() => window.framesAsked))! - asked).toBeLessThan(5);
+  expect(await pause.evaluate(tipFaults)).toMatchObject({ shown: 1, faults: [], side: "above" });
+});
+
+declare global {
+  interface Window { framesAsked?: number }
+}
