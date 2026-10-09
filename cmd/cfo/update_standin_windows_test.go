@@ -9,6 +9,7 @@ import (
 	"net"
 	"net/http"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -35,8 +36,13 @@ const buildMarker = "\x00CFO-TEST-BUILD:"
 //     answers;
 //   - crash: a supervisor that exits at once;
 //   - flaky: the previous build, silent the first time it serves;
+//   - second-start: the candidate, which exits at once the first time it
+//     serves and serves from its second start on;
 //   - tampered: a changed copy of the previous build, which leaves
 //     state/test-tampered-ran behind if it ever runs.
+//
+// A supervisor started with CFO_TEST_SERVE_DEAF never honours a stop request,
+// as one busy with work of its own does not, so whoever stops it ends it.
 func standInBuild() (string, bool) {
 	program, err := os.Executable()
 	if err != nil {
@@ -85,6 +91,8 @@ func runStandInBuild() (int, bool) {
 		return standInUpdate(), true
 	case "install":
 		return standInInstall(), true
+	case "hold":
+		return standInHold(), true
 	}
 	// Anything else, a terminal's host or a watcher, idles until ended.
 	time.Sleep(3 * time.Minute)
@@ -121,14 +129,18 @@ func standInServe(build string) int {
 	if err := flags.Parse(os.Args[2:]); err != nil {
 		return 2
 	}
-	if build == "flaky" {
+	if build == "flaky" || build == "second-start" {
 		starts := filepath.Join(stateDir, "test-serve-starts")
 		data, _ := os.ReadFile(starts)
 		count, _ := strconv.Atoi(strings.TrimSpace(string(data)))
 		_ = os.WriteFile(starts, []byte(strconv.Itoa(count+1)), 0o600)
-		build = "previous"
+		first, later := "silent", "previous"
+		if build == "second-start" {
+			first, later = "crash", "candidate"
+		}
+		build = later
 		if count == 0 {
-			build = "silent"
+			build = first
 		}
 	}
 	switch build {
@@ -182,10 +194,59 @@ func standInServe(build string) int {
 			PID int `json:"pid"`
 		}
 		data, err := os.ReadFile(filepath.Join(stateDir, "serve.stop"))
-		if err == nil && json.Unmarshal(data, &request) == nil && request.PID == os.Getpid() {
+		if err == nil && json.Unmarshal(data, &request) == nil && request.PID == os.Getpid() && os.Getenv("CFO_TEST_SERVE_DEAF") == "" {
 			_ = os.Remove(filepath.Join(stateDir, "serve.stop"))
+			stamp(filepath.Join(stateDir, servedUntilFile))
 			return 0
 		}
+	}
+	return 0
+}
+
+// servedUntilFile and heldUntilFile are where a stand-in supervisor leaves the
+// time it honoured a stop request, and a stand-in for lifecycle work the time
+// it finished, under the home's state.
+const (
+	servedUntilFile = "test-serve-stopped"
+	heldUntilFile   = "test-held-released"
+)
+
+// stamp writes the time now to path.
+func stamp(path string) {
+	_ = os.WriteFile(path, []byte(strconv.FormatInt(time.Now().UnixNano(), 10)), 0o600)
+}
+
+// standInHold stands in for lifecycle work in flight, a clean-up, a pause or
+// a resume: it holds the lock os.Args[2] names in the home's state, as that
+// work holds its own, until os.Args[3] after an update's journal says it is
+// prepared, or, for "forever", until it is ended.
+func standInHold() int {
+	if len(os.Args) != 4 {
+		return 2
+	}
+	stateDir := standInHome().State
+	if _, err := lock.AcquireExclusiveNamed(stateDir, os.Args[2]); err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		return 1
+	}
+	if os.Args[3] == "forever" {
+		time.Sleep(3 * time.Minute)
+		return 0
+	}
+	after, err := time.ParseDuration(os.Args[3])
+	if err != nil {
+		return 2
+	}
+	for deadline := time.Now().Add(3 * time.Minute); time.Now().Before(deadline); time.Sleep(50 * time.Millisecond) {
+		if journal, err := update.ReadJournal(stateDir); err == nil && journal.Phase == update.Prepared {
+			break
+		}
+	}
+	time.Sleep(after)
+	stamp(filepath.Join(stateDir, heldUntilFile))
+	if err := lock.ReleaseExclusiveNamed(stateDir, os.Args[2]); err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		return 1
 	}
 	return 0
 }
@@ -218,14 +279,49 @@ func holdExclusively(path string, wait time.Duration) (syscall.Handle, error) {
 	}
 }
 
+// lateServeFile is where startLateServe leaves the pid of the supervisor it
+// started, under the home's state.
+const lateServeFile = "test-late-serve"
+
+// startLateServe starts the home's goblins.exe as a supervisor of this home
+// and waits until it serves the board or has exited, so the update goes on
+// with that supervisor either holding the watcher lock or refused it.
+func startLateServe(h home.Home) {
+	late := exec.Command(filepath.Join(h.Bin(), "goblins.exe"), "serve", "--listen", "127.0.0.1:0")
+	late.Dir = h.Root
+	if err := late.Start(); err != nil {
+		fmt.Fprintf(os.Stderr, "stand-in update: the test's late supervisor did not start: %v\n", err)
+		os.Exit(8)
+	}
+	exited := make(chan struct{})
+	go func() {
+		_ = late.Wait()
+		close(exited)
+	}()
+	_ = os.WriteFile(filepath.Join(h.State, lateServeFile), []byte(strconv.Itoa(late.Process.Pid)), 0o600)
+	for deadline := time.Now().Add(15 * time.Second); time.Now().Before(deadline); time.Sleep(50 * time.Millisecond) {
+		select {
+		case <-exited:
+			return
+		default:
+		}
+		if record, err := readBoardRecord(h.State); err == nil && record.PID == late.Process.Pid {
+			return
+		}
+	}
+}
+
 // standInUpdate runs the real cfo update in the home the test names, with
 // the seams the test asks for: CFO_TEST_UPDATE_INTERRUPT ends the process at
 // a step, CFO_TEST_UPDATE_FAIL_RECORD fails the journal write of a phase,
 // CFO_TEST_UPDATE_BREAK_SWAP removes a staged alias before the swap,
 // CFO_TEST_UPDATE_HOLD holds an alias open from the rollback on,
 // CFO_TEST_UPDATE_TAMPER replaces the named verified copies with the home's
-// tampered.exe as the rollback begins, and CFO_TEST_UPDATE_PAUSE waits at a
-// step.
+// tampered.exe as the rollback begins, CFO_TEST_UPDATE_PAUSE waits at a
+// step, CFO_TEST_UPDATE_LATE_SERVE starts the home's goblins.exe as a
+// supervisor at a step, as a goblins opened while the board is away does,
+// CFO_TEST_UPDATE_BOUND bounds the update from prepared to done, and
+// CFO_TEST_UPDATE_QUIET_WAIT bounds its wait for lifecycle work in flight.
 // standInInstall runs the real cfo install as the build, with the waits a test
 // names, so a supervisor the install restarts is this build's stand-in.
 func standInInstall() int {
@@ -257,14 +353,27 @@ func standInUpdate() int {
 		watch.HandoverWait = wait
 	}
 	updateStopWait = 5 * time.Second
+	// A stand-in build is some hundred megabytes, which a loaded machine
+	// copies slowly, so only a test of a bound sets one.
+	updatePrepareBound, updateBound = 10*time.Minute, 10*time.Minute
+	if bound, err := time.ParseDuration(os.Getenv("CFO_TEST_UPDATE_BOUND")); err == nil {
+		updateBound = bound
+	}
+	if wait, err := time.ParseDuration(os.Getenv("CFO_TEST_UPDATE_QUIET_WAIT")); err == nil {
+		updateQuietWait = wait
+	}
 	interrupt := os.Getenv("CFO_TEST_UPDATE_INTERRUPT")
 	pause := os.Getenv("CFO_TEST_UPDATE_PAUSE")
 	hold := os.Getenv("CFO_TEST_UPDATE_HOLD")
 	tamper := os.Getenv("CFO_TEST_UPDATE_TAMPER")
 	breakSwap := os.Getenv("CFO_TEST_UPDATE_BREAK_SWAP") != ""
+	late := os.Getenv("CFO_TEST_UPDATE_LATE_SERVE")
 	updateInterrupt = func(step string) {
 		if step == interrupt {
 			os.Exit(9)
+		}
+		if step == late {
+			startLateServe(h)
 		}
 		if step == pause {
 			time.Sleep(20 * time.Second)

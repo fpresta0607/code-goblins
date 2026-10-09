@@ -49,6 +49,18 @@ var (
 	// updateServeTries is how often the previous build's supervisor is
 	// started before the update gives up on it.
 	updateServeTries = 3
+	// updatePrepareBound is how long an update has to back the previous
+	// build up and stage the new one, while the board still serves. Past it
+	// the update is stopped with nothing changed.
+	updatePrepareBound = time.Minute
+	// updateBound is how long an update has from there until the new build
+	// serves, the time the board is away, and how long putting the previous
+	// build back has. Past it the update is stopped and the previous build
+	// put back.
+	updateBound = time.Minute
+	// updateQuietWait is how long an update waits, before it stops the
+	// supervisor, for lifecycle work in flight to finish.
+	updateQuietWait = 15 * time.Second
 )
 
 // Seams a test ends the process at, or makes a journal write fail at, to
@@ -324,6 +336,7 @@ func rollBack(h home.Home, journal *update.Journal, address string, cause error,
 	_ = recordUpdate(h.State, journal, update.RollingBack, cause.Error())
 	updateInterrupt("rolling-back")
 	endHomeSupervisors(h, journal, stderr)
+	updateInterrupt("restoring")
 	restoreErr := update.Restore(journal)
 	if restoreErr != nil {
 		fmt.Fprintf(stderr, "cfo update: %v; starting the previous build from a copy proved to be it\n", restoreErr)
