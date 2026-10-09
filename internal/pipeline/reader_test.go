@@ -166,7 +166,7 @@ func TestRepoAgentCannotAlterRenderedGlobalReviewAgents(t *testing.T) {
 				t.Fatalf("repository %q changed global %s profile: %+v", source, role, profile)
 			}
 		}
-		// Version 4 runs every role on its chain, so no role is left pinned
+		// From version 4 every role runs the chain, so no role is left pinned
 		// to a harness of the operator's choosing.
 		rendered, _, err = Render(global, chain)
 		if err != nil {
