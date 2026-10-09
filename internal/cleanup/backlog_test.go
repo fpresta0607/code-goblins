@@ -81,6 +81,50 @@ func TestCleanupMovesARetiredTasksQueuedRowToDone(t *testing.T) {
 	}
 }
 
+// A row cleanup cannot move stays where it is, the task is retired all the
+// same, and cleanup says what becomes of the row: the supervisor moves a
+// delivered task's row once it can, and the scheduler never starts any other
+// retired task's row and tells the CFO of it.
+func TestCleanupSaysWhatBecomesOfARowItCannotMove(t *testing.T) {
+	const backlog = "## Queued\n- **g1** - Ship it\n- **g1** - Ship it twice\n"
+	for _, testCase := range []struct {
+		name, status, want string
+	}{
+		{name: "delivered", status: "2026-10-07T10:00:00Z done: PR https://github.com/owner/project/pull/42\n", want: "the supervisor moves it to ## Done once it can"},
+		{name: "not delivered", want: "the scheduler does not start it again and wakes you about the row"},
+	} {
+		t.Run(testCase.name, func(t *testing.T) {
+			// Arrange
+			fixture := newCleanupFixture(t)
+			data := t.TempDir()
+			fixture.service.Data = data
+			if err := os.WriteFile(filepath.Join(data, "backlog.md"), []byte(backlog), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			if testCase.status != "" {
+				if err := os.WriteFile(filepath.Join(fixture.stateDir, "g1.status"), []byte(testCase.status), 0o600); err != nil {
+					t.Fatal(err)
+				}
+			}
+
+			// Act
+			result, err := fixture.service.Cleanup(context.Background(), "g1")
+
+			// Assert
+			if err != nil {
+				t.Fatalf("Cleanup: %v", err)
+			}
+			got, err := os.ReadFile(filepath.Join(data, "backlog.md"))
+			if err != nil {
+				t.Fatal(err)
+			}
+			if string(got) != backlog || !strings.Contains(result.Output, "warning: its backlog row stays under ## Queued") || !strings.Contains(result.Output, testCase.want) {
+				t.Errorf("backlog =\n%s\noutput: %s\nwant the row left and a warning saying %q", got, result.Output, testCase.want)
+			}
+		})
+	}
+}
+
 // A local-only task opens no pull request: its done line delivers it when it
 // names the report the home keeps for it, data/<id>/report.md, and the report
 // is there, so its cleanup moves its row to ## Done as a pull request's does.

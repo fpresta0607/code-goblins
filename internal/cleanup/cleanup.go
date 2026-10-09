@@ -260,7 +260,7 @@ func (s Service) closeRow(outcome state.Outcome) string {
 	case err != nil && outcome.Phase == "done":
 		return "\nwarning: its backlog row stays under ## Queued for now (" + err.Error() + "); the supervisor moves it to ## Done once it can"
 	case err != nil:
-		return "\nwarning: its backlog row stays under ## Queued (" + err.Error() + "); the scheduler does not start it again and wakes you about the row"
+		return "\nwarning: its backlog row stays under ## Queued (" + err.Error() + "), where the scheduler does not start it again and wakes you about the row"
 	}
 	return "\nits backlog row is under ## Done"
 }
