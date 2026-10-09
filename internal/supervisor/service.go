@@ -290,6 +290,10 @@ type Service struct {
 	// allowance is the last reading quota-axi gave of each provider's
 	// allowance, which AFK mode's switch takes rather than reading its own.
 	allowance map[string]keptAllowance
+	// weeklyFloors are the weekly floors the last fleet reading paused by,
+	// by provider, for the dials, and none while config/fleet.json cannot
+	// be read.
+	weeklyFloors map[string]float64
 }
 
 // snapshotRefresh is how often every board gets a fresh snapshot with nothing
@@ -903,6 +907,13 @@ func (s *Service) execute(ctx context.Context, a Action) (Evaluation, error) {
 				text = fmt.Sprintf("User answer to CFO question %s. Question: %s Answer: %s", q.ID, q.Text, a.Text)
 				if a.AnswerKind == "other" {
 					text = fmt.Sprintf("User answer to CFO question %s. Question: %s Answer (Other): %s", q.ID, q.Text, a.Text)
+				}
+				switch {
+				case q.Decided == "":
+				case a.AnswerKind == "option" && a.Text == q.Decided:
+					text += ". You answered " + q.Decided + " while AFK mode was on, and he kept it."
+				default:
+					text += ". You answered " + q.Decided + " while AFK mode was on, and he changed it: undo or redo what your answer started."
 				}
 				found = true
 			}

@@ -71,6 +71,10 @@ type Question struct {
 	// goblin has his.
 	ChangeID       string `json:"change_id,omitempty"`
 	ReplacedAnswer string `json:"replaced_answer,omitempty"`
+	// Decided is the choice the CFO answered its own question with while AFK
+	// mode was on, and acted on: the question is asked with it checked, for
+	// the Overlord to keep or change.
+	Decided string `json:"decided,omitempty"`
 	// Page is, on the board only, the open review item whose page carries
 	// this question, so the Command Center shows the two as one.
 	Page string `json:"page,omitempty"`
@@ -90,6 +94,9 @@ func validQuestion(q Question) error {
 	if q.Recommended != "" && !slices.Contains(q.Options, q.Recommended) {
 		return errors.New("recommendation must name one of the supplied choices exactly")
 	}
+	if q.Decided != "" && (q.Task != "" || !slices.Contains(q.Options, q.Decided)) {
+		return errors.New("only the CFO's own question carries its answer, and it names one of the supplied choices exactly")
+	}
 	if q.Task != "" && (state.ValidTaskID(q.Task) != nil || q.Generation == "" || q.Seq <= 0) {
 		return errors.New("a goblin's question names its task, generation and blocked notify")
 	}
@@ -105,7 +112,7 @@ func validQuestion(q Question) error {
 }
 
 func sameQuestion(a, b Question) bool {
-	return a.Identity == b.Identity && a.Text == b.Text && slices.Equal(a.Options, b.Options) && a.Recommended == b.Recommended && a.Task == b.Task && slices.Equal(a.Images, b.Images)
+	return a.Identity == b.Identity && a.Text == b.Text && slices.Equal(a.Options, b.Options) && a.Recommended == b.Recommended && a.Decided == b.Decided && a.Task == b.Task && slices.Equal(a.Images, b.Images)
 }
 
 // goblinIdentity binds a goblin's question to the task generation and pane

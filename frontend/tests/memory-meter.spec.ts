@@ -19,8 +19,8 @@ const states = {
   small: { ...machine, total: 6 * GB, commit_limit: 9 * GB, available: 3 * GB, commit_available: 6 * GB },
 };
 
-async function tasksColumn(page: Page, memory: object, scheduling: object | null = null) {
-  const snapshot = { instance: "memory-fixture", revision: 1, healthy: true, example: true, cfo_runs: false, memory, scheduling, tasks };
+async function tasksColumn(page: Page, memory: object, scheduling: object | null = null, disk: object | null = null) {
+  const snapshot = { instance: "memory-fixture", revision: 1, healthy: true, example: true, cfo_runs: false, memory, scheduling, disk, tasks };
   await page.route("**/api/**", async (route) => {
     if (new URL(route.request().url()).pathname === "/api/events") {
       await route.fulfill({ contentType: "text/event-stream", body: `event: snapshot\ndata: ${JSON.stringify(snapshot)}\n\n` });
@@ -90,42 +90,47 @@ for (const width of [1440, 390]) {
       await expect(column.getByRole("button", { name: "Start Polish settings", exact: true })).not.toHaveAttribute("aria-disabled", "true");
     });
 
-    test("with memory free the meter names what the supervisor started, in body-size text inside its box", async ({ page }, testInfo) => {
-      // Arrange
-      const scheduling = { at: "2026-10-07T12:00:00Z", text: "starting polish-settings", waiting: [] };
+    // The Overlord, 2026-10-09, on the line the scheduler wrote under the
+    // memory bar: "dont display nothing starts text too much text". Whatever
+    // the scheduler says, the box holds each meter's name and value and
+    // nothing else a person reads: no text under a bar and none between two
+    // meters. Why nothing starts reaches the CFO as a wake.
+    for (const [said, text] of Object.entries({
+      "started a task": "starting polish-settings",
+      "resumed a goblin": "resuming paused-task",
+      "found nothing could start": "nothing starts: polish-settings: its last start failed: Only 4.9 GB of memory is free; a start needs 5 GB of memory and commit to keep the 4 GB floor",
+    })) {
+      for (const [state, memory] of Object.entries(states)) {
+        test(`the ${state} meters hold no text but their names and values when the scheduler ${said}`, async ({ page }) => {
+          // Arrange
+          const scheduling = { at: "2026-10-09T16:05:00Z", text, waiting: [{ id: "polish-settings", why: "its last start failed" }] };
+          const disk = { drive: "C:", free: 330.3 * GB, total: 900 * GB, floor: 15 * GB, wake: 10 * GB };
 
-      // Act
-      const meter = (await tasksColumn(page, states.memory, scheduling)).getByRole("group", { name: "Memory" });
+          // Act
+          const column = await tasksColumn(page, memory, scheduling, disk);
+          const read = await column.locator(".task-meters").evaluate((box) => {
+            const walker = document.createTreeWalker(box, NodeFilter.SHOW_TEXT);
+            const stray: string[] = [];
+            for (let node = walker.nextNode(); node; node = walker.nextNode()) {
+              const parent = node.parentElement!;
+              if (node.textContent!.trim() && !parent.closest(".sr-only") && !parent.closest(".memory-line")) stray.push(node.textContent!.trim());
+            }
+            return {
+              meters: [...box.querySelectorAll('[role="group"]')].map((meter) => meter.getAttribute("aria-label")),
+              lines: box.querySelectorAll(".memory-line").length,
+              stray,
+              spoken: [...box.querySelectorAll(".sr-only")].map((element) => element.textContent).join(" "),
+            };
+          });
 
-      // Assert
-      await expect(meter.locator(".memory-schedule")).toHaveText("Starting polish-settings");
-      await expect(meter.locator(".sr-only")).toContainText("Enough memory: starting polish-settings");
-      await meter.screenshot({ path: testInfo.outputPath(`scheduled-${width}.png`) });
-    });
-
-    test("with memory free the meter says why nothing waiting started, and the line stays inside its box", async ({ page }, testInfo) => {
-      // Arrange
-      const scheduling = { at: "2026-10-07T12:00:00Z", text: "nothing starts: polish-settings: its last start failed: refused: the project's auth preflight is red for GitHub and Vercel", waiting: [{ id: "polish-settings", why: "its last start failed" }] };
-
-      // Act
-      const meter = (await tasksColumn(page, states.memory, scheduling)).getByRole("group", { name: "Memory" });
-      const line = meter.locator(".memory-schedule");
-
-      // Assert
-      await expect(line).toHaveText("Nothing starts: polish-settings: its last start failed: refused: the project's auth preflight is red for GitHub and Vercel");
-      const fits = await meter.evaluate((box) => {
-        const inside = box.getBoundingClientRect(), text = box.querySelector<HTMLElement>(".memory-schedule")!;
-        const rect = text.getBoundingClientRect();
-        return { inside: rect.left >= inside.left && rect.right <= inside.right && rect.bottom <= inside.bottom, size: parseFloat(getComputedStyle(text).fontSize), overflows: box.scrollWidth > box.clientWidth };
-      });
-      expect(fits).toEqual({ inside: true, size: 16, overflows: false });
-      await meter.screenshot({ path: testInfo.outputPath(`nothing-starts-${width}.png`) });
-    });
-
-    test("with memory short the meter keeps no line from a reading with memory free", async ({ page }) => {
-      const meter = (await tasksColumn(page, states.commit, { at: "2026-10-07T12:00:00Z", text: "starting polish-settings", waiting: [] })).getByRole("group", { name: "Memory" });
-      await expect(meter.locator(".memory-schedule")).toHaveCount(0);
-    });
+          // Assert
+          expect(read.meters).toEqual(["Memory", "Disk"]);
+          expect(read.lines).toBe(2);
+          expect(read.stray).toEqual([]);
+          expect(read.spoken).not.toContain("polish-settings");
+        });
+      }
+    }
 
     // A leaking paged pool is named in the bar's tip, never as a warning box in
     // the column: the Overlord, 2026-10-07, "any alerts that are critical go

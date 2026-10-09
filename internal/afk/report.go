@@ -65,7 +65,9 @@ type Finish struct {
 	At   time.Time `json:"at"`
 }
 
-// Held is an item that waited on the Overlord during the stretch.
+// Held is an item that waited on the Overlord during the stretch: one held
+// for him, or a line the CFO left for him, which is asked in the Command
+// Center as the CFO's question when the stretch ends.
 type Held struct {
 	// Item is its key in the Command Center, Task its goblin, empty for the
 	// CFO's own, and What the question or request itself, which says why it
@@ -84,6 +86,9 @@ type Held struct {
 	// Recommendation is the choice recommended for it by whoever asked it,
 	// empty when nothing was.
 	Recommendation string `json:"recommendation,omitempty"`
+	// Settled is what became of a line left for him that the CFO settled in
+	// the stretch: it was never asked, so nothing read later changes it.
+	Settled string `json:"settled,omitempty"`
 }
 
 // Recommends says what was recommended for a held item and by whom: the CFO
@@ -106,22 +111,27 @@ func Recommends(task, recommendation string, waiting bool) string {
 
 // Decisions folds a stretch's log lines into its decisions, in the order they
 // were made: a later line that carries an outcome closes the decision logged
-// before it for the same kind, subject and goblin, and a strike marks the
-// decision it names struck, with its reason.
+// before it for the same kind, subject and goblin, a strike marks the
+// decision it names struck, with its reason, and a settle marks the line left
+// for him that it names settled, with what became of it.
 func Decisions(entries []Entry) []Entry {
 	return marked(folded(entries, DecisionKinds), entries)
 }
 
 // marked is decisions with each one a strike among entries names marked
-// struck.
+// struck, and each one a settle names marked settled.
 func marked(decisions, entries []Entry) []Entry {
-	for _, strike := range entries {
-		if strike.Kind != KindStrike {
+	for _, line := range entries {
+		if line.Kind != KindStrike && line.Kind != KindSettle {
 			continue
 		}
 		for i, decision := range decisions {
-			if decision.At.UTC().Format(time.RFC3339Nano) == strike.Item {
-				decisions[i].Struck = strike.Evidence
+			switch {
+			case decision.At.UTC().Format(time.RFC3339Nano) != line.Item:
+			case line.Kind == KindStrike:
+				decisions[i].Struck = line.Evidence
+			default:
+				decisions[i].Settled = line.Evidence
 			}
 		}
 	}
@@ -184,35 +194,34 @@ type Section struct {
 	Entries []Entry `json:"entries"`
 }
 
-// Sections sorts the report's decisions under its headings, in the order the
+// Sections sorts what the CFO decided under its headings, in the order the
 // report lists them, the goblins paused at a floor after them, and last what
-// the CFO struck. A heading the report always shows is there with nothing
-// under it; the others are there only when they hold something. A struck
-// line is under Struck by the CFO alone, so it is never taken for something
-// left for him or decided. The CFO's text and the board's page are both
-// written from these.
+// the CFO struck. A heading is there only when it holds something. What it
+// left for him is not among them: it is with what was held for him, as it
+// stands now. A struck line is under Struck by the CFO alone, so it is never
+// taken for something left for him or decided. The CFO's text and the
+// board's page are both written from these.
 func (r Report) Sections() []Section {
 	var sections []Section
-	decided := func(title string, keep func(Entry) bool, always bool) {
+	decided := func(title string, keep func(Entry) bool) {
 		entries := []Entry{}
 		for _, entry := range r.Decisions {
 			if entry.Struck == "" && keep(entry) {
 				entries = append(entries, entry)
 			}
 		}
-		if len(entries) > 0 || always {
+		if len(entries) > 0 {
 			sections = append(sections, Section{Title: title, Entries: entries})
 		}
 	}
 	kind := func(kind string) func(Entry) bool { return func(entry Entry) bool { return entry.Kind == kind } }
-	decided("Left for you", kind(KindLeft), true)
-	decided("Merged", func(entry Entry) bool { return entry.Kind == KindMerge && entry.Outcome == OutcomeMerged }, true)
-	decided("Merge words with no merge recorded", func(entry Entry) bool { return entry.Kind == KindMerge && entry.Outcome != OutcomeMerged }, false)
-	decided("Deployed", kind(KindDeploy), true)
-	decided("Migrations applied", kind(KindMigration), true)
-	decided("Installed", kind(KindInstall), true)
-	decided("Answered for goblins", kind(KindAnswer), true)
-	decided("Other decisions", kind(KindOther), false)
+	decided("Merged", func(entry Entry) bool { return entry.Kind == KindMerge && entry.Outcome == OutcomeMerged })
+	decided("Merge words with no merge recorded", func(entry Entry) bool { return entry.Kind == KindMerge && entry.Outcome != OutcomeMerged })
+	decided("Deployed", kind(KindDeploy))
+	decided("Migrations applied", kind(KindMigration))
+	decided("Installed", kind(KindInstall))
+	decided("Answered for goblins", kind(KindAnswer))
+	decided("Other decisions", kind(KindOther))
 	if len(r.Paused) > 0 {
 		sections = append(sections, Section{Title: "Paused at a floor", Entries: r.Paused})
 	}
@@ -324,8 +333,9 @@ func span(d time.Duration) string {
 }
 
 // Render writes the report as the text the CFO puts in its terminal: who
-// turned it on and off, what is held for the Overlord, which he reads first,
-// then what the CFO decided, what each goblin finished and what was spent.
+// turned it on and off, what was held or left for the Overlord, which he
+// reads first, then what the CFO decided, what each goblin finished and what
+// was spent.
 func Render(w io.Writer, r Report) error {
 	var out []string
 	say := func(format string, a ...any) { out = append(out, fmt.Sprintf(format, a...)) }
@@ -333,7 +343,7 @@ func Render(w io.Writer, r Report) error {
 	say("AFK mode was on from %s to %s (%s): turned on %s, off %s.", at(r.Since), at(r.Ended), r.Lasted(), SwitchedBy(r.From, r.Asked), SwitchedBy(r.EndedFrom, r.EndedAsked))
 
 	say("")
-	say("Held for you (%d), each as it stands now", len(r.Held))
+	say("For you (%d), each as it stands now", len(r.Held))
 	for _, held := range r.Held {
 		whose := "the CFO's"
 		if held.Task != "" {
@@ -382,12 +392,6 @@ func Render(w io.Writer, r Report) error {
 				continue
 			}
 			say("  Evidence: %s", entry.Evidence)
-			if entry.Diagnosis != "" {
-				say("  Found: %s", entry.Diagnosis)
-			}
-			if entry.Tried != "" {
-				say("  Tried: %s", entry.Tried)
-			}
 		}
 	}
 
