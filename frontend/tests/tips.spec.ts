@@ -10,11 +10,7 @@ const since = "2026-10-02T09:00:00Z";
 // longest tips they have.
 const memory = { total: 32 * GB, commit_limit: 48 * GB, floor: 4 * GB, next: 5 * GB, paged_pool: 0.6 * GB, nonpaged_pool: 0.4 * GB, available: 3.4 * GB, commit_available: 2.5 * GB };
 const LONG = "Paused goblins resume by themselves when the reason for the pause clears, and the board says which goblin each one was waiting on and for how long it has waited";
-// The title whose tip lay over the memory meter on 2026-10-02, and the longest
-// title the queue held that day.
-// Its "; Claude Code" is shown as the card's harness mark now, so the same
-// width of title carries other words.
-const SEEN = "Paused goblins resume by themselves when the reason for the pause clears, in Claude Code";
+// The longest title the queue held on 2026-10-02.
 const LONGEST = "An OpenClaw-style quick start in the goblins command: detect and install Claude Code, Codex and pi, walk through sign-in, pick the CFO's agent, clear Enter-to-continue steps, and a final screen with the board link or Enter for the CFO terminal";
 const task = (id: string, phase: string, fields: Record<string, unknown> = {}) => ({ id, title: id, project: "code-goblins", phase, verified: false, generation: id + "-1", since, ...fields });
 const TASKS = [
@@ -43,9 +39,10 @@ async function open(page: Page, tasks: Record<string, unknown>[] = TASKS, questi
 // stands on, and how many tips it shows. A tip is the board's floating one,
 // or one a stylesheet draws from the part's ::after, which is measured the
 // same way so that such a tip coming back is held to the same rules. The
-// floating tip touches its part: the edge it turns to the part is no further
-// from it than its arrow reaches, it lies across the part along that edge, and
-// its arrow sits on that edge, over the part.
+// floating tip touches its part: the edge it turns to the part stands 8 px
+// from it, the room its arrow spans, wherever the part has moved to since the
+// pointer came, it lies across the part along that edge, and its arrow sits on
+// that edge, over the part.
 function tipFaults(part: Element): { shown: number; faults: string[]; side: string } {
   const want = part.getAttribute("data-tip") || "";
   const tips: { text: string; box: DOMRect; from: Element; opacity: number; fixed: boolean; style: CSSStyleDeclaration; node?: HTMLElement }[] = [];
@@ -82,7 +79,7 @@ function tipFaults(part: Element): { shown: number; faults: string[]; side: stri
       const gaps = { above: own.top - box.bottom, below: box.top - own.bottom, right: box.left - own.right, left: own.left - box.right };
       const isAlong = (at: string) => at === "above" || at === "below";
       const across = (at: string) => isAlong(at) ? Math.min(box.right, own.right) - Math.max(box.left, own.left) : Math.min(box.bottom, own.bottom) - Math.max(box.top, own.top);
-      const touched = (["above", "below", "right", "left"] as const).find((at) => gaps[at] > -1 && gaps[at] < 9 && across(at) > 0);
+      const touched = (["above", "below", "right", "left"] as const).find((at) => Math.abs(gaps[at] - 8) < 1 && across(at) > 0);
       side = touched ?? "";
       const arrow = getComputedStyle(tip.node, "::before");
       if (!touched) say("does not touch its part");
@@ -349,38 +346,43 @@ test("a tip shows, swaps and goes on the frame the pointer or focus moves, with 
 
 // The Overlord, 2026-10-08: no tip is left open after a scroll. A scroll
 // that moves a part out from under the pointer takes its tip away within two
-// frames, as the browser hands the pointer to what is under it now, and a tip
-// the keyboard's focus shows stays with its part through a scroll, which
-// moving the focus can start.
+// frames, as the browser hands the pointer to what is under it now, which may
+// show a tip of its own, and a tip the keyboard's focus shows stays with its
+// part through a scroll, which moving the focus can start.
 test("no tip is left open after a scroll moves its part away", async ({ page }) => {
-  // Arrange: enough cards that the Tasks column scrolls.
+  // Arrange: enough cards that the Tasks column scrolls, each with a title of
+  // its own, so a tip names its card.
   await page.setViewportSize({ width: 1440, height: 700 });
-  const queued = Array.from({ length: 24 }, (_, index) => task("queued-" + index, "queued", { title: LONG, generation: "", brief: true, queue_revision: "q1" }));
+  const queued = Array.from({ length: 24 }, (_, index) => task("queued-" + index, "queued", { title: LONG + ", card " + index, generation: "", brief: true, queue_revision: "q1" }));
   await open(page, [...queued, ...TASKS.slice(2)]);
   const card = page.locator(".task-board [data-sort-id='queued-0'] .task-card");
   const tip = page.getByRole("tooltip");
   await card.hover();
-  await expect(tip).toHaveText(LONG);
+  await expect(tip).toHaveText(LONG + ", card 0");
 
   // Act: the box the card sits in scrolls it 200 pixels, and within two
-  // frames the tip is counted.
-  const shown = await card.evaluate(async (node) => {
+  // frames the tips are read, with the tip of the part now under the pointer.
+  const box = (await card.boundingBox())!;
+  const seen = await card.evaluate(async (node, [x, y]) => {
     let box = node.parentElement;
     while (box && !(box.scrollHeight > box.clientHeight && /auto|scroll/.test(getComputedStyle(box).overflowY))) box = box.parentElement;
     (box ?? document.scrollingElement!).scrollBy(0, 200);
     for (let frame = 0; frame < 2; frame++) await new Promise(requestAnimationFrame);
-    return document.querySelectorAll("[role=tooltip]").length;
-  });
+    const under = document.elementFromPoint(x, y)?.closest("[data-tip], .task-card");
+    return { tips: [...document.querySelectorAll("[role=tooltip]")].map((tip) => tip.textContent), under: under === node ? "the card that was scrolled" : under?.getAttribute("data-tip") ?? "" };
+  }, [box.x + box.width / 2, box.y + box.height / 2]);
 
-  // Assert
-  expect(shown).toBe(0);
+  // Assert: the card left the pointer, and no tip but that of the part under
+  // the pointer now is left.
+  expect(seen.under).not.toBe("the card that was scrolled");
+  expect(seen.tips.filter((text) => text !== seen.under)).toEqual([]);
 
   // Act: the keyboard's focus comes to the card, and its box scrolls.
   await page.mouse.move(0, 0);
   await card.focus();
   await page.keyboard.press("Shift+Tab");
   await page.keyboard.press("Tab");
-  await expect(tip).toHaveText(LONG);
+  await expect(tip).toHaveText(LONG + ", card 0");
   await card.evaluate((node) => {
     let box = node.parentElement;
     while (box && !(box.scrollHeight > box.clientHeight && /auto|scroll/.test(getComputedStyle(box).overflowY))) box = box.parentElement;
@@ -388,7 +390,7 @@ test("no tip is left open after a scroll moves its part away", async ({ page }) 
   });
 
   // Assert: it stays, beside its card.
-  await expect(tip).toHaveText(LONG);
+  await expect(tip).toHaveText(LONG + ", card 0");
 });
 
 // No tip is left open after a press. A node on the canvas keeps the press

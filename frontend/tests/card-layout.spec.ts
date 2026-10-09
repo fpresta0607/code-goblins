@@ -60,8 +60,8 @@ function crowding(): Crowding {
 interface ShownTip { text: string; part: string; side: string; offScreen: boolean; width: number; fontSize: number }
 
 // The tips shown while the pointer or focus is on a part of a task card, each
-// with the side of the part it touches, none when its edge is further from the
-// part than a tip's arrow reaches or it lies beside the part without facing
+// with the side of the part it touches, none when its edge is not the 8 px
+// its arrow spans from the part or it lies beside the part without facing
 // it, and whether it leaves the screen. A tip is the board's floating tip or
 // the part's own CSS tip, measured from its pseudo-element.
 function shownTips(part: Element): ShownTip[] {
@@ -85,7 +85,7 @@ function shownTips(part: Element): ShownTip[] {
     const across = (side: string) => side === "above" || side === "below" ? Math.min(box.right, own.right) - Math.max(box.left, own.left) : Math.min(box.bottom, own.bottom) - Math.max(box.top, own.top);
     return {
       text, part: part.getAttribute("data-tip") || "", fontSize, width: Math.round(box.width),
-      side: (["above", "below", "right", "left"] as const).find((side) => gaps[side] > -1 && gaps[side] < 9 && across(side) > 0) ?? "",
+      side: (["above", "below", "right", "left"] as const).find((side) => Math.abs(gaps[side] - 8) < 1 && across(side) > 0) ?? "",
       offScreen: box.left < 0 || box.top < 0 || box.right > innerWidth || box.bottom > innerHeight,
     };
   });

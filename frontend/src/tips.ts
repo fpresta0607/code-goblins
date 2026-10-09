@@ -39,17 +39,20 @@ function place(node: HTMLElement, part: HTMLElement) {
 // that carries data-tip shows that text in one tip floating over the whole
 // page, on the frame the pointer or the keyboard's focus comes to the part,
 // for as long as either stays, so no scrolling box clips a tip and every tip
-// can be kept on the screen beside its part (see place). The tip says what
-// its part's data-tip says now, follows its part as the page scrolls,
-// resizes or changes, and goes on the frame the part is left, has no tip or
-// has left the page, and at any press. A task card gains its tip, its
-// shortened title in full, only once it is pointed at, so it counts as a part
-// from the start. A part inside a modal dialog shows its tip inside the
-// dialog, which is drawn over the rest of the page. A card being dragged
-// shows no tip.
+// can be kept on the screen beside its part (see place). While a part is
+// pointed at its tip is drawn again on every frame, so it says what its
+// part's data-tip says now and follows its part as the page scrolls, resizes
+// or changes and as the part itself moves, as a card lifting under the
+// pointer does. It goes on the frame the part is left, has no tip or has left
+// the page, and at any press. A task card gains its tip, its shortened title
+// in full, only once it is pointed at, so it counts as a part from the start.
+// A part inside a modal dialog shows its tip inside the dialog, which is
+// drawn over the rest of the page. A card being dragged shows no tip.
 export function watchTips(): () => void {
-  let part: HTMLElement | null = null, node: HTMLElement | null = null;
+  let part: HTMLElement | null = null, node: HTMLElement | null = null, frame = 0;
   const show = () => {
+    cancelAnimationFrame(frame);
+    if (part) frame = requestAnimationFrame(show);
     const text = part?.isConnected && !part.closest(".sorting") ? part.getAttribute("data-tip") : null;
     if (!part || !text) {
       node?.remove();
@@ -66,14 +69,10 @@ export function watchTips(): () => void {
     if (node.textContent !== text) node.textContent = text;
     place(node, part);
   };
-  // Watches the page only while a part is pointed at.
-  const changes = new MutationObserver(show);
   const partOf = (target: EventTarget | null) => target instanceof Element ? target.closest<HTMLElement>("[data-tip], .task-card") : null;
   const point = (next: HTMLElement | null) => {
     if (next === part) return;
     part = next;
-    changes.disconnect();
-    if (part) changes.observe(document.body, { subtree: true, childList: true, attributes: true, attributeFilter: ["data-tip"] });
     show();
   };
   // A pressed mouse or pen shows no tip until it is released, so a card has
@@ -94,8 +93,6 @@ export function watchTips(): () => void {
   document.addEventListener("pointerout", onOut, capture);
   document.addEventListener("focusin", onFocus);
   document.addEventListener("focusout", onBlur);
-  addEventListener("scroll", show, { capture: true, passive: true });
-  addEventListener("resize", show);
   return () => {
     point(null);
     document.removeEventListener("pointerover", onPointer, capture);
@@ -104,7 +101,5 @@ export function watchTips(): () => void {
     document.removeEventListener("pointerout", onOut, capture);
     document.removeEventListener("focusin", onFocus);
     document.removeEventListener("focusout", onBlur);
-    removeEventListener("scroll", show, { capture: true });
-    removeEventListener("resize", show);
   };
 }
