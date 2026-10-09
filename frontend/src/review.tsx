@@ -85,8 +85,8 @@ export function ReviewComment({ diff, reviews, connected, floating }: { diff: Fi
     return <div className={kind + " sent"} role="status" aria-label={"Comment on " + range + ". " + mark.label}>
       <span className={"delivery " + action.status} aria-hidden="true"><Icon name={mark.icon} /></span>
       <p className="comment-sent-text"><strong>{range}</strong> {draft.text}</p>
-      <button className="icon-button" aria-label="New comment on these lines" data-tip="New comment" data-tip-align="end" onClick={() => reviews.change(key, { text: "", submission: null, receipt: undefined, error: "" })}><Icon name="comment" /></button>
-      <button className="icon-button" aria-label="Close" data-tip="Close" data-tip-align="end" onClick={cancel}><Icon name="close" /></button>
+      <button className="icon-button" aria-label="New comment on these lines" data-tip="New comment" onClick={() => reviews.change(key, { text: "", submission: null, receipt: undefined, error: "" })}><Icon name="comment" /></button>
+      <button className="icon-button" aria-label="Close" data-tip="Close" onClick={cancel}><Icon name="close" /></button>
       {mark.trouble && <p className="comment-trouble">{mark.label}</p>}
     </div>;
   }
@@ -100,8 +100,8 @@ export function ReviewComment({ diff, reviews, connected, floating }: { diff: Fi
       }} />
     <footer>
       <ClickFeedback text={feedback} />
-      <button className="icon-button send" disabled={blocked} aria-label="Send to the CFO" data-tip={sendTip} data-tip-align="end" onClick={() => void reviews.send(diff)}><Icon name={draft.sending ? "clock" : "send"} /></button>
-      <button className="icon-button" disabled={draft.sending} aria-label="Cancel comment" data-tip="Cancel" data-tip-align="end" onClick={cancel}><Icon name="close" /></button>
+      <button className="icon-button send" disabled={blocked} aria-label="Send to the CFO" data-tip={sendTip} onClick={() => void reviews.send(diff)}><Icon name={draft.sending ? "clock" : "send"} /></button>
+      <button className="icon-button" disabled={draft.sending} aria-label="Cancel comment" data-tip="Cancel" onClick={cancel}><Icon name="close" /></button>
     </footer>
   </section>;
 }

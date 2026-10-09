@@ -67,14 +67,14 @@ export function TaskControls({ task, snapshot, start, labelled = false, onAdjust
   const face = (action: string, tone = "", block = "") => ({
     className: (labelled ? "labelled-button" : "icon-button raised") + tone,
     "aria-label": action + " " + name,
-    ...(!labelled ? { "data-tip": block || action } : block ? { "data-tip": block, "data-tip-align": "start" } : {}),
+    ...(!labelled ? { "data-tip": block || action } : block ? { "data-tip": block } : {}),
   });
   const text = (action: string) => labelled && <span>{action}</span>;
   return <>
     <div className="task-controls" role="group" aria-label={"Controls for " + name}>
       {isWaiting && start && !queueBlock(task) && <button {...face("Start", "", start.blocked)} aria-disabled={!!start.blocked || isChanging} onClick={() => { if (!isChanging) start.onStart(); }}><Icon name="play" />{text("Start")}</button>}
       {isWaiting && onAdjust && <button {...face("Adjust")} disabled={isChanging} onClick={(event) => onAdjust(event.currentTarget)}><Icon name="edit" /></button>}
-      {canUpdate && <button className={labelled ? "labelled-button" : "icon-button raised"} aria-label={(isUpdatePending ? "Cancel the update of " : "Update ") + name} data-tip={isUpdatePending ? "Take the update back" : harnessName(task.harness) + " was updated. Restart this goblin onto it at its next stopping point. Its conversation is kept."} data-tip-align="start" disabled={isChanging} onClick={() => void update()}><Icon name={isUpdatePending ? "clock" : "download"} />{text(isUpdatePending ? "Cancel update" : "Update")}</button>}
+      {canUpdate && <button className={labelled ? "labelled-button" : "icon-button raised"} aria-label={(isUpdatePending ? "Cancel the update of " : "Update ") + name} data-tip={isUpdatePending ? "Take the update back" : harnessName(task.harness) + " was updated. Restart this goblin onto it at its next stopping point. Its conversation is kept."} disabled={isChanging} onClick={() => void update()}><Icon name={isUpdatePending ? "clock" : "download"} />{text(isUpdatePending ? "Cancel update" : "Update")}</button>}
       {canPause && <button {...face("Pause")} disabled={isChanging} onClick={() => void act("pause")}><Icon name="pause" />{text("Pause")}</button>}
       {canResume && <button {...face("Resume")} aria-disabled={isChanging} onClick={() => { if (!isChanging) void act("resume"); }}><Icon name="play" />{text("Resume")}</button>}
       <button {...face(end, " danger")} disabled={isChanging} onClick={() => setConfirmation({ generation: task.generation, revision: task.queue_revision })}><Icon name="trash" />{text(end)}</button>

@@ -38,7 +38,7 @@ export function PanelMore({ controls }: { controls: PanelControl[] }) {
     }
   };
   return <div ref={box} className="panel-more" onKeyDown={onKeyDown}>
-    <button ref={button} className="icon-button" aria-label="More" aria-haspopup="menu" aria-expanded={open} {...(open ? {} : { "data-tip": "More" })} data-tip-align="end" onClick={() => setOpen(!open)}><Icon name="more" /></button>
+    <button ref={button} className="icon-button" aria-label="More" aria-haspopup="menu" aria-expanded={open} {...(open ? {} : { "data-tip": "More" })} onClick={() => setOpen(!open)}><Icon name="more" /></button>
     {open && <div className="panel-more-menu" role="menu" aria-label="More">
       {controls.map((control) => <button key={control.id} className="labelled-button" role="menuitem" onClick={() => { setOpen(false); button.current?.focus(); control.onPress(); }}><Icon name={control.icon} /><span>{control.name}</span></button>)}
     </div>}

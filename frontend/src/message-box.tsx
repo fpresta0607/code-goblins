@@ -81,7 +81,7 @@ export function MessageBox({ snapshot, task }: { snapshot: Snapshot; task: Task 
         return <li key={key}>
           <span className="message-text">{text}</span>
           <span className="message-state">Kept for resume</span>
-          <button type="button" className="icon-button message-delete" aria-label={"Delete: " + text} data-tip="Delete before its resume" data-tip-align="end"
+          <button type="button" className="icon-button message-delete" aria-label={"Delete: " + text} data-tip="Delete before its resume"
             disabled={deleting === key} onClick={() => void withdraw(text, key)}><Icon name="trash" /></button>
         </li>;
       })}
@@ -95,7 +95,7 @@ export function MessageBox({ snapshot, task }: { snapshot: Snapshot; task: Task 
       onKeyUp={(event) => { dictation.key(event.nativeEvent); }} />
     <div className="message-actions">
       <button type="button" className={"voice-bubble" + (dictation.listening ? " recording" : "")} aria-label={dictation.listening ? "Listening" : "Hold to dictate"}
-        data-tip={dictation.listening ? "Release to add what you said" : "Hold to dictate"} data-tip-align="end"
+        data-tip={dictation.listening ? "Release to add what you said" : "Hold to dictate"}
         onPointerDown={hold} onPointerUp={dictation.stop} onPointerCancel={dictation.stop}
         onKeyDown={(event) => { if (event.key === " " || event.key === "Enter") { event.preventDefault(); dictation.start(); } }}
         onKeyUp={(event) => { if (event.key === " " || event.key === "Enter") dictation.stop(); }}>

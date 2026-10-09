@@ -57,14 +57,14 @@ function crowding(): Crowding {
   return report;
 }
 
-interface ShownTip { text: string; part: string; covers: string[]; onCard: boolean; side: string; offScreen: boolean; width: number; fontSize: number }
+interface ShownTip { text: string; part: string; side: string; offScreen: boolean; width: number; fontSize: number }
 
 // The tips shown while the pointer or focus is on a part of a task card, each
-// with the card's controls and links it covers, whether it lies on the card at
-// all, which side of the card it is on and whether it leaves the screen. A tip is the board's floating tip or
+// with the side of the part it touches, none when its edge is not the 8 px
+// its arrow spans from the part or it lies beside the part without facing
+// it, and whether it leaves the screen. A tip is the board's floating tip or
 // the part's own CSS tip, measured from its pseudo-element.
 function shownTips(part: Element): ShownTip[] {
-  const card = part.closest(".task-card-shell")!;
   const tips: { text: string; box: DOMRect; fontSize: number }[] = [];
   for (const tip of document.querySelectorAll<HTMLElement>("[role=tooltip]")) {
     if (getComputedStyle(tip).visibility !== "hidden") tips.push({ text: tip.textContent!, box: tip.getBoundingClientRect(), fontSize: parseFloat(getComputedStyle(tip).fontSize) });
@@ -79,16 +79,16 @@ function shownTips(part: Element): ShownTip[] {
     const height = size(after.height, ["padding-top", "padding-bottom", "border-top-width", "border-bottom-width"]);
     tips.push({ text: part.getAttribute("data-tip")!, box: new DOMRect(frame.left + block.clientLeft + parseFloat(after.left) + shift.e, frame.top + block.clientTop + parseFloat(after.top) + shift.f, width, height), fontSize: parseFloat(after.fontSize) });
   }
-  const meets = (one: DOMRect, other: DOMRect) => Math.min(one.right, other.right) - Math.max(one.left, other.left) > 1 && Math.min(one.bottom, other.bottom) - Math.max(one.top, other.top) > 1;
-  const shell = card.getBoundingClientRect();
-  const controls = [...card.querySelectorAll("a, button:not(.task-card), [role=img]")].filter((control) => !control.contains(part) && !part.contains(control));
-  return tips.map(({ text, box, fontSize }) => ({
-    text, part: part.getAttribute("data-tip") || "", fontSize, width: Math.round(box.width),
-    covers: controls.filter((control) => meets(box, control.getBoundingClientRect())).map((control) => control.getAttribute("aria-label") || control.textContent!.trim()),
-    onCard: meets(box, shell),
-    side: box.bottom <= shell.top ? "over" : box.top >= shell.bottom ? "under" : "neither",
-    offScreen: box.left < 0 || box.top < 0 || box.right > innerWidth || box.bottom > innerHeight,
-  }));
+  const own = part.getBoundingClientRect();
+  return tips.map(({ text, box, fontSize }) => {
+    const gaps = { above: own.top - box.bottom, below: box.top - own.bottom, right: box.left - own.right, left: own.left - box.right };
+    const across = (side: string) => side === "above" || side === "below" ? Math.min(box.right, own.right) - Math.max(box.left, own.left) : Math.min(box.bottom, own.bottom) - Math.max(box.top, own.top);
+    return {
+      text, part: part.getAttribute("data-tip") || "", fontSize, width: Math.round(box.width),
+      side: (["above", "below", "right", "left"] as const).find((side) => Math.abs(gaps[side] - 8) < 1 && across(side) > 0) ?? "",
+      offScreen: box.left < 0 || box.top < 0 || box.right > innerWidth || box.bottom > innerHeight,
+    };
+  });
 }
 
 // Waits for the tip a part shows once the pointer is on it. A hover scrolls
@@ -117,14 +117,12 @@ function watchTipGo(part: Locator, leave: "pointerout" | "blur") {
   }, leave);
 }
 
-// What is wrong with the tips a part shows: a tip covering the card's
-// controls or links, lying on the card, leaving the screen or too small to
-// read, or a tip of some other part.
+// What is wrong with the tips a part shows: a tip away from its part,
+// leaving the screen or too small to read, or a tip of some other part.
 function tipProblems(tips: ShownTip[]) {
   return tips.flatMap((tip) => [
     ...(tip.text !== tip.part ? ["'" + tip.part + "' shows '" + tip.text + "'"] : []),
-    ...(tip.covers.length ? ["'" + tip.text + "' covers " + tip.covers.join(", ")] : []),
-    ...(tip.onCard ? ["'" + tip.text + "' lies on its card"] : []),
+    ...(!tip.side ? ["'" + tip.text + "' does not touch its part"] : []),
     ...(tip.offScreen ? ["'" + tip.text + "' leaves the screen"] : []),
     ...(tip.fontSize < 15 ? ["'" + tip.text + "' is " + tip.fontSize + " px"] : []),
   ]);
@@ -171,11 +169,11 @@ test("a clamped title shows in full in the card's tip", async ({ page }) => {
   await expect(card).toHaveAttribute("data-tip", /the agents' keys reach the program$/);
 });
 
-// On 2026-10-01 the tip of a waiting card's chip lay over the card's pull
-// request and its controls. Every tip on a card opens beside, under or over the
-// card, never on it, and stays on the screen, at a size that reads.
+// The Overlord, 2026-10-09: a tip on a card landed away from what he
+// hovered. Every tip on a card touches its own part and stays on the screen,
+// at a size that reads.
 for (const [width, region] of [[1400, 280], [390, 0], [1000, 0]]) {
-  test(`at ${region || width} px every tip on a task card opens clear of the card and on the screen`, async ({ page }) => {
+  test(`at ${region || width} px every tip on a task card touches its part and stays on the screen`, async ({ page }) => {
     test.slow();
     await board(page, width, region);
     const problems: string[] = [];
@@ -202,45 +200,17 @@ test("a long title's tip is wide enough to read", async ({ page }) => {
   expect(tip.width).toBeGreaterThanOrEqual(280);
 });
 
-// A tip opens over the card or under it, whichever edge its part is nearer.
-test("a tip opens on the side of the card its part is nearer", async ({ page }) => {
+// A tip on a card opens against its own part, above it where there is room,
+// never against the whole card.
+test("a tip on a card opens above its own part, not the card", async ({ page }) => {
   await board(page, 1000);
   const shell = page.locator(".task-card-shell").filter({ has: page.locator(".card-pr[href$='/205']") });
-  expect((await tipsOf(shell.getByRole("button", { name: /^Pause / }))).map((tip) => tip.side)).toEqual(["over"]);
-  expect((await tipsOf(shell.locator(".card-harness [role=img]"))).map((tip) => tip.side)).toEqual(["under"]);
-});
-
-// A card at the bottom of the screen has no room under it, and one at the top
-// has none over it, so a tip that would open there opens on the other side.
-test("a tip with no room on its side of the card opens on the other side, clear of the card", async ({ page }) => {
-  await board(page, 1000);
-  const shell = page.locator(".task-card-shell").filter({ has: page.locator(".card-pr[href$='/205']") });
-  // The screen is 80 px taller than the card, which leaves room for a tip on
-  // one side of it only.
-  await page.setViewportSize({ width: 1000, height: Math.ceil((await shell.boundingBox())!.height) + 80 });
-  // The page scrolls only once it has taken the new screen's height, so the
-  // scroll is repeated until the card is where it was sent.
-  const scrollCardTo = (top: number) => expect.poll(() => shell.evaluate((card, top) => {
-    scrollBy(0, card.getBoundingClientRect().top - top);
-    return Math.round(card.getBoundingClientRect().top);
-  }, top)).toBe(top);
-  // The pointer goes straight to the part, since a hover may scroll the page
-  // to bring the part to the middle of the screen.
-  const pointAt = (part: Locator) => async () => {
-    const box = (await part.boundingBox())!;
-    await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
-  };
-  await scrollCardTo(76);
-  const mark = shell.locator(".card-harness [role=img]"), pause = shell.getByRole("button", { name: /^Pause / });
-  const low = await tipsOf(mark, pointAt(mark));
-  expect(tipProblems(low)).toEqual([]);
-  expect(low.map((tip) => tip.side)).toEqual(["over"]);
-  await page.mouse.move(1, 1);
-  await expect(page.getByRole("tooltip")).toHaveCount(0);
-  await scrollCardTo(4);
-  const high = await tipsOf(pause, pointAt(pause));
-  expect(tipProblems(high)).toEqual([]);
-  expect(high.map((tip) => tip.side)).toEqual(["under"]);
+  for (const part of [shell.getByRole("button", { name: /^Pause / }), shell.locator(".card-harness [role=img]")]) {
+    const tips = await tipsOf(part);
+    expect({ problems: tipProblems(tips), sides: tips.map((tip) => tip.side) }).toEqual({ problems: [], sides: ["above"] });
+    await page.mouse.move(1, 1);
+    await expect(page.getByRole("tooltip")).toHaveCount(0);
+  }
 });
 
 test("a card's tip is gone as soon as the pointer leaves the part it names", async ({ page }) => {
@@ -252,7 +222,7 @@ test("a card's tip is gone as soon as the pointer leaves the part it names", asy
   expect(await page.evaluate(() => window.tipOutlived)).toBeLessThanOrEqual(2);
 });
 
-test("a card's tip shows on keyboard focus, clear of the card, and goes with the focus", async ({ page }) => {
+test("a card's tip shows on keyboard focus, touching its part, and goes with the focus", async ({ page }) => {
   await board(page, 1000);
   const shell = page.locator(".task-card-shell").filter({ has: page.locator(".card-pr[href$='/205']") });
   // Stop is the card's last control.
@@ -270,8 +240,8 @@ test("a card's tip shows on keyboard focus, clear of the card, and goes with the
 });
 
 // Focus stays on a part while the page scrolls under it, so its tip moves with
-// its card instead of staying where the card was.
-test("a keyboard-focused part's tip follows its card when the page scrolls", async ({ page }) => {
+// its part instead of staying where the part was.
+test("a keyboard-focused part's tip follows its part when the page scrolls", async ({ page }) => {
   await board(page, 1000);
   const shell = page.locator(".task-card-shell").filter({ has: page.locator(".card-pr[href$='/205']") });
   // The screen is shorter than the board, so the page has room to scroll.
@@ -290,7 +260,7 @@ test("a keyboard-focused part's tip follows its card when the page scrolls", asy
   }, top)).toBe(top);
   let tips: ShownTip[] = [];
   await expect.poll(async () => tipProblems(tips = await stop.evaluate(shownTips))).toEqual([]);
-  expect(tips.map((tip) => tip.side)).toEqual(["over"]);
+  expect(tips.map((tip) => tip.side)).toEqual(["above"]);
 });
 
 // A part's tip can change while the pointer rests on it, as Start's and

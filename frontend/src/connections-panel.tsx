@@ -70,7 +70,7 @@ export function ConnectionsPanel({ task, runs = [], onRepair }: { task: Task; ru
     finally { setIsBusy(false); }
   };
   return <section className="connections-panel" aria-label="Connections">
-    <div className="connections-toolbar"><p>{data?.checking || !data ? "Checking connections..." : data.error ? "Check failed" : "Connection health"}</p><button type="button" className="icon-button" aria-label="Recheck connections" data-tip="Recheck connections" data-tip-align="end" disabled={isBusy || !data || data.checking} onClick={() => void refresh()}><Icon name="refresh" /></button></div>
+    <div className="connections-toolbar"><p>{data?.checking || !data ? "Checking connections..." : data.error ? "Check failed" : "Connection health"}</p><button type="button" className="icon-button" aria-label="Recheck connections" data-tip="Recheck connections" disabled={isBusy || !data || data.checking} onClick={() => void refresh()}><Icon name="refresh" /></button></div>
     <ClickFeedback text={feedback} />
     {notice && <div className="connection-notice"><p role="status">{notice}</p>{runId && onRepair && <button type="button" onClick={() => onRepair("run:" + runId)}>Open repair card</button>}{loginURL && <a href={loginURL} target="_blank" rel="noreferrer" onClick={() => { isSignInPending.current = true; }}>Open sign-in</a>}</div>}
     {[["mcp", "MCP servers"], ["service", "Repository services"], ["credential", "Goblin credentials"]].map(([kind, label]) => {

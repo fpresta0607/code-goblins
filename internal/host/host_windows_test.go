@@ -11,6 +11,7 @@ import (
 	"os"
 	"os/exec"
 	"os/signal"
+	"path/filepath"
 	"regexp"
 	"strconv"
 	"strings"
@@ -57,7 +58,8 @@ func TestMain(m *testing.M) {
 // runs in, its terminal's size, a grandchild it starts, an exit code, a flood
 // of output before an exit code, a spill of output it keeps running after,
 // two seconds of streamed lines, its screen as it reads it itself, a Ctrl-C,
-// ending every other process attached to its console, or the line itself.
+// a file it waits for while it reads nothing, ending every other process
+// attached to its console, or the line itself.
 func echoChild() {
 	// A Ctrl-C typed to the terminal is reported, not obeyed.
 	interrupts := make(chan os.Signal, 1)
@@ -88,6 +90,16 @@ func echoChild() {
 			case <-time.After(15 * time.Second):
 				fmt.Println("no interrupt")
 			}
+		case strings.HasPrefix(line, "wait-file "):
+			// Reading nothing meanwhile, as a busy program does.
+			fmt.Println("waiting for the file")
+			for {
+				if _, err := os.Stat(strings.TrimPrefix(line, "wait-file ")); err == nil {
+					break
+				}
+				time.Sleep(10 * time.Millisecond)
+			}
+			fmt.Println("the file is there")
 		case line == "end-waker":
 			// The console's input waker is the one other process attached.
 			ended := 0
@@ -1070,5 +1082,74 @@ func TestAPipeNameCannotBeTakenTwice(t *testing.T) {
 	if err == nil {
 		windows.CloseHandle(second.waiting)
 		t.Fatal("a second listener took a pipe name already in use")
+	}
+}
+
+// unreadEvents reads client's events from now on and returns each thing it is
+// told of unread key presses, in order.
+func unreadEvents(client *Client) <-chan bool {
+	told := make(chan bool, 8)
+	go func() {
+		defer close(told)
+		for {
+			event, err := client.Next()
+			if err != nil || event.Exited {
+				return
+			}
+			if event.Unread != nil {
+				told <- *event.Unread
+			}
+		}
+	}()
+	return told
+}
+
+// A key typed while the terminal's program is busy sits unread in its input.
+// A viewer that asked is told so, and told once the program has read it. A
+// viewer that did not ask, as an older cfo's and cfo attach are, is told
+// nothing, since a frame it does not know ends its view.
+func TestOnlyAViewerThatAskedIsToldOfAKeyABusyProgramLeavesUnread(t *testing.T) {
+	readNow := filepath.Join(t.TempDir(), "read-now")
+	_, record := launch(t)
+	typing := view(t, record)
+	typing.waitFor(t, "ready")
+	watching, err := Watch(record)
+	if err != nil {
+		t.Fatalf("Watch: %v", err)
+	}
+	t.Cleanup(func() { _ = watching.Close() })
+	asked := unreadEvents(watching)
+	plain, err := View(record)
+	if err != nil {
+		t.Fatalf("View: %v", err)
+	}
+	t.Cleanup(func() { _ = plain.Close() })
+	unasked := unreadEvents(plain)
+	typeLine(t, typing, "wait-file "+readNow)
+	typing.waitFor(t, "waiting for the file")
+
+	typeLine(t, typing, "typed while busy")
+
+	await := func(want bool) {
+		t.Helper()
+		select {
+		case isUnread, open := <-asked:
+			if !open || isUnread != want {
+				t.Fatalf("the viewer that asked was told unread=%t (open %t), want %t", isUnread, open, want)
+			}
+		case <-time.After(15 * time.Second):
+			t.Fatalf("the viewer that asked was not told unread=%t within 15s", want)
+		}
+	}
+	await(true)
+	if err := os.WriteFile(readNow, nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	await(false)
+	typing.waitFor(t, "got typed while busy")
+	select {
+	case isUnread := <-unasked:
+		t.Fatalf("a viewer that did not ask was told unread=%t", isUnread)
+	default:
 	}
 }

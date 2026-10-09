@@ -61,7 +61,7 @@ export function TaskCard({ task, snapshot, selected, presentations, now, rank, n
   const column = taskColumn(task);
   const isNamed = task.goblin_name !== "" && column !== "Completed";
   const name = isNamed ? goblinName(task) : taskName(task);
-  const tip = isNamed ? { "data-tip": taskName(task), "data-tip-align": "start" } : clipped ? { "data-tip": name, "data-tip-align": "start" } : {};
+  const tip = isNamed ? { "data-tip": taskName(task) } : clipped ? { "data-tip": name } : {};
   const pr = safePullRequest(task.pr), icon = pullRequestIcon(task);
   const test = pullRequestTest(task, snapshot.merge_trains ?? []), { text: status, phase } = taskStatus(task, snapshot);
   const waiting = task.phase === "queued";
@@ -75,7 +75,7 @@ export function TaskCard({ task, snapshot, selected, presentations, now, rank, n
   // opens the Orchestration canvas on the goblin: its baby goblins live
   // there, never as cards of their own.
   const kinds = column === "In progress" ? summarize(task.tree).kinds : [];
-  const count = kinds.length > 0 && onCount && <button type="button" className="card-tree" aria-label={"Show what runs under " + name + " on the canvas"} data-tip="Show on the canvas" data-tip-align="start" onClick={() => onCount(task)}>
+  const count = kinds.length > 0 && onCount && <button type="button" className="card-tree" aria-label={"Show what runs under " + name + " on the canvas"} data-tip="Show on the canvas" onClick={() => onCount(task)}>
     {kinds.map(([baby, number]) => <span key={baby} className="tree-tally"><BabyGoblin baby={baby} small hasTip={false} />{number}</span>)}{task.tree && formatMemory(task.tree.memory)}
   </button>;
   const content = <>
@@ -96,7 +96,7 @@ export function TaskCard({ task, snapshot, selected, presentations, now, rank, n
       aria-pressed={selected} onClick={(event) => onSelect(task, event.currentTarget)} onPointerEnter={measure} onFocus={measure} {...tip}>{content}</button>
     {(count || pr || column === "Completed" || task.ticket || task.overlaps.length > 0 || task.local_checks || task.deployment) && <div className="card-links">
       {count}
-      {pr && <a className={"card-pr pr-" + icon} href={pr} target="_blank" rel="noreferrer" aria-label={"Open pull request " + pullRequestLabel(pr)} {...column === "Completed" && task.branch ? { "data-tip": task.branch, "data-tip-align": "start" } : {}}><Icon name={icon} />{pullRequestLabel(pr)}</a>}
+      {pr && <a className={"card-pr pr-" + icon} href={pr} target="_blank" rel="noreferrer" aria-label={"Open pull request " + pullRequestLabel(pr)} {...column === "Completed" && task.branch ? { "data-tip": task.branch } : {}}><Icon name={icon} />{pullRequestLabel(pr)}</a>}
       {task.local_checks && <LocalChecksLink checks={task.local_checks} taskId={task.id} className="card-checks" />}
       {pr && test && <PullRequestTestLink test={test} approved={!!task.hosted_checks?.approved} className="card-checks" />}
       {task.deployment && <DeploymentLink deployment={task.deployment} className="card-checks" />}
@@ -105,6 +105,6 @@ export function TaskCard({ task, snapshot, selected, presentations, now, rank, n
       {column === "Completed" && !pr && <span className="card-secondary card-history-id">{task.branch || task.id.replace(/^finished:/, "")}</span>}
     </div>}
     <TaskControls task={task} snapshot={snapshot} start={start} onAdjust={(source) => onSelect(task, source)} />
-    {task.harness && <span className="card-harness" onClick={() => onSelect(task, card.current!)}><ConnectorMark mark={harnessMark(task.harness)} label={harnessTip(task.harness, task.model, task.effort)} align="end" /></span>}
+    {task.harness && <span className="card-harness" onClick={() => onSelect(task, card.current!)}><ConnectorMark mark={harnessMark(task.harness)} label={harnessTip(task.harness, task.model, task.effort)} /></span>}
   </div>;
 }

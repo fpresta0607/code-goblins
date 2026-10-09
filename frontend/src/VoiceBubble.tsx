@@ -56,20 +56,20 @@ export function VoiceBubble({ voice, listening, level, model, onPaste }: { voice
     {hint && !open && <div className="voice-card voice-hint" role="note">
       <p className="voice-card-title">Speak into this terminal</p>
       <p>Hold Ctrl+Shift+Space and speak.</p>
-      <button className="icon-button pixel-icon voice-close" aria-label="Dismiss hint" data-tip="Dismiss hint" data-tip-align="end" onClick={dismiss}><Icon name="close" /></button>
+      <button className="icon-button pixel-icon voice-close" aria-label="Dismiss hint" data-tip="Dismiss hint" onClick={dismiss}><Icon name="close" /></button>
     </div>}
     {open && <section className="voice-card voice-recent" role="dialog" aria-label="Recent messages">
       <p className="voice-card-title">Recent messages</p>
-      <button className="icon-button pixel-icon voice-close" aria-label="Close recent messages" data-tip="Close" data-tip-align="end" onClick={close}><Icon name="close" /></button>
+      <button className="icon-button pixel-icon voice-close" aria-label="Close recent messages" data-tip="Close" onClick={close}><Icon name="close" /></button>
       {voice.messages.length ? <ul>{voice.messages.map((message, index) => {
         const key = message.at + ":" + index;
         return <li key={key}>
           {message.at > 0 && <span className="voice-meta">{clock(message.at)}</span>}
           <p className="voice-text">{message.text}</p>
           <span className="voice-actions">
-            {clipboard && <button className="icon-button pixel-icon" aria-label={"Copy: " + message.text} data-tip={copied === key ? "Copied" : "Copy"} data-tip-align="end"
+            {clipboard && <button className="icon-button pixel-icon" aria-label={"Copy: " + message.text} data-tip={copied === key ? "Copied" : "Copy"}
               onClick={() => { navigator.clipboard.writeText(message.text).then(() => setCopied(key), () => {}); }}><Icon name={copied === key ? "check" : "copy"} /></button>}
-            <button className="icon-button pixel-icon" aria-label={"Paste into this terminal: " + message.text} data-tip="Paste into this terminal" data-tip-align="end"
+            <button className="icon-button pixel-icon" aria-label={"Paste into this terminal: " + message.text} data-tip="Paste into this terminal"
               onClick={() => { onPaste(spoken([message.text])); setOpen(false); }}><Icon name="paste" /></button>
           </span>
         </li>;
@@ -78,7 +78,7 @@ export function VoiceBubble({ voice, listening, level, model, onPaste }: { voice
       {browserOffered() && <p className="voice-empty"><label><input type="checkbox" checked={browser} onChange={(event) => { setUsesBrowser(event.target.checked); chosen((count) => count + 1); }} /> Use this browser's speech recognition instead</label></p>}
     </section>}
     <button ref={bubble} className={"voice-bubble" + (listening ? " recording terminal-listening" : "")}
-      aria-label={listening ? "Listening" : "Recent messages"} aria-expanded={open} data-tip={tip} data-tip-align="end" onClick={toggle}>
+      aria-label={listening ? "Listening" : "Recent messages"} aria-expanded={open} data-tip={tip} onClick={toggle}>
       {listening ? <VoiceBars level={level} /> : <Icon name="mic" />}
     </button>
     {listening && <span className="sr-only" role="status">Listening with {engine}</span>}

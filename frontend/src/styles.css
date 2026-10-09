@@ -72,8 +72,15 @@
    terminal or the workshop picture alike. */
 [data-tip] { position: relative; }
 .tip { position: fixed; z-index: 60; padding: 6px 11px; border: 1px solid var(--tip-edge); border-radius: var(--radius); background: var(--tip-surface); box-shadow: 0 8px 24px rgba(0, 0, 0, 0.6); color: #edf4f3; font: 700 1rem/1.3 var(--font-body); width: max-content; max-width: min(320px, calc(100vw - 16px)); overflow-wrap: anywhere; pointer-events: none; }
-/* These open their tips over them, clear of what they sit above. */
-.canvas-controls, .voice-dock, .comment-mark { --tip-side: over; }
+/* A tip's arrow: the corner of a square of its surface and edge, centered on
+   the tip's edge that faces its part, at --arrow along it, pointing at the
+   part. Only the corner outside the tip shows, a little past the tip's edge
+   so the edge does not cross it. */
+.tip::before { content: ""; position: absolute; box-sizing: border-box; width: 10px; height: 10px; border: solid var(--tip-edge); border-width: 0 1px 1px 0; background: var(--tip-surface); clip-path: polygon(100% -2px, 100% 100%, -2px 100%); }
+.tip[data-side=above]::before { left: calc(var(--arrow) - 6px); top: calc(100% - 4px); transform: rotate(45deg); }
+.tip[data-side=below]::before { left: calc(var(--arrow) - 6px); top: -6px; transform: rotate(225deg); }
+.tip[data-side=right]::before { left: -6px; top: calc(var(--arrow) - 6px); transform: rotate(135deg); }
+.tip[data-side=left]::before { left: calc(100% - 4px); top: calc(var(--arrow) - 6px); transform: rotate(-45deg); }
 body { margin: 0; }
 button, input, textarea, select { font: inherit; color: inherit; }
 button, select, input, textarea {
@@ -822,6 +829,10 @@ p.panel-goblin-task { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-o
 @keyframes terminal-spin { to { transform: rotate(360deg); } }
 @media (prefers-reduced-motion: reduce) { .terminal-spinner { animation-duration: 2.4s; } }
 .terminal-copied { position: absolute; top: 10px; right: 12px; z-index: 2; color: var(--mint); }
+/* Said while typed keys sit unread in a busy program's input, in the corner
+   no other mark uses. */
+.terminal-unread { position: absolute; top: 10px; left: 12px; z-index: 2; max-width: calc(100% - 24px); color: #f1c598; }
+.terminal-unread .status-dot { background: var(--amber); }
 /* While he reads a terminal's history, the line he types on stays pinned over
    the panel's last row, drawn by a one-row terminal of its own, with a rule
    between it and the history; Jump to bottom sits just above it, in the
