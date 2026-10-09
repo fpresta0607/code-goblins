@@ -4,7 +4,7 @@ import { Icon } from "./Icon";
 
 // The confirmation before the board restarts the CFO, as goblins resume does:
 // its terminal closes, which interrupts what it is doing, and it starts again
-// there on the same conversation.
+// there, on the same conversation where it can.
 export function RestartCfoDialog({ onRestart, onClose }: { onRestart: () => void; onClose: () => void }) {
   const dialog = useRef<HTMLDialogElement>(null);
   const title = useId(), description = useId();
@@ -17,7 +17,7 @@ export function RestartCfoDialog({ onRestart, onClose }: { onRestart: () => void
   return <dialog ref={dialog} className="stop-task-dialog" aria-labelledby={title} aria-describedby={description} onKeyDown={(event) => { if (event.key === "Escape") event.stopPropagation(); }} onCancel={(event) => { event.preventDefault(); onClose(); }}>
     <Avatar persona="cfo" />
     <h2 id={title}>Restart the CFO?</h2>
-    <p id={description}>Its terminal closes, which interrupts what it is doing now, and it starts again there on the same conversation. Goblins and the board keep running.</p>
+    <p id={description}>Its terminal closes, which interrupts what it is doing now, and it starts again there, on the same conversation where it can. Goblins and the board keep running.</p>
     <p className="preservation-notice"><Icon name="shield" />Its conversation is kept.</p>
     <div className="stop-task-choices">
       <button className="primary" autoFocus onClick={onRestart}>Restart the CFO</button>

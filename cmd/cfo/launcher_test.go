@@ -90,10 +90,12 @@ type launcherFixture struct {
 	resumeEnds bool
 	// restarts counts goblins resume's restarts of a running CFO, which end
 	// with restartErr, or else restart it on restartSession, on a new
-	// conversation when resumeEnds; with neither, no CFO runs to restart.
+	// conversation, with restartFresh saying why, when restartFresh is set;
+	// with neither, no CFO runs to restart.
 	restarts       int
 	restartErr     error
 	restartSession string
+	restartFresh   string
 	// settleNotes are what the watch of a new native CFO's startup dialogs
 	// says.
 	settleNotes []string
@@ -202,16 +204,16 @@ func newLauncherFixture(t *testing.T, start func(home.Home) (<-chan struct{}, er
 			})
 		},
 		settleCFO: func(context.Context, string, string) []string { return f.settleNotes },
-		restartCFO: func(home.Home) (supervisor.CFOConversation, bool, error) {
+		restartCFO: func(home.Home) (supervisor.CFOConversation, string, error) {
 			f.restarts++
 			if f.restartErr != nil {
-				return supervisor.CFOConversation{}, false, f.restartErr
+				return supervisor.CFOConversation{}, "", f.restartErr
 			}
 			if f.restartSession == "" {
-				return supervisor.CFOConversation{}, false, errNoRunningCFO
+				return supervisor.CFOConversation{}, "", errNoRunningCFO
 			}
 			f.cfoTerminalRuns = true
-			return supervisor.CFOConversation{Harness: "claude", Session: f.restartSession}, !f.resumeEnds, nil
+			return supervisor.CFOConversation{Harness: "claude", Session: f.restartSession}, f.restartFresh, nil
 		},
 		choose: func(_ io.Writer, step onboarding.Step) (int, error) {
 			f.screens = append(f.screens, finalScreen{step.Title + "\n" + step.Detail, step.Choices, step.Selected})

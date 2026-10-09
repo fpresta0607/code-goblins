@@ -1,6 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { taskStatus } from "./task-status.ts";
+import { startBlock } from "./start.ts";
 import { withClicks } from "./task-clicks.ts";
 import { idleView } from "./terminalOrder.ts";
 import { taskSummary } from "./task-words.ts";
@@ -31,6 +32,38 @@ test("a queued task reads Queued, with the queued dot, and waits in Tasks", () =
   // Assert
   assert.deepEqual(status, { text: "Queued", phase: "queued" });
   assert.equal(taskColumn(zane(snapshot)), "Tasks");
+});
+
+// The Overlord, 2026-10-09, of Tasks holding Toby, Nina and Murray as Queued
+// while memory was free: a row that waits says what for in a few words, on
+// its card, its panel and its Start, never Queued alone, and at the queued
+// dot, never yellow.
+test("a waiting row says what it waits for in a few words, at the queued dot", () => {
+  // Arrange
+  const until = "2026-10-10T00:00:00Z";
+  const starts = "Starts " + new Date(until).toLocaleString(undefined, { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" });
+  const nina = { id: "other-task", title: "Other work", phase: "working", generation: "g1", goblin_name: "Nina", goblin_title: "Bug Hunter", verified: false };
+  const cases: [string, Record<string, unknown>[], string][] = [
+    ["free memory", [{ kind: "memory", target: "memory 12 GB", bytes: 12 * GB }], "Waits for 12 GB free"],
+    ["free memory in tenths", [{ kind: "memory", target: "memory 1.5 GB", bytes: 1.5 * GB }], "Waits for 1.5 GB free"],
+    ["a time", [{ kind: "time", target: "until 2026-10-10T00:00Z", until }], starts],
+    ["a task, by its goblin's name", [{ kind: "task", target: "other-task" }], "Waits for Nina - Bug Hunter"],
+    ["a task the board does not show, by its id", [{ kind: "task", target: "later-task" }], "Waits for later-task"],
+    ["a pull request", [{ kind: "pr", target: "https://github.com/o/r/pull/7" }], "Waits for PR #7 to merge"],
+    ["a wait it cannot read", [{ kind: "task", target: "quiet-night", problem: "No task is named \"quiet-night\"" }], "No task is named \"quiet-night\""],
+    ["more than one wait", [{ kind: "memory", target: "memory 12 GB", bytes: 12 * GB }, { kind: "task", target: "other-task" }], "Waits for 12 GB free, and 1 more"],
+  ];
+
+  for (const [name, waits, want] of cases) {
+    const snapshot = parseSnapshot({ healthy: true, revision: 7, memory: memoryWith(9), tasks: [{ id: "zane", title: "Train history", project: "code-goblins", verified: false, brief: true, phase: "queued", waits }, nina] });
+
+    // Act
+    const status = taskStatus(zane(snapshot), snapshot);
+
+    // Assert
+    assert.deepEqual(status, { text: want, phase: "queued" }, name);
+    assert.notEqual(startBlock(zane(snapshot)), "", name + ": its Start says why it does not start");
+  }
 });
 
 test("a task the scheduler starts reads Starting at a working dot, leaves Tasks at once and is on the canvas", () => {

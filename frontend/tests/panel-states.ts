@@ -8,7 +8,7 @@ const kept = ["worktree C:\\dev\\code-goblins\\.worktrees\\gb-cg-fleet-auto-resu
 
 const live = (id: string, title: string, fields: Record<string, unknown>) => ({
   id, title, project: "code-goblins", harness: "claude", model: "claude-opus-5-5", effort: "xhigh", backend: "native",
-  generation: "s-" + id, since, verified: false, dependencies: [], ...fields,
+  generation: "s-" + id, since, verified: false, ...fields,
 });
 
 export const WORKING = live("cg-goblins-quickstart", "An OpenClaw-style quick start in the goblins command; Claude Code", {
@@ -40,13 +40,13 @@ export const FAILED = live("pd-ci-minutes", "PrecisionDocs-AI uses far fewer Git
 });
 
 const queued = (id: string, title: string, fields: Record<string, unknown> = {}) => ({
-  id, title, project: "code-goblins", phase: "queued", brief: true, verified: false, generation: "", queue_revision: "q-" + id, dependencies: [], since: "2026-10-01T15:00:00Z", ...fields,
+  id, title, project: "code-goblins", phase: "queued", brief: true, verified: false, generation: "", queue_revision: "q-" + id, since: "2026-10-01T15:00:00Z", ...fields,
 });
 
 export const QUEUED = [
-  queued("cg-quick-tour", "A very quick tour for new users: how Code Goblins works and how to use the board, on first open; Claude Code", { dependencies: ["cg-goblins-quickstart"], reason: "default first-open layout must land and the generated mockup must be approved", since: "2026-10-03T10:00:00Z" }),
+  queued("cg-quick-tour", "A very quick tour for new users: how Code Goblins works and how to use the board, on first open; Claude Code", { waits: [{ kind: "memory", target: "memory 12 GB", bytes: 12 * 2 ** 30 }], reason: "default first-open layout must land and the generated mockup must be approved", since: "2026-10-03T10:00:00Z" }),
   queued("cg-board-update", "Updates arrive as their own special Overlord command in the Command Center, with one Update button (checksum-verified, safe swap and rollback, goblins untouched, the desktop window too); Claude Code", { since: "2026-10-02T11:00:00Z" }),
-  queued("cg-hardening-followups", "The already-pushed skip design for tests-kept and the other open hardening items", { dependencies: ["priority"], reason: "cg-hardening retired 2026-09-28 03:11Z with a handoff", since: "2026-09-28T08:00:00Z" }),
+  queued("cg-hardening-followups", "The already-pushed skip design for tests-kept and the other open hardening items", { waits: [{ kind: "task", target: "priority", problem: "No task is named \"priority\"" }], reason: "cg-hardening retired 2026-09-28 03:11Z with a handoff", since: "2026-09-28T08:00:00Z" }),
 ];
 
 export const TASKS = [WORKING, WAITING, PAUSED, PAUSE_FAILED, FAILED, ...QUEUED];

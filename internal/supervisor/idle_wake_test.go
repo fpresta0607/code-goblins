@@ -15,7 +15,8 @@ import (
 // woken after idleWakeAfter, and again each idleWakeAfter it lasts, naming
 // each waiting task and why it did not start. Work that waits on another task
 // or already finished is not runnable and wakes nobody, and nor does work
-// waiting on memory, which memory_ready covers. On 2026-10-07 memory_ready
+// waiting on memory, which memory_ready covers; a row waiting on a task the
+// home never heard of needs the CFO, and wakes him. On 2026-10-07 memory_ready
 // woke once and a CFO that could not start the work idled four hours.
 func TestTheCFOIsWokenAgainWhileRunnableWorkWaitsAndNothingStarts(t *testing.T) {
 	cases := []struct {
@@ -51,7 +52,16 @@ func TestTheCFOIsWokenAgainWhileRunnableWorkWaitsAndNothingStarts(t *testing.T) 
 			available: 8,
 			arrange: func(t *testing.T, h home.Home) {
 				queueBriefedTask(t, h, "- **next-task** - Ship it (repo: code-goblins) blocked-by: other-task - after it", plainBrief)
+				awaitedTaskRunning(t, h)
 			},
+		},
+		{
+			name:      "it waits on a task the home never heard of",
+			available: 8,
+			arrange: func(t *testing.T, h home.Home) {
+				queueBriefedTask(t, h, "- **next-task** - Ship it (repo: code-goblins) blocked-by: other-task - after it", plainBrief)
+			},
+			wantWhy: `next-task: No task is named "other-task"`,
 		},
 		{
 			name:      "it already finished",

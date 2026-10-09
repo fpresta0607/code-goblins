@@ -90,7 +90,7 @@ for (const [size, viewport, scale] of [["the Overlord's window", { width: 1707, 
       }
     });
 
-    test("the Tasks list adds no wait line, keeps its chip on one line, and shows its titles without the harness", async ({ page }) => {
+    test("the Tasks list says what a held row waits for in its status, adds no wait line, keeps its chip on one line, and shows its titles without the harness", async ({ page }) => {
       // Arrange
       await open(page);
       const tasks = page.getByRole("region", { name: "Tasks", exact: true });
@@ -101,8 +101,10 @@ for (const [size, viewport, scale] of [["the Overlord's window", { width: 1707, 
       const next = card("Updates arrive as their own special Overlord command in the Command Center, with one Update button (checksum-verified, safe swap and rollback, goblins untouched, the desktop window too)").locator(".next-chip");
 
       // Assert: the Overlord, 2026-10-05: "waits for a task doesnt make sens
-      // dont ened any addiioantional text". A waiting card says nothing about
-      // its wait, and the CFO's note on it stays in its panel behind More.
+      // dont ened any addiioantional text", so a waiting card adds no line
+      // about its wait, and the CFO's note on it stays in its panel behind
+      // More. On 2026-10-09 he asked that a row waiting say what for, never
+      // Queued alone: its status says it in a few words, in place of Queued.
       // The list runs in start order (2026-10-07, "next up should be at the
       // top of the column"): the one task that can start, then those held.
       await expect(tasks.locator(".card-title")).toHaveText([
@@ -110,7 +112,9 @@ for (const [size, viewport, scale] of [["the Overlord's window", { width: 1707, 
         blocked,
         "The already-pushed skip design for tests-kept and the other open hardening items",
       ]);
-      await expect(page.locator(".task-board")).not.toContainText(/Waits (for|until)/);
+      await expect(card(blocked).locator(".card-status-text")).toHaveText("Waits for 12 GB free");
+      await expect(card("The already-pushed skip design for tests-kept and the other open hardening items").locator(".card-status-text")).toHaveText("No task is named \"priority\"");
+      await expect(tasks.locator(".card-secondary")).toHaveCount(0);
       await expect(tasks).not.toContainText("cg-hardening retired");
       await expect(tasks).not.toContainText("default first-open layout");
       await expect(next).toHaveText("Next at 5 GB");
@@ -121,10 +125,10 @@ for (const [size, viewport, scale] of [["the Overlord's window", { width: 1707, 
       await select(page, blocked);
       const header = panel(page).locator(".panel-header");
 
-      // Assert: its status alone, and its note behind More.
-      await expect(header.locator(".panel-status")).toHaveText("Queued");
+      // Assert: its status says what it waits for, with no line under it,
+      // and its note is behind More.
+      await expect(header.locator(".panel-status")).toHaveText("Waits for 12 GB free");
       await expect(header.locator(".panel-activity")).toHaveCount(0);
-      await expect(header).not.toContainText(/Waits (for|until)/);
       await header.locator(".raw-details > summary").filter({ hasText: "More" }).click();
       await expect(header.locator(".raw-details-text")).toHaveText("default first-open layout must land and the generated mockup must be approved");
     });

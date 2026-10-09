@@ -363,7 +363,7 @@ func (s *Service) checkMemory(ctx context.Context, w *fleetWakes, now time.Time)
 	if low < memoryNext {
 		return planningErr
 	}
-	scheduled, err = s.schedule(ctx, now, w)
+	scheduled, err = s.schedule(ctx, now, w, memory)
 	if err != nil {
 		return errors.Join(planningErr, err)
 	}
@@ -374,7 +374,7 @@ func (s *Service) checkMemory(ctx context.Context, w *fleetWakes, now time.Time)
 	if w.MemoryAbove < 2 || w.MemorySpent || !w.due("memory", memoryWakeGap, now) {
 		return planningErr
 	}
-	queued, waiting := memoryWork(s.Store.Home, s.finishedWork())
+	queued, waiting := memoryWork(s.Store.Home, s.finishedWork(), s.rowReading(now, &memory))
 	if len(queued) == 0 && len(waiting) == 0 {
 		return planningErr
 	}
@@ -427,10 +427,10 @@ func diskLowDetail(h home.Home, reading Disk, now time.Time) string {
 }
 
 // memoryWork is the work waiting on memory: the queued tasks a Start could
-// start now, top of the queue first, and the live goblins whose latest report
-// is a wait on memory.
-func memoryWork(h home.Home, finished *finishedWork) (queued, waiting []string) {
-	queued = startableQueued(h, finished)
+// start at reading, top of the queue first, and the live goblins whose latest
+// report is a wait on memory.
+func memoryWork(h home.Home, finished *finishedWork, reading rowReading) (queued, waiting []string) {
+	queued = startableQueued(h, finished, reading)
 	for _, meta := range liveTasks(h.State) {
 		if record, err := state.ReadLifecycle(h.State, meta.ID); err == nil && record.Generation == meta.SpawnGen && record.Phase == "paused" && record.Pause != nil && record.Pause.Reason == "memory" {
 			waiting = append(waiting, meta.ID)

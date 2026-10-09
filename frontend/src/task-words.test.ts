@@ -105,9 +105,9 @@ test("a queued task adds no line about what it waits for, whatever it waits on",
   // The Overlord, 2026-10-05: "waits for a task doesnt make sens dont ened
   // any addiioantional text".
   const blocker = task({ id: "cg-goblins-quickstart", title: "An OpenClaw-style quick start; Claude Code" });
-  const queued = (dependencies: string[], reason = "") => task({ id: "q", title: "q", phase: "queued", generation: "", dependencies, reason });
-  for (const item of [queued(["cg-goblins-quickstart"], "default first-open layout must land"), queued(["memory"], "next start at 5 GB free; Claude Code"), queued(["priority"]), queued([])]) {
-    assert.deepEqual(taskSummary(item, [blocker, item]), { sentence: "", details: [], isFailure: false }, item.dependencies.join(",") || "nothing");
+  const queued = (waits: Record<string, unknown>[], reason = "") => task({ id: "q", title: "q", phase: "queued", generation: "", waits, reason });
+  for (const item of [queued([{ kind: "task", target: "cg-goblins-quickstart" }], "default first-open layout must land"), queued([{ kind: "memory", target: "memory 12 GB", bytes: 12 * 2 ** 30 }], "next start at 12 GB free; Claude Code"), queued([{ kind: "task", target: "priority", problem: "No task is named \"priority\"" }]), queued([])]) {
+    assert.deepEqual(taskSummary(item, [blocker, item]), { sentence: "", details: [], isFailure: false }, item.waits.map((wait) => wait.target).join(",") || "nothing");
   }
 });
 

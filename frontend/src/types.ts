@@ -52,7 +52,9 @@ export interface Task extends Evaluation {
   mode: string;
   generation: string;
   session: string;
-  dependencies: string[];
+  // waits is what a queued task's row still waits for before the scheduler
+  // starts it.
+  waits: Wait[];
   activity: string;
   handoff?: boolean;
   last_report?: string;
@@ -210,6 +212,10 @@ export interface LifecycleStatus {
   pause?: PauseCondition;
 }
 export interface PauseCondition { reason: string; until: string; at: string }
+// Wait is one thing a queued row waits for: kind is time, memory, pr or task,
+// target its words as the row wrote them, until the time and bytes the free
+// memory it waits for, and problem why the scheduler cannot read it.
+export interface Wait { kind: string; target: string; until: string; bytes: number; problem: string }
 // Scheduling is what the supervisor's scheduler made of its last reading with
 // memory free: text says what it started or resumed, else why nothing
 // waiting started, and waiting is the work that could run and did not.
@@ -798,7 +804,7 @@ export function parseSnapshot(value: unknown): Snapshot {
         mode: string(t.mode),
         generation: string(t.generation),
         session: string(t.session),
-        dependencies: strings(t.dependencies),
+        waits: array(t.waits).map((value) => { const w = object(value); return { kind: string(w.kind), target: string(w.target), until: string(w.until), bytes: number(w.bytes), problem: string(w.problem) }; }),
         activity: t.activity === undefined ? "" : string(t.activity),
         handoff: t.handoff === undefined ? false : boolean(t.handoff),
         last_report: string(t.last_report),

@@ -1,6 +1,6 @@
 import type { Disk, Memory, PauseCondition, Scheduling, Snapshot, Task } from "./types";
 import { queuedTasks } from "./workflow.ts";
-import { pausedWithParent } from "./task-words.ts";
+import { pausedWithParent, waitStatus } from "./task-words.ts";
 
 const gigabytes = (bytes: number) => Math.round(bytes / 2 ** 30 * 10) / 10;
 
@@ -128,11 +128,10 @@ export function turnStatus(task: Task, memory: Memory | null, disk: Disk | null)
 }
 
 // Why a queued task does not start whatever memory there is: it already
-// finished, or it waits on other tasks.
+// finished, or its row waits for something that has not cleared.
 export function queueBlock(task: Task): string {
   if (task.phase !== "queued") return "";
-  if (task.finished) return task.finished;
-  return task.dependencies.length ? task.reason || "Waiting on " + task.dependencies.join(", ") : "";
+  return task.finished || waitStatus(task);
 }
 
 // A Start the supervisor accepted, and the revision from which every snapshot

@@ -8,7 +8,7 @@ const since = "2026-10-02T09:00:00Z";
 const memory = { next: 5368709120, floor: 4294967296, total: 34359738368, available: 9442450944, commit_limit: 51539607552, commit_available: 21474836480, paged_pool: 536870912, nonpaged_pool: 322122547 };
 const task = (id: string, phase: string, fields: Record<string, unknown> = {}) => ({ id, title: id, project: "code-goblins", phase, verified: false, generation: id + "-1", since, ...fields });
 const QUEUED = task("queued-one", "queued", { generation: "", brief: true, queue_revision: "q1", detail: "Its detail." });
-const BLOCKED = task("queued-blocked", "queued", { generation: "", brief: true, queue_revision: "q1", dependencies: ["queued-one"], reason: "Waiting on queued-one" });
+const BLOCKED = task("queued-blocked", "queued", { generation: "", brief: true, queue_revision: "q1", waits: [{ kind: "task", target: "queued-one" }], reason: "after queued-one" });
 const WORKING = task("working-one", "working", { harness: "codex" });
 const PAUSED = task("paused-one", "paused", { lifecycle: { phase: "paused", action: "pause", at: since, kept: ["worktree", "session"], stopped: [], problems: [], handoff_saved: true, validation_restarts: false } });
 const REMOVED = task("finished:queued-one", "stopped", { title: "queued-one", generation: "", archived: true, at: since, lifecycle: { phase: "stopped", action: "stop", at: since, kept: ["task brief"], stopped: [], problems: [], handoff_saved: false, validation_restarts: false } });
