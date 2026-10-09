@@ -300,6 +300,8 @@ button:disabled, textarea:disabled { cursor: default; opacity: .55; }
 .flow-connections { position: absolute; inset: 0; pointer-events: none; overflow: visible; }
 .connection-line path { fill: none; stroke: #637b8c; stroke-width: 2; }
 .connection-line circle { fill: #bad4ec; }
+.connection-line.lit > path { stroke: var(--mint); }
+.connection-line.lit > circle { fill: var(--mint); }
 .connection-line.relation-delegated path { stroke-dasharray: 7 4; }
 /* A pulse or birth highlight lays over its connector for its whole life,
    which the board sets as the animation's duration, and fades out before it
