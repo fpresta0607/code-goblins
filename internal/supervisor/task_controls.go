@@ -33,7 +33,7 @@ type LifecycleStatus struct {
 	// KeptMessages are the board messages, as the Overlord wrote them, that a
 	// paused goblin's resume will carry, each of which he can delete before
 	// it does.
-	KeptMessages []string `json:"kept_messages"`
+	KeptMessages []string `json:"kept_messages,omitempty"`
 }
 
 func lifecycleStatus(record state.Lifecycle) *LifecycleStatus {

@@ -33,7 +33,7 @@ test("a message kept for a resume shows from the resume note, never from its act
   assert.deepEqual(messagesTo(shown, "goblin-one").map((sent) => sent.id), ["b"]);
   const lifecycle = { phase: "paused", action: "pause", at: "", kept: [], stopped: [], problems: [], handoff_saved: false, validation_restarts: false };
   assert.deepEqual(task({ phase: "paused", lifecycle: { ...lifecycle, kept_messages: ["i can message?", "go on\nand rebase"] } }).lifecycle?.kept_messages, ["i can message?", "go on\nand rebase"]);
-  assert.deepEqual(task({ phase: "paused", lifecycle }).lifecycle?.kept_messages, [], "an older supervisor names none");
+  assert.equal(task({ phase: "paused", lifecycle }).lifecycle?.kept_messages, undefined, "a lifecycle with none names none");
 });
 
 // A goblin whose terminal cannot take typing now takes a message: paused,
