@@ -62,11 +62,25 @@ func (s *Service) withdraw(task string) {
 // whose turn has come: nothing else starts or resumes, and memory and disk
 // allow. It stops at the first that must wait. One that no longer applies,
 // such as a goblin the CFO resumed meanwhile, is dropped, and one that fails
-// goes to the CFO, as every failure does.
+// goes to the CFO, as every failure does. One loop runs them at a time, and a
+// call while it runs has it look once more, so the loop that ran a change
+// takes it off the queue before any other loop sees it: a resume that ended
+// at once called this while its own click still waited, and cfo resumed the
+// goblin twice (CI run 37884316186).
 func (s *Service) runAsked() {
+	s.starts.Lock()
+	if s.isAskedRunning {
+		s.isAskedAgain = true
+		s.starts.Unlock()
+		return
+	}
+	s.isAskedRunning = true
+	s.starts.Unlock()
 	for {
 		s.starts.Lock()
+		s.isAskedAgain = false
 		if len(s.asked) == 0 || s.launching() != "" {
+			s.isAskedRunning = false
 			s.starts.Unlock()
 			return
 		}
@@ -82,6 +96,13 @@ func (s *Service) runAsked() {
 		var changed taskRefusal
 		isStartRefusal, isChangeRefusal := errors.As(err, &started), errors.As(err, &changed)
 		if isStartRefusal && started.Passing || isChangeRefusal && changed.isPassing {
+			s.starts.Lock()
+			isAgain := s.isAskedAgain
+			s.isAskedRunning = isAgain
+			s.starts.Unlock()
+			if isAgain {
+				continue
+			}
 			return
 		}
 		s.starts.Lock()

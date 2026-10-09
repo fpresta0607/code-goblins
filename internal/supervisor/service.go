@@ -225,8 +225,12 @@ type Service struct {
 	engineIdle   map[string]engineIdleReading
 	changeErrors map[string]taskChangeError
 	// asked are the Starts and Resumes the Overlord clicked that wait their
-	// turn, oldest first; starts guards it.
-	asked []askedChange
+	// turn, oldest first; starts guards it. isAskedRunning says a runAsked
+	// loop runs them now, and isAskedAgain that it was called again
+	// meanwhile, so that loop looks once more.
+	asked          []askedChange
+	isAskedRunning bool
+	isAskedAgain   bool
 	// scheduling is what the scheduler made of its last reading with memory
 	// free; mu guards it.
 	scheduling *Scheduling
