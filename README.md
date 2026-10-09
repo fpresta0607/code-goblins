@@ -403,8 +403,11 @@ Slots go by memory alone: a start needs 5 GB of memory and of commit free, and n
 A future date, an unanswered question or an Overlord pause does not hold the queue.
 The supervisor does this by itself, one start or resume a minute while memory allows, until nothing that could run is left: the fleet never idles while work waits, and nothing waits for the CFO to notice.
 The memory and disk meters say none of this in words: each is its name, its value and its bar, with nothing written under a bar or between two meters.
-A queued task that already finished never starts again, by itself or from Start: when its last report, live or archived, was done, or its pull request or one of its branch merged, its card reads **Already finished** with the evidence in place of Start.
-When `cfo cleanup` retires a delivered task, its row moves from Queued to Done with its detail lines, and the supervisor moves any row a delivered task left behind.
+A queued task that already finished never starts again, by itself or from Start: when its last report, live or archived, was done, its pull request or one of its branch merged, or the CFO retired it with `cfo cleanup` or `cfo kill` and no brief was written for it since, its card reads **Already finished** with the evidence in place of Start.
+For a retired task's row still under Queued, the supervisor also tells the CFO once with a `stale_row:` notify.
+When `cfo cleanup` retires a task, its row moves from Queued to Done with its detail lines, whatever the task last reported, so nothing starts it again from its row.
+The row closes as `done` when the task delivered and as `retired` when it did not, and the supervisor moves any row a delivered task left behind.
+A local-only task opens no pull request, so it is delivered when a done line of its current run names its report, `data/<task>/report.md`, and that report is there.
 Work the supervisor cannot start, such as a start that failed or a row that needs the CFO, wakes the CFO with an `idle` wake once it has waited 30 minutes with memory free and nothing started, naming each task and why, and again every 30 minutes it lasts.
 When the CFO's turn ends with no goblin at work while work that could run waits and memory is free, its turn is reopened with the next work named: Claude Code's Stop hook does it, and a Codex or pi CFO's native hook raises the wake the supervisor types into its terminal.
 None of this needs a setting: every home does it.
@@ -444,6 +447,7 @@ Pausing a goblin that is already paused changes what resumes it, and stops nothi
 For CI or deploy, name the exact awaited head with `--until pr:<GitHub PR URL>@<40-character SHA>` or `run:<GitHub Actions run URL>@<40-character SHA>`.
 Pause for CI or deploy only when waiting on that run is the goblin's remaining work.
 The supervisor resumes memory pauses after two consecutive readings of at least 5 GB free memory and commit, allowance pauses at their reset, dependencies when the named task finishes or PR merges or date arrives, questions when the Overlord answers, and CI/deploy pauses on the matching `ci_finished` record.
+A resume the machine has no room for by the time its terminal would start leaves the goblin paused as it was, and the supervisor resumes it before it starts anything new.
 Answers to paused goblins are retained for their resume prompt.
 Resume requires the same 5 GB of free memory and of free commit, and continues a saved session less than a day after pausing where supported, otherwise using the saved handoff.
 Start, spawn and Resume check memory and commit alone for room: there is no cap on how many goblins run, and the 4 GB floor is what they keep.

@@ -3,6 +3,7 @@ package lifecycle
 import (
 	"context"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -465,6 +466,59 @@ func TestResumeRequiresFiveGigabytesAndKeepsPauseOnRefusal(t *testing.T) {
 	record, err = service.Run(context.Background(), Request{ID: meta.ID, Generation: meta.SpawnGen, Operation: "resume-2", Action: "resume"})
 	if err != nil || record.Phase != "running" || !resumed {
 		t.Fatalf("resume = %+v %v", record, err)
+	}
+}
+
+// A relaunch refused for room started nothing, so a resume that only waits
+// for room leaves the goblin paused as it was, for the scheduler to resume
+// before it starts anything new, and wakes nobody. On 2026-10-09 Pablo,
+// paused for memory, resumed once memory cleared: the relaunch read 4.9 GB
+// under the spawn lock, the resume was recorded failed, nothing tried him
+// again, and three new tasks started ahead of him.
+func TestAResumeThatOnlyWaitsForRoomLeavesThePauseAsItWas(t *testing.T) {
+	// Arrange
+	service, meta := lifecycleFixture(t)
+	var notices []string
+	service.Operations.Notify = func(record state.Lifecycle) error {
+		notices = append(notices, record.Action+" "+record.Phase)
+		return nil
+	}
+	if _, err := service.Run(t.Context(), Request{ID: meta.ID, Generation: meta.SpawnGen, Operation: "pause-1", Action: "pause", Reason: "memory"}); err != nil {
+		t.Fatal(err)
+	}
+	paused, err := state.ReadLifecycle(service.StateDir, meta.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	hasRoom := false
+	service.Operations.Resume = func(context.Context, state.TaskMeta, state.Lifecycle) error {
+		if !hasRoom {
+			return fmt.Errorf("%w: %w", state.ErrNoRoom, errors.New("Only 4.9 GB of memory is free"))
+		}
+		return nil
+	}
+
+	// Act
+	_, refusal := service.Run(t.Context(), Request{ID: meta.ID, Generation: meta.SpawnGen, Operation: "auto-resume-1", Action: "resume", Reason: "Pause condition cleared"})
+	left, readErr := state.ReadLifecycle(service.StateDir, meta.ID)
+	hasRoom = true
+	resumed, resumeErr := service.Run(t.Context(), Request{ID: meta.ID, Generation: meta.SpawnGen, Operation: "auto-resume-2", Action: "resume", Reason: "Pause condition cleared"})
+
+	// Assert
+	if !errors.Is(refusal, state.ErrNoRoom) {
+		t.Errorf("refusal = %v, want it to say the resume waits for room", refusal)
+	}
+	if readErr != nil || !reflect.DeepEqual(left, paused) {
+		t.Errorf("record after the refusal = %+v %v\nwant the memory pause as it was: %+v", left, readErr, paused)
+	}
+	if resumeErr != nil || resumed.Phase != "running" {
+		t.Errorf("resume once there is room = %+v %v, want it running", resumed, resumeErr)
+	}
+	if want := []string{"pause paused", "resume running"}; !reflect.DeepEqual(notices, want) {
+		t.Errorf("the CFO was told %v, want %v: a wait for room is nothing to act on", notices, want)
+	}
+	if lines, _ := state.TailStatus(service.StateDir, meta.ID, 50); slices.ContainsFunc(lines, func(line string) bool { return strings.Contains(line, "lifecycle-failed") }) {
+		t.Errorf("status log = %v, want no failed resume in it", lines)
 	}
 }
 
