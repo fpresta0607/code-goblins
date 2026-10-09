@@ -46,11 +46,13 @@ type sessionRequest struct {
 	Env   map[string]string `json:"env,omitempty"`
 }
 
-// sessionResponse is how that command ended.
+// sessionResponse is how that command ended, and how long the harness waited
+// for it, from starting its process to its exit.
 type sessionResponse struct {
-	Exit   int    `json:"exit"`
-	Stdout string `json:"stdout"`
-	Stderr string `json:"stderr"`
+	Exit   int           `json:"exit"`
+	Stdout string        `json:"stdout"`
+	Stderr string        `json:"stderr"`
+	Took   time.Duration `json:"took"`
 }
 
 // serveSessionRequests makes the stand-in harness run each command the test
@@ -107,6 +109,7 @@ func serveSessionRequest(cli, name string) {
 	var stdout, stderr bytes.Buffer
 	command.Stdout, command.Stderr = &stdout, &stderr
 	response := sessionResponse{}
+	started := time.Now()
 	if err := command.Run(); err != nil {
 		var exited *exec.ExitError
 		if !errors.As(err, &exited) {
@@ -115,6 +118,7 @@ func serveSessionRequest(cli, name string) {
 		}
 		response.Exit = exited.ExitCode()
 	}
+	response.Took = time.Since(started)
 	response.Stdout, response.Stderr = stdout.String(), stderr.String()
 	respond(response)
 }
@@ -274,42 +278,59 @@ func startOtherSession(t *testing.T, h home.Home) *standInSession {
 	return &standInSession{dir: dir, pid: command.Process.Pid}
 }
 
-// begin asks the session's harness to run cfo with args, stdin and env beside
-// its own environment, and returns how to wait up to limit for it to end.
-func (s *standInSession) begin(t *testing.T, env map[string]string, stdin string, args ...string) func(limit time.Duration) (sessionResponse, bool) {
-	t.Helper()
+// ask asks the session's harness to run cfo with args, stdin and env beside
+// its own environment, and returns how to wait up to limit for it to end. It
+// reports a failure rather than ending the test, for a caller that is not on
+// the test's goroutine.
+func (s *standInSession) ask(env map[string]string, stdin string, args ...string) (func(limit time.Duration) (sessionResponse, bool, error), error) {
 	folder := filepath.Join(s.dir, sessionRequests)
 	if err := os.MkdirAll(folder, 0o700); err != nil {
-		t.Fatal(err)
+		return nil, err
 	}
 	s.asked++
 	name := fmt.Sprintf("%03d", s.asked)
 	data, err := json.Marshal(sessionRequest{Args: args, Stdin: stdin, Env: env})
 	if err != nil {
-		t.Fatal(err)
+		return nil, err
 	}
 	partial := filepath.Join(folder, name+".request.partial")
 	if err := os.WriteFile(partial, data, 0o600); err != nil {
-		t.Fatal(err)
+		return nil, err
 	}
 	if err := os.Rename(partial, filepath.Join(folder, name+".request.json")); err != nil {
-		t.Fatal(err)
+		return nil, err
 	}
-	return func(limit time.Duration) (sessionResponse, bool) {
-		t.Helper()
+	return func(limit time.Duration) (sessionResponse, bool, error) {
 		for deadline := time.Now().Add(limit); ; time.Sleep(20 * time.Millisecond) {
 			data, err := os.ReadFile(filepath.Join(folder, name+".response.json"))
 			if err == nil {
 				var response sessionResponse
 				if err := json.Unmarshal(data, &response); err != nil {
-					t.Fatalf("cfo %s: unreadable response: %v", strings.Join(args, " "), err)
+					return sessionResponse{}, true, fmt.Errorf("cfo %s: unreadable response: %w", strings.Join(args, " "), err)
 				}
-				return response, true
+				return response, true, nil
 			}
 			if time.Now().After(deadline) {
-				return sessionResponse{}, false
+				return sessionResponse{}, false, nil
 			}
 		}
+	}, nil
+}
+
+// begin is ask on the test's goroutine: a failure ends the test.
+func (s *standInSession) begin(t *testing.T, env map[string]string, stdin string, args ...string) func(limit time.Duration) (sessionResponse, bool) {
+	t.Helper()
+	wait, err := s.ask(env, stdin, args...)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return func(limit time.Duration) (sessionResponse, bool) {
+		t.Helper()
+		response, ended, err := wait(limit)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return response, ended
 	}
 }
 
