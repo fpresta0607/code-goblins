@@ -1,6 +1,7 @@
 package supervisor
 
 import (
+	"errors"
 	"math"
 	"testing"
 )
@@ -22,15 +23,18 @@ func programNames(names map[uint32]string) func(uint32) string {
 // 78% of his Intel adapter's 3D engine all day while his NVIDIA adapter sat
 // idle, and nothing in the fleet read either. An adapter is as busy as its
 // busiest engine, which every program using it adds to, and names the program
-// using most of that engine.
+// using most of that engine. A machine reads as the adapters it has: two as
+// his, one, or none.
 func TestReadGPUTakesEachAdaptersBusiestEngineAndItsBusiestProgram(t *testing.T) {
 	for _, test := range []struct {
-		name string
-		uses []gpuEngineUse
-		want []GPUAdapter
+		name     string
+		adapters []gpuAdapter
+		uses     []gpuEngineUse
+		want     []GPUAdapter
 	}{
 		{
-			name: "two programs on one engine, a little on another",
+			name:     "two adapters, two programs on one engine and a little on another",
+			adapters: overlordsAdapters(),
 			uses: []gpuEngineUse{
 				{instance: "pid_7692_luid_0x00000000_0x00014D79_phys_0_eng_0_engtype_3D", percent: 63.6},
 				{instance: "pid_29156_luid_0x00000000_0x00014D79_phys_0_eng_0_engtype_3D", percent: 6.9},
@@ -42,7 +46,8 @@ func TestReadGPUTakesEachAdaptersBusiestEngineAndItsBusiestProgram(t *testing.T)
 			},
 		},
 		{
-			name: "an engine counted past full reads as full",
+			name:     "two adapters, an engine counted past full reads as full",
+			adapters: overlordsAdapters(),
 			uses: []gpuEngineUse{
 				{instance: "pid_7692_luid_0x00000000_0x0001517D_phys_0_eng_0_engtype_3D", percent: 80},
 				{instance: "pid_29156_luid_0x00000000_0x0001517D_phys_0_eng_0_engtype_3D", percent: 45},
@@ -53,7 +58,8 @@ func TestReadGPUTakesEachAdaptersBusiestEngineAndItsBusiestProgram(t *testing.T)
 			},
 		},
 		{
-			name: "an adapter Windows does not name, a name that is no engine and a program that ended",
+			name:     "two adapters, an adapter Windows does not name, a name that is no engine and a program that ended",
+			adapters: overlordsAdapters(),
 			uses: []gpuEngineUse{
 				{instance: "pid_4_luid_0x00000000_0x00015148_phys_0_eng_0_engtype_3D", percent: 50},
 				{instance: "_Total", percent: 90},
@@ -65,18 +71,30 @@ func TestReadGPUTakesEachAdaptersBusiestEngineAndItsBusiestProgram(t *testing.T)
 			},
 		},
 		{
-			name: "nothing in use",
+			name:     "two adapters, nothing in use",
+			adapters: overlordsAdapters(),
 			want: []GPUAdapter{
 				{Name: "Intel(R) Graphics"},
 				{Name: "NVIDIA GeForce RTX 5060 Laptop GPU"},
 			},
 		},
+		{
+			name:     "one adapter",
+			adapters: overlordsAdapters()[:1],
+			uses: []gpuEngineUse{
+				{instance: "pid_29156_luid_0x00000000_0x00014D79_phys_0_eng_0_engtype_3D", percent: 31},
+			},
+			want: []GPUAdapter{{Name: "Intel(R) Graphics", Busy: 0.31, Busiest: "chrome.exe"}},
+		},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			// Act
-			got := readGPU(overlordsAdapters(), test.uses, programNames(map[uint32]string{7692: "msedgewebview2.exe", 29156: "chrome.exe"}))
+			got, err := readGPU(test.adapters, test.uses, programNames(map[uint32]string{7692: "msedgewebview2.exe", 29156: "chrome.exe"}))
 
 			// Assert
+			if err != nil {
+				t.Fatalf("readGPU: %v", err)
+			}
 			if len(got.Adapters) != len(test.want) {
 				t.Fatalf("adapters = %+v, want %+v", got.Adapters, test.want)
 			}
@@ -85,6 +103,30 @@ func TestReadGPUTakesEachAdaptersBusiestEngineAndItsBusiestProgram(t *testing.T)
 				if adapter.Name != want.Name || math.Abs(adapter.Busy-want.Busy) > 1e-9 || adapter.Busiest != want.Busiest {
 					t.Errorf("adapter %d = %+v, want %+v", index, adapter, want)
 				}
+			}
+		})
+	}
+}
+
+// On 2026-10-09 CI's machine, which counts graphics engines but has no
+// adapter besides Windows' software renderer, read as a GPU with no adapters,
+// which a board would have drawn as a meter of nothing. A machine with no
+// adapter has no GPU reading at all, whatever its engines count.
+func TestReadGPUOnAMachineWithNoAdapterIsNoReading(t *testing.T) {
+	for _, test := range []struct {
+		name string
+		uses []gpuEngineUse
+	}{
+		{"its software renderer in use", []gpuEngineUse{{instance: "pid_4_luid_0x00000000_0x00015148_phys_0_eng_0_engtype_3D", percent: 50}}},
+		{"nothing in use", nil},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			// Act
+			got, err := readGPU(nil, test.uses, programNames(nil))
+
+			// Assert
+			if !errors.Is(err, ErrNoGPU) {
+				t.Fatalf("readGPU = %+v, %v, want ErrNoGPU", got, err)
 			}
 		})
 	}

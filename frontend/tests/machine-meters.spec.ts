@@ -115,9 +115,9 @@ test.describe("in the Overlord's window, 1707 px wide", () => {
     await expect(column.getByRole("group", { name: "GPU" })).toHaveCount(0);
   });
 
-  test("a machine Windows counts no graphics adapter on shows the CPU meter alone", async ({ page }) => {
-    // Act
-    const column = await board(page, { processors: states.roomy, gpu: { adapters: [] } });
+  test("a machine with no graphics adapter shows the CPU meter and no GPU meter", async ({ page }) => {
+    // Act: such a machine's snapshot carries no gpu at all.
+    const column = await board(page, { processors: states.roomy });
 
     // Assert
     await expect(column.getByRole("group", { name: "CPU" })).toBeVisible();

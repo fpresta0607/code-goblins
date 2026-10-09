@@ -1,7 +1,6 @@
 package supervisor
 
 import (
-	"errors"
 	"fmt"
 	"sync"
 	"time"
@@ -30,10 +29,6 @@ const (
 	softwareVendor = 0x1414
 	softwareDevice = 0x8c
 )
-
-// ErrNoGPU is a machine whose Windows counts no graphics engines, as a
-// server or a virtual machine without an adapter.
-var ErrNoGPU = errors.New("this machine has no graphics adapter Windows counts")
 
 // pdhItem is one PDH_FMT_COUNTERVALUE_ITEM_W holding a double.
 type pdhItem struct {
@@ -109,7 +104,10 @@ func (m *gpuMeter) read() (GPU, error) {
 			names[process.pid] = app(process)
 		}
 	}
-	gpu := readGPU(adapters, uses, func(pid uint32) string { return names[pid] })
+	gpu, err := readGPU(adapters, uses, func(pid uint32) string { return names[pid] })
+	if err != nil {
+		return GPU{}, err
+	}
 	m.at, m.last = time.Now(), gpu
 	return gpu, nil
 }

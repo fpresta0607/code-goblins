@@ -1,9 +1,15 @@
 package supervisor
 
 import (
+	"errors"
 	"regexp"
 	"strconv"
 )
+
+// ErrNoGPU is a machine with no graphics adapter to read: a server, a
+// virtual machine whose only renderer is Windows' software one, or a
+// platform the fleet does not read them on.
+var ErrNoGPU = errors.New("this machine has no graphics adapter to read")
 
 // GPU is the machine's graphics adapters and how busy each was over the
 // reading.
@@ -44,8 +50,13 @@ var gpuEngineName = regexp.MustCompile(`^pid_(\d+)_luid_0x([0-9A-Fa-f]{1,8})_0x(
 // adapters was: an adapter is as busy as its busiest engine, which every
 // program using it adds to, never past full, and names the program using
 // most of that engine. A use of an adapter not among adapters, as of
-// Windows' software renderer, counts for nothing.
-func readGPU(adapters []gpuAdapter, uses []gpuEngineUse, program func(pid uint32) string) GPU {
+// Windows' software renderer, counts for nothing, and a machine with no
+// adapter has no reading: ErrNoGPU, never a GPU of no adapters, which a
+// board would draw as a meter of nothing.
+func readGPU(adapters []gpuAdapter, uses []gpuEngineUse, program func(pid uint32) string) (GPU, error) {
+	if len(adapters) == 0 {
+		return GPU{}, ErrNoGPU
+	}
 	type engine struct {
 		luid   uint64
 		number uint64
@@ -90,7 +101,7 @@ func readGPU(adapters []gpuAdapter, uses []gpuEngineUse, program func(pid uint32
 		}
 		gpu.Adapters = append(gpu.Adapters, reading)
 	}
-	return gpu
+	return gpu, nil
 }
 
 // Free is the share of the busiest adapter that was not in use.

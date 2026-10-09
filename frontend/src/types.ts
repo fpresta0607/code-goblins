@@ -246,7 +246,8 @@ export interface Processors { performance_cores: number; efficiency_cores: numbe
 // GpuAdapter is one graphics adapter: the share of its busiest engine in use,
 // from 0 to 1, and the app using most of it, empty when none is.
 export interface GpuAdapter { name: string; busy: number; busiest: string }
-// Gpu is the machine's graphics adapters.
+// Gpu is the machine's graphics adapters, at least one: a machine with none
+// has no gpu in its snapshot.
 export interface Gpu { adapters: GpuAdapter[] }
 export interface Session {
   runtime?: RuntimeEvidence;

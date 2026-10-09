@@ -32,6 +32,6 @@ export function MemoryMeter({ memory, disk = null, processors = null, gpu = null
     <p className="sr-only">{state.text} {tip}</p>
     {disk && <DiskMeter disk={disk} />}
     {processors && <ProcessorMeter processors={processors} />}
-    {gpu && gpu.adapters.length > 0 && <GpuMeter gpu={gpu} />}
+    {gpu && <GpuMeter gpu={gpu} />}
   </div>;
 }
