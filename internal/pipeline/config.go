@@ -122,10 +122,21 @@ func Render(before []byte, p Policy) ([]byte, []string, error) {
 			return nil, nil, err
 		}
 	} else {
-		if err := removeOwned(args, "claude", "agent_args_override.claude", []string{"--model", "opus", "--effort", "high"}); err != nil {
+		codex := []string{"-c", `service_tier="default"`}
+		if p.Version > 4 {
+			// Gate agents start without the operator's MCP servers. Codex skips
+			// the user config.toml that declares them, which no -c override
+			// can empty because overrides merge into its tables, and the
+			// plugins and apps that bring servers of their own. Claude loads
+			// only servers named with --mcp-config, and the gate names none.
+			codex = append(codex, "--ignore-user-config", "--disable", "plugins", "--disable", "apps")
+			if err := set(args, "claude", "agent_args_override.claude", []string{"--strict-mcp-config"}); err != nil {
+				return nil, nil, err
+			}
+		} else if err := removeOwned(args, "claude", "agent_args_override.claude", []string{"--model", "opus", "--effort", "high"}); err != nil {
 			return nil, nil, err
 		}
-		if err := set(args, "codex", "agent_args_override.codex", []string{"-c", `service_tier="default"`}); err != nil {
+		if err := set(args, "codex", "agent_args_override.codex", codex); err != nil {
 			return nil, nil, err
 		}
 		for i := 0; i < len(root.Content); i += 2 {

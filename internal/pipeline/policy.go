@@ -36,7 +36,7 @@ type Classes struct {
 }
 
 // A role a version does not name is left out of its JSON and so of its hash:
-// the fallback, which only version 4 names, leaves the hash every older
+// the fallback, which only versions 4 and 5 name, leaves the hash every older
 // frozen snapshot recorded as it was.
 type Policy struct {
 	Version  int      `json:"version"`
@@ -44,7 +44,8 @@ type Policy struct {
 	Reviewer Reviewer `json:"reviewer,omitzero"`
 	Fixer    Reviewer `json:"fixer,omitzero"`
 	// Fallback is the harness the gate turns to when the primary cannot run.
-	// From version 4 every role runs that chain, primary first.
+	// From version 4 every role runs that chain, primary first, and from
+	// version 5 both start without the operator's MCP servers.
 	Fallback Reviewer `json:"fallback,omitzero"`
 	AutoFix  AutoFix  `json:"auto_fix"`
 	Classes  Classes  `json:"classes"`
@@ -86,7 +87,7 @@ func Load(path string) (Policy, error) {
 
 func (p Policy) Validate() error {
 	if p.Version < 4 && p.Fallback != (Reviewer{}) {
-		return errors.New("pipeline: only a version 4 policy names a fallback")
+		return errors.New("pipeline: only a policy from version 4 names a fallback")
 	}
 	switch p.Version {
 	case 1:
@@ -103,12 +104,12 @@ func (p Policy) Validate() error {
 		if p.Primary != want || p.Reviewer != want || p.Fixer != want {
 			return errors.New("pipeline: primary, reviewer and fixer must be Codex gpt-6.1-sol xhigh")
 		}
-	case 4:
+	case 4, 5:
 		if p.Primary != (Reviewer{"codex", "gpt-6.1-sol", "xhigh"}) || p.Fallback != (Reviewer{Harness: "claude"}) || p.Reviewer != (Reviewer{}) || p.Fixer != (Reviewer{}) {
 			return errors.New("pipeline: every role runs Codex gpt-6.1-sol xhigh first and Claude next, so no role names a profile of its own")
 		}
 	default:
-		return errors.New("pipeline: policy version must be 1, 2, 3 or 4")
+		return errors.New("pipeline: policy version must be 1, 2, 3, 4 or 5")
 	}
 	if p.AutoFix != (AutoFix{Review: 0, Test: 1, Lint: 1, Rebase: 1, CI: 1}) {
 		return errors.New("pipeline: automatic review must be 0 and test/lint/rebase/ci follow-ups must be 1")

@@ -70,15 +70,71 @@ func TestRenderPreservesUnownedConfigAndIsIdempotent(t *testing.T) {
 	if rendered.ReviewAgents != nil {
 		t.Fatalf("review roles pinned outside the chain: %+v", rendered.ReviewAgents)
 	}
-	if args := rendered.AgentArgs["codex"]; !reflect.DeepEqual(args, []string{"-c", `service_tier="default"`}) {
-		t.Fatalf("codex raw args=%v, want the standard service tier", args)
-	}
-	if _, ok := rendered.AgentArgs["claude"]; ok {
-		t.Fatal("legacy CFO-owned Claude arguments remain")
+	if !reflect.DeepEqual(rendered.AgentArgs, gateAgentArgs) {
+		t.Fatalf("agent args=%v, want the standard service tier and no MCP server for either agent", rendered.AgentArgs)
 	}
 	again, drift, err := Render(after, p)
 	if err != nil || len(drift) != 0 || string(again) != string(after) {
 		t.Fatalf("not idempotent: %v %v", drift, err)
+	}
+}
+
+// gateAgentArgs is what version 5 hands each gate agent: the standard service
+// tier, and none of the MCP servers the operator's own configuration starts.
+var gateAgentArgs = map[string][]string{
+	"codex":  {"-c", `service_tier="default"`, "--ignore-user-config", "--disable", "plugins", "--disable", "apps"},
+	"claude": {"--strict-mcp-config"},
+}
+
+func versionFour(t *testing.T) Policy {
+	t.Helper()
+	p := testPolicy(t)
+	p.Version = 4
+	return p
+}
+
+func TestVersionFiveStartsGateAgentsWithoutMCPServers(t *testing.T) {
+	after, drift, err := Render([]byte(machineConfig20261008), testPolicy(t))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(drift, []string{"agent_args_override.claude", "agent_args_override.codex"}) {
+		t.Fatalf("drift=%v, want only the gate agents' arguments", drift)
+	}
+	var config struct {
+		Agent     []string            `yaml:"agent"`
+		AgentArgs map[string][]string `yaml:"agent_args_override"`
+	}
+	if err := yaml.Unmarshal(after, &config); err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(config.AgentArgs, gateAgentArgs) || !reflect.DeepEqual(config.Agent, []string{"codex", "claude"}) {
+		t.Fatalf("agent=%v args=%v, want the chain kept and no MCP server for either agent", config.Agent, config.AgentArgs)
+	}
+	if !strings.Contains(string(after), "# Prefer Codex at the user's request; retain Claude as an available fallback.") {
+		t.Fatalf("lost the operator's note on the chain:\n%s", after)
+	}
+	again, drift, err := Render(after, testPolicy(t))
+	if err != nil || len(drift) != 0 || string(again) != string(after) {
+		t.Fatalf("not idempotent: %v %v", drift, err)
+	}
+}
+
+func TestVersionFiveOwnsTheClaudeArguments(t *testing.T) {
+	for _, before := range []string{"agent_args_override:\n  claude: [--model, sonnet]\n", "agent_args_override:\n  claude: [--strict-mcp-config, --mcp-config, servers.json]\n"} {
+		after, drift, err := Render([]byte(before), testPolicy(t))
+		if err != nil {
+			t.Fatal(err)
+		}
+		var config struct {
+			AgentArgs map[string][]string `yaml:"agent_args_override"`
+		}
+		if err := yaml.Unmarshal(after, &config); err != nil {
+			t.Fatal(err)
+		}
+		if !slices.Contains(drift, "agent_args_override.claude") || !reflect.DeepEqual(config.AgentArgs["claude"], gateAgentArgs["claude"]) {
+			t.Fatalf("drift=%v claude=%v, want the gate's own Claude arguments", drift, config.AgentArgs["claude"])
+		}
 	}
 }
 
@@ -113,7 +169,7 @@ review_agent_timeout: "1h"
 `
 
 func TestVersionFourRendersTheMachineConfigAsItStandsWithoutDrift(t *testing.T) {
-	after, drift, err := Render([]byte(machineConfig20261008), testPolicy(t))
+	after, drift, err := Render([]byte(machineConfig20261008), versionFour(t))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -123,7 +179,7 @@ func TestVersionFourRendersTheMachineConfigAsItStandsWithoutDrift(t *testing.T) 
 }
 
 func TestVersionFourReleasesReviewRolePinsIntoTheChain(t *testing.T) {
-	chain := testPolicy(t)
+	chain := versionFour(t)
 	previous := chain
 	previous.Version, previous.Fallback = 3, Reviewer{}
 	previous.Reviewer, previous.Fixer = previous.Primary, previous.Primary
@@ -189,7 +245,7 @@ func TestRenderOverridesCodexFastServiceTier(t *testing.T) {
 	if err := yaml.Unmarshal(after, &config); err != nil {
 		t.Fatal(err)
 	}
-	if args := config.AgentArgs["codex"]; !reflect.DeepEqual(args, []string{"-c", `service_tier="default"`}) {
+	if args := config.AgentArgs["codex"]; !reflect.DeepEqual(args, gateAgentArgs["codex"]) {
 		t.Fatalf("effective Codex args=%v, want the standard service tier", args)
 	}
 }
@@ -202,9 +258,10 @@ func TestRenderRejectsAmbiguousYAML(t *testing.T) {
 	}
 }
 
+// Up to version 4 the policy does not own Claude's arguments.
 func TestRenderPreservesOperatorOwnedClaudeArguments(t *testing.T) {
 	before := []byte("agent_args_override:\n  claude: [--model, sonnet]\n")
-	after, _, err := Render(before, testPolicy(t))
+	after, _, err := Render(before, versionFour(t))
 	if err != nil {
 		t.Fatal(err)
 	}
