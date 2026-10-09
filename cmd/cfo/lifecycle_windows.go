@@ -188,6 +188,13 @@ func resumeTask(ctx context.Context, h home.Home, runtime commandRuntime, comman
 		session = ""
 	}
 	request := spawn.SwitchRequest{ID: meta.ID, Generation: meta.SpawnGen, ForceDirty: true, BriefPath: meta.Brief, IsResume: true, ResumeSession: session, ResumeHandoff: handoff, ResumeNote: prior.ResumeNote, Admit: admit}
+	// A gate run still running, left alone by a memory pause or by an abort
+	// that failed, is the goblin's to pick back up: it is told which, so it
+	// starts no other beside it.
+	if run := liveGateRun(ctx, commands, gate, meta); run != "" {
+		told := "Your validation run " + run + " is still running: read where it stands with no-mistakes axi status --run " + run + " and carry on from it, and start no other run beside it."
+		request.ResumeNote = strings.TrimPrefix(request.ResumeNote+"\n"+told, "\n")
+	}
 	if hasChoice {
 		request.Harness, request.Model, request.Effort = harness.Kind(choice.Harness), choice.Model, choice.Effort
 		if choice.Harness != meta.Harness {
@@ -199,6 +206,24 @@ func resumeTask(ctx context.Context, h home.Home, runtime commandRuntime, comman
 		return state.RemoveEngineChoice(h.State, meta.ID)
 	}
 	return err
+}
+
+// liveGateRun is the gate run still running on the branch of meta's worktree,
+// or empty with none and while the gate's state cannot be read, which never
+// holds a resume back.
+func liveGateRun(ctx context.Context, commands execx.Runner, gate pipeline.Reader, meta state.TaskMeta) string {
+	if _, err := os.Stat(filepath.Join(gate.Root, "state.sqlite")); err != nil {
+		return ""
+	}
+	branch, err := commands.Run(ctx, execx.Request{Dir: meta.Worktree, Name: "git", Args: []string{"symbolic-ref", "--short", "HEAD"}})
+	if err != nil || branch.ExitCode != 0 {
+		return ""
+	}
+	run, err := gate.Interruption(ctx, meta.Project, strings.TrimSpace(string(branch.Stdout)))
+	if err != nil || run.IsTerminal() {
+		return ""
+	}
+	return run.ID
 }
 
 // pauseInstruction types the instruction to write its handoff file into the

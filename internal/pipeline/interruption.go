@@ -197,8 +197,12 @@ func (reader Reader) RestartInterrupted(ctx context.Context, project, worktree s
 		}
 		return errors.New("another validation run owns the branch; inspect it before resuming")
 	}
+	// A run the pause could not stop is still live: its goblin picks it
+	// back up, and no replacement is started beside it. On 2026-10-09 a
+	// pause that could not abort Murray's run left every resume refused
+	// here, so nothing but a switch by hand brought him back.
 	if !terminalRunStatus[current.Status] {
-		return errors.New("paused validation has not stopped; no replacement run was started")
+		return nil
 	}
 	bounded, cancel := context.WithTimeout(ctx, 90*time.Second)
 	defer cancel()
