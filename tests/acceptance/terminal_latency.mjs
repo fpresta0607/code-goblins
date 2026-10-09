@@ -33,7 +33,8 @@ async function measure(title, keys) {
     }
     throw new Error("timed out waiting for " + what);
   };
-  const button = await until(() => document.querySelector(`[aria-label="Open the terminal of ${CSS.escape(title)}"]`), 30000, "the task's terminal button");
+  // A click on a live goblin's card opens its terminal.
+  const button = await until(() => [...document.querySelectorAll(".task-board .task-card")].find((card) => card.querySelector(".card-title")?.textContent === title), 30000, "the task's card");
   const opened = performance.now();
   button.click();
   // The terminal in sight: a native one once its screen is whole, a Herdr view

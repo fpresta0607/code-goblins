@@ -27,8 +27,10 @@ type DevDrive struct {
 
 // DevDriveView is the Dev Drive as the board's Workspace panel shows it.
 type DevDriveView struct {
-	State   string `json:"state"`
-	Line    string `json:"line"`
+	State string `json:"state"`
+	Line  string `json:"line"`
+	// Note is the one short note under the panel's Dev Drive row.
+	Note    string `json:"note"`
 	Explain string `json:"explain"`
 	Choice  string `json:"choice,omitempty"`
 	// Waiting is the step whose Command Center item waits to be run.
@@ -107,7 +109,7 @@ func (s *Service) devDriveAgain() {
 func (s *Service) keepDevDrive(ctx context.Context) time.Duration {
 	view, busy, err := s.devDriveStep(ctx)
 	if err != nil {
-		view = &DevDriveView{State: "unreadable", Line: "the Dev Drive could not be read: " + err.Error(), Explain: devdrive.Explain}
+		view = &DevDriveView{State: "unreadable", Line: "the Dev Drive could not be read: " + err.Error(), Note: "This machine's drives could not be read.", Explain: devdrive.Explain}
 	}
 	s.devDriveViewMu.Lock()
 	changed := s.devDriveView == nil || *s.devDriveView != *view
@@ -137,7 +139,7 @@ func (s *Service) devDriveStep(ctx context.Context) (*DevDriveView, bool, error)
 	h := s.Store.Home
 	h.DevDrive = config.Root
 	report := devdrive.Describe(m, h)
-	view := &DevDriveView{State: string(report.State), Line: report.Line, Explain: devdrive.Explain, Choice: config.Choice}
+	view := &DevDriveView{State: string(report.State), Line: report.Line, Note: report.Note, Explain: devdrive.Explain, Choice: config.Choice}
 	if waiting := s.devDriveWaiting(); waiting != "" {
 		view.Waiting = waiting
 		return view, true, nil

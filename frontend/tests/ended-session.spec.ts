@@ -40,7 +40,7 @@ for (const workspace of ["Board", "Orchestration"]) {
     });
     await page.goto("/");
     if (workspace === "Board") {
-      await page.getByRole("button", { name: "Open the terminal of Terminal fixes and handoff" }).click();
+      await page.locator(".task-card").filter({ hasText: "Terminal fixes and handoff" }).click();
     } else {
       await page.getByRole("button", { name: "Orchestration", exact: true }).click();
       await page.getByRole("button", { name: /Terminal fixes and handoff/ }).click();
@@ -70,7 +70,6 @@ for (const phase of ["retired", "paused", "stopped"]) {
     await expect(page.getByText("Last report", { exact: true })).toBeVisible();
     await expect(page.getByText("Terminal fixes verified. Pull request ready.", { exact: true })).toBeVisible();
     await expect(page.getByRole("link", { name: "Open handoff" })).toHaveAttribute("href", "/api/tasks/input-proof/handoff");
-    await expect(page.getByRole("button", { name: "Open the terminal of Terminal fixes and handoff" })).toHaveCount(0);
     await expect(page.getByRole("textbox", { name: "Terminal input", exact: true })).toHaveCount(0);
     expect(connections).toBe(0);
     await page.screenshot({ path: testInfo.outputPath(phase + ".png"), fullPage: true });

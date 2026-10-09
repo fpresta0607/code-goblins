@@ -25,12 +25,11 @@ export type BoardLayout = "kanban" | "stacked";
 // progress shows every goblin at once; Tasks, Paused and Completed page past
 // ten cards. A merge train's card opens its panel, and selectedTrain is the
 // train whose panel shows.
-export function Board({ snapshot, layout, selected, selectedTrain, now, onSelect, onSelectTrain, onTerminal, onCount, onOpenCfo, onOpenCommand, onStartCfo, cardStart, presentations }: {
+export function Board({ snapshot, layout, selected, selectedTrain, now, onSelect, onSelectTrain, onCount, onOpenCfo, onOpenCommand, onStartCfo, cardStart, presentations }: {
   presentations:BoardActivity[]; layout: BoardLayout;
   snapshot: Snapshot; selected?: string; selectedTrain?: string; now: number;
   onSelect: (task: Task, source: HTMLElement) => void;
   onSelectTrain: (train: MergeTrain, source: HTMLElement) => void;
-  onTerminal: (task: Task, source: HTMLElement) => void;
   // onCount shows a goblin's baby goblins, on the Orchestration canvas.
   onCount: (task: Task) => void;
   onOpenCfo: (source: HTMLElement) => void;
@@ -39,7 +38,7 @@ export function Board({ snapshot, layout, selected, selectedTrain, now, onSelect
   cardStart: CardStarter;
 }) {
   const next = nextInOrder(snapshot, now);
-  const card = (task: Task, rank?: string) => <TaskCard key={task.id} task={task} snapshot={snapshot} selected={selected === task.id} presentations={presentations} now={now} rank={rank} next={task.id === next?.id ? next : undefined} onSelect={onSelect} onTerminal={onTerminal} onCount={onCount} />;
+  const card = (task: Task, rank?: string) => <TaskCard key={task.id} task={task} snapshot={snapshot} selected={selected === task.id} presentations={presentations} now={now} rank={rank} next={task.id === next?.id ? next : undefined} onSelect={onSelect} onCount={onCount} />;
   const paused = snapshot.tasks.filter((task) => taskColumn(task) === "Paused");
   // A running merge train heads In progress and a finished one Completed,
   // each as one card with its pull requests, and a column holding one is not
