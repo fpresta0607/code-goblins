@@ -416,6 +416,7 @@ Narrow screens use a collapsible nested list that names the actual parent when i
 ### The family tree
 
 Under each live goblin the board shows what it has running: its sub-agents, the shells and monitors it left running in the background, the jobs of processes its harness started, and its gate run.
+Its gate run is the no-mistakes run it names as its wait, or else its branch's newest run, and an ended run that started before the goblin's current generation is left out as an earlier goblin's.
 The supervisor reads it every 15 seconds from what the harness and the machine already keep, and writes nothing to either (`internal/fleettree`), and serves it on the goblin's task in `GET /api/snapshot` as `tree`.
 Claude Code's sub-agents, background shells and monitors come from the goblin's own conversation, with each sub-agent's transcript and each shell's output for its last activity and last line.
 That conversation is the one the board recorded for the goblin's generation, or the one the running Claude Code process records for itself in `~/.claude/sessions/<pid>.json` with its own creation time, never the newest file in the worktree's folder, where another session can work.
@@ -1089,10 +1090,11 @@ A goblin that resumes, or waits on something, says so without asking anything:
 
 ```powershell
 cfo notify <id> --working "wiring the store"
-cfo notify <id> --waiting-on <task-id|overlord|ci|deploy|memory> "<why>"
+cfo notify <id> --waiting-on <task-id|run-id|overlord|ci|deploy|memory> "<why>"
 ```
 
 Both write a status line only, so they wake nobody, and a newer one of them replaces an older blocked or failed reading on the board while the question itself stays in the CFO's queue.
+A wait on a run ID names the no-mistakes run the goblin waits on, such as one it started outside its own worktree, and that run's step counts as the goblin's work.
 The task reads `working` with the reason, or `waiting` with the reason and `waiting_on` naming the target, unless a newer question, the gate's own decision, or a merge says otherwise.
 A wait on another task clears itself once that task reports done, and a wait on CI, a deploy or memory lasts until the goblin reports again; the CFO releases any wait with a `--working` line of its own.
 Waiting on the Overlord is the one wait that wakes the CFO: it also opens a review item for him, named `waiting-<task>-<wake sequence>`, which he can answer or clear, and which is withdrawn once the goblin reports anything newer than a question.

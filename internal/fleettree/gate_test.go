@@ -12,11 +12,17 @@ import (
 	"github.com/fpresta0607/code-goblins/internal/state"
 )
 
+// fakeGate is the branch's run with its steps, a run a goblin can name with
+// its own steps, and how long each step's rounds usually take.
 type fakeGate struct {
-	progress pipeline.Progress
-	steps    []pipeline.StepDetail
-	branch   string
-	reads    int
+	progress   pipeline.Progress
+	steps      []pipeline.StepDetail
+	branch     string
+	reads      int
+	named      pipeline.Progress
+	namedSteps []pipeline.StepDetail
+	usual      map[string]time.Duration
+	usualReads int
 }
 
 func (g *fakeGate) Progress(_ context.Context, _, branch string) (pipeline.Progress, error) {
@@ -27,8 +33,23 @@ func (g *fakeGate) Progress(_ context.Context, _, branch string) (pipeline.Progr
 	return g.progress, nil
 }
 
-func (g *fakeGate) StepDetails(context.Context, string) ([]pipeline.StepDetail, error) {
+func (g *fakeGate) Run(_ context.Context, runID string) (pipeline.Progress, error) {
+	if runID != g.named.RunID {
+		return pipeline.Progress{}, pipeline.ErrNoProgress
+	}
+	return g.named, nil
+}
+
+func (g *fakeGate) StepDetails(_ context.Context, runID string) ([]pipeline.StepDetail, error) {
+	if runID == g.named.RunID {
+		return g.namedSteps, nil
+	}
 	return g.steps, nil
+}
+
+func (g *fakeGate) UsualStepTimes(context.Context) (map[string]time.Duration, error) {
+	g.usualReads++
+	return g.usual, nil
 }
 
 // gateWorktree is a worktree whose linked git folder has feat/tree checked
@@ -92,6 +113,28 @@ func TestReadLeavesOutAnEarlierGenerationsGateRun(t *testing.T) {
 	}
 }
 
+// A switch starts a new generation of the goblin and leaves its gate run
+// going: on 2026-10-09 Duke was switched while his run's test step ran. A run
+// of the branch still going is the goblin's own, whenever it started.
+func TestReadKeepsARunStillGoingFromBeforeASwitch(t *testing.T) {
+	// Arrange
+	born := at.Add(-time.Hour)
+	gate := &fakeGate{branch: "feat/tree", progress: pipeline.Progress{RunID: "01M4", Status: "running"}, steps: []pipeline.StepDetail{
+		{Name: "review", Status: "completed", StartedAt: born.Add(-2 * time.Hour).Unix(), LastActivityAt: born.Add(-90 * time.Minute).Unix()},
+		{Name: "test", Status: "fixing", StartedAt: born.Add(-90 * time.Minute).Unix(), RoundStartedAt: at.Add(-5 * time.Minute).Unix()},
+	}}
+	reader := Reader{Home: t.TempDir(), Gate: gate, Now: func() time.Time { return at }}
+	meta := state.TaskMeta{ID: "tree", Harness: "pi", Worktree: gateWorktree(t), SpawnGen: "s" + itoa(born.UnixNano())}
+
+	// Act
+	tree, _ := reader.Read(context.Background(), Goblin{Meta: meta})
+
+	// Assert
+	if step, ok := tree.Gate(); !ok || step.Run != "01M4" || step.Step != "test" {
+		t.Errorf("gate = %+v, %v; want the switched goblin's run at its test step, children %+v", step, ok, tree.Children)
+	}
+}
+
 func TestGateNodeSaysWhereTheRunStands(t *testing.T) {
 	born := at.Add(-time.Hour)
 	started := at.Add(-30 * time.Minute).Unix()
@@ -112,7 +155,7 @@ func TestGateNodeSaysWhereTheRunStands(t *testing.T) {
 		"an interrupted CI watch": {"ci_monitor_interrupted", []pipeline.StepDetail{{Name: "review", Status: "completed", StartedAt: started}, {Name: "ci", Status: "running", StartedAt: started}}, Failed, "Gate interrupted"},
 	} {
 		t.Run(name, func(t *testing.T) {
-			node, ok := gateNode(gateReading{progress: pipeline.Progress{RunID: "r", Status: test.status}, steps: test.steps}, born, nil)
+			node, ok := gateNode(gateReading{progress: pipeline.Progress{RunID: "r", Status: test.status}, steps: test.steps}, born, nil, nil)
 			if !ok || node.State != test.state || node.Label != test.label {
 				t.Errorf("gateNode = %+v, %v; want %s %q", node, ok, test.state, test.label)
 			}
@@ -143,6 +186,88 @@ func (missingGate) Progress(context.Context, string, string) (pipeline.Progress,
 	return pipeline.Progress{}, fmt.Errorf("pipeline: cannot inspect state database: %w", fs.ErrNotExist)
 }
 
+func (missingGate) Run(context.Context, string) (pipeline.Progress, error) {
+	return pipeline.Progress{}, fmt.Errorf("pipeline: cannot inspect state database: %w", fs.ErrNotExist)
+}
+
 func (missingGate) StepDetails(context.Context, string) ([]pipeline.StepDetail, error) {
 	return nil, nil
+}
+
+func (missingGate) UsualStepTimes(context.Context) (map[string]time.Duration, error) {
+	return nil, nil
+}
+
+// A goblin can name the gate run it waits on, such as one it started outside
+// its worktree: that run is its gate, and a wait on anything else, such as
+// another task, leaves it its branch's run. A new wait is read at once.
+func TestReadTakesTheRunAGoblinWaitsOnAsItsGate(t *testing.T) {
+	// Arrange
+	born := at.Add(-time.Hour)
+	gate := &fakeGate{
+		branch: "feat/tree", progress: pipeline.Progress{RunID: "01BRANCH", Status: "running"},
+		steps: []pipeline.StepDetail{{Name: "review", Status: "running", StartedAt: at.Add(-10 * time.Minute).Unix()}},
+		named: pipeline.Progress{RunID: "01NAMED", Status: "running"}, namedSteps: []pipeline.StepDetail{{Name: "test", Status: "running", StartedAt: born.Add(-time.Hour).Unix()}},
+	}
+	awaited := "other-task"
+	reader := Reader{Home: t.TempDir(), Gate: gate, Awaited: func(state.TaskMeta) string { return awaited }, Now: func() time.Time { return at }}
+	meta := state.TaskMeta{ID: "tree", Harness: "pi", Worktree: gateWorktree(t), SpawnGen: "s" + itoa(born.UnixNano())}
+
+	// Act
+	onTask, _ := reader.Read(context.Background(), Goblin{Meta: meta})
+	awaited = "01NAMED"
+	onRun, _ := reader.Read(context.Background(), Goblin{Meta: meta})
+
+	// Assert
+	if len(onTask.Children) != 1 || onTask.Children[0].ID != "gate:01BRANCH" {
+		t.Errorf("waiting on a task, children = %+v, want the branch's run", onTask.Children)
+	}
+	if len(onRun.Children) != 1 || onRun.Children[0].ID != "gate:01NAMED" || onRun.Children[0].Label != "Gate: test" {
+		t.Errorf("waiting on a run, children = %+v, want the named run's test step", onRun.Children)
+	}
+}
+
+// The supervisor judges a goblin's wait on its gate by the step's latest
+// round and how long the step's rounds usually take on this machine, which
+// is read once an hour. A step with none on record is given UsualUnknown,
+// and a run at no step, such as one that passed, has no step to wait on.
+func TestGateIsTheStepItsRoundAndItsUsualTime(t *testing.T) {
+	// Arrange
+	born := at.Add(-2 * time.Hour)
+	round := at.Add(-5 * time.Minute)
+	parkedAt := at.Add(-time.Minute)
+	gate := &fakeGate{branch: "feat/tree", progress: pipeline.Progress{RunID: "01M3", Status: "running"}, usual: map[string]time.Duration{"test": 38 * time.Minute}, steps: []pipeline.StepDetail{
+		{Name: "review", Status: "completed", StartedAt: at.Add(-time.Hour).Unix()},
+		{Name: "test", Status: "fixing", StartedAt: at.Add(-40 * time.Minute).Unix(), RoundStartedAt: round.Unix()},
+	}}
+	clock := at
+	reader := Reader{Home: t.TempDir(), Gate: gate, Now: func() time.Time { return clock }}
+	meta := state.TaskMeta{ID: "tree", Harness: "pi", Worktree: gateWorktree(t), SpawnGen: "s" + itoa(born.UnixNano())}
+	read := func(when time.Time, status string, steps ...pipeline.StepDetail) (GateStep, bool) {
+		clock, gate.progress.Status = when, status
+		if len(steps) > 0 {
+			gate.steps = steps
+		}
+		tree, _ := reader.Read(context.Background(), Goblin{Meta: meta})
+		return tree.Gate()
+	}
+
+	// Act
+	fixing, isFixing := read(at, "running")
+	parked, isParked := read(at.Add(GateEvery), "running", pipeline.StepDetail{Name: "document", Status: "awaiting_approval", StartedAt: parkedAt.Unix()})
+	_, isPassed := read(at.Add(2*GateEvery), "completed", pipeline.StepDetail{Name: "ci", Status: "completed", StartedAt: parkedAt.Unix()})
+
+	// Assert
+	if want := (GateStep{Run: "01M3", Step: "test", Round: round, Usual: 38 * time.Minute}); !isFixing || fixing != want {
+		t.Errorf("fixing = %+v, %v; want %+v", fixing, isFixing, want)
+	}
+	if want := (GateStep{Run: "01M3", Step: "document", Parked: true, Round: parkedAt, Usual: UsualUnknown}); !isParked || parked != want {
+		t.Errorf("parked = %+v, %v; want %+v", parked, isParked, want)
+	}
+	if isPassed {
+		t.Error("a passed run has a step to wait on")
+	}
+	if gate.usualReads != 1 {
+		t.Errorf("usual times read %d times within %v, want once", gate.usualReads, UsualEvery)
+	}
 }

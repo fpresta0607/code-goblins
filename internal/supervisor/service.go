@@ -314,6 +314,7 @@ func Start(ctx context.Context, h home.Home, options Options) (*Service, error) 
 	}
 	if options.Tree != nil {
 		options.Tree.Recorded = store.recordedSession
+		options.Tree.Awaited = s.awaited
 	}
 	go s.run(ctx)
 	return s, nil

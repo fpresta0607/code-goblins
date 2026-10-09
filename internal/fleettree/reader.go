@@ -32,6 +32,9 @@ type Reader struct {
 	Recorded func(state.TaskMeta) string
 	// Gate reads a goblin's gate run; nil reads none.
 	Gate GateProgress
+	// Awaited is what the goblin's latest report says it waits on, which
+	// may be a gate run's ID, empty when it reports no wait; nil reads none.
+	Awaited func(state.TaskMeta) string
 	// Processes, Listeners and CommandLine read the machine; nil reads it
 	// through Windows.
 	Processes   func() ([]Process, error)
@@ -47,6 +50,8 @@ type Reader struct {
 	commands     map[processKey]string
 	readings     map[processKey]cpuReading
 	gates        map[string]gateReading
+	usual        map[string]time.Duration
+	usualAt      time.Time
 }
 
 // Goblin is one goblin to read: its task record, the process its terminal
@@ -465,7 +470,9 @@ func mergeShells(children []Node) []Node {
 	return kept
 }
 
-// gateNode reads the goblin's gate at most once per GateEvery.
+// gateNode reads the goblin's gate at most once per GateEvery, or again once
+// it waits on something else: the run it names as its wait, or else its
+// branch's newest run.
 func (r *Reader) gateNode(ctx context.Context, meta state.TaskMeta, processes []Process, now time.Time) (Node, bool) {
 	if r.Gate == nil {
 		return Node{}, false
@@ -473,18 +480,37 @@ func (r *Reader) gateNode(ctx context.Context, meta state.TaskMeta, processes []
 	if r.gates == nil {
 		r.gates = map[string]gateReading{}
 	}
+	awaited := ""
+	if r.Awaited != nil {
+		awaited = r.Awaited(meta)
+	}
 	reading, ok := r.gates[meta.ID]
-	if !ok || now.Sub(reading.at) >= GateEvery {
-		reading = gateReading{at: now}
-		if branch := worktreeBranch(meta.Worktree); branch != "" {
-			reading.progress, reading.err = r.Gate.Progress(ctx, meta.Project, branch)
-			// No run of the branch, or no no-mistakes state on this machine
-			// at all, is no gate run rather than one that could not be read.
-			if errors.Is(reading.err, pipeline.ErrNoProgress) || errors.Is(reading.err, fs.ErrNotExist) {
-				reading.err = nil
-			}
-			if reading.err == nil && reading.progress.RunID != "" {
-				reading.steps, reading.err = r.Gate.StepDetails(ctx, reading.progress.RunID)
+	if !ok || now.Sub(reading.at) >= GateEvery || reading.awaited != awaited {
+		reading = gateReading{at: now, awaited: awaited}
+		// With no wait, or a wait on anything but a run, such as another
+		// task, no run is named, and the goblin's gate is its branch's.
+		err := pipeline.ErrNoProgress
+		if awaited != "" {
+			reading.progress, err = r.Gate.Run(ctx, awaited)
+		}
+		if branch := worktreeBranch(meta.Worktree); errors.Is(err, pipeline.ErrNoProgress) && branch != "" {
+			reading.progress, err = r.Gate.Progress(ctx, meta.Project, branch)
+		}
+		switch {
+		case errors.Is(err, pipeline.ErrNoProgress) || errors.Is(err, fs.ErrNotExist):
+			// No run, or no no-mistakes state on this machine at all, is no
+			// gate run rather than one that could not be read.
+			reading.progress = pipeline.Progress{}
+		case err != nil:
+			reading.err = err
+		default:
+			reading.steps, reading.err = r.Gate.StepDetails(ctx, reading.progress.RunID)
+		}
+		if reading.err == nil && len(reading.steps) > 0 && now.Sub(r.usualAt) >= UsualEvery {
+			if usual, err := r.Gate.UsualStepTimes(ctx); err != nil {
+				reading.err = err
+			} else {
+				r.usual, r.usualAt = usual, now
 			}
 		}
 		r.gates[meta.ID] = reading
@@ -492,7 +518,7 @@ func (r *Reader) gateNode(ctx context.Context, meta state.TaskMeta, processes []
 	if reading.err != nil {
 		return Node{}, false
 	}
-	return gateNode(reading, generationStart(meta.SpawnGen), processes)
+	return gateNode(reading, generationStart(meta.SpawnGen), processes, r.usual)
 }
 
 // generationStart is when a spawn generation began: cfo spawn names each
