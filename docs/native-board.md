@@ -386,8 +386,8 @@ A paused goblin's message joins its resume note, which its resume prompt carries
 A message to the CFO waits until a CFO runs and its input is ready, and goes to whichever CFO that is.
 One that waits ten minutes, or whose goblin ends or stops first, goes to the CFO with its words.
 Each message shows under the box with where it is: Queued, Kept for resume, Sent or With the CFO.
-Kept for resume lasts while the paused goblin's resume note still carries the message, which the task's lifecycle names in `kept_messages`, and a resume that carried it makes it Sent.
-Such a message has a delete button, which sends a `message_withdraw` action naming the message through `POST /api/actions`: the supervisor takes it out of the resume note under the goblin's lifecycle lock, so the resume never carries it, and the message leaves the list.
+A message a paused goblin's resume will carry shows Kept for resume, read from its resume note, which the task's lifecycle names in `kept_messages` and which outlasts the message's own action, and it leaves the list once a resume carried it.
+Such a message has a delete button, which sends a `message_withdraw` action naming the goblin and the message's words through `POST /api/actions`: the supervisor takes it out of the resume note under the goblin's lifecycle lock, so the resume never carries it, and the message leaves the list.
 A message typed into its terminal, carried by a resume or unknown is refused.
 The board's own clicks show at once: a Start, Pause, Resume or Stop draws its task as Starting, Pausing, Resuming or Stopping in the frame it is clicked, until a snapshot from the revision the supervisor answered with shows the task, and a double click sends one request.
 Open in VS Code and Open folder require a deliberate click and resolve the selected goblin's fresh, isolated Git worktree.
