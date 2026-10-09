@@ -93,6 +93,10 @@ type fleetWakes struct {
 	MemoryBelow  int       `json:"memory_below,omitempty"`
 	MemorySpent  bool      `json:"memory_spent,omitempty"`
 	MemoryReadAt time.Time `json:"memory_read_at,omitzero"`
+	// MemoryLow says the latest reading found memory or commit under the
+	// floor, where every read slows and a slow one tells nothing of what
+	// it reads.
+	MemoryLow bool `json:"memory_low,omitempty"`
 	// IdleSince is when the scheduler first found work it could not start
 	// while memory was free, for the idle wake.
 	IdleSince time.Time `json:"idle_since,omitzero"`
@@ -306,6 +310,7 @@ func (s *Service) checkFleet(ctx context.Context, now time.Time) error {
 // restart, and while anything waits to come back nothing else starts by
 // itself and memory_ready waits.
 func (s *Service) checkMemory(ctx context.Context, w *fleetWakes, now time.Time) error {
+	w.MemoryLow = false
 	dispatch := s.Options.Dispatch
 	if dispatch == nil || dispatch.Memory == nil {
 		return nil
@@ -338,7 +343,7 @@ func (s *Service) checkMemory(ctx context.Context, w *fleetWakes, now time.Time)
 	var scheduled *Scheduling
 	defer func() { s.setScheduling(scheduled) }()
 	if low < memoryFloor {
-		w.MemorySpent, w.MemoryAbove = false, 0
+		w.MemorySpent, w.MemoryAbove, w.MemoryLow = false, 0, true
 		w.MemoryBelow++
 		return errors.Join(planningErr, s.pauseAtMemoryFloor(w, memory))
 	}
