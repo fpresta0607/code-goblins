@@ -4,6 +4,7 @@ import (
 	"math"
 	"strings"
 	"testing"
+	"time"
 )
 
 // overlordsProcessor is the Overlord's Intel Core 7 240H: six performance
@@ -139,6 +140,37 @@ func TestProcessorsShortfallNamesTheCoresAStartNeeds(t *testing.T) {
 			}
 			if strings.ContainsAny(got, ";—") {
 				t.Errorf("shortfall = %q, which the Overlord reads, has a semicolon or an em dash", got)
+			}
+		})
+	}
+}
+
+// A reading of how busy the processors were since the last one says little of
+// now when the last one is from before a quiet stretch: with nothing queued,
+// nobody reads them for hours. Then, as with no earlier reading at all, the
+// reader watches for a moment instead. Two callers at one moment get one
+// answer.
+func TestHowToReadProcessorsWatchesAfreshWhenTheLastReadingIsOld(t *testing.T) {
+	for _, test := range []struct {
+		name       string
+		hasEarlier bool
+		age        time.Duration
+		want       processorReading
+	}{
+		{"no earlier reading", false, 0, watchAMoment},
+		{"a reading five seconds old", true, 5 * time.Second, repeatLast},
+		{"a reading at the least window", true, processorWindow, sinceLast},
+		{"the reading of the last minute's check", true, time.Minute, sinceLast},
+		{"a reading at the oldest that still counts", true, processorStale, sinceLast},
+		{"a reading from before a quiet half hour", true, 30 * time.Minute, watchAMoment},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			// Act
+			got := howToReadProcessors(test.hasEarlier, test.age)
+
+			// Assert
+			if got != test.want {
+				t.Errorf("howToReadProcessors = %d, want %d", got, test.want)
 			}
 		})
 	}

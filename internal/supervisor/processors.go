@@ -4,7 +4,48 @@ import (
 	"errors"
 	"fmt"
 	"math"
+	"time"
 )
+
+const (
+	// processorWindow is the least time between two readings of the
+	// processors' times: a call sooner than that gets the last answer, so two
+	// callers at one moment do not judge the machine by a few milliseconds.
+	processorWindow = 10 * time.Second
+	// processorStale is the oldest reading the next is still measured from.
+	// The supervisor reads every minute while work waits, and not at all
+	// while none does.
+	processorStale = 2 * time.Minute
+	// processorMoment is how long a reading watches when it has no earlier
+	// one to measure from.
+	processorMoment = 250 * time.Millisecond
+)
+
+// processorReading is how one reading of the processors is taken.
+type processorReading int
+
+const (
+	// repeatLast gives the last answer again.
+	repeatLast processorReading = iota
+	// watchAMoment reads the times twice, processorMoment apart.
+	watchAMoment
+	// sinceLast measures from the last reading's times.
+	sinceLast
+)
+
+// howToReadProcessors says how a reading is taken, age after the last one: a
+// reading of how busy the processors were since the last says little of now
+// when the last is from before a quiet stretch, so then, as with none at all,
+// the reader watches for a moment instead.
+func howToReadProcessors(hasEarlier bool, age time.Duration) processorReading {
+	switch {
+	case !hasEarlier || age > processorStale:
+		return watchAMoment
+	case age < processorWindow:
+		return repeatLast
+	}
+	return sinceLast
+}
 
 // processorsNext is the share of the performance cores that must sit idle for
 // the supervisor to start or resume a goblin by itself. It is a first mark:

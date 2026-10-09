@@ -18,18 +18,8 @@ var getLogicalProcessorInformationEx = windows.NewLazySystemDLL("kernel32.dll").
 // a core.
 const relationProcessorCore = 0
 
-const (
-	// processorWindow is the least time between two readings of the
-	// processors' times: a call sooner than that gets the last answer, so two
-	// callers at one moment do not judge the machine by a few milliseconds.
-	processorWindow = 10 * time.Second
-	// firstProcessorWindow is how long the first reading watches, having no
-	// earlier one to measure from.
-	firstProcessorWindow = 250 * time.Millisecond
-)
-
 // processorMeter keeps the last reading of the processors' times, which the
-// next is measured from.
+// next is measured from, and when it was taken: the zero time before any.
 type processorMeter struct {
 	mu    sync.Mutex
 	cores []processorCore
@@ -42,8 +32,9 @@ var machineProcessors processorMeter
 
 // MachineProcessors reads this machine's processor cores by kind and the
 // share of its performance cores that sat idle since the last reading, which
-// the supervisor takes every minute. It reads the cores of the first
-// processor group, all of them on a machine of up to 64 threads.
+// the supervisor takes every minute while work waits, or over a moment when
+// there is no reading that recent (howToReadProcessors). It reads the cores
+// of the first processor group, all of them on a machine of up to 64 threads.
 func MachineProcessors() (Processors, error) {
 	return machineProcessors.read()
 }
@@ -58,15 +49,16 @@ func (m *processorMeter) read() (Processors, error) {
 		}
 		m.cores = cores
 	}
-	if m.times == nil {
+	switch howToReadProcessors(!m.at.IsZero(), time.Since(m.at)) {
+	case repeatLast:
+		return m.last, nil
+	case watchAMoment:
 		times, err := machineProcessorTimes()
 		if err != nil {
 			return Processors{}, err
 		}
 		m.times = times
-		time.Sleep(firstProcessorWindow)
-	} else if time.Since(m.at) < processorWindow {
-		return m.last, nil
+		time.Sleep(processorMoment)
 	}
 	times, err := machineProcessorTimes()
 	if err != nil {
