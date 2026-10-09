@@ -60,10 +60,13 @@ func TestTheNoticeSaysWhoTurnedItOnWhenAndTheAuthoritysTerms(t *testing.T) {
 		"his alone: a backlog row":       "give it a backlog row in data/backlog.md",
 		"his alone: logged as left":      "cfo afk log --kind left",
 		"his alone: worked around":       "work around it",
-		"his alone: in his report":       "Left for you",
+		"his alone: asked once back":     "asked in the Command Center as your question",
+		"his alone: settled once done":   "cfo afk settle --at <its at> --how",
 		"questions refused":              "cfo question refuses",
 		"the goblin moves on":            "move to its next piece of work",
 		"the command that logs the rest": "cfo afk log --kind",
+		"a decision the CFO answers":     "Answer it yourself, act on your answer",
+		"logged with its answer":         "--answer",
 	} {
 		if !strings.Contains(notice, phrase) {
 			t.Errorf("the notice does not say %s (%q):\n%s", name, phrase, notice)

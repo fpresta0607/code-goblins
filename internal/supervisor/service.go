@@ -904,6 +904,13 @@ func (s *Service) execute(ctx context.Context, a Action) (Evaluation, error) {
 				if a.AnswerKind == "other" {
 					text = fmt.Sprintf("User answer to CFO question %s. Question: %s Answer (Other): %s", q.ID, q.Text, a.Text)
 				}
+				switch {
+				case q.Decided == "":
+				case a.AnswerKind == "option" && a.Text == q.Decided:
+					text += ". You answered " + q.Decided + " while AFK mode was on, and he kept it."
+				default:
+					text += ". You answered " + q.Decided + " while AFK mode was on, and he changed it: undo or redo what your answer started."
+				}
 				found = true
 			}
 		}

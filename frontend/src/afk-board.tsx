@@ -16,9 +16,9 @@ const AfkReportPage = lazy(() => import("./afk-report").then((module) => ({ defa
 // click or key. His own off from this board shows the report as soon as the
 // supervisor answers, which keeps the report before it does, and the snapshot
 // after it brings no second one. Until the first snapshot comes
-// the board knows of no switch, which is off. onCommand opens the Command
-// Center at an item, or at the first that waits when it names none.
-export function AfkBoard({ snapshot, now, onCommand, children }: { snapshot: Snapshot | null; now: number; onCommand: (item: string) => void; children: ReactNode }) {
+// the board knows of no switch, which is off. onGoThrough opens the Command
+// Center on the items the report names, with only them in its stack.
+export function AfkBoard({ snapshot, now, onGoThrough, children }: { snapshot: Snapshot | null; now: number; onGoThrough: (keys: string[]) => void; children: ReactNode }) {
   const afk = snapshot?.afk ?? AFK_OFF;
   const [prior, setPrior] = useState<Afk>(afk);
   const [reporting, setReporting] = useState(false);
@@ -60,6 +60,6 @@ export function AfkBoard({ snapshot, now, onCommand, children }: { snapshot: Sna
   return <AfkActionsContext.Provider value={actions}>
     {children}
     {offering && away && <AfkOffer afk={afk} occasion={offering} now={now} pending={pending} problem={problem} onTurnOff={() => void turnOff()} onStay={() => { setOffering(""); clear(); }} />}
-    {reporting && snapshot && <Suspense fallback={null}><AfkReportPage tasks={snapshot.tasks} now={now} onClose={() => setReporting(false)} onCommand={() => { setReporting(false); onCommand(""); }} /></Suspense>}
+    {reporting && snapshot && <Suspense fallback={null}><AfkReportPage tasks={snapshot.tasks} now={now} onClose={() => setReporting(false)} onGoThrough={(keys) => { setReporting(false); onGoThrough(keys); }} /></Suspense>}
   </AfkActionsContext.Provider>;
 }
