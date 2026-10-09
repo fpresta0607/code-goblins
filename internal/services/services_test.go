@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"runtime"
 	"slices"
 	"sort"
 	"strings"
@@ -28,7 +29,9 @@ type fakeDocker struct {
 	engineCost  uint64
 	serviceCost uint64
 	upErr       error
-	calls       []string
+	// upHook runs as compose up begins, such as a build taking memory.
+	upHook func()
+	calls  []string
 }
 
 func newFakeDocker(machine *fakeMachine) *fakeDocker {
@@ -81,6 +84,9 @@ func (f *fakeDocker) Up(_ context.Context, _ Compose, services []string) error {
 	f.calls = append(f.calls, "up "+strings.Join(services, ","))
 	if !f.engine {
 		return errors.New("the engine is not running")
+	}
+	if f.upHook != nil {
+		f.upHook()
 	}
 	if f.upErr != nil {
 		f.start("redis")
@@ -739,5 +745,57 @@ func TestTheLastReleaseAfterTheEngineWasQuitMarksTheStackStopped(t *testing.T) {
 	}
 	if want := "task-a was the last to hold them: PrecisionDocs-AI's services were already stopped with the Docker engine"; line != want {
 		t.Errorf("line = %q, want %q", line, want)
+	}
+}
+
+// A start ended part way through its build, as the memory floor ends one,
+// never measures its own drop. The stop that follows gives back only part of
+// what the start took while Docker's VM returns memory slowly, so measuring
+// the stop alone wrote a cost under the estimate (PrecisionDocs, 2026-10-09:
+// the build took 6.7 GB and the stop recorded 3.6 GB, lowering the next
+// start's mark). The stop measures from the memory read before the start.
+func TestAStopAfterAStartCutShortRecordsWhatTheStartTook(t *testing.T) {
+	// Arrange: 12 GB free, the engine takes 2 GB, the build 7 GB more before
+	// its process ends, and the build's memory is not given back at once.
+	h := newHarness(t)
+	h.docker.upHook = func() {
+		h.machine.take(7 * gigabyte)
+		runtime.Goexit()
+	}
+	cutShort := make(chan struct{})
+	go func() {
+		defer close(cutShort)
+		_, _ = h.service.Up(context.Background(), h.checkout, "task-a", 0)
+	}()
+	<-cutShort
+	h.docker.upHook = nil
+
+	// Act
+	h.down(t, "task-a")
+
+	// Assert
+	stack := h.record(t).Stacks["PrecisionDocs-AI"]
+	if stack.Cost.Bytes != 9*gigabyte {
+		t.Errorf("cost = %.1f GB, want the 9 GB the start took, not the 2 GB the stop gave back", float64(stack.Cost.Bytes)/float64(gigabyte))
+	}
+	if stack.MemoryBeforeStart != 0 {
+		t.Errorf("memory before start = %d, want it cleared once the stop measured from it", stack.MemoryBeforeStart)
+	}
+}
+
+// A start that finished measured itself, so a later stop measures only what
+// it gives back, never the memory the rest of the fleet took meanwhile.
+func TestAStopAfterAFinishedStartMeasuresOnlyItsOwnRise(t *testing.T) {
+	// Arrange: the start measures 3 GB, then the fleet takes 5 GB more.
+	h := newHarness(t)
+	h.up(t, "task-a")
+	h.machine.take(5 * gigabyte)
+
+	// Act
+	h.down(t, "task-a")
+
+	// Assert
+	if cost := h.record(t).Stacks["PrecisionDocs-AI"].Cost.Bytes; cost != 3*gigabyte {
+		t.Errorf("cost = %.1f GB, want the 3 GB the start measured", float64(cost)/float64(gigabyte))
 	}
 }

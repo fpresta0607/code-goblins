@@ -55,6 +55,10 @@ type Stack struct {
 	Since time.Time `json:"since,omitzero"`
 	// Cost is what the stack was last measured to cost.
 	Cost Cost `json:"cost,omitzero"`
+	// MemoryBeforeStart is the free memory read before a start that has not
+	// measured itself yet. A start cut short, as the memory floor ends one,
+	// never does, so the stop that follows measures from this reading.
+	MemoryBeforeStart uint64 `json:"memory_before_start,omitempty"`
 }
 
 // Hold is one task holding a stack.
