@@ -132,6 +132,35 @@ func TestLavishPollReadsWhatTheOverlordWrote(t *testing.T) {
 	}
 }
 
+// A poll says when he picked an option the page declared in its
+// data-lavish-choices block, which Scrawl sends tagged choice: that pick
+// answers the page. What he wrote himself, on the page or on an element, is
+// no pick.
+func TestLavishPollSaysWhenHePickedAnOptionThePageDeclared(t *testing.T) {
+	for name, test := range map[string]struct {
+		output   string
+		isPicked bool
+	}{
+		"a declared choice":        {lavishChoice, true},
+		"a message and a note":     {lavishTwoPrompts, false},
+		"a table without its tags": {lavishFeedbackEnded, false},
+		"no prompts":               {lavishWaiting, false},
+	} {
+		t.Run(name, func(t *testing.T) {
+			// Arrange
+			runner := &fakeRunner{result: execx.Result{Stdout: []byte(test.output)}}
+
+			// Act
+			poll, err := (Lavish{Commands: runner}).Poll(context.Background(), `C:\work\.lavish\plan.html`, "", time.Second)
+
+			// Assert
+			if err != nil || poll.Picked != test.isPicked {
+				t.Fatalf("Poll = %+v, %v; want picked %v", poll, err, test.isPicked)
+			}
+		})
+	}
+}
+
 // Only the session object's own fields count: a prompt's text that looks
 // like a field, or output with no session at all, reads as nothing.
 func TestLavishReadsOnlyTheSessionObject(t *testing.T) {

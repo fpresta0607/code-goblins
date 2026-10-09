@@ -608,7 +608,8 @@ Choices are a plain list of the answers themselves, the recommended one first an
 Review items share the stack: a goblin's image review or review page, and a goblin waiting on you personally (its sign-in, its click, its page), which shows as a status card with no answer box: it says what the goblin waits on and opens it (**Open the page**, **Open its question**, **Open the file** or **Open the link**), with **Dismiss** beside it.
 A review page shows as a preview named Scrawl page you click to open it (**Open review**), and a goblin's wait with a page opens it from its one **Open review** button, so a card says its words once; a page the board watches is answered on the page itself, and its card finishes when you send or end the review there.
 When a goblin asks a question about its open review page, the Command Center shows one card, the page's: the question, **Open review**, and where the review stands (waiting for your answer, or when its window closed; nothing you send there is lost).
-An answer you send on the page finishes its card with the same check as an answer sent from the card (**Answered**, You answered on its page) and the next item follows; History lists it as answered, never as withdrawn.
+An answer you send on the page finishes its card within a second, with the same check as an answer sent from the card (**Answered**, You answered on its page) and the next item follows. History lists it as answered, never as withdrawn.
+A pick or a note you send just before **Send & End** is part of that one answer, never a revision first.
 
 <p align="center">
   <img src="docs/images/review-page.webp" alt="A Scrawl review page from the goblin streaming the billing export: its result, the numbers that matter and what was checked, a comment being written on the 190 MB figure, and the Conversation panel with the agent listening" width="900" />
