@@ -93,6 +93,9 @@ const (
 	// KindStrike strikes through a line the CFO wrote by mistake. It is a
 	// line of its own: the log never loses the line it strikes.
 	KindStrike = "strike"
+	// KindSettle settles a line left for the Overlord that the CFO saw to
+	// later in the stretch, with what became of it, the same way.
+	KindSettle = "settle"
 )
 
 // minLeftOptions is how many choices a line left for the Overlord offers him
@@ -132,9 +135,16 @@ type Entry struct {
 	Diagnosis string   `json:"diagnosis,omitempty"`
 	Tried     string   `json:"tried,omitempty"`
 	Options   []string `json:"options,omitempty"`
-	// Struck is the CFO's reason for striking a decision through, set on the
-	// decision as the report folds the log, and never written to the log.
-	Struck string `json:"struck,omitempty"`
+	// Answer is the one of a left line's Options the CFO answered itself
+	// and acted on under the authority, which he keeps or changes once back,
+	// and is empty for what only he can do.
+	Answer string `json:"answer,omitempty"`
+	// Struck is the CFO's reason for striking a decision through, and Settled
+	// what became of a line left for the Overlord that the CFO settled, each
+	// set on the decision as the report folds the log, and never written to
+	// the log.
+	Struck  string `json:"struck,omitempty"`
+	Settled string `json:"settled,omitempty"`
 }
 
 // ErrNotOn refuses what only happens while AFK mode is on.
@@ -298,7 +308,7 @@ func Log(stateDir string, entry Entry, now time.Time) (Entry, error) {
 			return Entry{}, err
 		}
 	}
-	entry.Struck = ""
+	entry.Struck, entry.Settled = "", ""
 	return record(stateDir, entry, now)
 }
 
@@ -323,6 +333,9 @@ func validLeft(entry Entry) error {
 	}
 	if entry.Recommendation != "" && !seen[entry.Recommendation] {
 		return errors.New("the recommended choice of a line left for him is one of its choices, exactly")
+	}
+	if entry.Answer != "" && !seen[entry.Answer] {
+		return errors.New("the CFO's answer to a line left for him is one of its choices, exactly")
 	}
 	return nil
 }
@@ -364,6 +377,49 @@ func Strike(stateDir string, at time.Time, reason string, now time.Time) (Entry,
 	}
 	strike := Entry{At: now.UTC(), Session: state.Session, Kind: KindStrike, What: target.What, Task: target.Task, Item: stamp, Evidence: reason}
 	return strike, appendEntry(stateDir, strike)
+}
+
+// Settle settles the line left for the Overlord logged at at, which the CFO
+// saw to later in the stretch that is on, with what became of it: its backlog
+// row done, its task finished, or a later decision of the CFO's. The line
+// stays in the log as it was written, and the settle is a line of its own
+// after it, which names the line by when it was logged. A settled line is
+// never asked in the Command Center, and the report shows what became of it.
+// Once AFK mode turns off each open line is his question there, so a line is
+// settled only while its stretch is on, once, and never once struck.
+func Settle(stateDir string, at time.Time, how string, now time.Time) (Entry, error) {
+	how = strings.TrimSpace(how)
+	if how == "" || len(how) > maxEvidence {
+		return Entry{}, fmt.Errorf("a settle says what became of the line, in at most %d characters", maxEvidence)
+	}
+	state, err := Read(stateDir)
+	if err != nil {
+		return Entry{}, err
+	}
+	if !state.On {
+		return Entry{}, fmt.Errorf("%w: once it turns off, each line left for him that is still open is his question in the Command Center", ErrNotOn)
+	}
+	entries, _, err := Entries(stateDir, state.Session)
+	if err != nil {
+		return Entry{}, err
+	}
+	stamp := at.UTC().Format(time.RFC3339Nano)
+	var target *Entry
+	for i, entry := range entries {
+		switch {
+		case entry.Kind == KindStrike && entry.Item == stamp:
+			return Entry{}, fmt.Errorf("the line left for him at %s is struck, so there is nothing of his to settle", stamp)
+		case entry.Kind == KindSettle && entry.Item == stamp:
+			return Entry{}, fmt.Errorf("the line left for him at %s is settled already", stamp)
+		case entry.Kind == KindLeft && entry.At.Equal(at):
+			target = &entries[i]
+		}
+	}
+	if target == nil {
+		return Entry{}, fmt.Errorf("this stretch logged no line left for him at %s; name the line by its at, as state/afk.audit has it", stamp)
+	}
+	settle := Entry{At: now.UTC(), Session: state.Session, Kind: KindSettle, What: target.What, Item: stamp, Evidence: how}
+	return settle, appendEntry(stateDir, settle)
 }
 
 // Hold records an item that waits on the Overlord, in the stretch that is on.

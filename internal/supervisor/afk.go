@@ -103,6 +103,14 @@ func StrikeAFKLine(h home.Home, at time.Time, reason string) error {
 	return sendPipeRequest(h.State, runPipeRequest{Kind: "afk-strike", AFK: &afk.Entry{Item: at.UTC().Format(time.RFC3339Nano), Evidence: reason}})
 }
 
+// SettleAFKLine settles the line the registered CFO left for the Overlord at
+// at, which it saw to later in the stretch, with what became of it. The
+// supervisor writes the settle only once it has proven the calling process
+// runs under that CFO.
+func SettleAFKLine(h home.Home, at time.Time, how string) error {
+	return sendPipeRequest(h.State, runPipeRequest{Kind: "afk-settle", AFK: &afk.Entry{Item: at.UTC().Format(time.RFC3339Nano), Evidence: how}})
+}
+
 // asker is what asked the supervisor for the Overlord's switch, as a refusal
 // words it: the command at the other end of the pipe, or the program that
 // shows the board.
@@ -391,7 +399,8 @@ func (s *Service) switchAFKAs(from, asked string, on bool) error {
 }
 
 // askLeftForHim puts each line the stretch left for the Overlord, and the
-// CFO did not strike, to him in the Command Center as the CFO's own question,
+// CFO did not strike or settle, to him in the Command Center as the CFO's own
+// question,
 // with why it is his, what is wrong, what was tried and his choices: what is
 // his reaches him there, never as a list in the CFO's chat. It says what it
 // asked, or what it could not, for the CFO's notice.
@@ -403,12 +412,12 @@ func (s *Service) askLeftForHim(session string, now time.Time) string {
 	}
 	var asked, failed []string
 	for _, left := range afk.Decisions(entries) {
-		if left.Kind != afk.KindLeft || left.Struck != "" || len(left.Options) == 0 {
+		if left.Kind != afk.KindLeft || left.Struck != "" || left.Settled != "" || len(left.Options) == 0 {
 			continue
 		}
 		_, identity, err := readPrimary(stateDir)
 		if err == nil {
-			q := Question{ID: "afk-left-" + left.At.UTC().Format("20060102T150405.000000000Z"), Identity: identity, Text: leftQuestion(left), Options: slices.Clone(left.Options), Recommended: left.Recommendation, CreatedAt: now}
+			q := Question{ID: leftQuestionID(left), Identity: identity, Text: leftQuestion(left), Options: slices.Clone(left.Options), Recommended: left.Recommendation, Decided: left.Answer, CreatedAt: now}
 			err = s.Store.acceptQuestion(q)
 			if err == nil {
 				asked = append(asked, q.ID)
@@ -427,11 +436,50 @@ func (s *Service) askLeftForHim(session string, now time.Time) string {
 	return says
 }
 
+// leftQuestionID is the ID of the Command Center question a line left for
+// the Overlord is asked as.
+func leftQuestionID(left afk.Entry) string {
+	return "afk-left-" + left.At.UTC().Format("20060102T150405.000000000Z")
+}
+
+// leftForHim is each line a stretch's decisions left for the Overlord and the
+// CFO did not strike, as an item for him: the question it is asked as in the
+// Command Center when the stretch ends, or what became of a line the CFO
+// settled, which is never asked.
+func leftForHim(decisions []afk.Entry) []afk.Held {
+	var held []afk.Held
+	for _, left := range decisions {
+		if left.Kind != afk.KindLeft || left.Struck != "" {
+			continue
+		}
+		one := afk.Held{Item: "question:" + leftQuestionID(left), What: left.What, At: left.At, Waiting: true, Now: pendingSays(left.Answer), Recommendation: left.Recommendation, Settled: left.Settled}
+		if left.Settled != "" {
+			one.Waiting, one.Now = false, bounded("settled by the CFO: "+left.Settled, 500)
+		}
+		held = append(held, one)
+	}
+	return held
+}
+
+// pendingSays is what a question still waiting on the Overlord stands as:
+// one the CFO answered itself while AFK mode was on is his to keep or change.
+func pendingSays(decided string) string {
+	if decided == "" {
+		return "still waiting on you"
+	}
+	return bounded("the CFO answered it: "+decided+", yours to keep or change", 500)
+}
+
 // leftQuestion is a line left for the Overlord as the Command Center shows
 // his question: what only he can do, then why it is his, what is wrong and
-// what was tried, each on a line of its own.
+// what was tried, each on a line of its own. A decision the CFO answered
+// itself says what its answer stood on in place of why it is his.
 func leftQuestion(left afk.Entry) string {
-	return bounded(left.What+"\n- Why it is yours: "+left.Evidence+"\n- Found: "+left.Diagnosis+"\n- Tried: "+left.Tried, 4000)
+	why := "\n- Why it is yours: "
+	if left.Answer != "" {
+		why = "\n- Evidence: "
+	}
+	return bounded(left.What+why+left.Evidence+"\n- Found: "+left.Diagnosis+"\n- Tried: "+left.Tried, 4000)
 }
 
 // afkNotice tells the CFO of the Overlord's switch through its wake queue,
@@ -451,6 +499,19 @@ func (s *Service) logAFKDecision(entry afk.Entry) error {
 	s.afkChange.Lock()
 	defer s.afkChange.Unlock()
 	_, err := afk.Log(s.Store.Home.State, entry, time.Now())
+	return err
+}
+
+// settleAFKLine settles the line the registered CFO named over the pipe, by
+// when it was logged, with what became of it.
+func (s *Service) settleAFKLine(settle afk.Entry) error {
+	at, err := time.Parse(time.RFC3339Nano, settle.Item)
+	if err != nil {
+		return errors.New("a settle names its line by when it was logged")
+	}
+	s.afkChange.Lock()
+	defer s.afkChange.Unlock()
+	_, err = afk.Settle(s.Store.Home.State, at, settle.Evidence, time.Now())
 	return err
 }
 
@@ -552,9 +613,10 @@ func (s *Service) holdForOverlord(now time.Time) error {
 }
 
 // afkReport is the report of the stretch ended holds: the log's decisions and
-// pauses at a floor, what each goblin reported done, each held item with what
-// became of it, and the allowance read when it turned on beside after, read
-// when it turned off. A reading not taken is left out, never noted.
+// pauses at a floor, what each goblin reported done, each item held or left
+// for the Overlord with what became of it, and the allowance read when it
+// turned on beside after, read when it turned off. A reading not taken is
+// left out, never noted.
 func (s *Service) afkReport(ended afk.State, after []afk.Allowance) afk.Report {
 	stateDir := s.Store.Home.State
 	report := afk.Report{Session: ended.Session, Since: ended.Since, Ended: ended.Ended, From: ended.From, Asked: ended.Asked, EndedFrom: ended.EndedFrom, EndedAsked: ended.EndedAsked, Before: ended.Allowance, After: after}
@@ -571,7 +633,7 @@ func (s *Service) afkReport(ended afk.State, after []afk.Allowance) afk.Report {
 		report.Notes = append(report.Notes, "what the goblins finished could not be read in full: "+err.Error())
 	}
 	report.Finished = finished
-	report.Held = s.heldOf(s.Store.Snapshot(), entries, report.Decisions)
+	report.Held = append(s.heldOf(s.Store.Snapshot(), entries, report.Decisions), leftForHim(report.Decisions)...)
 	return report
 }
 
@@ -674,14 +736,27 @@ func ReadAFKReport(h home.Home) (afk.Report, bool, error) {
 	return report, true, nil
 }
 
-// heldAsNow is each item a report held for the Overlord, as it stands in d.
-// ended is when the report's stretch ended.
+// heldAsNow is each item a report held or left for the Overlord, as it
+// stands in d, those that still wait on him first and each in the order it
+// came to him. A line the CFO settled was never asked, so it stands as the
+// report kept it. ended is when the report's stretch ended.
 func heldAsNow(d Database, held []afk.Held, ended time.Time) []afk.Held {
 	current := make([]afk.Held, len(held))
 	for i, one := range held {
-		one.Waiting, one.Now = heldNow(d, one.Item, ended)
+		if one.Settled == "" {
+			one.Waiting, one.Now = heldNow(d, one.Item, ended)
+		}
 		current[i] = one
 	}
+	slices.SortStableFunc(current, func(a, b afk.Held) int {
+		if a.Waiting != b.Waiting {
+			if a.Waiting {
+				return -1
+			}
+			return 1
+		}
+		return a.At.Compare(b.At)
+	})
 	return current
 }
 
@@ -706,7 +781,7 @@ func heldNow(d Database, item string, ended time.Time) (waiting bool, now string
 		}
 		switch q := d.Questions[i]; {
 		case q.Status == "pending":
-			return true, "still waiting on you"
+			return true, pendingSays(q.Decided)
 		case q.AnsweredBy == "cfo" && !ended.IsZero() && q.AnsweredAt != nil && q.AnsweredAt.After(ended):
 			return closed("answered by the CFO after AFK mode ended", "")
 		case q.AnsweredBy == "cfo":

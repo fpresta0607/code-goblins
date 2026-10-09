@@ -11,7 +11,7 @@ import { RunCard } from "./RunCard";
 import { UpdateCard } from "./update-card";
 import { CredentialCard } from "./credential-card";
 import { credentialAsk } from "./credentials";
-import { questionAnswer, questionChoices } from "./questionChoices";
+import { questionAnswer, questionChoices, questionSelection } from "./questionChoices";
 import { plainMessage } from "./messageText";
 import { personaFor } from "./workflow";
 import { EMPTY_DRAFT, QuestionCard, type Draft } from "./QuestionCard";
@@ -31,8 +31,10 @@ const DONE_MS = 750;
 const ALL_DONE_MS = 1600;
 
 // A focus opens its item; one without a key opens the first item waiting on
-// the Overlord, or the list when nothing waits.
-export interface CommandFocus { key: string; at: number }
+// the Overlord, or the list when nothing waits. One with keys, as Go through
+// them on the AFK report names what still waits from the stretch, steps
+// through only those.
+export interface CommandFocus { key: string; at: number; keys?: string[] }
 
 const outsideDialog = (event: MouseEvent<HTMLDialogElement>) => {
   const box = event.currentTarget.getBoundingClientRect();
@@ -73,8 +75,12 @@ export function CommandCenter({ snapshot, connected, presentations, focus, onUns
   const [allDone, setAllDone] = useState(false);
   // The question whose CFO answer he opened from History to change.
   const [changing, setChanging] = useState("");
+  // The items a focus with keys named, the only ones the stack steps through,
+  // in its order, until the Command Center closes.
+  const [scope, setScope] = useState<string[] | null>(null);
   const changeQuestion = changing ? (snapshot.questions || []).find((question) => question.id === changing) : undefined;
-  const stack = waitingItems(snapshot, kept);
+  const unscoped = waitingItems(snapshot, kept);
+  const stack = scope ? scope.flatMap((key) => unscoped.filter((candidate) => candidate.key === key)) : unscoped;
   const waiting = waitingItems(snapshot);
   const index = Math.max(0, stack.findIndex((item) => item.key === current));
   const item: Item | undefined = open && !changeQuestion ? stack[index] : undefined;
@@ -125,7 +131,8 @@ export function CommandCenter({ snapshot, connected, presentations, focus, onUns
     // A focus on an item he already answered or cleared, as from a
     // notification that outlived it, opens the list, never another item.
     const key = focus?.key ? cardKey(snapshot, focus.key) : waiting[0]?.key;
-    if (focus && key && stack.some((item) => item.key === key)) { setOpen(true); show(key); setInbox(false); }
+    setScope(focus?.keys ?? null);
+    if (focus && key && unscoped.some((item) => item.key === key)) { setOpen(true); show(key); setInbox(false); }
     else if (focus) setInbox(true);
   }
   // A delivered item's check has shown long enough: on to the next open item,
@@ -168,7 +175,7 @@ export function CommandCenter({ snapshot, connected, presentations, focus, onUns
   }, [done, sent]);
   useEffect(() => {
     if (!allDone) return;
-    const timer = setTimeout(() => { setOpen(false); setKept(new Set()); setGallery(null); setAllDone(false); }, ALL_DONE_MS);
+    const timer = setTimeout(() => { setOpen(false); setKept(new Set()); setGallery(null); setAllDone(false); setScope(null); }, ALL_DONE_MS);
     return () => clearTimeout(timer);
   }, [allDone]);
   // Clicking anywhere outside the inbox closes it.
@@ -196,15 +203,16 @@ export function CommandCenter({ snapshot, connected, presentations, focus, onUns
   useEffect(() => { if (shownKey && dialog.current) dialog.current.scrollTop = 0; }, [shownKey]);
   const close = () => {
     if (finishing) setSent((prior) => new Set([...prior, item.key]));
-    setOpen(false); setKept(new Set()); setGallery(null); setAllDone(false); setChanging("");
+    setOpen(false); setKept(new Set()); setGallery(null); setAllDone(false); setChanging(""); setScope(null);
   };
   const move = (step: number) => { const next = stack[index + step]; if (next) show(next.key); };
-  // Back and Next with the card's place in the stack lead the card's own
-  // action row, whose right end holds its answer; closing keeps every item.
+  // Back and Skip with the card's place in the stack lead the card's own
+  // action row, whose right end holds its answer. Skip leaves the item as it
+  // is and shows the next, and closing keeps every item.
   const pager: ReactNode = stack.length > 1 ? <div className="stack-pager" role="group" aria-label="Move between items">
-    <button type="button" className="icon-button raised" disabled={index === 0} aria-label="Previous item" data-tip="Previous" data-tip-align="start" onClick={() => move(-1)}><Icon name="back" /></button>
+    <button type="button" disabled={index === 0} onClick={() => move(-1)}>Back</button>
     <span className="stack-count">{index + 1} of {stack.length}</span>
-    <button type="button" className="icon-button raised" disabled={index === stack.length - 1} aria-label="Next item" data-tip="Next" onClick={() => move(1)}><Icon name="next" /></button>
+    <button type="button" disabled={index === stack.length - 1} onClick={() => move(1)}>Skip</button>
   </div> : null;
   const update = (key: string, changes: Partial<Draft>) => setDrafts((prior) => ({ ...prior, [key]: { ...(prior[key] || EMPTY_DRAFT), ...changes } }));
   // An unchanged payload keeps its request ID, so a retry after an ambiguous
@@ -232,7 +240,8 @@ export function CommandCenter({ snapshot, connected, presentations, focus, onUns
     const draft = drafts[target.key] || EMPTY_DRAFT;
     if (!isOpen(target)) return;
     if (target.kind === "question") {
-      const payload = questionAnswer(target.question, draft.selection, draft.written);
+      const chosen = questionSelection(target.question, draft);
+      const payload = questionAnswer(target.question, chosen.selection, chosen.written);
       if (payload) void post(target.key, payload);
     } else if (target.kind === "review" && draft.written.trim()) void post(target.key, { kind: "review_answer", review_id: target.review.id, generation: target.review.identity, text: draft.written });
   };
@@ -285,7 +294,7 @@ export function CommandCenter({ snapshot, connected, presentations, focus, onUns
       <div className="command-center-updates">
         <h2><Avatar persona="cfo" small />Command Center</h2>
         <section aria-label="Waiting on you">
-          <h3>Waiting on you <span className="column-count">{needing}</span></h3>
+          <h3>Waiting on you <span className="column-count">{needing}</span>{waiting.length > 1 && <button className="primary go-through" onClick={() => { setInbox(false); setScope(null); setOpen(true); show(waiting[0].key); }}>Go through them</button>}</h3>
           {needing ? <ul className="inbox-list waiting">{waiting.map((candidate) => <li key={candidate.key} className={release(candidate) ? "release-row" : undefined}>
             <Avatar persona={release(candidate) ? "releases" : taskOf(candidate) ? personaFor(snapshot.tasks.find((task) => task.id === taskOf(candidate))) : "cfo"} small />
             <span className="inbox-text"><strong>{askerOf(candidate)}</strong><span className="inbox-summary">{textOf(candidate)}</span></span>
@@ -326,6 +335,7 @@ export function CommandCenter({ snapshot, connected, presentations, focus, onUns
           <h2 id="command-center-heading">Supreme Overlord<span>Command Center</span></h2>
           <button type="button" className="icon-button question-close" aria-label="Close the Command Center" data-tip="Close" data-tip-align="end" onClick={close}><Icon name="close" /></button>
         </header>
+        {scope && <p className="from-afk">From your AFK stretch</p>}
         {changeQuestion
           ? <div className="card-stage">
             {isChangeDone

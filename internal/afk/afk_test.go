@@ -153,6 +153,26 @@ func leftForHim() Entry {
 // A line left for him is what reaches him: it says what is wrong and what the
 // CFO already tried, and offers him real choices, so nothing is handed to him
 // undiagnosed.
+// Under AFK mode the CFO answers a decision itself and acts on its answer:
+// the line keeps the choice it made, which he keeps or changes once back.
+func TestADecisionTheCFOAnsweredKeepsItsAnswer(t *testing.T) {
+	// Arrange
+	dir, on := turnedOn(t)
+	decided := leftForHim()
+	decided.Answer = "Skip Vercel for now"
+
+	// Act
+	_, err := Log(dir, decided, night.Add(time.Hour))
+
+	// Assert
+	if err != nil {
+		t.Fatalf("Log = %v, want the decision logged with the CFO's answer", err)
+	}
+	if entries, _, _ := Entries(dir, on.Session); len(entries) != 2 || entries[1].Answer != "Skip Vercel for now" {
+		t.Errorf("log = %+v, want the line with the CFO's answer", entries)
+	}
+}
+
 func TestALineLeftForHimWithoutItsDiagnosisWhatWasTriedOrHisChoicesIsRefused(t *testing.T) {
 	for name, change := range map[string]func(*Entry){
 		"no diagnosis":           func(e *Entry) { e.Diagnosis = " " },
@@ -162,6 +182,7 @@ func TestALineLeftForHimWithoutItsDiagnosisWhatWasTriedOrHisChoicesIsRefused(t *
 		"the same choice twice":  func(e *Entry) { e.Options = []string{"I will sign in", "I will sign in"} },
 		"a blank choice":         func(e *Entry) { e.Options = []string{"I will sign in", " "} },
 		"a recommendation alone": func(e *Entry) { e.Recommendation = "Sign in tomorrow" },
+		"an answer alone":        func(e *Entry) { e.Answer = "Sign in tomorrow" },
 	} {
 		t.Run(name, func(t *testing.T) {
 			// Arrange
