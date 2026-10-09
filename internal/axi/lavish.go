@@ -36,6 +36,9 @@ type PagePoll struct {
 	// Prompts is what the Overlord wrote on the page, one entry per prompt,
 	// when lavish-axi printed its prompts as a table.
 	Prompts []string
+	// Picked says a prompt picks an option the page declared in its
+	// data-lavish-choices block, which answers the page.
+	Picked bool
 	// Output is the poll's whole output, which the CFO reads.
 	Output string
 }
@@ -77,7 +80,7 @@ func (l Lavish) Poll(ctx context.Context, file, reply string, timeout time.Durat
 	if status == "" {
 		return PagePoll{}, errors.New("axi: lavish-axi poll reported no session status for " + file)
 	}
-	return PagePoll{Status: status, Ended: sessionField(output, "session_ended") == "true", EndedBy: sessionField(output, "ended_by"), Prompts: promptTexts(output), Output: output}, nil
+	return PagePoll{Status: status, Ended: sessionField(output, "session_ended") == "true", EndedBy: sessionField(output, "ended_by"), Prompts: promptColumn(output, "prompt"), Picked: slices.Contains(promptColumn(output, "tag"), "choice"), Output: output}, nil
 }
 
 // End ends the page's review session as an agent, so the page says the
@@ -138,10 +141,10 @@ func (l Lavish) Sessions() ([]PageSession, error) {
 	return sessions, nil
 }
 
-// promptTexts reads the prompt column of the top-level TOON `prompts` table,
-// one entry per row, unquoting a quoted value. Prompts printed as a list, or
-// a table without that column, read as none.
-func promptTexts(output string) []string {
+// promptColumn reads one column of the top-level TOON `prompts` table, such as
+// prompt or tag, one entry per row, unquoting a quoted value. Prompts printed
+// as a list, or a table without that column, read as none.
+func promptColumn(output, name string) []string {
 	var texts []string
 	column := -1
 	for _, line := range strings.Split(strings.ReplaceAll(output, "\r\n", "\n"), "\n") {
@@ -149,7 +152,7 @@ func promptTexts(output string) []string {
 			header, ok := strings.CutPrefix(line, "prompts[")
 			_, fields, found := strings.Cut(header, "]{")
 			if ok && found && strings.HasSuffix(fields, "}:") {
-				column = slices.Index(strings.Split(strings.TrimSuffix(fields, "}:"), ","), "prompt")
+				column = slices.Index(strings.Split(strings.TrimSuffix(fields, "}:"), ","), name)
 				if column < 0 {
 					return nil
 				}
