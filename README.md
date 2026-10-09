@@ -620,6 +620,8 @@ A goblin blocked, failed or done is said on its card, never as an alert, and rou
 A pause or stop that the CFO or you asked for is never shown as a failure: a stop that did not finish reads **Stop did not finish** on its card, a pause that did not finish shows what the goblin is doing, and the CFO hears of either.
 A goblin whose pause did not finish but whose terminal has ended since is paused, in the Paused section, and resumes.
 A goblin paused, resuming or starting, and the CFO while none runs, has a message box in its Terminal view: what you write there is queued and delivered once, typed into its terminal when it can take it or carried by its resume.
+Send or Enter sends it, and holding the box's microphone dictates into it as a terminal's dictation does.
+A message kept for a paused goblin's resume has a delete button until the resume carries it.
 If unanswered blocked or failed questions have waited on the CFO for ten minutes, the CFO's bar says how many and how long the oldest has waited, in place of All quiet, until the CFO catches up; that is never an alert and never turns those questions into decisions for you.
 While the board's tab is hidden or its window is minimized, a new item raises a Windows notification once you allow them, naming who asks and saying what in one plain line; the board asks once, with the first item, and clicking the notification opens that item in the Command Center.
 An unfocused window that is still visible sends no Windows notification.

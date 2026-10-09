@@ -210,6 +210,9 @@ export interface LifecycleStatus {
   // dependency, question, ci or deploy, with until naming the reset time,
   // task:, pr:, date:, question id or awaited run; absent on an older pause.
   pause?: PauseCondition;
+  // kept_messages are his messages, as he wrote them, that a paused
+  // goblin's resume will carry, each of which he can delete before it does.
+  kept_messages?: string[];
 }
 export interface PauseCondition { reason: string; until: string; at: string }
 // Wait is one thing a queued row waits for: kind is time, memory, pr or task,
@@ -784,7 +787,7 @@ export function parseSnapshot(value: unknown): Snapshot {
     tasks: array(v.tasks).map((value) => {
       const t = object(value);
       return {
-        lifecycle: t.lifecycle == null ? undefined : ((record) => ({ phase: string(record.phase), action: string(record.action), at: string(record.at), kept: strings(record.kept), stopped: strings(record.stopped), problems: strings(record.problems), handoff_saved: boolean(record.handoff_saved), validation_restarts: boolean(record.validation_restarts),
+        lifecycle: t.lifecycle == null ? undefined : ((record) => ({ phase: string(record.phase), action: string(record.action), at: string(record.at), kept: strings(record.kept), stopped: strings(record.stopped), problems: strings(record.problems), handoff_saved: boolean(record.handoff_saved), validation_restarts: boolean(record.validation_restarts), kept_messages: strings(record.kept_messages),
           ...(record.with_parent === undefined ? {} : { with_parent: boolean(record.with_parent) }),
           ...(record.pause == null ? {} : { pause: ((pause) => ({ reason: string(pause.reason), until: string(pause.until), at: string(pause.at) }))(object(record.pause)) }) }))(object(t.lifecycle)),
         teardown: strings(t.teardown), detail: string(t.detail), queue_revision: string(t.queue_revision), action_error: string(t.action_error), branch: string(t.branch),
