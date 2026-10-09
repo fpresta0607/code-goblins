@@ -120,6 +120,73 @@ func TestAPauseWhoseTerminalNoLongerRunsIsPausedWhateverItsStopMet(t *testing.T)
 	}
 }
 
+// On 2026-10-08 a memory pause typed its instruction into Shirley's pane
+// while a 600-second command held her turn. She took it four minutes later,
+// pushed, wrote her handoff and sat idle "still paused", but the pause had
+// failed and her session ran on until the CFO told her. A pause that fails
+// while its goblin runs takes its instruction back, and one that took effect
+// leaves the goblin stopped.
+func TestAFailedPauseTellsItsRunningGoblinItIsNotPaused(t *testing.T) {
+	for _, isRunning := range []bool{true, false} {
+		name := "terminal still runs"
+		if !isRunning {
+			name = "terminal gone"
+		}
+		t.Run(name, func(t *testing.T) {
+			// Arrange
+			service, meta := lifecycleFixture(t)
+			service.Operations.Stop = func(context.Context, state.TaskMeta, *state.Lifecycle) ([]string, error) {
+				return nil, context.DeadlineExceeded
+			}
+			service.Operations.IsRunning = func(context.Context, state.TaskMeta) (bool, error) { return isRunning, nil }
+			var told []string
+			service.Operations.Withdraw = func(_ context.Context, goblin state.TaskMeta) error {
+				told = append(told, goblin.ID)
+				return nil
+			}
+
+			// Act
+			record, _ := service.Run(context.Background(), Request{ID: meta.ID, Generation: meta.SpawnGen, Operation: "memory-pause-1", Action: "pause", Reason: "memory"})
+
+			// Assert
+			if isRunning {
+				if record.Phase != "failed" || !slices.Equal(told, []string{meta.ID}) {
+					t.Fatalf("pause = %s, told %v, want it failed and its goblin told once", record.Phase, told)
+				}
+				if !slices.ContainsFunc(record.Problems, func(problem string) bool { return strings.Contains(problem, "told the goblin it is not paused") }) {
+					t.Fatalf("problems = %q, want the CFO told the goblin carries on", record.Problems)
+				}
+				return
+			}
+			if record.Phase != "paused" || len(told) != 0 {
+				t.Fatalf("pause = %s, told %v, want it paused and its goblin told nothing", record.Phase, told)
+			}
+		})
+	}
+}
+
+// A goblin that could not be told the pause failed is named, so the CFO
+// tells it.
+func TestAFailedPauseNamesAGoblinItCouldNotTell(t *testing.T) {
+	// Arrange
+	service, meta := lifecycleFixture(t)
+	service.Operations.Stop = func(context.Context, state.TaskMeta, *state.Lifecycle) ([]string, error) {
+		return nil, context.DeadlineExceeded
+	}
+	service.Operations.IsRunning = func(context.Context, state.TaskMeta) (bool, error) { return true, nil }
+	service.Operations.Withdraw = func(context.Context, state.TaskMeta) error { return errors.New("pane did not answer") }
+
+	// Act
+	record, _ := service.Run(context.Background(), Request{ID: meta.ID, Generation: meta.SpawnGen, Operation: "memory-pause-1", Action: "pause", Reason: "memory"})
+
+	// Assert
+	if record.Phase != "failed" || !slices.ContainsFunc(record.Problems, func(problem string) bool {
+		return strings.Contains(problem, "could not tell the goblin it is not paused") && strings.Contains(problem, "pane did not answer")
+	}) {
+		t.Fatalf("pause = %+v, want the goblin it could not tell named", record)
+	}
+}
+
 // A pause that failed while its goblin ran, whose goblin has gone since,
 // resumes: its card shows it paused.
 func TestAFailedPauseWhoseTerminalEndedSinceResumes(t *testing.T) {

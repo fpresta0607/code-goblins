@@ -115,6 +115,13 @@ measuring:
 		case observed = <-observations:
 			delete(pending, observed.meta.ID)
 		case <-probe.Done():
+			// A memory low slows every read at once: on 2026-10-08 the
+			// supervisor woke the CFO with every goblin's read run out of
+			// time while 1.9 GB was free. Those goblins wait for a reading
+			// that can see them.
+			if watched.MemoryLow {
+				break measuring
+			}
 			for id := range pending {
 				problems = errors.Join(problems, fmt.Errorf("progress for %s: %w", id, probe.Err()))
 			}
@@ -198,7 +205,9 @@ measuring:
 		// changes, and each of those wakes the CFO on its own when it does.
 		kind := reportKind(prior.Report)
 		isReportedElsewhere := kind == "done" || kind == "blocked" || kind == "failed" || slices.ContainsFunc([]string{"ci", "deploy", "overlord", "memory"}, func(on string) bool { return strings.HasPrefix(prior.Report, "waiting on "+on+": ") })
-		if now.Sub(prior.At) >= PROGRESS_THRESHOLD && !prior.Woken && !(isWaiting && measured[helper]) && !isReportedElsewhere {
+		// Evidence a memory low left unread says nothing of the goblin.
+		isStarved := watched.MemoryLow && len(unread[id]) > 0
+		if now.Sub(prior.At) >= PROGRESS_THRESHOLD && !prior.Woken && !(isWaiting && measured[helper]) && !isReportedElsewhere && !isStarved {
 			detail := fmt.Sprintf("progress_stalled: %s has shown no new commit, push, gate step, status report, screen output, transcript write or processor use by its own processes for %d minutes; last progress: %s; next: inspect its work and decide whether it should pause", id, prior.Seconds/60, prior.Source)
 			if missing := unread[id]; len(missing) > 0 {
 				detail += "; not read: " + bounded(strings.Join(missing, ", "), 400)

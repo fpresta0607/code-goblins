@@ -82,4 +82,18 @@ func TestASteerQueuedForTheGoblinsNextToolCallIsDeliveredForEveryCommand(t *test
 			t.Errorf("err %v, sent %d; want the queued pause instruction delivered once, so the pause waits for its handoff", err, len(sent))
 		}
 	})
+	t.Run("the pause withdrawal", func(t *testing.T) {
+		// Arrange
+		runtime := testCommandRuntime(t)
+		var sent []string
+		runtime.sendText = queuedSender(&sent)
+
+		// Act
+		err := pauseWithdrawal(runtime, testHome(t))(context.Background(), state.TaskMeta{ID: "task-1"})
+
+		// Assert
+		if err != nil || len(sent) != 1 {
+			t.Errorf("err %v, sent %d; want the queued withdrawal delivered once, so the failed pause names no problem", err, len(sent))
+		}
+	})
 }
