@@ -80,10 +80,42 @@ func TestRenderPreservesUnownedConfigAndIsIdempotent(t *testing.T) {
 }
 
 // gateAgentArgs is what version 5 hands each gate agent: the standard service
-// tier, and none of the MCP servers the operator's own configuration starts.
+// tier, none of the MCP servers the operator's own configuration starts, and
+// the settings from that configuration a gate's Codex keeps working under.
 var gateAgentArgs = map[string][]string{
-	"codex":  {"-c", `service_tier="default"`, "--ignore-user-config", "--disable", "plugins", "--disable", "apps"},
+	"codex": {"-c", `service_tier="default"`, "--ignore-user-config", "--disable", "plugins", "--disable", "apps",
+		"-c", `personality="pragmatic"`, "-c", `model_auto_compact_token_limit_scope="total"`, "-c", "features.multi_agent=true"},
 	"claude": {"--strict-mcp-config"},
+}
+
+// No-mistakes passes the gate's model and effort itself and keeps a repository
+// that disables project settings at project_doc_max_bytes=0. It skips its own
+// value for any of them a raw argument already sets, and refuses to start such
+// a repository's gate when the raw argument re-opens its AGENTS.md.
+func TestVersionFiveCodexArgumentsLeaveTheGateItsModelEffortAndProjectDoc(t *testing.T) {
+	rendered, _, err := Render([]byte(machineConfig20261008), testPolicy(t))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var config struct {
+		AgentArgs map[string][]string `yaml:"agent_args_override"`
+	}
+	if err := yaml.Unmarshal(rendered, &config); err != nil {
+		t.Fatal(err)
+	}
+	args := config.AgentArgs["codex"]
+	for i, arg := range args {
+		if arg == "-m" || arg == "--model" || strings.HasPrefix(arg, "-m=") || strings.HasPrefix(arg, "--model=") {
+			t.Fatalf("codex args pin the model with %q: %v", arg, args)
+		}
+		if arg != "-c" || i+1 == len(args) {
+			continue
+		}
+		key, _, _ := strings.Cut(args[i+1], "=")
+		if key = strings.TrimSpace(key); key == "model" || key == "model_reasoning_effort" || key == "project_doc_max_bytes" {
+			t.Fatalf("codex args set %s, which no-mistakes owns: %v", key, args)
+		}
+	}
 }
 
 func versionFour(t *testing.T) Policy {

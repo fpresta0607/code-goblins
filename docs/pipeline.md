@@ -26,7 +26,10 @@ Versions 2 and 3 pin global `review_agents.reviewer` and `review_agents.fixer` t
 Policy v5 keeps v4's chain and starts every gate agent without the operator's MCP servers, which belong to the operator's own sessions.
 A gate's Codex skips the user `config.toml` that declares them, along with the plugins and apps that bring servers of their own, and a gate's Claude loads only servers named with `--mcp-config`, of which there are none.
 A `-c mcp_servers={}` override cannot do it, because Codex merges overrides into its tables and every server stays.
-Skipping the user config also leaves the gate's Codex on Codex's defaults for everything the gate does not pass itself, so a repository that does not disable project settings gives its gate the first 32 KiB of its `AGENTS.md`, Codex's default, rather than an operator's larger `project_doc_max_bytes`.
+The user settings a gate's Codex keeps working under are passed as `-c` arguments instead: `personality`, `model_auto_compact_token_limit_scope` and `features.multi_agent`.
+The gate passes model, reasoning effort, service tier, approvals and sandbox itself, and the rest of a user config serves the operator's own sessions: notices, the desktop app, plugins, marketplaces, hook trust and folder trust.
+`project_doc_max_bytes` cannot be carried yet: no-mistakes v1.88 refuses to start a gate in a repository that disables project settings when a raw argument re-opens its `AGENTS.md`.
+Until no-mistakes passes its own `project_doc_max_bytes=0` last for such a repository, a repository that does not disable project settings gives its gate the first 32 KiB of its `AGENTS.md`, Codex's default.
 No-mistakes v1.75.1 resolves test, document, and lint from the primary agent.
 Its effective repository `agent` normally comes from the trusted default branch, but a trusted `allow_repo_commands` setting delegates that field to the submitted branch.
 Before a CFO-managed run starts, the driver therefore requires the effective field to be absent, which inherits the global chain, or to select only Codex explicitly, which runs that repository's gates without the fallback.
@@ -65,7 +68,7 @@ The command prints the backup path, preserves unrelated YAML settings and commen
 It refuses a missing or unreadable database or configuration file.
 An operator can restore the printed backup in another idle window; restoration is never automatic over an operator's intervening edit.
 
-Owned machine fields under v5 are `agent: [codex, claude]`, `agent_config.codex: {model: gpt-6.1-sol, effort: xhigh}`, the absence of `review_agents`, `agent_args_override.codex: [-c, 'service_tier="default"', --ignore-user-config, --disable, plugins, --disable, apps]`, `agent_args_override.claude: [--strict-mcp-config]`, the absence of `agent_path_override.codex`, `auto_fix.review: 0`, and one automatic follow-up each for test, lint, rebase and CI.
+Owned machine fields under v5 are `agent: [codex, claude]`, `agent_config.codex: {model: gpt-6.1-sol, effort: xhigh}`, the absence of `review_agents`, `agent_args_override.codex: [-c, 'service_tier="default"', --ignore-user-config, --disable, plugins, --disable, apps, -c, 'personality="pragmatic"', -c, 'model_auto_compact_token_limit_scope="total"', -c, features.multi_agent=true]`, `agent_args_override.claude: [--strict-mcp-config]`, the absence of `agent_path_override.codex`, `auto_fix.review: 0`, and one automatic follow-up each for test, lint, rebase and CI.
 Under v4 `agent_args_override.codex` is `[-c, 'service_tier="default"']` and the policy does not own Claude's arguments.
 Under v2 and v3 `agent` is `[codex]` and both global `review_agents` roles carry the version's Codex profile.
 The raw Codex argument override forces standard service for every managed role, so a user-level fast or priority preference cannot leak into a gate, while `agent_config` owns model and reasoning effort.

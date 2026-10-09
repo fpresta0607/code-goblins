@@ -130,6 +130,10 @@ func Render(before []byte, p Policy) ([]byte, []string, error) {
 			// plugins and apps that bring servers of their own. Claude loads
 			// only servers named with --mcp-config, and the gate names none.
 			codex = append(codex, "--ignore-user-config", "--disable", "plugins", "--disable", "apps")
+			// The user settings a gate's Codex keeps working under are passed
+			// here instead. Model, effort and project_doc_max_bytes stay out:
+			// no-mistakes sets those itself, and its own setting must win.
+			codex = append(codex, "-c", `personality="pragmatic"`, "-c", `model_auto_compact_token_limit_scope="total"`, "-c", "features.multi_agent=true")
 			if err := set(args, "claude", "agent_args_override.claude", []string{"--strict-mcp-config"}); err != nil {
 				return nil, nil, err
 			}
