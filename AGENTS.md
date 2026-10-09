@@ -400,6 +400,9 @@ Pausing or stopping a goblin first pauses or stops each of its [helpers](#helper
 Resume is one card at a time, a helper's included, since each start needs its own memory; a helper paused with its parent needs no Resume of its own, since the scheduler resumes it once its parent runs again, when memory allows.
 Resume keeps the task id, worktree and branch; it continues the saved session less than a day after pausing where supported, then uses the retained handoff.
 A resume the machine has no room for by the time its terminal would start changes nothing: the goblin stays paused as it was, a memory pause still a memory pause, nobody is woken, and the scheduler resumes it before it starts anything new.
+A memory pause leaves the goblin's open gate run running, and its resume tells the goblin which run that is, so it picks the run back up and starts no other.
+Any other pause aborts the run after keeping its commits, and its resume starts the validation again.
+A run a pause could not abort is left to its goblin the same way, and never fails the resume.
 Answers given while paused ride the resume prompt.
 For a free slot, the oldest cleared pause comes before the Overlord's queue order; unresolved pauses do not block new work.
 His Start or Resume overrides that order, and `(priority: production-defect)` marks his reported production defect to jump both, with a notify saying why.
