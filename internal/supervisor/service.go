@@ -290,6 +290,10 @@ type Service struct {
 	// allowance is the last reading quota-axi gave of each provider's
 	// allowance, which AFK mode's switch takes rather than reading its own.
 	allowance map[string]keptAllowance
+	// weeklyFloors are the weekly floors the last fleet reading paused by,
+	// by provider, for the dials, and none while config/fleet.json cannot
+	// be read.
+	weeklyFloors map[string]float64
 }
 
 // snapshotRefresh is how often every board gets a fresh snapshot with nothing

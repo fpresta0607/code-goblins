@@ -394,8 +394,9 @@ When free commit (memory plus page file) is the shorter of the two, the meter sh
 A line also warns when the kernel's paged pool passes 4 GB: Windows holds that memory, no goblin can use it, and restarting the PC frees it.
 The bar spans 10 GB, with amber below 5 GB and red below the floor.
 In the same box, under memory, **Disk free** shows the free space on the home's drive, on a bar marked at the 15 GB disk floor and the 10 GB mark at which the CFO is woken: amber under the floor, where no goblin and no gate test run starts, and red under the mark.
-Beside the meter, a ring around the Claude or OpenAI mark shows that subscription's weekly allowance remaining as `quota-axi` last read it, with a tick at the 5 percent reserve.
-A mark appears only while a live CFO or goblin terminal runs that harness, and shows **?** when the reading is stale, unavailable or needs a sign-in; hover, focus or hold a ring for its reset time and the reading's age.
+Beside the meter, a ring around the Claude or OpenAI mark shows that subscription's weekly allowance remaining as `quota-axi` last read it, and turns amber within five points of its reserve, the weekly floor the home keeps for that provider.
+A mark appears only while a live CFO or goblin terminal runs that harness, and shows **?** when the reading is stale, unavailable or needs a sign-in; hover, focus or hold a ring for its reset time, the reading's age and the reserve.
+Under a floor of 0 the reserve reads **No reserve, runs to 0%**.
 The first eligible task is marked **Next up**.
 The supervisor uses each free slot for the oldest pause whose condition has cleared, then for the queue in the Overlord's order.
 Slots go by memory alone: a start needs 5 GB of memory and of commit free, and no count of goblins holds one back, however many run.
@@ -447,10 +448,12 @@ Answers to paused goblins are retained for their resume prompt.
 Resume requires the same 5 GB of free memory and of free commit, and continues a saved session less than a day after pausing where supported, otherwise using the saved handoff.
 Start, spawn and Resume check memory and commit alone for room: there is no cap on how many goblins run, and the 4 GB floor is what they keep.
 An older build's `max_live_goblins` in `config/fleet.json` is taken out by `cfo install` and `cfo update`, which say so, since a key the build does not read makes it refuse the file and every start with it.
-At 5 percent remaining in a measured weekly allowance window, the same supervisor scheduler requests each affected goblin's handoff and pauses it until the applicable weekly windows reset.
+At the weekly floor, the percent of a measured weekly allowance window the home keeps back, the same supervisor scheduler requests each affected goblin's handoff and pauses it until the applicable weekly windows reset.
+Each provider has its own floor, 5 percent unless `cfo allowance-floor <claude|codex> <percent>` sets another in `config/fleet.json`, and `cfo allowance-floor` alone says each one.
+At a floor of 0 goblins run on the week until the provider itself refuses.
 It pauses at the memory floor too, whether or not [AFK mode](#afk-mode) is on: after two readings in a row under 4 GB of free memory or commit, the newest goblin that is not pushing or merging is paused with the reason `memory`, one at a time.
 Short session or model windows do not trigger this reserve, and missing or stale quota remains unknown.
-A used-up session window is waited out rather than paused: nothing starts or resumes on its harness until it renews, and then the CFO is woken once with the goblins it stopped, to send on any that sits idle.
+A used-up session window, or a week used up under a floor of 0, is waited out rather than paused: nothing starts or resumes on its harness until it renews, and then the CFO is woken once with the goblins it stopped, to send on any that sits idle.
 The CFO also hears once when a window a running goblin draws on passes 85 percent used.
 On the board, a paused card says in place of Paused why it waits and what resumes it, in a few words such as "Memory: resumes at 5 GB free", "Waiting on PR #331 to merge" or "Waiting on CI, usually 13 min", the last from the median of that repository's measured runs.
 Under the 5 GB mark, Start and Resume say what they need on the card instead of being refused after the click; the memory meter shows no count of goblins or cap.
@@ -747,7 +750,7 @@ Spent
 - claude week: 40% used when it turned on, 47% when it turned off (7 points)
 ```
 
-AFK mode shares the supervisor's allowance pause at 5 percent weekly remaining and its automatic resume at the reset.
+AFK mode shares the supervisor's allowance pause at each provider's weekly floor and its automatic resume at the reset.
 The fleet also pauses cleanly at the memory floor, whether or not it is on: when two readings in a row find free memory or commit under 4 GB, the supervisor pauses the newest goblin that is not pushing or merging, keeping its handoff, one goblin at a time, and resumes it once memory and commit are back at 5 GB.
 Each pause at either floor while it is on is in the report under **Paused at a floor**, with the readings it stood on and how it went.
 
@@ -943,7 +946,7 @@ It stays local and private: nothing in it is pushed anywhere, and no repository 
 <CFO home>\
   bin\                            cfo.exe, goblins.exe and the desktop window, on PATH
   state\                          the fleet's own record: tasks, status logs, the wake queue, the board
-  config\                         the gate policy, fleet.json (the disk floor, the caches cap and github_owners), and dev-drive.json once the next three folders moved to a Dev Drive
+  config\                         the gate policy, fleet.json (the disk floor, the caches cap, github_owners and the weekly allowance floors), and dev-drive.json once the next three folders moved to a Dev Drive
   worktrees\<project>\<task>\     each goblin's worktree of your checkout, and its extra worktrees beside it
   scratch\<task>\                 each goblin's temporary files, which go with the task
   caches\                         the package caches goblins share, kept under 20 GB

@@ -302,6 +302,9 @@ export interface SubscriptionUsage {
   read_at: string;
   resets_at: string;
   source: "oauth" | "api" | "";
+  // The weekly floor the supervisor last paused by, from config/fleet.json;
+  // null while it could not be read.
+  floor_percent: number | null;
 }
 export interface Snapshot {
   subscriptions?: SubscriptionUsage[];
@@ -736,8 +739,10 @@ export function parseSnapshot(value: unknown): Snapshot {
       const status = usage.status === "available" || usage.status === "stale" || usage.status === "auth_required" ? usage.status : "unavailable";
       const remaining = usage.percent_remaining;
       const isMeasured = status === "available" && usage.source === "oauth" && typeof remaining === "number" && Number.isFinite(remaining) && remaining >= 0 && remaining <= 100;
+      const floor = usage.floor_percent;
       return [{ provider: usage.provider, status: status === "available" && !isMeasured ? "unavailable" : status, percent_remaining: isMeasured ? remaining : null,
-        read_at: string(usage.read_at), resets_at: string(usage.resets_at), source: usage.source === "oauth" || usage.source === "api" ? usage.source : "" }];
+        read_at: string(usage.read_at), resets_at: string(usage.resets_at), source: usage.source === "oauth" || usage.source === "api" ? usage.source : "",
+        floor_percent: typeof floor === "number" && Number.isFinite(floor) && floor >= 0 && floor < 100 ? floor : null }];
     }),
     afk: parseAfk(v.afk),
     instance: string(v.instance),

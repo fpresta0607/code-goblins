@@ -4,7 +4,7 @@ const NOW = "2026-10-03T13:07:00Z";
 const RESET = "Oct 9, 2026, 5:27 PM CDT";
 test.use({ locale: "en-US", timezoneId: "America/Chicago" });
 const memory = { total: 32 * 2 ** 30, available: 7.3 * 2 ** 30, commit_limit: 48 * 2 ** 30, commit_available: 20 * 2 ** 30, floor: 4 * 2 ** 30, next: 5 * 2 ** 30 };
-const usage = (provider: string, percent: number | null, status = "available") => ({ provider, status, percent_remaining: percent, read_at: NOW, resets_at: "2026-10-09T22:27:42Z", source: "oauth" });
+const usage = (provider: string, percent: number | null, status = "available", floor = 5) => ({ provider, status, percent_remaining: percent, read_at: NOW, resets_at: "2026-10-09T22:27:42Z", source: "oauth", floor_percent: floor });
 
 // The dials sit on the CFO's bar and nowhere else: the Overlord, 2026-10-07,
 // "you should put calude usage at cfo header only..". open returns the bar.
@@ -71,6 +71,18 @@ for (const percent of [0, 5, 10, 10.1, 75, 100]) {
     if (percent <= 10) await expect(dial).toHaveClass(/reserve/);
     else await expect(dial).not.toHaveClass(/reserve/);
     await expect(dial).toHaveAccessibleDescription(/5% reserve/);
+  });
+}
+
+// The Overlord, 2026-10-09: "keep using claude until at 0". Under a floor of
+// 0 the tip names no reserve, and the ring warns only in the last five points.
+for (const percent of [1, 5.1]) {
+  test(`under a floor of 0, ${percent}% remaining names no reserve and warns only in the last five points`, async ({ page }) => {
+    const bar = await open(page, [usage("claude", percent, "available", 0)]);
+    const dial = bar.getByRole("progressbar", { name: `Claude ${percent}% weekly remaining` });
+    if (percent <= 5) await expect(dial).toHaveClass(/reserve/);
+    else await expect(dial).not.toHaveClass(/reserve/);
+    await expect(dial).toHaveAccessibleDescription(/No reserve, runs to 0%/);
   });
 }
 
