@@ -87,7 +87,11 @@ func Run(stateDir string, spec Spec) error {
 	if _, err := rand.Read(proof[:]); err != nil {
 		return err
 	}
-	console, err := conpty.Start(conpty.Spec{Args: spec.Args, Dir: spec.Dir, Env: terminalEnvironment(spec.ID, hex.EncodeToString(proof[:])), Cols: spec.Cols, Rows: spec.Rows})
+	output, err := newHistory(spec.Cols, spec.Rows)
+	if err != nil {
+		return err
+	}
+	console, err := conpty.Start(conpty.Spec{Args: spec.Args, Dir: spec.Dir, Env: terminalEnvironment(spec.ID, hex.EncodeToString(proof[:])), Cols: spec.Cols, Rows: spec.Rows, Unread: output.unread})
 	if err != nil {
 		return err
 	}
@@ -104,11 +108,6 @@ func Run(stateDir string, spec Spec) error {
 	}
 	defer removeRecord(stateDir, spec.ID, record.HostPID)
 
-	output, err := newHistory(spec.Cols, spec.Rows)
-	if err != nil {
-		_ = console.Close()
-		return err
-	}
 	// The terminal's screen answers its program's queries, typed in by a
 	// goroutine of their own so the output reader never waits on the
 	// console's input: a console that reads no input until its output is
@@ -269,7 +268,7 @@ func serve(connection *os.File, token string, console *conpty.Console, output *h
 	}
 	past, sizes, feed, detach := output.attach()
 	defer detach()
-	answer := hello{Version: Version}
+	answer := hello{Version: Version, Unread: greeting.Unread}
 	if greeting.Sizes {
 		answer.Sizes, answer.History = true, len(past)
 	}
@@ -339,6 +338,16 @@ func serve(connection *os.File, token string, console *conpty.Console, output *h
 		chunk, sizes, open := feed.next()
 		if !open {
 			break
+		}
+		if unread := feed.takeUnread(); unread != nil && greeting.Unread {
+			state := []byte{0}
+			if *unread {
+				state[0] = 1
+			}
+			if writeFrame(connection, frameUnread, state) != nil {
+				<-reading
+				return
+			}
 		}
 		// A viewer that did not ask for sizes has nothing to take from a
 		// resize alone.

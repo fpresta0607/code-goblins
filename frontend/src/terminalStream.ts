@@ -89,6 +89,19 @@ export function parseHistory(text: string): number | null {
   }
 }
 
+// The relay says when key presses have sat unread in the terminal's input, as
+// a busy program leaves them, and when its program has read them.
+export function parseUnread(text: string): boolean | null {
+  try {
+    const value: unknown = JSON.parse(text);
+    if (typeof value !== "object" || value === null) return null;
+    const { type, unread } = value as Record<string, unknown>;
+    return type === "unread" && typeof unread === "boolean" ? unread : null;
+  } catch {
+    return null;
+  }
+}
+
 export function usableSize(cols: number, rows: number): boolean {
   return cols >= MIN_COLS && rows >= MIN_ROWS;
 }
