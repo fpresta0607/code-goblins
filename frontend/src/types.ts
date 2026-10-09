@@ -384,12 +384,14 @@ export interface Snapshot {
   // hours, newest first.
   merge_trains?: MergeTrain[];
 }
-// AfkHeld is an item held for the Overlord while AFK mode is on: its key in
-// the Command Center, its goblin (empty for the CFO's own), what it asks,
-// whether it still waits on him and what became of it, what its goblin
-// reported meanwhile, and the choice its asker recommends, empty for none.
+// AfkHeld is an item held or left for the Overlord while AFK mode is on: its
+// key in the Command Center, its goblin (empty for the CFO's own), what it
+// asks, whether it still waits on him and what became of it, what its goblin
+// reported meanwhile, the choice its asker recommends, empty for none, and
+// what became of a line left for him that the CFO settled, which was never
+// asked.
 export interface AfkHeld {
-  item: string; task: string; what: string; at: string; waiting: boolean; now: string; meanwhile: string; recommendation: string;
+  item: string; task: string; what: string; at: string; waiting: boolean; now: string; meanwhile: string; recommendation: string; settled: string;
 }
 // Afk is AFK mode, the Overlord's switch for running the fleet while he is
 // away: on, off, or unreadable when the supervisor cannot read the switch.
@@ -420,6 +422,10 @@ export interface Question {
   // change_id is his board action changing the CFO's answer to his own, and
   // replaced_answer the CFO's choice it replaced once the goblin has his.
   answered_away: boolean; change_id: string; replaced_answer: string;
+  // decided is the choice the CFO answered its own question with while AFK
+  // mode was on, and acted on: the card shows it checked, for him to keep or
+  // change. It is empty for every other question.
+  decided: string;
 }
 // A review item waits on the Overlord until he answers or clears it, or its
 // reporter withdraws it: an image review, a Lavish page, or a wait on him.
@@ -654,7 +660,7 @@ function parseCredentialRequest(value: unknown): CredentialRequest {
 }
 export function parseAfkHeld(value: unknown): AfkHeld {
   const h = object(value);
-  return { item: string(h.item), task: string(h.task), what: string(h.what), at: string(h.at), waiting: h.waiting === undefined ? false : boolean(h.waiting), now: string(h.now), meanwhile: string(h.meanwhile), recommendation: string(h.recommendation) };
+  return { item: string(h.item), task: string(h.task), what: string(h.what), at: string(h.at), waiting: h.waiting === undefined ? false : boolean(h.waiting), now: string(h.now), meanwhile: string(h.meanwhile), recommendation: string(h.recommendation), settled: string(h.settled) };
 }
 // A supervisor from before AFK mode reached the board sends none, which is off.
 function parseAfk(value: unknown): Afk {
@@ -672,7 +678,7 @@ function itemLists(v: Record<string, unknown>) {
     questions: array(v.questions).map((value) => {
       const q = object(value);
       return { id: string(q.id), identity: string(q.identity), text: string(q.text), options: strings(q.options), recommended: string(q.recommended), answer: string(q.answer), answer_kind: string(q.answer_kind), created_at: string(q.created_at), answer_id: string(q.answer_id), status: string(q.status), message: string(q.message), answered_option: string(q.answered_option), answered_by: string(q.answered_by), answered_at: string(q.answered_at), task: string(q.task), image_count: number(q.image_count), generation: string(q.generation), page: string(q.page), answered_in: string(q.answered_in),
-        answered_away: q.answered_away === undefined ? false : boolean(q.answered_away), change_id: string(q.change_id), replaced_answer: string(q.replaced_answer) };
+        answered_away: q.answered_away === undefined ? false : boolean(q.answered_away), change_id: string(q.change_id), replaced_answer: string(q.replaced_answer), decided: string(q.decided) };
     }),
     reviews: array(v.reviews).map((value) => {
       const r = object(value);

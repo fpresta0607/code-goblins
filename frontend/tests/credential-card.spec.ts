@@ -403,7 +403,7 @@ test("a request whose values also go to an env file shows the file and its check
   // Arrange
   await answer(page);
   await openCard(page);
-  await page.getByRole("dialog").getByRole("button", { name: "Previous item" }).click();
+  await page.getByRole("dialog").getByRole("button", { name: "Back", exact: true }).click();
   const row = page.getByRole("dialog").locator('[data-credential-request="cred-fedcba9876543210"] [data-credential-name="DATABASE_URL"]');
   await expect(row).toContainText("File .env.docker.local · gitignored, checked · local dev");
 

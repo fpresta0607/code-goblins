@@ -4,6 +4,9 @@ import { chosenOption, questionOutcome } from "./commandQueue.ts";
 export function questionSelection(question: Question, draft?: {selection:string; written:string}, receipt?: Action) {
   if (questionOutcome(question) === "answered") return { selection: question.answer_kind === "other" ? "other" : "option:"+chosenOption(question), written: question.answer_kind === "other" ? question.answer : "" };
   if ((receipt?.kind === "cfo_answer" || receipt?.kind === "goblin_answer") && receipt.question_id === question.id && receipt.generation === question.identity) return { selection: receipt.answer_kind === "other" ? "other" : "option:"+receipt.text, written: receipt.answer_kind === "other" ? receipt.text : "" };
+  // The CFO's own answer, given while AFK mode was on, is checked until he
+  // chooses another.
+  if (question.status === "pending" && draft && !draft.selection && question.decided) return { selection: "option:" + question.decided, written: "" };
   return question.status === "pending" && draft ? draft : { selection:"", written:"" };
 }
 

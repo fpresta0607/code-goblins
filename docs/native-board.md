@@ -350,7 +350,7 @@ A click or key on the board after five minutes with none, counted from when AFK 
 When the CFO turned it on at his ask, his first click or key since the switch brings the same offer at once, titled The CFO turned AFK on, so a switch made on his words meets him before anything else; his next waits five minutes as usual.
 The offer says who turned it on, with his words when the CFO did at his ask, and takes the focus itself, so keys he was typing press neither button, and Escape stays.
 When AFK mode turns off while the page is open, the report of the stretch opens as one page over the board, read from `GET /api/afk/report`.
-See [AFK mode in the README](../README.md#afk-mode) for its waiting counts, drawers, Spent display and report actions.
+See [AFK mode in the README](../README.md#afk-mode) for its headline, For you and Settled, drawers, Spent display and Go through them.
 Each decision row links to what it names only when that is an https link and folds its evidence to two lines with Show more.
 His own off from the board's toggle or offer shows the report as soon as the supervisor answers, since the supervisor keeps the report before it answers, and the snapshot after it brings no second one.
 An answer is named by its goblin, since the log keeps a question's id.
@@ -1012,7 +1012,8 @@ With no supervisor running, or one too busy to take it, the report shows at the 
 An `items` event is the Command Center's part alone (`questions`, `reviews`, `runs`, `credentials` and `actions`, with the supervisor's `instance` and `revision`), read from the store's memory and sent the moment it differs from what that board last received, while a snapshot may still be building; the board lays it over its last snapshot.
 A snapshot carries the items as they are when it is sent, not as they were when its build began, so it never undoes an items event sent before it.
 The Command Center shows one item at a time as a stack, a question, a review item, a run item or a credential request, the CFO's own items first, then goblins in the In progress order, each goblin's by longest wait, then goblins not placed yet by longest wait (the snapshot's `attention` names the placed ones), and a horizontal swipe on touch screens moves between them; the card stands alone, with no edge of the next one behind it, and its text is sized to read at a glance (19 px body, 22 px titles).
-A card's own action row holds everything: Back, its place such as 2 of 4, and Next on the left while more than one item waits, and its answer on the right; closing keeps every item for later.
+A card's own action row holds everything: Back, its place such as 2 of 4, and Skip, which leaves the item as it is and shows the next, on the left while more than one item waits, and its answer on the right.
+Closing keeps every item for later.
 Each card sends only its own answer.
 The moment the Overlord sends from a card, an answer, a review answer or a Clear, its check draws with Sent (or Opened, Downloaded or Cleared) and three quarters of a second later the next open item follows, passing over any sent in this sitting, while the action is delivered in the background; CFO received or Delivered to <goblin> joins the check if delivery lands while it shows, and with nothing left it shows You're all done and the Command Center closes.
 A request the board refuses keeps its card on screen with what went wrong, and can be sent again with Retry under the same request identity; a run card stays to show the command's result.

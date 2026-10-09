@@ -1,10 +1,10 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { AFK_OFF, AWAY_MS, afkLine, afkTime, decisionSays, heldRecommends, heldSays, heldWho, offerFor, parseAfkReport, reportAction, safeLink, stillWaiting, switchedBy, turnedOff, allowanceGraph, allowanceSays, shownUnder, type AfkDecision, type AfkAllowance, type Occasion, type ReportAction } from "./afk.ts";
+import { AFK_OFF, AWAY_MS, afkLine, afkTime, decisionSays, heldRecommends, heldSays, heldWho, offerFor, parseAfkReport, safeLink, settled, stillWaiting, switchedBy, turnedOff, allowanceGraph, allowanceSays, shownUnder, afkHeadline, type AfkDecision, type AfkAllowance, type AfkReport, type Occasion } from "./afk.ts";
 import { parseSnapshot, type Afk, type AfkHeld } from "./types.ts";
 
 const NOW = Date.parse("2026-10-02T12:31:00Z");
-const held = (changes: Partial<AfkHeld> = {}): AfkHeld => ({ item: "question:drop-legacy-invoices", task: "", what: "Migration 0042 drops legacy_invoices. Apply it?", at: "2026-10-02T03:05:00Z", waiting: true, now: "still waiting on you", meanwhile: "", recommendation: "", ...changes });
+const held = (changes: Partial<AfkHeld> = {}): AfkHeld => ({ item: "question:drop-legacy-invoices", task: "", what: "Migration 0042 drops legacy_invoices. Apply it?", at: "2026-10-02T03:05:00Z", waiting: true, now: "still waiting on you", meanwhile: "", recommendation: "", settled: "", ...changes });
 const afk = (changes: Partial<Afk> = {}): Afk => ({ state: "on", since: "2026-10-02T02:10:00Z", from: "his own board (goblins-window.exe pid 4242)", asked: "", decided: 0, held: [], report: "", ...changes });
 // AFK mode as the CFO turned it on at his ask.
 const ASKED = "I'm stepping away, turn AFK on";
@@ -15,8 +15,8 @@ test("a supervisor from before AFK mode reached the board reads as off, and one 
   assert.deepEqual(snapshot().afk, AFK_OFF);
   assert.deepEqual(snapshot({ afk: { state: "on", since: "2026-10-02T02:10:00Z", from: "his own terminal (powershell.exe pid 4242)", decided: 2, held: [{ item: "run:restart-db", what: "Restart the dev database", at: "2026-10-02T04:00:00Z", waiting: false, now: "succeeded" }, { item: "question:drop-legacy-invoices", what: "Apply it?", at: "2026-10-02T04:01:00Z", waiting: true, now: "still waiting on you", recommendation: "Keep it held" }] } }).afk,
     { state: "on", since: "2026-10-02T02:10:00Z", from: "his own terminal (powershell.exe pid 4242)", asked: "", decided: 2, held: [
-      { item: "run:restart-db", task: "", what: "Restart the dev database", at: "2026-10-02T04:00:00Z", waiting: false, now: "succeeded", meanwhile: "", recommendation: "" },
-      { item: "question:drop-legacy-invoices", task: "", what: "Apply it?", at: "2026-10-02T04:01:00Z", waiting: true, now: "still waiting on you", meanwhile: "", recommendation: "Keep it held" },
+      { item: "run:restart-db", task: "", what: "Restart the dev database", at: "2026-10-02T04:00:00Z", waiting: false, now: "succeeded", meanwhile: "", recommendation: "", settled: "" },
+      { item: "question:drop-legacy-invoices", task: "", what: "Apply it?", at: "2026-10-02T04:01:00Z", waiting: true, now: "still waiting on you", meanwhile: "", recommendation: "Keep it held", settled: "" },
     ], report: "" });
   assert.equal(snapshot({ afk: { state: "on", since: "2026-10-02T02:10:00Z", ...BY_THE_CFO } }).afk.asked, ASKED);
 });
@@ -203,11 +203,30 @@ test("an allowance's graph marks what was used before AFK and the stretch AFK us
   for (const [name, value, want] of cases) assert.deepEqual(allowanceGraph(value), want, name);
 });
 
-test("the report's main button is the Command Center while anything it held still waits on him, and the board otherwise", () => {
-  const cases: [string, AfkHeld[], ReportAction][] = [
-    ["nothing held", [], "board"],
-    ["held and answered since", [held({ waiting: false, now: "you answered it: Keep it held" })], "board"],
-    ["one of two still waits", [held({ item: "run:restart-db", waiting: false, now: "succeeded" }), held()], "command"],
+// The Overlord, 2026-10-09: "at the top of the report I don't like all these
+// little grid boxes". The report opens on a few plain sentences: how long he
+// was away, how many things wait on him, and what the CFO merged, deployed,
+// migrated and installed, leaving out what it did none of.
+test("the report's headline says how long he was away, what waits on him and what reached his repositories, production and machine", () => {
+  const report = (held: AfkHeld[], sections: { title: string; count: number }[]): AfkReport => ({
+    session: "afk-1", since: "2026-10-02T03:40:00Z", ended: "2026-10-02T12:05:00Z", lasted: "8h25m", from: "", asked: "", ended_from: "", ended_asked: "",
+    sections: sections.map(({ title, count }) => ({ title, entries: Array.from({ length: count }, () => ({ at: "", kind: "", what: "", link: "", evidence: "", outcome: "", task: "", diagnosis: "", tried: "", struck: "" })) })),
+    finished: [], held, spent: [], notes: [],
+  });
+  const now = Date.parse("2026-10-02T13:00:00Z");
+  const cases: [string, AfkReport, { away: string; waiting: string; did: string }][] = [
+    ["a busy night", report([held(), held({ item: "question:afk-left-1" }), held({ item: "run:x", waiting: false })], [{ title: "Merged", count: 5 }, { title: "Answered for goblins", count: 14 }, { title: "Installed", count: 2 }]),
+      { away: "You were away 8h25m, from 3:40 AM to 12:05 PM.", waiting: "2 things wait on you.", did: "The CFO merged 5 pull requests and installed 2 builds." }],
+    ["one of each", report([held()], [{ title: "Merged", count: 1 }, { title: "Deployed", count: 1 }, { title: "Migrations applied", count: 1 }, { title: "Installed", count: 1 }]),
+      { away: "You were away 8h25m, from 3:40 AM to 12:05 PM.", waiting: "1 thing waits on you.", did: "The CFO merged 1 pull request, made 1 deploy, applied 1 migration and installed 1 build." }],
+    ["a quiet night", report([held({ waiting: false })], [{ title: "Answered for goblins", count: 3 }]),
+      { away: "You were away 8h25m, from 3:40 AM to 12:05 PM.", waiting: "Nothing waits on you.", did: "" }],
   ];
-  for (const [name, value, want] of cases) assert.equal(reportAction(value), want, name);
+  for (const [name, value, want] of cases) assert.deepEqual(afkHeadline(value, now, "UTC", "en-US"), want, name);
+});
+
+test("what was held or left for him splits into what still waits on him and what was settled, each in the order it came", () => {
+  const all = [held({ item: "a" }), held({ item: "b", waiting: false, settled: "the run finished on its own", now: "settled by the CFO: the run finished on its own" }), held({ item: "c" })];
+  assert.deepEqual(stillWaiting(all).map((one) => one.item), ["a", "c"]);
+  assert.deepEqual(settled(all).map((one) => one.item), ["b"]);
 });

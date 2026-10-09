@@ -628,7 +628,8 @@ Your browser remembers the last 100 alerts it showed.
 
 New items also stay under the badge, and the browser tab's title counts what is waiting on you.
 A goblin's item closes by itself once nobody waits on it: a wait when the goblin finishes, fails or waits on you again, or the CFO answers it, but never while the goblin works on beside it, any item but a delivered document when its goblin finishes or is cleaned up, and the CFO can clear a stale one with a reason.
-Several items stack up one card at a time, the CFO's first and then goblins in the In progress order, each goblin's by longest wait, then goblins you have not placed, by longest wait: each card's action row has **Back**, its place such as 2 of 4, and **Next** on the left and its answer on the right, and you can swipe; closing keeps every item for later.
+Several items stack up one card at a time, the CFO's first and then goblins in the In progress order, each goblin's by longest wait, then goblins you have not placed, by longest wait: each card's action row has **Back**, its place such as 2 of 4, and **Skip**, which leaves the card as it is and shows the next, on the left and its answer on the right, and you can swipe.
+Closing keeps every item for later.
 The moment you send, a check draws with **Sent** and the next open item follows by itself while the answer is delivered in the background; the last one ends on **You're all done** and the Command Center closes.
 It always opens at the top of its item, and each next item starts at its top.
 An answer the board refused comes back on its card with a few words of what went wrong, and **Retry** sends it again; refused after you moved on or closed the Command Center, it opens nothing, and it keeps waiting under **Waiting on you** until you send it again.
@@ -698,19 +699,26 @@ While it is on:
 
 At your first click or key on the board after five minutes with none, the board offers to turn it off.
 When the CFO turned it on at your ask, your very first click or key offers it at once, quoting your words, so a switch made on your words meets you before anything else.
-Turning it off shows the report of the stretch on the board as one page: who turned it on and off, how much of each thing there is, then **Held for you**, listing and counting only items held or left for you that still wait on you in the Command Center, with their recommendations and their goblins' progress.
-Next come what merged, deployed and installed, each with its link and its verification, the goblins paused at a floor, what each goblin finished, and **Spent**.
-Decision sections and **Goblins finished** are drawers, closed until you open them; merge words with no merge stay open because they still need you.
+Turning it off shows the report of the stretch on the board as one page.
+It opens on a headline in plain words, how long you were away, how many things wait on you and what the CFO merged, deployed, migrated and installed, beside who turned it on and off and **Go through them**.
+**For you** lists what was held or left for you that still waits on you in the Command Center, each as it stands now, with its recommendation, the CFO's answer to a decision it made itself, and its goblin's progress.
+What no longer waits, answered or settled with what became of it, folds under **Settled**.
+**What the CFO did** follows, a drawer for each heading that holds something, closed until you open it: what merged, deployed, migrated and installed, each with its link and its verification, what it answered for goblins, the goblins paused at a floor and what each goblin finished.
+Merge words with no merge stay open because they still need you.
 **Spent** and the short **Not read** section stay open too.
+**Go through them** opens the Command Center on what still waits from the stretch, one item at a time on the same card every question has.
+A decision the CFO answered opens with its answer checked and marked as the CFO's: **Keep the CFO's answer** keeps it, and another choice tells the CFO, which undoes or redoes what its answer started.
+What only you can do opens with nothing checked.
+**Back** goes to the one before, and **Skip** leaves one as it is and shows the next.
+The Command Center's list offers **Go through them** too whenever two or more things wait on you.
 A line the CFO logged by mistake and struck is shown struck through under **Struck by the CFO**, with its reason, and never as something that needs you.
 Spent shows only weekly limits and credit balances that were spent, leaving out five-hour limits.
 A weekly limit shows what is left, such as **51% left**, beside **AFK used 8%**, or **renewed** if the limit renewed during AFK.
 Equal-length bars show usage before AFK in gray, usage while AFK in green under a green arrow, and what is left as the empty rest, with the legend **Before AFK While AFK Left**.
 With a reading at only one end, the row shows only what is left, with no bar, change chip or line saying a reading was not taken.
 Credit rows show the amount spent without a percent bar.
-Its button at the bottom is Open Command Center while a held item still waits on you, and Back to the board otherwise.
 The button beside the toggle opens the last report again.
-Each time you open it, Held for you is checked again, so an item you answered no longer appears or counts there.
+Each time you open it, For you is checked again, so an item you answered moves to Settled.
 `cfo afk status` shows who turned it on and when, what the CFO has decided so far and what waits on you in the Command Center.
 `cfo afk off` prints a text report, `cfo afk report` prints it again, and every decision stays in `state\afk.audit`.
 The text report keeps held items' current dispositions and allowance readings at both ends, as in the example below; the board uses the presentation above.
