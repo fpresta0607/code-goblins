@@ -9,6 +9,11 @@ func MachineMemory() (Memory, error) {
 	return Memory{}, errors.New("free memory is read only on Windows")
 }
 
+// MachineProcessors is read only on Windows, the fleet's platform.
+func MachineProcessors() (Processors, error) {
+	return Processors{}, errors.New("the processors are read only on Windows")
+}
+
 // CommitHolders is read only on Windows, the fleet's platform.
 func CommitHolders() ([]CommitHolder, error) {
 	return nil, errors.New("commit is read only on Windows")

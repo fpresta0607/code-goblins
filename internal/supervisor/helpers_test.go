@@ -160,6 +160,9 @@ func TestAHelperIsRefusedWithWhyAndWhenToAskAgain(t *testing.T) {
 			s.starting = "next-task"
 		}, HelperRequest{Parent: "g1", Brief: helperBrief}, []string{"next-task is starting", "ask again in a minute"}},
 		{"no brief", 6 * gigabyte, nil, HelperRequest{Parent: "g1", Brief: " \n"}, []string{"a brief"}},
+		{"busy performance cores", 6 * gigabyte, func(t *testing.T, s *Service, h home.Home) {
+			s.Options.Dispatch.Processors = processorsWithFree(0.1)
+		}, HelperRequest{Parent: "g1", Brief: helperBrief}, []string{"Only 0.6 of 6 performance cores are free", "ask again in ten minutes"}},
 	}
 	for _, test := range cases {
 		t.Run(test.name, func(t *testing.T) {

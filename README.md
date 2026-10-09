@@ -423,6 +423,8 @@ A start that fails reads **Start failed** in red and waits in Tasks for its next
 When a brief is missing, Start writes it from the queued task and tells the CFO before dispatching.
 Start needs at least 5 GB of free memory and 5 GB of free commit (RAM plus page file, which a new program needs even while memory looks free) and free disk at or above the disk floor, and one task starts or resumes at a time.
 One click is enough: a Start or Resume clicked while another task starts or resumes, or while memory or disk is short, waits its turn and runs as soon as it can, and its card says Starting or Resuming the moment you click, or Starts at 5 GB free while memory is short.
+What the fleet starts by itself also waits for room on the processors, so your own apps stay quick: the next queued task, a goblin whose wait is over, a goblin coming back after a restart and a helper start only once a quarter of this PC's performance cores sat idle over the last minute.
+Each install reads its own processor for this, and a Start or Resume you click does not wait on it.
 A second click changes nothing, and a refusal goes to the CFO, never to a line on the board.
 A start ends once its goblin has its brief: the goblin installs its worktree's dependencies (`npm ci`, `uv sync` and the like) in its own terminal as its first step, and its card says so, so a long install never holds up the next start or resume.
 A Start or Resume, and each start or resume the supervisor makes by itself, that meets a `cfo spawn` the CFO runs by hand waits for that spawn's turn, which ends once its terminal runs; one that gives up after waiting 10 minutes tries once more as soon as the lock frees.
