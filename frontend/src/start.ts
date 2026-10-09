@@ -1,4 +1,4 @@
-import type { Disk, Memory, PauseCondition, Snapshot, Task } from "./types";
+import type { Disk, Gpu, Memory, PauseCondition, Processors, Snapshot, Task } from "./types";
 import { queuedTasks } from "./workflow.ts";
 import { pausedWithParent, waitStatus } from "./task-words.ts";
 
@@ -92,6 +92,57 @@ export function diskScale(disk: Disk): { fill: number; wake: number; floor: numb
   const span = Math.min(disk.total || 2 * disk.floor, 2 * disk.floor) || 1;
   const percent = (bytes: number) => Math.min(100, Math.max(0, bytes / span * 100));
   return { fill: percent(disk.free), wake: percent(disk.wake), floor: percent(disk.floor) };
+}
+
+// A free share as a whole percent, rounded down so a share just under a mark
+// never reads as the mark itself.
+export function freeShare(share: number): string {
+  return `${wholePercent(share)}%`;
+}
+
+const wholePercent = (share: number) => Math.floor(Math.min(1, Math.max(0, share)) * 100);
+const busyPercent = (free: number) => 100 - wholePercent(free);
+
+// The cores the CPU meter counts: the performance cores, or all of them on a
+// processor with cores of one kind.
+const countedCores = (processors: Processors) => processors.efficiency_cores > 0 ? "performance cores" : "cores";
+
+// The CPU meter under the disk meter: under the mark the supervisor starts
+// no goblin by itself, so the Overlord's own apps keep room.
+export function processorState(processors: Processors): { tone: "ready" | "waiting"; text: string } {
+  if (processors.free < processors.next) return { tone: "waiting", text: `Under ${wholePercent(processors.next)}% of the ${countedCores(processors)} free: the supervisor starts no goblin by itself until they free.` };
+  return { tone: "ready", text: "Enough processor for the next start." };
+}
+
+// The CPU bar spans every counted core: the fill and the mark as percents.
+export function processorScale(processors: Processors): { fill: number; next: number } {
+  return { fill: wholePercent(processors.free), next: wholePercent(processors.next) };
+}
+
+// What the CPU bar shows and what its mark means, for its tip: the cores by
+// kind and how busy each kind was, and the apps that used the most processor.
+export function processorMarks(processors: Processors): string {
+  const parts = [`${processors.performance_cores} ${countedCores(processors)} ${busyPercent(processors.free)}% busy.`];
+  if (processors.efficiency_cores > 0) parts.push(`${processors.efficiency_cores} efficiency cores ${busyPercent(processors.efficiency_free)}% busy.`);
+  if (processors.busiest.length > 0) parts.push(`Most used by ${processors.busiest.join(" and ")}.`);
+  parts.push(`White mark: ${wholePercent(processors.next)}%, where the next task starts by itself.`);
+  return parts.join(" ");
+}
+
+// The GPU meter shows how free the busiest graphics adapter is, the one the
+// Overlord's apps are drawing on.
+export function gpuFree(gpu: Gpu): number {
+  return 1 - Math.max(0, ...gpu.adapters.map((adapter) => adapter.busy));
+}
+
+// Each graphics adapter and how busy it was, with the app using most of it,
+// for the GPU bar's tip.
+export function gpuMarks(gpu: Gpu): string {
+  return gpu.adapters.map((adapter) => {
+    const busy = busyPercent(1 - adapter.busy);
+    if (busy === 0) return `${adapter.name} idle.`;
+    return `${adapter.name} ${busy}% busy${adapter.busiest ? `, most by ${adapter.busiest}` : ""}.`;
+  }).join(" ");
 }
 
 // What a start or a resume needs while the disk is under the floor, or empty
