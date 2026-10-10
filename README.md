@@ -88,6 +88,9 @@ See [the native board guide](docs/native-board.md) for hook setup, build require
 ### Production-oriented gates
 
 The `no-mistakes` path owns review, bounded repair cycles, tests, lint, documentation, push, PR creation, and CI. Review budgets are frozen per task so changing global policy cannot silently weaken an in-flight job.
+Under pipeline policy v6 a task's gate runs on the harness its goblin runs on, with that task's model and effort, and no other harness starts unless the operator named it as the fallback and it is signed in.
+One daemon serves goblins on different harnesses at once, because each run carries its own agents as a launch selection that no-mistakes proves before any agent starts.
+See [A gate on its task's own harness](docs/pipeline.md#a-gate-on-its-tasks-own-harness).
 
 This repository's own test step is `cfo gate test`, which plans before it runs.
 It says which level a change requires: `affected`, the Go packages the change reaches (those it changed, those that import them, and those whose tests read a changed file, such as an install script), or `full`, every package, once `go.mod` or `go.sum` changed or a changed file is one the verification policy does not account for.
@@ -485,6 +488,7 @@ A goblin whose latest report is a wait on its own helper takes the helper's prog
 An allowance pause that failed for the current task generation and reset waits for intervention while unrelated cleared work can continue.
 Durations are measured from the start and finish timestamps of the checks and awaited Actions runs reported by `ci_finished`; missing timestamps are left unmeasured, and check names containing `deploy` are classified as deploys.
 If validation was interrupted, its gate commits are preserved before that run is aborted; validation restarts on Resume.
+Under pipeline policy v6 the restarted run carries the task's launch selection, so it runs on the harness the goblin comes back on.
 A memory pause interrupts no validation: the goblin's gate run keeps running, and Resume tells the goblin which run is still running, so it picks that run back up and starts no other.
 A run a pause could not abort is left to its goblin the same way, and never fails the Resume.
 Paused state survives a supervisor restart or reboot and produces no stale-task alarms.

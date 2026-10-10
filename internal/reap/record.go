@@ -43,11 +43,17 @@ type Record struct {
 	// Error is set when the sweep could not complete. An audit that failed is
 	// itself worth reporting: a fleet nobody can see is not a clean fleet.
 	Error string `json:"error,omitempty"`
-	// Reported holds the ReportKeys of the running findings the CFO was woken
-	// about and that are still found, so the watcher wakes it once for each
-	// and again only when one changes or comes back after going away.
-	Reported []string `json:"reported,omitempty"`
+	// Told holds the ReportKey of each running finding the CFO was woken
+	// about and when a sweep last found it, so the watcher wakes it once for
+	// each and again only when one changes. A finding that goes away stays
+	// told, and is forgotten once ToldFor passes without a sweep finding it.
+	Told map[string]time.Time `json:"told,omitempty"`
 }
+
+// ToldFor is how long the CFO stays told about a finding no sweep finds any
+// more. A short-lived process comes and goes between sweeps, and forgetting it
+// the moment it went woke the CFO each time its like came back.
+const ToldFor = 24 * time.Hour
 
 // RecordPath is state/.reap-audit.json.
 func RecordPath(stateDir string) string {
@@ -84,7 +90,8 @@ func WriteRecord(stateDir string, record Record) error {
 // ReportKeys identifies each finding as the CFO is told about it. The holds
 // are part of the identity, so a finding whose refusals change is reported
 // again, and the detail names a process by its start, so a reused pid is
-// another process.
+// another process. A finding with a Shape is identified by that in place of
+// its pid and its detail, so every process of one shape is the one finding.
 func ReportKeys(findings []Finding) []string {
 	keys := make([]string, 0, len(findings))
 	for _, finding := range findings {
@@ -94,6 +101,9 @@ func ReportKeys(findings []Finding) []string {
 		}
 		sort.Strings(reasons)
 		identity := fmt.Sprintf("%s|%s|%d|%s|%s|%s", finding.Class, finding.TaskID, finding.PID, normalizePath(finding.Path), finding.Detail, strings.Join(reasons, "\n"))
+		if finding.Shape != "" {
+			identity = fmt.Sprintf("%s|%s|%s|%s|%s", finding.Class, finding.TaskID, normalizePath(finding.Path), finding.Shape, strings.Join(reasons, "\n"))
+		}
 		sum := sha256.Sum256([]byte(identity))
 		keys = append(keys, hex.EncodeToString(sum[:8]))
 	}

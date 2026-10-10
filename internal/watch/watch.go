@@ -568,9 +568,12 @@ func fileData(ctx context.Context, cfg Config, last *time.Time) {
 // session-start digest, as Actionable says. A sweep that fails is recorded as
 // a failure rather than swallowed, because "cannot see the fleet" and "the
 // fleet is clean" must never render the same, and it keeps what was reported,
-// because a sweep that saw nothing has not seen anything go away. Nothing here
-// is fatal to the watcher: supervision of the goblins that DO have panes
-// matters more than the sweep.
+// because a sweep that saw nothing has not seen anything go away. A finding
+// that does go away stays reported for reap.ToldFor after the last sweep that
+// found it: on 2026-10-09 a short-lived codex.exe that came and went between
+// sweeps woke the CFO each time one came back. Nothing here is fatal to the
+// watcher: supervision of the goblins that DO have panes matters more than the
+// sweep.
 func sweepOrphans(ctx context.Context, cfg Config) string {
 	if cfg.Reap == nil || cfg.ReapEvery <= 0 {
 		return ""
@@ -589,7 +592,7 @@ func sweepOrphans(ctx context.Context, cfg Config) string {
 	}
 	record.Findings = result.Findings
 	record.Notes = result.Notes
-	record.Reported = previous.Reported
+	record.Told = previous.Told
 	if auditErr != nil {
 		record.Error = auditErr.Error()
 		_ = reap.WriteRecord(cfg.Home.State, record)
@@ -598,15 +601,16 @@ func sweepOrphans(ctx context.Context, cfg Config) string {
 
 	actionable := reap.Actionable(record.Findings)
 	running := reap.ReportKeys(actionable)
-	told := make(map[string]bool, len(previous.Reported))
-	for _, key := range previous.Reported {
-		told[key] = true
+	record.Told = make(map[string]time.Time, len(previous.Told)+len(running))
+	for key, seen := range previous.Told {
+		if record.Time.Sub(seen) < reap.ToldFor {
+			record.Told[key] = seen
+		}
 	}
-	record.Reported = nil
 	isNew := false
 	for _, key := range running {
-		if told[key] {
-			record.Reported = append(record.Reported, key)
+		if _, told := record.Told[key]; told {
+			record.Told[key] = record.Time
 		} else {
 			isNew = true
 		}
@@ -615,7 +619,9 @@ func sweepOrphans(ctx context.Context, cfg Config) string {
 	if isNew {
 		detail := reap.Summary(record.Findings) + "; still running: " + reap.Summary(actionable) + "; run cfo reap to see them, cfo reap --apply to retire everything else, and cfo reap --force <pid> --apply to end one of these, because a kill is authorised only by naming its pid"
 		if _, err := wake.Append(cfg.Home.State, "orphan", "orphans", detail); err == nil {
-			record.Reported = running
+			for _, key := range running {
+				record.Told[key] = record.Time
+			}
 			if _, err := wake.PublishEpisode(cfg.Home.State); err == nil {
 				reason = "orphan:" + detail
 			}
