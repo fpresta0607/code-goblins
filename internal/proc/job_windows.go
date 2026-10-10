@@ -19,10 +19,13 @@ const (
 	processDupHandle            = 0x0040
 	jobObjectQuery              = 0x0004
 	jobObjectSetAttributes      = 0x0002
+	jobObjectTerminate          = 0x0008
 	systemExtendedHandleInfo    = 64
 	jobObjectBasicProcessIDList = 3
 	statusInfoLengthMismatch    = 0xC0000004
 	errorMoreData               = 234
+	// stillActive is the exit status of a process that has none yet.
+	stillActive = 259
 	// handleTableHeader is SYSTEM_HANDLE_INFORMATION_EX's two pointers, and
 	// handleEntrySize its SYSTEM_HANDLE_TABLE_ENTRY_INFO_EX on 64-bit Windows:
 	// UniqueProcessId at +8, HandleValue at +16 and ObjectTypeIndex at +30.
@@ -46,24 +49,65 @@ var (
 // shell blocked in that wait is waiting on. A job holderPID itself runs in is
 // not one it waits on, so it is skipped. Entries are sorted by pid.
 func JobProcesses(holderPID int) ([]Entry, error) {
-	jobs, err := heldJobs(holderPID, jobObjectQuery)
+	held, err := holdJobs(holderPID, jobObjectQuery)
 	if err != nil {
 		return nil, err
 	}
-	defer closeAll(jobs)
+	defer held.Close()
+	return held.Processes()
+}
+
+// HeldJobs are the job objects a process held open, held open by this
+// process too. A job lives while a handle to it is open, so its processes
+// can still be listed and ended through these once the process that made it
+// has ended, when nothing can reach the job through that process any more.
+// While they are held, the end of that process is no longer the close of a
+// job's last handle, so a job that ends its processes on that close ends
+// them at Close instead.
+type HeldJobs struct {
+	jobs []syscall.Handle
+}
+
+// HoldJobs holds every job object holderPID holds open, but a job holderPID
+// itself runs in. The caller closes them.
+func HoldJobs(holderPID int) (*HeldJobs, error) {
+	return holdJobs(holderPID, jobObjectQuery|jobObjectSetAttributes|jobObjectTerminate)
+}
+
+func holdJobs(holderPID int, access uint32) (*HeldJobs, error) {
+	jobs, err := heldJobs(holderPID, access)
+	if err != nil {
+		return nil, err
+	}
+	held := &HeldJobs{}
+	for index, job := range jobs {
+		ids, err := jobProcessIDs(job)
+		if err != nil {
+			held.Close()
+			closeAll(jobs[index:])
+			return nil, err
+		}
+		if slices.Contains(ids, uint32(holderPID)) {
+			syscall.CloseHandle(job)
+			continue
+		}
+		held.jobs = append(held.jobs, job)
+	}
+	return held, nil
+}
+
+// Processes returns the live processes in the held jobs, sorted by pid.
+func (h *HeldJobs) Processes() ([]Entry, error) {
 	processes, err := snapshotProcesses()
 	if err != nil {
 		return nil, err
 	}
 	seen := map[uint32]bool{}
 	var jobbed []Entry
-	for _, job := range jobs {
+	for _, job := range h.jobs {
 		ids, err := jobProcessIDs(job)
 		if err != nil {
 			return nil, err
-		}
-		if slices.Contains(ids, uint32(holderPID)) {
-			continue
 		}
 		for _, id := range ids {
 			start, alive := jobProcessStart(job, id)
@@ -78,28 +122,32 @@ func JobProcesses(holderPID int) ([]Entry, error) {
 	return jobbed, nil
 }
 
-// KeepJobsOnClose stops the jobs holderPID holds open from ending their
-// processes when their last handle closes, so a machine service left in one
-// outlives holderPID. A job holderPID itself runs in is left as it is.
-func KeepJobsOnClose(holderPID int) error {
-	jobs, err := heldJobs(holderPID, jobObjectQuery|jobObjectSetAttributes)
-	if err != nil {
-		return err
-	}
-	defer closeAll(jobs)
-	for _, job := range jobs {
-		ids, err := jobProcessIDs(job)
-		if err != nil {
-			return err
-		}
-		if slices.Contains(ids, uint32(holderPID)) {
-			continue
-		}
+// KeepOnClose stops the held jobs from ending their processes when their
+// last handle closes, so a machine service left in one outlives it.
+func (h *HeldJobs) KeepOnClose() error {
+	for _, job := range h.jobs {
 		if err := KeepJobOnClose(windows.Handle(job)); err != nil {
-			return fmt.Errorf("proc: a job process %d holds: %w", holderPID, err)
+			return fmt.Errorf("proc: a held job: %w", err)
 		}
 	}
 	return nil
+}
+
+// End ends every process in the held jobs at once.
+func (h *HeldJobs) End() error {
+	var failures error
+	for _, job := range h.jobs {
+		if err := windows.TerminateJobObject(windows.Handle(job), 1); err != nil {
+			failures = errors.Join(failures, fmt.Errorf("proc: end a held job: %w", err))
+		}
+	}
+	return failures
+}
+
+// Close lets go of the held jobs.
+func (h *HeldJobs) Close() {
+	closeAll(h.jobs)
+	h.jobs = nil
 }
 
 // KeepJobOnClose stops job from ending its processes when its last handle
@@ -146,10 +194,23 @@ func EndJobMember(job windows.Handle, pid int) {
 	}
 }
 
+// endingWait is how long a holder that refused a handle is given to show an
+// exit status. A holder that is ending and one Windows protects refuse a
+// handle in the same way, and only the first gets a status.
+const endingWait = 2 * time.Second
+
 // heldJobs duplicates, with access, every job object holderPID holds open.
 // The caller closes them.
 func heldJobs(holderPID int, access uint32) ([]syscall.Handle, error) {
-	holder, err := syscall.OpenProcess(processDupHandle, false, uint32(holderPID))
+	return heldJobsBy(holderPID, access, syscall.DuplicateHandle)
+}
+
+// heldJobsBy is heldJobs copying each handle with duplicate. A holder that is
+// ending holds none: Windows lists the handles it has yet to close and
+// refuses each, and one that ends after the handle table was read is still
+// in it, so a refusal is no error once the holder has an exit status.
+func heldJobsBy(holderPID int, access uint32, duplicate func(source, handle, target syscall.Handle, copied *syscall.Handle, access uint32, inherit bool, options uint32) error) ([]syscall.Handle, error) {
+	holder, err := syscall.OpenProcess(processDupHandle|processQueryLimitedInformation, false, uint32(holderPID))
 	if err != nil {
 		return nil, fmt.Errorf("proc: open process %d: %w", holderPID, err)
 	}
@@ -185,13 +246,34 @@ func heldJobs(holderPID int, access uint32) ([]syscall.Handle, error) {
 			continue
 		}
 		var job syscall.Handle
-		if err := syscall.DuplicateHandle(holder, syscall.Handle(entry.handle), current, &job, access, false, 0); err != nil {
+		if err := duplicate(holder, syscall.Handle(entry.handle), current, &job, access, false, 0); err != nil {
 			closeAll(jobs)
+			if isEnding(holder) {
+				return nil, nil
+			}
 			return nil, fmt.Errorf("proc: read a job process %d holds: %w", holderPID, err)
 		}
 		jobs = append(jobs, job)
 	}
 	return jobs, nil
+}
+
+// isEnding reports whether the process behind handle has an exit status
+// within endingWait. A process being ended refuses its handles a moment
+// before it has one.
+func isEnding(process syscall.Handle) bool {
+	for deadline := time.Now().Add(endingWait); ; time.Sleep(10 * time.Millisecond) {
+		var code uint32
+		if err := syscall.GetExitCodeProcess(process, &code); err != nil {
+			return false
+		}
+		if code != stillActive {
+			return true
+		}
+		if time.Now().After(deadline) {
+			return false
+		}
+	}
 }
 
 func closeAll(handles []syscall.Handle) {
