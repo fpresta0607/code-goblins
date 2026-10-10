@@ -8,7 +8,7 @@ import (
 
 // The store keeps how long each of a project's tests took, and a later run
 // adds what it timed to what is there: a run of one package forgets nothing
-// of another, and a test timed again has its latest time.
+// of another, and a test that passed faster has its faster time.
 func TestKeepTimesAddsARunsTimesToTheProjectsRecord(t *testing.T) {
 	// Arrange
 	t.Setenv("CFO_VERIFY_DIR", t.TempDir())
@@ -32,6 +32,32 @@ func TestKeepTimesAddsARunsTimesToTheProjectsRecord(t *testing.T) {
 	}
 	if len(times) != 2 || len(times["example.com/m/a"]) != 2 || times["example.com/m/a"]["TestOne"] != 1.5 || times["example.com/m/a"]["TestTwo"] != 4 || times["example.com/m/b"]["TestThree"] != 0.2 {
 		t.Errorf("Times = %v, want TestOne 1.5 and TestTwo 4 in a and TestThree 0.2 in b", times)
+	}
+}
+
+// A test keeps the fastest time it has passed in. A push leaves out the tests
+// the record has as slow, and a test left out is not run, so it would never
+// be timed again: on 2026-10-10 two hours of replays on a busy machine moved
+// 13 tests of internal/supervisor and 3 of cmd/cfo past two seconds, and
+// each would have stayed out of every later push that did not touch its
+// file.
+func TestKeepTimesKeepsATestsFastestPass(t *testing.T) {
+	// Arrange
+	t.Setenv("CFO_VERIFY_DIR", t.TempDir())
+	quiet := map[string]map[string]float64{"example.com/m/a": {"TestOne": 1.2, "TestTwo": 30}}
+	busy := map[string]map[string]float64{"example.com/m/a": {"TestOne": 9.5, "TestTwo": 12}}
+
+	// Act
+	quietErr := KeepTimes("m", quiet)
+	busyErr := KeepTimes("m", busy)
+	times, err := Times("m")
+
+	// Assert
+	if quietErr != nil || busyErr != nil || err != nil {
+		t.Fatalf("errors: %v, %v, %v; want none", quietErr, busyErr, err)
+	}
+	if got := times["example.com/m/a"]; got["TestOne"] != 1.2 || got["TestTwo"] != 12 {
+		t.Errorf("Times = %v, want TestOne still 1.2 and TestTwo 12", got)
 	}
 }
 
