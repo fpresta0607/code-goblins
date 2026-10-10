@@ -7,6 +7,7 @@ import (
 	"golang.org/x/sys/windows"
 
 	"github.com/fpresta0607/code-goblins/internal/priority"
+	"github.com/fpresta0607/code-goblins/internal/priority/prioritytest"
 )
 
 // A terminal's host runs one priority class above normal, and everything it
@@ -17,13 +18,7 @@ import (
 // the console server all run at normal.
 func TestWhatARaisedHostStartsForItsConsoleRunsAtNormal(t *testing.T) {
 	// Arrange
-	usual, err := windows.GetPriorityClass(windows.CurrentProcess())
-	if err != nil {
-		t.Fatal(err)
-	}
-	if usual != windows.NORMAL_PRIORITY_CLASS {
-		t.Skipf("this test runs at priority class %#x, so it cannot raise itself from normal", usual)
-	}
+	prioritytest.FromNormal(t)
 	defer priority.AboveTheWork()()
 	if raised, err := windows.GetPriorityClass(windows.CurrentProcess()); err != nil || raised != windows.ABOVE_NORMAL_PRIORITY_CLASS {
 		t.Fatalf("this process runs at priority class %#x (%v), so nothing here is started by a raised process", raised, err)

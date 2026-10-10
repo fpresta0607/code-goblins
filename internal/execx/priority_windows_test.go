@@ -9,6 +9,7 @@ import (
 
 	"github.com/fpresta0607/code-goblins/internal/fsx"
 	"github.com/fpresta0607/code-goblins/internal/priority"
+	"github.com/fpresta0607/code-goblins/internal/priority/prioritytest"
 )
 
 // The fleet's controls run one priority class above normal, and what they
@@ -17,13 +18,7 @@ import (
 // the normal class as long as its start names no class, which no start
 // through this package does.
 func TestWhatARaisedProcessStartsThroughExecxRunsAtNormal(t *testing.T) {
-	usual, err := windows.GetPriorityClass(windows.CurrentProcess())
-	if err != nil {
-		t.Fatal(err)
-	}
-	if usual != windows.NORMAL_PRIORITY_CLASS {
-		t.Skipf("this test runs at priority class %#x, so it cannot raise itself from normal", usual)
-	}
+	prioritytest.FromNormal(t)
 	for _, entry := range []string{"run", "start", "command"} {
 		t.Run(entry, func(t *testing.T) {
 			// Arrange

@@ -16,6 +16,7 @@ import (
 	"golang.org/x/sys/windows"
 
 	"github.com/fpresta0607/code-goblins/internal/home"
+	"github.com/fpresta0607/code-goblins/internal/priority/prioritytest"
 	"github.com/fpresta0607/code-goblins/internal/proc"
 	"github.com/fpresta0607/code-goblins/internal/state"
 )
@@ -276,13 +277,8 @@ func TestStopResourcesIssuesEveryTerminationBeforeWaiting(t *testing.T) {
 func TestAStopRunsAboveTheWorkItEndsAndGivesItsPriorityBack(t *testing.T) {
 	// Arrange
 	terminal := Identity{PID: 4242, Started: time.Date(2026, 10, 10, 8, 0, 0, 0, time.UTC)}
-	usual, err := windows.GetPriorityClass(windows.CurrentProcess())
-	if err != nil {
-		t.Fatal(err)
-	}
-	if usual != windows.NORMAL_PRIORITY_CLASS {
-		t.Skipf("this test runs at priority class %#x, so it cannot see a stop rise above the usual one", usual)
-	}
+	prioritytest.FromNormal(t)
+	usual := uint32(windows.NORMAL_PRIORITY_CLASS)
 	during := map[string]uint32{}
 	seen := func(what string) {
 		class, err := windows.GetPriorityClass(windows.CurrentProcess())
