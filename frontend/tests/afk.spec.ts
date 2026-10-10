@@ -570,6 +570,77 @@ test("with nothing for him still waiting, the report has no Go through them and 
   await expect(report(page)).toHaveCount(0);
 });
 
+// The Overlord, 2026-10-09: "disk free I think would be a good one to include
+// in the AFK report for usage, to see if disk increased or decreased as I was
+// gone. Just have it next to the Claude Code usage metrics in that same little
+// section. Make sure it's clean, minimal text, the same type of styling as the
+// Claude usage". Free disk is the last row under Spent, drawn as the limits
+// above it: its mark, the drive, a bar of the drive, what is free and what AFK
+// used or freed, with the arrow pointing back over disk it freed. A change too
+// small to say moves nothing, and a disk not read at both ends has no row.
+const GB = 2 ** 30;
+const drive = (on: number, off: number) => ({ drive: "C:", total: 1000 * GB, on: on * GB, off: off * GB });
+const DISK_ROWS: { name: string; disk: object; text: string; label: string; before: string; stretch: string; back: boolean; chip: string }[] = [
+  { name: "that fell", disk: drive(340.5, 337), text: "Disk (C:)337.0 GB freeAFK used 3.5 GB", label: "Disk (C:): 337.0 GB free, from 340.5 GB to 337.0 GB free while AFK was on", before: "width: 65.95%;", stretch: "left: 65.95%; width: 0.35%;", back: false, chip: "AFK used 3.5 GB" },
+  { name: "that rose", disk: drive(325.5, 337), text: "Disk (C:)337.0 GB freeAFK freed 11.5 GB", label: "Disk (C:): 337.0 GB free, from 325.5 GB to 337.0 GB free while AFK was on", before: "width: 66.3%;", stretch: "left: 66.3%; width: 1.15%;", back: true, chip: "AFK freed 11.5 GB" },
+  { name: "that stayed", disk: drive(337.03125, 337), text: "Disk (C:)337.0 GB freeAFK used 0 GB", label: "Disk (C:): 337.0 GB free, from 337.0 GB to 337.0 GB free while AFK was on", before: "width: 66.3%;", stretch: "", back: false, chip: "AFK used 0 GB" },
+];
+for (const row of DISK_ROWS) {
+  test("free disk " + row.name + " while AFK was on is the last row under Spent, drawn as the limits above it", async ({ page }) => {
+    // Arrange
+    await open(page, snapshot({ afk: KEPT }));
+    await page.route("**/api/afk/report", (route) => route.fulfill({ json: { ...REPORT, disk: row.disk } }));
+    await openCfoPanel(page);
+
+    // Act
+    await header(page).getByRole("button", { name: "Open the last AFK report" }).click();
+
+    // Assert
+    const spent = report(page).getByRole("region", { name: "Spent" }).locator("li");
+    await expect(spent).toHaveCount(4);
+    const disk = spent.last();
+    await expect(disk).toHaveText(row.text);
+    await expect(disk.locator(".afk-spent-mark svg")).toBeVisible();
+    await expect(disk.getByRole("img", { name: row.label })).toBeVisible();
+    await expect(disk.locator(".afk-spent-before")).toHaveAttribute("style", row.before);
+    if (row.stretch) {
+      await expect(disk.locator(".afk-spent-used")).toHaveAttribute("style", row.stretch);
+      await expect(disk.locator(".afk-spent-arrow")).toHaveAttribute("style", row.stretch);
+      await expect(disk.locator(".afk-spent-arrow.back")).toHaveCount(row.back ? 1 : 0);
+      await expect(disk.locator(".afk-spent-change.used")).toHaveText(row.chip);
+    } else {
+      await expect(disk.locator(".afk-spent-used, .afk-spent-arrow")).toHaveCount(0);
+      await expect(disk.locator(".afk-spent-change")).toHaveText(row.chip);
+      await expect(disk.locator(".afk-spent-change.used")).toHaveCount(0);
+    }
+    // Its figures stay clear of its bar, which is as long as the limit's.
+    const lanes = await spent.evaluateAll((rows) => rows.map((one) => ["graph", "value"].map((part) => { const box = one.querySelector(".afk-spent-" + part)?.getBoundingClientRect(); return box ? [Math.round(box.left), Math.round(box.right)] : null; })));
+    const [bar, figures] = lanes[3];
+    expect(bar![1]).toBeLessThan(figures![0]);
+    expect(bar).toEqual(lanes[0][0]);
+  });
+}
+
+test("free disk is the only row under Spent when no allowance was used, and has no row when it was not read at both ends", async ({ page }) => {
+  // Arrange
+  await open(page, snapshot({ afk: KEPT }));
+  await page.route("**/api/afk/report", (route) => route.fulfill({ json: { ...REPORT, spent: [], disk: drive(340.5, 337) } }));
+  await openCfoPanel(page);
+
+  // Act
+  await header(page).getByRole("button", { name: "Open the last AFK report" }).click();
+
+  // Assert
+  await expect(report(page).getByRole("region", { name: "Spent" }).locator("li")).toHaveText(["Disk (C:)337.0 GB freeAFK used 3.5 GB"]);
+  await report(page).getByRole("button", { name: "Close the report" }).click();
+  // A report with no disk reading, as the supervisor sends one read at one end.
+  await page.route("**/api/afk/report", (route) => route.fulfill({ json: REPORT }));
+  await header(page).getByRole("button", { name: "Open the last AFK report" }).click();
+  const spent = report(page).getByRole("region", { name: "Spent" });
+  await expect(spent.locator("li")).toHaveCount(3);
+  expect(await spent.evaluate((section) => section.textContent)).not.toMatch(/disk/i);
+});
+
 // The Overlord, 2026-10-09: "If I have all these left for me, why are they not
 // presented in the Command Center?" and, at 12:50Z, "in AFK mode chief should
 // review and answer the decision himself but walk through should open it with

@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/fpresta0607/code-goblins/internal/afk"
+	"github.com/fpresta0607/code-goblins/internal/disk"
 	"github.com/fpresta0607/code-goblins/internal/fsx"
 	"github.com/fpresta0607/code-goblins/internal/harness"
 	"github.com/fpresta0607/code-goblins/internal/home"
@@ -340,10 +341,11 @@ func switchedSays(from, asked, to string) string {
 // Overlord from a terminal or a board of his own, which from names, or the
 // registered CFO at his ask, which from names with his words in asked. It
 // waits on no program: the allowance it keeps is the supervisor's last
-// reading. Turning it on removes the report of the stretch before and tells
-// the CFO through its wake queue; turning it off keeps the report of the
-// stretch first, so a stretch never ends without one, and tells the CFO to
-// write it into its terminal. Its caller holds runRequests.
+// reading, and the free disk it keeps beside it is one system call. Turning
+// it on removes the report of the stretch before and tells the CFO through
+// its wake queue; turning it off keeps the report of the stretch first, so a
+// stretch never ends without one, and tells the CFO to write it into its
+// terminal. Its caller holds runRequests.
 func (s *Service) switchAFKAs(from, asked string, on bool) error {
 	stateDir := s.Store.Home.State
 	s.afkChange.Lock()
@@ -378,10 +380,14 @@ func (s *Service) switchAFKAs(from, asked string, on bool) error {
 		if err != nil {
 			return err
 		}
+		kept := s.keepAFKDisk()
 		// What the board's view kept of the stretch before goes with its
 		// report.
 		s.reads.forget(afkLogKind+current.Session, filepath.Join(stateDir, "afk.audit"))
-		return s.afkNotice(switchedSays(from, asked, "on") + ": he is away until he turns it off, and nothing prompts him meanwhile. Decide everything its authority covers yourself and log each decision. Ask him nothing and hold nothing for him: what only he can do gets a backlog row and a cfo afk log --kind left line, and the work goes around it. Its terms stand above this queue.")
+		if err := s.afkNotice(switchedSays(from, asked, "on") + ": he is away until he turns it off, and nothing prompts him meanwhile. Decide everything its authority covers yourself and log each decision. Ask him nothing and hold nothing for him: what only he can do gets a backlog row and a cfo afk log --kind left line, and the work goes around it. Its terms stand above this queue."); err != nil {
+			return err
+		}
+		return kept
 	}
 	current.Ended, current.EndedFrom, current.EndedAsked = now, from, asked
 	if err := afk.SaveReport(stateDir, s.afkReport(current, allowance)); err != nil {
@@ -396,6 +402,31 @@ func (s *Service) switchAFKAs(from, asked string, on bool) error {
 		return err
 	}
 	return s.afkNotice(switchedSays(from, asked, "off") + ": he is back and decides again, so the standing rules apply. " + s.askLeftForHim(current.Session, now) + "Write the report of the stretch into your terminal: cfo afk report")
+}
+
+// afkDisk is free disk as the board's disk meter reads it now, which AFK mode
+// records when it turns on and when it turns off, or nil for a disk that
+// cannot be read: a reading not taken is left out of the report, never noted.
+func (s *Service) afkDisk() *disk.Reading {
+	read, err := s.machineDisk()
+	if err != nil {
+		return nil
+	}
+	return &read.Reading
+}
+
+// keepAFKDisk keeps the free disk read now in the switch that just turned on,
+// for the report of its stretch. The switch is made by then, so a reading that
+// cannot be kept says so and undoes nothing.
+func (s *Service) keepAFKDisk() error {
+	free := s.afkDisk()
+	if free == nil {
+		return nil
+	}
+	if err := afk.KeepDisk(s.Store.Home.State, *free); err != nil {
+		return fmt.Errorf("the switch was made, but the free disk read then could not be kept: %w", err)
+	}
+	return nil
 }
 
 // askLeftForHim puts each line the stretch left for the Overlord, and the
@@ -615,11 +646,12 @@ func (s *Service) holdForOverlord(now time.Time) error {
 // afkReport is the report of the stretch ended holds: the log's decisions and
 // pauses at a floor, what each goblin reported done, each item held or left
 // for the Overlord with what became of it, and the allowance read when it
-// turned on beside after, read when it turned off. A reading not taken is
-// left out, never noted.
+// turned on beside after, read when it turned off, with the free disk read
+// then beside the free disk read now. A reading not taken is left out, never
+// noted.
 func (s *Service) afkReport(ended afk.State, after []afk.Allowance) afk.Report {
 	stateDir := s.Store.Home.State
-	report := afk.Report{Session: ended.Session, Since: ended.Since, Ended: ended.Ended, From: ended.From, Asked: ended.Asked, EndedFrom: ended.EndedFrom, EndedAsked: ended.EndedAsked, Before: ended.Allowance, After: after}
+	report := afk.Report{Session: ended.Session, Since: ended.Since, Ended: ended.Ended, From: ended.From, Asked: ended.Asked, EndedFrom: ended.EndedFrom, EndedAsked: ended.EndedAsked, Before: ended.Allowance, After: after, DiskBefore: ended.Disk, DiskAfter: s.afkDisk()}
 	entries, unreadable, err := afk.Entries(stateDir, ended.Session)
 	switch {
 	case err != nil:

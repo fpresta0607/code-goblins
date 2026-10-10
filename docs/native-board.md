@@ -1463,7 +1463,7 @@ The supervisor is the only writer of AFK mode's three files in `state/`:
 
 | File | What it holds |
 | --- | --- |
-| `afk.json` | The switch: whether it is on, the stretch it names (`session`), since when and from where, the allowance read then, and after it turned off, when and from where. A switch the CFO made at his ask names the CFO there and keeps his words (`asked`, `ended_asked`). |
+| `afk.json` | The switch: whether it is on, the stretch it names (`session`), since when and from where, the allowance and the free disk read then, and after it turned off, when and from where. A switch the CFO made at his ask names the CFO there and keeps his words (`asked`, `ended_asked`). |
 | `afk.audit` | One JSON line for each switch, each decision the CFO logged with its evidence, what it left for him among them, each with its `diagnosis`, what was `tried`, its `options` and, for a decision the CFO answered itself, its `answer`, each item that waited on him in the Command Center, each `strike` of a line the CFO logged by mistake, which names that line's `at` as its `item` and carries the reason as its evidence, and each `settle` of a left line the CFO saw to later, which names the line the same way and carries what became of it as its evidence. Every line carries its stretch, a settle the stretch on when it was made, a strike the stretch on when it was made or else the last that ended, and a switch the CFO made at his ask carries his words as its evidence. No line is ever removed. |
 | `afk-report.json` | The report of the last stretch that ended. |
 
@@ -1483,8 +1483,9 @@ This proof says who asks and nothing of whose words those are: the CFO quotes th
 `AGENTS.md` holds that part, and the record shows him what it was switched for.
 His own switch, from the board or a terminal of his own, turns it either way whoever made the last one.
 
-Turning it on keeps the allowance, writes the log line before the switch, and puts a `review` notice keyed `afk` in the CFO's wake queue; turning it off keeps the report first, so a stretch never ends without one, and the notice tells the CFO to write it into its terminal.
+Turning it on keeps the allowance and the free disk the disk meter reads, writes the log line before the switch, and puts a `review` notice keyed `afk` in the CFO's wake queue; turning it off keeps the report first, so a stretch never ends without one, and the notice tells the CFO to write it into its terminal.
 A switch waits on no program: the allowance it keeps is the supervisor's last reading of each provider from the `quota-axi` read it already makes once a minute, and a provider's reading older than an hour is none.
+Free disk is one system call, read as the disk meter reads it at each switch, and a disk that cannot be read stops no switch.
 On 2026-10-08 the switch's own read held each turn of AFK mode for up to 20 seconds, and the report opened every status log the home and its archive held, which held turning it off for up to a minute on this machine.
 The report now opens only the status logs written since the stretch began, by the time the folder listing gives and the time an archived log's name ends with.
 Turning it on removes the report of the stretch before, from `state/afk-report.json` and from what the board's view kept of that stretch's log, so reports never pile up.
@@ -1510,6 +1511,8 @@ The log's file and each held goblin's status log are read for a snapshot only wh
 `GET /api/afk/report` is that report as the board's page reads it: `{"found": false}` while no stretch has ended, and otherwise who turned it on and off (`from` and `ended_from`, with his words in `asked` and `ended_asked` for a switch the CFO made), its decisions under the headings `cfo afk report` prints, what each goblin finished, what was held or left for him with what became of each item as it stands now, open ones first and each in the order it came to him, a line the CFO settled with what became of it in `settled`, how long it lasted and what was spent, with every list present.
 `spent` holds each allowance used: `provider` and `window`, the percent used when it turned on and when it turned off as `on` and `off`, each absent for a reading not taken, and `reset` when the window reset in between, or for a credit balance `credits` with what was `spent` of it in `unit`.
 A window at 0% wherever it was read is left out, and so is a credit balance not read at both ends or that did not fall, in the page and in the text alike.
+`disk` holds free disk on the drive the disk meter reads: its `drive` and `total`, and the bytes free when it turned on and when it turned off as `on` and `off`.
+It is absent unless free disk was read at both ends on one drive, since the meter reads whichever of the home's drive and its Dev Drive has less free.
 The board's filtering and presentation are documented in [the README](../README.md#afk-mode).
 
 `cfo afk log`, `cfo pr merge` and `cfo answer` send a decision as `afk-log`, which the supervisor writes only for a process it proves runs under the registered CFO, the proof a question takes, and only while AFK mode is on.
@@ -1542,7 +1545,7 @@ The Overlord's `cfo afk off` is the way back, under the same proof as any switch
 What the switch held is not known then, so no stretch ends and no report is built; the log keeps what was decided.
 His `cfo afk on` is refused until the switch reads again, since it would guess at what the switch held.
 
-The report is built from the stretch's lines of the log, the `done: PR <url>` lines every status log and archived status log holds from that stretch, each held item with what became of it on the board and its goblin's latest report since, and the allowance read when it turned on beside the one read when it turned off.
+The report is built from the stretch's lines of the log, the `done: PR <url>` lines every status log and archived status log holds from that stretch, each held item with what became of it on the board and its goblin's latest report since, and the allowance read when it turned on beside the one read when it turned off, with free disk the same way.
 A held question the log holds an answer decision for is a decision, so the report and `cfo afk status` list it there and not as held.
 Only the log says so: a held question the board closed as the CFO's with no decision logged stays in the report's `held` data, not waiting, and says no decision was logged for it.
 In the report data, a held question the CFO answered after the stretch ended, under the standing rules where nothing is logged, says `answered by the CFO after AFK mode ended` when read again; an answer with no time recorded, or one at or before the end, keeps the word that no decision was logged.

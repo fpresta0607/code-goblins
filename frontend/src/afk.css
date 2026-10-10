@@ -91,19 +91,20 @@
 .afk-report .disclosure.afk-drawer > summary .column-count { margin-left: -2px; }
 .afk-report .disclosure.afk-drawer > .disclosure-content { padding: 0; }
 
-/* Spent: an allowance to a row, its mark, its name, a bar of the percent used
-   and the percents themselves with what AFK used beside them. Gray is what was
-   used before AFK turned on and green what AFK used, which a green arrow spans
-   from where it stood then to where it stood when AFK turned off. The legend
-   beside the heading says the same in two words each. A phone puts the bar on
-   a row of its own. */
+/* Spent: an allowance to a row and free disk on the last, its mark, its name,
+   a bar of the percent used and what is left with what AFK used beside it.
+   Gray is what was used before AFK turned on and green what AFK used, which a
+   green arrow spans from where it stood then to where it stood when AFK turned
+   off. The legend beside the heading says the same in two words each. The
+   rows share their columns, so every bar is one length and the last column is
+   as wide as its widest figures. A phone puts the bar on a row of its own. */
 .afk-spent-legend { display: inline-flex; align-items: center; gap: 6px; margin-left: auto; color: var(--muted); font: 500 .875rem/1.3 var(--font-body); }
 .afk-spent-legend i { display: inline-block; width: 12px; height: 6px; border-radius: 999px; }
 .afk-spent-legend i.before { background: rgba(163, 179, 194, 0.45); }
 .afk-spent-legend i.used { margin-left: 8px; background: var(--accent-green); }
 .afk-spent-legend i.left { margin-left: 8px; background: rgba(163, 179, 194, 0.16); }
-.afk-spent { display: grid; gap: 8px; list-style: none; margin: 0; padding: 0; }
-.afk-spent li { display: grid; grid-template-columns: auto minmax(9rem, 13rem) minmax(0, 1fr) 14rem; align-items: center; gap: 12px; min-height: 52px; padding: 10px 14px; border: 1px solid var(--glass-border); border-radius: var(--radius); background: var(--ghost-bg); }
+.afk-spent { display: grid; grid-template-columns: auto minmax(9rem, 13rem) minmax(0, 1fr) auto; gap: 8px; list-style: none; margin: 0; padding: 0; }
+.afk-spent li { display: grid; grid-column: 1 / -1; grid-template-columns: subgrid; align-items: center; gap: 12px; min-height: 52px; padding: 10px 14px; border: 1px solid var(--glass-border); border-radius: var(--radius); background: var(--ghost-bg); }
 .afk-spent-mark { display: grid; place-items: center; width: 30px; height: 30px; border-radius: 8px; background: var(--field-bg); color: #e8eef2; }
 .afk-spent-mark .icon { width: 18px; height: 18px; }
 .afk-spent-name { color: #dfe9ef; overflow-wrap: anywhere; }
@@ -116,11 +117,16 @@
 .afk-spent-arrow { position: absolute; bottom: 12px; height: 10px; min-width: 12px; }
 .afk-spent-arrow::before { content: ""; position: absolute; left: 0; right: 7px; top: 4px; height: 2px; border-radius: 2px; background: var(--accent-green); }
 .afk-spent-arrow::after { content: ""; position: absolute; right: 0; top: 0; border-left: 8px solid var(--accent-green); border-top: 5px solid transparent; border-bottom: 5px solid transparent; }
+/* Disk that AFK freed: its arrow points back, from where the disk stood to
+   where it ended. */
+.afk-spent-arrow.back::before { left: 7px; right: 0; }
+.afk-spent-arrow.back::after { right: auto; left: 0; border-left: 0; border-right: 8px solid var(--accent-green); }
 .afk-spent-value { grid-column: -2 / -1; display: inline-flex; align-items: center; gap: 10px; justify-self: end; color: #edf4f3; font: 700 1.0625rem/1.3 var(--font-body); font-variant-numeric: tabular-nums; white-space: nowrap; }
 .afk-spent-change { display: inline-flex; align-items: center; gap: 4px; padding: 2px 8px; border: 1px solid var(--border); border-radius: 999px; color: var(--muted); font: 600 .875rem/1.3 var(--font-body); }
 .afk-spent-change.used { border-color: #00e59b66; background: #00e59b1a; color: var(--accent-green); }
 .afk-spent-change .icon { width: 14px; height: 14px; }
 @media (max-width: 40rem) {
+  .afk-spent { grid-template-columns: minmax(0, 1fr); }
   .afk-spent li { grid-template-columns: auto minmax(0, 1fr) auto; row-gap: 6px; }
   .afk-spent-graph { grid-column: 1 / -1; grid-row: 2; }
 }

@@ -732,11 +732,14 @@ A weekly limit shows what is left, such as **51% left**, beside **AFK used 8%**,
 Equal-length bars show usage before AFK in gray, usage while AFK in green under a green arrow, and what is left as the empty rest, with the legend **Before AFK While AFK Left**.
 With a reading at only one end, the row shows only what is left, with no bar, change chip or line saying a reading was not taken.
 Credit rows show the amount spent without a percent bar.
+The last row is **Disk** with its drive, the one the **Disk free** meter reads: what is free now, such as **337.0 GB free**, beside **AFK used 3.3 GB**, or **AFK freed 11.4 GB** when free disk rose, on a bar of the whole drive.
+Its arrow points forward over disk AFK used and back over disk AFK freed, and a change under a tenth of a gigabyte shows no arrow.
+The row is there only when free disk was read on the same drive both when AFK turned on and when it turned off.
 The button beside the toggle opens the last report again.
 Each time you open it, For you is checked again, so an item you answered moves to Settled.
 `cfo afk status` shows who turned it on and when, what the CFO has decided so far and what waits on you in the Command Center.
 `cfo afk off` prints a text report, `cfo afk report` prints it again, and every decision stays in `state\afk.audit`.
-The text report keeps held items' current dispositions and allowance readings at both ends, as in the example below; the board uses the presentation above.
+The text report keeps held items' current dispositions and the allowance and free disk readings at both ends, as in the example below; the board uses the presentation above.
 If the switch itself ever cannot be read, a press on the board's toggle or `cfo afk off` puts it back to off.
 
 ```text
@@ -763,6 +766,7 @@ Goblins finished (1)
 
 Spent
 - claude week: 40% used when it turned on, 47% when it turned off (7 points)
+- disk (C:): 340.3 GB free when it turned on, 337 GB when it turned off (3.3 GB used)
 ```
 
 AFK mode shares the supervisor's allowance pause at each provider's weekly floor and its automatic resume at the reset.
