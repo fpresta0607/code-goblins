@@ -12,65 +12,22 @@ import (
 	"path/filepath"
 	"regexp"
 	"strings"
-	"sync"
 	"sync/atomic"
 	"syscall"
 	"testing"
-	"time"
+
+	"github.com/fpresta0607/code-goblins/internal/standin"
 )
-
-// standInVariable makes a copy of this test binary stand in for a program,
-// such as cfo.exe or no-mistakes.exe, whose every command succeeds unless
-// standInFailVariable names it.
-const standInVariable = "CODE_GOBLINS_TEST_STAND_IN"
-
-// standInRecordVariable names a file a stand-in appends each command it runs
-// to, as its program's name and arguments on a line.
-const standInRecordVariable = "CODE_GOBLINS_TEST_STAND_IN_RECORD"
-
-// standInVersionVariable is the version a stand-in no-mistakes reports on
-// stdout for --version, as no-mistakes version vX.Y.Z does.
-const standInVersionVariable = "CODE_GOBLINS_TEST_STAND_IN_VERSION"
-
-// standInStderrVariable is text a stand-in writes to stderr for --version,
-// where no-mistakes writes its update notice.
-const standInStderrVariable = "CODE_GOBLINS_TEST_STAND_IN_STDERR"
-
-// standInFailVariable names a command, such as daemon stop, a stand-in exits
-// 1 for, as no-mistakes refuses to stop its daemon while a gate runs.
-const standInFailVariable = "CODE_GOBLINS_TEST_STAND_IN_FAIL"
 
 // standInHold is the command that keeps a stand-in running, as a no-mistakes
 // command still running holds its program.
 const standInHold = "hold"
 
-func TestMain(m *testing.M) {
-	if os.Getenv(standInVariable) != "" {
-		command := strings.Join(os.Args[1:], " ")
-		if record := os.Getenv(standInRecordVariable); record != "" {
-			program := strings.TrimSuffix(strings.ToLower(filepath.Base(os.Args[0])), ".exe")
-			file, err := os.OpenFile(record, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o600)
-			if err != nil {
-				os.Exit(1)
-			}
-			_, _ = fmt.Fprintf(file, "%s\r\n", strings.Join(append([]string{program}, os.Args[1:]...), " "))
-			_ = file.Close()
-		}
-		switch command {
-		case standInHold:
-			time.Sleep(time.Hour)
-		case "--version":
-			_, _ = fmt.Fprint(os.Stderr, os.Getenv(standInStderrVariable))
-			if version := os.Getenv(standInVersionVariable); version != "" {
-				fmt.Printf("no-mistakes version v%s (0000000) 2026-01-01T00:00:00Z\n", version)
-			}
-		}
-		if fail := os.Getenv(standInFailVariable); fail != "" && command == fail {
-			os.Exit(1)
-		}
-		os.Exit(0)
-	}
-	os.Exit(m.Run())
+// reportsVersion has a stand-in no-mistakes report version on stdout for
+// --version, as no-mistakes version vX.Y.Z does, and write notice to stderr,
+// where no-mistakes writes its update notice.
+func reportsVersion(version, notice string) standin.Rule {
+	return standin.Rule{Args: "--version", Stdout: "no-mistakes version v" + version + " (0000000) 2026-01-01T00:00:00Z\n", Stderr: notice}
 }
 
 func installScript(t *testing.T) string {
@@ -159,27 +116,6 @@ func publishedSums(archive string, sum [32]byte) string {
 	return fmt.Sprintf("%x  no-mistakes-v0.0.0-darwin-arm64.tar.gz\n%x  %s\n", sha256.Sum256([]byte("another platform")), sum, archive)
 }
 
-// readStandIn is this test binary's content, read once: most tests here
-// serve a copy as the stand-in cfo.exe, many also as no-mistakes.exe, and it
-// is several megabytes.
-var readStandIn = sync.OnceValues(func() ([]byte, error) {
-	executable, err := os.Executable()
-	if err != nil {
-		return nil, err
-	}
-	return os.ReadFile(executable)
-})
-
-// standIn is this test binary's content, for a stand-in program.
-func standIn(t *testing.T) []byte {
-	t.Helper()
-	program, err := readStandIn()
-	if err != nil {
-		t.Fatal(err)
-	}
-	return program
-}
-
 // noMistakesSetup is what one install run starts from.
 type noMistakesSetup struct {
 	// stubs are .cmd stand-ins first on PATH, where %RECORD% names the
@@ -190,8 +126,9 @@ type noMistakesSetup struct {
 	// staleWindow leaves the folder the install puts no-mistakes in off PATH,
 	// as in a window opened before no-mistakes was installed there.
 	staleWindow bool
-	// env is added to the install's environment.
-	env []string
+	// rules are what the stand-in programs do for the commands the install
+	// runs; a command with no rule succeeds.
+	rules []standin.Rule
 	// scanner holds a file of the install's own open while it runs.
 	scanner *scanner
 }
@@ -219,7 +156,7 @@ type noMistakesInstall struct {
 // no-mistakes in comes last on PATH unless the setup says the window is stale.
 func runInstallWithNoMistakes(t *testing.T, shell, releases string, setup noMistakesSetup) noMistakesInstall {
 	t.Helper()
-	binary := standIn(t)
+	binary := standin.Bytes(t)
 	base := ServeRelease(t, binary, fmt.Sprintf("%x  cfo.exe\n", sha256.Sum256(binary)))
 	record := filepath.Join(t.TempDir(), "record.txt")
 	all := map[string]string{"git": "@exit /b 0\r\n", "gh": "@exit /b 0\r\n"}
@@ -250,7 +187,7 @@ func runInstallWithNoMistakes(t *testing.T, shell, releases string, setup noMist
 			}
 		}
 	}
-	cmd.Env = append(append(cmd.Env, standInVariable+"=1", standInRecordVariable+"="+record), setup.env...)
+	cmd.Env = append(cmd.Env, standin.Env(record, setup.rules...)...)
 	if setup.seed != nil {
 		setup.seed(local)
 	}
@@ -328,7 +265,7 @@ func assertUpdated(t *testing.T, run noMistakesInstall, pinned []byte) {
 // not depend on the shell, so Windows PowerShell alone runs it; the install
 // workflow installs the real release in both PowerShells on a clean runner.
 func TestOneLineInstallRetriesTheNoMistakesDownloadThatFailsTwice(t *testing.T) {
-	program := standIn(t)
+	program := standin.Bytes(t)
 	releases, requests := serveNoMistakesReleases(t, zipped(t, "no-mistakes.exe", program), 2, publishedSums)
 
 	run := runInstallWithNoMistakes(t, WindowsPowerShell(), releases, noMistakesSetup{})
@@ -423,23 +360,20 @@ func existingNoMistakes(version string) string {
 		"@exit /b 0\r\n"
 }
 
-// olderVersion, in the install's environment, makes the older no-mistakes
-// seedNoMistakes puts in place report 1.0.0.
-const olderVersion = standInVersionVariable + "=1.0.0"
+// olderVersion makes the older no-mistakes seedNoMistakes puts in place
+// report 1.0.0.
+var olderVersion = reportsVersion("1.0.0", "")
 
-// seedNoMistakes copies this test binary to where the install puts
+// seedNoMistakes puts the stand-in program where the install puts
 // no-mistakes, standing in for an older no-mistakes the install put there,
 // and returns its content.
 func seedNoMistakes(t *testing.T, local string) []byte {
 	t.Helper()
-	program := standIn(t)
 	if err := os.MkdirAll(filepath.Dir(installedNoMistakes(local)), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(installedNoMistakes(local), program, 0o755); err != nil {
-		t.Fatal(err)
-	}
-	return program
+	standin.Put(t, installedNoMistakes(local))
+	return standin.Bytes(t)
 }
 
 // holdRunning keeps the stand-in at path running, as a no-mistakes command
@@ -448,7 +382,7 @@ func seedNoMistakes(t *testing.T, local string) []byte {
 func holdRunning(t *testing.T, path string) chan struct{} {
 	t.Helper()
 	running := exec.Command(path, standInHold)
-	running.Env = append(os.Environ(), standInVariable+"=1")
+	running.Env = append(os.Environ(), standin.Env("", standin.Rule{Args: standInHold, Hold: true})...)
 	running.SysProcAttr = &syscall.SysProcAttr{CreationFlags: 0x08000000} // CREATE_NO_WINDOW
 	if err := running.Start(); err != nil {
 		t.Fatal(err)
@@ -465,11 +399,11 @@ func holdRunning(t *testing.T, path string) chan struct{} {
 	return exited
 }
 
-// pinnedStandIn is a release's program that runs as this test binary does but
+// pinnedStandIn is a release's program that runs as the stand-in does but
 // ends in bytes of its own, so it is told apart from an older copy.
 func pinnedStandIn(t *testing.T) []byte {
 	t.Helper()
-	return append(append([]byte{}, standIn(t)...), "the pinned release"...)
+	return append(standin.Bytes(t), "the pinned release"...)
 }
 
 // Rerunning the install moves an older no-mistakes, where the install put it,
@@ -494,7 +428,7 @@ func TestOneLineInstallUpdatesAnOlderNoMistakesToThePinnedRelease(t *testing.T) 
 			exited = holdRunning(t, installedNoMistakes(local))
 		},
 		staleWindow: true,
-		env:         []string{olderVersion, standInStderrVariable + "=A new version of no-mistakes is available: v1.0.0 -> v999.0.0\nno-mistakes version v999.0.0 (0000000) 2026-01-01T00:00:00Z\n"},
+		rules:       []standin.Rule{reportsVersion("1.0.0", "A new version of no-mistakes is available: v1.0.0 -> v999.0.0\nno-mistakes version v999.0.0 (0000000) 2026-01-01T00:00:00Z\n")},
 	})
 
 	assertUpdated(t, run, pinned)
@@ -518,8 +452,8 @@ func TestOneLineInstallLeavesNoMistakesAloneWhileAGateRuns(t *testing.T) {
 	var older []byte
 
 	run := runInstallWithNoMistakes(t, WindowsPowerShell(), releases, noMistakesSetup{
-		seed: func(local string) { older = seedNoMistakes(t, local) },
-		env:  []string{olderVersion, standInFailVariable + "=daemon stop"},
+		seed:  func(local string) { older = seedNoMistakes(t, local) },
+		rules: []standin.Rule{olderVersion, {Args: "daemon stop", Exit: 1}},
 	})
 
 	if !strings.Contains(run.record, "no-mistakes daemon stop\r\n") || strings.Contains(run.record, "daemon start") {
@@ -593,7 +527,7 @@ func TestOneLineInstallKeepsANewerNoMistakesThatThisWindowCannotSee(t *testing.T
 	run := runInstallWithNoMistakes(t, WindowsPowerShell(), releases, noMistakesSetup{
 		seed:        func(local string) { newer = seedNoMistakes(t, local) },
 		staleWindow: true,
-		env:         []string{standInVersionVariable + "=999.0.0"},
+		rules:       []standin.Rule{reportsVersion("999.0.0", "")},
 	})
 
 	if !regexp.MustCompile(`ok\s+no-mistakes\s+present`).MatchString(run.output) {
@@ -622,8 +556,8 @@ func TestOneLineInstallRefusesANoMistakesArchiveWithoutItsProgram(t *testing.T) 
 	var older []byte
 
 	run := runInstallWithNoMistakes(t, WindowsPowerShell(), releases, noMistakesSetup{
-		seed: func(local string) { older = seedNoMistakes(t, local) },
-		env:  []string{olderVersion},
+		seed:  func(local string) { older = seedNoMistakes(t, local) },
+		rules: []standin.Rule{olderVersion},
 	})
 
 	if !strings.Contains(run.output, "holds no no-mistakes.exe") || !notCompleted.MatchString(run.output) {

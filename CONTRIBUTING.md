@@ -60,6 +60,19 @@ The process value answers before the user scope, so the pin keeps the package of
 go test ./...
 ```
 
+### Tests that start a program
+
+A test that needs some program to start uses the one stand-in program, `internal/standin/program`: `standin.Put` writes it to a path and `standin.Bytes` gives its content to serve or pack.
+`standin.Env` says what it does for a command: record it, print something, exit with a code, keep running, or copy itself into a home as an install does.
+It is built once for each Go toolchain into `cfo\standin` in the user's cache folder and reused by every test run from every checkout, and two builds of it are the same bytes.
+
+A test never serves or runs a copy of its own test binary where the stand-in would do.
+A test binary is a new unsigned program at every build, and Microsoft Defender asks its cloud about a program it has never met before it lets it start: 0.7 to 5 s on the Overlord's PC on 2026-10-10, and 39 s under load, which is past a launch deadline.
+The install tests used to serve such a copy as the `cfo.exe` that `install.ps1` downloads, renames and runs, which is what a dropper does, and Defender's verdict on those bytes then named the test binary itself, 22 times in two weeks.
+No stand-in is named after a program Windows ships, such as `rundll32.exe`, since a file with such a name outside Windows' own folders is how malware hides.
+`internal/standin`'s tests fail on a new copy of a test binary and on such a name, and list the test files that still make a copy for a stand-in that runs their package's own code.
+A test that only needs bytes it never runs uses bytes that are no program.
+
 The real-session acceptance suite needs real Herdr, Claude Code, Codex, and Pi, and is opt-in:
 
 ```powershell

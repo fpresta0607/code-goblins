@@ -15,22 +15,8 @@ import (
 	"testing"
 
 	"github.com/fpresta0607/code-goblins/internal/installtest"
+	"github.com/fpresta0607/code-goblins/internal/standin"
 )
-
-// standInVariable makes a copy of this test binary stand in for a cfo.exe
-// whose every command succeeds, or, set to fail, whose every command fails.
-const standInVariable = "CODE_GOBLINS_TEST_STAND_IN"
-
-func TestMain(m *testing.M) {
-	switch os.Getenv(standInVariable) {
-	case "":
-	case "fail":
-		os.Exit(1)
-	default:
-		os.Exit(0)
-	}
-	os.Exit(m.Run())
-}
 
 // runOneLineInstall runs install.ps1 the way the one-line command does, as
 // text through Invoke-Expression, against the release served at base.
@@ -452,14 +438,7 @@ func TestOneLineInstallLeavesTheCallersSessionAsItWas(t *testing.T) {
 // and answered with a script naming its URL, and the child records how it
 // was started and the file it was given.
 func TestOneLineInstallStartsOfficialInstallersFromAFile(t *testing.T) {
-	executable, err := os.Executable()
-	if err != nil {
-		t.Fatal(err)
-	}
-	binary, err := os.ReadFile(executable)
-	if err != nil {
-		t.Fatal(err)
-	}
+	binary := standin.Bytes(t)
 	base := installtest.ServeRelease(t, binary, fmt.Sprintf("%x  cfo.exe\n", sha256.Sum256(binary)))
 	installers := []string{
 		"https://claude.ai/install.ps1",
@@ -480,7 +459,6 @@ func TestOneLineInstallStartsOfficialInstallersFromAFile(t *testing.T) {
 				"}\n"
 			cmd, _, temp := installtest.StrippedCommand(t, base, stubs, shell, "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-Command",
 				internet+"Get-Content -Raw -LiteralPath '"+installScript(t)+"' | Invoke-Expression; exit $LASTEXITCODE")
-			cmd.Env = append(cmd.Env, standInVariable+"=1")
 
 			out, _ := cmd.CombinedOutput()
 			output := installtest.Said(out, temp)
@@ -755,21 +733,11 @@ func TestInstallCmdGivesWindowsPowerShellItsOwnModules(t *testing.T) {
 // install workflow runs the whole install in both PowerShells on a clean
 // runner.
 func TestDevBuildsOutsideTheCloneAndLeavesNoProgramInIt(t *testing.T) {
-	// Arrange: go copies a stand-in cfo.exe, a copy of this test binary that
-	// fails at every command, to the path it is told to build to.
+	// Arrange: go copies a stand-in cfo.exe, which fails at every command, to
+	// the path it is told to build to.
 	checkout := fakeCheckout(t)
-	self, err := os.Executable()
-	if err != nil {
-		t.Fatal(err)
-	}
 	standIn := filepath.Join(t.TempDir(), "stand-in.exe")
-	data, err := os.ReadFile(self)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(standIn, data, 0o755); err != nil {
-		t.Fatal(err)
-	}
+	standin.Put(t, standIn)
 	window := filepath.Join(t.TempDir(), "window")
 	if err := os.WriteFile(window, []byte("the window"), 0o644); err != nil {
 		t.Fatal(err)
@@ -778,7 +746,7 @@ func TestDevBuildsOutsideTheCloneAndLeavesNoProgramInIt(t *testing.T) {
 		"@if not \"%9\"==\"./cmd/goblins-window\" copy /y \"" + standIn + "\" \"%4\" >nul & exit /b\r\n" +
 		"@if not \"%~6\"==\"-H windowsgui\" exit /b 1\r\n@if not \"%7 %8\"==\"-tags production\" exit /b 1\r\n@copy /y \"" + window + "\" \"%4\" >nul\r\n"}
 	cmd, _, temp := installtest.StrippedCommand(t, installtest.ServeRelease(t, nil, ""), stubs, installtest.WindowsPowerShell(), "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-File", filepath.Join(checkout, "install.ps1"), "-Dev")
-	cmd.Env = append(cmd.Env, standInVariable+"=fail")
+	cmd.Env = append(cmd.Env, standin.Env("", standin.Rule{Any: true, Exit: 1})...)
 
 	// Act
 	out, _ := cmd.CombinedOutput()

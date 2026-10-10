@@ -28,22 +28,12 @@ const childFolder = "standin child folder: "
 // retries a removal Windows refuses.
 const goRetries = 4 * time.Second
 
-// writeProgram writes a copy of this test binary to dir, as the tests that
-// run stand-in programs do.
+// writeProgram puts the stand-in program in dir, as the tests that run
+// stand-in programs do.
 func writeProgram(t *testing.T, dir string) string {
 	t.Helper()
-	self, err := os.Executable()
-	if err != nil {
-		t.Fatal(err)
-	}
-	data, err := os.ReadFile(self)
-	if err != nil {
-		t.Fatal(err)
-	}
 	program := filepath.Join(dir, "program.exe")
-	if err := os.WriteFile(program, data, 0o755); err != nil {
-		t.Fatal(err)
-	}
+	Put(t, program)
 	return program
 }
 

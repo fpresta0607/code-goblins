@@ -932,6 +932,19 @@ Every check that decides a removal refuses when it cannot read what it checks, a
 - It reports, and wakes the CFO with an `orphan` wake when it reports something it had not reported before: a worktree no task records, a new folder or file in the projects root that is no checkout, a retired task's folder it would not trim, and a `data` folder over 200 MB.
 - It names, and never ends, the processes nothing proves the fleet's own: a browser bridge with no mark whose parent is gone, and a gate agent's process whose gate is gone. They reach you as one `orphan` wake for all of them, raised once for each process, with its pid, its age, the memory of its tree and its command, with the value of any argument named as a secret left out. End by pid what is the fleet's leftover and leave what is the Overlord's. Nothing about the sweep is shown to him.
 
+## Microsoft Defender
+
+The fleet's own work never trips Microsoft Defender, and it never hides from it either: it changes what it does until that no longer looks like malware.
+
+What is the Supreme Overlord's alone, which no CFO, goblin or gate does, asks for or suggests running: an exclusion, turning a protection off, his allow list, restoring a quarantined file, a submission to Microsoft, and a Dev Drive, which `cfo dev-drive` sets up only on his word and which is not an exclusion.
+Nobody writes or runs a malware test sample on his PC, the EICAR and AMSI test strings included, since the string lands in the transcript and Defender acts on that file: a proof that needs one runs on GitHub's runner.
+What Defender recorded is read with `Get-MpThreatDetection`, `Get-MpThreat`, `Get-MpComputerStatus` and the log `Microsoft-Windows-Windows Defender/Operational`, and nothing else.
+
+What keeps the work quiet:
+
+- A test that needs some program to start uses the one stand-in program of `internal/standin`, built once for each Go toolchain into `cfo\standin` in the user's cache folder and reused, so the file Defender meets is one it has met. A test never serves or runs a copy of its own test binary where the stand-in would do, and no stand-in is named after a program Windows ships. `internal/standin`'s tests fail on either, and the repository's CONTRIBUTING.md says how to use it.
+- A proof runs the installed release, which is signed. Where it must run the branch's own build, it builds once into one folder of the task's own and reuses that file: every new build of an unsigned program is one more that Defender asks its cloud about, uploads, and may convict.
+
 ## Memory
 
 The CFO's memory lives in the home, never only in a harness, so a CFO in Claude Code, Codex or Pi reads and writes the same memory.
