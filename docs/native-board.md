@@ -1572,6 +1572,7 @@ The board holds at most 64 requests, never drops an open one to make room, and p
 A taken save goes straight into the project's scope of the credential store through the same store `cfo auth store` writes, Windows Credential Manager or the file store.
 The request closes before the board answers, and then the board runs `cfo auth store`'s own refresh: each live goblin of the project gets its `auth.ps1` regenerated from the store, for the services its task carries and no other, and the one-line re-source notice, and the CFO gets a `review` wake naming the names stored, the project and the goblins told.
 A saved value reaches goblins only through their `auth.ps1` environment, never their context: that script is an owner-only file under `state/tasktmp/<task>/`, which `cfo cleanup` deletes before it archives the task (refusing to archive one it cannot delete), and the notice names the script, never the value.
+A resume or a switch removes the script too: the goblin's new terminal starts with what its task carries in its environment, and a script written for the last one could hold more.
 Beside that, and the env file a request names, the value is nowhere else: not in `state/` otherwise, the inboxes, the board's snapshot or event stream, its logs, telemetry, a wake, an error message or the save's answer, which names names and states only.
 A save's body is never logged, and a panic while one is handled answers with a fixed message and logs nothing of it.
 
