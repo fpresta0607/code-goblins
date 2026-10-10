@@ -85,8 +85,27 @@ const AuthScriptName = "auth.ps1"
 // task's record and archives its scratch directory. Any command that writes
 // into a live task's tasktmp takes the same lock, so it can neither resurrect
 // an archived directory nor write into one mid-archive.
+//
+// A cleanup holds the task's lifecycle and record locks with it, from before
+// it removes anything to its end, so it and a pause, a resume, a stop, a
+// switch or any other change of the record exclude each other: whichever
+// takes the lock both need goes on, and the other changes nothing.
 func CleanupLockName(id string) string {
 	return ".cleanup-" + id + ".lock"
+}
+
+// LifecycleLockName is the per-task lock a pause, a resume and a stop hold
+// from start to end, and under which a note for a paused goblin's resume is
+// kept.
+func LifecycleLockName(id string) string {
+	return ".lifecycle-" + id + ".lock"
+}
+
+// CleanupPurpose is what a cleanup records in the lifecycle and record locks
+// it holds, so a command that finds one held says in one line that the task
+// is being cleaned up, and the scheduler knows a resume refused for it.
+func CleanupPurpose(id string) string {
+	return "the cleanup of " + id
 }
 
 // PipelineLockName is the per-task lock the pipeline commands hold to

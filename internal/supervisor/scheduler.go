@@ -221,6 +221,22 @@ func (s *Service) pauseCleared(ctx context.Context, condition state.PauseConditi
 	return false, nil
 }
 
+// isRetiring says a resume of task id that failed with output is no failure
+// of its goblin's, because the task is being cleaned up or already was. A
+// cleanup holds its task against a resume, which then refuses naming the
+// cleanup, and a resume that starts once the cleanup has ended finds no task
+// record. Either way there is nothing left to resume, or will be nothing
+// once the cleanup ends, so nothing is shown as failed and nobody is woken
+// (2026-10-09). A cleanup that was refused in its turn leaves the goblin
+// paused, and the next reading resumes it.
+func isRetiring(stateDir, id, output string) bool {
+	if strings.Contains(output, state.CleanupPurpose(id)) {
+		return true
+	}
+	_, err := os.Stat(state.TaskMetaPath(stateDir, id))
+	return errors.Is(err, os.ErrNotExist)
+}
+
 func (s *Service) resumeAutomatically(record state.Lifecycle) error {
 	s.starts.Lock()
 	defer s.starts.Unlock()
@@ -248,7 +264,7 @@ func (s *Service) resumeAutomatically(record state.Lifecycle) error {
 		close(launched)
 		s.starts.Lock()
 		delete(s.changing, record.ID)
-		if err != nil {
+		if err != nil && !isRetiring(s.Store.Home.State, record.ID, output) {
 			s.changeErrors[record.ID] = taskChangeError{Message: spawnFailure(output, err), Generation: record.Generation, Operation: record.Operation, Updated: record.Updated}
 		}
 		s.starts.Unlock()
