@@ -3,6 +3,7 @@ package main
 import (
 	"errors"
 	"fmt"
+	"maps"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -15,6 +16,7 @@ import (
 
 	"github.com/fpresta0607/code-goblins/internal/fsx"
 	"github.com/fpresta0607/code-goblins/internal/lock"
+	"github.com/fpresta0607/code-goblins/internal/reap"
 	"github.com/fpresta0607/code-goblins/internal/wake"
 )
 
@@ -116,6 +118,16 @@ func TestEveryWakeReachesTheCFOOnceWhileADozenSessionsFireTheirHooks(t *testing.
 	// Arrange
 	h := scratchHome(t)
 	writeMetaFixture(t, h.State, "g1.meta")
+	// A watcher's first cycle sweeps the whole machine for orphans, and to
+	// this scratch home a stand-in harness another goblin's test runs beside
+	// it is one: its wake reached the CFO before the goblin's report in two
+	// runs of two while such a test ran. This home has swept, and its watcher
+	// is not due to sweep again while the test runs.
+	if err := reap.WriteRecord(h.State, reap.Record{Time: time.Now().UTC()}); err != nil {
+		t.Fatal(err)
+	}
+	waits := maps.Clone(stopWaits)
+	waits["CFO_REAP_EVERY"] = "86400"
 	others := make([]*standInSession, loadSessions-1)
 	for at := range others {
 		others[at] = startOtherSession(t, h)
@@ -187,8 +199,8 @@ func TestEveryWakeReachesTheCFOOnceWhileADozenSessionsFireTheirHooks(t *testing.
 
 		// Every session ends its turn, which fires both Stop hooks at once.
 		ended := time.Now()
-		guard := cfo.begin(t, stopWaits, own["stop"], "hook", "turnend-guard")
-		armed := cfo.begin(t, stopWaits, own["stop"], "hook", "stop-autoarm")
+		guard := cfo.begin(t, waits, own["stop"], "hook", "turnend-guard")
+		armed := cfo.begin(t, waits, own["stop"], "hook", "stop-autoarm")
 		arming := make(chan time.Duration, 1)
 		go func() {
 			for deadline := ended.Add(30 * time.Second); time.Now().Before(deadline); time.Sleep(10 * time.Millisecond) {
@@ -200,8 +212,8 @@ func TestEveryWakeReachesTheCFOOnceWhileADozenSessionsFireTheirHooks(t *testing.
 			arming <- 0
 		}()
 		everyOther(func(session *standInSession) {
-			load.quiet(session, "turnend-guard", stopWaits, other["stop"])
-			load.quiet(session, "stop-autoarm", stopWaits, other["stop"])
+			load.quiet(session, "turnend-guard", waits, other["stop"])
+			load.quiet(session, "stop-autoarm", waits, other["stop"])
 		}).Wait()
 		if guarded, isOver := guard(loadWait); !isOver {
 			t.Fatalf("round %d: the CFO's turn-end guard did not end within %s", round, loadWait)
@@ -219,7 +231,7 @@ func TestEveryWakeReachesTheCFOOnceWhileADozenSessionsFireTheirHooks(t *testing.
 
 		// The CFO's own Stop fires a second time while the first waits, then
 		// a goblin reports while every other session ends another turn.
-		if second := load.fire(cfo, "the CFO's stop-autoarm, a second firing while the first waits", stopWaits, own["stop"], "hook", "stop-autoarm"); second.Exit != 0 || second.Stderr != "" {
+		if second := load.fire(cfo, "the CFO's stop-autoarm, a second firing while the first waits", waits, own["stop"], "hook", "stop-autoarm"); second.Exit != 0 || second.Stderr != "" {
 			t.Errorf("round %d: the CFO's second Stop firing: exit = %d, stderr = %q, want it over with nothing while the first waits", round, second.Exit, second.Stderr)
 		}
 		if err := os.WriteFile(filepath.Join(h.State, "g1.status"), fmt.Appendf(nil, "needs-decision: which way, round %d\n", round), 0o644); err != nil {
@@ -228,7 +240,7 @@ func TestEveryWakeReachesTheCFOOnceWhileADozenSessionsFireTheirHooks(t *testing.
 		reported := time.Now()
 		reports++
 		ending := everyOther(func(session *standInSession) {
-			load.quiet(session, "stop-autoarm", stopWaits, other["stop"])
+			load.quiet(session, "stop-autoarm", waits, other["stop"])
 		})
 		rewake, isRewoken := armed(loadWait)
 		load.record("a goblin's report to the CFO's rewake (poll 1s, grace 1s)", time.Since(reported))
