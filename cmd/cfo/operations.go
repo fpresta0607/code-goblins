@@ -34,7 +34,16 @@ func runProject(args []string, stdout, stderr io.Writer, runtime commandRuntime)
 		fmt.Fprintln(stderr, err)
 		return 1
 	}
-	name := args[1]
+	if args[0] == "check" {
+		return runProjectCheck(h, args[1:], stdout, stderr, runtime)
+	}
+	// A project is a name or a path here as everywhere, and its record is
+	// filed under its checkout's folder name.
+	name, err := credentialScope(runtime, args[1])
+	if err != nil {
+		fmt.Fprintf(stderr, "cfo project: %v\n", err)
+		return 1
+	}
 	p := projectcfg.Path(h.Data, name)
 	switch args[0] {
 	case "show":
@@ -45,14 +54,6 @@ func runProject(args []string, stdout, stderr io.Writer, runtime commandRuntime)
 		}
 		b, _ := json.MarshalIndent(m, "", "  ")
 		fmt.Fprintln(stdout, string(b))
-		return 0
-	case "check":
-		_, e := projectcfg.Load(p)
-		if e != nil {
-			fmt.Fprintln(stderr, e)
-			return 1
-		}
-		fmt.Fprintf(stdout, "project %s: valid\n", name)
 		return 0
 	case "init":
 		if _, e := os.Stat(p); e == nil {
