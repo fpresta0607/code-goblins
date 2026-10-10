@@ -9,6 +9,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/fpresta0607/code-goblins/internal/disk"
 )
 
 func TestADecisionsLaterLineGivesItItsOutcome(t *testing.T) {
@@ -315,6 +317,82 @@ func TestSpendIsReadFromTheTwoAllowanceReadings(t *testing.T) {
 				t.Errorf("the row says %q, want %q", rows[0].says(), tc.says)
 			}
 		})
+	}
+}
+
+// freeDisk is a reading of a 924 GB drive with free gigabytes free.
+func freeDisk(drive string, free float64) *disk.Reading {
+	return &disk.Reading{Drive: drive, Free: uint64(free * (1 << 30)), Total: 924 << 30}
+}
+
+// Free disk is set beside what was spent from the reading when AFK mode turned
+// on and the one when it turned off: what AFK used of the drive, what it
+// freed, or that it did not move by the tenth of a gigabyte the report says.
+// A reading not taken at either end, or two readings of different drives,
+// leave nothing to set beside each other.
+func TestFreeDiskIsReadFromTheTwoDiskReadings(t *testing.T) {
+	change := func(on, off float64) *DiskUse {
+		return &DiskUse{Drive: "C:", Total: 924 << 30, On: freeDisk("C:", on).Free, Off: freeDisk("C:", off).Free}
+	}
+	for name, tc := range map[string]struct {
+		before, after *disk.Reading
+		want          *DiskUse
+		says          string
+	}{
+		"free disk fell":   {freeDisk("C:", 340.3), freeDisk("C:", 337), change(340.3, 337), "disk (C:): 340.3 GB free when it turned on, 337 GB when it turned off (3.3 GB used)"},
+		"free disk rose":   {freeDisk("C:", 325.6), freeDisk("C:", 337), change(325.6, 337), "disk (C:): 325.6 GB free when it turned on, 337 GB when it turned off (11.4 GB freed)"},
+		"free disk stayed": {freeDisk("C:", 337.02), freeDisk("C:", 337), change(337.02, 337), "disk (C:): 337 GB free when it turned on, 337 GB when it turned off (no change)"},
+		"a drive with no name": {&disk.Reading{Free: 20 << 30, Total: 100 << 30}, &disk.Reading{Free: 18 << 30, Total: 100 << 30},
+			&DiskUse{Total: 100 << 30, On: 20 << 30, Off: 18 << 30}, "disk: 20 GB free when it turned on, 18 GB when it turned off (2 GB used)"},
+		"read only when it turned on":      {freeDisk("C:", 340), nil, nil, ""},
+		"read only when it turned off":     {nil, freeDisk("C:", 337), nil, ""},
+		"another drive when it turned off": {freeDisk("C:", 340), freeDisk("D:", 120), nil, ""},
+		"never read":                       {nil, nil, nil, ""},
+	} {
+		t.Run(name, func(t *testing.T) {
+			use := DiskUsed(tc.before, tc.after)
+
+			if !reflect.DeepEqual(use, tc.want) {
+				t.Fatalf("DiskUsed = %+v, want %+v", use, tc.want)
+			}
+			if use != nil && use.says() != tc.says {
+				t.Errorf("the row says %q, want %q", use.says(), tc.says)
+			}
+		})
+	}
+}
+
+// The report's text sets free disk on a line after the allowances under
+// Spent, and the report kept for the stretch holds both readings. Free disk
+// alone still makes a Spent, and a reading taken at one end makes no line.
+func TestTheReportSetsFreeDiskBesideWhatWasSpent(t *testing.T) {
+	// Arrange
+	stretch, dir := nightReport(), t.TempDir()
+	stretch.DiskBefore, stretch.DiskAfter = freeDisk("C:", 340.3), freeDisk("C:", 337)
+	alone := Report{Session: "afk-2", Since: night, Ended: night.Add(time.Hour), From: "the board", EndedFrom: "the board", DiskBefore: freeDisk("C:", 325.6), DiskAfter: freeDisk("C:", 337)}
+	half := nightReport()
+	half.DiskBefore = freeDisk("C:", 340.3)
+	var out, only, unread bytes.Buffer
+
+	// Act
+	err := errors.Join(Render(&out, stretch), Render(&only, alone), Render(&unread, half), SaveReport(dir, stretch))
+	kept, found, readErr := ReadReport(dir)
+
+	// Assert
+	if err != nil || readErr != nil || !found {
+		t.Fatal(err, readErr, found)
+	}
+	if want := "Spent\n- claude week: 40% used when it turned on, 47% when it turned off (7 points)\n- disk (C:): 340.3 GB free when it turned on, 337 GB when it turned off (3.3 GB used)\n"; !strings.Contains(out.String(), want) {
+		t.Errorf("the report does not set free disk after the allowance under Spent:\n%s", out.String())
+	}
+	if want := "Spent\n- disk (C:): 325.6 GB free when it turned on, 337 GB when it turned off (11.4 GB freed)\n"; !strings.Contains(only.String(), want) {
+		t.Errorf("a stretch that spent no allowance does not say what became of free disk:\n%s", only.String())
+	}
+	if strings.Contains(unread.String(), "disk") {
+		t.Errorf("a stretch whose free disk was read at one end says something of it:\n%s", unread.String())
+	}
+	if !reflect.DeepEqual(kept.DiskBefore, stretch.DiskBefore) || !reflect.DeepEqual(kept.DiskAfter, stretch.DiskAfter) {
+		t.Errorf("the report kept = %+v and %+v, want the two readings of free disk", kept.DiskBefore, kept.DiskAfter)
 	}
 }
 

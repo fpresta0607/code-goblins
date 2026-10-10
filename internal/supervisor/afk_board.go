@@ -116,7 +116,8 @@ func (h *HTTP) switchAFKFromBoard(w http.ResponseWriter, r *http.Request) {
 // decisions under their headings, how long it lasted, each allowance used
 // with its percent at either end for the board to draw, and no list left out.
 // Asked and EndedAsked are the Overlord's words for a switch the CFO made at
-// his ask, and empty for one he made himself.
+// his ask, and empty for one he made himself. Disk is free disk at either end
+// of the stretch, and absent unless it was read at both.
 type afkReportPage struct {
 	Found      bool          `json:"found"`
 	Session    string        `json:"session"`
@@ -131,6 +132,7 @@ type afkReportPage struct {
 	Finished   []afk.Finish  `json:"finished"`
 	Held       []afk.Held    `json:"held"`
 	Spent      []afk.Used    `json:"spent"`
+	Disk       *afk.DiskUse  `json:"disk,omitempty"`
 	Notes      []string      `json:"notes"`
 }
 
@@ -154,6 +156,7 @@ func (h *HTTP) afkReport(w http.ResponseWriter, _ *http.Request) {
 		Finished: append([]afk.Finish{}, report.Finished...),
 		Held:     heldAsNow(h.Service.Store.Snapshot(), report.Held, report.Ended),
 		Spent:    append([]afk.Used{}, afk.Spent(report.Before, report.After)...),
+		Disk:     afk.DiskUsed(report.DiskBefore, report.DiskAfter),
 		Notes:    append([]string{}, report.Notes...),
 	})
 }

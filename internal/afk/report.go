@@ -13,6 +13,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/fpresta0607/code-goblins/internal/disk"
 	"github.com/fpresta0607/code-goblins/internal/fsx"
 )
 
@@ -28,7 +29,8 @@ const sameWindow = 10 * time.Minute
 
 // Report is what a stretch of AFK mode comes to when it turns off: what the
 // CFO decided under the authority with the evidence of each, what each goblin
-// finished, what is held for the Overlord and why, and what was spent.
+// finished, what is held for the Overlord and why, and what was spent, of the
+// allowance and of the disk.
 type Report struct {
 	Session string    `json:"session"`
 	Since   time.Time `json:"since"`
@@ -54,6 +56,10 @@ type Report struct {
 	// when it turned off.
 	Before []Allowance `json:"before"`
 	After  []Allowance `json:"after"`
+	// DiskBefore and DiskAfter are the free disk read when AFK mode turned on
+	// and when it turned off, each nil for a reading not taken.
+	DiskBefore *disk.Reading `json:"disk_before,omitempty"`
+	DiskAfter  *disk.Reading `json:"disk_after,omitempty"`
 	// Notes say what the report could not read.
 	Notes []string `json:"notes,omitempty"`
 }
@@ -299,6 +305,46 @@ func Spent(before, after []Allowance) []Used {
 	return rows
 }
 
+// DiskUse is free disk under the report's Spent: the bytes free on Drive when
+// AFK mode turned on and when it turned off, of the drive's Total.
+type DiskUse struct {
+	Drive string `json:"drive"`
+	Total uint64 `json:"total"`
+	On    uint64 `json:"on"`
+	Off   uint64 `json:"off"`
+}
+
+// DiskUsed sets the free disk read when AFK mode turned on beside the one read
+// when it turned off. It is nil unless both were read, and of one drive: a
+// reading not taken leaves nothing to compare, and the disk meter reads
+// whichever of the home's drive and its Dev Drive has less free, so two
+// readings of two drives say nothing of either.
+func DiskUsed(before, after *disk.Reading) *DiskUse {
+	if before == nil || after == nil || before.Drive != after.Drive {
+		return nil
+	}
+	return &DiskUse{Drive: after.Drive, Total: after.Total, On: before.Free, Off: after.Free}
+}
+
+// says is free disk as the CFO's text words it, after the rows of Spent: what
+// was free at either end and what AFK mode used or freed of it, to the tenth
+// of a gigabyte, under which free disk did not move.
+func (use DiskUse) says() string {
+	name := "disk"
+	if use.Drive != "" {
+		name += " (" + use.Drive + ")"
+	}
+	on, off := disk.GB(use.On), disk.GB(use.Off)
+	change := "no change"
+	switch moved := math.Round((off-on)*10) / 10; {
+	case moved > 0:
+		change = number(moved) + " GB freed"
+	case moved < 0:
+		change = number(-moved) + " GB used"
+	}
+	return name + ": " + number(on) + " GB free when it turned on, " + number(off) + " GB when it turned off (" + change + ")"
+}
+
 // says is a row of Spent as the CFO's text words it.
 func (row Used) says() string {
 	name := row.Provider + " " + row.Window + ": "
@@ -335,7 +381,7 @@ func span(d time.Duration) string {
 // Render writes the report as the text the CFO puts in its terminal: who
 // turned it on and off, what was held or left for the Overlord, which he
 // reads first, then what the CFO decided, what each goblin finished and what
-// was spent.
+// was spent, with what became of free disk after it.
 func Render(w io.Writer, r Report) error {
 	var out []string
 	say := func(format string, a ...any) { out = append(out, fmt.Sprintf(format, a...)) }
@@ -401,11 +447,14 @@ func Render(w io.Writer, r Report) error {
 		say("- %s: %s (%s)", finish.Task, finish.PR, finish.At.UTC().Format("15:04 UTC"))
 	}
 
-	if spent := Spent(r.Before, r.After); len(spent) > 0 {
+	if spent, use := Spent(r.Before, r.After), DiskUsed(r.DiskBefore, r.DiskAfter); len(spent) > 0 || use != nil {
 		say("")
 		say("Spent")
 		for _, row := range spent {
 			say("- %s", row.says())
+		}
+		if use != nil {
+			say("- %s", use.says())
 		}
 	}
 
