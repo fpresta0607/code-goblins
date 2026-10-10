@@ -546,3 +546,79 @@ func TestWriteTaskMetaRefusesAServiceARecordCouldNotName(t *testing.T) {
 		t.Error("services were written for a record that does not say it names them")
 	}
 }
+
+// A record names the MCP servers its task is given although their entry
+// holds a value, and names none for a task given none of those, which is
+// also every task an older build spawned.
+func TestWriteTaskMetaRoundTripsTheMCPServersATaskIsGiven(t *testing.T) {
+	cases := []struct {
+		name string
+		meta TaskMeta
+		want string
+	}{
+		{"two servers", TaskMeta{ID: "g1", Kind: "ship", Mode: "direct-PR", MCPServers: []string{"neon", "supabase"}}, "mcp=neon,supabase"},
+		{"none", TaskMeta{ID: "g1", Kind: "ship", Mode: "direct-PR"}, ""},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			// Arrange
+			dir := t.TempDir()
+
+			// Act
+			err := WriteTaskMeta(dir, tc.meta)
+			got, readErr := ReadTaskMeta(dir, "g1")
+			record, _ := os.ReadFile(TaskMetaPath(dir, "g1"))
+
+			// Assert
+			if err != nil || readErr != nil {
+				t.Fatalf("write = %v, read = %v", err, readErr)
+			}
+			if !reflect.DeepEqual(got, tc.meta) {
+				t.Errorf("round trip = %+v, want %+v", got, tc.meta)
+			}
+			if strings.Contains(string(record), "mcp=") != (tc.want != "") || !strings.Contains(string(record), tc.want) {
+				t.Errorf("record = %q, want the line %q", record, tc.want)
+			}
+		})
+	}
+}
+
+// A grant changes the one line of a record and keeps the rest, the lines
+// this build does not read included.
+func TestWriteTaskMCPServersChangesOnlyItsOwnLine(t *testing.T) {
+	// Arrange
+	dir := t.TempDir()
+	if err := WriteTaskMeta(dir, TaskMeta{ID: "g1", Kind: "ship", Mode: "direct-PR", Credentials: []string{"github"}, HasCredentials: true}); err != nil {
+		t.Fatal(err)
+	}
+	record, err := ReadMeta(TaskMetaPath(dir, "g1"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	record["pr"] = "https://example.invalid/pull/7"
+	if err := WriteMeta(TaskMetaPath(dir, "g1"), record); err != nil {
+		t.Fatal(err)
+	}
+
+	// Act
+	namedErr := WriteTaskMCPServers(dir, "g1", []string{"neon"})
+	named, _ := ReadTaskMeta(dir, "g1")
+	clearedErr := WriteTaskMCPServers(dir, "g1", nil)
+	cleared, _ := ReadTaskMeta(dir, "g1")
+	refusedErr := WriteTaskMCPServers(dir, "g1", []string{"ne,on"})
+	after, err := ReadMeta(TaskMetaPath(dir, "g1"))
+
+	// Assert
+	if namedErr != nil || !reflect.DeepEqual(named.MCPServers, []string{"neon"}) {
+		t.Errorf("after naming neon the record names %v, %v", named.MCPServers, namedErr)
+	}
+	if clearedErr != nil || len(cleared.MCPServers) != 0 {
+		t.Errorf("after naming none the record names %v, %v", cleared.MCPServers, clearedErr)
+	}
+	if refusedErr == nil {
+		t.Error("a server name that holds the separator was written, want it refused")
+	}
+	if err != nil || after["pr"] != "https://example.invalid/pull/7" || after["credentials"] != "github" {
+		t.Errorf("the record's other lines = %v, %v, want them as they were", after, err)
+	}
+}

@@ -2,6 +2,7 @@ package spawn
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"os"
 	"path/filepath"
@@ -377,12 +378,13 @@ func TestAHelperCarriesWhatItsParentCarriesWhateverItsBriefSays(t *testing.T) {
 	project, parentWorktree := parentRepository(t)
 	f.project = project
 	giveStandInCredentials(t, f.fixture)
-	writeParent(t, f.stateDir, state.TaskMeta{ID: "task", Project: project, Worktree: parentWorktree, Credentials: []string{"database"}, HasCredentials: true})
+	writeFile(t, filepath.Join(project, ".mcp.json"), standInMCP)
+	writeParent(t, f.stateDir, state.TaskMeta{ID: "task", Project: project, Worktree: parentWorktree, Credentials: []string{"database"}, HasCredentials: true, MCPServers: []string{"literal-env"}})
 	f.service.Worktrees.Git = nil
 	f.service.Worktrees.Commands = execx.OSRunner{}
 	f.service.Commands = execx.OSRunner{}
 	f.request.Project, f.request.Parent, f.request.Mode = project, "task", "local-only"
-	writeFile(t, f.brief, "Do the helper's part.\n\n## Authentication\n\ncredentials: payments\n")
+	writeFile(t, f.brief, "Do the helper's part.\n\n## Authentication\n\ncredentials: payments\nmcp: literal-header\n")
 	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
 	defer cancel()
 
@@ -398,6 +400,10 @@ func TestAHelperCarriesWhatItsParentCarriesWhateverItsBriefSays(t *testing.T) {
 	}
 	if !result.Meta.HasCredentials || !slices.Equal(result.Meta.Credentials, []string{"database"}) {
 		t.Errorf("the helper's record names %v, want its parent's database", result.Meta.Credentials)
+	}
+	servers, _ := mcpServersOf(t, filepath.Join(result.Meta.TaskTmp, "mcp.json"))
+	if want := []string{"by-reference", "literal-env", "plain"}; !slices.Equal(servers, want) || !slices.Equal(result.Meta.MCPServers, []string{"literal-env"}) {
+		t.Errorf("the helper's MCP servers = %v and its record names %v, want %v with its parent's literal-env and not the one its brief names", servers, result.Meta.MCPServers, want)
 	}
 }
 
@@ -559,4 +565,237 @@ func TestAGrantRefusesAServiceTheManifestDoesNotDeclare(t *testing.T) {
 	if readErr != nil || !slices.Equal(after.Credentials, []string{"database"}) {
 		t.Errorf("after the refusal the record names %v, %v, want it unchanged", after.Credentials, readErr)
 	}
+}
+
+// standInMCP is a project's MCP configuration under made-up names and values:
+// two servers whose entry holds a value, in a command server's env map and in
+// a header, one that only refers to a variable, and one that holds nothing.
+const standInMCP = `{"mcpServers": {
+	"literal-env": {"command": "standin-server", "env": {"STANDIN_MCP_KEY": "stand-in-mcp-env-value"}},
+	"literal-header": {"url": "https://mcp.example.invalid/mcp", "headers": {"Authorization": "Bearer stand-in-mcp-header-value"}},
+	"by-reference": {"command": "standin-server", "env": {"STANDIN_MCP_KEY": "${STANDIN_MCP_KEY}"}},
+	"plain": {"command": "standin-server", "args": ["--stdio"]}
+}}`
+
+// mcpServersOf is the names of the servers in the MCP configuration at path,
+// sorted, and the file's text, which a test reads for a stand-in value.
+func mcpServersOf(t *testing.T, path string) ([]string, string) {
+	t.Helper()
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("read %s: %v", path, err)
+	}
+	var document struct {
+		Servers map[string]json.RawMessage `json:"mcpServers"`
+	}
+	if err := json.Unmarshal(data, &document); err != nil {
+		t.Fatalf("parse %s: %v", path, err)
+	}
+	names := []string{}
+	for name := range document.Servers {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	return names, string(data)
+}
+
+// holdsNoStandInMCPValue fails when text holds a value written inside an entry
+// of the stand-in configuration.
+func holdsNoStandInMCPValue(t *testing.T, what, text string) {
+	t.Helper()
+	for _, value := range []string{"stand-in-mcp-env-value", "stand-in-mcp-header-value"} {
+		if strings.Contains(text, value) {
+			t.Errorf("%s holds a value written inside a server entry", what)
+		}
+	}
+}
+
+// A server entry that holds a value used to reach every goblin of a project,
+// whatever its brief named. A spawn withholds it now, and says by name which
+// servers it withheld and the one line that grants one.
+func TestASpawnWithholdsAnMCPServerWhoseEntryHoldsAValueItsBriefDoesNotName(t *testing.T) {
+	// Arrange
+	f := newQuickFixture(t)
+	writeFile(t, filepath.Join(f.project, ".mcp.json"), standInMCP)
+
+	// Act
+	result, err := f.service.Spawn(context.Background(), f.request)
+
+	// Assert
+	if err != nil {
+		t.Fatalf("Spawn: %v", err)
+	}
+	servers, text := mcpServersOf(t, filepath.Join(result.Meta.TaskTmp, "mcp.json"))
+	if want := []string{"by-reference", "plain"}; !slices.Equal(servers, want) {
+		t.Errorf("the goblin's servers = %v, want %v", servers, want)
+	}
+	holdsNoStandInMCPValue(t, "the goblin's MCP configuration", text)
+	for _, want := range []string{"mcp: withheld 2 servers whose entry holds a value (literal-env, literal-header)", "cfo auth grant task-7 --mcp <server>"} {
+		if !strings.Contains(result.Output, want) {
+			t.Errorf("output = %q, want %q", result.Output, want)
+		}
+	}
+	holdsNoStandInMCPValue(t, "the spawn's output", result.Output)
+	holdsNoStandInMCPValue(t, "the task's record, status log or instruction", taskRecords(t, f.fixture, "task-7"))
+}
+
+// A brief names the servers its task is given among those whose entry holds a
+// value, on an mcp line beside its credentials line. The task is given the
+// entry whole, its record names the server, and the rest stay withheld.
+func TestASpawnGivesATaskTheMCPServerItsBriefNames(t *testing.T) {
+	// Arrange
+	f := newQuickFixture(t)
+	writeFile(t, filepath.Join(f.project, ".mcp.json"), standInMCP)
+	briefAsking(t, f.fixture, "credentials: none\nmcp: literal-env")
+
+	// Act
+	result, err := f.service.Spawn(context.Background(), f.request)
+
+	// Assert
+	if err != nil {
+		t.Fatalf("Spawn: %v", err)
+	}
+	servers, text := mcpServersOf(t, filepath.Join(result.Meta.TaskTmp, "mcp.json"))
+	if want := []string{"by-reference", "literal-env", "plain"}; !slices.Equal(servers, want) {
+		t.Errorf("the goblin's servers = %v, want %v", servers, want)
+	}
+	if !strings.Contains(text, "stand-in-mcp-env-value") || strings.Contains(text, "stand-in-mcp-header-value") {
+		t.Error("the goblin's configuration should hold the named server's entry whole and nothing of the other's")
+	}
+	recorded, err := state.ReadTaskMeta(f.stateDir, "task-7")
+	if err != nil || !slices.Equal(recorded.MCPServers, []string{"literal-env"}) {
+		t.Errorf("the record names the MCP servers %v, %v, want literal-env", recorded.MCPServers, err)
+	}
+	if want := "mcp: withheld 1 server whose entry holds a value (literal-header)"; !strings.Contains(result.Output, want) {
+		t.Errorf("output = %q, want %q", result.Output, want)
+	}
+	holdsNoStandInMCPValue(t, "the spawn's output", result.Output)
+	holdsNoStandInMCPValue(t, "the task's record, status log or instruction", taskRecords(t, f.fixture, "task-7"))
+}
+
+// A brief that names a server the project does not define is wrong about
+// what its task can be given, and nothing is started for it. A name shaped
+// like a value is never repeated.
+func TestASpawnRefusesABriefNamingAnMCPServerTheProjectDoesNotDefine(t *testing.T) {
+	// Arrange
+	f := newQuickFixture(t)
+	writeFile(t, filepath.Join(f.project, ".mcp.json"), standInMCP)
+	valueShaped := "sk_live_" + strings.Repeat("a1B2", 8)
+	briefAsking(t, f.fixture, "credentials: none\nmcp: literal-env, unheard-of, "+valueShaped)
+
+	// Act
+	_, err := f.service.Spawn(context.Background(), f.request)
+
+	// Assert
+	if err == nil || !strings.Contains(err.Error(), "unheard-of") || !strings.Contains(err.Error(), "by-reference, literal-env, literal-header, plain") {
+		t.Fatalf("spawn = %v, want it refused naming unheard-of and the servers the project defines", err)
+	}
+	if strings.Contains(err.Error(), valueShaped) || !strings.Contains(err.Error(), "1 shaped like a credential value") {
+		t.Errorf("spawn = %v, want the value-shaped name counted and not repeated", err)
+	}
+	if _, readErr := state.ReadTaskMeta(f.stateDir, f.request.ID); !errors.Is(readErr, os.ErrNotExist) {
+		t.Errorf("the refused start left its task record: %v", readErr)
+	}
+	if _, readErr := host.ReadRecord(f.stateDir, f.request.ID); !errors.Is(readErr, os.ErrNotExist) {
+		t.Errorf("the refused start launched a terminal: %v", readErr)
+	}
+}
+
+// A task spawned before such servers were withheld was handed every server
+// by its shape, and its record names none. Its next relaunch plans its
+// configuration again: the servers whose entry holds a value are gone from
+// what its new harness is handed, and the relaunch says which and how to
+// grant one, in its output, to the goblin and in the task's status log.
+func TestARelaunchWithholdsAnMCPServerItsLastTerminalWasGiven(t *testing.T) {
+	// Arrange
+	f := newSwitchFixture(t, harness.Control{StopCommand: "/exit"})
+	writeFile(t, filepath.Join(f.project, ".mcp.json"), standInMCP)
+	last := filepath.Join(f.meta.TaskTmp, "mcp.json")
+	writeFile(t, last, standInMCP)
+	if len(f.meta.MCPServers) != 0 {
+		t.Fatal("the premise is a record that names no MCP server, as an older build wrote it")
+	}
+	specs := []harness.LaunchSpec{}
+	f.service.Harness.Adapters[harness.Codex] = nativeAdapter{kind: harness.Codex, control: harness.Control{StopCommand: "/exit"}, specs: &specs}
+
+	// Act
+	result, err := f.service.Switch(context.Background(), SwitchRequest{ID: f.meta.ID, Model: "gpt-9"})
+
+	// Assert
+	if err != nil {
+		t.Fatalf("Switch: %v", err)
+	}
+	servers, text := mcpServersOf(t, last)
+	if want := []string{"by-reference", "plain"}; !slices.Equal(servers, want) {
+		t.Errorf("after the relaunch the task's servers = %v, want %v", servers, want)
+	}
+	holdsNoStandInMCPValue(t, "the relaunched task's MCP configuration", text)
+	if len(specs) != 1 || specs[0].MCPConfig != last {
+		t.Errorf("the new harness was built %d time(s) with %+v, want it handed %s", len(specs), specs, last)
+	}
+	for _, want := range []string{"mcp: withheld 2 servers whose entry holds a value (literal-env, literal-header)", "cfo auth grant task-7 --mcp <server>"} {
+		if !strings.Contains(result.Output, want) {
+			t.Errorf("output = %q, want %q", result.Output, want)
+		}
+	}
+	log, err := state.TailStatus(f.stateDir, f.meta.ID, 10)
+	if err != nil || !slices.ContainsFunc(log, func(line string) bool {
+		return strings.Contains(line, "credentials: task-7 was given the MCP servers literal-env, literal-header") && strings.Contains(line, "withheld from this relaunch on")
+	}) {
+		t.Errorf("status log = %q, %v, want a record of what the relaunch took, since an automatic resume prints to nobody", log, err)
+	}
+	records := taskRecords(t, f.fixture, f.meta.ID)
+	if !strings.Contains(records, "These MCP servers of the project were withheld from you") {
+		t.Error("the goblin was not told which MCP servers it no longer has")
+	}
+	holdsNoStandInMCPValue(t, "the relaunch's output", result.Output)
+	holdsNoStandInMCPValue(t, "the task's record, status log or instruction", records)
+}
+
+// A grant names a server in the task's record, and the task's next relaunch
+// gives it that server's entry whole. A harness reads its servers when it
+// starts, so the grant reaches no running terminal.
+func TestARelaunchGivesATaskAnMCPServerGrantedSinceItsSpawn(t *testing.T) {
+	// Arrange
+	f := newSwitchFixture(t, harness.Control{StopCommand: "/exit"})
+	writeFile(t, filepath.Join(f.project, ".mcp.json"), standInMCP)
+	refresher := AuthRefresher{StateDir: f.stateDir, DataDir: f.dataDir}
+
+	// Act
+	named, grantErr := refresher.GrantMCP(f.meta.ID, []string{"literal-env"})
+	_, undefinedErr := refresher.GrantMCP(f.meta.ID, []string{"unheard-of"})
+	result, err := f.service.Switch(context.Background(), SwitchRequest{ID: f.meta.ID, Model: "gpt-9"})
+
+	// Assert
+	if grantErr != nil || !slices.Equal(named, []string{"literal-env"}) {
+		t.Fatalf("GrantMCP = %v, %v, want the record to name literal-env", named, grantErr)
+	}
+	if undefinedErr == nil || !strings.Contains(undefinedErr.Error(), "unheard-of") {
+		t.Errorf("a grant of a server the project does not define = %v, want it refused by name", undefinedErr)
+	}
+	if err != nil {
+		t.Fatalf("Switch: %v", err)
+	}
+	servers, text := mcpServersOf(t, filepath.Join(f.meta.TaskTmp, "mcp.json"))
+	if want := []string{"by-reference", "literal-env", "plain"}; !slices.Equal(servers, want) {
+		t.Errorf("after the relaunch the task's servers = %v, want %v", servers, want)
+	}
+	if !strings.Contains(text, "stand-in-mcp-env-value") || strings.Contains(text, "stand-in-mcp-header-value") {
+		t.Error("the configuration should hold the granted server's entry whole and nothing of the other's")
+	}
+	after, err := state.ReadTaskMeta(f.stateDir, f.meta.ID)
+	if err != nil || !slices.Equal(after.MCPServers, []string{"literal-env"}) {
+		t.Errorf("after the relaunch the record names the MCP servers %v, %v, want the granted one kept", after.MCPServers, err)
+	}
+	if want := "mcp: withheld 1 server whose entry holds a value (literal-header)"; !strings.Contains(result.Output, want) {
+		t.Errorf("output = %q, want %q", result.Output, want)
+	}
+	log, err := state.TailStatus(f.stateDir, f.meta.ID, 10)
+	if err != nil || !slices.ContainsFunc(log, func(line string) bool {
+		return strings.Contains(line, "credentials: the CFO granted the MCP servers literal-env")
+	}) {
+		t.Errorf("status log = %q, %v, want a record of the grant", log, err)
+	}
+	holdsNoStandInMCPValue(t, "the relaunch's output", result.Output)
+	holdsNoStandInMCPValue(t, "the task's record, status log or instruction", taskRecords(t, f.fixture, f.meta.ID))
 }
