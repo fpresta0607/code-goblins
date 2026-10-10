@@ -46,7 +46,7 @@ type Service struct {
 	// ~/.claude/settings.json.
 	UserSettings string
 	// RepoSettings is the checkout's own .claude/settings.json, whose CFO
-	// hooks become duplicates once the user-scope ones are in place.
+	// hooks duplicate the ones the CFO's terminal starts with.
 	RepoSettings string
 	// Env is the user-scope environment.
 	Env EnvStore
@@ -714,10 +714,11 @@ func (s Service) removeUserSettings(report *reporter) error {
 	return nil
 }
 
-// clearRepoHooks drops the checkout's own hooks block. Once the user-scope
-// hooks are in place both files match inside code-goblins and every hook
-// fires twice: two session digests, two wake handlers. The permissions block
-// and every other key in that file are left exactly as they are.
+// clearRepoHooks drops the checkout's own hooks block. The CFO's terminal
+// starts with its hooks, so a block here fires each of them twice in the
+// CFO's own session, two session digests and two wake handlers, and once in
+// every other session opened in the checkout. The permissions block and
+// every other key in that file are left exactly as they are.
 func (s Service) clearRepoHooks(report *reporter) error {
 	if _, err := os.Stat(s.RepoSettings); err != nil {
 		report.same("repo hooks", "no "+s.RepoSettings)
