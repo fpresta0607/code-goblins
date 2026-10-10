@@ -27,7 +27,7 @@ go build ./cmd/cfo
 ```
 
 Before each push, run `cfo gate prepush`.
-It picks what your change can break and runs it one check at a time: `go vet` of every package the change reaches, the tests that read the whole tree, the changed packages, the packages that import them, nearest first, and for a change under `frontend` the type check, the lint, the unit tests and the browser specs the change touched or names.
+It picks what your change can break and runs it one check at a time: the imports of every package the change reaches, the tests that read the whole tree, the changed packages, for a change under `frontend` the type check, the lint, the unit tests and the browser specs the change touched or names, then `go vet` of what the change reaches and the packages that import it, nearest first.
 It names each check with why before it runs any, and stops at the first failure with one line that names the check and the test.
 `--plan` shows the pick and runs nothing.
 A slow package runs without the tests this machine has timed at 2 seconds or longer, so nobody has to guess which tests to run by name.

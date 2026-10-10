@@ -397,12 +397,13 @@ Until then every brief said to run the touched tests by name and let CI run the 
 
 The pick is the gate step's plan and more, in the order a failure is likeliest and cheapest to find:
 
-1. `go vet` of every package the change reaches, which is where a test that no longer builds, or an import cycle, shows.
+1. The imports of every package the change reaches and of its tests, by `go list -test`, which builds nothing, takes seconds and is where an import cycle shows.
 2. The guards: the tests the policy names under `guards` in `config/verify.json`. They read the whole tree, as the two that read every command `main.go` dispatches do, so a change anywhere can fail them, and they run whatever changed. A new whole-tree guard is named there. A test of the policy fails a guard whose test is gone, since it would run nothing and pass.
 3. The changed packages that are quick to test, and the packages a contract names for a changed file, each whole.
 4. For a change under `frontend`, the type check, the lint, the unit tests and the browser specs the change touched or names.
 5. The changed packages the policy lists as slow, without their slowest tests. They come after the board's checks because a busy machine can spend the whole limit in them: on 2026-10-10 the replays of two pull requests were ended by the limit inside the quick tests of `cmd/cfo` and `internal/supervisor`.
-6. The packages that import a changed one, nearest first.
+6. `go vet` of every package the change reaches, which is where a test of an importer that no longer builds shows. It comes after the changed packages because each of those is built and vetted by its own tests. As the first check it took 7 minutes of one replay on a busy machine to report an import cycle that `go list` reports in 14 seconds, and another replay was ended by its limit in the seventh of its 22 checks.
+7. The packages that import a changed one, nearest first.
 
 A browser spec is picked when it changed, when it opens a fixture page that changed, when it imports a changed file beside the specs, or when it shares a word of its name with a changed source, as `run-terminal.spec.ts` does with `RunCard.tsx`.
 Most specs open the whole board, so what a spec imports does not say what it covers, and its name is what there is to go by.
