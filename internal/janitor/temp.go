@@ -79,9 +79,10 @@ func (cfg Config) removeTempLeaks(processes []string, record *Record) {
 		candidates = append(candidates, cfg.fleetTemps(cfg.TempDir, entries)...)
 	}
 	// What asks Windows for the temporary folder in a goblin's terminal, as a
-	// Go test does, is given the folder every goblin shares, so the fleet's
-	// leaks land there as they do in the machine's own, and go by the same
-	// rule. Nothing else in it is looked at.
+	// Go program's os.TempDir does, is given the folder every goblin shares,
+	// so the fleet's leaks land there as they do in the machine's own, and go
+	// by the same rule. Nothing else in it is looked at. A Go test's
+	// t.TempDir follows GOTMPDIR and stays in its task's scratch folder.
 	for _, root := range scratchRoots {
 		if root == "" {
 			continue
