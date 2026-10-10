@@ -33,7 +33,7 @@ func TestGoblinAndGateAgentHooksReturnBeforeReadingAnything(t *testing.T) {
 			// Arrange: a primary home the hooks would otherwise apply to.
 			newCFOHome(t)
 			t.Setenv(session.variable, session.value)
-			for _, name := range []string{"pretool-bash", "pretool-arm", "pretool-cd", "pretool-subagent", "turnend-guard", "stop-autoarm", "session-start"} {
+			for _, name := range []string{"pretool-bash", "pretool-powershell", "pretool-arm", "pretool-cd", "pretool-subagent", "turnend-guard", "stop-autoarm", "session-start"} {
 				payload := &unreadPayload{}
 				var stdout, stderr bytes.Buffer
 
@@ -110,6 +110,7 @@ func TestTheCFOsPreToolHooksStayWithinTheirBudget(t *testing.T) {
 	bash := `{"session_id":"s","tool_name":"Bash","tool_input":{"command":"git log --oneline"}}`
 	cases := []struct{ hook, payload string }{
 		{"pretool-bash", bash},
+		{"pretool-powershell", `{"session_id":"s","tool_name":"PowerShell","tool_input":{"command":"git log --oneline"}}`},
 		{"pretool-arm", bash},
 		{"pretool-subagent", `{"session_id":"s","tool_name":"TaskCreate"}`},
 	}
