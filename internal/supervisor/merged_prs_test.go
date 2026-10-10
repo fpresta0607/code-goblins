@@ -228,3 +228,71 @@ func TestGitMergedPRsAsksAgainForAPullRequestListedWithAnOlderHead(t *testing.T)
 		t.Fatalf("after the recheck interval Completed lists %v, want %v", listed, want)
 	}
 }
+
+// The history's merge scan lists the pull request heads each fleet
+// repository's origin publishes, and reads each repository's merges with git,
+// on its own timer. A listing or a read that runs out of time once is made
+// again at a later rebuild, so it is the supervisor's error only once it
+// failed on three rebuilds in a row, and a rebuild that reads it ends the run.
+func TestTheMergeScanTellsOfAFailedReadOnlyOnceItKeepsFailing(t *testing.T) {
+	since := time.Date(2026, 9, 20, 0, 0, 0, 0, time.UTC)
+	for _, test := range []struct {
+		name string
+		// fail makes the read fail while isFailing says so, and returns what
+		// puts it right again.
+		fail func(t *testing.T, upstream, fork string, listings *pullListings, isFailing bool)
+	}{
+		{"the listing of an origin's pull request heads", func(_ *testing.T, _, _ string, listings *pullListings, isFailing bool) {
+			listings.err = nil
+			if isFailing {
+				listings.err = context.DeadlineExceeded
+			}
+		}},
+		{"git's read of a repository's merges", func(t *testing.T, upstream, _ string, _ *pullListings, isFailing bool) {
+			t.Helper()
+			ref, kept := filepath.Join(upstream, ".git", "refs", "remotes", "origin", "main"), filepath.Join(upstream, ".git", "kept-origin-main")
+			if _, err := os.Stat(kept); err != nil {
+				good, err := os.ReadFile(ref)
+				if err != nil {
+					t.Fatal(err)
+				}
+				if err := os.WriteFile(kept, good, 0o644); err != nil {
+					t.Fatal(err)
+				}
+			}
+			content, err := os.ReadFile(kept)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if isFailing {
+				// A ref to a commit the repository does not hold: git log
+				// fails on it, as it does when it runs out of time.
+				content = []byte(strings.Repeat("1", 40) + "\n")
+			}
+			if err := os.WriteFile(ref, content, 0o644); err != nil {
+				t.Fatal(err)
+			}
+		}},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			// Arrange
+			upstream, fork, heads := forkedRepos(t, 1)
+			listings := &pullListings{heads: map[string]map[string]string{"code-goblins": heads}}
+			clock := time.Date(2026, 9, 27, 12, 0, 0, 0, time.UTC)
+			list := gitMergedPRs([]string{fork, upstream}, listings.list, func() time.Time { return clock })
+
+			for rebuild, step := range []struct{ isFailing, isTold bool }{{true, false}, {false, false}, {true, false}, {true, false}, {true, true}} {
+				test.fail(t, upstream, fork, listings, step.isFailing)
+				clock = clock.Add(pullHeadsRecheck)
+
+				// Act
+				_, err := list(t.Context(), since)
+
+				// Assert
+				if (err != nil) != step.isTold {
+					t.Fatalf("rebuild %d (failing: %t) returned %v, want an error only on the third failing rebuild in a row", rebuild+1, step.isFailing, err)
+				}
+			}
+		})
+	}
+}

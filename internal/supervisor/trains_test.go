@@ -44,6 +44,10 @@ type trainProject struct {
 	// viewerTimeouts is how many more of them time out.
 	viewerReads    int
 	viewerTimeouts int
+	// originTimeouts is how many more reads of the checkout's origin time
+	// out, and baseTimeouts how many more reads of the base's head on it.
+	originTimeouts int
+	baseTimeouts   int
 }
 
 func newTrainProject(t *testing.T) *trainProject {
@@ -124,6 +128,14 @@ func (p *trainProject) merged() []string {
 // does not hold yet as open; any other gh call is unexpected.
 func (p *trainProject) Run(ctx context.Context, request execx.Request) (execx.Result, error) {
 	if request.Name == "git" {
+		if slices.Equal(request.Args, []string{"config", "--get", "remote.origin.url"}) && p.originTimeouts > 0 {
+			p.originTimeouts--
+			return execx.Result{}, context.DeadlineExceeded
+		}
+		if len(request.Args) > 0 && request.Args[0] == "ls-remote" && p.baseTimeouts > 0 {
+			p.baseTimeouts--
+			return execx.Result{}, context.DeadlineExceeded
+		}
 		return execx.OSRunner{}.Run(ctx, request)
 	}
 	if args := request.Args; request.Name == "gh" && len(args) > 2 && args[0] == "pr" && p.created > 0 {
@@ -664,5 +676,81 @@ func TestTheBoardKeepsABatchByItsLastTrain(t *testing.T) {
 	}
 	if len(service.trains) != 0 {
 		t.Fatalf("shown %q, want nothing once the landed train is past its time", batchIDs(service.trains))
+	}
+}
+
+// On 2026-10-10 at 17:15Z the daily snapshot stalled drive C, the merge
+// train's read of a checkout's origin ran out of time once, and that one
+// timeout woke the CFO: "supervisor_error: merge train: read the origin of
+// C:\dev\PrecisionDocs-AI: context deadline exceeded" (wake 1000685). The
+// next poll makes the read again. The read of the repository a train runs
+// on, its origin and its default branch, is returned only once it failed on
+// three polls in a row, and the poll that reads it starts the train.
+func TestATrainsRepositoryReadIsReportedOnlyOnTheThirdFailingPollInARow(t *testing.T) {
+	// Arrange
+	service, h := fleetService(t)
+	project := newTrainProject(t)
+	first, second := project.pull(11), project.pull(12)
+	reportDone(t, h, "g11", project.checkout, "done: PR "+first.URL)
+	reportDone(t, h, "g12", project.checkout, "done: PR "+second.URL)
+	project.originTimeouts = 3
+	watched := &fleetWakes{}
+
+	for poll, shouldReport := range []bool{false, false, true, false} {
+		// Act
+		err := service.runTrain(context.Background(), project, watched, project.checkout, []train.PullRequest{first, second})
+
+		// Assert
+		if (err != nil) != shouldReport {
+			t.Fatalf("poll %d returned %v, want an error only on the third failing poll in a row", poll+1, err)
+		}
+	}
+	if trains, err := train.List(h.State); err != nil || len(trains) != 1 || len(watched.Failing) != 0 {
+		t.Fatalf("trains = %+v, %v, failing reads %v, want the train started and nothing left failing", trains, err, watched.Failing)
+	}
+}
+
+// A train's start that is cut short is kept, and the train's next step builds
+// it. What cut it short is the train's first failed step, counted with every
+// later one, so a read that ran out of time once as a train started wakes
+// nobody and the next poll builds the train. One that keeps running out of
+// time is told on the third poll in a row.
+func TestATrainsStartCutShortByATimedOutReadIsReportedOnlyOnTheThirdFailingPollInARow(t *testing.T) {
+	for _, test := range []struct {
+		name     string
+		timeouts int
+		reports  []bool
+		want     string
+	}{
+		{"one read that ran out of time", 1, []bool{false, false}, train.StateTesting},
+		{"a read that keeps running out of time", 3, []bool{false, false, true}, train.StateTesting},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			// Arrange
+			service, h := fleetService(t)
+			project := newTrainProject(t)
+			first, second := project.pull(11), project.pull(12)
+			reportDone(t, h, "g11", project.checkout, "done: PR "+first.URL)
+			reportDone(t, h, "g12", project.checkout, "done: PR "+second.URL)
+			project.baseTimeouts = test.timeouts
+			watched := &fleetWakes{}
+
+			for poll, shouldReport := range test.reports {
+				// Act
+				err := service.runTrain(context.Background(), project, watched, project.checkout, []train.PullRequest{first, second})
+
+				// Assert
+				if (err != nil) != shouldReport {
+					t.Fatalf("poll %d returned %v, want an error only on the third failing poll in a row", poll+1, err)
+				}
+			}
+			trains, err := train.List(h.State)
+			if err != nil || len(trains) != 1 || trains[0].State != test.want {
+				t.Fatalf("trains = %+v, %v, want the one train it started, %s", trains, err, test.want)
+			}
+			if isBuilt := trains[0].Head != ""; isBuilt != (test.timeouts < len(test.reports)) {
+				t.Errorf("train built = %v after %d polls with %d reads timed out", isBuilt, len(test.reports), test.timeouts)
+			}
+		})
 	}
 }

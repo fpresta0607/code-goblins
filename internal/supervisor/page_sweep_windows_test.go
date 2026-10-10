@@ -335,3 +335,40 @@ func TestASweepCountsASessionWhosePageIsGoneAsEnded(t *testing.T) {
 		})
 	}
 }
+
+// The sweep takes what waits on each page no poller watches through
+// lavish-axi, every ten minutes. A read of a page that runs out of time once
+// is made again at the next sweep, so it is the supervisor's error only once
+// it failed on three sweeps in a row, and a sweep that reads the page ends
+// the run.
+func TestASweepTellsOfAPageItCannotReadOnlyOnceItKeepsFailing(t *testing.T) {
+	// Arrange
+	store, h := testStore(t)
+	meta, err := state.ReadTaskMeta(h.State, "task-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	page := writePage(t, filepath.Join(meta.Worktree, ".lavish", "walkthrough.html"))
+	scrawl := newFakeScrawl()
+	s := sweeper(store, scrawl, nil)
+	isTimingOut := false
+	s.Options.PollPage = func(ctx context.Context, file, reply string, wait time.Duration) (axi.PagePoll, error) {
+		if isTimingOut {
+			return axi.PagePoll{}, fmt.Errorf("lavish-axi poll %s: %w", file, context.DeadlineExceeded)
+		}
+		return scrawl.poll(ctx, file, reply, wait)
+	}
+
+	for sweep, step := range []struct{ isTimingOut, isTold bool }{{true, false}, {false, false}, {true, false}, {true, false}, {true, true}} {
+		scrawl.add(page, "feedback", "Make the heads bigger")
+		isTimingOut = step.isTimingOut
+
+		// Act
+		err := s.sweepSessions(context.Background())
+
+		// Assert
+		if (err != nil) != step.isTold {
+			t.Fatalf("sweep %d (timing out: %t) returned %v, want an error only on the third failing sweep in a row", sweep+1, step.isTimingOut, err)
+		}
+	}
+}
