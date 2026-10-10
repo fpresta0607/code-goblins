@@ -96,8 +96,7 @@ func runBrief(args []string, stdout, stderr io.Writer, runtime commandRuntime) i
 
 ## Authentication
 
-Services this task needs are declared in %s.
-Run %s before dispatch; add any service the task needs that the manifest does not list yet.
+%s
 
 ## Commits
 
@@ -111,13 +110,33 @@ exist.
 
 kind: %s
 mode: %s
-`, id, *project, auth.ManifestPath("data", *project), "`cfo auth "+*project+" --fix`", "`Co-Authored-By`", *kind, *mode)
+`, id, *project, briefAuthentication(h.Data, *project), "`Co-Authored-By`", *kind, *mode)
 	if err := os.WriteFile(path, []byte(body), 0o600); err != nil {
 		fmt.Fprintln(stderr, err)
 		return 1
 	}
 	fmt.Fprintln(stdout, path)
 	return 0
+}
+
+// briefAuthentication is the Authentication section of a new brief. Its
+// credentials line is what cfo spawn reads: the services whose credentials
+// the task's terminal carries. It starts at none, so a task carries a service
+// only once the brief's author names it, and the manifest's services are
+// listed beside it to name from. It holds names, never a value.
+func briefAuthentication(dataDir, project string) string {
+	declared := "It declares no service yet."
+	if manifest, err := auth.LoadManifest(dataDir, project); err == nil && len(manifest.Services) > 0 {
+		names := make([]string, 0, len(manifest.Services))
+		for _, service := range manifest.Services {
+			names = append(names, service.Name)
+		}
+		declared = "It declares: " + strings.Join(names, ", ") + "."
+	}
+	return "credentials: " + auth.NoServices + "\n\n" +
+		"On the line above, name the services whose credentials this task needs, separated by commas, by their names in " + auth.ManifestPath("data", project) + ". " + declared + "\n" +
+		"The task's terminal carries those services' credentials and no other, and none while the line says " + auth.NoServices + ". A brief names a service, never a value.\n" +
+		"Add a service the task needs that the manifest does not list yet, then run `cfo auth " + project + " --fix` before dispatch."
 }
 
 // runPR handles "cfo pr check <id> <url>", "cfo pr merge <url>" and

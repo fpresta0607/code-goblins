@@ -19,10 +19,12 @@ type stubPreflight struct {
 	result   auth.Result
 	err      error
 	projects []string
+	needs    []auth.Need
 }
 
-func (p *stubPreflight) Preflight(_ context.Context, project string) (auth.Result, error) {
+func (p *stubPreflight) Preflight(_ context.Context, project string, need auth.Need) (auth.Result, error) {
 	p.projects = append(p.projects, project)
+	p.needs = append(p.needs, need)
 	return p.result, p.err
 }
 

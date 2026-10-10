@@ -5,14 +5,15 @@ import (
 	"errors"
 	"fmt"
 	"io/fs"
+	"slices"
 	"strings"
 
 	"github.com/fpresta0607/code-goblins/internal/execx"
 )
 
 // SpawnPreflight is the spawn-time half of the auth contract: it adopts
-// credentials the machine already holds, probes the project's services, and
-// returns the environment a goblin's pane should inherit.
+// credentials the machine already holds, probes the services a task carries,
+// and returns the environment that task's terminal should inherit.
 //
 // It deliberately does not run login commands or drive a browser. Those are
 // what `cfo auth <project> --fix` is for: a dispatch should not silently open
@@ -30,8 +31,23 @@ type SpawnPreflight struct {
 // Result is what a spawn needs from the preflight: what to inject, what to
 // print, and whether a blocking service means this goblin must not start.
 type Result struct {
-	// Env is the credentials the pane inherits.
+	// Env is the credentials the terminal inherits: the variables of the
+	// services in Grant.Services that are usable, and nothing else the store
+	// holds.
 	Env map[string]string
+	// Grant is the task's need resolved against the manifest: the services it
+	// carries, the ones withheld from it, and any it named that the manifest
+	// does not declare.
+	Grant Grant
+	// Undeclared are the names stored in the project's scope that no service
+	// declares, which reach no terminal.
+	Undeclared []string
+	// WithheldNames are the variables the terminal must not hold from
+	// anywhere: every name the manifest reads for a service the task does
+	// not carry, and every undeclared stored name. A terminal starts from
+	// the user's own environment, which may set one of them, so the launch
+	// leaves them out of it.
+	WithheldNames []string
 	// Caches is the shared package-cache redirects the pane inherits. They
 	// are kept apart from Env because they are not secrets: they travel in
 	// the launch environment rather than through the restricted file the
@@ -44,8 +60,11 @@ type Result struct {
 	Refusal string
 }
 
-// Preflight satisfies spawn.AuthPreflight.
-func (p SpawnPreflight) Preflight(ctx context.Context, project string) (Result, error) {
+// Preflight satisfies spawn.AuthPreflight. need names the services whose
+// credentials the task's terminal carries. The manifest's other services are
+// neither injected nor probed, so a task is never held up by, and no
+// credential is used for, a service it does not carry.
+func (p SpawnPreflight) Preflight(ctx context.Context, project string, need Need) (Result, error) {
 	// The caches belong to the machine, so they are prepared before anything
 	// is read about the project: a project that declares no credentials still
 	// builds against the shared store rather than downloading its own copy.
@@ -60,30 +79,24 @@ func (p SpawnPreflight) Preflight(ctx context.Context, project string) (Result, 
 		return Result{}, err
 	}
 	scope := ProjectName(project)
+	grant := manifest.Grant(need)
 	if !declared {
 		// Most projects declare nothing. That is not a fault, and a spawn
-		// must not be held up by it. What the operator stored in the
-		// project's scope still reaches the pane: the manifest is the probe
-		// contract, not a filter.
-		env, err := StoredExtras(store, scope, Manifest{})
+		// must not be held up by it. A project with no manifest has no
+		// service to name, so what the operator stored in its scope reaches
+		// no terminal: it is named, never injected.
+		undeclared, err := UndeclaredNames(store, scope, Manifest{})
 		if err != nil {
 			return Result{}, err
 		}
-		// A stored credential was written into auth.ps1, so say it: silence
-		// would read as "nothing was injected" and send the CFO hunting for
-		// a manifest that never existed. A store with nothing in it keeps the
-		// old silence, because there is nothing to report.
-		warning := ""
-		if len(env) > 0 {
-			warning = fmt.Sprintf("auth: injected %d stored credential(s) for %s (no manifest)", len(env), scope)
-		}
-		return Result{Env: env, Caches: caches, Warning: warning}, nil
+		return Result{Env: map[string]string{}, Grant: grant, Undeclared: undeclared, WithheldNames: undeclared, Caches: caches}, nil
 	}
 	// Adopting is safe to do unattended: it reads only files and tools
 	// already on this machine, and writes only into this project's own scope.
 	// The one value it replaces is one this project's own gitignored .env has
 	// changed since the last scan read it, which is the Overlord rotating a
-	// credential.
+	// credential. It keeps the whole manifest's store current, whatever this
+	// task carries.
 	adopted, unscanned, err := Discover(ctx, store, p.Runner, manifest, project)
 	if err != nil {
 		return Result{}, err
@@ -96,23 +109,19 @@ func (p SpawnPreflight) Preflight(ctx context.Context, project string) (Result, 
 		return Result{}, err
 	}
 	adopted = append(adopted, migrated...)
-	report, err := Checker{Store: store, Runner: p.Runner, Project: scope}.Check(ctx, manifest)
+	// The services checked are the ones whose verdict can change what this
+	// task carries: its own, and any other that declares one of their names.
+	report, err := Checker{Store: store, Runner: p.Runner, Project: scope}.Check(ctx, manifest.sharing(grant.Services))
 	if err != nil {
 		return Result{}, err
 	}
-	env, err := InjectEnv(store, scope, manifest, report)
+	env, err := InjectEnv(store, scope, manifest.Only(grant.Services), report)
 	if err != nil {
 		return Result{}, err
 	}
-	// A name stored after the manifest was written has no service to be
-	// usable or refused under; it rides along so a switch, which rebuilds the
-	// script from this preflight, keeps what a refresh added mid-task.
-	extras, err := StoredExtras(store, scope, manifest)
+	undeclared, err := UndeclaredNames(store, scope, manifest)
 	if err != nil {
 		return Result{}, err
-	}
-	for name, value := range extras {
-		env[name] = value
 	}
 	warning := WarningLine(project, report)
 	if line := AdoptionLine(adopted); line != "" {
@@ -138,11 +147,16 @@ func (p SpawnPreflight) Preflight(ctx context.Context, project string) (Result, 
 	if line := LinkCheckFailedLine(unscanned.LinkCheckFailed); line != "" {
 		warning += "; " + line
 	}
+	withheldNames := append(manifest.withheldNames(grant.Services), undeclared...)
+	slices.Sort(withheldNames)
 	return Result{
-		Env:     env,
-		Caches:  caches,
-		Warning: warning,
-		Refusal: RefusalLines(project, report),
+		Env:           env,
+		Grant:         grant,
+		Undeclared:    undeclared,
+		WithheldNames: withheldNames,
+		Caches:        caches,
+		Warning:       warning,
+		Refusal:       RefusalLines(project, report),
 	}, nil
 }
 
@@ -198,6 +212,11 @@ func WarningLine(project string, report Report) string {
 		case StateUnverified:
 			unverified++
 		}
+	}
+	// A task that carries no service has none to count, and "0/0 green"
+	// would read as a check that ran and found nothing wrong.
+	if len(report.Statuses) == 0 {
+		return "auth: no service's credentials for " + ProjectName(project)
 	}
 	line := fmt.Sprintf("auth: %d/%d services green for %s", green, len(report.Statuses), ProjectName(project))
 	if unverified > 0 {

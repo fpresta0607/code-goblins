@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"github.com/fpresta0607/code-goblins/internal/auth"
+	"github.com/fpresta0607/code-goblins/internal/harness"
 	"github.com/fpresta0607/code-goblins/internal/home"
 	"github.com/fpresta0607/code-goblins/internal/spawn"
 	"github.com/fpresta0607/code-goblins/internal/state"
@@ -186,11 +187,29 @@ func writeCmdTaskMeta(t *testing.T, stateDir, id, project, paneID string, wantWo
 		HerdrWorkspaceID: "ws",
 		HerdrTabID:       "tab-" + id,
 		HerdrPaneID:      paneID,
+		Credentials:      []string{"stored"},
+		HasCredentials:   true,
 	}
 	if err := state.WriteTaskMeta(stateDir, meta); err != nil {
 		t.Fatal(err)
 	}
 	return meta
+}
+
+// declareCmdStored writes project's manifest, in the data folder beside
+// stateDir that refreshTestRuntime's home names, with one service, stored,
+// that declares names. The tasks writeCmdTaskMeta records carry that service,
+// so what a test stores under those names is what their scripts are given.
+func declareCmdStored(t *testing.T, stateDir, project string, names ...string) {
+	t.Helper()
+	path := auth.ManifestPath(filepath.Join(stateDir, "..", "data"), project)
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	manifest := `{"project": "` + auth.ProjectName(project) + `", "services": [{"name": "stored", "method": "env", "env": ["` + strings.Join(names, `", "`) + `"]}, {"name": "extra", "method": "env", "env": ["EXTRA_STANDIN_KEY"]}]}`
+	if err := os.WriteFile(path, []byte(manifest), 0o600); err != nil {
+		t.Fatal(err)
+	}
 }
 
 // refreshTestRuntime builds a command runtime whose home, refresher, and
@@ -217,6 +236,7 @@ func TestAuthStoreRefreshesLiveTasksAndSendsTheReSourceNotice(t *testing.T) {
 	root := t.TempDir()
 	stateDir := filepath.Join(root, "state")
 	project := filepath.Join(root, "precisiondocs")
+	declareCmdStored(t, stateDir, project, "FLY_API_TOKEN")
 	live := writeCmdTaskMeta(t, stateDir, "live-1", project, "pane-live", true)
 	// Same project, pane gone: its script must not be reported as refreshed.
 	writeCmdTaskMeta(t, stateDir, "parked-1", project, "pane-parked", true)
@@ -253,6 +273,7 @@ func TestAuthCopyIntoAProjectScopeRefreshesItsLiveTasks(t *testing.T) {
 	root := t.TempDir()
 	stateDir := filepath.Join(root, "state")
 	project := filepath.Join(root, "precisiondocs")
+	declareCmdStored(t, stateDir, project, "DATABASE_URL")
 	writeCmdTaskMeta(t, stateDir, "live-1", project, "pane-live", true)
 
 	var sent []string
@@ -303,6 +324,7 @@ func TestAuthRefreshCommandRegeneratesOneTaskAndRefusesTheRest(t *testing.T) {
 	root := t.TempDir()
 	stateDir := filepath.Join(root, "state")
 	project := filepath.Join(root, "precisiondocs")
+	declareCmdStored(t, stateDir, project, "FLY_API_TOKEN")
 	live := writeCmdTaskMeta(t, stateDir, "live-1", project, "pane-live", true)
 	// A cleaned-up task: metadata retired, scratch state archived.
 	if err := os.MkdirAll(filepath.Join(stateDir, "archive", "old-1.20260102T150405Z"), 0o755); err != nil {
@@ -339,5 +361,181 @@ func TestAuthRefreshCommandRegeneratesOneTaskAndRefusesTheRest(t *testing.T) {
 	}
 	if !strings.Contains(string(script), "$env:FLY_API_TOKEN = 'fly_new_token'") {
 		t.Errorf("script lacks the stored credential:\n%s", script)
+	}
+}
+
+// scriptSets reports whether a credential script sets the variable name.
+func scriptSets(t *testing.T, path, name string) bool {
+	t.Helper()
+	script, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return strings.Contains(string(script), "$env:"+name+" = ")
+}
+
+// Granting a service is one command: the task's record names it, so every
+// later terminal carries it, and the running goblin is told to load it. Its
+// output and the notice name services and a path, never a value.
+func TestAuthGrantGivesARunningTaskOneMoreServiceByName(t *testing.T) {
+	// Arrange
+	t.Setenv(harness.RoleVariable, "")
+	t.Setenv(gateAgentVariable, "")
+	useFileStore(t)
+	root := t.TempDir()
+	stateDir := filepath.Join(root, "state")
+	project := filepath.Join(root, "precisiondocs")
+	declareCmdStored(t, stateDir, project, "FLY_API_TOKEN")
+	live := writeCmdTaskMeta(t, stateDir, "live-1", project, "pane-live", true)
+	other := writeCmdTaskMeta(t, stateDir, "other-1", project, "pane-other", true)
+	var sent []string
+	runtime := refreshTestRuntime(t, stateDir, cmdPanes{live: map[string]bool{"pane-live": true, "pane-other": true}}, &sent)
+	for name, value := range map[string]string{"FLY_API_TOKEN": "stand-in-fly", "EXTRA_STANDIN_KEY": "stand-in-extra"} {
+		if code, _, stderr := runCLI(t, "store", "--project", "precisiondocs", name, value); code != 0 {
+			t.Fatalf("cfo auth store = %d: %s", code, stderr)
+		}
+	}
+
+	// Act
+	code, stdout, stderr := runCLIWithRuntime(t, runtime, "grant", "live-1", "extra")
+
+	// Assert
+	if code != 0 {
+		t.Fatalf("cfo auth grant = %d: %s", code, stderr)
+	}
+	after, err := state.ReadTaskMeta(stateDir, "live-1")
+	if err != nil || strings.Join(after.Credentials, ",") != "extra,stored" {
+		t.Errorf("after the grant the record names %v, %v, want extra beside stored", after.Credentials, err)
+	}
+	script := filepath.Join(live.TaskTmp, "auth.ps1")
+	if !scriptSets(t, script, "EXTRA_STANDIN_KEY") || !scriptSets(t, script, "FLY_API_TOKEN") {
+		t.Error("the task's script lacks a name its services declare")
+	}
+	if !strings.Contains(stdout, "granted live-1 extra. It carries extra, stored") {
+		t.Errorf("stdout = %q, want the grant and what the task carries, by service name", stdout)
+	}
+	if len(sent) != 1 || !strings.HasPrefix(sent[0], "gb-live-1 credentials refreshed: re-source ") {
+		t.Errorf("notices = %v, want the one goblin told to load its script", sent)
+	}
+	untouched, err := state.ReadTaskMeta(stateDir, "other-1")
+	if err != nil || strings.Join(untouched.Credentials, ",") != "stored" {
+		t.Errorf("another task of the project names %v, %v, want it as it was", untouched.Credentials, err)
+	}
+	if _, err := os.Stat(filepath.Join(other.TaskTmp, "auth.ps1")); !os.IsNotExist(err) {
+		t.Errorf("another task's script was written by the grant: %v", err)
+	}
+	for _, text := range append([]string{stdout, stderr}, sent...) {
+		if strings.Contains(text, "stand-in-fly") || strings.Contains(text, "stand-in-extra") {
+			t.Errorf("the grant's words hold a credential value: %q", text)
+		}
+	}
+}
+
+func TestAuthGrantRefusesWhatItCannotGrant(t *testing.T) {
+	// Arrange
+	t.Setenv(harness.RoleVariable, "")
+	t.Setenv(gateAgentVariable, "")
+	useFileStore(t)
+	root := t.TempDir()
+	stateDir := filepath.Join(root, "state")
+	project := filepath.Join(root, "precisiondocs")
+	declareCmdStored(t, stateDir, project, "FLY_API_TOKEN")
+	writeCmdTaskMeta(t, stateDir, "live-1", project, "pane-live", true)
+	var sent []string
+	runtime := refreshTestRuntime(t, stateDir, cmdPanes{live: map[string]bool{"pane-live": true}}, &sent)
+	cases := []struct {
+		name string
+		args []string
+		code int
+		want string
+	}{
+		{"a service the manifest does not declare", []string{"grant", "live-1", "billing"}, 1, "It declares extra, stored"},
+		{"a task that is not running", []string{"grant", "ghost-1", "extra"}, 1, "not a running task"},
+		{"no service named", []string{"grant", "live-1"}, 2, "usage"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			// Act
+			code, _, stderr := runCLIWithRuntime(t, runtime, tc.args...)
+
+			// Assert
+			if code != tc.code || !strings.Contains(stderr, tc.want) {
+				t.Errorf("exit = %d, stderr = %q, want exit %d naming %q", code, stderr, tc.code, tc.want)
+			}
+			after, err := state.ReadTaskMeta(stateDir, "live-1")
+			if err != nil || strings.Join(after.Credentials, ",") != "stored" {
+				t.Errorf("the record names %v, %v, want it unchanged", after.Credentials, err)
+			}
+		})
+	}
+}
+
+// A goblin that needs a service says so in a blocked report. It never grants
+// itself one, and neither does a gate agent.
+func TestAuthGrantIsRefusedInAGoblinsOrAGateAgentsTerminal(t *testing.T) {
+	for _, variable := range []string{harness.RoleVariable, gateAgentVariable} {
+		t.Run(variable, func(t *testing.T) {
+			// Arrange
+			t.Setenv(harness.RoleVariable, "")
+			t.Setenv(gateAgentVariable, "")
+			value := "1"
+			if variable == harness.RoleVariable {
+				value = harness.RoleGoblin
+			}
+			t.Setenv(variable, value)
+			useFileStore(t)
+			root := t.TempDir()
+			stateDir := filepath.Join(root, "state")
+			project := filepath.Join(root, "precisiondocs")
+			declareCmdStored(t, stateDir, project, "FLY_API_TOKEN")
+			writeCmdTaskMeta(t, stateDir, "live-1", project, "pane-live", true)
+			var sent []string
+			runtime := refreshTestRuntime(t, stateDir, cmdPanes{live: map[string]bool{"pane-live": true}}, &sent)
+
+			// Act
+			code, _, stderr := runCLIWithRuntime(t, runtime, "grant", "live-1", "extra")
+
+			// Assert
+			if code != 2 || !strings.Contains(stderr, "the CFO's act") || !strings.Contains(stderr, "blocked report") {
+				t.Errorf("exit = %d, stderr = %q, want it refused, naming whose act it is and how to ask", code, stderr)
+			}
+			after, err := state.ReadTaskMeta(stateDir, "live-1")
+			if err != nil || strings.Join(after.Credentials, ",") != "stored" {
+				t.Errorf("the record names %v, %v, want it unchanged", after.Credentials, err)
+			}
+		})
+	}
+}
+
+// Storing a name no service declares used to put it into every terminal of
+// the project. It reaches none now, and the store says so instead of leaving
+// it to read as a credential every goblin has.
+func TestAuthStoreSaysWhenNoServiceDeclaresTheName(t *testing.T) {
+	// Arrange
+	useFileStore(t)
+	root := t.TempDir()
+	stateDir := filepath.Join(root, "state")
+	project := filepath.Join(root, "precisiondocs")
+	declareCmdStored(t, stateDir, project, "FLY_API_TOKEN")
+	live := writeCmdTaskMeta(t, stateDir, "live-1", project, "pane-live", true)
+	var sent []string
+	runtime := refreshTestRuntime(t, stateDir, cmdPanes{live: map[string]bool{"pane-live": true}}, &sent)
+
+	// Act
+	code, stdout, stderr := runCLIWithRuntime(t, runtime, "store", "--project", "precisiondocs", "STRAY_STANDIN_KEY", "stand-in-stray")
+	_, declared, _ := runCLIWithRuntime(t, runtime, "store", "--project", "precisiondocs", "FLY_API_TOKEN", "stand-in-fly")
+
+	// Assert
+	if code != 0 {
+		t.Fatalf("cfo auth store = %d: %s", code, stderr)
+	}
+	if !strings.Contains(stdout, "declares STRAY_STANDIN_KEY, so it reaches no task yet") || !strings.Contains(stdout, filepath.Join("data", "projects", "precisiondocs", "auth.json")) {
+		t.Errorf("stdout = %q, want it said that the name reaches no task, naming the manifest", stdout)
+	}
+	if strings.Contains(declared, "reaches no task") {
+		t.Errorf("stdout = %q, want nothing said about a name a service declares", declared)
+	}
+	if scriptSets(t, filepath.Join(live.TaskTmp, "auth.ps1"), "STRAY_STANDIN_KEY") {
+		t.Error("the task's script holds a name no service declares")
 	}
 }

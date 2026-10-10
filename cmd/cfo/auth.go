@@ -9,6 +9,7 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strings"
 	"time"
@@ -16,6 +17,7 @@ import (
 	"github.com/fpresta0607/code-goblins/internal/auth"
 	"github.com/fpresta0607/code-goblins/internal/execx"
 	"github.com/fpresta0607/code-goblins/internal/fleet"
+	"github.com/fpresta0607/code-goblins/internal/harness"
 	"github.com/fpresta0607/code-goblins/internal/home"
 	projectcfg "github.com/fpresta0607/code-goblins/internal/project"
 	"github.com/fpresta0607/code-goblins/internal/spawn"
@@ -28,15 +30,21 @@ const authUsage = `usage: cfo auth <project> [--check|--fix] [--env]
        cfo auth request --project <p> [--task <id>] --why "<text>" [--link <url>] [--env-file <file>] NAME [NAME...]   (ask the Overlord for values on the board, by name only)
        cfo auth list [--project <p>]
        cfo auth copy <NAME> --to <project> [--from <project>]   (copy a stored value into a project scope; the source is left in place)
-       cfo auth refresh <task-id>   regenerate a task's auth.ps1 from its project scope
+       cfo auth grant <task-id> <service> [<service>...]   give a running task the credentials of more of its project's services, by name
+       cfo auth refresh <task-id>   regenerate a task's auth.ps1 for the services it carries
 
 Credentials are namespaced on (project, NAME). Omitting --project stores or
 lists the shared scope, which is where every credential stored before
 namespacing already lives.
 
+A task's terminal carries the credentials of the services its brief names
+under Authentication, by their names in the project's manifest, and of no
+other. cfo auth grant adds one to a running task, and only the CFO runs it.
+
 Storing or copying into a project scope also regenerates auth.ps1 for every
-live task of that project and sends it a re-source notice, so a credential
-stored after spawn reaches a goblin that is already working.
+live task of that project, each for the services it carries, and sends it a
+re-source notice, so a credential stored after spawn reaches a goblin that is
+already working and carries its service.
 `
 
 func runAuth(args []string, stdout, stderr io.Writer, runtime commandRuntime) int {
@@ -53,6 +61,8 @@ func runAuth(args []string, stdout, stderr io.Writer, runtime commandRuntime) in
 		return runAuthList(args[1:], stdout, stderr, runtime)
 	case "copy":
 		return runAuthCopy(args[1:], stdout, stderr, runtime)
+	case "grant":
+		return runAuthGrant(args[1:], stdout, stderr, runtime)
 	case "refresh":
 		return runAuthRefresh(args[1:], stdout, stderr, runtime)
 	case "-h", "--help", "help":
@@ -67,7 +77,7 @@ func runAuthPreflight(args []string, stdout, stderr io.Writer, runtime commandRu
 	flags.SetOutput(stderr)
 	check := flags.Bool("check", false, "probe every service and report without changing anything (default)")
 	fix := flags.Bool("fix", false, "probe, then repair what can be repaired without a human")
-	showEnv := flags.Bool("env", false, "print the environment a goblin's pane would inherit from the manifest's declared services (credential values redacted, cache locations in full)")
+	showEnv := flags.Bool("env", false, "print the environment the terminal of a task that names every declared service would carry (credential values redacted, cache locations in full)")
 	positional, err := parseAuthArgs(flags, args)
 	if err != nil {
 		return 2
@@ -179,7 +189,7 @@ func runAuthPreflight(args []string, stdout, stderr io.Writer, runtime commandRu
 			names = append(names, name)
 		}
 		sort.Strings(names)
-		fmt.Fprintf(stdout, "\npane environment (%d variables)\n", len(names))
+		fmt.Fprintf(stdout, "\npane environment of a task that names every service (%d variables)\n", len(names))
 		for _, name := range names {
 			// Redacted: this is an audit of what a goblin receives, not a
 			// way to read credentials back out of the store.
@@ -323,12 +333,37 @@ func runAuthStore(args []string, stdout, stderr io.Writer, runtime commandRuntim
 		fmt.Fprintln(stdout, "shared scope: only services a manifest declares shared will read this")
 		return 0
 	}
+	sayIfUndeclared(runtime, key, stdout)
 	// The store changed under a live fleet: regenerate the credential script
 	// of every task of this project that can still re-source it. This is the
 	// root-cause fix for a goblin reporting services unauthorized after the
 	// CFO stored credentials mid-task: its auth.ps1 followed the store.
 	refreshProjectAuth(context.Background(), runtime, key.Project, stdout, stderr)
 	return 0
+}
+
+// sayIfUndeclared says when a name just stored in a project's scope is one no
+// service of the project's manifest declares or aliases. Such a name reaches
+// no task, since a task carries services and no service holds it, and a store
+// that said nothing would read as a credential every goblin now has.
+func sayIfUndeclared(runtime commandRuntime, key auth.Key, stdout io.Writer) {
+	if runtime.resolveHome == nil {
+		return
+	}
+	h, err := runtime.resolveHome()
+	if err != nil {
+		return
+	}
+	manifest, err := auth.LoadManifest(h.Data, key.Project)
+	if err != nil && !errors.Is(err, fs.ErrNotExist) {
+		return
+	}
+	for _, chain := range manifest.CredentialChains() {
+		if slices.Contains(chain, key.Name) {
+			return
+		}
+	}
+	fmt.Fprintf(stdout, "no service in %s declares %s, so it reaches no task yet. Declare a service for it there, then name that service in a brief or grant it with cfo auth grant\n", auth.ManifestPath("data", key.Project), key.Name)
 }
 
 // runAuthRequest files a request for credential values by name: the Overlord
@@ -577,6 +612,7 @@ func runAuthCopy(args []string, stdout, stderr io.Writer, runtime commandRuntime
 	}
 	fmt.Fprintf(stdout, "copied %s to %s (%s); %s is unchanged\n", source, target, auth.Redact(value), source)
 	if !target.IsShared() {
+		sayIfUndeclared(runtime, target, stdout)
 		refreshProjectAuth(context.Background(), runtime, target.Project, stdout, stderr)
 	}
 	return 0
@@ -630,6 +666,45 @@ func refreshProjectAuth(ctx context.Context, runtime commandRuntime, scope strin
 		fmt.Fprintf(stderr, "cfo auth: found %d live task record(s) for %s but no pane could be confirmed reachable; the stored credentials may not have reached any goblin\n", refreshed.Unreachable, scope)
 	}
 	return told
+}
+
+// runAuthGrant gives a running task the credentials of more of its project's
+// services, by their names in the manifest: its record names them, so every
+// later terminal of the task carries them, and its running terminal is told
+// to load its credential script. It is the CFO's act. A goblin that needs a
+// service says so in a blocked report, and this is refused in its terminal
+// and in a gate agent's.
+func runAuthGrant(args []string, stdout, stderr io.Writer, runtime commandRuntime) int {
+	if len(args) < 2 || slices.ContainsFunc(args, func(arg string) bool { return strings.HasPrefix(arg, "-") }) {
+		fmt.Fprint(stderr, authUsage)
+		return 2
+	}
+	if os.Getenv(harness.RoleVariable) == harness.RoleGoblin || os.Getenv(gateAgentVariable) != "" {
+		fmt.Fprintln(stderr, "cfo auth grant: granting a service is the CFO's act, never a goblin's or a gate agent's. Say which service your task needs and why in a blocked report, and the CFO grants it")
+		return 2
+	}
+	if runtime.resolveHome == nil || runtime.authRefresher == nil {
+		fmt.Fprintln(stderr, "cfo auth grant: command runtime is incomplete")
+		return 1
+	}
+	h, err := runtime.resolveHome()
+	if err != nil {
+		fmt.Fprintln(stderr, err)
+		return 1
+	}
+	id, services := args[0], args[1:]
+	item, carried, err := runtime.authRefresher(h).Grant(context.Background(), id, services)
+	if err != nil {
+		fmt.Fprintf(stderr, "cfo auth grant: %v\n", err)
+		return 1
+	}
+	fmt.Fprintf(stdout, "granted %s %s. It carries %s\n", id, strings.Join(services, ", "), strings.Join(carried, ", "))
+	if item.Live && deliverRefreshNotice(context.Background(), runtime, h, item, stderr) {
+		fmt.Fprintf(stdout, "told %s to load %s (%d vars)\n", id, item.Path, item.Vars)
+		return 0
+	}
+	fmt.Fprintf(stdout, "%s has no running terminal that took the notice. Its next terminal starts with them\n", id)
+	return 0
 }
 
 func runAuthRefresh(args []string, stdout, stderr io.Writer, runtime commandRuntime) int {

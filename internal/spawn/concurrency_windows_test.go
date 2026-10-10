@@ -12,6 +12,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/fpresta0607/code-goblins/internal/auth"
 	"github.com/fpresta0607/code-goblins/internal/execx"
 	"github.com/fpresta0607/code-goblins/internal/harness"
 	"github.com/fpresta0607/code-goblins/internal/host"
@@ -375,7 +376,7 @@ func TestARelaunchThatWaitedForItsTurnLeavesATerminalAnotherStartLaunched(t *tes
 	}
 	launch.Dir = f.worktree
 	nativeEnvironment(launch.Env, meta)
-	started, err := f.service.launchNativeHost("task-7", harness.Codex, launch, f.userEnv, nil)
+	started, err := f.service.launchNativeHost("task-7", harness.Codex, launch, f.userEnv, auth.Result{})
 	if err != nil {
 		t.Fatalf("the start's own launch: %v", err)
 	}

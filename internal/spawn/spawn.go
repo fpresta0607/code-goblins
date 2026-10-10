@@ -84,7 +84,7 @@ type AuthPreflight interface {
 	// naming anything that is not usable, and the refusal that must stop the
 	// dispatch when a blocking service is red. A project with no manifest is
 	// not an error: most projects need nothing.
-	Preflight(ctx context.Context, project string) (auth.Result, error)
+	Preflight(ctx context.Context, project string, need auth.Need) (auth.Result, error)
 }
 
 // Service owns one local spawn. Its collaborators are injected through
@@ -225,9 +225,21 @@ func (s Service) Spawn(ctx context.Context, req Request) (result Result, err err
 	// start without a credential it needs costs no terminal and no worktree.
 	// Dispatching anyway is what let a stale DATABASE_URL reach a goblin, so
 	// a red blocking service stops here; --yolo is the existing override.
-	preflight, err := s.preflightCredentials(ctx, project)
+	need, err := s.spawnNeed(req)
 	if err != nil {
 		return Result{}, err
+	}
+	preflight, err := s.preflightCredentials(ctx, project, need)
+	if err != nil {
+		return Result{}, err
+	}
+	// A brief that names a service the manifest does not declare is a
+	// mistake in the brief, which no override clears: the task would start
+	// without what its brief says it needs. A helper is given what its
+	// parent's record names, and a name the manifest dropped since is only
+	// left out.
+	if req.Parent == "" && len(preflight.Grant.Unknown) > 0 {
+		return Result{}, fmt.Errorf("spawn: the brief's Authentication section names a service the task cannot be given: %s. Name its services as the manifest does, or write credentials: %s", auth.UnknownLine(project, preflight.Grant), auth.NoServices)
 	}
 	if preflight.Refusal != "" && !req.Yolo {
 		return Result{}, fmt.Errorf("spawn: %s", preflight.Refusal)
@@ -308,6 +320,7 @@ func (s Service) Spawn(ctx context.Context, req Request) (result Result, err err
 	}
 	result = partialResult(req, project, taskTmp, wt.Path, scratch)
 	result.Meta.GoblinName, result.Meta.GoblinTitle = goblin.Name, goblin.Title
+	result.Meta.Credentials, result.Meta.HasCredentials = recordedServices(preflight.Grant), true
 
 	// Publish metadata as soon as the worktree exists, before the harness can
 	// start: a task whose launch later fails is then addressable and cleanable
@@ -384,7 +397,7 @@ func (s Service) Spawn(ctx context.Context, req Request) (result Result, err err
 		if auth.IsHarnessBillingKey(name) {
 			return false
 		}
-		return hasNativeVariable(s.nativeHostEnvironment(userEnv, harness.Launch{}, preflight.Env), name)
+		return hasNativeVariable(s.nativeHostEnvironment(userEnv, harness.Launch{}, preflight), name)
 	}
 	provision, err := s.Worktrees.Provision(ctx, project, wt.Path, taskTmp, hasVariable)
 	if err != nil {
@@ -432,6 +445,7 @@ func (s Service) Spawn(ctx context.Context, req Request) (result Result, err err
 	if isServicesNeeded {
 		launch.Instruction += servicesInstruction(result.Meta)
 	}
+	launch.Instruction += credentialsInstruction(project, preflight.Grant)
 	if len(provision.Install) > 0 {
 		// The card says what the goblin does first until its own first
 		// report, which this line comes before.
@@ -439,7 +453,7 @@ func (s Service) Spawn(ctx context.Context, req Request) (result Result, err err
 			return fail(result, fmt.Errorf("spawn: record the dependency step: %w", err))
 		}
 	}
-	if nativeHost, err = s.launchNativeHost(req.ID, req.Harness, launch, userEnv, preflight.Env); err != nil {
+	if nativeHost, err = s.launchNativeHost(req.ID, req.Harness, launch, userEnv, preflight); err != nil {
 		return fail(result, err)
 	}
 	// Its release error, if any, is returned with the result once the brief
@@ -479,6 +493,9 @@ func (s Service) Spawn(ctx context.Context, req Request) (result Result, err err
 	}
 	if preflight.Warning != "" {
 		result.Output += "\n" + preflight.Warning
+	}
+	if line := auth.WithheldLine(req.ID, project, preflight); line != "" {
+		result.Output += "\n" + line
 	}
 	if preflight.Refusal != "" {
 		// Reached only under --yolo: the Overlord's override is recorded in
@@ -563,14 +580,16 @@ func mergeProvisionEnv(env map[string]string, redirects map[string]string) {
 	}
 }
 
-// preflightCredentials resolves the project's credentials once, before the
-// terminal and worktree exist, so both the refusal decision and the injected
-// environment come from the same probe run rather than two.
-func (s Service) preflightCredentials(ctx context.Context, project string) (auth.Result, error) {
+// preflightCredentials resolves the credentials of the services need names
+// once, before the terminal and worktree exist, so both the refusal decision
+// and the injected environment come from the same probe run rather than two.
+// It is the one way a spawn, a resume and a switch come by a terminal's
+// credentials.
+func (s Service) preflightCredentials(ctx context.Context, project string, need auth.Need) (auth.Result, error) {
 	if s.Auth == nil {
 		return auth.Result{}, nil
 	}
-	result, err := s.Auth.Preflight(ctx, project)
+	result, err := s.Auth.Preflight(ctx, project, need)
 	if err != nil {
 		return auth.Result{}, fmt.Errorf("spawn: project auth preflight: %w", err)
 	}

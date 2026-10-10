@@ -61,7 +61,27 @@ type TaskMeta struct {
 	// supervisor for it, whose branch its own is cut from and to which it
 	// reports. Empty for every task the CFO dispatched.
 	Parent string
+	// Credentials names the services of the project's auth manifest whose
+	// credentials the task's terminal carries: what its spawn gave it, plus
+	// what cfo auth grant added since. Every later terminal of the task, a
+	// resume's or a switch's, carries the same ones. It holds names, never a
+	// value.
+	Credentials []string
+	// HasCredentials says the record names the task's services at all. It is
+	// false only for a task spawned by a build that gave every task all of
+	// its project's stored credentials: such a record names none, and its
+	// next terminal is given what its brief asks for, as a spawn would.
+	HasCredentials bool
 }
+
+// noCredentials is how a record says its task carries no service's
+// credentials, which an absent key cannot: that is a task an older build
+// spawned. No service is named by it, since a manifest refuses the name.
+const noCredentials = "none"
+
+// credentialsSeparator joins the services a record names. A manifest refuses
+// it in a service's name.
+const credentialsSeparator = ","
 
 // extrasSeparator joins a task's extra worktrees in its record. Windows
 // refuses it in a file name, so no path can hold it.
@@ -287,6 +307,12 @@ func ReadTaskMeta(stateDir, id string) (TaskMeta, error) {
 	if extras := kv["extras"]; extras != "" {
 		meta.Extras = strings.Split(extras, extrasSeparator)
 	}
+	if credentials := kv["credentials"]; credentials != "" {
+		meta.HasCredentials = true
+		if credentials != noCredentials {
+			meta.Credentials = strings.Split(credentials, credentialsSeparator)
+		}
+	}
 	if meta.Kind == "" {
 		meta.Kind = "ship"
 	}
@@ -376,12 +402,37 @@ func WriteTaskMeta(stateDir string, meta TaskMeta) error {
 		fields["mode"] = meta.Mode
 		fields["yolo"] = meta.Yolo
 	}
+	if meta.HasCredentials {
+		fields["credentials"] = noCredentials
+		if len(meta.Credentials) > 0 {
+			fields["credentials"] = strings.Join(meta.Credentials, credentialsSeparator)
+		}
+	}
 	for key, value := range fields {
 		if value == "" {
 			delete(fields, key)
 		}
 	}
 	return WriteMeta(filepath.Join(stateDir, meta.ID+".meta"), fields)
+}
+
+// WriteTaskCredentials names services as the ones task id carries, in its
+// record, and leaves every other line of the record as it is, the ones this
+// build does not read included. Its caller holds the record's lock.
+func WriteTaskCredentials(stateDir, id string, services []string) error {
+	if err := validateTaskMetaValues(TaskMeta{ID: id, Credentials: services, HasCredentials: true}); err != nil {
+		return err
+	}
+	path := TaskMetaPath(stateDir, id)
+	record, err := ReadMeta(path)
+	if err != nil {
+		return err
+	}
+	record["credentials"] = noCredentials
+	if len(services) > 0 {
+		record["credentials"] = strings.Join(services, credentialsSeparator)
+	}
+	return WriteMeta(path, record)
 }
 
 func validateTaskMetaValues(meta TaskMeta) error {
@@ -422,6 +473,18 @@ func validateTaskMetaValues(meta TaskMeta) error {
 		{"goblin_name", meta.GoblinName},
 		{"goblin_title", meta.GoblinTitle},
 		{"scratch", meta.Scratch},
+	}
+	if len(meta.Credentials) > 0 && !meta.HasCredentials {
+		return errors.New("state: task metadata names credentials it does not record")
+	}
+	for _, service := range meta.Credentials {
+		if service == "" || service == noCredentials || strings.Contains(service, credentialsSeparator) {
+			return fmt.Errorf("state: task metadata credentials service %q is empty, is %q or holds %q", service, noCredentials, credentialsSeparator)
+		}
+		fields = append(fields, struct {
+			name  string
+			value string
+		}{"credentials", service})
 	}
 	for _, extra := range meta.Extras {
 		if extra == "" || strings.Contains(extra, extrasSeparator) {
