@@ -82,7 +82,7 @@ func TestProjectCheckReportsAMissingRecordByNameAndByPath(t *testing.T) {
 		for _, want := range []string{
 			"high record/record-missing:",
 			filepath.Join(f.home.Data, "projects", "northwind", "project.json"),
-			"project northwind: record failed",
+			"project northwind: checkout passed, record failed",
 		} {
 			if !strings.Contains(stdout, want) {
 				t.Errorf("cfo project check %s does not print %q:\n%s", project, want, stdout)
@@ -161,6 +161,43 @@ func TestProjectCheckRefusesAProjectThatIsNoCheckout(t *testing.T) {
 	// Assert
 	if code != 1 || !strings.Contains(stderr, "southwind") {
 		t.Errorf("cfo project check southwind = %d, want 1 naming it: %s", code, stderr)
+	}
+}
+
+// A project the home holds files for and this machine has no checkout of
+// answered with an error. It is assessed as far as the home's files go: the
+// missing checkout is a finding, the record is still read, and an area that
+// needs the repository is said to be not assessed.
+func TestProjectCheckAssessesAProjectWithNoCheckoutAsFarAsTheHomesFilesGo(t *testing.T) {
+	// Arrange
+	f := newProjectFixture(t)
+	record := filepath.Join(f.home.Data, "projects", "southwind", "project.json")
+	if err := os.MkdirAll(filepath.Dir(record), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(record, []byte(`{"project":"southwind","verification":{"fast":[["git","status"]]}}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	// Act
+	code, stdout, stderr := f.run("check", "southwind")
+	recordCode, recordOut, _ := f.run("check", "southwind", "--area", "record")
+	gateCode, gateOut, _ := f.run("check", "southwind", "--area", "gate")
+
+	// Assert
+	if code != 1 || stderr != "" {
+		t.Errorf("cfo project check southwind = %d, want 1 with a report and no error: %s", code, stderr)
+	}
+	for _, want := range []string{"high checkout/checkout-missing:", "ok record/record-valid:", "project southwind: checkout failed (1 high), record passed, gate not assessed"} {
+		if !strings.Contains(stdout, want) {
+			t.Errorf("cfo project check southwind does not print %q:\n%s", want, stdout)
+		}
+	}
+	if recordCode != 0 || !strings.Contains(recordOut, "project southwind: record passed") {
+		t.Errorf("cfo project check southwind --area record = %d, want 0 with the record passed:\n%s", recordCode, recordOut)
+	}
+	if gateCode != 1 || !strings.Contains(gateOut, "project southwind: gate not assessed") {
+		t.Errorf("cfo project check southwind --area gate = %d, want 1 saying the gate was not assessed:\n%s", gateCode, gateOut)
 	}
 }
 

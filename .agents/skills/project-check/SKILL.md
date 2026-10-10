@@ -29,6 +29,10 @@ This skill is the part a command cannot do: prove the project's commands by runn
    Run `cfo project check <project>` and keep its output.
    Each line is a severity, an area and a check, what was found, the evidence, and the fix.
    The last line is the verdict for each area.
+   Read the `checkout` lines first.
+   `remote-moved` means the remote's default branch is past the commit this run read, so its findings are about files a goblin will not get.
+   Say so at the top of the report, and never run `git fetch` in the Overlord's checkout yourself: propose it.
+   `checkout-missing` means this machine has no checkout, so the gate and instructions areas were not assessed and steps 3 and 4 have nothing to prove.
    The command exits 1 when an area fails, which is a result and not an error.
    `--json` prints the same report as data, with the drafted record in it.
 2. **Ask the services.**
@@ -67,6 +71,8 @@ This skill is the part a command cannot do: prove the project's commands by runn
    - `connectors-examined` names the services kept on a note alone, which the command cannot verify.
      Read each note and say whether it still holds.
    - `gate-ci-differs` and `gate-ci-unknown`: read the gate's test command beside the workflow files and say what each runs.
+   - `gate-file-missing`, `gate-file-refused` and `gate-agent-refused`: each means `cfo pipeline run` refuses every gate run of the project at its start, and the line quotes the pipeline's own answer.
+     Say so near the top of the report, since no gated change can ship there until the gate file is fixed in the repository.
 5. **Draft the record.**
    Run `cfo project check <project> --draft <task folder>/drafts/<project>/project.json`.
    The draft starts from the record that is there and fills what it leaves empty with the declared services the command counts as used and a fast tier.
@@ -99,10 +105,8 @@ This skill is the part a command cannot do: prove the project's commands by runn
 
 The command says only what it read.
 `docs/project-runtime.md` lists what is outside it under "What the check cannot see".
-The two that matter most to a report:
+The one that matters most to a report:
 
-- It reads the default branch as the checkout last fetched it and does not say whether the remote has moved.
-  A spawn fetches first, so a goblin can get files the command did not read.
 - Its production line reads env files only.
   A spawn also puts the stored credentials of a task's services into the task's terminal, and a test run inherits those with no env file at all.
   Read `auth.json` for the services a task would carry and name them in the report.

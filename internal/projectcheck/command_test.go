@@ -128,3 +128,74 @@ func TestWhatACommandReadsBesideWhatItWritesIsStillReported(t *testing.T) {
 		})
 	}
 }
+
+// A file git does not track is in a worktree only when the worktree is
+// given it or its install step makes it. `.venv/Scripts/python.exe` was
+// judged by the Overlord's own folder: fine where he had made a virtual
+// environment, missing where he had not, and neither says what a goblin's
+// worktree will hold.
+func TestAFileGitDoesNotTrackIsJudgedByWhatAWorktreeWillHave(t *testing.T) {
+	const venv = ".venv/Scripts/python.exe scripts/pytest_changed.py"
+	const vitest = "node_modules/.bin/vitest.cmd run"
+	for _, test := range []struct {
+		name, command string
+		tracked       map[string]string
+		held          []string
+		worktree      string
+		missing       string
+		note          string
+	}{
+		{name: "the folder holds a virtual environment no install step of a worktree makes", command: venv, held: []string{".venv/Scripts/python.exe"}, missing: "no install step of a worktree makes .venv"},
+		{name: "the folder holds none and the manifest's install makes one", command: venv, worktree: `{"project":"northwind","dependencies":{"install":["uv venv","uv pip install -r requirements.txt"]}}`, tracked: map[string]string{"requirements.txt": "pytest\n"}, note: "made by the worktree's install step, uv venv"},
+		{name: "the folder holds none and the lockfile's install makes one", command: venv, tracked: map[string]string{"uv.lock": "version = 1\n"}, note: "made by the worktree's install step, uv sync --locked"},
+		{name: "an install command that names the folder makes it", command: venv, worktree: `{"project":"northwind","dependencies":{"install":["python -m venv .venv"]}}`, note: "made by the worktree's install step, python -m venv .venv"},
+		{name: "packages the lockfile's install makes", command: vitest, tracked: map[string]string{"package-lock.json": "{}\n"}, note: "made by the worktree's install step, npm ci"},
+		{name: "packages with no lockfile and no install", command: vitest, held: []string{"node_modules/.bin/vitest.cmd"}, missing: "no install step of a worktree makes node_modules"},
+		{name: "packages the manifest shares from the folder", command: vitest, held: []string{"node_modules/.bin/vitest.cmd"}, worktree: `{"project":"northwind","dependencies":{"strategy":"link","paths":["node_modules"]}}`, note: "shared from the checkout by worktree.json"},
+		{name: "packages the manifest shares and the folder does not hold", command: vitest, worktree: `{"project":"northwind","dependencies":{"strategy":"link","paths":["node_modules"]}}`, missing: "worktree.json shares node_modules"},
+		{name: "a strategy of none installs nothing", command: vitest, tracked: map[string]string{"package-lock.json": "{}\n"}, worktree: `{"project":"northwind","dependencies":{"strategy":"none"}}`, missing: "no install step of a worktree makes node_modules"},
+		{name: "a script only the folder holds", command: "python scripts/local_test.py", held: []string{"scripts/local_test.py"}, missing: "a worktree is not given it"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			// Arrange
+			tracked := map[string]string{"AGENTS.md": "Test with `" + test.command + "`.\n", "scripts/pytest_changed.py": "print('changed')\n", ".gitignore": ".venv/\nnode_modules/\nscripts/local_test.py\n"}
+			for name, content := range test.tracked {
+				tracked[name] = content
+			}
+			f := newFixture(t, tracked)
+			for _, name := range test.held {
+				f.write(name, "held by the folder alone\n")
+			}
+			if test.worktree != "" {
+				f.manifest("worktree.json", test.worktree)
+			}
+
+			// Act
+			report := f.check("uv", "python")
+
+			// Assert
+			if test.missing != "" {
+				finding := only(t, report, "instruction-command-missing")
+				contains(t, "evidence", finding.Evidence, test.missing)
+				return
+			}
+			none(t, report, "instruction-command-missing")
+			contains(t, "evidence", only(t, report, "instruction-commands-found").Evidence, test.note)
+		})
+	}
+}
+
+// The record's tiers are commands a worktree runs too, so a tier that
+// starts a program the install makes is found by the same rule.
+func TestARecordTierThatStartsAProgramTheInstallMakesIsFound(t *testing.T) {
+	// Arrange
+	f := newFixture(t, map[string]string{"uv.lock": "version = 1\n", "scripts/gate_test.py": "print('gate')\n"})
+	f.manifest("project.json", `{"project":"northwind","verification":{"fast":[[".venv/Scripts/python.exe","scripts/gate_test.py"]]}}`)
+
+	// Act
+	report := f.check()
+
+	// Assert
+	none(t, report, "tier-command-missing")
+	contains(t, "evidence", only(t, report, "tier-commands-found").Evidence, "made by the worktree's install step, uv sync --locked")
+}
