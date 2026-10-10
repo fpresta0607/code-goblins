@@ -191,6 +191,13 @@ func (s Service) Spawn(ctx context.Context, req Request) (result Result, err err
 		if err != nil {
 			return Result{}, err
 		}
+		// From version 6 a gate runs on its task's own harness, so a harness
+		// no gate can run on is refused here, before anything is built.
+		if policy.Version > 5 {
+			if err := pipeline.GateHarness(string(req.Harness)); err != nil {
+				return Result{}, fmt.Errorf("spawn: %w. Spawn it on another harness, or with --mode direct-PR, which needs no gate", err)
+			}
+		}
 		selection = &chosen
 	}
 	adapter, err := s.Harness.Get(req.Harness)
