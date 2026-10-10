@@ -15,6 +15,7 @@ import (
 
 	"github.com/fpresta0607/code-goblins/internal/fsx"
 	"github.com/fpresta0607/code-goblins/internal/lock"
+	"github.com/fpresta0607/code-goblins/internal/supervise"
 	"github.com/fpresta0607/code-goblins/internal/wake"
 )
 
@@ -190,10 +191,21 @@ func TestEveryWakeReachesTheCFOOnceWhileADozenSessionsFireTheirHooks(t *testing.
 		ended := time.Now()
 		guard := cfo.begin(t, waits, own["stop"], "hook", "turnend-guard")
 		armed := cfo.begin(t, waits, own["stop"], "hook", "stop-autoarm")
+		// The hook shows it is arming first, and is armed once it holds the
+		// auto-arm lock: the guard waits for the first and decides on the
+		// second.
 		arming := make(chan time.Duration, 1)
 		go func() {
+			shown := time.Duration(0)
 			for deadline := ended.Add(30 * time.Second); time.Now().Before(deadline); time.Sleep(10 * time.Millisecond) {
+				if shown == 0 && supervise.AutoarmArming(h.State) {
+					shown = time.Since(ended)
+				}
 				if _, err := lock.ReadNamed(h.State, autoarmLockName); err == nil {
+					if shown == 0 {
+						shown = time.Since(ended)
+					}
+					load.record("the CFO's stop-autoarm, from the turn's end to showing it arms", shown)
 					arming <- time.Since(ended)
 					return
 				}
