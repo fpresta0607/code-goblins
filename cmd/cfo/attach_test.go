@@ -474,11 +474,13 @@ func TestCtrlCloseBracketLeavesTheTerminalInEitherEncoding(t *testing.T) {
 // The CFO's terminal starts from the user's environment: a launcher's
 // session markers, billing keys and the home the user scope names are
 // replaced, the supervisor's own home and projects root are what the CFO
-// works in, and it keeps the launcher's Herdr session without its pane.
+// works in, it keeps the launcher's Herdr session without its pane, and its
+// browser session is its own whatever session the user's environment names.
 func TestANativeCFOStartsFromTheUsersEnvironmentInThisHome(t *testing.T) {
 	userEnv := []string{
 		`Path=C:\bin`, "USERS_OWN_SETTING=kept", `CFO_HOME=C:\installed-home`, `cfo_projects_root=C:\dev`,
 		"CLAUDECODE=1", "CLAUDE_CODE_CHILD_SESSION=1", "HERDR_PANE_ID=w1:p1", "HERDR_SESSION=users", "ANTHROPIC_API_KEY=sk-billed",
+		"chrome_devtools_axi_session=the-users-own",
 	}
 	launcherEnv := []string{`Path=C:\launcher`, "CLAUDECODE=1", "HERDR_PANE_ID=w9:p0", "herdr_pane_id=w9:p1", "HERDR_SESSION=fleet"}
 	h := home.Home{Root: `C:\scratch\home`, State: `C:\scratch\home\state`}
@@ -488,6 +490,7 @@ func TestANativeCFOStartsFromTheUsersEnvironmentInThisHome(t *testing.T) {
 	want := []string{
 		`Path=C:\bin`, "USERS_OWN_SETTING=kept", "HERDR_SESSION=fleet",
 		`CFO_HOME=C:\scratch\home`, `CFO_STATE_OVERRIDE=C:\scratch\home\state`, `CFO_PROJECTS_ROOT=C:\scratch\projects`,
+		"CHROME_DEVTOOLS_AXI_SESSION=cfo",
 	}
 	if !slices.Equal(got, want) {
 		t.Errorf("nativeCFOEnvironment =\n%q\nwant\n%q", got, want)
@@ -499,7 +502,7 @@ func TestANativeCFOStartsFromTheUsersEnvironmentInThisHome(t *testing.T) {
 func TestANativeCFOLeavesUnsetWhatTheSupervisorDoesNotSet(t *testing.T) {
 	got := nativeCFOEnvironment([]string{`Path=C:\bin`, `CFO_PROJECTS_ROOT=C:\dev`, "HERDR_SESSION=users"}, []string{`Path=C:\launcher`}, home.Home{Root: `C:\home`, State: `C:\home\state`}, "")
 
-	want := []string{`Path=C:\bin`, `CFO_PROJECTS_ROOT=C:\dev`, `CFO_HOME=C:\home`, `CFO_STATE_OVERRIDE=C:\home\state`}
+	want := []string{`Path=C:\bin`, `CFO_PROJECTS_ROOT=C:\dev`, `CFO_HOME=C:\home`, `CFO_STATE_OVERRIDE=C:\home\state`, "CHROME_DEVTOOLS_AXI_SESSION=cfo"}
 	if !slices.Equal(got, want) {
 		t.Errorf("nativeCFOEnvironment = %q, want %q", got, want)
 	}

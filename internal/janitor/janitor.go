@@ -73,6 +73,9 @@ type Config struct {
 	EndProcess func(ctx context.Context, item ProcessItem) error
 	// Watched are the detached trees the last sweep went on watching.
 	Watched []Watched
+	// BrowserSessions is the folder chrome-devtools-axi keeps a folder for
+	// each named session in. Empty removes none.
+	BrowserSessions string
 }
 
 // Item is one thing a sweep removed, kept or reports.
@@ -145,6 +148,7 @@ func Sweep(ctx context.Context, cfg Config) Record {
 		cfg.trimRetiredTasks(processes, &record)
 		cfg.keepRecentBackups(processes, &record)
 		cfg.retireMovedCaches(&record)
+		cfg.removeStaleBrowserSessions(&record)
 	}
 	cfg.trimCaches(ctx, &record)
 	cfg.stopServices(ctx, &record)

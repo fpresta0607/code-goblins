@@ -1074,6 +1074,13 @@ A loop that looks at something once a minute uses more than that and is left alo
 The sweep reads every process on the machine and judges only those of the terminals in its own home's `state\hosts`, so another home on the machine, a scratch home of a test among them, is never touched.
 What nothing proves is named for the CFO and never ended: a browser bridge with no mark whose parent is gone, and a gate agent's process whose gate is gone.
 
+A browser bridge belongs to one owner.
+chrome-devtools-axi keeps one bridge and one browser for each session name, and a terminal that names none shares its unnamed session with every other program of the user, so every goblin's terminal starts with `CHROME_DEVTOOLS_AXI_SESSION` set to its task id and the CFO's with `cfo`, whatever the user's environment named.
+The bridge is started with its terminal's environment, so it carries the terminal's mark and ends with it.
+The tool hashes a session name to one of 1,000 ports, so two tasks can be given the same port. The second bridge then fails to start, and its goblin sets `CHROME_DEVTOOLS_AXI_PORT` for itself.
+The tool removes no session's folder. The janitor removes one under `.chrome-devtools-axi\sessions` once the bridge its `bridge.pid` names no longer runs and nothing wrote to it for a day, and only when it holds nothing but the tool's own files.
+A bridge keeps its page drawing whether or not anything drives it: three left on 2026-10-09 used most of a processor between them. So the sweep judges a running terminal's bridge by when its session was last used, the newest write among the tool's files in the session's folder, and ends it with its browser after an hour unused.
+
 ### Interface rules
 
 These rules hold for every board surface, and new work follows them.
