@@ -939,14 +939,20 @@ To update a running home to the newest release, run `goblins update` in a termin
 The update is yours alone: it refuses to run under the CFO, a goblin or any agent.
 
 To install a newer build into a running home, run the candidate build itself with `update`: it swaps both `cfo.exe` and `goblins.exe` where the home keeps them, restarts only the supervisor, and puts the previous build back if the new one does not serve.
+The board is away for under a minute: an update that runs past a minute is stopped where it is and the previous build put back, and one that runs past a minute before it changed anything is stopped with nothing changed.
+It holds the supervisor's lock from the supervisor it stopped to the one it starts, so a Code Goblins opened meanwhile waits for the board instead of starting a supervisor of its own.
+It waits up to 15 seconds for a goblin's start, pause, resume or clean-up in flight before it stops the supervisor, and a new one started while it installs is refused with one sentence and can be run again a minute later.
+It ends on the time each step took.
 That folder keeps the current build alone; cleanup reports aside copies it cannot remove, including running copies, and the janitor retries on a later pass.
 The janitor leaves that folder alone while an update is unfinished.
 The update keeps verified copies in `state\update` for rollback and `--recover`; cleanup never removes them.
 The candidate must meet the [source-build requirements](#development).
 The home keeps them in its `bin`, or, where a build before `bin` set it up, such as a checkout an older build made the home, at its root, where they are updated until an install lays the home out with `bin`.
-The journal of an earlier update that finished is history, whatever home it names; only an unfinished one, whose copies are its way back, stops an update.
+The journal of an earlier update that finished is history, whatever home it names.
+An unfinished update of this home is put back first by the next update, and only an unfinished one of another home, whose copies are its way back, stops an update.
 A `goblins-window.exe` beside the candidate follows it into the home beside `goblins.exe` once the candidate serves; an open window keeps running the previous one until you quit it from its tray icon, and a window that could not be replaced leaves the update done and is named.
-If an update stops part way, it prints a recovery line that runs the candidate's kept copy and names the home and its state, so it works from any folder with both commands gone; paste it into Windows PowerShell as printed, for example:
+An update that stops part way prints nothing to paste: the next update puts the previous build back first, and opening Code Goblins again starts the board when the update left it down.
+To recover by hand, when nothing else can, run the candidate's kept copy with the home and its state named, which works from any folder with both commands gone:
 
 ```powershell
 $env:CFO_HOME = 'C:\Users\you\AppData\Local\CodeGoblins'; $env:CFO_STATE_OVERRIDE = 'C:\Users\you\AppData\Local\CodeGoblins\state'; & 'C:\Users\you\AppData\Local\CodeGoblins\state\update\candidate.exe' update --recover
