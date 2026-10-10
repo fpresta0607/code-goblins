@@ -13,9 +13,9 @@ export interface AfkSwitch {
 
 // useAfkSwitch asks the supervisor to turn AFK mode on or off from this board.
 // Whether the request is the Overlord's own is the supervisor's to prove, so
-// nothing here decides it, and a refusal comes back as problem, in full, with
-// the way he pressed, which a refusal that arrives after he closed the
-// question still says.
+// nothing here decides it, and a refusal comes back as problem, the one short
+// sentence the supervisor has for him, with the way he pressed, which a
+// refusal that arrives after he closed the question still says.
 export function useAfkSwitch(instance: string): AfkSwitch {
   const [pending, setPending] = useState(false);
   const [refused, setRefused] = useState({ problem: "", pressedOn: false });

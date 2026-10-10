@@ -15,8 +15,9 @@ test.use({
 
 declare global {
   interface Window {
-    voiceProbe?: { captures: MediaStreamTrack[]; started: unknown[]; frames: number; replies: number };
+    voiceProbe?: { captures: MediaStreamTrack[]; started: unknown[]; frames: number; replies: number; recognitions: { hear: (words: string) => void; silence: () => void }[] };
     voiceSignal?: { context: AudioContext; gain: GainNode };
+    voiceContexts?: AudioContext[];
   }
 }
 
@@ -68,7 +69,7 @@ async function openPane(page: Page, { hint = false, dictations = [] as { text: s
     if (!hint) localStorage.setItem("cfo-voice-hint-v1", "dismissed");
     if (browser) localStorage.setItem("cfo-dictation-browser-v1", "on");
     if (dictations.length) localStorage.setItem("cfo-dictations-v1", JSON.stringify({ "task:voice": dictations }));
-    const probe = { captures: [] as MediaStreamTrack[], started: [] as unknown[], frames: 0, replies: 0 };
+    const probe = { captures: [] as MediaStreamTrack[], started: [] as unknown[], frames: 0, replies: 0, recognitions: [] as { hear: (words: string) => void; silence: () => void }[] };
     window.voiceProbe = probe;
     if (is_held) {
       const fetch = window.fetch.bind(window);
@@ -91,13 +92,18 @@ async function openPane(page: Page, { hint = false, dictations = [] as { text: s
     window.requestAnimationFrame = (callback) => { probe.frames++; return frame(callback); };
     class Recognition {
       continuous = false; interimResults = true; lang = "";
+      onstart: (() => void) | null = null;
       onresult: ((event: { resultIndex: number; results: { transcript: string }[][] }) => void) | null = null;
       onerror: ((event: { error: string }) => void) | null = null;
       onend: (() => void) | null = null;
       private live = false;
-      start(track?: unknown) { probe.started.push(track); this.live = true; }
-      stop() { if (!this.live) return; this.live = false; this.onresult?.({ resultIndex: 0, results: [[{ transcript: "heard by the browser" }]] }); this.onend?.(); }
+      start(track?: unknown) { probe.started.push(track); probe.recognitions.push(this); this.live = true; this.onstart?.(); }
+      stop() { if (!this.live) return; this.live = false; this.hear("heard by the browser"); this.onend?.(); }
       abort() { this.live = false; this.onend?.(); }
+      hear(words: string) { this.onresult?.({ resultIndex: 0, results: [[{ transcript: words }]] }); }
+      // After a stretch of silence the browser's recognizer gives up by
+      // itself: a no-speech error, then its end.
+      silence() { this.live = false; this.onerror?.({ error: "no-speech" }); this.onend?.(); }
     }
     if (!app) { Object.defineProperty(window, "SpeechRecognition", { configurable: true, value: Recognition }); return; }
     const host = window as unknown as { chrome?: object };
@@ -125,11 +131,12 @@ async function releaseShortcut(page: Page) {
   await page.keyboard.up("Control");
 }
 
-// dictate holds the shortcut until the microphone has opened, which takes a
+// dictate holds the shortcut until the bubble says it listens, which takes a
 // busy machine longer than a short hold, speaks for ms and lets go.
 async function dictate(page: Page, ms = 1200) {
   await holdShortcut(page, 0);
   await expect.poll(() => page.evaluate(() => window.voiceProbe!.captures.length)).toBe(1);
+  await expect(page.locator(".voice-bubble")).toHaveClass(/recording/);
   await page.waitForTimeout(ms);
   await releaseShortcut(page);
 }
@@ -224,6 +231,7 @@ test("a set-up of the speech model that fails stays shown until the next dictati
   await holdShortcut(page, 0);
   await expect(pane.getByText(failure)).toHaveCount(0);
   await expect.poll(() => page.evaluate(() => window.voiceProbe!.captures.length)).toBe(2);
+  await expect(page.locator(".voice-bubble")).toHaveClass(/recording/);
   await page.waitForTimeout(1200);
   await releaseShortcut(page);
   await expect.poll(() => replies.length).toBe(2);
@@ -576,6 +584,196 @@ for (const [where, app, expected] of [["the desktop app", true, WINDOWS_BLOCKED]
     });
   }
 }
+
+// The Overlord, 2026-10-09: "there's still some type of random alert, even
+// though dictation is working. It'll say nothing was heard when it was in
+// fact heard." The tests below hold the real page to that.
+
+// speakAt makes the microphone a tone whose loudness the test sets, from
+// silence to a voice, on a track of its own at each press, as a microphone
+// gives.
+async function speakAt(page: Page, volume: number) {
+  await page.evaluate((volume) => {
+    if (window.voiceSignal) { window.voiceSignal.gain.gain.value = volume; return; }
+    const context = new AudioContext();
+    const tone = context.createOscillator();
+    tone.frequency.value = 440;
+    const gain = context.createGain();
+    gain.gain.value = volume;
+    tone.connect(gain);
+    tone.start();
+    window.voiceSignal = { context, gain };
+    navigator.mediaDevices.getUserMedia = async () => {
+      await context.resume();
+      const microphone = context.createMediaStreamDestination();
+      gain.connect(microphone);
+      window.voiceProbe!.captures.push(microphone.stream.getAudioTracks()[0]);
+      return microphone.stream;
+    };
+  }, volume);
+}
+
+// busyPC makes a suspended audio context take ms longer to run again, as the
+// Overlord's PC does with the fleet busy: resuming the context dictation
+// records through took 0.4 to 0.7 s there, measured in this browser on
+// 2026-10-09. It also keeps each context the page makes, for a test to read.
+async function busyPC(page: Page, ms: number) {
+  await page.addInitScript((ms) => {
+    window.voiceContexts = [];
+    const Context = window.AudioContext;
+    window.AudioContext = class extends Context {
+      constructor(options?: AudioContextOptions) { super(options); window.voiceContexts!.push(this); }
+    };
+    const resume = Context.prototype.resume;
+    Context.prototype.resume = function (this: AudioContext) {
+      if (this.state !== "suspended") return resume.call(this);
+      return new Promise<void>((resolve) => setTimeout(resolve, ms)).then(() => resume.call(this));
+    };
+  }, ms);
+}
+
+// rested passes the half minute after a dictation in which the context it
+// records through is kept running, and waits for that context to be
+// suspended. The page's clock must be installed.
+async function rested(page: Page) {
+  await page.clock.fastForward(31_000);
+  await page.waitForFunction(() => window.voiceContexts!.some((context) => context.state === "suspended"));
+}
+
+test("the first dictation after the page opens, a few words long, is typed and never told as nothing heard", async ({ page }) => {
+  // Arrange: the context it records through is made at this very press.
+  const { bubble, pane, posts } = await openPane(page, { app: true });
+  await speakAt(page, .3);
+
+  // Act: a few words, let go 400 ms after the bubble says it listens.
+  await holdShortcut(page, 0);
+  await expect(bubble).toHaveClass(/recording/);
+  await page.waitForTimeout(400);
+  await releaseShortcut(page);
+
+  // Assert
+  await expect(page.locator("output")).toHaveText("ship the voice bubble");
+  await expect(pane.getByRole("status")).toHaveCount(0);
+  expect(posts).toHaveLength(1);
+  expect(posts[0].peak, "what he said while the bubble listened was recorded").toBeGreaterThan(3000);
+});
+
+test("a short dictation on a busy PC is typed and never told as nothing heard, because the bubble says it listens only once it records", async ({ page }) => {
+  // Arrange: a first dictation, after which the recording rests.
+  test.setTimeout(60000);
+  await page.clock.install();
+  await busyPC(page, 700);
+  const { bubble, pane, posts } = await openPane(page, { app: true, words: (count) => `dictation ${count + 1}` });
+  await speakAt(page, .3);
+  await dictate(page, 2500);
+  await expect(page.locator("output")).toHaveText("dictation 1");
+  await rested(page);
+
+  // Act: a few words, let go 400 ms after the bubble says it listens.
+  await holdShortcut(page, 0);
+  await expect(bubble).toHaveClass(/recording/);
+  await page.waitForTimeout(400);
+  await releaseShortcut(page);
+
+  // Assert
+  await expect.poll(() => page.locator("output").textContent()).toBe("dictation 1\n dictation 2");
+  await expect(pane.getByRole("status")).toHaveCount(0);
+  expect(posts).toHaveLength(2);
+  expect(posts[1].peak, "what he said while the bubble listened was recorded").toBeGreaterThan(3000);
+});
+
+test("a hold let go before the bubble listens types nothing and says nothing", async ({ page }) => {
+  // Arrange: a recording that takes far longer to begin than the hold lasts.
+  test.setTimeout(60000);
+  await page.clock.install();
+  await busyPC(page, 8000);
+  const { bubble, pane, posts } = await openPane(page, { app: true, words: (count) => `dictation ${count + 1}` });
+  await speakAt(page, .3);
+  await dictate(page, 2500);
+  await expect(page.locator("output")).toHaveText("dictation 1");
+  await rested(page);
+
+  // Act: the microphone is open, and nothing records yet.
+  await holdShortcut(page, 0);
+  await expect.poll(() => page.evaluate(() => window.voiceProbe!.captures.length)).toBe(2);
+  await page.waitForTimeout(300);
+  await expect(bubble, "the bubble does not invite speech it cannot record").not.toHaveClass(/recording/);
+  await releaseShortcut(page);
+
+  // Assert: nothing is told of a hold that never listened, and nothing typed.
+  await page.waitForTimeout(1500);
+  await expect(pane.getByRole("status")).toHaveCount(0);
+  await expect(page.locator("output")).toHaveText("dictation 1");
+  expect(posts).toHaveLength(1);
+  expect(await page.evaluate(() => window.voiceProbe!.captures.every((track) => track.readyState === "ended"))).toBe(true);
+});
+
+test("a hold with nothing said in it says Nothing was heard", async ({ page }) => {
+  // Arrange
+  const { bubble, pane } = await openPane(page, { app: true, words: () => "" });
+  await speakAt(page, 0);
+
+  // Act
+  await holdShortcut(page, 0);
+  await expect(bubble).toHaveClass(/recording/);
+  await page.waitForTimeout(800);
+  await releaseShortcut(page);
+
+  // Assert
+  await expect(pane.getByRole("status")).toHaveText("Nothing was heard.");
+  await expect(page.locator("output")).toHaveText("");
+});
+
+test("a silent hold he has already dictated past is never told as nothing heard over the next dictation", async ({ page }) => {
+  // Arrange: a hold with nothing said, whose sound is still with the engine.
+  test.setTimeout(60000);
+  const replies: Route[] = [];
+  const { bubble, pane } = await openPane(page, { app: true, replies });
+  await speakAt(page, 0);
+  await holdShortcut(page, 0);
+  await expect(bubble).toHaveClass(/recording/);
+  await page.waitForTimeout(800);
+  await releaseShortcut(page);
+  await expect.poll(() => replies.length).toBe(1);
+
+  // Act: he is dictating again when the engine answers that it heard nothing.
+  await speakAt(page, .3);
+  await holdShortcut(page, 0);
+  await expect(bubble).toHaveClass(/recording/);
+  await page.waitForTimeout(600);
+  await replies[0].fulfill({ json: { text: "" } });
+  await expect.poll(() => page.evaluate(() => window.voiceProbe!.replies)).toBe(1);
+  await page.waitForTimeout(300);
+  await expect(pane.locator(".terminal-note"), "no note while he is being heard").toHaveCount(0);
+  await releaseShortcut(page);
+  await expect.poll(() => replies.length).toBe(2);
+  await replies[1].fulfill({ json: { text: "and merge it" } });
+
+  // Assert
+  await expect(page.locator("output")).toHaveText("and merge it");
+  await expect(pane.locator(".terminal-note")).toHaveCount(0);
+});
+
+test("with the browser's speech recognition, a silence it gives up over while the keys are held shows no note, and the whole hold is typed at the release", async ({ page }) => {
+  // Arrange
+  const { bubble, pane } = await openPane(page, { browser: true });
+  await holdShortcut(page, 0);
+  await expect(bubble).toHaveClass(/recording/);
+  await page.evaluate(() => window.voiceProbe!.recognitions[0].hear("first the board"));
+
+  // Act: past the time a recognizer must have listened to be started again.
+  await page.waitForTimeout(1300);
+  await page.evaluate(() => window.voiceProbe!.recognitions[0].silence());
+
+  // Assert: the hold goes on, on a recognizer of its own.
+  await expect.poll(() => page.evaluate(() => window.voiceProbe!.recognitions.length)).toBe(2);
+  await expect(bubble).toHaveClass(/recording/);
+  await expect(pane.locator(".terminal-note")).toHaveCount(0);
+  await expect(page.locator("output")).toHaveText("");
+  await releaseShortcut(page);
+  await expect(page.locator("output")).toHaveText("first the board heard by the browser");
+  await expect(pane.locator(".terminal-note")).toHaveCount(0);
+});
 
 // A long dictation for the fake microphone: a second of near silence, then
 // phrases of 3 s, a tone whose pitch moves like a voice, each followed by 0.6 s

@@ -10,6 +10,9 @@ export interface Recognizer {
   continuous: boolean;
   interimResults: boolean;
   lang: string;
+  // onstart is told once the recognizer listens: nothing said before it is
+  // heard.
+  onstart: (() => void) | null;
   onresult: ((event: { resultIndex: number; results: ArrayLike<ArrayLike<{ transcript: string }>> }) => void) | null;
   // message, when a recognizer gives one, is the note to show as it is.
   onerror: ((event: { error: string; message?: string }) => void) | null;
@@ -108,16 +111,48 @@ function captureProblem(error: unknown): string {
 
 const RECOGNITION_MS = 120_000;
 
+// A recognizer handed the microphone listens within moments. One that does
+// not by then cannot record, and the CFO is told.
+const LISTEN_MS = 5000;
+
+// A browser's recognizer ends by itself after a stretch of silence, or once it
+// has listened a good while, and one that listened at least this long is
+// started again while the keys are held. One that ends sooner cannot listen,
+// and starting it again would only spin.
+const SEGMENT_LEAST_MS = 1000;
+
+// A Hold is one press of the keys until their release: the recognizer hearing
+// it now, the phrases heard in it so far, and its words once it is over.
+interface Hold {
+  recognizer: Recognizer;
+  phrases: string[];
+  // null means recognition is unfinished.
+  text: string | null;
+  isListening: boolean;
+  // When its recognizer was started, in ms.
+  since: number;
+  timer?: ReturnType<typeof setTimeout>;
+}
+
+// deafen stops a recognizer's events from reaching anyone.
+function deafen(recognizer: Recognizer): void {
+  recognizer.onstart = null;
+  recognizer.onresult = null;
+  recognizer.onerror = null;
+  recognizer.onend = null;
+}
+
 export class Dictation {
   private readonly events: DictationEvents;
   private readonly recognition: () => RecognizerClass;
   private readonly lang: string;
   private readonly microphone: (() => Promise<Capture>) | null;
-  private recognizer: Recognizer | null = null;
-  private started = false;
+  // The hold whose keys are down, and the one pressed last.
+  private hold: Hold | null = null;
+  private latest: Hold | null = null;
   private capture: Capture | null = null;
-  // Capture order is insertion order; null means recognition is unfinished.
-  private readonly pending = new Map<Recognizer, { text: string | null; timer?: ReturnType<typeof setTimeout> }>();
+  // The holds whose words are not typed yet, in capture order.
+  private readonly pending = new Set<Hold>();
 
   // With a microphone, the recognizer listens to the track that microphone
   // opens, so the waveform and the words come from one capture.
@@ -129,64 +164,102 @@ export class Dictation {
   }
 
   start(): void {
-    if (this.recognizer) return;
-    const recognizer = new (this.recognition())();
+    if (this.hold) return;
+    const hold: Hold = { recognizer: new (this.recognition())(), phrases: [], text: null, isListening: false, since: 0 };
+    this.attend(hold);
+    this.pending.add(hold);
+    this.hold = this.latest = hold;
+    this.events.problem("");
+    if (!this.microphone) { this.begin(hold); return; }
+    this.microphone().then((capture) => {
+      // Released or closed while the microphone opened: keep nothing open.
+      if (this.hold !== hold) { capture.close(); return; }
+      this.capture = capture;
+      this.begin(hold);
+    }, (error: unknown) => {
+      if (this.hold !== hold) return;
+      this.events.problem(captureProblem(error));
+      this.finish(hold, "");
+    });
+  }
+
+  // attend sets hold's recognizer up and hears its events. The bubble says it
+  // listens only once the recognizer does, so what it shows is being heard.
+  private attend(hold: Hold): void {
+    const recognizer = hold.recognizer;
     recognizer.continuous = true;
     recognizer.interimResults = false;
     recognizer.lang = this.lang;
-    this.pending.set(recognizer, { text: null });
-    const phrases: string[] = [];
+    recognizer.onstart = () => {
+      // A hold already listening goes on under a recognizer started again.
+      if (hold.isListening) return;
+      hold.isListening = true;
+      clearTimeout(hold.timer);
+      this.events.listening(true);
+    };
     // Without interim results every result the browser sends is final.
     recognizer.onresult = (event) => {
-      for (let i = event.resultIndex; i < event.results.length; i++) phrases.push(event.results[i][0].transcript);
+      for (let i = event.resultIndex; i < event.results.length; i++) hold.phrases.push(event.results[i][0].transcript);
     };
     recognizer.onerror = (event) => {
+      // Silence is no failure. The recognizer's end follows it, and says what
+      // the hold came to.
+      if (event.error === "no-speech") return;
       if (event.error === "supervisor" || event.error === "unheard") this.events.failed(event.message || event.error);
       else {
         const note = event.message || dictationProblem(event.error);
         if (note) this.events.problem(note);
       }
-      this.finish(recognizer, "");
+      this.finish(hold, "");
     };
-    recognizer.onend = () => this.finish(recognizer, spoken(phrases));
-    this.recognizer = recognizer;
-    this.started = false;
-    this.events.problem("");
-    if (!this.microphone) { this.begin(recognizer); return; }
-    this.microphone().then((capture) => {
-      // Released or closed while the microphone opened: keep nothing open.
-      if (this.recognizer !== recognizer) { capture.close(); return; }
-      this.capture = capture;
-      this.begin(recognizer, capture.track);
-    }, (error: unknown) => {
-      if (this.recognizer !== recognizer) return;
-      this.events.problem(captureProblem(error));
-      this.finish(recognizer, "");
-    });
+    recognizer.onend = () => {
+      // Ended while the keys are held: the hold goes on, on a recognizer of
+      // its own.
+      if (this.hold === hold && hold.isListening && Date.now() - hold.since >= SEGMENT_LEAST_MS) {
+        deafen(recognizer);
+        hold.recognizer = new (this.recognition())();
+        this.attend(hold);
+        this.begin(hold);
+        return;
+      }
+      const text = spoken(hold.phrases);
+      // A hold that listened and heard no words says so once, unless he is
+      // dictating again already, when the note would read as being about
+      // the hold he is in.
+      if (!text && hold.isListening && this.latest === hold) this.events.problem(dictationProblem("no-speech"));
+      this.finish(hold, text);
+    };
   }
 
-  private finish(recognizer: Recognizer, text: string): void {
-    const result = this.pending.get(recognizer);
-    if (!result || result.text !== null) return;
-    result.text = text;
-    clearTimeout(result.timer);
-    recognizer.onresult = null;
-    recognizer.onerror = null;
-    recognizer.onend = null;
-    if (this.recognizer === recognizer) {
-      this.recognizer = null;
+  private finish(hold: Hold, text: string): void {
+    if (!this.pending.has(hold) || hold.text !== null) return;
+    hold.text = text;
+    clearTimeout(hold.timer);
+    deafen(hold.recognizer);
+    if (this.hold === hold) {
+      this.hold = null;
       this.release();
       this.events.listening(false);
     }
-    for (const [prior, result] of this.pending) {
-      if (result.text === null) break;
+    for (const prior of this.pending) {
+      if (prior.text === null) break;
       this.pending.delete(prior);
-      if (result.text) this.events.heard(result.text);
+      if (prior.text) this.events.heard(prior.text);
     }
   }
 
-  private begin(recognizer: Recognizer, track?: MediaStreamTrack): void {
-    this.started = true;
+  // begin starts hold's recognizer, on the microphone's track when one is
+  // open.
+  private begin(hold: Hold): void {
+    hold.since = Date.now();
+    if (!hold.isListening) {
+      hold.timer = setTimeout(() => {
+        this.events.failed("Dictation did not begin recording within 5 seconds of the microphone opening, so nothing was typed.");
+        this.finish(hold, "");
+        hold.recognizer.abort();
+      }, LISTEN_MS);
+    }
+    const recognizer = hold.recognizer, track = this.capture?.track;
     if (!track) recognizer.start();
     else {
       try {
@@ -199,7 +272,6 @@ export class Dictation {
         recognizer.start();
       }
     }
-    if (this.recognizer === recognizer) this.events.listening(true);
   }
 
   private release(): void {
@@ -216,21 +288,26 @@ export class Dictation {
   // closes. The recognizer has what was said by then and its words are typed
   // in capture order, so the next dictation can start meanwhile.
   stop(): void {
-    const recognizer = this.recognizer;
-    if (!recognizer) return;
-    this.recognizer = null;
+    const hold = this.hold;
+    if (!hold) return;
+    this.hold = null;
     this.events.listening(false);
-    // Released before the microphone opened: nothing was heard.
-    if (!this.started) { this.finish(recognizer, ""); return; }
-    recognizer.stop();
+    // Released before anything listened, as before the microphone opened:
+    // nothing was said to it, so nothing is asked or told of it.
+    if (!hold.isListening) {
+      this.release();
+      this.finish(hold, "");
+      hold.recognizer.abort();
+      return;
+    }
+    hold.recognizer.stop();
     this.release();
-    const result = this.pending.get(recognizer);
-    if (result?.text === null) {
-      result.timer = setTimeout(() => {
-        if (this.pending.get(recognizer)?.text !== null) return;
+    if (hold.text === null) {
+      hold.timer = setTimeout(() => {
+        if (hold.text !== null) return;
         this.events.failed("Dictation did not finish within 120 seconds of the keys being let go, so its words were not typed.");
-        this.finish(recognizer, "");
-        recognizer.abort();
+        this.finish(hold, "");
+        hold.recognizer.abort();
       }, RECOGNITION_MS);
     }
   }
@@ -238,15 +315,12 @@ export class Dictation {
   // dispose stops listening without typing anything, for a terminal going
   // away, and drops the words still on their way.
   dispose(): void {
-    const opening = this.recognizer && !this.started ? this.recognizer : null;
-    this.recognizer = null;
+    this.hold = this.latest = null;
     this.release();
-    for (const [recognizer, result] of this.pending) {
-      clearTimeout(result.timer);
-      recognizer.onresult = null;
-      recognizer.onerror = null;
-      recognizer.onend = null;
-      if (result.text === null && recognizer !== opening) recognizer.abort();
+    for (const hold of this.pending) {
+      clearTimeout(hold.timer);
+      deafen(hold.recognizer);
+      if (hold.text === null) hold.recognizer.abort();
     }
     this.pending.clear();
   }

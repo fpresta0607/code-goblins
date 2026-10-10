@@ -996,6 +996,120 @@ func TestSweepOrphansWakesOnlyForARunningFindingNotYetReported(t *testing.T) {
 	}
 }
 
+// shortLivedCodex is a machine with one codex.exe nothing ties to the fleet,
+// as the sweep saw them on 2026-10-09: the same program started by the same
+// parent, each time as a new process.
+func shortLivedCodex(run int) reap.Inventory {
+	start := time.Date(2026, 10, 9, 14, 0, 0, 0, time.UTC)
+	return reap.Inventory{Processes: []reap.Process{
+		{PID: 700, ParentPID: 1, Name: "node.exe", CommandLine: "node.exe", Start: start},
+		{PID: 5832 + run, ParentPID: 700, Name: "codex.exe", CommandLine: `C:\Users\op\AppData\Roaming\npm\node_modules\@openai\codex\vendor\codex.exe app-server`, Start: start.Add(time.Duration(run+1) * 20 * time.Minute)},
+	}}
+}
+
+// passTime moves the audit record, and everything it remembers telling the
+// CFO, back by a duration, as though that long had passed since.
+func passTime(t *testing.T, dir string, by time.Duration) {
+	t.Helper()
+	data, err := os.ReadFile(reap.RecordPath(dir))
+	if errors.Is(err, os.ErrNotExist) {
+		return
+	}
+	if err != nil {
+		t.Fatal(err)
+	}
+	var record map[string]any
+	if err := json.Unmarshal(data, &record); err != nil {
+		t.Fatal(err)
+	}
+	earlier := func(value any) string {
+		at, err := time.Parse(time.RFC3339Nano, value.(string))
+		if err != nil {
+			t.Fatal(err)
+		}
+		return at.Add(-by).Format(time.RFC3339Nano)
+	}
+	record["time"] = earlier(record["time"])
+	if told, ok := record["told"].(map[string]any); ok {
+		for key, seen := range told {
+			told[key] = earlier(seen)
+		}
+	}
+	if data, err = json.Marshal(record); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(reap.RecordPath(dir), data, 0o644); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// TestSweepOrphansWakesOnceForShortLivedHarnessesOfOneShape replays
+// 2026-10-09: a codex.exe that was never the fleet's came and went all day,
+// each one a new pid, and every sweep that caught one woke the CFO. Ten of
+// them are one finding, raised once.
+func TestSweepOrphansWakesOnceForShortLivedHarnessesOfOneShape(t *testing.T) {
+	// Arrange
+	dir := t.TempDir()
+	sweep := func(inv reap.Inventory) string {
+		passTime(t, dir, 20*time.Minute)
+		cfg := reapConfig(dir, inv)
+		cfg.ReapEvery = 10 * time.Minute
+		return sweepOrphans(context.Background(), cfg)
+	}
+
+	// Act
+	for run := range 10 {
+		reason := sweep(shortLivedCodex(run))
+		if run == 0 && !strings.HasPrefix(reason, "orphan:") {
+			t.Fatalf("first sweep = %q, want the harness reported once", reason)
+		}
+		if run > 0 && reason != "" {
+			t.Errorf("sweep %d = %q, want no wake for another process of the shape already reported", run+1, reason)
+		}
+		if reason := sweep(reap.Inventory{}); reason != "" {
+			t.Errorf("sweep after process %d ended = %q, want no wake", run+1, reason)
+		}
+	}
+
+	// Assert
+	records, err := wake.Pending(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(records) != 1 {
+		t.Errorf("orphan wakes = %d (%+v), want 1 for ten processes of one shape", len(records), records)
+	}
+}
+
+// TestSweepOrphansRemembersWhatItToldForADay: a finding the CFO was told about
+// stays told while it is away, and is forgotten only when a day passes without
+// a sweep seeing it.
+func TestSweepOrphansRemembersWhatItToldForADay(t *testing.T) {
+	// Arrange
+	dir := t.TempDir()
+	sweep := func(inv reap.Inventory, after time.Duration) string {
+		passTime(t, dir, after)
+		return sweepOrphans(context.Background(), reapConfig(dir, inv))
+	}
+	if reason := sweep(orphanFleet(), 0); !strings.HasPrefix(reason, "orphan:") {
+		t.Fatalf("first sweep = %q, want the orphan reported", reason)
+	}
+
+	// Act and assert
+	if reason := sweep(reap.Inventory{}, 2*time.Hour); reason != "" {
+		t.Fatalf("sweep with the orphan away = %q, want no wake", reason)
+	}
+	if reason := sweep(orphanFleet(), 20*time.Hour); reason != "" {
+		t.Errorf("sweep with the orphan back within a day = %q, want no wake for what was already told", reason)
+	}
+	if reason := sweep(reap.Inventory{}, 2*time.Hour); reason != "" {
+		t.Fatalf("sweep with the orphan away again = %q, want no wake", reason)
+	}
+	if reason := sweep(orphanFleet(), 25*time.Hour); !strings.HasPrefix(reason, "orphan:") {
+		t.Errorf("sweep with the orphan back after more than a day = %q, want it reported again", reason)
+	}
+}
+
 // TestSweepOrphansRecordsAFailedSweep: an audit that could not read the fleet
 // must be recorded as a failure, never as a clean fleet.
 func TestSweepOrphansRecordsAFailedSweep(t *testing.T) {
