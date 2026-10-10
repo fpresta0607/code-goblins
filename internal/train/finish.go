@@ -102,6 +102,12 @@ func (e Engine) summary(t Train) string {
 	if passed := t.passedOnSecondTry(); passed != "" {
 		parts = append(parts, "failed once and passed on the second try: "+passed)
 	}
+	if tests := t.testsThatFailedOnce(); tests != "" {
+		parts = append(parts, "tests that failed once and passed on the second try inside their job: "+tests)
+	}
+	if unread := t.onceUnread(); unread != "" {
+		parts = append(parts, "the tests that failed once could not be read: "+unread)
+	}
 	if t.PR != "" {
 		parts = append(parts, "("+t.PR+")")
 	}

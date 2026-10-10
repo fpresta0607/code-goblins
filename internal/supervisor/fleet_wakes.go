@@ -879,7 +879,10 @@ func pollPullRequests(ctx context.Context, runner execx.Runner, stateDir string,
 				w.Checks[pr.URL] = reported
 			}
 			recordHostedChecks(w, pr, now)
-			errs = errors.Join(errs, reportChecks(stateDir, w, goblin.id, pr, isRunningWorkflows, now))
+			errs = errors.Join(errs, reportChecks(stateDir, w, goblin.id, pr, isRunningWorkflows, now, func() ([]string, error) {
+				owner, name := pullRequestRepository(pr.URL)
+				return train.FailedOnce(ctx, runner, repo, owner+"/"+name, pr.HeadRefOid, 0)
+			}))
 		}
 	}
 	var watched []ghPullRequest
@@ -984,8 +987,10 @@ func runsPullRequestWorkflows(repo string) bool {
 // only GitGuardian's in. So pr finishes once a workflow has reported too, or
 // says no workflow ran once workflowStartGrace has passed without one. A pull
 // request that conflicts with its base runs no workflows at all, and its
-// pr_health wake says so instead.
-func reportChecks(stateDir string, w *fleetWakes, goblin string, pr ghPullRequest, isRunningWorkflows bool, now time.Time) error {
+// pr_health wake says so instead. readOnce reads the tests that failed once
+// and passed on their second try in the head's workflow runs, which the wake
+// names: it is asked only when a wake is raised, and nil reads none.
+func reportChecks(stateDir string, w *fleetWakes, goblin string, pr ghPullRequest, isRunningWorkflows bool, now time.Time, readOnce func() ([]string, error)) error {
 	if len(pr.Checks) == 0 || pr.Mergeable == "CONFLICTING" {
 		return nil
 	}
@@ -1034,15 +1039,19 @@ func reportChecks(stateDir string, w *fleetWakes, goblin string, pr ghPullReques
 		head = head[:7]
 	}
 	detail := fmt.Sprintf("ci_finished: %s's PR #%d (%s) finished its checks at %s: ", goblin, pr.Number, pr.HeadRefName, head)
+	once := ""
+	if hasWorkflow && readOnce != nil {
+		once = failedOnceClause(readOnce())
+	}
 	switch {
 	case isUnstarted:
 		sort.Strings(reported)
 		detail += fmt.Sprintf("no workflow ran for this head in %s, only %s reported (%d of %d failed); next: check why its workflows did not start, such as a path filter or a skipped trigger, before merging it (%s)", workflowStartGrace, strings.Join(reported, ", "), len(failed), len(pr.Checks), pr.URL)
 	case len(failed) == 0:
-		detail += fmt.Sprintf("all %d passed; next: check the base and the merge ref's first parent, then merge it with a merge commit if its work is done (%s)", len(pr.Checks), pr.URL)
+		detail += fmt.Sprintf("all %d passed%s; next: check the base and the merge ref's first parent, then merge it with a merge commit if its work is done (%s)", len(pr.Checks), once, pr.URL)
 	default:
 		sort.Strings(failed)
-		detail += fmt.Sprintf("%d of %d failed (%s); next: tell %s which checks failed with cfo send %s \"...\" so it fixes them (%s)", len(failed), len(pr.Checks), strings.Join(failed, ", "), goblin, goblin, pr.URL)
+		detail += fmt.Sprintf("%d of %d failed (%s)%s; next: tell %s which checks failed with cfo send %s \"...\" so it fixes them (%s)", len(failed), len(pr.Checks), strings.Join(failed, ", "), once, goblin, goblin, pr.URL)
 	}
 	if err := raiseFleetWake(stateDir, "ci", goblin, detail); err != nil {
 		return err
@@ -1166,8 +1175,9 @@ func pollMain(ctx context.Context, runner execx.Runner, stateDir string, w *flee
 		if len(head) > 7 {
 			head = head[:7]
 		}
-		detail := fmt.Sprintf("ci_finished: %s's push CI is red in %s: workflow %s, %s, run %d at %s (%s); next: read it with gh run view %d --log-failed and dispatch a fix",
-			branch, filepath.Base(repo), run.Workflow, jobs, run.ID, head, run.URL, run.ID)
+		owner, name := pullRequestRepository(run.URL)
+		detail := fmt.Sprintf("ci_finished: %s's push CI is red in %s: workflow %s, %s%s, run %d at %s (%s); next: read it with gh run view %d --log-failed and dispatch a fix",
+			branch, filepath.Base(repo), run.Workflow, jobs, failedOnceClause(train.FailedOnce(ctx, runner, repo, owner+"/"+name, run.HeadSHA, run.ID)), run.ID, head, run.URL, run.ID)
 		if err := raiseFleetWake(stateDir, "ci", "main:"+filepath.Base(repo), detail); err != nil {
 			errs = errors.Join(errs, err)
 			continue

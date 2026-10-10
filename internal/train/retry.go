@@ -120,3 +120,48 @@ func (t Train) passedOnSecondTry() string {
 	}
 	return strings.Join(passed, ", ")
 }
+
+// noteFailedOnce reads, for the train's run that just passed, the tests that
+// failed once and passed on their second try inside their job, and keeps
+// them in the run's record for the train's closing message. A check that
+// such a test ran in ended green, so the rerun of a red run never sees it.
+// A read that fails is kept as the reason and never stops the landing: what
+// the run proved does not wait on it. A run already read is not read again.
+func (e Engine) noteFailedOnce(ctx context.Context, t *Train) error {
+	run := t.openRun()
+	if run == nil || len(run.OnceTests) > 0 || run.OnceUnread != "" {
+		return nil
+	}
+	tests, err := FailedOnce(ctx, e.Commands, t.Checkout, t.Repository, t.Head, 0)
+	if err != nil {
+		run.OnceUnread = err.Error()
+	}
+	if run.OnceTests = tests; len(tests) == 0 && err == nil {
+		return nil
+	}
+	return e.save(t)
+}
+
+// testsThatFailedOnce names the tests that failed once and passed on their
+// second try in each run of t that passed, with the run.
+func (t Train) testsThatFailedOnce() string {
+	var named []string
+	for _, run := range t.History {
+		if len(run.OnceTests) > 0 {
+			named = append(named, fmt.Sprintf("%s in run %d", strings.Join(run.OnceTests, ", "), run.Number))
+		}
+	}
+	return strings.Join(named, ", ")
+}
+
+// onceUnread says for each run of t whose tests that failed once could not
+// be read why not, with the run.
+func (t Train) onceUnread() string {
+	var unread []string
+	for _, run := range t.History {
+		if run.OnceUnread != "" {
+			unread = append(unread, fmt.Sprintf("%s in run %d", run.OnceUnread, run.Number))
+		}
+	}
+	return strings.Join(unread, ", ")
+}

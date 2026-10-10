@@ -252,7 +252,8 @@ A change reaches the packages that own a changed file, the packages that import 
 A package owns the Go files in its directory, the files under its `testdata` folder and the files its `//go:embed` patterns cover, so a doc the binary embeds selects the package that embeds it and a doc nothing embeds selects none.
 
 A change requires `affected` before it merges, and `full` once `go.mod` or `go.sum` changed, the policy cannot be read, or a changed file is one the policy does not account for.
-CI runs every package on every pull request, and a pull request merges only once CI passed on the main it lands on, so CI's run is the check of the level a change requires.
+CI tests the level a change requires on the pull request's own run, reading what the change reaches as `cfo gate test --plan` does, and every package in the merge train's run that lands it.
+So CI is the check of the level a change requires, and nothing reaches main that the full level did not test.
 With no `--level` the step runs `fast`, which is what the gate runs.
 Running the required level here as well ran the slowest packages twice, once on this machine and once in CI: from 2026-10-05 to 2026-10-07 every such local run took a median of 33 minutes, where CI tested every package in 11.
 A level asked for runs instead, such as `affected` to reproduce what CI found; a run at a level narrower than the change requires exits 0 when its checks pass, and its last line and its report name the level the change requires, which CI's run checks.
@@ -272,7 +273,7 @@ changed files outside the Go checks:
 - README.md, docs/pipeline.md (documentation and housekeeping no Go check reads)
 ```
 
-CI runs every package whatever the local level was.
+CI tests the level the change requires on the pull request, and every package in its merge train's run, whatever the local level was.
 
 The policy is `config/verify.json`:
 

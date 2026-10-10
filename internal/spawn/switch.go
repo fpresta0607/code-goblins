@@ -224,6 +224,32 @@ func (s Service) Switch(ctx context.Context, req SwitchRequest) (result SwitchRe
 	if briefPath == "" {
 		briefPath = req.BriefPath
 	}
+	// A switch re-injects the credentials of the services the task's record
+	// names, the ones its spawn gave it and any granted since, but never
+	// refuses on a red service: the goblin is already running, and stranding
+	// work in a stopped harness would cost more than the missing credential.
+	// The probes run before the stop, so one that fails leaves the harness
+	// running, and before any turn, since they can take seconds each.
+	preflight, err := s.preflightCredentials(ctx, project, taskNeed(meta))
+	if err != nil {
+		return SwitchResult{}, fmt.Errorf("%w; task %s was left running as it was", err, req.ID)
+	}
+	// Its credentials ride its terminal's environment, as its spawn gave them.
+	userEnv, err := s.userEnvironment()
+	if err != nil {
+		return SwitchResult{}, fmt.Errorf("switch: read the user's environment: %w; task %s was left running as it was", err, req.ID)
+	}
+	// The task's MCP configuration is planned again from the project's
+	// .mcp.json, as a spawn of it would be now, for the servers its record
+	// names and the variables its next terminal sets. The one its last
+	// terminal was started with is not handed on: it can hold a server whose
+	// entry holds a value, given before such servers were withheld, and it
+	// holds none granted since. It is planned here and written after the
+	// stop, so a .mcp.json that cannot be read leaves the goblin as it was.
+	mcp, err := worktree.PlanMCP(project, s.goblinHasVariable(userEnv, preflight), meta.MCPServers...)
+	if err != nil {
+		return SwitchResult{}, fmt.Errorf("switch: plan the task's MCP configuration: %w; task %s was left running as it was", err, req.ID)
+	}
 	// The new launch is built while the old harness still runs, so a model or
 	// an effort the new one refuses leaves the goblin as it was.
 	launch, err := adapter.Build(harness.LaunchSpec{
@@ -232,7 +258,7 @@ func (s Service) Switch(ctx context.Context, req SwitchRequest) (result SwitchRe
 		Scratch:         scratch,
 		Model:           target.Model,
 		Effort:          target.Effort,
-		MCPConfig:       goblinMCPConfig(meta.TaskTmp),
+		MCPConfig:       mcp.Config(meta.TaskTmp),
 		CodexMCPServers: codexServers,
 	})
 	if err != nil {
@@ -246,16 +272,6 @@ func (s Service) Switch(ctx context.Context, req SwitchRequest) (result SwitchRe
 		return SwitchResult{}, fmt.Errorf("switch: current harness %q has no adapter: %w", meta.Harness, err)
 	}
 	from := describe(meta.Harness, meta.Model, meta.Effort)
-	// A switch re-injects the credentials of the services the task's record
-	// names, the ones its spawn gave it and any granted since, but never
-	// refuses on a red service: the goblin is already running, and stranding
-	// work in a stopped harness would cost more than the missing credential.
-	// The probes run before the stop, so one that fails leaves the harness
-	// running, and before any turn, since they can take seconds each.
-	preflight, err := s.preflightCredentials(ctx, project, taskNeed(meta))
-	if err != nil {
-		return SwitchResult{}, fmt.Errorf("%w; task %s was left running as it was", err, req.ID)
-	}
 	endTurn := func() error { return nil }
 	if req.Admit != nil {
 		if endTurn, err = s.takeLaunchTurn(ctx, "the relaunch of "+req.ID); err != nil {
@@ -319,6 +335,17 @@ func (s Service) Switch(ctx context.Context, req SwitchRequest) (result SwitchRe
 	if ownErr != nil {
 		left += "\nwarning: a file the worktree shares with the checkout could not be made its own (" + ownErr.Error() + "), so an edit to it in the worktree still edits the checkout's file"
 	}
+	// The planned MCP configuration replaces the last terminal's here, while
+	// no harness of the task reads it. One that cannot be written stops the
+	// relaunch: the launch names that file, and what the last terminal left
+	// there can hold a server this task is no longer given.
+	mcpTaken, err := s.Worktrees.WriteMCP(ctx, mcp, worktreePath, meta.TaskTmp)
+	if err != nil {
+		return SwitchResult{}, fmt.Errorf("switch: write the task's MCP configuration: %w\nthe native terminal now has no harness: %s was stopped and nothing was started. Work in %s is untouched; start one with `cfo switch %s --harness <h>`", err, from, worktreePath, req.ID)
+	}
+	if len(mcp.Held) > 0 {
+		left += "\n" + mcpHeldLine(req.ID, mcp.Held)
+	}
 
 	launchMeta := meta
 	var resumeRecord state.Lifecycle
@@ -364,7 +391,7 @@ func (s Service) Switch(ctx context.Context, req SwitchRequest) (result SwitchRe
 		}
 	}
 	launchMeta.SpawnGen = meta.SpawnGen
-	handoff, resumed, nativeHost, err := s.relaunchHarness(ctx, launchMeta, target, adapter, launch, worktreePath, briefPath, dirty, req.ID, manifest.Env, preflight, req, endTurn)
+	handoff, resumed, nativeHost, err := s.relaunchHarness(ctx, launchMeta, target, adapter, launch, worktreePath, briefPath, dirty, req.ID, manifest.Env, preflight, userEnv, mcp.Held, req, endTurn)
 	if err != nil {
 		// The failure may have come after the new harness was already
 		// running, so the terminal is checked again before it is described.
@@ -401,6 +428,11 @@ func (s Service) Switch(ctx context.Context, req SwitchRequest) (result SwitchRe
 	if isNarrowed {
 		if err := state.AppendStatus(s.StateDir, req.ID, "credentials: "+narrowedLine(req.ID, project, preflight.Grant)); err != nil {
 			return SwitchResult{}, fmt.Errorf("switch: record the task's services: %w", err)
+		}
+	}
+	if len(mcpTaken) > 0 {
+		if err := state.AppendStatus(s.StateDir, req.ID, "credentials: "+mcpTakenLine(req.ID, mcpTaken)); err != nil {
+			return SwitchResult{}, fmt.Errorf("switch: record the task's MCP servers: %w", err)
 		}
 	}
 
@@ -450,8 +482,9 @@ func (s Service) endLeft(ctx context.Context, meta state.TaskMeta) string {
 // relaunch's turn once its host runs. Every step after the old harness has
 // stopped lives here, so any failure returns through the same empty-terminal
 // recovery. Anything knowable before the stop is resolved by Switch and handed
-// in: the built launch, the project's redirects and its credentials.
-func (s Service) relaunchHarness(ctx context.Context, meta state.TaskMeta, target switchTarget, adapter harness.Adapter, launch harness.Launch, worktreePath, briefPath, dirty, id string, redirects map[string]string, preflight auth.Result, request SwitchRequest, endTurn func() error) (handoff string, resumed bool, nativeHost host.Record, err error) {
+// in: the built launch, the project's redirects, its credentials, the user's
+// environment and the MCP servers withheld from the task.
+func (s Service) relaunchHarness(ctx context.Context, meta state.TaskMeta, target switchTarget, adapter harness.Adapter, launch harness.Launch, worktreePath, briefPath, dirty, id string, redirects map[string]string, preflight auth.Result, userEnv, mcpHeld []string, request SwitchRequest, endTurn func() error) (handoff string, resumed bool, nativeHost host.Record, err error) {
 	resumed = target.Harness == harness.Kind(meta.Harness) && len(adapter.Control().ResumeArgs) > 0 && request.ResumeSession != ""
 	if request.IsResume {
 		resumed = request.ResumeSession != "" && (target.Harness == harness.Claude || target.Harness == harness.Codex)
@@ -483,7 +516,7 @@ func (s Service) relaunchHarness(ctx context.Context, meta state.TaskMeta, targe
 	}
 	// What the task carries is said before any note the relaunch is given,
 	// so the note stays the instruction's last word.
-	launch.Instruction += credentialsInstruction(meta.Project, preflight.Grant)
+	launch.Instruction += credentialsInstruction(meta.Project, preflight.Grant) + mcpInstruction(mcpHeld)
 	if request.IsResume && request.ResumeHandoff != "" {
 		launch.Instruction += " Read the retained pause handoff at " + request.ResumeHandoff + "."
 	}
@@ -494,11 +527,6 @@ func (s Service) relaunchHarness(ctx context.Context, meta state.TaskMeta, targe
 		launch.Instruction += " Continue with the frozen pipeline policy at " + filepath.Join(meta.TaskTmp, "pipeline.json") + "; use cfo pipeline run/respond for this task. Do not reset review budgets or bypass them with native AXI."
 	}
 
-	// Its credentials ride its terminal's environment, as its spawn gave them.
-	userEnv, err := s.userEnvironment()
-	if err != nil {
-		return handoff, resumed, host.Record{}, fmt.Errorf("switch: read the user's environment: %w", err)
-	}
 	if nativeHost, err = s.launchNativeHost(id, target.Harness, launch, userEnv, preflight); err != nil {
 		return handoff, resumed, nativeHost, err
 	}
