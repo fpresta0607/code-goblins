@@ -392,6 +392,10 @@ func TestABriefForASessionThatDoesNotHoldTheHomeWritesNothing(t *testing.T) {
 	if _, err := lock.AcquireOwner(h.State, holder.Process.Pid, "other"); err != nil {
 		t.Fatal(err)
 	}
+	// The takeover cannot be recorded, so the lock stays with its holder.
+	if err := os.Mkdir(filepath.Join(h.State, lock.AuditFile), 0o700); err != nil {
+		t.Fatal(err)
+	}
 
 	out := composeBrief(t, h)
 

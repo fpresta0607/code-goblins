@@ -34,8 +34,7 @@ func leasedServe(t *testing.T, state string, lastCycleAgo time.Duration) int {
 // live process holds the watcher the hook delivers from its queue, however old
 // the heartbeat.
 func TestAutoarmDeliversFromServesQueueWhileItsHeartbeatIsStale(t *testing.T) {
-	dir := newPrimaryHome(t)
-	setAncestorPID(t, os.Getpid())
+	dir := newCFOHome(t)
 	setTinyAutoarmIntervals(t)
 	t.Setenv("CFO_CLAUDE_AUTOARM_WAIT", "30")
 	state := filepath.Join(dir, "state")
@@ -68,8 +67,7 @@ func TestAutoarmDeliversFromServesQueueWhileItsHeartbeatIsStale(t *testing.T) {
 // never sends the CFO to cfo install, which cannot free a lock a live process
 // holds.
 func TestAutoarmNamesAStalledServeAndItsFix(t *testing.T) {
-	dir := newPrimaryHome(t)
-	setAncestorPID(t, os.Getpid())
+	dir := newCFOHome(t)
 	setTinyAutoarmIntervals(t)
 	state := filepath.Join(dir, "state")
 	writeMetaFixture(t, state, "g1.meta")
@@ -94,8 +92,7 @@ func TestAutoarmNamesAStalledServeAndItsFix(t *testing.T) {
 // fails while serve holds the watcher with a fresh heartbeat, the banner names
 // that error and does not send the CFO to restart a serve that is working.
 func TestAutoarmNamesTheRealErrorBesideAHealthyServe(t *testing.T) {
-	dir := newPrimaryHome(t)
-	setAncestorPID(t, os.Getpid())
+	dir := newCFOHome(t)
 	setTinyAutoarmIntervals(t)
 	state := filepath.Join(dir, "state")
 	writeMetaFixture(t, state, "g1.meta")
@@ -123,8 +120,7 @@ func TestAutoarmNamesTheRealErrorBesideAHealthyServe(t *testing.T) {
 // ends by rewaking the CFO to re-arm it: exiting silently would leave an idle
 // CFO with no hook watching, deaf to every wake after the window.
 func TestAutoarmRewakesToReArmAtTheEndOfItsWindow(t *testing.T) {
-	dir := newPrimaryHome(t)
-	setAncestorPID(t, os.Getpid())
+	dir := newCFOHome(t)
 	setTinyAutoarmIntervals(t)
 	t.Setenv("CFO_CLAUDE_AUTOARM_WAIT", "2")
 	state := filepath.Join(dir, "state")

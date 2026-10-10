@@ -82,7 +82,7 @@ func TestACodexCFOStartingInANativeTerminalRegisters(t *testing.T) {
 	})
 	// The hook runs in this test process, so the record names this process as
 	// the terminal's program, as it names the harness a real hook runs under.
-	record.ChildPID = os.Getpid()
+	programIsThisProcess(t, &record)
 	data, err := json.Marshal(record)
 	if err != nil {
 		t.Fatal(err)

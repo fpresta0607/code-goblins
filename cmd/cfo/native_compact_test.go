@@ -12,6 +12,7 @@ import (
 	"github.com/fpresta0607/code-goblins/internal/host"
 	"github.com/fpresta0607/code-goblins/internal/lock"
 	"github.com/fpresta0607/code-goblins/internal/nativehook"
+	"github.com/fpresta0607/code-goblins/internal/supervisor"
 	"github.com/fpresta0607/code-goblins/internal/wake"
 )
 
@@ -27,12 +28,18 @@ func TestCodexCompactStartRehydratesOnlyTheCFO(t *testing.T) {
 		{"goblin compact", "codex", "SessionStart", "compact", "goblin", "fixture", false},
 		{"worker compact", "codex", "SessionStart", "compact", "worker", "", false},
 		{"Claude compact", "claude", "SessionStart", "compact", "cfo", "", false},
+		// A Codex session the Overlord opens himself carries no role and runs
+		// in no native terminal: it is not the CFO's, and is told nothing.
+		{"another Codex session's compact", "codex", "SessionStart", "compact", "", "", false},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			root := t.TempDir()
 			stateDir := filepath.Join(root, "state")
 			for _, name := range []string{host.IDVariable, "HERDR_PANE_ID", "CFO_SPAWN_GEN", "CFO_PARENT_SESSION_ID", "CFO_PARENT_HARNESS", "CFO_ROOT_SESSION_ID"} {
 				t.Setenv(name, "")
+			}
+			if test.role == "cfo" {
+				asCFOSession(t, stateDir, os.Getpid())
 			}
 			t.Setenv("CFO_ROLE", test.role)
 			t.Setenv("CFO_TASK_ID", test.task)
@@ -115,10 +122,10 @@ func TestNativeCFOCompactWritesACheckpointThenWakesOnce(t *testing.T) {
 	} {
 		t.Run(test.harness, func(t *testing.T) {
 			// Arrange
-			root := newPrimaryHome(t)
+			root := newCFOHome(t)
 			stateDirectory := filepath.Join(root, "state")
 			clearNativeCFOEnvironment(t)
-			setAncestorPID(t, os.Getpid())
+			t.Setenv(host.IDVariable, supervisor.NativeCFOTerminal)
 			if _, err := lock.AcquireOwner(stateDirectory, os.Getpid(), "cfo-thread"); err != nil {
 				t.Fatal(err)
 			}
@@ -174,7 +181,7 @@ func TestNativeCompactActsOnlyForTheHomesCustodian(t *testing.T) {
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			// Arrange
-			root := newPrimaryHome(t)
+			root := newCFOHome(t)
 			stateDirectory := filepath.Join(root, "state")
 			if !test.isPrimary {
 				if err := os.Remove(filepath.Join(root, "AGENTS.md")); err != nil {
@@ -185,7 +192,6 @@ func TestNativeCompactActsOnlyForTheHomesCustodian(t *testing.T) {
 			t.Setenv("CFO_ROLE", test.role)
 			t.Setenv("CFO_TASK_ID", test.task)
 			t.Setenv("CFO_SPAWN_GEN", test.generation)
-			setAncestorPID(t, os.Getpid())
 			if test.isLocked {
 				holder := os.Getpid()
 				if test.isForeignHolder {
@@ -214,10 +220,10 @@ func TestNativeCompactActsOnlyForTheHomesCustodian(t *testing.T) {
 
 func TestNativeCompactWithoutACheckpointSaysSo(t *testing.T) {
 	// Arrange
-	root := newPrimaryHome(t)
+	root := newCFOHome(t)
 	stateDirectory := filepath.Join(root, "state")
 	clearNativeCFOEnvironment(t)
-	setAncestorPID(t, os.Getpid())
+	t.Setenv(host.IDVariable, supervisor.NativeCFOTerminal)
 	if _, err := lock.AcquireOwner(stateDirectory, os.Getpid(), "cfo-thread"); err != nil {
 		t.Fatal(err)
 	}

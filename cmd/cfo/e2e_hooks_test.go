@@ -13,7 +13,6 @@ import (
 	"reflect"
 	"runtime"
 	"sort"
-	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -60,10 +59,10 @@ func TestHookFamilyEndToEnd(t *testing.T) {
 
 	// --- Phase 1: seven invocations against a genuine primary home ---
 
-	sharedHome := newPrimaryHome(t)
+	sharedHome := newCFOHome(t)
 
 	t.Run("case1 session-start full compose", func(t *testing.T) {
-		home := newPrimaryHome(t)
+		home := newCFOHome(t)
 		res := runHookBinary(t, exe, "session-start", sessionStartPayload, cfoTestEnv(t, home, nil))
 		assertExit(t, res, 0, "session-start")
 		assertEmptyStderr(t, res, "session-start")
@@ -86,18 +85,18 @@ func TestHookFamilyEndToEnd(t *testing.T) {
 	})
 
 	t.Run("case5 turnend-guard blind block", func(t *testing.T) {
-		home := newPrimaryHome(t)
+		home := newCFOHome(t)
 		writeMetaFixture(t, filepath.Join(home, "state"), "g1.meta")
 		res := runHookBinary(t, exe, "turnend-guard", turnendPayload, cfoTestEnv(t, home, map[string]string{"CFO_CLAUDE_AUTOARM_SYNC_WAIT_MS": "1"}))
 		assertBlock(t, res, "TURN WOULD END BLIND", "turnend-guard")
 	})
 
 	t.Run("case6 stop-autoarm rewake", func(t *testing.T) {
-		home := newPrimaryHome(t)
+		home := newCFOHome(t)
 		state := filepath.Join(home, "state")
 		writeMetaFixture(t, state, "g1.meta")
 		done := statusApendAfter(state, "g1.status", 300*time.Millisecond)
-		res := runHookBinary(t, exe, "stop-autoarm", stopAutoarmPayload, cfoTestEnv(t, home, map[string]string{"CFO_TEST_ANCESTOR_PID": strconv.Itoa(os.Getpid()),
+		res := runHookBinary(t, exe, "stop-autoarm", stopAutoarmPayload, cfoTestEnv(t, home, map[string]string{
 			"CFO_POLL":                    "1",
 			"CFO_SIGNAL_GRACE":            "1",
 			"CFO_HEARTBEAT":               "1",
@@ -134,7 +133,6 @@ func TestHookFamilyEndToEnd(t *testing.T) {
 			{"pretool-cd (deny shape)", "pretool-cd", cdDenyPayload, nil},
 			{"turnend-guard", "turnend-guard", turnendPayload, map[string]string{"CFO_CLAUDE_AUTOARM_SYNC_WAIT_MS": "1"}},
 			{"stop-autoarm", "stop-autoarm", stopAutoarmPayload, map[string]string{
-				"CFO_TEST_ANCESTOR_PID":       strconv.Itoa(os.Getpid()),
 				"CFO_POLL":                    "1",
 				"CFO_SIGNAL_GRACE":            "1",
 				"CFO_HEARTBEAT":               "1",
@@ -199,7 +197,7 @@ func TestHookFamilyEndToEnd(t *testing.T) {
 		}
 
 		t.Run("session-start", func(t *testing.T) {
-			home := newPrimaryHome(t)
+			home := newCFOHome(t)
 			res := runRegistered(t, commands["session-start"], sessionStartPayload, baseEnv(home, nil))
 			assertExit(t, res, 0, "session-start (primary)")
 			assertEmptyStderr(t, res, "session-start (primary)")
@@ -233,7 +231,7 @@ func TestHookFamilyEndToEnd(t *testing.T) {
 		})
 
 		t.Run("turnend-guard", func(t *testing.T) {
-			home := newPrimaryHome(t)
+			home := newCFOHome(t)
 			writeMetaFixture(t, filepath.Join(home, "state"), "g1.meta")
 			extra := map[string]string{"CFO_CLAUDE_AUTOARM_SYNC_WAIT_MS": "1"}
 			res := runRegistered(t, commands["turnend-guard"], turnendPayload, baseEnv(home, extra))
@@ -245,11 +243,10 @@ func TestHookFamilyEndToEnd(t *testing.T) {
 		})
 
 		t.Run("stop-autoarm", func(t *testing.T) {
-			home := newPrimaryHome(t)
+			home := newCFOHome(t)
 			state := filepath.Join(home, "state")
 			writeMetaFixture(t, state, "g1.meta")
 			extra := map[string]string{
-				"CFO_TEST_ANCESTOR_PID":       strconv.Itoa(os.Getpid()),
 				"CFO_POLL":                    "1",
 				"CFO_SIGNAL_GRACE":            "1",
 				"CFO_HEARTBEAT":               "1",
@@ -281,12 +278,12 @@ func TestHookFamilyEndToEnd(t *testing.T) {
 				return cfoTestEnv(t, home, mergeEnv(map[string]string{"CLAUDE_PROJECT_DIR": otherRepo}, extra))
 			}
 
-			home := newPrimaryHome(t)
+			home := newCFOHome(t)
 			res := runRegistered(t, commands["session-start"], sessionStartPayload, env(home, nil))
 			assertExit(t, res, 0, "session-start in a different repo")
 			assertHasHeaders(t, res.stdout, "session-start in a different repo")
 
-			home = newPrimaryHome(t)
+			home = newCFOHome(t)
 			writeMetaFixture(t, filepath.Join(home, "state"), "g1.meta")
 			res = runRegistered(t, commands["pretool-subagent"], subagentPayload, env(home, nil))
 			assertDeny(t, res, "", "pretool-subagent in a different repo")
@@ -297,17 +294,16 @@ func TestHookFamilyEndToEnd(t *testing.T) {
 			res = runRegistered(t, commands["pretool-bash"], cdDenyPayload, env(home, nil))
 			assertDeny(t, res, "cwd-relocation", "pretool-bash relocation in a different repo")
 
-			home = newPrimaryHome(t)
+			home = newCFOHome(t)
 			writeMetaFixture(t, filepath.Join(home, "state"), "g1.meta")
 			res = runRegistered(t, commands["turnend-guard"], turnendPayload,
 				env(home, map[string]string{"CFO_CLAUDE_AUTOARM_SYNC_WAIT_MS": "1"}))
 			assertBlock(t, res, "TURN WOULD END BLIND", "turnend-guard in a different repo")
 
-			home = newPrimaryHome(t)
+			home = newCFOHome(t)
 			state := filepath.Join(home, "state")
 			writeMetaFixture(t, state, "g1.meta")
 			autoarmExtra := map[string]string{
-				"CFO_TEST_ANCESTOR_PID":       strconv.Itoa(os.Getpid()),
 				"CFO_POLL":                    "1",
 				"CFO_SIGNAL_GRACE":            "1",
 				"CFO_HEARTBEAT":               "1",
@@ -330,7 +326,7 @@ func TestHookFamilyEndToEnd(t *testing.T) {
 			{"a gate agent receives no hook", "NO_MISTAKES_GATE", "1"},
 		} {
 			t.Run(session.name, func(t *testing.T) {
-				home := newPrimaryHome(t)
+				home := newCFOHome(t)
 				writeMetaFixture(t, filepath.Join(home, "state"), "g1.meta")
 				sessionEnv := func(extra map[string]string) []string {
 					return cfoTestEnv(t, home, mergeEnv(map[string]string{
@@ -349,7 +345,6 @@ func TestHookFamilyEndToEnd(t *testing.T) {
 					{"pretool-bash", armDenyPayload, nil},
 					{"turnend-guard", turnendPayload, map[string]string{"CFO_CLAUDE_AUTOARM_SYNC_WAIT_MS": "1"}},
 					{"stop-autoarm", stopAutoarmPayload, map[string]string{
-						"CFO_TEST_ANCESTOR_PID":       strconv.Itoa(os.Getpid()),
 						"CFO_POLL":                    "1",
 						"CFO_SIGNAL_GRACE":            "1",
 						"CFO_HEARTBEAT":               "1",
@@ -377,7 +372,7 @@ func TestHookFamilyEndToEnd(t *testing.T) {
 	// payload and a few of the home's files, so a child process, a symlink
 	// resolution or a Herdr call on its path breaks the budget.
 	t.Run("timing budgets", func(t *testing.T) {
-		timingHome := newPrimaryHome(t)
+		timingHome := newCFOHome(t)
 		env := cfoTestEnv(t, timingHome, nil)
 
 		cases := []struct {
@@ -639,7 +634,7 @@ func loadRegisteredCommands(t *testing.T, exe string) map[string]registeredHook 
 // registers for it run.
 func homeWithBinary(t *testing.T, exe string) string {
 	t.Helper()
-	home := newPrimaryHome(t)
+	home := newCFOHome(t)
 	data, err := os.ReadFile(exe)
 	if err != nil {
 		t.Fatal(err)
