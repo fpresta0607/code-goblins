@@ -11,6 +11,7 @@ import (
 	"math"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -95,6 +96,10 @@ const lockBudget = 5 * time.Second
 
 var mutationMutex sync.Mutex
 
+// lockHeld runs each time this process takes the wake lock, for a test that
+// counts how many holds one change of the queue costs.
+var lockHeld = func() {}
+
 // withLock serializes a wake-state read-modify-write behind
 // state/.wake-queue.lock. The process-local mutex serializes goroutines,
 // since the file lock accepts a same-process holder.
@@ -110,6 +115,7 @@ func withLock(dir string, fn func() error) error {
 		return err
 	}
 	defer lock.ReleaseNamed(dir, wakeLockName)
+	lockHeld()
 	return fn()
 }
 
@@ -148,16 +154,25 @@ func readAll(dir string) ([]Record, error) {
 }
 
 func writeQueue(dir string, records []Record) error {
+	staged, err := stageQueue(dir, records)
+	if err != nil {
+		return err
+	}
+	return staged.Commit()
+}
+
+// stageQueue stages the queue file writeQueue would write.
+func stageQueue(dir string, records []Record) (*fsx.Staged, error) {
 	var b []byte
 	for _, r := range records {
 		line, err := json.Marshal(r)
 		if err != nil {
-			return err
+			return nil, err
 		}
 		b = append(b, line...)
 		b = append(b, '\n')
 	}
-	return fsx.AtomicWriteFile(filepath.Join(dir, queueFile), b)
+	return fsx.Stage(filepath.Join(dir, queueFile), b)
 }
 
 // Append adds one record and returns it with its assigned sequence. kind
@@ -257,65 +272,231 @@ func Acked(dir string, seq int) (bool, error) {
 	return seq > 0 && seq <= floor, nil
 }
 
-// AckThrough retires every record with Seq <= seq and advances the durable
-// ack floor. Acking an already-empty or already-acked range is a no-op.
+// AckThrough retires every record with Seq <= seq, a goblin's unanswered
+// question included, and advances the durable ack floor. Acking an
+// already-empty or already-acked range is a no-op.
+func AckThrough(dir string, seq int) error {
+	_, err := Acknowledge(dir, Ack{Through: &seq, ShouldRetireQuestions: true})
+	return err
+}
+
+// Ack is what one acknowledgement asks of the wake queue.
+type Ack struct {
+	// Through retires every record at or below this sequence and advances
+	// the durable ack floor to it. Nil retires nothing.
+	Through *int
+	// ShouldRetireQuestions retires the unanswered questions among those
+	// records too. Without it one of them refuses the whole acknowledgement.
+	ShouldRetireQuestions bool
+	// Generation acknowledges the recovery episode pending at this
+	// generation, once nothing is left queued, so a partial acknowledgement
+	// never retires an episode whose records are still queued. Nil leaves
+	// the episode alone.
+	Generation *int
+}
+
+// Acknowledged is how an acknowledgement left the wake queue.
+type Acknowledged struct {
+	// Refused is every unanswered question at or below Ack.Through that
+	// stopped the acknowledgement. When it lists one, nothing was changed
+	// and the other fields are empty.
+	Refused []Record
+	// Pending is every record still queued, as Pending returns them, and
+	// Episode the recovery episode, both as the acknowledgement left them.
+	Pending []Record
+	Episode Episode
+	// HasGenerationMoved says the episode pending is not the one at
+	// Ack.Generation, so it was left: the caller drains again.
+	HasGenerationMoved bool
+}
+
+// Acknowledge retires the records and the recovery episode ack names in one
+// hold of the wake lock, and returns what it left. cfo drain took the lock
+// once for the records and again for the episode, and read the queue five
+// times on the way.
 //
-// Each retired record's notice is a file of its own, and a loaded machine
-// can take a second over one, so they are written before the lock is taken:
-// on 2026-10-09 an acknowledgement of 55 records wrote them under it, held
-// it for over a minute, and the supervisor's append was refused after its
-// five seconds. A notice written while its record is still queued changes
+// A blocked or failed notify is a goblin waiting on a CFO decision. Retiring
+// it retires the only durable record of that question, so a drain whose
+// output was cut short can bury it and leave the goblin parked forever: such
+// a record refuses the acknowledgement unless ack says the CFO has read it,
+// or the Overlord already answered it on the board. The refusal reads the
+// records as they are queued, never a folded view: a later notify from the
+// same goblin is no evidence that its question was answered.
+//
+// Every retired record's notice is kept before the lock is taken: on
+// 2026-10-09 an acknowledgement of 55 records wrote its notices under it,
+// held it for over a minute, and the supervisor's append was refused after
+// its five seconds. A notice kept while its record is still queued changes
 // nothing, since AppendFirst answers from either. Under the lock only a
 // record queued since is left to keep.
-func AckThrough(dir string, seq int) error {
-	queued, err := readAll(dir)
-	if err != nil {
-		return err
-	}
+//
+// The files it leaves are staged before the lock too (stagedAck), and under
+// the lock they are only renamed into place. Waiters queue for the lock, so
+// whoever asks during an acknowledgement waits out its whole hold: with the
+// ack floor, the queue and the episode each written under it, a notify behind
+// one took 3.1 s at the median beside a cold build.
+func Acknowledge(dir string, ack Ack) (Acknowledged, error) {
+	var staged stagedAck
+	defer staged.discard()
 	noticed := map[string]bool{}
-	for _, rec := range queued {
-		if rec.Seq <= seq && rec.Once != "" {
-			if err := keepOnce(dir, rec); err != nil {
-				return err
+	var queued []Record
+	if ack.Through != nil {
+		var err error
+		if queued, err = readAll(dir); err != nil {
+			return Acknowledged{}, err
+		}
+		if refused, err := unreadQuestions(dir, queued, ack); err != nil || len(refused) > 0 {
+			return Acknowledged{Refused: refused}, err
+		}
+		var retiring []Record
+		for _, rec := range queued {
+			if rec.Seq <= *ack.Through && rec.Once != "" {
+				retiring = append(retiring, rec)
+				noticed[rec.Once] = true
 			}
-			noticed[rec.Once] = true
+		}
+		if err := keepNoticed(dir, retiring); err != nil {
+			return Acknowledged{}, err
+		}
+		if err := staged.records(dir, queued, *ack.Through); err != nil {
+			return Acknowledged{}, err
 		}
 	}
-	return withLock(dir, func() error {
-		records, err := readAll(dir)
+	if ack.Generation != nil {
+		var err error
+		if staged.episode, err = stageEpisode(dir, "acked", *ack.Generation); err != nil {
+			return Acknowledged{}, err
+		}
+	}
+	var acknowledged Acknowledged
+	err := withLock(dir, func() error {
+		kept, err := readAll(dir)
 		if err != nil {
 			return err
 		}
-		kept := records[:0]
-		for _, rec := range records {
-			if rec.Seq > seq {
-				kept = append(kept, rec)
-				continue
+		if ack.Through != nil {
+			if acknowledged.Refused, err = unreadQuestions(dir, kept, ack); err != nil || len(acknowledged.Refused) > 0 {
+				return err
 			}
-			if rec.Once != "" && !noticed[rec.Once] {
-				if err := keepOnce(dir, rec); err != nil {
-					return err
-				}
-			}
-		}
-		floor, err := readAckFloor(dir)
-		if err != nil {
-			return err
-		}
-		// Persist ack floor first; a crash between writes leaves acked records in queue
-		// (harmless re-delivery) rather than an empty queue with a stale floor (sequence reuse).
-		if seq > floor {
-			floor = seq
-			if err := fsx.AtomicWriteFile(filepath.Join(dir, ackFile), []byte(fmt.Sprintf("%d\n", floor))); err != nil {
+			if kept, err = retireThrough(dir, kept, *ack.Through, noticed, queued, &staged); err != nil {
 				return err
 			}
 		}
-		if err := writeQueue(dir, kept); err != nil {
+		episode, err := readEpisode(dir)
+		if err != nil {
 			return err
 		}
-		pruneAnswers(dir, floor)
+		if ack.Generation != nil && len(kept) == 0 {
+			if !pendingAt(episode, *ack.Generation) {
+				acknowledged.HasGenerationMoved = true
+			} else if err := staged.episode.Commit(); err != nil {
+				return err
+			} else {
+				episode.Pending = false
+			}
+		}
+		acknowledged.Pending, acknowledged.Episode = kept, episode
 		return nil
 	})
+	if err != nil || len(acknowledged.Refused) > 0 {
+		return Acknowledged{Refused: acknowledged.Refused}, err
+	}
+	// The answers of the records retired go once the lock is let go: nothing
+	// reads the answer of a record no longer queued, and every file handled
+	// under the lock is time another writer waits.
+	if ack.Through != nil {
+		pruneAnswers(dir, *ack.Through)
+	}
+	acknowledged.Pending, err = attachAnswers(dir, attachGoblins(dir, acknowledged.Pending))
+	return acknowledged, err
+}
+
+// unreadQuestions returns the questions among records that ack would retire
+// without the CFO having read them: none when it retires questions
+// deliberately, else every blocking notify at or below its sequence that
+// nobody answered.
+func unreadQuestions(dir string, records []Record, ack Ack) ([]Record, error) {
+	if ack.ShouldRetireQuestions {
+		return nil, nil
+	}
+	var questions []Record
+	for _, rec := range records {
+		if _, isQuestion := BlockingNotify(rec); isQuestion && rec.Seq <= *ack.Through {
+			questions = append(questions, rec)
+		}
+	}
+	questions, err := attachAnswers(dir, questions)
+	if err != nil {
+		return nil, err
+	}
+	return slices.DeleteFunc(questions, func(rec Record) bool { return rec.Answered != "" }), nil
+}
+
+// stagedAck is what an acknowledgement staged before it took the wake lock:
+// the ack floor at its sequence, the queue as it leaves it, and the episode
+// acknowledged. Under the lock each is committed where it still holds, and
+// what is left over is discarded.
+type stagedAck struct {
+	floor, queue, episode *fsx.Staged
+}
+
+// records stages the ack floor at seq and the queue as queued, read before
+// the lock, leaves it once every record at or below seq is retired.
+func (s *stagedAck) records(dir string, queued []Record, seq int) error {
+	var err error
+	if s.floor, err = fsx.Stage(filepath.Join(dir, ackFile), []byte(fmt.Sprintf("%d\n", seq))); err != nil {
+		return err
+	}
+	s.queue, err = stageQueue(dir, slices.DeleteFunc(slices.Clone(queued), func(rec Record) bool { return rec.Seq <= seq }))
+	return err
+}
+
+func (s *stagedAck) discard() {
+	s.floor.Discard()
+	s.queue.Discard()
+	s.episode.Discard()
+}
+
+// retireThrough drops every record at or below seq from the queue, which the
+// caller holds the wake lock for, and returns the ones it kept. A retired
+// record whose identity is not in noticed was queued after the notices were
+// kept, and its notice is kept here. The floor and the queue staged before
+// the lock are committed: the queue only where it still is the one queued,
+// read before the lock, since a record queued in between is not in it.
+func retireThrough(dir string, records []Record, seq int, noticed map[string]bool, queued []Record, staged *stagedAck) ([]Record, error) {
+	var kept, late []Record
+	for _, rec := range records {
+		switch {
+		case rec.Seq > seq:
+			kept = append(kept, rec)
+		case rec.Once != "" && !noticed[rec.Once]:
+			late = append(late, rec)
+		}
+	}
+	if err := keepNoticed(dir, late); err != nil {
+		return nil, err
+	}
+	floor, err := readAckFloor(dir)
+	if err != nil {
+		return nil, err
+	}
+	// Persist ack floor first; a crash between writes leaves acked records in queue
+	// (harmless re-delivery) rather than an empty queue with a stale floor (sequence reuse).
+	if seq > floor {
+		if err := staged.floor.Commit(); err != nil {
+			return nil, err
+		}
+	}
+	isAsStaged := slices.EqualFunc(records, queued, func(now, then Record) bool { return now.Seq == then.Seq })
+	if isAsStaged {
+		err = staged.queue.Commit()
+	} else {
+		err = writeQueue(dir, kept)
+	}
+	if err != nil {
+		return nil, err
+	}
+	return kept, nil
 }
 
 // Render writes the wake queue's presentation for records (RAW, unfolded)

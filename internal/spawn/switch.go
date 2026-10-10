@@ -275,11 +275,18 @@ func (s Service) Switch(ctx context.Context, req SwitchRequest) (result SwitchRe
 			return SwitchResult{}, fmt.Errorf("%w: %w", state.ErrNoRoom, err)
 		}
 	}
-	// A native terminal ends with its harness, and its job ends everything the
-	// harness started, so nothing is left to wait on.
+	// A native terminal ends with its harness, and its job ends what the
+	// harness started in it, so nothing is left to wait on.
 	if err := s.stopNative(ctx, meta.ID, current.Control()); err != nil {
 		return SwitchResult{}, err
 	}
+	// What had left the job, as everything Git Bash starts has, is ended
+	// here, while no terminal runs for the task: once the next harness
+	// starts, it and what it starts are the task's own by the same folders
+	// and the same terminal's proofs. The next harness cannot reach what the
+	// last one left in the background, so a server left running would hold
+	// its port against the one the goblin starts again.
+	left := s.endLeft(ctx, meta)
 
 	launchMeta := meta
 	var resumeRecord state.Lifecycle
@@ -348,7 +355,27 @@ func (s Service) Switch(ctx context.Context, req SwitchRequest) (result SwitchRe
 	if notice := containedNotice(nativeHost); notice != "" {
 		result.Output += "\n" + notice
 	}
+	result.Output += left
 	return result, nil
+}
+
+// endLeft ends what the task's ended terminal left running and says what it
+// ended. A sweep that fails does not stop the relaunch, which would leave the
+// goblin with no harness: what it missed shows under the goblin on the board
+// and ends at its next pause, stop or cleanup, or once it has sat idle.
+func (s Service) endLeft(ctx context.Context, meta state.TaskMeta) string {
+	if s.EndLeft == nil {
+		return ""
+	}
+	ended, err := s.EndLeft(ctx, meta)
+	output := ""
+	if len(ended) > 0 {
+		output = fmt.Sprintf("\nended %d process(es) the last harness left running: %s", len(ended), strings.Join(ended, ", "))
+	}
+	if err != nil {
+		output += "\nwarning: not everything the last harness left running was ended (" + err.Error() + "), so the rest ends with the goblin's next pause, stop or cleanup, or once it has sat idle for an hour"
+	}
+	return output
 }
 
 // relaunchHarness injects credentials into the target's launch, writes the

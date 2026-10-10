@@ -257,3 +257,9 @@ func pauseWithdrawal(runtime commandRuntime, h home.Home) func(context.Context, 
 		return nil
 	}
 }
+
+// endLeftProcesses ends what a task's closed terminal left running, for the
+// cleanup that closed it.
+func endLeftProcesses(ctx context.Context, h home.Home, meta state.TaskMeta) ([]string, error) {
+	return lifecycle.EndLeft(ctx, h, meta)
+}

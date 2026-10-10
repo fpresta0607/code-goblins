@@ -7,6 +7,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/fpresta0607/code-goblins/internal/janitor"
 	"github.com/fpresta0607/code-goblins/internal/services"
 )
 
@@ -198,5 +199,33 @@ func TestRenderMarkdownSaysASharedStackIsNotCFOsToStop(t *testing.T) {
 	}}})
 	if out := render(t, report); !strings.Contains(out, "| PrecisionDocs-AI | up | pd-a | nothing, it was already running | not measured yet |") {
 		t.Errorf("output does not name the shared stack as already running\n%s", out)
+	}
+}
+
+// The janitor's sweep of processes is read here: what it ended as a
+// terminal's own, and each process it left for the CFO with its pid, when it
+// started, the memory of its tree and its command.
+func TestRenderMarkdownNamesTheProcessesTheJanitorEndedAndLeft(t *testing.T) {
+	// Arrange
+	started := time.Date(2026, 10, 9, 14, 20, 0, 0, time.UTC)
+	report := Build(`C:\dev\code-goblins`, reportFixture())
+	report.Janitor = &janitor.Record{Time: started.Add(time.Hour), Processes: janitor.ProcessSweep{
+		Ended:   []janitor.ProcessItem{{PID: 18656, Started: started, Name: "node.exe", Owner: "cg-machine-resources", Memory: 11 << 20, Why: "its terminal cg-machine-resources is gone"}},
+		Left:    []janitor.ProcessItem{{PID: 20872, Started: started, Name: "node.exe", Memory: 2560 << 20, Command: "node chrome-devtools-axi-bridge.js", Why: "a browser bridge nothing ties to an owner"}},
+		Watched: []janitor.Watched{{PID: 7, Started: started, Since: started}},
+	}}
+
+	// Act
+	out := render(t, report)
+
+	// Assert
+	for _, line := range []string{
+		"It ended 1 process(es) proven a terminal's own, left 1 it could not prove, and watches 1 detached tree(s) of running terminals for an idle hour.",
+		"- ended: pid 18656 node.exe of cg-machine-resources, 11.0 MB (its terminal cg-machine-resources is gone)",
+		"- left: pid 20872 node.exe, started 2026-10-09T14:20:00Z, 2.5 GB, node chrome-devtools-axi-bridge.js (a browser bridge nothing ties to an owner)",
+	} {
+		if !strings.Contains(out, line) {
+			t.Errorf("output is missing %q", line)
+		}
 	}
 }

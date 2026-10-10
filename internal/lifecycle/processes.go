@@ -73,7 +73,7 @@ type Mark struct {
 // at work in the task's own directories, its own gate run's, is still the
 // task's. A gate's agent, which carries the mark of whichever goblin started
 // the daemon while it works for any gate. And a desktop program with what it
-// started (desktopPrograms), which is the Overlord's to close.
+// started (DesktopPrograms), which is the Overlord's to close.
 func OwnedProcesses(processes []Process, directories []string, job []Identity, marks []Mark) []Process {
 	running := make([]proc.ServiceProcess, 0, len(processes))
 	byPID := make(map[int]Process, len(processes))
@@ -82,7 +82,7 @@ func OwnedProcesses(processes []Process, directories []string, job []Identity, m
 		byPID[process.PID] = process
 	}
 	services := proc.ServicesOf(running)
-	desktop := desktopPrograms(processes)
+	desktop := DesktopPrograms(processes)
 	isOwned := map[int]bool{}
 	canFollow := map[int]bool{}
 	for _, process := range processes {
@@ -158,6 +158,45 @@ func OwnedProcesses(processes []Process, directories []string, job []Identity, m
 	return owned
 }
 
+// leftBehind are the processes among owned, a task's own by its folders and
+// its terminal's marks (OwnedProcesses), that the task's ended terminal left
+// running. One that carries the terminal's mark was started in it. One that
+// does not is the task's by its place, or by a parent that is, and was left
+// only when no parent of it still runs, as a tool Git Bash started is once
+// its shell has gone. Under a living parent that is not itself left,
+// somebody else runs it there, as when the CFO tests a retired goblin's
+// worktree or the Overlord has a shell open in it, and it is theirs: a pause
+// stops a task where it stands, and this ends only what nothing else
+// accounts for. started says when each running process began, the command
+// that asks and its ancestors among them.
+func leftBehind(owned []Process, started map[int]time.Time, marks []Mark) []Process {
+	isLeft := make(map[int]bool, len(owned))
+	for _, process := range owned {
+		isLeft[process.PID] = true
+	}
+	// Each pass reaches one generation further down a tree somebody else runs.
+	for isShrinking := true; isShrinking; {
+		isShrinking = false
+		for _, process := range owned {
+			if !isLeft[process.PID] || !process.IsGateAgent && slices.Contains(marks, process.Mark) {
+				continue
+			}
+			parentStarted, hasParent := started[process.ParentPID]
+			if hasParent && process.ParentPID != process.PID && !process.Started.Before(parentStarted) && !isLeft[process.ParentPID] {
+				isLeft[process.PID] = false
+				isShrinking = true
+			}
+		}
+	}
+	var left []Process
+	for _, process := range owned {
+		if isLeft[process.PID] {
+			left = append(left, process)
+		}
+	}
+	return left
+}
+
 // desktopBrowsers are the browsers a person uses. One started with none of
 // automationFlags runs on that person's own profile, in their own windows.
 var desktopBrowsers = []string{"chrome", "msedge", "firefox", "brave", "chromium", "opera", "vivaldi"}
@@ -166,13 +205,13 @@ var desktopBrowsers = []string{"chrome", "msedge", "firefox", "brave", "chromium
 // it: such a browser is the tool's, on a profile of its own.
 var automationFlags = []string{"--headless", "-headless", "--remote-debugging-pipe", "--remote-debugging-port", "--enable-automation", "--marionette"}
 
-// desktopPrograms are the programs a person uses, with everything under
-// them: a program that shows a window, a browser no tool drives, a packaged
+// DesktopPrograms are the programs a person uses, with everything under
+// them, by ID: a program that shows a window, a browser no tool drives, a packaged
 // desktop app, and Explorer. A goblin can start one for the Overlord, as
 // when a sign-in opens his browser: it then carries the goblin's mark and is
 // the goblin's child, and it is still his to close. A browser a tool drives
 // is no such program even while it shows a window.
-func desktopPrograms(processes []Process) map[int]bool {
+func DesktopPrograms(processes []Process) map[int]bool {
 	children := make(map[int][]Process, len(processes))
 	for _, process := range processes {
 		children[process.ParentPID] = append(children[process.ParentPID], process)

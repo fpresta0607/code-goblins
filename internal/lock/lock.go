@@ -127,21 +127,52 @@ func AcquireNamedOwner(dir, name string, ownerPID int, session string) (*Info, e
 
 // AcquireNamedOwnerWithin is AcquireNamedOwner waiting out a live holder for
 // up to wait, for a lock whose holder only reads and writes a file: a loaded
-// machine can slow that for seconds. It looks again 10 ms after the first
-// attempt and twice as long after each next one up to half a second, and
-// past wait returns the holder's ErrHeld.
+// machine can slow that for seconds. Past wait it returns the holder's
+// ErrHeld.
+//
+// Its callers queue. Each lines up beside the lock first (lineUp) and takes
+// the lock's record only at the head of the line, where it stays until
+// ReleaseNamed, so the lock passes to waiters in the order they asked and at
+// the moment it is let go. The record is still taken, since a build before
+// the line takes the record alone: a caller at the head of the line looks
+// for it again 10 ms after the first attempt and twice as long after each
+// next one, up to longestPause, while such a build's process holds it.
 func AcquireNamedOwnerWithin(dir, name string, ownerPID int, session string, wait time.Duration) (*Info, error) {
 	deadline := time.Now().Add(wait)
+	place, err := lineUp(filepath.Join(dir, name+waitersSuffix), deadline)
+	if errors.Is(err, errWaitedOut) {
+		if holder, readErr := ReadNamed(dir, name); readErr == nil {
+			return nil, heldError(holder)
+		}
+		return nil, fmt.Errorf("%w: the line of waiters for %s did not move for %s", ErrHeld, name, wait)
+	}
+	if err != nil {
+		return nil, err
+	}
 	pause := 10 * time.Millisecond
 	for {
 		info, err := AcquireNamedOwner(dir, name, ownerPID, session)
+		if err == nil {
+			keepPlace(exclusiveLeaseKey(dir, name), place)
+			return info, nil
+		}
 		if !errors.Is(err, ErrHeld) || time.Now().Add(pause).After(deadline) {
+			leaveLine(place)
 			return info, err
 		}
-		time.Sleep(pause)
-		pause = min(2*pause, 500*time.Millisecond)
+		sleep(pause)
+		pause = min(2*pause, longestPause)
 	}
 }
+
+// longestPause is the longest a caller at the head of the line sleeps between
+// two looks for a record another process holds: what such a hold costs is its
+// own length and the pause it ends in.
+const longestPause = 50 * time.Millisecond
+
+// sleep is time.Sleep, which a test replaces to count the looks a waiter
+// takes.
+var sleep = time.Sleep
 
 // AcquireExclusiveNamed takes dir/name for the current process without the
 // ordinary session-lock re-acquisition exception. A task spawn needs this
@@ -442,12 +473,15 @@ func HeldBy(dir string, ownerPID int) bool {
 	return HeldByNamed(dir, ".lock", ownerPID)
 }
 
-// ReleaseNamed removes dir/name when the current process identity holds it.
+// ReleaseNamed removes dir/name when the current process identity holds it,
+// and then gives up the place in the line of waiters it took the lock from
+// (AcquireNamedOwnerWithin), which hands the lock to the next waiter.
 func ReleaseNamed(dir, name string) error {
 	err := releaseNamed(dir, name, os.Remove, time.Sleep)
 	if err == nil {
 		clearExclusiveLease(dir, name)
 	}
+	leavePlace(exclusiveLeaseKey(dir, name))
 	return err
 }
 
