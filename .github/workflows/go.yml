@@ -283,8 +283,9 @@ jobs:
       # A test that failed and passed on its second try left its job green.
       # Each is named here, on the check a pull request requires, as a
       # warning titled Failed once that says job: suite test, so a failure by
-      # chance is counted and never hidden. gh run view prints them, and they
-      # are on the page of the run and in its summary.
+      # chance is counted and never hidden. gh run view prints each one
+      # without its title, so each says what happened in full, and they are
+      # on the page of the run and in its summary.
       - name: Fetch the record of each test that failed once
         if: always()
         uses: actions/download-artifact@v4
@@ -302,9 +303,8 @@ jobs:
             'No test failed once in this run.'
             exit 0
           }
-          $named = @($records | ForEach-Object { "$($_.job): $($_.suite) $($_.test)" })
-          "$($named.Count) failed once and passed on the second try:"
-          $named | ForEach-Object { "  $_" }
+          $named = @($records | ForEach-Object { "$($_.job): $($_.suite) $($_.test) failed once and passed on the second try" })
+          $named
           # GitHub shows ten warnings of one step, so the tenth says how many
           # more this log names.
           $shown = if ($named.Count -gt 10) { 9 } else { $named.Count }
@@ -314,5 +314,5 @@ jobs:
           if ($named.Count -gt $shown) {
             "::warning title=Failed once::and $($named.Count - $shown) more, named in the log of this step"
           }
-          $summary = @('### Failed once and passed on the second try', '') + @($named | ForEach-Object { "- $_" })
+          $summary = @('### Failed once', '') + @($named | ForEach-Object { "- $_" })
           $summary | Add-Content -LiteralPath $env:GITHUB_STEP_SUMMARY -Encoding utf8

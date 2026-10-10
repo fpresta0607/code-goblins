@@ -130,19 +130,19 @@ func TestGoWorkflowsRequiredCheckNamesEachTestThatFailedOnce(t *testing.T) {
 				"failed-once-browser-2": {`{"job":"browser (2/4)","suite":"afk.spec.ts","test":"a 100% answer > stays"}`, ``},
 			},
 			[]string{
-				"::warning title=Failed once::browser (2/4): afk.spec.ts a 100%25 answer > stays",
-				"::warning title=Failed once::go (rest): example.test/internal/train TestTrainLands",
+				"::warning title=Failed once::browser (2/4): afk.spec.ts a 100%25 answer > stays failed once and passed on the second try",
+				"::warning title=Failed once::go (rest): example.test/internal/train TestTrainLands failed once and passed on the second try",
 			},
-			[]string{"- browser (2/4): afk.spec.ts a 100% answer > stays", "- go (rest): example.test/internal/train TestTrainLands"},
+			[]string{"- browser (2/4): afk.spec.ts a 100% answer > stays failed once and passed on the second try", "- go (rest): example.test/internal/train TestTrainLands failed once and passed on the second try"},
 		},
 		"more than GitHub shows": {
 			twelve,
 			[]string{
-				"::warning title=Failed once::go (shard-01): example.test/internal/train TestTrainLands",
-				"::warning title=Failed once::go (shard-09): example.test/internal/train TestTrainLands",
+				"::warning title=Failed once::go (shard-01): example.test/internal/train TestTrainLands failed once and passed on the second try",
+				"::warning title=Failed once::go (shard-09): example.test/internal/train TestTrainLands failed once and passed on the second try",
 				"::warning title=Failed once::and 3 more, named in the log of this step",
 			},
-			[]string{"- go (shard-12): example.test/internal/train TestTrainLands"},
+			[]string{"- go (shard-12): example.test/internal/train TestTrainLands failed once and passed on the second try"},
 		},
 	} {
 		t.Run(name, func(t *testing.T) {
