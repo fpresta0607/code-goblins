@@ -27,13 +27,14 @@ go build ./cmd/cfo
 ```
 
 `cfo gate test` vets every package your change reaches and tests the changed packages that are quick to test, naming each with why; `--plan` shows that plan without running it.
-It leaves the slow packages' tests, and the packages that only import what you changed, to CI, which runs every package on every pull request: on a Windows machine the whole suite takes an hour or more, where CI's parallel jobs take about ten minutes.
+It leaves the slow packages' tests, and the packages that only import what you changed, to CI, which runs every package on every pull request: on a Windows machine the whole suite takes an hour or more, where CI's parallel jobs take about eight minutes.
 In a slow package, run the tests you changed by name, such as `go test ./internal/supervisor -run 'TestName' -count=1`.
 `go test ./...` still runs everything here when you want it.
 
-CI runs the same steps on `windows-latest` for every push to `main` and every pull request, as parallel jobs: the frontend checks, each slow Go package (some in two jobs), and every other package together.
+CI runs the same steps on `windows-latest` for every push to `main` and every pull request, as parallel jobs: the frontend checks, the board's browser tests in four jobs, each slow Go package (some in two jobs), and every other package together.
 A pull request must keep all of them green: the one required check, `test`, passes only when every job passed.
 A new package needs no change to `.github/workflows/go.yml`, because the `rest` job tests every package no other job names.
+A new browser spec needs none either: Playwright deals the spec files out among the browser jobs, and one more number in that job's `shard` list is one more job when they grow slower than the slowest Go job.
 
 `cmd/cfo/winres.json` is the Windows version resource and manifest every build of `cfo.exe` carries, through the `rsrc_windows_*.syso` files beside it.
 After changing it, regenerate them in `cmd/cfo` with `go run github.com/tc-hib/go-winres@v0.3.3 make --in winres.json --arch amd64,arm64` and commit them; CI fails when they differ, and a release stamps its own version into them.
