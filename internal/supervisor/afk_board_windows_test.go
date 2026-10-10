@@ -28,6 +28,7 @@ import (
 // board of the Overlord's own: the desktop window he started from the Start
 // menu, whose WebView2 holds the connection.
 func asOverlordsBoard(s *Service) {
+	s.windows = (&standInWindows{image: `C:\Program Files\Code Goblins\goblins-window.exe`}).system()
 	s.peerOf = func(netip.AddrPort, netip.AddrPort) (int, error) { return 7001, nil }
 	s.inspectCaller = func(pid int) ([]proc.Entry, []string, error) {
 		started := time.Now().Add(-time.Hour)
@@ -106,9 +107,10 @@ func TestOnlyABoardOfTheOverlordsOwnSwitchesAFKMode(t *testing.T) {
 		{name: "a browser the registered CFO started", ancestry: browser("msedge.exe", cfo), refusal: "under the registered CFO"},
 		{name: "a browser whose harness is gone but left its mark", ancestry: browser("chrome.exe"), env: []string{"CLAUDECODE=1"}, refusal: "an agent harness (its environment carries CLAUDECODE)"},
 		// A browser whose opener exited has parents that stop short of the
-		// desktop. It may be his own, so the refusal names the way out.
-		{name: "a browser whose opener has exited", ancestry: browser("msedge.exe"), env: []string{"USERNAME=overlord"}, refusal: "could not follow its parents to the desktop, as it cannot those of a browser whose opener has since exited"},
-		{name: "a program that cannot be read", unread: errors.New("access is denied"), refusal: "could not read the process that asked for it"},
+		// desktop. With no grant of this home's and no mark of an agent's,
+		// nothing proves it his and nothing says it is not.
+		{name: "a browser whose opener has exited, which holds no grant", ancestry: browser("msedge.exe"), env: []string{"USERNAME=overlord"}, refusal: "nothing proves the program that shows this board is his"},
+		{name: "a program that cannot be read", unread: errors.New("access is denied"), refusal: "could not read the program that shows this board"},
 		{name: "a connection Windows does not list", unfound: errors.New("no such connection"), refusal: "could not tell which program shows this board"},
 		{name: "a board on another machine", ancestry: browser("msedge.exe", desktop), elsewhere: func(r *http.Request) { r.RemoteAddr = "192.168.1.20:50000" }, refusal: "not the board's own page on the PC the fleet runs on"},
 		{name: "a board behind a proxy", ancestry: browser("msedge.exe", desktop), elsewhere: func(r *http.Request) { r.Header.Set("X-Forwarded-For", "100.64.0.7") }, refusal: "or reached it through a proxy"},
@@ -116,6 +118,7 @@ func TestOnlyABoardOfTheOverlordsOwnSwitchesAFKMode(t *testing.T) {
 		t.Run(c.name, func(t *testing.T) {
 			lookedUp := false
 			s := &Service{Store: store,
+				windows: (&standInWindows{image: `C:\Program Files (x86)\Microsoft\Edge\Application\msedge.exe`}).system(),
 				peerOf: func(peer, board netip.AddrPort) (int, error) {
 					lookedUp = true
 					if peer.String() != "127.0.0.1:50000" || board.String() != credentialBoardHost {
@@ -237,8 +240,11 @@ func TestARequestFromAGoblinsOwnProcessIsRefusedOverARealConnection(t *testing.T
 	if err := json.NewDecoder(response.Body).Decode(&refused); err != nil {
 		t.Fatal(err)
 	}
-	if response.StatusCode != http.StatusForbidden || !strings.Contains(refused.Error, "the program that shows this board runs in a goblin's terminal") {
-		t.Fatalf("POST /api/afk from a goblin's process = %d %q, want it refused as a goblin's", response.StatusCode, refused.Error)
+	if response.StatusCode != http.StatusForbidden || refused.Error != "Switch AFK in the Code Goblins window, or run cfo afk on in PowerShell." {
+		t.Fatalf("POST /api/afk from a goblin's process = %d %q, want it refused with the one sentence a board shows", response.StatusCode, refused.Error)
+	}
+	if pending, err := wake.Pending(h.State); err != nil || len(pending) != 1 || !strings.Contains(pending[0].Detail, "the program that shows this board runs in a goblin's terminal") {
+		t.Errorf("the CFO's queue = %+v, %v, want it told the board was refused as a goblin's", pending, err)
 	}
 	if switched, err := afk.Read(h.State); err != nil || switched.On {
 		t.Errorf("the switch = %+v, %v, want it still off", switched, err)
@@ -339,7 +345,8 @@ func TestTheBoardsSwitchTurnsAFKModeOnAndOffAndTheBoardIsShownIt(t *testing.T) {
 }
 
 // A request that is not proven his changes nothing: the switch stays where it
-// was, nothing is logged and the CFO is told nothing.
+// was and nothing is logged. The board is shown one short sentence that says
+// what to do, and what the supervisor found goes to the CFO, in its queue.
 func TestABoardThatIsNotHisIsRefusedAndChangesNothing(t *testing.T) {
 	// Arrange
 	store, h := testStore(t)
@@ -356,8 +363,8 @@ func TestABoardThatIsNotHisIsRefusedAndChangesNothing(t *testing.T) {
 	code, body := askTheBoard(t, s, "POST", "/api/afk", `{"on":true}`, nil)
 
 	// Assert
-	if code != http.StatusForbidden || !strings.Contains(body, "under an agent harness (node.exe pid 4242)") {
-		t.Fatalf("POST /api/afk from a browser an agent started = %d %s, want it refused as an agent's", code, body)
+	if code != http.StatusForbidden || strings.TrimSpace(body) != `{"error":"Switch AFK in the Code Goblins window, or run cfo afk on in PowerShell."}` {
+		t.Fatalf("POST /api/afk from a browser an agent started = %d %s, want it refused with the one sentence a board shows", code, body)
 	}
 	if switched, err := afk.Read(h.State); err != nil || switched.On {
 		t.Errorf("the switch = %+v, %v, want it still off", switched, err)
@@ -365,8 +372,9 @@ func TestABoardThatIsNotHisIsRefusedAndChangesNothing(t *testing.T) {
 	if entries := afkEntries(t, h.State); len(entries) != 0 {
 		t.Errorf("the AFK log = %+v, want nothing", entries)
 	}
-	if pending, _ := wake.Pending(h.State); len(pending) != 0 {
-		t.Errorf("the CFO's queue = %+v, want nothing", pending)
+	pending, err := wake.Pending(h.State)
+	if err != nil || len(pending) != 1 || pending[0].Kind != "review" || pending[0].Key != "afk" || !strings.Contains(pending[0].Detail, "under an agent harness (node.exe pid 4242)") {
+		t.Errorf("the CFO's queue = %+v, %v, want the one refusal, with what the supervisor found", pending, err)
 	}
 }
 
