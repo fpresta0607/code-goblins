@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
@@ -543,4 +544,68 @@ func closeCurrentTerminal(t *testing.T, f *nativeFixture) {
 			}
 		}
 	})
+}
+
+// A paused goblin's resume is a refusal, which leaves it paused as it was,
+// for as long as its relaunch has published no replacement generation, and a
+// failed resume from there on. That holds only while a relaunch publishes its
+// generation before it starts a terminal and starts none without one, which
+// this checks against the relaunch itself: one refused before it stops
+// anything, and one whose terminal cannot start.
+func TestAResumesRelaunchPublishesItsGenerationBeforeItStartsATerminal(t *testing.T) {
+	for _, test := range []struct {
+		name      string
+		arrange   func(*testing.T, *switchFixture)
+		isRefused bool
+		wantPhase string
+	}{
+		{name: "refused before it stops anything", arrange: func(_ *testing.T, f *switchFixture) {
+			f.service.Harness.Adapters[harness.Codex] = nativeAdapter{kind: harness.Codex, control: harness.Control{StopCommand: "/exit", ResumeArgs: []string{"resume", "--last"}}, buildErr: errors.New(`harness: Codex does not support effort "ultra"`)}
+		}, isRefused: true, wantPhase: "paused"},
+		{name: "a terminal that cannot start", arrange: func(t *testing.T, f *switchFixture) {
+			f.service.HostCommand = []string{filepath.Join(t.TempDir(), "no-such-host.exe")}
+		}, wantPhase: "failed"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			// Arrange
+			f := newSwitchFixture(t, harness.Control{StopCommand: "/exit", ResumeArgs: []string{"resume", "--last"}})
+			at := time.Now().UTC().Add(-time.Hour).Truncate(time.Second)
+			condition, err := state.NewPauseCondition("overlord", "", at)
+			if err != nil {
+				t.Fatal(err)
+			}
+			paused := state.Lifecycle{ID: f.meta.ID, Generation: f.meta.SpawnGen, RequestGeneration: f.meta.SpawnGen, Operation: "pause-1", Action: "pause", Phase: "paused", Started: at, Updated: at, Reason: "overlord", Pause: &condition, Session: "owned-session", NoticeSent: true}
+			if err := state.WriteLifecycle(f.stateDir, paused); err != nil {
+				t.Fatal(err)
+			}
+			test.arrange(t, f)
+			controller := lifecycle.Service{StateDir: f.stateDir, Operations: lifecycle.Operations{
+				Memory: func() (uint64, uint64, error) { return 5 << 30, 5 << 30, nil },
+				Resume: func(ctx context.Context, meta state.TaskMeta, prior state.Lifecycle) error {
+					_, err := f.service.Switch(ctx, SwitchRequest{ID: meta.ID, Generation: meta.SpawnGen, ForceDirty: true, IsResume: true, ResumeSession: prior.Session})
+					return err
+				},
+				Notify: func(state.Lifecycle) error { return nil },
+			}}
+
+			// Act
+			_, resumeErr := controller.Run(t.Context(), lifecycle.Request{ID: f.meta.ID, Generation: f.meta.SpawnGen, Operation: "resume-1", Action: "resume"})
+
+			// Assert
+			if resumeErr == nil || strings.Contains(resumeErr.Error(), "resume refused, and the task is left as it was: ") != test.isRefused {
+				t.Fatalf("resume = %v, want an error that is a refusal: %v", resumeErr, test.isRefused)
+			}
+			after, err := state.ReadTaskMeta(f.stateDir, f.meta.ID)
+			if err != nil || (after.SpawnGen == f.meta.SpawnGen) != test.isRefused {
+				t.Errorf("task generation after the resume = %q, %v, was %q, want it kept only by a refusal", after.SpawnGen, err, f.meta.SpawnGen)
+			}
+			left, err := state.ReadLifecycle(f.stateDir, f.meta.ID)
+			if err != nil || left.Phase != test.wantPhase || test.isRefused && !reflect.DeepEqual(left, paused) {
+				t.Errorf("record after the resume = %+v, %v, want it %s, and as it was after a refusal", left, err, test.wantPhase)
+			}
+			if _, err := os.Stat(f.record); test.isRefused && !errors.Is(err, os.ErrNotExist) {
+				t.Errorf("a harness launched under a refused resume: %v", err)
+			}
+		})
+	}
 }
