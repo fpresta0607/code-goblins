@@ -1175,7 +1175,9 @@ Delivery is evidence-driven: tiered verification and security commands write str
 A record is only worth what is still true in it.
 `cfo project check <project>` reads a project and says, one line each with the evidence and the fix, whether its record, its verification gate, its configs, its connectors and the commands its instruction files name are right today.
 It reports an env file git does not ignore, a gate command that does not exist, a service declared and unused, a credential used and undeclared, and a test run that can read production from an env file.
+It judges a command by what a worktree cut from the default branch will hold, so a checkout that was never pulled does not answer for the repository.
 It starts nothing in the project, and `--draft` writes the record it can vouch for to a file a person places.
+[Project runtime contracts](docs/project-runtime.md#what-the-check-cannot-see) lists what it cannot see.
 The `project-check` skill, installed with the others, carries the whole pass for any harness: it proves the listed commands by running or dry-running them, never a deploy, and writes the report.
 
 See [Project runtime contracts](docs/project-runtime.md), [Production autonomy roadmap](docs/production-roadmap.md), and [Orchestrator patterns](docs/orchestrator-patterns.md).

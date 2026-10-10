@@ -58,6 +58,23 @@ func (f fixture) git(args ...string) {
 	}
 }
 
+// commit commits everything the checkout holds.
+func (f fixture) commit(message string) {
+	f.t.Helper()
+	f.git("add", "--all")
+	f.git("-c", "user.name=Test", "-c", "user.email=test@example.com", "commit", "--quiet", "--message", message)
+}
+
+// lag makes the commit the folder is on the default branch as last fetched,
+// then steps the folder one commit back, which is a checkout that was fetched
+// and never pulled.
+func (f fixture) lag() {
+	f.t.Helper()
+	f.git("update-ref", "refs/remotes/origin/main", "HEAD")
+	f.git("symbolic-ref", "refs/remotes/origin/HEAD", "refs/remotes/origin/main")
+	f.git("reset", "--quiet", "--hard", "HEAD~1")
+}
+
 // check runs the whole assessment with the programs named in onPath found
 // and every other program missing.
 func (f fixture) check(onPath ...string) Report {
