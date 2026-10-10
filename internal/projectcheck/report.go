@@ -80,7 +80,15 @@ type Report struct {
 	// the record that is there, with what it leaves empty filled from what
 	// was proven. It names credentials and never holds one.
 	Draft project.Manifest `json:"draft"`
+	// DraftTier says in one sentence where the draft's verification commands
+	// came from, or why it has none.
+	DraftTier string `json:"draft_tier"`
 }
+
+// DraftVerifies reports whether the draft names a verification command. A
+// draft with none is never written: placed as it is, it would fail the
+// record area of the check that wrote it.
+func (r Report) DraftVerifies() bool { return verifies(r.Draft) }
 
 // Passed reports whether an area has no line worse than low.
 func (r Report) Passed(area string) bool {
@@ -94,7 +102,7 @@ func (r Report) Passed(area string) bool {
 
 // Only returns the report with the lines of the named areas alone.
 func (r Report) Only(areas []string) Report {
-	only := Report{Project: r.Project, Checkout: r.Checkout, Draft: r.Draft}
+	only := Report{Project: r.Project, Checkout: r.Checkout, Draft: r.Draft, DraftTier: r.DraftTier}
 	for _, line := range r.Lines {
 		if slices.Contains(areas, line.Area) {
 			only.Lines = append(only.Lines, line)

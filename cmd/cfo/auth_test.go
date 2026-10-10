@@ -452,6 +452,8 @@ func TestAuthGrantRefusesWhatItCannotGrant(t *testing.T) {
 		{"a service the manifest does not declare", []string{"grant", "live-1", "billing"}, 1, "It declares extra, stored"},
 		{"a task that is not running", []string{"grant", "ghost-1", "extra"}, 1, "not a running task"},
 		{"no service named", []string{"grant", "live-1"}, 2, "usage"},
+		{"an MCP server the project does not define", []string{"grant", "live-1", "--mcp", "unheard-of"}, 1, "defines no server named unheard-of"},
+		{"no MCP server named", []string{"grant", "live-1", "--mcp"}, 2, "usage"},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -463,8 +465,8 @@ func TestAuthGrantRefusesWhatItCannotGrant(t *testing.T) {
 				t.Errorf("exit = %d, stderr = %q, want exit %d naming %q", code, stderr, tc.code, tc.want)
 			}
 			after, err := state.ReadTaskMeta(stateDir, "live-1")
-			if err != nil || strings.Join(after.Credentials, ",") != "stored" {
-				t.Errorf("the record names %v, %v, want it unchanged", after.Credentials, err)
+			if err != nil || strings.Join(after.Credentials, ",") != "stored" || len(after.MCPServers) != 0 {
+				t.Errorf("the record names %v and the MCP servers %v, %v, want it unchanged", after.Credentials, after.MCPServers, err)
 			}
 		})
 	}
@@ -494,14 +496,18 @@ func TestAuthGrantIsRefusedInAGoblinsOrAGateAgentsTerminal(t *testing.T) {
 
 			// Act
 			code, _, stderr := runCLIWithRuntime(t, runtime, "grant", "live-1", "extra")
+			mcpCode, _, mcpStderr := runCLIWithRuntime(t, runtime, "grant", "live-1", "--mcp", "literal-env")
 
 			// Assert
 			if code != 2 || !strings.Contains(stderr, "the CFO's act") || !strings.Contains(stderr, "blocked report") {
 				t.Errorf("exit = %d, stderr = %q, want it refused, naming whose act it is and how to ask", code, stderr)
 			}
+			if mcpCode != 2 || !strings.Contains(mcpStderr, "the CFO's act") {
+				t.Errorf("an MCP server: exit = %d, stderr = %q, want it refused the same way", mcpCode, mcpStderr)
+			}
 			after, err := state.ReadTaskMeta(stateDir, "live-1")
-			if err != nil || strings.Join(after.Credentials, ",") != "stored" {
-				t.Errorf("the record names %v, %v, want it unchanged", after.Credentials, err)
+			if err != nil || strings.Join(after.Credentials, ",") != "stored" || len(after.MCPServers) != 0 {
+				t.Errorf("the record names %v and the MCP servers %v, %v, want it unchanged", after.Credentials, after.MCPServers, err)
 			}
 		})
 	}
@@ -537,5 +543,71 @@ func TestAuthStoreSaysWhenNoServiceDeclaresTheName(t *testing.T) {
 	}
 	if scriptSets(t, filepath.Join(live.TaskTmp, "auth.ps1"), "STRAY_STANDIN_KEY") {
 		t.Error("the task's script holds a name no service declares")
+	}
+}
+
+// standInCmdMCP is a project's MCP configuration under made-up names and
+// values: one server whose entry holds a value and one that holds none.
+const standInCmdMCP = `{"mcpServers": {
+	"literal-env": {"command": "standin-server", "env": {"STANDIN_MCP_KEY": "stand-in-mcp-env-value"}},
+	"plain": {"command": "standin-server"}
+}}`
+
+// Granting an MCP server is the same command with --mcp: the task's record
+// names the server, its status log says who granted it, and the output says
+// when the task is given it. A harness reads its servers when it starts, so
+// no running terminal is told to load anything. It names servers, never a
+// value.
+func TestAuthGrantMCPNamesAServerInARunningTasksRecord(t *testing.T) {
+	// Arrange
+	t.Setenv(harness.RoleVariable, "")
+	t.Setenv(gateAgentVariable, "")
+	useFileStore(t)
+	root := t.TempDir()
+	stateDir := filepath.Join(root, "state")
+	project := filepath.Join(root, "precisiondocs")
+	declareCmdStored(t, stateDir, project, "FLY_API_TOKEN")
+	writeCmdTaskMeta(t, stateDir, "live-1", project, "pane-live", true)
+	writeCmdTaskMeta(t, stateDir, "other-1", project, "pane-other", true)
+	if err := os.MkdirAll(project, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(project, ".mcp.json"), []byte(standInCmdMCP), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	var sent []string
+	runtime := refreshTestRuntime(t, stateDir, cmdPanes{live: map[string]bool{"pane-live": true, "pane-other": true}}, &sent)
+
+	// Act
+	code, stdout, stderr := runCLIWithRuntime(t, runtime, "grant", "live-1", "--mcp", "literal-env")
+
+	// Assert
+	if code != 0 {
+		t.Fatalf("cfo auth grant --mcp = %d: %s", code, stderr)
+	}
+	after, err := state.ReadTaskMeta(stateDir, "live-1")
+	if err != nil || strings.Join(after.MCPServers, ",") != "literal-env" || strings.Join(after.Credentials, ",") != "stored" {
+		t.Errorf("after the grant the record names the MCP servers %v and the services %v, %v, want literal-env added and nothing else changed", after.MCPServers, after.Credentials, err)
+	}
+	for _, want := range []string{"granted live-1 the MCP servers literal-env", "cfo switch live-1 --restart"} {
+		if !strings.Contains(stdout, want) {
+			t.Errorf("stdout = %q, want %q", stdout, want)
+		}
+	}
+	log, err := state.TailStatus(stateDir, "live-1", 10)
+	if err != nil || !strings.Contains(strings.Join(log, "\n"), "credentials: the CFO granted the MCP servers literal-env") {
+		t.Errorf("status log = %q, %v, want a record of the grant", log, err)
+	}
+	untouched, err := state.ReadTaskMeta(stateDir, "other-1")
+	if err != nil || len(untouched.MCPServers) != 0 {
+		t.Errorf("another task of the project names the MCP servers %v, %v, want none", untouched.MCPServers, err)
+	}
+	if len(sent) != 0 {
+		t.Errorf("notices = %v, want none: a running harness loads no MCP server", sent)
+	}
+	for _, text := range []string{stdout, stderr, strings.Join(log, "\n")} {
+		if strings.Contains(text, "stand-in-mcp-env-value") {
+			t.Errorf("the grant's words hold a value of the server's entry: %q", text)
+		}
 	}
 }

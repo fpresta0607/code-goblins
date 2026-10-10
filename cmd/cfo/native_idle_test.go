@@ -3,7 +3,6 @@ package main
 import (
 	"bytes"
 	"encoding/json"
-	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
@@ -11,6 +10,7 @@ import (
 	"time"
 
 	"github.com/fpresta0607/code-goblins/internal/host"
+	"github.com/fpresta0607/code-goblins/internal/host/hosttest"
 	"github.com/fpresta0607/code-goblins/internal/wake"
 )
 
@@ -48,14 +48,7 @@ func nativeCFOTerminal(t *testing.T, dir string) {
 			t.Error("the terminal's host did not end")
 		}
 	})
-	programIsThisProcess(t, &record)
-	data, err := json.Marshal(record)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(filepath.Join(dir, "hosts", "cfo.json"), data, 0o600); err != nil {
-		t.Fatal(err)
-	}
+	hosttest.Rewrite(t, dir, "cfo", func(record *host.Record) { programIsThisProcess(t, record) })
 	t.Setenv(host.IDVariable, "cfo")
 	t.Setenv("HERDR_PANE_ID", "")
 	for _, name := range []string{"CFO_ROLE", "CFO_TASK_ID", "CFO_SPAWN_GEN", "CFO_PARENT_SESSION_ID", "CFO_PARENT_HARNESS", "CFO_ROOT_SESSION_ID"} {

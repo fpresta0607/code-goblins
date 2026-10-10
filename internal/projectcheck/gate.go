@@ -8,6 +8,8 @@ import (
 	"strings"
 
 	"gopkg.in/yaml.v3"
+
+	"github.com/fpresta0607/code-goblins/internal/project"
 )
 
 // gateFileName is the settings file of the no-mistakes gate, which the gate
@@ -57,15 +59,15 @@ func (c *checker) gate(ctx context.Context) string {
 	for _, command := range commands {
 		var faults []string
 		for _, s := range segments(command.command) {
-			faults = append(faults, c.prove(ctx, s, false).faults...)
+			faults = append(faults, c.prove(ctx, s, inWorktree).faults...)
 		}
 		if len(faults) > 0 {
 			missing = append(missing, fmt.Sprintf("%s %q: %s", command.name, command.command, strings.Join(faults, ", ")))
 			continue
 		}
 		found = append(found, fmt.Sprintf("%s %q", command.name, command.command))
-		if parts := segments(command.command); command.name == "commands.test" && len(parts) == 1 && parts[0].dir == "" {
-			c.proven.gateTest = parts[0].argv
+		if command.name == "commands.test" {
+			c.proven.gateTest = rootCommands(segments(command.command))
 		}
 	}
 	if len(missing) > 0 {
@@ -108,6 +110,68 @@ func runnersIn(text string) map[string]bool {
 	return found
 }
 
+// rootCommands returns the parts of a command line as the commands a record
+// holds, one for each part, or nothing when a part runs under a cd: a
+// record's command is one program with its arguments, run at the root.
+func rootCommands(parts []segment) []project.Command {
+	var commands []project.Command
+	for _, part := range parts {
+		if part.dir != "" {
+			return nil
+		}
+		commands = append(commands, part.argv)
+	}
+	return commands
+}
+
+// workflowFile is what a check reads of a workflow: the commands its steps
+// run, and the folder a step, a job or the whole file runs them in.
+type workflowFile struct {
+	Defaults workflowDefaults `yaml:"defaults"`
+	Jobs     map[string]struct {
+		Defaults workflowDefaults `yaml:"defaults"`
+		Steps    []struct {
+			Run string `yaml:"run"`
+			Dir string `yaml:"working-directory"`
+		} `yaml:"steps"`
+	} `yaml:"jobs"`
+}
+
+type workflowDefaults struct {
+	Run struct {
+		Dir string `yaml:"working-directory"`
+	} `yaml:"run"`
+}
+
+// workflowTests returns the test commands a workflow runs at the root of the
+// repository that can run as written here: one for each line of a step that
+// is a plain command, with no variable, pipe or other shell construct in it.
+func (c *checker) workflowTests(ctx context.Context, data []byte) []project.Command {
+	var workflow workflowFile
+	if yaml.Unmarshal(data, &workflow) != nil {
+		return nil
+	}
+	var tests []project.Command
+	for _, job := range sortedKeys(workflow.Jobs) {
+		for _, step := range workflow.Jobs[job].Steps {
+			if step.Dir != "" || workflow.Jobs[job].Defaults.Run.Dir != "" || workflow.Defaults.Run.Dir != "" {
+				continue
+			}
+			for _, line := range strings.Split(step.Run, "\n") {
+				if strings.ContainsAny(line, "<>[]{}|$;`\\=#") {
+					continue
+				}
+				for _, s := range segments(line) {
+					if s.dir == "" && (startsCommand[s.argv[0]] || runsByPath(s.argv[0])) && commandKind(s.argv) == "test" && len(c.prove(ctx, s, inWorktree).faults) == 0 {
+						tests = append(tests, s.argv)
+					}
+				}
+			}
+		}
+	}
+	return tests
+}
+
 // workflows checks that the repository has a workflow for the gate's ci
 // step to wait for, and that its workflows run the test runners the gate's
 // test command starts.
@@ -120,6 +184,10 @@ func (c *checker) workflows(ctx context.Context, test string) {
 			data, _ := c.repo.read(ctx, name)
 			text.Write(data)
 			text.WriteByte('\n')
+			if tests := c.workflowTests(ctx, data); len(tests) > 0 {
+				c.proven.workflowTests = append(c.proven.workflowTests, tests...)
+				c.proven.workflowFiles = append(c.proven.workflowFiles, name)
+			}
 		}
 	}
 	if len(files) == 0 {

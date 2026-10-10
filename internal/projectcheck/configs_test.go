@@ -28,22 +28,94 @@ func TestAnEnvFileGitDoesNotIgnoreIsReported(t *testing.T) {
 			t.Errorf("evidence %q names %q, which is ignored or an example", finding.Evidence, strings.TrimSpace(exempt))
 		}
 	}
+	if strings.Contains(finding.Fix, "rotate") {
+		t.Errorf("fix %q says rotate, and no file here is tracked or holds a credential", finding.Fix)
+	}
 	ignored := only(t, report, "env-files-ignored")
 	contains(t, "evidence", ignored.Evidence, ".env")
 }
 
-// A committed env file is the same fault after the fact: git cannot ignore a
-// file it tracks.
-func TestATrackedEnvFileIsReportedAsNotIgnored(t *testing.T) {
+// A committed env file that holds a credential is the same fault after the
+// fact, and the worse one: git cannot ignore a file it tracks, and the
+// repository's history holds what the file held.
+func TestATrackedEnvFileHoldingACredentialIsCriticalAndSaysRotate(t *testing.T) {
 	// Arrange
-	f := newFixture(t, map[string]string{".env": "PORT=8000\n"})
+	f := newFixture(t, map[string]string{".env": "PORT=8000\nDATABASE_URL=postgres://app:hunter2hunter2@db.internal.example.com:5432/app\n"})
 
 	// Act
 	report := f.check()
 
 	// Assert
 	finding := only(t, report, "env-file-not-ignored")
-	contains(t, "evidence", finding.Evidence, ".env", "tracked")
+	if finding.Severity != Critical {
+		t.Errorf("env-file-not-ignored is %s, want critical", finding.Severity)
+	}
+	contains(t, "evidence", finding.Evidence, ".env", "tracked", "DATABASE_URL")
+	contains(t, "fix", finding.Fix, "git rm --cached", "rotate")
+	none(t, report, "env-file-committed")
+	if strings.Contains(report.Text(), "hunter2") || strings.Contains(report.Text(), "db.internal.example.com") {
+		t.Errorf("the report repeats part of a value:\n%s", report.Text())
+	}
+}
+
+// A tracked env file is read at the default branch, which is what the
+// repository publishes, and in the folder, which is what the next commit
+// would publish. A folder that lags must not answer alone for either.
+func TestATrackedEnvFileIsReadAtTheDefaultBranchAndInTheFolder(t *testing.T) {
+	for _, test := range []struct{ name, first, second string }{
+		{"the default branch gained a credential the folder's copy lacks", "PORT=8000\n", "PORT=8000\nDATABASE_URL=postgres://app:hunter2hunter2@db.internal.example.com:5432/app\n"},
+		{"the folder's copy holds a credential the default branch dropped", "PORT=8000\nDATABASE_URL=postgres://app:hunter2hunter2@db.internal.example.com:5432/app\n", "PORT=8000\n"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			// Arrange
+			f := newFixture(t, map[string]string{".env.demo": test.first})
+			f.write(".env.demo", test.second)
+			f.commit("the demo file changes")
+			f.lag()
+
+			// Act
+			report := f.check()
+
+			// Assert
+			finding := only(t, report, "env-file-not-ignored")
+			if finding.Severity != Critical {
+				t.Errorf("env-file-not-ignored is %s, want critical", finding.Severity)
+			}
+			contains(t, "evidence", finding.Evidence, ".env.demo", "DATABASE_URL")
+		})
+	}
+}
+
+// A demo env file committed on purpose holds a loopback address, a port and
+// placeholders. It was a high finding whose fix told the reader to rotate
+// credentials the file never held. What a tracked env file holds decides, not
+// its name: with no credential in it, it is a low line that says so.
+func TestACommittedEnvFileThatHoldsNoCredentialIsLowAndNeverSaysRotate(t *testing.T) {
+	for _, name := range []string{".env.demo", ".env", "web/.env.development"} {
+		t.Run(name, func(t *testing.T) {
+			// Arrange
+			f := newFixture(t, map[string]string{
+				name: "# Committed on purpose: the local demo stack.\nNEXT_PUBLIC_SUPABASE_URL=http://127.0.0.1:54321\nPORT=3000\nPLAID_ENV=sandbox\nPLAID_SECRET=demo-plaid-secret\n",
+			})
+
+			// Act
+			report := f.check()
+
+			// Assert
+			none(t, report, "env-file-not-ignored")
+			finding := only(t, report, "env-file-committed")
+			if finding.Severity != Low || finding.Area != AreaConfigs {
+				t.Errorf("env-file-committed is %s in %s, want low in configs", finding.Severity, finding.Area)
+			}
+			contains(t, "evidence", finding.Evidence, name, "4 variables")
+			if strings.Contains(strings.ToLower(report.Text()), "rotate") {
+				t.Errorf("the report tells the reader to rotate credentials no file held:\n%s", report.Text())
+			}
+			if !report.Passed(AreaConfigs) {
+				t.Errorf("the configs area did not pass:\n%s", report.Text())
+			}
+		})
+	}
 }
 
 // A credential in a file git does not ignore is the worst of it, and the

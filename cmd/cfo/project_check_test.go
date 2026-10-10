@@ -219,6 +219,9 @@ func TestProjectCheckWritesADraftThatPassesTheRecordAreaOncePlaced(t *testing.T)
 	if code != 1 || !strings.Contains(stdout, "high record/record-missing:") || !strings.Contains(stdout, draft) {
 		t.Fatalf("cfo project check --draft = %d, want 1 with the missing record and the draft's path: %s%s", code, stdout, stderr)
 	}
+	if !strings.Contains(stdout, "draft tier: the draft's fast tier is the gate's own test command") {
+		t.Errorf("cfo project check --draft does not say where the draft's fast tier came from:\n%s", stdout)
+	}
 	written, err := os.ReadFile(draft)
 	if err != nil {
 		t.Fatal(err)
@@ -234,6 +237,26 @@ func TestProjectCheckWritesADraftThatPassesTheRecordAreaOncePlaced(t *testing.T)
 	}
 	if code, _, stderr := f.run("check", "northwind", "--draft", draft); code != 1 || !strings.Contains(stderr, "already") {
 		t.Errorf("a second --draft to the same file = %d, want 1 refusing to write over it: %s", code, stderr)
+	}
+}
+
+// A draft with no verification command would fail the record area of the
+// check that wrote it, so none is written and the command says what is
+// missing.
+func TestProjectCheckWritesNoDraftThatWouldFailTheRecordArea(t *testing.T) {
+	// Arrange
+	f := newProjectFixture(t)
+	draft := filepath.Join(t.TempDir(), "drafts", "northwind", "project.json")
+
+	// Act
+	code, stdout, stderr := f.run("check", "northwind", "--draft", draft)
+
+	// Assert
+	if code != 1 || !strings.Contains(stderr, "no draft is written") || !strings.Contains(stderr, "names no verification command") {
+		t.Errorf("cfo project check --draft = %d, want 1 saying why no draft is written: %s%s", code, stdout, stderr)
+	}
+	if _, err := os.Stat(draft); err == nil {
+		t.Error("the check wrote a draft with no verification command")
 	}
 }
 

@@ -53,6 +53,45 @@ func TestBriefScaffoldNamesNoServiceAndListsTheManifests(t *testing.T) {
 	}
 }
 
+// A new brief names no MCP server either, and lists the servers of the
+// project's .mcp.json whose entry holds a value, by name, to name from.
+func TestBriefScaffoldNamesNoMCPServerAndListsTheOnesThatHoldAValue(t *testing.T) {
+	// Arrange
+	t.Setenv("CFO_HOME", t.TempDir())
+	checkout := filepath.Join(t.TempDir(), "demo")
+	if err := os.MkdirAll(checkout, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(checkout, ".mcp.json"), []byte(standInCmdMCP), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	// Act
+	var stdout, stderr bytes.Buffer
+	exit := runBrief([]string{"t1", "--project", checkout}, &stdout, &stderr, commandRuntime{})
+
+	// Assert
+	if exit != 0 {
+		t.Fatalf("runBrief exit=%d stderr=%s", exit, stderr.String())
+	}
+	body, err := os.ReadFile(strings.TrimSpace(stdout.String()))
+	if err != nil {
+		t.Fatal(err)
+	}
+	need, err := auth.NeedFromBrief(string(body))
+	if err != nil || len(need.MCPServers) != 0 || len(need.Services) != 0 {
+		t.Errorf("the scaffold asks for %+v, %v, want it to name no server in the form cfo spawn reads", need, err)
+	}
+	for _, want := range []string{"mcp: none", "They are: literal-env."} {
+		if !strings.Contains(string(body), want) {
+			t.Errorf("brief scaffold is missing %q:\n%s", want, body)
+		}
+	}
+	if strings.Contains(string(body), "stand-in-mcp-env-value") {
+		t.Error("the brief scaffold holds a value of a server's entry")
+	}
+}
+
 // Every goblin reads its brief before it writes a commit, so the brief is
 // where a standing authorship rule has to live: a goblin that never sees it
 // signs the fleet's history with an author that does not exist.

@@ -43,8 +43,8 @@
     },
     {
       "paths": [".github/workflows/*.yml"],
-      "packages": ["."],
-      "why": "the workflow tests read the workflows"
+      "packages": [".", "internal/gatetest"],
+      "why": "the workflow tests read the workflows, and the test of the CI plan reads the go workflow's table of jobs"
     },
     {
       "paths": [".github/workflows/release.yml"],

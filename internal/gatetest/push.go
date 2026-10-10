@@ -75,7 +75,11 @@ type Push struct {
 // works out a gate step's plan. timesOf gives this machine's record of how
 // long each test of the module takes, which is known by the module's path.
 func ReadPush(ctx context.Context, runner execx.Runner, dir string, timesOf func(module string) Times) (Push, error) {
-	found, err := gather(ctx, runner, dir)
+	base, err := mergeBase(ctx, runner, dir)
+	if err != nil {
+		return Push{}, err
+	}
+	found, err := gather(ctx, runner, dir, base)
 	if err != nil {
 		return Push{}, err
 	}

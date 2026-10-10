@@ -48,6 +48,10 @@ This skill is the part a command cannot do: prove the project's commands by runn
      Record the command as not run and say why.
    - Never run a command from the line `instruction-deploy-never-run`.
      Confirm only that its program is there.
+   - Run no command from the line `instruction-install-not-run`.
+     A worktree's own install step does that, and an install changes the machine.
+   - The line `instruction-example-paths` lists commands that name a path made up to show their shape.
+     Read each in its instruction file and say whether it is an example, since the command cannot run as written either way.
    - Run nothing in the Overlord's own checkout that writes to it.
      Use a worktree of the project, or record the command as not run.
    - Mind the machine: one command at a time, the lightest form that proves it.
@@ -58,13 +62,19 @@ This skill is the part a command cannot do: prove the project's commands by runn
      The check reads names, so a setup that clears variables by a rule is not seen.
      Say what you found and keep the line in the report either way.
    - `connector-undeclared`: for each name say whether the fleet should declare it in `auth.json` or the project loads it from its own env file by design.
-   - `connector-unused`: read the service's note in `auth.json`.
-     A service kept for something outside the repository says so there.
+   - `connector-unused`: a service is on this line only when no tracked file reads it and its entry in `auth.json` names no tool and has no note.
+     Say whether to take it out or what uses it.
+   - `connectors-examined` names the services kept on a note alone, which the command cannot verify.
+     Read each note and say whether it still holds.
    - `gate-ci-differs` and `gate-ci-unknown`: read the gate's test command beside the workflow files and say what each runs.
 5. **Draft the record.**
    Run `cfo project check <project> --draft <task folder>/drafts/<project>/project.json`.
-   The draft starts from the record that is there and fills what it leaves empty with the declared services the repository reads and the gate's test command as the fast tier.
-   Complete it from evidence only:
+   The draft starts from the record that is there and fills what it leaves empty with the declared services the command counts as used and a fast tier.
+   The `draft tier:` line says where the fast tier came from: the gate's test command, or for a record with no verification command the test commands the workflows run, or else those the instruction files name.
+   The command ran none of them, so prove each as in step 3 and take out one you could not prove.
+   When the command says no draft is written, the repository names no test command anywhere.
+   Say so in the report, and propose a `commands.test` for the gate file as a follow-up task.
+   Complete the draft from evidence only:
    - `verification.full` from a test command you proved in step 3.
    - `deployment` only from a deploy command the instruction files name and the repository's own deploy manifest confirms.
      Leave `required` false unless the Overlord said a deployment is required.
@@ -84,6 +94,18 @@ This skill is the part a command cannot do: prove the project's commands by runn
      Write the proposed text in the report.
    - A fix inside the project's repository, such as its gate file, its instruction files, its ignore file or its test setup, is never made in this pass.
      Write the finding and the proposed text for a follow-up task, which ships through that repository's own gate.
+
+## What the command cannot see
+
+The command says only what it read.
+`docs/project-runtime.md` lists what is outside it under "What the check cannot see".
+The two that matter most to a report:
+
+- It reads the default branch as the checkout last fetched it and does not say whether the remote has moved.
+  A spawn fetches first, so a goblin can get files the command did not read.
+- Its production line reads env files only.
+  A spawn also puts the stored credentials of a task's services into the task's terminal, and a test run inherits those with no env file at all.
+  Read `auth.json` for the services a task would carry and name them in the report.
 
 ## Reading the severities
 

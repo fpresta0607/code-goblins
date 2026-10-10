@@ -30,13 +30,19 @@ Before each push, run `cfo gate prepush`.
 It picks what your change can break and runs it one check at a time: `go vet` of every package the change reaches, the tests that read the whole tree, the changed packages, the packages that import them, nearest first, and for a change under `frontend` the type check, the lint, the unit tests and the browser specs the change touched or names.
 It names each check with why before it runs any, and stops at the first failure with one line that names the check and the test.
 `--plan` shows the pick and runs nothing.
-A slow package runs without the tests this machine has timed at 2 seconds or longer, unless your change touched their file, so nobody has to guess which tests to run by name.
-It starts no check after its time limit, 15 minutes unless `--limit` says otherwise, and names everything it left to CI, which runs every package and every browser spec on every pull request: on a Windows machine the whole suite takes an hour or more, where CI's parallel jobs take about eight minutes.
+A slow package runs without the tests this machine has timed at 2 seconds or longer, so nobody has to guess which tests to run by name.
+Two kinds of slow test still run: every test in a test file your change touched, and the tests under 15 seconds in the test file named for a source it touched, as `spawn_test.go` is for `spawn.go`.
+It starts no check after its time limit, 15 minutes unless `--limit` says otherwise, and names everything it left to CI, which tests what your change reaches on the pull request's own run and every package and browser spec in the merge train's run that lands it: on a Windows machine the whole suite takes an hour or more, where CI's parallel jobs take about eight minutes.
+The tests that read the whole tree run here whatever you changed, because a pull request's own run starts only the jobs its change can alter, and a guard in a job it did not start would first fail in the merge train.
 `cfo gate test` is the gate's own test step, which runs less, and `go test ./...` still runs everything here when you want it.
 
 CI runs the same steps on `windows-latest` for every push to `main` and every pull request, as parallel jobs: the frontend checks, the board's browser tests in four jobs, each slow Go package (some in two jobs), and every other package together.
-A pull request must keep all of them green: the one required check, `test`, passes only when every job passed.
+A pull request's own run starts only the jobs its change can alter, which the `plan` job chooses with `tools/ciplan`, and a merge train's run and a run on `main` start every job.
+A pull request must keep green every job its run starts: the one required check, `test`, passes only when the plan and every job it started passed.
+A test that fails in CI runs once more in its job (`tools/citest` for Go, Playwright's own retry for the browser tests): one that passes then is named as a Failed once warning on the `test` check, and one that fails twice fails the job, so fix a test named there rather than leaning on its second try.
 A new package needs no change to `.github/workflows/go.yml`, because the `rest` job tests every package no other job names.
+A new job does: `JOBS` at the top of that file says what can change each job's result, the plan answers for each job, and `test` counts it, and the workflow's own tests fail until all three agree.
+A browser spec or a unit test of the board that reads a file outside `frontend` must have that file listed under the job's paths in `JOBS`, which `frontend/src/outside-reads.test.ts` checks.
 A new browser spec needs none either: Playwright deals the spec files out among the browser jobs, and one more number in that job's `shard` list is one more job when they grow slower than the slowest Go job.
 
 `cmd/cfo/winres.json` is the Windows version resource and manifest every build of `cfo.exe` carries, through the `rsrc_windows_*.syso` files beside it.
@@ -50,7 +56,7 @@ See [Repo layout](README.md#repo-layout) in the README.
 ## Tests
 
 Unit tests are deterministic: they inject fake subprocess runners and scripted clocks instead of requiring installed tools.
-The telemetry and pipeline database regressions are the exception - they build real SQLite fixtures through the `sqlite3` CLI and skip themselves when it is not on PATH, so install it locally to run them (CI installs it before the suite).
+The telemetry and pipeline database regressions are the exception - they build real SQLite fixtures through the `sqlite3` CLI and skip themselves when it is not on PATH, so install it locally to run them (CI puts the release pinned in `.github/workflows/go.yml` on PATH before the suite, from the Actions cache, and asks no package feed for it).
 
 A test must never resolve the fleet home its shell exported.
 `internal/home.Resolve` refuses the `CFO_HOME` and `CFO_STATE_OVERRIDE` values the process was launched with whenever the caller is a test binary, so a test that needs a home points both at its own directory.

@@ -167,7 +167,7 @@ func readParameters(pid int, withEnvironment bool) (string, []string, []string, 
 			arguments, argumentsErr = splitCommandLine(line)
 		}
 		if withEnvironment {
-			environment = environmentOf(handle, parameters, snapshot)
+			environment = environmentOf(handle, pid, parameters, snapshot)
 		}
 		return parameters, errors.Join(directoryErr, argumentsErr)
 	})
@@ -180,8 +180,10 @@ func readParameters(pid int, withEnvironment bool) (string, []string, []string, 
 // environmentOf reads the environment of the process behind handle, whose
 // parameter block at parameters begins with snapshot: in one read of the
 // size the block records, or page by page where it records none or that
-// read is refused. It is nil when it cannot be read.
-func environmentOf(handle syscall.Handle, parameters uintptr, snapshot []byte) []string {
+// read is refused. It is nil when it cannot be read. The snapshot's address
+// and size are those of the environment CreateProcess built, so one that has
+// moved since is read from where the block points now, page by page.
+func environmentOf(handle syscall.Handle, pid int, parameters uintptr, snapshot []byte) []string {
 	field := func(offset uintptr) uintptr {
 		if int(offset)+8 <= len(snapshot) {
 			return uintptr(*(*uint64)(unsafe.Pointer(&snapshot[offset])))
@@ -192,34 +194,36 @@ func environmentOf(handle syscall.Handle, parameters uintptr, snapshot []byte) [
 		}
 		return value
 	}
-	address := field(unsafe.Offsetof(windows.RTL_USER_PROCESS_PARAMETERS{}.Environment))
-	if address == 0 {
+	copied := field(unsafe.Offsetof(windows.RTL_USER_PROCESS_PARAMETERS{}.Environment))
+	if copied == 0 {
 		return nil
 	}
-	if size := field(unsafe.Offsetof(windows.RTL_USER_PROCESS_PARAMETERS{}.EnvironmentSize)); size >= 2 && size <= maxEnvironmentBytes {
-		block := make([]byte, size-size%2)
-		if err := readMemory(handle, address, block); err == nil {
-			// The block ends with an empty entry. One the recorded size cut
-			// short does not, and is read again page by page below.
-			var values []string
-			units := decodeUTF16(block)
-			for start := 0; start < len(units); {
-				end := start
-				for end < len(units) && units[end] != 0 {
-					end++
+	values, err := steadyEnvironment(handle, pid, parameters, copied, func(address uintptr) ([]string, error) {
+		if size := field(unsafe.Offsetof(windows.RTL_USER_PROCESS_PARAMETERS{}.EnvironmentSize)); address == copied && size >= 2 && size <= maxEnvironmentBytes {
+			block := make([]byte, size-size%2)
+			if err := readMemory(handle, address, block); err == nil {
+				// The block ends with an empty entry. One the recorded size
+				// cut short does not, and is read again page by page below.
+				var values []string
+				units := decodeUTF16(block)
+				for start := 0; start < len(units); {
+					end := start
+					for end < len(units) && units[end] != 0 {
+						end++
+					}
+					if end == len(units) {
+						break
+					}
+					if end == start {
+						return values, nil
+					}
+					values = append(values, syscall.UTF16ToString(units[start:end]))
+					start = end + 1
 				}
-				if end == len(units) {
-					break
-				}
-				if end == start {
-					return values
-				}
-				values = append(values, syscall.UTF16ToString(units[start:end]))
-				start = end + 1
 			}
 		}
-	}
-	values, err := environmentAt(handle, address)
+		return environmentAt(handle, address)
+	})
 	if err != nil {
 		return nil
 	}

@@ -9,9 +9,16 @@ import (
 )
 
 // finish ends the train in state: it records how it ended first, so a
-// finish cut short never leaves a train running that is over, then closes
-// the train's pull request and deletes its branch, and tells each goblin
-// whose pull request broke the train or conflicted, and the CFO.
+// finish cut short never leaves a train running that is over, then deletes
+// its branch, and tells each goblin whose pull request broke the train or
+// conflicted, and the CFO.
+//
+// A train whose last run landed has merged its pull request, so nothing of
+// it is left closed without merging. One that did not land its last run
+// closes that run's pull request with how it ended: the one place on GitHub
+// a train that went red says so, however often it was halved, since each
+// half that passed merged its own. The branch is the train's own, and it is
+// already gone where GitHub deletes a merged pull request's branch itself.
 func (e Engine) finish(ctx context.Context, t *Train, state, note string) error {
 	t.State, t.Note, t.Finished, t.Landing = state, note, e.Now().UTC(), false
 	t.endRun(RunStopped, "")
@@ -23,13 +30,13 @@ func (e Engine) finish(ctx context.Context, t *Train, state, note string) error 
 		return err
 	}
 	var leftovers []string
-	if t.PR != "" {
+	if t.PR != "" && !t.hasMerged() {
 		if _, err := e.run(ctx, t.Checkout, "gh", "pr", "close", t.PR, "--comment", "Merge train "+t.ID+" is over: "+e.summary(*t)); err != nil {
-			leftovers = append(leftovers, "its pull request stayed open: "+err.Error())
+			leftovers = append(leftovers, "its pull request was not closed: "+err.Error())
 		}
 	}
 	if t.Runs > 0 {
-		if _, err := e.run(ctx, t.Checkout, "git", "push", "--quiet", "origin", "--delete", t.Branch); err != nil {
+		if err := e.removeBranch(ctx, *t); err != nil {
 			leftovers = append(leftovers, "its branch "+t.Branch+" stayed: "+err.Error())
 		}
 	}
@@ -60,6 +67,17 @@ func (e Engine) finish(ctx context.Context, t *Train, state, note string) error 
 	return saveErr
 }
 
+// removeBranch deletes the train's branch from origin, unless origin no
+// longer has it.
+func (e Engine) removeBranch(ctx context.Context, t Train) error {
+	found, err := e.run(ctx, t.Checkout, "git", "ls-remote", "origin", "refs/heads/"+t.Branch)
+	if err != nil || found == "" {
+		return err
+	}
+	_, err = e.run(ctx, t.Checkout, "git", "push", "--quiet", "origin", "--delete", t.Branch)
+	return err
+}
+
 // summary says how a finished train ended, what landed, and what goes to
 // the next train.
 func (e Engine) summary(t Train) string {
@@ -83,6 +101,12 @@ func (e Engine) summary(t Train) string {
 	}
 	if passed := t.passedOnSecondTry(); passed != "" {
 		parts = append(parts, "failed once and passed on the second try: "+passed)
+	}
+	if tests := t.testsThatFailedOnce(); tests != "" {
+		parts = append(parts, "tests that failed once and passed on the second try inside their job: "+tests)
+	}
+	if unread := t.onceUnread(); unread != "" {
+		parts = append(parts, "the tests that failed once could not be read: "+unread)
 	}
 	if t.PR != "" {
 		parts = append(parts, "("+t.PR+")")

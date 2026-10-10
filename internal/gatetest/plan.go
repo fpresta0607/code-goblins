@@ -35,7 +35,9 @@ type Plan struct {
 	Level    Level
 	Required Level
 	Why      string
-	// Choices are the packages the change reaches, with why.
+	// Changed are the files that differ from Base, as slash paths from Root,
+	// and Choices the packages the change reaches, with why.
+	Changed []string
 	Choices []Choice
 	// Everything says a module file changed, which reaches every package.
 	Everything bool
@@ -68,7 +70,24 @@ const listFields = "ImportPath,Dir,Imports,TestImports,XTestImports,EmbedPattern
 // and go list can spell one directory differently. The plan runs asked, or
 // the level the change requires when asked is empty, as build decides it.
 func Read(ctx context.Context, runner execx.Runner, dir string, asked Level) (Plan, error) {
-	found, err := gather(ctx, runner, dir)
+	base, err := mergeBase(ctx, runner, dir)
+	if err != nil {
+		return Plan{}, err
+	}
+	return ReadSince(ctx, runner, dir, base, asked)
+}
+
+// ReadSince is Read for a checkout that knows its base: the plan for what
+// differs between the commit base names and the commit checked out. A CI run
+// of a pull request checks out the merge of the pull request into its base
+// with no branch of the remote beside it, so its base is that merge's first
+// parent, HEAD^1, and the plan is for exactly what merging it would change.
+func ReadSince(ctx context.Context, runner execx.Runner, dir, base string, asked Level) (Plan, error) {
+	commit, err := output(ctx, runner, dir, "git", "rev-parse", "--verify", base+"^{commit}")
+	if err != nil {
+		return Plan{}, err
+	}
+	found, err := gather(ctx, runner, dir, strings.TrimSpace(commit))
 	if err != nil {
 		return Plan{}, err
 	}
@@ -93,11 +112,7 @@ type findings struct {
 	hasPolicy bool
 }
 
-func gather(ctx context.Context, runner execx.Runner, dir string) (findings, error) {
-	base, err := mergeBase(ctx, runner, dir)
-	if err != nil {
-		return findings{}, err
-	}
+func gather(ctx context.Context, runner execx.Runner, dir, base string) (findings, error) {
 	// The top directory can hold spaces, so it is read as a line of its own.
 	where, err := output(ctx, runner, dir, "git", "rev-parse", "--show-toplevel", "HEAD")
 	if err != nil {
@@ -163,6 +178,7 @@ func build(found findings, asked Level) Plan {
 	plan := Plan{
 		Root:        found.root,
 		Base:        found.base,
+		Changed:     slashed(found.changed),
 		Commit:      found.commit,
 		Uncommitted: found.uncommitted,
 		Module:      found.module,
@@ -208,6 +224,15 @@ func policyOf(found findings) (policy Policy, says string, err error) {
 		return Policy{}, fmt.Sprintf("built-in defaults, as %s at %.8s cannot be read", PolicyPath, found.base), err
 	}
 	return policy, fmt.Sprintf("%s version %d at %.8s", PolicyPath, policy.Version, found.base), nil
+}
+
+// slashed are files as slash paths.
+func slashed(files []string) []string {
+	paths := make([]string, len(files))
+	for index, file := range files {
+		paths[index] = filepath.ToSlash(file)
+	}
+	return paths
 }
 
 // names splits git's NUL-separated file names.

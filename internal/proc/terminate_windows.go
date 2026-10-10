@@ -5,7 +5,6 @@ import (
 	"strings"
 	"syscall"
 	"time"
-	"unsafe"
 
 	"golang.org/x/sys/windows"
 )
@@ -122,11 +121,9 @@ func identify(handle syscall.Handle, pid int, start time.Time) (Identity, error)
 		if identity.Directory, err = read(paramsOffsetCurrentDirectory); err != nil {
 			return parameters, fmt.Errorf("%w: %v", ErrDirectoryUnreadable, err)
 		}
-		address, err := readPointer(handle, parameters+unsafe.Offsetof(windows.RTL_USER_PROCESS_PARAMETERS{}.Environment))
-		if err != nil || address == 0 {
-			return parameters, fmt.Errorf("read process %d's environment: %v", pid, err)
-		}
-		identity.Environment, err = environmentAt(handle, address)
+		identity.Environment, err = steadyEnvironment(handle, pid, parameters, 0, func(address uintptr) ([]string, error) {
+			return environmentAt(handle, address)
+		})
 		return parameters, err
 	})
 	if err != nil {
