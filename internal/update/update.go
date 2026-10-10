@@ -212,6 +212,27 @@ func hashOf(content io.Reader) (string, error) {
 	return hex.EncodeToString(sum.Sum(nil)), nil
 }
 
+// hashBytes is the SHA-256 of data, in hex.
+func hashBytes(data []byte) string {
+	sum := sha256.Sum256(data)
+	return hex.EncodeToString(sum[:])
+}
+
+// keep writes data to to, durably, unless to already holds exactly those
+// bytes, as it does when an update is tried again. A file of another size
+// holds other bytes, so it is not opened to see: a virus scanner reads a
+// program whole the first time it is opened after it was written, the open
+// waits for that, and the copies the last update left were written then and
+// opened by nothing since.
+func keep(to string, data []byte) error {
+	if info, err := os.Stat(to); err == nil && info.Size() == int64(len(data)) {
+		if current, err := fsx.ReadFile(to); err == nil && bytes.Equal(current, data) {
+			return nil
+		}
+	}
+	return writeSynced(to, data)
+}
+
 // copyVerified copies from to to, durably, only once what it copies hashes
 // to want.
 func copyVerified(from, to, want string) error {
@@ -219,46 +240,51 @@ func copyVerified(from, to, want string) error {
 	if err != nil {
 		return err
 	}
-	sum := sha256.Sum256(data)
-	if got := hex.EncodeToString(sum[:]); got != want {
+	if got := hashBytes(data); got != want {
 		return fmt.Errorf("update: %s hashes to %s, not %s", from, got, want)
 	}
-	if current, err := fsx.ReadFile(to); err == nil && bytes.Equal(current, data) {
-		return nil
-	}
-	return writeSynced(to, data)
+	return keep(to, data)
 }
 
 // Prepare backs up the home's installed build as verified copies, keeps a
 // copy of the candidate as a second way to run the recovery, stages the
 // candidate beside each alias, and records it all, so the journal names
 // everything the way back needs before anything live changes.
+//
+// It opens the candidate and each installed program once, and writes every
+// copy from the bytes it hashed. Those programs have run, so a virus scanner
+// read them long before. A copy it has just written it never opens: the
+// first open of a program after it was written waits for the scanner to read
+// it whole, and staging the candidate from its own fresh copy cost one such
+// wait, and looking into each copy the last update left cost one more.
 func Prepare(root, stateDir, candidate string) (*Journal, error) {
-	hash, err := HashFile(candidate)
+	build, err := fsx.ReadFile(candidate)
 	if err != nil {
 		return nil, fmt.Errorf("update: read the candidate %s: %w", candidate, err)
 	}
+	hash := hashBytes(build)
 	if err := os.MkdirAll(Dir(stateDir), 0o700); err != nil {
 		return nil, err
 	}
 	journal := &Journal{Schema: schema, Root: root, Candidate: candidate, Copy: filepath.Join(Dir(stateDir), "candidate.exe"), Hash: hash, Started: time.Now().UTC()}
-	if err := copyVerified(candidate, journal.Copy, hash); err != nil {
+	if err := keep(journal.Copy, build); err != nil {
 		return nil, fmt.Errorf("update: keep a copy of the candidate: %w", err)
 	}
 	for _, name := range Aliases {
 		installed := filepath.Join(root, name)
-		previous, err := HashFile(installed)
+		running, err := fsx.ReadFile(installed)
 		if err != nil {
 			return nil, fmt.Errorf("update: read the installed %s: %w", installed, err)
 		}
+		previous := hashBytes(running)
 		if previous == hash {
 			return nil, fmt.Errorf("update: %s is already this build", installed)
 		}
 		backup := filepath.Join(Dir(stateDir), "previous-"+name)
-		if err := copyVerified(installed, backup, previous); err != nil {
+		if err := keep(backup, running); err != nil {
 			return nil, fmt.Errorf("update: back up %s: %w", installed, err)
 		}
-		if err := copyVerified(journal.Copy, staged(root, name), hash); err != nil {
+		if err := keep(staged(root, name), build); err != nil {
 			return nil, fmt.Errorf("update: stage the candidate as %s: %w", name, err)
 		}
 		journal.Aliases = append(journal.Aliases, Alias{Name: name, Previous: previous, Backup: backup})
@@ -273,6 +299,15 @@ func staged(root, name string) string {
 	return filepath.Join(root, name+".update-new")
 }
 
+// rename is os.Rename of one of the home's programs, which waits out another
+// process's brief hold on it: the swap comes right after the supervisor
+// stopped, when a virus scanner can still be reading the build it ran from or
+// the one staged beside it, and a scanner's read refuses a rename while it
+// lasts.
+func rename(from, to string) error {
+	return fsx.WaitOut(func() error { return os.Rename(from, to) })
+}
+
 // moveAside renames path out of the way under a name of its own, and
 // records the name on alias: a build still running, such as a terminal's
 // host, cannot be overwritten or removed, but can be renamed.
@@ -281,7 +316,7 @@ func moveAside(path string, alias *Alias) error {
 		return nil
 	}
 	aside := fmt.Sprintf("%s.%d.update-old", path, time.Now().UnixNano())
-	if err := os.Rename(path, aside); err != nil {
+	if err := rename(path, aside); err != nil {
 		return err
 	}
 	alias.Aside = append(alias.Aside, aside)
@@ -301,7 +336,7 @@ func Swap(journal *Journal) error {
 		if err := moveAside(installed, alias); err != nil {
 			return fmt.Errorf("update: move the previous %s aside: %w", installed, err)
 		}
-		if err := os.Rename(staged(journal.Root, alias.Name), installed); err != nil {
+		if err := rename(staged(journal.Root, alias.Name), installed); err != nil {
 			return fmt.Errorf("update: put the candidate in place as %s: %w", installed, err)
 		}
 	}
@@ -328,7 +363,7 @@ func Restore(journal *Journal) error {
 			failed = errors.Join(failed, fmt.Errorf("update: move %s aside: %w", installed, err))
 			continue
 		}
-		if err := os.Rename(restoring, installed); err != nil {
+		if err := rename(restoring, installed); err != nil {
 			failed = errors.Join(failed, fmt.Errorf("update: put the previous %s back: %w", installed, err))
 		}
 	}

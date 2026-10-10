@@ -71,7 +71,9 @@ const maxDialogMoves = 8
 // launchNativeHost starts the harness in a native terminal of its own, the
 // task's id, and returns its host's record, the zero record when it launched
 // none. It is the last step of a start's turn: from here the host counts as a
-// running terminal, which the next start's admission sees.
+// running terminal, which the next start's admission sees. A goblin's
+// terminal keeps off the cores the fleet's work leaves to the Overlord's own
+// apps.
 func (s Service) launchNativeHost(id string, kind harness.Kind, launch harness.Launch, userEnv []string, credentials auth.Result) (host.Record, error) {
 	if _, ok := harness.NativeScreens(kind); !ok {
 		return host.Record{}, fmt.Errorf("spawn: %s cannot run in a native terminal yet", kind)
@@ -86,7 +88,7 @@ func (s Service) launchNativeHost(id string, kind harness.Kind, launch harness.L
 	if !filepath.IsAbs(s.HomeRoot) {
 		return host.Record{}, fmt.Errorf("spawn: the home's root %q is not an absolute path, so the goblin's cfo commands could not name the home that spawned it", s.HomeRoot)
 	}
-	record, err := host.Launch(s.StateDir, s.HostCommand, s.nativeHostEnvironment(userEnv, launch, credentials), host.Spec{ID: id, Args: program, Dir: launch.Dir, Cols: nativeCols, Rows: nativeRows})
+	record, err := host.Launch(s.StateDir, s.HostCommand, s.nativeHostEnvironment(userEnv, launch, credentials), host.Spec{ID: id, Args: program, Dir: launch.Dir, Cols: nativeCols, Rows: nativeRows, ShouldLeaveCoresForApps: true})
 	if err != nil {
 		return host.Record{}, fmt.Errorf("spawn: start native terminal %s: %w", id, err)
 	}

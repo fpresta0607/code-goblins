@@ -22,6 +22,7 @@ import (
 	"github.com/fpresta0607/code-goblins/internal/lock"
 	"github.com/fpresta0607/code-goblins/internal/monitor"
 	"github.com/fpresta0607/code-goblins/internal/proc"
+	"github.com/fpresta0607/code-goblins/internal/reap"
 	taskstate "github.com/fpresta0607/code-goblins/internal/state"
 	"github.com/fpresta0607/code-goblins/internal/supervise"
 	"github.com/fpresta0607/code-goblins/internal/supervisor"
@@ -824,6 +825,29 @@ func setTinyAutoarmIntervals(t *testing.T) {
 	t.Setenv("CFO_CLAUDE_AUTOARM_SETTLE_MS", "0")
 }
 
+// sweptJustNow records that the home whose state folder is state was swept
+// for orphans a moment ago, so a watcher a hook hosts there in this process is
+// not due to sweep while the test runs, and fails the test if one swept all
+// the same. A watcher's first cycle otherwise reads every process of the
+// machine the test runs on and then starts the janitor's pass over the home in
+// a goroutine of its own. A hook's process ends that pass by exiting. A test's
+// process does not: the pass went on taking its lock and writing its records
+// in the state folder while the test's cleanup removed it, which failed
+// TestAutoarmCleanWhenNeedVanishes on main on 2026-10-10 with "The directory
+// is not empty".
+func sweptJustNow(t *testing.T, state string) {
+	t.Helper()
+	swept := reap.Record{Time: time.Now().UTC()}
+	if err := reap.WriteRecord(state, swept); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		if record, err := reap.ReadRecord(state); err != nil || !record.Time.Equal(swept.Time) {
+			t.Errorf("the home's sweep record reads %s, %v, want the one this test wrote at %s: a watcher the test hosted swept the machine, and the janitor's pass that starts outlives the test", record.Time.Format(time.RFC3339Nano), err, swept.Time.Format(time.RFC3339Nano))
+		}
+	})
+}
+
 // startLiveForeignProcess spawns a throwaway child process that stays alive
 // for the fixture's duration (never Waited on until cleanup), for tests that
 // need a live foreign PID to pre-hold a lock. Mirrors the ping-child pattern
@@ -889,6 +913,8 @@ func TestAutoarmCleanWhenNeedVanishes(t *testing.T) {
 	setTinyAutoarmIntervals(t)
 	state := filepath.Join(dir, "state")
 	writeMetaFixture(t, state, "g1.meta")
+	// The hook hosts the watcher itself here: nothing else holds its lock.
+	sweptJustNow(t, state)
 
 	done := make(chan struct{})
 	go func() {

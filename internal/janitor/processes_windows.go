@@ -24,7 +24,17 @@ import (
 // evidence of whose it is and what it costs: the processor time it has used
 // and its private memory, from one list of the machine's processes.
 func ReadProcesses(ctx context.Context) ([]Process, error) {
-	evidence, err := lifecycle.ReadProcesses(ctx, true)
+	return readProcesses(ctx, lifecycle.ReadProcesses)
+}
+
+// ReadAllProcesses is ReadProcesses with this process and its ancestors read
+// like any other, for a plan that ends nothing.
+func ReadAllProcesses(ctx context.Context) ([]Process, error) {
+	return readProcesses(ctx, lifecycle.ReadAllProcesses)
+}
+
+func readProcesses(ctx context.Context, read func(context.Context, bool) ([]lifecycle.Process, error)) ([]Process, error) {
+	evidence, err := read(ctx, true)
 	if err != nil {
 		return nil, err
 	}
@@ -57,17 +67,25 @@ func changeLocks(id string) []string {
 	return []string{".lifecycle-" + id + ".lock", ".switch-" + id + ".lock", state.CleanupLockName(id)}
 }
 
-// ReadOwners lists the terminals of home h that were given a proof since the
-// machine started: each with its proofs, the host that runs it now, the
-// folders of the task it is, and whether a command is changing it. It first
-// forgets the proofs from before the machine started, which no process
-// carries any more. A terminal that cannot be read is named in the notes and
-// left out, so nothing is ended on its account.
+// ReadOwners is Owners once the proofs from before the machine started, which
+// no process carries any more, are forgotten. It is the sweep's reader, and
+// the one of the two that writes into the home.
 func ReadOwners(h home.Home) ([]Owner, []string) {
 	var notes []string
 	if err := host.ForgetProofs(h.State, time.Now().Add(-windows.DurationSinceBoot())); err != nil {
 		notes = append(notes, "proofs from before the machine started could not be forgotten: "+err.Error())
 	}
+	owners, read := Owners(h)
+	return owners, append(notes, read...)
+}
+
+// Owners lists the terminals of home h that were given a proof since the
+// machine started: each with its proofs, the host that runs it now, the
+// folders of the task it is, and whether a command is changing it. A
+// terminal that cannot be read is named in the notes and left out, so
+// nothing is ended on its account. It only reads.
+func Owners(h home.Home) ([]Owner, []string) {
+	var notes []string
 	ids, err := host.Terminals(h.State)
 	if err != nil {
 		return nil, append(notes, "the terminals' records could not be listed, so no process was judged: "+err.Error())

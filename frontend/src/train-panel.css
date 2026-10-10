@@ -22,6 +22,12 @@ a.train-panel-row:hover .train-panel-number, a.train-panel-row:focus-visible .tr
 .train-panel-rider { display: inline-flex; align-items: center; min-height: 32px; padding: 0 10px; border: 1px solid var(--glass-border); border-radius: 999px; background: var(--ghost-bg); color: var(--mint); font-weight: 800; font-size: .9375rem; text-decoration: none; font-variant-numeric: tabular-nums; }
 a.train-panel-rider:hover, a.train-panel-rider:focus-visible { border-color: var(--mint); }
 .train-panel-open { justify-self: end; }
+/* The checks that failed once, under the run's own line: the rider chip in
+   the failed tone. */
+.train-panel-once { grid-column: 2 / -1; display: flex; flex-wrap: wrap; align-items: center; gap: 6px; min-width: 0; padding-bottom: 6px; }
+.train-panel-once-label { color: var(--muted); font-size: .9375rem; font-weight: 700; }
+.train-panel-check { color: var(--red); }
+a.train-panel-check:hover, a.train-panel-check:focus-visible { border-color: var(--red); }
 .train-panel-clock { padding-top: 22px; }
 @media (max-width: 40rem) {
   .train-panel-mark { width: 64px; height: 64px; }

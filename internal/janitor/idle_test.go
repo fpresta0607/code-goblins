@@ -71,7 +71,7 @@ func TestATreeIsIdleOnlyWhenNothingInItChangedOrUsedTheProcessor(t *testing.T) {
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			// Act
-			ending, left, watching := planProcesses(test.tree, owners, test.watched, now)
+			ending, left, watching, _ := planProcesses(test.tree, owners, test.watched, now)
 
 			// Assert
 			var kept []int

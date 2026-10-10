@@ -100,6 +100,11 @@ func (s *Service) checkProgress(ctx context.Context, watched *fleetWakes, now ti
 	trees := s.trees
 	s.mu.Unlock()
 	unread := map[string][]string{}
+	// failed holds each goblin whose read failed at this pass. Such a read
+	// is made again on the next: on 2026-10-10, with every processor busy,
+	// three goblins' reads ran out of time once and woke the CFO twice in
+	// minutes. It is an error once it failed failingPasses passes in a row.
+	failed := map[string]bool{}
 	gateSteps := map[string]fleettree.GateStep{}
 	measured := map[string]bool{}
 	awaitedHelper := map[string]string{}
@@ -124,12 +129,14 @@ measuring:
 				break measuring
 			}
 			for id := range pending {
-				problems = errors.Join(problems, fmt.Errorf("progress for %s: %w", id, probe.Err()))
+				failed[id] = true
+				problems = errors.Join(problems, watched.failing("progress:"+id, fmt.Errorf("progress for %s: %w", id, probe.Err())))
 			}
 			break measuring
 		}
 		if observed.err != nil {
-			problems = errors.Join(problems, observed.err)
+			failed[observed.meta.ID] = true
+			problems = errors.Join(problems, watched.failing("progress:"+observed.meta.ID, observed.err))
 			continue
 		}
 		meta, prior, isNew := observed.meta, observed.prior, observed.isNew
@@ -187,6 +194,7 @@ measuring:
 			awaitedHelper[meta.ID] = helper.ID
 		}
 	}
+	watched.stillFailing("progress:", failed)
 	for id := range measured {
 		prior := watched.Progress[id]
 		// While a goblin waits on its helper, the helper's progress is its

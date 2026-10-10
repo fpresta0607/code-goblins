@@ -120,8 +120,9 @@ func (e Engine) Start(ctx context.Context, repo Repository, riders []Car) (Train
 
 // Advance takes the running train id one step. While its CI runs it changes
 // nothing. A green run lands its riders in order and then tests the waiting
-// half, if a red run left one; a red run halves its riders, or blames the
-// one rider it had. A run on a base that moved since is built again on the
+// half, if a red run left one; a red run has its failed checks run again
+// once, and red a second time it halves its riders, or blames the one rider
+// it had. A run on a base that moved since is built again on the
 // new base and tested again, since what it proved is not what would land.
 // A step that fails leaves the train as recorded and counts against it, and
 // the train stops once maxErrors steps in a row failed. Another process
@@ -179,6 +180,11 @@ func (e Engine) step(ctx context.Context, t *Train) error {
 	outcome, failed, err := e.ci(ctx, *t)
 	if err != nil {
 		return err
+	}
+	if outcome == "failed" {
+		if outcome, err = e.secondTry(ctx, t, failed); err != nil {
+			return err
+		}
 	}
 	waited := e.Now().Sub(t.Pushed)
 	switch {

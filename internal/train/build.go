@@ -91,7 +91,7 @@ func (e Engine) build(ctx context.Context, t *Train) error {
 		return err
 	}
 	title := fmt.Sprintf("chore(cfo): merge train for PRs %s (do not merge)", t.numbers(riders))
-	body := fmt.Sprintf("The CFO's merge train %s: %s merged onto %s at %s in this order, so CI tests them together once. When this run is green, each PR merges with a merge commit in the same order and %s's tree is checked against this branch's; when it is red, the train is halved until the PR that breaks it is found, and every half that passes lands. This pull request is never merged: the train closes it and deletes its branch when it is over.",
+	body := fmt.Sprintf("The CFO's merge train %s: %s merged onto %s at %s in this order, so CI tests them together once. When this run is green, each PR merges with a merge commit in the same order and %s's tree is checked against this branch's. When it is red, its failed checks run again once, and when it is red a second time the train is halved until the PR that breaks it is found, and every half that passes lands. This pull request is never merged: the train closes it and deletes its branch when it is over.",
 		t.ID, t.riders(riders), t.Base, short(base), t.Base)
 	if t.PR == "" && isResumed {
 		// A build cut short after it opened the pull request left it

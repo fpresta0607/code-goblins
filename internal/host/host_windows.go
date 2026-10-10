@@ -18,6 +18,7 @@ import (
 
 	"github.com/fpresta0607/code-goblins/internal/conpty"
 	"github.com/fpresta0607/code-goblins/internal/proc"
+	"github.com/fpresta0607/code-goblins/internal/processor"
 	"github.com/fpresta0607/code-goblins/internal/state"
 )
 
@@ -47,10 +48,14 @@ type Spec struct {
 	Args       []string
 	Dir        string
 	Cols, Rows int
+	// ShouldLeaveCoresForApps keeps the terminal's process and everything it
+	// starts off the performance cores the fleet's work leaves to the
+	// Overlord's own apps (processor.MachineFleetThreads).
+	ShouldLeaveCoresForApps bool
 }
 
-// RunArgs runs a host from its command line: --state, --id, --dir, --cols and
-// --rows, then -- and the command to run.
+// RunArgs runs a host from its command line: --state, --id, --dir, --cols,
+// --rows and --leave-cores-for-apps, then -- and the command to run.
 func RunArgs(args []string) error {
 	flags := flag.NewFlagSet("host", flag.ContinueOnError)
 	stateDir := flags.String("state", "", "the CFO home's state directory, where the host records itself")
@@ -59,6 +64,7 @@ func RunArgs(args []string) error {
 	flags.StringVar(&spec.Dir, "dir", "", "the directory the command starts in")
 	flags.IntVar(&spec.Cols, "cols", 120, "the terminal's width in cells")
 	flags.IntVar(&spec.Rows, "rows", 40, "the terminal's height in cells")
+	flags.BoolVar(&spec.ShouldLeaveCoresForApps, "leave-cores-for-apps", false, "keep the terminal off the performance cores the fleet's work leaves to the Overlord's own apps")
 	if err := flags.Parse(args); err != nil {
 		return err
 	}
@@ -93,7 +99,15 @@ func Run(stateDir string, spec Spec) error {
 	if err != nil {
 		return err
 	}
-	console, err := conpty.Start(conpty.Spec{Args: spec.Args, Dir: spec.Dir, Env: terminalEnvironment(spec.ID, hex.EncodeToString(proof[:])), Cols: spec.Cols, Rows: spec.Rows, Unread: output.unread})
+	var processors uintptr
+	if spec.ShouldLeaveCoresForApps {
+		// Cores that cannot be read hold no terminal back: it runs on every
+		// one, as the start rule starts on processors it cannot read.
+		if processors, err = processor.MachineFleetThreads(); err != nil {
+			fmt.Fprintf(os.Stderr, "host: the terminal runs on every processor core, since this machine's cannot be read: %v\n", err)
+		}
+	}
+	console, err := conpty.Start(conpty.Spec{Args: spec.Args, Dir: spec.Dir, Env: terminalEnvironment(spec.ID, hex.EncodeToString(proof[:])), Cols: spec.Cols, Rows: spec.Rows, Unread: output.unread, Processors: processors})
 	if err != nil {
 		return err
 	}
