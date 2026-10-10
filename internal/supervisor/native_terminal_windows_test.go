@@ -33,6 +33,7 @@ import (
 	"github.com/fpresta0607/code-goblins/internal/harness"
 	"github.com/fpresta0607/code-goblins/internal/home"
 	"github.com/fpresta0607/code-goblins/internal/host"
+	"github.com/fpresta0607/code-goblins/internal/host/hosttest"
 	"github.com/fpresta0607/code-goblins/internal/nativehook"
 	"github.com/fpresta0607/code-goblins/internal/pipeline"
 	"github.com/fpresta0607/code-goblins/internal/proc"
@@ -429,22 +430,13 @@ func (terminal hostedTerminal) standIn(t *testing.T) {
 // runs makes the host's record name pid as the terminal's program.
 func (terminal hostedTerminal) runs(t *testing.T, pid int) {
 	t.Helper()
-	record, err := host.ReadRecord(terminal.stateDir, terminal.id)
-	if err != nil {
-		t.Fatal(err)
-	}
-	// A record names its program by pid and creation time.
-	record.ChildPID, record.ChildStart = pid, time.Time{}
-	if started, ok := proc.StartTime(pid); ok {
-		record.ChildStart = started
-	}
-	data, err := json.Marshal(record)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(filepath.Join(terminal.stateDir, "hosts", terminal.id+".json"), data, 0o600); err != nil {
-		t.Fatal(err)
-	}
+	hosttest.Rewrite(t, terminal.stateDir, terminal.id, func(record *host.Record) {
+		// A record names its program by pid and creation time.
+		record.ChildPID, record.ChildStart = pid, time.Time{}
+		if started, ok := proc.StartTime(pid); ok {
+			record.ChildStart = started
+		}
+	})
 }
 
 // startTurn puts the terminal's program inside a long turn, as a harness

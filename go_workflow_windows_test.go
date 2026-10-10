@@ -1,6 +1,10 @@
 package codegoblins
 
 import (
+	"archive/zip"
+	"bytes"
+	"crypto/sha256"
+	"encoding/json"
 	"fmt"
 	"maps"
 	"os"
@@ -10,6 +14,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/fpresta0607/code-goblins/internal/gatetest"
 	"github.com/fpresta0607/code-goblins/internal/installtest"
 	"gopkg.in/yaml.v3"
 )
@@ -60,24 +65,55 @@ func goWorkflowJobs(t *testing.T) map[string]goWorkflowJob {
 }
 
 type goWorkflowJob struct {
-	If       string   `yaml:"if"`
-	Needs    []string `yaml:"needs"`
+	If       string            `yaml:"if"`
+	Needs    goWorkflowNeeds   `yaml:"needs"`
+	Outputs  map[string]string `yaml:"outputs"`
 	Strategy struct {
 		Matrix struct {
-			Include []goWorkflowShard `yaml:"include"`
+			// Include is the go job's list, which the plan job hands it.
+			Include string `yaml:"include"`
+			// Shard is the browser job's list: which share of the browser
+			// tests each of its jobs runs.
+			Shard []int `yaml:"shard"`
 		} `yaml:"matrix"`
 	} `yaml:"strategy"`
 }
 
-// goWorkflowShard is one job of the go job's matrix: the packages it tests,
-// or for the rest job the packages it leaves to the others, and the pattern
-// naming the tests it runs or skips when it shares a package.
-type goWorkflowShard struct {
-	Shard    string `yaml:"shard"`
-	Packages string `yaml:"packages"`
-	Except   string `yaml:"except"`
-	Run      string `yaml:"run"`
-	Skip     string `yaml:"skip"`
+// goWorkflowNeeds is the jobs a job waits for, which a workflow writes as
+// one name or as a list.
+type goWorkflowNeeds []string
+
+func (n *goWorkflowNeeds) UnmarshalYAML(value *yaml.Node) error {
+	if value.Kind == yaml.ScalarNode {
+		*n = goWorkflowNeeds{value.Value}
+		return nil
+	}
+	return value.Decode((*[]string)(n))
+}
+
+// goWorkflowTable is the go workflow's table of jobs: what can change each
+// job's result, and the go jobs with the packages each tests.
+func goWorkflowTable(t *testing.T) gatetest.JobTable {
+	t.Helper()
+	source, err := os.ReadFile(filepath.Join(".github", "workflows", "go.yml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var workflow struct {
+		Env struct {
+			Jobs string `yaml:"JOBS"`
+		} `yaml:"env"`
+	}
+	if err := yaml.Unmarshal(source, &workflow); err != nil {
+		t.Fatal(err)
+	}
+	decoder := json.NewDecoder(strings.NewReader(workflow.Env.Jobs))
+	decoder.DisallowUnknownFields()
+	var table gatetest.JobTable
+	if err := decoder.Decode(&table); err != nil {
+		t.Fatalf("the go workflow's JOBS is not its table of jobs: %v", err)
+	}
+	return table
 }
 
 // The go workflow tests the slow packages in jobs of their own and every
@@ -90,13 +126,13 @@ type goWorkflowShard struct {
 // tests a pattern matches, and the other skips exactly those.
 func TestGoWorkflowRunsEveryPackageOnce(t *testing.T) {
 	// Arrange
-	shards := goWorkflowJobs(t)["go"].Strategy.Matrix.Include
+	shards := goWorkflowTable(t).Go
 	if len(shards) == 0 {
-		t.Fatal("the go job has no matrix of packages")
+		t.Fatal("the go workflow's table names no go job")
 	}
 
 	// Act
-	jobs := map[string][]goWorkflowShard{}
+	jobs := map[string][]gatetest.Shard{}
 	var except []string
 	rest := 0
 	for _, shard := range shards {
@@ -147,15 +183,45 @@ func TestGoWorkflowRunsEveryPackageOnce(t *testing.T) {
 	}
 }
 
+// The browser job runs the board's browser tests as shares of one suite, one
+// share to a job: Playwright deals the spec files out among as many shares as
+// the command names, and runs the share it is asked for. A list that skipped
+// a number, or a command that named another count than the list's length,
+// would leave a share run by no job, and the workflow would still pass. So
+// the list is 1 up to its length, and the command asks for this job's number
+// out of the number of jobs.
+func TestGoWorkflowRunsEveryBrowserTestOnce(t *testing.T) {
+	// Arrange
+	const share = "npm run test:browser -- --shard=${{ matrix.shard }}/${{ strategy.job-total }}"
+
+	// Act
+	shards := goWorkflowJobs(t)["browser"].Strategy.Matrix.Shard
+	step := workflowStep(t, filepath.Join(".github", "workflows", "go.yml"), "browser", "Run this job's share of the browser tests")
+
+	// Assert
+	if len(shards) == 0 {
+		t.Fatal("the browser job has no list of shares")
+	}
+	for index, shard := range shards {
+		if shard != index+1 {
+			t.Errorf("the browser job's shares are %v, want 1 up to %d, each once and in order", shards, len(shards))
+			break
+		}
+	}
+	if runs := strings.Count(step, "test:browser"); runs != 1 || !strings.Contains(step, share) {
+		t.Errorf("the browser job's step runs the browser tests %d times, want once, as %q:\n%s", runs, share, step)
+	}
+}
+
 // internal/conpty times keystrokes through a real console against latency
 // bounds. Beside the rest job's other packages every core is busy, and one
 // key's echo waited 429 ms for one, so no other package shares its job.
 func TestGoWorkflowTimesKeystrokesInAJobOfTheirOwn(t *testing.T) {
 	// Arrange
-	shards := goWorkflowJobs(t)["go"].Strategy.Matrix.Include
+	shards := goWorkflowTable(t).Go
 
 	// Act
-	var jobs []goWorkflowShard
+	var jobs []gatetest.Shard
 	for _, shard := range shards {
 		if slices.Contains(strings.Fields(shard.Packages), "./internal/conpty") {
 			jobs = append(jobs, shard)
@@ -269,7 +335,7 @@ func TestGoWorkflowsRequiredCheckWaitsForEveryJob(t *testing.T) {
 
 	// Act
 	check := jobs["test"]
-	needs := slices.Sorted(slices.Values(check.Needs))
+	needs := slices.Sorted(slices.Values([]string(check.Needs)))
 
 	// Assert
 	if len(others) == 0 || !slices.Equal(needs, others) {
@@ -280,25 +346,47 @@ func TestGoWorkflowsRequiredCheckWaitsForEveryJob(t *testing.T) {
 	}
 }
 
-// The required check passes only when every job it needs succeeded: one
-// that failed, was cancelled or was skipped fails it, and so does a check
-// that needs nothing.
+// The required check passes only when the plan succeeded and every job it
+// started succeeded: one that failed or was cancelled fails it, and so does
+// one that was skipped, unless this is a pull request's own run and the plan
+// said to leave that job out. A plan that failed, or that did not say true or
+// false for each job, leaves nothing out, and neither does any plan in a
+// merge train's run or a run on main. A check that needs nothing fails.
 func TestGoWorkflowsRequiredCheckPassesOnlyWhenEveryJobSucceeded(t *testing.T) {
 	pwsh, err := exec.LookPath("pwsh.exe")
 	if err != nil {
 		t.Skip("the step runs in PowerShell 7, which is not installed")
 	}
 	step := workflowStep(t, filepath.Join(".github", "workflows", "go.yml"), "test", "Require every job to have passed")
+	// needs is the needs context as GitHub hands it to the step: the plan
+	// with what it said, and each other job's result.
+	needs := func(plan, frontend, browser, goJobs, saidFrontend, saidBrowser, saidGo string) string {
+		outputs, _ := json.Marshal(map[string]string{"frontend": saidFrontend, "browser": saidBrowser, "go": saidGo})
+		return fmt.Sprintf(`{"plan":{"result":%q,"outputs":%s},"frontend":{"result":%q,"outputs":{}},"browser":{"result":%q,"outputs":{}},"go":{"result":%q,"outputs":{}}}`, plan, outputs, frontend, browser, goJobs)
+	}
+	const all = `[{"shard":"rest"}]`
 	for name, test := range map[string]struct {
-		// results is the needs context as GitHub hands it to the step.
 		results string
-		wantOK  bool
+		// isOwnRun says the run is a pull request's own.
+		isOwnRun bool
+		wantOK   bool
 	}{
-		"every job succeeded": {`{"frontend":{"result":"success","outputs":{}},"go":{"result":"success","outputs":{}}}`, true},
-		"a job failed":        {`{"frontend":{"result":"success","outputs":{}},"go":{"result":"failure","outputs":{}}}`, false},
-		"a job was cancelled": {`{"frontend":{"result":"cancelled","outputs":{}},"go":{"result":"success","outputs":{}}}`, false},
-		"a job was skipped":   {`{"frontend":{"result":"success","outputs":{}},"go":{"result":"skipped","outputs":{}}}`, false},
-		"no job at all":       {`{}`, false},
+		"every job succeeded":                                    {needs("success", "success", "success", "success", "true", "true", all), true, true},
+		"every job succeeded in a train's run":                   {needs("success", "success", "success", "success", "true", "true", all), false, true},
+		"a job failed":                                           {needs("success", "success", "success", "failure", "true", "true", all), true, false},
+		"a job was cancelled":                                    {needs("success", "cancelled", "success", "success", "true", "true", all), true, false},
+		"a job the plan started was skipped":                     {needs("success", "success", "skipped", "success", "true", "true", all), true, false},
+		"the jobs the plan left out were skipped":                {needs("success", "skipped", "skipped", "success", "false", "false", all), true, true},
+		"the go jobs the plan left out were skipped":             {needs("success", "success", "success", "skipped", "true", "true", "[]"), true, true},
+		"every job was left out, as for a change to a document":  {needs("success", "skipped", "skipped", "skipped", "false", "false", "[]"), true, true},
+		"a job the plan left out failed all the same":            {needs("success", "failure", "skipped", "success", "false", "false", all), true, false},
+		"a job was left out of a train's run":                    {needs("success", "skipped", "skipped", "success", "false", "false", all), false, false},
+		"the go jobs were left out of a train's run":             {needs("success", "success", "success", "skipped", "true", "true", "[]"), false, false},
+		"the plan failed and every job was skipped":              {needs("failure", "skipped", "skipped", "skipped", "", "", ""), true, false},
+		"the plan was skipped":                                   {needs("skipped", "skipped", "skipped", "skipped", "false", "false", "[]"), true, false},
+		"the plan said nothing and every job was skipped":        {needs("success", "skipped", "skipped", "skipped", "", "", ""), true, false},
+		"the plan said something that is neither true nor false": {needs("success", "skipped", "success", "success", "no", "true", all), true, false},
+		"no job at all":                                          {`{}`, true, false},
 	} {
 		t.Run(name, func(t *testing.T) {
 			// Arrange: as GitHub Actions runs a pwsh step, which stops on
@@ -308,7 +396,7 @@ func TestGoWorkflowsRequiredCheckPassesOnlyWhenEveryJobSucceeded(t *testing.T) {
 				t.Fatal(err)
 			}
 			cmd := exec.Command(pwsh, "-NoProfile", "-NonInteractive", "-File", script)
-			cmd.Env = append(os.Environ(), "RESULTS="+test.results)
+			cmd.Env = append(os.Environ(), "RESULTS="+test.results, fmt.Sprintf("OWN_RUN=%t", test.isOwnRun))
 
 			// Act
 			out, err := cmd.CombinedOutput()
@@ -324,66 +412,171 @@ func TestGoWorkflowsRequiredCheckPassesOnlyWhenEveryJobSucceeded(t *testing.T) {
 	}
 }
 
-// The go workflow installs SQLite with Chocolatey, whose feed once answered
-// 503 and failed the run: the install is tried again after a wait, and gives
-// up after its third attempt.
-func TestGoWorkflowRetriesTheSQLiteInstall(t *testing.T) {
+// sqliteTools is a file standing in for the SQLite release: a zip holding a
+// sqlite3 that says a version, or one holding nothing when it is not the
+// release. It returns the file and its SHA-256 as the workflow pins one.
+func sqliteTools(t *testing.T, isRelease bool) (file, sha256Hex string) {
+	t.Helper()
+	var packed bytes.Buffer
+	archive := zip.NewWriter(&packed)
+	name, content := "sqlite3.cmd", "@echo 3.54.0 standing in\r\n"
+	if !isRelease {
+		name, content = "readme.txt", "not the release\r\n"
+	}
+	entry, err := archive.Create(name)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := entry.Write([]byte(content)); err != nil {
+		t.Fatal(err)
+	}
+	if err := archive.Close(); err != nil {
+		t.Fatal(err)
+	}
+	file = filepath.Join(t.TempDir(), "tools.zip")
+	if err := os.WriteFile(file, packed.Bytes(), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	return file, fmt.Sprintf("%x", sha256.Sum256(packed.Bytes()))
+}
+
+// The go workflow's jobs take SQLite from one pinned release, which the
+// Actions cache hands over, so a run asks no outside service for it. The
+// file is used only when its SHA-256 is the pinned one, whoever handed it
+// over: any other is discarded and the release fetched from sqlite.org, and
+// a fetch that fails is tried again after a wait, three attempts in all.
+// Chocolatey's feed, which served it before, failed two jobs of run
+// 38058158022 once its own three attempts ran out.
+func TestGoWorkflowTakesSQLiteFromThePinnedRelease(t *testing.T) {
 	pwsh, err := exec.LookPath("pwsh.exe")
 	if err != nil {
 		t.Skip("the step runs in PowerShell 7, which is not installed")
 	}
 	step := workflowStep(t, filepath.Join(".github", "workflows", "go.yml"), "go", "Ensure SQLite integration tests can run")
+	release, pinned := sqliteTools(t, true)
+	other, _ := sqliteTools(t, false)
 	for name, test := range map[string]struct {
-		// failures is how many installs fail before one succeeds; -1 is
-		// every one.
-		failures     int
-		wantAttempts int
-		wantOK       bool
+		// cached is the file the cache handed over, if any, and fetches
+		// what each fetch from sqlite.org brings: the release, another
+		// file, or a failure.
+		cached      string
+		fetches     []string
+		wantFetches int
+		wantOK      bool
 	}{
-		"two failures, then the install": {2, 3, true},
-		"a feed that stays down":         {-1, 3, false},
+		"the cache holds the release":                   {release, nil, 0, true},
+		"the cache holds nothing":                       {"", []string{"release"}, 1, true},
+		"the cache holds another file":                  {other, []string{"release"}, 1, true},
+		"two fetches fail, then the release":            {"", []string{"fail", "fail", "release"}, 3, true},
+		"a fetch brings another file, then the release": {"", []string{"other", "release"}, 2, true},
+		"sqlite.org stays down":                         {"", []string{"fail", "fail", "fail", "release"}, 3, false},
+		"every fetch brings another file":               {"", []string{"other", "other", "other", "release"}, 3, false},
 	} {
 		t.Run(name, func(t *testing.T) {
-			// Arrange: choco says each attempt, fails as many times as
-			// asked, and then installs a sqlite3 beside itself.
-			choco := "@echo choco %*\r\n"
-			if test.failures < 0 {
-				choco += "@exit /b 1\r\n"
+			// Arrange: the runner's temp folder with what the cache
+			// restored, and a fetch that brings what the case says, in
+			// order. As GitHub Actions runs a pwsh step: stop on an error,
+			// and end with the last native command's exit code. A wait is
+			// said, not taken.
+			temp := t.TempDir()
+			if test.cached != "" {
+				data, err := os.ReadFile(test.cached)
+				if err != nil {
+					t.Fatal(err)
+				}
+				if err := os.WriteFile(filepath.Join(temp, "sqlite-tools.zip"), data, 0o600); err != nil {
+					t.Fatal(err)
+				}
 			}
-			for failure := 1; failure <= test.failures; failure++ {
-				choco += fmt.Sprintf("@if not exist \"%%~dp0failure-%d\" (type nul>\"%%~dp0failure-%d\" & exit /b 1)\r\n", failure, failure)
-			}
-			choco += "@(echo @echo sqlite 3.46.0)>\"%~dp0sqlite3.cmd\"\r\n"
-			// As GitHub Actions runs a pwsh step: stop on an error, and end
-			// with the last native command's exit code. A wait is said, not
-			// taken.
 			script := filepath.Join(t.TempDir(), "step.ps1")
 			body := "$ErrorActionPreference = 'stop'\r\n" +
 				"function Start-Sleep { param([int]$Seconds) Write-Output \"wait $Seconds\" }\r\n" +
+				"$script:fetches = @($env:FETCHES -split ',' | Where-Object { $_ })\r\n" +
+				"function Invoke-WebRequest { param($Uri, $OutFile, $TimeoutSec)\r\n" +
+				"  Write-Output \"asked $Uri for the release\"\r\n" +
+				"  $brings, $script:fetches = $script:fetches\r\n" +
+				"  if ($brings -eq 'release') { Copy-Item -LiteralPath $env:RELEASE -Destination $OutFile }\r\n" +
+				"  elseif ($brings -eq 'other') { Copy-Item -LiteralPath $env:OTHER -Destination $OutFile }\r\n" +
+				"  else { throw 'the server did not answer' }\r\n" +
+				"}\r\n" +
 				step + "\r\nif ((Test-Path -LiteralPath variable:\\LASTEXITCODE)) { exit $LASTEXITCODE }\r\n"
 			if err := os.WriteFile(script, []byte(body), 0o600); err != nil {
 				t.Fatal(err)
 			}
-			cmd, _, _ := installtest.StrippedCommand(t, "", map[string]string{"choco": choco}, pwsh, "-NoProfile", "-NonInteractive", "-Command", ". '"+script+"'")
+			paths := filepath.Join(t.TempDir(), "github-path.txt")
+			cmd, _, _ := installtest.StrippedCommand(t, "", nil, pwsh, "-NoProfile", "-NonInteractive", "-Command", ". '"+script+"'")
+			cmd.Env = append(cmd.Env, "RUNNER_TEMP="+temp, "GITHUB_PATH="+paths, "SQLITE_URL=https://sqlite.example/tools.zip", "SQLITE_SHA256="+pinned,
+				"FETCHES="+strings.Join(test.fetches, ","), "RELEASE="+release, "OTHER="+other)
 
 			// Act
 			out, err := cmd.CombinedOutput()
 
 			// Assert
 			output := string(out)
-			attempts, waits := strings.Count(output, "choco install sqlite --yes --no-progress"), strings.Count(output, "wait ")
-			if attempts != test.wantAttempts {
-				t.Errorf("choco install ran %d times, want %d:\n%s", attempts, test.wantAttempts, output)
+			fetches, waits := strings.Count(output, "asked https://sqlite.example/tools.zip for the release"), strings.Count(output, "wait ")
+			if fetches != test.wantFetches {
+				t.Errorf("the step fetched the release %d times, want %d:\n%s", fetches, test.wantFetches, output)
 			}
-			if waits != attempts-1 {
-				t.Errorf("the step waited %d times between %d attempts, want once between each two:\n%s", waits, attempts, output)
+			if wantWaits := max(fetches-1, 0); waits != wantWaits {
+				t.Errorf("the step waited %d times between %d fetches, want once between each two:\n%s", waits, fetches, output)
 			}
-			if test.wantOK && (err != nil || !strings.Contains(output, "sqlite 3.46.0")) {
-				t.Errorf("step = %v, want SQLite installed and its version printed:\n%s", err, output)
+			added, _ := os.ReadFile(paths)
+			tools := filepath.Join(temp, "sqlite-tools")
+			if test.wantOK && (err != nil || !strings.Contains(output, "3.54.0 standing in") || !strings.Contains(string(added), tools)) {
+				t.Errorf("step = %v, want the pinned sqlite3 run and %s added to the later steps' PATH (%q):\n%s", err, tools, added, output)
 			}
-			if !test.wantOK && err == nil {
-				t.Errorf("the step succeeded with no SQLite installed:\n%s", output)
+			if !test.wantOK && (err == nil || len(added) != 0) {
+				t.Errorf("step = %v with %q added to the later steps' PATH, want it to fail with no SQLite that is not the pinned release:\n%s", err, added, output)
 			}
 		})
+	}
+}
+
+// The cache hands over the file the step reads, under a key that names the
+// pin, so a new pin is a new entry and never the old release under the new
+// hash's name.
+func TestGoWorkflowKeepsThePinnedSQLiteReleaseInTheCache(t *testing.T) {
+	// Arrange
+	source, err := os.ReadFile(filepath.Join(".github", "workflows", "go.yml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var workflow struct {
+		Jobs map[string]struct {
+			Steps []struct {
+				Name string            `yaml:"name"`
+				Uses string            `yaml:"uses"`
+				Run  string            `yaml:"run"`
+				With map[string]string `yaml:"with"`
+				Env  map[string]string `yaml:"env"`
+			} `yaml:"steps"`
+		} `yaml:"jobs"`
+	}
+	if err := yaml.Unmarshal(source, &workflow); err != nil {
+		t.Fatal(err)
+	}
+
+	// Act
+	restored, ensured := -1, -1
+	key, pin, link := "", "", ""
+	for index, step := range workflow.Jobs["go"].Steps {
+		if strings.HasPrefix(step.Uses, "actions/cache@") && step.With["path"] == "${{ runner.temp }}/sqlite-tools.zip" {
+			restored, key = index, step.With["key"]
+		}
+		if step.Name == "Ensure SQLite integration tests can run" {
+			ensured, pin, link = index, step.Env["SQLITE_SHA256"], step.Env["SQLITE_URL"]
+			if !strings.Contains(step.Run, "Join-Path $env:RUNNER_TEMP sqlite-tools.zip") || strings.Contains(step.Run, "choco") {
+				t.Errorf("the step does not read the file the cache restores, or asks Chocolatey:\n%s", step.Run)
+			}
+		}
+	}
+
+	// Assert
+	if restored < 0 || ensured < restored {
+		t.Fatalf("the go job restores the release in step %d and uses it in step %d, want it restored first", restored, ensured)
+	}
+	version := strings.TrimSuffix(link[strings.LastIndex(link, "-")+1:], ".zip")
+	if len(pin) != 64 || !strings.HasPrefix(link, "https://www.sqlite.org/") || version == "" || !strings.Contains(key, version) || !strings.HasSuffix(key, "-"+pin[:16]) {
+		t.Errorf("the cache key %q, the release %q and its SHA-256 %q: want a release of sqlite.org, and a key that names its version and ends with the first 16 characters of its SHA-256", key, link, pin)
 	}
 }

@@ -241,6 +241,17 @@ func (s Service) Spawn(ctx context.Context, req Request) (result Result, err err
 	if req.Parent == "" && len(preflight.Grant.Unknown) > 0 {
 		return Result{}, fmt.Errorf("spawn: the brief's Authentication section names a service the task cannot be given: %s. Name its services as the manifest does, or write credentials: %s", auth.UnknownLine(project, preflight.Grant), auth.NoServices)
 	}
+	// An MCP server the project's .mcp.json does not define is the same
+	// mistake, and is refused the same way.
+	if req.Parent == "" && len(need.MCPServers) > 0 {
+		undefined, err := undefinedServersLine(project, need.MCPServers)
+		if err != nil {
+			return Result{}, fmt.Errorf("spawn: %w", err)
+		}
+		if undefined != "" {
+			return Result{}, fmt.Errorf("spawn: the brief's Authentication section names an MCP server the task cannot be given: %s. Name its servers as the project's .mcp.json does, or write mcp: %s", undefined, auth.NoServices)
+		}
+	}
 	if preflight.Refusal != "" && !req.Yolo {
 		return Result{}, fmt.Errorf("spawn: %s", preflight.Refusal)
 	}
@@ -321,6 +332,7 @@ func (s Service) Spawn(ctx context.Context, req Request) (result Result, err err
 	result = partialResult(req, project, taskTmp, wt.Path, scratch)
 	result.Meta.GoblinName, result.Meta.GoblinTitle = goblin.Name, goblin.Title
 	result.Meta.Credentials, result.Meta.HasCredentials = recordedServices(preflight.Grant), true
+	result.Meta.MCPServers = need.MCPServers
 
 	// Publish metadata as soon as the worktree exists, before the harness can
 	// start: a task whose launch later fails is then addressable and cleanable
@@ -391,15 +403,9 @@ func (s Service) Spawn(ctx context.Context, req Request) (result Result, err err
 	// materializes the token-authenticated subset of the project's MCP
 	// servers. A server that authenticates by bearerTokenEnvVar reaches the
 	// goblin only when the environment its terminal's host is built with sets
-	// that variable. No harness billing key ever reaches a goblin, whatever
-	// its source.
-	hasVariable := func(name string) bool {
-		if auth.IsHarnessBillingKey(name) {
-			return false
-		}
-		return hasNativeVariable(s.nativeHostEnvironment(userEnv, harness.Launch{}, preflight), name)
-	}
-	provision, err := s.Worktrees.Provision(ctx, project, wt.Path, taskTmp, hasVariable)
+	// that variable, and one whose entry holds a value only when the task's
+	// brief names it.
+	provision, err := s.Worktrees.Provision(ctx, project, wt.Path, taskTmp, s.goblinHasVariable(userEnv, preflight), need.MCPServers...)
 	if err != nil {
 		return fail(result, fmt.Errorf("spawn: provision worktree environment: %w", err))
 	}
@@ -446,6 +452,10 @@ func (s Service) Spawn(ctx context.Context, req Request) (result Result, err err
 		launch.Instruction += servicesInstruction(result.Meta)
 	}
 	launch.Instruction += credentialsInstruction(project, preflight.Grant)
+	if len(provision.EnvHeld) > 0 {
+		launch.Instruction += " The project's checkout holds " + strings.Join(provision.EnvHeld, ", ") + ", which your worktree was not given: a worktree gets an env file only when the project's worktree manifest names it. When your task needs one, say so in a blocked report that names the file and why, and never copy it yourself."
+	}
+	launch.Instruction += mcpInstruction(provision.MCPHeld)
 	if len(provision.Install) > 0 {
 		// The card says what the goblin does first until its own first
 		// report, which this line comes before.
@@ -473,8 +483,8 @@ func (s Service) Spawn(ctx context.Context, req Request) (result Result, err err
 	if isServicesNeeded {
 		result.Output += "\nservices: the goblin holds " + auth.ProjectName(project) + "'s local services for its full-stack check with cfo services up, and releases them with cfo services down"
 	}
-	if len(provision.LinkSkipped) > 0 {
-		result.Output += "\nlink: " + strings.Join(provision.LinkSkipped, ", ") + " already present in the worktree (the project's own checked-out file), so the default share was skipped"
+	if len(provision.EnvHeld) > 0 {
+		result.Output += "\n" + envHeldLine(project, provision.EnvHeld)
 	}
 	if len(provision.MCPDropped) > 0 {
 		result.Output += "\nmcp: withheld OAuth-only servers from the goblin: " + strings.Join(provision.MCPDropped, ", ") + " (declare a token-authenticated form in the project .mcp.json to reach goblins)"
@@ -482,10 +492,13 @@ func (s Service) Spawn(ctx context.Context, req Request) (result Result, err err
 	if len(provision.MCPTokenUnset) > 0 {
 		result.Output += "\nmcp: withheld servers whose token variable is not set for the goblin: " + strings.Join(provision.MCPTokenUnset, ", ") + " (declare the variable as a project credential to reach goblins)"
 	}
+	if len(provision.MCPHeld) > 0 {
+		result.Output += "\n" + mcpHeldLine(req.ID, provision.MCPHeld)
+	}
 	if provision.MCPWorktreeOccupied {
 		result.Output += "\nmcp: the worktree already held a .mcp.json this spawn did not write, so it was left alone; a harness that reads its working directory sees that file, not the filtered configuration"
 	}
-	if provision.MCPProjectTracked && len(provision.MCPDropped)+len(provision.MCPTokenUnset) > 0 {
+	if provision.MCPProjectTracked && len(provision.MCPDropped)+len(provision.MCPTokenUnset)+len(provision.MCPHeld) > 0 {
 		// Only worth saying when something was actually withheld: if nothing
 		// was dropped, a working-directory-reading harness sees exactly the
 		// servers the filtered config would have given it.
@@ -505,19 +518,12 @@ func (s Service) Spawn(ctx context.Context, req Request) (result Result, err err
 	return result, nil
 }
 
-// goblinMCPConfig returns the goblin MCP configuration provisioning
-// materialized under the task's temporary directory, so a switch relaunch
-// hands the new harness exactly what the original spawn did. It deliberately
-// never looks inside the worktree: what sits at <worktree>/.mcp.json can be
-// the project's own unfiltered file or one the goblin wrote, and neither may
-// be promoted into --mcp-config.
-func goblinMCPConfig(taskTmp string) string {
-	path := filepath.Join(taskTmp, "mcp.json")
-	info, err := os.Stat(path)
-	if err != nil || !info.Mode().IsRegular() {
-		return ""
-	}
-	return path
+// envHeldLine says, by file name only, which env files the checkout holds
+// that the worktree was not given, and the one line of the project's worktree
+// manifest that shares them.
+func envHeldLine(project string, held []string) string {
+	return "env: the checkout holds " + strings.Join(held, ", ") + ", which this worktree was not given. A worktree gets an env file only when " +
+		worktree.ManifestPath("data", project) + " names it: \"link\": [\"" + strings.Join(held, "\", \"") + "\"]"
 }
 
 // codexMCPServers names the operator's Codex MCP servers a Codex goblin turns

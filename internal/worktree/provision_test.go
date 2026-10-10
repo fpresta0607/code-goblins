@@ -88,7 +88,7 @@ func TestProvisionGivesTheWorktreeItsOwnReadOnlyCopyOfAConfigFile(t *testing.T) 
 	runner.results = unignoredScript(gitDir, ".env")
 
 	// Act
-	result, err := (Service{Commands: runner, DataDir: t.TempDir()}).Provision(context.Background(), project, worktreePath, taskTmp, nil)
+	result, err := (Service{Commands: runner, DataDir: sharing(t, project, ".env")}).Provision(context.Background(), project, worktreePath, taskTmp, nil)
 
 	// Assert
 	if err != nil {
@@ -148,7 +148,7 @@ func TestProvisionRespectsExistingIgnoreRules(t *testing.T) {
 	}
 	runner.results = ignoredScript(1)
 
-	if _, err := (Service{Commands: runner, DataDir: t.TempDir()}).Provision(context.Background(), project, worktreePath, taskTmp, nil); err != nil {
+	if _, err := (Service{Commands: runner, DataDir: sharing(t, project, ".env")}).Provision(context.Background(), project, worktreePath, taskTmp, nil); err != nil {
 		t.Fatalf("Provision: %v", err)
 	}
 	if len(runner.calls) != 1 {
@@ -572,24 +572,21 @@ func writeFileLine(t *testing.T, path, line string) {
 	}
 }
 
-func TestProvisionSkipsADefaultLinkWhoseDestinationExists(t *testing.T) {
-	// A project that commits .env has it checked out by git worktree add. The
-	// default link set is applied to every project that declares nothing, so
-	// an occupied destination is the project's own config already in place,
-	// not a misconfiguration: skipped and reported, never a torn-down spawn.
+func TestProvisionLeavesAnEnvFileTheRepositoryTracksAsCheckedOut(t *testing.T) {
+	// A project that commits .env has it checked out by git worktree add.
+	// Nothing is shared that no manifest names, so the worktree's file is the
+	// repository's own, left as it is, and it is not named as one the
+	// worktree was not given.
 	project, worktreePath, taskTmp, runner := provisionFixture(t)
 	writeFileLine(t, filepath.Join(project, ".env"), "K=primary")
 	writeFileLine(t, filepath.Join(worktreePath, ".env"), "K=checked-out")
 
 	result, err := (Service{Commands: runner, DataDir: t.TempDir()}).Provision(context.Background(), project, worktreePath, taskTmp, nil)
 	if err != nil {
-		t.Fatalf("Provision: %v, want the occupied default entry skipped rather than fatal", err)
+		t.Fatalf("Provision: %v", err)
 	}
-	if !slices.Contains(result.LinkSkipped, ".env") {
-		t.Errorf("LinkSkipped = %v, want .env reported as skipped", result.LinkSkipped)
-	}
-	if slices.Contains(result.Linked, ".env") {
-		t.Errorf("Linked = %v, want .env not claimed as shared", result.Linked)
+	if len(result.Linked) != 0 || len(result.EnvHeld) != 0 {
+		t.Errorf("Linked = %v, EnvHeld = %v, want nothing shared and nothing named as withheld", result.Linked, result.EnvHeld)
 	}
 	data, err := os.ReadFile(filepath.Join(worktreePath, ".env"))
 	if err != nil {
@@ -599,7 +596,7 @@ func TestProvisionSkipsADefaultLinkWhoseDestinationExists(t *testing.T) {
 		t.Errorf("worktree .env = %q, want the checked-out file left exactly as it was", data)
 	}
 	if len(runner.calls) != 0 {
-		t.Errorf("calls = %#v, want no ignore-rule writes for an entry that was not linked", runner.calls)
+		t.Errorf("calls = %#v, want no ignore-rule writes where nothing was shared", runner.calls)
 	}
 }
 
@@ -613,12 +610,9 @@ func TestProvisionRefusesADeclaredLinkWhoseDestinationExists(t *testing.T) {
 	writeFileLine(t, filepath.Join(project, ".env"), "K=primary")
 	writeFileLine(t, filepath.Join(worktreePath, ".env"), "K=checked-out")
 
-	result, err := (Service{Commands: runner, DataDir: dataDir}).Provision(context.Background(), project, worktreePath, taskTmp, nil)
+	_, err := (Service{Commands: runner, DataDir: dataDir}).Provision(context.Background(), project, worktreePath, taskTmp, nil)
 	if err == nil || !strings.Contains(err.Error(), "already exists in the worktree") {
 		t.Fatalf("Provision error = %v, want a refusal naming the occupied declared entry", err)
-	}
-	if len(result.LinkSkipped) != 0 {
-		t.Errorf("LinkSkipped = %v, want a declared entry refused rather than skipped", result.LinkSkipped)
 	}
 }
 
@@ -662,6 +656,16 @@ func TestProvisionRefusesWithoutATaskTemporaryDirectory(t *testing.T) {
 	}
 }
 
+// sharing writes a worktree manifest for project that names names in link, in
+// a data folder of its own, and returns that folder: a worktree is given a
+// file of the checkout only when a manifest names it.
+func sharing(t *testing.T, project string, names ...string) string {
+	t.Helper()
+	dataDir := t.TempDir()
+	writeManifest(t, dataDir, project, Manifest{Project: "demo", Link: names})
+	return dataDir
+}
+
 func writeManifest(t *testing.T, dataDir, project string, manifest Manifest) {
 	t.Helper()
 	data, err := json.Marshal(manifest)
@@ -678,55 +682,69 @@ func writeManifest(t *testing.T, dataDir, project string, manifest Manifest) {
 }
 
 // A worktree a build before this one provisioned shares its env files with
-// the checkout as hard links. A relaunch gives the worktree its own read-only
-// copies, also where the project's manifest shares nothing any more, and
-// leaves a file that is no such link alone.
-func TestOwnConfigTurnsAHardLinkedEnvFileIntoTheWorktreesOwnCopy(t *testing.T) {
+// the checkout as hard links. A relaunch ends each one: a file the project's
+// manifest names becomes the worktree's own read-only copy, and one no
+// manifest names is removed from the worktree, since a worktree is given only
+// what a manifest names. The checkout's files are untouched, and so are the
+// goblin's own file and a declared dependency link.
+func TestOwnConfigEndsEveryHardLinkToTheCheckoutsFiles(t *testing.T) {
 	// Arrange
 	project, worktreePath, _, _ := provisionFixture(t)
 	dataDir := t.TempDir()
-	writeManifest(t, dataDir, project, Manifest{Project: "demo", Link: []string{}})
+	writeManifest(t, dataDir, project, Manifest{Project: "demo", Link: []string{".env"}, Dependencies: Dependencies{Strategy: StrategyLink, Paths: []string{"shared.lock"}}})
 	const overlords = "STANDIN_SETTING=the Overlord's own line\n"
-	for _, name := range []string{".env", ".env.local"} {
+	for _, name := range []string{".env", ".env.production", ".env.local", "shared.lock"} {
 		if err := os.WriteFile(filepath.Join(project, name), []byte(overlords), 0o644); err != nil {
 			t.Fatal(err)
 		}
 	}
-	if err := os.Link(filepath.Join(project, ".env"), filepath.Join(worktreePath, ".env")); err != nil {
-		t.Fatal(err)
+	for _, name := range []string{".env", ".env.production", "shared.lock"} {
+		if err := os.Link(filepath.Join(project, name), filepath.Join(worktreePath, name)); err != nil {
+			t.Fatal(err)
+		}
 	}
 	if err := os.WriteFile(filepath.Join(worktreePath, ".env.local"), []byte("STANDIN_SETTING=the goblin's own file\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	service := Service{DataDir: dataDir}
+	isSameFile := func(name string) bool {
+		sourceInfo, sourceErr := os.Stat(filepath.Join(project, name))
+		destinationInfo, destinationErr := os.Stat(filepath.Join(worktreePath, name))
+		return sourceErr == nil && destinationErr == nil && os.SameFile(sourceInfo, destinationInfo)
+	}
 
 	// Act
-	owned, err := service.OwnConfig(project, worktreePath)
-	again, againErr := service.OwnConfig(project, worktreePath)
+	copied, removed, err := service.OwnConfig(project, worktreePath)
+	copiedAgain, removedAgain, againErr := service.OwnConfig(project, worktreePath)
 
 	// Assert
-	if err != nil || !slices.Equal(owned, []string{".env"}) {
-		t.Fatalf("OwnConfig = %v, %v, want the one hard-linked file turned", owned, err)
+	if err != nil || !slices.Equal(copied, []string{".env"}) || !slices.Equal(removed, []string{".env.production"}) {
+		t.Fatalf("OwnConfig = copied %v, removed %v, %v, want the named file copied and the unnamed link removed", copied, removed, err)
 	}
-	if againErr != nil || len(again) != 0 {
-		t.Errorf("a second OwnConfig = %v, %v, want nothing left to turn", again, againErr)
+	if againErr != nil || len(copiedAgain)+len(removedAgain) != 0 {
+		t.Errorf("a second OwnConfig = %v, %v, %v, want nothing left to end", copiedAgain, removedAgain, againErr)
 	}
-	sourceInfo, _ := os.Stat(filepath.Join(project, ".env"))
-	destinationInfo, statErr := os.Stat(filepath.Join(worktreePath, ".env"))
-	if statErr != nil || os.SameFile(sourceInfo, destinationInfo) {
-		t.Errorf("the worktree's .env is still the checkout's file, %v", statErr)
+	if isSameFile(".env") {
+		t.Error("the worktree's .env is still the checkout's file")
 	}
 	if err := os.WriteFile(filepath.Join(worktreePath, ".env"), []byte("STANDIN_SETTING=a goblin's edit\n"), 0o644); err == nil {
 		t.Error("a write to the worktree's .env went through, want it refused: the copy is read-only")
 	}
-	if kept, err := os.ReadFile(filepath.Join(project, ".env")); err != nil || string(kept) != overlords {
-		t.Errorf("the checkout's .env = %q, %v, want it untouched", kept, err)
+	if _, err := os.Stat(filepath.Join(worktreePath, ".env.production")); !os.IsNotExist(err) {
+		t.Errorf("the worktree still holds .env.production, which no manifest names (%v)", err)
 	}
-	if sourceInfo.Mode().Perm()&0o200 == 0 {
-		t.Error("the checkout's .env was made read-only, want only the worktree's copy to be")
+	for _, name := range []string{".env", ".env.production"} {
+		info, err := os.Stat(filepath.Join(project, name))
+		kept, readErr := os.ReadFile(filepath.Join(project, name))
+		if err != nil || readErr != nil || string(kept) != overlords || info.Mode().Perm()&0o200 == 0 {
+			t.Errorf("the checkout's %s = %q, %v, %v, want it there, untouched and writable", name, kept, err, readErr)
+		}
 	}
 	if own, err := os.ReadFile(filepath.Join(worktreePath, ".env.local")); err != nil || string(own) != "STANDIN_SETTING=the goblin's own file\n" {
 		t.Errorf("the worktree's own .env.local = %q, %v, want a file that was no link left as it was", own, err)
+	}
+	if !isSameFile("shared.lock") {
+		t.Error("a dependency file the manifest links on purpose was ended too")
 	}
 }
 
@@ -743,7 +761,7 @@ func TestReturnRemovesAWorktreeThatHoldsAReadOnlyCopy(t *testing.T) {
 	if _, err := git.Acquire(context.Background(), project, path, ""); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := (Service{Commands: execx.OSRunner{}, DataDir: t.TempDir()}).Provision(context.Background(), project, path, t.TempDir(), nil); err != nil {
+	if _, err := (Service{Commands: execx.OSRunner{}, DataDir: sharing(t, project, ".env")}).Provision(context.Background(), project, path, t.TempDir(), nil); err != nil {
 		t.Fatalf("Provision: %v", err)
 	}
 	if info, err := os.Stat(filepath.Join(path, ".env")); err != nil || info.Mode().Perm()&0o200 != 0 {
@@ -781,7 +799,7 @@ func TestProvisionReplacesAStagedCopyAnInterruptedRunLeft(t *testing.T) {
 	runner.results = unignoredScript(filepath.Join(project, ".git"), ".env")
 
 	// Act
-	_, err := (Service{Commands: runner, DataDir: t.TempDir()}).Provision(context.Background(), project, worktreePath, taskTmp, nil)
+	_, err := (Service{Commands: runner, DataDir: sharing(t, project, ".env")}).Provision(context.Background(), project, worktreePath, taskTmp, nil)
 
 	// Assert
 	if err != nil {
@@ -792,5 +810,264 @@ func TestProvisionReplacesAStagedCopyAnInterruptedRunLeft(t *testing.T) {
 	}
 	if _, err := os.Stat(staged); !os.IsNotExist(err) {
 		t.Errorf("the staged copy is still in the worktree: %v", err)
+	}
+}
+
+// A checkout's env file used to reach every new worktree by silence: with no
+// worktree manifest, or with one that names no link, a spawn shared .env,
+// .env.local and .env.docker.local. A worktree is given an env file only when
+// the project's manifest names it.
+func TestProvisionSharesNoEnvFileThatNoManifestNames(t *testing.T) {
+	cases := []struct {
+		name     string
+		manifest *Manifest
+	}{
+		{"no worktree manifest", nil},
+		{"a manifest with no link key", &Manifest{Project: "demo", Dependencies: Dependencies{Strategy: StrategyNone}}},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			// Arrange
+			project, worktreePath, taskTmp, runner := provisionFixture(t)
+			dataDir := t.TempDir()
+			if tc.manifest != nil {
+				writeManifest(t, dataDir, project, *tc.manifest)
+			}
+			held := []string{".env", ".env.local", ".env.docker.local"}
+			for _, name := range held {
+				writeFileLine(t, filepath.Join(project, name), "STANDIN_SETTING=the checkout's own line")
+			}
+			runner.results = unignoredScript(filepath.Join(project, ".git"), held...)
+
+			// Act
+			result, err := (Service{Commands: runner, DataDir: dataDir}).Provision(context.Background(), project, worktreePath, taskTmp, nil)
+
+			// Assert
+			if err != nil {
+				t.Fatalf("Provision: %v", err)
+			}
+			for _, name := range held {
+				if _, err := os.Stat(filepath.Join(worktreePath, name)); !os.IsNotExist(err) {
+					t.Errorf("the worktree was given %s, which no manifest names (%v)", name, err)
+				}
+			}
+			if len(result.Linked) != 0 {
+				t.Errorf("Linked = %v, want nothing shared", result.Linked)
+			}
+			if want := []string{".env", ".env.docker.local", ".env.local"}; !slices.Equal(result.EnvHeld, want) {
+				t.Errorf("EnvHeld = %v, want %v named, so the spawn can say what it did not share", result.EnvHeld, want)
+			}
+			if len(runner.calls) != 0 {
+				t.Errorf("calls = %#v, want no ignore rule written where nothing was shared", runner.calls)
+			}
+		})
+	}
+}
+
+// What a spawn names as not given is exactly that: an env file the manifest
+// names was shared, and a file that is no env file is none of its business.
+func TestProvisionNamesOnlyTheEnvFilesTheWorktreeWasNotGiven(t *testing.T) {
+	// Arrange
+	project, worktreePath, taskTmp, runner := provisionFixture(t)
+	for _, name := range []string{".env", ".env.local", ".envrc", "notes.env", "settings.toml"} {
+		writeFileLine(t, filepath.Join(project, name), "STANDIN_SETTING=the checkout's own line")
+	}
+	if err := os.Mkdir(filepath.Join(project, ".env.d"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	runner.results = unignoredScript(filepath.Join(project, ".git"), ".env")
+
+	// Act
+	result, err := (Service{Commands: runner, DataDir: sharing(t, project, ".env")}).Provision(context.Background(), project, worktreePath, taskTmp, nil)
+
+	// Assert
+	if err != nil {
+		t.Fatalf("Provision: %v", err)
+	}
+	if !slices.Equal(result.Linked, []string{".env"}) || !slices.Equal(result.EnvHeld, []string{".env.local"}) {
+		t.Errorf("Linked = %v, EnvHeld = %v, want .env shared and only .env.local named as not given", result.Linked, result.EnvHeld)
+	}
+}
+
+// standInMCP is a project's MCP configuration with every kind of entry a
+// goblin can be handed, under made-up names and values: two that hold a value
+// in the entry itself, one in a command server's env map and one in a header,
+// one that only refers to a variable, one that holds nothing, and one that
+// authenticates by a token variable.
+const standInMCP = `{"mcpServers": {
+	"literal-env": {"command": "standin-server", "env": {"STANDIN_MCP_KEY": "stand-in-mcp-env-value"}},
+	"literal-header": {"url": "https://mcp.example.invalid/mcp", "headers": {"Authorization": "Bearer stand-in-mcp-header-value"}},
+	"by-reference": {"command": "standin-server", "env": {"STANDIN_MCP_KEY": "${STANDIN_MCP_KEY}"}},
+	"plain": {"command": "standin-server", "args": ["--stdio"]},
+	"by-variable": {"url": "https://mcp.example.invalid/sse", "bearerTokenEnvVar": "STANDIN_MCP_TOKEN"}
+}}`
+
+// holdsNoStandInMCPValue fails when the file at path holds a value of the
+// stand-in configuration.
+func holdsNoStandInMCPValue(t *testing.T, path string) {
+	t.Helper()
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("read %s: %v", path, err)
+	}
+	for _, value := range []string{"stand-in-mcp-env-value", "stand-in-mcp-header-value"} {
+		if strings.Contains(string(data), value) {
+			t.Errorf("%s holds a value written inside a server entry, which no brief named", filepath.Base(path))
+		}
+	}
+}
+
+// A server entry used to reach every goblin of a project by its shape: one
+// with a command, or with an Authorization header, was copied whole, and so
+// was any value written inside it. An entry that holds a value now reaches a
+// task only when its brief names the server.
+func TestProvisionWithholdsAnMCPServerWhoseEntryHoldsAValue(t *testing.T) {
+	// Arrange
+	project, worktreePath, taskTmp, runner := provisionFixture(t)
+	if err := os.WriteFile(filepath.Join(project, ".mcp.json"), []byte(standInMCP), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	runner.results = append(untrackedScript(), ignoredScript(1)...)
+
+	// Act
+	result, err := (Service{Commands: runner, DataDir: t.TempDir()}).Provision(context.Background(), project, worktreePath, taskTmp, everyVariableSet)
+
+	// Assert
+	if err != nil {
+		t.Fatalf("Provision: %v", err)
+	}
+	want := []string{"by-reference", "by-variable", "plain"}
+	if got := mcpServerNames(t, result.MCPConfig); !slices.Equal(got, want) {
+		t.Errorf("materialized servers = %v, want %v: the two whose entry holds a value withheld", got, want)
+	}
+	if got := mcpServerNames(t, filepath.Join(worktreePath, ".mcp.json")); !slices.Equal(got, want) {
+		t.Errorf("worktree servers = %v, want %v", got, want)
+	}
+	holdsNoStandInMCPValue(t, result.MCPConfig)
+	holdsNoStandInMCPValue(t, filepath.Join(worktreePath, ".mcp.json"))
+}
+
+// A task whose brief names a server is given its entry whole, value and all,
+// and every other server whose entry holds a value stays withheld.
+func TestProvisionGivesANamedMCPServerItsEntryWhole(t *testing.T) {
+	// Arrange
+	project, worktreePath, taskTmp, runner := provisionFixture(t)
+	if err := os.WriteFile(filepath.Join(project, ".mcp.json"), []byte(standInMCP), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	runner.results = append(untrackedScript(), ignoredScript(1)...)
+
+	// Act
+	result, err := (Service{Commands: runner, DataDir: t.TempDir()}).Provision(context.Background(), project, worktreePath, taskTmp, everyVariableSet, "literal-env")
+
+	// Assert
+	if err != nil {
+		t.Fatalf("Provision: %v", err)
+	}
+	if got, want := mcpServerNames(t, result.MCPConfig), []string{"by-reference", "by-variable", "literal-env", "plain"}; !slices.Equal(got, want) {
+		t.Errorf("materialized servers = %v, want %v", got, want)
+	}
+	if !slices.Equal(result.MCPHeld, []string{"literal-header"}) {
+		t.Errorf("MCPHeld = %v, want only the server the task does not name", result.MCPHeld)
+	}
+	data, err := os.ReadFile(result.MCPConfig)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(data), "stand-in-mcp-env-value") || strings.Contains(string(data), "stand-in-mcp-header-value") {
+		t.Error("the configuration should hold the named server's entry whole and nothing of the other's")
+	}
+}
+
+// A relaunch writes the task's MCP configuration again. The one its last
+// terminal was started with is replaced, and with it its copy in the
+// worktree's root, so a server whose entry holds a value, given before such
+// servers were withheld, is gone from both. A .mcp.json the goblin wrote is
+// not that copy, and one the repository tracks is not either: both are left.
+func TestWriteMCPReplacesTheConfigurationTheLastTerminalWasGiven(t *testing.T) {
+	const own = `{"mcpServers": {"own": {"command": "own-server"}}}`
+	const onlyLiteral = `{"mcpServers": {"literal-env": {"command": "standin-server", "env": {"STANDIN_MCP_KEY": "stand-in-mcp-env-value"}}}}`
+	every := []string{"by-reference", "by-variable", "literal-env", "literal-header", "plain"}
+	kept := []string{"by-reference", "by-variable", "plain"}
+	taken := []string{"literal-env", "literal-header"}
+	for _, tc := range []struct {
+		name string
+		// project is the project's .mcp.json now, empty for none.
+		project string
+		// worktree is the worktree root's .mcp.json before the relaunch.
+		worktree string
+		script   []scriptedResult
+		// wantConfig and wantWorktree are the servers each file holds
+		// afterwards, nil for no file.
+		wantConfig   []string
+		wantWorktree []string
+		wantTaken    []string
+	}{
+		{"the worktree holds the last configuration's copy", standInMCP, standInMCP, append(untrackedScript(), ignoredScript(1)...), kept, kept, taken},
+		{"the worktree holds the goblin's own file", standInMCP, own, untrackedScript(), kept, []string{"own"}, taken},
+		{"the repository tracks the worktree's file", standInMCP, standInMCP, []scriptedResult{{}}, kept, every, taken},
+		{"no server qualifies any more", onlyLiteral, standInMCP, untrackedScript(), nil, nil, []string{"literal-env"}},
+		{"the project has no .mcp.json any more", "", standInMCP, untrackedScript(), nil, nil, nil},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			// Arrange
+			project, worktreePath, taskTmp, runner := provisionFixture(t)
+			if tc.project != "" {
+				if err := os.WriteFile(filepath.Join(project, ".mcp.json"), []byte(tc.project), 0o644); err != nil {
+					t.Fatal(err)
+				}
+			}
+			// What a build that withheld no such server wrote: every server
+			// that qualified by its shape.
+			config, inWorktree := filepath.Join(taskTmp, "mcp.json"), filepath.Join(worktreePath, ".mcp.json")
+			for path, text := range map[string]string{config: standInMCP, inWorktree: tc.worktree} {
+				if err := os.WriteFile(path, []byte(text), 0o644); err != nil {
+					t.Fatal(err)
+				}
+			}
+			runner.results = tc.script
+			plan, err := PlanMCP(project, everyVariableSet)
+			if err != nil {
+				t.Fatalf("PlanMCP: %v", err)
+			}
+
+			// Act
+			gotTaken, err := (Service{Commands: runner}).WriteMCP(context.Background(), plan, worktreePath, taskTmp)
+
+			// Assert
+			if err != nil {
+				t.Fatalf("WriteMCP: %v", err)
+			}
+			if !slices.Equal(gotTaken, tc.wantTaken) {
+				t.Errorf("taken = %v, want %v", gotTaken, tc.wantTaken)
+			}
+			for path, want := range map[string][]string{config: tc.wantConfig, inWorktree: tc.wantWorktree} {
+				if want == nil {
+					if _, err := os.Stat(path); !os.IsNotExist(err) {
+						t.Errorf("%s is still there (%v), want it gone with the last configuration", filepath.Base(path), err)
+					}
+					continue
+				}
+				if got := mcpServerNames(t, path); !slices.Equal(got, want) {
+					t.Errorf("%s holds %v, want %v", filepath.Base(path), got, want)
+				}
+			}
+			if wantPath := map[bool]string{true: config, false: ""}[tc.wantConfig != nil]; plan.Config(taskTmp) != wantPath {
+				t.Errorf("the planned configuration is %q, want %q", plan.Config(taskTmp), wantPath)
+			}
+			holdsNoStandInMCPValueIfThere(t, config)
+			if slices.Equal(tc.wantWorktree, kept) {
+				holdsNoStandInMCPValue(t, inWorktree)
+			}
+		})
+	}
+}
+
+// holdsNoStandInMCPValueIfThere is holdsNoStandInMCPValue for a file that a
+// relaunch may have removed.
+func holdsNoStandInMCPValueIfThere(t *testing.T, path string) {
+	t.Helper()
+	if _, err := os.Stat(path); err == nil {
+		holdsNoStandInMCPValue(t, path)
 	}
 }

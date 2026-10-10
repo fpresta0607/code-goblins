@@ -669,26 +669,29 @@ func TestSwitchRelaunchesIntoTheTasksScratchFolder(t *testing.T) {
 	}
 }
 
-// Provisioning materializes the filtered configuration under the task's
-// temporary directory, never inside the checkout, and a relaunch hands over
-// that file and no other: a .mcp.json in the worktree is the project's own
-// unfiltered file or one the goblin wrote. The build is refused here so
-// nothing starts.
-func TestSwitchHandsTheNewHarnessOnlyTheProvisionedMCPConfig(t *testing.T) {
+// A relaunch plans the task's MCP configuration again from the project's
+// .mcp.json and hands over the file under the task's temporary directory it
+// will write, and no other: a .mcp.json in the worktree is the project's own
+// unfiltered file or one the goblin wrote, and the file the last terminal was
+// started with is not handed on once the project declares no server. The
+// build is refused here, so nothing starts and nothing is written.
+func TestSwitchHandsTheNewHarnessOnlyThePlannedMCPConfig(t *testing.T) {
 	for _, test := range []struct {
-		name          string
-		isProvisioned bool
+		name       string
+		isDeclared bool
 	}{
-		{name: "provisioning materialized one", isProvisioned: true},
-		{name: "provisioning materialized none"},
+		{name: "the project declares a server", isDeclared: true},
+		{name: "the project declares none"},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			f := newSwitchFixture(t, harness.Control{StopCommand: "/exit"})
 			specs := []harness.LaunchSpec{}
 			f.service.Harness.Adapters[harness.Codex] = nativeAdapter{kind: harness.Codex, specs: &specs, buildErr: errors.New("nothing starts in this test")}
-			provisioned := filepath.Join(f.meta.TaskTmp, "mcp.json")
-			if test.isProvisioned {
-				writeFile(t, provisioned, `{"mcpServers":{"neon":{"command":"npx"}}}`)
+			last := filepath.Join(f.meta.TaskTmp, "mcp.json")
+			const lastConfig = `{"mcpServers":{"gone":{"command":"npx"}}}`
+			writeFile(t, last, lastConfig)
+			if test.isDeclared {
+				writeFile(t, filepath.Join(f.project, ".mcp.json"), `{"mcpServers":{"neon":{"command":"npx"}}}`)
 			}
 			writeFile(t, filepath.Join(f.worktree, ".mcp.json"), `{"mcpServers":{"oauth":{"url":"https://example.com/mcp"}}}`)
 
@@ -698,11 +701,14 @@ func TestSwitchHandsTheNewHarnessOnlyTheProvisionedMCPConfig(t *testing.T) {
 				t.Fatalf("Switch = %v with %d builds, want the one refused build", err, len(specs))
 			}
 			want := ""
-			if test.isProvisioned {
-				want = provisioned
+			if test.isDeclared {
+				want = last
 			}
 			if specs[0].MCPConfig != want {
 				t.Errorf("MCPConfig = %q, want %q", specs[0].MCPConfig, want)
+			}
+			if kept, err := os.ReadFile(last); err != nil || string(kept) != lastConfig {
+				t.Errorf("the refused relaunch left the last configuration as %q, %v, want it untouched", kept, err)
 			}
 		})
 	}
@@ -796,38 +802,68 @@ func TestSwitchAnswersAnExitMenuWithTheHarnessesOwnKeys(t *testing.T) {
 
 // A goblin that was running when a worktree's env file stopped being a hard
 // link still has a worktree whose .env is the checkout's own file under a
-// second name. Its next terminal starts with the worktree's own read-only
-// copy, and the relaunch says so.
-func TestARelaunchGivesTheWorktreeItsOwnCopyOfAHardLinkedEnvFile(t *testing.T) {
-	// Arrange
-	f := newSwitchFixture(t, harness.Control{StopCommand: "/exit"})
-	source := filepath.Join(f.project, ".env")
-	const overlords = "STANDIN_SETTING=the Overlord's own line\n"
-	writeFile(t, source, overlords)
-	shared := filepath.Join(f.worktree, ".env")
-	if err := os.Link(source, shared); err != nil {
-		t.Fatal(err)
+// second name. Its next terminal ends that link and the relaunch says so:
+// where the project's manifest names the file the worktree keeps its own
+// read-only copy, and where none does the file goes from the worktree, since
+// a worktree is given only what a manifest names.
+func TestARelaunchEndsAWorktreesHardLinkToTheCheckoutsEnvFile(t *testing.T) {
+	cases := []struct {
+		name     string
+		manifest string
+		isKept   bool
+		want     string
+	}{
+		{"named in the manifest", `{"project": "primary", "link": [".env"]}`, true, "config: .env in the worktree was the checkout's own file under a second name, and is now the worktree's read-only copy"},
+		{"named by no manifest", "", false, "config: removed .env from the worktree"},
 	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			// Arrange
+			f := newSwitchFixture(t, harness.Control{StopCommand: "/exit"})
+			if tc.manifest != "" {
+				manifestPath := worktree.ManifestPath(f.dataDir, f.project)
+				makeDir(t, filepath.Dir(manifestPath))
+				writeFile(t, manifestPath, tc.manifest)
+			}
+			source := filepath.Join(f.project, ".env")
+			const overlords = "STANDIN_SETTING=the Overlord's own line\n"
+			writeFile(t, source, overlords)
+			shared := filepath.Join(f.worktree, ".env")
+			if err := os.Link(source, shared); err != nil {
+				t.Fatal(err)
+			}
 
-	// Act
-	result, err := f.service.Switch(context.Background(), SwitchRequest{ID: f.meta.ID, Model: "gpt-9"})
+			// Act
+			result, err := f.service.Switch(context.Background(), SwitchRequest{ID: f.meta.ID, Model: "gpt-9"})
 
-	// Assert
-	if err != nil {
-		t.Fatalf("Switch: %v", err)
-	}
-	sourceInfo, sourceErr := os.Stat(source)
-	sharedInfo, sharedErr := os.Stat(shared)
-	if sourceErr != nil || sharedErr != nil || os.SameFile(sourceInfo, sharedInfo) {
-		t.Errorf("after the relaunch the worktree's .env is still the checkout's file (%v, %v)", sourceErr, sharedErr)
-	}
-	if err := os.WriteFile(shared, []byte("STANDIN_SETTING=a goblin's edit\n"), 0o644); err == nil {
-		t.Error("a write to the worktree's .env went through, want it refused")
-	}
-	if kept, err := os.ReadFile(source); err != nil || string(kept) != overlords {
-		t.Errorf("the checkout's .env = %q, %v, want it untouched", kept, err)
-	}
-	if !strings.Contains(result.Output, "config: .env in the worktree was the checkout's own file under a second name") {
-		t.Errorf("output = %q, want the relaunch to say what it turned into a copy", result.Output)
+			// Assert
+			if err != nil {
+				t.Fatalf("Switch: %v", err)
+			}
+			sourceInfo, sourceErr := os.Stat(source)
+			sharedInfo, sharedErr := os.Stat(shared)
+			if sourceErr != nil {
+				t.Fatalf("the checkout's .env is gone: %v", sourceErr)
+			}
+			if tc.isKept {
+				if sharedErr != nil || os.SameFile(sourceInfo, sharedInfo) {
+					t.Errorf("after the relaunch the worktree's .env is not its own copy (%v)", sharedErr)
+				}
+				if err := os.WriteFile(shared, []byte("STANDIN_SETTING=a goblin's edit\n"), 0o644); err == nil {
+					t.Error("a write to the worktree's .env went through, want it refused")
+				}
+			} else if !os.IsNotExist(sharedErr) {
+				t.Errorf("after the relaunch the worktree still holds .env, which no manifest names (%v)", sharedErr)
+			}
+			if kept, err := os.ReadFile(source); err != nil || string(kept) != overlords {
+				t.Errorf("the checkout's .env = %q, %v, want it untouched", kept, err)
+			}
+			if !strings.Contains(result.Output, tc.want) {
+				t.Errorf("output = %q, want %q", result.Output, tc.want)
+			}
+			if strings.Contains(result.Output, "the Overlord's own line") {
+				t.Error("the relaunch's output holds a line of the env file")
+			}
+		})
 	}
 }

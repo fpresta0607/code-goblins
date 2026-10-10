@@ -35,9 +35,13 @@ func (e Engine) rebuild(ctx context.Context, t *Train, why string) error {
 // git merge-tree and commit-tree, so neither the checkout's working tree nor
 // its branches are touched; a rider that does not merge cleanly onto what is
 // ahead of it is set aside as a conflict, and one already on the base as
-// landed. It records the run it built before it pushes it to the train's
-// branch, then opens the train's pull request, or retitles it for a later
-// run.
+// landed. Each rider's merge commit is the one GitHub's own merge of it would
+// leave, "Merge pull request #N from owner/branch" with the rider's head as
+// its second parent, since the commits CI tests are the ones the base takes.
+// It records the run it built before it pushes it to the train's branch,
+// then opens the train's pull request, or retitles it for a later run. A
+// pull request that merged took its run to the base, so the run after it
+// gets one of its own.
 func (e Engine) build(ctx context.Context, t *Train) error {
 	base, err := e.baseSHA(ctx, *t)
 	if err != nil {
@@ -47,6 +51,7 @@ func (e Engine) build(ctx context.Context, t *Train) error {
 		return err
 	}
 	head := base
+	owner, _, _ := strings.Cut(t.Repository, "/")
 	for _, i := range t.carsIn(CarRiding) {
 		car := &t.Cars[i]
 		isLanded, err := e.isAncestor(ctx, t.Checkout, car.Head, base)
@@ -66,7 +71,11 @@ func (e Engine) build(ctx context.Context, t *Train) error {
 			car.State, car.Note = CarConflict, "it conflicts in "+strings.Join(conflicts, ", ")
 			continue
 		}
-		head, err = e.run(ctx, t.Checkout, "git", "commit-tree", merged, "-p", head, "-p", car.Head, "-m", fmt.Sprintf("train: merge PR #%d (%s)", car.Number, car.Branch))
+		commit := []string{"commit-tree", merged, "-p", head, "-p", car.Head, "-m", fmt.Sprintf("Merge pull request #%d from %s/%s", car.Number, owner, car.Branch)}
+		if car.Title != "" {
+			commit = append(commit, "-m", car.Title)
+		}
+		head, err = e.run(ctx, t.Checkout, "git", commit...)
 		if err != nil {
 			return err
 		}
@@ -74,6 +83,9 @@ func (e Engine) build(ctx context.Context, t *Train) error {
 	riders := t.carsIn(CarRiding)
 	if len(riders) == 0 {
 		return nil
+	}
+	if t.hasMerged() {
+		t.PR = ""
 	}
 	isResumed := t.PR == "" && t.Runs > 0
 	t.BaseSHA, t.Head, t.Pushed = base, head, e.Now().UTC()
@@ -90,9 +102,6 @@ func (e Engine) build(ctx context.Context, t *Train) error {
 	if _, err := e.run(ctx, t.Checkout, "git", "push", "--quiet", "--force", "origin", head+":refs/heads/"+t.Branch); err != nil {
 		return err
 	}
-	title := fmt.Sprintf("chore(cfo): merge train for PRs %s (do not merge)", t.numbers(riders))
-	body := fmt.Sprintf("The CFO's merge train %s: %s merged onto %s at %s in this order, so CI tests them together once. When this run is green, each PR merges with a merge commit in the same order and %s's tree is checked against this branch's. When it is red, its failed checks run again once, and when it is red a second time the train is halved until the PR that breaks it is found, and every half that passes lands. This pull request is never merged: the train closes it and deletes its branch when it is over.",
-		t.ID, t.riders(riders), t.Base, short(base), t.Base)
 	if t.PR == "" && isResumed {
 		// A build cut short after it opened the pull request left it
 		// unrecorded: it is found by its branch rather than opened twice.
@@ -103,9 +112,13 @@ func (e Engine) build(ctx context.Context, t *Train) error {
 		t.PR = found
 	}
 	if t.PR != "" {
-		_, err := e.run(ctx, t.Checkout, "gh", "pr", "edit", t.PR, "--title", title, "--body", body)
-		return err
+		if err := e.describe(ctx, t); err != nil {
+			return err
+		}
+		t.openRun().PR = t.PR
+		return nil
 	}
+	title, body := t.words()
 	out, err := e.run(ctx, t.Checkout, "gh", "pr", "create", "--repo", t.Repository, "--base", t.Base, "--head", t.Branch, "--title", title, "--body", body)
 	if err != nil {
 		return err
@@ -116,7 +129,26 @@ func (e Engine) build(ctx context.Context, t *Train) error {
 		t.PR = ""
 		return fmt.Errorf("gh pr create printed no pull request URL: %q", out)
 	}
+	t.openRun().PR = t.PR
 	return nil
+}
+
+// words are the title and the body of the train's pull request for the run
+// CI tests.
+func (t Train) words() (title, body string) {
+	riders := t.carsIn(CarRiding)
+	title = "chore(cfo): merge train for PRs " + t.numbers(riders)
+	body = fmt.Sprintf("The CFO's merge train %s: %s merged onto %s at %s in this order, so CI tests them together once. When this run is green, this pull request merges: %s takes the commit CI tested, and GitHub marks each of those pull requests merged, since %s then holds its head. When it is red, its failed checks run again once, and when it is red a second time the train is halved until the pull request that breaks it is found, and every half that passes lands by a pull request like this one. Leave it to the train: it merges this pull request, or closes it saying why, and deletes its branch when it is over.",
+		t.ID, t.riders(riders), t.Base, short(t.BaseSHA), t.Base, t.Base)
+	return title, body
+}
+
+// describe gives the train's pull request the title and body of the run CI
+// tests.
+func (e Engine) describe(ctx context.Context, t *Train) error {
+	title, body := t.words()
+	_, err := e.run(ctx, t.Checkout, "gh", "pr", "edit", t.PR, "--title", title, "--body", body)
+	return err
 }
 
 // baseSHA reads the commit the base branch is at on origin now.

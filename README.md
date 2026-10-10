@@ -105,9 +105,11 @@ The production-proof layer is intentionally fail-closed: delivery evidence must 
 
 Landing green pull requests one at a time costs one CI run each, in a row, because every merge makes the others' runs stale.
 A merge train lands them with one run.
-It merges the green pull requests goblins finished onto main in the order they reported done, on a branch of its own, and opens a pull request for that branch that is never merged, so CI tests them together once.
-When that run is green, each pull request merges with a merge commit in the same order, and main's tree must then equal the train's.
+It merges the green pull requests goblins finished onto main in the order they reported done, on a branch of its own, and opens a pull request for that branch, so CI tests them together once.
+When that run is green, the train's pull request merges: main takes the commit CI tested, so its tree equals the train's, and GitHub marks each pull request that rode merged, with its own number in main's history.
+A train that landed leaves nothing closed without merging on GitHub, and one that did not land its last run closes that run's pull request saying why, however often it was halved.
 When it is red, the failed checks run again once, because a check can fail by chance, and a run that passes on its second try lands with the check that failed once named in its record.
+A test that failed once inside a check that still ended green is named in the train's record and its message to the CFO too.
 When it is red a second time, the train is halved until the one pull request that breaks it is found: every half that passes lands, and that pull request's goblin gets the failing checks.
 A pull request that conflicts with the ones ahead of it stays off and its goblin is told to merge main; drafts and pull requests labelled `hold` (recovery, security, money paths, or anything the Overlord said to wait on) never ride.
 
@@ -118,7 +120,7 @@ See [Merge trains](AGENTS.md#merge-trains).
 
 ### Project-scoped credentials
 
-Projects declare the services they need. `cfo auth` probes them before dispatch, validates project identity where configured, and keeps credentials namespaced outside repositories. A goblin's terminal carries the credentials of the services its brief names and of no other, and `cfo auth grant <task> <service>` gives a running task one more by name. A blocking authentication failure prevents normal dispatch rather than stranding a worker halfway through a task.
+Projects declare the services they need. `cfo auth` probes them before dispatch, validates project identity where configured, and keeps credentials namespaced outside repositories. A goblin's terminal carries the credentials of the services its brief names and of no other, and `cfo auth grant <task> <service>` gives a running task one more by name. An MCP server whose entry in the project's `.mcp.json` holds a value reaches a goblin the same way: the brief names it on its `mcp:` line, or `cfo auth grant <task> --mcp <server>` adds it for the task's next terminal. A blocking authentication failure prevents normal dispatch rather than stranding a worker halfway through a task.
 
 Pipe a credential with `Get-Clipboard | cfo auth store --project <project> <NAME>` to keep its value out of shell history, or run `cfo auth store --project <project> <NAME>` at a console and type or paste the value, which is read without being shown.
 For stdin, `cfo auth store` removes every consecutive leading byte-order mark, including mixed Windows PowerShell mojibake forms, then trailing line breaks, and reports how many marks it removed without exposing the value.
@@ -696,7 +698,7 @@ A goblin can hand you a command the same way, on a run card that names the gobli
 When the CFO or a goblin needs a secret, such as `STRIPE_SECRET_KEY`, it files `cfo auth request` with the names only, and a credential card arrives with an alert.
 Each row says where its value goes (the repository, the credential scope, and the goblins and services that read it), what it is for and where to get it, and has a hidden field you paste the value into; Ctrl+V and right-click Paste work in every field.
 The field shows a dot for each character and never holds the value itself, so the browser has nothing to remember, sync or offer to save as a password.
-A request can also name a local env file at the root of the project's checkout, such as `.env.docker.local`, with `--env-file`: the board checks with git that the file is ignored and untracked, before filing and again before each write, and sets each value's line there too, in place, so goblin worktrees that share the file see it.
+A request can also name a local env file at the root of the project's checkout, such as `.env.docker.local`, with `--env-file`: the board checks with git that the file is ignored and untracked, before filing and again before each write, and sets each value's line there too, in place. A goblin's worktree holds that file only when the project's `worktree.json` names it in `link`, as its own copy made when the worktree was.
 **Save** sends the values to the board on this PC, which stores them in the project's scope as `cfo auth store` does, tells the project's running goblins to reload their credentials and tells the CFO the names only; the fields empty after every save, and each saved row shows a check.
 A name the scope already holds is replaced only once you confirm **Replace and save**, and a value of the wrong kind, such as a live Stripe key where a restricted one is advised, shows a warning without blocking the save.
 Below the table, the exact `cfo auth store` line has **Copy** and **Run**: Run opens a PowerShell window on this PC where you type or paste each value without it being shown.
@@ -1075,6 +1077,7 @@ The build applying the move must meet the [source-build requirements](#developme
 Code Goblins is designed for high autonomy without pretending that an LLM saying “done” is proof.
 
 - Work happens in isolated worktrees.
+- A worktree starts as the files git tracks. It is given an env file of your checkout only when the project's `worktree.json` names it in `link`, and then as its own read-only copy.
 - Authentication is checked before normal dispatch.
 - Review/repair budgets are explicit and bounded.
 - Pipeline approval fails closed when actionable findings remain.
@@ -1142,7 +1145,7 @@ go run ./cmd/cfo gate test
 go build ./cmd/cfo
 ```
 
-`cfo gate test` vets what your change reaches and tests the changed packages that are quick to test; CI runs on `windows-latest` and tests every package on every pull request. The real-session acceptance suite is opt-in because it requires actual Herdr and harness installations.
+`cfo gate test` vets what your change reaches and tests the changed packages that are quick to test; CI runs on `windows-latest` as parallel jobs that take about 8 minutes together: a pull request's own run starts the jobs its change can alter, and its merge train's run tests every package and the board's browser tests before the change reaches `main`. A test that fails there runs once more: one that passes on its second try is named as a Failed once warning on the `test` check, and one that fails twice fails the run. The real-session acceptance suite is opt-in because it requires actual Herdr and harness installations.
 
 ## Project lineage
 
@@ -1175,7 +1178,9 @@ Delivery is evidence-driven: tiered verification and security commands write str
 A record is only worth what is still true in it.
 `cfo project check <project>` reads a project and says, one line each with the evidence and the fix, whether its record, its verification gate, its configs, its connectors and the commands its instruction files name are right today.
 It reports an env file git does not ignore, a gate command that does not exist, a service declared and unused, a credential used and undeclared, and a test run that can read production from an env file.
+It judges a command by what a worktree cut from the default branch will hold, so a checkout that was never pulled does not answer for the repository.
 It starts nothing in the project, and `--draft` writes the record it can vouch for to a file a person places.
+[Project runtime contracts](docs/project-runtime.md#what-the-check-cannot-see) lists what it cannot see.
 The `project-check` skill, installed with the others, carries the whole pass for any harness: it proves the listed commands by running or dry-running them, never a deploy, and writes the report.
 
 See [Project runtime contracts](docs/project-runtime.md), [Production autonomy roadmap](docs/production-roadmap.md), and [Orchestrator patterns](docs/orchestrator-patterns.md).

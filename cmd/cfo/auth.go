@@ -31,6 +31,7 @@ const authUsage = `usage: cfo auth <project> [--check|--fix] [--env]
        cfo auth list [--project <p>]
        cfo auth copy <NAME> --to <project> [--from <project>]   (copy a stored value into a project scope; the source is left in place)
        cfo auth grant <task-id> <service> [<service>...]   give a running task the credentials of more of its project's services, by name
+       cfo auth grant <task-id> --mcp <server> [<server>...]   give a running task MCP servers whose entry in the project's .mcp.json holds a value, by name
        cfo auth refresh <task-id>   regenerate a task's auth.ps1 for the services it carries
 
 Credentials are namespaced on (project, NAME). Omitting --project stores or
@@ -40,6 +41,11 @@ namespacing already lives.
 A task's terminal carries the credentials of the services its brief names
 under Authentication, by their names in the project's manifest, and of no
 other. cfo auth grant adds one to a running task, and only the CFO runs it.
+
+An MCP server whose entry in the project's .mcp.json holds a value, in its
+env map or in a header, reaches a task the same way: its brief names the
+server on an mcp: line under Authentication, or cfo auth grant --mcp adds it,
+and the task is given it at its next terminal.
 
 Storing or copying into a project scope also regenerates auth.ps1 for every
 live task of that project, each for the services it carries, and sends it a
@@ -674,7 +680,15 @@ func refreshProjectAuth(ctx context.Context, runtime commandRuntime, scope strin
 // to load its credential script. It is the CFO's act. A goblin that needs a
 // service says so in a blocked report, and this is refused in its terminal
 // and in a gate agent's.
+//
+// With --mcp the names are MCP servers of the project's .mcp.json whose entry
+// holds a value. A harness reads its servers when it starts, so the task is
+// given them at its next terminal.
 func runAuthGrant(args []string, stdout, stderr io.Writer, runtime commandRuntime) int {
+	isMCP := len(args) > 1 && args[1] == "--mcp"
+	if isMCP {
+		args = slices.Delete(slices.Clone(args), 1, 2)
+	}
 	if len(args) < 2 || slices.ContainsFunc(args, func(arg string) bool { return strings.HasPrefix(arg, "-") }) {
 		fmt.Fprint(stderr, authUsage)
 		return 2
@@ -693,6 +707,16 @@ func runAuthGrant(args []string, stdout, stderr io.Writer, runtime commandRuntim
 		return 1
 	}
 	id, services := args[0], args[1:]
+	if isMCP {
+		named, err := runtime.authRefresher(h).GrantMCP(id, services)
+		if err != nil {
+			fmt.Fprintf(stderr, "cfo auth grant: %v\n", err)
+			return 1
+		}
+		fmt.Fprintf(stdout, "granted %s the MCP servers %s. Its record names %s\n", id, strings.Join(services, ", "), strings.Join(named, ", "))
+		fmt.Fprintf(stdout, "A harness reads its MCP servers when it starts, so %s is given them at its next terminal: `cfo switch %s --restart`\n", id, id)
+		return 0
+	}
 	item, carried, err := runtime.authRefresher(h).Grant(context.Background(), id, services)
 	if err != nil {
 		fmt.Fprintf(stderr, "cfo auth grant: %v\n", err)

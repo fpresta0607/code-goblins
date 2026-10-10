@@ -9,7 +9,7 @@ const train = (overrides: Partial<MergeTrain>): MergeTrain => ({
   id: "r-20261007-160000", repository: "o/r", base: "main", pr: PR + "900", state: "testing", runs: 1,
   started: "2026-10-07T16:00:00Z", finished: "", note: "", cars: [], history: [], earlier: [], ...overrides,
 });
-const run = (number: number, riders: number[], result: string, link = "", failed_once: TrainCheck[] = []): TrainRun => ({ number, riders, base: "b".repeat(40), head: "c".repeat(40), pushed: "2026-10-07T16:00:00Z", result, link, failed_once });
+const run = (number: number, riders: number[], result: string, link = "", failed_once: TrainCheck[] = [], pr = ""): TrainRun => ({ number, riders, base: "b".repeat(40), head: "c".repeat(40), pushed: "2026-10-07T16:00:00Z", result, link, pr, failed_once });
 // The check of 2026-10-10 that failed by chance: one key took 1.007 s
 // against a limit of 1 s.
 const CHANCE: TrainCheck = { name: "go (conpty)", link: "https://github.com/o/r/actions/runs/7/job/71" };
@@ -62,6 +62,17 @@ test("a train's panel lists every run of its batch, numbered on from the trains 
   ]);
   assert.deepEqual(batchRuns(red), [{ number: 1, riders: [531], text: "Failed", tone: "failed", url: check, once: [] }]);
   assert.deepEqual(["", "changed", "repushed", "stopped"].map((result) => batchRuns(train({ history: [run(1, [1], result)] }))[0].text), ["Testing", "A pull request changed", "Pushed again", "Stopped"]);
+});
+
+// A run that lands merges its train's pull request, so a train that was
+// halved has a pull request for each half: #530 took #1 to main, and #531,
+// where #2 broke CI alone, is the one the train closed.
+test("each run of a halved train opens the pull request it was tested on", () => {
+  const check = "https://github.com/o/r/actions/runs/9";
+  const halved = train({ pr: PR + "531", state: "stopped", runs: 3, cars: [car(1, "landed"), car(2, "culprit")], history: [run(1, [1, 2], "failed", "", [], PR + "530"), run(2, [1], "landed", "", [], PR + "530"), run(3, [2], "failed", check, [], PR + "531")] });
+  assert.deepEqual(batchRuns(halved).map((each) => each.url), [PR + "530", PR + "530", check]);
+  assert.equal(trainLook(halved).url, PR + "531");
+  assert.equal(batchRuns(train({ history: [run(1, [1], "landed", "", [], "https://evil.example/pull/1")] }))[0].url, PR + "900");
 });
 
 test("a run whose failed checks ran again says so and keeps each check that failed once, opening its first try", () => {

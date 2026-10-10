@@ -30,10 +30,10 @@ const (
 	// A failed step leaves the train as its record says, for the next step
 	// to take on, since most failures are a network or a restart.
 	maxErrors = 5
-	// mergeAttempts bounds how often a merge GitHub refused because the base
-	// moved under it is tried, and mergeRetryAfter is the pause between.
-	mergeAttempts   = 3
-	mergeRetryAfter = 5 * time.Second
+	// mergedReads bounds how often GitHub is read for the pull requests a run
+	// landed to show as merged, and mergedReadAfter is the pause between.
+	mergedReads     = 3
+	mergedReadAfter = 5 * time.Second
 )
 
 var (
@@ -62,7 +62,7 @@ type Engine struct {
 	Commands execx.Runner
 	StateDir string
 	Now      func() time.Time
-	// Wait pauses before a merge is tried again.
+	// Wait pauses before GitHub is read again for what a run landed.
 	Wait func(time.Duration)
 	// TellGoblin types text into a goblin's terminal, and TellCFO reaches
 	// the CFO.
@@ -119,8 +119,9 @@ func (e Engine) Start(ctx context.Context, repo Repository, riders []Car) (Train
 }
 
 // Advance takes the running train id one step. While its CI runs it changes
-// nothing. A green run lands its riders in order and then tests the waiting
-// half, if a red run left one; a red run has its failed checks run again
+// nothing. A green run lands its riders, by merging the train's own pull
+// request, and then tests the waiting half, if a red run left one, on a pull
+// request of its own; a red run has its failed checks run again
 // once, and red a second time it halves its riders, or blames the one rider
 // it had. A run on a base that moved since is built again on the
 // new base and tested again, since what it proved is not what would land.
@@ -163,7 +164,7 @@ func (e Engine) Advance(ctx context.Context, id string) (Train, error) {
 	}
 	note := fmt.Sprintf("its step failed %d times in a row, last: %v", kept.Errors, stepErr)
 	if kept.Landing {
-		note += fmt.Sprintf("; it stopped while landing, so %s may hold only part of what CI tested, and %s's own push CI decides", kept.Base, kept.Base)
+		note += fmt.Sprintf(". It stopped while landing, and its pull request %s lands every pull request of the run or none, so read whether it merged", kept.PR)
 	}
 	err = e.finish(ctx, &kept, StateFailed, note)
 	return kept, err
@@ -197,6 +198,9 @@ func (e Engine) step(ctx context.Context, t *Train) error {
 	case outcome == "pending" && waited >= RunDeadline:
 		return e.finish(ctx, t, StateFailed, fmt.Sprintf("CI on its pull request %s did not finish within %s of the push", t.PR, RunDeadline))
 	case outcome == "passed":
+		if err := e.noteFailedOnce(ctx, t); err != nil {
+			return err
+		}
 		return e.land(ctx, t)
 	case outcome == "failed":
 		return e.halve(ctx, t, failed)
