@@ -31,7 +31,10 @@ func (c *checker) configs(ctx context.Context) error {
 }
 
 // envIgnored checks that git ignores every env file of the project but the
-// examples it commits on purpose.
+// examples it commits on purpose. What a tracked env file holds decides how
+// bad it is, not what it is called: one that holds a credential is the worst
+// of it, and one that holds none, such as a demo setup committed on purpose,
+// published nothing.
 func (c *checker) envIgnored(ctx context.Context) error {
 	var files, examples []string
 	for _, name := range c.repo.envFiles() {
@@ -45,37 +48,55 @@ func (c *checker) envIgnored(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	indexed, err := c.repo.indexed(ctx, files)
-	if err != nil {
-		return err
-	}
-	var kept, exposed, credentials []string
+	var kept, exposed, credentials, committed []string
+	trackedCredentials := false
 	for _, name := range files {
+		how := ""
 		switch {
 		case c.repo.tracked[name]:
-			exposed = append(exposed, name+" (tracked at "+c.repo.at()+")")
-		case indexed[name]:
-			exposed = append(exposed, name+" (tracked in the checkout's index)")
+			how = "tracked at " + c.repo.at()
+		case c.repo.index[name]:
+			how = "tracked in the checkout's index"
 		case !ignored[name]:
-			exposed = append(exposed, name+" (git check-ignore: not ignored)")
 		default:
 			kept = append(kept, name)
 			continue
 		}
-		if names := c.credentialNames(ctx, name); len(names) > 0 {
-			credentials = append(credentials, name+" holds values shaped like credentials: "+strings.Join(names, ", "))
+		variables, names := c.credentialNames(ctx, name)
+		switch {
+		case how != "" && len(names) == 0:
+			committed = append(committed, fmt.Sprintf("%s (%s, %s, none of them a credential or a production value)", name, how, count(variables, "variable")))
+			continue
+		case how == "":
+			how = "git check-ignore: not ignored"
+		default:
+			trackedCredentials = true
+		}
+		exposed = append(exposed, name+" ("+how+")")
+		if len(names) > 0 {
+			credentials = append(credentials, name+" holds credentials or production values: "+strings.Join(names, ", "))
 		}
 	}
 	looked := fmt.Sprintf("looked at every path %s tracks and at the folder's root and two folders down", c.repo.at())
 	if len(exposed) > 0 {
 		severity, says := High, "git does not ignore an env file of the project, so the next commit of everything publishes it"
 		evidence := strings.Join(exposed, ", ")
+		fix := "add each file to .gitignore"
 		if len(credentials) > 0 {
 			severity, says = Critical, "git does not ignore an env file that holds credentials, so the next commit of everything publishes them"
 			evidence += ". " + strings.Join(credentials, ". ")
 		}
-		c.add(AreaConfigs, "env-file-not-ignored", severity, says, evidence,
-			"add each file to .gitignore, take a tracked one out of git with git rm --cached, and rotate every credential a tracked one held")
+		if trackedCredentials {
+			says = "git tracks an env file that holds credentials, so the repository's history holds them"
+			fix += ", take a tracked one out of git with git rm --cached, and rotate each credential named here for a tracked file, since the history keeps what the file held"
+		}
+		c.add(AreaConfigs, "env-file-not-ignored", severity, says, evidence, fix)
+	}
+	if len(committed) > 0 {
+		c.add(AreaConfigs, "env-file-committed", Low,
+			"the repository commits an env file that holds no credential, so it publishes none, and a credential put in it later is published with the next commit",
+			strings.Join(committed, ", "),
+			"keep credentials out of it, or take it out of git with git rm --cached and add it to .gitignore when it was not meant to be committed")
 	}
 	evidence := "the project holds no env file beside its examples"
 	if len(kept) > 0 {
@@ -90,30 +111,37 @@ func (c *checker) envIgnored(ctx context.Context) error {
 	return nil
 }
 
-// credentialNames returns the variables of an env file whose values are
-// shaped like credentials. It returns names only: a value never leaves here.
-func (c *checker) credentialNames(ctx context.Context, name string) []string {
-	data, err := fsx.ReadFile(filepath.Join(c.Checkout, filepath.FromSlash(name)))
-	if err != nil {
-		var ok bool
-		if data, ok = c.repo.read(ctx, name); !ok {
-			return nil
-		}
+// credentialNames returns how many variables an env file holds and which of
+// them hold a credential or a production value: a value shaped like a
+// credential, or one the gate's own reading counts as production's. It
+// returns names only: a value never leaves here. Both copies of the file are
+// read: the default branch's, which is what the repository publishes, and
+// the folder's, which is what the next commit would.
+func (c *checker) credentialNames(ctx context.Context, name string) (variables int, names []string) {
+	var copies [][]byte
+	if data, ok := c.repo.read(ctx, name); ok {
+		copies = append(copies, data)
 	}
-	values, err := auth.ParseEnv(bytes.NewReader(data))
-	if err != nil {
-		return nil
+	if data, err := fsx.ReadFile(filepath.Join(c.Checkout, filepath.FromSlash(name))); err == nil {
+		copies = append(copies, data)
 	}
 	shaped := map[string]bool{}
-	for variable, value := range values {
-		// An equals sign reads as an assignment to SecretShape, which is
-		// asked about names elsewhere; inside a value it is only padding or
-		// a query string.
-		if auth.SecretShape(strings.ReplaceAll(value, "=", "")) != "" {
-			shaped[variable] = true
+	for _, data := range copies {
+		values, err := auth.ParseEnv(bytes.NewReader(data))
+		if err != nil {
+			continue
+		}
+		variables = max(variables, len(values))
+		for variable, value := range values {
+			// An equals sign reads as an assignment to SecretShape, which is
+			// asked about names elsewhere. Inside a value it is only padding
+			// or a query string.
+			if productionValue(variable, value) != "" || (auth.SecretShape(strings.ReplaceAll(value, "=", "")) != "" && !publishable(variable, value)) {
+				shaped[variable] = true
+			}
 		}
 	}
-	return sortedKeys(shaped)
+	return variables, sortedKeys(shaped)
 }
 
 // worktreeManifest checks that what worktree.json shares and installs is
@@ -156,7 +184,7 @@ func (c *checker) worktreeManifest(ctx context.Context) {
 	}
 	var faults []string
 	for _, line := range manifest.Dependencies.Install {
-		faults = append(faults, c.commandFaults(ctx, strings.Fields(line))...)
+		faults = append(faults, c.commandFaults(ctx, strings.Fields(line), inWorktree)...)
 	}
 	if len(faults) > 0 {
 		clean = false
@@ -237,7 +265,7 @@ func (c *checker) servicesManifest(ctx context.Context) {
 			fmt.Sprintf("%s declares env_file %s and no check", file, manifest.EnvFile),
 			"declare a check in "+file+" that refuses an env file reaching production")
 	case len(manifest.Check) > 0:
-		if faults := c.commandFaults(ctx, manifest.Check); len(faults) > 0 {
+		if faults := c.commandFaults(ctx, manifest.Check, inCheckout); len(faults) > 0 {
 			clean = false
 			c.add(AreaConfigs, "services-check-missing", High,
 				"the check of the services manifest cannot run as written, which refuses every start of the stack",

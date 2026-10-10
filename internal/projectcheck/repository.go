@@ -25,12 +25,15 @@ type repository struct {
 	ref, commit string
 	// tracked are the paths ref holds, with forward slashes.
 	tracked map[string]bool
+	// index are the paths the checkout's own index tracks, which a folder
+	// that lags or sits on another branch can differ in.
+	index map[string]bool
 }
 
 // openRepository reads which branch is the checkout's default and what it
 // tracks.
 func openRepository(ctx context.Context, runner execx.Runner, dir string) (*repository, error) {
-	r := &repository{dir: dir, runner: runner, ref: "HEAD", tracked: map[string]bool{}}
+	r := &repository{dir: dir, runner: runner, ref: "HEAD", tracked: map[string]bool{}, index: map[string]bool{}}
 	if out, code, err := r.git(ctx, "symbolic-ref", "--quiet", "--short", "refs/remotes/origin/HEAD"); err == nil && code == 0 && strings.TrimSpace(out) != "" {
 		r.ref = strings.TrimSpace(out)
 	}
@@ -46,6 +49,15 @@ func openRepository(ctx context.Context, runner execx.Runner, dir string) (*repo
 	for _, name := range strings.Split(out, "\x00") {
 		if name != "" {
 			r.tracked[name] = true
+		}
+	}
+	out, code, err = r.git(ctx, "-c", "core.quotePath=false", "ls-files", "-z")
+	if err != nil || code != 0 {
+		return nil, fmt.Errorf("projectcheck: git could not list the index of %s", dir)
+	}
+	for _, name := range strings.Split(out, "\x00") {
+		if name != "" {
+			r.index[name] = true
 		}
 	}
 	return r, nil
@@ -80,17 +92,44 @@ func (r *repository) has(name string) bool {
 	return err == nil
 }
 
-// hasFolder reports whether the repository tracks a file under folder or the
-// checkout holds the folder.
-func (r *repository) hasFolder(folder string) bool {
-	prefix := path.Clean(filepath.ToSlash(folder)) + "/"
-	for name := range r.tracked {
+// tracks reports whether the default branch holds name: as a file, or with
+// folder as a folder that has a file under it.
+func (r *repository) tracks(name string, folder bool) bool {
+	if !folder {
+		return r.tracked[name]
+	}
+	return under(r.tracked, name)
+}
+
+// indexTracks reports whether the checkout's own index tracks name or a file
+// under it, which makes the folder's copy one of the branch the folder is on.
+func (r *repository) indexTracks(name string) bool {
+	return r.index[name] || under(r.index, name)
+}
+
+// under reports whether a path of paths lies under folder.
+func under(paths map[string]bool, folder string) bool {
+	prefix := folder + "/"
+	for name := range paths {
 		if strings.HasPrefix(name, prefix) {
 			return true
 		}
 	}
-	info, err := os.Stat(filepath.Join(r.dir, filepath.FromSlash(folder)))
-	return err == nil && info.IsDir()
+	return false
+}
+
+// everHeld reports whether a commit the default branch can reach ever held
+// name. Known is false where that cannot be told: a shallow clone has only
+// the end of its history.
+func (r *repository) everHeld(ctx context.Context, name string) (held, known bool) {
+	if out, code, err := r.git(ctx, "rev-parse", "--is-shallow-repository"); err != nil || code != 0 || strings.TrimSpace(out) != "false" {
+		return false, false
+	}
+	out, code, err := r.git(ctx, "log", "-1", "--format=%h", r.ref, "--", name)
+	if err != nil || code != 0 {
+		return false, false
+	}
+	return strings.TrimSpace(out) != "", true
 }
 
 // ignored returns which of the folder's paths git ignores. A path git
@@ -116,25 +155,6 @@ func (r *repository) ignored(ctx context.Context, names []string) (map[string]bo
 		}
 	}
 	return ignored, nil
-}
-
-// indexed returns which of the folder's paths the checkout's own index
-// tracks, which a branch other than the default one can differ in.
-func (r *repository) indexed(ctx context.Context, names []string) (map[string]bool, error) {
-	indexed := map[string]bool{}
-	if len(names) == 0 {
-		return indexed, nil
-	}
-	out, code, err := r.git(ctx, append([]string{"-c", "core.quotePath=false", "ls-files", "-z", "--"}, names...)...)
-	if err != nil || code != 0 {
-		return nil, fmt.Errorf("projectcheck: git ls-files did not answer in %s", r.dir)
-	}
-	for _, name := range strings.Split(out, "\x00") {
-		if name != "" {
-			indexed[name] = true
-		}
-	}
-	return indexed, nil
 }
 
 // heavyFolders are never walked: what they hold is installed or built, not

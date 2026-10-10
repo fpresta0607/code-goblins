@@ -45,7 +45,8 @@ func Check(ctx context.Context, o Options) (Report, error) {
 		return Report{}, err
 	}
 	c.instructions(ctx)
-	return Report{Project: c.project, Checkout: o.Checkout, Lines: c.lines, Draft: c.draft()}, nil
+	draft, tier := c.draft()
+	return Report{Project: c.project, Checkout: o.Checkout, Lines: c.lines, Draft: draft, DraftTier: tier}, nil
 }
 
 // add appends one line to the report.
