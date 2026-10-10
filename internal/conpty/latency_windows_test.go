@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
 	"slices"
 	"strings"
 	"testing"
@@ -185,18 +186,70 @@ func TestKeyLatencyToleratesOneSlowKeyButNoPattern(t *testing.T) {
 	}
 }
 
+// aboveOtherWork puts every process a key passes through on its way to the
+// console's program and back in the high priority class, this one until the
+// test ends: this process, the console's server, and the program and the
+// input waker in the console's job. Each waits its turn for a processor, so
+// at the priority of everything else on the machine a key's time is as much
+// the other work's as the terminal's. On a hosted runner 1.4 million keys
+// never took over 75 ms while the runner was quiet, and with another program
+// keeping its four processors busy they took up to 829 ms, most of it waiting
+// inside the console server.
+func aboveOtherWork(t *testing.T, console *Console, server windows.Handle) {
+	t.Helper()
+	own, err := windows.GetPriorityClass(windows.CurrentProcess())
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		if err := windows.SetPriorityClass(windows.CurrentProcess(), own); err != nil {
+			t.Error(err)
+		}
+	})
+	processes := []windows.Handle{windows.CurrentProcess(), server}
+	list := make([]uintptr, 1+64)
+	if err := windows.QueryInformationJobObject(console.job, windows.JobObjectBasicProcessIdList, uintptr(unsafe.Pointer(&list[0])), uint32(len(list))*uint32(unsafe.Sizeof(list[0])), nil); err != nil {
+		t.Fatal(err)
+	}
+	// The list's first word holds two counts, the second of them of the ids
+	// that follow.
+	for _, pid := range list[1 : 1+list[0]>>32] {
+		processes = append(processes, openProcess(t, int(pid)))
+	}
+	for _, process := range processes {
+		if err := windows.SetPriorityClass(process, windows.HIGH_PRIORITY_CLASS); err != nil {
+			t.Fatal(err)
+		}
+	}
+}
+
+// idleProcessorTime is how long the machine's processors have stood idle, all
+// of them added together.
+func idleProcessorTime(t *testing.T) time.Duration {
+	t.Helper()
+	var idle windows.Filetime
+	if ok, _, err := kernel32.NewProc("GetSystemTimes").Call(uintptr(unsafe.Pointer(&idle)), 0, 0); ok == 0 {
+		t.Fatal(err)
+	}
+	return time.Duration(int64(idle.HighDateTime)<<32|int64(idle.LowDateTime)) * 100
+}
+
 func TestConsoleInputLatencyWhileIdleAndPrinting(t *testing.T) {
 	for _, activity := range []string{"idle", "busy", "wrapped"} {
 		t.Run(activity, func(t *testing.T) {
 			progressPath := filepath.Join(t.TempDir(), "native-input.log")
-			console, err := Start(Spec{
-				Args: []string{os.Args[0], "-test.run=^TestConsoleLatencyChild$", "--", "latency-child", activity},
-				Env:  append(os.Environ(), "CONPTY_LATENCY_PROGRESS="+progressPath),
-				Cols: 120, Rows: 40,
+			var console *Console
+			server := newConsoleServer(t, func() {
+				var err error
+				console, err = Start(Spec{
+					Args: []string{os.Args[0], "-test.run=^TestConsoleLatencyChild$", "--", "latency-child", activity},
+					Env:  append(os.Environ(), "CONPTY_LATENCY_PROGRESS="+progressPath),
+					Cols: 120, Rows: 40,
+				})
+				if err != nil {
+					t.Fatal(err)
+				}
 			})
-			if err != nil {
-				t.Fatal(err)
-			}
 			output := make(chan []byte, 256)
 			stopping, ended := make(chan struct{}), make(chan struct{})
 			t.Cleanup(func() {
@@ -252,15 +305,23 @@ func TestConsoleInputLatencyWhileIdleAndPrinting(t *testing.T) {
 					}
 				}
 			}
+			aboveOtherWork(t, console, server)
 			waitForMarker("latency-ready", 15*time.Second)
 			var samples []time.Duration
 			for sequence := 1; sequence <= 40; sequence++ {
+				idle := idleProcessorTime(t)
 				started := time.Now()
 				if _, err := console.Write([]byte("a")); err != nil {
 					t.Fatal(err)
 				}
 				waitForMarker(fmt.Sprintf("key-%04d", sequence), 5*time.Second)
 				samples = append(samples, time.Since(started))
+				// A key that waited with processors free waited on the
+				// terminal. One that waited with none free waited on work
+				// that outranks even this.
+				if waited := samples[sequence-1]; waited > 250*time.Millisecond {
+					t.Logf("key %d took %s, in which the machine's %d processors stood idle for %s in all", sequence, waited, runtime.NumCPU(), idleProcessorTime(t)-idle)
+				}
 			}
 			summary, err := keyLatency(samples)
 			t.Log(summary)
