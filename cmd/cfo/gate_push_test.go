@@ -621,6 +621,96 @@ func TestGatePrepushRunsAFailedTestAgainAndPassesOneThatFailedByChance(t *testin
 	}
 }
 
+// busyRun is a runtime whose go vet passes and whose tests of a have TestBusy
+// fail and then go on until their time ends. again is TestBusy's second run,
+// by itself, which is told whether its own time had already ended.
+func busyRun(again func(ctx context.Context, isLive bool, stdout io.Writer) (int, error)) commandRuntime {
+	runtime := defaultCommandRuntime()
+	runtime.availableMemory = plenty
+	runtime.gateDisk = roomy
+	runtime.pushRun = func(ctx context.Context, command []string, _ string, _ []string, stdout, _ io.Writer) (int, error) {
+		switch {
+		case command[1] == "vet":
+			return 0, nil
+		case slices.Contains(command, "-run"):
+			return again(ctx, ctx.Err() == nil, stdout)
+		}
+		fmt.Fprintln(stdout, `{"Action":"run","Package":"example.com/m/a","Test":"TestBusy"}`)
+		fmt.Fprintln(stdout, `{"Action":"output","Package":"example.com/m/a","Test":"TestBusy","Output":"    busy_test.go:9: the host did not answer in time\n"}`)
+		fmt.Fprintln(stdout, `{"Action":"fail","Package":"example.com/m/a","Test":"TestBusy","Elapsed":0.1}`)
+		<-ctx.Done()
+		return -1, ctx.Err()
+	}
+	return runtime
+}
+
+// A test that failed in a check the time limit then ended still gets its
+// second run, with time of its own: whether a test failed must not depend on
+// where the limit fell. On 2026-10-10 a replay of PR 596 on a busy machine
+// had a test that waits for a terminal's host fail 25 seconds before the
+// limit ended its check, and the run said CI would fail on it too, which
+// nothing had shown. Here the test passes by itself, so the run says so and
+// leaves the check the limit cut to CI.
+func TestGatePrepushRunsAFailedTestAgainThoughTheLimitEndedItsCheck(t *testing.T) {
+	// Arrange
+	dir := testStepModule(t,
+		map[string]string{"config/verify.json": strings.Replace(quiet, `"slow_packages": ["a"]`, `"slow_packages": []`, 1), "a/a_test.go": passing},
+		map[string]string{"a/a.go": "package a\n\nfunc A() int { return 2 }\n"})
+	t.Chdir(dir)
+	wasLive := false
+	runtime := busyRun(func(_ context.Context, isLive bool, stdout io.Writer) (int, error) {
+		wasLive = isLive
+		fmt.Fprintln(stdout, `{"Action":"run","Package":"example.com/m/a","Test":"TestBusy"}`)
+		fmt.Fprintln(stdout, `{"Action":"pass","Package":"example.com/m/a","Test":"TestBusy","Elapsed":0.1}`)
+		fmt.Fprintln(stdout, `{"Action":"pass","Package":"example.com/m/a","Elapsed":0.2}`)
+		return 0, nil
+	})
+
+	// Act
+	var stdout, stderr bytes.Buffer
+	exit := gatePrepushWith(runtime, &stdout, &stderr, "--limit", "2s")
+
+	// Assert
+	if exit != 0 || !wasLive {
+		t.Fatalf("exit = %d and the second run had time of its own = %t, want 0 and true; stdout=%s stderr=%s", exit, wasLive, stdout.String(), stderr.String())
+	}
+	for _, want := range []string{
+		"cfo gate prepush: TestBusy failed, so it runs again by itself",
+		"cfo gate prepush: TestBusy passed by itself, so this machine was busy and the change did not break it",
+		"left to CI, since the time limit of 2s passed while check 2 ran:\n- tests of a (changed)\n- tests of b (imports a)\n",
+		"cfo gate prepush: passed what it ran. 1 of 3 checks ran in ",
+	} {
+		if !strings.Contains(stdout.String(), want) {
+			t.Errorf("stdout %q lacks %q", stdout.String(), want)
+		}
+	}
+}
+
+// A failed test whose second run does not end in its own time fails the
+// push, in words that say what is known: it failed, and it never passed.
+func TestGatePrepushFailsATestWhoseSecondRunDoesNotEnd(t *testing.T) {
+	// Arrange
+	dir := testStepModule(t,
+		map[string]string{"config/verify.json": strings.Replace(quiet, `"slow_packages": ["a"]`, `"slow_packages": []`, 1), "a/a_test.go": passing},
+		map[string]string{"a/a.go": "package a\n\nfunc A() int { return 2 }\n"})
+	t.Chdir(dir)
+	runtime := busyRun(func(ctx context.Context, _ bool, _ io.Writer) (int, error) {
+		<-ctx.Done()
+		return -1, ctx.Err()
+	})
+	runtime.pushAgain = time.Second
+
+	// Act
+	var stdout, stderr bytes.Buffer
+	exit := gatePrepushWith(runtime, &stdout, &stderr, "--limit", "2s")
+
+	// Assert
+	want := "cfo gate prepush: failed at check 2 of 3, tests of a: TestBusy failed, and its second run by itself did not end within 1s. Fix it before you push, or run it by itself to see."
+	if got := lastLine(stdout.String()); exit != 1 || got != want {
+		t.Errorf("exit = %d and the run ends with %q, want 1 and %q\nstdout=%s stderr=%s", exit, got, want, stdout.String(), stderr.String())
+	}
+}
+
 // A change that picks nothing this machine can run does not pass: the run
 // says that no check ran and how much it left to CI. The board is not
 // installed here, so a change to it runs none of its checks.

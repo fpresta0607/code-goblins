@@ -257,9 +257,11 @@ type commandRuntime struct {
 	gateProgress  time.Duration
 	// pushRun runs one check of cfo gate prepush in dir and returns its exit
 	// code, ending the check when its context ends. pushMemoryPoll is how
-	// often a run that waits for the memory floor reads memory again.
+	// often a run that waits for the memory floor reads memory again, and
+	// pushAgain how long the second run of a failed test may take.
 	pushRun        func(ctx context.Context, command []string, dir string, env []string, stdout, stderr io.Writer) (int, error)
 	pushMemoryPoll time.Duration
+	pushAgain      time.Duration
 	// trainEvery is how often cfo pr train looks at its train's CI. Zero, in
 	// every runtime but a test's, is the trainEvery constant.
 	trainEvery time.Duration
@@ -428,6 +430,7 @@ func defaultCommandRuntime() commandRuntime {
 		gateProgress:    5 * time.Second,
 		pushRun:         runPushCommand,
 		pushMemoryPoll:  2 * time.Second,
+		pushAgain:       5 * time.Minute,
 	}
 }
 

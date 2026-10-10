@@ -109,7 +109,7 @@ func runGatePrepush(args []string, dir string, stdout, stderr io.Writer, runtime
 		failure, isCutShort := runPushStep(stepCtx, step, pick.Root, project, env, turn, stdout, stderr, runtime)
 		cancel()
 		if failure != "" {
-			fmt.Fprintf(stdout, "cfo gate prepush: failed at check %d of %d, %s: %s. CI would fail on it too, so fix it before you push.\n", index+1, len(pick.Steps), step.What, failure)
+			fmt.Fprintf(stdout, "cfo gate prepush: failed at check %d of %d, %s: %s\n", index+1, len(pick.Steps), step.What, failure)
 			return 1
 		}
 		if isCutShort {
@@ -166,13 +166,19 @@ func printPush(w io.Writer, pick gatetest.Push, limit time.Duration, commands bo
 	fmt.Fprintln(w, "policy: "+pick.Policy)
 }
 
+// pushFix ends the line of a check that failed as CI would fail it.
+const pushFix = ". CI would fail on it too, so fix it before you push."
+
 // runPushStep runs one check of a pick from the repository's root and says
-// why it failed, or "" when it did not. isCutShort says its time ended it,
-// which is no failure. A test that fails runs once more by itself, and
-// fails the check only when it fails again: on 2026-10-10 a test of cmd/cfo
-// that waits 15 seconds for a real terminal failed here while another run
-// held the processors, which the change had not caused and CI would not
-// see.
+// why it failed and what to do, or "" when it did not. isCutShort says its
+// time ended it, which is no failure. A test that fails runs once more by
+// itself, and fails the check only when it fails again: on 2026-10-10 a test
+// of cmd/cfo that waits 15 seconds for a real terminal failed here while
+// another run held the processors, which the change had not caused and CI
+// would not see. That second run has time of its own, runtime.pushAgain,
+// whether or not the limit ended the check: a replay that day had a test
+// fail by chance 25 seconds before the limit, and with no second run the
+// check said CI would fail on it too.
 func runPushStep(ctx context.Context, step gatetest.Step, root, project string, env []string, turn verify.Turn, stdout, stderr io.Writer, runtime commandRuntime) (failure string, isCutShort bool) {
 	dir := filepath.Join(root, filepath.FromSlash(step.Dir))
 	var exit int
@@ -183,35 +189,41 @@ func runPushStep(ctx context.Context, step gatetest.Step, root, project string, 
 		var failed []string
 		var isBuilt bool
 		failed, isBuilt, exit, err = runPushTests(ctx, step.Command, dir, project, env, turn, stdout, stderr, runtime)
-		if len(failed) > 0 && ctx.Err() == nil {
-			it, itself := "it runs", "itself"
+		if len(failed) > 0 {
+			it, its, itself, them := "it runs", "its", "itself", "it"
 			if len(failed) > 1 {
-				it, itself = "they run", "themselves"
+				it, its, itself, them = "they run", "their", "themselves", "them"
 			}
 			fmt.Fprintf(stdout, "cfo gate prepush: %s failed, so %s again by %s\n", namedPushTests(failed), it, itself)
-			again, _, againExit, againErr := runPushTests(ctx, step.Again(failed), dir, project, env, turn, stdout, stderr, runtime)
+			againCtx, cancel := context.WithTimeout(context.Background(), runtime.pushAgain)
+			again, _, againExit, againErr := runPushTests(againCtx, step.Again(failed), dir, project, env, turn, stdout, stderr, runtime)
+			isAgainCut := againCtx.Err() != nil
+			cancel()
 			switch {
 			case len(again) > 0:
-				failed = again
-			case againExit == 0 && againErr == nil:
-				fmt.Fprintf(stdout, "cfo gate prepush: %s passed by %s, so this machine was busy and the change did not break %s\n", namedPushTests(failed), itself, map[bool]string{false: "it", true: "them"}[len(failed) > 1])
-				failed, exit, err = nil, 0, nil
+				return namedPushTests(again) + " failed" + pushFix, false
+			case isAgainCut:
+				return fmt.Sprintf("%s failed, and %s second run by %s did not end within %s. Fix %s before you push, or run %s by %s to see.", namedPushTests(failed), its, itself, runtime.pushAgain, them, them, itself), false
+			case againExit != 0 || againErr != nil:
+				return namedPushTests(failed) + " failed" + pushFix, false
 			}
+			fmt.Fprintf(stdout, "cfo gate prepush: %s passed by %s, so this machine was busy and the change did not break %s\n", namedPushTests(failed), itself, them)
+			if ctx.Err() != nil {
+				return "", true
+			}
+			exit, err = 0, nil
 		}
-		switch {
-		case len(failed) > 0:
-			return namedPushTests(failed) + " failed", false
-		case !isBuilt:
-			return "it does not build", false
+		if !isBuilt {
+			return "it does not build" + pushFix, false
 		}
 	}
 	switch {
 	case err != nil && ctx.Err() != nil:
 		return "", true
 	case err != nil:
-		return "it did not run: " + err.Error(), false
+		return "it did not run: " + err.Error() + pushFix, false
 	case exit != 0:
-		return fmt.Sprintf("it exited %d, and what it said is above", exit), false
+		return fmt.Sprintf("it exited %d, and what it said is above", exit) + pushFix, false
 	}
 	return "", false
 }
