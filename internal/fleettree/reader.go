@@ -40,10 +40,16 @@ type Reader struct {
 	Processes   func() ([]Process, error)
 	Listeners   func() (map[int][]int, error)
 	CommandLine func(pid int) (string, error)
+	// Owner names the task whose terminal's mark a process carries, empty
+	// when it carries none of this home's. Nil reads none, and no detached
+	// job is shown. It is asked once for each process that reaches no
+	// harness, since a mark never changes.
+	Owner func(pid int) string
 	// Now is the clock; nil is time.Now.
 	Now func() time.Time
 
 	mu           sync.Mutex
+	owners       map[processKey]string
 	logs         map[string]*claudeLog
 	agents       map[string]agentRecords
 	rolloutMetas map[string]rolloutMeta
@@ -171,6 +177,15 @@ func (r *Reader) Read(ctx context.Context, goblin Goblin) (Tree, error) {
 			tree.Unread = append(tree.Unread, "listening ports: "+err.Error())
 		}
 		tree.Children = mergeShells(append(tree.Children, jobs...))
+		// A detached job is shown beside the others and is none of them: it
+		// is no shell's, and no part of what the monitor judges the goblin's
+		// progress by.
+		left, _ := r.jobNodes(harnessProcesses{jobs: r.detachedJobs(meta.ID, processes, harness)}, nil, nil, now)
+		for _, node := range left {
+			node.Detached, node.cpu, node.process = true, 0, ""
+			tree.Memory += node.Memory
+			tree.Children = append(tree.Children, node)
+		}
 		r.forgetEnded(processes)
 	}
 	if node, ok := r.gateNode(ctx, meta, processes, now); ok {
@@ -401,12 +416,76 @@ func (r *Reader) jobNodes(harness harnessProcesses, shellCommands map[string]str
 	return nodes, err
 }
 
+// ownerReads bounds how many processes of one detached tree are asked whose
+// they are before the tree is taken for nobody's.
+const ownerReads = 8
+
+// detachedJobs are the jobs of task that reach no harness: each a process
+// whose parent has exited, with everything under it, that carries the mark
+// of task's terminal. A Git Bash tool carries no mark of its own, so a tree
+// is its first process's by the first mark found in it, top down.
+func (r *Reader) detachedJobs(task string, processes []Process, harness harnessProcesses) []job {
+	if r.Owner == nil {
+		return nil
+	}
+	if r.owners == nil {
+		r.owners = map[processKey]string{}
+	}
+	under := make(map[int]bool, len(harness.all))
+	for _, process := range harness.all {
+		under[process.PID] = true
+	}
+	byPID := make(map[int]Process, len(processes))
+	children := make(map[int][]Process)
+	for _, process := range processes {
+		byPID[process.PID] = process
+		children[process.ParentPID] = append(children[process.ParentPID], process)
+	}
+	var jobs []job
+	for _, process := range processes {
+		if process.PID == 0 || under[process.PID] {
+			continue
+		}
+		if parent, isRunning := byPID[process.ParentPID]; isRunning && parent.PID != process.PID && !process.Started.Before(parent.Started) {
+			continue
+		}
+		members := []Process{process}
+		seen := map[int]bool{process.PID: true}
+		for index := 0; index < len(members); index++ {
+			for _, child := range children[members[index].PID] {
+				if !seen[child.PID] && !under[child.PID] && !child.Started.Before(members[index].Started) {
+					seen[child.PID] = true
+					members = append(members, child)
+				}
+			}
+		}
+		key := processKey{process.PID, process.Created}
+		owner, isKnown := r.owners[key]
+		if !isKnown {
+			for index := 0; index < len(members) && index < ownerReads && owner == ""; index++ {
+				owner = r.Owner(members[index].PID)
+			}
+			r.owners[key] = owner
+		}
+		if owner == task {
+			jobs = append(jobs, job{root: process, members: members})
+		}
+	}
+	sort.Slice(jobs, func(i, j int) bool { return jobs[i].root.PID < jobs[j].root.PID })
+	return jobs
+}
+
 // forgetEnded drops what the reader keeps of processes no longer running,
 // whichever goblin they were under: processes is every process running now.
 func (r *Reader) forgetEnded(processes []Process) {
 	running := make(map[processKey]bool, len(processes))
 	for _, process := range processes {
 		running[processKey{process.PID, process.Created}] = true
+	}
+	for key := range r.owners {
+		if !running[key] {
+			delete(r.owners, key)
+		}
 	}
 	for key := range r.commands {
 		if !running[key] {

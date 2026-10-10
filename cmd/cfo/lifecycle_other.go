@@ -14,3 +14,7 @@ import (
 func defaultTaskLifecycle(context.Context, home.Home, lifecycle.Request, string) (state.Lifecycle, error) {
 	return state.Lifecycle{}, errors.New("task process control is supported on Windows")
 }
+
+func endLeftProcesses(context.Context, home.Home, state.TaskMeta) ([]string, error) {
+	return nil, nil
+}

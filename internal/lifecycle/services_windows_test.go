@@ -3,6 +3,7 @@ package lifecycle
 import (
 	"context"
 	"errors"
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -16,6 +17,7 @@ import (
 	"golang.org/x/sys/windows"
 
 	"github.com/fpresta0607/code-goblins/internal/execx"
+	"github.com/fpresta0607/code-goblins/internal/fleettree"
 	"github.com/fpresta0607/code-goblins/internal/home"
 	"github.com/fpresta0607/code-goblins/internal/host"
 	"github.com/fpresta0607/code-goblins/internal/pipeline"
@@ -315,6 +317,7 @@ func TestAGoblinsDetachedProcessEndsWithItAtPauseAndAtRetire(t *testing.T) {
 				t.Skipf("the detached fixture, pid %d, could not leave its terminal's job here, so nothing but the job would be tested", started["detached"])
 			}
 			record := testCase.record
+			logFixture(t, "before the "+testCase.name, terminal.HostPID, started)
 
 			// Act
 			_, stopped, stopErr := StopTask(t.Context(), h, meta, pipeline.Reader{Root: filepath.Join(root, "gate"), Commands: execx.OSRunner{}}, &record)
@@ -338,8 +341,63 @@ func TestAGoblinsDetachedProcessEndsWithItAtPauseAndAtRetire(t *testing.T) {
 					t.Errorf("the stand-in Docker Desktop's %s process, pid %d, ended with the goblin; stopped %v", name, started[name], stopped)
 				}
 			}
+			logFixture(t, "after the "+testCase.name, terminal.HostPID, started)
 		})
 	}
+}
+
+// A cleanup closes an idle goblin's terminal itself and, until 2026-10-09,
+// stopped nothing else. Closing the terminal ends what its job holds, and a
+// process that had left the job, as everything Git Bash starts has, outlived
+// the goblin's retirement. What a closed terminal left is ended by the proofs
+// its terminal was given, which outlast the host's record, and the machine
+// service it started goes on running. So does what somebody else runs in the
+// goblin's worktree, as the CFO runs a test there: it works in the task's
+// folder under a parent that still runs and is not the task's.
+func TestWhatAClosedTerminalLeftEndsWithItsCleanup(t *testing.T) {
+	// Arrange
+	root := t.TempDir()
+	h, meta, started, held, hostEnded := hostedGoblin(t, root)
+	started["visitor"] = startLifecycleFixture(t, os.Args[0], meta.Worktree, "^TestLifecycleProcessFixture$", "CFO_LIFECYCLE_FIXTURE=1")
+	held["visitor"] = standin.Hold(t, started["visitor"])
+	terminal, err := host.ReadRecord(h.State, meta.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := host.Close(h.State, terminal, 5*time.Second); err != nil {
+		t.Fatalf("close the terminal as a cleanup does: %v", err)
+	}
+	select {
+	case <-hostEnded:
+	case <-time.After(15 * time.Second):
+		t.Fatal("the terminal's host still runs after it was closed")
+	}
+	if !lifecycleRunning(held["detached"]) {
+		t.Skipf("the detached fixture, pid %d, ended with its terminal's close here, so nothing is left for the cleanup to end", started["detached"])
+	}
+	ctx, cancel := context.WithTimeout(t.Context(), time.Minute)
+	defer cancel()
+	logFixture(t, "after the terminal closed, before the cleanup's sweep", terminal.HostPID, started)
+
+	// Act
+	ended, endErr := EndLeft(ctx, h, meta)
+
+	// Assert
+	if endErr != nil {
+		t.Errorf("EndLeft: %v (ended %v)", endErr, ended)
+	}
+	if lifecycleRunning(held["detached"]) {
+		t.Errorf("the process the goblin left detached, pid %d, still runs after its cleanup's sweep; ended %v", started["detached"], ended)
+	}
+	for _, name := range []string{"service", "backend"} {
+		if !lifecycleRunning(held[name]) {
+			t.Errorf("the stand-in Docker Desktop's %s process, pid %d, ended with the goblin's cleanup; ended %v", name, started[name], ended)
+		}
+	}
+	if !lifecycleRunning(held["visitor"]) {
+		t.Errorf("the process somebody else runs in the goblin's worktree, pid %d, was ended by its cleanup's sweep; ended %v", started["visitor"], ended)
+	}
+	logFixture(t, "after the cleanup's sweep", terminal.HostPID, started)
 }
 
 // busyGate is a machine so loaded that reading the task's branch and its
@@ -387,6 +445,49 @@ func TestAStopEndsTheGoblinWhileItsGateStateCannotBeRead(t *testing.T) {
 	if !errors.As(err, new(UnfinishedStop)) || !errors.Is(err, context.DeadlineExceeded) {
 		t.Errorf("error = %v, want the stop's unread gate named once the terminal ended", err)
 	}
+}
+
+// logFixture writes what of the goblin fixture still runs to the test's log,
+// with the private memory of each process: the list a reader compares before
+// and after a teardown. The fixtures are held (hostedGoblin), so a pid here
+// names the fixture or nothing.
+func logFixture(t *testing.T, when string, hostPID int, started map[string]int) {
+	t.Helper()
+	running, err := fleettree.Processes()
+	if err != nil {
+		t.Fatal(err)
+	}
+	lines := []string{when + ":"}
+	var total uint64
+	for _, entry := range []struct {
+		name, what string
+		pid        int
+	}{
+		{what: "terminal host", pid: hostPID},
+		{name: "goblin", what: "goblin"},
+		{name: "own", what: "its process in its worktree"},
+		{name: "away", what: "its process outside its folders"},
+		{name: "detached", what: "its detached process"},
+		{name: "service", what: "stand-in Docker Desktop"},
+		{name: "backend", what: "stand-in Docker backend"},
+		{name: "visitor", what: "somebody else's, in its worktree"},
+	} {
+		pid := entry.pid
+		if entry.name != "" {
+			var isStarted bool
+			if pid, isStarted = started[entry.name]; !isStarted {
+				continue
+			}
+		}
+		state := "ended"
+		if index := slices.IndexFunc(running, func(process fleettree.Process) bool { return process.PID == pid }); index >= 0 {
+			state = fmt.Sprintf("running, %.1f MB", float64(running[index].Memory)/(1<<20))
+			total += running[index].Memory
+		}
+		lines = append(lines, fmt.Sprintf("  %-32s pid %-6d %s", entry.what, pid, state))
+	}
+	lines = append(lines, fmt.Sprintf("  %-32s %.1f MB", "in all", float64(total)/(1<<20)))
+	t.Log(strings.Join(lines, "\n"))
 }
 
 // lifecycleRunning reports whether process still runs, waiting up to two
