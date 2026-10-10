@@ -131,11 +131,20 @@ func TestGitMergedPRsListsASharedMergeOnceUnderTheFirstRepositoryWhenNoOriginSay
 		wantErr  error
 	}{
 		{name: "no listing names it", listings: &pullListings{}},
-		{name: "the listing fails, which is reported", listings: &pullListings{err: failure}, wantErr: failure},
+		{name: "the listing keeps failing, which is reported", listings: &pullListings{err: failure}, wantErr: failure},
 	} {
 		t.Run(test.name, func(t *testing.T) {
+			// Arrange
+			clock := time.Date(2026, 9, 27, 12, 0, 0, 0, time.UTC)
+			list := gitMergedPRs([]string{upstream, fork}, test.listings.list, func() time.Time { return clock })
+			var merged []MergedPR
+			var err error
+
 			// Act
-			merged, err := gitMergedPRs([]string{upstream, fork}, test.listings.list, time.Now)(t.Context(), since20)
+			for range failingPasses {
+				merged, err = list(t.Context(), since20)
+				clock = clock.Add(pullHeadsRecheck)
+			}
 
 			// Assert
 			if !errors.Is(err, test.wantErr) || (test.wantErr == nil) != (err == nil) {

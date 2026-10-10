@@ -91,15 +91,19 @@ func doneReports(lines []string, spawned time.Time) map[string]time.Time {
 // at least minimumRiders goblins' finished pull requests wait green on its
 // default branch. open is the pull request list the poll read, nil when it
 // could not be read: a running train still takes its step, and none starts.
-// A step or a read of the account gh works as that fails is tried again on
-// the next poll, and returned only once it failed failingPasses polls in a
-// row.
+// A step, a start cut short, a read of the repository or a read of the
+// account gh works as that fails is tried again on the next poll, and
+// returned only once it failed failingPasses polls in a row. On 2026-10-10
+// the read of a checkout's origin ran out of time once while its drive was
+// stalled, and woke the CFO, though the CI poll had read the same origin
+// moments before and the next poll read it again.
 func (s *Service) runTrain(ctx context.Context, runner execx.Runner, w *fleetWakes, repo string, open []train.PullRequest) error {
 	stateDir := s.Store.Home.State
 	repository, err := TrainRepository(ctx, runner, repo)
 	if err != nil {
-		return err
+		return w.failing("train repository:"+repo, err)
 	}
+	delete(w.Failing, "train repository:"+repo)
 	trains, listErr := train.List(stateDir)
 	engine := s.trainEngine(runner, repository.Slug)
 	if running, isRunning := train.Running(trains, repository.Slug); isRunning {
@@ -118,8 +122,13 @@ func (s *Service) runTrain(ctx context.Context, runner execx.Runner, w *fleetWak
 	if len(riders) < minimumRiders {
 		return listErr
 	}
-	_, err = engine.Start(ctx, repository, riders)
+	started, err := engine.Start(ctx, repository, riders)
 	if errors.Is(err, train.ErrBusy) || errors.Is(err, train.ErrRunning) {
+		err = nil
+	}
+	// A start cut short is kept as a train whose first step failed, and the
+	// next poll takes its step again, so it is told as any step is.
+	if kept, readErr := train.Read(stateDir, started.ID); err != nil && readErr == nil && !kept.IsFinished() && kept.Errors > 0 && kept.Errors < failingPasses {
 		err = nil
 	}
 	return errors.Join(listErr, err)
