@@ -106,9 +106,9 @@ for (const [size, viewport, scale] of [["the Overlord's window", { width: 1707, 
 
       // Assert: the Overlord, 2026-10-05: "waits for a task doesnt make sens
       // dont ened any addiioantional text", so a waiting card adds no line
-      // about its wait, and the CFO's note on it stays in its panel behind
-      // More. On 2026-10-09 he asked that a row waiting say what for, never
-      // Queued alone: its status says it in a few words, in place of Queued.
+      // about its wait. On 2026-10-09 he asked that a row waiting say what
+      // for, never Queued alone: its status says it in a few words, in place
+      // of Queued.
       // The list runs in start order (2026-10-07, "next up should be at the
       // top of the column"): the one task that can start, then those held.
       await expect(tasks.locator(".card-title")).toHaveText([
@@ -129,12 +129,13 @@ for (const [size, viewport, scale] of [["the Overlord's window", { width: 1707, 
       await select(page, blocked);
       const header = panel(page).locator(".panel-header");
 
-      // Assert: its status says what it waits for, with no line under it,
-      // and its note is behind More.
+      // Assert: its status says what it waits for, with no line and nothing
+      // folded under it (2026-10-10, "the [More] dropdown is not really
+      // necessary"): the CFO's note on the wait is not on the board.
       await expect(header.locator(".panel-status")).toHaveText("Waits for 12 GB free");
       await expect(header.locator(".panel-activity")).toHaveCount(0);
-      await header.locator(".raw-details > summary").filter({ hasText: "More" }).click();
-      await expect(header.locator(".raw-details-text")).toHaveText("default first-open layout must land and the generated mockup must be approved");
+      await expect(header.locator("details")).toHaveCount(0);
+      await expect(panel(page)).not.toContainText("default first-open layout");
     });
   });
 }

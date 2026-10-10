@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { goblinName, listItem, pausedWithParent, pauseStatus, plainText, reportBody, summary, taskName, taskSummary, withoutHarness, teardownSentence, type Summary } from "./task-words.ts";
+import { finishedEvidence, goblinName, listItem, pausedWithParent, pauseStatus, plainText, reportBody, summary, taskName, taskSummary, withoutHarness, teardownSentence, type Summary } from "./task-words.ts";
 import { parseSnapshot, type CIDuration, type PauseCondition, type Task } from "./types.ts";
 
 const task = (fields: Record<string, unknown>): Task => parseSnapshot({ healthy: true, tasks: [{ id: "a", title: "a", phase: "working", generation: "s1", verified: false, ...fields }] }).tasks[0];
@@ -65,6 +65,7 @@ test("plain text is sentence case with no semicolon chains, hashes, paths or lin
       "The board-display handoff is at board-display-handoff.md, so this task can pause."],
     ["a Windows path too", "log at C:\\Users\\fpres\\AppData\\Local\\cfo\\verify\\reports\\run-12.log.", "Log at run-12.log."],
     ["a pull request link reads as the pull request", "opened https://github.com/fpresta0607/code-goblins/pull/326 for review", "Opened PR #326 for review."],
+    ["a pull request named before its link is named once", "delivered as PR https://github.com/fpresta0607/code-goblins/pull/326", "Delivered as PR #326."],
     ["a run link reads as a CI run", "see https://github.com/o/r/actions/runs/37360134485/job/1", "See a CI run."],
     ["other links read as their site", "the page at https://lavish.example.ts.net/p/abc is up", "The page at lavish.example.ts.net is up."],
     ["a question keeps its sentence, not its choices", "Should the board wait for Codex? options: Wait (Recommended) | Ask now - PR 331 is merged", "Should the board wait for Codex?"],
@@ -99,6 +100,22 @@ test("Windows teardown names the programs it still closes, never their process i
   assert.equal(teardownSentence([]), "");
   assert.equal(teardownSentence(["uv.exe pid 20880"]), "Windows is still closing uv.exe.");
   assert.equal(teardownSentence(["uv.exe pid 1", "node.exe pid 2", "uv.exe pid 3"]), "Windows is still closing uv.exe and node.exe.");
+});
+
+// The supervisor's words for a queued task that already finished, written
+// for the CFO (finishedRefusal in internal/supervisor/finished_work.go).
+const refusal = (evidence: string) => "Already finished: " + evidence + "; it never starts again by itself. Move its row to ## Done, or queue new work under a new id";
+
+test("what says a queued task already finished reads as one plain sentence, without what its status says or the CFO's next step", () => {
+  const cases: [string, string, string][] = [
+    ["its last report", refusal("its last report was done (2026-10-06 11:59Z: done: PR https://github.com/fpresta0607/code-goblins/pull/9)"), "Its last report was done (2026-10-06 11:59Z: done: PR #9)."],
+    ["its pull request", refusal("its pull request merged (https://github.com/fpresta0607/code-goblins/pull/31)"), "Its pull request merged (PR #31)."],
+    ["its branch's pull request", refusal("its branch fix/panel-clarity's pull request merged (https://github.com/fpresta0607/code-goblins/pull/31)"), "Its branch fix/panel-clarity's pull request merged (PR #31)."],
+    ["a retirement", refusal("the CFO retired it at 2026-10-07 03:11Z (stopped: superseded by cg-board-trim) and no brief was written for it since"), "The CFO retired it at 2026-10-07 03:11Z (stopped: superseded by cg-board-trim) and no brief was written for it since."],
+    ["other words are kept whole", "Finished under another id", "Finished under another id."],
+    ["nothing says so", "", ""],
+  ];
+  for (const [name, finished, plain] of cases) assert.equal(finishedEvidence(finished), plain, name);
 });
 
 test("a queued task adds no line about what it waits for, whatever it waits on", () => {

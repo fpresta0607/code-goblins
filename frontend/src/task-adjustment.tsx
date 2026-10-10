@@ -6,8 +6,10 @@ import { ClickFeedback, useClickFeedback } from "./click-feedback";
 import { taskName } from "./task-words";
 
 // A queued task's line under its goblin's name, edited in place, as the
-// Overlord asked on 2026-10-08: the caret beside it, or a click on it, turns
-// it into a box holding the task's title and detail. Enter or the check saves
+// Overlord asked on 2026-10-08: the small pencil after it, or a click on its
+// text, turns it into a box holding the task's title and detail. The pencil
+// is the line's one button (2026-10-10, "I get editing pencil a little
+// icon"): a caret only opens or closes. Enter or the check saves
 // it, Shift+Enter adds a line, and Escape or the cross puts the line back. A
 // refused save keeps the box and its text and says why beside it for a moment.
 export function TaskAdjustment({ task, snapshot }: { task: Task; snapshot: Snapshot }) {
@@ -24,18 +26,18 @@ export function TaskAdjustment({ task, snapshot }: { task: Task; snapshot: Snaps
   const [feedback, showFeedback] = useClickFeedback();
   const attempt = useRef<{ payload: string; operation: string } | null>(null);
   const box = useRef<HTMLTextAreaElement>(null);
-  const lineButton = useRef<HTMLButtonElement>(null);
+  const pencil = useRef<HTMLButtonElement>(null);
   const hasOpened = useRef(false);
   const isOpen = draft !== null;
-  // The box opens with the caret at the end of its text, and closing it
-  // gives the focus back to the line.
+  // The box opens with the cursor at the end of its text, and closing it
+  // gives the focus back to the pencil.
   useEffect(() => {
     const element = box.current;
     if (isOpen && element) {
       hasOpened.current = true;
       element.focus();
       element.setSelectionRange(element.value.length, element.value.length);
-    } else if (!isOpen && hasOpened.current) lineButton.current?.focus();
+    } else if (!isOpen && hasOpened.current) pencil.current?.focus();
   }, [isOpen]);
   const cancel = () => {
     if (isSending) return;
@@ -55,9 +57,10 @@ export function TaskAdjustment({ task, snapshot }: { task: Task; snapshot: Snaps
     } catch (failure: unknown) { showFeedback(message(failure)); }
     finally { setSending(false); }
   };
-  if (!draft) return <button ref={lineButton} className="panel-goblin-task task-line" aria-label={"Edit the task: " + line} disabled={task.starting} onClick={() => setDraft(current)}>
-    <span>{line}</span><Icon name="chevron" />
-  </button>;
+  if (!draft) return <div className="panel-goblin-task task-line">
+    <span onClick={task.starting ? undefined : () => setDraft(current)}>{line}</span>
+    <button ref={pencil} className="icon-button" aria-label="Edit task" data-tip="Edit task" disabled={task.starting} onClick={() => setDraft(current)}><Icon name="edit" /></button>
+  </div>;
   return <>
     <div className="task-edit" role="group" aria-label="Edit the task" aria-busy={isSending}>
       <textarea ref={box} aria-label="Task title and detail" value={draft.text} maxLength={8000} rows={1} readOnly={isSending}

@@ -417,7 +417,7 @@ Slots go by memory alone: a start needs 5 GB of memory and of commit free, and n
 A future date, an unanswered question or an Overlord pause does not hold the queue.
 The supervisor does this by itself, one start or resume a minute while memory allows, until nothing that could run is left: the fleet never idles while work waits, and nothing waits for the CFO to notice.
 The memory and disk meters say none of this in words: each is its name, its value and its bar, with nothing written under a bar or between two meters.
-A queued task that already finished never starts again, by itself or from Start: when its last report, live or archived, was done, its pull request or one of its branch merged, or the CFO retired it with `cfo cleanup` or `cfo kill` and no brief was written for it since, its card reads **Already finished** with the evidence in place of Start.
+A queued task that already finished never starts again, by itself or from Start: when its last report, live or archived, was done, its pull request or one of its branch merged, or the CFO retired it with `cfo cleanup` or `cfo kill` and no brief was written for it since, its card reads **Already finished** in place of Start, and that status in its panel carries the evidence in its tooltip.
 For a retired task's row still under Queued, the supervisor also tells the CFO once with a `stale_row:` notify.
 When `cfo cleanup` retires a task, its row moves from Queued to Done with its detail lines, whatever the task last reported, so nothing starts it again from its row.
 The row closes as `done` when the task delivered and as `retired` when it did not, and the supervisor moves any row a delivered task left behind.
@@ -429,7 +429,7 @@ The Overlord's own Start or Resume overrides that ordering; a queued row marked 
 A queued row waits while its title line carries `blocked-by:` what it waits for, with ` - why` after it, and the supervisor starts it by itself once every wait cleared: `until 2026-10-10T00:00Z` a time, `memory 12 GB` free memory and commit, a task id that task delivering, or a GitHub pull request URL that pull request merging.
 A wait the supervisor cannot read, such as a word that names no task, keeps the row waiting and says why on its card, and so does one that can never clear, such as a task that stopped without delivering or a pull request closed without merging.
 A blocked task has no Start button or Next up mark, and its status says what it waits for in place of Queued, such as **Waits for 12 GB free** or **Starts Oct 10, 7:00 PM**, with no line added.
-The CFO's note on the wait is in its panel behind **More**.
+The why after it stays on the row, and the board does not show it.
 An eligible queued card has a **Start** play icon with a tooltip, and its panel has the same **Start**.
 It dispatches the task the way the CFO does, through `cfo spawn` with its brief and the harness, model, effort and mode its backlog row or brief names (Claude Code on `claude-opus-5-5` at `xhigh` when they name none), tells the CFO, puts the task at the top of In progress and opens its terminal once its session is up.
 A task the supervisor starts, by your Start or by itself, leaves Tasks at once for the top of In progress and reads **Starting** until its goblin is at work.
@@ -509,8 +509,8 @@ Branches stay, and dirty or unpushed work keeps its worktree with the reason sho
 Remove opens a confirmation offering **Remove from queue** and **Cancel**: the task leaves the queue and its brief is kept.
 The board uses the same paths as `cfo pause <id>`, `cfo resume <id>` and `cfo kill <id>`; `cfo stop` still stops the supervisor.
 
-A queued task's panel holds **Adjust this task** under its Remove, with its title on the first line and its detail below; a queued card's **Adjust** pencil icon opens that panel.
-**Save changes**, under the text, updates the task and any existing brief with an adjustment record.
+A queued task is edited in its panel's header: the small pencil beside its task, or a click on the task's text, opens a box with its title on the first line and its detail below; a queued card's **Adjust** pencil icon opens that panel.
+Enter or the check saves it, which updates the task and any existing brief with an adjustment record, and Escape or the cross puts the task back unchanged.
 Titles show without the harness a backlog row names after a semicolon, such as "; Claude Code", since the card's harness mark shows it.
 
 Each card's goblin is chosen from the task's work, and the crowned goblin is the CFO.

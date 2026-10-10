@@ -39,7 +39,9 @@ const HEX = "(?=[0-9a-f]*\\d)(?=[0-9a-f]*[a-f])[0-9a-f]{7,40}";
 // A commit hash goes with the word that points at it, and one alone in
 // brackets with its brackets; one inside a file name stays in the name.
 const HASH = new RegExp(`(?:\\s+(?:at|to|from|as|of))?\\s+${HEX}(?![\\w-]|\\.\\w)|\\s*\\(${HEX}\\)`, "g");
-const PULL_REQUEST = /https:\/\/github\.com\/[^\s/]+\/[^\s/]+\/pull\/(\d+)[^\s)]*/g;
+// A pull request's link reads as PR and its number, said once where the
+// words before the link already say PR.
+const PULL_REQUEST = /(?:\bPR\s+)?https:\/\/github\.com\/[^\s/]+\/[^\s/]+\/pull\/(\d+)[^\s)]*/g;
 const RUN = /https:\/\/github\.com\/[^\s/]+\/[^\s/]+\/actions\/runs\/[^\s)]*/g;
 const LINK = /https?:\/\/([^\s/)]+)[^\s)]*/g;
 // A Windows path, or a path of at least two slashes or one ending in a file
@@ -77,6 +79,16 @@ function sentence(text: string): string {
 // chained two, with no hash, path or link in its prose.
 export function plainText(raw: string): string {
   return tidy(raw).split(/;\s+/).map(sentence).filter(Boolean).join(" ");
+}
+
+// finishedEvidence is what says a queued task already finished, as one plain
+// sentence for the tip of its status. The supervisor writes it for the CFO,
+// as "Already finished: its pull request merged (...); it never starts again
+// by itself. Move its row to ## Done, or queue new work under a new id": the
+// status says the first of that and the last is the CFO's next step, so the
+// tip says the evidence between them.
+export function finishedEvidence(finished: string): string {
+  return plainText(finished.replace(/^Already finished:\s*/, "").replace(/;\s*it never starts again by itself\.[\s\S]*$/, ""));
 }
 
 // summary is a text's whole sentences up to limit characters, and at least
