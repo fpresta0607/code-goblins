@@ -10,6 +10,8 @@ import (
 	"sync"
 	"testing"
 	"time"
+
+	"github.com/fpresta0607/code-goblins/internal/standin"
 )
 
 // scanner stands in for a virus scanner. It opens the file named name as soon
@@ -126,7 +128,7 @@ func TestOneLineInstallRemovesAFolderAScannerHeldForAMoment(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			// Arrange
 			scan := newScanner(held.file, held.until)
-			releases, _ := serveNoMistakesReleases(t, zipped(t, "no-mistakes.exe", standIn(t)), 0, sumsOnceHeld(scan))
+			releases, _ := serveNoMistakesReleases(t, zipped(t, "no-mistakes.exe", standin.Bytes(t)), 0, sumsOnceHeld(scan))
 
 			// Act
 			run := runInstallWithNoMistakes(t, WindowsPowerShell(), releases, noMistakesSetup{scanner: scan})
@@ -153,7 +155,7 @@ func TestOneLineInstallRemovesAFolderAScannerHeldForAMoment(t *testing.T) {
 func TestOneLineInstallNamesAFolderItCouldNotRemove(t *testing.T) {
 	// Arrange
 	scan := newScanner("no-mistakes-v"+pinnedNoMistakes(t)+"-windows-amd64.zip", "")
-	releases, _ := serveNoMistakesReleases(t, zipped(t, "no-mistakes.exe", standIn(t)), 0, sumsOnceHeld(scan))
+	releases, _ := serveNoMistakesReleases(t, zipped(t, "no-mistakes.exe", standin.Bytes(t)), 0, sumsOnceHeld(scan))
 
 	// Act
 	run := runInstallWithNoMistakes(t, WindowsPowerShell(), releases, noMistakesSetup{scanner: scan})
@@ -184,7 +186,7 @@ func TestOneLineInstallNamesAFolderItCouldNotRemove(t *testing.T) {
 // install stops before it runs anything.
 func TestOneLineInstallThatStopsNamesAFolderItCouldNotRemove(t *testing.T) {
 	// Arrange
-	base := ServeRelease(t, standIn(t), fmt.Sprintf("%x  cfo.exe\n", sha256.Sum256([]byte("another build"))))
+	base := ServeRelease(t, standin.Bytes(t), fmt.Sprintf("%x  cfo.exe\n", sha256.Sum256([]byte("another build"))))
 	cmd, _, temp := StrippedCommand(t, base, map[string]string{"git": "@exit /b 0\r\n", "gh": "@exit /b 0\r\n"}, WindowsPowerShell(), "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-Command",
 		"Get-Content -Raw -LiteralPath '"+installScript(t)+"' | Invoke-Expression; exit $LASTEXITCODE")
 	scan := newScanner("SHA256SUMS", "")

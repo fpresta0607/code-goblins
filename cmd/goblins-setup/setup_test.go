@@ -3,7 +3,6 @@ package main
 import (
 	"context"
 	"encoding/json"
-	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -16,48 +15,6 @@ import (
 	"github.com/fpresta0607/code-goblins/internal/devdrive"
 	"github.com/fpresta0607/code-goblins/internal/home"
 )
-
-// cfoStandInVariable makes this test binary a stand-in for a tool whose every
-// command succeeds, such as a release's cfo.exe, which install puts in the
-// per-user home's bin as cfo install does; asked its version, it gives the
-// no-mistakes version the variable holds, as the managed no-mistakes.
-const cfoStandInVariable = "GOBLINS_SETUP_TEST_CFO"
-
-func TestMain(m *testing.M) {
-	if pin := os.Getenv(cfoStandInVariable); pin != "" {
-		if len(os.Args) > 1 && os.Args[1] == "--version" {
-			fmt.Println("no-mistakes version v" + pin)
-		}
-		if len(os.Args) > 1 && os.Args[1] == "install" {
-			os.Exit(standInInstall())
-		}
-		os.Exit(0)
-	}
-	os.Exit(m.Run())
-}
-
-// standInInstall puts this binary in the per-user home's bin under both the
-// binary's names.
-func standInInstall() int {
-	self, err := os.Executable()
-	if err != nil {
-		return 1
-	}
-	data, err := os.ReadFile(self)
-	if err != nil {
-		return 1
-	}
-	bin := filepath.Join(os.Getenv("LOCALAPPDATA"), "CodeGoblins", "bin")
-	if err := os.MkdirAll(bin, 0o755); err != nil {
-		return 1
-	}
-	for _, name := range []string{"cfo.exe", "goblins.exe"} {
-		if err := os.WriteFile(filepath.Join(bin, name), data, 0o755); err != nil {
-			return 1
-		}
-	}
-	return 0
-}
 
 // published is a release of the test's own that publishes script as its
 // install script, or answers status in its place, and the setup that installs

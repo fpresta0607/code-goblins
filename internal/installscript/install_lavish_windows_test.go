@@ -11,6 +11,7 @@ import (
 	"testing"
 
 	"github.com/fpresta0607/code-goblins/internal/installtest"
+	"github.com/fpresta0607/code-goblins/internal/standin"
 )
 
 // lavishFile is the release file of the lavish-axi fork the install installs.
@@ -27,14 +28,7 @@ var lavishPin = regexp.MustCompile(`Sha256 = "([0-9A-Fa-f]{64})"`)
 // session's temp folder.
 func runInstallWithLavishDownload(t *testing.T, script string, content []byte, standIns map[string]string) (output, recorded, temp string) {
 	t.Helper()
-	executable, err := os.Executable()
-	if err != nil {
-		t.Fatal(err)
-	}
-	binary, err := os.ReadFile(executable)
-	if err != nil {
-		t.Fatal(err)
-	}
+	binary := standin.Bytes(t)
 	base := installtest.ServeRelease(t, binary, fmt.Sprintf("%x  cfo.exe\n", sha256.Sum256(binary)))
 	folder := t.TempDir()
 	record := filepath.Join(folder, "record.txt")
@@ -58,7 +52,6 @@ func runInstallWithLavishDownload(t *testing.T, script string, content []byte, s
 		"}\n"
 	cmd, _, temp := installtest.StrippedCommand(t, base, stubs, installtest.WindowsPowerShell(), "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-Command",
 		internet+"Get-Content -Raw -LiteralPath '"+script+"' | Invoke-Expression; exit $LASTEXITCODE")
-	cmd.Env = append(cmd.Env, standInVariable+"=1")
 	out, _ := cmd.CombinedOutput()
 	written, _ := os.ReadFile(record)
 	return installtest.Said(out, temp), string(written), temp
