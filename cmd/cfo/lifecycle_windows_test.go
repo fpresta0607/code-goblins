@@ -217,6 +217,10 @@ func (runner *resumedGateRunner) Run(_ context.Context, request execx.Request) (
 		return execx.Result{Stdout: []byte("ref: refs/heads/main\tHEAD\n0123456789abcdef0123456789abcdef01234567\tHEAD\n")}, nil
 	case request.Name == "git":
 		return execx.Result{Stdout: []byte("cfo/task\n")}, nil
+	// This no-mistakes names no --intent-file in its help, as one before
+	// 1.86.0, so a run it starts has its intent on the command line.
+	case request.Name == "no-mistakes" && command == "help axi run":
+		return execx.Result{}, nil
 	case request.Name == "no-mistakes":
 		runner.native = append(runner.native, request)
 		if strings.HasPrefix(command, "axi run ") {

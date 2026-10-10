@@ -272,6 +272,26 @@ func (e Engine) run(ctx context.Context, dir, name string, args ...string) (stri
 	return strings.TrimSpace(string(result.Stdout)), nil
 }
 
+// runWithBody runs gh in dir with args and body, which gh reads from the
+// file --body-file names. A body is prose of many lines, and prose on a
+// command line is what Microsoft Defender reads as a lure pasted into a
+// terminal, so it never goes there.
+func (e Engine) runWithBody(ctx context.Context, dir, body string, args ...string) (string, error) {
+	file, err := os.CreateTemp("", "cfo-train-body-*.md")
+	if err != nil {
+		return "", err
+	}
+	defer os.Remove(file.Name())
+	_, err = file.WriteString(body)
+	if closeErr := file.Close(); err == nil {
+		err = closeErr
+	}
+	if err != nil {
+		return "", err
+	}
+	return e.run(ctx, dir, "gh", append(args, "--body-file", file.Name())...)
+}
+
 func short(sha string) string {
 	return sha[:min(len(sha), 7)]
 }
