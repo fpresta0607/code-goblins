@@ -57,9 +57,10 @@ type Hook struct {
 //
 // Every pre-tool hook starts a process before its tool runs, so each tool
 // call runs as few as the guards allow: a Bash call runs pretool-bash alone,
-// which applies both Bash guards, and pretool-subagent runs only for the
-// tools its guard can refuse, never for the reading and editing tools a
-// session spends its time in.
+// which applies both shell guards, a PowerShell call runs pretool-powershell
+// alone, which applies the same two as PowerShell writes a command, and
+// pretool-subagent runs only for the tools its guard can refuse, never for
+// the reading and editing tools a session spends its time in.
 //
 // The two fields carried verbatim from the repo-scoped wiring are
 // SessionStart's 120s timeout and stop-autoarm's asyncRewake with its 8h
@@ -69,6 +70,7 @@ func Hooks(root string) []Hook {
 		{Name: "session-start", Event: "SessionStart", Timeout: 120},
 		{Name: "pre-compact", Event: "PreCompact"},
 		{Name: "pretool-bash", Event: "PreToolUse", Matcher: "Bash"},
+		{Name: "pretool-powershell", Event: "PreToolUse", Matcher: "PowerShell"},
 		{Name: "pretool-subagent", Event: "PreToolUse", Matcher: guard.HookMatcher()},
 		{Name: "turnend-guard", Event: "Stop"},
 		{Name: "stop-autoarm", Event: "Stop", Timeout: 28800, AsyncRewake: true},
