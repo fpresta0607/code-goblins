@@ -14,6 +14,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"slices"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -206,6 +207,37 @@ func TestLatencyStagesSpin(t *testing.T) {
 	os.Exit(0)
 }
 
+// probeRaise puts every process in the console's job, and the console server
+// that was not there before, in the high priority class.
+func probeRaise(console *Console, before, after []int) error {
+	raise := func(pid int) error {
+		process, err := windows.OpenProcess(windows.PROCESS_SET_INFORMATION, false, uint32(pid))
+		if err != nil {
+			return err
+		}
+		defer windows.CloseHandle(process)
+		return windows.SetPriorityClass(process, windows.HIGH_PRIORITY_CLASS)
+	}
+	buffer := make([]uintptr, 66)
+	if err := windows.QueryInformationJobObject(console.job, windows.JobObjectBasicProcessIdList, uintptr(unsafe.Pointer(&buffer[0])), uint32(len(buffer))*uint32(unsafe.Sizeof(uintptr(0))), nil); err != nil {
+		return err
+	}
+	count := *(*uint32)(unsafe.Add(unsafe.Pointer(&buffer[0]), 4))
+	for _, pid := range unsafe.Slice((*uintptr)(unsafe.Add(unsafe.Pointer(&buffer[0]), 8)), int(count)) {
+		if err := raise(int(pid)); err != nil {
+			return err
+		}
+	}
+	for _, pid := range after {
+		if !slices.Contains(before, pid) {
+			if err := raise(pid); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
+}
+
 type probeChunk struct {
 	at   int64
 	data []byte
@@ -275,6 +307,12 @@ func TestLatencyStages(t *testing.T) {
 	spinAfter, err := time.ParseDuration(os.Getenv("PROBE_STAGES_SPIN_AFTER"))
 	if err != nil {
 		spinAfter = budget
+	}
+	isHigh := os.Getenv("PROBE_STAGES_HIGH") != ""
+	if isHigh {
+		if err := windows.SetPriorityClass(windows.CurrentProcess(), windows.HIGH_PRIORITY_CLASS); err != nil {
+			t.Fatal(err)
+		}
 	}
 	clock := startProbeClock()
 	folder := t.TempDir()
@@ -362,6 +400,10 @@ func TestLatencyStages(t *testing.T) {
 			notesPath := filepath.Join(folder, "notes.json")
 			_ = os.Remove(notesPath)
 			var saidUnread atomic.Int64
+			var servers []int
+			if isHigh {
+				servers = consoleServers(t)
+			}
 			console, err := Start(Spec{
 				Args: []string{os.Args[0], "-test.run=^TestLatencyStagesChild$", "--", "stages-child", activity},
 				Env:  append(os.Environ(), "PROBE_STAGES_PROGRESS="+progressPath, "PROBE_STAGES_NOTES="+notesPath),
@@ -379,6 +421,11 @@ func TestLatencyStages(t *testing.T) {
 				return
 			}
 			stats.consoles++
+			if isHigh {
+				if err := probeRaise(console, servers, consoleServers(t)); err != nil {
+					t.Logf("console %d: raise: %v", number, err)
+				}
+			}
 			output := make(chan probeChunk, 256)
 			stopping, ended := make(chan struct{}), make(chan struct{})
 			defer func() {
@@ -533,6 +580,7 @@ func TestLatencyStages(t *testing.T) {
 			t.Logf("test clock stall: at %s: %s", since(stall.From), stall.length().Round(100*time.Microsecond))
 		}
 	}
+	t.Logf("high priority: %t", isHigh)
 	t.Logf("ran %s on %d processors; the test's clock thread beat %d times and stalled 20ms or more %d times: %s", time.Since(began).Round(time.Second), runtime.NumCPU(), beats, len(testStalls), testCounts)
 	t.Logf("disk churn wrote %d MB", churned.Load()>>20)
 	for _, name := range []string{"quiet", "churn", "spin"} {
