@@ -413,7 +413,7 @@ The product does this by itself in every home, with no setting, and wakes you fo
   So does a wait that can never clear: a task that stopped without delivering, or a pull request closed without merging.
   A waiting card says what it waits for in place of Queued, such as **Waits for 12 GB free** or **Starts Oct 10, 7:00 PM**.
   Work that must not start until you decide belongs under `## Parked`.
-- **Finished work never starts again.** A queued task whose outcome says it delivered, whose last report in its status log, live or archived, was done, or whose pull request, or one of its branch, merged, is refused by the scheduler and by Start, and its card says **Already finished** with the evidence in place of Start.
+- **Finished work never starts again.** A queued task whose outcome says it delivered, whose last report in its status log, live or archived, was done, or whose pull request, or one of its branch, merged, is refused by the scheduler and by Start, and its card says **Already finished** in place of Start, with the evidence in the tooltip of that status in its panel.
   So is a task you retired, with `cfo cleanup` or `cfo kill`, after its row was queued, whatever its row still says.
   A row has no time of its own, so its brief stands for it: a brief written since the retirement is new work for that id and starts.
   Instead of starting a retired task's row, the scheduler wakes you once with a `stale_row:` notify keyed by the task.
