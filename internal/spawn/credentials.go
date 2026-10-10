@@ -7,7 +7,9 @@ import (
 
 	"github.com/fpresta0607/code-goblins/internal/auth"
 	"github.com/fpresta0607/code-goblins/internal/fsx"
+	"github.com/fpresta0607/code-goblins/internal/harness"
 	"github.com/fpresta0607/code-goblins/internal/state"
+	"github.com/fpresta0607/code-goblins/internal/worktree"
 )
 
 // spawnNeed is the services a new task's terminal is to carry: the ones its
@@ -38,12 +40,84 @@ func (s Service) spawnNeed(req Request) (auth.Need, error) {
 // gave every task all of its project's credentials has a record that names
 // none, and is given what a brief that names none is given, the manifest's
 // default services. Its brief is not read: it was written before a brief
-// could name a service, and the goblin it briefs can write to it.
+// could name a service, and the goblin it briefs can write to it. The MCP
+// servers are the ones the record names, which is none for such a task.
 func taskNeed(meta state.TaskMeta) auth.Need {
 	if !meta.HasCredentials {
-		return auth.Need{IsUnstated: true}
+		return auth.Need{IsUnstated: true, MCPServers: meta.MCPServers}
 	}
-	return auth.Need{Services: meta.Credentials}
+	return auth.Need{Services: meta.Credentials, MCPServers: meta.MCPServers}
+}
+
+// goblinHasVariable reports whether a goblin's terminal, built from the
+// user's environment and the task's credentials, sets a variable. It decides
+// whether an MCP server that authenticates by that variable is handed to the
+// goblin. No harness billing key ever reaches a goblin, whatever its source.
+func (s Service) goblinHasVariable(userEnv []string, credentials auth.Result) func(name string) bool {
+	return func(name string) bool {
+		return !auth.IsHarnessBillingKey(name) && hasNativeVariable(s.nativeHostEnvironment(userEnv, harness.Launch{}, credentials), name)
+	}
+}
+
+// undefinedServersLine says which of the named MCP servers the project's
+// .mcp.json does not define, and which it does, or nothing when it defines
+// them all. A name shaped like a credential value is counted and never
+// repeated: a brief names a server, never a value.
+func undefinedServersLine(project string, named []string) (string, error) {
+	defined, err := worktree.MCPServerNames(project)
+	if err != nil {
+		return "", err
+	}
+	var names []string
+	valueShaped := 0
+	for _, name := range named {
+		switch {
+		case slices.Contains(defined, name):
+		case auth.SecretShape(name) != "":
+			valueShaped++
+		default:
+			names = append(names, name)
+		}
+	}
+	if valueShaped > 0 {
+		names = append(names, fmt.Sprintf("%d shaped like a credential value, which a brief never holds", valueShaped))
+	}
+	if len(names) == 0 {
+		return "", nil
+	}
+	line := auth.ProjectName(project) + "'s .mcp.json defines no server named " + strings.Join(names, ", ")
+	if len(defined) == 0 {
+		return line + ". It defines none, so there is none to name", nil
+	}
+	return line + ". It defines " + strings.Join(defined, ", "), nil
+}
+
+// mcpHeldLine says in one line which MCP servers a task's terminal was not
+// given because their entry in the project's .mcp.json holds a value, and the
+// one command that grants one. It names servers, never a value.
+func mcpHeldLine(task string, held []string) string {
+	servers := "servers"
+	if len(held) == 1 {
+		servers = "server"
+	}
+	return fmt.Sprintf("mcp: withheld %d %s whose entry holds a value (%s), grant one with `cfo auth grant %s --mcp <server>`", len(held), servers, strings.Join(held, ", "), task)
+}
+
+// mcpTakenLine says what a relaunch took from a task: MCP servers its last
+// terminal was given, whose entry holds a value and which its record does not
+// name. A task spawned before such servers were withheld loses them so.
+func mcpTakenLine(id string, taken []string) string {
+	return fmt.Sprintf("%s was given the MCP servers %s by its last terminal's configuration. Their entry in the project's .mcp.json holds a value and its record does not name them, so they are withheld from this relaunch on", id, strings.Join(taken, ", "))
+}
+
+// mcpInstruction tells a goblin which MCP servers it was not given and how it
+// comes by one, or nothing when none was withheld for holding a value.
+func mcpInstruction(held []string) string {
+	if len(held) == 0 {
+		return ""
+	}
+	return " These MCP servers of the project were withheld from you, since their entry holds a value: " + strings.Join(held, ", ") + "." +
+		" When your task needs one, say so in a blocked report that names the server and why: the CFO grants a server by name, and it reaches you at your next restart."
 }
 
 // recordedServices is what a task's record names after a preflight: the

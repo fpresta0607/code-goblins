@@ -78,6 +78,63 @@ type AuthRefresher struct {
 	Panes PaneLiveness
 }
 
+// GrantMCP adds MCP servers of the project's .mcp.json to the ones task id's
+// record names, so a server whose entry holds a value is given to the task. A
+// harness reads its MCP servers when it starts, so the grant reaches the task
+// at its next relaunch, which writes its configuration again. It is the one
+// way a task comes by such a server after its spawn, and it changes no other
+// task. It returns the servers the record names afterwards.
+//
+// A server the project's .mcp.json does not define is refused before anything
+// is written, and the record is changed under the lock a switch and a resume
+// hold from start to end.
+func (r AuthRefresher) GrantMCP(id string, servers []string) ([]string, error) {
+	if err := state.ValidTaskID(id); err != nil {
+		return nil, err
+	}
+	meta, err := state.ReadTaskMeta(r.StateDir, id)
+	if errors.Is(err, fs.ErrNotExist) {
+		return nil, fmt.Errorf("spawn: %s is not a running task, and only a running task is granted an MCP server. A queued task names its servers in its brief", id)
+	}
+	if err != nil {
+		return nil, fmt.Errorf("spawn: read task metadata: %w", err)
+	}
+	undefined, err := undefinedServersLine(meta.Project, servers)
+	if err != nil {
+		return nil, fmt.Errorf("spawn: %w", err)
+	}
+	if undefined != "" {
+		return nil, fmt.Errorf("spawn: no MCP server was granted to %s: %s", id, undefined)
+	}
+	var named []string
+	lockName := state.MetadataLockName(id)
+	if _, err := lock.AcquireExclusiveNamed(r.StateDir, lockName); err != nil {
+		return nil, fmt.Errorf("spawn: the record of task %s is being changed by another command, as a switch or a resume of it does, so run the grant again once that has ended: %w", id, err)
+	}
+	err = func() (err error) {
+		defer func() { err = errors.Join(err, lock.ReleaseExclusiveNamed(r.StateDir, lockName)) }()
+		current, err := state.ReadTaskMeta(r.StateDir, id)
+		if err != nil {
+			return fmt.Errorf("spawn: read task metadata: %w", err)
+		}
+		if current.Project != meta.Project {
+			return fmt.Errorf("spawn: task %s now records project %s, so it was not granted a server of %s", id, auth.ProjectName(current.Project), auth.ProjectName(meta.Project))
+		}
+		named = slices.Clone(current.MCPServers)
+		for _, server := range servers {
+			if !slices.Contains(named, server) {
+				named = append(named, server)
+			}
+		}
+		slices.Sort(named)
+		if err := state.WriteTaskMCPServers(r.StateDir, id, named); err != nil {
+			return fmt.Errorf("spawn: name the granted MCP servers in the record of %s: %w", id, err)
+		}
+		return state.AppendStatus(r.StateDir, id, "credentials: the CFO granted the MCP servers "+strings.Join(servers, ", ")+", so the task's next terminal is given "+strings.Join(named, ", "))
+	}()
+	return named, err
+}
+
 // RefreshProject regenerates auth.ps1 for every task whose metadata names
 // this project and whose worktree, tasktmp, and pane are all still live.
 // A task that is not provably live is skipped: rewriting its file would

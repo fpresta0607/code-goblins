@@ -3,6 +3,7 @@ package worktree
 import (
 	"encoding/json"
 	"reflect"
+	"slices"
 	"strings"
 	"testing"
 )
@@ -18,7 +19,7 @@ func TestFilterMCPServersKeepsStdioVerbatim(t *testing.T) {
 			}
 		}
 	}`)
-	filtered, kept, dropped, _, err := FilterMCPServers(config, everyVariableSet)
+	filtered, kept, dropped, _, _, err := FilterMCPServers(config, everyVariableSet, func(name string) bool { return name == "supabase" })
 	if err != nil {
 		t.Fatalf("FilterMCPServers: %v", err)
 	}
@@ -59,7 +60,7 @@ func TestFilterMCPServersQualifiesHTTPServersByToken(t *testing.T) {
 			"plain-header": {"url": "https://example.com/mcp", "headers": {"X-Team": "ops"}}
 		}
 	}`)
-	filtered, kept, dropped, _, err := FilterMCPServers(config, everyVariableSet)
+	filtered, kept, dropped, _, _, err := FilterMCPServers(config, everyVariableSet, nil)
 	if err != nil {
 		t.Fatalf("FilterMCPServers: %v", err)
 	}
@@ -79,7 +80,7 @@ func TestFilterMCPServersQualifiesHTTPServersByToken(t *testing.T) {
 
 func TestFilterMCPServersDropsUnshapedEntries(t *testing.T) {
 	config := []byte(`{"mcpServers": {"broken": "not-an-object"}}`)
-	filtered, kept, dropped, _, err := FilterMCPServers(config, everyVariableSet)
+	filtered, kept, dropped, _, _, err := FilterMCPServers(config, everyVariableSet, nil)
 	if err != nil {
 		t.Fatalf("FilterMCPServers: %v", err)
 	}
@@ -93,7 +94,7 @@ func TestFilterMCPServersEmptyConfigKeepsNothing(t *testing.T) {
 		[]byte(`{}`),
 		[]byte(`{"mcpServers": {}}`),
 	} {
-		filtered, kept, dropped, unset, err := FilterMCPServers(config, everyVariableSet)
+		filtered, kept, dropped, unset, _, err := FilterMCPServers(config, everyVariableSet, nil)
 		if err != nil {
 			t.Fatalf("FilterMCPServers(%s): %v", config, err)
 		}
@@ -104,7 +105,7 @@ func TestFilterMCPServersEmptyConfigKeepsNothing(t *testing.T) {
 }
 
 func TestFilterMCPServersRejectsMalformedJSON(t *testing.T) {
-	if _, _, _, _, err := FilterMCPServers([]byte(`{oops`), everyVariableSet); err == nil {
+	if _, _, _, _, _, err := FilterMCPServers([]byte(`{oops`), everyVariableSet, nil); err == nil {
 		t.Fatal("FilterMCPServers accepted malformed JSON")
 	}
 }
@@ -126,7 +127,7 @@ func TestFilterMCPServersTypesURLServersForClaude(t *testing.T) {
 			"stdio": {"command": "npx", "args": ["-y", "server"]}
 		}
 	}`)
-	filtered, kept, _, _, err := FilterMCPServers(config, everyVariableSet)
+	filtered, kept, _, _, _, err := FilterMCPServers(config, everyVariableSet, nil)
 	if err != nil || len(kept) != 4 {
 		t.Fatalf("FilterMCPServers = kept %v, %v; want all four kept", kept, err)
 	}
@@ -167,7 +168,7 @@ func TestFilterMCPServersNeverWritesAHeaderForAMissingToken(t *testing.T) {
 			"stdio": {"command": "npx", "args": ["-y", "server"]}
 		}
 	}`)
-	filtered, kept, dropped, unset, err := FilterMCPServers(config, func(string) bool { return false })
+	filtered, kept, dropped, unset, _, err := FilterMCPServers(config, func(string) bool { return false }, nil)
 	if err != nil {
 		t.Fatalf("FilterMCPServers: %v", err)
 	}
@@ -192,5 +193,48 @@ func TestFilterMCPServersNeverWritesAHeaderForAMissingToken(t *testing.T) {
 		if _, ok := document.Servers[name]; ok {
 			t.Errorf("filtered config holds %s, want it withheld", name)
 		}
+	}
+}
+
+// A server's entry holds a value when anything in its env map or its headers
+// is more than a reference to one variable. Such a server is withheld unless
+// the task names it, and one the task names is handed over.
+func TestFilterMCPServersWithholdsAnEntryThatHoldsAValue(t *testing.T) {
+	for _, tc := range []struct {
+		name   string
+		entry  string
+		isHeld bool
+	}{
+		{"a value in a command server's env map", `{"command": "standin-server", "env": {"STANDIN_KEY": "stand-in-value"}}`, true},
+		{"a value in an Authorization header", `{"url": "https://mcp.example.invalid/mcp", "headers": {"Authorization": "Bearer stand-in-value"}}`, true},
+		{"a value in a second header", `{"url": "https://mcp.example.invalid/mcp", "headers": {"Authorization": "Bearer ${STANDIN_TOKEN}", "X-Api-Key": "stand-in-value"}}`, true},
+		{"a value after a reference", `{"command": "standin-server", "env": {"STANDIN_KEY": "${STANDIN_KEY}stand-in-value"}}`, true},
+		{"a reference with a default", `{"command": "standin-server", "env": {"STANDIN_KEY": "${STANDIN_KEY:-stand-in-value}"}}`, true},
+		{"a value that is no text", `{"command": "standin-server", "env": {"STANDIN_PORT": 8080}}`, true},
+		{"a reference to a variable", `{"command": "standin-server", "env": {"STANDIN_KEY": "${STANDIN_KEY}"}}`, false},
+		{"a reference after a scheme word", `{"url": "https://mcp.example.invalid/mcp", "headers": {"Authorization": "Bearer ${STANDIN_TOKEN}"}}`, false},
+		{"an empty value", `{"command": "standin-server", "env": {"STANDIN_KEY": ""}}`, false},
+		{"no env map and no header", `{"command": "standin-server", "args": ["--stdio"]}`, false},
+		{"a token variable", `{"url": "https://mcp.example.invalid/mcp", "bearerTokenEnvVar": "STANDIN_TOKEN"}`, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			// Arrange
+			config := []byte(`{"mcpServers": {"standin": ` + tc.entry + `}}`)
+
+			// Act
+			_, kept, _, _, held, err := FilterMCPServers(config, everyVariableSet, func(string) bool { return false })
+			_, named, _, _, heldWhenNamed, namedErr := FilterMCPServers(config, everyVariableSet, func(name string) bool { return name == "standin" })
+
+			// Assert
+			if err != nil || namedErr != nil {
+				t.Fatalf("FilterMCPServers: %v, %v", err, namedErr)
+			}
+			if slices.Contains(held, "standin") != tc.isHeld || slices.Contains(kept, "standin") == tc.isHeld {
+				t.Errorf("held = %v kept = %v, want held %v", held, kept, tc.isHeld)
+			}
+			if !slices.Contains(named, "standin") || len(heldWhenNamed) != 0 {
+				t.Errorf("named by the task: kept = %v held = %v, want it handed over", named, heldWhenNamed)
+			}
+		})
 	}
 }

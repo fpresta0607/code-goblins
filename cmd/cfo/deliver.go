@@ -17,6 +17,7 @@ import (
 	"github.com/fpresta0607/code-goblins/internal/home"
 	"github.com/fpresta0607/code-goblins/internal/lock"
 	"github.com/fpresta0607/code-goblins/internal/state"
+	"github.com/fpresta0607/code-goblins/internal/worktree"
 )
 
 // runBrief writes a task brief scaffold at data/<id>/brief.md and prints its
@@ -123,7 +124,9 @@ mode: %s
 // credentials line is what cfo spawn reads: the services whose credentials
 // the task's terminal carries. It starts at none, so a task carries a service
 // only once the brief's author names it, and the manifest's services are
-// listed beside it to name from. It holds names, never a value.
+// listed beside it to name from. Its mcp line names the MCP servers the task
+// is given among those whose entry in the project's .mcp.json holds a value,
+// which are listed the same way. It holds names, never a value.
 func briefAuthentication(dataDir, project string) string {
 	declared := "It declares no service yet."
 	if manifest, err := auth.LoadManifest(dataDir, project); err == nil && len(manifest.Services) > 0 {
@@ -133,10 +136,17 @@ func briefAuthentication(dataDir, project string) string {
 		}
 		declared = "It declares: " + strings.Join(names, ", ") + "."
 	}
-	return "credentials: " + auth.NoServices + "\n\n" +
-		"On the line above, name the services whose credentials this task needs, separated by commas, by their names in " + auth.ManifestPath("data", project) + ". " + declared + "\n" +
+	held := "It has none now."
+	if plan, err := worktree.PlanMCP(project, func(string) bool { return true }); err == nil && len(plan.Held) > 0 {
+		held = "They are: " + strings.Join(plan.Held, ", ") + "."
+	}
+	return "credentials: " + auth.NoServices + "\n" +
+		"mcp: " + auth.NoServices + "\n\n" +
+		"On the credentials line, name the services whose credentials this task needs, separated by commas, by their names in " + auth.ManifestPath("data", project) + ". " + declared + "\n" +
 		"The task's terminal carries those services' credentials and no other, and none while the line says " + auth.NoServices + ". A brief names a service, never a value.\n" +
-		"Add a service the task needs that the manifest does not list yet, then run `cfo auth " + project + " --fix` before dispatch."
+		"Add a service the task needs that the manifest does not list yet, then run `cfo auth " + project + " --fix` before dispatch.\n" +
+		"On the mcp line, name the MCP servers this task needs among those whose entry in the project's .mcp.json holds a value, separated by commas. " + held + "\n" +
+		"A server whose entry holds no value reaches the task without being named."
 }
 
 // runPR handles "cfo pr check <id> <url>", "cfo pr merge <url>" and

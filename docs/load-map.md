@@ -140,6 +140,8 @@ Everything in the user rows above still loads for a goblin; spawn adds the follo
    Model and effort flags follow the lane table in `data/routing.json`.
    Each harness's trust dialog is confirmed automatically.
 4. **MCP.** The token-authenticated subset of the project's `.mcp.json`, written under the task's temporary directory: Claude receives it by flag, and Codex and Pi do not use it.
+   A server whose entry holds a value, in a command server's `env` map or in a header, is in it only when the task's brief names the server on its `mcp:` line or `cfo auth grant <id> --mcp <server>` added it since.
+   A relaunch writes it again from the project's file.
    Spawn also leaves a copy at the worktree's `.mcp.json` when that path is free, which no harness the fleet runs now reads.
 5. **The first message.** "Read the brief at <path> and follow it exactly," followed by how to report with `cfo notify` and, in `no-mistakes` mode, the task's frozen pipeline policy.
 
