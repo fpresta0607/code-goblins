@@ -54,7 +54,7 @@ One no-mistakes daemon serves every goblin, and v1.75.1 reads its agent chain fr
 Neither differs between two tasks of one repository, and its one per-run pin, `--model` with `--effort`, serves pi alone.
 So a run carries its own agents as a launch selection, which `cfo pipeline run` writes and no-mistakes proves.
 
-1. The driver writes `state/tasktmp/<id>/launch-selection.json`: the trusted default-branch commit, `"apply": true`, and one ordered chain for the primary, reviewer and fixer roles.
+1. The driver writes `state/tasktmp/<id>/launch-selection-<launch>.json`, a file of its own for each start: the trusted default-branch commit, `"apply": true`, and one ordered chain for the primary, reviewer and fixer roles.
 2. It starts the run with `--launch-nonce`, `--validation-generation`, which is the task's frozen policy hash, and `--launch-assertion <file>`, and prints the chain on a `pipeline gate agent:` line.
 3. The daemon replaces that run's agent chain, each named harness's model and effort, and every review role with the selection, for that run alone and in memory.
 4. It then proves the selection as it proves any launch assertion: against a fresh fetch of the trusted commit and against the arguments each agent will be started with, before a run exists and before any agent starts.
@@ -65,6 +65,9 @@ A no-mistakes build that cannot apply a selection refuses the launch before it t
 The driver then says which build v6 needs.
 A repository's own `agent` field does not stop a v6 start, because the run's selection replaces it.
 Resume restarts a paused task's gate run past `cfo pipeline run`, and that start carries the same selection, on the harness the goblin comes back on.
+It holds to the driver's checks as well.
+A resume whose replacement run cannot be given its agents, such as one coming back on pi, starts no run and says why.
+A paused task frozen before v6 restarts its run only while the machine config still matches its policy, and is otherwise refused with the `cfo pipeline migrate <id>` that clears it, as `cfo pipeline run` refuses it.
 
 ### A second harness only when named
 

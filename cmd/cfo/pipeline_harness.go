@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io"
 	"path/filepath"
+	"strings"
 
 	"github.com/fpresta0607/code-goblins/internal/execx"
 	"github.com/fpresta0607/code-goblins/internal/fsx"
@@ -15,10 +16,6 @@ import (
 	"github.com/fpresta0607/code-goblins/internal/pipeline"
 	"github.com/fpresta0607/code-goblins/internal/state"
 )
-
-// launchSelectionFile is where a task keeps the launch selection of the gate
-// run it last started. no-mistakes reads it once, as the run starts.
-const launchSelectionFile = "launch-selection.json"
 
 // launchSelectionArgs gives a version 6 gate run its own agents. It writes the
 // task's launch selection, which names the harness the task runs on with its
@@ -28,9 +25,6 @@ const launchSelectionFile = "launch-selection.json"
 // before any agent starts. One shared daemon so serves tasks on different
 // harnesses at once, and no gate starts a harness nobody named.
 func launchSelectionArgs(ctx context.Context, commands execx.Runner, root string, meta state.TaskMeta, selection pipeline.Selection, trusted string, out io.Writer) ([]string, error) {
-	if err := pipeline.GateHarness(meta.Harness); err != nil {
-		return nil, fmt.Errorf("%w. Task %s runs on %s, so switch it with cfo switch %s --harness <harness>", err, meta.ID, meta.Harness, meta.ID)
-	}
 	own, err := gateAgent(root, meta)
 	if err != nil {
 		return nil, err
@@ -47,12 +41,15 @@ func launchSelectionArgs(ctx context.Context, commands execx.Runner, root string
 	if err != nil {
 		return nil, err
 	}
-	path := filepath.Join(meta.TaskTmp, launchSelectionFile)
-	if err := fsx.AtomicWriteFile(path, data); err != nil {
+	random := make([]byte, 16)
+	if _, err := rand.Read(random); err != nil {
 		return nil, err
 	}
-	nonce := make([]byte, 16)
-	if _, err := rand.Read(nonce); err != nil {
+	launch := hex.EncodeToString(random)
+	// Each start writes a file of its own, which no-mistakes reads once as the
+	// run starts, so no later start can replace it under an earlier one.
+	path := filepath.Join(meta.TaskTmp, "launch-selection-"+launch+".json")
+	if err := fsx.AtomicWriteFile(path, data); err != nil {
 		return nil, err
 	}
 	fallback := selection.Policy.Fallback
@@ -70,7 +67,7 @@ func launchSelectionArgs(ctx context.Context, commands execx.Runner, root string
 	fmt.Fprintln(out, said)
 	// The nonce binds this launch to its own run, and the generation to the
 	// policy the task is frozen at.
-	return []string{"--launch-nonce", "cfo-" + hex.EncodeToString(nonce), "--validation-generation", selection.Hash, "--launch-assertion", path}, nil
+	return []string{"--launch-nonce", "cfo-" + launch, "--validation-generation", selection.Hash, "--launch-assertion", path}, nil
 }
 
 // gateAgent is the harness a task runs on with the model and effort its gate
@@ -123,17 +120,27 @@ func isHarnessSignedIn(ctx context.Context, commands execx.Runner, name string) 
 	return detector.Detect(ctx, name).State == onboarding.Ready
 }
 
-// isLaunchSelectionUnknown reports a no-mistakes build that has no launch
-// assertion at all, or one that cannot apply it.
+// isLaunchSelectionUnknown reports a no-mistakes that takes no launch
+// selection: a command with no strict launch or no launch assertion, a command
+// that proves an assertion but cannot apply one, or a daemon older than its
+// command. A selection the daemon read and refused is none of these.
 func isLaunchSelectionUnknown(result execx.Result) bool {
 	said := append(append([]byte(nil), result.Stdout...), result.Stderr...)
-	return bytes.Contains(said, []byte("unknown flag: --launch-assertion")) || bytes.Contains(said, []byte("unreadable launch assertion"))
+	for _, refusal := range []string{"unknown flag: --launch-", "unknown flag: --validation-generation", "unreadable launch assertion", "cannot honor --launch-assertion"} {
+		if bytes.Contains(said, []byte(refusal)) {
+			return true
+		}
+	}
+	return false
 }
 
 // restartLaunchSelection is the launch selection of the run Resume starts in
 // place of a paused one, for a task whose policy runs its gate on its own
-// harness, and nothing for any other task. That start goes past cfo pipeline
-// run, so it carries the selection itself.
+// harness. That start goes past cfo pipeline run, so it carries the selection
+// itself and holds to the same checks: the task's snapshot is the one its
+// record names, and a task whose policy fixes its own chain restarts only
+// while the machine config still holds that chain. A task with no frozen
+// policy gets nothing, and runs as the machine config says.
 func restartLaunchSelection(ctx context.Context, commands execx.Runner, gate pipeline.Reader, meta state.TaskMeta) ([]string, error) {
 	if meta.Mode != "no-mistakes" || meta.PipelineHash == "" {
 		return nil, nil
@@ -142,8 +149,21 @@ func restartLaunchSelection(ctx context.Context, commands execx.Runner, gate pip
 	if err != nil {
 		return nil, err
 	}
+	if selection.Hash != meta.PipelineHash || selection.Class != meta.PipelineClass {
+		return nil, fmt.Errorf("pipeline: task %s's frozen policy differs from its record, as a migration that stopped part way leaves it. Run cfo pipeline migrate %s, then resume it", meta.ID, meta.ID)
+	}
 	if selection.Policy.Version < 6 {
+		drift, err := pipeline.Config{Path: filepath.Join(gate.Root, "config.yaml"), Policy: selection.Policy}.Drift()
+		if err != nil {
+			return nil, err
+		}
+		if len(drift) != 0 {
+			return nil, fmt.Errorf("pipeline: the machine's gate config has moved on from the policy task %s is frozen at (%s). Run cfo pipeline migrate %s, then resume it", meta.ID, strings.Join(drift, ", "), meta.ID)
+		}
 		return nil, nil
+	}
+	if err := pipeline.GateHarness(meta.Harness); err != nil {
+		return nil, fmt.Errorf("%w. Task %s would come back on %s, so resume it on claude or codex", err, meta.ID, meta.Harness)
 	}
 	trusted, err := gate.TrustedHead(ctx, meta.Project)
 	if err != nil {

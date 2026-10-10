@@ -233,6 +233,9 @@ func pipelineCommand(ctx context.Context, h home.Home, root string, commands exe
 			return err
 		}
 		if selection.Policy.Version > 5 {
+			if err := pipeline.GateHarness(meta.Harness); err != nil {
+				return fmt.Errorf("%w. Task %s runs on %s, so switch it with cfo switch %s --harness <harness>", err, meta.ID, meta.Harness, meta.ID)
+			}
 			launch, err := launchSelectionArgs(ctx, commands, root, meta, selection, trusted, out)
 			if err != nil {
 				return err
@@ -366,7 +369,9 @@ func (j policyMigrationJournal) validate() error {
 		return errors.New("pipeline: invalid new policy in migration journal")
 	}
 	want, err := pipeline.MigrateSelection(j.Old, j.New.Policy)
-	if err != nil || j.Old.Policy.Version >= j.New.Policy.Version || want != j.New || j.Old.Class != j.New.Class || j.Old.ReviewCycles != j.New.ReviewCycles || j.Audit != pipelineMigrationAudit(j.Old, j.New) {
+	// Two snapshots of one version differ only from version 6, in the fallback
+	// the operator names, and MigrateSelection refuses every other such pair.
+	if err != nil || j.Old.Policy.Version > j.New.Policy.Version || j.Old == j.New || want != j.New || j.Old.Class != j.New.Class || j.Old.ReviewCycles != j.New.ReviewCycles || j.Audit != pipelineMigrationAudit(j.Old, j.New) {
 		return errors.New("pipeline: inconsistent policy migration journal")
 	}
 	return nil
