@@ -1,6 +1,7 @@
 package home
 
 import (
+	"bufio"
 	"context"
 	"errors"
 	"io"
@@ -9,6 +10,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/fpresta0607/code-goblins/internal/fsx"
 	"github.com/fpresta0607/code-goblins/internal/state"
@@ -170,11 +172,17 @@ func TestProcessImagesListsThisProcess(t *testing.T) {
 	t.Fatalf("%d running programs listed, none of them this test's own %s", len(images), self)
 }
 
-// privateRuntime is a msys runtime of the test's own: the library, cygpath
-// and sleep copied from the machine's Git, with the fstab line that makes
-// /tmp the user's temporary folder. The runtime keys what its processes
-// share by where its library is installed, so this copy has a mount table of
-// its own and nothing the test does reaches a shell of the machine's Git.
+// privateRuntime is a msys runtime of the test's own: the library and
+// cygpath copied from the machine's Git, with the fstab line that makes /tmp
+// the user's temporary folder. The runtime keys what its processes share by
+// where its library is installed, so this copy has a mount table of its own
+// and nothing the test does reaches a shell of the machine's Git.
+//
+// cygpath is the one program copied because it needs nothing but the
+// library. This fixture once copied sleep too, which also needs
+// msys-intl-8.dll, and found it only where Git's usr\bin was on the PATH:
+// on a runner, where it is not, sleep ended at once, the runtime had no
+// first process, and the test read the fixture's failure as the product's.
 func privateRuntime(t *testing.T) string {
 	t.Helper()
 	git, err := exec.LookPath("git")
@@ -197,7 +205,7 @@ func privateRuntime(t *testing.T) string {
 	if err := os.MkdirAll(runtime, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	for _, name := range []string{msysRuntime, "cygpath.exe", "sleep.exe"} {
+	for _, name := range []string{msysRuntime, "cygpath.exe"} {
 		in, err := os.Open(filepath.Join(source, name))
 		if err != nil {
 			t.Skipf("the msys runtime in %s lacks %s: %v", source, name, err)
@@ -234,21 +242,51 @@ func TestLiveTempsReadsWhatTheFirstProcessOfARuntimeMadeTmp(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	first := exec.Command(filepath.Join(runtime, "sleep.exe"), "120")
+	// The first process is a cygpath that answers the paths it reads and
+	// runs until its input closes. Its first answer proves the premise the
+	// rest stands on: the runtime is up, and this process decided its /tmp.
+	first := exec.Command(filepath.Join(runtime, "cygpath.exe"), "-w", "-f", "-")
 	first.Env = append(os.Environ(), "TMP="+scratch, "TEMP="+scratch)
+	asks, err := first.StdinPipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	answers, err := first.StdoutPipe()
+	if err != nil {
+		t.Fatal(err)
+	}
 	if err := first.Start(); err != nil {
 		t.Fatal(err)
 	}
 	isRunning := true
 	stop := func() {
 		if isRunning {
-			_ = first.Process.Kill()
+			_ = asks.Close()
 			_ = first.Wait()
 			isRunning = false
 		}
 	}
-	t.Cleanup(stop)
-	images := []string{filepath.Join(runtime, "sleep.exe")}
+	t.Cleanup(func() {
+		_ = first.Process.Kill()
+		stop()
+	})
+	answered := make(chan string, 1)
+	go func() {
+		line, _ := bufio.NewReader(answers).ReadString('\n')
+		answered <- strings.TrimSpace(line)
+	}()
+	if _, err := io.WriteString(asks, "/tmp\n"); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case own := <-answered:
+		if !fsx.SamePath(own, scratch) {
+			t.Fatalf("the runtime's first process has /tmp at %q, want its own TMP %s", own, scratch)
+		}
+	case <-time.After(30 * time.Second):
+		t.Fatal("the runtime's first process never answered, so no runtime is up to ask")
+	}
+	images := []string{filepath.Join(runtime, "cygpath.exe")}
 
 	// Act
 	temps, err := liveTemps(context.Background(), images, safeTemp)
