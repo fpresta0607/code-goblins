@@ -17,7 +17,9 @@ const DAY_AND_TIME: Intl.DateTimeFormatOptions = { month: "short", day: "numeric
 // stands, its pull request one tap away, then every pull request of its
 // batch with the goblin that made it and where it stands, each row opening
 // the pull request, and every CI run of the batch with the pull requests it
-// tested, each opening on GitHub, and how it ended, opening that run. The
+// tested, each opening on GitHub, and how it ended, opening that run, and
+// under a run whose failed checks ran again each check that failed once,
+// opening its first try. The
 // trains it took on are part of it, so their runs come first. tasks are the
 // board's, which hold a goblin still on it. row is the panel's top row (see
 // PanelRow).
@@ -68,6 +70,10 @@ export function TrainPanel({ train, tasks, row }: { train: MergeTrain; tasks: Ta
               })}</span>
               <span className={"train-panel-state train-" + run.tone}>{run.text}</span>
               {run.url && <a className="icon-button train-panel-open" href={run.url} target="_blank" rel="noreferrer" aria-label={"Open run " + run.number} data-tip={"Open run " + run.number}><Icon name="external" /></a>}
+              {run.once.length > 0 && <span className="train-panel-once">
+                <span className="train-panel-once-label">Failed once</span>
+                {run.once.map((check) => check.url ? <a key={check.name} className="train-panel-rider train-panel-check" href={check.url} target="_blank" rel="noreferrer">{check.name}</a> : <span key={check.name} className="train-panel-rider train-panel-check">{check.name}</span>)}
+              </span>}
             </li>)}
           </ol>
         </section>}

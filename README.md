@@ -107,7 +107,8 @@ Landing green pull requests one at a time costs one CI run each, in a row, becau
 A merge train lands them with one run.
 It merges the green pull requests goblins finished onto main in the order they reported done, on a branch of its own, and opens a pull request for that branch that is never merged, so CI tests them together once.
 When that run is green, each pull request merges with a merge commit in the same order, and main's tree must then equal the train's.
-When it is red, the train is halved until the one pull request that breaks it is found: every half that passes lands, and that pull request's goblin gets the failing checks.
+When it is red, the failed checks run again once, because a check can fail by chance, and a run that passes on its second try lands with the check that failed once named in its record.
+When it is red a second time, the train is halved until the one pull request that breaks it is found: every half that passes lands, and that pull request's goblin gets the failing checks.
 A pull request that conflicts with the ones ahead of it stays off and its goblin is told to merge main; drafts and pull requests labelled `hold` (recovery, security, money paths, or anything the Overlord said to wait on) never ride.
 
 The supervisor starts a train by itself when two or more green goblin pull requests wait on one main, and the board shows each batch as one card with what it tests or landed, folding a train that landed nothing into the train that retried it.
