@@ -53,6 +53,14 @@ func Remove(path string) error {
 	return retryTransient(func() error { return os.Remove(path) })
 }
 
+// RemoveAll is os.RemoveAll for a folder or file another process may be
+// holding for a moment, as a virus scanner holds a file it just saw and
+// Windows a program that just ran: the removal waits that out within
+// transientBudget. A missing path is no error, as with os.RemoveAll.
+func RemoveAll(path string) error {
+	return retryTransient(func() error { return os.RemoveAll(path) })
+}
+
 // transientBudget is how long a state file operation waits out another
 // process holding the file before it reports the failure.
 var transientBudget = 5 * time.Second

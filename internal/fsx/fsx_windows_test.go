@@ -148,3 +148,86 @@ func TestRemoveWaitsOutAReaderThatHoldsTheFile(t *testing.T) {
 		t.Errorf("the file is still there after Remove: %v", err)
 	}
 }
+
+// A folder's removal waits out another process holding a file in it, as a
+// virus scanner holds one it just saw: the one silenced try each temporary
+// folder got before 2026-10-10 left the folder behind.
+func TestRemoveAllWaitsOutAReaderThatHoldsAFileInTheFolder(t *testing.T) {
+	// Arrange
+	dir := filepath.Join(t.TempDir(), "code-goblins-setup-1")
+	if err := os.MkdirAll(filepath.Join(dir, "nested"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(dir, "nested", "install.ps1")
+	if err := os.WriteFile(path, nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	reader, err := os.Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	released := make(chan struct{})
+	go func() {
+		time.Sleep(1500 * time.Millisecond)
+		reader.Close()
+		close(released)
+	}()
+
+	// Act
+	err = RemoveAll(dir)
+	<-released
+
+	// Assert
+	if err != nil {
+		t.Fatalf("RemoveAll while a reader held a file in the folder for 1.5 s: %v", err)
+	}
+	if _, err := os.Stat(dir); !errors.Is(err, os.ErrNotExist) {
+		t.Errorf("the folder is still there after RemoveAll: %v", err)
+	}
+}
+
+// The wait is bounded, and what stays is named: a folder something never lets
+// go of costs a removal at most transientBudget of waiting, and the error
+// names the file that held it. A folder that is not there is no error.
+func TestRemoveAllGivesUpOnAReaderThatNeverLetsGo(t *testing.T) {
+	// Arrange
+	dir := filepath.Join(t.TempDir(), "code-goblins-setup-1")
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(dir, "install.ps1")
+	if err := os.WriteFile(path, nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	reader, err := os.Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer reader.Close()
+	budget := transientBudget
+	transientBudget = 300 * time.Millisecond
+	var waited time.Duration
+	sleep = func(wait time.Duration) {
+		waited += wait
+		time.Sleep(wait)
+	}
+	t.Cleanup(func() { transientBudget, sleep = budget, time.Sleep })
+
+	// Act
+	err = RemoveAll(dir)
+	missing := RemoveAll(filepath.Join(dir, "never-made"))
+
+	// Assert
+	if err == nil {
+		t.Fatal("RemoveAll removed a folder holding a file a reader never let go of")
+	}
+	if !strings.Contains(err.Error(), path) {
+		t.Errorf("the error %q does not name %s", err, path)
+	}
+	if waited == 0 || waited > transientBudget {
+		t.Errorf("RemoveAll waited %s before giving up, want some wait within its budget of %s", waited, transientBudget)
+	}
+	if missing != nil {
+		t.Errorf("RemoveAll of a folder that is not there: %v", missing)
+	}
+}
