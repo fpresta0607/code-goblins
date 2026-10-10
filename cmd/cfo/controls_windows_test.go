@@ -42,6 +42,7 @@ var controlRuns = map[string][]string{
 	"stop":          {"stop", "--no-such-flag"},
 	"attach":        {"attach", "--no-such-flag"},
 	"update":        {"update", "--no-such-flag"},
+	"process-plan":  {"process-plan", "one-argument-too-many"},
 	"send":          {"send"},
 	"answer":        {"answer"},
 	"peek":          {"peek"},

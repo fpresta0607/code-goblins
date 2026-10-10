@@ -619,29 +619,33 @@ Descendant scheduling errors are logged and cannot discard terminal input; requi
 The latency regression uses one native console event per read, as libuv does, and checks key p95 below 50 ms, the second slowest of 40 keys within 250 ms, no key past a second, and an ordered 2,000-character burst within two seconds during idle and continuous output.
 
 The fleet's own controls run one priority class above normal, and never higher.
-They are the supervisor, each terminal's host, and the commands that are a short conversation with one of them or with the home's own records: `status`, `stop`, `attach`, `send`, `answer`, `peek`, `fleet-view`, `drain`, `watch`, `notify`, `question`, `register`, `pause`, `resume`, `kill`, `update`, `session-start`, `hook` and `native-hook`.
+They are the supervisor, each terminal's host, and the commands that are a short conversation with one of them or with the home's own records: `status`, `stop`, `attach`, `send`, `answer`, `peek`, `fleet-view`, `drain`, `watch`, `notify`, `question`, `register`, `pause`, `resume`, `kill`, `update`, `process-plan`, `session-start`, `hook` and `native-hook`.
 Each raises itself as its first act (`priority.AboveTheWork`) and gives the class back when its work ends.
 A process that is not at normal priority is left as it is: one that runs lower was put there on purpose and hands its class to what it starts.
 At the priority of the builds and tests it supervises, a control waited its turn behind them after each of its system calls.
-Beside sixteen busy threads on 2026-10-10, each at normal priority and then raised:
+Measured on 2026-10-10, each control at normal priority and then raised, beside sixteen busy threads on every core, and beside ten kept to the cores goblin work keeps since it leaves half of the performance cores to the Overlord's apps:
 
-| Control | At normal priority | One class above |
-| --- | --- | --- |
-| One reading of the machine's processes, which the janitor, a stop's sweep and the board's trees make | 7.7 s, from 4.4 to 10.2 | 0.04 s, from 0.03 to 0.06 |
-| A host's handshake, with its client raised as well | 58 ms, from 39 to 102 | 0.2 ms |
-| A typed key back from the console, through the host | 152 ms | 0.2 ms |
-| `cfo send --key`, its own work once its process runs | 107 ms | 2 ms |
-| One verified copy of a 33 MB program, of which an update's prepare step makes five | 3.5 s | 0.07 s |
+| Control | Every core, normal | Every core, raised | Goblin cores, normal | Goblin cores, raised |
+| --- | --- | --- | --- | --- |
+| One reading of the machine's processes, which the janitor, a stop's sweep and the board's trees make | 7.7 s, from 4.4 to 10.2 | 0.04 s | 0.017 s | 0.013 s |
+| The same reading in a hidden process that asks Windows for nothing, as a pause the supervisor starts | not measured | not measured | 0.9 s, from 0.14 to 1.8 | 0.013 s |
+| A host's handshake, with its client raised as well | 58 ms, from 39 to 102 | 0.2 ms | 0.7 ms | 0.2 ms |
+| A typed key back from the console, through the host | 152 ms | 0.2 ms | 0.4 ms, worst 47 | 0.1 ms |
+| `cfo send --key`, its own work once its process runs | 107 ms | 2 ms | 1 ms | 1 ms |
+| One verified copy of a 33 MB program, of which an update's prepare step makes five | 3.5 s | 0.07 s | 0.06 s, and 3.6 s in a process that asks for nothing | 0.05 s |
+| A `cfo` command or a hook coming to exist | 0.65 s | 0.61 s | 0.02 s | 0.015 s |
+| `cfo peek`, its own work | 2.4 s | 2.0 s | 0.07 s, worst 0.9 | 0.013 s |
+| The supervisor's progress reading of one goblin, two git commands | 0.89 s | 0.77 s | 0.17 s | 0.14 s |
 
+Windows keeps a hidden process that asks for nothing on the efficiency cores, which goblin work may fill, so a control that makes no such request gains most from the raise once goblin work keeps to its own cores.
 A goblin's harness and everything started in its terminal run at normal, a `cfo` command a goblin runs there included, and so does what a gate agent starts.
 Windows gives the child of a raised process the normal class as long as its start names none, and no start in the fleet names one.
 `TestAHostRunsOneClassAboveItsTerminalWhichRunsAtNormal`, `TestWhatARaisedProcessStartsThroughExecxRunsAtNormal`, `TestWhatARaisedHostStartsForItsConsoleRunsAtNormal` and `TestARunItemARaisedSupervisorStartsRunsAtNormal` hold that for each way the fleet starts a process, and `TestEveryProcessStartGoesThroughCommand` reports a priority class named anywhere but `internal/priority`.
 `TestEveryCommandIsAControlOrStaysAtNormalOnPurpose` makes a command added to `cfo` one or the other on purpose.
-What the raise cannot reach still waits its turn beside the same sixteen threads.
-A `cfo` command or a hook takes about 0.7 seconds to come to exist, against 0.02 on a quiet machine, because its process is started at its caller's priority and raises itself only once it runs.
-`cfo peek` and the monitor's reading of a screen take 2 to 3 seconds, because the terminal's input waker asks the console for each row and both answer at normal priority.
-Each of the supervisor's progress readings starts git twice in a goblin's worktree, about 0.8 seconds a goblin, and a `go list` of this repository, which `cfo gate test --plan` runs, took 55 seconds.
-Both are processes the fleet starts at normal.
+The last three rows are what the raise cannot reach where goblin work has every core, as on a machine with a single performance core.
+A command or a hook is started at its caller's priority and raises itself only once it runs.
+For a peek, and for the monitor's reading of a screen, the terminal's input waker asks the console for each row, and both answer at normal priority.
+Each progress reading starts git twice in a goblin's worktree, and a process the fleet starts runs at normal.
 One slow key in a run is a hosted runner's scheduling noise (504 ms seen with the test's job to itself); two slow keys fail, and a failure names the slow keys by number.
 Apart from that policy, a goblin's terminal keeps off the performance cores the fleet's work leaves to the Overlord's own apps: half of the machine's performance cores, rounded up to whole cores, the last of them as Windows numbers them.
 `cfo spawn` starts a goblin's host with `--leave-cores-for-apps`, and the host keeps the terminal's process to the other processor threads before it runs.

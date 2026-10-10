@@ -15,7 +15,7 @@ import (
 // bound, and stays at normal priority. A terminal's host is not here because
 // it raises itself, whoever starts it (host.Run).
 var controls = map[string]bool{
-	"serve": true, "status": true, "stop": true, "attach": true, "update": true,
+	"serve": true, "status": true, "stop": true, "attach": true, "update": true, "process-plan": true,
 	"send": true, "answer": true, "peek": true, "fleet-view": true,
 	"drain": true, "watch": true, "notify": true, "question": true, "register": true,
 	"pause": true, "resume": true, "kill": true,
