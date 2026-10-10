@@ -94,14 +94,22 @@ func TestTheSweepEndsWhatAGoneTerminalLeftAndNeverWhatIsNotItsOwn(t *testing.T) 
 	}
 }
 
-// A detached tree of a running terminal may still be in use: a server its
-// goblin browses, a watcher it waits on. The sweep ends one only once it has
-// used no processor time for an hour, and starts counting again whenever it
-// works.
+// A detached tree of a running terminal whose goblin has delivered and rests
+// is ended only once it has done nothing for an hour, and the count starts
+// again whenever it works. What a goblin that works left is never ended this
+// way (TestNothingOfAWorkingGoblinsIsIdleHoweverLongItSatStill).
 func TestTheSweepEndsADetachedTreeOfARunningTerminalOnlyOnceItSatIdle(t *testing.T) {
 	started := time.Date(2026, 10, 9, 14, 20, 0, 0, time.UTC)
 	mark := lifecycle.Mark{Terminal: "gb-task", ProofSum: "own-digest"}
-	owners := []Owner{{ID: "gb-task", Marks: []lifecycle.Mark{mark}, HostPID: 1}}
+	owners := []Owner{{ID: "gb-task", Marks: []lifecycle.Mark{mark}, HostPID: 1, AtRestSince: started}}
+	// seen is the tree as an earlier sweep recorded it: its server had used
+	// two seconds of processor time and its worker one.
+	seen := func(serverStarted, since time.Time) []Watched {
+		return []Watched{{PID: 10, Started: serverStarted, Since: since, Members: []WatchedMember{
+			{PID: 10, Started: serverStarted, CPU: 2 * time.Second},
+			{PID: 11, Started: started.Add(4 * time.Second), CPU: time.Second},
+		}}}
+	}
 	tree := func(serverCPU, workerCPU time.Duration) []Process {
 		return []Process{
 			{Process: lifecycle.Process{PID: 1, Name: "cfo.exe", Started: started}},
@@ -123,10 +131,10 @@ func TestTheSweepEndsADetachedTreeOfARunningTerminalOnlyOnceItSatIdle(t *testing
 		since   time.Time
 	}{
 		{name: "first seen", tree: tree(2*time.Second, time.Second), now: firstSeen, want: planned{Watching: []int{10}}, since: firstSeen},
-		{name: "idle for less than the hour", tree: tree(2*time.Second, time.Second), watched: []Watched{{PID: 10, Started: started.Add(3 * time.Second), CPU: 3 * time.Second, Since: firstSeen}}, now: firstSeen.Add(59 * time.Minute), want: planned{Watching: []int{10}}, since: firstSeen},
-		{name: "idle for the hour", tree: tree(2*time.Second, time.Second), watched: []Watched{{PID: 10, Started: started.Add(3 * time.Second), CPU: 3 * time.Second, Since: firstSeen}}, now: firstSeen.Add(time.Hour), want: planned{Ending: []int{10, 11}}},
-		{name: "it worked since", tree: tree(2*time.Second, 4*time.Second), watched: []Watched{{PID: 10, Started: started.Add(3 * time.Second), CPU: 3 * time.Second, Since: firstSeen}}, now: firstSeen.Add(time.Hour), want: planned{Watching: []int{10}}, since: firstSeen.Add(time.Hour)},
-		{name: "another process took its pid", tree: tree(2*time.Second, time.Second), watched: []Watched{{PID: 10, Started: started.Add(-time.Hour), CPU: 3 * time.Second, Since: firstSeen}}, now: firstSeen.Add(time.Hour), want: planned{Watching: []int{10}}, since: firstSeen.Add(time.Hour)},
+		{name: "idle for less than the hour", tree: tree(2*time.Second, time.Second), watched: seen(started.Add(3*time.Second), firstSeen), now: firstSeen.Add(59 * time.Minute), want: planned{Watching: []int{10}}, since: firstSeen},
+		{name: "idle for the hour", tree: tree(2*time.Second, time.Second), watched: seen(started.Add(3*time.Second), firstSeen), now: firstSeen.Add(time.Hour), want: planned{Ending: []int{10, 11}}},
+		{name: "it worked since", tree: tree(2*time.Second, 4*time.Second), watched: seen(started.Add(3*time.Second), firstSeen), now: firstSeen.Add(time.Hour), want: planned{Watching: []int{10}}, since: firstSeen.Add(time.Hour)},
+		{name: "another process took its pid", tree: tree(2*time.Second, time.Second), watched: seen(started.Add(-time.Hour), firstSeen), now: firstSeen.Add(time.Hour), want: planned{Watching: []int{10}}, since: firstSeen.Add(time.Hour)},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			// Act
@@ -149,14 +157,15 @@ func TestTheSweepEndsADetachedTreeOfARunningTerminalOnlyOnceItSatIdle(t *testing
 
 // A browser bridge keeps its page drawing whether or not anything drives it,
 // so its processor time never says it is idle: on 2026-10-09 three bridges
-// hours old used most of a processor between them. A running terminal's
-// bridge is ended once its session sat unused for an hour, by the time the
-// tool last wrote its session's files.
+// hours old used most of a processor between them. The bridge of a running
+// terminal whose goblin has delivered and rests is ended once its session
+// sat unused for an hour, by the time the tool last wrote its session's
+// files. A working goblin's bridge is never ended this way.
 func TestTheSweepEndsARunningTerminalsBridgeOnceItsSessionSatUnused(t *testing.T) {
 	started := time.Date(2026, 10, 9, 14, 20, 0, 0, time.UTC)
 	now := started.Add(3 * time.Hour)
 	mark := lifecycle.Mark{Terminal: "gb-task", ProofSum: "own-digest"}
-	owners := []Owner{{ID: "gb-task", Marks: []lifecycle.Mark{mark}, HostPID: 1}}
+	owners := []Owner{{ID: "gb-task", Marks: []lifecycle.Mark{mark}, HostPID: 1, AtRestSince: started}}
 	bridge := []string{"node", `C:\npm\chrome-devtools-axi\dist\bin\chrome-devtools-axi-bridge.js`}
 	for _, test := range []struct {
 		name     string
@@ -174,7 +183,7 @@ func TestTheSweepEndsARunningTerminalsBridgeOnceItsSessionSatUnused(t *testing.T
 				{Process: lifecycle.Process{PID: 11, ParentPID: 10, Name: "chrome.exe", Started: started.Add(2 * time.Minute), Arguments: []string{"chrome.exe", "--headless"}, Mark: mark}, CPU: 50 * time.Minute},
 			}
 			// The last sweep saw it with far less processor time used.
-			watched := []Watched{{PID: 10, Started: started.Add(time.Minute), CPU: time.Minute, Since: now.Add(-time.Hour)}}
+			watched := []Watched{{PID: 10, Started: started.Add(time.Minute), Since: now.Add(-time.Hour), Members: []WatchedMember{{PID: 10, Started: started.Add(time.Minute), CPU: time.Minute}}}}
 
 			// Act
 			got := planOf(processes, owners, watched, now)

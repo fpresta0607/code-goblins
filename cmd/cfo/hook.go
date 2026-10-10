@@ -92,12 +92,23 @@ func runHook(name string, stdin io.Reader, stdout, stderr io.Writer) int {
 		_ = digest.WriteCheckpoint(h, time.Now())
 		return 0
 	case "stop-autoarm":
+		h, ok := primaryHome()
+		if !ok {
+			return 0
+		}
+		// The turn-end guard fires beside this hook and waits for it to hold
+		// recovery. It is shown that this firing is arming before anything
+		// slow: reading the payload, proving the session, taking custody.
+		// That is shown on the terminal's name alone, before the proof, and
+		// all it can do is make the guard wait: it lets no turn end.
+		supervise.ShowArming(h.State)
+		defer supervise.StopArming(h.State)
 		payload, ok := claudehook.ReadPayload(stdin)
 		if !ok {
 			return 0
 		}
-		h, program, ok := ownSessionHome()
-		if !ok {
+		program, err := supervisor.OwnSession(h.State)
+		if err != nil {
 			return 0
 		}
 		return hookStopAutoarm(h, program, payload, stdout, stderr)
@@ -286,6 +297,9 @@ func hookTurnendGuard(stdin io.Reader, stdout, stderr io.Writer) int {
 	guardGrace := claudehook.Seconds("CFO_GUARD_GRACE", 300)
 	epochFresh := claudehook.Seconds("CFO_CLAUDE_AUTOARM_EPOCH_FRESH", 15)
 	syncWait := time.Duration(claudehook.Int("CFO_CLAUDE_AUTOARM_SYNC_WAIT_MS", 800, 0, 60000)) * time.Millisecond
+	// An auto-arm firing that shows it is arming is waited for this long in
+	// all before the turn is called blind after all.
+	armingWait := time.Duration(claudehook.Int("CFO_CLAUDE_AUTOARM_ARMING_WAIT_MS", 10000, 0, 60000)) * time.Millisecond
 	blockBudget := claudehook.Int("CFO_CLAUDE_TURNEND_BLOCK_BUDGET", 3, 0, 1000000)
 
 	// upstream step 1: is any goblin work in flight at all? An unlistable
@@ -315,8 +329,9 @@ func hookTurnendGuard(stdin io.Reader, stdout, stderr io.Writer) int {
 	}
 
 	// upstream step 4: give the sibling Stop-owned auto-arm a sync window
-	// to prove recovery is under way before charging anything.
-	if pollAutoarmProof(state, guardGrace, epochFresh, syncWait) {
+	// to prove recovery is under way before charging anything, and longer
+	// while it shows it is still arming.
+	if pollAutoarmProof(state, guardGrace, epochFresh, syncWait, armingWait) {
 		return 0
 	}
 
@@ -401,27 +416,28 @@ func reopenIdleTurn(h home.Home, session string) string {
 // waiting at all. Elapsed time is checked before each sleep, not after, so a
 // syncWait shorter than 100ms cannot overshoot the window by sleeping a full
 // 100ms anyway.
-func pollAutoarmProof(state string, grace, epochFresh, syncWait time.Duration) bool {
-	if supervise.AutoarmOwnsRecovery(state, grace, epochFresh) {
-		return true
-	}
-	if syncWait <= 0 {
-		return false
-	}
-	deadline := time.Now().Add(syncWait)
+//
+// Past syncWait it keeps checking for as long as an auto-arm firing shows it
+// is arming (supervise.AutoarmArming), up to armingWait in all: a firing on
+// its way to the proof is waited for, and one that ends or never arrives is
+// not. Arming is read before the proof each time, because the firing holds
+// the proof before it stops showing that it is arming.
+func pollAutoarmProof(state string, grace, epochFresh, syncWait, armingWait time.Duration) bool {
+	began := time.Now()
 	for {
-		remaining := time.Until(deadline)
-		if remaining <= 0 {
-			return false
-		}
-		wait := 100 * time.Millisecond
-		if remaining < wait {
-			wait = remaining
-		}
-		time.Sleep(wait)
+		waited := time.Since(began)
+		isArming := syncWait > 0 && waited < armingWait && supervise.AutoarmArming(state)
 		if supervise.AutoarmOwnsRecovery(state, grace, epochFresh) {
 			return true
 		}
+		if waited >= syncWait && !isArming {
+			return false
+		}
+		wait := 100 * time.Millisecond
+		if remaining := syncWait - waited; remaining > 0 && remaining < wait {
+			wait = remaining
+		}
+		time.Sleep(wait)
 	}
 }
 
@@ -684,6 +700,10 @@ func hookStopAutoarmWithConfig(h home.Home, program proc.Entry, payload claudeho
 		return 0
 	}
 	defer lock.ReleaseNamed(state, autoarmLockName)
+	// The lock is the proof the guard waits for, so this firing is no longer
+	// only arming. The proof is there before the showing ends, and the guard
+	// reads them in the other order, so it never finds neither.
+	supervise.StopArming(state)
 
 	// Step 5: epoch ledger, best-effort. An unwritable ledger is not proof
 	// of anything, so every outcome write below (through recordOutcome)

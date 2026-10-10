@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
+	"maps"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -16,6 +17,7 @@ import (
 	"github.com/fpresta0607/code-goblins/internal/harness"
 	"github.com/fpresta0607/code-goblins/internal/home"
 	"github.com/fpresta0607/code-goblins/internal/lock"
+	"github.com/fpresta0607/code-goblins/internal/reap"
 	"github.com/fpresta0607/code-goblins/internal/wake"
 )
 
@@ -27,6 +29,22 @@ const custodyAudit = "custody.audit"
 // second or two, and leaves its heartbeat at its ten minutes so only a report
 // ends the wait.
 var stopWaits = map[string]string{"CFO_POLL": "1", "CFO_SIGNAL_GRACE": "1", "CFO_CLAUDE_AUTOARM_ATTEMPTS": "1"}
+
+// sweptStopWaits is stopWaits for a scratch home whose watcher must report
+// nothing but what its test does. A watcher's first cycle sweeps the whole
+// machine for orphans, and to a scratch home a stand-in harness another
+// goblin's test runs beside it is one: its wake reached the CFO before the
+// goblin's report in two runs of two while such a test ran. The home is
+// recorded as swept, and its watcher is not due to sweep again for a day.
+func sweptStopWaits(t *testing.T, state string) map[string]string {
+	t.Helper()
+	if err := reap.WriteRecord(state, reap.Record{Time: time.Now().UTC()}); err != nil {
+		t.Fatal(err)
+	}
+	waits := maps.Clone(stopWaits)
+	waits["CFO_REAP_EVERY"] = "86400"
+	return waits
+}
 
 // stateFiles lists what the state folder holds, for a test that nothing in it
 // was created or removed.

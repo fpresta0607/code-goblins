@@ -167,3 +167,31 @@ func TestAQueuedWaiterIsHandedTheLockWithoutLookingForItAgain(t *testing.T) {
 		t.Errorf("the waiter could not let the lock go: %v", err)
 	}
 }
+
+// A sign is shown while the process that showed it holds it, costs no new
+// file once its file is there, and is gone when it is taken down.
+func TestASignIsShownUntilItIsTakenDown(t *testing.T) {
+	// Arrange
+	path := filepath.Join(t.TempDir(), ".claude-autoarm-arming")
+	if Shown(path) {
+		t.Fatal("a sign nobody showed reads as shown")
+	}
+
+	// Act
+	hide, err := Show(path, 50*time.Millisecond)
+
+	// Assert
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !Shown(path) {
+		t.Error("a sign this process holds does not read as shown")
+	}
+	if _, err := Show(path, 50*time.Millisecond); !errors.Is(err, errWaitedOut) {
+		t.Errorf("a second showing of a held sign = %v, want it refused after its wait", err)
+	}
+	hide()
+	if Shown(path) {
+		t.Error("a sign taken down still reads as shown")
+	}
+}
