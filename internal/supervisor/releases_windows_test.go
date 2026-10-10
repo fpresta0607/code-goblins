@@ -15,6 +15,7 @@ import (
 
 	"github.com/fpresta0607/code-goblins/internal/proc"
 	"github.com/fpresta0607/code-goblins/internal/release"
+	"github.com/fpresta0607/code-goblins/internal/wake"
 )
 
 // releaseSource stands in for GitHub's latest release, as the release
@@ -258,8 +259,18 @@ func TestOnlyABoardOfTheOverlordsOwnPressesUpdate(t *testing.T) {
 			if status != c.status {
 				t.Fatalf("Update from %s answered %d %s, want %d", c.name, status, body, c.status)
 			}
-			if c.status == http.StatusForbidden && !strings.Contains(body, "Updating Code Goblins is the Supreme Overlord's alone") {
-				t.Fatalf("the refusal says %s", body)
+			if c.status == http.StatusForbidden {
+				if strings.TrimSpace(body) != `{"error":"Press Update in the Code Goblins window, or run goblins update in PowerShell."}` {
+					t.Fatalf("the refusal says %s, want the one sentence a board shows", body)
+				}
+				pending, err := wake.Pending(s.Store.Home.State)
+				told := false
+				for _, record := range pending {
+					told = told || record.Key == "update" && strings.Contains(record.Detail, "Updating Code Goblins is the Supreme Overlord's alone") && strings.Contains(record.Detail, "under an agent harness (node.exe pid 5100)")
+				}
+				if err != nil || !told {
+					t.Fatalf("the CFO's queue = %+v, %v, want the refusal with what the supervisor found", pending, err)
+				}
 			}
 			if c.status == http.StatusForbidden && len(s.Store.Snapshot().Actions) != 0 {
 				t.Fatalf("a refused Update queued %+v", s.Store.Snapshot().Actions)

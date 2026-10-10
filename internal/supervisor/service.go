@@ -266,11 +266,14 @@ type Service struct {
 	// peerOf names the process at the other end of a connection to the board;
 	// nil asks Windows.
 	peerOf func(peer, board netip.AddrPort) (int, error)
-	// windows is what moving the desktop window does on the machine; its zero
-	// value is Windows itself.
+	// windows is the machine as the proof of a board and the move of the
+	// desktop window meet it; its zero value is Windows itself.
 	windows windowSystem
-	done    chan struct{}
-	work    chan struct{}
+	// boardGrants takes one read or change of the grants the home gave its
+	// boards at a time.
+	boardGrants sync.Mutex
+	done        chan struct{}
+	work        chan struct{}
 	// looks takes each request to look at the fleet now, which the loop
 	// answers by closing it once its cycle has run (see lookNow).
 	looks  chan chan struct{}
