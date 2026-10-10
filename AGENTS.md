@@ -577,6 +577,9 @@ While [AFK mode](#afk-mode) is on, merge authority is your own merge word for a 
 
 A pull request's checks come from `.github/workflows/go.yml`, which runs everything at once as parallel jobs: the frontend's checks, the board's browser tests in four jobs, each slow Go package in two jobs, and every other package in one.
 The one check branch protection requires, `test`, passes only when every job passed.
+A test that fails runs once more in its own job: a Go test by its name once the job's other tests have ended, and a browser test at once in a fresh browser.
+One that passes on its second try leaves the run green and is named, with its job and its package or spec file, as a warning titled Failed once on the `test` check and in the run's summary, so a failure by chance neither fails a pull request nor passes unseen: `gh run view <run>` prints each one.
+One that fails twice fails its job, and so does a failure no test names in full, such as a package that does not compile or a panic or timeout that cut the tests short, since running the named test again would pass over the tests it never reached.
 A run takes as long as its slowest job, about 8 minutes on GitHub's runners as measured on 2026-10-10, where it took 20 while the browser tests ran as one job.
 A pull request's own run and a merge train's run test the same things, so a pull request reaches the default branch about 17 minutes after its push at best.
 Runs of one account share its runners: when eight runs started together on 2026-10-10, each job waited 13 to 15 minutes for a runner, so a burst of pushes or merges costs more than the sum of its runs.
@@ -592,6 +595,7 @@ A pull request that does not merge cleanly with the ones ahead of it is left off
 When the run is green, the train first reads every rider again: one closed, turned into a draft, labelled `hold` or moved to another head since it rode is left off and the rest is tested again, so the branch never receives part of what CI tested.
 Then each pull request merges with a merge commit in train order, pinned to the head that rode, and the branch's tree must then equal the train's tree; the train closes its pull request and deletes its branch, its own `cfo/train-*` branch and never a goblin's, AFK mode or not.
 When it is red, the train first runs the failed jobs of that run again, once, with `gh run rerun <run> --failed`, because a check can fail by chance: only a check that is red a second time is a failure the train acts on.
+A test that failed by chance has had its second try inside its job by then ([What CI runs](#what-ci-runs)), so what the train's second try answers is a job that failed outside its tests, such as a runner that died or an install that failed, or a test that failed twice in a row.
 A run that is green on its second try lands as a green run does, and the train's record and its `merge_train:` message name each check that failed once and passed when it ran again, with its link, so a test that fails by chance is counted and never hidden.
 No run is tried a third time: whether a run was tried again is read from GitHub's own count of its attempts, so a restart in the middle of asking never asks twice, and a failure stands only once the workflow run itself ended red on its second attempt, since a pull request's checks can show the first try for a while after.
 A red check that no workflow run stands behind, such as another service's, cannot be run again and is acted on as it stands.
