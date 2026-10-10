@@ -1,6 +1,7 @@
 package wake
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/fpresta0607/code-goblins/internal/fsx"
@@ -53,5 +54,54 @@ func TestAnAcknowledgementStagesNothingWhileItHoldsTheWakeLock(t *testing.T) {
 	}
 	if again, err := Append(dir, "notify", "g2", "done: g2"); err != nil || again.Seq != done.Seq+1 {
 		t.Errorf("the next record is %+v, %v, want sequence %d", again, err, done.Seq+1)
+	}
+}
+
+// A record queued after an acknowledgement staged its files, and before it
+// took the lock, is not in the queue it staged. That queue is left unused,
+// the queue is written from what is queued now, and the record stays.
+func TestARecordQueuedAfterAnAcknowledgementStagedItsFilesIsKept(t *testing.T) {
+	// Arrange
+	dir := t.TempDir()
+	done, err := Append(dir, "notify", "g1", "done: g1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	queued, err := readAll(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var staged stagedAck
+	if err := staged.records(dir, queued, done.Seq); err != nil {
+		t.Fatal(err)
+	}
+	late, err := Append(dir, "notify", "g2", "blocked: which way")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Act
+	var kept []Record
+	err = withLock(dir, func() error {
+		records, err := readAll(dir)
+		if err != nil {
+			return err
+		}
+		kept, err = retireThrough(dir, records, done.Seq, map[string]bool{}, queued, &staged)
+		return err
+	})
+	staged.discard()
+
+	// Assert
+	if err != nil || len(kept) != 1 || kept[0].Seq != late.Seq {
+		t.Fatalf("the acknowledgement kept %+v, %v, want the one record queued after it staged", kept, err)
+	}
+	if pending, err := Pending(dir); err != nil || len(pending) != 1 || pending[0].Seq != late.Seq {
+		t.Errorf("the queue holds %+v, %v, want the record queued after the acknowledgement staged", pending, err)
+	}
+	for _, name := range stateEntries(t, dir) {
+		if strings.HasPrefix(name, ".cfo-tmp-") {
+			t.Errorf("the acknowledgement left the staged file %s behind", name)
+		}
 	}
 }
