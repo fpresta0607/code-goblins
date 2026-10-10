@@ -174,7 +174,19 @@ func (c *checker) onPath(tool string) string {
 // branch holds as a whole word in any letter case. Documents and tests do not
 // count: a name only a guide or a fixture mentions is one no code reads.
 func (r *repository) namesIn(ctx context.Context, names []string) (map[string]bool, error) {
+	readers, err := r.readers(ctx, names, isTestOrDocument)
 	found := map[string]bool{}
+	for name := range readers {
+		found[name] = true
+	}
+	return found, err
+}
+
+// readers returns, for each of names a file tracked at the default branch
+// holds as a whole word in any letter case, the first such file, keyed by
+// the name in upper case. A file skip names is passed over.
+func (r *repository) readers(ctx context.Context, names []string, skip func(name string) bool) (map[string]string, error) {
+	found := map[string]string{}
 	if len(names) == 0 {
 		return found, nil
 	}
@@ -190,8 +202,12 @@ func (r *repository) namesIn(ctx context.Context, names []string) (map[string]bo
 	for _, line := range strings.Split(out, "\n") {
 		line = strings.TrimPrefix(strings.TrimRight(line, "\r"), r.ref+":")
 		// A name has no colon in it, so the last one ends the path.
-		if cut := strings.LastIndex(line, ":"); cut > 0 && !isTestOrDocument(line[:cut]) {
-			found[strings.ToUpper(line[cut+1:])] = true
+		cut := strings.LastIndex(line, ":")
+		if cut <= 0 || skip(line[:cut]) {
+			continue
+		}
+		if name := strings.ToUpper(line[cut+1:]); found[name] == "" {
+			found[name] = line[:cut]
 		}
 	}
 	return found, nil
@@ -355,20 +371,33 @@ func credentialName(name string) bool {
 // isTestOrDocument reports whether a tracked path is a test or a document,
 // neither of which says what the running code needs.
 func isTestOrDocument(name string) bool {
+	if isDocument(name) {
+		return true
+	}
 	base := path.Base(name)
 	for _, folder := range strings.Split(path.Dir(name), "/") {
 		switch folder {
-		case "test", "tests", "testdata", "__tests__", "e2e", "docs", "fixtures":
+		case "test", "tests", "testdata", "__tests__", "e2e", "fixtures":
 			return true
 		}
 	}
 	switch {
-	case strings.HasSuffix(base, ".md"), strings.HasSuffix(base, ".mdx"), strings.HasSuffix(base, ".rst"):
-		return true
 	case strings.HasSuffix(base, "_test.go"), strings.HasPrefix(base, "test_"), base == "conftest.py":
 		return true
 	case strings.Contains(base, ".test."), strings.Contains(base, ".spec."):
 		return true
 	}
 	return false
+}
+
+// isDocument reports whether a tracked path is a document, which no run of
+// anything reads a variable through.
+func isDocument(name string) bool {
+	for _, folder := range strings.Split(path.Dir(name), "/") {
+		if folder == "docs" {
+			return true
+		}
+	}
+	base := path.Base(name)
+	return strings.HasSuffix(base, ".md") || strings.HasSuffix(base, ".mdx") || strings.HasSuffix(base, ".rst")
 }

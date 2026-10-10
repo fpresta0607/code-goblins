@@ -79,7 +79,7 @@ An area passes when none of its lines is worse than `low`, and the command exits
 | --- | --- |
 | `checkout` | This machine has a checkout of the project. The line says which branch and commit were read and when that branch was last fetched, and whether the remote's default branch is still at that commit. |
 | `record` | `project.json` is there, the loader takes it, and it names the project it is filed under. Each command of its verification and security tiers is a program this machine has. A record with no verification command is reported, because `cfo verify` passes with nothing run. |
-| `gate` | `.no-mistakes.yaml` is on the default branch, a gate's start takes it under the home's pipeline policy, and each command it names has its program, its script files and its package script. Its test step is the repository's own command, since without one an agent chooses what runs. The repository has a workflow for the gate's ci step to wait for, and CI runs the test runners the gate's test command starts. No env file a goblin's worktree shares holds a production value the test setup does not name. |
+| `gate` | `.no-mistakes.yaml` is on the default branch, a gate's start takes it under the home's pipeline policy, and each command it names has its program, its script files and its package script. Its test step is the repository's own command, since without one an agent chooses what runs. The repository has a workflow for the gate's ci step to wait for, and CI runs the test runners the gate's test command starts. No env file a goblin's worktree shares holds a production value the test setup does not name, and no credential a task's terminal carries is read by the repository and left unnamed by the test setup. |
 | `configs` | Git ignores every env file of the project except the examples it commits on purpose. What an env file holds decides its line, not what it is called. A credential or a production value in a file git does not ignore is critical, and the report names its variable and never its value. A tracked env file that holds none, such as a demo setup committed on purpose, is a `low` line, `env-file-committed`, and nothing tells the reader to rotate. `worktree.json` shares files the checkout holds and installs with programs and files that exist. `services.json` names a compose file the project has, services that file declares, an env file the checkout holds and a check that can run. |
 | `connectors` | Every service `auth.json` declares has a user the check can name. Every credential the code reads from the environment, an env example names or an MCP connector in `.mcp.json` authenticates with is declared by a service. |
 | `instructions` | Each build, test and lint command `AGENTS.md` and `CLAUDE.md` name has its program, its files and its package script. The ones that are there are listed with their kind for whoever runs or dry-runs them. A deploy, a publish and a migration are listed apart and never run. An install is listed apart too, since a worktree's own install step does it. |
@@ -192,7 +192,7 @@ Where the value says nothing the name decides: `PUBLIC` or `PUBLISHABLE` anywher
 
 An env template is read as an example under any of its usual spellings: `.env.example`, `env.template`, `.env-example`, `example.env`.
 
-A production value is left out when a test setup file names its variable: a `conftest.py`, a runner's setup or config file, or a script of the gate's own test command.
+A production value is left out when the test setup names its variable.
 That is how a project pins what its tests may see.
 What is left is reported as `test-reaches-production`, by variable and reason, never by value or host.
 The line is `critical` when a live key or a production environment is among them, or when the gate names no test command, since an agent then chooses what the test step runs.
@@ -200,6 +200,56 @@ Otherwise it is `high`.
 
 The check reads names, so a setup that clears variables by a rule is not seen and its variables stay on the line.
 The lasting fix is on the fleet's side: name a development env file, or none, as `link` in `worktree.json`, so no worktree holds production at all.
+
+### What counts as the test setup
+
+The test setup is every place the check reads for a variable a project pinned for its tests:
+
+- a file a test runner loads before the tests, by its name: `conftest.py`, `pytest.ini`, `tox.ini`, `.env.test`, a setup or config file of jest, vitest, playwright, mocha or cypress, `phpunit.xml`, and the helper files of rspec and minitest
+- `pyproject.toml` and `setup.cfg`, when they hold a pytest section
+- each test command: the gate's own, or where the gate names none, the test commands the workflows run and the instruction files name, since an agent that chooses the test step chooses among those
+
+A test command is followed through the package script it runs, three deep at most, to the commands that script comes to.
+Of each the check reads three things:
+
+- the script it hands an interpreter to run, such as `scripts/gate_test.py` in `uv run scripts/gate_test.py`
+- the files it loads before the tests with `--import`, `--require` or `-r`
+- the text of the command and of the scripts themselves, since a script can set a variable in front of what it runs
+
+A test file a command names is no setup.
+One that reads a variable has not pinned it, so what follows the script on its line, and a file handed to a test runner, to `-m` or to `--test`, is not read.
+
+A suite of `node --test`, `tsx --test`, `go test`, `cargo test`, `dotnet test` or unittest has no setup file: each test file sets what it needs, in a process or a package of its own, so nothing pins a variable for a whole run.
+The line says so by the command that starts it, in place of "none this check knows", which is kept for a test command the check can make nothing of.
+
+### What a task's terminal carries
+
+An env file is one of two roads a test run has to production.
+The other needs no file: a spawn writes the stored credentials of a task's services into the task's terminal, and a test run started there inherits them.
+`link` in `worktree.json` does not touch that road.
+
+Which services a task carries is the auth manifest's own answer, asked through the function a spawn uses:
+
+- a task whose brief has no `credentials:` line carries the services `auth.json` marks `default`, and no other
+- a task whose brief names services carries exactly those
+
+The gate area reads `auth.json` and names, for each service, the variables a terminal would carry.
+A variable counts as within a test run's reach when both of these hold:
+
+- a tracked file of source code names it as a word of its own, in any letter case: application code or a test, and not a document, a settings file, an env file or a file under `.github`, where GitHub supplies the value
+- no place of the test setup names it
+
+A publishable name is left out, as on the env file line, and so is a variable named for tests, such as `TEST_DATABASE_URL`: one of its words is `TEST` or `TESTING`.
+Both are named on the line that says what was examined.
+
+What is left is `terminal-reaches-production`, with each variable beside the first tracked file that reads it.
+It is `high` when a default service carries one, since every task with no credentials line then does, and `critical` when the gate names no test command as well.
+It is `medium` when only a service a brief has to name carries one.
+The fix is in the repository, a test setup that names each variable with a value for tests, or in the home, taking `default` off a service or keeping it off the credentials line of a task that runs the tests.
+
+The line `terminal-credentials-examined` says what was read either way: each service with its variables, which every task carries by default, which are read by no tracked file, which were left out as publishable, and which services are optional.
+The check reads `auth.json` and the repository and never opens the credential store.
+So it names variables, and cannot say whether one is stored or whether what it holds is a test value: a terminal carries a variable only when the store holds it.
 
 ### Drafting a record
 
@@ -244,13 +294,26 @@ It asks too that the checkout's copy of the default branch is the remote's, whic
 
 The check says only what it read, and these are outside it today:
 
-- The credentials a spawn puts into a task's terminal from `auth.json`. The production line reads env files only.
-- Production values its rules do not know: a short password, a name ending in a word it does not take for a credential, an address whose name holds no service word. Every count of production values is a floor.
+- What the credential store holds. The terminal line names the variables `auth.json` declares and never opens the store, so it cannot say whether one is stored or whether its value is a test one.
+- What the user's own environment sets. A task's terminal starts from it, less the variables of services the task does not carry, so a credential set there reaches every terminal and no line names it.
+- A credential only a program reads. A test that starts `gh` uses `GITHUB_TOKEN` though no tracked file names it, and such a variable is listed as read by no tracked file.
+- Production values its rules do not know: a short password, a name ending in a word it does not take for a credential, an address whose name holds no service word. Every count of production values in an env file is a floor.
 - What really loads an env file. It counts a variable as within a test's reach whenever the file is in the worktree, and does not read whether a test runner, a settings loader or a script loads it.
-- Test setups it has no name for, such as plain Python test scripts and `node --test` suites.
-- A checkout with no folder under `data/projects`.
+- A test setup that pins a variable by a rule and not by name, and a test command the check can make nothing of.
+- A checkout below another folder of the projects root. `--unfiled` looks one folder down.
 - A program an install step makes outside `.venv`, `venv` and `node_modules`, such as a binary a build writes to `bin`. It is reported as not in a worktree.
 - Whether the remote has moved, when the remote does not answer.
+
+### Checkouts the home holds no folder for
+
+`cfo project check --unfiled` takes no project.
+It names each checkout directly under the machine's projects root that the home holds no folder for under `data/projects`, one `ok` line each, `checkout-unfiled`.
+A spawn can be sent into any of them, and the line says what it would be given there: no env file, since a worktree is given one only when a `worktree.json` names it, no credential from the credential store, since a project with no `auth.json` has no service to grant, and no record to steer its routing or its verification.
+It names the env files the checkout holds at its root, which stay in the checkout, and opens none of them.
+A last line, `checkouts-examined`, counts the checkouts it looked at and names the home's folders that have no checkout directly under the root, which may be kept elsewhere.
+A folder counts as a checkout when it holds a `.git`.
+The command exits 0 whatever it names, since a checkout the home knows nothing of is no fault.
+To file one, run `cfo project check <its path>` and place what it drafts.
 
 ### The project-check skill
 

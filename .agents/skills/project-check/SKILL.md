@@ -50,6 +50,9 @@ This skill is the part a command cannot do: prove the project's commands by runn
    - Run a build or a lint for real only when it is cheap and writes nothing outside the folder it runs in.
    - Run no test while the report holds a `test-reaches-production` line.
      Record the command as not run and say why.
+   - Run no test while the report holds a `terminal-reaches-production` line that names a credential your own terminal carries.
+     Your terminal carries the services your brief names on its `credentials:` line, or with no such line the ones the line says every task carries.
+     Record the command as not run and say why.
    - Never run a command from the line `instruction-deploy-never-run`.
      Confirm only that its program is there.
    - Run no command from the line `instruction-install-not-run`.
@@ -65,6 +68,10 @@ This skill is the part a command cannot do: prove the project's commands by runn
    - `test-reaches-production`: open the test setup files and the gate's test command the line names, and say for each variable left on the line whether a rule clears it.
      The check reads names, so a setup that clears variables by a rule is not seen.
      Say what you found and keep the line in the report either way.
+   - `terminal-reaches-production`: the line names each variable a task's terminal would carry beside the first tracked file that reads it.
+     Open that file and say whether a test run reaches it, and say for each service whether a task should carry it by default or only when its brief names it.
+     The check never opens the credential store, so say that whether each variable is stored, and whether its value is a test one, is not established.
+     `terminal-credentials-examined` lists the variables no tracked file reads, which a program a test starts could still use.
    - `connector-undeclared`: for each name say whether the fleet should declare it in `auth.json` or the project loads it from its own env file by design.
    - `connector-unused`: a service is on this line only when no tracked file reads it and its entry in `auth.json` names no tool and has no note.
      Say whether to take it out or what uses it.
@@ -105,11 +112,15 @@ This skill is the part a command cannot do: prove the project's commands by runn
 
 The command says only what it read.
 `docs/project-runtime.md` lists what is outside it under "What the check cannot see".
-The one that matters most to a report:
+The two that matter most to a report:
 
-- Its production line reads env files only.
-  A spawn also puts the stored credentials of a task's services into the task's terminal, and a test run inherits those with no env file at all.
-  Read `auth.json` for the services a task would carry and name them in the report.
+- It never opens the credential store.
+  Its terminal line names the variables `auth.json` declares, and cannot say whether one is stored or whether its value is a test one.
+- It does not read the user's own environment.
+  A task's terminal starts from it, less the variables of services the task does not carry, so a credential set there reaches every terminal and no line names it.
+
+Once for a home, not once for each project, run `cfo project check --unfiled`.
+It names the checkouts under the projects root that the home holds no folder for, and what a spawn there would be given.
 
 ## Reading the severities
 
