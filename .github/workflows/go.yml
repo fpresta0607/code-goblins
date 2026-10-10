@@ -21,24 +21,27 @@ concurrency:
   cancel-in-progress: true
 
 # The work runs as parallel jobs so a run takes as long as its slowest job,
-# not the sum: the frontend, each slow Go package, and every other Go package
-# together. The test job at the end is the one check branch protection
-# requires, and it passes only when every other job passed.
+# not the sum: the frontend's checks, the board's browser tests in shards,
+# each slow Go package, and every other Go package together. The test job at
+# the end is the one check branch protection requires, and it passes only
+# when every other job passed.
 jobs:
   frontend:
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v6
+      # No cache of Go's modules and builds, here or in the go jobs, which
+      # say why.
       - uses: actions/setup-go@v5
         with:
           go-version: stable
+          cache: false
       - uses: actions/setup-node@v4
         with:
           node-version: '24.13.0'
           cache: npm
           cache-dependency-path: frontend/package-lock.json
       - name: Check and build the frontend
-        id: frontend
         working-directory: frontend
         shell: pwsh
         run: |
@@ -49,10 +52,6 @@ jobs:
           npm run lint
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           npm test
-          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          npx playwright install chromium --only-shell
-          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          npm run test:browser
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           npm run build
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
@@ -70,14 +69,48 @@ jobs:
       # packages npm ci installed above, so it runs in this job.
       - name: Check third-party licences
         run: go run ./tools/notices -check
+
+  # The board's browser tests took 18 of a run's 20 minutes as one job, on
+  # one worker, and grow with nearly every change to the board. Playwright
+  # deals the spec files out by their number of tests, so each job runs its
+  # share on a runner of its own, still on one worker, and every test runs in
+  # exactly one job. The share is of strategy.job-total, so one more number
+  # in the list is one more job and no test is left out.
+  # TestGoWorkflowRunsEveryBrowserTestOnce holds the list to 1 up to its
+  # length.
+  browser:
+    name: browser (${{ matrix.shard }}/${{ strategy.job-total }})
+    runs-on: windows-latest
+    strategy:
+      # Every job runs to its end, so one run names every failure.
+      fail-fast: false
+      matrix:
+        shard: [1, 2, 3, 4]
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24.13.0'
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - name: Run this job's share of the browser tests
+        id: browser
+        working-directory: frontend
+        shell: pwsh
+        run: |
+          npm ci
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          npx playwright install chromium --only-shell
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          npm run test:browser -- --shard=${{ matrix.shard }}/${{ strategy.job-total }}
       # A browser test that fails leaves its page snapshot (error-context.md)
       # and trace in test-results; keep them, so a failure seen once can be
       # read after the runner is gone.
       - name: Keep the browser tests' failure evidence
-        if: failure() && steps.frontend.outcome == 'failure'
+        if: failure() && steps.browser.outcome == 'failure'
         uses: actions/upload-artifact@v4
         with:
-          name: frontend-test-results
+          name: browser-test-results-${{ matrix.shard }}
           path: frontend/test-results
           if-no-files-found: ignore
           retention-days: 14
@@ -126,9 +159,14 @@ jobs:
             except: ./cmd/cfo ./internal/spawn ./internal/supervisor ./internal/conpty
     steps:
       - uses: actions/checkout@v6
+      # setup-go keeps one cache for all of these jobs and the first to end
+      # writes it, which is the conpty job, so it holds what that job needs
+      # and little else: unpacking its 21 MB took 11 s in every job, which
+      # then downloaded its own modules in under 2 s all the same.
       - uses: actions/setup-go@v5
         with:
           go-version: stable
+          cache: false
       - name: Check the Windows resource objects
         if: matrix.shard == 'rest'
         shell: pwsh
@@ -198,7 +236,7 @@ jobs:
   # cancelled or was skipped is not a pass.
   test:
     if: always()
-    needs: [frontend, go]
+    needs: [frontend, browser, go]
     runs-on: ubuntu-latest
     steps:
       - name: Require every job to have passed
