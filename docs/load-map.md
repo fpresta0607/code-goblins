@@ -55,6 +55,7 @@ A `SessionStart` hook's output is injected into the session; output larger than 
 The CFO's own SessionStart digest therefore stays within 9,000 bytes, and names a file that holds what it leaves out.
 `cfo install` merges the CFO's hooks into `~/.claude/settings.json`.
 Every goblin pane carries `CFO_ROLE=goblin`, and the CFO's hooks do nothing when they see it.
+They do nothing in any other session either: only [the CFO's own session](../AGENTS.md#the-cfos-own-session), the agent native terminal `cfo` runs, gets the digest, the guards and the rewakes, so a Claude Code session you open yourself is never given the fleet's wakes and pays one start of `cfo.exe` for each hook it fires, which leaves on its environment before it reads the home: about 0.1 second each with a dozen sessions firing at once on 2026-10-09.
 
 **MCP.**
 The CFO's session gets servers from `~/.claude.json` (user and per-project), the project's `.mcp.json` once approved, enabled plugins, and claude.ai connectors.
@@ -157,7 +158,7 @@ The gate reads it from the default branch, and `cfo pipeline run` refuses to sta
 
 ## The CFO's memory
 
-The SessionStart hook prints a brief digest: the session lock, AFK mode's notice while it is on, the wake queue with its ack line, the operating instructions, one line per goblin, and the path of `state/session-digest.md` to read next.
+The SessionStart hook prints a brief digest in the CFO's own session, and nothing in any other: the session lock, AFK mode's notice while it is on, the wake queue with its ack line, the operating instructions, one line per goblin, and the path of `state/session-digest.md` to read next.
 Before a Claude CFO compacts, `cfo hook pre-compact` writes `state/compact-checkpoint.md` from the fleet's disk state: each goblin and its last three status lines, lifecycle holds and AFK mode, open Command Center items and unanswered goblin questions, unacknowledged wakes, and the newest `data/cfo-handoff-*.md` by modification time.
 It runs only for the live session that holds the primary home's lock, produces no output, and never blocks compaction.
 After compaction the brief digest names that checkpoint first under READ THIS NEXT, or says it is missing, unreadable or older than fifteen minutes.

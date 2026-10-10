@@ -213,6 +213,12 @@ func agentMark(stateDir string, ancestry []proc.Entry, env []string) string {
 	if environmentValue(env, "HERDR_PANE_ID") != "" {
 		return "in a Herdr pane, where the CFO or a goblin runs"
 	}
+	return harnessMark(ancestry, env)
+}
+
+// harnessMark says which agent harness runs a process with these parents,
+// itself first, and this environment, and is empty when none does.
+func harnessMark(ancestry []proc.Entry, env []string) string {
 	for _, entry := range ancestry {
 		if slices.Contains(agentHarnesses, strings.TrimSuffix(strings.ToLower(entry.ExeBase), ".exe")) {
 			return fmt.Sprintf("under an agent harness (%s pid %d)", entry.ExeBase, entry.PID)

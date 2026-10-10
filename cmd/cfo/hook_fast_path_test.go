@@ -29,7 +29,7 @@ func TestGoblinAndGateAgentHooksReturnBeforeReadingAnything(t *testing.T) {
 	} {
 		t.Run(session.name, func(t *testing.T) {
 			// Arrange: a primary home the hooks would otherwise apply to.
-			newPrimaryHome(t)
+			newCFOHome(t)
 			t.Setenv(session.variable, session.value)
 			for _, name := range []string{"pretool-bash", "pretool-arm", "pretool-cd", "pretool-subagent", "turnend-guard", "stop-autoarm", "session-start"} {
 				payload := &unreadPayload{}
@@ -52,7 +52,7 @@ func TestGoblinAndGateAgentHooksReturnBeforeReadingAnything(t *testing.T) {
 // the CFO's Bash calls are still refused a watcher arm and a relocation.
 func TestTheCFOsBashHookAppliesBothGuardsWithoutStartingAProcess(t *testing.T) {
 	// Arrange
-	newPrimaryHome(t)
+	newCFOHome(t)
 	t.Setenv("PATH", t.TempDir())
 	cases := []struct {
 		command string
@@ -94,7 +94,7 @@ const (
 // each does after starting stays within its budget.
 func TestTheCFOsPreToolHooksStayWithinTheirBudget(t *testing.T) {
 	// Arrange
-	newPrimaryHome(t)
+	newCFOHome(t)
 	bash := `{"session_id":"s","tool_name":"Bash","tool_input":{"command":"git log --oneline"}}`
 	cases := []struct{ hook, payload string }{
 		{"pretool-bash", bash},
