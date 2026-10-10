@@ -11,6 +11,7 @@ import (
 	"strconv"
 	"strings"
 	"testing"
+	"unicode/utf8"
 )
 
 // textFlags are the flags a program takes free text by: an intent, a
@@ -33,10 +34,14 @@ var textOnCommandLines = map[string]string{
 // that has a person paste such a line, and Windows refused some of those
 // starts. So no fleet program names a flag of textFlags outside
 // textOnCommandLines: it writes the text to a file and names the file, as
-// pipeline.StartOf and the merge train do. The guard knows a flag by its
-// name alone, so text handed over as a bare argument, or by a flag it does
-// not list, gets past it. Test files and tests/, a test fixture's own
-// program, are not fleet programs.
+// pipeline.StartOf and the merge train do. A short text the program's own
+// source fixes is not free text, so a flag such a text follows passes: one
+// line of at most fixedTextLimit characters, written out or a constant of the
+// same file, as the description of the label a merge train makes is. What a
+// person or a model wrote, and any text the guard cannot read in that file,
+// does not pass. The guard knows a flag by its name alone, so text handed
+// over as a bare argument, or by a flag it does not list, gets past it. Test
+// files and tests/, a test fixture's own program, are not fleet programs.
 func TestNoFleetProgramPutsFreeTextOnACommandLine(t *testing.T) {
 	root := repositoryRoot(t)
 	files, known := 0, map[string]int{}
@@ -74,7 +79,7 @@ func TestNoFleetProgramPutsFreeTextOnACommandLine(t *testing.T) {
 				known[key]++
 				continue
 			}
-			violations = append(violations, relative+":"+strconv.Itoa(flag.line)+": names "+flag.name+", which puts its text on a command line; write the text to a file and name the file")
+			violations = append(violations, relative+":"+strconv.Itoa(flag.line)+": names "+flag.name+", which puts its text on a command line; write the text to a file and name the file, or give one short line the program itself fixes as a constant of this file")
 		}
 		return nil
 	})
@@ -109,10 +114,19 @@ func TestTextFlagsNamedReportsEveryFreeTextFlag(t *testing.T) {
 		{"a body by file", `run("gh", "pr", "create", "--body-file", file)`, nil},
 		{"a flag of the fleet's own command", `flags.StringVar(&intent, "intent", "", "task intent")`, nil},
 		{"a flag named in a sentence", `_ = "use cfo pipeline run --intent <text>"`, nil},
+		{"a fixed text by a literal", `run("gh", "label", "create", name, "--description", "A merge train's own pull request")`, nil},
+		{"a fixed text by a constant of the file", `run("gh", "label", "create", name, "--description", labelSays, "--color", "8B949E")`, nil},
+		{"a fixed text as long as a short one may be", `run("gh", "label", "create", "--description", "` + strings.Repeat("a", fixedTextLimit) + `")`, nil},
+		{"a fixed text too long to be short", `run("gh", "label", "create", "--description", "` + strings.Repeat("a", fixedTextLimit+1) + `")`, []string{"--description"}},
+		{"a fixed text of two lines", `run("gh", "label", "create", "--description", "one\ntwo")`, []string{"--description"}},
+		{"a constant with passed-in text added", `run("gh", "label", "create", "--description", labelSays+text)`, []string{"--description"}},
+		{"a constant's name taken by passed-in text", `labelSays := text; run("gh", "label", "create", "--description", labelSays)`, []string{"--description"}},
+		{"a variable that holds a fixed text", `var says = "fixed"; run("gh", "label", "create", "--description", says)`, []string{"--description"}},
+		{"a flag with nothing after it", `args = append(args, "--message")`, []string{"--message"}},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			// Arrange
-			source := "package example\n\nfunc example(args []string, intent, text, body, file string) {\n" + test.body + "\n}\n"
+			source := "package example\n\nconst labelSays = \"A label the program makes\"\n\nfunc example(args []string, intent, text, body, file string) {\n" + test.body + "\n}\n"
 
 			// Act
 			found, err := textFlagsNamed("internal/example/example.go", []byte(source))
@@ -132,6 +146,10 @@ func TestTextFlagsNamedReportsEveryFreeTextFlag(t *testing.T) {
 	}
 }
 
+// fixedTextLimit is how many characters a fixed text may have and still be
+// short, which is as long as GitHub lets a label's description be.
+const fixedTextLimit = 100
+
 // textFlag is one place a file names a flag of textFlags.
 type textFlag struct {
 	name string
@@ -139,23 +157,63 @@ type textFlag struct {
 }
 
 // textFlagsNamed parses a fleet file's source and returns each string in it
-// that is, whole, a flag of textFlags.
+// that is, whole, a flag of textFlags, but for one a short fixed text
+// follows in the same list of arguments.
 func textFlagsNamed(relative string, source []byte) ([]textFlag, error) {
 	fileSet := token.NewFileSet()
-	file, err := parser.ParseFile(fileSet, relative, source, parser.SkipObjectResolution)
+	file, err := parser.ParseFile(fileSet, relative, source, 0)
 	if err != nil {
 		return nil, err
 	}
-	var found []textFlag
-	ast.Inspect(file, func(node ast.Node) bool {
-		literal, ok := node.(*ast.BasicLit)
-		if !ok || literal.Kind != token.STRING {
-			return true
+	beforeFixedText := map[token.Pos]bool{}
+	mark := func(arguments []ast.Expr) {
+		for index := 0; index+1 < len(arguments); index++ {
+			if isShortFixedText(arguments[index+1]) {
+				beforeFixedText[arguments[index].Pos()] = true
+			}
 		}
-		if text, err := strconv.Unquote(literal.Value); err == nil && slices.Contains(textFlags, text) {
-			found = append(found, textFlag{name: text, line: fileSet.Position(literal.Pos()).Line})
+	}
+	var found []textFlag
+	// A list is visited before the strings in it, so each string's mark is
+	// set by the time the string is read.
+	ast.Inspect(file, func(node ast.Node) bool {
+		switch node := node.(type) {
+		case *ast.CallExpr:
+			mark(node.Args)
+		case *ast.CompositeLit:
+			mark(node.Elts)
+		case *ast.BasicLit:
+			if node.Kind != token.STRING || beforeFixedText[node.Pos()] {
+				return true
+			}
+			if text, err := strconv.Unquote(node.Value); err == nil && slices.Contains(textFlags, text) {
+				found = append(found, textFlag{name: text, line: fileSet.Position(node.Pos()).Line})
+			}
 		}
 		return true
 	})
 	return found, nil
+}
+
+// isShortFixedText reports whether an argument is a text the file's own
+// source fixes: a string written out, or a constant the file declares as
+// one, of a single line and at most fixedTextLimit characters. A variable, a
+// call, a text put together and a name another file declares are not: the
+// guard cannot see what they hold, so it takes them for free text.
+func isShortFixedText(argument ast.Expr) bool {
+	if name, isName := argument.(*ast.Ident); isName && name.Obj != nil && name.Obj.Kind == ast.Con {
+		if declared, isDeclared := name.Obj.Decl.(*ast.ValueSpec); isDeclared {
+			for index, declaredName := range declared.Names {
+				if declaredName.Name == name.Name && index < len(declared.Values) {
+					argument = declared.Values[index]
+				}
+			}
+		}
+	}
+	literal, isLiteral := argument.(*ast.BasicLit)
+	if !isLiteral || literal.Kind != token.STRING {
+		return false
+	}
+	text, err := strconv.Unquote(literal.Value)
+	return err == nil && !strings.ContainsAny(text, "\r\n") && utf8.RuneCountInString(text) <= fixedTextLimit
 }
