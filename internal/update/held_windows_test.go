@@ -10,9 +10,9 @@ import (
 	"github.com/fpresta0607/code-goblins/internal/fsx"
 )
 
-// heldFor opens path with open and keeps it open for a second, as a reader
-// that is done in a moment does. The channel it returns closes once the file
-// is let go.
+// heldFor opens path with open and keeps it open for half a second, as a
+// reader that is done in a moment does. The channel it returns closes once
+// the file is let go.
 func heldFor(t *testing.T, open func(string) (*os.File, error), path string) chan struct{} {
 	t.Helper()
 	reader, err := open(path)
@@ -21,7 +21,7 @@ func heldFor(t *testing.T, open func(string) (*os.File, error), path string) cha
 	}
 	released := make(chan struct{})
 	go func() {
-		time.Sleep(time.Second)
+		time.Sleep(500 * time.Millisecond)
 		reader.Close()
 		close(released)
 	}()
@@ -56,7 +56,7 @@ func TestRecordWaitsOutAReaderThatHasTheJournalOpen(t *testing.T) {
 
 			// Assert
 			if err != nil {
-				t.Fatalf("Record while a reader had the journal open for a second: %v", err)
+				t.Fatalf("Record while a reader had the journal open for half a second: %v", err)
 			}
 			if recorded, err := ReadJournal(stateDir); err != nil || recorded.Phase != Stopped {
 				t.Errorf("the journal says %q (%v), want %q", recorded.Phase, err, Stopped)
@@ -129,7 +129,7 @@ func TestSwapWaitsOutAScannerThatHoldsABuild(t *testing.T) {
 
 			// Assert
 			if err != nil {
-				t.Fatalf("Swap while a scanner held a build for a second: %v", err)
+				t.Fatalf("Swap while a scanner held a build for half a second: %v", err)
 			}
 			for _, alias := range Aliases {
 				holds(t, filepath.Join(root, alias), "candidate build")
@@ -159,7 +159,7 @@ func TestRestoreWaitsOutAScannerThatHoldsABuild(t *testing.T) {
 
 	// Assert
 	if err != nil {
-		t.Fatalf("Restore while a scanner held a build for a second: %v", err)
+		t.Fatalf("Restore while a scanner held a build for half a second: %v", err)
 	}
 	for _, alias := range Aliases {
 		holds(t, filepath.Join(root, alias), "previous build")
