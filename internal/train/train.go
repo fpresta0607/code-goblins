@@ -3,13 +3,19 @@
 //
 // Landing pull requests one at a time costs one CI run each, in a row, since
 // every merge makes the other green runs stale. A train merges the green ones
-// onto main in queue order on a branch of its own, opens a pull request for
-// that branch that is never merged, and lets CI test the combination once.
-// When the run is green each pull request merges with a merge commit in the
-// same order, and main's tree must then equal the train's. When it is red its
-// failed checks run again once, since a check can fail by chance, and when it
-// is red a second time the train is halved until the one pull request that
-// breaks it is found; every half that passes lands on the way.
+// onto main in queue order on a branch of its own, each with a merge commit
+// that names it, opens a pull request for that branch, and lets CI test the
+// combination once. When the run is green the train's own pull request
+// merges: main takes the commit CI tested, and GitHub marks each pull request
+// that rode merged, since main then holds its head. When it is red its failed
+// checks run again once, since a check can fail by chance, and when it is red
+// a second time the train is halved until the one pull request that breaks it
+// is found; every half that passes lands on the way, by a pull request of its
+// own.
+//
+// So a train that landed leaves nothing closed without merging on GitHub,
+// which GitHub draws in red. One that did not land its last run leaves that
+// run's pull request closed, saying why: the one place it says so.
 package train
 
 import (
@@ -102,7 +108,9 @@ type Train struct {
 	Checkout string `json:"checkout"`
 	// Base is the branch the pull requests merge into.
 	Base string `json:"base"`
-	// Branch is the train's own branch, and PR its pull request.
+	// Branch is the train's own branch, and PR its pull request: the one of
+	// the run CI tests, or of its last run. Each run that lands merges its
+	// pull request, so a train that was halved opens one for each half.
 	Branch string `json:"branch"`
 	PR     string `json:"pr,omitempty"`
 	State  string `json:"state"`
@@ -153,7 +161,9 @@ type Car struct {
 // Run is one CI run of a train: its number among the train's runs, the
 // pull requests it tested, the base commit it was built on, its own commit,
 // when it was pushed and how it ended, with its first failed check's page
-// when it was red.
+// when it was red, and PR the train's pull request it was tested on. A run
+// an older build pushed, whose trains had one pull request that never
+// merged, names none.
 //
 // A check can fail by chance, so a red run's failed checks run again once
 // before the train acts on it. FailedOnce are the checks that were red on
@@ -168,6 +178,7 @@ type Run struct {
 	Pushed     time.Time     `json:"pushed"`
 	Result     string        `json:"result,omitempty"`
 	Link       string        `json:"link,omitempty"`
+	PR         string        `json:"pr,omitempty"`
 	FailedOnce []FailedCheck `json:"failed_once,omitempty"`
 	Failed     []FailedCheck `json:"failed,omitempty"`
 }
@@ -187,6 +198,12 @@ func (t Train) IsFinished() bool {
 // run CI passed on and the base it was built on.
 func (t Train) Evidence() string {
 	return fmt.Sprintf("merge train %s: CI passed on %s at %s, built on %s at %s", t.ID, t.PR, short(t.Head), t.Base, short(t.BaseSHA))
+}
+
+// hasMerged says whether the train's pull request merged: a run tested on
+// it landed.
+func (t Train) hasMerged() bool {
+	return t.PR != "" && slices.ContainsFunc(t.History, func(run Run) bool { return run.PR == t.PR && run.Result == RunLanded })
 }
 
 // endRun records how the run CI tests ended, once: a run that already ended
