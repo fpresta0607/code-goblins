@@ -21,7 +21,7 @@ const snapshots = {
     output: "[1/4] Download Code Goblins v0.5.0\n[2/4] Check the download\n[3/4] Install Code Goblins v0.5.0\n[4/4] Bring the home up to date\nUpdated: Code Goblins v0.5.0 runs.\n" }] }),
   rolledBack: parseSnapshot({ ...base, revision: 4, runs: [
     { ...run, state: "failed", exit_code: 3, ran_at: "2026-10-06T14:06:00Z", finished_at: "2026-10-06T14:08:00Z",
-      output: "[1/4] Download Code Goblins v0.5.0\n[2/4] Check the download\n[3/4] Install Code Goblins v0.5.0\nRolled back: Code Goblins v0.4.2 serves again, and v0.5.0 was not installed; what it printed above says why.\n" },
+      output: "[1/4] Download Code Goblins v0.5.0\n[2/4] Check the download\n[3/4] Install Code Goblins v0.5.0\ncfo update: the supervisor (pid 30412) did not serve within 1m0s, so the previous build is put back\nRolled back: the previous build serves the board (pid 30988).\nRolled back: Code Goblins v0.5.0 was not installed, and v0.4.2 serves again.\n" },
     { ...run, id: "update-v0.5.0-2", created_at: "2026-10-06T14:08:30Z" }] }),
 };
 const ignore = () => {};

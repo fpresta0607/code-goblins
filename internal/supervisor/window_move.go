@@ -20,7 +20,7 @@ import (
 // program aside, and that window keeps running the old program until it is
 // quit and opened again, which was left for the Overlord after v0.5.5 and
 // again after v0.5.6 (2026-10-08). So the board's page in the window asks
-// POST /api/window/move once it is idle, and the supervisor moves it: only a
+// POST /api/window/move once it is in the tray, and the supervisor moves it: only a
 // page shown by his own window, as the board's AFK switch proves it, and only
 // a window whose program is a renamed copy beside the home's window and not
 // that program itself. It ends that window and opens the home's through the
@@ -89,7 +89,7 @@ func openThroughTheDesktop(program string) error {
 // movingWindow asks to move the desktop window onto the home's program.
 var movingWindow = asker{
 	what: "Moving the desktop window onto the program an update installed is for the Overlord's own window",
-	only: ": the page in his Code Goblins window asks it once it is idle",
+	only: ": the page in his Code Goblins window asks it once it is in the tray",
 	runs: "the program that shows this board runs",
 	cut:  "as it cannot those of a program whose opener has since exited, so nothing says it is his",
 }
