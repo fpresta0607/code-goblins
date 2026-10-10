@@ -70,19 +70,14 @@ type Manifest struct {
 	Project string `json:"project"`
 	// Link names primary-checkout config files or directories a worktree is
 	// given: a file as its own read-only copy, so nothing written in the
-	// worktree reaches the checkout's file, a directory by junction. When the
-	// manifest is absent the
-	// defaults are .env, .env.local, and .env.docker.local. .mcp.json is
-	// never linked - goblins receive its token-authenticated subset,
-	// materialized fresh (see mcp.go).
-	Link []string `json:"link,omitempty"`
-	// LinkDefaulted records that Link is the built-in default set rather than
-	// the project's own declaration. A default entry whose destination the
-	// worktree already holds (a project that commits .env) is skipped and
-	// reported; a declared one is refused, because the operator asked for it.
-	// It is set by Resolve and not serialized.
-	LinkDefaulted bool         `json:"-"`
-	Dependencies  Dependencies `json:"dependencies,omitempty"`
+	// worktree reaches the checkout's file, a directory by junction. Nothing
+	// is shared that it does not name: with no manifest, or one with no link,
+	// a worktree is given no file of the checkout, since an env file holds
+	// the project's production values and used to reach every worktree by
+	// silence. .mcp.json is never linked - goblins receive its
+	// token-authenticated subset, materialized fresh (see mcp.go).
+	Link         []string     `json:"link,omitempty"`
+	Dependencies Dependencies `json:"dependencies,omitempty"`
 	// Env carries environment redirects for large read-only caches with no
 	// baked absolute paths (PLAYWRIGHT_BROWSERS_PATH and friends) into both
 	// the goblin's pane and the dependency install, and wins over the CFO's
@@ -93,9 +88,6 @@ type Manifest struct {
 	// Path is where the manifest was loaded from. It is not serialized.
 	Path string `json:"-"`
 }
-
-// defaultLink is the config-file set an undeclared project shares.
-var defaultLink = []string{".env", ".env.local", ".env.docker.local"}
 
 // mcpFileName is the project-scoped MCP configuration a goblin never shares.
 const mcpFileName = ".mcp.json"
@@ -126,10 +118,6 @@ func Resolve(dataDir, project string) (Manifest, error) {
 	}
 	if err := manifest.Validate(); err != nil {
 		return Manifest{}, fmt.Errorf("worktree: %s: %w", path, err)
-	}
-	if manifest.Link == nil {
-		manifest.Link = defaultLink
-		manifest.LinkDefaulted = true
 	}
 	if manifest.Dependencies.Strategy == "" {
 		manifest.Dependencies.Strategy = StrategyInstall

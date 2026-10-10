@@ -237,9 +237,10 @@ func TestEnvFilesOfARepositoryNestedInTheCheckoutAreNotExamined(t *testing.T) {
 	}
 }
 
-// A manifest that names no link shares the default env files, and the line
-// that passes it says which of them every goblin's worktree receives.
-func TestAWorktreeManifestWithNoLinkSaysWhichDefaultEnvFilesItShares(t *testing.T) {
+// A manifest that names no link shares nothing, whatever env files the
+// checkout holds: a worktree is given an env file only when the manifest
+// names it.
+func TestAWorktreeManifestWithNoLinkSharesNothing(t *testing.T) {
 	// Arrange
 	f := newFixture(t, map[string]string{".gitignore": ".env*\n"})
 	f.write(".env", "PORT=8000\n")
@@ -251,11 +252,9 @@ func TestAWorktreeManifestWithNoLinkSaysWhichDefaultEnvFilesItShares(t *testing.
 
 	// Assert
 	finding := only(t, report, "worktree-agrees")
-	contains(t, "evidence", finding.Evidence, "default", ".env, .env.docker.local")
+	contains(t, "evidence", finding.Evidence, "it shares nothing into a worktree")
 }
 
-// A manifest whose link is empty shares nothing, and the line says so
-// rather than ending on a list with nothing in it.
 func TestAWorktreeManifestThatSharesNothingSaysSo(t *testing.T) {
 	// Arrange
 	f := newFixture(t, nil)

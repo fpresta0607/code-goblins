@@ -86,7 +86,7 @@ A command that acts as the CFO, such as `cfo spawn`, `cfo send` or a `cfo drain`
 
 ## Dispatching
 
-`cfo spawn` is the only way to start goblin work. It validates the id and mode before touching anything, refuses before starting anything while free memory or free disk is under its floor, naming what is free and the floor, acquires a fresh git worktree of the project at `$CFO_HOME\worktrees\<project folder>\<id>` (never the primary checkout, which gains no folder and no file), gives it a scratch folder at `$CFO_HOME\scratch\<id>` that its `TEMP`, `TMPDIR` and `GOTMPDIR` point to, with its `TMP` pointing to `$CFO_HOME\scratch\.tmp`, the one folder every goblin shares, provisions it per the project's worktree manifest (its own read-only copies of the project's config files, linked dependencies, the token-authenticated subset of the project's `.mcp.json`), starts the goblin's own native terminal, named by its task id, prepares its environment (worktree location plus harness environment), starts the harness and delivers its brief instruction, and reports `spawned ...` only after confirming the agent is working.
+`cfo spawn` is the only way to start goblin work. It validates the id and mode before touching anything, refuses before starting anything while free memory or free disk is under its floor, naming what is free and the floor, acquires a fresh git worktree of the project at `$CFO_HOME\worktrees\<project folder>\<id>` (never the primary checkout, which gains no folder and no file), gives it a scratch folder at `$CFO_HOME\scratch\<id>` that its `TEMP`, `TMPDIR` and `GOTMPDIR` point to, with its `TMP` pointing to `$CFO_HOME\scratch\.tmp`, the one folder every goblin shares, provisions it per the project's worktree manifest (its own read-only copy of each config file the manifest names and of no other, linked dependencies, the token-authenticated subset of the project's `.mcp.json`), starts the goblin's own native terminal, named by its task id, prepares its environment (worktree location plus harness environment), starts the harness and delivers its brief instruction, and reports `spawned ...` only after confirming the agent is working.
 A project whose dependencies are installed (strategy `install`, below) gets no install from the spawn: the brief instruction tells the goblin to run the install commands in its worktree as its first step, the `spawned` output names them on a `dependencies:` line, and the goblin's card shows `installing its dependencies first` until its own first report.
 Starts take turns on the home's spawn lock only for what must be serial: the id's alias check, the admission that counts running terminals, the worktree and branch, the task record and the terminal's launch.
 The credential probes run before the turn, and the harness's startup, the brief's delivery and the goblin's install after it, so a slow start holds up no other start or resume; Resume and the comeback after a restart take the same turn around their terminal's launch only, and are admitted again under it.
@@ -263,8 +263,8 @@ Either way one store key is written at most once per run.
 A goblin's own worktree is never an origin at all, adoption or refresh: it lives in the home, outside every project, and the scan skips an older build's under a project's `.worktrees/`, because a running agent writes there and only the Supreme Overlord rotates a credential.
 Tool-derived origins keep the never-overwrite rule: a token `gh` or `flyctl` happens to hold is not a decision about this project, and letting one rotate under a deliberately stored value is how a stored credential disappears without anyone choosing it.
 
-Worktree provisioning gives a goblin's worktree its own read-only copy of the project's `.env`, so nothing written in the worktree reaches the project's own file, and that file stays an origin the store follows while goblins work.
-A worktree a build before this one provisioned shares the file as a hard link instead, one file under two names, so a goblin that edits `.env` there edits the Supreme Overlord's real file in place. A resume or a switch of its task turns each such link into the worktree's own copy and says so.
+Worktree provisioning gives a goblin's worktree an env file only when the project's worktree manifest names it in `link`, and then as the worktree's own read-only copy, so nothing written in the worktree reaches the project's own file, and that file stays an origin the store follows while goblins work.
+A worktree a build before this one provisioned shares the file as a hard link instead, one file under two names, so a goblin that edits `.env` there edits the Supreme Overlord's real file in place. A resume or a switch of its task ends each such link and says so: a file the manifest names becomes the worktree's own copy, and one no manifest names is removed from the worktree, with the project's file left where it is.
 While such a link lasts, the file is one a live goblin can write, so it is not an origin the store follows at all: adoption and refresh skip any local file whose hard link count is above one, which is the only thing that distinguishes a shared file from a private one when the inode is the same.
 The count drops back to one when the link becomes a copy or `cfo cleanup <id>` returns the worktree, so adoption resumes by itself with no command and no state of its own.
 While it is paused the dispatch line says so and names the files, because a credential that never rotates would otherwise look exactly like one that had nothing to rotate.
@@ -302,6 +302,9 @@ A request stores a value. It grants no service: a goblin whose task does not car
 
 Every goblin works in a git worktree of the project at `$CFO_HOME\worktrees\<project folder>\<id>`, detached from the project's default branch, and an extra worktree it asks for with `cfo worktree add` sits beside it.
 cfo's own git commands there turn `core.longpaths` on, because a worktree under the home is a few folders deeper than one inside the checkout; `cfo doctor` says whether it is on for the goblin's own git.
+A worktree starts as the files git tracks and nothing else of the checkout.
+An env file holds the project's production values, so none reaches a worktree by silence: with no worktree manifest, or with one that names no `link`, a goblin's worktree is given no file of the checkout.
+A spawn says so when it matters, by file name only: ``env: the checkout holds .env, .env.local, which this worktree was not given``, with the `link` line that shares them, and it tells the goblin the same, so nobody learns it from a dev server that will not start.
 A project can declare how that worktree becomes runnable in `data/projects/<name>/worktree.json`, beside its auth manifest:
 
 ```json
@@ -316,8 +319,8 @@ A project can declare how that worktree becomes runnable in `data/projects/<name
 }
 ```
 
-- `link` names root-level config files or directories the worktree is given from the primary checkout: a file as the worktree's own read-only copy, made when the worktree is, so a goblin's edit never reaches the checkout's file and a later edit to the checkout's file reaches only worktrees made after it, and a directory by junction. The defaults above apply when the manifest is absent; a missing source is skipped.
-  A default entry whose path the worktree already holds (a project that commits `.env`) is left as checked out and the `spawned` line says so; a declared entry in that state is refused, because the manifest asked for it to be shared.
+- `link` names root-level config files or directories the worktree is given from the primary checkout: a file as the worktree's own read-only copy, made when the worktree is, so a goblin's edit never reaches the checkout's file and a later edit to the checkout's file reaches only worktrees made after it, and a directory by junction. Nothing is shared that it does not name, and a missing source is skipped. Name a development env file there, never one that holds production values.
+  An entry whose path the worktree already holds (a project that commits `.env`) is refused, because the manifest asked for it to be shared and the repository's own file is in its place.
 - `dependencies.strategy` is `install` (the default: the goblin runs the installer the lockfile implies - pnpm, npm, yarn, or uv - in its own terminal as its first step, against the shared cache root below), `link` (junction the declared `paths` from the primary checkout; instant and zero disk, but a package-manager run in one worktree mutates them all), or `none`.
 - `dependencies.install` overrides the detected install commands; each entry is one command line the goblin runs in order in its worktree, stopping at the first that fails.
   The spawn runs no installer: an install writes tens of thousands of files, which under on-access scanning took one spawn over 30 minutes while it held the home's spawn lock, so every other start and resume waited behind it.
@@ -569,6 +572,14 @@ The goblin's branch is its deliverable.
 `cfo pr merge` and `cfo merge-local` never merge red or divergent work — they refuse loudly. After a merge, tell the Supreme Overlord the full PR URL.
 Where the base requires GitHub's merge queue, `cfo pr merge` adds a green PR to the queue rather than merging it: the queue tests the PRs in it together on the base's current tip and merges each whose run passes, so a PR no longer needs its head refreshed on main and a fresh CI run before its turn. It is merged when GitHub says so, not when the command returns.
 While [AFK mode](#afk-mode) is on, merge authority is your own merge word for a goblin pull request that meets its checks, given with `cfo pr merge <url> --verified "<what verified it>"`.
+
+### What CI runs
+
+A pull request's checks come from `.github/workflows/go.yml`, which runs everything at once as parallel jobs: the frontend's checks, the board's browser tests in four jobs, each slow Go package in two jobs, and every other package in one.
+The one check branch protection requires, `test`, passes only when every job passed.
+A run takes as long as its slowest job, about 8 minutes on GitHub's runners as measured on 2026-10-10, where it took 20 while the browser tests ran as one job.
+A pull request's own run and a merge train's run test the same things, so a pull request reaches the default branch about 17 minutes after its push at best.
+Runs of one account share its runners: when eight runs started together on 2026-10-10, each job waited 13 to 15 minutes for a runner, so a burst of pushes or merges costs more than the sum of its runs.
 
 ### Merge trains
 

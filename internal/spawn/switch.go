@@ -304,14 +304,20 @@ func (s Service) Switch(ctx context.Context, req SwitchRequest) (result SwitchRe
 	left := s.endLeft(ctx, meta)
 	// A worktree a build before this one provisioned shares its config files
 	// with the checkout as hard links, so a goblin editing .env there edits
-	// the Overlord's own file. Each becomes the worktree's own copy here,
-	// while no harness of the task holds it open. A copy that fails is said
-	// and does not stop the relaunch, which would leave the goblin with no
-	// harness.
-	if owned, ownErr := s.Worktrees.OwnConfig(project, worktreePath); ownErr != nil {
-		left += "\nwarning: a config file the worktree shares with the checkout could not be made its own copy (" + ownErr.Error() + "), so an edit to it in the worktree still edits the checkout's file"
-	} else if len(owned) > 0 {
-		left += "\nconfig: " + strings.Join(owned, ", ") + " in the worktree was the checkout's own file under a second name, and is now the worktree's read-only copy"
+	// the Overlord's own file. Each ends here, while no harness of the task
+	// holds it open: one the project's manifest names becomes the worktree's
+	// own copy, and one no manifest names is removed from the worktree. A
+	// link that cannot be ended is said and does not stop the relaunch, which
+	// would leave the goblin with no harness.
+	copied, removed, ownErr := s.Worktrees.OwnConfig(project, worktreePath)
+	if len(copied) > 0 {
+		left += "\nconfig: " + strings.Join(copied, ", ") + " in the worktree was the checkout's own file under a second name, and is now the worktree's read-only copy"
+	}
+	if len(removed) > 0 {
+		left += "\nconfig: removed " + strings.Join(removed, ", ") + " from the worktree. It was the checkout's own file under a second name, which no manifest names, and the checkout's file is untouched. A worktree gets an env file only when " + worktree.ManifestPath("data", project) + " names it in link"
+	}
+	if ownErr != nil {
+		left += "\nwarning: a file the worktree shares with the checkout could not be made its own (" + ownErr.Error() + "), so an edit to it in the worktree still edits the checkout's file"
 	}
 
 	launchMeta := meta
