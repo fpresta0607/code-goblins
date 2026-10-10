@@ -100,6 +100,9 @@ func TestOnlyATerminalOfTheOverlordsOwnSwitchesAFKMode(t *testing.T) {
 		unread   error
 		from     string
 		refusal  string
+		// hisToMeet marks a refusal the Overlord himself meets in a terminal
+		// of his own, which is one short sentence that says what to do.
+		hisToMeet bool
 	}{
 		{name: "his own shell", ancestry: shell(above("WindowsTerminal.exe")), env: []string{"USERNAME=overlord"}, from: "his own terminal (powershell.exe pid 4242)"},
 		{name: "a goblin's terminal", ancestry: shell(above("WindowsTerminal.exe")), env: []string{"CFO_ROLE=goblin"}, refusal: "a goblin's terminal"},
@@ -117,18 +120,19 @@ func TestOnlyATerminalOfTheOverlordsOwnSwitchesAFKMode(t *testing.T) {
 		{name: "an agent's environment with its parents cut off", ancestry: shell()[:1], env: []string{"AI_AGENT=claude-code"}, refusal: "an agent harness (its environment carries AI_AGENT)"},
 		// Git Bash's env cuts the parents the same way and can remove those
 		// variables too, so nothing is left that marks the agent. Parents that
-		// stop short of the desktop are parents the supervisor could not read.
+		// stop short of the desktop prove nothing, and Git Bash cuts the
+		// Overlord's own the same way, so the refusal says what to do.
 		{name: "its parents cut off and nothing of a harness in its environment", ancestry: []proc.Entry{
 			{PID: 7001, ParentPID: 4242, ExeBase: "cfo.exe", Start: cfo.Start.Add(4 * time.Millisecond)},
 			{PID: 4242, ParentPID: 900, ExeBase: "env.exe", Start: cfo.Start.Add(2 * time.Millisecond)},
-		}, env: []string{"USERNAME=overlord"}, refusal: "could not follow its parents to the desktop"},
-		{name: "shells above it whose parents are cut off", ancestry: shell(above("bash.exe")), env: []string{"USERNAME=overlord"}, refusal: "could not follow its parents to the desktop"},
+		}, env: []string{"USERNAME=overlord"}, refusal: "nothing says this terminal is the Overlord's own: run it in PowerShell or cmd, or switch it in the Code Goblins window", hisToMeet: true},
+		{name: "shells above it whose parents are cut off", ancestry: shell(above("bash.exe")), env: []string{"USERNAME=overlord"}, refusal: "nothing says this terminal is the Overlord's own", hisToMeet: true},
 		{name: "his own shell opened from the desktop", ancestry: shell(above("Explorer.EXE")), env: []string{"USERNAME=overlord"}, from: "his own terminal (powershell.exe pid 4242)"},
 		// A terminal run as administrator is one the supervisor cannot read, and
-		// it is the Overlord himself who meets this refusal, so it names the way out.
-		{name: "a process that cannot be read", unread: errors.New("access is denied"), refusal: "could not read the process that asked for it, as it cannot one run as administrator"},
-		{name: "a process that is gone", refusal: "could not read the process"},
-		{name: "a process that started after the request", ancestry: late, refusal: "could not read the process"},
+		// it is the Overlord himself who meets this refusal, so it says what to do.
+		{name: "a process that cannot be read", unread: errors.New("access is denied"), refusal: "this terminal could not be read, as one run as administrator cannot: run it in PowerShell or cmd without administrator rights", hisToMeet: true},
+		{name: "a process that is gone", refusal: "this terminal could not be read", hisToMeet: true},
+		{name: "a process that started after the request", ancestry: late, refusal: "this terminal could not be read", hisToMeet: true},
 	} {
 		t.Run(c.name, func(t *testing.T) {
 			s := &Service{Store: store, inspectCaller: func(int) ([]proc.Entry, []string, error) { return c.ancestry, c.env, c.unread }}
@@ -143,10 +147,34 @@ func TestOnlyATerminalOfTheOverlordsOwnSwitchesAFKMode(t *testing.T) {
 				}
 				return
 			}
-			if err == nil || !strings.Contains(err.Error(), c.refusal) || !strings.Contains(err.Error(), "he turns it on or off from a terminal or a board of his own, and the registered CFO only at his ask, with his words") {
-				t.Fatalf("overlordsTerminal = %q, %v, want it refused as %q and saying whose switch it is", from, err, c.refusal)
+			if err == nil || !strings.Contains(err.Error(), c.refusal) {
+				t.Fatalf("overlordsTerminal = %q, %v, want it refused as %q", from, err, c.refusal)
+			}
+			if c.hisToMeet {
+				assertOneShortSentence(t, err.Error())
+				return
+			}
+			if !strings.Contains(err.Error(), "he turns it on or off from a terminal or a board of his own, and the registered CFO only at his ask, with his words") {
+				t.Errorf("overlordsTerminal = %v, want an agent's refusal to say whose switch it is", err)
 			}
 		})
+	}
+}
+
+// assertOneShortSentence fails unless said is a refusal as the Overlord reads
+// one: a single short sentence that says what to do, with nothing of how the
+// supervisor proves a program his ("no talk of parents, openers or
+// processes", 2026-10-09), and neither a semicolon nor an em dash.
+func assertOneShortSentence(t *testing.T, said string) {
+	t.Helper()
+	sentence := strings.TrimSuffix(said, ".")
+	if said == "" || len(said) > 220 || strings.Contains(sentence, ". ") {
+		t.Errorf("he is told %q, want one short sentence", said)
+	}
+	for _, word := range []string{"parent", "opener", "process", "ancestr", "pid ", ";", "—"} {
+		if strings.Contains(strings.ToLower(said), word) {
+			t.Errorf("he is told %q, which says %q, want only what to do", said, word)
+		}
 	}
 }
 

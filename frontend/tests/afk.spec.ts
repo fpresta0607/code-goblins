@@ -55,8 +55,9 @@ const REPORT = {
   ],
   notes: [],
 };
-// The supervisor's own words for a board that an agent's program shows.
-const REFUSAL = "AFK mode is the Supreme Overlord's switch, and the program that shows this board runs under an agent harness (node.exe pid 5120): he turns it on or off from a terminal or a board of his own, and the registered CFO only at his ask, with his words";
+// What the supervisor tells him on a board it refuses: one short sentence that
+// says what to do. What it found goes to the CFO, never to the board.
+const REFUSAL = "Switch AFK in the Code Goblins window, or run cfo afk on in PowerShell.";
 
 interface Asked { on: unknown; token: string }
 interface Supervisor { asked: Asked[]; refuses: boolean; announces: boolean }
@@ -169,17 +170,18 @@ test("the toggle is in the header in the panel's Task view and its Terminal view
 });
 
 // The Overlord, 2026-10-08: "this yellow text i hate. as an error". A refusal
-// of his own press is an error he can read: what did not happen, then the
-// supervisor's words in full, in the question and under the header, and it
-// stays until he closes it.
-test("a refusal is shown in full as an error, in the question and under the header, until he closes it, and the toggle stays as it was", async ({ page }) => {
+// of his own press is an error he can read: what did not happen, then the one
+// short sentence the supervisor has for him, in the question and under the
+// header, and it stays until he closes it. "No dialog ever shows a raw refusal
+// paragraph: one short sentence at most" (2026-10-09).
+test("a refusal is one short sentence shown as an error, in the question and under the header, until he closes it, and the toggle stays as it was", async ({ page }) => {
   await page.clock.install();
   const supervisor = await open(page, snapshot(), { asked: [], refuses: true, announces: true });
   await openCfoPanel(page);
   await toggle(page).click();
   const asks = page.locator("dialog.afk-dialog");
   await asks.getByRole("button", { name: "Turn AFK on" }).click();
-  await expect(asks.getByRole("alert")).toHaveText("AFK did not turn on" + REFUSAL + ".");
+  await expect(asks.getByRole("alert")).toHaveText("AFK did not turn on" + REFUSAL);
   await expect(toggle(page)).toHaveAttribute("aria-checked", "false");
   await asks.getByRole("button", { name: "Cancel" }).click();
   await expect(header(page).getByRole("alert")).toHaveCount(0);
@@ -187,7 +189,7 @@ test("a refusal is shown in full as an error, in the question and under the head
   await push(page, snapshot({ afk: on() }));
   await toggle(page).click();
   const refusal = header(page).getByRole("alert");
-  await expect(refusal).toHaveText("AFK did not turn off" + REFUSAL + ".");
+  await expect(refusal).toHaveText("AFK did not turn off" + REFUSAL);
   await expect(toggle(page)).toHaveAttribute("aria-checked", "true");
   await page.clock.fastForward(60_000);
   await expect(refusal).toBeVisible();
@@ -215,7 +217,7 @@ test("a refusal that arrives after he cancelled Go AFK says AFK did not turn on"
   await asks.getByRole("button", { name: "Cancel" }).click();
   await expect(asks).toHaveCount(0);
   answer();
-  await expect(header(page).getByRole("alert")).toHaveText("AFK did not turn on" + REFUSAL + ".");
+  await expect(header(page).getByRole("alert")).toHaveText("AFK did not turn on" + REFUSAL);
   await expect(toggle(page)).toHaveAttribute("aria-checked", "false");
 });
 
@@ -232,6 +234,9 @@ test("Turn AFK off says it is working until the supervisor answers", async ({ pa
     await route.fulfill({ json: { state: "off" } });
   });
   await page.locator(".board-column").first().click({ position: { x: 8, y: 8 } });
+  // The CFO decided nothing in this stretch, so the offer counts nothing.
+  await expect(offer(page)).toContainText("AFK has been on since");
+  await expect(offer(page)).not.toContainText("The CFO decided");
   await offer(page).getByRole("button", { name: "Turn AFK off" }).click();
   const working = offer(page).getByRole("button", { name: "Turning AFK off…" });
   await expect(working).toBeDisabled();
@@ -431,19 +436,32 @@ test("a stretch the CFO turned on at his ask says so on the bar, and the offer a
   await expect(report(page).locator(".afk-report-title")).toContainText("Turned on by the CFO at your ask: “I'm stepping away, turn AFK on”, off from your board.");
 });
 
-test("his first click or key after the CFO turned AFK on at his ask offers the switch back at once with his words, and the usual wait follows his answer", async ({ page }) => {
+// The Overlord, 2026-10-09, of the dialog that met him after the CFO turned
+// AFK on at his ask: "not right button for this kind of turn on". He had just
+// asked for AFK, so the main button keeps it on, turning it off is the lesser
+// one, one short line says the CFO did it at his ask, and "The CFO decided 0."
+// is gone while nothing was decided.
+test("his first click or key after the CFO turned AFK on at his ask says so in one short line, its main button keeps AFK on, and the usual wait follows his answer", async ({ page }) => {
   await page.clock.install();
-  const byTheCFO = { from: "the CFO at his ask (claude pid 4242)", asked: "I'm heading to bed, turn AFK on" };
+  const byTheCFO = { from: "the CFO at his ask (claude pid 4242)", asked: "AFK did not turn on. AFK mode is the Supreme Overlord's switch, and the supervisor could not follow its parents to the desktop ... fix this issue i should alwyas be abel to turn on afk no issues" };
   const supervisor = await open(page, snapshot({ afk: on(byTheCFO) }));
   const switched = page.locator("dialog.afk-dialog").filter({ hasText: "The CFO turned AFK on" });
   // Nothing opens by itself after the switch.
   await expect(switched).toHaveCount(0);
 
   await page.locator(".task-card").filter({ hasText: "nw-search-index" }).first().click();
-  await expect(switched).toContainText("turned on by the CFO at your ask: “I'm heading to bed, turn AFK on”.");
+  await expect(switched.locator("p").first()).toHaveText(/^It did so at your ask, at \d{1,2}:\d{2}\s?[AP]M\.$/);
+  // His words stay with the report, and nothing was decided yet.
+  await expect(switched).not.toContainText("fix this issue");
+  await expect(switched).not.toContainText("The CFO decided");
+  await expect(switched).not.toContainText("Turning it off shows the report");
   await expect(offer(page)).toHaveCount(0);
   await expect(switched).toBeFocused();
-  await switched.getByRole("button", { name: "Stay AFK" }).click();
+  // The main button keeps it on, and turning it off is the lesser one.
+  await expect(switched.getByRole("button")).toHaveText(["Got it", "Turn AFK off"]);
+  await expect(switched.getByRole("button", { name: "Got it" })).toHaveClass(/primary/);
+  await expect(switched.getByRole("button", { name: "Turn AFK off" })).not.toHaveClass(/primary/);
+  await switched.getByRole("button", { name: "Got it" }).click();
   await expect(page.locator("dialog.afk-dialog")).toHaveCount(0);
   // The click that brought the offer opened the task he clicked.
   await expect(page.locator("#panel-title")).toHaveText("nw-search-index");
@@ -453,6 +471,26 @@ test("his first click or key after the CFO turned AFK on at his ask offers the s
   await page.keyboard.press("Shift");
   await expect(page.locator("dialog.afk-dialog")).toHaveCount(0);
   expect(supervisor.asked).toEqual([]);
+});
+
+// The lesser button still turns it off, which shows the report, and a refusal
+// there is the one short sentence and never the supervisor's own words.
+test("after the CFO turned AFK on at his ask, the lesser Turn AFK off turns it off, and a refusal is one short sentence", async ({ page }) => {
+  const byTheCFO = { from: "the CFO at his ask (claude pid 4242)", asked: "turn AFK on" };
+  const supervisor = await open(page, snapshot({ afk: on({ ...byTheCFO, decided: 2 }) }), { asked: [], refuses: true, announces: true });
+  const switched = page.locator("dialog.afk-dialog").filter({ hasText: "The CFO turned AFK on" });
+  await page.locator(".board-column").first().click({ position: { x: 8, y: 8 } });
+  // Once the CFO decided something the line counts it.
+  await expect(switched.locator("p").first()).toHaveText(/^It did so at your ask, at .+\. The CFO decided 2\.$/);
+  await switched.getByRole("button", { name: "Turn AFK off" }).click();
+  await expect(switched.getByRole("alert")).toHaveText("AFK did not turn off" + REFUSAL);
+  await expect(switched).toBeVisible();
+
+  supervisor.refuses = false;
+  await switched.getByRole("button", { name: "Turn AFK off" }).click();
+  await expect(switched).toHaveCount(0);
+  await expect(report(page)).toContainText("AFK report");
+  expect(supervisor.asked.map((ask) => ask.on)).toEqual([false, false]);
 });
 
 // The Overlord, 2026-10-09: "at the top of the report I don't like all these
