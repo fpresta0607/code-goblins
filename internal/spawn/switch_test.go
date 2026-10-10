@@ -788,3 +788,41 @@ func TestSwitchAnswersAnExitMenuWithTheHarnessesOwnKeys(t *testing.T) {
 		t.Errorf("exit menu answers = %+v, want Exit and stop tasks chosen once", answered)
 	}
 }
+
+// A goblin that was running when a worktree's env file stopped being a hard
+// link still has a worktree whose .env is the checkout's own file under a
+// second name. Its next terminal starts with the worktree's own read-only
+// copy, and the relaunch says so.
+func TestARelaunchGivesTheWorktreeItsOwnCopyOfAHardLinkedEnvFile(t *testing.T) {
+	// Arrange
+	f := newSwitchFixture(t, harness.Control{StopCommand: "/exit"})
+	source := filepath.Join(f.project, ".env")
+	const overlords = "STANDIN_SETTING=the Overlord's own line\n"
+	writeFile(t, source, overlords)
+	shared := filepath.Join(f.worktree, ".env")
+	if err := os.Link(source, shared); err != nil {
+		t.Fatal(err)
+	}
+
+	// Act
+	result, err := f.service.Switch(context.Background(), SwitchRequest{ID: f.meta.ID, Model: "gpt-9"})
+
+	// Assert
+	if err != nil {
+		t.Fatalf("Switch: %v", err)
+	}
+	sourceInfo, sourceErr := os.Stat(source)
+	sharedInfo, sharedErr := os.Stat(shared)
+	if sourceErr != nil || sharedErr != nil || os.SameFile(sourceInfo, sharedInfo) {
+		t.Errorf("after the relaunch the worktree's .env is still the checkout's file (%v, %v)", sourceErr, sharedErr)
+	}
+	if err := os.WriteFile(shared, []byte("STANDIN_SETTING=a goblin's edit\n"), 0o644); err == nil {
+		t.Error("a write to the worktree's .env went through, want it refused")
+	}
+	if kept, err := os.ReadFile(source); err != nil || string(kept) != overlords {
+		t.Errorf("the checkout's .env = %q, %v, want it untouched", kept, err)
+	}
+	if !strings.Contains(result.Output, "config: .env in the worktree was the checkout's own file under a second name") {
+		t.Errorf("output = %q, want the relaunch to say what it turned into a copy", result.Output)
+	}
+}

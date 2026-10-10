@@ -301,6 +301,17 @@ func (s Service) Switch(ctx context.Context, req SwitchRequest) (result SwitchRe
 	// last one left in the background, so a server left running would hold
 	// its port against the one the goblin starts again.
 	left := s.endLeft(ctx, meta)
+	// A worktree a build before this one provisioned shares its config files
+	// with the checkout as hard links, so a goblin editing .env there edits
+	// the Overlord's own file. Each becomes the worktree's own copy here,
+	// while no harness of the task holds it open. A copy that fails is said
+	// and does not stop the relaunch, which would leave the goblin with no
+	// harness.
+	if owned, ownErr := s.Worktrees.OwnConfig(project, worktreePath); ownErr != nil {
+		left += "\nwarning: a config file the worktree shares with the checkout could not be made its own copy (" + ownErr.Error() + "), so an edit to it in the worktree still edits the checkout's file"
+	} else if len(owned) > 0 {
+		left += "\nconfig: " + strings.Join(owned, ", ") + " in the worktree was the checkout's own file under a second name, and is now the worktree's read-only copy"
+	}
 
 	launchMeta := meta
 	var resumeRecord state.Lifecycle

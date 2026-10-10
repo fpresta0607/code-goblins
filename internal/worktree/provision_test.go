@@ -72,16 +72,25 @@ func TestProvisionNoOpsOnABareProject(t *testing.T) {
 	}
 }
 
-func TestProvisionHardlinksConfigFiles(t *testing.T) {
+// A worktree's config file used to be a hard link to the checkout's own, one
+// file with two names, so a goblin that edited .env in its worktree edited the
+// Overlord's real file in place. It is the worktree's own read-only copy now:
+// a write to it is refused, and one that is forced changes only the copy.
+func TestProvisionGivesTheWorktreeItsOwnReadOnlyCopyOfAConfigFile(t *testing.T) {
+	// Arrange
 	project, worktreePath, taskTmp, runner := provisionFixture(t)
 	source := filepath.Join(project, ".env")
-	if err := os.WriteFile(source, []byte("DATABASE_URL=postgres://x\n"), 0o644); err != nil {
+	const overlords = "STANDIN_SETTING=the Overlord's own line\n"
+	if err := os.WriteFile(source, []byte(overlords), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	gitDir := filepath.Join(project, ".git")
 	runner.results = unignoredScript(gitDir, ".env")
 
+	// Act
 	result, err := (Service{Commands: runner, DataDir: t.TempDir()}).Provision(context.Background(), project, worktreePath, taskTmp, nil)
+
+	// Assert
 	if err != nil {
 		t.Fatalf("Provision: %v", err)
 	}
@@ -94,8 +103,27 @@ func TestProvisionHardlinksConfigFiles(t *testing.T) {
 	if err != nil {
 		t.Fatalf("shared .env missing from the worktree: %v", err)
 	}
-	if !os.SameFile(sourceInfo, destinationInfo) {
-		t.Error("worktree .env is a copy, want a hardlink to the primary checkout's file")
+	if os.SameFile(sourceInfo, destinationInfo) {
+		t.Error("worktree .env is the checkout's own file under a second name, want a copy")
+	}
+	if copied, err := os.ReadFile(destination); err != nil || string(copied) != overlords {
+		t.Errorf("worktree .env = %q, %v, want what the checkout's holds", copied, err)
+	}
+	if err := os.WriteFile(destination, []byte("STANDIN_SETTING=a goblin's edit\n"), 0o644); err == nil {
+		t.Error("a write to the worktree's .env went through, want it refused: the copy is read-only")
+	}
+	// The premise of the next check: the forced write below really lands.
+	if err := os.Chmod(destination, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(destination, []byte("STANDIN_SETTING=a goblin's edit\n"), 0o644); err != nil {
+		t.Fatalf("the forced write did not land, so it proves nothing: %v", err)
+	}
+	if kept, err := os.ReadFile(source); err != nil || string(kept) != overlords {
+		t.Errorf("the checkout's .env = %q, %v, want it untouched by an edit in the worktree", kept, err)
+	}
+	if after, err := os.Stat(source); err != nil || after.Mode().Perm()&0o200 == 0 {
+		t.Errorf("the checkout's .env is %v, %v, want it left writable for the Overlord", after.Mode(), err)
 	}
 	if !slices.Contains(result.Linked, ".env") {
 		t.Errorf("Linked = %v, want .env named", result.Linked)
@@ -646,5 +674,123 @@ func writeManifest(t *testing.T, dataDir, project string, manifest Manifest) {
 	}
 	if err := os.WriteFile(path, data, 0o644); err != nil {
 		t.Fatal(err)
+	}
+}
+
+// A worktree a build before this one provisioned shares its env files with
+// the checkout as hard links. A relaunch gives the worktree its own read-only
+// copies, also where the project's manifest shares nothing any more, and
+// leaves a file that is no such link alone.
+func TestOwnConfigTurnsAHardLinkedEnvFileIntoTheWorktreesOwnCopy(t *testing.T) {
+	// Arrange
+	project, worktreePath, _, _ := provisionFixture(t)
+	dataDir := t.TempDir()
+	writeManifest(t, dataDir, project, Manifest{Project: "demo", Link: []string{}})
+	const overlords = "STANDIN_SETTING=the Overlord's own line\n"
+	for _, name := range []string{".env", ".env.local"} {
+		if err := os.WriteFile(filepath.Join(project, name), []byte(overlords), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := os.Link(filepath.Join(project, ".env"), filepath.Join(worktreePath, ".env")); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(worktreePath, ".env.local"), []byte("STANDIN_SETTING=the goblin's own file\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	service := Service{DataDir: dataDir}
+
+	// Act
+	owned, err := service.OwnConfig(project, worktreePath)
+	again, againErr := service.OwnConfig(project, worktreePath)
+
+	// Assert
+	if err != nil || !slices.Equal(owned, []string{".env"}) {
+		t.Fatalf("OwnConfig = %v, %v, want the one hard-linked file turned", owned, err)
+	}
+	if againErr != nil || len(again) != 0 {
+		t.Errorf("a second OwnConfig = %v, %v, want nothing left to turn", again, againErr)
+	}
+	sourceInfo, _ := os.Stat(filepath.Join(project, ".env"))
+	destinationInfo, statErr := os.Stat(filepath.Join(worktreePath, ".env"))
+	if statErr != nil || os.SameFile(sourceInfo, destinationInfo) {
+		t.Errorf("the worktree's .env is still the checkout's file, %v", statErr)
+	}
+	if err := os.WriteFile(filepath.Join(worktreePath, ".env"), []byte("STANDIN_SETTING=a goblin's edit\n"), 0o644); err == nil {
+		t.Error("a write to the worktree's .env went through, want it refused: the copy is read-only")
+	}
+	if kept, err := os.ReadFile(filepath.Join(project, ".env")); err != nil || string(kept) != overlords {
+		t.Errorf("the checkout's .env = %q, %v, want it untouched", kept, err)
+	}
+	if sourceInfo.Mode().Perm()&0o200 == 0 {
+		t.Error("the checkout's .env was made read-only, want only the worktree's copy to be")
+	}
+	if own, err := os.ReadFile(filepath.Join(worktreePath, ".env.local")); err != nil || string(own) != "STANDIN_SETTING=the goblin's own file\n" {
+		t.Errorf("the worktree's own .env.local = %q, %v, want a file that was no link left as it was", own, err)
+	}
+}
+
+// A read-only copy never strands a worktree: returning it removes the copy
+// with the rest, and leaves the checkout's file where it was.
+func TestReturnRemovesAWorktreeThatHoldsAReadOnlyCopy(t *testing.T) {
+	// Arrange
+	project := clonedProject(t)
+	if err := os.WriteFile(filepath.Join(project, ".env"), []byte("STANDIN_SETTING=the Overlord's own line\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(t.TempDir(), "worktrees", filepath.Base(project), "task-1")
+	git := RunnerGit{Commands: execx.OSRunner{}}
+	if _, err := git.Acquire(context.Background(), project, path, ""); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := (Service{Commands: execx.OSRunner{}, DataDir: t.TempDir()}).Provision(context.Background(), project, path, t.TempDir(), nil); err != nil {
+		t.Fatalf("Provision: %v", err)
+	}
+	if info, err := os.Stat(filepath.Join(path, ".env")); err != nil || info.Mode().Perm()&0o200 != 0 {
+		t.Fatalf("the premise is a read-only copy in the worktree: %v, %v", info, err)
+	}
+
+	// Act
+	err := git.Return(context.Background(), project, path)
+
+	// Assert
+	if err != nil {
+		t.Fatalf("Return: %v", err)
+	}
+	if _, err := os.Stat(path); !os.IsNotExist(err) {
+		t.Errorf("the worktree is still there: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(project, ".env")); err != nil {
+		t.Errorf("the checkout's .env went with the worktree: %v", err)
+	}
+}
+
+// A run that was interrupted between writing a copy and putting it in place
+// leaves a read-only staged file. The next run replaces it and leaves none
+// behind, since an untracked file would make the worktree read dirty.
+func TestProvisionReplacesAStagedCopyAnInterruptedRunLeft(t *testing.T) {
+	// Arrange
+	project, worktreePath, taskTmp, runner := provisionFixture(t)
+	if err := os.WriteFile(filepath.Join(project, ".env"), []byte("STANDIN_SETTING=current\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	staged := filepath.Join(worktreePath, ".env.cfo-copy")
+	if err := os.WriteFile(staged, []byte("STANDIN_SETTING=half written\n"), 0o400); err != nil {
+		t.Fatal(err)
+	}
+	runner.results = unignoredScript(filepath.Join(project, ".git"), ".env")
+
+	// Act
+	_, err := (Service{Commands: runner, DataDir: t.TempDir()}).Provision(context.Background(), project, worktreePath, taskTmp, nil)
+
+	// Assert
+	if err != nil {
+		t.Fatalf("Provision: %v", err)
+	}
+	if copied, err := os.ReadFile(filepath.Join(worktreePath, ".env")); err != nil || string(copied) != "STANDIN_SETTING=current\n" {
+		t.Errorf("worktree .env = %q, %v, want the checkout's current content", copied, err)
+	}
+	if _, err := os.Stat(staged); !os.IsNotExist(err) {
+		t.Errorf("the staged copy is still in the worktree: %v", err)
 	}
 }
