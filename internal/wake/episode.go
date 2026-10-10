@@ -58,7 +58,16 @@ func ReadEpisode(dir string) (Episode, error) {
 }
 
 func writeEpisode(dir, status string, gen int) error {
-	return fsx.AtomicWriteFile(filepath.Join(dir, episodeFile), []byte(status+":"+strconv.Itoa(gen)+"\n"))
+	staged, err := stageEpisode(dir, status, gen)
+	if err != nil {
+		return err
+	}
+	return staged.Commit()
+}
+
+// stageEpisode stages the marker writeEpisode would write.
+func stageEpisode(dir, status string, gen int) (*fsx.Staged, error) {
+	return fsx.Stage(filepath.Join(dir, episodeFile), []byte(status+":"+strconv.Itoa(gen)+"\n"))
 }
 
 // PublishEpisode increments the recovery generation and atomically marks it
@@ -92,15 +101,15 @@ func AckEpisode(dir string, gen int) error {
 		if err != nil {
 			return err
 		}
-		return ackEpisode(dir, current, gen)
+		if !pendingAt(current, gen) {
+			return ErrGenerationMismatch
+		}
+		return writeEpisode(dir, "acked", gen)
 	})
 }
 
-// ackEpisode is AckEpisode's rule for a caller that holds the wake lock and
-// read current under it.
-func ackEpisode(dir string, current Episode, gen int) error {
-	if !current.Pending || gen == 0 || current.Gen != gen {
-		return ErrGenerationMismatch
-	}
-	return writeEpisode(dir, "acked", gen)
+// pendingAt reports whether current is the episode an acknowledgement of
+// generation gen retires: pending, and at that generation, which is never 0.
+func pendingAt(current Episode, gen int) bool {
+	return current.Pending && gen != 0 && current.Gen == gen
 }

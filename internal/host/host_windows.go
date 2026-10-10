@@ -14,6 +14,8 @@ import (
 	"sync"
 	"time"
 
+	"golang.org/x/sys/windows"
+
 	"github.com/fpresta0607/code-goblins/internal/conpty"
 	"github.com/fpresta0607/code-goblins/internal/proc"
 	"github.com/fpresta0607/code-goblins/internal/state"
@@ -228,9 +230,14 @@ func announce(stateDir, id string, childPID int, proof string) (Record, *listene
 	if !ok {
 		return Record{}, nil, fmt.Errorf("host: the terminal's program pid %d has no start time", childPID)
 	}
-	record := Record{ID: id, Pipe: name, Token: hex.EncodeToString(secret[:]), Version: Version, HostPID: os.Getpid(), ChildPID: childPID, ChildStart: childStart, Started: time.Now().UTC(), ProofSum: proofSum(proof)}
+	record := Record{ID: id, Pipe: name, Token: hex.EncodeToString(secret[:]), Version: Version, HostPID: os.Getpid(), ChildPID: childPID, ChildStart: childStart, Started: time.Now().UTC(), ProofSum: ProofSum(proof)}
 	if err := writeRecord(stateDir, record); err != nil {
 		return Record{}, nil, fmt.Errorf("host: record the host: %w", err)
+	}
+	// The record goes when this host does and is replaced by the next one's.
+	// The terminal's proofs outlast both, for what it leaves running.
+	if err := keepProof(stateDir, id, record.ProofSum, record.Started, time.Now().Add(-windows.DurationSinceBoot())); err != nil {
+		return Record{}, nil, fmt.Errorf("host: keep the terminal's proof: %w", err)
 	}
 	return record, pipe, nil
 }

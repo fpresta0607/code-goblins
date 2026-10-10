@@ -40,7 +40,8 @@ export function updateOutcome(run: Run): { icon: IconName; label: string; troubl
     case "ready": return { icon: "sparkle", label: "Ready", trouble: false };
     case "running": return { icon: "refresh", label: "Updating", trouble: false };
     case "succeeded": return { icon: "check-double", label: "Updated", trouble: false };
-    case "failed": return { icon: "warning", label: run.exit_code === 6 ? "Updated" : run.exit_code === 3 ? "Rolled back" : "Not updated", trouble: true };
+    // 3 and 5 both leave the previous build serving, 5 from its kept copy.
+    case "failed": return { icon: "warning", label: run.exit_code === 6 ? "Updated" : run.exit_code === 3 || run.exit_code === 5 ? "Rolled back" : "Not updated", trouble: true };
     case "withdrawn": return { icon: "close", label: "Replaced", trouble: false };
     case "expired": return { icon: "close", label: "Expired", trouble: false };
     default: return { icon: "clock", label: "Waiting", trouble: false };
