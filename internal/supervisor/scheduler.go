@@ -43,8 +43,9 @@ func (s *Service) schedule(ctx context.Context, now time.Time, watched *fleetWak
 	record := &Scheduling{At: now}
 	// A pull request a queued row waits on that merged lets the row start
 	// at this reading. One that cannot be read holds its own row only, and
-	// the board says why, so the rest of the reading and its wakes go on.
-	if err := s.learnAwaitedPulls(ctx); err != nil {
+	// the CFO is told why once it stays unread, so the rest of the reading
+	// and its wakes go on.
+	if err := s.learnAwaitedPulls(ctx, watched); err != nil {
 		s.publish(err)
 	}
 	reading := s.rowReading(now, &memory)
@@ -83,6 +84,10 @@ func (s *Service) schedule(ctx context.Context, now time.Time, watched *fleetWak
 	problems := tellRetiredRows(s.Store.Home.State, finished.retired)
 	var ready []state.Lifecycle
 	memoryPending := ""
+	// unreadPauses holds each paused goblin whose condition could not be
+	// read at this reading. It is read again at the next, and is a problem
+	// once it went unread failingPasses readings in a row.
+	unreadPauses := map[string]bool{}
 	for _, meta := range liveTasks(s.Store.Home.State) {
 		if allowanceBlocked(watched, meta.Harness, meta.Model, now) {
 			continue
@@ -100,7 +105,8 @@ func (s *Service) schedule(ctx context.Context, now time.Time, watched *fleetWak
 		}
 		isReady, err := s.pauseCleared(ctx, *record.Pause, now, watched)
 		if err != nil {
-			problems = errors.Join(problems, fmt.Errorf("pause condition for %s: %w", meta.ID, err))
+			unreadPauses[meta.ID] = true
+			problems = errors.Join(problems, watched.failing("pause:"+meta.ID, fmt.Errorf("pause condition for %s: %w", meta.ID, err)))
 			continue
 		}
 		isWithParent, err := s.resumesWithItsParent(meta, record)
@@ -115,6 +121,7 @@ func (s *Service) schedule(ctx context.Context, now time.Time, watched *fleetWak
 			memoryPending = meta.ID
 		}
 	}
+	watched.stillFailing("pause:", unreadPauses)
 	slices.SortFunc(ready, func(left, right state.Lifecycle) int {
 		if order := left.Pause.At.Compare(right.Pause.At); order != 0 {
 			return order
