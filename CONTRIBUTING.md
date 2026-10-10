@@ -76,6 +76,12 @@ No stand-in is named after a program Windows ships, such as `rundll32.exe`, sinc
 `internal/standin`'s tests fail on a new copy of a test binary and on such a name, and list the test files that still make a copy for a stand-in that runs their package's own code.
 A test that only needs bytes it never runs uses bytes that are no program.
 
+A stand-in script first on PATH never carries the name of a program Windows ships either, such as `powershell.cmd`: the script under test names such a program by its own path, the test stands in for what that program is given to run, and `installtest.StrippedCommand` refuses the stand-in.
+
+A test writes no copy of `install.ps1`.
+Microsoft Defender sent each pinned or changed copy a test wrote to Microsoft, as an unsigned script nobody has seen that downloads and runs programs.
+A test that runs the pinned script pipes `pinned(...)` to `Invoke-Expression`, which pins it in memory, as the one-line install runs the published script as text.
+
 The real-session acceptance suite needs real Herdr, Claude Code, Codex, and Pi, and is opt-in:
 
 ```powershell

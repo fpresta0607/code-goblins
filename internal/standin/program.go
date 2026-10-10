@@ -239,7 +239,7 @@ func goTool() string {
 // place writes program to path, and refuses a path named after a Windows
 // program.
 func place(program []byte, path string) error {
-	if isWindowsProgram(filepath.Base(path)) {
+	if IsWindowsProgram(filepath.Base(path)) {
 		return fmt.Errorf("%s is the name of a Windows program, and a stand-in with one is what malware that hides as part of Windows looks like: Microsoft Defender detected a stand-in rundll32.exe as Behavior:Win32/DefenseEvasion.A!ml on 2026-09-26. Give the stand-in another name, and have the code under test take the program's path where it must", filepath.Base(path))
 	}
 	return os.WriteFile(path, program, 0o755)

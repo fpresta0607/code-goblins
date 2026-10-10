@@ -16,6 +16,7 @@ import (
 
 	"github.com/fpresta0607/code-goblins/internal/execx"
 	"github.com/fpresta0607/code-goblins/internal/fsx"
+	"github.com/fpresta0607/code-goblins/internal/standin"
 )
 
 // UserEnvFile is the file in a stripped session's LOCALAPPDATA that
@@ -68,6 +69,14 @@ func StrippedCommand(t *testing.T, base string, stubs map[string]string, name st
 		stubs["npx"] = "@echo %*>>\"" + filepath.Join(temp, NpxCalls) + "\"\r\n@exit /b 0\r\n"
 	}
 	for tool, script := range stubs {
+		// A stand-in first on PATH under the name of a program Windows ships
+		// is how malware hides as part of Windows, and Microsoft Defender
+		// detected one (a stand-in rundll32.exe, 2026-09-26). The script
+		// under test names such a program by its own path, and a test
+		// stands in for what that program is given to run.
+		if standin.IsWindowsProgram(tool + ".cmd") {
+			t.Fatalf("installtest: the stand-in %s.cmd carries the name of a Windows program; stand in for what it runs, never for it", tool)
+		}
 		if err := os.WriteFile(filepath.Join(bin, tool+".cmd"), []byte(script), 0o700); err != nil {
 			t.Fatal(err)
 		}
