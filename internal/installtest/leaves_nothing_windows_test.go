@@ -33,6 +33,16 @@ type scanner struct {
 	sawUntil bool
 }
 
+// lookEvery is how often a scanner looks for its file, and readEvery how
+// often it then reads the record. The install reaches the removal of a folder
+// hundreds of milliseconds of its own work after it wrote the file, and ends
+// seconds after the line that lets the file go, so both leave room, and
+// neither keeps a processor from the install the scanner runs beside.
+const (
+	lookEvery = 5 * time.Millisecond
+	readEvery = 25 * time.Millisecond
+)
+
 func newScanner(name, until string) *scanner {
 	return &scanner{name: name, until: until, holding: make(chan struct{}), stop: make(chan struct{}), stopped: make(chan struct{})}
 }
@@ -62,13 +72,16 @@ func (s *scanner) start(temp, record string) {
 						close(s.holding)
 					}
 				}
-			} else if s.until != "" {
+				time.Sleep(lookEvery)
+				continue
+			}
+			if s.until != "" {
 				if recorded, _ := os.ReadFile(record); strings.Contains(string(recorded), s.until) {
 					s.sawUntil = true
 					return
 				}
 			}
-			time.Sleep(time.Millisecond)
+			time.Sleep(readEvery)
 		}
 	}()
 }
