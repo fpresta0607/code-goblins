@@ -457,6 +457,12 @@ summary { cursor: pointer; }
 .disclosure[open] > summary > .icon { transform: rotate(90deg); }
 
 .disclosure-content { padding: 0 0 24px; min-width: 0; }
+/* A disclosure inside a header, a card or a record is a line of it, not a
+   section: it turns the same chevron without the section's rule, padding or
+   heading type. */
+.disclosure-line { border-top: 0; }
+.disclosure-line > summary { gap: 8px; padding: 0; font-family: inherit; font-size: inherit; }
+.disclosure-line > .disclosure-content { padding: 12px 0 0; }
 .section-toolbar { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 12px; margin-bottom: 18px; }
 .section-toolbar p, .count { color: var(--muted); font-size: .9375rem; }
 .section-toolbar button { font-size: .9375rem; }
@@ -748,12 +754,15 @@ p.panel-goblin-task { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-o
 .panel-activity { margin: 4px 0 0; color: #c4d4df; overflow-wrap: anywhere; line-height: 1.5; }
 .panel-details-row { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 18px; min-width: 0; }
 .raw-details { min-width: 0; }
-.raw-details > summary { display: inline-block; padding: 2px 0; list-style: none; color: var(--mint); font-size: .9375rem; font-weight: 700; cursor: pointer; }
-.raw-details > summary::-webkit-details-marker { display: none; }
+.raw-details > summary { display: inline-flex; gap: 6px; padding: 2px 0; color: var(--mint); font-size: .9375rem; font-weight: 700; }
 .raw-details > summary:hover { text-decoration: underline; }
 .raw-details[open] { flex-basis: 100%; }
+.raw-details > .disclosure-content { padding: 0; }
 .raw-details-text { display: grid; gap: 6px; margin-top: 6px; padding: 10px 12px; border: 1px solid var(--glass-border); border-radius: var(--radius); background: var(--field-bg); color: #b3c5d1; font-family: var(--font-mono); font-size: .875rem; line-height: 1.5; overflow-wrap: anywhere; white-space: pre-wrap; }
 .raw-details-text p { margin: 0; }
+/* A paused goblin's Details is a description written for a person, so it
+   reads in the panel's own type, as the sentence under a status does. */
+.raw-details-text.plain { color: #c4d4df; font-family: var(--font-body); font-size: 1rem; white-space: normal; }
 .show-more { display: grid; gap: 6px; justify-items: start; min-width: 0; margin-top: 4px; }
 .show-more-toggle, .text-button { min-height: 0; padding: 2px 0; border: 0; background: none; box-shadow: none; color: var(--mint); font-size: .9375rem; font-weight: 700; }
 .show-more-toggle:hover, .text-button:hover { text-decoration: underline; }
@@ -1209,7 +1218,8 @@ a.wait-open { min-height: 44px; border: 1px solid var(--accent-green); border-ra
 .update-result { margin: 0; font-weight: 700; }
 .update-result.ok { color: #c9f2e2; }
 .update-result.back { color: #f1c598; }
-.update-output summary { cursor: pointer; color: #9fb5c3; font-weight: 700; }
+.update-output > summary { color: #9fb5c3; font-weight: 700; }
+.update-output > .disclosure-content { padding: 0; }
 .update-output .run-output { margin-top: 8px; min-height: 0; max-height: 12rem; }
 .card-actions .update-button { display: inline-flex; align-items: center; gap: 8px; padding: 10px 22px; }
 .card-actions .update-button .icon { width: 20px; height: 20px; }
@@ -1263,6 +1273,9 @@ a.wait-open { min-height: 44px; border: 1px solid var(--accent-green); border-ra
 .stop-task-choices button { width: 100%; min-height: 46px; }
 .preservation-notice { display: flex; gap: 10px; align-items: center; padding: 14px; border: 1px solid #4ee2b644; border-radius: var(--radius); background: #163d3740; color: #9af2d7; }
 .preservation-notice .icon { flex: none; }
+/* A dialog's note sits as far under its description as its choices sit under
+   the note. */
+dialog > .preservation-notice { margin-top: 18px; }
 .danger { color: #ff9292; }
 .stop-task-choices .danger { border-color: #fa7272; background: var(--field-bg); }
 @container (max-width: 420px) {

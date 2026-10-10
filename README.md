@@ -395,6 +395,11 @@ When free commit (memory plus page file) is the shorter of the two, the meter sh
 A line also warns when the kernel's paged pool passes 4 GB: Windows holds that memory, no goblin can use it, and restarting the PC frees it.
 The bar spans 10 GB, with amber below 5 GB and red below the floor.
 In the same box, under memory, **Disk free** shows the free space on the home's drive, on a bar marked at the 15 GB disk floor and the 10 GB mark at which the CFO is woken: amber under the floor, where no goblin and no gate test run starts, and red under the mark.
+Under disk, **CPU free** shows how much of this PC's performance cores sat idle since the last reading, on a bar marked at the quarter the fleet waits for before it starts a goblin by itself: amber under the mark.
+Hover, focus or hold its bar for the cores by kind, how busy each kind is and the two apps using the processor most.
+Last in the box, **GPU free** shows how free the busiest graphics adapter is, and its bar's tip names each adapter, how busy it is and the app using most of it.
+No start waits on the GPU, so its bar has no mark, and a PC with no graphics adapter Windows counts shows no GPU meter.
+Nothing is written under any of the four bars.
 Beside the meter, a ring around the Claude or OpenAI mark shows that subscription's weekly allowance remaining as `quota-axi` last read it, and turns amber within five points of its reserve, the weekly floor the home keeps for that provider.
 A mark appears only while a live CFO or goblin terminal runs that harness, and shows **?** when the reading is stale, unavailable or needs a sign-in; hover, focus or hold a ring for its reset time, the reading's age and the reserve.
 Under a floor of 0 the reserve reads **No reserve, runs to 0%**.
@@ -424,7 +429,7 @@ A start that fails reads **Start failed** in red and waits in Tasks for its next
 When a brief is missing, Start writes it from the queued task and tells the CFO before dispatching.
 Start needs at least 5 GB of free memory and 5 GB of free commit (RAM plus page file, which a new program needs even while memory looks free) and free disk at or above the disk floor, and one task starts or resumes at a time.
 One click is enough: a Start or Resume clicked while another task starts or resumes, or while memory or disk is short, waits its turn and runs as soon as it can, and its card says Starting or Resuming the moment you click, or Starts at 5 GB free while memory is short.
-What the fleet starts by itself also waits for room on the processors, so your own apps stay quick: the next queued task, a goblin whose wait is over, a goblin coming back after a restart and a helper start only once a quarter of this PC's performance cores sat idle over the last minute.
+What the fleet starts by itself also waits for room on the processors, so your own apps stay quick: the next queued task, a goblin whose wait is over, a goblin coming back after a restart and a helper start only once a quarter of this PC's performance cores sat idle since the last reading.
 Each install reads its own processor for this, and a Start or Resume you click does not wait on it.
 A second click changes nothing, and a refusal goes to the CFO, never to a line on the board.
 A start ends once its goblin has its brief: the goblin installs its worktree's dependencies (`npm ci`, `uv sync` and the like) in its own terminal as its first step, and its card says so, so a long install never holds up the next start or resume.
@@ -502,9 +507,13 @@ The whole crew:
 
 Clicking a card or a node opens the same goblin panel from either view: who the goblin is, its status, one plain sentence under it, and icon buttons to open its worktree in VS Code or File Explorer and to open its pull request.
 The status is the one place the panel says the task's state, and it is true: a resume or stop that did not finish reads **Resume failed** or **Stop failed** however the goblin last reported, a pause that did not finish shows what the goblin is doing, and a paused task reads **Paused**.
-The sentence under it never repeats the state: it is the goblin's latest report without its leading state word, in sentence case, with no semicolon chains, commit hashes, paths or links, or, for a paused task, what resumes it, and for a failure, what failed and what to do next with **Open the log**, which opens Activity.
+The sentence under it never repeats the state: it is the goblin's latest report without its leading state word, in sentence case, with no semicolon chains, commit hashes, paths or links, and for a failure, what failed and what to do next with **Open the log**, which opens Activity.
 Under **Working** there is no sentence, at the Overlord's word on 2026-10-05; what it would say is the first thing under **Details**.
-**Details** under the sentence shows the words it left out exactly as they were written, so a failure can still be diagnosed.
+A paused task has no sentence either, since its status already says why it waits and what resumes it.
+Its **Details** is one short description written for a person: what the goblin last reported, then what it waits for and that it resumes by itself, or that it stays paused until you resume it.
+What a pause could not do is told to the CFO and never shown in the panel.
+For any other task, **Details** under the sentence shows the words it left out exactly as they were written, so a failure can still be diagnosed.
+Whatever opens and closes on the board turns the same thin caret as the panel's sections, **Details**, **Stopped resources**, a goblin's finished children and an update's **Output** among them.
 When a session is retired, paused or stopped, its Terminal view shows that state, the recorded time when known, and the goblin's last report when available.
 **Open handoff** opens its saved handoff as plain text when that file is available.
 An open terminal follows its task into retired history instead of losing the panel or trying to reconnect to a retired session.

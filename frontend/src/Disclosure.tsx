@@ -6,6 +6,8 @@ import { Icon } from "./Icon";
 // SIQshift's shared ShiftGroups: content mounts only while open, so closing
 // releases preview resources and a closed section fetches nothing. open and
 // onOpenChange let a caller open it, as a failure's log link opens Activity.
+// The kind disclosure-line draws it as a line of a header, a card or a
+// record, without a section's rule, padding or heading type.
 export function Disclosure({ title, children, defaultOpen = false, kind = "", id, open: shown, onOpenChange }: {
   title: ReactNode; children: ReactNode; defaultOpen?: boolean; kind?: string; id?: string; open?: boolean; onOpenChange?: (open: boolean) => void;
 }) {
