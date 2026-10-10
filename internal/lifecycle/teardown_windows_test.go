@@ -262,3 +262,55 @@ func TestStopResourcesIssuesEveryTerminationBeforeWaiting(t *testing.T) {
 		t.Fatalf("requests were serialized: stopped=%v error=%v", stopped, err)
 	}
 }
+
+// A stop has ten seconds to read every process on the machine and end what
+// is the task's. It ran at the priority of the work it was ending. On
+// 2026-10-10, with six goblins building and testing, its pause and retire
+// test failed on this machine with "its terminal ended, but the rest of its
+// stop did not finish", and one reading of some 500 processes, timed twelve
+// times, took between 0.04 and 3.9 seconds at normal priority and 0.02
+// every time above it: each of its 64 readers waited its turn behind the
+// compilers it was there to stop. A memory pause is taken when the machine
+// is at its busiest, so the stop now runs above the work it ends, reading
+// and ending alike, and gives its priority back when it is done.
+func TestAStopRunsAboveTheWorkItEndsAndGivesItsPriorityBack(t *testing.T) {
+	// Arrange
+	terminal := Identity{PID: 4242, Started: time.Date(2026, 10, 10, 8, 0, 0, 0, time.UTC)}
+	usual, err := windows.GetPriorityClass(windows.CurrentProcess())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if usual != windows.NORMAL_PRIORITY_CLASS {
+		t.Skipf("this test runs at priority class %#x, so it cannot see a stop rise above the usual one", usual)
+	}
+	during := map[string]uint32{}
+	seen := func(what string) {
+		class, err := windows.GetPriorityClass(windows.CurrentProcess())
+		if err != nil {
+			t.Error(err)
+		}
+		during[what] = class
+	}
+
+	// Act
+	_, _, stopErr := endResources(t.Context(), Resources{Hosts: []Identity{terminal}}, func(context.Context, Identity) (bool, error) {
+		seen("ending the terminal")
+		return false, nil
+	}, func(context.Context, []Identity) ([]Process, error) {
+		seen("reading the machine")
+		return nil, nil
+	})
+
+	// Assert
+	if stopErr != nil {
+		t.Fatalf("endResources: %v", stopErr)
+	}
+	for _, what := range []string{"ending the terminal", "reading the machine"} {
+		if during[what] != windows.ABOVE_NORMAL_PRIORITY_CLASS {
+			t.Errorf("while %s the stop ran at priority class %#x, want above normal, %#x", what, during[what], uint32(windows.ABOVE_NORMAL_PRIORITY_CLASS))
+		}
+	}
+	if after, err := windows.GetPriorityClass(windows.CurrentProcess()); err != nil || after != usual {
+		t.Errorf("after the stop this process runs at priority class %#x (%v), want its usual %#x back", after, err, usual)
+	}
+}

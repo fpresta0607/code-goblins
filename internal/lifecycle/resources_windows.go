@@ -270,6 +270,7 @@ func stopResources(ctx context.Context, resources Resources, stop func(context.C
 // inventory reads as the task's own, given the members of the terminals'
 // jobs.
 func endResources(ctx context.Context, resources Resources, stop func(context.Context, Identity) (bool, error), inventory func(context.Context, []Identity) ([]Process, error)) ([]string, []state.TeardownProcess, error) {
+	defer aboveTheWork()()
 	stopped := []string{}
 	var teardown []state.TeardownProcess
 	finished := map[Identity]bool{}
