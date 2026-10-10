@@ -10,11 +10,13 @@ import (
 
 	"golang.org/x/sys/windows"
 
+	"github.com/fpresta0607/code-goblins/internal/crewstate"
 	"github.com/fpresta0607/code-goblins/internal/fleettree"
 	"github.com/fpresta0607/code-goblins/internal/home"
 	"github.com/fpresta0607/code-goblins/internal/host"
 	"github.com/fpresta0607/code-goblins/internal/lifecycle"
 	"github.com/fpresta0607/code-goblins/internal/lock"
+	"github.com/fpresta0607/code-goblins/internal/monitor"
 	"github.com/fpresta0607/code-goblins/internal/state"
 )
 
@@ -98,6 +100,7 @@ func ReadOwners(h home.Home) ([]Owner, []string) {
 			// A record that names folders that are not the task's own names
 			// none, and the terminal's mark still says what is its own.
 			owner.Directories, _ = lifecycle.TaskDirectories(h, meta)
+			owner.AtRestSince = atRestSince(h.State, id)
 		}
 		owner.IsChanging = slices.ContainsFunc(changeLocks(id), func(name string) bool {
 			held, err := lock.ReadNamed(h.State, name)
@@ -106,6 +109,40 @@ func ReadOwners(h home.Home) ([]Owner, []string) {
 		owners = append(owners, owner)
 	}
 	return owners, notes
+}
+
+// statusTail is how many of a task's last status lines are read for its
+// latest report, past the records the CFO writes into the log after it.
+const statusTail = 50
+
+// atRestSince is when task id's goblin was last seen at work, once it has
+// delivered and rests, and zero while it works or waits. A goblin rests when
+// both hold: the last outcome it reported is done or failed, and the monitor
+// reads it at its prompt with no turn in progress and nothing asked. The
+// time is the monitor's own, when it last saw the goblin make progress.
+// Anything else is a goblin at work, and so is whatever cannot be read: a
+// goblin that reported working, blocked or waiting-on, one in a turn however
+// long, one whose harness is refused or still starting, and one that asks
+// the CFO something in prose.
+func atRestSince(stateDir, id string) time.Time {
+	lines, err := state.TailStatus(stateDir, id, statusTail)
+	if err != nil {
+		return time.Time{}
+	}
+	if verb, isReported := crewstate.LatestVerb(lines); !isReported || verb != "done" && verb != "failed" {
+		return time.Time{}
+	}
+	observation, err := monitor.ReadObservation(stateDir, id)
+	if err != nil {
+		return time.Time{}
+	}
+	switch {
+	case observation.Health == monitor.HealthIdle:
+	case observation.Health == monitor.HealthStale && (observation.Reason == monitor.UnchangedIdle || observation.Reason == monitor.AwaitingAnswer || observation.Reason == monitor.GoblinIdle):
+	default:
+		return time.Time{}
+	}
+	return observation.LastProgress
 }
 
 // EndProcess ends the one process item names, proven by its start time on
