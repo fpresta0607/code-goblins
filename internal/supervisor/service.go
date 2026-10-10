@@ -1212,7 +1212,13 @@ type Snapshot struct {
 	Scheduling *Scheduling `json:"scheduling,omitempty"`
 	// Disk is the free space of the home's drive for the meter beside
 	// memory, absent on a board that cannot read it.
-	Disk          *Disk               `json:"disk,omitempty"`
+	Disk *Disk `json:"disk,omitempty"`
+	// Processors is how free the machine's performance cores are for the
+	// meter beside disk, absent on a board that cannot read them.
+	Processors *Processors `json:"processors,omitempty"`
+	// GPU is the machine's graphics adapters and how busy each is for the
+	// meter beside the processors, absent on a board that cannot read them.
+	GPU           *GPU                `json:"gpu,omitempty"`
 	CIDurations   []CIDuration        `json:"ci_durations,omitempty"`
 	Subscriptions []SubscriptionUsage `json:"subscriptions"`
 	// AFK is AFK mode, the Overlord's switch for running the fleet while he
@@ -1595,6 +1601,17 @@ func (s *Service) Snapshot() (Snapshot, error) {
 		if dispatch.Disk != nil {
 			if disk, err := dispatch.Disk(); err == nil {
 				out.Disk = &disk
+			}
+		}
+		if dispatch.Processors != nil {
+			if processors, err := dispatch.Processors(); err == nil {
+				processors.Next = processorsNext
+				out.Processors = &processors
+			}
+		}
+		if dispatch.GPU != nil {
+			if gpu, err := dispatch.GPU(); err == nil {
+				out.GPU = &gpu
 			}
 		}
 	}

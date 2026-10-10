@@ -14,6 +14,11 @@ func MachineProcessors() (Processors, error) {
 	return Processors{}, errors.New("the processors are read only on Windows")
 }
 
+// MachineGPU is read only on Windows, the fleet's platform.
+func MachineGPU() (GPU, error) {
+	return GPU{}, ErrNoGPU
+}
+
 // CommitHolders is read only on Windows, the fleet's platform.
 func CommitHolders() ([]CommitHolder, error) {
 	return nil, errors.New("commit is read only on Windows")
