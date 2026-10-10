@@ -2,12 +2,14 @@ package janitor
 
 import (
 	"encoding/json"
+	"errors"
 	"os"
 	"path/filepath"
 	"slices"
 	"strings"
 	"time"
 
+	"github.com/fpresta0607/code-goblins/internal/fsx"
 	"github.com/fpresta0607/code-goblins/internal/reap"
 )
 
@@ -70,7 +72,7 @@ func (cfg Config) browserBridgeUse() map[int]time.Time {
 		}
 	}
 	for _, folder := range folders {
-		data, err := os.ReadFile(filepath.Join(folder, "bridge.pid"))
+		data, err := fsx.ReadFile(filepath.Join(folder, "bridge.pid"))
 		var bridge struct {
 			PID int `json:"pid"`
 		}
@@ -104,8 +106,8 @@ func (cfg Config) isStaleBrowserSession(path string) bool {
 			return false
 		}
 	}
-	data, err := os.ReadFile(filepath.Join(path, "bridge.pid"))
-	if os.IsNotExist(err) {
+	data, err := fsx.ReadFile(filepath.Join(path, "bridge.pid"))
+	if errors.Is(err, os.ErrNotExist) {
 		return true
 	}
 	var bridge struct {
