@@ -426,6 +426,7 @@ func invokedAsGoblins() bool {
 }
 
 func runWithRuntime(args []string, stdout, stderr io.Writer, runtime commandRuntime) int {
+	defer aboveTheWork(args)()
 	if runtime.goblins && len(args) == 1 && args[0] == "--board" {
 		return runBoardLauncher(stdout, stderr, runtime)
 	}

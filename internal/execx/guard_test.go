@@ -20,6 +20,14 @@ var starters = map[string][]string{
 	"golang.org/x/sys/windows": {"CreateProcess", "CreateProcessAsUser", "ShellExecute"},
 }
 
+// priorityNames are the names that give a process a priority class, by
+// import path. Only internal/priority uses them: it raises this process one
+// class for the fleet's own short work, and no start names a class, so
+// Windows starts every child at normal.
+var priorityNames = map[string][]string{
+	"golang.org/x/sys/windows": {"SetPriorityClass", "ABOVE_NORMAL_PRIORITY_CLASS", "HIGH_PRIORITY_CLASS", "REALTIME_PRIORITY_CLASS", "NORMAL_PRIORITY_CLASS", "BELOW_NORMAL_PRIORITY_CLASS", "IDLE_PRIORITY_CLASS"},
+}
+
 // startsElsewhere are the process starts that do not go through this
 // package, each with why it cannot.
 var startsElsewhere = map[string]string{
@@ -33,8 +41,11 @@ var startsElsewhere = map[string]string{
 // site cannot forget to. A process starter named outside this package,
 // called or not, an exec.Cmd made by value, or a SysProcAttr or
 // CreationFlags set other than with |=, which would drop the flag Command
-// sets, is reported with where it is. Test files and tests/, a test
-// fixture's own program, are not fleet programs.
+// sets, is reported with where it is. So is a priority class named outside
+// internal/priority: a start that named one would start its process above
+// or below normal, and a goblin's harness is among the processes started.
+// Test files and tests/, a test fixture's own program, are not fleet
+// programs.
 func TestEveryProcessStartGoesThroughCommand(t *testing.T) {
 	root := repositoryRoot(t)
 	files, allowed := 0, map[string]int{}
@@ -125,6 +136,9 @@ func TestBypassesReportsEveryStartAroundCommand(t *testing.T) {
 		{name: "execx.CommandContext", imports: `"context"; "os/exec"; "github.com/fpresta0607/code-goblins/internal/execx"`, body: `execx.CommandContext(context.Background(), "git").Run()`},
 		{name: "CreationFlags added to", imports: `"os/exec"`, body: `cmd.SysProcAttr.CreationFlags |= flags`},
 		{name: "HideWindow assigned", imports: `"os/exec"`, body: `cmd.SysProcAttr.HideWindow = true`},
+		{name: "priority class on a start", imports: `"os/exec"; "golang.org/x/sys/windows"`, body: `cmd.SysProcAttr.CreationFlags |= windows.ABOVE_NORMAL_PRIORITY_CLASS`, isReported: true},
+		{name: "priority class set", imports: `"os/exec"; "golang.org/x/sys/windows"`, body: `raise := windows.SetPriorityClass; _ = raise`, isReported: true},
+		{name: "the priority package's own raise", path: "internal/priority/priority_windows.go", imports: `"os/exec"; "golang.org/x/sys/windows"`, body: `raise := windows.SetPriorityClass; _ = raise`},
 		{name: "allowed conpty start", path: "internal/conpty/conpty_windows.go", imports: `"os/exec"; "golang.org/x/sys/windows"`, body: `windows.CreateProcess(nil, nil, nil, nil, false, 0, nil, nil, nil, nil)`, isAllowed: true},
 	}
 	for _, test := range tests {
@@ -186,7 +200,10 @@ func bypasses(relative string, source []byte) (violations, allowed []string, err
 			if name == "os/exec.Cmd" && !pointed[node] {
 				report(node, "makes an exec.Cmd itself instead of with execx.Command")
 			}
-			if !starts(name) {
+			if named(priorityNames, name) && filepath.ToSlash(filepath.Dir(relative)) != "internal/priority" {
+				report(node, "names "+imported.local(name)+": only internal/priority sets a priority class, and no process is started at one of its own")
+			}
+			if !named(starters, name) {
 				return true
 			}
 			key := relative + " " + imported.local(name)
@@ -258,8 +275,9 @@ func qualified(expression ast.Expr, names imports) (string, bool) {
 	return "", false
 }
 
-func starts(name string) bool {
-	for path, members := range starters {
+// named reports whether name, an import path and a member, is one of names.
+func named(names map[string][]string, name string) bool {
+	for path, members := range names {
 		for _, member := range members {
 			if name == path+"."+member {
 				return true

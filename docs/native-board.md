@@ -614,6 +614,31 @@ Processes that break away from the job are excluded, and every descendant is che
 Job notifications handle new processes, with job-local reconciliation at most once per second when input arrives because Windows does not guarantee notification delivery.
 Descendant scheduling errors are logged and cannot discard terminal input; required host, console-server and initial-process policy failures refuse startup.
 The latency regression uses one native console event per read, as libuv does, and checks key p95 below 50 ms, the second slowest of 40 keys within 250 ms, no key past a second, and an ordered 2,000-character burst within two seconds during idle and continuous output.
+
+The fleet's own controls run one priority class above normal, and never higher.
+They are the supervisor, each terminal's host, and the commands that are a short conversation with one of them or with the home's own records: `status`, `stop`, `attach`, `send`, `answer`, `peek`, `fleet-view`, `drain`, `watch`, `notify`, `question`, `register`, `pause`, `resume`, `kill`, `update`, `session-start`, `hook` and `native-hook`.
+Each raises itself as its first act (`priority.AboveTheWork`) and gives the class back when its work ends.
+A process that is not at normal priority is left as it is: one that runs lower was put there on purpose and hands its class to what it starts.
+At the priority of the builds and tests it supervises, a control waited its turn behind them after each of its system calls.
+Beside sixteen busy threads on 2026-10-10, each at normal priority and then raised:
+
+| Control | At normal priority | One class above |
+| --- | --- | --- |
+| One reading of the machine's processes, which the janitor, a stop's sweep and the board's trees make | 7.7 s, from 4.4 to 10.2 | 0.04 s, from 0.03 to 0.06 |
+| A host's handshake, with its client raised as well | 58 ms, from 39 to 102 | 0.2 ms |
+| A typed key back from the console, through the host | 152 ms | 0.2 ms |
+| `cfo send --key`, its own work once its process runs | 107 ms | 2 ms |
+| One verified copy of a 33 MB program, of which an update's prepare step makes five | 3.5 s | 0.07 s |
+
+A goblin's harness and everything started in its terminal run at normal, a `cfo` command a goblin runs there included, and so does what a gate agent starts.
+Windows gives the child of a raised process the normal class as long as its start names none, and no start in the fleet names one.
+`TestAHostRunsOneClassAboveItsTerminalWhichRunsAtNormal`, `TestWhatARaisedProcessStartsThroughExecxRunsAtNormal`, `TestWhatARaisedHostStartsForItsConsoleRunsAtNormal` and `TestARunItemARaisedSupervisorStartsRunsAtNormal` hold that for each way the fleet starts a process, and `TestEveryProcessStartGoesThroughCommand` reports a priority class named anywhere but `internal/priority`.
+`TestEveryCommandIsAControlOrStaysAtNormalOnPurpose` makes a command added to `cfo` one or the other on purpose.
+What the raise cannot reach still waits its turn beside the same sixteen threads.
+A `cfo` command or a hook takes about 0.7 seconds to come to exist, against 0.02 on a quiet machine, because its process is started at its caller's priority and raises itself only once it runs.
+`cfo peek` and the monitor's reading of a screen take 2 to 3 seconds, because the terminal's input waker asks the console for each row and both answer at normal priority.
+Each of the supervisor's progress readings starts git twice in a goblin's worktree, about 0.8 seconds a goblin, and a `go list` of this repository, which `cfo gate test --plan` runs, took 55 seconds.
+Both are processes the fleet starts at normal.
 One slow key in a run is a hosted runner's scheduling noise (504 ms seen with the test's job to itself); two slow keys fail, and a failure names the slow keys by number.
 Installing a build or restarting `serve` leaves existing hosts running their original code; the persistent policy takes effect in newly launched hosts, so resume each existing session only when its active work permits a host restart.
 

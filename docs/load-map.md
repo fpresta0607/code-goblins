@@ -56,6 +56,8 @@ The CFO's own SessionStart digest therefore stays within 9,000 bytes, and names 
 `cfo install` merges the CFO's hooks into `~/.claude/settings.json`.
 Every goblin pane carries `CFO_ROLE=goblin`, and the CFO's hooks do nothing when they see it.
 They do nothing in any other session either: only [the CFO's own session](../AGENTS.md#the-cfos-own-session), the agent native terminal `cfo` runs, gets the digest, the guards and the rewakes, so a Claude Code session you open yourself is never given the fleet's wakes and pays one start of `cfo.exe` for each hook it fires, which leaves on its environment before it reads the home: about 0.1 second each with a dozen sessions firing at once on 2026-10-09.
+On a machine whose every core is busy that start is what a hook costs, in the CFO's session too: about 0.7 seconds beside sixteen busy threads on 2026-10-10, because a hook's process is started at its harness's priority.
+From its first act a hook of the CFO's own session runs one priority class above normal, as the fleet's other controls do, so its own work, a millisecond for a pre-tool guard, does not wait behind the goblins' builds as well.
 
 **MCP.**
 The CFO's session gets servers from `~/.claude.json` (user and per-project), the project's `.mcp.json` once approved, enabled plugins, and claude.ai connectors.
