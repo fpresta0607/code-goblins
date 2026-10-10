@@ -179,9 +179,12 @@ jobs:
           if ([Environment]::GetEnvironmentVariable("CFO_HOME", "User") -ne $cfoHome) { throw "CFO_HOME is not $cfoHome" }
           if (-not (([Environment]::GetEnvironmentVariable("Path", "User") -split ";") -contains $bin)) { throw "$bin is not on the user PATH" }
           $settings = Get-Content -Raw (Join-Path $env:USERPROFILE ".claude\settings.json") | ConvertFrom-Json
-          # A hook runs its command with its args: cfo install writes the CFO hooks as
-          # cfo.exe with args hook <name>, so each entry is read as that whole line.
-          if (-not (@($settings.hooks.SessionStart.hooks | ForEach-Object { @($_.command) + @($_.args) -join " " }) -match "cfo\.exe hook session-start")) { throw "the CFO hooks are not in the Claude Code user settings" }
+          # A hook runs its command with its args, so each entry is read as that
+          # whole line. The CFO's hooks are cfo.exe with args hook <name>, and the
+          # install writes none of them here: the CFO's terminal starts with its
+          # own, and in the user's settings every Claude Code session would run them.
+          $cfoHooks = @(@($settings.hooks.PSObject.Properties.Value.hooks | ForEach-Object { @($_.command) + @($_.args) -join " " }) -match "cfo\.exe hook ")
+          if ($cfoHooks.Count -gt 0) { throw "the install wrote the CFO's hooks into the Claude Code user settings, where every session runs them: $($cfoHooks -join '; ')" }
           # Each harness gets its own copy of each skill: a symlink needs a
           # right an ordinary Windows user may not have. Codex and pi each read
           # the shared ~\.agents\skills as well as their own folder, and the
@@ -254,9 +257,9 @@ jobs:
           }
           $settings = Get-Content -Raw (Join-Path $env:USERPROFILE ".claude\settings.json") | ConvertFrom-Json
           $commands = @($settings.hooks.SessionStart.hooks | ForEach-Object { @($_.command) + @($_.args) -join " " })
-          foreach ($hook in "cfo\.exe hook session-start", "cfo-native-hook\.ps1") {
-            $count = @($commands -match $hook).Count
-            if ($count -ne 1) { throw "after a second install SessionStart holds $count hooks matching $hook, want 1" }
+          foreach ($hook in @{ match = "cfo\.exe hook session-start"; want = 0 }, @{ match = "cfo-native-hook\.ps1"; want = 1 }) {
+            $count = @($commands -match $hook.match).Count
+            if ($count -ne $hook.want) { throw "after a second install SessionStart holds $count hooks matching $($hook.match), want $($hook.want)" }
           }
           # The second install finds dictation's engine and model in place and
           # downloads neither again.
@@ -345,9 +348,8 @@ jobs:
             if ((Get-Item -LiteralPath (Join-Path $env:USERPROFILE ".claude\skills\$skill") -Force).LinkType -ne "Junction") { throw "~\.claude\skills\$skill is not a junction to ~\.agents\skills\$skill" }
           }
           $commands = @((Get-Content -Raw (Join-Path $env:USERPROFILE ".claude\settings.json") | ConvertFrom-Json).hooks.SessionStart.hooks | ForEach-Object { @($_.command) + @($_.args) -join " " })
-          foreach ($hook in "cfo\.exe hook session-start", "cfo-native-hook\.ps1") {
-            if (-not ($commands -match $hook)) { throw "no SessionStart hook in the Claude Code user settings matches $hook" }
-          }
+          if (-not ($commands -match "cfo-native-hook\.ps1")) { throw "no SessionStart hook in the Claude Code user settings matches cfo-native-hook\.ps1" }
+          if ($commands -match "cfo\.exe hook ") { throw "-Dev wrote the CFO's hooks into the Claude Code user settings, where every session runs them" }
           foreach ($skill in "gh-axi", "chrome-devtools-axi", "no-mistakes") {
             if (-not (Test-Path -LiteralPath (Join-Path $env:USERPROFILE ".claude\skills\$skill\SKILL.md"))) { throw "-Dev did not install the $skill skill" }
           }
