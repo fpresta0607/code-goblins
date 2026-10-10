@@ -5,7 +5,6 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
-	"sync"
 	"testing"
 
 	"github.com/fpresta0607/code-goblins/internal/auth"
@@ -50,11 +49,31 @@ func writeTaskMeta(t *testing.T, stateDir, id, project, paneID string, wantWorkt
 		HerdrWorkspaceID: "ws",
 		HerdrTabID:       "tab-" + id,
 		HerdrPaneID:      paneID,
+		Credentials:      []string{"stored"},
+		HasCredentials:   true,
 	}
 	if err := state.WriteTaskMeta(stateDir, meta); err != nil {
 		t.Fatal(err)
 	}
 	return meta
+}
+
+// declareStored writes project's manifest with one service, stored, that
+// declares names, and returns the data folder a refresher reads it from. The
+// tasks writeTaskMeta records carry that service, so what a test stores under
+// those names is what their scripts are given.
+func declareStored(t *testing.T, root, project string, names ...string) string {
+	t.Helper()
+	dataDir := filepath.Join(root, "data")
+	path := auth.ManifestPath(dataDir, project)
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	manifest := `{"project": "` + auth.ProjectName(project) + `", "services": [{"name": "stored", "method": "env", "env": ["` + strings.Join(names, `", "`) + `"]}]}`
+	if err := os.WriteFile(path, []byte(manifest), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	return dataDir
 }
 
 func useCredentialStore(t *testing.T) auth.Store {
@@ -95,7 +114,7 @@ func TestAuthRefreshRewritesOnlyLiveTasksOfTheProject(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	refresher := AuthRefresher{StateDir: stateDir, Store: store, Panes: stubPanes{live: map[string]bool{
+	refresher := AuthRefresher{StateDir: stateDir, DataDir: declareStored(t, root, project, "FLY_API_TOKEN"), Store: store, Panes: stubPanes{live: map[string]bool{
 		"pane-live":    true,
 		"pane-dead":    true,
 		"pane-foreign": true,
@@ -160,13 +179,16 @@ func TestAuthRefreshReportsTheTasksItRefreshedWhenAnotherWriteFails(t *testing.T
 	}
 }
 
-func TestAuthRefreshIncludesStoreOnlyVariablesAbsentFromTheManifest(t *testing.T) {
+// A name stored in the project's scope that no service declares used to be
+// written into every task's script, which made the manifest a probe list and
+// no gate. It reaches no script now.
+func TestAuthRefreshLeavesOutAStoredNameNoServiceDeclares(t *testing.T) {
 	root := t.TempDir()
 	stateDir := filepath.Join(root, "state")
 	dataDir := filepath.Join(root, "data")
 	project := filepath.Join(root, "precisiondocs")
 	// The manifest declares exactly one variable; the operator stored two.
-	manifest := `{"project": "precisiondocs", "services": [{"name": "fly", "method": "env", "env": ["DATABASE_URL"], "probe": ["flyctl", "status"]}]}`
+	manifest := `{"project": "precisiondocs", "services": [{"name": "stored", "method": "env", "env": ["DATABASE_URL"], "probe": ["flyctl", "status"]}]}`
 	if err := os.MkdirAll(filepath.Join(dataDir, "projects", "precisiondocs"), 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -187,18 +209,15 @@ func TestAuthRefreshIncludesStoreOnlyVariablesAbsentFromTheManifest(t *testing.T
 	if err != nil {
 		t.Fatalf("RefreshProject: %v", err)
 	}
-	if len(result.Refreshed) != 1 || result.Refreshed[0].Vars != 2 {
-		t.Fatalf("refreshed = %v, want live-1 with both variables", result.Refreshed)
+	if len(result.Refreshed) != 1 || result.Refreshed[0].Vars != 1 {
+		t.Fatalf("refreshed = %v, want live-1 with the one declared variable", result.Refreshed)
 	}
 	script, err := os.ReadFile(filepath.Join(live.TaskTmp, "auth.ps1"))
 	if err != nil {
 		t.Fatal(err)
 	}
-	// A manifest is the probe contract, not a filter: OPENROUTER_API_KEY is
-	// stored under this project's scope, so the pane gets it whether or not
-	// any manifest declared it.
-	if !strings.Contains(string(script), "$env:OPENROUTER_API_KEY = 'sk_or_stored_midtask'") {
-		t.Errorf("script lacks the store-only variable:\n%s", script)
+	if strings.Contains(string(script), "OPENROUTER_API_KEY") {
+		t.Error("the script holds a stored name no service declares")
 	}
 	if !strings.Contains(string(script), "$env:DATABASE_URL = 'postgres://declared'") {
 		t.Errorf("script lacks the declared variable:\n%s", script)
@@ -305,7 +324,7 @@ func TestAuthRefreshTaskRegeneratesOneTaskWithoutRequiringAWorktree(t *testing.T
 	// An explicit refresh is the operator's call: the worktree may be gone
 	// while the pane still runs, and the script is still the task's own.
 	meta := writeTaskMeta(t, stateDir, "live-1", project, "pane-live", false)
-	refresher := AuthRefresher{StateDir: stateDir, Store: store, Panes: stubPanes{live: map[string]bool{"pane-live": true}}}
+	refresher := AuthRefresher{StateDir: stateDir, DataDir: declareStored(t, root, project, "FLY_API_TOKEN"), Store: store, Panes: stubPanes{live: map[string]bool{"pane-live": true}}}
 	refreshed, err := refresher.RefreshTask(context.Background(), "live-1")
 	if err != nil {
 		t.Fatalf("RefreshTask: %v", err)
@@ -334,7 +353,7 @@ func TestAuthRefreshDropsReservedLaunchNamesFromTheStore(t *testing.T) {
 		t.Fatal(err)
 	}
 	meta := writeTaskMeta(t, stateDir, "live-1", project, "pane-live", true)
-	refresher := AuthRefresher{StateDir: stateDir, Store: store, Panes: stubPanes{live: map[string]bool{"pane-live": true}}}
+	refresher := AuthRefresher{StateDir: stateDir, DataDir: declareStored(t, root, project, "GOTMPDIR", "SAFE_KEY"), Store: store, Panes: stubPanes{live: map[string]bool{"pane-live": true}}}
 	if _, err := refresher.RefreshProject(context.Background(), project); err != nil {
 		t.Fatalf("RefreshProject: %v", err)
 	}
@@ -364,7 +383,7 @@ func TestAuthRefreshTaskAcceptsAnIDRespawnedAfterCleanup(t *testing.T) {
 		t.Fatal(err)
 	}
 	meta := writeTaskMeta(t, stateDir, "reused-1", project, "pane-live", true)
-	refresher := AuthRefresher{StateDir: stateDir, Store: store, Panes: stubPanes{live: map[string]bool{"pane-live": true}}}
+	refresher := AuthRefresher{StateDir: stateDir, DataDir: declareStored(t, root, project, "FLY_API_TOKEN"), Store: store, Panes: stubPanes{live: map[string]bool{"pane-live": true}}}
 	refreshed, err := refresher.RefreshTask(context.Background(), "reused-1")
 	if err != nil {
 		t.Fatalf("RefreshTask refused a live respawned id: %v", err)
@@ -426,6 +445,9 @@ func TestAuthRefreshKeepsSharedScopeValuesOfServicesDeclaredShared(t *testing.T)
 	}
 
 	live := writeTaskMeta(t, stateDir, "live-1", project, "pane-live", true)
+	if err := state.WriteTaskCredentials(stateDir, "live-1", []string{"db", "stripe"}); err != nil {
+		t.Fatal(err)
+	}
 	refresher := AuthRefresher{StateDir: stateDir, DataDir: dataDir, Store: store, Panes: stubPanes{live: map[string]bool{"pane-live": true}}}
 	result, err := refresher.RefreshProject(context.Background(), project)
 	if err != nil {
@@ -443,46 +465,6 @@ func TestAuthRefreshKeepsSharedScopeValuesOfServicesDeclaredShared(t *testing.T)
 	}
 	if strings.Contains(string(script), "sk_shared_not_declared") {
 		t.Errorf("script holds a shared value no service is declared to read:\n%s", script)
-	}
-}
-
-// firingStore runs its callback the first time the refresh gathers the
-// store's keys, which happens after RefreshTask has read the task record and
-// before it takes the task's cleanup lock: the seam where cleanup can free
-// the id and a respawn can occupy it.
-type firingStore struct {
-	auth.Store
-	onKeys func()
-	once   sync.Once
-}
-
-func (s *firingStore) Keys() ([]auth.Key, error) {
-	s.once.Do(s.onKeys)
-	return s.Store.Keys()
-}
-
-func TestAuthRefreshTaskRefusesAnIDRespawnedUnderAnotherProjectMidFlight(t *testing.T) {
-	root := t.TempDir()
-	stateDir := filepath.Join(root, "state")
-	project := filepath.Join(root, "precisiondocs")
-	other := filepath.Join(root, "clock-in")
-	store := useCredentialStore(t)
-	if err := store.Set(auth.Scoped(project, "FLY_API_TOKEN"), "fly_new_token"); err != nil {
-		t.Fatal(err)
-	}
-	live := writeTaskMeta(t, stateDir, "raced-1", project, "pane-live", true)
-	// While the refresh is between reading the record and taking the task's
-	// lock, cleanup frees the id and a respawn under another project occupies
-	// the same id-derived tasktmp.
-	refresher := AuthRefresher{StateDir: stateDir, Store: &firingStore{Store: store, onKeys: func() {
-		writeTaskMeta(t, stateDir, "raced-1", other, "pane-live", true)
-	}}, Panes: stubPanes{live: map[string]bool{"pane-live": true}}}
-	if _, err := refresher.RefreshTask(context.Background(), "raced-1"); err == nil {
-		t.Fatal("RefreshTask rewrote a tasktmp that changed project mid-flight")
-	}
-	script, err := os.ReadFile(filepath.Join(live.TaskTmp, "auth.ps1"))
-	if !os.IsNotExist(err) {
-		t.Fatalf("respawned task's script = %v (%s), want no cross-project credentials written", err, script)
 	}
 }
 

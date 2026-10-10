@@ -65,7 +65,7 @@ func WriteQueuedBrief(h home.Home, queued QueuedTask) error {
 	if kind == "" {
 		kind = "ship"
 	}
-	_, writeErr := fmt.Fprintf(file, "# Brief %s\n\n## Project\n\n%s\n\n## Task\n\n%s\n\n%s\n\n## Acceptance criteria\n\nDeliver the task described above and verify its behavior.\n\n## Constraints\n\nFollow the project's instructions and the task detail above.\n\n## Authentication\n\nUse the project's configured authentication preflight before dispatch.\n\n## Commits\n\nNever name an AI product, company, model, agent or assistant identity as a commit co-author.\n\n## Delivery\n\nkind: %s\nmode: %s\nharness: %s\nmodel: %s\neffort: %s\n", row.ID, row.Repo, row.Title, queued.Detail, kind, mode, row.Harness, row.Model, row.Effort)
+	_, writeErr := fmt.Fprintf(file, "# Brief %s\n\n## Project\n\n%s\n\n## Task\n\n%s\n\n%s\n\n## Acceptance criteria\n\nDeliver the task described above and verify its behavior.\n\n## Constraints\n\nFollow the project's instructions and the task detail above.\n\n## Authentication\n\nThis brief names no service, so the task carries the credentials of the services the project's manifest marks default and of no other. The CFO grants another with cfo auth grant.\n\n## Commits\n\nNever name an AI product, company, model, agent or assistant identity as a commit co-author.\n\n## Delivery\n\nkind: %s\nmode: %s\nharness: %s\nmodel: %s\neffort: %s\n", row.ID, row.Repo, row.Title, queued.Detail, kind, mode, row.Harness, row.Model, row.Effort)
 	if err := errors.Join(writeErr, file.Close()); err != nil {
 		return errors.Join(err, os.Remove(brief))
 	}

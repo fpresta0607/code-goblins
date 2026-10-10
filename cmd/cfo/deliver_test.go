@@ -10,9 +10,48 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/fpresta0607/code-goblins/internal/auth"
 	"github.com/fpresta0607/code-goblins/internal/execx"
 	"github.com/fpresta0607/code-goblins/internal/state"
 )
+
+// A new brief names no service, so its task carries none until its author
+// names one, and it lists the manifest's services to name from. cfo spawn
+// reads what cfo brief wrote.
+func TestBriefScaffoldNamesNoServiceAndListsTheManifests(t *testing.T) {
+	// Arrange
+	home := t.TempDir()
+	t.Setenv("CFO_HOME", home)
+	manifest := auth.ManifestPath(filepath.Join(home, "data"), "demo")
+	if err := os.MkdirAll(filepath.Dir(manifest), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(manifest, []byte(`{"project": "demo", "services": [{"name": "github", "method": "cli"}, {"name": "stripe", "method": "env", "env": ["STRIPE_SECRET_KEY"]}]}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	// Act
+	var stdout, stderr bytes.Buffer
+	exit := runBrief([]string{"t1", "--project", "projects/demo"}, &stdout, &stderr, commandRuntime{})
+
+	// Assert
+	if exit != 0 {
+		t.Fatalf("runBrief exit=%d stderr=%s", exit, stderr.String())
+	}
+	body, err := os.ReadFile(strings.TrimSpace(stdout.String()))
+	if err != nil {
+		t.Fatal(err)
+	}
+	need, err := auth.NeedFromBrief(string(body))
+	if err != nil || need.IsUnstated || len(need.Services) != 0 {
+		t.Errorf("the scaffold asks for %+v, %v, want it to say none in the form cfo spawn reads", need, err)
+	}
+	for _, want := range []string{"credentials: none", "It declares: github, stripe.", "never a value"} {
+		if !strings.Contains(string(body), want) {
+			t.Errorf("brief scaffold is missing %q:\n%s", want, body)
+		}
+	}
+}
 
 // Every goblin reads its brief before it writes a commit, so the brief is
 // where a standing authorship rule has to live: a goblin that never sees it

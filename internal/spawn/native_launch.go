@@ -72,7 +72,7 @@ const maxDialogMoves = 8
 // task's id, and returns its host's record, the zero record when it launched
 // none. It is the last step of a start's turn: from here the host counts as a
 // running terminal, which the next start's admission sees.
-func (s Service) launchNativeHost(id string, kind harness.Kind, launch harness.Launch, userEnv []string, credentials map[string]string) (host.Record, error) {
+func (s Service) launchNativeHost(id string, kind harness.Kind, launch harness.Launch, userEnv []string, credentials auth.Result) (host.Record, error) {
 	if _, ok := harness.NativeScreens(kind); !ok {
 		return host.Record{}, fmt.Errorf("spawn: %s cannot run in a native terminal yet", kind)
 	}
@@ -626,29 +626,35 @@ var inheritedSessionVariables = []string{"CLAUDECODE", "CLAUDE_CODE_ENTRYPOINT",
 // harness run with: userEnv, the environment Windows gives a new process of
 // this user, never the spawning process's own, so nothing of the session that
 // ran cfo spawn reaches the goblin; without the harness billing keys or any
-// session marker; then the project's credentials, then the launch's variables
-// (CFO_ROLE=goblin and the task's identity among them) and the spawning
-// home's CFO_HOME and CFO_STATE_OVERRIDE, and the projects root the spawner
-// names, where it names one, which win: the user's environment names the
-// machine's installed home and projects root, which for a second home on the
-// machine are another's. This block is how its credentials reach the harness at
-// start.
+// session marker, and without any variable of a service the task does not
+// carry, which the user's environment may set too; then the credentials of the
+// services the task carries, then the launch's variables (CFO_ROLE=goblin and
+// the task's identity among them) and the spawning home's CFO_HOME and
+// CFO_STATE_OVERRIDE, and the projects root the spawner names, where it names
+// one, which win: the user's environment names the machine's installed home
+// and projects root, which for a second home on the machine are another's.
+// This block is how its credentials reach the harness at start, and the only
+// way they do.
 // Names compare without case, as Windows compares them.
-func (s Service) nativeHostEnvironment(userEnv []string, launch harness.Launch, credentials map[string]string) []string {
+func (s Service) nativeHostEnvironment(userEnv []string, launch harness.Launch, credentials auth.Result) []string {
 	names := map[string]string{}
 	values := map[string]string{}
 	set := func(name, value string) {
 		names[strings.ToUpper(name)] = name
 		values[strings.ToUpper(name)] = value
 	}
+	withheld := map[string]bool{}
+	for _, name := range credentials.WithheldNames {
+		withheld[strings.ToUpper(name)] = true
+	}
 	for _, entry := range userEnv {
 		name, value, found := strings.Cut(entry, "=")
-		if !found || name == "" || auth.IsHarnessBillingKey(name) || IsSessionMarker(name) {
+		if !found || name == "" || auth.IsHarnessBillingKey(name) || IsSessionMarker(name) || withheld[strings.ToUpper(name)] {
 			continue
 		}
 		set(name, value)
 	}
-	for name, value := range credentials {
+	for name, value := range credentials.Env {
 		if reservedLaunchName(launch.Env, name) || auth.IsHarnessBillingKey(name) {
 			continue
 		}

@@ -246,12 +246,13 @@ func (s Service) Switch(ctx context.Context, req SwitchRequest) (result SwitchRe
 		return SwitchResult{}, fmt.Errorf("switch: current harness %q has no adapter: %w", meta.Harness, err)
 	}
 	from := describe(meta.Harness, meta.Model, meta.Effort)
-	// A switch re-injects the same credentials a spawn would, but never
+	// A switch re-injects the credentials of the services the task's record
+	// names, the ones its spawn gave it and any granted since, but never
 	// refuses on a red service: the goblin is already running, and stranding
 	// work in a stopped harness would cost more than the missing credential.
 	// The probes run before the stop, so one that fails leaves the harness
 	// running, and before any turn, since they can take seconds each.
-	preflight, err := s.preflightCredentials(ctx, project)
+	preflight, err := s.preflightCredentials(ctx, project, taskNeed(meta))
 	if err != nil {
 		return SwitchResult{}, fmt.Errorf("%w; task %s was left running as it was", err, req.ID)
 	}
@@ -316,6 +317,12 @@ func (s Service) Switch(ctx context.Context, req SwitchRequest) (result SwitchRe
 		}
 		meta.ResumeOperation = resumeRecord.Operation
 	}
+	// A task an older build spawned, whose record names no services, is
+	// narrowed here, at its first relaunch: its record names them from now on.
+	// It is said only where something was withheld, since a project with
+	// nothing stored gave such a task nothing to lose.
+	isNarrowed := !meta.HasCredentials && len(preflight.Grant.Withheld)+len(preflight.Undeclared) > 0
+	meta.Credentials, meta.HasCredentials = recordedServices(preflight.Grant), true
 	// Publish the replacement generation before its first native hook can run.
 	if err := s.publishSwitch(&meta, target); err != nil {
 		return SwitchResult{}, err
@@ -359,6 +366,13 @@ func (s Service) Switch(ctx context.Context, req SwitchRequest) (result SwitchRe
 	if err := state.AppendStatus(s.StateDir, req.ID, line); err != nil {
 		return SwitchResult{}, fmt.Errorf("switch: record switch: %w", err)
 	}
+	// An automatic resume prints to nobody, so the narrowing is also a record
+	// in the task's status log, where the CFO reads what became of it.
+	if isNarrowed {
+		if err := state.AppendStatus(s.StateDir, req.ID, "credentials: "+narrowedLine(req.ID, project, preflight.Grant)); err != nil {
+			return SwitchResult{}, fmt.Errorf("switch: record the task's services: %w", err)
+		}
+	}
 
 	result.Meta = meta
 	result.From = from
@@ -370,6 +384,15 @@ func (s Service) Switch(ctx context.Context, req SwitchRequest) (result SwitchRe
 		result.Output += "\n" + notice
 	}
 	result.Output += left
+	if isNarrowed {
+		result.Output += "\nauth: " + narrowedLine(req.ID, project, preflight.Grant)
+		if line := auth.WithheldLine(req.ID, project, preflight); line != "" {
+			result.Output += "\n" + line
+		}
+	}
+	if len(preflight.Grant.Unknown) > 0 {
+		result.Output += "\nauth: the record of " + req.ID + " names a service its terminal does not carry: " + auth.UnknownLine(project, preflight.Grant)
+	}
 	return result, nil
 }
 
@@ -434,6 +457,7 @@ func (s Service) relaunchHarness(ctx context.Context, meta state.TaskMeta, targe
 	if request.ResumeNote != "" {
 		launch.Instruction += "\n" + request.ResumeNote
 	}
+	launch.Instruction += credentialsInstruction(meta.Project, preflight.Grant)
 	if meta.PipelineHash != "" {
 		launch.Instruction += " Continue with the frozen pipeline policy at " + filepath.Join(meta.TaskTmp, "pipeline.json") + "; use cfo pipeline run/respond for this task. Do not reset review budgets or bypass them with native AXI."
 	}
@@ -443,7 +467,7 @@ func (s Service) relaunchHarness(ctx context.Context, meta state.TaskMeta, targe
 	if err != nil {
 		return handoff, resumed, host.Record{}, fmt.Errorf("switch: read the user's environment: %w", err)
 	}
-	if nativeHost, err = s.launchNativeHost(id, target.Harness, launch, userEnv, preflight.Env); err != nil {
+	if nativeHost, err = s.launchNativeHost(id, target.Harness, launch, userEnv, preflight); err != nil {
 		return handoff, resumed, nativeHost, err
 	}
 	// Its release error, if any, reaches Switch's caller with the result.

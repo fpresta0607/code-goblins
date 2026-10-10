@@ -37,7 +37,7 @@ func TestARotatedEnvValueReachesTheNextPreflight(t *testing.T) {
 	preflight := SpawnPreflight{DataDir: dataDir, Runner: gitIgnoresEverything()}
 
 	write("sk_before_rotation")
-	first, err := preflight.Preflight(context.Background(), project)
+	first, err := preflight.Preflight(context.Background(), project, everyService(t, dataDir, project))
 	if err != nil {
 		t.Fatalf("first preflight: %v", err)
 	}
@@ -46,7 +46,7 @@ func TestARotatedEnvValueReachesTheNextPreflight(t *testing.T) {
 	}
 
 	write("sk_after_rotation")
-	second, err := preflight.Preflight(context.Background(), project)
+	second, err := preflight.Preflight(context.Background(), project, everyService(t, dataDir, project))
 	if err != nil {
 		t.Fatalf("second preflight: %v", err)
 	}
@@ -114,7 +114,7 @@ func TestAStoredCredentialOutlivesAnEnvFileThatDidNotChange(t *testing.T) {
 		t.Fatal(err)
 	}
 	preflight := SpawnPreflight{DataDir: dataDir, Runner: gitIgnoresEverything()}
-	if _, err := preflight.Preflight(context.Background(), project); err != nil {
+	if _, err := preflight.Preflight(context.Background(), project, everyService(t, dataDir, project)); err != nil {
 		t.Fatalf("first preflight: %v", err)
 	}
 
@@ -128,7 +128,7 @@ func TestAStoredCredentialOutlivesAnEnvFileThatDidNotChange(t *testing.T) {
 	}
 
 	for _, dispatch := range []string{"second", "third"} {
-		result, err := preflight.Preflight(context.Background(), project)
+		result, err := preflight.Preflight(context.Background(), project, everyService(t, dataDir, project))
 		if err != nil {
 			t.Fatalf("%s preflight: %v", dispatch, err)
 		}
@@ -227,7 +227,7 @@ func TestEditingTheEnvFileAfterAStoreStillRotates(t *testing.T) {
 	}
 	preflight := SpawnPreflight{DataDir: dataDir, Runner: gitIgnoresEverything()}
 	write("fly_older_app_token")
-	if _, err := preflight.Preflight(context.Background(), project); err != nil {
+	if _, err := preflight.Preflight(context.Background(), project, everyService(t, dataDir, project)); err != nil {
 		t.Fatalf("first preflight: %v", err)
 	}
 	store, err := OpenStore()
@@ -237,7 +237,7 @@ func TestEditingTheEnvFileAfterAStoreStillRotates(t *testing.T) {
 	if err := store.Set(Scoped(project, "FLY_API_TOKEN"), "fly_new_org_token"); err != nil {
 		t.Fatal(err)
 	}
-	kept, err := preflight.Preflight(context.Background(), project)
+	kept, err := preflight.Preflight(context.Background(), project, everyService(t, dataDir, project))
 	if err != nil {
 		t.Fatalf("second preflight: %v", err)
 	}
@@ -246,7 +246,7 @@ func TestEditingTheEnvFileAfterAStoreStillRotates(t *testing.T) {
 	}
 
 	write("fly_rotated_in_env")
-	result, err := preflight.Preflight(context.Background(), project)
+	result, err := preflight.Preflight(context.Background(), project, everyService(t, dataDir, project))
 	if err != nil {
 		t.Fatalf("third preflight: %v", err)
 	}
@@ -300,12 +300,12 @@ func TestASeenRecordHoldsNoValueAndIsNeverACredential(t *testing.T) {
 	if len(keys) != 1 || keys[0] != key {
 		t.Errorf("Keys() = %v, want only the credential and never its Seen record", keys)
 	}
-	extras, err := StoredExtras(store, "PrecisionDocs-AI", Manifest{})
+	names, err := UndeclaredNames(store, "PrecisionDocs-AI", Manifest{})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(extras) != 1 || extras["FLY_API_TOKEN"] != "fly_from_env_file" {
-		t.Errorf("StoredExtras injected %d names, want only the credential", len(extras))
+	if len(names) != 1 || names[0] != "FLY_API_TOKEN" {
+		t.Errorf("UndeclaredNames = %v, want only the credential's name and never its Seen record", names)
 	}
 }
 
@@ -603,7 +603,7 @@ func TestAPausedMigrationSaysWhichManifestStoppedIt(t *testing.T) {
 	}
 
 	result, err := SpawnPreflight{DataDir: dataDir, Runner: gitIgnoresEverything()}.
-		Preflight(context.Background(), project)
+		Preflight(context.Background(), project, everyService(t, dataDir, project))
 	if err != nil {
 		t.Fatalf("a broken sibling manifest stalled a dispatch into an unrelated project: %v", err)
 	}
@@ -1054,7 +1054,7 @@ func TestAFileGitCannotClassifyIsSkippedAndReported(t *testing.T) {
 	runner := &fakeRunner{results: map[string]execx.Result{"git": {ExitCode: 128}}}
 
 	result, err := SpawnPreflight{DataDir: dataDir, Runner: runner}.
-		Preflight(context.Background(), project)
+		Preflight(context.Background(), project, everyService(t, dataDir, project))
 	if err != nil {
 		t.Fatalf("Preflight: %v", err)
 	}
@@ -1565,7 +1565,7 @@ func TestAnUnreadableLinkCountIsNamedOnTheDispatchLine(t *testing.T) {
 	linkCount = func(string) (uint32, error) { return 0, errors.New("cannot open file for metadata") }
 
 	result, err := SpawnPreflight{DataDir: dataDir, Runner: gitIgnoresEverything()}.
-		Preflight(context.Background(), project)
+		Preflight(context.Background(), project, everyService(t, dataDir, project))
 	if err != nil {
 		t.Fatalf("Preflight: %v", err)
 	}

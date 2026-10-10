@@ -117,7 +117,7 @@ See [Merge trains](AGENTS.md#merge-trains).
 
 ### Project-scoped credentials
 
-Projects declare the services they need. `cfo auth` probes them before dispatch, validates project identity where configured, and keeps credentials namespaced outside repositories. A blocking authentication failure prevents normal dispatch rather than stranding a worker halfway through a task.
+Projects declare the services they need. `cfo auth` probes them before dispatch, validates project identity where configured, and keeps credentials namespaced outside repositories. A goblin's terminal carries the credentials of the services its brief names and of no other, and `cfo auth grant <task> <service>` gives a running task one more by name. A blocking authentication failure prevents normal dispatch rather than stranding a worker halfway through a task.
 
 Pipe a credential with `Get-Clipboard | cfo auth store --project <project> <NAME>` to keep its value out of shell history, or run `cfo auth store --project <project> <NAME>` at a console and type or paste the value, which is read without being shown.
 For stdin, `cfo auth store` removes every consecutive leading byte-order mark, including mixed Windows PowerShell mojibake forms, then trailing line breaks, and reports how many marks it removed without exposing the value.

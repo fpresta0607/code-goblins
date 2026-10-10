@@ -725,7 +725,7 @@ func TestExpandMatchesLongestNameAndNeverRescansAValue(t *testing.T) {
 func TestSpawnPreflightIsSilentForAProjectWithNoManifest(t *testing.T) {
 	t.Setenv(StoreDirEnv, t.TempDir())
 	dataDir := t.TempDir()
-	result, err := SpawnPreflight{DataDir: dataDir, Runner: &fakeRunner{}}.Preflight(context.Background(), filepath.Join("projects", "nothing-declared"))
+	result, err := SpawnPreflight{DataDir: dataDir, Runner: &fakeRunner{}}.Preflight(context.Background(), filepath.Join("projects", "nothing-declared"), Need{IsUnstated: true})
 	if err != nil {
 		t.Fatalf("Preflight: %v", err)
 	}
@@ -734,34 +734,10 @@ func TestSpawnPreflightIsSilentForAProjectWithNoManifest(t *testing.T) {
 	}
 }
 
-func TestSpawnPreflightNamesTheStoredCredentialsItInjectsWithoutAManifest(t *testing.T) {
-	clearEnv(t, "FLY_API_TOKEN")
-	t.Setenv(StoreDirEnv, t.TempDir())
-	dataDir := t.TempDir()
-	store, err := OpenStore()
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := store.Set(Scoped("solo", "FLY_API_TOKEN"), "fly_stored"); err != nil {
-		t.Fatal(err)
-	}
-
-	result, err := SpawnPreflight{DataDir: dataDir, Runner: &fakeRunner{}}.Preflight(context.Background(), filepath.Join("projects", "solo"))
-	if err != nil {
-		t.Fatalf("Preflight: %v", err)
-	}
-	if len(result.Env) != 1 || result.Env["FLY_API_TOKEN"] != "fly_stored" {
-		t.Fatalf("preflight injected %v, want the one stored credential", result.Env)
-	}
-	if !strings.Contains(result.Warning, "injected 1 stored credential") || !strings.Contains(result.Warning, "solo") || !strings.Contains(result.Warning, "no manifest") {
-		t.Errorf("warning = %q, want the count, the scope, and the missing manifest named", result.Warning)
-	}
-	if strings.Contains(result.Warning, "fly_stored") {
-		t.Errorf("warning = %q, want no value on the line", result.Warning)
-	}
-}
-
-func TestSpawnPreflightInjectsStoredCredentialsNoManifestDeclares(t *testing.T) {
+// A name stored in the project's scope after the manifest was written used to
+// ride along into every terminal of the project. No service declares it, so
+// no brief can name it and it reaches none.
+func TestSpawnPreflightWithholdsStoredCredentialsNoServiceDeclares(t *testing.T) {
 	clearEnv(t, "DATABASE_URL", "FLY_API_TOKEN", "OPENROUTER_API_KEY")
 	t.Setenv(StoreDirEnv, t.TempDir())
 	dataDir := t.TempDir()
@@ -791,7 +767,7 @@ func TestSpawnPreflightInjectsStoredCredentialsNoManifestDeclares(t *testing.T) 
 		}
 	}
 
-	result, err := SpawnPreflight{DataDir: dataDir, Runner: gitIgnoresEverything()}.Preflight(context.Background(), project)
+	result, err := SpawnPreflight{DataDir: dataDir, Runner: gitIgnoresEverything()}.Preflight(context.Background(), project, everyService(t, dataDir, project))
 	if err != nil {
 		t.Fatalf("Preflight: %v", err)
 	}
@@ -799,8 +775,11 @@ func TestSpawnPreflightInjectsStoredCredentialsNoManifestDeclares(t *testing.T) 
 	for name := range result.Env {
 		names = append(names, name)
 	}
-	if len(result.Env) != 2 || result.Env["DATABASE_URL"] != "postgres://declared" || result.Env["FLY_API_TOKEN"] != "fly_stored_midtask" {
-		t.Errorf("preflight injected %v, want exactly the declared name and the store-only name", names)
+	if len(result.Env) != 1 || result.Env["DATABASE_URL"] != "postgres://declared" {
+		t.Errorf("preflight injected %v, want exactly the declared name", names)
+	}
+	if len(result.Undeclared) != 1 || result.Undeclared[0] != "FLY_API_TOKEN" {
+		t.Errorf("undeclared = %v, want the store-only name reported by name and the billing key left out", result.Undeclared)
 	}
 }
 
