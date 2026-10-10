@@ -42,51 +42,6 @@ jobs:
           }
           exit 0
         env:
-          CFO_HOME: ${{ runner.temp }}\cfo-go-tests
-          CFO_STATE_OVERRIDE: ${{ runner.temp }}\cfo-go-tests\state
-
-  # Keys beside a program that keeps every processor busy: the probe's own
-  # typing as main runs it and raised, then the real latency test 25 times
-  # each way.
-  spin:
-    runs-on: windows-latest
-    timeout-minutes: 30
-    steps:
-      - uses: actions/checkout@v6
-      - uses: actions/setup-go@v5
-        with:
-          go-version: stable
-      - name: Type beside busy processors as main runs it
-        shell: pwsh
-        run: go test ./internal/conpty -run '^TestLatencyStages$' -count=1 -v -timeout 10m
-        env:
-          PROBE_STAGES_FOR: 2m
-          PROBE_STAGES_SPIN_AFTER: 0s
-      - name: Type beside busy processors with what is timed raised
-        shell: pwsh
-        run: go test ./internal/conpty -run '^TestLatencyStages$' -count=1 -v -timeout 10m
-        env:
-          PROBE_STAGES_FOR: 2m
-          PROBE_STAGES_SPIN_AFTER: 0s
-          PROBE_STAGES_HIGH: '1'
-      - name: Run the latency test beside busy processors, 25 times each way
-        shell: pwsh
-        working-directory: internal/conpty
-        run: |
-          go test -c -o conpty.test.exe .
-          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          $spinner = Start-Process -FilePath .\conpty.test.exe -ArgumentList '-test.run=^TestLatencyStagesSpin$', '--', 'stages-spin', '20m' -WindowStyle Hidden -PassThru
-          $failed = @{ main = 0; fix = 0 }
-          for ($run = 1; $run -le 50; $run++) {
-            if ($run % 2) { $env:PROBE_AS_MAIN = '1'; $mode = 'main' } else { $env:PROBE_AS_MAIN = ''; $mode = 'fix' }
-            $output = .\conpty.test.exe '-test.run=^TestConsoleInputLatencyWhileIdleAndPrinting$' '-test.count=1' '-test.v' | Out-String -Stream
-            if ($LASTEXITCODE -ne 0) { $failed[$mode]++; $verdict = 'FAILED' } else { $verdict = 'passed' }
-            "run $run ($mode) $verdict"
-            $output | Select-String -Pattern 'natural:|processors stood idle|latency_windows_test.go:\d+: key p95|no "' | ForEach-Object { "run $run ($mode): $($_.Line)" }
-          }
-          Stop-Process -Id $spinner.Id
-          "beside busy processors: as main has it $($failed.main) of 25 failed, with the fix $($failed.fix) of 25 failed"
-          exit 0
-        env:
+          PROBE_NATURAL_FROM: 5ms
           CFO_HOME: ${{ runner.temp }}\cfo-go-tests
           CFO_STATE_OVERRIDE: ${{ runner.temp }}\cfo-go-tests\state

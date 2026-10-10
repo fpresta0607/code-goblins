@@ -249,6 +249,16 @@ func probeTestClock() *probeClock {
 	return probeTestClockKept
 }
 
+// probeIdle is how long the machine's processors have stood idle, all of
+// them added together, in nanoseconds.
+func probeIdle() int64 {
+	var idle windows.Filetime
+	if ok, _, _ := kernel32.NewProc("GetSystemTimes").Call(uintptr(unsafe.Pointer(&idle)), 0, 0); ok == 0 {
+		return 0
+	}
+	return (int64(idle.HighDateTime)<<32 | int64(idle.LowDateTime)) * 100
+}
+
 type probeProcess struct {
 	name string
 	cpu  int64

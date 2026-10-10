@@ -85,20 +85,10 @@ func consoleServers(t *testing.T) []int {
 }
 
 // startChildWithServer starts a console and returns a handle on the console
-// server it created.
+// server it created. Handles held on the servers that already existed keep
+// their pids from being reused, so neither an exiting older server nor a
+// recycled pid is taken for the new one.
 func startChildWithServer(t *testing.T, spec Spec) (*Console, *screen, windows.Handle) {
-	t.Helper()
-	var console *Console
-	var output *screen
-	server := newConsoleServer(t, func() { console, output = startChild(t, spec) })
-	return console, output, server
-}
-
-// newConsoleServer runs start, which starts one console, and returns a handle
-// on the console server it created. Handles held on the servers that already
-// existed keep their pids from being reused, so neither an exiting older
-// server nor a recycled pid is taken for the new one.
-func newConsoleServer(t *testing.T, start func()) windows.Handle {
 	t.Helper()
 	existing := map[int]bool{}
 	for _, pid := range consoleServers(t) {
@@ -112,7 +102,7 @@ func newConsoleServer(t *testing.T, start func()) windows.Handle {
 		defer windows.CloseHandle(process)
 		existing[pid] = true
 	}
-	start()
+	console, output := startChild(t, spec)
 	var server windows.Handle
 	for _, pid := range consoleServers(t) {
 		if existing[pid] {
@@ -126,7 +116,7 @@ func newConsoleServer(t *testing.T, start func()) windows.Handle {
 	if server == 0 {
 		t.Fatal("the new pseudo console has no console server")
 	}
-	return server
+	return console, output, server
 }
 
 func TestConsoleKeepsHostConsoleAndDescendantsInteractive(t *testing.T) {
