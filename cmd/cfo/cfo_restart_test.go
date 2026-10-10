@@ -241,6 +241,37 @@ func waitForFakeClaudeArguments(t *testing.T, dir string, skip []string) []strin
 	return nil
 }
 
+// The stand-in claude.exe writes its arguments in two steps, the file and
+// then what it holds. On 2026-10-10 a restart test on a CI runner read the
+// file between the two and took the empty read for a CFO that started with
+// no arguments at all, though every start of the CFO has some. A file that
+// is not written yet is waited for.
+func TestTheStandInsArgumentsAreReadOnceTheyAreWritten(t *testing.T) {
+	// Arrange
+	dir := t.TempDir()
+	path := filepath.Join(dir, fakeClaudeArguments)
+	if err := os.WriteFile(path, nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	arguments := "--settings\n" + filepath.Join(dir, "state", cfoSettingsFile) + "\n--resume\na1b2c3d4-session"
+	written := make(chan error, 1)
+	go func() {
+		time.Sleep(200 * time.Millisecond)
+		written <- os.WriteFile(path, []byte(arguments), 0o600)
+	}()
+
+	// Act
+	got := waitForFakeClaudeArguments(t, dir, nil)
+
+	// Assert
+	if err := <-written; err != nil {
+		t.Fatal(err)
+	}
+	if want := []string{"--resume", "a1b2c3d4-session"}; !slices.Equal(got, want) {
+		t.Fatalf("the stand-in's arguments read as %q, want %q", got, want)
+	}
+}
+
 // A CFO running in native terminal cfo is restarted there on its
 // conversation: its harness ends with its terminal, and the terminal runs
 // Claude Code again with --resume and that conversation.
