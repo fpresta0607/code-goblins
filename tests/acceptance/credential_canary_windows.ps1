@@ -203,7 +203,10 @@ try {
     New-Item -ItemType Directory -Force -Path $taskTmp | Out-Null
     Write-UTF8 (Join-Path $state "$task.meta") ((@(
         "worktree=$worktree", "project=$project", 'harness=claude', 'kind=ship', 'mode=direct-PR', 'yolo=no',
-        "tasktmp=$taskTmp", 'spawn_gen=canary-1', 'backend=native', 'title=Canary stand-in goblin'
+        "tasktmp=$taskTmp", 'spawn_gen=canary-1', 'backend=native', 'title=Canary stand-in goblin',
+        # The stand-in carries the one service that declares the canary's name:
+        # a stored value reaches only a task that carries its service.
+        'credentials=proof'
     ) -join "`n") + "`n")
 
     $listener = [Net.Sockets.TcpListener]::new([Net.IPAddress]::Loopback, 0)
