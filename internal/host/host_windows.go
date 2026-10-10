@@ -17,6 +17,7 @@ import (
 	"golang.org/x/sys/windows"
 
 	"github.com/fpresta0607/code-goblins/internal/conpty"
+	"github.com/fpresta0607/code-goblins/internal/priority"
 	"github.com/fpresta0607/code-goblins/internal/proc"
 	"github.com/fpresta0607/code-goblins/internal/processor"
 	"github.com/fpresta0607/code-goblins/internal/state"
@@ -80,6 +81,11 @@ func RunArgs(args []string) error {
 // on the way out. The terminal's process and everything it starts share one
 // job, which ends with this process however it ends.
 func Run(stateDir string, spec Spec) error {
+	// A host answers handshakes and relays keys and output for the terminal
+	// it runs, and at the priority of the builds in that terminal it waits
+	// its turn behind them. It runs one class above them instead, and
+	// Windows starts the terminal's program at normal.
+	defer priority.AboveTheWork()()
 	if err := state.ValidTaskID(spec.ID); err != nil {
 		return err
 	}

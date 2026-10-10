@@ -23,12 +23,20 @@ var (
 )
 
 // TestConsoleFixture is not a test: it is the parent and the child processes
-// TestProcessesStartedThroughExecxOpenNoConsoleWindow starts.
+// TestProcessesStartedThroughExecxOpenNoConsoleWindow starts, and the child
+// TestWhatARaisedProcessStartsThroughExecxRunsAtNormal starts.
 func TestConsoleFixture(t *testing.T) {
 	report := os.Getenv("EXECX_CONSOLE_REPORT")
 	switch os.Getenv("EXECX_CONSOLE_FIXTURE") {
 	case "parent":
-		os.Exit(startConsoleChild(os.Getenv("EXECX_CONSOLE_ENTRY"), report))
+		os.Exit(startFixtureChild(os.Getenv("EXECX_CONSOLE_ENTRY"), "child", report))
+	case "class":
+		// The priority class Windows started this process at.
+		class, err := windows.GetPriorityClass(windows.CurrentProcess())
+		if err != nil || os.WriteFile(report+".tmp", fmt.Appendf(nil, "class=%#x", class), 0o600) != nil || os.Rename(report+".tmp", report) != nil {
+			os.Exit(1)
+		}
+		os.Exit(0)
 	case "child":
 		// A console window of its own is what Windows shows on the desktop;
 		// a console with none, or no console, reads as window 0.
@@ -46,12 +54,12 @@ func TestConsoleFixture(t *testing.T) {
 	}
 }
 
-// startConsoleChild starts the child fixture through one of execx's entry
+// startFixtureChild starts a child fixture through one of execx's entry
 // points and waits for its report.
-func startConsoleChild(entry, report string) int {
+func startFixtureChild(entry, fixture, report string) int {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
-	request := Request{Name: os.Args[0], Args: []string{"-test.run=^TestConsoleFixture$"}, Env: append(os.Environ(), "EXECX_CONSOLE_FIXTURE=child")}
+	request := Request{Name: os.Args[0], Args: []string{"-test.run=^TestConsoleFixture$"}, Env: append(os.Environ(), "EXECX_CONSOLE_FIXTURE="+fixture)}
 	var err error
 	switch entry {
 	case "run":

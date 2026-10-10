@@ -438,6 +438,8 @@ What the fleet starts by itself also waits for room on the processors, so your o
 Each install reads its own processor for this, and a Start or Resume you click does not wait on it.
 A goblin's own work also keeps off half of this PC's performance cores, rounded up to whole cores, so your apps always have cores no goblin's build or test runs on.
 On a PC of six performance cores that leaves you three, and it costs the goblins about two fifths of their speed only while they fill every core they keep.
+The fleet's own controls run one priority class above normal and never higher, so a steer, a pause or a look at a goblin's screen is not kept waiting behind the goblins' builds: the supervisor, each goblin terminal's host, and the short commands that talk to them.
+Their work is small, about a tenth of one core for the supervisor and a few thousandths for each host, and nothing a goblin runs is raised with them.
 A second click changes nothing, and a refusal goes to the CFO, never to a line on the board.
 A start ends once its goblin has its brief: the goblin installs its worktree's dependencies (`npm ci`, `uv sync` and the like) in its own terminal as its first step, and its card says so, so a long install never holds up the next start or resume.
 A Start or Resume, and each start or resume the supervisor makes by itself, that meets a `cfo spawn` the CFO runs by hand waits for that spawn's turn, which ends once its terminal runs; one that gives up after waiting 10 minutes tries once more as soon as the lock frees.
