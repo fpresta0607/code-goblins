@@ -228,8 +228,19 @@ func pipelineCommand(ctx context.Context, h home.Home, root string, commands exe
 			}
 		}
 	} else {
-		if err := reader.CheckStart(ctx, meta.Project, gated, branch, selection.Policy); err != nil {
+		trusted, err := reader.CheckStart(ctx, meta.Project, gated, branch, selection.Policy)
+		if err != nil {
 			return err
+		}
+		if selection.Policy.Version > 5 {
+			if err := pipeline.GateHarness(meta.Harness); err != nil {
+				return fmt.Errorf("%w. Task %s runs on %s, so switch it with cfo switch %s --harness <harness>", err, meta.ID, meta.Harness, meta.ID)
+			}
+			launch, err := launchSelectionArgs(ctx, commands, root, meta, selection, trusted, out)
+			if err != nil {
+				return err
+			}
+			nativeArgs = append(nativeArgs, launch...)
 		}
 	}
 	result, err := commands.Run(ctx, execx.Request{Dir: gated, Env: nativeEnv(root), Name: "no-mistakes", Args: nativeArgs})
@@ -243,6 +254,9 @@ func pipelineCommand(ctx context.Context, h home.Home, root string, commands exe
 		return fmt.Errorf("pipeline: native command failed: %w", err)
 	}
 	if result.ExitCode != 0 {
+		if args[0] == "run" && selection.Policy.Version > 5 && isLaunchSelectionUnknown(result) {
+			return fmt.Errorf("pipeline: native command exited %d. This no-mistakes build takes no launch selection, which policy version %d needs to run a gate on its task's own harness. See docs/pipeline.md for the build that does", result.ExitCode, selection.Policy.Version)
+		}
 		return fmt.Errorf("pipeline: native command exited %d", result.ExitCode)
 	}
 	return nil
@@ -355,7 +369,9 @@ func (j policyMigrationJournal) validate() error {
 		return errors.New("pipeline: invalid new policy in migration journal")
 	}
 	want, err := pipeline.MigrateSelection(j.Old, j.New.Policy)
-	if err != nil || j.Old.Policy.Version >= j.New.Policy.Version || want != j.New || j.Old.Class != j.New.Class || j.Old.ReviewCycles != j.New.ReviewCycles || j.Audit != pipelineMigrationAudit(j.Old, j.New) {
+	// Two snapshots of one version differ only from version 6, in the fallback
+	// the operator names, and MigrateSelection refuses every other such pair.
+	if err != nil || j.Old.Policy.Version > j.New.Policy.Version || j.Old == j.New || want != j.New || j.Old.Class != j.New.Class || j.Old.ReviewCycles != j.New.ReviewCycles || j.Audit != pipelineMigrationAudit(j.Old, j.New) {
 		return errors.New("pipeline: inconsistent policy migration journal")
 	}
 	return nil

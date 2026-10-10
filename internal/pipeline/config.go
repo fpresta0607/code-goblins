@@ -90,16 +90,20 @@ func Render(before []byte, p Policy) ([]byte, []string, error) {
 			}
 		}
 	}
-	primary := p.Reviewer
-	if p.Version > 1 {
-		primary = p.Primary
-	}
-	agents := []string{primary.Harness}
-	if p.Fallback != (Reviewer{}) {
-		agents = append(agents, p.Fallback.Harness)
-	}
-	if err := set(root, "agent", "agent", agents); err != nil {
-		return nil, nil, err
+	// From version 6 a run carries its own agents, so the machine's chain is
+	// the operator's, and it serves only the runs the CFO does not drive.
+	if p.Version < 6 {
+		primary := p.Reviewer
+		if p.Version > 1 {
+			primary = p.Primary
+		}
+		agents := []string{primary.Harness}
+		if p.Fallback != (Reviewer{}) {
+			agents = append(agents, p.Fallback.Harness)
+		}
+		if err := set(root, "agent", "agent", agents); err != nil {
+			return nil, nil, err
+		}
 	}
 	auto, err := mapping(root, "auto_fix")
 	if err != nil {
@@ -122,7 +126,7 @@ func Render(before []byte, p Policy) ([]byte, []string, error) {
 			return nil, nil, err
 		}
 	} else {
-		codex := []string{"-c", `service_tier="default"`}
+		codex := []string{"-c", `service_tier="` + codexServiceTier + `"`}
 		if p.Version > 4 {
 			// Gate agents start without the operator's MCP servers. Codex skips
 			// the user config.toml that declares them, which no -c override
@@ -158,16 +162,22 @@ func Render(before []byte, p Policy) ([]byte, []string, error) {
 			remove(paths, "codex", "agent_path_override.codex")
 			break
 		}
-		agentConfig, err := mapping(root, "agent_config")
-		if err != nil {
-			return nil, nil, err
-		}
-		if err := set(agentConfig, "codex", "agent_config.codex", map[string]string{"model": p.Primary.Model, "effort": p.Primary.Effort}); err != nil {
-			return nil, nil, err
+		// From version 6 each run names its own model and effort, and what
+		// agent_config holds is the operator's default for a task that names
+		// none.
+		if p.Version < 6 {
+			agentConfig, err := mapping(root, "agent_config")
+			if err != nil {
+				return nil, nil, err
+			}
+			if err := set(agentConfig, "codex", "agent_config.codex", map[string]string{"model": p.Primary.Model, "effort": p.Primary.Effort}); err != nil {
+				return nil, nil, err
+			}
 		}
 		if p.Version > 3 {
 			// Every role runs the chain, which a review role pinned to one
-			// harness would leave without its fallback.
+			// harness would leave without its fallback, and from version 6
+			// off the harness its task runs on.
 			remove(root, "review_agents", "review_agents")
 		} else {
 			reviewAgents, err := mapping(root, "review_agents")

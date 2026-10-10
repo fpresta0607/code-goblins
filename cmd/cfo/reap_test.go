@@ -3,9 +3,13 @@ package main
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
+	"fmt"
+	"os"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/fpresta0607/code-goblins/internal/home"
 	"github.com/fpresta0607/code-goblins/internal/reap"
@@ -114,6 +118,45 @@ func TestReapRecordsAFailedSweep(t *testing.T) {
 	}
 	if record.Error != "herdr is down" {
 		t.Fatalf("record = %+v, want the failure recorded", record)
+	}
+}
+
+// TestReapKeepsWhatTheCFOWasTold: the watcher wakes the CFO once for a finding
+// and keeps what it told in the audit record. A sweep run by hand rewrites
+// that record, and one that dropped the memory had the watcher's next sweep
+// wake the CFO again for everything still running.
+func TestReapKeepsWhatTheCFOWasTold(t *testing.T) {
+	// Arrange
+	h := primaryHomeFixture(t)
+	seen := time.Date(2026, 10, 9, 19, 40, 0, 0, time.UTC)
+	stamp := seen.Format(time.RFC3339)
+	record := fmt.Sprintf(`{"schema":%q,"time":%q,"findings":[],"told":{"3f2a9c0d1b4e5f67":%q}}`, reap.RecordSchema, stamp, stamp)
+	if err := os.WriteFile(reap.RecordPath(h.State), []byte(record+"\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	runtime := reapTestRuntime(h, func(context.Context, home.Home, reap.Options) (reap.Result, error) {
+		return reap.Result{}, nil
+	})
+
+	// Act
+	var stdout, stderr bytes.Buffer
+	if exit := runReap(nil, &stdout, &stderr, runtime); exit != 0 {
+		t.Fatalf("exit = %d stderr=%q, want 0", exit, stderr.String())
+	}
+
+	// Assert
+	data, err := os.ReadFile(reap.RecordPath(h.State))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var after struct {
+		Told map[string]time.Time `json:"told"`
+	}
+	if err := json.Unmarshal(data, &after); err != nil {
+		t.Fatal(err)
+	}
+	if kept, ok := after.Told["3f2a9c0d1b4e5f67"]; !ok || !kept.Equal(seen) {
+		t.Fatalf("record after cfo reap = %s, want what the CFO was told kept with when it was last seen", data)
 	}
 }
 

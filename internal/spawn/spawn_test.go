@@ -42,6 +42,45 @@ func TestSpawnSnapshotsTaskClassPolicy(t *testing.T) {
 	}
 }
 
+// Under a policy whose gate runs on its task's own harness, a goblin on a
+// harness no gate can run on could never gate its work, so its spawn is
+// refused before anything starts.
+func TestSpawnRefusesAGatedTaskOnAHarnessNoGateRunsOn(t *testing.T) {
+	policy := filepath.Join(t.TempDir(), "pipeline.json")
+	const followsHarness = `{"version": 6, "auto_fix": {"review": 0, "test": 1, "lint": 1, "rebase": 1, "ci": 1}, "classes": {"ordinary": {"review_cycles": 2}, "high-risk": {"review_cycles": 3}, "mechanical": {"review_cycles": 2}}}`
+	if err := os.WriteFile(policy, []byte(followsHarness), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	t.Run("pi", func(t *testing.T) {
+		f := newQuickFixture(t)
+		f.service.PolicyPath = policy
+		f.request.Harness = harness.Pi
+
+		_, err := f.service.Spawn(context.Background(), f.request)
+
+		if err == nil || !strings.Contains(err.Error(), `"pi"`) || !strings.Contains(err.Error(), "--mode direct-PR") {
+			t.Fatalf("error = %v, want the pi task refused with the mode that needs no gate", err)
+		}
+		if _, readErr := state.ReadTaskMeta(f.stateDir, f.request.ID); !errors.Is(readErr, os.ErrNotExist) {
+			t.Fatalf("the refused spawn left a task record: %v", readErr)
+		}
+	})
+	t.Run("codex", func(t *testing.T) {
+		f := newQuickFixture(t)
+		f.service.PolicyPath = policy
+
+		result, err := f.service.Spawn(context.Background(), f.request)
+
+		if err != nil {
+			t.Fatal(err)
+		}
+		snapshot, err := pipeline.LoadSelection(filepath.Join(result.Meta.TaskTmp, "pipeline.json"))
+		if err != nil || snapshot.Policy.Version != 6 || snapshot.Policy.Primary != (pipeline.Reviewer{}) {
+			t.Fatalf("snapshot: %+v %v, want version 6 with no harness named", snapshot, err)
+		}
+	})
+}
+
 // The task's short title is published with its metadata, so the board names
 // it from the moment it exists.
 func TestSpawnPublishesTheTaskTitle(t *testing.T) {

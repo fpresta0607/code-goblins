@@ -55,8 +55,9 @@ const REPORT = {
   ],
   notes: [],
 };
-// The supervisor's own words for a board that an agent's program shows.
-const REFUSAL = "AFK mode is the Supreme Overlord's switch, and the program that shows this board runs under an agent harness (node.exe pid 5120): he turns it on or off from a terminal or a board of his own, and the registered CFO only at his ask, with his words";
+// What the supervisor tells him on a board it refuses: one short sentence that
+// says what to do. What it found goes to the CFO, never to the board.
+const REFUSAL = "Switch AFK in the Code Goblins window, or run cfo afk on in PowerShell.";
 
 interface Asked { on: unknown; token: string }
 interface Supervisor { asked: Asked[]; refuses: boolean; announces: boolean }
@@ -169,17 +170,18 @@ test("the toggle is in the header in the panel's Task view and its Terminal view
 });
 
 // The Overlord, 2026-10-08: "this yellow text i hate. as an error". A refusal
-// of his own press is an error he can read: what did not happen, then the
-// supervisor's words in full, in the question and under the header, and it
-// stays until he closes it.
-test("a refusal is shown in full as an error, in the question and under the header, until he closes it, and the toggle stays as it was", async ({ page }) => {
+// of his own press is an error he can read: what did not happen, then the one
+// short sentence the supervisor has for him, in the question and under the
+// header, and it stays until he closes it. "No dialog ever shows a raw refusal
+// paragraph: one short sentence at most" (2026-10-09).
+test("a refusal is one short sentence shown as an error, in the question and under the header, until he closes it, and the toggle stays as it was", async ({ page }) => {
   await page.clock.install();
   const supervisor = await open(page, snapshot(), { asked: [], refuses: true, announces: true });
   await openCfoPanel(page);
   await toggle(page).click();
   const asks = page.locator("dialog.afk-dialog");
   await asks.getByRole("button", { name: "Turn AFK on" }).click();
-  await expect(asks.getByRole("alert")).toHaveText("AFK did not turn on" + REFUSAL + ".");
+  await expect(asks.getByRole("alert")).toHaveText("AFK did not turn on" + REFUSAL);
   await expect(toggle(page)).toHaveAttribute("aria-checked", "false");
   await asks.getByRole("button", { name: "Cancel" }).click();
   await expect(header(page).getByRole("alert")).toHaveCount(0);
@@ -187,7 +189,7 @@ test("a refusal is shown in full as an error, in the question and under the head
   await push(page, snapshot({ afk: on() }));
   await toggle(page).click();
   const refusal = header(page).getByRole("alert");
-  await expect(refusal).toHaveText("AFK did not turn off" + REFUSAL + ".");
+  await expect(refusal).toHaveText("AFK did not turn off" + REFUSAL);
   await expect(toggle(page)).toHaveAttribute("aria-checked", "true");
   await page.clock.fastForward(60_000);
   await expect(refusal).toBeVisible();
@@ -215,7 +217,7 @@ test("a refusal that arrives after he cancelled Go AFK says AFK did not turn on"
   await asks.getByRole("button", { name: "Cancel" }).click();
   await expect(asks).toHaveCount(0);
   answer();
-  await expect(header(page).getByRole("alert")).toHaveText("AFK did not turn on" + REFUSAL + ".");
+  await expect(header(page).getByRole("alert")).toHaveText("AFK did not turn on" + REFUSAL);
   await expect(toggle(page)).toHaveAttribute("aria-checked", "false");
 });
 
@@ -232,6 +234,9 @@ test("Turn AFK off says it is working until the supervisor answers", async ({ pa
     await route.fulfill({ json: { state: "off" } });
   });
   await page.locator(".board-column").first().click({ position: { x: 8, y: 8 } });
+  // The CFO decided nothing in this stretch, so the offer counts nothing.
+  await expect(offer(page)).toContainText("AFK has been on since");
+  await expect(offer(page)).not.toContainText("The CFO decided");
   await offer(page).getByRole("button", { name: "Turn AFK off" }).click();
   const working = offer(page).getByRole("button", { name: "Turning AFK off…" });
   await expect(working).toBeDisabled();
@@ -431,19 +436,32 @@ test("a stretch the CFO turned on at his ask says so on the bar, and the offer a
   await expect(report(page).locator(".afk-report-title")).toContainText("Turned on by the CFO at your ask: “I'm stepping away, turn AFK on”, off from your board.");
 });
 
-test("his first click or key after the CFO turned AFK on at his ask offers the switch back at once with his words, and the usual wait follows his answer", async ({ page }) => {
+// The Overlord, 2026-10-09, of the dialog that met him after the CFO turned
+// AFK on at his ask: "not right button for this kind of turn on". He had just
+// asked for AFK, so the main button keeps it on, turning it off is the lesser
+// one, one short line says the CFO did it at his ask, and "The CFO decided 0."
+// is gone while nothing was decided.
+test("his first click or key after the CFO turned AFK on at his ask says so in one short line, its main button keeps AFK on, and the usual wait follows his answer", async ({ page }) => {
   await page.clock.install();
-  const byTheCFO = { from: "the CFO at his ask (claude pid 4242)", asked: "I'm heading to bed, turn AFK on" };
+  const byTheCFO = { from: "the CFO at his ask (claude pid 4242)", asked: "AFK did not turn on. AFK mode is the Supreme Overlord's switch, and the supervisor could not follow its parents to the desktop ... fix this issue i should alwyas be abel to turn on afk no issues" };
   const supervisor = await open(page, snapshot({ afk: on(byTheCFO) }));
   const switched = page.locator("dialog.afk-dialog").filter({ hasText: "The CFO turned AFK on" });
   // Nothing opens by itself after the switch.
   await expect(switched).toHaveCount(0);
 
   await page.locator(".task-card").filter({ hasText: "nw-search-index" }).first().click();
-  await expect(switched).toContainText("turned on by the CFO at your ask: “I'm heading to bed, turn AFK on”.");
+  await expect(switched.locator("p").first()).toHaveText(/^It did so at your ask, at \d{1,2}:\d{2}\s?[AP]M\.$/);
+  // His words stay with the report, and nothing was decided yet.
+  await expect(switched).not.toContainText("fix this issue");
+  await expect(switched).not.toContainText("The CFO decided");
+  await expect(switched).not.toContainText("Turning it off shows the report");
   await expect(offer(page)).toHaveCount(0);
   await expect(switched).toBeFocused();
-  await switched.getByRole("button", { name: "Stay AFK" }).click();
+  // The main button keeps it on, and turning it off is the lesser one.
+  await expect(switched.getByRole("button")).toHaveText(["Got it", "Turn AFK off"]);
+  await expect(switched.getByRole("button", { name: "Got it" })).toHaveClass(/primary/);
+  await expect(switched.getByRole("button", { name: "Turn AFK off" })).not.toHaveClass(/primary/);
+  await switched.getByRole("button", { name: "Got it" }).click();
   await expect(page.locator("dialog.afk-dialog")).toHaveCount(0);
   // The click that brought the offer opened the task he clicked.
   await expect(page.locator("#panel-title")).toHaveText("nw-search-index");
@@ -453,6 +471,26 @@ test("his first click or key after the CFO turned AFK on at his ask offers the s
   await page.keyboard.press("Shift");
   await expect(page.locator("dialog.afk-dialog")).toHaveCount(0);
   expect(supervisor.asked).toEqual([]);
+});
+
+// The lesser button still turns it off, which shows the report, and a refusal
+// there is the one short sentence and never the supervisor's own words.
+test("after the CFO turned AFK on at his ask, the lesser Turn AFK off turns it off, and a refusal is one short sentence", async ({ page }) => {
+  const byTheCFO = { from: "the CFO at his ask (claude pid 4242)", asked: "turn AFK on" };
+  const supervisor = await open(page, snapshot({ afk: on({ ...byTheCFO, decided: 2 }) }), { asked: [], refuses: true, announces: true });
+  const switched = page.locator("dialog.afk-dialog").filter({ hasText: "The CFO turned AFK on" });
+  await page.locator(".board-column").first().click({ position: { x: 8, y: 8 } });
+  // Once the CFO decided something the line counts it.
+  await expect(switched.locator("p").first()).toHaveText(/^It did so at your ask, at .+\. The CFO decided 2\.$/);
+  await switched.getByRole("button", { name: "Turn AFK off" }).click();
+  await expect(switched.getByRole("alert")).toHaveText("AFK did not turn off" + REFUSAL);
+  await expect(switched).toBeVisible();
+
+  supervisor.refuses = false;
+  await switched.getByRole("button", { name: "Turn AFK off" }).click();
+  await expect(switched).toHaveCount(0);
+  await expect(report(page)).toContainText("AFK report");
+  expect(supervisor.asked.map((ask) => ask.on)).toEqual([false, false]);
 });
 
 // The Overlord, 2026-10-09: "at the top of the report I don't like all these
@@ -570,6 +608,77 @@ test("with nothing for him still waiting, the report has no Go through them and 
   await expect(report(page)).toHaveCount(0);
 });
 
+// The Overlord, 2026-10-09: "disk free I think would be a good one to include
+// in the AFK report for usage, to see if disk increased or decreased as I was
+// gone. Just have it next to the Claude Code usage metrics in that same little
+// section. Make sure it's clean, minimal text, the same type of styling as the
+// Claude usage". Free disk is the last row under Spent, drawn as the limits
+// above it: its mark, the drive, a bar of the drive, what is free and what AFK
+// used or freed, with the arrow pointing back over disk it freed. A change too
+// small to say moves nothing, and a disk not read at both ends has no row.
+const GB = 2 ** 30;
+const drive = (on: number, off: number) => ({ drive: "C:", total: 1000 * GB, on: on * GB, off: off * GB });
+const DISK_ROWS: { name: string; disk: object; text: string; label: string; before: string; stretch: string; back: boolean; chip: string }[] = [
+  { name: "that fell", disk: drive(340.5, 337), text: "Disk (C:)337.0 GB freeAFK used 3.5 GB", label: "Disk (C:): 337.0 GB free, from 340.5 GB to 337.0 GB free while AFK was on", before: "width: 65.95%;", stretch: "left: 65.95%; width: 0.35%;", back: false, chip: "AFK used 3.5 GB" },
+  { name: "that rose", disk: drive(325.5, 337), text: "Disk (C:)337.0 GB freeAFK freed 11.5 GB", label: "Disk (C:): 337.0 GB free, from 325.5 GB to 337.0 GB free while AFK was on", before: "width: 66.3%;", stretch: "left: 66.3%; width: 1.15%;", back: true, chip: "AFK freed 11.5 GB" },
+  { name: "that stayed", disk: drive(337.03125, 337), text: "Disk (C:)337.0 GB freeAFK used 0 GB", label: "Disk (C:): 337.0 GB free, from 337.0 GB to 337.0 GB free while AFK was on", before: "width: 66.3%;", stretch: "", back: false, chip: "AFK used 0 GB" },
+];
+for (const row of DISK_ROWS) {
+  test("free disk " + row.name + " while AFK was on is the last row under Spent, drawn as the limits above it", async ({ page }) => {
+    // Arrange
+    await open(page, snapshot({ afk: KEPT }));
+    await page.route("**/api/afk/report", (route) => route.fulfill({ json: { ...REPORT, disk: row.disk } }));
+    await openCfoPanel(page);
+
+    // Act
+    await header(page).getByRole("button", { name: "Open the last AFK report" }).click();
+
+    // Assert
+    const spent = report(page).getByRole("region", { name: "Spent" }).locator("li");
+    await expect(spent).toHaveCount(4);
+    const disk = spent.last();
+    await expect(disk).toHaveText(row.text);
+    await expect(disk.locator(".afk-spent-mark svg")).toBeVisible();
+    await expect(disk.getByRole("img", { name: row.label })).toBeVisible();
+    await expect(disk.locator(".afk-spent-before")).toHaveAttribute("style", row.before);
+    if (row.stretch) {
+      await expect(disk.locator(".afk-spent-used")).toHaveAttribute("style", row.stretch);
+      await expect(disk.locator(".afk-spent-arrow")).toHaveAttribute("style", row.stretch);
+      await expect(disk.locator(".afk-spent-arrow.back")).toHaveCount(row.back ? 1 : 0);
+      await expect(disk.locator(".afk-spent-change.used")).toHaveText(row.chip);
+    } else {
+      await expect(disk.locator(".afk-spent-used, .afk-spent-arrow")).toHaveCount(0);
+      await expect(disk.locator(".afk-spent-change")).toHaveText(row.chip);
+      await expect(disk.locator(".afk-spent-change.used")).toHaveCount(0);
+    }
+    // Its figures stay clear of its bar, which is as long as the limit's.
+    const lanes = await spent.evaluateAll((rows) => rows.map((one) => ["graph", "value"].map((part) => { const box = one.querySelector(".afk-spent-" + part)?.getBoundingClientRect(); return box ? [Math.round(box.left), Math.round(box.right)] : null; })));
+    const [bar, figures] = lanes[3];
+    expect(bar![1]).toBeLessThan(figures![0]);
+    expect(bar).toEqual(lanes[0][0]);
+  });
+}
+
+test("free disk is the only row under Spent when no allowance was used, and has no row when it was not read at both ends", async ({ page }) => {
+  // Arrange
+  await open(page, snapshot({ afk: KEPT }));
+  await page.route("**/api/afk/report", (route) => route.fulfill({ json: { ...REPORT, spent: [], disk: drive(340.5, 337) } }));
+  await openCfoPanel(page);
+
+  // Act
+  await header(page).getByRole("button", { name: "Open the last AFK report" }).click();
+
+  // Assert
+  await expect(report(page).getByRole("region", { name: "Spent" }).locator("li")).toHaveText(["Disk (C:)337.0 GB freeAFK used 3.5 GB"]);
+  await report(page).getByRole("button", { name: "Close the report" }).click();
+  // A report with no disk reading, as the supervisor sends one read at one end.
+  await page.route("**/api/afk/report", (route) => route.fulfill({ json: REPORT }));
+  await header(page).getByRole("button", { name: "Open the last AFK report" }).click();
+  const spent = report(page).getByRole("region", { name: "Spent" });
+  await expect(spent.locator("li")).toHaveCount(3);
+  expect(await spent.evaluate((section) => section.textContent)).not.toMatch(/disk/i);
+});
+
 // The Overlord, 2026-10-09: "If I have all these left for me, why are they not
 // presented in the Command Center?" and, at 12:50Z, "in AFK mode chief should
 // review and answer the decision himself but walk through should open it with
@@ -674,6 +783,39 @@ test("on a phone the bar keeps its line, its terminal and Open Command Center in
   await expect(toggle(page)).toBeVisible();
   expect(await within(page, ".panel-header")).toBe(true);
   expect(await toggle(page).evaluate((element) => parseFloat(getComputedStyle(element).fontSize))).toBeGreaterThanOrEqual(15);
+  expect(await fits(page)).toBe(true);
+});
+
+// On a phone the rows under Spent broke each name letter by letter beside its
+// figures, which the Overlord's mockup of 2026-10-09 showed him beside the fix
+// the CFO picked for him: a row is its mark and name, then what is left with
+// what AFK used at either end of the row, then its bar, and the legend keeps
+// to one line.
+test("on a phone each row under Spent keeps its name on one line, with its figures and then its bar under it", async ({ page }) => {
+  // Arrange
+  await page.setViewportSize({ width: 390, height: 844 });
+  await open(page, snapshot({ afk: KEPT }));
+  await page.route("**/api/afk/report", (route) => route.fulfill({ json: { ...REPORT, spent: [REPORT.spent[0], REPORT.spent[3]], disk: drive(340.5, 337) } }));
+  await openCfoPanel(page);
+
+  // Act
+  await header(page).getByRole("button", { name: "Open the last AFK report" }).click();
+
+  // Assert
+  const section = report(page).getByRole("region", { name: "Spent" });
+  await expect(section.locator("li")).toHaveText(["Claude weekly limit51% leftAFK used 8%", "Codex credits12.5 credits spent", "Disk (C:)337.0 GB freeAFK used 3.5 GB"]);
+  const rows = await section.locator("li").evaluateAll((items) => items.map((item) => {
+    const box = (selector: string) => item.querySelector(selector)?.getBoundingClientRect();
+    const row = item.getBoundingClientRect(), name = box(".afk-spent-name")!, value = box(".afk-spent-value")!, graph = box(".afk-spent-graph");
+    return {
+      isNameOnOneLine: name.height < 2 * parseFloat(getComputedStyle(item.querySelector(".afk-spent-name")!).fontSize),
+      isStacked: name.bottom <= value.top && (!graph || value.bottom <= graph.top),
+      isInside: [name, value, ...(graph ? [graph] : [])].every((part) => part.left >= row.left && part.right <= row.right + 0.5),
+    };
+  }));
+  const clean = { isNameOnOneLine: true, isStacked: true, isInside: true };
+  expect(rows).toEqual([clean, clean, clean]);
+  expect(await section.locator(".afk-spent-legend").evaluate((element) => element.getBoundingClientRect().height < 2 * parseFloat(getComputedStyle(element).fontSize))).toBe(true);
   expect(await fits(page)).toBe(true);
 });
 

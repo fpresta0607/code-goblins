@@ -375,6 +375,12 @@ func Acknowledge(dir string, ack Ack) (Acknowledged, error) {
 	if err != nil || len(acknowledged.Refused) > 0 {
 		return Acknowledged{Refused: acknowledged.Refused}, err
 	}
+	// The answers of the records retired go once the lock is let go: nothing
+	// reads the answer of a record no longer queued, and every file handled
+	// under the lock is time another writer waits.
+	if ack.Through != nil {
+		pruneAnswers(dir, *ack.Through)
+	}
 	acknowledged.Pending, err = attachAnswers(dir, attachGoblins(dir, acknowledged.Pending))
 	return acknowledged, err
 }
@@ -432,7 +438,6 @@ func retireThrough(dir string, records []Record, seq int, noticed map[string]boo
 	if err := writeQueue(dir, kept); err != nil {
 		return nil, err
 	}
-	pruneAnswers(dir, floor)
 	return kept, nil
 }
 

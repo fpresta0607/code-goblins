@@ -170,6 +170,9 @@ type Service struct {
 	errorLines   map[string]time.Time
 	errorsUntold []string
 	errorsWoke   time.Time
+	// answersDue wakes the worker as the answers held for the Overlord's next
+	// one come due. Only the worker touches it.
+	answersDue   *time.Timer
 	workProgress map[string]WorkProgress
 	ciDurations  []CIDuration
 	sameArea     map[string]sameArea
@@ -266,11 +269,14 @@ type Service struct {
 	// peerOf names the process at the other end of a connection to the board;
 	// nil asks Windows.
 	peerOf func(peer, board netip.AddrPort) (int, error)
-	// windows is what moving the desktop window does on the machine; its zero
-	// value is Windows itself.
+	// windows is the machine as the proof of a board and the move of the
+	// desktop window meet it; its zero value is Windows itself.
 	windows windowSystem
-	done    chan struct{}
-	work    chan struct{}
+	// boardGrants takes one read or change of the grants the home gave its
+	// boards at a time.
+	boardGrants sync.Mutex
+	done        chan struct{}
+	work        chan struct{}
 	// looks takes each request to look at the fleet now, which the loop
 	// answers by closing it once its cycle has run (see lookNow).
 	looks  chan chan struct{}
@@ -827,6 +833,7 @@ func evaluationPending(actions []Action, task string) bool {
 const actionTimeout = 45 * time.Second
 
 func (s *Service) process(ctx context.Context) {
+	defer s.wakeAsHeldAnswersComeDue()
 	for i := 0; i < maxActions && ctx.Err() == nil; i++ {
 		if !s.Store.HasRunnable() {
 			break
@@ -840,6 +847,26 @@ func (s *Service) process(ctx context.Context) {
 		}
 		s.publish(nil)
 	}
+}
+
+// wakeAsHeldAnswersComeDue wakes the worker the moment the answers the store
+// holds for the Overlord's next one can go, so an answer alone is never held
+// past answerBatchWindow: left to the loop, it would go at whichever cycle
+// came after, up to two seconds later. Only the worker calls it.
+func (s *Service) wakeAsHeldAnswersComeDue() {
+	if s.answersDue != nil {
+		s.answersDue.Stop()
+	}
+	wait := s.Store.answersDueIn()
+	if wait <= 0 {
+		return
+	}
+	s.answersDue = time.AfterFunc(wait, func() {
+		select {
+		case s.work <- struct{}{}:
+		default:
+		}
+	})
 }
 
 func (s *Service) execute(ctx context.Context, a Action) (Evaluation, error) {
@@ -900,26 +927,25 @@ func (s *Service) execute(ctx context.Context, a Action) (Evaluation, error) {
 		if s.Options.CFO == nil {
 			return Evaluation{}, fmt.Errorf("%w: CFO message transport is unavailable", ErrRejected)
 		}
-		text := a.Text
-		found := false
-		for _, q := range s.Store.Snapshot().Questions {
-			if q.ID == a.QuestionID && q.Identity == a.Generation && q.AnswerID == a.ID {
-				text = fmt.Sprintf("User answer to CFO question %s. Question: %s Answer: %s", q.ID, q.Text, a.Text)
-				if a.AnswerKind == "other" {
-					text = fmt.Sprintf("User answer to CFO question %s. Question: %s Answer (Other): %s", q.ID, q.Text, a.Text)
-				}
-				switch {
-				case q.Decided == "":
-				case a.AnswerKind == "option" && a.Text == q.Decided:
-					text += ". You answered " + q.Decided + " while AFK mode was on, and he kept it."
-				default:
-					text += ". You answered " + q.Decided + " while AFK mode was on, and he changed it: undo or redo what your answer started."
-				}
-				found = true
+		questions := s.Store.Snapshot().Questions
+		var answers []string
+		for _, answer := range append([]Action{a}, a.With...) {
+			i := slices.IndexFunc(questions, func(q Question) bool {
+				return q.ID == answer.QuestionID && q.Identity == answer.Generation && q.AnswerID == answer.ID
+			})
+			if i < 0 {
+				return Evaluation{}, fmt.Errorf("%w: user question context changed", ErrRejected)
 			}
+			answers = append(answers, answerToCFO(questions[i], answer))
 		}
-		if !found {
-			return Evaluation{}, fmt.Errorf("%w: user question context changed", ErrRejected)
+		// An answer alone reads as it always has. Several are one message that
+		// lists each in the order he gave them.
+		text := answers[0]
+		if len(answers) > 1 {
+			text = fmt.Sprintf("%d user answers to CFO questions, in the order he gave them.", len(answers))
+			for n, answer := range answers {
+				text += fmt.Sprintf(" [%d/%d] %s", n+1, len(answers), answer)
+			}
 		}
 		return s.Options.CFO.Send(ctx, a.Generation, text)
 	}
