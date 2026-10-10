@@ -224,6 +224,8 @@ Any command a goblin starts can read what its terminal carries and spend with it
 A task an older build spawned has a record that names no services, and its terminal already holds everything its project's scope held, which nothing can take back out of a running terminal.
 Its next terminal, at a resume, a switch or the comeback after a restart, carries the manifest's default services and no other.
 Its record names them from then on, and the relaunch says so in its output and in the task's status log, which is where you read it after an automatic resume.
+A relaunch also removes the credential script a refresh wrote for the task's last terminal, `auth.ps1` in its tasktmp folder, which for such a task holds everything its project had stored. The new terminal starts with what the task carries in its environment, so nothing in the task's folder says more than its record.
+A paused task keeps that script until it is relaunched. `cfo auth refresh <id>` or a grant rewrites it at once for what the task carries.
 Grant it what it still needs.
 
 This is a gate on what `cfo` puts into a terminal, not a sandbox.
