@@ -37,10 +37,9 @@ func runInstallWithLavishDownload(t *testing.T, script string, content []byte, s
 		t.Fatal(err)
 	}
 	stubs := map[string]string{
-		"git":        "@exit /b 0\r\n",
-		"gh":         "@exit /b 0\r\n",
-		"npm":        "@echo npm %*>>\"" + record + "\"\r\n@exit /b 0\r\n",
-		"powershell": "@exit /b 1\r\n",
+		"git": "@exit /b 0\r\n",
+		"gh":  "@exit /b 0\r\n",
+		"npm": "@echo npm %*>>\"" + record + "\"\r\n@exit /b 0\r\n",
 	}
 	maps.Copy(stubs, standIns)
 	internet := "function Invoke-WebRequest {\n" +
@@ -48,7 +47,7 @@ func runInstallWithLavishDownload(t *testing.T, script string, content []byte, s
 		"  if ($Uri.StartsWith('" + base + "/')) { Microsoft.PowerShell.Utility\\Invoke-WebRequest -Uri $Uri -OutFile $OutFile -UseBasicParsing; return }\n" +
 		"  Add-Content -LiteralPath '" + record + "' -Value \"download $Uri\"\n" +
 		"  if ($Uri -like '*/lavish-axi-*.tgz') { Copy-Item -LiteralPath '" + served + "' -Destination $OutFile; return }\n" +
-		"  Set-Content -LiteralPath $OutFile -Value \"# installer from $Uri\"\n" +
+		"  Set-Content -LiteralPath $OutFile -Value @(\"# installer from $Uri\", 'exit 1')\n" +
 		"}\n"
 	cmd, _, temp := installtest.StrippedCommand(t, base, stubs, installtest.WindowsPowerShell(), "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-Command",
 		internet+"Get-Content -Raw -LiteralPath '"+script+"' | Invoke-Expression; exit $LASTEXITCODE")

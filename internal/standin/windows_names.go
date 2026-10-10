@@ -12,7 +12,7 @@ import (
 // without their extension. A file with one of these names outside Windows'
 // own folders is what Microsoft Defender reads as a program hiding as part of
 // Windows. The list is the same on every machine, so a name it holds is
-// refused on a GitHub runner as it is on a PC; isWindowsProgram also refuses
+// refused on a GitHub runner as it is on a PC; IsWindowsProgram also refuses
 // whatever else the Windows it runs on ships.
 var windowsPrograms = []string{
 	"at", "attrib", "bash", "bitsadmin", "certutil", "cmd", "cmdkey", "conhost", "control", "cscript", "csrss", "ctfmon",
@@ -26,10 +26,10 @@ var windowsPrograms = []string{
 // programExtensions are the endings Windows starts a file by.
 var programExtensions = []string{".exe", ".com", ".cmd", ".bat"}
 
-// isWindowsProgram reports whether name, a file's base name, is that of a
+// IsWindowsProgram reports whether name, a file's base name, is that of a
 // program Windows ships, whatever its case and whichever program extension it
 // has: rundll32.exe, CMD.EXE and where.cmd all are.
-func isWindowsProgram(name string) bool {
+func IsWindowsProgram(name string) bool {
 	name = strings.ToLower(name)
 	extension := filepath.Ext(name)
 	if !slices.Contains(programExtensions, extension) {

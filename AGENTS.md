@@ -961,6 +961,8 @@ What Defender recorded is read with `Get-MpThreatDetection`, `Get-MpThreat`, `Ge
 What keeps the work quiet:
 
 - A test that needs some program to start uses the one stand-in program of `internal/standin`, built once for each Go toolchain into `cfo\standin` in the user's cache folder and reused, so the file Defender meets is one it has met. A test never serves or runs a copy of its own test binary where the stand-in would do, and no stand-in is named after a program Windows ships. `internal/standin`'s tests fail on either, and the repository's CONTRIBUTING.md says how to use it.
+- No stand-in carries the name of a program Windows ships, a script first on PATH included. The install script names Windows PowerShell by its own path, and a test stands in for what that program is given to run. `internal/installtest` refuses such a stand-in.
+- A test writes no copy of the install script. A pinned or changed copy on disk is one more unsigned script that downloads and runs programs, which Defender sends to Microsoft once for each new version of it, so a test runs the script as the one-line install does, as text, and `tools/pin-installer.ps1` pins it in memory when it is given no destination. A change to `install.ps1` itself can still cost one upload, of the worktree's own copy.
 - A proof runs the installed release, which is signed. Where it must run the branch's own build, it builds once into one folder of the task's own and reuses that file: every new build of an unsigned program is one more that Defender asks its cloud about, uploads, and may convict.
 
 ## Memory
