@@ -1,6 +1,7 @@
 package codegoblins
 
 import (
+	"encoding/json"
 	"fmt"
 	"maps"
 	"os"
@@ -10,6 +11,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/fpresta0607/code-goblins/internal/gatetest"
 	"github.com/fpresta0607/code-goblins/internal/installtest"
 	"gopkg.in/yaml.v3"
 )
@@ -60,11 +62,13 @@ func goWorkflowJobs(t *testing.T) map[string]goWorkflowJob {
 }
 
 type goWorkflowJob struct {
-	If       string   `yaml:"if"`
-	Needs    []string `yaml:"needs"`
+	If       string            `yaml:"if"`
+	Needs    goWorkflowNeeds   `yaml:"needs"`
+	Outputs  map[string]string `yaml:"outputs"`
 	Strategy struct {
 		Matrix struct {
-			Include []goWorkflowShard `yaml:"include"`
+			// Include is the go job's list, which the plan job hands it.
+			Include string `yaml:"include"`
 			// Shard is the browser job's list: which share of the browser
 			// tests each of its jobs runs.
 			Shard []int `yaml:"shard"`
@@ -72,15 +76,41 @@ type goWorkflowJob struct {
 	} `yaml:"strategy"`
 }
 
-// goWorkflowShard is one job of the go job's matrix: the packages it tests,
-// or for the rest job the packages it leaves to the others, and the pattern
-// naming the tests it runs or skips when it shares a package.
-type goWorkflowShard struct {
-	Shard    string `yaml:"shard"`
-	Packages string `yaml:"packages"`
-	Except   string `yaml:"except"`
-	Run      string `yaml:"run"`
-	Skip     string `yaml:"skip"`
+// goWorkflowNeeds is the jobs a job waits for, which a workflow writes as
+// one name or as a list.
+type goWorkflowNeeds []string
+
+func (n *goWorkflowNeeds) UnmarshalYAML(value *yaml.Node) error {
+	if value.Kind == yaml.ScalarNode {
+		*n = goWorkflowNeeds{value.Value}
+		return nil
+	}
+	return value.Decode((*[]string)(n))
+}
+
+// goWorkflowTable is the go workflow's table of jobs: what can change each
+// job's result, and the go jobs with the packages each tests.
+func goWorkflowTable(t *testing.T) gatetest.JobTable {
+	t.Helper()
+	source, err := os.ReadFile(filepath.Join(".github", "workflows", "go.yml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var workflow struct {
+		Env struct {
+			Jobs string `yaml:"JOBS"`
+		} `yaml:"env"`
+	}
+	if err := yaml.Unmarshal(source, &workflow); err != nil {
+		t.Fatal(err)
+	}
+	decoder := json.NewDecoder(strings.NewReader(workflow.Env.Jobs))
+	decoder.DisallowUnknownFields()
+	var table gatetest.JobTable
+	if err := decoder.Decode(&table); err != nil {
+		t.Fatalf("the go workflow's JOBS is not its table of jobs: %v", err)
+	}
+	return table
 }
 
 // The go workflow tests the slow packages in jobs of their own and every
@@ -93,13 +123,13 @@ type goWorkflowShard struct {
 // tests a pattern matches, and the other skips exactly those.
 func TestGoWorkflowRunsEveryPackageOnce(t *testing.T) {
 	// Arrange
-	shards := goWorkflowJobs(t)["go"].Strategy.Matrix.Include
+	shards := goWorkflowTable(t).Go
 	if len(shards) == 0 {
-		t.Fatal("the go job has no matrix of packages")
+		t.Fatal("the go workflow's table names no go job")
 	}
 
 	// Act
-	jobs := map[string][]goWorkflowShard{}
+	jobs := map[string][]gatetest.Shard{}
 	var except []string
 	rest := 0
 	for _, shard := range shards {
@@ -185,10 +215,10 @@ func TestGoWorkflowRunsEveryBrowserTestOnce(t *testing.T) {
 // key's echo waited 429 ms for one, so no other package shares its job.
 func TestGoWorkflowTimesKeystrokesInAJobOfTheirOwn(t *testing.T) {
 	// Arrange
-	shards := goWorkflowJobs(t)["go"].Strategy.Matrix.Include
+	shards := goWorkflowTable(t).Go
 
 	// Act
-	var jobs []goWorkflowShard
+	var jobs []gatetest.Shard
 	for _, shard := range shards {
 		if slices.Contains(strings.Fields(shard.Packages), "./internal/conpty") {
 			jobs = append(jobs, shard)
@@ -302,7 +332,7 @@ func TestGoWorkflowsRequiredCheckWaitsForEveryJob(t *testing.T) {
 
 	// Act
 	check := jobs["test"]
-	needs := slices.Sorted(slices.Values(check.Needs))
+	needs := slices.Sorted(slices.Values([]string(check.Needs)))
 
 	// Assert
 	if len(others) == 0 || !slices.Equal(needs, others) {
@@ -313,25 +343,47 @@ func TestGoWorkflowsRequiredCheckWaitsForEveryJob(t *testing.T) {
 	}
 }
 
-// The required check passes only when every job it needs succeeded: one
-// that failed, was cancelled or was skipped fails it, and so does a check
-// that needs nothing.
+// The required check passes only when the plan succeeded and every job it
+// started succeeded: one that failed or was cancelled fails it, and so does
+// one that was skipped, unless this is a pull request's own run and the plan
+// said to leave that job out. A plan that failed, or that did not say true or
+// false for each job, leaves nothing out, and neither does any plan in a
+// merge train's run or a run on main. A check that needs nothing fails.
 func TestGoWorkflowsRequiredCheckPassesOnlyWhenEveryJobSucceeded(t *testing.T) {
 	pwsh, err := exec.LookPath("pwsh.exe")
 	if err != nil {
 		t.Skip("the step runs in PowerShell 7, which is not installed")
 	}
 	step := workflowStep(t, filepath.Join(".github", "workflows", "go.yml"), "test", "Require every job to have passed")
+	// needs is the needs context as GitHub hands it to the step: the plan
+	// with what it said, and each other job's result.
+	needs := func(plan, frontend, browser, goJobs, saidFrontend, saidBrowser, saidGo string) string {
+		outputs, _ := json.Marshal(map[string]string{"frontend": saidFrontend, "browser": saidBrowser, "go": saidGo})
+		return fmt.Sprintf(`{"plan":{"result":%q,"outputs":%s},"frontend":{"result":%q,"outputs":{}},"browser":{"result":%q,"outputs":{}},"go":{"result":%q,"outputs":{}}}`, plan, outputs, frontend, browser, goJobs)
+	}
+	const all = `[{"shard":"rest"}]`
 	for name, test := range map[string]struct {
-		// results is the needs context as GitHub hands it to the step.
 		results string
-		wantOK  bool
+		// isOwnRun says the run is a pull request's own.
+		isOwnRun bool
+		wantOK   bool
 	}{
-		"every job succeeded": {`{"frontend":{"result":"success","outputs":{}},"go":{"result":"success","outputs":{}}}`, true},
-		"a job failed":        {`{"frontend":{"result":"success","outputs":{}},"go":{"result":"failure","outputs":{}}}`, false},
-		"a job was cancelled": {`{"frontend":{"result":"cancelled","outputs":{}},"go":{"result":"success","outputs":{}}}`, false},
-		"a job was skipped":   {`{"frontend":{"result":"success","outputs":{}},"go":{"result":"skipped","outputs":{}}}`, false},
-		"no job at all":       {`{}`, false},
+		"every job succeeded":                                    {needs("success", "success", "success", "success", "true", "true", all), true, true},
+		"every job succeeded in a train's run":                   {needs("success", "success", "success", "success", "true", "true", all), false, true},
+		"a job failed":                                           {needs("success", "success", "success", "failure", "true", "true", all), true, false},
+		"a job was cancelled":                                    {needs("success", "cancelled", "success", "success", "true", "true", all), true, false},
+		"a job the plan started was skipped":                     {needs("success", "success", "skipped", "success", "true", "true", all), true, false},
+		"the jobs the plan left out were skipped":                {needs("success", "skipped", "skipped", "success", "false", "false", all), true, true},
+		"the go jobs the plan left out were skipped":             {needs("success", "success", "success", "skipped", "true", "true", "[]"), true, true},
+		"every job was left out, as for a change to a document":  {needs("success", "skipped", "skipped", "skipped", "false", "false", "[]"), true, true},
+		"a job the plan left out failed all the same":            {needs("success", "failure", "skipped", "success", "false", "false", all), true, false},
+		"a job was left out of a train's run":                    {needs("success", "skipped", "skipped", "success", "false", "false", all), false, false},
+		"the go jobs were left out of a train's run":             {needs("success", "success", "success", "skipped", "true", "true", "[]"), false, false},
+		"the plan failed and every job was skipped":              {needs("failure", "skipped", "skipped", "skipped", "", "", ""), true, false},
+		"the plan was skipped":                                   {needs("skipped", "skipped", "skipped", "skipped", "false", "false", "[]"), true, false},
+		"the plan said nothing and every job was skipped":        {needs("success", "skipped", "skipped", "skipped", "", "", ""), true, false},
+		"the plan said something that is neither true nor false": {needs("success", "skipped", "success", "success", "no", "true", all), true, false},
+		"no job at all":                                          {`{}`, true, false},
 	} {
 		t.Run(name, func(t *testing.T) {
 			// Arrange: as GitHub Actions runs a pwsh step, which stops on
@@ -341,7 +393,7 @@ func TestGoWorkflowsRequiredCheckPassesOnlyWhenEveryJobSucceeded(t *testing.T) {
 				t.Fatal(err)
 			}
 			cmd := exec.Command(pwsh, "-NoProfile", "-NonInteractive", "-File", script)
-			cmd.Env = append(os.Environ(), "RESULTS="+test.results)
+			cmd.Env = append(os.Environ(), "RESULTS="+test.results, fmt.Sprintf("OWN_RUN=%t", test.isOwnRun))
 
 			// Act
 			out, err := cmd.CombinedOutput()
