@@ -538,17 +538,17 @@ func TestAFiringThatShowsItIsArmingIsWaitedForAndProvesNothing(t *testing.T) {
 // once the auto-arm has reported its own failure and the block budget must
 // charge.
 func TestArmingIsNotWaitedForOnceItsFiringIsGoneOrItsFailureIsReported(t *testing.T) {
-	t.Run("the firing ended without withdrawing it", func(t *testing.T) {
+	t.Run("the firing is gone and its file is still there", func(t *testing.T) {
 		// Arrange
 		dir := t.TempDir()
-		writeDeadLock(t, dir, armingLockName, deadPID(t))
+		touchFile(t, filepath.Join(dir, armingFile))
 
 		// Act
 		isArming := AutoarmArming(dir)
 
 		// Assert
 		if isArming {
-			t.Error("what a dead firing showed reads as arming")
+			t.Error("a file no firing holds reads as arming")
 		}
 	})
 	t.Run("the auto-arm reported its failure", func(t *testing.T) {
