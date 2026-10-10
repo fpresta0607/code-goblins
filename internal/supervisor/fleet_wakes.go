@@ -24,6 +24,7 @@ import (
 	"github.com/fpresta0607/code-goblins/internal/janitor"
 	"github.com/fpresta0607/code-goblins/internal/state"
 	"github.com/fpresta0607/code-goblins/internal/train"
+	"github.com/fpresta0607/code-goblins/internal/update"
 	"github.com/fpresta0607/code-goblins/internal/wake"
 )
 
@@ -352,6 +353,13 @@ func (s *Service) checkMemory(ctx context.Context, w *fleetWakes, now time.Time)
 		w.MemoryAbove = 0
 	} else {
 		w.MemoryAbove++
+	}
+	// An update of this home that installs is about to stop this supervisor
+	// and swap the programs a start runs a terminal from, and the command a
+	// start would dispatch is refused meanwhile, so nothing comes back or
+	// starts by itself at this reading.
+	if update.Installing(s.Store.Home.State) {
+		return planningErr
 	}
 	// What a restart ended comes back before anything else starts by itself, and no
 	// memory wake offers its room to other work while it does.

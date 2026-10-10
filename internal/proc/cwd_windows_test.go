@@ -13,7 +13,6 @@ import (
 	"syscall"
 	"testing"
 	"time"
-	"unsafe"
 
 	"golang.org/x/sys/windows"
 )
@@ -431,30 +430,8 @@ func TestWalkSteadyWalksAgainOnlyWhileTheBlockMoves(t *testing.T) {
 // resumeThreads lets every thread of the suspended process pid run.
 func resumeThreads(t *testing.T, pid int) {
 	t.Helper()
-	snapshot, err := windows.CreateToolhelp32Snapshot(windows.TH32CS_SNAPTHREAD, 0)
-	if err != nil {
+	if err := Resume(pid); err != nil {
 		t.Fatal(err)
-	}
-	defer windows.CloseHandle(snapshot)
-	entry := windows.ThreadEntry32{Size: uint32(unsafe.Sizeof(windows.ThreadEntry32{}))}
-	resumed := 0
-	for err = windows.Thread32First(snapshot, &entry); err == nil; err = windows.Thread32Next(snapshot, &entry) {
-		if entry.OwnerProcessID != uint32(pid) {
-			continue
-		}
-		thread, err := windows.OpenThread(windows.THREAD_SUSPEND_RESUME, false, entry.ThreadID)
-		if err != nil {
-			t.Fatal(err)
-		}
-		_, err = windows.ResumeThread(thread)
-		windows.CloseHandle(thread)
-		if err != nil {
-			t.Fatal(err)
-		}
-		resumed++
-	}
-	if resumed == 0 {
-		t.Fatalf("process %d has no thread to resume", pid)
 	}
 }
 

@@ -21,9 +21,10 @@ const watchLock = ".watch.lock"
 const legacyExitWait = 5 * time.Second
 
 // AcquireWatchLock takes this home's watcher lock for this process, taking it
-// over from a watcher that holds it. Serve takes it this way, and so does cfo
-// update before it starts a supervisor from a build older than the handover,
-// which cannot take the lock from a watcher itself.
+// over from a watcher that holds it. Serve takes it this way, and so does a
+// process restarting the supervisor, an update or an install, which holds it
+// between the supervisor it stopped and the one it starts and hands it to
+// that one, so a build older than the handover never meets a watcher.
 func AcquireWatchLock(stateDir string) error {
 	for try := 1; ; try++ {
 		_, err := lock.AcquireExclusiveNamed(stateDir, watchLock)
