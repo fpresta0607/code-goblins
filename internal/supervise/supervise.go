@@ -13,6 +13,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/fpresta0607/code-goblins/internal/fsx"
@@ -156,6 +157,64 @@ func AutoarmOwnsRecovery(stateDir string, grace, epochFresh time.Duration) bool 
 		return false
 	}
 	return pidAlive(epoch.OwnerPID)
+}
+
+// armingFile is the file a Stop-owned auto-arm firing shows its sign on from
+// its start until it holds autoarmLockName or ends (lock.Show), and
+// armingWait how long a firing waits for a sign it finds held, which is as
+// long as the guard holds it to look.
+const (
+	armingFile = ".claude-autoarm-arming"
+	armingWait = 50 * time.Millisecond
+)
+
+// arming holds, by state directory, how this process stops showing that it
+// is arming.
+var arming = struct {
+	sync.Mutex
+	stop map[string]func()
+}{stop: map[string]func(){}}
+
+// ShowArming shows that this process, a Stop-owned auto-arm firing, has
+// started and is on its way to claiming recovery. It needed 1.7 s for that
+// on a loaded machine, 3.3 s at worst, and the turn-end guard, which fires
+// beside it and waited 800 ms for the claim, called 1 turn in 3 blind. The
+// firing shows it before anything slow, and stops showing it (StopArming)
+// once it holds recovery or ends without it. A firing that finds another
+// already showing it has nothing to add.
+//
+// The sign is a lock Windows keeps, not a record: a record is a new file,
+// which the virus scanner reads, and on a machine that loaded the record
+// itself took 3.2 s to appear, after the guard had given up.
+func ShowArming(stateDir string) {
+	stop, err := lock.Show(filepath.Join(stateDir, armingFile), armingWait)
+	if err != nil {
+		return
+	}
+	arming.Lock()
+	arming.stop[stateDir] = stop
+	arming.Unlock()
+}
+
+// StopArming stops showing what ShowArming showed for this process, if it
+// did.
+func StopArming(stateDir string) {
+	arming.Lock()
+	stop := arming.stop[stateDir]
+	delete(arming.stop, stateDir)
+	arming.Unlock()
+	if stop != nil {
+		stop()
+	}
+}
+
+// AutoarmArming reports whether a live auto-arm firing shows it is arming.
+// That is never proof that recovery is under way, only a reason to wait for
+// the proof: AutoarmOwnsRecovery alone lets a turn end. Like the auto-arm
+// lock it stops counting once NotifiedOnce is true, so a firing that arms
+// again during a reported failure does not hold up the block-budget ladder.
+func AutoarmArming(stateDir string) bool {
+	return lock.Shown(filepath.Join(stateDir, armingFile)) && !NotifiedOnce(stateDir)
 }
 
 // Epoch is one record from state/.claude-autoarm-epoch: a single line

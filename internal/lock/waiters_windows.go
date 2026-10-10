@@ -108,3 +108,38 @@ func leavePlace(key string) {
 		leaveLine(place)
 	}
 }
+
+// Show takes the sign at path for this process and returns how to take it
+// down: the lock Windows keeps on the file's first byte, as a line of waiters
+// is. Showing it makes no new file once the file is there, so it costs no
+// wait for a virus scanner, and Windows takes it down when the process ends.
+// A sign another process holds for longer than wait is that process's, and
+// is an error here.
+func Show(path string, wait time.Duration) (hide func(), err error) {
+	place, err := lineUp(path, time.Now().Add(wait))
+	if err != nil {
+		return nil, err
+	}
+	return func() { leaveLine(place) }, nil
+}
+
+// Shown reports whether a process holds the sign at path.
+func Shown(path string) bool {
+	name, err := windows.UTF16PtrFromString(path)
+	if err != nil {
+		return false
+	}
+	file, err := windows.CreateFile(name, windows.GENERIC_READ, windows.FILE_SHARE_READ|windows.FILE_SHARE_WRITE|windows.FILE_SHARE_DELETE, nil, windows.OPEN_EXISTING, windows.FILE_ATTRIBUTE_NORMAL, 0)
+	if err != nil {
+		return false
+	}
+	defer windows.CloseHandle(file)
+	// A shared lock is refused only while a process holds the sign, and a
+	// process asking for the sign waits out the moment this one is held.
+	looked := &windows.Overlapped{}
+	if err := windows.LockFileEx(file, windows.LOCKFILE_FAIL_IMMEDIATELY, 0, 1, 0, looked); err != nil {
+		return errors.Is(err, windows.ERROR_LOCK_VIOLATION)
+	}
+	_ = windows.UnlockFileEx(file, 0, 1, 0, looked)
+	return false
+}
