@@ -3,6 +3,8 @@
 // them directly or transitively, and the packages the repository's policy
 // names for a changed file their tests read. CI still runs every package;
 // this bounds the local step so that it fits the gate on a loaded machine.
+// From the same reach it picks what a goblin runs before it pushes (Push):
+// the checks CI would fail the change on, as far as this machine carries them.
 package gatetest
 
 import (

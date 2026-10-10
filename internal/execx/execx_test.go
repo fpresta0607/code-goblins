@@ -294,3 +294,41 @@ func TestOSRunnerStartRejectsCancelledContext(t *testing.T) {
 		t.Fatal("Start returned nil for a cancelled context")
 	}
 }
+
+// A streamed run hands over what the process writes and its exit code, and a
+// normal non-zero exit is a result and no error, as it is for Run.
+func TestOSRunnerStreamWritesTheOutputAndReturnsTheExitCode(t *testing.T) {
+	// Arrange
+	var stdout, stderr strings.Builder
+
+	// Act
+	exit, err := (OSRunner{}).Stream(context.Background(), helperRequest(t.TempDir(), []string{"EXECX_HELPER=1", "EXECX_MODE=nonzero"}), &stdout, &stderr)
+
+	// Assert
+	if err != nil || exit != 7 || stderr.String() != "child stderr" || stdout.Len() != 0 {
+		t.Errorf("Stream = %d, %v with stdout %q and stderr %q; want 7 and no error with child stderr on stderr alone", exit, err, stdout.String(), stderr.String())
+	}
+}
+
+// A streamed run its context ended is ended with it and says so, with what
+// the process wrote before then already handed over.
+func TestOSRunnerStreamEndsTheProcessWhenItsContextEnds(t *testing.T) {
+	// Arrange
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+	var stdout, stderr strings.Builder
+	request := helperRequest(t.TempDir(), []string{"EXECX_HELPER=1", "EXECX_MODE=answer-then-sleep"})
+	request.KillTree = true
+
+	// Act
+	started := time.Now()
+	_, err := (OSRunner{}).Stream(ctx, request, &stdout, &stderr)
+
+	// Assert
+	if !errors.Is(err, context.DeadlineExceeded) {
+		t.Errorf("error = %v, want context deadline exceeded", err)
+	}
+	if stdout.String() != "answered\n" || time.Since(started) > 8*time.Second {
+		t.Errorf("Stream returned after %s with stdout %q; want what the process wrote before the deadline, and the process ended at it", time.Since(started), stdout.String())
+	}
+}
