@@ -93,6 +93,13 @@ func TestDeploymentsReachTheCardOfTheMergedTask(t *testing.T) {
 		{"a squashed merge, and only the newest run of a workflow", []string{pushRun(75, "Deploy", "Ship the export (#210)", "bbb222", "completed", "success"), pushRun(74, "Deploy", "Ship the export (#210)", "bbb222", "completed", "failure")},
 			`{"commit":"bbb222","link":"https://github.com/o/r/actions/runs/75","state":"deployed","workflows":["Deploy"]}`},
 		{"another pull request's deploy", []string{pushRun(76, "Deploy", "Merge pull request #211 from o/feat/other", "ccc333", "completed", "failure")}, `null`},
+		// A merge train lands its pull requests with one merge commit, so one
+		// push run deploys them all, and its title names each.
+		{"landed by a merge train with two others", []string{pushRun(79, "Deploy", "Merge train r-20260930-121500: #209, #210, #212", "ddd444", "in_progress", "")},
+			`{"commit":"ddd444","link":"https://github.com/o/r/actions/runs/79","state":"deploying","workflows":["Deploy"]}`},
+		{"a train's deploy that failed", []string{pushRun(80, "Deploy", "Merge train r-20260930-121500: #210", "ddd444", "completed", "failure")},
+			`{"commit":"ddd444","link":"https://github.com/o/r/actions/runs/80","state":"failed","workflows":["Deploy"]}`},
+		{"a train that landed other pull requests", []string{pushRun(81, "Deploy", "Merge train r-20260930-121500: #209, #2100", "eee555", "completed", "success")}, `null`},
 		{"a skipped deploy deployed nothing", []string{pushRun(77, "Deploy", merged210, "aaa111", "completed", "skipped")}, `null`},
 		{"a skipped deploy beside one that ran", []string{pushRun(78, "Deploy worker", merged210, "aaa111", "completed", "skipped"), pushRun(71, "Deploy API", merged210, "aaa111", "completed", "success")},
 			`{"commit":"aaa111","link":"https://github.com/o/r/actions/runs/71","state":"deployed","workflows":["Deploy API"]}`},

@@ -105,9 +105,11 @@ The production-proof layer is intentionally fail-closed: delivery evidence must 
 
 Landing green pull requests one at a time costs one CI run each, in a row, because every merge makes the others' runs stale.
 A merge train lands them with one run.
-It merges the green pull requests goblins finished onto main in the order they reported done, on a branch of its own, and opens a pull request for that branch that is never merged, so CI tests them together once.
-When that run is green, each pull request merges with a merge commit in the same order, and main's tree must then equal the train's.
+It merges the green pull requests goblins finished onto main in the order they reported done, on a branch of its own, and opens a pull request for that branch, so CI tests them together once.
+When that run is green, the train's pull request merges: main takes the commit CI tested, so its tree equals the train's, and GitHub marks each pull request that rode merged, with its own number in main's history.
+A train that landed leaves nothing closed without merging on GitHub, and one that did not land its last run closes that run's pull request saying why, however often it was halved.
 When it is red, the failed checks run again once, because a check can fail by chance, and a run that passes on its second try lands with the check that failed once named in its record.
+A test that failed once inside a check that still ended green is named in the train's record and its message to the CFO too.
 When it is red a second time, the train is halved until the one pull request that breaks it is found: every half that passes lands, and that pull request's goblin gets the failing checks.
 A pull request that conflicts with the ones ahead of it stays off and its goblin is told to merge main; drafts and pull requests labelled `hold` (recovery, security, money paths, or anything the Overlord said to wait on) never ride.
 
@@ -118,7 +120,7 @@ See [Merge trains](AGENTS.md#merge-trains).
 
 ### Project-scoped credentials
 
-Projects declare the services they need. `cfo auth` probes them before dispatch, validates project identity where configured, and keeps credentials namespaced outside repositories. A goblin's terminal carries the credentials of the services its brief names and of no other, and `cfo auth grant <task> <service>` gives a running task one more by name. A blocking authentication failure prevents normal dispatch rather than stranding a worker halfway through a task.
+Projects declare the services they need. `cfo auth` probes them before dispatch, validates project identity where configured, and keeps credentials namespaced outside repositories. A goblin's terminal carries the credentials of the services its brief names and of no other, and `cfo auth grant <task> <service>` gives a running task one more by name. An MCP server whose entry in the project's `.mcp.json` holds a value reaches a goblin the same way: the brief names it on its `mcp:` line, or `cfo auth grant <task> --mcp <server>` adds it for the task's next terminal. A blocking authentication failure prevents normal dispatch rather than stranding a worker halfway through a task.
 
 Pipe a credential with `Get-Clipboard | cfo auth store --project <project> <NAME>` to keep its value out of shell history, or run `cfo auth store --project <project> <NAME>` at a console and type or paste the value, which is read without being shown.
 For stdin, `cfo auth store` removes every consecutive leading byte-order mark, including mixed Windows PowerShell mojibake forms, then trailing line breaks, and reports how many marks it removed without exposing the value.
@@ -1143,7 +1145,7 @@ go run ./cmd/cfo gate test
 go build ./cmd/cfo
 ```
 
-`cfo gate test` vets what your change reaches and tests the changed packages that are quick to test; CI runs on `windows-latest` and tests every package and the board's browser tests on every pull request, as parallel jobs that take about 8 minutes together. The real-session acceptance suite is opt-in because it requires actual Herdr and harness installations.
+`cfo gate test` vets what your change reaches and tests the changed packages that are quick to test; CI runs on `windows-latest` as parallel jobs that take about 8 minutes together: a pull request's own run starts the jobs its change can alter, and its merge train's run tests every package and the board's browser tests before the change reaches `main`. A test that fails there runs once more: one that passes on its second try is named as a Failed once warning on the `test` check, and one that fails twice fails the run. The real-session acceptance suite is opt-in because it requires actual Herdr and harness installations.
 
 ## Project lineage
 

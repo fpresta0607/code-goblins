@@ -26,7 +26,16 @@ type trainProject struct {
 	t        *testing.T
 	checkout string
 	pusher   string
+	remote   string
 	created  int
+	// pulls are the pull requests pull listed, branch the one the train's
+	// pull request was opened from, landed the head it merged at, subject its
+	// merge commit's, and closed whether it was closed.
+	pulls   []train.PullRequest
+	branch  string
+	landed  string
+	subject string
+	closed  bool
 	// viewerReads counts the reads of the account gh works as, and
 	// viewerTimeouts is how many more of them time out.
 	viewerReads    int
@@ -54,8 +63,8 @@ func newTrainProject(t *testing.T) *trainProject {
 	if err != nil {
 		t.Fatal(err)
 	}
-	p := &trainProject{t: t, checkout: filepath.Join(root, "app"), pusher: filepath.Join(root, "pusher")}
 	remote := filepath.Join(root, "origin.git")
+	p := &trainProject{t: t, checkout: filepath.Join(root, "app"), pusher: filepath.Join(root, "pusher"), remote: remote}
 	p.git(root, "init", "-q", "--bare", "--initial-branch=main", remote)
 	p.git(root, "clone", "-q", remote, p.pusher)
 	p.git(p.pusher, "commit", "-q", "--allow-empty", "-m", "seed")
@@ -88,14 +97,51 @@ func (p *trainProject) pull(number int) train.PullRequest {
 		Checks: []train.Check{{Kind: "CheckRun", Name: "test", Status: "COMPLETED", Conclusion: "SUCCESS"}},
 	}
 	pr.Author.Login = "fleet"
+	p.pulls = append(p.pulls, pr)
 	return pr
 }
 
+// merged names the pull requests GitHub shows merged, in the order they were
+// opened: those whose head main holds.
+func (p *trainProject) merged() []string {
+	var merged []string
+	for _, pr := range p.pulls {
+		if exec.Command("git", "-C", p.remote, "merge-base", "--is-ancestor", pr.HeadRefOid, "refs/heads/main").Run() == nil {
+			merged = append(merged, pr.URL)
+		}
+	}
+	return merged
+}
+
 // Run runs git for real, answers gh api user with the fleet's account and gh
-// pr create with the train's pull request; any other gh call is unexpected.
+// pr create with the train's pull request, whose CI it reads as green and
+// which it merges into main with a merge commit and closes, and lists the
+// pull requests main does not hold yet as open; any other gh call is
+// unexpected.
 func (p *trainProject) Run(ctx context.Context, request execx.Request) (execx.Result, error) {
 	if request.Name == "git" {
 		return execx.OSRunner{}.Run(ctx, request)
+	}
+	if args := request.Args; request.Name == "gh" && len(args) > 2 && args[0] == "pr" && p.created > 0 {
+		switch {
+		case args[1] == "view":
+			view, err := json.Marshal(map[string]any{"state": "OPEN", "headRefOid": p.git(p.remote, "rev-parse", "refs/heads/"+p.branch), "statusCheckRollup": []train.Check{{Kind: "CheckRun", Name: "test", Status: "COMPLETED", Conclusion: "SUCCESS"}}})
+			return execx.Result{Stdout: view}, err
+		case args[1] == "list":
+			merged := p.merged()
+			open, err := json.Marshal(slices.DeleteFunc(slices.Clone(p.pulls), func(pr train.PullRequest) bool { return slices.Contains(merged, pr.URL) }))
+			return execx.Result{Stdout: open}, err
+		case args[1] == "merge" && args[2] == "https://github.com/o/r/pull/900":
+			p.landed, p.subject = args[slices.Index(args, "--match-head-commit")+1], args[slices.Index(args, "--subject")+1]
+			p.git(p.pusher, "fetch", "-q", "origin")
+			p.git(p.pusher, "checkout", "-q", "-B", "main", "origin/main")
+			p.git(p.pusher, "merge", "-q", "--no-ff", "-m", p.subject, p.landed)
+			p.git(p.pusher, "push", "-q", "origin", "main")
+			return execx.Result{}, nil
+		case args[1] == "close":
+			p.closed = true
+			return execx.Result{}, nil
+		}
 	}
 	if request.Name == "gh" && len(request.Args) > 1 && request.Args[0] == "api" && request.Args[1] == "user" {
 		p.viewerReads++
@@ -107,6 +153,7 @@ func (p *trainProject) Run(ctx context.Context, request execx.Request) (execx.Re
 	}
 	if request.Name == "gh" && len(request.Args) > 1 && request.Args[0] == "pr" && request.Args[1] == "create" {
 		p.created++
+		p.branch = request.Args[slices.Index(request.Args, "--head")+1]
 		return execx.Result{Stdout: []byte("https://github.com/o/r/pull/900\n")}, nil
 	}
 	return execx.Result{ExitCode: 1, Stderr: []byte("unexpected " + request.Name + " " + strings.Join(request.Args, " "))}, nil
@@ -150,6 +197,44 @@ func TestTheSupervisorStartsATrainWhenTwoGoblinsFinishedPullRequestsWaitGreen(t 
 	}
 	if wakes := prWakes(t, h, "merge_train"); len(wakes) != 1 || wakes[0].Key != "train:o/r" || !strings.Contains(wakes[0].Detail, "#11, #12") {
 		t.Fatalf("pr wakes = %+v, want the train's start", wakes)
+	}
+}
+
+// The supervisor's own train and cfo pr train are one engine, and leave the
+// same on GitHub: the poll after a green run merges the train's own pull
+// request at the head CI tested, the pull requests that rode read merged by
+// it, nothing is closed without merging, and the train's branch is removed.
+func TestTheSupervisorsTrainLandsByMergingItsOwnPullRequest(t *testing.T) {
+	// Arrange
+	service, h := fleetService(t)
+	project := newTrainProject(t)
+	first, second := project.pull(11), project.pull(12)
+	reportDone(t, h, "g11", project.checkout, "done: PR "+first.URL)
+	reportDone(t, h, "g12", project.checkout, "done: PR "+second.URL)
+	open := []train.PullRequest{first, second}
+	if err := service.runTrain(context.Background(), project, &fleetWakes{}, project.checkout, open); err != nil {
+		t.Fatal(err)
+	}
+
+	// Act
+	err := service.runTrain(context.Background(), project, &fleetWakes{}, project.checkout, open)
+
+	// Assert
+	if err != nil {
+		t.Fatal(err)
+	}
+	trains, err := train.List(h.State)
+	if err != nil || len(trains) != 1 || trains[0].State != train.StateLanded {
+		t.Fatalf("trains = %+v, %v, want the one train landed", trains, err)
+	}
+	if !slices.Equal(project.merged(), []string{first.URL, second.URL}) || project.closed || project.created != 1 || project.subject != "Merge train "+trains[0].ID+": #11, #12" {
+		t.Fatalf("merged %v, the train pull request closed %v of %d opened, merged as %q: want #11 and #12 merged by the train's own pull request, which is never closed", project.merged(), project.closed, project.created, project.subject)
+	}
+	if project.git(project.remote, "rev-parse", "refs/heads/main^{tree}") != project.git(project.remote, "rev-parse", project.landed+"^{tree}") || exec.Command("git", "-C", project.remote, "rev-parse", "--verify", "--quiet", "refs/heads/"+project.branch).Run() == nil {
+		t.Fatal("main's tree is not the tree CI tested, or the train's branch is kept")
+	}
+	if wakes := prWakes(t, h, "merge_train"); len(wakes) != 2 || !strings.Contains(wakes[1].Detail, "landed #11, #12 in 1 CI run(s)") {
+		t.Fatalf("pr wakes = %+v, want the train's start and its landing", wakes)
 	}
 }
 

@@ -7,7 +7,9 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"regexp"
 	"slices"
+	"strconv"
 	"strings"
 	"sync"
 	"testing"
@@ -227,6 +229,12 @@ type fakeForge struct {
 	runListDirs     []string
 	runListTimeouts int
 	viewer          string
+	// once is GitHub's answer to the read of the tests that failed once,
+	// onceFailure what gh says when that read fails, and onceCalls how often
+	// it was asked.
+	once        string
+	onceFailure string
+	onceCalls   int
 }
 
 func (f *fakeForge) Run(_ context.Context, req execx.Request) (execx.Result, error) {
@@ -272,6 +280,23 @@ func (f *fakeForge) Run(_ context.Context, req execx.Request) (execx.Result, err
 			f.listCalls++
 		}
 		return answer(f.pulls)
+	case strings.HasPrefix(command, "gh api graphql") && strings.Contains(command, "annotations("):
+		// The read of the tests that failed once: what a test gave the
+		// forge, or one workflow check with no warning for the commit and
+		// for each run the forge knows.
+		f.onceCalls++
+		if f.onceFailure != "" {
+			return execx.Result{ExitCode: 1, Stderr: []byte(f.onceFailure)}, nil
+		}
+		if f.once != "" {
+			return execx.Result{Stdout: []byte(f.once)}, nil
+		}
+		suites := []string{onceSuite(0)}
+		for _, id := range regexp.MustCompile(`"databaseId":([0-9]+)`).FindAllStringSubmatch(f.runs+f.jobs, -1) {
+			run, _ := strconv.ParseInt(id[1], 10, 64)
+			suites = append(suites, onceSuite(run))
+		}
+		return execx.Result{Stdout: []byte(onceAnswer(suites...))}, nil
 	case strings.HasPrefix(command, "gh api graphql"):
 		var pulls []ghPullRequest
 		if err := json.Unmarshal([]byte(f.pulls), &pulls); err != nil {
