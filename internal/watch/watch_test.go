@@ -28,6 +28,9 @@ import (
 // directory keeps every test in this package off this machine's registry, and
 // off whichever checkouts its operator happens to keep.
 func TestMain(m *testing.M) {
+	if playStandIn() {
+		return
+	}
 	root, err := os.MkdirTemp("", "cfo-watch-projects-root-")
 	if err != nil {
 		panic(err)
