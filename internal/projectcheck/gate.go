@@ -9,6 +9,7 @@ import (
 
 	"gopkg.in/yaml.v3"
 
+	"github.com/fpresta0607/code-goblins/internal/pipeline"
 	"github.com/fpresta0607/code-goblins/internal/project"
 )
 
@@ -18,6 +19,7 @@ const gateFileName = ".no-mistakes.yaml"
 
 // gateFile is what a check reads of the gate's settings.
 type gateFile struct {
+	Agent    yaml.Node         `yaml:"agent"`
 	Commands map[string]string `yaml:"commands"`
 	Gates    []struct {
 		Name    string `yaml:"name"`
@@ -47,6 +49,7 @@ func (c *checker) gate(ctx context.Context) string {
 			fmt.Sprintf("%s at %s: %v", gateFileName, c.repo.at(), err), "correct the file")
 		return ""
 	}
+	c.gateAgent(data, gate.Agent)
 	type named struct{ name, command string }
 	var commands []named
 	for _, step := range sortedKeys(gate.Commands) {
@@ -73,13 +76,13 @@ func (c *checker) gate(ctx context.Context) string {
 	if len(missing) > 0 {
 		c.add(AreaGate, "gate-command-missing", High,
 			"a command the gate names cannot run as written, so its step fails or an agent chooses what runs instead",
-			strings.Join(missing, ". ")+". Read at "+c.repo.at(),
+			strings.Join(missing, ". ")+". Read at "+c.repo.asRead(),
 			"name a command the repository has in "+gateFileName)
 	}
 	if len(found) > 0 {
 		c.add(AreaGate, "gate-commands-found", OK,
 			count(len(found), "command")+" of the gate can run as written: programs, files and scripts are there",
-			strings.Join(found, ", ")+". Read at "+c.repo.at(), "")
+			strings.Join(found, ", ")+". Read at "+c.repo.asRead(), "")
 	}
 	test := strings.TrimSpace(gate.Commands["test"])
 	if test == "" {
@@ -90,6 +93,52 @@ func (c *checker) gate(ctx context.Context) string {
 	}
 	c.workflows(ctx, test)
 	return test
+}
+
+// gateAgent reads the agent a gate file pins and says whether the home's
+// pipeline policy takes it. The verdict is the pipeline's own: it comes from
+// the function a gate's start asks, given the gate file as both the task's
+// branch and the default branch have it, since a new task's branch starts
+// as the default branch. A gate file that pins none says nothing.
+func (c *checker) gateAgent(data []byte, agent yaml.Node) {
+	if agent.Kind == 0 {
+		return
+	}
+	var names []string
+	if agent.Decode(&names) != nil {
+		var name string
+		if agent.Decode(&name) != nil {
+			name = "of a kind this check does not read"
+		}
+		names = []string{name}
+	}
+	pinned := "agent " + strings.Join(names, ", ") + " in " + gateFileName + " at " + c.repo.asRead()
+	policy, err := pipeline.Load(c.PolicyFile)
+	if err != nil {
+		c.add(AreaGate, "gate-agent-unjudged", Low,
+			"the gate file pins an agent and the home has no pipeline policy this check can read, so whether a gate run takes the pin is not known",
+			pinned+". "+orNone([]string{c.PolicyFile})+" could not be read as a policy",
+			"run cfo install to write the home's pipeline policy, and run the check again")
+		return
+	}
+	version := fmt.Sprintf("Policy version %d of %s", policy.Version, c.PolicyFile)
+	switch refusal := pipeline.CheckRepoAgent(data, data, policy); {
+	case refusal != nil:
+		// The refusal's own words hold a semicolon, which no line of a report
+		// carries.
+		c.add(AreaGate, "gate-agent-refused", High,
+			"the gate file pins an agent the home's pipeline policy refuses, so cfo pipeline run refuses every gate run of the project at its start",
+			pinned+". "+version+" answers: "+strings.ReplaceAll(strings.TrimPrefix(refusal.Error(), "pipeline: "), ";", ","),
+			"take the agent field out of "+gateFileName+", or set it to the agent the policy names")
+	case policy.Version >= 6:
+		c.add(AreaGate, "gate-agent-read", OK,
+			"the gate file pins an agent, and the home's pipeline policy does not refuse it",
+			pinned+". "+version+" replaces a repository's agent with the task's own harness, so the pin decides nothing", "")
+	default:
+		c.add(AreaGate, "gate-agent-read", OK,
+			"the gate file pins an agent, and the home's pipeline policy does not refuse it",
+			pinned+". "+version+" takes it, since it is the policy's own gate agent", "")
+	}
 }
 
 // runners are the test runners a command or a workflow can be seen to
@@ -215,7 +264,7 @@ func (c *checker) workflows(ctx context.Context, test string) {
 		source += "\ngo vet\ngo test"
 	}
 	inGate, inCI := runnersIn(source), runnersIn(text.String())
-	read := "Workflows read at " + c.repo.at() + ": " + strings.Join(files, ", ") + ", which run " + orNone(sortedKeys(inCI))
+	read := "Workflows read at " + c.repo.asRead() + ": " + strings.Join(files, ", ") + ", which run " + orNone(sortedKeys(inCI))
 	if len(inGate) == 0 {
 		c.add(AreaGate, "gate-ci-unknown", Low,
 			"the gate's test command starts no test runner this check knows, so whether CI runs the same cannot be told",

@@ -294,7 +294,7 @@ func (c *checker) productionReach(ctx context.Context, test string) {
 		}
 		c.add(AreaGate, "test-reaches-production", severity,
 			"a test run in a goblin's worktree can read production: its env files hold "+count(production-pinned, "production value")+" the test setup does not name",
-			strings.Join(exposed, ". ")+". "+pins+". A setup that clears variables by a rule and not by name is not seen here. "+step+". Read at "+c.repo.at(),
+			strings.Join(exposed, ". ")+". "+pins+". A setup that clears variables by a rule and not by name is not seen here. "+step+". Read at "+c.repo.asRead(),
 			"keep production out of what a worktree shares by naming a development env file, or none, as link in "+worktree.ManifestFileName+", or name each variable in the test setup")
 	}
 	evidence := "no env file is shared into a goblin's worktree or tracked"
@@ -303,5 +303,5 @@ func (c *checker) productionReach(ctx context.Context, test string) {
 	}
 	c.add(AreaGate, "test-env-examined", OK,
 		fmt.Sprintf("examined %s in %s a test run can read: %s, %d of them named by the test setup", count(variables, "variable"), count(len(read), "env file"), count(production, "production value"), pinned),
-		evidence+". "+pins+". Test setup read at "+c.repo.at()+": "+orNone(sortedKeys(setup)), "")
+		evidence+". "+pins+". Test setup read at "+c.repo.asRead()+": "+orNone(sortedKeys(setup)), "")
 }

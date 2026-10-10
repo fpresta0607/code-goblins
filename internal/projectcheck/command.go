@@ -10,6 +10,8 @@ import (
 	"slices"
 	"sort"
 	"strings"
+
+	"github.com/fpresta0607/code-goblins/internal/worktree"
 )
 
 // place is where a command runs, which decides whose files answer for it.
@@ -29,35 +31,108 @@ const (
 	inCheckout
 )
 
-// absent says why a path a command names is not where the command runs, or
-// returns "" when it is there. In a worktree the default branch answers for
-// everything git tracks, since the folder's copy of a tracked file is as old
-// as its last pull: a copy only the folder's own branch tracks is not in a
-// worktree, and a file the default branch gained since is. A file git does
-// not track is the folder's own and is read there.
-func (c *checker) absent(s segment, name string, folder bool, where place) string {
+// locate says why a path a command names is not where the command runs, or
+// returns an empty why when it is there, with a note where that rests on
+// more than the path being tracked. In a worktree the default branch
+// answers for everything git tracks, since the folder's copy of a tracked
+// file is as old as its last pull: a copy only the folder's own branch
+// tracks is not in a worktree, and a file the default branch gained since
+// is. A file git does not track is in a worktree only when the worktree is
+// given it or its install step makes it, so what the checkout's own folder
+// happens to hold does not answer for it.
+func (c *checker) locate(s segment, name string, folder bool, where place) (note, why string) {
 	if filepath.IsAbs(name) {
 		if _, err := os.Stat(name); err != nil {
-			return name + " is not on this machine"
+			return "", name + " is not on this machine"
 		}
-		return ""
+		return "", ""
+	}
+	if c.repo == nil {
+		return "not judged, since this machine has no checkout", ""
 	}
 	relative := path.Join(s.dir, filepath.ToSlash(name))
 	info, err := os.Stat(filepath.Join(c.Checkout, filepath.FromSlash(relative)))
 	held := err == nil && (!folder || info.IsDir())
 	switch {
 	case where == inCheckout && held:
-		return ""
+		return "", ""
 	case where == inCheckout:
-		return relative + " is not in " + c.Checkout + ", where the command runs"
+		return "", relative + " is not in " + c.Checkout + ", where the command runs"
 	case c.repo.tracks(relative, folder):
-		return ""
-	case !held:
-		return relative + " is neither tracked at " + c.repo.at() + " nor in " + c.Checkout
-	case c.repo.indexTracks(relative):
-		return relative + " is not tracked at " + c.repo.at() + ": the copy in " + c.Checkout + " belongs to the branch the folder is on, and a worktree is cut from " + c.repo.ref
+		return "", ""
 	}
-	return ""
+	plan := c.worktreePlan()
+	top, _, _ := strings.Cut(relative, "/")
+	for _, shared := range plan.shared {
+		switch {
+		case relative != shared && !strings.HasPrefix(relative, shared+"/"):
+		case held:
+			return "shared from the checkout by " + worktree.ManifestFileName, ""
+		default:
+			return "", relative + " is not in " + c.Checkout + ", and " + worktree.ManifestFileName + " shares " + shared + " from there"
+		}
+	}
+	for _, command := range plan.install {
+		// A command makes a folder by its program, as the fleet reads it, or
+		// by naming one of the folders an install makes, as python -m venv
+		// .venv does. A file it only reads is not made by it.
+		if slices.Contains(worktree.InstallOutputs([]string{command}), top) || (installed[top] && slices.Contains(strings.Fields(command), top)) {
+			return "made by the worktree's install step, " + command, ""
+		}
+	}
+	switch {
+	case installed[top] && len(plan.install) == 0:
+		return "", relative + " is in no worktree: no install step of a worktree makes " + top + ", since " + plan.why
+	case installed[top]:
+		return "", relative + " is in no worktree: no install step of a worktree makes " + top + ", and its install is " + strings.Join(plan.install, ", ")
+	case !held:
+		return "", relative + " is neither tracked at " + c.repo.at() + " nor in " + c.Checkout
+	case c.repo.indexTracks(relative):
+		return "", relative + " is not tracked at " + c.repo.at() + ": the copy in " + c.Checkout + " belongs to the branch the folder is on, and a worktree is cut from " + c.repo.ref
+	}
+	return "", relative + " is in " + c.Checkout + " and git does not track it, so a worktree is not given it: " + worktree.ManifestFileName + " shares no such path"
+}
+
+// installed are the folders an install step makes, which a command reaches
+// into for a program.
+var installed = map[string]bool{".venv": true, "venv": true, "node_modules": true}
+
+// worktreePlan is what a worktree of the project holds beside what git
+// tracks.
+type worktreePlan struct {
+	// shared are the paths the worktree manifest gives a worktree from the
+	// checkout: the files it links and the folders its link strategy joins.
+	shared []string
+	// install are the commands a goblin's first step runs in the worktree,
+	// and why says where they came from when there are none.
+	install []string
+	why     string
+}
+
+// worktreePlan reads what a worktree of the project is given and what its
+// install step runs, by the same code a spawn uses. A manifest the loader
+// refuses gives nothing, as a spawn it refuses gives no worktree.
+func (c *checker) worktreePlan() *worktreePlan {
+	if c.plan != nil {
+		return c.plan
+	}
+	c.plan = &worktreePlan{why: worktree.ManifestFileName + " is one the loader refuses"}
+	manifest, err := worktree.Resolve(c.DataDir, c.project)
+	if err != nil {
+		return c.plan
+	}
+	c.plan.shared = append(c.plan.shared, manifest.Link...)
+	switch manifest.Dependencies.Strategy {
+	case worktree.StrategyLink:
+		c.plan.shared = append(c.plan.shared, manifest.Dependencies.Paths...)
+		c.plan.why = worktree.ManifestFileName + " shares its dependency folders and installs nothing"
+	case worktree.StrategyNone:
+		c.plan.why = worktree.ManifestFileName + " sets the dependency strategy none"
+	default:
+		c.plan.install = worktree.InstallPlan(manifest, func(name string) bool { return c.repo.tracked[name] })
+		c.plan.why = worktree.ManifestFileName + " names no install command and " + c.repo.at() + " has no lockfile a spawn installs from"
+	}
+	return c.plan
 }
 
 // program says where the program a command starts with is: a file of the
@@ -67,10 +142,15 @@ func (c *checker) absent(s segment, name string, folder bool, where place) strin
 func (c *checker) program(s segment, where place) (found string, ok bool) {
 	name := s.argv[0]
 	if strings.ContainsAny(name, `/\`) {
-		if why := c.absent(s, name, false, where); why != "" {
+		note, why := c.locate(s, name, false, where)
+		switch {
+		case why != "":
 			return why, false
-		}
-		if relative := path.Join(s.dir, filepath.ToSlash(name)); where != inCheckout && c.repo.tracked[relative] {
+		case note != "":
+			return note, true
+		case filepath.IsAbs(name):
+			return "at " + name, true
+		case where != inCheckout:
 			return "tracked at " + c.repo.at(), true
 		}
 		return "in " + c.Checkout, true
@@ -167,21 +247,25 @@ func (c *checker) prove(ctx context.Context, s segment, where place) proof {
 	if len(argv) == 0 {
 		return p
 	}
-	if found, ok := c.program(s, where); !ok {
-		p.faults = append(p.faults, found)
-	}
-	if writesAll[argv[0]] {
-		return p
-	}
 	judge := func(name string, folder bool) {
-		why := c.absent(s, name, folder, where)
+		note, why := c.locate(s, name, folder, where)
 		switch {
+		case why == "" && note != "":
+			p.notes = append(p.notes, name+" "+note)
 		case why == "":
 		case where == inProse && c.madeUp(ctx, path.Join(s.dir, filepath.ToSlash(name))):
 			p.examples = append(p.examples, name)
 		default:
 			p.faults = append(p.faults, why)
 		}
+	}
+	if strings.ContainsAny(argv[0], `/\`) {
+		judge(argv[0], false)
+	} else if _, err := c.LookPath(argv[0]); err != nil {
+		p.faults = append(p.faults, argv[0]+" is not on PATH")
+	}
+	if writesAll[argv[0]] {
+		return p
 	}
 	pip := slices.Contains(argv, "pip") || slices.Contains(argv, "pip3")
 	for index := 1; index < len(argv); index++ {

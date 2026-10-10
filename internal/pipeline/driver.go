@@ -183,14 +183,23 @@ func (r Reader) CheckStart(ctx context.Context, project, worktree, branch string
 	if err := checkRepoConfig(trusted.Stdout, policy, false); err != nil {
 		return "", err
 	}
-	// From version 6 the run's own launch selection replaces whatever agent
-	// the repository names, so no repository agent is refused.
-	if policy.Version < 6 {
-		if err := checkEffectivePrimaryAgent(task.Stdout, trusted.Stdout, policy); err != nil {
-			return "", err
-		}
+	if err := CheckRepoAgent(task.Stdout, trusted.Stdout, policy); err != nil {
+		return "", err
 	}
 	return remoteHead, nil
+}
+
+// CheckRepoAgent says whether a policy refuses the agent a repository's gate
+// file names, given the file as the task's branch and as the default branch
+// have it. It is what a gate's start asks and what `cfo project check`
+// reads, so a pin is judged by the code that would refuse the run. From
+// version 6 the run's own launch selection replaces whatever agent the
+// repository names, so no repository agent is refused.
+func CheckRepoAgent(taskData, trustedData []byte, p Policy) error {
+	if p.Version >= 6 {
+		return nil
+	}
+	return checkEffectivePrimaryAgent(taskData, trustedData, p)
 }
 
 func (r Reader) originDefaultHead(ctx context.Context, project, defaultBranch string) (string, error) {

@@ -1,6 +1,7 @@
 package projectcheck
 
 import (
+	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -175,4 +176,72 @@ func TestAGateWhoseTestRunnersCIRunsPasses(t *testing.T) {
 	none(t, report, "ci-missing")
 	finding := only(t, report, "gate-ci-agree")
 	contains(t, "evidence", finding.Evidence, "pytest", ".github/workflows/ci.yml")
+}
+
+const (
+	policyThree = `{"version":3,"primary":{"harness":"codex","model":"gpt-6.1-sol","effort":"xhigh"},"reviewer":{"harness":"codex","model":"gpt-6.1-sol","effort":"xhigh"},"fixer":{"harness":"codex","model":"gpt-6.1-sol","effort":"xhigh"},` + policyRest
+	policySix   = `{"version":6,` + policyRest
+	policyRest  = `"auto_fix":{"review":0,"test":1,"lint":1,"rebase":1,"ci":1},"classes":{"ordinary":{"review_cycles":2},"high-risk":{"review_cycles":3},"mechanical":{"review_cycles":2}}}`
+)
+
+// A gate file can pin the agent its gate runs on, and the check read only
+// its commands. A pin the home's pipeline policy refuses stops every gate
+// run of the project at its start, which one project's gate file records
+// having happened. The verdict is the pipeline's own: the check asks the
+// code that refuses the run.
+func TestAnAgentPinnedInTheGateFileIsReadAgainstTheHomesPolicy(t *testing.T) {
+	for _, test := range []struct {
+		name, policy, pin string
+		check             string
+		severity          Severity
+		named             []string
+	}{
+		{"a pin the policy refuses", policyThree, "agent: [claude]\n", "gate-agent-refused", High, []string{"claude", "version 3", "codex"}},
+		{"a pin that is the policy's own agent", policyThree, "agent: codex\n", "gate-agent-read", OK, []string{"codex", "version 3"}},
+		{"a pin under a policy that takes the task's own harness", policySix, "agent: [claude]\n", "gate-agent-read", OK, []string{"claude", "version 6", "replaces"}},
+		{"a pin and no policy to ask", "", "agent: [claude]\n", "gate-agent-unjudged", Low, []string{"claude", "pipeline.json"}},
+		{"a pin and a policy the loader refuses", `{"version":9}`, "agent: [claude]\n", "gate-agent-unjudged", Low, []string{"claude", "pipeline.json"}},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			// Arrange
+			f := newFixture(t, map[string]string{".no-mistakes.yaml": test.pin + "commands:\n  test: \"pytest -q\"\n"})
+			options := f.options("pytest")
+			options.PolicyFile = filepath.Join(filepath.Dir(f.checkout), "config", "pipeline.json")
+			if test.policy != "" {
+				writeFile(t, options.PolicyFile, test.policy)
+			}
+
+			// Act
+			report := f.run(options)
+
+			// Assert
+			finding := only(t, report, test.check)
+			if finding.Severity != test.severity || finding.Area != AreaGate {
+				t.Errorf("%s is %s in %s, want %s in gate", test.check, finding.Severity, finding.Area, test.severity)
+			}
+			contains(t, "line", finding.Text(), test.named...)
+			for _, other := range []string{"gate-agent-refused", "gate-agent-read", "gate-agent-unjudged"} {
+				if other != test.check {
+					none(t, report, other)
+				}
+			}
+		})
+	}
+}
+
+// A gate file that pins no agent has nothing to refuse, and says nothing.
+func TestAGateFileThatPinsNoAgentHasNoAgentLine(t *testing.T) {
+	// Arrange
+	f := newFixture(t, map[string]string{".no-mistakes.yaml": "commands:\n  test: \"pytest -q\"\n"})
+	options := f.options("pytest")
+	options.PolicyFile = filepath.Join(filepath.Dir(f.checkout), "config", "pipeline.json")
+	writeFile(t, options.PolicyFile, policyThree)
+
+	// Act
+	report := f.run(options)
+
+	// Assert
+	for _, check := range []string{"gate-agent-refused", "gate-agent-read", "gate-agent-unjudged"} {
+		none(t, report, check)
+	}
 }

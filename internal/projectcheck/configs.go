@@ -22,12 +22,55 @@ import (
 // and that the worktree and services manifests the home keeps for it agree
 // with the repository.
 func (c *checker) configs(ctx context.Context) error {
+	if c.repo == nil {
+		c.homeConfigs()
+		return nil
+	}
 	if err := c.envIgnored(ctx); err != nil {
 		return err
 	}
 	c.worktreeManifest(ctx)
 	c.servicesManifest(ctx)
 	return nil
+}
+
+// homeConfigs reads the worktree and services manifests as far as they go
+// with no repository to compare them with: whether the loaders take them
+// and whether they name this project.
+func (c *checker) homeConfigs() {
+	var taken []string
+	file := worktree.ManifestPath(c.DataDir, c.project)
+	switch manifest, err := worktree.Resolve(c.DataDir, c.project); {
+	case err != nil:
+		c.add(AreaConfigs, "worktree-invalid", High,
+			"the loader refuses the project's worktree manifest, which refuses the project's next spawn",
+			err.Error(), "correct what the loader names in "+file)
+	case manifest.Path == "":
+	case manifest.Project != "" && !sameName(manifest.Project, c.project):
+		c.add(AreaConfigs, "worktree-names-another-project", Medium,
+			"the worktree manifest names a project other than the checkout it is filed under",
+			fmt.Sprintf("%s says project %q and is filed for the checkout folder %q", file, manifest.Project, c.project),
+			fmt.Sprintf("set project to %q", c.project))
+	default:
+		taken = append(taken, file)
+	}
+	file = services.ManifestPath(c.DataDir, c.project)
+	switch _, err := services.LoadManifest(c.DataDir, c.project); {
+	case errors.Is(err, fs.ErrNotExist):
+	case err != nil:
+		c.add(AreaConfigs, "services-invalid", High,
+			"the loader refuses the project's services manifest, so cfo services up cannot start its stack",
+			err.Error(), "correct what the loader names in "+file)
+	default:
+		taken = append(taken, file)
+	}
+	evidence := "the home holds neither a worktree manifest nor a services manifest the loaders take"
+	if len(taken) > 0 {
+		evidence = "the loaders take " + strings.Join(taken, " and ")
+	}
+	c.add(AreaConfigs, "configs-home-only", OK,
+		"read the home's manifests alone, and compared nothing they name with a repository, since this machine has no checkout",
+		evidence, "")
 }
 
 // envIgnored checks that git ignores every env file of the project but the
@@ -162,7 +205,7 @@ func (c *checker) worktreeManifest(ctx context.Context) {
 		return
 	}
 	clean := true
-	if manifest.Project != "" && manifest.Project != c.project {
+	if manifest.Project != "" && !sameName(manifest.Project, c.project) {
 		clean = false
 		c.add(AreaConfigs, "worktree-names-another-project", Medium,
 			"the worktree manifest names a project other than the checkout it is filed under",
@@ -205,7 +248,7 @@ func (c *checker) worktreeManifest(ctx context.Context) {
 		}
 		c.add(AreaConfigs, "worktree-agrees", OK,
 			"the worktree manifest agrees with the repository",
-			fmt.Sprintf("%s: %s. Its %d install commands name programs and files that are there, read at %s", file, shared, len(manifest.Dependencies.Install), c.repo.at()), "")
+			fmt.Sprintf("%s: %s. Its %d install commands name programs and files that are there, read at %s", file, shared, len(manifest.Dependencies.Install), c.repo.asRead()), "")
 	}
 }
 

@@ -31,6 +31,7 @@ const (
 
 // The areas a report covers.
 const (
+	AreaCheckout     = "checkout"
 	AreaRecord       = "record"
 	AreaGate         = "gate"
 	AreaConfigs      = "configs"
@@ -39,7 +40,7 @@ const (
 )
 
 // Areas are the areas a report covers, in the order it prints them.
-var Areas = []string{AreaRecord, AreaGate, AreaConfigs, AreaConnectors, AreaInstructions}
+var Areas = []string{AreaCheckout, AreaRecord, AreaGate, AreaConfigs, AreaConnectors, AreaInstructions}
 
 // Finding is one line of a report.
 type Finding struct {
@@ -83,15 +84,26 @@ type Report struct {
 	// DraftTier says in one sentence where the draft's verification commands
 	// came from, or why it has none.
 	DraftTier string `json:"draft_tier"`
+	// Unread says, for each area that was not read whole, how much of it
+	// was: notAssessed where nothing was, as for an area that needs a
+	// repository this machine has no checkout of, or what its lines cover.
+	Unread map[string]string `json:"unread,omitempty"`
 }
+
+// notAssessed is what Unread says of an area nothing was read of.
+const notAssessed = "not assessed"
 
 // DraftVerifies reports whether the draft names a verification command. A
 // draft with none is never written: placed as it is, it would fail the
 // record area of the check that wrote it.
 func (r Report) DraftVerifies() bool { return verifies(r.Draft) }
 
-// Passed reports whether an area has no line worse than low.
+// Passed reports whether an area has no line worse than low. An area that
+// was not assessed did not pass.
 func (r Report) Passed(area string) bool {
+	if r.Unread[area] == notAssessed {
+		return false
+	}
 	for _, line := range r.Lines {
 		if line.Area == area && (line.Severity == Medium || line.Severity == High || line.Severity == Critical) {
 			return false
@@ -102,7 +114,7 @@ func (r Report) Passed(area string) bool {
 
 // Only returns the report with the lines of the named areas alone.
 func (r Report) Only(areas []string) Report {
-	only := Report{Project: r.Project, Checkout: r.Checkout, Draft: r.Draft, DraftTier: r.DraftTier}
+	only := Report{Project: r.Project, Checkout: r.Checkout, Draft: r.Draft, DraftTier: r.DraftTier, Unread: r.Unread}
 	for _, line := range r.Lines {
 		if slices.Contains(areas, line.Area) {
 			only.Lines = append(only.Lines, line)
@@ -112,11 +124,20 @@ func (r Report) Only(areas []string) Report {
 }
 
 // Verdict is the report's last line: whether each of the named areas passed,
-// and for one that did not, how many lines of each severity failed it.
+// and for one that did not, how many lines of each severity failed it. An
+// area that was not read whole says so.
 func (r Report) Verdict(areas []string) string {
 	var verdicts []string
 	for _, area := range areas {
-		if r.Passed(area) {
+		scope := r.Unread[area]
+		switch {
+		case scope == notAssessed:
+			verdicts = append(verdicts, area+" "+notAssessed)
+			continue
+		case r.Passed(area) && scope != "":
+			verdicts = append(verdicts, area+" passed ("+scope+")")
+			continue
+		case r.Passed(area):
 			verdicts = append(verdicts, area+" passed")
 			continue
 		}
@@ -131,6 +152,9 @@ func (r Report) Verdict(areas []string) string {
 			if count > 0 {
 				counts = append(counts, fmt.Sprintf("%d %s", count, severity))
 			}
+		}
+		if scope != "" {
+			counts = append(counts, scope)
 		}
 		verdicts = append(verdicts, area+" failed ("+strings.Join(counts, ", ")+")")
 	}

@@ -278,23 +278,36 @@ func (s Service) junction(ctx context.Context, source, destination string) error
 // provisioning still owns the clone's info/exclude, so the goblin's git status
 // stays clean once they have run.
 func (s Service) installCommands(ctx context.Context, git RunnerGit, manifest Manifest, worktreePath string) ([]string, error) {
-	var commands []string
+	commands := InstallPlan(manifest, func(name string) bool {
+		_, err := os.Stat(filepath.Join(worktreePath, name))
+		return err == nil
+	})
+	for _, output := range InstallOutputs(commands) {
+		if err := s.ensureIgnored(ctx, git, worktreePath, output); err != nil {
+			return nil, err
+		}
+	}
+	return commands, nil
+}
+
+// InstallPlan returns the install commands a goblin runs as its first step
+// in a worktree under the install strategy: the manifest's own commands, or
+// the one the lockfile at the worktree's root names. Has reports whether
+// the worktree holds a file at its root. It is what a spawn names and what
+// `cfo project check` reads, so the two cannot disagree about what a
+// worktree will hold.
+func InstallPlan(manifest Manifest, has func(name string) bool) (commands []string) {
 	for _, command := range manifest.Dependencies.Install {
 		if strings.TrimSpace(command) != "" {
 			commands = append(commands, strings.TrimSpace(command))
 		}
 	}
 	if len(commands) == 0 {
-		if detected := detectInstallCommand(worktreePath); detected != "" {
+		if detected := detectInstallCommand(has); detected != "" {
 			commands = []string{detected}
 		}
 	}
-	for _, output := range installOutputs(commands) {
-		if err := s.ensureIgnored(ctx, git, worktreePath, output); err != nil {
-			return nil, err
-		}
-	}
-	return commands, nil
+	return commands
 }
 
 // detectInstallCommand maps a lockfile to the install command that honors it.
@@ -309,24 +322,24 @@ func (s Service) installCommands(ctx context.Context, git RunnerGit, manifest Ma
 // installers now fail on drift instead of resolving it. The goblin runs the
 // command, so drift reaches it as a named failure on its own screen rather
 // than as a silently rewritten uv.lock.
-func detectInstallCommand(worktreePath string) string {
+func detectInstallCommand(has func(name string) bool) string {
 	for _, candidate := range []struct{ lockfile, command string }{
 		{"pnpm-lock.yaml", "pnpm install --frozen-lockfile"},
 		{"package-lock.json", "npm ci"},
 		{"yarn.lock", "yarn install --frozen-lockfile"},
 		{"uv.lock", "uv sync --locked"},
 	} {
-		if _, err := os.Stat(filepath.Join(worktreePath, candidate.lockfile)); err == nil {
+		if has(candidate.lockfile) {
 			return candidate.command
 		}
 	}
 	return ""
 }
 
-// installOutputs names the directories a set of install commands
+// InstallOutputs names the directories a set of install commands
 // materializes, so they can be excluded when the project itself does not
-// ignore them.
-func installOutputs(commands []string) []string {
+// ignore them, and so `cfo project check` knows what a worktree will hold.
+func InstallOutputs(commands []string) []string {
 	outputs := map[string]bool{}
 	for _, command := range commands {
 		switch fields := strings.Fields(command); {
