@@ -537,6 +537,39 @@ func (jobs terminalJobs) Close() {
 // from being removed. The task's helpers are no part of it: each has a
 // terminal, and a cleanup, of its own.
 func EndLeft(ctx context.Context, h home.Home, meta state.TaskMeta) ([]string, error) {
+	bounded, cancel := context.WithTimeout(ctx, stopBound)
+	defer cancel()
+	stopped, _, err := endResources(bounded, Resources{}, Terminate, func(ctx context.Context, _ []Identity) ([]Process, error) {
+		left, err := leftBy(ctx, h, meta, ReadProcesses)
+		processes := make([]Process, len(left))
+		for index, process := range left {
+			processes[index] = process.Process
+		}
+		return processes, err
+	})
+	return stopped, err
+}
+
+// LeftProcess is a process EndLeft would end, with the evidence that makes
+// it the task's own.
+type LeftProcess struct {
+	Process
+	// By is "mark" for one that carries the terminal's mark, "place" for one
+	// at work in the task's folders or run from them, and "parent" for one
+	// started by another of the task's own.
+	By string
+}
+
+// Left reads what EndLeft would end for a task now, and ends nothing. For a
+// task whose terminal still runs it is what a cleanup or a relaunch of it
+// would end beside the terminal itself: the harness and what it started are
+// among it, since they carry the terminal's mark. The command that asks and
+// its ancestors are read like any other process, since nothing is ended.
+func Left(ctx context.Context, h home.Home, meta state.TaskMeta) ([]LeftProcess, error) {
+	return leftBy(ctx, h, meta, ReadAllProcesses)
+}
+
+func leftBy(ctx context.Context, h home.Home, meta state.TaskMeta, read func(context.Context, bool) ([]Process, error)) ([]LeftProcess, error) {
 	directories, err := TaskDirectories(h, meta)
 	if err != nil {
 		return nil, err
@@ -551,25 +584,31 @@ func EndLeft(ctx context.Context, h home.Home, meta state.TaskMeta) ([]string, e
 			marks = append(marks, Mark{Terminal: meta.ID, ProofSum: proof})
 		}
 	}
-	bounded, cancel := context.WithTimeout(ctx, stopBound)
-	defer cancel()
-	stopped, _, err := endResources(bounded, Resources{}, Terminate, func(ctx context.Context, _ []Identity) ([]Process, error) {
-		// The running list is read first, so a parent that ends while the
-		// evidence is read still counts as running, and its child is left
-		// for the next sweep to judge.
-		running, err := proc.Processes()
-		if err != nil {
-			return nil, err
+	// The running list is read first, so a parent that ends while the
+	// evidence is read still counts as running, and its child is left for
+	// the next sweep to judge.
+	running, err := proc.Processes()
+	if err != nil {
+		return nil, err
+	}
+	started := make(map[int]time.Time, len(running))
+	for _, entry := range running {
+		started[entry.PID] = entry.Start
+	}
+	processes, err := read(ctx, len(marks) > 0)
+	if err != nil {
+		return nil, err
+	}
+	var left []LeftProcess
+	for _, process := range leftBehind(OwnedProcesses(processes, directories, nil, marks), started, marks) {
+		by := "parent"
+		switch {
+		case !process.IsGateAgent && slices.Contains(marks, process.Mark):
+			by = "mark"
+		case slices.ContainsFunc(directories, func(directory string) bool { return withinDirectory(process.Directory, directory) }):
+			by = "place"
 		}
-		started := make(map[int]time.Time, len(running))
-		for _, entry := range running {
-			started[entry.PID] = entry.Start
-		}
-		processes, err := ReadProcesses(ctx, len(marks) > 0)
-		if err != nil {
-			return nil, err
-		}
-		return leftBehind(OwnedProcesses(processes, directories, nil, marks), started, marks), nil
-	})
-	return stopped, err
+		left = append(left, LeftProcess{Process: process, By: by})
+	}
+	return left, nil
 }

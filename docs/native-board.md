@@ -1096,6 +1096,8 @@ A detached tree of a goblin that rests is watched by its own processes, each wit
 The sweep never adds a tree's processor time up: the sum falls when a process that used the processor exits, and on 2026-10-10 a dry run against this machine showed a long test run, between two of its test programs, reading as idle by it.
 A loop that looks at something once a minute starts a process each time and is left alone.
 The sweep reads every process on the machine and judges only those of the terminals in its own home's `state\hosts`, so another home on the machine, a scratch home of a test among them, is never touched.
+`cfo process-plan` prints what the sweep would do now and ends nothing: what it would end, what it would end an hour on, what it would name and what it would leave, each with its rule, and what a cleanup or a relaunch of each task would end.
+It is the sweep's own plan, taken with a reader that forgets no proof, so it writes nothing into the home, and it reads the command that asked and that command's ancestors like any other process, which a teardown never does.
 What nothing proves is named for the CFO and never ended: a browser bridge with no mark whose parent is gone, and a gate agent's process whose gate is gone.
 
 A browser bridge belongs to one owner.
