@@ -469,10 +469,13 @@ func TestGateTurnWaitsForMemoryPastTheLimitOfCfoGateTest(t *testing.T) {
 
 	// Assert
 	eventually(t, "the run says it waits for memory", func() bool { return strings.Contains(stderr.String(), "1.0 GB of memory is available") })
-	time.Sleep(500 * time.Millisecond)
+	// A waiting run looks again once a second, and a limit ends a wait only
+	// when the run looks: the wait has to outlast one look to show that
+	// none ended it.
+	time.Sleep(1500 * time.Millisecond)
 	select {
 	case exit := <-exited:
-		t.Fatalf("the run gave up with exit %d after memory was short for half a second; stderr=%q", exit, stderr.String())
+		t.Fatalf("the run gave up with exit %d after memory was short for a second and a half; stderr=%q", exit, stderr.String())
 	default:
 	}
 	isShort.Store(false)
