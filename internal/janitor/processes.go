@@ -13,16 +13,17 @@ import (
 	"github.com/fpresta0607/code-goblins/internal/proc"
 )
 
-// detachedIdleFor is how long a detached tree of a running terminal may use
-// no processor time before the sweep ends it. A sweep runs at most once an
-// hour, so a tree is ended at the second sweep that finds it idle.
+// detachedIdleFor is how long a detached tree of a running terminal must
+// have done nothing, with its goblin at rest all the while, before the sweep
+// ends it. A sweep runs at most once an hour, so a tree is ended no earlier
+// than the second sweep that finds it idle.
 const detachedIdleFor = time.Hour
 
-// idleProcessorTime is the processor time under which a tree has done
-// nothing between two sweeps. A server waiting for a request and a pipeline
-// waiting on its reader use none, while a loop that looks at something once
-// a minute uses a few milliseconds each time, which is work its owner
-// waits on.
+// idleProcessorTime is the processor time under which a tree's processes
+// have done nothing between two sweeps. A server waiting for a request and a
+// pipeline waiting on its reader use none, while a loop that looks at
+// something once a minute uses a few milliseconds each time, which is work
+// its owner waits on.
 const idleProcessorTime = 100 * time.Millisecond
 
 // Process is a running process as the sweep reads it: whose it is, by the
@@ -49,6 +50,12 @@ type Owner struct {
 	// IsChanging says a pause, a resume or a stop of the terminal is under
 	// way, whose own teardown decides what ends.
 	IsChanging bool
+	// AtRestSince is when the terminal's goblin was last seen at work, for a
+	// goblin that has delivered and rests: its last report is done or failed
+	// and no turn of its is in progress. It is zero for a goblin that works
+	// or waits on something or somebody, for the CFO's terminal and a run
+	// item's, and whenever it cannot be read: nothing of theirs is idle.
+	AtRestSince time.Time
 }
 
 // ProcessItem is one process the sweep ended or left for the CFO. Memory is
@@ -64,13 +71,47 @@ type ProcessItem struct {
 }
 
 // Watched is a detached tree of a running terminal, by its first process:
-// the processor time the tree had used when the sweep last saw it work, and
-// when that was.
+// the processes it held when the sweep last saw it work, each with the
+// processor time it had used, and when that was.
 type Watched struct {
+	PID     int             `json:"pid"`
+	Started time.Time       `json:"started"`
+	Members []WatchedMember `json:"members"`
+	Since   time.Time       `json:"since"`
+}
+
+// WatchedMember is one process of a watched tree.
+type WatchedMember struct {
 	PID     int           `json:"pid"`
 	Started time.Time     `json:"started"`
 	CPU     time.Duration `json:"cpu"`
-	Since   time.Time     `json:"since"`
+}
+
+// worked reports whether a tree did anything since the sweep that recorded
+// prior: a process joined it or left it, or the processes it still holds
+// used idleProcessorTime between them. A tree is never judged by its
+// processes' time added up, which falls when one that used the processor
+// exits: on 2026-10-10 a dry run showed a long test run, between two of its
+// test programs, reading as having done less than an hour before. A process
+// that exited did its work unseen, so its going counts as work. A record
+// that names no member says nothing, and its tree counts as having worked.
+func worked(prior Watched, tree []Process) bool {
+	if len(prior.Members) != len(tree) {
+		return true
+	}
+	var used time.Duration
+	for _, member := range tree {
+		index := slices.IndexFunc(prior.Members, func(seen WatchedMember) bool {
+			return seen.PID == member.PID && seen.Started.Equal(member.Started)
+		})
+		if index < 0 {
+			return true
+		}
+		if member.CPU > prior.Members[index].CPU {
+			used += member.CPU - prior.Members[index].CPU
+		}
+	}
+	return used >= idleProcessorTime
 }
 
 // ProcessSweep is what one sweep did about processes.
@@ -85,11 +126,17 @@ type ProcessSweep struct {
 // teardown ends it by (lifecycle.OwnedProcesses), so the sweep ends nothing
 // a pause or a stop of that terminal would not have ended.
 //
-// What a terminal with no host left running is ended: its owner is gone. So
-// is a detached tree of a running terminal, one whose parents no longer
-// reach the terminal's host, once it has used no processor time for
-// detachedIdleFor. A detached tree that works is left to its owner, and
-// shows on the board under it.
+// What a terminal with no host left running is ended: its owner is gone.
+//
+// A detached tree of a running terminal, one whose parents no longer reach
+// the terminal's host, is ended only when two things have both lasted
+// detachedIdleFor: the tree did nothing (worked), and its goblin was at rest
+// (Owner.AtRestSince). Every background command a harness starts through Git
+// Bash is detached, and nothing the sweep can read says which of them a
+// goblin still waits on: a gate waiter that blocks for hours, a watch on a
+// quiet file, a test it reads from. So nothing of a goblin that works is
+// idle, however still it sits. It ends with the goblin, at its pause, stop,
+// cleanup or relaunch, and shows on the board under it meanwhile.
 //
 // The rest is left and named for the CFO: a gate agent's process whose gate
 // is gone, and a browser bridge nothing ties to an owner. A desktop program
@@ -184,27 +231,26 @@ func planProcesses(processes []Process, owners []Owner, watched []Watched, now t
 			// between them. So a bridge is idle by when its session was last
 			// used, never by the processor time it uses.
 			if !process.LastUsed.IsZero() {
-				for _, member := range tree {
-					if now.Sub(process.LastUsed) >= detachedIdleFor {
-						ending = append(ending, item([]Process{member}, owner.ID, fmt.Sprintf("a browser bridge of terminal %s, unused since %s", owner.ID, process.LastUsed.UTC().Format("15:04Z"))))
+				if unused := later(process.LastUsed, owner.AtRestSince); !owner.AtRestSince.IsZero() && now.Sub(unused) >= detachedIdleFor {
+					for _, member := range tree {
+						ending = append(ending, item([]Process{member}, owner.ID, fmt.Sprintf("a browser bridge of terminal %s, whose goblin rests, unused since %s", owner.ID, process.LastUsed.UTC().Format("15:04Z"))))
 					}
 				}
 				continue
 			}
-			var used time.Duration
+			seen := Watched{PID: process.PID, Started: process.Started, Since: now}
 			for _, member := range tree {
-				used += member.CPU
+				seen.Members = append(seen.Members, WatchedMember{PID: member.PID, Started: member.Started, CPU: member.CPU})
 			}
-			seen := Watched{PID: process.PID, Started: process.Started, CPU: used, Since: now}
-			if index := slices.IndexFunc(watched, func(prior Watched) bool { return prior.PID == process.PID && prior.Started.Equal(process.Started) }); index >= 0 && used-watched[index].CPU < idleProcessorTime {
+			if index := slices.IndexFunc(watched, func(prior Watched) bool { return prior.PID == process.PID && prior.Started.Equal(process.Started) }); index >= 0 && !worked(watched[index], tree) {
 				seen = watched[index]
 			}
-			if now.Sub(seen.Since) < detachedIdleFor {
+			if idle := later(seen.Since, owner.AtRestSince); owner.AtRestSince.IsZero() || now.Sub(idle) < detachedIdleFor {
 				watching = append(watching, seen)
 				continue
 			}
 			for _, member := range tree {
-				ending = append(ending, item([]Process{member}, owner.ID, fmt.Sprintf("detached from terminal %s and idle since %s", owner.ID, seen.Since.UTC().Format("15:04Z"))))
+				ending = append(ending, item([]Process{member}, owner.ID, fmt.Sprintf("detached from terminal %s, whose goblin rests since %s, and idle since %s", owner.ID, owner.AtRestSince.UTC().Format("15:04Z"), seen.Since.UTC().Format("15:04Z"))))
 			}
 		}
 	}
@@ -226,6 +272,14 @@ func planProcesses(processes []Process, owners []Owner, watched []Watched, now t
 	}
 	sort.Slice(watching, func(i, j int) bool { return watching[i].PID < watching[j].PID })
 	return ending, left, watching
+}
+
+// later is the later of two times.
+func later(one, other time.Time) time.Time {
+	if other.After(one) {
+		return other
+	}
+	return one
 }
 
 // sweepProcesses ends the processes the home's terminals left running and

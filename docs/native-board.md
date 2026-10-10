@@ -1078,8 +1078,13 @@ The next harness cannot reach what the last one left in the background, so a dev
 These two leave one thing a pause ends: a process at work in the task's folders that carries no mark of its terminal and has a parent that still runs and is not the task's.
 Somebody else runs it there, as when the CFO tests a goblin's worktree or the Overlord has a shell open in it. A pause stops a task where it stands, and a cleanup or a relaunch ends only what nothing else accounts for.
 A relaunch whose sweep fails starts the harness all the same, and what it missed shows under the goblin on the board until its next pause, stop or cleanup, or until it has sat idle for an hour.
-A terminal that runs keeps what its host still reaches through its parents. A tree that does not reach it is watched by the processor time it has used, kept in `state\janitor.json`, and ended once that has grown by under a tenth of a second across an hour.
-A loop that looks at something once a minute uses more than that and is left alone.
+A terminal that runs keeps what its host still reaches through its parents.
+A tree that does not reach it is detached, as every background command a harness starts through Git Bash is, and the tail of every pipeline.
+Nothing the sweep can read says which of those a goblin still waits on, so nothing of a goblin that works is idle, however still it sits: a gate waiter that blocks for hours, a watch on a quiet file, a browser bridge it will drive again.
+A goblin works unless both hold: the last outcome it reported is `done` or `failed`, and the monitor reads it at its prompt with no turn in progress and nothing asked (`state\monitor\tasks`). The CFO's terminal and a run item's always work, and so does a goblin whose state cannot be read.
+A detached tree of a goblin that rests is watched by its own processes, each with the processor time it has used, kept in `state\janitor.json`. It did something when a process joined it or left it, or when the processes it still holds used a tenth of a second between them. It is ended once the goblin's rest and the tree's stillness have both lasted an hour.
+The sweep never adds a tree's processor time up: the sum falls when a process that used the processor exits, and on 2026-10-10 a dry run against this machine showed a long test run, between two of its test programs, reading as idle by it.
+A loop that looks at something once a minute starts a process each time and is left alone.
 The sweep reads every process on the machine and judges only those of the terminals in its own home's `state\hosts`, so another home on the machine, a scratch home of a test among them, is never touched.
 What nothing proves is named for the CFO and never ended: a browser bridge with no mark whose parent is gone, and a gate agent's process whose gate is gone.
 
