@@ -1,7 +1,9 @@
 package supervisor
 
 import (
+	"context"
 	"errors"
+	"fmt"
 	"os"
 	"strings"
 	"testing"
@@ -110,5 +112,77 @@ func TestPublishWakesTheCFOForANewErrorButNotForUnreadableCI(t *testing.T) {
 	wakes := supervisorErrorWakes(t, s)
 	if len(wakes) != 1 || !strings.Contains(wakes[0], "the native inbox could not be read") || strings.Contains(wakes[0], "ci wakes") {
 		t.Fatalf("wakes = %q, want one for the supervisor's own error, none for unreadable CI, which wakes as ci_unreadable", wakes)
+	}
+}
+
+// On 2026-10-10, with every processor busy, the supervisor woke the CFO twice
+// in minutes for reads that ran out of time once: "progress for <task>:
+// context deadline exceeded" for three goblins at a time, and "gh could not
+// read <pull request>: context deadline exceeded". Such a read is made again
+// on the next pass, so one that ran out of time once is nothing to tell.
+func TestAReadThatRanOutOfTimeOnceDoesNotWakeTheCFO(t *testing.T) {
+	// Arrange
+	s, _ := fleetService(t)
+	now := time.Date(2026, 10, 10, 5, 0, 0, 0, time.UTC)
+	slow := errors.Join(
+		fmt.Errorf("progress for cg-a: %w", context.DeadlineExceeded),
+		fmt.Errorf("progress for cg-b: %w", context.DeadlineExceeded),
+		fmt.Errorf("gh could not read https://github.com/o/r/pull/7: %w", context.DeadlineExceeded),
+	)
+
+	// Act: one pass ran out of time, and the passes after it read.
+	s.wakeForNewErrors(slow, now)
+	s.wakeForNewErrors(nil, now.Add(time.Minute))
+	s.wakeForNewErrors(nil, now.Add(10*time.Minute))
+
+	// Assert
+	if raised := supervisorErrorWakes(t, s); len(raised) != 0 {
+		t.Errorf("reads that ran out of time once woke the CFO: %q", raised)
+	}
+}
+
+// A read that keeps running out of time is the CFO's to know: he is told
+// once, when it has done so for five minutes. An error that is no such read
+// wakes at once as it always did, and without the slow reads beside it.
+func TestAReadThatKeepsRunningOutOfTimeWakesTheCFOOnce(t *testing.T) {
+	// Arrange
+	s, _ := fleetService(t)
+	now := time.Date(2026, 10, 10, 5, 0, 0, 0, time.UTC)
+	slow := fmt.Errorf("progress for cg-a: %w", context.DeadlineExceeded)
+	broken := errors.New("run requests: the pipe could not be created")
+
+	// Act
+	s.wakeForNewErrors(errors.Join(slow, broken), now)
+	atOnce := supervisorErrorWakes(t, s)
+	for minute := 1; minute <= 12; minute++ {
+		s.wakeForNewErrors(slow, now.Add(time.Duration(minute)*time.Minute))
+	}
+	raised := supervisorErrorWakes(t, s)
+
+	// Assert
+	if len(atOnce) != 1 || !strings.Contains(atOnce[0], "the pipe could not be created") || strings.Contains(atOnce[0], "cg-a") {
+		t.Errorf("the first pass woke with %q, want the broken pipe alone", atOnce)
+	}
+	if len(raised) != 2 || !strings.Contains(raised[1], "progress for cg-a: context deadline exceeded") {
+		t.Errorf("twelve minutes of one read running out of time woke with %q, want one more wake naming it", raised)
+	}
+}
+
+// Two reads that ran out of time more than five minutes apart are two single
+// ones, not one that kept failing.
+func TestReadsThatRanOutOfTimeFarApartDoNotWakeTheCFO(t *testing.T) {
+	// Arrange
+	s, _ := fleetService(t)
+	now := time.Date(2026, 10, 10, 5, 0, 0, 0, time.UTC)
+	slow := fmt.Errorf("progress for cg-a: %w", context.DeadlineExceeded)
+
+	// Act
+	for _, after := range []time.Duration{0, 7 * time.Minute, 15 * time.Minute, 24 * time.Minute} {
+		s.wakeForNewErrors(slow, now.Add(after))
+	}
+
+	// Assert
+	if raised := supervisorErrorWakes(t, s); len(raised) != 0 {
+		t.Errorf("single reads that ran out of time minutes apart woke the CFO: %q", raised)
 	}
 }
