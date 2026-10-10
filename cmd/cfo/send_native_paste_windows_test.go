@@ -228,9 +228,16 @@ func TestNativeCLISendSubmitsDelayedMultilinePasteOnce(t *testing.T) {
 					}
 				})
 				awaitNativeSendPasteEvent(t, stateDir, "ready")
-				record, err := host.ReadRecord(stateDir, meta.ID)
-				if err != nil {
-					t.Fatal(err)
+				// The host starts its program before it records itself, so a
+				// composer that is ready says nothing of the record yet.
+				var record host.Record
+				for deadline := time.Now().Add(10 * time.Second); ; time.Sleep(10 * time.Millisecond) {
+					if record, err = host.ReadRecord(stateDir, meta.ID); err == nil {
+						break
+					}
+					if time.Now().After(deadline) {
+						t.Fatal("the host never recorded itself")
+					}
 				}
 				runtime := defaultCommandRuntime()
 				runtime.resolveHome = func() (home.Home, error) { return h, nil }
@@ -253,6 +260,15 @@ func TestNativeCLISendSubmitsDelayedMultilinePasteOnce(t *testing.T) {
 				if exit != wantExit {
 					t.Errorf("send exit=%d, want %d", exit, wantExit)
 				}
+				// A send to a busy terminal returns once its keys are in the
+				// terminal's input and its five seconds have shown no record of
+				// them taken, whether or not the composer has got to them: the
+				// composer notes the submission when it reaches the Enter. So
+				// the note is waited for, not expected by the time the send
+				// returns. On 2026-10-10 the composer was held for over four
+				// seconds on CI's runner after its first newline, and had
+				// noted no submission when the send returned.
+				awaitNativeSendPasteEvent(t, stateDir, "submitted")
 				events := readNativeSendPasteEvents(t, stateDir)
 				var submitted []nativeSendPasteEvent
 				for _, event := range events {
