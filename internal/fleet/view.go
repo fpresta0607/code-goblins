@@ -106,10 +106,10 @@ func renderTasks(w io.Writer, tasks []TaskRow) error {
 	if len(tasks) == 0 {
 		return writeLine(w, "No live task metadata found.")
 	}
-	if err := writeLine(w, "| ID | Current | Health | Stale | Last Seen | Escalation | Deep Inspection | Kind | Project | Backend | Endpoint | Artifact | Path | Peek |"); err != nil {
+	if err := writeLine(w, "| ID | Current | Health | Stale | Last Seen | Escalation | Deep Inspection | Kind | Project | Credentials | Backend | Endpoint | Artifact | Path | Peek |"); err != nil {
 		return err
 	}
-	if err := writeLine(w, "| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |"); err != nil {
+	if err := writeLine(w, "| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |"); err != nil {
 		return err
 	}
 	for _, task := range tasks {
@@ -131,6 +131,7 @@ func renderTasks(w io.Writer, tasks []TaskRow) error {
 			boolText(task.Monitor.DemandDeepInspection),
 			task.Kind,
 			task.Project,
+			task.Credentials,
 			task.Backend,
 			endpoint,
 			task.Artifact,

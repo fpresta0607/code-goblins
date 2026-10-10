@@ -56,8 +56,24 @@ func (s *Service) workspaceDetail(ctx context.Context, taskID, generation string
 	if err != nil {
 		out.Notes = append(out.Notes, "Branch information is unavailable.")
 	}
+	out.Notes = append(out.Notes, credentialsNote(meta))
 	out.Notes = append(out.Notes, s.servicesNotes(meta.ID)...)
 	return out, nil
+}
+
+// credentialsNote says which services' credentials a task's terminal carries,
+// by name and never by value: the ones its record names, none, or, for a task
+// an older build started, everything stored for its project until its next
+// terminal.
+func credentialsNote(meta state.TaskMeta) string {
+	project := filepath.Base(meta.Project)
+	switch {
+	case !meta.HasCredentials:
+		return "Carries every credential stored for " + project + ": a build before credentials went by need started it. Its next terminal carries only the services " + project + "'s manifest marks default."
+	case len(meta.Credentials) == 0:
+		return "Carries no service's credentials."
+	}
+	return "Carries the credentials of " + andList(meta.Credentials) + ", and of no other service."
 }
 
 // servicesNotes says which local services stacks a task holds, with whom
