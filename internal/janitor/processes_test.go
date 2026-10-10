@@ -24,7 +24,7 @@ func pidsOf(items []ProcessItem) []int {
 }
 
 func planOf(processes []Process, owners []Owner, watched []Watched, now time.Time) planned {
-	ending, left, watching := planProcesses(processes, owners, watched, now)
+	ending, left, watching, _ := planProcesses(processes, owners, watched, now)
 	var kept []int
 	for _, watch := range watching {
 		kept = append(kept, watch.PID)
@@ -138,7 +138,7 @@ func TestTheSweepEndsADetachedTreeOfARunningTerminalOnlyOnceItSatIdle(t *testing
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			// Act
-			ending, left, watching := planProcesses(test.tree, owners, test.watched, test.now)
+			ending, left, watching, _ := planProcesses(test.tree, owners, test.watched, test.now)
 
 			// Assert
 			var kept []int
@@ -236,7 +236,7 @@ func TestTheSweepNamesWhatItCannotProveAndEndsNoneOfIt(t *testing.T) {
 	}
 
 	// Act
-	ending, left, watching := planProcesses(processes, nil, nil, at(3600))
+	ending, left, watching, _ := planProcesses(processes, nil, nil, at(3600))
 
 	// Assert
 	if len(ending) != 0 || len(watching) != 0 {

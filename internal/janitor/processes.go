@@ -13,11 +13,11 @@ import (
 	"github.com/fpresta0607/code-goblins/internal/proc"
 )
 
-// detachedIdleFor is how long a detached tree of a running terminal must
+// DetachedIdleFor is how long a detached tree of a running terminal must
 // have done nothing, with its goblin at rest all the while, before the sweep
 // ends it. A sweep runs at most once an hour, so a tree is ended no earlier
 // than the second sweep that finds it idle.
-const detachedIdleFor = time.Hour
+const DetachedIdleFor = time.Hour
 
 // idleProcessorTime is the processor time under which a tree's processes
 // have done nothing between two sweeps. A server waiting for a request and a
@@ -121,6 +121,25 @@ type ProcessSweep struct {
 	Watched []Watched     `json:"watched,omitempty"`
 }
 
+// ProcessPlan is what a sweep would do about the home's processes, from one
+// reading of the machine and of the home's terminals.
+type ProcessPlan struct {
+	// Read is how many processes the plan read, and Owners the terminals it
+	// judged them for.
+	Read   int
+	Owners []Owner
+	// Ending is what the sweep would end and Left what it would name for the
+	// CFO, each with why.
+	Ending []ProcessItem
+	Left   []ProcessItem
+	// Kept is what the sweep judged and leaves: each process that is a
+	// terminal's own, or carries its mark, and is not ended, with the rule
+	// that keeps it. A process no terminal's evidence reaches is not listed.
+	Kept     []ProcessItem
+	Watching []Watched
+	Notes    []string
+}
+
 // planProcesses decides what a sweep ends, what it leaves for the CFO and
 // what it goes on watching. A process is a terminal's own by the rule its
 // teardown ends it by (lifecycle.OwnedProcesses), so the sweep ends nothing
@@ -130,7 +149,7 @@ type ProcessSweep struct {
 //
 // A detached tree of a running terminal, one whose parents no longer reach
 // the terminal's host, is ended only when two things have both lasted
-// detachedIdleFor: the tree did nothing (worked), and its goblin was at rest
+// DetachedIdleFor: the tree did nothing (worked), and its goblin was at rest
 // (Owner.AtRestSince). Every background command a harness starts through Git
 // Bash is detached, and nothing the sweep can read says which of them a
 // goblin still waits on: a gate waiter that blocks for hours, a watch on a
@@ -141,7 +160,7 @@ type ProcessSweep struct {
 // The rest is left and named for the CFO: a gate agent's process whose gate
 // is gone, and a browser bridge nothing ties to an owner. A desktop program
 // is the Overlord's and is neither ended nor named.
-func planProcesses(processes []Process, owners []Owner, watched []Watched, now time.Time) (ending, left []ProcessItem, watching []Watched) {
+func planProcesses(processes []Process, owners []Owner, watched []Watched, now time.Time) (ending, left []ProcessItem, watching []Watched, kept []ProcessItem) {
 	evidence := make([]lifecycle.Process, len(processes))
 	byPID := make(map[int]Process, len(processes))
 	children := make(map[int][]Process, len(processes))
@@ -187,14 +206,14 @@ func planProcesses(processes []Process, owners []Owner, watched []Watched, now t
 		return entry
 	}
 
+	keep := func(process Process, owner, why string) {
+		kept = append(kept, item([]Process{process}, owner, why))
+	}
 	isOwned := map[int]bool{}
 	for _, owner := range owners {
 		owned := map[int]bool{}
 		for _, process := range lifecycle.OwnedProcesses(evidence, owner.Directories, nil, owner.Marks) {
 			owned[process.PID], isOwned[process.PID] = true, true
-		}
-		if owner.IsChanging {
-			continue
 		}
 		reach := map[int]bool{}
 		for _, process := range under(owner.HostPID, func(Process) bool { return true }) {
@@ -202,6 +221,36 @@ func planProcesses(processes []Process, owners []Owner, watched []Watched, now t
 		}
 		isDetached := func(process Process) bool {
 			return owned[process.PID] && !reach[process.PID] && !desktop[process.PID]
+		}
+		for _, process := range processes {
+			switch {
+			case process.PID == 0:
+			case !owned[process.PID]:
+				// What carries the terminal's mark and is no part of what
+				// its teardown ends.
+				if process.Mark == (lifecycle.Mark{}) || !slices.Contains(owner.Marks, process.Mark) {
+					break
+				}
+				switch {
+				case services[process.PID] != proc.NoService:
+					keep(process, owner.ID, "a machine service, or what runs under one, which serves every goblin")
+				case process.IsGateAgent:
+					keep(process, owner.ID, "a gate's agent, which works for a gate whichever goblin started its daemon")
+				case desktop[process.PID]:
+					keep(process, owner.ID, "a desktop program, or what one started, which is the Overlord's to close")
+				default:
+					keep(process, owner.ID, "it carries the terminal's mark and no rule of its teardown makes it the terminal's")
+				}
+			case owner.IsChanging:
+				keep(process, owner.ID, fmt.Sprintf("a command is changing terminal %s and decides what of it ends", owner.ID))
+			case reach[process.PID]:
+				keep(process, owner.ID, fmt.Sprintf("terminal %s runs and its host reaches it", owner.ID))
+			case desktop[process.PID]:
+				keep(process, owner.ID, "a desktop program at work in the task's folders, which is the Overlord's to close")
+			}
+		}
+		if owner.IsChanging {
+			continue
 		}
 		for _, process := range processes {
 			if !isDetached(process) {
@@ -216,10 +265,13 @@ func planProcesses(processes []Process, owners []Owner, watched []Watched, now t
 			// living parent that is not the terminal's, is being run there
 			// by somebody else, as when the CFO reads a paused goblin's
 			// worktree.
+			tree := under(process.PID, isDetached)
 			if !slices.Contains(owner.Marks, process.Mark) && hasLivingParent(process) {
+				for _, member := range tree {
+					keep(member, owner.ID, "somebody else runs it in the task's folders: it carries no mark of the terminal and its parent still runs")
+				}
 				continue
 			}
-			tree := under(process.PID, isDetached)
 			if owner.HostPID == 0 {
 				for _, member := range tree {
 					ending = append(ending, item([]Process{member}, owner.ID, fmt.Sprintf("its terminal %s is gone", owner.ID)))
@@ -231,9 +283,18 @@ func planProcesses(processes []Process, owners []Owner, watched []Watched, now t
 			// between them. So a bridge is idle by when its session was last
 			// used, never by the processor time it uses.
 			if !process.LastUsed.IsZero() {
-				if unused := later(process.LastUsed, owner.AtRestSince); !owner.AtRestSince.IsZero() && now.Sub(unused) >= detachedIdleFor {
+				switch unused := later(process.LastUsed, owner.AtRestSince); {
+				case owner.AtRestSince.IsZero():
+					for _, member := range tree {
+						keep(member, owner.ID, fmt.Sprintf("a browser bridge of terminal %s, whose goblin works: nothing of a goblin that works is idle", owner.ID))
+					}
+				case now.Sub(unused) >= DetachedIdleFor:
 					for _, member := range tree {
 						ending = append(ending, item([]Process{member}, owner.ID, fmt.Sprintf("a browser bridge of terminal %s, whose goblin rests, unused since %s", owner.ID, process.LastUsed.UTC().Format("15:04Z"))))
+					}
+				default:
+					for _, member := range tree {
+						keep(member, owner.ID, fmt.Sprintf("a browser bridge of terminal %s, whose goblin rests since %s, last used at %s: ended once both have lasted an hour", owner.ID, owner.AtRestSince.UTC().Format("15:04Z"), process.LastUsed.UTC().Format("15:04Z")))
 					}
 				}
 				continue
@@ -245,8 +306,18 @@ func planProcesses(processes []Process, owners []Owner, watched []Watched, now t
 			if index := slices.IndexFunc(watched, func(prior Watched) bool { return prior.PID == process.PID && prior.Started.Equal(process.Started) }); index >= 0 && !worked(watched[index], tree) {
 				seen = watched[index]
 			}
-			if idle := later(seen.Since, owner.AtRestSince); owner.AtRestSince.IsZero() || now.Sub(idle) < detachedIdleFor {
+			if owner.AtRestSince.IsZero() {
 				watching = append(watching, seen)
+				for _, member := range tree {
+					keep(member, owner.ID, fmt.Sprintf("detached from terminal %s, whose goblin works: nothing of a goblin that works is idle", owner.ID))
+				}
+				continue
+			}
+			if idle := later(seen.Since, owner.AtRestSince); now.Sub(idle) < DetachedIdleFor {
+				watching = append(watching, seen)
+				for _, member := range tree {
+					keep(member, owner.ID, fmt.Sprintf("detached from terminal %s, whose goblin rests since %s: last seen at work at %s, ended once both have lasted an hour", owner.ID, owner.AtRestSince.UTC().Format("15:04Z"), seen.Since.UTC().Format("15:04Z")))
+				}
 				continue
 			}
 			for _, member := range tree {
@@ -270,8 +341,41 @@ func planProcesses(processes []Process, owners []Owner, watched []Watched, now t
 	for _, items := range [][]ProcessItem{ending, left} {
 		sort.Slice(items, func(i, j int) bool { return items[i].PID < items[j].PID })
 	}
+	// What is ended or named is said once, there.
+	kept = slices.DeleteFunc(kept, func(item ProcessItem) bool {
+		isListed := func(listed ProcessItem) bool { return listed.PID == item.PID }
+		return slices.ContainsFunc(ending, isListed) || slices.ContainsFunc(left, isListed)
+	})
+	sort.SliceStable(kept, func(i, j int) bool {
+		if kept[i].Owner != kept[j].Owner {
+			return kept[i].Owner < kept[j].Owner
+		}
+		return kept[i].PID < kept[j].PID
+	})
 	sort.Slice(watching, func(i, j int) bool { return watching[i].PID < watching[j].PID })
-	return ending, left, watching
+	return ending, left, watching, kept
+}
+
+// PlanProcesses reads the machine and the home's terminals once and says
+// what a sweep would end, what it would name for the CFO and what it would
+// leave, with the rule that decides each. It ends nothing and writes nothing.
+// The sweep acts on this same plan (sweepProcesses), so what it lists to end
+// is what a sweep with the same readers ends.
+func (cfg Config) PlanProcesses(ctx context.Context) (ProcessPlan, error) {
+	processes, err := cfg.Processes(ctx)
+	if err != nil {
+		return ProcessPlan{}, err
+	}
+	owners, notes := cfg.Owners()
+	lastUsed := cfg.browserBridgeUse()
+	for index, process := range processes {
+		if isBrowserBridge(process) {
+			processes[index].LastUsed = lastUsed[process.PID]
+		}
+	}
+	plan := ProcessPlan{Read: len(processes), Owners: owners, Notes: notes}
+	plan.Ending, plan.Left, plan.Watching, plan.Kept = planProcesses(processes, owners, cfg.Watched, cfg.Now)
+	return plan, nil
 }
 
 // later is the later of two times.
@@ -291,22 +395,14 @@ func (cfg Config) sweepProcesses(ctx context.Context, record *Record) {
 		return
 	}
 	record.Processes.Watched = cfg.Watched
-	processes, err := cfg.Processes(ctx)
+	plan, err := cfg.PlanProcesses(ctx)
 	if err != nil {
 		record.Notes = append(record.Notes, "the machine's processes could not be read, so none was ended: "+err.Error())
 		return
 	}
-	owners, notes := cfg.Owners()
-	record.Notes = append(record.Notes, notes...)
-	lastUsed := cfg.browserBridgeUse()
-	for index, process := range processes {
-		if isBrowserBridge(process) {
-			processes[index].LastUsed = lastUsed[process.PID]
-		}
-	}
-	ending, left, watching := planProcesses(processes, owners, cfg.Watched, cfg.Now)
-	record.Processes.Left, record.Processes.Watched = left, watching
-	for _, item := range ending {
+	record.Notes = append(record.Notes, plan.Notes...)
+	record.Processes.Left, record.Processes.Watched = plan.Left, plan.Watching
+	for _, item := range plan.Ending {
 		if cfg.EndProcess == nil {
 			break
 		}

@@ -22,7 +22,9 @@ var notTheCFO = supervisor.NotTheCFO
 // acknowledges) and setting the weekly allowance floor every goblin pauses
 // at (an allowance-floor that names one). Reading the fleet is anyone's:
 // fleet-view, peek, runtime, tickets, a drain that only prints, a reap that
-// only reports and an allowance-floor that only says the floors.
+// only reports, an allowance-floor that only says the floors, and
+// process-plan, which says what the process sweeps would end and ends
+// nothing, writes nothing into the home and acknowledges nothing.
 //
 // The commands bound to the registered CFO by its process (answer, question,
 // run-request, a review cleared, AFK mode at his ask) need no entry: only the

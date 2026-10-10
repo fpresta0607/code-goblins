@@ -41,6 +41,18 @@ func Inventory(ctx context.Context, directories []string, job []Identity, marks 
 // command that took it. A process that could not be read, or that was left
 // out, is a zero entry, which OwnedProcesses ignores.
 func ReadProcesses(ctx context.Context, withMarks bool) ([]Process, error) {
+	return readProcesses(ctx, withMarks, false)
+}
+
+// ReadAllProcesses is ReadProcesses with this process and its ancestors read
+// like any other, for a plan that ends nothing: left out, the terminal the
+// plan was asked from would read as having no host, and everything it runs
+// as detached from it.
+func ReadAllProcesses(ctx context.Context, withMarks bool) ([]Process, error) {
+	return readProcesses(ctx, withMarks, true)
+}
+
+func readProcesses(ctx context.Context, withMarks, withSelf bool) ([]Process, error) {
 	entries, err := proc.Processes()
 	if err != nil {
 		return nil, err
@@ -60,7 +72,7 @@ func ReadProcesses(ctx context.Context, withMarks bool) ([]Process, error) {
 		readers.Go(func() {
 			for index := range indexes {
 				entry := entries[index]
-				if entry.PID == os.Getpid() || slices.ContainsFunc(ancestors, func(ancestor proc.Entry) bool { return ancestor.PID == entry.PID && ancestor.Start.Equal(entry.Start) }) {
+				if !withSelf && (entry.PID == os.Getpid() || slices.ContainsFunc(ancestors, func(ancestor proc.Entry) bool { return ancestor.PID == entry.PID && ancestor.Start.Equal(entry.Start) })) {
 					continue
 				}
 				process := Process{PID: entry.PID, ParentPID: entry.ParentPID, Name: entry.ExeBase, Started: entry.Start, HasWindow: windowsErr != nil || windowOwners[entry.PID]}
