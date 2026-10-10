@@ -111,50 +111,88 @@ func SettleAFKLine(h home.Home, at time.Time, how string) error {
 	return sendPipeRequest(h.State, runPipeRequest{Kind: "afk-settle", AFK: &afk.Entry{Item: at.UTC().Format(time.RFC3339Nano), Evidence: how}})
 }
 
-// asker is what asked the supervisor for the Overlord's switch, as a refusal
-// words it: the command at the other end of the pipe, or the program that
-// shows the board.
+// asker is what asked the supervisor for something that is the Overlord's
+// alone, as a refusal words it: the command at the other end of the pipe, or
+// the program that shows the board.
 type asker struct {
-	// what opens every refusal with whose act it is, and only ends it with
-	// who may do it.
+	// what opens the supervisor's own words for a refusal with whose act it
+	// is, and only ends them with who may do it. They say what the supervisor
+	// found, for the CFO and for an agent that tried.
 	what, only string
-	// runs opens a refusal that says where it runs.
+	// runs opens the words that say where what asked runs.
 	runs string
-	// cut says whose parents stop short of the desktop, and the way out.
-	cut string
+	// unread and unproven are the whole refusal when the supervisor could not
+	// read what asked, and when nothing marks it an agent's and nothing
+	// proves it his. The Overlord himself meets those two in a terminal, so a
+	// command's are one short sentence each that says what to do.
+	unread, unproven string
+	// say is the one short sentence a board shows the Overlord whatever the
+	// supervisor found, since a board is where he reads it: what to do
+	// instead, and nothing of how a board is proven. sayInWindow is that
+	// sentence in his desktop window, which cannot send him to itself. A
+	// command has neither.
+	say, sayInWindow string
+}
+
+// refuse is the supervisor's own words for a refusal: whose act it is, what
+// it found and who may do it.
+func (who asker) refuse(found string) error {
+	return errors.New(who.what + ", and " + found + who.only)
 }
 
 const afkWhat = "AFK mode is the Supreme Overlord's switch"
 
+// reopenTheWindow opens what a board in his desktop window tells the Overlord
+// when the supervisor refuses that window.
+const reopenTheWindow = "Quit Code Goblins from its tray icon, open it again from the Start menu, then "
+
+// askingCommand asks for AFK mode's switch from a terminal.
+var askingCommand = asker{
+	what:     afkWhat,
+	only:     onlyHis,
+	runs:     "this command runs",
+	unread:   "AFK mode did not switch, because this terminal could not be read, as one run as administrator cannot: run it in PowerShell or cmd without administrator rights, or switch it in the Code Goblins window",
+	unproven: "AFK mode did not switch, because nothing says this terminal is the Overlord's own: run it in PowerShell or cmd, or switch it in the Code Goblins window",
+}
+
+// boardAsker is an asker that is the program that shows a board.
+func boardAsker(what, only, say, sayInWindow string) asker {
+	who := asker{what: what, only: only, runs: "the program that shows this board runs", say: say, sayInWindow: sayInWindow}
+	who.unread = what + ", and the supervisor could not read the program that shows this board, as it cannot one run as administrator, so nothing says it is his" + only
+	who.unproven = what + ", and nothing proves the program that shows this board is his: it is not this home's own desktop window, its parents stop short of the desktop, and it holds no grant this home gave that browser" + only
+	return who
+}
+
+// switchingBoard asks for AFK mode's switch from a board, to turn it on or
+// off.
+func switchingBoard(on bool) asker {
+	command := "cfo afk off"
+	if on {
+		command = "cfo afk on"
+	}
+	return boardAsker(afkWhat, onlyHis, "Switch AFK in the Code Goblins window, or run "+command+" in PowerShell.", reopenTheWindow+"switch AFK there.")
+}
+
 var (
-	askingCommand = asker{
-		what: afkWhat,
-		only: onlyHis,
-		runs: "this command runs",
-		cut:  "as it cannot those of a command run in Git Bash or under a program that replaces its own process, so nothing says it is his: run it in PowerShell or cmd",
-	}
-	askingBoard = asker{
-		what: afkWhat,
-		only: onlyHis,
-		runs: "the program that shows this board runs",
-		cut:  "as it cannot those of a browser whose opener has since exited, so nothing says it is his: open the board in the Code Goblins window or a browser he starts from the desktop, or run cfo afk on in PowerShell or cmd",
-	}
+	askingBoard = switchingBoard(true)
 	// updatingBoard asks for the Update item: updating Code Goblins is his
 	// alone, in AFK mode or out of it.
-	updatingBoard = asker{
-		what: "Updating Code Goblins is the Supreme Overlord's alone",
-		only: ": he presses Update on a board of his own, or runs goblins update in a terminal of his own",
-		runs: "the program that shows this board runs",
-		cut:  "as it cannot those of a browser whose opener has since exited, so nothing says it is his: open the board in the Code Goblins window or a browser he starts from the desktop",
-	}
+	updatingBoard = boardAsker("Updating Code Goblins is the Supreme Overlord's alone", ": he presses Update on a board of his own, or runs goblins update in a terminal of his own", "Press Update in the Code Goblins window, or run goblins update in PowerShell.", reopenTheWindow+"press Update there.")
 )
 
 // overlordsTerminal proves the process pid, which was running at connected,
 // runs in a terminal of the Overlord's own, and says which.
 func (s *Service) overlordsTerminal(pid int, connected time.Time) (string, error) {
-	ancestry, err := s.overlordsOwn(pid, connected, askingCommand)
+	ancestry, _, err := s.unmarked(pid, connected, askingCommand)
 	if err != nil {
 		return "", err
+	}
+	// The same cut with an agent's variables removed too, as Git Bash's env
+	// leaves a command, has nothing left that marks an agent. Parents that
+	// stop short of the desktop prove nothing, and Git Bash cuts the
+	// Overlord's own the same way, so the refusal says what to do.
+	if fromDesktop(ancestry) < 0 {
+		return "", errors.New(askingCommand.unproven)
 	}
 	// The command itself is the first entry; the shell it was typed in is
 	// the next.
@@ -162,33 +200,26 @@ func (s *Service) overlordsTerminal(pid int, connected time.Time) (string, error
 	return fmt.Sprintf("his own terminal (%s pid %d)", shell.ExeBase, shell.PID), nil
 }
 
-// overlordsOwn proves the process pid, which was running at asked, is one the
-// Overlord started himself, and returns it with its parents. Whatever marks
-// the process as an agent's refuses it: a goblin's or a gate agent's
-// environment, the registered CFO among its ancestors, a terminal the fleet
-// runs an agent in, or an agent harness above it. A process it cannot read, or
-// whose parents it cannot follow to the desktop, is refused too, never taken
-// for his.
-func (s *Service) overlordsOwn(pid int, asked time.Time, who asker) ([]proc.Entry, error) {
+// unmarked reads the process pid, which was running at asked, and returns its
+// parents, itself first, and its environment once nothing in them marks it
+// as an agent's: a goblin's or a gate agent's environment, the registered CFO
+// among its ancestors, a terminal the fleet runs an agent in, or an agent
+// harness above it. A process it cannot read is refused too, and one that is
+// marked is returned with its refusal, for the caller to say where it was
+// met. It proves nothing his: no mark is only the lack of one, and what
+// proves a process the Overlord's is its caller's to find.
+func (s *Service) unmarked(pid int, asked time.Time, who asker) ([]proc.Entry, []string, error) {
 	ancestry, env, err := s.inspect(pid)
 	// A process that started after the request took the PID of the one that
 	// sent it, and proves nothing. A terminal run as administrator is one the
-	// supervisor cannot read, and it is the Overlord who meets that, so the
-	// refusal says so.
+	// supervisor cannot read, and it is the Overlord who meets that.
 	if err != nil || len(ancestry) == 0 || ancestry[0].Start.After(asked) {
-		return nil, errors.New(who.what + ", and the supervisor could not read the process that asked for it, as it cannot one run as administrator, so nothing says it is his" + who.only)
+		return nil, nil, errors.New(who.unread)
 	}
 	if where := agentMark(s.Store.Home.State, ancestry, env); where != "" {
-		return nil, errors.New(who.what + ", and " + who.runs + " " + where + who.only)
+		return ancestry, env, who.refuse(who.runs + " " + where)
 	}
-	// The same cut with those variables removed too, as Git Bash's env leaves
-	// a command, has nothing left that marks an agent. Parents that stop short
-	// of the desktop are parents the supervisor could not read, and Git Bash
-	// cuts the Overlord's own the same way, so the refusal names the way out.
-	if fromDesktop(ancestry) < 0 {
-		return nil, errors.New(who.what + ", and the supervisor could not follow its parents to the desktop, " + who.cut + who.only)
-	}
-	return ancestry, nil
+	return ancestry, env, nil
 }
 
 // agentMark says where a process with these parents, itself first, and this
@@ -236,14 +267,16 @@ func agentMark(stateDir string, ancestry []proc.Entry, env []string) string {
 // terminal is his.
 func UpdaterRefusal(stateDir string, ancestry []proc.Entry, env []string) error {
 	const only = ": he runs goblins update in a terminal of his own, or presses Update in the Command Center"
+	// The Overlord himself meets the first and the last of these, so each is
+	// one short sentence that says what to do.
 	if len(ancestry) == 0 {
-		return errors.New("updating Code Goblins is the Supreme Overlord's alone, and this command could not read its own process, so nothing says it is his" + only)
+		return errors.New("Code Goblins did not update, because this terminal could not be read: run goblins update in PowerShell or cmd, or press Update in the Code Goblins window")
 	}
 	if where := agentMark(stateDir, ancestry, env); where != "" {
 		return errors.New("updating Code Goblins is the Supreme Overlord's alone, and this command runs " + where + only)
 	}
 	if fromDesktop(ancestry) < 0 {
-		return errors.New("updating Code Goblins is the Supreme Overlord's alone, and this command could not follow its parents to the desktop, as it cannot those of a command run in Git Bash or under a program that replaces its own process, so nothing says it is his: run it in PowerShell or cmd, or press Update in the Command Center")
+		return errors.New("Code Goblins did not update, because nothing says this terminal is the Overlord's own: run goblins update in PowerShell or cmd, or press Update in the Code Goblins window")
 	}
 	return nil
 }
