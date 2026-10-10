@@ -867,3 +867,58 @@ func TestARelaunchEndsAWorktreesHardLinkToTheCheckoutsEnvFile(t *testing.T) {
 		})
 	}
 }
+
+// A task's record keeps the generation it was spawned under through every
+// relaunch, so what the goblin reported before a pause's resume, a switch or
+// a comeback is still read as this task's own, and a task respawned under the
+// id of one that was cleaned up is known as a new one. A task an older build
+// spawned has none, and gains the generation it ran on until its first
+// relaunch.
+func TestARelaunchKeepsTheGenerationItsTaskWasSpawnedUnder(t *testing.T) {
+	for _, test := range []struct {
+		name, recorded, want string
+	}{
+		{"a task an older build spawned", "", "s1"},
+		{"a task that was relaunched before", "s0", "s0"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			// Arrange
+			f := newSwitchFixture(t, harness.Control{StopCommand: "/exit", ResumeArgs: []string{"resume", "--last"}})
+			path := state.TaskMetaPath(f.stateDir, f.meta.ID)
+			if test.recorded != "" {
+				record, err := state.ReadMeta(path)
+				if err != nil {
+					t.Fatal(err)
+				}
+				record["first_gen"] = test.recorded
+				if err := state.WriteMeta(path, record); err != nil {
+					t.Fatal(err)
+				}
+			}
+
+			// Act
+			_, err := f.service.Switch(context.Background(), SwitchRequest{ID: f.meta.ID, Model: "gpt-9", ResumeSession: "owned-session-7"})
+
+			// Assert
+			record, readErr := state.ReadMeta(path)
+			if err != nil || readErr != nil || record["first_gen"] != test.want || record["spawn_gen"] == f.meta.SpawnGen {
+				t.Fatalf("after the relaunch the record says first_gen %q and spawn_gen %q, %v %v, want %q kept beside a new generation", record["first_gen"], record["spawn_gen"], err, readErr, test.want)
+			}
+		})
+	}
+}
+
+// A spawn records the generation it starts its task under as the task's
+// first, which is what tells this task from an earlier one of the same id.
+func TestASpawnRecordsTheGenerationItsTaskStartsUnder(t *testing.T) {
+	// Arrange
+	f, _ := newRunningGoblin(t)
+
+	// Act
+	record, err := state.ReadMeta(state.TaskMetaPath(f.stateDir, "task-7"))
+
+	// Assert
+	if err != nil || record["spawn_gen"] == "" || record["first_gen"] != record["spawn_gen"] {
+		t.Fatalf("the spawned task's record says first_gen %q and spawn_gen %q, %v, want its first generation recorded as the one it runs on", record["first_gen"], record["spawn_gen"], err)
+	}
+}

@@ -759,7 +759,7 @@ func ciGoblins(ctx context.Context, runner execx.Runner, stateDir string) []ciGo
 			goblin.pullRequests = append(goblin.pullRequests, kv["pr"])
 		}
 		lines, _ := state.TailStatus(stateDir, meta.ID, 200)
-		spawned := spawnTime(meta.SpawnGen)
+		spawned := lifeStart(meta)
 		for _, line := range lines {
 			stamp, event := state.SplitStatus(line)
 			if !spawned.IsZero() && stamp.Before(spawned.Truncate(time.Second)) {
