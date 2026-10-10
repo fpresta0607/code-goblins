@@ -167,6 +167,16 @@ func (s *scratch) engine(gh *fakeGitHub) Engine {
 	}
 }
 
+// step takes the train id one step, which must not fail.
+func (s *scratch) step(engine Engine, id string) Train {
+	s.t.Helper()
+	stepped, err := engine.Advance(context.Background(), id)
+	if err != nil {
+		s.t.Fatal(err)
+	}
+	return stepped
+}
+
 // goblinTold returns what task was told, one line per message.
 func (s *scratch) goblinTold(task string) []string {
 	var lines []string
@@ -180,15 +190,33 @@ func (s *scratch) goblinTold(task string) []string {
 
 // fakeGitHub plays GitHub over the scratch remote: git runs for real, and gh
 // opens, finds, edits and closes the train's pull request, reports its CI
-// from what its head holds, lists the open pull requests as the remote has
-// them, reports main's push runs, and merges a pull request into main with a
-// merge commit.
+// from what its head holds, runs a workflow run's failed jobs again and says
+// how that run stands, lists the open pull requests as the remote has them,
+// reports main's push runs, and merges a pull request into main with a merge
+// commit.
 type fakeGitHub struct {
 	s     *scratch
 	pulls map[string]*pull
-	// breaks are heads whose presence on a train's head turns its CI red.
+	// breaks are heads whose presence on a train's head turns its CI red, on
+	// every try.
 	breaks []string
-	// pending is how many CI reads answer that the checks still run.
+	// chance is how many workflow runs fail their first try whatever their
+	// head holds, as a test that fails by chance does, and pass when they
+	// run again.
+	chance int
+	// foreign makes the train's one check another service's, which no
+	// workflow run stands behind.
+	foreign bool
+	// workflows are the workflow runs CI started, one for each head it
+	// tested, in order.
+	workflows []*workflow
+	// lag is how many reads of the train's checks, after a workflow run ran
+	// again, still answer with the try before.
+	lag int
+	// noAttempt answers a read of a workflow run without the try it is at.
+	noAttempt bool
+	// pending is how many CI reads answer that the checks still run. While
+	// any is left, a workflow run reads as still running too.
 	pending int
 	// noChecks answers every CI read with no checks at all.
 	noChecks bool
@@ -215,6 +243,14 @@ type fakeGitHub struct {
 	closed      []string
 	merged      []int
 	calls       [][]string
+}
+
+// workflow is one workflow run of the train's CI: the head it tests, how
+// often it was tried, and whether its first try fails by chance.
+type workflow struct {
+	id, tries int
+	head      string
+	isFlaky   bool
 }
 
 // pull is a pull request as the fake GitHub holds it.
@@ -254,6 +290,9 @@ func (f *fakeGitHub) Run(ctx context.Context, request execx.Request) (execx.Resu
 	call := args[1]
 	if call == "merge" {
 		call += " " + args[2]
+	}
+	if args[0] == "run" {
+		call = "run " + call
 	}
 	if f.unanswered[call] > 0 {
 		f.unanswered[call]--
@@ -295,6 +334,10 @@ func (f *fakeGitHub) answer(args []string) (execx.Result, error) {
 		return execx.Result{}, nil
 	case args[0] == "run" && args[1] == "list":
 		return execx.Result{Stdout: []byte(f.mainRuns)}, nil
+	case args[0] == "run" && args[1] == "rerun":
+		return f.rerun(args[2], slices.Contains(args, "--failed"))
+	case args[0] == "run" && args[1] == "view":
+		return f.runView(args[2])
 	}
 	return execx.Result{ExitCode: 1, Stderr: []byte("unexpected gh " + strings.Join(args, " "))}, nil
 }
@@ -325,19 +368,28 @@ func (f *fakeGitHub) list() (execx.Result, error) {
 }
 
 // view answers gh pr view of the train's pull request: its head is what the
-// remote's train branch holds, and its one check fails when that head holds
-// any of the breaking heads.
+// remote's train branch holds, and its one check is the job of that head's
+// workflow run at its newest try, which fails when that try does. While the
+// answer lags a try that ran again, it is the try before's.
 func (f *fakeGitHub) view() (execx.Result, error) {
 	head := f.s.git(f.s.remote, "rev-parse", "refs/heads/"+f.trainBranch)
-	check := Check{Kind: "CheckRun", Name: "test", Status: "COMPLETED", Conclusion: "SUCCESS", DetailsURL: "https://github.com/o/r/actions/runs/1"}
-	for _, broken := range f.breaks {
-		if gitCommand(f.s.remote, "merge-base", "--is-ancestor", broken, head).Run() == nil {
-			check.Conclusion = "FAILURE"
-		}
+	w := f.workflowOf(head)
+	try := w.tries
+	isLagging := f.lag > 0 && try > 1
+	if isLagging {
+		f.lag--
+		try--
 	}
-	if f.pending > 0 {
+	check := Check{Kind: "CheckRun", Name: "test", Status: "COMPLETED", Conclusion: "SUCCESS", DetailsURL: jobLink(w, try)}
+	if f.isRed(w, try) {
+		check.Conclusion = "FAILURE"
+	}
+	if f.pending > 0 && !isLagging {
 		f.pending--
 		check.Status, check.Conclusion = "IN_PROGRESS", ""
+	}
+	if f.foreign {
+		check = Check{Kind: "StatusContext", Context: "scan", State: check.Conclusion, TargetURL: "https://scan.example/report"}
 	}
 	checks := []Check{check}
 	if f.noChecks {
@@ -345,6 +397,105 @@ func (f *fakeGitHub) view() (execx.Result, error) {
 	}
 	data, err := json.Marshal(map[string]any{"state": f.trainState, "headRefOid": head, "statusCheckRollup": checks})
 	return execx.Result{Stdout: data}, err
+}
+
+// workflowOf is the workflow run that tests head, started the first time CI
+// is read at that head.
+func (f *fakeGitHub) workflowOf(head string) *workflow {
+	for _, w := range f.workflows {
+		if w.head == head {
+			return w
+		}
+	}
+	w := &workflow{id: 101 + len(f.workflows), tries: 1, head: head, isFlaky: f.chance > 0}
+	if w.isFlaky {
+		f.chance--
+	}
+	f.workflows = append(f.workflows, w)
+	return w
+}
+
+// isRed says whether w's try fails: its first by chance, or any while its
+// head holds one of the breaking heads.
+func (f *fakeGitHub) isRed(w *workflow, try int) bool {
+	if w.isFlaky && try == 1 {
+		return true
+	}
+	return slices.ContainsFunc(f.breaks, func(broken string) bool {
+		return gitCommand(f.s.remote, "merge-base", "--is-ancestor", broken, w.head).Run() == nil
+	})
+}
+
+// jobLink is the page of w's one job at try. Each try has a job of its own,
+// as on GitHub.
+func jobLink(w *workflow, try int) string {
+	return fmt.Sprintf("https://github.com/o/r/actions/runs/%d/job/%d", w.id, w.id*10+try)
+}
+
+// workflowByID is the workflow run gh names id.
+func (f *fakeGitHub) workflowByID(id string) *workflow {
+	for _, w := range f.workflows {
+		if fmt.Sprint(w.id) == id {
+			return w
+		}
+	}
+	return nil
+}
+
+// rerun answers gh run rerun: the workflow run's failed jobs run again, as
+// its next try.
+func (f *fakeGitHub) rerun(id string, isFailedOnly bool) (execx.Result, error) {
+	w := f.workflowByID(id)
+	switch {
+	case w == nil:
+		return execx.Result{ExitCode: 1, Stderr: []byte("no workflow run " + id)}, nil
+	case !isFailedOnly:
+		return execx.Result{ExitCode: 1, Stderr: []byte("every job was asked to run again, not the failed ones")}, nil
+	}
+	w.tries++
+	return execx.Result{}, nil
+}
+
+// runView answers gh run view: which try the workflow run is at and how
+// that try stands.
+func (f *fakeGitHub) runView(id string) (execx.Result, error) {
+	w := f.workflowByID(id)
+	if w == nil {
+		return execx.Result{ExitCode: 1, Stderr: []byte("no workflow run " + id)}, nil
+	}
+	view := map[string]any{"attempt": w.tries, "status": "completed", "conclusion": "success"}
+	switch {
+	case f.pending > 0:
+		view["status"], view["conclusion"] = "in_progress", ""
+	case f.isRed(w, w.tries):
+		view["conclusion"] = "failure"
+	}
+	if f.noAttempt {
+		delete(view, "attempt")
+	}
+	data, err := json.Marshal(view)
+	return execx.Result{Stdout: data}, err
+}
+
+// rerunCalls returns the workflow run each gh run rerun call named.
+func (f *fakeGitHub) rerunCalls() []string {
+	var calls []string
+	for _, args := range f.calls {
+		if len(args) > 2 && args[0] == "run" && args[1] == "rerun" {
+			calls = append(calls, args[2])
+		}
+	}
+	return calls
+}
+
+// tries says how often each workflow run was tried, in the order CI started
+// them.
+func (f *fakeGitHub) tries() []int {
+	var tries []int
+	for _, w := range f.workflows {
+		tries = append(tries, w.tries)
+	}
+	return tries
 }
 
 // merge merges the pull request at url into main as GitHub does: only while

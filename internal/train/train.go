@@ -6,9 +6,10 @@
 // onto main in queue order on a branch of its own, opens a pull request for
 // that branch that is never merged, and lets CI test the combination once.
 // When the run is green each pull request merges with a merge commit in the
-// same order, and main's tree must then equal the train's. When it is red the
-// train is halved until the one pull request that breaks it is found; every
-// half that passes lands on the way.
+// same order, and main's tree must then equal the train's. When it is red its
+// failed checks run again once, since a check can fail by chance, and when it
+// is red a second time the train is halved until the one pull request that
+// breaks it is found; every half that passes lands on the way.
 package train
 
 import (
@@ -153,14 +154,28 @@ type Car struct {
 // pull requests it tested, the base commit it was built on, its own commit,
 // when it was pushed and how it ended, with its first failed check's page
 // when it was red.
+//
+// A check can fail by chance, so a red run's failed checks run again once
+// before the train acts on it. FailedOnce are the checks that were red on
+// the first try, kept because GitHub shows only the newest try, and Failed
+// the checks the run ended red on, which for a run tried again were red
+// both times.
 type Run struct {
-	Number int       `json:"number"`
-	Riders []int     `json:"riders"`
-	Base   string    `json:"base"`
-	Head   string    `json:"head"`
-	Pushed time.Time `json:"pushed"`
-	Result string    `json:"result,omitempty"`
-	Link   string    `json:"link,omitempty"`
+	Number     int           `json:"number"`
+	Riders     []int         `json:"riders"`
+	Base       string        `json:"base"`
+	Head       string        `json:"head"`
+	Pushed     time.Time     `json:"pushed"`
+	Result     string        `json:"result,omitempty"`
+	Link       string        `json:"link,omitempty"`
+	FailedOnce []FailedCheck `json:"failed_once,omitempty"`
+	Failed     []FailedCheck `json:"failed,omitempty"`
+}
+
+// FailedCheck is a check that ended red: its name and its page.
+type FailedCheck struct {
+	Name string `json:"name"`
+	Link string `json:"link,omitempty"`
 }
 
 // IsFinished says whether the train is over.
@@ -177,9 +192,17 @@ func (t Train) Evidence() string {
 // endRun records how the run CI tests ended, once: a run that already ended
 // keeps its result.
 func (t *Train) endRun(result, link string) {
-	if last := len(t.History) - 1; last >= 0 && t.History[last].Result == "" {
-		t.History[last].Result, t.History[last].Link = result, link
+	if run := t.openRun(); run != nil {
+		run.Result, run.Link = result, link
 	}
+}
+
+// openRun is the run CI tests, which has not ended, or nil without one.
+func (t *Train) openRun() *Run {
+	if last := len(t.History) - 1; last >= 0 && t.History[last].Result == "" {
+		return &t.History[last]
+	}
+	return nil
 }
 
 // carsIn returns the indexes of the train's cars in state, in train order.

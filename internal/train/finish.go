@@ -81,6 +81,9 @@ func (e Engine) summary(t Train) string {
 	if returned := t.carsIn(CarReturned); len(returned) > 0 {
 		parts = append(parts, t.numbers(returned)+" waits for the next train")
 	}
+	if passed := t.passedOnSecondTry(); passed != "" {
+		parts = append(parts, "failed once and passed on the second try: "+passed)
+	}
 	if t.PR != "" {
 		parts = append(parts, "("+t.PR+")")
 	}
@@ -112,12 +115,8 @@ func (e Engine) goblinNotice(t Train, car Car, past []Train) string {
 // checkNames names the failed checks, each with its own page.
 func checkNames(failed []Check) string {
 	var names []string
-	for _, check := range failed {
-		name := check.name()
-		if link := check.link(); link != "" {
-			name += " (" + link + ")"
-		}
-		names = append(names, name)
+	for _, check := range failedChecks(failed) {
+		names = append(names, check.String())
 	}
 	if len(names) == 0 {
 		return "no check named its failure"
