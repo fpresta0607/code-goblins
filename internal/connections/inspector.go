@@ -39,21 +39,42 @@ func (i *Inspector) Check(ctx context.Context, meta state.TaskMeta) Snapshot {
 	if manifestErr != nil && !errors.Is(manifestErr, os.ErrNotExist) {
 		result.Error = "Repository connections could not be read."
 	}
+	// A task carries only the services its record names, so only those are
+	// checked, and each other one reads withheld with the grant that gives
+	// it, not as a missing credential to store. A task an older build started
+	// has a record that names none and a terminal that holds everything, so
+	// every service is its own.
+	carried, withheld := manifest, map[string]string{}
+	if meta.HasCredentials {
+		carried = manifest.Only(meta.Credentials)
+		for _, service := range manifest.Services {
+			if slices.Contains(meta.Credentials, service.Name) {
+				continue
+			}
+			detail := "This task does not carry it. The CFO gives it with cfo auth grant " + meta.ID + " " + service.Name + "."
+			result.Entries = append(result.Entries, Entry{ID: "service:" + service.Name, Name: service.Name, Kind: "service", Status: "withheld", Source: "Repository", Detail: detail, CheckedAt: time.Now().UTC()})
+			for _, name := range service.Env {
+				if !slices.Contains(carried.EnvNames(), name) {
+					withheld[name] = detail
+				}
+			}
+		}
+	}
 	if manifestErr == nil {
 		store, err := i.OpenStore()
 		if err != nil {
 			result.Error = "Credential store is unavailable."
-			for _, service := range manifest.Services {
+			for _, service := range carried.Services {
 				result.Entries = append(result.Entries, serviceEntry(service, auth.Status{State: auth.StateUnverified}))
 			}
 		} else {
 			checker := auth.Checker{Store: store, Runner: workspaceRunner{Runner: i.Runner, dir: meta.Worktree}, Project: auth.ProjectName(meta.Project)}
-			report, err := checker.Check(ctx, manifest)
+			report, err := checker.Check(ctx, carried)
 			if err != nil {
 				result.Error = "Repository checks could not finish."
 			} else {
 				for index, status := range report.Statuses {
-					entry := serviceEntry(manifest.Services[index], status)
+					entry := serviceEntry(carried.Services[index], status)
 					entry.CheckedAt = time.Now().UTC()
 					result.Entries = append(result.Entries, entry)
 				}
@@ -89,13 +110,15 @@ func (i *Inspector) Check(ctx context.Context, meta state.TaskMeta) Snapshot {
 	}
 	slices.Sort(credentialNames)
 	for _, name := range slices.Compact(credentialNames) {
-		verdict := "missing"
+		verdict, detail := "missing", ""
 		actions := []string{"store:" + name}
 		if values[strings.ToUpper(name)] != "" {
 			verdict = "provided"
 			actions = nil
+		} else if grant, isWithheld := withheld[name]; isWithheld {
+			verdict, detail, actions = "withheld", grant, nil
 		}
-		result.Entries = append(result.Entries, Entry{ID: "credential:" + name, Name: name, Kind: "credential", Status: verdict, Source: "Goblin environment", Actions: actions, CheckedAt: time.Now().UTC()})
+		result.Entries = append(result.Entries, Entry{ID: "credential:" + name, Name: name, Kind: "credential", Status: verdict, Source: "Goblin environment", Detail: detail, Actions: actions, CheckedAt: time.Now().UTC()})
 	}
 	var entries []Entry
 	var err error

@@ -961,6 +961,8 @@ Each connection puts its name left and its status right on one line when the Con
 Every name carries the board's full-text tip, so a long name the wide row truncates with an ellipsis still reads in full, and narrower regions wrap it in full instead; the rows have 24px of padding above and below their content while checks load and after they finish.
 Claude checks use its MCP health report and the goblin's strict/config-file arguments; Codex inventory preserves the goblin's disabled-server overrides, and enabled servers earn Connected only from a fresh app-server runtime report, never from stored auth or cached tools.
 Repository services reuse the auth manifest's probes and status words; a resolved token with no probe is Unverified, and a token present in the goblin's environment is Provided rather than Connected.
+A service the task does not carry is not probed: it and each of its credentials read Withheld, with the `cfo auth grant` that gives it and nothing to store, since the value is stored and only kept from this task ([Credentials by need](../AGENTS.md#credentials-by-need)).
+Workspace says in one line which services' credentials the goblin's terminal carries, by name.
 Checks are cached for one minute, limited to two concurrent workers and 45 seconds per check, and return Checking immediately instead of blocking the board.
 Opening the dropdown starts a check only when the cached result is older than a minute; the refresh icon, a finished repair card and the first return to the board after each sign-in click always start one.
 The dropdown polls only while a check runs, so an open dropdown never rechecks on its own.

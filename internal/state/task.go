@@ -74,6 +74,20 @@ type TaskMeta struct {
 	HasCredentials bool
 }
 
+// CarriedServices names, for a table, the services whose credentials the
+// task's terminal carries: the ones its record names, none, or, for a task an
+// older build spawned, that it holds all its project had stored. It holds
+// names, never a value.
+func (m TaskMeta) CarriedServices() string {
+	switch {
+	case !m.HasCredentials:
+		return "all stored (older build)"
+	case len(m.Credentials) == 0:
+		return noCredentials
+	}
+	return strings.Join(m.Credentials, ", ")
+}
+
 // noCredentials is how a record says its task carries no service's
 // credentials, which an absent key cannot: that is a task an older build
 // spawned. No service is named by it, since a manifest refuses the name.

@@ -81,7 +81,7 @@ func TestWorkspaceNamesTheLocalServicesHeldAndTheirMemory(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := []string{"Holds PrecisionDocs-AI's local services with task-2, which take 2.5 GB of memory."}
+	want := []string{credentialsNote(meta), "Holds PrecisionDocs-AI's local services with task-2, which take 2.5 GB of memory."}
 	if !slices.Equal(details.Notes, want) {
 		t.Errorf("task notes = %q, want %q", details.Notes, want)
 	}
@@ -113,5 +113,46 @@ func TestWorkspaceSaysWhenTheLocalServicesCannotBeRead(t *testing.T) {
 	}
 	if !slices.Equal(details.Notes, []string{"The local services cfo holds could not be read."}) {
 		t.Errorf("notes = %q, want the unreadable record named", details.Notes)
+	}
+}
+
+// A task's panel says which services' credentials its terminal carries, by
+// name: the ones its record names, none, or, for a task an older build
+// started, everything stored for its project until its next terminal.
+func TestWorkspaceSaysWhichServicesATaskCarries(t *testing.T) {
+	cases := []struct {
+		name     string
+		isNamed  bool
+		services []string
+		want     string
+	}{
+		{"two services", true, []string{"github", "stripe"}, "Carries the credentials of github and stripe, and of no other service."},
+		{"none", true, nil, "Carries no service's credentials."},
+		{"an older build", false, nil, "Carries every credential stored for work: a build before credentials went by need started it. Its next terminal carries only the services work's manifest marks default."},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			// Arrange
+			s, h := testStore(t)
+			meta, _ := state.ReadTaskMeta(h.State, "task-1")
+			gitFixture(t, meta.Worktree)
+			if tc.isNamed {
+				if err := state.WriteTaskCredentials(h.State, meta.ID, tc.services); err != nil {
+					t.Fatal(err)
+				}
+			}
+			service := &Service{Store: s}
+
+			// Act
+			details, err := service.workspaceDetail(context.Background(), meta.ID, meta.SpawnGen)
+
+			// Assert
+			if err != nil {
+				t.Fatal(err)
+			}
+			if !slices.Contains(details.Notes, tc.want) {
+				t.Errorf("notes = %q, want %q among them", details.Notes, tc.want)
+			}
+		})
 	}
 }
