@@ -510,3 +510,62 @@ func TestChargeBudgetWaitsOutALiveLockHolder(t *testing.T) {
 		t.Fatalf("ChargeBudget while a live process held the budget lock for 1.5 s = %d, %v; want 1", count, err)
 	}
 }
+
+// A firing that shows it is arming is a reason for the turn-end guard to
+// wait, never proof that recovery is under way: only the auto-arm lock or a
+// healthy watcher lets a turn end.
+func TestAFiringThatShowsItIsArmingIsWaitedForAndProvesNothing(t *testing.T) {
+	// Arrange
+	dir := t.TempDir()
+
+	// Act
+	ShowArming(dir)
+
+	// Assert
+	if !AutoarmArming(dir) {
+		t.Error("a live firing that showed it is arming does not read as arming")
+	}
+	if AutoarmOwnsRecovery(dir, 5*time.Minute, 15*time.Second) {
+		t.Error("a firing that only shows it is arming reads as owning recovery")
+	}
+	StopArming(dir)
+	if AutoarmArming(dir) {
+		t.Error("a firing that stopped showing it is arming still reads as arming")
+	}
+}
+
+// What a firing showed is nothing to wait for once the firing is gone, or
+// once the auto-arm has reported its own failure and the block budget must
+// charge.
+func TestArmingIsNotWaitedForOnceItsFiringIsGoneOrItsFailureIsReported(t *testing.T) {
+	t.Run("the firing is gone and its file is still there", func(t *testing.T) {
+		// Arrange
+		dir := t.TempDir()
+		touchFile(t, filepath.Join(dir, armingFile))
+
+		// Act
+		isArming := AutoarmArming(dir)
+
+		// Assert
+		if isArming {
+			t.Error("a file no firing holds reads as arming")
+		}
+	})
+	t.Run("the auto-arm reported its failure", func(t *testing.T) {
+		// Arrange
+		dir := t.TempDir()
+		ShowArming(dir)
+		t.Cleanup(func() { StopArming(dir) })
+		if err := MarkNotified(dir); err != nil {
+			t.Fatal(err)
+		}
+
+		// Act
+		isArming := AutoarmArming(dir)
+
+		// Assert
+		if isArming {
+			t.Error("a firing arming during a reported failure reads as arming, which would hold up the block budget")
+		}
+	})
+}

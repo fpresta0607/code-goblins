@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"os"
 	"strings"
+	"sync/atomic"
 	"syscall"
 	"time"
 	"unsafe"
@@ -40,10 +41,20 @@ type snapshotEntry struct {
 	start     time.Time
 }
 
+// lists counts the system process lists this process has taken.
+var lists atomic.Int64
+
+// Lists is how many times this process has listed the machine's processes so
+// far, which every walk of a process's parents does once. A test holds a path
+// that runs before every tool call to none: a list took 3.5 ms on a quiet
+// machine and 20 to 70 ms beside a build.
+func Lists() int64 { return lists.Load() }
+
 // snapshotProcesses returns every running process keyed by PID, from one
 // system process list, which needs no handle to any process and carries each
 // one's creation time.
 func snapshotProcesses() (map[uint32]snapshotEntry, error) {
+	lists.Add(1)
 	buffer := make([]byte, 1<<20)
 	for {
 		var needed uint32

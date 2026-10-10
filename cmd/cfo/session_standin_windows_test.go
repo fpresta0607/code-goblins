@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -44,6 +45,9 @@ type sessionRequest struct {
 	Args  []string          `json:"args"`
 	Stdin string            `json:"stdin"`
 	Env   map[string]string `json:"env,omitempty"`
+	// StdinAfter is how long the harness takes to hand the command its
+	// stdin, as a loaded harness hands a hook its payload late.
+	StdinAfter time.Duration `json:"stdin_after,omitempty"`
 }
 
 // sessionResponse is how that command ended, and how long the harness waited
@@ -102,6 +106,15 @@ func serveSessionRequest(cli, name string) {
 	}
 	command := exec.Command(cli, request.Args...)
 	command.Stdin = strings.NewReader(request.Stdin)
+	if request.StdinAfter > 0 {
+		late, hand := io.Pipe()
+		go func() {
+			time.Sleep(request.StdinAfter)
+			_, _ = io.WriteString(hand, request.Stdin)
+			_ = hand.Close()
+		}()
+		command.Stdin = late
+	}
 	command.Env = os.Environ()
 	for key, value := range request.Env {
 		command.Env = append(command.Env, key+"="+value)
@@ -283,13 +296,19 @@ func startOtherSession(t *testing.T, h home.Home) *standInSession {
 // reports a failure rather than ending the test, for a caller that is not on
 // the test's goroutine.
 func (s *standInSession) ask(env map[string]string, stdin string, args ...string) (func(limit time.Duration) (sessionResponse, bool, error), error) {
+	return s.request(sessionRequest{Args: args, Stdin: stdin, Env: env})
+}
+
+// request is ask for a request the caller made whole.
+func (s *standInSession) request(request sessionRequest) (func(limit time.Duration) (sessionResponse, bool, error), error) {
+	args := request.Args
 	folder := filepath.Join(s.dir, sessionRequests)
 	if err := os.MkdirAll(folder, 0o700); err != nil {
 		return nil, err
 	}
 	s.asked++
 	name := fmt.Sprintf("%03d", s.asked)
-	data, err := json.Marshal(sessionRequest{Args: args, Stdin: stdin, Env: env})
+	data, err := json.Marshal(request)
 	if err != nil {
 		return nil, err
 	}

@@ -3,7 +3,6 @@ package main
 import (
 	"errors"
 	"fmt"
-	"maps"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -16,7 +15,7 @@ import (
 
 	"github.com/fpresta0607/code-goblins/internal/fsx"
 	"github.com/fpresta0607/code-goblins/internal/lock"
-	"github.com/fpresta0607/code-goblins/internal/reap"
+	"github.com/fpresta0607/code-goblins/internal/supervise"
 	"github.com/fpresta0607/code-goblins/internal/wake"
 )
 
@@ -118,16 +117,7 @@ func TestEveryWakeReachesTheCFOOnceWhileADozenSessionsFireTheirHooks(t *testing.
 	// Arrange
 	h := scratchHome(t)
 	writeMetaFixture(t, h.State, "g1.meta")
-	// A watcher's first cycle sweeps the whole machine for orphans, and to
-	// this scratch home a stand-in harness another goblin's test runs beside
-	// it is one: its wake reached the CFO before the goblin's report in two
-	// runs of two while such a test ran. This home has swept, and its watcher
-	// is not due to sweep again while the test runs.
-	if err := reap.WriteRecord(h.State, reap.Record{Time: time.Now().UTC()}); err != nil {
-		t.Fatal(err)
-	}
-	waits := maps.Clone(stopWaits)
-	waits["CFO_REAP_EVERY"] = "86400"
+	waits := sweptStopWaits(t, h.State)
 	others := make([]*standInSession, loadSessions-1)
 	for at := range others {
 		others[at] = startOtherSession(t, h)
@@ -201,10 +191,21 @@ func TestEveryWakeReachesTheCFOOnceWhileADozenSessionsFireTheirHooks(t *testing.
 		ended := time.Now()
 		guard := cfo.begin(t, waits, own["stop"], "hook", "turnend-guard")
 		armed := cfo.begin(t, waits, own["stop"], "hook", "stop-autoarm")
+		// The hook shows it is arming first, and is armed once it holds the
+		// auto-arm lock: the guard waits for the first and decides on the
+		// second.
 		arming := make(chan time.Duration, 1)
 		go func() {
+			shown := time.Duration(0)
 			for deadline := ended.Add(30 * time.Second); time.Now().Before(deadline); time.Sleep(10 * time.Millisecond) {
+				if shown == 0 && supervise.AutoarmArming(h.State) {
+					shown = time.Since(ended)
+				}
 				if _, err := lock.ReadNamed(h.State, autoarmLockName); err == nil {
+					if shown == 0 {
+						shown = time.Since(ended)
+					}
+					load.record("the CFO's stop-autoarm, from the turn's end to showing it arms", shown)
 					arming <- time.Since(ended)
 					return
 				}
