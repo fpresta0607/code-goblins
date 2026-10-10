@@ -7,7 +7,8 @@ import (
 	"strings"
 )
 
-// halve answers a red run: with one rider, that rider broke it; with more,
+// halve answers a run whose failure stands, red a second time once its
+// failed checks ran again: with one rider, that rider broke it; with more,
 // the first half rides again alone and the rest wait. Cars that were waiting
 // already leave the train untested, since the red half holds the culprit.
 // While the base's own push CI is red at the commit the run was built on,
@@ -18,6 +19,9 @@ func (e Engine) halve(ctx context.Context, t *Train, failed []Check) error {
 	red, err := e.redOnBase(ctx, *t)
 	if err != nil {
 		return err
+	}
+	if run := t.openRun(); run != nil {
+		run.Failed = failedChecks(failed)
 	}
 	t.endRun(RunFailed, firstLink(failed))
 	if red != "" {

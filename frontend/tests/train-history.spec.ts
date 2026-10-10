@@ -37,6 +37,10 @@ const LANDED = {
   earlier: [FAILED],
 };
 const RETRYING = { ...LANDED, state: "testing", finished: "", cars: LANDED.cars.slice(0, 2).map((each) => ({ ...each, state: "riding" })), history: [run(1, [517, 519], "", 5)] };
+// The train of 2026-10-10 as it should have gone: one check failed by
+// chance, its failed jobs ran again and passed, and the train landed.
+const CHANCE = { name: "go (conpty)", link: REPO + "/actions/runs/38033453853/job/114158952237" };
+const SECOND_TRY = { ...LANDED, earlier: [], cars: LANDED.cars.slice(0, 2), history: [{ ...run(1, [517, 519], "landed", 45), failed_once: [CHANCE] }] };
 const TASKS = [
   untilMerged("cg-rosie", "Rosie", "Inline Editor", "Edit a task inline", 517),
   untilMerged("cg-wes", "Wes", "Train Conductor", "One testing state", 519),
@@ -147,6 +151,25 @@ for (const viewport of [{ name: "in his window", width: 1707, height: 1067 }, { 
       await expect(panel(page).getByRole("region", { name: "Runs" }).locator(".train-panel-run")).toHaveText([/Run 1.*Main moved/, /Run 2.*Main moved/, /Run 3.*Main moved/, /Run 4.*#517.*#519.*Testing/]);
       await expect(card(page, "Rosie - Inline Editor").locator(".card-status-text")).toHaveText("Testing");
       await expect(column(page, "Completed").locator(".train-card")).toHaveCount(0);
+    });
+
+    test("a run that landed on its second try says so in the train's panel, the check that failed once one tap away", async ({ page }) => {
+      // Arrange
+      await open(page, [SECOND_TRY]);
+
+      // Act
+      await column(page, "Completed").locator(".train-card .train-title").click();
+
+      // Assert
+      await expect(panel(page).locator(".panel-status")).toHaveText("Landed");
+      const runs = panel(page).getByRole("region", { name: "Runs" }).locator(".train-panel-run");
+      await expect(runs).toHaveText([/Run 1.*#517.*#519.*Landed on the second try.*Failed once.*go \(conpty\)/]);
+      await expect(runs.locator(".train-panel-state")).toHaveClass(/train-passed/);
+      await expect(runs.locator("a.train-panel-check")).toHaveAttribute("href", CHANCE.link);
+      const chip = await runs.locator("a.train-panel-check").boundingBox(), row = await runs.boundingBox();
+      expect(chip && row && chip.x >= row.x && chip.x + chip.width <= row.x + row.width && chip.height >= 32).toBe(true);
+      expect(await colours(panel(page))).not.toContain(AMBER);
+      expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
     });
   });
 }

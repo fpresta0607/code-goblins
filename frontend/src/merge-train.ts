@@ -16,8 +16,12 @@ export interface CarLook { label: string; url: string; text: string; tone: Tone;
 // RunLook is how one CI run of a train shows in its panel: its number among
 // the runs of its batch, the pull requests it tested, how it ended in its
 // tone, and the page that shows it, its first failed check's when it was red
-// and else its train's pull request.
-export interface RunLook { number: number; riders: number[]; text: string; tone: Tone; url: string }
+// and else its train's pull request. once are the checks that were red on
+// its first try, when its failed checks ran again, each with that try's page.
+export interface RunLook { number: number; riders: number[]; text: string; tone: Tone; url: string; once: CheckLook[] }
+
+// CheckLook is how a check that failed shows: its name and its page.
+export interface CheckLook { name: string; url: string }
 
 const numbers = (cars: TrainCar[]) => cars.map((car) => "#" + car.number).join(", ");
 const capital = (text: string) => text.charAt(0).toUpperCase() + text.slice(1);
@@ -35,7 +39,9 @@ export function trainLook(train: MergeTrain): TrainLook {
   const onRun = runs > 1 ? " on run " + runs : "";
   if (train.state === "testing") {
     const riding = train.cars.filter((car) => car.state === "riding");
-    return { text: `CI tests ${numbers(riding)}` + (runs > 1 ? `, run ${runs}` : ""), tone: "pending", url };
+    const open = train.history.at(-1);
+    const again = open?.result === "" && open.failed_once.length > 0 ? " again" : "";
+    return { text: `CI tests ${numbers(riding)}${again}` + (runs > 1 ? `, run ${runs}` : ""), tone: "pending", url };
   }
   if (train.cars.some((car) => car.state === "landed")) return { text: "Landed" + onRun, tone: "passed", url };
   const culprits = train.cars.filter((car) => car.state === "culprit");
@@ -94,6 +100,14 @@ const RUN_WORDS: Record<string, [string, Tone]> = {
   stopped: ["Stopped", "cancelled"],
 };
 
+// How a run whose failed checks ran again stands or ended: a check can fail
+// by chance, so a run is red only once it was red twice.
+const SECOND_TRY_WORDS: Record<string, [string, Tone]> = {
+  "": ["Trying again", "pending"],
+  landed: ["Landed on the second try", "passed"],
+  failed: ["Failed twice", "failed"],
+};
+
 // batchRuns are the CI runs of a train's batch, oldest first, numbered on
 // from the trains it took on.
 export function batchRuns(train: MergeTrain): RunLook[] {
@@ -102,8 +116,12 @@ export function batchRuns(train: MergeTrain): RunLook[] {
     const offset = before;
     before += each.runs;
     return each.history.map((run) => {
-      const [text, tone] = run.result === "moved" ? [capital(each.base) + " moved", "cancelled" as const] : RUN_WORDS[run.result] ?? [run.result, "cancelled"];
-      return { number: offset + run.number, riders: run.riders, text, tone, url: run.result === "failed" && safeGitHubLink(run.link) || safeGitHubLink(each.pr) };
+      const words: [string, Tone] = run.failed_once.length > 0 && SECOND_TRY_WORDS[run.result] || RUN_WORDS[run.result] || [run.result, "cancelled"];
+      const [text, tone] = run.result === "moved" ? [capital(each.base) + " moved", "cancelled" as const] : words;
+      return {
+        number: offset + run.number, riders: run.riders, text, tone, url: run.result === "failed" && safeGitHubLink(run.link) || safeGitHubLink(each.pr),
+        once: run.failed_once.map((check) => ({ name: check.name, url: safeGitHubLink(check.link) })),
+      };
     });
   });
 }
