@@ -414,7 +414,7 @@ func installAgent(ctx context.Context, id string, stdout, stderr io.Writer) erro
 		if err != nil {
 			return err
 		}
-		defer os.Remove(script)
+		defer fsx.Remove(script)
 		if err := runInConsole(stdout, stderr, heading, "powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", script); err != nil {
 			return err
 		}
@@ -451,7 +451,7 @@ func downloadInstaller(ctx context.Context, address string) (string, error) {
 		err = closeErr
 	}
 	if err != nil {
-		_ = os.Remove(file.Name())
+		_ = fsx.Remove(file.Name())
 		return "", fmt.Errorf("save %s: %w", address, err)
 	}
 	return file.Name(), nil

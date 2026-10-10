@@ -192,6 +192,8 @@ type noMistakesSetup struct {
 	staleWindow bool
 	// env is added to the install's environment.
 	env []string
+	// scanner holds a file of the install's own open while it runs.
+	scanner *scanner
 }
 
 // noMistakesInstall is one run of the one-line install with no-mistakes'
@@ -253,7 +255,13 @@ func runInstallWithNoMistakes(t *testing.T, shell, releases string, setup noMist
 		setup.seed(local)
 	}
 
+	if setup.scanner != nil {
+		setup.scanner.start(temp, record)
+	}
 	output, _ := cmd.CombinedOutput()
+	if setup.scanner != nil {
+		setup.scanner.letGo()
+	}
 
 	recorded, err := os.ReadFile(record)
 	if err != nil && !os.IsNotExist(err) {

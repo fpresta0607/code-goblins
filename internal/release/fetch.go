@@ -14,6 +14,8 @@ import (
 	"path/filepath"
 	"regexp"
 	"strings"
+
+	"github.com/fpresta0607/code-goblins/internal/fsx"
 )
 
 // Program and Window are the programs an update installs: the one program
@@ -54,9 +56,11 @@ var publisherLine = regexp.MustCompile(`(?m)^\s*\$releasePublisher = "([^"\r\n]*
 // the publisher its install.ps1 names, before it keeps any program: each
 // must match its sum, and, where a publisher is named, carry a valid
 // signature by that publisher, read with signedBy. Anything that stops it
-// removes dir, so a refused release leaves nothing to run.
+// removes dir, so a refused release leaves nothing to run. A virus scanner
+// can still be reading a program just downloaded, so each removal is tried
+// again for a few seconds.
 func Fetch(ctx context.Context, client *http.Client, source Source, r Release, dir string, signedBy SignatureReader, checking func()) (download Download, err error) {
-	if err := os.RemoveAll(dir); err != nil {
+	if err := fsx.RemoveAll(dir); err != nil {
 		return Download{}, err
 	}
 	if err := os.MkdirAll(dir, 0o700); err != nil {
@@ -64,7 +68,7 @@ func Fetch(ctx context.Context, client *http.Client, source Source, r Release, d
 	}
 	defer func() {
 		if err != nil {
-			_ = os.RemoveAll(dir)
+			_ = fsx.RemoveAll(dir)
 		}
 	}()
 	sums, err := fetchText(ctx, client, source, r, "SHA256SUMS", maxSums)
