@@ -33,6 +33,7 @@ In a slow package, run the tests you changed by name, such as `go test ./interna
 
 CI runs the same steps on `windows-latest` for every push to `main` and every pull request, as parallel jobs: the frontend checks, the board's browser tests in four jobs, each slow Go package (some in two jobs), and every other package together.
 A pull request must keep all of them green: the one required check, `test`, passes only when every job passed.
+A test that fails in CI runs once more in its job (`tools/citest` for Go, Playwright's own retry for the browser tests): one that passes then is named as a Failed once warning on the `test` check, and one that fails twice fails the job, so fix a test named there rather than leaning on its second try.
 A new package needs no change to `.github/workflows/go.yml`, because the `rest` job tests every package no other job names.
 A new browser spec needs none either: Playwright deals the spec files out among the browser jobs, and one more number in that job's `shard` list is one more job when they grow slower than the slowest Go job.
 
