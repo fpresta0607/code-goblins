@@ -11,13 +11,42 @@ import (
 	"testing"
 
 	"github.com/fpresta0607/code-goblins/internal/gatetest"
+	"github.com/fpresta0607/code-goblins/internal/train"
 	"gopkg.in/yaml.v3"
 )
 
 // ownRun is how the go workflow says a run is a pull request's own: the only
 // kind of run that may leave a job out. A merge train's run comes from a
-// branch named cfo/train-, whatever event starts it.
-const ownRun = "${{ github.event_name == 'pull_request' && !startsWith(github.head_ref, 'cfo/train-') }}"
+// branch the train names with its own prefix, whatever event starts it, so
+// the expression is built from that prefix and from nothing written twice.
+const ownRun = "${{ github.event_name == 'pull_request' && !startsWith(github.head_ref, '" + train.BranchPrefix + "') }}"
+
+// The workflow knows a merge train's run by the start of its branch's name,
+// which is text in a YAML file, while the train names its branches from a
+// constant of its own. Nothing but this ties the two: were the prefix ever
+// renamed in one place, a train's run would read as a pull request's own,
+// could leave jobs out, and every check would still pass. So each place the
+// workflow tells the two kinds of run apart holds exactly the train's
+// prefix, and the workflow names that prefix nowhere else in an expression.
+func TestGoWorkflowKnowsATrainsRunByTheTrainsOwnBranchPrefix(t *testing.T) {
+	// Arrange
+	source, err := os.ReadFile(filepath.Join(".github", "workflows", "go.yml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if train.BranchPrefix == "" {
+		t.Fatal("the train names its branches with no prefix, so no run could be told from a pull request's own")
+	}
+
+	// Act
+	told := strings.Count(string(source), "startsWith(github.head_ref,")
+	holds := strings.Count(string(source), ownRun)
+
+	// Assert
+	if told != 2 || holds != 2 {
+		t.Errorf("the go workflow tells a train's run by its branch %d times, %d of them as %q: want the plan job and the test job, both by the train's own prefix %q", told, holds, ownRun, train.BranchPrefix)
+	}
+}
 
 // The plan job says which jobs a run starts, and each other job starts only
 // as it says. A job that did not wait for the plan, or read another job's
