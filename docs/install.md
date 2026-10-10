@@ -94,6 +94,17 @@ Anything else in that folder is left where it is, and so is the window's WebView
 An install that only retains the home's existing window keeps the standalone program, picture, folder and Start-menu entry unchanged.
 When it adopts the standalone copy's existing Start at login entry, that entry runs the home's `goblins --window --background`.
 
+### What it leaves in your temp folder
+
+The install keeps one file in your temp folder, its log, `CodeGoblinsInstall.log`, which its last line names.
+Everything else it makes there it removes: the release it downloads, the no-mistakes archive, each installer it saves to a file, and the folder the setup downloads the install script to.
+A virus scanner can still be reading a file it just saw, and Windows keeps a program for a moment after it ran, so a removal that fails at first is tried again as the install ends, for up to ten seconds.
+A folder that is still held then never fails the install.
+One `Note:` line names it, and it is safe to delete.
+The setup says the same of its own folder in the log.
+The setup's window keeps one more folder there, `CodeGoblinsSetup`, the profile its WebView2 needs.
+It stays until the temp folder is cleared, and it is safe to delete once the setup has closed.
+
 ## The quick start
 
 `goblins` with no command is the quick start, from any folder, and it waits on you one step at a time: each shows its default marked, Enter continues, the arrows choose and Esc goes back.

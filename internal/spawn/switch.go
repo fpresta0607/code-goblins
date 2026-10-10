@@ -202,16 +202,16 @@ func (s Service) Switch(ctx context.Context, req SwitchRequest) (result SwitchRe
 	if err != nil {
 		return SwitchResult{}, fmt.Errorf("switch: %w", err)
 	}
-	// A relaunch reuses the task's own scratch folder and recreates it if it
-	// is missing; cleanup removes it with the task. Both the path and the
-	// folder are knowable now - an unwritable one is a fleet-wide
-	// misconfiguration, and discovering it after the stop would leave the
-	// goblin with no harness.
+	// A relaunch reuses the task's own scratch folder and recreates it, and
+	// the shared folder beside it, if it is missing; cleanup removes it with
+	// the task. Both the path and the folder are knowable now - an unwritable
+	// one is a fleet-wide misconfiguration, and discovering it after the stop
+	// would leave the goblin with no harness.
 	scratch, err := state.TaskScratch(s.StateDir, meta)
 	if err != nil {
 		return SwitchResult{}, err
 	}
-	if err := os.MkdirAll(scratch, 0o755); err != nil {
+	if err := createScratch(scratch); err != nil {
 		return SwitchResult{}, fmt.Errorf("switch: create the task's scratch folder: %w", err)
 	}
 	briefPath := meta.Brief

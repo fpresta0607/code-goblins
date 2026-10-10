@@ -15,6 +15,7 @@ import (
 	"github.com/fpresta0607/code-goblins/internal/auth"
 	"github.com/fpresta0607/code-goblins/internal/execx"
 	"github.com/fpresta0607/code-goblins/internal/harness"
+	"github.com/fpresta0607/code-goblins/internal/home"
 	"github.com/fpresta0607/code-goblins/internal/host"
 	"github.com/fpresta0607/code-goblins/internal/state"
 	"github.com/fpresta0607/code-goblins/internal/worktree"
@@ -632,7 +633,8 @@ func TestSwitchRefusesAScratchFolderItCannotMakeBeforeStoppingTheHarness(t *test
 }
 
 // A task spawned with a scratch folder relaunches into it, recreated, with
-// TEMP and TMP naming it as GOTMPDIR does.
+// TEMP and TMPDIR naming it as GOTMPDIR does, and with TMP naming the shared
+// folder beside it, recreated too.
 func TestSwitchRelaunchesIntoTheTasksScratchFolder(t *testing.T) {
 	f := newSwitchFixture(t, harness.Control{StopCommand: "/exit"})
 	scratch := filepath.Join(filepath.Dir(f.stateDir), "scratch", f.meta.ID)
@@ -646,13 +648,19 @@ func TestSwitchRelaunchesIntoTheTasksScratchFolder(t *testing.T) {
 	}
 
 	env := named(f.events(t), "env")[0].Env
-	for _, name := range []string{"GOTMPDIR", "TEMP", "TMP"} {
+	for _, name := range []string{"GOTMPDIR", "TEMP", "TMPDIR"} {
 		if got := env[name]; got == nil || *got != scratch {
 			t.Errorf("the new harness started with %s = %v, want the task's scratch %q", name, got, scratch)
 		}
 	}
-	if info, err := os.Stat(scratch); err != nil || !info.IsDir() {
-		t.Errorf("stat %q = %v, %v, want the relaunch to have made the folder", scratch, info, err)
+	sharedTemp := home.SharedTempBeside(scratch)
+	if got := env["TMP"]; got == nil || *got != sharedTemp {
+		t.Errorf("the new harness started with TMP = %v, want the shared folder %q", got, sharedTemp)
+	}
+	for _, folder := range []string{scratch, sharedTemp} {
+		if info, err := os.Stat(folder); err != nil || !info.IsDir() {
+			t.Errorf("stat %q = %v, %v, want the relaunch to have made the folder", folder, info, err)
+		}
 	}
 }
 

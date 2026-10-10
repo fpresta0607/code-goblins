@@ -50,7 +50,7 @@ type TaskMeta struct {
 	GoblinName  string
 	GoblinTitle string
 	// Scratch is the task's scratch folder under the home, which its pane's
-	// TEMP, TMP and GOTMPDIR name and which goes with the task. A task an
+	// TEMP, TMPDIR and GOTMPDIR name and which goes with the task. A task an
 	// older build spawned has none; its Go temporary directory is
 	// GoTmpDir's.
 	Scratch string
@@ -187,7 +187,7 @@ func GoTmpDir(stateDir, id string) (string, error) {
 	return filepath.Join(cache, "cfo", "gotmp", fleet, id), nil
 }
 
-// TaskScratch is the folder a task's pane's TEMP, TMP and GOTMPDIR name: the
+// TaskScratch is the folder a task's pane's TEMP, TMPDIR and GOTMPDIR name: the
 // scratch folder its record names, or, for a task an older build spawned with
 // none, its Go temporary directory, which is where that build pointed
 // GOTMPDIR.
