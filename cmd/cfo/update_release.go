@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/fpresta0607/code-goblins/internal/execx"
+	"github.com/fpresta0607/code-goblins/internal/fsx"
 	"github.com/fpresta0607/code-goblins/internal/home"
 	"github.com/fpresta0607/code-goblins/internal/lock"
 	"github.com/fpresta0607/code-goblins/internal/proc"
@@ -162,8 +163,9 @@ func releaseUpdate(h home.Home, check bool, to, pressed string, stdout, stderr i
 		return 1
 	}
 	// The download leaves once the build it holds has run its update; what
-	// that update keeps for its way back is its own copy.
-	defer os.RemoveAll(dir)
+	// that update keeps for its way back is its own copy. Windows keeps a
+	// program for a moment after it ran, so the removal is tried again.
+	defer fsx.RemoveAll(dir)
 	for _, name := range []string{release.Program, release.Window} {
 		if sum, ok := download.Sums[name]; ok {
 			fmt.Fprintf(stdout, "      %s matches the release's SHA256SUMS: %s\n", name, sum)

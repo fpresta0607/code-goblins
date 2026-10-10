@@ -109,7 +109,7 @@ func (s Setup) Install(ctx context.Context, report func(Progress)) error {
 	if err != nil {
 		return s.fail("Setup could not make a folder in the temp folder; free some disk space, then try again.", err)
 	}
-	defer os.RemoveAll(folder)
+	defer s.remove(folder)
 	script := filepath.Join(folder, "install.ps1")
 	s.keep("Downloading the install script from " + s.Script)
 	if err := s.download(ctx, script); err != nil {
@@ -132,7 +132,11 @@ func (s Setup) Install(ctx context.Context, report func(Progress)) error {
 		arguments = append(arguments, "-NoDevDrive")
 	}
 	command := execx.CommandContext(ctx, s.Shell, arguments...)
-	command.Dir = folder
+	// The script runs in the temp folder itself, never in folder: a program
+	// the install leaves running, as it leaves the no-mistakes daemon, runs
+	// in the folder its starter ran in, and Windows removes no folder a
+	// program runs in.
+	command.Dir = os.TempDir()
 	environment := s.Env
 	if environment == nil {
 		environment = os.Environ()
@@ -179,6 +183,16 @@ func (s Setup) Install(ctx context.Context, report func(Progress)) error {
 		return s.fail("The install stopped before it finished; Show details says where, and Try again picks up from there.", err)
 	}
 	return nil
+}
+
+// remove removes the folder the install script was downloaded to. A virus
+// scanner can still be reading the script, so the removal is tried again for
+// a few seconds, and a folder that is there even then is named in the log, so
+// it can be deleted by hand. It never fails an install.
+func (s Setup) remove(folder string) {
+	if err := fsx.RemoveAll(folder); err != nil {
+		s.keep("Setup could not remove " + folder + ", which another program still holds (" + err.Error() + "). It is safe to delete.")
+	}
 }
 
 // readLine reads one line the install script printed: the progress it

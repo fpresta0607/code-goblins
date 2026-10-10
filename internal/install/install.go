@@ -13,6 +13,7 @@ import (
 	"strings"
 
 	"github.com/fpresta0607/code-goblins/internal/execx"
+	"github.com/fpresta0607/code-goblins/internal/fsx"
 	"github.com/fpresta0607/code-goblins/internal/harnessmap"
 	"github.com/fpresta0607/code-goblins/internal/home"
 	"github.com/fpresta0607/code-goblins/internal/nativehook"
@@ -216,10 +217,10 @@ func (s Service) removeDictation(report *reporter) error {
 		return fmt.Errorf("install: remove dictation's speech engine and model in %s: %w", dir, err)
 	}
 	if err := os.Rename(dir, filepath.Join(aside, filepath.Base(dir))); err != nil {
-		_ = os.Remove(aside)
+		_ = fsx.Remove(aside)
 		return fmt.Errorf("install: dictation's speech engine in %s is in use, so nothing was removed; quit Code Goblins with goblins stop, then run the uninstall again: %w", dir, err)
 	}
-	if err := os.RemoveAll(aside); err != nil {
+	if err := fsx.RemoveAll(aside); err != nil {
 		return fmt.Errorf("install: remove dictation's speech engine and model, moved to %s: %w", aside, err)
 	}
 	report.change("dictation", "removed dictation's speech engine and model in "+dir)
