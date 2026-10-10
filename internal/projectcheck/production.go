@@ -3,11 +3,14 @@ package projectcheck
 import (
 	"bytes"
 	"context"
+	"encoding/base64"
+	"encoding/json"
 	"fmt"
 	"net/url"
 	"path"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"strings"
 
 	"github.com/fpresta0607/code-goblins/internal/auth"
@@ -46,8 +49,7 @@ func productionValue(name, value string) string {
 		return liveKey
 	case strings.HasPrefix(value, "sk_test_"), strings.HasPrefix(value, "rk_test_"):
 		return ""
-	case strings.HasPrefix(value, "pk_"), strings.Contains(upper, "PUBLISHABLE"), strings.Contains(upper, "PUBLIC"):
-		// A publishable key is handed to every browser by design.
+	case publishable(name, value):
 		return ""
 	case environmentSelectors[upper]:
 		if lower == "production" || lower == "prod" || lower == "live" {
@@ -66,6 +68,76 @@ func productionValue(name, value string) string {
 		return realCredential
 	}
 	return ""
+}
+
+// publishablePrefixes start a key a service issues for browsers: Stripe's
+// and Supabase's publishable keys and Mapbox's public token.
+var publishablePrefixes = []string{"pk_", "pk.", "sb_publishable_"}
+
+// secretPrefixes start a key that is secret whatever variable holds it.
+var secretPrefixes = []string{"sk_", "rk_", "sk-", "whsec_", "sb_secret_", "sbp_", "ghp_", "github_pat_", "glpat-", "-----BEGIN"}
+
+// bundledPrefixes start the name of a variable a bundler ships to the
+// browser by its own rule, whatever the rest of the name says.
+var bundledPrefixes = []string{"VITE_", "REACT_APP_", "GATSBY_"}
+
+// publishable reports whether a variable holds a key every browser is handed
+// by design, which is no credential. The value is asked first, since it can
+// say what a name cannot: a key that starts the way a secret one does, or
+// whose own payload names a role other than anon, is a secret filed under a
+// publishable name. Where the value says nothing, the name decides.
+func publishable(name, value string) bool {
+	switch role := tokenRole(value); {
+	case role == "anon":
+		return true
+	case role != "":
+		return false
+	}
+	for _, prefix := range secretPrefixes {
+		if strings.HasPrefix(value, prefix) {
+			return false
+		}
+	}
+	for _, prefix := range publishablePrefixes {
+		if strings.HasPrefix(value, prefix) {
+			return true
+		}
+	}
+	return publishableName(name)
+}
+
+// publishableName reports whether a variable is named as a key handed to
+// browsers: public or publishable by a word of its name, an anon key, or
+// under a prefix a bundler ships to the browser.
+func publishableName(name string) bool {
+	upper := strings.ToUpper(name)
+	for _, prefix := range bundledPrefixes {
+		if strings.HasPrefix(upper, prefix) {
+			return true
+		}
+	}
+	return strings.Contains(upper, "PUBLISHABLE") || strings.Contains(upper, "PUBLIC") || slices.Contains(strings.Split(upper, "_"), "ANON")
+}
+
+// tokenRole returns the role a JSON Web Token's payload names, as a Supabase
+// key's does, or "" for a value that is no such token. Nothing else of the
+// value is read.
+func tokenRole(value string) string {
+	parts := strings.Split(value, ".")
+	if len(parts) != 3 {
+		return ""
+	}
+	payload, err := base64.RawURLEncoding.DecodeString(strings.TrimRight(parts[1], "="))
+	if err != nil {
+		return ""
+	}
+	var claims struct {
+		Role string `json:"role"`
+	}
+	if json.Unmarshal(payload, &claims) != nil {
+		return ""
+	}
+	return claims.Role
 }
 
 // localHost reports whether a URL names this machine or a service beside
