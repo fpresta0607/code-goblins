@@ -50,6 +50,9 @@ This skill is the part a command cannot do: prove the project's commands by runn
    - Run a build or a lint for real only when it is cheap and writes nothing outside the folder it runs in.
    - Run no test while the report holds a `test-reaches-production` line.
      Record the command as not run and say why.
+   - Run no build, no script and no development server while the report holds a `worktree-holds-production` line.
+     That line names what loads the env file, and those are the commands that would read production through it.
+     A test the line says does not load the file may be run.
    - Run no test while the report holds a `terminal-reaches-production` line that names a credential your own terminal carries.
      Your terminal carries the services your brief names on its `credentials:` line, or with no such line the ones the line says every task carries.
      Record the command as not run and say why.
@@ -68,6 +71,11 @@ This skill is the part a command cannot do: prove the project's commands by runn
    - `test-reaches-production`: open the test setup files and the gate's test command the line names, and say for each variable left on the line whether a rule clears it.
      The check reads names, so a setup that clears variables by a rule is not seen.
      Say what you found and keep the line in the report either way.
+   - `worktree-holds-production`: no test loads the file as far as the command can tell, and the line says what does.
+     Open one or two of the files it names and say what they do with the file, such as write to a production database.
+   - `test-env-examined` names each variable whose value the rules passed over, under why.
+     Every count on these lines is a floor, so read those names and say which of them you would count, by the name alone.
+     Never open the env file to settle it.
    - `terminal-reaches-production`: the line names each variable a task's terminal would carry beside the first tracked file that reads it.
      Open that file and say whether a test run reaches it, and say for each service whether a task should carry it by default or only when its brief names it.
      The check never opens the credential store, so say that whether each variable is stored, and whether its value is a test one, is not established.

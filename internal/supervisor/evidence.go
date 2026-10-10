@@ -122,7 +122,11 @@ func GitMergedPRs(repos []string) func(context.Context, time.Time) ([]MergedPR, 
 // costs one call per repository, not one per merge. A checkout is read with
 // git only when refStamp says a fetch or a remote change rewrote its git
 // files; until then the scan uses the merges it read last, so a refresh with
-// nothing new runs no git at all.
+// nothing new runs no git at all. A listing or a read of a repository's
+// merges that fails is made again at a later scan, and is returned only once
+// it failed on failingPasses scans in a row: one that ran out of time once,
+// as reads did while a drive was stalled on 2026-10-10, says nothing of the
+// repository.
 func gitMergedPRs(repos []string, heads func(ctx context.Context, repo string) (map[string]string, error), now func() time.Time) func(context.Context, time.Time) ([]MergedPR, error) {
 	type listing struct {
 		heads map[string]string
@@ -142,13 +146,25 @@ func gitMergedPRs(repos []string, heads func(ctx context.Context, repo string) (
 		merges        []merge
 	}
 	checkouts := map[string]checkout{}
+	// failing counts the scans in a row on which each read failed.
+	failing := map[string]int{}
+	keepsFailing := func(read string, err error) error {
+		if err == nil {
+			delete(failing, read)
+			return nil
+		}
+		if failing[read]++; failing[read] < failingPasses {
+			return nil
+		}
+		return err
+	}
 	return func(ctx context.Context, since time.Time) ([]MergedPR, error) {
 		var errs error
 		publishes := func(repo, number, head string) bool {
 			known, ok := listings[repo]
 			if !ok || known.heads[number] != head && now().Sub(known.at) >= pullHeadsRecheck {
 				fresh, err := heads(ctx, repo)
-				errs = errors.Join(errs, err)
+				errs = errors.Join(errs, keepsFailing("heads:"+repo, err))
 				if err == nil {
 					known.heads = fresh
 				}
@@ -207,8 +223,8 @@ func gitMergedPRs(repos []string, heads func(ctx context.Context, repo string) (
 			current := ok && !since.Before(known.since) && (known.common != "" && refStamp(known.common) == known.stamp || known.common == "" && now().Sub(known.read) < originRecheck)
 			if !current {
 				var err error
-				if known, err = read(repo); err != nil {
-					errs = errors.Join(errs, err)
+				known, err = read(repo)
+				if errs = errors.Join(errs, keepsFailing("merges:"+repo, err)); err != nil {
 					delete(checkouts, repo)
 					continue
 				}

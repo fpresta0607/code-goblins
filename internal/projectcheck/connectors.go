@@ -354,16 +354,27 @@ func (c *checker) credentialNeeds(ctx context.Context) (needs, error) {
 
 // credentialParts are the words that end the name of a variable holding a
 // credential.
-var credentialParts = map[string]bool{"KEY": true, "TOKEN": true, "SECRET": true, "PASSWORD": true, "DSN": true, "CREDENTIALS": true}
+var credentialParts = map[string]bool{
+	"KEY": true, "TOKEN": true, "SECRET": true, "DSN": true, "CREDENTIALS": true, "CREDENTIAL": true,
+	"PASSWORD": true, "PASS": true, "PASSWD": true, "PWD": true, "PASSPHRASE": true, "PASSCODE": true,
+}
+
+// codeWords are the words that make a name ending in CODE or CODES a
+// credential's, as PILOT_ACCESS_CODES is and ZIP_CODES is not.
+var codeWords = map[string]bool{"ACCESS": true, "AUTH": true, "INVITE": true, "SECURITY": true}
 
 // credentialName reports whether a variable is named like a credential: its
-// last word is one of credentialParts, or it carries an API key or a secret
-// key under a suffix, as OPENROUTER_API_KEY_CHAT does.
+// last word is one of credentialParts, it ends in CODE or CODES after one of
+// codeWords, or it carries an API key or a secret key under a suffix, as
+// OPENROUTER_API_KEY_CHAT does.
 func credentialName(name string) bool {
 	upper := strings.ToUpper(name)
 	parts := strings.Split(upper, "_")
-	if credentialParts[parts[len(parts)-1]] && len(parts) > 1 {
-		return true
+	if len(parts) > 1 {
+		last := parts[len(parts)-1]
+		if credentialParts[last] || ((last == "CODE" || last == "CODES") && codeWords[parts[len(parts)-2]]) {
+			return true
+		}
 	}
 	return strings.Contains(upper, "_API_KEY_") || strings.Contains(upper, "_SECRET_KEY_")
 }
