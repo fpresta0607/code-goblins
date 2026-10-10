@@ -10,8 +10,8 @@ import "./afk.css";
 // The AFK toggle in the CFO panel's header, beside the CFO's status: a small
 // switch with its label, which spins while the supervisor answers. Only the
 // Overlord turns it, which the supervisor proves of the program that asks,
-// and a refusal is shown in full on a row of its own under the header until
-// he closes it. Turning it on asks first. Turning it off needs no question:
+// and a refusal is one short sentence on a row of its own under the header
+// until he closes it. Turning it on asks first. Turning it off needs no question:
 // it only gives him his decisions back, and it is how a switch that cannot be
 // read is reset, which its tip says while it cannot be read.
 // While it is off, the report of the last stretch opens from the button

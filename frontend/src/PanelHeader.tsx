@@ -88,7 +88,7 @@ export function PanelHeader({ task, node, snapshot, compact, onAnswer, onOpenTas
         {!compact && !owner && node && task && <p className="muted">Part of {goblinName(task)}</p>}
         {!compact && said?.sentence && <p className="panel-activity">{said.sentence}</p>}
         {!compact && said && (said.details.length > 0 || said.isFailure || note) && <div className="panel-details-row">
-          <RawDetails lines={said.details} />
+          <RawDetails lines={said.details} isPlain={said.isPlain} />
           <RawDetails lines={note ? [note] : []} label="More" />
           {owner && said.isFailure && !task.archived && <button className="text-button" onClick={onOpenLog}>Open the log</button>}
         </div>}

@@ -17,10 +17,24 @@ const BROWSER_KEY = "cfo-dictation-browser-v1";
 
 // The page's one audio context for dictation, with the capture worklet
 // loaded into it. It is made as the keys are pressed, while the microphone
-// opens, and kept for the next dictation, suspended in between: a worklet
-// loaded only once the microphone was open lost a dictation's first second.
+// opens, and kept for the next dictation: a worklet loaded only once the
+// microphone was open lost a dictation's first second.
 let capturing: Promise<AudioContext> | null = null;
 let recordings = 0;
+
+// The context runs from each key press and is suspended once it has gone
+// this long with no recording, so a dictation that follows another soon
+// finds it running. Suspended at every release, it took a busy PC half a
+// second or more to resume at the next press, in which the bubble said it
+// listened and nothing was recorded, so a short dictation was told as
+// nothing heard.
+const REST_MS = 30_000;
+let resting: ReturnType<typeof setTimeout> | undefined;
+
+function rest(context: AudioContext): void {
+  clearTimeout(resting);
+  resting = setTimeout(() => { if (recordings === 0) void context.suspend(); }, REST_MS);
+}
 
 function captureContext(): Promise<AudioContext> {
   if (!capturing) {
@@ -34,19 +48,25 @@ function captureContext(): Promise<AudioContext> {
 
 // record captures a microphone track's samples as they arrive, through the
 // capture worklet, and hands on each piece of what is said at the model's
-// rate as soon as it ends in a pause. stop asks the worklet for what it still
-// holds and returns what followed the last piece. Nothing but the browser is
-// needed, in a tab or in the desktop app.
+// rate as soon as it ends in a pause. It has begun once its first samples
+// arrive, which a context only just made or resumed takes a while to hand
+// over, though it says at once that it runs. stop asks the worklet for what
+// it still holds and returns what followed the last piece. Nothing but the
+// browser is needed, in a tab or in the desktop app.
 export function record(track: MediaStreamTrack, piece: (sound: Sound) => void): Recording {
   let stopped = false;
   let flushed = () => {};
+  let arrived = () => {};
+  const first = new Promise<void>((resolve) => { arrived = resolve; });
   const capture = captureContext().then((context) => {
     recordings++;
     void context.resume();
     const pieces = new Pieces(context.sampleRate, (sound) => { if (!stopped) piece(downsample(sound, RATE)); });
     const node = new AudioWorkletNode(context, "dictation-capture", { numberOfOutputs: 0 });
     node.port.onmessage = (event: MessageEvent<Float32Array | null>) => {
-      if (event.data) { if (!stopped) pieces.push(event.data); } else flushed();
+      if (!event.data) { flushed(); return; }
+      arrived();
+      if (!stopped) pieces.push(event.data);
     };
     const source = context.createMediaStreamSource(new MediaStream([track]));
     source.connect(node);
@@ -58,10 +78,11 @@ export function record(track: MediaStreamTrack, piece: (sound: Sound) => void): 
     void capture.then(({ context, node, source }) => {
       source.disconnect();
       node.port.close();
-      if (--recordings === 0) void context.suspend();
+      if (--recordings === 0) rest(context);
     }, () => undefined);
   };
   return {
+    began: capture.then(() => first),
     stop: async () => {
       try {
         const { pieces, node } = await capture;
@@ -122,11 +143,12 @@ export function setUsesBrowser(on: boolean): void {
 }
 
 // recognizerFor is the recognizer the next dictation runs on. The board's
-// own starts loading its capture worklet at once, while the microphone opens.
+// own loads its capture worklet and has its context running at once, while
+// the microphone opens.
 export function recognizerFor(instance: () => string): new () => Recognizer {
   const browser = usesBrowser() && speechRecognition();
   if (browser) return browser;
-  void captureContext().catch(() => undefined);
+  void captureContext().then((context) => { void context.resume(); rest(context); }, () => undefined);
   return localRecognizer(record, recogniseWith(instance), warmWith(instance));
 }
 

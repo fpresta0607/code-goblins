@@ -285,13 +285,88 @@ func TestComposeAbsentContext(t *testing.T) {
 	}
 }
 
-func TestComposeReadOnlyOnHeldLock(t *testing.T) {
+// Compose is called for the CFO's own session alone, whose lock it is: a live
+// process that holds it is no CFO, so the digest takes it over and says so.
+func TestComposeTakesTheLockOverFromALiveHolderAndSaysSo(t *testing.T) {
+	// Arrange
+	h := newDigestHome(t)
+	foreign := startLiveForeignProcess(t)
+	foreignPID := foreign.Process.Pid
+	if _, err := lock.AcquireOwner(h.State, foreignPID, "other"); err != nil {
+		t.Fatalf("pre-acquiring the foreign lock: %v", err)
+	}
+	var buf bytes.Buffer
+
+	// Act
+	err := Compose(h, os.Getpid(), "s1", &buf)
+
+	// Assert
+	out := buf.String()
+	if err != nil || !lock.HeldBy(h.State, os.Getpid()) {
+		t.Fatalf("Compose: %v, want this process holding the lock", err)
+	}
+	if strings.Contains(out, readOnlyBannerTitle) {
+		t.Errorf("the digest is read-only though it took the lock over:\n%s", out)
+	}
+	for _, want := range []string{"SESSION LOCK: held by pid " + strconv.Itoa(os.Getpid()), "took the home's session lock over from pid " + strconv.Itoa(foreignPID), lock.AuditFile} {
+		if !strings.Contains(out, want) {
+			t.Errorf("the digest lacks %q:\n%s", want, out)
+		}
+	}
+	if owner, ok := ReadCompleteMarker(h.State); !ok || owner != os.Getpid() {
+		t.Errorf("completion marker = %d, %t, want this process's", owner, ok)
+	}
+}
+
+// A session that is not the CFO's own reads the digest and takes nothing,
+// whether another process holds the lock or nobody does.
+func TestComposeReadOnlyTakesNoLockAndSaysWhy(t *testing.T) {
+	for name, isHeld := range map[string]bool{"a lock nobody holds": false, "a lock a live process holds": true} {
+		t.Run(name, func(t *testing.T) {
+			// Arrange
+			h := newDigestHome(t)
+			if isHeld {
+				if _, err := lock.AcquireOwner(h.State, startLiveForeignProcess(t).Process.Pid, "other"); err != nil {
+					t.Fatal(err)
+				}
+			}
+			before, _ := os.ReadFile(filepath.Join(h.State, ".lock"))
+			var buf bytes.Buffer
+
+			// Act
+			err := ComposeReadOnly(h, "this one runs in no native terminal", &buf)
+
+			// Assert
+			out := buf.String()
+			if err != nil {
+				t.Fatalf("ComposeReadOnly: %v", err)
+			}
+			assertHeaderOrder(t, out, sectionHeaders)
+			if !strings.Contains(out, readOnlyBannerTitle) || !strings.Contains(out, "this one runs in no native terminal") {
+				t.Errorf("the digest lacks the read-only banner or why:\n%s", out)
+			}
+			if after, _ := os.ReadFile(filepath.Join(h.State, ".lock")); !bytes.Equal(before, after) {
+				t.Errorf("the session lock changed from %q to %q", before, after)
+			}
+			if _, ok := ReadCompleteMarker(h.State); ok {
+				t.Error("a read-only digest wrote the completion marker")
+			}
+		})
+	}
+}
+
+// A lock the digest cannot take, here because the takeover cannot be
+// recorded, leaves the digest read-only with the holder named.
+func TestComposeReadOnlyWhereTheLockCannotBeTaken(t *testing.T) {
 	h := newDigestHome(t)
 
 	foreign := startLiveForeignProcess(t)
 	foreignPID := foreign.Process.Pid
 	if _, err := lock.AcquireOwner(h.State, foreignPID, "other"); err != nil {
 		t.Fatalf("pre-acquiring the foreign lock: %v", err)
+	}
+	if err := os.Mkdir(filepath.Join(h.State, lock.AuditFile), 0o700); err != nil {
+		t.Fatal(err)
 	}
 
 	var buf bytes.Buffer

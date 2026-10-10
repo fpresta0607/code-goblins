@@ -7,7 +7,6 @@ import (
 	"errors"
 	"fmt"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"reflect"
 	"strconv"
@@ -261,16 +260,6 @@ func TestRegisterRefusesWhatItCannotProve(t *testing.T) {
 		{"outside a native terminal", "claude", "runs in no native terminal", func(t *testing.T, _ *Store) {
 			t.Setenv(host.IDVariable, "")
 		}},
-		{"another live session holding the home", "claude", "another live session holds this home", func(t *testing.T, store *Store) {
-			other := exec.Command("cmd", "/c", "ping -n 30 127.0.0.1 >NUL")
-			if err := other.Start(); err != nil {
-				t.Fatal(err)
-			}
-			t.Cleanup(func() { _ = other.Process.Kill(); _, _ = other.Process.Wait() })
-			if _, err := lock.AcquireOwner(store.Home.State, other.Process.Pid, "other"); err != nil {
-				t.Fatal(err)
-			}
-		}},
 		// With no harness named, the terminal's program has to be one.
 		{"a program that is no harness", "", "is not a harness the board delivers to", func(*testing.T, *Store) {}},
 	} {
@@ -314,10 +303,6 @@ func TestARegistrationInAHerdrPaneIsNotReachable(t *testing.T) {
 
 func TestBoardShowsTheRegistrationAsOneStateWithItsFix(t *testing.T) {
 	store, _ := testStore(t)
-	// The terminal is not named cfo: one of that name that is up reads as a
-	// CFO still starting, never as an unregistered one.
-	hostTerminal(t, store.Home.State, "desk").standIn(t)
-	t.Setenv(host.IDVariable, "desk")
 	cfo := &CFOConnection{State: store.Home.State}
 	service := &Service{Store: store, Options: Options{CFO: cfo}}
 	service.checkRegistration()
@@ -328,6 +313,11 @@ func TestBoardShowsTheRegistrationAsOneStateWithItsFix(t *testing.T) {
 	if snapshot.Registration != "The CFO is not registered; run cfo register in the CFO session" {
 		t.Fatalf("unregistered board shows %q", snapshot.Registration)
 	}
+	// Native terminal cfo comes up only now: while it is up and nothing is
+	// registered the board reads a CFO still starting, never an unregistered
+	// one.
+	hostTerminal(t, store.Home.State, "cfo").standIn(t)
+	registerNatively(t)
 	if _, err := Register(store.Home.State, "claude", ""); err != nil {
 		t.Fatal(err)
 	}

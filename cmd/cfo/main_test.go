@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"github.com/fpresta0607/code-goblins/internal/doctor"
+	"github.com/fpresta0607/code-goblins/internal/harness"
 	"github.com/fpresta0607/code-goblins/internal/host"
 	"github.com/fpresta0607/code-goblins/internal/install"
 	"github.com/fpresta0607/code-goblins/internal/release"
@@ -97,6 +98,12 @@ func TestRunUsageListsFleetCommands(t *testing.T) {
 // all in the environment, and a test that resolves any of them writes into
 // the live wake queue - which is not a hypothetical: it is how this guard
 // came to be written.
+// startedAs holds the markers this binary started with that say a goblin or a
+// gate agent runs it. TestMain takes them out of this process so the hooks
+// under test act, and a proof against real harnesses hands them back to the
+// commands it runs itself that act as the CFO (wakeProof.commandEnv).
+var startedAs []string
+
 func TestMain(m *testing.M) {
 	// Every build a test runs, in this process or as a stand-in a test
 	// installs, stands in for a build that carries its board, which CI's go
@@ -165,6 +172,11 @@ func TestMain(m *testing.M) {
 	if len(os.Args) > 1 && os.Args[1] == authStoreConsole {
 		os.Exit(runAuth(os.Args[2:], os.Stdout, os.Stderr, commandRuntime{}))
 	}
+	// A stand-in session's harness runs this binary as cfo.exe, as Claude
+	// Code runs the home's cfo for a hook or for a command of its tools.
+	if strings.EqualFold(filepath.Base(os.Args[0]), sessionCLI) {
+		os.Exit(runSessionCLI())
+	}
 	// The native CFO test starts this binary as cfo host, and as the
 	// claude.exe its terminal runs.
 	if len(os.Args) > 1 && os.Args[1] == "host" {
@@ -178,6 +190,11 @@ func TestMain(m *testing.M) {
 	// test home's CFO. NO_MISTAKES_GATE is unset because every hook does
 	// nothing under it, and a gate agent running this suite exports it, so
 	// the hook tests would test nothing; a test of that behaviour sets it.
+	for _, name := range []string{harness.RoleVariable, gateAgentVariable} {
+		if value := os.Getenv(name); value != "" {
+			startedAs = append(startedAs, name+"="+value)
+		}
+	}
 	for _, name := range []string{"CFO_HOME", "CFO_STATE_OVERRIDE", "CFO_ROLE", "HERDR_PANE_ID", host.IDVariable, gateAgentVariable} {
 		if err := os.Unsetenv(name); err != nil {
 			panic(err)
@@ -211,7 +228,12 @@ func TestMain(m *testing.M) {
 	if err := os.Setenv(install.ProjectsRootVariable, configDir); err != nil {
 		panic(err)
 	}
+	// A test binary an agent runs, as a goblin's or a gate's is, has that
+	// agent's harness among its parents: no test is refused a command that
+	// acts as the CFO for it. A test of the refusal names the session itself.
+	notTheCFO = func(string) error { return nil }
 	code := m.Run()
 	os.RemoveAll(configDir)
+	removeSessionPrograms()
 	os.Exit(code)
 }
