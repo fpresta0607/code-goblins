@@ -16,6 +16,7 @@ import (
 	"github.com/fpresta0607/code-goblins/internal/herdr"
 	"github.com/fpresta0607/code-goblins/internal/home"
 	"github.com/fpresta0607/code-goblins/internal/install"
+	"github.com/fpresta0607/code-goblins/internal/janitor"
 	"github.com/fpresta0607/code-goblins/internal/proc"
 	"github.com/fpresta0607/code-goblins/internal/reap"
 	"github.com/fpresta0607/code-goblins/internal/worktree"
@@ -36,6 +37,14 @@ Desktop, the Codex app and SIQshift), with everything they start and with a
 harness run from their own folders whatever started it, and the agents of a
 no-mistakes review round, under the daemon or carrying the NO_MISTAKES_GATE it
 gives each one, are not fleet processes and are not reported.
+
+Whose a process is, the sweep asks where the janitor's process sweep and
+cfo process-plan ask it. A process a running terminal of this home owns, by
+the terminal's mark, its task's folders or a parent that is the terminal's
+own, is that terminal's and is not reported, so a goblin's own tests are
+never its orphans. The sweep lists the machine's processes and then reads
+which of them still run. One that ended in between is named in a note and
+is no finding.
 
 The watcher runs this sweep on its own timer and wakes the CFO once for a
 running finding. A fleet harness and a dev server are each told once for each
@@ -168,7 +177,7 @@ func defaultReap(ctx context.Context, h home.Home, options reap.Options) (reap.R
 
 			ProjectsRoot:     install.MachineProjectsRoot,
 			WorkingDirectory: proc.WorkingDirectory,
-			Environment:      proc.Environment,
+			Sightings:        janitor.Sightings(h),
 		},
 		Commands: commands,
 		CPU:      proc.CPUTime,

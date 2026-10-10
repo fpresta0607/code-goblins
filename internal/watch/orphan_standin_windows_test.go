@@ -17,6 +17,7 @@ import (
 
 	"github.com/fpresta0607/code-goblins/internal/home"
 	"github.com/fpresta0607/code-goblins/internal/host"
+	"github.com/fpresta0607/code-goblins/internal/janitor"
 	"github.com/fpresta0607/code-goblins/internal/reap"
 	"github.com/fpresta0607/code-goblins/internal/standin"
 	"github.com/fpresta0607/code-goblins/internal/state"
@@ -452,5 +453,55 @@ func TestAHarnessOfNoRunningTerminalStillWakesTheCFOOnce(t *testing.T) {
 	}
 	if wakes := orphanWakes(t, fleet.home.State); len(wakes) != 1 {
 		t.Errorf("the sweeps raised %d wakes, want one: %+v", len(wakes), wakes)
+	}
+}
+
+// The orphan sweep and the janitor's process plan, each reading the real
+// machine for the test's home, give every process of the goblin's test to
+// the goblin's terminal: the test by the terminal's mark, and the host it
+// started, the cmd and the stand-in codex, which carry no mark of it, by the
+// task's folders and their parents.
+func TestTheSweepAndTheProcessPlanGiveAGoblinsStandInToItsTerminal(t *testing.T) {
+	// Arrange
+	fleet := startStandInFleet(t)
+	keep := func() []int {
+		var pids []int
+		for _, pid := range fleet.pids {
+			pids = append(pids, pid)
+		}
+		return pids
+	}
+	cfg, _ := sweepOf(t, fleet.home, keep, nil)
+	ctx, cancel := context.WithTimeout(t.Context(), 3*time.Minute)
+	defer cancel()
+
+	// Act
+	swept, err := cfg.Reap.Audit(ctx, reap.Options{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	plan, err := janitor.Config{
+		Home:      fleet.home,
+		Now:       time.Now(),
+		Processes: janitor.ReadAllProcesses,
+		Owners:    func() ([]janitor.Owner, []string) { return janitor.Owners(fleet.home) },
+	}.PlanProcesses(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Assert
+	for _, part := range []string{"goblin", "test", "host", "cmd", "codex"} {
+		pid := fleet.pids[part]
+		sweepOwner, planOwner := "not listed", "not kept"
+		if index := slices.IndexFunc(swept.Inventory.Processes, func(process reap.Process) bool { return process.PID == pid }); index >= 0 {
+			sweepOwner = swept.Inventory.Processes[index].Owner
+		}
+		if index := slices.IndexFunc(plan.Kept, func(item janitor.ProcessItem) bool { return item.PID == pid }); index >= 0 {
+			planOwner = plan.Kept[index].Owner
+		}
+		if sweepOwner != "g1" || planOwner != "g1" {
+			t.Errorf("the %s, pid %d: the orphan sweep gives it to %q and the process plan to %q, want both g1", part, pid, sweepOwner, planOwner)
+		}
 	}
 }
