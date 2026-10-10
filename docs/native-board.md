@@ -69,7 +69,8 @@ Bringing it back needs its screens captured for a native terminal (its startup p
 Default destinations are `~/.claude/settings.json`, `~/.codex/hooks.json`, and `~/.pi/agent/extensions/cfo-native.ts`.
 Use `--config-dir <absolute-directory>` for a custom harness home or an isolated test configuration.
 Setup preserves unrelated JSON hooks/settings, takes a first backup before changing existing JSON, and replaces only its owned helper.
-Its hooks go back where they stood in each event's list, as `cfo install`'s do in the same `~/.claude/settings.json`, so rerunning either changes nothing when nothing changed.
+Its hooks go back where they stood in each event's list, so rerunning it changes nothing when nothing changed.
+`cfo install` writes no hook into the same `~/.claude/settings.json`: the CFO's hooks come with its terminal's start, and an install only takes out the ones an older build wrote there.
 It does not change models, gate policy, approval settings, or Codex hook trust.
 Review the exact installed Codex definitions in `/hooks` before they can run.
 
@@ -216,6 +217,8 @@ It does not wake again while the failure stays the same; a different failure met
 The failure is compared by its exact text, so one whose text differs on every poll keeps its line on the board and does not wake, and one whose text changes, as when a goblin starts in a repository `gh` cannot read, wakes once more.
 A 403, 429 or exhausted allowance pauses every later GitHub read in that repository, across restarts, until its retry or reset time, or an hour when GitHub gives no usable time; the reads it holds fail with the same text every time, so a refusal that never clears still wakes once as `ci_unreadable` on its second retry.
 `pr_health` (wake kind `pr`), keyed `health:<owner>/<name>`: a watched PR that conflicts with its base or falls behind the default branch wakes the CFO once per condition and head, naming the owning goblin and the safe update, or a teammate's author and link.
+A behind head wakes no one while a merge train can take the PR, a goblin's finished PR that is green, mergeable and not held, since the train tests each rider on the current default branch itself.
+It wakes the CFO once no train can take the PR any more, and a conflict always does.
 The fleet watches a goblin's own PR wherever it is (the one it recorded, reported `done`, or opened from its worktree's branch), and every open PR in a repository the fleet owns: one whose owner, as GitHub puts it in the PR's own address and never as a remote's name says, is the account `gh` works as (`gh api user`) or an organization `config/fleet.json`'s `github_owners` names, compared without regard to case.
 Another owner's PRs are neither compared nor reported: on 2026-10-07 a checkout of a fork whose `origin` was the upstream raised 39 wakes for strangers' PRs there.
 A poll raises at most one `pr_health` wake per repository, naming each PR whose head fell into a condition the CFO was not woken for; a PR whose head and condition stay as they were is never named again, and a repository's wakes are at least five minutes apart, a held one waiting for the gap.
@@ -640,6 +643,15 @@ A `cfo` command or a hook takes about 0.7 seconds to come to exist, against 0.02
 Each of the supervisor's progress readings starts git twice in a goblin's worktree, about 0.8 seconds a goblin, and a `go list` of this repository, which `cfo gate test --plan` runs, took 55 seconds.
 Both are processes the fleet starts at normal.
 One slow key in a run is a hosted runner's scheduling noise (504 ms seen with the test's job to itself); two slow keys fail, and a failure names the slow keys by number.
+Apart from that policy, a goblin's terminal keeps off the performance cores the fleet's work leaves to the Overlord's own apps: half of the machine's performance cores, rounded up to whole cores, the last of them as Windows numbers them.
+`cfo spawn` starts a goblin's host with `--leave-cores-for-apps`, and the host keeps the terminal's process to the other processor threads before it runs.
+Windows starts every process on the threads of the one that started it, so everything the goblin starts keeps to them, whether it stays in the terminal's job or leaves it, as what Git Bash runs does.
+A processor limit on the job would not hold a process that leaves the job, so the host sets none.
+On a PC of six performance and four efficiency cores, a test Chrome showed its window after 0.53 s with nothing added, 4.11 s under goblin work on every core, 2.33 s with that work kept off two performance cores and 0.98 s with it kept off three, each a median, of two starts for three cores.
+Kept off three, the work got through 59% as much while it filled every core it kept, and nothing less when it did not.
+The test Chrome was never the window in front, so a start the Overlord clicks himself may be quicker than these at any share.
+There is no such limit on a machine with one performance core, on a machine with more than one processor group, or where the cores cannot be read, which the host's log says, and a terminal is never given a thread its host may not itself run on.
+The CFO's terminal, a run card's terminal and a staged harness's proof start keep every core.
 Installing a build or restarting `serve` leaves existing hosts running their original code; the persistent policy takes effect in newly launched hosts, so resume each existing session only when its active work permits a host restart.
 
 Every native terminal runs on Microsoft's own console host, `conpty.dll` and `OpenConsole.exe` from its ConPTY package (1.25.260930003, MIT, listed in `THIRD_PARTY_NOTICES`), which cfo.exe embeds.
@@ -1098,6 +1110,7 @@ When the desktop's windows cannot be read, nothing is a task's by its mark or it
 The janitor's hourly sweep applies the same rule to what no pause or stop ended.
 For each terminal the home gave a proof since the machine started, it reads which processes are that terminal's own.
 A terminal with no host left has its processes ended: a goblin that failed, and a pause, a stop or a cleanup whose own sweep ran out of time.
+A teardown's own sweep runs one priority class above normal while it reads and ends, and gives the class back after, so it runs out of time far less: at the priority of the work it ends, each of its readers waits its turn behind that work.
 A cleanup and a relaunch (a switch, a resume, a comeback after a restart of the machine) end what their goblin's last terminal left themselves, once that terminal has ended and, for a relaunch, before the next harness starts: afterwards the next harness would be the task's own by the same folders and the same terminal's proofs.
 The next harness cannot reach what the last one left in the background, so a dev server left running would hold its port against the one the goblin starts again.
 These two leave one thing a pause ends: a process at work in the task's folders that carries no mark of its terminal and has a parent that still runs and is not the task's.
@@ -1111,6 +1124,8 @@ A detached tree of a goblin that rests is watched by its own processes, each wit
 The sweep never adds a tree's processor time up: the sum falls when a process that used the processor exits, and on 2026-10-10 a dry run against this machine showed a long test run, between two of its test programs, reading as idle by it.
 A loop that looks at something once a minute starts a process each time and is left alone.
 The sweep reads every process on the machine and judges only those of the terminals in its own home's `state\hosts`, so another home on the machine, a scratch home of a test among them, is never touched.
+`cfo process-plan` prints what the sweep would do now and ends nothing: what it would end, what it would end an hour on, what it would name and what it would leave, each with its rule, and what a cleanup or a relaunch of each task would end.
+It is the sweep's own plan, taken with a reader that forgets no proof, so it writes nothing into the home, and it reads the command that asked and that command's ancestors like any other process, which a teardown never does.
 What nothing proves is named for the CFO and never ended: a browser bridge with no mark whose parent is gone, and a gate agent's process whose gate is gone.
 
 A browser bridge belongs to one owner.

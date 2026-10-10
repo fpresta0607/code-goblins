@@ -33,6 +33,10 @@ type Spec struct {
 	// console's input for unreadAfter, with true, and with false once the
 	// program has read them. It is called from one goroutine, in order.
 	Unread func(isUnread bool)
+	// Processors is the mask of the processor threads the process and
+	// everything it starts may run on; 0 leaves them where whatever started
+	// this process may run.
+	Processors uintptr
 }
 
 // Console is one running pseudo console and the process in it. The process
@@ -129,7 +133,7 @@ func Start(spec Spec) (*Console, error) {
 		c.out.Close()
 		return nil, fmt.Errorf("conpty: create pseudo console: %w", err)
 	}
-	if err := c.startProcess(commandLine, dir, env); err != nil {
+	if err := c.startProcess(commandLine, dir, env, spec.Processors); err != nil {
 		c.host.close(c.pc)
 		c.in.Close()
 		c.out.Close()
@@ -146,8 +150,14 @@ func Start(spec Spec) (*Console, error) {
 // input waker in the same job, and only then lets the process run, so
 // nothing it starts escapes the job unless it asks to: a process started with
 // CREATE_BREAKAWAY_FROM_JOB leaves it, as the host of a goblin a CFO in this
-// terminal launches must, to outlive the terminal.
-func (c *Console) startProcess(commandLine, dir, env *uint16) error {
+// terminal launches must, to outlive the terminal. With processors the
+// process is kept to those processor threads before it runs, and Windows
+// starts every process on the threads of the one that started it, so
+// everything the process starts keeps to them, in the job or out of it. The
+// job's own processor limit would not do: a process that leaves the job
+// leaves that limit with it, and ran on every thread when that was tried
+// (2026-10-10, TestATerminalKeepsToTheProcessorThreadsItIsGiven).
+func (c *Console) startProcess(commandLine, dir, env *uint16, processors uintptr) error {
 	job, err := windows.CreateJobObject(nil, nil)
 	if err != nil {
 		return fmt.Errorf("conpty: create job: %w", err)
@@ -182,6 +192,14 @@ func (c *Console) startProcess(commandLine, dir, env *uint16) error {
 		return fmt.Errorf("conpty: start process: %w", err)
 	}
 	defer windows.CloseHandle(info.Thread)
+	if processors != 0 {
+		if result, _, err := setProcessAffinityMask.Call(uintptr(info.Process), processors); result == 0 {
+			windows.TerminateProcess(info.Process, 1)
+			windows.CloseHandle(info.Process)
+			windows.CloseHandle(job)
+			return fmt.Errorf("conpty: keep the process to its processor threads: %w", err)
+		}
+	}
 	if err := windows.AssignProcessToJobObject(job, info.Process); err != nil {
 		windows.TerminateProcess(info.Process, 1)
 		windows.CloseHandle(info.Process)

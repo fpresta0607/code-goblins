@@ -25,7 +25,8 @@ func TestClaudeBuildsStructuredLaunch(t *testing.T) {
 			"CLAUDE_CODE_ENABLE_PROMPT_SUGGESTION": "false",
 			"GOTMPDIR":                             `C:\gotmp\task`,
 			"TEMP":                                 `C:\gotmp\task`,
-			"TMP":                                  `C:\gotmp\task`,
+			"TMP":                                  `C:\gotmp\.tmp`,
+			"TMPDIR":                               `C:\gotmp\task`,
 		},
 		PromptFile: `C:\briefs\task.md`,
 	})

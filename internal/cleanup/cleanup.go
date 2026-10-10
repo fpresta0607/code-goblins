@@ -78,7 +78,8 @@ type Result struct {
 // clean and its Herdr endpoint inactive, then delegates the worktree release
 // to worktree.Service.Return. Task metadata is preserved whenever any check
 // or the return itself fails, so the operator can diagnose and retry the
-// exact task.
+// exact task. It holds the task against every other command that changes it
+// from before its first check to its end; see holdTask.
 func (s Service) Cleanup(ctx context.Context, id string) (result Result, err error) {
 	if err := state.ValidTaskID(id); err != nil {
 		return Result{}, err
@@ -89,20 +90,15 @@ func (s Service) Cleanup(ctx context.Context, id string) (result Result, err err
 	if s.Terminal == nil {
 		return Result{}, errors.New("cleanup: terminal backend is required")
 	}
-	meta, err := state.ReadTaskMeta(s.StateDir, id)
-	if err != nil {
+	if _, err := state.ReadTaskMeta(s.StateDir, id); err != nil {
 		return Result{}, fmt.Errorf("cleanup: read task metadata: %w", err)
 	}
-	if err := validateMeta(meta); err != nil {
+	release, err := s.holdTask(id)
+	if err != nil {
 		return Result{}, err
 	}
-
-	if _, err := lock.AcquireExclusiveNamed(s.StateDir, state.CleanupLockName(id)); err != nil {
-		return Result{}, fmt.Errorf("cleanup: acquire task lock: %w", err)
-	}
 	defer func() {
-		if releaseErr := lock.ReleaseExclusiveNamed(s.StateDir, state.CleanupLockName(id)); releaseErr != nil {
-			releaseErr = fmt.Errorf("cleanup: release task lock: %w", releaseErr)
+		if releaseErr := release(); releaseErr != nil {
 			if err == nil {
 				err = releaseErr
 			} else {
@@ -110,6 +106,15 @@ func (s Service) Cleanup(ctx context.Context, id string) (result Result, err err
 			}
 		}
 	}()
+	// The record is read once the task is held, so it is the one the last
+	// command to change it left.
+	meta, err := state.ReadTaskMeta(s.StateDir, id)
+	if err != nil {
+		return Result{}, fmt.Errorf("cleanup: read task metadata: %w", err)
+	}
+	if err := validateMeta(meta); err != nil {
+		return Result{}, err
+	}
 
 	project, err := fsx.Canonical(meta.Project)
 	if err != nil {
@@ -207,7 +212,7 @@ func (s Service) Cleanup(ctx context.Context, id string) (result Result, err err
 		return Result{}, fmt.Errorf("cleanup: retire task metadata: %w", err)
 	}
 	archive, archiveErr := s.archive(id)
-	scratchErr := s.removeScratch(meta)
+	scratchNote := s.removeScratch(ctx, meta)
 
 	result.Meta = meta
 	result.Output = fmt.Sprintf("cleaned %s worktree=%s", id, worktreePath)
@@ -225,13 +230,59 @@ func (s Service) Cleanup(ctx context.Context, id string) (result Result, err err
 		// plainly rather than failing a completed cleanup.
 		result.Output += fmt.Sprintf("\nwarning: retained state for %s could not be archived, so respawning that id will be refused: %v", id, archiveErr)
 	}
-	if scratchErr != nil {
-		result.Output += fmt.Sprintf("\nwarning: %v; the janitor removes it once the handle clears", scratchErr)
-	}
+	result.Output += scratchNote
 	result.Output += left
 	result.Output += s.releaseServices(ctx, id)
 	result.Output += s.closeRow(outcome)
 	return result, nil
+}
+
+// holdTask takes the task for the cleanup: its cleanup lock, and the two
+// locks every command that changes a live task starts with. A pause, a resume
+// and a stop hold its lifecycle lock from start to end, and a switch, a
+// restart and every other change of its record hold its record lock. Holding
+// both, the cleanup and any of them exclude each other with nothing left to
+// timing: whichever takes the lock both need goes on, and the other is
+// refused where it starts, before it has written or removed anything. On
+// 2026-10-09 a cleanup held only its own lock, which nothing else looked at,
+// so the supervisor's resume of the same task ran through it: the worktree
+// went from under the resume, which then wrote a new task record.
+//
+// A lock this process already holds is its caller's and is left with it: cfo
+// kill cleans its goblin up from inside its stop, which holds both, and the
+// lock package refuses a process a lock it holds. Such a caller has excluded
+// every other command already.
+//
+// The cleanup records its purpose in the locks it takes, so the command it
+// keeps out says in one line that the task is being cleaned up.
+func (s Service) holdTask(id string) (release func() error, err error) {
+	var held []string
+	release = func() error {
+		var errs error
+		for index := len(held) - 1; index >= 0; index-- {
+			if err := lock.ReleaseExclusiveNamed(s.StateDir, held[index]); err != nil {
+				errs = errors.Join(errs, fmt.Errorf("cleanup: release task lock: %w", err))
+			}
+		}
+		return errs
+	}
+	if _, err := lock.AcquireExclusiveNamed(s.StateDir, state.CleanupLockName(id)); err != nil {
+		return nil, fmt.Errorf("cleanup: acquire task lock: %w", err)
+	}
+	held = append(held, state.CleanupLockName(id))
+	for _, other := range []struct{ name, inFlight string }{
+		{state.LifecycleLockName(id), "task " + id + " is being paused, resumed or stopped by another command"},
+		{state.MetadataLockName(id), "the record of task " + id + " is being changed by another command, as a switch or a restart of it does"},
+	} {
+		if lock.HeldByNamed(s.StateDir, other.name, os.Getpid()) {
+			continue
+		}
+		if _, err := lock.AcquireExclusiveNamedFor(s.StateDir, other.name, state.CleanupPurpose(id)); err != nil {
+			return nil, errors.Join(fmt.Errorf("cleanup: %s, so nothing was removed, and the cleanup can run again once that has finished: %w", other.inFlight, err), release())
+		}
+		held = append(held, other.name)
+	}
+	return release, nil
 }
 
 // endLeft ends what the task's terminal left running and says what it ended.
@@ -364,7 +415,7 @@ func (s Service) forceArchive(ctx context.Context, meta state.TaskMeta, id, work
 		return Result{}, fmt.Errorf("cleanup: retire task metadata: %w", err)
 	}
 	archived, archiveErr := s.archive(id)
-	scratchErr := s.removeScratch(meta)
+	scratchNote := s.removeScratch(ctx, meta)
 
 	result := Result{Meta: meta, Output: fmt.Sprintf("force-archived %s; worktree %s left in place, remove it by hand when its handle clears", id, worktreePath)}
 	for _, extra := range meta.Extras {
@@ -379,9 +430,7 @@ func (s Service) forceArchive(ctx context.Context, meta state.TaskMeta, id, work
 	if archiveErr != nil {
 		result.Output += fmt.Sprintf("\nwarning: retained state for %s could not be archived, so respawning that id will be refused: %v", id, archiveErr)
 	}
-	if scratchErr != nil {
-		result.Output += fmt.Sprintf("\nwarning: %v; the janitor removes it once the handle clears", scratchErr)
-	}
+	result.Output += scratchNote
 	result.Output += left
 	result.Output += s.releaseServices(ctx, id)
 	result.Output += s.closeRow(outcome)
@@ -423,7 +472,7 @@ func (s Service) retireEmptyFolder(ctx context.Context, meta state.TaskMeta, id,
 		return Result{}, fmt.Errorf("cleanup: retire task metadata: %w", err)
 	}
 	archive, archiveErr := s.archive(id)
-	scratchErr := s.removeScratch(meta)
+	scratchNote := s.removeScratch(ctx, meta)
 	result := Result{Meta: meta, Output: fmt.Sprintf("cleaned %s: removed the empty folder %s, which held no Git worktree", id, folder)}
 	if archive != "" {
 		result.Output += " archive=" + archive
@@ -431,9 +480,7 @@ func (s Service) retireEmptyFolder(ctx context.Context, meta state.TaskMeta, id,
 	if archiveErr != nil {
 		result.Output += fmt.Sprintf("\nwarning: retained state for %s could not be archived, so respawning that id will be refused: %v", id, archiveErr)
 	}
-	if scratchErr != nil {
-		result.Output += fmt.Sprintf("\nwarning: %v; the janitor removes it once the handle clears", scratchErr)
-	}
+	result.Output += scratchNote
 	result.Output += left
 	result.Output += s.releaseServices(ctx, id)
 	result.Output += s.closeRow(outcome)
@@ -483,16 +530,35 @@ func (s Service) archive(id string) (string, error) {
 // exactly that pinned-by-a-dead-handle case. Inside archive() such a failure
 // would skip the credential scrub and the rename, so a locked build directory
 // would leave the project's secrets on disk and the id still claimed.
-func (s Service) removeScratch(meta state.TaskMeta) error {
+//
+// One folder is left on purpose: a scratch folder that is the /tmp of a
+// running Git Bash, as it is when the first shell to start after the last one
+// ended had it as TMP. Removing it took /tmp from every Git Bash of the user
+// on 2026-10-09, so it stays until no running one has it, and the janitor
+// removes it then; see home.RemoveScratch. The folder every goblin's TMP
+// names, home.SharedTempDir, is no task's and is never removed here at all.
+//
+// It returns what to say of a folder that stayed, on a line of its own, and
+// nothing of one that went.
+func (s Service) removeScratch(ctx context.Context, meta state.TaskMeta) string {
 	scratch, err := state.TaskScratch(s.StateDir, meta)
 	if err != nil {
-		return err
+		return fmt.Sprintf("\nwarning: %v; the janitor removes it once the handle clears", err)
 	}
-	if err := os.RemoveAll(scratch); err != nil {
-		return fmt.Errorf("scratch folder %s could not be removed: %w", scratch, err)
+	heldBy, err := home.RemoveScratch(ctx, scratch, liveTemps)
+	switch {
+	case heldBy != "":
+		return fmt.Sprintf("\nleft the scratch folder %s in place: it is /tmp for every shell of the Git Bash in %s until the last of them ends, and the janitor removes it once no running Git Bash has it as /tmp", scratch, heldBy)
+	case errors.Is(err, home.ErrLiveTempUnknown):
+		return fmt.Sprintf("\nleft the scratch folder %s in place: %v, and the janitor removes it once it can tell", scratch, err)
+	case err != nil:
+		return fmt.Sprintf("\nwarning: scratch folder %s could not be removed: %v; the janitor removes it once the handle clears", scratch, err)
 	}
-	return nil
+	return ""
 }
+
+// liveTemps reads which folders running msys runtimes have as /tmp.
+var liveTemps = home.LiveTemps
 
 // ArchiveDirName is where a finished task's scratch directory goes; see
 // state.ArchiveDirName for why the name is shared.

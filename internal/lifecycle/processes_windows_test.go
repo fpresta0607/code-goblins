@@ -41,6 +41,34 @@ func TestInventoryFindsADetachedProcessByWorkingDirectory(t *testing.T) {
 	}
 }
 
+// A teardown never reads the command that asked for it or what started that
+// command, so nothing it judges can end them. A plan ends nothing, and left
+// out, the terminal it was asked from would read as having no host, and
+// everything that terminal runs as detached from it. So a plan's reading
+// holds them like any other process.
+func TestOnlyAPlansReadingHoldsTheCommandThatAsked(t *testing.T) {
+	// Arrange
+	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
+	defer cancel()
+	isSelf := func(process Process) bool { return process.PID == os.Getpid() }
+	isParent := func(process Process) bool { return process.PID == os.Getppid() }
+
+	// Act
+	teardown, teardownErr := ReadProcesses(ctx, false)
+	plan, planErr := ReadAllProcesses(ctx, false)
+
+	// Assert
+	if teardownErr != nil || planErr != nil {
+		t.Fatalf("ReadProcesses: %v, ReadAllProcesses: %v", teardownErr, planErr)
+	}
+	if slices.ContainsFunc(teardown, isSelf) || slices.ContainsFunc(teardown, isParent) {
+		t.Errorf("a teardown's reading holds this process, pid %d, or its parent, pid %d", os.Getpid(), os.Getppid())
+	}
+	if !slices.ContainsFunc(plan, isSelf) || !slices.ContainsFunc(plan, isParent) {
+		t.Errorf("a plan's reading lacks this process, pid %d, or its parent, pid %d", os.Getpid(), os.Getppid())
+	}
+}
+
 func TestTerminateChecksCreationTimeOnTheProcessHandle(t *testing.T) {
 	child := exec.Command(os.Args[0], "-test.run=^TestLifecycleProcessFixture$")
 	child.Env = append(os.Environ(), "CFO_LIFECYCLE_FIXTURE=1")

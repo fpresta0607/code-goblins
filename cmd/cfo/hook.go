@@ -42,17 +42,19 @@ func runHook(name string, stdin io.Reader, stdout, stderr io.Writer) int {
 	// guard fired - and an accident that has to be remembered is exactly the
 	// bug this replaces. The check sits above the dispatch rather than
 	// inside each arm so it covers every hook that exists and every hook
-	// anyone adds later. A gate agent is not the CFO either. The hooks are
-	// user-level, so both run them on every tool call they select, and both
-	// leave on their environment alone, before reading the payload or the
-	// home.
+	// anyone adds later. A gate agent is not the CFO either. On a machine an
+	// older build installed, the hooks are still in the user's settings until
+	// an install takes them out, so both run them on every tool call they
+	// select, and both leave on their environment alone, before reading the
+	// payload or the home.
 	if os.Getenv(harness.RoleVariable) == harness.RoleGoblin || os.Getenv(gateAgentVariable) != "" {
 		return 0
 	}
-	// Nor is any other session on the machine the CFO's: the hooks are in
-	// the user's settings, so a Claude Code session the Overlord opens
-	// himself, in the desktop app or a terminal of his own, runs every one
-	// of them. On 2026-10-09 such a session took the home's lock after a
+	// Nor is any other session on the machine the CFO's. The hooks were in
+	// the user's settings until 2026-10, so a Claude Code session the
+	// Overlord opened himself, in the desktop app or a terminal of his own,
+	// ran every one of them, and still does where no install has taken them
+	// out since. On 2026-10-09 such a session took the home's lock after a
 	// restart and was rewoken with the fleet's wakes. Only the CFO's own
 	// session, the agent native terminal cfo runs, gets anything from a
 	// hook, and every other session leaves on its environment alone, as a
@@ -239,13 +241,13 @@ func hookPretoolBash(stdin io.Reader, stderr io.Writer, guards ...func(command s
 // auto-arm failure, or the budget bookkeeping itself cannot be written), so
 // the guard tells the operator once and lets the turn end rather than
 // blocking every Stop forever.
-const genuinelyDownMessage = "CFO SUPERVISION IS GENUINELY DOWN: the Stop-owned auto-arm could not restore the watcher and the block budget is exhausted. This turn may end, but supervision stays off. Run cfo doctor, repair the stop-autoarm hook registration with cfo install (it writes the user settings: ~/.claude/settings.json, or CLAUDE_CONFIG_DIR when set), and re-launch the session."
+const genuinelyDownMessage = "CFO SUPERVISION IS GENUINELY DOWN: the Stop-owned auto-arm could not restore the watcher and the block budget is exhausted. This turn may end, but supervision stays off. Run cfo doctor and check state\\.watch.lock for a holder that is not yours. The CFO's hooks come with its terminal, so goblins resume restarts it with them."
 
 // escalationCeilingMultiplier sets the hard ceiling (escalationCeilingMultiplier
 // * blockBudget) that fires regardless of NotifiedOnce or AlarmFired: the
 // guarantee that no configuration can wedge a session shut. NotifiedOnce has
 // exactly one writer, Task 11's stop-autoarm hook; if that hook is missing
-// from the user settings or dies before ever calling MarkNotified, nothing ever
+// from the session or dies before ever calling MarkNotified, nothing ever
 // satisfies the normal ladder arm below. stop_hook_active is also
 // deliberately ignored by hookTurnendGuard (see its doc comment below), so
 // Claude Code's own loop breaker cannot rescue the turn either. This arm is
@@ -256,7 +258,7 @@ const escalationCeilingMultiplier = 3
 // Distinct from genuinelyDownMessage because the likely cause is different -
 // nothing ever reported a failure at all, rather than a reported failure the
 // budget could not recover from.
-const ladderNeverEscalatedMessage = "CFO SUPERVISION IS DOWN AND THE ESCALATION LADDER NEVER ESCALATED: the turn-end guard blocked %d times without the Stop-owned auto-arm ever reporting a failure. The usual cause is that \"cfo hook stop-autoarm\" is not registered in the user settings (~/.claude/settings.json, or CLAUDE_CONFIG_DIR when set), so nothing is trying to restore the watcher. This turn may end, but supervision stays off. Run cfo doctor to check the Stop hook registration and cfo install to repair it."
+const ladderNeverEscalatedMessage = "CFO SUPERVISION IS DOWN AND THE ESCALATION LADDER NEVER ESCALATED: the turn-end guard blocked %d times without the Stop-owned auto-arm ever reporting a failure. The usual cause is that \"cfo hook stop-autoarm\" does not run in this session, so nothing is trying to restore the watcher. This turn may end, but supervision stays off. Run cfo doctor. The CFO's hooks come with its terminal, so goblins resume restarts it with both Stop hooks."
 
 // blindTurnBanner is step 6's block message: %s, %s fill inFlight (the
 // "<N> task(s) in flight" string from supervise.Needed) and the watcher
@@ -266,7 +268,7 @@ const blindTurnBanner = "" +
 	"●  TURN WOULD END BLIND - SUPERVISION IS OFF\n" +
 	"●  %s, but no live watcher holds this home (last beat: %s).\n" +
 	"●  The Stop-owned auto-arm did not claim recovery within the sync window.\n" +
-	"●  Repair: run cfo doctor, then cfo install to wire \"cfo hook stop-autoarm\" with asyncRewake in the user settings, then end the turn again. Run cfo drain for pending wakes.\n" +
+	"●  Repair: run cfo doctor, then goblins resume, which restarts the CFO's terminal with \"cfo hook stop-autoarm\", then end the turn again. Run cfo drain for pending wakes.\n" +
 	"●━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 
 // hookTurnendGuard refuses to let a turn end blind: goblins in flight, no
@@ -607,7 +609,7 @@ var actionableReasonPattern = regexp.MustCompile(`^(signal:|stale:|check:|orphan
 // the final attempt's error text and what the last look at the watcher found.
 const rewakeBannerFmt = "cfo watcher wake - one supervision event needs a handling turn now.\n%s\nRun cfo drain, handle what it presents, and acknowledge with the WAKE_ACK_REQUIRED command it prints. That command is refused while unanswered blocked/failed notifies sit at or below its sequence: drain lists every waiting goblin and retires nothing. Answer each with `cfo send <id> \"...\"`, then re-run with --ack-blocking, which retires EVERY question at or below that sequence. Do not run cfo watch manually after an ordinary wake."
 
-const failureBannerFmt = "cfo auto-arm FAILED after %d attempt(s): the watcher could not hold this home.\nLast error: %s\nWatcher: %s\nSupervision is down and needs a repair turn: run cfo doctor, repair the stop-autoarm hook registration with cfo install (it writes the user settings: ~/.claude/settings.json, or CLAUDE_CONFIG_DIR when set), and check state\\.watch.lock for a holder that is not yours."
+const failureBannerFmt = "cfo auto-arm FAILED after %d attempt(s): the watcher could not hold this home.\nLast error: %s\nWatcher: %s\nSupervision is down and needs a repair turn: run cfo doctor and check state\\.watch.lock for a holder that is not yours. The CFO's hooks come with its terminal, so goblins resume restarts it with them."
 
 // windowEndedBanner rewakes the CFO when the hook's wait on the wake queue
 // ends with its window and nothing queued, so the turn it ends re-arms it.

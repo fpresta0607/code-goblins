@@ -15,6 +15,7 @@ import (
 	"golang.org/x/sys/windows"
 
 	"github.com/fpresta0607/code-goblins/internal/auth"
+	"github.com/fpresta0607/code-goblins/internal/fsx"
 	"github.com/fpresta0607/code-goblins/internal/herdr"
 	"github.com/fpresta0607/code-goblins/internal/home"
 	"github.com/fpresta0607/code-goblins/internal/host"
@@ -246,7 +247,11 @@ func cfoStartArguments(harness string, args []string) []string {
 // in project, in a host of its own that outlives this console, with args,
 // such as the arguments that resume a conversation.
 func startNativeCFO(h home.Home, project, harness string, args []string) error {
-	program, err := nativeCFOProgram(harness, cfoStartArguments(harness, args)...)
+	hooks, err := cfoHookArguments(h, harness)
+	if err != nil {
+		return err
+	}
+	program, err := nativeCFOProgram(harness, cfoStartArguments(harness, append(hooks, args...))...)
 	if err != nil {
 		return err
 	}
@@ -260,6 +265,36 @@ func startNativeCFO(h home.Home, project, harness string, args []string) error {
 	}
 	_, err = host.Launch(h.State, []string{self, "host"}, env, host.Spec{ID: supervisor.NativeCFOTerminal, Args: program, Dir: project, Cols: 120, Rows: 40})
 	return err
+}
+
+// cfoSettingsFile is the Claude Code settings file, in the home's state
+// folder, that a Claude CFO's terminal starts with.
+const cfoSettingsFile = "cfo-claude-settings.json"
+
+// cfoHookArguments are the arguments that hand the CFO's harness its hooks,
+// for Claude Code, whose hooks they are: --settings and the file holding
+// them, which is written anew at every start so it is this build's set.
+// Claude Code adds that file's hooks to the user's own for this session
+// alone. They were in the user's settings until 2026-10, where every Claude
+// Code session on the machine ran them: each Bash call, turn end and start
+// started cfo.exe, about 0.1 s each, only for the hook to leave on its
+// environment. A Codex or pi CFO has its native hooks (cfo hooks install).
+func cfoHookArguments(h home.Home, harness string) ([]string, error) {
+	if harness != "claude" {
+		return nil, nil
+	}
+	settings, err := install.CFOSettings(h.Root)
+	if err != nil {
+		return nil, err
+	}
+	path := filepath.Join(h.State, cfoSettingsFile)
+	if err := os.MkdirAll(h.State, 0o755); err != nil {
+		return nil, err
+	}
+	if err := fsx.AtomicWriteFile(path, settings); err != nil {
+		return nil, fmt.Errorf("write the CFO's hooks to %s: %w", path, err)
+	}
+	return []string{"--settings", path}, nil
 }
 
 // cfoTerminalEnvironment is the environment the CFO's native terminal of

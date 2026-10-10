@@ -53,11 +53,14 @@ Subagents come from `.claude/agents`, `~/.claude/agents` and plugins.
 Hooks merge across every settings scope: managed settings, `--settings`, `.claude/settings.local.json`, `.claude/settings.json`, `~/.claude/settings.json`, and enabled plugins.
 A `SessionStart` hook's output is injected into the session; output larger than 10,000 characters is saved to a file and only a preview of about 2 KB is injected.
 The CFO's own SessionStart digest therefore stays within 9,000 bytes, and names a file that holds what it leaves out.
-`cfo install` merges the CFO's hooks into `~/.claude/settings.json`.
+The CFO's hooks are in no settings file of the user: a Claude Code CFO's terminal starts with them, `claude --settings <home>\state\cfo-claude-settings.json`, which the start writes anew each time, and Claude Code adds that file's hooks to the user's own for that session alone.
+`cfo install` takes out the ones a build before 2026-10 merged into `~/.claude/settings.json`, where every Claude Code session on the machine ran them.
 Every goblin pane carries `CFO_ROLE=goblin`, and the CFO's hooks do nothing when they see it.
-They do nothing in any other session either: only [the CFO's own session](../AGENTS.md#the-cfos-own-session), the agent native terminal `cfo` runs, gets the digest, the guards and the rewakes, so a Claude Code session you open yourself is never given the fleet's wakes and pays one start of `cfo.exe` for each hook it fires, which leaves on its environment before it reads the home: about 0.1 second each with a dozen sessions firing at once on 2026-10-09.
-On a machine whose every core is busy that start is what a hook costs, in the CFO's session too: about 0.7 seconds beside sixteen busy threads on 2026-10-10, because a hook's process is started at its harness's priority.
-From its first act a hook of the CFO's own session runs one priority class above normal, as the fleet's other controls do, so its own work, a millisecond for a pre-tool guard, does not wait behind the goblins' builds as well.
+They do nothing in any other session either: only [the CFO's own session](../AGENTS.md#the-cfos-own-session), the agent native terminal `cfo` runs, gets the digest, the guards and the rewakes, so a Claude Code session you open yourself is never given the fleet's wakes.
+On a machine where the hooks are still in the user's settings, such a session pays one start of `cfo.exe` for each hook it fires, which leaves on its environment before it reads the home: about 0.1 second each with a dozen sessions firing at once on 2026-10-09.
+Once an install has taken them out it starts nothing.
+In the CFO's own session each hook is one start of `cfo.exe`, and on a machine whose every core is busy that start is what a hook costs: about 0.7 seconds beside sixteen busy threads on 2026-10-10, because a hook's process is started at its harness's priority.
+From its first act the hook runs one priority class above normal, as the fleet's other controls do, so its own work, a millisecond for a pre-tool guard, does not wait behind the goblins' builds as well.
 
 **MCP.**
 The CFO's session gets servers from `~/.claude.json` (user and per-project), the project's `.mcp.json` once approved, enabled plugins, and claude.ai connectors.
@@ -130,7 +133,7 @@ Everything in the user rows above still loads for a goblin; spawn adds the follo
 
 1. **The worktree.** `$CFO_HOME\worktrees\<project folder>\<id>`, detached from the default branch, with its own `.git` file, so project instructions and skills come from the worktree's checkout of the project.
    A goblin working on code-goblins itself therefore reads this repository's `CLAUDE.md` or `AGENTS.md`, which both say it is a contributor, not the CFO.
-2. **The pane environment.** `CFO_ROLE=goblin`, `CFO_HOME`, `CFO_STATE_OVERRIDE`, `TEMP`, `TMP` and `GOTMPDIR` in the task's scratch folder, the shared cache roots, and the project's declared credentials, sourced from a file rather than typed.
+2. **The pane environment.** `CFO_ROLE=goblin`, `CFO_HOME`, `CFO_STATE_OVERRIDE`, `TEMP`, `TMPDIR` and `GOTMPDIR` in the task's scratch folder, `TMP` in `scratch\.tmp`, the folder every goblin shares, since Git Bash makes the `TMP` of its first shell `/tmp` for every shell of the user, the shared cache roots, and the project's declared credentials, sourced from a file rather than typed.
 3. **The launch.** Claude: `--dangerously-skip-permissions --strict-mcp-config [--mcp-config <file>]`, drawn in the interface the operator's `tui` setting names, as the CFO is.
    Codex: `--dangerously-bypass-approvals-and-sandbox --no-alt-screen`, so it draws inline and its history stays in the terminal's own scrollback, where a drag selects text as it does for Claude.
    Pi: `--tui-mode regular`.

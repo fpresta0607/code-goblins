@@ -50,8 +50,9 @@ In order, it:
 2. Downloads `cfo.exe`, and the desktop window `goblins-window.exe` when the release lists one, from the release this `install.ps1` was published with, so the script and the programs are always one release's, and refuses each unless it matches the release's `SHA256SUMS`.
 3. Sets up the CFO home it picked, as [the table above](#which-home-it-installs) says, normally `%LOCALAPPDATA%\CodeGoblins`: the CFO's contract, the default policy, the program as `bin\cfo.exe` and `bin\goblins.exe`, and the desktop window beside them as `goblins-window.exe` where the release ships one, with the `state`, `data`, `worktrees`, `scratch` and `caches` folders beside `bin`.
    The skills Code Goblins ships go once into `~\.agents\skills`, which Codex and Pi read, with a junction to each from Claude Code's skills folder, and `state\harnesses.json` records where each harness keeps its configuration; nothing in a harness folder that Code Goblins did not put there is changed.
-   `CFO_HOME` and the home's `bin` on your PATH are set for your user, and the CFO's hooks are merged into your `~/.claude/settings.json`, which is backed up first and keeps your own hooks.
-   The hooks act only in [the CFO's own session](../AGENTS.md#the-cfos-own-session), the one `goblins` starts in native terminal `cfo`: a Claude Code session you open yourself, in the desktop app or a terminal, gets nothing from them and never holds the fleet.
+   `CFO_HOME` and the home's `bin` on your PATH are set for your user.
+   The CFO's hooks go into no settings file of yours: [the CFO's own session](../AGENTS.md#the-cfos-own-session), the one `goblins` starts in native terminal `cfo`, starts with them, so a Claude Code session you open yourself, in the desktop app or a terminal, runs none of them and never holds the fleet.
+   Where an older build merged them into your `~/.claude/settings.json`, the install takes them out, backing the file up first and keeping your own hooks.
    The same write adds allow rules for the commands that only put an item in front of you in the Command Center (`cfo question`, `cfo run-request`, `cfo review`, `cfo present`, `cfo deliver` and `cfo auth request`), so Claude Code's auto mode approves them without its classifier unless `autoMode.classifyAllShell` is on ([Safety model](../README.md#safety-model) says why these and no others); `settings.json.cfo-install.rules` beside the file records which ones it added, for the uninstall.
    Windows then starts Code Goblins at login, in the tray, which brings back what a restart ended, unless Start at login was turned off: the setup's box, `-NoStartAtLogin` given to `install.ps1` run as a file, or `cfo install --start-at-login off`; `-StartAtLogin` and `--start-at-login on` turn it back on.
    The home keeps the choice in `state\start-at-login`, so an update keeps it, and the board's switch and the tray's item change the same setting.
@@ -93,6 +94,17 @@ The copy itself, the program and the picture of its notifications, is removed on
 Anything else in that folder is left where it is, and so is the window's WebView2 profile, `%APPDATA%\goblins-window.exe`, which both copies use, so the board keeps its layout.
 An install that only retains the home's existing window keeps the standalone program, picture, folder and Start-menu entry unchanged.
 When it adopts the standalone copy's existing Start at login entry, that entry runs the home's `goblins --window --background`.
+
+### What it leaves in your temp folder
+
+The install keeps one file in your temp folder, its log, `CodeGoblinsInstall.log`, which its last line names.
+Everything else it makes there it removes: the release it downloads, the no-mistakes archive, each installer it saves to a file, and the folder the setup downloads the install script to.
+A virus scanner can still be reading a file it just saw, and Windows keeps a program for a moment after it ran, so a removal that fails at first is tried again as the install ends, for up to ten seconds.
+A folder that is still held then never fails the install.
+One `Note:` line names it, and it is safe to delete.
+The setup says the same of its own folder in the log.
+The setup's window keeps one more folder there, `CodeGoblinsSetup`, the profile its WebView2 needs.
+It stays until the temp folder is cleared, and it is safe to delete once the setup has closed.
 
 ## The quick start
 

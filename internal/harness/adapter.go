@@ -11,6 +11,7 @@ import (
 	"strings"
 
 	"github.com/fpresta0607/code-goblins/internal/execx"
+	"github.com/fpresta0607/code-goblins/internal/home"
 )
 
 // Kind identifies one supported interactive harness.
@@ -29,8 +30,10 @@ type LaunchSpec struct {
 	BriefPath string
 	TaskTmp   string
 	// Scratch is the task's scratch folder, created by the caller, which the
-	// pane's TEMP, TMP and GOTMPDIR name: build output, test homes, logs and
-	// proof files land there, outside every checkout, and go with the task.
+	// pane's TEMP, TMPDIR and GOTMPDIR name: build output, test homes, logs
+	// and proof files land there, outside every checkout, and go with the
+	// task. The pane's TMP names the shared folder beside it, which the
+	// caller creates too.
 	Scratch         string
 	TurnEndedPath   string
 	Model           string
@@ -162,7 +165,17 @@ func buildBase(spec LaunchSpec) (Launch, error) {
 		Env: map[string]string{
 			"GOTMPDIR": spec.Scratch,
 			"TEMP":     spec.Scratch,
-			"TMP":      spec.Scratch,
+			"TMPDIR":   spec.Scratch,
+			// TMP is the one temporary variable that is not the task's own.
+			// Git Bash mounts /tmp once for every shell of the user, at
+			// whatever TMP its first shell started with, so a TMP naming the
+			// scratch folder made that folder the machine's /tmp, and
+			// cleaning the task up took /tmp from every Git Bash on the
+			// machine (2026-10-09). It names the folder every goblin shares,
+			// which nothing removes; see home.SharedTempDir. What asks
+			// Windows for the temporary folder, as Go's os.TempDir does,
+			// gets that shared folder with it; everything else stays here.
+			"TMP": home.SharedTempBeside(spec.Scratch),
 			// Every goblin pane is stamped with its role, and the CFO's
 			// hooks read it to stay out of the way. It belongs in the launch
 			// contract rather than in the project credentials a preflight

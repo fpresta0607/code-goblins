@@ -116,8 +116,10 @@ func waitRefusal(id string, row fleet.BacklogRow, waits []fleet.Blocker) StartRe
 // learnAwaitedPulls asks the forge about each pull request a queued row
 // waits on and keeps what it said, so a row whose pull request merged starts
 // with no edit to it and one closed without merging says so. A merged pull
-// request stays merged and is not asked about again.
-func (s *Service) learnAwaitedPulls(ctx context.Context) error {
+// request stays merged and is not asked about again. One the forge did not
+// answer for is asked about again at the next reading, and returned only
+// once it went unanswered failingPasses readings in a row.
+func (s *Service) learnAwaitedPulls(ctx context.Context, watched *fleetWakes) error {
 	if s.Options.PullRequestState == nil {
 		return nil
 	}
@@ -126,6 +128,7 @@ func (s *Service) learnAwaitedPulls(ctx context.Context) error {
 		return err
 	}
 	var problems error
+	failed := map[string]bool{}
 	for _, row := range backlog.Queued {
 		for _, blocker := range row.Blockers {
 			s.mu.Lock()
@@ -138,7 +141,9 @@ func (s *Service) learnAwaitedPulls(ctx context.Context) error {
 			pull, err := s.Options.PullRequestState(probe, blocker.Target)
 			cancel()
 			if err != nil {
-				problems = errors.Join(problems, fmt.Errorf("the pull request %s waits on, %s: %w", row.ID, blocker.Target, err))
+				read := row.ID + " " + blocker.Target
+				failed[read] = true
+				problems = errors.Join(problems, watched.failing("awaited pull:"+read, fmt.Errorf("the pull request %s waits on, %s: %w", row.ID, blocker.Target, err)))
 				continue
 			}
 			s.mu.Lock()
@@ -149,5 +154,6 @@ func (s *Service) learnAwaitedPulls(ctx context.Context) error {
 			s.mu.Unlock()
 		}
 	}
+	watched.stillFailing("awaited pull:", failed)
 	return problems
 }

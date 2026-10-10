@@ -55,7 +55,10 @@ func (r Runner) Run(ctx context.Context, commands []project.Command, scope, task
 			cctx, cancel = context.WithTimeout(ctx, timeout)
 		}
 		start := time.Now()
-		res, err := r.Commands.Run(cctx, execx.Request{Name: c[0], Args: c[1:], Dir: dir})
+		// A tier's command starts the checks it runs, so a run cut off ends
+		// them with it: ending the command alone leaves them running with
+		// nothing left to end them.
+		res, err := r.Commands.Run(cctx, execx.Request{Name: c[0], Args: c[1:], Dir: dir, KillTree: true})
 		if cancel != nil {
 			cancel()
 		}

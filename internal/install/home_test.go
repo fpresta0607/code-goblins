@@ -111,11 +111,9 @@ func TestInstallOutsideACheckoutSetsUpAPrimaryHomeFromTheBinary(t *testing.T) {
 	if got := f.env.values["Path"]; got != `C:\Windows;`+f.bin {
 		t.Errorf("PATH = %q, want the home's bin appended", got)
 	}
-	commands := hookCommands(t, f.user)
-	for _, hook := range Hooks(f.root) {
-		line := hook.Command + " " + strings.Join(hook.Args, " ")
-		if count(commands, line) != 1 {
-			t.Errorf("CFO hook %q appears %d times, want 1", line, count(commands, line))
+	for _, command := range hookCommands(t, f.user) {
+		if isCFOCommand(command) {
+			t.Errorf("the install wrote the CFO hook %q into the user's settings, which only the CFO's terminal starts with", command)
 		}
 	}
 }

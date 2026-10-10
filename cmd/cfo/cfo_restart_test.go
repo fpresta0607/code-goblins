@@ -218,15 +218,22 @@ func recordConversationOf(t *testing.T, stateDir string, record host.Record, har
 }
 
 // waitForFakeClaudeArguments waits for the test binary, run as claude.exe in
-// dir, to record arguments other than skip, and returns them.
+// dir, to record arguments other than skip, and returns them, without the
+// pair every start of the CFO opens with, which hands it its hooks
+// (cfoHookArguments).
 func waitForFakeClaudeArguments(t *testing.T, dir string, skip []string) []string {
 	t.Helper()
+	hooks := "--settings\n" + filepath.Join(dir, "state", cfoSettingsFile)
 	for deadline := time.Now().Add(15 * time.Second); time.Now().Before(deadline); time.Sleep(50 * time.Millisecond) {
 		raw, err := os.ReadFile(filepath.Join(dir, fakeClaudeArguments))
 		if err != nil {
 			continue
 		}
-		if got := strings.Split(string(raw), "\n"); !slices.Equal(got, skip) {
+		rest, hasHooks := strings.CutPrefix(string(raw), hooks)
+		if !hasHooks {
+			t.Fatalf("the CFO started with %q, want it to open with --settings and the file of its hooks", raw)
+		}
+		if got := strings.Split(strings.TrimPrefix(rest, "\n"), "\n"); !slices.Equal(got, skip) {
 			return got
 		}
 	}

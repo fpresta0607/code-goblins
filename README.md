@@ -143,7 +143,7 @@ irm https://github.com/fpresta0607/code-goblins/releases/latest/download/install
 
 Both are the same install, so use whichever you like: the setup if you want a window, the one line if you live in a terminal.
 Each puts the Code Goblins app and the `cfo` command line (also called `goblins`) together in one folder, `%LOCALAPPDATA%\CodeGoblins`, adds its `bin` folder to your PATH and Code Goblins to the Start menu and the desktop, installs the tools the goblins use where they are missing, and opens [the desktop app](#the-desktop-app).
-Each also merges the CFO's hooks and a few permission rules into your Claude Code settings, `~/.claude/settings.json`, keeping your own and backing the file up first: the rules let a Claude Code CFO in auto mode put questions, run items, reviews and documents in front of you in the Command Center, which [Safety model](#safety-model) explains.
+Each also merges a few permission rules into your Claude Code settings, `~/.claude/settings.json`, keeping your own and backing the file up first, and takes out the CFO's hooks an older build wrote there, since the CFO's terminal starts with its own: the rules let a Claude Code CFO in auto mode put questions, run items, reviews and documents in front of you in the Command Center, which [Safety model](#safety-model) explains.
 The hooks act only in the CFO's own session, the agent native terminal `cfo` runs, so a Claude Code session you open yourself, in the desktop app or a terminal, is never given the fleet's digest, lock or wakes ([The CFO's own session](AGENTS.md#the-cfos-own-session)).
 Each also turns on **Start at login**, so Code Goblins starts in the tray when you sign in and brings back what a restart ended; untick it in the setup to keep it off, and [Opening, closing and restarting](#opening-closing-and-restarting) says how to change it later.
 Where this machine can have a Dev Drive, the setup and the board's first page each offer once, unticked, to put the goblins' worktrees and caches on one, with a sentence saying what it is and that it is not a Defender exclusion; a machine that cannot have one is told why in one line and works as before ([A Dev Drive for the busiest folders](#a-dev-drive-for-the-busiest-folders-optional)).
@@ -435,6 +435,8 @@ Start needs at least 5 GB of free memory and 5 GB of free commit (RAM plus page 
 One click is enough: a Start or Resume clicked while another task starts or resumes, or while memory or disk is short, waits its turn and runs as soon as it can, and its card says Starting or Resuming the moment you click, or Starts at 5 GB free while memory is short.
 What the fleet starts by itself also waits for room on the processors, so your own apps stay quick: the next queued task, a goblin whose wait is over, a goblin coming back after a restart and a helper start only once a quarter of this PC's performance cores sat idle since the last reading.
 Each install reads its own processor for this, and a Start or Resume you click does not wait on it.
+A goblin's own work also keeps off half of this PC's performance cores, rounded up to whole cores, so your apps always have cores no goblin's build or test runs on.
+On a PC of six performance cores that leaves you three, and it costs the goblins about two fifths of their speed only while they fill every core they keep.
 A second click changes nothing, and a refusal goes to the CFO, never to a line on the board.
 A start ends once its goblin has its brief: the goblin installs its worktree's dependencies (`npm ci`, `uv sync` and the like) in its own terminal as its first step, and its card says so, so a long install never holds up the next start or resume.
 A Start or Resume, and each start or resume the supervisor makes by itself, that meets a `cfo spawn` the CFO runs by hand waits for that spawn's turn, which ends once its terminal runs; one that gives up after waiting 10 minutes tries once more as soon as the lock frees.
@@ -446,7 +448,7 @@ A task reads one status, the same words and the same dot, on its card, its panel
 Pause allows five seconds for a stopping point and handoff, then ends the task's processes, including its detached browser sessions, dev servers and tests.
 Retiring a task with `cfo cleanup` ends the same processes once it has closed the task's terminal, and names each one it ended.
 So does `cfo switch`, and a resume, before the next harness starts.
-It ends the goblin's terminal first, which ends its agent and everything under it, so a busy goblin that misses its stopping point is still paused, with its session kept for its resume, even when the search for its other processes runs out of time on a machine short of memory.
+It ends the goblin's terminal first, which ends its agent and everything under it, so a busy goblin that misses its stopping point is still paused, with its session kept for its resume, even when the search for its other processes runs out of time on a machine short of memory. That search runs one priority class above normal, so it does not wait its turn behind the builds it is there to pause.
 A process is the task's own by its terminal's job, by the mark its terminal gave it, by working in the task's folders, or by being started by a process that is.
 The mark is a value every process started in the terminal inherits, and keeps when its parent exits and when Git Bash starts it outside the job, so a browser bridge or a server left in the background ends with its goblin wherever it works.
 A machine service the goblin started for its work is never one of them: Docker Desktop with everything it runs, the no-mistakes daemon with every other goblin's gate agents, and the Scrawl server that keeps every goblin's review page keep running through a pause, a stop, a cleanup, a switch, a forced reap and the goblin's terminal closing.
@@ -857,6 +859,7 @@ cfo afk log --kind <kind> --what "<what>" --evidence "<evidence>" [--link <url>]
 cfo cleanup <id>
 cfo backlog done <id>
 cfo reap [--dry-run|--apply]
+cfo process-plan
 cfo drain
 cfo notify <id> --done --pr <url> | --blocked "<question>" | --failed "<reason>" | --working "<what>" | --waiting-on <task-id|run-id|overlord|ci|deploy|memory> "<why>" [--lavish <html-file>] [--link <https-url>] [--run <command-file>]
 cfo helper start <parent-id> --brief <file> [--title "<short title>"]
@@ -941,6 +944,7 @@ The same supervisor poll watches the health of the fleet's own pull requests: a 
 A repository is the fleet's when its GitHub owner, read from the pull request's own address and never from a remote's name, is the account `gh` works as or an organization listed in `config/fleet.json` as `github_owners`, such as `{"github_owners": ["my-org"]}`.
 Another owner's pull requests, such as the upstream's in a checkout of your fork whose `origin` is the upstream, raise nothing.
 It raises a `pr_health` wake for a conflict with the PR's base or a head that is behind the repository's current default branch, even while checks are pending, failed or absent.
+A behind head raises none while a merge train can take the pull request, a goblin's finished one that is green, mergeable and not held, since the train tests each rider on the current default branch itself.
 One poll raises at most one such wake per repository, naming every pull request whose head fell into a condition the CFO was not woken for, so dozens never arrive as dozens of wakes.
 Each condition wakes once per head and survives a restart; a pull request whose head and condition stay as they were is never named again, a behind head waits up to ten minutes for GitHub to work out whether it conflicts, and a repository's wakes are at least five minutes apart.
 A goblin's pull request is named with its goblin and the safe update: merge the default branch in with a merge commit, regenerate generated files, run CI once and never force-push.
@@ -1000,6 +1004,7 @@ It stays local and private: nothing in it is pushed anywhere, and no repository 
   config\                         the gate policy, fleet.json (the disk floor, the caches cap, github_owners and the weekly allowance floors), and dev-drive.json once the next three folders moved to a Dev Drive
   worktrees\<project>\<task>\     each goblin's worktree of your checkout, and its extra worktrees beside it
   scratch\<task>\                 each goblin's temporary files, which go with the task
+  scratch\.tmp\                   every goblin's TMP, the one temporary folder they share, never removed
   caches\                         the package caches goblins share, kept under 20 GB
   data\                           your data
     backlog.md                    open work: Queued, Parked and Done
@@ -1026,9 +1031,12 @@ If you want one, make `data\` a git repository and push it to a private remote o
 
 The home stays small on its own: the binaries, records under 200 MB, capped caches, and about 0.2 GB for each running goblin, which leaves when its work merges.
 Once an hour the janitor removes what the fleet left behind: a worktree in the home no task owns once its work is on the default branch or kept as a local `archive/<branch>` tag, aside copies under the [build update policy](#core-commands), temporary folders nothing has written to for a day, a retired task's scratch, logs and evidence (its brief, report, decisions, handoffs and status log stay, and so does anything it handed you), backups past the newest two of each kind, and cache space over the cap, using each tool's own prune.
+It never removes `scratch\.tmp`, the temporary folder every goblin's `TMP` names, nor any folder a running Git Bash has as `/tmp`.
+Git Bash keeps the `TMP` of its first shell as `/tmp` for every shell of yours until its last one ends, so a goblin's `TMP` is that one shared folder, never its own scratch folder, and cleanup and the janitor ask each running Git Bash before they remove a temporary folder and leave one that is still its `/tmp`.
 It never touches uncommitted work or your checkouts, touches Docker only to stop a project's local services that cfo started for goblins once no running goblin holds them, and reports what it will not remove: a worktree no task records, a new folder in your projects root that is no checkout, and a `data\` over 200 MB.
 It also ends the processes a goblin's terminal left running once that terminal is gone, and a detached one of a running goblin that has delivered and rests, once the goblin's rest and the process's stillness have both lasted an hour, each proven the fleet's own the way a pause proves it. Nothing of a goblin that works is ended this way.
 Your own apps are never among them, and what it cannot prove it only names for the CFO.
+`cfo process-plan` prints what that sweep, and a cleanup or a relaunch of each task, would end right now, with the rule behind each line, and ends nothing.
 `cfo runtime` shows what each part of the home holds, and the board shows free disk under free memory, in one box.
 
 ### A Dev Drive for the busiest folders (optional)

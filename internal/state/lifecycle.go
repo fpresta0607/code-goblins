@@ -79,7 +79,7 @@ func (record Lifecycle) SuppressesMonitoring(directory string) bool {
 		return true
 	}
 	if record.Phase == "pausing" || record.Phase == "resuming" || record.Phase == "stopping" {
-		controller, err := lock.ReadNamed(directory, ".lifecycle-"+record.ID+".lock")
+		controller, err := lock.ReadNamed(directory, LifecycleLockName(record.ID))
 		return err == nil && controller.Alive()
 	}
 	return false

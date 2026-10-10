@@ -64,7 +64,7 @@ commands:
   hooks     check|install <claude|codex|pi> native lifecycle hooks
   native-hook <harness>  bounded hook entry point (JSON on stdin)
   register  make this session the primary CFO the board delivers to; the SessionStart hooks do it, run it by hand when the board says the registration is stale
-  install   wire the CFO home into the machine (CFO_HOME, PATH, and the Claude Code hooks in your user settings) so a session in any repo is supervised: from any folder, a checkout included, it sets up %LOCALAPPDATA%\CodeGoblins from this binary (the CFO's contract, the default policy, the binary as bin\cfo.exe and bin\goblins.exe, the skills once in ~\.agents\skills with a junction from Claude Code's skills folder, and state\harnesses.json naming where each harness keeps its configuration); --projects-root <dir> records the folder that holds your checkouts so --project can take a bare name; --uninstall reverses the wiring, the board's native hooks, the Start-menu and desktop shortcuts and the skills it installed included, and keeps the home's files
+  install   wire the CFO home into the machine (CFO_HOME, PATH, and the Command Center allow rules in your Claude Code settings, out of which it takes the CFO's hooks an older build wrote, since the CFO's terminal starts with its own) so the CFO is supervised wherever it is started: from any folder, a checkout included, it sets up %LOCALAPPDATA%\CodeGoblins from this binary (the CFO's contract, the default policy, the binary as bin\cfo.exe and bin\goblins.exe, the skills once in ~\.agents\skills with a junction from Claude Code's skills folder, and state\harnesses.json naming where each harness keeps its configuration); --projects-root <dir> records the folder that holds your checkouts so --project can take a bare name; --uninstall reverses the wiring, the board's native hooks, the Start-menu and desktop shortcuts and the skills it installed included, and keeps the home's files
   uninstall the same as install --uninstall
   home      migrate [--apply --plan <digest>] [--memory-from <dir>]: lay out a home whose data predates the layout; without --apply a dry run that lists every file it would move, create or change, proves none is dropped and prints the plan digest --apply --plan makes; move [--to <dir>] [--apply --plan <digest>]: move an older build's home, such as a checkout, to the per-user home, with the same dry run, digest and read-back
   dev-drive say whether the home's worktrees, scratch and package caches are on a Dev Drive, a drive Windows 11 formats for developer work that Defender scans in performance mode (not an exclusion), whether this machine has or can have one, and why not; setup: ask for the next step, which the board puts in the Command Center as one item to run; move --to <folder>: put new goblins' worktrees, scratch and caches in <folder> on a trusted Dev Drive, keeping every started goblin's folders where they are
@@ -113,6 +113,7 @@ commands:
   cfo backlog done <id>   close a retired delivered task's queued row, preserving its evidence and continuation under Done
   cfo pause <id> | resume <id> | kill <id>   pause, resume or stop a task while preserving its work
   cfo reap [--dry-run] [--apply] [--force <pid|task-id>]... [--json]   find orphaned harness processes, stale dev servers, worktrees, task records and status logs; --apply retires the worktrees, records and logs, and ending a process needs its pid named with --force
+  cfo process-plan   what the janitor's process sweep, and a cleanup or a relaunch of each task, would end on this machine now, with the rule that decides each; it reads only and ends nothing
   cfo notify <id> --done --pr <url> | --blocked "<question>" | --failed "<reason>" | --working "<what>" | --waiting-on <task-id|run-id|overlord|ci|deploy|memory> "<why>" [--lavish <html-file>] [--link <https-url>] [--run <command-file>]   a goblin reports its outcome straight into the wake queue, or what it is working on or waiting on; a wait on the Overlord leads with one sentence, puts values he must enter in a Markdown table on the lines after it with each value in backticks, which his card copies, and gives the one link his card opens with --link; --run names a .ps1 or .sh file holding a command he must run, which his card runs with one click in a terminal on the card, where he types into it
   cfo helper start <parent-id> --brief <file> [--title "<short title>"]   a goblin asks the supervisor for one helper goblin: the supervisor starts it only when memory allows, one per goblin at a time and never a helper's, on a branch cut from the goblin's last commit, in local-only mode, reporting to the goblin; it says which helper and branch, or why not and when to ask again
   cfo helper merge <parent-id>   the goblin merges its helper's branch into its own with a merge commit, in its own worktree, and retires the helper; a conflict is left for it to resolve and commit, and asked again it only retires the helper; it stays the one who opens the pull request
@@ -154,6 +155,9 @@ type commandRuntime struct {
 	cleanup       func(context.Context, home.Home, string, bool) (string, error)
 	taskLifecycle func(context.Context, home.Home, lifecycle.Request, string) (state.Lifecycle, error)
 	reap          func(context.Context, home.Home, reap.Options) (reap.Result, error)
+	// processPlan reads what the fleet's process sweeps would end now, and
+	// ends nothing.
+	processPlan func(context.Context, home.Home) (processPlan, error)
 	speedHint     func(context.Context, string) string
 	quota         func(context.Context) (quota.Report, string)
 	// goblins is true when this binary runs under the name goblins, where no
@@ -373,6 +377,7 @@ func defaultCommandRuntime() commandRuntime {
 		cleanup:       defaultCleanup,
 		taskLifecycle: defaultTaskLifecycle,
 		reap:          defaultReap,
+		processPlan:   defaultProcessPlan,
 		speedHint: func(ctx context.Context, name string) string {
 			return telemetry.SpeedHint(ctx, execx.OSRunner{}, name)
 		},
@@ -581,6 +586,8 @@ func runWithRuntime(args []string, stdout, stderr io.Writer, runtime commandRunt
 		return runWorktree(args[1:], stdout, stderr, runtime)
 	case "reap":
 		return runReap(args[1:], stdout, stderr, runtime)
+	case "process-plan":
+		return runProcessPlan(args[1:], stdout, stderr, runtime)
 	case "notify":
 		return runNotify(args[1:], stdout, stderr, runtime)
 	case "helper":
