@@ -121,3 +121,13 @@ It leaves `verification.full` and `deployment` alone.
 A command an instruction file names is prose until someone runs it, and a wrong deploy command is one `cfo deploy` would run.
 A draft is never written over a file, and never under the home's `data/projects`, where a record steers routing and verification for live spawns.
 A person reads the draft, completes it and places it.
+
+### The project-check skill
+
+The command proves what can be proved without starting anything.
+The `project-check` skill is the rest of the pass, one text for every harness, installed with the other skills Code Goblins ships.
+It runs `cfo project check` and `cfo auth <project> --check`, then proves each listed build, test and lint command by running it or its dry form.
+It runs no deploy, no migration and no test while the report holds a `test-reaches-production` line.
+It completes the draft from evidence, proves it in a scratch home with `--area record`, and writes a report with one line for each finding.
+A fix in the home's files is the CFO's to place.
+A fix inside the project's repository is written up with its proposed text for a follow-up task, which ships through that repository's own gate.
