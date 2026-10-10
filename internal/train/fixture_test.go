@@ -269,6 +269,12 @@ type fakeGitHub struct {
 	// comments what each was closed with.
 	closed   []string
 	comments []string
+	// labels are the labels the repository has, and wears the labels each of
+	// the train's pull requests carries. noLabels refuses every write of a
+	// label with this text, as GitHub refuses a token that may not label.
+	labels   map[string]bool
+	wears    map[string][]string
+	noLabels string
 	// merged are the goblins' pull requests GitHub shows merged, in the order
 	// main took them.
 	merged []int
@@ -295,7 +301,7 @@ type pull struct {
 }
 
 func newFakeGitHub(s *scratch) *fakeGitHub {
-	return &fakeGitHub{s: s, pulls: map[string]*pull{}, refuse: map[string]string{}, unanswered: map[string]int{}, lost: map[string]bool{}, mainRuns: "[]", state: map[string]string{}, titles: map[string]string{}}
+	return &fakeGitHub{s: s, pulls: map[string]*pull{}, refuse: map[string]string{}, unanswered: map[string]int{}, lost: map[string]bool{}, mainRuns: "[]", state: map[string]string{}, titles: map[string]string{}, labels: map[string]bool{}, wears: map[string][]string{}}
 }
 
 // open lists a green, mergeable pull request of branch at head.
@@ -325,8 +331,8 @@ func (f *fakeGitHub) Run(ctx context.Context, request execx.Request) (execx.Resu
 	if call == "merge" {
 		call += " " + args[2]
 	}
-	if args[0] == "run" {
-		call = "run " + call
+	if args[0] == "run" || args[0] == "label" {
+		call = args[0] + " " + call
 	}
 	if f.unanswered[call] > 0 {
 		f.unanswered[call]--
@@ -356,6 +362,10 @@ func (f *fakeGitHub) answer(args []string) (execx.Result, error) {
 		return execx.Result{Stdout: []byte("\n")}, nil
 	case args[0] == "pr" && args[1] == "list":
 		return f.list()
+	case args[0] == "label" && args[1] == "create":
+		return f.makeLabel(args[2], slices.Contains(args, "--force"))
+	case args[0] == "pr" && args[1] == "edit" && f.state[args[2]] == "OPEN" && slices.Contains(args, "--add-label"):
+		return f.addLabel(args[2], flagValue(args, "--add-label"))
 	case args[0] == "pr" && args[1] == "edit" && f.state[args[2]] == "OPEN":
 		f.edited++
 		f.titles[args[2]] = flagValue(args, "--title")
@@ -389,6 +399,45 @@ func (f *fakeGitHub) answer(args []string) (execx.Result, error) {
 		return f.runView(args[2])
 	}
 	return execx.Result{ExitCode: 1, Stderr: []byte("unexpected gh " + strings.Join(args, " "))}, nil
+}
+
+// makeLabel answers gh label create: the repository gains the label, unless
+// it has one of that name and was not told to write over it.
+func (f *fakeGitHub) makeLabel(name string, isForced bool) (execx.Result, error) {
+	switch {
+	case f.noLabels != "":
+		return execx.Result{ExitCode: 1, Stderr: []byte(f.noLabels)}, nil
+	case f.labels[name] && !isForced:
+		return execx.Result{ExitCode: 1, Stderr: []byte(fmt.Sprintf("label with name %q already exists; use `--force` to update its color and description", name))}, nil
+	}
+	f.labels[name] = true
+	return execx.Result{}, nil
+}
+
+// addLabel answers gh pr edit --add-label on a train's open pull request: it
+// wears the label from then on, and only a label the repository has.
+func (f *fakeGitHub) addLabel(url, name string) (execx.Result, error) {
+	switch {
+	case f.noLabels != "":
+		return execx.Result{ExitCode: 1, Stderr: []byte(f.noLabels)}, nil
+	case !f.labels[name]:
+		return execx.Result{ExitCode: 1, Stderr: []byte(fmt.Sprintf("failed to update %s: '%s' not found", url, name))}, nil
+	}
+	if !slices.Contains(f.wears[url], name) {
+		f.wears[url] = append(f.wears[url], name)
+	}
+	return execx.Result{}, nil
+}
+
+// labelCalls counts the gh label create calls.
+func (f *fakeGitHub) labelCalls() int {
+	made := 0
+	for _, args := range f.calls {
+		if args[0] == "label" && args[1] == "create" {
+			made++
+		}
+	}
+	return made
 }
 
 func flagValue(args []string, name string) string {

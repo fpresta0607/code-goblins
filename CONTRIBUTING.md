@@ -86,6 +86,8 @@ Before the tag:
 Before publishing the draft:
 
 - Its notes say signed or unsigned as intended, and list a SHA-256 for each program.
+- Its list of what changed names no merge train.
+  `.github/release.yml` leaves out a train's own pull request by its `merge-train` label, so one listed there merged without the label: take that line out of the draft, and put the label on the pull request.
 - `defender-scan.txt` shows Defender actively protecting, with nothing excluded and no detection.
 - The draft's `install.ps1`, run on a clean machine or in the install workflow, installs the three programs, and opening the app shows the board.
 

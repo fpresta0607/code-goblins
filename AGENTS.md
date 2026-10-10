@@ -632,7 +632,13 @@ On GitHub a train that landed leaves nothing closed without merging, which GitHu
 A train that did not land its last run closes that run's pull request with how it ended, the failed checks and what landed before it: the one place on GitHub a train that went red says so.
 Halving adds no second one, because each half that passes merges a pull request of its own and the half after it opens a new one, and a train that stopped before it pushed anything opened none.
 Until 2026-10-10 a train merged each pull request by itself and closed its own without merging, so every train that had done its job read as a failed pull request.
-A train an older build started lands the new way on its next step: its pull request is retitled before it merges, and a landing that build left half done is finished by merging the train's pull request, which leaves the branch at the tree CI tested.
+A train an older build started lands the new way on its next step: its pull request is retitled and labelled before it merges, and a landing that build left half done is finished by merging the train's pull request, which leaves the branch at the tree CI tested.
+
+A train's pull request wears the `merge-train` label from the time it opens, and the train makes sure of the label again before it merges one, so a pull request an older build opened, or one whose label was taken off, merges wearing it too.
+The notes GitHub writes for a release list every merged pull request, and this repository's `.github/release.yml` leaves that label out, so a release's list of what changed, and the board's Update item that reads it, name each pull request a train landed and never the train.
+A repository's first train makes the label, and a label the repository already has is left as its owner keeps it.
+The label never stops a train: one that could not be put on reaches you as a `merge_train:` wake that names the pull request and the command that puts it on by hand.
+Another repository that asks GitHub for a release's notes leaves the label out in a `.github/release.yml` of its own.
 
 The supervisor runs trains by itself: on its GitHub poll, when two or more green pull requests goblins finished wait on one default branch, it starts a train, and it takes each running train a step on every poll, also once the goblins of its repository have left.
 `cfo pr train` joins the train already running in the project and waits until it is over.
