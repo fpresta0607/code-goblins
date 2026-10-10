@@ -19,8 +19,8 @@ func TestSharedTempCanBeNoTasksScratchFolder(t *testing.T) {
 		t.Fatalf("%q is a valid task id, so a task's scratch folder could be the shared temporary folder", SharedTempDir)
 	}
 	h := Home{Root: `C:\home`, DevDrive: `D:\CodeGoblins`}
-	if got, want := h.SharedTemp(), `D:\CodeGoblins\scratch\.tmp`; got != want {
-		t.Errorf("SharedTemp() = %q, want %q", got, want)
+	if got, want := SharedTempBeside(filepath.Join(h.Scratch(), "task-1")), `D:\CodeGoblins\scratch\.tmp`; got != want {
+		t.Errorf("SharedTempBeside() on the Dev Drive = %q, want %q", got, want)
 	}
 	if got, want := SharedTempBeside(`C:\home\scratch\task-1\`), `C:\home\scratch\.tmp`; got != want {
 		t.Errorf("SharedTempBeside() = %q, want %q", got, want)
@@ -90,11 +90,9 @@ func TestRemoveScratchLeavesAFolderThatIsALiveTmp(t *testing.T) {
 			if err := os.MkdirAll(filepath.Join(scratch, "go-build1"), 0o755); err != nil {
 				t.Fatal(err)
 			}
-			askedFrom := ""
 
 			// Act
-			heldBy, err := RemoveScratch(context.Background(), scratch, func(_ context.Context, safeTemp string) ([]LiveTemp, error) {
-				askedFrom = safeTemp
+			heldBy, err := RemoveScratch(context.Background(), scratch, func(context.Context) ([]LiveTemp, error) {
 				return test.temps(scratch)
 			})
 
@@ -108,15 +106,12 @@ func TestRemoveScratchLeavesAFolderThatIsALiveTmp(t *testing.T) {
 			if _, statErr := os.Stat(scratch); (statErr == nil) != test.isKept {
 				t.Errorf("the folder is there: %v, want %v", statErr == nil, test.isKept)
 			}
-			if want := SharedTempBeside(scratch); askedFrom != want {
-				t.Errorf("the runtimes were asked from %q, want the shared folder %q, which is never removed", askedFrom, want)
-			}
 		})
 	}
 }
 
 func TestRemoveScratchAsksNothingForAFolderAlreadyGone(t *testing.T) {
-	heldBy, err := RemoveScratch(context.Background(), filepath.Join(t.TempDir(), "scratch", "gone"), func(context.Context, string) ([]LiveTemp, error) {
+	heldBy, err := RemoveScratch(context.Background(), filepath.Join(t.TempDir(), "scratch", "gone"), func(context.Context) ([]LiveTemp, error) {
 		t.Fatal("the running runtimes were asked about a folder that is not there")
 		return nil, nil
 	})
@@ -234,8 +229,10 @@ func TestLiveTempsReadsWhatTheFirstProcessOfARuntimeMadeTmp(t *testing.T) {
 	runtime := privateRuntime(t)
 	scratch := filepath.Join(t.TempDir(), "scratch", "task-1")
 	safeTemp := SharedTempBeside(scratch)
-	if err := os.MkdirAll(scratch, 0o755); err != nil {
-		t.Fatal(err)
+	for _, folder := range []string{scratch, safeTemp} {
+		if err := os.MkdirAll(folder, 0o755); err != nil {
+			t.Fatal(err)
+		}
 	}
 	first := exec.Command(filepath.Join(runtime, "sleep.exe"), "120")
 	first.Env = append(os.Environ(), "TMP="+scratch, "TEMP="+scratch)
@@ -282,18 +279,36 @@ func TestLiveTempsReadsWhatTheFirstProcessOfARuntimeMadeTmp(t *testing.T) {
 	}
 }
 
-// No test in any package may start a program of the machine's own Git Bash
-// with a folder of the test's as its TMP, so the exported reader answers a
-// test binary without looking.
+// No test's result may rest on what happens to run on the machine, so the
+// exported reader answers a test binary without looking.
 func TestLiveTempsAsksNoRuntimeFromATestBinary(t *testing.T) {
-	safeTemp := filepath.Join(t.TempDir(), "scratch", SharedTempDir)
-
-	temps, err := LiveTemps(context.Background(), safeTemp)
+	temps, err := LiveTemps(context.Background())
 
 	if err != nil || len(temps) != 0 {
 		t.Fatalf("LiveTemps() in a test binary = %v, %v, want no runtime and no error", temps, err)
 	}
-	if _, err := os.Stat(safeTemp); !os.IsNotExist(err) {
-		t.Errorf("LiveTemps() in a test binary made %s: %v, so it went on to ask", safeTemp, err)
+}
+
+// A cygpath that turns out to be its runtime's first process makes its TMP
+// the /tmp of every shell that starts while it runs, so the folder it is
+// given is the user's own temporary folder as Windows names it, not what the
+// environment of the process that asks says, which for a goblin started
+// before TMP named the shared folder is its scratch folder.
+func TestTheRuntimesAreAskedFromTheUsersOwnTemporaryFolder(t *testing.T) {
+	scratch := filepath.Join(t.TempDir(), "scratch", "task-1")
+	for _, name := range []string{"TMP", "TEMP", "LOCALAPPDATA"} {
+		t.Setenv(name, scratch)
+	}
+
+	temp, err := userTemp()
+
+	if err != nil {
+		t.Fatal(err)
+	}
+	if rel, relErr := filepath.Rel(scratch, temp); relErr == nil && filepath.IsLocal(rel) {
+		t.Fatalf("userTemp() = %s, which follows the environment into the task's scratch folder %s", temp, scratch)
+	}
+	if info, statErr := os.Stat(temp); statErr != nil || !info.IsDir() || !strings.EqualFold(filepath.Base(temp), "Temp") {
+		t.Errorf("userTemp() = %s, stat %v, want the user's existing Temp folder", temp, statErr)
 	}
 }

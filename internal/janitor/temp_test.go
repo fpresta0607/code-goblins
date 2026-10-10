@@ -13,9 +13,9 @@ import (
 	"github.com/fpresta0607/code-goblins/internal/state"
 )
 
-func stubLiveTemps(t *testing.T, answer func(safeTemp string) ([]home.LiveTemp, error)) {
+func stubLiveTemps(t *testing.T, answer func() ([]home.LiveTemp, error)) {
 	t.Helper()
-	liveTemps = func(_ context.Context, safeTemp string) ([]home.LiveTemp, error) { return answer(safeTemp) }
+	liveTemps = func(context.Context) ([]home.LiveTemp, error) { return answer() }
 	t.Cleanup(func() { liveTemps = home.LiveTemps })
 }
 
@@ -61,7 +61,7 @@ func TestSweepLeavesTheSharedTemporaryFolderAlone(t *testing.T) {
 func TestSweepRemovesOldFleetTempFoldersFromTheSharedTemporaryFolder(t *testing.T) {
 	// Arrange
 	f := newSweepFixture(t)
-	shared := f.home.SharedTemp()
+	shared := filepath.Join(f.home.Scratch(), home.SharedTempDir)
 	leak := folder(t, filepath.Join(shared, "TestLeak123"), true)
 	used := folder(t, filepath.Join(shared, "Test4567890"), true)
 	recent := folder(t, filepath.Join(shared, "go-build9"), false)
@@ -93,9 +93,7 @@ func TestSweepLeavesAFolderThatIsALiveMsysTmp(t *testing.T) {
 	deadScratch := folder(t, filepath.Join(f.home.Scratch(), "gone-task"), true)
 	temp := t.TempDir()
 	holdsTmp := folder(t, filepath.Join(temp, "Test123"), true)
-	askedFrom := ""
-	stubLiveTemps(t, func(safeTemp string) ([]home.LiveTemp, error) {
-		askedFrom = safeTemp
+	stubLiveTemps(t, func() ([]home.LiveTemp, error) {
 		return []home.LiveTemp{
 			{Runtime: `C:\Program Files\Git\usr\bin`, Folder: liveTmp},
 			{Runtime: `C:\msys64\usr\bin`, Folder: filepath.Join(holdsTmp, "001")},
@@ -125,9 +123,6 @@ func TestSweepLeavesAFolderThatIsALiveMsysTmp(t *testing.T) {
 	if len(kept) != 2 || !strings.Contains(strings.Join(kept, "\n"), `C:\Program Files\Git\usr\bin`) {
 		t.Errorf("kept = %q, want both folders reported as a running Git Bash's /tmp, with the runtime named", kept)
 	}
-	if askedFrom != f.home.SharedTemp() {
-		t.Errorf("the runtimes were asked from %q, want the shared folder %q, which is never removed", askedFrom, f.home.SharedTemp())
-	}
 }
 
 // Which folders are a live /tmp is the evidence a removal rests on: when it
@@ -139,7 +134,7 @@ func TestSweepRemovesNoTempFolderWhenTheLiveTmpCannotBeRead(t *testing.T) {
 	temp := t.TempDir()
 	leak := folder(t, filepath.Join(temp, "go-build123"), true)
 	asked := 0
-	stubLiveTemps(t, func(string) ([]home.LiveTemp, error) {
+	stubLiveTemps(t, func() ([]home.LiveTemp, error) {
 		asked++
 		return nil, errors.New("cygpath.exe is missing")
 	})
@@ -168,7 +163,7 @@ func TestSweepAsksNoRuntimeWhenNothingIsOldEnoughToRemove(t *testing.T) {
 	f := newSweepFixture(t)
 	folder(t, filepath.Join(f.home.Scratch(), "gone-task"), false)
 	folder(t, filepath.Join(f.home.Scratch(), "live"), true)
-	stubLiveTemps(t, func(string) ([]home.LiveTemp, error) {
+	stubLiveTemps(t, func() ([]home.LiveTemp, error) {
 		t.Error("the running runtimes were asked with nothing to remove")
 		return nil, nil
 	})

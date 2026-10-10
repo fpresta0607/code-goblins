@@ -3,6 +3,7 @@ package home
 import (
 	"errors"
 	"os"
+	"path/filepath"
 	"unsafe"
 
 	"golang.org/x/sys/windows"
@@ -36,6 +37,17 @@ func processImages() ([]string, error) {
 		return nil, errors.New("the process list does not show this process")
 	}
 	return images, nil
+}
+
+// userTemp is the temporary folder Windows gives this user's programs when
+// nothing redirects them, Temp in the user's local application data, read
+// from the user's profile rather than from this process's environment.
+func userTemp() (string, error) {
+	local, err := windows.KnownFolderPath(windows.FOLDERID_LocalAppData, 0)
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(local, "Temp"), nil
 }
 
 func processImage(pid uint32) (string, bool) {

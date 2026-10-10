@@ -31,9 +31,6 @@ import (
 // folder can be this one.
 const SharedTempDir = ".tmp"
 
-// SharedTemp is the folder new goblins' TMP names.
-func (h Home) SharedTemp() string { return filepath.Join(h.Scratch(), SharedTempDir) }
-
 // SharedTempBeside is the shared temporary folder that goes with a task's
 // scratch folder: the one beside it, in the same scratch root, so a task keeps
 // both on one drive wherever its record put its scratch folder.
@@ -63,21 +60,24 @@ type LiveTemp struct {
 // Nothing a running shell sees changes: each runtime is asked by its own
 // cygpath, which reads the mount the running processes share. Should the
 // last of them end before cygpath starts, cygpath is the runtime's first
-// process and decides /tmp itself for as long as it runs, so it is given
-// safeTemp, a folder that is never removed, as its TMP and TEMP.
+// process and decides /tmp itself for as long as it runs, so its TMP and
+// TEMP are the user's own temporary folder as Windows names it, whatever
+// this process's environment says: the folder a shell opened from the
+// desktop would have made /tmp, which nothing of the fleet's removes.
 //
 // An error means some runtime could not be asked, so which folders are a live
 // /tmp is unknown, and a caller about to remove a folder leaves it.
 //
-// A test binary asks nothing and is told no runtime runs. Its safeTemp is a
-// folder of the test's own, which goes when the test ends, and a cygpath of
-// the machine's Git Bash started with it could be that runtime's first
-// process: the test would then have made a folder it removes the machine's
-// /tmp, which is the defect this exists to end. A test that needs an answer
+// A test binary asks nothing and is told no runtime runs, so no test's result
+// rests on what happens to run on the machine. A test that needs an answer
 // gives its own in place of this function.
-func LiveTemps(ctx context.Context, safeTemp string) ([]LiveTemp, error) {
+func LiveTemps(ctx context.Context) ([]LiveTemp, error) {
 	if isTestBinary() {
 		return nil, nil
+	}
+	safeTemp, err := userTemp()
+	if err != nil {
+		return nil, fmt.Errorf("home: find the user's own temporary folder: %w", err)
 	}
 	images, err := processImages()
 	if err != nil {
@@ -86,13 +86,11 @@ func LiveTemps(ctx context.Context, safeTemp string) ([]LiveTemp, error) {
 	return liveTemps(ctx, images, safeTemp)
 }
 
-// liveTemps is LiveTemps over a list of running programs' paths.
+// liveTemps is LiveTemps over a list of running programs' paths, asking each
+// runtime with safeTemp, a folder that is never removed, as its TMP and TEMP.
 func liveTemps(ctx context.Context, images []string, safeTemp string) ([]LiveTemp, error) {
 	if !filepath.IsAbs(safeTemp) {
 		return nil, fmt.Errorf("home: %q is no absolute folder to ask a msys runtime from", safeTemp)
-	}
-	if err := os.MkdirAll(safeTemp, 0o755); err != nil {
-		return nil, err
 	}
 	var temps []LiveTemp
 	asked := map[string]bool{}
@@ -164,21 +162,22 @@ var ErrLiveTempUnknown = errors.New("whether it is a running Git Bash's /tmp cou
 
 // RemoveScratch removes a task's scratch folder unless a running msys runtime
 // has it, or a folder inside it, mounted as /tmp, and names that runtime's
-// folder when it leaves the folder in place for that. Whoever removes a
-// scratch folder removes it here: cleanup, a failed spawn's teardown and the
-// janitor. A goblin started since TMP became the shared folder cannot make
-// its scratch folder /tmp, but one started before can, as can anything a
-// goblin starts with a TMP of its own, so the mount is read every time.
+// folder when it leaves the folder in place for that. Cleanup and a failed
+// spawn's teardown remove a scratch folder here, and the janitor's sweep
+// makes the same check with LiveTempIn. A goblin started since TMP became the
+// shared folder cannot make its scratch folder /tmp, but one started before
+// can, as can anything a goblin starts with a TMP of its own, so the mount is
+// read every time.
 //
 // liveTemps is LiveTemps, or a test's answer in its place. When it cannot say,
 // the folder stays and the error is an ErrLiveTempUnknown: a folder kept a
 // day longer costs disk, and a /tmp removed costs every Git Bash on the
 // machine.
-func RemoveScratch(ctx context.Context, folder string, liveTemps func(ctx context.Context, safeTemp string) ([]LiveTemp, error)) (heldBy string, err error) {
+func RemoveScratch(ctx context.Context, folder string, liveTemps func(context.Context) ([]LiveTemp, error)) (heldBy string, err error) {
 	if _, statErr := os.Stat(folder); errors.Is(statErr, os.ErrNotExist) {
 		return "", nil
 	}
-	temps, err := liveTemps(ctx, SharedTempBeside(folder))
+	temps, err := liveTemps(ctx)
 	if err != nil {
 		return "", fmt.Errorf("%w: %w", ErrLiveTempUnknown, err)
 	}

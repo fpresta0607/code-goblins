@@ -35,7 +35,7 @@ func TestCleanupLeavesAScratchFolderThatIsTheLiveMsysTmp(t *testing.T) {
 		t.Run(test.name, func(t *testing.T) {
 			// Arrange
 			task := newHomeTask(t)
-			liveTemps = func(context.Context, string) ([]home.LiveTemp, error) { return test.liveTemps(task.scratch) }
+			liveTemps = func(context.Context) ([]home.LiveTemp, error) { return test.liveTemps(task.scratch) }
 			t.Cleanup(func() { liveTemps = home.LiveTemps })
 
 			// Act

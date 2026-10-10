@@ -14,7 +14,7 @@ import (
 // liveTempAt makes folder the /tmp of a running Git Bash for the test.
 func liveTempAt(t *testing.T, folder string) {
 	t.Helper()
-	liveTemps = func(context.Context, string) ([]home.LiveTemp, error) {
+	liveTemps = func(context.Context) ([]home.LiveTemp, error) {
 		return []home.LiveTemp{{Runtime: `C:\Git\usr\bin`, Folder: folder}}, nil
 	}
 	t.Cleanup(func() { liveTemps = home.LiveTemps })

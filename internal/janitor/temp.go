@@ -123,7 +123,7 @@ func (cfg Config) removeTempLeaks(processes []string, record *Record) {
 	// only when a folder is otherwise due to go, since reading it starts a
 	// program for each running runtime.
 	liveTmp := sync.OnceValues(func() ([]home.LiveTemp, error) {
-		temps, err := liveTemps(context.Background(), cfg.Home.SharedTemp())
+		temps, err := liveTemps(context.Background())
 		if err != nil {
 			record.Notes = append(record.Notes, "which folders are a running Git Bash's /tmp could not be read, so no temporary folder was removed: "+err.Error())
 		}
