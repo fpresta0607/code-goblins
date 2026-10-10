@@ -339,6 +339,7 @@ func (s Service) Spawn(ctx context.Context, req Request) (result Result, err err
 	// through `cfo peek`/`cfo cleanup` instead of an unnameable orphan the CFO
 	// has to hunt down by hand.
 	result.Meta.SpawnGen = fmt.Sprintf("s%d", time.Now().UTC().UnixNano())
+	result.Meta.FirstGen = result.Meta.SpawnGen
 	if selection != nil {
 		result.Meta.PipelineClass = selection.Class
 		result.Meta.PipelineHash = selection.Hash
