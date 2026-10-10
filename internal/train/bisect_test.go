@@ -50,7 +50,8 @@ func TestARedTrainIsHalvedLandsTheGreenHalfAndBlamesTheCulprit(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	// Act: the whole train is red, so its first half rides alone.
+	// Act: the whole train is red on both tries, so its first half rides alone.
+	s.step(engine, started.ID)
 	halved, err := engine.Advance(context.Background(), started.ID)
 
 	// Assert
@@ -78,7 +79,9 @@ func TestARedTrainIsHalvedLandsTheGreenHalfAndBlamesTheCulprit(t *testing.T) {
 		t.Fatal("the next run is not #53 alone on the new main")
 	}
 
-	// Act: #53 is red alone, so it is the culprit; #54 waits for the next train.
+	// Act: #53 is red alone on both tries, so it is the culprit; #54 waits for
+	// the next train.
+	s.step(engine, started.ID)
 	stopped, err := engine.Advance(context.Background(), started.ID)
 
 	// Assert
@@ -88,8 +91,12 @@ func TestARedTrainIsHalvedLandsTheGreenHalfAndBlamesTheCulprit(t *testing.T) {
 	if got := carStates(stopped); stopped.State != StateStopped || !slices.Equal(got, []string{"#51=landed", "#52=landed", "#53=culprit", "#54=returned"}) || stopped.Runs != 3 {
 		t.Fatalf("train %s after %d runs: cars %v", stopped.State, stopped.Runs, got)
 	}
+	if !slices.Equal(gh.tries(), []int{2, 1, 2}) {
+		t.Fatalf("workflow runs tried %v times, want each red run tried again once and the green one never", gh.tries())
+	}
+	failing, alone := "https://github.com/o/r/actions/runs/101/job/1012", "https://github.com/o/r/actions/runs/103/job/1032"
 	told := s.goblinTold("g53")
-	if len(told) != 1 || !strings.Contains(told[0], prs[2].URL) || !strings.Contains(told[0], "test") || !strings.Contains(told[0], "https://github.com/o/r/actions/runs/1") {
+	if len(told) != 1 || !strings.Contains(told[0], prs[2].URL) || !strings.Contains(told[0], "test") || !strings.Contains(told[0], alone) {
 		t.Fatalf("g53 told %q, want its pull request and the failing check with its link", told)
 	}
 	for _, task := range []string{"g51", "g52", "g54"} {
@@ -106,9 +113,15 @@ func TestARedTrainIsHalvedLandsTheGreenHalfAndBlamesTheCulprit(t *testing.T) {
 	if got := runLog(stopped); !slices.Equal(got, []string{"1 #51 #52 #53 #54 failed", "2 #51 #52 landed", "3 #53 failed"}) {
 		t.Fatalf("runs %q, want each run with its riders and how it ended", got)
 	}
-	failing := "https://github.com/o/r/actions/runs/1"
-	if runs := stopped.History; runs[0].Link != failing || runs[1].Link != "" || runs[2].Link != failing || runs[2].Base != next.BaseSHA || runs[2].Head != next.Head || runs[1].Base != halved.BaseSHA {
+	if runs := stopped.History; runs[0].Link != failing || runs[1].Link != "" || runs[2].Link != alone || runs[2].Base != next.BaseSHA || runs[2].Head != next.Head || runs[1].Base != halved.BaseSHA {
 		t.Fatalf("runs %+v, want each red run linking its failed check, on the base and head it tested", runs)
+	}
+	firstTry := []FailedCheck{{Name: "test", Link: "https://github.com/o/r/actions/runs/101/job/1011"}}
+	if run := stopped.History[0]; !slices.Equal(run.FailedOnce, firstTry) || !slices.Equal(run.Failed, []FailedCheck{{Name: "test", Link: failing}}) || len(stopped.History[1].FailedOnce) != 0 {
+		t.Fatalf("runs %+v, want a red run to keep the check red on each try and the green run none", stopped.History)
+	}
+	if last := s.cfo[len(s.cfo)-1]; strings.Contains(last, "passed on the second try") {
+		t.Fatalf("CFO told %q, want no check named as passing when each was red twice", last)
 	}
 }
 
@@ -127,9 +140,9 @@ func TestATrainWhoseFirstRiderBreaksItLandsNothingAndReturnsTheRest(t *testing.T
 		t.Fatal(err)
 	}
 
-	// Act
-	if _, err := engine.Advance(context.Background(), started.ID); err != nil {
-		t.Fatal(err)
+	// Act: both riders are red twice, then the first alone is.
+	for range 3 {
+		s.step(engine, started.ID)
 	}
 	stopped, err := engine.Advance(context.Background(), started.ID)
 
@@ -144,8 +157,9 @@ func TestATrainWhoseFirstRiderBreaksItLandsNothingAndReturnsTheRest(t *testing.T
 
 func TestALoneRiderThatFailsAfterItsHalfLandedIsTestedBeforeItIsBlamed(t *testing.T) {
 	t.Parallel()
-	// Arrange: the first run fails for no rider's fault, as a flaky check
-	// does, so #72 is tested alone before it is blamed and then lands.
+	// Arrange: the first run is red on both tries for no rider's fault, as a
+	// fault of the runner's that lasts is, so #72 is tested alone before it
+	// is blamed and then lands.
 	s := newScratch(t)
 	gh := newFakeGitHub(s)
 	first := gh.open(71, "feat/a", s.branch("feat/a", "a.txt", "a\n"))
@@ -157,9 +171,8 @@ func TestALoneRiderThatFailsAfterItsHalfLandedIsTestedBeforeItIsBlamed(t *testin
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := engine.Advance(context.Background(), started.ID); err != nil {
-		t.Fatal(err)
-	}
+	s.step(engine, started.ID)
+	s.step(engine, started.ID)
 	gh.breaks = nil
 
 	// Act
@@ -239,7 +252,8 @@ func TestNoPullRequestIsBlamedWhileMainItselfIsRed(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	// Act
+	// Act: the run is red on both tries.
+	s.step(engine, started.ID)
 	stopped, err := engine.Advance(context.Background(), started.ID)
 
 	// Assert
@@ -252,7 +266,7 @@ func TestNoPullRequestIsBlamedWhileMainItselfIsRed(t *testing.T) {
 	if !strings.Contains(stopped.Note, "push CI is red") || !strings.Contains(stopped.Note, "go") || strings.Contains(stopped.Note, "frontend") {
 		t.Fatalf("note = %q, want main's newest red workflow named and no other", stopped.Note)
 	}
-	if run := gh.calls[slices.IndexFunc(gh.calls, func(args []string) bool { return args[0] == "run" })]; flagValue(run, "--commit") != started.BaseSHA || flagValue(run, "--branch") != "main" {
+	if run := gh.calls[slices.IndexFunc(gh.calls, func(args []string) bool { return args[0] == "run" && args[1] == "list" })]; flagValue(run, "--commit") != started.BaseSHA || flagValue(run, "--branch") != "main" {
 		t.Fatalf("gh run list = %v, want main's runs at the commit the run was built on", run)
 	}
 }
