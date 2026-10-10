@@ -16,7 +16,6 @@ import (
 	"github.com/fpresta0607/code-goblins/internal/execx"
 	"github.com/fpresta0607/code-goblins/internal/fsx"
 	"github.com/fpresta0607/code-goblins/internal/home"
-	projectcfg "github.com/fpresta0607/code-goblins/internal/project"
 	"github.com/fpresta0607/code-goblins/internal/projectcheck"
 )
 
@@ -63,7 +62,7 @@ func runProjectCheck(h home.Home, args []string, stdout, stderr io.Writer, runti
 		return 1
 	}
 	if *draft != "" {
-		if err := writeProjectDraft(h, *draft, report.Draft); err != nil {
+		if err := writeProjectDraft(h, *draft, report); err != nil {
 			fmt.Fprintf(stderr, "cfo project check: %v\n", err)
 			return 1
 		}
@@ -85,6 +84,7 @@ func runProjectCheck(h home.Home, args []string, stdout, stderr io.Writer, runti
 		fmt.Fprintln(stdout, report.Verdict(areas))
 		if *draft != "" {
 			fmt.Fprintln(stdout, "draft: "+*draft)
+			fmt.Fprintln(stdout, "draft tier: "+report.DraftTier)
 		}
 	}
 	for _, area := range areas {
@@ -95,10 +95,12 @@ func runProjectCheck(h home.Home, args []string, stdout, stderr io.Writer, runti
 	return 0
 }
 
-// writeProjectDraft writes a drafted record to a new file. A record under
-// the home's projects steers routing and verification for live spawns, so a
-// draft never goes there: whoever reads it places it.
-func writeProjectDraft(h home.Home, file string, draft projectcfg.Manifest) error {
+// writeProjectDraft writes a report's drafted record to a new file. A record
+// under the home's projects steers routing and verification for live spawns,
+// so a draft never goes there: whoever reads it places it. A draft with no
+// verification command is not written at all, since placed as it is it
+// would fail the record area of the check that drafted it.
+func writeProjectDraft(h home.Home, file string, report projectcheck.Report) error {
 	target, err := filepath.Abs(file)
 	if err != nil {
 		return err
@@ -107,7 +109,10 @@ func writeProjectDraft(h home.Home, file string, draft projectcfg.Manifest) erro
 	if inside, err := filepath.Rel(projects, target); err == nil && inside != ".." && !strings.HasPrefix(inside, ".."+string(filepath.Separator)) && !filepath.IsAbs(inside) {
 		return fmt.Errorf("--draft never writes under %s, where a record steers live spawns: write the draft elsewhere and place it yourself", projects)
 	}
-	data, err := json.MarshalIndent(draft, "", "  ")
+	if !report.DraftVerifies() {
+		return fmt.Errorf("no draft is written, since %s", report.DraftTier)
+	}
+	data, err := json.MarshalIndent(report.Draft, "", "  ")
 	if err != nil {
 		return err
 	}

@@ -14,12 +14,16 @@ import (
 var instructionFiles = []string{"AGENTS.md", "CLAUDE.md"}
 
 // The kinds of command a check follows up, and the words that mark each. A
-// deploy is looked for first, since `npm run deploy:test` deploys.
+// deploy is looked for first, since `npm run deploy:test` deploys. An
+// install is marked by where its word stands and not by a word anywhere, as
+// installs says, and is looked for before a test, since the word that makes
+// `npx playwright install` a test is its program's name.
 var commandKinds = []struct {
 	kind  string
 	words []string
 }{
 	{"deploy", []string{"deploy", "publish", "migrate"}},
+	{"install", nil},
 	{"test", []string{"test", "pytest", "vitest", "jest", "playwright"}},
 	{"lint", []string{"lint", "ruff", "eslint", "vet", "tsc", "typecheck", "fmt", "format", "audit", "check"}},
 	{"build", []string{"build", "ci", "install", "compile"}},
@@ -61,10 +65,32 @@ type instructionCommand struct {
 	kind, text, where string
 }
 
-// commandKind says whether a command builds, tests, lints or deploys, or
-// returns "" for any other.
+// installs reports whether a command installs dependencies, by the word its
+// program takes for that: npm ci, uv sync, go mod download, and install in
+// any of the first places a subcommand stands, as in npm install, uv pip
+// install, python -m pip install and npx playwright install. The word is
+// read as an argument of its own, so npm run test:ci installs nothing.
+func installs(argv []string) bool {
+	if len(argv) < 2 {
+		return false
+	}
+	switch argv[0] + " " + argv[1] {
+	case "npm ci", "uv sync", "poetry sync", "dotnet restore", "cargo fetch":
+		return true
+	}
+	if len(argv) > 2 && argv[0] == "go" && argv[1] == "mod" && argv[2] == "download" {
+		return true
+	}
+	return slices.Contains(argv[1:min(len(argv), 4)], "install")
+}
+
+// commandKind says whether a command deploys, installs, tests, lints or
+// builds, or returns "" for any other.
 func commandKind(argv []string) string {
 	for _, kind := range commandKinds {
+		if kind.kind == "install" && installs(argv) {
+			return kind.kind
+		}
 		for _, arg := range argv {
 			for _, part := range wordBreak.Split(strings.ToLower(arg), -1) {
 				if slices.Contains(kind.words, part) {
@@ -137,7 +163,7 @@ func (c *checker) instructions(ctx context.Context) {
 			"commit an AGENTS.md that names how the project is built, tested, linted and deployed")
 		return
 	}
-	var found, missing, deploys []string
+	var found, missing, deploys, installed, examples []string
 	for _, command := range commands {
 		if command.kind == "deploy" {
 			deploys = append(deploys, fmt.Sprintf("`%s` (%s)", command.text, command.where))
@@ -145,15 +171,22 @@ func (c *checker) instructions(ctx context.Context) {
 		}
 		var p proof
 		for _, s := range segments(command.text) {
-			next := c.prove(ctx, s, true)
+			next := c.prove(ctx, s, inProse)
 			p.faults = append(p.faults, next.faults...)
 			p.notes = append(p.notes, next.notes...)
+			p.examples = append(p.examples, next.examples...)
 		}
-		if len(p.faults) > 0 {
+		switch {
+		case len(p.faults) > 0:
 			missing = append(missing, fmt.Sprintf("%s `%s`: %s", command.where, command.text, strings.Join(p.faults, ", ")))
-			continue
+		case len(p.examples) > 0:
+			examples = append(examples, fmt.Sprintf("`%s` (%s, %s)", command.text, command.where, strings.Join(p.examples, ", ")))
+		case command.kind == "install":
+			installed = append(installed, fmt.Sprintf("`%s` (%s)", command.text, command.where))
+		default:
+			found = append(found, fmt.Sprintf("%s `%s` (%s)", command.kind, command.text, strings.Join(append([]string{command.where}, p.notes...), ", ")))
+			c.draftTest(ctx, command)
 		}
-		found = append(found, fmt.Sprintf("%s `%s` (%s)", command.kind, command.text, strings.Join(append([]string{command.where}, p.notes...), ", ")))
 	}
 	at := ". Read at " + c.repo.at()
 	if len(missing) > 0 {
@@ -167,6 +200,16 @@ func (c *checker) instructions(ctx context.Context) {
 			count(len(found), "build, test and lint command")+" of the instructions can run as written, and each still has to be run or dry-run to prove it",
 			strings.Join(found, ", ")+at, "")
 	}
+	if len(installed) > 0 {
+		c.add(AreaInstructions, "instruction-install-not-run", OK,
+			count(len(installed), "command")+" of the instructions install dependencies, which a worktree's own install step does, and are not run to prove them",
+			strings.Join(installed, ", ")+at, "")
+	}
+	if len(examples) > 0 {
+		c.add(AreaInstructions, "instruction-example-paths", OK,
+			count(len(examples), "command")+" of the instructions name a path made up to show the shape of a command, and are not judged as missing files",
+			strings.Join(examples, ", ")+". A path counts as made up only when its file name holds a placeholder word and no commit "+c.repo.ref+" can reach ever held it"+at, "")
+	}
 	if len(deploys) > 0 {
 		c.add(AreaInstructions, "instruction-deploy-never-run", OK,
 			count(len(deploys), "command")+" of the instructions deploy, publish or migrate, and are never run to prove them",
@@ -177,5 +220,25 @@ func (c *checker) instructions(ctx context.Context) {
 			"the instructions name no build, test, lint or deploy command, so an agent has to find them by reading the repository",
 			"no such command in a code span of "+strings.Join(read, " or ")+at,
 			"name the project's build, test, lint and deploy commands in its instruction file")
+	}
+}
+
+// draftTest keeps a test command of the instructions for the draft's fast
+// tier when it can run as written at the root. Prose does not say where a
+// command runs, so one that only a package file in a folder below defines
+// is passed over: a record's command runs at the root.
+func (c *checker) draftTest(ctx context.Context, command instructionCommand) {
+	parts := segments(command.text)
+	if command.kind != "test" || rootCommands(parts) == nil {
+		return
+	}
+	for _, s := range parts {
+		if len(c.prove(ctx, s, inWorktree).faults) > 0 {
+			return
+		}
+	}
+	c.proven.instructionTests = append(c.proven.instructionTests, rootCommands(parts)...)
+	if file, _, _ := strings.Cut(command.where, ":"); !slices.Contains(c.proven.instructionFiles, file) {
+		c.proven.instructionFiles = append(c.proven.instructionFiles, file)
 	}
 }

@@ -33,15 +33,15 @@ func (c *checker) connectors(ctx context.Context) error {
 			err.Error(), "correct what the loader names in "+file)
 		return nil
 	}
-	needs, sources, err := c.credentialNeeds(ctx)
+	needs, err := c.credentialNeeds(ctx)
 	if err != nil {
 		return err
 	}
 	declared := manifest.CredentialChains()
 	var undeclared []string
-	for _, name := range sortedKeys(needs) {
+	for _, name := range sortedKeys(needs.names) {
 		if _, ok := declared[name]; !ok {
-			undeclared = append(undeclared, name+" ("+needs[name]+")")
+			undeclared = append(undeclared, name+" ("+needs.names[name]+")")
 		}
 	}
 	if len(undeclared) > 0 {
@@ -59,35 +59,60 @@ func (c *checker) connectors(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	var unused, unjudged []string
+	// A service counts as used by one rule, and the draft keeps it by the
+	// same one: a tracked file reads one of its variables, or its own entry
+	// says what uses it outside the repository, by naming a command line
+	// tool or in a note. The goblin that types a command is a reader no
+	// repository shows, so a service is unused only when neither says so.
+	var unused, tools, noted, unjudged []string
 	for _, service := range manifest.Services {
 		own := serviceNames(service)
-		if len(own) == 0 {
-			unjudged = append(unjudged, service.Name)
-			continue
-		}
-		used := false
+		read := false
 		for _, name := range own {
-			used = used || seen[strings.ToUpper(name)]
+			read = read || seen[strings.ToUpper(name)]
 		}
-		if !used {
-			unused = append(unused, service.Name+": "+strings.Join(own, ", ")+" is in no file tracked at "+c.repo.at()+" but documents and tests")
+		tool, throughTool := serviceTool(service)
+		switch {
+		case read:
+		case throughTool:
+			tools = append(tools, service.Name+" ("+c.onPath(tool)+")")
+		case strings.TrimSpace(service.Note) != "":
+			noted = append(noted, service.Name)
+		case len(own) == 0:
+			unjudged = append(unjudged, service.Name)
+		default:
+			line := service.Name + ": " + strings.Join(own, ", ") + " is in no file tracked at " + c.repo.at() + " but documents and tests, and its entry names no tool and has no note"
+			if service.Default {
+				line += ". It is a default service, which every task whose brief has no credentials line carries"
+			}
+			unused = append(unused, line)
 			continue
 		}
 		c.proven.services = append(c.proven.services, service)
 	}
 	if len(unused) > 0 {
 		c.add(AreaConnectors, "connector-unused", Low,
-			"nothing in the repository reads "+count(len(unused), "declared service")+", whose credentials ride in every goblin's terminal for no reader",
+			"nothing says what uses "+count(len(unused), "declared service")+": no tracked file reads one and no entry names a tool or has a note, so a task that carries one carries credentials for no reader this check can see",
 			strings.Join(unused, ". "),
-			"take each out of "+file+", or keep it and say in its note what outside the repository uses it")
+			"take each out of "+file+", or keep it and say in its entry what uses it: a probe that starts the tool, or a note")
 	}
-	evidence := fmt.Sprintf("git grep at %s for each declared name in any letter case, outside documents and tests. Credential names came from %s", c.repo.at(), sources)
-	if len(unjudged) > 0 {
-		evidence += ". Not judged, since they declare no variable to look for: " + strings.Join(unjudged, ", ")
+	evidence := fmt.Sprintf("git grep at %s for each declared name in any letter case, outside documents and tests. Credential names came from %s", c.repo.at(), needs.sources)
+	for _, part := range []struct {
+		says  string
+		names []string
+	}{
+		{"Used through a command line tool its entry names", tools},
+		{"On a note alone, which this check cannot verify", noted},
+		{"Not judged, since they declare no variable to look for", unjudged},
+		{"Left out, since only a workflow reads them and GitHub supplies them there", needs.workflow},
+		{"Left out as publishable", needs.publishable},
+	} {
+		if len(part.names) > 0 {
+			evidence += ". " + part.says + ": " + strings.Join(part.names, ", ")
+		}
 	}
 	c.add(AreaConnectors, "connectors-examined", OK,
-		"examined "+count(len(manifest.Services), "service")+" and "+count(len(needs), "credential name")+" the repository reads", evidence, "")
+		"examined "+count(len(manifest.Services), "service")+" and "+count(len(needs.names), "credential name")+" the repository reads", evidence, "")
 	return nil
 }
 
@@ -99,6 +124,34 @@ func serviceNames(service auth.Service) []string {
 		names = append(names, service.Aliases[declared]...)
 	}
 	return names
+}
+
+// serviceTool returns the command line tool a service's own entry names as
+// its user: the program its probe, its login or its identity check starts.
+// Through is true for a service whose method is cli too, where the entry
+// says a tool uses it and names none.
+func serviceTool(service auth.Service) (tool string, through bool) {
+	commands := [][]string{service.Probe, service.Login}
+	if service.Identity != nil {
+		commands = append(commands, service.Identity.Command)
+	}
+	for _, command := range commands {
+		if len(command) > 0 {
+			return command[0], true
+		}
+	}
+	return "", service.Method == auth.MethodCLI
+}
+
+// onPath names a tool with whether this machine has it.
+func (c *checker) onPath(tool string) string {
+	if tool == "" {
+		return "a command line tool, by its method"
+	}
+	if _, err := c.LookPath(tool); err != nil {
+		return tool + ", which is not on PATH"
+	}
+	return tool + ", which is on PATH"
 }
 
 // namesIn returns which of names, upper-cased, a file tracked at the default
@@ -149,22 +202,47 @@ var (
 	reference = regexp.MustCompile(`\$\{([A-Za-z_][A-Za-z0-9_]*)\}`)
 )
 
+// needs are the credentials the repository reads.
+type needs struct {
+	// names maps each credential to the first place that reads it.
+	names map[string]string
+	// workflow are the credentials only a workflow file reads, and
+	// publishable the names handed to browsers. Neither is in names.
+	workflow, publishable []string
+	// sources says where the names came from.
+	sources string
+}
+
+// suppliedByGitHub reports whether a tracked file is one GitHub runs with
+// the secrets it holds itself: a workflow or an action. A goblin's terminal
+// is never where such a file's credentials come from.
+func suppliedByGitHub(name string) bool {
+	return strings.HasPrefix(name, ".github/")
+}
+
 // credentialNeeds returns the credentials the repository reads, each with
 // the first place that reads it, and a sentence saying where it looked:
 // environment reads in source code that is neither a test nor a document,
 // the names of the env examples it commits, and the variables its MCP
-// connectors authenticate with. A harness's own billing key is left out,
-// since no manifest may inject one.
-func (c *checker) credentialNeeds(ctx context.Context) (map[string]string, string, error) {
-	needs := map[string]string{}
+// connectors authenticate with. Three kinds of name are left out, since the
+// fleet supplies none of them: a harness's own billing key, which no
+// manifest may inject, a name only a workflow reads, and a publishable name.
+// The last two are returned by name, so what was left out is seen.
+func (c *checker) credentialNeeds(ctx context.Context) (needs, error) {
+	found := needs{names: map[string]string{}}
+	workflow, publishable := map[string]bool{}, map[string]bool{}
 	add := func(name, where string) {
-		if _, seen := needs[name]; !seen && !auth.IsHarnessBillingKey(name) {
-			needs[name] = where
+		switch _, seen := found.names[name]; {
+		case seen, auth.IsHarnessBillingKey(name):
+		case publishableName(name):
+			publishable[name] = true
+		default:
+			found.names[name] = where
 		}
 	}
 	out, code, err := c.repo.git(ctx, "grep", "-I", "-n", "-o", "-E", "-e", environmentRead, c.repo.ref, "--", ".")
 	if err != nil || (code != 0 && code != 1) {
-		return nil, "", fmt.Errorf("projectcheck: git grep did not answer in %s", c.repo.dir)
+		return needs{}, fmt.Errorf("projectcheck: git grep did not answer in %s", c.repo.dir)
 	}
 	sources := 0
 	read := map[string]bool{}
@@ -173,11 +251,18 @@ func (c *checker) credentialNeeds(ctx context.Context) (map[string]string, strin
 		if parts == nil || isTestOrDocument(parts[1]) {
 			continue
 		}
+		name := trailingName.FindString(parts[3])
+		if suppliedByGitHub(parts[1]) {
+			if credentialName(name) && !auth.IsHarnessBillingKey(name) && !publishableName(name) {
+				workflow[name] = true
+			}
+			continue
+		}
 		if !read[parts[1]] {
 			read[parts[1]] = true
 			sources++
 		}
-		if name := trailingName.FindString(parts[3]); credentialName(name) {
+		if credentialName(name) {
 			add(name, parts[1]+":"+parts[2])
 		}
 	}
@@ -225,7 +310,14 @@ func (c *checker) credentialNeeds(ctx context.Context) (map[string]string, strin
 			}
 		}
 	}
-	return needs, fmt.Sprintf("%d source files that read the environment, %d env examples and %d MCP connectors", sources, examples, servers), nil
+	for _, name := range sortedKeys(workflow) {
+		if _, elsewhere := found.names[name]; !elsewhere {
+			found.workflow = append(found.workflow, name)
+		}
+	}
+	found.publishable = sortedKeys(publishable)
+	found.sources = fmt.Sprintf("%d source files that read the environment, %d env examples and %d MCP connectors", sources, examples, servers)
+	return found, nil
 }
 
 // credentialParts are the words that end the name of a variable holding a

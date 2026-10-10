@@ -176,3 +176,94 @@ func TestConnectorsThatAgreePassAndSayWhatWasExamined(t *testing.T) {
 		t.Errorf("the connectors area did not pass:\n%s", report.Text())
 	}
 }
+
+const usedThroughTools = `{"project":"northwind","services":[
+	{"name":"stripe","method":"env","env":["STRIPE_SECRET_KEY"]},
+	{"name":"github","method":"cli","env":["GITHUB_TOKEN"],"probe":["gh","auth","status"]},
+	{"name":"vercel","method":"cli","probe":["vercel","whoami"]},
+	{"name":"railway","method":"env","env":["RAILWAY_TOKEN"],"login":["railway","login","--browserless"]},
+	{"name":"postgres","method":"env","env":["DATABASE_URL"],"note":"direct connection for migrations through psql"},
+	{"name":"resend","method":"env","env":["RESEND_API_KEY"]},
+	{"name":"mailer","method":"env","env":["MAILER_TOKEN"],"default":true}
+]}`
+
+// The fleet uses some services through a command line tool: it pushes with
+// gh in every project and no repository names GITHUB_TOKEN. The manifest
+// itself says so, by a method of cli or a command that starts the tool, and
+// a note says what else uses a service. Only a service that nothing reads
+// and whose entry says nothing is reported.
+func TestAServiceTheManifestNamesAUserForIsNotUnused(t *testing.T) {
+	// Arrange
+	f := newFixture(t, map[string]string{"app/pay.py": "import os\nkey = os.environ[\"STRIPE_SECRET_KEY\"]\n"})
+	f.manifest("auth.json", usedThroughTools)
+
+	// Act
+	report := f.check("gh")
+
+	// Assert
+	finding := only(t, report, "connector-unused")
+	if finding.Severity != Low {
+		t.Errorf("connector-unused is %s, want low", finding.Severity)
+	}
+	contains(t, "says", finding.Says, "2 declared services")
+	contains(t, "evidence", finding.Evidence, "resend: RESEND_API_KEY", "mailer: MAILER_TOKEN", "every task whose brief has no credentials line")
+	for _, used := range []string{"stripe", "github", "vercel", "railway", "postgres"} {
+		if strings.Contains(finding.Evidence, used) {
+			t.Errorf("evidence %q names %s, which the repository reads or whose entry names what uses it", finding.Evidence, used)
+		}
+	}
+	examined := only(t, report, "connectors-examined")
+	contains(t, "evidence", examined.Evidence, "github (gh, which is on PATH)", "vercel (vercel, which is not on PATH)", "railway (railway", "On a note alone, which this check cannot verify: postgres")
+}
+
+// The draft keeps or drops a service by the same one rule, so github is not
+// kept for one project and dropped for the next by whether its code happens
+// to name the variable.
+func TestTheDraftKeepsEveryServiceTheCheckCountsAsUsed(t *testing.T) {
+	// Arrange
+	f := newFixture(t, map[string]string{"app/pay.py": "import os\nkey = os.environ[\"STRIPE_SECRET_KEY\"]\n"})
+	f.manifest("auth.json", usedThroughTools)
+
+	// Act
+	draft := f.check("gh").Draft
+
+	// Assert
+	var kept []string
+	for _, service := range draft.Services {
+		kept = append(kept, service.Name)
+	}
+	if got, want := strings.Join(kept, ", "), "stripe, github, vercel, railway, postgres"; got != want {
+		t.Errorf("the draft keeps %s, want %s: every declared service but the ones connector-unused names", got, want)
+	}
+}
+
+// A goblin's terminal is never where a workflow's secret comes from: GitHub
+// supplies it. A publishable name is handed to every browser. Neither is a
+// credential the fleet should declare, and the line that says what was
+// examined names both, so what was left out is seen.
+func TestANameOnlyAWorkflowReadsOrAPublishableNameIsNotUndeclared(t *testing.T) {
+	// Arrange
+	f := newFixture(t, map[string]string{
+		".github/workflows/release.yml": "jobs:\n  sign:\n    runs-on: windows-latest\n    steps:\n      - run: signtool sign /p $env:WINDOWS_CERTIFICATE_PASSWORD app.exe\n      - run: node -e \"console.log(process.env.SIGNING_TOKEN)\"\n",
+		"web/src/map.ts":                "export const token = process.env.NEXT_PUBLIC_MAPBOX_TOKEN\nexport const key = process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY\nexport const anon = import.meta.env.VITE_SUPABASE_ANON_KEY\n",
+		"app/pay.py":                    "import os\nkey = os.environ[\"BRAVE_API_KEY\"]\nsign = os.environ[\"SIGNING_TOKEN\"]\n",
+	})
+	f.manifest("auth.json", `{"project":"northwind","services":[]}`)
+
+	// Act
+	report := f.check()
+
+	// Assert
+	finding := only(t, report, "connector-undeclared")
+	contains(t, "says", finding.Says, "2 credentials")
+	contains(t, "evidence", finding.Evidence, "BRAVE_API_KEY (app/pay.py:2)", "SIGNING_TOKEN (app/pay.py:3)")
+	for _, wrong := range []string{"WINDOWS_CERTIFICATE_PASSWORD", "NEXT_PUBLIC_MAPBOX_TOKEN", "NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY", "VITE_SUPABASE_ANON_KEY"} {
+		if strings.Contains(finding.Evidence, wrong) {
+			t.Errorf("evidence %q names %s, which only a workflow reads or which is publishable", finding.Evidence, wrong)
+		}
+	}
+	examined := only(t, report, "connectors-examined")
+	contains(t, "evidence", examined.Evidence,
+		"Left out, since only a workflow reads them and GitHub supplies them there: WINDOWS_CERTIFICATE_PASSWORD",
+		"Left out as publishable: NEXT_PUBLIC_MAPBOX_TOKEN, NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY, VITE_SUPABASE_ANON_KEY")
+}

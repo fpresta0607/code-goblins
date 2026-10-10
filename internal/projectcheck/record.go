@@ -53,24 +53,20 @@ func (c *checker) tiers(path string, manifest project.Manifest) {
 		{"security.deep", manifest.Security.Deep},
 	}
 	var found, missing []string
-	verification := 0
 	for _, tier := range tiers {
 		for index, command := range tier.commands {
 			if len(command) == 0 {
 				continue
 			}
-			if strings.HasPrefix(tier.name, "verification.") {
-				verification++
-			}
-			where, ok := c.program(command[0])
+			where, ok := c.program(segment{argv: command}, inWorktree)
 			if ok {
-				found = append(found, fmt.Sprintf("%s[%d] %s at %s", tier.name, index, command[0], where))
+				found = append(found, fmt.Sprintf("%s[%d] %s %s", tier.name, index, command[0], where))
 				continue
 			}
 			missing = append(missing, fmt.Sprintf("%s[%d] %q: %s", tier.name, index, strings.Join(command, " "), where))
 		}
 	}
-	if verification == 0 {
+	if !verifies(manifest) {
 		c.add(AreaRecord, "tiers-empty", Medium,
 			"the record names no verification command, so cfo verify passes with nothing run",
 			"verification.fast, verification.full and verification.deep are empty in "+path,
