@@ -95,6 +95,10 @@ type Node struct {
 	// Memory is the private memory of the child's processes, in bytes; zero
 	// for a child whose processes are not its own.
 	Memory uint64 `json:"memory,omitempty"`
+	// Detached says the job's processes reach the goblin's harness through
+	// no parent any more: a server, a watcher or a browser bridge left by a
+	// command that has returned. It is the goblin's by its terminal's mark.
+	Detached bool `json:"detached,omitempty"`
 	// SourceUpdatedAt is when the record this node was read from last
 	// changed, and FetchedAt when it was read.
 	SourceUpdatedAt time.Time `json:"source_updated_at"`
@@ -114,8 +118,8 @@ type Tree struct {
 	TaskID     string `json:"task_id"`
 	Generation string `json:"generation"`
 	Harness    string `json:"harness"`
-	// Memory is the private memory of the goblin's harness and every
-	// process under it, and OwnMemory the harness's own.
+	// Memory is the private memory of the goblin's harness, every process
+	// under it and its detached jobs, and OwnMemory the harness's own.
 	Memory    uint64 `json:"memory"`
 	OwnMemory uint64 `json:"own_memory"`
 	// ConversationAt is when the goblin's own conversation was last
@@ -130,10 +134,12 @@ type Tree struct {
 }
 
 // Working says a child of the goblin is working: the goblin counts as
-// working while any child does.
+// working while any child does. A detached job is no such child: nothing
+// the goblin does waits on it, and a leftover using the processor must not
+// hide a goblin that has stalled.
 func (t Tree) Working() bool {
 	for _, child := range t.Children {
-		if child.State == Working {
+		if child.State == Working && !child.Detached {
 			return true
 		}
 	}
