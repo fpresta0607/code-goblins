@@ -446,6 +446,9 @@ func (s Service) Spawn(ctx context.Context, req Request) (result Result, err err
 		launch.Instruction += servicesInstruction(result.Meta)
 	}
 	launch.Instruction += credentialsInstruction(project, preflight.Grant)
+	if len(provision.EnvHeld) > 0 {
+		launch.Instruction += " The project's checkout holds " + strings.Join(provision.EnvHeld, ", ") + ", which your worktree was not given: a worktree gets an env file only when the project's worktree manifest names it. When your task needs one, say so in a blocked report that names the file and why, and never copy it yourself."
+	}
 	if len(provision.Install) > 0 {
 		// The card says what the goblin does first until its own first
 		// report, which this line comes before.
@@ -473,8 +476,8 @@ func (s Service) Spawn(ctx context.Context, req Request) (result Result, err err
 	if isServicesNeeded {
 		result.Output += "\nservices: the goblin holds " + auth.ProjectName(project) + "'s local services for its full-stack check with cfo services up, and releases them with cfo services down"
 	}
-	if len(provision.LinkSkipped) > 0 {
-		result.Output += "\nlink: " + strings.Join(provision.LinkSkipped, ", ") + " already present in the worktree (the project's own checked-out file), so the default share was skipped"
+	if len(provision.EnvHeld) > 0 {
+		result.Output += "\n" + envHeldLine(project, provision.EnvHeld)
 	}
 	if len(provision.MCPDropped) > 0 {
 		result.Output += "\nmcp: withheld OAuth-only servers from the goblin: " + strings.Join(provision.MCPDropped, ", ") + " (declare a token-authenticated form in the project .mcp.json to reach goblins)"
@@ -503,6 +506,14 @@ func (s Service) Spawn(ctx context.Context, req Request) (result Result, err err
 		result.Output += "\nauth: dispatched with --yolo over " + oneLine(preflight.Refusal)
 	}
 	return result, nil
+}
+
+// envHeldLine says, by file name only, which env files the checkout holds
+// that the worktree was not given, and the one line of the project's worktree
+// manifest that shares them.
+func envHeldLine(project string, held []string) string {
+	return "env: the checkout holds " + strings.Join(held, ", ") + ", which this worktree was not given. A worktree gets an env file only when " +
+		worktree.ManifestPath("data", project) + " names it: \"link\": [\"" + strings.Join(held, "\", \"") + "\"]"
 }
 
 // goblinMCPConfig returns the goblin MCP configuration provisioning
