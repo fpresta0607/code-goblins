@@ -34,6 +34,18 @@ test("a child reads as working, idle, waiting, done, failed or silent, and only 
   }
 });
 
+// A job that lost its parent reaches no harness, and the tree showed none of
+// them: on 2026-10-09 two browser bridges held 3.7 GB that no card showed.
+// One shows under its goblin now, and says it is detached before its state.
+test("a detached job says so before its state, and is drawn as what it does", () => {
+  const bridge = child({ kind: "process", group: "browser", state: "waiting", detached: true, memory: 2500 * 2 ** 20 });
+  assert.equal(stateWord(bridge), "Detached, idle");
+  assert.equal(stateWord(child({ kind: "process", group: "dev-server", state: "working", detached: true })), "Detached, working");
+  assert.equal(babyFor(bridge), "browser");
+  assert.equal(formatMemory(bridge.memory), "2.4 GB");
+  assert.equal(isDimmed(bridge), false);
+});
+
 test("for how long: working since it started, silent since it last did anything, finished how long ago", () => {
   assert.equal(forHowLong(child({ state: "working", started: ago(4) }), now), "4m");
   assert.equal(forHowLong(child({ state: "silent", started: ago(60), last_activity: ago(14) }), now), "14m");

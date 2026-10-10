@@ -122,10 +122,12 @@ export interface FleetTree {
 // test, build, browser or other) or its gate run. state is working, waiting,
 // done, failed or silent; memory is its processes' private bytes.
 // task is a named helper goblin's task, which its label leaves to its tip.
+// detached is set on a job whose processes reach the goblin's harness through
+// no parent any more, such as a server left by a command that returned.
 export interface TreeNode {
   id: string; kind: string; group: string; parent: string; label: string; detail: string; task: string; state: string;
   started: string; last_activity: string; finished: string; last_line: string; memory: number;
-  source_updated_at: string; fetched_at: string;
+  source_updated_at: string; fetched_at: string; detached?: boolean;
 }
 function parseTree(value: unknown): FleetTree {
   const t = object(value);
@@ -136,7 +138,7 @@ function parseTree(value: unknown): FleetTree {
       const c = object(child);
       return { id: string(c.id), kind: string(c.kind), group: string(c.group), parent: string(c.parent), label: string(c.label), detail: string(c.detail), task: string(c.task), state: string(c.state),
         started: string(c.started), last_activity: string(c.last_activity), finished: string(c.finished), last_line: string(c.last_line), memory: number(c.memory),
-        source_updated_at: string(c.source_updated_at), fetched_at: string(c.fetched_at) };
+        source_updated_at: string(c.source_updated_at), fetched_at: string(c.fetched_at), ...(c.detached === true ? { detached: true } : {}) };
     }),
   };
 }
