@@ -85,16 +85,16 @@ func TestGatePrepushStopsAtTheFirstFailureWithOnePlainLine(t *testing.T) {
 	if exit != 1 {
 		t.Fatalf("exit = %d, want 1; stdout=%s stderr=%s", exit, stdout.String(), stderr.String())
 	}
-	want := "cfo gate prepush: failed at check 2 of 3, tests of a: TestA failed. CI would fail on it too, so fix it before you push."
+	want := "cfo gate prepush: failed at check 2 of 4, tests of a: TestA failed. CI would fail on it too, so fix it before you push."
 	if got := lastLine(stdout.String()); got != want {
 		t.Errorf("the run ends with %q, want %q\nstdout=%s", got, want, stdout.String())
 	}
-	for _, want := range []string{"cfo gate prepush: check 2 of 3: tests of a", "A is 0"} {
+	for _, want := range []string{"cfo gate prepush: check 2 of 4: tests of a", "A is 0"} {
 		if !strings.Contains(stdout.String(), want) {
 			t.Errorf("stdout %q lacks %q", stdout.String(), want)
 		}
 	}
-	if strings.Contains(stdout.String(), "check 3 of 3") || strings.Contains(stdout.String(), "example.com/m/b") {
+	if strings.Contains(stdout.String(), "check 3 of 4") || strings.Contains(stdout.String(), "example.com/m/b") {
 		t.Errorf("stdout %q shows a check after the one that failed", stdout.String())
 	}
 }
@@ -121,10 +121,11 @@ func TestGatePrepushRunsTheChangedPackageAndItsImporterAndPasses(t *testing.T) {
 	}
 	for _, want := range []string{
 		"cfo gate prepush: 1 file changed since ",
-		"which picks 3 checks to run within 15m0s",
-		"1. go vet of 2 packages (they build against what changed)",
+		"which picks 4 checks to run within 15m0s",
+		"1. imports of 2 packages and their tests (an import cycle fails every test of its package)",
 		"2. tests of a (changed)",
-		"3. tests of b (imports a)",
+		"3. go vet of 2 packages (they build against what changed)",
+		"4. tests of b (imports a)",
 		"policy: config/verify.json version 1 at ",
 		"ok  \texample.com/m/a",
 		"ok  \texample.com/m/b",
@@ -133,8 +134,8 @@ func TestGatePrepushRunsTheChangedPackageAndItsImporterAndPasses(t *testing.T) {
 			t.Errorf("stdout %q lacks %q", stdout.String(), want)
 		}
 	}
-	if got := lastLine(stdout.String()); !strings.HasPrefix(got, "cfo gate prepush: passed. All 3 checks ran in ") {
-		t.Errorf("the run ends with %q, want it to say that all 3 checks passed", got)
+	if got := lastLine(stdout.String()); !strings.HasPrefix(got, "cfo gate prepush: passed. All 4 checks ran in ") {
+		t.Errorf("the run ends with %q, want it to say that all 4 checks passed", got)
 	}
 	if strings.Contains(stdout.String(), "example.com/m/c") {
 		t.Errorf("stdout %q names c, which the change does not reach", stdout.String())
@@ -262,9 +263,9 @@ func TestGatePrepushLeavesToCIWhatTheTimeLimitCuts(t *testing.T) {
 		t.Fatalf("exit = %d after %d check(s), want 0 after 1; stdout=%s stderr=%s", exit, len(ran), stdout.String(), stderr.String())
 	}
 	for _, want := range []string{
-		"left to CI, since the time limit of 50ms passed:\n- tests of a (changed)\n- tests of b (imports a)\n",
-		"cfo gate prepush: passed what it ran. 1 of 3 checks ran in ",
-		"and CI is the check of the 2 left to it, named above.",
+		"left to CI, since the time limit of 50ms passed:\n- tests of a (changed)\n- go vet of 2 packages (they build against what changed)\n- tests of b (imports a)\n",
+		"cfo gate prepush: passed what it ran. 1 of 4 checks ran in ",
+		"and CI is the check of the 3 left to it, named above.",
 	} {
 		if !strings.Contains(stdout.String(), want) {
 			t.Errorf("stdout %q lacks %q", stdout.String(), want)
@@ -306,8 +307,8 @@ func TestGatePrepushEndsACheckThatRunsPastTheTimeLimit(t *testing.T) {
 		t.Fatalf("exit = %d after %d start(s) in %s, want 0 after 2, at the limit; stdout=%s stderr=%s", exit, starts, time.Since(started), stdout.String(), stderr.String())
 	}
 	for _, want := range []string{
-		"left to CI, since the time limit of 2s passed while check 2 ran:\n- tests of a (changed)\n- tests of b (imports a)\n",
-		"cfo gate prepush: passed what it ran. 1 of 3 checks ran in ",
+		"left to CI, since the time limit of 2s passed while check 2 ran:\n- tests of a (changed)\n- go vet of 2 packages (they build against what changed)\n- tests of b (imports a)\n",
+		"cfo gate prepush: passed what it ran. 1 of 4 checks ran in ",
 	} {
 		if !strings.Contains(stdout.String(), want) {
 			t.Errorf("stdout %q lacks %q", stdout.String(), want)
@@ -348,15 +349,15 @@ func TestGatePrepushWaitsOutAMomentUnderTheMemoryFloor(t *testing.T) {
 	exit := gatePrepushWith(runtime, &stdout, &stderr)
 
 	// Assert
-	if exit != 0 || len(ran) != 3 {
-		t.Fatalf("exit = %d after %d check(s), want 0 after 3; stdout=%s stderr=%s", exit, len(ran), stdout.String(), stderr.String())
+	if exit != 0 || len(ran) != 4 {
+		t.Fatalf("exit = %d after %d check(s), want 0 after 4; stdout=%s stderr=%s", exit, len(ran), stdout.String(), stderr.String())
 	}
 	want := fmt.Sprintf("cfo gate prepush: waiting to start check 2, since the machine has 3.0 GB of memory free and a check starts only above %.1f GB\n", verify.Gigabytes(supervisor.MemoryFloor))
 	if strings.Count(stdout.String(), want) != 1 {
 		t.Errorf("stdout %q says %q %d times, want once", stdout.String(), want, strings.Count(stdout.String(), want))
 	}
-	if got := lastLine(stdout.String()); !strings.HasPrefix(got, "cfo gate prepush: passed. All 3 checks ran in ") {
-		t.Errorf("the run ends with %q, want it to say that all 3 checks passed", got)
+	if got := lastLine(stdout.String()); !strings.HasPrefix(got, "cfo gate prepush: passed. All 4 checks ran in ") {
+		t.Errorf("the run ends with %q, want it to say that all 4 checks passed", got)
 	}
 }
 
@@ -394,7 +395,7 @@ func TestGatePrepushStartsNoCheckWhileMemoryIsUnderTheFloor(t *testing.T) {
 	if exit != 0 || len(ran) != 1 {
 		t.Fatalf("exit = %d after %d check(s), want 0 after 1; stdout=%s stderr=%s", exit, len(ran), stdout.String(), stderr.String())
 	}
-	want := fmt.Sprintf("left to CI, since the machine has 1.0 GB of memory free and a check starts only above %.1f GB, and the time limit of 1s passed while the run waited for it:\n- tests of a (changed)\n- tests of b (imports a)\n", verify.Gigabytes(supervisor.MemoryFloor))
+	want := fmt.Sprintf("left to CI, since the machine has 1.0 GB of memory free and a check starts only above %.1f GB, and the time limit of 1s passed while the run waited for it:\n- tests of a (changed)\n- go vet of 2 packages (they build against what changed)\n- tests of b (imports a)\n", verify.Gigabytes(supervisor.MemoryFloor))
 	if !strings.Contains(stdout.String(), want) {
 		t.Errorf("stdout %q lacks %q", stdout.String(), want)
 	}
@@ -432,7 +433,7 @@ func TestGatePrepushStartsNoCheckOnceMemoryCannotBeRead(t *testing.T) {
 	if exit != 0 || len(ran) != 1 || time.Since(started) > time.Minute {
 		t.Fatalf("exit = %d after %d check(s) in %s, want 0 after 1, at once; stdout=%s stderr=%s", exit, len(ran), time.Since(started), stdout.String(), stderr.String())
 	}
-	if want := "left to CI, since free memory cannot be read (no reading):\n- tests of a (changed)\n- tests of b (imports a)\n"; !strings.Contains(stdout.String(), want) {
+	if want := "left to CI, since free memory cannot be read (no reading):\n- tests of a (changed)\n- go vet of 2 packages (they build against what changed)\n- tests of b (imports a)\n"; !strings.Contains(stdout.String(), want) {
 		t.Errorf("stdout %q lacks %q", stdout.String(), want)
 	}
 }
@@ -610,18 +611,18 @@ func TestGatePrepushRunsAFailedTestAgainAndPassesOneThatFailedByChance(t *testin
 		"the host did not answer in time",
 		"cfo gate prepush: TestBusy failed, so it runs again by itself",
 		"cfo gate prepush: TestBusy passed by itself, so this machine was busy and the change did not break it",
-		"cfo gate prepush: check 3 of 3: tests of b",
+		"cfo gate prepush: check 4 of 4: tests of b",
 	} {
 		if !strings.Contains(stdout.String(), want) {
 			t.Errorf("stdout %q lacks %q", stdout.String(), want)
 		}
 	}
-	if got := lastLine(stdout.String()); !strings.HasPrefix(got, "cfo gate prepush: passed. All 3 checks ran in ") {
-		t.Errorf("the run ends with %q, want it to say that all 3 checks passed", got)
+	if got := lastLine(stdout.String()); !strings.HasPrefix(got, "cfo gate prepush: passed. All 4 checks ran in ") {
+		t.Errorf("the run ends with %q, want it to say that all 4 checks passed", got)
 	}
 }
 
-// busyRun is a runtime whose go vet passes and whose tests of a have TestBusy
+// busyRun is a runtime whose go list and go vet pass and whose tests of a have TestBusy
 // fail and then go on until their time ends. again is TestBusy's second run,
 // by itself, which is told whether its own time had already ended.
 func busyRun(again func(ctx context.Context, isLive bool, stdout io.Writer) (int, error)) commandRuntime {
@@ -630,7 +631,7 @@ func busyRun(again func(ctx context.Context, isLive bool, stdout io.Writer) (int
 	runtime.gateDisk = roomy
 	runtime.pushRun = func(ctx context.Context, command []string, _ string, _ []string, stdout, _ io.Writer) (int, error) {
 		switch {
-		case command[1] == "vet":
+		case command[1] == "list" || command[1] == "vet":
 			return 0, nil
 		case slices.Contains(command, "-run"):
 			return again(ctx, ctx.Err() == nil, stdout)
@@ -677,8 +678,8 @@ func TestGatePrepushRunsAFailedTestAgainThoughTheLimitEndedItsCheck(t *testing.T
 	for _, want := range []string{
 		"cfo gate prepush: TestBusy failed, so it runs again by itself",
 		"cfo gate prepush: TestBusy passed by itself, so this machine was busy and the change did not break it",
-		"left to CI, since the time limit of 2s passed while check 2 ran:\n- tests of a (changed)\n- tests of b (imports a)\n",
-		"cfo gate prepush: passed what it ran. 1 of 3 checks ran in ",
+		"left to CI, since the time limit of 2s passed while check 2 ran:\n- tests of a (changed)\n- go vet of 2 packages (they build against what changed)\n- tests of b (imports a)\n",
+		"cfo gate prepush: passed what it ran. 1 of 4 checks ran in ",
 	} {
 		if !strings.Contains(stdout.String(), want) {
 			t.Errorf("stdout %q lacks %q", stdout.String(), want)
@@ -705,7 +706,7 @@ func TestGatePrepushFailsATestWhoseSecondRunDoesNotEnd(t *testing.T) {
 	exit := gatePrepushWith(runtime, &stdout, &stderr, "--limit", "2s")
 
 	// Assert
-	want := "cfo gate prepush: failed at check 2 of 3, tests of a: TestBusy failed, and its second run by itself did not end within 1s. Fix it before you push, or run it by itself to see."
+	want := "cfo gate prepush: failed at check 2 of 4, tests of a: TestBusy failed, and its second run by itself did not end within 1s. Fix it before you push, or run it by itself to see."
 	if got := lastLine(stdout.String()); exit != 1 || got != want {
 		t.Errorf("exit = %d and the run ends with %q, want 1 and %q\nstdout=%s stderr=%s", exit, got, want, stdout.String(), stderr.String())
 	}

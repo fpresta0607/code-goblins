@@ -85,7 +85,12 @@ func lefts(pick Push) []string {
 
 // A changed file picks its package and, after it, the packages that import
 // it, nearest first: a break in a package the goblin never opened is what CI
-// found first until now.
+// found first until now. The imports are checked first, which takes seconds,
+// and go vet waits until the changed package has run. Replayed on 2026-10-10
+// beside a busy fleet, go vet was the first check and took 7 minutes for 17
+// packages to report an import cycle that go list reports in 14 seconds, and
+// another run was ended by its 15 minute limit in the seventh of its 22
+// checks, before any slow package or the board.
 func TestPushPicksTheChangedPackageThenItsImportersNearestFirst(t *testing.T) {
 	// Arrange
 	found := checkout(t, fleet, nil, []string{".", "internal/auth", "internal/state imports internal/auth", "internal/wake imports internal/state"}, "internal/auth/need.go")
@@ -95,9 +100,10 @@ func TestPushPicksTheChangedPackageThenItsImportersNearestFirst(t *testing.T) {
 
 	// Assert
 	want := []string{
-		"go vet of 3 packages (they build against what changed)",
+		"imports of 3 packages and their tests (an import cycle fails every test of its package)",
 		"guard tests of the root package (its tests read every link of the contract)",
 		"tests of internal/auth (changed)",
+		"go vet of 3 packages (they build against what changed)",
 		"tests of internal/state (imports internal/auth)",
 		"tests of internal/wake (imports internal/state)",
 	}
@@ -106,6 +112,9 @@ func TestPushPicksTheChangedPackageThenItsImportersNearestFirst(t *testing.T) {
 	}
 	if got, want := pick.Steps[2].Command, []string{"go", "test", "-json", "-count=1", "-p", "2", "-timeout", "0", "./internal/auth"}; !slices.Equal(got, want) {
 		t.Errorf("the changed package runs as %q, want %q", got, want)
+	}
+	if got, want := pick.Steps[0].Command, []string{"go", "list", "-test", "-f", "{{with .Error}}{{.}}{{end}}", "./internal/auth", "./internal/state", "./internal/wake"}; !slices.Equal(got, want) {
+		t.Errorf("the imports are checked as %q, want %q", got, want)
 	}
 }
 
@@ -331,10 +340,11 @@ func TestPushReachesEveryPackageWhenAModuleFileChanged(t *testing.T) {
 
 	// Assert
 	want := []string{
-		"go vet of every package (go.mod or go.sum changed)",
+		"imports of every package and its tests (go.mod or go.sum changed)",
 		"tests of the root package (go.mod or go.sum changed)",
 		"tests of internal/auth (go.mod or go.sum changed)",
 		"tests of internal/state (go.mod or go.sum changed)",
+		"go vet of every package (go.mod or go.sum changed)",
 	}
 	if got := whats(pick); !slices.Equal(got, want) {
 		t.Errorf("push picks\n%s\nwant\n%s", strings.Join(got, "\n"), strings.Join(want, "\n"))

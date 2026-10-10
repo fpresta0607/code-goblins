@@ -91,16 +91,29 @@ func ReadPush(ctx context.Context, runner execx.Runner, dir string, timesOf func
 // that hangs, so go test's is off.
 var testArgs = []string{"go", "test", "-json", "-count=1", "-p", "2", "-timeout", "0"}
 
+// listArgs start the check that packages load with their tests. go list
+// builds nothing, prints what it could not load, and exits 1 when it found
+// any: for an import cycle in a test it took 14 seconds on 2026-10-10 where
+// go vet took 7 minutes to say the same.
+var listArgs = []string{"go", "list", "-test", "-f", "{{with .Error}}{{.}}{{end}}"}
+
 // push picks what a change can break, in the order a failure is likeliest
-// and cheapest to find. It vets every package the change reaches. It runs
-// the policy's guards, the tests that read the whole tree, whatever changed.
-// It tests the changed packages and the packages a contract names that are
-// quick, checks the board when a file under it changed, tests the changed
-// packages the policy lists as slow, then tests the packages that import a
+// and cheapest to find. It checks that every package the change reaches
+// loads with its tests, which takes seconds and is where an import cycle
+// shows. It runs the policy's guards, the tests that read the whole tree,
+// whatever changed. It tests the changed packages and the packages a
+// contract names that are quick, checks the board when a file under it
+// changed, and tests the changed packages the policy lists as slow. Then it
+// vets every package the change reaches, which is where a test of an
+// importer that no longer builds shows, and tests the packages that import a
 // changed one, nearest first. The slow ones come after the board because a
 // busy machine can spend the whole limit in them: on 2026-10-10 the replays
 // of PR 613 and PR 596 were ended by the limit inside the quick tests of
-// cmd/cfo and internal/supervisor. A package the policy lists as
+// cmd/cfo and internal/supervisor. go vet comes after the changed packages
+// because each of them is built and vetted by its own tests, and vetting
+// first took 7 minutes of one replay on a busy machine, where another was
+// ended by its limit in the seventh of its 22 checks. A package the policy
+// lists as
 // slow runs without the tests times records at SlowTest or longer, except
 // the tests in a test file the change touched and the tests under BesideTest
 // in the test file named for a changed source, and is left to CI when it did
@@ -180,16 +193,25 @@ func push(found findings, times Times) Push {
 		}
 	}
 
+	// loads is the check that the reached packages load with their tests,
+	// and vets the check that they vet: one of each, or none when the change
+	// reaches no package.
+	var loads, vets []Step
 	switch {
 	case reach.Everything:
-		pick.Steps = append(pick.Steps, Step{What: "go vet of every package", Why: "go.mod or go.sum changed", Command: []string{"go", "vet", "-p", "2", "./..."}})
+		loads = []Step{{What: "imports of every package and its tests", Why: "go.mod or go.sum changed", Command: append(slices.Clone(listArgs), "./...")}}
+		vets = []Step{{What: "go vet of every package", Why: "go.mod or go.sum changed", Command: []string{"go", "vet", "-p", "2", "./..."}}}
 	case len(reach.Choices) > 0:
-		vet := Step{What: fmt.Sprintf("go vet of %d %s", len(reach.Choices), plural(len(reach.Choices), "package", "packages")), Why: "they build against what changed", Command: []string{"go", "vet", "-p", "2"}}
+		count := fmt.Sprintf("%d %s", len(reach.Choices), plural(len(reach.Choices), "package", "packages"))
+		load := Step{What: "imports of " + count + " and their tests", Why: "an import cycle fails every test of its package", Command: slices.Clone(listArgs)}
+		vet := Step{What: "go vet of " + count, Why: "they build against what changed", Command: []string{"go", "vet", "-p", "2"}}
 		for _, choice := range reach.Choices {
+			load.Command = append(load.Command, target(dirs[choice.ImportPath]))
 			vet.Command = append(vet.Command, target(dirs[choice.ImportPath]))
 		}
-		pick.Steps = append(pick.Steps, vet)
+		loads, vets = []Step{load}, []Step{vet}
 	}
+	pick.Steps = append(pick.Steps, loads...)
 	for _, guard := range policy.Guards {
 		// A quick package the change reaches itself runs whole below, its
 		// guard among its tests.
@@ -204,7 +226,7 @@ func push(found findings, times Times) Push {
 		pick.Steps = append(pick.Steps, step)
 	}
 	boardSteps, boardLeft := boardChecks(found.root, found.changed)
-	pick.Steps = slices.Concat(pick.Steps, quick, boardSteps, slower, importers)
+	pick.Steps = slices.Concat(pick.Steps, quick, boardSteps, slower, vets, importers)
 	pick.Left = append(pick.Left, boardLeft...)
 	if policyErr != nil {
 		pick.Left = append(pick.Left, Deferred{Check: "tests of every other package", Why: strings.TrimPrefix(policyErr.Error(), "gatetest: ")})
