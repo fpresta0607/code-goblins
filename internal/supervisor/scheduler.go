@@ -128,11 +128,17 @@ func (s *Service) schedule(ctx context.Context, now time.Time, watched *fleetWak
 		}
 		return strings.Compare(left.ID, right.ID)
 	})
-	for _, paused := range ready {
-		if failure, isFailed := changeErrors[paused.ID]; isFailed && failure.Generation == paused.Generation {
-			record.Waiting = append(record.Waiting, WaitingWork{ID: paused.ID, Why: "its last resume failed: " + failure.Message})
+	// A paused goblin whose last resume was refused for what no later reading
+	// clears waits for a Resume, so it neither holds the slot nor is refused
+	// again every reading.
+	ready = slices.DeleteFunc(ready, func(paused state.Lifecycle) bool {
+		failure, isFailed := changeErrors[paused.ID]
+		if !isFailed || failure.Generation != paused.Generation {
+			return false
 		}
-	}
+		record.Waiting = append(record.Waiting, WaitingWork{ID: paused.ID, Why: "its last resume failed: " + failure.Message})
+		return failure.IsRefused && failure.Operation == paused.Operation && failure.Updated.Equal(paused.Updated)
+	})
 	// What would start by itself waits while the performance cores are busy.
 	// A reported production defect does not, nor what the Overlord started.
 	waitsOnProcessors, busy := "", ""
@@ -269,10 +275,20 @@ func (s *Service) resumeAutomatically(record state.Lifecycle) error {
 		go s.watchLaunch(record.ID, launched)
 		output, err := s.runPastTheSpawnLock(s.Options.Dispatch, []string{"resume", record.ID, "--generation", record.Generation, "--operation", operation, "--reason", "Pause condition cleared"})
 		close(launched)
+		isFailed := err != nil && !isRetiring(s.Store.Home.State, record.ID, output)
+		var failure taskChangeError
+		if isFailed {
+			failure = taskChangeError{Message: spawnFailure(output, err), Generation: record.Generation, Operation: record.Operation, Updated: record.Updated, IsRefused: strings.Contains(output, state.ErrResumeRefused.Error())}
+		}
+		// Nothing resumes a refused goblin again by itself, so the CFO is
+		// told what to put right.
+		if failure.IsRefused {
+			s.tellCFOOfFailure(record.ID, "resume failed: "+failure.Message)
+		}
 		s.starts.Lock()
 		delete(s.changing, record.ID)
-		if err != nil && !isRetiring(s.Store.Home.State, record.ID, output) {
-			s.changeErrors[record.ID] = taskChangeError{Message: spawnFailure(output, err), Generation: record.Generation, Operation: record.Operation, Updated: record.Updated}
+		if isFailed {
+			s.changeErrors[record.ID] = failure
 		}
 		s.starts.Unlock()
 		s.notify()

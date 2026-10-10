@@ -142,7 +142,7 @@ func LatestVerb(lines []string) (string, bool) {
 // services whose credentials the CFO granted it or a relaunch narrowed it to.
 // They are the CFO's word, never the task's own report, so every scan for a
 // task's latest report skips them.
-var cfoAuditVerbs = []string{"pipeline-findings-accepted", "pipeline-policy-migrated", "lifecycle-paused", "lifecycle-running", "lifecycle-stopped", "lifecycle-failed", "overlap-accepted", "notify-handled", "credentials"}
+var cfoAuditVerbs = []string{"pipeline-findings-accepted", "pipeline-policy-migrated", "lifecycle-paused", "lifecycle-running", "lifecycle-stopped", "lifecycle-failed", "lifecycle-refused", "overlap-accepted", "notify-handled", "credentials"}
 
 // IsCFOAudit reports whether a status line is a CFO audit record rather than
 // something the task reported.
