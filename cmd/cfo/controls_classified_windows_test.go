@@ -7,6 +7,7 @@ import (
 	"maps"
 	"slices"
 	"strconv"
+	"strings"
 	"testing"
 
 	"golang.org/x/sys/windows"
@@ -58,46 +59,99 @@ var staysAtNormal = map[string]string{
 	"review":            "starts a review page's server",
 	"deliver":           "copies a document",
 	"run-request":       "files a card nothing waits on",
+	"setup":             "the launcher's setup, which waits on a person",
+	"voice-worker":      "runs the speech engine, which is heavy, and leaves before the dispatch",
 }
 
-// Every command is a control, which is raised, or stays at normal for a
-// reason given here, so a command added to the dispatch is one or the other
-// on purpose.
-func TestEveryCommandIsAControlOrStaysAtNormalOnPurpose(t *testing.T) {
-	// Arrange
+// dispatched reads main.go for every command cfo dispatches on: each label of
+// the one switch on args[0], and each word args[0] is compared with in run
+// and runWithRuntime, a flag aside. A label or a comparison that is not a
+// plain string fails the test, which could not classify it.
+func dispatched(t *testing.T) []string {
+	t.Helper()
 	file, err := parser.ParseFile(token.NewFileSet(), "main.go", nil, parser.SkipObjectResolution)
 	if err != nil {
 		t.Fatal(err)
 	}
+	isFirstArgument := func(expression ast.Expr) bool {
+		index, isIndex := expression.(*ast.IndexExpr)
+		if !isIndex {
+			return false
+		}
+		name, isName := index.X.(*ast.Ident)
+		position, isLiteral := index.Index.(*ast.BasicLit)
+		return isName && name.Name == "args" && isLiteral && position.Value == "0"
+	}
+	word := func(expression ast.Expr) (string, bool) {
+		literal, isLiteral := expression.(*ast.BasicLit)
+		if !isLiteral || literal.Kind != token.STRING {
+			return "", false
+		}
+		value, err := strconv.Unquote(literal.Value)
+		return value, err == nil
+	}
 	var commands []string
-	ast.Inspect(file, func(node ast.Node) bool {
-		function, isFunction := node.(*ast.FuncDecl)
-		if !isFunction || function.Name.Name != "runWithRuntime" {
-			return true
+	switches := 0
+	for _, declaration := range file.Decls {
+		function, isFunction := declaration.(*ast.FuncDecl)
+		if !isFunction || function.Name.Name != "run" && function.Name.Name != "runWithRuntime" {
+			continue
 		}
 		ast.Inspect(function, func(node ast.Node) bool {
-			dispatch, isSwitch := node.(*ast.SwitchStmt)
-			if !isSwitch || dispatch.Tag == nil {
-				return true
-			}
-			for _, clause := range dispatch.Body.List {
-				for _, label := range clause.(*ast.CaseClause).List {
-					if literal, isLiteral := label.(*ast.BasicLit); isLiteral && literal.Kind == token.STRING {
-						command, err := strconv.Unquote(literal.Value)
-						if err != nil {
-							t.Fatal(err)
+			switch node := node.(type) {
+			case *ast.SwitchStmt:
+				if node.Tag == nil || !isFirstArgument(node.Tag) {
+					return true
+				}
+				switches++
+				for _, clause := range node.Body.List {
+					for _, label := range clause.(*ast.CaseClause).List {
+						command, isWord := word(label)
+						if !isWord {
+							t.Errorf("a label of the dispatch in main.go is not a plain string, so this test cannot classify it")
+							continue
 						}
 						commands = append(commands, command)
 					}
 				}
+			case *ast.BinaryExpr:
+				if node.Op != token.EQL && node.Op != token.NEQ {
+					return true
+				}
+				for _, sides := range [][2]ast.Expr{{node.X, node.Y}, {node.Y, node.X}} {
+					if !isFirstArgument(sides[0]) {
+						continue
+					}
+					command, isWord := word(sides[1])
+					if !isWord {
+						t.Errorf("main.go compares args[0] with something that is not a plain string, so this test cannot classify it")
+						continue
+					}
+					// A flag of the launcher is no command.
+					if !strings.HasPrefix(command, "-") {
+						commands = append(commands, command)
+					}
+				}
 			}
-			return false
+			return true
 		})
-		return false
-	})
+	}
+	if switches != 1 {
+		t.Fatalf("found %d switches on args[0] in run and runWithRuntime of main.go, want the one dispatch", switches)
+	}
+	slices.Sort(commands)
+	return slices.Compact(commands)
+}
+
+// Every command is a control, which is raised, or stays at normal for a
+// reason given here, so a command added to cfo is one or the other on
+// purpose.
+func TestEveryCommandIsAControlOrStaysAtNormalOnPurpose(t *testing.T) {
+	// Arrange
+	commands := dispatched(t)
 	// A reading that stops seeing the dispatch would pass every command.
 	if len(commands) < 50 {
-		t.Fatalf("read %d commands from the dispatch in main.go; the test is not reading it", len(commands))
+		t.Fatalf("read %d commands from main.go, so the test is not reading its dispatch", len(commands))
 	}
 
 	// Act
@@ -121,25 +175,22 @@ func TestEveryCommandIsAControlOrStaysAtNormalOnPurpose(t *testing.T) {
 	}
 	for name := range controls {
 		if !slices.Contains(commands, name) {
-			t.Errorf("control %q is no command of the dispatch", name)
+			t.Errorf("control %q is no command of cfo", name)
 		}
 	}
 	for name := range staysAtNormal {
 		if !slices.Contains(commands, name) {
-			t.Errorf("%q is left at normal but is no command of the dispatch", name)
+			t.Errorf("%q is left at normal but is no command of cfo", name)
 		}
+	}
+	if !maps.EqualFunc(controls, controlRuns, func(bool, controlRun) bool { return true }) {
+		t.Errorf("the controls are %v and the tests run %v: every control needs a run in controlRuns", slices.Sorted(maps.Keys(controls)), slices.Sorted(maps.Keys(controlRuns)))
 	}
 }
 
 // A control a goblin or a gate agent starts is not raised, whether or not it
 // goes on to say anything: a hook leaves a goblin's session without a word.
 func TestAControlAGoblinOrAGateAgentStartsIsNotRaised(t *testing.T) {
-	if usual := processClass(t); usual != windows.NORMAL_PRIORITY_CLASS {
-		t.Skipf("this test runs at priority class %#x, so it cannot tell a raise from the usual one", usual)
-	}
-	if !maps.EqualFunc(controls, controlRuns, func(bool, []string) bool { return true }) {
-		t.Fatalf("the controls are %v and the tests run %v: every control needs a run in controlRuns", slices.Sorted(maps.Keys(controls)), slices.Sorted(maps.Keys(controlRuns)))
-	}
 	for who, variable := range map[string][2]string{
 		"a goblin":     {harness.RoleVariable, harness.RoleGoblin},
 		"a gate agent": {gateAgentVariable, "1"},
@@ -147,6 +198,7 @@ func TestAControlAGoblinOrAGateAgentStartsIsNotRaised(t *testing.T) {
 		for name := range controls {
 			t.Run(who+"/"+name, func(t *testing.T) {
 				// Arrange
+				fromNormal(t)
 				t.Setenv(variable[0], variable[1])
 
 				// Act

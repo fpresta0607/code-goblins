@@ -37,15 +37,20 @@ func TestARunItemARaisedSupervisorStartsRunsAtNormal(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	process, err := windows.OpenProcess(windows.PROCESS_QUERY_LIMITED_INFORMATION|windows.PROCESS_TERMINATE|windows.SYNCHRONIZE, false, uint32(started.PID))
+	t.Cleanup(func() {
+		ending, err := windows.OpenProcess(windows.PROCESS_TERMINATE|windows.SYNCHRONIZE, false, uint32(started.PID))
+		if err != nil {
+			return
+		}
+		_ = windows.TerminateProcess(ending, 1)
+		_, _ = windows.WaitForSingleObject(ending, 10000)
+		_ = windows.CloseHandle(ending)
+	})
+	process, err := windows.OpenProcess(windows.PROCESS_QUERY_LIMITED_INFORMATION, false, uint32(started.PID))
 	if err != nil {
 		t.Fatal(err)
 	}
-	t.Cleanup(func() {
-		_ = windows.TerminateProcess(process, 1)
-		_, _ = windows.WaitForSingleObject(process, 10000)
-		_ = windows.CloseHandle(process)
-	})
+	defer windows.CloseHandle(process)
 	class, err := windows.GetPriorityClass(process)
 
 	// Assert

@@ -3,24 +3,39 @@ package main
 import (
 	"os"
 	"path/filepath"
+	"strings"
+	"sync"
 	"testing"
+	"time"
 
 	"golang.org/x/sys/windows"
 
 	"github.com/fpresta0607/code-goblins/internal/harness"
+	"github.com/fpresta0607/code-goblins/internal/herdr"
 	"github.com/fpresta0607/code-goblins/internal/host"
 	"github.com/fpresta0607/code-goblins/internal/supervisor"
 )
 
+// classAtStart is the priority class this test binary was started at, read
+// before any test could raise it.
+var classAtStart, _ = windows.GetPriorityClass(windows.CurrentProcess())
+
 // classSeen records the priority class this process runs at each time a
 // command writes to it, which is while the command is at work.
 type classSeen struct {
-	t       *testing.T
+	t *testing.T
+	sync.Mutex
 	classes []uint32
 }
 
 func (seen *classSeen) Write(written []byte) (int, error) {
-	seen.classes = append(seen.classes, processClass(seen.t))
+	class, err := windows.GetPriorityClass(windows.CurrentProcess())
+	if err != nil {
+		seen.t.Error(err)
+	}
+	seen.Lock()
+	defer seen.Unlock()
+	seen.classes = append(seen.classes, class)
 	return len(written), nil
 }
 
@@ -33,35 +48,58 @@ func processClass(t *testing.T) uint32 {
 	return class
 }
 
-// controlRuns runs each of the fleet's controls far enough to say something:
-// each is refused for its arguments or finds nothing to do in an empty home,
-// so none starts, steers or stops anything.
-var controlRuns = map[string][]string{
-	"serve":         {"serve", "--listen", "not-a-loopback-address"},
-	"status":        {"status", "one-argument-too-many"},
-	"stop":          {"stop", "--no-such-flag"},
-	"attach":        {"attach", "--no-such-flag"},
-	"update":        {"update", "--no-such-flag"},
-	"process-plan":  {"process-plan", "one-argument-too-many"},
-	"send":          {"send"},
-	"answer":        {"answer"},
-	"peek":          {"peek"},
-	"fleet-view":    {"fleet-view", "one-argument-too-many"},
-	"drain":         {"drain"},
-	"watch":         {"watch"},
-	"notify":        {"notify"},
-	"question":      {"question", "--no-such-flag"},
-	"register":      {"register", "--no-such-flag"},
-	"pause":         {"pause"},
-	"resume":        {"resume", "g1", "--no-such-flag"},
-	"kill":          {"kill"},
-	"hook":          {"hook", "no-such-hook"},
-	"native-hook":   {"native-hook"},
-	"session-start": {"session-start"},
+// fromNormal skips a test whose binary was started at another priority
+// class, which cannot see a raise from normal, and fails one that finds this
+// process still raised: a host or a control an earlier test left running in
+// it would otherwise turn the tests of the raise into tests of nothing.
+func fromNormal(t *testing.T) {
+	t.Helper()
+	if classAtStart != windows.NORMAL_PRIORITY_CLASS {
+		t.Skipf("this test binary was started at priority class %#x, so it cannot see a control rise above normal", classAtStart)
+	}
+	for deadline := time.Now().Add(20 * time.Second); processClass(t) != windows.NORMAL_PRIORITY_CLASS; time.Sleep(50 * time.Millisecond) {
+		if time.Now().After(deadline) {
+			t.Fatalf("this process still runs at priority class %#x: an earlier test left a terminal's host or a control running in it, so no test here can see a control raise it and give the class back", processClass(t))
+		}
+	}
+}
+
+// controlRun runs one of the fleet's controls far enough to say something,
+// and exit is how it then ends: each is refused for its arguments or finds
+// nothing to do in an empty home, so none starts, steers or stops anything.
+type controlRun struct {
+	args []string
+	exit int
+}
+
+var controlRuns = map[string]controlRun{
+	"serve":         {args: []string{"serve", "--listen", "not-a-loopback-address"}, exit: 2},
+	"status":        {args: []string{"status", "one-argument-too-many"}, exit: 2},
+	"stop":          {args: []string{"stop", "--no-such-flag"}, exit: 2},
+	"attach":        {args: []string{"attach", "--no-such-flag"}, exit: 2},
+	"update":        {args: []string{"update", "--no-such-flag"}, exit: 2},
+	"process-plan":  {args: []string{"process-plan", "one-argument-too-many"}, exit: 2},
+	"send":          {args: []string{"send"}, exit: 2},
+	"answer":        {args: []string{"answer"}, exit: 2},
+	"peek":          {args: []string{"peek"}, exit: 2},
+	"fleet-view":    {args: []string{"fleet-view", "one-argument-too-many"}, exit: 2},
+	"drain":         {args: []string{"drain"}, exit: 0},
+	"watch":         {args: []string{"watch"}, exit: 1},
+	"notify":        {args: []string{"notify"}, exit: 2},
+	"question":      {args: []string{"question", "--no-such-flag"}, exit: 2},
+	"register":      {args: []string{"register", "--no-such-flag"}, exit: 2},
+	"pause":         {args: []string{"pause"}, exit: 2},
+	"resume":        {args: []string{"resume", "g1", "--no-such-flag"}, exit: 2},
+	"kill":          {args: []string{"kill"}, exit: 2},
+	"hook":          {args: []string{"hook", "no-such-hook"}, exit: 0},
+	"native-hook":   {args: []string{"native-hook"}, exit: 2},
+	"session-start": {args: []string{"session-start"}, exit: 0},
 }
 
 // emptyHome is a home with nothing in it for a control to find, which is not
-// primary, so cfo watch leaves at once.
+// primary, so cfo watch leaves at once. cfo serve forgets the variables of
+// the terminal it was started in, so each one set is handed back when the
+// test ends.
 func emptyHome(t *testing.T) {
 	t.Helper()
 	root := t.TempDir()
@@ -69,6 +107,11 @@ func emptyHome(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Setenv("CFO_HOME", root)
+	for _, entry := range os.Environ() {
+		if name, value, _ := strings.Cut(entry, "="); herdr.IsPaneVariable(name) || strings.EqualFold(name, host.IDVariable) || strings.EqualFold(name, host.ProofVariable) {
+			t.Setenv(name, value)
+		}
+	}
 }
 
 // The fleet's controls ran at the priority of the builds and tests they
@@ -81,32 +124,33 @@ func emptyHome(t *testing.T) {
 // against 0.07. Each control now runs one class above normal for as long as
 // it works, and gives the class back.
 func TestTheFleetsControlsRunAboveTheWorkAndGiveTheClassBack(t *testing.T) {
-	if usual := processClass(t); usual != windows.NORMAL_PRIORITY_CLASS {
-		t.Skipf("this test runs at priority class %#x, so it cannot see a control rise above the usual one", usual)
-	}
-	for name, args := range controlRuns {
+	for name, run := range controlRuns {
 		t.Run(name, func(t *testing.T) {
 			// Arrange
+			fromNormal(t)
 			emptyHome(t)
 			// A hook does nothing outside the CFO's own terminal.
 			t.Setenv(host.IDVariable, supervisor.NativeCFOTerminal)
 			said := &classSeen{t: t}
 
 			// Act
-			runWithRuntime(args, said, said, defaultCommandRuntime())
+			exit := runWithRuntime(run.args, said, said, defaultCommandRuntime())
 
 			// Assert
+			if exit != run.exit {
+				t.Fatalf("cfo %v ended with %d, want %d: it did something other than what this test runs it for", run.args, exit, run.exit)
+			}
 			if len(said.classes) == 0 {
-				t.Fatalf("cfo %v said nothing, so the test never saw it at work", args)
+				t.Fatalf("cfo %v said nothing, so the test never saw it at work", run.args)
 			}
 			for _, class := range said.classes {
 				if class != windows.ABOVE_NORMAL_PRIORITY_CLASS {
-					t.Errorf("cfo %v worked at priority class %#x, want above normal, %#x", args, class, uint32(windows.ABOVE_NORMAL_PRIORITY_CLASS))
+					t.Errorf("cfo %v worked at priority class %#x, want above normal, %#x", run.args, class, uint32(windows.ABOVE_NORMAL_PRIORITY_CLASS))
 					break
 				}
 			}
 			if after := processClass(t); after != windows.NORMAL_PRIORITY_CLASS {
-				t.Errorf("after cfo %v this process runs at priority class %#x, want normal back, %#x", args, after, uint32(windows.NORMAL_PRIORITY_CLASS))
+				t.Errorf("after cfo %v this process runs at priority class %#x, want normal back, %#x", run.args, after, uint32(windows.NORMAL_PRIORITY_CLASS))
 			}
 		})
 	}
@@ -116,28 +160,26 @@ func TestTheFleetsControlsRunAboveTheWorkAndGiveTheClassBack(t *testing.T) {
 // included, and so is what a gate agent starts: neither is ever raised, so
 // nothing the fleet supervises runs above anything else it supervises.
 func TestNothingAGoblinOrAGateAgentStartsIsRaised(t *testing.T) {
-	if usual := processClass(t); usual != windows.NORMAL_PRIORITY_CLASS {
-		t.Skipf("this test runs at priority class %#x, so it cannot tell a raise from the usual one", usual)
-	}
 	for who, variable := range map[string][2]string{
 		"a goblin":     {harness.RoleVariable, harness.RoleGoblin},
 		"a gate agent": {gateAgentVariable, "1"},
 	} {
-		for name, args := range controlRuns {
+		for name, run := range controlRuns {
 			t.Run(who+"/"+name, func(t *testing.T) {
 				// Arrange
+				fromNormal(t)
 				emptyHome(t)
 				t.Setenv(host.IDVariable, "g1")
 				t.Setenv(variable[0], variable[1])
 				said := &classSeen{t: t}
 
 				// Act
-				runWithRuntime(args, said, said, defaultCommandRuntime())
+				runWithRuntime(run.args, said, said, defaultCommandRuntime())
 
 				// Assert
 				for _, class := range said.classes {
 					if class != windows.NORMAL_PRIORITY_CLASS {
-						t.Errorf("cfo %v started by %s worked at priority class %#x, want normal, %#x", args, who, class, uint32(windows.NORMAL_PRIORITY_CLASS))
+						t.Errorf("cfo %v started by %s worked at priority class %#x, want normal, %#x", run.args, who, class, uint32(windows.NORMAL_PRIORITY_CLASS))
 						break
 					}
 				}
@@ -148,9 +190,6 @@ func TestNothingAGoblinOrAGateAgentStartsIsRaised(t *testing.T) {
 
 // A command that is not a control stays at normal for all of its work.
 func TestACommandThatIsNotAControlStaysAtNormal(t *testing.T) {
-	if usual := processClass(t); usual != windows.NORMAL_PRIORITY_CLASS {
-		t.Skipf("this test runs at priority class %#x, so it cannot tell a raise from the usual one", usual)
-	}
 	for name, args := range map[string][]string{
 		"version": {"version"},
 		"spawn":   {"spawn", "--no-such-flag"},
@@ -160,6 +199,7 @@ func TestACommandThatIsNotAControlStaysAtNormal(t *testing.T) {
 	} {
 		t.Run(name, func(t *testing.T) {
 			// Arrange
+			fromNormal(t)
 			emptyHome(t)
 			said := &classSeen{t: t}
 

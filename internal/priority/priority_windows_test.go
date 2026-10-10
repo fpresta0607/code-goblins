@@ -129,6 +129,9 @@ func TestWhatARaisedProcessStartsRunsAtNormal(t *testing.T) {
 	child := exec.Command(os.Args[0])
 	child.Env = append(os.Environ(), classReport+"="+report)
 	defer AboveTheWork()()
+	if raised := currentClass(t); raised != windows.ABOVE_NORMAL_PRIORITY_CLASS {
+		t.Fatalf("this process runs at priority class %#x, so the child is not started by a raised process", raised)
+	}
 
 	// Act
 	output, err := child.CombinedOutput()

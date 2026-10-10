@@ -22,8 +22,9 @@ var raised struct {
 // system calls: beside sixteen busy threads on 2026-10-10, one reading of
 // the machine's processes took 7.7 seconds at normal priority and 0.04 above
 // it. Above normal is one class up and never more: it comes before a
-// compiler, and a control's work is too short for a person's own apps to
-// wait on. Beside the same threads a plain process launch took 1.10 seconds
+// compiler, and a control does too little work for a person's own apps to
+// wait on, though a supervisor or a host stays raised for as long as it
+// runs. Beside the same threads a plain process launch took 1.10 seconds
 // with the controls at work raised and 1.22 with them at normal.
 //
 // Only a process at normal priority is raised. One that runs higher needs

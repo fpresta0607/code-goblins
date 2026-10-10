@@ -1,22 +1,20 @@
 package conpty
 
 import (
-	"errors"
-	"os"
 	"testing"
+	"unsafe"
 
 	"golang.org/x/sys/windows"
 
 	"github.com/fpresta0607/code-goblins/internal/priority"
-	"github.com/fpresta0607/code-goblins/internal/proc"
 )
 
 // A terminal's host runs one priority class above normal, and everything it
 // starts for its console must not: the console's program is a goblin's
 // harness, and neither start here goes through execx. Windows gives the
 // child of a raised process the normal class as long as its start names no
-// class, so the program, its console server and its input waker all run at
-// normal.
+// class, so the program, the input waker beside it in the console's job and
+// the console server all run at normal.
 func TestWhatARaisedHostStartsForItsConsoleRunsAtNormal(t *testing.T) {
 	// Arrange
 	usual, err := windows.GetPriorityClass(windows.CurrentProcess())
@@ -32,39 +30,39 @@ func TestWhatARaisedHostStartsForItsConsoleRunsAtNormal(t *testing.T) {
 	}
 
 	// Act
-	console, _ := startChild(t, Spec{Cols: 80, Rows: 25})
-	processes, err := proc.Processes()
+	console, _, server := startChildWithServer(t, Spec{Cols: 80, Rows: 25})
+	// The console's job holds its program and its input waker.
+	members := make([]uintptr, 64+2)
+	if err := windows.QueryInformationJobObject(console.job, windows.JobObjectBasicProcessIdList, uintptr(unsafe.Pointer(&members[0])), uint32(len(members))*uint32(unsafe.Sizeof(uintptr(0))), nil); err != nil {
+		t.Fatal(err)
+	}
+	count := *(*uint32)(unsafe.Add(unsafe.Pointer(&members[0]), 4))
+	pids := unsafe.Slice((*uintptr)(unsafe.Add(unsafe.Pointer(&members[0]), 8)), int(count))
+	classes := map[string]uint32{}
+	for _, pid := range pids {
+		name := "the console's input waker"
+		if int(pid) == console.PID() {
+			name = "the console's program"
+		}
+		class, err := windows.GetPriorityClass(openProcess(t, int(pid)))
+		if err != nil {
+			t.Fatal(err)
+		}
+		classes[name] = class
+	}
+	class, err := windows.GetPriorityClass(server)
 	if err != nil {
 		t.Fatal(err)
 	}
-	classes := map[int]uint32{}
-	for _, process := range processes {
-		if process.ParentPID != os.Getpid() {
-			continue
-		}
-		handle, err := windows.OpenProcess(windows.PROCESS_QUERY_LIMITED_INFORMATION, false, uint32(process.PID))
-		if errors.Is(err, windows.ERROR_INVALID_PARAMETER) {
-			continue // An earlier test's process that has ended since the list.
-		}
-		if err != nil {
-			t.Fatal(err)
-		}
-		class, err := windows.GetPriorityClass(handle)
-		windows.CloseHandle(handle)
-		if err != nil {
-			t.Fatal(err)
-		}
-		classes[process.PID] = class
-	}
+	classes["the console server"] = class
 
 	// Assert
-	// The program, its console server and its input waker are three.
-	if _, isRead := classes[console.PID()]; !isRead || len(classes) < 3 {
-		t.Fatalf("read the priority class of %d processes this one started, the console's program among them: %t; want the program, its console server and its input waker", len(classes), isRead)
-	}
-	for pid, class := range classes {
-		if class != windows.NORMAL_PRIORITY_CLASS {
-			t.Errorf("pid %d, started by this raised process, runs at priority class %#x, want normal, %#x", pid, class, uint32(windows.NORMAL_PRIORITY_CLASS))
+	for _, name := range []string{"the console's program", "the console's input waker", "the console server"} {
+		class, isRead := classes[name]
+		if !isRead {
+			t.Errorf("%s was not found among what the raised process started", name)
+		} else if class != windows.NORMAL_PRIORITY_CLASS {
+			t.Errorf("%s runs at priority class %#x, want normal, %#x", name, class, uint32(windows.NORMAL_PRIORITY_CLASS))
 		}
 	}
 }

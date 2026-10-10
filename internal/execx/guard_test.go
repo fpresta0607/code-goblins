@@ -25,7 +25,7 @@ var starters = map[string][]string{
 // class for the fleet's own short work, and no start names a class, so
 // Windows starts every child at normal.
 var priorityNames = map[string][]string{
-	"golang.org/x/sys/windows": {"SetPriorityClass", "ABOVE_NORMAL_PRIORITY_CLASS", "HIGH_PRIORITY_CLASS", "REALTIME_PRIORITY_CLASS", "NORMAL_PRIORITY_CLASS", "BELOW_NORMAL_PRIORITY_CLASS", "IDLE_PRIORITY_CLASS"},
+	"golang.org/x/sys/windows": {"SetPriorityClass", "ABOVE_NORMAL_PRIORITY_CLASS", "HIGH_PRIORITY_CLASS", "REALTIME_PRIORITY_CLASS", "NORMAL_PRIORITY_CLASS", "BELOW_NORMAL_PRIORITY_CLASS", "IDLE_PRIORITY_CLASS", "JOB_OBJECT_LIMIT_PRIORITY_CLASS"},
 }
 
 // startsElsewhere are the process starts that do not go through this
@@ -42,10 +42,10 @@ var startsElsewhere = map[string]string{
 // called or not, an exec.Cmd made by value, or a SysProcAttr or
 // CreationFlags set other than with |=, which would drop the flag Command
 // sets, is reported with where it is. So is a priority class named outside
-// internal/priority: a start that named one would start its process above
-// or below normal, and a goblin's harness is among the processes started.
-// Test files and tests/, a test fixture's own program, are not fleet
-// programs.
+// internal/priority, in this package's own files too: a start that named
+// one would start its process above or below normal, and a goblin's harness
+// is among the processes started. Test files and tests/, a test fixture's
+// own program, are not fleet programs.
 func TestEveryProcessStartGoesThroughCommand(t *testing.T) {
 	root := repositoryRoot(t)
 	files, allowed := 0, map[string]int{}
@@ -69,12 +69,20 @@ func TestEveryProcessStartGoesThroughCommand(t *testing.T) {
 			return nil
 		}
 		files++
-		if filepath.ToSlash(filepath.Dir(relative)) == "internal/execx" {
-			return nil
-		}
 		source, err := os.ReadFile(path)
 		if err != nil {
 			return err
+		}
+		directory := filepath.ToSlash(filepath.Dir(relative))
+		if directory != "internal/priority" {
+			classes, err := prioritised(relative, source)
+			if err != nil {
+				return err
+			}
+			violations = append(violations, classes...)
+		}
+		if directory == "internal/execx" {
+			return nil
 		}
 		found, allowedStarts, err := bypasses(relative, source)
 		if err != nil {
@@ -136,9 +144,6 @@ func TestBypassesReportsEveryStartAroundCommand(t *testing.T) {
 		{name: "execx.CommandContext", imports: `"context"; "os/exec"; "github.com/fpresta0607/code-goblins/internal/execx"`, body: `execx.CommandContext(context.Background(), "git").Run()`},
 		{name: "CreationFlags added to", imports: `"os/exec"`, body: `cmd.SysProcAttr.CreationFlags |= flags`},
 		{name: "HideWindow assigned", imports: `"os/exec"`, body: `cmd.SysProcAttr.HideWindow = true`},
-		{name: "priority class on a start", imports: `"os/exec"; "golang.org/x/sys/windows"`, body: `cmd.SysProcAttr.CreationFlags |= windows.ABOVE_NORMAL_PRIORITY_CLASS`, isReported: true},
-		{name: "priority class set", imports: `"os/exec"; "golang.org/x/sys/windows"`, body: `raise := windows.SetPriorityClass; _ = raise`, isReported: true},
-		{name: "the priority package's own raise", path: "internal/priority/priority_windows.go", imports: `"os/exec"; "golang.org/x/sys/windows"`, body: `raise := windows.SetPriorityClass; _ = raise`},
 		{name: "allowed conpty start", path: "internal/conpty/conpty_windows.go", imports: `"os/exec"; "golang.org/x/sys/windows"`, body: `windows.CreateProcess(nil, nil, nil, nil, false, 0, nil, nil, nil, nil)`, isAllowed: true},
 	}
 	for _, test := range tests {
@@ -174,6 +179,75 @@ func TestBypassesReportsEveryStartAroundCommand(t *testing.T) {
 	}
 }
 
+// A fleet file that names a priority class, the call that sets one, or the
+// job limit that would give one to everything in a job, is reported, however
+// it reaches the name.
+func TestPrioritisedReportsEveryPriorityClassNamed(t *testing.T) {
+	tests := []struct {
+		name       string
+		body       string
+		isReported bool
+	}{
+		{name: "priority class on a start", body: `cmd.SysProcAttr.CreationFlags |= windows.ABOVE_NORMAL_PRIORITY_CLASS`, isReported: true},
+		{name: "priority class set", body: `raise := windows.SetPriorityClass; _ = raise`, isReported: true},
+		{name: "priority class limit of a job", body: `flags |= windows.JOB_OBJECT_LIMIT_PRIORITY_CLASS`, isReported: true},
+		{name: "the call looked up by name", body: `_ = windows.NewLazySystemDLL("kernel32.dll").NewProc("SetPriorityClass")`, isReported: true},
+		{name: "a start that names no class", body: `cmd.SysProcAttr.CreationFlags |= windows.CREATE_NO_WINDOW`},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			// Arrange
+			source := "package example\n\nimport (\"os/exec\"; \"golang.org/x/sys/windows\")\n\nfunc example(cmd *exec.Cmd, flags uint32) {\n" + test.body + "\n}\n"
+			want := 0
+			if test.isReported {
+				want = 1
+			}
+
+			// Act
+			violations, err := prioritised("internal/example/example.go", []byte(source))
+
+			// Assert
+			if err != nil {
+				t.Fatal(err)
+			}
+			if len(violations) != want {
+				t.Errorf("violations = %q, want %d", violations, want)
+			}
+		})
+	}
+}
+
+// prioritised parses a fleet file's source and reports, as path:line: what,
+// each place it names a priority class, the call that sets one or the job
+// limit that gives one, by the names of priorityNames or as the name a
+// procedure is looked up by.
+func prioritised(relative string, source []byte) ([]string, error) {
+	fileSet := token.NewFileSet()
+	file, err := parser.ParseFile(fileSet, relative, source, parser.SkipObjectResolution)
+	if err != nil {
+		return nil, err
+	}
+	imported := importNames(file)
+	var violations []string
+	report := func(node ast.Node, what string) {
+		violations = append(violations, relative+":"+strconv.Itoa(fileSet.Position(node.Pos()).Line)+": "+what+": only internal/priority sets a priority class, and no process is started at one of its own")
+	}
+	ast.Inspect(file, func(node ast.Node) bool {
+		switch node := node.(type) {
+		case *ast.SelectorExpr:
+			if name, ok := qualified(node, imported); ok && named(priorityNames, name) {
+				report(node, "names "+imported.local(name))
+			}
+		case *ast.BasicLit:
+			if text, err := strconv.Unquote(node.Value); node.Kind == token.STRING && err == nil && text == "SetPriorityClass" {
+				report(node, "looks up SetPriorityClass by name")
+			}
+		}
+		return true
+	})
+	return violations, nil
+}
+
 // bypasses parses a fleet file's source and reports, as path:line: what,
 // each place it starts a process around Command, and the startsElsewhere
 // keys of the allowed starts it holds.
@@ -199,9 +273,6 @@ func bypasses(relative string, source []byte) (violations, allowed []string, err
 			}
 			if name == "os/exec.Cmd" && !pointed[node] {
 				report(node, "makes an exec.Cmd itself instead of with execx.Command")
-			}
-			if named(priorityNames, name) && filepath.ToSlash(filepath.Dir(relative)) != "internal/priority" {
-				report(node, "names "+imported.local(name)+": only internal/priority sets a priority class, and no process is started at one of its own")
 			}
 			if !named(starters, name) {
 				return true

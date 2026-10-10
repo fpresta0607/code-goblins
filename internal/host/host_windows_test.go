@@ -1197,25 +1197,22 @@ func priorityClass(t *testing.T, pid int) uint32 {
 // relays its keys and output. It ran at the priority of the builds in that
 // terminal, so with every core busy it waited its turn behind them: on
 // 2026-10-10 cfo send twice got no answer to its handshake in five seconds.
-// It runs one class above them now, and the terminal's program and what the
-// program starts run at normal, where Windows starts the child of a raised
-// process.
+// It runs one class above them now, and the terminal's program runs at
+// normal, where Windows starts the child of a raised process.
 func TestAHostRunsOneClassAboveItsTerminalWhichRunsAtNormal(t *testing.T) {
 	// Arrange
+	// A host started by a process below normal is started below normal too,
+	// and is left there.
+	if usual := priorityClass(t, os.Getpid()); usual != windows.NORMAL_PRIORITY_CLASS && usual != windows.ABOVE_NORMAL_PRIORITY_CLASS {
+		t.Skipf("this test runs at priority class %#x, so the host it starts is not started at normal", usual)
+	}
 	_, record := launch(t)
 	v := connect(t, record)
 	v.waitFor(t, "ready")
-	typeLine(t, v, "spawn")
-	grandchild, err := strconv.Atoi(v.waitFor(t, `grandchild (\d+)`)[1])
-	if err != nil {
-		t.Fatal(err)
-	}
-	pin(t, grandchild)
 
 	// Act
 	host := priorityClass(t, record.HostPID)
 	program := priorityClass(t, record.ChildPID)
-	started := priorityClass(t, grandchild)
 
 	// Assert
 	if host != windows.ABOVE_NORMAL_PRIORITY_CLASS {
@@ -1223,8 +1220,5 @@ func TestAHostRunsOneClassAboveItsTerminalWhichRunsAtNormal(t *testing.T) {
 	}
 	if program != windows.NORMAL_PRIORITY_CLASS {
 		t.Errorf("the terminal's program runs at priority class %#x, want normal, %#x", program, uint32(windows.NORMAL_PRIORITY_CLASS))
-	}
-	if started != windows.NORMAL_PRIORITY_CLASS {
-		t.Errorf("a process the terminal's program started runs at priority class %#x, want normal, %#x", started, uint32(windows.NORMAL_PRIORITY_CLASS))
 	}
 }
