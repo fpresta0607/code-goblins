@@ -33,9 +33,9 @@ var (
 // its name with a changed source, as run-terminal.spec.ts does with
 // RunCard.tsx. Most specs open the whole board, so what a spec imports does
 // not say what it covers, and its name is what it has. The other specs are
-// left to CI, which runs them all in about 15 minutes where this machine
-// takes longer and 4 GB. A board that is not installed runs nothing: npm
-// can exit 0 where it found no program to run.
+// left to CI, which runs them all in four jobs at once where this machine
+// has one browser and 4 GB to give them. A board that is not installed runs
+// nothing: npm can exit 0 where it found no program to run.
 func boardChecks(root string, changed []string) (steps []Step, left []Deferred) {
 	var files []string
 	for _, file := range changed {
@@ -99,7 +99,7 @@ func boardChecks(root string, changed []string) (steps []Step, left []Deferred) 
 	}
 	return steps, append(left, Deferred{
 		Check: "the board's build, the test that cfo embeds it and the licence check",
-		Why:   "CI's frontend job runs them after its tests",
+		Why:   "CI's frontend job runs them",
 	})
 }
 

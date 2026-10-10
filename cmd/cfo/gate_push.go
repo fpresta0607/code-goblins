@@ -42,8 +42,10 @@ func runGatePrepush(args []string, dir string, stdout, stderr io.Writer, runtime
 		return 2
 	}
 	project := ""
-	// go list answered the pick in 3 to 10 seconds on 2026-10-10, and took
-	// over two minutes once, in a fresh checkout beside a test run.
+	// Beside a working fleet on 2026-10-10 the pick took 2 to 67 seconds
+	// for sixteen pull requests, nearly all of it go list, and over two
+	// minutes once, in a checkout just made while a test run held the
+	// machine.
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
 	pick, err := gatetest.ReadPush(ctx, execx.OSRunner{}, dir, func(module string) gatetest.Times {
 		project = path.Base(module)
@@ -63,6 +65,10 @@ func runGatePrepush(args []string, dir string, stdout, stderr io.Writer, runtime
 		return 0
 	}
 	if len(pick.Steps) == 0 {
+		if len(pick.Left) > 0 {
+			fmt.Fprintf(stdout, "cfo gate prepush: no check ran here. CI is the check of the %d left to it, named above.\n", len(pick.Left))
+			return 0
+		}
 		fmt.Fprintln(stdout, "cfo gate prepush: passed. This change picks no check to run here.")
 		return 0
 	}
@@ -93,7 +99,7 @@ func runGatePrepush(args []string, dir string, stdout, stderr io.Writer, runtime
 		case used >= *limit:
 			cut = fmt.Sprintf("the time limit of %s passed", *limit)
 		case index > 0:
-			cut = pushMemoryShort(runtime.availableMemory)
+			cut = waitForPushMemory(stdout, runtime, index+1, began.Add(*limit), *limit)
 		}
 		if cut != "" {
 			break
@@ -281,19 +287,33 @@ func takePushTurn(stdout io.Writer, runtime commandRuntime, who string, budget t
 	}.Wait(context.Background())
 }
 
-// pushMemoryShort says why no further check starts, or "" when the machine
-// has the memory floor free, physical and commit both, as a run's turn
-// requires. A reading that cannot be taken starts nothing either.
-func pushMemoryShort(available func() (supervisor.Memory, error)) string {
-	if available == nil {
-		return "free memory cannot be read"
+// waitForPushMemory lets check number start only once the machine has the
+// memory floor free, physical and commit both, as a run's turn requires. It
+// returns "" once it has. Beside a working fleet free memory dips under the
+// floor for seconds at a time, so the run waits, saying once what for, and
+// reads memory again every pushMemoryPoll. It returns why no further check
+// starts when the run's time ends first, at deadline, or at once when memory
+// cannot be read, since no reading would say when to go on.
+func waitForPushMemory(stdout io.Writer, runtime commandRuntime, number int, deadline time.Time, limit time.Duration) string {
+	for isSaid := false; ; isSaid = true {
+		if runtime.availableMemory == nil {
+			return "free memory cannot be read"
+		}
+		memory, err := runtime.availableMemory()
+		if err != nil {
+			return "free memory cannot be read (" + err.Error() + ")"
+		}
+		free := min(memory.Available, memory.CommitAvailable)
+		if free >= supervisor.MemoryFloor {
+			return ""
+		}
+		short := fmt.Sprintf("the machine has %.1f GB of memory free and a check starts only above %.1f GB", verify.Gigabytes(free), verify.Gigabytes(supervisor.MemoryFloor))
+		if !time.Now().Before(deadline) {
+			return fmt.Sprintf("%s, and the time limit of %s passed while the run waited for it", short, limit)
+		}
+		if !isSaid {
+			fmt.Fprintf(stdout, "cfo gate prepush: waiting to start check %d, since %s\n", number, short)
+		}
+		time.Sleep(min(runtime.pushMemoryPoll, time.Until(deadline)))
 	}
-	memory, err := available()
-	if err != nil {
-		return "free memory cannot be read: " + err.Error()
-	}
-	if free := min(memory.Available, memory.CommitAvailable); free < supervisor.MemoryFloor {
-		return fmt.Sprintf("the machine has %.1f GB of memory free and a check starts only above %.1f GB", verify.Gigabytes(free), verify.Gigabytes(supervisor.MemoryFloor))
-	}
-	return ""
 }

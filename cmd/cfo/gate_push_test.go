@@ -154,11 +154,11 @@ func TestGatePrepushRunsTheGuardsWhateverChanged(t *testing.T) {
 	exit := gatePrepush(&stdout, &stderr)
 
 	// Assert
-	want := "cfo gate prepush: failed at check 1 of 1, guard tests of c: TestC: TestC failed. CI would fail on it too, so fix it before you push."
+	want := "cfo gate prepush: failed at check 1 of 1, guard tests of c: TestC failed. CI would fail on it too, so fix it before you push."
 	if got := lastLine(stdout.String()); exit != 1 || got != want {
 		t.Errorf("exit = %d and the run ends with %q, want 1 and %q\nstdout=%s stderr=%s", exit, got, want, stdout.String(), stderr.String())
 	}
-	if want := "1. guard tests of c: TestC (it reads the whole tree)"; !strings.Contains(stdout.String(), want) {
+	if want := "1. guard tests of c (it reads the whole tree)\n   - TestC\n"; !strings.Contains(stdout.String(), want) {
 		t.Errorf("stdout %q lacks %q", stdout.String(), want)
 	}
 }
@@ -315,8 +315,54 @@ func TestGatePrepushEndsACheckThatRunsPastTheTimeLimit(t *testing.T) {
 	}
 }
 
+// A run waits out a moment under the memory floor and goes on: beside a
+// working fleet free memory dips under it for seconds at a time, and on
+// 2026-10-10 a run that gave up at the first low reading left 33 of its 42
+// checks to CI after two minutes.
+func TestGatePrepushWaitsOutAMomentUnderTheMemoryFloor(t *testing.T) {
+	// Arrange
+	dir := testStepModule(t,
+		map[string]string{"config/verify.json": strings.Replace(quiet, `"slow_packages": ["a"]`, `"slow_packages": []`, 1), "a/a_test.go": passing},
+		map[string]string{"a/a.go": "package a\n\nfunc A() int { return 2 }\n"})
+	t.Chdir(dir)
+	var ran []string
+	runtime := recorded(&ran)
+	runtime.pushMemoryPoll = 10 * time.Millisecond
+	var shortReadings atomic.Int32
+	runtime.availableMemory = func() (supervisor.Memory, error) {
+		if shortReadings.Add(-1) >= 0 {
+			return supervisor.Memory{Available: 3 << 30, CommitAvailable: 9 << 30}, nil
+		}
+		return plenty()
+	}
+	run := runtime.pushRun
+	runtime.pushRun = func(ctx context.Context, command []string, dir string, env []string, stdout, stderr io.Writer) (int, error) {
+		if len(ran) == 0 {
+			shortReadings.Store(3)
+		}
+		return run(ctx, command, dir, env, stdout, stderr)
+	}
+
+	// Act
+	var stdout, stderr bytes.Buffer
+	exit := gatePrepushWith(runtime, &stdout, &stderr)
+
+	// Assert
+	if exit != 0 || len(ran) != 3 {
+		t.Fatalf("exit = %d after %d check(s), want 0 after 3; stdout=%s stderr=%s", exit, len(ran), stdout.String(), stderr.String())
+	}
+	want := fmt.Sprintf("cfo gate prepush: waiting to start check 2, since the machine has 3.0 GB of memory free and a check starts only above %.1f GB\n", verify.Gigabytes(supervisor.MemoryFloor))
+	if strings.Count(stdout.String(), want) != 1 {
+		t.Errorf("stdout %q says %q %d times, want once", stdout.String(), want, strings.Count(stdout.String(), want))
+	}
+	if got := lastLine(stdout.String()); !strings.HasPrefix(got, "cfo gate prepush: passed. All 3 checks ran in ") {
+		t.Errorf("the run ends with %q, want it to say that all 3 checks passed", got)
+	}
+}
+
 // No check starts while the machine is under the memory floor beside a
-// working fleet: the checks from there on are left to CI, with what was
+// working fleet: a run waits for the floor within its time limit, and once
+// the limit passes the checks from there on are left to CI, with what was
 // free.
 func TestGatePrepushStartsNoCheckWhileMemoryIsUnderTheFloor(t *testing.T) {
 	// Arrange
@@ -326,6 +372,7 @@ func TestGatePrepushStartsNoCheckWhileMemoryIsUnderTheFloor(t *testing.T) {
 	t.Chdir(dir)
 	var ran []string
 	runtime := recorded(&ran)
+	runtime.pushMemoryPoll = 10 * time.Millisecond
 	var isShort atomic.Bool
 	runtime.availableMemory = func() (supervisor.Memory, error) {
 		if isShort.Load() {
@@ -341,14 +388,51 @@ func TestGatePrepushStartsNoCheckWhileMemoryIsUnderTheFloor(t *testing.T) {
 
 	// Act
 	var stdout, stderr bytes.Buffer
-	exit := gatePrepushWith(runtime, &stdout, &stderr)
+	exit := gatePrepushWith(runtime, &stdout, &stderr, "--limit", "1s")
 
 	// Assert
 	if exit != 0 || len(ran) != 1 {
 		t.Fatalf("exit = %d after %d check(s), want 0 after 1; stdout=%s stderr=%s", exit, len(ran), stdout.String(), stderr.String())
 	}
-	want := fmt.Sprintf("left to CI, since the machine has 1.0 GB of memory free and a check starts only above %.1f GB:\n- tests of a (changed)\n- tests of b (imports a)\n", verify.Gigabytes(supervisor.MemoryFloor))
+	want := fmt.Sprintf("left to CI, since the machine has 1.0 GB of memory free and a check starts only above %.1f GB, and the time limit of 1s passed while the run waited for it:\n- tests of a (changed)\n- tests of b (imports a)\n", verify.Gigabytes(supervisor.MemoryFloor))
 	if !strings.Contains(stdout.String(), want) {
+		t.Errorf("stdout %q lacks %q", stdout.String(), want)
+	}
+}
+
+// A machine whose memory cannot be read starts no further check and waits
+// for nothing: no reading says when to go on.
+func TestGatePrepushStartsNoCheckOnceMemoryCannotBeRead(t *testing.T) {
+	// Arrange
+	dir := testStepModule(t,
+		map[string]string{"config/verify.json": strings.Replace(quiet, `"slow_packages": ["a"]`, `"slow_packages": []`, 1), "a/a_test.go": passing},
+		map[string]string{"a/a.go": "package a\n\nfunc A() int { return 2 }\n"})
+	t.Chdir(dir)
+	var ran []string
+	runtime := recorded(&ran)
+	var isGone atomic.Bool
+	runtime.availableMemory = func() (supervisor.Memory, error) {
+		if isGone.Load() {
+			return supervisor.Memory{}, errors.New("no reading")
+		}
+		return plenty()
+	}
+	run := runtime.pushRun
+	runtime.pushRun = func(ctx context.Context, command []string, dir string, env []string, stdout, stderr io.Writer) (int, error) {
+		isGone.Store(true)
+		return run(ctx, command, dir, env, stdout, stderr)
+	}
+
+	// Act
+	var stdout, stderr bytes.Buffer
+	started := time.Now()
+	exit := gatePrepushWith(runtime, &stdout, &stderr)
+
+	// Assert
+	if exit != 0 || len(ran) != 1 || time.Since(started) > time.Minute {
+		t.Fatalf("exit = %d after %d check(s) in %s, want 0 after 1, at once; stdout=%s stderr=%s", exit, len(ran), time.Since(started), stdout.String(), stderr.String())
+	}
+	if want := "left to CI, since free memory cannot be read (no reading):\n- tests of a (changed)\n- tests of b (imports a)\n"; !strings.Contains(stdout.String(), want) {
 		t.Errorf("stdout %q lacks %q", stdout.String(), want)
 	}
 }
@@ -534,5 +618,44 @@ func TestGatePrepushRunsAFailedTestAgainAndPassesOneThatFailedByChance(t *testin
 	}
 	if got := lastLine(stdout.String()); !strings.HasPrefix(got, "cfo gate prepush: passed. All 3 checks ran in ") {
 		t.Errorf("the run ends with %q, want it to say that all 3 checks passed", got)
+	}
+}
+
+// A change that picks nothing this machine can run does not pass: the run
+// says that no check ran and how much it left to CI. The board is not
+// installed here, so a change to it runs none of its checks.
+func TestGatePrepushWithNothingToRunSaysWhatItLeftToCI(t *testing.T) {
+	// Arrange
+	dir := testStepModule(t, map[string]string{"config/verify.json": quiet, "frontend/src/RunCard.tsx": ""}, map[string]string{"frontend/src/RunCard.tsx": "changed\n", "README.md": "changed\n"})
+	t.Chdir(dir)
+
+	// Act
+	var ran []string
+	var stdout, stderr bytes.Buffer
+	exit := gatePrepushWith(recorded(&ran), &stdout, &stderr)
+
+	// Assert
+	want := "cfo gate prepush: no check ran here. CI is the check of the 1 left to it, named above."
+	if got := lastLine(stdout.String()); exit != 0 || len(ran) != 0 || got != want {
+		t.Errorf("exit = %d after %d check(s), ending with %q; want 0 after none, ending with %q\nstdout=%s", exit, len(ran), got, want, stdout.String())
+	}
+	if want := "left to CI:\n- the board's type check, lint, unit tests and browser specs (frontend/node_modules is missing here"; !strings.Contains(stdout.String(), want) {
+		t.Errorf("stdout %q lacks %q", stdout.String(), want)
+	}
+}
+
+// A change that reaches nothing and has no guard to run says so and passes.
+func TestGatePrepushWithNothingPickedPasses(t *testing.T) {
+	// Arrange
+	dir := testStepModule(t, map[string]string{"config/verify.json": quiet}, map[string]string{"README.md": "changed\n"})
+	t.Chdir(dir)
+
+	// Act
+	var stdout, stderr bytes.Buffer
+	exit := gatePrepush(&stdout, &stderr)
+
+	// Assert
+	if want := "cfo gate prepush: passed. This change picks no check to run here."; exit != 0 || lastLine(stdout.String()) != want {
+		t.Errorf("exit = %d, ending with %q; want 0, ending with %q", exit, lastLine(stdout.String()), want)
 	}
 }

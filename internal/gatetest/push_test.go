@@ -139,14 +139,15 @@ func TestPushPicksTheGuardThatReadsEveryCommandForANewCommand(t *testing.T) {
 
 	// Assert
 	want := Step{
-		What:    "guard tests of cmd/cfo: TestEveryCommandSaysWhetherItActsAsTheCFO",
+		What:    "guard tests of cmd/cfo",
 		Why:     "it reads every command",
+		Detail:  []string{"TestEveryCommandSaysWhetherItActsAsTheCFO"},
 		Command: []string{"go", "test", "-json", "-count=1", "-p", "2", "-timeout", "0", "-run", "^(TestEveryCommandSaysWhetherItActsAsTheCFO)$", "./cmd/cfo"},
 	}
 	if !slices.ContainsFunc(pick.Steps, func(step Step) bool {
-		return step.What == want.What && step.Why == want.Why && slices.Equal(step.Command, want.Command)
+		return step.What == want.What && step.Why == want.Why && slices.Equal(step.Detail, want.Detail) && slices.Equal(step.Command, want.Command)
 	}) {
-		t.Errorf("push picks\n%s\nwant among them %s as %q", strings.Join(whats(pick), "\n"), want, want.Command)
+		t.Errorf("push picks\n%s\nwant among them %s, naming %q, as %q", strings.Join(whats(pick), "\n"), want, want.Detail, want.Command)
 	}
 }
 
@@ -163,7 +164,7 @@ func TestPushPicksTheGuardThatReadsEveryLinkForADocChange(t *testing.T) {
 	// Assert
 	want := []string{
 		"guard tests of the root package (its tests read every link of the contract)",
-		"guard tests of cmd/cfo: TestEveryCommandSaysWhetherItActsAsTheCFO (it reads every command)",
+		"guard tests of cmd/cfo (it reads every command)",
 	}
 	if got := whats(pick); !slices.Equal(got, want) {
 		t.Fatalf("push picks\n%s\nwant\n%s", strings.Join(got, "\n"), strings.Join(want, "\n"))

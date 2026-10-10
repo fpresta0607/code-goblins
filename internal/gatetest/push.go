@@ -31,7 +31,7 @@ type Step struct {
 	What string
 	Why  string
 	// Detail names what the check holds, one line each, when its name does
-	// not: the browser specs it runs, each with why.
+	// not: the tests a guard runs, and the browser specs, each with why.
 	Detail []string
 	// Command runs in Dir, a folder from the repository's root, or in the
 	// root when Dir is empty.
@@ -105,31 +105,11 @@ func push(found findings, times Times) Push {
 		}
 	}
 
-	depths := map[string]int{}
-	for _, choice := range reach.Choices {
-		if choice.Imports == "" {
-			depths[choice.ImportPath] = 0
-		}
-	}
-	for settled := false; !settled; {
-		settled = true
-		for _, choice := range reach.Choices {
-			if _, known := depths[choice.ImportPath]; known {
-				continue
-			}
-			// A package that imports a deleted one imports nothing the
-			// change still has, and is as near the change as a changed one's
-			// importer.
-			from, selected := depths[choice.Imports]
-			if selected || !slices.ContainsFunc(reach.Choices, func(other Choice) bool { return other.ImportPath == choice.Imports }) {
-				depths[choice.ImportPath], settled = from+1, false
-			}
-		}
-	}
 	// Nearest first, and at one distance the quick packages before the slow.
+	far := distances(reach.Choices)
 	slices.SortStableFunc(reach.Choices, func(a, b Choice) int {
-		if depths[a.ImportPath] != depths[b.ImportPath] {
-			return depths[a.ImportPath] - depths[b.ImportPath]
+		if far[a.ImportPath] != far[b.ImportPath] {
+			return far[a.ImportPath] - far[b.ImportPath]
 		}
 		switch {
 		case slow[a.ImportPath] == slow[b.ImportPath]:
@@ -196,7 +176,7 @@ func push(found findings, times Times) Push {
 		}
 		step := Step{What: "guard tests of " + named(guard.Package), Why: guard.Why, Command: append(slices.Clone(testArgs), target(guard.Package))}
 		if len(guard.Tests) > 0 {
-			step.What += ": " + strings.Join(guard.Tests, ", ")
+			step.Detail = guard.Tests
 			step.Command = append(slices.Clone(testArgs), "-run", "^("+strings.Join(guard.Tests, "|")+")$", target(guard.Package))
 		}
 		pick.Steps = append(pick.Steps, step)
@@ -217,6 +197,33 @@ func push(found findings, times Times) Push {
 		pick.Left = append(pick.Left, Deferred{Check: "tests of every other package", Why: subject + " in no package, under no contract and not listed as outside the Go checks"})
 	}
 	return pick
+}
+
+// distances are how many imports each chosen package is from the change:
+// none for a package that changed or that a contract names, one for a
+// package that imports one of those or a deleted package, and one more for
+// each package between.
+func distances(choices []Choice) map[string]int {
+	chosen := map[string]Choice{}
+	for _, choice := range choices {
+		chosen[choice.ImportPath] = choice
+	}
+	far := map[string]int{}
+	var from func(importPath string) int
+	from = func(importPath string) int {
+		choice, isChosen := chosen[importPath]
+		if !isChosen || choice.Imports == "" {
+			return 0
+		}
+		if _, isKnown := far[importPath]; !isKnown {
+			far[importPath] = 1 + from(choice.Imports)
+		}
+		return far[importPath]
+	}
+	for _, choice := range choices {
+		far[choice.ImportPath] = from(choice.ImportPath)
+	}
+	return far
 }
 
 // named is a package as a pick names it: its directory from the repository's

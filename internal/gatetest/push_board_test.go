@@ -92,7 +92,7 @@ func TestPushPicksTheBoardsChecksAndTheSpecsThatCoverTheChange(t *testing.T) {
 	}
 	for _, wantLeft := range []string{
 		"the 2 other browser specs (the change touched no file of theirs and names none of them)",
-		"the board's build, the test that cfo embeds it and the licence check (CI's frontend job runs them after its tests)",
+		"the board's build, the test that cfo embeds it and the licence check (CI's frontend job runs them)",
 	} {
 		if !slices.Contains(lefts(pick), wantLeft) {
 			t.Errorf("push leaves to CI\n%s\nwant among it %s", strings.Join(lefts(pick), "\n"), wantLeft)
