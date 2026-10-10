@@ -492,6 +492,40 @@ func ReleaseExclusiveNamed(dir, name string) error {
 	return releaseExclusiveNamed(dir, name, os.Remove, time.Sleep)
 }
 
+// HandOverExclusiveNamed makes the process pid the holder of dir/name, an
+// exclusive lock this process holds, without the lock ever being free in
+// between: the record is replaced in one step by one naming pid, so no other
+// process can take the lock while it changes hands. The process handed it
+// takes it as its own when it acquires the lock, as acquireExclusiveNamed
+// does for a record naming the acquirer, in every build since v0.1.0. It
+// refuses a lock this process does not hold and a pid that does not run, and
+// leaves the record as it was.
+func HandOverExclusiveNamed(dir, name string, pid int) error {
+	exclusiveLeases.Lock()
+	defer exclusiveLeases.Unlock()
+	holder, err := ReadNamed(dir, name)
+	if err != nil {
+		return fmt.Errorf("lock: hand over %s: %w", name, err)
+	}
+	self, _ := ownerInfo(os.Getpid(), exclusiveSpawnSession)
+	if holder.PID != self.PID || !holder.Start.Equal(self.Start) || holder.Hostname != self.Hostname {
+		return fmt.Errorf("lock: hand over %s: it is held by pid %d, not this process", name, holder.PID)
+	}
+	next, status := ownerInfo(pid, exclusiveSpawnSession)
+	if status != statusAlive {
+		return fmt.Errorf("lock: hand over %s: %w: pid %d", name, ErrOwnerDead, pid)
+	}
+	data, err := json.Marshal(next)
+	if err != nil {
+		return err
+	}
+	if err := fsx.AtomicWriteFile(filepath.Join(dir, name), data); err != nil {
+		return fmt.Errorf("lock: hand over %s: %w", name, err)
+	}
+	delete(exclusiveLeases.acquired, exclusiveLeaseKey(dir, name))
+	return nil
+}
+
 func releaseExclusiveNamed(dir, name string, remove func(string) error, sleep func(time.Duration)) error {
 	key := exclusiveLeaseKey(dir, name)
 	exclusiveLeases.Lock()

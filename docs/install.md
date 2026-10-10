@@ -84,7 +84,7 @@ In order, it:
 
 Rerun it to update: it brings the home's contract, skills and program up to date, and keeps your projects folder and any policy you tuned.
 A running program cannot be replaced, only renamed, so the previous build moves aside and the new one takes its name; a supervisor that runs is then restarted on the new build, as `cfo update` restarts it.
-An open desktop window moves onto the new one by itself once it is idle.
+A desktop window in the tray moves onto the new one by itself, and one you have open stays as it is until you close it.
 
 An install that delivers its desktop window into the home takes the place of a copy that was installed on its own, in `%LOCALAPPDATA%\CodeGoblinsWindow` with **Code Goblins Window** in the Start menu.
 That entry is removed only after this install saves its Code Goblins Start-menu shortcut, since Code Goblins opens the window now.
@@ -135,7 +135,9 @@ So when a Code Goblins release moves the pin forward, rerunning the install is h
 ## Updating
 
 The board looks for a newer release when it starts and every six hours, and brings one to you as its own item in the Command Center, **Update Code Goblins**: the version you run and the new one, what is new, what the update checks, and one **Update** button, with a slim banner at the top that points to it.
-**Update** runs `goblins update` for that release out of sight, and the card shows each of the steps below as it goes, then how it ended; the board is away for a few seconds and reloads on the new version.
+**Update** runs `goblins update` for that release out of sight, and the card shows each of the steps below as it goes, then how it ended in one sentence.
+The board is away for under a minute and reloads on the new version.
+An update that did not install offers one **Try again**, which starts the next update at once, and that update puts right whatever the last one left: the card never asks you to paste or run anything.
 Only you press it, from a board of your own; `"check_for_updates": false` in the home's `config\fleet.json` turns the look off.
 [Update Code Goblins](native-board.md#update-code-goblins) says all it does.
 
@@ -147,12 +149,18 @@ It runs only as the home's own `goblins` or `cfo`, and it says four steps as it 
    It names each program's SHA-256, and says when the release is unsigned, which every release is until Code Goblins has a signing identity.
    A program that fails a check is never run, and nothing in the home changes.
 3. `[3/4] Install Code Goblins <version>`: the downloaded build installs itself with its own [`update`](../README.md#core-commands), which swaps `cfo.exe` and `goblins.exe` where the home keeps them, in `bin` or, in a home a build before `bin` set up, at its root, restarts only the board on the address it served, and puts the previous build back when the new one does not serve.
-   The desktop window follows beside `goblins.exe`, and an open window moves onto it by itself once it is idle.
+   It first waits up to 15 seconds for a goblin's start, pause, resume or clean-up in flight, and refuses a new one while it installs, with one sentence.
+   It holds the supervisor's lock from the supervisor it stopped to the one it starts, so opening Code Goblins meanwhile waits for the board instead of starting a second supervisor.
+   It is bounded: past a minute with the board away it is stopped where it is and the previous build put back, and past a minute before it changed anything it is stopped with nothing changed.
+   The desktop window follows beside `goblins.exe`, and a window in the tray moves onto it by itself, while one you have open stays as it is until you close it.
 4. `[4/4] Bring the home up to date`: the new build's `install` brings the home's contract, skills and hooks up to date, where this machine's install names this home; the board, already on the new build, is not restarted again.
 
 A new build that pins a different speech model than the one the home holds downloads it as its board starts, and removes the earlier one once the new one is in place; one that pins the same model keeps it.
 
-It ends on one line: `Updated:`, `Rolled back:` with why the new build did not serve, or `Failed:` with what stopped it before anything changed.
+It ends on one line, a plain sentence: `Updated:`, `Rolled back:` when the new build was not installed and the previous one serves again, or `Failed:` when nothing was changed or the board did not come back.
+The lines above it say why, and how long each step took.
+Whatever an update left unfinished, the next one puts right first, and opening Code Goblins again starts the board when an update left it down, so there is nothing to paste.
+To recover by hand, when nothing else can, run the copy the update kept, with the home and its state named: set `CFO_HOME` to the home and `CFO_STATE_OVERRIDE` to its `state` folder, then run `state\update\candidate.exe update --recover` from any folder.
 When the new build serves but its install cannot refresh the home, or the machine's installed home cannot be read, it keeps that build, ends on `Updated:` saying what remains to do, and exits 6; run `goblins install` to finish.
 Updating another home deliberately skips that refresh and exits 0.
 The download is removed afterwards.

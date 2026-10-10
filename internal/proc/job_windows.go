@@ -311,11 +311,16 @@ type handleEntry struct {
 
 // handleTable reads every handle open on the system.
 func handleTable() ([]handleEntry, error) {
-	for size := 1 << 20; size <= maxHandleTable; size *= 2 {
+	for size := 1 << 20; size <= maxHandleTable; {
 		buffer := make([]byte, size)
 		var returned uint32
 		status, _, _ := ntQuerySystemInformation.Call(systemExtendedHandleInfo, uintptr(unsafe.Pointer(&buffer[0])), uintptr(size), uintptr(unsafe.Pointer(&returned)))
 		if uint32(status) == statusInfoLengthMismatch {
+			// Windows says how much the table needs. Asking for that and
+			// an eighth more, for the handles opened meanwhile, reads it in
+			// two calls, where doubling from the first size made and
+			// cleared seven buffers on a machine with a million handles.
+			size = max(size*2, int(returned)+int(returned)/8)
 			continue
 		}
 		if status != 0 {

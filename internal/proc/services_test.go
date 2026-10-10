@@ -71,3 +71,29 @@ func TestServiceOfKnowsTheGateDaemonByItsCommand(t *testing.T) {
 		}
 	}
 }
+
+// The Scrawl server keeps every goblin's review page, and whichever goblin's
+// command found none running started it, in that goblin's folder and with its
+// environment. Only the server's own script makes node that service: the
+// command a goblin runs to open a page is the goblin's, and so is any other
+// program's server.
+func TestServiceOfKnowsTheScrawlServerByItsScript(t *testing.T) {
+	for _, tc := range []struct {
+		exe       string
+		arguments []string
+		want      Service
+	}{
+		{"node.exe", []string{`C:\Program Files\nodejs\node.exe`, `C:\Users\o\AppData\Roaming\npm\node_modules\lavish-axi\dist\server.mjs`, "server", "--port", "4455"}, PageServer},
+		{"node.exe", []string{"node", `C:\src\lavish-axi\bin\lavish-axi-server.js`, "server", "--port", "4455"}, PageServer},
+		{"NODE.EXE", []string{"node", "C:/Users/o/AppData/Roaming/npm/node_modules/Lavish-Axi/dist/server.mjs", "server"}, PageServer},
+		{"node.exe", []string{"node", `C:\Users\o\AppData\Roaming\npm\node_modules\lavish-axi\dist\cli.mjs`, "open", "page.html"}, NoService},
+		{"node.exe", []string{"node", `C:\work\app\dist\server.mjs`, "server"}, NoService},
+		{"node.exe", []string{"node", `C:\Users\o\AppData\Roaming\npm\node_modules\lavish-axi\dist\server.mjs`}, NoService},
+		{"bash.exe", []string{"bash", `C:\src\lavish-axi\bin\lavish-axi-server.js`, "server"}, NoService},
+		{"node.exe", nil, NoService},
+	} {
+		if got := ServiceOf(tc.exe, tc.arguments); got != tc.want {
+			t.Errorf("ServiceOf(%q, %q) = %d, want %d", tc.exe, tc.arguments, got, tc.want)
+		}
+	}
+}
