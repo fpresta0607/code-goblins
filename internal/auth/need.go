@@ -12,10 +12,12 @@ import (
 const NoServices = "none"
 
 // needSection and needKey are where a brief names its services: one
-// `credentials:` line under its Authentication heading.
+// `credentials:` line under its Authentication heading. mcpKey is the line
+// beside it that names MCP servers.
 const (
 	needSection = "Authentication"
 	needKey     = "credentials"
+	mcpKey      = "mcp"
 )
 
 // Need is what a task asks of its project's manifest: the services whose
@@ -29,64 +31,79 @@ type Need struct {
 	// the form every brief had before a brief named its services. Such a task
 	// carries the services the manifest marks default and no other.
 	IsUnstated bool
+	// MCPServers are the MCP servers named for the task, by their names in
+	// the project's .mcp.json. A server whose entry there holds a value
+	// reaches the task only when it is named, so a brief with no `mcp:` line
+	// is given none of those.
+	MCPServers []string
 }
 
 // NeedFromBrief reads what a brief's Authentication section asks for: the
-// services on its `credentials:` line, separated by commas, or none. A brief
-// with no such line is in the older form and its need is unstated.
+// services on its `credentials:` line, separated by commas, or none, and the
+// MCP servers on its `mcp:` line in the same form. A brief with no
+// `credentials:` line is in the older form and its need is unstated.
 //
 // A line that cannot be read is refused rather than guessed at, because the
 // two guesses are a task that starts without what it needs and a task that
 // starts with what nobody gave it.
 func NeedFromBrief(brief string) (Need, error) {
 	var need Need
-	section, isStated := "", false
+	section, isStated := "", map[string]bool{}
 	for _, line := range strings.Split(strings.ReplaceAll(brief, "\r\n", "\n"), "\n") {
 		if heading, found := strings.CutPrefix(line, "## "); found {
 			section = strings.TrimSpace(heading)
 			continue
 		}
 		key, value, found := strings.Cut(strings.TrimSpace(line), ":")
-		if section != needSection || !found || !strings.EqualFold(strings.TrimSpace(key), needKey) {
+		key = strings.ToLower(strings.TrimSpace(key))
+		if section != needSection || !found || (key != needKey && key != mcpKey) {
 			continue
 		}
-		if isStated {
-			return Need{}, fmt.Errorf("the brief's %s section has more than one %s line", needSection, needKey)
+		if isStated[key] {
+			return Need{}, fmt.Errorf("the brief's %s section has more than one %s line", needSection, key)
 		}
-		isStated = true
-		services, err := needServices(value)
+		isStated[key] = true
+		names, err := needNames(key, value)
 		if err != nil {
 			return Need{}, err
 		}
-		need.Services = services
+		if key == mcpKey {
+			need.MCPServers = names
+		} else {
+			need.Services = names
+		}
 	}
-	need.IsUnstated = !isStated
+	need.IsUnstated = !isStated[needKey]
 	return need, nil
 }
 
-// needServices reads the value of a brief's credentials line.
-func needServices(value string) ([]string, error) {
-	const form = "write " + needKey + ": followed by service names separated by commas, or " + needKey + ": " + NoServices
-	if strings.TrimSpace(value) == "" {
-		return nil, errors.New("the brief's " + needKey + " line names nothing: " + form)
+// needNames reads the value of a brief's credentials line or its mcp line.
+func needNames(key, value string) ([]string, error) {
+	named := "service"
+	if key == mcpKey {
+		named = "server"
 	}
-	var services []string
+	form := "write " + key + ": followed by " + named + " names separated by commas, or " + key + ": " + NoServices
+	if strings.TrimSpace(value) == "" {
+		return nil, errors.New("the brief's " + key + " line names nothing: " + form)
+	}
+	var names []string
 	isNone := false
 	for _, name := range strings.Split(value, ",") {
 		name = strings.TrimSpace(name)
 		switch {
 		case name == "":
-			return nil, errors.New("the brief's " + needKey + " line has an empty name: " + form)
+			return nil, errors.New("the brief's " + key + " line has an empty name: " + form)
 		case strings.EqualFold(name, NoServices):
 			isNone = true
-		case !slices.Contains(services, name):
-			services = append(services, name)
+		case !slices.Contains(names, name):
+			names = append(names, name)
 		}
 	}
-	if isNone && len(services) > 0 {
-		return nil, errors.New("the brief's " + needKey + " line says " + NoServices + " beside a service: " + form)
+	if isNone && len(names) > 0 {
+		return nil, errors.New("the brief's " + key + " line says " + NoServices + " beside a " + named + ": " + form)
 	}
-	return services, nil
+	return names, nil
 }
 
 // Grant is a need resolved against a manifest.

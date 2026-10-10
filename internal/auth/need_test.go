@@ -333,6 +333,10 @@ func TestNeedFromBrief(t *testing.T) {
 		{"no section at all", "# Brief\n\n## Task\n\nBuild it.\n", Need{IsUnstated: true}},
 		{"a line in another section is not read", "## Task\n\ncredentials: payments\n\n## Authentication\n\nUse the project's configured authentication preflight before dispatch.\n", Need{IsUnstated: true}},
 		{"a services line under Delivery is not read", "## Authentication\n\ncredentials: database\n\n## Delivery\n\nservices: needed\n", Need{Services: []string{"database"}}},
+		{"names MCP servers beside its services", "## Authentication\n\ncredentials: database\nmcp: neon, supabase\n", Need{Services: []string{"database"}, MCPServers: []string{"neon", "supabase"}}},
+		{"says no MCP server", "## Authentication\n\ncredentials: none\nMCP: None\n", Need{}},
+		{"names an MCP server in the older form", "## Authentication\n\nmcp: neon\n", Need{IsUnstated: true, MCPServers: []string{"neon"}}},
+		{"an mcp line in another section is not read", "## Task\n\nmcp: neon\n\n## Authentication\n\ncredentials: none\n", Need{}},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -340,7 +344,7 @@ func TestNeedFromBrief(t *testing.T) {
 			if err != nil {
 				t.Fatalf("NeedFromBrief: %v", err)
 			}
-			if got.IsUnstated != tc.want.IsUnstated || !slices.Equal(got.Services, tc.want.Services) {
+			if got.IsUnstated != tc.want.IsUnstated || !slices.Equal(got.Services, tc.want.Services) || !slices.Equal(got.MCPServers, tc.want.MCPServers) {
 				t.Errorf("need = %+v, want %+v", got, tc.want)
 			}
 		})
@@ -357,6 +361,9 @@ func TestNeedFromBriefRefusesALineItCannotRead(t *testing.T) {
 		{"none beside a service", "## Authentication\ncredentials: none, database\n", "none"},
 		{"an empty name", "## Authentication\ncredentials: database,, payments\n", "empty"},
 		{"two lines", "## Authentication\ncredentials: database\ncredentials: payments\n", "one credentials line"},
+		{"an empty server list", "## Authentication\nmcp:\n", "mcp: none"},
+		{"none beside a server", "## Authentication\nmcp: none, neon\n", "beside a server"},
+		{"two mcp lines", "## Authentication\nmcp: neon\nmcp: supabase\n", "one mcp line"},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {

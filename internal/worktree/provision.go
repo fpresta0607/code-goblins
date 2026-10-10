@@ -1,6 +1,7 @@
 package worktree
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
@@ -38,6 +39,9 @@ type ProvisionResult struct {
 	MCPWorktreeOccupied bool
 	// MCPDropped names the OAuth-only servers withheld from the goblin.
 	MCPDropped []string
+	// MCPHeld names the servers withheld because their entry holds a value
+	// and the task's brief does not name them.
+	MCPHeld []string
 	// MCPTokenUnset names, as "server (VARIABLE)", the servers withheld
 	// because the bearerTokenEnvVar they authenticate with is not in the
 	// goblin's environment.
@@ -65,7 +69,10 @@ type ProvisionResult struct {
 // reports whether a variable will be set in the goblin's environment, which
 // decides whether a server that authenticates by bearerTokenEnvVar can be
 // handed to it.
-func (s Service) Provision(ctx context.Context, project, worktreePath, taskTmp string, hasVariable func(name string) bool) (ProvisionResult, error) {
+//
+// mcpServers names the MCP servers the task's brief names: a server whose
+// entry holds a value reaches the goblin only when it is among them.
+func (s Service) Provision(ctx context.Context, project, worktreePath, taskTmp string, hasVariable func(name string) bool, mcpServers ...string) (ProvisionResult, error) {
 	if s.Commands == nil {
 		return ProvisionResult{}, errors.New("worktree: command runner is required for provisioning")
 	}
@@ -115,16 +122,33 @@ func (s Service) Provision(ctx context.Context, project, worktreePath, taskTmp s
 		result.Install = install
 	}
 
-	mcp, err := s.materializeMCP(ctx, git, project, worktreePath, taskTmp, hasVariable)
-	result.MCPConfig = mcp.config
-	result.MCPProjectTracked = mcp.projectTracked
-	result.MCPWorktreeOccupied = mcp.worktreeOccupied
-	result.MCPDropped = mcp.dropped
-	result.MCPTokenUnset = mcp.unset
+	plan, err := PlanMCP(project, hasVariable, mcpServers...)
 	if err != nil {
 		return result, err
 	}
+	result.MCPDropped, result.MCPTokenUnset, result.MCPHeld = plan.Dropped, plan.Unset, plan.Held
+	written, err := s.writeMCP(ctx, git, plan, worktreePath, taskTmp)
+	result.MCPProjectTracked = written.projectTracked
+	result.MCPWorktreeOccupied = written.worktreeOccupied
+	if err != nil {
+		return result, err
+	}
+	result.MCPConfig = plan.Config(taskTmp)
 	return result, nil
+}
+
+// WriteMCP hands a relaunched task the MCP configuration planned for it, in
+// place of the one its last terminal was started with. A configuration
+// written before a server whose entry holds a value was withheld holds such
+// entries, and a server granted since is in none, so both are settled here.
+// It returns the servers the last configuration held that this one withholds
+// for holding a value.
+func (s Service) WriteMCP(ctx context.Context, plan MCPPlan, worktreePath, taskTmp string) (taken []string, err error) {
+	if s.Commands == nil {
+		return nil, errors.New("worktree: command runner is required to write the MCP configuration")
+	}
+	written, err := s.writeMCP(ctx, RunnerGit{Commands: s.Commands, Sleep: s.Sleep}, plan, worktreePath, taskTmp)
+	return written.taken, err
 }
 
 // shareEntry gives the worktree one of the primary checkout's root-level
@@ -381,34 +405,29 @@ func installOutputs(commands []string) []string {
 	return names
 }
 
-// mcpResult is what one MCP materialization pass produced.
-type mcpResult struct {
-	// config is the filtered configuration's path under the task's temporary
-	// directory, empty when no server qualified.
-	config string
+// mcpWritten is what writing one MCP plan found and did.
+type mcpWritten struct {
 	// projectTracked reports that the project commits .mcp.json, so the
 	// worktree copy was skipped.
 	projectTracked bool
 	// worktreeOccupied reports that the worktree root already held a
 	// .mcp.json provisioning did not write, so the copy was skipped.
 	worktreeOccupied bool
-	// dropped names the OAuth-only servers withheld from the goblin.
-	dropped []string
-	// unset names the servers withheld because their token variable is not
-	// in the goblin's environment.
-	unset []string
+	// taken names the servers the task's last configuration held that this
+	// one withholds for holding a value.
+	taken []string
 }
 
-// materializeMCP writes the token-authenticated subset of the project's
-// .mcp.json to the task's temporary directory. It is materialized outside the
-// checkout, never linked and never reported from inside it: the project's own
-// config can carry OAuth connectors (its operator completes those flows
-// interactively), a linked copy would hand a goblin an authentication prompt
-// it can never satisfy, and a path inside the worktree could later be the
-// project's own file or one the goblin wrote. Claude is the only harness that
-// receives that path, through --mcp-config; the codex adapter ignores
-// LaunchSpec.MCPConfig, so a codex goblin uses the operator's own codex MCP
-// configuration and this filter does not reach it.
+// writeMCP writes a plan's configuration, the token-authenticated subset of
+// the project's .mcp.json, to the task's temporary directory. It is
+// materialized outside the checkout, never linked and never reported from
+// inside it: the project's own config can carry OAuth connectors (its
+// operator completes those flows interactively), a linked copy would hand a
+// goblin an authentication prompt it can never satisfy, and a path inside the
+// worktree could later be the project's own file or one the goblin wrote.
+// Claude is the only harness that receives that path, through --mcp-config;
+// the codex adapter ignores LaunchSpec.MCPConfig, so a codex goblin uses the
+// operator's own codex MCP configuration and this filter does not reach it.
 //
 // The same bytes are additionally copied to <worktree>/.mcp.json, because
 // kimi has no config flag and reads the project-scoped .mcp.json from its
@@ -418,57 +437,77 @@ type mcpResult struct {
 // return path refuses to remove, so a tracked file is left exactly as it is
 // and reported instead.
 //
-// Trackedness is probed before anything is filtered, because the disclosure
+// Trackedness is probed before anything is written, because the disclosure
 // is about what the worktree already holds, not about what qualified. A
 // project whose committed .mcp.json is entirely OAuth connectors materializes
 // no filtered config at all, and that is exactly when a cwd-reading harness
 // sees the most withheld servers.
-func (s Service) materializeMCP(ctx context.Context, git RunnerGit, project, worktreePath, taskTmp string, hasVariable func(string) bool) (mcpResult, error) {
-	data, err := fsx.ReadFile(filepath.Join(project, ".mcp.json"))
-	if errors.Is(err, os.ErrNotExist) {
-		return mcpResult{}, nil
+//
+// The configuration the task's last terminal was started with goes first,
+// and with it the copy of it in the worktree's root while that is still the
+// copy, byte for byte: a file there that differs is the goblin's own, and is
+// left. A new task has neither.
+func (s Service) writeMCP(ctx context.Context, git RunnerGit, plan MCPPlan, worktreePath, taskTmp string) (mcpWritten, error) {
+	var written mcpWritten
+	config := filepath.Join(taskTmp, mcpConfigName)
+	previous, err := fsx.ReadFile(config)
+	hadPrevious := err == nil
+	if err != nil && !errors.Is(err, os.ErrNotExist) {
+		return written, fmt.Errorf("worktree: read the task's last MCP configuration: %w", err)
 	}
+	if !plan.isDeclared && !hadPrevious {
+		return written, nil
+	}
+	tracked, err := s.tracked(ctx, worktreePath, mcpFileName)
 	if err != nil {
-		return mcpResult{}, fmt.Errorf("worktree: read project .mcp.json: %w", err)
+		return written, err
 	}
-	filtered, _, dropped, unset, err := FilterMCPServers(data, hasVariable)
-	if err != nil {
-		return mcpResult{}, err
+	written.projectTracked = tracked
+	inWorktree := filepath.Join(worktreePath, mcpFileName)
+	if hadPrevious {
+		// A last configuration that cannot be read names nothing, and is
+		// replaced like any other.
+		if names, err := serverNames(previous); err == nil {
+			for _, name := range names {
+				if slices.Contains(plan.Held, name) {
+					written.taken = append(written.taken, name)
+				}
+			}
+		}
+		if current, err := fsx.ReadFile(inWorktree); !tracked && err == nil && bytes.Equal(current, previous) {
+			if err := os.Remove(inWorktree); err != nil {
+				return written, fmt.Errorf("worktree: remove the worktree's copy of the task's last MCP configuration: %w", err)
+			}
+		}
+		if err := os.Remove(config); err != nil {
+			return written, fmt.Errorf("worktree: remove the task's last MCP configuration: %w", err)
+		}
 	}
-	result := mcpResult{dropped: dropped, unset: unset}
-	tracked, err := s.tracked(ctx, worktreePath, ".mcp.json")
-	if err != nil {
-		return result, err
-	}
-	result.projectTracked = tracked
-	if filtered == nil {
-		return result, nil
+	if plan.filtered == nil {
+		return written, nil
 	}
 	if err := os.MkdirAll(taskTmp, 0o755); err != nil {
-		return result, fmt.Errorf("worktree: create task temporary directory: %w", err)
+		return written, fmt.Errorf("worktree: create task temporary directory: %w", err)
 	}
-	config := filepath.Join(taskTmp, "mcp.json")
-	if err := fsx.AtomicWriteFile(config, filtered); err != nil {
-		return result, fmt.Errorf("worktree: materialize goblin MCP configuration: %w", err)
+	if err := fsx.AtomicWriteFile(config, plan.filtered); err != nil {
+		return written, fmt.Errorf("worktree: materialize goblin MCP configuration: %w", err)
 	}
-	result.config = config
-
 	if tracked {
-		return result, nil
+		return written, nil
 	}
-	if _, err := os.Lstat(filepath.Join(worktreePath, mcpFileName)); err == nil {
-		result.worktreeOccupied = true
-		return result, nil
+	if _, err := os.Lstat(inWorktree); err == nil {
+		written.worktreeOccupied = true
+		return written, nil
 	} else if !errors.Is(err, os.ErrNotExist) {
-		return result, fmt.Errorf("worktree: inspect worktree .mcp.json: %w", err)
+		return written, fmt.Errorf("worktree: inspect worktree .mcp.json: %w", err)
 	}
-	if err := s.ensureIgnored(ctx, git, worktreePath, ".mcp.json"); err != nil {
-		return result, err
+	if err := s.ensureIgnored(ctx, git, worktreePath, mcpFileName); err != nil {
+		return written, err
 	}
-	if err := fsx.AtomicWriteFile(filepath.Join(worktreePath, ".mcp.json"), filtered); err != nil {
-		return result, fmt.Errorf("worktree: materialize goblin .mcp.json: %w", err)
+	if err := fsx.AtomicWriteFile(inWorktree, plan.filtered); err != nil {
+		return written, fmt.Errorf("worktree: materialize goblin .mcp.json: %w", err)
 	}
-	return result, nil
+	return written, nil
 }
 
 // tracked reports whether the worktree has name in its index. Trackedness is
