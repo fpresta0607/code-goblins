@@ -755,3 +755,69 @@ func TestPRHealthTellsOfABehindHeadOnceNoTrainCanTakeIt(t *testing.T) {
 		t.Fatalf("health wakes = %+v while a train could take it and %+v once it was held, want none and then one saying it is behind", whileRiding, wakes)
 	}
 }
+
+// On 2026-10-10 pr_health told the CFO that a goblin's pull request was 9
+// commits behind main minutes after its push, while its checks still ran
+// (wake 1000554). A head whose checks are still running is not yet one a
+// merge train has passed over: it is left alone until they conclude, and is
+// then judged by the train's own test. A conflict wakes at once all the same,
+// and checks that never conclude are waited for as long as a train waits for
+// its own, three hours.
+func TestPRHealthLeavesABehindHeadAloneWhileItsChecksRun(t *testing.T) {
+	const running = `[{"__typename":"CheckRun","name":"test","status":"IN_PROGRESS"}]`
+	const failed = `[{"__typename":"CheckRun","name":"test","status":"COMPLETED","conclusion":"FAILURE"}]`
+	held := fmt.Sprintf(`[{"name":%q}]`, train.HoldLabel)
+	for _, test := range []struct {
+		name                 string
+		mergeable            string
+		wantWhileRunning     string
+		checksThen, labels   string
+		after                time.Duration
+		wantOnceTheyConclude string
+	}{
+		{"then they pass on a pull request a train can take", "MERGEABLE", "", passedCheck, "[]", ciPollEvery, ""},
+		{"then they fail", "MERGEABLE", "", failed, "[]", ciPollEvery, "2 commits behind"},
+		{"then they pass on a held pull request", "MERGEABLE", "", passedCheck, held, ciPollEvery, "2 commits behind"},
+		{"and still run at the next poll", "MERGEABLE", "", running, "[]", ciPollEvery, ""},
+		{"and still run when a train would have given up on them", "MERGEABLE", "", running, "[]", 3 * time.Hour, "2 commits behind"},
+		{"on a head in conflict with its base", "CONFLICTING", "conflicts with its base", running, "[]", ciPollEvery, "conflicts with its base"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			// Arrange
+			service, h, forge, now := healthService(t, true)
+			forge.pulls = finishedPull(test.mergeable, "o", running, "[]")
+			forge.comparisons = healthComparison("head-one", 2)
+			if err := state.AppendStatus(h.State, "cg-health", "done: PR https://github.com/o/r/pull/209"); err != nil {
+				t.Fatal(err)
+			}
+			told := func() string {
+				wakes := prWakes(t, h, "pr_health")
+				if len(wakes) > 1 {
+					t.Fatalf("health wakes = %+v, want one at most", wakes)
+				}
+				if len(wakes) == 0 {
+					return ""
+				}
+				return wakes[0].Detail
+			}
+
+			// Act
+			if err := service.checkFleet(context.Background(), now); err != nil {
+				t.Fatal(err)
+			}
+			whileRunning := told()
+			forge.pulls = finishedPull(test.mergeable, "o", test.checksThen, test.labels)
+			if err := service.checkFleet(context.Background(), now.Add(test.after)); err != nil {
+				t.Fatal(err)
+			}
+
+			// Assert
+			if isTold := whileRunning != ""; isTold != (test.wantWhileRunning != "") || !strings.Contains(whileRunning, test.wantWhileRunning) {
+				t.Errorf("while its checks ran the CFO was told %q, want %q", whileRunning, test.wantWhileRunning)
+			}
+			if after := told(); (after != "") != (test.wantOnceTheyConclude != "") || !strings.Contains(after, test.wantOnceTheyConclude) {
+				t.Errorf("%s later the CFO was told %q, want %q", test.after, after, test.wantOnceTheyConclude)
+			}
+		})
+	}
+}
