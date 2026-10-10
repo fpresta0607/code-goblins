@@ -849,6 +849,7 @@ cfo peek <target> [lines]
 cfo fleet-view [--json]
 cfo runtime [--json]
 cfo services up <project> --task <id> [--wait <duration>] | down <project> --task <id>
+cfo defender [--since <time|day|length>] [--json]
 cfo tickets <project> [--brief <file>] [--files <paths>] [--json]
 cfo pipeline migrate <id>
 cfo pipeline run <id> --intent <text>

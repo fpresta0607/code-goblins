@@ -236,6 +236,9 @@ func runServe(args []string, stdout, stderr io.Writer, runtime commandRuntime) i
 		// example home keeps them.
 		CI:       execx.OSRunner{},
 		Progress: execx.OSRunner{},
+		// The Defender wakes only read what Defender recorded, as cfo
+		// defender does.
+		Defender: runtime.readDefender,
 		// A credential request's card saves through the store cfo auth store
 		// writes, and its refresh is cfo auth store's own.
 		Credentials:        auth.OpenStore,
