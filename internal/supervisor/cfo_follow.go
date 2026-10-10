@@ -123,11 +123,76 @@ func (s *Store) waitsForCFO(a Action) bool {
 	return false
 }
 
+// answerBatchWindow is how long an answer to one of the CFO's questions waits
+// for the Overlord's next one while another of them still waits on him, so
+// the answers he gives in one go reach the CFO as one message. He answers a
+// stack of them 2 to 4 s apart: the eleven gaps in the seven such sittings the
+// live home still held from 2026-10-01 to 2026-10-06 ran from 2.0 s to 3.9 s.
+// On 2026-10-09 four answers he gave within 7 s were typed into the CFO as
+// four messages in the middle of a turn.
+const answerBatchWindow = 5 * time.Second
+
+// answersTogether is the queued answers to the CFO's questions that go to it
+// as one message, by index and in the order he gave them: every one from the
+// first up to whatever else he queued for the CFO after it, such as a message
+// of his own, which keeps its place among his answers. isClosed says such a
+// delivery follows them, so no later answer can join them. The caller holds
+// s.mu.
+func (s *Store) answersTogether() (together []int, isClosed bool) {
+	for i, a := range s.db.Actions {
+		switch {
+		case a.Status != "queued":
+		case a.Kind == "cfo_answer":
+			if len(together) == 0 || a.Generation == s.db.Actions[together[0]].Generation {
+				together = append(together, i)
+			}
+		case len(together) > 0 && s.waitsForCFO(a):
+			return together, true
+		}
+	}
+	return together, false
+}
+
+// answersWait is how long, at now, the queued answers to the CFO's questions
+// still wait for the Overlord's next one: until answerBatchWindow after the
+// newest of them, and only while his next answer could still join them, so
+// while another question of the CFO's waits on him and he has queued nothing
+// else for the CFO behind them. Otherwise there is nothing to wait for, so an
+// answer to the only question goes at once, and so does the last answer of a
+// stack. A clock that stepped back never lengthens the wait. The caller holds
+// s.mu.
+func (s *Store) answersWait(now time.Time) time.Duration {
+	together, isClosed := s.answersTogether()
+	isAnotherWaiting := slices.ContainsFunc(s.db.Questions, func(q Question) bool {
+		return q.Task == "" && q.Status == "pending" && q.AnswerID == ""
+	})
+	if len(together) == 0 || isClosed || !isAnotherWaiting {
+		return 0
+	}
+	given := now.Sub(s.db.Actions[together[len(together)-1]].CreatedAt)
+	if given < 0 || given >= answerBatchWindow {
+		return 0
+	}
+	return answerBatchWindow - given
+}
+
+// answersDueIn is how long until the answers held for the Overlord's next one
+// can go, and zero when none is held.
+func (s *Store) answersDueIn() time.Duration {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.answersWait(time.Now())
+}
+
 // nextQueued is the index of the first queued action that can run now, or -1.
-// With no CFO running, deliveries to the CFO wait. The caller holds s.mu.
+// With no CFO running, deliveries to the CFO wait, and an answer to one of its
+// questions waits while the Overlord's next one may follow it. The caller
+// holds s.mu.
 func (s *Store) nextQueued(cfoLive bool) int {
+	now := time.Now()
+	isHeld := s.answersWait(now) > 0
 	return slices.IndexFunc(s.db.Actions, func(a Action) bool {
-		return a.Status == "queued" && !s.deferredUntil[a.ID].After(time.Now()) && (cfoLive || !s.waitsForCFO(a))
+		return a.Status == "queued" && !s.deferredUntil[a.ID].After(now) && (cfoLive || !s.waitsForCFO(a)) && !(isHeld && a.Kind == "cfo_answer")
 	})
 }
 

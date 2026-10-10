@@ -710,7 +710,12 @@ Every terminal pane, native or Herdr, shows a voice bubble in its bottom-right c
 It is drawn like the board's dialogue boxes: a microphone in a stepped pixel frame, outlined in Bone while idle and in Moss while it records, and its first-visit hint and recent messages open in the same leather dialogue frame.
 That frame is at most 400 px wide and never wider than its terminal less 28 px, so in a panel dragged narrow it is whole; until 2 October 2026 it was sized by the window, and a narrow panel cut off its left side.
 Holding Ctrl+Shift+Space in a terminal, native or Herdr, dictates into it through the speech model the supervisor runs on this PC, in a browser tab and in the desktop window alike.
-At each press the board opens the microphone once and records that track through the small audio worklet the board serves at `/assets/dictation-capture.js`, which hands the page its samples as they arrive, and while the keys are held the bubble's bars are recent samples of that same capture's level, each a dot below the loudness of a voice, so silence and a room's hum show a flat dotted line; nothing runs while the bubble is idle.
+At each press the board opens the microphone once and records that track through the small audio worklet the board serves at `/assets/dictation-capture.js`, which hands the page its samples as they arrive, and while the keys are held the bubble's bars are recent samples of that same capture's level, each a dot below the loudness of a voice, so silence and a room's hum show a flat dotted line; no bars are drawn while the bubble is idle.
+The audio context the worklet runs in is running from the key press, while the microphone opens, and is suspended once thirty seconds pass with no recording, so a dictation that follows another soon finds it running.
+The bubble says it listens only once the first samples arrive, so whatever is said while it shows listening is recorded.
+Until 9 October 2026 the context was suspended at every release and the bubble said it listened as soon as the microphone was open, 0.4 to 0.7 s before a busy PC had the context running again, so a short dictation recorded nothing and was told as "Nothing was heard."
+A recognizer that has not begun to listen five seconds after the microphone opened ends the hold, and the CFO is told.
+A hold let go before the bubble listens, as before the microphone opens, types nothing, asks the supervisor nothing and says nothing.
 As the recording begins the page tells the supervisor, with `POST /api/dictation/warm`, so it loads the speech engine while the words are said.
 A dictation of any length goes in pieces while the keys are held: a piece of four seconds or more is handed on once 0.3 s of quiet follows speech in it, and one that reaches twenty seconds with no such pause, as in a noisy room, is cut where it was quietest.
 Each piece goes as soon as it ends, in one channel at 16 kHz, as a WAV to `POST /api/dictation` on the board's own address, one at a time and in order, so its words are recognised while the Overlord is still speaking.
@@ -722,6 +727,8 @@ The microphone closes and the bubble goes idle at the release, without waiting f
 A native terminal's paste follows the program's own bracketed paste mode, and the Herdr view, whose screen is redrawn from frames, always sends a bracketed paste, as its clipboard paste does.
 Releasing the keys anywhere on the page, the window losing focus or the page being hidden also stops listening, so the microphone never stays open once the terminal loses the keys.
 A blocked or missing microphone or silence is explained in a note for six seconds, and only those: a dictation with speech in it is never told as nothing heard.
+"Nothing was heard." is said once, at the release, of a hold that listened and had no words in it, and never once the next dictation has begun, when it would read as being about that one.
+A recording that cannot begin, as when the worklet cannot be loaded, goes to the CFO at once and the bubble never says it listens.
 A piece whose words could not be had is asked for again half a second later and once more two seconds after that, with its sound kept, and when that does not help, the supervisor's words, such as a machine with no memory to spare or a board reached from another machine, go to the CFO through `POST /api/cfo/report` and nothing is shown on the board or typed, as every failure the board sees goes to the CFO.
 So does a dictation with speech in it that the engine answered no words for, and one whose words were not in within 120 seconds of the release.
 A blocked microphone is explained where it is allowed again: in a browser tab, the browser's site settings; in the desktop app, whose window grants the page every permission itself, Windows Settings > Privacy & security > Microphone, with Microphone access and Let desktop apps access your microphone turned on.
@@ -730,6 +737,8 @@ The words of a dictation the set-up refused are not kept, and the note says to d
 Such a refusal is shown at once and not asked again, since asking again would not set the model up sooner.
 While it listens the bubble's tip names the model, and the foot of its list says what heard the recent dictations.
 A browser with a speech recognition of its own offers **Use this browser's speech recognition instead** there, off until it is ticked and kept in that browser: Edge and Chrome recognise speech in their vendors' online services, so with it the audio leaves the machine while the keys are held, and the tip and the list say that this is what listens. The desktop window has no such recognition and offers no choice.
+The browser's recognition ends by itself after about eight seconds of silence and after a long stretch of listening, so while the keys are held the board starts it again and joins what each part heard: a pause in a hold shows no note and types nothing early, and the whole hold is typed at the release.
+One that ends within a second of starting cannot listen and is not started again, and a failure that is real, a blocked or missing microphone or no network, is still said once and ends the hold.
 Clicking the bubble lists the pane's five most recent dictations, newest first, for that pane's goblin or the CFO, kept in this browser only, ten each for the twenty used last, so a relaunched goblin keeps its own; the board reads no other dictation app.
 Each has Copy and Paste into this terminal, which pastes as dictation does and hands the terminal the keyboard back, and Escape closes the list.
 The bubble's tip names the shortcut, and a first visit shows a hint about it once, until it is dismissed.
@@ -1099,6 +1108,15 @@ A presentation without `--watch`, such as a goblin's own test walkthrough, stays
 A goblin panel whose goblin is waiting on the Overlord offers Answer, which opens the stack at that goblin's question or review item.
 Once submitted, every tab displays the durable answer rather than an unsent local draft.
 Answers retain their question and CFO identity and enter the durable native CFO message queue, never a worker send or gate approval.
+Answers he gives to several of the CFO's questions in one go reach the CFO as one message, which says how many there are and lists each question's id, its text and his answer in the order he gave them, as `[1/4]` to `[4/4]`.
+Every answer still queued for the CFO goes in that message, whatever kept it queued: a CFO in a turn, one whose input was not empty and ready, one that was closed and has come back, or a supervisor that restarted.
+An answer waits for his next one only while another question of the CFO's still waits on him, for up to five seconds after his newest answer, since he answers a stack of them two to four seconds apart.
+With no other question waiting on him there is nothing to wait for, so an answer to the CFO's only question goes at once, and so does the last answer of a stack, with the ones before it.
+The worker is woken as that wait ends, so an answer alone is never held past it.
+What he sends the CFO keeps the order he sent it in: a message of his own, or a review answer for the CFO, queued after an answer ends that answer's wait, so the answers before it go as one message at once, and the answers he gives after it follow it.
+An answer alone reads as it always has.
+Each answer in a message keeps its own action and its own check, and they are sent, delivered or warned about together, since they were typed once.
+On 2026-10-09 four answers given within seven seconds were typed into the CFO as four messages in the middle of a turn, two minutes after it had restarted.
 Claude Code, Codex and Pi primary-context guidance routes explicit user decisions through this command.
 Publish from the same registered primary shell, continue independent work or finish the turn awaiting the reply, and do not also open a native prompt tool: a normal message cannot answer a correlated native Codex/Pi prompt.
 Duplicate HTTP/SSE outcomes cannot cause a second delivery; interrupted delivery becomes uncertain.

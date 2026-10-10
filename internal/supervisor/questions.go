@@ -280,6 +280,23 @@ func (s *Service) changeAnswer(ctx context.Context, a Action) (Evaluation, error
 	return s.deliverAnswer(ctx, q, text)
 }
 
+// answerToCFO is the Overlord's answer a to the CFO's own question q, as the
+// CFO reads it.
+func answerToCFO(q Question, a Action) string {
+	text := fmt.Sprintf("User answer to CFO question %s. Question: %s Answer: %s", q.ID, q.Text, a.Text)
+	if a.AnswerKind == "other" {
+		text = fmt.Sprintf("User answer to CFO question %s. Question: %s Answer (Other): %s", q.ID, q.Text, a.Text)
+	}
+	switch {
+	case q.Decided == "":
+	case a.AnswerKind == "option" && a.Text == q.Decided:
+		text += ". You answered " + q.Decided + " while AFK mode was on, and he kept it."
+	default:
+		text += ". You answered " + q.Decided + " while AFK mode was on, and he changed it: undo or redo what your answer started."
+	}
+	return text
+}
+
 // answerLabel names the Overlord's answer as his choice or his own words.
 func answerLabel(a Action) string {
 	if a.AnswerKind == "other" {
