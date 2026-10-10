@@ -54,11 +54,32 @@ type Turn struct {
 	// Note says what was out of the ordinary about how the turn was taken,
 	// when anything was, including an admission failure.
 	Note    string
+	token   string
 	release func()
 	say     func(now string)
 }
 
-// Release gives the turn's slot back.
+// TurnVariable is the environment variable that names, to a command a turn
+// was taken for, the turn it runs inside. A command that takes turns itself,
+// as cfo gate test does behind cfo gate turn, would otherwise wait for the
+// turn its own starter holds, for good.
+const TurnVariable = "CFO_VERIFY_TURN"
+
+// Token names the turn for TurnVariable, or is empty for a turn that was
+// never taken. A run inside a turn hands on the token it was started with.
+func (t Turn) Token() string {
+	return t.token
+}
+
+// turnToken names slot as held by holder: the slot, the holder's process and
+// the moment it took the slot. A slot is taken by creating its record, so no
+// two holds of one slot share that moment.
+func turnToken(slot string, holder *lock.Info) string {
+	return fmt.Sprintf("%s:%d:%d", slot, holder.PID, holder.Acquired.UnixNano())
+}
+
+// Release gives the turn's slot back. A run inside a turn takes back what it
+// said beside it and leaves the slot with the run that holds it.
 func (t Turn) Release() {
 	if t.release != nil {
 		t.release()
@@ -109,6 +130,9 @@ func (a Admission) Wait(ctx context.Context) (Turn, error) {
 	}
 	if a.Available == nil {
 		return Turn{}, errors.New("verify: available memory cannot be read")
+	}
+	if turn, isInside := a.inside(); isInside {
+		return turn, nil
 	}
 	line := filepath.Join(a.Dir, "line")
 	if err := os.MkdirAll(line, 0o755); err != nil {
@@ -167,16 +191,17 @@ func (a Admission) Wait(ctx context.Context) (Turn, error) {
 				if err := ctx.Err(); err != nil {
 					return Turn{Waited: time.Since(start)}, err
 				}
-				release, say, err := a.take(capacity)
+				turn, err := a.take(capacity)
 				if err != nil {
 					return Turn{Waited: time.Since(start)}, err
 				}
-				if release != nil {
+				if turn.release != nil {
 					if err := ctx.Err(); err != nil {
-						release()
+						turn.Release()
 						return Turn{Waited: time.Since(start)}, err
 					}
-					return Turn{Waited: time.Since(start), release: release, say: say}, nil
+					turn.Waited = time.Since(start)
+					return turn, nil
 				}
 			}
 		}
@@ -300,19 +325,78 @@ func (a Admission) heldBy() string {
 	return "the turn is held by " + strings.Join(holders, ", and by ")
 }
 
-// take takes a free slot or reclaims verifiably dead custody. A live or
-// uncertain holder keeps the slot regardless of its elapsed budget. Once
-// release has run, say writes nothing, so a progress note can never land
-// beside a slot the run has given back.
-func (a Admission) take(capacity int) (release func(), say func(now string), err error) {
+// inside returns the turn this run was started inside, when its environment
+// names one and the process that took it holds it still. Such a run takes no
+// slot and gives none back: what it says goes beside the holder's turn, and
+// its release takes that back. A token that names no held turn, as one a
+// process inherited from a run that has ended, is no turn, and the run joins
+// the line.
+func (a Admission) inside() (Turn, bool) {
+	token := os.Getenv(TurnVariable)
+	name, _, _ := strings.Cut(token, ":")
+	if name != "slot-1" && name != "slot-2" {
+		return Turn{}, false
+	}
+	if !a.isHeldAs(name, token) {
+		return Turn{}, false
+	}
+	var mu sync.Mutex
+	isReleased := false
+	say := func(now string) {
+		mu.Lock()
+		defer mu.Unlock()
+		if !isReleased {
+			a.sayInside(name, token, now)
+		}
+	}
+	release := func() {
+		say("")
+		mu.Lock()
+		defer mu.Unlock()
+		isReleased = true
+	}
+	return Turn{token: token, release: release, say: say}, true
+}
+
+// isHeldAs reports whether the slot name is held, by a process that is
+// verifiably running, under exactly token.
+func (a Admission) isHeldAs(name, token string) bool {
+	holder, err := lock.ReadNamedStrict(a.Dir, name)
+	return err == nil && turnToken(name, holder) == token && holder.VerifiedAlive()
+}
+
+// sayInside rewrites what the card of the slot name says its run is doing
+// now, while the slot is still held under token, and keeps who holds it and
+// under what budget: those are the holder's.
+func (a Admission) sayInside(name, token, now string) {
+	if !a.isHeldAs(name, token) {
+		return
+	}
+	var says card
+	data, err := fsx.ReadFile(filepath.Join(a.Dir, name+".run"))
+	if err != nil || json.Unmarshal(data, &says) != nil {
+		return
+	}
+	says.Now = now
+	if data, err := json.Marshal(says); err == nil {
+		fsx.AtomicWriteFile(filepath.Join(a.Dir, name+".run"), data)
+	}
+}
+
+// take takes a free slot or reclaims verifiably dead custody, and returns a
+// turn with no release when no slot is free. A live or uncertain holder
+// keeps the slot regardless of its elapsed budget. Once release has run, say
+// writes nothing, so a progress note can never land beside a slot the run
+// has given back.
+func (a Admission) take(capacity int) (Turn, error) {
 	entries, err := os.ReadDir(a.Dir)
 	if err != nil {
-		return nil, nil, err
+		return Turn{}, err
 	}
 	for _, entry := range entries {
 		name := entry.Name()
 		if strings.HasPrefix(name, "slot-") && !strings.HasSuffix(name, ".run") && name != "slot-1" && (capacity != 2 || name != "slot-2") {
-			return nil, nil, fmt.Errorf("verify: custody outside shared capacity %d: %s", capacity, name)
+			return Turn{}, fmt.Errorf("verify: custody outside shared capacity %d: %s", capacity, name)
 		}
 	}
 	// Inspect every configured slot before choosing a free one: uncertain
@@ -323,10 +407,10 @@ func (a Admission) take(capacity int) (release func(), say func(now string), err
 			continue
 		}
 		if err != nil {
-			return nil, nil, err
+			return Turn{}, err
 		}
 		if holder.Alive() && !holder.VerifiedAlive() {
-			return nil, nil, nil
+			return Turn{}, nil
 		}
 	}
 	for slot := 1; slot <= capacity; slot++ {
@@ -336,15 +420,15 @@ func (a Admission) take(capacity int) (release func(), say func(now string), err
 			continue
 		}
 		if err != nil {
-			return nil, nil, err
+			return Turn{}, err
 		}
 		if err := a.leave(a.Dir, name, card{Who: a.Who, BudgetSeconds: a.Budget.Seconds()}); err != nil {
 			lock.ReleaseExclusiveNamed(a.Dir, name)
-			return nil, nil, err
+			return Turn{}, err
 		}
 		var mu sync.Mutex
 		isReleased := false
-		release = func() {
+		release := func() {
 			mu.Lock()
 			defer mu.Unlock()
 			if !isReleased {
@@ -352,16 +436,16 @@ func (a Admission) take(capacity int) (release func(), say func(now string), err
 				a.remove(a.Dir, name, owner)
 			}
 		}
-		say = func(now string) {
+		say := func(now string) {
 			mu.Lock()
 			defer mu.Unlock()
 			if !isReleased {
 				a.say(name, owner, now)
 			}
 		}
-		return release, say, nil
+		return Turn{token: turnToken(name, owner), release: release, say: say}, nil
 	}
-	return nil, nil, nil
+	return Turn{}, nil
 }
 
 // say rewrites the card of the slot this run holds with what the run is doing
