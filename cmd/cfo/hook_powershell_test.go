@@ -57,7 +57,7 @@ func TestEveryGuardOfABashCallHoldsForTheSameCommandThroughThePowerShellTool(t *
 	for _, c := range cases {
 		for _, call := range []struct{ tool, command string }{{"Bash", c.bash}, {"PowerShell", c.powershell}} {
 			var stdout, stderr bytes.Buffer
-			payload := strings.NewReader(`{"session_id":"s","tool_name":"` + call.tool + `","tool_input":{"command":` + quoteJSON(call.command) + `}}`)
+			payload := strings.NewReader(hookPayload(t, "s", "", call.tool, call.command))
 
 			// Act
 			exit := runHook(shellHook(t, root, call.tool), payload, &stdout, &stderr)

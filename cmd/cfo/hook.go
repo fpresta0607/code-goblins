@@ -69,11 +69,13 @@ func runHook(name string, stdin io.Reader, stdout, stderr io.Writer) int {
 	case "pretool-subagent":
 		return hookPretoolSubagent(stdin, stdout, stderr)
 	case "pretool-bash":
-		return hookPretoolBash(stdin, stderr, guard.ClassifyArm, guard.ClassifyCd)
+		return hookPretoolShell(stdin, stderr, guard.ClassifyArm, guard.ClassifyCd)
+	case "pretool-powershell":
+		return hookPretoolShell(stdin, stderr, guard.ClassifyPowerShellArm, guard.ClassifyPowerShellCd)
 	case "pretool-arm":
-		return hookPretoolBash(stdin, stderr, guard.ClassifyArm)
+		return hookPretoolShell(stdin, stderr, guard.ClassifyArm)
 	case "pretool-cd":
-		return hookPretoolBash(stdin, stderr, guard.ClassifyCd)
+		return hookPretoolShell(stdin, stderr, guard.ClassifyCd)
 	case "turnend-guard":
 		return hookTurnendGuard(stdin, stdout, stderr)
 	case "pre-compact":
@@ -203,22 +205,25 @@ const nativePromptRefusal = "[native-prompt] the registered primary CFO never as
 // gate step.
 const gateAgentVariable = "NO_MISTAKES_GATE"
 
-// hookPretoolBash applies the Bash guards to one Bash call, the first that
-// refuses it deciding. pretool-bash, the one hook a Bash call runs, applies
-// both, so the call starts one process however many guards there are;
-// pretool-arm and pretool-cd apply one each.
+// hookPretoolShell applies the shell guards to one call of a shell tool, the
+// first that refuses it deciding. pretool-bash, the one hook a Bash call
+// runs, applies both as Bash writes a command, and pretool-powershell, the
+// one a PowerShell call runs, both as PowerShell writes it, so a call starts
+// one process however many guards there are; pretool-arm and pretool-cd
+// apply one each to a Bash call.
 //
 // The arm guard stops the agent shell from invoking the watcher directly:
 // the watcher is supposed to be armed by the Stop-owned auto-arm hook, and
 // running it (or killing it, backgrounding it, piping it, and the rest)
-// from a Bash call bypasses that supervision. The cd guard stops the agent
-// shell from relocating its working directory: Claude Code's Bash tool keeps
-// its working directory across calls, so a relocation anywhere in the
-// command outlives the tool call. Upstream's cd-guard predicate is looser
-// than IsPrimary; it is deliberately tightened to IsPrimary here, as the arm
-// guard's is, so both share the inert-in-dev guarantee. This is a sanctioned
-// deviation from upstream. Every early exit fails open (exit 0, silent).
-func hookPretoolBash(stdin io.Reader, stderr io.Writer, guards ...func(command string) (code, reason string, deny bool)) int {
+// from a shell call bypasses that supervision. The cd guard stops the agent
+// shell from relocating its working directory: both of Claude Code's shell
+// tools keep their working directory across calls, so a relocation anywhere
+// in the command outlives the tool call. Upstream's cd-guard predicate is
+// looser than IsPrimary; it is deliberately tightened to IsPrimary here, as
+// the arm guard's is, so both share the inert-in-dev guarantee. This is a
+// sanctioned deviation from upstream. Every early exit fails open (exit 0,
+// silent).
+func hookPretoolShell(stdin io.Reader, stderr io.Writer, guards ...func(command string) (code, reason string, deny bool)) int {
 	payload, ok := claudehook.ReadPayload(stdin)
 	if !ok {
 		return 0
