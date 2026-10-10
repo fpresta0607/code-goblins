@@ -196,6 +196,10 @@ export function statusPhase(task: Task, trains: MergeTrain[] = []): string {
   return actionFailed(task)?.phase || (task.starting ? "started" : awaited ? "pr-" + awaited.tone : task.comeback?.state === "stopped" || isStartFailed(task) ? "failed" : task.phase);
 }
 
+// The status of a queued task that already finished, whose panel carries
+// what says so in that status's tip.
+export const ALREADY_FINISHED = "Already finished";
+
 // A wait on another goblin names it by its goblin name while tasks, the
 // board's, hold it. A goblin that waits only on its pull request's test reads
 // that test, on a merge train among trains, the board's, or in its own CI.
@@ -213,7 +217,7 @@ export function nodeStatus(node: WorkflowNode, asking = false, tasks: Task[] = [
   if (node.task?.comeback?.state === "waiting") return "Comes back after the restart when memory allows";
   if (node.task?.comeback?.state === "stopped") return "Did not come back after the restart";
   if (node.task?.archived) return node.task.merged ? "Merged" : node.task.closed ? "Closed" : "Finished";
-  if (node.task?.phase === "queued" && node.task.finished) return "Already finished";
+  if (node.task?.phase === "queued" && node.task.finished) return ALREADY_FINISHED;
   if (node.task?.phase === "queued" && node.task.waits.length) return waitStatus(node.task, tasks);
   if (node.task && ownsTaskSession(node.session, node.task)) {
     const { phase, reason, verified } = node.task;
