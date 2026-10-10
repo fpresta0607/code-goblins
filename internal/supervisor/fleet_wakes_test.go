@@ -229,6 +229,9 @@ type fakeForge struct {
 	runListDirs     []string
 	runListTimeouts int
 	viewer          string
+	// reflog is what git reflog prints in the goblin's worktree: every branch
+	// it had checked out, newest first.
+	reflog string
 	// once is GitHub's answer to the read of the tests that failed once,
 	// onceFailure what gh says when that read fails, and onceCalls how often
 	// it was asked.
@@ -265,6 +268,11 @@ func (f *fakeForge) Run(_ context.Context, req execx.Request) (execx.Result, err
 			return execx.Result{Stdout: []byte("\n")}, nil
 		}
 		return execx.Result{Stdout: []byte(f.branch + "\n")}, nil
+	case strings.HasPrefix(command, "git reflog"):
+		if !strings.EqualFold(filepath.Clean(req.Dir), filepath.Clean(f.worktree)) {
+			return execx.Result{}, nil
+		}
+		return execx.Result{Stdout: []byte(f.reflog)}, nil
 	case strings.HasPrefix(command, "git symbolic-ref"):
 		if inRepo && f.noOriginHead {
 			return execx.Result{ExitCode: 1, Stderr: []byte("fatal: ref refs/remotes/origin/HEAD is not a symbolic ref")}, nil
@@ -1242,6 +1250,46 @@ func TestCIUnreadableRecordOutlivesAPollCutShort(t *testing.T) {
 			}
 			if woke := fleetWakeRecords(t, h, "ci"); len(woke) != 1 {
 				t.Fatalf("the same failure after the restart woke the CFO again: %+v", woke)
+			}
+		})
+	}
+}
+
+// A goblin that opens a second pull request has its second branch checked
+// out while the first one's checks finish. The first is still its own, so the
+// CFO is woken for its checks as for the one on the branch the goblin has
+// now, where on 2026-10-10 it was told nothing until the goblin reported the
+// pull request done. One another account opened from a branch the goblin's
+// worktree only had checked out before is not the goblin's.
+func TestCIFinishedWakesForAGoblinsPullRequestOnABranchItsWorktreeHeldBefore(t *testing.T) {
+	for _, test := range []struct {
+		name, author string
+		want         int
+	}{
+		{"opened by the account the fleet works as", "o", 1},
+		{"opened by another account", "teammate", 0},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			// Arrange
+			s, h := fleetService(t)
+			project := t.TempDir()
+			liveGoblin(t, h, "cg-wakes", project)
+			forge := forgeFor(project, "cg-wakes")
+			forge.branch, forge.runs = "feat/next", "[]"
+			forge.reflog = "checkout: moving from feat/wakes to feat/next\n"
+			forge.pulls = strings.Replace(passedChecks, `"headRefOid"`, `"author":{"login":"`+test.author+`"},"headRefOid"`, 1)
+			s.Options.CI = forge
+			now := time.Date(2026, 10, 10, 13, 48, 0, 0, time.UTC)
+
+			// Act
+			woke := pollForge(t, s, h, &now)
+
+			// Assert
+			if len(woke) != test.want {
+				t.Fatalf("ci wakes = %+v, want %d", woke, test.want)
+			}
+			if test.want == 1 && (woke[0].Key != "cg-wakes" || !strings.Contains(woke[0].Detail, "ci_finished: cg-wakes's PR #209 (feat/wakes)")) {
+				t.Errorf("wake = %+v, want it the goblin's own", woke[0])
 			}
 		})
 	}
