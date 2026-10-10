@@ -437,26 +437,31 @@ It prints the pick before it runs anything, and `--plan` prints it with each che
 This is the pick for a change to three files of `internal/supervisor`:
 
 ```text
-cfo gate prepush: 3 files changed since 3301d7c9, which picks 9 checks to run within 15m0s
-1. go vet of 4 packages (they build against what changed)
+cfo gate prepush: 3 files changed since 3301d7c9, which picks 10 checks to run within 15m0s
+1. imports of 5 packages and their tests (an import cycle fails every test of its package)
 2. guard tests of the root package (its tests read every link of the contract, the workflows and the shipped skills)
-3. guard tests of cmd/cfo: TestEveryCommandSaysWhetherItActsAsTheCFO, TestEveryCommandIsAControlOrStaysAtNormalOnPurpose (they read every command main.go dispatches)
-4. guard tests of internal/gatetest: TestTheRepositoryPolicyAccountsForEveryTrackedFile, TestTheRepositoryPolicyNamesOnlyFieldsAndPackagesThatExist (they read every tracked file against this policy)
-5. tests of internal/fsx (the read and process-start guards scan every Go file: internal/supervisor/error_wakes.go and 2 more)
-6. tests of internal/execx (the read and process-start guards scan every Go file: internal/supervisor/error_wakes.go and 2 more)
-7. tests of internal/supervisor but for 171 slower ones (changed)
-8. tests of cmd/cfo but for 140 slower ones (imports internal/supervisor)
-9. tests of cmd/goblins-window (imports internal/supervisor)
+3. guard tests of cmd/cfo (they read every command main.go dispatches)
+   - TestEveryCommandSaysWhetherItActsAsTheCFO
+   - TestEveryCommandIsAControlOrStaysAtNormalOnPurpose
+4. guard tests of internal/gatetest (they read every tracked file against this policy)
+   - TestTheRepositoryPolicyAccountsForEveryTrackedFile
+   - TestTheRepositoryPolicyNamesOnlyFieldsAndPackagesThatExist
+5. tests of internal/execx (the read and process-start guards scan every Go file: internal/supervisor/error_wakes.go and 2 more)
+6. tests of internal/fsx (the read and process-start guards scan every Go file: internal/supervisor/error_wakes.go and 2 more)
+7. tests of internal/supervisor but for 179 slower ones (changed)
+8. go vet of 5 packages (they build against what changed)
+9. tests of internal/digest (imports internal/supervisor)
+10. tests of cmd/cfo but for 152 slower ones (imports internal/supervisor)
 left to CI:
-- 171 tests of internal/supervisor (they take 2s or longer each here, 28m7s in all, and are in files the change did not touch)
-- 140 tests of cmd/cfo (they take 2s or longer each here, 59m50s in all)
+- 179 tests of internal/supervisor (they take 2s or longer each here, 29m2s in all, and are in files the change did not touch)
+- 152 tests of cmd/cfo (they take 2s or longer each here, 1h10m23s in all)
 policy: config/verify.json version 1 at 3301d7c9
 ```
 
 The first check that fails ends the run with exit 1, and its last line names the check and the tests:
 
 ```text
-cfo gate prepush: failed at check 7 of 9, tests of internal/supervisor but for 171 slower ones: TestOverlapReadThatKeepsFailingWakesTheCFOOnTheThirdPassInARow failed. CI would fail on it too, so fix it before you push.
+cfo gate prepush: failed at check 7 of 10, tests of internal/supervisor but for 179 slower ones: TestOverlapReadThatKeepsFailingWakesTheCFOOnTheThirdPassInARow failed. CI would fail on it too, so fix it before you push.
 ```
 
 A test that fails runs once more by itself before it fails the push.
@@ -471,6 +476,23 @@ A run the machine gave no turn says that nothing ran and exits 1.
 
 `cfo verify <task>` runs this as the project's fast tier, by `verification.fast` in `data/projects/code-goblins/project.json`, so a goblin and the CFO run the same check by the same command.
 A tier that fails prints its failed check's last line and the file that holds the rest.
+
+### What the replay showed
+
+From 2026-10-08 to 2026-10-10, 18 pull request runs failed CI.
+Each was replayed on 2026-10-10: the pull request's head as it was pushed, in a clone of its own with this policy on its base, on this machine beside the working fleet.
+The command fails before the push on 10 of the 18, each on the test or check CI failed on: nine by a run of the whole command, and one by a run of the browser check its pick holds.
+They are a new command that said nothing of whose it is, two links the contract did not carry, an import cycle in a test, a count a test held, a rule that held a wake back, one of the five tests of PR 613, a unit test of the board, and two pushes of one pull request whose browser specs expected the old sentence.
+The quickest took 9 seconds and the slowest 16 minutes, its 15 minutes and a failed test's second run.
+The most memory a run and everything it started held at once was 2.2 GB where it ran browser specs, 0.9 GB where it reached the board's type check, and 0.6 GB for the Go checks alone.
+
+A pass here does not say everything CI will, and the other 8 show how:
+
+- Four fail on CI's runner and pass on this machine: a runner with no graphics adapter, a runner whose temporary folder has a short spelling, a time measured against a machine that runs few processes, and a hover that moved a terminal in CI's browser and not in this one.
+- One broke only against a main that had moved. CI tests the pull request merged into main, and this runs the branch as it is.
+- One is a browser spec the change neither touched nor names, which the pick leaves to CI with the other specs.
+- One is a step of the install workflow, which runs the installer on a clean runner.
+- One failed by chance in CI.
 
 ## Reading speed evidence
 
