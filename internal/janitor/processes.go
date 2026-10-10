@@ -11,6 +11,7 @@ import (
 
 	"github.com/fpresta0607/code-goblins/internal/lifecycle"
 	"github.com/fpresta0607/code-goblins/internal/proc"
+	"github.com/fpresta0607/code-goblins/internal/reap"
 )
 
 // DetachedIdleFor is how long a detached tree of a running terminal must
@@ -56,6 +57,59 @@ type Owner struct {
 	// or waits on something or somebody, for the CFO's terminal and a run
 	// item's, and whenever it cannot be read: nothing of theirs is idle.
 	AtRestSince time.Time
+}
+
+// owned are the processes among evidence that are the terminal's own, by the
+// rule its teardown ends them by (lifecycle.OwnedProcesses): its mark, its
+// task's folders, or a parent that is its own. It is the one place a sweep
+// asks whose a process is: the process sweep ends and keeps by it
+// (planProcesses), and the orphan sweep raises no finding for what it gives
+// a terminal that runs (sightings).
+func (owner Owner) owned(evidence []lifecycle.Process) []lifecycle.Process {
+	return lifecycle.OwnedProcesses(evidence, owner.Directories, nil, owner.Marks)
+}
+
+// sightings is what one reading of the machine says of each process in
+// running, for the orphan sweep (reap.Collector): the terminal among owners
+// whose mark it carries, and the terminal among them that runs and owns it.
+// processes are the ones whose evidence could be read; a process in running
+// with none is sighted with neither, since it runs and nothing says whose it
+// is. A process two running terminals own is the first one's, in the order
+// of owners.
+func sightings(running []proc.Entry, processes []Process, owners []Owner) []reap.Sighting {
+	evidence := make([]lifecycle.Process, len(processes))
+	read := make(map[int]Process, len(processes))
+	for index, process := range processes {
+		evidence[index] = process.Process
+		read[process.PID] = process
+	}
+	owner := map[int]string{}
+	for _, terminal := range owners {
+		if terminal.HostPID == 0 {
+			continue
+		}
+		for _, process := range terminal.owned(evidence) {
+			if _, isOwned := owner[process.PID]; !isOwned {
+				owner[process.PID] = terminal.ID
+			}
+		}
+	}
+	sighted := make([]reap.Sighting, 0, len(running))
+	for _, entry := range running {
+		sighting := reap.Sighting{PID: entry.PID, Started: entry.Start}
+		if process, isRead := read[entry.PID]; isRead && process.Started.Equal(entry.Start) {
+			sighting.Owner, sighting.IsGateAgent = owner[entry.PID], process.IsGateAgent
+			for _, terminal := range owners {
+				// A gate's agent carries the mark of whichever goblin started
+				// the daemon, which says nothing of whose it is.
+				if !process.IsGateAgent && process.Mark != (lifecycle.Mark{}) && slices.Contains(terminal.Marks, process.Mark) {
+					sighting.Terminal = terminal.ID
+				}
+			}
+		}
+		sighted = append(sighted, sighting)
+	}
+	return sighted
 }
 
 // ProcessItem is one process the sweep ended or left for the CFO. Memory is
@@ -212,7 +266,7 @@ func planProcesses(processes []Process, owners []Owner, watched []Watched, now t
 	isOwned := map[int]bool{}
 	for _, owner := range owners {
 		owned := map[int]bool{}
-		for _, process := range lifecycle.OwnedProcesses(evidence, owner.Directories, nil, owner.Marks) {
+		for _, process := range owner.owned(evidence) {
 			owned[process.PID], isOwned[process.PID] = true, true
 		}
 		reach := map[int]bool{}

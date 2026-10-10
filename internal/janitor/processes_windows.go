@@ -17,6 +17,8 @@ import (
 	"github.com/fpresta0607/code-goblins/internal/lifecycle"
 	"github.com/fpresta0607/code-goblins/internal/lock"
 	"github.com/fpresta0607/code-goblins/internal/monitor"
+	"github.com/fpresta0607/code-goblins/internal/proc"
+	"github.com/fpresta0607/code-goblins/internal/reap"
 	"github.com/fpresta0607/code-goblins/internal/state"
 )
 
@@ -59,6 +61,29 @@ func readProcesses(ctx context.Context, read func(context.Context, bool) ([]life
 		processes = append(processes, read)
 	}
 	return processes, nil
+}
+
+// Sightings is the orphan sweep's second reading of the machine, taken after
+// its listing (reap.Collector): every process that runs now, each with the
+// terminal of home h whose mark it carries and the running terminal that owns
+// it. The readers are the process plan's own (ReadAllProcesses and Owners)
+// and so is the decision (Owner.owned), so a process the process sweep keeps
+// for a running terminal is never the orphan sweep's finding. It only reads.
+func Sightings(h home.Home) func(context.Context) ([]reap.Sighting, []string, error) {
+	return func(ctx context.Context) ([]reap.Sighting, []string, error) {
+		processes, err := ReadAllProcesses(ctx)
+		if err != nil {
+			return nil, nil, err
+		}
+		// Listed once the evidence is read, so a process that ended while it
+		// was read is in neither.
+		running, err := proc.Processes()
+		if err != nil {
+			return nil, nil, err
+		}
+		owners, notes := Owners(h)
+		return sightings(running, processes, owners), notes, nil
+	}
 }
 
 // changeLocks are the locks a command holds while it changes terminal id: a
