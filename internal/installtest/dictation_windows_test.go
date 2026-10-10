@@ -5,6 +5,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/fpresta0607/code-goblins/internal/standin"
 )
 
 // dictationNote is the one sentence the install says when dictation could
@@ -15,15 +17,12 @@ const dictationNote = "Note: Dictation could not be set up now, so it finishes s
 // home, which the stand-in's own install does not.
 func homeCfo(t *testing.T) func(local string) {
 	t.Helper()
-	program := standIn(t)
 	return func(local string) {
 		bin := filepath.Join(local, "CodeGoblins", "bin")
 		if err := os.MkdirAll(bin, 0o755); err != nil {
 			t.Fatal(err)
 		}
-		if err := os.WriteFile(filepath.Join(bin, "cfo.exe"), program, 0o755); err != nil {
-			t.Fatal(err)
-		}
+		standin.Put(t, filepath.Join(bin, "cfo.exe"))
 	}
 }
 
@@ -31,7 +30,7 @@ func homeCfo(t *testing.T) func(local string) {
 // that build has set the home up, and says so in its one plain line.
 func TestOneLineInstallSetsDictationUpWithTheHomesBuild(t *testing.T) {
 	// Arrange
-	releases, _ := serveNoMistakesReleases(t, zipped(t, "no-mistakes.exe", standIn(t)), 0, publishedSums)
+	releases, _ := serveNoMistakesReleases(t, zipped(t, "no-mistakes.exe", standin.Bytes(t)), 0, publishedSums)
 
 	// Act
 	run := runInstallWithNoMistakes(t, WindowsPowerShell(), releases, noMistakesSetup{seed: homeCfo(t)})
@@ -58,10 +57,10 @@ func TestOneLineInstallSetsDictationUpWithTheHomesBuild(t *testing.T) {
 // as it always could.
 func TestOneLineInstallEndsWellWhenDictationCannotBeSetUp(t *testing.T) {
 	// Arrange
-	releases, _ := serveNoMistakesReleases(t, zipped(t, "no-mistakes.exe", standIn(t)), 0, publishedSums)
+	releases, _ := serveNoMistakesReleases(t, zipped(t, "no-mistakes.exe", standin.Bytes(t)), 0, publishedSums)
 
 	// Act
-	run := runInstallWithNoMistakes(t, WindowsPowerShell(), releases, noMistakesSetup{seed: homeCfo(t), env: []string{standInFailVariable + "=dictation setup"}})
+	run := runInstallWithNoMistakes(t, WindowsPowerShell(), releases, noMistakesSetup{seed: homeCfo(t), rules: []standin.Rule{{Args: "dictation setup", Exit: 1}}})
 
 	// Assert
 	if !strings.Contains(run.record, "cfo dictation setup\r\n") {

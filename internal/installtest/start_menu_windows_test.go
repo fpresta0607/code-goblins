@@ -15,6 +15,7 @@ import (
 
 	"github.com/fpresta0607/code-goblins/internal/execx"
 	"github.com/fpresta0607/code-goblins/internal/fsx"
+	"github.com/fpresta0607/code-goblins/internal/standin"
 )
 
 // startMenuInstall is one run of the install as far as it goes with a
@@ -61,7 +62,7 @@ func runInstallForStartMenu(t *testing.T, base string, stubs map[string]string, 
 			desktop = folder
 		}
 	}
-	cmd.Env = append(cmd.Env, standInVariable+"=1", standInRecordVariable+"="+record)
+	cmd.Env = append(cmd.Env, standin.Env(record)...)
 	if seed != nil {
 		seed(local, programs)
 	}
@@ -156,7 +157,7 @@ func TestDevStartsAloneTheWindowItBuilt(t *testing.T) {
 		filepath.Join(checkout, "AGENTS.md"):          nil,
 		filepath.Join(checkout, "install.ps1"):        source,
 		filepath.Join(checkout, "goblins-window.exe"): []byte("a window from before"),
-		built:       standIn(t),
+		built:       standin.Bytes(t),
 		builtWindow: []byte("the window this clone builds"),
 	} {
 		if err := os.WriteFile(path, content, 0o755); err != nil {
@@ -209,7 +210,7 @@ func TestOneLineInstallStartsAloneOnlyTheWindowItDelivered(t *testing.T) {
 	} {
 		t.Run(name, func(t *testing.T) {
 			// Arrange
-			base := serveReleaseWithWindow(t, standIn(t), test.delivered)
+			base := serveReleaseWithWindow(t, standin.Bytes(t), test.delivered)
 			noWindow := test.delivered == nil && test.held == ""
 			seed := func(local, programs string) {
 				if test.held != "" {
@@ -321,7 +322,7 @@ function Start-Process {
 		"  [IO.File]::WriteAllBytes((Join-Path $env:LOCALAPPDATA 'CodeGoblins\\bin\\goblins-window.exe'), [Text.Encoding]::UTF8.GetBytes($case.Value.Window))\n" +
 		"  Get-Content -Raw -LiteralPath '" + strings.ReplaceAll(installScript(t), "'", "''") + "' | Invoke-Expression\n" +
 		"}\nexit $LASTEXITCODE"
-	base := serveReleaseWithWindow(t, standIn(t), []byte("MZ test window"))
+	base := serveReleaseWithWindow(t, standin.Bytes(t), []byte("MZ test window"))
 	seed := func(local, programs string) {
 		if err := os.MkdirAll(filepath.Join(local, "CodeGoblins", "bin"), 0o755); err != nil {
 			t.Fatal(err)
@@ -393,7 +394,7 @@ func TestUnavailableDesktopDoesNotStopInstall(t *testing.T) {
 		"folder is a file":  "New-Item -ItemType File -Path $env:CODE_GOBLINS_DESKTOP -Force | Out-Null\n",
 	} {
 		t.Run(name, func(t *testing.T) {
-			base := serveReleaseWithWindow(t, standIn(t), nil)
+			base := serveReleaseWithWindow(t, standin.Bytes(t), nil)
 			command := setup + "Get-Content -Raw -LiteralPath '" + installScript(t) + "' | Invoke-Expression; Write-Output \"install-exit=$LASTEXITCODE\"; exit $LASTEXITCODE"
 
 			run := runInstallForStartMenu(t, base, nil, command, nil)
@@ -439,7 +440,7 @@ func TestADeliveredWindowReplacesTheEarlierEntryOnlyOnceItsOwnIsSaved(t *testing
 	} {
 		t.Run(name, func(t *testing.T) {
 			// Arrange
-			base := serveReleaseWithWindow(t, standIn(t), []byte(delivered))
+			base := serveReleaseWithWindow(t, standin.Bytes(t), []byte(delivered))
 			seed := func(local, programs string) {
 				if err := os.MkdirAll(programs, 0o755); err != nil {
 					t.Fatal(err)
@@ -489,7 +490,7 @@ func TestADeliveredWindowReplacesTheEarlierEntryOnlyOnceItsOwnIsSaved(t *testing
 
 func TestCoreOnlyReinstallKeepsTheStandaloneShortcut(t *testing.T) {
 	// Arrange
-	base := serveReleaseWithWindow(t, standIn(t), nil)
+	base := serveReleaseWithWindow(t, standin.Bytes(t), nil)
 	var originalShortcut []byte
 	seed := func(local, programs string) {
 		for path, content := range map[string]string{
@@ -504,7 +505,7 @@ func TestCoreOnlyReinstallKeepsTheStandaloneShortcut(t *testing.T) {
 				t.Fatal(err)
 			}
 		}
-		if err := os.WriteFile(filepath.Join(local, "CodeGoblins", "bin", "goblins.exe"), standIn(t), 0o755); err != nil {
+		if err := os.WriteFile(filepath.Join(local, "CodeGoblins", "bin", "goblins.exe"), standin.Bytes(t), 0o755); err != nil {
 			t.Fatal(err)
 		}
 		if err := os.MkdirAll(programs, 0o755); err != nil {

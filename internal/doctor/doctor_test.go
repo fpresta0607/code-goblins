@@ -3,7 +3,6 @@ package doctor
 import (
 	"context"
 	"encoding/json"
-	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -17,30 +16,26 @@ import (
 	"golang.org/x/sys/windows"
 
 	"github.com/fpresta0607/code-goblins/internal/install"
+	"github.com/fpresta0607/code-goblins/internal/standin"
 )
 
 // fakeClaudeVersion is what fakeClaude answers to --version.
 const fakeClaudeVersion = "2.1.0 (Claude Code)"
 
-// fakeClaude copies this test binary into dir as claude.exe, a program as the
-// native build of Claude Code is, which TestMain answers as that build. It
-// starts the copy once before a probe times it: Windows makes the first start
-// of a newly written program wait for the real-time scan of the new file,
-// which grows with the machine's load and outlasted ProbeTimeout under the
-// fleet's, while every later start of the same file skips it.
+// fakeClaude puts the tests' stand-in program in dir as claude.exe, a program
+// as the native build of Claude Code is, which answers every command as that
+// build answers --version. It starts it once before a probe times it: Windows
+// makes the first start of a newly written program wait for the real-time
+// scan of the new file, which grows with the machine's load and outlasted
+// ProbeTimeout under the fleet's, while every later start of the same file
+// skips it.
 func fakeClaude(t *testing.T, dir string) {
 	t.Helper()
-	self, err := os.Executable()
-	if err != nil {
-		t.Fatal(err)
-	}
-	program, err := os.ReadFile(self)
-	if err != nil {
-		t.Fatal(err)
-	}
 	claude := filepath.Join(dir, "claude.exe")
-	if err := os.WriteFile(claude, program, 0o755); err != nil {
-		t.Fatal(err)
+	standin.Put(t, claude)
+	for _, variable := range standin.Env("", standin.Rule{Any: true, Stdout: fakeClaudeVersion + "\n"}) {
+		name, value, _ := strings.Cut(variable, "=")
+		t.Setenv(name, value)
 	}
 	if out, err := exec.Command(claude, "--version").Output(); err != nil || strings.TrimSpace(string(out)) != fakeClaudeVersion {
 		t.Fatalf("premise: the fake claude's first start answered %q (%v), want %q", out, err, fakeClaudeVersion)
@@ -610,10 +605,6 @@ func TestHookPairingRecognizesShellFormCommands(t *testing.T) {
 // the live wake queue - which is not a hypothetical: it is how this guard
 // came to be written.
 func TestMain(m *testing.M) {
-	if strings.EqualFold(filepath.Base(os.Args[0]), "claude.exe") {
-		fmt.Println(fakeClaudeVersion)
-		os.Exit(0)
-	}
 	if os.Getenv(sleeperVariable) != "" {
 		time.Sleep(time.Minute)
 		os.Exit(0)

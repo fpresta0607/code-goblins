@@ -141,7 +141,9 @@ const sleeperVariable = "DOCTOR_TEST_SLEEPER"
 func startSleeper(t *testing.T, program string, args ...string) int {
 	t.Helper()
 	sleeper := exec.Command(program, args...)
-	sleeper.Env = append(os.Environ(), sleeperVariable+"=1")
+	// The variable makes this test binary wait, and the rule the tests'
+	// stand-in program, whichever of the two program is.
+	sleeper.Env = append(append(os.Environ(), sleeperVariable+"=1"), standin.Env("", standin.Rule{Any: true, Hold: true})...)
 	if err := sleeper.Start(); err != nil {
 		t.Fatal(err)
 	}
@@ -165,17 +167,11 @@ func TestRunningFromFindsAProgramInTheFolderAndAScriptItRuns(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	data, err := os.ReadFile(self)
-	if err != nil {
-		t.Fatal(err)
-	}
 	program := filepath.Join(installed, "vendor", "codex.exe")
 	if err := os.MkdirAll(filepath.Dir(program), 0o700); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(program, data, 0o700); err != nil {
-		t.Fatal(err)
-	}
+	standin.Put(t, program)
 	fromFolder := startSleeper(t, program)
 	withScript := startSleeper(t, self, filepath.Join(scripted, "dist", "cli.js"))
 
