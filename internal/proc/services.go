@@ -7,19 +7,26 @@ import (
 
 // Service is a machine-wide service a goblin may start for its work but that
 // serves the whole machine, so a goblin's teardown never ends it: Docker
-// Desktop with everything it runs, its engine's WSL processes included, and
-// the no-mistakes daemon every gate shares, with the gate agents it runs.
+// Desktop with everything it runs, its engine's WSL processes included, the
+// no-mistakes daemon every gate shares, with the gate agents it runs, and
+// the Scrawl server that keeps every goblin's review page.
 type Service int
 
 const (
 	NoService Service = iota
 	DockerDesktop
 	GateDaemon
+	PageServer
 )
 
+// pageServerScripts are the scripts lavish-axi runs its server from, as an
+// installed package and from its source.
+var pageServerScripts = []string{"/lavish-axi/dist/server.mjs", "/lavish-axi/bin/lavish-axi-server.js"}
+
 // ServiceOf names the machine service a program is, by its executable and
-// arguments: Docker Desktop and its com.docker.* processes, and no-mistakes
-// running its daemon command.
+// arguments: Docker Desktop and its com.docker.* processes, no-mistakes
+// running its daemon command, and node running lavish-axi's server script
+// with its server command.
 func ServiceOf(exeBase string, arguments []string) Service {
 	name := strings.TrimSuffix(strings.ToLower(exeBase), ".exe")
 	switch {
@@ -27,6 +34,13 @@ func ServiceOf(exeBase string, arguments []string) Service {
 		return DockerDesktop
 	case name == "no-mistakes" && len(arguments) > 1 && strings.EqualFold(arguments[1], "daemon"):
 		return GateDaemon
+	case name == "node" && len(arguments) > 2 && arguments[2] == "server":
+		script := strings.ToLower(strings.ReplaceAll(arguments[1], `\`, "/"))
+		for _, known := range pageServerScripts {
+			if strings.HasSuffix(script, known) {
+				return PageServer
+			}
+		}
 	}
 	return NoService
 }
