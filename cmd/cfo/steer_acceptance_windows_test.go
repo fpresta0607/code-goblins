@@ -169,7 +169,7 @@ func proveSteer(t *testing.T, p *wakeProof) {
 	steer := "stop the steps now and run no more of them. Reply with exactly the word " + steerMarker + " and end your turn."
 	sent := time.Now().UTC()
 	command := exec.Command(p.binary, "send", goblin, steer)
-	command.Env = p.env
+	command.Env = p.commandEnv("send")
 	var stdout, stderr bytes.Buffer
 	command.Stdout, command.Stderr = &stdout, &stderr
 	err = command.Run()
@@ -263,7 +263,7 @@ func (p *wakeProof) expectAtNextToolCall(t *testing.T, meta state.TaskMeta, what
 // its pid when cleanup refuses it, as it refuses a goblin in a turn.
 func (p *wakeProof) endGoblin(goblin string) {
 	command := exec.Command(p.binary, "cleanup", goblin)
-	command.Env = p.env
+	command.Env = p.commandEnv("cleanup")
 	output, err := command.CombinedOutput()
 	p.say("cfo cleanup %s (error %v):\n%s", goblin, err, output)
 	record, readErr := host.ReadRecord(p.home.State, goblin)

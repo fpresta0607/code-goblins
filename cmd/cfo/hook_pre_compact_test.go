@@ -30,7 +30,7 @@ func TestPreCompactWritesAFreshCheckpointOnlyForThePrimarySession(t *testing.T) 
 		{name: "not primary", session: "s1", hasLock: true},
 	} {
 		t.Run(test.name, func(t *testing.T) {
-			directory := newPrimaryHome(t)
+			directory := newCFOHome(t)
 			stateDirectory := filepath.Join(directory, "state")
 			checkpoint := filepath.Join(stateDirectory, digest.CheckpointFile)
 			if !test.isPrimary {
@@ -42,7 +42,6 @@ func TestPreCompactWritesAFreshCheckpointOnlyForThePrimarySession(t *testing.T) 
 			if test.isGate {
 				t.Setenv(gateAgentVariable, "1")
 			}
-			setAncestorPID(t, os.Getpid())
 			if test.hasLock {
 				if _, err := lock.AcquireOwner(stateDirectory, os.Getpid(), "s1"); err != nil {
 					t.Fatal(err)
@@ -69,9 +68,8 @@ func TestPreCompactWritesAFreshCheckpointOnlyForThePrimarySession(t *testing.T) 
 }
 
 func TestPreCompactLeavesCompactionRunningWhenTheCheckpointCannotBeWritten(t *testing.T) {
-	directory := newPrimaryHome(t)
+	directory := newCFOHome(t)
 	stateDirectory := filepath.Join(directory, "state")
-	setAncestorPID(t, os.Getpid())
 	if _, err := lock.AcquireOwner(stateDirectory, os.Getpid(), "s1"); err != nil {
 		t.Fatal(err)
 	}

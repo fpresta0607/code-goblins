@@ -58,9 +58,20 @@ const processorsNext = 0.25
 // over the reading. A machine with cores of one kind has performance cores
 // only.
 type Processors struct {
-	PerformanceCores int
-	EfficiencyCores  int
-	Free             float64
+	PerformanceCores int `json:"performance_cores"`
+	EfficiencyCores  int `json:"efficiency_cores"`
+	// Free is the share of the performance cores that sat idle, from 0 to 1.
+	Free float64 `json:"free"`
+	// EfficiencyFree is the same of the efficiency cores, and 0 on a machine
+	// with none.
+	EfficiencyFree float64 `json:"efficiency_free"`
+	// Next is the share of the performance cores that must be free for the
+	// supervisor to start a goblin by itself, which the snapshot sets for the
+	// meter's mark.
+	Next float64 `json:"next"`
+	// Busiest names the apps that used the most processor over the reading,
+	// most first (see busiestApps).
+	Busiest []string `json:"busiest,omitempty"`
 }
 
 // processorCore is one core: its efficiency class, higher for a faster kind of
@@ -94,13 +105,8 @@ func readProcessors(cores []processorCore, before, after []processorTime) (Proce
 		fastest = max(fastest, core.efficiencyClass)
 	}
 	var processors Processors
-	idle := 0.0
+	idle, efficiencyIdle := 0.0, 0.0
 	for _, core := range cores {
-		if core.efficiencyClass != fastest {
-			processors.EfficiencyCores++
-			continue
-		}
-		processors.PerformanceCores++
 		busiest := 0.0
 		for _, thread := range core.threads {
 			if thread < 0 || thread >= len(after) {
@@ -112,9 +118,18 @@ func readProcessors(cores []processorCore, before, after []processorTime) (Proce
 			}
 			busiest = max(busiest, 1-float64(after[thread].idle-before[thread].idle)/float64(whole))
 		}
+		if core.efficiencyClass != fastest {
+			processors.EfficiencyCores++
+			efficiencyIdle += 1 - min(max(busiest, 0), 1)
+			continue
+		}
+		processors.PerformanceCores++
 		idle += 1 - min(max(busiest, 0), 1)
 	}
 	processors.Free = idle / float64(processors.PerformanceCores)
+	if processors.EfficiencyCores > 0 {
+		processors.EfficiencyFree = efficiencyIdle / float64(processors.EfficiencyCores)
+	}
 	return processors, nil
 }
 

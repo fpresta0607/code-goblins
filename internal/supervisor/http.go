@@ -239,6 +239,7 @@ func (h *HTTP) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			w.Header().Set("Content-Security-Policy", strings.Replace(w.Header().Get("Content-Security-Policy"), "style-src 'self'", "style-src 'self' 'nonce-"+nonce+"'", 1))
 			w.Header().Set("Content-Type", "text/html; charset=utf-8")
 			if r.Method == "GET" {
+				h.grantHisBoard(w, r)
 				_, _ = io.WriteString(w, strings.Replace(string(data), "<head>", `<head><meta name="cfo-style-nonce" content="`+nonce+`"><meta name="cfo-build" content="`+h.build+`">`, 1))
 			}
 			return
@@ -419,7 +420,7 @@ func (h *HTTP) action(w http.ResponseWriter, r *http.Request) {
 	// his own, proven as AFK mode's switch proves one.
 	if a.Kind == "run" && slices.ContainsFunc(h.Service.Store.Snapshot().Runs, func(run Run) bool { return run.ID == a.RunID && run.Update != nil }) {
 		if _, err := h.Service.overlordsBoard(r, h.Host, asked, updatingBoard); err != nil {
-			apiError(w, http.StatusForbidden, err.Error())
+			h.refuse(w, http.StatusForbidden, "update", "A press of Update on a board was refused", "", err)
 			return
 		}
 	}

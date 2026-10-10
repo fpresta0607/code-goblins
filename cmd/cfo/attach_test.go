@@ -161,7 +161,7 @@ func standInAsTerminalProgram(t *testing.T, stateDir, id string) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	record.ChildPID = os.Getpid()
+	programIsThisProcess(t, &record)
 	data, err := json.Marshal(record)
 	if err != nil {
 		t.Fatal(err)
@@ -623,6 +623,7 @@ func runFakeClaude() int {
 		time.Sleep(time.Second)
 		return 1
 	}
+	go serveSessionRequests()
 	_, _ = io.Copy(io.Discard, os.Stdin)
 	return 0
 }

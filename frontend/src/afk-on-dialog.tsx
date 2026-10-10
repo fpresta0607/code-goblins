@@ -7,7 +7,7 @@ import "./afk.css";
 // The question before AFK mode turns on, since it hands the CFO the Overlord's
 // authority until he turns it off. Cancel has the focus, so Enter alone turns
 // nothing on. Turn AFK on says it is working while the supervisor answers, and
-// a refusal is shown in full above the buttons.
+// a refusal is one short sentence above the buttons.
 export function AfkOnDialog({ pending, problem, onTurnOn, onClose }: {
   pending: boolean; problem: string; onTurnOn: () => void; onClose: () => void;
 }) {

@@ -40,8 +40,6 @@ func TestOnlyTheOverlordsOwnTerminalUpdatesCodeGoblins(t *testing.T) {
 		{"a Herdr pane", his, []string{"HERDR_PANE_ID=3"}, "in a Herdr pane"},
 		{"under an agent harness", []proc.Entry{command, shell, {PID: 980, ExeBase: "claude.exe", Start: started.Add(-time.Hour)}, desktop}, nil, "under an agent harness (claude.exe pid 980)"},
 		{"an agent's environment", []proc.Entry{command, shell}, []string{"CLAUDECODE=1"}, "its environment carries CLAUDECODE"},
-		{"parents cut short of the desktop", []proc.Entry{command, shell}, nil, "could not follow its parents to the desktop"},
-		{"a process it could not read", nil, nil, "could not read its own process"},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
@@ -58,6 +56,27 @@ func TestOnlyTheOverlordsOwnTerminalUpdatesCodeGoblins(t *testing.T) {
 			if err == nil || !strings.Contains(err.Error(), c.refused) || !strings.Contains(err.Error(), "updating Code Goblins is the Supreme Overlord's alone") {
 				t.Fatalf("UpdaterRefusal = %v, want a refusal naming %q", err, c.refused)
 			}
+		})
+	}
+
+	// The Overlord himself meets these two in a terminal of his own, as in
+	// Git Bash, so each is one short sentence that says what to do.
+	for name, c := range map[string]struct {
+		ancestry []proc.Entry
+		says     string
+	}{
+		"parents cut short of the desktop": {[]proc.Entry{command, shell}, "nothing says this terminal is the Overlord's own: run goblins update in PowerShell or cmd, or press Update in the Code Goblins window"},
+		"a process it could not read":      {nil, "this terminal could not be read: run goblins update in PowerShell or cmd, or press Update in the Code Goblins window"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			// Act
+			err := UpdaterRefusal(store.Home.State, c.ancestry, nil)
+
+			// Assert
+			if err == nil || !strings.Contains(err.Error(), c.says) {
+				t.Fatalf("UpdaterRefusal = %v, want it refused saying %q", err, c.says)
+			}
+			assertOneShortSentence(t, err.Error())
 		})
 	}
 }
