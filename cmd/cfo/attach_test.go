@@ -20,6 +20,7 @@ import (
 	"github.com/fpresta0607/code-goblins/internal/herdr"
 	"github.com/fpresta0607/code-goblins/internal/home"
 	"github.com/fpresta0607/code-goblins/internal/host"
+	"github.com/fpresta0607/code-goblins/internal/host/hosttest"
 	"github.com/fpresta0607/code-goblins/internal/install"
 	"github.com/fpresta0607/code-goblins/internal/supervisor"
 )
@@ -157,18 +158,7 @@ func hostAttachTestTerminal(t *testing.T, stateDir, id string) {
 // while the host still answers on its pipe.
 func standInAsTerminalProgram(t *testing.T, stateDir, id string) {
 	t.Helper()
-	record, err := host.ReadRecord(stateDir, id)
-	if err != nil {
-		t.Fatal(err)
-	}
-	programIsThisProcess(t, &record)
-	data, err := json.Marshal(record)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(filepath.Join(stateDir, "hosts", id+".json"), data, 0o600); err != nil {
-		t.Fatal(err)
-	}
+	hosttest.Rewrite(t, stateDir, id, func(record *host.Record) { programIsThisProcess(t, record) })
 	t.Setenv(host.IDVariable, id)
 }
 

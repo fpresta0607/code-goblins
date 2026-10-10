@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"github.com/fpresta0607/code-goblins/internal/host"
+	"github.com/fpresta0607/code-goblins/internal/host/hosttest"
 	"github.com/fpresta0607/code-goblins/internal/nativehook"
 	"os"
 	"os/exec"
@@ -82,14 +83,7 @@ func TestACodexCFOStartingInANativeTerminalRegisters(t *testing.T) {
 	})
 	// The hook runs in this test process, so the record names this process as
 	// the terminal's program, as it names the harness a real hook runs under.
-	programIsThisProcess(t, &record)
-	data, err := json.Marshal(record)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(filepath.Join(dir, "hosts", "cfo.json"), data, 0o600); err != nil {
-		t.Fatal(err)
-	}
+	hosttest.Rewrite(t, dir, "cfo", func(record *host.Record) { programIsThisProcess(t, record) })
 	t.Setenv(host.IDVariable, "cfo")
 	t.Setenv("HERDR_PANE_ID", "")
 	for _, name := range []string{"CFO_ROLE", "CFO_TASK_ID", "CFO_SPAWN_GEN", "CFO_PARENT_SESSION_ID", "CFO_PARENT_HARNESS", "CFO_ROOT_SESSION_ID"} {
@@ -106,7 +100,7 @@ func TestACodexCFOStartingInANativeTerminalRegisters(t *testing.T) {
 	if exit != 0 {
 		t.Fatalf("exit=%d %s", exit, errs.String())
 	}
-	data, err = os.ReadFile(filepath.Join(dir, "primary.json"))
+	data, err := os.ReadFile(filepath.Join(dir, "primary.json"))
 	if err != nil || !strings.Contains(string(data), `"host":"cfo"`) || !strings.Contains(string(data), `"agent":"codex"`) {
 		t.Fatalf("primary.json = %s, %v; want native terminal cfo registered for codex", data, err)
 	}
