@@ -51,7 +51,7 @@ See [Repo layout](README.md#repo-layout) in the README.
 ## Tests
 
 Unit tests are deterministic: they inject fake subprocess runners and scripted clocks instead of requiring installed tools.
-The telemetry and pipeline database regressions are the exception - they build real SQLite fixtures through the `sqlite3` CLI and skip themselves when it is not on PATH, so install it locally to run them (CI installs it before the suite).
+The telemetry and pipeline database regressions are the exception - they build real SQLite fixtures through the `sqlite3` CLI and skip themselves when it is not on PATH, so install it locally to run them (CI puts the release pinned in `.github/workflows/go.yml` on PATH before the suite, from the Actions cache, and asks no package feed for it).
 
 A test must never resolve the fleet home its shell exported.
 `internal/home.Resolve` refuses the `CFO_HOME` and `CFO_STATE_OVERRIDE` values the process was launched with whenever the caller is a test binary, so a test that needs a home points both at its own directory.

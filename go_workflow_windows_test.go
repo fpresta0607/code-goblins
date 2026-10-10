@@ -1,6 +1,9 @@
 package codegoblins
 
 import (
+	"archive/zip"
+	"bytes"
+	"crypto/sha256"
 	"encoding/json"
 	"fmt"
 	"maps"
@@ -409,66 +412,171 @@ func TestGoWorkflowsRequiredCheckPassesOnlyWhenEveryJobSucceeded(t *testing.T) {
 	}
 }
 
-// The go workflow installs SQLite with Chocolatey, whose feed once answered
-// 503 and failed the run: the install is tried again after a wait, and gives
-// up after its third attempt.
-func TestGoWorkflowRetriesTheSQLiteInstall(t *testing.T) {
+// sqliteTools is a file standing in for the SQLite release: a zip holding a
+// sqlite3 that says a version, or one holding nothing when it is not the
+// release. It returns the file and its SHA-256 as the workflow pins one.
+func sqliteTools(t *testing.T, isRelease bool) (file, sha256Hex string) {
+	t.Helper()
+	var packed bytes.Buffer
+	archive := zip.NewWriter(&packed)
+	name, content := "sqlite3.cmd", "@echo 3.54.0 standing in\r\n"
+	if !isRelease {
+		name, content = "readme.txt", "not the release\r\n"
+	}
+	entry, err := archive.Create(name)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := entry.Write([]byte(content)); err != nil {
+		t.Fatal(err)
+	}
+	if err := archive.Close(); err != nil {
+		t.Fatal(err)
+	}
+	file = filepath.Join(t.TempDir(), "tools.zip")
+	if err := os.WriteFile(file, packed.Bytes(), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	return file, fmt.Sprintf("%x", sha256.Sum256(packed.Bytes()))
+}
+
+// The go workflow's jobs take SQLite from one pinned release, which the
+// Actions cache hands over, so a run asks no outside service for it. The
+// file is used only when its SHA-256 is the pinned one, whoever handed it
+// over: any other is discarded and the release fetched from sqlite.org, and
+// a fetch that fails is tried again after a wait, three attempts in all.
+// Chocolatey's feed, which served it before, failed two jobs of run
+// 38058158022 once its own three attempts ran out.
+func TestGoWorkflowTakesSQLiteFromThePinnedRelease(t *testing.T) {
 	pwsh, err := exec.LookPath("pwsh.exe")
 	if err != nil {
 		t.Skip("the step runs in PowerShell 7, which is not installed")
 	}
 	step := workflowStep(t, filepath.Join(".github", "workflows", "go.yml"), "go", "Ensure SQLite integration tests can run")
+	release, pinned := sqliteTools(t, true)
+	other, _ := sqliteTools(t, false)
 	for name, test := range map[string]struct {
-		// failures is how many installs fail before one succeeds; -1 is
-		// every one.
-		failures     int
-		wantAttempts int
-		wantOK       bool
+		// cached is the file the cache handed over, if any, and fetches
+		// what each fetch from sqlite.org brings: the release, another
+		// file, or a failure.
+		cached      string
+		fetches     []string
+		wantFetches int
+		wantOK      bool
 	}{
-		"two failures, then the install": {2, 3, true},
-		"a feed that stays down":         {-1, 3, false},
+		"the cache holds the release":                   {release, nil, 0, true},
+		"the cache holds nothing":                       {"", []string{"release"}, 1, true},
+		"the cache holds another file":                  {other, []string{"release"}, 1, true},
+		"two fetches fail, then the release":            {"", []string{"fail", "fail", "release"}, 3, true},
+		"a fetch brings another file, then the release": {"", []string{"other", "release"}, 2, true},
+		"sqlite.org stays down":                         {"", []string{"fail", "fail", "fail", "release"}, 3, false},
+		"every fetch brings another file":               {"", []string{"other", "other", "other", "release"}, 3, false},
 	} {
 		t.Run(name, func(t *testing.T) {
-			// Arrange: choco says each attempt, fails as many times as
-			// asked, and then installs a sqlite3 beside itself.
-			choco := "@echo choco %*\r\n"
-			if test.failures < 0 {
-				choco += "@exit /b 1\r\n"
+			// Arrange: the runner's temp folder with what the cache
+			// restored, and a fetch that brings what the case says, in
+			// order. As GitHub Actions runs a pwsh step: stop on an error,
+			// and end with the last native command's exit code. A wait is
+			// said, not taken.
+			temp := t.TempDir()
+			if test.cached != "" {
+				data, err := os.ReadFile(test.cached)
+				if err != nil {
+					t.Fatal(err)
+				}
+				if err := os.WriteFile(filepath.Join(temp, "sqlite-tools.zip"), data, 0o600); err != nil {
+					t.Fatal(err)
+				}
 			}
-			for failure := 1; failure <= test.failures; failure++ {
-				choco += fmt.Sprintf("@if not exist \"%%~dp0failure-%d\" (type nul>\"%%~dp0failure-%d\" & exit /b 1)\r\n", failure, failure)
-			}
-			choco += "@(echo @echo sqlite 3.46.0)>\"%~dp0sqlite3.cmd\"\r\n"
-			// As GitHub Actions runs a pwsh step: stop on an error, and end
-			// with the last native command's exit code. A wait is said, not
-			// taken.
 			script := filepath.Join(t.TempDir(), "step.ps1")
 			body := "$ErrorActionPreference = 'stop'\r\n" +
 				"function Start-Sleep { param([int]$Seconds) Write-Output \"wait $Seconds\" }\r\n" +
+				"$script:fetches = @($env:FETCHES -split ',' | Where-Object { $_ })\r\n" +
+				"function Invoke-WebRequest { param($Uri, $OutFile, $TimeoutSec)\r\n" +
+				"  Write-Output \"asked $Uri for the release\"\r\n" +
+				"  $brings, $script:fetches = $script:fetches\r\n" +
+				"  if ($brings -eq 'release') { Copy-Item -LiteralPath $env:RELEASE -Destination $OutFile }\r\n" +
+				"  elseif ($brings -eq 'other') { Copy-Item -LiteralPath $env:OTHER -Destination $OutFile }\r\n" +
+				"  else { throw 'the server did not answer' }\r\n" +
+				"}\r\n" +
 				step + "\r\nif ((Test-Path -LiteralPath variable:\\LASTEXITCODE)) { exit $LASTEXITCODE }\r\n"
 			if err := os.WriteFile(script, []byte(body), 0o600); err != nil {
 				t.Fatal(err)
 			}
-			cmd, _, _ := installtest.StrippedCommand(t, "", map[string]string{"choco": choco}, pwsh, "-NoProfile", "-NonInteractive", "-Command", ". '"+script+"'")
+			paths := filepath.Join(t.TempDir(), "github-path.txt")
+			cmd, _, _ := installtest.StrippedCommand(t, "", nil, pwsh, "-NoProfile", "-NonInteractive", "-Command", ". '"+script+"'")
+			cmd.Env = append(cmd.Env, "RUNNER_TEMP="+temp, "GITHUB_PATH="+paths, "SQLITE_URL=https://sqlite.example/tools.zip", "SQLITE_SHA256="+pinned,
+				"FETCHES="+strings.Join(test.fetches, ","), "RELEASE="+release, "OTHER="+other)
 
 			// Act
 			out, err := cmd.CombinedOutput()
 
 			// Assert
 			output := string(out)
-			attempts, waits := strings.Count(output, "choco install sqlite --yes --no-progress"), strings.Count(output, "wait ")
-			if attempts != test.wantAttempts {
-				t.Errorf("choco install ran %d times, want %d:\n%s", attempts, test.wantAttempts, output)
+			fetches, waits := strings.Count(output, "asked https://sqlite.example/tools.zip for the release"), strings.Count(output, "wait ")
+			if fetches != test.wantFetches {
+				t.Errorf("the step fetched the release %d times, want %d:\n%s", fetches, test.wantFetches, output)
 			}
-			if waits != attempts-1 {
-				t.Errorf("the step waited %d times between %d attempts, want once between each two:\n%s", waits, attempts, output)
+			if wantWaits := max(fetches-1, 0); waits != wantWaits {
+				t.Errorf("the step waited %d times between %d fetches, want once between each two:\n%s", waits, fetches, output)
 			}
-			if test.wantOK && (err != nil || !strings.Contains(output, "sqlite 3.46.0")) {
-				t.Errorf("step = %v, want SQLite installed and its version printed:\n%s", err, output)
+			added, _ := os.ReadFile(paths)
+			tools := filepath.Join(temp, "sqlite-tools")
+			if test.wantOK && (err != nil || !strings.Contains(output, "3.54.0 standing in") || !strings.Contains(string(added), tools)) {
+				t.Errorf("step = %v, want the pinned sqlite3 run and %s added to the later steps' PATH (%q):\n%s", err, tools, added, output)
 			}
-			if !test.wantOK && err == nil {
-				t.Errorf("the step succeeded with no SQLite installed:\n%s", output)
+			if !test.wantOK && (err == nil || len(added) != 0) {
+				t.Errorf("step = %v with %q added to the later steps' PATH, want it to fail with no SQLite that is not the pinned release:\n%s", err, added, output)
 			}
 		})
+	}
+}
+
+// The cache hands over the file the step reads, under a key that names the
+// pin, so a new pin is a new entry and never the old release under the new
+// hash's name.
+func TestGoWorkflowKeepsThePinnedSQLiteReleaseInTheCache(t *testing.T) {
+	// Arrange
+	source, err := os.ReadFile(filepath.Join(".github", "workflows", "go.yml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var workflow struct {
+		Jobs map[string]struct {
+			Steps []struct {
+				Name string            `yaml:"name"`
+				Uses string            `yaml:"uses"`
+				Run  string            `yaml:"run"`
+				With map[string]string `yaml:"with"`
+				Env  map[string]string `yaml:"env"`
+			} `yaml:"steps"`
+		} `yaml:"jobs"`
+	}
+	if err := yaml.Unmarshal(source, &workflow); err != nil {
+		t.Fatal(err)
+	}
+
+	// Act
+	restored, ensured := -1, -1
+	key, pin, link := "", "", ""
+	for index, step := range workflow.Jobs["go"].Steps {
+		if strings.HasPrefix(step.Uses, "actions/cache@") && step.With["path"] == "${{ runner.temp }}/sqlite-tools.zip" {
+			restored, key = index, step.With["key"]
+		}
+		if step.Name == "Ensure SQLite integration tests can run" {
+			ensured, pin, link = index, step.Env["SQLITE_SHA256"], step.Env["SQLITE_URL"]
+			if !strings.Contains(step.Run, "Join-Path $env:RUNNER_TEMP sqlite-tools.zip") || strings.Contains(step.Run, "choco") {
+				t.Errorf("the step does not read the file the cache restores, or asks Chocolatey:\n%s", step.Run)
+			}
+		}
+	}
+
+	// Assert
+	if restored < 0 || ensured < restored {
+		t.Fatalf("the go job restores the release in step %d and uses it in step %d, want it restored first", restored, ensured)
+	}
+	version := strings.TrimSuffix(link[strings.LastIndex(link, "-")+1:], ".zip")
+	if len(pin) != 64 || !strings.HasPrefix(link, "https://www.sqlite.org/") || version == "" || !strings.Contains(key, version) || !strings.HasSuffix(key, "-"+pin[:16]) {
+		t.Errorf("the cache key %q, the release %q and its SHA-256 %q: want a release of sqlite.org, and a key that names its version and ends with the first 16 characters of its SHA-256", key, link, pin)
 	}
 }
