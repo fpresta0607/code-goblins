@@ -44,6 +44,13 @@ const BranchPrefix = "cfo/train-"
 // Overlord said to wait on.
 const HoldLabel = "hold"
 
+// OwnLabel is the label a train's own pull request wears. A train that lands
+// merges that pull request, and the notes GitHub writes for a release list
+// every merged pull request, so a repository that asks for those notes leaves
+// this label out of them in its .github/release.yml: each pull request the
+// train landed is listed there by its own number.
+const OwnLabel = "merge-train"
+
 // keepFor is how long a finished train's record is kept: the board shows it,
 // and a pull request it found broken does not ride again at the same head.
 const keepFor = 7 * 24 * time.Hour
