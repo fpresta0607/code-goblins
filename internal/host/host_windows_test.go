@@ -1178,3 +1178,47 @@ func TestOnlyAViewerThatAskedIsToldOfAKeyABusyProgramLeavesUnread(t *testing.T) 
 	default:
 	}
 }
+
+func priorityClass(t *testing.T, pid int) uint32 {
+	t.Helper()
+	process, err := windows.OpenProcess(windows.PROCESS_QUERY_LIMITED_INFORMATION, false, uint32(pid))
+	if err != nil {
+		t.Fatalf("open pid %d: %v", pid, err)
+	}
+	defer windows.CloseHandle(process)
+	class, err := windows.GetPriorityClass(process)
+	if err != nil {
+		t.Fatalf("read the priority class of pid %d: %v", pid, err)
+	}
+	return class
+}
+
+// A host answers the handshake of everything that reaches its terminal and
+// relays its keys and output. It ran at the priority of the builds in that
+// terminal, so with every core busy it waited its turn behind them: on
+// 2026-10-10 cfo send twice got no answer to its handshake in five seconds.
+// It runs one class above them now, and the terminal's program runs at
+// normal, where Windows starts the child of a raised process.
+func TestAHostRunsOneClassAboveItsTerminalWhichRunsAtNormal(t *testing.T) {
+	// Arrange
+	// A host started by a process below normal is started below normal too,
+	// and is left there.
+	if usual := priorityClass(t, os.Getpid()); usual != windows.NORMAL_PRIORITY_CLASS && usual != windows.ABOVE_NORMAL_PRIORITY_CLASS {
+		t.Skipf("this test runs at priority class %#x, so the host it starts is not started at normal", usual)
+	}
+	_, record := launch(t)
+	v := connect(t, record)
+	v.waitFor(t, "ready")
+
+	// Act
+	host := priorityClass(t, record.HostPID)
+	program := priorityClass(t, record.ChildPID)
+
+	// Assert
+	if host != windows.ABOVE_NORMAL_PRIORITY_CLASS {
+		t.Errorf("the host runs at priority class %#x, want above normal, %#x", host, uint32(windows.ABOVE_NORMAL_PRIORITY_CLASS))
+	}
+	if program != windows.NORMAL_PRIORITY_CLASS {
+		t.Errorf("the terminal's program runs at priority class %#x, want normal, %#x", program, uint32(windows.NORMAL_PRIORITY_CLASS))
+	}
+}
