@@ -201,7 +201,7 @@ func (s Service) Cleanup(ctx context.Context, id string) (result Result, err err
 		return Result{}, fmt.Errorf("cleanup: retire task metadata: %w", err)
 	}
 	archive, archiveErr := s.archive(id)
-	scratchErr := s.removeScratch(meta)
+	scratchNote := s.removeScratch(ctx, meta)
 
 	result.Meta = meta
 	result.Output = fmt.Sprintf("cleaned %s worktree=%s", id, worktreePath)
@@ -219,9 +219,7 @@ func (s Service) Cleanup(ctx context.Context, id string) (result Result, err err
 		// plainly rather than failing a completed cleanup.
 		result.Output += fmt.Sprintf("\nwarning: retained state for %s could not be archived, so respawning that id will be refused: %v", id, archiveErr)
 	}
-	if scratchErr != nil {
-		result.Output += fmt.Sprintf("\nwarning: %v; the janitor removes it once the handle clears", scratchErr)
-	}
+	result.Output += scratchNote
 	result.Output += s.releaseServices(ctx, id)
 	result.Output += s.closeRow(outcome)
 	return result, nil
@@ -338,7 +336,7 @@ func (s Service) forceArchive(ctx context.Context, meta state.TaskMeta, id, work
 		return Result{}, fmt.Errorf("cleanup: retire task metadata: %w", err)
 	}
 	archived, archiveErr := s.archive(id)
-	scratchErr := s.removeScratch(meta)
+	scratchNote := s.removeScratch(ctx, meta)
 
 	result := Result{Meta: meta, Output: fmt.Sprintf("force-archived %s; worktree %s left in place, remove it by hand when its handle clears", id, worktreePath)}
 	for _, extra := range meta.Extras {
@@ -353,9 +351,7 @@ func (s Service) forceArchive(ctx context.Context, meta state.TaskMeta, id, work
 	if archiveErr != nil {
 		result.Output += fmt.Sprintf("\nwarning: retained state for %s could not be archived, so respawning that id will be refused: %v", id, archiveErr)
 	}
-	if scratchErr != nil {
-		result.Output += fmt.Sprintf("\nwarning: %v; the janitor removes it once the handle clears", scratchErr)
-	}
+	result.Output += scratchNote
 	result.Output += s.releaseServices(ctx, id)
 	result.Output += s.closeRow(outcome)
 	return result, nil
@@ -395,7 +391,7 @@ func (s Service) retireEmptyFolder(ctx context.Context, meta state.TaskMeta, id,
 		return Result{}, fmt.Errorf("cleanup: retire task metadata: %w", err)
 	}
 	archive, archiveErr := s.archive(id)
-	scratchErr := s.removeScratch(meta)
+	scratchNote := s.removeScratch(ctx, meta)
 	result := Result{Meta: meta, Output: fmt.Sprintf("cleaned %s: removed the empty folder %s, which held no Git worktree", id, folder)}
 	if archive != "" {
 		result.Output += " archive=" + archive
@@ -403,9 +399,7 @@ func (s Service) retireEmptyFolder(ctx context.Context, meta state.TaskMeta, id,
 	if archiveErr != nil {
 		result.Output += fmt.Sprintf("\nwarning: retained state for %s could not be archived, so respawning that id will be refused: %v", id, archiveErr)
 	}
-	if scratchErr != nil {
-		result.Output += fmt.Sprintf("\nwarning: %v; the janitor removes it once the handle clears", scratchErr)
-	}
+	result.Output += scratchNote
 	result.Output += s.releaseServices(ctx, id)
 	result.Output += s.closeRow(outcome)
 	return result, nil
@@ -454,16 +448,35 @@ func (s Service) archive(id string) (string, error) {
 // exactly that pinned-by-a-dead-handle case. Inside archive() such a failure
 // would skip the credential scrub and the rename, so a locked build directory
 // would leave the project's secrets on disk and the id still claimed.
-func (s Service) removeScratch(meta state.TaskMeta) error {
+//
+// One folder is left on purpose: a scratch folder that is the /tmp of a
+// running Git Bash, as it is when the first shell to start after the last one
+// ended had it as TMP. Removing it took /tmp from every Git Bash of the user
+// on 2026-10-09, so it stays until no running one has it, and the janitor
+// removes it then; see home.RemoveScratch. The folder every goblin's TMP
+// names, home.SharedTempDir, is no task's and is never removed here at all.
+//
+// It returns what to say of a folder that stayed, on a line of its own, and
+// nothing of one that went.
+func (s Service) removeScratch(ctx context.Context, meta state.TaskMeta) string {
 	scratch, err := state.TaskScratch(s.StateDir, meta)
 	if err != nil {
-		return err
+		return fmt.Sprintf("\nwarning: %v; the janitor removes it once the handle clears", err)
 	}
-	if err := os.RemoveAll(scratch); err != nil {
-		return fmt.Errorf("scratch folder %s could not be removed: %w", scratch, err)
+	heldBy, err := home.RemoveScratch(ctx, scratch, liveTemps)
+	switch {
+	case heldBy != "":
+		return fmt.Sprintf("\nleft the scratch folder %s in place: it is /tmp for every shell of the Git Bash in %s until the last of them ends, and the janitor removes it once no running Git Bash has it as /tmp", scratch, heldBy)
+	case errors.Is(err, home.ErrLiveTempUnknown):
+		return fmt.Sprintf("\nleft the scratch folder %s in place: %v, and the janitor removes it once it can tell", scratch, err)
+	case err != nil:
+		return fmt.Sprintf("\nwarning: scratch folder %s could not be removed: %v; the janitor removes it once the handle clears", scratch, err)
 	}
-	return nil
+	return ""
 }
+
+// liveTemps reads which folders running msys runtimes have as /tmp.
+var liveTemps = home.LiveTemps
 
 // ArchiveDirName is where a finished task's scratch directory goes; see
 // state.ArchiveDirName for why the name is shared.

@@ -17,6 +17,7 @@ import (
 	"github.com/fpresta0607/code-goblins/internal/fsx"
 	"github.com/fpresta0607/code-goblins/internal/goblinname"
 	"github.com/fpresta0607/code-goblins/internal/harness"
+	"github.com/fpresta0607/code-goblins/internal/home"
 	"github.com/fpresta0607/code-goblins/internal/host"
 	"github.com/fpresta0607/code-goblins/internal/lock"
 	"github.com/fpresta0607/code-goblins/internal/pipeline"
@@ -328,10 +329,17 @@ func TestSpawnShipPublishesANativeTaskAndBriefsItsHarness(t *testing.T) {
 		}
 	}
 	env := named(f.events(t), "env")[0].Env
-	for name, want := range map[string]string{"CFO_TASK_ID": "task-7", "CFO_ROLE": harness.RoleGoblin, "GOTMPDIR": scratch, "TEMP": scratch, "TMP": scratch, "CFO_STATE_OVERRIDE": f.stateDir} {
+	// TMP alone names the folder every goblin shares: Git Bash makes the TMP
+	// of its first shell /tmp for every shell of the user, so it can be no
+	// task's own folder, which goes with the task.
+	sharedTemp := filepath.Join(filepath.Dir(scratch), home.SharedTempDir)
+	for name, want := range map[string]string{"CFO_TASK_ID": "task-7", "CFO_ROLE": harness.RoleGoblin, "GOTMPDIR": scratch, "TEMP": scratch, "TMPDIR": scratch, "TMP": sharedTemp, "CFO_STATE_OVERRIDE": f.stateDir} {
 		if got := env[name]; got == nil || *got != want {
 			t.Errorf("the harness started with %s = %v, want %q", name, got, want)
 		}
+	}
+	if info, statErr := os.Stat(sharedTemp); statErr != nil || !info.IsDir() {
+		t.Errorf("stat %q = %v, want the spawn to have made the folder the harness's TMP names", sharedTemp, statErr)
 	}
 	submitted := named(f.events(t), "submitted")
 	if len(submitted) != 1 || !strings.Contains(delivered(t, submitted[0].Text), "Read the brief at "+f.brief) {
@@ -1185,7 +1193,7 @@ func (a fixtureAdapter) Build(spec harness.LaunchSpec) (harness.Launch, error) {
 	}
 	return harness.Launch{
 		Args:       []string{"--dangerously-skip-permissions"},
-		Env:        map[string]string{"GOTMPDIR": spec.Scratch, "TEMP": spec.Scratch, "TMP": spec.Scratch},
+		Env:        map[string]string{"GOTMPDIR": spec.Scratch, "TEMP": spec.Scratch, "TMPDIR": spec.Scratch, "TMP": home.SharedTempBeside(spec.Scratch)},
 		PromptFile: spec.BriefPath,
 	}, nil
 }

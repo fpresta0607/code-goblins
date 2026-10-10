@@ -10,6 +10,7 @@ import (
 
 	"github.com/fpresta0607/code-goblins/internal/execx"
 	"github.com/fpresta0607/code-goblins/internal/harness"
+	"github.com/fpresta0607/code-goblins/internal/home"
 	"github.com/fpresta0607/code-goblins/internal/host"
 )
 
@@ -47,7 +48,9 @@ func (s Service) ProveLaunch(ctx context.Context, id string, kind harness.Kind, 
 		return fmt.Errorf("spawn: %w", err)
 	}
 	scratch := filepath.Join(dir, "scratch")
-	if err := os.MkdirAll(scratch, 0o700); err != nil {
+	// The launch's TMP names the folder beside its scratch folder, as a
+	// goblin's does.
+	if err := errors.Join(os.MkdirAll(scratch, 0o700), os.MkdirAll(home.SharedTempBeside(scratch), 0o700)); err != nil {
 		return err
 	}
 	launch, err := adapter.Build(harness.LaunchSpec{BriefPath: filepath.Join(dir, "brief.md"), TaskTmp: scratch, Scratch: scratch, CodexMCPServers: codexServers})
