@@ -189,13 +189,55 @@ func TestPushRunsAGuardOnceWhenItsPackageRunsWhole(t *testing.T) {
 	}
 }
 
+// A slow test in the test file named for a changed source runs when it took
+// under BesideTest here, whatever system either file builds for. From
+// 2026-09-05 to 2026-10-10 five tests failed four pull requests that way,
+// each under 15 seconds on this machine, and two of them were PR 613's, in
+// spawn_test.go beside the spawn.go it changed. The slower ones beside a
+// changed source stay left to CI: counting them all as touched ran 37 slow
+// tests for a change to one file of cmd/cfo, seven minutes of the limit.
+func TestPushRunsTheQuickerSlowTestsBesideAChangedSource(t *testing.T) {
+	// Arrange
+	found := checkout(t, fleet, map[string]string{
+		"internal/supervisor/spawn.go":              "package supervisor\n",
+		"internal/supervisor/spawn_test.go":         "package supervisor\n\nfunc TestSpawnShipPublishes(t *testing.T) {}\nfunc TestSpawnWaitsOutAHarness(t *testing.T) {}\n",
+		"internal/supervisor/spawn_windows_test.go": "package supervisor\n\nfunc TestSpawnOpensATerminal(t *testing.T) {}\n",
+		"internal/supervisor/gpu_windows.go":        "package supervisor\n",
+		"internal/supervisor/gpu_test.go":           "package supervisor\n\nfunc TestGPUReadsNoAdapter(t *testing.T) {}\n",
+		"internal/supervisor/switch_test.go":        "package supervisor\n\nfunc TestSwitchKeepsTheNote(t *testing.T) {}\n",
+	}, fleetPackages, "internal/supervisor/spawn.go", "internal/supervisor/gpu_windows.go")
+	times := Times{"example.com/repo/internal/supervisor": {
+		"TestSpawnShipPublishes":    5.2,
+		"TestSpawnWaitsOutAHarness": 15,
+		"TestSpawnOpensATerminal":   14.8,
+		"TestGPUReadsNoAdapter":     4,
+		"TestSwitchKeepsTheNote":    3.6,
+	}}
+
+	// Act
+	pick := push(found, times)
+
+	// Assert
+	want := Step{
+		What:    "tests of internal/supervisor but for 2 slower ones",
+		Why:     "changed",
+		Command: []string{"go", "test", "-json", "-count=1", "-p", "2", "-timeout", "0", "-skip", "^(TestSpawnWaitsOutAHarness|TestSwitchKeepsTheNote)$", "./internal/supervisor"},
+	}
+	if !slices.ContainsFunc(pick.Steps, func(step Step) bool {
+		return step.What == want.What && step.Why == want.Why && slices.Equal(step.Command, want.Command)
+	}) {
+		t.Errorf("push picks\n%s\nwant among them %s as %q", strings.Join(whats(pick), "\n"), want, want.Command)
+	}
+	if wantLeft := "2 tests of internal/supervisor (they take 2s or longer each here, 19s in all, and are in files the change did not touch)"; !slices.Contains(lefts(pick), wantLeft) {
+		t.Errorf("push leaves to CI\n%s\nwant among it %s", strings.Join(lefts(pick), "\n"), wantLeft)
+	}
+}
+
 // In a slow package this machine has timed, the pick runs every test in a
 // test file the change touched and every other test that took under
 // SlowTest here. The slower ones it leaves to CI, and says how many and how
-// long they take. A test file beside a changed source is not touched: on
-// 2026-10-10 that rule ran 37 slow tests for a change to one file of
-// cmd/cfo, seven minutes of a fifteen-minute limit, where the tests that
-// fail a pull request are in the test files it changed.
+// long they take. A test file beside a changed source is not touched, so a
+// test in it that takes BesideTest or longer is left to CI with the rest.
 func TestPushRunsASlowPackageWithoutTheSlowTestsTheChangeDidNotTouch(t *testing.T) {
 	// Arrange
 	found := checkout(t, fleet, map[string]string{

@@ -21,6 +21,16 @@ import (
 // internal/supervisor and 9 to 28 percent of their time.
 const SlowTest = 2 * time.Second
 
+// BesideTest is how long a test in the test file named for a changed source
+// takes, by this machine's own record, before a push leaves it to CI with
+// the other slow tests. From 2026-09-05 to 2026-10-10 five slow tests beside
+// a changed source failed four pull requests, and each took under 15 seconds
+// here. By this machine's record, running the ones under 15 seconds adds 0
+// to 128 seconds to each of the 18 pull requests that failed from 2026-10-08
+// to 2026-10-10, where the slower ones beside a changed source hold up to 18
+// minutes.
+const BesideTest = 15 * time.Second
+
 // Times is how long each test took the last time it passed on this machine,
 // in seconds, by its package's import path and its name.
 type Times map[string]map[string]float64
@@ -84,7 +94,8 @@ var testArgs = []string{"go", "test", "-json", "-count=1", "-p", "2", "-timeout"
 // checks the board when a file under it changed, then tests the packages
 // that import a changed one, nearest first. A package the policy lists as
 // slow runs without the tests times records at SlowTest or longer, except
-// the tests in a test file the change touched, and is left to CI when it did
+// the tests in a test file the change touched and the tests under BesideTest
+// in the test file named for a changed source, and is left to CI when it did
 // not change and times holds nothing of it. Whatever the pick leaves out it
 // names in Left.
 func push(found findings, times Times) Push {
@@ -283,7 +294,9 @@ var testFunc = regexp.MustCompile(`(?m)^func (Test\w*)\(\w+ \*testing\.T\)`)
 // slowTests are the tests of the slow package in dir that a pick skips,
 // sorted, with how long they take together by times: each test the package
 // declares that times records at SlowTest or longer, but for the tests in a
-// test file the change touched, which run however long they take.
+// test file the change touched, which run however long they take, and the
+// tests under BesideTest in the test file named for a source the change
+// touched, as spawn_test.go is for spawn.go.
 func slowTests(found findings, dir string, times map[string]float64) (skipped []string, seconds float64) {
 	if len(times) == 0 {
 		return nil, 0
@@ -292,17 +305,34 @@ func slowTests(found findings, dir string, times map[string]float64) (skipped []
 	if err != nil {
 		return nil, 0
 	}
+	touched, sources := map[string]bool{}, map[string]bool{}
+	for _, file := range found.changed {
+		file = filepath.ToSlash(file)
+		name := path.Base(file)
+		if path.Dir(file) != dir || !strings.HasSuffix(name, ".go") {
+			continue
+		}
+		if strings.HasSuffix(name, "_test.go") {
+			touched[name] = true
+		} else {
+			sources[subject(name)] = true
+		}
+	}
 	for _, entry := range entries {
 		name := entry.Name()
-		if entry.IsDir() || !strings.HasSuffix(name, "_test.go") || slices.ContainsFunc(found.changed, func(file string) bool { return filepath.ToSlash(file) == path.Join(dir, name) }) {
+		if entry.IsDir() || !strings.HasSuffix(name, "_test.go") || touched[name] {
 			continue
 		}
 		source, err := fsx.ReadFile(filepath.Join(found.root, filepath.FromSlash(dir), name))
 		if err != nil {
 			continue
 		}
+		limit := SlowTest
+		if sources[subject(name)] {
+			limit = BesideTest
+		}
 		for _, match := range testFunc.FindAllSubmatch(source, -1) {
-			if took := times[string(match[1])]; took >= SlowTest.Seconds() {
+			if took := times[string(match[1])]; took >= limit.Seconds() {
 				skipped = append(skipped, string(match[1]))
 				seconds += took
 			}
@@ -310,6 +340,15 @@ func slowTests(found findings, dir string, times map[string]float64) (skipped []
 	}
 	slices.Sort(skipped)
 	return skipped, seconds
+}
+
+// subject is what a Go file is named for: its name without .go, without
+// _test, and without the system it builds for, which this repository writes
+// as _windows or _other. spawn.go, spawn_test.go and spawn_windows_test.go
+// share one.
+func subject(name string) string {
+	name = strings.TrimSuffix(strings.TrimSuffix(name, ".go"), "_test")
+	return strings.TrimSuffix(strings.TrimSuffix(name, "_windows"), "_other")
 }
 
 // Again is the command that runs tests, some of the tests of the package a
