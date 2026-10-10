@@ -447,12 +447,11 @@ func TestSpawnPutsTheWorktreeUnderTheHomeAndLeavesTheProjectAlone(t *testing.T) 
 	}
 }
 
-func TestSpawnReportsADefaultLinkSkippedForACheckedOutFile(t *testing.T) {
+func TestSpawnLeavesAnEnvFileTheRepositoryTracksAsCheckedOut(t *testing.T) {
 	f := newQuickFixture(t)
-	// The project commits .env, so git worktree add checks it out before
-	// provisioning runs. The default link set is not a declaration, so the
-	// occupied path is left alone and named on the spawn output instead of
-	// tearing the dispatch down.
+	// The project commits .env, so git worktree add checks it out. Nothing is
+	// shared that no manifest names, so the worktree's file is the
+	// repository's own and the spawn has nothing to say about it.
 	writeFile(t, filepath.Join(f.project, ".env"), "K=primary\n")
 	writeFile(t, filepath.Join(f.worktree, ".env"), "K=checked-out\n")
 
@@ -460,8 +459,8 @@ func TestSpawnReportsADefaultLinkSkippedForACheckedOutFile(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Spawn: %v, want the goblin dispatched with its checked-out .env", err)
 	}
-	if !strings.Contains(result.Output, "link: .env already present in the worktree") {
-		t.Errorf("output = %q, want the skipped default share reported", result.Output)
+	if strings.Contains(result.Output, "env: the checkout holds") {
+		t.Errorf("output = %q, want nothing said about an env file the worktree holds", result.Output)
 	}
 	data, err := os.ReadFile(filepath.Join(f.worktree, ".env"))
 	if err != nil {
@@ -1366,5 +1365,43 @@ func TestServicesInstructionNamesTheCommandsThatHoldAndReleaseThem(t *testing.T)
 	}
 	if strings.Contains(got, ";") {
 		t.Errorf("instruction = %q, want no semicolons", got)
+	}
+}
+
+// A default spawn used to give the worktree the checkout's .env with no word
+// from anyone. It gives none now, and says by name which env files the
+// checkout holds that the worktree was not given, with the line that shares
+// one, so nobody learns it from a dev server that will not start.
+func TestASpawnSharesNoEnvFileTheManifestDoesNotName(t *testing.T) {
+	// Arrange
+	f := newQuickFixture(t)
+	writeFile(t, filepath.Join(f.project, ".env"), "STANDIN_SETTING=the checkout's own line\n")
+	writeFile(t, filepath.Join(f.project, ".env.local"), "STANDIN_SETTING=the checkout's own line\n")
+
+	// Act
+	result, err := f.service.Spawn(context.Background(), f.request)
+
+	// Assert
+	if err != nil {
+		t.Fatalf("Spawn: %v", err)
+	}
+	for _, name := range []string{".env", ".env.local"} {
+		if _, err := os.Stat(filepath.Join(f.worktree, name)); !os.IsNotExist(err) {
+			t.Errorf("the worktree was given %s, which no manifest names (%v)", name, err)
+		}
+	}
+	for _, want := range []string{"env: the checkout holds .env, .env.local", `"link": [".env", ".env.local"]`, "worktree.json"} {
+		if !strings.Contains(result.Output, want) {
+			t.Errorf("output = %q, want %q: the spawn names what it did not share and the line that shares it", result.Output, want)
+		}
+	}
+	if strings.Contains(result.Output, "the checkout's own line") {
+		t.Error("the spawn's output holds a line of the env file")
+	}
+	instruction := delivered(t, submittedLines(t, f, 1)[0])
+	for _, want := range []string{"holds .env, .env.local, which your worktree was not given", "blocked report", "never copy it yourself"} {
+		if !strings.Contains(instruction, want) {
+			t.Errorf("instruction = %q, want %q: the goblin is told before its dev server fails", instruction, want)
+		}
 	}
 }
