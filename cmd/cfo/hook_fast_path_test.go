@@ -94,11 +94,12 @@ func TestTheCFOsBashHookAppliesBothGuardsWithoutStartingAProcess(t *testing.T) {
 // nothing added, took 5 to 16 ms at the median and 34 to 181 ms at the 95th
 // percentile, so the test failed on main. And on a quiet machine, where the
 // hook takes 0.6 ms and a walk of the process tree 3.5 ms, a hook with a walk
-// added would have passed. A time measures the machine first, so the time
-// kept is one measured beside the hook: a hook's own work costs less than one
-// list of the machine's processes, at any load. That held with the hook at a
-// sixth of a list on a quiet machine and a quarter beside a cold build, and
-// anything that starts a process or lists them breaks it.
+// added would have passed.
+//
+// No time is asserted, because every yardstick tried measured the machine
+// before the hook. A list of the machine's processes, timed beside the hook,
+// cost six times the hook on a workstation running hundreds of processes and
+// a third of it on a CI runner running few. The hook's time is logged.
 const hookBodyOpens = 1
 
 // The CFO's pre-tool hooks run before every tool call they select, so what
@@ -114,40 +115,28 @@ func TestTheCFOsPreToolHooksStayWithinTheirBudget(t *testing.T) {
 	}
 	const runs = 40
 	for _, c := range cases {
-		hooks, lists := make([]time.Duration, runs), make([]time.Duration, runs)
+		durations := make([]time.Duration, runs)
 		opened, listed := fsx.Opens(), proc.Lists()
-		for i := range hooks {
+		for i := range durations {
 			var stdout, stderr bytes.Buffer
 			start := time.Now()
 
 			// Act
 			exit := runHook(c.hook, strings.NewReader(c.payload), &stdout, &stderr)
 
-			hooks[i] = time.Since(start)
+			durations[i] = time.Since(start)
 			if exit != 0 {
 				t.Fatalf("%s exit %d, stderr %q; want the call allowed", c.hook, exit, stderr.String())
 			}
-			// What one list of the machine's processes costs at this moment.
-			start = time.Now()
-			if _, err := proc.Processes(); err != nil {
-				t.Fatal(err)
-			}
-			lists[i] = time.Since(start)
 		}
-		// The lists counted are the hooks': this test took one a run itself.
-		opened, listed = fsx.Opens()-opened, proc.Lists()-listed-runs
+		opened, listed = fsx.Opens()-opened, proc.Lists()-listed
 
 		// Assert
 		if opened != runs*hookBodyOpens || listed != 0 {
 			t.Errorf("%s opened %d file(s) and listed the machine's processes %d time(s) in %d runs, want %d file(s) a run and no list", c.hook, opened, listed, runs, hookBodyOpens)
 		}
-		slices.Sort(hooks)
-		slices.Sort(lists)
-		hook, list := hooks[runs/2], lists[runs/2]
-		t.Logf("%s: median %v, beside one list of the machine's processes at %v", c.hook, hook, list)
-		if hook > list {
-			t.Errorf("%s took %v at the median, more than the %v one list of the machine's processes took beside it", c.hook, hook, list)
-		}
+		slices.Sort(durations)
+		t.Logf("%s: median %v, 95th percentile %v", c.hook, durations[runs/2], durations[runs*95/100])
 	}
 }
 
