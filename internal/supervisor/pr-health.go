@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/fpresta0607/code-goblins/internal/execx"
+	"github.com/fpresta0607/code-goblins/internal/train"
 )
 
 // mergeabilityGrace is how long a head behind the default branch waits for
@@ -26,6 +27,9 @@ type reportedPRHealth struct {
 	// UnknownSince is when a poll first found GitHub had not yet worked out
 	// whether the head conflicts, while it still has not.
 	UnknownSince time.Time `json:"unknown_since,omitzero"`
+	// RunningSince is when a poll first found the head's checks still
+	// running, while they still are.
+	RunningSince time.Time `json:"running_since,omitzero"`
 	At           time.Time `json:"at"`
 }
 
@@ -129,10 +133,15 @@ type prHealthChange struct {
 // conflicts only once it is asked, and lists it UNKNOWN until then, so a
 // behind head waits up to mergeabilityGrace for that answer: reporting it
 // behind and then conflicting woke twice for one head that never changed.
+// A behind head whose checks are still running waits for them too: no merge
+// train has passed it over yet, and on 2026-10-10 one woke the CFO minutes
+// after its push. It waits as long as a train waits for its own run,
+// train.RunDeadline, so checks that never conclude do not hide it for ever.
 func healthChange(record reportedPRHealth, pr ghPullRequest, behind int, now time.Time) (prHealthChange, bool) {
 	isAwaitingGitHub := !record.UnknownSince.IsZero() && now.Sub(record.UnknownSince) < mergeabilityGrace
+	isAwaitingChecks := !record.RunningSince.IsZero() && now.Sub(record.RunningSince) < train.RunDeadline
 	isConflicting := pr.Mergeable == "CONFLICTING"
-	if isConflicting && record.HasConflictWake || !isConflicting && (behind == 0 || record.HasBehindWake || isAwaitingGitHub) {
+	if isConflicting && record.HasConflictWake || !isConflicting && (behind == 0 || record.HasBehindWake || isAwaitingGitHub || isAwaitingChecks) {
 		return prHealthChange{}, false
 	}
 	return prHealthChange{pr: pr, behind: behind, isConflicting: isConflicting}, true
