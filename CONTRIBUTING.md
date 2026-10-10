@@ -27,14 +27,17 @@ go build ./cmd/cfo
 ```
 
 `cfo gate test` vets every package your change reaches and tests the changed packages that are quick to test, naming each with why; `--plan` shows that plan without running it.
-It leaves the slow packages' tests, and the packages that only import what you changed, to CI, which runs every package on every pull request: on a Windows machine the whole suite takes an hour or more, where CI's parallel jobs take about eight minutes.
+It leaves the slow packages' tests, and the packages that only import what you changed, to CI, which tests what your change reaches on the pull request's own run and every package in the merge train's run that lands it: on a Windows machine the whole suite takes an hour or more, where CI's parallel jobs take about eight minutes.
 In a slow package, run the tests you changed by name, such as `go test ./internal/supervisor -run 'TestName' -count=1`.
 `go test ./...` still runs everything here when you want it.
 
 CI runs the same steps on `windows-latest` for every push to `main` and every pull request, as parallel jobs: the frontend checks, the board's browser tests in four jobs, each slow Go package (some in two jobs), and every other package together.
-A pull request must keep all of them green: the one required check, `test`, passes only when every job passed.
+A pull request's own run starts only the jobs its change can alter, which the `plan` job chooses with `tools/ciplan`, and a merge train's run and a run on `main` start every job.
+A pull request must keep green every job its run starts: the one required check, `test`, passes only when the plan and every job it started passed.
 A test that fails in CI runs once more in its job (`tools/citest` for Go, Playwright's own retry for the browser tests): one that passes then is named as a Failed once warning on the `test` check, and one that fails twice fails the job, so fix a test named there rather than leaning on its second try.
 A new package needs no change to `.github/workflows/go.yml`, because the `rest` job tests every package no other job names.
+A new job does: `JOBS` at the top of that file says what can change each job's result, the plan answers for each job, and `test` counts it, and the workflow's own tests fail until all three agree.
+A browser spec or a unit test of the board that reads a file outside `frontend` must have that file listed under the job's paths in `JOBS`, which `frontend/src/outside-reads.test.ts` checks.
 A new browser spec needs none either: Playwright deals the spec files out among the browser jobs, and one more number in that job's `shard` list is one more job when they grow slower than the slowest Go job.
 
 `cmd/cfo/winres.json` is the Windows version resource and manifest every build of `cfo.exe` carries, through the `rsrc_windows_*.syso` files beside it.

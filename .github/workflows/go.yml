@@ -20,13 +20,110 @@ concurrency:
   group: ${{ github.workflow }}-${{ github.event_name == 'pull_request' && format('pr-{0}', github.event.pull_request.number) || github.run_id }}
   cancel-in-progress: true
 
+env:
+  # What can change the result of each job below. A merge train's run and a
+  # run on main start every job. A pull request's own run starts the jobs its
+  # change can alter, which the plan job reads from here (tools/ciplan):
+  #
+  # - frontend runs when a file under its paths changed, or the change
+  #   reaches one of its packages: the embed check tests internal/boardweb
+  #   and the licence check runs tools/notices, which reads the notices and
+  #   the console host's licence.
+  # - browser runs when a file under its paths changed: the board's own
+  #   source, and the two files outside it that a spec reads.
+  #   frontend/src/outside-reads.test.ts holds the list to what the specs
+  #   read.
+  # - a go job runs when the change reaches one of its packages: a package
+  #   that changed, one that imports it, or one whose tests read a changed
+  #   file under config/verify.json. The rest job runs when the change
+  #   reaches any package at all, since it also vets and builds all of them.
+  #
+  # A change to a workflow, to config/verify.json, to tools/ciplan or a
+  # package it imports, to go.mod or go.sum, or to a file the policy does not
+  # account for starts every job: what the rule cannot be sure of widens the
+  # run.
+  #
+  # Of the go jobs, a package slow enough to hold a run back gets jobs of its
+  # own. These three spend their time waiting on real terminals and
+  # supervisors, which no faster runner shortens, so each gets two: one runs
+  # the tests whose names match run, the other skips exactly those.
+  # internal/conpty is fast but times keystrokes against bounds: beside the
+  # rest job's other packages, which keep all four cores busy, one key's echo
+  # spent 429 ms waiting for a core, so it runs alone. The rest job runs
+  # every package that except does not name, so a new package is tested with
+  # no change here. TestGoWorkflowRunsEveryPackageOnce holds the list to
+  # that: except names exactly the other jobs' packages, and a package in two
+  # jobs is split by one pattern, run in one and skipped in the other.
+  JOBS: |
+    {
+      "frontend": {
+        "paths": ["frontend/**", "THIRD_PARTY_NOTICES", "internal/conpty/openconsole/LICENSE"],
+        "packages": ["./internal/boardweb", "./tools/notices"]
+      },
+      "browser": {
+        "paths": ["frontend/**", "internal/boardweb/dist/index.html", "cmd/goblins-window/notes.go"]
+      },
+      "go": [
+        {"shard": "cmd-cfo-1", "packages": "./cmd/cfo", "run": "Update|Recover"},
+        {"shard": "cmd-cfo-2", "packages": "./cmd/cfo", "skip": "Update|Recover"},
+        {"shard": "spawn-1", "packages": "./internal/spawn", "run": "Spawn|Resume"},
+        {"shard": "spawn-2", "packages": "./internal/spawn", "skip": "Spawn|Resume"},
+        {"shard": "supervisor-1", "packages": "./internal/supervisor", "run": "^Test[A-M]"},
+        {"shard": "supervisor-2", "packages": "./internal/supervisor", "skip": "^Test[A-M]"},
+        {"shard": "conpty", "packages": "./internal/conpty"},
+        {"shard": "rest", "except": "./cmd/cfo ./internal/spawn ./internal/supervisor ./internal/conpty"}
+      ]
+    }
+
 # The work runs as parallel jobs so a run takes as long as its slowest job,
 # not the sum: the frontend's checks, the board's browser tests in shards,
-# each slow Go package, and every other Go package together. The test job at
-# the end is the one check branch protection requires, and it passes only
-# when every other job passed.
+# each slow Go package, and every other Go package together. The plan job at
+# the start says which of them this run starts. The test job at the end is
+# the one check branch protection requires, and it passes only when every
+# job the plan started passed.
 jobs:
+  plan:
+    runs-on: windows-latest
+    outputs:
+      go: ${{ steps.plan.outputs.go }}
+      frontend: ${{ steps.plan.outputs.frontend }}
+      browser: ${{ steps.plan.outputs.browser }}
+    env:
+      # A pull request's own run, which may leave a job out. A merge train
+      # tests its pull requests together from a branch named cfo/train-, on
+      # whatever event, and that run and every other start every job, so
+      # nothing reaches main that the full set did not test.
+      OWN_RUN: ${{ github.event_name == 'pull_request' && !startsWith(github.head_ref, 'cfo/train-') }}
+    steps:
+      # The run's commit is the merge of the pull request into its base, so
+      # its first parent is the base and the difference between the two is
+      # what merging would change.
+      - uses: actions/checkout@v6
+        if: env.OWN_RUN == 'true'
+        with:
+          fetch-depth: 2
+      - uses: actions/setup-go@v5
+        if: env.OWN_RUN == 'true'
+        with:
+          go-version: stable
+          cache: false
+      - name: Choose the jobs this run starts
+        id: plan
+        shell: pwsh
+        run: |
+          if ($env:OWN_RUN -eq 'true') {
+            go run ./tools/ciplan -base 'HEAD^1' >> $env:GITHUB_OUTPUT
+            exit $LASTEXITCODE
+          }
+          'Every job runs: this is not a pull request''s own run.'
+          $jobs = $env:JOBS | ConvertFrom-Json
+          "go=$(ConvertTo-Json -InputObject @($jobs.go) -Compress)" >> $env:GITHUB_OUTPUT
+          'frontend=true' >> $env:GITHUB_OUTPUT
+          'browser=true' >> $env:GITHUB_OUTPUT
+
   frontend:
+    needs: plan
+    if: needs.plan.outputs.frontend == 'true'
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v6
@@ -79,6 +176,8 @@ jobs:
   # TestGoWorkflowRunsEveryBrowserTestOnce holds the list to 1 up to its
   # length.
   browser:
+    needs: plan
+    if: needs.plan.outputs.browser == 'true'
     name: browser (${{ matrix.shard }}/${{ strategy.job-total }})
     runs-on: windows-latest
     strategy:
@@ -133,47 +232,16 @@ jobs:
           retention-days: 14
 
   go:
+    needs: plan
+    if: needs.plan.outputs.go != '[]'
     name: go (${{ matrix.shard }})
     runs-on: windows-latest
     strategy:
       # Every job runs to its end, so one run names every failure.
       fail-fast: false
       matrix:
-        # A package slow enough to hold a run back gets jobs of its own. These
-        # three spend their time waiting on real terminals and supervisors,
-        # which no faster runner shortens, so each gets two: one runs the
-        # tests whose names match run, the other skips exactly those.
-        # internal/conpty is fast but times keystrokes against bounds: beside
-        # the rest job's other packages, which keep all four cores busy, one
-        # key's echo spent 429 ms waiting for a core, so it runs alone. The
-        # rest job runs every package that except does not name, so a new
-        # package is tested with no change here.
-        # TestGoWorkflowRunsEveryPackageOnce holds the matrix to that: except
-        # names exactly the other jobs' packages, and a package in two jobs
-        # is split by one pattern, run in one and skipped in the other.
-        include:
-          - shard: cmd-cfo-1
-            packages: ./cmd/cfo
-            run: Update|Recover
-          - shard: cmd-cfo-2
-            packages: ./cmd/cfo
-            skip: Update|Recover
-          - shard: spawn-1
-            packages: ./internal/spawn
-            run: Spawn|Resume
-          - shard: spawn-2
-            packages: ./internal/spawn
-            skip: Spawn|Resume
-          - shard: supervisor-1
-            packages: ./internal/supervisor
-            run: ^Test[A-M]
-          - shard: supervisor-2
-            packages: ./internal/supervisor
-            skip: ^Test[A-M]
-          - shard: conpty
-            packages: ./internal/conpty
-          - shard: rest
-            except: ./cmd/cfo ./internal/spawn ./internal/supervisor ./internal/conpty
+        # The go jobs of JOBS above that the plan started.
+        include: ${{ fromJSON(needs.plan.outputs.go) }}
     steps:
       - uses: actions/checkout@v6
       # setup-go keeps one cache for all of these jobs and the first to end
@@ -299,21 +367,40 @@ jobs:
         run: go build ./cmd/cfo
 
   # The check branch protection requires. It runs whatever happened above,
-  # and fails unless every job it needs succeeded: a job that failed, was
-  # cancelled or was skipped is not a pass.
+  # and fails unless the plan succeeded and every job it started succeeded: a
+  # job that failed or was cancelled is not a pass, and neither is one that
+  # was skipped unless the plan left it out. Only a pull request's own run
+  # may leave a job out: in a merge train's run and every other, a job that
+  # did not succeed fails the check whatever the plan said.
   test:
     if: always()
-    needs: [frontend, browser, go]
+    needs: [plan, frontend, browser, go]
     runs-on: ubuntu-latest
     steps:
       - name: Require every job to have passed
         shell: pwsh
         env:
           RESULTS: ${{ toJSON(needs) }}
+          OWN_RUN: ${{ github.event_name == 'pull_request' && !startsWith(github.head_ref, 'cfo/train-') }}
         run: |
-          $jobs = @(($env:RESULTS | ConvertFrom-Json).PSObject.Properties)
+          $needs = $env:RESULTS | ConvertFrom-Json
+          $jobs = @($needs.PSObject.Properties)
           $jobs | ForEach-Object { "$($_.Name): $($_.Value.result)" }
-          $notPassed = @($jobs | Where-Object { $_.Value.result -ne 'success' })
+          $plan = $needs.plan
+          # What the plan left out, which only a plan that succeeded and said
+          # true or false for each job can say.
+          $leftOut = @()
+          if ($env:OWN_RUN -eq 'true' -and $plan.result -eq 'success') {
+            $said = $plan.outputs
+            if ($said.frontend -notin 'true', 'false' -or $said.browser -notin 'true', 'false' -or "$($said.go)" -notmatch '^\[.*\]$') {
+              throw "The plan did not say which jobs to start: frontend '$($said.frontend)', browser '$($said.browser)', go '$($said.go)'"
+            }
+            if ($said.frontend -eq 'false') { $leftOut += 'frontend' }
+            if ($said.browser -eq 'false') { $leftOut += 'browser' }
+            if ($said.go -eq '[]') { $leftOut += 'go' }
+            "left out by the plan: $($leftOut -join ', ')"
+          }
+          $notPassed = @($jobs | Where-Object { $_.Value.result -ne 'success' -and -not ($_.Value.result -eq 'skipped' -and $leftOut -contains $_.Name) })
           if ($jobs.Count -eq 0 -or $notPassed.Count -gt 0) {
             throw "Not every job passed: $($notPassed.Name -join ', ')"
           }
