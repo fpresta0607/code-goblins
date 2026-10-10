@@ -107,6 +107,10 @@ type Action struct {
 	// Dismissed names the questions a clear dismissed while they still waited
 	// on the Overlord, which the CFO hears of when the action runs.
 	Dismissed []string `json:"dismissed,omitempty"`
+	// With is, only on an answer to the CFO as it is handed to its run, the
+	// answers that go to the CFO in the same message after it, in the order
+	// he gave them. It is never stored.
+	With []Action `json:"-"`
 }
 
 type Database struct {
@@ -761,8 +765,23 @@ func (s *Store) ProcessOne(ctx context.Context, execute func(context.Context, Ac
 		s.mu.Unlock()
 		return err
 	}
-	s.db.Actions[i].Status = "running"
-	s.db.Actions[i].UpdatedAt = time.Now().UTC()
+	// The answers to the CFO's questions that wait with this one go with it,
+	// as one message in the order he gave them, whatever kept each queued.
+	// They are typed once, so they share one outcome.
+	together := []int{i}
+	if answers, _ := s.answersTogether(); slices.Contains(answers, i) {
+		together = answers
+		a = s.db.Actions[together[0]]
+		for _, j := range together[1:] {
+			a.With = append(a.With, s.db.Actions[j])
+		}
+	}
+	started := time.Now().UTC()
+	ran := make([]string, len(together))
+	for n, j := range together {
+		s.db.Actions[j].Status, s.db.Actions[j].UpdatedAt = "running", started
+		ran[n] = s.db.Actions[j].ID
+	}
 	if err := s.save(); err != nil {
 		s.mu.Unlock()
 		return err
@@ -771,68 +790,73 @@ func (s *Store) ProcessOne(ctx context.Context, execute func(context.Context, Ac
 	result, runErr := execute(ctx, a)
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	// Queue append/retention can move indices while the action is running.
-	i = slices.IndexFunc(s.db.Actions, func(current Action) bool { return current.ID == a.ID })
-	if i < 0 {
-		return errors.New("running action disappeared")
-	}
-	completed := &s.db.Actions[i]
-	completed.UpdatedAt = time.Now().UTC()
-	if errors.Is(runErr, ErrDeferred) {
-		completed.Status = "queued"
-		completed.Message = bounded(runErr.Error(), 1200)
-		if result.Reason != "" {
-			completed.Message = bounded(result.Reason, 1200)
+	for _, id := range ran {
+		// Queue append/retention can move indices while the action is running.
+		i = slices.IndexFunc(s.db.Actions, func(current Action) bool { return current.ID == id })
+		if i < 0 {
+			return errors.New("running action disappeared")
 		}
-		if s.deferredUntil == nil {
-			s.deferredUntil = make(map[string]time.Time)
+		completed := &s.db.Actions[i]
+		a := *completed
+		completed.UpdatedAt = time.Now().UTC()
+		if errors.Is(runErr, ErrDeferred) {
+			completed.Status = "queued"
+			completed.Message = bounded(runErr.Error(), 1200)
+			if result.Reason != "" {
+				completed.Message = bounded(result.Reason, 1200)
+			}
+			if s.deferredUntil == nil {
+				s.deferredUntil = make(map[string]time.Time)
+			}
+			s.deferredUntil[a.ID] = completed.UpdatedAt.Add(time.Second)
+			continue
 		}
-		s.deferredUntil[a.ID] = completed.UpdatedAt.Add(time.Second)
-		s.updateQuestionOutcomes()
-		if err := s.save(); err != nil {
-			return err
+		delete(s.deferredUntil, a.ID)
+		if runErr != nil {
+			completed.Status = "failed"
+			if a.Kind != "evaluate" && !errors.Is(runErr, ErrRejected) {
+				completed.Status = "uncertain"
+			}
+			completed.Message = bounded(runErr.Error(), 1200)
+			if a.Kind == "evaluate" && (a.EventID == "" || s.db.Sessions[a.Session].LastEventID == a.EventID) {
+				prior := s.db.Tasks[a.TaskID]
+				s.db.Tasks[a.TaskID] = Evaluation{Phase: "unavailable", Reason: completed.Message, Base: prior.Base, Generation: a.Generation, At: completed.UpdatedAt}
+			}
+		} else if result.Awaiting != nil {
+			// Typed and submitted, and its harness has yet to report taking it:
+			// it stays on its way until settleDeliveries hears.
+			awaiting := *result.Awaiting
+			if awaiting.QuietSince.IsZero() {
+				awaiting.QuietSince = awaiting.Since
+			}
+			completed.Awaiting, completed.Message = &awaiting, result.Reason
+		} else {
+			completed.Status = "succeeded"
+			completed.Message = result.Reason
+			if a.Kind == "evaluate" && (a.EventID == "" || s.db.Sessions[a.Session].LastEventID == a.EventID) {
+				result.At = time.Now().UTC()
+				result.Generation = a.Generation
+				s.db.Tasks[a.TaskID] = result
+			}
 		}
-		return runErr
-	}
-	delete(s.deferredUntil, a.ID)
-	if runErr != nil {
-		completed.Status = "failed"
-		if a.Kind != "evaluate" && !errors.Is(runErr, ErrRejected) {
-			completed.Status = "uncertain"
-		}
-		completed.Message = bounded(runErr.Error(), 1200)
-		if a.Kind == "evaluate" && (a.EventID == "" || s.db.Sessions[a.Session].LastEventID == a.EventID) {
-			prior := s.db.Tasks[a.TaskID]
-			s.db.Tasks[a.TaskID] = Evaluation{Phase: "unavailable", Reason: completed.Message, Base: prior.Base, Generation: a.Generation, At: completed.UpdatedAt}
-		}
-	} else if result.Awaiting != nil {
-		// Typed and submitted, and its harness has yet to report taking it:
-		// it stays on its way until settleDeliveries hears.
-		awaiting := *result.Awaiting
-		if awaiting.QuietSince.IsZero() {
-			awaiting.QuietSince = awaiting.Since
-		}
-		completed.Awaiting, completed.Message = &awaiting, result.Reason
-	} else {
-		completed.Status = "succeeded"
-		completed.Message = result.Reason
-		if a.Kind == "evaluate" && (a.EventID == "" || s.db.Sessions[a.Session].LastEventID == a.EventID) {
-			result.At = time.Now().UTC()
-			result.Generation = a.Generation
-			s.db.Tasks[a.TaskID] = result
-		}
-	}
-	// An answer closes the pages that carry its question, and its goblin's
-	// waits on the Overlord up to it, once, when it is sent or taken: a
-	// delivery that settles later was sent first.
-	if (a.Kind == "cfo_answer" || a.Kind == "goblin_answer") && (completed.Status == "succeeded" || completed.Awaiting != nil) {
-		if q := slices.IndexFunc(s.db.Questions, func(q Question) bool { return q.AnswerID == a.ID }); q >= 0 {
-			s.closePagesOfQuestion(s.db.Questions[q], "overlord", "You answered its question: "+a.Text)
-			s.closeWaitsOfQuestion(s.db.Questions[q], "You answered its question: "+a.Text)
+		// An answer closes the pages that carry its question, and its goblin's
+		// waits on the Overlord up to it, once, when it is sent or taken: a
+		// delivery that settles later was sent first.
+		if (a.Kind == "cfo_answer" || a.Kind == "goblin_answer") && (completed.Status == "succeeded" || completed.Awaiting != nil) {
+			if q := slices.IndexFunc(s.db.Questions, func(q Question) bool { return q.AnswerID == a.ID }); q >= 0 {
+				s.closePagesOfQuestion(s.db.Questions[q], "overlord", "You answered its question: "+a.Text)
+				s.closeWaitsOfQuestion(s.db.Questions[q], "You answered its question: "+a.Text)
+			}
 		}
 	}
 	s.updateQuestionOutcomes()
-	return s.save()
+	if err := s.save(); err != nil {
+		return err
+	}
+	if errors.Is(runErr, ErrDeferred) {
+		return runErr
+	}
+	return nil
 }
 
 func (s *Store) updateQuestionOutcomes() {

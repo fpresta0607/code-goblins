@@ -16,7 +16,7 @@ import (
 // questions from the Command Center, and each was typed into the CFO as a
 // message of its own, in the middle of a turn, two minutes after a CFO
 // restart. sitting is those four questions by their ids, in the order he
-// answered them; their words and his choices stand in for the real ones.
+// answered them. Their words and his choices stand in for the real ones.
 var sitting = []sittingQuestion{
 	{"whats-new-drop", "Drop the old page?", "Drop it"},
 	{"whats-new-captures", "Retake the captures?", "Retake them"},
@@ -69,9 +69,6 @@ func passes(store *Store, d time.Duration) {
 	}
 }
 
-// answerBatchWindow stands here until the fix declares it in the store.
-const answerBatchWindow = 5 * time.Second
-
 // heAnswersTheSitting replays the sitting: each answer of it queued its gap
 // after the one before, with the supervisor's worker run between them as a
 // queued answer runs it, and returns how many messages the CFO's terminal had
@@ -100,20 +97,17 @@ func overlordMessages(lines []string) []string {
 	return messages
 }
 
-// wantTheSittingAsOneMessage fails unless messages is one message that lists
-// every answer of the sitting once, in the order he gave them.
+// wantTheSittingAsOneMessage fails unless messages is the one message that
+// says how many answers the sitting has and lists each once, numbered in the
+// order he gave them.
 func wantTheSittingAsOneMessage(t *testing.T, messages []string) {
 	t.Helper()
-	if len(messages) != 1 {
-		t.Fatalf("the CFO got %d messages, want his %d answers as one: %q", len(messages), len(sitting), messages)
+	want := fmt.Sprintf("Overlord: %d user answers to CFO questions, in the order he gave them.", len(sitting))
+	for i, q := range sitting {
+		want += fmt.Sprintf(" [%d/%d] %s", i+1, len(sitting), q.line())
 	}
-	from := 0
-	for _, q := range sitting {
-		at := strings.Index(messages[0], q.line())
-		if strings.Count(messages[0], q.line()) != 1 || at < from {
-			t.Errorf("the message is %q, want %q in it once, after the answers he gave before it", messages[0], q.line())
-		}
-		from = max(from, at)
+	if len(messages) != 1 || messages[0] != want {
+		t.Errorf("the CFO got %d messages, %q, want his %d answers as the one message %q", len(messages), messages, len(sitting), want)
 	}
 }
 
@@ -200,31 +194,33 @@ func TestAnAnswerAloneIsNotDelayedPastTheBatchingWindow(t *testing.T) {
 		identity := registrationIdentity(t, home.State)
 		s := &Service{Store: store, Options: Options{CFO: &CFOConnection{State: home.State}}, work: make(chan struct{}, 1)}
 		cfoAsks(t, store, identity, sitting[0], sitting[1])
-		const left = 400 * time.Millisecond
 
 		// Act
+		given := time.Now()
 		heAnswers(t, store, identity, sitting[0])
 		s.process(context.Background())
 		held := overlordMessages(terminal.lines(t))
-		passes(store, answerBatchWindow-left)
-		began := time.Now()
-		s.process(context.Background())
-		early := overlordMessages(terminal.lines(t))
-		var waited time.Duration
-		select {
-		case <-s.work:
-			waited = time.Since(began)
-		case <-time.After(left + 5*time.Second):
-			t.Fatal("the worker was not woken as the window ended, so the answer waits for whichever cycle comes next")
+		// A wake that comes a moment early is followed by another, as the
+		// worker asks again for the time that is left.
+		var woken time.Time
+		for len(overlordMessages(terminal.lines(t))) == 0 {
+			select {
+			case <-s.work:
+				if woken.IsZero() {
+					woken = time.Now()
+				}
+			case <-time.After(answerBatchWindow + 10*time.Second):
+				t.Fatal("the worker was not woken as the window ended, so the answer waits for whichever cycle comes next")
+			}
+			s.process(context.Background())
 		}
-		s.process(context.Background())
 
 		// Assert
-		if len(held) != 0 || len(early) != 0 {
-			t.Errorf("the CFO got %q and then %q inside the window, want the answer held for his next one", held, early)
+		if len(held) != 0 {
+			t.Errorf("the CFO got %q inside the window, want the answer held for his next one", held)
 		}
-		if waited < left-100*time.Millisecond {
-			t.Errorf("the worker was woken %s after the window had %s left, want it woken as the window ends", waited, left)
+		if ends := given.Add(answerBatchWindow); woken.Before(ends.Add(-20 * time.Millisecond)) {
+			t.Errorf("the worker was woken %s before the window ended, want it woken as the window ends", ends.Sub(woken))
 		}
 		if typed := overlordMessages(terminal.lines(t)); len(typed) != 1 || typed[0] != "Overlord: "+sitting[0].line() {
 			t.Errorf("the CFO got %q, want %q as the window ended, as an answer alone always read", typed, "Overlord: "+sitting[0].line())
@@ -331,4 +327,94 @@ func TestACFOThatIsBusyOrRestartingGetsTheAnswersOnceWhenItsInputIsReady(t *test
 		wantTheSittingAsOneMessage(t, overlordMessages(cfo.waitForLines(t, 2)))
 		wantTheSittingAnswered(t, s.Store)
 	})
+}
+
+// runsWhatCanRun runs every action that can run now, as the supervisor's
+// worker does, and returns what each run was handed: its kind, its question
+// and the questions of the answers that went with it.
+func runsWhatCanRun(t *testing.T, store *Store) []string {
+	t.Helper()
+	var ran []string
+	for range maxActions {
+		if !store.HasRunnable() {
+			break
+		}
+		err := store.ProcessOne(context.Background(), func(_ context.Context, a Action) (Evaluation, error) {
+			handed := strings.TrimSpace(a.Kind + " " + a.QuestionID)
+			for _, with := range a.With {
+				handed += " + " + with.QuestionID
+			}
+			ran = append(ran, handed)
+			return Evaluation{Reason: "Taken by the CFO."}, nil
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+	return ran
+}
+
+// What he sends the CFO keeps the order he sent it in: an answer never waits
+// behind a message of his own that he sent after it, and an answer he gave
+// after that message never goes ahead of it.
+func TestHisMessageToTheCFOKeepsItsPlaceAmongHisAnswers(t *testing.T) {
+	// Arrange: the CFO runs, since a delivery to a closed one waits, and a
+	// third question still waits on him, so his answers wait for his next.
+	store, home := testStore(t)
+	writeRegistration(t, home.State, thisProcess(t))
+	identity := registrationIdentity(t, home.State)
+	cfoAsks(t, store, identity, sitting[0], sitting[1], sitting[2])
+
+	// Act
+	heAnswers(t, store, identity, sitting[0])
+	if _, err := store.Queue(Action{ID: "message-1", Kind: "message", Text: "Hold the merge until I say."}); err != nil {
+		t.Fatal(err)
+	}
+	heAnswers(t, store, identity, sitting[1])
+	atOnce := runsWhatCanRun(t, store)
+	passes(store, answerBatchWindow)
+	later := runsWhatCanRun(t, store)
+
+	// Assert
+	if want := []string{"cfo_answer " + sitting[0].id, "message"}; !slices.Equal(atOnce, want) {
+		t.Errorf("at once the CFO was handed %q, want %q: his first answer, which nothing can join ahead of his message, then the message", atOnce, want)
+	}
+	if want := []string{"cfo_answer " + sitting[1].id}; !slices.Equal(later, want) {
+		t.Errorf("once the window ended the CFO was handed %q, want %q: the answer he gave after his message", later, want)
+	}
+}
+
+// Answers typed as one message were all typed or none was, so a supervisor
+// that stops while they are typed leaves each one uncertain, and none is
+// typed again.
+func TestAnswersGoingAsOneMessageAllReadUncertainAfterASupervisorThatStoppedMidSend(t *testing.T) {
+	// Arrange
+	store, home := testStore(t)
+	writeRegistration(t, home.State, thisProcess(t))
+	identity := registrationIdentity(t, home.State)
+	cfoAsks(t, store, identity, sitting[0], sitting[1])
+	heAnswers(t, store, identity, sitting[0])
+	heAnswers(t, store, identity, sitting[1])
+
+	// Act: the supervisor that starts again reads what the first had saved
+	// by the time it typed.
+	var restarted *Store
+	err := store.ProcessOne(context.Background(), func(context.Context, Action) (Evaluation, error) {
+		var err error
+		restarted, err = Open(home)
+		return Evaluation{Reason: "Taken by the CFO."}, err
+	})
+
+	// Assert
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, a := range restarted.Snapshot().Actions {
+		if a.Status != "uncertain" {
+			t.Errorf("after the restart the answer to %s reads %s (%s), want it uncertain", a.QuestionID, a.Status, a.Message)
+		}
+	}
+	if restarted.HasRunnable() {
+		t.Error("after the restart an answer can run again, want none typed twice")
+	}
 }
