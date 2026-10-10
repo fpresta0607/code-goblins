@@ -197,22 +197,59 @@ jobs:
             }
             Pop-Location
           }
-      # Every job installs SQLite, not only the ones whose tests use it today:
-      # a test that finds no sqlite3 skips itself, so a job without it would
-      # pass having tested less.
+      # Every job gets SQLite, not only the ones whose tests use it today: a
+      # test that finds no sqlite3 skips itself, so a job without it would
+      # pass having tested less. The fleet runs SQLite's own command line
+      # program, so the tests need the program itself.
+      #
+      # It is the release pinned in the next step, kept in the Actions cache,
+      # so a run asks no outside service for it. Chocolatey's feed used to
+      # serve it to all eight jobs of every run: on 2026-10-10 it timed out
+      # and answered 503 and 504 until the retries ran out, which failed two
+      # jobs of run 38058158022 on main before any test ran. Only the first
+      # run after the pin changes, or after a week in which no run used the
+      # cache, fetches the release from sqlite.org.
+      - name: Restore the pinned SQLite tools
+        uses: actions/cache@v4
+        with:
+          path: ${{ runner.temp }}/sqlite-tools.zip
+          key: sqlite-tools-win-x64-3540000-63cb06e952a83fd1
       - name: Ensure SQLite integration tests can run
         shell: pwsh
+        env:
+          # To move the pin, take the new sqlite-tools-win-x64 zip and its
+          # SHA3-256 from https://www.sqlite.org/download.html, check the
+          # download against that, and write its SHA-256 here and the start
+          # of it, with the version, in the cache key above.
+          SQLITE_URL: https://www.sqlite.org/2026/sqlite-tools-win-x64-3540000.zip
+          SQLITE_SHA256: 63cb06e952a83fd140139b008ed5b47496608161c62f8cd17bc96e8beb1de029
         run: |
-          # Chocolatey's feed can answer 503 or 504 for a moment, so an install
-          # that leaves no sqlite3 is tried again after a wait, three attempts
-          # in all, as install.ps1 does for its downloads. Its exit code is no
-          # guide: on 2026-10-07 a 504 left it installing nothing and exiting 0
-          # (run 37631337103), so only sqlite3 itself says it worked.
-          for ($attempt = 1; -not (Get-Command sqlite3 -ErrorAction SilentlyContinue); $attempt++) {
-            if ($attempt -gt 3) { throw "choco install sqlite left no sqlite3 after 3 attempts; see above" }
+          # The release is used only when it is the pinned one, whether the
+          # cache or sqlite.org handed it over: a file with another SHA-256
+          # is discarded and fetched again, three attempts in all with a wait
+          # between them, as install.ps1 does for its downloads.
+          $zip = Join-Path $env:RUNNER_TEMP sqlite-tools.zip
+          for ($attempt = 1; ; $attempt++) {
+            if (Test-Path -LiteralPath $zip) {
+              $found = (Get-FileHash -LiteralPath $zip -Algorithm SHA256).Hash
+              if ($found -eq $env:SQLITE_SHA256) { break }
+              "The SQLite tools at hand are not the pinned release: SHA-256 $found, want $env:SQLITE_SHA256."
+              Remove-Item -LiteralPath $zip
+            }
+            if ($attempt -gt 3) { throw "No pinned SQLite tools after 3 attempts to fetch $env:SQLITE_URL; see above" }
             if ($attempt -gt 1) { Start-Sleep -Seconds (5 * ($attempt - 1)) }
-            choco install sqlite --yes --no-progress
+            try {
+              Invoke-WebRequest -Uri $env:SQLITE_URL -OutFile $zip -TimeoutSec 60
+            } catch {
+              "Attempt $attempt to fetch $env:SQLITE_URL failed: $_"
+            }
           }
+          $tools = Join-Path $env:RUNNER_TEMP sqlite-tools
+          Expand-Archive -LiteralPath $zip -DestinationPath $tools
+          # For the steps after this one, and for this one, which proves the
+          # program runs as the tests will find it.
+          $tools >> $env:GITHUB_PATH
+          $env:PATH = "$tools;$env:PATH"
           sqlite3 --version
       - if: matrix.shard == 'rest'
         run: go vet ./...
