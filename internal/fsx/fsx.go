@@ -137,6 +137,15 @@ func retryTransient(op func() error) error {
 	}
 }
 
+// WaitOut runs op, one operation on a fleet file, with the wait a replace
+// and a removal have: it is tried again while another process's brief hold
+// on the file refuses it, within transientBudget. It is for an operation this
+// package has no function of its own for, such as a rename that must be
+// written through or one of a program.
+func WaitOut(op func() error) error {
+	return retryTransient(op)
+}
+
 // ReadLines returns the file's lines, treating CRLF and LF endings equally.
 // A missing file returns an error satisfying errors.Is(err, os.ErrNotExist).
 func ReadLines(path string) ([]string, error) {
