@@ -560,3 +560,35 @@ func TestAGrantRefusesAServiceTheManifestDoesNotDeclare(t *testing.T) {
 		t.Errorf("after the refusal the record names %v, %v, want it unchanged", after.Credentials, readErr)
 	}
 }
+
+// A credential script is what a refresh wrote for a task's earlier terminal.
+// One written before the task's services were narrowed holds everything its
+// project had stored, and a resume used to leave it in the task's folder,
+// where the goblin could load from it what its new terminal no longer
+// carries. A relaunch removes it and says so.
+func TestARelaunchRemovesTheCredentialScriptWrittenForTheLastTerminal(t *testing.T) {
+	// Arrange
+	f := newSwitchFixture(t, harness.Control{StopCommand: "/exit"})
+	giveStandInCredentials(t, f.fixture)
+	script := filepath.Join(f.meta.TaskTmp, state.AuthScriptName)
+	writeFile(t, script, "$env:STANDIN_PAYMENTS_KEY = 'stand-in-payments'\n$env:STANDIN_STRAY_KEY = 'stand-in-stray'\n")
+
+	// Act
+	result, err := f.service.Switch(context.Background(), SwitchRequest{ID: f.meta.ID, Model: "gpt-9"})
+
+	// Assert
+	if err != nil {
+		t.Fatalf("Switch: %v", err)
+	}
+	if left, err := os.ReadFile(script); !errors.Is(err, os.ErrNotExist) {
+		t.Errorf("the script written before the relaunch is still there, setting %v (%v)", scriptNames(t, script), err)
+		holdsNoStandInValue(t, "the script left in the task's folder", string(left))
+	}
+	if got := carriedBy(named(f.events(t), "env")[0]); !slices.Equal(got, []string{standInSource}) {
+		t.Errorf("the new terminal carries %v, want only %s", got, standInSource)
+	}
+	if !strings.Contains(result.Output, "auth: removed the credential script written for task-7's last terminal") {
+		t.Errorf("output = %q, want the relaunch to say it removed the script", result.Output)
+	}
+	holdsNoStandInValue(t, "the relaunch's output", result.Output)
+}
