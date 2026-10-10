@@ -97,7 +97,9 @@
    green arrow spans from where it stood then to where it stood when AFK turned
    off. The legend beside the heading says the same in two words each. The
    rows share their columns, so every bar is one length and the last column is
-   as wide as its widest figures. A phone puts the bar on a row of its own. */
+   as wide as its widest figures. A phone gives a row three lines, its mark
+   and name, then its figures at either end, then its bar, and keeps the legend
+   on one line under the heading. */
 .afk-spent-legend { display: inline-flex; align-items: center; gap: 6px; margin-left: auto; color: var(--muted); font: 500 .875rem/1.3 var(--font-body); }
 .afk-spent-legend i { display: inline-block; width: 12px; height: 6px; border-radius: 999px; }
 .afk-spent-legend i.before { background: rgba(163, 179, 194, 0.45); }
@@ -126,9 +128,12 @@
 .afk-spent-change.used { border-color: #00e59b66; background: #00e59b1a; color: var(--accent-green); }
 .afk-spent-change .icon { width: 14px; height: 14px; }
 @media (max-width: 40rem) {
+  .question-modal.afk-report h3:has(.afk-spent-legend) { flex-wrap: wrap; }
+  .afk-spent-legend { white-space: nowrap; }
   .afk-spent { grid-template-columns: minmax(0, 1fr); }
-  .afk-spent li { grid-template-columns: auto minmax(0, 1fr) auto; row-gap: 6px; }
-  .afk-spent-graph { grid-column: 1 / -1; grid-row: 2; }
+  .afk-spent li { grid-template-columns: auto minmax(0, 1fr); row-gap: 8px; }
+  .afk-spent-value { grid-column: 1 / -1; grid-row: 2; justify-self: stretch; justify-content: space-between; }
+  .afk-spent-graph { grid-column: 1 / -1; grid-row: 3; }
 }
 @media (max-width: 40rem) {
   .afk-report .inbox-list.afk-held li, .inbox-list.afk-decisions li { grid-template-columns: auto minmax(0, 1fr); }

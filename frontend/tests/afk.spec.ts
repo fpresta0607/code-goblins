@@ -748,6 +748,39 @@ test("on a phone the bar keeps its line, its terminal and Open Command Center in
   expect(await fits(page)).toBe(true);
 });
 
+// On a phone the rows under Spent broke each name letter by letter beside its
+// figures, which the Overlord's mockup of 2026-10-09 showed him beside the fix
+// the CFO picked for him: a row is its mark and name, then what is left with
+// what AFK used at either end of the row, then its bar, and the legend keeps
+// to one line.
+test("on a phone each row under Spent keeps its name on one line, with its figures and then its bar under it", async ({ page }) => {
+  // Arrange
+  await page.setViewportSize({ width: 390, height: 844 });
+  await open(page, snapshot({ afk: KEPT }));
+  await page.route("**/api/afk/report", (route) => route.fulfill({ json: { ...REPORT, spent: [REPORT.spent[0], REPORT.spent[3]], disk: drive(340.5, 337) } }));
+  await openCfoPanel(page);
+
+  // Act
+  await header(page).getByRole("button", { name: "Open the last AFK report" }).click();
+
+  // Assert
+  const section = report(page).getByRole("region", { name: "Spent" });
+  await expect(section.locator("li")).toHaveText(["Claude weekly limit51% leftAFK used 8%", "Codex credits12.5 credits spent", "Disk (C:)337.0 GB freeAFK used 3.5 GB"]);
+  const rows = await section.locator("li").evaluateAll((items) => items.map((item) => {
+    const box = (selector: string) => item.querySelector(selector)?.getBoundingClientRect();
+    const row = item.getBoundingClientRect(), name = box(".afk-spent-name")!, value = box(".afk-spent-value")!, graph = box(".afk-spent-graph");
+    return {
+      isNameOnOneLine: name.height < 2 * parseFloat(getComputedStyle(item.querySelector(".afk-spent-name")!).fontSize),
+      isStacked: name.bottom <= value.top && (!graph || value.bottom <= graph.top),
+      isInside: [name, value, ...(graph ? [graph] : [])].every((part) => part.left >= row.left && part.right <= row.right + 0.5),
+    };
+  }));
+  const clean = { isNameOnOneLine: true, isStacked: true, isInside: true };
+  expect(rows).toEqual([clean, clean, clean]);
+  expect(await section.locator(".afk-spent-legend").evaluate((element) => element.getBoundingClientRect().height < 2 * parseFloat(getComputedStyle(element).fontSize))).toBe(true);
+  expect(await fits(page)).toBe(true);
+});
+
 // His window: maximized on a 2560 by 1600 screen at 150 percent.
 test.describe("in the desktop window", () => {
   test.use({ viewport: { width: 1707, height: 1067 }, deviceScaleFactor: 1.5 });
