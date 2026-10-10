@@ -46,6 +46,10 @@ type Admission struct {
 	Waiting func(waited time.Duration, why string)
 }
 
+// NoLimit is the Limit of a run that waits for memory for as long as the
+// machine is short of it.
+const NoLimit = time.Duration(math.MaxInt64)
+
 // Turn is a run's turn on the machine.
 type Turn struct {
 	// Waited is how long the run waited for it, or waited before its wait

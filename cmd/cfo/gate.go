@@ -27,11 +27,15 @@ import (
 // tests-kept exits 1 when the gate's own fix commits deleted or skipped a
 // test, which parks the run with an ask-user finding instead of letting the
 // deletion through unseen, and leaves out the gate commits a person already
-// let through at an earlier park. test is the repository's local test step, and
-// turns shows which test runs hold the machine's turns and which wait.
+// let through at an earlier park. test is the repository's local test step,
+// turn runs any command in the line that step takes its turns in, and turns
+// shows which runs hold the machine's turns and which wait.
 func runGate(args []string, stdout, stderr io.Writer, runtime commandRuntime) int {
+	if len(args) > 0 && args[0] == "turn" {
+		return runGateTurn(args[1:], stdout, stderr, runtime)
+	}
 	if len(args) == 0 || !slices.Contains([]string{"tests-kept", "test", "turns"}, args[0]) || (args[0] != "test" && len(args) != 1) {
-		fmt.Fprintln(stderr, "cfo gate: the checks are tests-kept, test [--level fast|affected|full] [--plan] and turns")
+		fmt.Fprintln(stderr, "cfo gate: the checks are tests-kept, test [--level fast|affected|full] [--plan], turn [--as <name>] -- <program> [<argument>...] and turns")
 		return 2
 	}
 	if args[0] == "turns" {
@@ -207,14 +211,14 @@ func runGateTest(args []string, dir string, stdout, stderr io.Writer, runtime co
 
 	who := fmt.Sprintf("%s at %.8s, %s level, in %s", report.Project, plan.Commit, plan.Level, plan.Root)
 	if report.Task != "" {
-		who += ", task " + report.Task
+		who += ", task " + taskLabel(report.Task, runtime)
 	}
 	env := gatetest.Environment(os.Environ())
 	for _, command := range commands {
 		check := verify.Result{Command: command, Scope: report.Level, Status: "not_run", ExitCode: -1}
 		if report.Status == "passed" {
 			budget := runtime.gateBudget(plan.Level)
-			turn, admissionErr := takeGateTurn(stdout, stderr, runtime.availableMemory, who, budget, runtime.gateWaitLimit)
+			turn, admissionErr := takeGateTurn(context.Background(), "cfo gate test", stdout, stderr, runtime.availableMemory, who, budget, runtime.gateWaitLimit)
 			report.QueueSeconds += turn.Waited.Seconds()
 			if admissionErr != nil {
 				report.Status, report.QueueNote = "failed", admissionErr.Error()
@@ -293,17 +297,19 @@ func runGateCommand(command []string, dir string, env []string, stdout, stderr i
 	return process.ProcessState.ExitCode(), err
 }
 
-// takeGateTurn waits in the machine's common line. Both physical and commit
-// availability must reach the floor before a check starts. It prints what
-// the run waits for as it
+// takeGateTurn waits in the machine's common line, for cfo gate test and for
+// cfo gate turn alike, each under its own label. Both physical and commit
+// availability must reach the floor before a run starts. It writes to says
+// what the run waits for as it
 // starts to wait, whenever its place in line changes and once a minute:
 // which run holds the turn, for how long and under what budget, and where
-// this run stands in line. An unavailable or expired floor reading, or a
-// store failure, prevents execution. Budget expiry never displaces custody.
-func takeGateTurn(stdout, stderr io.Writer, available func() (supervisor.Memory, error), who string, budget, limit time.Duration) (verify.Turn, error) {
+// this run stands in line. An unavailable or expired floor reading, a store
+// failure, or a wait that ctx ended, prevents execution, and is written to
+// stderr. Budget expiry never displaces custody.
+func takeGateTurn(ctx context.Context, label string, says, stderr io.Writer, available func() (supervisor.Memory, error), who string, budget, limit time.Duration) (verify.Turn, error) {
 	store, err := verify.AdmissionDir()
 	if err != nil {
-		fmt.Fprintf(stderr, "cfo gate test: this run takes no turn: %v\n", err)
+		fmt.Fprintf(stderr, "%s: this run takes no turn: %v\n", label, err)
 		return verify.Turn{}, err
 	}
 	var pairedAvailable func() (uint64, error)
@@ -322,14 +328,17 @@ func takeGateTurn(stdout, stderr io.Writer, available func() (supervisor.Memory,
 		Limit:     limit,
 		Poll:      time.Second,
 		Waiting: func(waited time.Duration, why string) {
-			fmt.Fprintf(stdout, "cfo gate test: waiting for its turn (%s so far): %s\n", waited.Round(time.Second), why)
+			fmt.Fprintf(says, "%s: waiting for its turn (%s so far): %s\n", label, waited.Round(time.Second), why)
 		},
-	}.Wait(context.Background())
+	}.Wait(ctx)
+	if errors.Is(err, context.Canceled) {
+		err = errors.New("it was interrupted while it waited")
+	}
 	switch {
 	case err != nil:
-		fmt.Fprintf(stderr, "cfo gate test: this run takes no turn: %v\n", err)
+		fmt.Fprintf(stderr, "%s: this run takes no turn: %v\n", label, err)
 	case turn.Waited >= time.Second:
-		fmt.Fprintf(stdout, "cfo gate test: took its turn after %s\n", turn.Waited.Round(time.Second))
+		fmt.Fprintf(says, "%s: took its turn after %s\n", label, turn.Waited.Round(time.Second))
 	}
 	return turn, err
 }
@@ -367,7 +376,8 @@ func gateBudget(level gatetest.Level) time.Duration {
 	return 90 * time.Minute
 }
 
-// runGateTurns shows the line that cfo gate test runs take their turns in:
+// runGateTurns shows the line that cfo gate test and cfo gate turn runs take
+// their turns in:
 // each run that holds a turn, with how long it has and its budget, the runs
 // that wait, in the order they asked, and the machine's memory when it is
 // under the floor a run waits for. A gate shows a step's output only once

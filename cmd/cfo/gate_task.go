@@ -15,6 +15,7 @@ import (
 	"github.com/fpresta0607/code-goblins/internal/home"
 	"github.com/fpresta0607/code-goblins/internal/pipeline"
 	"github.com/fpresta0607/code-goblins/internal/reap"
+	"github.com/fpresta0607/code-goblins/internal/state"
 )
 
 func gateTask(root string, runtime commandRuntime) (string, error) {
@@ -57,6 +58,21 @@ func gateTask(root string, runtime commandRuntime) (string, error) {
 		}
 	}
 	return "", fmt.Errorf("no source worktree holds the gate's branch %q", source.Branch)
+}
+
+// taskLabel names a fleet task to whoever reads the line of turns: its
+// goblin as Name (id), as the fleet names a goblin everywhere, or the id
+// alone when the task's record names no goblin or cannot be read.
+func taskLabel(task string, runtime commandRuntime) string {
+	h, err := runtime.resolveHome()
+	if err != nil {
+		return task
+	}
+	meta, err := state.ReadTaskMeta(h.State, task)
+	if err != nil || meta.GoblinName == "" {
+		return task
+	}
+	return meta.GoblinName + " (" + task + ")"
 }
 
 func gateWorktreeTask(h home.Home, project, worktree string) (string, error) {
