@@ -1,0 +1,49 @@
+# PROBE, never merged. It runs only on a push to a branch under probe/, and
+# times each leg of a typed key on a hosted runner (task cg-flaky-main-tests).
+name: probe
+
+on:
+  push:
+    branches: ['probe/**']
+
+permissions:
+  contents: read
+
+jobs:
+  stages:
+    name: stages (${{ matrix.copy }})
+    runs-on: windows-latest
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        # Two copies type on a quiet runner, then beside heavy disk writes,
+        # then beside a program that keeps every processor busy. Two stay
+        # quiet throughout.
+        include:
+          - copy: 1
+            churn: 4m
+            spin: 6m
+          - copy: 2
+            churn: 4m
+            spin: 6m
+          - copy: 3
+            churn: 8m
+            spin: 8m
+          - copy: 4
+            churn: 8m
+            spin: 8m
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-go@v5
+        with:
+          go-version: stable
+      - name: Time each leg of a key
+        shell: pwsh
+        run: go test ./internal/conpty -run '^TestLatencyStages$' -count=1 -v -timeout 18m
+        env:
+          PROBE_STAGES_FOR: 8m
+          PROBE_STAGES_CHURN_AFTER: ${{ matrix.churn }}
+          PROBE_STAGES_SPIN_AFTER: ${{ matrix.spin }}
+          CFO_HOME: ${{ runner.temp }}\cfo-go-tests
+          CFO_STATE_OVERRIDE: ${{ runner.temp }}\cfo-go-tests\state
