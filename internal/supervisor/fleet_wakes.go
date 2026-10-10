@@ -837,8 +837,9 @@ func (c ghCheck) outcome() string {
 // pr_health or pr_unread for every open pull request the fleet watches but a
 // merge train's own and those a running train carries, which the train tests
 // on the current base itself. For the same reason a head behind its base is
-// nothing to tell while a train can take the pull request: on 2026-10-10 five
-// wakes said a goblin's finished, green pull request was behind main. The
+// nothing to tell while a train can take the pull request, or while its
+// checks still run and may yet make it one a train can take: on 2026-10-10
+// five wakes said a goblin's finished, green pull request was behind main. The
 // fleet watches a goblin's own pull requests wherever they are, and every
 // pull request in a repository owners says the fleet owns, a teammate's too;
 // another owner's are none of its business.
@@ -929,6 +930,11 @@ func pollPullRequests(ctx context.Context, runner execx.Runner, stateDir string,
 			record.UnknownSince = time.Time{}
 		} else if record.UnknownSince.IsZero() {
 			record.UnknownSince = now
+		}
+		if !slices.ContainsFunc(pr.Checks, func(check ghCheck) bool { return !check.concluded() }) {
+			record.RunningSince = time.Time{}
+		} else if record.RunningSince.IsZero() {
+			record.RunningSince = now
 		}
 		w.Health[pr.URL] = record
 		if !record.HasUnreadWake && slices.ContainsFunc(unreadComparisons, func(unread ghPullRequest) bool { return unread.URL == pr.URL }) {

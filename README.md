@@ -438,6 +438,8 @@ What the fleet starts by itself also waits for room on the processors, so your o
 Each install reads its own processor for this, and a Start or Resume you click does not wait on it.
 A goblin's own work also keeps off half of this PC's performance cores, rounded up to whole cores, so your apps always have cores no goblin's build or test runs on.
 On a PC of six performance cores that leaves you three, and it costs the goblins about two fifths of their speed only while they fill every core they keep.
+The fleet's own controls run one priority class above normal and never higher, so a steer, a pause or a look at a goblin's screen is not kept waiting behind the goblins' builds: the supervisor, each goblin terminal's host, and the short commands that talk to them.
+Their work is small, about a tenth of one core for the supervisor and a few thousandths for each host, and nothing a goblin runs is raised with them.
 A second click changes nothing, and a refusal goes to the CFO, never to a line on the board.
 A start ends once its goblin has its brief: the goblin installs its worktree's dependencies (`npm ci`, `uv sync` and the like) in its own terminal as its first step, and its card says so, so a long install never holds up the next start or resume.
 A Start or Resume, and each start or resume the supervisor makes by itself, that meets a `cfo spawn` the CFO runs by hand waits for that spawn's turn, which ends once its terminal runs; one that gives up after waiting 10 minutes tries once more as soon as the lock frees.
@@ -944,7 +946,8 @@ The people come from the same hourly read that decides whether a repository gets
 The same supervisor poll watches the health of the fleet's own pull requests: a goblin's wherever it is, and every open pull request in a watched repository the fleet owns, including teammates' and fork pull requests.
 A repository is the fleet's when its GitHub owner, read from the pull request's own address and never from a remote's name, is the account `gh` works as or an organization listed in `config/fleet.json` as `github_owners`, such as `{"github_owners": ["my-org"]}`.
 Another owner's pull requests, such as the upstream's in a checkout of your fork whose `origin` is the upstream, raise nothing.
-It raises a `pr_health` wake for a conflict with the PR's base or a head that is behind the repository's current default branch, even while checks are pending, failed or absent.
+It raises a `pr_health` wake for a conflict with the PR's base or a head that is behind the repository's current default branch, even when its checks failed or it has none.
+A behind head whose checks are still running waits until they conclude, for three hours at most, and is judged then.
 A behind head raises none while a merge train can take the pull request, a goblin's finished one that is green, mergeable and not held, since the train tests each rider on the current default branch itself.
 One poll raises at most one such wake per repository, naming every pull request whose head fell into a condition the CFO was not woken for, so dozens never arrive as dozens of wakes.
 Each condition wakes once per head and survives a restart; a pull request whose head and condition stay as they were is never named again, a behind head waits up to ten minutes for GitHub to work out whether it conflicts, and a repository's wakes are at least five minutes apart.

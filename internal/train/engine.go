@@ -20,9 +20,9 @@ const (
 	// again, and a repository whose CI never starts stops its train rather
 	// than holding it, and every pull request on it, for ever.
 	noCIWithin = 20 * time.Minute
-	// runDeadline bounds a run whose checks never finish, as when the
+	// RunDeadline bounds a run whose checks never finish, as when the
 	// repository's runners are down.
-	runDeadline = 3 * time.Hour
+	RunDeadline = 3 * time.Hour
 	// maxMoved is how many runs in a row the base may move during before the
 	// train stops: on a main that never holds still nothing it tests lands.
 	maxMoved = 3
@@ -194,8 +194,8 @@ func (e Engine) step(ctx context.Context, t *Train) error {
 		return e.rebuild(ctx, t, fmt.Sprintf("GitHub did not show the train's head %s within %s of its push, so it was built and pushed again", short(t.Head), noCIWithin))
 	case outcome == "none" && waited >= noCIWithin:
 		return e.finish(ctx, t, StateFailed, fmt.Sprintf("no CI ran on its pull request %s within %s of the push: check the repository's workflows run on pull requests", t.PR, noCIWithin))
-	case outcome == "pending" && waited >= runDeadline:
-		return e.finish(ctx, t, StateFailed, fmt.Sprintf("CI on its pull request %s did not finish within %s of the push", t.PR, runDeadline))
+	case outcome == "pending" && waited >= RunDeadline:
+		return e.finish(ctx, t, StateFailed, fmt.Sprintf("CI on its pull request %s did not finish within %s of the push", t.PR, RunDeadline))
 	case outcome == "passed":
 		return e.land(ctx, t)
 	case outcome == "failed":

@@ -16,6 +16,7 @@ import (
 	"github.com/fpresta0607/code-goblins/internal/home"
 	"github.com/fpresta0607/code-goblins/internal/host"
 	"github.com/fpresta0607/code-goblins/internal/pipeline"
+	"github.com/fpresta0607/code-goblins/internal/priority"
 	"github.com/fpresta0607/code-goblins/internal/proc"
 	"github.com/fpresta0607/code-goblins/internal/state"
 )
@@ -270,7 +271,10 @@ func stopResources(ctx context.Context, resources Resources, stop func(context.C
 // inventory reads as the task's own, given the members of the terminals'
 // jobs.
 func endResources(ctx context.Context, resources Resources, stop func(context.Context, Identity) (bool, error), inventory func(context.Context, []Identity) ([]Process, error)) ([]string, []state.TeardownProcess, error) {
-	defer aboveTheWork()()
+	// A teardown has seconds to read every process on the machine and end
+	// what is the task's, and at the priority of that work it waits its turn
+	// behind it: a memory pause is taken when the machine is at its busiest.
+	defer priority.AboveTheWork()()
 	stopped := []string{}
 	var teardown []state.TeardownProcess
 	finished := map[Identity]bool{}

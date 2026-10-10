@@ -59,6 +59,8 @@ Every goblin pane carries `CFO_ROLE=goblin`, and the CFO's hooks do nothing when
 They do nothing in any other session either: only [the CFO's own session](../AGENTS.md#the-cfos-own-session), the agent native terminal `cfo` runs, gets the digest, the guards and the rewakes, so a Claude Code session you open yourself is never given the fleet's wakes.
 On a machine where the hooks are still in the user's settings, such a session pays one start of `cfo.exe` for each hook it fires, which leaves on its environment before it reads the home: about 0.1 second each with a dozen sessions firing at once on 2026-10-09.
 Once an install has taken them out it starts nothing.
+In the CFO's own session each hook is one start of `cfo.exe`, which is started at its harness's priority: on 2026-10-10 it took 0.02 seconds to come to exist beside ten busy threads kept to the goblins' cores, and about 0.7 where goblin work had every core.
+From its first act the hook runs one priority class above normal, as the fleet's other controls do, so its own work, about a millisecond for a pre-tool guard, does not wait behind the goblins' builds as well.
 
 **MCP.**
 The CFO's session gets servers from `~/.claude.json` (user and per-project), the project's `.mcp.json` once approved, enabled plugins, and claude.ai connectors.
