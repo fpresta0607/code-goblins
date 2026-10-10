@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/fpresta0607/code-goblins/internal/boardweb"
+	"github.com/fpresta0607/code-goblins/internal/execx"
 	"github.com/fpresta0607/code-goblins/internal/fleetconfig"
 	"github.com/fpresta0607/code-goblins/internal/home"
 	"github.com/fpresta0607/code-goblins/internal/install"
@@ -21,6 +22,7 @@ import (
 	"github.com/fpresta0607/code-goblins/internal/proc"
 	"github.com/fpresta0607/code-goblins/internal/supervisor"
 	"github.com/fpresta0607/code-goblins/internal/update"
+	"golang.org/x/sys/windows"
 )
 
 // Exit codes of cfo update.
@@ -41,11 +43,14 @@ const (
 // Bounds on the steps of an update.
 var (
 	// updateStopWait is how long a supervisor asked to stop has before it
-	// is ended.
-	updateStopWait = 30 * time.Second
-	// updateServeWait is how long a supervisor started has to serve,
-	// including taking the watcher lock over from a watcher.
-	updateServeWait = 90 * time.Second
+	// is ended. One of this build stops within a second or two whatever its
+	// cycle is doing (see supervisor.Service.watchForStop), so the wait is
+	// for an older one, and for the moment a busy machine takes.
+	updateStopWait = 10 * time.Second
+	// updateServeWait is how long a supervisor started has to serve. It
+	// is handed the watcher lock as it starts, so it waits for nothing,
+	// and the wait fits inside updateBound with room to roll back.
+	updateServeWait = 30 * time.Second
 	// updateServeTries is how often the previous build's supervisor is
 	// started before the update gives up on it.
 	updateServeTries = 3
@@ -54,10 +59,12 @@ var (
 	// the update is stopped with nothing changed.
 	updatePrepareBound = time.Minute
 	// updateBound is how long an update has from there until the new build
-	// serves, the time the board is away, and how long putting the previous
-	// build back has. Past it the update is stopped and the previous build
-	// put back.
+	// serves, the time the board is away. Past it the update is stopped
+	// and the previous build put back.
 	updateBound = time.Minute
+	// updateRecoverBound is how long putting the previous build back has.
+	// Past it the recovery is stopped, and the next update tries again.
+	updateRecoverBound = time.Minute
 	// updateQuietWait is how long an update waits, before it stops the
 	// supervisor, for lifecycle work in flight to finish.
 	updateQuietWait = 15 * time.Second
@@ -107,6 +114,7 @@ func runUpdate(args []string, stdout, stderr io.Writer, runtime commandRuntime) 
 	check := f.Bool("check", false, "say whether a newer release is published, and change nothing")
 	to := f.String("to", "", "the release to update to, refused unless it is still the newest one published")
 	pressed := f.String("run", "", "the Update item the Overlord pressed in the Command Center, whose grant this run takes in place of his terminal")
+	work := f.Bool("work", false, "do the update's work, as the update that bounds it runs it")
 	if err := f.Parse(args); err != nil || f.NArg() != 0 {
 		return 2
 	}
@@ -120,7 +128,7 @@ func runUpdate(args []string, stdout, stderr io.Writer, runtime commandRuntime) 
 		fmt.Fprintln(stderr, err)
 		return 1
 	}
-	installed := !*recover && installedBuild(h, program)
+	installed := !*recover && !*work && installedBuild(h, program)
 	if !installed && (*check || *to != "" || *pressed != "") || *pressed != "" && (*to == "" || *check) {
 		fmt.Fprintln(stderr, "cfo update: --check, --to and --run update a home from a release, so run them as the home's own goblins or cfo, and --run goes with --to")
 		return 2
@@ -139,12 +147,17 @@ func runUpdate(args []string, stdout, stderr io.Writer, runtime commandRuntime) 
 	if installed {
 		return releaseUpdate(h, *check, *to, *pressed, stdout, stderr)
 	}
+	if !*work {
+		return boundedUpdate(h, program, *recover, stdout, stderr)
+	}
+	endWithParent()
 	// One update owns a home at a time, and its recovery the same.
-	if _, err := lock.AcquireExclusiveNamed(update.Dir(h.State), ".lock"); err != nil {
+	if _, err := lock.AcquireExclusiveNamed(update.Dir(h.State), update.LockName); err != nil {
 		fmt.Fprintf(stderr, "cfo update: another update of this home is running: %v\n", err)
 		return 1
 	}
-	defer lock.ReleaseExclusiveNamed(update.Dir(h.State), ".lock")
+	defer lock.ReleaseExclusiveNamed(update.Dir(h.State), update.LockName)
+	defer releaseWatchLock(h)
 
 	if *recover {
 		return recoverUpdate(h, stdout, stderr)
@@ -152,49 +165,313 @@ func runUpdate(args []string, stdout, stderr io.Writer, runtime commandRuntime) 
 	return installUpdate(h, stdout, stderr)
 }
 
+// boundedUpdate runs the update's work, or its recovery's, in a process of
+// its own and ends it when it runs past its bound, so the board is never away
+// for as long as a step happens to take. On 2026-10-09 an update took two
+// minutes to copy three files and seven more between two lines of output,
+// and the card showed it running for twelve. The work is ended where
+// it is, which the journal is built for, and the previous build is put back
+// by the same bounded recovery. An update ended before it prepared changed
+// nothing, and says so.
+func boundedUpdate(h home.Home, program string, recover bool, stdout, stderr io.Writer) int {
+	began := time.Now()
+	arguments := []string{"update", "--work"}
+	if recover {
+		arguments = append(arguments, "--recover")
+	}
+	code, bound, isLate := runWork(h, program, arguments, !recover, stdout, stderr)
+	if !isLate {
+		return code
+	}
+	journal, err := update.ReadJournal(h.State)
+	switch {
+	case recover:
+		return putBackLate(bound, stderr)
+	case err == nil && journal.Phase == update.Done && !journal.Started.Before(began):
+		// It was ended while it tidied up after the new build served.
+		fmt.Fprintf(stdout, "Updated: cfo.exe and goblins.exe are %s, and its supervisor serves the board.\n", journal.Hash)
+		return updateInstalled
+	case err == nil && journal.Phase == update.RolledBack && !journal.Started.Before(began):
+		// It was ended while it tidied up after putting the previous build back.
+		fmt.Fprintln(stdout, "Rolled back: the previous build serves the board.")
+		return updateRolledBack
+	case err != nil || journal.Phase.Finished():
+		fmt.Fprintf(stderr, "Failed: the update took longer than %s before it changed anything, so it was stopped and nothing was changed.\n", bound)
+		return 1
+	}
+	fmt.Fprintf(stderr, "cfo update: the update took longer than %s, so it was stopped and the previous build is put back\n", bound)
+	code, bound, isLate = runWork(h, program, []string{"update", "--work", "--recover"}, false, stdout, stderr)
+	if isLate {
+		return putBackLate(bound, stderr)
+	}
+	return code
+}
+
+// putBackLate says a recovery ran past its bound and was ended.
+func putBackLate(bound time.Duration, stderr io.Writer) int {
+	fmt.Fprintf(stderr, "Failed: putting the previous build back took longer than %s, so it was stopped, and the board is down until Code Goblins is opened again.\n", bound)
+	return updateBoardDown
+}
+
+// runWork runs the update's work as arguments name it, with this command's
+// output, and returns its exit code, or, when it ran past its bound and was
+// ended, the bound it ran past. Work that prepares an update has
+// updatePrepareBound until its journal says it is prepared, while the board
+// still serves, and updateBound from there. A recovery has
+// updateRecoverBound.
+func runWork(h home.Home, program string, arguments []string, prepares bool, stdout, stderr io.Writer) (code int, bound time.Duration, isLate bool) {
+	command := execx.Command(program, arguments...)
+	command.Stdout, command.Stderr = stdout, stderr
+	began := time.Now()
+	if err := command.Start(); err != nil {
+		fmt.Fprintf(stderr, "cfo update: start the update's work from %s: %v\n", program, err)
+		return 1, 0, false
+	}
+	exited := make(chan error, 1)
+	go func() { exited <- command.Wait() }()
+	bound = updateRecoverBound
+	if prepares {
+		bound = updatePrepareBound
+	}
+	deadline := began.Add(bound)
+	for {
+		select {
+		case err := <-exited:
+			var exit *exec.ExitError
+			switch {
+			case err == nil:
+				return 0, 0, false
+			case errors.As(err, &exit):
+				return exit.ExitCode(), 0, false
+			}
+			fmt.Fprintf(stderr, "cfo update: run %s: %v\n", program, err)
+			return 1, 0, false
+		case <-time.After(250 * time.Millisecond):
+		}
+		if prepares {
+			if journal, err := update.ReadJournal(h.State); err == nil && !journal.Started.Before(began) {
+				prepares, bound, deadline = false, updateBound, time.Now().Add(updateBound)
+			}
+		}
+		if time.Now().After(deadline) {
+			_ = command.Process.Kill()
+			<-exited
+			return 0, bound, true
+		}
+	}
+}
+
+// endWithParent ends this process, which does an update's work, when the
+// update that bounds it ends first, as when its terminal is closed: an update
+// ended is not one that goes on out of sight with nothing bounding it. The
+// journal keeps the way back, as for any update that ends part way.
+func endWithParent() {
+	parent, err := windows.OpenProcess(windows.SYNCHRONIZE, false, uint32(os.Getppid()))
+	if err != nil {
+		return
+	}
+	go func() {
+		if event, err := windows.WaitForSingleObject(parent, windows.INFINITE); err == nil && event == windows.WAIT_OBJECT_0 {
+			os.Exit(1)
+		}
+	}()
+}
+
+// stepClock times the steps of an update for its journal.
+type stepClock struct {
+	journal *update.Journal
+	last    time.Time
+}
+
+// done records the step that just finished and how long it took.
+func (c *stepClock) done(name string) {
+	now := time.Now()
+	c.journal.Steps = append(c.journal.Steps, update.Step{Name: name, Took: now.Sub(c.last)})
+	c.last = now
+}
+
+// stepTimes says where an update's time went, each step to a tenth of a
+// second, in the order they ran.
+func stepTimes(steps []update.Step) string {
+	var total time.Duration
+	parts := make([]string, 0, len(steps))
+	for _, step := range steps {
+		total += step.Took
+		parts = append(parts, fmt.Sprintf("%s %.1fs", step.Name, step.Took.Seconds()))
+	}
+	return fmt.Sprintf("%.1fs (%s)", total.Seconds(), strings.Join(parts, ", "))
+}
+
+// lifecycleLocks are the locks lifecycle work holds under the home's state
+// while it runs, by prefix, and what each is held for. Their names are the
+// ones internal/spawn, internal/lifecycle, internal/cleanup and the
+// supervisor's own start take. Each is held for seconds to a few minutes; a
+// gate's .pipeline- lock, held for hours, is not lifecycle work.
+var lifecycleLocks = []struct {
+	prefix string
+	// work says what holds the lock, for the task its name carries.
+	work func(id string) string
+}{
+	{".spawn", func(string) string { return "the start of a goblin" }},
+	{".cfo-launch", func(string) string { return "the start of the CFO" }},
+	{".queued-", func(id string) string { return "the start of " + id }},
+	{".switch-", func(id string) string { return "the start of " + id + "'s agent" }},
+	{".lifecycle-", func(id string) string { return "the pause, resume or stop of " + id }},
+	{".cleanup-", func(id string) string { return "the clean-up of " + id }},
+}
+
+// lifecycleInFlight names the lifecycle work whose lock a process that runs
+// holds under stateDir.
+func lifecycleInFlight(stateDir string) []string {
+	entries, err := os.ReadDir(stateDir)
+	if err != nil {
+		return nil
+	}
+	var inFlight []string
+	for _, entry := range entries {
+		name, isLock := strings.CutSuffix(entry.Name(), ".lock")
+		if !isLock {
+			continue
+		}
+		for _, held := range lifecycleLocks {
+			id, ok := strings.CutPrefix(name, held.prefix)
+			if !ok || id != "" && !strings.HasSuffix(held.prefix, "-") {
+				continue
+			}
+			if holder, err := lock.ReadNamed(stateDir, entry.Name()); err == nil && holder.Alive() {
+				// A lock that says what it is held for, as the spawn lock
+				// does, is named in its own words.
+				work := held.work(id)
+				if holder.Purpose != "" {
+					work = holder.Purpose
+				}
+				inFlight = append(inFlight, work)
+			}
+			break
+		}
+	}
+	return inFlight
+}
+
+// awaitLifecycleWork gives lifecycle work in flight, a start, a pause, a
+// resume or a clean-up, up to updateQuietWait to finish before the supervisor
+// is stopped and the programs are swapped under it, and says what it waits
+// for. That work runs in processes of its own, which an update never ends, so
+// work still running past the wait carries on by itself while the update goes
+// on. On 2026-10-09 a clean-up and a resume of one task were in flight when
+// an update stopped the supervisor under them. The lock of this update
+// refuses new such work meanwhile (see refusedWhileInstalling).
+func awaitLifecycleWork(stateDir string, stdout io.Writer) {
+	inFlight := lifecycleInFlight(stateDir)
+	if len(inFlight) == 0 {
+		return
+	}
+	fmt.Fprintf(stdout, "Waiting for %s to finish before the board restarts.\n", strings.Join(inFlight, " and "))
+	for deadline := time.Now().Add(updateQuietWait); time.Now().Before(deadline); time.Sleep(200 * time.Millisecond) {
+		if inFlight = lifecycleInFlight(stateDir); len(inFlight) == 0 {
+			return
+		}
+	}
+	fmt.Fprintf(stdout, "%s still runs after %s, so the board restarts now and that work carries on by itself.\n", upperFirst(strings.Join(inFlight, " and ")), updateQuietWait)
+}
+
+// refusedWhileInstalling refuses a lifecycle command, one that starts, stops
+// or moves a goblin's terminal or removes its worktree, started while an
+// update of the home installs, with one sentence and before it changes
+// anything: the update swaps the programs such a command starts a terminal
+// from, and restarts the supervisor under it. Work already under way is left
+// to finish (see awaitLifecycleWork).
+func refusedWhileInstalling(args []string, stderr io.Writer, runtime commandRuntime) bool {
+	name := args[0]
+	switch name {
+	case "spawn", "switch", "pause", "resume", "kill", "cleanup":
+	case "helper":
+		if len(args) > 1 {
+			name += " " + args[1]
+		}
+	default:
+		return false
+	}
+	h, err := runtime.resolveHome()
+	if err != nil || !update.Installing(h.State) {
+		return false
+	}
+	fmt.Fprintf(stderr, "cfo %s: Code Goblins is installing an update, so this did not run and can be tried again in a minute\n", name)
+	return true
+}
+
+// upperFirst is text with its first letter a capital.
+func upperFirst(text string) string {
+	if text == "" {
+		return text
+	}
+	return strings.ToUpper(text[:1]) + text[1:]
+}
+
+// recoverAddress is the address a previous build's supervisor starts on when
+// an update is recovered: the one this home's board record names, the one it
+// last served on whether or not that supervisor still answers, and the
+// board's own only when no record can be read.
+func recoverAddress(h home.Home) string {
+	if record, err := readBoardRecord(h.State); err == nil {
+		return strings.TrimPrefix(record.URL, "http://")
+	}
+	return boardAddress()
+}
+
 // installUpdate installs the running binary, a candidate build that is not
 // one of the home's installed programs.
 func installUpdate(h home.Home, stdout, stderr io.Writer) int {
+	began := time.Now()
 	candidate, err := os.Executable()
 	if err != nil {
 		fmt.Fprintln(stderr, err)
 		return 1
 	}
-	// An earlier update that did not finish, or whose journal cannot be
-	// read, is never overwritten: its verified copies are the way back. A
-	// finished update of another home, such as this one before it moved, is
-	// history: nothing it kept is a way back any more.
+	// An earlier update whose journal cannot be read, or is another home's
+	// and unfinished, is never overwritten: its verified copies are the way
+	// back. A finished update of another home, such as this one before it
+	// moved, is history: nothing it kept is a way back any more.
+	var unfinished *update.Journal
 	switch last, err := update.ReadJournal(h.State); {
 	case errors.Is(err, os.ErrNotExist):
 	case err == nil && journalFolder(h, last) == "" && last.Phase.Finished():
 	case err == nil && journalFolder(h, last) == "":
-		fmt.Fprintf(stderr, "cfo update: the last update's journal is for %s, not this home %s, and that update stopped at %s; nothing was changed, and its journal and copies in %s are kept as its way back\n", last.Root, h.Root, last.Phase, update.Dir(h.State))
+		fmt.Fprintf(stderr, "cfo update: the last update's journal is for %s, not this home %s, and that update stopped at %s, so nothing was changed, and its journal and copies in %s are kept as its way back\n", last.Root, h.Root, last.Phase, update.Dir(h.State))
 		return 1
 	default:
 		if err == nil {
 			err = update.Validate(last, journalFolder(h, last), h.State)
 		}
 		if err != nil {
-			fmt.Fprintf(stderr, "cfo update: the last update's journal cannot be trusted (%v); nothing was changed, and journal.json, candidate.exe and the previous-*.exe copies in %s are kept as they are\n", err, update.Dir(h.State))
+			fmt.Fprintf(stderr, "cfo update: the last update's journal cannot be trusted (%v), so nothing was changed, and journal.json, candidate.exe and the previous-*.exe copies in %s are kept as they are\n", err, update.Dir(h.State))
 			return 1
 		}
 		if !last.Phase.Finished() {
-			fmt.Fprintf(stderr, "cfo update: an earlier update stopped at %s; finish it first in Windows PowerShell:\n  %s\n", last.Phase, recoverCommand(h))
-			return 1
+			unfinished = &last
+		}
+	}
+	// The update stops only this home's own supervisor, so one it cannot
+	// prove is refused before anything changes, never left serving behind a
+	// rollback that cannot start the previous build.
+	if err := unprovedSupervisor(h); err != nil {
+		fmt.Fprintf(stderr, "cfo update: %v. An update stops only this home's own supervisor, so nothing was changed.\n", err)
+		return 1
+	}
+	// An earlier update of this home that stopped part way is finished first,
+	// by putting its previous build back, so the update that Try again on the
+	// card runs asks for nothing to be done by hand before it.
+	if unfinished != nil {
+		fmt.Fprintf(stdout, "An earlier update stopped at %s, so the previous build is put back first.\n", unfinished.Phase)
+		if code := rollBack(h, unfinished, recoverAddress(h), fmt.Errorf("the earlier update stopped at %s", unfinished.Phase), stdout, stderr); code != updateRolledBack {
+			return code
 		}
 	}
 	// The build is swapped where the home keeps it: bin, or the root of a
 	// home a build before bin set up.
 	programs := h.Programs()
 	if _, err := os.Stat(filepath.Join(programs, "cfo.exe")); errors.Is(err, os.ErrNotExist) {
-		fmt.Fprintf(stderr, "cfo update: the home %s holds no cfo.exe, in bin or at its root, so it has no build to update; set it up with this build's cfo install; nothing was changed\n", h.Root)
-		return 1
-	}
-	// The update stops only this home's own supervisor, so one it cannot
-	// prove is refused before anything changes, never left serving behind a
-	// rollback that cannot start the previous build.
-	if err := unprovedSupervisor(h); err != nil {
-		fmt.Fprintf(stderr, "cfo update: %v; an update stops only this home's own supervisor, so nothing was changed\n", err)
+		fmt.Fprintf(stderr, "cfo update: the home %s holds no cfo.exe, in bin or at its root, so it has no build to update and nothing was changed. Set it up with this build's cfo install.\n", h.Root)
 		return 1
 	}
 
@@ -204,7 +481,7 @@ func installUpdate(h home.Home, stdout, stderr io.Writer) int {
 	// and to the previous build after a rollback as before.
 	switch marked, err := install.MarkHome(h.Root); {
 	case err != nil:
-		fmt.Fprintf(stderr, "cfo update: %v; nothing was changed\n", err)
+		fmt.Fprintf(stderr, "cfo update: %v, so nothing was changed\n", err)
 		return 1
 	case marked:
 		fmt.Fprintf(stdout, "Marked %s as a CFO home with %s, which this build's commands and hooks look for.\n", h.Root, home.InstalledMarker)
@@ -214,15 +491,19 @@ func installUpdate(h home.Home, stdout, stderr io.Writer) int {
 		fmt.Fprintln(stderr, err)
 		return 1
 	}
+	clock := &stepClock{journal: journal, last: began}
+	clock.done("prepare")
 	updateInterrupt("prepared")
 	// An update trusts a build because the Overlord ran it; nothing here
 	// checks who built it, so it says so and names what he can check.
 	fmt.Fprintf(stdout, "Installing the build that runs this command, SHA-256 %s. An update checks no code signature, so the build is yours to check: compare that SHA-256 with the build you made or were given.\n", journal.Hash)
-	fmt.Fprintf(stdout, "Prepared: the previous build is backed up in %s. If this update stops part way, this puts it back, pasted into Windows PowerShell:\n  %s\n", update.Dir(h.State), recoverCommand(h))
+	fmt.Fprintf(stdout, "Prepared: the previous build is backed up in %s, and it is put back by itself if this update does not finish.\n", update.Dir(h.State))
 
 	// The supervisor is restarted on the address the one stopped here serves,
 	// so a home on an address of its own keeps it whatever shell runs the
 	// update.
+	awaitLifecycleWork(h.State, stdout)
+	clock.done("wait")
 	address := boardAddress()
 	if running, ok := homeSupervisor(h.State); ok {
 		if record, err := readBoardRecord(h.State); err == nil && record.PID == running.pid {
@@ -233,6 +514,10 @@ func installUpdate(h home.Home, stdout, stderr io.Writer) int {
 			return rollBack(h, journal, address, fmt.Errorf("stop the supervisor: %w", err), stdout, stderr)
 		}
 	}
+	if err := takeWatchLock(h); err != nil {
+		return rollBack(h, journal, address, err, stdout, stderr)
+	}
+	clock.done("stop")
 	if err := recordUpdate(h.State, journal, update.Stopped, ""); err != nil {
 		return rollBack(h, journal, address, err, stdout, stderr)
 	}
@@ -241,6 +526,7 @@ func installUpdate(h home.Home, stdout, stderr io.Writer) int {
 	if err := update.Swap(journal); err != nil {
 		return rollBack(h, journal, address, err, stdout, stderr)
 	}
+	clock.done("swap")
 	if err := recordUpdate(h.State, journal, update.Swapped, ""); err != nil {
 		return rollBack(h, journal, address, err, stdout, stderr)
 	}
@@ -268,6 +554,7 @@ func installUpdate(h home.Home, stdout, stderr io.Writer) int {
 	if err := awaitSupervisor(h.State, started, true); err != nil {
 		return rollBack(h, journal, address, err, stdout, stderr)
 	}
+	clock.done("start")
 	// A success the journal cannot record is not one: a later --recover
 	// would put the previous build back over a build that serves, so the
 	// update rolls back now instead.
@@ -279,7 +566,7 @@ func installUpdate(h home.Home, stdout, stderr io.Writer) int {
 	for _, kept := range running {
 		fmt.Fprintf(stdout, "Kept %s: something still runs it, and the janitor removes it once nothing does.\n", kept)
 	}
-	fmt.Fprintf(stdout, "Updated: cfo.exe and goblins.exe in %s are %s, and its supervisor (pid %d) serves the board.\n", programs, journal.Hash, started.pid)
+	fmt.Fprintf(stdout, "Updated: cfo.exe and goblins.exe in %s are %s, and its supervisor (pid %d) serves the board. It took %s.\n", programs, journal.Hash, started.pid, stepTimes(journal.Steps))
 	// The desktop window beside the candidate follows the update into the
 	// home, beside goblins.exe. It takes no part in it: the window of the
 	// previous build shows this build's board, so one that could not be
@@ -307,7 +594,7 @@ func recoverUpdate(h home.Home, stdout, stderr io.Writer) int {
 		err = update.Validate(journal, journalFolder(h, journal), h.State)
 	}
 	if err != nil {
-		fmt.Fprintf(stderr, "cfo update: the update's journal cannot be trusted (%v); nothing was changed\n", err)
+		fmt.Fprintf(stderr, "cfo update: the update's journal cannot be trusted (%v), so nothing was changed\n", err)
 		return 1
 	}
 	if journal.Phase.Finished() {
@@ -315,31 +602,30 @@ func recoverUpdate(h home.Home, stdout, stderr io.Writer) int {
 		return 0
 	}
 	if err := unprovedSupervisor(h); err != nil {
-		fmt.Fprintf(stderr, "cfo update: %v; recovery stops only this home's own supervisor, so nothing was changed. Stop it (goblins stop), then run the recovery line again in Windows PowerShell:\n  %s\n", err, recoverCommand(h))
+		fmt.Fprintf(stderr, "cfo update: %v. Recovery stops only this home's own supervisor, so nothing was changed. Stop it with goblins stop, and the next update puts the previous build back first.\n", err)
 		return 1
 	}
-	// The previous build starts on the address this home's board record
-	// names, the one it last served on whether or not that supervisor still
-	// answers, and on the board's own only when no record can be read.
-	address := boardAddress()
-	if record, err := readBoardRecord(h.State); err == nil {
-		address = strings.TrimPrefix(record.URL, "http://")
-	}
-	return rollBack(h, &journal, address, fmt.Errorf("the update stopped at %s", journal.Phase), stdout, stderr)
+	return rollBack(h, &journal, recoverAddress(h), fmt.Errorf("the update stopped at %s", journal.Phase), stdout, stderr)
 }
 
 // rollBack puts the previous build back and starts its supervisor on
 // address, and says whether the board serves. The verified backups are copied
 // back, never moved, so a rollback that stops part way can run again.
 func rollBack(h home.Home, journal *update.Journal, address string, cause error, stdout, stderr io.Writer) int {
-	fmt.Fprintf(stderr, "cfo update: %v; putting the previous build back\n", cause)
+	clock := &stepClock{journal: journal, last: time.Now()}
+	fmt.Fprintf(stderr, "cfo update: %v, so the previous build is put back\n", cause)
 	_ = recordUpdate(h.State, journal, update.RollingBack, cause.Error())
 	updateInterrupt("rolling-back")
 	endHomeSupervisors(h, journal, stderr)
+	// A supervisor that could not be stopped keeps the lock, and is judged
+	// below by the build it runs.
+	if err := takeWatchLock(h); err != nil {
+		fmt.Fprintf(stderr, "cfo update: %v\n", err)
+	}
 	updateInterrupt("restoring")
 	restoreErr := update.Restore(journal)
 	if restoreErr != nil {
-		fmt.Fprintf(stderr, "cfo update: %v; starting the previous build from a copy proved to be it\n", restoreErr)
+		fmt.Fprintf(stderr, "cfo update: %v, so the previous build starts from a copy proved to be it\n", restoreErr)
 	}
 	// A supervisor that could not be stopped still serves; it is the
 	// rollback's result only when the program it runs now is proved the
@@ -354,21 +640,22 @@ func rollBack(h home.Home, journal *update.Journal, address string, cause error,
 			lastErr = err
 			break
 		}
-		started, err := startPreviousSupervisor(h, program, address)
+		started, err := startSupervisor(h, program, address)
 		held.Close()
 		if err == nil {
 			journal.Attempts = append(journal.Attempts, update.Attempt{PID: started.pid, Start: started.start, Program: program})
 			_ = recordUpdate(h.State, journal, update.RollingBack, "")
 			if err = awaitSupervisor(h.State, started, false); err == nil {
+				clock.done("put back")
 				if restoreErr != nil {
 					_ = recordUpdate(h.State, journal, update.Degraded, fmt.Sprintf("the previous build serves from %s (pid %d); the aliases still need repair: %v", program, started.pid, restoreErr))
-					fmt.Fprintf(stderr, "cfo update: the previous build serves from %s (pid %d), but cfo.exe and goblins.exe are not repaired yet; repair them in Windows PowerShell:\n  %s\n", program, started.pid, recoverCommand(h))
+					fmt.Fprintf(stderr, "Rolled back: the previous build serves the board from %s (pid %d), but cfo.exe and goblins.exe are not repaired yet, and the next update repairs them first.\n", program, started.pid)
 					return updateDegraded
 				}
 				return rolledBack(h, journal, started, "the previous build serves again after: "+cause.Error(), stdout, stderr)
 			}
-			// A supervisor that runs but does not serve keeps the lock
-			// from the next try: end it, and only it.
+			// A supervisor that runs but does not serve keeps the lock it
+			// was handed from the next try: end it, and only it.
 			if endErr := endSupervisor(h, started); endErr != nil {
 				err = errors.Join(err, endErr)
 			}
@@ -376,16 +663,17 @@ func rollBack(h home.Home, journal *update.Journal, address string, cause error,
 		lastErr = err
 	}
 	_ = recordUpdate(h.State, journal, update.RollingBack, "the previous build did not serve: "+lastErr.Error())
-	fmt.Fprintf(stderr, "cfo update: THE BOARD IS DOWN: neither build serves (%v). Run this again in Windows PowerShell, or goblins --board:\n  %s\n", lastErr, recoverCommand(h))
+	fmt.Fprintf(stderr, "Failed: neither build serves the board (%v), so it is down until Code Goblins is opened again, and the next update puts the previous build back first.\n", lastErr)
 	return updateBoardDown
 }
 
 // rolledBack finishes a rollback whose previous build serves: it records the
 // update as rolled back and only then removes what it moved aside. A record
-// that fails keeps every file, so update --recover can still finish it.
+// that fails keeps every file, so the next update, or update --recover, can
+// still finish it.
 func rolledBack(h home.Home, journal *update.Journal, running serveProcess, outcome string, stdout, stderr io.Writer) int {
 	if err := recordUpdate(h.State, journal, update.RolledBack, outcome); err != nil {
-		fmt.Fprintf(stderr, "cfo update: the previous build serves the board (pid %d), but the update's journal could not record the rollback (%v), so the update is not finished; finish it in Windows PowerShell:\n  %s\n", running.pid, err, recoverCommand(h))
+		fmt.Fprintf(stderr, "Rolled back: the previous build serves the board (pid %d), but the update's journal could not record it (%v), so the next update finishes the rollback first.\n", running.pid, err)
 		return updateRolledBack
 	}
 	update.CleanUp(journal)
@@ -425,21 +713,6 @@ func pinHome(h home.Home) (home.Home, error) {
 		return h, err
 	}
 	return h, os.Setenv("CFO_STATE_OVERRIDE", h.State)
-}
-
-// recoverCommand is the update --recover line to paste into Windows
-// PowerShell: it runs the candidate's kept copy, so it works with cfo.exe and
-// goblins.exe both gone, and names this home and its exact state itself, so
-// it works from any folder whatever state the shell's environment names. It
-// is built from the home alone, never from a path a journal holds.
-func recoverCommand(h home.Home) string {
-	return "$env:CFO_HOME = " + powerShellQuote(h.Root) + "; $env:CFO_STATE_OVERRIDE = " + powerShellQuote(h.State) + "; & " + powerShellQuote(filepath.Join(update.Dir(h.State), "candidate.exe")) + " update --recover"
-}
-
-// powerShellQuote is text as a PowerShell literal string, which expands
-// nothing and escapes only its quote.
-func powerShellQuote(text string) string {
-	return "'" + strings.ReplaceAll(text, "'", "''") + "'"
 }
 
 // previousProgram is the program the previous build's supervisor starts
@@ -506,10 +779,12 @@ func endHomeSupervisors(h home.Home, journal *update.Journal, stderr io.Writer) 
 }
 
 // homeSupervisor is the supervisor holding this home's watcher lock, proved
-// by the lock record's pid, start time and host.
+// by the lock record's pid, start time and host. A process holding the lock
+// itself, between the supervisor it stopped and the one it starts, is not
+// one.
 func homeSupervisor(stateDir string) (serveProcess, bool) {
 	holder, err := lock.ReadNamed(stateDir, ".watch.lock")
-	if err != nil || holder.Session != "exclusive-spawn" || holder.PID <= 0 || !holder.VerifiedAlive() {
+	if err != nil || holder.Session != "exclusive-spawn" || holder.PID <= 0 || holder.PID == os.Getpid() || !holder.VerifiedAlive() {
 		return serveProcess{}, false
 	}
 	return serveProcess{pid: holder.PID, start: holder.Start}, true
@@ -632,7 +907,9 @@ func endSupervisor(h home.Home, running serveProcess) error {
 	if err := provedHomeSupervisor(h, running); err != nil {
 		return fmt.Errorf("pid %d is not proved this home's supervisor (%v), so it was left running", running.pid, err)
 	}
-	if err := supervisor.RequestStop(h.State, running.pid); err != nil {
+	// The supervisor hands this process the watcher lock as it ends, where
+	// it is of a build that reads the request's successor.
+	if err := supervisor.RequestStopFor(h.State, running.pid, os.Getpid()); err != nil {
 		return err
 	}
 	if awaitExit(running, updateStopWait) {
@@ -729,15 +1006,71 @@ func awaitExit(running serveProcess, wait time.Duration) bool {
 	return !processIs(running)
 }
 
+// takeWatchLock takes this home's watcher lock for the process restarting its
+// supervisor, which holds it from the moment the supervisor it stopped let
+// go until the one it starts has it (see startSupervisor), and an update
+// through its rollback too. No supervisor of either build that starts in
+// between, as one a goblins opened beside the update starts, can then take
+// it, and neither can the CFO's Stop hook. On 2026-10-09 two supervisors
+// the update had not started did: the first served when the new build's
+// supervisor started, which exited, and the second, started while the
+// rollback restored the files, held the lock the previous build was then
+// refused three times. A watcher holding the lock hands it over, as it does to
+// serve. A supervisor of this home holding it, started in the moment before
+// this took it, is ended first, and only one proved this home's.
+func takeWatchLock(h home.Home) error {
+	if lock.HeldByNamed(h.State, ".watch.lock", os.Getpid()) {
+		return nil
+	}
+	var err error
+	for try := 0; try < updateServeTries; try++ {
+		if err = supervisor.AcquireWatchLock(h.State); err == nil {
+			return nil
+		}
+		running, ok := homeSupervisor(h.State)
+		if !ok {
+			break
+		}
+		if endErr := endSupervisor(h, running); endErr != nil {
+			return errors.Join(err, endErr)
+		}
+	}
+	return fmt.Errorf("take the watcher lock to restart the supervisor: %w", err)
+}
+
+// releaseWatchLock lets go of the watcher lock when this process still holds
+// it as it ends, having started no supervisor to hand it to.
+func releaseWatchLock(h home.Home) {
+	if lock.HeldByNamed(h.State, ".watch.lock", os.Getpid()) {
+		_ = supervisor.ReleaseWatchLock(h.State)
+	}
+}
+
 // startSupervisor starts serve from program on address, detached, as goblins
-// does.
+// does, and hands it the watcher lock, which this process takes first: the
+// supervisor is created suspended, the lock's record is changed to name it,
+// and only then does it run, so the lock is never free for another
+// supervisor to take. Every build since v0.1.0 takes a record naming itself
+// as its own, so a previous build is handed the lock as the new one is.
 func startSupervisor(h home.Home, program, address string) (serveProcess, error) {
+	if err := takeWatchLock(h); err != nil {
+		return serveProcess{}, err
+	}
+	var started serveProcess
+	handOver := func(pid int) error {
+		start, ok := proc.StartTime(pid)
+		if !ok {
+			return fmt.Errorf("the supervisor started from %s exited at once", program)
+		}
+		started = serveProcess{pid: pid, start: start}
+		return lock.HandOverExclusiveNamed(h.State, ".watch.lock", pid)
+	}
 	var command *exec.Cmd
 	var err error
 	// serve.log can still be held for a moment by the console of the
 	// supervisor just stopped.
 	for deadline := time.Now().Add(10 * time.Second); ; time.Sleep(200 * time.Millisecond) {
-		command, err = startDetached(program, h.Root, serveLogPath(h.State), "serve", "--listen", address)
+		command, err = startDetachedAfter(handOver, program, h.Root, serveLogPath(h.State), "serve", "--listen", address)
 		if err == nil || !errors.Is(err, errorSharingViolation) || time.Now().After(deadline) {
 			break
 		}
@@ -746,26 +1079,7 @@ func startSupervisor(h home.Home, program, address string) (serveProcess, error)
 		return serveProcess{}, fmt.Errorf("start the supervisor from %s: %w", program, err)
 	}
 	go func() { _ = command.Wait() }()
-	start, ok := proc.StartTime(command.Process.Pid)
-	if !ok {
-		return serveProcess{}, fmt.Errorf("the supervisor started from %s exited at once", program)
-	}
-	return serveProcess{pid: command.Process.Pid, start: start}, nil
-}
-
-// startPreviousSupervisor starts the previous build's supervisor. A build
-// older than the handover cannot take the watcher lock from a watcher, so the
-// update takes the lock over from one first and releases it just before that
-// supervisor starts. The CFO's Stop hook can take it again in that gap; the
-// rollback's updateServeTries cover a start lost to it.
-func startPreviousSupervisor(h home.Home, program, address string) (serveProcess, error) {
-	if err := supervisor.AcquireWatchLock(h.State); err != nil {
-		return serveProcess{}, fmt.Errorf("free the watcher lock for the previous build: %w", err)
-	}
-	if err := supervisor.ReleaseWatchLock(h.State); err != nil {
-		return serveProcess{}, err
-	}
-	return startSupervisor(h, program, address)
+	return started, nil
 }
 
 // awaitSupervisor waits until the supervisor started serves as itself: it
@@ -777,7 +1091,7 @@ func awaitSupervisor(stateDir string, started serveProcess, alive bool) error {
 	deadline := time.Now().Add(updateServeWait)
 	for {
 		if !processIs(started) {
-			return fmt.Errorf("the supervisor (pid %d) exited before it served; see %s", started.pid, serveLogPath(stateDir))
+			return fmt.Errorf("the supervisor (pid %d) exited before it served, and %s says why", started.pid, serveLogPath(stateDir))
 		}
 		if serves(stateDir, started, alive) == nil {
 			return nil

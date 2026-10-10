@@ -332,6 +332,10 @@ func standInInstall() int {
 		watch.HandoverWait = wait
 	}
 	updateStopWait = 5 * time.Second
+	// A test of the refresh's bound has the install never end.
+	if os.Getenv("CFO_TEST_INSTALL_HANGS") != "" {
+		time.Sleep(3 * time.Minute)
+	}
 	return runInstall(os.Args[2:], os.Stdout, os.Stderr)
 }
 
@@ -355,12 +359,15 @@ func standInUpdate() int {
 	updateStopWait = 5 * time.Second
 	// A stand-in build is some hundred megabytes, which a loaded machine
 	// copies slowly, so only a test of a bound sets one.
-	updatePrepareBound, updateBound = 10*time.Minute, 10*time.Minute
+	updatePrepareBound, updateBound, updateRecoverBound = 10*time.Minute, 10*time.Minute, 10*time.Minute
 	if bound, err := time.ParseDuration(os.Getenv("CFO_TEST_UPDATE_BOUND")); err == nil {
 		updateBound = bound
 	}
 	if wait, err := time.ParseDuration(os.Getenv("CFO_TEST_UPDATE_QUIET_WAIT")); err == nil {
 		updateQuietWait = wait
+	}
+	if wait, err := time.ParseDuration(os.Getenv("CFO_TEST_RELEASE_REFRESH_WAIT")); err == nil {
+		releaseRefreshWait = wait
 	}
 	interrupt := os.Getenv("CFO_TEST_UPDATE_INTERRUPT")
 	pause := os.Getenv("CFO_TEST_UPDATE_PAUSE")

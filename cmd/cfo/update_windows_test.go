@@ -567,9 +567,6 @@ func (u *updateHome) unchanged(before map[string][]byte) {
 
 // The ways an update refuses an earlier journal, by what it tells the user.
 const (
-	// recoverFirst: an unfinished update of this home, finished by its
-	// recovery line.
-	recoverFirst = "recover first"
 	// untrusted: this home's journal, but one no update writes.
 	untrusted = "untrusted"
 	// othersWayBack: an unfinished update of another home, whose journal is
@@ -577,14 +574,15 @@ const (
 	othersWayBack = "another's way back"
 )
 
-// A journal that cannot be read, or an unfinished one, is never taken for
-// permission: update and recover both refuse and change nothing, the journal
-// and every copy included. Only an unfinished update of this home is answered
-// with a recovery line, and that line is this home's own; a malformed journal
-// of this home is one that cannot be trusted, and no refusal leaves a journal
-// for the Overlord to move aside by hand. A finished update of another home is
-// history, which TestUpdateInstallsWhereEachHomeShapeKeepsItsBuild updates
-// over.
+// A journal that cannot be read, or an unfinished one of another home, is
+// never taken for permission: update and recover both refuse and change
+// nothing, the journal and every copy included. A malformed journal of this
+// home is one that cannot be trusted, and no refusal leaves a journal for the
+// Overlord to move aside by hand or a command to paste. An unfinished update
+// of this home is put back first by the next one, which
+// TestAnUpdateAfterOneThatStoppedPartWayPutsThePreviousBuildBackFirst proves,
+// and a finished update of another home is history, which
+// TestUpdateInstallsWhereEachHomeShapeKeepsItsBuild updates over.
 func TestUpdateRefusesAJournalItCannotTrust(t *testing.T) {
 	for _, test := range []struct {
 		name    string
@@ -596,27 +594,19 @@ func TestUpdateRefusesAJournalItCannotTrust(t *testing.T) {
 		{"another alias set", `{"schema":"cfo-update.v1","root":"ROOT","phase":"done","candidate_copy":"STATE\\update\\candidate.exe","aliases":[]}`, untrusted},
 		{"an edited copy", `{"schema":"cfo-update.v1","root":"ROOT","phase":"swapped","candidate_copy":"C:\\elsewhere\\x.exe","aliases":[]}`, untrusted},
 		{"another home's", `{"schema":"cfo-update.v1","root":"C:\\elsewhere","phase":"swapped","aliases":[]}`, othersWayBack},
-		{"unfinished here", "", recoverFirst},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			u := newUpdateHome(t, "previous", "candidate")
-			if test.journal == "" {
-				code, _ := u.run([]string{"CFO_TEST_UPDATE_INTERRUPT=prepared"})
-				if code != 9 {
-					t.Fatal("could not leave an unfinished update")
-				}
-			} else {
-				if err := os.MkdirAll(update.Dir(u.state), 0o700); err != nil {
+			if err := os.MkdirAll(update.Dir(u.state), 0o700); err != nil {
+				t.Fatal(err)
+			}
+			journal := strings.NewReplacer("ROOT", strings.ReplaceAll(u.bin, `\`, `\\`), "STATE", strings.ReplaceAll(u.state, `\`, `\\`)).Replace(test.journal)
+			if err := os.WriteFile(filepath.Join(update.Dir(u.state), "journal.json"), []byte(journal), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			for _, name := range []string{"candidate.exe", "previous-cfo.exe", "previous-goblins.exe"} {
+				if err := os.WriteFile(filepath.Join(update.Dir(u.state), name), []byte("an earlier update's "+name), 0o600); err != nil {
 					t.Fatal(err)
-				}
-				journal := strings.NewReplacer("ROOT", strings.ReplaceAll(u.bin, `\`, `\\`), "STATE", strings.ReplaceAll(u.state, `\`, `\\`)).Replace(test.journal)
-				if err := os.WriteFile(filepath.Join(update.Dir(u.state), "journal.json"), []byte(journal), 0o600); err != nil {
-					t.Fatal(err)
-				}
-				for _, name := range []string{"candidate.exe", "previous-cfo.exe", "previous-goblins.exe"} {
-					if err := os.WriteFile(filepath.Join(update.Dir(u.state), name), []byte("an earlier update's "+name), 0o600); err != nil {
-						t.Fatal(err)
-					}
 				}
 			}
 			before := u.updateFiles()
@@ -628,12 +618,7 @@ func TestUpdateRefusesAJournalItCannotTrust(t *testing.T) {
 			}
 			u.aliasesAre(u.previous, "previous")
 			u.unchanged(before)
-			if line := recoverCommand(home.Home{Root: u.root, State: u.state}); (test.refusal == recoverFirst) != strings.Contains(output, line) {
-				t.Fatalf("the recovery line %s is printed only for an unfinished update of this home:\n%s", line, output)
-			}
-			if test.refusal != recoverFirst && strings.Contains(output, "--recover") {
-				t.Fatalf("a recovery line was printed for a journal that is not this home's:\n%s", output)
-			}
+			noPasteLine(t, output)
 			if (test.refusal == untrusted) != strings.Contains(output, "cannot be trusted") {
 				t.Fatalf("only a malformed journal of this home is refused as one that cannot be trusted:\n%s", output)
 			}
@@ -643,10 +628,8 @@ func TestUpdateRefusesAJournalItCannotTrust(t *testing.T) {
 			if test.refusal == othersWayBack && (!strings.Contains(output, `C:\elsewhere`) || !strings.Contains(output, u.root)) {
 				t.Fatalf("the refusal does not name both homes:\n%s", output)
 			}
-			if test.refusal != recoverFirst {
-				if code, output := u.run(nil, "--recover"); code != 1 {
-					t.Fatalf("recover from a journal it cannot trust exited %d:\n%s", code, output)
-				}
+			if code, output := u.run(nil, "--recover"); code != 1 {
+				t.Fatalf("recover from a journal it cannot trust exited %d:\n%s", code, output)
 			}
 		})
 	}
@@ -738,8 +721,8 @@ func TestRecoverRefusesASupervisorItCannotProveThisHomes(t *testing.T) {
 
 // The files a rollback moved aside go only once the rollback is durably
 // recorded. When the journal cannot record it, the previous build still
-// serves, every file stays, and the output says the update is unfinished with
-// the line that finishes it, which then does, and cleans up.
+// serves, every file stays, and the output says the journal could not record
+// it, with nothing to paste. A recovery then finishes it and cleans up.
 func TestARollbackItCannotRecordKeepsItsFilesAndStaysRecoverable(t *testing.T) {
 	u := newUpdateHome(t, "previous", "crash")
 	u.start(filepath.Join(u.bin, "goblins.exe"), "serve", "--listen", "127.0.0.1:0")
@@ -751,10 +734,10 @@ func TestARollbackItCannotRecordKeepsItsFilesAndStaysRecoverable(t *testing.T) {
 		t.Fatalf("update exited %d, want %d:\n%s", code, updateRolledBack, output)
 	}
 	u.previousServes()
-	line := recoverCommand(home.Home{Root: u.root, State: u.state})
-	if !strings.Contains(output, "could not record the rollback") || !strings.Contains(output, line) {
-		t.Fatalf("the output does not say the rollback is unrecorded with the line %s:\n%s", line, output)
+	if !strings.Contains(output, "the update's journal could not record it") {
+		t.Fatalf("the output does not say the rollback is unrecorded:\n%s", output)
 	}
+	noPasteLine(t, output)
 	journal, err := update.ReadJournal(u.state)
 	if err != nil || journal.Phase.Finished() {
 		t.Fatalf("journal phase %q, %v; want the update still unfinished", journal.Phase, err)
@@ -893,7 +876,8 @@ func TestASecondUpdateOfAHomeIsRefusedWhileOneRuns(t *testing.T) {
 		t.Fatal(err)
 	}
 	u.started[first] = time.Now()
-	for deadline := time.Now().Add(15 * time.Second); ; time.Sleep(100 * time.Millisecond) {
+	// The update's work starts in a process of its own before it prepares.
+	for deadline := time.Now().Add(time.Minute); ; time.Sleep(100 * time.Millisecond) {
 		if journal, err := update.ReadJournal(u.state); err == nil && journal.Phase == update.Prepared {
 			break
 		}
@@ -1129,9 +1113,10 @@ func TestAnUpdateNamedByRelativePathsInstallsIntoItsHome(t *testing.T) {
 	}
 }
 
-// An update named by relative paths that ends part way prints a recovery
-// line that, pasted in another folder, recovers that home and state, and
-// leaves the place the relative names mean from that folder untouched.
+// An update named by relative paths that ends part way is recovered by
+// hand from another folder, by the candidate's kept copy with the home and
+// its state named: it recovers that home and state, and leaves the place the
+// relative names mean from that folder untouched.
 func TestARelativelyNamedUpdateRecoversFromAnotherFolder(t *testing.T) {
 	for _, test := range relativeHomes {
 		t.Run(test.name, func(t *testing.T) {
@@ -1142,26 +1127,16 @@ func TestARelativelyNamedUpdateRecoversFromAnotherFolder(t *testing.T) {
 			updating.Dir = parent
 			updating.Env = append(environmentWithout("CFO_HOME", "CFO_STATE_OVERRIDE", "CFO_TEST_UPDATE_ROOT"), test.environment(u)...)
 			updating.Env = append(updating.Env, "CFO_TEST_UPDATE_RESOLVE=1", "CFO_TEST_UPDATE_SERVE_WAIT=8s", "CFO_TEST_HANDOVER_WAIT=2s", "CFO_TEST_UPDATE_INTERRUPT=swapped")
-			output, updateErr := updating.CombinedOutput()
-			var line string
-			printed := strings.Split(strings.ReplaceAll(string(output), "\r\n", "\n"), "\n")
-			for at := 0; at+1 < len(printed); at++ {
-				if strings.HasSuffix(printed[at], "Windows PowerShell:") {
-					line = strings.TrimSpace(printed[at+1])
-				}
-			}
-			if line == "" {
-				t.Fatalf("the update (%v) printed no recovery line:\n%s", updateErr, output)
+			if output, err := updating.CombinedOutput(); !isExit(err, 9) {
+				t.Fatalf("the update did not end at swapped (%v):\n%s", err, output)
 			}
 			elsewhere := t.TempDir()
-			pasted := exec.Command("powershell.exe", "-NoProfile", "-NonInteractive", "-Command", line+"; exit $LASTEXITCODE")
-			pasted.Dir = elsewhere
-			pasted.Env = append(environmentWithout("CFO_HOME", "CFO_STATE_OVERRIDE", "CFO_TEST_UPDATE_ROOT"), "CFO_TEST_UPDATE_RESOLVE=1", "CFO_TEST_UPDATE_SERVE_WAIT=8s", "CFO_TEST_HANDOVER_WAIT=2s")
+			byHand := u.recoveryByHand(elsewhere)
 
-			recovered, err := pasted.CombinedOutput()
+			recovered, err := byHand.CombinedOutput()
 
-			if exit, ok := err.(*exec.ExitError); !ok || exit.ExitCode() != updateRolledBack {
-				t.Fatalf("the pasted line %s ended %v, want exit %d:\n%s", line, err, updateRolledBack, recovered)
+			if !isExit(err, updateRolledBack) {
+				t.Fatalf("the recovery by hand ended %v, want exit %d:\n%s", err, updateRolledBack, recovered)
 			}
 			u.previousServes()
 			if _, err := os.Stat(filepath.Join(elsewhere, "my-home")); !os.IsNotExist(err) {
@@ -1455,35 +1430,27 @@ func TestAnUpdateRefusesAWatchLockRecordItCannotRead(t *testing.T) {
 	u.aliasesAre(u.previous, "previous")
 }
 
-// The recovery line names the home, its exact state and the candidate's kept
-// copy in that state, all from the home alone, as PowerShell literal strings,
-// so a path with a quote or a space pastes as it is.
-func TestRecoverCommandQuotesForPowerShell(t *testing.T) {
-	root := `C:\Users\O'Brien\Code Goblins`
-	for _, test := range []struct {
-		name  string
-		state string
-		want  string
-	}{
-		{"the home's own state", root + `\state`, `$env:CFO_HOME = 'C:\Users\O''Brien\Code Goblins'; $env:CFO_STATE_OVERRIDE = 'C:\Users\O''Brien\Code Goblins\state'; & 'C:\Users\O''Brien\Code Goblins\state\update\candidate.exe' update --recover`},
-		{"a state elsewhere", `D:\fleet's state`, `$env:CFO_HOME = 'C:\Users\O''Brien\Code Goblins'; $env:CFO_STATE_OVERRIDE = 'D:\fleet''s state'; & 'D:\fleet''s state\update\candidate.exe' update --recover`},
-	} {
-		t.Run(test.name, func(t *testing.T) {
-			got := recoverCommand(home.Home{Root: root, State: test.state})
-
-			if got != test.want {
-				t.Fatalf("recoverCommand = %s\nwant            %s", got, test.want)
-			}
-		})
-	}
+// isExit reports whether err is a command's exit with code.
+func isExit(err error, code int) bool {
+	exit, ok := err.(*exec.ExitError)
+	return ok && exit.ExitCode() == code
 }
 
-// The line an unfinished update prints is the recovery: pasted into Windows
-// PowerShell in another folder, with no CFO home in its environment, another
-// fleet's state inherited in CFO_STATE_OVERRIDE, and both cfo.exe and
-// goblins.exe gone, it puts the previous build back and its board serves. The
-// home's path has a quote and a space in it.
-func TestThePrintedRecoveryLineRecoversFromAnotherFolder(t *testing.T) {
+// recoveryByHand is the recovery of this home run by hand in folder, as
+// docs/install.md gives it: the candidate's kept copy with the home and its
+// state named, and nothing else of this home in its environment.
+func (u *updateHome) recoveryByHand(folder string) *exec.Cmd {
+	byHand := exec.Command(filepath.Join(update.Dir(u.state), "candidate.exe"), "update", "--recover")
+	byHand.Dir = folder
+	byHand.Env = append(environmentWithout("CFO_HOME", "CFO_STATE_OVERRIDE", "CFO_TEST_UPDATE_ROOT"), "CFO_HOME="+u.root, "CFO_STATE_OVERRIDE="+u.state, "CFO_TEST_UPDATE_RESOLVE=1", "CFO_TEST_UPDATE_SERVE_WAIT=8s", "CFO_TEST_HANDOVER_WAIT=2s")
+	return byHand
+}
+
+// An unfinished update is recovered by hand when nothing else can: run in
+// another folder, with both cfo.exe and goblins.exe gone, the candidate's
+// kept copy puts the previous build back and its board serves. The home's
+// path has a quote and a space in it.
+func TestRecoveryByHandWorksFromAnotherFolderWithBothCommandsGone(t *testing.T) {
 	root := filepath.Join(t.TempDir(), "O'Brien goblins")
 	if err := os.MkdirAll(root, 0o700); err != nil {
 		t.Fatal(err)
@@ -1494,37 +1461,18 @@ func TestThePrintedRecoveryLineRecoversFromAnotherFolder(t *testing.T) {
 	if code != updateDegraded {
 		t.Fatalf("update exited %d, want %d:\n%s", code, updateDegraded, output)
 	}
-	var line string
-	printed := strings.Split(strings.ReplaceAll(output, "\r\n", "\n"), "\n")
-	for at := 0; at+1 < len(printed); at++ {
-		if strings.HasSuffix(printed[at], "in Windows PowerShell:") {
-			line = strings.TrimSpace(printed[at+1])
-		}
-	}
-	if line == "" {
-		t.Fatalf("the update printed no recovery line:\n%s", output)
-	}
+	noPasteLine(t, output)
 	for _, name := range update.Aliases {
 		if err := os.Remove(filepath.Join(root, "bin", name)); err != nil {
 			t.Fatal(err)
 		}
 	}
-	var environment []string
-	for _, variable := range os.Environ() {
-		name, _, _ := strings.Cut(variable, "=")
-		if !strings.EqualFold(name, "CFO_HOME") && !strings.EqualFold(name, "CFO_STATE_OVERRIDE") && !strings.EqualFold(name, "CFO_TEST_UPDATE_ROOT") {
-			environment = append(environment, variable)
-		}
-	}
-	pasted := exec.Command("powershell.exe", "-NoProfile", "-NonInteractive", "-Command", line+"; exit $LASTEXITCODE")
-	pasted.Dir = t.TempDir()
-	inherited := filepath.Join(t.TempDir(), "state")
-	pasted.Env = append(environment, "CFO_STATE_OVERRIDE="+inherited, "CFO_TEST_UPDATE_RESOLVE=1", "CFO_TEST_UPDATE_SERVE_WAIT=8s", "CFO_TEST_HANDOVER_WAIT=2s")
+	byHand := u.recoveryByHand(t.TempDir())
 
-	recovered, err := pasted.CombinedOutput()
+	recovered, err := byHand.CombinedOutput()
 
-	if exit, ok := err.(*exec.ExitError); !ok || exit.ExitCode() != updateRolledBack {
-		t.Fatalf("the pasted line %s ended %v, want exit %d:\n%s", line, err, updateRolledBack, recovered)
+	if !isExit(err, updateRolledBack) {
+		t.Fatalf("the recovery by hand ended %v, want exit %d:\n%s", err, updateRolledBack, recovered)
 	}
 	u.previousServes()
 }

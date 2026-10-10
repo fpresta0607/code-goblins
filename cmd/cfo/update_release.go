@@ -21,10 +21,15 @@ import (
 	"github.com/fpresta0607/code-goblins/internal/update"
 )
 
-// Bounds on reading and downloading a release.
+// Bounds on reading and downloading a release, and on the new build's
+// install, which brings the home's contract, skills and hooks up to date and
+// fetches skills over the network: past releaseRefreshWait it is ended, so
+// the card's last step never runs without end, and the update ends as one
+// whose home refresh is still to finish.
 var (
 	releaseCheckWait    = 30 * time.Second
 	releaseDownloadWait = 10 * time.Minute
+	releaseRefreshWait  = 5 * time.Minute
 )
 
 // Seams a test replaces: who may update, and how a download's signature is
@@ -128,13 +133,13 @@ func releaseUpdate(h home.Home, check bool, to, pressed string, stdout, stderr i
 	}
 	switch standing {
 	case release.UpToDate:
-		fmt.Fprintf(stdout, "Code Goblins %s runs here, the newest release; nothing to update.\n", version)
+		fmt.Fprintf(stdout, "Code Goblins %s runs here, the newest release, so there is nothing to update.\n", version)
 		return 0
 	case release.Ahead:
-		fmt.Fprintf(stdout, "Code Goblins %s runs here, newer than the newest release, %s; nothing to update.\n", version, latest.Tag)
+		fmt.Fprintf(stdout, "Code Goblins %s runs here, newer than the newest release, %s, so there is nothing to update.\n", version, latest.Tag)
 		return 0
 	}
-	fmt.Fprintf(stdout, "Code Goblins %s runs here; %s was published %s (%s).\n", version, latest.Tag, latest.Published.Local().Format("2006-01-02"), latest.Page)
+	fmt.Fprintf(stdout, "Code Goblins %s runs here, and %s was published %s (%s).\n", version, latest.Tag, latest.Published.Local().Format("2006-01-02"), latest.Page)
 	if check {
 		if lines := release.WhatsNew(latest.Notes, 5); len(lines) > 0 {
 			fmt.Fprintln(stdout, "What's new:")
@@ -171,13 +176,14 @@ func releaseUpdate(h home.Home, check bool, to, pressed string, stdout, stderr i
 	}
 
 	releaseStep(stdout, 3, latest.Tag)
-	switch code := runProgram(h, download.Program, []string{"update"}, stdout, stderr); code {
+	// The build's own update bounds itself, so it gets no bound here.
+	switch code := runProgram(h, download.Program, []string{"update"}, 0, stdout, stderr); code {
 	case updateInstalled:
-	case updateRolledBack:
-		fmt.Fprintf(stderr, "Rolled back: Code Goblins %s serves again, and %s was not installed; what it printed above says why.\n", version, latest.Tag)
-		return updateRolledBack
 	default:
-		fmt.Fprintf(stderr, "Failed: the install of %s stopped with exit code %d; what it printed above says what to do.\n", latest.Tag, code)
+		// The line the card ends on: how it went in one sentence, with
+		// nothing to paste and nothing to look up. What the build printed
+		// above it says why, for whoever opens the output.
+		fmt.Fprintln(stderr, notInstalled(code, latest.Tag))
 		return code
 	}
 
@@ -192,25 +198,54 @@ func releaseUpdate(h home.Home, check bool, to, pressed string, stdout, stderr i
 	case !sameHomePath(target.Root, h.Root):
 		fmt.Fprintf(stdout, "Note: Code Goblins %s runs, but this machine's install names the home %s, not this one, so this home's contract, skills and hooks were left as they were.\n", latest.Tag, target.Root)
 	default:
-		installCode = runProgram(h, filepath.Join(h.Programs(), "cfo.exe"), []string{"install"}, stdout, stderr)
+		installCode = runProgram(h, filepath.Join(h.Programs(), "cfo.exe"), []string{"install"}, releaseRefreshWait, stdout, stderr)
 	}
 	if installCode != 0 {
-		fmt.Fprintf(stdout, "Updated: Code Goblins %s runs, but its install did not bring the home's contract, skills and hooks up to date (exit code %d); run goblins install to finish.\n", latest.Tag, installCode)
+		fmt.Fprintf(stdout, "Updated: Code Goblins %s runs, but its install did not bring the home's contract, skills and hooks up to date (exit code %d), and goblins install finishes that.\n", latest.Tag, installCode)
 		return updateHomeIncomplete
 	}
 	fmt.Fprintf(stdout, "Updated: Code Goblins %s runs.\n", latest.Tag)
 	return updateInstalled
 }
 
+// notInstalled is the line an update from a release ends on when the build it
+// ran did not install: which build serves now, by that build's exit code.
+// Every one of them leaves the next update, which Try again on the card
+// runs, to put right by itself whatever this one left.
+func notInstalled(code int, tag string) string {
+	switch code {
+	case updateRolledBack:
+		return fmt.Sprintf("Rolled back: Code Goblins %s was not installed, and %s serves again.", tag, version)
+	case updateDegraded:
+		return fmt.Sprintf("Rolled back: Code Goblins %s was not installed, and %s serves again from a kept copy until the next update repairs its files.", tag, version)
+	case updateBoardDown:
+		return fmt.Sprintf("Failed: Code Goblins %s was not installed, and the board is down until Code Goblins is opened again.", tag)
+	case 1:
+		return fmt.Sprintf("Failed: Code Goblins %s was not installed, and nothing was changed.", tag)
+	}
+	return fmt.Sprintf("Failed: Code Goblins %s was not installed.", tag)
+}
+
 // runProgram runs program with arguments for the home, its output with this
-// command's, and returns its exit code.
-func runProgram(h home.Home, program string, arguments []string, stdout, stderr io.Writer) int {
-	command := execx.Command(program, arguments...)
+// command's, and returns its exit code. With a wait it ends a program that
+// runs past it, says so, and returns 1.
+func runProgram(h home.Home, program string, arguments []string, wait time.Duration, stdout, stderr io.Writer) int {
+	ctx := context.Background()
+	if wait > 0 {
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithTimeout(ctx, wait)
+		defer cancel()
+	}
+	command := execx.CommandContext(ctx, program, arguments...)
 	command.Dir = h.Root
 	command.Stdout, command.Stderr = stdout, stderr
+	command.WaitDelay = 2 * time.Second
 	err := command.Run()
 	var exit *exec.ExitError
 	switch {
+	case ctx.Err() != nil:
+		fmt.Fprintf(stderr, "cfo update: %s %s took longer than %s, so it was stopped\n", filepath.Base(program), strings.Join(arguments, " "), wait)
+		return 1
 	case err == nil:
 		return 0
 	case errors.As(err, &exit):

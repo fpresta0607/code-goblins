@@ -5,6 +5,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
 	"testing"
@@ -12,6 +13,7 @@ import (
 
 	"github.com/fpresta0607/code-goblins/internal/lock"
 	"github.com/fpresta0607/code-goblins/internal/proc"
+	"github.com/fpresta0607/code-goblins/internal/update"
 )
 
 // startWith runs program in the home as start does, with more environment.
@@ -53,7 +55,7 @@ func (u *updateHome) lateSupervisor() serveProcess {
 // the update ended with the board called down, the previous build on disk and
 // the new one serving. The rollback finishes all the same: the previous build
 // serves, and nothing started late does.
-func TestARollbackFinishesThoughASupervisorOfTheNewBuildStartsLate(t *testing.T) {
+func TestAnUpdatesRollbackFinishesThoughASupervisorOfTheNewBuildStartsLate(t *testing.T) {
 	// Arrange
 	u := newUpdateHome(t, "previous", "second-start")
 	slowToStop := u.startWith([]string{"CFO_TEST_SERVE_DEAF=1"}, filepath.Join(u.bin, "goblins.exe"), "serve", "--listen", "127.0.0.1:0")
@@ -107,6 +109,18 @@ func TestAnUpdateInstallsThoughASupervisorStartsWhileTheBoardIsAway(t *testing.T
 		t.Errorf("the supervisor started while the board was away (pid %d) serves or still runs", late.pid)
 	}
 	noPasteLine(t, output)
+	// The update says where its time went, and its journal keeps it.
+	journal, err := update.ReadJournal(u.state)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var steps []string
+	for _, step := range journal.Steps {
+		steps = append(steps, step.Name)
+	}
+	if want := []string{"prepare", "wait", "stop", "swap", "start"}; !slices.Equal(steps, want) || !strings.Contains(output, "It took ") || !strings.Contains(output, "start ") {
+		t.Errorf("the journal timed the steps %v, want %v, each named in the line the update ends on:\n%s", steps, want, output)
+	}
 }
 
 // stamped is the time a stand-in left in name under the home's state.
