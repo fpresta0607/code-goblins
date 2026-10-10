@@ -92,9 +92,15 @@ func AckEpisode(dir string, gen int) error {
 		if err != nil {
 			return err
 		}
-		if !current.Pending || gen == 0 || current.Gen != gen {
-			return ErrGenerationMismatch
-		}
-		return writeEpisode(dir, "acked", gen)
+		return ackEpisode(dir, current, gen)
 	})
+}
+
+// ackEpisode is AckEpisode's rule for a caller that holds the wake lock and
+// read current under it.
+func ackEpisode(dir string, current Episode, gen int) error {
+	if !current.Pending || gen == 0 || current.Gen != gen {
+		return ErrGenerationMismatch
+	}
+	return writeEpisode(dir, "acked", gen)
 }

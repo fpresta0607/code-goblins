@@ -57,6 +57,12 @@ func Remove(path string) error {
 // process holding the file before it reports the failure.
 var transientBudget = 5 * time.Second
 
+// longestPause is the longest a state file operation sleeps between two
+// tries. A holder lets go at a moment nobody is told, so what a hold costs is
+// its own length and the pause it ends in: with pauses of up to half a second
+// a hold of 0.7 s cost 1.13 s.
+const longestPause = 50 * time.Millisecond
+
 // sleep is time.Sleep, which a test replaces to count the waits the budget
 // bounds apart from the file work around them.
 var sleep = time.Sleep
@@ -64,7 +70,7 @@ var sleep = time.Sleep
 // retryTransient runs op until it succeeds, fails for any reason other than
 // another process holding the file, or would outlast transientBudget,
 // waiting 10 ms after the first attempt and twice as long after each next
-// one, up to half a second.
+// one, up to longestPause.
 func retryTransient(op func() error) error {
 	deadline := time.Now().Add(transientBudget)
 	wait := 10 * time.Millisecond
@@ -74,7 +80,7 @@ func retryTransient(op func() error) error {
 			return err
 		}
 		sleep(wait)
-		wait = min(2*wait, 500*time.Millisecond)
+		wait = min(2*wait, longestPause)
 	}
 }
 
