@@ -23,6 +23,7 @@ export const WAITING = live("cg-board-theme", "SIQstack colors and a clean brows
 
 export const PAUSED = live("cg-subscription-dials", "Memory and subscription dials in one header; Claude Code", {
   phase: "paused", at, reason: "Paused by the Overlord; resumes on Resume", activity: "Paused by the Overlord; resumes on Resume",
+  last_report: "working: both dials sit in one header at frontend/src/usage-header.tsx; the phone width is next",
   lifecycle: { phase: "paused", action: "pause", at, kept: ["worktree C:\\dev\\code-goblins\\.worktrees\\gb-cg-subscription-dials", "task session and branch"], stopped: ["Claude Code pid 18004"], problems: ["Stopping-point deadline reached or request failed; no new handoff was saved"], handoff_saved: false, validation_restarts: false, pause: { reason: "overlord", at } },
 });
 

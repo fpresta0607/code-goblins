@@ -133,8 +133,9 @@ export function isPausedForItsPullRequest(task: Task): boolean {
   return pause.reason === "dependency" && pause.until === "pr:" + task.pr || pause.reason === "ci" && pause.until.startsWith("pr:" + task.pr + "@");
 }
 
-// What resumes a paused goblin, from its pause's condition, or for a helper
-// the Overlord paused with its parent, from that parent.
+// What a paused goblin waits for and that it resumes by itself, from its
+// pause's condition, or for a helper the Overlord paused with its parent,
+// from that parent.
 function resumes(pause: PauseCondition | undefined, tasks: Task[], parent?: Task): string {
   const byItself = "It resumes by itself ";
   const [kind, target] = pause?.until.split(/:(.*)/s) || [];
@@ -157,8 +158,8 @@ function resumes(pause: PauseCondition | undefined, tasks: Task[], parent?: Task
 
 // What a paused goblin says in place of Paused, on its card, its panel and its
 // canvas node: why it waits and what resumes it, in a few words, once; the
-// panel says what resumes it in a sentence under it. A CI or deploy wait
-// names how long the repository's runs usually take.
+// panel says what resumes it in a sentence behind Details. A CI or deploy
+// wait names how long the repository's runs usually take.
 export function pauseStatus(pause: PauseCondition | undefined, tasks: Task[], durations: CIDuration[], parent?: Task): string {
   const [kind, target] = pause?.until.split(/:(.*)/s) || [];
   switch (pause?.reason) {
@@ -244,11 +245,15 @@ export interface Summary {
   details: string[];
   // isFailure marks a failure, which links to its log.
   isFailure: boolean;
+  // isPlain says details is a description written for a person, as a paused
+  // goblin's is, which reads as the panel's prose and not as a record.
+  isPlain?: boolean;
 }
 
 // taskSummary is the one sentence the panel says under a task's status, which
-// never repeats the status: why it failed and what to do, what resumes it, or
-// its goblin's latest report.
+// never repeats the status: why it failed and what to do, or its goblin's
+// latest report. A paused goblin has none, and says what it did behind
+// Details.
 export function taskSummary(task: Task, tasks: Task[], status = ""): Summary {
   const said = summaryOf(task, tasks);
   const isQuiet = QUIET_STATUSES.has(status) || said.isFailure || task.phase === "failed" || task.lifecycle?.phase === "failed";
@@ -270,7 +275,20 @@ function summaryOf(task: Task, tasks: Task[]): Summary {
   // A pause or stop someone asked for that did not finish is no failure of
   // the goblin's; a goblin that did not start again is.
   if (record?.phase === "failed" && FAILED_ACTION[record.action]) return { sentence: join(FAILED_ACTION[record.action], teardown), details: [...record.problems, ...task.teardown], isFailure: record.action === "resume" };
-  if (task.phase === "paused") return { sentence: isPausedForItsPullRequest(task) ? "" : resumes(record?.pause, tasks, pausedWithParent(task, tasks)), details: [...(record?.problems || []), ...task.teardown], isFailure: false };
+  // A paused goblin's status already says why it waits and what resumes it,
+  // so no line under it does (the Overlord, 2026-10-09: "in paused goblin
+  // panels the highlight line, it's not needed to be presented"). Its Details
+  // is one description for a person: what it last reported itself, what it
+  // waits for, and what Windows still closes ("a well written, proper case,
+  // human readable little description about what that agent did or is
+  // doing"). What its pause could not do is the CFO's to hear, in the
+  // pause's own report, and never the panel's to show. A goblin paused for
+  // its own pull request is shown under test, so nothing says it resumes.
+  if (task.phase === "paused") {
+    const waits = isPausedForItsPullRequest(task) ? "" : resumes(record?.pause, tasks, pausedWithParent(task, tasks));
+    const description = join(reportSaid(task.last_report || "").sentence, waits, teardown);
+    return { sentence: "", details: description ? [description] : [], isFailure: false, isPlain: true };
+  }
   if (["pausing", "resuming", "stopping", "stopped"].includes(task.phase)) return { sentence: "", details: task.teardown, isFailure: false };
   // A queued task's status says it all; the Overlord wants no wait line. Why
   // its last start failed is behind Details, and the CFO was told.

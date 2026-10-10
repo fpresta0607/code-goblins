@@ -14,14 +14,22 @@ import (
 	"github.com/fpresta0607/code-goblins/internal/proc"
 )
 
-// standInWindows is the machine as moving the window meets it: the window's
-// program as Identify reads it until it is ended, and what was ended and
-// opened.
+// hisDesktop is whose the supervisor and every program of the Overlord's are
+// in a test: his Windows user, in the session of his desktop.
+var hisDesktop = proc.Owner{User: "S-1-5-21-1004-1001", Session: 1}
+
+// standInWindows is the machine as the proof of a board and the move of the
+// window meet it: the program every process runs as Identify reads it until
+// the window is ended, unless programs names another for a PID, whose each
+// process is, which is the Overlord's unless owners names another for a PID,
+// and what was ended and opened.
 type standInWindows struct {
-	mu     sync.Mutex
-	image  string
-	ended  []string
-	opened []string
+	mu       sync.Mutex
+	image    string
+	programs map[int]proc.Identity
+	owners   map[int]proc.Owner
+	ended    []string
+	opened   []string
 }
 
 func (w *standInWindows) system() windowSystem {
@@ -32,7 +40,18 @@ func (w *standInWindows) system() windowSystem {
 			if len(w.ended) > 0 {
 				return proc.Identity{}, errors.New("the process has exited")
 			}
+			if program, named := w.programs[pid]; named {
+				return program, nil
+			}
 			return proc.Identity{Image: w.image}, nil
+		},
+		owner: func(pid int, start time.Time) (proc.Owner, error) {
+			w.mu.Lock()
+			defer w.mu.Unlock()
+			if owner, named := w.owners[pid]; named {
+				return owner, nil
+			}
+			return hisDesktop, nil
 		},
 		end: func(pid int, start time.Time, image string) error {
 			w.mu.Lock()

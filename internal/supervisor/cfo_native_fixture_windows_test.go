@@ -153,7 +153,12 @@ func TestNativeCFOComposerProgram(t *testing.T) {
 				record("typed-under-dialog")
 			}
 			line += string(key)
-			draw(false)
+			// What is typed in one go is drawn once it is all read, as a
+			// harness draws a paste: a draw for each character of several
+			// answers typed as one message outlasts the wait to see it shown.
+			if reader.Buffered() == 0 {
+				draw(false)
+			}
 		}
 	}
 }

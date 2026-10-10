@@ -24,8 +24,10 @@ import (
 // page shown by his own window, as the board's AFK switch proves it, and only
 // a window whose program is a renamed copy beside the home's window and not
 // that program itself. It ends that window and opens the home's through the
-// desktop shell, so the new window is one his desktop started, which the
-// board's own proofs take as his.
+// desktop shell, so the new window starts with the desktop's environment and
+// none of the supervisor's. The shell that opens it then exits, so the new
+// window has no parent at the desktop, and the board's proofs take it as his
+// by the program it runs (afk_board.go).
 
 // windowName is the desktop window's program, in the home's bin.
 const windowName = "goblins-window.exe"
@@ -46,11 +48,13 @@ type windowMove struct {
 	At         time.Time `json:"at"`
 }
 
-// windowSystem is what moving the window does on the machine: read the
-// window's program, end the window through the handle that proved it, and
-// open the home's window. Its zero value is Windows itself.
+// windowSystem is the machine as the proof of a board and the move of the
+// window meet it: read what a program is and whose, end the window through
+// the handle that proved it, and open the home's window. Its zero value is
+// Windows itself.
 type windowSystem struct {
 	identify func(pid int, start time.Time) (proc.Identity, error)
+	owner    func(pid int, start time.Time) (proc.Owner, error)
 	end      func(pid int, start time.Time, image string) error
 	open     func(program string) error
 }
@@ -58,6 +62,9 @@ type windowSystem struct {
 func (w windowSystem) orWindows() windowSystem {
 	if w.identify == nil {
 		w.identify = proc.Identify
+	}
+	if w.owner == nil {
+		w.owner = proc.OwnerOf
 	}
 	if w.end == nil {
 		w.end = func(pid int, start time.Time, image string) error {
@@ -86,13 +93,10 @@ func openThroughTheDesktop(program string) error {
 	return command.Process.Release()
 }
 
-// movingWindow asks to move the desktop window onto the home's program.
-var movingWindow = asker{
-	what: "Moving the desktop window onto the program an update installed is for the Overlord's own window",
-	only: ": the page in his Code Goblins window asks it once it is in the tray",
-	runs: "the program that shows this board runs",
-	cut:  "as it cannot those of a program whose opener has since exited, so nothing says it is his",
-}
+// movingWindow asks to move the desktop window onto the home's program. The
+// page asks by itself and shows nobody the answer, so it has no sentence for
+// the Overlord.
+var movingWindow = boardAsker("Moving the desktop window onto the program an update installed is for the Overlord's own window", ": the page in his Code Goblins window asks it once it is in the tray", "", "")
 
 // moveWindowFromBoard serves POST /api/window/move.
 func (h *HTTP) moveWindowFromBoard(w http.ResponseWriter, r *http.Request) {

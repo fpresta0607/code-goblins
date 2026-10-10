@@ -70,7 +70,7 @@ func TestTurnendGuardReopensAnIdleTurnWhileWorkWaits(t *testing.T) {
 	for _, testCase := range cases {
 		t.Run(testCase.name, func(t *testing.T) {
 			// Arrange
-			dir := newPrimaryHome(t)
+			dir := newCFOHome(t)
 			state := filepath.Join(dir, "state")
 			queueWork(t, dir)
 			holdHome(t, state, "s1")
@@ -115,8 +115,7 @@ func TestTurnendGuardReopensAnIdleTurnWhileWorkWaits(t *testing.T) {
 // coming back, the scheduler's idle wake, a start that failed.
 func TestAutoarmStaysArmedWhileQueuedWorkWaits(t *testing.T) {
 	// Arrange
-	dir := newPrimaryHome(t)
-	setAncestorPID(t, os.Getpid())
+	dir := newCFOHome(t)
 	setTinyAutoarmIntervals(t)
 	t.Setenv("CFO_CLAUDE_AUTOARM_WAIT", "30")
 	state := filepath.Join(dir, "state")

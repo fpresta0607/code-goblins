@@ -1,8 +1,8 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { diskBlock, diskScale, diskState, freeGigabytes, holdersLine, memoryBlock, meterScale, meterState, nextChip, nextInOrder, poolWarning, queueBlock, startBlock, startOrder, startOutcome, tighter, turnStatus } from "./start.ts";
+import { diskBlock, diskScale, diskState, freeGigabytes, freeShare, gpuFree, gpuMarks, holdersLine, memoryBlock, meterScale, meterState, nextChip, nextInOrder, poolWarning, processorMarks, processorScale, processorState, queueBlock, startBlock, startOrder, startOutcome, tighter, turnStatus } from "./start.ts";
 import { nodeStatus } from "./workflow.ts";
-import { parseSnapshot, type Disk, type Memory, type Snapshot, type Task } from "./types.ts";
+import { parseSnapshot, type Disk, type Gpu, type Memory, type Processors, type Snapshot, type Task } from "./types.ts";
 
 const GB = 2 ** 30;
 // memory is a machine with available GB of memory and, unless given, ample
@@ -246,4 +246,56 @@ test("a start under the disk floor names the floor and the free disk", () => {
 test("a snapshot carries the disk reading, and none when the board cannot read it", () => {
   assert.deepEqual(parseSnapshot({ healthy: true, disk: { drive: "C:", free: 1, total: 2, floor: 3, wake: 4 } }).disk, { drive: "C:", free: 1, total: 2, floor: 3, wake: 4 });
   assert.equal(parseSnapshot({ healthy: true }).disk, null);
+});
+
+// The Overlord, 2026-10-09: "in tasks should we see a meter bar for CPU and GPU
+// as well if so make them clean no extra text below matching styling and
+// layout of memory free and disk space in same container". processors is his
+// processor with free of its performance cores idle and its efficiency cores
+// full.
+const processors = (free: number, changes: Partial<Processors> = {}): Processors => ({ performance_cores: 6, efficiency_cores: 4, free, efficiency_free: 0, next: 0.25, busiest: ["WmiPrvSE", "MsMpEng"], ...changes });
+
+test("the CPU meter says when the supervisor starts no goblin by itself", () => {
+  assert.equal(processorState(processors(0.55)).tone, "ready");
+  assert.equal(processorState(processors(0.25)).tone, "ready");
+  assert.deepEqual(processorState(processors(0.249)), { tone: "waiting", text: "Under 25% of the performance cores free: the supervisor starts no goblin by itself until they free." });
+  assert.deepEqual(processorState(processors(0.1, { performance_cores: 8, efficiency_cores: 0 })), { tone: "waiting", text: "Under 25% of the cores free: the supervisor starts no goblin by itself until they free." });
+});
+
+test("a free share reads rounded down, and the CPU bar holds its mark", () => {
+  assert.equal(freeShare(0.55), "55%");
+  assert.equal(freeShare(0.2499), "24%", "a share just under the mark never reads as the mark");
+  assert.equal(freeShare(1), "100%");
+  assert.equal(freeShare(-0.1), "0%");
+  assert.deepEqual(processorScale(processors(0.55)), { fill: 55, next: 25 });
+  assert.deepEqual(processorScale(processors(1.2)), { fill: 100, next: 25 });
+});
+
+test("the CPU bar's tip names the cores by kind, who uses them most and the mark", () => {
+  assert.equal(processorMarks(processors(0.55)), "6 performance cores 45% busy. 4 efficiency cores 100% busy. Most used by WmiPrvSE and MsMpEng. White mark: 25%, where the next task starts by itself.");
+  assert.equal(processorMarks(processors(0.9, { performance_cores: 8, efficiency_cores: 0, busiest: ["goblins"] })), "8 cores 10% busy. Most used by goblins. White mark: 25%, where the next task starts by itself.");
+  assert.equal(processorMarks(processors(1, { efficiency_free: 1, busiest: [] })), "6 performance cores 0% busy. 4 efficiency cores 0% busy. White mark: 25%, where the next task starts by itself.");
+});
+
+const adapters: Gpu = { adapters: [{ name: "Intel(R) Graphics", busy: 0.705, busiest: "siqshift-desktop" }, { name: "NVIDIA GeForce RTX 5060 Laptop GPU", busy: 0, busiest: "" }] };
+
+test("the GPU meter shows how free the busiest adapter is, and its tip names each adapter", () => {
+  assert.equal(freeShare(gpuFree(adapters)), "29%");
+  assert.equal(gpuMarks(adapters), "Intel(R) Graphics 71% busy, most by siqshift-desktop. NVIDIA GeForce RTX 5060 Laptop GPU idle.");
+  assert.equal(gpuMarks({ adapters: [{ name: "Intel(R) Graphics", busy: 0.12, busiest: "" }] }), "Intel(R) Graphics 12% busy.");
+  assert.equal(freeShare(gpuFree({ adapters: [{ name: "Intel(R) Graphics", busy: 0, busiest: "" }] })), "100%");
+});
+
+test("a snapshot carries the processors and the graphics adapters, and neither when the board cannot read them", () => {
+  const read = parseSnapshot({
+    healthy: true, tasks: [],
+    processors: { performance_cores: 6, efficiency_cores: 4, free: 0.55, efficiency_free: 0.125, next: 0.25, busiest: ["WmiPrvSE", "MsMpEng"] },
+    gpu: { adapters: [{ name: "Intel(R) Graphics", busy: 0.75, busiest: "siqshift-desktop" }, { name: "NVIDIA GeForce RTX 5060 Laptop GPU", busy: 0 }] },
+  });
+  assert.deepEqual(read.processors, { performance_cores: 6, efficiency_cores: 4, free: 0.55, efficiency_free: 0.125, next: 0.25, busiest: ["WmiPrvSE", "MsMpEng"] });
+  assert.deepEqual(read.gpu, { adapters: [{ name: "Intel(R) Graphics", busy: 0.75, busiest: "siqshift-desktop" }, { name: "NVIDIA GeForce RTX 5060 Laptop GPU", busy: 0, busiest: "" }] });
+  const none = parseSnapshot({ healthy: true, tasks: [] });
+  assert.equal(none.processors, null);
+  assert.equal(none.gpu, null);
+  assert.deepEqual(parseSnapshot({ healthy: true, tasks: [], processors: { performance_cores: 8, efficiency_cores: 0, free: 1, efficiency_free: 0, next: 0.25 } }).processors?.busiest, [], "a reading that names nobody has an empty list");
 });

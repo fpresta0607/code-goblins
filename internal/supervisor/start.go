@@ -60,6 +60,9 @@ type Dispatch struct {
 	// Processors reads how free the machine's performance cores are; nil
 	// reads none, and nothing waits on them.
 	Processors func() (Processors, error)
+	// GPU reads the machine's graphics adapters and how busy each is; nil
+	// reads none.
+	GPU func() (GPU, error)
 	// Spawn runs cfo with args and returns what it printed.
 	Spawn func(ctx context.Context, args []string) (string, error)
 }

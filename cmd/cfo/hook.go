@@ -7,17 +7,20 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
 
 	"github.com/fpresta0607/code-goblins/internal/afk"
 	"github.com/fpresta0607/code-goblins/internal/claudehook"
+	"github.com/fpresta0607/code-goblins/internal/custody"
 	"github.com/fpresta0607/code-goblins/internal/digest"
 	"github.com/fpresta0607/code-goblins/internal/fsx"
 	"github.com/fpresta0607/code-goblins/internal/guard"
 	"github.com/fpresta0607/code-goblins/internal/harness"
 	"github.com/fpresta0607/code-goblins/internal/home"
+	"github.com/fpresta0607/code-goblins/internal/host"
 	"github.com/fpresta0607/code-goblins/internal/lock"
 	"github.com/fpresta0607/code-goblins/internal/monitor"
 	"github.com/fpresta0607/code-goblins/internal/proc"
@@ -46,6 +49,22 @@ func runHook(name string, stdin io.Reader, stdout, stderr io.Writer) int {
 	if os.Getenv(harness.RoleVariable) == harness.RoleGoblin || os.Getenv(gateAgentVariable) != "" {
 		return 0
 	}
+	// Nor is any other session on the machine the CFO's: the hooks are in
+	// the user's settings, so a Claude Code session the Overlord opens
+	// himself, in the desktop app or a terminal of his own, runs every one
+	// of them. On 2026-10-09 such a session took the home's lock after a
+	// restart and was rewoken with the fleet's wakes. Only the CFO's own
+	// session, the agent native terminal cfo runs, gets anything from a
+	// hook, and every other session leaves on its environment alone, as a
+	// goblin does. The terminal's name alone takes no lock and gives nothing:
+	// each arm below that takes custody, prints the digest or holds a turn
+	// first proves the session (ownSessionHome). The pre-tool guards go by
+	// the name: they run before every tool call, where a walk of the process
+	// tree costs more than a hook may, and all they do is refuse the tools of
+	// a session that carries it, which only the CFO's terminal hands out.
+	if os.Getenv(host.IDVariable) != supervisor.NativeCFOTerminal {
+		return 0
+	}
 	switch name {
 	case "pretool-subagent":
 		return hookPretoolSubagent(stdin, stdout, stderr)
@@ -62,12 +81,12 @@ func runHook(name string, stdin io.Reader, stdout, stderr io.Writer) int {
 		if !ok || payload.SessionID == "" {
 			return 0
 		}
-		h, err := home.Resolve()
-		if err != nil || !home.IsPrimary(h) {
+		h, program, ok := ownSessionHome()
+		if !ok {
 			return 0
 		}
 		holder, err := lock.Read(h.State)
-		if err != nil || holder.Session != payload.SessionID || holder.PID != resolveSessionOwnerPID(h.State) || !holder.VerifiedAlive() {
+		if err != nil || holder.Session != payload.SessionID || holder.PID != program.PID || !holder.VerifiedAlive() {
 			return 0
 		}
 		_ = digest.WriteCheckpoint(h, time.Now())
@@ -77,14 +96,11 @@ func runHook(name string, stdin io.Reader, stdout, stderr io.Writer) int {
 		if !ok {
 			return 0
 		}
-		h, err := home.Resolve()
-		if err != nil {
+		h, program, ok := ownSessionHome()
+		if !ok {
 			return 0
 		}
-		if !home.IsPrimary(h) {
-			return 0
-		}
-		return hookStopAutoarm(h, payload, stdout, stderr)
+		return hookStopAutoarm(h, program, payload, stdout, stderr)
 	case "session-start":
 		payload, ok := claudehook.ReadPayload(stdin)
 		if !ok {
@@ -97,18 +113,36 @@ func runHook(name string, stdin io.Reader, stdout, stderr io.Writer) int {
 		// text. Reaching this arm needs the working directory itself to be
 		// gone, which the shared prologue's uniformity was judged to
 		// outweigh; digest.ComposeBrief is never even reached in this case.
-		h, err := home.Resolve()
-		if err != nil {
+		h, program, ok := ownSessionHome()
+		if !ok {
 			return 0
 		}
-		if !home.IsPrimary(h) {
-			return 0
-		}
-		return hookSessionStart(h, payload, stdout)
+		return hookSessionStart(h, program, payload, stdout)
 	default:
 		fmt.Fprintf(stderr, "cfo hook: unknown hook %q\n", name)
 		return 0
 	}
+}
+
+// primaryHome is the home a hook runs for, or false when it resolves to none
+// that is primary, where every hook does nothing.
+func primaryHome() (home.Home, bool) {
+	h, err := home.Resolve()
+	return h, err == nil && home.IsPrimary(h)
+}
+
+// ownSessionHome is the prologue of every hook that takes custody, prints
+// the digest or holds a turn: the primary home it runs for and the harness
+// of the CFO's own session, which the hook is proven to run in
+// (supervisor.OwnSession). Anything else, a home that is not primary or a
+// session that is not the CFO's own, is false, and the hook does nothing.
+func ownSessionHome() (home.Home, proc.Entry, bool) {
+	h, ok := primaryHome()
+	if !ok {
+		return home.Home{}, proc.Entry{}, false
+	}
+	program, err := supervisor.OwnSession(h.State)
+	return h, program, err == nil
 }
 
 // hookPretoolSubagent stops the CFO primary from delegating through the
@@ -121,11 +155,8 @@ func hookPretoolSubagent(stdin io.Reader, stdout, stderr io.Writer) int {
 	if !ok {
 		return 0
 	}
-	h, err := home.Resolve()
-	if err != nil {
-		return 0
-	}
-	if !home.IsPrimary(h) {
+	h, ok := primaryHome()
+	if !ok {
 		return 0
 	}
 	// A native question holds the registered CFO's whole turn and shows only
@@ -181,11 +212,7 @@ func hookPretoolBash(stdin io.Reader, stderr io.Writer, guards ...func(command s
 	if !ok {
 		return 0
 	}
-	h, err := home.Resolve()
-	if err != nil {
-		return 0
-	}
-	if !home.IsPrimary(h) {
+	if _, ok := primaryHome(); !ok {
 		return 0
 	}
 	for _, classify := range guards {
@@ -243,11 +270,8 @@ func hookTurnendGuard(stdin io.Reader, stdout, stderr io.Writer) int {
 	if !ok {
 		return 0
 	}
-	h, err := home.Resolve()
-	if err != nil {
-		return 0
-	}
-	if !home.IsPrimary(h) {
+	h, _, ok := ownSessionHome()
+	if !ok {
 		return 0
 	}
 	state := h.State
@@ -442,8 +466,13 @@ const (
 // wait ends with a recorded clean outcome instead of being killed.
 const autoarmWaitSeconds = 28500
 
-// rewokenFile holds the highest wake sequence a rewake has already covered.
-const rewokenFile = ".claude-autoarm-rewoken"
+// rewokenFile holds the highest wake sequence a rewake of the CFO has already
+// covered. Only the CFO's own session's hook writes it. Builds before the own
+// session rule kept it as .claude-autoarm-rewoken, which a Stop hook of
+// another session started by such a build, waiting for up to eight hours,
+// still writes when it rewakes that session: under its own name the CFO's
+// marker is never moved by a rewake the CFO did not get.
+const rewokenFile = ".cfo-rewoken"
 
 // awaitQueuedWake waits until deadline for a queued wake that no rewake has
 // covered yet. Every queued record needs the CFO, because wake.Append admits
@@ -585,38 +614,13 @@ func stalledWatcher(state string, grace time.Duration, attempts int) string {
 		attempts, holder.PID, holder.Acquired.UTC().Format("2006-01-02 15:04 UTC"), since)
 }
 
-// resolveAncestorPID is the stop-autoarm hook's identity gate: it returns
-// the harness ancestor's pid, or false if none is found. A manual shell
-// invocation with no harness ancestor above it must never arm.
-//
-// CFO_TEST_ANCESTOR_PID, when set, replaces the ambient proc.FindAncestor
-// walk entirely: a go test binary launched from a Claude Code session has
-// claude.exe about five hops up its own ancestry, well inside maxHops 16, so
-// the ambient walk cannot be used from this repo's own test suite to assert
-// "no harness ancestor found". The override is validated with
-// proc.Ancestry(pid, 1): a pid the Toolhelp snapshot no longer resolves, or
-// whose creation time cannot be resolved (both are Ancestry's own walk stop
-// conditions), yields an empty walk, which disables the override and fails
-// the identity gate outright rather than falling back to the ambient walk.
-// Test seam, not a production contract: production hosts never set this
-// variable.
-func resolveAncestorPID() (int, bool) {
-	if raw := os.Getenv("CFO_TEST_ANCESTOR_PID"); raw != "" {
-		pid, err := strconv.Atoi(raw)
-		if err != nil {
-			return 0, false
-		}
-		entries, err := proc.Ancestry(pid, 1)
-		if err != nil || len(entries) == 0 {
-			return 0, false
-		}
-		return pid, true
-	}
-	entry, ok := proc.FindAncestor(os.Getpid(), 16, "claude", "node")
-	if !ok {
-		return 0, false
-	}
-	return entry.PID, true
+// runsUnder reports whether the process holder names runs under program: one
+// of its ancestors, by pid and creation time, is program.
+func runsUnder(holder *lock.Info, program proc.Entry) bool {
+	ancestry, err := proc.Ancestry(holder.PID, 32)
+	return err == nil && len(ancestry) > 0 && ancestry[0].Start.Equal(holder.Start) && slices.ContainsFunc(ancestry, func(entry proc.Entry) bool {
+		return entry.PID == program.PID && entry.Start.Equal(program.Start)
+	})
 }
 
 // hookStopAutoarm hosts the watcher in-process for up to eight hours: Claude
@@ -626,30 +630,38 @@ func resolveAncestorPID() (int, bool) {
 // healthy watcher, this process waits on that watcher's wake queue instead
 // and exits the same way. Steps below are commented against
 // the plan brief's numbering (upstream analogue:
-// bin/fm-claude-stop-autoarm.sh). The stdin/home/IsPrimary prologue lives in
-// runHook's dispatch switch, shared with every other hook in this file.
-func hookStopAutoarm(h home.Home, payload claudehook.Payload, stdout, stderr io.Writer) int {
-	return hookStopAutoarmWithConfig(h, payload, stdout, stderr, watch.ConfigFromEnv)
+// bin/fm-claude-stop-autoarm.sh). The stdin/home/own-session prologue lives
+// in runHook's dispatch switch, shared with every other hook in this file:
+// program is the harness of the CFO's own session, which this hook is proven
+// to run in.
+func hookStopAutoarm(h home.Home, program proc.Entry, payload claudehook.Payload, stdout, stderr io.Writer) int {
+	return hookStopAutoarmWithConfig(h, program, payload, stdout, stderr, watch.ConfigFromEnv)
 }
 
-func hookStopAutoarmWithConfig(h home.Home, payload claudehook.Payload, stdout, stderr io.Writer, newConfig func(home.Home) watch.Config) int {
+func hookStopAutoarmWithConfig(h home.Home, program proc.Entry, payload claudehook.Payload, stdout, stderr io.Writer, newConfig func(home.Home) watch.Config) int {
 	state := h.State
 
-	// Step 2: identity gate.
-	ancestorPID, ok := resolveAncestorPID()
-	if !ok {
+	// Session custody: claim or confirm the session lock for the CFO's own
+	// session's harness, which takes it over from a live holder that is
+	// another process. lock.ErrOwnerDead (the harness exited since the
+	// prologue proved it) and a takeover that could not be recorded are both
+	// inert, never a failure episode.
+	_, replaced, err := custody.Take(state, program.PID, payload.SessionID, "cfo hook stop-autoarm")
+	if err != nil {
 		return 0
 	}
-
-	// Session custody: claim or confirm the primary session lock for the
-	// harness ancestor. lock.ErrHeld (a different live owner holds the
-	// home) and lock.ErrOwnerDead (the harness exited between the
-	// ancestry walk and this acquire, per Task 4's cross-task contract)
-	// are both inert, never a failure episode.
-	if !lock.HeldBy(state, ancestorPID) {
-		if _, err := lock.AcquireOwner(state, ancestorPID, payload.SessionID); err != nil {
-			return 0
-		}
+	if replaced != nil {
+		// The CFO is told now rather than at the next wake, whatever the fleet
+		// is doing: the session it took the lock from may have acted as the
+		// CFO. The takeover's wake is queued, and the turn this opens ends on
+		// a Stop that arms as every other does. A session that did not hold
+		// the home could not register at its start, so it registers now, and
+		// the rewake says how that went.
+		var registration strings.Builder
+		registerPrimary(h, program.PID, "claude", payload.SessionID, &registration)
+		_ = markRewoken(state)
+		reason := strings.TrimSpace(custody.Notice(*replaced) + "\n" + registration.String())
+		return claudehook.BlockStop(stderr, withAFKBanner(state, fmt.Sprintf(rewakeBannerFmt, reason)))
 	}
 
 	// Step 3: need gate. An unlistable state directory never arms. Queued
@@ -660,9 +672,15 @@ func hookStopAutoarmWithConfig(h home.Home, payload claudehook.Payload, stdout, 
 		return 0
 	}
 
-	// Step 4: single-flight. ErrHeld means another firing already owns
-	// this Stop; exit 0 immediately rather than racing it.
-	if _, err := lock.AcquireNamedOwner(state, autoarmLockName, os.Getpid(), autoarmSession); err != nil {
+	// Step 4: single-flight. ErrHeld means another firing of this session
+	// already owns this Stop; exit 0 immediately rather than racing it. A
+	// holder that does not run under this session's harness is another
+	// session's firing, which a build before the own session rule started
+	// and which waits on the queue for up to eight hours: it does not keep
+	// the CFO from arming, and loses the lock, audited.
+	if _, _, err := lock.SeizeNamedOwner(state, autoarmLockName, os.Getpid(), autoarmSession, "cfo hook stop-autoarm", func(holder *lock.Info) bool {
+		return !runsUnder(holder, program)
+	}); err != nil {
 		return 0
 	}
 	defer lock.ReleaseNamed(state, autoarmLockName)
@@ -868,29 +886,6 @@ func withAFKBanner(stateDir, text string) string {
 	return text
 }
 
-// resolveSessionOwnerPID identifies the process taking custody of the
-// session lock for a SessionStart digest. A registered native terminal can
-// hold custody through its cmd shim rather than the nearest node ancestor.
-// Reuse that verified custodian only when this command runs beneath it.
-// Otherwise retain the hook's ancestor selection and test seam.
-func resolveSessionOwnerPID(stateDir string) int {
-	if os.Getenv("CFO_TEST_ANCESTOR_PID") == "" {
-		if holder, err := lock.Read(stateDir); err == nil && holder.VerifiedAlive() {
-			if ancestry, err := proc.Ancestry(os.Getpid(), 32); err == nil {
-				for _, ancestor := range ancestry {
-					if ancestor.PID == holder.PID {
-						return holder.PID
-					}
-				}
-			}
-		}
-	}
-	if pid, ok := resolveAncestorPID(); ok {
-		return pid
-	}
-	return os.Getpid()
-}
-
 // hookSessionStart is the SessionStart hook entry point. Unlike every other
 // hook in this file, its stdout is PLAIN TEXT with exit 0 always, never the
 // {"systemMessage":"..."} envelope: Claude Code injects SessionStart stdout
@@ -900,21 +895,25 @@ func resolveSessionOwnerPID(stateDir string) int {
 // entirely, so a ComposeBrief failure is rendered as digest text (SESSION
 // START DEGRADED) instead of a nonzero exit.
 //
+// program is the harness of the CFO's own session, which the prologue proved
+// this hook runs in: custody of the session lock is taken for it and no
+// other process.
+//
 // Routing: startup, new, clear, compact, empty, or any source this build
 // does not recognize all take the same single code path below, the brief
 // digest, with no marker consulted. resume, reload, and fork take the
 // short-circuit nudge instead, but only when state\.session-start-complete
-// names THIS resolved owner and lock.HeldBy confirms that owner still holds
-// the home; otherwise they fall through to the same brief digest, so a
-// session resuming into a home that never received a digest under this
-// custody does not start blind.
+// names THIS owner and lock.HeldBy confirms that owner still holds the
+// home; otherwise they fall through to the same brief digest, so a session
+// resuming into a home that never received a digest under this custody, as
+// one whose lock another session took meanwhile, does not start blind.
 //
 // The digest is the brief one for every source because Claude Code hands a
 // session a hook's output whole only up to digest.Limit: the long digest
 // arrived as a preview of its first 2 KB, a session lock and a few wake
 // lines, under a contract saying the session had read every file.
-func hookSessionStart(h home.Home, payload claudehook.Payload, stdout io.Writer) int {
-	ownerPID := resolveSessionOwnerPID(h.State)
+func hookSessionStart(h home.Home, program proc.Entry, payload claudehook.Payload, stdout io.Writer) int {
+	ownerPID := program.PID
 
 	switch payload.Source {
 	case "resume", "reload", "fork":
