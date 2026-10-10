@@ -158,6 +158,39 @@ func AutoarmOwnsRecovery(stateDir string, grace, epochFresh time.Duration) bool 
 	return pidAlive(epoch.OwnerPID)
 }
 
+// armingLockName is the lock a Stop-owned auto-arm firing holds from its
+// start until it holds autoarmLockName or ends, with Session armingSession.
+const (
+	armingLockName = ".claude-autoarm-arming.lock"
+	armingSession  = "arming"
+)
+
+// ShowArming records that this process, a Stop-owned auto-arm firing, has
+// started and is on its way to claiming recovery. It needed 1.7 s for that
+// on a loaded machine, 3.3 s at worst, and the turn-end guard, which fires
+// beside it and waited 800 ms for the claim, called 1 turn in 3 blind. The
+// firing shows it before anything slow, and stops showing it (StopArming)
+// once it holds recovery or ends without it. A firing that finds another
+// already showing it has nothing to add.
+func ShowArming(stateDir string) {
+	_, _ = lock.AcquireNamedOwner(stateDir, armingLockName, os.Getpid(), armingSession)
+}
+
+// StopArming withdraws what ShowArming recorded for this process, if it did.
+func StopArming(stateDir string) {
+	_ = lock.ReleaseNamed(stateDir, armingLockName)
+}
+
+// AutoarmArming reports whether a live auto-arm firing shows it is arming.
+// That is never proof that recovery is under way, only a reason to wait for
+// the proof: AutoarmOwnsRecovery alone lets a turn end. Like the auto-arm
+// lock it stops counting once NotifiedOnce is true, so a firing that arms
+// again during a reported failure does not hold up the block-budget ladder.
+func AutoarmArming(stateDir string) bool {
+	holder, err := lock.ReadNamed(stateDir, armingLockName)
+	return err == nil && holder.Session == armingSession && holder.Alive() && !NotifiedOnce(stateDir)
+}
+
 // Epoch is one record from state/.claude-autoarm-epoch: a single line
 // "epoch=<n> owner_pid=<pid> outcome=<o> updated_at=<unix>".
 type Epoch struct {
