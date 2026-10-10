@@ -16,6 +16,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/fpresta0607/code-goblins/internal/custody"
 	"github.com/fpresta0607/code-goblins/internal/fsx"
 	"github.com/fpresta0607/code-goblins/internal/harness"
 	"github.com/fpresta0607/code-goblins/internal/herdr"
@@ -96,19 +97,15 @@ func decodePrimary(reader io.Reader) (primaryRegistration, string, error) {
 	return primary, hex.EncodeToString(sum[:]), nil
 }
 
-// Register writes primary.json for the harness this process runs under: the
-// program in the native terminal named by host.IDVariable. That program must
-// be one of this process's own ancestors, so an inherited variable cannot
-// register someone else's terminal. That harness must also hold the home's
-// session lock, taking it when nobody live does, because the primary CFO is
-// whoever holds the home. harness names the agent when the program's own
-// name does not say which it is.
+// Register writes primary.json for the harness of the CFO's own session,
+// which this process must run in (OwnSession), and whose terminal's host
+// must answer, since the board types into it. That harness holds the home's
+// session lock from then on: it takes it, and takes it over, audited, from a
+// live holder that is another process, because the session lock is the CFO's
+// own session's alone. harness names the agent when the program's own name
+// does not say which it is.
 func Register(stateDir, harness, session string) (string, error) {
-	id := os.Getenv(host.IDVariable)
-	if id == "" {
-		return "", errors.New("this session runs in no native terminal, so the board cannot reach it")
-	}
-	primary, ancestry, harnessAt, err := nativeHarness(stateDir, id, harness)
+	primary, ancestry, harnessAt, err := nativeHarness(stateDir, harness)
 	if err != nil {
 		return "", err
 	}
@@ -118,10 +115,8 @@ func Register(stateDir, harness, session string) (string, error) {
 		session = os.Getenv("CODEX_THREAD_ID")
 	}
 	// Custody is taken last, so a refused registration changes nothing.
-	if !slices.ContainsFunc(ancestry[:harnessAt+1], func(entry proc.Entry) bool { return lock.HeldBy(stateDir, entry.PID) }) {
-		if _, err := lock.AcquireOwner(stateDir, ancestry[harnessAt].PID, session); err != nil {
-			return "", fmt.Errorf("another live session holds this home, so this one is not the primary CFO: %w", err)
-		}
+	if _, _, err := custody.Take(stateDir, ancestry[harnessAt].PID, session, "cfo register"); err != nil {
+		return "", fmt.Errorf("the home's session lock could not be taken, so this session is not registered: %w", err)
 	}
 	hostname, err := os.Hostname()
 	if err != nil {
@@ -158,11 +153,15 @@ func Register(stateDir, harness, session string) (string, error) {
 	return described, recordCFOConversation(stateDir, primary, session)
 }
 
-// nativeHarness proves this process runs under the program in native
-// terminal id, whose host must answer, and names that program's harness:
-// harness when the caller names it, or else the name the program runs.
-func nativeHarness(stateDir, id, harness string) (primaryRegistration, []proc.Entry, int, error) {
-	ancestry, at, err := nativeProgram(stateDir, id)
+// nativeHarness proves this process runs in the CFO's own session, whose
+// terminal's host must answer, and names that session's harness: harness
+// when the caller names it, or else the name the terminal's program runs.
+func nativeHarness(stateDir, harness string) (primaryRegistration, []proc.Entry, int, error) {
+	const id = NativeCFOTerminal
+	ancestry, at, err := ownProgram(stateDir)
+	if err == nil {
+		err = terminalAnswers(stateDir, id)
+	}
 	if err != nil {
 		return primaryRegistration{}, nil, 0, err
 	}
@@ -189,30 +188,30 @@ func nativeHarness(stateDir, id, harness string) (primaryRegistration, []proc.En
 // terminal id, whose host must answer, and returns this process's ancestry
 // with the program's place in it.
 func nativeProgram(stateDir, id string) ([]proc.Entry, int, error) {
-	record, err := host.ReadRecord(stateDir, id)
-	if err != nil {
-		return nil, 0, fmt.Errorf("native terminal %s has no host record: %w", id, err)
+	_, ancestry, at, err := terminalAncestry(stateDir, id)
+	if err == nil {
+		err = terminalAnswers(stateDir, id)
 	}
-	ancestry, err := proc.Ancestry(os.Getpid(), 32)
 	if err != nil {
 		return nil, 0, err
 	}
-	at := slices.IndexFunc(ancestry, func(entry proc.Entry) bool { return entry.PID == record.ChildPID })
-	if at < 0 {
-		program, err := terminalProgram(record, os.Environ())
-		if err != nil || len(ancestry) == 0 {
-			return nil, 0, fmt.Errorf("native terminal %s runs pid %d, and this command does not run under it", id, record.ChildPID)
-		}
-		ancestry, at = []proc.Entry{ancestry[0], program}, 1
+	return ancestry, at, nil
+}
+
+// terminalAnswers reports why the host of native terminal id does not serve
+// it, or nil while it does. A host that was killed leaves its record behind,
+// so only an answer on its pipe proves a host still serves the terminal.
+func terminalAnswers(stateDir, id string) error {
+	record, err := host.ReadRecord(stateDir, id)
+	if err != nil {
+		return fmt.Errorf("native terminal %s has no host record: %w", id, err)
 	}
-	// A host that was killed leaves its record behind, so only an answer on
-	// its pipe proves a host still serves the terminal.
 	client, err := host.Dial(record)
 	if err != nil {
-		return nil, 0, fmt.Errorf("the host of native terminal %s does not answer: %w", id, err)
+		return fmt.Errorf("the host of native terminal %s does not answer: %w", id, err)
 	}
 	_ = client.Close()
-	return ancestry, at, nil
+	return nil
 }
 
 // errHerdrRegistration is a registration an older build wrote for a CFO in a

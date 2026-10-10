@@ -71,7 +71,10 @@ func runNativeHook(args []string, input io.Reader, stdout, stderr io.Writer, run
 	}
 	// Codex Stop requires a JSON reply. This is also accepted by Claude and
 	// ignored by the Pi notification extension. It never blocks continuation.
-	if e.Harness == "codex" && e.Kind == "started" && e.Source == "compact" && e.Role == "cfo" && e.TaskID == "" {
+	// The role cfo says only that the session is no goblin's, so the CFO's
+	// continuation goes to the CFO's own session alone: a Codex session the
+	// Overlord opens himself is told nothing of the fleet.
+	if e.Harness == "codex" && e.Kind == "started" && e.Source == "compact" && e.Role == "cfo" && e.TaskID == "" && isOwnSession(*dir) {
 		var reply struct {
 			Output struct {
 				Event   string `json:"hookEventName"`
@@ -107,17 +110,28 @@ func runNativeHook(args []string, input io.Reader, stdout, stderr io.Writer, run
 	return 0
 }
 
+// isOwnSession reports whether this process runs in the CFO's own session of
+// the home whose state folder is stateDir.
+func isOwnSession(stateDir string) bool {
+	_, err := supervisor.OwnSession(stateDir)
+	return err == nil
+}
+
 // compactNativeCFO gives a Codex or pi CFO what Claude Code's pre-compact hook
 // and SessionStart digest give a Claude CFO: a checkpoint written before the
-// compaction, then one wake through the queue pointing at it. Only the session
-// holding the home acts, so a goblin's or another session's compaction neither
-// overwrites the CFO's checkpoint nor wakes it.
+// compaction, then one wake through the queue pointing at it. Only the CFO's
+// own session acts, and only while it holds the home, so a goblin's or another
+// session's compaction neither overwrites the CFO's checkpoint nor wakes it.
 func compactNativeCFO(h home.Home, e nativehook.Event, now time.Time) error {
 	if e.Role != "cfo" || e.TaskID != "" || !home.IsPrimary(h) {
 		return nil
 	}
+	program, err := supervisor.OwnSession(h.State)
+	if err != nil {
+		return nil
+	}
 	holder, err := lock.Read(h.State)
-	if err != nil || !holder.VerifiedAlive() || holder.PID != resolveSessionOwnerPID(h.State) {
+	if err != nil || !holder.VerifiedAlive() || holder.PID != program.PID {
 		return nil
 	}
 	if e.Kind == "compacting" {

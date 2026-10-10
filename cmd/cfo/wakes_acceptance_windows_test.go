@@ -143,7 +143,7 @@ func proveWakes(t *testing.T, p *wakeProof) {
 	// is then stopped by its pid.
 	defer func() {
 		command := exec.Command(p.binary, "cleanup", goblin)
-		command.Env = p.env
+		command.Env = p.commandEnv("cleanup")
 		output, err := command.CombinedOutput()
 		p.say("cfo cleanup %s (error %v):\n%s", goblin, err, output)
 		record, readErr := host.ReadRecord(p.home.State, goblin)
@@ -361,12 +361,24 @@ func (p *wakeProof) brief(t *testing.T, id, task string) string {
 	return path
 }
 
+// commandEnv is the environment of a cfo command the proof runs itself. One
+// that acts as the CFO is refused in an agent's session that is not the
+// CFO's own, and the proof's run as whatever runs the proof: a goblin or a
+// gate agent, which keeps those commands, gets its marker back, and a
+// terminal no agent runs needs none.
+func (p *wakeProof) commandEnv(args ...string) []string {
+	if !actsAsCFO(args) {
+		return p.env
+	}
+	return append(slices.Clone(p.env), startedAs...)
+}
+
 // cfoCommand runs this tree's cfo in the scratch home.
 func (p *wakeProof) cfoCommand(t *testing.T, args ...string) {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
 	defer cancel()
 	command := exec.CommandContext(ctx, p.binary, args...)
-	command.Env = p.env
+	command.Env = p.commandEnv(args...)
 	output, err := command.CombinedOutput()
 	p.say("cfo %s:\n%s", strings.Join(args, " "), output)
 	if err != nil {

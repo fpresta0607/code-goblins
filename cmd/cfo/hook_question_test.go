@@ -49,7 +49,7 @@ func registerCFO(t *testing.T, homeDir string, pid int) {
 // Overlord could only see in its terminal, and the Command Center showed
 // nothing while supervision stood still.
 func TestRunHookPretoolSubagentRefusesTheRegisteredCFOsNativeQuestion(t *testing.T) {
-	homeDir := newPrimaryHome(t)
+	homeDir := newCFOHome(t)
 	registerCFO(t, homeDir, os.Getpid())
 	t.Setenv("CFO_ALLOW_SUBAGENT", "1")
 
@@ -104,7 +104,7 @@ func TestRunHookPretoolSubagentLetsOtherSessionsAskNatively(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			homeDir := newPrimaryHome(t)
+			homeDir := newCFOHome(t)
 			tc.setup(t, homeDir)
 
 			var stdout, stderr bytes.Buffer

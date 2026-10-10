@@ -23,6 +23,7 @@ import (
 
 	"github.com/fpresta0607/code-goblins/internal/afk"
 	"github.com/fpresta0607/code-goblins/internal/claudehook"
+	"github.com/fpresta0607/code-goblins/internal/custody"
 	"github.com/fpresta0607/code-goblins/internal/disk"
 	"github.com/fpresta0607/code-goblins/internal/fleet"
 	"github.com/fpresta0607/code-goblins/internal/fleetconfig"
@@ -133,8 +134,9 @@ func (e *werr) write(text []byte) {
 // The caller is responsible for rendering a returned error as digest text
 // (never a nonzero exit; see cmd/cfo/hook.go's session-start case).
 //
-// ownerPID identifies the process taking custody of the session lock (see
-// lock.AcquireOwner); session is the Claude session id to record against
+// ownerPID identifies the process taking custody of the session lock, the
+// harness of the CFO's own session, which the caller has proven it is (see
+// custody.Take); session is the Claude session id to record against
 // that custody, or "" for a manual, session-less invocation. On success
 // under a lock this call actually holds, AND only when composition itself
 // produced no write error, Compose atomically writes
@@ -373,23 +375,32 @@ const readOnlyBannerTop = "●━━━━━━━━━━━━━━━━�
 const readOnlyBannerTitle = "●  READ-ONLY DIGEST - THIS SESSION DOES NOT HOLD THE HOME"
 const readOnlyBannerFooter = "●  Every mutating step below is skipped: no lock is taken, no marker is written, no wake is acknowledged."
 
-// writeSessionLock attempts to acquire the home's session lock for
-// ownerPID/session and reports the outcome, returning whether THIS call
-// actually holds the lock afterward. On any acquire error - lock.ErrHeld (a
-// different live owner), lock.ErrOwnerDead (the resolved owner is already
-// gone), or an I/O failure - it prints the read-only banner and continues;
-// the current holder's pid/host are read separately (best-effort) since
-// AcquireOwner's own failure carries no holder identity for the
-// ErrOwnerDead case, where no file may have been touched at all.
+// writeSessionLock takes the home's session lock for ownerPID/session, the
+// harness of the CFO's own session, which the caller has proven it is, and
+// reports the outcome, returning whether THIS call actually holds the lock
+// afterward. A live holder that is another process loses the lock
+// (custody.Take), and the section says so. On any error - lock.ErrOwnerDead
+// (the owner is already gone), a takeover that could not be recorded, or an
+// I/O failure - it prints the read-only banner and continues.
 func writeSessionLock(stateDir string, ownerPID int, session string, ew *werr) bool {
 	ew.println("== SESSION LOCK ==")
 
-	info, err := lock.AcquireOwner(stateDir, ownerPID, session)
-	if err == nil {
-		ew.printf("SESSION LOCK: held by pid %d on %s\n", info.PID, info.Hostname)
-		return true
+	info, replaced, err := custody.Take(stateDir, ownerPID, session, "the session-start digest")
+	if err != nil {
+		writeReadOnlyBanner(stateDir, err.Error(), ew)
+		return false
 	}
+	ew.printf("SESSION LOCK: held by pid %d on %s\n", info.PID, info.Hostname)
+	if replaced != nil {
+		ew.println(custody.Notice(*replaced))
+	}
+	return true
+}
 
+// writeReadOnlyBanner prints the read-only banner with why this session does
+// not hold the home. The current holder's pid and host are read separately
+// (best-effort), since why may name no holder at all.
+func writeReadOnlyBanner(stateDir, why string, ew *werr) {
 	holderPID, holderHost := "unknown", "unknown"
 	if holder, herr := lock.Read(stateDir); herr == nil {
 		holderPID = strconv.Itoa(holder.PID)
@@ -397,10 +408,21 @@ func writeSessionLock(stateDir string, ownerPID int, session string, ew *werr) b
 	}
 	ew.println(readOnlyBannerTop)
 	ew.println(readOnlyBannerTitle)
-	ew.printf("●  Custody: pid %s on %s (%s).\n", holderPID, holderHost, err)
+	ew.printf("●  Custody: pid %s on %s (%s).\n", holderPID, holderHost, why)
 	ew.println(readOnlyBannerFooter)
 	ew.println(readOnlyBannerTop)
-	return false
+}
+
+// ComposeReadOnly writes the long digest for a session that is not the CFO's
+// own, such as one that prints it by hand: it takes no lock, writes nothing,
+// and its SESSION LOCK section says who holds the home and why this session
+// does not.
+func ComposeReadOnly(h home.Home, why string, w io.Writer) error {
+	ew := &werr{w: w}
+	ew.println("== SESSION LOCK ==")
+	writeReadOnlyBanner(h.State, why, ew)
+	composeLong(h, ew)
+	return ew.err
 }
 
 // writeStorage prints one line on the home's disk: the drive's free space

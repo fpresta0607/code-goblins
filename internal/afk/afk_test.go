@@ -8,6 +8,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/fpresta0607/code-goblins/internal/disk"
 )
 
 var night = time.Date(2026, 10, 2, 2, 10, 0, 0, time.UTC)
@@ -80,6 +82,38 @@ func TestTurningOffKeepsTheStretchItEnded(t *testing.T) {
 	}
 	if _, err := TurnOff(dir, "the board", morning); !errors.Is(err, ErrNotOn) {
 		t.Errorf("a second TurnOff = %v, want %v", err, ErrNotOn)
+	}
+}
+
+// The free disk read when AFK mode turned on is kept in the switch, where the
+// report of the stretch finds it once it turns off. It is kept for the stretch
+// that is on and no other: none is kept while AFK mode is off, and the next
+// stretch starts with none.
+func TestTheFreeDiskReadWhenAFKModeTurnedOnIsKeptForItsStretch(t *testing.T) {
+	// Arrange
+	dir, _ := turnedOn(t)
+	reading := disk.Reading{Drive: "C:", Free: 340 << 30, Total: 924 << 30}
+
+	// Act
+	err := KeepDisk(dir, reading)
+
+	// Assert
+	if err != nil {
+		t.Fatal(err)
+	}
+	if read, err := Read(dir); err != nil || read.Disk == nil || *read.Disk != reading || !read.On || len(read.Allowance) != 1 {
+		t.Errorf("Read = %+v, %v, want the stretch still on with its allowance and the free disk read then", read, err)
+	}
+	off, err := TurnOff(dir, "the board", night.Add(time.Hour))
+	if err != nil || off.Disk == nil || *off.Disk != reading {
+		t.Errorf("TurnOff = %+v, %v, want the stretch it ended to keep the free disk read when it turned on", off, err)
+	}
+	if err := KeepDisk(dir, reading); !errors.Is(err, ErrNotOn) {
+		t.Errorf("KeepDisk while AFK mode is off = %v, want %v", err, ErrNotOn)
+	}
+	next, _, err := TurnOn(dir, "the board", nil, night.Add(2*time.Hour))
+	if err != nil || next.Disk != nil {
+		t.Errorf("the next stretch = %+v, %v, want it to start with no free disk read", next, err)
 	}
 }
 
