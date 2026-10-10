@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/fpresta0607/code-goblins/internal/afk"
+	"github.com/fpresta0607/code-goblins/internal/fsx"
 	"github.com/fpresta0607/code-goblins/internal/home"
 	"github.com/fpresta0607/code-goblins/internal/wake"
 )
@@ -569,4 +570,34 @@ func TestRunDrainOpensWithAFKModesNoticeWhileItIsOn(t *testing.T) {
 	if lines[len(notice)] != "WAKE QUEUE: 3 pending" || lines[len(lines)-1] != "WAKE_ACK_REQUIRED: cfo drain --ack-through 7 --recovery-generation 4" {
 		t.Errorf("after the notice the drain = %q, want the queue, ending with its ack line", lines[len(notice):])
 	}
+}
+
+// drainAckOpens is how many files one acknowledging drain may open to read:
+// the queue twice, once to keep its notices before it takes the wake lock and
+// once under it, the ack floor, the recovery episode, the lock's record as it
+// is taken and as it is let go, and AFK mode's switch.
+const drainAckOpens = 7
+
+// cfo drain --ack-through with one record took 1.7 s on a loaded machine,
+// where every file opened costs tens of milliseconds: it took the wake lock
+// twice, once for the records and once for the recovery episode, and read
+// the queue five times. One acknowledgement is one hold of the lock, and
+// what it left is what the drain lists, with no further read.
+func TestADrainAcknowledgementReadsTheQueueTwice(t *testing.T) {
+	// Arrange
+	h := buildDrainFixture(t)
+	var stdout, stderr bytes.Buffer
+	opened := fsx.Opens()
+
+	// Act
+	exit := runDrain(h, []string{"--ack-through", "7", "--recovery-generation", "4"}, &stdout, &stderr)
+
+	// Assert
+	if exit != 0 {
+		t.Fatalf("exit = %d, want 0; stderr=%s", exit, stderr.String())
+	}
+	if count := fsx.Opens() - opened; count > drainAckOpens {
+		t.Errorf("the acknowledging drain opened %d files, want %d at most", count, drainAckOpens)
+	}
+	assertLines(t, stdout.String(), []string{"WAKE QUEUE: empty"})
 }

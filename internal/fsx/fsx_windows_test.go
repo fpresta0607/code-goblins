@@ -118,6 +118,51 @@ func TestAtomicWriteFileGivesUpOnAReaderThatNeverLetsGo(t *testing.T) {
 	}
 }
 
+// A reader that held the file for 0.7 s cost a write 1.13 s: the pause between
+// two tries doubled to 320 ms and then to half a second, so the write slept
+// through the moment the reader let go. No pause is longer than longestPause,
+// so a hold costs a write its own length and one pause at most.
+func TestAHeldFileCostsAWriteItsHoldAndOnePauseAtMost(t *testing.T) {
+	// Arrange
+	path := filepath.Join(t.TempDir(), ".wake-queue")
+	if err := os.WriteFile(path, []byte("old"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	reader, err := os.Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	const hold = 700 * time.Millisecond
+	released := make(chan struct{})
+	go func() {
+		time.Sleep(hold)
+		reader.Close()
+		close(released)
+	}()
+	var waited, longest time.Duration
+	sleep = func(wait time.Duration) {
+		waited += wait
+		longest = max(longest, wait)
+		time.Sleep(wait)
+	}
+	t.Cleanup(func() { sleep = time.Sleep })
+
+	// Act
+	err = AtomicWriteFile(path, []byte("new"))
+	<-released
+
+	// Assert
+	if err != nil {
+		t.Fatalf("AtomicWriteFile while a reader held the file for %s: %v", hold, err)
+	}
+	if longest > 50*time.Millisecond {
+		t.Errorf("the longest pause between two tries was %s, want 50 ms at most", longest)
+	}
+	if waited > hold+50*time.Millisecond {
+		t.Errorf("the write waited %s on a hold of %s, want the hold and one pause of 50 ms at most", waited, hold)
+	}
+}
+
 // A removal waits out another process holding the file, as a replace does.
 func TestRemoveWaitsOutAReaderThatHoldsTheFile(t *testing.T) {
 	// Arrange
