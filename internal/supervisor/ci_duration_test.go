@@ -17,7 +17,7 @@ func TestCIFinishedRecordsMeasuredDurationsAndOmitsUnknownTimes(t *testing.T) {
 	}}
 	watched := fleetWakes{}
 
-	if err := reportChecks(h.State, &watched, "task", pull, false, now); err != nil {
+	if err := reportChecks(h.State, &watched, "task", pull, false, now, nil); err != nil {
 		t.Fatal(err)
 	}
 	if err := writeFleetWakes(h.State, watched); err != nil {
