@@ -562,9 +562,16 @@ func (s Service) bin() string {
 	return filepath.Join(s.Root, home.BinDir)
 }
 
-// writeUserSettings merges the CFO hooks and the Command Center allow rules
-// into the user's Claude Code settings in one write, so the one backup holds
-// the file as it stood before either.
+// writeUserSettings takes the CFO hooks out of the user's Claude Code
+// settings and merges the Command Center allow rules into them in one write,
+// so the one backup holds the file as it stood before either.
+//
+// The hooks were written there until 2026-10, where every Claude Code session
+// of the user ran them: each Bash call, turn end and start, in his own
+// sessions and in every goblin's, started cfo.exe, about 0.1 s each, only for
+// the hook to leave on its environment. The CFO's terminal starts with them
+// instead (CFOSettings), so no other session runs them at all, and an install
+// removes the ones an older build wrote.
 func (s Service) writeUserSettings(report *reporter) error {
 	file, err := loadSettings(s.UserSettings)
 	if err != nil {
@@ -575,11 +582,7 @@ func (s Service) writeUserSettings(report *reporter) error {
 	if err != nil {
 		return err
 	}
-	stood, err := file.pruneCFOHooks()
-	if err != nil {
-		return err
-	}
-	if err := file.addCFOHooks(s.Root, stood); err != nil {
+	if err := file.pruneCFOHooks(); err != nil {
 		return err
 	}
 	hooksAfter, err := json.Marshal(file.values["hooks"])
@@ -627,10 +630,11 @@ func (s Service) writeUserSettings(report *reporter) error {
 		return errors.Join(err, restoreRecord())
 	}
 	if bytes.Equal(hooksBefore, hooksAfter) {
-		report.same("user hooks", "already in "+s.UserSettings)
+		report.same("user hooks", "none of the CFO's in "+s.UserSettings)
 	} else {
-		report.change("user hooks", fmt.Sprintf("wrote %d CFO hook groups into %s", len(cfoHookGroups(s.Root)), s.UserSettings))
+		report.change("user hooks", "removed the CFO hooks an older build wrote into "+s.UserSettings)
 	}
+	report.detail("the CFO's terminal starts with its hooks, so no other Claude Code session runs them")
 	if len(missing) > 0 {
 		report.change("permissions", fmt.Sprintf("added %d Command Center allow rules to %s: %s", len(missing), s.UserSettings, strings.Join(missing, ", ")))
 		report.detail("so Claude Code's auto mode lets the CFO file questions, run items, reviews, presentations, documents and credential requests for the Overlord")
@@ -657,7 +661,7 @@ func (s Service) removeUserSettings(report *reporter) error {
 	if err != nil {
 		return err
 	}
-	if _, err := file.pruneCFOHooks(); err != nil {
+	if err := file.pruneCFOHooks(); err != nil {
 		return err
 	}
 	hooksAfter, err := json.Marshal(file.values["hooks"])

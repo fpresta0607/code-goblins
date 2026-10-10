@@ -61,3 +61,42 @@ func TestTheCFOsTerminalStartsClaudeCodeWithItsHooks(t *testing.T) {
 		}
 	}
 }
+
+// cfo doctor says whether the user's Claude Code settings still hold the
+// CFO's hooks, which every session of the user would run, and names the fix.
+func TestRunDoctorSaysWhetherTheUsersSettingsStillHoldTheCFOsHooks(t *testing.T) {
+	home := filepath.Join(t.TempDir(), "home")
+	older, err := install.CFOSettings(home)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, tc := range []struct {
+		name, settings, want string
+	}{
+		{"no settings file", "", "hooks: the CFO's terminal starts with its hooks, and %s holds none of them, so no other Claude Code session runs one\n"},
+		{"only the user's own hooks", `{"hooks": {"Stop": [{"hooks": [{"type": "command", "command": "node session-end.js"}]}]}}`, "hooks: the CFO's terminal starts with its hooks, and %s holds none of them"},
+		{"an older build's install", string(older), "hooks: %s still holds 6 of the CFO's hooks (pre-compact, pretool-bash, pretool-subagent, session-start, stop-autoarm, turnend-guard), so every Claude Code session on this machine starts cfo.exe for them on each Bash call, turn end and start; the CFO's terminal starts with its own, and `cfo install` takes these out"},
+		{"malformed", `{"hooks": []}`, "hooks: %s unreadable ("},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			// Arrange
+			dir := t.TempDir()
+			t.Setenv("CLAUDE_CONFIG_DIR", dir)
+			settings := filepath.Join(dir, "settings.json")
+			if tc.settings != "" {
+				if err := os.WriteFile(settings, []byte(tc.settings), 0o600); err != nil {
+					t.Fatal(err)
+				}
+			}
+			var stdout strings.Builder
+
+			// Act
+			reportUserHooks(&stdout)
+
+			// Assert
+			if want := strings.ReplaceAll(tc.want, "%s", settings); !strings.Contains(stdout.String(), want) {
+				t.Errorf("doctor lacks %q\n%s", want, stdout.String())
+			}
+		})
+	}
+}

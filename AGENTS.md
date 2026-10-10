@@ -600,7 +600,9 @@ A pull request a train found broken stays off trains until its head changes.
 
 One session on the machine is the CFO's own: the agent that native terminal `cfo` of this home runs.
 `goblins`, the board's first-run page, Restart and the comeback after a restart each start the CFO in that terminal, in the home, and nothing starts it anywhere else, on a first run, with the desktop app or with `goblins` in a terminal alone.
-`cfo install` puts the CFO's hooks in the user's settings and `cfo` on PATH, so every Claude Code session on the machine runs those hooks and can run every command, and only this one session is the CFO's.
+Each of those starts hands a Claude Code CFO its hooks (`claude --settings`, the file `state\cfo-claude-settings.json`, written anew at every start), so the hooks are this terminal's alone and no other Claude Code session on the machine runs one.
+`cfo install` puts `cfo` on PATH, so every session can run every command, and only this one session is the CFO's.
+A machine a build before 2026-10 installed still holds the hooks in the user's settings, where every session runs them and each leaves on its environment, until an install takes them out.
 
 A process is in the CFO's own session when all of this holds, and no single variable is trusted alone:
 
