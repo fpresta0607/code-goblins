@@ -112,7 +112,7 @@ func TestReinstallAddsMissingRulesAndBacksUpTheFileFirst(t *testing.T) {
 			t.Errorf("allow rule %q appears %d times after the repair, want 1", rule, count(rules, rule))
 		}
 	}
-	for _, want := range []string{"unchanged already in " + f.user, "added 12 Command Center allow rules"} {
+	for _, want := range []string{"unchanged none of the CFO's in " + f.user, "added 12 Command Center allow rules"} {
 		if !strings.Contains(output, want) {
 			t.Errorf("output is missing %q:\n%s", want, output)
 		}
