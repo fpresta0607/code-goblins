@@ -1085,6 +1085,7 @@ When the desktop's windows cannot be read, nothing is a task's by its mark or it
 The janitor's hourly sweep applies the same rule to what no pause or stop ended.
 For each terminal the home gave a proof since the machine started, it reads which processes are that terminal's own.
 A terminal with no host left has its processes ended: a goblin that failed, and a pause, a stop or a cleanup whose own sweep ran out of time.
+A teardown's own sweep runs one priority class above normal while it reads and ends, and gives the class back after, so it runs out of time far less: at the priority of the work it ends, each of its readers waits its turn behind that work.
 A cleanup and a relaunch (a switch, a resume, a comeback after a restart of the machine) end what their goblin's last terminal left themselves, once that terminal has ended and, for a relaunch, before the next harness starts: afterwards the next harness would be the task's own by the same folders and the same terminal's proofs.
 The next harness cannot reach what the last one left in the background, so a dev server left running would hold its port against the one the goblin starts again.
 These two leave one thing a pause ends: a process at work in the task's folders that carries no mark of its terminal and has a parent that still runs and is not the task's.
