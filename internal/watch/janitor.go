@@ -62,6 +62,10 @@ func runJanitor(cfg Config, inv reap.Inventory) {
 	if goTmp, err := state.GoTmpDir(cfg.Home.State, "janitor"); err == nil {
 		legacy = filepath.Dir(goTmp)
 	}
+	browserSessions := ""
+	if profile, err := os.UserHomeDir(); err == nil {
+		browserSessions = filepath.Join(profile, ".chrome-devtools-axi", "sessions")
+	}
 	ctx, cancel := context.WithTimeout(context.Background(), janitorBudget)
 	defer cancel()
 	record := janitor.Sweep(ctx, janitor.Config{
@@ -85,6 +89,8 @@ func runJanitor(cfg Config, inv reap.Inventory) {
 		Owners:     func() ([]janitor.Owner, []string) { return janitor.ReadOwners(cfg.Home) },
 		EndProcess: janitor.EndProcess,
 		Watched:    previous.Processes.Watched,
+
+		BrowserSessions: browserSessions,
 	})
 	if err := janitor.WriteRecord(cfg.Home.State, record); err != nil {
 		return

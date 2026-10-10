@@ -147,6 +147,46 @@ func TestTheSweepEndsADetachedTreeOfARunningTerminalOnlyOnceItSatIdle(t *testing
 	}
 }
 
+// A browser bridge keeps its page drawing whether or not anything drives it,
+// so its processor time never says it is idle: on 2026-10-09 three bridges
+// hours old used most of a processor between them. A running terminal's
+// bridge is ended once its session sat unused for an hour, by the time the
+// tool last wrote its session's files.
+func TestTheSweepEndsARunningTerminalsBridgeOnceItsSessionSatUnused(t *testing.T) {
+	started := time.Date(2026, 10, 9, 14, 20, 0, 0, time.UTC)
+	now := started.Add(3 * time.Hour)
+	mark := lifecycle.Mark{Terminal: "gb-task", ProofSum: "own-digest"}
+	owners := []Owner{{ID: "gb-task", Marks: []lifecycle.Mark{mark}, HostPID: 1}}
+	bridge := []string{"node", `C:\npm\chrome-devtools-axi\dist\bin\chrome-devtools-axi-bridge.js`}
+	for _, test := range []struct {
+		name     string
+		lastUsed time.Time
+		want     planned
+	}{
+		{name: "unused for two hours while its page draws", lastUsed: now.Add(-2 * time.Hour), want: planned{Ending: []int{10, 11}}},
+		{name: "used ten minutes ago", lastUsed: now.Add(-10 * time.Minute), want: planned{}},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			// Arrange
+			processes := []Process{
+				{Process: lifecycle.Process{PID: 1, Name: "cfo.exe", Started: started}},
+				{Process: lifecycle.Process{PID: 10, ParentPID: 900, Name: "node.exe", Started: started.Add(time.Minute), Arguments: bridge, Mark: mark}, CPU: 40 * time.Minute, LastUsed: test.lastUsed},
+				{Process: lifecycle.Process{PID: 11, ParentPID: 10, Name: "chrome.exe", Started: started.Add(2 * time.Minute), Arguments: []string{"chrome.exe", "--headless"}, Mark: mark}, CPU: 50 * time.Minute},
+			}
+			// The last sweep saw it with far less processor time used.
+			watched := []Watched{{PID: 10, Started: started.Add(time.Minute), CPU: time.Minute, Since: now.Add(-time.Hour)}}
+
+			// Act
+			got := planOf(processes, owners, watched, now)
+
+			// Assert
+			if !reflect.DeepEqual(got, test.want) {
+				t.Fatalf("plan = %+v, want %+v", got, test.want)
+			}
+		})
+	}
+}
+
 // A pause, a resume or a stop ends what it means to end itself. While one is
 // under way the sweep leaves that terminal's processes to it.
 func TestTheSweepLeavesATerminalThatIsChangingToItsOwnTeardown(t *testing.T) {
