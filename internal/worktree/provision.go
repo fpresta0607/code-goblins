@@ -44,11 +44,10 @@ type ProvisionResult struct {
 	MCPTokenUnset []string
 	// Linked names the config entries shared from the primary checkout.
 	Linked []string
-	// LinkSkipped names the default link entries whose destination the
-	// worktree already held (a project that commits .env), left as checked
-	// out. Only defaults are skipped; a declared entry in that state is an
-	// error, because the operator asked for it to be shared.
-	LinkSkipped []string
+	// EnvHeld names the root-level env files the checkout holds that the
+	// worktree was not given, so the spawn can say so by name: a dev server
+	// that will not start is no way to learn it.
+	EnvHeld []string
 	// Install is the project's install commands, in order, which the goblin
 	// runs in the worktree as its first step; empty when the project needs
 	// none. See installCommands.
@@ -82,16 +81,15 @@ func (s Service) Provision(ctx context.Context, project, worktreePath, taskTmp s
 
 	for _, name := range manifest.Link {
 		linked, err := s.shareEntry(ctx, git, project, worktreePath, name, true)
-		if errors.Is(err, errDestinationOccupied) && manifest.LinkDefaulted {
-			result.LinkSkipped = append(result.LinkSkipped, name)
-			continue
-		}
 		if err != nil {
 			return result, err
 		}
 		if linked {
 			result.Linked = append(result.Linked, name)
 		}
+	}
+	if result.EnvHeld, err = envHeld(project, worktreePath); err != nil {
+		return result, err
 	}
 
 	switch manifest.Dependencies.Strategy {
@@ -207,27 +205,58 @@ func copyReadOnly(source, destination string) error {
 	return nil
 }
 
-// OwnConfig turns each config file worktreePath still shares with its primary
-// checkout as a hard link, which is how a build before this one shared them,
-// into the worktree's own read-only copy, and names the ones it turned. It
-// looks at the names the project's manifest shares and at the default ones,
-// since a manifest that shares none today may have shared them when the
-// worktree was made. A relaunch calls it once the task's last harness has
-// ended, so a goblin already running stops holding the Overlord's own file at
-// its next terminal. A file that is no such link is left as it is.
-func (s Service) OwnConfig(project, worktreePath string) ([]string, error) {
-	manifest, err := Resolve(s.DataDir, project)
+// envHeld names the root-level env files the checkout holds and the
+// worktree does not: .env and every .env.<suffix>. One the manifest names was
+// shared and one the repository tracks is checked out, so what is left is
+// what the worktree was not given.
+func envHeld(project, worktreePath string) ([]string, error) {
+	entries, err := os.ReadDir(project)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("worktree: list the checkout's env files: %w", err)
 	}
-	names := slices.Clone(manifest.Link)
-	for _, name := range defaultLink {
-		if !slices.Contains(names, name) {
-			names = append(names, name)
+	var held []string
+	for _, entry := range entries {
+		name := entry.Name()
+		if entry.IsDir() || (name != ".env" && !strings.HasPrefix(name, ".env.")) {
+			continue
+		}
+		if _, err := os.Lstat(filepath.Join(worktreePath, name)); errors.Is(err, os.ErrNotExist) {
+			held = append(held, name)
 		}
 	}
-	var owned []string
-	for _, name := range names {
+	return held, nil
+}
+
+// OwnConfig ends every hard link worktreePath still holds to a file of its
+// primary checkout, which is how a build before this one shared config files:
+// one file under two names, so an edit in the worktree edited the checkout's
+// own file. A file the project's manifest names in link becomes the
+// worktree's own read-only copy. One no manifest names is removed from the
+// worktree, since a worktree is given only what a manifest names, and the
+// checkout's file stays where it is. It names what it copied and what it
+// removed.
+//
+// It finds the links by what they are, a root-level file of the worktree that
+// is the checkout's file of the same name, and not by a list of names, so a
+// link made under any name is found. A file the repository tracks is the
+// worktree's own, and a declared dependency path is linked on purpose: both
+// are left. A relaunch calls it once the task's last harness has ended, so a
+// goblin already running stops holding the Overlord's own file at its next
+// terminal.
+func (s Service) OwnConfig(project, worktreePath string) (copied, removed []string, err error) {
+	manifest, err := Resolve(s.DataDir, project)
+	if err != nil {
+		return nil, nil, err
+	}
+	entries, err := os.ReadDir(worktreePath)
+	if err != nil {
+		return nil, nil, fmt.Errorf("worktree: list %q for links to the checkout: %w", worktreePath, err)
+	}
+	for _, entry := range entries {
+		name := entry.Name()
+		if entry.IsDir() || slices.Contains(manifest.Dependencies.Paths, name) {
+			continue
+		}
 		source, destination := filepath.Join(project, name), filepath.Join(worktreePath, name)
 		sourceInfo, err := os.Stat(source)
 		if err != nil || sourceInfo.IsDir() {
@@ -237,12 +266,19 @@ func (s Service) OwnConfig(project, worktreePath string) ([]string, error) {
 		if err != nil || !os.SameFile(sourceInfo, destinationInfo) {
 			continue
 		}
-		if err := copyReadOnly(source, destination); err != nil {
-			return owned, fmt.Errorf("worktree: give the worktree its own copy of %q: %w", name, err)
+		if !slices.Contains(manifest.Link, name) {
+			if err := os.Remove(destination); err != nil {
+				return copied, removed, fmt.Errorf("worktree: remove the worktree's link to the checkout's %q: %w", name, err)
+			}
+			removed = append(removed, name)
+			continue
 		}
-		owned = append(owned, name)
+		if err := copyReadOnly(source, destination); err != nil {
+			return copied, removed, fmt.Errorf("worktree: give the worktree its own copy of %q: %w", name, err)
+		}
+		copied = append(copied, name)
 	}
-	return owned, nil
+	return copied, removed, nil
 }
 
 // errDestinationOccupied marks a share whose worktree path already exists.

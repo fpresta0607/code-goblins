@@ -6,19 +6,15 @@ import (
 	"strings"
 	"sync"
 	"testing"
-	"time"
 
 	"golang.org/x/sys/windows"
 
 	"github.com/fpresta0607/code-goblins/internal/harness"
 	"github.com/fpresta0607/code-goblins/internal/herdr"
 	"github.com/fpresta0607/code-goblins/internal/host"
+	"github.com/fpresta0607/code-goblins/internal/priority/prioritytest"
 	"github.com/fpresta0607/code-goblins/internal/supervisor"
 )
-
-// classAtStart is the priority class this test binary was started at, read
-// before any test could raise it.
-var classAtStart, _ = windows.GetPriorityClass(windows.CurrentProcess())
 
 // classSeen records the priority class this process runs at each time a
 // command writes to it, which is while the command is at work.
@@ -46,22 +42,6 @@ func processClass(t *testing.T) uint32 {
 		t.Fatal(err)
 	}
 	return class
-}
-
-// fromNormal skips a test whose binary was started at another priority
-// class, which cannot see a raise from normal, and fails one that finds this
-// process still raised: a host or a control an earlier test left running in
-// it would otherwise turn the tests of the raise into tests of nothing.
-func fromNormal(t *testing.T) {
-	t.Helper()
-	if classAtStart != windows.NORMAL_PRIORITY_CLASS {
-		t.Skipf("this test binary was started at priority class %#x, so it cannot see a control rise above normal", classAtStart)
-	}
-	for deadline := time.Now().Add(20 * time.Second); processClass(t) != windows.NORMAL_PRIORITY_CLASS; time.Sleep(50 * time.Millisecond) {
-		if time.Now().After(deadline) {
-			t.Fatalf("this process still runs at priority class %#x: an earlier test left a terminal's host or a control running in it, so no test here can see a control raise it and give the class back", processClass(t))
-		}
-	}
 }
 
 // controlRun runs one of the fleet's controls far enough to say something,
@@ -127,7 +107,7 @@ func TestTheFleetsControlsRunAboveTheWorkAndGiveTheClassBack(t *testing.T) {
 	for name, run := range controlRuns {
 		t.Run(name, func(t *testing.T) {
 			// Arrange
-			fromNormal(t)
+			prioritytest.FromNormal(t)
 			emptyHome(t)
 			// A hook does nothing outside the CFO's own terminal.
 			t.Setenv(host.IDVariable, supervisor.NativeCFOTerminal)
@@ -167,7 +147,7 @@ func TestNothingAGoblinOrAGateAgentStartsIsRaised(t *testing.T) {
 		for name, run := range controlRuns {
 			t.Run(who+"/"+name, func(t *testing.T) {
 				// Arrange
-				fromNormal(t)
+				prioritytest.FromNormal(t)
 				emptyHome(t)
 				t.Setenv(host.IDVariable, "g1")
 				t.Setenv(variable[0], variable[1])
@@ -199,7 +179,7 @@ func TestACommandThatIsNotAControlStaysAtNormal(t *testing.T) {
 	} {
 		t.Run(name, func(t *testing.T) {
 			// Arrange
-			fromNormal(t)
+			prioritytest.FromNormal(t)
 			emptyHome(t)
 			said := &classSeen{t: t}
 

@@ -22,6 +22,7 @@ import (
 
 	"golang.org/x/sys/windows"
 
+	"github.com/fpresta0607/code-goblins/internal/priority/prioritytest"
 	"github.com/fpresta0607/code-goblins/internal/proc"
 	"github.com/fpresta0607/code-goblins/internal/vtscreen"
 )
@@ -1202,10 +1203,8 @@ func priorityClass(t *testing.T, pid int) uint32 {
 func TestAHostRunsOneClassAboveItsTerminalWhichRunsAtNormal(t *testing.T) {
 	// Arrange
 	// A host started by a process below normal is started below normal too,
-	// and is left there.
-	if usual := priorityClass(t, os.Getpid()); usual != windows.NORMAL_PRIORITY_CLASS && usual != windows.ABOVE_NORMAL_PRIORITY_CLASS {
-		t.Skipf("this test runs at priority class %#x, so the host it starts is not started at normal", usual)
-	}
+	// and is left there, so this process starts it from normal.
+	prioritytest.FromNormal(t)
 	_, record := launch(t)
 	v := connect(t, record)
 	v.waitFor(t, "ready")

@@ -535,6 +535,22 @@ func TestWriteTaskMetaRoundTripsTheServicesATaskCarries(t *testing.T) {
 	}
 }
 
+func TestCarriedServicesNamesWhatATaskCarriesForATable(t *testing.T) {
+	cases := []struct {
+		meta TaskMeta
+		want string
+	}{
+		{TaskMeta{Credentials: []string{"github", "stripe"}, HasCredentials: true}, "github, stripe"},
+		{TaskMeta{HasCredentials: true}, "none"},
+		{TaskMeta{}, "all stored (older build)"},
+	}
+	for _, tc := range cases {
+		if got := tc.meta.CarriedServices(); got != tc.want {
+			t.Errorf("CarriedServices() = %q, want %q", got, tc.want)
+		}
+	}
+}
+
 func TestWriteTaskMetaRefusesAServiceARecordCouldNotName(t *testing.T) {
 	for _, service := range []string{"", "none", "pay,ments", "pay\nments"} {
 		meta := TaskMeta{ID: "g1", Kind: "ship", Mode: "direct-PR", Credentials: []string{service}, HasCredentials: true}

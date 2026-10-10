@@ -2,8 +2,6 @@ package reap
 
 import (
 	"context"
-	"crypto/sha256"
-	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"os"
@@ -269,30 +267,44 @@ func TestTheSweepRunsWithoutHerdrOnlyWhenNoHerdrServerRuns(t *testing.T) {
 	}
 }
 
+// stillRunning is a second reading of the machine that finds every one of
+// processes still running, each as the sighting for its pid in whose says, and
+// owned by nobody where whose names none.
+func stillRunning(processes []Process, whose map[int]Sighting) func(context.Context) ([]Sighting, []string, error) {
+	return func(context.Context) ([]Sighting, []string, error) {
+		sightings := make([]Sighting, 0, len(processes))
+		for _, process := range processes {
+			sighting := whose[process.PID]
+			sighting.PID, sighting.Started = process.PID, process.Start
+			sightings = append(sightings, sighting)
+		}
+		return sightings, nil, nil
+	}
+}
+
 // A goblin's own tests run their children in its terminal, but Git Bash runs
-// timeout, an MSYS program, by replacing its own Windows process, so their
-// chain of parents stops short of the goblin's host. Every process in the
-// terminal inherits the proof value its host put there, and one that proves
-// it runs in a live goblin's terminal is that goblin's, with everything it
-// starts, never an orphan. On 2026-10-07 the live sweep woke the CFO twice
-// for a goblin's spawn.test.exe and its stand-in cmd.exe as unsupervised
-// harnesses.
-func TestAProcessProvenInALiveGoblinsTerminalIsThatGoblins(t *testing.T) {
+// env and timeout, MSYS programs, by replacing its own Windows process, so
+// their chain of parents stops short of the goblin's host. Whose such a
+// process is, is asked where the janitor's process sweep asks it: one a
+// running terminal owns is that terminal's and never an orphan, and one that
+// only carries the mark of a terminal whose host is gone, or that nobody
+// owns, is reported. On 2026-10-07 the live sweep woke the CFO twice for a
+// goblin's spawn.test.exe and its stand-in cmd.exe as unsupervised harnesses,
+// and on 2026-10-10 twice more.
+func TestAProcessARunningTerminalOwnsIsNoOrphan(t *testing.T) {
 	for name, test := range map[string]struct {
-		terminal string
-		proof    string
+		whose    Sighting
 		hostRuns bool
 		reported bool
 	}{
-		"proven in the live terminal":                {"board", "proof-board", true, false},
-		"proven in the live terminal, named in caps": {"BOARD", "proof-board", true, false},
-		"a proof the terminal never gave":            {"board", "forged", true, true},
-		"proven in a terminal whose host is gone":    {"board", "proof-board", false, true},
+		"owned by the terminal that runs":             {Sighting{Terminal: "board", Owner: "board"}, true, false},
+		"owned by it with no mark of its own":         {Sighting{Owner: "board"}, true, false},
+		"marked by a terminal whose host is gone":     {Sighting{Terminal: "board"}, false, true},
+		"owned by nobody while another terminal runs": {Sighting{}, true, true},
 	} {
 		t.Run(name, func(t *testing.T) {
 			// Arrange
 			h, _ := nativeHome(t)
-			withProofSum(t, h, "board", "proof-board")
 			standIn := `C:\WINDOWS\system32\cmd.exe /c codex --dangerously-bypass-approvals-and-sandbox`
 			processes := stubProcesses{
 				process(500, 9999, "go.exe", `go test ./internal/spawn/`, fixtureLatest),
@@ -303,14 +315,7 @@ func TestAProcessProvenInALiveGoblinsTerminalIsThatGoblins(t *testing.T) {
 			if test.hostRuns {
 				processes = append(processes, process(400, 1, "cfo.exe", `cfo.exe host --id board`, fixtureStart), process(410, 400, "claude.exe", `claude --dangerously-skip-permissions`, fixtureLatest))
 			}
-			terminal := []string{`PATH=C:\Windows`, "CFO_HOST_ID=" + test.terminal, "CFO_HOST_PROOF=" + test.proof}
-			environments := map[int][]string{500: terminal, 510: terminal, 520: {`PATH=C:\Windows`}, 530: {`PATH=C:\Windows`}}
-			collector := Collector{Home: h, Session: "default", Processes: processes, Environment: func(pid int) ([]string, error) {
-				if env, ok := environments[pid]; ok {
-					return env, nil
-				}
-				return nil, errors.New("process environment unavailable")
-			}}
+			collector := Collector{Home: h, Session: "default", Processes: processes, Sightings: stillRunning(processes, map[int]Sighting{500: test.whose, 510: test.whose, 520: test.whose, 530: test.whose})}
 
 			// Act
 			inv, _, err := collector.Collect(context.Background())
@@ -320,33 +325,94 @@ func TestAProcessProvenInALiveGoblinsTerminalIsThatGoblins(t *testing.T) {
 			orphans := classOf(Classify(inv), OrphanProcess)
 
 			// Assert
-			reported := slices.ContainsFunc(orphans, func(finding Finding) bool { return finding.PID == 520 || finding.PID == 530 })
-			if reported != test.reported {
-				t.Errorf("the goblin's test host and stand-in reported = %v, want %v: %v", reported, test.reported, lines(orphans))
+			for _, pid := range []int{520, 530} {
+				if reported := reportsPID(orphans, pid); reported != test.reported {
+					t.Errorf("the goblin's test host and stand-in: pid %d reported = %v, want %v: %v", pid, reported, test.reported, lines(orphans))
+				}
+			}
+			for _, finding := range orphans {
+				if finding.Shape != "" {
+					t.Errorf("a harness the fleet launched is told once for its shape, want once for each process: %s", finding.Line())
+				}
 			}
 		})
 	}
 }
 
-// withProofSum keeps in task id's host record the digest of the proof value
-// its host put in its terminal.
-func withProofSum(t *testing.T, h home.Home, id, proof string) {
-	t.Helper()
-	path := filepath.Join(h.State, "hosts", id+".json")
-	var record map[string]any
-	data, err := os.ReadFile(path)
+// The listing costs a subprocess and can be seconds old before anything else
+// about a process is read, and a spawn test's stand-ins last about ten
+// seconds. On 2026-10-10 a sweep that began at 11:12:27Z recorded a
+// spawn.test.exe and a cmd.exe born at 11:12:17Z and a codex.exe born at
+// 11:12:19Z, each held as "could not determine what this process belongs
+// to": all three had ended before their directory and environment were read.
+// A listed process is a finding only when a second reading of the machine
+// still finds it, by its pid and its start, and one that has ended is named
+// in a note in place of a finding.
+func TestAProcessThatEndedSinceTheListingIsNoFinding(t *testing.T) {
+	// Arrange
+	h, worktree := nativeHome(t)
+	standIn := `C:\WINDOWS\system32\cmd.exe /c codex --dangerously-bypass-approvals-and-sandbox`
+	host := process(400, 1, "cfo.exe", `cfo.exe host --id board`, fixtureStart)
+	goblin := process(410, 400, "claude.exe", `claude --dangerously-skip-permissions`, fixtureLatest)
+	ended := process(520, 9999, "spawn.test.exe", `C:\tmp\spawn.test.exe native-spawn-host --state C:\tmp\state --id task-7 -- `+standIn, fixtureLatest)
+	replaced := process(530, 520, "cmd.exe", standIn, fixtureLatest)
+	server := process(540, 9999, "node.exe", `node `+worktree+`-2\node_modules\vite\bin\vite.js`, fixtureLatest)
+	orphan := process(550, 9999, "codex.exe", `codex --dangerously-bypass-approvals-and-sandbox`, fixtureLatest)
+	unread := process(560, 9999, "codex.exe", `codex --dangerously-bypass-approvals-and-sandbox`, time.Time{})
+	processes := stubProcesses{host, goblin, ended, replaced, server, orphan, unread}
+	// CIM keeps a start to the microsecond and the system's own list to a
+	// tenth of one, so two readings of one process differ by less than one.
+	later := stillRunning([]Process{host, goblin, orphan, unread}, nil)
+	sightings := func(ctx context.Context) ([]Sighting, []string, error) {
+		found, _, _ := later(ctx)
+		for index := range found {
+			if found[index].PID == orphan.PID {
+				found[index].Started = orphan.Start.Add(700 * time.Nanosecond)
+			}
+		}
+		// The pid of the cmd that ended names a process started since.
+		return append(found, Sighting{PID: replaced.PID, Started: replaced.Start.Add(3 * time.Second)}), []string{"a note of the second reading's own"}, nil
+	}
+
+	// Act
+	inv, notes, err := Collector{Home: h, Session: "default", Processes: processes, Sightings: sightings}.Collect(context.Background())
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := json.Unmarshal(data, &record); err != nil {
-		t.Fatal(err)
+	findings := Classify(inv)
+
+	// Assert
+	var reported []int
+	for _, finding := range Actionable(findings) {
+		reported = append(reported, finding.PID)
 	}
-	sum := sha256.Sum256([]byte(proof))
-	record["proof_sum"] = hex.EncodeToString(sum[:])
-	if data, err = json.Marshal(record); err != nil {
-		t.Fatal(err)
+	slices.Sort(reported)
+	if !slices.Equal(reported, []int{orphan.PID, unread.PID}) {
+		t.Errorf("running findings name pids %v, want the two orphans that still run, %d and %d: %v", reported, orphan.PID, unread.PID, lines(findings))
 	}
-	if err := os.WriteFile(path, data, 0o600); err != nil {
-		t.Fatal(err)
+	note := "no finding, ended while the sweep read the machine (each had the shape of a harness or a dev server): spawn.test.exe pid 520, cmd.exe pid 530, node.exe pid 540"
+	if !slices.Contains(notes, note) {
+		t.Errorf("notes %q do not name the processes that ended, want %q", notes, note)
+	}
+	if !slices.Contains(notes, "a note of the second reading's own") {
+		t.Errorf("notes %q dropped the second reading's own", notes)
+	}
+}
+
+// A second reading that fails says nothing of whose any process is, and a
+// sweep that went on would report every process of a goblin's own test as an
+// orphan. It refuses, as it does when the listing itself cannot be read.
+func TestTheSweepRefusesWhenTheSecondReadingFails(t *testing.T) {
+	// Arrange
+	h, _ := nativeHome(t)
+	processes := stubProcesses{process(520, 9999, "codex.exe", `codex --dangerously-bypass-approvals-and-sandbox`, fixtureLatest)}
+	unreadable := func(context.Context) ([]Sighting, []string, error) { return nil, nil, errors.New("access denied") }
+
+	// Act
+	_, _, err := Collector{Home: h, Session: "default", Processes: processes, Sightings: unreadable}.Collect(context.Background())
+
+	// Assert
+	if err == nil || !strings.Contains(err.Error(), "read whose each process is: access denied") {
+		t.Fatalf("Collect = %v, want a refusal naming the reading that failed", err)
 	}
 }

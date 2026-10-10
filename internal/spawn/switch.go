@@ -304,14 +304,20 @@ func (s Service) Switch(ctx context.Context, req SwitchRequest) (result SwitchRe
 	left := s.endLeft(ctx, meta)
 	// A worktree a build before this one provisioned shares its config files
 	// with the checkout as hard links, so a goblin editing .env there edits
-	// the Overlord's own file. Each becomes the worktree's own copy here,
-	// while no harness of the task holds it open. A copy that fails is said
-	// and does not stop the relaunch, which would leave the goblin with no
-	// harness.
-	if owned, ownErr := s.Worktrees.OwnConfig(project, worktreePath); ownErr != nil {
-		left += "\nwarning: a config file the worktree shares with the checkout could not be made its own copy (" + ownErr.Error() + "), so an edit to it in the worktree still edits the checkout's file"
-	} else if len(owned) > 0 {
-		left += "\nconfig: " + strings.Join(owned, ", ") + " in the worktree was the checkout's own file under a second name, and is now the worktree's read-only copy"
+	// the Overlord's own file. Each ends here, while no harness of the task
+	// holds it open: one the project's manifest names becomes the worktree's
+	// own copy, and one no manifest names is removed from the worktree. A
+	// link that cannot be ended is said and does not stop the relaunch, which
+	// would leave the goblin with no harness.
+	copied, removed, ownErr := s.Worktrees.OwnConfig(project, worktreePath)
+	if len(copied) > 0 {
+		left += "\nconfig: " + strings.Join(copied, ", ") + " in the worktree was the checkout's own file under a second name, and is now the worktree's read-only copy"
+	}
+	if len(removed) > 0 {
+		left += "\nconfig: removed " + strings.Join(removed, ", ") + " from the worktree. It was the checkout's own file under a second name, which no manifest names, and the checkout's file is untouched. A worktree gets an env file only when " + worktree.ManifestPath("data", project) + " names it in link"
+	}
+	if ownErr != nil {
+		left += "\nwarning: a file the worktree shares with the checkout could not be made its own (" + ownErr.Error() + "), so an edit to it in the worktree still edits the checkout's file"
 	}
 
 	launchMeta := meta
@@ -334,6 +340,19 @@ func (s Service) Switch(ctx context.Context, req SwitchRequest) (result SwitchRe
 	// nothing stored gave such a task nothing to lose.
 	isNarrowed := !meta.HasCredentials && len(preflight.Grant.Withheld)+len(preflight.Undeclared) > 0
 	meta.Credentials, meta.HasCredentials = recordedServices(preflight.Grant), true
+	// A credential script is what a refresh wrote for the task's last
+	// terminal, and one written before the task's services were narrowed
+	// holds everything its project had stored. The new terminal starts with
+	// what the task carries in its environment, so the script goes with the
+	// terminal it was written for, and nothing in the task's folder says more
+	// than its record. One that cannot be removed is said and does not stop
+	// the relaunch, which would leave the goblin with no harness.
+	scriptNote := ""
+	if err := os.Remove(filepath.Join(meta.TaskTmp, state.AuthScriptName)); err == nil {
+		scriptNote = "\nauth: removed the credential script written for " + req.ID + "'s last terminal. Its new terminal starts with what the task carries"
+	} else if !errors.Is(err, os.ErrNotExist) {
+		scriptNote = "\nwarning: the credential script written for " + req.ID + "'s last terminal could not be removed (" + err.Error() + ") and may hold more than the task carries now. Run cfo auth refresh " + req.ID + " to rewrite it"
+	}
 	// Publish the replacement generation before its first native hook can run.
 	if err := s.publishSwitch(&meta, target); err != nil {
 		return SwitchResult{}, err
@@ -394,7 +413,7 @@ func (s Service) Switch(ctx context.Context, req SwitchRequest) (result SwitchRe
 	if notice := containedNotice(nativeHost); notice != "" {
 		result.Output += "\n" + notice
 	}
-	result.Output += left
+	result.Output += left + scriptNote
 	if isNarrowed {
 		result.Output += "\nauth: " + narrowedLine(req.ID, project, preflight.Grant)
 		if line := auth.WithheldLine(req.ID, project, preflight); line != "" {

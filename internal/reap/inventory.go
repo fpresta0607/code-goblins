@@ -63,11 +63,14 @@ type Collector struct {
 	// traces a test fixture's stand-in harness back to the goblin or gate
 	// that started it; nil leaves every stand-in unplaced.
 	WorkingDirectory func(pid int) (string, error)
-	// Environment reads the environment a process runs with. It is what
-	// proves a process runs in a native terminal whose host is alive, by the
-	// proof value that terminal's host gave it, and what says no-mistakes
-	// started it as a gate agent; nil leaves every process unproven.
-	Environment func(pid int) ([]string, error)
+	// Sightings reads the machine a second time, once the listing is taken:
+	// every process that runs then, with whose it is, decided where the
+	// janitor's process sweep decides it (janitor.Sightings). The listing
+	// costs a subprocess and can be seconds old before anything else about a
+	// process is read, so a listed process is judged only when this reading
+	// finds it still running, and on what this reading says of it. nil
+	// leaves every listed process in, owned by no terminal.
+	Sightings func(ctx context.Context) ([]Sighting, []string, error)
 }
 
 // Collect reads state, panes, processes and worktree directories once each.
@@ -156,15 +159,76 @@ func (c Collector) Collect(ctx context.Context) (Inventory, []string, error) {
 			}
 		}
 		inv.Processes = processes
-		inv.FleetRootPIDs = herdrRoots(processes)
+		if err := c.sight(ctx, &inv, &notes); err != nil {
+			return Inventory{}, notes, err
+		}
+		inv.FleetRootPIDs = herdrRoots(inv.Processes)
 		c.placeHarnesses(inv.Processes)
 	} else {
 		notes = append(notes, "no process lister configured; process evidence is missing")
 	}
 	c.nativeHosts(&inv, &notes)
-	c.placeTerminals(&inv)
 
 	return inv, notes, nil
+}
+
+// sight holds the listing to a second reading of the machine (Sightings). A
+// listed process the second reading does not find, or finds with another
+// start, ended while the sweep read the machine: it is left out of the
+// inventory, and named in a note when it had the shape of a finding, so what
+// the sweep judged and what it could not is on the record. Each process still
+// running takes whose it is from the second reading. A second reading that
+// fails refuses the sweep: without it every process a goblin's own test
+// started reads as an orphan.
+func (c Collector) sight(ctx context.Context, inv *Inventory, notes *[]string) error {
+	if c.Sightings == nil {
+		return nil
+	}
+	sightings, read, err := c.Sightings(ctx)
+	if err != nil {
+		return fmt.Errorf("reap: read whose each process is: %w", err)
+	}
+	*notes = append(*notes, read...)
+	sighted := make(map[int]Sighting, len(sightings))
+	for _, sighting := range sightings {
+		sighted[sighting.PID] = sighting
+	}
+	var ended []string
+	inv.Processes = slices.DeleteFunc(inv.Processes, func(process Process) bool {
+		if sighting, isRunning := sighted[process.PID]; isRunning && sameStart(process.Start, sighting.Started) {
+			return false
+		}
+		if isHarness(process) || isServer(process) {
+			ended = append(ended, fmt.Sprintf("%s pid %d", process.Name, process.PID))
+		}
+		return true
+	})
+	for index, process := range inv.Processes {
+		sighting := sighted[process.PID]
+		inv.Processes[index].Terminal, inv.Processes[index].Owner, inv.Processes[index].IsGateAgent = sighting.Terminal, sighting.Owner, sighting.IsGateAgent
+	}
+	if len(ended) > 0 {
+		*notes = append(*notes, "no finding, ended while the sweep read the machine (each had the shape of a harness or a dev server): "+strings.Join(ended, ", "))
+	}
+	return nil
+}
+
+// startSlack is how far apart two readings of one process's start may be.
+// The listing's comes from CIM, which keeps microseconds, and a sighting's
+// from the system's own list, which keeps tenths of one. Windows gives a pid
+// to a later process only once the earlier one has ended, never within a
+// millisecond of its start.
+const startSlack = time.Millisecond
+
+// sameStart reports whether two readings of a pid's start are of one
+// process. A listing that could not read a start names its process by pid
+// alone.
+func sameStart(listed, sighted time.Time) bool {
+	if listed.IsZero() || sighted.IsZero() {
+		return true
+	}
+	apart := listed.Sub(sighted)
+	return apart > -startSlack && apart < startSlack
 }
 
 // runsSessionServer reports whether process is the Herdr server of the
@@ -198,73 +262,8 @@ func (c Collector) nativeHosts(inv *Inventory, notes *[]string) {
 			inv.UnreadableHosts = append(inv.UnreadableHosts, id)
 			continue
 		}
-		inv.NativeHosts = append(inv.NativeHosts, NativeHost{ID: record.ID, HostPID: record.HostPID, Started: record.Started, ProofSum: record.ProofSum})
+		inv.NativeHosts = append(inv.NativeHosts, NativeHost{ID: record.ID, HostPID: record.HostPID, Started: record.Started})
 	}
-}
-
-// placeTerminals reads the environment of every harness-shaped process and of
-// its ancestors for the two things only it can say. One is the native terminal
-// of this home the process runs in: the one its environment names, when the
-// proof value beside that name is the one the terminal's host recorded. Every
-// process in a terminal inherits both, through an exec that cuts its chain of
-// parents short of the host too, as an MSYS one does. The other is whether
-// no-mistakes started it as a gate agent, which it stays when the process that
-// started it exits.
-func (c Collector) placeTerminals(inv *Inventory) {
-	if c.Environment == nil {
-		return
-	}
-	records := make(map[string]NativeHost, len(inv.NativeHosts))
-	for _, record := range inv.NativeHosts {
-		records[strings.ToLower(record.ID)] = record
-	}
-	index := make(map[int]int, len(inv.Processes))
-	for i, process := range inv.Processes {
-		index[process.PID] = i
-	}
-	read := make(map[int]bool)
-	for _, process := range inv.Processes {
-		if !isHarness(process) {
-			continue
-		}
-		pid := process.PID
-		for range fixtureAncestry + 1 {
-			i, ok := index[pid]
-			if !ok || read[pid] {
-				break
-			}
-			read[pid] = true
-			if env, err := c.Environment(pid); err == nil {
-				inv.Processes[i].Terminal = provenTerminal(env, records)
-				inv.Processes[i].IsGateAgent = slices.ContainsFunc(env, func(entry string) bool {
-					name, value, _ := strings.Cut(entry, "=")
-					return strings.EqualFold(name, gateAgentVariable) && value != ""
-				})
-			}
-			pid = inv.Processes[i].ParentPID
-		}
-	}
-}
-
-// provenTerminal is the id, as its host record spells it, of the terminal
-// among records that env names and whose recorded proof sum is that of the
-// proof value env carries, or "" when there is none.
-func provenTerminal(env []string, records map[string]NativeHost) string {
-	var id, proof string
-	for _, entry := range env {
-		name, value, _ := strings.Cut(entry, "=")
-		switch {
-		case strings.EqualFold(name, host.IDVariable):
-			id = value
-		case strings.EqualFold(name, host.ProofVariable):
-			proof = value
-		}
-	}
-	record, ok := records[strings.ToLower(id)]
-	if !ok || !(host.Record{ProofSum: record.ProofSum}).Proves(proof) {
-		return ""
-	}
-	return record.ID
 }
 
 func (c Collector) latestVerb(id string) string {

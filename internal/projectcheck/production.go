@@ -195,9 +195,6 @@ func (c *checker) productionReach(ctx context.Context, test string) {
 	var files []envFile
 	if manifest, err := worktree.Resolve(c.DataDir, c.project); err == nil {
 		how := "which every goblin's worktree shares by " + worktree.ManifestFileName
-		if manifest.LinkDefaulted {
-			how = "which every goblin's worktree shares by default"
-		}
 		for _, name := range manifest.Link {
 			if !c.repo.tracked[name] {
 				files = append(files, envFile{name, how})
