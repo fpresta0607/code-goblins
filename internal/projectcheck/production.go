@@ -1,21 +1,13 @@
 package projectcheck
 
 import (
-	"bytes"
-	"context"
 	"encoding/base64"
 	"encoding/json"
-	"fmt"
 	"net/url"
-	"path"
-	"path/filepath"
-	"regexp"
 	"slices"
 	"strings"
 
 	"github.com/fpresta0607/code-goblins/internal/auth"
-	"github.com/fpresta0607/code-goblins/internal/fsx"
-	"github.com/fpresta0607/code-goblins/internal/worktree"
 )
 
 // The reasons a value of an env file is production's, worst first.
@@ -23,51 +15,204 @@ const (
 	liveKey         = "a live key"
 	namesProduction = "names production"
 	remoteHost      = "a remote host"
+	carriesLogin    = "an address that carries a login"
 	realCredential  = "a credential"
+	namedCredential = "a credential by its name"
 )
 
-// environmentSelectors are the variables that say which environment a
-// program runs as.
-var environmentSelectors = map[string]bool{"APP_ENV": true, "ENV": true, "ENVIRONMENT": true, "NODE_ENV": true, "RAILS_ENV": true, "FLASK_ENV": true, "DJANGO_ENV": true, "SENTRY_ENVIRONMENT": true}
+// The reasons a value the rules do not count is named all the same, so a
+// reader sees what a count left out.
+const (
+	placeholderValue = "a placeholder under a credential's name"
+	trackedPlain     = "plain text under a credential's name, in a file git tracks"
+	plainKey         = "plain text under the name of a key or a token, which a service issues and no person types"
+	randomValue      = "long random text under a name the rules take for no credential"
+	otherHost        = "an address on another host whose name says no data store"
+)
+
+// passedOverReasons are those reasons in the order a line names them.
+var passedOverReasons = []string{placeholderValue, trackedPlain, plainKey, randomValue, otherHost}
+
+// typedWords are the words in a variable's name for a credential a person
+// types, which needs no shape to be one: a password, a passphrase or a
+// shared secret. A key and a token are issued by a service, so plain text
+// under one of those names is a setting.
+var typedWords = map[string]bool{"PASSWORD": true, "PASS": true, "PASSWD": true, "PWD": true, "PASSPHRASE": true, "PASSCODE": true, "SECRET": true, "CODE": true, "CODES": true}
+
+// isTyped reports whether a variable named like a credential is named for
+// one a person types.
+func isTyped(upper string) bool {
+	for _, word := range strings.Split(upper, "_") {
+		if typedWords[word] {
+			return true
+		}
+	}
+	return false
+}
+
+// environmentSwitch reports whether a variable says which environment a
+// program runs as: its name ends in the word ENV, ENVIRONMENT, MODE or
+// STAGE, as NODE_ENV, PLAID_ENV and STRIPE_MODE do.
+func environmentSwitch(upper string) bool {
+	parts := strings.Split(upper, "_")
+	switch parts[len(parts)-1] {
+	case "ENV", "ENVIRONMENT", "MODE", "STAGE":
+		return true
+	}
+	return false
+}
 
 // serviceWords are the words in a variable's name that make its URL a data
 // store, a queue or a place reports go, where a test that connects writes.
 var serviceWords = map[string]bool{"DATABASE": true, "DB": true, "POSTGRES": true, "PG": true, "MYSQL": true, "MONGO": true, "REDIS": true, "VALKEY": true, "QDRANT": true, "ELASTIC": true, "SUPABASE": true, "SENTRY": true, "DSN": true, "BROKER": true, "AMQP": true, "RABBIT": true, "KAFKA": true, "WEBHOOK": true, "S3": true, "STORAGE": true, "UPSTASH": true, "CELERY": true}
 
-// productionValue says why a variable of an env file is production's, or
-// returns "" when it is not: a live secret key, an environment selector that
-// says production, a store or sink on a host that is not this machine, or a
+// judgement is what the rules make of one variable of an env file. It holds
+// reasons and never any part of the value.
+type judgement struct {
+	// production says why the value is production's, empty when it is not.
+	production string
+	// passedOver says why a value that is not counted is named all the same,
+	// empty for a value that needs no second look.
+	passedOver string
+	// isPublicStore marks the address of a store on another host that is
+	// filed under a public name: no credential alone, and the place a key of
+	// the same service opens.
+	isPublicStore bool
+}
+
+// judge says why a variable of an env file is production's: a live secret
+// key, an environment switch that says production, a store or sink on a
+// host that is not this machine, an address that carries a login, or a
 // credential that is neither empty, a test key, a publishable key nor a
-// placeholder. It never returns any part of the value.
-func productionValue(name, value string) string {
+// placeholder. For a value it does not count it says why a reader may want
+// to look, where there is a reason. Tracked says the file is one git
+// tracks: plain text under a credential's name is a credential in a file
+// only this machine holds, and a default git already publishes in one it
+// tracks.
+func judge(name, value string, tracked bool) judgement {
 	upper := strings.ToUpper(name)
 	lower := strings.ToLower(value)
 	switch {
 	case value == "":
-		return ""
+		return judgement{}
 	case strings.HasPrefix(value, "sk_live_"), strings.HasPrefix(value, "rk_live_"):
-		return liveKey
+		return judgement{production: liveKey}
 	case strings.HasPrefix(value, "sk_test_"), strings.HasPrefix(value, "rk_test_"):
-		return ""
-	case publishable(name, value):
-		return ""
-	case environmentSelectors[upper]:
+		return judgement{}
+	case environmentSwitch(upper):
 		if lower == "production" || lower == "prod" || lower == "live" {
-			return namesProduction
+			return judgement{production: namesProduction}
 		}
-		return ""
+		return judgement{}
+	case strings.Contains(value, "://"):
+		switch public, store, login := publishableName(name), namesStore(upper), carriesALogin(value); {
+		case localHost(value):
+			return judgement{}
+		case public && login:
+			return judgement{production: carriesLogin}
+		case public:
+			return judgement{isPublicStore: store}
+		case store:
+			return judgement{production: remoteHost}
+		case login:
+			return judgement{production: carriesLogin}
+		}
+		return judgement{passedOver: otherHost}
+	case publishable(name, value):
+		return judgement{}
 	}
-	if strings.Contains(value, "://") {
-		for _, word := range strings.Split(upper, "_") {
-			if serviceWords[word] && !localHost(value) {
-				return remoteHost
-			}
+	named, shaped := credentialName(name), auth.SecretShape(strings.ReplaceAll(value, "=", "")) != ""
+	switch {
+	case startsSecret(value), named && shaped:
+		return judgement{production: realCredential}
+	case named && isPlaceholder(value):
+		return judgement{passedOver: placeholderValue}
+	case named && tracked:
+		return judgement{passedOver: trackedPlain}
+	case named && isTyped(upper):
+		return judgement{production: namedCredential}
+	case named:
+		return judgement{passedOver: plainKey}
+	case shaped:
+		return judgement{passedOver: randomValue}
+	}
+	return judgement{}
+}
+
+// namesStore reports whether a word of a variable's name makes its address
+// a data store, a queue or a place reports go.
+func namesStore(upper string) bool {
+	return len(storeWords(upper)) > 0
+}
+
+// storeWords returns the words of a variable's name that name a service.
+func storeWords(upper string) []string {
+	var words []string
+	for _, word := range strings.Split(upper, "_") {
+		if serviceWords[word] {
+			words = append(words, word)
 		}
 	}
-	if credentialName(name) && auth.SecretShape(strings.ReplaceAll(value, "=", "")) != "" && !strings.Contains(value, "://") {
-		return realCredential
+	return words
+}
+
+// loginQueries are the query parameters an address carries a credential in.
+var loginQueries = map[string]bool{"token": true, "access_token": true, "key": true, "apikey": true, "api_key": true, "secret": true, "password": true, "sig": true, "signature": true}
+
+// carriesALogin reports whether an address carries a login: a password in
+// front of its host, or a credential in its query.
+func carriesALogin(value string) bool {
+	parsed, err := url.Parse(value)
+	if err != nil {
+		return false
 	}
-	return ""
+	if _, has := parsed.User.Password(); has {
+		return true
+	}
+	for name, values := range parsed.Query() {
+		if loginQueries[strings.ToLower(name)] && slices.ContainsFunc(values, func(held string) bool { return held != "" }) {
+			return true
+		}
+	}
+	return false
+}
+
+// startsSecret reports whether a value starts the way a secret key does,
+// which makes it one whatever variable holds it.
+func startsSecret(value string) bool {
+	for _, prefix := range secretPrefixes {
+		if strings.HasPrefix(value, prefix) {
+			return true
+		}
+	}
+	return false
+}
+
+// placeholderWords mark a value written to be replaced, and
+// placeholderValues are the whole values that stand for none: a word a
+// template or a local default ships with.
+var (
+	placeholderWords  = []string{"your", "example", "changeme", "change-me", "change_me", "placeholder", "replace", "todo", "dummy", "xxx", "<", "..."}
+	placeholderValues = map[string]bool{
+		"test": true, "testing": true, "secret": true, "password": true, "pass": true, "none": true, "null": true, "nil": true,
+		"false": true, "true": true, "tbd": true, "n/a": true, "dev": true, "development": true, "local": true, "localhost": true,
+		"demo": true, "fake": true, "mock": true, "admin": true, "postgres": true, "root": true, "guest": true, "user": true,
+	}
+)
+
+// isPlaceholder reports whether a value reads as one written to be
+// replaced or as a local default, which is no credential of anything.
+func isPlaceholder(value string) bool {
+	lower := strings.ToLower(strings.TrimSpace(value))
+	if placeholderValues[lower] {
+		return true
+	}
+	for _, word := range placeholderWords {
+		if strings.Contains(lower, word) {
+			return true
+		}
+	}
+	return false
 }
 
 // publishablePrefixes start a key a service issues for browsers: Stripe's
@@ -161,144 +306,4 @@ func localHost(value string) bool {
 		}
 	}
 	return false
-}
-
-// testSetupPrefixes start the name of a file a test runner loads before the
-// tests, where a project pins what its tests may see.
-var testSetupPrefixes = []string{"jest.setup.", "vitest.setup.", "setupTests.", "vitest.config.", "jest.config.", "playwright.config.", "global-setup.", "globalSetup."}
-
-// isTestSetup reports whether a tracked file is one a test runner loads
-// before the tests.
-func isTestSetup(name string) bool {
-	base := path.Base(name)
-	switch base {
-	case "conftest.py", "pytest.ini", "tox.ini", ".env.test":
-		return true
-	}
-	for _, prefix := range testSetupPrefixes {
-		if strings.HasPrefix(base, prefix) {
-			return true
-		}
-	}
-	return false
-}
-
-// productionReach checks what a test run in a goblin's worktree starts with:
-// the env files the worktree shares from the checkout and those the
-// repository tracks. A production value in one is within a test's reach
-// unless the test setup, or the gate's own test command, names the variable,
-// which is how a project pins it. With no test command of the repository's
-// own an agent chooses what the test step runs, and nothing stands between
-// it and the file.
-func (c *checker) productionReach(ctx context.Context, test string) {
-	type envFile struct{ name, how string }
-	var files []envFile
-	if manifest, err := worktree.Resolve(c.DataDir, c.project); err == nil {
-		how := "which every goblin's worktree shares by " + worktree.ManifestFileName
-		for _, name := range manifest.Link {
-			if !c.repo.tracked[name] {
-				files = append(files, envFile{name, how})
-			}
-		}
-	}
-	for _, name := range sortedKeys(c.repo.tracked) {
-		if isEnvFile(path.Base(name)) && !isExample(path.Base(name)) {
-			files = append(files, envFile{name, "which the repository tracks"})
-		}
-	}
-
-	// The files that pin: the test setup, and the scripts of the gate's own
-	// test command.
-	setup := map[string]string{}
-	for _, name := range sortedKeys(c.repo.tracked) {
-		if isTestSetup(name) {
-			if data, ok := c.repo.read(ctx, name); ok {
-				setup[name] = string(data)
-			}
-		}
-	}
-	for _, s := range segments(test) {
-		for _, arg := range s.argv {
-			if scriptExtensions[strings.ToLower(path.Ext(arg))] {
-				if data, ok := c.repo.read(ctx, path.Join(s.dir, arg)); ok {
-					setup[path.Join(s.dir, arg)] = string(data)
-				}
-			}
-		}
-	}
-	pinnedBy := func(variable string) string {
-		word := regexp.MustCompile(`(^|[^A-Za-z0-9_])` + regexp.QuoteMeta(variable) + `([^A-Za-z0-9_]|$)`)
-		for _, name := range sortedKeys(setup) {
-			if word.MatchString(setup[name]) {
-				return name
-			}
-		}
-		return ""
-	}
-
-	variables, production, pinned := 0, 0, 0
-	pinners := map[string]bool{}
-	var read, exposed []string
-	worst := false
-	for _, file := range files {
-		var data []byte
-		if c.repo.tracked[file.name] {
-			data, _ = c.repo.read(ctx, file.name)
-		} else {
-			var err error
-			if data, err = fsx.ReadFile(filepath.Join(c.Checkout, filepath.FromSlash(file.name))); err != nil {
-				continue
-			}
-		}
-		values, err := auth.ParseEnv(bytes.NewReader(data))
-		if err != nil {
-			continue
-		}
-		read = append(read, file.name+", "+file.how)
-		variables += len(values)
-		var open []string
-		for _, variable := range sortedKeys(values) {
-			reason := productionValue(variable, values[variable])
-			if reason == "" {
-				continue
-			}
-			production++
-			if by := pinnedBy(variable); by != "" {
-				pinned++
-				pinners[by] = true
-				continue
-			}
-			worst = worst || reason == liveKey || reason == namesProduction
-			open = append(open, variable+" ("+reason+")")
-		}
-		if len(open) > 0 {
-			exposed = append(exposed, file.name+", "+file.how+": "+strings.Join(open, ", "))
-		}
-	}
-
-	step := fmt.Sprintf("The gate's test step is the repository's own command, %q", test)
-	if test == "" {
-		step = "The gate's test step is an agent's choice, since the gate names no test command"
-	}
-	pins := fmt.Sprintf("Named by the test setup and left out: %d", pinned)
-	if len(pinners) > 0 {
-		pins += " (" + strings.Join(sortedKeys(pinners), ", ") + ")"
-	}
-	if len(exposed) > 0 {
-		severity := High
-		if worst || test == "" {
-			severity = Critical
-		}
-		c.add(AreaGate, "test-reaches-production", severity,
-			"a test run in a goblin's worktree can read production: its env files hold "+count(production-pinned, "production value")+" the test setup does not name",
-			strings.Join(exposed, ". ")+". "+pins+". A setup that clears variables by a rule and not by name is not seen here. "+step+". Read at "+c.repo.asRead(),
-			"keep production out of what a worktree shares by naming a development env file, or none, as link in "+worktree.ManifestFileName+", or name each variable in the test setup")
-	}
-	evidence := "no env file is shared into a goblin's worktree or tracked"
-	if len(read) > 0 {
-		evidence = strings.Join(read, ". ")
-	}
-	c.add(AreaGate, "test-env-examined", OK,
-		fmt.Sprintf("examined %s in %s a test run can read: %s, %d of them named by the test setup", count(variables, "variable"), count(len(read), "env file"), count(production, "production value"), pinned),
-		evidence+". "+pins+". Test setup read at "+c.repo.asRead()+": "+orNone(sortedKeys(setup)), "")
 }

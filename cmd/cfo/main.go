@@ -69,7 +69,7 @@ commands:
   home      migrate [--apply --plan <digest>] [--memory-from <dir>]: lay out a home whose data predates the layout; without --apply a dry run that lists every file it would move, create or change, proves none is dropped and prints the plan digest --apply --plan makes; move [--to <dir>] [--apply --plan <digest>]: move an older build's home, such as a checkout, to the per-user home, with the same dry run, digest and read-back
   dev-drive say whether the home's worktrees, scratch and package caches are on a Dev Drive, a drive Windows 11 formats for developer work that Defender scans in performance mode (not an exclusion), whether this machine has or can have one, and why not; setup: ask for the next step, which the board puts in the Command Center as one item to run; move --to <folder>: put new goblins' worktrees, scratch and caches in <folder> on a trusted Dev Drive, keeping every started goblin's folders where they are
   doctor    check the tools cfo needs (git, gh, claude, herdr, codex, pi, tasks-axi, quota-axi, no-mistakes, gh-axi, chrome-devtools-axi) and each harness's version beside its newest; --fix installs the newest Codex and pi once each starts to its composer in a terminal of its own, while nothing runs from its install
-  pipeline  config-drift | config-apply | migrate <id> | run <id> [--branch <b>] --intent <text> | respond <id> [--branch <b> | --run <run>] --action <fix|approve> [--findings <ids>] [--instructions <text>] | recover <id> [--branch <b> | --run <run>]; --branch or --run acts in whichever of the task's worktrees, an extra one included, has that branch checked out
+  pipeline  config-drift | config-apply | migrate <id> | run <id> [--branch <b>] --intent-file <file> | respond <id> [--branch <b> | --run <run>] --action <fix|approve> [--findings <ids>] [--instructions <text>] | recover <id> [--branch <b> | --run <run>]; --branch or --run acts in whichever of the task's worktrees, an extra one included, has that branch checked out
   drain     print or acknowledge the wake queue and recovery episode
   watch     run one triage cycle by hand (manual diagnostics; the hooks are the production entry)
   session-start  print the full session-start digest by hand (manual diagnostics; the SessionStart hook is the production entry)
@@ -80,6 +80,7 @@ commands:
   cfo auth copy <NAME> --to <project> [--from <project>]   copy a stored value into a project's scope; the source is left in place
   cfo auth refresh <task-id>        regenerate a task's auth.ps1 from its project scope; storing or copying into a project scope does this for every live task of that project automatically
   cfo project check <project> [--area <area>] [--json] [--draft <file>]   assess what the home knows about a project: its record, its gate, its configs, its connectors and its instructions, one line each with the evidence and the fix. It reads only and exits 1 when a line is worse than low. --draft writes the record it can vouch for to a new file outside the home's projects
+  cfo project check --unfiled [--json]   name each checkout under the projects root that the home holds no folder for, and what a spawn there would be given
   cfo project show|init <project>   print a project's record, or write an empty one
   cfo route [--project <project>] <brief>
   cfo verify <task-id> [--tier fast|full|deep]

@@ -41,6 +41,30 @@ func (forge timedOutOrigin) Run(ctx context.Context, request execx.Request) (exe
 	return forge.fakeForge.Run(ctx, request)
 }
 
+// timedOutTrainOrigin is a forge whose origin the CI poll reads, and whose
+// origin then runs out of time when the merge train reads it again later in
+// the same poll, while isTimingOut says so.
+type timedOutTrainOrigin struct {
+	*fakeForge
+	isTimingOut *bool
+	hasListed   bool
+}
+
+func (forge *timedOutTrainOrigin) Run(ctx context.Context, request execx.Request) (execx.Result, error) {
+	command := request.Name + " " + strings.Join(request.Args, " ")
+	if command == "git config --get remote.origin.url" {
+		isTrains := forge.hasListed
+		forge.hasListed = false
+		if isTrains && *forge.isTimingOut {
+			return execx.Result{}, context.DeadlineExceeded
+		}
+	}
+	if strings.HasPrefix(command, "gh pr list") {
+		forge.hasListed = true
+	}
+	return forge.fakeForge.Run(ctx, request)
+}
+
 // failedBefore records that each read failed on every pass a read that keeps
 // failing needs but the last, so its next failure is told.
 func failedBefore(t *testing.T, h home.Home, reads ...string) {
@@ -100,6 +124,13 @@ func TestAReadThatFailedWakesTheCFOOnlyOnceItKeepsFailing(t *testing.T) {
 			forge.branch, forge.pulls, forge.runs = "feat/wakes", "[]", "[]"
 			service.Options.CI = timedOutOrigin{fakeForge: forge, isTimingOut: isTimingOut}
 			return "ci wakes: read the origin of " + filepath.Clean(h.Root) + ": context deadline exceeded"
+		}},
+		{"the origin a merge train reads of a repository a goblin works in", func(t *testing.T, h home.Home, service *Service, isTimingOut *bool) string {
+			liveGoblin(t, h, "train-task", h.Root)
+			forge := forgeFor(h.Root, "train-task")
+			forge.branch, forge.pulls, forge.runs = "feat/wakes", "[]", "[]"
+			service.Options.CI = &timedOutTrainOrigin{fakeForge: forge, isTimingOut: isTimingOut}
+			return "merge train: read the origin of " + filepath.Clean(h.Root) + ": context deadline exceeded"
 		}},
 	}
 	for _, c := range cases {

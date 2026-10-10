@@ -19,6 +19,11 @@ import (
 // find room.
 var ErrNoRoom = errors.New("waits for room")
 
+// ErrResumeRefused marks a resume whose relaunch was refused before it
+// started anything, for something no later reading clears by itself: the task
+// is left as it was, and it resumes once what refused it is put right.
+var ErrResumeRefused = errors.New("resume refused, and the task is left as it was")
+
 type Lifecycle struct {
 	ID                string            `json:"id"`
 	Generation        string            `json:"generation"`

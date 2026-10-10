@@ -184,7 +184,7 @@ func (c *checker) gateAgent(data []byte, agent yaml.Node, policy pipeline.Policy
 
 // runners are the test runners a command or a workflow can be seen to
 // start, each as the words that start it.
-var runners = []string{"go test", "go vet", "pytest", "vitest", "jest", "playwright", "cargo test", "npm test", "dotnet test", "mvn test", "gradle test", "rspec", "phpunit"}
+var runners = []string{"go test", "go vet", "pytest", "vitest", "jest", "playwright", "cargo test", "npm test", "dotnet test", "mvn test", "gradle test", "rspec", "phpunit", "node --test", "tsx --test", "unittest"}
 
 // runnersIn returns the runners a text names, a runner counting only where
 // no letter or digit touches it, so pytest_changed.py names pytest and

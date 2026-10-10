@@ -208,6 +208,17 @@ func (service Service) Run(ctx context.Context, request Request) (result state.L
 			if errors.Is(err, state.ErrNoRoom) {
 				return prior, errors.Join(err, state.WriteLifecycle(service.StateDir, prior))
 			}
+			// So does a relaunch refused for anything else before it
+			// published its replacement generation, which it does before it
+			// starts a terminal: the pause, its reason and its condition
+			// stay, and the status log says why. On 2026-10-10 a resume
+			// refused for a gate policy older than the machine's was
+			// recorded failed, so pd-whats-new stopped reading paused and a
+			// wake said its host does not answer.
+			if err != nil && !service.hasRelaunched(meta) {
+				err = fmt.Errorf("%w: %w", state.ErrResumeRefused, err)
+				return prior, errors.Join(err, state.WriteLifecycle(service.StateDir, prior), state.AppendStatus(service.StateDir, meta.ID, "lifecycle-refused: "+state.NormalizeStatusDetail(err.Error())))
+			}
 		}
 		if current, readErr := state.ReadTaskMeta(service.StateDir, meta.ID); readErr == nil {
 			result.Generation = current.SpawnGen
@@ -316,6 +327,14 @@ func (service Service) Run(ctx context.Context, request Request) (result state.L
 	}
 	finished, finishErr := service.finish(result)
 	return finished, errors.Join(err, finishErr)
+}
+
+// hasRelaunched says whether a resume's relaunch of meta's task published a
+// replacement generation, from which point its terminal may run. A record that
+// cannot be read proves nothing, so it counts as relaunched.
+func (service Service) hasRelaunched(meta state.TaskMeta) bool {
+	current, err := state.ReadTaskMeta(service.StateDir, meta.ID)
+	return err != nil || current.SpawnGen != meta.SpawnGen
 }
 
 // PauseInstruction asks the task to reach its stopping point. The handoff's

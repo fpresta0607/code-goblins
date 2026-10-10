@@ -61,6 +61,16 @@ func TestStartMergesTheRidersOntoMainInQueueOrderAndOpensTheTrainPullRequest(t *
 			t.Fatalf("train pull request body = %q, want %q", body, want)
 		}
 	}
+	// The body is prose of several lines, which reaches gh in a file and
+	// never on its command line.
+	for _, commandLine := range gh.commandLines {
+		if slices.Contains(commandLine, "--body") || slices.Contains(commandLine, body) {
+			t.Fatalf("gh was started with a body on its command line: %q", commandLine[:min(4, len(commandLine))])
+		}
+	}
+	if started := gh.commandLines[slices.IndexFunc(gh.commandLines, func(args []string) bool { return args[1] == "create" })]; !slices.Contains(started, "--body-file") {
+		t.Fatalf("gh pr create was started without --body-file: %q", started)
+	}
 	if strings.ContainsAny(body, ";\u2014") || started.History[0].PR != gh.trainURL {
 		t.Fatalf("body %q, run %+v: want no semicolon or long dash in what he reads, and the run to name its pull request", body, started.History[0])
 	}

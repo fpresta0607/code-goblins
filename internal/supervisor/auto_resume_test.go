@@ -8,6 +8,7 @@ import (
 	"maps"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -435,5 +436,66 @@ func TestFailedAutomaticStartDoesNotHoldTheSlotOrRetryEveryReading(t *testing.T)
 	}
 	if failures != 1 {
 		t.Fatalf("start failure reported %d times, want once", failures)
+	}
+}
+
+// A paused goblin whose pause cleared and whose resume is refused for what no
+// later reading clears by itself, as a gate policy older than the machine's
+// is, stays paused as it was. It waits for a Resume from then on, so it
+// neither holds the slot ahead of the queue nor is refused again at every
+// reading, and the CFO is told once. A resume that only waits for room is
+// tried again at the next reading, ahead of the queue, as it always was.
+func TestARefusedAutomaticResumeWaitsForAResumeAndDoesNotHoldTheSlot(t *testing.T) {
+	const refusal = "resume refused, and the task is left as it was: validation did not restart: pipeline: the machine's gate config has moved on from the policy task paused-task is frozen at (agent). Run cfo pipeline migrate paused-task, then resume it"
+	tests := []struct {
+		name, output string
+		want         []string
+		wantTold     int
+	}{
+		{name: "refused for its gate policy", output: refusal, want: []string{"resume paused-task", "spawn next-task"}, wantTold: 1},
+		{name: "waits for room", output: "waits for room: 3.1 GB of memory is free", want: []string{"resume paused-task", "resume paused-task"}},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			// Arrange
+			spawner := &spawnRecorder{}
+			handler, h := startBoard(t, 8*gigabyte, spawner)
+			now := time.Now().UTC()
+			pausedGoblin(t, h, "paused-task", "dependency", "date:2000-01-01T00:00:00Z", now.Add(-time.Hour))
+			queueBriefedTask(t, h, "- **next-task** - Ship it", plainBrief)
+			handler.Service.Options.Dispatch.Spawn = func(ctx context.Context, args []string) (string, error) {
+				output, err := spawner.spawn(ctx, args)
+				if args[0] == "resume" {
+					return test.output + "\n", errors.New("exit status 1")
+				}
+				return output, err
+			}
+
+			// Act
+			for reading := range 2 {
+				if err := handler.Service.checkFleet(t.Context(), now.Add(time.Duration(reading)*time.Minute)); err != nil {
+					t.Fatal(err)
+				}
+				awaitDispatch(t, handler.Service, spawner, min(reading+1, len(test.want)))
+			}
+
+			// Assert
+			var dispatched []string
+			for _, call := range spawner.recorded() {
+				dispatched = append(dispatched, call[0]+" "+call[1])
+			}
+			if !slices.Equal(dispatched, test.want) {
+				t.Errorf("dispatched %q, want %q", dispatched, test.want)
+			}
+			told := 0
+			for _, report := range fleetWakeRecords(t, h, "notify") {
+				if report.Key == "paused-task" && strings.Contains(report.Detail, "cfo pipeline migrate paused-task") {
+					told++
+				}
+			}
+			if told != test.wantTold {
+				t.Errorf("the CFO was told of the refusal %d times, want %d", told, test.wantTold)
+			}
+		})
 	}
 }
