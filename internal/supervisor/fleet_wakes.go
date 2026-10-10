@@ -881,7 +881,7 @@ func pollPullRequests(ctx context.Context, runner execx.Runner, stateDir string,
 			recordHostedChecks(w, pr, now)
 			errs = errors.Join(errs, reportChecks(stateDir, w, goblin.id, pr, isRunningWorkflows, now, func() ([]string, error) {
 				owner, name := pullRequestRepository(pr.URL)
-				return failedOnce(ctx, runner, repo, owner, name, pr.HeadRefOid, 0)
+				return train.FailedOnce(ctx, runner, repo, owner+"/"+name, pr.HeadRefOid, 0)
 			}))
 		}
 	}
@@ -1177,7 +1177,7 @@ func pollMain(ctx context.Context, runner execx.Runner, stateDir string, w *flee
 		}
 		owner, name := pullRequestRepository(run.URL)
 		detail := fmt.Sprintf("ci_finished: %s's push CI is red in %s: workflow %s, %s%s, run %d at %s (%s); next: read it with gh run view %d --log-failed and dispatch a fix",
-			branch, filepath.Base(repo), run.Workflow, jobs, failedOnceClause(failedOnce(ctx, runner, repo, owner, name, run.HeadSHA, run.ID)), run.ID, head, run.URL, run.ID)
+			branch, filepath.Base(repo), run.Workflow, jobs, failedOnceClause(train.FailedOnce(ctx, runner, repo, owner+"/"+name, run.HeadSHA, run.ID)), run.ID, head, run.URL, run.ID)
 		if err := raiseFleetWake(stateDir, "ci", "main:"+filepath.Base(repo), detail); err != nil {
 			errs = errors.Join(errs, err)
 			continue

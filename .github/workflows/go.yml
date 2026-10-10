@@ -92,7 +92,10 @@ jobs:
       # A pull request's own run, which may leave a job out. A merge train
       # tests its pull requests together from a branch named cfo/train-, on
       # whatever event, and that run and every other start every job, so
-      # nothing reaches main that the full set did not test.
+      # nothing reaches main that the full set did not test. The prefix is
+      # the train's own (train.BranchPrefix), and
+      # TestGoWorkflowKnowsATrainsRunByTheTrainsOwnBranchPrefix fails if this
+      # line or the test job's ever names another.
       OWN_RUN: ${{ github.event_name == 'pull_request' && !startsWith(github.head_ref, 'cfo/train-') }}
     steps:
       # The run's commit is the merge of the pull request into its base, so
