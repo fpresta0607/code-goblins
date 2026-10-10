@@ -109,6 +109,7 @@ It merges the green pull requests goblins finished onto main in the order they r
 When that run is green, the train's pull request merges: main takes the commit CI tested, so its tree equals the train's, and GitHub marks each pull request that rode merged, with its own number in main's history.
 A train that landed leaves nothing closed without merging on GitHub, and one that did not land its last run closes that run's pull request saying why, however often it was halved.
 When it is red, the failed checks run again once, because a check can fail by chance, and a run that passes on its second try lands with the check that failed once named in its record.
+A test that failed once inside a check that still ended green is named in the train's record and its message to the CFO too.
 When it is red a second time, the train is halved until the one pull request that breaks it is found: every half that passes lands, and that pull request's goblin gets the failing checks.
 A pull request that conflicts with the ones ahead of it stays off and its goblin is told to merge main; drafts and pull requests labelled `hold` (recovery, security, money paths, or anything the Overlord said to wait on) never ride.
 

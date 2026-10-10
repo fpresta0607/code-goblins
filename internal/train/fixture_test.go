@@ -246,6 +246,12 @@ type fakeGitHub struct {
 	lost       map[string]bool
 	// mainRuns is gh run list's answer for main's push runs.
 	mainRuns string
+	// once is GitHub's answer to the read of the tests that failed once,
+	// onceFailure what gh says when that read fails, and onceReads how
+	// often it was asked.
+	once        string
+	onceFailure string
+	onceReads   int
 	// moveMain lands a commit of its own on main after each merge, as a
 	// merge outside the train during the landing would.
 	moveMain bool
@@ -367,6 +373,14 @@ func (f *fakeGitHub) answer(args []string) (execx.Result, error) {
 		return execx.Result{}, nil
 	case args[0] == "pr" && args[1] == "close" && f.state[args[2]] == "MERGED":
 		return execx.Result{ExitCode: 1, Stderr: []byte("Pull request " + args[2] + " can't be closed because it was already merged")}, nil
+	case args[0] == "api" && args[1] == "graphql":
+		// The read of the tests that failed once: what a test gave, or one
+		// workflow check that carries no warning.
+		f.onceReads++
+		if f.onceFailure != "" {
+			return execx.Result{ExitCode: 1, Stderr: []byte(f.onceFailure)}, nil
+		}
+		return execx.Result{Stdout: []byte(cmp.Or(f.once, onceAnswer()))}, nil
 	case args[0] == "run" && args[1] == "list":
 		return execx.Result{Stdout: []byte(f.mainRuns)}, nil
 	case args[0] == "run" && args[1] == "rerun":
