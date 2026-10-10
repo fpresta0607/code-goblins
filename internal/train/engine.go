@@ -110,6 +110,12 @@ func (e Engine) Start(ctx context.Context, repo Repository, riders []Car) (Train
 		t.Cars = append(t.Cars, car)
 	}
 	if err := e.rebuild(ctx, &t, ""); err != nil {
+		// What cut the start short is the kept train's first failed step,
+		// counted as Advance counts each later one.
+		if ctx.Err() == nil && !t.IsFinished() {
+			t.Errors = 1
+			err = errors.Join(err, e.save(&t))
+		}
 		return t, err
 	}
 	if !t.IsFinished() {
