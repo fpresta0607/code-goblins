@@ -1,11 +1,13 @@
 package lock
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strconv"
+	"strings"
 	"testing"
 	"time"
 )
@@ -100,6 +102,66 @@ func TestAWaiterGetsTheLockFromAProcessThatTakesItBackToBack(t *testing.T) {
 	// Assert
 	if err != nil {
 		t.Fatalf("the waiter was refused after %s beside a process that takes the lock back to back: %v", waited.Round(time.Millisecond), err)
+	}
+	if err := ReleaseNamed(dir, takerLock); err != nil {
+		t.Errorf("the waiter could not let the lock go: %v", err)
+	}
+}
+
+// A holder that never lets go is waited on only for the wait asked for: the
+// waiter leaves the line with the holder's ErrHeld, naming it.
+func TestAWaiterLeavesALineThatDoesNotMoveAfterItsWait(t *testing.T) {
+	// Arrange
+	dir := t.TempDir()
+	startTaker(t, dir, time.Minute)
+	holder, err := os.ReadFile(filepath.Join(dir, "taken"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	const wait = 300 * time.Millisecond
+
+	// Act
+	began := time.Now()
+	_, err = AcquireNamedOwnerWithin(dir, takerLock, os.Getpid(), "wake", wait)
+	waited := time.Since(began)
+
+	// Assert
+	if !errors.Is(err, ErrHeld) {
+		t.Fatalf("the waiter got %v beside a holder that never let go, want ErrHeld", err)
+	}
+	if want := "pid " + string(holder); !strings.Contains(err.Error(), want) {
+		t.Errorf("the refusal %q does not name the holder, %s", err, want)
+	}
+	// The wait is counted in whole milliseconds, so it can end one early.
+	if waited < wait-10*time.Millisecond || waited > 5*time.Second {
+		t.Errorf("the waiter left the line after %s, want about %s", waited.Round(time.Millisecond), wait)
+	}
+}
+
+// A waiter in the line is handed the lock the moment its holder lets go. It
+// never looks for the lock's record again and again, where each look that
+// found it held cost a pause that grew to half a second: behind a notify the
+// acknowledgement of one record took a second.
+func TestAQueuedWaiterIsHandedTheLockWithoutLookingForItAgain(t *testing.T) {
+	// Arrange
+	dir := t.TempDir()
+	startTaker(t, dir, 300*time.Millisecond)
+	looks := 0
+	sleep = func(pause time.Duration) {
+		looks++
+		time.Sleep(pause)
+	}
+	t.Cleanup(func() { sleep = time.Sleep })
+
+	// Act
+	_, err := AcquireNamedOwnerWithin(dir, takerLock, os.Getpid(), "wake", 5*time.Second)
+
+	// Assert
+	if err != nil {
+		t.Fatal(err)
+	}
+	if looks != 0 {
+		t.Errorf("the waiter looked for the lock again %d time(s), want it handed the lock at its place in the line", looks)
 	}
 	if err := ReleaseNamed(dir, takerLock); err != nil {
 		t.Errorf("the waiter could not let the lock go: %v", err)
