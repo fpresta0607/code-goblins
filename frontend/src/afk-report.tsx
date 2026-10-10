@@ -96,9 +96,9 @@ export function AfkReportPage({ tasks, now, onClose, onGoThrough }: { tasks: Tas
           </Disclosure>
         </section>}
       </div>}
-      {spent.length > 0 && <section aria-label="Spent">
+      {(spent.length > 0 || data.disk) && <section aria-label="Spent">
         <h3>Spent <span className="afk-spent-legend"><i className="before" />Before AFK <i className="used" />While AFK <i className="left" />Left</span></h3>
-        <AfkSpent spent={spent} />
+        <AfkSpent spent={spent} disk={data.disk} />
       </section>}
       {data.notes.length > 0 && <section aria-label="Not read">
         <h3>Not read</h3>

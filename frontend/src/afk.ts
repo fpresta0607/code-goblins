@@ -1,4 +1,5 @@
 import { array, boolean, number, object, parseAfkHeld, string, strings, type Afk, type AfkHeld } from "./types.ts";
+import { freeGigabytes } from "./start.ts";
 import { pullRequestLabel } from "./workflow.ts";
 
 // AFK mode on the board: what the supervisor reports of the Overlord's switch,
@@ -28,13 +29,20 @@ export interface AfkFinish {
 export interface AfkAllowance {
   provider: string; window: string; on: number | null; off: number | null; reset: boolean; credits: boolean; spent: number; unit: string;
 }
+// AfkDisk is the free space of the drive the board's disk meter reads, under
+// the report's Spent: the bytes free when AFK mode turned on and when it
+// turned off, of the drive's total.
+export interface AfkDisk {
+  drive: string; total: number; on: number; off: number;
+}
 // AfkReport is the report of a stretch of AFK mode: what the CFO decided, what
 // each goblin finished, what is held for the Overlord and what was spent.
 // asked and ended_asked hold his words when the CFO made that switch at his
-// ask, and are empty when he made it himself.
+// ask, and are empty when he made it himself. disk is null unless free disk
+// was read at both ends.
 export interface AfkReport {
   session: string; since: string; ended: string; lasted: string; from: string; asked: string; ended_from: string; ended_asked: string;
-  sections: AfkSection[]; finished: AfkFinish[]; held: AfkHeld[]; spent: AfkAllowance[]; notes: string[];
+  sections: AfkSection[]; finished: AfkFinish[]; held: AfkHeld[]; spent: AfkAllowance[]; disk: AfkDisk | null; notes: string[];
 }
 
 const percent = (value: unknown): number | null => value == null ? null : number(value);
@@ -45,6 +53,11 @@ function parseAfkAllowance(value: unknown): AfkAllowance {
     provider: string(a.provider), window: string(a.window), on: percent(a.on), off: percent(a.off),
     reset: a.reset == null ? false : boolean(a.reset), credits: a.credits == null ? false : boolean(a.credits), spent: number(a.spent), unit: string(a.unit),
   };
+}
+
+function parseAfkDisk(value: unknown): AfkDisk {
+  const d = object(value);
+  return { drive: string(d.drive), total: number(d.total), on: number(d.on), off: number(d.off) };
 }
 
 // parseAfkReport reads the supervisor's answer to GET /api/afk/report, which
@@ -67,6 +80,7 @@ export function parseAfkReport(value: unknown): AfkReport | null {
     finished: array(v.finished).map((value) => { const f = object(value); return { task: string(f.task), pr: string(f.pr), at: string(f.at) }; }),
     held: array(v.held).map(parseAfkHeld),
     spent: array(v.spent).map(parseAfkAllowance),
+    disk: v.disk == null ? null : parseAfkDisk(v.disk),
     notes: strings(v.notes),
   };
 }
@@ -114,6 +128,35 @@ export function allowanceGraph(allowance: AfkAllowance): { before: number; from:
   if (allowance.credits || on === null || off === null) return null;
   if (allowance.reset) return { before: 0, from: 0, to: off };
   return { before: Math.min(on, off), from: Math.min(on, off), to: off };
+}
+
+// diskMoved is how far free disk moved while AFK mode was on, in gigabytes to
+// the one decimal the report says: under zero when AFK used disk, over zero
+// when it freed some, and zero for a change too small to say.
+const diskMoved = (disk: AfkDisk): number => Math.round((disk.off - disk.on) / 2 ** 30 * 10) / 10;
+
+// diskSays is free disk under Spent as the report shows it, worded as the
+// allowances beside it are: the drive, how much of it was free when AFK
+// turned off, how much AFK used or freed, and the words a screen reader says
+// for its graph.
+export function diskSays(disk: AfkDisk): { name: string; value: string; change: string; label: string } {
+  const name = "Disk" + (disk.drive ? " (" + disk.drive + ")" : "");
+  const value = freeGigabytes(disk.off) + " GB free";
+  const moved = diskMoved(disk);
+  const change = moved > 0 ? "AFK freed " + shown(moved) + " GB" : "AFK used " + shown(Math.abs(moved)) + " GB";
+  return { name, value, change, label: name + ": " + value + ", from " + freeGigabytes(disk.on) + " GB to " + freeGigabytes(disk.off) + " GB free while AFK was on" };
+}
+
+// diskGraph is where free disk's graph under Spent marks, as percents of the
+// drive: before is what was used all through, and from and to where its use
+// stood when AFK mode turned on and when it turned off, which its arrow spans,
+// pointing back when AFK freed disk. A change too small to say moves nothing,
+// and a drive of no size has no graph.
+export function diskGraph(disk: AfkDisk): { before: number; from: number; to: number } | null {
+  if (disk.total <= 0) return null;
+  const used = (free: number) => Math.round(Math.min(100, Math.max(0, (1 - free / disk.total) * 100)) * 100) / 100;
+  const from = used(disk.on), to = diskMoved(disk) === 0 ? from : used(disk.off);
+  return { before: Math.min(from, to), from, to };
 }
 
 // afkTime is a time as the board says it: the time of day, with the day in

@@ -143,8 +143,9 @@ func runWindowLauncher(stdout, stderr io.Writer, runtime commandRuntime, backgro
 // login: it finds or starts the supervisor as goblins --window does and prints
 // the board's address and the fleet's state folder, one to a line, for that
 // window to show the board itself. The window the shell started then stays the
-// window, so its parents reach the desktop, which is how the supervisor knows
-// the board as the Overlord's own when he switches AFK mode or presses Update.
+// window, with the desktop's environment and none of a terminal's. The
+// supervisor knows the board in it as the Overlord's own, when he switches AFK
+// mode or presses Update, by the program that window runs.
 func runWindowLocator(stdout, stderr io.Writer, runtime commandRuntime) int {
 	h, err := runtime.resolveHome()
 	if err != nil {

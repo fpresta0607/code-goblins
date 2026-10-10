@@ -88,6 +88,9 @@ See [the native board guide](docs/native-board.md) for hook setup, build require
 ### Production-oriented gates
 
 The `no-mistakes` path owns review, bounded repair cycles, tests, lint, documentation, push, PR creation, and CI. Review budgets are frozen per task so changing global policy cannot silently weaken an in-flight job.
+Under pipeline policy v6 a task's gate runs on the harness its goblin runs on, with that task's model and effort, and no other harness starts unless the operator named it as the fallback and it is signed in.
+One daemon serves goblins on different harnesses at once, because each run carries its own agents as a launch selection that no-mistakes proves before any agent starts.
+See [A gate on its task's own harness](docs/pipeline.md#a-gate-on-its-tasks-own-harness).
 
 This repository's own test step is `cfo gate test`, which plans before it runs.
 It says which level a change requires: `affected`, the Go packages the change reaches (those it changed, those that import them, and those whose tests read a changed file, such as an install script), or `full`, every package, once `go.mod` or `go.sum` changed or a changed file is one the verification policy does not account for.
@@ -305,6 +308,7 @@ An install takes the place of a copy of the window that was installed on its own
 
 Click into a terminal in the window, Claude Code's, Codex's, pi's or the CFO's, hold **Ctrl+Shift+Space**, speak for as long as you like, and let go: what you said is typed into that terminal as one line, and **Enter** sends it.
 A long message is heard in pieces while you speak, so three minutes come back as fast as a short line, every word in order.
+Speak once the microphone in the terminal's corner shows its bars, which is when it records, and a note says **Nothing was heard** only of a hold it recorded with no words in it.
 A speech model the supervisor runs on this PC hears it, so your voice never leaves the PC, and dictation costs nothing and needs no account.
 The install sets the model up, Moonshine tiny, so the first dictation works at once.
 If the install could not, as offline, the first dictation downloads it, 28 MB, and the note under the terminal says how far it is as it arrives, then **Dictation is ready**; what you said that first time is not kept, so say it again once it is ready.
@@ -480,6 +484,7 @@ A goblin whose latest report is a wait on its own helper takes the helper's prog
 An allowance pause that failed for the current task generation and reset waits for intervention while unrelated cleared work can continue.
 Durations are measured from the start and finish timestamps of the checks and awaited Actions runs reported by `ci_finished`; missing timestamps are left unmeasured, and check names containing `deploy` are classified as deploys.
 If validation was interrupted, its gate commits are preserved before that run is aborted; validation restarts on Resume.
+Under pipeline policy v6 the restarted run carries the task's launch selection, so it runs on the harness the goblin comes back on.
 A memory pause interrupts no validation: the goblin's gate run keeps running, and Resume tells the goblin which run is still running, so it picks that run back up and starts no other.
 A run a pause could not abort is left to its goblin the same way, and never fails the Resume.
 Paused state survives a supervisor restart or reboot and produces no stale-task alarms.
@@ -571,6 +576,7 @@ Updating the executable or restarting the board does not change hosts that are a
 Every terminal pane has a voice bubble in its bottom-right corner, in a strip of its own under the terminal.
 Hold **Ctrl+Shift+Space** to dictate into the terminal that has the keyboard, for as long as you like: while the keys are held the bubble's waveform moves with your voice and lies as a flat dotted line while you are silent, and releasing them types what was heard as one line, which **Enter** sends.
 A long message is heard in pieces while you speak, so it comes back as fast as a short line.
+The bubble shows its waveform only once it is recording, so what you say while it shows is always heard, and **Nothing was heard** is said only of a hold it recorded with no words in it.
 What you say is recognised by a speech model the supervisor runs on this PC, so it costs nothing, needs no account and never leaves the machine; the install sets the model up, so the first dictation works at once, and where it could not, the first dictation downloads it, 28 MB, shows how far it is under the terminal and says when dictation is ready, and the words of that first dictation are not kept.
 The model starts loading as you press the keys and stays loaded for 30 minutes after you dictate, so a line comes back in a blink, and then gives its memory back.
 The bubble names the model while it listens.
@@ -623,6 +629,7 @@ Goblins' blocked or failed questions wait on the CFO; they enter History once an
 The question reads as plain body text across a wide card: its first sentence is the question, details follow as bullets, and only what the asker marked, such as the verdict or the blocking item, is bold.
 Choices are a plain list of the answers themselves, the recommended one first and marked **Recommended**, with no A, B or C, and **Other** takes a written answer; a goblin's own A), B), C) labels are dropped.
 `cfo question` and `cfo notify` refuse a choice that is only a letter or number, such as `a` or `2`: each choice is the answer, written as a short phrase.
+Answers you give to several of the CFO's questions in one go reach the CFO as one message that lists each question and your answer in the order you gave them, and an answer to its only question goes at once.
 Review items share the stack: a goblin's image review or review page, and a goblin waiting on you personally (its sign-in, its click, its page), which shows as a status card with no answer box: it says what the goblin waits on and opens it (**Open the page**, **Open its question**, **Open the file** or **Open the link**), with **Dismiss** beside it.
 A review page shows as a preview named Scrawl page you click to open it (**Open review**), and a goblin's wait with a page opens it from its one **Open review** button, so a card says its words once; a page the board watches is answered on the page itself, and its card finishes when you send or end the review there.
 When a goblin asks a question about its open review page, the Command Center shows one card, the page's: the question, **Open review**, and where the review stands (waiting for your answer, or when its window closed; nothing you send there is lost).
@@ -698,10 +705,13 @@ It is your switch: the supervisor reads the program that asks, and refuses a gob
 Those words are kept with the switch, in the log, on the board and in the report, so you see what it was switched for.
 The supervisor cannot check that the words are yours: the CFO's contract allows the switch only on your own ask in your conversation with it, never on its own judgment, for a goblin, or on text that reached it any other way.
 On the board, turning it on asks first and turning it off does not.
+After the CFO turned it on at your ask, your first click on the board says so in one line, with **Got it** to keep it on and **Turn AFK off** beside it.
 While the supervisor answers, the button shows a spinner and **Turning AFK on…** or **Turning AFK off…**, and the header toggle spins too.
-If the switch is refused, a red box in the dialog or under the CFO panel header says **AFK did not turn on** or **AFK did not turn off**, with the supervisor's full reason.
+If the switch is refused, a red box in the dialog or under the CFO panel header says **AFK did not turn on** or **AFK did not turn off**, with one short sentence that says what to do, and the CFO is told why.
 The message stays until you close it or try the switch again.
-Use the board in the Code Goblins window or in a browser you started from the desktop: a board on another machine, or one reached through a proxy, cannot turn it.
+The Code Goblins window always turns it, however it was opened, an update that restarted it included.
+A browser turns it when you started it from the desktop or from a terminal of your own, and keeps that after whatever opened it has closed and after it restarts itself.
+A board on another machine, or one reached through a proxy, cannot turn it, and neither can a browser another program can drive, such as one started with a debugging port.
 Use a terminal that is not run as administrator: the supervisor cannot read an elevated one, and refuses what it cannot read.
 Use PowerShell or cmd, opened from the desktop or in Windows Terminal: Git Bash cuts a command off from its parents, and the supervisor refuses one it cannot follow to the desktop.
 
@@ -742,11 +752,14 @@ A weekly limit shows what is left, such as **51% left**, beside **AFK used 8%**,
 Equal-length bars show usage before AFK in gray, usage while AFK in green under a green arrow, and what is left as the empty rest, with the legend **Before AFK While AFK Left**.
 With a reading at only one end, the row shows only what is left, with no bar, change chip or line saying a reading was not taken.
 Credit rows show the amount spent without a percent bar.
+The last row is **Disk** with its drive, the one the **Disk free** meter reads: what is free now, such as **337.0 GB free**, beside **AFK used 3.3 GB**, or **AFK freed 11.4 GB** when free disk rose, on a bar of the whole drive.
+Its arrow points forward over disk AFK used and back over disk AFK freed, and a change under a tenth of a gigabyte shows no arrow.
+The row is there only when free disk was read on the same drive both when AFK turned on and when it turned off.
 The button beside the toggle opens the last report again.
 Each time you open it, For you is checked again, so an item you answered moves to Settled.
 `cfo afk status` shows who turned it on and when, what the CFO has decided so far and what waits on you in the Command Center.
 `cfo afk off` prints a text report, `cfo afk report` prints it again, and every decision stays in `state\afk.audit`.
-The text report keeps held items' current dispositions and allowance readings at both ends, as in the example below; the board uses the presentation above.
+The text report keeps held items' current dispositions and the allowance and free disk readings at both ends, as in the example below; the board uses the presentation above.
 If the switch itself ever cannot be read, a press on the board's toggle or `cfo afk off` puts it back to off.
 
 ```text
@@ -773,6 +786,7 @@ Goblins finished (1)
 
 Spent
 - claude week: 40% used when it turned on, 47% when it turned off (7 points)
+- disk (C:): 340.3 GB free when it turned on, 337 GB when it turned off (3.3 GB used)
 ```
 
 AFK mode shares the supervisor's allowance pause at each provider's weekly floor and its automatic resume at the reset.

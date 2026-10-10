@@ -119,15 +119,18 @@ const SHORT = { samples: new Float32Array([0, .5, -.5, 1]), rate: 16000 };
 
 // A recorder that hands on the pieces a test says and then the rest it is
 // told to, and a supervisor that answers each sound posted, oldest first,
-// with the words it is told to or refuses.
-function engine({ sound = SHORT as Sound, words = "open the pull request", refusal = "" } = {}) {
-  const recorded: { track: MediaStreamTrack; stopped: boolean; cancelled: boolean; say: (sound: Sound) => void }[] = [];
+// with the words it is told to or refuses. Its recording runs at once, or
+// with late only when the test says it began or could not.
+function engine({ sound = SHORT as Sound, words = "open the pull request", refusal = "", late = false } = {}) {
+  const recorded: { track: MediaStreamTrack; stopped: boolean; cancelled: boolean; say: (sound: Sound) => void; begin: () => void; fail: (error: Error) => void }[] = [];
   const posted: Uint8Array<ArrayBuffer>[] = [];
   const waiting: { resolve: (text: string) => void; reject: (error: Error) => void }[] = [];
   const open = (from: MediaStreamTrack, piece: (sound: Sound) => void): Recording => {
-    const recording = { track: from, stopped: false, cancelled: false, say: piece };
+    let begin = () => {}, fail: (error: Error) => void = () => {};
+    const began = late ? new Promise<void>((resolve, reject) => { begin = resolve; fail = reject; }) : Promise.resolve();
+    const recording = { track: from, stopped: false, cancelled: false, say: piece, begin, fail };
     recorded.push(recording);
-    return { stop: async () => { recording.stopped = true; return sound; }, cancel: () => { recording.cancelled = true; } };
+    return { began, stop: async () => { recording.stopped = true; return sound; }, cancel: () => { recording.cancelled = true; } };
   };
   const recognise = (bytes: Uint8Array<ArrayBuffer>) => new Promise<string>((resolve, reject) => {
     posted.push(bytes);
@@ -149,11 +152,12 @@ function samplesOf(bytes: Uint8Array<ArrayBuffer>): number {
 
 function listen(recognizer: Recognizer) {
   const heard: string[] = [], errors: { error: string; message?: string }[] = [];
-  let ended = 0;
+  let ended = 0, started = 0;
+  recognizer.onstart = () => { started++; };
   recognizer.onresult = (event) => { for (let i = event.resultIndex; i < event.results.length; i++) heard.push(event.results[i][0].transcript); };
   recognizer.onerror = (event) => errors.push(event);
   recognizer.onend = () => { ended++; };
-  return { heard, errors, ended: () => ended };
+  return { heard, errors, ended: () => ended, started: () => started };
 }
 
 test("what is said between start and stop is recorded from the track and its words are delivered once", async () => {
@@ -242,7 +246,7 @@ test("a piece whose words could not be had is asked for again, its sound kept, a
   let refusals = 2;
   const posted: Uint8Array<ArrayBuffer>[] = [];
   const Recognition = localRecognizer(
-    () => ({ stop: async () => said(16000, ["speech", 2]), cancel: () => {} }),
+    () => ({ began: Promise.resolve(), stop: async () => said(16000, ["speech", 2]), cancel: () => {} }),
     async (bytes) => { posted.push(bytes); if (refusals-- > 0) throw new Error("the dictation engine failed: EOF"); return "every word"; },
     () => {},
   );
@@ -294,7 +298,7 @@ test("a refusal while the speech model is being set up is passed on at once, for
   const note = "Dictation is being set up, once: downloading its speech model, 12 of 28 MB, which stays on this PC. Dictate again when it is ready.";
   const posted: Uint8Array<ArrayBuffer>[] = [];
   const Recognition = localRecognizer(
-    () => ({ stop: async () => said(16000, ["speech", 2]), cancel: () => {} }),
+    () => ({ began: Promise.resolve(), stop: async () => said(16000, ["speech", 2]), cancel: () => {} }),
     async (bytes) => { posted.push(bytes); throw new DictationSetUp(note); },
     () => {},
   );
@@ -398,7 +402,7 @@ test("aborting drops the recording, and an answer that arrives later is not deli
 test("aborting while the recording stops never asks the supervisor", async () => {
   const posts: Uint8Array<ArrayBuffer>[] = [];
   const Recognition = localRecognizer(
-    () => ({ stop: async () => SHORT, cancel: () => {} }),
+    () => ({ began: Promise.resolve(), stop: async () => SHORT, cancel: () => {} }),
     async (bytes) => { posts.push(bytes); return "too late"; },
     () => {},
   );
@@ -431,7 +435,7 @@ test("aborting a pending recognition cancels its HTTP request, asks no more and 
     });
   });
   const Recognition = localRecognizer(
-    () => ({ stop: async () => SHORT, cancel: () => {} }),
+    () => ({ began: Promise.resolve(), stop: async () => SHORT, cancel: () => {} }),
     (bytes, signal?: AbortSignal) => fetch("http://127.0.0.1:1/api/dictation", { method: "POST", body: bytes, signal }).then((response) => response.text()),
     () => {},
   );
@@ -500,4 +504,98 @@ test("dictation types what the local engine heard, and a refusal goes to the CFO
   assert.deepEqual(failures, [refusal]);
   assert.deepEqual(notes.filter(Boolean), []);
   assert.deepEqual(heard, ["open the pull request"]);
+});
+
+test("the recognizer says it listens once its recording runs, not when it is handed the track", async () => {
+  // Arrange
+  const { Recognition, recorded } = engine({ late: true });
+  const recognizer = new Recognition();
+  const events = listen(recognizer);
+
+  // Act
+  recognizer.start(track);
+  await settle();
+
+  // Assert: on a busy PC the recording takes a while to get under way.
+  assert.equal(events.started(), 0, "nothing is recorded yet, so nothing listens");
+  recorded[0].begin();
+  await settle();
+  assert.equal(events.started(), 1);
+});
+
+test("a recording that cannot begin goes to the CFO at once and never listens", async () => {
+  // Arrange
+  const { Recognition, recorded, posted } = engine({ late: true });
+  const recognizer = new Recognition();
+  const events = listen(recognizer);
+  recognizer.start(track);
+
+  // Act
+  recorded[0].fail(new Error("The capture worklet could not be loaded."));
+  await settle();
+
+  // Assert
+  assert.equal(events.started(), 0);
+  assert.deepEqual(events.errors, [{ error: "supervisor", message: "The capture worklet could not be loaded." }]);
+  assert.equal(events.ended(), 1);
+  assert.equal(recorded[0].cancelled, true);
+  assert.equal(posted.length, 0);
+});
+
+test("a hold let go before the recording ran asks the supervisor nothing and says nothing, and the next one that records is typed", async () => {
+  // Arrange: the Overlord's short hold on a busy PC, whose recording had not
+  // begun when he let go, though the microphone was open.
+  const { Recognition, recorded, posted, answer } = engine({ late: true, sound: said(16000, ["speech", 1]) });
+  const heard: string[] = [], notes: string[] = [], failures: string[] = [], listening: boolean[] = [];
+  const capture = { track, level: () => .4, close: () => {} };
+  const subject = new Dictation({ heard: (text) => heard.push(text), listening: (on) => listening.push(on), problem: (note) => notes.push(note), failed: (reason) => failures.push(reason) }, () => Recognition, "en-GB", async () => capture);
+
+  // Act
+  subject.start();
+  await settle();
+  assert.deepEqual(listening, [], "the bubble does not say it listens before anything records");
+  subject.stop();
+  await settle();
+
+  // Assert
+  assert.equal(recorded[0].cancelled, true, "the recording is dropped");
+  assert.equal(posted.length, 0);
+  assert.deepEqual(notes.filter(Boolean), [], "nothing listened, so it is not told as nothing heard");
+  assert.deepEqual(failures, []);
+
+  // Act: the next hold is kept until the bubble listens.
+  subject.start();
+  await settle();
+  recorded[1].begin();
+  await settle();
+  assert.deepEqual(listening, [false, true]);
+  subject.stop();
+  await settle();
+  answer();
+  await settle();
+
+  // Assert
+  assert.deepEqual(heard, ["open the pull request"]);
+  assert.deepEqual(notes.filter(Boolean), []);
+});
+
+test("a hold with nothing said in it, recorded and answered with no words, says Nothing was heard once", async () => {
+  // Arrange
+  const { Recognition, answer } = engine({ sound: said(16000, ["quiet", 2]), words: "" });
+  const heard: string[] = [], notes: string[] = [], failures: string[] = [];
+  const capture = { track, level: () => 0, close: () => {} };
+  const subject = new Dictation({ heard: (text) => heard.push(text), listening: () => {}, problem: (note) => notes.push(note), failed: (reason) => failures.push(reason) }, () => Recognition, "en-GB", async () => capture);
+
+  // Act
+  subject.start();
+  await settle();
+  subject.stop();
+  await settle();
+  answer();
+  await settle();
+
+  // Assert
+  assert.deepEqual(notes.filter(Boolean), ["Nothing was heard."]);
+  assert.deepEqual(heard, []);
+  assert.deepEqual(failures, []);
 });
