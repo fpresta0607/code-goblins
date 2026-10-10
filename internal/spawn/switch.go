@@ -451,13 +451,15 @@ func (s Service) relaunchHarness(ctx context.Context, meta state.TaskMeta, targe
 		}
 		launch.Instruction = handoffInstruction(handoff, briefPath, meta)
 	}
+	// What the task carries is said before any note the relaunch is given,
+	// so the note stays the instruction's last word.
+	launch.Instruction += credentialsInstruction(meta.Project, preflight.Grant)
 	if request.IsResume && request.ResumeHandoff != "" {
 		launch.Instruction += " Read the retained pause handoff at " + request.ResumeHandoff + "."
 	}
 	if request.ResumeNote != "" {
 		launch.Instruction += "\n" + request.ResumeNote
 	}
-	launch.Instruction += credentialsInstruction(meta.Project, preflight.Grant)
 	if meta.PipelineHash != "" {
 		launch.Instruction += " Continue with the frozen pipeline policy at " + filepath.Join(meta.TaskTmp, "pipeline.json") + "; use cfo pipeline run/respond for this task. Do not reset review budgets or bypass them with native AXI."
 	}
