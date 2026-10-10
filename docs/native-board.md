@@ -905,7 +905,7 @@ A `/` or `$` command gets the completion popup's longer wait before Enter and is
 The monitor supervises a native goblin as it does a Herdr one: its host's record says whether its terminal runs, and the harness's own screen, read the way the spawn reads it, says whether a turn is in progress, a dialog waits on a person or the composer waits for input.
 Its progress evidence is the processes its terminal's program started; its transcript is not located yet, since no Herdr session names it, so only those processes count as progress before a stale wake.
 The board's runtime line for a native task names its terminal instead of Herdr.
-`cfo cleanup` returns a native task whose terminal has ended, or whose harness waits at its ready composer with no working marker, in which case it closes the terminal, which ends the harness (decision 2339); any other screen, a screen or host record that cannot be read, and a harness whose screens cfo cannot read are refused with or without `--force-archive`.
+`cfo cleanup` returns a native task whose terminal has ended, or whose harness waits at its ready composer with no working marker, in which case it closes the terminal, which ends the harness (decision 2339), and then ends what the goblin left running outside the terminal, by the same proof a pause uses ([Whose a process is](#whose-a-process-is)), before any worktree is returned; any other screen, a screen or host record that cannot be read, and a harness whose screens cfo cannot read are refused with or without `--force-archive`.
 It asks nothing of Herdr for a native task, so a machine without Herdr retires its native goblins; only a Herdr task needs Herdr.
 The orphan sweep (`cfo reap` and the watcher's) refuses when a running Herdr server for its session cannot be read, since every goblin in it would read as an orphan, and sweeps on the native hosts and the process table alone when no Herdr server runs for its session, so no pane can exist; a test fixture's server for another session or a Herdr CLI call does not stop it.
 A missing or stale registration shows on the board as the CFO's bar saying the board cannot reach the CFO, with what went stale and the fix, `cfo register` in the CFO session, in its tip, and in the CFO terminal as its own state. The board shows no banner for it.
@@ -1066,7 +1066,8 @@ When the desktop's windows cannot be read, nothing is a task's by its mark or it
 
 The janitor's hourly sweep applies the same rule to what no pause or stop ended.
 For each terminal the home gave a proof since the machine started, it reads which processes are that terminal's own.
-A terminal with no host left has its processes ended: a goblin that failed, a pause whose sweep ran out of time, a cleanup or a switch, which close the terminal and sweep nothing.
+A terminal with no host left has its processes ended: a goblin that failed, and a pause, a stop or a cleanup whose own sweep ran out of time.
+A switch closes the terminal and starts it again for the same task, so it ends nothing the goblin started: a dev server it left detached is still its own to use, shows under it on the board, and ends at its next pause, stop or cleanup, or once it has sat idle for an hour.
 A terminal that runs keeps what its host still reaches through its parents. A tree that does not reach it is watched by the processor time it has used, kept in `state\janitor.json`, and ended once that has grown by under a tenth of a second across an hour.
 A loop that looks at something once a minute uses more than that and is left alone.
 The sweep reads every process on the machine and judges only those of the terminals in its own home's `state\hosts`, so another home on the machine, a scratch home of a test among them, is never touched.

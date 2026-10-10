@@ -515,3 +515,32 @@ func (jobs terminalJobs) Close() {
 		job.held.Close()
 	}
 }
+
+// EndLeft ends what a task's terminal left running, once the terminal has
+// closed: the processes that are the task's own by its folders and by the
+// proofs its terminal was given (OwnedProcesses), with no terminal left to
+// end and no job left to read. A cleanup closes an idle goblin's terminal
+// itself and stops nothing else, so a server, a watcher or a browser bridge
+// that had detached from the terminal outlived the goblin's retirement, and
+// one at work in its worktree kept the worktree from being removed. The
+// task's helpers are no part of it: each is retired by a cleanup of its own.
+func EndLeft(ctx context.Context, h home.Home, meta state.TaskMeta) ([]string, error) {
+	directories, err := TaskDirectories(h, meta)
+	if err != nil {
+		return nil, err
+	}
+	resources := Resources{Directories: directories}
+	if meta.Backend == "native" {
+		proofs, err := host.Proofs(h.State, meta.ID)
+		if err != nil {
+			return nil, fmt.Errorf("read the task terminal's proofs: %w", err)
+		}
+		for _, proof := range proofs {
+			resources.Marks = append(resources.Marks, Mark{Terminal: meta.ID, ProofSum: proof})
+		}
+	}
+	bounded, cancel := context.WithTimeout(ctx, stopBound)
+	defer cancel()
+	stopped, _, err := StopResources(bounded, resources)
+	return stopped, err
+}

@@ -57,6 +57,11 @@ type Service struct {
 	// task cleanup finds delivered leaves ## Queued for ## Done. Without it
 	// the backlog is left alone.
 	Data string
+	// EndLeft ends the processes the task's terminal left running, once the
+	// terminal has closed and before any worktree is returned, and names
+	// them: a server, a watcher or a browser bridge that detached from the
+	// terminal and so outlived its close. Nil ends nothing.
+	EndLeft func(ctx context.Context, meta state.TaskMeta) ([]string, error)
 	// ReleaseServices releases the local services stacks the task held, once
 	// its record is retired, and says what it did: the last holder's release
 	// stops what cfo started. Nil releases nothing.
@@ -171,6 +176,7 @@ func (s Service) Cleanup(ctx context.Context, id string) (result Result, err err
 			return Result{}, fmt.Errorf("cleanup: close native terminal: %w", err)
 		}
 	}
+	left := s.endLeft(ctx, meta)
 
 	outcome := s.outcome(ctx, meta, "Worktree returned by cleanup")
 	var archived []string
@@ -222,9 +228,28 @@ func (s Service) Cleanup(ctx context.Context, id string) (result Result, err err
 	if scratchErr != nil {
 		result.Output += fmt.Sprintf("\nwarning: %v; the janitor removes it once the handle clears", scratchErr)
 	}
+	result.Output += left
 	result.Output += s.releaseServices(ctx, id)
 	result.Output += s.closeRow(outcome)
 	return result, nil
+}
+
+// endLeft ends what the task's terminal left running and says what it ended.
+// A sweep that fails leaves the rest to the janitor, whose hourly sweep ends
+// what a terminal with no host left, so the cleanup it is part of stands.
+func (s Service) endLeft(ctx context.Context, meta state.TaskMeta) string {
+	if s.EndLeft == nil {
+		return ""
+	}
+	ended, err := s.EndLeft(ctx, meta)
+	output := ""
+	if len(ended) > 0 {
+		output = fmt.Sprintf("\nended %d process(es) the goblin left running: %s", len(ended), strings.Join(ended, ", "))
+	}
+	if err != nil {
+		output += "\nwarning: not everything the goblin left running was ended (" + err.Error() + "), so the janitor's sweep ends the rest within the hour"
+	}
+	return output
 }
 
 // releaseServices releases the local services a retired task held and says
@@ -327,6 +352,7 @@ func (s Service) forceArchive(ctx context.Context, meta state.TaskMeta, id, work
 			return Result{}, fmt.Errorf("cleanup: close native terminal: %w", err)
 		}
 	}
+	left := s.endLeft(ctx, meta)
 	outcome := s.outcome(ctx, meta, "Task archived; worktree kept")
 	if err := state.WriteOutcome(s.StateDir, outcome); err != nil {
 		return Result{}, err
@@ -356,6 +382,7 @@ func (s Service) forceArchive(ctx context.Context, meta state.TaskMeta, id, work
 	if scratchErr != nil {
 		result.Output += fmt.Sprintf("\nwarning: %v; the janitor removes it once the handle clears", scratchErr)
 	}
+	result.Output += left
 	result.Output += s.releaseServices(ctx, id)
 	result.Output += s.closeRow(outcome)
 	return result, nil
@@ -381,6 +408,7 @@ func (s Service) retireEmptyFolder(ctx context.Context, meta state.TaskMeta, id,
 			return Result{}, fmt.Errorf("cleanup: close native terminal: %w", err)
 		}
 	}
+	left := s.endLeft(ctx, meta)
 	if err := os.Remove(folder); err != nil {
 		return Result{}, fmt.Errorf("cleanup: remove the empty folder %s: %w", folder, err)
 	}
@@ -406,6 +434,7 @@ func (s Service) retireEmptyFolder(ctx context.Context, meta state.TaskMeta, id,
 	if scratchErr != nil {
 		result.Output += fmt.Sprintf("\nwarning: %v; the janitor removes it once the handle clears", scratchErr)
 	}
+	result.Output += left
 	result.Output += s.releaseServices(ctx, id)
 	result.Output += s.closeRow(outcome)
 	return result, nil
