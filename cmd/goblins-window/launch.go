@@ -26,8 +26,9 @@ const saidLines = 16
 // window with --window --locate, which finds the supervisor or starts it as
 // goblins does in a terminal and prints the board's address and the fleet's
 // state folder, one to a line. This program then shows that board itself, so
-// the window stays the process the shell started and its parents reach the
-// desktop, which is how the supervisor knows the board as the Overlord's own.
+// the window stays the process the shell started, with the desktop's
+// environment. The supervisor knows the board as the Overlord's own by the
+// program this window runs, whatever started it.
 // There stays one way to start a supervisor. goblins is a console program and
 // this one has no console, so it is started with one that is never shown and
 // opening the app shows no terminal. It returns what to tell the user when

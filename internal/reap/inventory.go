@@ -65,8 +65,8 @@ type Collector struct {
 	WorkingDirectory func(pid int) (string, error)
 	// Environment reads the environment a process runs with. It is what
 	// proves a process runs in a native terminal whose host is alive, by the
-	// proof value that terminal's host gave it; nil leaves every process
-	// unproven.
+	// proof value that terminal's host gave it, and what says no-mistakes
+	// started it as a gate agent; nil leaves every process unproven.
 	Environment func(pid int) ([]string, error)
 }
 
@@ -202,11 +202,14 @@ func (c Collector) nativeHosts(inv *Inventory, notes *[]string) {
 	}
 }
 
-// placeTerminals proves, for every harness-shaped process and its ancestors,
-// the native terminal of this home it runs in: the one its environment names,
-// when the proof value beside that name is the one the terminal's host
-// recorded. Every process in a terminal inherits both, through an exec that
-// cuts its chain of parents short of the host too, as an MSYS one does.
+// placeTerminals reads the environment of every harness-shaped process and of
+// its ancestors for the two things only it can say. One is the native terminal
+// of this home the process runs in: the one its environment names, when the
+// proof value beside that name is the one the terminal's host recorded. Every
+// process in a terminal inherits both, through an exec that cuts its chain of
+// parents short of the host too, as an MSYS one does. The other is whether
+// no-mistakes started it as a gate agent, which it stays when the process that
+// started it exits.
 func (c Collector) placeTerminals(inv *Inventory) {
 	if c.Environment == nil {
 		return
@@ -233,6 +236,10 @@ func (c Collector) placeTerminals(inv *Inventory) {
 			read[pid] = true
 			if env, err := c.Environment(pid); err == nil {
 				inv.Processes[i].Terminal = provenTerminal(env, records)
+				inv.Processes[i].IsGateAgent = slices.ContainsFunc(env, func(entry string) bool {
+					name, value, _ := strings.Cut(entry, "=")
+					return strings.EqualFold(name, gateAgentVariable) && value != ""
+				})
 			}
 			pid = inv.Processes[i].ParentPID
 		}
@@ -864,7 +871,7 @@ type CIMProcesses struct {
 // their command line to decide what may be killed.
 const utf8OutputPrelude = `[Console]::OutputEncoding = [System.Text.Encoding]::UTF8; `
 
-const cimProcessScript = utf8OutputPrelude + `Get-CimInstance Win32_Process | ForEach-Object { [pscustomobject]@{ pid = [int]$_.ProcessId; ppid = [int]$_.ParentProcessId; name = $_.Name; cmd = $_.CommandLine; start = $(if ($_.CreationDate) { $_.CreationDate.ToUniversalTime().ToString('o') } else { '' }) } } | ConvertTo-Json -Compress -Depth 3`
+const cimProcessScript = utf8OutputPrelude + `Get-CimInstance Win32_Process | ForEach-Object { [pscustomobject]@{ pid = [int]$_.ProcessId; ppid = [int]$_.ParentProcessId; name = $_.Name; cmd = $_.CommandLine; path = $_.ExecutablePath; start =$(if ($_.CreationDate) { $_.CreationDate.ToUniversalTime().ToString('o') } else { '' }) } } | ConvertTo-Json -Compress -Depth 3`
 
 // List runs the CIM query and decodes it. ConvertTo-Json emits a bare object
 // rather than an array when the pipeline yields exactly one item, so a single
@@ -900,6 +907,7 @@ func decodeProcesses(stdout []byte) ([]Process, error) {
 		PPID  int    `json:"ppid"`
 		Name  string `json:"name"`
 		Cmd   string `json:"cmd"`
+		Path  string `json:"path"`
 		Start string `json:"start"`
 	}
 	if err := json.Unmarshal([]byte(trimmed), &rows); err != nil {
@@ -907,7 +915,7 @@ func decodeProcesses(stdout []byte) ([]Process, error) {
 	}
 	processes := make([]Process, 0, len(rows))
 	for _, row := range rows {
-		process := Process{PID: row.PID, ParentPID: row.PPID, Name: row.Name, CommandLine: row.Cmd}
+		process := Process{PID: row.PID, ParentPID: row.PPID, Name: row.Name, CommandLine: row.Cmd, Path: row.Path}
 		if row.Start != "" {
 			if parsed, err := time.Parse(time.RFC3339Nano, row.Start); err == nil {
 				process.Start = parsed.UTC()

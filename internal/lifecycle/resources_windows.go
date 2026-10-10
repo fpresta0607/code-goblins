@@ -237,16 +237,23 @@ func stopResources(ctx context.Context, resources Resources, stop func(context.C
 	stopped := []string{}
 	var teardown []state.TeardownProcess
 	finished := map[Identity]bool{}
-	// Ending a host ends its job, so the services in it are kept first.
-	if err := keepServicesPastHosts(resources.Hosts); err != nil {
+	// The terminals' jobs are held from here to the end of the stop, and the
+	// services in them are kept first. A host's end closes its own handle to
+	// its job, and nothing reaches a job through a host that has ended: read
+	// through one still ending it was refused, which ended the sweep before
+	// it began, and beside a kept service the job ended nothing by itself,
+	// so what the goblin had started outside its folders outlived the stop.
+	jobs, err := holdTerminalJobs(resources.Hosts)
+	if err != nil {
 		return stopped, teardown, err
 	}
+	defer jobs.Close()
 	// The terminals end first, by their own identities, on a wait of their
-	// own: ending one ends the goblin's harness and the job under it, which
-	// hold its memory, and the sweep below reads every process on the
-	// machine, which on a machine short of memory can run out of time before
-	// it ends anything. Once they have ended, what the sweep meets is an
-	// UnfinishedStop.
+	// own, and what their jobs hold ends with them: that is the goblin's
+	// harness and what it started, which hold its memory, and the sweep below
+	// reads every process on the machine, which on a machine short of memory
+	// can run out of time before it ends anything. Once they have ended, what
+	// the sweep meets is an UnfinishedStop.
 	hosts, cancel := context.WithTimeout(context.WithoutCancel(ctx), hostStopWait)
 	defer cancel()
 	for _, host := range resources.Hosts {
@@ -267,8 +274,32 @@ func stopResources(ctx context.Context, resources Resources, stop func(context.C
 		}
 		return err
 	}
+	err = jobs.End(hosts, func(member proc.Entry) (bool, error) {
+		identity := Identity{PID: member.PID, Started: member.Start}
+		if finished[identity] {
+			return false, nil
+		}
+		label := fmt.Sprintf("%s pid %d", member.ExeBase, member.PID)
+		isTeardown, err := stop(hosts, identity)
+		if err != nil {
+			return true, fmt.Errorf("%s: %w", label, err)
+		}
+		stopped = append(stopped, label)
+		finished[identity] = true
+		if isTeardown {
+			teardown = append(teardown, state.TeardownProcess{PID: member.PID, Started: member.Start, Name: member.ExeBase})
+		}
+		return true, nil
+	})
+	if err != nil {
+		return stopped, teardown, unfinished(err)
+	}
 	for sweep := 0; sweep < 4; sweep++ {
-		processes, err := Inventory(ctx, resources.Directories, resources.Hosts)
+		members, err := jobs.Members(resources.Hosts)
+		if err != nil {
+			return stopped, teardown, unfinished(err)
+		}
+		processes, err := Inventory(ctx, resources.Directories, members)
 		if err != nil {
 			return stopped, teardown, unfinished(err)
 		}
@@ -315,7 +346,11 @@ func stopResources(ctx context.Context, resources Resources, stop func(context.C
 		case <-time.After(75 * time.Millisecond):
 		}
 	}
-	remaining, err := Inventory(ctx, resources.Directories, resources.Hosts)
+	members, err := jobs.Members(resources.Hosts)
+	if err != nil {
+		return stopped, teardown, unfinished(err)
+	}
+	remaining, err := Inventory(ctx, resources.Directories, members)
 	if err != nil {
 		return stopped, teardown, unfinished(err)
 	}
@@ -333,30 +368,123 @@ func stopResources(ctx context.Context, resources Resources, stop func(context.C
 	return stopped, teardown, nil
 }
 
-// keepServicesPastHosts stops a task host's job from ending a machine service
-// in it (proc.Service) when the host ends: teardown ends the host, and with it
-// the job's last handle, which would end every process still in the job.
-func keepServicesPastHosts(hosts []Identity) error {
+// terminalJobs are the jobs the task's terminals run their goblins in, held
+// by the stop itself (proc.HeldJobs), so they are read and ended through the
+// stop's own handles whatever has become of the hosts that made them.
+type terminalJobs []terminalJob
+
+type terminalJob struct {
+	held *proc.HeldJobs
+	// keepsService says a machine service (proc.Service) runs in the job. The
+	// job then no longer ends its processes when its last handle closes, and
+	// the rest of them are ended one by one.
+	keepsService bool
+}
+
+// holdTerminalJobs holds the job of each host that still runs, and stops a
+// job with a machine service in it from ending the service when it closes.
+func holdTerminalJobs(hosts []Identity) (terminalJobs, error) {
 	if len(hosts) == 0 {
-		return nil
+		return nil, nil
 	}
 	services, err := proc.RunningServices()
 	if err != nil {
-		return fmt.Errorf("identify the machine services running: %w", err)
+		return nil, fmt.Errorf("identify the machine services running: %w", err)
 	}
+	var jobs terminalJobs
 	for _, host := range hosts {
 		if started, exists := proc.StartTime(host.PID); !exists || !started.Equal(host.Started) {
 			continue
 		}
-		members, err := proc.JobProcesses(host.PID)
+		held, err := proc.HoldJobs(host.PID)
 		if err != nil {
-			return fmt.Errorf("read task host %d job: %w", host.PID, err)
+			jobs.Close()
+			return nil, fmt.Errorf("read task host %d job: %w", host.PID, err)
+		}
+		jobs = append(jobs, terminalJob{held: held})
+		members, err := held.Processes()
+		if err != nil {
+			jobs.Close()
+			return nil, fmt.Errorf("read task host %d job: %w", host.PID, err)
 		}
 		if slices.ContainsFunc(members, func(member proc.Entry) bool { return services[member.PID] != proc.NoService }) {
-			if err := proc.KeepJobsOnClose(host.PID); err != nil {
+			if err := held.KeepOnClose(); err != nil {
+				jobs.Close()
+				return nil, err
+			}
+			jobs[len(jobs)-1].keepsService = true
+		}
+	}
+	return jobs, nil
+}
+
+// End ends what the jobs hold but the machine services and what runs under
+// them. A job with no service ends at once, as it did when its host's end
+// closed it. One that keeps a service has its other processes ended one by
+// one through end, which says whether the process was still to end, until a
+// pass over the job finds none or ctx is done.
+func (jobs terminalJobs) End(ctx context.Context, end func(proc.Entry) (bool, error)) error {
+	for _, job := range jobs {
+		if !job.keepsService {
+			if err := job.held.End(); err != nil {
 				return err
+			}
+			continue
+		}
+		for {
+			members, err := job.held.Processes()
+			if err != nil {
+				return err
+			}
+			services, err := proc.RunningServices()
+			if err != nil {
+				return fmt.Errorf("identify the machine services running: %w", err)
+			}
+			isLeft := false
+			var failures error
+			for _, member := range members {
+				if services[member.PID] != proc.NoService {
+					continue
+				}
+				wasLeft, err := end(member)
+				isLeft = isLeft || wasLeft
+				failures = errors.Join(failures, err)
+			}
+			if failures != nil {
+				return failures
+			}
+			if !isLeft {
+				break
+			}
+			select {
+			case <-ctx.Done():
+				return ctx.Err()
+			case <-time.After(50 * time.Millisecond):
 			}
 		}
 	}
 	return nil
+}
+
+// Members are the hosts and the processes still in their jobs.
+func (jobs terminalJobs) Members(hosts []Identity) ([]Identity, error) {
+	members := slices.Clone(hosts)
+	for _, job := range jobs {
+		processes, err := job.held.Processes()
+		if err != nil {
+			return nil, err
+		}
+		for _, process := range processes {
+			members = append(members, Identity{PID: process.PID, Started: process.Start})
+		}
+	}
+	return members, nil
+}
+
+// Close lets go of the jobs. One that keeps no service ends what is left in
+// it as its last handle closes.
+func (jobs terminalJobs) Close() {
+	for _, job := range jobs {
+		job.held.Close()
+	}
 }

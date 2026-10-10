@@ -72,16 +72,25 @@ func TerminateVerifiedIn(pid int, start time.Time, accept func(Identity) error) 
 	return syscall.TerminateProcess(handle, 1)
 }
 
-// identify proves the process behind handle was created at start and reads
-// what it is.
-func identify(handle syscall.Handle, pid int, start time.Time) (Identity, error) {
+// createdAt proves the process behind handle was created at start, to within
+// the second a recorded start time is rounded to.
+func createdAt(handle syscall.Handle, pid int, start time.Time) error {
 	var creation, exit, kernel, user syscall.Filetime
 	if err := syscall.GetProcessTimes(handle, &creation, &exit, &kernel, &user); err != nil {
-		return Identity{}, fmt.Errorf("read process %d's start time: %v", pid, err)
+		return fmt.Errorf("read process %d's start time: %v", pid, err)
 	}
 	created := time.Unix(0, creation.Nanoseconds())
 	if difference := created.Sub(start); difference <= -time.Second || difference >= time.Second {
-		return Identity{}, fmt.Errorf("process %d started at %s, not %s, so it is another program", pid, created.UTC().Format(time.RFC3339Nano), start.UTC().Format(time.RFC3339Nano))
+		return fmt.Errorf("process %d started at %s, not %s, so it is another program", pid, created.UTC().Format(time.RFC3339Nano), start.UTC().Format(time.RFC3339Nano))
+	}
+	return nil
+}
+
+// identify proves the process behind handle was created at start and reads
+// what it is.
+func identify(handle syscall.Handle, pid int, start time.Time) (Identity, error) {
+	if err := createdAt(handle, pid, start); err != nil {
+		return Identity{}, err
 	}
 	var identity Identity
 	image := make([]uint16, windows.MAX_LONG_PATH)
