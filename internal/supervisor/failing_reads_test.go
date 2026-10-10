@@ -3,6 +3,8 @@ package supervisor
 import (
 	"context"
 	"fmt"
+	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -25,6 +27,33 @@ func (git *timedOutGit) Run(ctx context.Context, request execx.Request) (execx.R
 	return git.progressGit.Run(ctx, request)
 }
 
+// timedOutOrigin is a forge whose read of a repository's origin runs out of
+// time while isTimingOut says so.
+type timedOutOrigin struct {
+	*fakeForge
+	isTimingOut *bool
+}
+
+func (forge timedOutOrigin) Run(ctx context.Context, request execx.Request) (execx.Result, error) {
+	if *forge.isTimingOut && slices.Equal(request.Args, []string{"config", "--get", "remote.origin.url"}) {
+		return execx.Result{}, context.DeadlineExceeded
+	}
+	return forge.fakeForge.Run(ctx, request)
+}
+
+// failedBefore records that each read failed on every pass a read that keeps
+// failing needs but the last, so its next failure is told.
+func failedBefore(t *testing.T, h home.Home, reads ...string) {
+	t.Helper()
+	watched := fleetWakes{Failing: map[string]int{}}
+	for _, read := range reads {
+		watched.Failing[read] = failingPasses - 1
+	}
+	if err := writeFleetWakes(h.State, watched); err != nil {
+		t.Fatal(err)
+	}
+}
+
 // On 2026-10-10, with every processor busy, the supervisor woke the CFO twice
 // in minutes with "progress for <task>: context deadline exceeded" for three
 // goblins at a time, and once with "gh could not read <pull request>: context
@@ -43,22 +72,34 @@ func TestAReadThatFailedWakesTheCFOOnlyOnceItKeepsFailing(t *testing.T) {
 			return PullRequestInfo{State: "OPEN", Title: "Ship it"}, nil
 		}
 	}
+	// Each arranges one read that runs out of time while isTimingOut says
+	// so, and returns the line the supervisor's error names it by.
 	cases := []struct {
-		name, told string
-		arrange    func(t *testing.T, h home.Home, service *Service, isTimingOut *bool)
+		name    string
+		arrange func(t *testing.T, h home.Home, service *Service, isTimingOut *bool) string
 	}{
-		{"a goblin's progress", "progress for busy-task: context deadline exceeded", func(t *testing.T, h home.Home, service *Service, isTimingOut *bool) {
+		{"a goblin's progress", func(t *testing.T, h home.Home, service *Service, isTimingOut *bool) string {
 			liveGoblin(t, h, "busy-task", h.Root)
 			head := strings.Repeat("a", 40)
 			service.Options.Progress = &timedOutGit{progressGit: progressGit{head: head, pushed: head}, isTimingOut: isTimingOut}
+			return "progress for busy-task: context deadline exceeded"
 		}},
-		{"the pull request a paused goblin waits on", "pause condition for pr-task: " + timedOut, func(t *testing.T, h home.Home, service *Service, isTimingOut *bool) {
+		{"the pull request a paused goblin waits on", func(t *testing.T, h home.Home, service *Service, isTimingOut *bool) string {
 			pausedGoblin(t, h, "pr-task", "dependency", "pr:"+pull, time.Now().UTC().Add(-time.Hour))
 			service.Options.PullRequestState = pullRead(isTimingOut)
+			return "pause condition for pr-task: " + timedOut
 		}},
-		{"the pull request a queued row waits on", "the pull request next-task waits on, " + pull + ": " + timedOut, func(t *testing.T, h home.Home, service *Service, isTimingOut *bool) {
+		{"the pull request a queued row waits on", func(t *testing.T, h home.Home, service *Service, isTimingOut *bool) string {
 			queueBriefedTask(t, h, "- **next-task** - Ship it (repo: code-goblins) blocked-by: "+pull+" - after it merges", plainBrief)
 			service.Options.PullRequestState = pullRead(isTimingOut)
+			return "the pull request next-task waits on, " + pull + ": " + timedOut
+		}},
+		{"the origin of a repository a goblin works in", func(t *testing.T, h home.Home, service *Service, isTimingOut *bool) string {
+			liveGoblin(t, h, "ci-task", h.Root)
+			forge := forgeFor(h.Root, "ci-task")
+			forge.branch, forge.pulls, forge.runs = "feat/wakes", "[]", "[]"
+			service.Options.CI = timedOutOrigin{fakeForge: forge, isTimingOut: isTimingOut}
+			return "ci wakes: read the origin of " + filepath.Clean(h.Root) + ": context deadline exceeded"
 		}},
 	}
 	for _, c := range cases {
@@ -68,7 +109,7 @@ func TestAReadThatFailedWakesTheCFOOnlyOnceItKeepsFailing(t *testing.T) {
 			service := handler.Service
 			service.work, service.subscribers = make(chan struct{}, 1), map[chan struct{}]struct{}{}
 			isTimingOut := false
-			c.arrange(t, h, service, &isTimingOut)
+			told := c.arrange(t, h, service, &isTimingOut)
 			start := time.Now().UTC().Truncate(time.Minute)
 
 			for pass, step := range []struct {
@@ -78,18 +119,18 @@ func TestAReadThatFailedWakesTheCFOOnlyOnceItKeepsFailing(t *testing.T) {
 				isTimingOut = step.isTimingOut
 
 				// Act
-				_ = service.checkFleet(t.Context(), start.Add(time.Duration(pass)*time.Minute))
+				_ = service.checkFleet(t.Context(), start.Add(time.Duration(pass)*ciPollEvery))
 				service.cycle(t.Context(), true)
 
 				// Assert
 				var wakes []string
 				for _, detail := range supervisorErrorWakes(t, service) {
-					if strings.Contains(detail, c.told) {
+					if strings.Contains(detail, told) {
 						wakes = append(wakes, detail)
 					}
 				}
 				if len(wakes) != step.wakes {
-					t.Fatalf("after pass %d (timing out: %t) the CFO had %d wakes naming %q, want %d: %q", pass+1, step.isTimingOut, len(wakes), c.told, step.wakes, supervisorErrorWakes(t, service))
+					t.Fatalf("after pass %d (timing out: %t) the CFO had %d wakes naming %q, want %d: %q", pass+1, step.isTimingOut, len(wakes), told, step.wakes, supervisorErrorWakes(t, service))
 				}
 			}
 		})
