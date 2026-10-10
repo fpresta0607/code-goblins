@@ -288,11 +288,15 @@ func TestEveryWakeReachesTheCFOOnceWhileADozenSessionsFireTheirHooks(t *testing.
 				case response := <-acknowledged:
 					acknowledged <- response
 					isAcknowledging = false
-				// One notify follows another 10 ms apart. That starved the
-				// acknowledgement for its whole five seconds while a waiter
-				// only looked for the lock again every so often: it queues
-				// now, so it is next after the notify it found filing.
-				case <-time.After(10 * time.Millisecond):
+				// Each notify leaves the queue free three times as long as
+				// it held it. A writer that files back to back no longer
+				// starves a waiter, which queues: internal/lock's
+				// TestAWaiterGetsTheLockFromAProcessThatTakesItBackToBack
+				// holds that with a second process. Here the notifies keep
+				// their pace, since one that waits out a whole
+				// acknowledgement on a machine this loaded can pass its
+				// five seconds.
+				case <-time.After(max(100*time.Millisecond, 3*time.Since(started))):
 				}
 			}
 			if response := <-acknowledged; response.Exit != 0 {
