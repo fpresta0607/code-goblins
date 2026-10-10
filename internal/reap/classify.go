@@ -375,7 +375,7 @@ type Inventory struct {
 	// or proof set up, not to the fleet.
 	StateDir string
 	// ScratchRoots are this home's scratch folders, where each goblin's
-	// TEMP, TMP and GOTMPDIR point, one folder per task: a program run from
+	// TEMP, TMPDIR and GOTMPDIR point, one folder per task: a program run from
 	// there names its task as one run from an older build's Go temporary
 	// directory does, and a process working there works in that task's own
 	// directory.
