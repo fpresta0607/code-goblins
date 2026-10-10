@@ -208,7 +208,7 @@ func TestTheSweepEndsAGoneTerminalsStandInAndLeavesAStandInForHisChrome(t *testi
 func TestTheSweepEndsNothingItCouldNotReadOrEnd(t *testing.T) {
 	// Arrange
 	started := time.Date(2026, 10, 9, 14, 20, 0, 0, time.UTC)
-	watched := []Watched{{PID: 10, Started: started, CPU: time.Second, Since: started}}
+	watched := []Watched{{PID: 10, Started: started, Since: started, Members: []WatchedMember{{PID: 10, Started: started, CPU: time.Second}}}}
 	unreadable := Config{Now: started.Add(time.Hour), Watched: watched,
 		Processes: func(context.Context) ([]Process, error) { return nil, errors.New("access denied") },
 		Owners:    func() ([]Owner, []string) { return nil, nil },
