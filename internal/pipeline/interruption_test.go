@@ -3,6 +3,7 @@ package pipeline
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -138,7 +139,7 @@ func TestRestartInterruptedLeavesARunStillLiveToItsGoblin(t *testing.T) {
 	reader := Reader{Root: root, Commands: runner}
 
 	// Act
-	err := reader.RestartInterrupted(context.Background(), "project", t.TempDir(), live)
+	err := reader.RestartInterrupted(context.Background(), "project", t.TempDir(), live, nil)
 
 	// Assert
 	if err != nil {
@@ -159,7 +160,7 @@ func TestRestartInterruptedChecksAcceptedRunAfterBoundedWaitExpires(t *testing.T
 			prior := InterruptedRun{ID: "paused-run", RepoID: "repo", Branch: "feat/task", Status: "cancelled", Head: strings.Repeat("a", 40), Intent: "Keep the gate fixes"}
 			runner := &interruptionRunner{run: prior, startRun: starts}
 			reader := Reader{Root: root, Commands: runner}
-			err := reader.RestartInterrupted(context.Background(), "project", t.TempDir(), prior)
+			err := reader.RestartInterrupted(context.Background(), "project", t.TempDir(), prior, nil)
 			if (err == nil) != starts {
 				t.Fatalf("restart: %v", err)
 			}
@@ -168,7 +169,7 @@ func TestRestartInterruptedChecksAcceptedRunAfterBoundedWaitExpires(t *testing.T
 				t.Fatal("started validation before recovery")
 			}
 			if starts {
-				if err := reader.RestartInterrupted(context.Background(), "project", t.TempDir(), prior); err != nil {
+				if err := reader.RestartInterrupted(context.Background(), "project", t.TempDir(), prior, nil); err != nil {
 					t.Fatal(err)
 				}
 				if strings.Count(strings.Join(runner.commands, "\n"), "axi run --intent") != 1 {
@@ -190,7 +191,7 @@ func TestRestartInterruptedAcceptsAReplacementThatAlreadyEnded(t *testing.T) {
 			runner := &interruptionRunner{run: prior, startRun: true, endStatus: status}
 			reader := Reader{Root: root, Commands: runner}
 			for attempt := 0; attempt < 2; attempt++ {
-				if err := reader.RestartInterrupted(context.Background(), "project", t.TempDir(), prior); err != nil {
+				if err := reader.RestartInterrupted(context.Background(), "project", t.TempDir(), prior, nil); err != nil {
 					t.Fatalf("attempt %d: replacement that %s blocked Resume: %v", attempt, status, err)
 				}
 			}
@@ -210,7 +211,7 @@ func TestRestartInterruptedRefusesARunWithAnotherIntent(t *testing.T) {
 	other := prior
 	other.ID, other.Status, other.Intent = "other-run", "failed", "Unrelated work"
 	runner := &interruptionRunner{run: other}
-	err := (Reader{Root: root, Commands: runner}).RestartInterrupted(context.Background(), "project", t.TempDir(), prior)
+	err := (Reader{Root: root, Commands: runner}).RestartInterrupted(context.Background(), "project", t.TempDir(), prior, nil)
 	commands := strings.Join(runner.commands, "\n")
 	if err == nil || strings.Contains(commands, "no-mistakes") {
 		t.Fatalf("restart over another intent: %v\n%s", err, commands)
@@ -257,5 +258,97 @@ func TestInterruptRejectsAnotherGateRun(t *testing.T) {
 	_, err := (Reader{Root: root, Commands: runner}).Interrupt(context.Background(), "project", t.TempDir(), "feat/task", "requested")
 	if err == nil || len(runner.commands) != 1 {
 		t.Fatalf("replacement gate changed: %v %v", runner.commands, err)
+	}
+}
+
+// A gate that runs on its task's own harness carries that as a launch
+// selection, so the run Resume starts in place of a paused one carries it
+// too. Without it the replacement ran whatever the machine's chain named.
+func TestRestartInterruptedStartsTheReplacementUnderItsLaunchSelection(t *testing.T) {
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "state.sqlite"), nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	prior := InterruptedRun{ID: "paused-run", RepoID: "repo", Branch: "feat/task", Status: "cancelled", Head: strings.Repeat("a", 40), Intent: "Keep the gate fixes"}
+	runner := &interruptionRunner{run: prior, startRun: true}
+	selected := []string{"--launch-nonce", "cfo-1", "--validation-generation", "frozen", "--launch-assertion", "launch-selection.json"}
+
+	err := (Reader{Root: root, Commands: runner}).RestartInterrupted(context.Background(), "project", t.TempDir(), prior, func(context.Context) ([]string, error) {
+		return selected, nil
+	})
+
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := "no-mistakes axi run --intent Keep the gate fixes --wait 45s " + strings.Join(selected, " ")
+	if commands := strings.Join(runner.commands, "\n"); !strings.Contains(commands+"\n", want+"\n") {
+		t.Fatalf("commands:\n%s\nwant the replacement started as %q", commands, want)
+	}
+}
+
+func TestRestartInterruptedAsksForNoLaunchSelectionItWillNotUse(t *testing.T) {
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "state.sqlite"), nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	live := InterruptedRun{ID: "paused-run", RepoID: "repo", Branch: "feat/task", Status: "running", Head: strings.Repeat("a", 40), Intent: "Keep the gate fixes"}
+	runner := &interruptionRunner{run: live}
+
+	err := (Reader{Root: root, Commands: runner}).RestartInterrupted(context.Background(), "project", t.TempDir(), live, func(context.Context) ([]string, error) {
+		t.Error("a run still live was given a launch selection")
+		return nil, nil
+	})
+
+	if err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestRestartInterruptedStartsNothingWithoutItsLaunchSelection(t *testing.T) {
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "state.sqlite"), nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	prior := InterruptedRun{ID: "paused-run", RepoID: "repo", Branch: "feat/task", Status: "cancelled", Head: strings.Repeat("a", 40), Intent: "Keep the gate fixes"}
+	runner := &interruptionRunner{run: prior, startRun: true}
+
+	err := (Reader{Root: root, Commands: runner}).RestartInterrupted(context.Background(), "project", t.TempDir(), prior, func(context.Context) ([]string, error) {
+		return nil, errors.New("no gate agent can be proved")
+	})
+
+	if err == nil || !strings.Contains(err.Error(), "no gate agent can be proved") {
+		t.Fatalf("error = %v, want the refused launch selection", err)
+	}
+	if commands := strings.Join(runner.commands, "\n"); strings.Contains(commands, "no-mistakes") {
+		t.Fatalf("commands:\n%s\nwant nothing recovered or started on the machine's own chain", commands)
+	}
+}
+
+func TestTrustedHeadIsTheHeadOfOriginsDefaultBranch(t *testing.T) {
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "state.sqlite"), nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	const head = "0123456789abcdef0123456789abcdef01234567"
+	for _, test := range []struct {
+		name, repos, remote string
+		want                string
+	}{
+		{"registered", `[{"default_branch":"main"}]`, "ref: refs/heads/main\tHEAD\n" + head + "\tHEAD\n", head},
+		{"not registered", `[]`, "ref: refs/heads/main\tHEAD\n" + head + "\tHEAD\n", ""},
+		{"another default branch at origin", `[{"default_branch":"main"}]`, "ref: refs/heads/trunk\tHEAD\n" + head + "\tHEAD\n", ""},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			reader := Reader{Root: root, Commands: runnerFunc(func(_ context.Context, request execx.Request) (execx.Result, error) {
+				if request.Name == "sqlite3" {
+					return execx.Result{Stdout: []byte(test.repos)}, nil
+				}
+				return execx.Result{Stdout: []byte(test.remote)}, nil
+			})}
+			got, err := reader.TrustedHead(context.Background(), "project")
+			if got != test.want || (err == nil) != (test.want != "") {
+				t.Fatalf("TrustedHead = %q, %v, want %q", got, err, test.want)
+			}
+		})
 	}
 }
