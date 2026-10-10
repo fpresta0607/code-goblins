@@ -573,6 +573,14 @@ The goblin's branch is its deliverable.
 Where the base requires GitHub's merge queue, `cfo pr merge` adds a green PR to the queue rather than merging it: the queue tests the PRs in it together on the base's current tip and merges each whose run passes, so a PR no longer needs its head refreshed on main and a fresh CI run before its turn. It is merged when GitHub says so, not when the command returns.
 While [AFK mode](#afk-mode) is on, merge authority is your own merge word for a goblin pull request that meets its checks, given with `cfo pr merge <url> --verified "<what verified it>"`.
 
+### What CI runs
+
+A pull request's checks come from `.github/workflows/go.yml`, which runs everything at once as parallel jobs: the frontend's checks, the board's browser tests in four jobs, each slow Go package in two jobs, and every other package in one.
+The one check branch protection requires, `test`, passes only when every job passed.
+A run takes as long as its slowest job, about 8 minutes on GitHub's runners as measured on 2026-10-10, where it took 20 while the browser tests ran as one job.
+A pull request's own run and a merge train's run test the same things, so a pull request reaches the default branch about 17 minutes after its push at best.
+Runs of one account share its runners: when eight runs started together on 2026-10-10, each job waited 13 to 15 minutes for a runner, so a burst of pushes or merges costs more than the sum of its runs.
+
 ### Merge trains
 
 Landing pull requests one at a time costs one CI run each, in a row, because every merge makes the other green runs stale.
