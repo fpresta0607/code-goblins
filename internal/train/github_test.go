@@ -251,7 +251,7 @@ func TestARiderGitHubStillShowsOpenAfterItsTrainLandedIsNamedToTheCFO(t *testing
 			arrange: func(s *scratch, gh *fakeGitHub) {
 				gh.whileLanding = func() { s.extend("feat/b", "late.txt", "late\n") }
 			},
-			says: []string{"main holds the head that rode", "stays open with what was pushed after", "It rides again once its goblin reports it done."},
+			says: []string{"main holds the head that rode", "stays open with what was pushed after", "It rides the next train once its checks pass on that head."},
 		},
 		"GitHub did not mark it merged": {
 			arrange: func(_ *scratch, gh *fakeGitHub) { gh.marksLate = mergedReads },

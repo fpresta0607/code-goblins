@@ -229,7 +229,7 @@ func (e Engine) confirmMerged(ctx context.Context, t *Train) error {
 		next := "Read it again, and close it by hand if it stays open."
 		if moved := stillOpen[at].HeadRefOid; moved != car.Head {
 			car.Note = fmt.Sprintf("%s holds the head that rode, %s, and its pull request stays open with what was pushed after, at %s", t.Base, short(car.Head), short(moved))
-			next = "It rides again once its goblin reports it done."
+			next = "It rides the next train once its checks pass on that head."
 		}
 		said = append(said, fmt.Sprintf("#%d: %s. %s", car.Number, car.Note, next))
 	}
