@@ -851,7 +851,7 @@ cfo runtime [--json]
 cfo services up <project> --task <id> [--wait <duration>] | down <project> --task <id>
 cfo tickets <project> [--brief <file>] [--files <paths>] [--json]
 cfo pipeline migrate <id>
-cfo pipeline run <id> --intent <text>
+cfo pipeline run <id> --intent-file <file>
 cfo pipeline respond <id> --action <fix|approve> [--findings <ids>] [--instructions <text>]
 cfo pipeline recover <id>
 cfo gate tests-kept
