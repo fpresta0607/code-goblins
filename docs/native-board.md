@@ -355,8 +355,12 @@ The mark of the harness the registered CFO runs, the snapshot's `cfo_harness`, s
 While [AFK mode](#afk-mode) is on nothing glows on the bar whatever waits on the Overlord, and its line says since when it is on and who turned it on, the Overlord from his board or his terminal or the CFO at his ask, and how many decisions the CFO logged.
 AFK mode is complete autopilot, so the bar lists nothing held for him: Open Command Center, unlit, with how many wait, is its one way to whatever is there, and it is not there while nothing waits.
 A click or key on the board after five minutes with none, counted from when AFK mode turned on, is taken for the Overlord coming back: the click or key does what he meant, and the board then offers to turn AFK mode off or stay.
-When the CFO turned it on at his ask, his first click or key since the switch brings the same offer at once, titled The CFO turned AFK on, so a switch made on his words meets him before anything else; his next waits five minutes as usual.
-The offer says who turned it on, with his words when the CFO did at his ask, and takes the focus itself, so keys he was typing press neither button, and Escape stays.
+When the CFO turned it on at his ask, his first click or key since the switch brings a dialog at once, titled The CFO turned AFK on, so a switch made on his words meets him before anything else.
+He has just asked for AFK, so one short line says the CFO did it at his ask and when, its main button, Got it, keeps AFK on and closes it, and Turn AFK off is the lesser button beside it.
+His next click waits five minutes as usual.
+The offer after he was away says who turned it on, with his words when the CFO did at his ask, and how many decisions the CFO made once it made any.
+Either one takes the focus itself, so keys he was typing press neither button, and Escape stays.
+A switch the supervisor refuses there shows one short sentence that says what to do, never the supervisor's own words for why.
 When AFK mode turns off while the page is open, the report of the stretch opens as one page over the board, read from `GET /api/afk/report`.
 See [AFK mode in the README](../README.md#afk-mode) for its headline, For you and Settled, drawers, Spent display and Go through them.
 Each decision row links to what it names only when that is an https link and folds its evidence to two lines with Show more.
@@ -964,11 +968,12 @@ Each home has a window of its own: the home the user's own environment names, by
 Started with neither `--board` nor `--state`, as the Start menu, desktop shortcut and **Start at login** start it, the program runs the `goblins.exe` beside it with `--window --locate` in a hidden console.
 `goblins --window --locate` finds or starts the supervisor and prints only the board's address followed by the state folder, one per line; it opens no window, browser or CFO.
 The original window uses those two lines to show the board itself, or stays in its tray if it was started with `--background`.
-When the desktop shell starts the window alone, its ancestry still reaches Explorer, so the existing [ownership proof](#afk-mode) accepts its AFK switch and **Update**.
-A new window opened with `goblins --window` from a terminal remains the launcher's child; once that launcher exits, the cut ancestry still proves no one's, so AFK mode and **Update** are refused there.
+The supervisor takes the home's own window for the Overlord's by the program it runs, whoever opened it ([ownership proof](#afk-mode)), so its AFK switch and **Update** work however it was started.
+That covers a window the desktop shell started, one `goblins --window` started from a terminal of his own after that launcher has exited, one the installer started, and one the supervisor moved onto an update.
+A window started from an agent's terminal or under an agent harness carries that mark and is refused.
 So a supervisor is started in one way only, by `goblins`, whoever opens the app.
 A click on a notification while no window runs opens the app the same way: Windows then starts the program alone, with `-Embedding`.
-This cold notification activation is a known gap: COM starts the window without desktop ancestry, so the supervisor refuses AFK mode and **Update** from that window.
+COM starts that window with no parent at the desktop, which the proof by its program does not need.
 Quit it from the tray and open Code Goblins from the Start menu or desktop shortcut to use those controls.
 When `goblins` fails, the launcher shows the last sixteen lines it wrote to stderr in a message box titled Code Goblins and exits 1; with no `goblins.exe` beside it, the box says that Code Goblins is not installed there.
 If `goblins` exits 0 without naming both the board and state folder, as an older build may, the window shows a message box saying the board did not open and exits 1 without showing a board.
@@ -1360,7 +1365,9 @@ The supervisor reads the latest release of `fpresta0607/code-goblins` from GitHu
 A release newer than the build the board runs, compared by its `vMAJOR.MINOR.PATCH` tag part by part, gets one item, a run item of its own kind, which the board makes itself and the CFO cannot withdraw.
 Its card wears the electric ring instead of the glass border, with the release goblin in place of an asker: Code Goblins, when the release was published, a New version chip, its state, Update Code Goblins as its title, the version the board runs and the new one in the display face, up to three lines of what is new, read from the release notes' What's Changed list without who made each change, a What's new link to the notes, and a line on what the update checks: an unsigned release says so and that the update installs it only when each file matches the release's SHA-256, naming the one its notes list for `cfo.exe`, and a signed one names its publisher.
 It shows no command, and its one button, **Update**, sends the item's ID and identity like Run, through the same action checks.
-The supervisor then also proves the request comes from a board of the Overlord's own, as AFK mode's switch is proven (the program that holds the connection, started from the desktop, with nothing that marks an agent's above it), and refuses anything else, the CFO's or an agent's browser included, with `Updating Code Goblins is the Supreme Overlord's alone`; nothing presses it for him, in AFK mode or out of it, and while AFK mode is on it is held for him and announced to no one.
+The supervisor then also proves the request comes from a board of the Overlord's own, by the proof of [AFK mode](#afk-mode)'s switch on the board, and refuses anything else, the CFO's or an agent's browser included.
+A board it refuses shows one short sentence that says where to press Update, and the CFO is told what the supervisor found in a `review` wake keyed `update`, which opens with `Updating Code Goblins is the Supreme Overlord's alone`.
+Nothing presses it for him, in AFK mode or out of it, and while AFK mode is on it is held for him and announced to no one.
 Pressed, the supervisor writes a grant for exactly that item and release to `state\update\grant.json` and runs the item's command out of sight, `goblins update --to <tag> --run <item>` with the home named, which takes the grant once, within two minutes, in place of a terminal of his own.
 The card follows it from what it prints, read each second from `GET /api/runs/<id>/output`: Download, Check each file's SHA-256, Restart the board on the new version and Bring the CFO's contract and skills up to date, each done, under way or failed, with its output under Output.
 The board is away for the few seconds the update restarts it, and the supervisor that comes back finishes the item.
@@ -1372,7 +1379,8 @@ The item is the release's one signal on the board: no banner points to it, since
 A board built from a clone, whose version is not a release's, gets no item: its clone updates it, with `git pull` and `.\install.cmd -Dev`.
 The item runs the home's own `goblins.exe` where the home keeps it, in `bin`, or at the root of a home a build before `bin` set up.
 The desktop window follows the update beside `goblins.exe`, and an open one moves onto it by itself once its page is idle: nothing unsent, no answer in progress, and in the tray or with no click or key for ten minutes.
-The page asks `POST /api/window/move`, and the supervisor, once it has proven the page is shown by his own window as the AFK switch proves it, moves only a window that runs a renamed copy beside the home's `goblins-window.exe`: it ends that window and opens the home's program through the desktop shell, so the new window's parent is the shell and the board still takes it as his.
+The page asks `POST /api/window/move`, and the supervisor, once it has proven the page is shown by his own window as the AFK switch proves it, moves only a window that runs a renamed copy beside the home's `goblins-window.exe`: it ends that window and opens the home's program through the desktop shell, so the new window starts with the desktop's environment and none of the supervisor's.
+The shell that opens it then exits, which leaves the new window with no parent at the desktop, and the board takes it as his by the program it runs.
 A window moved from the tray starts in the tray, which `state/window-move.json` tells it.
 
 ## Credential requests
@@ -1472,6 +1480,7 @@ The supervisor makes the switch only for a process it proves runs in a terminal 
 It refuses, in this order, a process whose environment carries `CFO_ROLE=goblin` or `NO_MISTAKES_GATE`, one whose ancestry reaches the registered CFO, one whose environment names a native terminal (`CFO_HOST_ID`) or a Herdr pane (`HERDR_PANE_ID`), where the fleet runs an agent, and one under an agent harness: one among its ancestors (`claude`, `codex`, `pi`, `kimi` or `node`, by executable name), or a harness's own variable in its environment (`CLAUDECODE`, `AI_AGENT`), which still marks a command whose parents were cut off, as Git Bash's `timeout` leaves one.
 A process it cannot read, or one that started after the request, is refused too, never taken for his; a terminal run as administrator is one it cannot read, and the refusal says so.
 So is a process whose ancestry reaches neither the Windows desktop (`explorer`) nor Windows Terminal (`WindowsTerminal`): its parents were cut off, as Git Bash's `env` leaves a command with those variables removed too, and as Git Bash leaves the Overlord's own command, so the refusal tells him to run it in PowerShell or cmd.
+Those two refusals are the ones he meets himself in a terminal of his own, so each is one short sentence that says what to do, PowerShell or cmd or the switch in the Code Goblins window, with nothing of how a terminal is proven.
 What it accepts is recorded with the shell the command was typed in, such as `his own terminal (powershell.exe pid 4242)`.
 
 A request that carries `asked`, the words `cfo afk on --asked` or `cfo afk off --asked` passes, is the registered CFO making the switch at the Overlord's ask, and takes another proof.
@@ -1491,16 +1500,41 @@ Turning it on removes the report of the stretch before, from `state/afk-report.j
 The adversary this proof names is an agent that follows its contract and tries the command, the pipe or a wrapper around either.
 A process of the same Windows user that writes `state/afk.json` itself is the boundary the board's other items already have.
 
-The board's own switch, `POST /api/afk` with `{"on": true}` or `{"on": false}`, is under the same proof, made of the program that shows the board.
+The board's own switch, `POST /api/afk` with `{"on": true}` or `{"on": false}`, is proven of the program that shows the board.
 The endpoint first refuses a body it cannot read, then a request that is not the board's own page on this PC: one whose peer is not this machine, or one a proxy handled, as a board shared through Tailscale serve is.
-It then asks Windows which process owns the other end of the connection (`GetExtendedTcpTable`), which for a browser is the browser's own network process, and reads that process as it reads a pipe's caller: its environment and its ancestry, with the same refusals in the same order.
-The desktop window started from the Start menu passes, as does a browser he starts from the desktop or from a terminal of his own.
-A browser an agent started does not: one a test runner started under `node`, one opened from a goblin's or the CFO's terminal, or one whose harness left its variable in its environment.
-A browser whose opener has since exited has parents that stop short of the desktop, so it is refused with the way out: the desktop window, a browser started from the desktop, or `cfo afk on` in PowerShell or cmd.
-What it accepts is recorded with the program he started, such as `his own board (goblins-window.exe pid 4242)`, and the switch is then made as the command's is.
+It then asks Windows which process owns the other end of the connection (`GetExtendedTcpTable`), which for a browser is the browser's own network process, and reads that process as it reads a pipe's caller: its environment and its ancestry, with the same refusals of an agent's in the same order.
+The program that is his is the one just under the desktop, and where the parents stop short of the desktop the last one still running, since a program outlives what opened it.
+From that program down to the process that holds the connection the supervisor reads what each one is, and refuses a browser another program can drive: one started with `--remote-debugging-port`, `--remote-debugging-pipe`, `--enable-automation` or `--headless`, or with Firefox's `-marionette`, as a test's browser and a headless one are.
+It reads that program's own environment for the same marks of an agent.
+It refuses a program that runs as another Windows user, or in another Windows session, than the supervisor, since the board answers every session of the PC at one address.
+
+One of three things then proves the board his:
+
+- Its parents reach the desktop, as those of a browser he starts from the desktop or from a terminal of his own do.
+- It is this home's own desktop window: a process Windows has named `goblins-window.exe` since its start, running a program in the home's `bin`, where an update leaves an open window on a renamed copy.
+- Its browser holds a grant this home gave that browser program.
+
+The window's proof needs no parent, because the window rarely keeps one at the desktop: the supervisor's own move onto an update opens it through a shell that exits, and the installer, `goblins --window` and a click on a notification leave it the same way.
+Until 2026-10-09 the first proof stood alone, and the Overlord's own window was refused after it had moved itself onto v0.5.8.
+Whoever can put a program in the home's `bin` can replace the supervisor's own, so that folder is what the proof stands on.
+
+A grant keeps a browser he started his after its opener is gone.
+When a browser loads the board while its parents reach the desktop, the supervisor gives it a random secret in a cookie no page can read (`cfo-board`, `HttpOnly`, `SameSite=Strict`) and records the secret's SHA-256 with the browser's program in `state/board-grants.json`.
+A later request from that browser is his by the grant after its opener has exited, and after the browser has restarted itself as one does after its own update, for 30 days from when it was given.
+Only a load whose parents reach the desktop gives a grant, and a browser whose grant is younger than a day keeps it, so a grant never renews itself and his desktop window is given none.
+The secret alone proves nothing: a cookie for `127.0.0.1` goes to every port of it, so any local server he opens in that browser is handed it.
+It counts only from the browser program it was given to, under every check above, so a copy in an agent's browser, in a script or in another browser is refused.
+A record of grants that cannot be read grants nothing, and the next grant given replaces it.
+
+A browser that was never proven and holds no grant is refused, and so is anything an agent started: one a test runner started under `node`, one opened from a goblin's or the CFO's terminal, or one whose harness left its variable in its environment.
+A board that is refused shows one short sentence that says what to do, with nothing of how a board is proven.
+A browser is sent to the Code Goblins window or to `cfo afk on` in PowerShell, and his window, which cannot be sent to itself, is told to quit from its tray icon and open again from the Start menu.
+What the supervisor found goes to the CFO as a `review` wake keyed `afk`, with the sentence the board showed.
+What it accepts is recorded with the program that is his, such as `his own board (goblins-window.exe pid 4242)`, and the switch is then made as the command's is.
 Off while it is already off answers as off, and a switch that cannot be read answers on with 409 and off by resetting it.
+A switch that fails after the board was proven his answers 409 with one sentence, and the CFO is told why in the same wake.
 The adversary is the same one, at the board: an agent that follows its contract and tries the switch from a browser it started, through a proxy or from another machine.
-An agent that drives the Overlord's own running browser is his browser to the supervisor, as a process that writes `state/afk.json` is his user; `AGENTS.md` forbids both, and nothing here stops either.
+An agent that drives the Overlord's own running browser or window through his desktop is his to the supervisor, as a process that writes `state/afk.json` is his user; `AGENTS.md` forbids both, and nothing here stops either.
 
 Every snapshot carries `afk`, which is what the board shows of the switch.
 Its `state` is `off`, `on`, or `unreadable` for a switch that cannot be read, which is never taken for on.

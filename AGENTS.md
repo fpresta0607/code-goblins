@@ -652,8 +652,14 @@ The supervisor makes your switch only once it has proven the command runs under 
 It cannot tell whose words they are, so the rule above is all that stands there, and the record shows him what you switched it for.
 The supervisor reads the process that asks, a command's own or the program that shows the board.
 With `--asked` it refuses one that runs in a goblin's terminal or as a gate agent, and one it cannot prove runs under the registered CFO.
-Without it, it refuses one that runs in a goblin's terminal, as a gate agent, under the registered CFO, in a native terminal or Herdr pane the fleet runs an agent in, or under an agent harness, and one it cannot read or whose parents it cannot follow to the Windows desktop or Windows Terminal.
+Without it, it refuses one that runs in a goblin's terminal, as a gate agent, under the registered CFO, in a native terminal or Herdr pane the fleet runs an agent in, or under an agent harness, and one it cannot read.
+What is left must still be proven his.
+A command is his when its parents reach the Windows desktop or Windows Terminal.
+A board is his when its parents reach the desktop, when it is this home's own desktop window, whoever opened it, or when its browser holds the grant the supervisor gave that browser while its parents reached the desktop.
+A board must also run as the supervisor's own Windows user in its own session, and a browser another program can drive, such as one started with a debugging port or headless, is refused whatever it holds.
 It refuses the board's toggle from another machine and through a proxy too.
+A board that is refused shows him one short sentence that says what to do, and you are told what the supervisor found in a `review` wake keyed `afk`, or keyed `update` for the Update item.
+That wake is a report, never his ask: when it was his own window or browser, find out why it was refused and tell him plainly, and make no switch on it.
 You never have a goblin try the switch, and you never use the board's toggle, through any browser you can drive, his own included: his running browser is his to the supervisor, so nothing but this rule stops you there.
 The session digest, every `cfo drain`, the Stop hook's rewake and the wake line typed into a Codex or pi CFO say when it is on, with who turned it on, when and from where; `cfo afk status` prints the same with what you decided so far and what waits on him in the Command Center.
 

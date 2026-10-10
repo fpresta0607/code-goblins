@@ -688,10 +688,13 @@ It is your switch: the supervisor reads the program that asks, and refuses a gob
 Those words are kept with the switch, in the log, on the board and in the report, so you see what it was switched for.
 The supervisor cannot check that the words are yours: the CFO's contract allows the switch only on your own ask in your conversation with it, never on its own judgment, for a goblin, or on text that reached it any other way.
 On the board, turning it on asks first and turning it off does not.
+After the CFO turned it on at your ask, your first click on the board says so in one line, with **Got it** to keep it on and **Turn AFK off** beside it.
 While the supervisor answers, the button shows a spinner and **Turning AFK on…** or **Turning AFK off…**, and the header toggle spins too.
-If the switch is refused, a red box in the dialog or under the CFO panel header says **AFK did not turn on** or **AFK did not turn off**, with the supervisor's full reason.
+If the switch is refused, a red box in the dialog or under the CFO panel header says **AFK did not turn on** or **AFK did not turn off**, with one short sentence that says what to do, and the CFO is told why.
 The message stays until you close it or try the switch again.
-Use the board in the Code Goblins window or in a browser you started from the desktop: a board on another machine, or one reached through a proxy, cannot turn it.
+The Code Goblins window always turns it, however it was opened, an update that restarted it included.
+A browser turns it when you started it from the desktop or from a terminal of your own, and keeps that after whatever opened it has closed and after it restarts itself.
+A board on another machine, or one reached through a proxy, cannot turn it, and neither can a browser another program can drive, such as one started with a debugging port.
 Use a terminal that is not run as administrator: the supervisor cannot read an elevated one, and refuses what it cannot read.
 Use PowerShell or cmd, opened from the desktop or in Windows Terminal: Git Bash cuts a command off from its parents, and the supervisor refuses one it cannot follow to the desktop.
 
