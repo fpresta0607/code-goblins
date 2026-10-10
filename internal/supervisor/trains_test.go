@@ -402,7 +402,7 @@ func TestDoneReportsReadEveryPullRequestReportedDoneInThisRun(t *testing.T) {
 	}
 
 	// Act
-	done := doneReports(lines, spawned)
+	done, _ := doneReports(lines, spawned)
 
 	// Assert
 	want := map[string]time.Time{

@@ -1,6 +1,7 @@
 package supervisor
 
 import (
+	"cmp"
 	"context"
 	"encoding/json"
 	"errors"
@@ -717,6 +718,16 @@ func spawnTime(generation string) time.Time {
 		return time.Time{}
 	}
 	return time.Unix(0, nanos).UTC()
+}
+
+// lifeStart is when meta's task was spawned under its id, which a relaunch
+// does not move: a pause's resume, a switch and a comeback each start a new
+// generation of the same task. What its status log holds from before that is
+// an earlier task's of the same id, cleaned up since, and is never read as
+// this one's. A task an older build spawned records only the generation it
+// runs on, so its life is read from there.
+func lifeStart(meta state.TaskMeta) time.Time {
+	return spawnTime(cmp.Or(meta.FirstGen, meta.SpawnGen))
 }
 
 func newestHistory(tasks []Task) []Task {

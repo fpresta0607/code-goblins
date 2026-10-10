@@ -43,12 +43,18 @@ func TrainRepository(ctx context.Context, runner execx.Runner, checkout string) 
 }
 
 // TrainGoblins reads the live goblins working in checkout and, for each, the
-// pull requests it reported done in its current run, whatever it reported
-// after: a goblin that goes on to its next pull request, or is blocked on
-// it, has still finished this one, and whether it rides is the pull
-// request's own state, open, green and not in conflict, which train.Riders
-// reads. The whole log is read, since a long run's done report can lie
-// further back than any tail of it.
+// pull requests it reported done since its task was spawned, whatever it
+// reported after: a goblin that goes on to its next pull request, or is
+// blocked on it, has still finished this one, and whether it rides is the
+// pull request's own state, open, green and not in conflict, which
+// train.Riders reads. A report outlasts the goblin's relaunch, a pause's
+// resume, a switch or a comeback: on 2026-10-10 a train left off two pull
+// requests their goblin had reported done before its pause, since reports
+// were read only from its latest generation. Riders holds such a report to
+// the head it was made of. What the log holds from before the task was
+// spawned is an earlier task's of the same id and is never read. The whole
+// log is read, since a long run's done report can lie further back than any
+// tail of it.
 func TrainGoblins(stateDir, checkout string) []train.Goblin {
 	var goblins []train.Goblin
 	for _, meta := range liveTasks(stateDir) {
@@ -56,19 +62,19 @@ func TrainGoblins(stateDir, checkout string) []train.Goblin {
 			continue
 		}
 		lines, _ := state.TailStatus(stateDir, meta.ID, math.MaxInt)
-		if done := doneReports(lines, spawnTime(meta.SpawnGen)); len(done) > 0 {
-			goblins = append(goblins, train.Goblin{Task: meta.ID, Name: meta.GoblinName, Title: meta.GoblinTitle, Done: done})
+		if done, reported := doneReports(lines, lifeStart(meta)); len(done) > 0 {
+			goblins = append(goblins, train.Goblin{Task: meta.ID, Name: meta.GoblinName, Title: meta.GoblinTitle, Done: done, Reported: reported, Relaunched: spawnTime(meta.SpawnGen)})
 		}
 	}
 	return goblins
 }
 
 // doneReports returns each pull request a goblin's status log reports done
-// since it was spawned, with when it was first reported done in that run, so
-// reporting it again keeps its place in the queue and nothing reported after
-// takes it away.
-func doneReports(lines []string, spawned time.Time) map[string]time.Time {
-	done := map[string]time.Time{}
+// since it was spawned, with when it was first reported done, so reporting it
+// again keeps its place in the queue and nothing reported after takes it
+// away, and with when it was last reported done.
+func doneReports(lines []string, spawned time.Time) (done, reported map[string]time.Time) {
+	done, reported = map[string]time.Time{}, map[string]time.Time{}
 	for _, line := range lines {
 		stamp, event := state.SplitStatus(line)
 		if !spawned.IsZero() && stamp.Before(spawned.Truncate(time.Second)) {
@@ -82,9 +88,10 @@ func doneReports(lines []string, spawned time.Time) map[string]time.Time {
 			if _, seen := done[fields[0]]; !seen {
 				done[fields[0]] = stamp
 			}
+			reported[fields[0]] = stamp
 		}
 	}
-	return done
+	return done, reported
 }
 
 // runTrain takes the merge train running on repo a step, or starts one when
