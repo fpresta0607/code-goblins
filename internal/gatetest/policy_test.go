@@ -150,6 +150,49 @@ func TestTheRepositoryPolicyNamesOnlyFieldsAndPackagesThatExist(t *testing.T) {
 			namesAFile(pattern, "outside the Go checks (\""+rule.Why+"\")")
 		}
 	}
+
+	// A guard that names a test no longer there runs nothing and passes, so
+	// each named test is one its package declares today.
+	if len(policy.Guards) == 0 {
+		t.Fatalf("%s names no guard, so a push runs none of the tests that read the whole tree", PolicyPath)
+	}
+	for _, guard := range policy.Guards {
+		if guard.Why == "" || guard.Package == "" {
+			t.Errorf("%s has the guard %+v; a guard names its package and why", PolicyPath, guard)
+		}
+		isPackage(guard.Package, "as a guard")
+		declared := map[string]bool{}
+		sources, _ := filepath.Glob(filepath.Join(root, filepath.FromSlash(guard.Package), "*_test.go"))
+		for _, source := range sources {
+			text, err := os.ReadFile(source)
+			if err != nil {
+				t.Fatal(err)
+			}
+			for _, match := range testFunc.FindAllSubmatch(text, -1) {
+				declared[string(match[1])] = true
+			}
+		}
+		for _, test := range guard.Tests {
+			if !declared[test] {
+				t.Errorf("%s names the guard test %s of %s, and no test file of that package declares it", PolicyPath, test, guard.Package)
+			}
+		}
+	}
+}
+
+// A policy names the tests that read the whole tree, each with its package
+// and why, and a guard with no test named means every test of its package.
+func TestParsePolicyReadsTheGuards(t *testing.T) {
+	// Act
+	policy, err := ParsePolicy([]byte(`{"version": 1, "guards": [{"package": ".", "why": "its tests read every link"}, {"package": "cmd/cfo", "tests": ["TestEveryCommand"], "why": "it reads every command"}]}`))
+
+	// Assert
+	if err != nil || len(policy.Guards) != 2 {
+		t.Fatalf("ParsePolicy = %+v, %v; want two guards", policy, err)
+	}
+	if root, named := policy.Guards[0], policy.Guards[1]; root.Package != "." || len(root.Tests) != 0 || root.Why != "its tests read every link" || named.Package != "cmd/cfo" || !slices.Equal(named.Tests, []string{"TestEveryCommand"}) || named.Why != "it reads every command" {
+		t.Errorf("guards = %+v; want the root package whole and cmd/cfo's TestEveryCommand, each with why", policy.Guards)
+	}
 }
 
 // Every file this repository tracks is a package's own, under a contract or

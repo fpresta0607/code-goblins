@@ -167,22 +167,14 @@ func build(found findings, asked Level) Plan {
 		Uncommitted: found.uncommitted,
 		Module:      found.module,
 		Toolchain:   found.toolchain,
-		Policy:      fmt.Sprintf("built-in defaults, as %.8s has no %s", found.base, PolicyPath),
 		Required:    Affected,
 		Why:         "the default for a change",
 	}
-	var policy Policy
-	var slow map[string]bool
-	if found.hasPolicy {
-		parsed, err := ParsePolicy([]byte(found.policy))
-		if err != nil {
-			plan.Policy = fmt.Sprintf("built-in defaults, as %s at %.8s cannot be read", PolicyPath, found.base)
-			plan.Required, plan.Why = Full, strings.TrimPrefix(err.Error(), "gatetest: ")
-		} else {
-			policy = parsed
-			plan.Policy = fmt.Sprintf("%s version %d at %.8s", PolicyPath, policy.Version, found.base)
-			slow = slowPaths(found.root, found.packages, policy)
-		}
+	policy, says, err := policyOf(found)
+	plan.Policy = says
+	slow := slowPaths(found.root, found.packages, policy)
+	if err != nil {
+		plan.Required, plan.Why = Full, strings.TrimPrefix(err.Error(), "gatetest: ")
 	}
 	reach := Classify(found.root, found.module, found.changed, found.packages, policy)
 	plan.Choices, plan.Everything, plan.Outside, plan.Unknown = reach.Choices, reach.Everything, reach.Outside, reach.Unknown
@@ -202,6 +194,20 @@ func build(found findings, asked Level) Plan {
 	}
 	plan.Vet, plan.Tests, plan.Left = scope(plan.Level, plan.Choices, plan.Everything, slow)
 	return plan
+}
+
+// policyOf reads the policy as the commit at base has it, and says which
+// policy that is. A base with no policy has the built-in defaults, and so
+// has one whose policy cannot be read, with the error saying why.
+func policyOf(found findings) (policy Policy, says string, err error) {
+	if !found.hasPolicy {
+		return Policy{}, fmt.Sprintf("built-in defaults, as %.8s has no %s", found.base, PolicyPath), nil
+	}
+	policy, err = ParsePolicy([]byte(found.policy))
+	if err != nil {
+		return Policy{}, fmt.Sprintf("built-in defaults, as %s at %.8s cannot be read", PolicyPath, found.base), err
+	}
+	return policy, fmt.Sprintf("%s version %d at %.8s", PolicyPath, policy.Version, found.base), nil
 }
 
 // names splits git's NUL-separated file names.

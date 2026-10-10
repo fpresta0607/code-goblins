@@ -9,6 +9,32 @@
     "internal/supervisor",
     "internal/testguard"
   ],
+  "guards": [
+    {
+      "package": ".",
+      "why": "its tests read every link of the contract, the workflows and the shipped skills"
+    },
+    {
+      "package": "cmd/cfo",
+      "tests": ["TestEveryCommandSaysWhetherItActsAsTheCFO", "TestEveryCommandIsAControlOrStaysAtNormalOnPurpose"],
+      "why": "they read every command main.go dispatches"
+    },
+    {
+      "package": "internal/gatetest",
+      "tests": ["TestTheRepositoryPolicyAccountsForEveryTrackedFile", "TestTheRepositoryPolicyNamesOnlyFieldsAndPackagesThatExist"],
+      "why": "they read every tracked file against this policy"
+    },
+    {
+      "package": "internal/fsx",
+      "tests": ["TestEveryFleetReadGoesThroughFsx"],
+      "why": "it reads every Go file for a read that goes around fsx"
+    },
+    {
+      "package": "internal/execx",
+      "tests": ["TestEveryProcessStartGoesThroughCommand"],
+      "why": "it reads every Go file for a process start that goes around execx"
+    }
+  ],
   "contracts": [
     {
       "paths": ["install.ps1", "install.cmd", "tools/pin-installer.ps1"],

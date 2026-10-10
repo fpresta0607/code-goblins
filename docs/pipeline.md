@@ -256,7 +256,7 @@ CI runs every package on every pull request, and a pull request merges only once
 With no `--level` the step runs `fast`, which is what the gate runs.
 Running the required level here as well ran the slowest packages twice, once on this machine and once in CI: from 2026-10-05 to 2026-10-07 every such local run took a median of 33 minutes, where CI tested every package in 11.
 A level asked for runs instead, such as `affected` to reproduce what CI found; a run at a level narrower than the change requires exits 0 when its checks pass, and its last line and its report name the level the change requires, which CI's run checks.
-In a slow package, run the tests a change touched by name (`go test ./internal/supervisor -run 'TestName' -count=1`) rather than the whole package, which takes 15 minutes or more here.
+Before a push, `cfo gate prepush` runs more than the fast level and picks the tests of a slow package itself, so nobody runs tests by a name they guessed ([Before a push](#before-a-push)).
 The plan prints why each package is in it (`changed`, `imports <package>`, or a contract's reason with the file that changed) and every test run the level left to a broader one, with why.
 It then lists the changed files that are outside the Go checks, under the policy's reason for each, and the changed files the policy does not account for, so what the step does not check is read from its output and not assumed:
 
@@ -384,6 +384,71 @@ A live or unverifiable process retains custody past its budget until its executi
 Unreadable or incomplete custody records retain their place regardless of age; the line command reports the uncertainty instead of reporting an empty line.
 A cancelled waiter removes only its own exact record, and a release cannot remove a later lease from the same process.
 A store failure prevents commands from starting.
+
+## Before a push
+
+`cfo gate prepush` is what a goblin runs before each push, so that CI is not the first to run a test the change broke.
+From 2026-09-05 to 2026-10-10, 164 tests failed on pull request runs of the `go` workflow.
+Of them 52 percent were in a test file the pull request had changed and 23 percent in another file of a package it had changed.
+The other 23 percent were in a package it had not touched: most of those are the tests that fail by chance, and five are guards that read the whole tree.
+Until then every brief said to run the touched tests by name and let CI run the rest, so a goblin guessed which tests its change could break, and each wrong guess cost a red run, a second push and about 20 minutes.
+
+The pick is the gate step's plan and more, in the order a failure is likeliest and cheapest to find:
+
+1. `go vet` of every package the change reaches, which is where a test that no longer builds, or an import cycle, shows.
+2. The guards: the tests the policy names under `guards` in `config/verify.json`. They read the whole tree, as the two that read every command `main.go` dispatches do, so a change anywhere can fail them, and they run whatever changed. A new whole-tree guard is named there. A test of the policy fails a guard whose test is gone, since it would run nothing and pass.
+3. The changed packages, and the packages a contract names for a changed file, each whole.
+4. For a change under `frontend`, the type check, the lint, the unit tests and the browser specs the change touched or names.
+5. The packages that import a changed one, nearest first.
+
+A browser spec is picked when it changed, when it opens a fixture page that changed, when it imports a changed file beside the specs, or when it shares a word of its name with a changed source, as `run-terminal.spec.ts` does with `RunCard.tsx`.
+Most specs open the whole board, so what a spec imports does not say what it covers, and its name is what there is to go by.
+Where `frontend/node_modules` is missing the run starts none of the board's checks and says so, because npm can exit 0 where it found no program to run.
+
+A package the policy lists as slow runs without its slowest tests.
+The run reads this machine's own record of how long each test took the last time it passed, under `cfo\verify\times` in the user's cache folder, and leaves out, with `go test -skip`, the tests the record has at 2 seconds or longer.
+On 2026-10-07 and 2026-10-08 the tests under 2 seconds were 81 to 88 percent of the tests of `cmd/cfo` and `internal/supervisor` and 9 to 28 percent of their time.
+A test in a file the change touched always runs, slow or not: a test file that changed, and the test file beside a changed source, as `spawn_test.go` and `spawn_windows_test.go` are beside `spawn.go`.
+A slow package this machine has not timed runs whole when it changed, which is what times it, and is left to CI when it only imports the change.
+Every `cfo gate prepush` run and every `cfo gate test` run adds what it timed to the record.
+
+The run fits the machine.
+It waits for the machine's turn in the line `cfo gate test` runs wait in, so the two never run together, and it tests one package at a time.
+It starts no check while free memory or commit is under the 4 GB floor, and none after its time limit, which is 15 minutes of running unless `--limit` says otherwise.
+A check still running at the limit is ended, which is no failure.
+Whatever it did not run it names under `left to CI`, each with why: the slow tests by number and time, the other browser specs, the board's build, and the checks the limit or the memory cut.
+
+It prints the pick before it runs anything, and `--plan` prints it with each check's command and runs nothing.
+This is the pick for a change to three files of `internal/supervisor`:
+
+```text
+cfo gate prepush: 3 files changed since 3301d7c9, which picks 9 checks to run within 15m0s
+1. go vet of 4 packages (they build against what changed)
+2. guard tests of the root package (its tests read every link of the contract, the workflows and the shipped skills)
+3. guard tests of cmd/cfo: TestEveryCommandSaysWhetherItActsAsTheCFO, TestEveryCommandIsAControlOrStaysAtNormalOnPurpose (they read every command main.go dispatches)
+4. guard tests of internal/gatetest: TestTheRepositoryPolicyAccountsForEveryTrackedFile, TestTheRepositoryPolicyNamesOnlyFieldsAndPackagesThatExist (they read every tracked file against this policy)
+5. tests of internal/fsx (the read and process-start guards scan every Go file: internal/supervisor/error_wakes.go and 2 more)
+6. tests of internal/execx (the read and process-start guards scan every Go file: internal/supervisor/error_wakes.go and 2 more)
+7. tests of internal/supervisor but for 171 slower ones (changed)
+8. tests of cmd/cfo but for 140 slower ones (imports internal/supervisor)
+9. tests of cmd/goblins-window (imports internal/supervisor)
+left to CI:
+- 171 tests of internal/supervisor (they take 2s or longer each here, 28m7s in all, and are in files the change did not touch)
+- 140 tests of cmd/cfo (they take 2s or longer each here, 59m50s in all)
+policy: config/verify.json version 1 at 3301d7c9
+```
+
+The first check that fails ends the run with exit 1, and its last line names the check and the tests:
+
+```text
+cfo gate prepush: failed at check 7 of 9, tests of internal/supervisor but for 171 slower ones: TestOverlapReadThatKeepsFailingWakesTheCFOOnTheThirdPassInARow failed. CI would fail on it too, so fix it before you push.
+```
+
+A run in which nothing failed exits 0 and says how many of the picked checks ran.
+A run the machine gave no turn says that nothing ran and exits 1.
+
+`cfo verify <task>` runs this as the project's fast tier, by `verification.fast` in `data/projects/code-goblins/project.json`, so a goblin and the CFO run the same check by the same command.
+A tier that fails prints its failed check's last line and the file that holds the rest.
 
 ## Reading speed evidence
 

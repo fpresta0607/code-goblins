@@ -87,6 +87,7 @@ commands:
   cfo hygiene <task-id>
   cfo gate tests-kept   run from a no-mistakes repository gate: exits 1 when the gate's own fix commits deleted or skipped a test, so the run parks for an ask-user decision
   cfo gate test [--level fast|affected|full] [--plan]   this repository's gate test step: go vet and go test on the packages the branch changed, the packages that import them and the packages config/verify.json names for a changed file their tests read, without the fleet's home; it lists the changed files no Go check reads, and a changed file the policy does not account for requires every package; CI runs every package; --level fast leaves the slow packages' tests and the importers' to affected, full tests every package, --plan prints the plan and runs nothing; each run leaves a report and prints its path; above fast its tests wait for the run's turn on the machine, one run at a time
+  cfo gate prepush [--plan] [--limit <duration>]   what a goblin runs before it pushes: picks what the branch's change can break and runs it one check at a time, stopping with one plain line at the first failure: go vet of the packages the change reaches, the tests that read the whole tree, the changed packages and the packages that import them, nearest first, and for a change under frontend the type check, the lint, the unit tests and the browser specs the change touched or names. A slow package runs without the tests this machine timed at 2 seconds or longer, unless the change touched their file. It takes its turn on the machine, starts no check under the memory floor or after its time limit, 15 minutes unless --limit says otherwise, and names what it left to CI. --plan prints the pick and runs nothing
   cfo gate turns        show which cfo gate test runs hold the machine's turns, for how long and under what budget, how far their tests are, and which wait
   cfo deploy <task-id> [--target <name>]
   cfo evidence <task-id>
@@ -254,6 +255,9 @@ type commandRuntime struct {
 	gateBudget    func(gatetest.Level) time.Duration
 	gateRun       func(command []string, dir string, env []string, stdout, stderr io.Writer) (int, error)
 	gateProgress  time.Duration
+	// pushRun runs one check of cfo gate prepush in dir and returns its exit
+	// code, ending the check when its context ends.
+	pushRun func(ctx context.Context, command []string, dir string, env []string, stdout, stderr io.Writer) (int, error)
 	// trainEvery is how often cfo pr train looks at its train's CI. Zero, in
 	// every runtime but a test's, is the trainEvery constant.
 	trainEvery time.Duration
@@ -420,6 +424,7 @@ func defaultCommandRuntime() commandRuntime {
 		gateBudget:      gateBudget,
 		gateRun:         runGateCommand,
 		gateProgress:    5 * time.Second,
+		pushRun:         runPushCommand,
 	}
 }
 

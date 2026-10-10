@@ -66,8 +66,10 @@ type written struct{ test, text string }
 
 type testRun struct {
 	since time.Time
-	// outcome is pass, fail or skip, and empty while the test has not ended.
+	// outcome is pass, fail or skip, and empty while the test has not ended,
+	// and seconds how long the test took once it has.
 	outcome string
+	seconds float64
 	paused  bool
 }
 
@@ -172,7 +174,7 @@ func (e *Events) line(line []byte) {
 		switch {
 		case event.Test != "":
 			if test != nil {
-				test.outcome = event.Action
+				test.outcome, test.seconds = event.Action, event.Elapsed
 			}
 		case event.Action == "pass":
 			e.end(run, "passed", event.Elapsed)
@@ -286,4 +288,25 @@ func (e *Events) Progress() (running []Running, done int, last string) {
 		}
 	}
 	return running, done, e.last
+}
+
+// Times are how long each top-level test that passed took, by its package. A
+// test that failed, was skipped or never ended says nothing of how long it
+// takes when it passes.
+func (e *Events) Times() Times {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	times := Times{}
+	for _, name := range e.order {
+		for test, run := range e.packages[name].tests {
+			if run.outcome != "pass" || strings.Contains(test, "/") {
+				continue
+			}
+			if times[name] == nil {
+				times[name] = map[string]float64{}
+			}
+			times[name][test] = run.seconds
+		}
+	}
+	return times
 }

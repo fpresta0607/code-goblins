@@ -5,6 +5,7 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"io"
 	"os/exec"
 	"runtime"
 	"strconv"
@@ -84,6 +85,29 @@ func (OSRunner) Run(ctx context.Context, req Request) (Result, error) {
 		return result, nil
 	}
 	return Result{}, waitErr
+}
+
+// Stream starts the requested process with what it writes going to stdout
+// and stderr as it writes it, waits for it and returns its exit code: a run
+// read while it lasts, as a test run is. A normal non-zero exit is a result,
+// as it is for Run. A run its context ended returns the context's error with
+// the process ended, and with KillTree everything it started.
+func (OSRunner) Stream(ctx context.Context, req Request, stdout, stderr io.Writer) (int, error) {
+	cmd := command(ctx, req)
+	cmd.WaitDelay = 2 * time.Second
+	cmd.Stdout, cmd.Stderr = stdout, stderr
+	if err := cmd.Start(); err != nil {
+		return -1, err
+	}
+	waitErr := cmd.Wait()
+	if err := ctx.Err(); err != nil {
+		return -1, err
+	}
+	var exitErr *exec.ExitError
+	if waitErr == nil || errors.As(waitErr, &exitErr) && cmd.ProcessState.Exited() {
+		return cmd.ProcessState.ExitCode(), nil
+	}
+	return -1, waitErr
 }
 
 // Start starts a child process and arranges for it to be reaped after exit.

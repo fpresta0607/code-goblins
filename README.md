@@ -97,6 +97,10 @@ It says which level a change requires: `affected`, the Go packages the change re
 It says why each package is in the plan and which changed files no Go check reads, and it leaves a report of what it ran, with what became of each package and which tests failed.
 While working, `cfo gate test --level fast` vets the same packages and tests only the quick changed ones, and `cfo gate test --plan` prints the plan and runs nothing.
 Its tests take turns on the machine, one run at a time, and `cfo gate turns` shows which run holds the turn, how far its tests are, and which runs wait.
+Before each push a goblin runs `cfo gate prepush`, which picks what the change can break and runs it one check at a time, so CI is not the first to run a test the change broke.
+It runs what the fast level runs and more: the tests that read the whole tree whatever changed, the slow packages without their slowest tests, the board's checks for a change under `frontend`, and the packages that import what changed, nearest first.
+It stops at the first failure with one plain line, starts no check after its time limit, and names what it left to CI.
+See [Before a push](docs/pipeline.md#before-a-push).
 See [Verification levels](docs/pipeline.md#verification-levels).
 
 The production-proof layer is intentionally fail-closed: delivery evidence must come from machine-readable PR state and terminal checks rather than a worker merely claiming that the task is finished.
@@ -853,6 +857,7 @@ cfo pipeline respond <id> --action <fix|approve> [--findings <ids>] [--instructi
 cfo pipeline recover <id>
 cfo gate tests-kept
 cfo gate test [--level fast|affected|full] [--plan]
+cfo gate prepush [--plan] [--limit <duration>]
 cfo gate turns
 cfo pr check <id> <url>
 cfo pr merge <url> [--method <merge|squash|rebase>] [--delete-branch] [--verified "<what verified it>"]
@@ -1138,11 +1143,11 @@ cd frontend
 npm ci
 npm run build
 cd ..
-go run ./cmd/cfo gate test
+go run ./cmd/cfo gate prepush
 go build ./cmd/cfo
 ```
 
-`cfo gate test` vets what your change reaches and tests the changed packages that are quick to test; CI runs on `windows-latest` and tests every package on every pull request. The real-session acceptance suite is opt-in because it requires actual Herdr and harness installations.
+`cfo gate prepush` picks what your change can break and runs it one check at a time, stopping at the first failure. CI runs on `windows-latest` and tests every package on every pull request. The real-session acceptance suite is opt-in because it requires actual Herdr and harness installations.
 
 ## Project lineage
 
