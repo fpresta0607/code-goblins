@@ -94,9 +94,13 @@ var testArgs = []string{"go", "test", "-json", "-count=1", "-p", "2", "-timeout"
 // push picks what a change can break, in the order a failure is likeliest
 // and cheapest to find. It vets every package the change reaches. It runs
 // the policy's guards, the tests that read the whole tree, whatever changed.
-// It tests the changed packages and the packages a contract names, then
-// checks the board when a file under it changed, then tests the packages
-// that import a changed one, nearest first. A package the policy lists as
+// It tests the changed packages and the packages a contract names that are
+// quick, checks the board when a file under it changed, tests the changed
+// packages the policy lists as slow, then tests the packages that import a
+// changed one, nearest first. The slow ones come after the board because a
+// busy machine can spend the whole limit in them: on 2026-10-10 the replays
+// of PR 613 and PR 596 were ended by the limit inside the quick tests of
+// cmd/cfo and internal/supervisor. A package the policy lists as
 // slow runs without the tests times records at SlowTest or longer, except
 // the tests in a test file the change touched and the tests under BesideTest
 // in the test file named for a changed source, and is left to CI when it did
@@ -135,7 +139,7 @@ func push(found findings, times Times) Push {
 		return -1
 	})
 
-	var own, importers []Step
+	var quick, slower, importers []Step
 	whole := map[string]bool{}
 	for _, choice := range reach.Choices {
 		dir := dirs[choice.ImportPath]
@@ -165,11 +169,14 @@ func push(found findings, times Times) Push {
 				continue
 			}
 		}
-		if choice.Imports == "" {
-			whole[choice.ImportPath] = !slow[choice.ImportPath]
-			own = append(own, step)
-		} else {
+		switch {
+		case choice.Imports != "":
 			importers = append(importers, step)
+		case slow[choice.ImportPath]:
+			slower = append(slower, step)
+		default:
+			whole[choice.ImportPath] = true
+			quick = append(quick, step)
 		}
 	}
 
@@ -196,10 +203,8 @@ func push(found findings, times Times) Push {
 		}
 		pick.Steps = append(pick.Steps, step)
 	}
-	pick.Steps = append(pick.Steps, own...)
 	boardSteps, boardLeft := boardChecks(found.root, found.changed)
-	pick.Steps = append(pick.Steps, boardSteps...)
-	pick.Steps = append(pick.Steps, importers...)
+	pick.Steps = slices.Concat(pick.Steps, quick, boardSteps, slower, importers)
 	pick.Left = append(pick.Left, boardLeft...)
 	if policyErr != nil {
 		pick.Left = append(pick.Left, Deferred{Check: "tests of every other package", Why: strings.TrimPrefix(policyErr.Error(), "gatetest: ")})

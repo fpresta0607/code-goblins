@@ -118,6 +118,28 @@ func TestPushChecksTheBoardBeforeThePackagesThatOnlyImportTheChange(t *testing.T
 	}
 }
 
+// The board's checks come before the changed packages that are slow to
+// test, and after the quick ones. PR 536 changed cmd/cfo,
+// internal/supervisor and the board, and failed CI twice on a browser spec.
+// On 2026-10-10 the replays of two pull requests that changed those
+// packages were ended by the 15 minute limit inside their quick tests, so a
+// check placed after them is one a busy machine never reaches.
+func TestPushChecksTheBoardBeforeTheChangedPackagesThatAreSlow(t *testing.T) {
+	// Arrange
+	found := checkout(t, fleet, board(nil), fleetPackages, "internal/auth/need.go", "internal/supervisor/afk.go", "frontend/src/RunCard.tsx")
+
+	// Act
+	pick := push(found, nil)
+
+	// Assert
+	got := whats(pick)
+	quick, lint := slices.Index(got, "tests of internal/auth (changed)"), slices.Index(got, "the board's lint (a file under frontend changed)")
+	slow, importer := slices.Index(got, "tests of internal/supervisor (changed)"), slices.Index(got, "tests of internal/state (imports internal/auth)")
+	if quick < 0 || lint < quick || slow < lint || importer < slow {
+		t.Errorf("push picks\n%s\nwant the quick changed package, the board's checks, the slow changed package, then the importer", strings.Join(got, "\n"))
+	}
+}
+
 // A change that touches nothing under frontend picks none of the board's
 // checks and leaves nothing of the board to CI.
 func TestPushLeavesTheBoardAloneWhenNothingUnderItChanged(t *testing.T) {
