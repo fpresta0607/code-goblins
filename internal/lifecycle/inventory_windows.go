@@ -117,3 +117,24 @@ func markOf(environment []string) (Mark, bool) {
 	}
 	return Mark{Terminal: terminal, ProofSum: host.ProofSum(proof)}, isGateAgent
 }
+
+// TerminalOf reads which of the home's terminals a process is by its mark:
+// the terminal its environment names, once the proof value beside it is one
+// a host of that terminal gave it (host.Proofs under stateDir). It is empty
+// for a process that carries no mark of this home's, for one that cannot be
+// read, and for a gate agent's, which carries the mark of whichever goblin
+// started the daemon.
+func TerminalOf(stateDir string) func(pid int) string {
+	return func(pid int) string {
+		_, _, environment, _ := proc.ParametersAndEnvironment(pid)
+		mark, isGateAgent := markOf(environment)
+		if mark == (Mark{}) || isGateAgent {
+			return ""
+		}
+		proofs, err := host.Proofs(stateDir, mark.Terminal)
+		if err != nil || !slices.Contains(proofs, mark.ProofSum) {
+			return ""
+		}
+		return mark.Terminal
+	}
+}
