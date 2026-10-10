@@ -181,9 +181,9 @@ func TestInstallReplacesADesktopWindowThatIsStillOpen(t *testing.T) {
 	if len(aside) != 1 || !strings.HasPrefix(filepath.Base(aside[0]), "goblins-window.exe.") || readFile(t, aside[0]) != string(ping) {
 		t.Fatalf("copies moved aside = %v, want only the open goblins-window.exe", aside)
 	}
-	// The open window moves onto the new program by itself once it is idle,
+	// The open window moves onto the new program by itself once it is in the tray,
 	// so nothing about it is left for the Overlord to do.
-	if !strings.Contains(output, "the previous window still runs and moves onto this one by itself once it is idle") || strings.Contains(output, "quit it from its tray icon") {
+	if !strings.Contains(output, "the previous window still runs and moves onto this one by itself once it is in the tray") || strings.Contains(output, "quit it from its tray icon") {
 		t.Errorf("the install does not say the previous window moves by itself:\n%s", output)
 	}
 

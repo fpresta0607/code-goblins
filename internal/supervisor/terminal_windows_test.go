@@ -1028,6 +1028,10 @@ func TestControlViewRefusesCustodyAfterGitCancellation(t *testing.T) {
 			if found, err := exec.LookPath("git"); err != nil || !strings.EqualFold(found, fakeGit) {
 				t.Fatalf("git resolves to %q, %v; want the owned stand-in", found, err)
 			}
+			warmStandInGit(t, fakeGit)
+			if _, err := os.Stat(entry); !errors.Is(err, os.ErrNotExist) {
+				t.Fatalf("starting the stand-in a first time recorded a Git entry: %v", err)
+			}
 			ctx, cancel := context.WithCancel(context.Background())
 			if test.isExpired {
 				cancel()

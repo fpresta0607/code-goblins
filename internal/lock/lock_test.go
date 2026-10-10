@@ -842,3 +842,98 @@ func TestAcquireNamedOwnerWithinGivesUpOnALiveHolderAfterItsWait(t *testing.T) {
 		t.Errorf("the acquire waited %s, want about %s", waited, wait)
 	}
 }
+
+// A lock handed over names the other process as its holder in one step: it
+// is never free in between, so nothing else takes it, and this process holds
+// it no more. Once that process ends, the lock is free to take.
+func TestHandOverExclusiveNamedMakesAnotherProcessTheHolder(t *testing.T) {
+	// Arrange
+	dir, name := t.TempDir(), ".watch.lock"
+	if _, err := AcquireExclusiveNamed(dir, name); err != nil {
+		t.Fatal(err)
+	}
+	next := exec.Command("ping", "-n", "30", "127.0.0.1")
+	if err := next.Start(); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = next.Process.Kill(); _ = next.Wait() })
+
+	// Act
+	err := HandOverExclusiveNamed(dir, name, next.Process.Pid)
+
+	// Assert
+	if err != nil {
+		t.Fatalf("HandOverExclusiveNamed = %v", err)
+	}
+	holder, err := ReadNamed(dir, name)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want, _ := ownerInfo(next.Process.Pid, exclusiveSpawnSession)
+	if holder.PID != want.PID || holder.OwnerPID != want.PID || !holder.Start.Equal(want.Start) || holder.Hostname != want.Hostname || holder.Session != exclusiveSpawnSession {
+		t.Fatalf("the lock names %+v, want the process it was handed to, %+v", holder, want)
+	}
+	if _, err := AcquireExclusiveNamed(dir, name); !errors.Is(err, ErrHeld) || !strings.Contains(err.Error(), "pid") {
+		t.Fatalf("an acquire over a lock handed to a live process = %v, want ErrHeld naming its pid", err)
+	}
+	_ = next.Process.Kill()
+	_ = next.Wait()
+	if _, err := AcquireExclusiveNamed(dir, name); err != nil {
+		t.Fatalf("an acquire once the process the lock was handed to ended = %v", err)
+	}
+	if err := ReleaseExclusiveNamed(dir, name); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// Only the holder hands its lock over, and only to a process that runs: a
+// lock another process holds, a lock nobody holds and a process that ended
+// are each refused, and the record stays as it was.
+func TestHandOverExclusiveNamedRefusesWhatItCannotHandOver(t *testing.T) {
+	ended := exec.Command("cmd", "/c", "exit 0")
+	if err := ended.Run(); err != nil {
+		t.Fatal(err)
+	}
+	live := exec.Command("ping", "-n", "30", "127.0.0.1")
+	if err := live.Start(); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = live.Process.Kill(); _ = live.Wait() })
+	for _, test := range []struct {
+		name string
+		// held arranges who holds the lock.
+		held func(t *testing.T, dir, lockName string)
+		to   int
+	}{
+		{"a lock another process holds", func(t *testing.T, dir, lockName string) {
+			if _, err := AcquireNamedOwner(dir, lockName, live.Process.Pid, exclusiveSpawnSession); err != nil {
+				t.Fatal(err)
+			}
+		}, live.Process.Pid},
+		{"a lock nobody holds", func(*testing.T, string, string) {}, live.Process.Pid},
+		{"a process that ended", func(t *testing.T, dir, lockName string) {
+			if _, err := AcquireExclusiveNamed(dir, lockName); err != nil {
+				t.Fatal(err)
+			}
+			t.Cleanup(func() { _ = ReleaseExclusiveNamed(dir, lockName) })
+		}, ended.Process.Pid},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			// Arrange
+			dir, lockName := t.TempDir(), ".watch.lock"
+			test.held(t, dir, lockName)
+			before, _ := os.ReadFile(filepath.Join(dir, lockName))
+
+			// Act
+			err := HandOverExclusiveNamed(dir, lockName, test.to)
+
+			// Assert
+			if err == nil {
+				t.Fatal("HandOverExclusiveNamed = nil, want it refused")
+			}
+			if after, _ := os.ReadFile(filepath.Join(dir, lockName)); string(after) != string(before) {
+				t.Fatalf("a refused hand-over changed the record from %q to %q", before, after)
+			}
+		})
+	}
+}

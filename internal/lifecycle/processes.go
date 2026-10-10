@@ -2,6 +2,7 @@ package lifecycle
 
 import (
 	"path/filepath"
+	"slices"
 	"strings"
 	"time"
 
@@ -33,23 +34,57 @@ type Process struct {
 	Started   time.Time
 	Directory string
 	Arguments []string
+	// Mark is the terminal the process's environment names with the digest
+	// of the proof value it carries for it, empty when it carries none or
+	// its environment could not be read.
+	Mark Mark
+	// IsGateAgent says the process's environment is a gate agent's.
+	IsGateAgent bool
+	// HasWindow says the process shows a window on the desktop.
+	HasWindow bool
 }
 
-// OwnedProcesses are the processes a task's teardown ends: those in its
-// terminal's job, and those at work in its directories or running a program
-// from them. A machine service the goblin started is never among them, nor
-// what runs under it, since it serves the whole machine: Docker Desktop
-// started from a worktree runs there and in that job, and so does a
-// no-mistakes daemon a goblin's gate started, with every other gate's agents
-// under it. A daemon's agent at work in the task's own directories, its own
-// gate run's, is still the task's.
-func OwnedProcesses(processes []Process, directories []string, job []Identity) []Process {
+// Mark names a terminal and the digest of a proof value one of its hosts put
+// in the terminal's environment (host.Proofs). Every process started in the
+// terminal inherits the value and keeps it when its parent exits, and when
+// Git Bash starts it outside the terminal's job, so the mark is what still
+// ties a detached process to its owner. A program started by an MSYS program
+// that is one itself, as Git Bash's own tools are, has no Windows
+// environment to carry it: such a process is the task's by its working
+// directory, or as the child of a process that is.
+type Mark struct {
+	Terminal string
+	ProofSum string
+}
+
+// OwnedProcesses are the processes a task's teardown ends. A process is the
+// task's own by any of four things. Its terminal's job, which holds what the
+// harness started itself. Its terminal's mark, which it carries wherever it
+// works and whatever became of its parent. Its place, at work in the task's
+// directories or running a program from them. Or its parent, when that is
+// the task's own and started before it.
+//
+// Three kinds of process are never the task's by its mark or its parent,
+// whatever started them. A machine service the goblin started and what runs
+// under it, since it serves the whole machine: Docker Desktop started from a
+// worktree runs there and in that job, so does a no-mistakes daemon a
+// goblin's gate started, with every other gate's agents under it, and so
+// does the Scrawl server every goblin's page is served by. A daemon's agent
+// at work in the task's own directories, its own gate run's, is still the
+// task's. A gate's agent, which carries the mark of whichever goblin started
+// the daemon while it works for any gate. And a desktop program with what it
+// started (desktopPrograms), which is the Overlord's to close.
+func OwnedProcesses(processes []Process, directories []string, job []Identity, marks []Mark) []Process {
 	running := make([]proc.ServiceProcess, 0, len(processes))
+	byPID := make(map[int]Process, len(processes))
 	for _, process := range processes {
 		running = append(running, proc.ServiceProcess{PID: process.PID, ParentPID: process.ParentPID, ExeBase: process.Name, Arguments: process.Arguments, Start: process.Started})
+		byPID[process.PID] = process
 	}
 	services := proc.ServicesOf(running)
-	var owned []Process
+	desktop := desktopPrograms(processes)
+	isOwned := map[int]bool{}
+	canFollow := map[int]bool{}
 	for _, process := range processes {
 		if process.PID <= 0 || process.Started.IsZero() {
 			continue
@@ -93,12 +128,93 @@ func OwnedProcesses(processes []Process, directories []string, job []Identity) [
 			}
 		}
 		service := services[process.PID]
-		isService := service == proc.DockerDesktop || service == proc.GateDaemon && (proc.ServiceOf(process.Name, process.Arguments) == proc.GateDaemon || !isClaimed)
-		if (isJobMember || isClaimed) && !isService {
+		isOwnGateAgent := service == proc.GateDaemon && isClaimed && proc.ServiceOf(process.Name, process.Arguments) != proc.GateDaemon
+		if service != proc.NoService && !isOwnGateAgent {
+			continue
+		}
+		isMarked := !process.IsGateAgent && process.Mark != (Mark{}) && slices.Contains(marks, process.Mark)
+		canFollow[process.PID] = !desktop[process.PID]
+		isOwned[process.PID] = isJobMember || isClaimed || isMarked && canFollow[process.PID]
+	}
+	// A process whose parent is the task's own is the task's too. Each pass
+	// reaches one generation further down.
+	for isGrowing := true; isGrowing; {
+		isGrowing = false
+		for _, process := range processes {
+			parent, hasParent := byPID[process.ParentPID]
+			if isOwned[process.PID] || !canFollow[process.PID] || !hasParent || !isOwned[parent.PID] || process.Started.Before(parent.Started) {
+				continue
+			}
+			isOwned[process.PID] = true
+			isGrowing = true
+		}
+	}
+	var owned []Process
+	for _, process := range processes {
+		if isOwned[process.PID] {
 			owned = append(owned, process)
 		}
 	}
 	return owned
+}
+
+// desktopBrowsers are the browsers a person uses. One started with none of
+// automationFlags runs on that person's own profile, in their own windows.
+var desktopBrowsers = []string{"chrome", "msedge", "firefox", "brave", "chromium", "opera", "vivaldi"}
+
+// automationFlags are the arguments a tool starts a browser with to drive
+// it: such a browser is the tool's, on a profile of its own.
+var automationFlags = []string{"--headless", "-headless", "--remote-debugging-pipe", "--remote-debugging-port", "--enable-automation", "--marionette"}
+
+// desktopPrograms are the programs a person uses, with everything under
+// them: a program that shows a window, a browser no tool drives, a packaged
+// desktop app, and Explorer. A goblin can start one for the Overlord, as
+// when a sign-in opens his browser: it then carries the goblin's mark and is
+// the goblin's child, and it is still his to close. A browser a tool drives
+// is no such program even while it shows a window.
+func desktopPrograms(processes []Process) map[int]bool {
+	children := make(map[int][]Process, len(processes))
+	for _, process := range processes {
+		children[process.ParentPID] = append(children[process.ParentPID], process)
+	}
+	desktop := map[int]bool{}
+	var queue []Process
+	for _, process := range processes {
+		if isDesktopProgram(process) {
+			desktop[process.PID] = true
+			queue = append(queue, process)
+		}
+	}
+	for len(queue) > 0 {
+		parent := queue[0]
+		queue = queue[1:]
+		for _, child := range children[parent.PID] {
+			if desktop[child.PID] || child.PID == parent.PID || child.Started.Before(parent.Started) {
+				continue
+			}
+			desktop[child.PID] = true
+			queue = append(queue, child)
+		}
+	}
+	return desktop
+}
+
+func isDesktopProgram(process Process) bool {
+	name := strings.TrimSuffix(strings.ToLower(process.Name), ".exe")
+	if slices.Contains(desktopBrowsers, name) {
+		for _, argument := range process.Arguments {
+			flag, _, _ := strings.Cut(argument, "=")
+			// A browser's own child processes follow the browser above them.
+			if flag == "--type" || flag == "-contentproc" || slices.Contains(automationFlags, flag) {
+				return false
+			}
+		}
+		return true
+	}
+	if process.HasWindow || name == "explorer" {
+		return true
+	}
+	return len(process.Arguments) > 0 && strings.Contains(strings.ToLower(process.Arguments[0]), `\windowsapps\`)
 }
 
 func withinDirectory(path, directory string) bool {
