@@ -3,7 +3,6 @@ package main
 import (
 	"errors"
 	"fmt"
-	"maps"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -16,7 +15,6 @@ import (
 
 	"github.com/fpresta0607/code-goblins/internal/fsx"
 	"github.com/fpresta0607/code-goblins/internal/lock"
-	"github.com/fpresta0607/code-goblins/internal/reap"
 	"github.com/fpresta0607/code-goblins/internal/wake"
 )
 
@@ -118,16 +116,7 @@ func TestEveryWakeReachesTheCFOOnceWhileADozenSessionsFireTheirHooks(t *testing.
 	// Arrange
 	h := scratchHome(t)
 	writeMetaFixture(t, h.State, "g1.meta")
-	// A watcher's first cycle sweeps the whole machine for orphans, and to
-	// this scratch home a stand-in harness another goblin's test runs beside
-	// it is one: its wake reached the CFO before the goblin's report in two
-	// runs of two while such a test ran. This home has swept, and its watcher
-	// is not due to sweep again while the test runs.
-	if err := reap.WriteRecord(h.State, reap.Record{Time: time.Now().UTC()}); err != nil {
-		t.Fatal(err)
-	}
-	waits := maps.Clone(stopWaits)
-	waits["CFO_REAP_EVERY"] = "86400"
+	waits := sweptStopWaits(t, h.State)
 	others := make([]*standInSession, loadSessions-1)
 	for at := range others {
 		others[at] = startOtherSession(t, h)
