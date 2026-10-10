@@ -102,7 +102,17 @@ jobs:
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           npx playwright install chromium --only-shell
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          npm run test:browser -- --shard=${{ matrix.shard }}/${{ strategy.job-total }}
+          npm run test:browser -- --shard=${{ matrix.shard }}/${{ strategy.job-total }} --reporter=dot,json
+        env:
+          PLAYWRIGHT_JSON_OUTPUT_NAME: timings.json
+      - name: Keep each browser test's time (measurement, to be removed)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: browser-timings-${{ matrix.shard }}
+          path: frontend/timings.json
+          if-no-files-found: ignore
+          retention-days: 14
       # A browser test that fails leaves its page snapshot (error-context.md)
       # and trace in test-results; keep them, so a failure seen once can be
       # read after the runner is gone.
@@ -220,7 +230,12 @@ jobs:
           $only = @()
           if ($env:RUN) { $only += '-run', $env:RUN }
           if ($env:SKIP) { $only += '-skip', $env:SKIP }
-          go test $packages $only -count=1 -timeout 20m
+          go test $packages $only -count=1 -timeout 20m -json > (Join-Path $env:RUNNER_TEMP go-test.json)
+          $code = $LASTEXITCODE
+          # Each package's result, then each test that failed.
+          Select-String -Path (Join-Path $env:RUNNER_TEMP go-test.json) -Raw -Pattern '"Action":"(pass|fail)","Package":"[^"]*","Elapsed"'
+          Select-String -Path (Join-Path $env:RUNNER_TEMP go-test.json) -Raw -Pattern '"Action":"fail","Package":"[^"]*","Test"'
+          exit $code
         env:
           PACKAGES: ${{ matrix.packages }}
           EXCEPT: ${{ matrix.except }}
@@ -228,6 +243,14 @@ jobs:
           SKIP: ${{ matrix.skip }}
           CFO_HOME: ${{ runner.temp }}\cfo-go-tests
           CFO_STATE_OVERRIDE: ${{ runner.temp }}\cfo-go-tests\state
+      - name: Keep each Go test's time (measurement, to be removed)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: go-timings-${{ matrix.shard }}
+          path: ${{ runner.temp }}/go-test.json
+          if-no-files-found: ignore
+          retention-days: 14
       - if: matrix.shard == 'rest'
         run: go build ./cmd/cfo
 
