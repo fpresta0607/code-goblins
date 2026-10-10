@@ -69,34 +69,36 @@ func heldResources(ctx context.Context, h home.Home, meta state.TaskMeta, comman
 	return resources, nil
 }
 
-// ownResources are the directories and terminal one task holds itself.
-func ownResources(ctx context.Context, h home.Home, meta state.TaskMeta, commands execx.Runner) (Resources, error) {
-	var resources Resources
-	stateDir := h.State
+// TaskDirectories are the folders that are one task's own by its identity:
+// its worktree, its task temporary directory, the extra worktrees it recorded
+// beside its own, its scratch folder and its Claude Code scratchpad. A
+// record that names anything else names nothing, so no process is the task's
+// for working there.
+func TaskDirectories(h home.Home, meta state.TaskMeta) ([]string, error) {
 	project := filepath.Base(filepath.Clean(meta.Project))
 	if !filepath.IsAbs(meta.Project) || !slices.ContainsFunc(h.OwnWorktrees(meta.Project, meta.ID), func(own string) bool { return strings.EqualFold(filepath.Clean(meta.Worktree), own) }) {
-		return resources, errors.New("task worktree is not its isolated project worktree")
+		return nil, errors.New("task worktree is not its isolated project worktree")
 	}
-	if !strings.EqualFold(filepath.Clean(meta.TaskTmp), filepath.Join(stateDir, "tasktmp", meta.ID)) {
-		return resources, errors.New("task scratch directory does not match its task identity")
+	if !strings.EqualFold(filepath.Clean(meta.TaskTmp), filepath.Join(h.State, "tasktmp", meta.ID)) {
+		return nil, errors.New("task scratch directory does not match its task identity")
 	}
-	resources.Directories = []string{meta.Worktree, meta.TaskTmp}
+	directories := []string{meta.Worktree, meta.TaskTmp}
 	for _, extra := range meta.Extras {
 		name := filepath.Base(filepath.Clean(extra))
 		if !slices.ContainsFunc(h.WorktreeRoots(), func(root string) bool {
 			return strings.EqualFold(filepath.Dir(filepath.Clean(extra)), filepath.Join(root, project))
 		}) || !strings.HasPrefix(strings.ToLower(name), strings.ToLower(meta.ID)+"-") {
-			return resources, errors.New("task extra worktree is not one beside its own")
+			return nil, errors.New("task extra worktree is not one beside its own")
 		}
-		resources.Directories = append(resources.Directories, extra)
+		directories = append(directories, extra)
 	}
 	if meta.Scratch != "" {
 		if !slices.ContainsFunc(h.ScratchRoots(), func(root string) bool {
 			return strings.EqualFold(filepath.Clean(meta.Scratch), filepath.Join(root, meta.ID))
 		}) {
-			return resources, errors.New("task scratch folder does not match its task identity")
+			return nil, errors.New("task scratch folder does not match its task identity")
 		}
-		resources.Directories = append(resources.Directories, meta.Scratch)
+		directories = append(directories, meta.Scratch)
 	}
 	slug := strings.Map(func(value rune) rune {
 		if value >= 'a' && value <= 'z' || value >= '0' && value <= '9' {
@@ -104,7 +106,18 @@ func ownResources(ctx context.Context, h home.Home, meta state.TaskMeta, command
 		}
 		return '-'
 	}, strings.ToLower(filepath.Clean(meta.Worktree)))
-	resources.Directories = append(resources.Directories, filepath.Join(os.TempDir(), "claude", slug))
+	return append(directories, filepath.Join(os.TempDir(), "claude", slug)), nil
+}
+
+// ownResources are the directories and terminal one task holds itself.
+func ownResources(ctx context.Context, h home.Home, meta state.TaskMeta, commands execx.Runner) (Resources, error) {
+	var resources Resources
+	stateDir := h.State
+	directories, err := TaskDirectories(h, meta)
+	if err != nil {
+		return resources, err
+	}
+	resources.Directories = directories
 	if meta.Backend == "native" {
 		record, err := host.ReadRecord(stateDir, meta.ID)
 		if err != nil && !errors.Is(err, os.ErrNotExist) {
