@@ -15,22 +15,8 @@ import (
 	"testing"
 
 	"github.com/fpresta0607/code-goblins/internal/installtest"
+	"github.com/fpresta0607/code-goblins/internal/standin"
 )
-
-// standInVariable makes a copy of this test binary stand in for a cfo.exe
-// whose every command succeeds, or, set to fail, whose every command fails.
-const standInVariable = "CODE_GOBLINS_TEST_STAND_IN"
-
-func TestMain(m *testing.M) {
-	switch os.Getenv(standInVariable) {
-	case "":
-	case "fail":
-		os.Exit(1)
-	default:
-		os.Exit(0)
-	}
-	os.Exit(m.Run())
-}
 
 // runOneLineInstall runs install.ps1 the way the one-line command does, as
 // text through Invoke-Expression, against the release served at base.
@@ -122,6 +108,27 @@ func runPin(t *testing.T, shell, repository, tag string, publisher ...string) (d
 	return destination, string(out), err
 }
 
+// pinned is, as PowerShell writes it, the install script a release of
+// repository at tag publishes, pinned in memory by tools/pin-installer.ps1
+// given no destination. A test pipes it to Invoke-Expression, as the
+// one-line install runs the published script, and writes no copy of it: a
+// pinned copy on disk is one more unsigned script that downloads and runs
+// programs, and Microsoft Defender sent each one a test wrote to Microsoft
+// (two on 2026-10-10). A signed release names its publisher; an unsigned one
+// passes none.
+func pinned(t *testing.T, repository, tag string, publisher ...string) string {
+	t.Helper()
+	pin, err := filepath.Abs(filepath.Join("..", "..", "tools", "pin-installer.ps1"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	expression := "(& '" + pin + "' -Repository '" + repository + "' -Tag '" + tag + "'"
+	for _, name := range publisher {
+		expression += " -Publisher '" + name + "'"
+	}
+	return expression + ")"
+}
+
 func TestReleaseSigningIdentityAllowsUnsignedDraftWithoutAzure(t *testing.T) {
 	// Arrange
 	workflow, err := os.ReadFile(filepath.Join("..", "..", ".github", "workflows", "release.yml"))
@@ -205,16 +212,12 @@ func TestAPublishedInstallDownloadsFromItsOwnRelease(t *testing.T) {
 	for _, repository := range []string{"fpresta0607/code-goblins", "fpresta0607/code-goblins-native"} {
 		t.Run(repository, func(t *testing.T) {
 			// Arrange
-			script, output, err := runPin(t, installtest.WindowsPowerShell(), repository, "v1.2.3", "Code Goblins Test Publisher")
-			if err != nil {
-				t.Fatalf("pin-installer.ps1 = %v:\n%s", err, output)
-			}
 			// The stand-in for Invoke-WebRequest says what the script
 			// downloads and reaches nothing.
 			offline := "function Invoke-WebRequest([string]$Uri, [string]$OutFile, [switch]$UseBasicParsing) { Write-Host ('GET ' + $Uri); throw 'offline' }; "
 
 			// Act
-			output, local, temp, err := runStrippedPowerShell(t, installtest.WindowsPowerShell(), "", "-Command", offline+"Get-Content -Raw -LiteralPath '"+script+"' | Invoke-Expression; exit $LASTEXITCODE")
+			output, local, temp, err := runStrippedPowerShell(t, installtest.WindowsPowerShell(), "", "-Command", offline+pinned(t, repository, "v1.2.3", "Code Goblins Test Publisher")+" | Invoke-Expression; exit $LASTEXITCODE")
 
 			// Assert
 			want := "GET https://github.com/" + repository + "/releases/download/v1.2.3/SHA256SUMS"
@@ -251,6 +254,53 @@ func TestThePinRefusesAValueItCannotWriteAsItIs(t *testing.T) {
 				t.Errorf("pin-installer.ps1 wrote %s (%v), want nothing written", script, statErr)
 			}
 		})
+	}
+}
+
+// The pin writes the script a release publishes to the file it is told, with
+// the text it gives a test in memory. The script pinned here is a stand-in of
+// three lines that downloads nothing, in a tree of its own beside a copy of
+// the pin: the real install script, pinned to a file by a test, is one more
+// unsigned script that downloads and runs programs.
+func TestThePinWritesTheScriptAReleasePublishes(t *testing.T) {
+	// Arrange
+	tree := t.TempDir()
+	source, err := os.ReadFile(filepath.Join("..", "..", "tools", "pin-installer.ps1"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	pin := filepath.Join(tree, "tools", "pin-installer.ps1")
+	if err := os.MkdirAll(filepath.Dir(pin), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	for path, content := range map[string][]byte{
+		pin:                                source,
+		filepath.Join(tree, "install.ps1"): []byte("$repo = \"owner/name\"\r\n$releaseBase = \"https://github.com/$repo/releases/latest/download\"\r\n$releasePublisher = \"\"\r\n"),
+	} {
+		if err := os.WriteFile(path, content, 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	destination := filepath.Join(tree, "release", "install.ps1")
+	arguments := []string{"-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-File", pin, "-Repository", "fpresta0607/code-goblins", "-Tag", "v1.2.3", "-Publisher", "Code Goblins Test Publisher"}
+
+	// Act
+	out, err := exec.Command(installtest.WindowsPowerShell(), append(arguments, "-Destination", destination)...).CombinedOutput()
+	if err != nil {
+		t.Fatalf("pin-installer.ps1 = %v:\n%s", err, out)
+	}
+	inMemory, err := exec.Command(installtest.WindowsPowerShell(), arguments...).Output()
+
+	// Assert
+	want := "$repo = \"fpresta0607/code-goblins\"\r\n$releaseBase = \"https://github.com/$repo/releases/download/v1.2.3\"\r\n$releasePublisher = \"Code Goblins Test Publisher\"\r\n"
+	if written, readErr := os.ReadFile(destination); readErr != nil || string(written) != want {
+		t.Errorf("the pin wrote %q (%v), want %q", written, readErr, want)
+	}
+	if err != nil || strings.TrimRight(string(inMemory), "\r\n") != strings.TrimRight(want, "\r\n") {
+		t.Errorf("with no destination the pin printed %q (%v), want the script it writes, %q", inMemory, err, want)
+	}
+	if len(out) != 0 {
+		t.Errorf("with a destination the pin printed %q, want nothing", out)
 	}
 }
 
@@ -304,14 +354,10 @@ func TestAnUnsignedReleasesInstallNamesNoPublisherAndChecksTheSum(t *testing.T) 
 	for _, shell := range installtest.OneLineShells(t) {
 		t.Run(filepath.Base(shell), func(t *testing.T) {
 			// Arrange
-			script, output, err := runPin(t, shell, "fpresta0607/code-goblins", "v1.2.3")
-			if err != nil {
-				t.Fatalf("pin-installer.ps1 = %v:\n%s", err, output)
-			}
 			base := installtest.ServeRelease(t, binary, fmt.Sprintf("%x  cfo.exe\n", sha256.Sum256(binary)))
 
 			// Act
-			output, _, _, err = runStrippedPowerShell(t, shell, base, "-Command", "Get-Content -Raw -LiteralPath '"+script+"' | Invoke-Expression; exit $LASTEXITCODE")
+			output, _, _, err := runStrippedPowerShell(t, shell, base, "-Command", pinned(t, "fpresta0607/code-goblins", "v1.2.3")+" | Invoke-Expression; exit $LASTEXITCODE")
 
 			// Assert
 			for _, want := range []string{
@@ -340,14 +386,10 @@ func TestAPublishedInstallRefusesADownloadItsPublisherDidNotSign(t *testing.T) {
 	for _, shell := range installtest.OneLineShells(t) {
 		t.Run(filepath.Base(shell), func(t *testing.T) {
 			// Arrange
-			script, output, err := runPin(t, shell, "fpresta0607/code-goblins", "v1.2.3", "Code Goblins Test Publisher")
-			if err != nil {
-				t.Fatalf("pin-installer.ps1 = %v:\n%s", err, output)
-			}
 			base := installtest.ServeRelease(t, binary, fmt.Sprintf("%x  cfo.exe\n", sha256.Sum256(binary)))
 
 			// Act
-			output, local, temp, err := runStrippedPowerShell(t, shell, base, "-Command", "Get-Content -Raw -LiteralPath '"+script+"' | Invoke-Expression; exit $LASTEXITCODE")
+			output, local, temp, err := runStrippedPowerShell(t, shell, base, "-Command", pinned(t, "fpresta0607/code-goblins", "v1.2.3", "Code Goblins Test Publisher")+" | Invoke-Expression; exit $LASTEXITCODE")
 
 			// Assert
 			if err == nil || !strings.Contains(output, "The downloaded cfo.exe is not signed by Code Goblins Test Publisher") {
@@ -447,19 +489,14 @@ func TestOneLineInstallLeavesTheCallersSessionAsItWas(t *testing.T) {
 // The one-line install saves each official installer it needs to a file and
 // starts a child shell on that file with -File. A download-and-run one-liner
 // (irm <url> | iex) on the child's command line is what Defender's
-// command-line model blocks as Trojan:Win32/Commando.A!ml. The internet and
-// the child shell are stand-ins: a download from the internet is recorded
-// and answered with a script naming its URL, and the child records how it
-// was started and the file it was given.
+// command-line model blocks as Trojan:Win32/Commando.A!ml. The internet is a
+// stand-in: a download from it is recorded and answered with a script that
+// names its URL and records how the shell running it was started. The child
+// shell is Windows PowerShell itself, which the install names by its own
+// path: a stand-in first on PATH under its name is how malware hides as part
+// of Windows.
 func TestOneLineInstallStartsOfficialInstallersFromAFile(t *testing.T) {
-	executable, err := os.Executable()
-	if err != nil {
-		t.Fatal(err)
-	}
-	binary, err := os.ReadFile(executable)
-	if err != nil {
-		t.Fatal(err)
-	}
+	binary := standin.Bytes(t)
 	base := installtest.ServeRelease(t, binary, fmt.Sprintf("%x  cfo.exe\n", sha256.Sum256(binary)))
 	installers := []string{
 		"https://claude.ai/install.ps1",
@@ -468,19 +505,20 @@ func TestOneLineInstallStartsOfficialInstallersFromAFile(t *testing.T) {
 		t.Run(filepath.Base(shell), func(t *testing.T) {
 			record := filepath.Join(t.TempDir(), "record.txt")
 			stubs := map[string]string{
-				"git":        "@exit /b 0\r\n",
-				"gh":         "@exit /b 0\r\n",
-				"powershell": "@echo child %*>>\"" + record + "\"\r\n@if exist \"%~5\" type \"%~5\">>\"" + record + "\"\r\n@exit /b 1\r\n",
+				"git": "@exit /b 0\r\n",
+				"gh":  "@exit /b 0\r\n",
 			}
+			// The installer the stand-in internet answers with records the
+			// command line of the shell running it, then its own first line,
+			// and fails, as an installer that could not install does.
 			internet := "function Invoke-WebRequest {\n" +
 				"  [CmdletBinding()] param([string]$Uri, [string]$OutFile, [switch]$UseBasicParsing)\n" +
 				"  if ($Uri.StartsWith('" + base + "/')) { Microsoft.PowerShell.Utility\\Invoke-WebRequest -Uri $Uri -OutFile $OutFile -UseBasicParsing; return }\n" +
 				"  Add-Content -LiteralPath '" + record + "' -Value \"download $Uri\"\n" +
-				"  Set-Content -LiteralPath $OutFile -Value \"# installer from $Uri\"\n" +
+				"  Set-Content -LiteralPath $OutFile -Value @(\"# installer from $Uri\", \"Add-Content -LiteralPath '" + record + "' -Value ('child ' + [Environment]::CommandLine)\", \"Add-Content -LiteralPath '" + record + "' -Value (Get-Content -LiteralPath `$PSCommandPath -TotalCount 1)\", 'exit 1')\n" +
 				"}\n"
 			cmd, _, temp := installtest.StrippedCommand(t, base, stubs, shell, "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-Command",
 				internet+"Get-Content -Raw -LiteralPath '"+installScript(t)+"' | Invoke-Expression; exit $LASTEXITCODE")
-			cmd.Env = append(cmd.Env, standInVariable+"=1")
 
 			out, _ := cmd.CombinedOutput()
 			output := installtest.Said(out, temp)
@@ -755,21 +793,11 @@ func TestInstallCmdGivesWindowsPowerShellItsOwnModules(t *testing.T) {
 // install workflow runs the whole install in both PowerShells on a clean
 // runner.
 func TestDevBuildsOutsideTheCloneAndLeavesNoProgramInIt(t *testing.T) {
-	// Arrange: go copies a stand-in cfo.exe, a copy of this test binary that
-	// fails at every command, to the path it is told to build to.
+	// Arrange: go copies a stand-in cfo.exe, which fails at every command, to
+	// the path it is told to build to.
 	checkout := fakeCheckout(t)
-	self, err := os.Executable()
-	if err != nil {
-		t.Fatal(err)
-	}
 	standIn := filepath.Join(t.TempDir(), "stand-in.exe")
-	data, err := os.ReadFile(self)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(standIn, data, 0o755); err != nil {
-		t.Fatal(err)
-	}
+	standin.Put(t, standIn)
 	window := filepath.Join(t.TempDir(), "window")
 	if err := os.WriteFile(window, []byte("the window"), 0o644); err != nil {
 		t.Fatal(err)
@@ -778,7 +806,7 @@ func TestDevBuildsOutsideTheCloneAndLeavesNoProgramInIt(t *testing.T) {
 		"@if not \"%9\"==\"./cmd/goblins-window\" copy /y \"" + standIn + "\" \"%4\" >nul & exit /b\r\n" +
 		"@if not \"%~6\"==\"-H windowsgui\" exit /b 1\r\n@if not \"%7 %8\"==\"-tags production\" exit /b 1\r\n@copy /y \"" + window + "\" \"%4\" >nul\r\n"}
 	cmd, _, temp := installtest.StrippedCommand(t, installtest.ServeRelease(t, nil, ""), stubs, installtest.WindowsPowerShell(), "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-File", filepath.Join(checkout, "install.ps1"), "-Dev")
-	cmd.Env = append(cmd.Env, standInVariable+"=fail")
+	cmd.Env = append(cmd.Env, standin.Env("", standin.Rule{Any: true, Exit: 1})...)
 
 	// Act
 	out, _ := cmd.CombinedOutput()

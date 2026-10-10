@@ -11,6 +11,7 @@ import (
 	"testing"
 
 	"github.com/fpresta0607/code-goblins/internal/installtest"
+	"github.com/fpresta0607/code-goblins/internal/standin"
 )
 
 // lavishFile is the release file of the lavish-axi fork the install installs.
@@ -27,14 +28,7 @@ var lavishPin = regexp.MustCompile(`Sha256 = "([0-9A-Fa-f]{64})"`)
 // session's temp folder.
 func runInstallWithLavishDownload(t *testing.T, script string, content []byte, standIns map[string]string) (output, recorded, temp string) {
 	t.Helper()
-	executable, err := os.Executable()
-	if err != nil {
-		t.Fatal(err)
-	}
-	binary, err := os.ReadFile(executable)
-	if err != nil {
-		t.Fatal(err)
-	}
+	binary := standin.Bytes(t)
 	base := installtest.ServeRelease(t, binary, fmt.Sprintf("%x  cfo.exe\n", sha256.Sum256(binary)))
 	folder := t.TempDir()
 	record := filepath.Join(folder, "record.txt")
@@ -43,10 +37,9 @@ func runInstallWithLavishDownload(t *testing.T, script string, content []byte, s
 		t.Fatal(err)
 	}
 	stubs := map[string]string{
-		"git":        "@exit /b 0\r\n",
-		"gh":         "@exit /b 0\r\n",
-		"npm":        "@echo npm %*>>\"" + record + "\"\r\n@exit /b 0\r\n",
-		"powershell": "@exit /b 1\r\n",
+		"git": "@exit /b 0\r\n",
+		"gh":  "@exit /b 0\r\n",
+		"npm": "@echo npm %*>>\"" + record + "\"\r\n@exit /b 0\r\n",
 	}
 	maps.Copy(stubs, standIns)
 	internet := "function Invoke-WebRequest {\n" +
@@ -54,11 +47,10 @@ func runInstallWithLavishDownload(t *testing.T, script string, content []byte, s
 		"  if ($Uri.StartsWith('" + base + "/')) { Microsoft.PowerShell.Utility\\Invoke-WebRequest -Uri $Uri -OutFile $OutFile -UseBasicParsing; return }\n" +
 		"  Add-Content -LiteralPath '" + record + "' -Value \"download $Uri\"\n" +
 		"  if ($Uri -like '*/lavish-axi-*.tgz') { Copy-Item -LiteralPath '" + served + "' -Destination $OutFile; return }\n" +
-		"  Set-Content -LiteralPath $OutFile -Value \"# installer from $Uri\"\n" +
+		"  Set-Content -LiteralPath $OutFile -Value @(\"# installer from $Uri\", 'exit 1')\n" +
 		"}\n"
 	cmd, _, temp := installtest.StrippedCommand(t, base, stubs, installtest.WindowsPowerShell(), "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-Command",
 		internet+"Get-Content -Raw -LiteralPath '"+script+"' | Invoke-Expression; exit $LASTEXITCODE")
-	cmd.Env = append(cmd.Env, standInVariable+"=1")
 	out, _ := cmd.CombinedOutput()
 	written, _ := os.ReadFile(record)
 	return installtest.Said(out, temp), string(written), temp

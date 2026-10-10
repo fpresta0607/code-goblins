@@ -691,7 +691,11 @@ public static extern IntPtr SendMessageTimeout(IntPtr hWnd, uint Msg, UIntPtr wP
                 $installer = Join-Path ([IO.Path]::GetTempPath()) ("code-goblins-" + [Guid]::NewGuid().ToString("N") + ".ps1")
                 try {
                     Invoke-WebRequest -Uri $tool.Cmd -OutFile $installer -UseBasicParsing -ErrorAction Stop
-                    $code = Invoke-Logged "powershell" @("-NoProfile", "-ExecutionPolicy", "Bypass", "-File", $installer)
+                    # Windows PowerShell is named by its own path, never
+                    # found on PATH, where a folder earlier on it could put
+                    # another program under its name.
+                    $windowsPowerShell = Join-Path $env:SystemRoot "System32\WindowsPowerShell\v1.0\powershell.exe"
+                    $code = Invoke-Logged $windowsPowerShell @("-NoProfile", "-ExecutionPolicy", "Bypass", "-File", $installer)
                     if ($code -ne 0) { throw "installer exited with code $code" }
                 }
                 finally {

@@ -48,7 +48,9 @@ func TestEveryFleetReadGoesThroughFsx(t *testing.T) {
 			case ".git", ".worktrees", "node_modules", "testdata", "frontend":
 				return filepath.SkipDir
 			}
-			if relative == "tests" {
+			// The tests' stand-in program is a test fixture's own program
+			// too: it is built by itself, from the standard library alone.
+			if relative == "tests" || relative == "internal/standin/program" {
 				return filepath.SkipDir
 			}
 			return nil
