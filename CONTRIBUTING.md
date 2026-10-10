@@ -78,6 +78,7 @@ Before it builds or runs anything it points `CFO_HOME` at the disposable home un
 A release is a tag: `vX.Y.Z` pushed on `main`.
 `release.yml` builds `cfo.exe`, `goblins-window.exe` and `CodeGoblinsSetup.exe` from it, scans them with Microsoft Defender, writes `SHA256SUMS`, pins `install.ps1` to the tag, and leaves a draft release; it never publishes by itself.
 It signs the three programs when the `release` environment holds the whole signing identity, says in the draft's notes that the release is unsigned when it holds none, and stops when it holds only part of it.
+A signed release signs its pinned `install.ps1` too, with the same certificate, and stops when that signature does not verify: Microsoft Defender sends an unsigned script that downloads and runs programs to Microsoft from every PC that meets it.
 
 Before the tag:
 
