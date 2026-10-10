@@ -17,6 +17,7 @@ import (
 
 	"github.com/fpresta0607/code-goblins/internal/afk"
 	"github.com/fpresta0607/code-goblins/internal/auth"
+	"github.com/fpresta0607/code-goblins/internal/defender"
 	"github.com/fpresta0607/code-goblins/internal/devdrive"
 	"github.com/fpresta0607/code-goblins/internal/digest"
 	"github.com/fpresta0607/code-goblins/internal/execx"
@@ -68,6 +69,7 @@ commands:
   uninstall the same as install --uninstall
   home      migrate [--apply --plan <digest>] [--memory-from <dir>]: lay out a home whose data predates the layout; without --apply a dry run that lists every file it would move, create or change, proves none is dropped and prints the plan digest --apply --plan makes; move [--to <dir>] [--apply --plan <digest>]: move an older build's home, such as a checkout, to the per-user home, with the same dry run, digest and read-back
   dev-drive say whether the home's worktrees, scratch and package caches are on a Dev Drive, a drive Windows 11 formats for developer work that Defender scans in performance mode (not an exclusion), whether this machine has or can have one, and why not; setup: ask for the next step, which the board puts in the Command Center as one item to run; move --to <folder>: put new goblins' worktrees, scratch and caches in <folder> on a trusted Dev Drive, keeping every started goblin's folders where they are
+  defender  [--since <time|day|length>] [--json]: list what Microsoft Defender recorded under the fleet's folders since then, its detections and the samples it sent to Microsoft, each file with the task and test that made it; it only reads Defender's own records
   doctor    check the tools cfo needs (git, gh, claude, herdr, codex, pi, tasks-axi, quota-axi, no-mistakes, gh-axi, chrome-devtools-axi) and each harness's version beside its newest; --fix installs the newest Codex and pi once each starts to its composer in a terminal of its own, while nothing runs from its install
   pipeline  config-drift | config-apply | migrate <id> | run <id> [--branch <b>] --intent <text> | respond <id> [--branch <b> | --run <run>] --action <fix|approve> [--findings <ids>] [--instructions <text>] | recover <id> [--branch <b> | --run <run>]; --branch or --run acts in whichever of the task's worktrees, an extra one included, has that branch checked out
   drain     print or acknowledge the wake queue and recovery episode
@@ -213,6 +215,9 @@ type commandRuntime struct {
 	// readDevDrive reads what this machine says about Dev Drives, for cfo
 	// dev-drive and cfo doctor.
 	readDevDrive func(context.Context) (devdrive.Machine, error)
+	// readDefender reads what Microsoft Defender recorded since a time, for
+	// cfo defender.
+	readDefender func(context.Context, time.Time) (defender.Report, error)
 	// repoActivity reads what GitHub says is happening in the repository a
 	// checkout's origin names, for cfo tickets.
 	repoActivity func(ctx context.Context, checkout string, now time.Time) (tickets.Activity, error)
@@ -384,6 +389,9 @@ func defaultCommandRuntime() commandRuntime {
 		quota:        quota.Reader{Commands: execx.OSRunner{}}.Read,
 		projectsRoot: install.MachineProjectsRoot,
 		readDevDrive: func(ctx context.Context) (devdrive.Machine, error) { return devdrive.Read(ctx, execx.OSRunner{}) },
+		readDefender: func(ctx context.Context, since time.Time) (defender.Report, error) {
+			return defender.Read(ctx, execx.OSRunner{}, since)
+		},
 		goblins:      invokedAsGoblins(),
 		startServe:   startDetachedServe,
 		openURL:      openInBrowser,
@@ -509,6 +517,8 @@ func runWithRuntime(args []string, stdout, stderr io.Writer, runtime commandRunt
 		return runDictation(args[1:], stdout, stderr, runtime)
 	case "dev-drive":
 		return runDevDrive(args[1:], stdout, stderr, runtime)
+	case "defender":
+		return runDefender(args[1:], stdout, stderr, runtime)
 	case "allowance-floor":
 		return runAllowanceFloor(args[1:], stdout, stderr, runtime)
 	case "home":

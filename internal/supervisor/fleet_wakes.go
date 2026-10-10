@@ -104,6 +104,9 @@ type fleetWakes struct {
 	// DiskLow says disk_low woke since a reading was last at or above the
 	// disk floor.
 	DiskLow bool `json:"disk_low,omitempty"`
+	// DefenderSince is the time Microsoft Defender's records are read from:
+	// when the watch began, then an hour back of each reading.
+	DefenderSince time.Time `json:"defender_since,omitzero"`
 	// Checks holds each goblin pull request's finished checks the CFO was
 	// woken for, so each completion wakes once, and Hosted what each one's
 	// checks said at its last poll, for its goblin's card.
@@ -275,7 +278,7 @@ func (s *Service) keepFleetWakes(ctx context.Context, every time.Duration) {
 // reading met once, however many readings met it, and each repository whose
 // CI cannot be read at every cycle until a poll reads it again.
 func (s *Service) checkFleet(ctx context.Context, now time.Time) error {
-	if (s.Options.Dispatch == nil || s.Options.Dispatch.Memory == nil) && s.Options.CI == nil && s.Options.Progress == nil {
+	if (s.Options.Dispatch == nil || s.Options.Dispatch.Memory == nil) && s.Options.CI == nil && s.Options.Progress == nil && s.Options.Defender == nil {
 		return nil
 	}
 	readingStarted := time.Now()
@@ -283,7 +286,7 @@ func (s *Service) checkFleet(ctx context.Context, now time.Time) error {
 	stateDir := s.Store.Home.State
 	w, readErr := readFleetWakes(stateDir)
 	err := errors.Join(readErr, s.pauseAtAllowanceFloor(ctx, &w, now), s.pollCI(ctx, &w, now, currentTime))
-	err = errors.Join(err, s.checkMemory(ctx, &w, now), s.checkDisk(&w, now), s.checkProgress(ctx, &w, now), writeFleetWakes(stateDir, w))
+	err = errors.Join(err, s.checkMemory(ctx, &w, now), s.checkDisk(&w, now), s.checkProgress(ctx, &w, now), s.checkDefender(ctx, &w, now), writeFleetWakes(stateDir, w))
 	var unreadable error
 	if s.Options.CI != nil {
 		repos := make([]string, 0, len(w.Unreadable))

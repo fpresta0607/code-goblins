@@ -20,6 +20,7 @@ import (
 	"github.com/fpresta0607/code-goblins/internal/auth"
 	"github.com/fpresta0607/code-goblins/internal/axi"
 	"github.com/fpresta0607/code-goblins/internal/connections"
+	"github.com/fpresta0607/code-goblins/internal/defender"
 	"github.com/fpresta0607/code-goblins/internal/execx"
 	"github.com/fpresta0607/code-goblins/internal/fleet"
 	"github.com/fpresta0607/code-goblins/internal/fleettree"
@@ -87,6 +88,10 @@ type Options struct {
 	// CI runs gh and git for the CI wakes; without it no CI is watched.
 	CI       execx.Runner
 	Progress execx.Runner
+	// Defender reads what Microsoft Defender recorded since a time, for the
+	// wake that tells the CFO of each new detection and upload under the
+	// fleet's folders. It only reads.
+	Defender func(ctx context.Context, since time.Time) (defender.Report, error)
 	// Credentials opens the credential store cfo auth store writes, which a
 	// credential request's card saves into; without it the board takes no
 	// value.
