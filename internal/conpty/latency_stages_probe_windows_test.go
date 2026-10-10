@@ -238,6 +238,77 @@ func probeRaise(console *Console, before, after []int) error {
 	return nil
 }
 
+var (
+	probeTestClockOnce sync.Once
+	probeTestClockKept *probeClock
+)
+
+// probeTestClock is this process's clock thread, started once.
+func probeTestClock() *probeClock {
+	probeTestClockOnce.Do(func() { probeTestClockKept = startProbeClock() })
+	return probeTestClockKept
+}
+
+type probeProcess struct {
+	name string
+	cpu  int64
+}
+
+// probeProcessTimes is how long each process on the machine has run so far.
+func probeProcessTimes() map[uintptr]probeProcess {
+	size := uint32(1 << 20)
+	for {
+		buffer := make([]byte, size)
+		var needed uint32
+		err := windows.NtQuerySystemInformation(windows.SystemProcessInformation, unsafe.Pointer(&buffer[0]), size, &needed)
+		if err == windows.STATUS_INFO_LENGTH_MISMATCH {
+			size = needed + 1<<16
+			continue
+		}
+		if err != nil {
+			return nil
+		}
+		processes := map[uintptr]probeProcess{}
+		for offset := uintptr(0); ; {
+			entry := (*windows.SYSTEM_PROCESS_INFORMATION)(unsafe.Pointer(&buffer[offset]))
+			name := entry.ImageName.String()
+			if entry.UniqueProcessID == 0 {
+				name = "Idle"
+			}
+			processes[entry.UniqueProcessID] = probeProcess{name, (entry.UserTime + entry.KernelTime) * 100}
+			if entry.NextEntryOffset == 0 {
+				break
+			}
+			offset += uintptr(entry.NextEntryOffset)
+		}
+		return processes
+	}
+}
+
+// probeBusiest names the six processes that ran longest between two readings.
+func probeBusiest(before, after map[uintptr]probeProcess) string {
+	if before == nil || after == nil {
+		return "not read"
+	}
+	type ran struct {
+		name string
+		pid  uintptr
+		cpu  int64
+	}
+	var all []ran
+	for pid, process := range after {
+		if delta := process.cpu - before[pid].cpu; delta > 0 {
+			all = append(all, ran{process.name, pid, delta})
+		}
+	}
+	slices.SortFunc(all, func(a, b ran) int { return int(b.cpu - a.cpu) })
+	var parts []string
+	for _, process := range all[:min(6, len(all))] {
+		parts = append(parts, fmt.Sprintf("%s %d %s", process.name, process.pid, probeMs(process.cpu)))
+	}
+	return strings.Join(parts, ", ")
+}
+
 type probeChunk struct {
 	at   int64
 	data []byte

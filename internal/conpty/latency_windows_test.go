@@ -2,6 +2,7 @@ package conpty
 
 import (
 	"crypto/sha256"
+	"encoding/json"
 	"flag"
 	"fmt"
 	"os"
@@ -59,6 +60,12 @@ func TestConsoleLatencyChild(t *testing.T) {
 		}
 	}
 	readEvents := windows.NewLazySystemDLL("kernel32.dll").NewProc("ReadConsoleInputW")
+	notesPath := os.Getenv("PROBE_NATURAL_NOTES")
+	var notes probeChildNotes
+	var clock *probeClock
+	if notesPath != "" {
+		clock = startProbeClock()
+	}
 	var burst []byte
 	isBurst := false
 	sequence := 0
@@ -72,15 +79,18 @@ func TestConsoleLatencyChild(t *testing.T) {
 			Control                      uint32
 		}
 		var received uint32
+		asked := probeNow()
 		ok, _, err := readEvents.Call(uintptr(input), uintptr(unsafe.Pointer(&event)), 1, uintptr(unsafe.Pointer(&received)))
 		if ok == 0 {
 			t.Fatal(err)
 		}
+		read := probeNow()
 		if received > 0 && !isBurst {
 			if _, err := fmt.Fprintf(progress, "input kind=%d down=%d repeat=%d character=%04x at=%s\n", event.Kind, event.Down, event.Repeat, event.Character, time.Now().UTC().Format(time.RFC3339Nano)); err != nil {
 				t.Fatal(err)
 			}
 		}
+		filed := probeNow()
 		if received == 0 || event.Kind != 1 || event.Down == 0 || event.Character == 0 {
 			continue
 		}
@@ -101,16 +111,28 @@ func TestConsoleLatencyChild(t *testing.T) {
 				}
 			} else if character == '!' {
 				isBurst = true
+			} else if character == '?' && notesPath != "" {
+				notes.Stalls, notes.Beats = clock.read()
+				encoded, err := json.Marshal(notes)
+				if err != nil {
+					t.Fatal(err)
+				}
+				if err := os.WriteFile(notesPath, encoded, 0o600); err != nil {
+					t.Fatal(err)
+				}
+				fmt.Printf("\rnotes-done\n")
 			} else {
 				sequence++
 				wrapMarker()
 				written, err := fmt.Printf("\rkey-%04d\n", sequence)
+				printed := probeNow()
 				if _, progressErr := fmt.Fprintf(progress, "key-%04d output bytes=%d error=%v at=%s\n", sequence, written, err, time.Now().UTC().Format(time.RFC3339Nano)); progressErr != nil {
 					t.Fatal(progressErr)
 				}
 				if err != nil {
 					t.Fatal(err)
 				}
+				notes.Keys = append(notes.Keys, probeKey{asked, read, filed, printed, probeNow()})
 			}
 		}
 	}
@@ -243,13 +265,19 @@ func TestConsoleInputLatencyWhileIdleAndPrinting(t *testing.T) {
 				var err error
 				console, err = Start(Spec{
 					Args: []string{os.Args[0], "-test.run=^TestConsoleLatencyChild$", "--", "latency-child", activity},
-					Env:  append(os.Environ(), "CONPTY_LATENCY_PROGRESS="+progressPath),
+					Env:  append(os.Environ(), "CONPTY_LATENCY_PROGRESS="+progressPath, "PROBE_NATURAL_NOTES="+progressPath+".notes"),
 					Cols: 120, Rows: 40,
 				})
 				if err != nil {
 					t.Fatal(err)
 				}
 			})
+			isAsMain := os.Getenv("PROBE_AS_MAIN") != ""
+			testClock := probeTestClock()
+			slowFrom, err := time.ParseDuration(os.Getenv("PROBE_NATURAL_FROM"))
+			if err != nil {
+				slowFrom = 20 * time.Millisecond
+			}
 			output := make(chan []byte, 256)
 			stopping, ended := make(chan struct{}), make(chan struct{})
 			t.Cleanup(func() {
@@ -305,17 +333,29 @@ func TestConsoleInputLatencyWhileIdleAndPrinting(t *testing.T) {
 					}
 				}
 			}
-			aboveOtherWork(t, console, server)
+			if !isAsMain {
+				aboveOtherWork(t, console, server)
+			}
 			waitForMarker("latency-ready", 15*time.Second)
 			var samples []time.Duration
+			type typedKey struct{ w0, w1, seen, idle int64 }
+			var typed []typedKey
+			processesBefore := probeProcessTimes()
+			var processesAfter map[uintptr]probeProcess
 			for sequence := 1; sequence <= 40; sequence++ {
 				idle := idleProcessorTime(t)
 				started := time.Now()
+				w0 := probeNow()
 				if _, err := console.Write([]byte("a")); err != nil {
 					t.Fatal(err)
 				}
+				w1 := probeNow()
 				waitForMarker(fmt.Sprintf("key-%04d", sequence), 5*time.Second)
 				samples = append(samples, time.Since(started))
+				typed = append(typed, typedKey{w0, w1, probeNow(), int64(idleProcessorTime(t) - idle)})
+				if processesAfter == nil && samples[sequence-1] >= slowFrom {
+					processesAfter = probeProcessTimes()
+				}
 				// A key that waited with processors free waited on the
 				// terminal. One that waited with none free waited on work
 				// that outranks even this.
@@ -324,7 +364,33 @@ func TestConsoleInputLatencyWhileIdleAndPrinting(t *testing.T) {
 				}
 			}
 			summary, err := keyLatency(samples)
-			t.Log(summary)
+			t.Logf("natural: asMain=%t %s: %s", isAsMain, activity, summary)
+			defer func() {
+				if _, err := console.Write([]byte("?")); err != nil {
+					t.Logf("natural: notes: %v", err)
+					return
+				}
+				waitForMarker("notes-done", 5*time.Second)
+				encoded, err := os.ReadFile(progressPath + ".notes")
+				var notes probeChildNotes
+				if err == nil {
+					err = json.Unmarshal(encoded, &notes)
+				}
+				if err != nil || len(notes.Keys) != len(typed) {
+					t.Logf("natural: notes: %v, %d keys for %d typed", err, len(notes.Keys), len(typed))
+					return
+				}
+				testStalls, _ := testClock.read()
+				for index, key := range typed {
+					if key.seen-key.w0 < int64(slowFrom) {
+						continue
+					}
+					child := notes.Keys[index]
+					t.Logf("natural slow key: asMain=%t %s key %d took %s at %s: typing %s, way in %s (the child had asked %s before it was typed), its file write %s, its print %s, way out and handing on from before the print %s, second file write %s; the %d processors stood idle %s in all; test clock stalls %s; child clock stalls %s; busiest since the console was ready: %s",
+						isAsMain, activity, index+1, probeMs(key.seen-key.w0), time.Unix(0, key.w0).UTC().Format("15:04:05.000"), probeMs(key.w1-key.w0), probeMs(child.Read-key.w1), probeMs(key.w0-child.Asked), probeMs(child.Filed-child.Read), probeMs(child.Printed-child.Filed), probeMs(key.seen-child.Filed), probeMs(child.Filed2-child.Printed),
+						runtime.NumCPU(), probeMs(key.idle), probeOverlaps(testStalls, key.w0, key.seen), probeOverlaps(notes.Stalls, key.w0, key.seen), probeBusiest(processesBefore, processesAfter))
+				}
+			}()
 			if err != nil {
 				t.Error(err)
 			}
