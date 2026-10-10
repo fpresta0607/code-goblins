@@ -820,9 +820,12 @@ func (c ghCheck) outcome() string {
 // a result it was not woken for: its head and each check's conclusion, and
 // pr_health or pr_unread for every open pull request the fleet watches but a
 // merge train's own and those a running train carries, which the train tests
-// on the current base itself. The fleet watches a goblin's own pull requests
-// wherever they are, and every pull request in a repository owners says the
-// fleet owns, a teammate's too; another owner's are none of its business.
+// on the current base itself. For the same reason a head behind its base is
+// nothing to tell while a train can take the pull request: on 2026-10-10 five
+// wakes said a goblin's finished, green pull request was behind main. The
+// fleet watches a goblin's own pull requests wherever they are, and every
+// pull request in a repository owners says the fleet owns, a teammate's too;
+// another owner's are none of its business.
 // It returns the pull requests as a merge train reads them, and why they
 // could not be listed, apart from what went wrong raising a wake; health
 // left unread stays in w.PRUnread.
@@ -897,6 +900,9 @@ func pollPullRequests(ctx context.Context, runner execx.Runner, stateDir string,
 	}
 	var unreadHeads []ghPullRequest
 	var changes []prHealthChange
+	// riders is read at the first head found behind, since most polls find
+	// none.
+	var riders map[string]bool
 	for _, pr := range watched {
 		record := w.Health[pr.URL]
 		if record.Head != pr.HeadRefOid {
@@ -921,6 +927,14 @@ func pollPullRequests(ctx context.Context, runner execx.Runner, stateDir string,
 			behind = *comparison.BehindBy
 		}
 		if change, isNew := healthChange(record, pr, behind, now); isNew {
+			if !change.isConflicting {
+				if riders == nil {
+					riders = trainRiders(ctx, runner, stateDir, repo, listed, branch, owners)
+				}
+				if riders[pr.URL] {
+					continue
+				}
+			}
 			change.goblin = goblinOf[pr.URL]
 			changes = append(changes, change)
 		}

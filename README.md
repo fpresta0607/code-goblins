@@ -941,6 +941,7 @@ The same supervisor poll watches the health of the fleet's own pull requests: a 
 A repository is the fleet's when its GitHub owner, read from the pull request's own address and never from a remote's name, is the account `gh` works as or an organization listed in `config/fleet.json` as `github_owners`, such as `{"github_owners": ["my-org"]}`.
 Another owner's pull requests, such as the upstream's in a checkout of your fork whose `origin` is the upstream, raise nothing.
 It raises a `pr_health` wake for a conflict with the PR's base or a head that is behind the repository's current default branch, even while checks are pending, failed or absent.
+A behind head raises none while a merge train can take the pull request, a goblin's finished one that is green, mergeable and not held, since the train tests each rider on the current default branch itself.
 One poll raises at most one such wake per repository, naming every pull request whose head fell into a condition the CFO was not woken for, so dozens never arrive as dozens of wakes.
 Each condition wakes once per head and survives a restart; a pull request whose head and condition stay as they were is never named again, a behind head waits up to ten minutes for GitHub to work out whether it conflicts, and a repository's wakes are at least five minutes apart.
 A goblin's pull request is named with its goblin and the safe update: merge the default branch in with a merge commit, regenerate generated files, run CI once and never force-push.
