@@ -245,3 +245,34 @@ func TestUnreadableCompletionEvidenceRefusesQueuedDispatch(t *testing.T) {
 		t.Fatal("unreadable completion evidence allowed dispatch")
 	}
 }
+
+// A brief written from a queued row, as the board's Start writes one, tells
+// its goblin what to run before each push, as a brief cfo brief writes does.
+func TestAQueuedBriefTellsTheGoblinToRunTheProjectsCheckBeforeEachPush(t *testing.T) {
+	// Arrange
+	h := home.Home{State: t.TempDir(), Data: t.TempDir()}
+	if err := os.WriteFile(filepath.Join(h.Data, "backlog.md"), []byte("## Queued\n- **nw-sync** - Say why a billing sync fails (repo: northwind)\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	queued, err := ReadQueuedTask(h, "nw-sync")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Act
+	if err := WriteQueuedBrief(h, queued); err != nil {
+		t.Fatal(err)
+	}
+
+	// Assert
+	body, err := os.ReadFile(filepath.Join(h.Data, "nw-sync", "brief.md"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	brief := strings.Join(strings.Fields(string(body)), " ")
+	for _, want := range []string{"## Verification Before each push run `cfo verify nw-sync`.", "Do not pick tests to run by name in its place"} {
+		if !strings.Contains(brief, want) {
+			t.Errorf("the queued brief is missing %q:\n%s", want, brief)
+		}
+	}
+}

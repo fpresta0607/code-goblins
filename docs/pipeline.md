@@ -390,7 +390,8 @@ A store failure prevents commands from starting.
 `cfo gate prepush` is what a goblin runs before each push, so that CI is not the first to run a test the change broke.
 From 2026-09-05 to 2026-10-10, 164 tests failed on pull request runs of the `go` workflow.
 Of them 52 percent were in a test file the pull request had changed and 23 percent in another file of a package it had changed.
-The other 23 percent were in a package it had not touched: most of those are the tests that fail by chance, and five are guards that read the whole tree.
+Another 23 percent were in a package it had not touched: most of those are tests that fail by chance, and the rest are guards that read the whole tree.
+Those guards failed eight pull requests in all, counting the ones in a package the pull request had changed.
 Until then every brief said to run the touched tests by name and let CI run the rest, so a goblin guessed which tests its change could break, and each wrong guess cost a red run, a second push and about 20 minutes.
 
 The pick is the gate step's plan and more, in the order a failure is likeliest and cheapest to find:
@@ -408,7 +409,8 @@ Where `frontend/node_modules` is missing the run starts none of the board's chec
 A package the policy lists as slow runs without its slowest tests.
 The run reads this machine's own record of how long each test took the last time it passed, under `cfo\verify\times` in the user's cache folder, and leaves out, with `go test -skip`, the tests the record has at 2 seconds or longer.
 On 2026-10-07 and 2026-10-08 the tests under 2 seconds were 81 to 88 percent of the tests of `cmd/cfo` and `internal/supervisor` and 9 to 28 percent of their time.
-A test in a file the change touched always runs, slow or not: a test file that changed, and the test file beside a changed source, as `spawn_test.go` and `spawn_windows_test.go` are beside `spawn.go`.
+A test in a test file the change touched always runs, slow or not.
+The test file beside a changed source does not count as touched: for a change to one file of `cmd/cfo` that rule ran 37 slow tests, seven minutes of the limit, where the tests that fail a pull request are in the test files it changed.
 A slow package this machine has not timed runs whole when it changed, which is what times it, and is left to CI when it only imports the change.
 Every `cfo gate prepush` run and every `cfo gate test` run adds what it timed to the record.
 
@@ -443,6 +445,9 @@ The first check that fails ends the run with exit 1, and its last line names the
 ```text
 cfo gate prepush: failed at check 7 of 9, tests of internal/supervisor but for 171 slower ones: TestOverlapReadThatKeepsFailingWakesTheCFOOnTheThirdPassInARow failed. CI would fail on it too, so fix it before you push.
 ```
+
+A test that fails runs once more by itself before it fails the push.
+A test that waits on a real terminal can miss its own deadline while another run holds this machine's processors, which the change did not cause and CI would not see, so a test that passes by itself is named as that and the run goes on.
 
 A run in which nothing failed exits 0 and says how many of the picked checks ran.
 A run the machine gave no turn says that nothing ran and exits 1.

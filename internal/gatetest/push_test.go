@@ -189,9 +189,12 @@ func TestPushRunsAGuardOnceWhenItsPackageRunsWhole(t *testing.T) {
 }
 
 // In a slow package this machine has timed, the pick runs every test in a
-// file the change touched, the changed test file and the test file beside a
-// changed source, and every other test that took under SlowTest here. The
-// slower ones it leaves to CI, and says how many and how long they take.
+// test file the change touched and every other test that took under
+// SlowTest here. The slower ones it leaves to CI, and says how many and how
+// long they take. A test file beside a changed source is not touched: on
+// 2026-10-10 that rule ran 37 slow tests for a change to one file of
+// cmd/cfo, seven minutes of a fifteen-minute limit, where the tests that
+// fail a pull request are in the test files it changed.
 func TestPushRunsASlowPackageWithoutTheSlowTestsTheChangeDidNotTouch(t *testing.T) {
 	// Arrange
 	found := checkout(t, fleet, map[string]string{
@@ -218,16 +221,16 @@ func TestPushRunsASlowPackageWithoutTheSlowTestsTheChangeDidNotTouch(t *testing.
 
 	// Assert
 	want := Step{
-		What:    "tests of internal/supervisor but for 2 slower ones",
+		What:    "tests of internal/supervisor but for 3 slower ones",
 		Why:     "changed",
-		Command: []string{"go", "test", "-json", "-count=1", "-p", "2", "-timeout", "0", "-skip", "^(TestServeEndsAWatcher|TestServeTakesTheLock)$", "./internal/supervisor"},
+		Command: []string{"go", "test", "-json", "-count=1", "-p", "2", "-timeout", "0", "-skip", "^(TestServeEndsAWatcher|TestServeTakesTheLock|TestTheSwitchWaits)$", "./internal/supervisor"},
 	}
 	if !slices.ContainsFunc(pick.Steps, func(step Step) bool {
 		return step.What == want.What && step.Why == want.Why && slices.Equal(step.Command, want.Command)
 	}) {
 		t.Errorf("push picks\n%s\nwant among them %s as %q", strings.Join(whats(pick), "\n"), want, want.Command)
 	}
-	if wantLeft := "2 tests of internal/supervisor (they take 2s or longer each here, 1m20s in all, and are in files the change did not touch)"; !slices.Contains(lefts(pick), wantLeft) {
+	if wantLeft := "3 tests of internal/supervisor (they take 2s or longer each here, 1m50s in all, and are in files the change did not touch)"; !slices.Contains(lefts(pick), wantLeft) {
 		t.Errorf("push leaves to CI\n%s\nwant among it %s", strings.Join(lefts(pick), "\n"), wantLeft)
 	}
 }
@@ -355,5 +358,21 @@ func TestPushNamesItsChecksInPlainWords(t *testing.T) {
 		if strings.ContainsAny(line, ";—–") {
 			t.Errorf("%q holds a semicolon or a long dash", line)
 		}
+	}
+}
+
+// A check of a package's tests can be run again for some of them alone,
+// which is how a run tells a test its change broke from one a busy machine
+// failed.
+func TestStepAgainRunsTheNamedTestsOfItsPackageByThemselves(t *testing.T) {
+	// Arrange
+	step := Step{What: "tests of cmd/cfo but for 2 slower ones", Command: []string{"go", "test", "-json", "-count=1", "-p", "2", "-timeout", "0", "-skip", "^(TestSlow|TestSlower)$", "./cmd/cfo"}}
+
+	// Act
+	again := step.Again([]string{"TestRestart", "TestSpawn"})
+
+	// Assert
+	if want := []string{"go", "test", "-json", "-count=1", "-p", "2", "-timeout", "0", "-run", "^(TestRestart|TestSpawn)$", "./cmd/cfo"}; !slices.Equal(again, want) {
+		t.Errorf("Again = %q, want %q", again, want)
 	}
 }

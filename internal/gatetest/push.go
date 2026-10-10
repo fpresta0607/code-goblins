@@ -84,8 +84,8 @@ var testArgs = []string{"go", "test", "-json", "-count=1", "-p", "2", "-timeout"
 // checks the board when a file under it changed, then tests the packages
 // that import a changed one, nearest first. A package the policy lists as
 // slow runs without the tests times records at SlowTest or longer, except
-// the tests in a file the change touched, and is left to CI when it did not
-// change and times holds nothing of it. Whatever the pick leaves out it
+// the tests in a test file the change touched, and is left to CI when it did
+// not change and times holds nothing of it. Whatever the pick leaves out it
 // names in Left.
 func push(found findings, times Times) Push {
 	pick := Push{Root: found.root, Base: found.base, Commit: found.commit, Module: found.module, Changed: len(found.changed)}
@@ -156,7 +156,7 @@ func push(found findings, times Times) Push {
 		step := Step{What: "tests of " + named(dir), Why: why, Command: append(slices.Clone(testArgs), target(dir))}
 		changed := choice.Imports == "" && choice.Reads == "" && !reach.Everything
 		if slow[choice.ImportPath] {
-			skipped, seconds := slowTests(found, dir, times[choice.ImportPath], changed)
+			skipped, seconds := slowTests(found, dir, times[choice.ImportPath])
 			switch {
 			case len(skipped) > 0:
 				step.What += fmt.Sprintf(" but for %d slower %s", len(skipped), plural(len(skipped), "one", "ones"))
@@ -275,11 +275,9 @@ var testFunc = regexp.MustCompile(`(?m)^func (Test\w*)\(\w+ \*testing\.T\)`)
 
 // slowTests are the tests of the slow package in dir that a pick skips,
 // sorted, with how long they take together by times: each test the package
-// declares that times records at SlowTest or longer. Where the package
-// changed, a test in a file the change touched is never among them: a test
-// file that changed, and a test file beside a changed source, as
-// spawn_test.go and spawn_windows_test.go are beside spawn.go.
-func slowTests(found findings, dir string, times map[string]float64, changed bool) (skipped []string, seconds float64) {
+// declares that times records at SlowTest or longer, but for the tests in a
+// test file the change touched, which run however long they take.
+func slowTests(found findings, dir string, times map[string]float64) (skipped []string, seconds float64) {
 	if len(times) == 0 {
 		return nil, 0
 	}
@@ -287,27 +285,9 @@ func slowTests(found findings, dir string, times map[string]float64, changed boo
 	if err != nil {
 		return nil, 0
 	}
-	var touched []string
-	for _, file := range found.changed {
-		if file = filepath.ToSlash(file); changed && path.Dir(file) == dir && path.Ext(file) == ".go" {
-			stem := strings.TrimSuffix(path.Base(file), ".go")
-			if !strings.HasSuffix(stem, "_test") {
-				for _, system := range []string{"_windows", "_other", "_linux", "_darwin", "_unix"} {
-					stem = strings.TrimSuffix(stem, system)
-				}
-			}
-			touched = append(touched, stem)
-		}
-	}
 	for _, entry := range entries {
 		name := entry.Name()
-		if entry.IsDir() || !strings.HasSuffix(name, "_test.go") {
-			continue
-		}
-		stem := strings.TrimSuffix(name, ".go")
-		if slices.ContainsFunc(touched, func(from string) bool {
-			return stem == from || stem == from+"_test" || strings.HasPrefix(stem, from+"_")
-		}) {
+		if entry.IsDir() || !strings.HasSuffix(name, "_test.go") || slices.ContainsFunc(found.changed, func(file string) bool { return filepath.ToSlash(file) == path.Join(dir, name) }) {
 			continue
 		}
 		source, err := fsx.ReadFile(filepath.Join(found.root, filepath.FromSlash(dir), name))
@@ -323,4 +303,10 @@ func slowTests(found findings, dir string, times map[string]float64, changed boo
 	}
 	slices.Sort(skipped)
 	return skipped, seconds
+}
+
+// Again is the command that runs tests, some of the tests of the package a
+// check tests, once more and by themselves.
+func (s Step) Again(tests []string) []string {
+	return append(slices.Clone(testArgs), "-run", "^("+strings.Join(tests, "|")+")$", s.Command[len(s.Command)-1])
 }

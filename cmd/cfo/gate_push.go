@@ -42,7 +42,9 @@ func runGatePrepush(args []string, dir string, stdout, stderr io.Writer, runtime
 		return 2
 	}
 	project := ""
-	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+	// go list answered the pick in 3 to 10 seconds on 2026-10-10, and took
+	// over two minutes once, in a fresh checkout beside a test run.
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
 	pick, err := gatetest.ReadPush(ctx, execx.OSRunner{}, dir, func(module string) gatetest.Times {
 		project = path.Base(module)
 		times, err := verify.Times(project)
@@ -160,43 +162,39 @@ func printPush(w io.Writer, pick gatetest.Push, limit time.Duration, commands bo
 
 // runPushStep runs one check of a pick from the repository's root and says
 // why it failed, or "" when it did not. isCutShort says its time ended it,
-// which is no failure. A go test's output is what go test prints without -v,
-// its tests' times are kept for the next pick, and while it runs it says
-// beside the run's turn how far it is.
+// which is no failure. A test that fails runs once more by itself, and
+// fails the check only when it fails again: on 2026-10-10 a test of cmd/cfo
+// that waits 15 seconds for a real terminal failed here while another run
+// held the processors, which the change had not caused and CI would not
+// see.
 func runPushStep(ctx context.Context, step gatetest.Step, root, project string, env []string, turn verify.Turn, stdout, stderr io.Writer, runtime commandRuntime) (failure string, isCutShort bool) {
 	dir := filepath.Join(root, filepath.FromSlash(step.Dir))
-	output := stdout
-	var events *gatetest.Events
-	stopSaying := func() {}
-	if step.Command[0] == "go" && step.Command[1] == "test" {
-		events = gatetest.NewEvents(stdout, io.Discard)
-		output = events
-		stopSaying = sayProgress(turn, events, runtime.gateProgress)
-	}
-	exit, err := runtime.pushRun(ctx, step.Command, dir, env, output, stderr)
-	stopSaying()
-	if events != nil {
-		if outputErr := events.End(); outputErr != nil && err == nil {
-			err = outputErr
-		}
-		if keepErr := verify.KeepTimes(project, events.Times()); keepErr != nil {
-			fmt.Fprintf(stderr, "cfo gate prepush: this run's test times are not kept: %v\n", keepErr)
-		}
+	var exit int
+	var err error
+	if step.Command[0] != "go" || step.Command[1] != "test" {
+		exit, err = runtime.pushRun(ctx, step.Command, dir, env, stdout, stderr)
+	} else {
 		var failed []string
-		isBuilt := true
-		for _, result := range events.Results() {
-			isBuilt = isBuilt && result.Status != "build_failed"
-			for _, test := range result.Failed {
-				if !strings.Contains(test, "/") {
-					failed = append(failed, test)
-				}
+		var isBuilt bool
+		failed, isBuilt, exit, err = runPushTests(ctx, step.Command, dir, project, env, turn, stdout, stderr, runtime)
+		if len(failed) > 0 && ctx.Err() == nil {
+			it, itself := "it runs", "itself"
+			if len(failed) > 1 {
+				it, itself = "they run", "themselves"
+			}
+			fmt.Fprintf(stdout, "cfo gate prepush: %s failed, so %s again by %s\n", namedPushTests(failed), it, itself)
+			again, _, againExit, againErr := runPushTests(ctx, step.Again(failed), dir, project, env, turn, stdout, stderr, runtime)
+			switch {
+			case len(again) > 0:
+				failed = again
+			case againExit == 0 && againErr == nil:
+				fmt.Fprintf(stdout, "cfo gate prepush: %s passed by %s, so this machine was busy and the change did not break %s\n", namedPushTests(failed), itself, map[bool]string{false: "it", true: "them"}[len(failed) > 1])
+				failed, exit, err = nil, 0, nil
 			}
 		}
 		switch {
-		case len(failed) > namedTests:
-			return fmt.Sprintf("%s and %d more failed", strings.Join(failed[:namedTests], ", "), len(failed)-namedTests), false
 		case len(failed) > 0:
-			return strings.Join(failed, ", ") + " failed", false
+			return namedPushTests(failed) + " failed", false
 		case !isBuilt:
 			return "it does not build", false
 		}
@@ -210,6 +208,41 @@ func runPushStep(ctx context.Context, step gatetest.Step, root, project string, 
 		return fmt.Sprintf("it exited %d, and what it said is above", exit), false
 	}
 	return "", false
+}
+
+// runPushTests runs one go test of a pick and returns the top-level tests
+// that failed and whether every package built. Its output is what go test
+// prints without -v, its tests' times are kept for the next pick, and while
+// it runs it says beside the run's turn how far it is.
+func runPushTests(ctx context.Context, command []string, dir, project string, env []string, turn verify.Turn, stdout, stderr io.Writer, runtime commandRuntime) (failed []string, isBuilt bool, exit int, err error) {
+	events := gatetest.NewEvents(stdout, io.Discard)
+	stopSaying := sayProgress(turn, events, runtime.gateProgress)
+	exit, err = runtime.pushRun(ctx, command, dir, env, events, stderr)
+	stopSaying()
+	if outputErr := events.End(); outputErr != nil && err == nil {
+		err = outputErr
+	}
+	if keepErr := verify.KeepTimes(project, events.Times()); keepErr != nil {
+		fmt.Fprintf(stderr, "cfo gate prepush: this run's test times are not kept: %v\n", keepErr)
+	}
+	isBuilt = true
+	for _, result := range events.Results() {
+		isBuilt = isBuilt && result.Status != "build_failed"
+		for _, test := range result.Failed {
+			if !strings.Contains(test, "/") {
+				failed = append(failed, test)
+			}
+		}
+	}
+	return failed, isBuilt, exit, err
+}
+
+// namedPushTests names tests in one line: the first few, and how many more.
+func namedPushTests(tests []string) string {
+	if more := len(tests) - namedTests; more > 0 {
+		return fmt.Sprintf("%s and %d more", strings.Join(tests[:namedTests], ", "), more)
+	}
+	return strings.Join(tests, ", ")
 }
 
 // runPushCommand runs one check as a process in dir with env and returns

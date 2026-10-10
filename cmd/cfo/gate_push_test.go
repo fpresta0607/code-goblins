@@ -186,21 +186,23 @@ func TestGatePrepushRunsTheGuardsOfTheDefaultBranchsPolicy(t *testing.T) {
 // A slow package runs without the tests this machine timed at two seconds
 // or longer, unless the change touched their file: TestSlow would fail, is
 // on record at 30 seconds and is in a file the change left alone, so it is
-// left to CI by number and the run passes. What the run timed is kept for
-// the next one.
+// left to CI by number and the run passes. TestTouched is on record at 44
+// seconds and runs, since the change touched its file. What the run timed
+// is kept for the next one.
 func TestGatePrepushLeavesTheSlowTestsOfASlowPackageToCIAndKeepsItsTimes(t *testing.T) {
 	// Arrange
+	touched := "package a\n\nimport \"testing\"\n\nfunc TestTouched(t *testing.T) {}\n"
 	dir := testStepModule(t,
 		map[string]string{
 			"config/verify.json": quiet,
 			"a/a_test.go":        passing,
 			"a/slow_test.go":     "package a\n\nimport \"testing\"\n\nfunc TestSlow(t *testing.T) { t.Fatal(\"the slow test ran\") }\n",
 			"a/untimed_test.go":  "package a\n\nimport \"testing\"\n\nfunc TestNeverTimed(t *testing.T) {}\n",
-			"a/a_more_test.go":   "package a\n\nimport \"testing\"\n\nfunc TestBesideTheChange(t *testing.T) {}\n",
+			"a/touched_test.go":  touched,
 		},
-		map[string]string{"a/a.go": "package a\n\nfunc A() int { return 2 }\n"})
+		map[string]string{"a/a.go": "package a\n\nfunc A() int { return 2 }\n", "a/touched_test.go": touched + "\n// The change says more here.\n"})
 	t.Chdir(dir)
-	if err := verify.KeepTimes("m", map[string]map[string]float64{"example.com/m/a": {"TestSlow": 30, "TestBesideTheChange": 44, "TestA": 0.5}}); err != nil {
+	if err := verify.KeepTimes("m", map[string]map[string]float64{"example.com/m/a": {"TestSlow": 30, "TestTouched": 44, "TestA": 0.5}}); err != nil {
 		t.Fatal(err)
 	}
 
@@ -226,8 +228,8 @@ func TestGatePrepushLeavesTheSlowTestsOfASlowPackageToCIAndKeepsItsTimes(t *test
 		t.Fatal(err)
 	}
 	timed := times["example.com/m/a"]
-	if _, isTimed := timed["TestNeverTimed"]; !isTimed || timed["TestSlow"] != 30 || timed["TestBesideTheChange"] >= 44 {
-		t.Errorf("the record holds %v for a, want TestNeverTimed timed, TestBesideTheChange timed again and TestSlow still at 30", timed)
+	if _, isTimed := timed["TestNeverTimed"]; !isTimed || timed["TestSlow"] != 30 || timed["TestTouched"] >= 44 {
+		t.Errorf("the record holds %v for a, want TestNeverTimed timed, TestTouched timed again and TestSlow still at 30", timed)
 	}
 	if _, isTimed := times["example.com/m/b"]["TestB"]; !isTimed {
 		t.Errorf("the record holds %v, want b's TestB timed too", times)
@@ -297,14 +299,14 @@ func TestGatePrepushEndsACheckThatRunsPastTheTimeLimit(t *testing.T) {
 	// Act
 	var stdout, stderr bytes.Buffer
 	started := time.Now()
-	exit := gatePrepushWith(runtime, &stdout, &stderr, "--limit", "300ms")
+	exit := gatePrepushWith(runtime, &stdout, &stderr, "--limit", "2s")
 
 	// Assert
 	if exit != 0 || starts != 2 || time.Since(started) > 30*time.Second {
 		t.Fatalf("exit = %d after %d start(s) in %s, want 0 after 2, at the limit; stdout=%s stderr=%s", exit, starts, time.Since(started), stdout.String(), stderr.String())
 	}
 	for _, want := range []string{
-		"left to CI, since the time limit of 300ms passed while check 2 ran:\n- tests of a (changed)\n- tests of b (imports a)\n",
+		"left to CI, since the time limit of 2s passed while check 2 ran:\n- tests of a (changed)\n- tests of b (imports a)\n",
 		"cfo gate prepush: passed what it ran. 1 of 3 checks ran in ",
 	} {
 		if !strings.Contains(stdout.String(), want) {
@@ -495,5 +497,42 @@ func TestGateTestKeepsTheTimesAPushReads(t *testing.T) {
 	_, isBTimed := times["example.com/m/b"]["TestB"]
 	if !isATimed || !isBTimed {
 		t.Errorf("the record holds %v, want TestA of a and TestB of b timed", times)
+	}
+}
+
+// A test that fails is run once more by itself before it fails the push. On
+// this machine a test that waits on a real terminal can miss its own deadline
+// while another run holds the processors, which is no fault of the change
+// and nothing CI would see: TestBusy fails the first time it runs and passes
+// the second, so the run says so and goes on. TestA in the first test of
+// this file fails both times, which fails the push.
+func TestGatePrepushRunsAFailedTestAgainAndPassesOneThatFailedByChance(t *testing.T) {
+	// Arrange
+	busy := "package a\n\nimport (\n\t\"os\"\n\t\"testing\"\n)\n\nfunc TestBusy(t *testing.T) {\n\tif _, err := os.Stat(\"ran-once\"); err != nil {\n\t\t_ = os.WriteFile(\"ran-once\", nil, 0o644)\n\t\tt.Fatal(\"the host did not answer in time\")\n\t}\n}\n"
+	dir := testStepModule(t,
+		map[string]string{"config/verify.json": strings.Replace(quiet, `"slow_packages": ["a"]`, `"slow_packages": []`, 1), "a/a_test.go": passing, "a/busy_test.go": busy},
+		map[string]string{"a/a.go": "package a\n\nfunc A() int { return 2 }\n"})
+	t.Chdir(dir)
+
+	// Act
+	var stdout, stderr bytes.Buffer
+	exit := gatePrepush(&stdout, &stderr)
+
+	// Assert
+	if exit != 0 {
+		t.Fatalf("exit = %d, want 0; stdout=%s stderr=%s", exit, stdout.String(), stderr.String())
+	}
+	for _, want := range []string{
+		"the host did not answer in time",
+		"cfo gate prepush: TestBusy failed, so it runs again by itself",
+		"cfo gate prepush: TestBusy passed by itself, so this machine was busy and the change did not break it",
+		"cfo gate prepush: check 3 of 3: tests of b",
+	} {
+		if !strings.Contains(stdout.String(), want) {
+			t.Errorf("stdout %q lacks %q", stdout.String(), want)
+		}
+	}
+	if got := lastLine(stdout.String()); !strings.HasPrefix(got, "cfo gate prepush: passed. All 3 checks ran in ") {
+		t.Errorf("the run ends with %q, want it to say that all 3 checks passed", got)
 	}
 }

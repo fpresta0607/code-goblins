@@ -14,6 +14,7 @@ import (
 	"github.com/fpresta0607/code-goblins/internal/afk"
 	"github.com/fpresta0607/code-goblins/internal/auth"
 	"github.com/fpresta0607/code-goblins/internal/execx"
+	"github.com/fpresta0607/code-goblins/internal/fleet"
 	"github.com/fpresta0607/code-goblins/internal/home"
 	"github.com/fpresta0607/code-goblins/internal/lock"
 	"github.com/fpresta0607/code-goblins/internal/state"
@@ -96,11 +97,7 @@ func runBrief(args []string, stdout, stderr io.Writer, runtime commandRuntime) i
 
 ## Verification
 
-Before each push run %s. It runs the check this project's record names for a
-change, the one the CFO runs, and when the check fails it prints the line that
-says what failed and the file that holds the rest. Fix that before you push.
-Do not pick tests to run by name in its place: what the check leaves to CI it
-says, and CI is the check of that.
+%s
 
 ## Authentication
 
@@ -118,7 +115,7 @@ exist.
 
 kind: %s
 mode: %s
-`, id, *project, "`cfo verify "+id+"`", briefAuthentication(h.Data, *project), "`Co-Authored-By`", *kind, *mode)
+`, id, *project, fleet.BriefVerification(id), briefAuthentication(h.Data, *project), "`Co-Authored-By`", *kind, *mode)
 	if err := os.WriteFile(path, []byte(body), 0o600); err != nil {
 		fmt.Fprintln(stderr, err)
 		return 1
