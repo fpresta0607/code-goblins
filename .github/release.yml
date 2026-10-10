@@ -1,0 +1,15 @@
+# How GitHub writes the list of what changed into a release's notes, which
+# the release workflow asks for with generate_release_notes.
+#
+# A merge train that lands merges its own pull request, so GitHub would list
+# the train beside each pull request it landed. A train's pull request wears
+# the merge-train label (train.OwnLabel), and the list leaves that label out:
+# each pull request the train landed is listed by its own number.
+#
+# Add no categories here without teaching the board first: its Update item
+# reads what is new from the items under the one What's Changed heading
+# (release.WhatsNew), and a category puts a heading of its own over its items.
+changelog:
+  exclude:
+    labels:
+      - merge-train

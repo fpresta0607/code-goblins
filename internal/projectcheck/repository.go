@@ -7,10 +7,13 @@ import (
 	"os"
 	"path"
 	"path/filepath"
+	"regexp"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/fpresta0607/code-goblins/internal/execx"
+	"github.com/fpresta0607/code-goblins/internal/fsx"
 )
 
 // repository reads a checkout through git. What the project tracks is read
@@ -21,8 +24,15 @@ import (
 type repository struct {
 	dir    string
 	runner execx.Runner
-	// ref is the branch tracked files are read at, and commit its commit.
-	ref, commit string
+	// ref is the branch tracked files are read at, commit its commit as
+	// lines name it and full the same commit in full.
+	ref, commit, full string
+	// remote and branch are the two halves of ref when it is a remote's
+	// default branch, both empty when the folder's own commit is read.
+	remote, branch string
+	// fetched says when ref was last fetched, as a clause for a line's
+	// evidence, empty when there is no remote to fetch from.
+	fetched string
 	// tracked are the paths ref holds, with forward slashes.
 	tracked map[string]bool
 	// index are the paths the checkout's own index tracks, which a folder
@@ -30,18 +40,30 @@ type repository struct {
 	index map[string]bool
 }
 
-// openRepository reads which branch is the checkout's default and what it
-// tracks.
-func openRepository(ctx context.Context, runner execx.Runner, dir string) (*repository, error) {
+// openRepository reads which branch is the checkout's default, when it was
+// last fetched as of now, and what it tracks. A folder inside another
+// repository is no checkout: git would answer for the repository around it.
+func openRepository(ctx context.Context, runner execx.Runner, dir string, now time.Time) (*repository, error) {
 	r := &repository{dir: dir, runner: runner, ref: "HEAD", tracked: map[string]bool{}, index: map[string]bool{}}
+	if out, code, err := r.git(ctx, "rev-parse", "--show-prefix"); err != nil || code != 0 || strings.TrimSpace(out) != "" {
+		return nil, fmt.Errorf("projectcheck: %s is not a git checkout", dir)
+	}
 	if out, code, err := r.git(ctx, "symbolic-ref", "--quiet", "--short", "refs/remotes/origin/HEAD"); err == nil && code == 0 && strings.TrimSpace(out) != "" {
 		r.ref = strings.TrimSpace(out)
+		r.remote, r.branch, _ = strings.Cut(r.ref, "/")
 	}
 	out, code, err := r.git(ctx, "rev-parse", "--short", r.ref)
 	if err != nil || code != 0 {
 		return nil, fmt.Errorf("projectcheck: %s is not a git checkout with a commit at %s", dir, r.ref)
 	}
 	r.commit = strings.TrimSpace(out)
+	if out, code, err = r.git(ctx, "rev-parse", r.ref); err != nil || code != 0 {
+		return nil, fmt.Errorf("projectcheck: git could not name the commit of %s at %s", dir, r.ref)
+	}
+	r.full = strings.TrimSpace(out)
+	if r.remote != "" {
+		r.fetched = r.lastFetched(ctx, now)
+	}
 	out, code, err = r.git(ctx, "-c", "core.quotePath=false", "ls-tree", "-r", "-z", "--name-only", r.ref)
 	if err != nil || code != 0 {
 		return nil, fmt.Errorf("projectcheck: git could not list the files of %s at %s", dir, r.ref)
@@ -65,6 +87,65 @@ func openRepository(ctx context.Context, runner execx.Runner, dir string) (*repo
 
 // at names where tracked files were read, for a line's evidence.
 func (r *repository) at() string { return r.ref + " " + r.commit }
+
+// asRead names where tracked files were read and how old that reading is,
+// for a line that says what it read.
+func (r *repository) asRead() string { return r.at() + r.fetched }
+
+// lastFetched says when the default branch was last fetched: the time of
+// the last fetch that named it, which git keeps as FETCH_HEAD, or else the
+// last time the branch moved in this checkout, by its reflog.
+func (r *repository) lastFetched(ctx context.Context, now time.Time) string {
+	var when time.Time
+	if out, code, err := r.git(ctx, "rev-parse", "--git-path", "FETCH_HEAD"); err == nil && code == 0 {
+		file := strings.TrimSpace(out)
+		if !filepath.IsAbs(file) {
+			file = filepath.Join(r.dir, file)
+		}
+		data, err := fsx.ReadFile(file)
+		info, statErr := os.Stat(file)
+		if err == nil && statErr == nil && strings.Contains(string(data), "branch '"+r.branch+"' of") {
+			when = info.ModTime()
+		}
+	}
+	if when.IsZero() {
+		if out, code, err := r.git(ctx, "reflog", "show", "-1", "--date=iso-strict", "--format=%gd", "refs/remotes/"+r.ref); err == nil && code == 0 {
+			if _, stamp, found := strings.Cut(strings.TrimSuffix(strings.TrimSpace(out), "}"), "@{"); found {
+				when, _ = time.Parse(time.RFC3339, stamp)
+			}
+		}
+	}
+	if when.IsZero() {
+		return ", fetched at a time git did not record"
+	}
+	age := max(now.Sub(when), 0)
+	ago := count(int(age.Hours()/24), "day")
+	switch {
+	case age < time.Hour:
+		ago = count(int(age.Minutes()), "minute")
+	case age < 48*time.Hour:
+		ago = count(int(age.Hours()), "hour")
+	}
+	return ", last fetched " + when.Local().Format("2006-01-02 15:04") + ", " + ago + " before this run"
+}
+
+// remoteHead asks the remote where its default branch is, which reads the
+// remote and writes nothing to the repository. Answered is false when the
+// remote gave no commit within the time allowed. Git is told not to ask for
+// a sign-in, so a remote that wants one is a remote that did not answer.
+func (r *repository) remoteHead(ctx context.Context) (head string, answered bool) {
+	ctx, cancel := context.WithTimeout(ctx, 20*time.Second)
+	defer cancel()
+	result, err := r.runner.Run(ctx, execx.Request{
+		Dir: r.dir, Name: "git", Args: []string{"ls-remote", r.remote, "refs/heads/" + r.branch},
+		Env: append(os.Environ(), "GIT_TERMINAL_PROMPT=0", "GCM_INTERACTIVE=never"), KillTree: true,
+	})
+	fields := strings.Fields(string(result.Stdout))
+	if err != nil || result.ExitCode != 0 || len(fields) != 2 || fields[1] != "refs/heads/"+r.branch {
+		return "", false
+	}
+	return fields[0], true
+}
 
 func (r *repository) git(ctx context.Context, args ...string) (string, int, error) {
 	result, err := r.runner.Run(ctx, execx.Request{Dir: r.dir, Name: "git", Args: args})
@@ -197,9 +278,15 @@ func (r *repository) envFiles() []string {
 	return sortedKeys(seen)
 }
 
-// isEnvFile reports whether a file name is an env file's: .env or .env.<kind>.
+// envTemplate matches the name of an env template a repository keeps
+// without the leading dot, with another joint, or with its words the other
+// way round: env.template, .env-example, example.env.
+var envTemplate = regexp.MustCompile(`^(\.?env[._-](example|sample|template|dist|defaults)|(example|sample|template)[._-]env)$`)
+
+// isEnvFile reports whether a file name is an env file's: .env, .env.<kind>,
+// or a template of one under another spelling.
 func isEnvFile(base string) bool {
-	return base == ".env" || strings.HasPrefix(base, ".env.")
+	return base == ".env" || strings.HasPrefix(base, ".env.") || envTemplate.MatchString(strings.ToLower(base))
 }
 
 // isExample reports whether an env file is a template a repository commits
@@ -210,5 +297,5 @@ func isExample(base string) bool {
 			return true
 		}
 	}
-	return false
+	return envTemplate.MatchString(strings.ToLower(base))
 }

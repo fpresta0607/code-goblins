@@ -31,7 +31,7 @@ func (c *checker) record() {
 	}
 	c.proven.record = &manifest
 	c.add(AreaRecord, "record-valid", OK, "the project's record is present and the loader takes it", path, "")
-	if manifest.Project != c.project {
+	if !sameName(manifest.Project, c.project) {
 		c.add(AreaRecord, "record-names-another-project", Medium,
 			"the record names a project other than the checkout it is filed under",
 			fmt.Sprintf("%s says project %q and is filed for the checkout folder %q", path, manifest.Project, c.project),

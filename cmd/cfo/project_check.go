@@ -48,14 +48,21 @@ func runProjectCheck(h home.Home, args []string, stdout, stderr io.Writer, runti
 	}
 	checkout, err := runtime.resolveProject(positional[0])
 	if err != nil {
-		fmt.Fprintf(stderr, "cfo project check: %v\n", err)
-		return 1
+		// A project the home holds files for and this machine has no checkout
+		// of is assessed as far as those files go.
+		missing, held := checkoutOfHomeProject(h, positional[0], runtime)
+		if !held {
+			fmt.Fprintf(stderr, "cfo project check: %v\n", err)
+			return 1
+		}
+		checkout = missing
 	}
 	report, err := projectcheck.Check(context.Background(), projectcheck.Options{
-		DataDir:  h.Data,
-		Checkout: checkout,
-		Runner:   execx.OSRunner{},
-		LookPath: exec.LookPath,
+		DataDir:    h.Data,
+		Checkout:   checkout,
+		PolicyFile: filepath.Join(h.Root, "config", "pipeline.json"),
+		Runner:     execx.OSRunner{},
+		LookPath:   exec.LookPath,
 	})
 	if err != nil {
 		fmt.Fprintf(stderr, "cfo project check: %v\n", err)
@@ -93,6 +100,23 @@ func runProjectCheck(h home.Home, args []string, stdout, stderr io.Writer, runti
 		}
 	}
 	return 0
+}
+
+// checkoutOfHomeProject returns where the checkout of a project named by a
+// bare name would be, under the projects root, when the home holds a folder
+// for that project. It is the path the check then reports as missing.
+func checkoutOfHomeProject(h home.Home, name string, runtime commandRuntime) (string, bool) {
+	if strings.ContainsAny(name, `/\`) || filepath.VolumeName(name) != "" {
+		return "", false
+	}
+	if info, err := os.Stat(filepath.Join(h.Data, "projects", name)); err != nil || !info.IsDir() {
+		return "", false
+	}
+	root, err := runtime.projectsRoot()
+	if err != nil || strings.TrimSpace(root) == "" {
+		return "", false
+	}
+	return filepath.Join(root, name), true
 }
 
 // writeProjectDraft writes a report's drafted record to a new file. A record

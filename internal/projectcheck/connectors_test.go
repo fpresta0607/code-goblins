@@ -267,3 +267,45 @@ func TestANameOnlyAWorkflowReadsOrAPublishableNameIsNotUndeclared(t *testing.T) 
 		"Left out, since only a workflow reads them and GitHub supplies them there: WINDOWS_CERTIFICATE_PASSWORD",
 		"Left out as publishable: NEXT_PUBLIC_MAPBOX_TOKEN, NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY, VITE_SUPABASE_ANON_KEY")
 }
+
+// A repository keeps its env template under the name it likes. One named
+// without the leading dot was not read as an example, so the line said "0
+// env examples" and the names in it were never read.
+func TestAnEnvTemplateNamedWithoutTheLeadingDotIsReadAsAnExample(t *testing.T) {
+	for _, name := range []string{"env.template", "env.example", ".env-example", "example.env", "web/env.sample"} {
+		t.Run(name, func(t *testing.T) {
+			// Arrange
+			f := newFixture(t, map[string]string{name: "BRAVE_API_KEY=\nPORT=8000\n"})
+			f.manifest("auth.json", `{"project":"northwind","services":[]}`)
+
+			// Act
+			report := f.check()
+
+			// Assert
+			contains(t, "evidence", only(t, report, "connector-undeclared").Evidence, "BRAVE_API_KEY ("+name+")")
+			contains(t, "evidence", only(t, report, "connectors-examined").Evidence, "1 env examples")
+			contains(t, "evidence", only(t, report, "env-files-ignored").Evidence, "Examples, which are committed on purpose: "+name)
+			none(t, report, "env-file-committed")
+			none(t, report, "env-file-not-ignored")
+		})
+	}
+}
+
+// A file that only has env in its name is no env file.
+func TestAFileThatOnlyHasEnvInItsNameIsNoEnvFile(t *testing.T) {
+	// Arrange
+	f := newFixture(t, map[string]string{"src/env.ts": "export const BRAVE_API_KEY = ''\n", "environment.yml": "name: app\n", "env.example.md": "BRAVE_API_KEY=\n"})
+
+	// Act
+	report := f.check()
+
+	// Assert
+	contains(t, "evidence", only(t, report, "connectors-examined").Evidence, "0 env examples")
+	ignored := only(t, report, "env-files-ignored")
+	contains(t, "says", ignored.Says, "0 of the project's 0 env files")
+	if strings.Contains(ignored.Evidence, "Examples") {
+		t.Errorf("evidence %q names an example, and the repository has none", ignored.Evidence)
+	}
+	none(t, report, "env-file-committed")
+	none(t, report, "env-file-not-ignored")
+}
