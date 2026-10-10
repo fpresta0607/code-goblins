@@ -31,8 +31,22 @@ func TestStrandedInputChild(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer progress.Close()
+	// As in TestConsoleLatencyChild, a goroutine of its own writes the log,
+	// so no key's echo waits on the disk. The queue holds more lines than a
+	// run logs.
+	lines, written := make(chan string, 4096), make(chan struct{})
+	go func() {
+		defer close(written)
+		for line := range lines {
+			if _, err := progress.WriteString(line); err != nil {
+				panic(err)
+			}
+		}
+	}()
 	fail := func(what string, err error) {
 		t.Helper()
+		close(lines)
+		<-written
 		fmt.Fprintf(progress, "failed to %s: %v\n", what, err)
 		t.Fatal(err)
 	}
@@ -67,14 +81,34 @@ func TestStrandedInputChild(t *testing.T) {
 		}
 		for _, character := range characters[:read] {
 			sequence++
-			if _, err := fmt.Fprintf(progress, "read %04x as key-%04d at %s\n", character, sequence, time.Now().UTC().Format("15:04:05.000000")); err != nil {
-				fail("log the key", err)
-			}
+			lines <- fmt.Sprintf("read %04x as key-%04d at %s\n", character, sequence, time.Now().UTC().Format("15:04:05.000000"))
 			if _, err := fmt.Printf("\rkey-%04d\n", sequence); err != nil {
 				fail("echo the key", err)
 			}
 		}
 	}
+}
+
+// The log is the test's own record, and a key's echo never waits for it: the
+// echo comes while the file takes nothing. A key whose echo waited on the log
+// would read as one stranded in the console's input.
+func TestStrandedInputChildEchoesAKeyBeforeItsLogIsWritten(t *testing.T) {
+	// Arrange
+	name, log := heldFile(t)
+	console, output := startChild(t, Spec{
+		Args: []string{os.Args[0], "-test.run=^TestStrandedInputChild$", "--", "stranded-input-child", name},
+		Env:  os.Environ(),
+		Cols: 120, Rows: 40,
+	})
+
+	// Act
+	if _, err := console.Write([]byte("a")); err != nil {
+		t.Fatal(err)
+	}
+
+	// Assert
+	output.waitFor(t, "key-0001")
+	linesUntil(t, log, "read 0061 as key-0001")
 }
 
 // A key typed into a terminal reaches its program at once, however busy the
