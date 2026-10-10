@@ -1,9 +1,6 @@
 package proc
 
-import (
-	"fmt"
-	"strings"
-)
+import "fmt"
 
 // RunningServices maps the ID of every running process that is a machine
 // service, or runs under one, to that service.
@@ -52,8 +49,8 @@ func ProcessTree(pid int) ([]ServiceProcess, map[int]Service, error) {
 }
 
 // runningProcesses reads every running process this one may open. Only
-// no-mistakes processes have their arguments read, since only its daemon is
-// known by them.
+// no-mistakes and node processes have their arguments read, since only the
+// gate daemon and the Scrawl server are known by them.
 func runningProcesses() ([]ServiceProcess, error) {
 	processes, err := snapshotProcesses()
 	if err != nil {
@@ -66,7 +63,7 @@ func runningProcesses() ([]ServiceProcess, error) {
 			continue
 		}
 		entry := ServiceProcess{PID: int(pid), ParentPID: int(process.parentPID), ExeBase: process.exeBase, Start: start}
-		if strings.EqualFold(baseNoExe(process.exeBase), "no-mistakes") {
+		if base := baseNoExe(process.exeBase); base == "no-mistakes" || base == "node" {
 			entry.Arguments, _ = Arguments(int(pid))
 		}
 		running = append(running, entry)

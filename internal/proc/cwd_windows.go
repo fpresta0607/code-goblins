@@ -6,6 +6,8 @@ import (
 	"os"
 	"syscall"
 	"unsafe"
+
+	"golang.org/x/sys/windows"
 )
 
 // Access rights needed to read another process's parameter block.
@@ -34,6 +36,9 @@ const (
 // A path or a command line (at most 32767 characters) fits; the bound exists
 // so a garbage Length field cannot turn into a huge allocation.
 const maxParameterBytes = 64 * 1024
+
+// maxEnvironmentBytes bounds the copy of a process's environment.
+const maxEnvironmentBytes = 1 << 20
 
 // A process moves its environment and then its parameter block into its own
 // heap as it starts, frees the block CreateProcess built, and can put
@@ -111,18 +116,35 @@ func Arguments(pid int) ([]string, error) {
 // separate remote reads for them. Values outside that snapshot are read
 // individually. A value that could not be read is empty, and err says why.
 func Parameters(pid int) (string, []string, error) {
+	directory, arguments, _, err := readParameters(pid, false)
+	return directory, arguments, err
+}
+
+// ParametersAndEnvironment is Parameters with the process's environment,
+// read through the same handle and the same walk. Each read of another
+// process's memory took a millisecond or more on 2026-10-09, when a pass
+// over 500 processes spent 4 seconds on their parameters and 5 more on
+// their environments read page by page, so the environment is copied in one
+// read of the size its block records. One that could not be read is nil. It
+// is private to its process: a caller checks it and never keeps, serializes
+// or logs it.
+func ParametersAndEnvironment(pid int) (string, []string, []string, error) {
+	return readParameters(pid, true)
+}
+
+func readParameters(pid int, withEnvironment bool) (string, []string, []string, error) {
 	unreadable := func(err error) error {
 		return fmt.Errorf("%w: %w: %v", ErrDirectoryUnreadable, ErrCommandLineUnreadable, err)
 	}
 	handle, err := syscall.OpenProcess(processQueryInformation|processVMRead, false, uint32(pid))
 	if err != nil {
-		return "", nil, unreadable(fmt.Errorf("open process %d: %v", pid, err))
+		return "", nil, nil, unreadable(fmt.Errorf("open process %d: %v", pid, err))
 	}
 	defer syscall.CloseHandle(handle)
 	var directory string
-	var arguments []string
+	var arguments, environment []string
 	err = walkSteady(handle, pid, func() (uintptr, error) {
-		directory, arguments = "", nil
+		directory, arguments, environment = "", nil, nil
 		parameters, err := parameterBlock(handle, pid)
 		if err != nil {
 			return 0, unreadable(err)
@@ -144,12 +166,64 @@ func Parameters(pid int) (string, []string, error) {
 		} else {
 			arguments, argumentsErr = splitCommandLine(line)
 		}
+		if withEnvironment {
+			environment = environmentOf(handle, parameters, snapshot)
+		}
 		return parameters, errors.Join(directoryErr, argumentsErr)
 	})
 	if errors.Is(err, errKeptMoving) {
-		return "", nil, unreadable(err)
+		return "", nil, nil, unreadable(err)
 	}
-	return directory, arguments, err
+	return directory, arguments, environment, err
+}
+
+// environmentOf reads the environment of the process behind handle, whose
+// parameter block at parameters begins with snapshot: in one read of the
+// size the block records, or page by page where it records none or that
+// read is refused. It is nil when it cannot be read.
+func environmentOf(handle syscall.Handle, parameters uintptr, snapshot []byte) []string {
+	field := func(offset uintptr) uintptr {
+		if int(offset)+8 <= len(snapshot) {
+			return uintptr(*(*uint64)(unsafe.Pointer(&snapshot[offset])))
+		}
+		value, err := readPointer(handle, parameters+offset)
+		if err != nil {
+			return 0
+		}
+		return value
+	}
+	address := field(unsafe.Offsetof(windows.RTL_USER_PROCESS_PARAMETERS{}.Environment))
+	if address == 0 {
+		return nil
+	}
+	if size := field(unsafe.Offsetof(windows.RTL_USER_PROCESS_PARAMETERS{}.EnvironmentSize)); size >= 2 && size <= maxEnvironmentBytes {
+		block := make([]byte, size-size%2)
+		if err := readMemory(handle, address, block); err == nil {
+			// The block ends with an empty entry. One the recorded size cut
+			// short does not, and is read again page by page below.
+			var values []string
+			units := decodeUTF16(block)
+			for start := 0; start < len(units); {
+				end := start
+				for end < len(units) && units[end] != 0 {
+					end++
+				}
+				if end == len(units) {
+					break
+				}
+				if end == start {
+					return values
+				}
+				values = append(values, syscall.UTF16ToString(units[start:end]))
+				start = end + 1
+			}
+		}
+	}
+	values, err := environmentAt(handle, address)
+	if err != nil {
+		return nil
+	}
+	return values
 }
 
 // splitCommandLine splits a command line by Windows' own CommandLineToArgvW.
