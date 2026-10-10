@@ -37,10 +37,12 @@ export function phaseOf(node: TreeNode): string {
   return node.state || "unknown";
 }
 
+// A detached job says so before its state: it is the goblin's own, and
+// nothing the goblin runs holds it any more.
 export function stateWord(node: TreeNode): string {
-  if (isIdle(node)) return "Idle";
   const words: Record<string, string> = { working: "Working", waiting: "Waiting", done: "Done", failed: "Failed", silent: "Silent" };
-  return words[node.state] || "Unknown";
+  const word = isIdle(node) ? "Idle" : words[node.state] || "Unknown";
+  return node.detached ? "Detached, " + word.toLowerCase() : word;
 }
 
 const known = (timestamp: string) => timestamp && !timestamp.startsWith("0001") ? timestamp : "";

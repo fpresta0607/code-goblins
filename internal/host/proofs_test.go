@@ -79,6 +79,46 @@ func TestATerminalsProofsDropTheDigestsFromBeforeTheMachineStarted(t *testing.T)
 	}
 }
 
+// A retired task's terminal has no next host to drop its old proofs, so the
+// janitor's sweep forgets them: every proof from before the machine started
+// goes, and with the last of a terminal's proofs its file.
+func TestProofsFromBeforeTheMachineStartedAreForgotten(t *testing.T) {
+	// Arrange
+	stateDir := t.TempDir()
+	lastBoot := time.Date(2026, 10, 8, 9, 0, 0, 0, time.UTC)
+	boot := time.Date(2026, 10, 9, 14, 4, 17, 0, time.UTC)
+	fresh := ProofSum("after-the-restart")
+	for _, kept := range []struct {
+		id, value string
+		at        time.Time
+	}{
+		{"retired", "before-the-restart", lastBoot.Add(time.Hour)},
+		{"running", "also-before-the-restart", lastBoot.Add(2 * time.Hour)},
+		{"running", "after-the-restart", boot.Add(time.Minute)},
+	} {
+		if err := keepProof(stateDir, kept.id, ProofSum(kept.value), kept.at, lastBoot); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	// Act
+	err := ForgetProofs(stateDir, boot)
+
+	// Assert
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, statErr := os.Stat(proofsPath(stateDir, "retired")); !os.IsNotExist(statErr) {
+		t.Errorf("the retired terminal's proofs file: %v, want it gone", statErr)
+	}
+	if proofs, err := Proofs(stateDir, "running"); err != nil || !reflect.DeepEqual(proofs, []string{fresh}) {
+		t.Errorf("the running terminal's proofs = %v, %v; want only the one given since the machine started", proofs, err)
+	}
+	if terminals, err := Terminals(stateDir); err != nil || !reflect.DeepEqual(terminals, []string{"running"}) {
+		t.Errorf("terminals = %v, %v; want the running one alone", terminals, err)
+	}
+}
+
 // Proofs that cannot be read are an error to whoever reads them, and are
 // started over by the next terminal, which starts whatever became of them.
 func TestATerminalStartsOverProofsThatCannotBeRead(t *testing.T) {

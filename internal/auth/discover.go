@@ -6,6 +6,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"slices"
@@ -666,9 +667,14 @@ func ParseEnvFile(path string) (map[string]string, error) {
 		return nil, err
 	}
 	defer file.Close()
+	return ParseEnv(file)
+}
 
+// ParseEnv reads the KEY=VALUE lines of an env file from wherever it is kept,
+// such as a commit, the way ParseEnvFile reads one from disk.
+func ParseEnv(source io.Reader) (map[string]string, error) {
 	values := map[string]string{}
-	scanner := bufio.NewScanner(file)
+	scanner := bufio.NewScanner(source)
 	scanner.Buffer(make([]byte, 0, 64*1024), 1024*1024)
 	for scanner.Scan() {
 		line := strings.TrimSpace(scanner.Text())
