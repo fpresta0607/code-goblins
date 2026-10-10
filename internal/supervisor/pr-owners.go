@@ -15,7 +15,7 @@ import (
 // unless a goblin opened it: on 2026-10-07 a checkout of the Overlord's fork
 // whose origin is the upstream raised 39 pr_health wakes for strangers' pull
 // requests. The account is asked once a poll, and only when a listed pull
-// request is no goblin's.
+// request is no goblin's or a watched one is behind its base.
 type fleetOwners struct {
 	named  []string
 	viewer string
@@ -32,6 +32,12 @@ func (o *fleetOwners) owns(ctx context.Context, runner execx.Runner, dir string,
 	if slices.ContainsFunc(o.named, isOwner) {
 		return true, nil
 	}
+	viewer, err := o.account(ctx, runner, dir)
+	return err == nil && isOwner(viewer), err
+}
+
+// account is the account gh works as, asked once a poll.
+func (o *fleetOwners) account(ctx context.Context, runner execx.Runner, dir string) (string, error) {
 	if !o.isRead {
 		o.isRead = true
 		o.viewer, o.err = runOutput(ctx, runner, dir, "gh", "api", "user", "--jq", ".login")
@@ -39,7 +45,7 @@ func (o *fleetOwners) owns(ctx context.Context, runner execx.Runner, dir string,
 			o.err = errors.New("gh named no account it works as")
 		}
 	}
-	return o.err == nil && isOwner(o.viewer), o.err
+	return o.viewer, o.err
 }
 
 // pullRequestRepository is the owner and name of the repository a pull
