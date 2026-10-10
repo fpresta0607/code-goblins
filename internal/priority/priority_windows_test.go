@@ -8,6 +8,8 @@ import (
 	"testing"
 
 	"golang.org/x/sys/windows"
+
+	"github.com/fpresta0607/code-goblins/internal/priority/prioritytest"
 )
 
 // classReport names the file a child of this test binary writes its own
@@ -34,18 +36,9 @@ func currentClass(t *testing.T) uint32 {
 	return class
 }
 
-// atNormal skips a test run by a process that is not at normal priority,
-// which cannot see a raise from it.
-func atNormal(t *testing.T) {
-	t.Helper()
-	if class := currentClass(t); class != windows.NORMAL_PRIORITY_CLASS {
-		t.Skipf("this test runs at priority class %#x, so it cannot see a raise from normal", class)
-	}
-}
-
 func TestAboveTheWorkRaisesThisProcessOneClassAndGivesItBack(t *testing.T) {
 	// Arrange
-	atNormal(t)
+	prioritytest.FromNormal(t)
 
 	// Act
 	restore := AboveTheWork()
@@ -65,7 +58,7 @@ func TestAboveTheWorkRaisesThisProcessOneClassAndGivesItBack(t *testing.T) {
 // first piece of work to end must not take the class from the other.
 func TestTheClassIsKeptUntilTheLastPieceOfWorkEnds(t *testing.T) {
 	// Arrange
-	atNormal(t)
+	prioritytest.FromNormal(t)
 	first := AboveTheWork()
 	second := AboveTheWork()
 
@@ -93,7 +86,7 @@ func TestAProcessThatIsNotAtNormalIsLeftAsItIs(t *testing.T) {
 	} {
 		t.Run(name, func(t *testing.T) {
 			// Arrange
-			atNormal(t)
+			prioritytest.FromNormal(t)
 			if err := windows.SetPriorityClass(windows.CurrentProcess(), class); err != nil {
 				t.Fatal(err)
 			}
@@ -124,7 +117,7 @@ func TestAProcessThatIsNotAtNormalIsLeftAsItIs(t *testing.T) {
 // raised with it: a host's harness, a command's git, a supervisor's pause.
 func TestWhatARaisedProcessStartsRunsAtNormal(t *testing.T) {
 	// Arrange
-	atNormal(t)
+	prioritytest.FromNormal(t)
 	report := filepath.Join(t.TempDir(), "class")
 	child := exec.Command(os.Args[0])
 	child.Env = append(os.Environ(), classReport+"="+report)
