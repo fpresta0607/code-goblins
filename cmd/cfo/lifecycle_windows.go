@@ -171,7 +171,15 @@ func resumeTask(ctx context.Context, h home.Home, runtime commandRuntime, comman
 		if err != nil || branch.ExitCode != 0 {
 			return errors.New("cannot read the paused validation branch")
 		}
-		if err := gate.RestartInterrupted(ctx, meta.Project, meta.Worktree, pipeline.InterruptedRun{ID: prior.GateRun, Branch: strings.TrimSpace(string(branch.Stdout)), Intent: prior.GateIntent}); err != nil {
+		// The replacement run gates on the harness the goblin comes back on.
+		returning := meta
+		if hasChoice {
+			returning.Harness, returning.Model, returning.Effort = choice.Harness, choice.Model, choice.Effort
+		}
+		launch := func(ctx context.Context) ([]string, error) {
+			return restartLaunchSelection(ctx, commands, gate, returning)
+		}
+		if err := gate.RestartInterrupted(ctx, meta.Project, meta.Worktree, pipeline.InterruptedRun{ID: prior.GateRun, Branch: strings.TrimSpace(string(branch.Stdout)), Intent: prior.GateIntent}, launch); err != nil {
 			return err
 		}
 	}

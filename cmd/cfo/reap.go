@@ -30,9 +30,19 @@ host is working in, whatever its status log says, an orphaned worktree, task
 record or status log, and the empty directory a dead task leaves among the
 worktrees, in the home's worktrees folder or an older build's .worktrees/.
 
-A harness process is placed by its ancestry and its command line, never by its
-image name: the desktop application and the agents of a no-mistakes review
-round are not fleet processes and are not reported.
+A harness process is placed by where its program runs from, its ancestry and
+its environment, never by its image name. The desktop applications (Claude
+Desktop, the Codex app and SIQshift), with everything they start and with a
+harness run from their own folders whatever started it, and the agents of a
+no-mistakes review round, under the daemon or carrying the NO_MISTAKES_GATE it
+gives each one, are not fleet processes and are not reported.
+
+The watcher runs this sweep on its own timer and wakes the CFO once for a
+running finding. A fleet harness and a dev server are each told once for each
+process. A harness nothing ties to the fleet is told once for its shape, where
+it runs from, what started it and why it is held, however many processes of
+that shape come and go. What was told is forgotten a day after a sweep last
+found it, and a sweep run by hand keeps it.
 
 --dry-run is the default and only reports.
 
@@ -106,6 +116,12 @@ func runReap(args []string, stdout, stderr io.Writer, runtime commandRuntime) in
 	record := reap.Record{Time: time.Now().UTC(), Findings: result.Findings, Notes: result.Notes}
 	if err != nil {
 		record.Error = err.Error()
+	}
+	// What the watcher told the CFO is kept in the record this sweep
+	// replaces, and a sweep run by hand that dropped it had the watcher's
+	// next one wake the CFO again for everything still running.
+	if previous, readErr := reap.ReadRecord(h.State); readErr == nil {
+		record.Told = previous.Told
 	}
 	if writeErr := reap.WriteRecord(h.State, record); writeErr != nil {
 		fmt.Fprintf(stderr, "cfo reap: record audit: %v\n", writeErr)

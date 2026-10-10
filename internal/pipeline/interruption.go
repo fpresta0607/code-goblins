@@ -183,7 +183,12 @@ func (reader Reader) importInterruptedHead(ctx context.Context, worktree string,
 	return nil
 }
 
-func (reader Reader) RestartInterrupted(ctx context.Context, project, worktree string, prior InterruptedRun) error {
+// RestartInterrupted starts a run in place of the one a pause stopped. launch,
+// when given, returns the arguments the replacement starts under beside its
+// intent, which is how a gate that runs on its task's own harness keeps doing
+// so past cfo pipeline run. It is asked only once a replacement will start,
+// and a refusal from it starts nothing.
+func (reader Reader) RestartInterrupted(ctx context.Context, project, worktree string, prior InterruptedRun, launch func(context.Context) ([]string, error)) error {
 	if strings.TrimSpace(prior.Intent) == "" {
 		return errors.New("paused validation has no saved intent")
 	}
@@ -204,13 +209,21 @@ func (reader Reader) RestartInterrupted(ctx context.Context, project, worktree s
 	if !terminalRunStatus[current.Status] {
 		return nil
 	}
+	start := []string{"axi", "run", "--intent", prior.Intent, "--wait", "45s"}
+	if launch != nil {
+		selected, err := launch(ctx)
+		if err != nil {
+			return fmt.Errorf("validation did not restart: %w", err)
+		}
+		start = append(start, selected...)
+	}
 	bounded, cancel := context.WithTimeout(ctx, 90*time.Second)
 	defer cancel()
 	result, err := reader.Commands.Run(bounded, execx.Request{Dir: worktree, Name: "no-mistakes", Args: []string{"axi", "sync", "--recover"}})
 	if err != nil || result.ExitCode != 0 {
 		return fmt.Errorf("recover paused validation: %s", strings.TrimSpace(string(result.Stdout)+string(result.Stderr)))
 	}
-	result, runErr := reader.Commands.Run(bounded, execx.Request{Dir: worktree, Name: "no-mistakes", Args: []string{"axi", "run", "--intent", prior.Intent, "--wait", "45s"}})
+	result, runErr := reader.Commands.Run(bounded, execx.Request{Dir: worktree, Name: "no-mistakes", Args: start})
 	current, err = reader.Interruption(bounded, project, prior.Branch)
 	// A bounded AXI wait exits nonzero while the accepted run keeps working.
 	if err == nil && current.ID != prior.ID && current.Intent == prior.Intent {

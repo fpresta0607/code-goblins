@@ -94,6 +94,13 @@ type Finding struct {
 	// neither key answers for the other. The rendered hold is Hold(), a
 	// function of these and never a second copy kept beside them.
 	Holds []Refusal `json:"holds,omitempty"`
+	// Shape names a harness nothing ties to the fleet by what it is rather
+	// than by which process it is: the image it runs and the image name of
+	// the living process that started it. Such a harness is some other
+	// program's, started again and again and each time as a new process, so
+	// ReportKeys has the CFO told about its shape once. It is empty on every
+	// other finding.
+	Shape string `json:"shape,omitempty"`
 }
 
 // Refusal is one reason a finding is held, together with what clears it.
@@ -259,6 +266,10 @@ type Process struct {
 	Name        string    `json:"name"`
 	CommandLine string    `json:"cmd"`
 	Start       time.Time `json:"start"`
+	// Path is the image the process runs, empty where the listing could not
+	// read it. A command line need not say: a program started by a bare name
+	// carries no folder there.
+	Path string `json:"path,omitempty"`
 	// Cwd is the directory the process runs in. It is read only for the
 	// harness-shaped processes and their ancestors, the one place it decides
 	// anything, and is empty wherever it was not read or could not be.
@@ -268,6 +279,10 @@ type Process struct {
 	// terminal's host put there. It is read for the same processes as Cwd,
 	// and is empty wherever nothing was proven.
 	Terminal string `json:"terminal,omitempty"`
+	// IsGateAgent says the process's environment carries the variable
+	// no-mistakes sets on every agent it starts for a gate step. It is read
+	// for the same processes as Cwd.
+	IsGateAgent bool `json:"gate_agent,omitempty"`
 }
 
 // Pane is one pane Herdr still reports, with the operating-system identity
@@ -427,17 +442,34 @@ var harnessSignatures = []string{
 // flag is absent.
 var harnessExecutables = []string{"claude", "codex", "kimi", "pi"}
 
-// desktopAppMarkers are the install paths of the Overlord's desktop
-// applications. Each is a packaged app whose own processes run from under
+// desktopAppMarkers are the folders the Overlord's desktop applications run
+// from. Each is a packaged app whose own processes run from under
 // WindowsApps: Claude Desktop from Claude_<version>_<publisher>\app\claude.exe,
-// and the Codex app from OpenAI.Codex_<version>_<publisher>\app\ChatGPT.exe,
-// whose codex.exe app server runs from outside the package as its child.
-var desktopAppMarkers = []string{`\windowsapps\claude_`, `\windowsapps\openai.codex_`}
+// and the Codex app from OpenAI.Codex_<version>_<publisher>\app\ChatGPT.exe.
+// Each also runs a harness from a folder of its own outside the package:
+// Claude Desktop the Claude Code it keeps in AppData\Roaming\Claude\claude-code,
+// and the Codex app the codex.exe app server in AppData\Local\OpenAI\Codex\bin,
+// which ChatGPT.exe starts, and so does the node_repl.exe in runtimes\cua_node
+// beside it, as the sweep of 2026-09-22 found both. Those folders are listed
+// because a harness run from one is the application's whatever is above it:
+// the walk down from a living application process does not reach one whose
+// parent has exited, or one a process outside the package started. SIQshift,
+// his own application, runs from AppData\Local\SIQshift and starts the
+// codex.exe on the PATH, the one a Codex goblin runs, as an app server for
+// seconds at a time and each time as a new process: four in five minutes on
+// 2026-10-10, the day after the sweep woke the CFO about every 20 minutes for
+// a short-lived codex.exe with no pane.
+var desktopAppMarkers = []string{`\windowsapps\claude_`, `\windowsapps\openai.codex_`, `\appdata\roaming\claude\claude-code\`, `\appdata\local\openai\codex\`, `\appdata\local\siqshift\`}
 
 // gateExecutable supervises a no-mistakes review round and launches the
 // reviewer harnesses under it. Those harnesses are as supervised as a goblin
 // in a pane: killing one ends a review round for a goblin that is working.
 const gateExecutable = "no-mistakes"
+
+// gateAgentVariable is set by no-mistakes on every agent it starts for a gate
+// step. The agent keeps it when the process that started it exits, which the
+// walk down from no-mistakes does not survive.
+const gateAgentVariable = "NO_MISTAKES_GATE"
 
 // serverModules are the long-lived development servers a goblin leaves behind.
 // The match is on the module path in the command line, which is how a server
@@ -542,7 +574,7 @@ func Recorded(inv Inventory, path string) bool {
 
 func classifyProcesses(inv Inventory, supervised, fleet map[int]bool, tasks map[string]Task, panes map[string]Pane, unreadable map[string]bool) []Finding {
 	desktop := descendants(inv.Processes, rootsMatching(inv.Processes, isDesktopApp))
-	gates := descendants(inv.Processes, rootsMatching(inv.Processes, isGateSupervisor))
+	gates := descendants(inv.Processes, rootsMatching(inv.Processes, isGateProcess))
 	own := overlordsSessions(inv.Processes)
 	byPID := make(map[int]Process, len(inv.Processes))
 	for _, process := range inv.Processes {
@@ -630,6 +662,13 @@ func classifyProcesses(inv Inventory, supervised, fleet map[int]bool, tasks map[
 			}
 			if !fleet[process.PID] {
 				finding.refuseUntilEstablished(unidentifiedHold, strconv.Itoa(process.PID))
+				// A harness the fleet started says so, by the flag it was
+				// launched with or the terminal it proves it runs in, and is
+				// one finding for each process. One that says neither is
+				// some other program's, and is known by its shape.
+				if !carriesLaunchFlag(process) && process.Terminal == "" {
+					finding.Shape = shapeOf(process, byPID)
+				}
 			}
 			finding.refuseUntilEstablished(unresolvedPaneHold(inv), strconv.Itoa(process.PID))
 			// Ending a process is the one action here that cannot be undone
@@ -1408,19 +1447,38 @@ func unplacedAgentHold(inv Inventory) string {
 }
 
 func isHarness(process Process) bool {
+	return carriesLaunchFlag(process) || slices.Contains(harnessExecutables, executableName(process.Name))
+}
+
+// carriesLaunchFlag reports whether a command line holds a flag the fleet
+// launches a harness with.
+func carriesLaunchFlag(process Process) bool {
 	command := strings.ToLower(process.CommandLine)
-	for _, signature := range harnessSignatures {
-		if strings.Contains(command, signature) {
-			return true
-		}
+	return slices.ContainsFunc(harnessSignatures, func(signature string) bool { return strings.Contains(command, signature) })
+}
+
+// program is where a process's executable runs from: the image path the
+// listing read, else the program its command line starts with, which may be a
+// bare name.
+func program(process Process) string {
+	if process.Path != "" {
+		return process.Path
 	}
-	name := executableName(process.Name)
-	for _, executable := range harnessExecutables {
-		if name == executable {
-			return true
-		}
+	if args := commandArgs(process.CommandLine); len(args) > 0 {
+		return args[0]
 	}
-	return false
+	return process.Name
+}
+
+// shapeOf names a harness by what it is: the image it runs and the image name
+// of the living process that started it, empty when that has exited or its pid
+// now names a later process.
+func shapeOf(process Process, byPID map[int]Process) string {
+	parent := ""
+	if started, ok := byPID[process.ParentPID]; ok && started.PID != process.PID && (started.Start.IsZero() || process.Start.IsZero() || !process.Start.Before(started.Start)) {
+		parent = strings.ToLower(started.Name)
+	}
+	return normalizePath(program(process)) + "|" + parent
 }
 
 // killNeedsItsOwnPID is why --apply alone never ends a process. Every other
@@ -1443,7 +1501,8 @@ const unidentifiedHold = "could not determine what this process belongs to: it h
 // is the Overlord's desktop application a dozen times over (one parent plus the
 // Chromium children it spawns, which run the same executable), and one more per
 // no-mistakes review round in progress. Both are read from the evidence the
-// scan already has, the ancestry and the command line, and both must be left
+// scan already has, the ancestry, where the program runs from and what its
+// environment carries, and both must be left
 // alone entirely: forcing one closes the application the Overlord is using or
 // ends a review round for a goblin that is working. So must his own sessions
 // in a terminal: on 2026-10-07 two of them were held as unidentified orphans
@@ -1493,18 +1552,20 @@ func overlordsSessions(processes []Process) map[int]bool {
 	return sessions
 }
 
-// isDesktopApp matches a packaged desktop application's own process by its
-// install path; whatever it starts outside the package is found as its
-// descendant.
+// isDesktopApp matches a desktop application's own process by the folder its
+// program runs from, and never by what its arguments name: a goblin handed
+// one of those folders as an argument is a goblin still. Whatever such a
+// process starts from anywhere else is found as its descendant.
 func isDesktopApp(process Process) bool {
-	command := normalizePath(process.CommandLine)
-	return slices.ContainsFunc(desktopAppMarkers, func(marker string) bool { return strings.Contains(command, marker) })
+	image := normalizePath(program(process))
+	return slices.ContainsFunc(desktopAppMarkers, func(marker string) bool { return strings.Contains(image, marker) })
 }
 
-// isGateSupervisor matches no-mistakes, whose children are the reviewer
-// harnesses of a round in progress.
-func isGateSupervisor(process Process) bool {
-	return executableName(process.Name) == gateExecutable
+// isGateProcess matches no-mistakes, whose children are the agents of a round
+// in progress, and an agent that carries the gate's variable, which is how
+// one whose parent has exited is still known.
+func isGateProcess(process Process) bool {
+	return executableName(process.Name) == gateExecutable || process.IsGateAgent
 }
 
 // rootsMatching collects the pids of every process the predicate accepts, for
