@@ -700,7 +700,7 @@ func handoffInstruction(handoff, briefPath string, meta state.TaskMeta) string {
 	if briefPath != "" {
 		instruction += ", then the brief at " + briefPath
 	}
-	return instruction + ", then continue the work. A question you asked the CFO before the restart was cancelled with it: if you were waiting on an answer, ask it again with cfo notify --blocked." + notifyInstruction(meta)
+	return instruction + ", then continue the work. A question you asked the CFO before the restart was cancelled with it: if you were waiting on an answer, ask it again with cfo notify --blocked." + heavyRunInstruction() + notifyInstruction(meta)
 }
 
 func resumeInstruction(meta state.TaskMeta, target switchTarget) string {

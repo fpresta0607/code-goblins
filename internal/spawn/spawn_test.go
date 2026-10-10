@@ -903,6 +903,44 @@ func TestSpawnFailureLeavesNoTaskTemporaryDirectory(t *testing.T) {
 	}
 }
 
+// One heavy run goes at a time on the machine (the Overlord, 2026-10-10: "we
+// don't want to just increase time out"), so every goblin's first
+// instruction, a helper's too, and the one a goblin taking over a task gets,
+// says how a heavy run stands in the line, what the wait looks like, and
+// which runs still need the CFO's word because no turn covers them.
+func TestAGoblinIsToldToPutAHeavyRunBehindTheLine(t *testing.T) {
+	// Arrange
+	exe, err := os.Executable()
+	if err != nil {
+		t.Fatal(err)
+	}
+	brief := filepath.Join(t.TempDir(), "brief.md")
+
+	for name, instruction := range map[string]string{
+		"a new goblin":         spawnInstruction(brief, state.TaskMeta{ID: "task-7", Kind: "ship"}, nil),
+		"a scout":              spawnInstruction(brief, state.TaskMeta{ID: "task-7", Kind: "scout"}, nil),
+		"a helper":             spawnInstruction(brief, state.TaskMeta{ID: "task-7-h1", Kind: "ship", Parent: "task-7"}, nil),
+		"a goblin taking over": handoffInstruction(filepath.Join(t.TempDir(), "handoff.md"), brief, state.TaskMeta{ID: "task-7", Kind: "ship"}),
+	} {
+		t.Run(name, func(t *testing.T) {
+			// Assert
+			for _, want := range []string{
+				"One heavy run goes at a time on this machine.",
+				"a whole test suite, a full build, a browser suite or any other heavy local run as " + exe + " gate turn -- <command>",
+				"says on standard error which run it waits for",
+				"125 means it took no turn and ran nothing",
+				"where your tool's time limit cannot cut the wait short",
+				"A test you run by name needs no turn.",
+				"A WSL or Docker run, and a load or stress run, still need the CFO's word first, since no turn covers them.",
+			} {
+				if !strings.Contains(instruction, want) {
+					t.Errorf("instruction = %q, want %q", instruction, want)
+				}
+			}
+		})
+	}
+}
+
 func TestNotifyInstructionTeachesWorkingAndWaitingReports(t *testing.T) {
 	exe, err := os.Executable()
 	if err != nil {
