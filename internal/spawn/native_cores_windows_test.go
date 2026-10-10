@@ -13,7 +13,7 @@ import (
 // A goblin's builds and tests took every processor core at the priority of
 // the Overlord's own apps (processor.fleetThreads has the measurement). The
 // terminal a spawn starts a goblin in keeps to the fleet's threads, which
-// leaves his apps a quarter of the performance cores.
+// leaves his apps half of the performance cores.
 func TestANativeGoblinKeepsOffTheCoresLeftToTheOverlordsApps(t *testing.T) {
 	// Arrange
 	own, err := processor.ProcessThreads(windows.CurrentProcess())

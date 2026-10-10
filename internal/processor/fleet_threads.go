@@ -1,12 +1,15 @@
 package processor
 
 // appsCoreIn is how many performance cores hold one the fleet's work leaves
-// to the Overlord's own apps: a quarter of them, rounded up to whole cores.
-// On 2026-10-10, on a PC of six performance cores, a process launch took
-// 1.70 s under goblin work on every core, 0.21 s with the work kept off one
-// performance core and 0.13 s with it kept off two, and the work got through
-// 74% as much while it filled every core it kept.
-const appsCoreIn = 4
+// to the Overlord's own apps: half of them, rounded up to whole cores. On
+// 2026-10-10, on a PC of six performance cores, a test Chrome showed its
+// window after 0.53 s with nothing added, 4.11 s under goblin work on every
+// core, 2.33 s with the work kept off two performance cores, 0.98 s with it
+// kept off three and 1.75 s with it kept off four, each a median, of two
+// starts for three cores and three for four. Kept off two, three and four
+// cores the work got through 72%, 59% and 45% as much while it filled every
+// core it kept. Three is the fewest from which one more bought nothing.
+const appsCoreIn = 2
 
 // fleetThreads is the mask of the processor threads the fleet's work keeps
 // to: every thread of cores but those of the last performance cores, the ones

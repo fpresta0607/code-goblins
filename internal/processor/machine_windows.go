@@ -60,8 +60,8 @@ func MachineCores() ([]Core, error) {
 }
 
 // MachineFleetThreads is the mask of this machine's processor threads the
-// fleet's work keeps to, which leaves the Overlord's own apps a quarter of
-// the performance cores (fleetThreads), and 0 for no limit.
+// fleet's work keeps to, which leaves the Overlord's own apps half of the
+// performance cores (fleetThreads), and 0 for no limit.
 func MachineFleetThreads() (uintptr, error) {
 	cores, err := MachineCores()
 	if err != nil {

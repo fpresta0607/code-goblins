@@ -1,7 +1,6 @@
 package processor
 
 import (
-	"math/bits"
 	"os"
 	"testing"
 	"unsafe"
@@ -85,7 +84,11 @@ func TestMachineFleetThreadsLeavesThisMachinesAppsACore(t *testing.T) {
 	if threads == 0 || threads&last != 0 || threads&^own != 0 {
 		t.Fatalf("the fleet's work keeps to the threads %#x, want some of %#x and none of the last performance core's, %#x", threads, own, last)
 	}
-	if left := bits.OnesCount(uint(own &^ threads)); left > bits.OnesCount(uint(own))/2 {
-		t.Fatalf("the fleet's work keeps to the threads %#x of %#x, which leaves the apps %d threads, want no more than half", threads, own, left)
+	var first uintptr
+	for _, thread := range performance[0].Threads {
+		first |= 1 << thread
+	}
+	if threads&first != own&first {
+		t.Fatalf("the fleet's work keeps to the threads %#x of %#x, without the first performance core's, %#x, want those kept", threads, own, first)
 	}
 }

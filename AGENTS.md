@@ -419,7 +419,8 @@ Start, spawn and Resume share the memory/commit floor: each needs 5 GB of memory
 They share the disk floor too: none starts while the home's drive has less free than `config/fleet.json`'s `disk_floor_gb`, default 15, and the refusal names what is free and the floor; `cfo gate test` starts no run under it either.
 What the supervisor starts by itself also waits for room on the processors: the next queued task, a goblin whose pause cleared, a goblin coming back after a restart and a helper start only once a quarter of the machine's performance cores sat idle since the last reading, so the Overlord's own apps keep room.
 Each install reads its own cores for this: on a processor with performance and efficiency cores only the performance cores count, a core counts as busy while either of its threads is, and on a processor with cores of one kind all of them count.
-A goblin's own work also keeps off a quarter of the machine's performance cores, rounded up to whole cores: its terminal and everything started in it run on the other processor threads, so the Overlord's apps have cores no goblin's build or test takes.
+A goblin's own work also keeps off half of the machine's performance cores, rounded up to whole cores: its terminal and everything started in it run on the other processor threads, so the Overlord's apps have cores no goblin's build or test takes.
+That costs the fleet speed only while its work fills every core it keeps: 59% of what it got through on every core, on the six performance cores it was measured on.
 Your own terminal keeps every core, and so does a machine with one performance core or with more than 64 processor threads.
 The work that waits is named with the reason where the scheduler says what waits, and the `idle` wake tells you of it.
 A Start or Resume the Overlord clicks, a reported production defect and a `cfo spawn` you type do not wait on the processors.
