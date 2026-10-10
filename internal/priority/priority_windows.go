@@ -17,12 +17,14 @@ var raised struct {
 
 // AboveTheWork raises this process one priority class above normal for as
 // long as a control of the fleet runs, and returns what gives the class
-// back. A goblin's builds and tests fill every core at normal priority, and
+// back. A goblin's builds and tests fill the cores at normal priority, and
 // a control at that priority waits its turn behind them after each of its
-// system calls: on 2026-10-10, with six goblins building, one reading of some
-// 500 processes took between 0.04 and 3.9 seconds at normal priority and 0.02
-// every time above it. Above normal is one class up and never more: it comes
-// before a compiler and after nothing a person is using needs.
+// system calls: beside sixteen busy threads on 2026-10-10, one reading of
+// the machine's processes took 7.7 seconds at normal priority and 0.04 above
+// it. Above normal is one class up and never more: it comes before a
+// compiler, and a control's work is too short for a person's own apps to
+// wait on. Beside the same threads a plain process launch took 1.10 seconds
+// with the controls at work raised and 1.22 with them at normal.
 //
 // Only a process at normal priority is raised. One that runs higher needs
 // nothing, and one that runs lower was put there on purpose and hands its

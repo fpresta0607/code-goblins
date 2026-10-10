@@ -9,11 +9,12 @@ import (
 
 // controls are the commands that are the fleet's own short work: each is a
 // conversation with a terminal's host, the supervisor or the home's own
-// records that is over in moments, or serves those conversations for as long
-// as it runs, and an update, whose every step has a minute. Every other
-// command starts or waits on work, or is not one anything waits on under a
-// bound, and stays at normal priority. A terminal's host is not here because
-// it raises itself, whoever starts it (host.Run).
+// records, or a reading of the machine, that is over in moments, or serves
+// those conversations for as long as it runs, and an update, whose every
+// step has a minute. Every other command starts or waits on work, or is not
+// one anything waits on under a bound, and stays at normal priority. A
+// terminal's host is not here because it raises itself, whoever starts it
+// (host.Run).
 var controls = map[string]bool{
 	"serve": true, "status": true, "stop": true, "attach": true, "update": true, "process-plan": true,
 	"send": true, "answer": true, "peek": true, "fleet-view": true,
