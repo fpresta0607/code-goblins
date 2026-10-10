@@ -72,8 +72,8 @@ const (
 	ciRecordFor = 7 * 24 * time.Hour
 	// ghCallTimeout bounds one gh or git call.
 	ghCallTimeout = 30 * time.Second
-	// failingPasses is how many passes in a row a GitHub read the supervisor
-	// makes on a timer fails before the CFO hears of it. On 2026-10-08 single
+	// failingPasses is how many passes in a row a read the supervisor makes
+	// on a timer fails before the CFO hears of it. On 2026-10-08 single
 	// reads timed out under the fleet's load and each woke the CFO, and
 	// minutes later the same reads took about 600 ms: a read that fails once
 	// is read again on the next pass.
@@ -139,9 +139,11 @@ type fleetWakes struct {
 	OverlapPolled  map[string]time.Time     `json:"overlap_polled,omitempty"`
 	OverlapUnread  map[string]string        `json:"overlap_unread,omitempty"`
 	OverlapNotices map[string]overlapNotice `json:"overlap_notices,omitempty"`
-	// Failing counts, by read, the passes in a row on which a GitHub read
-	// failed, until a pass reads it again: the overlap read of a repository,
-	// an awaited run, and the account gh works as for a merge train.
+	// Failing counts, by read, the passes in a row on which a read failed,
+	// until a pass reads it again: the overlap read of a repository, an
+	// awaited run, the account gh works as for a merge train, a repository's
+	// origin, a goblin's progress, a paused goblin's condition, and the pull
+	// request a queued row waits on.
 	Failing map[string]int `json:"failing,omitempty"`
 	// SameArea holds, by task, the teammates' open work each live goblin's
 	// area meets, for its card.
@@ -222,9 +224,9 @@ func (w *fleetWakes) woke(key string, now time.Time) {
 	w.Woke[key] = now
 }
 
-// failing counts one more pass in a row on which the GitHub read named read
-// failed with err, or forgets the read on a pass err is nil, and returns err
-// once the read has failed failingPasses passes in a row, nil before.
+// failing counts one more pass in a row on which the read named read failed
+// with err, or forgets the read on a pass err is nil, and returns err once
+// the read has failed failingPasses passes in a row, nil before.
 func (w *fleetWakes) failing(read string, err error) error {
 	if err == nil {
 		delete(w.Failing, read)
@@ -238,6 +240,16 @@ func (w *fleetWakes) failing(read string, err error) error {
 		return nil
 	}
 	return err
+}
+
+// stillFailing forgets each read named prefix and an id that is not in
+// failed, the reads of that name which failed at this pass: one the pass
+// read, or no longer makes, has no run of failing passes.
+func (w *fleetWakes) stillFailing(prefix string, failed map[string]bool) {
+	maps.DeleteFunc(w.Failing, func(read string, _ int) bool {
+		id, isNamed := strings.CutPrefix(read, prefix)
+		return isNamed && !failed[id]
+	})
 }
 
 // keepFleetWakes reads memory every fleetWatchEvery and CI every ciPollEvery
@@ -538,6 +550,8 @@ type ciGoblin struct {
 // concluded since it was last reported, for each red push run of main, and
 // pr_health for each conflicting or behind pull request head.
 // A repository with no origin remote is a local one and is asked nothing.
+// One whose origin git did not answer for is asked again on the next poll,
+// and is an error once that failed failingPasses polls in a row.
 // One with an origin whose CI cannot be read is remembered in w.Unreadable
 // until a poll reads it again, and raises ci_unreadable; one whose pull
 // request health is not all read is remembered in w.PRUnread and raises
@@ -566,9 +580,10 @@ func (s *Service) pollCI(ctx context.Context, w *fleetWakes, now time.Time, curr
 			return errs
 		}
 		if err != nil {
-			errs = errors.Join(errs, fmt.Errorf("ci wakes: read the origin of %s: %w", repo, err))
+			errs = errors.Join(errs, w.failing("origin:"+repo, fmt.Errorf("ci wakes: read the origin of %s: %w", repo, err)))
 			continue
 		}
+		delete(w.Failing, "origin:"+repo)
 		if origin.ExitCode != 0 {
 			delete(w.Unreadable, repo)
 			delete(w.PRUnread, repo)
@@ -728,6 +743,7 @@ func (w *fleetWakes) watch(goblins []ciGoblin, now time.Time) []string {
 			delete(w.OverlapUnread, repo)
 			delete(w.Failing, "overlap:"+repo)
 			delete(w.Failing, "train viewer:"+repo)
+			delete(w.Failing, "origin:"+repo)
 			delete(w.BackOff, repo)
 			continue
 		}

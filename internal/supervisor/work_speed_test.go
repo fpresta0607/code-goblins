@@ -64,6 +64,7 @@ func TestProgressWatchMeasuresLaterGoblinsPastAStalledWorktree(t *testing.T) {
 	service, h := fleetService(t)
 	liveGoblin(t, h, "a-stalled-task", h.Root)
 	liveGoblin(t, h, "b-later-task", h.Root)
+	failedBefore(t, h, "progress:a-stalled-task", "progress:b-later-task")
 	head := strings.Repeat("a", 40)
 	service.Options.Progress = &stalledGit{progressGit: progressGit{head: head, pushed: head}, stalledDirectories: []string{filepath.Join(h.Root, ".worktrees", "gb-a-stalled-task")}}
 
@@ -81,33 +82,49 @@ func TestProgressWatchMeasuresLaterGoblinsPastAStalledWorktree(t *testing.T) {
 	}
 }
 
+// One deadline covers every goblin's read in a pass. The goblins it ran out
+// on are read again on the next pass, and are the supervisor's error once
+// the deadline ran out on them failingPasses passes in a row.
 func TestProgressPassUsesOneDeadlineForAllStalledGoblins(t *testing.T) {
-	service, h := fleetService(t)
-	var stalledDirectories []string
-	for _, id := range []string{"a-stalled", "b-stalled", "c-stalled"} {
-		liveGoblin(t, h, id, h.Root)
-		stalledDirectories = append(stalledDirectories, filepath.Join(h.Root, ".worktrees", "gb-"+id))
-	}
-	liveGoblin(t, h, "d-healthy", h.Root)
-	head := strings.Repeat("a", 40)
-	service.Options.Progress = &stalledGit{progressGit: progressGit{head: head, pushed: head}, stalledDirectories: stalledDirectories}
-	started := time.Now()
+	for _, test := range []struct {
+		name            string
+		hasFailedBefore bool
+	}{
+		{"the first pass the deadline ran out", false},
+		{"a pass after it kept running out", true},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			service, h := fleetService(t)
+			var stalledDirectories []string
+			for _, id := range []string{"a-stalled", "b-stalled", "c-stalled"} {
+				liveGoblin(t, h, id, h.Root)
+				stalledDirectories = append(stalledDirectories, filepath.Join(h.Root, ".worktrees", "gb-"+id))
+			}
+			if test.hasFailedBefore {
+				failedBefore(t, h, "progress:a-stalled", "progress:b-stalled", "progress:c-stalled")
+			}
+			liveGoblin(t, h, "d-healthy", h.Root)
+			head := strings.Repeat("a", 40)
+			service.Options.Progress = &stalledGit{progressGit: progressGit{head: head, pushed: head}, stalledDirectories: stalledDirectories}
+			started := time.Now()
 
-	err := service.checkFleet(t.Context(), started.UTC())
-	elapsed := time.Since(started)
+			err := service.checkFleet(t.Context(), started.UTC())
+			elapsed := time.Since(started)
 
-	if !errors.Is(err, context.DeadlineExceeded) {
-		t.Fatalf("progress errors=%v, want the stalled probes' deadline", err)
-	}
-	if elapsed > PROGRESS_PASS_TIMEOUT+5*time.Second {
-		t.Fatalf("progress pass took %s for three stalled goblins, exceeding its single %s budget", elapsed, PROGRESS_PASS_TIMEOUT)
-	}
-	watched, err := readFleetWakes(h.State)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if got := watched.Progress["d-healthy"].Head; got != head {
-		t.Fatalf("healthy goblin head=%q, want progress recorded within the same pass", got)
+			if isError := errors.Is(err, context.DeadlineExceeded); isError != test.hasFailedBefore {
+				t.Fatalf("progress errors=%v, want the stalled probes' deadline an error %t", err, test.hasFailedBefore)
+			}
+			if elapsed > PROGRESS_PASS_TIMEOUT+5*time.Second {
+				t.Fatalf("progress pass took %s for three stalled goblins, exceeding its single %s budget", elapsed, PROGRESS_PASS_TIMEOUT)
+			}
+			watched, err := readFleetWakes(h.State)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if got := watched.Progress["d-healthy"].Head; got != head {
+				t.Fatalf("healthy goblin head=%q, want progress recorded within the same pass", got)
+			}
+		})
 	}
 }
 
@@ -463,8 +480,8 @@ func readingMemory(free *float64) *Dispatch {
 // <task>: context deadline exceeded" for every goblin at once, three of them
 // while memory read under the 4 GB floor (1.9 GB free at 13:00Z, 3.9 GB at
 // 19:24Z). A read a starved machine slows tells nothing of the goblin or the
-// supervisor, so it is no error, while one that runs out of time with memory
-// at the floor still is.
+// supervisor, so it is no error however many passes it lasts, while one that
+// keeps running out of time with memory at the floor still is.
 func TestAProgressReadAMemoryLowSlowsIsNoSupervisorError(t *testing.T) {
 	for _, test := range []struct {
 		name    string
@@ -478,6 +495,7 @@ func TestAProgressReadAMemoryLowSlowsIsNoSupervisorError(t *testing.T) {
 			// Arrange
 			service, h := fleetService(t)
 			liveGoblin(t, h, "starved-task", h.Root)
+			failedBefore(t, h, "progress:starved-task")
 			head := strings.Repeat("a", 40)
 			service.Options.Progress = &stalledGit{progressGit: progressGit{head: head, pushed: head}, stalledDirectories: []string{filepath.Join(h.Root, ".worktrees", "gb-starved-task")}}
 			service.Options.Dispatch = readingMemory(&test.free)
