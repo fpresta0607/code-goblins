@@ -46,12 +46,13 @@ func after(busy []float64) []processorTime {
 // while either of its threads is.
 func TestReadProcessorsCountsTheFreeShareOfThePerformanceCores(t *testing.T) {
 	for _, test := range []struct {
-		name            string
-		cores           []processorCore
-		busy            []float64
-		wantPerformance int
-		wantEfficiency  int
-		wantFree        float64
+		name               string
+		cores              []processorCore
+		busy               []float64
+		wantPerformance    int
+		wantEfficiency     int
+		wantFree           float64
+		wantEfficiencyFree float64
 	}{
 		{
 			name:            "efficiency cores full, three performance cores busy on one thread each",
@@ -64,6 +65,12 @@ func TestReadProcessorsCountsTheFreeShareOfThePerformanceCores(t *testing.T) {
 			cores:           overlordsProcessor(),
 			busy:            []float64{1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1},
 			wantPerformance: 6, wantEfficiency: 4, wantFree: 0,
+		},
+		{
+			name:            "performance cores idle, efficiency cores half busy between them",
+			cores:           overlordsProcessor(),
+			busy:            []float64{0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0.5, 0.5, 1, 0},
+			wantPerformance: 6, wantEfficiency: 4, wantFree: 1, wantEfficiencyFree: 0.5,
 		},
 		{
 			name:            "cores of one kind are all performance cores",
@@ -85,6 +92,9 @@ func TestReadProcessorsCountsTheFreeShareOfThePerformanceCores(t *testing.T) {
 			}
 			if math.Abs(got.Free-test.wantFree) > 1e-9 {
 				t.Errorf("free share of the performance cores = %v, want %v", got.Free, test.wantFree)
+			}
+			if math.Abs(got.EfficiencyFree-test.wantEfficiencyFree) > 1e-9 {
+				t.Errorf("free share of the efficiency cores = %v, want %v", got.EfficiencyFree, test.wantEfficiencyFree)
 			}
 		})
 	}
