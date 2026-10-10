@@ -79,7 +79,8 @@ func (s *Service) pollAwaitedRuns(ctx context.Context, watched *fleetWakes, now 
 			watched.Checks[target] = completed
 			continue
 		}
-		detail := fmt.Sprintf("ci_finished: %s's awaited %s run %d completed with %s at %s (%s); next: resume %s in place", meta.ID, record.Pause.Reason, run.ID, run.Conclusion, run.HeadSHA, target, meta.ID)
+		once := failedOnceClause(failedOnce(ctx, s.Options.CI, meta.Project, parts[0], parts[1], run.HeadSHA, run.ID))
+		detail := fmt.Sprintf("ci_finished: %s's awaited %s run %d completed with %s%s at %s (%s); next: resume %s in place", meta.ID, record.Pause.Reason, run.ID, run.Conclusion, once, run.HeadSHA, target, meta.ID)
 		if err := raiseFleetWake(s.Store.Home.State, "ci", meta.ID, detail); err != nil {
 			problems = errors.Join(problems, err)
 			continue
