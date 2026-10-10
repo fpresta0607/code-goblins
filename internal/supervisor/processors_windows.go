@@ -21,11 +21,12 @@ const relationProcessorCore = 0
 // processorMeter keeps the last reading of the processors' times, which the
 // next is measured from, and when it was taken: the zero time before any.
 type processorMeter struct {
-	mu    sync.Mutex
-	cores []processorCore
-	times []processorTime
-	at    time.Time
-	last  Processors
+	mu        sync.Mutex
+	cores     []processorCore
+	times     []processorTime
+	processes []processCommit
+	at        time.Time
+	last      Processors
 }
 
 var machineProcessors processorMeter
@@ -49,7 +50,8 @@ func (m *processorMeter) read() (Processors, error) {
 		}
 		m.cores = cores
 	}
-	switch howToReadProcessors(!m.at.IsZero(), time.Since(m.at)) {
+	window := time.Since(m.at)
+	switch howToReadProcessors(!m.at.IsZero(), window) {
 	case repeatLast:
 		return m.last, nil
 	case watchAMoment:
@@ -57,7 +59,12 @@ func (m *processorMeter) read() (Processors, error) {
 		if err != nil {
 			return Processors{}, err
 		}
-		m.times = times
+		// Who was busy is a courtesy to the tip: a process list that cannot
+		// be read names nobody and holds no reading back.
+		m.times, m.processes, window = times, nil, processorMoment
+		if processes, err := machineProcessList(); err == nil {
+			m.processes = processes
+		}
 		time.Sleep(processorMoment)
 	}
 	times, err := machineProcessorTimes()
@@ -68,7 +75,11 @@ func (m *processorMeter) read() (Processors, error) {
 	if err != nil {
 		return Processors{}, err
 	}
-	m.times, m.at, m.last = times, time.Now(), processors
+	processes, err := machineProcessList()
+	if err == nil && m.processes != nil {
+		processors.Busiest = busiestApps(m.processes, processes, window)
+	}
+	m.times, m.processes, m.at, m.last = times, processes, time.Now(), processors
 	return processors, nil
 }
 

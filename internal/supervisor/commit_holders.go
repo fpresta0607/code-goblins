@@ -24,22 +24,24 @@ type processCommit struct {
 	// process list gives, which only compare.
 	created int64
 	commit  uint64
+	// cpu is the processor time the process has used since it started, in
+	// units of 100 ns.
+	cpu uint64
 }
 
 // shellHosts start apps without being part of them: the Windows shell and
 // service hosts, which every app a person opens or a service runs hangs from.
 var shellHosts = []string{"system", "registry", "smss.exe", "csrss.exe", "wininit.exe", "winlogon.exe", "services.exe", "svchost.exe", "explorer.exe", "sihost.exe", "userinit.exe"}
 
-// topCommitHolders groups processes by app, the ancestor each descends from
-// just under a shell host or where its parent is gone, so the Codex app's
-// MCP servers count as the Codex app rather than as python; apps of one name
-// count as one. It names the count apps holding the most commit, most first.
-func topCommitHolders(processes []processCommit, count int) []CommitHolder {
+// appNames returns what names the app each of processes belongs to: the
+// ancestor it descends from just under a shell host or where its parent is
+// gone, without its .exe.
+func appNames(processes []processCommit) func(processCommit) string {
 	byPID := make(map[uint32]processCommit, len(processes))
 	for _, process := range processes {
 		byPID[process.pid] = process
 	}
-	app := func(process processCommit) string {
+	return func(process processCommit) string {
 		for range len(processes) {
 			parent, ok := byPID[process.parent]
 			// A parent created after the process is another process that
@@ -50,17 +52,26 @@ func topCommitHolders(processes []processCommit, count int) []CommitHolder {
 			}
 			process = parent
 		}
-		return process.name
+		name := process.name
+		if strings.HasSuffix(strings.ToLower(name), ".exe") {
+			name = name[:len(name)-len(".exe")]
+		}
+		return name
 	}
+}
+
+// topCommitHolders groups processes by app, the ancestor each descends from
+// just under a shell host or where its parent is gone, so the Codex app's
+// MCP servers count as the Codex app rather than as python; apps of one name
+// count as one. It names the count apps holding the most commit, most first.
+func topCommitHolders(processes []processCommit, count int) []CommitHolder {
+	app := appNames(processes)
 	groups := map[string]*CommitHolder{}
 	for _, process := range processes {
 		if process.name == "" {
 			continue
 		}
 		name := app(process)
-		if strings.HasSuffix(strings.ToLower(name), ".exe") {
-			name = name[:len(name)-len(".exe")]
-		}
 		key := strings.ToLower(name)
 		if groups[key] == nil {
 			groups[key] = &CommitHolder{Name: name}
