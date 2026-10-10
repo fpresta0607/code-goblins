@@ -536,10 +536,12 @@ func raiseFleetWake(stateDir, kind, key, detail string) error {
 }
 
 // ciGoblin is a live goblin whose pull requests' CI is watched: its
-// repository, the branch its worktree has checked out, and the pull requests
-// it recorded or reported.
+// repository, the branch its worktree has checked out, the branches its
+// worktrees had checked out before, and the pull requests it recorded or
+// reported.
 type ciGoblin struct {
 	id, repo, branch string
+	held             []string
 	pullRequests     []string
 	meta             state.TaskMeta
 }
@@ -675,7 +677,59 @@ func reportUnreadable(stateDir string, w *fleetWakes, repo string, failure error
 	return nil
 }
 
-// ciGoblins reads every live goblin's repository, branch and pull requests.
+// heldBranches names every branch worktree had checked out, read from the
+// worktree's own reflog, which git keeps for that worktree alone and which
+// outlasts a supervisor and a goblin's terminal: a checkout is recorded there
+// as "checkout: moving from <one> to <another>". On 2026-10-10 a goblin's
+// pull request was its own only while its branch was the one checked out at
+// the poll, so each one a goblin left for its next branch read as nobody's.
+// A commit a checkout names in place of a branch is returned with the
+// branches, and is the head branch of no pull request.
+func heldBranches(ctx context.Context, runner execx.Runner, worktree string) []string {
+	entries, err := runOutput(ctx, runner, worktree, "git", "reflog", "--format=%gs")
+	if err != nil {
+		return nil
+	}
+	var held []string
+	for _, entry := range strings.Split(entries, "\n") {
+		moved, isCheckout := strings.CutPrefix(strings.TrimSpace(entry), "checkout: moving from ")
+		if from, to, ok := strings.Cut(moved, " to "); isCheckout && ok {
+			held = append(held, from, to)
+		}
+	}
+	return held
+}
+
+// prOwner names the live goblin whose pull request pr is, or nobody: the
+// goblin that recorded or reported it, else the one whose worktree has its
+// head branch checked out, else the one whose worktrees had that branch
+// checked out before, when isFleets says the account the fleet works as
+// opened it. A goblin that only looked at a teammate's branch does not own
+// the teammate's pull request, and a pull request from another repository is
+// a goblin's only when the goblin said so.
+func prOwner(goblins []ciGoblin, pr ghPullRequest, isFleets func() bool) string {
+	for _, goblin := range goblins {
+		if slices.Contains(goblin.pullRequests, pr.URL) {
+			return goblin.id
+		}
+	}
+	if pr.IsCrossRepository {
+		return ""
+	}
+	for _, goblin := range goblins {
+		if goblin.branch != "" && goblin.branch == pr.HeadRefName {
+			return goblin.id
+		}
+	}
+	for _, goblin := range goblins {
+		if slices.Contains(goblin.held, pr.HeadRefName) && isFleets() {
+			return goblin.id
+		}
+	}
+	return ""
+}
+
+// ciGoblins reads every live goblin's repository, branches and pull requests.
 func ciGoblins(ctx context.Context, runner execx.Runner, stateDir string) []ciGoblin {
 	var goblins []ciGoblin
 	for _, meta := range liveTasks(stateDir) {
@@ -691,6 +745,15 @@ func ciGoblins(ctx context.Context, runner execx.Runner, stateDir string) []ciGo
 		}
 		if meta.Worktree != "" {
 			goblin.branch, _ = runOutput(ctx, runner, meta.Worktree, "git", "branch", "--show-current")
+			goblin.held = heldBranches(ctx, runner, meta.Worktree)
+		}
+		// An extra worktree is the task's own, so the branch it has checked
+		// out is held as those the others had.
+		for _, extra := range meta.Extras {
+			if current, err := runOutput(ctx, runner, extra, "git", "branch", "--show-current"); err == nil && current != "" {
+				goblin.held = append(goblin.held, current)
+			}
+			goblin.held = append(goblin.held, heldBranches(ctx, runner, extra)...)
 		}
 		if kv, err := state.ReadMeta(filepath.Join(stateDir, meta.ID+".meta")); err == nil && kv["pr"] != "" {
 			goblin.pullRequests = append(goblin.pullRequests, kv["pr"])
@@ -836,12 +899,10 @@ func (c ghCheck) outcome() string {
 // a result it was not woken for: its head and each check's conclusion, and
 // pr_health or pr_unread for every open pull request the fleet watches but a
 // merge train's own and those a running train carries, which the train tests
-// on the current base itself. For the same reason a head behind its base is
-// nothing to tell while a train can take the pull request, or while its
-// checks still run and may yet make it one a train can take: on 2026-10-10
-// five wakes said a goblin's finished, green pull request was behind main. The
-// fleet watches a goblin's own pull requests wherever they are, and every
-// pull request in a repository owners says the fleet owns, a teammate's too;
+// on the current base itself. Whose a pull request is prOwner says, and when
+// a head behind its base is worth telling healthChange says. The fleet
+// watches a goblin's own pull requests wherever they are, and every pull
+// request in a repository owners says the fleet owns, a teammate's too;
 // another owner's are none of its business.
 // It returns the pull requests as a merge train reads them, and why they
 // could not be listed, apart from what went wrong raising a wake; health
@@ -869,9 +930,16 @@ func pollPullRequests(ctx context.Context, runner execx.Runner, stateDir string,
 	carried := carriedByTrains(stateDir)
 	var errs error
 	isRunningWorkflows := runsPullRequestWorkflows(repo)
+	isFleets := func(pr ghPullRequest) bool { return owners.isAccount(ctx, runner, repo, pr.Author.Login) }
+	goblinOf := map[string]string{}
+	for _, pr := range open {
+		if owner := prOwner(goblins, pr, func() bool { return isFleets(pr) }); owner != "" {
+			goblinOf[pr.URL] = owner
+		}
+	}
 	for _, goblin := range goblins {
 		for _, pr := range open {
-			if !slices.Contains(goblin.pullRequests, pr.URL) && (pr.IsCrossRepository || goblin.branch == "" || pr.HeadRefName != goblin.branch) {
+			if goblinOf[pr.URL] != goblin.id {
 				continue
 			}
 			if reported, ok := w.Checks[pr.URL]; ok {
@@ -886,15 +954,8 @@ func pollPullRequests(ctx context.Context, runner execx.Runner, stateDir string,
 		}
 	}
 	var watched []ghPullRequest
-	goblinOf := map[string]string{}
 	var ownersErr error
 	for _, pr := range open {
-		for _, goblin := range goblins {
-			if slices.Contains(goblin.pullRequests, pr.URL) || !pr.IsCrossRepository && goblin.branch != "" && pr.HeadRefName == goblin.branch {
-				goblinOf[pr.URL] = goblin.id
-				break
-			}
-		}
 		isWatched := goblinOf[pr.URL] != ""
 		if !isWatched {
 			var err error
@@ -920,9 +981,6 @@ func pollPullRequests(ctx context.Context, runner execx.Runner, stateDir string,
 	}
 	var unreadHeads []ghPullRequest
 	var changes []prHealthChange
-	// riders is read at the first head found behind, since most polls find
-	// none.
-	var riders map[string]bool
 	for _, pr := range watched {
 		record := w.Health[pr.URL]
 		if record.Head != pr.HeadRefOid {
@@ -951,16 +1009,15 @@ func pollPullRequests(ctx context.Context, runner execx.Runner, stateDir string,
 		if comparison != nil {
 			behind = *comparison.BehindBy
 		}
-		if change, isNew := healthChange(record, pr, behind, now); isNew {
-			if !change.isConflicting {
-				if riders == nil {
-					riders = trainRiders(ctx, runner, stateDir, repo, listed, branch, owners)
-				}
-				if riders[pr.URL] {
-					continue
-				}
+		goblin := goblinOf[pr.URL]
+		isRider := func() bool { return goblin != "" && !pr.IsCrossRepository && isFleets(pr) }
+		if change, isNew := healthChange(record, pr, behind, now, isRider); isNew {
+			change.goblin = goblin
+			if goblin == "" {
+				viewer, err := owners.account(ctx, runner, repo)
+				change.isFleets = err == nil && strings.EqualFold(viewer, pr.Author.Login)
+				change.isTeammates = err == nil && !change.isFleets
 			}
-			change.goblin = goblinOf[pr.URL]
 			changes = append(changes, change)
 		}
 	}

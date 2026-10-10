@@ -951,7 +951,10 @@ A repository is the fleet's when its GitHub owner, read from the pull request's 
 Another owner's pull requests, such as the upstream's in a checkout of your fork whose `origin` is the upstream, raise nothing.
 It raises a `pr_health` wake for a conflict with the PR's base or a head that is behind the repository's current default branch, even when its checks failed or it has none.
 A behind head whose checks are still running waits until they conclude, for three hours at most, and is judged then.
-A behind head raises none while a merge train can take the pull request, a goblin's finished one that is green, mergeable and not held, since the train tests each rider on the current default branch itself.
+A goblin's own pull request that is only behind, with its checks passed, raises none, since a merge train tests the default branch and its riders together.
+That is one rule for every pull request a live goblin holds that your account opened in the repository, whether the goblin reported it done yet and whether it is held.
+A pull request is a live goblin's when the goblin recorded or reported it, when its branch is the one the goblin's worktree has checked out, or when your account opened it from a branch that worktree had checked out before, which git keeps in the worktree's reflog, so a goblin on its second branch still owns its first pull request across a restart.
+A teammate's pull request is one another account opened, and one your account opened from a branch no live goblin holds is called neither: both are reported with author and link, and the fleet pushes to neither.
 One poll raises at most one such wake per repository, naming every pull request whose head fell into a condition the CFO was not woken for, so dozens never arrive as dozens of wakes.
 Each condition wakes once per head and survives a restart; a pull request whose head and condition stay as they were is never named again, a behind head waits up to ten minutes for GitHub to work out whether it conflicts, and a repository's wakes are at least five minutes apart.
 A goblin's pull request is named with its goblin and the safe update: merge the default branch in with a merge commit, regenerate generated files, run CI once and never force-push.

@@ -4,11 +4,14 @@ import (
 	"context"
 	"fmt"
 	"maps"
+	"os/exec"
 	"path/filepath"
 	"slices"
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/fpresta0607/code-goblins/internal/execx"
 )
 
 // listedPull is one open pull request as gh pr list gives it, in owner's
@@ -252,5 +255,73 @@ func TestPRHealthReportsABehindHeadWhoseMergeabilityStaysUnknown(t *testing.T) {
 		if after < mergeabilityGrace && len(wakes) != 0 || after >= mergeabilityGrace && (len(wakes) != 1 || !strings.Contains(wakes[0].Detail, "3 commits behind")) {
 			t.Fatalf("at %s: health wakes = %+v", after, wakes)
 		}
+	}
+}
+
+// Whose a pull request is rests on a worktree's own reflog naming every
+// branch it had checked out, in git's own words for a checkout. This reads
+// them from git itself: a worktree that made three branches held all three,
+// a branch made in the main checkout is not the worktree's, and a worktree
+// that was never there held none.
+func TestHeldBranchesReadsEveryBranchAWorktreeHadCheckedOut(t *testing.T) {
+	// Arrange
+	repo := t.TempDir()
+	worktree := filepath.Join(t.TempDir(), "gb-task")
+	git := func(dir string, args ...string) {
+		t.Helper()
+		command := exec.Command("git", append([]string{"-C", dir, "-c", "user.email=t@t", "-c", "user.name=t"}, args...)...)
+		if out, err := command.CombinedOutput(); err != nil {
+			t.Fatalf("git %v: %v\n%s", args, err, out)
+		}
+	}
+	git(repo, "init", "-q", "--initial-branch=main")
+	git(repo, "commit", "-q", "--allow-empty", "-m", "seed")
+	git(repo, "worktree", "add", "-q", "--detach", worktree)
+	git(worktree, "switch", "-q", "--create", "feat/first")
+	git(worktree, "commit", "-q", "--allow-empty", "-m", "first")
+	git(worktree, "switch", "-q", "--create", "feat/second", "main")
+	git(worktree, "checkout", "-q", "-b", "fix/third")
+	git(repo, "switch", "-q", "--create", "feat/the-overlords-own")
+
+	// Act
+	held := heldBranches(t.Context(), execx.OSRunner{}, worktree)
+	none := heldBranches(t.Context(), execx.OSRunner{}, filepath.Join(t.TempDir(), "no-such-worktree"))
+
+	// Assert
+	for _, branch := range []string{"feat/first", "feat/second", "fix/third"} {
+		if !slices.Contains(held, branch) {
+			t.Errorf("held = %q, want %s among them", held, branch)
+		}
+	}
+	if slices.Contains(held, "feat/the-overlords-own") || slices.Contains(held, "main") {
+		t.Errorf("held = %q, want none of the branches only the main checkout had", held)
+	}
+	if len(none) != 0 {
+		t.Errorf("a worktree that is not there held %q, want none", none)
+	}
+}
+
+// While the account gh works as cannot be read, a pull request no live goblin
+// holds is called neither a teammate's nor the fleet's own.
+func TestPRHealthCallsAPullRequestNobodysWhileTheAccountCannotBeRead(t *testing.T) {
+	// Arrange
+	service, h, forge, now := healthService(t, false)
+	writeFile(t, filepath.Join(h.Root, "config", "fleet.json"), `{"github_owners":["o"]}`)
+	forge.pulls = "[" + listedPull("o", 12, "feat/theirs", "head-t", "CONFLICTING", "someone") + "]"
+	forge.comparisons = behindBy(map[int]comparedHead{12: {"head-t", 0}})
+	forge.failureOn, forge.failure = "gh api user", execx.Result{ExitCode: 1, Stderr: []byte("HTTP 503")}
+
+	// Act
+	if err := service.checkFleet(context.Background(), now); err != nil {
+		t.Fatal(err)
+	}
+
+	// Assert
+	wakes := prWakes(t, h, "pr_health")
+	if len(wakes) != 1 || !strings.Contains(wakes[0].Detail, "someone's PR #12") || !strings.Contains(wakes[0].Detail, "the fleet reports a pull request no live goblin holds and never pushes to it") {
+		t.Fatalf("health wakes = %+v, want one that says no live goblin holds #12", wakes)
+	}
+	if strings.Contains(wakes[0].Detail, "teammate") || strings.Contains(wakes[0].Detail, "its own account") {
+		t.Errorf("wake %q says whose the pull request is, which was not read", wakes[0].Detail)
 	}
 }
