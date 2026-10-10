@@ -97,6 +97,7 @@ So what asks Windows for the temporary folder in a goblin's terminal, as a Go pr
 A goblin started before this keeps the `TMP` it was started with until it is resumed or switched.
 
 - `--brief` must be an absolute path to an existing file.
+- The brief's Authentication section decides what the goblin can reach: its `credentials:` line names the services, by their names in the project's manifest, whose credentials the goblin's terminal carries, and it carries no other ([Credentials by need](#credentials-by-need)). `credentials: none` gives it none. A brief with no such line gets the services the manifest marks default. A name the manifest does not declare refuses the spawn. The spawn says on one `auth: withheld ...` line what it withheld, and `cfo auth grant <id> <service>` gives a running goblin one more.
 - `--mode` is `no-mistakes` (default), `direct-PR`, or `local-only`.
 - Every goblin starts in a native terminal of its own. A pi goblin starts with `--approve` where its pi advertises it, trusting the folder's project files for that run only, so it never asks.
 - Every goblin's terminal names a browser session of its own, `CHROME_DEVTOOLS_AXI_SESSION` set to its task id, and the CFO's is `cfo`. chrome-devtools-axi keeps one bridge and one browser for each session name, so a bridge belongs to one owner and is never the tool's unnamed session, which every program of the user shares. The bridge carries its terminal's mark and ends with its goblin at a pause, a stop or the janitor's sweep.
