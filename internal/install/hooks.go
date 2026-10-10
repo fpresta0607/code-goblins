@@ -1,18 +1,20 @@
-// Package install wires the CFO into a machine so a Claude Code session
-// opened in any repository is supervised, not just one opened inside the
-// code-goblins checkout.
+// Package install wires the CFO into a machine so a CFO started from any
+// folder is supervised, not just one opened inside the code-goblins checkout.
 //
-// Two things pin the CFO to its own repo. The hooks live in the repo's
-// `.claude/settings.json` and resolve `$CLAUDE_PROJECT_DIR/cfo.exe`, so a
-// session anywhere else trips the `|| exit 0` guard and every hook goes
-// silently inert; and `cfo.exe` is only on PATH if the adopter put it there.
-// Install moves the hooks to user scope, points them at the home's own
-// cfo.exe, and sets `CFO_HOME` and PATH at user scope.
+// Two things pinned the CFO to its own repo. The hooks lived in the repo's
+// `.claude/settings.json` and resolved `$CLAUDE_PROJECT_DIR/cfo.exe`, so a
+// session anywhere else tripped the `|| exit 0` guard and every hook went
+// silently inert; and `cfo.exe` was only on PATH if the adopter put it there.
+// Install sets `CFO_HOME` and PATH at user scope, and the hooks point at the
+// home's own cfo.exe. They are the CFO's terminal's alone: its launch hands
+// them to Claude Code (CFOSettings), and no settings file of the user holds
+// them, so no other session on the machine runs one.
 package install
 
 import (
 	"encoding/json"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
 
@@ -49,8 +51,9 @@ type Hook struct {
 }
 
 // Hooks is the CFO hook set of the home at root, and the single place it is
-// defined. Adding a hook here is all it takes for `cfo install` to write it,
-// for a rerun to leave it alone, and for `--uninstall` to remove it.
+// defined. Adding a hook here is all it takes for the CFO's terminal to start
+// with it, and for an install or `--uninstall` to remove one an older build
+// wrote into the user's settings.
 //
 // Every pre-tool hook starts a process before its tool runs, so each tool
 // call runs as few as the guards allow: a Bash call runs pretool-bash alone,
@@ -75,6 +78,48 @@ func Hooks(root string) []Hook {
 		hooks[i].Args = []string{"hook", hooks[i].Name}
 	}
 	return hooks
+}
+
+// CFOSettings is the Claude Code settings document the CFO's terminal starts
+// with: the CFO's hooks and nothing else. Claude Code adds what `--settings`
+// names to the user's own settings, for that session alone.
+func CFOSettings(root string) ([]byte, error) {
+	file := &settingsFile{values: map[string]any{}}
+	if err := file.addCFOHooks(root); err != nil {
+		return nil, err
+	}
+	return file.render()
+}
+
+// UserHooks is the `cfo hook <name>` of every CFO hook entry the settings file
+// at path holds, which an install by a build before 2026-10 wrote there and
+// every Claude Code session of the user runs. A missing file holds none.
+func UserHooks(path string) ([]string, error) {
+	file, err := loadSettings(path)
+	if err != nil {
+		return nil, err
+	}
+	events, err := file.hookEvents()
+	if err != nil {
+		return nil, err
+	}
+	var names []string
+	for _, raw := range events {
+		groups, _ := raw.([]any)
+		for _, rawGroup := range groups {
+			group, _ := rawGroup.(map[string]any)
+			entries, _ := group["hooks"].([]any)
+			for _, rawEntry := range entries {
+				if entry, ok := rawEntry.(map[string]any); ok {
+					if name, ok := HookName(entry); ok {
+						names = append(names, name)
+					}
+				}
+			}
+		}
+	}
+	slices.Sort(names)
+	return names, nil
 }
 
 // HookName is the `cfo hook <name>` a settings hook entry runs, for an entry

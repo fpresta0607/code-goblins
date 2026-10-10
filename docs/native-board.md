@@ -69,7 +69,8 @@ Bringing it back needs its screens captured for a native terminal (its startup p
 Default destinations are `~/.claude/settings.json`, `~/.codex/hooks.json`, and `~/.pi/agent/extensions/cfo-native.ts`.
 Use `--config-dir <absolute-directory>` for a custom harness home or an isolated test configuration.
 Setup preserves unrelated JSON hooks/settings, takes a first backup before changing existing JSON, and replaces only its owned helper.
-Its hooks go back where they stood in each event's list, as `cfo install`'s do in the same `~/.claude/settings.json`, so rerunning either changes nothing when nothing changed.
+Its hooks go back where they stood in each event's list, so rerunning it changes nothing when nothing changed.
+`cfo install` writes no hook into the same `~/.claude/settings.json`: the CFO's hooks come with its terminal's start, and an install only takes out the ones an older build wrote there.
 It does not change models, gate policy, approval settings, or Codex hook trust.
 Review the exact installed Codex definitions in `/hooks` before they can run.
 

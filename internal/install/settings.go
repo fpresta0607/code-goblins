@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"slices"
 
 	"github.com/fpresta0607/code-goblins/internal/fsx"
 )
@@ -133,15 +132,12 @@ func (f *settingsFile) hookEvents() (map[string]any, error) {
 }
 
 // pruneCFOHooks removes every hook entry this package wrote, and nothing
-// else. Groups and events left empty by the removal are dropped so an
-// uninstall leaves no hollow scaffolding behind. For each event that held a
-// CFO entry it returns where the first group holding one stood among the
-// groups kept, which is where addCFOHooks puts the CFO groups back.
-func (f *settingsFile) pruneCFOHooks() (map[string]int, error) {
-	stood := map[string]int{}
+// else. Groups and events left empty by the removal are dropped so it leaves
+// no hollow scaffolding behind.
+func (f *settingsFile) pruneCFOHooks() error {
 	events, err := f.hookEvents()
 	if err != nil || events == nil {
-		return stood, err
+		return err
 	}
 	for event, raw := range events {
 		groups, ok := raw.([]any)
@@ -167,9 +163,6 @@ func (f *settingsFile) pruneCFOHooks() (map[string]int, error) {
 				}
 				keptEntries = append(keptEntries, rawEntry)
 			}
-			if _, seen := stood[event]; !seen && len(keptEntries) < len(entries) {
-				stood[event] = len(kept)
-			}
 			if len(keptEntries) == 0 {
 				continue
 			}
@@ -185,14 +178,12 @@ func (f *settingsFile) pruneCFOHooks() (map[string]int, error) {
 	if len(events) == 0 {
 		delete(f.values, "hooks")
 	}
-	return stood, nil
+	return nil
 }
 
-// addCFOHooks puts the CFO hook groups back where pruneCFOHooks found them,
-// and after every group of an event that held none, leaving every other
-// group in place. A rerun that changes no CFO hook therefore changes nothing,
-// whatever the adopter or another installer added after them.
-func (f *settingsFile) addCFOHooks(root string, stood map[string]int) error {
+// addCFOHooks adds the CFO hook groups of the home at root to the document,
+// each after the groups its event already holds.
+func (f *settingsFile) addCFOHooks(root string) error {
 	events, err := f.hookEvents()
 	if err != nil {
 		return err
@@ -215,12 +206,7 @@ func (f *settingsFile) addCFOHooks(root string, stood map[string]int) error {
 			entries = append(entries, entry)
 		}
 		rendered["hooks"] = entries
-		at, found := stood[group.event]
-		if !found {
-			at = len(existing)
-		}
-		events[group.event] = slices.Insert(existing, at, any(rendered))
-		stood[group.event] = at + 1
+		events[group.event] = append(existing, any(rendered))
 	}
 	return nil
 }
