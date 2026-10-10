@@ -2,6 +2,7 @@ package proc
 
 import (
 	"errors"
+	"fmt"
 	"syscall"
 	"unsafe"
 
@@ -26,17 +27,52 @@ func Environment(pid int) ([]string, error) {
 		if err != nil || parameters == 0 {
 			return 0, errors.New("process parameters unavailable")
 		}
-		address, err := readPointer(handle, parameters+unsafe.Offsetof(windows.RTL_USER_PROCESS_PARAMETERS{}.Environment))
-		if err != nil || address == 0 {
-			return parameters, errors.New("process environment unavailable")
-		}
-		environment, err = environmentAt(handle, address)
+		environment, err = steadyEnvironment(handle, pid, parameters, 0, func(address uintptr) ([]string, error) {
+			return environmentAt(handle, address)
+		})
 		return parameters, err
 	})
 	if err != nil {
 		return nil, err
 	}
 	return environment, nil
+}
+
+// environmentFollowed runs once a read has the address of an environment and
+// before it reads there. A test moves the environment in it, as a starting
+// process does.
+var environmentFollowed = func() {}
+
+// steadyEnvironment reads, with read, the environment the parameter block at
+// parameters points to, until the block still points there once the read is
+// done. followed is the address a caller that copied the block already has,
+// or zero for the block to be asked.
+//
+// A starting process moves its environment into its own heap before it moves
+// the block, and frees the one CreateProcess built, while its PEB still
+// points at the same block, so walkSteady does not see that move. A read
+// that followed the old address read memory as it was freed: it failed with
+// "process environment unavailable", as a train's CI did on 2026-10-10 (run
+// 38017561464), or it read what was no longer the environment. A block that
+// cannot be asked again has moved itself, which walkSteady sees.
+func steadyEnvironment(handle syscall.Handle, pid int, parameters, followed uintptr, read func(address uintptr) ([]string, error)) ([]string, error) {
+	field := parameters + unsafe.Offsetof(windows.RTL_USER_PROCESS_PARAMETERS{}.Environment)
+	for range maxWalks {
+		if followed == 0 {
+			var err error
+			if followed, err = readPointer(handle, field); err != nil || followed == 0 {
+				return nil, errors.New("process environment unavailable")
+			}
+		}
+		environmentFollowed()
+		environment, err := read(followed)
+		current, currentErr := readPointer(handle, field)
+		if currentErr != nil || current == followed {
+			return environment, err
+		}
+		followed = current
+	}
+	return nil, fmt.Errorf("process %d: its environment moved during every read", pid)
 }
 
 // environmentAt reads the environment block at address in the process
