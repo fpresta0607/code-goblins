@@ -20,6 +20,7 @@ import (
 	"time"
 
 	"github.com/fpresta0607/code-goblins/internal/fsx"
+	"github.com/fpresta0607/code-goblins/internal/lock"
 )
 
 // Aliases are the names the home's one program is installed under.
@@ -74,6 +75,14 @@ type Attempt struct {
 	Program string    `json:"program"`
 }
 
+// Step is one step of an update and how long it took, so an update that was
+// slow says where its time went. On 2026-10-09 seven minutes went between two
+// lines of output, and nothing kept which step they were spent in.
+type Step struct {
+	Name string        `json:"name"`
+	Took time.Duration `json:"took_ns"`
+}
+
 // Journal is an update's durable progress, written before anything live
 // changes and on every step after.
 type Journal struct {
@@ -85,6 +94,7 @@ type Journal struct {
 	Hash      string    `json:"candidate_sha256"`
 	Aliases   []Alias   `json:"aliases"`
 	Attempts  []Attempt `json:"attempts,omitempty"`
+	Steps     []Step    `json:"steps,omitempty"`
 	Started   time.Time `json:"started"`
 	Updated   time.Time `json:"updated"`
 	Outcome   string    `json:"outcome,omitempty"`
@@ -93,6 +103,20 @@ type Journal struct {
 // Dir is where an update keeps its journal, the verified copies and its lock.
 func Dir(stateDir string) string {
 	return filepath.Join(stateDir, "update")
+}
+
+// LockName is the lock, in Dir, that one update of a home, or the recovery of
+// one, holds from before it changes anything until it has finished.
+const LockName = ".lock"
+
+// Installing reports whether an update of the home whose state is stateDir,
+// or the recovery of one, is at work now: a process that runs holds its lock.
+// While it does, the home's programs are being swapped and its supervisor
+// restarted, so whatever starts a supervisor or a terminal waits for it. A
+// lock left by a process that ended is no update.
+func Installing(stateDir string) bool {
+	holder, err := lock.ReadNamed(Dir(stateDir), LockName)
+	return err == nil && holder.Alive()
 }
 
 func journalPath(stateDir string) string {

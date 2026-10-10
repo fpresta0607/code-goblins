@@ -51,8 +51,13 @@ test("a new release is its own item: the versions, what is new, what the update 
   expect(sent).not.toHaveProperty("command");
 });
 
-test("Update follows the run step by step, and a rollback says why and offers the next try", async ({ page }) => {
+test("Update follows the run step by step, and a rollback ends on one sentence and one Try again that starts the next update", async ({ page }) => {
   // Arrange
+  let sent: Record<string, unknown> | null = null;
+  await page.route("**/api/actions", async (route) => {
+    sent = route.request().postDataJSON();
+    await route.fulfill({ json: { id: String(sent?.id), kind: "run", run_id: "update-v0.5.0-2", status: "queued" } });
+  });
   await page.route("**/api/runs/update-v0.5.0-1/output", (route) => route.fulfill({ json: { state: "running",
     output: "[1/4] Download Code Goblins v0.5.0\n[2/4] Check the download\n      cfo.exe matches the release's SHA256SUMS: 3f9a\n[3/4] Install Code Goblins v0.5.0\nStopping the supervisor (pid 21116).\n" } }));
   const dialog = await openTheItem(page);
@@ -73,15 +78,20 @@ test("Update follows the run step by step, and a rollback says why and offers th
   // Assert
   const back = dialog.locator(".update-card");
   await expect(back.getByRole("status")).toHaveText("Rolled back");
-  await expect(back.locator(".update-result")).toHaveText("Code Goblins v0.4.2 serves again, and v0.5.0 was not installed; what it printed above says why.");
+  await expect(back.locator(".update-result")).toHaveText("Code Goblins v0.5.0 was not installed, and v0.4.2 serves again.");
   await expect(back.locator(".update-steps li.failed")).toHaveText("Restart the board on v0.5.0");
+  // The card asks for nothing to be pasted, and offers one thing to press.
+  await expect(back.locator(".update-result")).not.toContainText(/PowerShell|\$env:|--recover/);
+  await expect(back.locator("button.update-button")).toHaveText(["Try again"]);
 
   // Act
   await back.getByRole("button", { name: "Try again" }).click();
 
-  // Assert: the board's next item for the same release, ready to update.
-  await expect(dialog.locator(".update-card").getByRole("status")).toHaveText("Ready");
-  await expect(dialog.locator(".update-card").getByRole("button", { name: "Update" })).toBeEnabled();
+  // Assert: the one press starts the board's next item for the same release.
+  await expect.poll(() => sent).not.toBeNull();
+  expect(sent).toMatchObject({ kind: "run", run_id: "update-v0.5.0-2", generation: "u".repeat(64) });
+  expect(sent).not.toHaveProperty("command");
+  await expect(dialog.locator(".update-card").getByRole("heading", { name: "Update Code Goblins" })).toBeVisible();
 });
 
 test("an update that installed says so, and its item moves to History", async ({ page }) => {

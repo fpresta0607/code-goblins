@@ -8,11 +8,15 @@ const run = (changes: Partial<Run>): Run => ({ id: "update-v0.5.0-1", identity: 
 
 // What goblins update prints, as cmd/cfo/update_release.go prints it.
 const printed = {
-  downloading: "Code Goblins v0.4.2 runs here; v0.5.0 was published 2026-10-06 (page).\n[1/4] Download Code Goblins v0.5.0\n",
+  downloading: "Code Goblins v0.4.2 runs here, and v0.5.0 was published 2026-10-06 (page).\n[1/4] Download Code Goblins v0.5.0\n",
   installing: "[1/4] Download Code Goblins v0.5.0\n[2/4] Check the download\n      cfo.exe matches the release's SHA256SUMS: 3f9a\n[3/4] Install Code Goblins v0.5.0\nStopping the supervisor (pid 21116).\n",
   updated: "[1/4] Download Code Goblins v0.5.0\n[2/4] Check the download\n[3/4] Install Code Goblins v0.5.0\n[4/4] Bring the home up to date\nUpdated: Code Goblins v0.5.0 runs.\n",
-  incomplete: "[1/4] Download Code Goblins v0.5.0\n[2/4] Check the download\n[3/4] Install Code Goblins v0.5.0\n[4/4] Bring the home up to date\nUpdated: Code Goblins v0.5.0 runs, but its install did not bring the home's contract, skills and hooks up to date (exit code 1); run goblins install to finish.\n",
-  rolledBack: "[1/4] Download Code Goblins v0.5.0\n[2/4] Check the download\n[3/4] Install Code Goblins v0.5.0\ncfo update: the supervisor (pid 30412) did not serve within 1m30s; putting the previous build back\nRolled back: Code Goblins v0.4.2 serves again, and v0.5.0 was not installed; what it printed above says why.\n",
+  incomplete: "[1/4] Download Code Goblins v0.5.0\n[2/4] Check the download\n[3/4] Install Code Goblins v0.5.0\n[4/4] Bring the home up to date\nUpdated: Code Goblins v0.5.0 runs, but its install did not bring the home's contract, skills and hooks up to date (exit code 1), and goblins install finishes that.\n",
+  rolledBack: "[1/4] Download Code Goblins v0.5.0\n[2/4] Check the download\n[3/4] Install Code Goblins v0.5.0\ncfo update: the supervisor (pid 30412) did not serve within 1m0s, so the previous build is put back\nRolled back: the previous build serves the board (pid 30988).\nRolled back: Code Goblins v0.5.0 was not installed, and v0.4.2 serves again.\n",
+  late: "[1/4] Download Code Goblins v0.5.0\n[2/4] Check the download\n[3/4] Install Code Goblins v0.5.0\nStopping the supervisor (pid 21116).\ncfo update: the update took longer than 1m0s, so it was stopped and the previous build is put back\nRolled back: the previous build serves the board (pid 30988).\nRolled back: Code Goblins v0.5.0 was not installed, and v0.4.2 serves again.\n",
+  degraded: "[1/4] Download Code Goblins v0.5.0\n[2/4] Check the download\n[3/4] Install Code Goblins v0.5.0\nRolled back: Code Goblins v0.5.0 was not installed, and v0.4.2 serves again from a kept copy until the next update repairs its files.\n",
+  boardDown: "[1/4] Download Code Goblins v0.5.0\n[2/4] Check the download\n[3/4] Install Code Goblins v0.5.0\nFailed: neither build serves the board (the previous build did not serve), so it is down until Code Goblins is opened again, and the next update puts the previous build back first.\nFailed: Code Goblins v0.5.0 was not installed, and the board is down until Code Goblins is opened again.\n",
+  tooBusy: "[1/4] Download Code Goblins v0.5.0\n[2/4] Check the download\n[3/4] Install Code Goblins v0.5.0\nFailed: the update took longer than 1m0s before it changed anything, so it was stopped and nothing was changed.\nFailed: Code Goblins v0.5.0 was not installed, and nothing was changed.\n",
   refused: "[1/4] Download Code Goblins v0.5.0\n[2/4] Check the download\nFailed: the downloaded cfo.exe does not match the release's SHA256SUMS (it is 11, the release lists 22), so nothing was installed.\n",
 };
 
@@ -22,8 +26,12 @@ test("an update's steps follow what it printed: done, the one under way, and tho
     ["downloading", run({ state: "running" }), printed.downloading, ["now", "todo", "todo", "todo"], ""],
     ["installing", run({ state: "running" }), printed.installing, ["done", "done", "now", "todo"], ""],
     ["updated", run({ state: "succeeded", exit_code: 0 }), printed.updated, ["done", "done", "done", "done"], "Code Goblins v0.5.0 runs."],
-    ["updated with an incomplete home refresh", run({ state: "failed", exit_code: 6 }), printed.incomplete, ["done", "done", "done", "failed"], "Code Goblins v0.5.0 runs, but its install did not bring the home's contract, skills and hooks up to date (exit code 1); run goblins install to finish."],
-    ["rolled back", run({ state: "failed", exit_code: 3 }), printed.rolledBack, ["done", "done", "failed", "todo"], "Code Goblins v0.4.2 serves again, and v0.5.0 was not installed; what it printed above says why."],
+    ["updated with an incomplete home refresh", run({ state: "failed", exit_code: 6 }), printed.incomplete, ["done", "done", "done", "failed"], "Code Goblins v0.5.0 runs, but its install did not bring the home's contract, skills and hooks up to date (exit code 1), and goblins install finishes that."],
+    ["rolled back", run({ state: "failed", exit_code: 3 }), printed.rolledBack, ["done", "done", "failed", "todo"], "Code Goblins v0.5.0 was not installed, and v0.4.2 serves again."],
+    ["stopped at its bound and rolled back", run({ state: "failed", exit_code: 3 }), printed.late, ["done", "done", "failed", "todo"], "Code Goblins v0.5.0 was not installed, and v0.4.2 serves again."],
+    ["rolled back onto a kept copy", run({ state: "failed", exit_code: 5 }), printed.degraded, ["done", "done", "failed", "todo"], "Code Goblins v0.5.0 was not installed, and v0.4.2 serves again from a kept copy until the next update repairs its files."],
+    ["neither build serves", run({ state: "failed", exit_code: 4 }), printed.boardDown, ["done", "done", "failed", "todo"], "Code Goblins v0.5.0 was not installed, and the board is down until Code Goblins is opened again."],
+    ["too busy to prepare", run({ state: "failed", exit_code: 1 }), printed.tooBusy, ["done", "done", "failed", "todo"], "Code Goblins v0.5.0 was not installed, and nothing was changed."],
     ["refused at the check", run({ state: "failed", exit_code: 1 }), printed.refused, ["done", "failed", "todo", "todo"], "The downloaded cfo.exe does not match the release's SHA256SUMS (it is 11, the release lists 22), so nothing was installed."],
     ["a window closed before it finished", run({ state: "failed", exit_code: null, reason: "its window closed before the command finished" }), printed.installing, ["done", "done", "failed", "todo"], "It stopped before it finished: its window closed before the command finished."],
   ];
@@ -31,6 +39,8 @@ test("an update's steps follow what it printed: done, the one under way, and tho
     const progress = updateProgress(given, output);
     assert.deepEqual(progress.steps.map((step) => step.state), states, name);
     assert.equal(progress.result, result, name);
+    // The card's one sentence is plain: nothing to paste, no semicolon, no dash.
+    assert.doesNotMatch(progress.result, /PowerShell|\$env:|--recover|;|—/, name);
   }
   assert.deepEqual(updateProgress(run({}), "").steps.map((step) => step.title), ["Download Code Goblins v0.5.0", "Check each file's SHA-256", "Restart the board on v0.5.0", "Bring the CFO's contract and skills up to date"]);
 });
@@ -42,6 +52,8 @@ test("an update's outcome reads as the update, not as a command's exit code", ()
     ["updated", run({ state: "succeeded", exit_code: 0 }), "Updated", false],
     ["updated with an incomplete home refresh", run({ state: "failed", exit_code: 6 }), "Updated", true],
     ["rolled back", run({ state: "failed", exit_code: 3 }), "Rolled back", true],
+    ["rolled back onto a kept copy", run({ state: "failed", exit_code: 5 }), "Rolled back", true],
+    ["neither build serves", run({ state: "failed", exit_code: 4 }), "Not updated", true],
     ["failed", run({ state: "failed", exit_code: 1 }), "Not updated", true],
     ["replaced by a newer release", run({ state: "withdrawn", reason: "v0.5.1 was published since" }), "Replaced", false],
   ];

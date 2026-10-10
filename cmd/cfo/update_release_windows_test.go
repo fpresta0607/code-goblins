@@ -226,8 +226,15 @@ func TestAnUpdateFromAReleaseRollsBackABuildThatDoesNotServe(t *testing.T) {
 	code, output := u.updateFromRelease(server, "v0.4.2", nil)
 
 	// Assert
-	if code != updateRolledBack || !strings.Contains(output, "Rolled back: Code Goblins v0.4.2 serves again, and v0.5.0 was not installed") {
-		t.Fatalf("update exited %d, want %d and the rollback said:\n%s", code, updateRolledBack, output)
+	// It ends on the one sentence the card shows.
+	if code != updateRolledBack || !strings.HasSuffix(strings.TrimSpace(output), "Rolled back: Code Goblins v0.5.0 was not installed, and v0.4.2 serves again.") {
+		t.Fatalf("update exited %d, want %d and the rollback said on its last line:\n%s", code, updateRolledBack, output)
+	}
+	// Nothing an update that rolled back prints is a command to paste, and
+	// none of it holds a semicolon or an em dash.
+	noPasteLine(t, output)
+	if strings.ContainsAny(output, ";—") {
+		t.Errorf("what the update printed holds a semicolon or an em dash:\n%s", output)
 	}
 	u.previousServes()
 }
@@ -237,12 +244,16 @@ func TestAnUpdateFromAReleaseReportsAnIncompleteHomeRefresh(t *testing.T) {
 		name             string
 		isUnreadableHome bool
 		isOtherHome      bool
+		isHanging        bool
 		code             int
 		reason           string
 	}{
 		{name: "malformed Claude settings", code: updateHomeIncomplete, reason: "settings.json"},
 		{name: "unreadable machine home", isUnreadableHome: true, code: updateHomeIncomplete, reason: "which home this machine's install names could not be read"},
 		{name: "another home's refresh is skipped", isOtherHome: true, code: updateInstalled, reason: "not this one"},
+		// The card's last step never runs without end: a refresh past its
+		// bound is ended, and the update ends as one still to finish.
+		{name: "a refresh that never ends", isHanging: true, code: updateHomeIncomplete, reason: "took longer than 3s"},
 	}
 	for _, test := range cases {
 		t.Run(test.name, func(t *testing.T) {
@@ -256,6 +267,9 @@ func TestAnUpdateFromAReleaseReportsAnIncompleteHomeRefresh(t *testing.T) {
 				t.Fatal(err)
 			}
 			seams := []string{"CLAUDE_CONFIG_DIR=" + machine}
+			if test.isHanging {
+				seams = append(seams, "CFO_TEST_INSTALL_HANGS=1", "CFO_TEST_RELEASE_REFRESH_WAIT=3s")
+			}
 			if test.isUnreadableHome || test.isOtherHome {
 				environment := filepath.Join(machine, "user-env.json")
 				values := []byte("invalid JSON")
@@ -283,7 +297,7 @@ func TestAnUpdateFromAReleaseReportsAnIncompleteHomeRefresh(t *testing.T) {
 			}
 			want := "Updated: Code Goblins v0.5.0 runs."
 			if test.code == updateHomeIncomplete {
-				want = "Updated: Code Goblins v0.5.0 runs, but its install did not bring the home's contract, skills and hooks up to date (exit code 1); run goblins install to finish."
+				want = "Updated: Code Goblins v0.5.0 runs, but its install did not bring the home's contract, skills and hooks up to date (exit code 1), and goblins install finishes that."
 			}
 			if !strings.HasSuffix(strings.TrimSpace(output), want) {
 				t.Fatalf("the update did not end on %q:\n%s", want, output)
@@ -325,9 +339,9 @@ func TestUpdateCheckSaysHowThisBuildStands(t *testing.T) {
 		code            int
 		says            string
 	}{
-		{"a newer release", "v0.4.2", false, 0, "Code Goblins v0.4.2 runs here; v0.5.0 was published"},
-		{"the same release", "v0.5.0", false, 0, "Code Goblins v0.5.0 runs here, the newest release; nothing to update."},
-		{"an older release", "v0.6.0", false, 0, "newer than the newest release, v0.5.0; nothing to update."},
+		{"a newer release", "v0.4.2", false, 0, "Code Goblins v0.4.2 runs here, and v0.5.0 was published"},
+		{"the same release", "v0.5.0", false, 0, "Code Goblins v0.5.0 runs here, the newest release, so there is nothing to update."},
+		{"an older release", "v0.6.0", false, 0, "newer than the newest release, v0.5.0, so there is nothing to update."},
 		{"a build from a clone", "dev", false, 0, "built from a clone, so it updates from that clone"},
 		{"no release to read", "v0.4.2", true, 1, "Failed: the newest release of Code Goblins could not be read"},
 	}
@@ -483,7 +497,7 @@ func TestAnUpdatePressedInTheCommandCenterRunsOnItsGrant(t *testing.T) {
 	}{
 		{"no grant", nil, 1, "Failed: no Update was pressed for this item in the Command Center. Nothing was changed."},
 		{"a grant for another release", &supervisor.UpdateGrant{Run: "update-v0.5.0-1", Tag: "v0.4.9", GrantedAt: time.Now()}, 1, "not this one"},
-		{"its own grant", &supervisor.UpdateGrant{Run: "update-v0.5.0-1", Tag: "v0.5.0", GrantedAt: time.Now()}, 0, "Code Goblins v0.5.0 runs here, the newest release; nothing to update."},
+		{"its own grant", &supervisor.UpdateGrant{Run: "update-v0.5.0-1", Tag: "v0.5.0", GrantedAt: time.Now()}, 0, "Code Goblins v0.5.0 runs here, the newest release, so there is nothing to update."},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
