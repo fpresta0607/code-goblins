@@ -23,6 +23,8 @@ import (
 	"github.com/fpresta0607/code-goblins/internal/home"
 	"github.com/fpresta0607/code-goblins/internal/host"
 	"github.com/fpresta0607/code-goblins/internal/lock"
+	"github.com/fpresta0607/code-goblins/internal/proc"
+	"github.com/fpresta0607/code-goblins/internal/update"
 	"github.com/fpresta0607/code-goblins/internal/watch"
 )
 
@@ -187,6 +189,9 @@ func runBoardLauncher(stdout, stderr io.Writer, runtime commandRuntime) int {
 // status. started says whether this launch started the supervisor.
 func launchBoard(ctx context.Context, runtime commandRuntime, h home.Home, stdout, stderr io.Writer) (board string, started, ok bool) {
 	board, status, running := liveBoard(ctx, h.State)
+	if !running && update.Installing(h.State) {
+		board, status, running = awaitUpdatesBoard(ctx, h.State)
+	}
 	if !running {
 		exited, startErr := runtime.startServe(h)
 		var taken boardAddressTaken
@@ -225,6 +230,22 @@ func launchBoard(ctx context.Context, runtime commandRuntime, h home.Home, stdou
 	}
 	fmt.Fprint(stdout, renderBanner(bannerColor(stdout), board, status))
 	return board, started, true
+}
+
+// awaitUpdatesBoard waits, while an update of the home installs, for the
+// board that update brings back, which takes under a minute. A goblins opened
+// meanwhile starts no supervisor of its own: on 2026-10-09 two supervisors
+// were started beside an update, which only a goblins launch does, each took
+// the watcher lock from under it, and the update ended with the board served
+// by a supervisor it had not started.
+// An update that ends leaving no board is left to the usual start.
+func awaitUpdatesBoard(ctx context.Context, stateDir string) (string, string, bool) {
+	for deadline := time.Now().Add(launcherStartTimeout); update.Installing(stateDir) && time.Now().Before(deadline); time.Sleep(launcherPoll) {
+		if board, status, ok := liveBoard(ctx, stateDir); ok {
+			return board, status, true
+		}
+	}
+	return liveBoard(ctx, stateDir)
 }
 
 // liveBoard returns the board a supervisor serves at the address its record
@@ -391,6 +412,7 @@ const (
 	createNoWindow         = 0x08000000
 	createNewProcessGroup  = 0x00000200
 	createBreakawayFromJob = 0x01000000
+	createSuspended        = 0x00000004
 )
 
 // errorSharingViolation is Windows' ERROR_SHARING_VIOLATION, which opening a
@@ -507,6 +529,14 @@ func boardAddressFree(ctx context.Context, address string) error {
 // refuses that flag, so the start is retried inside the job rather than not
 // made.
 func startDetached(executable, dir, logPath string, args ...string) (*exec.Cmd, error) {
+	return startDetachedAfter(nil, executable, dir, logPath, args...)
+}
+
+// startDetachedAfter is startDetached for a process that must find something
+// in place before its first instruction runs: it is created suspended, before
+// runs with its pid, and only then is it let run. A before that fails ends
+// the process, which never ran.
+func startDetachedAfter(before func(pid int) error, executable, dir, logPath string, args ...string) (*exec.Cmd, error) {
 	log, err := fsx.OpenAppend(logPath, 0o600)
 	if err != nil {
 		return nil, err
@@ -519,9 +549,24 @@ func startDetached(executable, dir, logPath string, args ...string) (*exec.Cmd, 
 		command.Stdout, command.Stderr = log, log
 		command.SysProcAttr.CreationFlags |= flags
 		command.SysProcAttr.HideWindow = true
-		if err = command.Start(); err == nil {
+		if before != nil {
+			command.SysProcAttr.CreationFlags |= createSuspended
+		}
+		if err = command.Start(); err != nil {
+			continue
+		}
+		if before == nil {
 			return command, nil
 		}
+		if err = before(command.Process.Pid); err == nil {
+			err = proc.Resume(command.Process.Pid)
+		}
+		if err != nil {
+			_ = command.Process.Kill()
+			_ = command.Wait()
+			return nil, err
+		}
+		return command, nil
 	}
 	return nil, err
 }

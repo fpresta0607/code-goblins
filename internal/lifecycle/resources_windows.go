@@ -23,7 +23,10 @@ import (
 type Resources struct {
 	Directories []string
 	Hosts       []Identity
-	Gate        pipeline.InterruptedRun
+	// Marks are the proofs the task's terminals gave what was started in
+	// them, which a process keeps wherever it works.
+	Marks []Mark
+	Gate  pipeline.InterruptedRun
 }
 
 // TaskResources is the task-to-resources boundary. A task's helpers are its
@@ -33,7 +36,8 @@ type Resources struct {
 // worktree spawn made for it in the home, or where an older build put it,
 // the extra worktrees it recorded beside that, its task temporary directory
 // and its scratch folder, so a record that names anything else stops
-// nothing.
+// nothing. Its marks are the proofs its own terminal was given, under every
+// host that ran it since the machine started.
 func TaskResources(ctx context.Context, h home.Home, meta state.TaskMeta, gate pipeline.Reader) (Resources, error) {
 	resources, err := heldResources(ctx, h, meta, gate.Commands)
 	if err != nil {
@@ -60,6 +64,7 @@ func heldResources(ctx context.Context, h home.Home, meta state.TaskMeta, comman
 		}
 		resources.Directories = append(resources.Directories, owned.Directories...)
 		resources.Hosts = append(resources.Hosts, owned.Hosts...)
+		resources.Marks = append(resources.Marks, owned.Marks...)
 	}
 	return resources, nil
 }
@@ -120,6 +125,15 @@ func ownResources(ctx context.Context, h home.Home, meta state.TaskMeta, command
 				return resources, errors.New("task host changed while identifying its resources")
 			}
 			resources.Hosts = append(resources.Hosts, Identity{PID: record.HostPID, Started: started})
+		}
+		// Read last, so a stop that cannot read them still has the terminal
+		// to end.
+		proofs, err := host.Proofs(stateDir, meta.ID)
+		if err != nil {
+			return resources, fmt.Errorf("read the task terminal's proofs: %w", err)
+		}
+		for _, proof := range proofs {
+			resources.Marks = append(resources.Marks, Mark{Terminal: meta.ID, ProofSum: proof})
 		}
 	} else if meta.Backend == "herdr" {
 		client := &herdr.Client{Commands: commands, Session: meta.HerdrSession}
@@ -187,7 +201,7 @@ const stopBound = 10 * time.Second
 
 // StopTask ends what a task holds, for a pause or a stop: its terminals
 // first, which ends its goblin, then whatever the sweep finds in its
-// directories and its terminals' jobs. Once its terminals have ended, a
+// directories and its terminals' jobs, or carrying its terminals' marks. Once its terminals have ended, a
 // gate whose state could not be read in time, as while the no-mistakes
 // daemon runs other sessions' gates, or a sweep that ran out of time, is an
 // UnfinishedStop. Each process still finishing its Windows teardown is kept
@@ -299,7 +313,7 @@ func stopResources(ctx context.Context, resources Resources, stop func(context.C
 		if err != nil {
 			return stopped, teardown, unfinished(err)
 		}
-		processes, err := Inventory(ctx, resources.Directories, members)
+		processes, err := Inventory(ctx, resources.Directories, members, resources.Marks)
 		if err != nil {
 			return stopped, teardown, unfinished(err)
 		}
@@ -350,7 +364,7 @@ func stopResources(ctx context.Context, resources Resources, stop func(context.C
 	if err != nil {
 		return stopped, teardown, unfinished(err)
 	}
-	remaining, err := Inventory(ctx, resources.Directories, members)
+	remaining, err := Inventory(ctx, resources.Directories, members, resources.Marks)
 	if err != nil {
 		return stopped, teardown, unfinished(err)
 	}

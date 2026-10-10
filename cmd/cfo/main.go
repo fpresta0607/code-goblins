@@ -466,6 +466,9 @@ func runWithRuntime(args []string, stdout, stderr io.Writer, runtime commandRunt
 		fmt.Fprintln(stderr, refusal)
 		return 1
 	}
+	if refusedWhileInstalling(args, stderr, runtime) {
+		return 1
+	}
 	switch args[0] {
 	case "attach":
 		return runAttach(args[1:], stdout, stderr, runtime)

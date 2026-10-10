@@ -13,6 +13,7 @@ import (
 	"os/signal"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"strconv"
 	"strings"
 	"syscall"
@@ -450,6 +451,30 @@ func TestTheTerminalCarriesAProofOnlyItsHostsRecordProves(t *testing.T) {
 	v.waitFor(t, "host-proof "+record.ProofSum)
 	if record.Proves("outer-proof") || record.Proves("") || (Record{}).Proves("outer-proof") {
 		t.Errorf("record %+v proves another terminal's value, an empty one, or a record without a proof proves one", record)
+	}
+}
+
+// A host's record goes when the host does, and what the terminal started may
+// outlive both. The terminal's proofs still hold the digest of the value
+// those processes carry, so they can be proven its own once the host has
+// ended.
+func TestTheTerminalsProofOutlastsItsHostsRecord(t *testing.T) {
+	// Arrange
+	stateDir, record := launch(t)
+
+	// Act
+	if err := Close(stateDir, record, 5*time.Second); err != nil {
+		t.Fatal(err)
+	}
+	_, recordErr := ReadRecord(stateDir, "g1")
+	proofs, err := Proofs(stateDir, "g1")
+
+	// Assert
+	if !errors.Is(recordErr, os.ErrNotExist) {
+		t.Fatalf("the ended host's record: %v, want it gone", recordErr)
+	}
+	if err != nil || !slices.Contains(proofs, record.ProofSum) {
+		t.Fatalf("proofs after the host ended = %v, %v; want the digest %s its terminal carried", proofs, err, record.ProofSum)
 	}
 }
 

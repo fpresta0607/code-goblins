@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"time"
 
@@ -46,12 +47,94 @@ type Record struct {
 // timeout by replacing its own Windows process, and the MSYS runtime breaks
 // away from the job. A record from before proofs proves nothing.
 func (r Record) Proves(proof string) bool {
-	return proof != "" && r.ProofSum != "" && subtle.ConstantTimeCompare([]byte(proofSum(proof)), []byte(r.ProofSum)) == 1
+	return proof != "" && r.ProofSum != "" && subtle.ConstantTimeCompare([]byte(ProofSum(proof)), []byte(r.ProofSum)) == 1
 }
 
-func proofSum(proof string) string {
+// ProofSum is the digest a proof value is recorded and compared by.
+func ProofSum(proof string) string {
 	sum := sha256.Sum256([]byte(proof))
 	return hex.EncodeToString(sum[:])
+}
+
+func proofsPath(stateDir, id string) string {
+	return filepath.Join(stateDir, "hosts", id+".proofs")
+}
+
+// Proofs lists the digest of every proof value terminal id was given since
+// the machine started, oldest first: one for each time it was started,
+// resumed or switched. Its record names only the host that runs it now, and
+// a process started under an earlier host, or one that outlived its host,
+// still carries that host's value, so these are what prove a process is the
+// terminal's own whichever host runs it and when none does. The digest in
+// the terminal's record counts too: a host a build before these proofs
+// started kept none, and its terminal's processes carry its value still.
+func Proofs(stateDir, id string) ([]string, error) {
+	if err := state.ValidTaskID(id); err != nil {
+		return nil, err
+	}
+	kept, err := readProofs(stateDir, id)
+	if err != nil {
+		return nil, err
+	}
+	sums := make([]string, len(kept))
+	for index, proof := range kept {
+		sums[index] = proof.sum
+	}
+	if record, err := ReadRecord(stateDir, id); err == nil && record.ProofSum != "" && !slices.Contains(sums, record.ProofSum) {
+		sums = append(sums, record.ProofSum)
+	}
+	return sums, nil
+}
+
+type keptProof struct {
+	sum string
+	at  time.Time
+}
+
+func readProofs(stateDir, id string) ([]keptProof, error) {
+	data, err := fsx.ReadFile(proofsPath(stateDir, id))
+	if errors.Is(err, os.ErrNotExist) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	var kept []keptProof
+	for line := range strings.Lines(string(data)) {
+		sum, stamp, ok := strings.Cut(strings.TrimSpace(line), " ")
+		at, err := time.Parse(time.RFC3339Nano, stamp)
+		if !ok || err != nil || len(sum) != sha256.Size*2 {
+			return nil, fmt.Errorf("host: terminal %s: %w", id, errProofsUnreadable)
+		}
+		kept = append(kept, keptProof{sum: sum, at: at})
+	}
+	return kept, nil
+}
+
+var errProofsUnreadable = errors.New("its proofs are unreadable")
+
+// keepProof adds sum, given at, to terminal id's proofs, and drops those
+// given before since, when the machine started: no process outlives the
+// machine, so none carries their values. Proofs that cannot be read are
+// started over, since a terminal starts whatever became of them.
+func keepProof(stateDir, id, sum string, at, since time.Time) error {
+	if err := state.ValidTaskID(id); err != nil {
+		return err
+	}
+	kept, err := readProofs(stateDir, id)
+	if err != nil && !errors.Is(err, errProofsUnreadable) {
+		return err
+	}
+	var lines strings.Builder
+	for _, proof := range append(kept, keptProof{sum: sum, at: at}) {
+		if !proof.at.Before(since) {
+			fmt.Fprintf(&lines, "%s %s\n", proof.sum, proof.at.UTC().Format(time.RFC3339Nano))
+		}
+	}
+	if err := os.MkdirAll(filepath.Join(stateDir, "hosts"), 0o700); err != nil {
+		return err
+	}
+	return fsx.AtomicWriteFile(proofsPath(stateDir, id), []byte(lines.String()))
 }
 
 func recordPath(stateDir, id string) string {

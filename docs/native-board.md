@@ -34,6 +34,12 @@ This home's own supervisor that holds the address but records no board within th
 `cfo serve` without `--listen` uses the same address.
 `cfo update` restarts the supervisor on the address the one it stops was serving, read from the record, so a home on an address of its own keeps it whatever shell runs the update; with no supervisor running it uses the board's address.
 A later `cfo update --recover` starts the previous build's supervisor on the address the record names, whether or not that supervisor still answers, and on the board's address only when no record can be read.
+An update holds `.watch.lock` itself from the supervisor it stopped to the one it starts, and again through a rollback, so the lock is never free in between.
+The supervisor it asks to stop hands it the lock as it ends, where its build reads the successor a stop request names; one from before that releases the lock, and the update takes it at once, ending first a supervisor of this home that took it in that moment.
+It starts the next supervisor suspended, changes the lock's record to name it, and only then lets it run; every build since v0.1.0 takes a record that names itself as its own.
+A `serve` started meanwhile, by a `goblins` opened beside the update, is refused the lock as by any running supervisor, and `goblins` itself starts none while an update installs: it waits for the board the update brings back.
+On 2026-10-09 two supervisors the update had not started took the lock from it, the second while its rollback restored the files, and the update ended with the board called down, the previous build on disk and the new one serving.
+A stop request ends a supervisor within a second or two whatever its cycle is doing: a watcher of its own reads the request four times a second and cancels the cycle in progress, where the loop used to look only between cycles.
 A record whose address does not answer, left by a supervisor that ended without removing it, is replaced by the next start, and a record naming anything but a plain loopback board address is ignored.
 `goblins --board` finds or starts the supervisor the same way, opens the board root in the browser every time, and exits 1 naming the link when the browser cannot be opened; it starts, shows and attaches no CFO.
 The quick start (`goblins` with no command) says first, under the banner, what it found and what it started, one ticked line each: `Supervisor already running` or `Supervisor started`, then, after the agent steps when no CFO runs, `CFO already running` and where, or `CFO started as` the agent, in the home.
@@ -48,7 +54,7 @@ Run inside a Herdr pane there is nothing to attach, so `goblins` only brings the
 A supervisor started in the background has no terminal for Ctrl-C to reach, so `goblins stop` writes `state/serve.stop` naming the record's pid and waits up to 30 seconds for the board to stop answering.
 The supervisor checks for that request on its notification tick, which comes at least every two seconds between cycles, and stops as it would on Ctrl-C, removing its record; a request naming any other pid is left over from a supervisor that already ended, so it is removed and stops nothing.
 A supervisor also removes any request left from before it started, so a reused pid cannot stop it.
-`goblins stop --force` ends the recorded pid's process tree with `taskkill /T /F`, or one process at a time when a machine service (Docker Desktop, the no-mistakes daemon) runs under it, which it leaves running, and removes the record instead, and a record whose supervisor does not answer as itself is removed without stopping anything; a supervisor whose snapshot is slow still answers, so its record is never taken for stale.
+`goblins stop --force` ends the recorded pid's process tree with `taskkill /T /F`, or one process at a time when a machine service (Docker Desktop, the no-mistakes daemon, the Scrawl server) runs under it, which it leaves running, and removes the record instead, and a record whose supervisor does not answer as itself is removed without stopping anything; a supervisor whose snapshot is slow still answers, so its record is never taken for stale.
 Restarting with the same CFO home recovers durable events, evaluations, actions, and lineage.
 
 ## Native hook setup
@@ -1037,6 +1043,30 @@ One that cannot come back is recorded stopped with the reason on its card, as it
 The snapshot's `comeback` carries the record for the board's line, and each waiting or stopped goblin's card carries its own entry; the monitor's wake for a terminal with no host says the supervisor brings it back rather than naming `goblins resume`.
 An example board brings nothing back.
 
+### Whose a process is
+
+Every process a terminal starts stays tied to that terminal, and three kinds of evidence say so, because no one kind survives everything a process can do.
+
+| Evidence | What carries it | What loses it |
+| --- | --- | --- |
+| The terminal's job | Everything the harness starts itself, a process whose parent has exited included | A process Git Bash starts, since the MSYS runtime leaves the job, and one that asks to leave |
+| The terminal's mark | Every Windows program, wherever it works and whatever became of its parent | A program one of Git Bash's own tools starts when it is such a tool itself, which has no Windows environment |
+| Its place | Any process at work in the task's folders or running a program from them | A process that works anywhere else |
+
+The mark is the proof value the terminal's host puts in the terminal's environment as `CFO_HOST_PROOF`, beside `CFO_HOST_ID`.
+A terminal is given a new value each time it is started, resumed or switched, and what it started under an earlier one is still its own, so the host keeps the SHA-256 of each value given since the machine started in `state\hosts\<id>.proofs`, which outlasts the host's record.
+A pause and a stop end every process that is the task's own by any of the three, and every process such a one started.
+The stop holds each terminal's job itself before it ends the host, so the job is still read, and what it holds still ended, once the host is gone.
+Measured on 2026-10-09 with 11 goblins and the CFO running: of 77 marked processes, 19 were outside their terminal's job, 10 of those reached no host through their parents, and one had lost its parent 2 hours and 39 minutes before.
+On the same day two browser bridges like those held 3.7 GB while five goblins were paused for memory.
+
+Three kinds of process are never a task's by its mark or its parent, whatever started them.
+A machine service, with what runs under it: Docker Desktop, the no-mistakes daemon, and the Scrawl server that keeps every goblin's review page.
+A gate's agent, which carries the mark of whichever goblin started the daemon while it works for any gate. It is a task's only while it works in that task's own gate run.
+And a desktop program, with what it started: a program that shows a window, a browser no tool drives (one started with none of `--headless`, `--remote-debugging-pipe`, `--remote-debugging-port`, `--enable-automation` or Firefox's `-headless` and `--marionette`), a packaged desktop app and Explorer.
+A goblin can start one for the Overlord, as when a sign-in opens his browser, and it is still his to close.
+When the desktop's windows cannot be read, nothing is a task's by its mark or its parent, only by its job and its place.
+
 ### Interface rules
 
 These rules hold for every board surface, and new work follows them.
@@ -1397,15 +1427,20 @@ A board it refuses shows one short sentence that says where to press Update, and
 Nothing presses it for him, in AFK mode or out of it, and while AFK mode is on it is held for him and announced to no one.
 Pressed, the supervisor writes a grant for exactly that item and release to `state\update\grant.json` and runs the item's command out of sight, `goblins update --to <tag> --run <item>` with the home named, which takes the grant once, within two minutes, in place of a terminal of his own.
 The card follows it from what it prints, read each second from `GET /api/runs/<id>/output`: Download, Check each file's SHA-256, Restart the board on the new version and Bring the CFO's contract and skills up to date, each done, under way or failed, with its output under Output.
-The board is away for the few seconds the update restarts it, and the supervisor that comes back finishes the item.
-It ends Updated, and the page reloads on the new board after a moment; Rolled back, with the line the update ended on, when the new build did not serve and the previous one serves again; or Not updated, with why, when it stopped before anything changed, such as a download that failed its checksum.
-An update that did not install has the board look again at once, and a new item for the same release follows, which the card's **Try again** opens.
+The board is away for under a minute while the update restarts it, the card says so, and the supervisor that comes back finishes the item.
+The update is bounded, so the card never shows it under way without end: past a minute with the board away it is stopped where it is and the previous build put back, and past a minute before it changed anything it is stopped with nothing changed.
+It ends Updated, and the page reloads on the new board after a moment; Rolled back, when the new build was not installed and the previous one serves again, from its kept copy included; or Not updated, when nothing was changed, such as a download that failed its checksum, or the board did not come back.
+Either way the card ends on the one sentence the update ended on, with nothing to paste and no command to run, and what the update printed stays under Output for whoever wants why and how long each step took.
+An update that did not install has the board look again at once, and a new item for the same release follows, which the card's one **Try again** shows and starts in the one press.
+That next update puts the previous build back first when the last one stopped part way, so no recovery is ever his to run.
+Recovery by hand stays for when nothing else can: with `CFO_HOME` set to the home and `CFO_STATE_OVERRIDE` to its `state` folder, `state\update\candidate.exe update --recover` puts the previous build back from any folder, with both commands gone.
 A newer release published meanwhile replaces a waiting item, which reads Replaced with why, as does one whose release the board now runs; an item waits for him until then and never expires after a day as a command does.
 The Command Center lists it as Code Goblins with the release goblin, `Update to <new> from <old>`, a download icon and the same ring, the bar's alert announces it once as Code Goblins, and History keeps how it ended.
 The item is the release's one signal on the board: no banner points to it, since everything that asks him something reaches him in the Command Center.
 A board built from a clone, whose version is not a release's, gets no item: its clone updates it, with `git pull` and `.\install.cmd -Dev`.
 The item runs the home's own `goblins.exe` where the home keeps it, in `bin`, or at the root of a home a build before `bin` set up.
-The desktop window follows the update beside `goblins.exe`, and an open one moves onto it by itself once its page is idle: nothing unsent, no answer in progress, and in the tray or with no click or key for ten minutes.
+The desktop window follows the update beside `goblins.exe`, and one in the tray moves onto it by itself: nothing unsent, no answer in progress, and in the tray.
+A window he has open stays put, however long it goes untouched, until he closes it to the tray: the move ends the window and opens another, and on 2026-10-09 his window was replaced that way ten minutes after an update, the time a shown window then had to go untouched before it was moved.
 The page asks `POST /api/window/move`, and the supervisor, once it has proven the page is shown by his own window as the AFK switch proves it, moves only a window that runs a renamed copy beside the home's `goblins-window.exe`: it ends that window and opens the home's program through the desktop shell, so the new window starts with the desktop's environment and none of the supervisor's.
 The shell that opens it then exits, which leaves the new window with no parent at the desktop, and the board takes it as his by the program it runs.
 A window moved from the tray starts in the tray, which `state/window-move.json` tells it.
