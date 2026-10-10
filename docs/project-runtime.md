@@ -80,7 +80,7 @@ An area passes when none of its lines is worse than `low`, and the command exits
 | `checkout` | This machine has a checkout of the project. The line says which branch and commit were read and when that branch was last fetched, and whether the remote's default branch is still at that commit. |
 | `record` | `project.json` is there, the loader takes it, and it names the project it is filed under. Each command of its verification and security tiers is a program this machine has. A record with no verification command is reported, because `cfo verify` passes with nothing run. |
 | `gate` | `.no-mistakes.yaml` is on the default branch, a gate's start takes it under the home's pipeline policy, and each command it names has its program, its script files and its package script. Its test step is the repository's own command, since without one an agent chooses what runs. The repository has a workflow for the gate's ci step to wait for, and CI runs the test runners the gate's test command starts. No env file a goblin's worktree shares holds a production value the test setup does not name, and no credential a task's terminal carries is read by the repository and left unnamed by the test setup. |
-| `configs` | Git ignores every env file of the project except the examples it commits on purpose. What an env file holds decides its line, not what it is called. A credential or a production value in a file git does not ignore is critical, and the report names its variable and never its value. A tracked env file that holds none, such as a demo setup committed on purpose, is a `low` line, `env-file-committed`, and nothing tells the reader to rotate. `worktree.json` shares files the checkout holds and installs with programs and files that exist. `services.json` names a compose file the project has, services that file declares, an env file the checkout holds and a check that can run. |
+| `configs` | Git ignores every env file of the project except the examples it commits on purpose. What an env file holds decides its line, not what it is called. A credential or the address of a production store in a file git does not ignore is critical, and the report names its variable and never its value. An environment set to production is no credential and nothing to rotate, so it does not count there. A tracked env file that holds none, such as a demo setup committed on purpose, is a `low` line, `env-file-committed`, and nothing tells the reader to rotate. `worktree.json` shares files the checkout holds and installs with programs and files that exist. `services.json` names a compose file the project has, services that file declares, an env file the checkout holds and a check that can run. |
 | `connectors` | Every service `auth.json` declares has a user the check can name. Every credential the code reads from the environment, an env example names or an MCP connector in `.mcp.json` authenticates with is declared by a service. |
 | `instructions` | Each build, test and lint command `AGENTS.md` and `CLAUDE.md` name has its program, its files and its package script. The ones that are there are listed with their kind for whoever runs or dry-runs them. A deploy, a publish and a migration are listed apart and never run. An install is listed apart too, since a worktree's own install step does it. |
 
@@ -176,13 +176,31 @@ The last two are named on the `connectors-examined` line, so what was left out i
 ### A test run that can reach production
 
 A goblin's worktree is given its own read-only copies of the env files `worktree.json` lists as `link`, and of no other: with no `worktree.json`, or with one that names no `link`, it is given none.
-Whatever those files hold is what a test run in the worktree starts with.
-The gate area reads them, and the env files the repository tracks, and counts a variable as a production value when it is one of these:
+The gate area reads those files, and the env files the repository tracks, and counts a variable as a production value when it is one of these:
 
 - a live secret key, by its prefix
-- an environment selector such as `APP_ENV` set to production
-- a URL of a data store, a queue or a reporting sink whose host is not this machine
-- a variable named like a credential whose value is shaped like one and is no test key, publishable key or placeholder
+- an environment switch set to production, prod or live: a variable whose name ends in the word `ENV`, `ENVIRONMENT`, `MODE` or `STAGE`, as `NODE_ENV`, `PLAID_ENV` and `STRIPE_MODE` do, under a public name too
+- an address of a data store, a queue or a reporting sink whose host is not this machine, by a word of its name such as `DATABASE`, `REDIS` or `SUPABASE`
+- an address on another host that carries a login, whatever it is named: a password in front of its host, or a credential in its query
+- a value that starts the way a secret key does, whatever variable holds it
+- a variable named like a credential whose value is shaped like one and is no test key or publishable key
+- plain text under the name of a credential a person types, a password, a passphrase, a shared secret or an access code, unless it reads as a placeholder: `ADMIN_BASIC_PASSWORD`, `SMTP_PASS`, `CRON_SECRET`
+
+A variable is named like a credential when its name ends in `KEY`, `TOKEN`, `SECRET`, `PASSWORD`, `PASS`, `PASSWD`, `PWD`, `PASSPHRASE`, `PASSCODE`, `DSN`, `CREDENTIAL` or `CREDENTIALS`, or in `CODE` or `CODES` after `ACCESS`, `AUTH`, `INVITE` or `SECURITY`.
+
+The address of a production store under a public name, such as `NEXT_PUBLIC_SUPABASE_URL`, is no credential alone and is not counted.
+Where the same file holds a key of that service, the line names the address beside it: the key "opens the host" the address names.
+
+**Every count is a floor.**
+A rule that reads a name and the shape of a value cannot be closed, so each line says so, and the line `test-env-examined` names every variable whose value was passed over, under why:
+
+- a placeholder under a credential's name, such as `changeme`, `your-key-here` or a local default like `postgres`
+- plain text under a credential's name in a file git tracks, which git already publishes
+- plain text under the name of a key or a token, which a service issues and no person types
+- long random text under a name the rules take for no credential
+- an address on another host whose name says no data store
+
+A reader who knows the project can then judge each one.
 
 A publishable key is handed to every browser by design, so it is no credential.
 The value is asked first, since it can say what a name cannot.
@@ -192,11 +210,31 @@ Where the value says nothing the name decides: `PUBLIC` or `PUBLISHABLE` anywher
 
 An env template is read as an example under any of its usual spellings: `.env.example`, `env.template`, `.env-example`, `example.env`.
 
-A production value is left out when the test setup names its variable.
+### What loads an env file
+
+A file in the worktree is not a file a test reads.
+The check says what loads each env file, as far as a tracked file shows it, and claims a test only where one does:
+
+- **A test or its setup**: a test file, a `conftest.py`, a runner's config, or the pytest section of `pyproject.toml`.
+- **The application's own code**: source code outside the scripts folders, such as a settings class with `env_file`. A test that starts the application runs that code.
+- **A script**: a file under `scripts`, `script`, `bin`, `tools` or `ops`, a shell file, a `Makefile`, or a package script.
+- **The local stack**: a compose file or a `Dockerfile`.
+- **A framework**: `next`, `vite`, `astro`, `nuxt`, `@sveltejs/kit`, `@remix-run/dev`, `react-scripts` or `gatsby` among a package file's dependencies, whose development server and build load `.env`, `.env.local` and the `.env.development` and `.env.production` files by its own rule.
+
+A load is one of these in a tracked file: a dotenv library in any language, `--env-file`, `env_file`, `loadEnvConfig`, `loadEnvFile`, `read_env(`, an import of decouple, or `next/jest`.
+A loader loads the env file its line names, and `.env` when it names none, which is what the libraries do.
+A document, a lockfile and a list of dependencies name a loader and load nothing.
+
+Where a test, its setup or the application's own code loads the file, a production value is left out when the test setup names its variable.
 That is how a project pins what its tests may see.
 What is left is reported as `test-reaches-production`, by variable and reason, never by value or host.
 The line is `critical` when a live key or a production environment is among them, or when the gate names no test command, since an agent then chooses what the test step runs.
 Otherwise it is `high`.
+
+Where no test loads the file, the line is `worktree-holds-production`, and it says what does load it: scripts, the development server, the local stack, or nothing the check knows.
+It counts every production value in the file, the ones the test setup names too, since a setup clears nothing for a script.
+It is `critical` when a live key or a production environment is among them and `high` otherwise, whoever chooses the test step, since no test stands between the step and the file.
+The values are in the worktree either way, within reach of what loads the file and of whoever reads it.
 
 The check reads names, so a setup that clears variables by a rule is not seen and its variables stay on the line.
 The lasting fix is on the fleet's side: name a development env file, or none, as `link` in `worktree.json`, so no worktree holds production at all.
@@ -297,8 +335,9 @@ The check says only what it read, and these are outside it today:
 - What the credential store holds. The terminal line names the variables `auth.json` declares and never opens the store, so it cannot say whether one is stored or whether its value is a test one.
 - What the user's own environment sets. A task's terminal starts from it, less the variables of services the task does not carry, so a credential set there reaches every terminal and no line names it.
 - A credential only a program reads. A test that starts `gh` uses `GITHUB_TOKEN` though no tracked file names it, and such a variable is listed as read by no tracked file.
-- Production values its rules do not know: a short password, a name ending in a word it does not take for a credential, an address whose name holds no service word. Every count of production values in an env file is a floor.
-- What really loads an env file. It counts a variable as within a test's reach whenever the file is in the worktree, and does not read whether a test runner, a settings loader or a script loads it.
+- A secret in plain text under a name that does not say so. The env file line names the values it passed over under a credential's name, a random shape or an address, and a plain value under a plain name is not among them. Every count of production values in an env file is a floor.
+- A load it has no idiom for, such as a file a program opens and parses by hand, and a loader whose env file is named in a variable. A loader is matched to an env file by the file's name and not by the folder it runs in.
+- What a test runner loads by its own rule with no word of it in a tracked file.
 - A test setup that pins a variable by a rule and not by name, and a test command the check can make nothing of.
 - A checkout below another folder of the projects root. `--unfiled` looks one folder down.
 - A program an install step makes outside `.venv`, `venv` and `node_modules`, such as a binary a build writes to `bin`. It is reported as not in a worktree.

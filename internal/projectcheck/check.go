@@ -72,7 +72,9 @@ func Check(ctx context.Context, o Options) (Report, error) {
 		c.record()
 		test := c.gate(ctx)
 		setup := c.testSetup(ctx, test)
-		c.productionReach(ctx, test, setup)
+		if err := c.productionReach(ctx, test, setup); err != nil {
+			return Report{}, err
+		}
 		if err := c.terminalReach(ctx, test, setup); err != nil {
 			return Report{}, err
 		}
