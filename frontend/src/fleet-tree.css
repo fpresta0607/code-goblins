@@ -96,10 +96,8 @@ button.tree-child:hover { border-color: var(--glass-border-hover); }
 .working-meta .plain-status { justify-self: start; font-size: .9375rem; }
 .working-for { color: #c4d4df; font-weight: 700; }
 .working-memory { color: #b9cad6; font-weight: 700; }
-.working-finished > summary { display: flex; align-items: center; gap: 8px; padding: 12px 2px 4px; color: var(--muted); font-weight: 700; list-style: none; cursor: pointer; }
-.working-finished > summary::-webkit-details-marker { display: none; }
-.working-finished > summary svg { width: 16px; height: 16px; transition: transform .16s ease; }
-.working-finished[open] > summary svg { transform: rotate(90deg); }
+.whats-working .working-finished > summary { padding: 12px 2px 4px; color: var(--muted); font-weight: 700; }
+.whats-working .working-finished > .disclosure-content { padding: 0; }
 .working-finished .working-list { margin-top: 8px; }
 
 /* At phone width a row puts its state, time and memory on a line of their

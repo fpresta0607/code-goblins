@@ -11,10 +11,11 @@ import { spoken, type Recognizer } from "./dictation.ts";
 // A Sound is one channel of samples from -1 to 1 at rate samples a second.
 export interface Sound { samples: Float32Array; rate: number }
 
-// A Recording is one dictation's sound being captured: it hands on each piece
-// as it is said, stop ends it and returns what followed the last piece, and
-// cancel ends it and keeps nothing.
-export interface Recording { stop: () => Promise<Sound>; cancel: () => void }
+// A Recording is one dictation's sound being captured: began settles once
+// samples arrive, and fails when they never can, it hands on each piece as it
+// is said, stop ends it and returns what followed the last piece, and cancel
+// ends it and keeps nothing.
+export interface Recording { began: Promise<void>; stop: () => Promise<Sound>; cancel: () => void }
 
 // wav writes a sound as a 16-bit mono WAV file at its own rate.
 export function wav({ samples, rate }: Sound): Uint8Array<ArrayBuffer> {
@@ -185,7 +186,9 @@ const RETRY_MS = [500, 2000];
 // localRecognizer is a recognizer the board's dictation drives as it drives
 // the browser's: start records the track it is handed with open, which hands
 // on each piece as it is said, and each piece's words are asked of recognise
-// at once, in order. stop ends the recording before it returns, so the
+// at once, in order. It says it has started once the recording runs, which a
+// busy PC takes a while to begin, and a recording that cannot run is passed on
+// at once. stop ends the recording before it returns, so the
 // microphone can close at once, then delivers the words of every piece, once.
 // What recognise refuses with, after asking again, is passed on as the
 // supervisor wrote it, at once when the model is being set up; words that never came for a dictation with speech in
@@ -196,6 +199,7 @@ export function localRecognizer(open: (track: MediaStreamTrack, piece: (sound: S
     continuous = false;
     interimResults = false;
     lang = "";
+    onstart: Recognizer["onstart"] = null;
     onresult: Recognizer["onresult"] = null;
     onerror: Recognizer["onerror"] = null;
     onend: Recognizer["onend"] = null;
@@ -247,12 +251,22 @@ export function localRecognizer(open: (track: MediaStreamTrack, piece: (sound: S
 
     start(track?: MediaStreamTrack): void {
       if (!track) { this.end({ error: "audio-capture" }); return; }
+      let recording: Recording;
       try {
-        this.recording = open(track, (piece) => this.take(piece));
+        recording = open(track, (piece) => this.take(piece));
       } catch {
         this.end({ error: "audio-capture" });
         return;
       }
+      this.recording = recording;
+      recording.began.then(() => {
+        if (this.recording === recording) this.onstart?.();
+      }, (error: unknown) => {
+        if (this.recording !== recording) return;
+        this.recording = null;
+        recording.cancel();
+        this.end({ error: "supervisor", message: error instanceof Error ? error.message : String(error) });
+      });
       warm();
     }
 

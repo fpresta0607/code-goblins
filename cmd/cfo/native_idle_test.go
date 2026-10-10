@@ -48,7 +48,7 @@ func nativeCFOTerminal(t *testing.T, dir string) {
 			t.Error("the terminal's host did not end")
 		}
 	})
-	record.ChildPID = os.Getpid()
+	programIsThisProcess(t, &record)
 	data, err := json.Marshal(record)
 	if err != nil {
 		t.Fatal(err)

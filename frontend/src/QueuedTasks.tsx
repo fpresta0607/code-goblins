@@ -22,7 +22,7 @@ export function QueuedTasks({ snapshot, selected, now, presentations, cardStart,
   const next = nextInOrder(snapshot, now);
   return <>
     {(memory || snapshot.disk) && <div className="task-meters">
-      {memory && <MemoryMeter memory={memory} disk={snapshot.disk ?? null} />}
+      {memory && <MemoryMeter memory={memory} disk={snapshot.disk ?? null} processors={snapshot.processors ?? null} gpu={snapshot.gpu ?? null} />}
       {!memory && snapshot.disk && <div className="memory"><DiskMeter disk={snapshot.disk} /></div>}
     </div>}
     <RenderBoundary scope="list"><RankedCards list="queued" tasks={tasks} instance={snapshot.instance} revision={snapshot.revision} empty={<p className="column-empty">Nothing queued</p>}

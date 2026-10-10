@@ -259,7 +259,28 @@ func Acked(dir string, seq int) (bool, error) {
 
 // AckThrough retires every record with Seq <= seq and advances the durable
 // ack floor. Acking an already-empty or already-acked range is a no-op.
+//
+// Each retired record's notice is a file of its own, and a loaded machine
+// can take a second over one, so they are written before the lock is taken:
+// on 2026-10-09 an acknowledgement of 55 records wrote them under it, held
+// it for over a minute, and the supervisor's append was refused after its
+// five seconds. A notice written while its record is still queued changes
+// nothing, since AppendFirst answers from either. Under the lock only a
+// record queued since is left to keep.
 func AckThrough(dir string, seq int) error {
+	queued, err := readAll(dir)
+	if err != nil {
+		return err
+	}
+	noticed := map[string]bool{}
+	for _, rec := range queued {
+		if rec.Seq <= seq && rec.Once != "" {
+			if err := keepOnce(dir, rec); err != nil {
+				return err
+			}
+			noticed[rec.Once] = true
+		}
+	}
 	return withLock(dir, func() error {
 		records, err := readAll(dir)
 		if err != nil {
@@ -271,7 +292,7 @@ func AckThrough(dir string, seq int) error {
 				kept = append(kept, rec)
 				continue
 			}
-			if rec.Once != "" {
+			if rec.Once != "" && !noticed[rec.Once] {
 				if err := keepOnce(dir, rec); err != nil {
 					return err
 				}

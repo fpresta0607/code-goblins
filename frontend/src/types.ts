@@ -237,6 +237,18 @@ export interface CommitHolder { name: string; commit: number }
 // which no goblin or gate test run starts and the lower mark at which the CFO
 // is woken.
 export interface Disk { drive: string; free: number; total: number; floor: number; wake: number }
+// Processors is the machine's processor cores by kind and the shares of its
+// performance and its efficiency cores that sat idle, from 0 to 1, beside the
+// share of the performance cores that must be free for the supervisor to
+// start a goblin by itself, and the apps that used the most processor. A
+// machine with cores of one kind has performance cores only.
+export interface Processors { performance_cores: number; efficiency_cores: number; free: number; efficiency_free: number; next: number; busiest: string[] }
+// GpuAdapter is one graphics adapter: the share of its busiest engine in use,
+// from 0 to 1, and the app using most of it, empty when none is.
+export interface GpuAdapter { name: string; busy: number; busiest: string }
+// Gpu is the machine's graphics adapters, at least one: a machine with none
+// has no gpu in its snapshot.
+export interface Gpu { adapters: GpuAdapter[] }
 export interface Session {
   runtime?: RuntimeEvidence;
   id: string;
@@ -367,6 +379,9 @@ export interface Snapshot {
   ci_durations: CIDuration[];
   // disk is absent on a board that cannot read it.
   disk: Disk | null;
+  // processors and gpu are each absent on a board that cannot read them.
+  processors: Processors | null;
+  gpu: Gpu | null;
   afk: Afk;
   // projects names who else works in each collaborative project, by the
   // project name tasks carry.
@@ -774,6 +789,13 @@ export function parseSnapshot(value: unknown): Snapshot {
     disk: v.disk === undefined || v.disk === null ? null : (({ drive, free, total, floor, wake }) => ({
       drive: string(drive), free: number(free), total: number(total), floor: number(floor), wake: number(wake),
     }))(object(v.disk)),
+    processors: v.processors === undefined || v.processors === null ? null : (({ performance_cores, efficiency_cores, free, efficiency_free, next, busiest }) => ({
+      performance_cores: number(performance_cores), efficiency_cores: number(efficiency_cores), free: number(free), efficiency_free: number(efficiency_free), next: number(next),
+      busiest: array(busiest).map((name) => string(name)),
+    }))(object(v.processors)),
+    gpu: v.gpu === undefined || v.gpu === null ? null : {
+      adapters: array(object(v.gpu).adapters).map((value) => { const a = object(value); return { name: string(a.name), busy: number(a.busy), busiest: a.busiest === undefined ? "" : string(a.busiest) }; }),
+    },
     projects: array(v.projects).map((value) => { const p = object(value); return { name: string(p.name), repository: string(p.repository), contributors: array(p.contributors).map((person) => parsePerson(object(person))) }; }),
     release: v.release == null ? null : (({ installed, tag, page, published, source }) => ({ installed: string(installed), tag: string(tag), page: string(page), published: string(published), source: boolean(source) }))(object(v.release)),
     merge_trains: array(v.merge_trains).map(parseMergeTrain),

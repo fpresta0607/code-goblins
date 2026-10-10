@@ -51,24 +51,29 @@ test("a recognition failure is explained in plain words, and a deliberate stop s
   assert.match(dictationProblem("language-not-supported"), /language-not-supported/);
 });
 
-// A recognizer that plays back what the browser's would do.
+// A recognizer that plays back what the browser's would do: it says it has
+// started once it listens, hands on each final phrase, and ends when stopped.
 class FakeRecognizer implements Recognizer {
   static made: FakeRecognizer[] = [];
   continuous = false;
   interimResults = true;
   lang = "";
   started = false;
+  onstart: Recognizer["onstart"] = null;
   onresult: Recognizer["onresult"] = null;
   onerror: Recognizer["onerror"] = null;
   onend: Recognizer["onend"] = null;
   constructor() { FakeRecognizer.made.push(this); }
-  start() { this.started = true; }
+  start() { this.started = true; this.onstart?.(); }
   stop() { this.onend?.(); }
   abort() { this.onerror?.({ error: "aborted" }); this.onend?.(); }
   hear(...finals: string[]) {
     const results = finals.map((transcript) => [{ transcript }]);
     this.onresult?.({ resultIndex: 0, results });
   }
+  // After a stretch of silence the browser's recognizer gives up by itself:
+  // a no-speech error, then its end.
+  silence() { this.onerror?.({ error: "no-speech" }); this.onend?.(); }
 }
 
 function dictation(recognition: new () => Recognizer = FakeRecognizer) {
@@ -136,7 +141,7 @@ const settle = () => new Promise((resolve) => setTimeout(resolve, 0));
 
 class TrackRecognizer extends FakeRecognizer {
   heardFrom: unknown = "nothing";
-  start(track?: unknown) { this.heardFrom = track; this.started = true; }
+  start(track?: unknown) { this.heardFrom = track; this.started = true; this.onstart?.(); }
 }
 
 function listened(recognition: new () => Recognizer = TrackRecognizer) {
@@ -246,7 +251,7 @@ test("overlapping dictations type in capture order when replies finish in revers
   }
 });
 
-test("an empty or refused earlier dictation releases later words without typing a gap", () => {
+test("an empty or refused earlier dictation releases later words without typing a gap or a note", () => {
   const refusal = "Dictation needs 1 GB of free memory and 1 GB of free commit.";
   for (const gap of ["empty", "refused", "canceled", "silence"]) {
     const { subject, heard, problems, failures } = dictation(SlowRecognizer);
@@ -262,10 +267,10 @@ test("an empty or refused earlier dictation releases later words without typing 
       assert.deepEqual(heard, []);
       if (gap === "empty") first.answer();
       else if (gap === "canceled") first.abort();
-      else first.onerror?.(gap === "refused" ? { error: "supervisor", message: refusal } : { error: "no-speech" });
+      else if (gap === "refused") first.onerror?.({ error: "supervisor", message: refusal });
+      else first.silence();
       assert.deepEqual(heard, ["and merge it"]);
-      if (gap === "silence") assert.equal(problems.at(-1), "Nothing was heard.");
-      else assert.deepEqual(problems.filter(Boolean), [], "a refusal goes to the CFO, never onto the board");
+      assert.deepEqual(problems.filter(Boolean), [], "a refusal goes to the CFO, and a silence he has dictated past is not told over the words that followed it");
       assert.deepEqual(failures, gap === "refused" ? [refusal] : []);
       first.answer("late first words");
       second.answer("duplicate later words");
@@ -447,7 +452,7 @@ test("a microphone the browser refuses is explained and nothing listens", async 
 
 test("a recognizer that cannot take a track still dictates, without a level or a held microphone", async () => {
   class TracklessRecognizer extends FakeRecognizer {
-    start(track?: unknown) { if (track !== undefined) throw new TypeError("parameter 1 is not of type 'MediaStreamTrack'"); this.started = true; }
+    start(track?: unknown) { if (track !== undefined) throw new TypeError("parameter 1 is not of type 'MediaStreamTrack'"); this.started = true; this.onstart?.(); }
   }
   const { subject, mic, heard } = listened(TracklessRecognizer);
   subject.start();
@@ -483,4 +488,232 @@ test("a recognizer that fails to start never invites speech", async () => {
   assert.equal(mic.opened[0].closed, true);
   assert.deepEqual(heard, []);
   assert.match(problems.at(-1) || "", /No microphone/);
+});
+
+// The Overlord, 2026-10-09: "there's still some type of random alert, even
+// though dictation is working. It'll say nothing was heard when it was in
+// fact heard." Each test below is one way a hold could show a note it had not
+// earned, with the recognizer's events as the browser and the board's own
+// engine send them.
+
+// A recognizer that listens only when told to, as the board's own does while
+// its recording is still getting under way on a busy PC.
+class LateRecognizer extends SlowRecognizer {
+  start(track?: unknown) { this.heardFrom = track; this.started = true; }
+  listen() { this.onstart?.(); }
+}
+
+test("the bubble says it listens only once the recognizer does, and a hold let go before that is dropped without a note", async () => {
+  // Arrange
+  const { subject, mic, heard, listening, problems } = listened(LateRecognizer);
+
+  // Act: the keys go down, the microphone opens, and the keys are let go
+  // before anything records.
+  subject.start();
+  mic.allow();
+  await settle();
+  const early = FakeRecognizer.made[0] as LateRecognizer;
+  assert.equal(early.started, true);
+  assert.deepEqual(listening, [], "a recognizer handed the track is not yet listening");
+  subject.stop();
+  early.silence();
+
+  // Assert: nothing listened, so nothing is said of what it heard.
+  assert.equal(early.abortCount, 1, "its recording is dropped");
+  assert.equal(early.stopped, false, "and no words are asked of it");
+  assert.deepEqual(problems.filter(Boolean), []);
+  assert.deepEqual(heard, []);
+  assert.equal(mic.opened[0].closed, true);
+
+  // Act: the next hold is kept until the recognizer listens.
+  subject.start();
+  mic.allow();
+  await settle();
+  const late = FakeRecognizer.made[1] as LateRecognizer;
+  assert.deepEqual(listening, [false]);
+  late.listen();
+  assert.deepEqual(listening, [false, true]);
+  subject.stop();
+  late.answer("ship it");
+
+  // Assert
+  assert.deepEqual(heard, ["ship it"]);
+  assert.deepEqual(problems.filter(Boolean), []);
+});
+
+test("a recognizer that never comes to listen ends the hold and the CFO is told, never the board", (context) => {
+  // Arrange
+  context.mock.timers.enable({ apis: ["setTimeout"] });
+  const { subject, heard, listening, problems, failures } = dictation(LateRecognizer);
+  try {
+    subject.start();
+    const stuck = FakeRecognizer.made[0] as LateRecognizer;
+
+    // Act: five seconds pass with the microphone open and nothing recording.
+    context.mock.timers.tick(4999);
+    assert.equal(stuck.abortCount, 0);
+    assert.deepEqual(failures, []);
+    context.mock.timers.tick(1);
+
+    // Assert: a hold that cannot record is a failure someone hears of.
+    assert.equal(stuck.abortCount, 1);
+    assert.deepEqual(failures, ["Dictation did not begin recording within 5 seconds of the microphone opening, so nothing was typed."]);
+    assert.deepEqual(problems.filter(Boolean), []);
+    assert.deepEqual(listening, [false]);
+    subject.stop();
+    assert.deepEqual(listening, [false], "letting go afterwards changes nothing");
+
+    // Act: a recognizer that listens in time has no such deadline.
+    subject.start();
+    const next = FakeRecognizer.made[1] as LateRecognizer;
+    next.listen();
+    context.mock.timers.tick(60_000);
+
+    // Assert
+    assert.deepEqual(listening, [false, true]);
+    assert.equal(next.abortCount, 0);
+    assert.equal(failures.length, 1);
+    assert.deepEqual(heard, []);
+  } finally {
+    subject.dispose();
+    context.mock.timers.reset();
+  }
+});
+
+test("words said before a silence the browser's recognizer gives up over are typed at the release, with no note", (context) => {
+  // Arrange
+  context.mock.timers.enable({ apis: ["Date"] });
+  const { subject, heard, listening, problems } = dictation();
+  subject.start();
+  const first = FakeRecognizer.made[0];
+  first.hear("open the pull request");
+
+  // Act: eight seconds of silence, which Chrome ends its recognizer over.
+  context.mock.timers.tick(8000);
+  first.silence();
+
+  // Assert: the hold goes on, on a recognizer of its own.
+  assert.deepEqual(problems.filter(Boolean), [], "a silence in a hold with words in it is no problem");
+  assert.deepEqual(heard, [], "nothing is typed while the keys are held");
+  assert.deepEqual(listening, [true], "the bubble keeps listening");
+  assert.equal(FakeRecognizer.made.length, 2);
+  assert.equal(FakeRecognizer.made[1].started, true);
+
+  // Act
+  subject.stop();
+
+  // Assert
+  assert.deepEqual(heard, ["open the pull request"]);
+  assert.deepEqual(problems.filter(Boolean), []);
+  assert.deepEqual(listening, [true, false]);
+});
+
+test("a recognizer that ends by itself while the keys are held is started again, and all the hold's words are typed together", (context) => {
+  // Arrange
+  context.mock.timers.enable({ apis: ["Date"] });
+  const { subject, heard, listening, problems } = dictation();
+  subject.start();
+  const first = FakeRecognizer.made[0];
+  first.hear("first the board");
+
+  // Act: the browser ends a long recognition by itself, with no error.
+  context.mock.timers.tick(60_000);
+  first.onend?.();
+
+  // Assert
+  assert.equal(FakeRecognizer.made.length, 2);
+  const second = FakeRecognizer.made[1];
+  assert.equal(second.started, true);
+  assert.deepEqual([second.continuous, second.interimResults, second.lang], [true, false, "en-GB"]);
+  assert.deepEqual(heard, []);
+  assert.deepEqual(listening, [true], "the bubble never flickers");
+
+  // Act
+  second.hear("then the voice");
+  subject.stop();
+
+  // Assert
+  assert.deepEqual(heard, ["first the board then the voice"]);
+  assert.deepEqual(problems.filter(Boolean), []);
+  assert.deepEqual(listening, [true, false]);
+});
+
+test("a hold in which nothing was said says Nothing was heard once, at the release", (context) => {
+  context.mock.timers.enable({ apis: ["Date"] });
+  for (const silences of [0, 1, 3]) {
+    // Arrange
+    const { subject, heard, listening, problems } = dictation();
+    subject.start();
+
+    // Act: the browser's recognizer gives up each eight seconds of the hold.
+    for (let count = 0; count < silences; count++) {
+      context.mock.timers.tick(8000);
+      FakeRecognizer.made[count].silence();
+    }
+    assert.deepEqual(problems.filter(Boolean), [], `nothing is said while the keys are held, after ${silences} silences`);
+    assert.deepEqual(listening, [true]);
+    subject.stop();
+
+    // Assert
+    assert.deepEqual(problems.filter(Boolean), ["Nothing was heard."], `after ${silences} silences`);
+    assert.deepEqual(heard, []);
+    assert.deepEqual(listening, [true, false]);
+  }
+});
+
+test("a silent hold he has already dictated past is never told over the next one", () => {
+  // Arrange: a hold with nothing said, whose verdict is still on its way.
+  const { subject, heard, problems } = dictation(SlowRecognizer);
+  subject.start();
+  subject.stop();
+
+  // Act: he is dictating again when it arrives.
+  subject.start();
+  const [silent, next] = FakeRecognizer.made as SlowRecognizer[];
+  silent.silence();
+  assert.deepEqual(problems.filter(Boolean), [], "the note would read as being about the hold he is in");
+  next.hear("and merge it");
+  subject.stop();
+  next.answer();
+
+  // Assert
+  assert.deepEqual(heard, ["and merge it"]);
+  assert.deepEqual(problems.filter(Boolean), []);
+});
+
+test("a recognizer that gives up as soon as it starts ends the hold instead of being started again", () => {
+  // Arrange
+  const { subject, heard, listening, problems } = dictation();
+  subject.start();
+
+  // Act: no time has passed, so this is a recognizer that cannot listen.
+  FakeRecognizer.made[0].silence();
+
+  // Assert
+  assert.equal(FakeRecognizer.made.length, 1);
+  assert.deepEqual(listening, [true, false]);
+  assert.deepEqual(problems.filter(Boolean), ["Nothing was heard."]);
+  assert.deepEqual(heard, []);
+});
+
+test("a failure that is real still says so once and ends the hold, whatever was heard before it", (context) => {
+  context.mock.timers.enable({ apis: ["Date"] });
+  for (const [error, says] of [["not-allowed", /microphone is blocked/], ["service-not-allowed", /microphone is blocked/], ["audio-capture", /No microphone/], ["network", /network/]] as const) {
+    // Arrange
+    const { subject, listening, problems } = dictation();
+    subject.start();
+    const recognizer = FakeRecognizer.made[0];
+    recognizer.hear("half a thought");
+    context.mock.timers.tick(8000);
+
+    // Act: the browser reports the failure, then the recognizer's end.
+    recognizer.onerror?.({ error });
+    recognizer.onend?.();
+
+    // Assert
+    assert.equal(problems.filter(Boolean).length, 1, error);
+    assert.match(problems.at(-1) || "", says);
+    assert.equal(FakeRecognizer.made.length, 1, "a recognizer that failed is not started again");
+    assert.deepEqual(listening, [true, false]);
+  }
 });

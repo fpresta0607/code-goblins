@@ -195,8 +195,7 @@ func TestTheStopHookYieldsToServeMidCycleAndStillRewakesTheCFO(t *testing.T) {
 }
 
 func theStopHookYieldsToServeAndRewakes(t *testing.T, serve, attempts string) {
-	dir := newPrimaryHome(t)
-	setAncestorPID(t, os.Getpid())
+	dir := newCFOHome(t)
 	setTinyAutoarmIntervals(t)
 	t.Setenv("CFO_CLAUDE_AUTOARM_ATTEMPTS", attempts)
 	t.Setenv("CFO_CLAUDE_AUTOARM_SETTLE_MS", "5000")
@@ -210,7 +209,7 @@ func theStopHookYieldsToServeAndRewakes(t *testing.T, serve, attempts string) {
 	exited := make(chan int, 1)
 	var stderr bytes.Buffer
 	go func() {
-		exited <- hookStopAutoarmWithConfig(home.Home{Root: dir, State: state}, claudehook.Payload{SessionID: "s1"}, io.Discard, &stderr, func(h home.Home) watch.Config {
+		exited <- hookStopAutoarmWithConfig(home.Home{Root: dir, State: state}, thisProcess(t), claudehook.Payload{SessionID: "s1"}, io.Discard, &stderr, func(h home.Home) watch.Config {
 			cfg := watch.ConfigFromEnv(h)
 			cfg.Reap = nil
 			cfg.Monitor = &monitor.Service{
@@ -254,8 +253,7 @@ func theStopHookYieldsToServeAndRewakes(t *testing.T, serve, attempts string) {
 // handover, and serve ends such a watcher. The next Stop's hook finds serve
 // holding the lock and rewakes the CFO on a wake serve's queue holds.
 func TestAfterServeEndsALegacyWatcherTheStopHookRewakesFromServesQueue(t *testing.T) {
-	dir := newPrimaryHome(t)
-	setAncestorPID(t, os.Getpid())
+	dir := newCFOHome(t)
 	setTinyAutoarmIntervals(t)
 	t.Setenv("CFO_CLAUDE_AUTOARM_WAIT", "30")
 	state := filepath.Join(dir, "state")

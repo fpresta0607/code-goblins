@@ -1,6 +1,7 @@
 import { useEffect, useState, type ReactNode } from "react";
 import { request } from "./api";
 import { Avatar } from "./Avatar";
+import { Disclosure } from "./Disclosure";
 import { Icon } from "./Icon";
 import { age } from "./presentation";
 import { object, string, type ReleaseOffer, type Run } from "./types";
@@ -66,7 +67,7 @@ export function UpdateCard({ run, offer, connected, sending, error, onRun, onRet
     {running && <p className="update-effect">The board is away for a few seconds and reconnects by itself.</p>}
     {progress.result && !running && <p className={"update-result " + (updated ? "ok" : "back")}>{updated ? offer.to + " runs. The board reloads on it now." : progress.result}</p>}
     {run.state === "withdrawn" && run.reason && <p className="update-effect">{run.reason[0].toUpperCase() + run.reason.slice(1)}.</p>}
-    {(running || output) && <details className="update-output"><summary>Output</summary><pre className="run-output">{output || "Waiting for output"}</pre></details>}
+    {(running || output) && <Disclosure kind="disclosure-line update-output" title="Output"><pre className="run-output">{output || "Waiting for output"}</pre></Disclosure>}
     {(run.state === "ready" || pager || onRetry) && <div className="card-actions">
       <ClickFeedback text={feedback} />
       {pager}

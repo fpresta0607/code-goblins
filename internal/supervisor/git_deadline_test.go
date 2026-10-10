@@ -13,6 +13,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/fpresta0607/code-goblins/internal/harness"
 	"github.com/fpresta0607/code-goblins/internal/host"
 )
 
@@ -55,6 +56,15 @@ func TestMain(m *testing.M) {
 	}
 	if err := os.Setenv("GIT_CEILING_DIRECTORIES", cmp.Or(os.Getenv("GOTMPDIR"), os.TempDir())); err != nil {
 		panic(err)
+	}
+	// A goblin's shell and a gate agent's export these, and neither is the
+	// CFO's own session, so every test that stands this process in as the
+	// CFO's would be refused where a goblin or a gate runs the suite and
+	// pass in CI. A test of that refusal sets the one it tests.
+	for _, name := range []string{harness.RoleVariable, gateAgentVariable} {
+		if err := os.Unsetenv(name); err != nil {
+			panic(err)
+		}
 	}
 	os.Exit(m.Run())
 }

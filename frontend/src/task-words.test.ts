@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { goblinName, listItem, pausedWithParent, pauseStatus, plainText, reportBody, summary, taskName, taskSummary, withoutHarness, teardownSentence } from "./task-words.ts";
+import { goblinName, listItem, pausedWithParent, pauseStatus, plainText, reportBody, summary, taskName, taskSummary, withoutHarness, teardownSentence, type Summary } from "./task-words.ts";
 import { parseSnapshot, type CIDuration, type PauseCondition, type Task } from "./types.ts";
 
 const task = (fields: Record<string, unknown>): Task => parseSnapshot({ healthy: true, tasks: [{ id: "a", title: "a", phase: "working", generation: "s1", verified: false, ...fields }] }).tasks[0];
@@ -113,19 +113,21 @@ test("a queued task adds no line about what it waits for, whatever it waits on",
 
 test("the panel says each state once: a sentence of its own, and the raw words behind Details", () => {
   const raw = "working: PRs 324 and 326 are green on main 13f9e0be; ready to pause";
-  const cases: [string, Task, { sentence: string; details: string[]; isFailure: boolean }][] = [
+  const cases: [string, Task, Summary][] = [
     ["working, tidied, with its report behind Details", task({ activity: raw }), { sentence: "PRs 324 and 326 are green on main. Ready to pause.", details: [raw], isFailure: false }],
     ["working, already plain", task({ activity: "working: Writing the tests." }), { sentence: "Writing the tests.", details: [], isFailure: false }],
     ["waiting, without its state word", task({ phase: "waiting", waiting_on: "ci", activity: "waiting on ci: PR 326's checks" }), { sentence: "PR 326's checks.", details: [], isFailure: false }],
     ["done, whose pull request is its badge", task({ phase: "done", activity: "done: PR https://github.com/o/r/pull/326" }), { sentence: "", details: [], isFailure: false }],
     ["failed by its own report", task({ phase: "failed", report: "failed", activity: "failed: go test timed out at 9f3c2a1e" }),
       { sentence: "", details: ["Go test timed out.", "failed: go test timed out at 9f3c2a1e"], isFailure: true }],
-    ["paused, whose fresh note could not be saved", task({ phase: "paused", reason: "Paused by the Overlord; resumes on Resume", activity: "Paused by the Overlord; resumes on Resume",
+    ["paused, whose fresh note could not be saved", task({ phase: "paused", reason: "Paused by the Overlord; resumes on Resume", activity: "Paused by the Overlord; resumes on Resume", last_report: raw,
       lifecycle: lifecycle({ handoff_saved: false, problems: ["Stopping-point deadline reached or request failed; no new handoff was saved"], pause: { reason: "overlord", at: "2026-10-05T16:30:06Z" } }) }),
-      { sentence: "It stays paused until you resume it.", details: ["Stopping-point deadline reached or request failed; no new handoff was saved"], isFailure: false }],
-    ["paused for memory", task({ phase: "paused", lifecycle: lifecycle({ pause: { reason: "memory", at: "2026-10-05T16:30:06Z" } }) }),
-      { sentence: "It resumes by itself once 5 GB of memory is free.", details: [], isFailure: false }],
-    ["paused before pauses had reasons", task({ phase: "paused", lifecycle: lifecycle({}) }), { sentence: "It stays paused until you resume it.", details: [], isFailure: false }],
+      { sentence: "", details: ["PRs 324 and 326 are green on main. Ready to pause. It stays paused until you resume it."], isFailure: false, isPlain: true }],
+    ["paused for memory before its first report", task({ phase: "paused", lifecycle: lifecycle({ pause: { reason: "memory", at: "2026-10-05T16:30:06Z" } }) }),
+      { sentence: "", details: ["It resumes by itself once 5 GB of memory is free."], isFailure: false, isPlain: true }],
+    ["paused before pauses had reasons", task({ phase: "paused", lifecycle: lifecycle({}) }), { sentence: "", details: ["It stays paused until you resume it."], isFailure: false, isPlain: true }],
+    ["paused while Windows still closes its programs", task({ phase: "paused", teardown: ["uv.exe pid 20880"], lifecycle: lifecycle({ pause: { reason: "memory", at: "2026-10-05T16:30:06Z" } }) }),
+      { sentence: "", details: ["It resumes by itself once 5 GB of memory is free. Windows is still closing uv.exe."], isFailure: false, isPlain: true }],
     ["a pause that ran out of time", task({ activity: raw, lifecycle: lifecycle({ phase: "failed", handoff_saved: false, problems: ["Stopping-point deadline reached or request failed; no new handoff was saved", "context deadline exceeded"] }) }),
       { sentence: "", details: ["The pause did not finish, so the goblin is not paused. Its work is kept. Try Pause again.", "Stopping-point deadline reached or request failed; no new handoff was saved", "context deadline exceeded"], isFailure: false }],
     ["a resume that failed", task({ phase: "paused", lifecycle: lifecycle({ phase: "failed", action: "resume", problems: ["host did not start"] }) }),
@@ -155,20 +157,57 @@ test("Working, a pause that did not finish and a failure have no line under them
   for (const [name, item, status, said] of cases) assert.deepEqual(taskSummary(item, [item], status), said, name);
 });
 
-test("a paused goblin says what resumes it, in words, from its pause's condition", () => {
+test("a paused goblin's panel adds no line under its status, and its Details says what it did last and what it waits for", () => {
+  // The Overlord, 2026-10-09, on Bernie's panel: "in paused goblin panels
+  // the highlight line, it's not needed to be presented". Later that day, on
+  // a panel whose Details read what its pause could not do: "every time I
+  // look at the details it is the same text ... that line that says it
+  // resumes by itself, that should be part of the details. It should just be
+  // a well written, proper case, human readable little description about
+  // what that agent did or is doing."
+  // Arrange: a goblin whose pause missed its handoff and its teardown, whose
+  // latest status line is the pause's own, and who last reported its work.
   const blocker = task({ id: "cg-board-kill", title: "Pause, Resume and Stop on the board; Claude Code" });
-  const paused = (pause: Record<string, unknown>) => task({ phase: "paused", lifecycle: lifecycle({ pause: { at: "2026-10-05T16:30:06Z", ...pause } }) });
+  const did = "The red tests are written at paused-panel.spec.ts. The fixes come next.";
+  const paused = (pause: Record<string, unknown>) => task({ phase: "paused",
+    last_report: "working: the red tests are written at frontend/tests/paused-panel.spec.ts; the fixes come next",
+    activity: "lifecycle-paused: memory; worktree C:\\dev\\code-goblins\\worktrees\\a; task session and branch", reason: "Paused for memory; resumes at 5 GB free",
+    lifecycle: lifecycle({ handoff_saved: false, pause: { at: "2026-10-05T16:30:06Z", until: "", ...pause },
+      problems: ["Stopping-point deadline reached or request failed; no new handoff was saved", "its terminal ended, but the rest of its stop did not finish: context deadline exceeded"] }) });
   const cases: [string, Record<string, unknown>, RegExp][] = [
-    ["allowance", { reason: "allowance", until: "2026-10-09T22:27:00Z" }, /^It resumes by itself when the allowance resets, .+\.$/],
+    ["memory", { reason: "memory" }, /^It resumes by itself once 5 GB of memory is free\.$/],
+    ["allowance", { reason: "allowance", until: "2026-10-09T22:27:00Z" }, /^It resumes by itself when the allowance resets, Oct \d+, \d+:27 [AP]M\.$/],
+    ["the Overlord", { reason: "overlord" }, /^It stays paused until you resume it\.$/],
     ["a question", { reason: "question", until: "q-7" }, /^It resumes by itself when you answer its question\.$/],
     ["a task", { reason: "dependency", until: "task:cg-board-kill" }, /^It resumes by itself when Pause, Resume and Stop on the board finishes\.$/],
     ["a task gone from the board", { reason: "dependency", until: "task:cg-old" }, /^It resumes by itself when the task it waits on finishes\.$/],
     ["a pull request", { reason: "dependency", until: "pr:https://github.com/o/r/pull/12" }, /^It resumes by itself when PR #12 merges\.$/],
-    ["a date", { reason: "dependency", until: "date:2026-10-10T09:00:00Z" }, /^It resumes by itself on .+\.$/],
+    ["a time", { reason: "dependency", until: "date:2026-10-10T09:00:00Z" }, /^It resumes by itself on Oct \d+, \d+:00 [AP]M\.$/],
     ["CI", { reason: "ci", until: "pr:https://github.com/o/r/pull/12@" + "a".repeat(40) }, /^It resumes by itself when its CI run finishes\.$/],
     ["a deploy", { reason: "deploy", until: "run:https://github.com/o/r/actions/runs/9@" + "a".repeat(40) }, /^It resumes by itself when its deploy finishes\.$/],
   ];
-  for (const [name, pause, said] of cases) assert.match(taskSummary(paused(pause), [blocker]).sentence, said, name);
+
+  for (const [name, pause, waits] of cases) {
+    // Act
+    const said = taskSummary(paused(pause), [blocker]);
+
+    // Assert: one description, written for a person, of what the goblin did
+    // and then what it waits for, with nothing of the pause's own record.
+    assert.equal(said.sentence, "", name);
+    assert.equal(said.isPlain, true, name);
+    assert.equal(said.details.length, 1, name);
+    assert.ok(said.details[0].startsWith(did + " "), name + ": " + said.details[0]);
+    assert.match(said.details[0].slice(did.length + 1), waits, name);
+    assert.doesNotMatch(said.details[0], /;|deadline|handoff|did not finish|lifecycle|[A-Za-z]:\\/, name);
+  }
+});
+
+test("a goblin paused for its own pull request says what it did, and nothing of a pause the board does not show", () => {
+  const pr = "https://github.com/o/r/pull/12";
+  const paused = (report: string) => task({ phase: "paused", pr, last_report: report, lifecycle: lifecycle({ pause: { reason: "dependency", until: "pr:" + pr, at: "2026-10-05T16:30:06Z" } }) });
+  assert.deepEqual(taskSummary(paused("done: PR " + pr), []), { sentence: "", details: [], isFailure: false, isPlain: true });
+  assert.deepEqual(taskSummary(paused("working: the review notes are answered; waiting for the merge"), []),
+    { sentence: "", details: ["The review notes are answered. Waiting for the merge."], isFailure: false, isPlain: true });
 });
 
 test("a paused card says why it waits and what resumes it in a few words, in place of Paused", () => {
@@ -203,15 +242,15 @@ test("a paused card says why it waits and what resumes it in a few words, in pla
   }
 });
 
-test("a helper paused with its parent says it resumes with its parent, on its card and in its panel", () => {
+test("a helper paused with its parent says it resumes with its parent, in its status and behind Details", () => {
   const parent = task({ id: "g", title: "Sync the ledger" });
-  for (const [withParent, card, panel] of [
+  for (const [withParent, card, details] of [
     [true, "Resumes with Sync the ledger", "It resumes by itself when Sync the ledger runs again."],
     [false, "Paused by you", "It stays paused until you resume it."],
   ] as [boolean, string, string][]) {
     const helper = task({ id: "g-h1", parent: "g", phase: "paused", lifecycle: lifecycle({ pause: { reason: "overlord", until: "", at: "2026-10-05T16:30:06Z" }, with_parent: withParent }) });
     const tasks = [parent, helper];
     assert.equal(pauseStatus(helper.lifecycle?.pause, tasks, [], pausedWithParent(helper, tasks)), card);
-    assert.equal(taskSummary(helper, tasks).sentence, panel);
+    assert.deepEqual(taskSummary(helper, tasks), { sentence: "", details: [details], isFailure: false, isPlain: true });
   }
 });

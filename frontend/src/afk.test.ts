@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { AFK_OFF, AWAY_MS, afkLine, afkTime, decisionSays, heldRecommends, heldSays, heldWho, offerFor, parseAfkReport, safeLink, settled, stillWaiting, switchedBy, turnedOff, allowanceGraph, allowanceSays, shownUnder, afkHeadline, type AfkDecision, type AfkAllowance, type AfkReport, type Occasion } from "./afk.ts";
+import { AFK_OFF, AWAY_MS, afkLine, afkTime, decisionSays, heldRecommends, heldSays, heldWho, offerFor, parseAfkReport, safeLink, settled, stillWaiting, switchedBy, turnedOff, allowanceGraph, allowanceSays, diskGraph, diskSays, shownUnder, afkHeadline, type AfkDecision, type AfkAllowance, type AfkDisk, type AfkReport, type Occasion } from "./afk.ts";
 import { parseSnapshot, type Afk, type AfkHeld } from "./types.ts";
 
 const NOW = Date.parse("2026-10-02T12:31:00Z");
@@ -203,6 +203,44 @@ test("an allowance's graph marks what was used before AFK and the stretch AFK us
   for (const [name, value, want] of cases) assert.deepEqual(allowanceGraph(value), want, name);
 });
 
+// The Overlord, 2026-10-09: "disk free I think would be a good one to include
+// in the AFK report for usage, to see if disk increased or decreased as I was
+// gone. Just have it next to the Claude Code usage metrics in that same little
+// section." The report carries free disk only when it was read at both ends.
+const GB = 2 ** 30;
+const disk = (on: number, off: number, changes: Partial<AfkDisk> = {}): AfkDisk => ({ drive: "C:", total: 1000 * GB, on: on * GB, off: off * GB, ...changes });
+
+test("the report's free disk is read as the bytes free at either end of the drive's total, and as none when the supervisor sends none", () => {
+  const read = (disk?: unknown) => parseAfkReport({ found: true, sections: [], finished: [], held: [], spent: [], notes: [], disk })?.disk;
+  assert.deepEqual(read({ drive: "C:", total: 924 * GB, on: 340 * GB, off: 337 * GB }), { drive: "C:", total: 924 * GB, on: 340 * GB, off: 337 * GB });
+  assert.equal(read(), null, "no reading sent");
+  assert.equal(read(null), null);
+  assert.throws(() => read({ drive: "C:", total: 924 * GB, on: "340 GB", off: 337 * GB }), /Invalid response number/);
+});
+
+test("free disk under Spent says how much is free when AFK turned off and how much AFK used or freed, worded as the limits beside it", () => {
+  const cases: [string, AfkDisk, { name: string; value: string; change: string; label: string }][] = [
+    ["free disk fell", disk(340.5, 337), { name: "Disk (C:)", value: "337.0 GB free", change: "AFK used 3.5 GB", label: "Disk (C:): 337.0 GB free, from 340.5 GB to 337.0 GB free while AFK was on" }],
+    ["free disk rose", disk(325.5, 337), { name: "Disk (C:)", value: "337.0 GB free", change: "AFK freed 11.5 GB", label: "Disk (C:): 337.0 GB free, from 325.5 GB to 337.0 GB free while AFK was on" }],
+    // Free disk moves by a few megabytes every minute, which is no change
+    // at the tenth of a gigabyte the report says.
+    ["free disk stayed", disk(337.03125, 337), { name: "Disk (C:)", value: "337.0 GB free", change: "AFK used 0 GB", label: "Disk (C:): 337.0 GB free, from 337.0 GB to 337.0 GB free while AFK was on" }],
+    ["a drive with no name", disk(20, 18.5, { drive: "" }), { name: "Disk", value: "18.5 GB free", change: "AFK used 1.5 GB", label: "Disk: 18.5 GB free, from 20.0 GB to 18.5 GB free while AFK was on" }],
+  ];
+  for (const [name, value, want] of cases) assert.deepEqual(diskSays(value), want, name);
+});
+
+test("free disk's graph marks what of the drive was used all through and the stretch AFK used or freed, which its arrow spans forward or back", () => {
+  const cases: [string, AfkDisk, { before: number; from: number; to: number } | null][] = [
+    ["free disk fell", disk(340, 330), { before: 66, from: 66, to: 67 }],
+    ["free disk rose", disk(325, 337.5), { before: 66.25, from: 67.5, to: 66.25 }],
+    ["free disk stayed", disk(337.03125, 337), { before: 66.3, from: 66.3, to: 66.3 }],
+    ["a full drive that emptied", disk(0, 1000), { before: 0, from: 100, to: 0 }],
+    ["a drive of no size", disk(1, 1, { total: 0 }), null],
+  ];
+  for (const [name, value, want] of cases) assert.deepEqual(diskGraph(value), want, name);
+});
+
 // The Overlord, 2026-10-09: "at the top of the report I don't like all these
 // little grid boxes". The report opens on a few plain sentences: how long he
 // was away, how many things wait on him, and what the CFO merged, deployed,
@@ -211,7 +249,7 @@ test("the report's headline says how long he was away, what waits on him and wha
   const report = (held: AfkHeld[], sections: { title: string; count: number }[]): AfkReport => ({
     session: "afk-1", since: "2026-10-02T03:40:00Z", ended: "2026-10-02T12:05:00Z", lasted: "8h25m", from: "", asked: "", ended_from: "", ended_asked: "",
     sections: sections.map(({ title, count }) => ({ title, entries: Array.from({ length: count }, () => ({ at: "", kind: "", what: "", link: "", evidence: "", outcome: "", task: "", diagnosis: "", tried: "", struck: "" })) })),
-    finished: [], held, spent: [], notes: [],
+    finished: [], held, spent: [], disk: null, notes: [],
   });
   const now = Date.parse("2026-10-02T13:00:00Z");
   const cases: [string, AfkReport, { away: string; waiting: string; did: string }][] = [
