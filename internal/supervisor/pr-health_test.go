@@ -92,7 +92,6 @@ func TestPRHealthReportsEveryUnhealthyHead(t *testing.T) {
 	}{
 		{"conflicting goblin", "CONFLICTING", 3, "[]", true, false, "cg-health", "conflicts"},
 		{"behind without checks", "MERGEABLE", 2, "[]", true, false, "cg-health", "behind"},
-		{"behind with pending checks", "MERGEABLE", 2, `[{"__typename":"CheckRun","name":"test","status":"IN_PROGRESS"}]`, true, false, "cg-health", "behind"},
 		{"behind with failed checks", "MERGEABLE", 2, `[{"__typename":"CheckRun","name":"test","status":"COMPLETED","conclusion":"FAILURE"}]`, true, false, "cg-health", "behind"},
 		{"teammate without a goblin", "CONFLICTING", 0, "[]", false, false, "", "teammate"},
 		{"fork with matching branch name", "MERGEABLE", 2, "[]", true, true, "", "teammate"},
@@ -695,7 +694,7 @@ func TestPRHealthLeavesAPullRequestATrainCanTakeBehindItsBase(t *testing.T) {
 		{"green, mergeable and reported done", "MERGEABLE", "o", passedCheck, "[]", true, ""},
 		{"in conflict with its base", "CONFLICTING", "o", passedCheck, "[]", true, "conflicts with its base"},
 		{"not reported done", "MERGEABLE", "o", passedCheck, "[]", false, "2 commits behind"},
-		{"its checks still running", "MERGEABLE", "o", `[{"__typename":"CheckRun","name":"test","status":"IN_PROGRESS"}]`, "[]", true, "2 commits behind"},
+		{"its checks still running, which it waits for", "MERGEABLE", "o", `[{"__typename":"CheckRun","name":"test","status":"IN_PROGRESS"}]`, "[]", true, ""},
 		{"its checks failed", "MERGEABLE", "o", `[{"__typename":"CheckRun","name":"test","status":"COMPLETED","conclusion":"FAILURE"}]`, "[]", true, "2 commits behind"},
 		{"held", "MERGEABLE", "o", passedCheck, held, true, "2 commits behind"},
 		{"opened by another account", "MERGEABLE", "teammate", passedCheck, "[]", true, "2 commits behind"},
@@ -719,7 +718,7 @@ func TestPRHealthLeavesAPullRequestATrainCanTakeBehindItsBase(t *testing.T) {
 			// Assert
 			wakes := prWakes(t, h, "pr_health")
 			if test.want == "" && len(wakes) != 0 {
-				t.Fatalf("health wakes = %+v, want none for a pull request a train can take", wakes)
+				t.Fatalf("health wakes = %+v, want none for a pull request a train can take or whose checks still run", wakes)
 			}
 			if test.want != "" && (len(wakes) != 1 || !strings.Contains(wakes[0].Detail, test.want)) {
 				t.Fatalf("health wakes = %+v, want one saying it %s", wakes, test.want)

@@ -414,7 +414,7 @@ func TestCIThatNeverFinishesStopsTheTrainAtItsDeadline(t *testing.T) {
 	gh.pending = 2
 
 	// Act
-	s.now = s.now.Add(runDeadline - time.Minute)
+	s.now = s.now.Add(RunDeadline - time.Minute)
 	running, runningErr := engine.Advance(context.Background(), started.ID)
 	s.now = s.now.Add(time.Minute)
 	stopped, err := engine.Advance(context.Background(), started.ID)
