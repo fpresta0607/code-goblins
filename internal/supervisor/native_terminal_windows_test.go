@@ -452,6 +452,13 @@ func (terminal hostedTerminal) runs(t *testing.T, pid int) {
 func (terminal hostedTerminal) startTurn(t *testing.T) {
 	t.Helper()
 	terminal.typeLine(t, "turn")
+	terminal.showsTurn(t)
+}
+
+// showsTurn waits until the terminal's screen, read through its host, shows a
+// turn under way.
+func (terminal hostedTerminal) showsTurn(t *testing.T) {
+	t.Helper()
 	record, err := host.ReadRecord(terminal.stateDir, terminal.id)
 	if err != nil {
 		t.Fatal(err)
@@ -473,6 +480,17 @@ func (terminal hostedTerminal) startTurn(t *testing.T) {
 func (terminal hostedTerminal) drawsComposer(t *testing.T, name string) {
 	t.Helper()
 	terminal.typeLine(t, "draw "+name)
+	terminal.showsComposer(t, name)
+}
+
+// showsComposer waits until the terminal's screen, read through its host,
+// shows the named harness's empty composer ready for input. typeLine returns
+// once a line is written into the terminal's input, before its program has
+// read it, and the program records a line before it draws for it. A delivery
+// reads the screen once: it types only into such a composer, and waits in the
+// board's queue when it reads none.
+func (terminal hostedTerminal) showsComposer(t *testing.T, name string) {
+	t.Helper()
 	record, err := host.ReadRecord(terminal.stateDir, terminal.id)
 	if err != nil {
 		t.Fatal(err)
