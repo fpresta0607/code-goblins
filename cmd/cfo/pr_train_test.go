@@ -38,7 +38,11 @@ type trainForge struct {
 	landed  string
 	subject string
 	closed  bool
-	calls   []string
+	// labels are the labels the repository has, and wears the ones on the
+	// train's pull request.
+	labels []string
+	wears  []string
+	calls  []string
 }
 
 // merged names the pull requests GitHub shows merged, in the order they were
@@ -125,6 +129,12 @@ func (f *trainForge) Run(ctx context.Context, request execx.Request) (execx.Resu
 	case args[0] == "pr" && args[1] == "create":
 		f.branch, f.trainURL = args[slices.Index(args, "--head")+1], "https://github.com/o/r/pull/900"
 		return execx.Result{Stdout: []byte(f.trainURL + "\n")}, nil
+	case args[0] == "label" && args[1] == "create":
+		f.labels = append(f.labels, args[2])
+		return execx.Result{}, nil
+	case args[0] == "pr" && args[1] == "edit" && args[2] == f.trainURL && slices.Contains(f.labels, args[slices.Index(args, "--add-label")+1]):
+		f.wears = append(f.wears, args[slices.Index(args, "--add-label")+1])
+		return execx.Result{}, nil
 	case args[0] == "pr" && args[1] == "view" && args[2] == f.trainURL:
 		head := gitIn(f.t, f.remote, "rev-parse", "refs/heads/"+f.branch)
 		return answer(map[string]any{"state": "OPEN", "headRefOid": head, "statusCheckRollup": []train.Check{{Kind: "CheckRun", Name: "test", Status: "COMPLETED", Conclusion: "SUCCESS"}}})
@@ -182,6 +192,11 @@ func TestPRTrainLandsTheGoblinsGreenPullRequestsWithOneRun(t *testing.T) {
 	// merged by it, and nothing closed without merging.
 	if !slices.Equal(forge.merged(), []string{first.URL, second.URL}) || forge.closed || !strings.HasPrefix(forge.subject, "Merge train ") || !strings.HasSuffix(forge.subject, ": #11, #12") {
 		t.Fatalf("merged %v, the train pull request closed %v after merging as %q: want #11 and #12 merged by the train's own pull request, which is never closed", forge.merged(), forge.closed, forge.subject)
+	}
+	// Its pull request wears the train's label, which a release's generated
+	// notes leave out, and nothing is said of a label that was put on.
+	if !slices.Contains(forge.wears, train.OwnLabel) || strings.Contains(stdout.String(), "could not put the label") {
+		t.Fatalf("the train's pull request wears %q, stdout %s: want it to wear %q", forge.wears, stdout.String(), train.OwnLabel)
 	}
 	if gitIn(t, forge.remote, "rev-parse", "refs/heads/main^{tree}") != gitIn(t, forge.remote, "rev-parse", forge.landed+"^{tree}") || exec.Command("git", "-C", forge.remote, "rev-parse", "--verify", "--quiet", "refs/heads/"+forge.branch).Run() == nil {
 		t.Fatal("main's tree is not the tree CI tested, or the train's branch is kept")

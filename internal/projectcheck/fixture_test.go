@@ -75,11 +75,35 @@ func (f fixture) lag() {
 	f.git("reset", "--quiet", "--hard", "HEAD~1")
 }
 
-// check runs the whole assessment with the programs named in onPath found
-// and every other program missing.
-func (f fixture) check(onPath ...string) Report {
+// origin gives the checkout a remote named origin, a bare repository beside
+// it, and fetches it, so the default branch is origin/main. It returns the
+// remote's folder.
+func (f fixture) origin() string {
 	f.t.Helper()
-	report, err := Check(context.Background(), Options{
+	bare := filepath.Join(filepath.Dir(f.checkout), "origin.git")
+	f.git("clone", "--quiet", "--bare", ".", bare)
+	f.git("remote", "add", "origin", bare)
+	f.git("fetch", "--quiet", "origin")
+	f.git("remote", "set-head", "origin", "main")
+	return bare
+}
+
+// output returns what a git command prints in the checkout.
+func (f fixture) output(args ...string) string {
+	f.t.Helper()
+	command := exec.Command("git", args...)
+	command.Dir = f.checkout
+	out, err := command.Output()
+	if err != nil {
+		f.t.Fatalf("git %v: %v", args, err)
+	}
+	return strings.TrimSpace(string(out))
+}
+
+// options are the options of an assessment with the programs named in
+// onPath found and every other program missing.
+func (f fixture) options(onPath ...string) Options {
+	return Options{
 		DataDir:  f.data,
 		Checkout: f.checkout,
 		Runner:   execx.OSRunner{},
@@ -91,11 +115,24 @@ func (f fixture) check(onPath ...string) Report {
 			}
 			return "", exec.ErrNotFound
 		},
-	})
+	}
+}
+
+// run runs the whole assessment.
+func (f fixture) run(options Options) Report {
+	f.t.Helper()
+	report, err := Check(context.Background(), options)
 	if err != nil {
 		f.t.Fatal(err)
 	}
 	return report
+}
+
+// check runs the whole assessment with the programs named in onPath found
+// and every other program missing.
+func (f fixture) check(onPath ...string) Report {
+	f.t.Helper()
+	return f.run(f.options(onPath...))
 }
 
 func writeFile(t *testing.T, path, content string) {

@@ -52,6 +52,11 @@
       "why": "an install test reads the release's signing step"
     },
     {
+      "paths": [".github/release.yml"],
+      "packages": ["."],
+      "why": "a test reads which label a release's generated notes leave out"
+    },
+    {
       "paths": ["config/verify.json"],
       "packages": ["internal/gatetest"],
       "why": "a test reads the repository's own verification policy"

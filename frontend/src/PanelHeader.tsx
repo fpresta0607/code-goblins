@@ -1,17 +1,17 @@
-import { useState, type PointerEvent } from "react";
+import { useId, useState, type PointerEvent } from "react";
 import { message, request } from "./api";
 import { type Session, type Snapshot, type Task } from "./types";
 import { Avatar } from "./Avatar";
 import { BRAND_MARKS } from "./brandMarks";
 import { Icon } from "./Icon";
 import { ownsTaskSession, sessionTitle } from "./lineageTree";
-import { harnessName, nodeStatus, personaFor, pullRequestBadge, pullRequestLabel, safePullRequest, waitingTarget } from "./workflow";
+import { ALREADY_FINISHED, harnessName, nodeStatus, personaFor, pullRequestBadge, pullRequestLabel, safePullRequest, waitingTarget } from "./workflow";
 import { reviewLine, waitingItems, type Item } from "./commandQueue";
 import { credentialAsk } from "./credentials";
 import { plainMessage } from "./messageText";
 import { AfkToggle } from "./afk-toggle";
 import { CfoUpdate } from "./cfo-update";
-import { goblinName, taskName, taskSummary, withoutHarness } from "./task-words";
+import { finishedEvidence, goblinName, taskName, taskSummary } from "./task-words";
 import { RawDetails } from "./raw-details";
 import { taskStatus } from "./task-status";
 import { PeopleRow } from "./people-row";
@@ -56,9 +56,11 @@ export function PanelHeader({ task, node, snapshot, compact, onAnswer, onOpenTas
   const isCut = (element: Element | null) => !!element && (element.scrollWidth > element.clientWidth + 1 || element.scrollHeight > element.clientHeight + 1);
   const measure = (event: PointerEvent<HTMLElement>) => setCut({ name: isCut(event.currentTarget.querySelector("#panel-title")), task: isCut(event.currentTarget.querySelector("p.panel-goblin-task")) });
   const said = owner ? taskSummary(task, snapshot.tasks, status) : undefined;
-  // What a queued task's wait line leaves out: the CFO's note on it, or what
-  // says it already finished.
-  const note = owner && task.phase === "queued" && (task.finished || task.waits.length) ? withoutHarness(task.finished || task.reason) : "";
+  // What says a queued task already finished is what a person needs before
+  // removing it or queueing it again, so its status carries it as its tip,
+  // which the keyboard reaches and a screen reader reads with the status.
+  const evidence = owner && status === ALREADY_FINISHED ? finishedEvidence(task.finished) : "";
+  const evidenceId = useId();
   const pr = owner ? safePullRequest(task.pr) : "";
   const test = owner ? pullRequestTest(task, trains) : undefined;
   const badge = pullRequestBadge(pr);
@@ -84,12 +86,12 @@ export function PanelHeader({ task, node, snapshot, compact, onAnswer, onOpenTas
         {cfo && <RestartCfoButton snapshot={snapshot} isCompact={compact} />}
         {owner && task.phase === "queued" ? <TaskAdjustment key={task.id} task={task} snapshot={snapshot} /> : goblinTask && <p className="panel-goblin-task" data-tip={cut.task ? goblinTask : ""}>{goblinTask}</p>}
         {!compact && task?.project && <div className="project-line"><p className="project-label">{task.project}</p><PeopleRow snapshot={snapshot} task={task} /></div>}
-        <p className={"panel-status plain-status phase-" + phase}><span className="status-dot" />{status}{awaited && <button className="status-link" aria-label={"Open " + goblinName(awaited) + ", which this goblin is waiting on"} data-tip={"Open " + goblinName(awaited)} onClick={() => onOpenTask(awaited)}><Icon name="next" /></button>}</p>
+        <p className={"panel-status plain-status phase-" + phase} {...(evidence ? { "data-tip": evidence, tabIndex: 0, "aria-describedby": evidenceId } : {})}><span className="status-dot" />{status}{awaited && <button className="status-link" aria-label={"Open " + goblinName(awaited) + ", which this goblin is waiting on"} data-tip={"Open " + goblinName(awaited)} onClick={() => onOpenTask(awaited)}><Icon name="next" /></button>}</p>
+        {evidence && <span id={evidenceId} className="sr-only">{evidence}</span>}
         {!compact && !owner && node && task && <p className="muted">Part of {goblinName(task)}</p>}
         {!compact && said?.sentence && <p className="panel-activity">{said.sentence}</p>}
-        {!compact && said && (said.details.length > 0 || said.isFailure || note) && <div className="panel-details-row">
+        {!compact && said && (said.details.length > 0 || said.isFailure) && <div className="panel-details-row">
           <RawDetails lines={said.details} isPlain={said.isPlain} />
-          <RawDetails lines={note ? [note] : []} label="More" />
           {owner && said.isFailure && !task.archived && <button className="text-button" onClick={onOpenLog}>Open the log</button>}
         </div>}
       </div>

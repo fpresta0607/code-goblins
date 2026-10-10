@@ -5,58 +5,25 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
-	"strconv"
 	"strings"
 	"testing"
+
+	"github.com/fpresta0607/code-goblins/internal/standin"
 )
 
-// standInVariable names the file a stand-in for goblins writes its arguments
-// to. Set, it makes this test binary that stand-in: copied beside a window as
-// goblins.exe, it prints what standInPrints holds, says what standInSays holds
-// and exits with standInExit.
-const (
-	standInVariable = "GOBLINS_WINDOW_TEST_STANDIN"
-	standInPrints   = "GOBLINS_WINDOW_TEST_STANDIN_PRINTS"
-	standInSays     = "GOBLINS_WINDOW_TEST_STANDIN_SAYS"
-	standInExit     = "GOBLINS_WINDOW_TEST_STANDIN_EXIT"
-)
-
-func TestMain(m *testing.M) {
-	if record := os.Getenv(standInVariable); record != "" {
-		if err := os.WriteFile(record, []byte(strings.Join(os.Args[1:], " ")), 0o600); err != nil {
-			fmt.Fprintln(os.Stderr, err)
-			os.Exit(90)
-		}
-		fmt.Fprint(os.Stdout, os.Getenv(standInPrints))
-		fmt.Fprint(os.Stderr, os.Getenv(standInSays))
-		code, _ := strconv.Atoi(os.Getenv(standInExit))
-		os.Exit(code)
-	}
-	os.Exit(m.Run())
-}
-
-// goblinsBeside puts a stand-in for goblins beside a window in a folder of
-// the test's own, and returns the window's path and the file the stand-in
-// writes its arguments to.
+// goblinsBeside puts the tests' stand-in program beside a window as goblins,
+// in a folder of the test's own: run, it prints prints, says says and exits
+// with exit. It returns the window's path and the file the stand-in records
+// each run in, as its name and arguments on a line.
 func goblinsBeside(t *testing.T, prints, says string, exit int) (window, record string) {
 	t.Helper()
 	folder := t.TempDir()
-	self, err := os.Executable()
-	if err != nil {
-		t.Fatal(err)
-	}
-	program, err := os.ReadFile(self)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(filepath.Join(folder, goblinsName), program, 0o755); err != nil {
-		t.Fatal(err)
-	}
+	standin.Put(t, filepath.Join(folder, goblinsName))
 	record = filepath.Join(folder, "arguments")
-	t.Setenv(standInVariable, record)
-	t.Setenv(standInPrints, prints)
-	t.Setenv(standInSays, says)
-	t.Setenv(standInExit, strconv.Itoa(exit))
+	for _, variable := range standin.Env(record, standin.Rule{Any: true, Stdout: prints, Stderr: says, Exit: exit}) {
+		name, value, _ := strings.Cut(variable, "=")
+		t.Setenv(name, value)
+	}
 	return filepath.Join(folder, "goblins-window.exe"), record
 }
 
@@ -80,7 +47,7 @@ func TestTheWindowAloneAsksTheGoblinsBesideItWhereTheBoardIs(t *testing.T) {
 	if board != "http://127.0.0.1:4310" || stateDir != `C:\Users\overlord\AppData\Local\CodeGoblins\state` {
 		t.Errorf("locate = %q, %q, want the board and the state folder goblins printed", board, stateDir)
 	}
-	if ran, err := os.ReadFile(record); err != nil || string(ran) != "--window --locate" {
+	if ran, err := os.ReadFile(record); err != nil || strings.TrimSpace(string(ran)) != "goblins --window --locate" {
 		t.Errorf("goblins was run with %q (%v), want --window --locate", ran, err)
 	}
 }

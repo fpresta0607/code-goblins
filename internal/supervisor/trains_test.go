@@ -36,6 +36,10 @@ type trainProject struct {
 	landed  string
 	subject string
 	closed  bool
+	// labels are the labels the repository has, and wears the ones on the
+	// train's pull request.
+	labels []string
+	wears  []string
 	// viewerReads counts the reads of the account gh works as, and
 	// viewerTimeouts is how many more of them time out.
 	viewerReads    int
@@ -115,9 +119,9 @@ func (p *trainProject) merged() []string {
 
 // Run runs git for real, answers gh api user with the fleet's account and gh
 // pr create with the train's pull request, whose CI it reads as green and
-// which it merges into main with a merge commit and closes, and lists the
-// pull requests main does not hold yet as open; any other gh call is
-// unexpected.
+// which it labels with a label the repository has, merges into main with a
+// merge commit and closes, makes a label, and lists the pull requests main
+// does not hold yet as open; any other gh call is unexpected.
 func (p *trainProject) Run(ctx context.Context, request execx.Request) (execx.Result, error) {
 	if request.Name == "git" {
 		return execx.OSRunner{}.Run(ctx, request)
@@ -141,7 +145,14 @@ func (p *trainProject) Run(ctx context.Context, request execx.Request) (execx.Re
 		case args[1] == "close":
 			p.closed = true
 			return execx.Result{}, nil
+		case args[1] == "edit" && slices.Contains(p.labels, args[slices.Index(args, "--add-label")+1]):
+			p.wears = append(p.wears, args[slices.Index(args, "--add-label")+1])
+			return execx.Result{}, nil
 		}
+	}
+	if args := request.Args; request.Name == "gh" && len(args) > 2 && args[0] == "label" && args[1] == "create" {
+		p.labels = append(p.labels, args[2])
+		return execx.Result{}, nil
 	}
 	if request.Name == "gh" && len(request.Args) > 1 && request.Args[0] == "api" && request.Args[1] == "user" {
 		p.viewerReads++
@@ -204,6 +215,8 @@ func TestTheSupervisorStartsATrainWhenTwoGoblinsFinishedPullRequestsWaitGreen(t 
 // same on GitHub: the poll after a green run merges the train's own pull
 // request at the head CI tested, the pull requests that rode read merged by
 // it, nothing is closed without merging, and the train's branch is removed.
+// Its pull request wears the train's label, which a release's generated
+// notes leave out.
 func TestTheSupervisorsTrainLandsByMergingItsOwnPullRequest(t *testing.T) {
 	// Arrange
 	service, h := fleetService(t)
@@ -232,6 +245,9 @@ func TestTheSupervisorsTrainLandsByMergingItsOwnPullRequest(t *testing.T) {
 	}
 	if project.git(project.remote, "rev-parse", "refs/heads/main^{tree}") != project.git(project.remote, "rev-parse", project.landed+"^{tree}") || exec.Command("git", "-C", project.remote, "rev-parse", "--verify", "--quiet", "refs/heads/"+project.branch).Run() == nil {
 		t.Fatal("main's tree is not the tree CI tested, or the train's branch is kept")
+	}
+	if !slices.Contains(project.wears, train.OwnLabel) {
+		t.Fatalf("the train's pull request wears %q, want %q", project.wears, train.OwnLabel)
 	}
 	if wakes := prWakes(t, h, "merge_train"); len(wakes) != 2 || !strings.Contains(wakes[1].Detail, "landed #11, #12 in 1 CI run(s)") {
 		t.Fatalf("pr wakes = %+v, want the train's start and its landing", wakes)

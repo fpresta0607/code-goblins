@@ -22,7 +22,9 @@ import (
 // that moved during the run is tested again too, since what the run proved
 // is not what would land. The merge lands every rider or none. Before it
 // starts the record says so, and a landing cut short finds on the base
-// whether it went through.
+// whether it went through. The pull request that merges wears the train's
+// label, which is made sure of here: an older build opened one without it,
+// and a label can be taken off by hand.
 func (e Engine) land(ctx context.Context, t *Train) error {
 	if !t.Landing {
 		base, err := e.baseSHA(ctx, *t)
@@ -63,6 +65,7 @@ func (e Engine) land(ctx context.Context, t *Train) error {
 				return err
 			}
 		}
+		e.wear(ctx, *t)
 		if err := e.mergeTrain(ctx, t, riders); err != nil {
 			return err
 		}

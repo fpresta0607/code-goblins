@@ -15,6 +15,7 @@ import (
 	"testing"
 
 	"github.com/fpresta0607/code-goblins/internal/installtest"
+	"github.com/fpresta0607/code-goblins/internal/standin"
 )
 
 // installScript is the repository's install script, the one a release
@@ -28,19 +29,11 @@ func installScript(t *testing.T) []byte {
 	return script
 }
 
-// standInRelease serves a release whose cfo.exe is this test binary standing
-// in for one whose every command succeeds, beside the repository's own
-// install script.
+// standInRelease serves a release whose cfo.exe is the stand-in program,
+// whose every command succeeds, beside the repository's own install script.
 func standInRelease(t *testing.T) string {
 	t.Helper()
-	self, err := os.Executable()
-	if err != nil {
-		t.Fatal(err)
-	}
-	binary, err := os.ReadFile(self)
-	if err != nil {
-		t.Fatal(err)
-	}
+	binary := standin.Bytes(t)
 	files := map[string][]byte{
 		"/cfo.exe":     binary,
 		"/SHA256SUMS":  []byte(fmt.Sprintf("%x  cfo.exe\n", sha256.Sum256(binary))),
@@ -61,9 +54,11 @@ func standInRelease(t *testing.T) string {
 // strippedInstall is name with args in a session of its own against the
 // release at base, as internal/installtest gives one, with a stand-in for
 // every tool the install looks for, so nothing installs onto this machine:
-// a script for each it runs as a command, this test binary as claude.exe,
-// which a native terminal needs, and as the managed no-mistakes, which
-// answers the version the script pins.
+// a script for each it runs as a command, the stand-in program as
+// claude.exe, which a native terminal needs, and as the managed no-mistakes,
+// which answers the version the script pins. The release's cfo.exe is the
+// stand-in too, and its install puts it in the per-user home's bin under both
+// the binary's names, as cfo install does.
 func strippedInstall(t *testing.T, base, name string, args ...string) (*exec.Cmd, string) {
 	t.Helper()
 	stubs := map[string]string{}
@@ -71,18 +66,12 @@ func strippedInstall(t *testing.T, base, name string, args ...string) (*exec.Cmd
 		stubs[tool] = "@exit /b 0\r\n"
 	}
 	cmd, local, temp := installtest.StrippedCommand(t, base, stubs, name, args...)
-	self, err := os.Executable()
-	if err != nil {
-		t.Fatal(err)
-	}
 	tools := t.TempDir()
-	for _, copy := range []string{filepath.Join(tools, "claude.exe"), filepath.Join(local, "no-mistakes", "no-mistakes.exe")} {
-		if err := os.MkdirAll(filepath.Dir(copy), 0o755); err != nil {
+	for _, program := range []string{filepath.Join(tools, "claude.exe"), filepath.Join(local, "no-mistakes", "no-mistakes.exe")} {
+		if err := os.MkdirAll(filepath.Dir(program), 0o755); err != nil {
 			t.Fatal(err)
 		}
-		if err := copyFile(self, copy); err != nil {
-			t.Fatal(err)
-		}
+		standin.Put(t, program)
 	}
 	pin := regexp.MustCompile(`\$noMistakesVersion = "([^"]+)"`).FindSubmatch(installScript(t))
 	if pin == nil {
@@ -93,16 +82,12 @@ func strippedInstall(t *testing.T, base, name string, args ...string) (*exec.Cmd
 			cmd.Env[i] = "PATH=" + tools + ";" + path
 		}
 	}
-	cmd.Env = append(cmd.Env, cfoStandInVariable+"="+string(pin[1]))
+	bin := filepath.Join(local, "CodeGoblins", "bin")
+	cmd.Env = append(cmd.Env, standin.Env("",
+		standin.Rule{Args: "--version", Stdout: "no-mistakes version v" + string(pin[1]) + "\n"},
+		standin.Rule{Args: "install", Prefix: true, CopyTo: []string{filepath.Join(bin, "cfo.exe"), filepath.Join(bin, "goblins.exe")}},
+	)...)
 	return cmd, temp
-}
-
-func copyFile(from, to string) error {
-	data, err := os.ReadFile(from)
-	if err != nil {
-		return err
-	}
-	return os.WriteFile(to, data, 0o755)
 }
 
 // plainSteps are the step lines the install prints, in order.

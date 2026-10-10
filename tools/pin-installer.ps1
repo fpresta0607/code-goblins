@@ -12,11 +12,16 @@
 # SHA256SUMS alone and says so. It writes nothing when a value cannot be
 # written into the script as it is, or when install.ps1 does not name each
 # of them exactly once.
+#
+# Without -Destination it writes the pinned script to its output and no
+# file, for a test, which runs it as the one-line install does, as text. A
+# pinned copy a test wrote to disk is one more unsigned script that downloads
+# and runs programs, and Microsoft Defender sent each such copy to Microsoft.
 param(
     [Parameter(Mandatory)][string]$Repository,
     [Parameter(Mandatory)][string]$Tag,
     [string]$Publisher,
-    [Parameter(Mandatory)][string]$Destination
+    [string]$Destination
 )
 $ErrorActionPreference = "Stop"
 
@@ -48,6 +53,9 @@ foreach ($pin in $pins) {
         throw "install.ps1 matches $($pin.Pattern) $($found.Count) times, want once"
     }
     $script = $script.Replace($found[0].Value, $pin.Value)
+}
+if (-not $Destination) {
+    return $script
 }
 New-Item -ItemType Directory -Force -Path (Split-Path -Parent $Destination) | Out-Null
 Set-Content -LiteralPath $Destination -Value $script -NoNewline -Encoding ascii
