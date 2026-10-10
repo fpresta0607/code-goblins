@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"math"
 	"time"
+
+	"github.com/fpresta0607/code-goblins/internal/processor"
 )
 
 const (
@@ -74,13 +76,6 @@ type Processors struct {
 	Busiest []string `json:"busiest,omitempty"`
 }
 
-// processorCore is one core: its efficiency class, higher for a faster kind of
-// core, and the numbers of its threads.
-type processorCore struct {
-	efficiencyClass uint8
-	threads         []int
-}
-
 // processorTime is one thread's idle time and whole time since the machine
 // started, in the same unit.
 type processorTime struct {
@@ -93,7 +88,7 @@ type processorTime struct {
 // second thread of a busy core gives an app a fraction of a core. Readings
 // that say nothing, with no time between them or not of these cores, are an
 // error and never a machine with room.
-func readProcessors(cores []processorCore, before, after []processorTime) (Processors, error) {
+func readProcessors(cores []processor.Core, before, after []processorTime) (Processors, error) {
 	if len(cores) == 0 {
 		return Processors{}, errors.New("the machine names no processor cores")
 	}
@@ -102,13 +97,13 @@ func readProcessors(cores []processorCore, before, after []processorTime) (Proce
 	}
 	fastest := uint8(0)
 	for _, core := range cores {
-		fastest = max(fastest, core.efficiencyClass)
+		fastest = max(fastest, core.EfficiencyClass)
 	}
 	var processors Processors
 	idle, efficiencyIdle := 0.0, 0.0
 	for _, core := range cores {
 		busiest := 0.0
-		for _, thread := range core.threads {
+		for _, thread := range core.Threads {
 			if thread < 0 || thread >= len(after) {
 				return Processors{}, fmt.Errorf("a processor core names thread %d and the reading has %d", thread, len(after))
 			}
@@ -118,7 +113,7 @@ func readProcessors(cores []processorCore, before, after []processorTime) (Proce
 			}
 			busiest = max(busiest, 1-float64(after[thread].idle-before[thread].idle)/float64(whole))
 		}
-		if core.efficiencyClass != fastest {
+		if core.EfficiencyClass != fastest {
 			processors.EfficiencyCores++
 			efficiencyIdle += 1 - min(max(busiest, 0), 1)
 			continue

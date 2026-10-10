@@ -13,9 +13,10 @@ const (
 )
 
 var (
-	kernel32              = windows.NewLazySystemDLL("kernel32.dll")
-	getProcessInformation = kernel32.NewProc("GetProcessInformation")
-	setProcessInformation = kernel32.NewProc("SetProcessInformation")
+	kernel32               = windows.NewLazySystemDLL("kernel32.dll")
+	getProcessInformation  = kernel32.NewProc("GetProcessInformation")
+	setProcessInformation  = kernel32.NewProc("SetProcessInformation")
+	setProcessAffinityMask = kernel32.NewProc("SetProcessAffinityMask")
 )
 
 type powerThrottling struct {
