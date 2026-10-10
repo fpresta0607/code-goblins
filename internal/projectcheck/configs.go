@@ -129,8 +129,8 @@ func (c *checker) worktreeManifest(ctx context.Context) {
 	}
 	if manifest.Path == "" {
 		c.add(AreaConfigs, "worktree-defaults", OK,
-			"the project declares no worktree manifest, so a spawn shares the default env files and installs by lockfile",
-			"no file at "+file+". Of the default env files the checkout holds "+strings.Join(c.held(manifest.Link), ", "), "")
+			"the project declares no worktree manifest, so a spawn shares nothing into a worktree and installs by lockfile",
+			"no file at "+file+". A worktree is given an env file only when a manifest names it in link", "")
 		return
 	}
 	clean := true
@@ -141,10 +141,7 @@ func (c *checker) worktreeManifest(ctx context.Context) {
 			fmt.Sprintf("%s says project %q and is filed for the checkout folder %q", file, manifest.Project, c.project),
 			fmt.Sprintf("set project to %q", c.project))
 	}
-	var links []string
-	if !manifest.LinkDefaulted {
-		links = append(links, manifest.Link...)
-	}
+	links := append([]string{}, manifest.Link...)
 	var absent []string
 	for _, name := range append(links, manifest.Dependencies.Paths...) {
 		if !c.repo.has(name) {
@@ -172,27 +169,10 @@ func (c *checker) worktreeManifest(ctx context.Context) {
 		if entries := append(links, manifest.Dependencies.Paths...); len(entries) > 0 {
 			shared = "it shares " + strings.Join(entries, ", ")
 		}
-		if manifest.LinkDefaulted {
-			shared = "it names no link, so it shares the default env files the checkout holds, " + strings.Join(c.held(manifest.Link), ", ")
-		}
 		c.add(AreaConfigs, "worktree-agrees", OK,
 			"the worktree manifest agrees with the repository",
 			fmt.Sprintf("%s: %s. Its %d install commands name programs and files that are there, read at %s", file, shared, len(manifest.Dependencies.Install), c.repo.at()), "")
 	}
-}
-
-// held returns which of names the checkout holds, or the word none.
-func (c *checker) held(names []string) []string {
-	var held []string
-	for _, name := range names {
-		if c.repo.has(name) {
-			held = append(held, name)
-		}
-	}
-	if len(held) == 0 {
-		return []string{"none"}
-	}
-	return held
 }
 
 // servicesManifest checks that the compose file, services, env file and
