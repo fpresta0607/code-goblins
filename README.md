@@ -857,6 +857,7 @@ cfo afk log --kind <kind> --what "<what>" --evidence "<evidence>" [--link <url>]
 cfo cleanup <id>
 cfo backlog done <id>
 cfo reap [--dry-run|--apply]
+cfo process-plan
 cfo drain
 cfo notify <id> --done --pr <url> | --blocked "<question>" | --failed "<reason>" | --working "<what>" | --waiting-on <task-id|run-id|overlord|ci|deploy|memory> "<why>" [--lavish <html-file>] [--link <https-url>] [--run <command-file>]
 cfo helper start <parent-id> --brief <file> [--title "<short title>"]
@@ -1029,6 +1030,7 @@ Once an hour the janitor removes what the fleet left behind: a worktree in the h
 It never touches uncommitted work or your checkouts, touches Docker only to stop a project's local services that cfo started for goblins once no running goblin holds them, and reports what it will not remove: a worktree no task records, a new folder in your projects root that is no checkout, and a `data\` over 200 MB.
 It also ends the processes a goblin's terminal left running once that terminal is gone, and a detached one of a running goblin that has delivered and rests, once the goblin's rest and the process's stillness have both lasted an hour, each proven the fleet's own the way a pause proves it. Nothing of a goblin that works is ended this way.
 Your own apps are never among them, and what it cannot prove it only names for the CFO.
+`cfo process-plan` prints what that sweep, and a cleanup or a relaunch of each task, would end right now, with the rule behind each line, and ends nothing.
 `cfo runtime` shows what each part of the home holds, and the board shows free disk under free memory, in one box.
 
 ### A Dev Drive for the busiest folders (optional)

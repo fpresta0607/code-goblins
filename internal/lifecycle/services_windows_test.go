@@ -378,6 +378,27 @@ func TestWhatAClosedTerminalLeftEndsWithItsCleanup(t *testing.T) {
 	ctx, cancel := context.WithTimeout(t.Context(), time.Minute)
 	defer cancel()
 	logFixture(t, "after the terminal closed, before the cleanup's sweep", terminal.HostPID, started)
+	// A plan of the sweep names what it would end, by the evidence that
+	// makes each the task's, and ends nothing.
+	planned, planErr := Left(ctx, h, meta)
+	if planErr != nil {
+		t.Fatalf("Left: %v", planErr)
+	}
+	by := map[int]string{}
+	for _, process := range planned {
+		by[process.PID] = process.By
+	}
+	if by[started["detached"]] != "mark" {
+		t.Errorf("the plan lists the detached process, pid %d, by %q, want by its terminal's mark: %v", started["detached"], by[started["detached"]], by)
+	}
+	for _, name := range []string{"visitor", "service", "backend"} {
+		if evidence, isListed := by[started[name]]; isListed {
+			t.Errorf("the plan lists the %s process, pid %d, by %s, want it left out", name, started[name], evidence)
+		}
+	}
+	if !lifecycleRunning(held["detached"]) {
+		t.Fatalf("the plan ended the detached process, pid %d, which it was only asked to name", started["detached"])
+	}
 
 	// Act
 	ended, endErr := EndLeft(ctx, h, meta)
