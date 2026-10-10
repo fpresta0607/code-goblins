@@ -176,7 +176,7 @@ func LandedIn(subject string) []string {
 // that went through although its answer was lost is found on the base and
 // taken as landed.
 func (e Engine) mergeTrain(ctx context.Context, t *Train, riders []int) error {
-	_, err := e.run(ctx, t.Checkout, "gh", "pr", "merge", t.PR, "--merge", "--match-head-commit", t.Head, "--subject", landingSubject+t.ID+": "+t.numbers(riders), "--body", t.Evidence())
+	_, err := e.runWithBody(ctx, t.Checkout, t.Evidence(), "pr", "merge", t.PR, "--merge", "--match-head-commit", t.Head, "--subject", landingSubject+t.ID+": "+t.numbers(riders))
 	if err == nil {
 		return nil
 	}

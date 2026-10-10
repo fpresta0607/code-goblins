@@ -201,6 +201,40 @@ func TestProjectCheckAssessesAProjectWithNoCheckoutAsFarAsTheHomesFilesGo(t *tes
 	}
 }
 
+// Nothing named the checkouts the home holds no folder for, and a spawn can
+// be sent into any of them. --unfiled names each under the projects root the
+// machine records, with what a spawn there would be given.
+func TestProjectCheckNamesTheCheckoutsTheHomeHoldsNoFolderFor(t *testing.T) {
+	// Arrange
+	f := newProjectFixture(t)
+	root := filepath.Dir(f.checkout)
+	for _, folder := range []string{filepath.Join(root, "southwind", ".git"), filepath.Join(f.home.Data, "projects", "northwind")} {
+		if err := os.MkdirAll(folder, 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	// Act
+	code, stdout, stderr := f.run("check", "--unfiled")
+	namedCode, _, namedErr := f.run("check", "--unfiled", "northwind")
+
+	// Assert
+	if code != 0 || stderr != "" {
+		t.Errorf("cfo project check --unfiled = %d, want 0 with no error: %s", code, stderr)
+	}
+	for _, want := range []string{"ok checkout/checkout-unfiled:", filepath.Join(root, "southwind") + ". No folder at", "ok checkout/checkouts-examined: examined 2 checkouts"} {
+		if !strings.Contains(stdout, want) {
+			t.Errorf("cfo project check --unfiled does not print %q:\n%s", want, stdout)
+		}
+	}
+	if strings.Contains(stdout, filepath.Join(root, "northwind")+". No folder at") {
+		t.Errorf("cfo project check --unfiled names northwind, which the home holds a folder for:\n%s", stdout)
+	}
+	if namedCode != 2 || !strings.Contains(namedErr, "--unfiled takes no project") {
+		t.Errorf("cfo project check --unfiled northwind = %d, want 2 saying it takes no project: %s", namedCode, namedErr)
+	}
+}
+
 // A project is a name or a path wherever a command takes one, so show and
 // init file the record under the checkout's folder name for both.
 func TestProjectInitAndShowKeyTheRecordByTheCheckoutsFolder(t *testing.T) {

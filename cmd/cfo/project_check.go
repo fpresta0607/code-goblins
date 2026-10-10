@@ -38,9 +38,13 @@ func runProjectCheck(h home.Home, args []string, stdout, stderr io.Writer, runti
 		areas = append(areas, value)
 		return nil
 	})
+	unfiled := flags.Bool("unfiled", false, "in place of a project, name each checkout under the projects root that the home holds no folder for, and what a spawn there would be given")
 	positional, err := parseAuthArgs(flags, args)
 	if err != nil {
 		return 2
+	}
+	if *unfiled {
+		return runProjectUnfiled(h, positional, *asJSON, stdout, stderr, runtime)
 	}
 	if len(positional) != 1 {
 		fmt.Fprintln(stderr, "cfo project check: one project is required")
@@ -99,6 +103,42 @@ func runProjectCheck(h home.Home, args []string, stdout, stderr io.Writer, runti
 			return 1
 		}
 	}
+	return 0
+}
+
+// runProjectUnfiled names each checkout directly under the machine's
+// projects root that the home holds no folder for, one line each, with what
+// a spawn there would be given, and a last line that counts what was looked
+// at. It reads folder names alone, and exits 0 whatever it names, since a
+// checkout the home knows nothing of is no fault.
+func runProjectUnfiled(h home.Home, positional []string, asJSON bool, stdout, stderr io.Writer, runtime commandRuntime) int {
+	if len(positional) != 0 {
+		fmt.Fprintln(stderr, "cfo project check: --unfiled takes no project")
+		return 2
+	}
+	root, err := runtime.projectsRoot()
+	if err == nil && strings.TrimSpace(root) == "" {
+		err = errors.New("the projects root is not set: run cfo install --projects-root <dir> with the folder that holds your checkouts")
+	}
+	if err != nil {
+		fmt.Fprintf(stderr, "cfo project check: %v\n", err)
+		return 1
+	}
+	lines, err := projectcheck.Unfiled(projectcheck.UnfiledOptions{DataDir: h.Data, ProjectsRoot: root})
+	if err != nil {
+		fmt.Fprintf(stderr, "cfo project check: %v\n", err)
+		return 1
+	}
+	if asJSON {
+		data, err := json.MarshalIndent(lines, "", "  ")
+		if err != nil {
+			fmt.Fprintln(stderr, err)
+			return 1
+		}
+		fmt.Fprintln(stdout, string(data))
+		return 0
+	}
+	fmt.Fprint(stdout, projectcheck.Report{Lines: lines}.Text())
 	return 0
 }
 

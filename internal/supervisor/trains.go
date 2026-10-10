@@ -217,28 +217,6 @@ func carriedByTrains(stateDir string) map[string]bool {
 	return carried
 }
 
-// trainRiders names the pull requests of open a merge train onto base can
-// take as they stand, as train.Riders reads them: a goblin's finished pull
-// request, opened by the account gh works as, green, not held and not in
-// conflict. With that account unread it names none.
-func trainRiders(ctx context.Context, runner execx.Runner, stateDir, repo string, open []train.PullRequest, base string, owners *fleetOwners) map[string]bool {
-	riding := map[string]bool{}
-	goblins := TrainGoblins(stateDir, repo)
-	if len(goblins) == 0 {
-		return riding
-	}
-	viewer, err := owners.account(ctx, runner, repo)
-	if err != nil {
-		return riding
-	}
-	trains, _ := train.List(stateDir)
-	riders, _ := train.Riders(open, base, viewer, goblins, trains)
-	for _, rider := range riders {
-		riding[rider.URL] = true
-	}
-	return riding
-}
-
 // MergeTrainView is a merge train as the board shows it: one card for each
 // batch of pull requests, so it carries the trains before it that landed
 // nothing and whose pull requests it took on, oldest first.

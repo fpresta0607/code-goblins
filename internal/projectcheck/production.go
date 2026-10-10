@@ -9,7 +9,6 @@ import (
 	"net/url"
 	"path"
 	"path/filepath"
-	"regexp"
 	"slices"
 	"strings"
 
@@ -163,26 +162,6 @@ func localHost(value string) bool {
 	return false
 }
 
-// testSetupPrefixes start the name of a file a test runner loads before the
-// tests, where a project pins what its tests may see.
-var testSetupPrefixes = []string{"jest.setup.", "vitest.setup.", "setupTests.", "vitest.config.", "jest.config.", "playwright.config.", "global-setup.", "globalSetup."}
-
-// isTestSetup reports whether a tracked file is one a test runner loads
-// before the tests.
-func isTestSetup(name string) bool {
-	base := path.Base(name)
-	switch base {
-	case "conftest.py", "pytest.ini", "tox.ini", ".env.test":
-		return true
-	}
-	for _, prefix := range testSetupPrefixes {
-		if strings.HasPrefix(base, prefix) {
-			return true
-		}
-	}
-	return false
-}
-
 // productionReach checks what a test run in a goblin's worktree starts with:
 // the env files the worktree shares from the checkout and those the
 // repository tracks. A production value in one is within a test's reach
@@ -190,7 +169,7 @@ func isTestSetup(name string) bool {
 // which is how a project pins it. With no test command of the repository's
 // own an agent chooses what the test step runs, and nothing stands between
 // it and the file.
-func (c *checker) productionReach(ctx context.Context, test string) {
+func (c *checker) productionReach(ctx context.Context, test string, setup testSetup) {
 	type envFile struct{ name, how string }
 	var files []envFile
 	if manifest, err := worktree.Resolve(c.DataDir, c.project); err == nil {
@@ -205,35 +184,6 @@ func (c *checker) productionReach(ctx context.Context, test string) {
 		if isEnvFile(path.Base(name)) && !isExample(path.Base(name)) {
 			files = append(files, envFile{name, "which the repository tracks"})
 		}
-	}
-
-	// The files that pin: the test setup, and the scripts of the gate's own
-	// test command.
-	setup := map[string]string{}
-	for _, name := range sortedKeys(c.repo.tracked) {
-		if isTestSetup(name) {
-			if data, ok := c.repo.read(ctx, name); ok {
-				setup[name] = string(data)
-			}
-		}
-	}
-	for _, s := range segments(test) {
-		for _, arg := range s.argv {
-			if scriptExtensions[strings.ToLower(path.Ext(arg))] {
-				if data, ok := c.repo.read(ctx, path.Join(s.dir, arg)); ok {
-					setup[path.Join(s.dir, arg)] = string(data)
-				}
-			}
-		}
-	}
-	pinnedBy := func(variable string) string {
-		word := regexp.MustCompile(`(^|[^A-Za-z0-9_])` + regexp.QuoteMeta(variable) + `([^A-Za-z0-9_]|$)`)
-		for _, name := range sortedKeys(setup) {
-			if word.MatchString(setup[name]) {
-				return name
-			}
-		}
-		return ""
 	}
 
 	variables, production, pinned := 0, 0, 0
@@ -263,7 +213,7 @@ func (c *checker) productionReach(ctx context.Context, test string) {
 				continue
 			}
 			production++
-			if by := pinnedBy(variable); by != "" {
+			if by := setup.pinnedBy(variable); by != "" {
 				pinned++
 				pinners[by] = true
 				continue
@@ -300,5 +250,5 @@ func (c *checker) productionReach(ctx context.Context, test string) {
 	}
 	c.add(AreaGate, "test-env-examined", OK,
 		fmt.Sprintf("examined %s in %s a test run can read: %s, %d of them named by the test setup", count(variables, "variable"), count(len(read), "env file"), count(production, "production value"), pinned),
-		evidence+". "+pins+". Test setup read at "+c.repo.asRead()+": "+orNone(sortedKeys(setup)), "")
+		evidence+". "+pins+". Test setup read at "+c.repo.asRead()+": "+setup.read(), "")
 }
