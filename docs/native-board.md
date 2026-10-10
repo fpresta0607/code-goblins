@@ -1055,6 +1055,7 @@ chrome-devtools-axi keeps one bridge and one browser for each session name, and 
 The bridge is started with its terminal's environment, so it carries the terminal's mark and ends with it.
 The tool hashes a session name to one of 1,000 ports, so two tasks can be given the same port. The second bridge then fails to start, and its goblin sets `CHROME_DEVTOOLS_AXI_PORT` for itself.
 The tool removes no session's folder. The janitor removes one under `.chrome-devtools-axi\sessions` once the bridge its `bridge.pid` names no longer runs and nothing wrote to it for a day, and only when it holds nothing but the tool's own files.
+A bridge keeps its page drawing whether or not anything drives it: three left on 2026-10-09 used most of a processor between them. So the sweep judges a running terminal's bridge by when its session was last used, the newest write among the tool's files in the session's folder, and ends it with its browser after an hour unused.
 
 ### Interface rules
 
