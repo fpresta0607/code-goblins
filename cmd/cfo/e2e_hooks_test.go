@@ -47,6 +47,9 @@ func TestHookFamilyEndToEnd(t *testing.T) {
 	subagentPayload := hookPayload(t, "s1", "", "Agent", "")
 	armDenyPayload := hookPayload(t, "s1", "", "Bash", "cfo watch &")
 	cdDenyPayload := hookPayload(t, "s1", "", "Bash", `cd C:\`)
+	powerShellArmDenyPayload := hookPayload(t, "s1", "", "PowerShell", "Start-Process cfo -ArgumentList watch")
+	powerShellCdDenyPayload := hookPayload(t, "s1", "", "PowerShell", `Set-Location C:\`)
+	powerShellAllowPayload := hookPayload(t, "s1", "", "PowerShell", "git log --oneline")
 	turnendPayload := hookPayload(t, "s1", "", "", "")
 	stopAutoarmPayload := hookPayload(t, "s1", "", "", "")
 	armAllowPayload := hookPayload(t, "s1", "", "Bash", "git log --oneline")
@@ -167,7 +170,7 @@ func TestHookFamilyEndToEnd(t *testing.T) {
 
 	t.Run("registered hooks as Claude Code runs them", func(t *testing.T) {
 		commands := loadRegisteredCommands(t, exe)
-		wantNames := []string{"session-start", "pretool-bash", "pretool-subagent", "turnend-guard", "stop-autoarm"}
+		wantNames := []string{"session-start", "pretool-bash", "pretool-powershell", "pretool-subagent", "turnend-guard", "stop-autoarm"}
 		if len(commands) != len(wantNames) {
 			t.Fatalf("the CFO's terminal starts with %d recognizable hooks, want %d: %v", len(commands), len(wantNames), commands)
 		}
@@ -224,6 +227,19 @@ func TestHookFamilyEndToEnd(t *testing.T) {
 			devHome := newDevHome(t)
 			devRes := runRegistered(t, commands["pretool-bash"], cdDenyPayload, baseEnv(devHome, nil))
 			assertSilentZero(t, devRes, "pretool-bash (dev)")
+		})
+
+		t.Run("pretool-powershell", func(t *testing.T) {
+			res := runRegistered(t, commands["pretool-powershell"], powerShellArmDenyPayload, baseEnv(sharedHome, nil))
+			assertDeny(t, res, "watcher-background", "pretool-powershell watcher arm (primary)")
+			res = runRegistered(t, commands["pretool-powershell"], powerShellCdDenyPayload, baseEnv(sharedHome, nil))
+			assertDeny(t, res, "cwd-relocation", "pretool-powershell relocation (primary)")
+			res = runRegistered(t, commands["pretool-powershell"], powerShellAllowPayload, baseEnv(sharedHome, nil))
+			assertSilentZero(t, res, "pretool-powershell plain command (primary)")
+
+			devHome := newDevHome(t)
+			devRes := runRegistered(t, commands["pretool-powershell"], powerShellCdDenyPayload, baseEnv(devHome, nil))
+			assertSilentZero(t, devRes, "pretool-powershell (dev)")
 		})
 
 		t.Run("turnend-guard", func(t *testing.T) {
@@ -339,6 +355,7 @@ func TestHookFamilyEndToEnd(t *testing.T) {
 					{"session-start", sessionStartPayload, nil},
 					{"pretool-subagent", subagentPayload, nil},
 					{"pretool-bash", armDenyPayload, nil},
+					{"pretool-powershell", powerShellArmDenyPayload, nil},
 					{"turnend-guard", turnendPayload, map[string]string{"CFO_CLAUDE_AUTOARM_SYNC_WAIT_MS": "1"}},
 					{"stop-autoarm", stopAutoarmPayload, map[string]string{
 						"CFO_POLL":                    "1",
@@ -378,6 +395,7 @@ func TestHookFamilyEndToEnd(t *testing.T) {
 		}{
 			{"pretool-bash", armAllowPayload, 50 * time.Millisecond},
 			{"pretool-bash", cdAllowPayload, 50 * time.Millisecond},
+			{"pretool-powershell", powerShellAllowPayload, 50 * time.Millisecond},
 			{"pretool-subagent", subagentAllowPayload, 50 * time.Millisecond},
 			{"session-start", sessionStartPayload, time.Second},
 		}

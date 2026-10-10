@@ -147,6 +147,7 @@ func TestEveryHookLeavesASessionThatIsNotTheCFOsAlone(t *testing.T) {
 		{"its own delegation tool", "pretool-subagent", hookPayload(t, "desktop-session", "", "Agent", ""), false},
 		{"its own question prompt", "pretool-subagent", hookPayload(t, "desktop-session", "", "AskUserQuestion", ""), false},
 		{"a cd in its shell", "pretool-bash", hookPayload(t, "desktop-session", "", "Bash", `cd C:\`), false},
+		{"a cd in its PowerShell", "pretool-powershell", hookPayload(t, "desktop-session", "", "PowerShell", `cd C:\`), false},
 		{"its turn ending while a goblin works and no watcher runs", "turnend-guard", hookPayload(t, "desktop-session", "", "", ""), true},
 		{"its compaction", "pre-compact", hookPayload(t, "desktop-session", "", "", ""), true},
 	} {

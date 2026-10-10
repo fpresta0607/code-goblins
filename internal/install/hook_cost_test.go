@@ -97,9 +97,11 @@ func selects(t *testing.T, matcher, tool string) bool {
 // Every pre-tool hook starts a process before its tool runs, and a shell
 // command starts two more (Git Bash's launcher and bash) before cfo.exe does.
 // What a tool call costs is the processes its matching hooks start: the
-// reading and editing tools a session lives in start none, a Bash call one
-// cfo.exe, and the delegation tools the guard can refuse one each.
-func TestTheCFOsPreToolHooksStartOneProcessPerBashCallAndNoneForSessionTools(t *testing.T) {
+// reading and editing tools a session lives in start none, a call of either
+// shell tool one cfo.exe, and the delegation tools the guard can refuse one
+// each. Claude Code on Windows has a PowerShell tool beside its Bash tool,
+// and a shell tool no hook selects is a shell no guard reads.
+func TestTheCFOsPreToolHooksStartOneProcessPerShellCallAndNoneForSessionTools(t *testing.T) {
 	// Arrange
 	root := t.TempDir()
 
@@ -125,7 +127,7 @@ func TestTheCFOsPreToolHooksStartOneProcessPerBashCallAndNoneForSessionTools(t *
 			t.Errorf("a %s call starts %d process(es) for CFO hooks, want none", tool, got)
 		}
 	}
-	for _, tool := range []string{"Bash", "Agent", "Task", "SendMessage", "AskUserQuestion", "CronCreate", "EnterWorktree"} {
+	for _, tool := range []string{"Bash", "PowerShell", "Agent", "Task", "SendMessage", "AskUserQuestion", "CronCreate", "EnterWorktree"} {
 		if got := processes(tool); got != 1 {
 			t.Errorf("a %s call starts %d process(es) for CFO hooks, want 1", tool, got)
 		}
