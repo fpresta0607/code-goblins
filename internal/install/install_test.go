@@ -255,12 +255,9 @@ func TestInstallMergesIntoAnAdoptersSettings(t *testing.T) {
 			t.Errorf("adopter hook %q appears %d times, want 1\n%s", foreign, count(commands, foreign), strings.Join(commands, "\n"))
 		}
 	}
-	for _, group := range cfoHookGroups(f.root) {
-		for _, entry := range group.entries {
-			want := commandLine(entry)
-			if count(commands, want) != 1 {
-				t.Errorf("CFO hook %q appears %d times, want 1", want, count(commands, want))
-			}
+	for _, command := range commands {
+		if isCFOCommand(command) {
+			t.Errorf("the install wrote the CFO hook %q, which only the CFO's terminal starts with", command)
 		}
 	}
 
@@ -326,7 +323,7 @@ func TestInstallTwiceChangesNothingTheSecondTime(t *testing.T) {
 	if !strings.Contains(output, "already installed - nothing changed") {
 		t.Errorf("a second install did not report itself as a no-op:\n%s", output)
 	}
-	for _, want := range []string{"unchanged already " + f.root, "unchanged already contains " + f.bin, "unchanged already in " + f.user} {
+	for _, want := range []string{"unchanged already " + f.root, "unchanged already contains " + f.bin, "unchanged none of the CFO's in " + f.user} {
 		if !strings.Contains(output, want) {
 			t.Errorf("output is missing %q:\n%s", want, output)
 		}
@@ -719,13 +716,17 @@ func TestUninstallWithNoUserSettingsFileCreatesNothing(t *testing.T) {
 	}
 }
 
+// A machine with no Claude Code settings file gets one for the Command Center
+// allow rules, and no hook in it: the CFO's terminal starts with its own.
 func TestInstallWithNoUserSettingsFileCreatesOne(t *testing.T) {
 	f := newFixture(t, "", nil)
 	f.install()
 
-	commands := hookCommands(t, f.user)
-	if want := len(Hooks(f.root)); len(commands) != want {
-		t.Fatalf("got %d hooks, want the %d CFO hooks:\n%s", len(commands), want, strings.Join(commands, "\n"))
+	if commands := hookCommands(t, f.user); len(commands) != 0 {
+		t.Fatalf("got %d hooks, want none:\n%s", len(commands), strings.Join(commands, "\n"))
+	}
+	if permissions, err := ReadPermissions(f.user); err != nil || len(permissions.Missing) != 0 {
+		t.Errorf("the new settings file lacks the allow rules %v, %v", permissions.Missing, err)
 	}
 	if _, err := os.Stat(f.user + backupSuffix); !os.IsNotExist(err) {
 		t.Errorf("a file that did not exist was backed up")

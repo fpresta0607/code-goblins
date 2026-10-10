@@ -84,7 +84,7 @@ func (v *Voice) fetch(ctx context.Context, part Part, progress func(done int64))
 	if err != nil {
 		return err
 	}
-	defer func() { _ = os.RemoveAll(unpacked) }()
+	defer func() { _ = fsx.RemoveAll(unpacked) }()
 	sizes, err := unpack(archive, unpacked, part.Files)
 	if err != nil {
 		return fmt.Errorf("%s %s: %w", part.Name, part.Version, err)

@@ -63,8 +63,8 @@ func TestMain(m *testing.M) {
 }
 
 // echoChild answers one typed line at a time: its console size, an
-// environment value, its directory, its pid, a grandchild it starts, an exit
-// code, or the line itself.
+// environment value, its directory, its pid, a grandchild it starts, in the
+// terminal's job or out of it, an exit code, or the line itself.
 func echoChild() {
 	fmt.Println("ready")
 	lines := bufio.NewScanner(os.Stdin)
@@ -85,7 +85,7 @@ func echoChild() {
 			fmt.Println("cwd", dir)
 		case line == "pid":
 			fmt.Println("pid", os.Getpid())
-		case line == "spawn" || line == "spawn-attached":
+		case line == "spawn" || line == "spawn-attached" || line == "spawn-breakaway":
 			grandchild := exec.Command(os.Args[0])
 			grandchild.Env = append(os.Environ(), childMode+"=sleep")
 			// Detached from the console, like a dev server a harness leaves
@@ -93,8 +93,16 @@ func echoChild() {
 			if line == "spawn" {
 				grandchild.SysProcAttr = &syscall.SysProcAttr{CreationFlags: windows.DETACHED_PROCESS}
 			}
+			// Out of the job, as the MSYS runtime takes what Git Bash runs.
+			if line == "spawn-breakaway" {
+				grandchild.SysProcAttr = &syscall.SysProcAttr{CreationFlags: windows.CREATE_BREAKAWAY_FROM_JOB}
+			}
 			if err := grandchild.Start(); err != nil {
 				fmt.Println("spawn error", err)
+				continue
+			}
+			if line == "spawn-breakaway" {
+				fmt.Printf("broke away %d\n", grandchild.Process.Pid)
 				continue
 			}
 			fmt.Printf("grandchild %d\n", grandchild.Process.Pid)

@@ -39,6 +39,10 @@ func TestMain(m *testing.M) {
 		_, _ = io.Copy(io.Discard, os.Stdin)
 		return
 	}
+	if len(os.Args) > 4 && os.Args[1] == lockHolder {
+		runLockHolder(os.Args[2:])
+		return
+	}
 	os.Exit(m.Run())
 }
 

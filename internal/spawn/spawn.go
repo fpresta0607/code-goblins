@@ -20,6 +20,7 @@ import (
 	"github.com/fpresta0607/code-goblins/internal/fsx"
 	"github.com/fpresta0607/code-goblins/internal/goblinname"
 	"github.com/fpresta0607/code-goblins/internal/harness"
+	"github.com/fpresta0607/code-goblins/internal/home"
 	"github.com/fpresta0607/code-goblins/internal/host"
 	"github.com/fpresta0607/code-goblins/internal/lock"
 	"github.com/fpresta0607/code-goblins/internal/pipeline"
@@ -104,7 +105,8 @@ type Service struct {
 	// terminal does; empty leaves the user's.
 	ProjectsRoot string
 	// ScratchRoot is the home's scratch folder. A task's scratch folder,
-	// which its pane's TEMP, TMP and GOTMPDIR name, is <ScratchRoot>\<id>.
+	// which its pane's TEMP, TMPDIR and GOTMPDIR name, is <ScratchRoot>\<id>,
+	// and its pane's TMP names the folder every goblin shares beside it.
 	ScratchRoot string
 	Project     string
 	Sleep       func(context.Context, time.Duration) error
@@ -362,7 +364,7 @@ func (s Service) Spawn(ctx context.Context, req Request) (result Result, err err
 	if err := os.MkdirAll(taskTmp, 0o755); err != nil {
 		return fail(result, fmt.Errorf("spawn: create task temporary directory: %w", err))
 	}
-	if err := os.MkdirAll(scratch, 0o755); err != nil {
+	if err := createScratch(scratch); err != nil {
 		return fail(result, fmt.Errorf("spawn: create the task's scratch folder: %w", err))
 	}
 	if selection != nil {
@@ -528,7 +530,7 @@ func codexMCPServers(kind harness.Kind) ([]string, error) {
 // unset, and HOME alone on darwin. All three are reserved because a manifest
 // that redirected any of them would leave any cfo command run from that terminal
 // computing a different directory than the process that created it.
-var reservedLaunchEnv = []string{"GOTMPDIR", "TEMP", "TMP", "CFO_HOME", "CFO_STATE_OVERRIDE", "LOCALAPPDATA", "XDG_CACHE_HOME", "HOME", harness.RoleVariable}
+var reservedLaunchEnv = []string{"GOTMPDIR", "TEMP", "TMP", "TMPDIR", "CFO_HOME", "CFO_STATE_OVERRIDE", "LOCALAPPDATA", "XDG_CACHE_HOME", "HOME", harness.RoleVariable}
 
 // reservedLaunchName reports whether name belongs to the launch contract:
 // one of the names the contract owns, or one the adapter already set on the
@@ -761,9 +763,12 @@ func (s Service) teardownLaunch(ctx context.Context, nativeHost host.Record, pro
 	// Removing the scratch folder belongs to this teardown rather than to a
 	// later cleanup: cleanup reads <id>.meta to find a task at all, so once
 	// the metadata is retired only the janitor's sweep of folders no task
-	// owns would find it.
-	if err := os.RemoveAll(scratch); err != nil {
-		errs = errors.Join(errs, fmt.Errorf("spawn: remove the task's scratch folder: %w", err))
+	// owns would find it. A folder that is a running Git Bash's /tmp stays,
+	// for that sweep to remove once it is not; see home.RemoveScratch.
+	if heldBy, err := home.RemoveScratch(ctx, scratch, liveTemps); err != nil {
+		errs = errors.Join(errs, fmt.Errorf("spawn: remove the task's scratch folder %s: %w", scratch, err))
+	} else if heldBy != "" {
+		errs = errors.Join(errs, fmt.Errorf("spawn: the task's scratch folder %s was left in place: the Git Bash in %s has it as /tmp for every shell of this user, and the janitor removes it once none does", scratch, heldBy))
 	}
 	// The task temporary directory goes for the same reason as the Go one, and
 	// with the same urgency: cleanup finds a task through <id>.meta, so once
@@ -779,6 +784,16 @@ func (s Service) teardownLaunch(ctx context.Context, nativeHost host.Record, pro
 		errs = errors.Join(errs, fmt.Errorf("spawn: retire task metadata: %w", err))
 	}
 	return errs
+}
+
+// liveTemps reads which folders running msys runtimes have as /tmp.
+var liveTemps = home.LiveTemps
+
+// createScratch makes a task's scratch folder and, beside it, the folder
+// every goblin shares, which the task's TMP names: Git Bash mounts whatever
+// TMP its first shell has as /tmp, whether or not the folder is there.
+func createScratch(scratch string) error {
+	return errors.Join(os.MkdirAll(scratch, 0o755), os.MkdirAll(home.SharedTempBeside(scratch), 0o755))
 }
 
 // scratch is the task's scratch folder under the home, refused before anything

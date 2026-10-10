@@ -76,6 +76,43 @@
         Write-Plain "Note: $Text"
     }
 
+    # Remove-Temporary removes $Path, a folder or file the install made in the
+    # temp folder. A first try can find it still held: a virus scanner reads a
+    # file it just saw, and Windows keeps a program for a moment after it ran.
+    # So what is still there is kept for Complete-Removal, which tries again as
+    # the install ends, when whatever held it has had the rest of the install
+    # to let go. A removal never stops an install.
+    $heldTemporaries = New-Object System.Collections.Generic.List[string]
+    function Remove-Temporary([string]$Path) {
+        Remove-Item -LiteralPath $Path -Recurse -Force -ErrorAction SilentlyContinue
+        if (Test-Path -LiteralPath $Path) {
+            Write-Detail "Still in use, so it is removed as the install ends: $Path"
+            $heldTemporaries.Add($Path)
+        }
+    }
+
+    # Complete-Removal tries again to remove what Remove-Temporary could not,
+    # for up to ten seconds, and names in one line whatever is there even
+    # then, so it can be deleted by hand.
+    function Complete-Removal {
+        $waited = [Diagnostics.Stopwatch]::StartNew()
+        while ($true) {
+            foreach ($path in @($heldTemporaries)) {
+                Remove-Item -LiteralPath $path -Recurse -Force -ErrorAction SilentlyContinue
+                if (-not (Test-Path -LiteralPath $path)) {
+                    [void]$heldTemporaries.Remove($path)
+                }
+            }
+            if ($heldTemporaries.Count -eq 0 -or $waited.Elapsed.TotalSeconds -ge 10) {
+                break
+            }
+            [Threading.Thread]::Sleep(200)
+        }
+        if ($heldTemporaries.Count -gt 0) {
+            Write-Note "The install could not remove its temporary files, which another program still holds. Delete them when you like: $($heldTemporaries -join ', ')"
+        }
+    }
+
     # A program run here writes everything it prints to the log, and the
     # notes cfo install has for the person to the screen too. Its exit code
     # is returned, and its last line kept for a failure to name; one that is
@@ -110,6 +147,7 @@
     trap {
         Write-Detail ($_ | Out-String)
         Write-Plain "Failed: $($_.Exception.Message)"
+        Complete-Removal
         Write-Plain "The full log is $log"
         if ($PSCommandPath) {
             exit 1
@@ -362,7 +400,7 @@
             Install-Home $dest
         }
         finally {
-            Remove-Item -LiteralPath $build -Recurse -Force -ErrorAction SilentlyContinue
+            Remove-Temporary $build
         }
     }
     else {
@@ -381,7 +419,7 @@
             Install-Home $downloaded
         }
         finally {
-            Remove-Item -LiteralPath $download -Recurse -Force -ErrorAction SilentlyContinue
+            Remove-Temporary $download
         }
     }
     # The home cfo install picked: the one already in use, wherever it is,
@@ -545,7 +583,7 @@ public static extern IntPtr SendMessageTimeout(IntPtr hWnd, uint Msg, UIntPtr wP
             Move-Item -LiteralPath $program -Destination $target -ErrorAction Stop
         }
         finally {
-            Remove-Item -LiteralPath $download -Recurse -Force -ErrorAction SilentlyContinue
+            Remove-Temporary $download
         }
         if (Add-UserPath $folder) {
             Write-Detail ("ok       {0,-20} {1} added to your PATH" -f "no-mistakes", $folder)
@@ -657,7 +695,7 @@ public static extern IntPtr SendMessageTimeout(IntPtr hWnd, uint Msg, UIntPtr wP
                     if ($code -ne 0) { throw "installer exited with code $code" }
                 }
                 finally {
-                    Remove-Item -LiteralPath $installer -Force -ErrorAction SilentlyContinue
+                    Remove-Temporary $installer
                 }
                 $installedAny = $true
             }
@@ -678,7 +716,7 @@ public static extern IntPtr SendMessageTimeout(IntPtr hWnd, uint Msg, UIntPtr wP
                     if ($code -ne 0) { throw "exited with code $code" }
                 }
                 finally {
-                    Remove-Item -LiteralPath $download -Recurse -Force -ErrorAction SilentlyContinue
+                    Remove-Temporary $download
                 }
                 $installedAny = $true
             }
@@ -765,7 +803,7 @@ public static extern IntPtr SendMessageTimeout(IntPtr hWnd, uint Msg, UIntPtr wP
     }
     if ($freshNpmCache) {
         $env:npm_config_cache = $sharedNpmCache
-        Remove-Item -LiteralPath $freshNpmCache -Recurse -Force -ErrorAction SilentlyContinue
+        Remove-Temporary $freshNpmCache
     }
     # The board's native lifecycle hooks, for each harness installed here.
     foreach ($harness in @("claude", "codex", "pi")) {
@@ -911,6 +949,7 @@ public static extern IntPtr SendMessageTimeout(IntPtr hWnd, uint Msg, UIntPtr wP
     if (-not $opened) {
         Write-Note "Code Goblins did not open by itself; open it from Code Goblins in the Start menu."
     }
+    Complete-Removal
     Write-Plain "Done: Code Goblins is installed in $InstallDir."
     Write-Plain "The full log is $log"
     if ($Dev) {

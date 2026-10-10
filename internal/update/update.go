@@ -273,6 +273,15 @@ func staged(root, name string) string {
 	return filepath.Join(root, name+".update-new")
 }
 
+// rename is os.Rename of one of the home's programs, which waits out another
+// process's brief hold on it: the swap comes right after the supervisor
+// stopped, when a virus scanner can still be reading the build it ran from or
+// the one staged beside it, and a scanner's read refuses a rename while it
+// lasts.
+func rename(from, to string) error {
+	return fsx.WaitOut(func() error { return os.Rename(from, to) })
+}
+
 // moveAside renames path out of the way under a name of its own, and
 // records the name on alias: a build still running, such as a terminal's
 // host, cannot be overwritten or removed, but can be renamed.
@@ -281,7 +290,7 @@ func moveAside(path string, alias *Alias) error {
 		return nil
 	}
 	aside := fmt.Sprintf("%s.%d.update-old", path, time.Now().UnixNano())
-	if err := os.Rename(path, aside); err != nil {
+	if err := rename(path, aside); err != nil {
 		return err
 	}
 	alias.Aside = append(alias.Aside, aside)
@@ -301,7 +310,7 @@ func Swap(journal *Journal) error {
 		if err := moveAside(installed, alias); err != nil {
 			return fmt.Errorf("update: move the previous %s aside: %w", installed, err)
 		}
-		if err := os.Rename(staged(journal.Root, alias.Name), installed); err != nil {
+		if err := rename(staged(journal.Root, alias.Name), installed); err != nil {
 			return fmt.Errorf("update: put the candidate in place as %s: %w", installed, err)
 		}
 	}
@@ -328,7 +337,7 @@ func Restore(journal *Journal) error {
 			failed = errors.Join(failed, fmt.Errorf("update: move %s aside: %w", installed, err))
 			continue
 		}
-		if err := os.Rename(restoring, installed); err != nil {
+		if err := rename(restoring, installed); err != nil {
 			failed = errors.Join(failed, fmt.Errorf("update: put the previous %s back: %w", installed, err))
 		}
 	}

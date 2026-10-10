@@ -44,7 +44,8 @@ const (
 	// for its checkout's folder, then one per task.
 	WorktreesDir = "worktrees"
 	// ScratchDir holds one disposable folder per task, which its pane's
-	// TEMP, TMP and GOTMPDIR name and which goes with the task.
+	// TEMP, TMPDIR and GOTMPDIR name and which goes with the task, and
+	// SharedTempDir, the one folder every pane's TMP names, which never goes.
 	ScratchDir = "scratch"
 	// CachesDir is the shared package-cache root every goblin builds
 	// against.

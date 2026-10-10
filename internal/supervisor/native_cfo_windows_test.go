@@ -322,6 +322,7 @@ func TestADeliveryToANativeCFOIsTypedIntoItsTerminalOnce(t *testing.T) {
 		t.Fatalf("the program recorded %q, want its registration", lines)
 	}
 	cfo.typeLine(t, "hooked")
+	cfo.showsComposer(t, "claude")
 
 	result, err := (&CFOConnection{State: stateDir}).Send(context.Background(), registrationIdentity(t, stateDir), "hello")
 
@@ -344,11 +345,47 @@ func TestADeliveryToANativeCFOWithALongHistoryIsTypedIntoItsTerminalOnce(t *test
 		t.Fatalf("the program recorded %q, want its registration and then the spill", lines)
 	}
 	cfo.typeLine(t, "hooked")
+	cfo.showsComposer(t, "claude")
 
 	result, err := (&CFOConnection{State: stateDir}).Send(context.Background(), registrationIdentity(t, stateDir), "hello")
 
 	if err != nil || !strings.Contains(result.Reason, "its hook reported") {
 		t.Errorf("Send = %+v, %v; want it delivered once the CFO's hook reported taking it", result, err)
+	}
+	if typed := cfo.exit(t); len(typed) != 3 || typed[2] != "Overlord: hello" {
+		t.Errorf("the terminal received %q, want its registration, the spill and then the message once", typed)
+	}
+}
+
+// A delivery to a native CFO whose terminal does not show its composer, as
+// after it has printed a screenful over it, is queued with nothing typed, for
+// the board to offer again. Sent again once the composer shows, it is typed
+// and submitted once.
+func TestADeliveryToANativeCFOWhoseComposerDoesNotShowIsQueuedAndTypedOnceItDoes(t *testing.T) {
+	// Arrange
+	stateDir := t.TempDir()
+	cfo := hostTerminal(t, stateDir, "cfo")
+	cfo.typeLine(t, "register")
+	cfo.typeLine(t, "spill")
+	if lines := cfo.waitForLines(t, 2); len(lines) != 2 || !strings.HasPrefix(lines[0], "registered ") || lines[1] != "spilled" {
+		t.Fatalf("the program recorded %q, want its registration and then the spill", lines)
+	}
+	connection := &CFOConnection{State: stateDir}
+	identity := registrationIdentity(t, stateDir)
+
+	// Act
+	queued, queuedErr := connection.Send(context.Background(), identity, "hello")
+	typedWhileQueued := cfo.lines(t)
+	cfo.typeLine(t, "hooked")
+	cfo.showsComposer(t, "claude")
+	delivered, err := connection.Send(context.Background(), identity, "hello")
+
+	// Assert
+	if !errors.Is(queuedErr, ErrDeferred) || queued.Awaiting != nil || len(typedWhileQueued) != 2 {
+		t.Errorf("with no composer showing, Send = %+v, %v and the terminal received %q; want it queued with nothing typed", queued, queuedErr, typedWhileQueued)
+	}
+	if err != nil || !strings.Contains(delivered.Reason, "its hook reported") {
+		t.Errorf("once the composer showed, Send = %+v, %v; want it delivered once the CFO's hook reported taking it", delivered, err)
 	}
 	if typed := cfo.exit(t); len(typed) != 3 || typed[2] != "Overlord: hello" {
 		t.Errorf("the terminal received %q, want its registration, the spill and then the message once", typed)
@@ -521,6 +558,7 @@ func TestADeliveryToANativeCFOWhoseScreenTurnsToWorkWithoutItsHookIsSentNotDeliv
 	if lines := cfo.waitForLines(t, 1); len(lines) != 1 || !strings.HasPrefix(lines[0], "registered ") {
 		t.Fatalf("the program recorded %q, want its registration", lines)
 	}
+	cfo.showsComposer(t, "claude")
 
 	result, err := (&CFOConnection{State: stateDir}).Send(context.Background(), registrationIdentity(t, stateDir), "hello")
 
@@ -547,6 +585,7 @@ func TestADeliveryToANativeCFOInATurnWaitsBehindIt(t *testing.T) {
 	if lines := cfo.waitForLines(t, 2); len(lines) != 2 || lines[1] != "busy" {
 		t.Fatalf("the program recorded %q, want its registration and then a turn under way", lines)
 	}
+	cfo.showsTurn(t)
 
 	result, err := (&CFOConnection{State: stateDir}).Send(context.Background(), registrationIdentity(t, stateDir), "hello")
 
@@ -569,6 +608,7 @@ func TestADeliveryTheNativeCFOHasNotTakenYetIsSentNotAnError(t *testing.T) {
 	if lines := cfo.waitForLines(t, 1); len(lines) != 1 || !strings.HasPrefix(lines[0], "registered ") {
 		t.Fatalf("the program recorded %q, want its registration", lines)
 	}
+	cfo.showsComposer(t, "claude")
 
 	result, err := (&CFOConnection{State: stateDir}).Send(context.Background(), registrationIdentity(t, stateDir), "hello")
 

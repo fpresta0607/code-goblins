@@ -43,8 +43,9 @@ func (s *Service) schedule(ctx context.Context, now time.Time, watched *fleetWak
 	record := &Scheduling{At: now}
 	// A pull request a queued row waits on that merged lets the row start
 	// at this reading. One that cannot be read holds its own row only, and
-	// the board says why, so the rest of the reading and its wakes go on.
-	if err := s.learnAwaitedPulls(ctx); err != nil {
+	// the CFO is told why once it stays unread, so the rest of the reading
+	// and its wakes go on.
+	if err := s.learnAwaitedPulls(ctx, watched); err != nil {
 		s.publish(err)
 	}
 	reading := s.rowReading(now, &memory)
@@ -83,6 +84,10 @@ func (s *Service) schedule(ctx context.Context, now time.Time, watched *fleetWak
 	problems := tellRetiredRows(s.Store.Home.State, finished.retired)
 	var ready []state.Lifecycle
 	memoryPending := ""
+	// unreadPauses holds each paused goblin whose condition could not be
+	// read at this reading. It is read again at the next, and is a problem
+	// once it went unread failingPasses readings in a row.
+	unreadPauses := map[string]bool{}
 	for _, meta := range liveTasks(s.Store.Home.State) {
 		if allowanceBlocked(watched, meta.Harness, meta.Model, now) {
 			continue
@@ -100,7 +105,8 @@ func (s *Service) schedule(ctx context.Context, now time.Time, watched *fleetWak
 		}
 		isReady, err := s.pauseCleared(ctx, *record.Pause, now, watched)
 		if err != nil {
-			problems = errors.Join(problems, fmt.Errorf("pause condition for %s: %w", meta.ID, err))
+			unreadPauses[meta.ID] = true
+			problems = errors.Join(problems, watched.failing("pause:"+meta.ID, fmt.Errorf("pause condition for %s: %w", meta.ID, err)))
 			continue
 		}
 		isWithParent, err := s.resumesWithItsParent(meta, record)
@@ -115,6 +121,7 @@ func (s *Service) schedule(ctx context.Context, now time.Time, watched *fleetWak
 			memoryPending = meta.ID
 		}
 	}
+	watched.stillFailing("pause:", unreadPauses)
 	slices.SortFunc(ready, func(left, right state.Lifecycle) int {
 		if order := left.Pause.At.Compare(right.Pause.At); order != 0 {
 			return order
@@ -221,6 +228,22 @@ func (s *Service) pauseCleared(ctx context.Context, condition state.PauseConditi
 	return false, nil
 }
 
+// isRetiring says a resume of task id that failed with output is no failure
+// of its goblin's, because the task is being cleaned up or already was. A
+// cleanup holds its task against a resume, which then refuses naming the
+// cleanup, and a resume that starts once the cleanup has ended finds no task
+// record. Either way there is nothing left to resume, or will be nothing
+// once the cleanup ends, so nothing is shown as failed and nobody is woken
+// (2026-10-09). A cleanup that was refused in its turn leaves the goblin
+// paused, and the next reading resumes it.
+func isRetiring(stateDir, id, output string) bool {
+	if strings.Contains(output, state.CleanupPurpose(id)) {
+		return true
+	}
+	_, err := os.Stat(state.TaskMetaPath(stateDir, id))
+	return errors.Is(err, os.ErrNotExist)
+}
+
 func (s *Service) resumeAutomatically(record state.Lifecycle) error {
 	s.starts.Lock()
 	defer s.starts.Unlock()
@@ -248,7 +271,7 @@ func (s *Service) resumeAutomatically(record state.Lifecycle) error {
 		close(launched)
 		s.starts.Lock()
 		delete(s.changing, record.ID)
-		if err != nil {
+		if err != nil && !isRetiring(s.Store.Home.State, record.ID, output) {
 			s.changeErrors[record.ID] = taskChangeError{Message: spawnFailure(output, err), Generation: record.Generation, Operation: record.Operation, Updated: record.Updated}
 		}
 		s.starts.Unlock()

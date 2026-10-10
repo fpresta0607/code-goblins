@@ -93,6 +93,7 @@ func runDoctor(args []string, stdout, stderr io.Writer, runtime commandRuntime) 
 	reportCFOHarness(stdout)
 	reportStaleWakes(stdout)
 	reportHarnessMap(stdout)
+	reportUserHooks(stdout)
 	reportPermissions(stdout)
 	reportLongPaths(stdout)
 	reportDevDrive(stdout, runtime)
@@ -405,6 +406,30 @@ func valueOr(value, fallback string) string {
 		return fallback
 	}
 	return value
+}
+
+// reportUserHooks says whether the user's Claude Code settings still hold the
+// CFO's hooks, which a build before 2026-10 installed there and every Claude
+// Code session of the user runs, and names the fix. The CFO's terminal starts
+// with its hooks, so they are needed nowhere else. It never counts against
+// the health verdict: they do nothing in a session that is not the CFO's own,
+// and what they cost is 0.1 s for each Bash call, turn end and start.
+func reportUserHooks(stdout io.Writer) {
+	settings, err := install.UserSettingsPath()
+	if err != nil {
+		fmt.Fprintf(stdout, "hooks: Claude Code's settings could not be found (%v)\n", err)
+		return
+	}
+	names, err := install.UserHooks(settings)
+	if err != nil {
+		fmt.Fprintf(stdout, "hooks: %s unreadable (%v)\n", settings, err)
+		return
+	}
+	if len(names) > 0 {
+		fmt.Fprintf(stdout, "hooks: %s still holds %d of the CFO's hooks (%s), so every Claude Code session on this machine starts cfo.exe for them on each Bash call, turn end and start; the CFO's terminal starts with its own, and `cfo install` takes these out, keeping every other hook and backing the file up first\n", settings, len(names), strings.Join(names, ", "))
+		return
+	}
+	fmt.Fprintf(stdout, "hooks: the CFO's terminal starts with its hooks, and %s holds none of them, so no other Claude Code session runs one\n", settings)
 }
 
 // reportPermissions says whether the user's Claude Code settings hold the

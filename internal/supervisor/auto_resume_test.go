@@ -333,11 +333,14 @@ func TestOldestClearedPauseResumesFirst(t *testing.T) {
 	}
 }
 
+// A paused goblin whose pull request stays unreadable is told, and holds
+// nothing else back.
 func TestUnreadableDependencyDoesNotHoldTheQueue(t *testing.T) {
 	spawner := &spawnRecorder{}
 	handler, h := startBoard(t, 8*gigabyte, spawner)
 	now := time.Now().UTC()
 	pausedGoblin(t, h, "pr-task", "dependency", "pr:https://github.com/owner/repo/pull/42", now.Add(-time.Hour))
+	failedBefore(t, h, "pause:pr-task")
 	queueBriefedTask(t, h, "- **next-task** - Ship it", plainBrief)
 	handler.Service.Options.PullRequestState = func(context.Context, string) (PullRequestInfo, error) {
 		return PullRequestInfo{}, errors.New("GitHub is unavailable")

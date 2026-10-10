@@ -18,6 +18,21 @@ type registeredHook struct {
 	Shell   bool
 }
 
+// terminalHooks is every hook in the settings a Claude Code CFO's terminal
+// starts with, for the home at root.
+func terminalHooks(t *testing.T, root string) []registeredHook {
+	t.Helper()
+	settings, err := CFOSettings(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(t.TempDir(), "cfo-claude-settings.json")
+	if err := os.WriteFile(path, settings, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	return registeredHooks(t, path)
+}
+
 func registeredHooks(t *testing.T, path string) []registeredHook {
 	t.Helper()
 	raw, err := os.ReadFile(path)
@@ -86,17 +101,17 @@ func selects(t *testing.T, matcher, tool string) bool {
 // shell tool one cfo.exe, and the delegation tools the guard can refuse one
 // each. Claude Code on Windows has a PowerShell tool beside its Bash tool,
 // and a shell tool no hook selects is a shell no guard reads.
-func TestInstalledPreToolHooksStartOneProcessPerShellCallAndNoneForSessionTools(t *testing.T) {
+func TestTheCFOsPreToolHooksStartOneProcessPerShellCallAndNoneForSessionTools(t *testing.T) {
 	// Arrange
-	f := newFixture(t, "", nil)
+	root := t.TempDir()
 
 	// Act
-	f.install()
+	hooks := terminalHooks(t, root)
 
 	// Assert
 	processes := func(tool string) int {
 		total := 0
-		for _, hook := range registeredHooks(t, f.user) {
+		for _, hook := range hooks {
 			if hook.Event != "PreToolUse" || !selects(t, hook.Matcher, tool) {
 				continue
 			}
@@ -121,19 +136,20 @@ func TestInstalledPreToolHooksStartOneProcessPerShellCallAndNoneForSessionTools(
 
 // Claude Code runs a hook with args directly, with no shell, so every CFO hook
 // names the home's own binary, by its full path, and the hook it runs. The
-// full path is what lets a session opened in any repository be supervised.
-func TestInstalledHooksRunTheHomesBinaryWithoutAShell(t *testing.T) {
+// full path is what lets a CFO started in any folder be supervised.
+func TestTheCFOsHooksRunTheHomesBinaryWithoutAShell(t *testing.T) {
 	// Arrange
 	f := newFixture(t, adopterSettings, nil)
 
 	// Act
-	f.install()
+	hooks := terminalHooks(t, f.root)
 
 	// Assert
 	binary := filepath.Join(f.bin, "cfo.exe")
 	names := map[string]bool{}
-	for _, hook := range registeredHooks(t, f.user) {
+	for _, hook := range hooks {
 		if hook.Command != binary {
+			t.Errorf("%s hook runs %q, want the home's %s", hook.Event, hook.Command, binary)
 			continue
 		}
 		if hook.Shell || len(hook.Args) != 2 || hook.Args[0] != "hook" {
@@ -149,13 +165,11 @@ func TestInstalledHooksRunTheHomesBinaryWithoutAShell(t *testing.T) {
 	}
 }
 
-func TestInstallRegistersPreCompactForManualAndAutomaticCompactionOnce(t *testing.T) {
+func TestTheCFOsTerminalHoldsPreCompactForManualAndAutomaticCompactionOnce(t *testing.T) {
 	f := newFixture(t, adopterSettings, nil)
-	f.install()
-	f.install()
 
 	count := 0
-	for _, hook := range registeredHooks(t, f.user) {
+	for _, hook := range terminalHooks(t, f.root) {
 		if hook.Event != "PreCompact" || hook.Command != filepath.Join(f.bin, "cfo.exe") {
 			continue
 		}
@@ -170,13 +184,7 @@ func TestInstallRegistersPreCompactForManualAndAutomaticCompactionOnce(t *testin
 		}
 	}
 	if count != 1 {
-		t.Fatalf("installed %d pre-compact hooks, want one", count)
-	}
-	f.uninstall()
-	for _, hook := range registeredHooks(t, f.user) {
-		if hook.Event == "PreCompact" && hook.Command == filepath.Join(f.bin, "cfo.exe") {
-			t.Fatal("uninstall left the pre-compact hook registered")
-		}
+		t.Fatalf("the CFO's terminal starts with %d pre-compact hooks, want one", count)
 	}
 }
 

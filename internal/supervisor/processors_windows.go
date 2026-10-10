@@ -1,28 +1,21 @@
 package supervisor
 
 import (
-	"encoding/binary"
-	"errors"
 	"fmt"
-	"math/bits"
 	"sync"
 	"time"
 	"unsafe"
 
 	"golang.org/x/sys/windows"
+
+	"github.com/fpresta0607/code-goblins/internal/processor"
 )
-
-var getLogicalProcessorInformationEx = windows.NewLazySystemDLL("kernel32.dll").NewProc("GetLogicalProcessorInformationEx")
-
-// relationProcessorCore asks GetLogicalProcessorInformationEx for one record
-// a core.
-const relationProcessorCore = 0
 
 // processorMeter keeps the last reading of the processors' times, which the
 // next is measured from, and when it was taken: the zero time before any.
 type processorMeter struct {
 	mu        sync.Mutex
-	cores     []processorCore
+	cores     []processor.Core
 	times     []processorTime
 	processes []processCommit
 	at        time.Time
@@ -44,7 +37,7 @@ func (m *processorMeter) read() (Processors, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	if m.cores == nil {
-		cores, err := machineCores()
+		cores, err := processor.MachineCores()
 		if err != nil {
 			return Processors{}, err
 		}
@@ -81,44 +74,6 @@ func (m *processorMeter) read() (Processors, error) {
 	}
 	m.times, m.processes, m.at, m.last = times, processes, time.Now(), processors
 	return processors, nil
-}
-
-// machineCores lists the cores of processor group 0 with their efficiency
-// class and threads, from Windows' records of SYSTEM_LOGICAL_PROCESSOR_
-// INFORMATION_EX: each is its relationship and size, then for a core its
-// flags, its efficiency class at byte 9, and from byte 32 the mask of its
-// threads in its group and at byte 40 that group's number.
-func machineCores() ([]processorCore, error) {
-	var size uint32
-	_, _, _ = getLogicalProcessorInformationEx.Call(relationProcessorCore, 0, uintptr(unsafe.Pointer(&size)))
-	if size == 0 {
-		return nil, errors.New("windows names no processor cores")
-	}
-	buffer := make([]byte, size)
-	if ok, _, err := getLogicalProcessorInformationEx.Call(relationProcessorCore, uintptr(unsafe.Pointer(&buffer[0])), uintptr(unsafe.Pointer(&size))); ok == 0 {
-		return nil, fmt.Errorf("read the processor cores: %w", err)
-	}
-	var cores []processorCore
-	for offset := uint32(0); offset+48 <= size; {
-		record := buffer[offset:]
-		length := binary.LittleEndian.Uint32(record[4:8])
-		if length < 48 || offset+length > size {
-			return nil, errors.New("windows gave a processor core record of no sensible size")
-		}
-		mask := binary.LittleEndian.Uint64(record[32:40])
-		if group := binary.LittleEndian.Uint16(record[40:42]); group == 0 {
-			core := processorCore{efficiencyClass: record[9]}
-			for ; mask != 0; mask &= mask - 1 {
-				core.threads = append(core.threads, bits.TrailingZeros64(mask))
-			}
-			cores = append(cores, core)
-		}
-		offset += length
-	}
-	if len(cores) == 0 {
-		return nil, errors.New("windows names no processor cores in the first processor group")
-	}
-	return cores, nil
 }
 
 // systemProcessorPerformance is Windows'

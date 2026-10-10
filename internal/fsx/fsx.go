@@ -98,6 +98,14 @@ func Remove(path string) error {
 	return retryTransient(func() error { return os.Remove(path) })
 }
 
+// RemoveAll is os.RemoveAll for a folder or file another process may be
+// holding for a moment, as a virus scanner holds a file it just saw and
+// Windows a program that just ran: the removal waits that out within
+// transientBudget. A missing path is no error, as with os.RemoveAll.
+func RemoveAll(path string) error {
+	return retryTransient(func() error { return os.RemoveAll(path) })
+}
+
 // transientBudget is how long a state file operation waits out another
 // process holding the file before it reports the failure.
 var transientBudget = 5 * time.Second
@@ -127,6 +135,15 @@ func retryTransient(op func() error) error {
 		sleep(wait)
 		wait = min(2*wait, longestPause)
 	}
+}
+
+// WaitOut runs op, one operation on a fleet file, with the wait a replace
+// and a removal have: it is tried again while another process's brief hold
+// on the file refuses it, within transientBudget. It is for an operation this
+// package has no function of its own for, such as a rename that must be
+// written through or one of a program.
+func WaitOut(op func() error) error {
+	return retryTransient(op)
 }
 
 // ReadLines returns the file's lines, treating CRLF and LF endings equally.

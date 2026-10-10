@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
 	"io/fs"
 	"os"
 	"os/exec"
@@ -17,10 +16,7 @@ import (
 	"testing"
 	"time"
 
-	codegoblins "github.com/fpresta0607/code-goblins"
-	"github.com/fpresta0607/code-goblins/internal/execx"
 	"github.com/fpresta0607/code-goblins/internal/fsx"
-	"github.com/fpresta0607/code-goblins/internal/harnessmap"
 	"github.com/fpresta0607/code-goblins/internal/home"
 	"github.com/fpresta0607/code-goblins/internal/install"
 )
@@ -170,17 +166,17 @@ func TestHookFamilyEndToEnd(t *testing.T) {
 		}
 	})
 
-	// --- Phase 3: the hooks cfo install registers, run as Claude Code runs them ---
+	// --- Phase 3: the hooks the CFO's terminal starts with, run as Claude Code runs them ---
 
 	t.Run("registered hooks as Claude Code runs them", func(t *testing.T) {
 		commands := loadRegisteredCommands(t, exe)
 		wantNames := []string{"session-start", "pretool-bash", "pretool-powershell", "pretool-subagent", "turnend-guard", "stop-autoarm"}
 		if len(commands) != len(wantNames) {
-			t.Fatalf("cfo install registered %d recognizable hooks, want %d: %v", len(commands), len(wantNames), commands)
+			t.Fatalf("the CFO's terminal starts with %d recognizable hooks, want %d: %v", len(commands), len(wantNames), commands)
 		}
 		for _, name := range wantNames {
 			if _, ok := commands[name]; !ok {
-				t.Fatalf("cfo install is missing a registered hook for %q", name)
+				t.Fatalf("the CFO's terminal starts without a hook for %q", name)
 			}
 		}
 
@@ -574,52 +570,23 @@ type registeredHook struct {
 	AsyncRewake bool
 }
 
-// inertEnvStore is the user-scope environment as a no-op, so building the
-// settings file under test never reads or writes the machine's registry.
-type inertEnvStore struct{}
-
-func (inertEnvStore) Get(string) (string, bool, error) { return "", false, nil }
-func (inertEnvStore) Set(string, string) error         { return nil }
-func (inertEnvStore) Unset(string) error               { return nil }
-func (inertEnvStore) Broadcast() error                 { return nil }
-
-// loadRegisteredCommands runs the real installer into a temp settings file
-// and reads the six cfo hook entries back out of it. Reading the file the
-// installer actually writes (rather than re-deriving the six strings from a
-// parallel constant in this test) means this step always exercises what is
-// really wired, and an installer edit that drops or renames a hook fails
-// here loudly instead of silently testing stale strings.
+// loadRegisteredCommands reads the cfo hook entries out of the settings a
+// Claude Code CFO's terminal starts with. Reading the document the launch
+// actually hands over (rather than re-deriving the strings from a parallel
+// constant in this test) means this step always exercises what is really
+// wired, and an edit that drops or renames a hook fails here loudly instead
+// of silently testing stale strings.
 func loadRegisteredCommands(t *testing.T, exe string) map[string]registeredHook {
 	t.Helper()
-	settingsPath := filepath.Join(t.TempDir(), "settings.json")
 	root := homeWithBinary(t, exe)
-	skills, err := fs.Sub(codegoblins.Skills, ".agents/skills")
+	// The settings a Claude Code CFO's terminal starts with hold them.
+	data, err := install.CFOSettings(root)
 	if err != nil {
-		t.Fatal(err)
-	}
-	// The skills go to a profile of the test's own, never this machine's.
-	service := install.Service{
-		Root:         root,
-		UserSettings: settingsPath,
-		RepoSettings: filepath.Join(t.TempDir(), "absent.json"),
-		Env:          inertEnvStore{},
-		Contract:     codegoblins.Contract,
-		Policy:       codegoblins.Policy,
-		Skills:       skills,
-		Binary:       exe,
-		Harnesses:    harnessmap.Find(func(string) string { return "" }, t.TempDir()),
-		Link:         junction(execx.OSRunner{}),
-	}
-	if err := service.Install(io.Discard); err != nil {
-		t.Fatalf("install into %s: %v", settingsPath, err)
-	}
-	data, err := os.ReadFile(settingsPath)
-	if err != nil {
-		t.Fatalf("read the installed settings: %v", err)
+		t.Fatalf("the settings the CFO's terminal starts with: %v", err)
 	}
 	var sf settingsFile
 	if err := json.Unmarshal(data, &sf); err != nil {
-		t.Fatalf("parse the installed settings: %v", err)
+		t.Fatalf("parse the settings the CFO's terminal starts with: %v", err)
 	}
 
 	commands := make(map[string]registeredHook)
