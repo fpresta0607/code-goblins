@@ -187,6 +187,7 @@ func TestAPublishableKeyIsNoProductionCredential(t *testing.T) {
 			// Arrange
 			f := newFixture(t, map[string]string{".gitignore": ".env\n", ".no-mistakes.yaml": "commands:\n  test: \"pytest -q\"\n"})
 			f.write(".env", test.line+"\n")
+			f.manifest("worktree.json", `{"project":"northwind","link":[".env"]}`)
 
 			// Act
 			report := f.check("pytest")
@@ -210,6 +211,7 @@ func TestASecretUnderAPublishableNameIsStillACredential(t *testing.T) {
 			// Arrange
 			f := newFixture(t, map[string]string{".gitignore": ".env\n", ".no-mistakes.yaml": "commands:\n  test: \"pytest -q\"\n"})
 			f.write(".env", test.variable+"="+test.value+"\n")
+			f.manifest("worktree.json", `{"project":"northwind","link":[".env"]}`)
 
 			// Act
 			report := f.check("pytest")
