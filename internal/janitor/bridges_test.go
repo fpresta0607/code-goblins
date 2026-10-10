@@ -4,6 +4,7 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 
 	"github.com/fpresta0607/code-goblins/internal/reap"
 )
@@ -64,6 +65,42 @@ func TestSweepRemovesTheBrowserSessionsWhoseBridgeIsGone(t *testing.T) {
 		if _, err := os.Stat(path); err != nil {
 			t.Errorf("%s was removed (%v), want it kept", path, err)
 		}
+	}
+}
+
+// A bridge's session was last used when the tool last wrote one of its files
+// in the session's folder. The tool's unnamed session keeps them beside the
+// sessions folder, and a folder with no bridge names none.
+func TestABridgesSessionWasLastUsedWhenItsFilesWereLastWritten(t *testing.T) {
+	// Arrange
+	root := t.TempDir()
+	sessions := filepath.Join(root, "sessions")
+	hour := time.Date(2026, 10, 9, 15, 0, 0, 0, time.UTC)
+	write := func(folder, name, content string, at time.Time) {
+		if err := os.MkdirAll(folder, 0o755); err != nil {
+			t.Fatal(err)
+		}
+		path := filepath.Join(folder, name)
+		if err := os.WriteFile(path, []byte(content), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.Chtimes(path, at, at); err != nil {
+			t.Fatal(err)
+		}
+	}
+	write(root, "bridge.pid", `{"pid":20872,"port":9224}`, hour)
+	write(root, "snapshot-generation", "7", hour.Add(40*time.Minute))
+	write(filepath.Join(sessions, "gb-task"), "bridge.pid", `{"pid":28176,"port":9301}`, hour.Add(time.Hour))
+	write(filepath.Join(sessions, "gb-task"), "selected-page-id", "2", hour.Add(50*time.Minute))
+	write(filepath.Join(sessions, "stopped"), "snapshot-generation", "1", hour)
+	cfg := Config{BrowserSessions: sessions}
+
+	// Act
+	used := cfg.browserBridgeUse()
+
+	// Assert
+	if len(used) != 2 || !used[20872].Equal(hour.Add(40*time.Minute)) || !used[28176].Equal(hour.Add(time.Hour)) {
+		t.Fatalf("last use by bridge pid = %v, want the unnamed session's bridge at 15:40 and gb-task's at 16:00", used)
 	}
 }
 

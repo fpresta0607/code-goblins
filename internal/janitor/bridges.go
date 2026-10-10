@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"slices"
 	"strings"
+	"time"
 
 	"github.com/fpresta0607/code-goblins/internal/reap"
 )
@@ -49,6 +50,44 @@ func (cfg Config) removeStaleBrowserSessions(record *Record) {
 		}
 		record.Removed = append(record.Removed, Item{Kind: "browser-session", Path: path, Bytes: bytes, Detail: "its bridge no longer runs and nothing wrote to it for a day"})
 	}
+}
+
+// browserBridgeUse says when each running bridge's session was last used, by
+// the bridge's pid: the newest write among the tool's files in the session's
+// folder, which a command writes as it reads a page. The tool's unnamed
+// session keeps the same files beside the sessions folder.
+func (cfg Config) browserBridgeUse() map[int]time.Time {
+	used := map[int]time.Time{}
+	if cfg.BrowserSessions == "" {
+		return used
+	}
+	folders := []string{filepath.Dir(cfg.BrowserSessions)}
+	if entries, err := os.ReadDir(cfg.BrowserSessions); err == nil {
+		for _, entry := range entries {
+			if entry.IsDir() {
+				folders = append(folders, filepath.Join(cfg.BrowserSessions, entry.Name()))
+			}
+		}
+	}
+	for _, folder := range folders {
+		data, err := os.ReadFile(filepath.Join(folder, "bridge.pid"))
+		var bridge struct {
+			PID int `json:"pid"`
+		}
+		if err != nil || json.Unmarshal(data, &bridge) != nil || bridge.PID <= 0 {
+			continue
+		}
+		var newest time.Time
+		for _, name := range browserSessionFiles {
+			if info, err := os.Stat(filepath.Join(folder, name)); err == nil && info.ModTime().After(newest) {
+				newest = info.ModTime()
+			}
+		}
+		if newest.After(used[bridge.PID]) {
+			used[bridge.PID] = newest
+		}
+	}
+	return used
 }
 
 // isStaleBrowserSession reports whether the session folder at path holds

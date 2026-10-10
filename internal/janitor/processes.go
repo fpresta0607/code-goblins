@@ -31,6 +31,9 @@ type Process struct {
 	lifecycle.Process
 	CPU    time.Duration
 	Memory uint64
+	// LastUsed is when a browser bridge's session was last used, zero for
+	// any other process and for a bridge whose session is not known.
+	LastUsed time.Time
 }
 
 // Owner is a terminal of this home: a task's, the CFO's or a run item's.
@@ -176,6 +179,18 @@ func planProcesses(processes []Process, owners []Owner, watched []Watched, now t
 				}
 				continue
 			}
+			// A browser bridge keeps its page drawing whether or not anything
+			// drives it: three left on 2026-10-09 used most of a processor
+			// between them. So a bridge is idle by when its session was last
+			// used, never by the processor time it uses.
+			if !process.LastUsed.IsZero() {
+				for _, member := range tree {
+					if now.Sub(process.LastUsed) >= detachedIdleFor {
+						ending = append(ending, item([]Process{member}, owner.ID, fmt.Sprintf("a browser bridge of terminal %s, unused since %s", owner.ID, process.LastUsed.UTC().Format("15:04Z"))))
+					}
+				}
+				continue
+			}
 			var used time.Duration
 			for _, member := range tree {
 				used += member.CPU
@@ -229,6 +244,12 @@ func (cfg Config) sweepProcesses(ctx context.Context, record *Record) {
 	}
 	owners, notes := cfg.Owners()
 	record.Notes = append(record.Notes, notes...)
+	lastUsed := cfg.browserBridgeUse()
+	for index, process := range processes {
+		if isBrowserBridge(process) {
+			processes[index].LastUsed = lastUsed[process.PID]
+		}
+	}
 	ending, left, watching := planProcesses(processes, owners, cfg.Watched, cfg.Now)
 	record.Processes.Left, record.Processes.Watched = left, watching
 	for _, item := range ending {
