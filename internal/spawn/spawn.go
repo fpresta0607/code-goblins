@@ -139,6 +139,11 @@ type Service struct {
 	// queues such text and hands it over at its next tool call. Nil proves
 	// nothing.
 	Took func(ctx context.Context, meta state.TaskMeta, text string, since time.Time) bool
+	// EndLeft ends the processes a task's ended terminal left running, for a
+	// relaunch, once no terminal runs for the task and before its next
+	// harness starts, and names them: lifecycle.EndLeft in production. Nil
+	// ends nothing.
+	EndLeft func(ctx context.Context, meta state.TaskMeta) ([]string, error)
 }
 
 // Spawn creates and launches exactly one local ship or scout task.

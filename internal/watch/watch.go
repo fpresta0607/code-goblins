@@ -26,6 +26,7 @@ import (
 	"github.com/fpresta0607/code-goblins/internal/home"
 	"github.com/fpresta0607/code-goblins/internal/install"
 	"github.com/fpresta0607/code-goblins/internal/layout"
+	"github.com/fpresta0607/code-goblins/internal/lifecycle"
 	"github.com/fpresta0607/code-goblins/internal/lock"
 	"github.com/fpresta0607/code-goblins/internal/monitor"
 	"github.com/fpresta0607/code-goblins/internal/proc"
@@ -173,7 +174,7 @@ func ConfigFromEnv(h home.Home) Config {
 		// harness's own record of its process still can.
 		session, _ := fleettree.OwnedSession(h.State, meta)
 		return session
-	}}
+	}, Owner: lifecycle.TerminalOf(h.State)}
 	transcripts := &monitor.HostProgress{
 		Panes:    &herdr.Client{Commands: execx.OSRunner{}, Session: session, Sockets: sockets},
 		StateDir: h.State,

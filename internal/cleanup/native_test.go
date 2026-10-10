@@ -9,6 +9,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -288,5 +289,63 @@ func TestCleanupRefusesANativeTaskThatMayBeWorking(t *testing.T) {
 				}
 			})
 		}
+	}
+}
+
+// A cleanup closes an idle goblin's terminal and, until 2026-10-09, stopped
+// nothing else: a server, a watcher or a browser bridge that had detached
+// from the terminal outlived the goblin's retirement, and one at work in its
+// worktree kept the worktree from being removed. What the goblin left is now
+// ended once its terminal has closed and before its worktree is returned, and
+// the cleanup says what it ended. A sweep that fails is left to the janitor
+// and does not undo the cleanup.
+func TestCleanupEndsWhatTheGoblinLeftOnceItsTerminalHasClosed(t *testing.T) {
+	for _, test := range []struct {
+		name     string
+		force    bool
+		ended    []string
+		sweepErr error
+		want     string
+	}{
+		{name: "a server and a bridge", ended: []string{"node.exe pid 4242", "chrome.exe pid 4243"}, want: "\nended 2 process(es) the goblin left running: node.exe pid 4242, chrome.exe pid 4243"},
+		{name: "nothing left", want: ""},
+		{name: "a sweep that ran out of time", ended: []string{"node.exe pid 4242"}, sweepErr: errors.New("context deadline exceeded"), want: "\nended 1 process(es) the goblin left running: node.exe pid 4242\nwarning: not everything the goblin left running was ended (context deadline exceeded), so the janitor's sweep ends the rest within the hour"},
+		{name: "a forced archive", force: true, ended: []string{"node.exe pid 4242"}, want: "\nended 1 process(es) the goblin left running: node.exe pid 4242"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			// Arrange
+			fixture := nativeCleanupFixture(t, 0)
+			runFakeClaude(t, fixture, "idle")
+			if test.force {
+				fixture.git.top = fixture.project
+				fixture.service.ForceArchive = true
+			}
+			var seen []string
+			fixture.service.EndLeft = func(_ context.Context, meta state.TaskMeta) ([]string, error) {
+				_, recordErr := host.ReadRecord(fixture.stateDir, meta.ID)
+				seen = append(seen, fmt.Sprintf("task %s, terminal closed %t, worktrees returned %d", meta.ID, errors.Is(recordErr, os.ErrNotExist), len(fixture.git.returned)))
+				return test.ended, test.sweepErr
+			}
+
+			// Act
+			result, err := fixture.service.Cleanup(context.Background(), "g1")
+
+			// Assert
+			if err != nil {
+				t.Fatalf("Cleanup: %v", err)
+			}
+			if want := []string{"task g1, terminal closed true, worktrees returned 0"}; !slices.Equal(seen, want) {
+				t.Errorf("the sweep ran as %v, want once, after the terminal closed and before any worktree was returned: %v", seen, want)
+			}
+			if test.want == "" && strings.Contains(result.Output, "left running") {
+				t.Errorf("output = %q, want nothing said of processes when none was left", result.Output)
+			}
+			if !strings.Contains(result.Output, test.want) {
+				t.Errorf("output = %q, want %q in it", result.Output, test.want)
+			}
+			if _, err := state.ReadTaskMeta(fixture.stateDir, "g1"); err == nil {
+				t.Error("task metadata survives the cleanup")
+			}
+		})
 	}
 }

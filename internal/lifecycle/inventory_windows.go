@@ -27,6 +27,20 @@ const gateAgentVariable = "NO_MISTAKES_GATE"
 // jobs read them, and those carrying one of marks, its terminals' proofs
 // (OwnedProcesses).
 func Inventory(ctx context.Context, directories []string, job []Identity, marks []Mark) ([]Process, error) {
+	processes, err := ReadProcesses(ctx, len(marks) > 0)
+	if err != nil {
+		return nil, err
+	}
+	return OwnedProcesses(processes, directories, job, marks), nil
+}
+
+// ReadProcesses reads every running process this one may open, with the
+// evidence of whose it is: where it works, what it was started with, whether
+// it shows a window and, withMarks, the mark it carries. This process and
+// its ancestors are left out, so nothing judged on the reading ends the
+// command that took it. A process that could not be read, or that was left
+// out, is a zero entry, which OwnedProcesses ignores.
+func ReadProcesses(ctx context.Context, withMarks bool) ([]Process, error) {
 	entries, err := proc.Processes()
 	if err != nil {
 		return nil, err
@@ -52,7 +66,7 @@ func Inventory(ctx context.Context, directories []string, job []Identity, marks 
 				process := Process{PID: entry.PID, ParentPID: entry.ParentPID, Name: entry.ExeBase, Started: entry.Start, HasWindow: windowsErr != nil || windowOwners[entry.PID]}
 				// The mark costs one more read of the process's memory, taken
 				// through the handle its directory and arguments are read by.
-				if len(marks) > 0 {
+				if withMarks {
 					var environment []string
 					process.Directory, process.Arguments, environment, _ = proc.ParametersAndEnvironment(entry.PID)
 					process.Mark, process.IsGateAgent = markOf(environment)
@@ -79,8 +93,7 @@ func Inventory(ctx context.Context, directories []string, job []Identity, marks 
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
-	// Entries skipped above stay zero, and OwnedProcesses ignores them.
-	return OwnedProcesses(processes, directories, job, marks), nil
+	return processes, nil
 }
 
 // markOf reads the mark a process carries from its environment, and whether
@@ -103,4 +116,25 @@ func markOf(environment []string) (Mark, bool) {
 		return Mark{}, isGateAgent
 	}
 	return Mark{Terminal: terminal, ProofSum: host.ProofSum(proof)}, isGateAgent
+}
+
+// TerminalOf reads which of the home's terminals a process is by its mark:
+// the terminal its environment names, once the proof value beside it is one
+// a host of that terminal gave it (host.Proofs under stateDir). It is empty
+// for a process that carries no mark of this home's, for one that cannot be
+// read, and for a gate agent's, which carries the mark of whichever goblin
+// started the daemon.
+func TerminalOf(stateDir string) func(pid int) string {
+	return func(pid int) string {
+		_, _, environment, _ := proc.ParametersAndEnvironment(pid)
+		mark, isGateAgent := markOf(environment)
+		if mark == (Mark{}) || isGateAgent {
+			return ""
+		}
+		proofs, err := host.Proofs(stateDir, mark.Terminal)
+		if err != nil || !slices.Contains(proofs, mark.ProofSum) {
+			return ""
+		}
+		return mark.Terminal
+	}
 }

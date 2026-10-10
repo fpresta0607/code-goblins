@@ -444,6 +444,8 @@ A queued card has **Remove** where they have Stop: a task that has not started h
 A task's panel carries its controls as labelled buttons, in one row under its header: **Start** and **Remove** for a queued task, and **Pause** or **Resume** and **Stop** for one that has started.
 A task reads one status, the same words and the same dot, on its card, its panel, its terminal pane and its Orchestration card: **Queued** while it waits in Tasks, **Starting** while it starts.
 Pause allows five seconds for a stopping point and handoff, then ends the task's processes, including its detached browser sessions, dev servers and tests.
+Retiring a task with `cfo cleanup` ends the same processes once it has closed the task's terminal, and names each one it ended.
+So does `cfo switch`, and a resume, before the next harness starts.
 It ends the goblin's terminal first, which ends its agent and everything under it, so a busy goblin that misses its stopping point is still paused, with its session kept for its resume, even when the search for its other processes runs out of time on a machine short of memory.
 A process is the task's own by its terminal's job, by the mark its terminal gave it, by working in the task's folders, or by being started by a process that is.
 The mark is a value every process started in the terminal inherits, and keeps when its parent exits and when Git Bash starts it outside the job, so a browser bridge or a server left in the background ends with its goblin wherever it works.
@@ -1028,6 +1030,8 @@ Once an hour the janitor removes what the fleet left behind: a worktree in the h
 It never removes `scratch\.tmp`, the temporary folder every goblin's `TMP` names, nor any folder a running Git Bash has as `/tmp`.
 Git Bash keeps the `TMP` of its first shell as `/tmp` for every shell of yours until its last one ends, so a goblin's `TMP` is that one shared folder, never its own scratch folder, and cleanup and the janitor ask each running Git Bash before they remove a temporary folder and leave one that is still its `/tmp`.
 It never touches uncommitted work or your checkouts, touches Docker only to stop a project's local services that cfo started for goblins once no running goblin holds them, and reports what it will not remove: a worktree no task records, a new folder in your projects root that is no checkout, and a `data\` over 200 MB.
+It also ends the processes a goblin's terminal left running once that terminal is gone, and a detached one of a running goblin once it has sat idle for an hour, each proven the fleet's own the way a pause proves it.
+Your own apps are never among them, and what it cannot prove it only names for the CFO.
 `cfo runtime` shows what each part of the home holds, and the board shows free disk under free memory, in one box.
 
 ### A Dev Drive for the busiest folders (optional)

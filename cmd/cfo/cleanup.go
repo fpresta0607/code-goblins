@@ -10,6 +10,7 @@ import (
 	"github.com/fpresta0607/code-goblins/internal/execx"
 	"github.com/fpresta0607/code-goblins/internal/herdr"
 	"github.com/fpresta0607/code-goblins/internal/home"
+	"github.com/fpresta0607/code-goblins/internal/state"
 	"github.com/fpresta0607/code-goblins/internal/worktree"
 )
 
@@ -95,6 +96,9 @@ func defaultCleanup(ctx context.Context, h home.Home, id string, forceArchive bo
 		Worktrees:    worktree.Service{Commands: commands},
 		ForceArchive: forceArchive,
 
+		EndLeft: func(ctx context.Context, meta state.TaskMeta) ([]string, error) {
+			return endLeftProcesses(ctx, h, meta)
+		},
 		ReleaseServices: defaultProjectServices(h, io.Discard).ReleaseTask,
 	}
 	result, err := service.Cleanup(ctx, id)

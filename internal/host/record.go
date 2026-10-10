@@ -113,6 +113,41 @@ func readProofs(stateDir, id string) ([]keptProof, error) {
 
 var errProofsUnreadable = errors.New("its proofs are unreadable")
 
+// ForgetProofs drops, for every terminal under stateDir, the proofs given
+// before since, when the machine started, and the proofs file of a terminal
+// left with none. A terminal's own next host does the same for its file, and
+// a retired task's terminal has no next host, so without this its file
+// would stay for good. Proofs that cannot be read are left as they are.
+func ForgetProofs(stateDir string, since time.Time) error {
+	ids, err := Terminals(stateDir)
+	if err != nil {
+		return err
+	}
+	var failures error
+	for _, id := range ids {
+		kept, err := readProofs(stateDir, id)
+		if err != nil || len(kept) == 0 {
+			continue
+		}
+		var lines strings.Builder
+		for _, proof := range kept {
+			if !proof.at.Before(since) {
+				fmt.Fprintf(&lines, "%s %s\n", proof.sum, proof.at.UTC().Format(time.RFC3339Nano))
+			}
+		}
+		if lines.Len() == 0 {
+			if err := os.Remove(proofsPath(stateDir, id)); err != nil && !errors.Is(err, os.ErrNotExist) {
+				failures = errors.Join(failures, err)
+			}
+			continue
+		}
+		if err := fsx.AtomicWriteFile(proofsPath(stateDir, id), []byte(lines.String())); err != nil {
+			failures = errors.Join(failures, err)
+		}
+	}
+	return failures
+}
+
 // keepProof adds sum, given at, to terminal id's proofs, and drops those
 // given before since, when the machine started: no process outlives the
 // machine, so none carries their values. Proofs that cannot be read are
@@ -155,6 +190,29 @@ func RecordIDs(stateDir string) ([]string, error) {
 	for _, entry := range entries {
 		if id, ok := strings.CutSuffix(entry.Name(), ".json"); ok && !entry.IsDir() {
 			ids = append(ids, id)
+		}
+	}
+	return ids, nil
+}
+
+// Terminals lists the terminals under stateDir that a host runs or that were
+// given a proof since the machine started, which a terminal whose host has
+// ended still was: by its record or by its kept proofs. None when no host
+// ever recorded itself there.
+func Terminals(stateDir string) ([]string, error) {
+	entries, err := os.ReadDir(filepath.Join(stateDir, "hosts"))
+	if errors.Is(err, os.ErrNotExist) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	var ids []string
+	for _, entry := range entries {
+		for _, suffix := range []string{".json", ".proofs"} {
+			if id, ok := strings.CutSuffix(entry.Name(), suffix); ok && !entry.IsDir() && state.ValidTaskID(id) == nil && !slices.Contains(ids, id) {
+				ids = append(ids, id)
+			}
 		}
 	}
 	return ids, nil

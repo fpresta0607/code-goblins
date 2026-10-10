@@ -193,12 +193,12 @@ func TestANotifyLandsWhileAnAcknowledgementWaitsOnANotice(t *testing.T) {
 		t.Fatal(err)
 	}
 	// The record's notice is already there, as an acknowledgement that was
-	// cut short leaves it, and another process holds it open, as a virus
-	// scanner holds a file it reads.
-	if err := keepOnce(dir, done); err != nil {
+	// cut short leaves it, and another process holds the notices open, as a
+	// virus scanner holds a file it reads.
+	if err := keepNoticed(dir, []Record{done}); err != nil {
 		t.Fatal(err)
 	}
-	released := holdOpen(t, oncePath(dir, "done/g1"), 0, 3*time.Second)
+	released := holdOpen(t, filepath.Join(dir, noticedFile), 0, 3*time.Second)
 	acknowledged := make(chan error, 1)
 
 	// Act

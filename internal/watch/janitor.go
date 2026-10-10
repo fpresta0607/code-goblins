@@ -62,6 +62,10 @@ func runJanitor(cfg Config, inv reap.Inventory) {
 	if goTmp, err := state.GoTmpDir(cfg.Home.State, "janitor"); err == nil {
 		legacy = filepath.Dir(goTmp)
 	}
+	browserSessions := ""
+	if profile, err := os.UserHomeDir(); err == nil {
+		browserSessions = filepath.Join(profile, ".chrome-devtools-axi", "sessions")
+	}
 	ctx, cancel := context.WithTimeout(context.Background(), janitorBudget)
 	defer cancel()
 	record := janitor.Sweep(ctx, janitor.Config{
@@ -81,17 +85,60 @@ func runJanitor(cfg Config, inv reap.Inventory) {
 			IsLive:   services.LiveIn(cfg.Home.State),
 			Now:      time.Now,
 		}.Sweep,
+		Processes:  janitor.ReadProcesses,
+		Owners:     func() ([]janitor.Owner, []string) { return janitor.ReadOwners(cfg.Home) },
+		EndProcess: janitor.EndProcess,
+		Watched:    previous.Processes.Watched,
+
+		BrowserSessions: browserSessions,
 	})
 	if err := janitor.WriteRecord(cfg.Home.State, record); err != nil {
 		return
 	}
-	detail := strayWake(previous, record)
-	if detail == "" {
-		return
+	isWoken := false
+	if detail := strayWake(previous, record); detail != "" {
+		_, err := wake.Append(cfg.Home.State, "orphan", "strays", detail)
+		isWoken = isWoken || err == nil
 	}
-	if _, err := wake.Append(cfg.Home.State, "orphan", "strays", detail); err == nil {
+	if detail := processWake(previous, record, time.Now()); detail != "" {
+		_, err := wake.Append(cfg.Home.State, "orphan", "processes", detail)
+		isWoken = isWoken || err == nil
+	}
+	if isWoken {
 		_, _ = wake.PublishEpisode(cfg.Home.State)
 	}
+}
+
+// processWake is the wake detail for a pass that left a process for the CFO
+// that the last pass had not, and empty otherwise. It is one wake for all of
+// them, each with its pid, its age, the memory of its tree and its command:
+// the same processes again, or one of them gone, is nothing new.
+func processWake(previous, record janitor.Record, now time.Time) string {
+	told := make(map[string]bool, len(previous.Processes.Left))
+	key := func(item janitor.ProcessItem) string {
+		return fmt.Sprintf("%d %s", item.PID, item.Started.UTC().Format(time.RFC3339Nano))
+	}
+	for _, item := range previous.Processes.Left {
+		told[key(item)] = true
+	}
+	isNew := false
+	var lines []string
+	for _, item := range record.Processes.Left {
+		isNew = isNew || !told[key(item)]
+		lines = append(lines, fmt.Sprintf("pid %d %s, %s old, %s, %s (%s)", item.PID, item.Name, now.Sub(item.Started).Round(time.Minute), memoryText(item.Memory), item.Command, item.Why))
+	}
+	if !isNew {
+		return ""
+	}
+	return fmt.Sprintf("%d process(es) the janitor found and did not end, since nothing proves them the fleet's own: %s. End by pid what is the fleet's leftover and leave what is the Overlord's", len(lines), strings.Join(lines, ". "))
+}
+
+// memoryText is a count of bytes as a person reads memory.
+func memoryText(bytes uint64) string {
+	if bytes >= 1<<30 {
+		return fmt.Sprintf("%.1f GB", float64(bytes)/(1<<30))
+	}
+	return fmt.Sprintf("%d MB", bytes>>20)
 }
 
 // strayWake is the wake detail for a pass that reports a stray the last pass
