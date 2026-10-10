@@ -724,8 +724,8 @@ func TestInstallWithNoUserSettingsFileCreatesOne(t *testing.T) {
 	f.install()
 
 	commands := hookCommands(t, f.user)
-	if len(commands) != 6 {
-		t.Fatalf("got %d hooks, want the 6 CFO hooks:\n%s", len(commands), strings.Join(commands, "\n"))
+	if want := len(Hooks(f.root)); len(commands) != want {
+		t.Fatalf("got %d hooks, want the %d CFO hooks:\n%s", len(commands), want, strings.Join(commands, "\n"))
 	}
 	if _, err := os.Stat(f.user + backupSuffix); !os.IsNotExist(err) {
 		t.Errorf("a file that did not exist was backed up")
