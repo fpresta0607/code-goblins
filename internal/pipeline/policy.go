@@ -36,7 +36,7 @@ type Classes struct {
 }
 
 // A role a version does not name is left out of its JSON and so of its hash:
-// the fallback, which only versions 4 and 5 name, leaves the hash every older
+// the fallback, which no version before 4 names, leaves the hash every older
 // frozen snapshot recorded as it was.
 type Policy struct {
 	Version  int      `json:"version"`
@@ -45,7 +45,9 @@ type Policy struct {
 	Fixer    Reviewer `json:"fixer,omitzero"`
 	// Fallback is the harness the gate turns to when the primary cannot run.
 	// From version 4 every role runs that chain, primary first, and from
-	// version 5 both start without the operator's MCP servers.
+	// version 5 both start without the operator's MCP servers. From version 6
+	// the policy names no primary: a gate runs on its task's own harness, and
+	// the fallback is there only when the operator names one, in full.
 	Fallback Reviewer `json:"fallback,omitzero"`
 	AutoFix  AutoFix  `json:"auto_fix"`
 	Classes  Classes  `json:"classes"`
@@ -108,8 +110,17 @@ func (p Policy) Validate() error {
 		if p.Primary != (Reviewer{"codex", "gpt-6.1-sol", "xhigh"}) || p.Fallback != (Reviewer{Harness: "claude"}) || p.Reviewer != (Reviewer{}) || p.Fixer != (Reviewer{}) {
 			return errors.New("pipeline: every role runs Codex gpt-6.1-sol xhigh first and Claude next, so no role names a profile of its own")
 		}
+	case 6:
+		if p.Primary != (Reviewer{}) || p.Reviewer != (Reviewer{}) || p.Fixer != (Reviewer{}) {
+			return errors.New("pipeline: from version 6 a gate runs on its task's own harness, so the policy names no primary, reviewer or fixer")
+		}
+		if p.Fallback != (Reviewer{}) {
+			if err := gateProfile(p.Fallback); err != nil {
+				return fmt.Errorf("pipeline: the named fallback is refused: %w", err)
+			}
+		}
 	default:
-		return errors.New("pipeline: policy version must be 1, 2, 3, 4 or 5")
+		return errors.New("pipeline: policy version must be 1, 2, 3, 4, 5 or 6")
 	}
 	if p.AutoFix != (AutoFix{Review: 0, Test: 1, Lint: 1, Rebase: 1, CI: 1}) {
 		return errors.New("pipeline: automatic review must be 0 and test/lint/rebase/ci follow-ups must be 1")
@@ -163,11 +174,13 @@ func MigrateSelection(old Selection, current Policy) (Selection, error) {
 	if err := current.Validate(); err != nil {
 		return Selection{}, err
 	}
-	if old.Policy.Version == current.Version {
-		if old.Policy != current {
-			return Selection{}, errors.New("pipeline: policy migration requires a newer approved version")
-		}
+	if old.Policy == current {
 		return old, nil
+	}
+	// Two policies of one version differ only from version 6, in the fallback
+	// the operator names, which a task takes as it takes a newer version.
+	if old.Policy.Version == current.Version && current.Version < 6 {
+		return Selection{}, errors.New("pipeline: policy migration requires a newer approved version")
 	}
 	if old.Policy.Version > current.Version {
 		return Selection{}, errors.New("pipeline: unsupported task policy migration")
@@ -216,6 +229,11 @@ func LoadSelection(path string) (Selection, error) {
 func (s Selection) Instruction(id, path string) string {
 	roles := "Reviewer is Claude Opus high."
 	switch {
+	case s.Policy.Version > 5:
+		roles = "Every gate role runs on this task's own harness, with its own model and effort. The operator names no fallback, so no other harness starts."
+		if fallback := s.Policy.Fallback; fallback != (Reviewer{}) {
+			roles = fmt.Sprintf("Every gate role runs on this task's own harness, with its own model and effort. The operator named %s %s %s as the fallback, which starts only for a task on another harness and only while it is signed in.", fallback.Harness, fallback.Model, fallback.Effort)
+		}
 	case s.Policy.Version > 3:
 		roles = fmt.Sprintf("Every gate role runs Codex %s %s first and Claude next. A CFO gate requires the trusted repository primary to inherit that chain or select Codex explicitly.", s.Policy.Primary.Model, s.Policy.Primary.Effort)
 	case s.Policy.Version > 1:

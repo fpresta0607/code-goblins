@@ -273,7 +273,7 @@ INSERT INTO repos VALUES('repo',` + sqlString(filepath.ToSlash(project)) + `,'ma
 		t.Fatalf("fixture: %s %v", out, err)
 	}
 	reader := Reader{Root: state, Commands: execx.OSRunner{}}
-	err := reader.CheckStart(context.Background(), project, project, "feature", testPolicy(t))
+	_, err := reader.CheckStart(context.Background(), project, project, "feature", testPolicy(t))
 	if err == nil || !strings.Contains(err.Error(), "stale") {
 		t.Fatalf("CheckStart error=%v, want stale trusted primary refusal", err)
 	}
@@ -316,7 +316,7 @@ INSERT INTO repos VALUES('repo',` + sqlString(filepath.ToSlash(project)) + `,'ma
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			reader := Reader{Root: dir, Commands: &primaryRoutingRunner{task: []byte(test.task), trusted: []byte(test.trusted)}}
-			err := reader.CheckStart(context.Background(), project, filepath.Join(project, "worktree"), "feature", testPolicy(t))
+			_, err := reader.CheckStart(context.Background(), project, filepath.Join(project, "worktree"), "feature", testPolicy(t))
 			if test.wantErr {
 				if err == nil || !strings.Contains(err.Error(), "agent overrides") {
 					t.Fatalf("CheckStart error=%v, want trusted primary refusal", err)
@@ -327,6 +327,31 @@ INSERT INTO repos VALUES('repo',` + sqlString(filepath.ToSlash(project)) + `,'ma
 				t.Fatalf("CheckStart: %v", err)
 			}
 		})
+	}
+}
+
+// Under version 6 a run carries its own agent, which no-mistakes applies over
+// whatever the repository names, so no repository agent stops a start, and
+// the start hands back the trusted commit the launch selection names.
+func TestCheckStartLeavesARepositoryAgentToTheLaunchSelection(t *testing.T) {
+	sqlite, err := exec.LookPath("sqlite3")
+	if err != nil {
+		t.Skip("sqlite3 CLI not available")
+	}
+	project := filepath.Join(t.TempDir(), "project")
+	dir := t.TempDir()
+	sql := `CREATE TABLE repos(id TEXT,working_path TEXT,default_branch TEXT);
+CREATE TABLE runs(id TEXT,repo_id TEXT,branch TEXT,created_at INTEGER,status TEXT);
+INSERT INTO repos VALUES('repo',` + sqlString(filepath.ToSlash(project)) + `,'main');`
+	if out, err := exec.Command(sqlite, filepath.Join(dir, "state.sqlite"), sql).CombinedOutput(); err != nil {
+		t.Fatalf("fixture: %s %v", out, err)
+	}
+	for _, trusted := range []string{"auto_fix: {review: 0}\n", "agent: codex\n", "agent: claude\n", "agent: [codex, claude]\n", "agent: auto\n"} {
+		reader := Reader{Root: dir, Commands: &primaryRoutingRunner{trusted: []byte(trusted)}}
+		head, err := reader.CheckStart(context.Background(), project, filepath.Join(project, "worktree"), "feature", versionSix(t, Reviewer{}))
+		if err != nil || head != primaryRoutingSHA {
+			t.Fatalf("trusted %q: head=%q err=%v, want the start allowed at the trusted commit", trusted, head, err)
+		}
 	}
 }
 
@@ -362,7 +387,7 @@ INSERT INTO runs VALUES('previous','repo','feat',1,'` + c.status + `');`
 			// above it, not at whatever checkout holds the temp folder.
 			t.Setenv("GIT_CEILING_DIRECTORIES", filepath.Dir(worktree))
 			reader := Reader{Root: dir, Commands: execx.OSRunner{}}
-			err := reader.CheckStart(context.Background(), "C:/project", worktree, "feat", testPolicy(t))
+			_, err := reader.CheckStart(context.Background(), "C:/project", worktree, "feat", testPolicy(t))
 			if errors.Is(err, ErrUnresolved) != c.unresolved {
 				t.Fatalf("status %q: %v", c.status, err)
 			}
