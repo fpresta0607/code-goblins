@@ -1086,6 +1086,15 @@ A presentation without `--watch`, such as a goblin's own test walkthrough, stays
 A goblin panel whose goblin is waiting on the Overlord offers Answer, which opens the stack at that goblin's question or review item.
 Once submitted, every tab displays the durable answer rather than an unsent local draft.
 Answers retain their question and CFO identity and enter the durable native CFO message queue, never a worker send or gate approval.
+Answers he gives to several of the CFO's questions in one go reach the CFO as one message, which says how many there are and lists each question's id, its text and his answer in the order he gave them, as `[1/4]` to `[4/4]`.
+Every answer still queued for the CFO goes in that message, whatever kept it queued: a CFO in a turn, one whose input was not empty and ready, one that was closed and has come back, or a supervisor that restarted.
+An answer waits for his next one only while another question of the CFO's still waits on him, for up to five seconds after his newest answer, since he answers a stack of them two to four seconds apart.
+With no other question waiting on him there is nothing to wait for, so an answer to the CFO's only question goes at once, and so does the last answer of a stack, with the ones before it.
+The worker is woken as that wait ends, so an answer alone is never held past it.
+What he sends the CFO keeps the order he sent it in: a message of his own, or a review answer for the CFO, queued after an answer ends that answer's wait, so the answers before it go as one message at once, and the answers he gives after it follow it.
+An answer alone reads as it always has.
+Each answer in a message keeps its own action and its own check, and they are sent, delivered or warned about together, since they were typed once.
+On 2026-10-09 four answers given within seven seconds were typed into the CFO as four messages in the middle of a turn, two minutes after it had restarted.
 Claude Code, Codex and Pi primary-context guidance routes explicit user decisions through this command.
 Publish from the same registered primary shell, continue independent work or finish the turn awaiting the reply, and do not also open a native prompt tool: a normal message cannot answer a correlated native Codex/Pi prompt.
 Duplicate HTTP/SSE outcomes cannot cause a second delivery; interrupted delivery becomes uncertain.
