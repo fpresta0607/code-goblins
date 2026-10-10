@@ -167,10 +167,8 @@ type Service struct {
 	ciUnreadable error
 	// errorLines holds when each line of the supervisor's own errors was last
 	// met, errorsUntold the new ones no wake has told the CFO of yet, and
-	// errorsWoke when one last did. timeouts holds the run each read that
-	// ran out of time is in, until the run is long enough to tell.
+	// errorsWoke when one last did.
 	errorLines   map[string]time.Time
-	timeouts     map[string]timeoutRun
 	errorsUntold []string
 	errorsWoke   time.Time
 	// answersDue wakes the worker as the answers held for the Overlord's next
