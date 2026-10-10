@@ -143,10 +143,10 @@ jobs:
             skip: Update|Recover
           - shard: spawn-1
             packages: ./internal/spawn
-            run: Spawn
+            run: Spawn|Resume
           - shard: spawn-2
             packages: ./internal/spawn
-            skip: Spawn
+            skip: Spawn|Resume
           - shard: supervisor-1
             packages: ./internal/supervisor
             run: ^Test[A-M]
