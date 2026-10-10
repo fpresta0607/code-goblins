@@ -300,13 +300,16 @@ func nativeCFOProgram(harness string, args ...string) ([]string, error) {
 // from it all the same. The CFO is placed in home h with this supervisor's
 // projects root, where it has one, and the launcher's Herdr session and
 // configuration without its pane, so the CFO registers its native terminal
-// and a herdr it starts is not refused as nested inside that pane. Names
+// and a herdr it starts is not refused as nested inside that pane. Its
+// browser session is its own, named for its terminal as a goblin's is, never
+// the tool's unnamed one that every program of the user shares. Names
 // compare without case, as Windows compares them.
 func nativeCFOEnvironment(userEnv, launcherEnv []string, h home.Home, projectsRoot string) []string {
 	pinned := [][2]string{{"CFO_HOME", h.Root}, {"CFO_STATE_OVERRIDE", h.State}}
 	if projectsRoot != "" {
 		pinned = append(pinned, [2]string{install.ProjectsRootVariable, projectsRoot})
 	}
+	pinned = append(pinned, [2]string{spawn.BrowserSessionVariable, supervisor.NativeCFOTerminal})
 	env := slices.DeleteFunc(slices.Clone(userEnv), func(entry string) bool {
 		name, _, _ := strings.Cut(entry, "=")
 		overridden := slices.ContainsFunc(pinned, func(pin [2]string) bool { return strings.EqualFold(pin[0], name) })

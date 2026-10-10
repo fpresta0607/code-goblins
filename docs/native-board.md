@@ -54,7 +54,7 @@ Run inside a Herdr pane there is nothing to attach, so `goblins` only brings the
 A supervisor started in the background has no terminal for Ctrl-C to reach, so `goblins stop` writes `state/serve.stop` naming the record's pid and waits up to 30 seconds for the board to stop answering.
 The supervisor checks for that request on its notification tick, which comes at least every two seconds between cycles, and stops as it would on Ctrl-C, removing its record; a request naming any other pid is left over from a supervisor that already ended, so it is removed and stops nothing.
 A supervisor also removes any request left from before it started, so a reused pid cannot stop it.
-`goblins stop --force` ends the recorded pid's process tree with `taskkill /T /F`, or one process at a time when a machine service (Docker Desktop, the no-mistakes daemon) runs under it, which it leaves running, and removes the record instead, and a record whose supervisor does not answer as itself is removed without stopping anything; a supervisor whose snapshot is slow still answers, so its record is never taken for stale.
+`goblins stop --force` ends the recorded pid's process tree with `taskkill /T /F`, or one process at a time when a machine service (Docker Desktop, the no-mistakes daemon, the Scrawl server) runs under it, which it leaves running, and removes the record instead, and a record whose supervisor does not answer as itself is removed without stopping anything; a supervisor whose snapshot is slow still answers, so its record is never taken for stale.
 Restarting with the same CFO home recovers durable events, evaluations, actions, and lineage.
 
 ## Native hook setup
@@ -1048,6 +1048,45 @@ Each goblin comes back as `goblins resume` brings one back, through the in-place
 One that cannot come back is recorded stopped with the reason on its card, as its action error, and raises a `check` wake keyed by its id that names `cfo switch <id> --harness <its harness>`; the next goblin's turn comes at the next reading either way.
 The snapshot's `comeback` carries the record for the board's line, and each waiting or stopped goblin's card carries its own entry; the monitor's wake for a terminal with no host says the supervisor brings it back rather than naming `goblins resume`.
 An example board brings nothing back.
+
+### Whose a process is
+
+Every process a terminal starts stays tied to that terminal, and three kinds of evidence say so, because no one kind survives everything a process can do.
+
+| Evidence | What carries it | What loses it |
+| --- | --- | --- |
+| The terminal's job | Everything the harness starts itself, a process whose parent has exited included | A process Git Bash starts, since the MSYS runtime leaves the job, and one that asks to leave |
+| The terminal's mark | Every Windows program, wherever it works and whatever became of its parent | A program one of Git Bash's own tools starts when it is such a tool itself, which has no Windows environment |
+| Its place | Any process at work in the task's folders or running a program from them | A process that works anywhere else |
+
+The mark is the proof value the terminal's host puts in the terminal's environment as `CFO_HOST_PROOF`, beside `CFO_HOST_ID`.
+A terminal is given a new value each time it is started, resumed or switched, and what it started under an earlier one is still its own, so the host keeps the SHA-256 of each value given since the machine started in `state\hosts\<id>.proofs`, which outlasts the host's record.
+A pause and a stop end every process that is the task's own by any of the three, and every process such a one started.
+The stop holds each terminal's job itself before it ends the host, so the job is still read, and what it holds still ended, once the host is gone.
+Measured on 2026-10-09 with 11 goblins and the CFO running: of 77 marked processes, 19 were outside their terminal's job, 10 of those reached no host through their parents, and one had lost its parent 2 hours and 39 minutes before.
+On the same day two browser bridges like those held 3.7 GB while five goblins were paused for memory.
+
+Three kinds of process are never a task's by its mark or its parent, whatever started them.
+A machine service, with what runs under it: Docker Desktop, the no-mistakes daemon, and the Scrawl server that keeps every goblin's review page.
+A gate's agent, which carries the mark of whichever goblin started the daemon while it works for any gate. It is a task's only while it works in that task's own gate run.
+And a desktop program, with what it started: a program that shows a window, a browser no tool drives (one started with none of `--headless`, `--remote-debugging-pipe`, `--remote-debugging-port`, `--enable-automation` or Firefox's `-headless` and `--marionette`), a packaged desktop app and Explorer.
+A goblin can start one for the Overlord, as when a sign-in opens his browser, and it is still his to close.
+When the desktop's windows cannot be read, nothing is a task's by its mark or its parent, only by its job and its place.
+
+The janitor's hourly sweep applies the same rule to what no pause or stop ended.
+For each terminal the home gave a proof since the machine started, it reads which processes are that terminal's own.
+A terminal with no host left has its processes ended: a goblin that failed, a pause whose sweep ran out of time, a cleanup or a switch, which close the terminal and sweep nothing.
+A terminal that runs keeps what its host still reaches through its parents. A tree that does not reach it is watched by the processor time it has used, kept in `state\janitor.json`, and ended once that has grown by under a tenth of a second across an hour.
+A loop that looks at something once a minute uses more than that and is left alone.
+The sweep reads every process on the machine and judges only those of the terminals in its own home's `state\hosts`, so another home on the machine, a scratch home of a test among them, is never touched.
+What nothing proves is named for the CFO and never ended: a browser bridge with no mark whose parent is gone, and a gate agent's process whose gate is gone.
+
+A browser bridge belongs to one owner.
+chrome-devtools-axi keeps one bridge and one browser for each session name, and a terminal that names none shares its unnamed session with every other program of the user, so every goblin's terminal starts with `CHROME_DEVTOOLS_AXI_SESSION` set to its task id and the CFO's with `cfo`, whatever the user's environment named.
+The bridge is started with its terminal's environment, so it carries the terminal's mark and ends with it.
+The tool hashes a session name to one of 1,000 ports, so two tasks can be given the same port. The second bridge then fails to start, and its goblin sets `CHROME_DEVTOOLS_AXI_PORT` for itself.
+The tool removes no session's folder. The janitor removes one under `.chrome-devtools-axi\sessions` once the bridge its `bridge.pid` names no longer runs and nothing wrote to it for a day, and only when it holds nothing but the tool's own files.
+A bridge keeps its page drawing whether or not anything drives it: three left on 2026-10-09 used most of a processor between them. So the sweep judges a running terminal's bridge by when its session was last used, the newest write among the tool's files in the session's folder, and ends it with its browser after an hour unused.
 
 ### Interface rules
 

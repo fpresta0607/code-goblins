@@ -424,6 +424,18 @@ func renderStorage(out *writer, report Report) {
 	for _, stray := range record.Strays {
 		out.line("- stray: " + text(stray.Path) + " (" + text(stray.Detail) + ")")
 	}
+	processes := record.Processes
+	if len(processes.Ended)+len(processes.Left)+len(processes.Watched) == 0 {
+		return
+	}
+	out.line(fmt.Sprintf("It ended %d process(es) proven a terminal's own, left %d it could not prove, and watches %d detached tree(s) of running terminals for an idle hour.",
+		len(processes.Ended), len(processes.Left), len(processes.Watched)))
+	for _, item := range processes.Ended {
+		out.line(fmt.Sprintf("- ended: pid %d %s of %s, %s (%s)", item.PID, text(item.Name), text(item.Owner), Bytes(int64(item.Memory)), text(item.Why)))
+	}
+	for _, item := range processes.Left {
+		out.line(fmt.Sprintf("- left: pid %d %s, started %s, %s, %s (%s)", item.PID, text(item.Name), item.Started.Format(time.RFC3339), Bytes(int64(item.Memory)), text(item.Command), text(item.Why)))
+	}
 }
 
 func sortedKeys(group map[string]int64) []string {
