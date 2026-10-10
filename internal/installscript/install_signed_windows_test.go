@@ -2,7 +2,6 @@ package installscript
 
 import (
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -10,13 +9,13 @@ import (
 	"github.com/fpresta0607/code-goblins/internal/installtest"
 )
 
-// signatureBlock is the shape of what signing appends to a script: a block
-// of comment lines holding the signature in base64. It is no signature.
-const signatureBlock = "\r\n# SIG # Begin signature block\r\n" +
-	"# MIIFgwYJKoZIhvcNAQcCoIIFdDCCBXACAQExCzAJBgUrDgMCGgUAMGkGCisGAQQB\r\n" +
-	"# gjcCAQSgWzBZMDQGCisGAQQBgjcCAR4wJgIDAQAABBAfzDtgWUsITrck0sYpfvNR\r\n" +
-	"# AgEAAgEAAgEAAgEAAgEAMCEwCQYFKw4DAhoFAAQUCodeGoblinsTestBlockOnly\r\n" +
-	"# SIG # End signature block\r\n"
+// signatureBlock is, as PowerShell writes a string, the shape of what
+// signing appends to a script: a block of comment lines holding the signature
+// in base64. It is no signature.
+const signatureBlock = `"` + "`r`n# SIG # Begin signature block`r`n" +
+	"# MIIFgwYJKoZIhvcNAQcCoIIFdDCCBXACAQExCzAJBgUrDgMCGgUAMGkGCisGAQQB`r`n" +
+	"# gjcCAQSgWzBZMDQGCisGAQQBgjcCAR4wJgIDAQAABBAfzDtgWUsITrck0sYpfvNR`r`n" +
+	"# SIG # End signature block`r`n" + `"`
 
 // releaseStep returns the script of the release workflow's step named name,
 // and the text of the workflow from that step on.
@@ -72,66 +71,60 @@ func TestTheReleaseSignsTheInstallScriptItPublishes(t *testing.T) {
 		t.Errorf("the signature is verified on an unsigned release too:\n%s", verifyStep)
 	}
 
-	t.Run("an install script nobody signed stops the release", func(t *testing.T) {
-		// Arrange
-		folder := t.TempDir()
-		pinned, output, err := runPin(t, installtest.WindowsPowerShell(), "fpresta0607/code-goblins", "v1.2.3", "Code Goblins Test Publisher")
-		if err != nil {
-			t.Fatalf("pin-installer.ps1 = %v:\n%s", err, output)
-		}
-		script, err := os.ReadFile(pinned)
-		if err != nil {
-			t.Fatal(err)
-		}
-		if err := os.MkdirAll(filepath.Join(folder, "release"), 0o755); err != nil {
-			t.Fatal(err)
-		}
-		if err := os.WriteFile(filepath.Join(folder, "release", "install.ps1"), script, 0o644); err != nil {
-			t.Fatal(err)
-		}
-		command := exec.Command(installtest.WindowsPowerShell(), "-NoProfile", "-NonInteractive", "-Command", "$ErrorActionPreference = 'Stop'\n"+verify)
-		command.Dir = folder
-		command.Env = append(os.Environ(), "SIGNING_PUBLISHER=Code Goblins Test Publisher")
+	// The step's own script, run against a script nobody signed, in each
+	// PowerShell: the release runs it in PowerShell 7, which a GitHub runner
+	// has and this test then runs it in too. It runs in a stripped session,
+	// which hands PowerShell no module path of another PowerShell's: a
+	// runner's test step runs in PowerShell 7, and Windows PowerShell given
+	// that module path cannot load the module Get-AuthenticodeSignature is in.
+	for _, shell := range installtest.OneLineShells(t) {
+		t.Run("an install script nobody signed stops the release in "+filepath.Base(shell), func(t *testing.T) {
+			// Arrange: any script nobody signed. It is not the install
+			// script, since each new copy of that on disk is one more unsigned
+			// script that downloads and runs programs, which Defender sends to
+			// Microsoft.
+			command, _, folder := installtest.StrippedCommand(t, "", nil, shell, "-NoProfile", "-NonInteractive", "-Command", "$ErrorActionPreference = 'Stop'\n"+verify)
+			if err := os.MkdirAll(filepath.Join(folder, "release"), 0o755); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(filepath.Join(folder, "release", "install.ps1"), []byte("Write-Output 'nobody signed this'\r\n"), 0o644); err != nil {
+				t.Fatal(err)
+			}
+			command.Env = append(command.Env, "SIGNING_PUBLISHER=Code Goblins Test Publisher")
 
-		// Act
-		out, err := command.CombinedOutput()
+			// Act
+			out, err := command.CombinedOutput()
 
-		// Assert
-		if err == nil || !strings.Contains(string(out), "is not validly signed") {
-			t.Errorf("verifying an unsigned install script = %v, want the release stopped:\n%s", err, out)
-		}
-	})
+			// Assert
+			if err == nil || !strings.Contains(string(out), "is not validly signed") {
+				t.Errorf("verifying an unsigned install script = %v, want the release stopped:\n%s", err, out)
+			}
+		})
+	}
 }
 
 // The one-line install runs the published script as text, so the signature
 // a signed release appends to it, a block of comment lines, changes nothing
-// it does: it still downloads its own release.
-func TestAPublishedInstallRunsTheSameWithItsSignature(t *testing.T) {
-	pinned, output, err := runPin(t, installtest.WindowsPowerShell(), "fpresta0607/code-goblins", "v1.2.3", "Code Goblins Test Publisher")
-	if err != nil {
-		t.Fatalf("pin-installer.ps1 = %v:\n%s", err, output)
-	}
-	script, err := os.ReadFile(pinned)
-	if err != nil {
-		t.Fatal(err)
-	}
-	signed := filepath.Join(t.TempDir(), "install.ps1")
-	if err := os.WriteFile(signed, append(script, signatureBlock...), 0o644); err != nil {
-		t.Fatal(err)
-	}
+// it does: it still downloads its release. The block is added in memory, to
+// the script as the repository has it: a signed copy written to disk for the
+// test would be one more unsigned script that downloads and runs programs,
+// and Defender sent three such copies to Microsoft when this test first
+// wrote them, on 2026-10-10.
+func TestTheInstallRunsTheSameWithASignatureAtItsEnd(t *testing.T) {
 	offline := "function Invoke-WebRequest([string]$Uri, [string]$OutFile, [switch]$UseBasicParsing) { Write-Host ('GET ' + $Uri); throw 'offline' }; "
+	signed := "((Get-Content -Raw -LiteralPath '" + installScript(t) + "') + " + signatureBlock + ")"
 	for _, shell := range installtest.OneLineShells(t) {
 		t.Run(filepath.Base(shell), func(t *testing.T) {
 			// Act
-			output, local, temp, err := runStrippedPowerShell(t, shell, "", "-Command", offline+"Get-Content -Raw -LiteralPath '"+signed+"' | Invoke-Expression; exit $LASTEXITCODE")
+			output, local, temp, err := runStrippedPowerShell(t, shell, "", "-Command", offline+"$signed = "+signed+"; if (-not $signed.TrimEnd().EndsWith('# SIG # End signature block')) { throw 'the script has no signature block' }; $signed | Invoke-Expression; exit $LASTEXITCODE")
 
 			// Assert
-			want := "GET https://github.com/fpresta0607/code-goblins/releases/download/v1.2.3/SHA256SUMS"
+			want := "GET https://github.com/fpresta0607/code-goblins/releases/latest/download/SHA256SUMS"
 			if err == nil || !strings.Contains(output, want) {
 				t.Fatalf("the signed install = %v, want it to download from %s as the unsigned one does:\n%s", err, want, output)
 			}
-			if strings.Contains(output, "SIG #") || strings.Contains(output, "ParserError") {
-				t.Errorf("the install read its signature as script:\n%s", output)
+			if strings.Contains(output, "SIG #") || strings.Contains(output, "ParserError") || strings.Contains(output, "has no signature block") {
+				t.Errorf("the install read its signature as script, or had none:\n%s", output)
 			}
 			assertNothingInstalled(t, local, temp)
 		})
