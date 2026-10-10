@@ -10,7 +10,6 @@ import (
 	"time"
 
 	"github.com/fpresta0607/code-goblins/internal/execx"
-	"github.com/fpresta0607/code-goblins/internal/fsx"
 )
 
 // SharedTempDir is the one folder in a scratch root that is no task's: every
@@ -138,22 +137,72 @@ func askLiveTemp(ctx context.Context, runtime, safeTemp string) (string, error) 
 // LiveTempIn names the runtime whose /tmp is folder or a folder inside it,
 // so removing folder would take /tmp from every shell of that runtime.
 func LiveTempIn(folder string, temps []LiveTemp) (LiveTemp, bool) {
-	folder = physical(folder)
 	for _, temp := range temps {
-		if rel, err := filepath.Rel(folder, physical(temp.Folder)); err == nil && filepath.IsLocal(rel) {
+		if isWithin(temp.Folder, folder) {
 			return temp, true
 		}
 	}
 	return LiveTemp{}, false
 }
 
-// physical is path with its links and short names resolved where it exists,
-// so two spellings of one folder compare equal, and cleaned where it does not.
-func physical(path string) string {
-	if resolved, err := fsx.Canonical(path); err == nil {
-		return resolved
+// isWithin reports whether path is folder or inside it, by the folders the
+// two name and never by how they are spelled. Windows hands out one folder
+// under more than one spelling: the temporary folder of a user whose name is
+// long or holds a space comes in its short form, as a runner's does
+// (C:\Users\RUNNER~1\AppData\Local\Temp), and a folder reached through a
+// junction has the junction's path and its own. Each path is read down to
+// the deepest folder of it that exists, those folders are compared as the
+// files they are, and only the names below them, which name nothing yet or
+// nothing any more, are compared as text. A /tmp outlives its folder while a
+// shell still runs, so the part that is gone has to count: on 2026-10-10 a
+// /tmp in a folder that was gone was compared in its short spelling with the
+// long one of the folder above it, read as elsewhere, and the folder holding
+// a live /tmp was removed.
+func isWithin(path, folder string) bool {
+	folderDir, folderRest := existingPart(folder)
+	pathDir, below := existingPart(path)
+	folderInfo, err := os.Stat(folderDir)
+	if err != nil {
+		return false
 	}
-	return filepath.Clean(path)
+	// From the deepest folder of path that exists up to its root: the one
+	// that is the folder's own deepest decides, by the names below it.
+	for dir := pathDir; ; {
+		if info, err := os.Stat(dir); err == nil && os.SameFile(info, folderInfo) {
+			if len(below) < len(folderRest) {
+				return false
+			}
+			for index, name := range folderRest {
+				if !strings.EqualFold(below[index], name) {
+					return false
+				}
+			}
+			return true
+		}
+		parent := filepath.Dir(dir)
+		if parent == dir {
+			return false
+		}
+		below = append([]string{filepath.Base(dir)}, below...)
+		dir = parent
+	}
+}
+
+// existingPart splits a path into the deepest folder of it that exists and
+// the names below that folder, outermost first.
+func existingPart(path string) (dir string, rest []string) {
+	dir = filepath.Clean(path)
+	for {
+		if _, err := os.Stat(dir); err == nil {
+			return dir, rest
+		}
+		parent := filepath.Dir(dir)
+		if parent == dir {
+			return dir, rest
+		}
+		rest = append([]string{filepath.Base(dir)}, rest...)
+		dir = parent
+	}
 }
 
 // ErrLiveTempUnknown is why RemoveScratch left a folder it could not prove is
