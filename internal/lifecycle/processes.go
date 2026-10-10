@@ -158,6 +158,45 @@ func OwnedProcesses(processes []Process, directories []string, job []Identity, m
 	return owned
 }
 
+// leftBehind are the processes among owned, a task's own by its folders and
+// its terminal's marks (OwnedProcesses), that the task's ended terminal left
+// running. One that carries the terminal's mark was started in it. One that
+// does not is the task's by its place, or by a parent that is, and was left
+// only when no parent of it still runs, as a tool Git Bash started is once
+// its shell has gone. Under a living parent that is not itself left,
+// somebody else runs it there, as when the CFO tests a retired goblin's
+// worktree or the Overlord has a shell open in it, and it is theirs: a pause
+// stops a task where it stands, and this ends only what nothing else
+// accounts for. started says when each running process began, the command
+// that asks and its ancestors among them.
+func leftBehind(owned []Process, started map[int]time.Time, marks []Mark) []Process {
+	isLeft := make(map[int]bool, len(owned))
+	for _, process := range owned {
+		isLeft[process.PID] = true
+	}
+	// Each pass reaches one generation further down a tree somebody else runs.
+	for isShrinking := true; isShrinking; {
+		isShrinking = false
+		for _, process := range owned {
+			if !isLeft[process.PID] || !process.IsGateAgent && slices.Contains(marks, process.Mark) {
+				continue
+			}
+			parentStarted, hasParent := started[process.ParentPID]
+			if hasParent && process.ParentPID != process.PID && !process.Started.Before(parentStarted) && !isLeft[process.ParentPID] {
+				isLeft[process.PID] = false
+				isShrinking = true
+			}
+		}
+	}
+	var left []Process
+	for _, process := range owned {
+		if isLeft[process.PID] {
+			left = append(left, process)
+		}
+	}
+	return left
+}
+
 // desktopBrowsers are the browsers a person uses. One started with none of
 // automationFlags runs on that person's own profile, in their own windows.
 var desktopBrowsers = []string{"chrome", "msedge", "firefox", "brave", "chromium", "opera", "vivaldi"}
