@@ -19,8 +19,11 @@ import (
 // Arguments are what a host is run with, after the command that runs one, to
 // host spec and record itself under stateDir.
 func Arguments(stateDir string, spec Spec) []string {
-	args := []string{"--state", stateDir, "--id", spec.ID, "--dir", spec.Dir, "--cols", strconv.Itoa(spec.Cols), "--rows", strconv.Itoa(spec.Rows), "--"}
-	return append(args, spec.Args...)
+	args := []string{"--state", stateDir, "--id", spec.ID, "--dir", spec.Dir, "--cols", strconv.Itoa(spec.Cols), "--rows", strconv.Itoa(spec.Rows)}
+	if spec.ShouldLeaveCoresForApps {
+		args = append(args, "--leave-cores-for-apps")
+	}
+	return append(append(args, "--"), spec.Args...)
 }
 
 // launchTimeout bounds how long a new host takes to record itself.

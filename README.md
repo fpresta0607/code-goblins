@@ -435,6 +435,8 @@ Start needs at least 5 GB of free memory and 5 GB of free commit (RAM plus page 
 One click is enough: a Start or Resume clicked while another task starts or resumes, or while memory or disk is short, waits its turn and runs as soon as it can, and its card says Starting or Resuming the moment you click, or Starts at 5 GB free while memory is short.
 What the fleet starts by itself also waits for room on the processors, so your own apps stay quick: the next queued task, a goblin whose wait is over, a goblin coming back after a restart and a helper start only once a quarter of this PC's performance cores sat idle since the last reading.
 Each install reads its own processor for this, and a Start or Resume you click does not wait on it.
+A goblin's own work also keeps off a quarter of this PC's performance cores, rounded up to whole cores, so your apps always have cores no goblin's build or test runs on.
+On a PC of six performance cores that leaves you two, and it costs the goblins about a quarter of their speed only while they fill every core they keep.
 A second click changes nothing, and a refusal goes to the CFO, never to a line on the board.
 A start ends once its goblin has its brief: the goblin installs its worktree's dependencies (`npm ci`, `uv sync` and the like) in its own terminal as its first step, and its card says so, so a long install never holds up the next start or resume.
 A Start or Resume, and each start or resume the supervisor makes by itself, that meets a `cfo spawn` the CFO runs by hand waits for that spawn's turn, which ends once its terminal runs; one that gives up after waiting 10 minutes tries once more as soon as the lock frees.
