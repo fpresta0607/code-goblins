@@ -345,6 +345,7 @@ A report is written whole or not at all, and the board reads them: a live task's
 ### Taking turns
 
 Every `go vet` and `go test` command waits for a turn at every level: the shared capacity limits concurrent commands, every goblin's and every gate's alike, in the order they asked.
+Any other command stands in the same line behind `cfo gate turn`, described under [Any command in the line](#any-command-in-the-line).
 Each command releases its turn when execution ends and joins the common line again before its next command.
 The default remains one, which keeps heavy commands from competing for the same machine's resources.
 Production admission always uses the operating system's user cache folder under `cfo/verify/slots`, regardless of report or process environment redirects.
@@ -365,6 +366,7 @@ cfo gate test: waiting for its turn (3m0s so far): the turn is held by code-gobl
 A gate shows a step's output only once the step has ended, so `cfo gate turns` prints the line from outside while the wait lasts: each run that holds a turn, the runs that wait in the order they asked, and the memory when the machine is short of it.
 Under a run that holds a turn, `cfo gate turns` prints what the run says it is doing, which the run renews every five seconds while its tests run: how many packages are done, which tests are running and for how long, and the last line of its output.
 A new gate run names the task registered for its source worktree, including the owner of an extra worktree, in its turn and report.
+Its turn names the task's goblin with it, as `Zora (cg-example)`, when the task's record names one, and its report keeps the id.
 The run's recorded repository and branch select that worktree; the shared process's task variable is not used.
 If the run or owner cannot be verified, the task stays unnamed and the log explains why.
 
@@ -385,6 +387,87 @@ A live or unverifiable process retains custody past its budget until its executi
 Unreadable or incomplete custody records retain their place regardless of age; the line command reports the uncertainty instead of reporting an empty line.
 A cancelled waiter removes only its own exact record, and a release cannot remove a later lease from the same process.
 A store failure prevents commands from starting.
+
+### Any command in the line
+
+`cfo gate turn` puts any command in that same line, so one heavy run goes at a time on the machine whoever started it: another repository's test command under its gate, a goblin's own suite, or a run one of the Overlord's sessions starts.
+`cfo gate test` and `cfo gate turn` wait through the same code in the same store, so a run of either waits for a run of the other.
+
+```text
+cfo gate turn [--as <name>] -- <program> [<argument>...]
+```
+
+Everything before `--` is `cfo`'s, and everything after it is the command's, its own flags and a `--` of its own included.
+`cfo` starts `<program>` as a process with exactly those arguments, unparsed and with no shell of its own in front, so a command that needs a shell names one: `cfo gate turn -- cmd.exe /c "npm test && npm run lint"`.
+`--as <name>` names the run to whoever reads the line.
+A caller such as a gate knows its repository, branch and run, which the command and the folder do not say, so it should give them: `--as "PrecisionDocs feat/x, run 01M4FG7F"`.
+A run is named `<name>: <command>` with `--as` and `<command> in <folder>` without it.
+`cfo` adds `, task <Goblin> (<id>)` when the run is a fleet task's: a goblin's own run by its terminal, and a gate's run by the task registered for the run's source worktree, as for `cfo gate test`.
+
+**What it waits for.**
+It waits while another run holds the turn, and at the head of the line while free physical memory or free commit is under the floor.
+It sets no limit of its own on either wait.
+Where `cfo gate test` refuses a run after an hour of memory under the floor, `cfo gate turn` waits for as long as memory is short, and the limits that end a run are its command's own and its caller's.
+The wait counts in the wrapper's wall time, so a caller that budgets its test command should start the budget at `took its turn`, or allow for the wait.
+
+**What it prints.**
+Every line of its own goes to standard error and starts with `cfo gate turn: `.
+With the turn free and memory above the floor it writes no line at all.
+As it starts to wait, whenever its place in line changes and once a minute, it says which run holds the turn and for how long, or what memory the machine is short of, and where it stands:
+
+```text
+cfo gate turn: waiting for its turn (3m0s so far): the turn is held by PrecisionDocs feat/x, run 01M4FG7F: cmd.exe /c npm test, task Zora (cg-example) (pid 4242), for 12m0s; 1 run is ahead of this one in line
+cfo gate turn: waiting for its turn (40s so far): 3.1 GB of memory is available and the floor is 4.0 GB; this run is next in line
+```
+
+Once, when it takes a turn it waited a second or more for:
+
+```text
+cfo gate turn: took its turn after 3m0s
+```
+
+Then comes the command's own output, and nothing of `cfo`'s after it.
+A gate shows a step's output only once the step has ended, so while a run waits the line is read from outside with `cfo gate turns`.
+
+**What it leaves untouched.**
+
+- Standard output. `cfo` writes nothing to it, and the command inherits the handle.
+- Standard error. The command inherits the handle, after the lines above.
+- Standard input, the working folder and the environment. All inherited, with one variable added, `CFO_VERIFY_TURN`, described below.
+- The exit code. It is the command's own, whatever it is.
+- The command's limits. `cfo` adds no timeout and raises none.
+
+**When no command runs.**
+
+| Exit code | Last line on standard error | What happened |
+| --- | --- | --- |
+| 125 | `cfo gate turn: this run takes no turn: <reason>` | The command was never started. The line's store or the machine's memory could not be read, the wait was interrupted, or the arguments named no command, which also prints the usage. |
+| 126 | `cfo gate turn: the command did not start: <error>` | A turn was taken and given back, and `<program>` could not be started. |
+
+Neither is a test result, so a caller reads 125 as "the machine gave this run no turn" and never asks an agent to repair tests that did not run.
+A command that itself exits 125 or 126 is told apart by the last line, which then is not `cfo gate turn`'s.
+
+**The turn.**
+The turn is held from before the command starts until it has ended, and is given back whatever its exit code.
+A wrapper that is ended leaves a turn the next run takes at once, since the holder is recorded by process id and start time, so no lock a dead run left ever stops the machine's tests.
+A command that outlives a wrapper ended by force then runs outside any turn, as the checks of a `cfo gate test` ended by force do, so whoever ends a wrapper ends its command with it, as a gate's job object does.
+On Ctrl+C or Ctrl+Break while it waits, `cfo` leaves the line and exits 125.
+While the command runs, `cfo` keeps the turn through the signal and exits with the command's code: the command shares the console, receives the same signal and answers for itself.
+
+**A command that takes turns itself.**
+This repository's test command is `cfo gate test`, which takes a turn for each of its checks, and behind the wrapper it would wait for the turn its own wrapper holds, for good.
+So the wrapper gives its command `CFO_VERIFY_TURN`, which names the turn it holds: the slot, the holder's process id and the moment it was taken.
+A `cfo gate test` or a nested `cfo gate turn` that finds it, with that turn still held by that same live process, runs inside it: it takes no turn, waits for none, and says what it is doing beside the holder's turn.
+Any other value, such as one a process kept from a run that has ended, is ignored, and the run joins the line as every run does.
+
+**Not in the wrapper.**
+It has no budget and no timeout, no disk floor, which `cfo gate test` keeps for itself, and no report file, since its caller keeps the log.
+
+**A gate behind it.**
+A gate puts every run's test command behind the line, with no repository naming it, by starting the command behind four words: `cfo gate turn --`, then exactly the program and arguments it starts today.
+On this machine that is `cfo gate turn -- cmd.exe /c <command string>`, started as an argument list with no shell in front, with `--as` before the `--` when the gate names its run.
+The words go in front of the whole command as a list and are never joined to the command string, where `a && b` would put only `a` behind the turn.
+This is the contract the no-mistakes fork's wrapper setting is built against, and the setting does nothing useful until the installed `cfo` has `cfo gate turn`.
 
 ## Reading speed evidence
 

@@ -97,6 +97,7 @@ It says which level a change requires: `affected`, the Go packages the change re
 It says why each package is in the plan and which changed files no Go check reads, and it leaves a report of what it ran, with what became of each package and which tests failed.
 While working, `cfo gate test --level fast` vets the same packages and tests only the quick changed ones, and `cfo gate test --plan` prints the plan and runs nothing.
 Its tests take turns on the machine, one run at a time, and `cfo gate turns` shows which run holds the turn, how far its tests are, and which runs wait.
+Any other heavy command stands in the same line behind `cfo gate turn -- <command>`, which waits while another run holds the turn or free memory is under 4 GiB, says which run it waits for, and then runs the command with its output and exit code untouched.
 See [Verification levels](docs/pipeline.md#verification-levels).
 
 The production-proof layer is intentionally fail-closed: delivery evidence must come from machine-readable PR state and terminal checks rather than a worker merely claiming that the task is finished.
@@ -856,6 +857,7 @@ cfo pipeline respond <id> --action <fix|approve> [--findings <ids>] [--instructi
 cfo pipeline recover <id>
 cfo gate tests-kept
 cfo gate test [--level fast|affected|full] [--plan]
+cfo gate turn [--as <name>] -- <program> [<argument>...]
 cfo gate turns
 cfo pr check <id> <url>
 cfo pr merge <url> [--method <merge|squash|rebase>] [--delete-branch] [--verified "<what verified it>"]
