@@ -108,14 +108,16 @@ func TestAuthRequestNamesTheRepositoryItsScopeIsFor(t *testing.T) {
 
 // A value saved on the board reaches running goblins through cfo auth
 // store's own refresh: each live task of the project gets its auth.ps1
-// regenerated and a re-source notice, which names the script and never the
-// value. The board hears which goblins were told, and why one was not.
+// regenerated, for the services it carries, and a re-source notice, which
+// names the script and never the value. The board hears which goblins were
+// told, and why one was not.
 func TestBoardSavesRefreshThroughTheAuthStoreRefresh(t *testing.T) {
 	// Arrange
 	useFileStore(t)
 	root := t.TempDir()
 	stateDir := filepath.Join(root, "state")
 	project := filepath.Join(root, "precisiondocs")
+	declareCmdStored(t, stateDir, project, "STRIPE_SECRET_KEY")
 	live := writeCmdTaskMeta(t, stateDir, "live-1", project, "pane-live", true)
 	writeCmdTaskMeta(t, stateDir, "deaf-1", project, "pane-deaf", true)
 	writeCmdTaskMeta(t, stateDir, "parked-1", project, "pane-parked", true)

@@ -77,7 +77,7 @@ type codexEvent struct {
 }
 
 // recordedEnv is what the fake codex records of its environment.
-var recordedEnv = []string{"CFO_TASK_ID", "CFO_ROLE", "GOTMPDIR", "TEMP", "TMP", "TMPDIR", "CFO_HOME", "CFO_STATE_OVERRIDE", "CFO_PROJECTS_ROOT", "CFO_HOST_ID", "FIXTURE_TOKEN", "PLAYWRIGHT_BROWSERS_PATH", "LOCALAPPDATA", "XDG_CACHE_HOME", "HOME", "UV_CACHE_DIR", "DATABASE_URL", "OPENAI_API_KEY", "HERDR_PANE_ID", "CLAUDECODE", "CLAUDE_CODE_ENTRYPOINT", "CLAUDE_CODE_GIT_BASH_PATH", "CODEX_SANDBOX_NETWORK_DISABLED", "CLAUDE_CODE_CHILD_SESSION", "CLAUDE_CODE_SESSION_ID", "CLAUDE_CODE_MESSAGING_SOCKET", "CLAUDE_CODE_MESSAGING_TOKEN", "CLAUDE_PID", "HERDR_TAB_ID", "HERDR_WORKSPACE_ID", "A_SESSION_ONLY_VARIABLE", "USERS_OWN_SETTING"}
+var recordedEnv = []string{"CFO_TASK_ID", "CFO_ROLE", "GOTMPDIR", "TEMP", "TMP", "TMPDIR", "CFO_HOME", "CFO_STATE_OVERRIDE", "CFO_PROJECTS_ROOT", "CFO_HOST_ID", "FIXTURE_TOKEN", "PLAYWRIGHT_BROWSERS_PATH", "LOCALAPPDATA", "XDG_CACHE_HOME", "HOME", "UV_CACHE_DIR", "DATABASE_URL", "OPENAI_API_KEY", "HERDR_PANE_ID", "CLAUDECODE", "CLAUDE_CODE_ENTRYPOINT", "CLAUDE_CODE_GIT_BASH_PATH", "CODEX_SANDBOX_NETWORK_DISABLED", "CLAUDE_CODE_CHILD_SESSION", "CLAUDE_CODE_SESSION_ID", "CLAUDE_CODE_MESSAGING_SOCKET", "CLAUDE_CODE_MESSAGING_TOKEN", "CLAUDE_PID", "HERDR_TAB_ID", "HERDR_WORKSPACE_ID", "A_SESSION_ONLY_VARIABLE", "USERS_OWN_SETTING", standInDatabase, standInPayments, standInSource, standInStray}
 
 // fakeHarness shows codex's own startup screens, as captured on this machine,
 // and answers keys the way codex does. It records its environment, every key
@@ -723,7 +723,7 @@ func TestANativeSpawnAnswersCodexsStartupAndDeliversItsInstructionOnce(t *testin
 			if submitted := named(events, "submitted"); len(submitted) != 1 || submitted[0].Text != pointer {
 				t.Errorf("submitted = %+v, want the line pointing at the instruction once:\n%s", submitted, pointer)
 			}
-			if instruction := spawnInstruction(f.brief, state.TaskMeta{ID: "task-7", Kind: "ship"}, nil); written != instruction+"\n" {
+			if instruction := spawnInstruction(f.brief, state.TaskMeta{ID: "task-7", Kind: "ship"}, nil) + credentialsInstruction(f.project, auth.Grant{}); written != instruction+"\n" {
 				t.Errorf("instruction.md = %q, want the whole instruction:\n%s", written, instruction)
 			}
 			env := named(events, "env")[0].Env
@@ -1211,7 +1211,7 @@ func TestAShimHarnessIsNotLookedUpOnThisProcessPath(t *testing.T) {
 // fixtureCredentials is a project's credentials preflight that returns them.
 type fixtureCredentials map[string]string
 
-func (c fixtureCredentials) Preflight(context.Context, string) (auth.Result, error) {
+func (c fixtureCredentials) Preflight(context.Context, string, auth.Need) (auth.Result, error) {
 	return auth.Result{Env: c}, nil
 }
 
@@ -1380,7 +1380,7 @@ func TestANativeGoblinDoesNotInheritTheCallersTerminalSettings(t *testing.T) {
 	if err != nil {
 		t.Fatalf("userEnvironment: %v", err)
 	}
-	env := service.nativeHostEnvironment(userEnv, harness.Launch{Env: map[string]string{harness.RoleVariable: harness.RoleGoblin, "CFO_TASK_ID": "g1"}}, nil)
+	env := service.nativeHostEnvironment(userEnv, harness.Launch{Env: map[string]string{harness.RoleVariable: harness.RoleGoblin, "CFO_TASK_ID": "g1"}}, auth.Result{})
 
 	// Assert
 	for name := range caller {

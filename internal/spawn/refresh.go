@@ -7,6 +7,7 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 
 	"github.com/fpresta0607/code-goblins/internal/auth"
@@ -55,11 +56,12 @@ type ProjectRefresh struct {
 	Unreachable int
 }
 
-// AuthRefresher rewrites the credential script spawn rendered at dispatch, so
-// a credential stored after spawn reaches a goblin that is already working
-// without anybody hand-appending lines to the file. The script is always
-// regenerated from the project's credential scope with the same generator the
-// dispatch used, so it matches the store and is never a stale snapshot.
+// AuthRefresher writes a task's credential script, so a credential stored
+// after spawn, or a service granted after it, reaches a goblin that is
+// already working without anybody hand-appending lines to the file. The
+// script is always regenerated from the store, for the services the task's
+// record names and no other, so it matches what the task's next terminal
+// would be given and is never a stale snapshot.
 //
 // It deliberately writes only the task's own tasktmp file. The worktree .env
 // is never touched: that file is hardlink-shared with the primary checkout
@@ -94,7 +96,7 @@ func (r AuthRefresher) RefreshProject(ctx context.Context, project string) (Proj
 	if scope == "" {
 		return result, errors.New("spawn: a credential refresh needs a project scope")
 	}
-	env, err := r.scriptEnv(scope)
+	source, err := r.source(scope)
 	if err != nil {
 		return result, err
 	}
@@ -103,7 +105,7 @@ func (r AuthRefresher) RefreshProject(ctx context.Context, project string) (Proj
 		return result, err
 	}
 	for _, meta := range metas {
-		item, refreshed, dirsLive, err := r.refreshLive(ctx, meta, env)
+		item, refreshed, dirsLive, err := r.refreshLive(ctx, meta, source)
 		if err != nil {
 			failures = append(failures, err)
 			continue
@@ -126,8 +128,7 @@ func (r AuthRefresher) RefreshTask(ctx context.Context, id string) (Refreshed, e
 	if err := state.ValidTaskID(id); err != nil {
 		return Refreshed{}, err
 	}
-	meta, err := state.ReadTaskMeta(r.StateDir, id)
-	if errors.Is(err, fs.ErrNotExist) {
+	if _, err := state.ReadTaskMeta(r.StateDir, id); errors.Is(err, fs.ErrNotExist) {
 		archived, err := r.archived(id)
 		if err != nil {
 			return Refreshed{}, err
@@ -136,61 +137,144 @@ func (r AuthRefresher) RefreshTask(ctx context.Context, id string) (Refreshed, e
 			return Refreshed{}, fmt.Errorf("spawn: task %s is archived", id)
 		}
 		return Refreshed{}, fmt.Errorf("spawn: unknown task %s", id)
-	}
-	if err != nil {
+	} else if err != nil {
 		return Refreshed{}, fmt.Errorf("spawn: read task metadata: %w", err)
 	}
-	if meta.TaskTmp == "" {
-		return Refreshed{}, fmt.Errorf("spawn: task %s has no tasktmp", id)
-	}
-	scope := auth.ProjectName(meta.Project)
-	if scope == "" {
-		return Refreshed{}, fmt.Errorf("spawn: task %s names no project, so it has no credential scope", id)
-	}
-	env, err := r.scriptEnv(scope)
-	if err != nil {
-		return Refreshed{}, err
-	}
+	// The record is read under the task's lock, and the script is written for
+	// the project and the services that one reading names. A cleanup and a
+	// respawn of the id, or a grant, can therefore never leave one reading's
+	// project or services in a script written for another's.
 	var item Refreshed
-	err = r.locked(id, func() error {
-		current, readErr := state.ReadTaskMeta(r.StateDir, id)
-		if errors.Is(readErr, fs.ErrNotExist) {
+	err := r.locked(id, func() error {
+		current, err := state.ReadTaskMeta(r.StateDir, id)
+		if errors.Is(err, fs.ErrNotExist) {
 			return fmt.Errorf("spawn: task %s is gone; the task is finished", id)
 		}
-		if readErr != nil {
-			return fmt.Errorf("spawn: read task metadata: %w", readErr)
+		if err != nil {
+			return fmt.Errorf("spawn: read task metadata: %w", err)
 		}
-		if auth.ProjectName(current.Project) != scope {
-			return fmt.Errorf("spawn: task %s now records project %s; refusing to write %s credentials into it", id, auth.ProjectName(current.Project), scope)
+		if current.TaskTmp == "" {
+			return fmt.Errorf("spawn: task %s has no tasktmp", id)
+		}
+		scope := auth.ProjectName(current.Project)
+		if scope == "" {
+			return fmt.Errorf("spawn: task %s names no project, so it has no credential scope", id)
 		}
 		if info, statErr := os.Stat(current.TaskTmp); statErr != nil || !info.IsDir() {
 			return fmt.Errorf("spawn: task %s tasktmp %q is gone; the task is finished", id, current.TaskTmp)
 		}
-		var writeErr error
-		item, writeErr = r.rewrite(current, env, r.Panes != nil && r.Panes.Live(ctx, current))
-		return writeErr
+		source, err := r.source(scope)
+		if err != nil {
+			return err
+		}
+		item, err = r.rewrite(current, source, r.Panes != nil && r.Panes.Live(ctx, current))
+		return err
 	})
 	return item, err
 }
 
-// scriptEnv is the refresh generator: everything the store says this project's
-// pane should hold, declared or not. The manifest is read the way the spawn
-// preflight reads it, with no manifest meaning nothing declared; see
-// auth.StoredEnv for what a refresh deliberately cannot reproduce.
-func (r AuthRefresher) scriptEnv(scope string) (map[string]string, error) {
+// Grant adds services of the project's manifest to the ones task id carries.
+// It names them in the task's record, so every later terminal of the task
+// carries them, and rewrites the task's credential script, which its running
+// terminal loads. It is the one way a task comes by a service after its
+// spawn, and it changes no other task. It returns the script it wrote and
+// the services the record names afterwards.
+//
+// A service the manifest does not declare is refused before anything is
+// written. The record is changed under the lock a switch and a resume hold
+// from start to end, so neither can publish the record as it read it before
+// the grant.
+func (r AuthRefresher) Grant(ctx context.Context, id string, services []string) (Refreshed, []string, error) {
+	if err := state.ValidTaskID(id); err != nil {
+		return Refreshed{}, nil, err
+	}
+	meta, err := state.ReadTaskMeta(r.StateDir, id)
+	if errors.Is(err, fs.ErrNotExist) {
+		return Refreshed{}, nil, fmt.Errorf("spawn: %s is not a running task, and only a running task is granted a service. A queued task names its services in its brief", id)
+	}
+	if err != nil {
+		return Refreshed{}, nil, fmt.Errorf("spawn: read task metadata: %w", err)
+	}
+	scope := auth.ProjectName(meta.Project)
+	if scope == "" {
+		return Refreshed{}, nil, fmt.Errorf("spawn: task %s names no project, so it has no credential scope", id)
+	}
+	source, err := r.source(scope)
+	if err != nil {
+		return Refreshed{}, nil, err
+	}
+	if asked := source.manifest.Grant(auth.Need{Services: services}); len(asked.Unknown) > 0 || len(services) == 0 {
+		return Refreshed{}, nil, fmt.Errorf("spawn: no service was granted to %s: %s", id, auth.UnknownLine(scope, asked))
+	}
+	var recorded []string
+	lockName := state.MetadataLockName(id)
+	if _, err := lock.AcquireExclusiveNamed(r.StateDir, lockName); err != nil {
+		return Refreshed{}, nil, fmt.Errorf("spawn: the record of task %s is being changed by another command, as a switch or a resume of it does, so run the grant again once that has ended: %w", id, err)
+	}
+	err = func() (err error) {
+		defer func() { err = errors.Join(err, lock.ReleaseExclusiveNamed(r.StateDir, lockName)) }()
+		current, err := state.ReadTaskMeta(r.StateDir, id)
+		if err != nil {
+			return fmt.Errorf("spawn: read task metadata: %w", err)
+		}
+		if auth.ProjectName(current.Project) != scope {
+			return fmt.Errorf("spawn: task %s now records project %s, so it was not granted %s's services", id, auth.ProjectName(current.Project), scope)
+		}
+		// What the task carries now: what its record names, or, for a task an
+		// older build spawned, what its next terminal would be given.
+		recorded = recordedServices(source.manifest.Grant(taskNeed(current)))
+		for _, service := range services {
+			if !slices.Contains(recorded, service) {
+				recorded = append(recorded, service)
+			}
+		}
+		slices.Sort(recorded)
+		if err := state.WriteTaskCredentials(r.StateDir, id, recorded); err != nil {
+			return fmt.Errorf("spawn: name the granted services in the record of %s: %w", id, err)
+		}
+		return state.AppendStatus(r.StateDir, id, "credentials: the CFO granted "+strings.Join(services, ", ")+", so the task carries "+strings.Join(recorded, ", "))
+	}()
+	if err != nil {
+		return Refreshed{}, nil, err
+	}
+	item, err := r.RefreshTask(ctx, id)
+	return item, recorded, err
+}
+
+// credentialSource is where a project's credential scripts are generated
+// from: the store, and the manifest that says which stored names each service
+// declares.
+type credentialSource struct {
+	scope    string
+	store    auth.Store
+	manifest auth.Manifest
+}
+
+// source opens the store and reads the project's manifest the way the spawn
+// preflight reads it, with no manifest meaning no service declared, and so no
+// credential for any task.
+func (r AuthRefresher) source(scope string) (credentialSource, error) {
 	store := r.Store
 	if store == nil {
 		opened, err := auth.OpenStore()
 		if err != nil {
-			return nil, fmt.Errorf("spawn: open credential store: %w", err)
+			return credentialSource{}, fmt.Errorf("spawn: open credential store: %w", err)
 		}
 		store = opened
 	}
 	manifest, err := auth.LoadManifest(r.DataDir, scope)
 	if err != nil && !errors.Is(err, fs.ErrNotExist) {
-		return nil, fmt.Errorf("spawn: load project manifest: %w", err)
+		return credentialSource{}, fmt.Errorf("spawn: load project manifest: %w", err)
 	}
-	env, err := auth.StoredEnv(store, scope, manifest)
+	return credentialSource{scope: scope, store: store, manifest: manifest}, nil
+}
+
+// scriptEnv is the refresh generator: what the store holds for the services
+// the task carries, and nothing else stored in its project's scope. See
+// auth.StoredEnv for what a refresh deliberately cannot reproduce.
+func (s credentialSource) scriptEnv(meta state.TaskMeta) (map[string]string, error) {
+	carried := s.manifest.Grant(taskNeed(meta)).Services
+	env, err := auth.StoredEnv(s.store, s.scope, s.manifest.Only(carried))
 	if err != nil {
 		return nil, fmt.Errorf("spawn: gather stored credentials: %w", err)
 	}
@@ -239,8 +323,19 @@ func (r AuthRefresher) projectMetas(scope string) ([]state.TaskMeta, []error, er
 // was skipped, which is not a failure; dirsLive distinguishes a task whose
 // worktree and tasktmp are still there (its pane is what failed) from one
 // whose state is already gone.
-func (r AuthRefresher) refreshLive(ctx context.Context, meta state.TaskMeta, env map[string]string) (item Refreshed, refreshed, dirsLive bool, err error) {
+func (r AuthRefresher) refreshLive(ctx context.Context, meta state.TaskMeta, source credentialSource) (item Refreshed, refreshed, dirsLive bool, err error) {
 	err = r.locked(meta.ID, func() error {
+		// The record is read again under the lock: a grant may have named a
+		// service since the project's records were listed, and the id may be
+		// another project's task by now, which is not this refresh's.
+		current, err := state.ReadTaskMeta(r.StateDir, meta.ID)
+		if errors.Is(err, fs.ErrNotExist) || (err == nil && auth.ProjectName(current.Project) != source.scope) {
+			return nil
+		}
+		if err != nil {
+			return fmt.Errorf("spawn: task %s: read task metadata: %w", meta.ID, err)
+		}
+		meta = current
 		if !r.taskDirsLive(meta) {
 			return nil
 		}
@@ -249,7 +344,7 @@ func (r AuthRefresher) refreshLive(ctx context.Context, meta state.TaskMeta, env
 			return nil
 		}
 		refreshed = true
-		item, err = r.rewrite(meta, env, true)
+		item, err = r.rewrite(meta, source, true)
 		return err
 	})
 	return item, refreshed, dirsLive, err
@@ -271,7 +366,11 @@ func (r AuthRefresher) taskDirsLive(meta state.TaskMeta) bool {
 	return true
 }
 
-func (r AuthRefresher) rewrite(meta state.TaskMeta, env map[string]string, live bool) (Refreshed, error) {
+func (r AuthRefresher) rewrite(meta state.TaskMeta, source credentialSource, live bool) (Refreshed, error) {
+	env, err := source.scriptEnv(meta)
+	if err != nil {
+		return Refreshed{}, err
+	}
 	path, vars, err := writeAuthScript(meta.TaskTmp, env)
 	if err != nil {
 		return Refreshed{}, fmt.Errorf("spawn: regenerate %s auth.ps1: %w", meta.ID, err)

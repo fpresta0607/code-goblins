@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"time"
 
+	"github.com/fpresta0607/code-goblins/internal/auth"
 	"github.com/fpresta0607/code-goblins/internal/execx"
 	"github.com/fpresta0607/code-goblins/internal/harness"
 	"github.com/fpresta0607/code-goblins/internal/home"
@@ -66,7 +67,7 @@ func (s Service) ProveLaunch(ctx context.Context, id string, kind harness.Kind, 
 	if err != nil {
 		return fmt.Errorf("spawn: read the user's environment: %w", err)
 	}
-	record, err := host.Launch(s.StateDir, s.HostCommand, s.nativeHostEnvironment(userEnv, launch, nil), host.Spec{ID: id, Args: program, Dir: dir, Cols: nativeCols, Rows: nativeRows})
+	record, err := host.Launch(s.StateDir, s.HostCommand, s.nativeHostEnvironment(userEnv, launch, auth.Result{}), host.Spec{ID: id, Args: program, Dir: dir, Cols: nativeCols, Rows: nativeRows})
 	if err != nil {
 		return fmt.Errorf("spawn: start native terminal %s: %w", id, err)
 	}

@@ -497,3 +497,52 @@ func TestWriteTaskMetaRoundTripsTheParentOfAHelper(t *testing.T) {
 		}
 	}
 }
+
+// A record names the services its task carries, says none for a task that
+// carries none, and names nothing at all for a task an older build spawned,
+// which is how the next terminal of such a task is told apart.
+func TestWriteTaskMetaRoundTripsTheServicesATaskCarries(t *testing.T) {
+	cases := []struct {
+		name string
+		meta TaskMeta
+		want string
+	}{
+		{"two services", TaskMeta{ID: "g1", Kind: "ship", Mode: "direct-PR", Credentials: []string{"github", "stripe"}, HasCredentials: true}, "credentials=github,stripe"},
+		{"none", TaskMeta{ID: "g1", Kind: "ship", Mode: "direct-PR", HasCredentials: true}, "credentials=none"},
+		{"an older build", TaskMeta{ID: "g1", Kind: "ship", Mode: "direct-PR"}, ""},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			// Arrange
+			dir := t.TempDir()
+
+			// Act
+			err := WriteTaskMeta(dir, tc.meta)
+			got, readErr := ReadTaskMeta(dir, "g1")
+			record, _ := os.ReadFile(TaskMetaPath(dir, "g1"))
+
+			// Assert
+			if err != nil || readErr != nil {
+				t.Fatalf("write = %v, read = %v", err, readErr)
+			}
+			if !reflect.DeepEqual(got, tc.meta) {
+				t.Errorf("round trip = %+v, want %+v", got, tc.meta)
+			}
+			if strings.Contains(string(record), "credentials=") != (tc.want != "") || !strings.Contains(string(record), tc.want) {
+				t.Errorf("record = %q, want the line %q", record, tc.want)
+			}
+		})
+	}
+}
+
+func TestWriteTaskMetaRefusesAServiceARecordCouldNotName(t *testing.T) {
+	for _, service := range []string{"", "none", "pay,ments", "pay\nments"} {
+		meta := TaskMeta{ID: "g1", Kind: "ship", Mode: "direct-PR", Credentials: []string{service}, HasCredentials: true}
+		if err := WriteTaskMeta(t.TempDir(), meta); err == nil {
+			t.Errorf("service %q was written, want it refused", service)
+		}
+	}
+	if err := WriteTaskMeta(t.TempDir(), TaskMeta{ID: "g1", Kind: "ship", Mode: "direct-PR", Credentials: []string{"github"}}); err == nil {
+		t.Error("services were written for a record that does not say it names them")
+	}
+}

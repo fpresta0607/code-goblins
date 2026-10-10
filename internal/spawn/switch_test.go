@@ -514,10 +514,14 @@ func TestSwitchCarriesOnlyWhatTheNewHarnessUnderstands(t *testing.T) {
 }
 
 // The switch rebuilds the launch from the preflight, so a credential the
-// operator stored after the spawn reaches the new harness only if the
-// preflight reads the store the way a refresh does.
-func TestSwitchKeepsACredentialStoredAfterSpawn(t *testing.T) {
+// operator stored after the spawn, for a service the task carries, reaches the
+// new harness. A name stored in the project's scope that no service declares
+// used to ride along too, and reaches no terminal now.
+func TestSwitchKeepsACredentialStoredAfterSpawnForAServiceTheTaskCarries(t *testing.T) {
 	f := newSwitchFixture(t, harness.Control{StopCommand: "/exit"})
+	if err := state.WriteTaskCredentials(f.stateDir, f.meta.ID, []string{"db"}); err != nil {
+		t.Fatal(err)
+	}
 	for _, name := range []string{"DATABASE_URL", "FIXTURE_TOKEN"} {
 		t.Setenv(name, "")
 		os.Unsetenv(name)
@@ -548,10 +552,11 @@ func TestSwitchKeepsACredentialStoredAfterSpawn(t *testing.T) {
 	}
 
 	started := named(f.events(t), "env")[0].Env
-	for name, want := range map[string]string{"DATABASE_URL": "postgres://declared", "FIXTURE_TOKEN": "stored-midtask"} {
-		if got := started[name]; got == nil || *got != want {
-			t.Errorf("the new harness started with %s = %v, want %q", name, got, want)
-		}
+	if got := started["DATABASE_URL"]; got == nil || *got != "postgres://declared" {
+		t.Errorf("the new harness started without the DATABASE_URL its service declares")
+	}
+	if got := started["FIXTURE_TOKEN"]; got != nil {
+		t.Error("the new harness started with FIXTURE_TOKEN, which no service declares")
 	}
 }
 

@@ -77,6 +77,10 @@ type Service struct {
 	Optional bool `json:"optional,omitempty"`
 	// Note explains a service whose purpose is not obvious from its name.
 	Note string `json:"note,omitempty"`
+	// Default gives this service's credentials to a task whose brief names no
+	// service and does not say none, the form every brief had before a brief
+	// named its services. A brief that names services gets exactly those.
+	Default bool `json:"default,omitempty"`
 }
 
 // Identity is the check that separates "this project's instance" from "an
@@ -246,6 +250,11 @@ func (m Manifest) Validate() error {
 		}
 		if seen[service.Name] {
 			return fmt.Errorf("service %q is declared twice", service.Name)
+		}
+		// A brief names its services on one line, separated by commas, or
+		// says none, and a task's record keeps them the same way.
+		if strings.Contains(service.Name, ",") || strings.EqualFold(service.Name, NoServices) || service.Name != strings.TrimSpace(service.Name) {
+			return fmt.Errorf("service %q cannot be named in a brief: a service's name holds no comma, starts and ends with no space, and is not %q", service.Name, NoServices)
 		}
 		seen[service.Name] = true
 		switch service.Method {
