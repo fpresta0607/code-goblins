@@ -177,20 +177,10 @@ func TestRestoreRefusesABackupThatChanged(t *testing.T) {
 // A held build cannot be written, replaced or deleted, yet still starts, so
 // what runs is what was hashed.
 func TestAHeldBuildCannotChangeButStillRuns(t *testing.T) {
-	self, err := os.Executable()
-	if err != nil {
-		t.Fatal(err)
-	}
-	data, err := os.ReadFile(self)
-	if err != nil {
-		t.Fatal(err)
-	}
 	dir := t.TempDir()
 	standin.RemoveAtCleanup(t, dir)
 	build := filepath.Join(dir, "previous-goblins.exe")
-	if err := os.WriteFile(build, data, 0o755); err != nil {
-		t.Fatal(err)
-	}
+	standin.Put(t, build)
 	want, err := HashFile(build)
 	if err != nil {
 		t.Fatal(err)
@@ -214,7 +204,7 @@ func TestAHeldBuildCannotChangeButStillRuns(t *testing.T) {
 	if err := os.Remove(build); err == nil {
 		t.Fatal("a held build was deleted")
 	}
-	if output, err := exec.Command(build, "-test.run=^$").CombinedOutput(); err != nil {
+	if output, err := exec.Command(build).CombinedOutput(); err != nil {
 		t.Fatalf("a held build did not run: %v\n%s", err, output)
 	}
 }
