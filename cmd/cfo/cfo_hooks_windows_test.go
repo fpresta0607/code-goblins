@@ -2,8 +2,10 @@ package main
 
 import (
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 
@@ -70,12 +72,18 @@ func TestRunDoctorSaysWhetherTheUsersSettingsStillHoldTheCFOsHooks(t *testing.T)
 	if err != nil {
 		t.Fatal(err)
 	}
+	var names []string
+	for _, hook := range install.Hooks(home) {
+		names = append(names, hook.Name)
+	}
+	slices.Sort(names)
+	held := fmt.Sprintf("%d of the CFO's hooks (%s)", len(names), strings.Join(names, ", "))
 	for _, tc := range []struct {
 		name, settings, want string
 	}{
 		{"no settings file", "", "hooks: the CFO's terminal starts with its hooks, and %s holds none of them, so no other Claude Code session runs one\n"},
 		{"only the user's own hooks", `{"hooks": {"Stop": [{"hooks": [{"type": "command", "command": "node session-end.js"}]}]}}`, "hooks: the CFO's terminal starts with its hooks, and %s holds none of them"},
-		{"an older build's install", string(older), "hooks: %s still holds 6 of the CFO's hooks (pre-compact, pretool-bash, pretool-subagent, session-start, stop-autoarm, turnend-guard), so every Claude Code session on this machine starts cfo.exe for them on each Bash call, turn end and start; the CFO's terminal starts with its own, and `cfo install` takes these out"},
+		{"an older build's install", string(older), "hooks: %s still holds " + held + ", so every Claude Code session on this machine starts cfo.exe for them on each Bash call, turn end and start; the CFO's terminal starts with its own, and `cfo install` takes these out"},
 		{"malformed", `{"hooks": []}`, "hooks: %s unreadable ("},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
