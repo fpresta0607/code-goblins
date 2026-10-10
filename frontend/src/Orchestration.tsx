@@ -377,7 +377,7 @@ export function Orchestration({ snapshot, selected, connected, effects, onSelect
               aria-label={node.title + ". " + status + ". " + (parent ? "Parent: " + parent.title : node.relation)} aria-describedby="canvas-help"
               data-tip={owner && node.task?.goblin_name ? taskName(node.task) : undefined}>
               <Avatar persona={node.cfo ? "cfo" : personaFor(node.task, node.session)} />
-              <span className="card-copy"><strong>{node.title}</strong>{presentations.some(a=>presentationShownOn(a,node.session,node.task))&&<span className="browser-indicator">Browser active</span>}{node.task?.project && <span className="project-label">{node.task.project}</span>}<span className={"plain-status phase-" + phase}><span className="status-dot" />{status}</span>
+              <span className="card-copy"><strong>{node.title}</strong>{presentations.some(a=>presentationShownOn(a,node.session,node.task))&&<span className="browser-indicator">Browser active</span>}{node.task?.project && <span className="project-label">{node.task.project}</span>}<span className={"plain-status phase-" + phase}><span className="status-dot" /><span className="card-status-text">{status}</span></span>
                 {!node.parent && node.session?.role !== "cfo" && !node.cfo && <small>{node.relation}</small>}
               </span>
             </button>
