@@ -310,3 +310,55 @@ func TestLaunchDisabledCodexServerNeverOffersSignIn(t *testing.T) {
 		t.Fatal("offered sign-in for a launch-disabled server")
 	}
 }
+
+// A task carries only the services its record names. The panel used to call
+// every other service's credential missing and offer to store it, though the
+// value was stored and only withheld from this task.
+func TestInspectorShowsAServiceTheTaskDoesNotCarryAsWithheld(t *testing.T) {
+	// Arrange
+	inspector, meta := inspectorFixture(t)
+	meta.Credentials, meta.HasCredentials = []string{"repo"}, true
+	writeConnectionFixture(t, auth.ManifestPath(inspector.DataDir, meta.Project), `{"project":"project","services":[{"name":"repo","method":"env","env":["FIXTURE_SECRET"]},{"name":"payments","method":"env","env":["FIXTURE_PAYMENTS_TOKEN"],"probe":["probe-payments"]}]}`)
+	writeConnectionFixture(t, filepath.Join(meta.TaskTmp, "mcp.json"), `{"mcpServers":{"tools":{"command":"private-command"}}}`)
+	probed := false
+	inspector.Runner = checkRunner(func(_ context.Context, request execx.Request) (execx.Result, error) {
+		probed = probed || request.Name == "probe-payments"
+		return execx.Result{}, nil
+	})
+
+	// Act
+	result := inspector.Check(context.Background(), meta)
+
+	// Assert
+	for id, status := range map[string]string{"service:payments": "withheld", "credential:FIXTURE_PAYMENTS_TOKEN": "withheld", "credential:FIXTURE_SECRET": "provided"} {
+		index := slices.IndexFunc(result.Entries, func(entry Entry) bool { return entry.ID == id })
+		if index < 0 || result.Entries[index].Status != status {
+			t.Errorf("%s did not have status %s: %+v", id, status, result.Entries)
+			continue
+		}
+		if status == "withheld" && (len(result.Entries[index].Actions) != 0 || !strings.Contains(result.Entries[index].Detail, "cfo auth grant sample payments")) {
+			t.Errorf("%s = %+v, want no repair offered and the grant that gives it named", id, result.Entries[index])
+		}
+	}
+	if probed {
+		t.Error("a service the task does not carry was probed for its panel")
+	}
+}
+
+// A task an older build started has a record that names no services, and its
+// terminal holds everything, so its panel reads as it always did.
+func TestInspectorReadsATaskAnOlderBuildStartedAsBefore(t *testing.T) {
+	// Arrange
+	inspector, meta := inspectorFixture(t)
+	writeConnectionFixture(t, auth.ManifestPath(inspector.DataDir, meta.Project), `{"project":"project","services":[{"name":"payments","method":"env","env":["FIXTURE_PAYMENTS_TOKEN"]}]}`)
+	writeConnectionFixture(t, filepath.Join(meta.TaskTmp, "mcp.json"), `{"mcpServers":{"tools":{"command":"private-command"}}}`)
+
+	// Act
+	result := inspector.Check(context.Background(), meta)
+
+	// Assert
+	index := slices.IndexFunc(result.Entries, func(entry Entry) bool { return entry.ID == "credential:FIXTURE_PAYMENTS_TOKEN" })
+	if index < 0 || result.Entries[index].Status != "missing" {
+		t.Errorf("the credential did not read missing: %+v", result.Entries)
+	}
+}

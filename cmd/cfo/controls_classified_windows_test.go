@@ -13,6 +13,7 @@ import (
 	"golang.org/x/sys/windows"
 
 	"github.com/fpresta0607/code-goblins/internal/harness"
+	"github.com/fpresta0607/code-goblins/internal/priority/prioritytest"
 )
 
 // staysAtNormal is every command of the dispatch that is not a control, with
@@ -198,7 +199,7 @@ func TestAControlAGoblinOrAGateAgentStartsIsNotRaised(t *testing.T) {
 		for name := range controls {
 			t.Run(who+"/"+name, func(t *testing.T) {
 				// Arrange
-				fromNormal(t)
+				prioritytest.FromNormal(t)
 				t.Setenv(variable[0], variable[1])
 
 				// Act

@@ -274,15 +274,31 @@ type Process struct {
 	// harness-shaped processes and their ancestors, the one place it decides
 	// anything, and is empty wherever it was not read or could not be.
 	Cwd string `json:"cwd,omitempty"`
-	// Terminal is the native terminal of this home the process proves it
-	// runs in: the one its environment names, by the proof value that
-	// terminal's host put there. It is read for the same processes as Cwd,
-	// and is empty wherever nothing was proven.
+	// Terminal is the native terminal of this home whose mark the process
+	// carries: the one its environment names, by a proof value a host of
+	// that terminal put there since the machine started, whether or not a
+	// host runs it now. It is empty wherever nothing was proven.
 	Terminal string `json:"terminal,omitempty"`
+	// Owner is the terminal of this home that runs and whose own the
+	// process is, by the rule that terminal's teardown ends it by: its
+	// mark, its task's folders, or a parent that is its own. It is empty
+	// for a process no running terminal owns.
+	Owner string `json:"owner,omitempty"`
 	// IsGateAgent says the process's environment carries the variable
-	// no-mistakes sets on every agent it starts for a gate step. It is read
-	// for the same processes as Cwd.
+	// no-mistakes sets on every agent it starts for a gate step.
 	IsGateAgent bool `json:"gate_agent,omitempty"`
+}
+
+// Sighting is one process as a second reading of the machine found it,
+// taken once the listing was (Collector.Sightings): that it still runs, with
+// the start that tells it from a later process given its pid, and whose it
+// is. Terminal, Owner and IsGateAgent are what Process keeps of them.
+type Sighting struct {
+	PID         int
+	Started     time.Time
+	Terminal    string
+	Owner       string
+	IsGateAgent bool
 }
 
 // Pane is one pane Herdr still reports, with the operating-system identity
@@ -322,9 +338,6 @@ type NativeHost struct {
 	ID      string
 	HostPID int
 	Started time.Time
-	// ProofSum is the digest of the proof value the host put in its
-	// terminal's environment.
-	ProofSum string
 }
 
 // Registration is what a project repository answered about a directory among
@@ -465,11 +478,6 @@ var desktopAppMarkers = []string{`\windowsapps\claude_`, `\windowsapps\openai.co
 // reviewer harnesses under it. Those harnesses are as supervised as a goblin
 // in a pane: killing one ends a review round for a goblin that is working.
 const gateExecutable = "no-mistakes"
-
-// gateAgentVariable is set by no-mistakes on every agent it starts for a gate
-// step. The agent keeps it when the process that started it exits, which the
-// walk down from no-mistakes does not survive.
-const gateAgentVariable = "NO_MISTAKES_GATE"
 
 // serverModules are the long-lived development servers a goblin leaves behind.
 // The match is on the module path in the command line, which is how a server
@@ -1323,22 +1331,14 @@ func taskHasProcess(task Task, processes []Process, supervised, fleet map[int]bo
 
 // supervisedPIDs is everything this sweep must never touch: each live pane's
 // shell and foreground group, each live native terminal's host, everything
-// descended from them, and this process's own ancestry. The pane and host sets
-// are the real answer to whether something is supervised; the self set is what
-// keeps the sweep from reporting the session it runs inside.
+// descended from them, what a running terminal owns, and this process's own
+// ancestry. The pane and host sets are the real answer to whether something
+// is supervised; the self set is what keeps the sweep from reporting the
+// session it runs inside.
 func supervisedPIDs(inv Inventory, hosts map[string]int) map[int]bool {
 	roots := make([]int, 0, len(inv.Panes)*2+len(hosts)+len(inv.SelfPIDs))
 	for _, pid := range hosts {
 		roots = append(roots, pid)
-	}
-	// A process that proves it runs in a live terminal is that terminal's,
-	// with everything it starts, though its chain of parents stops short of
-	// the host: Git Bash runs timeout, an MSYS program, by replacing its own
-	// Windows process, so a goblin's tests run that way reach no host.
-	for _, process := range inv.Processes {
-		if _, live := hosts[process.Terminal]; live {
-			roots = append(roots, process.PID)
-		}
 	}
 	for _, pane := range inv.Panes {
 		if pane.ShellPID != 0 {
@@ -1349,7 +1349,19 @@ func supervisedPIDs(inv Inventory, hosts map[string]int) map[int]bool {
 		}
 	}
 	roots = append(roots, inv.SelfPIDs...)
-	return descendants(inv.Processes, roots)
+	supervised := descendants(inv.Processes, roots)
+	// A process a running terminal owns is that terminal's, though its chain
+	// of parents stops short of the host: Git Bash runs env and timeout,
+	// MSYS programs, by replacing its own Windows process, so a goblin's
+	// tests run that way reach no host. Whose it is was decided where the
+	// process sweep decides it, which follows a terminal's own down to what
+	// they start, so nothing more is followed from one here.
+	for _, process := range inv.Processes {
+		if process.Owner != "" {
+			supervised[process.PID] = true
+		}
+	}
+	return supervised
 }
 
 // liveHosts maps each native terminal whose host still runs to the host's

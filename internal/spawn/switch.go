@@ -367,6 +367,19 @@ func (s Service) Switch(ctx context.Context, req SwitchRequest) (result SwitchRe
 	// nothing stored gave such a task nothing to lose.
 	isNarrowed := !meta.HasCredentials && len(preflight.Grant.Withheld)+len(preflight.Undeclared) > 0
 	meta.Credentials, meta.HasCredentials = recordedServices(preflight.Grant), true
+	// A credential script is what a refresh wrote for the task's last
+	// terminal, and one written before the task's services were narrowed
+	// holds everything its project had stored. The new terminal starts with
+	// what the task carries in its environment, so the script goes with the
+	// terminal it was written for, and nothing in the task's folder says more
+	// than its record. One that cannot be removed is said and does not stop
+	// the relaunch, which would leave the goblin with no harness.
+	scriptNote := ""
+	if err := os.Remove(filepath.Join(meta.TaskTmp, state.AuthScriptName)); err == nil {
+		scriptNote = "\nauth: removed the credential script written for " + req.ID + "'s last terminal. Its new terminal starts with what the task carries"
+	} else if !errors.Is(err, os.ErrNotExist) {
+		scriptNote = "\nwarning: the credential script written for " + req.ID + "'s last terminal could not be removed (" + err.Error() + ") and may hold more than the task carries now. Run cfo auth refresh " + req.ID + " to rewrite it"
+	}
 	// Publish the replacement generation before its first native hook can run.
 	if err := s.publishSwitch(&meta, target); err != nil {
 		return SwitchResult{}, err
@@ -432,7 +445,7 @@ func (s Service) Switch(ctx context.Context, req SwitchRequest) (result SwitchRe
 	if notice := containedNotice(nativeHost); notice != "" {
 		result.Output += "\n" + notice
 	}
-	result.Output += left
+	result.Output += left + scriptNote
 	if isNarrowed {
 		result.Output += "\nauth: " + narrowedLine(req.ID, project, preflight.Grant)
 		if line := auth.WithheldLine(req.ID, project, preflight); line != "" {
