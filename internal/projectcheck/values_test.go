@@ -139,8 +139,8 @@ func TestAPublicAddressIsNamedBesideTheKeyThatOpensIt(t *testing.T) {
 				contains(t, "evidence", only(t, report, "test-reaches-production").Evidence, "SUPABASE_SERVICE_ROLE_KEY (a credential, which opens the host NEXT_PUBLIC_SUPABASE_URL names)")
 				return
 			}
-			if strings.Contains(report.Text(), "NEXT_PUBLIC_SUPABASE_URL names") {
-				t.Errorf("a public address is named beside a key that does not open it:\n%s", report.Text())
+			if strings.Contains(report.Text(), "NEXT_PUBLIC_SUPABASE_URL names") || strings.Contains(report.Text(), "NEXT_PUBLIC_SUPABASE_URL (") {
+				t.Errorf("a public address is counted, or named beside a key that does not open it:\n%s", report.Text())
 			}
 		})
 	}
