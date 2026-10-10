@@ -35,6 +35,26 @@ func TestATerminalsProofsKeepEveryDigestItWasGivenSinceTheMachineStarted(t *test
 	}
 }
 
+// A host that a build before these proofs started kept none, and what its
+// terminal started carries its value still. Its record holds the digest, so
+// the terminal's proofs count the record's too.
+func TestATerminalsProofsCountItsRecordsDigest(t *testing.T) {
+	// Arrange
+	stateDir := t.TempDir()
+	running := ProofSum("given-before-proofs-were-kept")
+	if err := writeRecord(stateDir, Record{ID: "g1", Pipe: `\\.\pipe\g1`, Token: "token", HostPID: os.Getpid(), ProofSum: running}); err != nil {
+		t.Fatal(err)
+	}
+
+	// Act
+	proofs, err := Proofs(stateDir, "g1")
+
+	// Assert
+	if err != nil || !reflect.DeepEqual(proofs, []string{running}) {
+		t.Fatalf("proofs = %v, %v; want the digest in the terminal's record", proofs, err)
+	}
+}
+
 // No process outlives the machine, so a digest from before it started proves
 // nothing any more and leaves the terminal's proofs the next time one is kept.
 func TestATerminalsProofsDropTheDigestsFromBeforeTheMachineStarted(t *testing.T) {

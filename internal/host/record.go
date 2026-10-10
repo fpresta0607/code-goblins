@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"time"
 
@@ -64,7 +65,9 @@ func proofsPath(stateDir, id string) string {
 // resumed or switched. Its record names only the host that runs it now, and
 // a process started under an earlier host, or one that outlived its host,
 // still carries that host's value, so these are what prove a process is the
-// terminal's own whichever host runs it and when none does.
+// terminal's own whichever host runs it and when none does. The digest in
+// the terminal's record counts too: a host a build before these proofs
+// started kept none, and its terminal's processes carry its value still.
 func Proofs(stateDir, id string) ([]string, error) {
 	if err := state.ValidTaskID(id); err != nil {
 		return nil, err
@@ -76,6 +79,9 @@ func Proofs(stateDir, id string) ([]string, error) {
 	sums := make([]string, len(kept))
 	for index, proof := range kept {
 		sums[index] = proof.sum
+	}
+	if record, err := ReadRecord(stateDir, id); err == nil && record.ProofSum != "" && !slices.Contains(sums, record.ProofSum) {
+		sums = append(sums, record.ProofSum)
 	}
 	return sums, nil
 }
