@@ -1,6 +1,7 @@
 package wake
 
 import (
+	"bytes"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
@@ -31,11 +32,9 @@ func AppendFirst(directory, identity, kind, key, detail string) (Record, bool, e
 	var record Record
 	isNew := false
 	err := withLock(directory, func() error {
-		data, err := fsx.ReadFile(oncePath(directory, identity))
-		if err == nil {
-			return json.Unmarshal(data, &record)
-		}
-		if !errors.Is(err, os.ErrNotExist) {
+		noticed, isNoticed, err := readNoticed(directory, identity)
+		if err != nil || isNoticed {
+			record = noticed
 			return err
 		}
 		records, err := readAll(directory)
@@ -70,21 +69,68 @@ func sameNotice(record Record, identity, kind, key, detail string) error {
 	return nil
 }
 
-func oncePath(directory, identity string) string {
+// noticedFile holds the notice of every acknowledged record that carries an
+// identity, one JSON line each, so a caller retrying after a crash cannot
+// deliver a completed action twice. An acknowledgement appends all of its
+// notices in one write. Until 2026-10 each notice was a file of its own, and
+// every new file is one the virus scanner reads: on a loaded machine an
+// acknowledgement of 55 records spent 84 s writing them.
+const noticedFile = ".wake-noticed"
+
+// readNoticed returns the notice kept for identity, if one was.
+func readNoticed(directory, identity string) (Record, bool, error) {
+	data, err := fsx.ReadFile(filepath.Join(directory, noticedFile))
+	if err != nil && !errors.Is(err, os.ErrNotExist) {
+		return Record{}, false, err
+	}
+	// Only a line that spells the identity is decoded: the file keeps every
+	// notice the home ever acknowledged.
+	spelled, err := json.Marshal(identity)
+	if err != nil {
+		return Record{}, false, err
+	}
+	for line := range bytes.Lines(data) {
+		var record Record
+		// A line that does not decode was cut off by a machine that stopped
+		// in the middle of its write, and is no notice.
+		if bytes.Contains(line, spelled) && json.Unmarshal(line, &record) == nil && record.Once == identity {
+			return record, true, nil
+		}
+	}
+	// A build before the one file kept each notice in a file of its own, and
+	// a home it acknowledged still holds them.
 	sum := sha256.Sum256([]byte(identity))
-	return filepath.Join(directory, "wake-notices", hex.EncodeToString(sum[:])+".json")
+	data, err = fsx.ReadFile(filepath.Join(directory, "wake-notices", hex.EncodeToString(sum[:])+".json"))
+	if errors.Is(err, os.ErrNotExist) {
+		return Record{}, false, nil
+	}
+	if err != nil {
+		return Record{}, false, err
+	}
+	var record Record
+	return record, true, json.Unmarshal(data, &record)
 }
 
-// Acknowledgement preserves the identity before removing the queued record,
-// so a caller retrying after a crash cannot deliver a completed action twice.
-func keepOnce(directory string, record Record) error {
-	path := oncePath(directory, record.Once)
-	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
-		return err
+// keepNoticed appends the notices of records in one write. Acknowledgement
+// preserves each identity before removing its queued record. The write opens
+// with a line break, so a line a stopped machine cut off stays a line of its
+// own and costs no notice kept after it.
+func keepNoticed(directory string, records []Record) error {
+	if len(records) == 0 {
+		return nil
 	}
-	data, err := json.Marshal(record)
+	lines := []byte{'\n'}
+	for _, record := range records {
+		line, err := json.Marshal(record)
+		if err != nil {
+			return err
+		}
+		lines = append(append(lines, line...), '\n')
+	}
+	file, err := fsx.OpenAppend(filepath.Join(directory, noticedFile), 0o600)
 	if err != nil {
 		return err
 	}
-	return fsx.AtomicWriteFile(path, data)
+	_, err = file.Write(lines)
+	return errors.Join(err, file.Close())
 }
