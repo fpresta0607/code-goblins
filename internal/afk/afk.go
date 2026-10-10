@@ -18,6 +18,7 @@ import (
 	"time"
 	"unicode/utf8"
 
+	"github.com/fpresta0607/code-goblins/internal/disk"
 	"github.com/fpresta0607/code-goblins/internal/fsx"
 )
 
@@ -56,6 +57,9 @@ type State struct {
 	// Allowance is what quota-axi read when it turned on, which the report
 	// sets beside the reading when it turned off.
 	Allowance []Allowance `json:"allowance,omitempty"`
+	// Disk is the free disk read when it turned on, which the report sets
+	// beside the reading when it turned off, and nil when none was read.
+	Disk *disk.Reading `json:"disk,omitempty"`
 }
 
 // Allowance is one reading of a provider's allowance: a window's use, or a
@@ -245,6 +249,21 @@ func turnOn(stateDir, from, asked string, allowance []Allowance, now time.Time) 
 		return State{}, false, err
 	}
 	return state, true, nil
+}
+
+// KeepDisk keeps the free disk read when AFK mode turned on in the switch of
+// the stretch that is on, where the report of that stretch finds it once it
+// turns off. The next stretch starts with none.
+func KeepDisk(stateDir string, reading disk.Reading) error {
+	state, err := Read(stateDir)
+	if err != nil {
+		return err
+	}
+	if !state.On {
+		return ErrNotOn
+	}
+	state.Disk = &reading
+	return write(stateDir, state)
 }
 
 // TurnOff turns AFK mode off from where the Overlord did it. The state keeps

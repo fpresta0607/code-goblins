@@ -18,10 +18,13 @@ import (
 	"github.com/fpresta0607/code-goblins/internal/digest"
 	"github.com/fpresta0607/code-goblins/internal/harness"
 	"github.com/fpresta0607/code-goblins/internal/home"
+	"github.com/fpresta0607/code-goblins/internal/host"
 	"github.com/fpresta0607/code-goblins/internal/lock"
 	"github.com/fpresta0607/code-goblins/internal/monitor"
+	"github.com/fpresta0607/code-goblins/internal/proc"
 	taskstate "github.com/fpresta0607/code-goblins/internal/state"
 	"github.com/fpresta0607/code-goblins/internal/supervise"
+	"github.com/fpresta0607/code-goblins/internal/supervisor"
 	"github.com/fpresta0607/code-goblins/internal/wake"
 	"github.com/fpresta0607/code-goblins/internal/watch"
 )
@@ -52,7 +55,7 @@ func newPrimaryHome(t *testing.T) string {
 }
 
 func TestRunHookPretoolSubagentDeniesInPrimaryHome(t *testing.T) {
-	newPrimaryHome(t)
+	newCFOHome(t)
 	var stdout, stderr bytes.Buffer
 	exit := runHook("pretool-subagent", strings.NewReader(`{"session_id":"s","tool_name":"Agent"}`), &stdout, &stderr)
 	if exit != 2 {
@@ -104,7 +107,7 @@ func TestRunHookPretoolSubagentInertWithoutState(t *testing.T) {
 }
 
 func TestRunHookPretoolSubagentEscapeHatch(t *testing.T) {
-	newPrimaryHome(t)
+	newCFOHome(t)
 	t.Setenv("CFO_ALLOW_SUBAGENT", "1")
 	var stdout, stderr bytes.Buffer
 	exit := runHook("pretool-subagent", strings.NewReader(`{"session_id":"s","tool_name":"Agent"}`), &stdout, &stderr)
@@ -117,7 +120,7 @@ func TestRunHookPretoolSubagentEscapeHatch(t *testing.T) {
 }
 
 func TestRunHookPretoolSubagentMCPPassthrough(t *testing.T) {
-	newPrimaryHome(t)
+	newCFOHome(t)
 	var stdout, stderr bytes.Buffer
 	exit := runHook("pretool-subagent", strings.NewReader(`{"session_id":"s","tool_name":"mcp__x__spawn"}`), &stdout, &stderr)
 	if exit != 0 {
@@ -129,7 +132,7 @@ func TestRunHookPretoolSubagentMCPPassthrough(t *testing.T) {
 }
 
 func TestRunHookPretoolSubagentTransportFailure(t *testing.T) {
-	newPrimaryHome(t)
+	newCFOHome(t)
 	var stdout, stderr bytes.Buffer
 	exit := runHook("pretool-subagent", strings.NewReader("garbage"), &stdout, &stderr)
 	if exit != 0 {
@@ -141,7 +144,7 @@ func TestRunHookPretoolSubagentTransportFailure(t *testing.T) {
 }
 
 func TestRunHookPretoolArmDeniesInPrimaryHome(t *testing.T) {
-	newPrimaryHome(t)
+	newCFOHome(t)
 	var stdout, stderr bytes.Buffer
 	exit := runHook("pretool-arm", strings.NewReader(`{"session_id":"s","tool_name":"Bash","tool_input":{"command":"cfo watch &"}}`), &stdout, &stderr)
 	if exit != 2 {
@@ -156,7 +159,7 @@ func TestRunHookPretoolArmDeniesInPrimaryHome(t *testing.T) {
 }
 
 func TestRunHookPretoolArmAllowsInPrimaryHome(t *testing.T) {
-	newPrimaryHome(t)
+	newCFOHome(t)
 	var stdout, stderr bytes.Buffer
 	exit := runHook("pretool-arm", strings.NewReader(`{"session_id":"s","tool_name":"Bash","tool_input":{"command":"git log --oneline"}}`), &stdout, &stderr)
 	if exit != 0 {
@@ -191,7 +194,7 @@ func TestRunHookPretoolArmInertWithoutState(t *testing.T) {
 }
 
 func TestRunHookPretoolCdDeniesInPrimaryHome(t *testing.T) {
-	newPrimaryHome(t)
+	newCFOHome(t)
 	var stdout, stderr bytes.Buffer
 	exit := runHook("pretool-cd", strings.NewReader(`{"session_id":"s","tool_name":"Bash","tool_input":{"command":"cd C:\\"}}`), &stdout, &stderr)
 	if exit != 2 {
@@ -206,7 +209,7 @@ func TestRunHookPretoolCdDeniesInPrimaryHome(t *testing.T) {
 }
 
 func TestRunHookPretoolCdAllowsInPrimaryHome(t *testing.T) {
-	newPrimaryHome(t)
+	newCFOHome(t)
 	var stdout, stderr bytes.Buffer
 	exit := runHook("pretool-cd", strings.NewReader(`{"session_id":"s","tool_name":"Bash","tool_input":{"command":"go test ./..."}}`), &stdout, &stderr)
 	if exit != 0 {
@@ -218,6 +221,8 @@ func TestRunHookPretoolCdAllowsInPrimaryHome(t *testing.T) {
 }
 
 func TestRunHookUnknownName(t *testing.T) {
+	// A hook does anything at all only in the CFO's terminal.
+	t.Setenv(host.IDVariable, supervisor.NativeCFOTerminal)
 	var stdout, stderr bytes.Buffer
 	exit := runHook("no-such", strings.NewReader(""), &stdout, &stderr)
 	if exit != 0 {
@@ -287,7 +292,7 @@ func TestRunHookTurnendGuardNotPrimary(t *testing.T) {
 }
 
 func TestRunHookTurnendGuardResetsQuietBudget(t *testing.T) {
-	dir := newPrimaryHome(t)
+	dir := newCFOHome(t)
 	setSyncWait(t, "500")
 	state := filepath.Join(dir, "state")
 	if err := os.WriteFile(filepath.Join(state, ".turnend-claude-blocks"), []byte("session=s1\ncount=2\n"), 0o644); err != nil {
@@ -307,7 +312,7 @@ func TestRunHookTurnendGuardResetsQuietBudget(t *testing.T) {
 }
 
 func TestRunHookTurnendGuardKeepsBudgetAfterNotified(t *testing.T) {
-	dir := newPrimaryHome(t)
+	dir := newCFOHome(t)
 	setSyncWait(t, "500")
 	state := filepath.Join(dir, "state")
 	if err := os.WriteFile(filepath.Join(state, ".turnend-claude-blocks"), []byte("session=s1\ncount=2\n"), 0o644); err != nil {
@@ -334,7 +339,7 @@ func TestRunHookTurnendGuardKeepsBudgetAfterNotified(t *testing.T) {
 }
 
 func TestRunHookTurnendGuardUnlistableStateIsSilent(t *testing.T) {
-	dir := newPrimaryHome(t)
+	dir := newCFOHome(t)
 	setSyncWait(t, "500")
 	state := filepath.Join(dir, "state")
 	if err := os.WriteFile(filepath.Join(state, ".turnend-claude-blocks"), []byte("session=s1\ncount=2\n"), 0o644); err != nil {
@@ -378,7 +383,7 @@ func TestRunHookTurnendGuardUnlistableStateIsSilent(t *testing.T) {
 }
 
 func TestRunHookTurnendGuardHealthyWatcherExitsClean(t *testing.T) {
-	dir := newPrimaryHome(t)
+	dir := newCFOHome(t)
 	setSyncWait(t, "500")
 	state := filepath.Join(dir, "state")
 	writeMetaFixture(t, state, "g1.meta")
@@ -397,7 +402,7 @@ func TestRunHookTurnendGuardHealthyWatcherExitsClean(t *testing.T) {
 }
 
 func TestRunHookTurnendGuardBlocksBlindTurn(t *testing.T) {
-	dir := newPrimaryHome(t)
+	dir := newCFOHome(t)
 	setSyncWait(t, "500")
 	state := filepath.Join(dir, "state")
 	writeMetaFixture(t, state, "g1.meta")
@@ -415,7 +420,7 @@ func TestRunHookTurnendGuardBlocksBlindTurn(t *testing.T) {
 }
 
 func TestRunHookTurnendGuardAllowsFreshRewakeProof(t *testing.T) {
-	dir := newPrimaryHome(t)
+	dir := newCFOHome(t)
 	setSyncWait(t, "500")
 	state := filepath.Join(dir, "state")
 	writeMetaFixture(t, state, "g1.meta")
@@ -434,7 +439,7 @@ func TestRunHookTurnendGuardAllowsFreshRewakeProof(t *testing.T) {
 }
 
 func TestRunHookTurnendGuardAlarmFiresOnceThenBlocks(t *testing.T) {
-	dir := newPrimaryHome(t)
+	dir := newCFOHome(t)
 	setSyncWait(t, "500")
 	state := filepath.Join(dir, "state")
 	writeMetaFixture(t, state, "g1.meta")
@@ -475,7 +480,7 @@ func TestRunHookTurnendGuardAlarmFiresOnceThenBlocks(t *testing.T) {
 }
 
 func TestRunHookTurnendGuardRendersBeatAge(t *testing.T) {
-	dir := newPrimaryHome(t)
+	dir := newCFOHome(t)
 	setSyncWait(t, "500")
 	state := filepath.Join(dir, "state")
 	writeMetaFixture(t, state, "g1.meta")
@@ -495,7 +500,7 @@ func TestRunHookTurnendGuardRendersBeatAge(t *testing.T) {
 }
 
 func TestRunHookTurnendGuardPollsForLateProof(t *testing.T) {
-	dir := newPrimaryHome(t)
+	dir := newCFOHome(t)
 	setSyncWait(t, "500")
 	state := filepath.Join(dir, "state")
 	writeMetaFixture(t, state, "g1.meta")
@@ -520,7 +525,7 @@ func TestRunHookTurnendGuardPollsForLateProof(t *testing.T) {
 }
 
 func TestRunHookTurnendGuardZeroWindowDoesNotWait(t *testing.T) {
-	dir := newPrimaryHome(t)
+	dir := newCFOHome(t)
 	setSyncWait(t, "0")
 	state := filepath.Join(dir, "state")
 	writeMetaFixture(t, state, "g1.meta")
@@ -552,7 +557,7 @@ func TestRunHookTurnendGuardZeroWindowDoesNotWait(t *testing.T) {
 // file's own path a directory forces os.ReadFile to fail with a genuine I/O
 // error rather than ErrNotExist.
 func TestRunHookTurnendGuardChargeBudgetErrorEscalates(t *testing.T) {
-	dir := newPrimaryHome(t)
+	dir := newCFOHome(t)
 	setSyncWait(t, "50")
 	state := filepath.Join(dir, "state")
 	writeMetaFixture(t, state, "g1.meta")
@@ -587,7 +592,7 @@ func TestRunHookTurnendGuardChargeBudgetErrorEscalates(t *testing.T) {
 // * blockBudget) is 9: the first 9 charges (count 1..9) must still block,
 // and the 10th (count 10) must cross the ceiling and let the turn end.
 func TestRunHookTurnendGuardCeilingTerminatesWithoutNotified(t *testing.T) {
-	dir := newPrimaryHome(t)
+	dir := newCFOHome(t)
 	setSyncWait(t, "0") // nothing in this fixture is ever a proof; skip the wait
 	// Pin the block budget so an ambient CFO_CLAUDE_TURNEND_BLOCK_BUDGET
 	// override in a developer shell cannot break the 9/10 boundary asserted
@@ -621,7 +626,7 @@ func TestRunHookTurnendGuardCeilingTerminatesWithoutNotified(t *testing.T) {
 // step B below would see AlarmFired already true and skip straight to a
 // permanent block instead of getting its own attended fail-open.
 func TestRunHookTurnendGuardBudgetErrorDoesNotConsumeLadderAlarm(t *testing.T) {
-	dir := newPrimaryHome(t)
+	dir := newCFOHome(t)
 	setSyncWait(t, "0")
 	state := filepath.Join(dir, "state")
 
@@ -688,7 +693,7 @@ func TestRunHookTurnendGuardBudgetErrorDoesNotConsumeLadderAlarm(t *testing.T) {
 // stop-autoarm repeat-failure firing observes it and exits 0 silently
 // instead of looping exit 2 forever.
 func TestRunHookTurnendGuardChargeBudgetErrorMarksAlarmWhenAlreadyNotified(t *testing.T) {
-	dir := newPrimaryHome(t)
+	dir := newCFOHome(t)
 	setSyncWait(t, "50")
 	state := filepath.Join(dir, "state")
 	writeMetaFixture(t, state, "g1.meta")
@@ -713,7 +718,6 @@ func TestRunHookTurnendGuardChargeBudgetErrorMarksAlarmWhenAlreadyNotified(t *te
 
 	// Confirm the alarm actually unwedges stop-autoarm's repeat-failure arm:
 	// a subsequent firing must exit 0 silently rather than 2.
-	setAncestorPID(t, os.Getpid())
 	setTinyAutoarmIntervals(t)
 	foreign := startLiveForeignProcess(t)
 	if _, err := lock.AcquireNamedOwner(state, ".watch.lock", foreign.Process.Pid, "watch"); err != nil {
@@ -733,15 +737,74 @@ func TestRunHookTurnendGuardChargeBudgetErrorMarksAlarmWhenAlreadyNotified(t *te
 
 // --- stop-autoarm ---
 
-// setAncestorPID pins the stop-autoarm identity gate to pid via
-// CFO_TEST_ANCESTOR_PID: the ambient proc.FindAncestor walk cannot be
-// asserted from inside this repo's own test suite, because a go test binary
-// launched from a Claude Code session has claude.exe about five hops up its
-// own ancestry, well inside maxHops 16, so it always finds a real ancestor
-// no fixture here controls.
-func setAncestorPID(t *testing.T, pid int) {
+// newCFOHome is newPrimaryHome with this test process standing in for the
+// harness of the home's CFO: the hooks do nothing in any other session.
+func newCFOHome(t *testing.T) string {
 	t.Helper()
-	t.Setenv("CFO_TEST_ANCESTOR_PID", strconv.Itoa(pid))
+	dir := newPrimaryHome(t)
+	asCFOSession(t, filepath.Join(dir, "state"), os.Getpid())
+	return dir
+}
+
+// asCFOSession makes pid the harness of the CFO's own session in the home
+// whose state folder is state: the program native terminal cfo runs, as that
+// terminal's host records it, with this process's environment naming the
+// terminal as a harness's is. No host answers for the record, so a
+// registration the session tries is refused; withoutRegistration takes that
+// line off a hook's output.
+func asCFOSession(t *testing.T, state string, pid int) {
+	t.Helper()
+	record := host.Record{ID: supervisor.NativeCFOTerminal, Pipe: `\\.\pipe\code-goblins-host-no-host-answers`, Token: "token", Version: host.Version, HostPID: os.Getpid(), ChildPID: pid, Started: time.Now().UTC()}
+	if started, ok := proc.StartTime(pid); ok {
+		record.ChildStart = started
+	}
+	data, err := json.Marshal(record)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(state, "hosts"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(state, "hosts", supervisor.NativeCFOTerminal+".json"), data, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv(host.IDVariable, supervisor.NativeCFOTerminal)
+}
+
+// programIsThisProcess makes record name this test process as its terminal's
+// program, by pid and creation time, as a host names the harness it started.
+func programIsThisProcess(t *testing.T, record *host.Record) {
+	t.Helper()
+	started, ok := proc.StartTime(os.Getpid())
+	if !ok {
+		t.Fatal("this process has no start time")
+	}
+	record.ChildPID, record.ChildStart = os.Getpid(), started
+}
+
+// thisProcess is this test process as the hooks' prologue hands a hook the
+// harness of the CFO's own session.
+func thisProcess(t *testing.T) proc.Entry {
+	t.Helper()
+	entries, err := proc.Ancestry(os.Getpid(), 1)
+	if err != nil || len(entries) != 1 {
+		t.Fatalf("this process could not be read: %v", err)
+	}
+	return entries[0]
+}
+
+// withoutRegistration is a SessionStart hook's output without the line that
+// says how its registration went, which register_test.go covers.
+func withoutRegistration(t *testing.T, output string) string {
+	t.Helper()
+	at := strings.Index(output, "CFO REGISTRATION")
+	if at < 0 {
+		t.Fatalf("the hook's output says nothing of the registration:\n%s", output)
+	}
+	if at > 0 && output[at-1] != '\n' || strings.Count(output[at:], "\n") != 1 {
+		t.Fatalf("the registration is not the last line of the hook's output:\n%s", output)
+	}
+	return output[:at]
 }
 
 // setTinyAutoarmIntervals sets the tiny intervals every stop-autoarm case
@@ -779,7 +842,7 @@ func startLiveForeignProcess(t *testing.T) *exec.Cmd {
 }
 
 func TestAutoarmInertWithoutHarnessAncestor(t *testing.T) {
-	dir := newPrimaryHome(t)
+	dir := newCFOHome(t)
 	setTinyAutoarmIntervals(t) // regression guard: if the gate ever stops firing, watch.Run must not fall through to production-length waits and hang this test
 	state := filepath.Join(dir, "state")
 	writeMetaFixture(t, state, "g1.meta")
@@ -788,7 +851,7 @@ func TestAutoarmInertWithoutHarnessAncestor(t *testing.T) {
 	if err := exited.Run(); err != nil {
 		t.Fatal(err)
 	}
-	setAncestorPID(t, exited.ProcessState.Pid())
+	asCFOSession(t, state, exited.ProcessState.Pid())
 
 	var stdout, stderr bytes.Buffer
 	exit := runHook("stop-autoarm", strings.NewReader(`{"session_id":"s1"}`), &stdout, &stderr)
@@ -801,8 +864,7 @@ func TestAutoarmInertWithoutHarnessAncestor(t *testing.T) {
 }
 
 func TestAutoarmExitsAtNeedGate(t *testing.T) {
-	dir := newPrimaryHome(t)
-	setAncestorPID(t, os.Getpid())
+	dir := newCFOHome(t)
 	state := filepath.Join(dir, "state")
 
 	var stdout, stderr bytes.Buffer
@@ -823,8 +885,7 @@ func TestAutoarmExitsAtNeedGate(t *testing.T) {
 }
 
 func TestAutoarmCleanWhenNeedVanishes(t *testing.T) {
-	dir := newPrimaryHome(t)
-	setAncestorPID(t, os.Getpid())
+	dir := newCFOHome(t)
 	setTinyAutoarmIntervals(t)
 	state := filepath.Join(dir, "state")
 	writeMetaFixture(t, state, "g1.meta")
@@ -880,8 +941,7 @@ func TestAutoarmCleanWhenNeedVanishes(t *testing.T) {
 }
 
 func TestAutoarmRewakeOnSignal(t *testing.T) {
-	dir := newPrimaryHome(t)
-	setAncestorPID(t, os.Getpid())
+	dir := newCFOHome(t)
 	setTinyAutoarmIntervals(t)
 	state := filepath.Join(dir, "state")
 	writeMetaFixture(t, state, "g1.meta")
@@ -895,7 +955,7 @@ func TestAutoarmRewakeOnSignal(t *testing.T) {
 	defer func() { <-done }()
 
 	var stdout, stderr bytes.Buffer
-	exit := hookStopAutoarmWithConfig(home.Home{Root: dir, State: state}, claudehook.Payload{SessionID: "s1"}, &stdout, &stderr, func(h home.Home) watch.Config {
+	exit := hookStopAutoarmWithConfig(home.Home{Root: dir, State: state}, thisProcess(t), claudehook.Payload{SessionID: "s1"}, &stdout, &stderr, func(h home.Home) watch.Config {
 		cfg := watch.ConfigFromEnv(h)
 		// This scenario supplies a status-file signal. Real panes/processes are
 		// separate event sources and must not race the fixture's signal.
@@ -936,8 +996,7 @@ func TestAutoarmRewakeOnSignal(t *testing.T) {
 }
 
 func TestAutoarmSingleFlight(t *testing.T) {
-	dir := newPrimaryHome(t)
-	setAncestorPID(t, os.Getpid())
+	dir := newCFOHome(t)
 	setTinyAutoarmIntervals(t) // regression guard: if single-flight ever stops firing, watch.Run must not fall through to production-length waits and hang this test
 	state := filepath.Join(dir, "state")
 	writeMetaFixture(t, state, "g1.meta")
@@ -962,8 +1021,7 @@ func TestAutoarmSingleFlight(t *testing.T) {
 }
 
 func TestAutoarmFailureEpisode(t *testing.T) {
-	dir := newPrimaryHome(t)
-	setAncestorPID(t, os.Getpid())
+	dir := newCFOHome(t)
 	setTinyAutoarmIntervals(t)
 	state := filepath.Join(dir, "state")
 	writeMetaFixture(t, state, "g1.meta")
@@ -1036,8 +1094,7 @@ func TestAutoarmFailureEpisode(t *testing.T) {
 }
 
 func TestAutoarmHealthyAfterSteal(t *testing.T) {
-	dir := newPrimaryHome(t)
-	setAncestorPID(t, os.Getpid())
+	dir := newCFOHome(t)
 	setTinyAutoarmIntervals(t)
 	state := filepath.Join(dir, "state")
 	writeMetaFixture(t, state, "g1.meta")
@@ -1107,8 +1164,7 @@ func assertEpochOutcome(t *testing.T, state, want string) {
 }
 
 func TestAutoarmRewakesForAWakeQueuedWhileServeSupervises(t *testing.T) {
-	dir := newPrimaryHome(t)
-	setAncestorPID(t, os.Getpid())
+	dir := newCFOHome(t)
 	setTinyAutoarmIntervals(t)
 	t.Setenv("CFO_CLAUDE_AUTOARM_WAIT", "30")
 	state := filepath.Join(dir, "state")
@@ -1136,8 +1192,7 @@ func TestAutoarmRewakesForAWakeQueuedWhileServeSupervises(t *testing.T) {
 }
 
 func TestAutoarmRewakesOncePerQueuedWakeWhileServeSupervises(t *testing.T) {
-	dir := newPrimaryHome(t)
-	setAncestorPID(t, os.Getpid())
+	dir := newCFOHome(t)
 	setTinyAutoarmIntervals(t)
 	t.Setenv("CFO_CLAUDE_AUTOARM_WAIT", "2")
 	state := filepath.Join(dir, "state")
@@ -1165,8 +1220,7 @@ func TestAutoarmRewakesOncePerQueuedWakeWhileServeSupervises(t *testing.T) {
 }
 
 func TestAutoarmHostsTheWatcherWhenServeStopsMidWait(t *testing.T) {
-	dir := newPrimaryHome(t)
-	setAncestorPID(t, os.Getpid())
+	dir := newCFOHome(t)
 	setTinyAutoarmIntervals(t)
 	t.Setenv("CFO_CLAUDE_AUTOARM_WAIT", "60")
 	state := filepath.Join(dir, "state")
@@ -1185,7 +1239,7 @@ func TestAutoarmHostsTheWatcherWhenServeStopsMidWait(t *testing.T) {
 
 	var stdout, stderr bytes.Buffer
 	start := time.Now()
-	exit := hookStopAutoarmWithConfig(home.Home{Root: dir, State: state}, claudehook.Payload{SessionID: "s1"}, &stdout, &stderr, func(h home.Home) watch.Config {
+	exit := hookStopAutoarmWithConfig(home.Home{Root: dir, State: state}, thisProcess(t), claudehook.Payload{SessionID: "s1"}, &stdout, &stderr, func(h home.Home) watch.Config {
 		cfg := watch.ConfigFromEnv(h)
 		// The status-file signal is this scenario's only event source.
 		cfg.Monitor = nil
@@ -1201,8 +1255,7 @@ func TestAutoarmHostsTheWatcherWhenServeStopsMidWait(t *testing.T) {
 }
 
 func TestAutoarmYieldsToAlarm(t *testing.T) {
-	dir := newPrimaryHome(t)
-	setAncestorPID(t, os.Getpid())
+	dir := newCFOHome(t)
 	setTinyAutoarmIntervals(t)
 	state := filepath.Join(dir, "state")
 	writeMetaFixture(t, state, "g1.meta")
@@ -1243,8 +1296,7 @@ func TestAutoarmYieldsToAlarm(t *testing.T) {
 // hook's own measured decision latency, and comfortably inside the 700ms
 // sync-wait budget below - so a correct implementation must still catch it.
 func TestAutoarmRepeatFailureWaitsForLateAlarm(t *testing.T) {
-	dir := newPrimaryHome(t)
-	setAncestorPID(t, os.Getpid())
+	dir := newCFOHome(t)
 	setTinyAutoarmIntervals(t)
 	t.Setenv("CFO_CLAUDE_AUTOARM_SYNC_WAIT_MS", "700")
 	state := filepath.Join(dir, "state")
@@ -1317,7 +1369,7 @@ func TestRunHookSessionStartNotPrimary(t *testing.T) {
 }
 
 func TestRunHookSessionStartFullComposeOnStartup(t *testing.T) {
-	newPrimaryHome(t)
+	newCFOHome(t)
 	var stdout, stderr bytes.Buffer
 	exit := runHook("session-start", strings.NewReader(`{"session_id":"s1","source":"startup"}`), &stdout, &stderr)
 	if exit != 0 {
@@ -1338,8 +1390,7 @@ func TestRunHookSessionStartFullComposeOnStartup(t *testing.T) {
 func TestRunHookSessionStartFitsWhatASessionIsHandedWhole(t *testing.T) {
 	for _, source := range []string{"startup", "compact", "clear", "resume"} {
 		t.Run(source, func(t *testing.T) {
-			dir := newPrimaryHome(t)
-			setAncestorPID(t, os.Getpid())
+			dir := newCFOHome(t)
 			state, data := filepath.Join(dir, "state"), filepath.Join(dir, "data")
 			if err := os.MkdirAll(filepath.Join(data, "memory"), 0o755); err != nil {
 				t.Fatal(err)
@@ -1394,7 +1445,7 @@ func TestRunHookSessionStartFitsWhatASessionIsHandedWhole(t *testing.T) {
 // reserved for a genuine Compose-level failure, which a scoped read error
 // is not).
 func TestRunHookSessionStartDegradesWakeReadErrorInline(t *testing.T) {
-	dir := newPrimaryHome(t)
+	dir := newCFOHome(t)
 	state := filepath.Join(dir, "state")
 	if err := os.WriteFile(filepath.Join(state, ".wake-queue"), []byte("not valid json\n"), 0o644); err != nil {
 		t.Fatal(err)
@@ -1423,8 +1474,7 @@ func TestRunHookSessionStartDegradesWakeReadErrorInline(t *testing.T) {
 }
 
 func TestRunHookSessionStartResumeNoMarkerFallsThrough(t *testing.T) {
-	newPrimaryHome(t)
-	setAncestorPID(t, os.Getpid())
+	newCFOHome(t)
 	var stdout, stderr bytes.Buffer
 	exit := runHook("session-start", strings.NewReader(`{"session_id":"s1","source":"resume"}`), &stdout, &stderr)
 	if exit != 0 {
@@ -1437,19 +1487,14 @@ func TestRunHookSessionStartResumeNoMarkerFallsThrough(t *testing.T) {
 
 const sessionStartNudge = "CFO: operational input may be waiting; run cfo drain if supervision was active. For an explicit user decision, publish cfo question --id <stable-id> --text <question> [--option <choice>] [--recommend <exact-choice>] from the registered primary shell. Answers return as normal messages to the same CFO, not native prompt-tool responses.\n"
 
-// TestRunHookSessionStartRouting pins the owner pid via CFO_TEST_ANCESTOR_PID
-// to a live foreign process (the ping-child pattern; the ambient
-// proc.FindAncestor walk cannot be asserted from inside this repo's own test
-// suite, same reasoning as setAncestorPID's other callers), pre-writes the
-// session lock and completion marker to match it, then exercises every
-// SessionStart source against that one fixed custody window.
+// TestRunHookSessionStartRouting pre-writes the session lock and completion
+// marker for the harness of the CFO's own session, which this test process
+// stands in for, then exercises every SessionStart source against that one
+// fixed custody window.
 func TestRunHookSessionStartRouting(t *testing.T) {
-	dir := newPrimaryHome(t)
+	dir := newCFOHome(t)
 	state := filepath.Join(dir, "state")
-
-	foreign := startLiveForeignProcess(t)
-	ownerPID := foreign.Process.Pid
-	setAncestorPID(t, ownerPID)
+	ownerPID := os.Getpid()
 
 	if _, err := lock.AcquireOwner(state, ownerPID, "s0"); err != nil {
 		t.Fatal(err)
@@ -1465,8 +1510,8 @@ func TestRunHookSessionStartRouting(t *testing.T) {
 			if exit != 0 {
 				t.Fatalf("exit = %d, want 0; stderr=%s", exit, stderr.String())
 			}
-			if stdout.String() != sessionStartNudge {
-				t.Errorf("stdout = %q, want exactly %q", stdout.String(), sessionStartNudge)
+			if got := withoutRegistration(t, stdout.String()); got != sessionStartNudge {
+				t.Errorf("stdout = %q, want exactly %q before the registration", got, sessionStartNudge)
 			}
 			if stderr.Len() != 0 {
 				t.Errorf("stderr = %q, want empty", stderr.String())
@@ -1487,8 +1532,7 @@ func TestRunHookSessionStartRouting(t *testing.T) {
 }
 
 func TestAutoarmPublishesEpisodeOnGenuineRunError(t *testing.T) {
-	dir := newPrimaryHome(t)
-	setAncestorPID(t, os.Getpid())
+	dir := newCFOHome(t)
 	setTinyAutoarmIntervals(t)
 	state := filepath.Join(dir, "state")
 	writeMetaFixture(t, state, "g1.meta")
@@ -1531,7 +1575,7 @@ func TestAutoarmPublishesEpisodeOnGenuineRunError(t *testing.T) {
 // call, session-start would print a digest - and every one of them must exit
 // 0 in silence because the pane is a goblin's.
 func TestRunHookIsInertForAGoblin(t *testing.T) {
-	newPrimaryHome(t)
+	newCFOHome(t)
 	t.Setenv(harness.RoleVariable, harness.RoleGoblin)
 
 	payloads := map[string]string{
@@ -1561,7 +1605,7 @@ func TestRunHookIsInertForAGoblin(t *testing.T) {
 // goblin role and nothing else, so a session that is not a goblin's - one in
 // any repository, with CFO_HOME set - is supervised exactly as before.
 func TestRunHookStillActsForTheCFO(t *testing.T) {
-	newPrimaryHome(t)
+	newCFOHome(t)
 	t.Setenv(harness.RoleVariable, "")
 
 	var stdout, stderr bytes.Buffer
@@ -1600,8 +1644,7 @@ func TestActionableReasonPatternCoversEveryWatchRunReason(t *testing.T) {
 // returned without waiting. A goblin's own cfo notify under serve must
 // rewake the CFO with its question.
 func TestGoblinBlockedNotifyRewakesTheCFOWhileServeSupervises(t *testing.T) {
-	dir := newPrimaryHome(t)
-	setAncestorPID(t, os.Getpid())
+	dir := newCFOHome(t)
 	setTinyAutoarmIntervals(t)
 	t.Setenv("CFO_CLAUDE_AUTOARM_WAIT", "30")
 	state := filepath.Join(dir, "state")
@@ -1634,8 +1677,7 @@ func TestRunHookSessionStartDigestSaysAFKModeIsOn(t *testing.T) {
 	for _, source := range []string{"startup", "clear", "compact"} {
 		t.Run(source, func(t *testing.T) {
 			// Arrange
-			dir := newPrimaryHome(t)
-			setAncestorPID(t, os.Getpid())
+			dir := newCFOHome(t)
 			state := filepath.Join(dir, "state")
 			if _, _, err := afk.TurnOn(state, "his own terminal (powershell.exe pid 4242)", nil, time.Date(2026, 10, 2, 2, 10, 0, 0, time.UTC)); err != nil {
 				t.Fatal(err)
@@ -1678,11 +1720,9 @@ func TestRunHookSessionStartDigestSaysAFKModeIsOn(t *testing.T) {
 // the CFO it is on.
 func TestRunHookSessionStartNudgeSaysAFKModeIsOn(t *testing.T) {
 	// Arrange
-	dir := newPrimaryHome(t)
+	dir := newCFOHome(t)
 	state := filepath.Join(dir, "state")
-	foreign := startLiveForeignProcess(t)
-	ownerPID := foreign.Process.Pid
-	setAncestorPID(t, ownerPID)
+	ownerPID := os.Getpid()
 	if _, err := lock.AcquireOwner(state, ownerPID, "s0"); err != nil {
 		t.Fatal(err)
 	}
@@ -1700,8 +1740,8 @@ func TestRunHookSessionStartNudgeSaysAFKModeIsOn(t *testing.T) {
 	// Assert
 	banner := afk.BannerFor(state)
 	want := sessionStartNudge + banner + "\n"
-	if exit != 0 || banner == "" || stdout.String() != want {
-		t.Fatalf("exit=%d stdout=%q, want the nudge and then AFK mode's banner %q", exit, stdout.String(), want)
+	if got := withoutRegistration(t, stdout.String()); exit != 0 || banner == "" || got != want {
+		t.Fatalf("exit=%d stdout=%q, want the nudge and then AFK mode's banner %q before the registration", exit, got, want)
 	}
 }
 
@@ -1709,8 +1749,7 @@ func TestRunHookSessionStartNudgeSaysAFKModeIsOn(t *testing.T) {
 // is on its banner says so on a line of its own.
 func TestAutoarmRewakeSaysAFKModeIsOn(t *testing.T) {
 	// Arrange
-	dir := newPrimaryHome(t)
-	setAncestorPID(t, os.Getpid())
+	dir := newCFOHome(t)
 	setTinyAutoarmIntervals(t)
 	t.Setenv("CFO_CLAUDE_AUTOARM_WAIT", "30")
 	state := filepath.Join(dir, "state")

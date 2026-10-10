@@ -178,3 +178,53 @@ func TestAppendWaitsOutAReleasedLockRecordStillBeingDeleted(t *testing.T) {
 		t.Errorf("the queue holds %v, %v; want the one notify", records, err)
 	}
 }
+
+// On 2026-10-09 at 14:20Z a drain acknowledged 55 records fifteen minutes
+// after a restart. It wrote each record's notice under the wake lock and held
+// the lock for over a minute, and the supervisor's own append gave up after
+// its five seconds and raised a supervisor error. An acknowledgement keeps
+// its notices before it takes the lock, so a slow notice costs the
+// acknowledgement a wait and every other writer nothing.
+func TestANotifyLandsWhileAnAcknowledgementWaitsOnANotice(t *testing.T) {
+	// Arrange
+	dir := t.TempDir()
+	done, err := AppendOnce(dir, "done/g1", "notify", "g1", "done: g1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	// The record's notice is already there, as an acknowledgement that was
+	// cut short leaves it, and another process holds it open, as a virus
+	// scanner holds a file it reads.
+	if err := keepOnce(dir, done); err != nil {
+		t.Fatal(err)
+	}
+	released := holdOpen(t, oncePath(dir, "done/g1"), 0, 3*time.Second)
+	acknowledged := make(chan error, 1)
+
+	// Act
+	go func() { acknowledged <- AckThrough(dir, done.Seq) }()
+	time.Sleep(300 * time.Millisecond)
+	_, err = Append(dir, "notify", "g2", "working: g2")
+	isLate := false
+	select {
+	case <-released:
+		isLate = true
+	default:
+	}
+
+	// Assert
+	if err != nil || isLate {
+		t.Errorf("a notify during the acknowledgement: %v, landed only after the notice was let go = %t, want it landed while the acknowledgement still waited", err, isLate)
+	}
+	<-released
+	if err := <-acknowledged; err != nil {
+		t.Fatalf("AckThrough while its notice was held for 3 s: %v", err)
+	}
+	records, err := Pending(dir)
+	if err != nil || len(records) != 1 || records[0].Key != "g2" {
+		t.Errorf("the queue holds %v, %v, want the one notify that landed during the acknowledgement", records, err)
+	}
+	if again, isNew, err := AppendFirst(dir, "done/g1", "notify", "g1", "done: g1"); err != nil || isNew || again.Seq != done.Seq {
+		t.Errorf("the acknowledged notice was appended again: %v, new = %t, %v", again, isNew, err)
+	}
+}

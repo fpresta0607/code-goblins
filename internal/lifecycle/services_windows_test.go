@@ -178,6 +178,18 @@ func hostedGoblin(t *testing.T, root string) (home.Home, state.TaskMeta, map[str
 			t.Fatalf("the goblin fixture reported %v, want its goblin, own process, away process, detached process, service and backend", started)
 		}
 	}
+	// A host starts its terminal's program before it records itself, so on a
+	// loaded machine every fixture can have reported while the record is
+	// still to come, and a stop then reads a task with no terminal at all.
+	for deadline := time.Now().Add(30 * time.Second); ; time.Sleep(50 * time.Millisecond) {
+		_, err := host.ReadRecord(h.State, meta.ID)
+		if err == nil {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("the terminal's host never recorded itself: %v", err)
+		}
+	}
 	// Each fixture waits a minute, and nothing ends one before the stop
 	// below, so each pid still names its fixture here.
 	held := map[string]windows.Handle{}

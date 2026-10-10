@@ -109,10 +109,10 @@ test("a goblin paused until its pull request merges stays in In progress with no
 // The Overlord, 2026-10-08: "paused is completely stopped terminals for
 // memory reasons". Paused holds a goblin stopped for memory, by the floor or
 // by the CFO, or by his own Pause, and nothing else.
-test("a pause for memory reads as paused, in the Paused section, with what resumes it", () => {
-  for (const [name, pause, line] of [
-    ["the memory floor in the middle of work", { reason: "memory", until: "" }, "It resumes by itself once 5 GB of memory is free."],
-    ["his own pause", { reason: "overlord", until: "" }, "It stays paused until you resume it."],
+test("a pause for memory reads as paused, in the Paused section, with no line under its status", () => {
+  for (const [name, pause] of [
+    ["the memory floor in the middle of work", { reason: "memory", until: "" }],
+    ["his own pause", { reason: "overlord", until: "" }],
   ] as const) {
     // Arrange: Sid's own pull request rides a train even while he paused it.
     const paused = board(sid({ phase: "paused", lifecycle: lifecycle(pause), ...checks("passed") }), [train("testing", "riding")]);
@@ -124,7 +124,7 @@ test("a pause for memory reads as paused, in the Paused section, with what resum
     assert.equal(read.column, "Paused", name);
     assert.equal(read.phase, "paused", name);
     assert.equal(read.status, "Paused", name);
-    assert.equal(read.line, line, name);
+    assert.equal(read.line, "", name);
     // The chip still says where the pull request stands.
     assert.equal(read.chip?.text, "Testing", name);
   }

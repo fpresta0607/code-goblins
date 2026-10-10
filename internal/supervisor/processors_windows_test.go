@@ -1,6 +1,7 @@
 package supervisor
 
 import (
+	"reflect"
 	"runtime"
 	"testing"
 )
@@ -21,7 +22,7 @@ func TestMachineProcessorsReadsThisMachine(t *testing.T) {
 	if first.Free < 0 || first.Free > 1 {
 		t.Fatalf("free share of the performance cores = %v, want a share", first.Free)
 	}
-	if second != first {
+	if !reflect.DeepEqual(second, first) {
 		t.Fatalf("a reading straight after the first = %+v, want the first again, %+v, and not a judgment over a few milliseconds", second, first)
 	}
 }
