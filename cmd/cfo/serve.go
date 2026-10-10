@@ -231,7 +231,7 @@ func runServe(args []string, stdout, stderr io.Writer, runtime commandRuntime) i
 		PageSessions:     (axi.Lavish{}).Sessions,
 		EndPage:          (axi.Lavish{Commands: execx.OSRunner{}}).End,
 		FirstRun:         firstRun,
-		Dispatch:         &supervisor.Dispatch{Memory: supervisor.MachineMemory, Disk: func() (supervisor.Disk, error) { return supervisor.MachineDisk(h) }, CommitHolders: supervisor.CommitHolders, Spawn: spawnFromBoard},
+		Dispatch:         &supervisor.Dispatch{Memory: supervisor.MachineMemory, Disk: func() (supervisor.Disk, error) { return supervisor.MachineDisk(h) }, CommitHolders: supervisor.CommitHolders, Processors: supervisor.MachineProcessors, GPU: supervisor.MachineGPU, Spawn: spawnFromBoard},
 		// The CI wakes only read GitHub, as PullRequestState does, so an
 		// example home keeps them.
 		CI:       execx.OSRunner{},
