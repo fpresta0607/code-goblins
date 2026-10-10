@@ -170,6 +170,11 @@ type Car struct {
 // the first try, kept because GitHub shows only the newest try, and Failed
 // the checks the run ended red on, which for a run tried again were red
 // both times.
+//
+// A test can fail by chance inside a check that still ends green, where its
+// workflow gave it a second try. OnceTests are those tests of a run that
+// passed, as the workflow named them, and OnceUnread why they could not be
+// read, which is kept rather than taken for none.
 type Run struct {
 	Number     int           `json:"number"`
 	Riders     []int         `json:"riders"`
@@ -181,6 +186,8 @@ type Run struct {
 	PR         string        `json:"pr,omitempty"`
 	FailedOnce []FailedCheck `json:"failed_once,omitempty"`
 	Failed     []FailedCheck `json:"failed,omitempty"`
+	OnceTests  []string      `json:"failed_once_tests,omitempty"`
+	OnceUnread string        `json:"failed_once_unread,omitempty"`
 }
 
 // FailedCheck is a check that ended red: its name and its page.

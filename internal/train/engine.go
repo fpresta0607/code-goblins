@@ -198,6 +198,9 @@ func (e Engine) step(ctx context.Context, t *Train) error {
 	case outcome == "pending" && waited >= RunDeadline:
 		return e.finish(ctx, t, StateFailed, fmt.Sprintf("CI on its pull request %s did not finish within %s of the push", t.PR, RunDeadline))
 	case outcome == "passed":
+		if err := e.noteFailedOnce(ctx, t); err != nil {
+			return err
+		}
 		return e.land(ctx, t)
 	case outcome == "failed":
 		return e.halve(ctx, t, failed)

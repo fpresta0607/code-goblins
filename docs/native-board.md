@@ -212,6 +212,7 @@ Every `ci_finished` wake names the tests that failed once and passed on their se
 A workflow that gives a failed test a second try names each such test in a warning titled Failed once on one of its checks, and the supervisor reads the warnings of GitHub Actions' checks on the commit as it raises the wake, never on a poll that raises none.
 A read that fails, or that finds no workflow check at all, is said in the wake as tests that could not be read, never taken for none.
 A pull request with no workflow check is not read.
+A merge train makes the same read as its run passes, for the workflow runs of the train's head, and names those tests in its record (`failed_once_tests`, or `failed_once_unread` with why) and in its `merge_train:` message.
 Runs are judged newest first by their ids, and GitHub sometimes answers with an older page of them, so a listing whose newest run is older than one a poll already read for that repository, before or since it was last watched, is passed over until the next poll.
 One pull request wakes at most once every five minutes, and one workflow on one repository's default branch wakes at most once every five minutes, so a push that turns two workflows red raises two wakes, each naming its own workflow and run.
 A repository with no `origin` remote is a local one and is not watched: `gh` is asked nothing about it, and it raises no error and no wake.
