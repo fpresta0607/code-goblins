@@ -220,13 +220,17 @@ func recordConversationOf(t *testing.T, stateDir string, record host.Record, har
 // waitForFakeClaudeArguments waits for the test binary, run as claude.exe in
 // dir, to record arguments other than skip, and returns them, without the
 // pair every start of the CFO opens with, which hands it its hooks
-// (cfoHookArguments).
+// (cfoHookArguments). The stand-in writes the file and then what it holds,
+// so an empty one is not written yet, as waitForFakeClaudeEnvironment reads
+// its file: every start of the CFO has arguments.
 func waitForFakeClaudeArguments(t *testing.T, dir string, skip []string) []string {
 	t.Helper()
 	hooks := "--settings\n" + filepath.Join(dir, "state", cfoSettingsFile)
+	isEmpty := false
 	for deadline := time.Now().Add(15 * time.Second); time.Now().Before(deadline); time.Sleep(50 * time.Millisecond) {
 		raw, err := os.ReadFile(filepath.Join(dir, fakeClaudeArguments))
-		if err != nil {
+		isEmpty = err == nil && len(raw) == 0
+		if err != nil || isEmpty {
 			continue
 		}
 		rest, hasHooks := strings.CutPrefix(string(raw), hooks)
@@ -236,6 +240,9 @@ func waitForFakeClaudeArguments(t *testing.T, dir string, skip []string) []strin
 		if got := strings.Split(strings.TrimPrefix(rest, "\n"), "\n"); !slices.Equal(got, skip) {
 			return got
 		}
+	}
+	if isEmpty {
+		t.Fatal("the CFO started with no arguments at all, want it to open with --settings and the file of its hooks")
 	}
 	t.Fatal("the CFO did not start again in native terminal cfo within 15s")
 	return nil
