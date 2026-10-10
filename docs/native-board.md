@@ -1408,6 +1408,7 @@ It ends Updated, and the page reloads on the new board after a moment; Rolled ba
 Either way the card ends on the one sentence the update ended on, with nothing to paste and no command to run, and what the update printed stays under Output for whoever wants why and how long each step took.
 An update that did not install has the board look again at once, and a new item for the same release follows, which the card's one **Try again** shows and starts in the one press.
 That next update puts the previous build back first when the last one stopped part way, so no recovery is ever his to run.
+Recovery by hand stays for when nothing else can: with `CFO_HOME` set to the home and `CFO_STATE_OVERRIDE` to its `state` folder, `state\update\candidate.exe update --recover` puts the previous build back from any folder, with both commands gone.
 A newer release published meanwhile replaces a waiting item, which reads Replaced with why, as does one whose release the board now runs; an item waits for him until then and never expires after a day as a command does.
 The Command Center lists it as Code Goblins with the release goblin, `Update to <new> from <old>`, a download icon and the same ring, the bar's alert announces it once as Code Goblins, and History keeps how it ended.
 The item is the release's one signal on the board: no banner points to it, since everything that asks him something reaches him in the Command Center.
