@@ -10,6 +10,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"slices"
 	"strconv"
 	"strings"
 	"testing"
@@ -76,6 +77,11 @@ func (r *pipelineStartRunner) Run(_ context.Context, q execx.Request) (execx.Res
 			return execx.Result{Stdout: []byte("auto_fix: {review: 0}\n")}, nil
 		}
 	case "no-mistakes":
+		// This no-mistakes names no --intent-file in its help, as one before
+		// 1.86.0, so a run it starts has its intent on the command line.
+		if slices.Equal(q.Args, []string{"help", "axi", "run"}) {
+			return execx.Result{}, nil
+		}
 		r.native = append(r.native, q)
 		r.roleStarted = r.advance && r.remoteRead >= 2
 		return execx.Result{}, nil

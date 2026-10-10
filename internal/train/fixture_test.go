@@ -279,6 +279,8 @@ type fakeGitHub struct {
 	// main took them.
 	merged []int
 	calls  [][]string
+	// commandLines are the command lines gh was started with, as they were.
+	commandLines [][]string
 }
 
 // workflow is one workflow run of the train's CI: the head it tests, how
@@ -325,7 +327,17 @@ func (f *fakeGitHub) Run(ctx context.Context, request execx.Request) (execx.Resu
 	if request.Name != "gh" {
 		return execx.Result{}, fmt.Errorf("unexpected command %s", request.Name)
 	}
-	args := request.Args
+	args := slices.Clone(request.Args)
+	f.commandLines = append(f.commandLines, request.Args)
+	// gh reads a body from the file --body-file names, so the fake reads it
+	// too, while the command runs, and keeps it as the body gh was given.
+	if at := slices.Index(args, "--body-file"); at >= 0 && at+1 < len(args) {
+		body, err := os.ReadFile(args[at+1])
+		if err != nil {
+			return execx.Result{}, err
+		}
+		args[at], args[at+1] = "--body", string(body)
+	}
 	f.calls = append(f.calls, slices.Clone(args))
 	call := args[1]
 	if call == "merge" {

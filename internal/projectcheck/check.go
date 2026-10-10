@@ -70,7 +70,14 @@ func Check(ctx context.Context, o Options) (Report, error) {
 		c.repo = repo
 		c.reading(ctx)
 		c.record()
-		c.productionReach(ctx, c.gate(ctx))
+		test := c.gate(ctx)
+		setup := c.testSetup(ctx, test)
+		if err := c.productionReach(ctx, test, setup); err != nil {
+			return Report{}, err
+		}
+		if err := c.terminalReach(ctx, test, setup); err != nil {
+			return Report{}, err
+		}
 	}
 	if err := c.configs(ctx); err != nil {
 		return Report{}, err

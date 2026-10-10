@@ -579,6 +579,11 @@ func (s Service) publishSwitch(meta *state.TaskMeta, target switchTarget) error 
 	meta.Harness = string(target.Harness)
 	meta.Model = valueOrDefault(target.Model)
 	meta.Effort = valueOrDefault(target.Effort)
+	// The task keeps the generation it was spawned under, and one an older
+	// build spawned gains the one it ran on until now.
+	if meta.FirstGen == "" {
+		meta.FirstGen = meta.SpawnGen
+	}
 	// A new spawn generation is what tells the watcher and the hooks that the
 	// terminal's harness is a different process than the one they last
 	// observed.

@@ -44,6 +44,10 @@ type trainProject struct {
 	// viewerTimeouts is how many more of them time out.
 	viewerReads    int
 	viewerTimeouts int
+	// originTimeouts is how many more reads of the checkout's origin time
+	// out, and baseTimeouts how many more reads of the base's head on it.
+	originTimeouts int
+	baseTimeouts   int
 }
 
 func newTrainProject(t *testing.T) *trainProject {
@@ -124,6 +128,14 @@ func (p *trainProject) merged() []string {
 // does not hold yet as open; any other gh call is unexpected.
 func (p *trainProject) Run(ctx context.Context, request execx.Request) (execx.Result, error) {
 	if request.Name == "git" {
+		if slices.Equal(request.Args, []string{"config", "--get", "remote.origin.url"}) && p.originTimeouts > 0 {
+			p.originTimeouts--
+			return execx.Result{}, context.DeadlineExceeded
+		}
+		if len(request.Args) > 0 && request.Args[0] == "ls-remote" && p.baseTimeouts > 0 {
+			p.baseTimeouts--
+			return execx.Result{}, context.DeadlineExceeded
+		}
 		return execx.OSRunner{}.Run(ctx, request)
 	}
 	if args := request.Args; request.Name == "gh" && len(args) > 2 && args[0] == "pr" && p.created > 0 {
@@ -402,7 +414,7 @@ func TestDoneReportsReadEveryPullRequestReportedDoneInThisRun(t *testing.T) {
 	}
 
 	// Act
-	done := doneReports(lines, spawned)
+	done, _ := doneReports(lines, spawned)
 
 	// Assert
 	want := map[string]time.Time{
@@ -664,5 +676,159 @@ func TestTheBoardKeepsABatchByItsLastTrain(t *testing.T) {
 	}
 	if len(service.trains) != 0 {
 		t.Fatalf("shown %q, want nothing once the landed train is past its time", batchIDs(service.trains))
+	}
+}
+
+// On 2026-10-10 at 17:15Z the daily snapshot stalled drive C, the merge
+// train's read of a checkout's origin ran out of time once, and that one
+// timeout woke the CFO: "supervisor_error: merge train: read the origin of
+// C:\dev\PrecisionDocs-AI: context deadline exceeded" (wake 1000685). The
+// next poll makes the read again. The read of the repository a train runs
+// on, its origin and its default branch, is returned only once it failed on
+// three polls in a row, and the poll that reads it starts the train.
+func TestATrainsRepositoryReadIsReportedOnlyOnTheThirdFailingPollInARow(t *testing.T) {
+	// Arrange
+	service, h := fleetService(t)
+	project := newTrainProject(t)
+	first, second := project.pull(11), project.pull(12)
+	reportDone(t, h, "g11", project.checkout, "done: PR "+first.URL)
+	reportDone(t, h, "g12", project.checkout, "done: PR "+second.URL)
+	project.originTimeouts = 3
+	watched := &fleetWakes{}
+
+	for poll, shouldReport := range []bool{false, false, true, false} {
+		// Act
+		err := service.runTrain(context.Background(), project, watched, project.checkout, []train.PullRequest{first, second})
+
+		// Assert
+		if (err != nil) != shouldReport {
+			t.Fatalf("poll %d returned %v, want an error only on the third failing poll in a row", poll+1, err)
+		}
+	}
+	if trains, err := train.List(h.State); err != nil || len(trains) != 1 || len(watched.Failing) != 0 {
+		t.Fatalf("trains = %+v, %v, failing reads %v, want the train started and nothing left failing", trains, err, watched.Failing)
+	}
+}
+
+// A train's start that is cut short is kept, and the train's next step builds
+// it. What cut it short is the train's first failed step, counted with every
+// later one, so a read that ran out of time once as a train started wakes
+// nobody and the next poll builds the train. One that keeps running out of
+// time is told on the third poll in a row.
+func TestATrainsStartCutShortByATimedOutReadIsReportedOnlyOnTheThirdFailingPollInARow(t *testing.T) {
+	for _, test := range []struct {
+		name     string
+		timeouts int
+		reports  []bool
+		want     string
+	}{
+		{"one read that ran out of time", 1, []bool{false, false}, train.StateTesting},
+		{"a read that keeps running out of time", 3, []bool{false, false, true}, train.StateTesting},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			// Arrange
+			service, h := fleetService(t)
+			project := newTrainProject(t)
+			first, second := project.pull(11), project.pull(12)
+			reportDone(t, h, "g11", project.checkout, "done: PR "+first.URL)
+			reportDone(t, h, "g12", project.checkout, "done: PR "+second.URL)
+			project.baseTimeouts = test.timeouts
+			watched := &fleetWakes{}
+
+			for poll, shouldReport := range test.reports {
+				// Act
+				err := service.runTrain(context.Background(), project, watched, project.checkout, []train.PullRequest{first, second})
+
+				// Assert
+				if (err != nil) != shouldReport {
+					t.Fatalf("poll %d returned %v, want an error only on the third failing poll in a row", poll+1, err)
+				}
+			}
+			trains, err := train.List(h.State)
+			if err != nil || len(trains) != 1 || trains[0].State != test.want {
+				t.Fatalf("trains = %+v, %v, want the one train it started, %s", trains, err, test.want)
+			}
+			if isBuilt := trains[0].Head != ""; isBuilt != (test.timeouts < len(test.reports)) {
+				t.Errorf("train built = %v after %d polls with %d reads timed out", isBuilt, len(test.reports), test.timeouts)
+			}
+		})
+	}
+}
+
+// On 2026-10-10 Woody reported #652 and #653 done, was paused and resumed,
+// and the 18:52Z train left both off. A relaunch, which a pause's resume, a
+// switch and a comeback after a restart each are, gives a task a new spawn
+// generation, and a done report was read only since the current one. That cut
+// guards a task respawned under the id of one that was cleaned up, whose
+// status log is kept and appended to: the earlier life's done reports are not
+// the new goblin's, and they still are not. A report made in this life,
+// before the goblin's terminal last started, stands while the pull request is
+// as it was reported: open, green, and with every check of its head finished
+// by the time of the report. A check that finished after it means a new head
+// or a new run, so the goblin reports the pull request done again, and a
+// report made since the relaunch rides whatever its checks' times, as every
+// report of the current run always did.
+func TestADoneReportMadeBeforeItsGoblinsRestartStillRides(t *testing.T) {
+	const pull = "https://github.com/o/r/pull/652"
+	born := time.Date(2026, 10, 10, 15, 6, 0, 0, time.UTC)
+	at := func(minutes int) time.Time { return born.Add(time.Duration(minutes) * time.Minute) }
+	for _, test := range []struct {
+		name string
+		// spawned is when the task was spawned under its id and relaunched
+		// when its terminal last started, reports when it reported the pull
+		// request done, and checked when the checks of its head finished, all
+		// in minutes.
+		spawned, relaunched int
+		reports             []int
+		checked             int
+		isRider             bool
+		why                 string
+	}{
+		{name: "reported, then paused and resumed, green then and unchanged since", relaunched: 120, reports: []int{60}, checked: 50, isRider: true},
+		{name: "reported, then resumed, with checks that finished after the report", relaunched: 120, reports: []int{60}, checked: 90, why: "its goblin reported it done before its terminal last started"},
+		{name: "reported again since its resume, whatever its checks' times", relaunched: 120, reports: []int{60, 130}, checked: 125, isRider: true},
+		{name: "reported in the run it was spawned in, as it always rode", reports: []int{60}, checked: 90, isRider: true},
+		{name: "reported by an earlier life of its id, cleaned up and respawned since", spawned: 100, relaunched: 100, reports: []int{60}, checked: 50, why: "no goblin reported it done"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			// Arrange
+			_, h := fleetService(t)
+			checkout := t.TempDir()
+			generation := func(minutes int) string { return fmt.Sprintf("s%d", at(minutes).UnixNano()) }
+			if err := state.WriteTaskMeta(h.State, state.TaskMeta{ID: "cg-quiet", Project: checkout, Harness: "claude", Backend: "native", SpawnGen: generation(test.relaunched)}); err != nil {
+				t.Fatal(err)
+			}
+			// A relaunch keeps the generation the task was spawned under.
+			record, err := state.ReadMeta(state.TaskMetaPath(h.State, "cg-quiet"))
+			if err != nil {
+				t.Fatal(err)
+			}
+			record["first_gen"] = generation(test.spawned)
+			if err := state.WriteMeta(state.TaskMetaPath(h.State, "cg-quiet"), record); err != nil {
+				t.Fatal(err)
+			}
+			var log strings.Builder
+			for _, minute := range test.reports {
+				log.WriteString(at(minute).Format(time.RFC3339) + " done: PR " + pull + "\n")
+			}
+			writeFile(t, state.StatusPath(h.State, "cg-quiet"), log.String())
+			listing := fmt.Sprintf(`[{"number":652,"url":%q,"headRefName":"fix/quiet","headRefOid":"0652","baseRefName":"main","mergeable":"MERGEABLE","author":{"login":"fleet"},"statusCheckRollup":[{"__typename":"CheckRun","name":"test","status":"COMPLETED","conclusion":"SUCCESS","startedAt":%q,"completedAt":%q}]}]`,
+				pull, at(test.checked-8).Format(time.RFC3339), at(test.checked).Format(time.RFC3339))
+			var open []train.PullRequest
+			if err := json.Unmarshal([]byte(listing), &open); err != nil {
+				t.Fatal(err)
+			}
+
+			// Act
+			riders, left := train.Riders(open, "main", "fleet", TrainGoblins(h.State, checkout), nil)
+
+			// Assert
+			if isRider := len(riders) == 1 && riders[0].Task == "cg-quiet"; isRider != test.isRider {
+				t.Fatalf("riders = %+v, left out %q, want it to ride: %v", riders, left, test.isRider)
+			}
+			if !test.isRider && (len(left) != 1 || !strings.Contains(left[0], test.why)) {
+				t.Errorf("left out %q, want it to say %q", left, test.why)
+			}
+		})
 	}
 }

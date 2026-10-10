@@ -119,7 +119,7 @@ func (e Engine) build(ctx context.Context, t *Train) error {
 		return nil
 	}
 	title, body := t.words()
-	out, err := e.run(ctx, t.Checkout, "gh", "pr", "create", "--repo", t.Repository, "--base", t.Base, "--head", t.Branch, "--title", title, "--body", body)
+	out, err := e.runWithBody(ctx, t.Checkout, body, "pr", "create", "--repo", t.Repository, "--base", t.Base, "--head", t.Branch, "--title", title)
 	if err != nil {
 		return err
 	}
@@ -148,7 +148,7 @@ func (t Train) words() (title, body string) {
 // tests.
 func (e Engine) describe(ctx context.Context, t *Train) error {
 	title, body := t.words()
-	_, err := e.run(ctx, t.Checkout, "gh", "pr", "edit", t.PR, "--title", title, "--body", body)
+	_, err := e.runWithBody(ctx, t.Checkout, body, "pr", "edit", t.PR, "--title", title)
 	return err
 }
 

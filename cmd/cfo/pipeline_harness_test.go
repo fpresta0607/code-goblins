@@ -47,6 +47,11 @@ func (r *gateStartRunner) Run(ctx context.Context, q execx.Request) (execx.Resul
 		}
 		return execx.Result{Stderr: []byte("Not logged in\n"), ExitCode: 1}, nil
 	case "no-mistakes":
+		// This no-mistakes names no --intent-file in its help, as one before
+		// 1.86.0, so a run it starts has its intent on the command line.
+		if strings.Join(q.Args, " ") == "help axi run" {
+			return execx.Result{}, nil
+		}
 		if r.started != nil {
 			close(r.started)
 			<-r.release

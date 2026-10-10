@@ -94,10 +94,11 @@ func pipelineCommand(ctx context.Context, h home.Home, root string, commands exe
 	}
 	flags := flag.NewFlagSet("pipeline", flag.ContinueOnError)
 	flags.SetOutput(io.Discard)
-	var intent, wantBranch, wantRun string
+	var intent, intentFile, wantBranch, wantRun string
 	var response pipeline.Response
 	if args[0] == "run" {
 		flags.StringVar(&intent, "intent", "", "task intent")
+		flags.StringVar(&intentFile, "intent-file", "", "the file that holds the task intent")
 	} else if args[0] == "respond" {
 		flags.StringVar(&response.Action, "action", "", "fix or approve")
 		flags.StringVar(&response.Findings, "findings", "", "comma-separated finding IDs")
@@ -116,8 +117,18 @@ func pipelineCommand(ctx context.Context, h home.Home, root string, commands exe
 	if flags.NArg() != 0 {
 		return errors.New("pipeline: unexpected arguments")
 	}
+	if intent != "" && intentFile != "" {
+		return errors.New("pipeline: give the intent with --intent-file or with --intent, not both")
+	}
+	if intentFile != "" {
+		text, err := fsx.ReadFile(intentFile)
+		if err != nil {
+			return fmt.Errorf("pipeline: read --intent-file: %w", err)
+		}
+		intent = string(text)
+	}
 	if args[0] == "run" && strings.TrimSpace(intent) == "" {
-		return errors.New("pipeline: --intent is required")
+		return errors.New("pipeline: --intent-file or --intent is required, and the intent must not be empty")
 	}
 	if wantBranch != "" && wantRun != "" {
 		return errors.New("pipeline: name a branch or a run, not both")
@@ -209,7 +220,7 @@ func pipelineCommand(ctx context.Context, h home.Home, root string, commands exe
 		fmt.Fprintf(out, "pipeline custody: recovered run %s; local and gate head preserved at %s\n", result.RunID, result.Head)
 		return nil
 	}
-	nativeArgs := []string{"axi", "run", "--intent", intent}
+	var nativeArgs []string
 	if args[0] == "respond" {
 		gate, err := reader.Gate(ctx, meta.Project, branch)
 		if err != nil {
@@ -232,6 +243,15 @@ func pipelineCommand(ctx context.Context, h home.Home, root string, commands exe
 		if err != nil {
 			return err
 		}
+		start, err := pipeline.StartOf(ctx, commands, gated, nativeEnv(root), intent)
+		if err != nil {
+			return fmt.Errorf("pipeline: %w", err)
+		}
+		defer start.Close()
+		if start.IsOnCommandLine {
+			fmt.Fprintln(out, "pipeline: this no-mistakes takes a gate's intent on its command line only, where Microsoft Defender can read a long one as a lure and Windows can refuse the start. no-mistakes 1.86.0 and later take it from a file")
+		}
+		nativeArgs = start.Args
 		if selection.Policy.Version > 5 {
 			if err := pipeline.GateHarness(meta.Harness); err != nil {
 				return fmt.Errorf("%w. Task %s runs on %s, so switch it with cfo switch %s --harness <harness>", err, meta.ID, meta.Harness, meta.ID)

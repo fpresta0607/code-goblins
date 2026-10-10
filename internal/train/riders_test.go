@@ -132,3 +132,52 @@ func TestRidersKeepACulpritOffUntilItsHeadChanges(t *testing.T) {
 		t.Fatalf("new head: riders %v, want it riding again", fixed)
 	}
 }
+
+// A done report made before its goblin's terminal last started, as before a
+// pause, stands for the head it was made of: the pull request rides while
+// every check of that head had finished by the time of the report. A report
+// made since stands whatever came after, and so does one whose goblin's
+// terminal has not started again since.
+func TestRidersHoldAReportMadeBeforeARelaunchToTheHeadItWasMadeOf(t *testing.T) {
+	t.Parallel()
+	reported := time.Date(2026, 10, 10, 18, 0, 0, 0, time.UTC)
+	stamp := func(after time.Duration) string { return reported.Add(after).Format(time.RFC3339) }
+	for name, test := range map[string]struct {
+		relaunched time.Time
+		checks     []Check
+		isRider    bool
+	}{
+		"its checks finished before the report": {reported.Add(time.Hour), []Check{
+			{Kind: "CheckRun", Name: "test", Status: "COMPLETED", Conclusion: "SUCCESS", CompletedAt: stamp(-time.Minute)},
+			{Kind: "StatusContext", Context: "scan", State: "SUCCESS", StartedAt: stamp(-2 * time.Minute)},
+		}, true},
+		"a check finished in the second of the report": {reported.Add(time.Hour), []Check{{Kind: "CheckRun", Name: "test", Status: "COMPLETED", Conclusion: "SUCCESS", CompletedAt: stamp(0)}}, true},
+		"a check finished after the report": {reported.Add(time.Hour), []Check{
+			{Kind: "CheckRun", Name: "test", Status: "COMPLETED", Conclusion: "SUCCESS", CompletedAt: stamp(-time.Minute)},
+			{Kind: "CheckRun", Name: "lint", Status: "COMPLETED", Conclusion: "SUCCESS", CompletedAt: stamp(time.Minute)},
+		}, false},
+		"a commit status set after the report":              {reported.Add(time.Hour), []Check{{Kind: "StatusContext", Context: "scan", State: "SUCCESS", StartedAt: stamp(time.Minute)}}, false},
+		"a check whose time GitHub does not give":           {reported.Add(time.Hour), []Check{{Kind: "CheckRun", Name: "test", Status: "COMPLETED", Conclusion: "SUCCESS"}}, false},
+		"a check finished after a report made since":        {reported.Add(-time.Hour), []Check{{Kind: "CheckRun", Name: "test", Status: "COMPLETED", Conclusion: "SUCCESS", CompletedAt: stamp(time.Minute)}}, true},
+		"a relaunch in the second of the report":            {reported.Add(500 * time.Millisecond), []Check{{Kind: "CheckRun", Name: "test", Status: "COMPLETED", Conclusion: "SUCCESS", CompletedAt: stamp(time.Minute)}}, true},
+		"a goblin whose terminal start is not known at all": {time.Time{}, []Check{{Kind: "CheckRun", Name: "test", Status: "COMPLETED", Conclusion: "SUCCESS", CompletedAt: stamp(time.Minute)}}, true},
+	} {
+		t.Run(name, func(t *testing.T) {
+			// Arrange
+			pr := greenPull(1)
+			pr.Checks = test.checks
+			goblins := []Goblin{{Task: "g1", Done: map[string]time.Time{pr.URL: reported}, Reported: map[string]time.Time{pr.URL: reported}, Relaunched: test.relaunched}}
+
+			// Act
+			riders, left := Riders([]PullRequest{pr}, "main", fleetAccount, goblins, nil)
+
+			// Assert
+			if isRider := len(riders) == 1; isRider != test.isRider {
+				t.Fatalf("riders %v, left %q, want it to ride: %v", riders, left, test.isRider)
+			}
+			if !test.isRider && (len(left) != 1 || !strings.Contains(left[0], "rides once reported done again")) {
+				t.Errorf("left %q, want it to say the pull request rides once reported done again", left)
+			}
+		})
+	}
+}

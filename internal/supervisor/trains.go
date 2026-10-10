@@ -43,12 +43,18 @@ func TrainRepository(ctx context.Context, runner execx.Runner, checkout string) 
 }
 
 // TrainGoblins reads the live goblins working in checkout and, for each, the
-// pull requests it reported done in its current run, whatever it reported
-// after: a goblin that goes on to its next pull request, or is blocked on
-// it, has still finished this one, and whether it rides is the pull
-// request's own state, open, green and not in conflict, which train.Riders
-// reads. The whole log is read, since a long run's done report can lie
-// further back than any tail of it.
+// pull requests it reported done since its task was spawned, whatever it
+// reported after: a goblin that goes on to its next pull request, or is
+// blocked on it, has still finished this one, and whether it rides is the
+// pull request's own state, open, green and not in conflict, which
+// train.Riders reads. A report outlasts the goblin's relaunch, a pause's
+// resume, a switch or a comeback: on 2026-10-10 a train left off two pull
+// requests their goblin had reported done before its pause, since reports
+// were read only from its latest generation. Riders holds such a report to
+// the head it was made of. What the log holds from before the task was
+// spawned is an earlier task's of the same id and is never read. The whole
+// log is read, since a long run's done report can lie further back than any
+// tail of it.
 func TrainGoblins(stateDir, checkout string) []train.Goblin {
 	var goblins []train.Goblin
 	for _, meta := range liveTasks(stateDir) {
@@ -56,19 +62,19 @@ func TrainGoblins(stateDir, checkout string) []train.Goblin {
 			continue
 		}
 		lines, _ := state.TailStatus(stateDir, meta.ID, math.MaxInt)
-		if done := doneReports(lines, spawnTime(meta.SpawnGen)); len(done) > 0 {
-			goblins = append(goblins, train.Goblin{Task: meta.ID, Name: meta.GoblinName, Title: meta.GoblinTitle, Done: done})
+		if done, reported := doneReports(lines, lifeStart(meta)); len(done) > 0 {
+			goblins = append(goblins, train.Goblin{Task: meta.ID, Name: meta.GoblinName, Title: meta.GoblinTitle, Done: done, Reported: reported, Relaunched: spawnTime(meta.SpawnGen)})
 		}
 	}
 	return goblins
 }
 
 // doneReports returns each pull request a goblin's status log reports done
-// since it was spawned, with when it was first reported done in that run, so
-// reporting it again keeps its place in the queue and nothing reported after
-// takes it away.
-func doneReports(lines []string, spawned time.Time) map[string]time.Time {
-	done := map[string]time.Time{}
+// since it was spawned, with when it was first reported done, so reporting it
+// again keeps its place in the queue and nothing reported after takes it
+// away, and with when it was last reported done.
+func doneReports(lines []string, spawned time.Time) (done, reported map[string]time.Time) {
+	done, reported = map[string]time.Time{}, map[string]time.Time{}
 	for _, line := range lines {
 		stamp, event := state.SplitStatus(line)
 		if !spawned.IsZero() && stamp.Before(spawned.Truncate(time.Second)) {
@@ -82,24 +88,29 @@ func doneReports(lines []string, spawned time.Time) map[string]time.Time {
 			if _, seen := done[fields[0]]; !seen {
 				done[fields[0]] = stamp
 			}
+			reported[fields[0]] = stamp
 		}
 	}
-	return done
+	return done, reported
 }
 
 // runTrain takes the merge train running on repo a step, or starts one when
 // at least minimumRiders goblins' finished pull requests wait green on its
 // default branch. open is the pull request list the poll read, nil when it
 // could not be read: a running train still takes its step, and none starts.
-// A step or a read of the account gh works as that fails is tried again on
-// the next poll, and returned only once it failed failingPasses polls in a
-// row.
+// A step, a start cut short, a read of the repository or a read of the
+// account gh works as that fails is tried again on the next poll, and
+// returned only once it failed failingPasses polls in a row. On 2026-10-10
+// the read of a checkout's origin ran out of time once while its drive was
+// stalled, and woke the CFO, though the CI poll had read the same origin
+// moments before and the next poll read it again.
 func (s *Service) runTrain(ctx context.Context, runner execx.Runner, w *fleetWakes, repo string, open []train.PullRequest) error {
 	stateDir := s.Store.Home.State
 	repository, err := TrainRepository(ctx, runner, repo)
 	if err != nil {
-		return err
+		return w.failing("train repository:"+repo, err)
 	}
+	delete(w.Failing, "train repository:"+repo)
 	trains, listErr := train.List(stateDir)
 	engine := s.trainEngine(runner, repository.Slug)
 	if running, isRunning := train.Running(trains, repository.Slug); isRunning {
@@ -118,8 +129,13 @@ func (s *Service) runTrain(ctx context.Context, runner execx.Runner, w *fleetWak
 	if len(riders) < minimumRiders {
 		return listErr
 	}
-	_, err = engine.Start(ctx, repository, riders)
+	started, err := engine.Start(ctx, repository, riders)
 	if errors.Is(err, train.ErrBusy) || errors.Is(err, train.ErrRunning) {
+		err = nil
+	}
+	// A start cut short is kept as a train whose first step failed, and the
+	// next poll takes its step again, so it is told as any step is.
+	if kept, readErr := train.Read(stateDir, started.ID); err != nil && readErr == nil && !kept.IsFinished() && kept.Errors > 0 && kept.Errors < failingPasses {
 		err = nil
 	}
 	return errors.Join(listErr, err)
@@ -215,28 +231,6 @@ func carriedByTrains(stateDir string) map[string]bool {
 		}
 	}
 	return carried
-}
-
-// trainRiders names the pull requests of open a merge train onto base can
-// take as they stand, as train.Riders reads them: a goblin's finished pull
-// request, opened by the account gh works as, green, not held and not in
-// conflict. With that account unread it names none.
-func trainRiders(ctx context.Context, runner execx.Runner, stateDir, repo string, open []train.PullRequest, base string, owners *fleetOwners) map[string]bool {
-	riding := map[string]bool{}
-	goblins := TrainGoblins(stateDir, repo)
-	if len(goblins) == 0 {
-		return riding
-	}
-	viewer, err := owners.account(ctx, runner, repo)
-	if err != nil {
-		return riding
-	}
-	trains, _ := train.List(stateDir)
-	riders, _ := train.Riders(open, base, viewer, goblins, trains)
-	for _, rider := range riders {
-		riding[rider.URL] = true
-	}
-	return riding
 }
 
 // MergeTrainView is a merge train as the board shows it: one card for each

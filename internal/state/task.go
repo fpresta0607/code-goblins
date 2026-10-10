@@ -40,6 +40,14 @@ type TaskMeta struct {
 	HerdrWorkspaceID string
 	HerdrTabID       string
 	HerdrPaneID      string
+	// FirstGen is the spawn generation the task was spawned under. Every
+	// relaunch, a pause's resume, a switch and a comeback, gives the task a
+	// new SpawnGen and keeps this one, so it says where this task's own
+	// reports begin in a status log that an earlier task of the same id,
+	// cleaned up since, wrote to before it. A task an older build spawned has
+	// none until its first relaunch records the generation it ran on until
+	// then.
+	FirstGen string
 	// Title is the task's short title: the one cfo spawn was given with
 	// --title, else its backlog row's, or the one cfo title wrote since;
 	// empty when it had none.
@@ -310,6 +318,7 @@ func ReadTaskMeta(stateDir, id string) (TaskMeta, error) {
 		Model:            kv["model"],
 		Effort:           kv["effort"],
 		SpawnGen:         kv["spawn_gen"],
+		FirstGen:         kv["first_gen"],
 		ResumeOperation:  kv["resume_operation"],
 		PipelineClass:    kv["pipeline_class"],
 		PipelineHash:     kv["pipeline_hash"],
@@ -406,6 +415,7 @@ func WriteTaskMeta(stateDir string, meta TaskMeta) error {
 		"model":              meta.Model,
 		"effort":             meta.Effort,
 		"spawn_gen":          meta.SpawnGen,
+		"first_gen":          meta.FirstGen,
 		"resume_operation":   meta.ResumeOperation,
 		"pipeline_class":     meta.PipelineClass,
 		"pipeline_hash":      meta.PipelineHash,
@@ -504,6 +514,7 @@ func validateTaskMetaValues(meta TaskMeta) error {
 		{"model", meta.Model},
 		{"effort", meta.Effort},
 		{"spawn_gen", meta.SpawnGen},
+		{"first_gen", meta.FirstGen},
 		{"resume_operation", meta.ResumeOperation},
 		{"pipeline_class", meta.PipelineClass},
 		{"pipeline_hash", meta.PipelineHash},

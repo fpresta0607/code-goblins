@@ -6,12 +6,14 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/fpresta0607/code-goblins/internal/execx"
 	"github.com/fpresta0607/code-goblins/internal/home"
+	"github.com/fpresta0607/code-goblins/internal/lifecycle"
 	"github.com/fpresta0607/code-goblins/internal/pipeline"
 	"github.com/fpresta0607/code-goblins/internal/spawn"
 	"github.com/fpresta0607/code-goblins/internal/state"
@@ -215,6 +217,10 @@ func (runner *resumedGateRunner) Run(_ context.Context, request execx.Request) (
 		return execx.Result{Stdout: []byte("ref: refs/heads/main\tHEAD\n0123456789abcdef0123456789abcdef01234567\tHEAD\n")}, nil
 	case request.Name == "git":
 		return execx.Result{Stdout: []byte("cfo/task\n")}, nil
+	// This no-mistakes names no --intent-file in its help, as one before
+	// 1.86.0, so a run it starts has its intent on the command line.
+	case request.Name == "no-mistakes" && command == "help axi run":
+		return execx.Result{}, nil
 	case request.Name == "no-mistakes":
 		runner.native = append(runner.native, request)
 		if strings.HasPrefix(command, "axi run ") {
@@ -319,5 +325,156 @@ func TestResumeRestartsAGateFrozenBeforeVersionSixAsItAlwaysDid(t *testing.T) {
 		if command := strings.Join(request.Args, " "); strings.HasPrefix(command, "axi run ") && command != "axi run --intent ship safely --wait 45s" {
 			t.Fatalf("replacement = %q, want no launch selection under a policy that fixes its own chain", command)
 		}
+	}
+}
+
+// refusingGateRunner is a paused gated task's machine as a Resume its relaunch
+// refuses finds it: the latest gate run of its branch, cancelled, a
+// no-mistakes that recovers nothing, and git naming the branch unless the
+// worktree is detached.
+type refusingGateRunner struct {
+	run, intent string
+	isDetached  bool
+}
+
+func (runner refusingGateRunner) Run(_ context.Context, request execx.Request) (execx.Result, error) {
+	command := strings.Join(request.Args, " ")
+	switch {
+	case request.Name == "sqlite3" && strings.Contains(command, "SELECT default_branch FROM repos"):
+		return execx.Result{Stdout: []byte(`[{"default_branch":"main"}]`)}, nil
+	case request.Name == "sqlite3":
+		row := fmt.Sprintf(`[{"id":%q,"repo_id":"repo-1","branch":"cfo/task","status":"cancelled","head":"%s","intent":%q,"worktree":""}]`, runner.run, strings.Repeat("a", 40), runner.intent)
+		return execx.Result{Stdout: []byte(row)}, nil
+	case request.Name == "git" && command == "ls-remote --symref origin HEAD":
+		return execx.Result{Stdout: []byte("ref: refs/heads/main\tHEAD\n0123456789abcdef0123456789abcdef01234567\tHEAD\n")}, nil
+	case request.Name == "git" && runner.isDetached:
+		return execx.Result{ExitCode: 128, Stderr: []byte("fatal: ref HEAD is not a symbolic ref")}, nil
+	case request.Name == "git":
+		return execx.Result{Stdout: []byte("cfo/task\n")}, nil
+	case request.Name == "no-mistakes":
+		return execx.Result{ExitCode: 1, Stderr: []byte("the daemon is not running")}, nil
+	}
+	return execx.Result{}, fmt.Errorf("unexpected resume command: %s %s", request.Name, command)
+}
+
+// On 2026-10-10 cfo resume pd-whats-new was refused for a gate policy older
+// than the machine's, and the refusal took the task out of its pause, which
+// the CFO put back by hand. Each refusal a resume's relaunch can give before
+// it starts a terminal leaves the task paused as it was, with its reason, its
+// condition and the gate run its pause interrupted, and writes one line into
+// its status log.
+func TestEachRefusalOfAResumesRelaunchLeavesTheTaskPausedAsItWas(t *testing.T) {
+	type refused struct {
+		h        home.Home
+		meta     state.TaskMeta
+		paused   state.Lifecycle
+		commands execx.Runner
+		switched error
+	}
+	tests := []struct {
+		name         string
+		isVersionSix bool
+		goblin       pipeline.Reviewer
+		arrange      func(*testing.T, *refused)
+		want         string
+		isSwitched   bool
+	}{
+		{name: "a task recorded in Herdr", goblin: claudeGoblin, arrange: func(_ *testing.T, f *refused) {
+			f.meta.Backend, f.meta.HerdrSession, f.meta.HerdrWorkspaceID, f.meta.HerdrTabID, f.meta.HerdrPaneID = "herdr", "goblins", "w1", "t1", "p1"
+		}, want: "only a task in a native terminal can resume"},
+		{name: "a saved engine that cannot be read", goblin: claudeGoblin, arrange: func(t *testing.T, f *refused) {
+			path := filepath.Join(f.h.State, "engine", f.meta.ID+".json")
+			if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(path, []byte("{"), 0o600); err != nil {
+				t.Fatal(err)
+			}
+		}, want: "unexpected end of JSON input"},
+		{name: "a paused validation branch that cannot be read", goblin: claudeGoblin, arrange: func(_ *testing.T, f *refused) {
+			f.commands = refusingGateRunner{run: "run-1", intent: "ship safely", isDetached: true}
+		}, want: "cannot read the paused validation branch"},
+		{name: "a paused validation with no saved intent", goblin: claudeGoblin, arrange: func(_ *testing.T, f *refused) { f.paused.GateIntent = "" }, want: "paused validation has no saved intent"},
+		{name: "another validation run on its branch", goblin: claudeGoblin, arrange: func(_ *testing.T, f *refused) {
+			f.commands = refusingGateRunner{run: "run-9", intent: "ship something else"}
+		}, want: "another validation run owns the branch"},
+		{name: "a frozen policy that differs from its record", goblin: claudeGoblin, arrange: func(_ *testing.T, f *refused) { f.meta.PipelineHash = strings.Repeat("0", 64) }, want: "frozen policy differs from its record, as a migration that stopped part way leaves it. Run cfo pipeline migrate task, then resume it"},
+		{name: "a gate policy older than the machine's", goblin: claudeGoblin, arrange: func(t *testing.T, f *refused) {
+			older := legacyPipelineSelection(t, "ordinary")
+			if err := older.Save(filepath.Join(f.meta.TaskTmp, "pipeline.json")); err != nil {
+				t.Fatal(err)
+			}
+			f.meta.PipelineHash, f.meta.PipelineClass = older.Hash, older.Class
+		}, want: "Run cfo pipeline migrate task, then resume it"},
+		{name: "a gate that cannot run on its harness", isVersionSix: true, goblin: pipeline.Reviewer{Harness: "pi", Model: "kimi", Effort: "high"}, want: "Task task would come back on pi, so resume it on claude or codex"},
+		{name: "a paused validation that cannot be recovered", goblin: claudeGoblin, want: "recover paused validation: the daemon is not running"},
+		{name: "a relaunch its switch refuses", goblin: claudeGoblin, arrange: func(_ *testing.T, f *refused) {
+			f.commands, f.switched = &resumedGateRunner{}, errors.New("switch: validate harness claude: claude is not installed")
+		}, want: "claude is not installed", isSwitched: true},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			// Arrange
+			policy, err := pipeline.Load(filepath.Join("..", "..", "config", "pipeline.json"))
+			if err != nil {
+				t.Fatal(err)
+			}
+			if test.isVersionSix {
+				policy = versionSixPolicy(t, pipeline.Reviewer{})
+			}
+			h, nm := gateHome(t, policy, operatorMachineConfig)
+			gatedTask(t, h, "task", policy, test.goblin)
+			meta, err := state.ReadTaskMeta(h.State, "task")
+			if err != nil {
+				t.Fatal(err)
+			}
+			meta.Backend, meta.SpawnGen = "native", "generation-1"
+			at := time.Now().UTC().Add(-time.Hour).Truncate(time.Second)
+			condition, err := state.NewPauseCondition("dependency", "pr:https://github.com/northwind/api/pull/7", at)
+			if err != nil {
+				t.Fatal(err)
+			}
+			f := &refused{h: h, meta: meta, commands: refusingGateRunner{run: "run-1", intent: "ship safely"}, paused: state.Lifecycle{ID: meta.ID, Generation: meta.SpawnGen, RequestGeneration: meta.SpawnGen, Operation: "pause-1", Action: "pause", Phase: "paused", Started: at, Updated: at, Reason: "dependency", Pause: &condition, Session: "session-1", GateRun: "run-1", GateIntent: "ship safely", GateHead: strings.Repeat("a", 40), NoticeSent: true}}
+			if test.arrange != nil {
+				test.arrange(t, f)
+			}
+			if err := state.WriteTaskMeta(h.State, f.meta); err != nil {
+				t.Fatal(err)
+			}
+			if err := state.WriteLifecycle(h.State, f.paused); err != nil {
+				t.Fatal(err)
+			}
+			isSwitched := false
+			runtime := commandRuntime{switchTask: func(context.Context, home.Home, spawn.SwitchRequest) (spawn.SwitchResult, error) {
+				isSwitched = true
+				return spawn.SwitchResult{}, f.switched
+			}}
+			service := lifecycle.Service{StateDir: h.State, Operations: lifecycle.Operations{
+				Memory: func() (uint64, uint64, error) { return 5 << 30, 5 << 30, nil },
+				Resume: func(ctx context.Context, meta state.TaskMeta, prior state.Lifecycle) error {
+					return resumeTask(ctx, h, runtime, f.commands, pipeline.Reader{Root: nm, Commands: f.commands}, meta, prior, nil)
+				},
+				Notify: func(state.Lifecycle) error { return nil },
+			}}
+
+			// Act
+			_, refusal := service.Run(t.Context(), lifecycle.Request{ID: meta.ID, Generation: meta.SpawnGen, Operation: "resume-1", Action: "resume", Reason: "Requested by the operator"})
+
+			// Assert
+			if refusal == nil || !strings.Contains(refusal.Error(), "resume refused, and the task is left as it was: ") || !strings.Contains(refusal.Error(), test.want) {
+				t.Errorf("refusal = %v, want a refused resume that says %q", refusal, test.want)
+			}
+			if isSwitched != test.isSwitched {
+				t.Errorf("the relaunch reached its switch: %v, want %v", isSwitched, test.isSwitched)
+			}
+			left, err := state.ReadLifecycle(h.State, meta.ID)
+			if err != nil || !reflect.DeepEqual(left, f.paused) {
+				t.Errorf("record after the refusal = %+v %v\nwant the pause, its reason, its condition and its gate run as they were: %+v", left, err, f.paused)
+			}
+			lines, _ := state.TailStatus(h.State, meta.ID, 50)
+			if len(lines) != 1 || !strings.Contains(lines[0], " lifecycle-refused: resume refused, and the task is left as it was: ") || !strings.Contains(lines[0], test.want) {
+				t.Errorf("status log = %q, want one line saying the resume was refused and why", lines)
+			}
+		})
 	}
 }

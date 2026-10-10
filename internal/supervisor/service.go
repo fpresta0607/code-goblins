@@ -257,6 +257,9 @@ type Service struct {
 	pages        map[string]bool
 	pageSwept    time.Time
 	pageSweeping bool
+	// pagesFailing counts the sweeps in a row on which each page could not be
+	// taken or ended, by pageKey. Only the one sweep that runs reads it.
+	pagesFailing map[string]int
 	pageWork     sync.WaitGroup
 	// afkChange takes one change to AFK mode at a time: a switch, a logged
 	// decision or the items held. held are the items already held in the

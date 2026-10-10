@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"io/fs"
+	"maps"
 	"os"
 	"path/filepath"
 	"strings"
@@ -61,7 +62,9 @@ func (s *Service) sweepPages(ctx context.Context) {
 // counts as ended: lavish-axi resolves a page's real path before anything
 // else, so it can neither end nor poll it, and on 2026-10-07 the sweep met
 // that failure every ten minutes. The CFO is told once of any prompt the
-// Overlord left there, which nothing can take any more.
+// Overlord left there, which nothing can take any more. A page that could not
+// be taken or ended is tried again at the next sweep, and is the sweep's
+// error only once it failed on failingPasses sweeps in a row.
 func (s *Service) sweepSessions(ctx context.Context) error {
 	sessions, err := s.Options.PageSessions()
 	if err != nil {
@@ -72,6 +75,7 @@ func (s *Service) sweepSessions(ctx context.Context) error {
 		return err
 	}
 	var problems error
+	failed := map[string]bool{}
 	for _, session := range sessions {
 		if ctx.Err() != nil {
 			return nil
@@ -88,6 +92,7 @@ func (s *Service) sweepSessions(ctx context.Context) error {
 		_, statErr := os.Stat(session.File)
 		isGone := errors.Is(statErr, fs.ErrNotExist)
 		var err error
+		isTaken := true
 		switch {
 		case isGone && session.Pending > 0:
 			prompts := fmt.Sprintf("%d prompts", session.Pending)
@@ -107,15 +112,39 @@ func (s *Service) sweepSessions(ctx context.Context) error {
 			if err = s.Options.EndPage(ctx, session.File); err == nil {
 				err = s.takePage(ctx, session.File, owner, owner.task+" has been retired, so this review is closed. Anything you sent here went to the CFO.")
 			}
+			isTaken = err == nil
+			err = s.pageFailing(failed, key, err)
 		case session.Pending > 0:
 			err = s.takePage(ctx, session.File, owner, "")
+			isTaken = err == nil
+			err = s.pageFailing(failed, key, err)
 		}
-		if err == nil && retired {
+		if err == nil && isTaken && retired {
 			err = s.Store.settlePage(key, Review{})
 		}
 		problems = errors.Join(problems, err)
 	}
+	// A page this sweep took, or had nothing to take from, has no run of
+	// failing sweeps.
+	maps.DeleteFunc(s.pagesFailing, func(key string, _ int) bool { return !failed[key] })
 	return problems
+}
+
+// pageFailing counts one more sweep in a row on which page key could not be
+// taken or ended with err, and marks it in failed. It returns err once that
+// makes failingPasses sweeps, and nil before, as for a page that was read.
+func (s *Service) pageFailing(failed map[string]bool, key string, err error) error {
+	if err == nil {
+		return nil
+	}
+	failed[key] = true
+	if s.pagesFailing == nil {
+		s.pagesFailing = map[string]int{}
+	}
+	if s.pagesFailing[key]++; s.pagesFailing[key] < failingPasses {
+		return nil
+	}
+	return err
 }
 
 // takePage takes what the Overlord queued on a page no poller watches, a

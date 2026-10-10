@@ -121,11 +121,22 @@ func comparePullRequests(ctx context.Context, runner execx.Runner, repo string, 
 // prHealthChange is an open pull request whose head has fallen into a
 // condition the CFO was not woken for: a conflict with its base, or a head
 // behind the default branch, and the goblin whose pull request it is, if any.
+// One that is no live goblin's is a teammate's when another account than the
+// one the fleet works as opened it, and the fleet's own when that account
+// did, as the Overlord's own and a finished task's are; it is neither while
+// that account cannot be read.
 type prHealthChange struct {
-	pr            ghPullRequest
-	goblin        string
-	behind        int
-	isConflicting bool
+	pr                    ghPullRequest
+	goblin                string
+	isTeammates, isFleets bool
+	behind                int
+	isConflicting         bool
+}
+
+// checksPassed says every check of a pull request has concluded and passed,
+// and that it has one.
+func checksPassed(checks []ghCheck) bool {
+	return len(checks) > 0 && !slices.ContainsFunc(checks, func(check ghCheck) bool { return !check.concluded() || !check.passed() })
 }
 
 // healthChange says whether pr's head, as record last saw it, has fallen into
@@ -137,11 +148,22 @@ type prHealthChange struct {
 // train has passed it over yet, and on 2026-10-10 one woke the CFO minutes
 // after its push. It waits as long as a train waits for its own run,
 // train.RunDeadline, so checks that never conclude do not hide it for ever.
-func healthChange(record reportedPRHealth, pr ghPullRequest, behind int, now time.Time) (prHealthChange, bool) {
+//
+// This is the one rule for a head behind its base. A merge train tests main
+// and its riders together, so a head that is only behind, with its checks
+// passed, is nothing to tell of a pull request isRider says a train takes
+// once it is finished: a live goblin's own, which the account the fleet
+// works as opened in this repository. That holds whether the goblin reported
+// it done yet, whichever of its branches it is on, and whether it is held:
+// on 2026-10-10 seven wakes said a goblin's green pull request was behind
+// main, each before its goblin had reported it done. A head whose checks
+// failed or that has none is told, and so is one no train takes, a
+// teammate's and one no live goblin holds.
+func healthChange(record reportedPRHealth, pr ghPullRequest, behind int, now time.Time, isRider func() bool) (prHealthChange, bool) {
 	isAwaitingGitHub := !record.UnknownSince.IsZero() && now.Sub(record.UnknownSince) < mergeabilityGrace
 	isAwaitingChecks := !record.RunningSince.IsZero() && now.Sub(record.RunningSince) < train.RunDeadline
 	isConflicting := pr.Mergeable == "CONFLICTING"
-	if isConflicting && record.HasConflictWake || !isConflicting && (behind == 0 || record.HasBehindWake || isAwaitingGitHub || isAwaitingChecks) {
+	if isConflicting && record.HasConflictWake || !isConflicting && (behind == 0 || record.HasBehindWake || isAwaitingGitHub || isAwaitingChecks || checksPassed(pr.Checks) && isRider()) {
 		return prHealthChange{}, false
 	}
 	return prHealthChange{pr: pr, behind: behind, isConflicting: isConflicting}, true
@@ -163,7 +185,7 @@ func reportPRHealth(stateDir string, w *fleetWakes, changes []prHealthChange, br
 		return nil
 	}
 	var entries, goblins []string
-	hasTeammates := false
+	var hasTeammates, hasFleets, hasUnknown bool
 	for _, change := range changes {
 		pr := change.pr
 		condition := fmt.Sprintf("is %d commits behind %s", change.behind, branch)
@@ -171,9 +193,13 @@ func reportPRHealth(stateDir string, w *fleetWakes, changes []prHealthChange, br
 			condition = "conflicts with its base " + cmp.Or(pr.BaseRefName, branch) + ", so its workflows cannot run"
 		}
 		whose := change.goblin
-		if whose == "" {
-			whose, hasTeammates = pr.Author.Login, true
-		} else if !slices.Contains(goblins, whose) {
+		switch {
+		case whose == "":
+			whose = pr.Author.Login
+			hasTeammates = hasTeammates || change.isTeammates
+			hasFleets = hasFleets || change.isFleets
+			hasUnknown = hasUnknown || !change.isTeammates && !change.isFleets
+		case !slices.Contains(goblins, whose):
 			goblins = append(goblins, whose)
 		}
 		entries = append(entries, fmt.Sprintf("%s's PR #%d (%s) at %s %s (%s)", whose, pr.Number, pr.HeadRefName, pr.HeadRefOid, condition, pr.URL))
@@ -184,6 +210,12 @@ func reportPRHealth(stateDir string, w *fleetWakes, changes []prHealthChange, br
 	}
 	if hasTeammates {
 		detail += "; the fleet reports a teammate's pull request and never pushes to it"
+	}
+	if hasFleets {
+		detail += "; the fleet reports a pull request its own account opened from a branch no live goblin holds, the Overlord's own or a finished task's, and never pushes to it"
+	}
+	if hasUnknown {
+		detail += "; the fleet reports a pull request no live goblin holds and never pushes to it"
 	}
 	if err := raiseFleetWake(stateDir, "pr", key, detail); err != nil {
 		return err

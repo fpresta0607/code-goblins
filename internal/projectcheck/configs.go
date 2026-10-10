@@ -108,7 +108,7 @@ func (c *checker) envIgnored(ctx context.Context) error {
 		variables, names := c.credentialNames(ctx, name)
 		switch {
 		case how != "" && len(names) == 0:
-			committed = append(committed, fmt.Sprintf("%s (%s, %s, none of them a credential or a production value)", name, how, count(variables, "variable")))
+			committed = append(committed, fmt.Sprintf("%s (%s, %s, none of them a credential or the address of a production store)", name, how, count(variables, "variable")))
 			continue
 		case how == "":
 			how = "git check-ignore: not ignored"
@@ -117,7 +117,7 @@ func (c *checker) envIgnored(ctx context.Context) error {
 		}
 		exposed = append(exposed, name+" ("+how+")")
 		if len(names) > 0 {
-			credentials = append(credentials, name+" holds credentials or production values: "+strings.Join(names, ", "))
+			credentials = append(credentials, name+" holds credentials or the address of a production store: "+strings.Join(names, ", "))
 		}
 	}
 	looked := fmt.Sprintf("looked at every path %s tracks and at the folder's root and two folders down", c.repo.at())
@@ -168,6 +168,7 @@ func (c *checker) credentialNames(ctx context.Context, name string) (variables i
 	if data, err := fsx.ReadFile(filepath.Join(c.Checkout, filepath.FromSlash(name))); err == nil {
 		copies = append(copies, data)
 	}
+	isTracked := c.repo.tracked[name] || c.repo.index[name]
 	shaped := map[string]bool{}
 	for _, data := range copies {
 		values, err := auth.ParseEnv(bytes.NewReader(data))
@@ -176,10 +177,13 @@ func (c *checker) credentialNames(ctx context.Context, name string) (variables i
 		}
 		variables = max(variables, len(values))
 		for variable, value := range values {
-			// An equals sign reads as an assignment to SecretShape, which is
-			// asked about names elsewhere. Inside a value it is only padding
-			// or a query string.
-			if productionValue(variable, value) != "" || (auth.SecretShape(strings.ReplaceAll(value, "=", "")) != "" && !publishable(variable, value)) {
+			// An environment set to production publishes no credential, so
+			// it is nothing a tracked file has to answer for. An equals sign
+			// reads as an assignment to SecretShape, which is asked about
+			// names elsewhere. Inside a value it is only padding or a query
+			// string.
+			reason := judge(variable, value, isTracked).production
+			if (reason != "" && reason != namesProduction) || (auth.SecretShape(strings.ReplaceAll(value, "=", "")) != "" && !publishable(variable, value)) {
 				shaped[variable] = true
 			}
 		}

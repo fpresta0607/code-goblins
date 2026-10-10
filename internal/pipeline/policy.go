@@ -239,5 +239,5 @@ func (s Selection) Instruction(id, path string) string {
 	case s.Policy.Version > 1:
 		roles = fmt.Sprintf("Global primary, reviewer and review-fixer profiles are Codex %s %s; a CFO gate requires the trusted repository primary to inherit that profile or select Codex explicitly.", s.Policy.Primary.Model, s.Policy.Primary.Effort)
 	}
-	return fmt.Sprintf(" Pipeline policy: read %s. Class %s permits %d review repair cycles, then unresolved. Use cfo pipeline run %s --intent <intent> and cfo pipeline respond %s for gate decisions. Never use --yes, skip a gate, or bypass an exhausted budget with native AXI. %s Shared config changes require an explicit idle config-apply; spawn never changes it.", path, s.Class, s.ReviewCycles, id, id, roles)
+	return fmt.Sprintf(" Pipeline policy: read %s. Class %s permits %d review repair cycles, then unresolved. Write the run's intent to a file and use cfo pipeline run %s --intent-file <file>, never the intent on a command line, and cfo pipeline respond %s for gate decisions. Never use --yes, skip a gate, or bypass an exhausted budget with native AXI. %s Shared config changes require an explicit idle config-apply; spawn never changes it.", path, s.Class, s.ReviewCycles, id, id, roles)
 }

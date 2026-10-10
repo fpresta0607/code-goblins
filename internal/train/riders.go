@@ -46,6 +46,10 @@ type Check struct {
 	State      string `json:"state"`
 	DetailsURL string `json:"detailsUrl"`
 	TargetURL  string `json:"targetUrl"`
+	// StartedAt and CompletedAt are when GitHub says a check run started and
+	// finished. A commit status has only the first, the time it was set.
+	StartedAt   string `json:"startedAt"`
+	CompletedAt string `json:"completedAt"`
 }
 
 func (c Check) name() string {
@@ -73,6 +77,16 @@ func (c Check) isPassed() bool {
 		return true
 	}
 	return false
+}
+
+// finished is when the check finished, or zero when GitHub did not say.
+func (c Check) finished() time.Time {
+	said := c.CompletedAt
+	if c.Kind == "StatusContext" {
+		said = c.StartedAt
+	}
+	at, _ := time.Parse(time.RFC3339, said)
+	return at
 }
 
 func (c Check) link() string {
@@ -104,14 +118,37 @@ func checksOutcome(checks []Check) (string, []Check) {
 }
 
 // Goblin is a live goblin whose finished pull requests may ride: its task and
-// each pull request it reported done in its current run, whatever it reported
-// after, with when it first reported it.
+// each pull request it reported done since the task was spawned, whatever it
+// reported after, with when it first reported it.
 type Goblin struct {
 	Task string
 	// Name and Title are the goblin's fun name and title.
 	Name  string
 	Title string
 	Done  map[string]time.Time
+	// Reported is when it last reported each pull request done, and
+	// Relaunched when its terminal last started: at its spawn, or since, at a
+	// pause's resume, a switch or a comeback after a restart.
+	Reported   map[string]time.Time
+	Relaunched time.Time
+}
+
+// isOutdated says owner's report of pr done no longer stands for the head pr
+// has now. A report made since the goblin's terminal last started stands
+// whatever came after, as it always did. One made before that, as before a
+// pause, stands only while every check of the head had finished by the time
+// of the report: the pull request was green then and is unchanged since. A
+// check that finished after the report, or whose time GitHub does not give,
+// means a new head or a new run, which the goblin has not reported done.
+func isOutdated(owner Goblin, pr PullRequest) bool {
+	reported, isReported := owner.Reported[pr.URL]
+	if !isReported || !reported.Before(owner.Relaunched.Truncate(time.Second)) {
+		return false
+	}
+	return slices.ContainsFunc(pr.Checks, func(check Check) bool {
+		finished := check.finished()
+		return finished.IsZero() || finished.After(reported)
+	})
 }
 
 // Riders picks the open pull requests that may ride a train onto base, in
@@ -155,6 +192,8 @@ func Riders(open []PullRequest, base, viewer string, goblins []Goblin, past []Tr
 			why = "its checks are still running"
 		case outcome == "failed":
 			why = "its checks failed"
+		case isOutdated(owner, pr):
+			why = "its goblin reported it done before its terminal last started and its checks finished after that report, so it rides once reported done again"
 		default:
 			if broke, found := brokeAt(past, pr.URL, pr.HeadRefOid); found {
 				why = fmt.Sprintf("it broke train %s at this head, and rides again once its head changes", broke)

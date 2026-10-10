@@ -209,16 +209,21 @@ func (reader Reader) RestartInterrupted(ctx context.Context, project, worktree s
 	if !terminalRunStatus[current.Status] {
 		return nil
 	}
-	start := []string{"axi", "run", "--intent", prior.Intent, "--wait", "45s"}
+	var selected []string
 	if launch != nil {
-		selected, err := launch(ctx)
+		selected, err = launch(ctx)
 		if err != nil {
 			return fmt.Errorf("validation did not restart: %w", err)
 		}
-		start = append(start, selected...)
 	}
 	bounded, cancel := context.WithTimeout(ctx, 90*time.Second)
 	defer cancel()
+	handover, err := StartOf(bounded, reader.Commands, worktree, nil, prior.Intent)
+	if err != nil {
+		return fmt.Errorf("validation did not restart: %w", err)
+	}
+	defer handover.Close()
+	start := append(append(handover.Args, "--wait", "45s"), selected...)
 	result, err := reader.Commands.Run(bounded, execx.Request{Dir: worktree, Name: "no-mistakes", Args: []string{"axi", "sync", "--recover"}})
 	if err != nil || result.ExitCode != 0 {
 		return fmt.Errorf("recover paused validation: %s", strings.TrimSpace(string(result.Stdout)+string(result.Stderr)))

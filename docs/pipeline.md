@@ -166,13 +166,20 @@ Migration never changes a worktree, native run row, gate ref, origin ref, or rev
 ## Driving a task
 
 ```powershell
-cfo pipeline run <id> --intent "The user's complete objective and constraints"
+cfo pipeline run <id> --intent-file intent.md
 cfo pipeline respond <id> --action fix --findings finding-id --instructions "Concrete guidance"
 cfo pipeline respond <id> --action approve
 cfo pipeline respond <id> --branch fix/connections --action approve
 cfo pipeline recover <id>
 cfo pipeline migrate <id>
 ```
+
+Write the run's intent to a file and name it with `--intent-file`.
+A short one may be given with `--intent <text>`.
+Either way `cfo pipeline run` hands it to no-mistakes in a file, never on a command line, and so does the restart of a paused task's run.
+An intent is prose, often several thousand characters that name a shell, and on 2026-10-02 Microsoft Defender detected one on a command line as `Trojan:Win32/ClickFix.DQ!MTB`, the lure that has a person paste such a line, and Windows refused the start.
+A no-mistakes before 1.86.0 has no `--intent-file`, so for such a build alone the intent stays on the command line, and the command says so.
+A response's `--instructions` still reach no-mistakes on its command line, which is the only way it takes them, so keep them short and plain.
 
 Commands operate in the recorded task worktree and use its frozen policy.
 A task that gates several branches from extra worktrees names one: `run`, `respond` and `recover` take `--branch <branch>`, and `respond` and `recover` take `--run <run-id>` instead.

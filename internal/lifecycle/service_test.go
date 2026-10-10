@@ -522,6 +522,131 @@ func TestAResumeThatOnlyWaitsForRoomLeavesThePauseAsItWas(t *testing.T) {
 	}
 }
 
+// On 2026-10-10 cfo resume pd-whats-new was refused, rightly, for a gate
+// policy older than the machine's, and the refusal took the task out of its
+// pause: its record was already written as resuming, so the refusal was
+// recorded as a failed resume, its card stopped reading paused, and five
+// minutes later a wake said its host does not answer. A resume refused before
+// its relaunch published a replacement generation started nothing, whatever
+// refused it and whenever, so the task is left exactly as it was. Its status
+// log says why in one line, but for a wait for room, which passes by itself.
+func TestARefusedResumeLeavesTheTaskExactlyAsItWas(t *testing.T) {
+	const migrate = "pipeline: the machine's gate config has moved on from the policy task task is frozen at (agent). Run cfo pipeline migrate task, then resume it"
+	relaunch := func(refusal error) func(*Service, *Request) {
+		return func(service *Service, _ *Request) {
+			service.Operations.Resume = func(context.Context, state.TaskMeta, state.Lifecycle) error { return refusal }
+		}
+	}
+	memory := func(available, commit uint64, err error) func(*Service, *Request) {
+		return func(service *Service, _ *Request) {
+			service.Operations.Memory = func() (uint64, uint64, error) { return available, commit, err }
+		}
+	}
+	tests := []struct {
+		name    string
+		arrange func(*Service, *Request)
+		want    string
+		logged  string
+	}{
+		{name: "its session changed since the click", arrange: func(_ *Service, request *Request) { request.Generation = "another-session" }, want: "task session changed"},
+		{name: "available memory is short", arrange: memory((5<<30)-1, 40<<30, nil), want: "Resume needs at least 5 GB of available memory"},
+		{name: "commit is short", arrange: memory(16<<30, (5<<30)-1, nil), want: "Resume needs at least 5 GB of commit"},
+		{name: "free memory cannot be read", arrange: memory(0, 0, errors.New("the counter did not answer")), want: "read available memory"},
+		{name: "the machine has no room for one more terminal", arrange: func(service *Service, _ *Request) {
+			service.Operations.Admit = func() error { return errors.New("free disk is under its floor") }
+		}, want: "free disk is under its floor"},
+		{name: "its relaunch waits for room", arrange: relaunch(fmt.Errorf("%w: %w", state.ErrNoRoom, errors.New("only 4.9 GB of memory is free"))), want: "waits for room"},
+		{name: "its gate policy is older than the machine's", arrange: relaunch(errors.New("validation did not restart: " + migrate)), want: migrate, logged: "lifecycle-refused: resume refused, and the task is left as it was: validation did not restart: " + migrate},
+		{name: "its relaunch is refused before it starts anything", arrange: relaunch(errors.New("switch: validate harness codex: codex is not installed")), want: "codex is not installed", logged: "lifecycle-refused: resume refused, and the task is left as it was: switch: validate harness codex: codex is not installed"},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			// Arrange
+			service, meta := lifecycleFixture(t)
+			var notices []string
+			service.Operations.Notify = func(record state.Lifecycle) error {
+				notices = append(notices, record.Action+" "+record.Phase)
+				return nil
+			}
+			if _, err := service.Run(t.Context(), Request{ID: meta.ID, Generation: meta.SpawnGen, Operation: "pause-1", Action: "pause", Reason: "dependency", Until: "pr:https://github.com/northwind/api/pull/7", Session: "session-1"}); err != nil {
+				t.Fatal(err)
+			}
+			paused, err := state.ReadLifecycle(service.StateDir, meta.ID)
+			if err != nil {
+				t.Fatal(err)
+			}
+			logged, _ := state.TailStatus(service.StateDir, meta.ID, 50)
+			request := Request{ID: meta.ID, Generation: meta.SpawnGen, Operation: "auto-resume-1", Action: "resume", Reason: "Pause condition cleared"}
+			test.arrange(&service, &request)
+
+			// Act
+			_, refusal := service.Run(t.Context(), request)
+
+			// Assert
+			if refusal == nil || !strings.Contains(refusal.Error(), test.want) {
+				t.Errorf("refusal = %v, want it to say %q", refusal, test.want)
+			}
+			left, readErr := state.ReadLifecycle(service.StateDir, meta.ID)
+			if readErr != nil || !reflect.DeepEqual(left, paused) {
+				t.Errorf("record after the refusal = %+v %v\nwant the pause, its reason and its condition as they were: %+v", left, readErr, paused)
+			}
+			if !left.SuppressesMonitoring(service.StateDir) {
+				t.Errorf("record after the refusal = %+v, want one no wake reads as a running task", left)
+			}
+			var added []string
+			if lines, _ := state.TailStatus(service.StateDir, meta.ID, 50); len(lines) > len(logged) {
+				for _, line := range lines[len(logged):] {
+					_, event := state.SplitStatus(line)
+					added = append(added, event)
+					if !crewstate.IsCFOAudit(line) {
+						t.Errorf("status line %q reads as the goblin's own report, want the CFO's record", line)
+					}
+				}
+			}
+			var want []string
+			if test.logged != "" {
+				want = []string{test.logged}
+			}
+			if !reflect.DeepEqual(added, want) {
+				t.Errorf("status log gained %q, want %q", added, want)
+			}
+			if wantNotices := []string{"pause paused"}; !reflect.DeepEqual(notices, wantNotices) {
+				t.Errorf("the lifecycle told the CFO %v, want %v: whoever asked reads the refusal", notices, wantNotices)
+			}
+		})
+	}
+}
+
+// A relaunch that published its replacement generation began: its terminal
+// may run, and the session the pause kept is no longer the task's. A resume
+// that fails from there on is a failed resume, as it always was, and is tried
+// again as one.
+func TestAResumeThatFailsAfterItsRelaunchBeganIsAFailedResume(t *testing.T) {
+	// Arrange
+	service, meta := lifecycleFixture(t)
+	if _, err := service.Run(t.Context(), Request{ID: meta.ID, Generation: meta.SpawnGen, Operation: "pause-1", Action: "pause", Reason: "overlord"}); err != nil {
+		t.Fatal(err)
+	}
+	service.Operations.Resume = func(_ context.Context, launched state.TaskMeta, _ state.Lifecycle) error {
+		launched.SpawnGen, launched.ResumeOperation = "generation-2", "resume-1"
+		if err := state.WriteTaskMeta(service.StateDir, launched); err != nil {
+			return err
+		}
+		return errors.New("the harness did not reach its composer")
+	}
+
+	// Act
+	record, err := service.Run(t.Context(), Request{ID: meta.ID, Generation: meta.SpawnGen, Operation: "resume-1", Action: "resume"})
+
+	// Assert
+	if err == nil || record.Phase != "failed" || record.Action != "resume" || record.Generation != "generation-2" || !slices.ContainsFunc(record.Problems, func(problem string) bool { return strings.Contains(problem, "did not reach its composer") }) {
+		t.Fatalf("resume = %+v, %v, want a failed resume of the replacement generation that names what it met", record, err)
+	}
+	if lines, _ := state.TailStatus(service.StateDir, meta.ID, 50); !slices.ContainsFunc(lines, func(line string) bool { return strings.Contains(line, "lifecycle-failed") }) {
+		t.Errorf("status log = %v, want the failed resume in it", lines)
+	}
+}
+
 func TestResumeNeedsFiveGigabytesOfBothMemoryAndCommitAndNamesWhatIsShort(t *testing.T) {
 	tests := []struct {
 		name              string
@@ -687,7 +812,8 @@ func TestGateRecoverySurvivesAFailedResumeButNotASuccessfulOne(t *testing.T) {
 		t.Fatal(err)
 	}
 	failed, err := service.Run(t.Context(), Request{ID: meta.ID, Generation: meta.SpawnGen, Operation: "resume-1", Action: "resume"})
-	if err == nil || failed.Phase != "failed" || failed.GateRun != "run-1" {
+	// The relaunch started nothing, so the task is left paused as it was.
+	if err == nil || failed.Phase != "paused" || failed.GateRun != "run-1" {
 		t.Fatalf("failed resume lost its interrupted gate: %+v %v", failed, err)
 	}
 	if _, err := service.Run(t.Context(), Request{ID: meta.ID, Generation: meta.SpawnGen, Operation: "resume-2", Action: "resume"}); err != nil {

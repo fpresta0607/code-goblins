@@ -14,6 +14,10 @@ const productionEnv = "STRIPE_SECRET_KEY=sk_live_" + "a1B2a1B2a1B2a1B2a1B2a1B2\n
 	"FRONTEND_URL=https://app.example.com\n" +
 	"PORT=8000\n"
 
+// loadsEnv is a test setup that loads the env file of the folder it runs
+// in, so what that file holds is what a test run starts with.
+const loadsEnv = "from dotenv import load_dotenv\n\nload_dotenv()\n"
+
 // Both recorded harms of this class came from an env file a test run could
 // read: a gate test step that spent production keys, and a local test run
 // that paged production Sentry. A goblin's worktree shares the checkout's
@@ -23,7 +27,7 @@ func TestATestStepThatCanReachProductionIsReported(t *testing.T) {
 	f := newFixture(t, map[string]string{
 		".gitignore":        ".env\n",
 		".no-mistakes.yaml": "commands:\n  test: \"pytest -q\"\n",
-		"conftest.py":       "import os\n\nos.environ[\"SENTRY_DSN\"] = \"\"\n",
+		"conftest.py":       loadsEnv + "import os\n\nos.environ[\"SENTRY_DSN\"] = \"\"\n",
 	})
 	f.write(".env", productionEnv)
 	f.manifest("worktree.json", `{"project":"northwind","link":[".env"]}`)
@@ -54,7 +58,7 @@ func TestATestStepThatCanReachProductionIsReported(t *testing.T) {
 // database alone is then as bad as it gets.
 func TestAnAgentChosenTestStepBesideAProductionEnvFileIsCritical(t *testing.T) {
 	// Arrange
-	f := newFixture(t, map[string]string{".gitignore": ".env.docker.local\n"})
+	f := newFixture(t, map[string]string{".gitignore": ".env.docker.local\n", "conftest.py": "from dotenv import load_dotenv\n\nload_dotenv(\".env.docker.local\")\n"})
 	f.write(".env.docker.local", "DATABASE_URL=postgres://app:hunter2hunter2@db.internal.example.com:5432/app\n")
 	f.manifest("worktree.json", `{"project":"northwind","link":[".env.docker.local"]}`)
 
@@ -73,7 +77,7 @@ func TestAnAgentChosenTestStepBesideAProductionEnvFileIsCritical(t *testing.T) {
 // high, not critical: the command bounds what runs.
 func TestARemoteServiceBehindTheRepositorysOwnTestCommandIsHigh(t *testing.T) {
 	// Arrange
-	f := newFixture(t, map[string]string{".gitignore": ".env\n", ".no-mistakes.yaml": "commands:\n  test: \"pytest -q\"\n"})
+	f := newFixture(t, map[string]string{".gitignore": ".env\n", ".no-mistakes.yaml": "commands:\n  test: \"pytest -q\"\n", "conftest.py": loadsEnv})
 	f.write(".env", "DATABASE_URL=postgres://app:hunter2hunter2@db.internal.example.com:5432/app\n")
 	f.manifest("worktree.json", `{"project":"northwind","link":[".env"]}`)
 
@@ -209,7 +213,7 @@ func TestASecretUnderAPublishableNameIsStillACredential(t *testing.T) {
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			// Arrange
-			f := newFixture(t, map[string]string{".gitignore": ".env\n", ".no-mistakes.yaml": "commands:\n  test: \"pytest -q\"\n"})
+			f := newFixture(t, map[string]string{".gitignore": ".env\n", ".no-mistakes.yaml": "commands:\n  test: \"pytest -q\"\n", "conftest.py": loadsEnv})
 			f.write(".env", test.variable+"="+test.value+"\n")
 			f.manifest("worktree.json", `{"project":"northwind","link":[".env"]}`)
 

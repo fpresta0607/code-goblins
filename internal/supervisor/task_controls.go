@@ -50,6 +50,9 @@ type taskChangeError struct {
 	Operation  string
 	Updated    time.Time
 	IsIdleRead bool
+	// IsRefused says a resume was refused for what no later reading clears by
+	// itself, so the task waits for a Resume.
+	IsRefused bool
 }
 
 // lifecycleRequest is a Pause, Resume or Stop clicked on the board, naming
@@ -249,7 +252,7 @@ func (s *Service) changeTask(input lifecycleRequest) error {
 		var failure taskChangeError
 		isToldByItsRecord := false
 		if err != nil {
-			failure = taskChangeError{Message: spawnFailure(output, err), Generation: input.Generation, Operation: prior.Operation, Updated: prior.Updated}
+			failure = taskChangeError{Message: spawnFailure(output, err), Generation: input.Generation, Operation: prior.Operation, Updated: prior.Updated, IsRefused: strings.Contains(output, state.ErrResumeRefused.Error())}
 			if record, readErr := state.ReadLifecycle(s.Store.Home.State, input.Task); readErr == nil && record.Operation == input.Operation && record.RequestGeneration == requestGeneration {
 				failure.Generation, failure.Operation, failure.Updated = record.Generation, record.Operation, record.Updated
 				if failure.Generation == "queued" {
