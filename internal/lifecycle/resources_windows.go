@@ -261,6 +261,15 @@ func StopResources(ctx context.Context, resources Resources) ([]string, []state.
 const hostStopWait = 10 * time.Second
 
 func stopResources(ctx context.Context, resources Resources, stop func(context.Context, Identity) (bool, error)) ([]string, []state.TeardownProcess, error) {
+	return endResources(ctx, resources, stop, func(ctx context.Context, job []Identity) ([]Process, error) {
+		return Inventory(ctx, resources.Directories, job, resources.Marks)
+	})
+}
+
+// endResources ends resources' terminals and then, sweep after sweep, what
+// inventory reads as the task's own, given the members of the terminals'
+// jobs.
+func endResources(ctx context.Context, resources Resources, stop func(context.Context, Identity) (bool, error), inventory func(context.Context, []Identity) ([]Process, error)) ([]string, []state.TeardownProcess, error) {
 	stopped := []string{}
 	var teardown []state.TeardownProcess
 	finished := map[Identity]bool{}
@@ -326,7 +335,7 @@ func stopResources(ctx context.Context, resources Resources, stop func(context.C
 		if err != nil {
 			return stopped, teardown, unfinished(err)
 		}
-		processes, err := Inventory(ctx, resources.Directories, members, resources.Marks)
+		processes, err := inventory(ctx, members)
 		if err != nil {
 			return stopped, teardown, unfinished(err)
 		}
@@ -377,7 +386,7 @@ func stopResources(ctx context.Context, resources Resources, stop func(context.C
 	if err != nil {
 		return stopped, teardown, unfinished(err)
 	}
-	remaining, err := Inventory(ctx, resources.Directories, members, resources.Marks)
+	remaining, err := inventory(ctx, members)
 	if err != nil {
 		return stopped, teardown, unfinished(err)
 	}
@@ -517,30 +526,50 @@ func (jobs terminalJobs) Close() {
 }
 
 // EndLeft ends what a task's terminal left running, once the terminal has
-// closed: the processes that are the task's own by its folders and by the
-// proofs its terminal was given (OwnedProcesses), with no terminal left to
-// end and no job left to read. A cleanup closes an idle goblin's terminal
-// itself and stops nothing else, so a server, a watcher or a browser bridge
-// that had detached from the terminal outlived the goblin's retirement, and
-// one at work in its worktree kept the worktree from being removed. The
-// task's helpers are no part of it: each is retired by a cleanup of its own.
+// ended and none runs for the task: the processes that are the task's own by
+// its folders and by the proofs its terminal was given, less what somebody
+// else runs in those folders (leftBehind), with no terminal left to end and
+// no job left to read. A cleanup and a relaunch close a goblin's terminal
+// themselves and stopped nothing else, so a server, a watcher or a browser
+// bridge that had detached from the terminal outlived the goblin's
+// retirement, or ran on beside the harness that replaced the one that
+// started it, and one at work in the worktree kept a retired task's worktree
+// from being removed. The task's helpers are no part of it: each has a
+// terminal, and a cleanup, of its own.
 func EndLeft(ctx context.Context, h home.Home, meta state.TaskMeta) ([]string, error) {
 	directories, err := TaskDirectories(h, meta)
 	if err != nil {
 		return nil, err
 	}
-	resources := Resources{Directories: directories}
+	var marks []Mark
 	if meta.Backend == "native" {
 		proofs, err := host.Proofs(h.State, meta.ID)
 		if err != nil {
 			return nil, fmt.Errorf("read the task terminal's proofs: %w", err)
 		}
 		for _, proof := range proofs {
-			resources.Marks = append(resources.Marks, Mark{Terminal: meta.ID, ProofSum: proof})
+			marks = append(marks, Mark{Terminal: meta.ID, ProofSum: proof})
 		}
 	}
 	bounded, cancel := context.WithTimeout(ctx, stopBound)
 	defer cancel()
-	stopped, _, err := StopResources(bounded, resources)
+	stopped, _, err := endResources(bounded, Resources{}, Terminate, func(ctx context.Context, _ []Identity) ([]Process, error) {
+		// The running list is read first, so a parent that ends while the
+		// evidence is read still counts as running, and its child is left
+		// for the next sweep to judge.
+		running, err := proc.Processes()
+		if err != nil {
+			return nil, err
+		}
+		started := make(map[int]time.Time, len(running))
+		for _, entry := range running {
+			started[entry.PID] = entry.Start
+		}
+		processes, err := ReadProcesses(ctx, len(marks) > 0)
+		if err != nil {
+			return nil, err
+		}
+		return leftBehind(OwnedProcesses(processes, directories, nil, marks), started, marks), nil
+	})
 	return stopped, err
 }

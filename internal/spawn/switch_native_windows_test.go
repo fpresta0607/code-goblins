@@ -180,6 +180,66 @@ func TestANativeSwitchClosesAHarnessThatWillNotExit(t *testing.T) {
 	}
 }
 
+// A relaunch ends what the last harness left running outside its terminal,
+// once that terminal has ended and before the next harness starts. Closing
+// the terminal ends what its job holds, and everything Git Bash starts has
+// left the job, so until 2026-10-09 a switched goblin's dev server ran on
+// beside a harness that could no longer reach it, holding its port. The
+// sweep runs while no terminal runs for the task: afterwards the next
+// harness would be the task's own by the same folders and proofs. One that
+// fails does not leave the goblin with no harness.
+func TestANativeSwitchEndsWhatTheLastHarnessLeftBeforeTheNextStarts(t *testing.T) {
+	for _, test := range []struct {
+		name     string
+		sweepErr error
+		want     string
+	}{
+		{name: "a server left running", want: "\nended 1 process(es) the last harness left running: node.exe pid 4242"},
+		{name: "a sweep that ran out of time", sweepErr: context.DeadlineExceeded, want: "\nended 1 process(es) the last harness left running: node.exe pid 4242\nwarning: not everything the last harness left running was ended (context deadline exceeded)"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			// Arrange
+			f := newNativeFixture(t, harness.Codex, "turns")
+			f.service.Commands = cleanWorktree{f.service.Worktrees.Commands}
+			f.service.Harness = harness.Registry{Adapters: map[harness.Kind]harness.Adapter{harness.Codex: nativeAdapter{kind: harness.Codex, control: harness.Control{StopCommand: "/exit"}}}}
+			if _, err := f.service.Spawn(context.Background(), f.request); err != nil {
+				t.Fatalf("Spawn: %v", err)
+			}
+			closeCurrentTerminal(t, f)
+			first, err := host.ReadRecord(f.stateDir, "task-7")
+			if err != nil {
+				t.Fatal(err)
+			}
+			awaitComposer(t, f)
+			var seen []string
+			f.service.EndLeft = func(_ context.Context, meta state.TaskMeta) ([]string, error) {
+				seen = append(seen, fmt.Sprintf("task %s, its last host ended %t, a terminal runs for it %t, harness starts %d", meta.ID, ended(first.HostPID), nativeTerminalRuns(f.stateDir, meta.ID), len(named(f.events(t), "env"))))
+				return []string{"node.exe pid 4242"}, test.sweepErr
+			}
+
+			// Act
+			result, err := f.service.Switch(context.Background(), SwitchRequest{ID: "task-7", Model: "gpt-9"})
+
+			// Assert
+			if err != nil {
+				t.Fatalf("Switch: %v", err)
+			}
+			if want := []string{"task task-7, its last host ended true, a terminal runs for it false, harness starts 1"}; !slices.Equal(seen, want) {
+				t.Errorf("the sweep ran as %v, want once, after the last terminal ended and before the next harness started: %v", seen, want)
+			}
+			if !strings.Contains(result.Output, test.want) {
+				t.Errorf("output = %q, want %q in it", result.Output, test.want)
+			}
+			if second, err := host.ReadRecord(f.stateDir, "task-7"); err != nil || second.HostPID == first.HostPID || !host.Running(second) {
+				t.Errorf("the terminal after the switch is %+v, %v; want a new running host under the same id", second, err)
+			}
+			if launches := len(named(f.events(t), "env")); launches != 2 {
+				t.Errorf("the harness started %d times, want twice", launches)
+			}
+		})
+	}
+}
+
 // A switch of a native goblin to a harness no native terminal can start is
 // refused before anything is stopped or recorded: the goblin keeps its
 // terminal, its metadata and its generation.

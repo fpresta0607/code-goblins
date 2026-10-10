@@ -351,11 +351,15 @@ func TestAGoblinsDetachedProcessEndsWithItAtPauseAndAtRetire(t *testing.T) {
 // process that had left the job, as everything Git Bash starts has, outlived
 // the goblin's retirement. What a closed terminal left is ended by the proofs
 // its terminal was given, which outlast the host's record, and the machine
-// service it started goes on running.
+// service it started goes on running. So does what somebody else runs in the
+// goblin's worktree, as the CFO runs a test there: it works in the task's
+// folder under a parent that still runs and is not the task's.
 func TestWhatAClosedTerminalLeftEndsWithItsCleanup(t *testing.T) {
 	// Arrange
 	root := t.TempDir()
 	h, meta, started, held, hostEnded := hostedGoblin(t, root)
+	started["visitor"] = startLifecycleFixture(t, os.Args[0], meta.Worktree, "^TestLifecycleProcessFixture$", "CFO_LIFECYCLE_FIXTURE=1")
+	held["visitor"] = standin.Hold(t, started["visitor"])
 	terminal, err := host.ReadRecord(h.State, meta.ID)
 	if err != nil {
 		t.Fatal(err)
@@ -389,6 +393,9 @@ func TestWhatAClosedTerminalLeftEndsWithItsCleanup(t *testing.T) {
 		if !lifecycleRunning(held[name]) {
 			t.Errorf("the stand-in Docker Desktop's %s process, pid %d, ended with the goblin's cleanup; ended %v", name, started[name], ended)
 		}
+	}
+	if !lifecycleRunning(held["visitor"]) {
+		t.Errorf("the process somebody else runs in the goblin's worktree, pid %d, was ended by its cleanup's sweep; ended %v", started["visitor"], ended)
 	}
 	logFixture(t, "after the cleanup's sweep", terminal.HostPID, started)
 }
@@ -463,10 +470,14 @@ func logFixture(t *testing.T, when string, hostPID int, started map[string]int) 
 		{name: "detached", what: "its detached process"},
 		{name: "service", what: "stand-in Docker Desktop"},
 		{name: "backend", what: "stand-in Docker backend"},
+		{name: "visitor", what: "somebody else's, in its worktree"},
 	} {
 		pid := entry.pid
 		if entry.name != "" {
-			pid = started[entry.name]
+			var isStarted bool
+			if pid, isStarted = started[entry.name]; !isStarted {
+				continue
+			}
 		}
 		state := "ended"
 		if index := slices.IndexFunc(running, func(process fleettree.Process) bool { return process.PID == pid }); index >= 0 {

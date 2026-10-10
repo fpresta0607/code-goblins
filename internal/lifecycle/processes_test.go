@@ -194,3 +194,77 @@ func TestOwnedProcessesFollowTheTerminalsMark(t *testing.T) {
 		})
 	}
 }
+
+// What an ended terminal left is what nothing else accounts for. A cleanup
+// and a relaunch end it by the rule a pause uses, less one thing: a process
+// at work in the task's folders under a living parent that is not the
+// task's. A pause stops a task where it stands. A cleanup or a relaunch runs
+// while the CFO may be testing the goblin's worktree, or the Overlord has a
+// shell open in it, and what they run there is theirs.
+func TestWhatAnEndedTerminalLeftIsWhatNothingElseRuns(t *testing.T) {
+	root := filepath.Join(t.TempDir(), "gb-task")
+	elsewhere := t.TempDir()
+	began := time.Date(2026, 10, 9, 20, 15, 0, 0, time.UTC)
+	at := func(seconds int) time.Time { return began.Add(time.Duration(seconds) * time.Second) }
+	own := Mark{Terminal: "gb-task", ProofSum: "own-digest"}
+	// Pid 500 is a shell of the CFO's, 600 the command that asks, and 700 the
+	// no-mistakes daemon. None is the task's.
+	others := map[int]time.Time{500: at(-60), 600: at(-30), 700: at(-90)}
+	for _, test := range []struct {
+		name  string
+		owned []Process
+		want  []int
+	}{
+		{"a detached bridge that carries the terminal's mark, its parent gone", []Process{
+			{PID: 1, ParentPID: 900, Name: "node.exe", Started: at(0), Directory: elsewhere, Mark: own},
+		}, []int{1}},
+		{"a marked server whose parent, a launcher that is not the task's, still runs", []Process{
+			{PID: 2, ParentPID: 500, Name: "node.exe", Started: at(0), Directory: elsewhere, Mark: own},
+		}, []int{2}},
+		{"a tool Git Bash started in the worktree, its shell gone", []Process{
+			{PID: 3, ParentPID: 900, Name: "tail.exe", Started: at(0), Directory: root},
+			{PID: 4, ParentPID: 3, Name: "grep.exe", Started: at(1), Directory: elsewhere},
+		}, []int{3, 4}},
+		{"a test the CFO runs in the worktree, with what it started", []Process{
+			{PID: 5, ParentPID: 500, Name: "go.exe", Started: at(0), Directory: root},
+			{PID: 6, ParentPID: 5, Name: "app.test.exe", Started: at(1), Directory: root},
+			{PID: 7, ParentPID: 6, Name: "git.exe", Started: at(2), Directory: elsewhere},
+		}, nil},
+		{"a process the command that asks started in the worktree", []Process{
+			{PID: 8, ParentPID: 600, Name: "git.exe", Started: at(0), Directory: root},
+		}, nil},
+		{"a process whose parent's pid was taken by a newer one", []Process{
+			{PID: 9, ParentPID: 500, Name: "tail.exe", Started: at(-120), Directory: root},
+		}, []int{9}},
+		{"a gate's agent in the worktree, started with the goblin's environment", []Process{
+			{PID: 10, ParentPID: 700, Name: "codex.exe", Started: at(0), Directory: root, Mark: own, IsGateAgent: true},
+		}, nil},
+		{"the goblin's own marked shell with an unmarked tool under it", []Process{
+			{PID: 11, ParentPID: 900, Name: "bash.exe", Started: at(0), Directory: root, Mark: own},
+			{PID: 12, ParentPID: 11, Name: "sleep.exe", Started: at(1), Directory: root},
+		}, []int{11, 12}},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			// Arrange
+			started := map[int]time.Time{}
+			for pid, when := range others {
+				started[pid] = when
+			}
+			for _, process := range test.owned {
+				started[process.PID] = process.Started
+			}
+
+			// Act
+			left := leftBehind(test.owned, started, []Mark{own})
+
+			// Assert
+			var got []int
+			for _, process := range left {
+				got = append(got, process.PID)
+			}
+			if !reflect.DeepEqual(got, test.want) {
+				t.Errorf("left behind = %v, want %v", got, test.want)
+			}
+		})
+	}
+}

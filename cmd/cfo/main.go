@@ -315,6 +315,9 @@ func defaultCommandRuntime() commandRuntime {
 				ScratchRoot:  h.Scratch(),
 				HostCommand:  []string{self, "host"},
 				PromptSince:  nativePromptSince(h),
+				EndLeft: func(ctx context.Context, meta state.TaskMeta) ([]string, error) {
+					return endLeftProcesses(ctx, h, meta)
+				},
 			}
 			return service.Switch(ctx, request)
 		},

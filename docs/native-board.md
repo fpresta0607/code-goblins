@@ -1067,7 +1067,11 @@ When the desktop's windows cannot be read, nothing is a task's by its mark or it
 The janitor's hourly sweep applies the same rule to what no pause or stop ended.
 For each terminal the home gave a proof since the machine started, it reads which processes are that terminal's own.
 A terminal with no host left has its processes ended: a goblin that failed, and a pause, a stop or a cleanup whose own sweep ran out of time.
-A switch closes the terminal and starts it again for the same task, so it ends nothing the goblin started: a dev server it left detached is still its own to use, shows under it on the board, and ends at its next pause, stop or cleanup, or once it has sat idle for an hour.
+A cleanup and a relaunch (a switch, a resume, a comeback after a restart of the machine) end what their goblin's last terminal left themselves, once that terminal has ended and, for a relaunch, before the next harness starts: afterwards the next harness would be the task's own by the same folders and the same terminal's proofs.
+The next harness cannot reach what the last one left in the background, so a dev server left running would hold its port against the one the goblin starts again.
+These two leave one thing a pause ends: a process at work in the task's folders that carries no mark of its terminal and has a parent that still runs and is not the task's.
+Somebody else runs it there, as when the CFO tests a goblin's worktree or the Overlord has a shell open in it. A pause stops a task where it stands, and a cleanup or a relaunch ends only what nothing else accounts for.
+A relaunch whose sweep fails starts the harness all the same, and what it missed shows under the goblin on the board until its next pause, stop or cleanup, or until it has sat idle for an hour.
 A terminal that runs keeps what its host still reaches through its parents. A tree that does not reach it is watched by the processor time it has used, kept in `state\janitor.json`, and ended once that has grown by under a tenth of a second across an hour.
 A loop that looks at something once a minute uses more than that and is left alone.
 The sweep reads every process on the machine and judges only those of the terminals in its own home's `state\hosts`, so another home on the machine, a scratch home of a test among them, is never touched.
