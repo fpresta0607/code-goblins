@@ -594,7 +594,8 @@ A pull request a train found broken stays off trains until its head changes.
   A repository is the fleet's when its GitHub owner, read from the PR's own address and never from a remote's name, is the account `gh` works as or an organization `config/fleet.json`'s `github_owners` names; another owner's PRs, such as the upstream's in a checkout of a fork whose `origin` is the upstream, raise nothing.
   Each watched PR is checked for a conflict with its base and for falling behind the repository's current default branch.
   A head that is behind raises nothing while a merge train can take the PR: a goblin's finished PR, opened by the account `gh` works as, green, not held and not in conflict, which a train tests on the current default branch itself.
-  A conflict always wakes you, and so does a behind head no train can take.
+  A behind head whose checks are still running raises nothing either: it waits until they conclude, for three hours at most, as long as a train waits for its own run, and is then judged the same way.
+  A conflict always wakes you, and so does a behind head no train can take once its checks have concluded: one whose checks failed, that has none, that is held or that no goblin reported done.
   One GraphQL request compares the watched head SHAs, fork heads included, without conditional ETags for POST reads.
   A poll raises at most one `pr_health` wake of kind `pr` per repository, keyed `health:<owner>/<name>`, naming each PR whose head fell into a condition you were not woken for.
   A goblin's PR names the goblin and the safe update: merge the default branch in with a merge commit, regenerate generated files rather than hand-merging them, one CI run and never force-push.
