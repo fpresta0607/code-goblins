@@ -29,12 +29,12 @@ var controls = map[string]bool{
 // control ran at the priority of the builds and tests it supervises, so on a
 // machine with every core busy it waited its turn behind them: on 2026-10-10
 // cfo send twice got no answer to its handshake in five seconds, and an
-// update's prepare step, five copies of a program, took 56.7 of its 60
-// seconds. Beside sixteen busy threads one such copy took 3.5 seconds at
-// normal priority and 0.07 raised, and a send's own work 107 milliseconds
-// against 2. What a goblin or a gate agent starts is their work and is never
-// raised, and neither is anything a raised command starts, which Windows
-// gives the normal class.
+// update's prepare step, which writes five copies of a program, came within
+// seconds of its minute. Beside sixteen busy threads one such copy took 3.5
+// seconds at normal priority and 0.07 raised, and a send's own work 107
+// milliseconds against 2. What a goblin or a gate agent starts is their work
+// and is never raised, and neither is anything a raised command starts,
+// which Windows gives the normal class.
 func aboveTheWork(args []string) (restore func()) {
 	if len(args) == 0 || !controls[args[0]] || os.Getenv(harness.RoleVariable) == harness.RoleGoblin || os.Getenv(gateAgentVariable) != "" {
 		return func() {}
