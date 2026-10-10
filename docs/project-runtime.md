@@ -79,7 +79,7 @@ An area passes when none of its lines is worse than `low`, and the command exits
 | --- | --- |
 | `checkout` | This machine has a checkout of the project. The line says which branch and commit were read and when that branch was last fetched, and whether the remote's default branch is still at that commit. |
 | `record` | `project.json` is there, the loader takes it, and it names the project it is filed under. Each command of its verification and security tiers is a program this machine has. A record with no verification command is reported, because `cfo verify` passes with nothing run. |
-| `gate` | `.no-mistakes.yaml` is on the default branch, and each command it names has its program, its script files and its package script. Its test step is the repository's own command, since without one an agent chooses what runs. The repository has a workflow for the gate's ci step to wait for, and CI runs the test runners the gate's test command starts. No env file a goblin's worktree shares holds a production value the test setup does not name. |
+| `gate` | `.no-mistakes.yaml` is on the default branch, a gate's start takes it under the home's pipeline policy, and each command it names has its program, its script files and its package script. Its test step is the repository's own command, since without one an agent chooses what runs. The repository has a workflow for the gate's ci step to wait for, and CI runs the test runners the gate's test command starts. No env file a goblin's worktree shares holds a production value the test setup does not name. |
 | `configs` | Git ignores every env file of the project except the examples it commits on purpose. What an env file holds decides its line, not what it is called. A credential or a production value in a file git does not ignore is critical, and the report names its variable and never its value. A tracked env file that holds none, such as a demo setup committed on purpose, is a `low` line, `env-file-committed`, and nothing tells the reader to rotate. `worktree.json` shares files the checkout holds and installs with programs and files that exist. `services.json` names a compose file the project has, services that file declares, an env file the checkout holds and a check that can run. |
 | `connectors` | Every service `auth.json` declares has a user the check can name. Every credential the code reads from the environment, an env example names or an MCP connector in `.mcp.json` authenticates with is declared by a service. |
 | `instructions` | Each build, test and lint command `AGENTS.md` and `CLAUDE.md` name has its program, its files and its package script. The ones that are there are listed with their kind for whoever runs or dry-runs them. A deploy, a publish and a migration are listed apart and never run. An install is listed apart too, since a worktree's own install step does it. |
@@ -225,14 +225,20 @@ A wrong deploy command is one `cfo deploy` would run.
 A draft is never written over a file, and never under the home's `data/projects`, where a record steers routing and verification for live spawns.
 A person reads the draft, completes it and places it.
 
-### An agent pinned in the gate file
+### What a gate's start asks of the gate file
 
-A gate file can name the agent its gate runs on.
-The check reads that field and asks the pipeline whether the home's policy, `config/pipeline.json`, takes it.
-The answer comes from the function a gate's start itself asks, so it is the pipeline's verdict and not a second copy of its rule.
-Before policy version 6 a pin other than the policy's own gate agent is refused, and `cfo pipeline run` then refuses every gate run of the project at its start: `gate-agent-refused`, a `high` line.
-From version 6 a run's own launch selection replaces a repository's agent, so a pin decides nothing and the line is `ok`.
-With no policy file the check can read, the pin is `gate-agent-unjudged`, a `low` line.
+`cfo pipeline run` asks three things of a repository's gate file before it starts a gate run, and refuses the run when one fails.
+The check asks the same three, each through the pipeline's own code and against the home's policy, `config/pipeline.json`, so every answer is the pipeline's verdict and not a second copy of its rule.
+
+- **The file is there.** A repository with no `.no-mistakes.yaml` at its default branch is refused at the start of every gate run. That is `gate-file-missing`, a `high` line, and it quotes the pipeline's answer. A gate started any other way leaves every step to an agent's choice.
+- **Its automatic fix counts are within the policy's.** A gate file may lower how often a gate repairs a step by itself and may never raise it. A count above the policy's, a count the policy does not govern, and a file the pipeline's reader does not take, such as one with YAML anchors, are `gate-file-refused`, a `high` line. Counts the policy takes are `gate-limits-read`, an `ok` line.
+- **The agent it pins is one the policy takes.** Before policy version 6 a pin other than the policy's own gate agent is refused: `gate-agent-refused`, a `high` line. From version 6 a run's own launch selection replaces a repository's agent, so a pin decides nothing and the line is `ok`.
+
+With no policy file the check can read, a count is `gate-limits-unjudged` and a pin is `gate-agent-unjudged`, both `low` lines.
+A gate file that sets no count and pins no agent, and that the pipeline's reader takes, has no line.
+
+The start also asks things of the task and not of the project, which the check does not read: that the task's work is committed, that no earlier run of its branch is unresolved, and that its own branch still holds the gate file.
+It asks too that the checkout's copy of the default branch is the remote's, which is what `remote-moved` reports.
 
 ### What the check cannot see
 

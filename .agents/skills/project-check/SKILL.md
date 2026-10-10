@@ -71,6 +71,8 @@ This skill is the part a command cannot do: prove the project's commands by runn
    - `connectors-examined` names the services kept on a note alone, which the command cannot verify.
      Read each note and say whether it still holds.
    - `gate-ci-differs` and `gate-ci-unknown`: read the gate's test command beside the workflow files and say what each runs.
+   - `gate-file-missing`, `gate-file-refused` and `gate-agent-refused`: each means `cfo pipeline run` refuses every gate run of the project at its start, and the line quotes the pipeline's own answer.
+     Say so near the top of the report, since no gated change can ship there until the gate file is fixed in the repository.
 5. **Draft the record.**
    Run `cfo project check <project> --draft <task folder>/drafts/<project>/project.json`.
    The draft starts from the record that is there and fills what it leaves empty with the declared services the command counts as used and a fast tier.

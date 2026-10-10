@@ -4,6 +4,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/fpresta0607/code-goblins/internal/pipeline"
 )
 
 const workflow = "on: pull_request\njobs:\n  test:\n    runs-on: ubuntu-latest\n    steps:\n      - run: pytest -q\n"
@@ -88,9 +90,11 @@ func TestAGateCommandNamingAPackageScriptIsCheckedAgainstThePackageFile(t *testi
 	}
 }
 
-// With no gate file every step of the gate is an agent's choice, the test
-// step included.
-func TestARepositoryWithNoGateFileIsReported(t *testing.T) {
+// With no gate file a gate's start refuses the project: cfo pipeline run
+// wants the file at the task's branch and at the default branch. The line
+// was a medium that said an agent chooses every step, which is what a gate
+// started any other way does. The answer it quotes is the pipeline's own.
+func TestARepositoryWithNoGateFileIsOneAGatesStartRefuses(t *testing.T) {
 	// Arrange
 	f := newFixture(t, nil)
 
@@ -99,10 +103,11 @@ func TestARepositoryWithNoGateFileIsReported(t *testing.T) {
 
 	// Assert
 	finding := only(t, report, "gate-file-missing")
-	if finding.Severity != Medium {
-		t.Errorf("gate-file-missing is %s, want medium", finding.Severity)
+	if finding.Severity != High {
+		t.Errorf("gate-file-missing is %s, want high", finding.Severity)
 	}
-	contains(t, "evidence", finding.Evidence, ".no-mistakes.yaml")
+	contains(t, "says", finding.Says, "cfo pipeline run refuses every gate run")
+	contains(t, "evidence", finding.Evidence, ".no-mistakes.yaml", strings.TrimPrefix(pipeline.ErrGateFileRequired.Error(), "pipeline: "))
 }
 
 // A gate file that names no test command leaves the test step to an agent,
@@ -241,7 +246,56 @@ func TestAGateFileThatPinsNoAgentHasNoAgentLine(t *testing.T) {
 	report := f.run(options)
 
 	// Assert
-	for _, check := range []string{"gate-agent-refused", "gate-agent-read", "gate-agent-unjudged"} {
+	for _, check := range []string{"gate-agent-refused", "gate-agent-read", "gate-agent-unjudged", "gate-file-refused", "gate-limits-read", "gate-limits-unjudged"} {
 		none(t, report, check)
+	}
+}
+
+// A gate file can set how often a gate repairs a step by itself, and a
+// gate's start refuses a count above the home's policy, a count the policy
+// does not govern, and a file its own reader does not take. The check read
+// the agent and none of these, which are the rest of what that start asks
+// of the file.
+func TestWhatAGatesStartAsksOfTheGateFileIsReadAgainstTheHomesPolicy(t *testing.T) {
+	for _, test := range []struct {
+		name, policy, sets string
+		check              string
+		severity           Severity
+		named              []string
+	}{
+		{"a count above the policy's", policyThree, "auto_fix:\n  test: 3\n", "gate-file-refused", High, []string{"auto_fix.test", "version 3"}},
+		{"a count the policy does not govern", policyThree, "auto_fix:\n  deploy: 1\n", "gate-file-refused", High, []string{"auto_fix.deploy"}},
+		{"a count above the policy's under a policy that takes the task's own harness", policySix, "auto_fix:\n  review: 2\n", "gate-file-refused", High, []string{"auto_fix.review", "version 6"}},
+		{"a file the pipeline's reader refuses", policyThree, "limits: &limits\n  test: 1\nauto_fix: *limits\n", "gate-file-refused", High, []string{"anchors"}},
+		{"counts at or below the policy's", policyThree, "auto_fix:\n  review: 0\n  test: 1\n", "gate-limits-read", OK, []string{"auto_fix", "version 3"}},
+		{"counts and no policy to ask", "", "auto_fix:\n  test: 3\n", "gate-limits-unjudged", Low, []string{"auto_fix", "pipeline.json"}},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			// Arrange
+			f := newFixture(t, map[string]string{".no-mistakes.yaml": test.sets + "commands:\n  test: \"pytest -q\"\n"})
+			options := f.options("pytest")
+			options.PolicyFile = filepath.Join(filepath.Dir(f.checkout), "config", "pipeline.json")
+			if test.policy != "" {
+				writeFile(t, options.PolicyFile, test.policy)
+			}
+
+			// Act
+			report := f.run(options)
+
+			// Assert
+			finding := only(t, report, test.check)
+			if finding.Severity != test.severity || finding.Area != AreaGate {
+				t.Errorf("%s is %s in %s, want %s in gate", test.check, finding.Severity, finding.Area, test.severity)
+			}
+			contains(t, "line", finding.Text(), test.named...)
+			if strings.Contains(finding.Text(), ";") {
+				t.Errorf("the line holds a semicolon: %s", finding.Text())
+			}
+			for _, other := range []string{"gate-file-refused", "gate-limits-read", "gate-limits-unjudged"} {
+				if other != test.check {
+					none(t, report, other)
+				}
+			}
+		})
 	}
 }

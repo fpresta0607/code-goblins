@@ -126,6 +126,12 @@ type Gate struct {
 
 func sqlString(value string) string { return "'" + strings.ReplaceAll(value, "'", "''") + "'" }
 
+// ErrGateFileRequired is what a gate's start answers for a repository with
+// no committed gate file at the task's branch or at origin's default branch.
+// `cfo project check` reports a repository with none in these words, so the
+// two cannot disagree about whether a gate run starts.
+var ErrGateFileRequired = errors.New("pipeline: readable committed task and origin default-branch .no-mistakes.yaml required")
+
 // CheckStart refuses a restart over unresolved work and checks repository
 // overrides before the native engine could spend an automatic repair cycle.
 // It returns the head of origin's default branch, which is the trusted
@@ -157,7 +163,7 @@ func (r Reader) CheckStart(ctx context.Context, project, worktree, branch string
 	}
 	task, err := r.Commands.Run(ctx, execx.Request{Dir: worktree, Name: "git", Args: []string{"show", "HEAD:.no-mistakes.yaml"}})
 	if err != nil || task.ExitCode != 0 {
-		return "", errors.New("pipeline: readable committed task and origin default-branch .no-mistakes.yaml required")
+		return "", ErrGateFileRequired
 	}
 	if err := checkRepoConfig(task.Stdout, policy, true); err != nil {
 		return "", err
@@ -178,7 +184,7 @@ func (r Reader) CheckStart(ctx context.Context, project, worktree, branch string
 	}
 	trusted, err := r.Commands.Run(ctx, execx.Request{Dir: project, Name: "git", Args: []string{"show", trustedRef + ":.no-mistakes.yaml"}})
 	if err != nil || trusted.ExitCode != 0 {
-		return "", errors.New("pipeline: readable committed task and origin default-branch .no-mistakes.yaml required")
+		return "", ErrGateFileRequired
 	}
 	if err := checkRepoConfig(trusted.Stdout, policy, false); err != nil {
 		return "", err

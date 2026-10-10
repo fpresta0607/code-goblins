@@ -20,6 +20,7 @@ const gateFileName = ".no-mistakes.yaml"
 // gateFile is what a check reads of the gate's settings.
 type gateFile struct {
 	Agent    yaml.Node         `yaml:"agent"`
+	AutoFix  yaml.Node         `yaml:"auto_fix"`
 	Commands map[string]string `yaml:"commands"`
 	Gates    []struct {
 		Name    string `yaml:"name"`
@@ -35,9 +36,9 @@ type gateFile struct {
 func (c *checker) gate(ctx context.Context) string {
 	data, ok := c.repo.read(ctx, gateFileName)
 	if !ok {
-		c.add(AreaGate, "gate-file-missing", Medium,
-			"the repository has no gate settings, so an agent chooses every step of the gate, the test step included",
-			"no "+gateFileName+" at "+c.repo.at(),
+		c.add(AreaGate, "gate-file-missing", High,
+			"the repository has no gate settings, so cfo pipeline run refuses every gate run of the project at its start, and a gate started any other way leaves every step to an agent's choice, the test step included",
+			"no "+gateFileName+" at "+c.repo.at()+". A gate's start answers: "+pipelineWords(pipeline.ErrGateFileRequired),
 			"commit a "+gateFileName+" whose commands.test is the project's own test command")
 		c.workflows(ctx, "")
 		return ""
@@ -49,7 +50,7 @@ func (c *checker) gate(ctx context.Context) string {
 			fmt.Sprintf("%s at %s: %v", gateFileName, c.repo.at(), err), "correct the file")
 		return ""
 	}
-	c.gateAgent(data, gate.Agent)
+	c.gateStart(data, gate)
 	type named struct{ name, command string }
 	var commands []named
 	for _, step := range sortedKeys(gate.Commands) {
@@ -95,15 +96,51 @@ func (c *checker) gate(ctx context.Context) string {
 	return test
 }
 
-// gateAgent reads the agent a gate file pins and says whether the home's
-// pipeline policy takes it. The verdict is the pipeline's own: it comes from
-// the function a gate's start asks, given the gate file as both the task's
-// branch and the default branch have it, since a new task's branch starts
-// as the default branch. A gate file that pins none says nothing.
-func (c *checker) gateAgent(data []byte, agent yaml.Node) {
-	if agent.Kind == 0 {
+// gateStart says whether a gate's start takes the gate file under the home's
+// pipeline policy: the automatic fix counts it sets, the form the pipeline's
+// own reader wants of it, and the agent it pins. Each verdict is the
+// pipeline's own, from the function that start asks. A file that sets no
+// count and pins no agent, and that the pipeline's reader takes, says nothing.
+func (c *checker) gateStart(data []byte, gate gateFile) {
+	file := gateFileName + " at " + c.repo.asRead()
+	policy, err := pipeline.Load(c.PolicyFile)
+	if err != nil {
+		unread := c.PolicyFile + " could not be read as a policy"
+		if c.PolicyFile == "" {
+			unread = "this run was given no policy file"
+		}
+		const fix = "run cfo install to write the home's pipeline policy, and run the check again"
+		if gate.AutoFix.Kind != 0 {
+			c.add(AreaGate, "gate-limits-unjudged", Low,
+				"the gate file sets automatic fix counts and the home has no pipeline policy this check can read, so whether a gate run takes them is not known",
+				"auto_fix in "+file+". "+unread, fix)
+		}
+		if gate.Agent.Kind != 0 {
+			c.add(AreaGate, "gate-agent-unjudged", Low,
+				"the gate file pins an agent and the home has no pipeline policy this check can read, so whether a gate run takes the pin is not known",
+				"agent "+strings.Join(agentNames(gate.Agent), ", ")+" in "+file+". "+unread, fix)
+		}
 		return
 	}
+	version := fmt.Sprintf("Policy version %d of %s", policy.Version, c.PolicyFile)
+	switch refusal := pipeline.CheckRepoConfig(data, policy); {
+	case refusal != nil:
+		c.add(AreaGate, "gate-file-refused", High,
+			"the home's pipeline policy refuses the gate file, so cfo pipeline run refuses every gate run of the project at its start",
+			file+". "+version+" answers: "+pipelineWords(refusal),
+			"correct what the answer names in "+gateFileName)
+	case gate.AutoFix.Kind != 0:
+		c.add(AreaGate, "gate-limits-read", OK,
+			"the gate file sets automatic fix counts, and the home's pipeline policy takes them",
+			"auto_fix in "+file+". "+version+" holds each count to its own as a ceiling", "")
+	}
+	if gate.Agent.Kind != 0 {
+		c.gateAgent(data, gate.Agent, policy, version)
+	}
+}
+
+// agentNames are the agents a gate file pins, as its field names them.
+func agentNames(agent yaml.Node) []string {
 	var names []string
 	if agent.Decode(&names) != nil {
 		var name string
@@ -112,23 +149,27 @@ func (c *checker) gateAgent(data []byte, agent yaml.Node) {
 		}
 		names = []string{name}
 	}
-	pinned := "agent " + strings.Join(names, ", ") + " in " + gateFileName + " at " + c.repo.asRead()
-	policy, err := pipeline.Load(c.PolicyFile)
-	if err != nil {
-		c.add(AreaGate, "gate-agent-unjudged", Low,
-			"the gate file pins an agent and the home has no pipeline policy this check can read, so whether a gate run takes the pin is not known",
-			pinned+". "+orNone([]string{c.PolicyFile})+" could not be read as a policy",
-			"run cfo install to write the home's pipeline policy, and run the check again")
-		return
-	}
-	version := fmt.Sprintf("Policy version %d of %s", policy.Version, c.PolicyFile)
+	return names
+}
+
+// pipelineWords are a refusal of the pipeline as a line of a report carries
+// it: without the package's own prefix, and without a semicolon, which no
+// line of a report holds.
+func pipelineWords(refusal error) string {
+	return strings.ReplaceAll(strings.TrimPrefix(refusal.Error(), "pipeline: "), ";", ",")
+}
+
+// gateAgent says whether the home's pipeline policy takes the agent a gate
+// file pins. The pipeline is given the gate file as both the task's branch
+// and the default branch have it, since a new task's branch starts as the
+// default branch.
+func (c *checker) gateAgent(data []byte, agent yaml.Node, policy pipeline.Policy, version string) {
+	pinned := "agent " + strings.Join(agentNames(agent), ", ") + " in " + gateFileName + " at " + c.repo.asRead()
 	switch refusal := pipeline.CheckRepoAgent(data, data, policy); {
 	case refusal != nil:
-		// The refusal's own words hold a semicolon, which no line of a report
-		// carries.
 		c.add(AreaGate, "gate-agent-refused", High,
 			"the gate file pins an agent the home's pipeline policy refuses, so cfo pipeline run refuses every gate run of the project at its start",
-			pinned+". "+version+" answers: "+strings.ReplaceAll(strings.TrimPrefix(refusal.Error(), "pipeline: "), ";", ","),
+			pinned+". "+version+" answers: "+pipelineWords(refusal),
 			"take the agent field out of "+gateFileName+", or set it to the agent the policy names")
 	case policy.Version >= 6:
 		c.add(AreaGate, "gate-agent-read", OK,
