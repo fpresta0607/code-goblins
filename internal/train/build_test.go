@@ -42,19 +42,27 @@ func TestStartMergesTheRidersOntoMainInQueueOrderAndOpensTheTrainPullRequest(t *
 		t.Fatal("the train's head does not hold both pull requests' changes")
 	}
 	// Queue order: #11 was reported done first, so it is merged first: the
-	// train's first parent chain reads main, then #11, then #12.
-	if got := s.git(s.remote, "log", "--format=%s", "--first-parent", main+".."+started.Head); got != "train: merge PR #12 (feat/b)\ntrain: merge PR #11 (feat/a)" {
+	// train's first parent chain reads main, then #11, then #12, each as
+	// GitHub's own merge of it would read, title and all, since these are the
+	// commits main takes.
+	if got := s.git(s.remote, "log", "--format=%s: %b", "--first-parent", main+".."+started.Head); got != "Merge pull request #12 from o/feat/b: change 12\n\nMerge pull request #11 from o/feat/a: change 11" {
 		t.Fatalf("train commits =\n%s", got)
 	}
 	if numbers := []int{started.Cars[0].Number, started.Cars[1].Number}; !slices.Equal(numbers, []int{11, 12}) {
 		t.Fatalf("cars = %v, want queue order 11, 12", numbers)
 	}
 	create := gh.calls[slices.IndexFunc(gh.calls, func(args []string) bool { return args[1] == "create" })]
-	if flagValue(create, "--base") != "main" || flagValue(create, "--repo") != "o/r" || flagValue(create, "--title") != "chore(cfo): merge train for PRs #11, #12 (do not merge)" {
+	if flagValue(create, "--base") != "main" || flagValue(create, "--repo") != "o/r" || flagValue(create, "--title") != "chore(cfo): merge train for PRs #11, #12" {
 		t.Fatalf("gh pr create = %v", create)
 	}
-	if body := flagValue(create, "--body"); !strings.Contains(body, "#11 from Goblin11 (g11), #12 from Goblin12 (g12)") {
-		t.Fatalf("train pull request body = %q, want each rider named with its goblin", body)
+	body := flagValue(create, "--body")
+	for _, want := range []string{"#11 from Goblin11 (g11), #12 from Goblin12 (g12)", "this pull request merges", "GitHub marks each of those pull requests merged"} {
+		if !strings.Contains(body, want) {
+			t.Fatalf("train pull request body = %q, want %q", body, want)
+		}
+	}
+	if strings.ContainsAny(body, ";\u2014") || started.History[0].PR != gh.trainURL {
+		t.Fatalf("body %q, run %+v: want no semicolon or long dash in what he reads, and the run to name its pull request", body, started.History[0])
 	}
 	saved, err := Read(s.state, started.ID)
 	if err != nil || saved.Head != started.Head || saved.State != StateTesting {

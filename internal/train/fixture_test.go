@@ -1,6 +1,7 @@
 package train
 
 import (
+	"cmp"
 	"context"
 	"encoding/json"
 	"errors"
@@ -30,6 +31,8 @@ type scratch struct {
 	told     []string
 	cfo      []string
 	landed   []string
+	// waits counts the pauses the engine took.
+	waits int
 }
 
 // gitEnv is the environment every git in these tests runs in, so they can run
@@ -152,7 +155,7 @@ func (s *scratch) engine(gh *fakeGitHub) Engine {
 		Commands: gh,
 		StateDir: s.state,
 		Now:      func() time.Time { return s.now },
-		Wait:     func(time.Duration) {},
+		Wait:     func(time.Duration) { s.waits++ },
 		TellGoblin: func(_ context.Context, task, text string) error {
 			s.told = append(s.told, task+": "+text)
 			return nil
@@ -189,11 +192,12 @@ func (s *scratch) goblinTold(task string) []string {
 }
 
 // fakeGitHub plays GitHub over the scratch remote: git runs for real, and gh
-// opens, finds, edits and closes the train's pull request, reports its CI
-// from what its head holds, runs a workflow run's failed jobs again and says
-// how that run stands, lists the open pull requests as the remote has them,
-// reports main's push runs, and merges a pull request into main with a merge
-// commit.
+// opens, finds, edits, merges and closes a train's pull requests, reports
+// their CI from what their head holds, runs a workflow run's failed jobs
+// again and says how that run stands, lists the open pull requests as the
+// remote has them, reports main's push runs, and merges a pull request into
+// main with a merge commit. As GitHub does, it marks a pull request merged
+// once main holds its head, however that head got there.
 type fakeGitHub struct {
 	s     *scratch
 	pulls map[string]*pull
@@ -223,6 +227,16 @@ type fakeGitHub struct {
 	// modified is how many merges are refused as GitHub refuses one whose
 	// base moved during it, before one goes through.
 	modified int
+	// marksLate is how many reads of the open pull requests still list a pull
+	// request main took by another's merge, as GitHub marks it merged a
+	// moment after the push.
+	marksLate int
+	// whileLanding runs once as a train's pull request merges, after the
+	// train last read its riders.
+	whileLanding func()
+	// deletesBranches removes a merged pull request's branch, as a repository
+	// that deletes head branches by itself does.
+	deletesBranches bool
 	// refuse refuses the merge of a pull request URL with this text.
 	refuse map[string]string
 	// unanswered is how many of a call, "merge <url>", "view" or "create",
@@ -234,15 +248,25 @@ type fakeGitHub struct {
 	mainRuns string
 	// moveMain lands a commit of its own on main after each merge, as a
 	// merge outside the train during the landing would.
-	moveMain    bool
+	moveMain bool
+	// trainURL and trainBranch are the newest pull request a train opened,
+	// opened every one in order, and state and titles how each stands, OPEN,
+	// MERGED or CLOSED, and what it is called.
 	trainURL    string
 	trainBranch string
-	trainState  string
+	opened      []string
+	state       map[string]string
+	titles      map[string]string
 	created     int
 	edited      int
-	closed      []string
-	merged      []int
-	calls       [][]string
+	// closed are the train's pull requests closed without merging, and
+	// comments what each was closed with.
+	closed   []string
+	comments []string
+	// merged are the goblins' pull requests GitHub shows merged, in the order
+	// main took them.
+	merged []int
+	calls  [][]string
 }
 
 // workflow is one workflow run of the train's CI: the head it tests, how
@@ -258,10 +282,14 @@ type pull struct {
 	number                    int
 	branch                    string
 	isDraft, isHeld, isClosed bool
+	// isMerged says main holds its head, and late how many reads of the open
+	// pull requests still list it.
+	isMerged bool
+	late     int
 }
 
 func newFakeGitHub(s *scratch) *fakeGitHub {
-	return &fakeGitHub{s: s, pulls: map[string]*pull{}, refuse: map[string]string{}, unanswered: map[string]int{}, lost: map[string]bool{}, mainRuns: "[]"}
+	return &fakeGitHub{s: s, pulls: map[string]*pull{}, refuse: map[string]string{}, unanswered: map[string]int{}, lost: map[string]bool{}, mainRuns: "[]", state: map[string]string{}, titles: map[string]string{}}
 }
 
 // open lists a green, mergeable pull request of branch at head.
@@ -311,27 +339,34 @@ func (f *fakeGitHub) answer(args []string) (execx.Result, error) {
 	case args[0] == "pr" && args[1] == "create":
 		f.created++
 		f.trainBranch = flagValue(args, "--head")
-		f.trainURL = "https://github.com/o/r/pull/900"
-		f.trainState = "OPEN"
+		f.trainURL = fmt.Sprintf("https://github.com/o/r/pull/%d", 899+f.created)
+		f.opened = append(f.opened, f.trainURL)
+		f.state[f.trainURL], f.titles[f.trainURL] = "OPEN", flagValue(args, "--title")
 		return execx.Result{Stdout: []byte("Creating pull request\n" + f.trainURL + "\n")}, nil
 	case args[0] == "pr" && args[1] == "list" && slices.Contains(args, "--head"):
-		if f.trainState == "OPEN" && flagValue(args, "--head") == f.trainBranch {
+		if f.state[f.trainURL] == "OPEN" && flagValue(args, "--head") == f.trainBranch {
 			return execx.Result{Stdout: []byte(f.trainURL + "\n")}, nil
 		}
 		return execx.Result{Stdout: []byte("\n")}, nil
 	case args[0] == "pr" && args[1] == "list":
 		return f.list()
-	case args[0] == "pr" && args[1] == "edit" && args[2] == f.trainURL:
+	case args[0] == "pr" && args[1] == "edit" && f.state[args[2]] == "OPEN":
 		f.edited++
+		f.titles[args[2]] = flagValue(args, "--title")
 		return execx.Result{}, nil
 	case args[0] == "pr" && args[1] == "view" && args[2] == f.trainURL:
 		return f.view()
+	case args[0] == "pr" && args[1] == "merge" && f.state[args[2]] != "":
+		return f.mergeTrain(args)
 	case args[0] == "pr" && args[1] == "merge":
 		return f.merge(args[2], flagValue(args, "--match-head-commit"), slices.Contains(args, "--merge"))
-	case args[0] == "pr" && args[1] == "close" && args[2] == f.trainURL:
+	case args[0] == "pr" && args[1] == "close" && f.state[args[2]] == "OPEN":
 		f.closed = append(f.closed, args[2])
-		f.trainState = "CLOSED"
+		f.comments = append(f.comments, flagValue(args, "--comment"))
+		f.state[args[2]] = "CLOSED"
 		return execx.Result{}, nil
+	case args[0] == "pr" && args[1] == "close" && f.state[args[2]] == "MERGED":
+		return execx.Result{ExitCode: 1, Stderr: []byte("Pull request " + args[2] + " can't be closed because it was already merged")}, nil
 	case args[0] == "run" && args[1] == "list":
 		return execx.Result{Stdout: []byte(f.mainRuns)}, nil
 	case args[0] == "run" && args[1] == "rerun":
@@ -350,12 +385,16 @@ func flagValue(args []string, name string) string {
 }
 
 // list answers gh pr list with the open pull requests at the heads their
-// branches hold on the remote.
+// branches hold on the remote. One main took by another's merge is still
+// listed while GitHub marks it late.
 func (f *fakeGitHub) list() (execx.Result, error) {
 	var open []PullRequest
 	for url, p := range f.pulls {
-		if p.isClosed {
+		if p.isClosed || p.isMerged && p.late == 0 {
 			continue
+		}
+		if p.isMerged {
+			p.late--
 		}
 		pr := PullRequest{URL: url, Number: p.number, HeadRefOid: f.s.git(f.s.remote, "rev-parse", "refs/heads/"+p.branch), IsDraft: p.isDraft}
 		if p.isHeld {
@@ -395,7 +434,7 @@ func (f *fakeGitHub) view() (execx.Result, error) {
 	if f.noChecks {
 		checks = []Check{}
 	}
-	data, err := json.Marshal(map[string]any{"state": f.trainState, "headRefOid": head, "statusCheckRollup": checks})
+	data, err := json.Marshal(map[string]any{"state": f.state[f.trainURL], "headRefOid": head, "statusCheckRollup": checks})
 	return execx.Result{Stdout: data}, err
 }
 
@@ -522,12 +561,87 @@ func (f *fakeGitHub) merge(url, head string, isMergeCommit bool) (execx.Result, 
 		return execx.Result{ExitCode: 1, Stderr: []byte("Pull request is not mergeable: " + string(out))}, nil
 	}
 	f.s.git(f.s.github, "push", "-q", "origin", "main")
-	p.isClosed = true
+	p.isMerged = true
 	f.merged = append(f.merged, p.number)
 	if f.moveMain {
 		f.s.advanceMain(fmt.Sprintf("outside-%d.txt", p.number), "outside\n")
 	}
 	return execx.Result{Stdout: []byte(fmt.Sprintf("Merged pull request #%d\n", p.number))}, nil
+}
+
+// mergeTrain merges a train's own pull request into main as GitHub does:
+// only while it is open and its head is still the pinned one, with a merge
+// commit of the subject and body asked for. Main then holds the head of
+// every pull request that rode, so GitHub marks each of those merged too.
+func (f *fakeGitHub) mergeTrain(args []string) (execx.Result, error) {
+	url, head := args[2], flagValue(args, "--match-head-commit")
+	switch {
+	case f.state[url] == "MERGED":
+		return execx.Result{Stdout: []byte("! Pull request " + url + " was already merged\n")}, nil
+	case f.state[url] != "OPEN" || url != f.trainURL:
+		return execx.Result{ExitCode: 1, Stderr: []byte("no open pull request " + url)}, nil
+	case f.refuse[url] != "":
+		return execx.Result{ExitCode: 1, Stderr: []byte(f.refuse[url])}, nil
+	case !slices.Contains(args, "--merge"):
+		return execx.Result{ExitCode: 1, Stderr: []byte("merge method is not --merge")}, nil
+	case f.s.git(f.s.remote, "rev-parse", "refs/heads/"+f.trainBranch) != head:
+		return execx.Result{ExitCode: 1, Stderr: []byte("GraphQL: Head branch was modified. Review and try the merge again. (mergePullRequest)")}, nil
+	case f.modified > 0:
+		f.modified--
+		return execx.Result{ExitCode: 1, Stderr: []byte("GraphQL: Base branch was modified. Review and try the merge again. (mergePullRequest)")}, nil
+	}
+	if during := f.whileLanding; during != nil {
+		f.whileLanding = nil
+		during()
+	}
+	subject := cmp.Or(flagValue(args, "--subject"), "Merge pull request #"+filepath.Base(url)+" from o/"+f.trainBranch)
+	f.s.git(f.s.github, "fetch", "-q", "origin")
+	f.s.git(f.s.github, "checkout", "-q", "-B", "main", "origin/main")
+	if out, err := gitCommand(f.s.github, "merge", "--no-ff", "-q", "-m", subject, "-m", flagValue(args, "--body"), head).CombinedOutput(); err != nil {
+		f.s.git(f.s.github, "merge", "--abort")
+		return execx.Result{ExitCode: 1, Stderr: []byte("Pull request is not mergeable: " + string(out))}, nil
+	}
+	f.s.git(f.s.github, "push", "-q", "origin", "main")
+	f.state[url] = "MERGED"
+	if f.deletesBranches {
+		f.s.git(f.s.github, "push", "-q", "origin", "--delete", f.trainBranch)
+	}
+	f.markMerged()
+	if f.moveMain {
+		f.s.advanceMain("outside-"+filepath.Base(url)+".txt", "outside\n")
+	}
+	return execx.Result{Stdout: []byte("Merged pull request " + url + "\n")}, nil
+}
+
+// markMerged marks merged each open pull request whose head main now holds
+// as the second parent of a merge commit, oldest first: the order main took
+// them in.
+func (f *fakeGitHub) markMerged() {
+	for _, parents := range strings.Split(f.s.git(f.s.remote, "log", "--reverse", "--merges", "--format=%P", "refs/heads/main"), "\n") {
+		taken := strings.Fields(parents)
+		for _, p := range f.pulls {
+			if p.isMerged || p.isClosed || len(taken) < 2 || f.s.git(f.s.remote, "rev-parse", "refs/heads/"+p.branch) != taken[1] {
+				continue
+			}
+			p.isMerged, p.late = true, f.marksLate
+			f.merged = append(f.merged, p.number)
+		}
+	}
+}
+
+// reads says how GitHub shows the pull request at url: OPEN, MERGED or
+// CLOSED.
+func (f *fakeGitHub) reads(url string) string {
+	p, isGoblins := f.pulls[url]
+	switch {
+	case !isGoblins:
+		return f.state[url]
+	case p.isMerged:
+		return "MERGED"
+	case p.isClosed:
+		return "CLOSED"
+	}
+	return "OPEN"
 }
 
 // mergeCalls returns each gh pr merge call's pull request and pinned head.
