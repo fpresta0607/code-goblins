@@ -183,8 +183,8 @@ for (const [size, viewport] of [["wide", { width: 1440, height: 1200 }], ["phone
       expect(await page.evaluate(crowded), id).toEqual([]);
       expect(await clearance(page), id).toBeGreaterThanOrEqual(16);
       if (!id.startsWith("queued-")) continue;
-      // A queued task's line opens its edit box in the header.
-      await panel(page).locator(".panel-header").getByRole("button", { name: /^Edit the task/ }).click();
+      // A queued task's pencil opens its edit box in the header.
+      await panel(page).locator(".panel-header").getByRole("button", { name: "Edit task", exact: true }).click();
       await expect(panel(page).locator(".panel-header").getByRole("textbox")).toBeVisible();
       expect(await page.evaluate(crowded), id + " editing").toEqual([]);
       expect(await clearance(page), id + " editing").toBeGreaterThanOrEqual(16);
@@ -210,7 +210,8 @@ async function openNamed(page: Page, posted: Posted[] = []) {
 }
 
 const header = (page: Page) => panel(page).locator(".panel-header");
-const taskLine = (page: Page) => header(page).getByRole("button", { name: /^Edit the task/ });
+const taskLine = (page: Page) => header(page).locator(".task-line");
+const pencil = (page: Page) => header(page).getByRole("button", { name: "Edit task", exact: true });
 const editor = (page: Page) => header(page).getByRole("group", { name: "Edit the task" });
 const box = (page: Page) => editor(page).getByRole("textbox", { name: "Task title and detail" });
 
@@ -239,7 +240,7 @@ test("a queued task's panel has no section to adjust it, and its box opens in th
   const below = panel(page).locator(".panel-task");
 
   // Act
-  await taskLine(page).click();
+  await pencil(page).click();
 
   // Assert
   await expect(box(page)).toBeVisible();
@@ -249,15 +250,15 @@ test("a queued task's panel has no section to adjust it, and its box opens in th
   await expect(below.getByRole("button")).toHaveText(["Start", "Remove"]);
 });
 
-for (const where of ["caret", "line"] as const) {
+for (const where of ["pencil", "text"] as const) {
   test(`a click on the task line's ${where} turns it into an edit box in place, under the goblin's name`, async ({ page }) => {
     // Arrange
     await openNamed(page);
     await expect(taskLine(page)).toHaveText("Fix the billing sync");
-    await expect(taskLine(page).locator(".icon")).toBeVisible();
+    await expect(pencil(page)).toBeVisible();
 
     // Act
-    await (where === "caret" ? taskLine(page).locator(".icon") : taskLine(page).getByText("Fix the billing sync")).click();
+    await (where === "pencil" ? pencil(page) : taskLine(page).getByText("Fix the billing sync")).click();
 
     // Assert
     await expect(box(page)).toBeFocused();
@@ -271,10 +272,161 @@ for (const where of ["caret", "line"] as const) {
   });
 }
 
+// The Overlord, 2026-10-10, of a queued panel whose task line carried a caret
+// and whose status had More under it: "the [More] dropdown is not really
+// necessary" and "I get editing pencil a little icon". The control that edits
+// the task is a small pencil at the task's text, named by its tip, and the one
+// button a keyboard or a screen reader meets there.
+test("the task's edit control is a small pencil at its text, named by its tip, for the keyboard too", async ({ page }) => {
+  // Arrange
+  await openNamed(page);
+  const text = taskLine(page).getByText("Fix the billing sync");
+
+  // Assert: a pencil, not a caret, small, on the text's line and right after it.
+  const pencilShape = await page.locator(".task-board").getByRole("button", { name: "Adjust Fix the billing sync" }).locator("svg").innerHTML();
+  expect(await pencil(page).locator("svg").innerHTML(), "the card's Adjust pencil").toBe(pencilShape);
+  const button = (await pencil(page).boundingBox())!, words = (await text.boundingBox())!;
+  expect(button.width, "small").toBeLessThanOrEqual(32);
+  expect(button.height, "small").toBeLessThanOrEqual(32);
+  expect(Math.min(button.width, button.height), "large enough to press").toBeGreaterThanOrEqual(24);
+  expect(button.x, "after the text").toBeGreaterThanOrEqual(words.x + words.width);
+  expect(button.x - (words.x + words.width), "at the text").toBeLessThanOrEqual(12);
+  expect(Math.abs(button.y + button.height / 2 - (words.y + words.height / 2)), "on the text's line").toBeLessThanOrEqual(4);
+
+  // Assert: it adds no words, and the header has no other button.
+  await expect(header(page)).not.toContainText("Edit");
+  expect(await header(page).getByRole("button").evaluateAll((buttons) => buttons.map((each) => each.getAttribute("aria-label")))).toEqual(["Edit task"]);
+
+  // Act: point at it.
+  await pencil(page).hover();
+
+  // Assert
+  await expect(page.getByRole("tooltip")).toHaveText("Edit task");
+
+  // Act: come to it by keyboard, open the box with Enter and leave with Escape.
+  await page.mouse.move(0, 0);
+  await pencil(page).focus();
+  await page.keyboard.press("Tab");
+  await page.keyboard.press("Shift+Tab");
+  await expect(pencil(page)).toBeFocused();
+  await expect(page.getByRole("tooltip")).toHaveText("Edit task");
+  await page.keyboard.press("Enter");
+  await expect(box(page)).toBeFocused();
+  await page.keyboard.press("Escape");
+
+  // Assert: the keyboard is back on the pencil, which Space presses too.
+  await expect(pencil(page)).toBeFocused();
+  await page.keyboard.press("Space");
+  await expect(box(page)).toBeFocused();
+});
+
+// What More held: the CFO's note on what the row waits for, or the
+// supervisor's words for a task that already finished. Its status says either
+// in a few words, and nothing folds under it.
+const GB = 2 ** 30;
+const NOTE = "needs 12 GB free for a minute, which only comes when his own apps are closed";
+const EVIDENCE = "Already finished: its last report was done (2026-10-06 11:59Z: done: PR 9); it never starts again by itself. Move its row to ## Done, or queue new work under a new id";
+const EVIDENCE_TIP = "Its last report was done (2026-10-06 11:59Z: done: PR 9).";
+const HELD = task("queued-held", "queued", { generation: "", brief: true, queue_revision: "q1", waits: [{ kind: "memory", target: "memory 12 GB", bytes: 12 * GB }], reason: NOTE });
+const FINISHED = task("queued-finished", "queued", { generation: "", brief: true, queue_revision: "q1", finished: EVIDENCE });
+const START_FAILED = task("queued-failed", "queued", { generation: "", brief: true, queue_revision: "q1", start_error: "cfo spawn: the brief names no project" });
+
+test("a queued task's panel has no More under its status, whatever its row waits for or says finished", async ({ page }) => {
+  // Arrange
+  await open(page, [], [HELD, FINISHED, QUEUED, START_FAILED, WORKING]);
+
+  for (const [id, status, hidden] of [["queued-held", "Waits for 12 GB free", NOTE], ["queued-finished", "Already finished", "Move its row to ## Done"], ["queued-one", "Queued", "Its detail."]] as const) {
+    // Act
+    await select(page, id);
+
+    // Assert
+    await expect(header(page).locator(".panel-status"), id).toHaveText(status);
+    await expect(header(page).locator("details"), id).toHaveCount(0);
+    await expect(panel(page).getByText("More", { exact: true }), id).toHaveCount(0);
+    await expect(panel(page), id).not.toContainText(hidden);
+  }
+
+  // The measure sees what folds under a status: why a start failed stays
+  // behind Details, so none found above means none is there.
+  await select(page, "queued-failed");
+  await expect(header(page).locator("details > summary")).toHaveText(["Details"]);
+});
+
+// The one thing of More a person needs to act on a queued task: what says it
+// already finished, before he removes it or has it queued again. It is the
+// tip of the status that says so, with no words added to the panel.
+test("a queued task that already finished says what says so in the tip of its status, for the keyboard too", async ({ page }) => {
+  // Arrange
+  await open(page, [], [FINISHED, HELD, WORKING]);
+  await select(page, "queued-finished");
+  const status = header(page).locator(".panel-status");
+  await expect(status).toHaveText("Already finished");
+
+  // Act: point at the status.
+  await status.hover();
+
+  // Assert: the evidence alone, as a sentence with no semicolon, and in the
+  // header only as what a screen reader reads with the status.
+  await expect(page.getByRole("tooltip")).toHaveText(EVIDENCE_TIP);
+  expect(await header(page).getByText("last report").evaluateAll((found) => found.map((each) => each.className))).toEqual(["sr-only"]);
+
+  // Act: come to it by keyboard.
+  await page.mouse.move(0, 0);
+  await expect(page.getByRole("tooltip")).toHaveCount(0);
+  await pencil(page).focus();
+  await page.keyboard.press("Tab");
+
+  // Assert
+  await expect(status).toBeFocused();
+  await expect(page.getByRole("tooltip")).toHaveText(EVIDENCE_TIP);
+  await expect(status).toHaveAccessibleDescription(EVIDENCE_TIP);
+
+  // A status with nothing behind it has no tip and takes no keyboard stop.
+  await select(page, "queued-held");
+  await expect(header(page).locator(".panel-status")).toHaveText("Waits for 12 GB free");
+  await expect(header(page).locator(".panel-status")).not.toHaveAttribute("data-tip");
+  await expect(header(page).locator(".panel-status")).not.toHaveAttribute("tabindex");
+});
+
+// A caret on the board opens or closes what it stands before. The one on a
+// queued task's line opened its edit box, which a pencil does now.
+test("no caret on a queued task's panel does anything but open or close", async ({ page }) => {
+  // Arrange: a queued task whose header has a Details, and the panel's caret
+  // as the one before Workspace draws it.
+  await open(page, [], [START_FAILED, WORKING]);
+  await select(page, "queued-failed");
+  const sections = panel(page).locator("details.disclosure");
+  const shape = await panel(page).locator(".panel-content > details.disclosure > summary").filter({ hasText: "Workspace" }).locator("> svg").innerHTML();
+
+  // Act: every caret the panel draws, by what it stands in.
+  const carets = await panel(page).locator("svg").evaluateAll((icons, caret) => icons.filter((icon) => icon.innerHTML === caret).map((icon) => {
+    const summary = icon.parentElement!;
+    return summary.matches("details.disclosure > summary") ? "disclosure" : summary.closest("button, a")?.getAttribute("aria-label") || summary.tagName;
+  }), shape);
+
+  // Assert: each is a disclosure's, the header's Details among them.
+  const count = await sections.count();
+  expect(count, "the header's Details and the sections under it").toBeGreaterThan(2);
+  expect(carets).toEqual(Array.from({ length: count }, () => "disclosure"));
+  await expect(header(page).locator("details.disclosure > summary")).toHaveText(["Details"]);
+
+  // Act and assert: a click on each caret opens what it stands before and a
+  // second closes it, and none opens the edit box.
+  for (let index = 0; index < count; index++) {
+    const section = sections.nth(index), caret = section.locator("> summary > svg");
+    await expect(section).not.toHaveAttribute("open");
+    await caret.click();
+    await expect(section).toHaveAttribute("open");
+    await expect(editor(page)).toHaveCount(0);
+    await caret.click();
+    await expect(section).not.toHaveAttribute("open");
+  }
+});
+
 test("the edit box grows with its text", async ({ page }) => {
   // Arrange
   await openNamed(page);
-  await taskLine(page).click();
+  await pencil(page).click();
   const height = async () => (await box(page).boundingBox())!.height;
   await box(page).fill("One line");
   const short = await height();
@@ -293,7 +445,7 @@ for (const how of ["Enter", "the check"] as const) {
     const posted: Posted[] = [];
     await openNamed(page);
     await answerSaves(page, posted);
-    await taskLine(page).click();
+    await pencil(page).click();
     await box(page).fill("A better title");
     await box(page).press("Shift+Enter");
     await box(page).pressSequentially("Its new detail.");
@@ -307,7 +459,7 @@ for (const how of ["Enter", "the check"] as const) {
     await expect.poll(() => posted).toEqual([{ path: "/api/tasks/adjust", body: { task: "queued-named", revision: "q1", text: "A better title\nIts new detail.", action: "save", operation: expect.any(String) } }]);
     await expect(editor(page)).toHaveCount(0);
     await expect(taskLine(page)).toHaveText("A better title");
-    await expect(taskLine(page)).toBeFocused();
+    await expect(pencil(page)).toBeFocused();
   });
 }
 
@@ -316,13 +468,13 @@ test("a second edit before the board hears of the first saves on the revision th
   const posted: Posted[] = [];
   await openNamed(page);
   await answerSaves(page, posted);
-  await taskLine(page).click();
+  await pencil(page).click();
   await box(page).fill("A better title");
   await box(page).press("Enter");
   await expect(taskLine(page)).toHaveText("A better title");
 
   // Act
-  await taskLine(page).click();
+  await pencil(page).click();
   await expect(box(page)).toHaveValue("A better title");
   await box(page).fill("The best title");
   await box(page).press("Enter");
@@ -337,7 +489,7 @@ for (const how of ["Escape", "the cross"] as const) {
     // Arrange
     const posted: Posted[] = [];
     await openNamed(page, posted);
-    await taskLine(page).click();
+    await pencil(page).click();
     await box(page).fill("Something else");
 
     // Act
@@ -347,9 +499,9 @@ for (const how of ["Escape", "the cross"] as const) {
     // Assert
     await expect(editor(page)).toHaveCount(0);
     await expect(taskLine(page)).toHaveText("Fix the billing sync");
-    await expect(taskLine(page)).toBeFocused();
+    await expect(pencil(page)).toBeFocused();
     await expect(page.locator("#panel-title")).toHaveText("Jerry - Sync Fixer");
-    await taskLine(page).click();
+    await pencil(page).click();
     await expect(box(page)).toHaveValue(WRITTEN);
     expect(posted).toEqual([]);
   });
@@ -359,7 +511,7 @@ test("while it saves, the box shows it is busy", async ({ page }) => {
   // Arrange
   await openNamed(page);
   await page.route("**/api/tasks/adjust", () => { /* never answered: the save stays under way */ });
-  await taskLine(page).click();
+  await pencil(page).click();
 
   // Act
   await box(page).press("Enter");
@@ -375,7 +527,7 @@ test("a refused save keeps the text and says why beside the box for a moment, ne
   await page.clock.install();
   await openNamed(page);
   await page.route("**/api/tasks/adjust", (route) => route.fulfill({ status: 409, json: { error: "The queued task changed; reopen its card" } }));
-  await taskLine(page).click();
+  await pencil(page).click();
   await box(page).fill("A better title");
 
   // Act

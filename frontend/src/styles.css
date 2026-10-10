@@ -729,15 +729,17 @@ p.panel-goblin-task { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-o
 .cfo-restart { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 12px; margin-bottom: 4px; }
 .cfo-restart .labelled-button { min-height: 36px; padding-block: 4px; }
 .cfo-restart .click-feedback { color: var(--muted); }
-/* A queued task's line is a button in the same type, with a small caret
-   beside it, that turns into a box of that type holding its title and
-   detail, with Save and Cancel at its end. Each keeps the 8 px the panel's
-   controls keep from the row under it. */
-.task-line { display: flex; align-items: flex-start; gap: 6px; justify-self: start; min-width: 0; min-height: 0; margin-bottom: 4px; padding: 0; border: 0; border-radius: 4px; background: none; text-align: left; line-height: 1.5; }
+/* A queued task's line is its text in the same type, with a small pencil
+   after it on its first line: the pencil, or a click on the text, turns it
+   into a box of that type holding its title and detail, with Save and
+   Cancel at its end. Each keeps the 8 px the panel's controls keep from the
+   row under it. */
+.task-line { display: flex; align-items: flex-start; gap: 6px; justify-self: start; min-width: 0; margin-bottom: 4px; line-height: 1.5; }
 .task-line > span { min-width: 0; }
-.task-line .icon { flex: none; width: 18px; height: 18px; margin-top: 5px; color: var(--muted); transform: rotate(90deg); transition: color .15s ease; }
-.task-line:hover:not(:disabled) .icon, .task-line:focus-visible .icon { color: var(--mint); }
-.task-line:focus-visible { outline-width: 2px; outline-offset: 2px; }
+.task-line:not(:has(> :disabled)) > span { cursor: pointer; }
+.task-line > .icon-button { width: 28px; height: 28px; min-height: 28px; color: var(--muted); transition: color .15s ease; }
+.task-line > .icon-button .icon { width: 16px; height: 16px; }
+.task-line:hover > .icon-button:not(:disabled), .task-line > .icon-button:focus-visible { color: var(--mint); }
 .task-edit { display: flex; flex-wrap: wrap; align-items: flex-end; gap: 8px; margin-bottom: 4px; padding: 2px 2px 2px 12px; border: 1px solid var(--glass-border-hover); border-radius: var(--radius); background: var(--field-bg); }
 .task-edit:focus-within { border-color: var(--mint); }
 .task-edit textarea { flex: 1 1 12rem; min-width: 0; min-height: 0; padding: 9px 0; border: 0; background: none; color: #c4d4df; font-size: 1.125rem; font-weight: 600; line-height: 1.5; resize: none; field-sizing: content; overflow-wrap: anywhere; }
