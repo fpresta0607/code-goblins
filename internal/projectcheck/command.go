@@ -324,10 +324,14 @@ func (c *checker) madeUp(ctx context.Context, name string) bool {
 	return known && !held
 }
 
-// proveScript checks that the package script a command runs is defined, in
-// the package file the place it runs in has.
-func (c *checker) proveScript(ctx context.Context, s segment, where place, p *proof) {
-	dir, script := s.dir, ""
+// packageScript returns the package script a command runs and the folder of
+// the package file that defines it, or no script for a command that runs
+// none.
+func packageScript(s segment) (dir, script string) {
+	if len(s.argv) == 0 || !packageManagers[s.argv[0]] {
+		return "", ""
+	}
+	dir = s.dir
 	for index := 1; index < len(s.argv); index++ {
 		switch arg := s.argv[index]; {
 		case (arg == "--prefix" || arg == "--dir" || arg == "-C") && index+1 < len(s.argv):
@@ -339,6 +343,13 @@ func (c *checker) proveScript(ctx context.Context, s segment, where place, p *pr
 			script = "test"
 		}
 	}
+	return dir, script
+}
+
+// proveScript checks that the package script a command runs is defined, in
+// the package file the place it runs in has.
+func (c *checker) proveScript(ctx context.Context, s segment, where place, p *proof) {
+	dir, script := packageScript(s)
 	if script == "" {
 		return
 	}

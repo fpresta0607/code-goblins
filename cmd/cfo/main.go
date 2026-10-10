@@ -80,6 +80,7 @@ commands:
   cfo auth copy <NAME> --to <project> [--from <project>]   copy a stored value into a project's scope; the source is left in place
   cfo auth refresh <task-id>        regenerate a task's auth.ps1 from its project scope; storing or copying into a project scope does this for every live task of that project automatically
   cfo project check <project> [--area <area>] [--json] [--draft <file>]   assess what the home knows about a project: its record, its gate, its configs, its connectors and its instructions, one line each with the evidence and the fix. It reads only and exits 1 when a line is worse than low. --draft writes the record it can vouch for to a new file outside the home's projects
+  cfo project check --unfiled [--json]   name each checkout under the projects root that the home holds no folder for, and what a spawn there would be given
   cfo project show|init <project>   print a project's record, or write an empty one
   cfo route [--project <project>] <brief>
   cfo verify <task-id> [--tier fast|full|deep]
