@@ -25,6 +25,23 @@ func TestConsoleLatencyChild(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer progress.Close()
+	// A goroutine of its own writes the progress file, so no key's echo waits
+	// on the disk. Written before the echo, a line took up to 2.7 s on hosted
+	// runners, and every key of 5 ms or more there was waiting on one. It was
+	// nearly always the fifth key, whose line is the first that no longer
+	// fits inside the file's own record, so NTFS has to find the file room on
+	// the disk. The queue holds more lines than a run records.
+	receipts := make(chan string, 1024)
+	go func() {
+		for receipt := range receipts {
+			if _, err := progress.WriteString(receipt); err != nil {
+				panic(err)
+			}
+		}
+	}()
+	record := func(format string, values ...any) {
+		receipts <- fmt.Sprintf(format, values...)
+	}
 	input := windows.Handle(os.Stdin.Fd())
 	var mode uint32
 	if err := windows.GetConsoleMode(input, &mode); err != nil {
@@ -76,9 +93,7 @@ func TestConsoleLatencyChild(t *testing.T) {
 			t.Fatal(err)
 		}
 		if received > 0 && !isBurst {
-			if _, err := fmt.Fprintf(progress, "input kind=%d down=%d repeat=%d character=%04x at=%s\n", event.Kind, event.Down, event.Repeat, event.Character, time.Now().UTC().Format(time.RFC3339Nano)); err != nil {
-				t.Fatal(err)
-			}
+			record("input kind=%d down=%d repeat=%d character=%04x at=%s\n", event.Kind, event.Down, event.Repeat, event.Character, time.Now().UTC().Format(time.RFC3339Nano))
 		}
 		if received == 0 || event.Kind != 1 || event.Down == 0 || event.Character == 0 {
 			continue
@@ -90,9 +105,7 @@ func TestConsoleLatencyChild(t *testing.T) {
 				if len(burst) == 2000 {
 					wrapMarker()
 					written, err := fmt.Printf("\rburst-%x\n", sha256.Sum256(burst))
-					if _, progressErr := fmt.Fprintf(progress, "burst output bytes=%d error=%v at=%s\n", written, err, time.Now().UTC().Format(time.RFC3339Nano)); progressErr != nil {
-						t.Fatal(progressErr)
-					}
+					record("burst output bytes=%d error=%v at=%s\n", written, err, time.Now().UTC().Format(time.RFC3339Nano))
 					if err != nil {
 						t.Fatal(err)
 					}
@@ -104,9 +117,7 @@ func TestConsoleLatencyChild(t *testing.T) {
 				sequence++
 				wrapMarker()
 				written, err := fmt.Printf("\rkey-%04d\n", sequence)
-				if _, progressErr := fmt.Fprintf(progress, "key-%04d output bytes=%d error=%v at=%s\n", sequence, written, err, time.Now().UTC().Format(time.RFC3339Nano)); progressErr != nil {
-					t.Fatal(progressErr)
-				}
+				record("key-%04d output bytes=%d error=%v at=%s\n", sequence, written, err, time.Now().UTC().Format(time.RFC3339Nano))
 				if err != nil {
 					t.Fatal(err)
 				}
