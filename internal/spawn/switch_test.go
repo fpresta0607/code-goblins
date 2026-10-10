@@ -669,26 +669,29 @@ func TestSwitchRelaunchesIntoTheTasksScratchFolder(t *testing.T) {
 	}
 }
 
-// Provisioning materializes the filtered configuration under the task's
-// temporary directory, never inside the checkout, and a relaunch hands over
-// that file and no other: a .mcp.json in the worktree is the project's own
-// unfiltered file or one the goblin wrote. The build is refused here so
-// nothing starts.
-func TestSwitchHandsTheNewHarnessOnlyTheProvisionedMCPConfig(t *testing.T) {
+// A relaunch plans the task's MCP configuration again from the project's
+// .mcp.json and hands over the file under the task's temporary directory it
+// will write, and no other: a .mcp.json in the worktree is the project's own
+// unfiltered file or one the goblin wrote, and the file the last terminal was
+// started with is not handed on once the project declares no server. The
+// build is refused here, so nothing starts and nothing is written.
+func TestSwitchHandsTheNewHarnessOnlyThePlannedMCPConfig(t *testing.T) {
 	for _, test := range []struct {
-		name          string
-		isProvisioned bool
+		name       string
+		isDeclared bool
 	}{
-		{name: "provisioning materialized one", isProvisioned: true},
-		{name: "provisioning materialized none"},
+		{name: "the project declares a server", isDeclared: true},
+		{name: "the project declares none"},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			f := newSwitchFixture(t, harness.Control{StopCommand: "/exit"})
 			specs := []harness.LaunchSpec{}
 			f.service.Harness.Adapters[harness.Codex] = nativeAdapter{kind: harness.Codex, specs: &specs, buildErr: errors.New("nothing starts in this test")}
-			provisioned := filepath.Join(f.meta.TaskTmp, "mcp.json")
-			if test.isProvisioned {
-				writeFile(t, provisioned, `{"mcpServers":{"neon":{"command":"npx"}}}`)
+			last := filepath.Join(f.meta.TaskTmp, "mcp.json")
+			const lastConfig = `{"mcpServers":{"gone":{"command":"npx"}}}`
+			writeFile(t, last, lastConfig)
+			if test.isDeclared {
+				writeFile(t, filepath.Join(f.project, ".mcp.json"), `{"mcpServers":{"neon":{"command":"npx"}}}`)
 			}
 			writeFile(t, filepath.Join(f.worktree, ".mcp.json"), `{"mcpServers":{"oauth":{"url":"https://example.com/mcp"}}}`)
 
@@ -698,11 +701,14 @@ func TestSwitchHandsTheNewHarnessOnlyTheProvisionedMCPConfig(t *testing.T) {
 				t.Fatalf("Switch = %v with %d builds, want the one refused build", err, len(specs))
 			}
 			want := ""
-			if test.isProvisioned {
-				want = provisioned
+			if test.isDeclared {
+				want = last
 			}
 			if specs[0].MCPConfig != want {
 				t.Errorf("MCPConfig = %q, want %q", specs[0].MCPConfig, want)
+			}
+			if kept, err := os.ReadFile(last); err != nil || string(kept) != lastConfig {
+				t.Errorf("the refused relaunch left the last configuration as %q, %v, want it untouched", kept, err)
 			}
 		})
 	}

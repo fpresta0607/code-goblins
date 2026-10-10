@@ -31,8 +31,7 @@ import { formatMemory, summarize } from "./fleet-tree";
 // that row's end: every part of the card has its own place, so none is drawn
 // over another, and a part's tip floats clear of the card. The goblin it waits
 // on is named in its status line only. A queued
-// task that waits says what for in its status, in place of Queued, and the
-// CFO's note on it is in its panel behind More; a paused or finished task shows when, and its status says what: a
+// task that waits says what for in its status, in place of Queued; a paused or finished task shows when, and its status says what: a
 // paused one, in place of Paused, why it waits and what resumes it. A goblin
 // that waits only on its pull request's test, live or paused until it merges,
 // says where that test stands, the same as its merge train's card, and its

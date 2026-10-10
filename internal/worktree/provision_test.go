@@ -888,3 +888,186 @@ func TestProvisionNamesOnlyTheEnvFilesTheWorktreeWasNotGiven(t *testing.T) {
 		t.Errorf("Linked = %v, EnvHeld = %v, want .env shared and only .env.local named as not given", result.Linked, result.EnvHeld)
 	}
 }
+
+// standInMCP is a project's MCP configuration with every kind of entry a
+// goblin can be handed, under made-up names and values: two that hold a value
+// in the entry itself, one in a command server's env map and one in a header,
+// one that only refers to a variable, one that holds nothing, and one that
+// authenticates by a token variable.
+const standInMCP = `{"mcpServers": {
+	"literal-env": {"command": "standin-server", "env": {"STANDIN_MCP_KEY": "stand-in-mcp-env-value"}},
+	"literal-header": {"url": "https://mcp.example.invalid/mcp", "headers": {"Authorization": "Bearer stand-in-mcp-header-value"}},
+	"by-reference": {"command": "standin-server", "env": {"STANDIN_MCP_KEY": "${STANDIN_MCP_KEY}"}},
+	"plain": {"command": "standin-server", "args": ["--stdio"]},
+	"by-variable": {"url": "https://mcp.example.invalid/sse", "bearerTokenEnvVar": "STANDIN_MCP_TOKEN"}
+}}`
+
+// holdsNoStandInMCPValue fails when the file at path holds a value of the
+// stand-in configuration.
+func holdsNoStandInMCPValue(t *testing.T, path string) {
+	t.Helper()
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("read %s: %v", path, err)
+	}
+	for _, value := range []string{"stand-in-mcp-env-value", "stand-in-mcp-header-value"} {
+		if strings.Contains(string(data), value) {
+			t.Errorf("%s holds a value written inside a server entry, which no brief named", filepath.Base(path))
+		}
+	}
+}
+
+// A server entry used to reach every goblin of a project by its shape: one
+// with a command, or with an Authorization header, was copied whole, and so
+// was any value written inside it. An entry that holds a value now reaches a
+// task only when its brief names the server.
+func TestProvisionWithholdsAnMCPServerWhoseEntryHoldsAValue(t *testing.T) {
+	// Arrange
+	project, worktreePath, taskTmp, runner := provisionFixture(t)
+	if err := os.WriteFile(filepath.Join(project, ".mcp.json"), []byte(standInMCP), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	runner.results = append(untrackedScript(), ignoredScript(1)...)
+
+	// Act
+	result, err := (Service{Commands: runner, DataDir: t.TempDir()}).Provision(context.Background(), project, worktreePath, taskTmp, everyVariableSet)
+
+	// Assert
+	if err != nil {
+		t.Fatalf("Provision: %v", err)
+	}
+	want := []string{"by-reference", "by-variable", "plain"}
+	if got := mcpServerNames(t, result.MCPConfig); !slices.Equal(got, want) {
+		t.Errorf("materialized servers = %v, want %v: the two whose entry holds a value withheld", got, want)
+	}
+	if got := mcpServerNames(t, filepath.Join(worktreePath, ".mcp.json")); !slices.Equal(got, want) {
+		t.Errorf("worktree servers = %v, want %v", got, want)
+	}
+	holdsNoStandInMCPValue(t, result.MCPConfig)
+	holdsNoStandInMCPValue(t, filepath.Join(worktreePath, ".mcp.json"))
+}
+
+// A task whose brief names a server is given its entry whole, value and all,
+// and every other server whose entry holds a value stays withheld.
+func TestProvisionGivesANamedMCPServerItsEntryWhole(t *testing.T) {
+	// Arrange
+	project, worktreePath, taskTmp, runner := provisionFixture(t)
+	if err := os.WriteFile(filepath.Join(project, ".mcp.json"), []byte(standInMCP), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	runner.results = append(untrackedScript(), ignoredScript(1)...)
+
+	// Act
+	result, err := (Service{Commands: runner, DataDir: t.TempDir()}).Provision(context.Background(), project, worktreePath, taskTmp, everyVariableSet, "literal-env")
+
+	// Assert
+	if err != nil {
+		t.Fatalf("Provision: %v", err)
+	}
+	if got, want := mcpServerNames(t, result.MCPConfig), []string{"by-reference", "by-variable", "literal-env", "plain"}; !slices.Equal(got, want) {
+		t.Errorf("materialized servers = %v, want %v", got, want)
+	}
+	if !slices.Equal(result.MCPHeld, []string{"literal-header"}) {
+		t.Errorf("MCPHeld = %v, want only the server the task does not name", result.MCPHeld)
+	}
+	data, err := os.ReadFile(result.MCPConfig)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(data), "stand-in-mcp-env-value") || strings.Contains(string(data), "stand-in-mcp-header-value") {
+		t.Error("the configuration should hold the named server's entry whole and nothing of the other's")
+	}
+}
+
+// A relaunch writes the task's MCP configuration again. The one its last
+// terminal was started with is replaced, and with it its copy in the
+// worktree's root, so a server whose entry holds a value, given before such
+// servers were withheld, is gone from both. A .mcp.json the goblin wrote is
+// not that copy, and one the repository tracks is not either: both are left.
+func TestWriteMCPReplacesTheConfigurationTheLastTerminalWasGiven(t *testing.T) {
+	const own = `{"mcpServers": {"own": {"command": "own-server"}}}`
+	const onlyLiteral = `{"mcpServers": {"literal-env": {"command": "standin-server", "env": {"STANDIN_MCP_KEY": "stand-in-mcp-env-value"}}}}`
+	every := []string{"by-reference", "by-variable", "literal-env", "literal-header", "plain"}
+	kept := []string{"by-reference", "by-variable", "plain"}
+	taken := []string{"literal-env", "literal-header"}
+	for _, tc := range []struct {
+		name string
+		// project is the project's .mcp.json now, empty for none.
+		project string
+		// worktree is the worktree root's .mcp.json before the relaunch.
+		worktree string
+		script   []scriptedResult
+		// wantConfig and wantWorktree are the servers each file holds
+		// afterwards, nil for no file.
+		wantConfig   []string
+		wantWorktree []string
+		wantTaken    []string
+	}{
+		{"the worktree holds the last configuration's copy", standInMCP, standInMCP, append(untrackedScript(), ignoredScript(1)...), kept, kept, taken},
+		{"the worktree holds the goblin's own file", standInMCP, own, untrackedScript(), kept, []string{"own"}, taken},
+		{"the repository tracks the worktree's file", standInMCP, standInMCP, []scriptedResult{{}}, kept, every, taken},
+		{"no server qualifies any more", onlyLiteral, standInMCP, untrackedScript(), nil, nil, []string{"literal-env"}},
+		{"the project has no .mcp.json any more", "", standInMCP, untrackedScript(), nil, nil, nil},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			// Arrange
+			project, worktreePath, taskTmp, runner := provisionFixture(t)
+			if tc.project != "" {
+				if err := os.WriteFile(filepath.Join(project, ".mcp.json"), []byte(tc.project), 0o644); err != nil {
+					t.Fatal(err)
+				}
+			}
+			// What a build that withheld no such server wrote: every server
+			// that qualified by its shape.
+			config, inWorktree := filepath.Join(taskTmp, "mcp.json"), filepath.Join(worktreePath, ".mcp.json")
+			for path, text := range map[string]string{config: standInMCP, inWorktree: tc.worktree} {
+				if err := os.WriteFile(path, []byte(text), 0o644); err != nil {
+					t.Fatal(err)
+				}
+			}
+			runner.results = tc.script
+			plan, err := PlanMCP(project, everyVariableSet)
+			if err != nil {
+				t.Fatalf("PlanMCP: %v", err)
+			}
+
+			// Act
+			gotTaken, err := (Service{Commands: runner}).WriteMCP(context.Background(), plan, worktreePath, taskTmp)
+
+			// Assert
+			if err != nil {
+				t.Fatalf("WriteMCP: %v", err)
+			}
+			if !slices.Equal(gotTaken, tc.wantTaken) {
+				t.Errorf("taken = %v, want %v", gotTaken, tc.wantTaken)
+			}
+			for path, want := range map[string][]string{config: tc.wantConfig, inWorktree: tc.wantWorktree} {
+				if want == nil {
+					if _, err := os.Stat(path); !os.IsNotExist(err) {
+						t.Errorf("%s is still there (%v), want it gone with the last configuration", filepath.Base(path), err)
+					}
+					continue
+				}
+				if got := mcpServerNames(t, path); !slices.Equal(got, want) {
+					t.Errorf("%s holds %v, want %v", filepath.Base(path), got, want)
+				}
+			}
+			if wantPath := map[bool]string{true: config, false: ""}[tc.wantConfig != nil]; plan.Config(taskTmp) != wantPath {
+				t.Errorf("the planned configuration is %q, want %q", plan.Config(taskTmp), wantPath)
+			}
+			holdsNoStandInMCPValueIfThere(t, config)
+			if slices.Equal(tc.wantWorktree, kept) {
+				holdsNoStandInMCPValue(t, inWorktree)
+			}
+		})
+	}
+}
+
+// holdsNoStandInMCPValueIfThere is holdsNoStandInMCPValue for a file that a
+// relaunch may have removed.
+func holdsNoStandInMCPValueIfThere(t *testing.T, path string) {
+	t.Helper()
+	if _, err := os.Stat(path); err == nil {
+		holdsNoStandInMCPValue(t, path)
+	}
+}

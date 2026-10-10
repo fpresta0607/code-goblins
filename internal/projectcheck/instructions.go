@@ -188,7 +188,7 @@ func (c *checker) instructions(ctx context.Context) {
 			c.draftTest(ctx, command)
 		}
 	}
-	at := ". Read at " + c.repo.at()
+	at := ". Read at " + c.repo.asRead()
 	if len(missing) > 0 {
 		c.add(AreaInstructions, "instruction-command-missing", High,
 			"the instructions name a command that cannot run as written, so an agent that follows them fails",

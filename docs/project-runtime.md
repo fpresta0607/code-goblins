@@ -60,13 +60,14 @@ When a direction is rejected, `cfo supersede <task> --reason ...` records a dura
 `cfo project check <project>` says whether what the home knows about a project is still true.
 It reads the checkout and the project's files under `data/projects/<project>/` and changes neither.
 It starts no command of the project and probes no service.
+The one thing it asks outside this machine is where the remote's default branch is, with `git ls-remote`, which writes nothing to the repository.
 
 Every line of its report has the same shape: how bad it is, the area and the check, what was found, the evidence it rests on, and the fix.
 
 ```text
 high record/record-missing: the project has no record, so nothing steers its routing, verification or deployment | evidence: no file at C:\Users\you\AppData\Local\CodeGoblins\data\projects\northwind\project.json | fix: write that file (docs/project-runtime.md lists its fields)
 ok configs/env-files-ignored: git ignores 2 of the project's 2 env files | evidence: git check-ignore names .env, web/.env.local. Examples, which are committed on purpose: .env.example
-project northwind: record failed (1 high), gate passed, configs passed, connectors passed, instructions passed
+project northwind: checkout passed, record failed (1 high), gate passed, configs passed, connectors passed, instructions passed
 ```
 
 The severities are `ok`, `low`, `medium`, `high` and `critical`.
@@ -76,8 +77,9 @@ An area passes when none of its lines is worse than `low`, and the command exits
 
 | Area | What it proves |
 | --- | --- |
+| `checkout` | This machine has a checkout of the project. The line says which branch and commit were read and when that branch was last fetched, and whether the remote's default branch is still at that commit. |
 | `record` | `project.json` is there, the loader takes it, and it names the project it is filed under. Each command of its verification and security tiers is a program this machine has. A record with no verification command is reported, because `cfo verify` passes with nothing run. |
-| `gate` | `.no-mistakes.yaml` is on the default branch, and each command it names has its program, its script files and its package script. Its test step is the repository's own command, since without one an agent chooses what runs. The repository has a workflow for the gate's ci step to wait for, and CI runs the test runners the gate's test command starts. No env file a goblin's worktree shares holds a production value the test setup does not name. |
+| `gate` | `.no-mistakes.yaml` is on the default branch, a gate's start takes it under the home's pipeline policy, and each command it names has its program, its script files and its package script. Its test step is the repository's own command, since without one an agent chooses what runs. The repository has a workflow for the gate's ci step to wait for, and CI runs the test runners the gate's test command starts. No env file a goblin's worktree shares holds a production value the test setup does not name. |
 | `configs` | Git ignores every env file of the project except the examples it commits on purpose. What an env file holds decides its line, not what it is called. A credential or a production value in a file git does not ignore is critical, and the report names its variable and never its value. A tracked env file that holds none, such as a demo setup committed on purpose, is a `low` line, `env-file-committed`, and nothing tells the reader to rotate. `worktree.json` shares files the checkout holds and installs with programs and files that exist. `services.json` names a compose file the project has, services that file declares, an env file the checkout holds and a check that can run. |
 | `connectors` | Every service `auth.json` declares has a user the check can name. Every credential the code reads from the environment, an env example names or an MCP connector in `.mcp.json` authenticates with is declared by a service. |
 | `instructions` | Each build, test and lint command `AGENTS.md` and `CLAUDE.md` name has its program, its files and its package script. The ones that are there are listed with their kind for whoever runs or dry-runs them. A deploy, a publish and a migration are listed apart and never run. An install is listed apart too, since a worktree's own install step does it. |
@@ -86,14 +88,49 @@ Tracked files are read at the default branch as the checkout last fetched it, ne
 A checkout that lags its remote or sits on another branch would otherwise answer for a repository that no goblin's worktree is cut from.
 Each line names the commit it read.
 
+### How old the reading is
+
+Every line that says what it read at the default branch also says when that branch was last fetched, and how long before the run that was.
+The time is the last fetch that named the branch, which git keeps as `FETCH_HEAD`, or else the last time the branch moved in this checkout.
+The check then asks the remote where its default branch is.
+A spawn fetches before it cuts a worktree, so a remote that has moved gives a goblin files the check did not read.
+That is `remote-moved`, a `medium` line, and its fix is a `git fetch` in the checkout and a second run.
+The check itself never fetches.
+A remote that does not answer within 20 seconds, or wants a sign-in, is `remote-unanswered`, a `low` line.
+What git writes when it fails is never printed, since it can hold the remote's address.
+A checkout that names no default branch of a remote has nothing to compare with, and the folder's own commit is read.
+
+### A project with no checkout
+
+A project the home holds a folder for and this machine has no checkout of is a finding, `checkout-missing`, and not an error.
+So is a folder that is no git checkout, such as a leftover folder inside another repository, where git would otherwise answer for the repository around it.
+What needs no repository is still read: the record whole, and whether the loaders take `worktree.json`, `services.json` and `auth.json` and whether each names this project.
+The verdict says how much of each area was read: `gate not assessed`, `configs passed (the home's files alone)`.
+An area that was not assessed never passes, so `--area gate` exits 1 for such a project and `--area record` can exit 0.
+
+### Letter case
+
+On Windows a folder answers to its name in any letter case.
+The project is named as its checkout's folder is spelled on disk, however the path was typed.
+The names inside `project.json`, `worktree.json` and `auth.json` are compared with it without regard to case on Windows, and exactly elsewhere.
+One that names another project is a `medium` line in its area.
+
 ### What a command needs
 
 A command of the gate file, of the record, of an instruction file and of a worktree's install runs in a worktree, which is cut from the default branch.
 So the default branch answers for every file, folder and package script such a command names.
 A file the default branch gained since the folder was last pulled is there.
 A copy that only the branch the folder sits on tracks is not, and the line says so.
-A file git does not track is the folder's own and is read in the folder.
 The check of `services.json` is the one command that runs in the checkout itself, so the folder's files answer for it.
+
+A file git does not track is in a worktree only in two cases, and what the checkout's own folder happens to hold does not answer for it:
+
+- `worktree.json` gives it to the worktree: a path under `link`, or under `dependencies.paths` with the `link` strategy. The folder is then read, since the worktree holds what the folder holds.
+- The worktree's install step makes it: a path under `.venv`, `venv` or `node_modules`, when an install command of `worktree.json`, or the one the lockfile at the default branch names, makes that folder.
+
+So `.venv/Scripts/python.exe` is found where the worktree's install is `uv venv` and reported where no install step makes a virtual environment, whether or not the Overlord's own folder has one.
+The check reads the install the way a spawn does, through the same function, so the two cannot disagree.
+The record's tiers are judged by the same rule, since `cfo verify` runs them in a worktree.
 
 What a command writes does not have to exist before it runs.
 The check passes over the target of `-o`, of a flag named for output such as `--outfile`, and of a redirect, the destination of `cp` and `mv`, and everything `mkdir`, `touch`, `tee` and `rm` name.
@@ -153,6 +190,8 @@ A key that starts the way a secret one does, or whose own payload names a role o
 A key whose payload names the role `anon`, or that starts `pk_`, `pk.` or `sb_publishable_`, is publishable.
 Where the value says nothing the name decides: `PUBLIC` or `PUBLISHABLE` anywhere in it, the word `ANON`, or a prefix a bundler ships to the browser, `VITE_`, `REACT_APP_` or `GATSBY_`.
 
+An env template is read as an example under any of its usual spellings: `.env.example`, `env.template`, `.env-example`, `example.env`.
+
 A production value is left out when a test setup file names its variable: a `conftest.py`, a runner's setup or config file, or a script of the gate's own test command.
 That is how a project pins what its tests may see.
 What is left is reported as `test-reaches-production`, by variable and reason, never by value or host.
@@ -186,19 +225,32 @@ A wrong deploy command is one `cfo deploy` would run.
 A draft is never written over a file, and never under the home's `data/projects`, where a record steers routing and verification for live spawns.
 A person reads the draft, completes it and places it.
 
+### What a gate's start asks of the gate file
+
+`cfo pipeline run` asks three things of a repository's gate file before it starts a gate run, and refuses the run when one fails.
+The check asks the same three, each through the pipeline's own code and against the home's policy, `config/pipeline.json`, so every answer is the pipeline's verdict and not a second copy of its rule.
+
+- **The file is there.** A repository with no `.no-mistakes.yaml` at its default branch is refused at the start of every gate run. That is `gate-file-missing`, a `high` line, and it quotes the pipeline's answer. A gate started any other way leaves every step to an agent's choice.
+- **Its automatic fix counts are within the policy's.** A gate file may lower how often a gate repairs a step by itself and may never raise it. A count above the policy's, a count the policy does not govern, and a file the pipeline's reader does not take, such as one with YAML anchors, are `gate-file-refused`, a `high` line. Counts the policy takes are `gate-limits-read`, an `ok` line.
+- **The agent it pins is one the policy takes.** Before policy version 6 a pin other than the policy's own gate agent is refused: `gate-agent-refused`, a `high` line. From version 6 a run's own launch selection replaces a repository's agent, so a pin decides nothing and the line is `ok`.
+
+With no policy file the check can read, a count is `gate-limits-unjudged` and a pin is `gate-agent-unjudged`, both `low` lines.
+A gate file that sets no count and pins no agent, and that the pipeline's reader takes, has no line.
+
+The start also asks things of the task and not of the project, which the check does not read: that the task's work is committed, that no earlier run of its branch is unresolved, and that its own branch still holds the gate file.
+It asks too that the checkout's copy of the default branch is the remote's, which is what `remote-moved` reports.
+
 ### What the check cannot see
 
 The check says only what it read, and these are outside it today:
 
-- How old its reading is. It reads the default branch as the checkout last fetched it and does not say when that was or whether the remote has moved since.
 - The credentials a spawn puts into a task's terminal from `auth.json`. The production line reads env files only.
 - Production values its rules do not know: a short password, a name ending in a word it does not take for a credential, an address whose name holds no service word. Every count of production values is a floor.
 - What really loads an env file. It counts a variable as within a test's reach whenever the file is in the worktree, and does not read whether a test runner, a settings loader or a script loads it.
 - Test setups it has no name for, such as plain Python test scripts and `node --test` suites.
-- A project with no checkout on this machine, and a checkout with no folder under `data/projects`.
-- An agent pinned in a gate file.
-- A program an install step makes, such as `.venv/Scripts/python.exe`, which is judged by what the checkout's folder holds.
-- An env template named without the leading dot, such as `env.template`.
+- A checkout with no folder under `data/projects`.
+- A program an install step makes outside `.venv`, `venv` and `node_modules`, such as a binary a build writes to `bin`. It is reported as not in a worktree.
+- Whether the remote has moved, when the remote does not answer.
 
 ### The project-check skill
 

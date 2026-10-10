@@ -72,6 +72,12 @@ type TaskMeta struct {
 	// its project's stored credentials: such a record names none, and its
 	// next terminal is given what its brief asks for, as a spawn would.
 	HasCredentials bool
+	// MCPServers names the MCP servers of the project's .mcp.json the task
+	// is given although their entry holds a value: the ones its brief named,
+	// plus what cfo auth grant added since. A record that names none is a
+	// task given none of those, which is also every task an older build
+	// spawned. It holds names, never a value.
+	MCPServers []string
 }
 
 // CarriedServices names, for a table, the services whose credentials the
@@ -327,6 +333,9 @@ func ReadTaskMeta(stateDir, id string) (TaskMeta, error) {
 			meta.Credentials = strings.Split(credentials, credentialsSeparator)
 		}
 	}
+	if servers := kv["mcp"]; servers != "" {
+		meta.MCPServers = strings.Split(servers, credentialsSeparator)
+	}
 	if meta.Kind == "" {
 		meta.Kind = "ship"
 	}
@@ -411,6 +420,7 @@ func WriteTaskMeta(stateDir string, meta TaskMeta) error {
 		"scratch":            meta.Scratch,
 		"extras":             strings.Join(meta.Extras, extrasSeparator),
 		"parent":             meta.Parent,
+		"mcp":                strings.Join(meta.MCPServers, credentialsSeparator),
 	}
 	if meta.Kind == "ship" {
 		fields["mode"] = meta.Mode
@@ -445,6 +455,25 @@ func WriteTaskCredentials(stateDir, id string, services []string) error {
 	record["credentials"] = noCredentials
 	if len(services) > 0 {
 		record["credentials"] = strings.Join(services, credentialsSeparator)
+	}
+	return WriteMeta(path, record)
+}
+
+// WriteTaskMCPServers names servers as the MCP servers task id is given
+// although their entry holds a value, in its record, and leaves every other
+// line of the record as it is. Its caller holds the record's lock.
+func WriteTaskMCPServers(stateDir, id string, servers []string) error {
+	if err := validateTaskMetaValues(TaskMeta{ID: id, MCPServers: servers}); err != nil {
+		return err
+	}
+	path := TaskMetaPath(stateDir, id)
+	record, err := ReadMeta(path)
+	if err != nil {
+		return err
+	}
+	delete(record, "mcp")
+	if len(servers) > 0 {
+		record["mcp"] = strings.Join(servers, credentialsSeparator)
 	}
 	return WriteMeta(path, record)
 }
@@ -499,6 +528,15 @@ func validateTaskMetaValues(meta TaskMeta) error {
 			name  string
 			value string
 		}{"credentials", service})
+	}
+	for _, server := range meta.MCPServers {
+		if server == "" || strings.Contains(server, credentialsSeparator) {
+			return fmt.Errorf("state: task metadata MCP server %q is empty or holds %q", server, credentialsSeparator)
+		}
+		fields = append(fields, struct {
+			name  string
+			value string
+		}{"mcp", server})
 	}
 	for _, extra := range meta.Extras {
 		if extra == "" || strings.Contains(extra, extrasSeparator) {

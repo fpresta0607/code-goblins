@@ -39,9 +39,9 @@ func (e Engine) rebuild(ctx context.Context, t *Train, why string) error {
 // leave, "Merge pull request #N from owner/branch" with the rider's head as
 // its second parent, since the commits CI tests are the ones the base takes.
 // It records the run it built before it pushes it to the train's branch,
-// then opens the train's pull request, or retitles it for a later run. A
-// pull request that merged took its run to the base, so the run after it
-// gets one of its own.
+// then opens the train's pull request, which wears the train's label from
+// then on, or retitles it for a later run. A pull request that merged took
+// its run to the base, so the run after it gets one of its own.
 func (e Engine) build(ctx context.Context, t *Train) error {
 	base, err := e.baseSHA(ctx, *t)
 	if err != nil {
@@ -130,6 +130,7 @@ func (e Engine) build(ctx context.Context, t *Train) error {
 		return fmt.Errorf("gh pr create printed no pull request URL: %q", out)
 	}
 	t.openRun().PR = t.PR
+	e.wear(ctx, *t)
 	return nil
 }
 
@@ -149,6 +150,37 @@ func (e Engine) describe(ctx context.Context, t *Train) error {
 	title, body := t.words()
 	_, err := e.runWithBody(ctx, t.Checkout, body, "pr", "edit", t.PR, "--title", title)
 	return err
+}
+
+// What the train's label looks like in a repository's list of labels, where
+// the train had to make it.
+const (
+	ownLabelSays  = "A merge train's own pull request, which generated release notes leave out"
+	ownLabelColor = "8B949E"
+)
+
+// wear puts the train's label on its pull request, so the notes GitHub
+// writes for a release leave that pull request out and list each pull request
+// it landed by its own number. A repository's first train finds no such
+// label and makes it, and a label the repository has is left as its owner
+// keeps it. The label is housekeeping, so a train never stops for it: one
+// that could not be put on is told to the CFO with how to put it on by hand.
+func (e Engine) wear(ctx context.Context, t Train) {
+	add := func() error {
+		_, err := e.run(ctx, t.Checkout, "gh", "pr", "edit", t.PR, "--add-label", OwnLabel)
+		return err
+	}
+	err := add()
+	if err != nil {
+		if _, makeErr := e.run(ctx, t.Checkout, "gh", "label", "create", OwnLabel, "--repo", t.Repository, "--description", ownLabelSays, "--color", ownLabelColor); makeErr != nil {
+			err = fmt.Errorf("%w, and the label could not be made: %w", err, makeErr)
+		} else {
+			err = add()
+		}
+	}
+	if err != nil && ctx.Err() == nil {
+		e.tellCFO(ctx, fmt.Sprintf("merge_train: %s train %s could not put the label %s on its pull request %s (%v). The notes GitHub writes for a release list a merged pull request that does not wear it, so put it on by hand if this one merges without: gh pr edit %s --add-label %s", t.Repository, t.ID, OwnLabel, t.PR, err, t.PR, OwnLabel))
+	}
 }
 
 // baseSHA reads the commit the base branch is at on origin now.

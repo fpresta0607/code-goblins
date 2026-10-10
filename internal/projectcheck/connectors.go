@@ -33,6 +33,22 @@ func (c *checker) connectors(ctx context.Context) error {
 			err.Error(), "correct what the loader names in "+file)
 		return nil
 	}
+	if manifest.Project != "" && !sameName(manifest.Project, c.project) {
+		c.add(AreaConnectors, "auth-names-another-project", Medium,
+			"the auth manifest names a project other than the checkout it is filed under",
+			fmt.Sprintf("%s says project %q and is filed for the checkout folder %q", file, manifest.Project, c.project),
+			fmt.Sprintf("set project to %q", c.project))
+	}
+	if c.repo == nil {
+		var declared []string
+		for _, service := range manifest.Services {
+			declared = append(declared, service.Name)
+		}
+		c.add(AreaConnectors, "connectors-home-only", OK,
+			"read the auth manifest alone, and compared nothing it declares with a repository, since this machine has no checkout",
+			fmt.Sprintf("%s declares %s: %s", file, count(len(declared), "service"), orNone(declared)), "")
+		return nil
+	}
 	needs, err := c.credentialNeeds(ctx)
 	if err != nil {
 		return err
@@ -47,7 +63,7 @@ func (c *checker) connectors(ctx context.Context) error {
 	if len(undeclared) > 0 {
 		c.add(AreaConnectors, "connector-undeclared", Medium,
 			"the repository reads "+count(len(undeclared), "credential")+" no service declares, which no goblin's terminal carries and no preflight checks",
-			strings.Join(undeclared, ", ")+". Read at "+c.repo.at(),
+			strings.Join(undeclared, ", ")+". Read at "+c.repo.asRead(),
 			"declare each in a service of "+file+", or say in the project's instructions why the code needs none of them from the fleet")
 	}
 

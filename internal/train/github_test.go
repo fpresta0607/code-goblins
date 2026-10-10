@@ -322,7 +322,7 @@ func TestATrainWhoseBranchGitHubRemovedAtTheMergeEndsWithNothingLeftOver(t *test
 
 // olderBuild leaves the running train id as the build before this one kept
 // it in flight: no run names a pull request, and its pull request is titled
-// as one that is never merged.
+// as one that is never merged and wears no label.
 func olderBuild(t *testing.T, s *scratch, gh *fakeGitHub, id string, change func(*Train)) {
 	t.Helper()
 	kept, err := Read(s.state, id)
@@ -339,6 +339,7 @@ func olderBuild(t *testing.T, s *scratch, gh *fakeGitHub, id string, change func
 		t.Fatal(err)
 	}
 	gh.titles[gh.trainURL] += " (do not merge)"
+	delete(gh.wears, gh.trainURL)
 }
 
 // A train an older build started is in flight when this build is installed.
