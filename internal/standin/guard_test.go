@@ -15,11 +15,15 @@ import (
 )
 
 // stillCopies are the test files that still write a copy of their own test
-// binary to run or to serve, each with what its copy stands in for. A copy is
-// a new unsigned program at every build, which antivirus asks its cloud about
-// before it lets it start. The install tests' copies are gone, since those
-// were the ones a script downloaded, renamed and ran; these are next. Take a
-// file out of the list with its copy, and add none.
+// binary to run, each with what its copy stands in for. Each stand-in here
+// has to run its package's own code under a program's name, which the one
+// stand-in program cannot do. A copy is a new unsigned program at every
+// build, which antivirus asks its cloud about before it lets it start, so
+// its first start is slow (0.4 to 3 s on 2026-10-10, and past a launch
+// deadline under load). None of these copies appears in Microsoft Defender's
+// records: the ones it convicted were the install tests', which a script
+// downloaded, renamed and ran, and those are gone. Take a file out of the
+// list with its copy, and add none.
 var stillCopies = map[string]string{
 	"cmd/cfo/attach_test.go":                        "claude.exe on PATH, answered by this package's TestMain",
 	"cmd/cfo/cfo_restart_test.go":                   "claude.exe on PATH, answered by this package's TestMain",
@@ -31,10 +35,7 @@ var stillCopies = map[string]string{
 	"cmd/cfo/session_standin_windows_test.go":       "the session's programs, answered by this package's TestMain",
 	"cmd/cfo/update_standin_windows_test.go":        "reads the build marker at the end of its own file, where it is, and copies nothing",
 	"cmd/cfo/update_windows_test.go":                "builds of cfo told apart by a marker, which run this package's update code",
-	"cmd/goblins-window/launch_test.go":             "goblins.exe beside the window, answered by this package's TestMain",
 	"internal/conpty/conpty_windows_test.go":        "a stand-in Docker Desktop.exe that runs this package's code",
-	"internal/doctor/doctor_test.go":                "claude.exe, answered by this package's TestMain",
-	"internal/doctor/fix_test.go":                   "codex.exe in a staged install, answered by this package's TestMain",
 	"internal/janitor/processes_windows_test.go":    "a stand-in chrome.exe that runs this package's code",
 	"internal/lifecycle/resources_windows_test.go":  "another task's test binary that runs this package's code",
 	"internal/lifecycle/services_windows_test.go":   "a stand-in Docker Desktop.exe that runs this package's code",
@@ -44,8 +45,6 @@ var stillCopies = map[string]string{
 	"internal/supervisor/git_deadline_test.go":      "git.exe on PATH, answered by this package's TestMain",
 	"internal/supervisor/handover_windows_test.go":  "a watcher lock holder under a program's name",
 	"internal/supervisor/terminal_windows_test.go":  "git.exe on PATH, answered by this package's TestMain",
-	"internal/update/update_test.go":                "a held build that must still start",
-	"internal/voice/imports_windows_test.go":        "a Windows program whose imports are read, never run",
 	"internal/watch/orphan_standin_windows_test.go": "a fleet of stand-in processes under programs' names",
 }
 
