@@ -485,6 +485,7 @@ func (f *fleetE2EFixture) AssertFleetJSONAndMarkdownParity() {
 		"yes",
 		claude.Kind,
 		claude.Project,
+		claude.Credentials,
 		claude.Backend,
 		claude.Endpoint.Target + " (present)",
 		"-",
