@@ -68,9 +68,10 @@ type Local struct {
 type Manifest struct {
 	// Project is the project directory name this manifest describes.
 	Project string `json:"project"`
-	// Link names primary-checkout config files or directories a worktree
-	// shares by hardlink (files) or junction (directories): identical by
-	// definition, same repo, same machine. When the manifest is absent the
+	// Link names primary-checkout config files or directories a worktree is
+	// given: a file as its own read-only copy, so nothing written in the
+	// worktree reaches the checkout's file, a directory by junction. When the
+	// manifest is absent the
 	// defaults are .env, .env.local, and .env.docker.local. .mcp.json is
 	// never linked - goblins receive its token-authenticated subset,
 	// materialized fresh (see mcp.go).
@@ -183,8 +184,7 @@ func (m Manifest) Validate() error {
 // rather than merely asserted: a goblin receives only the token-authenticated
 // subset of that file, materialized fresh, and sharing the operator's own
 // unfiltered config would hand the goblin OAuth connectors it can never
-// authenticate. A hardlinked one is worse still, because it is the operator's
-// file, so a harness rewriting it edits the primary checkout in place.
+// authenticate.
 func validRelativePath(kind, path string) error {
 	cleaned := filepath.Clean(filepath.FromSlash(strings.TrimSpace(path)))
 	if cleaned == "." || cleaned == ".." || filepath.IsAbs(cleaned) || strings.HasPrefix(cleaned, ".."+string(filepath.Separator)) {

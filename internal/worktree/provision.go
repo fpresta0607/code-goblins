@@ -81,7 +81,7 @@ func (s Service) Provision(ctx context.Context, project, worktreePath, taskTmp s
 	result := ProvisionResult{Env: manifest.Env}
 
 	for _, name := range manifest.Link {
-		linked, err := s.shareEntry(ctx, git, project, worktreePath, name)
+		linked, err := s.shareEntry(ctx, git, project, worktreePath, name, true)
 		if errors.Is(err, errDestinationOccupied) && manifest.LinkDefaulted {
 			result.LinkSkipped = append(result.LinkSkipped, name)
 			continue
@@ -101,7 +101,7 @@ func (s Service) Provision(ctx context.Context, project, worktreePath, taskTmp s
 			if _, err := os.Stat(filepath.Join(project, name)); errors.Is(err, os.ErrNotExist) {
 				return result, fmt.Errorf("worktree: dependency path %q does not exist in the primary checkout; nothing to link", name)
 			}
-			linked, err := s.shareEntry(ctx, git, project, worktreePath, name)
+			linked, err := s.shareEntry(ctx, git, project, worktreePath, name, false)
 			if err != nil {
 				return result, err
 			}
@@ -129,15 +129,18 @@ func (s Service) Provision(ctx context.Context, project, worktreePath, taskTmp s
 	return result, nil
 }
 
-// shareEntry hardlinks one primary-checkout file into the worktree, or
-// junctions one directory. A hardlinked file is the same file - same repo,
-// same machine, same values by construction - and deleting either name only
-// decrements the link count. A junction is removed as a link by Return before
-// Git ever sees it, because Git for Windows would otherwise delete the primary
+// shareEntry gives the worktree one of the primary checkout's root-level
+// entries. A config file becomes the worktree's own read-only copy. It used
+// to be a hard link, one file under two names, so a goblin that edited .env in
+// its worktree edited the Overlord's real file in place, and a write to the
+// copy is refused so that no tool believes it changed the project's file. A
+// dependency file is still hardlinked, and a directory junctioned: both are
+// shared on purpose. A junction is removed as a link by Return before Git
+// ever sees it, because Git for Windows would otherwise delete the primary
 // checkout's directory through it. A missing source is skipped: the defaults
 // name config a project may simply not have. An occupied destination returns
 // errDestinationOccupied; Provision decides whether that is fatal.
-func (s Service) shareEntry(ctx context.Context, git RunnerGit, project, worktreePath, name string) (bool, error) {
+func (s Service) shareEntry(ctx context.Context, git RunnerGit, project, worktreePath, name string, isConfig bool) (bool, error) {
 	source := filepath.Join(project, name)
 	info, err := os.Stat(source)
 	if errors.Is(err, os.ErrNotExist) {
@@ -161,10 +164,85 @@ func (s Service) shareEntry(ctx context.Context, git RunnerGit, project, worktre
 		}
 		return true, nil
 	}
+	if isConfig {
+		if err := copyReadOnly(source, destination); err != nil {
+			return false, fmt.Errorf("worktree: copy %q into the worktree: %w", name, err)
+		}
+		return true, nil
+	}
 	if err := os.Link(source, destination); err != nil {
 		return false, fmt.Errorf("worktree: hardlink %q into the worktree: %w", name, err)
 	}
 	return true, nil
+}
+
+// copyReadOnly writes destination as a read-only copy of source. The copy is
+// written beside its place and renamed into it, so a destination that is a
+// hard link to source is replaced as a name and never written through, and a
+// copy that fails leaves what was there.
+func copyReadOnly(source, destination string) error {
+	data, err := fsx.ReadFile(source)
+	if err != nil {
+		return err
+	}
+	// A staged copy an interrupted run left is read-only, so it is removed
+	// before it is written again, and whatever this run leaves staged goes
+	// with its failure: an untracked file would make the worktree read dirty.
+	staged := destination + ".cfo-copy"
+	unstage := func() error {
+		if err := os.Remove(staged); err != nil && !errors.Is(err, os.ErrNotExist) {
+			return err
+		}
+		return nil
+	}
+	if err := unstage(); err != nil {
+		return err
+	}
+	if err := os.WriteFile(staged, data, 0o400); err != nil {
+		return errors.Join(err, unstage())
+	}
+	if err := os.Rename(staged, destination); err != nil {
+		return errors.Join(err, unstage())
+	}
+	return nil
+}
+
+// OwnConfig turns each config file worktreePath still shares with its primary
+// checkout as a hard link, which is how a build before this one shared them,
+// into the worktree's own read-only copy, and names the ones it turned. It
+// looks at the names the project's manifest shares and at the default ones,
+// since a manifest that shares none today may have shared them when the
+// worktree was made. A relaunch calls it once the task's last harness has
+// ended, so a goblin already running stops holding the Overlord's own file at
+// its next terminal. A file that is no such link is left as it is.
+func (s Service) OwnConfig(project, worktreePath string) ([]string, error) {
+	manifest, err := Resolve(s.DataDir, project)
+	if err != nil {
+		return nil, err
+	}
+	names := slices.Clone(manifest.Link)
+	for _, name := range defaultLink {
+		if !slices.Contains(names, name) {
+			names = append(names, name)
+		}
+	}
+	var owned []string
+	for _, name := range names {
+		source, destination := filepath.Join(project, name), filepath.Join(worktreePath, name)
+		sourceInfo, err := os.Stat(source)
+		if err != nil || sourceInfo.IsDir() {
+			continue
+		}
+		destinationInfo, err := os.Lstat(destination)
+		if err != nil || !os.SameFile(sourceInfo, destinationInfo) {
+			continue
+		}
+		if err := copyReadOnly(source, destination); err != nil {
+			return owned, fmt.Errorf("worktree: give the worktree its own copy of %q: %w", name, err)
+		}
+		owned = append(owned, name)
+	}
+	return owned, nil
 }
 
 // errDestinationOccupied marks a share whose worktree path already exists.
