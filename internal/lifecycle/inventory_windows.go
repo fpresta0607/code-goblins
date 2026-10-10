@@ -15,7 +15,11 @@ import (
 // sweep. Parallel readers keep Pause and Stop within their deadline.
 const inventoryReaders = 64
 
-func Inventory(ctx context.Context, directories []string, hosts []Identity) ([]Process, error) {
+// Inventory lists the running processes that are a task's own: those at work
+// in directories or running a program from them, and those job names, the
+// task's terminals and what their jobs hold, as the stop that holds those
+// jobs read them (OwnedProcesses).
+func Inventory(ctx context.Context, directories []string, job []Identity) ([]Process, error) {
 	entries, err := proc.Processes()
 	if err != nil {
 		return nil, err
@@ -23,24 +27,6 @@ func Inventory(ctx context.Context, directories []string, hosts []Identity) ([]P
 	ancestors, err := proc.Ancestry(os.Getpid(), 64)
 	if err != nil {
 		return nil, fmt.Errorf("identify lifecycle controller: %w", err)
-	}
-	var jobs []Identity
-	for _, identity := range hosts {
-		started, exists := proc.StartTime(identity.PID)
-		if !exists || !started.Equal(identity.Started) {
-			continue
-		}
-		members, err := proc.JobProcesses(identity.PID)
-		if err != nil {
-			return nil, fmt.Errorf("read task host %d job: %w", identity.PID, err)
-		}
-		if current, exists := proc.StartTime(identity.PID); !exists || !current.Equal(identity.Started) {
-			continue
-		}
-		jobs = append(jobs, identity)
-		for _, member := range members {
-			jobs = append(jobs, Identity{PID: member.PID, Started: member.Start})
-		}
 	}
 	processes := make([]Process, len(entries))
 	indexes := make(chan int)
@@ -79,5 +65,5 @@ func Inventory(ctx context.Context, directories []string, hosts []Identity) ([]P
 		return nil, err
 	}
 	// Entries skipped above stay zero, and OwnedProcesses ignores them.
-	return OwnedProcesses(processes, directories, jobs), nil
+	return OwnedProcesses(processes, directories, job), nil
 }
