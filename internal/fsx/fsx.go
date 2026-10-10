@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync/atomic"
 	"time"
 )
 
@@ -18,32 +19,76 @@ import (
 // antivirus or indexer scan) still blocks it until it lets go, so the rename
 // waits that out within transientBudget.
 func AtomicWriteFile(path string, data []byte) error {
-	dir := filepath.Dir(path)
-	tmp, err := os.CreateTemp(dir, ".cfo-tmp-*")
+	staged, err := Stage(path, data)
 	if err != nil {
 		return err
 	}
-	tmpName := tmp.Name()
+	return staged.Commit()
+}
+
+// Staged is a file written whole beside the place it is meant for and not
+// yet in it. Staging is the slow part of a replace: it makes a new file,
+// which a virus scanner reads, and on a loaded machine that took a quarter of
+// a second and more. Commit only renames. A caller that replaces a file under
+// a lock stages before it takes the lock and commits under it, so nobody
+// waits in line for the scanner.
+type Staged struct {
+	temp, path string
+}
+
+// stages counts the files this process staged.
+var stages atomic.Int64
+
+// Stages is how many files this process has staged so far, each replace
+// through AtomicWriteFile included. A test holds a path under a lock to none.
+func Stages() int64 { return stages.Load() }
+
+// Stage writes data to a temporary file in path's directory, for Commit to
+// put in path's place.
+func Stage(path string, data []byte) (*Staged, error) {
+	stages.Add(1)
+	tmp, err := os.CreateTemp(filepath.Dir(path), ".cfo-tmp-*")
+	if err != nil {
+		return nil, err
+	}
 	_, werr := tmp.Write(data)
 	cerr := tmp.Close()
 	if err := errors.Join(werr, cerr); err != nil {
-		os.Remove(tmpName)
-		return err
+		os.Remove(tmp.Name())
+		return nil, err
 	}
-	root, err := os.OpenRoot(dir)
+	return &Staged{temp: tmp.Name(), path: path}, nil
+}
+
+// Commit puts the staged file in its place, replacing what is there, and
+// waits out another process holding either file as AtomicWriteFile does. A
+// commit that fails removes the staged file.
+func (s *Staged) Commit() error {
+	temp := s.temp
+	s.temp = ""
+	root, err := os.OpenRoot(filepath.Dir(s.path))
 	if err == nil {
-		err = retryTransient(func() error { return root.Rename(filepath.Base(tmpName), filepath.Base(path)) })
+		err = retryTransient(func() error { return root.Rename(filepath.Base(temp), filepath.Base(s.path)) })
 		root.Close()
 	}
 	if err != nil {
-		os.Remove(tmpName)
+		os.Remove(temp)
 		var renameErr *os.LinkError
 		if errors.As(err, &renameErr) {
-			renameErr.Old, renameErr.New = tmpName, path
+			renameErr.Old, renameErr.New = temp, s.path
 		}
 		return err
 	}
 	return nil
+}
+
+// Discard removes a staged file that was never committed, and does nothing
+// to one that was.
+func (s *Staged) Discard() {
+	if s != nil && s.temp != "" {
+		os.Remove(s.temp)
+		s.temp = ""
+	}
 }
 
 // Remove is os.Remove for a fleet file another process may be holding: a

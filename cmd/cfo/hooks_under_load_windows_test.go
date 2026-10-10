@@ -289,8 +289,13 @@ func TestEveryWakeReachesTheCFOOnceWhileADozenSessionsFireTheirHooks(t *testing.
 					acknowledged <- response
 					isAcknowledging = false
 				// Each notify leaves the queue free three times as long as
-				// it held it. A writer that appends back to back starves
-				// every waiter, which hooks-under-load.md measures apart.
+				// it held it. A writer that files back to back no longer
+				// starves a waiter, which queues: internal/lock's
+				// TestAWaiterGetsTheLockFromAProcessThatTakesItBackToBack
+				// holds that with a second process. Here the notifies keep
+				// their pace, since one that waits out a whole
+				// acknowledgement on a machine this loaded can pass its
+				// five seconds.
 				case <-time.After(max(100*time.Millisecond, 3*time.Since(started))):
 				}
 			}
