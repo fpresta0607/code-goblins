@@ -9,6 +9,8 @@ import (
 	"fmt"
 	"slices"
 	"strings"
+
+	"github.com/fpresta0607/code-goblins/internal/project"
 )
 
 // Severity says how bad a line of the report is.
@@ -29,13 +31,15 @@ const (
 
 // The areas a report covers.
 const (
-	AreaRecord     = "record"
-	AreaConfigs    = "configs"
-	AreaConnectors = "connectors"
+	AreaRecord       = "record"
+	AreaGate         = "gate"
+	AreaConfigs      = "configs"
+	AreaConnectors   = "connectors"
+	AreaInstructions = "instructions"
 )
 
 // Areas are the areas a report covers, in the order it prints them.
-var Areas = []string{AreaRecord, AreaConfigs, AreaConnectors}
+var Areas = []string{AreaRecord, AreaGate, AreaConfigs, AreaConnectors, AreaInstructions}
 
 // Finding is one line of a report.
 type Finding struct {
@@ -72,6 +76,10 @@ type Report struct {
 	Checkout string `json:"checkout"`
 	// Lines are the findings, in area order.
 	Lines []Finding `json:"lines"`
+	// Draft is the project's record as this assessment can vouch for it:
+	// the record that is there, with what it leaves empty filled from what
+	// was proven. It names credentials and never holds one.
+	Draft project.Manifest `json:"draft"`
 }
 
 // Passed reports whether an area has no line worse than low.
@@ -86,7 +94,7 @@ func (r Report) Passed(area string) bool {
 
 // Only returns the report with the lines of the named areas alone.
 func (r Report) Only(areas []string) Report {
-	only := Report{Project: r.Project, Checkout: r.Checkout}
+	only := Report{Project: r.Project, Checkout: r.Checkout, Draft: r.Draft}
 	for _, line := range r.Lines {
 		if slices.Contains(areas, line.Area) {
 			only.Lines = append(only.Lines, line)
@@ -119,6 +127,15 @@ func (r Report) Verdict(areas []string) string {
 		verdicts = append(verdicts, area+" failed ("+strings.Join(counts, ", ")+")")
 	}
 	return "project " + r.Project + ": " + strings.Join(verdicts, ", ")
+}
+
+// count is a number with its noun, the noun in the plural unless there is
+// one.
+func count(number int, noun string) string {
+	if number == 1 {
+		return "1 " + noun
+	}
+	return fmt.Sprintf("%d %ss", number, noun)
 }
 
 // Text is the report as its lines, one finding each.

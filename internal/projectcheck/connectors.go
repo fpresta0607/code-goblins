@@ -46,7 +46,7 @@ func (c *checker) connectors(ctx context.Context) error {
 	}
 	if len(undeclared) > 0 {
 		c.add(AreaConnectors, "connector-undeclared", Medium,
-			fmt.Sprintf("the repository reads %d credentials no service declares, so no goblin's terminal carries them and no preflight checks them", len(undeclared)),
+			"the repository reads "+count(len(undeclared), "credential")+" no service declares, which no goblin's terminal carries and no preflight checks",
 			strings.Join(undeclared, ", ")+". Read at "+c.repo.at(),
 			"declare each in a service of "+file+", or say in the project's instructions why the code needs none of them from the fleet")
 	}
@@ -72,11 +72,13 @@ func (c *checker) connectors(ctx context.Context) error {
 		}
 		if !used {
 			unused = append(unused, service.Name+": "+strings.Join(own, ", ")+" is in no file tracked at "+c.repo.at()+" but documents and tests")
+			continue
 		}
+		c.proven.services = append(c.proven.services, service)
 	}
 	if len(unused) > 0 {
 		c.add(AreaConnectors, "connector-unused", Low,
-			fmt.Sprintf("%d declared services are used by nothing in the repository, so their credentials ride in every goblin's terminal for no reader", len(unused)),
+			"nothing in the repository reads "+count(len(unused), "declared service")+", whose credentials ride in every goblin's terminal for no reader",
 			strings.Join(unused, ". "),
 			"take each out of "+file+", or keep it and say in its note what outside the repository uses it")
 	}
@@ -85,7 +87,7 @@ func (c *checker) connectors(ctx context.Context) error {
 		evidence += ". Not judged, since they declare no variable to look for: " + strings.Join(unjudged, ", ")
 	}
 	c.add(AreaConnectors, "connectors-examined", OK,
-		fmt.Sprintf("examined %d services and %d credential names the repository reads", len(manifest.Services), len(needs)), evidence, "")
+		"examined "+count(len(manifest.Services), "service")+" and "+count(len(needs), "credential name")+" the repository reads", evidence, "")
 	return nil
 }
 

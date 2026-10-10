@@ -185,3 +185,73 @@ func TestProjectInitAndShowKeyTheRecordByTheCheckoutsFolder(t *testing.T) {
 		}
 	}
 }
+
+// commit adds one tracked file to the checkout.
+func (f projectFixture) commit(t *testing.T, name, content string) {
+	t.Helper()
+	if err := os.WriteFile(filepath.Join(f.checkout, name), []byte(content), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	for _, args := range [][]string{
+		{"add", "--all"},
+		{"-c", "user.name=Test", "-c", "user.email=test@example.com", "commit", "--quiet", "--message", name},
+	} {
+		command := exec.Command("git", args...)
+		command.Dir = f.checkout
+		if out, err := command.CombinedOutput(); err != nil {
+			t.Fatalf("git %v: %v: %s", args, err, out)
+		}
+	}
+}
+
+// The draft is written where the caller says and never over a file, and
+// once a person places it as the project's record the record area passes.
+func TestProjectCheckWritesADraftThatPassesTheRecordAreaOncePlaced(t *testing.T) {
+	// Arrange
+	f := newProjectFixture(t)
+	f.commit(t, ".no-mistakes.yaml", "commands:\n  test: \"git status\"\n")
+	draft := filepath.Join(t.TempDir(), "drafts", "northwind", "project.json")
+
+	// Act
+	code, stdout, stderr := f.run("check", "northwind", "--draft", draft)
+
+	// Assert
+	if code != 1 || !strings.Contains(stdout, "high record/record-missing:") || !strings.Contains(stdout, draft) {
+		t.Fatalf("cfo project check --draft = %d, want 1 with the missing record and the draft's path: %s%s", code, stdout, stderr)
+	}
+	written, err := os.ReadFile(draft)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{`"project": "northwind"`, `"git"`, `"status"`} {
+		if !strings.Contains(string(written), want) {
+			t.Errorf("the draft does not hold %s:\n%s", want, written)
+		}
+	}
+	f.record(t, string(written))
+	if code, stdout, stderr := f.run("check", "northwind", "--area", "record"); code != 0 {
+		t.Errorf("the placed draft does not pass the record area (%d): %s%s", code, stdout, stderr)
+	}
+	if code, _, stderr := f.run("check", "northwind", "--draft", draft); code != 1 || !strings.Contains(stderr, "already") {
+		t.Errorf("a second --draft to the same file = %d, want 1 refusing to write over it: %s", code, stderr)
+	}
+}
+
+// A record under the home steers routing and verification for live spawns,
+// so the check never writes one there: a person places a draft.
+func TestProjectCheckNeverDraftsIntoTheHomesProjects(t *testing.T) {
+	// Arrange
+	f := newProjectFixture(t)
+	record := filepath.Join(f.home.Data, "projects", "northwind", "project.json")
+
+	// Act
+	code, _, stderr := f.run("check", "northwind", "--draft", record)
+
+	// Assert
+	if code != 1 || !strings.Contains(stderr, "place") {
+		t.Errorf("cfo project check --draft into the home = %d, want 1 saying a person places it: %s", code, stderr)
+	}
+	if _, err := os.Stat(record); err == nil {
+		t.Error("the check wrote a record into the home")
+	}
+}

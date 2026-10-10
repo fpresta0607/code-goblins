@@ -26,6 +26,7 @@ type checker struct {
 	project string
 	repo    *repository
 	lines   []Finding
+	proven  proven
 }
 
 // Check assesses one project and returns every line it can prove.
@@ -36,13 +37,15 @@ func Check(ctx context.Context, o Options) (Report, error) {
 	}
 	c := &checker{Options: o, project: filepath.Base(filepath.Clean(o.Checkout)), repo: repo}
 	c.record()
+	c.productionReach(ctx, c.gate(ctx))
 	if err := c.configs(ctx); err != nil {
 		return Report{}, err
 	}
 	if err := c.connectors(ctx); err != nil {
 		return Report{}, err
 	}
-	return Report{Project: c.project, Checkout: o.Checkout, Lines: c.lines}, nil
+	c.instructions(ctx)
+	return Report{Project: c.project, Checkout: o.Checkout, Lines: c.lines, Draft: c.draft()}, nil
 }
 
 // add appends one line to the report.

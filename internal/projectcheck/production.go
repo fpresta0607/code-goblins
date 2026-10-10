@@ -1,0 +1,235 @@
+package projectcheck
+
+import (
+	"bytes"
+	"context"
+	"fmt"
+	"net/url"
+	"path"
+	"path/filepath"
+	"regexp"
+	"strings"
+
+	"github.com/fpresta0607/code-goblins/internal/auth"
+	"github.com/fpresta0607/code-goblins/internal/fsx"
+	"github.com/fpresta0607/code-goblins/internal/worktree"
+)
+
+// The reasons a value of an env file is production's, worst first.
+const (
+	liveKey         = "a live key"
+	namesProduction = "names production"
+	remoteHost      = "a remote host"
+	realCredential  = "a credential"
+)
+
+// environmentSelectors are the variables that say which environment a
+// program runs as.
+var environmentSelectors = map[string]bool{"APP_ENV": true, "ENV": true, "ENVIRONMENT": true, "NODE_ENV": true, "RAILS_ENV": true, "FLASK_ENV": true, "DJANGO_ENV": true, "SENTRY_ENVIRONMENT": true}
+
+// serviceWords are the words in a variable's name that make its URL a data
+// store, a queue or a place reports go, where a test that connects writes.
+var serviceWords = map[string]bool{"DATABASE": true, "DB": true, "POSTGRES": true, "PG": true, "MYSQL": true, "MONGO": true, "REDIS": true, "VALKEY": true, "QDRANT": true, "ELASTIC": true, "SUPABASE": true, "SENTRY": true, "DSN": true, "BROKER": true, "AMQP": true, "RABBIT": true, "KAFKA": true, "WEBHOOK": true, "S3": true, "STORAGE": true, "UPSTASH": true, "CELERY": true}
+
+// productionValue says why a variable of an env file is production's, or
+// returns "" when it is not: a live secret key, an environment selector that
+// says production, a store or sink on a host that is not this machine, or a
+// credential that is neither empty, a test key, a publishable key nor a
+// placeholder. It never returns any part of the value.
+func productionValue(name, value string) string {
+	upper := strings.ToUpper(name)
+	lower := strings.ToLower(value)
+	switch {
+	case value == "":
+		return ""
+	case strings.HasPrefix(value, "sk_live_"), strings.HasPrefix(value, "rk_live_"):
+		return liveKey
+	case strings.HasPrefix(value, "sk_test_"), strings.HasPrefix(value, "rk_test_"):
+		return ""
+	case strings.HasPrefix(value, "pk_"), strings.Contains(upper, "PUBLISHABLE"), strings.Contains(upper, "PUBLIC"):
+		// A publishable key is handed to every browser by design.
+		return ""
+	case environmentSelectors[upper]:
+		if lower == "production" || lower == "prod" || lower == "live" {
+			return namesProduction
+		}
+		return ""
+	}
+	if strings.Contains(value, "://") {
+		for _, word := range strings.Split(upper, "_") {
+			if serviceWords[word] && !localHost(value) {
+				return remoteHost
+			}
+		}
+	}
+	if credentialName(name) && auth.SecretShape(strings.ReplaceAll(value, "=", "")) != "" && !strings.Contains(value, "://") {
+		return realCredential
+	}
+	return ""
+}
+
+// localHost reports whether a URL names this machine or a service beside
+// it: localhost, a loopback address, a name with no dot in it such as a
+// compose service, or a name under a suffix kept for local use.
+func localHost(value string) bool {
+	parsed, err := url.Parse(value)
+	if err != nil {
+		return false
+	}
+	host := strings.ToLower(parsed.Hostname())
+	switch {
+	case host == "", host == "localhost", host == "127.0.0.1", host == "::1", host == "0.0.0.0", host == "host.docker.internal":
+		return true
+	case !strings.Contains(host, "."):
+		return true
+	}
+	for _, suffix := range []string{".local", ".localhost", ".test"} {
+		if strings.HasSuffix(host, suffix) {
+			return true
+		}
+	}
+	return false
+}
+
+// testSetupPrefixes start the name of a file a test runner loads before the
+// tests, where a project pins what its tests may see.
+var testSetupPrefixes = []string{"jest.setup.", "vitest.setup.", "setupTests.", "vitest.config.", "jest.config.", "playwright.config.", "global-setup.", "globalSetup."}
+
+// isTestSetup reports whether a tracked file is one a test runner loads
+// before the tests.
+func isTestSetup(name string) bool {
+	base := path.Base(name)
+	switch base {
+	case "conftest.py", "pytest.ini", "tox.ini", ".env.test":
+		return true
+	}
+	for _, prefix := range testSetupPrefixes {
+		if strings.HasPrefix(base, prefix) {
+			return true
+		}
+	}
+	return false
+}
+
+// productionReach checks what a test run in a goblin's worktree starts with:
+// the env files the worktree shares from the checkout and those the
+// repository tracks. A production value in one is within a test's reach
+// unless the test setup, or the gate's own test command, names the variable,
+// which is how a project pins it. With no test command of the repository's
+// own an agent chooses what the test step runs, and nothing stands between
+// it and the file.
+func (c *checker) productionReach(ctx context.Context, test string) {
+	type envFile struct{ name, how string }
+	var files []envFile
+	if manifest, err := worktree.Resolve(c.DataDir, c.project); err == nil {
+		how := "which every goblin's worktree shares by " + worktree.ManifestFileName
+		if manifest.LinkDefaulted {
+			how = "which every goblin's worktree shares by default"
+		}
+		for _, name := range manifest.Link {
+			if !c.repo.tracked[name] {
+				files = append(files, envFile{name, how})
+			}
+		}
+	}
+	for _, name := range sortedKeys(c.repo.tracked) {
+		if isEnvFile(path.Base(name)) && !isExample(path.Base(name)) {
+			files = append(files, envFile{name, "which the repository tracks"})
+		}
+	}
+
+	// The files that pin: the test setup, and the scripts of the gate's own
+	// test command.
+	setup := map[string]string{}
+	for _, name := range sortedKeys(c.repo.tracked) {
+		if isTestSetup(name) {
+			if data, ok := c.repo.read(ctx, name); ok {
+				setup[name] = string(data)
+			}
+		}
+	}
+	for _, s := range segments(test) {
+		for _, arg := range s.argv {
+			if scriptExtensions[strings.ToLower(path.Ext(arg))] {
+				if data, ok := c.repo.read(ctx, path.Join(s.dir, arg)); ok {
+					setup[path.Join(s.dir, arg)] = string(data)
+				}
+			}
+		}
+	}
+	pinnedBy := func(variable string) string {
+		word := regexp.MustCompile(`(^|[^A-Za-z0-9_])` + regexp.QuoteMeta(variable) + `([^A-Za-z0-9_]|$)`)
+		for _, name := range sortedKeys(setup) {
+			if word.MatchString(setup[name]) {
+				return name
+			}
+		}
+		return ""
+	}
+
+	variables, production, pinned := 0, 0, 0
+	pinners := map[string]bool{}
+	var read, exposed []string
+	worst := false
+	for _, file := range files {
+		var data []byte
+		if c.repo.tracked[file.name] {
+			data, _ = c.repo.read(ctx, file.name)
+		} else {
+			var err error
+			if data, err = fsx.ReadFile(filepath.Join(c.Checkout, filepath.FromSlash(file.name))); err != nil {
+				continue
+			}
+		}
+		values, err := auth.ParseEnv(bytes.NewReader(data))
+		if err != nil {
+			continue
+		}
+		read = append(read, file.name+", "+file.how)
+		variables += len(values)
+		var open []string
+		for _, variable := range sortedKeys(values) {
+			reason := productionValue(variable, values[variable])
+			if reason == "" {
+				continue
+			}
+			production++
+			if by := pinnedBy(variable); by != "" {
+				pinned++
+				pinners[by] = true
+				continue
+			}
+			worst = worst || reason == liveKey || reason == namesProduction
+			open = append(open, variable+" ("+reason+")")
+		}
+		if len(open) > 0 {
+			exposed = append(exposed, file.name+", "+file.how+": "+strings.Join(open, ", "))
+		}
+	}
+
+	step := fmt.Sprintf("The gate's test step is the repository's own command, %q", test)
+	if test == "" {
+		step = "The gate's test step is an agent's choice, since the gate names no test command"
+	}
+	pins := fmt.Sprintf("Named by the test setup and left out: %d", pinned)
+	if len(pinners) > 0 {
+		pins += " (" + strings.Join(sortedKeys(pinners), ", ") + ")"
+	}
+	if len(exposed) > 0 {
+		severity := High
+		if worst || test == "" {
+			severity = Critical
+		}
+		c.add(AreaGate, "test-reaches-production", severity,
+			"a test run in a goblin's worktree can read production: its env files hold "+count(production-pinned, "production value")+" the test setup does not name",
+			strings.Join(exposed, ". ")+". "+pins+". A setup that clears variables by a rule and not by name is not seen here. "+step+". Read at "+c.repo.at(),
+			"keep production out of what a worktree shares by naming a development env file, or none, as link in "+worktree.ManifestFileName+", or name each variable in the test setup")
+	}
+	evidence := "no env file is shared into a goblin's worktree or tracked"
+	if len(read) > 0 {
+		evidence = strings.Join(read, ". ")
+	}
+	c.add(AreaGate, "test-env-examined", OK,
+		fmt.Sprintf("examined %s in %s a test run can read: %s, %d of them named by the test setup", count(variables, "variable"), count(len(read), "env file"), count(production, "production value"), pinned),
+		evidence+". "+pins+". Test setup read at "+c.repo.at()+": "+orNone(sortedKeys(setup)), "")
+}

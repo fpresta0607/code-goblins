@@ -3,27 +3,34 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"flag"
 	"fmt"
 	"io"
+	"os"
 	"os/exec"
+	"path/filepath"
 	"slices"
 	"strings"
 
 	"github.com/fpresta0607/code-goblins/internal/execx"
+	"github.com/fpresta0607/code-goblins/internal/fsx"
 	"github.com/fpresta0607/code-goblins/internal/home"
+	projectcfg "github.com/fpresta0607/code-goblins/internal/project"
 	"github.com/fpresta0607/code-goblins/internal/projectcheck"
 )
 
 // runProjectCheck assesses what the home knows about one project and prints
 // a line for everything it could prove, each with its evidence, then one
 // verdict line. It reads the checkout and the project's files in the home
-// and changes neither. It exits 0 when no line of the areas asked for is
-// worse than low, and 1 otherwise.
+// and changes neither. With --draft it writes the record it can vouch for
+// to a file outside the home's projects, for a person to place. It exits 0
+// when no line of the areas asked for is worse than low, and 1 otherwise.
 func runProjectCheck(h home.Home, args []string, stdout, stderr io.Writer, runtime commandRuntime) int {
 	flags := flag.NewFlagSet("project check", flag.ContinueOnError)
 	flags.SetOutput(stderr)
 	asJSON := flags.Bool("json", false, "print the report as JSON")
+	draft := flags.String("draft", "", "write the record this run can vouch for to this file, which must not exist and must not be under the home's projects")
 	var areas []string
 	flags.Func("area", "assess only this area ("+strings.Join(projectcheck.Areas, ", ")+"); repeat for more than one", func(value string) error {
 		if !slices.Contains(projectcheck.Areas, value) {
@@ -55,6 +62,12 @@ func runProjectCheck(h home.Home, args []string, stdout, stderr io.Writer, runti
 		fmt.Fprintf(stderr, "cfo project check: %v\n", err)
 		return 1
 	}
+	if *draft != "" {
+		if err := writeProjectDraft(h, *draft, report.Draft); err != nil {
+			fmt.Fprintf(stderr, "cfo project check: %v\n", err)
+			return 1
+		}
+	}
 	if len(areas) > 0 {
 		report = report.Only(areas)
 	} else {
@@ -70,6 +83,9 @@ func runProjectCheck(h home.Home, args []string, stdout, stderr io.Writer, runti
 	} else {
 		fmt.Fprint(stdout, report.Text())
 		fmt.Fprintln(stdout, report.Verdict(areas))
+		if *draft != "" {
+			fmt.Fprintln(stdout, "draft: "+*draft)
+		}
 	}
 	for _, area := range areas {
 		if !report.Passed(area) {
@@ -77,4 +93,37 @@ func runProjectCheck(h home.Home, args []string, stdout, stderr io.Writer, runti
 		}
 	}
 	return 0
+}
+
+// writeProjectDraft writes a drafted record to a new file. A record under
+// the home's projects steers routing and verification for live spawns, so a
+// draft never goes there: whoever reads it places it.
+func writeProjectDraft(h home.Home, file string, draft projectcfg.Manifest) error {
+	target, err := filepath.Abs(file)
+	if err != nil {
+		return err
+	}
+	projects := filepath.Join(h.Data, "projects")
+	if inside, err := filepath.Rel(projects, target); err == nil && inside != ".." && !strings.HasPrefix(inside, ".."+string(filepath.Separator)) && !filepath.IsAbs(inside) {
+		return fmt.Errorf("--draft never writes under %s, where a record steers live spawns: write the draft elsewhere and place it yourself", projects)
+	}
+	data, err := json.MarshalIndent(draft, "", "  ")
+	if err != nil {
+		return err
+	}
+	if err := os.MkdirAll(filepath.Dir(target), 0o755); err != nil {
+		return err
+	}
+	out, err := fsx.CreateNew(target, 0o644)
+	if errors.Is(err, os.ErrExist) {
+		return fmt.Errorf("--draft %s is already there, and a draft is never written over a file", target)
+	}
+	if err != nil {
+		return err
+	}
+	if _, err := out.Write(append(data, '\n')); err != nil {
+		out.Close()
+		return err
+	}
+	return out.Close()
 }

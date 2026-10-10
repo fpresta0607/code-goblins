@@ -20,7 +20,7 @@ func (c *checker) record() {
 		c.add(AreaRecord, "record-missing", High,
 			"the project has no record, so nothing steers its routing, verification or deployment",
 			"no file at "+path,
-			"write "+path+" (docs/project-runtime.md lists its fields)")
+			"run cfo project check with --draft for the record this run can vouch for, read it, complete it and place it at "+path)
 		return
 	case err != nil:
 		c.add(AreaRecord, "record-invalid", High,
@@ -29,6 +29,7 @@ func (c *checker) record() {
 			"correct the field the loader names")
 		return
 	}
+	c.proven.record = &manifest
 	c.add(AreaRecord, "record-valid", OK, "the project's record is present and the loader takes it", path, "")
 	if manifest.Project != c.project {
 		c.add(AreaRecord, "record-names-another-project", Medium,
@@ -83,7 +84,7 @@ func (c *checker) tiers(path string, manifest project.Manifest) {
 	}
 	if len(found) > 0 {
 		c.add(AreaRecord, "tier-commands-found", OK,
-			fmt.Sprintf("%d of the record's tier commands name a program this machine has", len(found)),
+			"this machine has the program of "+count(len(found), "tier command")+" of the record",
 			strings.Join(found, ", "), "")
 	}
 }

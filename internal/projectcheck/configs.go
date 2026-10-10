@@ -25,7 +25,7 @@ func (c *checker) configs(ctx context.Context) error {
 	if err := c.envIgnored(ctx); err != nil {
 		return err
 	}
-	c.worktreeManifest()
+	c.worktreeManifest(ctx)
 	c.servicesManifest(ctx)
 	return nil
 }
@@ -85,7 +85,7 @@ func (c *checker) envIgnored(ctx context.Context) error {
 		evidence += ". Examples, which are committed on purpose: " + strings.Join(examples, ", ")
 	}
 	c.add(AreaConfigs, "env-files-ignored", OK,
-		fmt.Sprintf("git ignores %d of the project's %d env files", len(kept), len(files)),
+		fmt.Sprintf("git ignores %d of the project's %s", len(kept), count(len(files), "env file")),
 		evidence+". "+looked, "")
 	return nil
 }
@@ -118,7 +118,7 @@ func (c *checker) credentialNames(ctx context.Context, name string) []string {
 
 // worktreeManifest checks that what worktree.json shares and installs is
 // in the repository.
-func (c *checker) worktreeManifest() {
+func (c *checker) worktreeManifest(ctx context.Context) {
 	file := worktree.ManifestPath(c.DataDir, c.project)
 	manifest, err := worktree.Resolve(c.DataDir, c.project)
 	if err != nil {
@@ -159,7 +159,7 @@ func (c *checker) worktreeManifest() {
 	}
 	var faults []string
 	for _, line := range manifest.Dependencies.Install {
-		faults = append(faults, c.commandFaults(strings.Fields(line))...)
+		faults = append(faults, c.commandFaults(ctx, strings.Fields(line))...)
 	}
 	if len(faults) > 0 {
 		clean = false
@@ -257,7 +257,7 @@ func (c *checker) servicesManifest(ctx context.Context) {
 			fmt.Sprintf("%s declares env_file %s and no check", file, manifest.EnvFile),
 			"declare a check in "+file+" that refuses an env file reaching production")
 	case len(manifest.Check) > 0:
-		if faults := c.commandFaults(manifest.Check); len(faults) > 0 {
+		if faults := c.commandFaults(ctx, manifest.Check); len(faults) > 0 {
 			clean = false
 			c.add(AreaConfigs, "services-check-missing", High,
 				"the check of the services manifest cannot run as written, which refuses every start of the stack",
