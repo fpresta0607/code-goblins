@@ -21,9 +21,9 @@ var starters = map[string][]string{
 }
 
 // priorityNames are the names that give a process a priority class, by
-// import path. Only internal/priority uses them: it raises this process one
-// class for the fleet's own short work, and no start names a class, so
-// Windows starts every child at normal.
+// import path. Only internal/priority and the test helper under it use them:
+// it raises this process one class for the fleet's own small work, and no
+// start names a class, so Windows starts every child at normal.
 var priorityNames = map[string][]string{
 	"golang.org/x/sys/windows": {"SetPriorityClass", "ABOVE_NORMAL_PRIORITY_CLASS", "HIGH_PRIORITY_CLASS", "REALTIME_PRIORITY_CLASS", "NORMAL_PRIORITY_CLASS", "BELOW_NORMAL_PRIORITY_CLASS", "IDLE_PRIORITY_CLASS", "JOB_OBJECT_LIMIT_PRIORITY_CLASS"},
 }
@@ -74,7 +74,7 @@ func TestEveryProcessStartGoesThroughCommand(t *testing.T) {
 			return err
 		}
 		directory := filepath.ToSlash(filepath.Dir(relative))
-		if directory != "internal/priority" {
+		if !strings.HasPrefix(directory+"/", "internal/priority/") {
 			classes, err := prioritised(relative, source)
 			if err != nil {
 				return err

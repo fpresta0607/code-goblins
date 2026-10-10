@@ -25,6 +25,7 @@ import (
 	"github.com/fpresta0607/code-goblins/internal/herdr"
 	"github.com/fpresta0607/code-goblins/internal/home"
 	"github.com/fpresta0607/code-goblins/internal/install"
+	"github.com/fpresta0607/code-goblins/internal/janitor"
 	"github.com/fpresta0607/code-goblins/internal/layout"
 	"github.com/fpresta0607/code-goblins/internal/lifecycle"
 	"github.com/fpresta0607/code-goblins/internal/lock"
@@ -211,7 +212,7 @@ func ConfigFromEnv(h home.Home) Config {
 
 			ProjectsRoot:     install.MachineProjectsRoot,
 			WorkingDirectory: proc.WorkingDirectory,
-			Environment:      proc.Environment,
+			Sightings:        janitor.Sightings(h),
 		},
 		Commands: execx.OSRunner{},
 	}

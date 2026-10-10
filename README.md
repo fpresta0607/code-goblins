@@ -548,7 +548,7 @@ The switch closes the old native terminal, keeps the task, worktree and branch, 
 A pending choice appears on the card and can be cancelled in Connections; the live values change after the switch completes.
 Pausing the task first makes its next **Resume** use the pending choice, and a choice that is no longer available when the turn ends is dropped with the reason on the card.
 A completed task shows its recorded harness, model and effort without controls, or **Engine not recorded** when an older record has no engine.
-Connections shows **Connected** with a check only after a successful health check, alongside the check time; a credential present in the goblin's environment reads **Provided**.
+Connections shows **Connected** with a check only after a successful health check, alongside the check time; a credential present in the goblin's environment reads **Provided**, and a service the goblin's task does not carry reads **Withheld**.
 Connection names and statuses share a line with the status on the right in panels at least 520 px wide, and stack below that width.
 Long names show their full text in a tip; rows keep room between their separators while health checks run.
 Open the dropdown to check connections that were last checked over a minute ago, use its refresh icon to check again, and use a connection's sign-in or key icon to open its login page or a secure repair card in Command Center.
@@ -696,7 +696,7 @@ A goblin can hand you a command the same way, on a run card that names the gobli
 When the CFO or a goblin needs a secret, such as `STRIPE_SECRET_KEY`, it files `cfo auth request` with the names only, and a credential card arrives with an alert.
 Each row says where its value goes (the repository, the credential scope, and the goblins and services that read it), what it is for and where to get it, and has a hidden field you paste the value into; Ctrl+V and right-click Paste work in every field.
 The field shows a dot for each character and never holds the value itself, so the browser has nothing to remember, sync or offer to save as a password.
-A request can also name a local env file at the root of the project's checkout, such as `.env.docker.local`, with `--env-file`: the board checks with git that the file is ignored and untracked, before filing and again before each write, and sets each value's line there too, in place, so goblin worktrees that share the file see it.
+A request can also name a local env file at the root of the project's checkout, such as `.env.docker.local`, with `--env-file`: the board checks with git that the file is ignored and untracked, before filing and again before each write, and sets each value's line there too, in place. A goblin's worktree holds that file only when the project's `worktree.json` names it in `link`, as its own copy made when the worktree was.
 **Save** sends the values to the board on this PC, which stores them in the project's scope as `cfo auth store` does, tells the project's running goblins to reload their credentials and tells the CFO the names only; the fields empty after every save, and each saved row shows a check.
 A name the scope already holds is replaced only once you confirm **Replace and save**, and a value of the wrong kind, such as a live Stripe key where a restricted one is advised, shows a warning without blocking the save.
 Below the table, the exact `cfo auth store` line has **Copy** and **Run**: Run opens a PowerShell window on this PC where you type or paste each value without it being shown.
@@ -1075,6 +1075,7 @@ The build applying the move must meet the [source-build requirements](#developme
 Code Goblins is designed for high autonomy without pretending that an LLM saying “done” is proof.
 
 - Work happens in isolated worktrees.
+- A worktree starts as the files git tracks. It is given an env file of your checkout only when the project's `worktree.json` names it in `link`, and then as its own read-only copy.
 - Authentication is checked before normal dispatch.
 - Review/repair budgets are explicit and bounded.
 - Pipeline approval fails closed when actionable findings remain.
@@ -1142,7 +1143,7 @@ go run ./cmd/cfo gate test
 go build ./cmd/cfo
 ```
 
-`cfo gate test` vets what your change reaches and tests the changed packages that are quick to test; CI runs on `windows-latest` and tests every package on every pull request. The real-session acceptance suite is opt-in because it requires actual Herdr and harness installations.
+`cfo gate test` vets what your change reaches and tests the changed packages that are quick to test; CI runs on `windows-latest` and tests every package and the board's browser tests on every pull request, as parallel jobs that take about 8 minutes together. The real-session acceptance suite is opt-in because it requires actual Herdr and harness installations.
 
 ## Project lineage
 

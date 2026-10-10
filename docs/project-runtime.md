@@ -138,7 +138,7 @@ The last two are named on the `connectors-examined` line, so what was left out i
 
 ### A test run that can reach production
 
-A goblin's worktree is given its own read-only copies of env files from the checkout: the ones `worktree.json` lists as `link`, or `.env`, `.env.local` and `.env.docker.local` when it lists none.
+A goblin's worktree is given its own read-only copies of the env files `worktree.json` lists as `link`, and of no other: with no `worktree.json`, or with one that names no `link`, it is given none.
 Whatever those files hold is what a test run in the worktree starts with.
 The gate area reads them, and the env files the repository tracks, and counts a variable as a production value when it is one of these:
 

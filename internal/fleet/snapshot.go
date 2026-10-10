@@ -106,6 +106,9 @@ type TaskRow struct {
 	// GoblinName and GoblinTitle are the goblin's fun name and title.
 	GoblinName  string `json:"goblin_name,omitempty"`
 	GoblinTitle string `json:"goblin_title,omitempty"`
+	// Credentials names the services whose credentials the task's terminal
+	// carries, as state.TaskMeta.CarriedServices words it. Names only.
+	Credentials string `json:"credentials,omitempty"`
 }
 
 // MonitorSummary is the renderer-facing subset of the persisted Task 4
@@ -222,6 +225,7 @@ func BuildSnapshot(ctx context.Context, h home.Home, endpoint EndpointReader) (S
 			Parent:      meta.Parent,
 			GoblinName:  meta.GoblinName,
 			GoblinTitle: meta.GoblinTitle,
+			Credentials: meta.CarriedServices(),
 		})
 	}
 	sort.Slice(snapshot.Tasks, func(i, j int) bool {

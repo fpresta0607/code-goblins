@@ -65,6 +65,9 @@ type goWorkflowJob struct {
 	Strategy struct {
 		Matrix struct {
 			Include []goWorkflowShard `yaml:"include"`
+			// Shard is the browser job's list: which share of the browser
+			// tests each of its jobs runs.
+			Shard []int `yaml:"shard"`
 		} `yaml:"matrix"`
 	} `yaml:"strategy"`
 }
@@ -144,6 +147,36 @@ func TestGoWorkflowRunsEveryPackageOnce(t *testing.T) {
 		default:
 			t.Errorf("%d jobs test %s, want one, or two that split its tests by one pattern", len(in), dir)
 		}
+	}
+}
+
+// The browser job runs the board's browser tests as shares of one suite, one
+// share to a job: Playwright deals the spec files out among as many shares as
+// the command names, and runs the share it is asked for. A list that skipped
+// a number, or a command that named another count than the list's length,
+// would leave a share run by no job, and the workflow would still pass. So
+// the list is 1 up to its length, and the command asks for this job's number
+// out of the number of jobs.
+func TestGoWorkflowRunsEveryBrowserTestOnce(t *testing.T) {
+	// Arrange
+	const share = "npm run test:browser -- --shard=${{ matrix.shard }}/${{ strategy.job-total }}"
+
+	// Act
+	shards := goWorkflowJobs(t)["browser"].Strategy.Matrix.Shard
+	step := workflowStep(t, filepath.Join(".github", "workflows", "go.yml"), "browser", "Run this job's share of the browser tests")
+
+	// Assert
+	if len(shards) == 0 {
+		t.Fatal("the browser job has no list of shares")
+	}
+	for index, shard := range shards {
+		if shard != index+1 {
+			t.Errorf("the browser job's shares are %v, want 1 up to %d, each once and in order", shards, len(shards))
+			break
+		}
+	}
+	if runs := strings.Count(step, "test:browser"); runs != 1 || !strings.Contains(step, share) {
+		t.Errorf("the browser job's step runs the browser tests %d times, want once, as %q:\n%s", runs, share, step)
 	}
 }
 

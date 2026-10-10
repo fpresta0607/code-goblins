@@ -2,7 +2,6 @@ package reap
 
 import (
 	"context"
-	"errors"
 	"testing"
 	"time"
 )
@@ -143,7 +142,9 @@ func TestAHarnessIsPlacedByItsImagePathWhenItsCommandLineNamesNone(t *testing.T)
 
 // no-mistakes sets NO_MISTAKES_GATE on every agent it starts, and the agent
 // keeps it when the process that started it exits, which the walk up its
-// parents does not survive. A harness that does not carry it is no gate agent.
+// parents does not survive. The second reading of the machine takes it from
+// each process's environment, and a harness it finds without it is no gate
+// agent.
 func TestAGateAgentWhoseParentHasExitedIsKnownByItsEnvironment(t *testing.T) {
 	for name, commandLine := range map[string]string{
 		"codex.exe":  `codex exec --dangerously-bypass-approvals-and-sandbox`,
@@ -156,16 +157,7 @@ func TestAGateAgentWhoseParentHasExitedIsKnownByItsEnvironment(t *testing.T) {
 				process(5832, gonePID, name, commandLine, fixtureLatest),
 				process(39684, gonePID, name, commandLine, fixtureLatest),
 			}
-			environments := map[int][]string{
-				5832:  {`PATH=C:\Windows`, "NO_MISTAKES_GATE=1"},
-				39684: {`PATH=C:\Windows`},
-			}
-			collector := Collector{Home: h, Session: "default", Processes: processes, Environment: func(pid int) ([]string, error) {
-				if env, ok := environments[pid]; ok {
-					return env, nil
-				}
-				return nil, errors.New("process environment unavailable")
-			}}
+			collector := Collector{Home: h, Session: "default", Processes: processes, Sightings: stillRunning(processes, map[int]Sighting{5832: {IsGateAgent: true}})}
 
 			// Act
 			inv, _, err := collector.Collect(context.Background())
