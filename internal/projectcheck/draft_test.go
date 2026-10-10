@@ -79,3 +79,93 @@ func TestTheDraftKeepsWhatAnExistingRecordHolds(t *testing.T) {
 		t.Errorf("the draft's fast tier is %v, want the gate's test command, which the record left empty", draft.Verification.Fast)
 	}
 }
+
+const scripts = `{"scripts":{"cms:validate":"node validate.mjs","test":"node --test","test:marketing":"node --test marketing","lint":"eslint ."}}`
+
+// The check's own draft has to pass the check. A gate test command of two
+// parts was dropped, and with no test command in the gate file a draft had
+// no verification tier at all, which the record area reports: every draft of
+// a run over eleven projects failed it. The fast tier is the gate's test
+// command, one command for each part, then the test commands the workflows
+// run, then those the instruction files name, and the report says which.
+func TestTheDraftPassesTheRecordAreaOncePlaced(t *testing.T) {
+	for _, test := range []struct {
+		name    string
+		tracked map[string]string
+		fast    []project.Command
+		from    string
+	}{
+		{
+			name: "a gate test command of two parts",
+			tracked: map[string]string{
+				".no-mistakes.yaml": "commands:\n  test: \"npm run cms:validate && npm test\"\n",
+				"package.json":      scripts,
+				"AGENTS.md":         "Test with `npm run test:marketing`.\n",
+			},
+			fast: []project.Command{{"npm", "run", "cms:validate"}, {"npm", "test"}},
+			from: "commands.test of .no-mistakes.yaml, as 2 commands",
+		},
+		{
+			name: "no gate test command and a workflow that runs the tests",
+			tracked: map[string]string{
+				".no-mistakes.yaml": "auto_fix:\n  review: 0\n",
+				"package.json":      scripts,
+				"AGENTS.md":         "Test with `npm run test:marketing`.\n",
+				".github/workflows/ci.yml": "on: pull_request\njobs:\n  verify:\n    runs-on: ubuntu-latest\n    steps:\n      - uses: actions/checkout@v4\n      - run: npm ci\n      - run: npm run lint\n" +
+					"      - run: |\n          npm test\n          npm run test:gone\n          FORCE_COLOR=1 npm run test:marketing\n      - run: npm test\n        working-directory: web\n",
+			},
+			fast: []project.Command{{"npm", "test"}},
+			from: "the 1 test command the workflows run at the repository's root (.github/workflows/ci.yml)",
+		},
+		{
+			name: "neither, and instructions that name a test command",
+			tracked: map[string]string{
+				"package.json":     scripts,
+				"web/package.json": `{"scripts":{"test:web":"vitest run"}}`,
+				"AGENTS.md":        "Lint with `npm run lint`, test with `npm run test:marketing` and `npm run test:web`, deploy with `npm run deploy`.\n",
+			},
+			fast: []project.Command{{"npm", "run", "test:marketing"}},
+			from: "the 1 test command the instruction files name (AGENTS.md)",
+		},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			// Arrange
+			f := newFixture(t, test.tracked)
+
+			// Act
+			report := f.check("npm")
+
+			// Assert
+			if !reflect.DeepEqual(report.Draft.Verification.Fast, test.fast) {
+				t.Errorf("the draft's fast tier is %v, want %v", report.Draft.Verification.Fast, test.fast)
+			}
+			contains(t, "draft tier", report.DraftTier, test.from, "This check ran none of them")
+			placed, err := json.Marshal(report.Draft)
+			if err != nil {
+				t.Fatal(err)
+			}
+			f.manifest("project.json", string(placed))
+			again := f.check("npm")
+			none(t, again, "tiers-empty")
+			if !again.Passed(AreaRecord) {
+				t.Errorf("the placed draft does not pass the record area:\n%s", again.Only([]string{AreaRecord}).Text())
+			}
+		})
+	}
+}
+
+// Where a repository names no test command anywhere, there is none to vouch
+// for, and the report says so in place of drafting a record that would fail.
+func TestADraftWithNoVerificationCommandSaysWhy(t *testing.T) {
+	// Arrange
+	f := newFixture(t, map[string]string{"AGENTS.md": "Lint with `npm run lint`.\n", "package.json": scripts})
+
+	// Act
+	report := f.check("npm")
+
+	// Assert
+	if report.DraftVerifies() {
+		t.Errorf("the draft verifies with %v, and the repository names no test command", report.Draft.Verification)
+	}
+	contains(t, "draft tier", report.DraftTier, "names no verification command", "cfo verify pass with nothing run")
+}

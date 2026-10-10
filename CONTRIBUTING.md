@@ -33,6 +33,7 @@ In a slow package, run the tests you changed by name, such as `go test ./interna
 
 CI runs the same steps on `windows-latest` for every push to `main` and every pull request, as parallel jobs: the frontend checks, the board's browser tests in four jobs, each slow Go package (some in two jobs), and every other package together.
 A pull request must keep all of them green: the one required check, `test`, passes only when every job passed.
+A test that fails in CI runs once more in its job (`tools/citest` for Go, Playwright's own retry for the browser tests): one that passes then is named as a Failed once warning on the `test` check, and one that fails twice fails the job, so fix a test named there rather than leaning on its second try.
 A new package needs no change to `.github/workflows/go.yml`, because the `rest` job tests every package no other job names.
 A new browser spec needs none either: Playwright deals the spec files out among the browser jobs, and one more number in that job's `shard` list is one more job when they grow slower than the slowest Go job.
 
@@ -47,7 +48,7 @@ See [Repo layout](README.md#repo-layout) in the README.
 ## Tests
 
 Unit tests are deterministic: they inject fake subprocess runners and scripted clocks instead of requiring installed tools.
-The telemetry and pipeline database regressions are the exception - they build real SQLite fixtures through the `sqlite3` CLI and skip themselves when it is not on PATH, so install it locally to run them (CI installs it before the suite).
+The telemetry and pipeline database regressions are the exception - they build real SQLite fixtures through the `sqlite3` CLI and skip themselves when it is not on PATH, so install it locally to run them (CI puts the release pinned in `.github/workflows/go.yml` on PATH before the suite, from the Actions cache, and asks no package feed for it).
 
 A test must never resolve the fleet home its shell exported.
 `internal/home.Resolve` refuses the `CFO_HOME` and `CFO_STATE_OVERRIDE` values the process was launched with whenever the caller is a test binary, so a test that needs a home points both at its own directory.

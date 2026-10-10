@@ -39,9 +39,8 @@ func TestAdvanceLandsAGreenTrainInOrderAndMainMatchesTheTrain(t *testing.T) {
 			t.Fatalf("car #%d = %s, want landed", car.Number, car.State)
 		}
 	}
-	want := []string{first.URL + "@" + first.HeadRefOid, second.URL + "@" + second.HeadRefOid, third.URL + "@" + third.HeadRefOid}
-	if got := gh.mergeCalls(); !slices.Equal(got, want) {
-		t.Fatalf("merges = %v, want each pinned to its head in train order %v", got, want)
+	if got := gh.mergeCalls(); !slices.Equal(got, []string{gh.trainURL + "@" + started.Head}) || !slices.Equal(gh.merged, []int{11, 12, 13}) {
+		t.Fatalf("merges = %v, merged %v: want the train's own pull request merged once, pinned to the head CI tested, and each rider merged by it in train order", got, gh.merged)
 	}
 	if s.tree("refs/heads/main") != s.tree(started.Head) {
 		t.Fatal("main's tree differs from the train's tree after landing")
@@ -50,8 +49,11 @@ func TestAdvanceLandsAGreenTrainInOrderAndMainMatchesTheTrain(t *testing.T) {
 	if want := []string{first.URL + evidence, second.URL + evidence, third.URL + evidence}; !slices.Equal(s.landed, want) {
 		t.Fatalf("landed = %q, want each pull request heard of in train order with the run that proved it", s.landed)
 	}
-	if !slices.Equal(gh.closed, []string{gh.trainURL}) || s.hasBranch(started.Branch) {
-		t.Fatalf("closed %v, branch kept %v: want the train pull request closed and its branch deleted", gh.closed, s.hasBranch(started.Branch))
+	if body := s.git(s.remote, "log", "-1", "--format=%b", "refs/heads/main"); !strings.Contains(body, strings.TrimPrefix(evidence, " by ")) {
+		t.Fatalf("the train's merge commit says %q, want the run that proved it", body)
+	}
+	if len(gh.closed) != 0 || s.hasBranch(started.Branch) {
+		t.Fatalf("closed %v, branch kept %v: want the train pull request merged, never closed, and its branch deleted", gh.closed, s.hasBranch(started.Branch))
 	}
 	if len(s.cfo) != 2 || !strings.Contains(s.cfo[1], "landed #11, #12, #13") {
 		t.Fatalf("CFO told %q, want the landing", s.cfo)
@@ -134,7 +136,10 @@ func TestAdvanceRetestsOnTheNewMainWhenMainMovedDuringTheRun(t *testing.T) {
 	}
 }
 
-func TestAdvanceRetriesAMergeGitHubRefusesBecauseTheBaseMovedUnderIt(t *testing.T) {
+// GitHub refuses a merge whose base moved under it. One merge lands every
+// rider or none, so nothing merged, and the next step reads main again
+// rather than merging onto a main CI did not test.
+func TestAMergeGitHubRefusesLandsNothingAndTheNextStepReadsMainAgain(t *testing.T) {
 	t.Parallel()
 	// Arrange
 	s := newScratch(t)
@@ -150,14 +155,21 @@ func TestAdvanceRetriesAMergeGitHubRefusesBecauseTheBaseMovedUnderIt(t *testing.
 	gh.modified = 1
 
 	// Act
-	landed, err := engine.Advance(context.Background(), started.ID)
+	refused, refusedErr := engine.Advance(context.Background(), started.ID)
+	moved := s.advanceMain("outside.txt", "outside\n")
+	retest := s.step(engine, started.ID)
+	untested := slices.Clone(gh.merged)
+	landed := s.step(engine, started.ID)
 
 	// Assert
-	if err != nil {
-		t.Fatal(err)
+	if refusedErr == nil || refused.State != StateTesting || refused.Landing || refused.Errors != 1 || !slices.Equal(carStates(refused), []string{"#11=riding", "#12=riding"}) {
+		t.Fatalf("refused: train %s landing %v with %d errors, cars %v, error %v: want it testing with nothing landed and one error counted", refused.State, refused.Landing, refused.Errors, carStates(refused), refusedErr)
 	}
-	if landed.State != StateLanded || !slices.Equal(gh.merged, []int{11, 12}) {
-		t.Fatalf("train = %s, merged %v: want both landed after one retry", landed.State, gh.merged)
+	if retest.State != StateTesting || retest.Runs != 2 || retest.BaseSHA != moved || len(untested) != 0 {
+		t.Fatalf("after main moved: train %s on run %d at %s, merged %v: want it tested again on the new main with nothing merged", retest.State, retest.Runs, retest.BaseSHA, untested)
+	}
+	if landed.State != StateLanded || !slices.Equal(gh.merged, []int{11, 12}) || s.tree("refs/heads/main") != s.tree(retest.Head) || len(gh.closed) != 0 {
+		t.Fatalf("train %s, merged %v, closed %v: want both landed on the tree CI tested last", landed.State, gh.merged, gh.closed)
 	}
 }
 
@@ -175,7 +187,8 @@ func TestAMergeGitHubKeepsRefusingStopsTheTrainOnceItsErrorBudgetIsSpent(t *test
 	if err != nil {
 		t.Fatal(err)
 	}
-	gh.refuse[second.URL] = "Pull request is not mergeable: a required review is missing"
+	main := s.main()
+	gh.refuse[gh.trainURL] = "Pull request is not mergeable: a required review is missing"
 
 	// Act
 	retried, retryErr := engine.Advance(context.Background(), started.ID)
@@ -185,26 +198,31 @@ func TestAMergeGitHubKeepsRefusingStopsTheTrainOnceItsErrorBudgetIsSpent(t *test
 	}
 
 	// Assert
-	if retryErr == nil || retried.State != StateTesting || !retried.Landing || retried.Errors != 1 {
-		t.Fatalf("first refusal: train %+v, error %v, want it kept landing with one error counted", retried, retryErr)
+	if retryErr == nil || retried.State != StateTesting || retried.Landing || retried.Errors != 1 {
+		t.Fatalf("first refusal: train %+v, error %v, want it testing with one error counted", retried, retryErr)
 	}
-	if err != nil || failed.State != StateFailed || !slices.Equal(gh.merged, []int{11}) {
-		t.Fatalf("train = %s (%v), merged %v: want it failed after #11 with #13 never merged", failed.State, err, gh.merged)
+	if err != nil || failed.State != StateFailed || len(gh.merged) != 0 || s.main() != main {
+		t.Fatalf("train = %s (%v), merged %v, main moved %v: want it failed with nothing merged", failed.State, err, gh.merged, s.main() != main)
 	}
-	if got := carStates(failed); !slices.Equal(got, []string{"#11=landed", "#12=returned", "#13=returned"}) {
+	if got := carStates(failed); !slices.Equal(got, []string{"#11=returned", "#12=returned", "#13=returned"}) {
 		t.Fatalf("car states = %v", got)
 	}
-	for _, want := range []string{"failed 5 times in a row", "#12 did not merge", "a required review is missing", "stopped while landing"} {
+	for _, want := range []string{"failed 5 times in a row", gh.trainURL + " did not merge", "a required review is missing"} {
 		if !strings.Contains(failed.Note, want) {
 			t.Fatalf("note = %q, want %q", failed.Note, want)
 		}
+	}
+	if strings.Contains(failed.Note, "stopped while landing") || !slices.Equal(gh.closed, []string{gh.trainURL}) || !strings.Contains(gh.comments[0], "a required review is missing") {
+		t.Fatalf("note %q, closed %v saying %q: want no landing left in doubt, and its pull request closed with why", failed.Note, gh.closed, gh.comments)
 	}
 	if len(s.cfo) != 2 || !strings.Contains(s.cfo[1], "failed") {
 		t.Fatalf("CFO told %q, want the failure", s.cfo)
 	}
 }
 
-func TestALandingCutShortMergesTheRestOnTheNextStep(t *testing.T) {
+// A merge that got no answer because it never reached GitHub landed nothing:
+// the riders land together on the next step, never some of them.
+func TestALandingCutShortLandsEveryRiderOnTheNextStepAndNoneBefore(t *testing.T) {
 	t.Parallel()
 	// Arrange
 	s := newScratch(t)
@@ -218,18 +236,20 @@ func TestALandingCutShortMergesTheRestOnTheNextStep(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	gh.unanswered["merge "+second.URL] = 1
+	main := s.main()
+	gh.unanswered["merge "+gh.trainURL] = 1
 
 	// Act
 	cut, cutErr := engine.Advance(context.Background(), started.ID)
+	between := s.main()
 	landed, err := engine.Advance(context.Background(), started.ID)
 
 	// Assert
-	if cutErr == nil || cut.State != StateTesting || !cut.Landing || !slices.Equal(carStates(cut), []string{"#11=landed", "#12=riding", "#13=riding"}) {
-		t.Fatalf("cut short: train %s landing %v, cars %v, error %v", cut.State, cut.Landing, carStates(cut), cutErr)
+	if cutErr == nil || cut.State != StateTesting || between != main || !slices.Equal(carStates(cut), []string{"#11=riding", "#12=riding", "#13=riding"}) {
+		t.Fatalf("cut short: train %s, main moved %v, cars %v, error %v: want nothing landed", cut.State, between != main, carStates(cut), cutErr)
 	}
 	if err != nil || landed.State != StateLanded || !slices.Equal(gh.merged, []int{11, 12, 13}) {
-		t.Fatalf("next step: train %s (%v), merged %v, want the rest merged with no new CI run", landed.State, err, gh.merged)
+		t.Fatalf("next step: train %s (%v), merged %v, want every rider merged with no new CI run", landed.State, err, gh.merged)
 	}
 	if landed.Runs != 1 || landed.Errors != 0 || s.tree("refs/heads/main") != s.tree(started.Head) {
 		t.Fatalf("train = %+v, want one run, no errors left and main holding its tree", landed)
@@ -249,14 +269,14 @@ func TestAMergeThatWentThroughWhileItsAnswerWasLostIsTakenAsLanded(t *testing.T)
 	if err != nil {
 		t.Fatal(err)
 	}
-	gh.lost["merge "+first.URL] = true
+	gh.lost["merge "+gh.trainURL] = true
 
 	// Act
 	landed, err := engine.Advance(context.Background(), started.ID)
 
 	// Assert
-	if err != nil || landed.State != StateLanded || len(gh.mergeCalls()) != 2 || !slices.Equal(gh.merged, []int{11, 12}) {
-		t.Fatalf("train %s (%v), merge calls %v, merged %v: want #11 found on main and never merged twice", landed.State, err, gh.mergeCalls(), gh.merged)
+	if err != nil || landed.State != StateLanded || len(gh.mergeCalls()) != 1 || !slices.Equal(gh.merged, []int{11, 12}) || len(gh.closed) != 0 {
+		t.Fatalf("train %s (%v), merge calls %v, merged %v, closed %v: want the train found on main and never merged twice", landed.State, err, gh.mergeCalls(), gh.merged, gh.closed)
 	}
 }
 
@@ -462,6 +482,9 @@ func TestATrainStopsWhenMainMovesDuringEveryRun(t *testing.T) {
 	}
 	if got := runLog(stopped); !slices.Equal(got, []string{"1 #11 moved", "2 #11 moved", "3 #11 moved"}) {
 		t.Fatalf("runs %q, want every run main moved under", got)
+	}
+	if gh.created != 1 || !slices.Equal(gh.closed, []string{gh.trainURL}) || !strings.Contains(gh.comments[0], "moved during 3 runs in a row") || s.hasBranch(started.Branch) || gh.reads(first.URL) != "OPEN" {
+		t.Fatalf("opened %d, closed %v saying %q, branch kept %v, #11 reads %s: want its one pull request closed with why, its branch removed and #11 left open", gh.created, gh.closed, gh.comments, s.hasBranch(started.Branch), gh.reads(first.URL))
 	}
 }
 

@@ -1,16 +1,15 @@
 package supervisor
 
 import (
-	"encoding/json"
 	"errors"
 	"os"
-	"path/filepath"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/fpresta0607/code-goblins/internal/harness"
 	"github.com/fpresta0607/code-goblins/internal/host"
+	"github.com/fpresta0607/code-goblins/internal/host/hosttest"
 	"github.com/fpresta0607/code-goblins/internal/proc"
 )
 
@@ -51,18 +50,9 @@ func TestOwnSessionRefusesEverySessionButTheCFOs(t *testing.T) {
 		// Windows gave this process's pid to the terminal's program once, and
 		// that program ended: the record's creation time tells them apart.
 		{"one whose pid the terminal's program had before it", "does not run under it", func(t *testing.T, terminal hostedTerminal) {
-			record, err := host.ReadRecord(terminal.stateDir, terminal.id)
-			if err != nil {
-				t.Fatal(err)
-			}
-			record.ChildStart = record.ChildStart.Add(-time.Hour)
-			data, err := json.Marshal(record)
-			if err != nil {
-				t.Fatal(err)
-			}
-			if err := os.WriteFile(filepath.Join(terminal.stateDir, "hosts", terminal.id+".json"), data, 0o600); err != nil {
-				t.Fatal(err)
-			}
+			hosttest.Rewrite(t, terminal.stateDir, terminal.id, func(record *host.Record) {
+				record.ChildStart = record.ChildStart.Add(-time.Hour)
+			})
 		}},
 	} {
 		t.Run(c.name, func(t *testing.T) {

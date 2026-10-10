@@ -16,8 +16,9 @@ export interface CarLook { label: string; url: string; text: string; tone: Tone;
 // RunLook is how one CI run of a train shows in its panel: its number among
 // the runs of its batch, the pull requests it tested, how it ended in its
 // tone, and the page that shows it, its first failed check's when it was red
-// and else its train's pull request. once are the checks that were red on
-// its first try, when its failed checks ran again, each with that try's page.
+// and else the pull request it was tested on, its train's own for a run that
+// names none. once are the checks that were red on its first try, when its
+// failed checks ran again, each with that try's page.
 export interface RunLook { number: number; riders: number[]; text: string; tone: Tone; url: string; once: CheckLook[] }
 
 // CheckLook is how a check that failed shows: its name and its page.
@@ -119,7 +120,7 @@ export function batchRuns(train: MergeTrain): RunLook[] {
       const words: [string, Tone] = run.failed_once.length > 0 && SECOND_TRY_WORDS[run.result] || RUN_WORDS[run.result] || [run.result, "cancelled"];
       const [text, tone] = run.result === "moved" ? [capital(each.base) + " moved", "cancelled" as const] : words;
       return {
-        number: offset + run.number, riders: run.riders, text, tone, url: run.result === "failed" && safeGitHubLink(run.link) || safeGitHubLink(each.pr),
+        number: offset + run.number, riders: run.riders, text, tone, url: run.result === "failed" && safeGitHubLink(run.link) || safeGitHubLink(run.pr) || safeGitHubLink(each.pr),
         once: run.failed_once.map((check) => ({ name: check.name, url: safeGitHubLink(check.link) })),
       };
     });
