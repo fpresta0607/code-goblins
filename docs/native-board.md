@@ -615,6 +615,15 @@ Job notifications handle new processes, with job-local reconciliation at most on
 Descendant scheduling errors are logged and cannot discard terminal input; required host, console-server and initial-process policy failures refuse startup.
 The latency regression uses one native console event per read, as libuv does, and checks key p95 below 50 ms, the second slowest of 40 keys within 250 ms, no key past a second, and an ordered 2,000-character burst within two seconds during idle and continuous output.
 One slow key in a run is a hosted runner's scheduling noise (504 ms seen with the test's job to itself); two slow keys fail, and a failure names the slow keys by number.
+Apart from that policy, a goblin's terminal keeps off the performance cores the fleet's work leaves to the Overlord's own apps: half of the machine's performance cores, rounded up to whole cores, the last of them as Windows numbers them.
+`cfo spawn` starts a goblin's host with `--leave-cores-for-apps`, and the host keeps the terminal's process to the other processor threads before it runs.
+Windows starts every process on the threads of the one that started it, so everything the goblin starts keeps to them, whether it stays in the terminal's job or leaves it, as what Git Bash runs does.
+A processor limit on the job would not hold a process that leaves the job, so the host sets none.
+On a PC of six performance and four efficiency cores, a test Chrome showed its window after 0.53 s with nothing added, 4.11 s under goblin work on every core, 2.33 s with that work kept off two performance cores and 0.98 s with it kept off three, each a median, of two starts for three cores.
+Kept off three, the work got through 59% as much while it filled every core it kept, and nothing less when it did not.
+The test Chrome was never the window in front, so a start the Overlord clicks himself may be quicker than these at any share.
+There is no such limit on a machine with one performance core, on a machine with more than one processor group, or where the cores cannot be read, which the host's log says, and a terminal is never given a thread its host may not itself run on.
+The CFO's terminal, a run card's terminal and a staged harness's proof start keep every core.
 Installing a build or restarting `serve` leaves existing hosts running their original code; the persistent policy takes effect in newly launched hosts, so resume each existing session only when its active work permits a host restart.
 
 Every native terminal runs on Microsoft's own console host, `conpty.dll` and `OpenConsole.exe` from its ConPTY package (1.25.260930003, MIT, listed in `THIRD_PARTY_NOTICES`), which cfo.exe embeds.

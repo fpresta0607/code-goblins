@@ -5,26 +5,28 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/fpresta0607/code-goblins/internal/processor"
 )
 
 // overlordsProcessor is the Overlord's Intel Core 7 240H: six performance
 // cores of two threads each, then four efficiency cores of one.
-func overlordsProcessor() []processorCore {
-	var cores []processorCore
+func overlordsProcessor() []processor.Core {
+	var cores []processor.Core
 	for core := range 6 {
-		cores = append(cores, processorCore{efficiencyClass: 1, threads: []int{2 * core, 2*core + 1}})
+		cores = append(cores, processor.Core{EfficiencyClass: 1, Threads: []int{2 * core, 2*core + 1}})
 	}
 	for thread := 12; thread < 16; thread++ {
-		cores = append(cores, processorCore{efficiencyClass: 0, threads: []int{thread}})
+		cores = append(cores, processor.Core{EfficiencyClass: 0, Threads: []int{thread}})
 	}
 	return cores
 }
 
 // uniformProcessor is a desktop with cores of one kind, two threads each.
-func uniformProcessor(count int) []processorCore {
-	var cores []processorCore
+func uniformProcessor(count int) []processor.Core {
+	var cores []processor.Core
 	for core := range count {
-		cores = append(cores, processorCore{efficiencyClass: 0, threads: []int{2 * core, 2*core + 1}})
+		cores = append(cores, processor.Core{EfficiencyClass: 0, Threads: []int{2 * core, 2*core + 1}})
 	}
 	return cores
 }
@@ -47,7 +49,7 @@ func after(busy []float64) []processorTime {
 func TestReadProcessorsCountsTheFreeShareOfThePerformanceCores(t *testing.T) {
 	for _, test := range []struct {
 		name               string
-		cores              []processorCore
+		cores              []processor.Core
 		busy               []float64
 		wantPerformance    int
 		wantEfficiency     int
@@ -105,7 +107,7 @@ func TestReadProcessorsCountsTheFreeShareOfThePerformanceCores(t *testing.T) {
 func TestReadProcessorsRefusesReadingsThatSayNothing(t *testing.T) {
 	for _, test := range []struct {
 		name          string
-		cores         []processorCore
+		cores         []processor.Core
 		before, after []processorTime
 	}{
 		{"no time passed", uniformProcessor(1), []processorTime{{idle: 5, total: 9}, {idle: 5, total: 9}}, []processorTime{{idle: 5, total: 9}, {idle: 5, total: 9}}},
