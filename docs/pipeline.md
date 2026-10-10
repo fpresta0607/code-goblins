@@ -6,13 +6,15 @@ The binary still owns review, fixes, tests, lint, documentation, push, PR creati
 
 ## Task classes
 
-| Spawn class | Review repair cycles | Gate agents |
-| --- | --- | --- |
-| `ordinary` (default) | 2 | Codex gpt-6.1-sol xhigh, then Claude |
-| `high-risk` | 3 | Codex gpt-6.1-sol xhigh, then Claude |
-| `mechanical` | 2 | Codex gpt-6.1-sol xhigh, then Claude |
+| Spawn class | Review repair cycles | Gate agents under v6 | Gate agents under v5 |
+| --- | --- | --- | --- |
+| `ordinary` (default) | 2 | The task's own harness | Codex gpt-6.1-sol xhigh, then Claude |
+| `high-risk` | 3 | The task's own harness | Codex gpt-6.1-sol xhigh, then Claude |
+| `mechanical` | 2 | The task's own harness | Codex gpt-6.1-sol xhigh, then Claude |
 
 Use `cfo spawn <id> ... --class high-risk` for a high-risk task.
+A task freezes the version its home's `config/pipeline.json` holds when it is spawned.
+The checked-in file is v5, and a home takes v6 by writing its own, as [A gate on its task's own harness](#a-gate-on-its-tasks-own-harness) describes.
 No-mistakes tasks receive a policy snapshot at `state/tasktmp/<id>/pipeline.json`, with its class and SHA-256 recorded in task metadata.
 Editing the source policy does not change a running task's snapshot, and `cfo switch` retains it.
 Direct-PR and local-only tasks retain their existing delivery paths.
@@ -35,6 +37,64 @@ No-mistakes v1.75.1 resolves test, document, and lint from the primary agent.
 Its effective repository `agent` normally comes from the trusted default branch, but a trusted `allow_repo_commands` setting delegates that field to the submitted branch.
 Before a CFO-managed run starts, the driver therefore requires the effective field to be absent, which inherits the global chain, or to select only Codex explicitly, which runs that repository's gates without the fallback.
 The driver does not rewrite repository configuration, and non-CFO no-mistakes use retains its native repository policy.
+
+## A gate on its task's own harness
+
+Policy v6 names no harness.
+Every gate role of a task, which is review, review fix, test, document and lint, runs on the harness that task's goblin runs on, with the model and effort its record holds.
+A Claude Code goblin's gate runs Claude Code, and a Codex goblin's gate runs Codex.
+A task whose record names no model or no effort takes the machine config's `agent_config.<harness>` value, which is the operator's default for that harness.
+A gate with neither is refused, and the refusal names both ways to name them: `cfo switch <id> --model <model> --effort <effort>`, or `agent_config.<harness>`.
+The harness is read from the task's record when a run starts and is not frozen in the snapshot, so after `cfo switch` the next run follows the new harness.
+A run already started keeps the agents it started with.
+
+### How a run carries its own agents
+
+One no-mistakes daemon serves every goblin, and v1.75.1 reads its agent chain from two places only: the machine's `config.yaml` and the repository's trusted default-branch `.no-mistakes.yaml`.
+Neither differs between two tasks of one repository, and its one per-run pin, `--model` with `--effort`, serves pi alone.
+So a run carries its own agents as a launch selection, which `cfo pipeline run` writes and no-mistakes proves.
+
+1. The driver writes `state/tasktmp/<id>/launch-selection.json`: the trusted default-branch commit, `"apply": true`, and one ordered chain for the primary, reviewer and fixer roles.
+2. It starts the run with `--launch-nonce`, `--validation-generation`, which is the task's frozen policy hash, and `--launch-assertion <file>`, and prints the chain on a `pipeline gate agent:` line.
+3. The daemon replaces that run's agent chain, each named harness's model and effort, and every review role with the selection, for that run alone and in memory.
+4. It then proves the selection as it proves any launch assertion: against a fresh fetch of the trusted commit and against the arguments each agent will be started with, before a run exists and before any agent starts.
+5. The selection and its proof are stored with the run, where neither can change, and a daemon that restarts proves the stored selection again before it recovers the run.
+
+Nothing edits the machine's `config.yaml` for a run, so two tasks on different harnesses gate at once under one daemon and one config.
+A no-mistakes build that cannot apply a selection refuses the launch before it takes the branch: a build with no launch assertion rejects the flag, and a build that proves but cannot apply rejects the `apply` field.
+The driver then says which build v6 needs.
+A repository's own `agent` field does not stop a v6 start, because the run's selection replaces it.
+Resume restarts a paused task's gate run past `cfo pipeline run`, and that start carries the same selection, on the harness the goblin comes back on.
+
+### A second harness only when named
+
+With no fallback named, a gate agent that fails fails its step, and no other provider starts.
+The operator names a fallback in the home's `config/pipeline.json`, with its harness, model and effort in full:
+
+```json
+{
+  "version": 6,
+  "fallback": {"harness": "codex", "model": "gpt-6.1-sol", "effort": "xhigh"},
+  "auto_fix": {"review": 0, "test": 1, "lint": 1, "rebase": 1, "ci": 1},
+  "classes": {
+    "ordinary": {"review_cycles": 2},
+    "high-risk": {"review_cycles": 3},
+    "mechanical": {"review_cycles": 2}
+  }
+}
+```
+
+A task on another harness then names the fallback second in its chain, and only while the fallback's own status command says somebody is signed in: `claude auth status --json` or `codex login status`, read as the quick start reads them.
+A fallback that is signed out, missing or unclear is left out, and the `pipeline gate agent:` line says so.
+A task on the fallback's own harness has no second harness.
+A task frozen before the fallback was named takes it with `cfo pipeline migrate <id>`, as it takes a newer version.
+
+### What v6 needs
+
+Policy v6 needs a no-mistakes build that applies launch selections.
+That is the fork at `https://github.com/fpresta0607/no-mistakes` with its pull request 5, and with pull request 4, b05697a, which v5's Codex arguments already need.
+The installer pins the upstream release 1.75.1, which has no launch assertion at all, so the checked-in `config/pipeline.json` stays at v5 and a fresh install gates as before.
+no-mistakes proves Codex and Claude Code selections only, so a pi goblin has no gate under v6: `cfo spawn` refuses a pi task in `no-mistakes` mode there, and `cfo pipeline run` refuses one switched to pi.
 
 A cycle means one repair followed by another review, after the initial review.
 The driver counts completed rounds from the native database, so the budget is durable within a native run and restarting the CLI mid-run does not reset it.
@@ -69,13 +129,18 @@ The command prints the backup path, preserves unrelated YAML settings and commen
 It refuses a missing or unreadable database or configuration file.
 An operator can restore the printed backup in another idle window; restoration is never automatic over an operator's intervening edit.
 
+Owned machine fields under v6 are v5's without the chain and the Codex profile: `agent_args_override.codex` and `agent_args_override.claude` as below, the absence of `review_agents`, the absence of `agent_path_override.codex`, `auto_fix.review: 0`, and one automatic follow-up each for test, lint, rebase and CI.
+v6 does not own `agent` or `agent_config`.
+The `agent` list is the operator's, and it serves only runs started outside `cfo pipeline run`, since every run the CFO drives carries its own agents.
+`agent_config` holds the operator's default model and effort for a task that names none.
+So a machine whose operator set `agent: [claude]` by hand, as on 2026-10-09, reaches v6 with `cfo pipeline config-apply` writing the two argument lists and nothing else, and one config serves every harness and every fallback.
 Owned machine fields under v5 are `agent: [codex, claude]`, `agent_config.codex: {model: gpt-6.1-sol, effort: xhigh}`, the absence of `review_agents`, `agent_args_override.codex: [-c, 'service_tier="default"', --ignore-user-config, --disable, plugins, --disable, apps, -c, 'personality="pragmatic"', -c, 'model_auto_compact_token_limit_scope="total"', -c, features.multi_agent=true, -c, project_doc_max_bytes=65536]`, `agent_args_override.claude: [--strict-mcp-config]`, the absence of `agent_path_override.codex`, `auto_fix.review: 0`, and one automatic follow-up each for test, lint, rebase and CI.
 Under v4 `agent_args_override.codex` is `[-c, 'service_tier="default"']` and the policy does not own Claude's arguments.
 Under v2 and v3 `agent` is `[codex]` and both global `review_agents` roles carry the version's Codex profile.
 The raw Codex argument override forces standard service for every managed role, so a user-level fast or priority preference cannot leak into a gate, while `agent_config` owns model and reasoning effort.
 Removing the Codex executable override makes no-mistakes resolve the native `codex` command from `PATH`; executable overrides for other harnesses remain operator-owned.
 Up to v4 the exact legacy CFO-owned Claude model and effort vector is removed during apply, and a differing operator-owned Claude vector is preserved.
-From v5 the policy owns Claude's arguments as well, since Claude is a gate agent of its chain.
+From v5 the policy owns Claude's arguments as well, since Claude is a gate agent of its chain, and under v6 the agent of every Claude Code goblin's gate.
 Document follow-ups and other native settings retain their existing values.
 Spawn never rewrites shared YAML.
 The YAML parser dependency is needed to preserve unrelated configuration structurally; v3.0.1 avoids the old parser's [known panic vulnerability](https://pkg.go.dev/vuln/GO-2022-0603).
@@ -83,7 +148,8 @@ The YAML parser dependency is needed to preserve unrelated configuration structu
 Run `config-apply` before migrating any live task snapshot, unless `config-drift` already reports no drift for the current policy.
 `migrate` requires the applied target-version global configuration and the task's pipeline lock.
 It writes only the task's own snapshot, metadata and status, never the shared config, so it runs while the daemon serves gate runs: a policy that only catches up with the machine never needs the daemon stopped.
-It accepts every forward transition, from v1, v2, v3 or v4 to any later version, and preserves the task class and `review_cycles` cap exactly.
+It accepts every forward transition, from any of v1 to v5 to any later version, and preserves the task class and `review_cycles` cap exactly.
+Between two v6 policies, which can differ only in the fallback the operator names, it moves the task to the current one the same way.
 The same frozen policy is a no-op; downgrades and invalid snapshots are refused.
 Before replacing either owned field, it writes a task-local transaction journal containing the validated old and new snapshots and the expected audit event.
 An interrupted command resumes that journal under the same pipeline, cleanup and metadata locks before any pipeline command trusts the snapshot hash.
@@ -116,7 +182,8 @@ The project must be initialized for no-mistakes, with readable committed task an
 Refresh origin before starting; global reviewer/fixer drift is refused.
 A repository's committed `auto_fix` counts are read from the submitted branch, which can edit its own `.no-mistakes.yaml`, so each is held to the frozen policy's count as a ceiling: a repository may lower one, which only sends more to a person, and a count above the policy's, a negative count, or a key the policy does not govern (anything but review, test, lint, rebase, ci and its legacy name babysit) is refused.
 No-mistakes v1.75.1 does not expose an assertion that binds an expected trusted SHA and effective primary after its fresh fetch but before agent creation.
-The current `run` check validates the trusted inputs before invoking native start; it does not establish that post-fetch binding.
+Up to v5 the `run` check validates the trusted inputs before invoking native start and does not establish that post-fetch binding.
+Under v6 the launch selection establishes it: the daemon proves the trusted commit and every role's agents after its own fetch and before any agent starts.
 A repository's `agent` field continues to select only its native primary path and cannot replace the global reviewer or fixer profiles.
 An earlier unresolved run cannot be restarted to reset its budget.
 Use native read-only `axi status` and `axi logs` to inspect progress; the engine's guarded `axi sync` remains the branch synchronization interface after validation.
@@ -159,7 +226,7 @@ After native has already returned clean user-owned custody, the registered ident
 
 This repository's committed automatic-fix overrides remain authoritative for a new submitted branch.
 Once the shared config runs the current policy, migrate each task frozen at an older version explicitly before its next gate command.
-Newly spawned tasks freeze policy v5 directly.
+Newly spawned tasks freeze the version the home's `config/pipeline.json` holds.
 
 ## Verification levels
 
