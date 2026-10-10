@@ -80,6 +80,19 @@ func (r *repository) has(name string) bool {
 	return err == nil
 }
 
+// hasFolder reports whether the repository tracks a file under folder or the
+// checkout holds the folder.
+func (r *repository) hasFolder(folder string) bool {
+	prefix := path.Clean(filepath.ToSlash(folder)) + "/"
+	for name := range r.tracked {
+		if strings.HasPrefix(name, prefix) {
+			return true
+		}
+	}
+	info, err := os.Stat(filepath.Join(r.dir, filepath.FromSlash(folder)))
+	return err == nil && info.IsDir()
+}
+
 // ignored returns which of the folder's paths git ignores. A path git
 // tracks is never ignored, whatever an ignore file says.
 func (r *repository) ignored(ctx context.Context, names []string) (map[string]bool, error) {
