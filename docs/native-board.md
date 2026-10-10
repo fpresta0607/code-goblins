@@ -1038,6 +1038,14 @@ And a desktop program, with what it started: a program that shows a window, a br
 A goblin can start one for the Overlord, as when a sign-in opens his browser, and it is still his to close.
 When the desktop's windows cannot be read, nothing is a task's by its mark or its parent, only by its job and its place.
 
+The janitor's hourly sweep applies the same rule to what no pause or stop ended.
+For each terminal the home gave a proof since the machine started, it reads which processes are that terminal's own.
+A terminal with no host left has its processes ended: a goblin that failed, a pause whose sweep ran out of time, a cleanup or a switch, which close the terminal and sweep nothing.
+A terminal that runs keeps what its host still reaches through its parents. A tree that does not reach it is watched by the processor time it has used, kept in `state\janitor.json`, and ended once that has grown by under a tenth of a second across an hour.
+A loop that looks at something once a minute uses more than that and is left alone.
+The sweep reads every process on the machine and judges only those of the terminals in its own home's `state\hosts`, so another home on the machine, a scratch home of a test among them, is never touched.
+What nothing proves is named for the CFO and never ended: a browser bridge with no mark whose parent is gone, and a gate agent's process whose gate is gone.
+
 ### Interface rules
 
 These rules hold for every board surface, and new work follows them.

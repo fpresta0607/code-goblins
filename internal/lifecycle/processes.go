@@ -73,7 +73,7 @@ type Mark struct {
 // at work in the task's own directories, its own gate run's, is still the
 // task's. A gate's agent, which carries the mark of whichever goblin started
 // the daemon while it works for any gate. And a desktop program with what it
-// started (desktopPrograms), which is the Overlord's to close.
+// started (DesktopPrograms), which is the Overlord's to close.
 func OwnedProcesses(processes []Process, directories []string, job []Identity, marks []Mark) []Process {
 	running := make([]proc.ServiceProcess, 0, len(processes))
 	byPID := make(map[int]Process, len(processes))
@@ -82,7 +82,7 @@ func OwnedProcesses(processes []Process, directories []string, job []Identity, m
 		byPID[process.PID] = process
 	}
 	services := proc.ServicesOf(running)
-	desktop := desktopPrograms(processes)
+	desktop := DesktopPrograms(processes)
 	isOwned := map[int]bool{}
 	canFollow := map[int]bool{}
 	for _, process := range processes {
@@ -166,13 +166,13 @@ var desktopBrowsers = []string{"chrome", "msedge", "firefox", "brave", "chromium
 // it: such a browser is the tool's, on a profile of its own.
 var automationFlags = []string{"--headless", "-headless", "--remote-debugging-pipe", "--remote-debugging-port", "--enable-automation", "--marionette"}
 
-// desktopPrograms are the programs a person uses, with everything under
-// them: a program that shows a window, a browser no tool drives, a packaged
+// DesktopPrograms are the programs a person uses, with everything under
+// them, by ID: a program that shows a window, a browser no tool drives, a packaged
 // desktop app, and Explorer. A goblin can start one for the Overlord, as
 // when a sign-in opens his browser: it then carries the goblin's mark and is
 // the goblin's child, and it is still his to close. A browser a tool drives
 // is no such program even while it shows a window.
-func desktopPrograms(processes []Process) map[int]bool {
+func DesktopPrograms(processes []Process) map[int]bool {
 	children := make(map[int][]Process, len(processes))
 	for _, process := range processes {
 		children[process.ParentPID] = append(children[process.ParentPID], process)

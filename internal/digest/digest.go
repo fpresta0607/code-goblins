@@ -437,6 +437,9 @@ func writeStorage(h home.Home, now time.Time, ew *werr) {
 	if len(record.Strays) > 0 {
 		line += fmt.Sprintf(", reports %d stray item(s) (cfo runtime names them)", len(record.Strays))
 	}
+	if ended, left := len(record.Processes.Ended), len(record.Processes.Left); ended+left > 0 {
+		line += fmt.Sprintf(", ended %d leftover process(es) and left %d it could not prove the fleet's own (cfo runtime names them)", ended, left)
+	}
 	ew.println(line)
 }
 

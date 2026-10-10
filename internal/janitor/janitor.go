@@ -12,7 +12,11 @@
 // local services stacks cfo services started that no live task holds, and
 // beyond those never touches Docker, the Overlord's checkouts or files, or
 // anything holding uncommitted or unpushed work, and every check that decides
-// a removal refuses when it cannot read what it checks.
+// a removal refuses when it cannot read what it checks. It ends the processes
+// a terminal of the home left running once the terminal is gone, and a
+// detached tree of a running terminal once it has sat idle for an hour, each
+// proven the terminal's own as its teardown proves it, and names for the CFO
+// what it cannot prove.
 package janitor
 
 import (
@@ -59,6 +63,16 @@ type Config struct {
 	// nothing it started runs on it, and says what it stopped. Nil stops
 	// nothing.
 	StopServices func(ctx context.Context) ([]string, error)
+	// Processes reads every running process with the evidence of whose it
+	// is and what it costs. Nil sweeps no process.
+	Processes func(ctx context.Context) ([]Process, error)
+	// Owners lists the home's terminals whose processes the sweep judges,
+	// and what it could not read of them.
+	Owners func() ([]Owner, []string)
+	// EndProcess ends one process the sweep proved a terminal's own.
+	EndProcess func(ctx context.Context, item ProcessItem) error
+	// Watched are the detached trees the last sweep went on watching.
+	Watched []Watched
 }
 
 // Item is one thing a sweep removed, kept or reports.
@@ -79,6 +93,9 @@ type Record struct {
 	Disk    disk.Reading `json:"disk"`
 	Buckets Buckets      `json:"buckets"`
 	Notes   []string     `json:"notes,omitempty"`
+	// Processes are the processes the sweep ended, those it left for the
+	// CFO, and the detached trees it goes on watching.
+	Processes ProcessSweep `json:"processes,omitzero"`
 }
 
 // Freed is the bytes the sweep's removals gave back.
@@ -131,6 +148,7 @@ func Sweep(ctx context.Context, cfg Config) Record {
 	}
 	cfg.trimCaches(ctx, &record)
 	cfg.stopServices(ctx, &record)
+	cfg.sweepProcesses(ctx, &record)
 	cfg.reportProjectsRoot(&record)
 	metas := make([]state.TaskMeta, 0, len(cfg.Inventory.Tasks))
 	for _, task := range cfg.Inventory.Tasks {
