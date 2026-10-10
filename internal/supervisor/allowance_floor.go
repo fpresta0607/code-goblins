@@ -14,6 +14,7 @@ import (
 	"github.com/fpresta0607/code-goblins/internal/host"
 	"github.com/fpresta0607/code-goblins/internal/quota"
 	"github.com/fpresta0607/code-goblins/internal/state"
+	"github.com/fpresta0607/code-goblins/internal/update"
 )
 
 type allowanceFloor struct {
@@ -199,6 +200,11 @@ func (s *Service) pauseAtAllowanceFloor(ctx context.Context, watched *fleetWakes
 // how it went, for the report of the stretch. It begins nothing while a start
 // or another change of the goblin is under way, and says whether it began.
 func (s *Service) pauseAtFloor(meta state.TaskMeta, prior state.Lifecycle, reason, until, evidence string) (bool, error) {
+	// The pause is refused while an update installs, and tried again at the
+	// floor's next reading.
+	if update.Installing(s.Store.Home.State) {
+		return false, nil
+	}
 	s.starts.Lock()
 	if s.starting == meta.ID || s.changing[meta.ID] != "" {
 		s.starts.Unlock()

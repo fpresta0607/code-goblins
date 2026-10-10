@@ -14,6 +14,7 @@ import (
 	"sort"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/fpresta0607/code-goblins/internal/auth"
@@ -275,6 +276,9 @@ type Service struct {
 	// answers by closing it once its cycle has run (see lookNow).
 	looks  chan chan struct{}
 	cancel context.CancelFunc
+	// successor is the process a stop request named to hand the watcher
+	// lock to, or 0.
+	successor atomic.Int64
 	// tickets keeps each task's GitHub issue where the task is; nil without
 	// Options.Tickets.
 	tickets *ticketKeeper
@@ -416,7 +420,7 @@ func (s *Service) subscribe() (chan struct{}, func()) {
 
 func (s *Service) run(ctx context.Context) {
 	defer close(s.done)
-	defer lock.ReleaseExclusiveNamed(s.Store.Home.State, ".watch.lock")
+	defer s.letGoOfWatchLock()
 	workerDone := make(chan struct{})
 	go func() {
 		defer close(workerDone)
@@ -526,6 +530,12 @@ func (s *Service) run(ctx context.Context) {
 		}
 	}()
 	defer func() { s.cancel(); <-waitDone }()
+	stopWatchDone := make(chan struct{})
+	go func() {
+		defer close(stopWatchDone)
+		s.watchForStop(ctx)
+	}()
+	defer func() { s.cancel(); <-stopWatchDone }()
 	reconcile := time.NewTicker(time.Minute)
 	defer reconcile.Stop()
 	heartbeat := time.NewTicker(10 * time.Second)
@@ -551,11 +561,6 @@ func (s *Service) run(ctx context.Context) {
 		case <-reconcile.C:
 			s.cycle(ctx, true)
 		case <-notified:
-			// The notification loop wakes at least every two seconds, so a
-			// stop request is honoured within that.
-			if stopRequested(s.Store.Home.State) {
-				return
-			}
 			s.cycle(ctx, false)
 		case <-s.Store.changed:
 			s.cycle(ctx, false)
@@ -569,6 +574,45 @@ func (s *Service) run(ctx context.Context) {
 			}
 		}
 	}
+}
+
+// stopLook is how often the supervisor looks for a stop request.
+const stopLook = 250 * time.Millisecond
+
+// watchForStop ends the supervisor's work when a stop request names it, by
+// cancelling it, so the cycle in progress is cut short rather than waited
+// for: the loop looked for a request only between cycles, and the
+// once-a-minute reconcile can hold one for minutes. An update that stops the
+// supervisor then waits a moment, not its whole stop wait, and ends a process
+// that has already let go rather than one in the middle of a cycle.
+func (s *Service) watchForStop(ctx context.Context) {
+	look := time.NewTicker(stopLook)
+	defer look.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-look.C:
+			if successor, isRequested := stopRequested(s.Store.Home.State); isRequested {
+				s.successor.Store(int64(successor))
+				s.cancel()
+				return
+			}
+		}
+	}
+}
+
+// letGoOfWatchLock gives the watcher lock up as the supervisor ends: to the
+// successor its stop request named, an update or an install restarting it,
+// which is handed the lock so that it is never free in between, or else by
+// releasing it. A successor that no longer runs is handed nothing.
+func (s *Service) letGoOfWatchLock() {
+	if successor := int(s.successor.Load()); successor != 0 {
+		if lock.HandOverExclusiveNamed(s.Store.Home.State, watchLock, successor) == nil {
+			return
+		}
+	}
+	_ = lock.ReleaseExclusiveNamed(s.Store.Home.State, watchLock)
 }
 
 func (s *Service) cycle(ctx context.Context, recover bool) {
