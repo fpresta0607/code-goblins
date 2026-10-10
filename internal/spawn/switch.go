@@ -88,6 +88,12 @@ func (s Service) Switch(ctx context.Context, req SwitchRequest) (result SwitchRe
 	}
 	metadataLock := state.MetadataLockName(req.ID)
 	if _, err := lock.AcquireExclusiveNamed(s.StateDir, metadataLock); err != nil {
+		// A cleanup holds the task's record lock from before it removes
+		// anything to its end, so a relaunch that meets it stops here,
+		// before it has read, written or started anything.
+		if cleaner, readErr := lock.ReadNamed(s.StateDir, state.CleanupLockName(req.ID)); readErr == nil && cleaner.Alive() {
+			return SwitchResult{}, fmt.Errorf("switch: task %s is held by %s, so nothing was changed: %w", req.ID, state.CleanupPurpose(req.ID), err)
+		}
 		return SwitchResult{}, fmt.Errorf("switch: acquire metadata lock: %w", err)
 	}
 	defer func() {
@@ -275,6 +281,14 @@ func (s Service) Switch(ctx context.Context, req SwitchRequest) (result SwitchRe
 			return SwitchResult{}, fmt.Errorf("%w: %w", state.ErrNoRoom, err)
 		}
 	}
+	// The look at the task above can be minutes old by now: the credential
+	// probes ran since, and a relaunch may have waited for its turn on the
+	// spawn lock. What took the task away meanwhile without its record lock,
+	// as the teardown of the failed spawn it waited on does, is found here,
+	// before anything is stopped, written or started.
+	if err := s.stillThere(ctx, git, meta.ID, project, worktreePath); err != nil {
+		return SwitchResult{}, err
+	}
 	// A native terminal ends with its harness, and its job ends everything the
 	// harness started, so nothing is left to wait on.
 	if err := s.stopNative(ctx, meta.ID, current.Control()); err != nil {
@@ -460,6 +474,21 @@ func (s Service) publishSwitch(meta *state.TaskMeta, target switchTarget) error 
 	meta.SpawnGen = fmt.Sprintf("s%d", time.Now().UTC().UnixNano())
 	if err := state.WriteTaskMeta(s.StateDir, *meta); err != nil {
 		return fmt.Errorf("switch: publish task metadata: %w", err)
+	}
+	return nil
+}
+
+// stillThere proves a task a relaunch looked at earlier is still one: its
+// record is there and its worktree still validates.
+func (s Service) stillThere(ctx context.Context, git worktree.Git, id, project, worktreePath string) error {
+	const leftAlone = "so nothing was written and no terminal was started"
+	if _, err := state.ReadTaskMeta(s.StateDir, id); errors.Is(err, os.ErrNotExist) {
+		return fmt.Errorf("switch: task %s is gone, its record retired since this relaunch looked at it, %s", id, leftAlone)
+	} else if err != nil {
+		return fmt.Errorf("switch: read task metadata again: %w", err)
+	}
+	if err := worktree.Validate(ctx, git, project, worktreePath); err != nil {
+		return fmt.Errorf("switch: task %s is gone, its worktree removed since this relaunch looked at it, %s: %w", id, leftAlone, err)
 	}
 	return nil
 }

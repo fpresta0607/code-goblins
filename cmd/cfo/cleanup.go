@@ -18,7 +18,10 @@ const cleanupUsage = `usage: cfo cleanup <id> [--force-archive]
 Close the task tab and return one clean, proven-inactive task worktree,
 removing the worktree and pruning its Git administrative entry.
 Refuses dirty worktrees, active agents, ambiguous identity, and the primary
-checkout.
+checkout. It holds the task against every other command while it runs, so a
+pause, a resume, a kill or a switch of the task that starts meanwhile is
+refused, and it is refused itself, before it removes anything, while one of
+those is in flight.
 
 --force-archive retires a task whose worktree can no longer be validated (a
 directory pinned by a dead handle, or already gone). It archives the task

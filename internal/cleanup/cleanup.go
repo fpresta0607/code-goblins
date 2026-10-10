@@ -73,7 +73,8 @@ type Result struct {
 // clean and its Herdr endpoint inactive, then delegates the worktree release
 // to worktree.Service.Return. Task metadata is preserved whenever any check
 // or the return itself fails, so the operator can diagnose and retry the
-// exact task.
+// exact task. It holds the task against every other command that changes it
+// from before its first check to its end; see holdTask.
 func (s Service) Cleanup(ctx context.Context, id string) (result Result, err error) {
 	if err := state.ValidTaskID(id); err != nil {
 		return Result{}, err
@@ -84,20 +85,15 @@ func (s Service) Cleanup(ctx context.Context, id string) (result Result, err err
 	if s.Terminal == nil {
 		return Result{}, errors.New("cleanup: terminal backend is required")
 	}
-	meta, err := state.ReadTaskMeta(s.StateDir, id)
-	if err != nil {
+	if _, err := state.ReadTaskMeta(s.StateDir, id); err != nil {
 		return Result{}, fmt.Errorf("cleanup: read task metadata: %w", err)
 	}
-	if err := validateMeta(meta); err != nil {
+	release, err := s.holdTask(id)
+	if err != nil {
 		return Result{}, err
 	}
-
-	if _, err := lock.AcquireExclusiveNamed(s.StateDir, state.CleanupLockName(id)); err != nil {
-		return Result{}, fmt.Errorf("cleanup: acquire task lock: %w", err)
-	}
 	defer func() {
-		if releaseErr := lock.ReleaseExclusiveNamed(s.StateDir, state.CleanupLockName(id)); releaseErr != nil {
-			releaseErr = fmt.Errorf("cleanup: release task lock: %w", releaseErr)
+		if releaseErr := release(); releaseErr != nil {
 			if err == nil {
 				err = releaseErr
 			} else {
@@ -105,6 +101,15 @@ func (s Service) Cleanup(ctx context.Context, id string) (result Result, err err
 			}
 		}
 	}()
+	// The record is read once the task is held, so it is the one the last
+	// command to change it left.
+	meta, err := state.ReadTaskMeta(s.StateDir, id)
+	if err != nil {
+		return Result{}, fmt.Errorf("cleanup: read task metadata: %w", err)
+	}
+	if err := validateMeta(meta); err != nil {
+		return Result{}, err
+	}
 
 	project, err := fsx.Canonical(meta.Project)
 	if err != nil {
@@ -223,6 +228,54 @@ func (s Service) Cleanup(ctx context.Context, id string) (result Result, err err
 	result.Output += s.releaseServices(ctx, id)
 	result.Output += s.closeRow(outcome)
 	return result, nil
+}
+
+// holdTask takes the task for the cleanup: its cleanup lock, and the two
+// locks every command that changes a live task starts with. A pause, a resume
+// and a stop hold its lifecycle lock from start to end, and a switch, a
+// restart and every other change of its record hold its record lock. Holding
+// both, the cleanup and any of them exclude each other with nothing left to
+// timing: whichever takes the lock both need goes on, and the other is
+// refused where it starts, before it has written or removed anything. On
+// 2026-10-09 a cleanup held only its own lock, which nothing else looked at,
+// so the supervisor's resume of the same task ran through it: the worktree
+// went from under the resume, which then wrote a new task record.
+//
+// A lock this process already holds is its caller's and is left with it: cfo
+// kill cleans its goblin up from inside its stop, which holds both, and the
+// lock package refuses a process a lock it holds. Such a caller has excluded
+// every other command already.
+//
+// The cleanup records its purpose in the locks it takes, so the command it
+// keeps out says in one line that the task is being cleaned up.
+func (s Service) holdTask(id string) (release func() error, err error) {
+	var held []string
+	release = func() error {
+		var errs error
+		for index := len(held) - 1; index >= 0; index-- {
+			if err := lock.ReleaseExclusiveNamed(s.StateDir, held[index]); err != nil {
+				errs = errors.Join(errs, fmt.Errorf("cleanup: release task lock: %w", err))
+			}
+		}
+		return errs
+	}
+	if _, err := lock.AcquireExclusiveNamed(s.StateDir, state.CleanupLockName(id)); err != nil {
+		return nil, fmt.Errorf("cleanup: acquire task lock: %w", err)
+	}
+	held = append(held, state.CleanupLockName(id))
+	for _, other := range []struct{ name, inFlight string }{
+		{state.LifecycleLockName(id), "task " + id + " is being paused, resumed or stopped by another command"},
+		{state.MetadataLockName(id), "the record of task " + id + " is being changed by another command, as a switch or a restart of it does"},
+	} {
+		if lock.HeldByNamed(s.StateDir, other.name, os.Getpid()) {
+			continue
+		}
+		if _, err := lock.AcquireExclusiveNamedFor(s.StateDir, other.name, state.CleanupPurpose(id)); err != nil {
+			return nil, errors.Join(fmt.Errorf("cleanup: %s, so nothing was removed, and the cleanup can run again once that has finished: %w", other.inFlight, err), release())
+		}
+		held = append(held, other.name)
+	}
+	return release, nil
 }
 
 // releaseServices releases the local services a retired task held and says
