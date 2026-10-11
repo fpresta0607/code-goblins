@@ -181,9 +181,46 @@ The one-line install runs it only when it matches the release's `SHA256SUMS`, an
 A `cfo.exe` saved from a browser gets SmartScreen's "Windows protected your PC" with an Unknown publisher, and Smart App Control, where it is on, blocks it until a signed release.
 [On a fresh PC](docs/install.md#on-a-fresh-pc) shows how to check the checksum yourself and what to do if Microsoft Defender flags a build.
 
-Your data lives in the CFO home on your machine, `%LOCALAPPDATA%\CodeGoblins` for every install, `-Dev` included, outside every project repository and kept by `goblins uninstall`.
+Your data lives in the CFO home on your machine, `%LOCALAPPDATA%\CodeGoblins` for every install, `-Dev` included, outside every project repository, and [Uninstall](#uninstall) keeps it unless you choose otherwise.
 It needs no backup repository: backing it up is only your own choice, and [Your data](#your-data) shows what is in it.
 [docs/install.md](docs/install.md) has the details: what each step does, what it needs, and the projects folder.
+
+### Uninstall
+
+Open **Settings**, **Apps**, **Installed apps**, find **Code Goblins** and press **Uninstall**, or run `goblins uninstall` in a terminal of your own.
+Both installs, the setup and the one line, add Code Goblins to Installed apps, and both ways run the same uninstall.
+It shows its whole plan first and changes nothing until you press **Uninstall** or type yes.
+`goblins uninstall --dry-run` prints every item of that plan with its path, and stops there.
+
+It removes everything Code Goblins made:
+
+- the board, the window, the CFO, every goblin's terminal and what they started, each stopped by its own process and never a program of yours,
+- the home, `%LOCALAPPDATA%\CodeGoblins`, with its programs, state, worktrees and caches,
+- the Dev Drive Code Goblins made, with its file `C:\DevDrives\CodeGoblins.vhdx`, its startup task, its drive letter and its folder once that is empty, for which Windows asks once for an administrator,
+- every credential it stored, in Windows Credential Manager or in `~\.cfo`,
+- what it added to Claude Code, Codex and pi: the allow rules, the board's hooks, its skills, its trust of each goblin's folder, the backups it kept of their files, and the agents' records of the goblins' and the CFO's conversations, each named in the plan,
+- what it left in your checkouts: each goblin's worktree record, the branches goblins made, the archive tags cleanup made and the ignore lines it marked,
+- its shortcuts, Start at login, its entry in Installed apps, what the window registered with Windows for notifications and the tray, `CFO_HOME`, `CFO_PROJECTS_ROOT` and its PATH entry,
+- its other files outside the home: `%LOCALAPPDATA%\cfo`, the window's browser profile, the install's log and what the install and the window put in the temp folder.
+
+A Dev Drive you already had keeps everything but its `CodeGoblins` folder.
+A Dev Drive Code Goblins made that holds files of yours is left, and named, until you move them off it.
+
+It keeps, in `Code Goblins kept` in your user folder, or `Code Goblins kept 2` when that is taken:
+
+- each goblin's work that has not landed: its changed files as they were, its commits as a git bundle, and a note on how to bring them back,
+- your fleet data, the home's `data` and `config` folders: briefs, backlog, memory, reports and your policy.
+
+Tick **Remove these too**, or run `goblins uninstall --remove-work`, to remove them instead.
+
+It leaves the tools the install fetched, which other programs may use, and names each one: Git, the GitHub CLI, Claude Code, Codex, pi, no-mistakes and the npm tools, with the skills, PATH entries and folders they came with.
+Tick **Remove these too**, or run `goblins uninstall --remove-tools`, to remove them with their own installers.
+The install records what it fetched, so the uninstall removes exactly that and never a tool you had before.
+
+Each removal is read back, and the uninstall ends by checking that nothing of Code Goblins is left.
+Anything it could not remove is named in one sentence with how to finish, and what a second run needs stays until then, so running it again finishes the rest.
+The program removes its own copy last, a few seconds after it closes.
+`goblins uninstall --yes` uninstalls without asking, as Installed apps does for a quiet uninstall.
 
 ### Everyday commands
 
@@ -202,7 +239,7 @@ goblins stop         # stop the supervisor; --force ends it when it does not sto
 goblins doctor       # check every tool and harness the fleet needs
 goblins serve        # run the supervisor in this terminal instead
 goblins fleet-view   # every goblin: under way, queued or done
-goblins uninstall    # undo the install; the home folder and its data stay
+goblins uninstall    # remove Code Goblins after showing its plan, keeping your work and fleet data in a folder it names
 ```
 
 `goblins` on its own finds the supervisor, or starts it in the background with a hidden console of its own when none is running, so no window opens, with its output in `state\serve.log` in the CFO home.
@@ -242,7 +279,7 @@ In an attached terminal every key goes to the CFO, Ctrl-C included, and Ctrl-] l
 `goblins status` prints the board's link, the same status line and the supervisor's pid, and exits 1 when no supervisor runs, so a script can test for one; it asks the supervisor for its pid, so a fleet snapshot that is slow to build never makes a live supervisor look stopped.
 `goblins stop` asks the supervisor to stop, as Ctrl-C would, whichever way it was started, and waits up to 30 seconds for it to finish.
 `goblins stop --force` ends the supervisor and everything it started instead, for one that does not stop when asked.
-`goblins uninstall` undoes the install and keeps the home folder, with its state and data, until you delete it; [the install guide](docs/install.md#where-your-data-lives) says what it removes.
+`goblins uninstall` stops all of Code Goblins and removes it, after showing its plan, and keeps your work and fleet data in a folder it names, as [Uninstall](#uninstall) says.
 
 ### Quick start
 
@@ -835,8 +872,8 @@ A missing editor or a folder that no longer exists is reported instead of guesse
 cfo doctor
 cfo home migrate [--apply --plan <digest>] [--memory-from <dir>]
 cfo auth <project> [--check|--fix] [--env]
-cfo install [--projects-root <dir>] [--uninstall]
-cfo uninstall
+cfo install [--projects-root <dir>]
+cfo uninstall [--dry-run [--json]] [--yes] [--remove-work] [--remove-tools]
 cfo serve [--listen <loopback-address>]
 goblins update [--check] [--to <tag>]
 <candidate.exe> update [--recover]
@@ -1099,7 +1136,7 @@ Code Goblins is designed for high autonomy without pretending that an LLM saying
   Auto mode resolves such a narrow rule before its classifier, unless `autoMode.classifyAllShell` is on, so the classifier no longer keeps a card from you; filing a run item runs nothing, and its command runs only once **Run** is pressed for it.
   The rules hold in every Claude Code session you run, and each of these commands still refuses a caller that is neither the registered CFO nor a goblin naming its own task.
   `cfo answer` gets no rule, because it types the CFO's decision into a goblin's terminal for that goblin to act on, and the classifier keeps judging it as it judges `cfo send`.
-  Adding the rules is yours: the CFO never edits them into your settings, `cfo install --uninstall` removes exactly the ones the install added, and `cfo doctor` names any that are missing.
+  Adding the rules is yours: the CFO never edits them into your settings, `goblins uninstall` removes exactly the ones the install added, and `cfo doctor` names any that are missing.
 
 For high-risk production systems, use repository branch protection and keep production deployment credentials outside worker reach. Code Goblins coordinates software delivery; it is not an operating-system sandbox.
 
@@ -1140,7 +1177,7 @@ A source build runs `npm ci` and `npm run build` in `frontend` before `go build`
 `<candidate.exe> update`, `cfo install` without `--uninstall`, and `cfo home move --apply --plan <digest>` refuse a build that carries no board before changing anything, and exit 1.
 The refusal names `npm ci` and `npm run build` in `frontend`, followed by rebuilding `cfo.exe`, and says `nothing was changed`.
 There is no bypass.
-Plan-only `cfo home move`, `cfo install --uninstall` and `cfo update --recover` remain available without a board; an update run by the installed build still follows the release-update path.
+Plan-only `cfo home move`, `goblins uninstall` and `cfo update --recover` remain available without a board; an update run by the installed build still follows the release-update path.
 `go vet` and `go test` need Go alone.
 
 ```powershell
