@@ -84,12 +84,17 @@ func (g RunnerGit) fetchDefault(ctx context.Context, dir string) (target, expect
 	if _, err := g.required(ctx, dir, "git", "fetch", "--quiet", "origin"); err != nil {
 		return "", "", fmt.Errorf("worktree: fetch origin: %w", err)
 	}
-	if _, err := g.required(ctx, dir, "git", "remote", "set-head", "origin", "--auto"); err != nil {
-		return "", "", fmt.Errorf("worktree: resolve origin default branch: %w", err)
-	}
+	// git remote set-head writes origin/HEAD and a line of its log into the
+	// person's checkout, so it runs only where origin/HEAD does not already
+	// name the branch the remote's HEAD names, as a clone's does.
 	branch, err := g.defaultBranch(ctx, dir)
-	if err != nil {
-		return "", "", err
+	if err != nil || branch != g.remoteHead(ctx, dir) {
+		if _, err := g.required(ctx, dir, "git", "remote", "set-head", "origin", "--auto"); err != nil {
+			return "", "", fmt.Errorf("worktree: resolve origin default branch: %w", err)
+		}
+		if branch, err = g.defaultBranch(ctx, dir); err != nil {
+			return "", "", err
+		}
 	}
 	target = "origin/" + branch
 	refspec := "+refs/heads/" + branch + ":refs/remotes/origin/" + branch
@@ -374,6 +379,22 @@ func (g RunnerGit) defaultBranch(ctx context.Context, dir string) (string, error
 		return "", fmt.Errorf("worktree: origin/HEAD reference %q is malformed", ref)
 	}
 	return branch, nil
+}
+
+// remoteHead is the branch origin's HEAD names, as git ls-remote reads it
+// without writing anything, or "" when it names none.
+func (g RunnerGit) remoteHead(ctx context.Context, dir string) string {
+	result, err := g.command(ctx, dir, "git", "ls-remote", "--symref", "origin", "HEAD")
+	if err != nil || result.ExitCode != 0 {
+		return ""
+	}
+	for _, line := range strings.Split(string(result.Stdout), "\n") {
+		if ref, ok := strings.CutPrefix(line, "ref: refs/heads/"); ok {
+			branch, _, _ := strings.Cut(ref, "\t")
+			return strings.TrimSpace(branch)
+		}
+	}
+	return ""
 }
 
 func (g RunnerGit) required(ctx context.Context, dir, name string, args ...string) (execx.Result, error) {

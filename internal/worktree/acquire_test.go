@@ -35,6 +35,9 @@ func TestAcquireLeavesTheCheckoutAsItWas(t *testing.T) {
 		t.Fatal(err)
 	}
 	entriesBefore := entryNames(t, project)
+	// A clone names origin's HEAD already, and its log is the person's.
+	headLog := filepath.Join(project, ".git", "logs", "refs", "remotes", "origin", "HEAD")
+	headLogBefore, _ := os.ReadFile(headLog)
 	path := filepath.Join(t.TempDir(), "worktrees", filepath.Base(project), "task-1")
 
 	// Act
@@ -55,5 +58,8 @@ func TestAcquireLeavesTheCheckoutAsItWas(t *testing.T) {
 	}
 	if status := gitRun(t, project, "status", "--porcelain", "--ignored"); status != "" {
 		t.Errorf("the checkout's git status shows %q, want nothing", status)
+	}
+	if headLogAfter, _ := os.ReadFile(headLog); string(headLogAfter) != string(headLogBefore) {
+		t.Errorf("the acquire wrote origin/HEAD's log in the clone:\nbefore %q\nafter  %q", headLogBefore, headLogAfter)
 	}
 }

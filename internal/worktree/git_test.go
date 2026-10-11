@@ -40,8 +40,8 @@ func (r *scriptedRunner) Run(_ context.Context, request execx.Request) (execx.Re
 func acquireScript() []scriptedResult {
 	return []scriptedResult{
 		{}, // git fetch --quiet origin
-		{}, // git remote set-head origin --auto
 		{result: execx.Result{Stdout: []byte("origin/main\n")}},
+		{result: execx.Result{Stdout: []byte("ref: refs/heads/main\tHEAD\nabc123\tHEAD\n")}},
 		{}, // git fetch refspec
 		{result: execx.Result{Stdout: []byte("abc123\n")}},
 		{}, // git worktree add --detach
@@ -69,8 +69,8 @@ func TestRunnerGitAcquireCreatesTheWorktreeOutsideTheProject(t *testing.T) {
 	}
 	want := []execx.Request{
 		{Dir: project, Name: "git", Args: []string{"fetch", "--quiet", "origin"}},
-		{Dir: project, Name: "git", Args: []string{"remote", "set-head", "origin", "--auto"}},
 		{Dir: project, Name: "git", Args: []string{"symbolic-ref", "--quiet", "--short", "refs/remotes/origin/HEAD"}},
+		{Dir: project, Name: "git", Args: []string{"ls-remote", "--symref", "origin", "HEAD"}},
 		{Dir: project, Name: "git", Args: []string{"fetch", "--quiet", "origin", "+refs/heads/main:refs/remotes/origin/main"}},
 		{Dir: project, Name: "git", Args: []string{"rev-parse", "--verify", "--quiet", "origin/main^{commit}"}},
 		{Dir: project, Name: "git", Args: []string{"-c", "core.longpaths=true", "worktree", "add", "--detach", path, "origin/main"}},
