@@ -317,7 +317,10 @@ An install takes the place of a copy of the window that was installed on its own
 
 Click into a terminal in the window, Claude Code's, Codex's, pi's or the CFO's, hold **Ctrl+Shift+Space**, speak for as long as you like, and let go: what you said is typed into that terminal as one line, and **Enter** sends it.
 A long message is heard in pieces while you speak, so three minutes come back as fast as a short line, every word in order.
-Speak once the microphone in the terminal's corner shows its bars, which is when it records, and a note says **Nothing was heard** only of a hold it recorded with no words in it.
+The microphone in the terminal's corner shows its bars the moment the keys go down.
+It opens at your first press and stays open while the window has the focus, so from then on every word from the press is kept.
+At the first press after the window takes the focus it may still be opening, for up to about half a second, so start a beat after the bars appear.
+A note says **Nothing was heard** only of a hold it recorded with no words in it.
 A speech model the supervisor runs on this PC hears it, so your voice never leaves the PC, and dictation costs nothing and needs no account.
 The install sets the model up, Moonshine tiny, so the first dictation works at once.
 If the install could not, as offline, the first dictation downloads it, 28 MB, and the note under the terminal says how far it is as it arrives, then **Dictation is ready**; what you said that first time is not kept, so say it again once it is ready.
@@ -595,7 +598,9 @@ Updating the executable or restarting the board does not change hosts that are a
 Every terminal pane has a voice bubble in its bottom-right corner, in a strip of its own under the terminal.
 Hold **Ctrl+Shift+Space** to dictate into the terminal that has the keyboard, for as long as you like: while the keys are held the bubble's waveform moves with your voice and lies as a flat dotted line while you are silent, and releasing them types what was heard as one line, which **Enter** sends.
 A long message is heard in pieces while you speak, so it comes back as fast as a short line.
-The bubble shows its waveform only once it is recording, so what you say while it shows is always heard, and **Nothing was heard** is said only of a hold it recorded with no words in it.
+The bubble shows its waveform the moment the keys go down.
+The microphone opens at the first press and stays open while the board has the focus, closing when it loses the focus, when the page is hidden or after 30 minutes without dictating, so every later press keeps every word from the press, and only the first press after the board takes the focus loses what is said while the microphone opens.
+**Nothing was heard** is said only of a hold it recorded with no words in it.
 What you say is recognised by a speech model the supervisor runs on this PC, so it costs nothing, needs no account and never leaves the machine; the install sets the model up, so the first dictation works at once, and where it could not, the first dictation downloads it, 28 MB, shows how far it is under the terminal and says when dictation is ready, and the words of that first dictation are not kept.
 The model starts loading as you press the keys and stays loaded for 30 minutes after you dictate, so a line comes back in a blink, and then gives its memory back.
 The bubble names the model while it listens.
@@ -686,6 +691,11 @@ It always opens at the top of its item, and each next item starts at its top.
 An answer the board refused comes back on its card with a few words of what went wrong, and **Retry** sends it again; refused after you moved on or closed the Command Center, it opens nothing, and it keeps waiting under **Waiting on you** until you send it again.
 An answer typed for a CFO or goblin that is inside a turn reads sent, with one check, and delivered once it is read; it is never a warning by itself.
 An item you acted on never comes back by itself: an answer whose delivery failed or never arrived reads in **History** with a warning and what to do.
+Every answered question in **History** opens again from its **Change answer** button with its answer checked and who chose it and when: you, the CFO, or the CFO while you were away.
+Pick another choice or write your own and **Change answer** sends it, at any time: the card shows your new answer the moment you make it, with no spinner.
+The goblin that asked gets it once, as a change from the old answer to the new one, and the CFO gets it for its own question or when that goblin has ended.
+A change made while the first answer is still on its way follows it, choosing the answer already chosen sends nothing, and a double click or a resend after a dropped connection sends it once.
+When the goblin's pull request already merged, one line says your change goes as a new instruction.
 Clicking outside the Command Center, or outside its inbox, closes it.
 Nothing is preselected, drafts are kept, and the **Command Center** icon in the header, whose badge counts what is waiting on you, opens an inbox of everything waiting on you, including a walkthrough a goblin asks you to watch, and a History of what you answered, cleared or ran; a goblin's own test runs stay off it.
 A goblin waiting on you offers **Answer** in its panel, which opens the stack at its item.

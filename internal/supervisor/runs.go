@@ -775,20 +775,26 @@ func (s *Service) retellRuns(ctx context.Context) error {
 // turn is told: the CFO takes it when the turn ends. An error that is
 // ErrRejected sent nothing; any other may have reached the CFO.
 func (s *Service) tellCFO(ctx context.Context, text string) error {
+	_, err := s.sendToCFO(ctx, text)
+	return err
+}
+
+// sendToCFO is tellCFO for a delivery that keeps how it went, such as one the
+// CFO takes as its turn ends.
+func (s *Service) sendToCFO(ctx context.Context, text string) (Evaluation, error) {
 	if s.Options.CFO == nil {
-		return errors.New("no CFO transport")
+		return Evaluation{}, errors.New("no CFO transport")
 	}
 	file, err := openPrimary(filepath.Join(s.Store.Home.State, "primary.json"))
 	if err != nil {
-		return fmt.Errorf("%w: no CFO is registered", ErrRejected)
+		return Evaluation{}, fmt.Errorf("%w: no CFO is registered", ErrRejected)
 	}
 	_, identity, err := decodePrimary(file)
 	_ = file.Close()
 	if err != nil {
-		return fmt.Errorf("%w: the CFO registration is unreadable", ErrRejected)
+		return Evaluation{}, fmt.Errorf("%w: the CFO registration is unreadable", ErrRejected)
 	}
-	_, err = s.Options.CFO.Send(ctx, identity, text)
-	return err
+	return s.Options.CFO.Send(ctx, identity, text)
 }
 
 func tail(text string, n int) string {
