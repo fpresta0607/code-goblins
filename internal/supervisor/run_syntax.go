@@ -38,7 +38,7 @@ func CheckRunCommand(shell, command string) error {
 	if err != nil {
 		return err
 	}
-	defer os.RemoveAll(dir)
+	defer fsx.RemoveAll(dir)
 	name, script := runScript(Run{Shell: shell, Command: command})
 	path := filepath.Join(dir, name)
 	if err := fsx.AtomicWriteFile(path, script); err != nil {

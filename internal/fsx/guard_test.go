@@ -29,9 +29,18 @@ var rawOpens = map[string]string{
 // brief hold on it, so a new call site cannot forget to. On 2026-10-01 the
 // two pull requests merged after every read had moved here added six with
 // os.ReadFile and os.Open, and nothing failed. A raw open named outside this
-// package, called or not, is reported with where it is. Test files and
-// tests/, a test fixture's own program, are not fleet programs.
+// package, called or not, is reported with where it is.
 func TestEveryFleetReadGoesThroughFsx(t *testing.T) {
+	for _, violation := range fleetViolations(t, opensAround) {
+		t.Error(violation)
+	}
+}
+
+// fleetViolations runs check on the source of every fleet program file
+// outside this package and returns what it reports. Test files and tests/, a
+// test fixture's own program, are not fleet programs.
+func fleetViolations(t *testing.T, check func(relative string, source []byte) ([]string, error)) []string {
+	t.Helper()
 	root, err := filepath.Abs(filepath.Join("..", ".."))
 	if err != nil {
 		t.Fatal(err)
@@ -66,7 +75,7 @@ func TestEveryFleetReadGoesThroughFsx(t *testing.T) {
 		if err != nil {
 			return err
 		}
-		found, err := opensAround(relative, source)
+		found, err := check(relative, source)
 		if err != nil {
 			return err
 		}
@@ -81,9 +90,7 @@ func TestEveryFleetReadGoesThroughFsx(t *testing.T) {
 	if files < 100 {
 		t.Fatalf("the guard read %d Go files under %s; it is not reading the repository", files, root)
 	}
-	for _, violation := range violations {
-		t.Error(violation)
-	}
+	return violations
 }
 
 func TestOpensAroundReportsEveryRawOpen(t *testing.T) {
@@ -137,17 +144,9 @@ func opensAround(relative string, source []byte) ([]string, error) {
 	if err != nil {
 		return nil, err
 	}
-	imported := map[string]string{}
-	for _, spec := range file.Imports {
-		path, err := strconv.Unquote(spec.Path.Value)
-		if err != nil {
-			return nil, err
-		}
-		name := path[strings.LastIndex(path, "/")+1:]
-		if spec.Name != nil {
-			name = spec.Name.Name
-		}
-		imported[name] = path
+	imported, err := importPaths(file)
+	if err != nil {
+		return nil, err
 	}
 	var violations []string
 	ast.Inspect(file, func(node ast.Node) bool {
@@ -165,4 +164,21 @@ func opensAround(relative string, source []byte) ([]string, error) {
 		return true
 	})
 	return violations, nil
+}
+
+// importPaths maps the name each import of file goes by in it to its path.
+func importPaths(file *ast.File) (map[string]string, error) {
+	imported := map[string]string{}
+	for _, spec := range file.Imports {
+		path, err := strconv.Unquote(spec.Path.Value)
+		if err != nil {
+			return nil, err
+		}
+		name := path[strings.LastIndex(path, "/")+1:]
+		if spec.Name != nil {
+			name = spec.Name.Name
+		}
+		imported[name] = path
+	}
+	return imported, nil
 }

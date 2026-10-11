@@ -1169,7 +1169,6 @@ func newFixture(t *testing.T) *fixture {
 			Git:      fixture.git,
 			Root:     filepath.Join(root, "worktrees"),
 			DataDir:  dataDir,
-			Sleep:    func(context.Context, time.Duration) error { return nil },
 		},
 		ScratchRoot: filepath.Join(root, "scratch"),
 		Harness: harness.Registry{Adapters: map[harness.Kind]harness.Adapter{

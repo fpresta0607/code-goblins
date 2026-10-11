@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/fpresta0607/code-goblins/internal/execx"
+	"github.com/fpresta0607/code-goblins/internal/fsx"
 	"github.com/fpresta0607/code-goblins/internal/proc"
 )
 
@@ -79,10 +80,10 @@ func (f Fixer) Fix(ctx context.Context, releases Releases, version HarnessVersio
 		return fixed
 	}
 	stage := filepath.Join(f.Stage, version.Name+"-"+version.Newest)
-	if err := os.RemoveAll(stage); err != nil {
+	if err := fsx.RemoveAll(stage); err != nil {
 		return failed("the stage " + stage + " could not be cleared: " + err.Error())
 	}
-	defer os.RemoveAll(stage)
+	defer fsx.RemoveAll(stage)
 	target := release.Package + "@" + version.Newest
 	if _, err := f.npm(ctx, "install", "--prefix", stage, "--no-audit", "--no-fund", target); err != nil {
 		return failed(version.Newest + " could not be staged: " + err.Error())

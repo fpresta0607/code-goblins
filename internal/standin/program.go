@@ -166,7 +166,7 @@ func ensure(root string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	defer os.RemoveAll(work)
+	defer fsx.RemoveAll(work)
 	for name, content := range map[string][]byte{"go.mod": []byte(programModule), "main.go": programSource} {
 		if err := os.WriteFile(filepath.Join(work, name), content, 0o644); err != nil {
 			return "", err

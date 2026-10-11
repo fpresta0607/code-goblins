@@ -155,16 +155,11 @@ func (m Machine) checkouts(ctx context.Context, choices Choices) ([]Item, error)
 	return items, nil
 }
 
-// removeWorktree removes a goblin worktree from its checkout, and the branch
-// the goblin made in it.
+// removeWorktree removes a goblin worktree from its checkout, one git still
+// knows or one it has forgotten, and the branch the goblin made in it.
 func (m Machine) removeWorktree(ctx context.Context, w goblinWorktree, branch string) error {
-	if _, err := m.git(ctx, w.Checkout, "worktree", "remove", "--force", w.Path); err != nil {
-		if err := fsx.RemoveAll(w.Path); err != nil {
-			return err
-		}
-		if _, err := m.git(ctx, w.Checkout, "worktree", "prune"); err != nil {
-			return err
-		}
+	if err := (worktree.RunnerGit{Commands: m.Commands}).Remove(ctx, w.Checkout, w.Path); err != nil {
+		return err
 	}
 	if branch == "" {
 		return nil

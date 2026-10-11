@@ -5,6 +5,7 @@ import (
 	"path/filepath"
 	"time"
 
+	"github.com/fpresta0607/code-goblins/internal/fsx"
 	"github.com/fpresta0607/code-goblins/internal/home"
 	"github.com/fpresta0607/code-goblins/internal/host"
 )
@@ -40,7 +41,7 @@ func (cfg Config) retireMovedCaches(record *Record) {
 			continue
 		}
 		bytes := Size(path)
-		if err := os.RemoveAll(path); err != nil {
+		if err := fsx.RemoveAll(path); err != nil {
 			record.Kept = append(record.Kept, Item{Kind: "cache", Path: path, Detail: "could not be removed: " + err.Error()})
 			continue
 		}

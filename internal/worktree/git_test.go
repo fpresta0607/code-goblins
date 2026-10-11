@@ -10,7 +10,6 @@ import (
 	"slices"
 	"strings"
 	"testing"
-	"time"
 
 	"github.com/fpresta0607/code-goblins/internal/execx"
 )
@@ -153,87 +152,41 @@ func TestRunnerGitWorktreeTopRejectsFailedCommand(t *testing.T) {
 func TestRunnerGitReturnRemovesWorktreeAndPrunes(t *testing.T) {
 	project := t.TempDir()
 	worktreePath := filepath.Join(t.TempDir(), "worktree")
-	if err := os.Mkdir(worktreePath, 0o755); err != nil {
-		t.Fatal(err)
+	for path, content := range map[string]string{".git": "gitdir: elsewhere", "main.go": "package main"} {
+		if err := os.MkdirAll(worktreePath, 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(worktreePath, path), []byte(content), 0o644); err != nil {
+			t.Fatal(err)
+		}
 	}
-	runner := &scriptedRunner{results: []scriptedResult{{}, {}, {}}}
+	runner := &scriptedRunner{results: []scriptedResult{{}, {}}}
 
 	if err := (RunnerGit{Commands: runner}).Return(context.Background(), project, worktreePath); err != nil {
 		t.Fatalf("Return: %v", err)
 	}
 	want := []execx.Request{
 		{Dir: worktreePath, Name: "git", Args: []string{"status", "--porcelain"}},
-		{Dir: project, Name: "git", Args: []string{"-c", "core.longpaths=true", "worktree", "remove", "--force", worktreePath}},
 		{Dir: project, Name: "git", Args: []string{"worktree", "prune"}},
 	}
 	if !reflect.DeepEqual(runner.calls, want) {
-		t.Errorf("Git calls = %#v, want status, remove --force, prune %#v", runner.calls, want)
+		t.Errorf("Git calls = %#v, want status, prune %#v", runner.calls, want)
 	}
-	if _, err := os.Stat(worktreePath); err != nil {
-		t.Errorf("Return removed the worktree directory itself: %v", err)
-	}
-}
-
-func TestRunnerGitReturnRetriesOnlyExactIndexLockCollision(t *testing.T) {
-	project := t.TempDir()
-	worktreePath := filepath.Join(t.TempDir(), "worktree")
-	if err := os.Mkdir(worktreePath, 0o755); err != nil {
-		t.Fatal(err)
-	}
-	runner := &scriptedRunner{results: []scriptedResult{
-		{}, // git status --porcelain
-		{result: execx.Result{ExitCode: 128, Stderr: []byte("fatal: Unable to create 'C:\\pool\\worktree\\index.lock': File exists.\n")}},
-		{},
-		{},
-	}}
-	var waits []time.Duration
-	git := RunnerGit{
-		Commands: runner,
-		Retries:  1,
-		Sleep: func(ctx context.Context, delay time.Duration) error {
-			waits = append(waits, delay)
-			return ctx.Err()
-		},
-	}
-
-	if err := git.Return(context.Background(), project, worktreePath); err != nil {
-		t.Fatalf("Return: %v", err)
-	}
-	if len(runner.calls) != 4 {
-		t.Fatalf("Git calls = %d, want status, remove, remove, prune", len(runner.calls))
-	}
-	for _, call := range runner.calls[1:3] {
-		want := execx.Request{Dir: project, Name: "git", Args: []string{"-c", "core.longpaths=true", "worktree", "remove", "--force", worktreePath}}
-		if !reflect.DeepEqual(call, want) {
-			t.Errorf("Git request = %#v, want %#v", call, want)
-		}
-	}
-	if !reflect.DeepEqual(waits, []time.Duration{time.Second}) {
-		t.Errorf("retry waits = %v, want [1s]", waits)
+	if _, err := os.Lstat(worktreePath); !errors.Is(err, os.ErrNotExist) {
+		t.Errorf("the worktree survived Return: %v", err)
 	}
 }
 
-func TestRunnerGitReturnDoesNotRetryOtherFailures(t *testing.T) {
+func TestRunnerGitReturnSurfacesAFailedPrune(t *testing.T) {
 	worktreePath := t.TempDir()
 	runner := &scriptedRunner{results: []scriptedResult{
 		{}, // git status --porcelain
-		{result: execx.Result{ExitCode: 128, Stderr: []byte("fatal: index.lock is busy")}},
+		{result: execx.Result{ExitCode: 128, Stderr: []byte("fatal: cannot prune")}},
 	}}
-	git := RunnerGit{
-		Commands: runner,
-		Retries:  3,
-		Sleep: func(context.Context, time.Duration) error {
-			t.Fatal("Return slept after a non-matching failure")
-			return nil
-		},
-	}
 
-	err := git.Return(context.Background(), t.TempDir(), worktreePath)
-	if err == nil {
-		t.Fatal("Return returned nil for non-lock failure")
-	}
-	if len(runner.calls) != 2 {
-		t.Errorf("Git calls = %d, want status then one failed remove", len(runner.calls))
+	err := (RunnerGit{Commands: runner}).Return(context.Background(), t.TempDir(), worktreePath)
+	if err == nil || !strings.Contains(err.Error(), "cannot prune") {
+		t.Fatalf("Return error = %v, want the failed prune", err)
 	}
 }
 
@@ -243,20 +196,16 @@ func TestRunnerGitReturnRefusesUncommittedWork(t *testing.T) {
 	runner := &scriptedRunner{results: []scriptedResult{
 		{result: execx.Result{Stdout: []byte(" M main.go\n?? scratch.txt\n")}},
 	}}
-	git := RunnerGit{
-		Commands: runner,
-		Sleep: func(context.Context, time.Duration) error {
-			t.Fatal("Return slept before refusing a dirty worktree")
-			return nil
-		},
-	}
 
-	err := git.Return(context.Background(), project, worktreePath)
+	err := (RunnerGit{Commands: runner}).Return(context.Background(), project, worktreePath)
 	if err == nil || !strings.Contains(err.Error(), "uncommitted work") {
 		t.Fatalf("Return error = %v, want an uncommitted-work refusal", err)
 	}
 	if len(runner.calls) != 1 {
-		t.Fatalf("Git calls = %d, want the status probe only - remove must never run", len(runner.calls))
+		t.Fatalf("Git calls = %d, want the status probe only - nothing may be removed", len(runner.calls))
+	}
+	if _, err := os.Stat(worktreePath); err != nil {
+		t.Errorf("a refused Return removed the worktree: %v", err)
 	}
 }
 
@@ -269,7 +218,7 @@ func makeJunction(t *testing.T, link, target string) {
 	}
 }
 
-func TestRunnerGitReturnUnlinksSharedDirectoriesFirst(t *testing.T) {
+func TestRunnerGitReturnRemovesEveryLinkAsALink(t *testing.T) {
 	root := t.TempDir()
 	project := filepath.Join(root, "project")
 	worktreePath := filepath.Join(root, "worktree")
@@ -281,24 +230,26 @@ func TestRunnerGitReturnUnlinksSharedDirectoriesFirst(t *testing.T) {
 		}
 	}
 	marker := filepath.Join(shared, "package.txt")
-	if err := os.WriteFile(marker, []byte("payload"), 0o644); err != nil {
-		t.Fatal(err)
+	outsideMarker := filepath.Join(outside, "package.txt")
+	for _, path := range []string{marker, outsideMarker} {
+		if err := os.WriteFile(path, []byte("payload"), 0o644); err != nil {
+			t.Fatal(err)
+		}
 	}
 	makeJunction(t, filepath.Join(worktreePath, "node_modules"), shared)
 	makeJunction(t, filepath.Join(worktreePath, "elsewhere"), outside)
 
-	runner := &scriptedRunner{results: []scriptedResult{{}, {}, {}}}
+	runner := &scriptedRunner{results: []scriptedResult{{}, {}}}
 	if err := (RunnerGit{Commands: runner}).Return(context.Background(), project, worktreePath); err != nil {
 		t.Fatalf("Return: %v", err)
 	}
-	if _, err := os.Lstat(filepath.Join(worktreePath, "node_modules")); !errors.Is(err, os.ErrNotExist) {
-		t.Errorf("junction into the project survived Return: %v", err)
+	if _, err := os.Lstat(worktreePath); !errors.Is(err, os.ErrNotExist) {
+		t.Errorf("the worktree survived Return: %v", err)
 	}
-	if _, err := os.Stat(marker); err != nil {
-		t.Errorf("Return deleted through the junction into the primary checkout: %v", err)
-	}
-	if _, err := os.Lstat(filepath.Join(worktreePath, "elsewhere")); err != nil {
-		t.Errorf("Return unlinked a junction pointing outside the project: %v", err)
+	for _, path := range []string{marker, outsideMarker} {
+		if _, err := os.Stat(path); err != nil {
+			t.Errorf("Return deleted %s through a junction: %v", path, err)
+		}
 	}
 }
 
@@ -337,9 +288,16 @@ func TestRunnerGitReturnRefusedForUncommittedWorkLeavesJunctionsInPlace(t *testi
 	}
 }
 
-func TestRemoveSharedLinksToleratesAMissingWorktree(t *testing.T) {
-	if err := removeSharedLinks(filepath.Join(t.TempDir(), "gone"), t.TempDir()); err != nil {
-		t.Fatalf("removeSharedLinks on a missing worktree: %v", err)
+func TestRunnerGitRemoveOfAMissingWorktreeOnlyPrunes(t *testing.T) {
+	project := t.TempDir()
+	runner := &scriptedRunner{results: []scriptedResult{{}}}
+
+	if err := (RunnerGit{Commands: runner}).Remove(context.Background(), project, filepath.Join(t.TempDir(), "gone")); err != nil {
+		t.Fatalf("Remove of a missing worktree: %v", err)
+	}
+	want := []execx.Request{{Dir: project, Name: "git", Args: []string{"worktree", "prune"}}}
+	if !reflect.DeepEqual(runner.calls, want) {
+		t.Errorf("Git calls = %#v, want prune alone", runner.calls)
 	}
 }
 

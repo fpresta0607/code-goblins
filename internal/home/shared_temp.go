@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/fpresta0607/code-goblins/internal/execx"
+	"github.com/fpresta0607/code-goblins/internal/fsx"
 )
 
 // SharedTempDir is the one folder in a scratch root that is no task's: every
@@ -233,5 +234,5 @@ func RemoveScratch(ctx context.Context, folder string, liveTemps func(context.Co
 	if temp, held := LiveTempIn(folder, temps); held {
 		return temp.Runtime, nil
 	}
-	return "", os.RemoveAll(folder)
+	return "", fsx.RemoveAll(folder)
 }

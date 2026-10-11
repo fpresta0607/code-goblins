@@ -102,6 +102,14 @@ func Remove(path string) error {
 // holding for a moment, as a virus scanner holds a file it just saw and
 // Windows a program that just ran: the removal waits that out within
 // transientBudget. A missing path is no error, as with os.RemoveAll.
+//
+// It is how every fleet program removes a folder, a goblin's worktree among
+// them, which TestEveryFleetRemovalGoesThroughFsx holds it to. Go deletes
+// each entry through a handle opened on the entry itself, so a junction or a
+// symbolic link goes as a link and what it points at is never touched, and a
+// path past 260 characters and a read-only file go as any other. The one way
+// it could follow a link is a folder swapped for one while it runs, by a
+// process still writing there.
 func RemoveAll(path string) error {
 	return retryTransient(func() error { return os.RemoveAll(path) })
 }
