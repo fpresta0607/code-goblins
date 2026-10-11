@@ -474,7 +474,26 @@ It has no budget and no timeout, no disk floor, which `cfo gate test` keeps for 
 A gate puts every run's test command behind the line, with no repository naming it, by starting the command behind four words: `cfo gate turn --`, then exactly the program and arguments it starts today.
 On this machine that is `cfo gate turn -- cmd.exe /c <command string>`, started as an argument list with no shell in front, with `--as` before the `--` when the gate names its run.
 The words go in front of the whole command as a list and are never joined to the command string, where `a && b` would put only `a` behind the turn.
-This is the contract the no-mistakes fork's wrapper setting is built against, and the setting does nothing useful until the installed `cfo` has `cfo gate turn`.
+This is the contract the no-mistakes fork's wrapper setting is built against.
+The setting goes on only once the installed `cfo` has `cfo gate turn`: an older `cfo` refuses `gate turn` with exit 2, which a gate reads as a failed test command.
+The fork's side, as task cg-gate-fork-minutes agreed it and is building it, is a setting in the machine's `~/.no-mistakes/config.yaml`:
+
+```yaml
+test_command_wrapper:
+  command: ["C:\\dev\\code-goblins\\bin\\cfo.exe", "gate", "turn", "--as", "{repo} {branch}, run {run_short}", "--"]
+  refusal_prefix: "cfo gate turn: "
+```
+
+The fork fills `{repo}`, `{branch}` and `{run_short}` once, then starts nine arguments with no shell in front:
+
+```text
+C:\dev\code-goblins\bin\cfo.exe  gate  turn  --as  "PrecisionDocs feat/x, run 01M4FG7F"  --  C:\WINDOWS\system32\cmd.exe  /c  <the command string, as one argument>
+```
+
+The full path to `cfo.exe` keeps the gate daemon's `PATH` from choosing which `cfo` runs.
+It stands every run's `commands.test` behind the line, each machine-local additional test check, and the re-run of `commands.test` on the base commit, and not prepare, lint, format or a repository gate.
+An exit of 125 or 126 whose last line that is not empty starts with `refusal_prefix`, or a wrapper that cannot be started at all, parks the test step with one `test-command-no-turn` finding: no fix agent is asked, fix runs the test command again, and approve goes on without the baseline.
+So this repository's own `cfo gate test` runs behind `cfo gate turn` under a gate, inside the turn its wrapper holds.
 
 ## Reading speed evidence
 
