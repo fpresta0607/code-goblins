@@ -3,7 +3,6 @@
 package supervisor
 
 import (
-	"cmp"
 	"context"
 	"encoding/json"
 	"errors"
@@ -107,6 +106,9 @@ type Action struct {
 	// Dismissed names the questions a clear dismissed while they still waited
 	// on the Overlord, which the CFO hears of when the action runs.
 	Dismissed []string `json:"dismissed,omitempty"`
+	// Replaces is, on his change of an answer, the answer it replaces, as it
+	// stood when he made the change; the supervisor sets it.
+	Replaces string `json:"replaces,omitempty"`
 	// With is, only on an answer to the CFO as it is handed to its run, the
 	// answers that go to the CFO in the same message after it, in the order
 	// he gave them. It is never stored.
@@ -605,10 +607,13 @@ func (s *Store) queue(a Action) (Action, error) {
 			return Action{}, err
 		}
 	}
+	isSame := false
 	if change {
-		if err := s.questionChange(a); err != nil {
+		replaces, isChosen, err := s.questionChange(a)
+		if err != nil {
 			return Action{}, err
 		}
+		a.Replaces, isSame = replaces, isChosen
 	}
 	if a.Kind == "review" && a.CFOIdentity == "" {
 		return Action{}, errors.New("A review needs a verified CFO recipient. No review was queued.")
@@ -642,6 +647,11 @@ func (s *Store) queue(a Action) (Action, error) {
 	a.Status = "queued"
 	a.CreatedAt = time.Now().UTC()
 	a.UpdatedAt = a.CreatedAt
+	// The answer already chosen sends nothing, but is kept, so a retry of the
+	// same request finds it done.
+	if isSame {
+		a.Status, a.Message = "succeeded", "That is already the answer, so nothing was sent."
+	}
 	s.db.Actions = append(s.db.Actions, a)
 	if answer {
 		for i := range s.db.Questions {
@@ -651,9 +661,17 @@ func (s *Store) queue(a Action) (Action, error) {
 			}
 		}
 	}
-	if change {
+	// His change is the answer from the moment he makes it, on every board,
+	// while it goes on its way.
+	if change && !isSame {
 		if i := slices.IndexFunc(s.db.Questions, func(q Question) bool { return q.ID == a.QuestionID }); i >= 0 {
-			s.db.Questions[i].ChangeID = a.ID
+			q, at := &s.db.Questions[i], a.CreatedAt
+			q.ChangeID, q.ReplacedAnswer = a.ID, a.Replaces
+			q.Answer, q.AnswerKind, q.AnsweredOption = a.Text, a.AnswerKind, ""
+			if a.AnswerKind == "option" {
+				q.AnsweredOption = a.Text
+			}
+			q.AnsweredBy, q.AnsweredAt, q.AnsweredAway, q.AnsweredIn, q.Message = "overlord", &at, false, "", "You changed the answer."
 		}
 	}
 	return a, nil
@@ -864,10 +882,16 @@ func (s *Store) updateQuestionOutcomes() {
 		if s.db.Questions[i].Status == "cleared" {
 			continue
 		}
+		q := &s.db.Questions[i]
 		for _, a := range s.db.Actions {
-			if (a.Kind == "cfo_answer" || a.Kind == "goblin_answer") && a.ID == s.db.Questions[i].AnswerID {
-				q := &s.db.Questions[i]
-				q.Status, q.Message = a.Status, a.Message
+			if (a.Kind == "cfo_answer" || a.Kind == "goblin_answer") && a.ID == q.AnswerID {
+				q.Status = a.Status
+				// A change he made since is the answer, whenever the first one
+				// arrives.
+				if q.ChangeID != "" {
+					continue
+				}
+				q.Message = a.Message
 				if a.Status == "succeeded" {
 					at := a.UpdatedAt
 					q.AnsweredBy, q.AnsweredAt = "overlord", &at
@@ -877,21 +901,11 @@ func (s *Store) updateQuestionOutcomes() {
 				}
 			}
 		}
-		// His change to the CFO's answer makes the answer his once it is sent,
-		// keeping the CFO's choice it replaced; a change that failed leaves the
-		// CFO's answer standing.
-		q := &s.db.Questions[i]
-		change := slices.IndexFunc(s.db.Actions, func(a Action) bool { return a.ID == q.ChangeID })
-		if q.ChangeID == "" || q.AnsweredBy != "cfo" || change < 0 || s.db.Actions[change].Status != "succeeded" && s.db.Actions[change].Awaiting == nil {
-			continue
+		// Once his change has reached whoever acts on it, the question reads
+		// answered, whatever became of the answer before it.
+		if change := slices.IndexFunc(s.db.Actions, func(a Action) bool { return a.Kind == "answer_change" && a.ID == q.ChangeID }); change >= 0 && (s.db.Actions[change].Status == "succeeded" || s.db.Actions[change].Awaiting != nil) {
+			q.Status = "succeeded"
 		}
-		a, at := s.db.Actions[change], s.db.Actions[change].UpdatedAt
-		q.ReplacedAnswer = cmp.Or(q.AnsweredOption, q.Answer)
-		q.Answer, q.AnswerKind, q.AnsweredOption = a.Text, a.AnswerKind, ""
-		if a.AnswerKind == "option" {
-			q.AnsweredOption = a.Text
-		}
-		q.AnsweredBy, q.AnsweredAt, q.AnsweredAway, q.Message = "overlord", &at, false, "You changed the CFO's answer."
 	}
 }
 

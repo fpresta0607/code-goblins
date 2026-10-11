@@ -681,6 +681,11 @@ It always opens at the top of its item, and each next item starts at its top.
 An answer the board refused comes back on its card with a few words of what went wrong, and **Retry** sends it again; refused after you moved on or closed the Command Center, it opens nothing, and it keeps waiting under **Waiting on you** until you send it again.
 An answer typed for a CFO or goblin that is inside a turn reads sent, with one check, and delivered once it is read; it is never a warning by itself.
 An item you acted on never comes back by itself: an answer whose delivery failed or never arrived reads in **History** with a warning and what to do.
+Every answered question in **History** opens again from its **Change answer** button with its answer checked and who chose it and when: you, the CFO, or the CFO while you were away.
+Pick another choice or write your own and **Change answer** sends it, at any time: the card shows your new answer the moment you make it, with no spinner.
+The goblin that asked gets it once, as a change from the old answer to the new one, and the CFO gets it for its own question or when that goblin has ended.
+A change made while the first answer is still on its way follows it, choosing the answer already chosen sends nothing, and a double click or a resend after a dropped connection sends it once.
+When the goblin's pull request already merged, one line says your change goes as a new instruction.
 Clicking outside the Command Center, or outside its inbox, closes it.
 Nothing is preselected, drafts are kept, and the **Command Center** icon in the header, whose badge counts what is waiting on you, opens an inbox of everything waiting on you, including a walkthrough a goblin asks you to watch, and a History of what you answered, cleared or ran; a goblin's own test runs stay off it.
 A goblin waiting on you offers **Answer** in its panel, which opens the stack at its item.
