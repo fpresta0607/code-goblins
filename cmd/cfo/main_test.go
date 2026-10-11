@@ -137,6 +137,11 @@ func TestMain(m *testing.M) {
 	if code, ok := runStandInBuild(); ok {
 		os.Exit(code)
 	}
+	// The tests of cfo gate turn run this binary as the wrapper and as the
+	// command it starts.
+	if code, ok := runGateTurnTestProgram(); ok {
+		os.Exit(code)
+	}
 	// goblins starts its own program as serve. A test that reaches that start
 	// would run this binary, and with it every test again, detached and with
 	// no one waiting: it serves nothing instead.

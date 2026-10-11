@@ -103,7 +103,7 @@ func TestEveryCommandSaysWhetherItActsAsTheCFO(t *testing.T) {
 		// supervisor and its terminals, and showing them.
 		{"install", "uninstall", "update", "home", "dev-drive", "dictation", "doctor", "serve", "stop", "status", "host", "attach", "hooks", "connection-repair", "version"},
 		// Reading the fleet and a project.
-		{"fleet-view", "peek", "runtime", "tickets", "project", "route", "verify", "security", "hygiene", "evidence", "process-plan"},
+		{"fleet-view", "peek", "runtime", "tickets", "project", "route", "verify", "security", "hygiene", "evidence", "process-plan", "defender"},
 		// The hooks, which prove the CFO's own session themselves, and the
 		// two commands that take the lock only there.
 		{"hook", "native-hook", "register", "session-start", "watch"},
