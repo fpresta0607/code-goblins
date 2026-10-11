@@ -171,6 +171,18 @@ func (t Tree) ActivityAt() time.Time {
 	return latest
 }
 
+// Busy is the latest moment a job of the goblin's own processes started or
+// used the processor.
+func (t Tree) Busy() time.Time {
+	var busy time.Time
+	for _, child := range t.Children {
+		if child.Kind == KindProcess && child.LastActivity.After(busy) {
+			busy = child.LastActivity
+		}
+	}
+	return busy
+}
+
 // Jobs names the goblin's running jobs of processes the way a wake names
 // them, "name (pid N)", with the processor time they have used, and the
 // agents, shells, monitors and gate step still at work under it, which hold
