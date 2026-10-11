@@ -145,6 +145,11 @@ jobs:
           Set-Content -LiteralPath (Join-Path $project "README.md") -Value "demo"
           git -C $project add README.md
           git -C $project -c user.name=Person -c user.email=person@example.invalid commit -q -m "first"
+          # A goblin's worktree starts from origin's default branch, so the
+          # checkout has one, a bare repository beside it.
+          git init -q --bare -b main (Join-Path $env:USERPROFILE "source\demo-origin.git")
+          git -C $project remote add origin (Join-Path $env:USERPROFILE "source\demo-origin.git")
+          git -C $project push -q -u origin main
           & "$env:RUNNER_TEMP\leftovers.exe" snapshot "$env:RUNNER_TEMP\leftovers-before.json" --content (Join-Path $project ".git")
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
       - name: Install with the one-line command
@@ -379,6 +384,11 @@ jobs:
           Set-Content -LiteralPath (Join-Path $project "README.md") -Value "demo"
           git -C $project add README.md
           git -C $project -c user.name=Person -c user.email=person@example.invalid commit -q -m "first"
+          # A goblin's worktree starts from origin's default branch, so the
+          # checkout has one, a bare repository beside it.
+          git init -q --bare -b main (Join-Path $env:USERPROFILE "source\demo-origin.git")
+          git -C $project remote add origin (Join-Path $env:USERPROFILE "source\demo-origin.git")
+          git -C $project push -q -u origin main
           & "$env:RUNNER_TEMP\leftovers.exe" snapshot "$env:RUNNER_TEMP\leftovers-before.json" --content (Join-Path $project ".git")
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
       - name: Install from the clone
