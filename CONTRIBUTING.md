@@ -22,14 +22,19 @@ cd frontend
 npm ci
 npm run build
 cd ..
-go run ./cmd/cfo gate test
+go run ./cmd/cfo gate prepush
 go build ./cmd/cfo
 ```
 
-`cfo gate test` vets every package your change reaches and tests the changed packages that are quick to test, naming each with why; `--plan` shows that plan without running it.
-It leaves the slow packages' tests, and the packages that only import what you changed, to CI, which tests what your change reaches on the pull request's own run and every package in the merge train's run that lands it: on a Windows machine the whole suite takes an hour or more, where CI's parallel jobs take about eight minutes.
-In a slow package, run the tests you changed by name, such as `go test ./internal/supervisor -run 'TestName' -count=1`.
-`go test ./...` still runs everything here when you want it.
+Before each push, run `cfo gate prepush`.
+It picks what your change can break and runs it one check at a time: the imports of every package the change reaches, the tests that read the whole tree, the changed packages, for a change under `frontend` the type check, the lint, the unit tests and the browser specs the change touched or names, then `go vet` of what the change reaches and the packages that import it, nearest first.
+It names each check with why before it runs any, and stops at the first failure with one line that names the check and the test.
+`--plan` shows the pick and runs nothing.
+A slow package runs without the tests this machine has timed at 2 seconds or longer, so nobody has to guess which tests to run by name.
+Two kinds of slow test still run: every test in a test file your change touched, and the tests under 15 seconds in the test file named for a source it touched, as `spawn_test.go` is for `spawn.go`.
+It starts no check after its time limit, 15 minutes unless `--limit` says otherwise, and names everything it left to CI, which tests what your change reaches on the pull request's own run and every package and browser spec in the merge train's run that lands it: on a Windows machine the whole suite takes an hour or more, where CI's parallel jobs take about eight minutes.
+The tests that read the whole tree run here whatever you changed, because a pull request's own run starts only the jobs its change can alter, and a guard in a job it did not start would first fail in the merge train.
+`cfo gate test` is the gate's own test step, which runs less, and `go test ./...` still runs everything here when you want it.
 
 CI runs the same steps on `windows-latest` for every push to `main` and every pull request, as parallel jobs: the frontend checks, the board's browser tests in four jobs, each slow Go package (some in two jobs), and every other package together.
 A pull request's own run starts only the jobs its change can alter, which the `plan` job chooses with `tools/ciplan`, and a merge train's run and a run on `main` start every job.

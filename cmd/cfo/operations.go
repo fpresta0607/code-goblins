@@ -185,7 +185,14 @@ func runVerify(args []string, stdout, stderr io.Writer, runtime commandRuntime) 
 	p := filepath.Join(meta.TaskTmp, "verification-"+*tier+".json")
 	_ = verifyrun.Save(p, res)
 	if e != nil {
+		// A check ends with the line that names what failed, so the tier
+		// says that line, and the file that holds everything the check said.
+		if len(res) > 0 {
+			said := strings.Split(strings.TrimSpace(res[len(res)-1].Output), "\n")
+			fmt.Fprintln(stderr, strings.TrimSpace(said[len(said)-1]))
+		}
 		fmt.Fprintln(stderr, e)
+		fmt.Fprintln(stderr, p)
 		return 1
 	}
 	fmt.Fprintln(stdout, p)
