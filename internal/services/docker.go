@@ -26,4 +26,7 @@ type Docker interface {
 	// Down stops and removes services, or the whole stack when none are
 	// named.
 	Down(ctx context.Context, compose Compose, services []string) error
+	// Relieve hands the file cache of the engine's virtual machine back to
+	// the machine.
+	Relieve(ctx context.Context) error
 }

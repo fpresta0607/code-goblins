@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"strings"
 
 	"github.com/fpresta0607/code-goblins/internal/execx"
@@ -22,6 +23,15 @@ const (
 // its desktop plugin, and stacks through compose.
 type CLI struct {
 	Commands execx.Runner
+	// Desktop is where an engine start finds the dashboard window Docker
+	// Desktop opens, and Out takes what it says of it.
+	Desktop Desktop
+	Out     io.Writer
+}
+
+// Relieve hands the file cache of Docker Desktop's virtual machine back.
+func (c CLI) Relieve(ctx context.Context) error {
+	return nil
 }
 
 // EngineRunning reports whether the engine answers docker info.

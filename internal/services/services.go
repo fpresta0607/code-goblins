@@ -50,6 +50,14 @@ type Service struct {
 	Poll time.Duration
 	// Out takes the lines a start says while it waits.
 	Out io.Writer
+	// Turn takes the machine's one turn for heavy runs, the line cfo gate
+	// turn stands in, for the start who names, and returns what gives it
+	// back.
+	Turn func(ctx context.Context, who string) (release func(), err error)
+	// FloorEvery is how often a start reads memory while its services
+	// start, and ReliefEvery how often it hands the engine's file cache back.
+	FloorEvery  time.Duration
+	ReliefEvery time.Duration
 }
 
 // Up starts the project's stack for task, or adds task to its holders when

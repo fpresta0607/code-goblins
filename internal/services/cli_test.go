@@ -2,11 +2,16 @@ package services
 
 import (
 	"context"
+	"errors"
+	"io"
 	"slices"
 	"strings"
+	"sync"
 	"testing"
+	"time"
 
 	"github.com/fpresta0607/code-goblins/internal/execx"
+	"github.com/fpresta0607/code-goblins/internal/proc"
 )
 
 // scriptedDocker answers each docker call by its arguments.
@@ -51,6 +56,9 @@ func TestCLINamesTheStackByItsFilesFromTheCheckout(t *testing.T) {
 		if call.Name != "docker" || call.Dir != compose.Dir {
 			t.Errorf("call %d = %s in %q, want docker in the checkout", index, call.Name, call.Dir)
 		}
+		if !call.KillTree {
+			t.Errorf("call %d does not end what it started when it is ended, as compose up's build must at the floor", index)
+		}
 		if got := strings.Join(call.Args, " "); index < len(want) && got != want[index] {
 			t.Errorf("call %d = %q, want %q", index, got, want[index])
 		}
@@ -83,9 +91,10 @@ func TestCLIStartsTheEngineAndChecksItAnswers(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			// Arrange
 			runner := &scriptedDocker{answers: map[string]execx.Result{"info --format {{.ServerVersion}}": tc.info}}
+			desktop := &fakeDesktop{}
 
 			// Act
-			err := CLI{Commands: runner}.StartEngine(context.Background())
+			err := CLI{Commands: runner, Desktop: desktop.desktop(10 * time.Millisecond), Out: io.Discard}.StartEngine(context.Background())
 
 			// Assert
 			if tc.wantErr == "" && err != nil || tc.wantErr != "" && (err == nil || !strings.Contains(err.Error(), tc.wantErr)) {
@@ -93,6 +102,215 @@ func TestCLIStartsTheEngineAndChecksItAnswers(t *testing.T) {
 			}
 			if got := strings.Join(runner.calls[0].Args, " "); got != "desktop start --timeout 300" {
 				t.Errorf("first call = %q, want Docker Desktop started and waited for", got)
+			}
+		})
+	}
+}
+
+// fakeDesktop is the desktop as an engine start sees it. Processes running
+// before the start are there from the first look, and the ones Docker
+// Desktop starts appear once docker desktop start runs. The dashboard
+// process shows its window from the look showsAt, and never with 0.
+type fakeDesktop struct {
+	mu        sync.Mutex
+	before    []fakeProcess
+	started   []fakeProcess
+	isRun     bool
+	dashboard int
+	showsAt   int
+	looks     int
+	asked     []int
+	closed    []int
+}
+
+type fakeProcess struct {
+	entry     proc.Entry
+	arguments []string
+}
+
+func (d *fakeDesktop) desktop(grace time.Duration) Desktop {
+	return Desktop{Processes: d.processes, Arguments: d.arguments, CloseWindows: d.closeWindows, Every: time.Millisecond, Grace: grace}
+}
+
+// run is docker desktop start: Docker Desktop's processes start.
+func (d *fakeDesktop) run() {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	d.isRun = true
+	for index := range d.started {
+		d.started[index].entry.Start = time.Now()
+	}
+}
+
+func (d *fakeDesktop) all() []fakeProcess {
+	if !d.isRun {
+		return d.before
+	}
+	return append(slices.Clone(d.before), d.started...)
+}
+
+func (d *fakeDesktop) processes() ([]proc.Entry, error) {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	var entries []proc.Entry
+	for _, process := range d.all() {
+		entries = append(entries, process.entry)
+	}
+	return entries, nil
+}
+
+func (d *fakeDesktop) arguments(pid int) ([]string, error) {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	for _, process := range d.all() {
+		if process.entry.PID == pid {
+			return process.arguments, nil
+		}
+	}
+	return nil, errors.New("no such process")
+}
+
+func (d *fakeDesktop) closeWindows(pid int) (int, error) {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	d.asked = append(d.asked, pid)
+	if pid != d.dashboard {
+		return 0, nil
+	}
+	d.looks++
+	if d.showsAt == 0 || d.looks < d.showsAt || slices.Contains(d.closed, pid) {
+		return 0, nil
+	}
+	d.closed = append(d.closed, pid)
+	return 1, nil
+}
+
+// startingDocker is docker as Docker Desktop starts: desktop start starts
+// the desktop's processes, and then the engine answers.
+type startingDocker struct {
+	desktop *fakeDesktop
+}
+
+func (d startingDocker) Run(_ context.Context, request execx.Request) (execx.Result, error) {
+	switch strings.Join(request.Args, " ") {
+	case "desktop start --timeout 300":
+		d.desktop.run()
+		return execx.Result{}, nil
+	case "info --format {{.ServerVersion}}":
+		return execx.Result{Stdout: []byte("29.7.2\n")}, nil
+	}
+	return execx.Result{ExitCode: 1}, nil
+}
+
+const dockerDesktopProgram = `C:\Program Files\Docker\Docker\frontend\Docker Desktop.exe`
+
+// Docker Desktop opens its dashboard on every start while its own setting to
+// open it at start is on, which is the Overlord's. An engine start closes
+// that window and only that one: the window process the start started,
+// found by its program, its arguments and its start, and never Electron's
+// helpers, a Docker Desktop of before the start, or any other program. A
+// window process with no dashboard to show, as his setting turned off gives,
+// is never asked, and nothing is when no window process starts.
+func TestCLIStartEngineClosesOnlyTheDashboardItsStartOpened(t *testing.T) {
+	launcher := fakeProcess{proc.Entry{PID: 100, ExeBase: "Docker Desktop.exe"}, []string{`C:\Program Files\Docker\Docker\Docker Desktop.exe`}}
+	backend := fakeProcess{proc.Entry{PID: 101, ExeBase: "com.docker.backend.exe"}, []string{"com.docker.backend.exe"}}
+	dashboard := fakeProcess{proc.Entry{PID: 102, ExeBase: "Docker Desktop.exe"}, []string{dockerDesktopProgram, "--reason=open-tray", "--analytics-enabled=true", "--disable-hardware-acceleration=false", "--name=dashboard"}}
+	tray := fakeProcess{proc.Entry{PID: 102, ExeBase: "Docker Desktop.exe"}, []string{dockerDesktopProgram, "--reason=open-tray", "--analytics-enabled=true", "--disable-hardware-acceleration=false"}}
+	renderer := fakeProcess{proc.Entry{PID: 103, ExeBase: "Docker Desktop.exe"}, []string{dockerDesktopProgram, "--type=renderer", "--reason=open-tray", "--name=dashboard"}}
+	earlier := fakeProcess{proc.Entry{PID: 90, ExeBase: "Docker Desktop.exe", Start: time.Now().Add(-time.Hour)}, []string{dockerDesktopProgram, "--reason=open-tray", "--name=dashboard"}}
+	editor := fakeProcess{proc.Entry{PID: 91, ExeBase: "notepad.exe", Start: time.Now().Add(-time.Hour)}, []string{"notepad.exe"}}
+	cases := []struct {
+		name       string
+		started    []fakeProcess
+		showsAt    int
+		wantClosed []int
+		wantAsked  []int
+		wantSaid   string
+	}{
+		{"the dashboard shows after a few looks", []fakeProcess{launcher, backend, renderer, dashboard}, 3, []int{102}, []int{102}, "closed the dashboard window Docker Desktop opened as its engine started (pid 102)"},
+		{"the dashboard never shows", []fakeProcess{launcher, backend, dashboard}, 0, nil, []int{102}, "Docker Desktop's window process (pid 102) showed no dashboard"},
+		{"his setting shows no dashboard", []fakeProcess{launcher, backend, tray}, 1, nil, nil, ""},
+		{"no window process starts", []fakeProcess{launcher, backend}, 1, nil, nil, ""},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			// Arrange
+			desktop := &fakeDesktop{before: []fakeProcess{earlier, editor}, started: slices.Clone(tc.started), dashboard: 102, showsAt: tc.showsAt}
+			var said strings.Builder
+			cli := CLI{Commands: startingDocker{desktop: desktop}, Desktop: desktop.desktop(200 * time.Millisecond), Out: &said}
+
+			// Act
+			err := cli.StartEngine(context.Background())
+
+			// Assert
+			if err != nil {
+				t.Fatal(err)
+			}
+			desktop.mu.Lock()
+			defer desktop.mu.Unlock()
+			if !slices.Equal(desktop.closed, tc.wantClosed) {
+				t.Errorf("closed the windows of %v, want %v", desktop.closed, tc.wantClosed)
+			}
+			for _, pid := range desktop.asked {
+				if !slices.Contains(tc.wantAsked, pid) {
+					t.Errorf("asked pid %d to close its windows, want only %v asked", pid, tc.wantAsked)
+				}
+			}
+			if tc.wantSaid == "" && said.Len() != 0 || !strings.Contains(said.String(), tc.wantSaid) {
+				t.Errorf("said %q, want %q", said.String(), tc.wantSaid)
+			}
+		})
+	}
+}
+
+// A window process with no dashboard to show ends the look at once, so a
+// start under his setting turned off waits for nothing.
+func TestCLIStartEngineWaitsForNoDashboardWhenNoneWillShow(t *testing.T) {
+	// Arrange
+	tray := fakeProcess{proc.Entry{PID: 102, ExeBase: "Docker Desktop.exe"}, []string{dockerDesktopProgram, "--reason=open-tray"}}
+	desktop := &fakeDesktop{started: []fakeProcess{tray}, dashboard: 102, showsAt: 1}
+	cli := CLI{Commands: startingDocker{desktop: desktop}, Desktop: desktop.desktop(time.Minute), Out: io.Discard}
+	began := time.Now()
+
+	// Act
+	err := cli.StartEngine(context.Background())
+
+	// Assert
+	if err != nil {
+		t.Fatal(err)
+	}
+	if took := time.Since(began); took > 10*time.Second {
+		t.Errorf("the start took %s, want it back long before its minute of grace", took)
+	}
+}
+
+// The relief is the command cg-services-pd-build proved on 2026-10-11, run
+// as root in Docker Desktop's own distribution, and a relief that fails says
+// what wsl.exe said.
+func TestCLIRelievesTheEnginesFileCache(t *testing.T) {
+	cases := []struct {
+		name    string
+		answer  execx.Result
+		wantErr string
+	}{
+		{"the cache is handed back", execx.Result{}, ""},
+		{"wsl refuses", execx.Result{ExitCode: 1, Stderr: []byte("There is no distribution with the supplied name.")}, "no distribution"},
+	}
+	relief := "-d docker-desktop -u root -- sh -c sync && echo 3 > /proc/sys/vm/drop_caches"
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			// Arrange
+			runner := &scriptedDocker{answers: map[string]execx.Result{relief: tc.answer}}
+
+			// Act
+			err := CLI{Commands: runner}.Relieve(context.Background())
+
+			// Assert
+			if tc.wantErr == "" && err != nil || tc.wantErr != "" && (err == nil || !strings.Contains(err.Error(), tc.wantErr)) {
+				t.Fatalf("err = %v, want %q", err, tc.wantErr)
+			}
+			if len(runner.calls) != 1 || runner.calls[0].Name != "wsl.exe" || strings.Join(runner.calls[0].Args, " ") != relief || !runner.calls[0].KillTree {
+				t.Fatalf("calls = %+v, want one wsl.exe %s that ends what it started when it is ended", runner.calls, relief)
 			}
 		})
 	}
