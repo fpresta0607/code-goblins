@@ -980,6 +980,7 @@ The fleet's own work never trips Microsoft Defender, and it never hides from it 
 What is the Supreme Overlord's alone, which no CFO, goblin or gate does, asks for or suggests running: an exclusion, turning a protection off, his allow list, restoring a quarantined file, a submission to Microsoft, and a Dev Drive, which `cfo dev-drive` sets up only on his word and which is not an exclusion.
 Nobody writes or runs a malware test sample on his PC, the EICAR and AMSI test strings included, since the string lands in the transcript and Defender acts on that file: a proof that needs one runs on GitHub's runner.
 What Defender recorded is read with `Get-MpThreatDetection`, `Get-MpThreat`, `Get-MpComputerStatus` and the log `Microsoft-Windows-Windows Defender/Operational`, and nothing else.
+`cfo defender` reads them for the fleet's folders and names the test and task that made each file, and the supervisor wakes the CFO once for each new detection and each new upload, so one reaches the CFO with what made it and not the Overlord alone as a Windows notice: the CFO then changes what made it.
 
 What keeps the work quiet:
 
@@ -987,6 +988,8 @@ What keeps the work quiet:
 - No stand-in carries the name of a program Windows ships, a script first on PATH included. The install script names Windows PowerShell by its own path, and a test stands in for what that program is given to run. `internal/installtest` refuses such a stand-in.
 - A test writes no copy of the install script. A pinned or changed copy on disk is one more unsigned script that downloads and runs programs, which Defender sends to Microsoft once for each new version of it, so a test runs the script as the one-line install does, as text, and `tools/pin-installer.ps1` pins it in memory when it is given no destination. A change to `install.ps1` itself can still cost one upload, of the worktree's own copy.
 - A proof runs the installed release, which is signed. Where it must run the branch's own build, it builds once into one folder of the task's own and reuses that file: every new build of an unsigned program is one more that Defender asks its cloud about, uploads, and may convict.
+- A long text reaches a program by a file or by standard input, never on its command line. A gate's intent goes to no-mistakes by `--intent-file` and a merge train's words to gh by `--body-file`, since Defender read a gate's intent on a command line as the lure that has a person paste such a line. `internal/execx`'s tests fail when a fleet program gives a flag free text rather than one short line its own source fixes, and name the few that stay, each with why ([docs/pipeline.md](docs/pipeline.md)).
+- A signed release signs its `install.ps1` with the certificate that signs its programs, and stops when that signature does not verify: Defender sends an unsigned script that downloads and runs programs to Microsoft from every PC that meets it, as it did each release's script on the Overlord's PC, while the signed programs downloaded beside it were not sent.
 
 ## Memory
 
