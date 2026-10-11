@@ -247,7 +247,12 @@ func reportDevDrive(stdout io.Writer, runtime commandRuntime) {
 		fmt.Fprintf(stdout, "dev drive: unreadable (%v)\n", err)
 		return
 	}
-	fmt.Fprintln(stdout, "dev drive: "+devdrive.Describe(m, h).Line)
+	report := devdrive.Describe(m, h)
+	line := "dev drive: " + report.Line
+	if report.File != "" {
+		line += " (file: " + report.File + ")"
+	}
+	fmt.Fprintln(stdout, line)
 }
 
 // reportDictation says dictation is ready, naming the speech model and the
