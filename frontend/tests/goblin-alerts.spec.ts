@@ -1,6 +1,10 @@
 import { expect, test, type Locator, type Page } from "./site";
 
-const LANTERN = "rgb(242, 180, 71)";
+// The lantern in SIQstack's look (the Overlord, 2026-10-11): its mint for the
+// lantern's words and counts, its green gradient for a lantern button's fill
+// and its card under the box.
+const LANTERN = "rgb(101, 239, 205)";
+const LANTERN_FILL = "linear-gradient(110deg, rgb(0, 229, 155), rgb(99, 243, 208))";
 
 // Headless Chromium reports notifications as denied, so this browser starts as
 // one the board has never asked, which is when it offers them.
@@ -15,7 +19,7 @@ async function open(page: Page) {
 const waiting = (page: Page) => page.locator(".task-board .cfo-pin .dialogue");
 const resting = (page: Page) => page.locator("main > .cfo-pin .cfo-rest");
 const command = (page: Page) => waiting(page).getByRole("button", { name: "Open Command Center: 1 waiting on you" });
-const filled = (button: Locator) => button.evaluate((element) => getComputedStyle(element, "::before").backgroundColor);
+const filled = (button: Locator) => button.evaluate((element) => getComputedStyle(element, "::before").backgroundImage);
 
 // The Overlord, 2026-10-07, after the bar's gold Open Command Center pill: "i
 // liked the lantern box button". While something waits on him the bar is the
@@ -32,7 +36,7 @@ test("the CFO's bar is a plain card at rest and the CFO's lantern box while some
   await expect(page.locator(".task-board .cfo-pin")).not.toContainText("Which layout should I keep?");
   await expect(command(page)).toHaveText("Open Command Center1");
   await expect(command(page).locator(".cfo-command-count")).toHaveText("1");
-  expect(await filled(command(page))).toBe(LANTERN);
+  expect(await filled(command(page))).toBe(LANTERN_FILL);
   await expect(command(page)).toHaveCSS("animation-name", "none");
   await needs.locator(".dialogue-actions").getByRole("button", { name: "Open the CFO's terminal" }).click();
   await expect(page.locator("output")).toHaveText("opened the CFO's terminal from its icon");
@@ -86,8 +90,8 @@ test("a goblin's news and its question for the CFO show no toast, and the CFO's 
   await testInfo.attach("cfo-question-after", { body: await page.screenshot(), contentType: "image/png" });
   await expect(page.getByRole("button", { name: /terminal/i }).filter({ hasText: /Open terminal/ })).toHaveCount(0);
   const ask = page.locator(".toasts .dialogue").filter({ hasText: "Windows notification" });
-  expect(await filled(ask.getByRole("button", { name: "Turn on" }))).toBe(LANTERN);
-  expect(await filled(ask.getByRole("button", { name: "Not now" }))).toBe("rgba(0, 0, 0, 0)");
+  expect(await filled(ask.getByRole("button", { name: "Turn on" }))).toBe(LANTERN_FILL);
+  expect(await filled(ask.getByRole("button", { name: "Not now" }))).toBe("none");
 });
 
 test("boxes are stepped pixel frames with plain text of 16 px or more, and step up once as they arrive", async ({ page }) => {
@@ -160,7 +164,7 @@ test("the CFO's bar wears the mark of the harness the CFO runs, at rest and whil
 test("the Command Center's count, its waiting rows and an item's card wear the lantern box", async ({ page }) => {
   // Arrange
   await open(page);
-  const HIDE = "rgb(36, 28, 21)";
+  const HIDE = "rgb(12, 18, 25)";
   const before = (locator: Locator) => locator.evaluate((element) => { const style = getComputedStyle(element, "::before"); return [style.backgroundColor, style.clipPath.startsWith("polygon")].join(" "); });
 
   // Assert: the count on the Command Center's button.
@@ -181,5 +185,5 @@ test("the Command Center's count, its waiting rows and an item's card wear the l
   // Assert: the item's card and its action.
   const card = page.locator("dialog.question-modal .question-card");
   expect(await before(card)).toBe(HIDE + " true");
-  expect(await filled(card.locator("button.primary"))).toBe(LANTERN);
+  expect(await filled(card.locator("button.primary"))).toBe(LANTERN_FILL);
 });

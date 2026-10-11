@@ -96,37 +96,7 @@ func OwnedProcesses(processes []Process, directories []string, job []Identity, m
 				break
 			}
 		}
-		isClaimed := false
-		for _, directory := range directories {
-			if !filepath.IsAbs(directory) || filepath.Dir(filepath.Clean(directory)) == filepath.Clean(directory) {
-				continue
-			}
-			if withinDirectory(process.Directory, directory) {
-				isClaimed = true
-			}
-			name := strings.TrimSuffix(strings.ToLower(process.Name), ".exe")
-			isRuntime := name == "node" || strings.HasPrefix(name, "python") || name == "pwsh" || name == "powershell" || name == "bash" || name == "sh" || name == "go" || name == "cfo"
-			isBrowser := name == "chrome" || name == "msedge"
-			for index, argument := range process.Arguments {
-				flag, value, hasValue := strings.Cut(argument, "=")
-				if !hasValue && index > 0 && strings.HasPrefix(process.Arguments[index-1], "--") {
-					flag, value, hasValue = process.Arguments[index-1], argument, true
-				}
-				isTaskArgument := index == 0
-				if hasValue {
-					isTaskArgument = isBrowser && flag == "--user-data-dir" || isRuntime && (flag == "--cwd" || flag == "--dir" || flag == "--prefix")
-					argument = value
-				} else if isRuntime {
-					switch strings.ToLower(filepath.Ext(argument)) {
-					case ".js", ".mjs", ".cjs", ".ts", ".py", ".ps1", ".sh", ".exe", ".cmd", ".bat":
-						isTaskArgument = true
-					}
-				}
-				if isTaskArgument && withinDirectory(argument, directory) {
-					isClaimed = true
-				}
-			}
-		}
+		isClaimed := isAtWorkIn(process, directories)
 		service := services[process.PID]
 		isOwnGateAgent := service == proc.GateDaemon && isClaimed && proc.ServiceOf(process.Name, process.Arguments) != proc.GateDaemon
 		if service != proc.NoService && !isOwnGateAgent {
@@ -156,6 +126,69 @@ func OwnedProcesses(processes []Process, directories []string, job []Identity, m
 		}
 	}
 	return owned
+}
+
+// isAtWorkIn says a process is a task's by its place: at work in one of the
+// task's directories, or running a program from one, the program itself, a
+// script a runtime runs, the folder a runtime is told to work in, or a
+// browser's profile.
+func isAtWorkIn(process Process, directories []string) bool {
+	isClaimed := false
+	for _, directory := range directories {
+		if !filepath.IsAbs(directory) || filepath.Dir(filepath.Clean(directory)) == filepath.Clean(directory) {
+			continue
+		}
+		if withinDirectory(process.Directory, directory) {
+			isClaimed = true
+		}
+		name := strings.TrimSuffix(strings.ToLower(process.Name), ".exe")
+		isRuntime := name == "node" || strings.HasPrefix(name, "python") || name == "pwsh" || name == "powershell" || name == "bash" || name == "sh" || name == "go" || name == "cfo"
+		isBrowser := name == "chrome" || name == "msedge"
+		for index, argument := range process.Arguments {
+			flag, value, hasValue := strings.Cut(argument, "=")
+			if !hasValue && index > 0 && strings.HasPrefix(process.Arguments[index-1], "--") {
+				flag, value, hasValue = process.Arguments[index-1], argument, true
+			}
+			isTaskArgument := index == 0
+			if hasValue {
+				isTaskArgument = isBrowser && flag == "--user-data-dir" || isRuntime && (flag == "--cwd" || flag == "--dir" || flag == "--prefix")
+				argument = value
+			} else if isRuntime {
+				switch strings.ToLower(filepath.Ext(argument)) {
+				case ".js", ".mjs", ".cjs", ".ts", ".py", ".ps1", ".sh", ".exe", ".cmd", ".bat":
+					isTaskArgument = true
+				}
+			}
+			if isTaskArgument && withinDirectory(argument, directory) {
+				isClaimed = true
+			}
+		}
+	}
+	return isClaimed
+}
+
+// ownerOf is whose a process is by its mark or its place, as a teardown
+// proves it a task's own past the task's job and the process's parents: the
+// terminal whose mark it carries, when proofs holds the mark's proof for
+// that terminal, or else the task among places whose directories it is at
+// work in, the first by name. A gate agent's mark names whichever goblin
+// started the daemon, so it says nothing, and it is empty for a process that
+// is no terminal's and no task's.
+func ownerOf(process Process, proofs func(terminal string) []string, places map[string][]string) string {
+	if !process.IsGateAgent && process.Mark != (Mark{}) && slices.Contains(proofs(process.Mark.Terminal), process.Mark.ProofSum) {
+		return process.Mark.Terminal
+	}
+	tasks := make([]string, 0, len(places))
+	for task := range places {
+		tasks = append(tasks, task)
+	}
+	slices.Sort(tasks)
+	for _, task := range tasks {
+		if isAtWorkIn(process, places[task]) {
+			return task
+		}
+	}
+	return ""
 }
 
 // leftBehind are the processes among owned, a task's own by its folders and

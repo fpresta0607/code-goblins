@@ -11,6 +11,7 @@ import { CredentialReplaceDialog } from "./credential-replace-dialog";
 import { RunTerminal } from "./run-terminal";
 import "./credential-card.css";
 import { ClickFeedback, useClickFeedback } from "./click-feedback";
+import { goblinName } from "./task-words";
 
 // The names the scope holds that the board wants him to confirm replacing,
 // from its refusal of a save or a Run. It names names only.
@@ -55,7 +56,7 @@ export function CredentialCard({ request, snapshot, connected, pager }: { reques
   // The terminal runs on this card, on the board on his PC alone.
   const terminal = local ? (snapshot.runs || []).find((run) => run.credential_request === request.id && run.state === "running" && run.terminal) : undefined;
   const task = snapshot.tasks.find((candidate) => candidate.id === request.task);
-  const asker = request.task ? task?.title || request.task : "The CFO";
+  const asker = request.task ? task ? goblinName(task) : request.task : "The CFO";
   const typeable = terminalNames(request, []);
   const commands = (typeable.length ? typeable : needed).map((name) => storeCommand(request.project, name));
   const filled = needed.filter((name) => !!values[name]);

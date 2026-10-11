@@ -464,13 +464,14 @@ export interface Review {
   // revising_since is when he sent a revision from the page without ending
   // its review: the item waits on its goblin's next version, not on him.
   revising_since: string;
-  // document is a delivered file, or null for any other item.
+  // document is a file cfo deliver handed him, which its Scrawl page shows,
+  // or null for any other item.
   document: ReviewDocument | null;
   state: string; answer: string; answer_id: string; delivered: boolean; reason: string; created_at: string; updated_at: string;
 }
-// A document delivered with cfo deliver: kind is set only when the browser
-// may open it, and link, when set, is where Open goes instead of the copy.
-export interface ReviewDocument { name: string; size: number; kind: string; link: string }
+// A file delivered with cfo deliver: kind is set when its page shows it, and
+// download says its page offers it to download.
+export interface ReviewDocument { name: string; size: number; kind: string; download: boolean }
 // A command the CFO needs the Overlord to run (API8): the stored text is what
 // runs; the board shows it verbatim and names the item when he presses Run.
 export interface Run {
@@ -701,7 +702,7 @@ function itemLists(v: Record<string, unknown>) {
     reviews: array(v.reviews).map((value) => {
       const r = object(value);
       return { id: string(r.id), identity: string(r.identity), task: string(r.task), title: string(r.title), image_count: number(r.image_count), lavish: string(r.lavish), link: string(r.link), watched: string(r.lavish_page) !== "",
-        document: r.document === undefined || r.document === null ? null : (({ name, size, kind, link }) => ({ name: string(name), size: number(size), kind: string(kind), link: string(link) }))(object(r.document)),
+        document: r.document === undefined || r.document === null ? null : (({ name, size, kind, download }) => ({ name: string(name), size: number(size), kind: string(kind), download: download === true }))(object(r.document)),
         state: string(r.state), answer: string(r.answer), answer_id: string(r.answer_id), delivered: r.delivered === undefined ? false : boolean(r.delivered), reason: string(r.reason),
         answered_by: string(r.answered_by), answered_in: string(r.answered_in), question: string(r.question), window_closed_at: string(r.window_closed_at), revising_since: string(r.revising_since),
         created_at: string(r.created_at), updated_at: string(r.updated_at) };

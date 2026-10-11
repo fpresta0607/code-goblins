@@ -5,7 +5,6 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"slices"
@@ -305,20 +304,21 @@ func TestARunningRunThatFinishesAfterTheCFORestartedIsRead(t *testing.T) {
 	}
 }
 
-// The CFO's delivered document is still served after the CFO restarted, and
-// its copy is removed when the item is pruned.
-func TestTheCFOsDocumentIsServedAndPrunedAfterTheCFORestarted(t *testing.T) {
+// The CFO's delivered file follows the CFO across a restart: its item takes
+// the new registration's clear, and its page and copy are removed when the
+// item is pruned once the review on its page has ended.
+func TestTheCFOsDeliveredFileFollowsTheCFOAndIsPrunedAfterItRestarted(t *testing.T) {
 	// Arrange
 	store, h := testStore(t)
 	primary, _, _, connection := primaryFixture(t, store)
 	servePipe(t, store, connection)
 	source := filepath.Join(t.TempDir(), "plan.pdf")
-	data := []byte("%PDF-1.7\n1 0 obj << >> endobj\n%%EOF\n")
-	if err := os.WriteFile(source, data, 0o600); err != nil {
+	if err := os.WriteFile(source, []byte("%PDF-1.7\n1 0 obj << >> endobj\n%%EOF\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	ctx := context.Background()
-	if err := DeliverDocument(h, "", "cfo-document-1", "The plan", source, ""); err != nil {
+	pages := &opened{}
+	if err := DeliverDocument(h, "", "cfo-document-1", "The plan", source, false, pages.open); err != nil {
 		t.Fatal(err)
 	}
 	if err := store.ingestReviews(); err != nil {
@@ -330,19 +330,21 @@ func TestTheCFOsDocumentIsServedAndPrunedAfterTheCFORestarted(t *testing.T) {
 	s.cycle(ctx, false)
 
 	// Act
-	served := httptest.NewRecorder()
-	NewHTTP(s, "board.local", nil).ServeHTTP(served, httptest.NewRequest("GET", "http://board.local/api/reviews/cfo-document-1/document", nil))
-	if _, err := store.Queue(Action{ID: "open-cfo-document-1", Kind: "review_clear", Generation: reopened, ReviewID: "cfo-document-1", Text: "Opened"}); err != nil {
+	if _, err := store.Queue(Action{ID: "clear-cfo-document-1", Kind: "review_clear", Generation: reopened, ReviewID: "cfo-document-1"}); err != nil {
 		t.Fatal(err)
 	}
 	if err := store.ProcessOne(ctx, s.execute); err != nil {
 		t.Fatal(err)
 	}
+	_, pageErr := os.Stat(pages.pages[0])
+	if err := store.settlePage(pageKey(pages.pages[0]), Review{}); err != nil {
+		t.Fatal(err)
+	}
 	pruneErr := store.pruneReviews(time.Now().Add(closedReviewRetention + time.Hour))
 
 	// Assert
-	if served.Code != 200 || !bytes.Equal(served.Body.Bytes(), data) {
-		t.Errorf("the document after the restart = %d %q, want the copy", served.Code, served.Body.String())
+	if pageErr != nil || filepath.Dir(pages.pages[0]) != dir {
+		t.Errorf("the page before pruning = %v in %s, want it in the item's folder %s", pageErr, pages.pages[0], dir)
 	}
 	if pruneErr != nil || len(store.Snapshot().Reviews) != 0 {
 		t.Fatalf("pruning left %+v (%v), want the cleared item gone", store.Snapshot().Reviews, pruneErr)

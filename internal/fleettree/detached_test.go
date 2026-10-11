@@ -92,3 +92,183 @@ func TestReadShowsAGoblinsDetachedTreesUnderItWithTheirMemory(t *testing.T) {
 		t.Errorf("processes under the harness were asked whose they are (%v), want only those that reach no harness", asked)
 	}
 }
+
+// On 2026-10-11 the supervisor twice raised progress_stalled on a goblin
+// whose whole test suite ran for hours. Git Bash had cut the suite off from
+// the harness, its first processes were Git Bash's own, which carry no mark,
+// the goblin's script had unset the mark for the rest, and the reader kept
+// the first answer, nobody's, for the tree's whole life. A process that joins
+// a tree is asked whose it is too: here the goblin's own launcher, which is
+// the goblin's by the task's folder it runs from. And a run at work in a
+// detached tree is the goblin's work.
+func TestReadPlacesADetachedRunOnceAProcessOfItsOwnJoinsIt(t *testing.T) {
+	// Arrange
+	launched := at.Add(-time.Hour)
+	later := func(minutes int) time.Time { return launched.Add(time.Duration(minutes) * time.Minute) }
+	testCPU := time.Minute
+	shells := []Process{
+		{PID: 300, ParentPID: 904, Exe: "bash.exe", Created: 30, Started: later(50), Memory: megabyte},
+		{PID: 301, ParentPID: 300, Exe: "bash.exe", Created: 31, Started: later(50), Memory: megabyte},
+	}
+	suite := func() []Process {
+		return []Process{
+			{PID: 302, ParentPID: 301, Exe: "go.exe", Created: 32, Started: later(61), Memory: 300 * megabyte},
+			{PID: 303, ParentPID: 302, Exe: "tree.exe", Created: 33, Started: later(61), Memory: 5 * megabyte},
+			{PID: 304, ParentPID: 303, Exe: "branchsync.test.exe", Created: 34, Started: later(61), CPU: testCPU, Memory: 200 * megabyte},
+		}
+	}
+	processes := append(goblinProcesses(launched, 0), shells...)
+	commands := map[int]string{
+		300: `"C:\Program Files\Git\usr\bin\bash.exe" /c/scratch/tree/tools/whole_suite.sh`,
+		301: `"C:\Program Files\Git\usr\bin\bash.exe" /c/scratch/tree/tools/whole_suite.sh`,
+		302: `"C:\Program Files\Go\bin\go.exe" test -exec C:\scratch\tree\tools\launcher\tree.exe -p 1 ./internal/branchsync`,
+		303: `C:\scratch\tree\tools\launcher\tree.exe C:\Temp\go-build1\b001\branchsync.test.exe -test.timeout=1h`,
+		304: `C:\Temp\go-build1\b001\branchsync.test.exe -test.timeout=1h`,
+	}
+	asked := map[int]int{}
+	now := at
+	reader := Reader{
+		Home:        t.TempDir(),
+		Processes:   func() ([]Process, error) { return processes, nil },
+		Listeners:   func() (map[int][]int, error) { return nil, nil },
+		CommandLine: func(pid int) (string, error) { return commands[pid], nil },
+		// Nothing in the suite carries a mark: the launcher is the task's
+		// by the task's folder it runs from.
+		Owner: func(pid int) string { asked[pid]++; return map[int]string{303: "tree"}[pid] },
+		Now:   func() time.Time { return now },
+	}
+	goblin := Goblin{Meta: state.TaskMeta{ID: "tree", Harness: "codex"}, HarnessPID: 100}
+
+	// Act: the first read finds the suite's two shells alone, and the next
+	// two, a minute apart, its go test, the launcher and a test binary using
+	// the processor.
+	if _, err := reader.Read(context.Background(), goblin); err != nil {
+		t.Fatal(err)
+	}
+	var tree Tree
+	for minute := 1; minute <= 2; minute++ {
+		now, testCPU = at.Add(time.Duration(minute)*time.Minute), testCPU+30*time.Second
+		processes = append(append(goblinProcesses(launched, 0), shells...), suite()...)
+		var err error
+		if tree, err = reader.Read(context.Background(), goblin); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	// Assert
+	run := child(t, tree, "process:300:30")
+	if !run.Detached || run.Group != GroupTest || run.State != Working || run.Memory != 507*megabyte {
+		t.Fatalf("the suite = %+v, want the goblin's detached test run at work with its 507 MB", run)
+	}
+	if names, used := tree.Jobs(); !slices.Contains(names, "bash.exe (pid 300)") || used < 90*time.Second {
+		t.Errorf("Jobs() = %v, %s; want the suite named with its 90 s of processor time", names, used)
+	}
+	if !tree.Working() {
+		t.Error("the goblin reads as not working while its suite runs")
+	}
+	if busy := tree.Busy(); !busy.Equal(at.Add(2 * time.Minute)) {
+		t.Errorf("Busy() = %s, want the last read, when the suite used the processor", busy)
+	}
+	for pid, times := range asked {
+		if times != 1 {
+			t.Errorf("process %d was asked whose it is %d times over three reads, want once", pid, times)
+		}
+	}
+}
+
+// A machine service a goblin started, such as the no-mistakes daemon every
+// gate shares, works for every goblin: its agents using the processor say
+// nothing of the work of the goblin that happened to start it.
+func TestReadCountsNoMachineServiceAsTheGoblinsWork(t *testing.T) {
+	// Arrange
+	launched := at.Add(-time.Hour)
+	daemonCPU := time.Minute
+	processes := func() []Process {
+		return append(goblinProcesses(launched, 0),
+			Process{PID: 400, ParentPID: 905, Exe: "no-mistakes.exe", Created: 40, Started: launched.Add(50 * time.Minute), Memory: 50 * megabyte},
+			Process{PID: 401, ParentPID: 400, Exe: "claude.exe", Created: 41, Started: launched.Add(55 * time.Minute), CPU: daemonCPU, Memory: 400 * megabyte},
+		)
+	}
+	now := at
+	reader := Reader{
+		Home:      t.TempDir(),
+		Processes: func() ([]Process, error) { return processes(), nil },
+		Listeners: func() (map[int][]int, error) { return nil, nil },
+		CommandLine: func(pid int) (string, error) {
+			return map[int]string{400: `no-mistakes.exe daemon`, 401: `claude.exe -p --model opus`}[pid], nil
+		},
+		Owner: func(pid int) string { return map[int]string{400: "tree"}[pid] },
+		Now:   func() time.Time { return now },
+	}
+	goblin := Goblin{Meta: state.TaskMeta{ID: "tree", Harness: "codex"}, HarnessPID: 100}
+
+	// Act: two reads a minute apart, the gate's agent busy between them.
+	if _, err := reader.Read(context.Background(), goblin); err != nil {
+		t.Fatal(err)
+	}
+	now, daemonCPU = at.Add(time.Minute), daemonCPU+30*time.Second
+	tree, err := reader.Read(context.Background(), goblin)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Assert
+	if daemon := child(t, tree, "process:400:40"); !daemon.Detached {
+		t.Errorf("the daemon = %+v, want it shown under the goblin that started it", daemon)
+	}
+	if names, _ := tree.Jobs(); slices.Contains(names, "no-mistakes.exe (pid 400)") {
+		t.Errorf("Jobs() = %v name the daemon, which works for every gate", names)
+	}
+	// The goblin's own jobs last started at 40 minutes, its browser.
+	if tree.Working() || !tree.Busy().Equal(launched.Add(40*time.Minute)) {
+		t.Errorf("the goblin reads as working (%t, busy at %s) by the daemon's agent", tree.Working(), tree.Busy())
+	}
+}
+
+// A goblin's terminal is the host that runs its harness, which has no parent
+// once the spawn that started it has returned, and which works in the task's
+// folders. It is the terminal, never a job of the goblin's: its processor
+// time draws the goblin's screen.
+func TestReadKeepsTheGoblinsOwnTerminalOutOfItsJobs(t *testing.T) {
+	// Arrange
+	launched := at.Add(-time.Hour)
+	hostCPU := time.Minute
+	processes := func() []Process {
+		return []Process{
+			{PID: 50, ParentPID: 990, Exe: "cfo.exe", Created: 1, Started: launched.Add(-time.Second), CPU: hostCPU, Memory: 30 * megabyte},
+			{PID: 51, ParentPID: 50, Exe: "OpenConsole.exe", Created: 2, Started: launched.Add(-time.Second), CPU: hostCPU, Memory: 10 * megabyte},
+			{PID: 100, ParentPID: 50, Exe: "claude.exe", Created: 3, Started: launched, Memory: 500 * megabyte},
+		}
+	}
+	now := at
+	reader := Reader{
+		Home:        t.TempDir(),
+		Processes:   func() ([]Process, error) { return processes(), nil },
+		Listeners:   func() (map[int][]int, error) { return nil, nil },
+		CommandLine: func(pid int) (string, error) { return map[int]string{50: `cfo.exe host --id tree --dir C:\worktrees\repo\tree`}[pid], nil },
+		// The host is the task's by the worktree it is told to work in.
+		Owner: func(pid int) string { return map[int]string{50: "tree"}[pid] },
+		Now:   func() time.Time { return now },
+	}
+	goblin := Goblin{Meta: state.TaskMeta{ID: "tree", Harness: "codex"}, HarnessPID: 100}
+
+	// Act: two reads a minute apart, the host drawing the screen between them.
+	if _, err := reader.Read(context.Background(), goblin); err != nil {
+		t.Fatal(err)
+	}
+	now, hostCPU = at.Add(time.Minute), hostCPU+30*time.Second
+	tree, err := reader.Read(context.Background(), goblin)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Assert
+	for _, child := range tree.Children {
+		if child.Kind == KindProcess {
+			t.Errorf("the goblin's tree holds %+v, want no job: the host is its terminal", child)
+		}
+	}
+	if tree.Working() || tree.Memory != 500*megabyte {
+		t.Errorf("the goblin reads as working = %t with %d MB, want idle with its harness's 500 MB", tree.Working(), tree.Memory/megabyte)
+	}
+}
