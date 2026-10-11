@@ -941,6 +941,38 @@ func TestAGoblinIsToldToPutAHeavyRunBehindTheLine(t *testing.T) {
 	}
 }
 
+// The Overlord on 2026-10-11: "make sure if your testign or goblins open up
+// terminals or windows to check or run tests tataht it finsihes and celans
+// up and montiros whats startgin so nothing gets fogtent or runs in loops".
+// Every goblin's first instruction, a helper's too, and the one a goblin
+// taking over a task gets, says what it starts is its own to end.
+func TestAGoblinIsToldWhatItStartsIsItsOwnToEnd(t *testing.T) {
+	// Arrange
+	brief := filepath.Join(t.TempDir(), "brief.md")
+
+	for name, instruction := range map[string]string{
+		"a new goblin":         spawnInstruction(brief, state.TaskMeta{ID: "task-7", Kind: "ship"}, nil),
+		"a scout":              spawnInstruction(brief, state.TaskMeta{ID: "task-7", Kind: "scout"}, nil),
+		"a helper":             spawnInstruction(brief, state.TaskMeta{ID: "task-7-h1", Kind: "ship", Parent: "task-7"}, nil),
+		"a goblin taking over": handoffInstruction(filepath.Join(t.TempDir(), "handoff.md"), brief, state.TaskMeta{ID: "task-7", Kind: "ship"}),
+	} {
+		t.Run(name, func(t *testing.T) {
+			// Assert
+			for _, want := range []string{
+				"Every process you start is yours to end.",
+				"In tests run browsers headless and programs with their windows hidden, unless a picture needs a window.",
+				"end it by that pid, never by its name, once you no longer need it and before you report done.",
+				"Give every retry and every polling loop a cap.",
+				"The supervisor tells the CFO of a window you show on the Overlord's screen, a command you start again and again, and anything you leave running.",
+			} {
+				if !strings.Contains(instruction, want) {
+					t.Errorf("instruction = %q, want %q", instruction, want)
+				}
+			}
+		})
+	}
+}
+
 func TestNotifyInstructionTeachesWorkingAndWaitingReports(t *testing.T) {
 	exe, err := os.Executable()
 	if err != nil {
