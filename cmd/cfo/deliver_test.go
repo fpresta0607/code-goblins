@@ -10,9 +10,9 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/fpresta0607/code-goblins/internal/fleet"
 	"github.com/fpresta0607/code-goblins/internal/auth"
 	"github.com/fpresta0607/code-goblins/internal/execx"
+	"github.com/fpresta0607/code-goblins/internal/fleet"
 	"github.com/fpresta0607/code-goblins/internal/state"
 )
 
