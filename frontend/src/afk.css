@@ -80,6 +80,7 @@
 .inbox-list.afk-decisions li { grid-template-columns: auto minmax(0, 1fr) auto; align-items: start; padding: 10px 12px; }
 .afk-decisions .delivery { margin-top: 2px; }
 .afk-decisions .inbox-text { gap: 2px; }
+.afk-decisions small.afk-not-landed { color: var(--amber); }
 .afk-evidence { display: block; max-height: calc(1.5em * 2); overflow: hidden; color: var(--muted); line-height: 1.5; overflow-wrap: anywhere; }
 .afk-evidence.expanded { max-height: none; overflow: visible; }
 .inbox-list.afk-lines li { grid-template-columns: minmax(0, 1fr); padding: 10px 12px; overflow-wrap: anywhere; }

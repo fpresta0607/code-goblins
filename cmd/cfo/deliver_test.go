@@ -445,3 +445,36 @@ func TestPRMergeStaysSilentWhenThereIsNoLocalBranch(t *testing.T) {
 		t.Errorf("stderr = %q, want silence - there was nothing local to clean up", stderr.String())
 	}
 }
+
+// Every goblin reads its brief, so the brief is where it learns what to run
+// before each push: the project's own check, by the command the CFO runs it
+// by, in place of tests it would pick by name.
+func TestBriefScaffoldTellsTheGoblinToRunTheProjectsCheckBeforeEachPush(t *testing.T) {
+	// Arrange
+	t.Setenv("CFO_HOME", t.TempDir())
+
+	// Act
+	var stdout, stderr bytes.Buffer
+	if exit := runBrief([]string{"t1", "--project", "projects/demo"}, &stdout, &stderr, commandRuntime{}); exit != 0 {
+		t.Fatalf("runBrief exit=%d stderr=%s", exit, stderr.String())
+	}
+
+	// Assert
+	body, err := os.ReadFile(strings.TrimSpace(stdout.String()))
+	if err != nil {
+		t.Fatal(err)
+	}
+	brief := strings.Join(strings.Fields(string(body)), " ")
+	for _, want := range []string{
+		"## Verification",
+		"Before each push run `cfo verify t1`",
+		"Do not pick tests to run by name in its place",
+	} {
+		if !strings.Contains(brief, want) {
+			t.Errorf("brief scaffold is missing %q:\n%s", want, brief)
+		}
+	}
+	if verification, constraints := strings.Index(brief, "## Verification"), strings.Index(brief, "## Constraints"); verification < constraints {
+		t.Errorf("the scaffold puts Verification at %d and Constraints at %d, want Verification after the sections its author fills in", verification, constraints)
+	}
+}

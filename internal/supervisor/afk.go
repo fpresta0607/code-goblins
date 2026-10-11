@@ -487,7 +487,7 @@ func (s *Service) askLeftForHim(session string, now time.Time) string {
 		}
 		_, identity, err := readPrimary(stateDir)
 		if err == nil {
-			q := Question{ID: leftQuestionID(left), Identity: identity, Text: leftQuestion(left), Options: slices.Clone(left.Options), Recommended: left.Recommendation, Decided: left.Answer, CreatedAt: now}
+			q := Question{ID: afk.LeftQuestionID(left), Identity: identity, Text: leftQuestion(left), Options: slices.Clone(left.Options), Recommended: left.Recommendation, Decided: left.Answer, CreatedAt: now}
 			err = s.Store.acceptQuestion(q)
 			if err == nil {
 				asked = append(asked, q.ID)
@@ -506,12 +506,6 @@ func (s *Service) askLeftForHim(session string, now time.Time) string {
 	return says
 }
 
-// leftQuestionID is the ID of the Command Center question a line left for
-// the Overlord is asked as.
-func leftQuestionID(left afk.Entry) string {
-	return "afk-left-" + left.At.UTC().Format("20060102T150405.000000000Z")
-}
-
 // leftForHim is each line a stretch's decisions left for the Overlord and the
 // CFO did not strike, as an item for him: the question it is asked as in the
 // Command Center when the stretch ends, or what became of a line the CFO
@@ -522,7 +516,7 @@ func leftForHim(decisions []afk.Entry) []afk.Held {
 		if left.Kind != afk.KindLeft || left.Struck != "" {
 			continue
 		}
-		one := afk.Held{Item: "question:" + leftQuestionID(left), What: left.What, At: left.At, Waiting: true, Now: pendingSays(left.Answer), Recommendation: left.Recommendation, Settled: left.Settled}
+		one := afk.Held{Item: "question:" + afk.LeftQuestionID(left), What: left.What, At: left.At, Waiting: true, Now: pendingSays(left.Answer), Recommendation: left.Recommendation, Settled: left.Settled}
 		if left.Settled != "" {
 			one.Waiting, one.Now = false, bounded("settled by the CFO: "+left.Settled, 500)
 		}
@@ -780,7 +774,7 @@ func (s *Service) afkView(d Database) (AFKView, error) {
 		if err != nil {
 			return view, fmt.Errorf("AFK mode's log could not be read, so the board cannot say what was decided or held: %w", err)
 		}
-		decisions := afk.Decisions(entries)
+		decisions := afk.Noted(afk.Decisions(entries))
 		view.Decided, view.Held = len(decisions), s.heldOf(d, entries, decisions)
 	case switched.Session != "" && !switched.Ended.IsZero():
 		// A stretch never ends without its report kept, so the stretch the

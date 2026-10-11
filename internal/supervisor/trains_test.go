@@ -391,6 +391,39 @@ func TestATrainsMergesReachAFKModesLogOnlyWhileItIsOn(t *testing.T) {
 	}
 }
 
+// The report finds the merge a line the CFO wrote for a landing names by the
+// train's own pull request, which the train's line holds as train.Evidence
+// writes it.
+func TestALineTheCFOWritesForATrainsLandingIsWithTheMergeTheTrainLogged(t *testing.T) {
+	// Arrange
+	service, h := fleetService(t)
+	engine := service.trainEngine(execx.OSRunner{}, "o/r")
+	landed := train.Train{ID: "r-20261010-160000", PR: "https://github.com/o/r/pull/900", Head: "abcdef1234", Base: "main", BaseSHA: "1234567890"}
+	if _, _, err := afk.TurnOn(h.State, "the board", nil, time.Now()); err != nil {
+		t.Fatal(err)
+	}
+	engine.Landed(context.Background(), landed, train.Car{Number: 11, URL: "https://github.com/o/r/pull/11"})
+	if _, err := afk.Log(h.State, afk.Entry{Kind: afk.KindMerge, What: "PR 11 landed on merge train 900", Link: landed.PR, Evidence: "One CI run, all checks passed."}, time.Now().Add(time.Second)); err != nil {
+		t.Fatal(err)
+	}
+	switched, err := afk.Read(h.State)
+	if err != nil {
+		t.Fatal(err)
+	}
+	entries, _, err := afk.Entries(h.State, switched.Session)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Act
+	sections := afk.Report{Decisions: afk.Decisions(entries)}.Sections()
+
+	// Assert
+	if len(sections) != 1 || sections[0].Title != "Merged" || len(sections[0].Entries) != 1 || sections[0].Entries[0].What != "https://github.com/o/r/pull/11" {
+		t.Fatalf("headings = %+v, want #11 alone under Merged", sections)
+	}
+}
+
 // Every pull request a goblin reported done in its current run is read back
 // with when it was first reported done, whatever the goblin reported after:
 // working on its next pull request, being blocked, or reporting it again. A
