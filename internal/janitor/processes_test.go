@@ -249,22 +249,3 @@ func TestTheSweepNamesWhatItCannotProveAndEndsNoneOfIt(t *testing.T) {
 		t.Fatalf("the bridge is named as %+v, want its command and the memory of its whole tree", left[0])
 	}
 }
-
-// A command line can hold a credential, and what the sweep names is kept in
-// its record and shown in a wake.
-func TestAProcessIsNamedWithoutWhatItsCommandLineHides(t *testing.T) {
-	for _, test := range []struct {
-		arguments []string
-		want      string
-	}{
-		{[]string{"node", "server.js", "--port", "4455"}, "node server.js --port 4455"},
-		{[]string{"curl", "--token=abc123", "https://example.test/hook?signature=def456"}, "curl --token=<hidden> https://example.test/hook"},
-		{[]string{"tool", "--api-key", "abc123", "run"}, "tool --api-key <hidden> run"},
-		{[]string{"tool", "PASSWORD=hunter2"}, "tool PASSWORD=<hidden>"},
-		{[]string{"node", strings.Repeat("x", 200)}, "node " + strings.Repeat("x", 152) + "..."},
-	} {
-		if got := commandOf(test.arguments); got != test.want {
-			t.Errorf("commandOf(%q) = %q, want %q", test.arguments, got, test.want)
-		}
-	}
-}

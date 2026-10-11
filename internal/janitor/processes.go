@@ -3,7 +3,6 @@ package janitor
 import (
 	"context"
 	"fmt"
-	"regexp"
 	"slices"
 	"sort"
 	"strings"
@@ -253,7 +252,7 @@ func planProcesses(processes []Process, owners []Owner, watched []Watched, now t
 	}
 	item := func(tree []Process, owner, why string) ProcessItem {
 		root := tree[0]
-		entry := ProcessItem{PID: root.PID, Started: root.Started, Name: root.Name, Owner: owner, Command: commandOf(root.Arguments), Why: why}
+		entry := ProcessItem{PID: root.PID, Started: root.Started, Name: root.Name, Owner: owner, Command: proc.ShownCommand(root.Arguments), Why: why}
 		for _, process := range tree {
 			entry.Memory += process.Memory
 		}
@@ -475,34 +474,4 @@ func isBrowserBridge(process Process) bool {
 	return name == "node" && slices.ContainsFunc(process.Arguments, func(argument string) bool {
 		return strings.Contains(strings.ToLower(argument), "chrome-devtools-axi-bridge")
 	})
-}
-
-// secretArgument matches an argument that names what follows it as a secret.
-var secretArgument = regexp.MustCompile(`(?i)(token|secret|passw|apikey|api[-_]key|credential|authorization|cookie|bearer)`)
-
-// commandOf is a process's command as the CFO may read it: at most 160
-// characters, with the value of an argument named as a secret, and a URL's
-// query, left out. A command line can hold a credential, and the sweep's
-// record and wake are kept and shown.
-func commandOf(arguments []string) string {
-	shown := make([]string, 0, len(arguments))
-	hideNext := false
-	for _, argument := range arguments {
-		switch name, _, hasValue := strings.Cut(argument, "="); {
-		case hideNext:
-			argument, hideNext = "<hidden>", false
-		case hasValue && secretArgument.MatchString(name):
-			argument = name + "=<hidden>"
-		case strings.HasPrefix(argument, "-") && secretArgument.MatchString(argument):
-			hideNext = true
-		case strings.Contains(argument, "://"):
-			argument, _, _ = strings.Cut(argument, "?")
-		}
-		shown = append(shown, argument)
-	}
-	command := strings.Join(shown, " ")
-	if len(command) > 160 {
-		command = command[:157] + "..."
-	}
-	return command
 }
