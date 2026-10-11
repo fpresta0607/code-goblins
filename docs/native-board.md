@@ -784,12 +784,17 @@ Every terminal pane, native or Herdr, shows a voice bubble in its bottom-right c
 It is drawn like the board's dialogue boxes: a microphone in a stepped pixel frame, outlined in Bone while idle and in Moss while it records, and its first-visit hint and recent messages open in the same leather dialogue frame.
 That frame is at most 400 px wide and never wider than its terminal less 28 px, so in a panel dragged narrow it is whole; until 2 October 2026 it was sized by the window, and a narrow panel cut off its left side.
 Holding Ctrl+Shift+Space in a terminal, native or Herdr, dictates into it through the speech model the supervisor runs on this PC, in a browser tab and in the desktop window alike.
-At each press the board opens the microphone once and records that track through the small audio worklet the board serves at `/assets/dictation-capture.js`, which hands the page its samples as they arrive, and while the keys are held the bubble's bars are recent samples of that same capture's level, each a dot below the loudness of a voice, so silence and a room's hum show a flat dotted line; no bars are drawn while the bubble is idle.
-The audio context the worklet runs in is running from the key press, while the microphone opens, and is suspended once thirty seconds pass with no recording, so a dictation that follows another soon finds it running.
-The bubble says it listens only once the first samples arrive, so whatever is said while it shows listening is recorded.
+The bubble says it listens on the frame the keys go down, before the microphone or the speech engine is ready.
+The first press opens the microphone, and the board records it through the small audio worklet it serves at `/assets/dictation-capture.js`, which hands the page its samples as they arrive, and while the keys are held the bubble's bars are recent samples of that same microphone's level, each a dot below the loudness of a voice, so silence and a room's hum show a flat dotted line; no bars are drawn while the bubble is idle.
+The microphone then stays open while the board has the focus, and the worklet keeps the last second it heard, so every later press records from the moment the keys go down, and a phrase begun with the press is kept whole.
+It closes when the window loses the focus or the page is hidden, and once 30 minutes pass with no dictation, and the next press opens it again.
+So the first press after the board takes the focus loses what is said while the microphone opens: on this PC, with Chromium's stand-in microphone, a median of 5 ms in the desktop window and 155 ms in a browser, at most 0.42 s, and a real microphone adds the time it takes to start.
+A microphone opened before any press would show as in use whenever the board had the focus, before anyone dictated, which is why it waits for the first press (the CFO's decision of 11 October 2026).
+The audio context the worklet runs in is made while the page is idle, before the first press needs it, and runs while the microphone is open.
+Until 11 October 2026 the bubble said it listened only once the first samples arrived, 0.1 to 0.7 s after the press on this PC, because every press opened the microphone again and the bars built a second audio context of their own, which held the page still for up to 0.27 s.
 Until 9 October 2026 the context was suspended at every release and the bubble said it listened as soon as the microphone was open, 0.4 to 0.7 s before a busy PC had the context running again, so a short dictation recorded nothing and was told as "Nothing was heard."
 A recognizer that has not begun to listen five seconds after the microphone opened ends the hold, and the CFO is told.
-A hold let go before the bubble listens, as before the microphone opens, types nothing, asks the supervisor nothing and says nothing.
+A hold let go before anything was recorded, as before the microphone opens, types nothing, asks the supervisor nothing and says nothing.
 As the recording begins the page tells the supervisor, with `POST /api/dictation/warm`, so it loads the speech engine while the words are said.
 A dictation of any length goes in pieces while the keys are held: a piece of four seconds or more is handed on once 0.3 s of quiet follows speech in it, and one that reaches twenty seconds with no such pause, as in a noisy room, is cut where it was quietest.
 Each piece goes as soon as it ends, in one channel at 16 kHz, as a WAV to `POST /api/dictation` on the board's own address, one at a time and in order, so its words are recognised while the Overlord is still speaking.
@@ -797,9 +802,9 @@ Releasing any of the three keys sends what followed the last piece, and the word
 Once anything loud was said, room noise after the last piece and a piece with nothing loud in it are not sent, because the model writes words of its own into a room's hiss, such as "It is a good idea."
 A dictation with nothing loud in it at all, as from a quiet microphone, is sent whole, as it is.
 A dictation typed right after another, with no key pressed in the terminal between them, starts with a space, so the two do not run together; the recent dictations keep the words alone.
-The microphone closes and the bubble goes idle at the release, without waiting for the words, and the next dictation can start while the words of the last are still on their way; the words of each are typed when recognition finishes.
+The bubble goes idle at the release, without waiting for the words, and the next dictation can start while the words of the last are still on their way; the words of each are typed when recognition finishes.
 A native terminal's paste follows the program's own bracketed paste mode, and the Herdr view, whose screen is redrawn from frames, always sends a bracketed paste, as its clipboard paste does.
-Releasing the keys anywhere on the page, the window losing focus or the page being hidden also stops listening, so the microphone never stays open once the terminal loses the keys.
+Releasing the keys anywhere on the page, the window losing focus or the page being hidden also stops listening, and the window losing focus or the page being hidden closes the microphone.
 A blocked or missing microphone or silence is explained in a note for six seconds, and only those: a dictation with speech in it is never told as nothing heard.
 "Nothing was heard." is said once, at the release, of a hold that listened and had no words in it, and never once the next dictation has begun, when it would read as being about that one.
 A recording that cannot begin, as when the worklet cannot be loaded, goes to the CFO at once and the bubble never says it listens.

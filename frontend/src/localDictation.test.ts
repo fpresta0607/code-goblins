@@ -122,13 +122,13 @@ const SHORT = { samples: new Float32Array([0, .5, -.5, 1]), rate: 16000 };
 // with the words it is told to or refuses. Its recording runs at once, or
 // with late only when the test says it began or could not.
 function engine({ sound = SHORT as Sound, words = "open the pull request", refusal = "", late = false } = {}) {
-  const recorded: { track: MediaStreamTrack; stopped: boolean; cancelled: boolean; say: (sound: Sound) => void; begin: () => void; fail: (error: Error) => void }[] = [];
+  const recorded: { since: number; stopped: boolean; cancelled: boolean; say: (sound: Sound) => void; begin: () => void; fail: (error: Error) => void }[] = [];
   const posted: Uint8Array<ArrayBuffer>[] = [];
   const waiting: { resolve: (text: string) => void; reject: (error: Error) => void }[] = [];
-  const open = (from: MediaStreamTrack, piece: (sound: Sound) => void): Recording => {
+  const open = (piece: (sound: Sound) => void, since: number): Recording => {
     let begin = () => {}, fail: (error: Error) => void = () => {};
     const began = late ? new Promise<void>((resolve, reject) => { begin = resolve; fail = reject; }) : Promise.resolve();
-    const recording = { track: from, stopped: false, cancelled: false, say: piece, begin, fail };
+    const recording = { since, stopped: false, cancelled: false, say: piece, begin, fail };
     recorded.push(recording);
     return { began, stop: async () => { recording.stopped = true; return sound; }, cancel: () => { recording.cancelled = true; } };
   };
@@ -160,14 +160,14 @@ function listen(recognizer: Recognizer) {
   return { heard, errors, ended: () => ended, started: () => started };
 }
 
-test("what is said between start and stop is recorded from the track and its words are delivered once", async () => {
+test("what is said from the press to the release is recorded from the track and its words are delivered once", async () => {
   const { Recognition, recorded, posted, answer } = engine();
   const recognizer = new Recognition();
   const events = listen(recognizer);
-  recognizer.start(track);
+  recognizer.start(track, 1234.5);
   await settle();
-  assert.equal(recorded.length, 1);
-  assert.equal(recorded[0].track, track, "the recording is of the track it was handed, not a second microphone");
+  assert.equal(recorded.length, 1, "one recording, of the microphone the track is of");
+  assert.equal(recorded[0].since, 1234.5, "the recording reaches back to the moment the keys went down");
   recognizer.stop();
   await settle();
   assert.equal(recorded[0].stopped, true);
@@ -479,7 +479,7 @@ test("dictation types what the local engine heard, and a refusal goes to the CFO
   await settle();
   subject.stop();
   await settle();
-  assert.equal(closed, 1, "the microphone closes at release, before the supervisor answers");
+  assert.equal(closed, 1, "the hold hands the microphone back at release, before the supervisor answers");
   assert.deepEqual(listening, [true, false]);
   answer();
   await settle();
@@ -553,7 +553,7 @@ test("a hold let go before the recording ran asks the supervisor nothing and say
   // Act
   subject.start();
   await settle();
-  assert.deepEqual(listening, [], "the bubble does not say it listens before anything records");
+  assert.deepEqual(listening, [true], "the bubble listens from the press");
   subject.stop();
   await settle();
 
@@ -563,12 +563,12 @@ test("a hold let go before the recording ran asks the supervisor nothing and say
   assert.deepEqual(notes.filter(Boolean), [], "nothing listened, so it is not told as nothing heard");
   assert.deepEqual(failures, []);
 
-  // Act: the next hold is kept until the bubble listens.
+  // Act: the next hold records.
   subject.start();
   await settle();
   recorded[1].begin();
   await settle();
-  assert.deepEqual(listening, [false, true]);
+  assert.deepEqual(listening, [true, false, true]);
   subject.stop();
   await settle();
   answer();

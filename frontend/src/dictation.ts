@@ -1,5 +1,3 @@
-import { voiceLevel } from "./voice.ts";
-
 // Push-to-talk dictation into a terminal: holding Ctrl+Shift+Space listens
 // through a recognizer, and releasing it types what was heard into the
 // terminal that has the keyboard, as one line the Overlord sends with Enter.
@@ -10,15 +8,17 @@ export interface Recognizer {
   continuous: boolean;
   interimResults: boolean;
   lang: string;
-  // onstart is told once the recognizer listens: nothing said before it is
-  // heard.
+  // onstart is told once the recognizer listens, which a recording that
+  // reaches back to the press takes a moment to begin.
   onstart: (() => void) | null;
   onresult: ((event: { resultIndex: number; results: ArrayLike<ArrayLike<{ transcript: string }>> }) => void) | null;
   // message, when a recognizer gives one, is the note to show as it is.
   onerror: ((event: { error: string; message?: string }) => void) | null;
   onend: (() => void) | null;
-  // start listens to the track given, or opens its own microphone without one.
-  start(track?: MediaStreamTrack): void;
+  // start listens to the track given, from since, the performance.now() time
+  // the keys went down, as far back as the track's capture still holds, or
+  // opens its own microphone without one.
+  start(track?: MediaStreamTrack, since?: number): void;
   stop(): void;
   abort(): void;
 }
@@ -66,25 +66,11 @@ export function dictationProblem(error: string): string {
 // which goes to the CFO rather than onto the board.
 export interface DictationEvents { heard: (text: string) => void; listening: (on: boolean) => void; problem: (note: string) => void; failed: (reason: string) => void }
 
-// A Capture is one open microphone: its track, which the recognizer listens
-// to, and how loud it is right now, which the voice bubble's waveform shows.
+// A Capture is one hold's use of the microphone: its track, which the
+// recognizer listens to, how loud it is right now, which the voice bubble's
+// waveform shows, and close, which hands it back once the hold is over.
 // Nothing else reads, keeps or sends its audio.
 export interface Capture { track: MediaStreamTrack; level: () => number; close: () => void }
-
-export async function openMicrophone(): Promise<Capture> {
-  const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-  const context = new AudioContext();
-  const analyser = context.createAnalyser();
-  analyser.fftSize = 512;
-  context.createMediaStreamSource(stream).connect(analyser);
-  void context.resume();
-  const samples = new Uint8Array(analyser.fftSize);
-  return {
-    track: stream.getAudioTracks()[0],
-    level: () => { analyser.getByteTimeDomainData(samples); return voiceLevel(samples); },
-    close: () => { for (const track of stream.getTracks()) track.stop(); void context.close(); },
-  };
-}
 
 // inDesktopApp says whether the page runs in the desktop app, whose WebView2
 // puts its own object in the page as chrome.webview, which no browser tab has.
@@ -131,6 +117,8 @@ interface Hold {
   isListening: boolean;
   // When its recognizer was started, in ms.
   since: number;
+  // When the keys went down, as performance.now() tells time.
+  pressed: number;
   timer?: ReturnType<typeof setTimeout>;
 }
 
@@ -163,16 +151,20 @@ export class Dictation {
     this.microphone = microphone;
   }
 
-  start(): void {
+  // start listens from at, when the keys went down. The bubble says so on that
+  // same press, while the microphone opens: what is said from the press is
+  // recorded, as far back as the microphone was open.
+  start(at = performance.now()): void {
     if (this.hold) return;
-    const hold: Hold = { recognizer: new (this.recognition())(), phrases: [], text: null, isListening: false, since: 0 };
+    const hold: Hold = { recognizer: new (this.recognition())(), phrases: [], text: null, isListening: false, since: 0, pressed: at };
     this.attend(hold);
     this.pending.add(hold);
     this.hold = this.latest = hold;
     this.events.problem("");
+    this.events.listening(true);
     if (!this.microphone) { this.begin(hold); return; }
     this.microphone().then((capture) => {
-      // Released or closed while the microphone opened: keep nothing open.
+      // Released or closed while the microphone opened: hand it back.
       if (this.hold !== hold) { capture.close(); return; }
       this.capture = capture;
       this.begin(hold);
@@ -183,8 +175,9 @@ export class Dictation {
     });
   }
 
-  // attend sets hold's recognizer up and hears its events. The bubble says it
-  // listens only once the recognizer does, so what it shows is being heard.
+  // attend sets hold's recognizer up and hears its events. A hold whose
+  // recognizer never comes to listen recorded nothing, so nothing is said of
+  // it.
   private attend(hold: Hold): void {
     const recognizer = hold.recognizer;
     recognizer.continuous = true;
@@ -195,7 +188,6 @@ export class Dictation {
       if (hold.isListening) return;
       hold.isListening = true;
       clearTimeout(hold.timer);
-      this.events.listening(true);
     };
     // Without interim results every result the browser sends is final.
     recognizer.onresult = (event) => {
@@ -263,10 +255,10 @@ export class Dictation {
     if (!track) recognizer.start();
     else {
       try {
-        recognizer.start(track);
+        recognizer.start(track, hold.pressed);
       } catch (error) {
         // A recognizer that cannot take a track opens its own microphone, so
-        // this one closes rather than capture twice, and shows no level.
+        // this hold hands this one back and shows no level.
         if (!(error instanceof TypeError)) throw error;
         this.release();
         recognizer.start();
@@ -284,16 +276,17 @@ export class Dictation {
     return this.capture?.level() ?? 0;
   }
 
-  // stop ends the listening at once: the bubble goes idle and the microphone
-  // closes. The recognizer has what was said by then and its words are typed
-  // in capture order, so the next dictation can start meanwhile.
+  // stop ends the listening at once: the bubble goes idle and the hold hands
+  // the microphone back. The recognizer has what was said by then and its
+  // words are typed in capture order, so the next dictation can start
+  // meanwhile.
   stop(): void {
     const hold = this.hold;
     if (!hold) return;
     this.hold = null;
     this.events.listening(false);
-    // Released before anything listened, as before the microphone opened:
-    // nothing was said to it, so nothing is asked or told of it.
+    // Released before anything recorded, as before the microphone opened:
+    // nothing reached it, so nothing is asked or told of it.
     if (!hold.isListening) {
       this.release();
       this.finish(hold, "");
