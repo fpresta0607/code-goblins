@@ -77,6 +77,7 @@ func noise() []rule {
 		{kind: kindRegistryKey, change: changeLeft, pattern: regexp.MustCompile(`(?i)^HKCU\\(Software\\Microsoft\\Windows\\CurrentVersion\\Uninstall|Software\\Classes\\AppUserModelId|Software\\Classes\\CLSID|Software\\Microsoft\\Windows\\CurrentVersion\\Notifications\\Settings|Control Panel\\NotifyIconSettings)$`), why: "a key where Windows lists installed apps, notification senders, classes or tray icons, which every profile comes to have and which the uninstall leaves, since a profile may have held it empty before, while each entry in it is compared"},
 		keys(`HKCU\Software\Microsoft\input`, "Windows' typing records"),
 		keys(`HKCU\Software\Microsoft\Windows\CurrentVersion\StorageSense`, "Windows' Storage Sense, which measures the drives by itself"),
+		keys(`HKCU\Software\Microsoft\Windows\CurrentVersion\Census`, "Windows' device census, which a scheduled task of Windows' own takes on its own schedule"),
 		{kind: kindRegistryValue, pattern: regexp.MustCompile(`(?i)^HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Notifications\\Settings\\QuietHours`), why: "Windows' own record of its quiet hours"},
 		keys(`HKCU\Software\Microsoft\IdentityCRL`, "Windows' sign-in records"),
 		keys(`HKCU\Software\Microsoft\EdgeWebView`, "the WebView2 runtime's own state, which every program that shows a web page writes"),

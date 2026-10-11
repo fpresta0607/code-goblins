@@ -305,3 +305,30 @@ func TestNoisePassesOverWindowsListsButNotWhatIsInThem(t *testing.T) {
 		}
 	}
 }
+
+// What Windows' own scheduled tasks write while a run goes on, as its device
+// census did on a clean runner, is passed over, and a key beside it is not.
+func TestNoisePassesOverWhatWindowsTasksWrite(t *testing.T) {
+	cases := []struct {
+		identity string
+		isNamed  bool
+	}{
+		{identity: `HKCU\Software\Microsoft\Windows\CurrentVersion\Census`, isNamed: false},
+		{identity: `HKCU\Software\Microsoft\Windows\CurrentVersion\Census\Store`, isNamed: false},
+		{identity: `HKCU\Software\Microsoft\Windows\CurrentVersion\CensusTaker`, isNamed: true},
+	}
+	for _, tc := range cases {
+		t.Run(tc.identity, func(t *testing.T) {
+			// Arrange
+			before, after := snapshotOf(map[string]map[string]string{kindRegistryKey: {}}), snapshotOf(map[string]map[string]string{kindRegistryKey: {tc.identity: ""}})
+
+			// Act
+			remaining, _ := compare(before, after, nil, noise())
+
+			// Assert
+			if (len(remaining) == 1) != tc.isNamed {
+				t.Errorf("named %v, want named %v", remaining, tc.isNamed)
+			}
+		})
+	}
+}
