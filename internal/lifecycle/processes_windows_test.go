@@ -259,3 +259,24 @@ func TestStopResourcesEndsAProcessThatMovesIntoTheTaskDuringCleanup(t *testing.T
 		t.Fatalf("a process that moved into the task after the first sweep survived Stop: stopped=%v", stopped)
 	}
 }
+
+// OwnerOf reads a running process's folder and environment: this test's own
+// process works in its package's folder, which is a task's place here and
+// no task's with no task to place it.
+func TestOwnerReaderPlacesARunningProcessByTheFolderItWorksIn(t *testing.T) {
+	// Arrange
+	directory, err := os.Getwd()
+	if err != nil {
+		t.Fatal(err)
+	}
+	stateDir := t.TempDir()
+
+	// Act
+	placed := ownerReader(stateDir, func() map[string][]string { return map[string][]string{"cg-here": {directory}} })(os.Getpid())
+	unplaced := ownerReader(stateDir, func() map[string][]string { return nil })(os.Getpid())
+
+	// Assert
+	if placed != "cg-here" || unplaced != "" {
+		t.Errorf("this process is %q with its folder a task's place and %q with none, want cg-here and nobody's", placed, unplaced)
+	}
+}

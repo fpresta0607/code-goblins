@@ -4,12 +4,16 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"path/filepath"
 	"slices"
 	"strings"
 	"sync"
+	"time"
 
+	"github.com/fpresta0607/code-goblins/internal/home"
 	"github.com/fpresta0607/code-goblins/internal/host"
 	"github.com/fpresta0607/code-goblins/internal/proc"
+	"github.com/fpresta0607/code-goblins/internal/state"
 )
 
 // Reading a process's directory and arguments waits on its address space, and
@@ -130,23 +134,66 @@ func markOf(environment []string) (Mark, bool) {
 	return Mark{Terminal: terminal, ProofSum: host.ProofSum(proof)}, isGateAgent
 }
 
-// TerminalOf reads which of the home's terminals a process is by its mark:
-// the terminal its environment names, once the proof value beside it is one
-// a host of that terminal gave it (host.Proofs under stateDir). It is empty
-// for a process that carries no mark of this home's, for one that cannot be
-// read, and for a gate agent's, which carries the mark of whichever goblin
-// started the daemon.
-func TerminalOf(stateDir string) func(pid int) string {
+// placesEvery is how often OwnerOf reads the home's tasks again, so a task
+// started since is a place from then on.
+const placesEvery = 30 * time.Second
+
+// OwnerOf reads whose a process is in home h by its mark or its place
+// (ownerOf): the terminal its environment names, once the proof value beside
+// it is one a host of that terminal gave it (host.Proofs), or else the task
+// whose folders it is at work in or runs a program from (TaskDirectories),
+// of the tasks whose terminals ran since the machine started. A Git Bash
+// tool carries no mark, and a script can unset it for what it starts, so
+// the place is what still says such a process is a task's. It is empty for
+// a process that is no terminal's or task's of this home, and for one that
+// cannot be read.
+func OwnerOf(h home.Home) func(pid int) string {
+	var (
+		mu     sync.Mutex
+		places map[string][]string
+		readAt time.Time
+	)
+	return ownerReader(h.State, func() map[string][]string {
+		mu.Lock()
+		defer mu.Unlock()
+		if places == nil || time.Since(readAt) >= placesEvery {
+			places, readAt = taskPlaces(h), time.Now()
+		}
+		return places
+	})
+}
+
+// ownerReader reads a process's mark and place and says whose it is, with
+// the proofs under stateDir and the folders places gives each task.
+func ownerReader(stateDir string, places func() map[string][]string) func(pid int) string {
 	return func(pid int) string {
-		_, _, environment, _ := proc.ParametersAndEnvironment(pid)
+		directory, arguments, environment, _ := proc.ParametersAndEnvironment(pid)
 		mark, isGateAgent := markOf(environment)
-		if mark == (Mark{}) || isGateAgent {
-			return ""
+		process := Process{PID: pid, Directory: directory, Arguments: arguments, Mark: mark, IsGateAgent: isGateAgent}
+		if len(arguments) > 0 {
+			process.Name = filepath.Base(arguments[0])
 		}
-		proofs, err := host.Proofs(stateDir, mark.Terminal)
-		if err != nil || !slices.Contains(proofs, mark.ProofSum) {
-			return ""
-		}
-		return mark.Terminal
+		return ownerOf(process, func(terminal string) []string {
+			proofs, _ := host.Proofs(stateDir, terminal)
+			return proofs
+		}, places())
 	}
+}
+
+// taskPlaces are the folders of each task of home h whose terminal ran since
+// the machine started. A task whose record cannot be read, or names folders
+// that are not its own, has none.
+func taskPlaces(h home.Home) map[string][]string {
+	places := map[string][]string{}
+	ids, _ := host.Terminals(h.State)
+	for _, id := range ids {
+		meta, err := state.ReadTaskMeta(h.State, id)
+		if err != nil {
+			continue
+		}
+		if directories, err := TaskDirectories(h, meta); err == nil {
+			places[id] = directories
+		}
+	}
+	return places
 }

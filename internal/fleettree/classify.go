@@ -5,6 +5,8 @@ import (
 	"regexp"
 	"slices"
 	"strings"
+
+	"github.com/fpresta0607/code-goblins/internal/proc"
 )
 
 // browsers are the programs a job runs a browser with.
@@ -70,6 +72,18 @@ func classify(j job, facts jobFacts) (Group, string, string) {
 		label = j.root.Exe
 	}
 	return GroupOther, label, detail
+}
+
+// isService says a job is or runs a machine service (proc.ServiceOf), by
+// its programs and their command lines.
+func (j job) isService(facts jobFacts) bool {
+	return slices.ContainsFunc(j.members, func(member Process) bool {
+		var arguments []string
+		if command := facts.commands[member.PID]; command != "" {
+			arguments, _ = proc.SplitCommandLine(command)
+		}
+		return proc.ServiceOf(member.Exe, arguments) != proc.NoService
+	})
 }
 
 // jobDetail names a job's programs, shells aside, and how many processes it
