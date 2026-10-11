@@ -7,9 +7,16 @@
 package startwatch
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
+	"fmt"
+	"path/filepath"
+	"slices"
+	"strings"
 	"time"
 
 	"github.com/fpresta0607/code-goblins/internal/fleettree"
+	"github.com/fpresta0607/code-goblins/internal/proc"
 )
 
 // loopStarts new processes of one owner's same command line, seen within
@@ -100,10 +107,215 @@ type restarts struct {
 // Read takes one reading and returns what it found that the watch had not
 // found before.
 func (w *Watch) Read(reading Reading) []Finding {
-	return nil
+	if w.seen == nil {
+		w.seen, w.starts, w.rested, w.told = map[instance]time.Time{}, map[string]*restarts{}, map[string]time.Time{}, map[string]bool{}
+	}
+	now := reading.At
+	running := make(map[instance]bool, len(reading.Processes))
+	for _, process := range reading.Processes {
+		key := instance{process.Owner, process.PID, process.Created}
+		running[key] = true
+		if _, isSeen := w.seen[key]; isSeen {
+			continue
+		}
+		w.seen[key] = now
+		if isStart(process) {
+			loop := loopKey(process, reading.Generations[process.Owner])
+			if w.starts[loop] == nil {
+				w.starts[loop] = &restarts{}
+			}
+			w.starts[loop].at = append(w.starts[loop].at, now)
+			w.starts[loop].latest = process
+		}
+	}
+	for key := range w.seen {
+		if !running[key] {
+			delete(w.seen, key)
+		}
+	}
+	var findings []Finding
+	findings = append(findings, w.windows(reading)...)
+	findings = append(findings, w.loops(reading)...)
+	findings = append(findings, w.left(reading)...)
+	return findings
 }
 
-// Named names processes as a wake names them.
+// isStart says a new process is one its owner started, as a loop counts
+// starts: not a carrier, not a machine service, which works for every
+// goblin, and not one the harness started itself, which is a turn of its
+// goblin's, a tool call or a hook, and never a loop of processes.
+func isStart(process Process) bool {
+	name := strings.TrimSuffix(strings.ToLower(filepath.Base(process.Exe)), ".exe")
+	return process.Command != "" && !process.Service && !process.ByHarness && !slices.Contains(carriers, name)
+}
+
+// loopKey is the owner, its generation and the command line, the last as
+// a digest, since a command line can hold a credential.
+func loopKey(process Process, generation string) string {
+	digest := sha256.Sum256([]byte(process.Command))
+	return process.Owner + "/" + generation + "/" + hex.EncodeToString(digest[:8])
+}
+
+// windows are the processes newly shown on the Overlord's screen. One shown
+// under another that is shown, as a browser's helper or a program in the
+// same console, is told with it.
+func (w *Watch) windows(reading Reading) []Finding {
+	shown := map[instance]bool{}
+	for _, process := range reading.Processes {
+		if process.Shown != "" {
+			shown[instance{process.Owner, process.PID, 0}] = true
+		}
+	}
+	var findings []Finding
+	for _, process := range reading.Processes {
+		if process.Shown == "" || shown[instance{process.Owner, process.ParentPID, 0}] {
+			continue
+		}
+		identity := fmt.Sprintf("window/%s/%d/%d", process.Owner, process.PID, process.Created)
+		if w.told[identity] {
+			continue
+		}
+		w.told[identity] = true
+		next := "tell " + process.Owner + " to end it by its pid unless the Overlord uses it, and to run what it tests headless or hidden unless a picture needs a window"
+		if process.Owner == reading.CFO {
+			next = "end it by its pid unless the Overlord uses it"
+		}
+		findings = append(findings, Finding{Identity: identity, Owner: process.Owner, Detail: fmt.Sprintf("window_shown: %s's %s (pid %d), started %s, shows %s on the Overlord's screen: %s. Next: %s", ownerName(process.Owner, reading.CFO), filepath.Base(process.Exe), process.PID, process.Started.UTC().Format("15:04Z"), process.Shown, shownCommand(process.Command), next)})
+	}
+	return findings
+}
+
+// loops are the command lines started again and again.
+func (w *Watch) loops(reading Reading) []Finding {
+	var findings []Finding
+	for key, started := range w.starts {
+		started.at = slices.DeleteFunc(started.at, func(at time.Time) bool { return reading.At.Sub(at) >= loopSpan })
+		if len(started.at) == 0 {
+			delete(w.starts, key)
+			continue
+		}
+		identity := "loop/" + key
+		if len(started.at) < loopStarts || w.told[identity] {
+			continue
+		}
+		w.told[identity] = true
+		latest := started.latest
+		next := "peek " + latest.Owner + " and have it cap or stop what starts it again and again"
+		if latest.Owner == reading.CFO {
+			next = "cap or stop what starts it again and again"
+		}
+		findings = append(findings, Finding{Identity: identity, Owner: latest.Owner, Detail: fmt.Sprintf("start_loop: %s started %s %d times in the last %s, the last as pid %d: %s. Next: %s", ownerName(latest.Owner, reading.CFO), filepath.Base(latest.Exe), len(started.at), spanText(reading.At.Sub(started.at[0])), latest.PID, shownCommand(latest.Command), next)})
+	}
+	slices.SortFunc(findings, func(a, b Finding) int { return strings.Compare(a.Identity, b.Identity) })
+	return findings
+}
+
+// left are the goblins that rest after their report with processes they
+// started still running, once both have lasted leftAfter: each told once a
+// report.
+func (w *Watch) left(reading Reading) []Finding {
+	byOwner := map[string][]Process{}
+	for _, process := range reading.Processes {
+		byOwner[process.Owner] = append(byOwner[process.Owner], process)
+	}
+	resting := map[string]bool{}
+	var findings []Finding
+	owners := make([]string, 0, len(reading.Resting))
+	for owner := range reading.Resting {
+		owners = append(owners, owner)
+	}
+	slices.Sort(owners)
+	for _, owner := range owners {
+		rest := reading.Resting[owner]
+		identity := "left/" + owner + "/" + rest.ReportedAt.UTC().Format(time.RFC3339)
+		resting[identity] = true
+		since, isRested := w.rested[identity]
+		if !isRested {
+			w.rested[identity] = reading.At
+			continue
+		}
+		if reading.At.Sub(since) < leftAfter || w.told[identity] {
+			continue
+		}
+		var still []Process
+		for _, process := range byOwner[owner] {
+			if !process.Service && reading.At.Sub(w.seen[instance{owner, process.PID, process.Created}]) >= leftAfter {
+				still = append(still, process)
+			}
+		}
+		if len(still) == 0 {
+			continue
+		}
+		w.told[identity] = true
+		verb, _, _ := strings.Cut(rest.Report, ":")
+		placed := make([]fleettree.Placed, len(still))
+		for index, process := range still {
+			placed[index] = process.Placed
+		}
+		findings = append(findings, Finding{Identity: identity, Owner: owner, Detail: fmt.Sprintf("left_running: %s reported %s at %s and rests with %s it started still running: %s. Next: tell %s to end each it no longer needs by its pid, or end a leftover by its pid yourself", owner, verb, rest.ReportedAt.UTC().Format("15:04Z"), count(len(still), "process", "processes"), Named(placed), owner)})
+	}
+	for identity := range w.rested {
+		if !resting[identity] {
+			delete(w.rested, identity)
+		}
+	}
+	return findings
+}
+
+// Named names processes as a wake names them: each one whose parent is not
+// among them, with its pid, its program and its command line, and how many
+// of the others run under it.
 func Named(processes []fleettree.Placed) string {
-	return ""
+	among := map[int]bool{}
+	children := map[int][]int{}
+	for _, process := range processes {
+		among[process.PID] = true
+		children[process.ParentPID] = append(children[process.ParentPID], process.PID)
+	}
+	var names []string
+	for _, process := range processes {
+		if among[process.ParentPID] && process.ParentPID != process.PID {
+			continue
+		}
+		under := 0
+		for queue := slices.Clone(children[process.PID]); len(queue) > 0; queue = queue[1:] {
+			if queue[0] != process.PID {
+				under++
+				queue = append(queue, children[queue[0]]...)
+			}
+		}
+		name := fmt.Sprintf("pid %d %s %q", process.PID, filepath.Base(process.Exe), shownCommand(process.Command))
+		if under > 0 {
+			name += fmt.Sprintf(" with %s under it", count(under, "process", "processes"))
+		}
+		names = append(names, name)
+	}
+	return strings.Join(names, ", ")
+}
+
+func ownerName(owner, cfo string) string {
+	if owner == cfo {
+		return "the CFO terminal"
+	}
+	return owner
+}
+
+// shownCommand is a command line as a wake may show it (proc.ShownCommand).
+func shownCommand(command string) string {
+	arguments, err := proc.SplitCommandLine(command)
+	if err != nil || command == "" {
+		return "a command line that could not be read"
+	}
+	return proc.ShownCommand(arguments)
+}
+
+func count(number int, one, many string) string {
+	if number == 1 {
+		return "1 " + one
+	}
+	return fmt.Sprintf("%d %s", number, many)
+}
+
+func spanText(span time.Duration) string {
+	return span.Round(time.Second).String()
 }
