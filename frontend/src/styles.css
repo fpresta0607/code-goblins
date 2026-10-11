@@ -400,6 +400,11 @@ button:disabled, textarea:disabled { cursor: default; opacity: .55; }
 .question-choice.chosen { cursor: default; }
 .choice-mark { display: grid; place-items: center; width: 24px; height: 24px; flex: none; color: var(--mint); }
 .answered-by { color: var(--muted); font-size: .9375rem; }
+.answered-by .answer-mark, .answered-by .answer-mark .goblin-avatar { width: 30px; height: 30px; }
+.answered-by .answer-mark .away-badge { width: 16px; height: 16px; right: -5px; bottom: -5px; }
+.answered-by .answer-mark .away-badge .icon { width: 11px; height: 11px; }
+.answered-by .answer-mark.you .icon { width: 17px; height: 17px; }
+.change-warning { margin: 0; color: var(--muted); font-size: .9375rem; font-weight: 600; }
 .question-choice input { accent-color: var(--mint); min-height: 24px; width: 24px; height: 24px; margin: 0; flex: none; }
 .question-option { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 12px; font-size: 1.125rem; font-weight: 550; min-width: 0; overflow-wrap: anywhere; }
 .question-option small { flex-basis: 100%; color: #b3c0c7; font-size: 1rem; font-weight: 400; }

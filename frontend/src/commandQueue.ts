@@ -236,10 +236,10 @@ export function answeredLabel(question: Question): string {
 const cfoReason = (question: Question) => question.answered_by === "cfo" && question.answered_option && question.answer.startsWith(question.answered_option + ". ")
   ? question.answer.slice(question.answered_option.length + 2) : "";
 
-// The line under an answer in History: the CFO's reason, or the CFO's answer
-// his change replaced.
+// The line under an answer in History: the CFO's reason, or the answer his
+// change replaced.
 export function answerReason(question: Question): string {
-  if (question.replaced_answer) return "Replaced the CFO's answer: " + question.replaced_answer;
+  if (question.replaced_answer) return "Changed from " + question.replaced_answer;
   const reason = cfoReason(question);
   return reason ? "Reason: " + reason : "";
 }
@@ -254,17 +254,51 @@ export function answerMark(question: Question): "" | "you" | "cfo" | "away" {
   return question.answered_away ? "away" : "cfo";
 }
 
-// Whether he can still change the CFO's answer to a goblin's question to his
-// own: the goblin that asked is still the one running and has reported
-// nothing since, so it has not acted on it, and no change is on its way. The
-// supervisor checks the same again before the goblin hears a word.
-export function canChange(question: Question, snapshot: Snapshot): boolean {
-  if (!question.task || question.status !== "succeeded" || question.answered_by !== "cfo" || question.answer_id || !question.answered_at) return false;
-  const task = snapshot.tasks.find((candidate) => candidate.id === question.task);
-  if (!task || task.generation !== question.generation) return false;
-  const change = snapshot.actions.find((action) => action.id === question.change_id);
-  if (change && change.status !== "failed") return false;
-  return !task.reported_at || Date.parse(task.reported_at) <= Date.parse(question.answered_at);
+// Whether he can change a question's answer: it has one, whoever gave it, on
+// its way or delivered, so he can choose another at any time. An answer that
+// did not arrive is none, and the supervisor checks the same again.
+export function canChange(question: Question): boolean {
+  if (question.status === "succeeded") return !!question.answered_by || !!question.answer_id;
+  return (question.status === "queued" || question.status === "running" || question.status === "uncertain") && !!question.answer_id;
+}
+
+// His change of a question's answer sent from this board that the board does
+// not show yet: from the moment he sends it until the supervisor has it, when
+// the question carries it, or a later change from another tab, itself.
+function changeOnItsWay(question: Question, draft: SentDraft, actions: Action[]): { text: string; answer_kind: string } | undefined {
+  const { submission } = draft;
+  if (!submission || question.change_id === submission.id || actions.some((action) => action.id === submission.id)) return undefined;
+  const sent = object(JSON.parse(submission.payload));
+  return { text: string(sent.text), answer_kind: string(sent.answer_kind) };
+}
+
+// The answer a question stands on, as its card checks it: his change the
+// moment he sends it, else the question's own answer. A change the supervisor
+// refused leaves no submission, so the answer stands as it was.
+export function standingAnswer(question: Question, draft: SentDraft, actions: Action[]): { selection: string; written: string } {
+  const sent = changeOnItsWay(question, draft, actions);
+  const kind = sent ? sent.answer_kind : question.answer_kind;
+  const text = sent ? sent.text : kind === "other" ? question.answer : chosenOption(question);
+  if (kind === "other") return { selection: "other", written: text };
+  return { selection: text ? "option:" + text : "", written: "" };
+}
+
+// Who chose the answer a question stands on, and when, as its card says it.
+export function standingWho(question: Question, draft: SentDraft & { sentAt?: string }, actions: Action[]): { mark: "you" | "cfo" | "away"; label: string; at: string } {
+  const sent = changeOnItsWay(question, draft, actions);
+  const kind = sent ? sent.answer_kind : question.answer_kind;
+  const yours = kind === "other" ? "You wrote this" : "You chose this";
+  if (sent) return { mark: "you", label: yours, at: draft.sentAt || "" };
+  if (question.answered_by === "cfo") return { mark: question.answered_away ? "away" : "cfo", label: !question.answer ? "The CFO answered it" : question.answered_away ? "The CFO chose this while you were away" : "The CFO chose this", at: question.answered_at };
+  if (question.answered_in && question.answered_in !== "page") return { mark: "you", label: "You answered in " + question.answered_in, at: question.answered_at };
+  return { mark: "you", label: yours, at: question.answered_at };
+}
+
+// The one line a change needs when the first answer already did what cannot
+// be undone by itself: the asking goblin's pull request merged.
+export function changeWarning(question: Question, snapshot: Snapshot): string {
+  const task = question.task ? snapshot.tasks.find((candidate) => candidate.id === question.task) : undefined;
+  return task?.merged ? "Its pull request already merged. Your change goes as a new instruction." : "";
 }
 
 export function outcomeIcon(outcome: QuestionOutcome): IconName {
