@@ -14,6 +14,7 @@ import (
 	"github.com/fpresta0607/code-goblins/internal/afk"
 	"github.com/fpresta0607/code-goblins/internal/auth"
 	"github.com/fpresta0607/code-goblins/internal/execx"
+	"github.com/fpresta0607/code-goblins/internal/fleet"
 	"github.com/fpresta0607/code-goblins/internal/home"
 	"github.com/fpresta0607/code-goblins/internal/lock"
 	"github.com/fpresta0607/code-goblins/internal/state"
@@ -95,6 +96,10 @@ func runBrief(args []string, stdout, stderr io.Writer, runtime commandRuntime) i
 
 {CONSTRAINTS - things not to touch, boundaries, non-goals}
 
+## Verification
+
+%s
+
 ## Authentication
 
 %s
@@ -111,7 +116,7 @@ exist.
 
 kind: %s
 mode: %s
-`, id, *project, briefAuthentication(h.Data, *project), "`Co-Authored-By`", *kind, *mode)
+`, id, *project, fleet.BriefVerification(id), briefAuthentication(h.Data, *project), "`Co-Authored-By`", *kind, *mode)
 	if err := os.WriteFile(path, []byte(body), 0o600); err != nil {
 		fmt.Fprintln(stderr, err)
 		return 1

@@ -25,6 +25,19 @@ type Policy struct {
 	// for is unknown, which requires the full level.
 	Contracts []Contract `json:"contracts"`
 	Outside   []Outside  `json:"outside"`
+	// Guards name the tests that read the whole tree, which a push runs
+	// whatever it changed.
+	Guards []Guard `json:"guards"`
+}
+
+// Guard says that Tests of Package read the whole repository, as a test that
+// reads every command or every link does, so a change anywhere can fail
+// them. Package is a directory as SlowPackages names one, and no Tests means
+// every test of it.
+type Guard struct {
+	Package string   `json:"package"`
+	Tests   []string `json:"tests"`
+	Why     string   `json:"why"`
 }
 
 // Contract says that the tests of Packages read the files Paths name, so a

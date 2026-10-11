@@ -27,11 +27,13 @@ import (
 // tests-kept exits 1 when the gate's own fix commits deleted or skipped a
 // test, which parks the run with an ask-user finding instead of letting the
 // deletion through unseen, and leaves out the gate commits a person already
-// let through at an earlier park. test is the repository's local test step, and
-// turns shows which test runs hold the machine's turns and which wait.
+// let through at an earlier park. test is the repository's local test step,
+// prepush what a goblin runs before it pushes, and turns shows which test
+// runs hold the machine's turns and which wait.
 func runGate(args []string, stdout, stderr io.Writer, runtime commandRuntime) int {
-	if len(args) == 0 || !slices.Contains([]string{"tests-kept", "test", "turns"}, args[0]) || (args[0] != "test" && len(args) != 1) {
-		fmt.Fprintln(stderr, "cfo gate: the checks are tests-kept, test [--level fast|affected|full] [--plan] and turns")
+	takesFlags := len(args) > 0 && (args[0] == "test" || args[0] == "prepush")
+	if len(args) == 0 || !slices.Contains([]string{"tests-kept", "test", "prepush", "turns"}, args[0]) || (!takesFlags && len(args) != 1) {
+		fmt.Fprintln(stderr, "cfo gate: the checks are tests-kept, test [--level fast|affected|full] [--plan], prepush [--plan] [--limit <duration>] and turns")
 		return 2
 	}
 	if args[0] == "turns" {
@@ -44,6 +46,9 @@ func runGate(args []string, stdout, stderr io.Writer, runtime commandRuntime) in
 	}
 	if args[0] == "test" {
 		return runGateTest(args[1:], dir, stdout, stderr, runtime)
+	}
+	if args[0] == "prepush" {
+		return runGatePrepush(args[1:], dir, stdout, stderr, runtime)
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
 	defer cancel()
@@ -237,6 +242,11 @@ func runGateTest(args []string, dir string, stdout, stderr io.Writer, runtime co
 			if events != nil {
 				if outputErr := events.End(); outputErr != nil && !errors.Is(err, outputErr) {
 					err = errors.Join(err, outputErr)
+				}
+				// What this run timed is what cfo gate prepush goes by when
+				// it leaves a slow package's slowest tests to CI.
+				if keepErr := verify.KeepTimes(report.Project, events.Times()); keepErr != nil {
+					fmt.Fprintf(stderr, "cfo gate test: this run's test times are not kept: %v\n", keepErr)
 				}
 			}
 			check.ExitCode = exit
