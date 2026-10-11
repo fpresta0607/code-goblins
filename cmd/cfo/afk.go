@@ -314,7 +314,7 @@ func afkStatus(h home.Home, stdout, stderr io.Writer) int {
 		fmt.Fprintln(stderr, "cfo afk: "+err.Error())
 		return 1
 	}
-	decisions := afk.Decisions(entries)
+	decisions := afk.Noted(afk.Decisions(entries))
 	fmt.Fprintf(stdout, "\nDecided so far (%d)\n", len(decisions))
 	answered := map[string]bool{}
 	for _, decision := range decisions {

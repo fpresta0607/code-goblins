@@ -40,7 +40,7 @@ const REPORT = {
   found: true, session: KEPT.report, since: "2026-10-02T03:40:00Z", ended: "2026-10-02T12:05:00Z", lasted: "8h25m", from: BOARD, ended_from: "his own terminal (powershell.exe pid 5151)",
   sections: [
     { title: "Merged", entries: [{ at: "2026-10-02T04:31:00Z", kind: "merge", what: "https://github.com/northwind/northwind-api/pull/412", link: "https://github.com/northwind/northwind-api/pull/412", evidence: "head 3f9c2ab; 5 checks completed green", outcome: "merged" }] },
-    { title: "Merge words with no merge recorded", entries: [{ at: "2026-10-02T10:58:00Z", kind: "merge", what: "https://github.com/northwind/northwind-api/pull/417", link: "https://github.com/northwind/northwind-api/pull/417", evidence: "head 77aa01c; 5 checks completed green", outcome: "" }] },
+    { title: "Not merged", entries: [{ at: "2026-10-02T10:58:00Z", kind: "merge", what: "https://github.com/northwind/northwind-api/pull/417", link: "https://github.com/northwind/northwind-api/pull/417", evidence: "head 77aa01c; 5 checks completed green", outcome: "" }] },
     { title: "Answered for goblins", entries: [{ at: "2026-10-02T04:05:00Z", kind: "answer", what: "notify-nw-invoice-export-12", task: "nw-invoice-export", evidence: "asked: Which CSV dialect? answered: RFC 4180" }] },
     { title: "Other decisions", entries: [{ at: "2026-10-02T05:00:00Z", kind: "other", what: "Restarted the dev server", link: "javascript:alert(1)", evidence: "it had stopped answering" }] },
     { title: "Paused at a floor", entries: [{ at: "2026-10-02T06:40:00Z", kind: "pause", what: "at the memory floor", task: "nw-search-index", evidence: "3.1 GB of memory and 8.0 GB of commit free on two readings in a row, under the 4 GB floor; nw-search-index was the newest goblin not pushing or merging", outcome: "paused" }] },
@@ -512,7 +512,7 @@ test("the report opens on a plain headline and Go through them, lists what was h
   await expect(report(page).locator(".afk-tally")).toHaveCount(0);
   await expect(report(page).getByRole("button", { name: "Go through them" })).toHaveClass(/primary/);
   // Coming back he reads what is for him before what was done.
-  expect(await report(page).locator("section").evaluateAll((sections) => sections.map((section) => section.getAttribute("aria-label")))).toEqual(["For you", "Settled", "Merged", "Merge words with no merge recorded", "Answered for goblins", "Other decisions", "Paused at a floor", "Goblins finished", "Spent"]);
+  expect(await report(page).locator("section").evaluateAll((sections) => sections.map((section) => section.getAttribute("aria-label")))).toEqual(["For you", "Settled", "Merged", "Not merged", "Answered for goblins", "Other decisions", "Paused at a floor", "Goblins finished", "Spent"]);
   await expect(report(page).getByRole("group", { name: "What the CFO did" }).locator("h3")).toHaveText("What the CFO did");
 
   // What was held and what was left for him are one list, each as it stands
@@ -533,8 +533,8 @@ test("the report opens on a plain headline and Go through them, lists what was h
 
   // The Overlord, 2026-10-08: "really long merged and goblins completed rows
   // should be collapsed in panel like drawer". Every heading of what the CFO
-  // did is a drawer, closed until he opens it, but a merge word with no merge,
-  // which still needs him.
+  // did is a drawer, closed until he opens it, but what did not merge, which
+  // still needs him.
   for (const name of ["Merged", "Answered for goblins", "Other decisions", "Paused at a floor", "Goblins finished"]) {
     const section = report(page).getByRole("region", { name, exact: true });
     await expect(section.locator("details.afk-drawer")).not.toHaveAttribute("open");
@@ -542,8 +542,11 @@ test("the report opens on a plain headline and Go through them, lists what was h
     await section.locator("summary").click();
     await expect(section.locator("li")).toHaveCount(1);
   }
-  await expect(report(page).getByRole("region", { name: "Merge words with no merge recorded" }).locator("details")).toHaveCount(0);
-  await expect(report(page).getByRole("region", { name: "Merge words with no merge recorded" })).toContainText("northwind-api #417: no outcome was recorded");
+  const notMerged = report(page).getByRole("region", { name: "Not merged" });
+  await expect(notMerged.locator("details")).toHaveCount(0);
+  await expect(notMerged.locator("li strong")).toHaveText("northwind-api #417");
+  await expect(notMerged.locator("li .afk-not-landed")).toHaveText("The CFO logged nothing about it.");
+  await expect(notMerged.locator("li .afk-evidence")).toHaveText("No merge was recorded. Evidence: head 77aa01c; 5 checks completed green");
   await expect(report(page).getByRole("region", { name: "Goblins finished" })).toContainText("nw-login-rate");
   const merged = report(page).getByRole("region", { name: "Merged", exact: true }).locator("li");
   await expect(merged).toContainText("northwind-api #412: merged");
@@ -822,6 +825,66 @@ test("on a phone each row under Spent keeps its name on one line, with its figur
 // His window: maximized on a 2560 by 1600 screen at 150 percent.
 test.describe("in the desktop window", () => {
   test.use({ viewport: { width: 1707, height: 1067 }, deviceScaleFactor: 1.5 });
+
+  // The Overlord, 2026-10-10, of his report's second merge group, whose 36
+  // rows had all merged: "is this an error why is emrged nto one group
+  // category". A line the CFO wrote for a landing is with the merge it names,
+  // so what merged is one Merged group with no warning, each pull request with
+  // what the CFO wrote of it, and the one warning is a merge that did not land,
+  // open under Not merged. Before 01:47Z, when he approved the pictures, he
+  // asked: "if any issues exists like not merged that would be somethign cheif
+  // would solve?? or for overlord to decie on". It is the CFO's to see to, so
+  // each says what the CFO did about it, and one it left for him opens his
+  // question in the Command Center.
+  test("what merged is one Merged group with no warning, and only a merge that did not land warns, saying what the CFO did about it", async ({ page }, testInfo) => {
+    // Arrange
+    const pull = (number: number) => "https://github.com/fpresta0607/code-goblins/pull/" + number;
+    const wrote = "PR 561 (the CFO's home goes to the CFO's own session alone) and PR 560 (his own window and browser always switch AFK) landed on merge train 567. Each was green on its own run (15 of 15) and both were tested together on the train branch in one CI run.";
+    const landed = (number: number) => ({ at: "2026-10-10T01:47:40Z", kind: "merge", what: pull(number), link: pull(number), evidence: "merge train code-goblins-20261010-012749: CI passed on " + pull(567) + " at a1380d3, built on main at e349d37", outcome: "merged", noted: wrote });
+    const failed = { at: "2026-10-10T19:30:00Z", kind: "merge", what: pull(672), link: pull(672), evidence: "verified: 15 of 15 CI checks green at 4b1c2d3 on current main", outcome: "not merged: gh exited 1: GraphQL: Pull Request is not mergeable (mergePullRequest)" };
+    const sentBack = { ...failed, what: pull(673), link: pull(673), noted: "Sent it back to Kiki to merge main in. Its head was behind main." };
+    const leftFor = { ...failed, what: pull(674), link: pull(674), asked: "question:afk-left-20261010T193500.000000000Z" };
+    const asked = { id: "afk-left-20261010T193500.000000000Z", text: "Merge code-goblins #674 past its failing check?\n- Evidence: the check fails on main too", options: ["Hold it", "Merge it"], recommended: "Hold it", status: "pending", task: "", generation: "", created_at: new Date(Date.now() - 60_000).toISOString() };
+    const held = { item: "question:" + asked.id, task: "", what: "Merge code-goblins #674 past its failing check?", at: "2026-10-10T19:35:00Z", waiting: true, now: "still waiting on you", meanwhile: "", recommendation: "Hold it", settled: "" };
+    await open(page, snapshot({ questions: [asked], afk: KEPT }));
+    await page.route("**/api/afk/report", (route) => route.fulfill({ json: { ...REPORT, held: [held], sections: [{ title: "Merged", entries: [landed(561), landed(560)] }, { title: "Not merged", entries: [failed, sentBack, leftFor] }, REPORT.sections[2]] } }));
+    await openCfoPanel(page);
+
+    // Act
+    await header(page).getByRole("button", { name: "Open the last AFK report" }).click();
+    const merged = report(page).getByRole("region", { name: "Merged", exact: true });
+    await merged.locator("summary").click();
+
+    // Assert
+    await expect(merged.locator("li")).toHaveCount(2);
+    await expect(merged.locator(".delivery.uncertain")).toHaveCount(0);
+    await expect(merged.locator("li .afk-not-landed")).toHaveCount(0);
+    await expect(merged.locator("li strong")).toHaveText(["code-goblins #561: merged", "code-goblins #560: merged"]);
+    for (const row of await merged.locator("li .afk-evidence").all()) await expect(row).toContainText(/^The CFO: PR 561 \(the CFO's home goes to the CFO's own session alone\) and PR 560 .+ Evidence: merge train code-goblins-20261010-012749/);
+    const notMerged = report(page).getByRole("region", { name: "Not merged" });
+    await expect(notMerged.locator("details")).toHaveCount(0);
+    await expect(notMerged.locator("li strong")).toHaveText(["code-goblins #672", "code-goblins #673", "code-goblins #674"]);
+    await expect(notMerged.locator("li .afk-not-landed")).toHaveText(["The CFO logged nothing about it.", "The CFO: Sent it back to Kiki to merge main in. Its head was behind main.", "Left for you: Merge code-goblins #674 past its failing check? Answer it"]);
+    await expect(notMerged.locator("li .afk-evidence").first()).toHaveText("Not merged: gh exited 1: GraphQL: Pull Request is not mergeable (mergePullRequest). Evidence: verified: 15 of 15 CI checks green at 4b1c2d3 on current main");
+    await expect(report(page).locator(".afk-decisions .delivery.uncertain")).toHaveCount(3);
+    await expect(notMerged.locator(".delivery.uncertain")).toHaveCount(3);
+    for (const text of await notMerged.locator("li .inbox-text").all()) expect(await text.evaluate((element) => {
+      const box = element.getBoundingClientRect();
+      return [...element.children].every((child) => { const part = child.getBoundingClientRect(); return part.left >= box.left - 0.5 && part.right <= box.right + 0.5; });
+    })).toBe(true);
+    expect(await fits(page)).toBe(true);
+    await merged.locator("li").first().evaluate((element) => element.scrollIntoView({ block: "center" }));
+    await page.screenshot({ path: testInfo.outputPath("afk-report-merged-1707.png") });
+    await notMerged.evaluate((element) => element.scrollIntoView({ block: "center" }));
+    await page.screenshot({ path: testInfo.outputPath("afk-report-not-merged-1707.png") });
+
+    // Act: he answers the one left for him.
+    await notMerged.getByRole("button", { name: "Answer it" }).click();
+
+    // Assert: the Command Center opens on its question.
+    await expect(report(page)).toHaveCount(0);
+    await expect(page.locator("dialog.question-modal .question-body")).toContainText("Merge code-goblins #674 past its failing check?");
+  });
 
   test("the toggle sits on the header's first row", async ({ page }) => {
     await open(page, snapshot({ questions: QUESTIONS, afk: on({ decided: 4, held: HELD }) }));

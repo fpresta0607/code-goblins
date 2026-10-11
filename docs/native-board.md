@@ -1721,6 +1721,10 @@ The board's filtering and presentation are documented in [the README](../README.
 A decision names its kind (`left`, `merge`, `deploy`, `migration`, `install`, `answer` or `other`), what was decided and the evidence it stands on; one without evidence is refused.
 A `left` line is what only he can do, which the CFO gave a backlog row and worked around, with why it is his as its evidence.
 A merge word is logged before the merge and its outcome after it, as a second line for the same pull request, so the report never shows a merge word as a merge.
+A merge line the CFO writes with `cfo afk log --kind merge` folds into the merge it names: the pull request it links or is, or the merge train's own pull request whose train landed it, which that train's line names as `train.Evidence` writes it.
+Its words ride on that merge as `noted`, in the report data and the CFO's text, and go to the landing just before the line when one train pull request landed twice; a merge word that failed before another landed its pull request folds the same way.
+What did not land is under Not merged: a line the CFO wrote linking its pull request rides on it as what the CFO did about it, and a line left for him that links it gives it `asked`, the Command Center item that line is asked as.
+The bar's `decided` and `cfo afk status` count a folded line with the merge it names, not as a decision of its own.
 Its evidence names the base tip `cfo pr merge` read a moment before merging; `gh pr merge --match-head-commit` holds only the head, so a commit that lands on the base between that reading and the merge is not seen.
 Where the base requires a merge queue the word adds the pull request to the queue instead, and its evidence says the queue tests the merge on the base's tip; its outcome is that the pull request joined the queue, not that it merged.
 

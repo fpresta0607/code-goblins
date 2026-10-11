@@ -5,7 +5,6 @@ import (
 	"errors"
 	"reflect"
 	"slices"
-	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -81,7 +80,7 @@ func TestTheReportSaysWhatWasDecidedFinishedHeldAndSpent(t *testing.T) {
 		"the merge with its link":       "https://github.com/acme/api/pull/12",
 		"the merge's outcome":           "merged",
 		"the merge's verification":      "gate run 41 passed and its test output was read; head abc1234; 7 checks green",
-		"a merge word with no result":   "no outcome was recorded",
+		"a merge word with no result":   "No merge was recorded.",
 		"the deploy with its link":      "acme production (https://acme.example/health)",
 		"the deploy's verification":     "/health reads 200 with commit abc1234",
 		"the answer and its goblin":     "pd-billing",
@@ -94,7 +93,7 @@ func TestTheReportSaysWhatWasDecidedFinishedHeldAndSpent(t *testing.T) {
 		"what it could not read":        "1 line of the log could not be read",
 		"how many are for him":          "For you (2), each as it stands now",
 		"how many merged":               "Merged (1)",
-		"merge words that did not land": "Merge words with no merge recorded (1)",
+		"merge words that did not land": "Not merged (1)",
 	} {
 		if !strings.Contains(report, phrase) {
 			t.Errorf("the report does not say %s (%q):\n%s", name, phrase, report)
@@ -421,21 +420,14 @@ func TestTheReportsDecisionsSitUnderItsHeadings(t *testing.T) {
 	night, quiet := nightReport().Sections(), Report{}.Sections()
 
 	// Assert
-	titled := func(sections []Section) []string {
-		var titles []string
-		for _, section := range sections {
-			titles = append(titles, section.Title+" "+strconv.Itoa(len(section.Entries)))
-		}
-		return titles
-	}
-	if got, want := titled(night), []string{"Merged 1", "Merge words with no merge recorded 1", "Deployed 1", "Answered for goblins 1"}; !slices.Equal(got, want) {
+	if got, want := titled(night), []string{"Merged 1", "Not merged 1", "Deployed 1", "Answered for goblins 1"}; !slices.Equal(got, want) {
 		t.Errorf("the night's headings = %q, want %q", got, want)
 	}
 	if merged := night[0].Entries[0]; merged.What != "https://github.com/acme/api/pull/12" || merged.Outcome != OutcomeMerged {
 		t.Errorf("under Merged = %+v, want the merge word whose merge was recorded", merged)
 	}
 	if unmerged := night[1].Entries[0]; unmerged.What != "https://github.com/acme/api/pull/13" || unmerged.Outcome != "" {
-		t.Errorf("under Merge words with no merge recorded = %+v, want the one with no outcome", unmerged)
+		t.Errorf("under Not merged = %+v, want the one with no outcome", unmerged)
 	}
 	if len(quiet) != 0 {
 		t.Errorf("a quiet stretch's headings = %q, want none", titled(quiet))
