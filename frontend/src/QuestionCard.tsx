@@ -11,7 +11,10 @@ import { copyValues } from "./CopyValue";
 import { personaFor } from "./workflow";
 import { ClickFeedback, useClickFeedback } from "./click-feedback";
 
-export interface Draft { selection: string; written: string; submission: Submission | null; sending: boolean; error: string; receipt?: Action }
+// sentAt is when he sent the draft's change of an answer, and unsent says a
+// dropped connection kept the supervisor from taking it, so it goes again
+// under the same request ID.
+export interface Draft { selection: string; written: string; submission: Submission | null; sending: boolean; error: string; receipt?: Action; sentAt?: string; unsent?: boolean }
 export const EMPTY_DRAFT: Draft = { selection: "", written: "", submission: null, sending: false, error: "" };
 
 // One question: who asks and how long they have waited, the choices with the

@@ -161,7 +161,7 @@ test("History gives the CFO's reason, or the CFO's answer his change replaced, o
   const cases: [string, Record<string, unknown>, string][] = [
     ["the CFO's answer with a reason", { status: "succeeded", answer: "A. Ship it Friday", answer_kind: "option", answered_option: "A", answered_by: "cfo" }, "Reason: Ship it Friday"],
     ["the CFO's answer without one", { status: "succeeded", answer: "A", answer_kind: "option", answered_option: "A", answered_by: "cfo" }, ""],
-    ["his change to the CFO's answer", { status: "succeeded", answer: "B", answer_kind: "option", answered_option: "B", answered_by: "overlord", replaced_answer: "A" }, "Replaced the CFO's answer: A"],
+    ["his change to the CFO's answer", { status: "succeeded", answer: "B", answer_kind: "option", answered_option: "B", answered_by: "overlord", replaced_answer: "A" }, "Changed from A"],
     ["his written answer that reads like one", { status: "succeeded", answer_id: "x", answer: "A. but slower", answer_kind: "other", answered_by: "overlord" }, ""],
   ];
   for (const [name, fields, want] of cases) {
@@ -170,23 +170,25 @@ test("History gives the CFO's reason, or the CFO's answer his change replaced, o
   }
 });
 
-test("he can change only the CFO's answer to a goblin still on it that has reported nothing since", () => {
-  const answered = "2026-10-06T02:00:00Z";
-  const cfo = { status: "succeeded", answer: "A", answer_kind: "option", answered_option: "A", answered_by: "cfo", answered_at: answered, generation: "g1", change_id: "" };
-  const cases: [string, Record<string, unknown>, Record<string, unknown> | null, Record<string, unknown>[], boolean][] = [
-    ["the CFO's answer, nothing reported since", cfo, { reported_at: "2026-10-06T01:59:00Z" }, [], true],
-    ["the CFO's answer, a goblin that never reported", cfo, { reported_at: "0001-01-01T00:00:00Z" }, [], true],
-    ["the goblin reported since", cfo, { reported_at: "2026-10-06T02:00:01Z" }, [], false],
-    ["the goblin restarted", cfo, { generation: "g2", reported_at: "2026-10-06T01:59:00Z" }, [], false],
-    ["the goblin is gone", cfo, null, [], false],
-    ["his own answer", { ...cfo, answered_by: "overlord", answer_id: "x" }, { reported_at: "2026-10-06T01:59:00Z" }, [], false],
-    ["the CFO's own question", { ...cfo, task: "" }, { reported_at: "2026-10-06T01:59:00Z" }, [], false],
-    ["his change on its way", { ...cfo, change_id: "c1" }, { reported_at: "2026-10-06T01:59:00Z" }, [{ id: "c1", kind: "answer_change", status: "running" }], false],
-    ["his change that failed", { ...cfo, change_id: "c1" }, { reported_at: "2026-10-06T01:59:00Z" }, [{ id: "c1", kind: "answer_change", status: "failed" }], true],
+test("he can change any answer a question has, whoever gave it, at any time", () => {
+  const cfo = { status: "succeeded", answer: "A", answer_kind: "option", answered_option: "A", answered_by: "cfo", answered_at: "2026-10-06T02:00:00Z", generation: "g1", change_id: "" };
+  const cases: [string, Record<string, unknown>, boolean][] = [
+    ["the CFO's answer", cfo, true],
+    ["the CFO's answer while he was away", { ...cfo, answered_away: true }, true],
+    ["the CFO's answer closed by its ack, with no choice recorded", { ...cfo, answer: "", answered_option: "" }, true],
+    ["his own answer", { ...cfo, answered_by: "overlord", answer_id: "x" }, true],
+    ["his own answer on its way", { status: "queued", answer_id: "x", answer: "A", answer_kind: "option" }, true],
+    ["his own answer not yet confirmed", { status: "uncertain", answer_id: "x", answer: "A", answer_kind: "option" }, true],
+    ["his answer in chat, recorded by the CFO", { ...cfo, answered_by: "overlord", answered_in: "chat" }, true],
+    ["his change on its way", { ...cfo, answered_by: "overlord", change_id: "c1" }, true],
+    ["a question still waiting", { status: "pending" }, false],
+    ["an answer that did not arrive", { status: "failed", answer_id: "x", answer: "A", answer_kind: "option" }, false],
+    ["a superseded question", { status: "superseded" }, false],
+    ["a dismissed question", { status: "cleared" }, false],
   ];
-  for (const [name, fields, task, actions, want] of cases) {
-    const snapshot = parseSnapshot({ healthy: true, actions, tasks: task ? [{ id: "billing", phase: "working", generation: "g1", verified: false, archived: false, merged: false, ...task }] : [], questions: [question("q", "billing", "2026-10-06T01:50:00Z", "pending", fields)] });
-    assert.equal(canChange(snapshot.questions![0], snapshot), want, name);
+  for (const [name, fields, want] of cases) {
+    const snapshot = parseSnapshot({ healthy: true, questions: [question("q", "billing", "2026-10-06T01:50:00Z", "pending", fields)] });
+    assert.equal(canChange(snapshot.questions![0]), want, name);
   }
 });
 

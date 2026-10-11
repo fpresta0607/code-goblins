@@ -64,7 +64,7 @@ func (s *Store) follow(identity string) error {
 		}
 		var named item
 		switch a.Kind {
-		case "cfo_answer", "question_clear":
+		case "cfo_answer", "question_clear", "answer_change":
 			named = item{"question", a.QuestionID}
 		case "review_answer", "review_clear":
 			named = item{"review", a.ReviewID}
@@ -119,6 +119,9 @@ func (s *Store) waitsForCFO(a Action) bool {
 	case "review_answer":
 		i := slices.IndexFunc(s.db.Reviews, func(r Review) bool { return r.ID == a.ReviewID })
 		return i >= 0 && s.db.Reviews[i].Task == ""
+	case "answer_change":
+		i := slices.IndexFunc(s.db.Questions, func(q Question) bool { return q.ID == a.QuestionID })
+		return i >= 0 && (s.db.Questions[i].Task == "" || !isAsker(s.Home.State, s.db.Questions[i]))
 	}
 	return false
 }
@@ -191,8 +194,23 @@ func (s *Store) answersDueIn() time.Duration {
 func (s *Store) nextQueued(cfoLive bool) int {
 	now := time.Now()
 	isHeld := s.answersWait(now) > 0
-	return slices.IndexFunc(s.db.Actions, func(a Action) bool {
-		return a.Status == "queued" && !s.deferredUntil[a.ID].After(now) && (cfoLive || !s.waitsForCFO(a)) && !(isHeld && a.Kind == "cfo_answer")
+	for i, a := range s.db.Actions {
+		if a.Status == "queued" && !s.deferredUntil[a.ID].After(now) && (cfoLive || !s.waitsForCFO(a)) && !(isHeld && a.Kind == "cfo_answer") && !s.followsEarlierAnswer(i) {
+			return i
+		}
+	}
+	return -1
+}
+
+// followsEarlierAnswer reports whether action i is his change of an answer
+// that waits for an earlier answer or change to the same question, one still
+// queued or running and not yet handed over, so whoever acts on them gets
+// them in the order he gave them. The caller holds s.mu.
+func (s *Store) followsEarlierAnswer(i int) bool {
+	a := s.db.Actions[i]
+	return a.Kind == "answer_change" && slices.ContainsFunc(s.db.Actions[:i], func(earlier Action) bool {
+		return earlier.QuestionID == a.QuestionID && (earlier.Kind == "cfo_answer" || earlier.Kind == "goblin_answer" || earlier.Kind == "answer_change") &&
+			(earlier.Status == "queued" || earlier.Status == "running" && earlier.Awaiting == nil)
 	})
 }
 

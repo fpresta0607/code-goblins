@@ -173,7 +173,7 @@ for (const draft of ["answer", "changed answer", "diff comment"] as const) {
     } else if (draft === "changed answer") {
       await page.locator(".command-center-menu > summary").click();
       await page.locator(".command-center-menu").getByText("History", { exact: false }).click();
-      await page.getByRole("button", { name: "Change the CFO's answer to Billing" }).click();
+      await page.getByRole("button", { name: /^Change the answer to Billing/ }).click();
     } else {
       await page.locator(".task-card").filter({ hasText: "Billing" }).click();
       const taskView = page.locator(".panel-pill").getByRole("button", { name: "Task", exact: true });
@@ -203,7 +203,7 @@ for (const draft of ["answer", "changed answer", "diff comment"] as const) {
       await page.getByRole("button", { name: "Cancel comment" }).click();
       expect(posts).toHaveLength(0);
     } else {
-      await page.getByRole("button", { name: draft === "answer" ? "Send decision" : "Change to my answer", exact: true }).click();
+      await page.getByRole("button", { name: draft === "answer" ? "Send decision" : "Change answer", exact: true }).click();
       await expect.poll(() => posts.length).toBe(1);
       await page.waitForTimeout(300);
       expect(loads).toBe(1);
