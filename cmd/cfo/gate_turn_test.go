@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -35,6 +36,10 @@ const (
 	// gateTurnTestGateTest is cfo gate test with stand-ins for go vet and go
 	// test, as a command a turn is taken for.
 	gateTurnTestGateTest = "gate-turn-test-gate-test"
+	// gateTurnTestPrepush is cfo gate prepush on a machine with memory and
+	// disk to spare, whose checks only say that they ran, as a command a turn
+	// is taken for.
+	gateTurnTestPrepush = "gate-turn-test-prepush"
 	// gateTurnTestMemoryVariable names a file. While it exists the wrapper's
 	// machine is short of memory: of commit when the file is named
 	// commit-short, and of physical memory otherwise.
@@ -72,6 +77,15 @@ func runGateTurnTestProgram() (int, bool) {
 		return 0, true
 	case gateTurnTestGateTest:
 		return gateTestWith(standIn(), os.Stdout, os.Stderr, os.Args[2:]...), true
+	case gateTurnTestPrepush:
+		runtime := defaultCommandRuntime()
+		runtime.availableMemory = plenty
+		runtime.gateDisk = roomy
+		runtime.pushRun = func(_ context.Context, command []string, _ string, _ []string, stdout, _ io.Writer) (int, error) {
+			fmt.Fprintln(stdout, "ran "+strings.Join(command, " "))
+			return 0, nil
+		}
+		return gatePrepushWith(runtime, os.Stdout, os.Stderr), true
 	}
 	return 0, false
 }
@@ -607,6 +621,83 @@ func TestGateTestBehindGateTurnRunsInsideItsTurn(t *testing.T) {
 		if !strings.Contains(run.stdout.String(), want) {
 			t.Errorf("stdout %q lacks %q", run.stdout.String(), want)
 		}
+	}
+}
+
+// prepushModule is a module whose branch changed package a, which package b
+// imports, under a policy with no slow package and no guard: a push picks
+// four checks there.
+func prepushModule(t *testing.T) string {
+	t.Helper()
+	return testStepModule(t,
+		map[string]string{"config/verify.json": strings.Replace(quiet, `"slow_packages": ["a"]`, `"slow_packages": []`, 1), "a/a_test.go": passing},
+		map[string]string{"a/a.go": "package a\n\nfunc A() int { return 2 }\n"})
+}
+
+// cfo gate prepush stands in the same line: started while a cfo gate turn's
+// command runs, it names that run and starts no check until the command has
+// ended.
+func TestGatePrepushWaitsForTheTurnOfAGateTurn(t *testing.T) {
+	// Arrange
+	t.Chdir(prepushModule(t))
+	t.Setenv(verify.TurnVariable, "")
+	t.Setenv("CFO_TASK_ID", "")
+	dir := commandFolder(t)
+	holder := startGateTurn(t, dir, nil, append([]string{"--as", "another repository's tests"}, turnCommand(dir, "held", 0, true)...)...)
+	eventually(t, "the holder's command starts", func() bool { return left(dir, "held", "started") })
+	var checks atomic.Int32
+	runtime := turnRuntime()
+	runtime.gateDisk = roomy
+	runtime.pushRun = func(context.Context, []string, string, []string, io.Writer, io.Writer) (int, error) {
+		checks.Add(1)
+		return 0, nil
+	}
+
+	// Act
+	var stdout, stderr lockedBuffer
+	exited := make(chan int, 1)
+	go func() { exited <- gatePrepushWith(runtime, &stdout, &stderr) }()
+
+	// Assert
+	want := fmt.Sprintf("the turn is held by another repository's tests: %s (pid %d), for ", strings.Join(turnCommand(dir, "held", 0, true)[1:], " "), holder.process.Process.Pid)
+	eventually(t, "cfo gate prepush says who holds the turn: "+want, func() bool {
+		return strings.Contains(stdout.String(), "cfo gate prepush: waiting for its turn on the machine, ") && strings.Contains(stdout.String(), want)
+	})
+	time.Sleep(300 * time.Millisecond)
+	if checks.Load() != 0 || len(exited) != 0 {
+		t.Fatalf("cfo gate prepush ran %d check(s) while a cfo gate turn's command ran; stdout=%q", checks.Load(), stdout.String())
+	}
+	letGo(t, dir, "held")
+	select {
+	case exit := <-exited:
+		if exit != 0 || checks.Load() != 4 || !strings.HasPrefix(lastLine(stdout.String()), "cfo gate prepush: passed. All 4 checks ran in ") {
+			t.Errorf("exit = %d after %d check(s); want 0 after all 4 once the turn was free; stdout=%q stderr=%q", exit, checks.Load(), stdout.String(), stderr.String())
+		}
+	case <-time.After(time.Minute):
+		t.Fatalf("cfo gate prepush had not ended a minute after the turn was free; stdout=%q", stdout.String())
+	}
+}
+
+// A goblin that puts cfo gate prepush behind cfo gate turn gets one turn: the
+// push's checks run inside the turn the wrapper holds, and do not wait for
+// it, which they would for good.
+func TestGatePrepushBehindGateTurnRunsInsideItsTurn(t *testing.T) {
+	// Arrange
+	module := prepushModule(t)
+	t.Setenv(verify.TurnVariable, "")
+	t.Setenv("CFO_TASK_ID", "")
+
+	// Act
+	run := startGateTurn(t, module, nil, "--", os.Args[0], gateTurnTestPrepush)
+	exit := run.exit(t, "cfo gate prepush behind cfo gate turn")
+
+	// Assert
+	printed := run.stdout.String() + run.stderr.String()
+	if exit != 0 || strings.Contains(printed, "waiting for its turn") || strings.Contains(printed, "took its turn") {
+		t.Errorf("exit = %d and the run printed %q; want 0 with no wait for a turn", exit, printed)
+	}
+	if got := lastLine(run.stdout.String()); !strings.HasPrefix(got, "cfo gate prepush: passed. All 4 checks ran in ") || strings.Count(run.stdout.String(), "\nran ") != 4 {
+		t.Errorf("stdout %q ends with %q; want all 4 checks run", run.stdout.String(), got)
 	}
 }
 
