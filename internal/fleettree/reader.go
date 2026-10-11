@@ -367,23 +367,10 @@ func (r *Reader) jobNodes(harness harnessProcesses, shellCommands map[string]str
 	facts := jobFacts{commands: map[int]string{}}
 	listens, err := listeners()
 	facts.listens = listens
-	commandLine := r.CommandLine
-	if commandLine == nil {
-		commandLine = proc.CommandLine
-	}
-	if r.commands == nil {
-		r.commands, r.readings = map[processKey]string{}, map[processKey]cpuReading{}
-	}
 	var nodes []Node
 	for _, job := range harness.jobs {
 		for _, member := range job.members {
-			key := processKey{member.PID, member.Created}
-			command, ok := r.commands[key]
-			if !ok {
-				command, _ = commandLine(member.PID)
-				r.commands[key] = command
-			}
-			facts.commands[member.PID] = command
+			facts.commands[member.PID] = r.command(member)
 		}
 		group, label, detail := classify(job, facts)
 		key := processKey{job.root.PID, job.root.Created}
@@ -425,6 +412,24 @@ func (r *Reader) jobNodes(harness harnessProcesses, shellCommands map[string]str
 		nodes = append(nodes, node)
 	}
 	return nodes, err
+}
+
+// command is a process's command line, read once in its life.
+func (r *Reader) command(process Process) string {
+	if r.commands == nil {
+		r.commands, r.readings = map[processKey]string{}, map[processKey]cpuReading{}
+	}
+	key := processKey{process.PID, process.Created}
+	command, isRead := r.commands[key]
+	if !isRead {
+		commandLine := r.CommandLine
+		if commandLine == nil {
+			commandLine = proc.CommandLine
+		}
+		command, _ = commandLine(process.PID)
+		r.commands[key] = command
+	}
+	return command
 }
 
 // ownerReads bounds how many processes of one detached tree are asked whose
