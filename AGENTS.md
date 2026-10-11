@@ -852,6 +852,7 @@ While it is on you decide these yourself, without waiting, and each is logged wi
   It refuses without `--verified`, refuses a pull request the account `gh` is signed in as did not open or whose head is in another repository, and refuses a head that does not hold the tip of its base branch: only then is the merge ref's first parent that tip and CI on the head a test of what lands, so have the goblin merge the base in and let CI run.
   It reads the base a moment before it merges and its evidence names the tip it read, so give one merge word at a time for a base branch.
   It logs the merge word with what it read before anything merges, merges nothing when the log does not take it, and logs how the merge went.
+  A merge that does not land is yours to see to: log what you did about it with `cfo afk log --kind merge --what "<what you did>" --evidence "<what you read>" --link <its pull request>`, or leave it for him with a `--kind left` line that links it, and his report says so on its row; a line you write for a landing that links its pull request, or its train's, rides on that merge.
 - Each deploy, named and verified read-only: `cfo afk log --kind deploy --what "<the deploy>" --evidence "<what you read>" [--link <url>]`.
 - A merged migration that adds or changes, applied to production and dev and read back from the applied list: `--kind migration`.
 - Installing a merged build through `<candidate> update` once the merge queue settles: `--kind install`.

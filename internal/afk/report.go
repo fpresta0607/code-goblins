@@ -8,6 +8,7 @@ import (
 	"math"
 	"os"
 	"path/filepath"
+	"regexp"
 	"slices"
 	"strconv"
 	"strings"
@@ -194,6 +195,132 @@ func folded(entries []Entry, kinds []string) []Entry {
 	return lines
 }
 
+// trainLanding is how the line a merge train logs for a pull request it
+// landed begins, as train.Evidence writes it: the train's own pull request
+// follows its id.
+var trainLanding = regexp.MustCompile(`^merge train \S+: CI passed on (\S+) at `)
+
+// Noted is decisions with each line the CFO wrote of a merge folded into the
+// merge it names, so a merge is told once and a warning is never a merge that
+// landed. A merge line that did not land names a merge when it links, or is,
+// the pull request that merged, or the merge train's own pull request whose
+// train landed it: a line the CFO wrote for the landing, or a merge word that
+// failed before another landed it. Its words go to the merges it names that
+// landed before it and carry no earlier line of the CFO's, so a train that
+// landed twice under one pull request gives each line its own landing, or
+// else to every merge it names. A line the CFO wrote that links a pull request
+// that did not merge goes the same way to that merge, as what the CFO did about
+// it, and a line left for the Overlord that links it gives it the Command
+// Center question he is asked. A struck line, and one that names no merge,
+// stays as it was.
+func Noted(decisions []Entry) []Entry {
+	names := func(line, merge Entry) bool {
+		train := trainLanding.FindStringSubmatch(merge.Evidence)
+		for _, subject := range []string{line.Link, line.What} {
+			if subject != "" && (subject == merge.What || train != nil && subject == train[1]) {
+				return true
+			}
+		}
+		return false
+	}
+	landed := func(merge Entry) bool {
+		return merge.Kind == KindMerge && merge.Outcome == OutcomeMerged && merge.Struck == ""
+	}
+	open := func(merge Entry) bool {
+		return merge.Kind == KindMerge && merge.Outcome != OutcomeMerged && merge.Struck == ""
+	}
+	noted := slices.Clone(decisions)
+	folded := make([]bool, len(decisions))
+	fold := func(i int, into func(Entry) bool) {
+		line := decisions[i]
+		var named, before []int
+		for j, merge := range noted {
+			if j == i || folded[j] || !into(merge) {
+				continue
+			}
+			named = append(named, j)
+			if merge.At.Before(line.At) && merge.Noted == "" {
+				before = append(before, j)
+			}
+		}
+		if len(before) > 0 {
+			named = before
+		}
+		for _, j := range named {
+			noted[j].Noted = strings.TrimSpace(noted[j].Noted + " " + said(line, noted[j]))
+		}
+		folded[i] = len(named) > 0
+	}
+	for i, line := range decisions {
+		if open(line) {
+			fold(i, func(merge Entry) bool { return landed(merge) && names(line, merge) })
+		}
+	}
+	for i, line := range decisions {
+		if open(line) && !folded[i] && line.Outcome == "" && line.Link != "" && line.Link != line.What {
+			fold(i, func(merge Entry) bool { return open(merge) && merge.What == line.Link })
+		}
+	}
+	for _, left := range decisions {
+		for j, merge := range noted {
+			if left.Kind == KindLeft && left.Struck == "" && left.Link != "" && !folded[j] && open(merge) && merge.What == left.Link {
+				noted[j].Asked = "question:" + LeftQuestionID(left)
+			}
+		}
+	}
+	kept := []Entry{}
+	for i, decision := range noted {
+		if !folded[i] {
+			kept = append(kept, decision)
+		}
+	}
+	return kept
+}
+
+// said is a line of the CFO's as it rides on the merge it names: its words,
+// without the pull request the merge names already, and how it ended when it
+// was a merge word that did not land.
+func said(line, merge Entry) string {
+	var parts []string
+	for _, part := range []string{line.What, line.Evidence} {
+		if part = strings.TrimSuffix(strings.TrimSpace(part), "."); part != "" && part != merge.What {
+			parts = append(parts, part+".")
+		}
+	}
+	if line.Outcome != "" {
+		parts = append(parts, NotLanded(line.Outcome))
+	}
+	return strings.Join(parts, " ")
+}
+
+// did says what the CFO did about a merge that did not land: the lines it
+// wrote about it and the question it left for the Overlord about it, or that
+// it logged nothing. A line the CFO wrote that names no merge needs no word
+// of what it did, since it is the CFO's own.
+func did(merge Entry) string {
+	var parts []string
+	if merge.Noted != "" {
+		parts = append(parts, "The CFO: "+merge.Noted)
+	}
+	if merge.Asked != "" {
+		parts = append(parts, "Left for you as "+merge.Asked+".")
+	}
+	if len(parts) == 0 && (merge.Link == "" || merge.Link == merge.What) {
+		parts = append(parts, "The CFO logged nothing about it.")
+	}
+	return strings.Join(parts, " ")
+}
+
+// NotLanded says in one sentence what became of a merge that did not land:
+// how it ended, as the log holds it, or that no merge was recorded.
+func NotLanded(outcome string) string {
+	outcome = strings.TrimSuffix(strings.TrimSpace(outcome), ".")
+	if outcome == "" {
+		return "No merge was recorded."
+	}
+	return strings.ToUpper(outcome[:1]) + outcome[1:] + "."
+}
+
 // Section is one heading of the report with the decisions under it.
 type Section struct {
 	Title   string  `json:"title"`
@@ -202,16 +329,18 @@ type Section struct {
 
 // Sections sorts what the CFO decided under its headings, in the order the
 // report lists them, the goblins paused at a floor after them, and last what
-// the CFO struck. A heading is there only when it holds something. What it
-// left for him is not among them: it is with what was held for him, as it
-// stands now. A struck line is under Struck by the CFO alone, so it is never
-// taken for something left for him or decided. The CFO's text and the
-// board's page are both written from these.
+// the CFO struck. A heading is there only when it holds something. A line the
+// CFO wrote for a landing is with the merge it names, and Not merged holds
+// only what did not land. What it left for him is not among them: it is with
+// what was held for him, as it stands now. A struck line is under Struck by
+// the CFO alone, so it is never taken for something left for him or decided.
+// The CFO's text and the board's page are both written from these.
 func (r Report) Sections() []Section {
 	var sections []Section
+	decisions := Noted(r.Decisions)
 	decided := func(title string, keep func(Entry) bool) {
 		entries := []Entry{}
-		for _, entry := range r.Decisions {
+		for _, entry := range decisions {
 			if entry.Struck == "" && keep(entry) {
 				entries = append(entries, entry)
 			}
@@ -222,7 +351,7 @@ func (r Report) Sections() []Section {
 	}
 	kind := func(kind string) func(Entry) bool { return func(entry Entry) bool { return entry.Kind == kind } }
 	decided("Merged", func(entry Entry) bool { return entry.Kind == KindMerge && entry.Outcome == OutcomeMerged })
-	decided("Merge words with no merge recorded", func(entry Entry) bool { return entry.Kind == KindMerge && entry.Outcome != OutcomeMerged })
+	decided("Not merged", func(entry Entry) bool { return entry.Kind == KindMerge && entry.Outcome != OutcomeMerged })
 	decided("Deployed", kind(KindDeploy))
 	decided("Migrations applied", kind(KindMigration))
 	decided("Installed", kind(KindInstall))
@@ -419,17 +548,25 @@ func Render(w io.Writer, r Report) error {
 			if entry.Link != "" && entry.Link != entry.What {
 				line += " (" + entry.Link + ")"
 			}
+			notLanded := entry.Kind == KindMerge && entry.Outcome != OutcomeMerged && entry.Struck == ""
 			switch {
 			case entry.Struck != "":
 				line += " (struck)"
-			case entry.Kind == KindMerge && entry.Outcome == "":
-				line += ": no outcome was recorded"
-			case entry.Outcome != "":
+			case entry.Outcome != "" && !notLanded:
 				line += ": " + entry.Outcome
 			}
 			say("%s", line)
+			if notLanded {
+				if did := did(entry); did != "" {
+					say("  %s", did)
+				}
+				say("  %s", NotLanded(entry.Outcome))
+			}
 			if entry.Struck != "" {
 				say("  Struck: %s", entry.Struck)
+			}
+			if entry.Noted != "" && !notLanded {
+				say("  The CFO: %s", entry.Noted)
 			}
 			// A strike of an earlier stretch's line carries the reason as its
 			// evidence, and names the line by when it was logged.
