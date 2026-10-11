@@ -61,8 +61,10 @@ type Service struct {
 }
 
 // Up starts the project's stack for task, or adds task to its holders when
-// it is up. While the start would leave memory or commit under the floor it
-// says why and waits, for up to wait, and then gives up saying why.
+// it is up. A start first takes the machine's one turn for heavy runs, which
+// it holds until it has started, so no test suite or other build starts
+// beside its build. While the start would leave memory or commit under the
+// floor it says why and waits, for up to wait, and then gives up saying why.
 func (s Service) Up(ctx context.Context, checkout, task string, wait time.Duration) (string, error) {
 	manifest, err := LoadManifest(s.DataDir, checkout)
 	if errors.Is(err, os.ErrNotExist) {
@@ -74,6 +76,14 @@ func (s Service) Up(ctx context.Context, checkout, task string, wait time.Durati
 	if !s.IsLive(task) {
 		return "", fmt.Errorf("services: %s is not a live task, so it cannot hold a stack", task)
 	}
+	if line, isJoined, err := s.tryJoin(ctx, checkout, manifest, task); err != nil || isJoined {
+		return line, err
+	}
+	release, err := s.Turn(ctx, fmt.Sprintf("cfo services up %s for %s", auth.ProjectName(checkout), task))
+	if err != nil {
+		return "", fmt.Errorf("services: take the machine's turn for heavy runs: %w", err)
+	}
+	defer release()
 	began := s.Now()
 	var said time.Time
 	for {
@@ -99,7 +109,58 @@ func (s Service) Up(ctx context.Context, checkout, task string, wait time.Durati
 	}
 }
 
-// tryUp joins the stack when its services run, or starts it when memory
+// tryJoin joins the stack when every service the check needs runs, and says
+// whether it did.
+func (s Service) tryJoin(ctx context.Context, checkout string, manifest Manifest, task string) (line string, isJoined bool, err error) {
+	release, err := s.lock(ctx, true)
+	if err != nil {
+		return "", false, err
+	}
+	defer func() { err = errors.Join(err, release()) }()
+	record, err := ReadRecord(s.StateDir)
+	if err != nil {
+		return "", false, err
+	}
+	return s.join(ctx, &record, checkout, manifest, task)
+}
+
+// join joins the stack when every service the check needs runs, as it is:
+// compose up is not run, since it would recreate a container whose
+// configuration changed under someone else's stack. The caller holds the
+// services lock.
+func (s Service) join(ctx context.Context, record *Record, checkout string, manifest Manifest, task string) (string, bool, error) {
+	if record.Stacks == nil {
+		record.Stacks = map[string]Stack{}
+	}
+	project := auth.ProjectName(checkout)
+	stack := record.Stacks[project]
+	running, err := s.runningServices(ctx, Compose{Dir: checkout, File: manifest.Compose, EnvFile: manifest.EnvFile})
+	if err != nil || !containsAll(running, manifest.Services) {
+		return "", false, err
+	}
+	holders := stack.HolderIDs()
+	stack.Project, stack.Checkout, stack.Compose, stack.EnvFile, stack.Services = project, checkout, manifest.Compose, manifest.EnvFile, manifest.Services
+	if stack.Since.IsZero() {
+		stack.Since = s.Now().UTC()
+	}
+	if !stack.Holds(task) {
+		stack.Holders = append(stack.Holders, Hold{Task: task, Since: s.Now().UTC()})
+	}
+	record.Stacks[project] = stack
+	if err := WriteRecord(s.StateDir, *record); err != nil {
+		return "", false, err
+	}
+	if len(holders) > 0 {
+		return fmt.Sprintf("%s's services are up: %s shared the stack %s holds", project, task, strings.Join(holders, ", ")), true, nil
+	}
+	if !stack.Owned && len(stack.Started) == 0 {
+		return fmt.Sprintf("%s's services were already running, so %s shares them and no release stops them", project, task), true, nil
+	}
+	return fmt.Sprintf("%s's services are up: %s holds them", project, task), true, nil
+}
+
+// tryUp joins the stack when its services run, as another start may have
+// started them while this one waited for its turn, or starts it when memory
 // allows, and otherwise returns why memory does not.
 func (s Service) tryUp(ctx context.Context, checkout string, manifest Manifest, task string) (line, short string, err error) {
 	release, err := s.lock(ctx, true)
@@ -111,40 +172,12 @@ func (s Service) tryUp(ctx context.Context, checkout string, manifest Manifest, 
 	if err != nil {
 		return "", "", err
 	}
-	if record.Stacks == nil {
-		record.Stacks = map[string]Stack{}
+	if line, isJoined, err := s.join(ctx, &record, checkout, manifest, task); err != nil || isJoined {
+		return line, "", err
 	}
 	project := auth.ProjectName(checkout)
 	stack := record.Stacks[project]
 	compose := Compose{Dir: checkout, File: manifest.Compose, EnvFile: manifest.EnvFile}
-	running, err := s.runningServices(ctx, compose)
-	if err != nil {
-		return "", "", err
-	}
-	if containsAll(running, manifest.Services) {
-		// Every service the check needs runs: join it as it is. Compose up
-		// is not run, since it would recreate a container whose
-		// configuration changed under someone else's stack.
-		holders := stack.HolderIDs()
-		stack.Project, stack.Checkout, stack.Compose, stack.EnvFile, stack.Services = project, checkout, manifest.Compose, manifest.EnvFile, manifest.Services
-		if stack.Since.IsZero() {
-			stack.Since = s.Now().UTC()
-		}
-		if !stack.Holds(task) {
-			stack.Holders = append(stack.Holders, Hold{Task: task, Since: s.Now().UTC()})
-		}
-		record.Stacks[project] = stack
-		if err := WriteRecord(s.StateDir, record); err != nil {
-			return "", "", err
-		}
-		if len(holders) > 0 {
-			return fmt.Sprintf("%s's services are up: %s shared the stack %s holds", project, task, strings.Join(holders, ", ")), "", nil
-		}
-		if !stack.Owned && len(stack.Started) == 0 {
-			return fmt.Sprintf("%s's services were already running, so %s shares them and no release stops them", project, task), "", nil
-		}
-		return fmt.Sprintf("%s's services are up: %s holds them", project, task), "", nil
-	}
 
 	cost, basis := stack.cost(manifest)
 	before, err := s.Memory()
@@ -205,7 +238,7 @@ func (s Service) tryUp(ctx context.Context, checkout string, manifest Manifest, 
 		return "", "", err
 	}
 	fmt.Fprintf(s.Out, "cfo services: starting %s's %s and what they depend on, which builds any image they lack first and can take many minutes\n", project, strings.Join(manifest.Services, ", "))
-	if err := s.Docker.Up(ctx, compose, manifest.Services); err != nil {
+	if err := s.upHoldingTheFloor(ctx, project, compose, manifest.Services); err != nil {
 		upErr := fmt.Errorf("services: start %s's services: %w", project, err)
 		if !stack.Owned {
 			// A start that failed part way may have started dependencies
@@ -259,6 +292,68 @@ func (s Service) tryUp(ctx context.Context, checkout string, manifest Manifest, 
 		what += " and the Docker engine they run on"
 	}
 	return fmt.Sprintf("%s for %s, which took %s of memory", what, task, gigabytes(stack.Cost.Bytes)), "", nil
+}
+
+// upHoldingTheFloor runs compose up, which builds any image the stack lacks,
+// and holds the floor while it runs, as cg-services-pd-build's watch beside
+// it did on 2026-10-11. Every FloorEvery it reads memory and commit, and the
+// first reading under the floor ends compose up with everything it started,
+// and so its build and nothing else. Every ReliefEvery, one at a time, it
+// hands the engine's file cache back (Docker.Relieve). The build the watch
+// guarded never fell under 9.21 GB free, where the two before it, without
+// it, reached the 4 GB floor.
+func (s Service) upHoldingTheFloor(ctx context.Context, project string, compose Compose, services []string) error {
+	building, endBuild := context.WithCancel(ctx)
+	defer endBuild()
+	built := make(chan error, 1)
+	go func() { built <- s.Docker.Up(building, compose, services) }()
+	relieving, endRelief := context.WithCancel(ctx)
+	defer endRelief()
+	relieved := make(chan error, 1)
+	isRelieving, hasReliefFailed := false, false
+	// A relief still running when the build ends is ended and waited for, so
+	// nothing it started outlives the start.
+	defer func() {
+		if isRelieving {
+			endRelief()
+			<-relieved
+		}
+	}()
+	floor := time.NewTicker(s.FloorEvery)
+	defer floor.Stop()
+	relief := time.NewTicker(s.ReliefEvery)
+	defer relief.Stop()
+	for {
+		select {
+		case err := <-built:
+			return err
+		case <-floor.C:
+			memory, err := s.Memory()
+			if err != nil {
+				endBuild()
+				<-built
+				return fmt.Errorf("cfo could not read memory while it built, so it ended the build: %w", err)
+			}
+			if memory.Available >= s.Floor && memory.CommitAvailable >= s.Floor {
+				continue
+			}
+			endBuild()
+			<-built
+			fmt.Fprintf(s.Out, "cfo services: %s of memory and %s of commit are free, under the %.0f GB floor, so cfo ended its start of %s's services and everything that start ran\n", gigabytes(memory.Available), gigabytes(memory.CommitAvailable), float64(s.Floor)/(1<<30), project)
+			return fmt.Errorf("the %.0f GB floor ended it, with %s of memory and %s of commit free", float64(s.Floor)/(1<<30), gigabytes(memory.Available), gigabytes(memory.CommitAvailable))
+		case <-relief.C:
+			if !isRelieving {
+				isRelieving = true
+				go func() { relieved <- s.Docker.Relieve(relieving) }()
+			}
+		case err := <-relieved:
+			isRelieving = false
+			if err != nil && !hasReliefFailed {
+				hasReliefFailed = true
+				fmt.Fprintf(s.Out, "cfo services: the cache relief failed, and the floor watch goes on without it: %v\n", err)
+			}
+		}
+	}
 }
 
 // Down releases task's hold on the project's stack, and stops what cfo

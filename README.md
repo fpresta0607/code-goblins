@@ -1243,6 +1243,7 @@ At spawn, CFO produces a compact durable **task capsule** and **runtime capsule*
 
 A goblin whose check needs a project's local services, such as a backend with its Redis, runs `cfo services up <project> --task <id>` instead of Docker itself.
 The project declares the compose file and the services in `data/projects/<project>/services.json`, and cfo starts Docker Desktop's engine and one shared stack only while free memory stays above the fleet's floor with the stack's measured cost added, waiting and saying why until it does.
+A start takes the machine's one turn for heavy runs, holds the floor itself while its build runs, handing Docker's file cache back and ending its own build at the floor, and closes the dashboard window Docker Desktop opens as it starts.
 The last goblin to release the stack, its cleanup or the janitor stops what cfo started, the engine included, and `cfo runtime` and the board show each stack, who holds it and its memory.
 
 Delivery is evidence-driven: tiered verification and security commands write structured results, project deployment contracts prevent “CI green” from being mistaken for “production deployed,” and `cfo pr merge` verifies the exact PR head and merges with `--match-head-commit` so a newer unverified SHA cannot slip through; where the base requires GitHub's merge queue it adds that head to the queue, which tests it on the base's tip before merging.

@@ -206,18 +206,27 @@ func (m *fakeMachine) give(bytes uint64) {
 	m.commit += bytes
 }
 
-// fakeTurn is the machine's line for heavy runs. It records each turn taken
-// and given back in the docker calls, so a test reads the turn's place among
-// them.
+// fakeTurn is the machine's line for heavy runs, which records each turn
+// taken and given back, and with inCalls records them among the docker
+// calls too, so a test reads the turn's place among them.
 type fakeTurn struct {
-	docker *fakeDocker
-	taken  []string
+	docker   *fakeDocker
+	inCalls  bool
+	taken    []string
+	released int
 }
 
 func (f *fakeTurn) take(_ context.Context, who string) (func(), error) {
 	f.taken = append(f.taken, who)
-	f.docker.calls = append(f.docker.calls, "take the turn")
-	return func() { f.docker.calls = append(f.docker.calls, "give the turn back") }, nil
+	if f.inCalls {
+		f.docker.calls = append(f.docker.calls, "take the turn")
+	}
+	return func() {
+		f.released++
+		if f.inCalls {
+			f.docker.calls = append(f.docker.calls, "give the turn back")
+		}
+	}, nil
 }
 
 type fakeCheck struct {
@@ -908,6 +917,7 @@ func buildUntilEnded(ctx context.Context) error {
 func TestAStartTakesTheMachinesTurnAndASharerTakesNone(t *testing.T) {
 	// Arrange
 	h := newHarness(t)
+	h.turn.inCalls = true
 
 	// Act
 	h.up(t, "task-a")
@@ -931,6 +941,7 @@ func TestABuildThatReachesTheFloorIsEndedAndWhatItStartedStopped(t *testing.T) {
 	// Arrange: 12 GB free, the engine takes 2 GB and the build 7 GB, which
 	// leaves 3 GB, under the 4 GB floor.
 	h := newHarness(t)
+	h.turn.inCalls = true
 	h.docker.upHook = func() { h.machine.take(7 * gigabyte) }
 	var wasEnded atomic.Bool
 	h.docker.upWait = func(ctx context.Context) error {
