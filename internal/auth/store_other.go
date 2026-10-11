@@ -14,3 +14,12 @@ func openCredentialManager() (Store, error) {
 func restrictToOwner(string) error {
 	return nil
 }
+
+// VaultTargets is empty off Windows, which has no Credential Manager.
+func VaultTargets() ([]string, error) { return nil, nil }
+
+// DeleteVaultTarget has nothing to delete off Windows.
+func DeleteVaultTarget(string) error { return nil }
+
+// VaultHolds holds nothing off Windows.
+func VaultHolds(string) (bool, error) { return false, nil }

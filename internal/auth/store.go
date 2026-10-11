@@ -388,3 +388,16 @@ func Redact(value string) string {
 	}
 	return value[:4] + "***" + value[len(value)-2:]
 }
+
+// FileStoreRoot is the folder the file store keeps its secrets in: the one
+// CFO_CREDENTIAL_DIR names, or ~/.cfo/credentials.
+func FileStoreRoot() (string, error) {
+	if dir := os.Getenv(StoreDirEnv); dir != "" {
+		return dir, nil
+	}
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return "", fmt.Errorf("auth: locate user home: %w", err)
+	}
+	return filepath.Join(home, StoreDirName, CredentialDirName), nil
+}

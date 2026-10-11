@@ -503,7 +503,7 @@ func runWithRuntime(args []string, stdout, stderr io.Writer, runtime commandRunt
 	case "install":
 		return runInstall(args[1:], stdout, stderr)
 	case "uninstall":
-		return runInstall(append([]string{"--uninstall"}, args[1:]...), stdout, stderr)
+		return runUninstall(args[1:], os.Stdin, stdout, stderr)
 	case "doctor":
 		return runDoctor(args[1:], stdout, stderr, runtime)
 	case "dictation":

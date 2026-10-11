@@ -144,6 +144,9 @@ func TestCleanupRemovesTheWorktreeEveryRecordedExtraAndTheScratch(t *testing.T) 
 	if !strings.Contains(result.Output, "archive/g1-proof") {
 		t.Errorf("Output = %q, want the archive tag named", result.Output)
 	}
+	if tags, err := state.ArchiveTags(task.stateDir); err != nil || len(tags) != 1 || !strings.EqualFold(tags[0].Checkout, task.project) || tags[0].Tag != "archive/g1-proof" {
+		t.Errorf("the home records the archive tags %v (%v), want archive/g1-proof in %s, which an uninstall keeps and removes", tags, err, task.project)
+	}
 	if _, err := state.ReadTaskMeta(task.stateDir, "g1"); err == nil {
 		t.Error("the task record survived the cleanup")
 	}

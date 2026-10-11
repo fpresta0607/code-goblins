@@ -213,6 +213,44 @@ func Uninstall(harness, configDir string) (bool, error) {
 	return removed || removedHelper, err
 }
 
+// Installed reports whether harness's configuration under configDir still
+// holds anything Install wrote: a hook command of its own, or its helper
+// script or Pi extension. It reads and changes nothing, which is how an
+// uninstall reads its removal back.
+func Installed(harness, configDir string) (bool, error) {
+	switch harness {
+	case "pi":
+		return ownedThere(filepath.Join(configDir, "extensions", "cfo-native.ts"))
+	case "claude", "codex":
+	default:
+		return false, errors.New("unsupported native hook harness")
+	}
+	_, _, hooks, err := readHooks(settingsPath(harness, configDir))
+	if err != nil {
+		return false, err
+	}
+	for _, groups := range hooks {
+		_, stood, err := withoutOwned(groups, harness, configDir)
+		if err != nil {
+			return false, err
+		}
+		if stood >= 0 {
+			return true, nil
+		}
+	}
+	helper, _ := helperCommand(configDir)
+	return ownedThere(helper)
+}
+
+// ownedThere reports whether path holds a file Install wrote.
+func ownedThere(path string) (bool, error) {
+	content, err := fsx.ReadFile(path)
+	if errors.Is(err, os.ErrNotExist) {
+		return false, nil
+	}
+	return err == nil && owned(content), err
+}
+
 // settingsPath is the file holding harness's hooks under configDir.
 func settingsPath(harness, configDir string) string {
 	if harness == "claude" {

@@ -53,16 +53,34 @@ func startsIn(command, dir string) bool {
 	return strings.HasPrefix(command, `"`) && quoted && strings.EqualFold(filepath.Dir(program), filepath.Clean(dir))
 }
 
+// startsHere reports whether a Start at login command starts a program in
+// this home, or the window an earlier install kept on its own.
+func (s Service) startsHere(command string) bool {
+	return startsIn(command, s.bin()) || startsIn(command, s.Root) || s.EarlierWindow != "" && startsIn(command, s.EarlierWindow)
+}
+
+// StartsHereAtLogin reports whether Windows' Start at login entry starts a
+// program in this home, which reads and changes nothing.
+func (s Service) StartsHereAtLogin() (bool, error) {
+	key, command, ok, err := s.startAtLogin()
+	if err != nil || !ok {
+		return false, err
+	}
+	key.Close()
+	return s.startsHere(command), nil
+}
+
 // removeStartAtLogin removes the desktop window's Start at login entry where
-// it starts a program in this home, so a home that was uninstalled does not
-// start again at the next login. Another home's entry is left as it is.
+// it starts a program in this home, or the window an earlier install kept,
+// so a home that was uninstalled does not start again at the next login.
+// Another home's entry is left as it is.
 func (s Service) removeStartAtLogin(report *reporter) error {
 	key, command, ok, err := s.startAtLogin()
 	if err != nil || !ok {
 		return err
 	}
 	defer key.Close()
-	if !startsIn(command, s.bin()) && !startsIn(command, s.Root) {
+	if !s.startsHere(command) {
 		return nil
 	}
 	if err := key.DeleteValue(startAtLoginValue); err != nil {

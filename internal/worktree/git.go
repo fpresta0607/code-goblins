@@ -298,6 +298,10 @@ func pathWithin(path, target string) (bool, error) {
 	return rel == "." || (rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator))), nil
 }
 
+// ExcludeMarker is the comment line ensureExcluded writes above each pattern
+// it adds to a checkout's info/exclude.
+const ExcludeMarker = "# added by Code Goblins"
+
 // ensureExcluded registers pattern in the clone's info/exclude, the per-clone
 // ignore file shared by every worktree of the repository. It is how .worktrees
 // and materialized config stay invisible to git status without editing a
@@ -321,7 +325,9 @@ func (g RunnerGit) ensureExcluded(ctx context.Context, dir, pattern string) erro
 	if err := os.MkdirAll(infoDir, 0o755); err != nil {
 		return fmt.Errorf("worktree: create %q: %w", infoDir, err)
 	}
-	entry := pattern + "\n"
+	// The marker above the pattern is how an uninstall tells the lines Code
+	// Goblins added from the person's own, and removes those alone.
+	entry := ExcludeMarker + "\n" + pattern + "\n"
 	if len(data) > 0 && !strings.HasSuffix(string(data), "\n") {
 		entry = "\n" + entry
 	}

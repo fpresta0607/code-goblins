@@ -187,7 +187,7 @@ func TestInstallRefusesABuildWithoutItsBoard(t *testing.T) {
 	if _, err := os.Stat(filepath.Join(local, "CodeGoblins")); !os.IsNotExist(err) {
 		t.Errorf("the refused install made the home anyway: %v", err)
 	}
-	installOnAScratchMachine(t, t.TempDir(), "--uninstall")
+	installOnAScratchMachine(t, t.TempDir(), "--uninstall", "--yes")
 }
 
 // --dev-drive keeps the person's answer to the setup's Dev Drive offer in the
