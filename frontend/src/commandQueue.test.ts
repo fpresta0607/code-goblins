@@ -17,18 +17,18 @@ test("a goblin's wait on the Overlord is a status card, anything else under revi
   for (const [name, fields, want] of cases) assert.equal(waitsOnOverlord(fields as Review), want, name);
 });
 
-test("a goblin's wait says what it waits on and opens it: its page, a file it delivered, or the link it gave, never its question to the CFO", () => {
+test("a goblin's wait opens what it waits on: its page, a file it delivered, or the link it gave, never its question to the CFO", () => {
   const wait = (title: string, extra: Record<string, unknown> = {}) => review("waiting-billing-7", "billing", "2026-09-27T10:00:00Z", "open", { title: "Waiting on you: " + title, ...extra });
   const target = (item: ReturnType<typeof wait>, others: { questions?: unknown[]; reviews?: unknown[] } = {}) => {
     const snapshot = parseSnapshot({ healthy: true, questions: others.questions || [], reviews: [item, ...(others.reviews || [])] });
     return waitTarget((snapshot.reviews || []).find((candidate) => candidate.id === "waiting-billing-7")!, snapshot);
   };
   const page = "http://127.0.0.1:4387/p/plan";
-  assert.deepEqual(target(wait("pick a plan (page " + page + ")", { lavish: page })), { kind: "page", url: page, label: "Open review", says: "It waits on your answer on its review page." });
+  assert.deepEqual(target(wait("pick a plan (page " + page + ")", { lavish: page })), { kind: "page", url: page, label: "Open review" });
   assert.equal(target(wait("answer my question"), { questions: [question("notify-billing-5", "billing", "2026-09-27T09:00:00Z"), question("notify-billing-6", "billing", "2026-09-27T09:30:00Z")] }), null, "its own question is the CFO's to answer, so the wait opens nothing");
-  assert.deepEqual(target(wait("read the report"), { reviews: [review("report-billing", "billing", "2026-09-27T09:00:00Z", "open", { document: { name: "report.pdf", size: 10, kind: "pdf", link: "" } }), review("report-notes", "notes", "2026-09-27T09:00:00Z", "open", { document: { name: "notes.pdf", size: 10, kind: "pdf", link: "" } })] }),
-    { kind: "item", key: "review:report-billing", label: "Open the file", says: "It waits on you to open report.pdf." });
-  assert.deepEqual(target(wait("sign in to Stripe, then tell me", { link: "https://dashboard.stripe.com/login" })), { kind: "page", url: "https://dashboard.stripe.com/login", label: "Open the link", says: "It waits on you at dashboard.stripe.com." });
+  assert.deepEqual(target(wait("read the report"), { reviews: [review("report-billing", "billing", "2026-09-27T09:00:00Z", "open", { document: { name: "report.pdf", size: 10, kind: "application/pdf" } }), review("report-notes", "notes", "2026-09-27T09:00:00Z", "open", { document: { name: "notes.pdf", size: 10, kind: "application/pdf" } })] }),
+    { kind: "item", key: "review:report-billing", label: "Open the file" });
+  assert.deepEqual(target(wait("sign in to Stripe, then tell me", { link: "https://dashboard.stripe.com/login" })), { kind: "page", url: "https://dashboard.stripe.com/login", label: "Open the link" });
   assert.equal(target(wait("log in to Stripe")), null, "a wait that names nothing to open offers nothing");
   // The Overlord, 2026-09-28: a card offered Open the link for a hostname the
   // goblin only named in its prose. Only the link the goblin gave opens.

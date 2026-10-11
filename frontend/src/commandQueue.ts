@@ -74,13 +74,13 @@ export const reviewLine = (review: Review) => plainMessage(waitsOnOverlord(revie
 // the goblin named, else a file it delivered, else the web link it gave as the
 // link (cfo notify --link), never an address it only names in its words, and
 // never its question to the CFO. Null when it names nothing.
-export type WaitTarget = { kind: "item"; key: string; label: string; says: string } | { kind: "page"; url: string; label: string; says: string };
+export type WaitTarget = { kind: "item"; key: string; label: string } | { kind: "page"; url: string; label: string };
 export function waitTarget(review: Review, snapshot: Snapshot): WaitTarget | null {
-  if (review.lavish) return { kind: "page", url: review.lavish, label: "Open review", says: "It waits on your answer on its review page." };
+  if (review.lavish) return { kind: "page", url: review.lavish, label: "Open review" };
   const file = (snapshot.reviews || []).find((candidate) => candidate.task === review.task && candidate.state === "open" && candidate.document);
-  if (file?.document) return { kind: "item", key: "review:" + file.id, label: "Open the file", says: "It waits on you to open " + file.document.name + "." };
+  if (file?.document) return { kind: "item", key: "review:" + file.id, label: "Open the file" };
   const link = URL.canParse(review.link) ? new URL(review.link) : null;
-  if (link && (link.protocol === "https:" || link.protocol === "http:")) return { kind: "page", url: review.link, label: "Open the link", says: "It waits on you at " + link.host + "." };
+  if (link && (link.protocol === "https:" || link.protocol === "http:")) return { kind: "page", url: review.link, label: "Open the link" };
   return null;
 }
 

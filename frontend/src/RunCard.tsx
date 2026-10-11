@@ -10,6 +10,7 @@ import { age } from "./presentation";
 import { personaFor } from "./workflow";
 import { RunTerminal } from "./run-terminal";
 import { ClickFeedback, useClickFeedback } from "./click-feedback";
+import { goblinName } from "./task-words";
 
 // A command the CFO, or a goblin, needs the Overlord to run: who asks when it
 // is a goblin's own, why, the shell, the exact text that runs and where, and
@@ -29,7 +30,7 @@ export function RunCard({ run, goblin, connected, instance, sending, error, onRu
   const failure = runFailure(run);
   const copy = () => copyText(run.command).then(() => { setCopied(true); setTimeout(() => setCopied(false), 1400); }, () => {});
   return <article className={"run-card" + (running && run.terminal ? " live" : "")} aria-labelledby={"run-" + run.id}>
-    {run.task && <p className="asker"><Avatar persona={personaFor(goblin)} small /><span><strong>{goblin?.title || run.task}</strong> asks you to run this · {run.state === "ready" ? "waiting " + age(run.created_at).replace(/ ago$/, "") : "asked " + age(run.created_at)}</span></p>}
+    {run.task && <p className="asker"><Avatar persona={personaFor(goblin)} small /><span><strong>{goblin ? goblinName(goblin) : run.task}</strong> asks you to run this · {run.state === "ready" ? "waiting " + age(run.created_at).replace(/ ago$/, "") : "asked " + age(run.created_at)}</span></p>}
     <header className="run-head">
       <ConnectorMark mark={shellMark(run.shell)} label={shellLabel(run.shell)} />
       <span className="chip">{shellLabel(run.shell)}</span>

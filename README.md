@@ -656,8 +656,10 @@ Choices are a plain list of the answers themselves, the recommended one first an
 `cfo question` and `cfo notify` refuse a choice that is only a letter or number, such as `a` or `2`: each choice is the answer, written as a short phrase.
 Answers you give to several of the CFO's questions in one go reach the CFO as one message that lists each question and your answer in the order you gave them, and an answer to its only question goes at once.
 Review items share the stack: a goblin's image review or review page, and a goblin waiting on you personally (its sign-in, its click, its page), which shows as a status card with no answer box: it says what the goblin waits on and opens it (**Open the page**, **Open its question**, **Open the file** or **Open the link**), with **Dismiss** beside it.
-A review page shows as a preview named Scrawl page you click to open it (**Open review**), and a goblin's wait with a page opens it from its one **Open review** button, so a card says its words once; a page the board watches is answered on the page itself, and its card finishes when you send or end the review there.
-When a goblin asks a question about its open review page, the Command Center shows one card, the page's: the question, **Open review**, and where the review stands (waiting for your answer, or when its window closed; nothing you send there is lost).
+A card says each thing once: the goblin's name and title, such as Tad - Report Fixer, then the item's own title, never the task's title again.
+A card for a Scrawl page shows the page itself, live and scaled down, with one **Open review** button and no line that explains how to answer. A page the board watches is answered on the page itself, and its card finishes when you send or end the review there.
+When a goblin asks a question about its open review page, the Command Center shows one card, the page's: the question, the page and **Open review**.
+The Command Center keeps the lantern box, its stepped frame, hard shadow and pixel type, in SIQstack's own look: its dark card, its mint and its green button, never all yellow.
 An answer you send on the page finishes its card within a second, with the same check as an answer sent from the card (**Answered**, You answered on its page) and the next item follows. History lists it as answered, never as withdrawn.
 A pick or a note you send just before **Send & End** is part of that one answer, never a revision first.
 

@@ -23,6 +23,7 @@ import { DoneCard } from "./DoneCard";
 import { AnswerMark } from "./AnswerMark";
 import { ChangeCard } from "./ChangeCard";
 import "./lantern.css";
+import { goblinName } from "./task-words";
 
 // A sent item's check shows this long before the next item.
 const DONE_MS = 750;
@@ -284,7 +285,10 @@ export function CommandCenter({ snapshot, connected, presentations, focus, onUns
   const taskOf = (candidate: Item) => candidate.kind === "question" ? candidate.question.task : candidate.kind === "review" ? candidate.review.task : candidate.kind === "credential" ? candidate.request.task : candidate.run.task;
   // An Update item is Code Goblins' own, not the CFO's or a goblin's.
   const release = (candidate: Item) => candidate.kind === "run" ? candidate.run.update : null;
-  const askerOf = (candidate: Item) => release(candidate) ? "Code Goblins" : taskOf(candidate) ? snapshot.tasks.find((task) => task.id === taskOf(candidate))?.title || taskOf(candidate) : "The CFO";
+  const askerOf = (candidate: Item) => {
+    const goblin = snapshot.tasks.find((task) => task.id === taskOf(candidate));
+    return release(candidate) ? "Code Goblins" : taskOf(candidate) ? goblin ? goblinName(goblin) : taskOf(candidate) : "The CFO";
+  };
   const textOf = (candidate: Item) => candidate.kind === "question" ? plainMessage(candidate.question.text) : candidate.kind === "review" ? reviewLine(candidate.review) : candidate.kind === "credential" ? credentialAsk(candidate.request) : candidate.run.update ? "Update to " + candidate.run.update.to + " from " + candidate.run.update.from : candidate.run.title;
   const created = (candidate: Item) => candidate.kind === "question" ? candidate.question.created_at : candidate.kind === "review" ? candidate.review.created_at : candidate.kind === "credential" ? candidate.request.created_at : candidate.run.created_at;
   const iconOf = (candidate: Item) => candidate.kind === "question" ? candidate.question.image_count ? "images" : "question" : candidate.kind === "review" ? candidate.review.document ? "file" : candidate.review.image_count ? "images" : "comment" : candidate.kind === "credential" ? "key" : candidate.run.update ? "download" : "play";
@@ -292,7 +296,10 @@ export function CommandCenter({ snapshot, connected, presentations, focus, onUns
   const images = !item || item.kind === "run" || item.kind === "credential" ? [] : item.kind === "question"
     ? questionChoices(item.question).filter((choice) => choice.image).map((choice) => ({ src: choice.image, value: choice.value, text: choice.text }))
     : reviewImages(item.review).map((src, n) => ({ src, value: "Image " + (n + 1), text: "Image " + (n + 1) }));
-  const presenter = (event: BoardActivity) => event.cfo_identity ? "The CFO" : snapshot.tasks.find((task) => task.id === event.task_id)?.title || event.task_id;
+  const presenter = (event: BoardActivity) => {
+    const goblin = snapshot.tasks.find((task) => task.id === event.task_id);
+    return event.cfo_identity ? "The CFO" : goblin ? goblinName(goblin) : event.task_id;
+  };
   const settled = settledItems(snapshot).slice(0, 20);
   // Reset before committing this render, including IDs absent between publications.
   // Registration changes identity but keeps created_at, so unfinished answers survive.
