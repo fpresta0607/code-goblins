@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { answerMark, answerReason, answeredBy, answeredElsewhere, answeredLabel, canChange, cardKey, chosenOption, closedElsewhere, documentFacts, holdsUnsent, itemFor, newestItemOf, nextOpenKey, notSent, openKeys, outcomeIcon, questionOutcome, questionPage, reviewLine, sendState, settledIcon, settledItems, settledLabel, waitingItems, waitReason, waitsOnOverlord, waitTarget } from "./commandQueue.ts";
+import { answerMark, answerReason, answeredBy, answeredElsewhere, answeredLabel, canChange, cardKey, chosenOption, closedElsewhere, holdsUnsent, itemFor, newestItemOf, nextOpenKey, notSent, openKeys, outcomeIcon, questionOutcome, questionPage, reviewLine, sendState, settledIcon, settledItems, settledLabel, waitingItems, waitReason, waitsOnOverlord, waitTarget } from "./commandQueue.ts";
 import type { Action, Review } from "./types.ts";
 import { parseSnapshot, type BoardActivity } from "./types.ts";
 
@@ -373,20 +373,17 @@ test("a review item says whether the supervisor watches its page for his answer"
   assert.deepEqual(snapshot.reviews!.map((item) => item.watched), [true, false]);
 });
 
-test("a document item reads as its file: its type, its size and who sent it", () => {
+test("a delivered file reads its name, its size, how its page shows it and whether it offers a download", () => {
   const snapshot = parseSnapshot({ healthy: true, reviews: [
-    review("setbacks-doc", "", "2026-09-24T00:00:00Z", "open", { document: { name: "setbacks 1204 Oak St.pdf", size: 2516582, kind: "application/pdf" } }),
-    review("parcels-doc", "steward", "2026-09-24T00:00:00Z", "open", { document: { name: "parcels.CSV", size: 900, link: "https://files.example.com/parcels" } }),
-    review("notes-doc", "steward", "2026-09-24T00:00:00Z", "open", { document: { name: "README", size: 20480 } }),
+    review("setbacks-doc", "", "2026-09-24T00:00:00Z", "open", { lavish: "http://127.0.0.1:4387/session/a", lavish_page: "C:/reviews/a/page.html", document: { name: "setbacks 1204 Oak St.pdf", size: 2516582, kind: "application/pdf" } }),
+    review("assets-doc", "steward", "2026-09-24T00:00:00Z", "open", { lavish: "http://127.0.0.1:4387/session/b", lavish_page: "C:/reviews/b/page.html", document: { name: "assets.zip", size: 900, download: true } }),
     review("mockups", "steward", "2026-09-24T00:00:00Z"),
   ] });
-  const [pdf, csv, plain, noDocument] = snapshot.reviews!;
-  assert.deepEqual(pdf.document, { name: "setbacks 1204 Oak St.pdf", size: 2516582, kind: "application/pdf", link: "" });
-  assert.equal(csv.document?.link, "https://files.example.com/parcels");
+  const [pdf, zip, noDocument] = snapshot.reviews!;
+  assert.deepEqual(pdf.document, { name: "setbacks 1204 Oak St.pdf", size: 2516582, kind: "application/pdf", download: false });
+  assert.deepEqual(zip.document, { name: "assets.zip", size: 900, kind: "", download: true });
+  assert.equal(pdf.watched, true);
   assert.equal(noDocument.document, null);
-  assert.equal(documentFacts(pdf.document!, "the CFO"), "PDF · 2.4 MB · from the CFO");
-  assert.equal(documentFacts(csv.document!, "steward"), "CSV · 900 B · from steward");
-  assert.equal(documentFacts(plain.document!, "steward"), "File · 20 KB · from steward");
 });
 
 const action = (id: string, kind: string, status: string) => ({ id, kind, status, question_id: "", answer_kind: "", task_id: "", generation: "", message: "", text: "", file: "", line: 0, side: "", updated_at: "" }) as Action;
@@ -394,7 +391,6 @@ const submitted = (id: string, payload: Record<string, unknown>) => ({ id, paylo
 
 test("a send shows as done at once, Sent once delivered, and failed only when refused or not delivered", () => {
   const answer = submitted("a1", { kind: "goblin_answer", text: "SQLite" });
-  const opened = submitted("c1", { kind: "review_clear", review_id: "doc", text: "Downloaded" });
   const cleared = submitted("c2", { kind: "review_clear", review_id: "look" });
   const dismissed = submitted("c3", { kind: "question_clear", question_id: "herdr-strays-20260929" });
   const cases: [string, Parameters<typeof sendState>, ReturnType<typeof sendState>][] = [
@@ -407,7 +403,6 @@ test("a send shows as done at once, Sent once delivered, and failed only when re
     ["an ambiguous error, then delivered", [{ submission: answer, sending: false, error: "network error" }, [action("a1", "goblin_answer", "succeeded")]], { failed: false, heading: "Sent", cleared: false }],
     ["delivery failed", [{ submission: answer, sending: false, error: "" }, [action("a1", "goblin_answer", "failed")]], { failed: true, heading: "Sent", cleared: false }],
     ["delivery unconfirmed", [{ submission: answer, sending: false, error: "" }, [action("a1", "goblin_answer", "uncertain")]], { failed: true, heading: "Sent", cleared: false }],
-    ["a document downloaded", [{ submission: opened, sending: true, error: "" }, []], { failed: false, heading: "Downloaded", cleared: true }],
     ["an item cleared", [{ submission: cleared, sending: true, error: "" }, []], { failed: false, heading: "Cleared", cleared: true }],
     ["a question dismissed", [{ submission: dismissed, sending: true, error: "" }, []], { failed: false, heading: "Dismissed", cleared: true }],
   ];

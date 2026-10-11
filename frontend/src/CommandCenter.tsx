@@ -20,7 +20,6 @@ import { ImageGallery } from "./ImageGallery";
 import { Disclosure } from "./Disclosure";
 import { countedTitle } from "./arrivals";
 import { DoneCard } from "./DoneCard";
-import { DocumentCard } from "./DocumentCard";
 import { AnswerMark } from "./AnswerMark";
 import { ChangeCard } from "./ChangeCard";
 import "./lantern.css";
@@ -243,8 +242,7 @@ export function CommandCenter({ snapshot, connected, presentations, focus, onUns
   // published its item for the same release again: retryItem is that item,
   // which the press shows and starts at once.
   const retryItem = (target: Run) => target.state === "failed" ? (snapshot.runs || []).find((other) => other.id !== target.id && other.state === "ready" && other.update?.to === target.update?.to) : undefined;
-  // A document leaves the queue once he opens or downloads it, and says so.
-  const clear = (target: Review, how?: "Opened" | "Downloaded") => void post("review:" + target.id, { kind: "review_clear", review_id: target.id, generation: target.identity, ...(how ? { text: how } : {}) });
+  const clear = (target: Review) => void post("review:" + target.id, { kind: "review_clear", review_id: target.id, generation: target.identity });
   const dismiss = (target: Question) => void post("question:" + target.id, { kind: "question_clear", question_id: target.id, generation: target.identity });
   // His change of an answer shows as the answer on its card the moment he
   // makes it. It goes under one request ID until the supervisor has it, so a
@@ -394,8 +392,6 @@ export function CommandCenter({ snapshot, connected, presentations, focus, onUns
               ? <UpdateCard key={shownKey} run={item.run} offer={item.run.update} connected={connected} sending={!!drafts[item.key]?.sending} error={drafts[item.key]?.error || ""} onRun={() => run(item.run)} onRetry={retryItem(item.run) ? () => { const again = retryItem(item.run); if (again) { show("run:" + again.id); run(again); } } : undefined} pager={pager} />
               : item.kind === "run"
               ? <RunCard key={shownKey} run={item.run} goblin={item.run.task ? snapshot.tasks.find((task) => task.id === item.run.task) : undefined} connected={connected} instance={snapshot.instance} sending={!!drafts[item.key]?.sending} error={drafts[item.key]?.error || ""} onRun={() => run(item.run)} pager={pager} />
-              : item.review.document
-              ? <DocumentCard key={shownKey} review={item.review} document={item.review.document} snapshot={snapshot} connected={connected} draft={drafts[item.key] || EMPTY_DRAFT} onOpened={(how) => clear(item.review, how)} onClear={() => clear(item.review)} pager={pager} />
               : <ReviewCard key={shownKey} review={item.review} snapshot={snapshot} connected={connected} draft={drafts[item.key] || EMPTY_DRAFT}
                 onDraft={(changes) => update(item.key, changes)} onSend={() => send(item)} onClear={() => clear(item.review)} onOpen={show} onImage={setGallery} pager={pager} />}
           </div>}

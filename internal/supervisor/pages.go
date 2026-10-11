@@ -521,7 +521,7 @@ func pageKey(file string) string {
 // review on it has not settled, and the item is the CFO's own or its goblin's
 // task stands. A retired goblin's page is the sweep's to end.
 func (s *Store) watchesPage(r Review) bool {
-	return r.LavishPage != "" && r.PageSettled == nil && r.Document == nil && (r.Task == "" || s.taskStands(r.Task))
+	return r.LavishPage != "" && r.PageSettled == nil && (r.Task == "" || s.taskStands(r.Task))
 }
 
 // taskStands reports whether task id stands, running or paused: its record is
