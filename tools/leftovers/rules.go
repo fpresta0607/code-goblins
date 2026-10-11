@@ -33,15 +33,16 @@ func noise() []rule {
 		files(filepath.Join(local, "Microsoft", "WindowsApps"), "the commands of "+packaged+", such as wsl.exe"),
 		// Windows registers each packaged app's file types, links and classes
 		// as it provisions it, under names of the app's own, such as .all and
-		// windowsdefender, so a new or changed key or value under Classes is
-		// passed over. Code Goblins registers nothing there but its
-		// notification registration and click handlers, in AppUserModelId and
-		// CLSID, so everything in those is compared, and so is anything under
-		// Classes whose name or value names Code Goblins or its programs, by
-		// excepted, wherever it is. What went is always named.
-		{kind: kindRegistryKey, change: changeLeft, pattern: classes, unless: ownClasses, why: "a file type, link or class of " + packaged},
-		{kind: kindRegistryValue, change: changeLeft, pattern: classes, unless: ownClasses, why: "a file type, link or class of " + packaged},
-		{kind: kindRegistryValue, change: changeChanged, pattern: classes, unless: ownClasses, why: "a file type, link or class of " + packaged},
+		// windowsdefender, and trims its own caches there, such as Local
+		// Settings' ShellRefresh, so a key or value under Classes that came,
+		// changed or went is passed over. Code Goblins registers nothing there
+		// but its notification registration and click handlers, in
+		// AppUserModelId and CLSID, so everything in those is compared, and
+		// the rules are strict: anything under Classes whose name, or what it
+		// held or holds, names Code Goblins or its programs is named, even
+		// once it went.
+		{kind: kindRegistryKey, pattern: classes, unless: ownClasses, isStrict: true, why: "a file type, link, class or cache of " + packaged},
+		{kind: kindRegistryValue, pattern: classes, unless: ownClasses, isStrict: true, why: "a file type, link, class or cache of " + packaged},
 		keys(`HKCU\Software\Classes\Extensions\ContractId`, "where Windows registers what its packaged apps add to it"),
 		{kind: kindRegistryKey, pattern: regexp.MustCompile(`(?i)^HKCU\\Software\\Classes\\AppX[0-9a-z]{32}(\\|$)`), why: "the file types of " + packaged + ", each named AppX and a hash"},
 		{kind: kindRegistryKey, pattern: regexp.MustCompile(`(?i)\\Notifications\\BackgroundCapability\\S-1-15-2-`), why: "what an app container may do in the background, which only Windows' packaged apps are"},
@@ -106,7 +107,8 @@ func noise() []rule {
 	}
 }
 
-// excepted reports a difference no rule may pass over: anything left or
-// changed whose path, or what it holds, such as a registry value naming a
-// program, names Code Goblins or its programs.
+// excepted reports a difference no rule may pass over: anything whose path,
+// or what it held or holds, such as a registry value naming a program, names
+// Code Goblins or its programs. A thing that went is passed over by its rule
+// all the same, unless the rule is strict.
 var excepted = regexp.MustCompile(`(?i)goblin|cfo`)

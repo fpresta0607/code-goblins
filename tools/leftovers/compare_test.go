@@ -336,13 +336,14 @@ func TestNoisePassesOverWhatWindowsTasksWrite(t *testing.T) {
 // The rule for HKCU\Software\Classes, and why. Windows registers each of
 // its own packaged apps' file types, links and classes there as it
 // provisions the app for a profile, at times of its own, under names of the
-// app's, such as .all and windowsdefender on a clean runner, so a new key or
-// value there, or a changed value, is passed over. Code Goblins registers
-// nothing there but its notification registration and its click handlers,
-// so everything in AppUserModelId and CLSID is compared. A new key or value
-// whose name, or whose value, names Code Goblins, goblins, cfo.exe or
-// goblins-window is named wherever it sits under Classes, and so is
-// anything that went.
+// app's, such as .all and windowsdefender on a clean runner, and trims its
+// own caches there, such as Local Settings' ShellRefresh, which went during
+// one dry run. So a key or value there that came, changed or went is passed
+// over. Code Goblins registers nothing there but its notification
+// registration and its click handlers, so everything in AppUserModelId and
+// CLSID is compared. A key or value whose name, or what it held or holds,
+// names Code Goblins, goblins, cfo.exe or goblins-window is named wherever it
+// sits under Classes, even once it went.
 func TestNoisePassesOverWindowsClassesButNeverOurs(t *testing.T) {
 	cases := []struct {
 		name string
@@ -360,8 +361,12 @@ func TestNoisePassesOverWindowsClassesButNeverOurs(t *testing.T) {
 		{"a class", difference{Change: changeLeft, Kind: kindRegistryKey, Identity: `HKCU\Software\Classes\CLSID\{675d0139-5ced-40b2-8c52-7ff0dca6fc9d}`}, true},
 		{"a class's value", difference{Change: changeLeft, Kind: kindRegistryValue, Identity: `HKCU\Software\Classes\CLSID\{675d0139-5ced-40b2-8c52-7ff0dca6fc9d}\LocalServer32\`, After: "x"}, true},
 		{"a notification sender", difference{Change: changeLeft, Kind: kindRegistryKey, Identity: `HKCU\Software\Classes\AppUserModelId\Some App`}, true},
-		{"a file type that went", difference{Change: changeGone, Kind: kindRegistryKey, Identity: `HKCU\Software\Classes\.txt`}, true},
-		{"a value that went", difference{Change: changeGone, Kind: kindRegistryValue, Identity: `HKCU\Software\Classes\.txt\Content Type`, Before: "text/plain"}, true},
+		{"a cache value Windows trimmed", difference{Change: changeGone, Kind: kindRegistryValue, Identity: `HKCU\Software\Classes\Local Settings\Software\Microsoft\Windows\CurrentVersion\AppModel\ShellRefresh\2\`, Before: "1"}, false},
+		{"a file type that went", difference{Change: changeGone, Kind: kindRegistryKey, Identity: `HKCU\Software\Classes\.txt`}, false},
+		{"a value of ours that went", difference{Change: changeGone, Kind: kindRegistryValue, Identity: `HKCU\Software\Classes\Local Settings\Software\Microsoft\Windows\Shell\MuiCache\x`, Before: `C:\Users\a\AppData\Local\CodeGoblins\bin\goblins-window.exe`}, true},
+		{"a key named for us that went", difference{Change: changeGone, Kind: kindRegistryKey, Identity: `HKCU\Software\Classes\CodeGoblins.Brief`}, true},
+		{"a class that went", difference{Change: changeGone, Kind: kindRegistryKey, Identity: `HKCU\Software\Classes\CLSID\{675d0139-5ced-40b2-8c52-7ff0dca6fc9d}`}, true},
+		{"a notification sender's value that went", difference{Change: changeGone, Kind: kindRegistryValue, Identity: `HKCU\Software\Classes\AppUserModelId\Some App\DisplayName`, Before: "Some App"}, true},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {

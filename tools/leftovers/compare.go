@@ -57,7 +57,11 @@ type rule struct {
 	pattern *regexp.Regexp
 	// unless names what under pattern the rule never passes over.
 	unless *regexp.Regexp
-	why    string
+	// isStrict keeps the rule from passing over a thing of Code Goblins'
+	// even once it went, as other rules do, such as a program of ours that
+	// ended.
+	isStrict bool
+	why      string
 }
 
 // matches reports whether the rule passes over d. A rule with no change
@@ -113,13 +117,19 @@ func compare(before, after Snapshot, kept []string, rules []rule) ([]difference,
 			over = append(over, passed{difference: d, Why: "the uninstall named " + folder + " as kept"})
 			continue
 		}
-		if index := slices.IndexFunc(rules, func(r rule) bool { return r.matches(d) }); index >= 0 && (d.Change == changeGone || !excepted.MatchString(d.Identity) && !excepted.MatchString(d.After)) {
+		if index := slices.IndexFunc(rules, func(r rule) bool { return r.matches(d) }); index >= 0 && (d.Change == changeGone && !rules[index].isStrict || !isOurs(d)) {
 			over = append(over, passed{difference: d, Why: rules[index].why})
 			continue
 		}
 		remaining = append(remaining, d)
 	}
 	return remaining, over
+}
+
+// isOurs reports whether d names Code Goblins or its programs, by its path
+// or by what it held or holds.
+func isOurs(d difference) bool {
+	return excepted.MatchString(d.Identity) || excepted.MatchString(d.Before) || excepted.MatchString(d.After)
 }
 
 // keptFolder is what the uninstall named as kept that a difference left
