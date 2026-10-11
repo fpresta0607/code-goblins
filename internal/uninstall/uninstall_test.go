@@ -128,7 +128,7 @@ func TestRunNamesWhatItCouldNotRemoveAndWhatIsStillThere(t *testing.T) {
 	}
 	for _, l := range outcome.Left {
 		sentence := l.Sentence()
-		if strings.ContainsAny(sentence, ";\u2014") || !strings.HasPrefix(sentence, "Left the thing ") || !strings.HasSuffix(sentence, "run goblins uninstall again to finish.") {
+		if strings.ContainsAny(sentence, ";\u2014") || !strings.HasPrefix(sentence, "Left the thing ") || !strings.HasSuffix(sentence, "run the uninstall again to finish.") {
 			t.Errorf("Sentence() = %q, want one sentence naming it and how to finish, with no semicolon or dash", sentence)
 		}
 	}

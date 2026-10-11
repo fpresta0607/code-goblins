@@ -35,7 +35,9 @@
   body.left h1 { color: var(--red); }
   #lead { margin: 2px 0 0; color: var(--muted); overflow-wrap: anywhere; }
   .path { display: block; font-family: "Cascadia Mono", Consolas, monospace; font-size: 13px; color: var(--muted); overflow-wrap: anywhere; user-select: text; }
-  .facts { display: grid; margin: 0; border: 1px solid var(--edge); border-radius: 10px; background: var(--surface); overflow: auto; }
+  /* A long plan scrolls in its own box, so the buttons stay in view. */
+  #plan { flex: 1 1 auto; min-height: 0; overflow: auto; }
+  .facts { display: grid; margin: 0; border: 1px solid var(--edge); border-radius: 10px; background: var(--surface); }
   .facts div { display: grid; grid-template-columns: 82px minmax(0, 1fr); gap: 16px; padding: 10px 16px; }
   .facts div + div { border-top: 1px solid var(--hairline); }
   .facts dt { color: var(--muted); }

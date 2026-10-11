@@ -68,7 +68,7 @@ func (m Machine) devDrive(ctx context.Context) ([]Item, error) {
 	// names the drive, and the administrator's script reads each back.
 	vhd := quote(config.VHD)
 	items = append(items, Item{Action: Remove, Group: GroupDevDrive, Admin: true, What: "the Dev Drive " + letter, Where: config.VHD,
-		Fix:    "restart the PC and run goblins uninstall again",
+		Fix:    "restart the PC first if another program has the drive open, then run the uninstall again",
 		Script: devDriveScript(vhd, quote(strings.TrimSuffix(letter, ":")))})
 	items = append(items, Item{Action: Remove, Group: GroupDevDrive, Admin: true, What: "its startup task, " + devDriveTask, Where: `\` + devDriveTask,
 		Script: "Unregister-ScheduledTask -TaskName " + quote(devDriveTask) + " -Confirm:$false -ErrorAction SilentlyContinue\r\n" +

@@ -82,7 +82,8 @@ type Item struct {
 	// adds its Where to $still when it is still there.
 	Script string `json:"-"`
 	// Fix is how a person finishes when the uninstall could not, the end of
-	// one sentence, such as "restart the PC and run goblins uninstall again".
+	// one sentence, such as "run the uninstall again". From a terminal and from
+	// Installed apps alike, the uninstall is the one that runs again.
 	Fix string `json:"-"`
 	do  func(context.Context) error
 }
@@ -139,7 +140,7 @@ type Left struct {
 func (l Left) Sentence() string {
 	fix := l.Fix
 	if fix == "" {
-		fix = "run goblins uninstall again to finish"
+		fix = "run the uninstall again to finish"
 	}
 	return fmt.Sprintf("Left %s, %s, so %s.", l.What, l.Why, fix)
 }
