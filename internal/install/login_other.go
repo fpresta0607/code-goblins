@@ -13,6 +13,9 @@ const StartAtLoginKey = ""
 
 func (s Service) removeStartAtLogin(*reporter) error { return nil }
 
+// StartsHereAtLogin finds no entry off Windows.
+func (s Service) StartsHereAtLogin() (bool, error) { return false, nil }
+
 func (s Service) adoptStartAtLogin(*reporter) error { return nil }
 
 // keepStartAtLogin keeps a choice made with --start-at-login in the home,

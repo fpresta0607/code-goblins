@@ -140,6 +140,44 @@ func TestEveryStateHasOneShortNoteForTheBoard(t *testing.T) {
 	}
 }
 
+// A Dev Drive in a file says how much of the system drive the file holds and
+// that space goblins free on the Dev Drive stays taken there, or why that
+// could not be read, in one line, and the board's note says the same.
+func TestADevDriveInAFileSaysHowMuchOfItsDriveTheFileHolds(t *testing.T) {
+	vhd := `C:\DevDrives\CodeGoblins.vhdx`
+	for name, test := range map[string]struct {
+		image Image
+		file  string
+	}{
+		"its size read":        {Image{Path: vhd, Size: 142 * gigabyte / 10}, `C:\DevDrives\CodeGoblins.vhdx holds 14.2 GB of C:, and stays that size when goblins free space on D:`},
+		"its size unread":      {Image{Path: vhd, Unread: "only a process run as administrator may read it"}, `C:\DevDrives\CodeGoblins.vhdx holds space on C: that stays taken when goblins free space on D:, and how much could not be read: only a process run as administrator may read it`},
+		"its file unnamed":     {Image{Unread: "The device is not ready"}, "whether D: lives in a file on another drive could not be read: The device is not ready"},
+		"on a disk of its own": {Image{}, ""},
+	} {
+		t.Run(name, func(t *testing.T) {
+			// Arrange
+			m := ready()
+			m.Volumes = append(m.Volumes, Volume{Root: `D:\`, FileSystem: "ReFS", Dev: true, Trust: Trusted, Free: 188 * gigabyte, Total: 200 * gigabyte, Image: test.image})
+			moved := home.Home{Root: `C:\Users\op\AppData\Local\CodeGoblins`, DevDrive: `D:\CodeGoblins`}
+
+			// Act
+			report := Describe(m, moved)
+
+			// Assert
+			note := `The worktrees and caches are on D:\CodeGoblins.`
+			if test.file != "" {
+				note += " " + strings.ToUpper(test.file[:1]) + test.file[1:] + "."
+			}
+			if report.File != test.file || report.Note != note {
+				t.Errorf("file = %q, note = %q, want %q and %q", report.File, report.Note, test.file, note)
+			}
+			if strings.ContainsAny(report.File, ";\u2014") {
+				t.Errorf("file %q has a semicolon or a dash", report.File)
+			}
+		})
+	}
+}
+
 func TestANewDevDriveIsSizedToLeaveTheSystemDriveRoom(t *testing.T) {
 	for free, want := range map[uint64]int{374 * gigabyte: 200, 250 * gigabyte: 200, 180 * gigabyte: 130, 100 * gigabyte: 50, 60 * gigabyte: 50} {
 		m := ready()

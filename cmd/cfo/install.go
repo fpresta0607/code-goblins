@@ -9,6 +9,7 @@ import (
 	iofs "io/fs"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"time"
 
@@ -37,9 +38,22 @@ import (
 //	cfo install --projects-root <dir>
 //	cfo install --uninstall
 func runInstall(args []string, stdout, stderr io.Writer) int {
+	// --uninstall is goblins uninstall, which takes its own flags and none
+	// of an install's.
+	if slices.Contains(args, "--uninstall") {
+		rest := slices.DeleteFunc(slices.Clone(args), func(arg string) bool { return arg == "--uninstall" })
+		for _, arg := range rest {
+			for _, only := range []string{"--projects-root", "--start-at-login", "--dev-drive"} {
+				if arg == only || strings.HasPrefix(arg, only+"=") {
+					fmt.Fprintf(stderr, "cfo install: %s cannot be combined with --uninstall\n", only)
+					return 2
+				}
+			}
+		}
+		return runUninstall(rest, os.Stdin, stdout, stderr)
+	}
 	fs := flag.NewFlagSet("install", flag.ContinueOnError)
 	fs.SetOutput(stderr)
-	uninstall := fs.Bool("uninstall", false, "remove what cfo install added")
 	projectsRoot := fs.String("projects-root", "", "the folder that holds your checkouts, so --project can take a bare name")
 	startAtLogin := fs.String("start-at-login", "", "on or off: whether Windows starts Code Goblins in the tray at login, which brings back what a restart ended; the home keeps the choice, and without it an install keeps the choice the home holds, on where it holds none")
 	devDrive := fs.String("dev-drive", "", "on or off: the answer to the setup's offer of a Dev Drive for the goblins' worktrees, scratch and caches; on asks the board for its first step, off keeps the offer away, and without it nothing is recorded")
@@ -50,23 +64,15 @@ func runInstall(args []string, stdout, stderr io.Writer) int {
 		fmt.Fprintln(stderr, "cfo install: unexpected arguments")
 		return 2
 	}
-	if *uninstall && *projectsRoot != "" {
-		fmt.Fprintln(stderr, "cfo install: --projects-root cannot be combined with --uninstall")
-		return 2
-	}
 	if *startAtLogin != "" && *startAtLogin != install.StartAtLoginOn && *startAtLogin != install.StartAtLoginOff {
 		fmt.Fprintln(stderr, "cfo install: --start-at-login is on or off")
 		return 2
 	}
-	if *uninstall && *startAtLogin != "" {
-		fmt.Fprintln(stderr, "cfo install: --start-at-login cannot be combined with --uninstall")
+	if *devDrive != "" && *devDrive != "on" && *devDrive != "off" {
+		fmt.Fprintln(stderr, "cfo install: --dev-drive is on or off")
 		return 2
 	}
-	if *devDrive != "" && *devDrive != "on" && *devDrive != "off" || *uninstall && *devDrive != "" {
-		fmt.Fprintln(stderr, "cfo install: --dev-drive is on or off, and no part of an uninstall")
-		return 2
-	}
-	if !*uninstall && refuseUnbuiltBoard("install", stderr) {
+	if refuseUnbuiltBoard("install", stderr) {
 		return 1
 	}
 
@@ -93,25 +99,6 @@ func runInstall(args []string, stdout, stderr io.Writer) int {
 	if file := os.Getenv(install.UserEnvFileVariable); file != "" {
 		fmt.Fprintf(stdout, "cfo install: the user environment is %s, not this machine's (%s is set)\n", file, install.UserEnvFileVariable)
 	}
-	if *uninstall {
-		service.HarnessDirs = map[string]string{}
-		for _, harness := range []string{"claude", "codex", "pi"} {
-			if service.HarnessDirs[harness], err = harnessConfigDir(harness); err != nil {
-				fmt.Fprintf(stderr, "cfo install --uninstall: find the %s configuration: %v\n", harness, err)
-				return 1
-			}
-		}
-		service.StartMenuShortcut = install.StartMenuShortcutPath()
-		service.DesktopShortcut = install.DesktopShortcutPath()
-		fmt.Fprintf(stdout, "cfo install --uninstall: removing %s from this machine\n", root)
-		if err := service.Uninstall(stdout); err != nil {
-			fmt.Fprintln(stderr, err)
-			return 1
-		}
-		fmt.Fprintln(stdout, "Open a new terminal for the environment change to take effect.")
-		return 0
-	}
-
 	service.EarlierWindow = install.EarlierWindowDir()
 	if target.Kept {
 		fmt.Fprintf(stdout, "%s You already run Code Goblins from %s, so it is updated there and your goblins and their work stay as they are.\n", notePrefix, root)
@@ -272,9 +259,12 @@ func installService(root string) (install.Service, error) {
 		Harnesses:    harnessmap.Find(os.Getenv, userHome),
 		Link:         junction(commands),
 		// The Start at login entry, which an install sets unless it was
-		// turned off and an uninstall removes. A machine whose user
-		// environment is a file, as a test's is, has none.
+		// turned off and an uninstall removes, and the entry in Installed
+		// apps. A machine whose user environment is a file, as a test's is,
+		// has neither.
 		StartAtLoginKey: startAtLoginKey(),
+		AppsEntryKey:    appsEntryKey(),
+		Version:         version,
 	}, nil
 }
 
@@ -286,6 +276,16 @@ func startAtLoginKey() string {
 		return ""
 	}
 	return install.StartAtLoginKey
+}
+
+// appsEntryKey is where this machine keeps Code Goblins' entry in Installed
+// apps, or nothing where the user environment is a file standing in for this
+// machine's.
+func appsEntryKey() string {
+	if os.Getenv(install.UserEnvFileVariable) != "" {
+		return ""
+	}
+	return install.AppsEntryKey
 }
 
 // installTarget is the home install wires in, as install.FindTarget picks it:

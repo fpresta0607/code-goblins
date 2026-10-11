@@ -114,3 +114,45 @@ func TestUninstallRefusesBrokenSettings(t *testing.T) {
 		t.Fatalf("Uninstall rewrote broken settings: %s", data)
 	}
 }
+
+// Installed reads whether the board's hooks are there without changing
+// anything, so an uninstall can read its removal back: not before an install,
+// there after it, and gone after an uninstall, for every harness, and a file
+// of the person's own at the helper's path is not the board's.
+func TestInstalledSaysWhetherTheBoardHooksAreThere(t *testing.T) {
+	for _, name := range []string{"claude", "codex", "pi"} {
+		t.Run(name, func(t *testing.T) {
+			// Arrange
+			dir := t.TempDir()
+			before, beforeErr := Installed(name, dir)
+			installFor(t, name, dir)
+
+			// Act
+			during, duringErr := Installed(name, dir)
+			if _, err := Uninstall(name, dir); err != nil {
+				t.Fatal(err)
+			}
+			after, afterErr := Installed(name, dir)
+
+			// Assert
+			if before || beforeErr != nil || !during || duringErr != nil || after || afterErr != nil {
+				t.Errorf("Installed before, during and after = %v (%v), %v (%v), %v (%v); want false, true, false", before, beforeErr, during, duringErr, after, afterErr)
+			}
+		})
+	}
+	t.Run("a file of the person's at the helper's path", func(t *testing.T) {
+		// Arrange
+		dir := t.TempDir()
+		if err := os.WriteFile(filepath.Join(dir, "cfo-native-hook.ps1"), []byte("# mine\n"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+
+		// Act
+		there, err := Installed("claude", dir)
+
+		// Assert
+		if there || err != nil {
+			t.Errorf("Installed = %v, %v; want a file the board did not write not counted", there, err)
+		}
+	})
+}

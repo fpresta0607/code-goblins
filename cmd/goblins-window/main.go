@@ -5,7 +5,8 @@
 // board's address and the fleet's state folder it is the window; started with
 // neither, as the Start menu and Start at login start it, it asks the goblins
 // beside it, which finds or starts the supervisor, where the board is, and is
-// the window on that board itself.
+// the window on that board itself. Started with --uninstall, as Windows'
+// Installed apps starts it, it is the uninstall's window instead.
 package main
 
 import (
@@ -22,6 +23,8 @@ import (
 	"github.com/wailsapp/wails/v3/pkg/application"
 	"github.com/wailsapp/wails/v3/pkg/events"
 	"github.com/wailsapp/wails/v3/pkg/services/notifications"
+
+	"github.com/fpresta0607/code-goblins/internal/install"
 )
 
 //go:embed goblin.png
@@ -40,7 +43,12 @@ func main() {
 	// clicked while no window runs. It is then started alone, and opens the
 	// app as it does from the Start menu.
 	flag.Bool("Embedding", false, "given by Windows when a click on a notification starts the program")
+	// Installed apps starts the window this way to uninstall Code Goblins.
+	uninstalling := flag.Bool(strings.TrimPrefix(install.UninstallArgument, "--"), false, "show the uninstall, which Windows' Installed apps opens")
 	flag.Parse()
+	if *uninstalling {
+		os.Exit(runUninstall())
+	}
 	self, err := os.Executable()
 	if err != nil {
 		log.Fatal(err)
