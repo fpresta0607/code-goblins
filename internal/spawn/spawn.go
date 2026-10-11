@@ -851,7 +851,23 @@ func (s Service) ensureProjectSeeded(ctx context.Context, project string) error 
 // then report outcomes through cfo notify so the CFO is woken with the real
 // payload rather than a guess from its screen.
 func spawnInstruction(briefPath string, meta state.TaskMeta, install []string) string {
-	return harness.BriefInstruction(briefPath) + dependencyInstruction(meta.Worktree, install) + notifyInstruction(meta)
+	return harness.BriefInstruction(briefPath) + dependencyInstruction(meta.Worktree, install) + heavyRunInstruction() + notifyInstruction(meta)
+}
+
+// heavyRunInstruction tells a goblin that one heavy run goes at a time on the
+// machine: how a whole suite or any other heavy local run stands in the line
+// cfo gate turn keeps, what the wait looks like, and which runs still need
+// the CFO's word because no turn covers them. Runs that tested at once took
+// three times as long and failed on their time limits with no assertion
+// failing, which a goblin then read as a real failure.
+func heavyRunInstruction() string {
+	exe, err := os.Executable()
+	if err != nil {
+		exe = "cfo"
+	}
+	return " One heavy run goes at a time on this machine. Start a whole test suite, a full build, a browser suite or any other heavy local run as " + exe + " gate turn -- <command>: it waits while another such run holds the turn or free memory is under 4 GiB, with no time limit of its own, says on standard error which run it waits for, then runs your command and exits with its code (125 means it took no turn and ran nothing)." +
+		" Start it where your tool's time limit cannot cut the wait short, such as in the background. A test you run by name needs no turn." +
+		" A WSL or Docker run, and a load or stress run, still need the CFO's word first, since no turn covers them."
 }
 
 // dependencyInstruction tells a goblin to install its worktree's dependencies

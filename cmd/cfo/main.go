@@ -10,6 +10,7 @@ import (
 	"io"
 	"net/http"
 	"os"
+	"os/signal"
 	"path/filepath"
 	"slices"
 	"strings"
@@ -91,7 +92,8 @@ commands:
   cfo gate tests-kept   run from a no-mistakes repository gate: exits 1 when the gate's own fix commits deleted or skipped a test, so the run parks for an ask-user decision
   cfo gate test [--level fast|affected|full] [--plan]   this repository's gate test step: go vet and go test on the packages the branch changed, the packages that import them and the packages config/verify.json names for a changed file their tests read, without the fleet's home; it lists the changed files no Go check reads, and a changed file the policy does not account for requires every package; CI runs every package; --level fast leaves the slow packages' tests and the importers' to affected, full tests every package, --plan prints the plan and runs nothing; each run leaves a report and prints its path; above fast its tests wait for the run's turn on the machine, one run at a time
   cfo gate prepush [--plan] [--limit <duration>]   what a goblin runs before it pushes: picks what the branch's change can break and runs it one check at a time, stopping with one plain line at the first failure: go vet of the packages the change reaches, the tests that read the whole tree, the changed packages and the packages that import them, nearest first, and for a change under frontend the type check, the lint, the unit tests and the browser specs the change touched or names. A slow package runs without the tests this machine timed at 2 seconds or longer, unless the change touched their file. It takes its turn on the machine, starts no check under the memory floor or after its time limit, 15 minutes unless --limit says otherwise, and names what it left to CI. --plan prints the pick and runs nothing
-  cfo gate turns        show which cfo gate test runs hold the machine's turns, for how long and under what budget, how far their tests are, and which wait
+  cfo gate turn [--as <name>] -- <program> [<argument>...]   run any heavy command in the line cfo gate test and cfo gate prepush take their turns in, one run at a time on the machine whoever started it: it waits while another run holds the turn and while free memory or commit is under 4 GiB, with no limit of its own, says on standard error which run it waits for, and then runs the command with its output, its input and its exit code untouched; exit 125 means it took no turn and ran nothing
+  cfo gate turns        show which cfo gate test, cfo gate prepush and cfo gate turn runs hold the machine's turns, for how long and under what budget, how far their tests are, and which wait
   cfo deploy <task-id> [--target <name>]
   cfo evidence <task-id>
   cfo supersede <task-id> --reason <text>
@@ -268,6 +270,12 @@ type commandRuntime struct {
 	pushRun        func(ctx context.Context, command []string, dir string, env []string, stdout, stderr io.Writer) (int, error)
 	pushMemoryPoll time.Duration
 	pushAgain      time.Duration
+	// interrupts starts delivering the interrupts this process is sent, such
+	// as Ctrl+C and Ctrl+Break, to the channel it returns in place of ending
+	// the process, until stop is called. cfo gate turn leaves the line on
+	// one while it waits and keeps its turn through one while its command
+	// runs.
+	interrupts func() (signals <-chan os.Signal, stop func())
 	// trainEvery is how often cfo pr train looks at its train's CI. Zero, in
 	// every runtime but a test's, is the trainEvery constant.
 	trainEvery time.Duration
@@ -440,6 +448,11 @@ func defaultCommandRuntime() commandRuntime {
 		pushRun:         runPushCommand,
 		pushMemoryPoll:  2 * time.Second,
 		pushAgain:       5 * time.Minute,
+		interrupts: func() (<-chan os.Signal, func()) {
+			signals := make(chan os.Signal, 1)
+			signal.Notify(signals, os.Interrupt)
+			return signals, func() { signal.Stop(signals) }
+		},
 	}
 }
 
