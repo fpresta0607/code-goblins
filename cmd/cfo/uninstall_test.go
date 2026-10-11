@@ -97,17 +97,35 @@ func TestUninstallChangesNothingUnlessThePersonSaysYes(t *testing.T) {
 }
 
 // A Code Goblins terminal stops with the uninstall, so the uninstall refuses
-// to run in one.
+// to run in one. Its dry run stops nothing, so it prints the plan there, as
+// the CFO reads it on the live machine before a release.
 func TestUninstallRefusesToRunInACodeGoblinsTerminal(t *testing.T) {
-	// Arrange
-	t.Setenv("CFO_HOST_ID", "cfo")
+	cases := []struct {
+		name     string
+		args     []string
+		wantCode int
+		wantSaid string
+	}{
+		{name: "the uninstall refuses", args: []string{"--yes"}, wantCode: 1, wantSaid: "terminal of your own"},
+		{name: "its dry run prints the plan", args: []string{"--dry-run"}, wantCode: 0, wantSaid: "the plan, with nothing changed"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			// Arrange
+			root, _, _ := installOnAScratchMachine(t, t.TempDir())
+			t.Setenv("CFO_HOST_ID", "cfo")
 
-	// Act
-	var stdout, stderr bytes.Buffer
-	code := runUninstall([]string{"--yes"}, strings.NewReader(""), &stdout, &stderr)
+			// Act
+			var stdout, stderr bytes.Buffer
+			code := runUninstall(tc.args, strings.NewReader(""), &stdout, &stderr)
 
-	// Assert
-	if code != 1 || !strings.Contains(stderr.String(), "terminal of your own") {
-		t.Errorf("exited %d and said %q, want a refusal naming a terminal of the person's own", code, stderr.String())
+			// Assert
+			if said := stdout.String() + stderr.String(); code != tc.wantCode || !strings.Contains(said, tc.wantSaid) {
+				t.Errorf("exited %d and said:\n%s\nwant %d and %q", code, said, tc.wantCode, tc.wantSaid)
+			}
+			if _, err := os.Stat(filepath.Join(root, "bin", "cfo.exe")); err != nil {
+				t.Errorf("the home lost its program: %v", err)
+			}
+		})
 	}
 }

@@ -36,8 +36,8 @@ func runUninstall(args []string, stdin io.Reader, stdout, stderr io.Writer) int 
 		return 2
 	}
 	// The uninstall stops every Code Goblins terminal, this one among them,
-	// which would end it part way.
-	if os.Getenv("CFO_HOST_ID") != "" {
+	// which would end it part way. Its dry run stops nothing.
+	if os.Getenv("CFO_HOST_ID") != "" && !*dryRun {
 		fmt.Fprintln(stderr, "goblins uninstall: this terminal is Code Goblins' own and stops with it, so run the uninstall in a terminal of your own")
 		return 1
 	}
