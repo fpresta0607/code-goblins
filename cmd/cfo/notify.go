@@ -56,7 +56,9 @@ import (
 // goblin's gate, such as one it started outside its worktree, whose running
 // step is its work. A wait that names a Lavish page puts the page on its
 // card, and the supervisor polls it: the Overlord's feedback there goes to
-// the CFO, never to a poll of the goblin's own.
+// the CFO, never to a poll of the goblin's own. While AFK mode is on the same
+// wait is the goblin's question to the CFO, which answers the page in his
+// place with cfo answer; the goblin waits for its answer as for his.
 //
 // A helper reports to its parent instead: its done, which needs no pull
 // request, its question and its failure are typed into its parent's
@@ -217,6 +219,12 @@ func runNotify(args []string, stdout, stderr io.Writer, runtime commandRuntime) 
 		fmt.Fprintln(stderr, err)
 		return 1
 	}
+	// While AFK mode is on the CFO answers a goblin's page in the Overlord's
+	// place: the wait is the goblin's question to the CFO, with the choices
+	// the page declares, and never an item that waits on him.
+	if switched, err := afk.Read(h.State); page != "" && err == nil && switched.On {
+		verb, detail = "blocked", detail+supervisor.PageOptions(page)
+	}
 	parent, worktree := "", ""
 	if meta, err := state.ReadTaskMeta(h.State, id); err == nil {
 		parent, worktree = meta.Parent, meta.Worktree
@@ -240,7 +248,7 @@ func runNotify(args []string, stdout, stderr io.Writer, runtime commandRuntime) 
 	// cannot see.
 	if len(images) > 0 {
 		_, options, _ := wake.Question(wake.Record{Kind: "notify", Detail: line})
-		if verb != "blocked" || len(images) != len(options) {
+		if *blocked == "" || len(images) != len(options) {
 			fmt.Fprintf(stderr, "cfo notify: --image needs a --blocked question with choices, one image for each choice in order (%d images, %d choices)\n", len(images), len(options))
 			return 2
 		}
@@ -258,7 +266,9 @@ func runNotify(args []string, stdout, stderr io.Writer, runtime commandRuntime) 
 		fmt.Fprintf(stdout, "notified %s %s\n", id, line)
 		return 0
 	}
-	if report := helperReport(id, parent, verb, line); report != "" {
+	// A helper's page is the Overlord's, or the CFO's in his place, never its
+	// parent's to answer.
+	if report := helperReport(id, parent, verb, line); report != "" && page == "" {
 		err := runtime.sendText(context.Background(), h, parent, report)
 		if err == nil || errors.Is(err, fleet.ErrQueuedForToolCall) {
 			supervisor.Reported(h.State)

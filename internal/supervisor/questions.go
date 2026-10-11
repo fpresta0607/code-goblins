@@ -140,7 +140,9 @@ func goblinAsker(stateDir, taskID string) (state.TaskMeta, error) {
 
 // SurfaceNotify records a goblin's blocking notify with choices for the CFO
 // to answer, labelled with the goblin. A notify without choices and a failed
-// notify stay prose in the CFO's wake queue.
+// notify stay prose in the CFO's wake queue, except a goblin's Scrawl page,
+// which AFK mode made the CFO's question: it is the question whether or not
+// the page declares choices.
 // images, one for each choice in order, must already have passed
 // ReviewImages: SurfaceNotify records them without checking the files.
 // detail is the notify as the goblin wrote it: the queue holds record's
@@ -149,7 +151,7 @@ func SurfaceNotify(stateDir, taskID string, record wake.Record, detail string, i
 	asked := record
 	asked.Detail = detail
 	question, options, ok := wake.Question(asked)
-	if !ok || len(options) == 0 {
+	if !ok || len(options) == 0 && wake.Page(question) == "" {
 		return nil
 	}
 	options, recommended := questionChoices(options)
@@ -354,8 +356,10 @@ var questionArrival = 30 * time.Second
 // cfoAnswer is one answer the CFO gave with cfo answer.
 type cfoAnswer struct {
 	QuestionID string `json:"question_id"`
-	Option     string `json:"option"`
-	Answer     string `json:"answer"`
+	// Option is the choice that answers the question, and empty for the
+	// CFO's own words to a goblin's page that declared no choices.
+	Option string `json:"option"`
+	Answer string `json:"answer"`
 	// In names where the Overlord gave the answer the CFO records, such as
 	// chat; it is empty for the CFO's own answer.
 	In string `json:"in,omitempty"`
@@ -404,11 +408,11 @@ func (c *CFOConnection) AnswerGoblin(ctx context.Context, ref, option, note stri
 		return "", false, fmt.Errorf("notify %d was already answered: %s", seq, record.Answered)
 	}
 	asked, options, ok := wake.Question(record)
-	if !ok || len(options) == 0 {
+	if !ok || len(options) == 0 && wake.Page(asked) == "" {
 		return "", false, fmt.Errorf("notify %d asks no multiple-choice question; answer it with cfo send", seq)
 	}
-	choices, _ := questionChoices(options)
-	if chosen, err = pickChoice(choices, option); err != nil {
+	choices, recommended := questionChoices(options)
+	if chosen, err = pickAnswer(asked, choices, option); err != nil {
 		return "", false, err
 	}
 	id := fmt.Sprintf("notify-%s-%d", record.Key, seq)
@@ -445,7 +449,7 @@ func (c *CFOConnection) AnswerGoblin(ctx context.Context, ref, option, note stri
 			unrecorded = append(unrecorded, err)
 		}
 	}
-	if err := logAFKAnswer(c.State, id, q.Task, asked, answer); err != nil {
+	if err := logAFKAnswer(c.State, Question{ID: id, Task: q.Task, Text: asked, Options: choices, Recommended: recommended}, chosen, answer); err != nil {
 		unrecorded = append(unrecorded, err)
 	}
 	if err := errors.Join(unrecorded...); err != nil {
@@ -543,7 +547,7 @@ func (c *CFOConnection) RecordAnswer(id, option, note, in string) (string, error
 		return "", fmt.Errorf("%s is already answered: %s", q.ID, q.Answer)
 	}
 	choices, _ := questionChoices(q.Options)
-	chosen, err := pickChoice(choices, option)
+	chosen, err := pickAnswer(q.Text, choices, option)
 	if err != nil {
 		return "", err
 	}
@@ -551,7 +555,7 @@ func (c *CFOConnection) RecordAnswer(id, option, note, in string) (string, error
 		return "", err
 	}
 	if in == "" {
-		if err := logAFKAnswer(c.State, q.ID, q.Task, q.Text, withNote(chosen, note)); err != nil {
+		if err := logAFKAnswer(c.State, q, chosen, withNote(chosen, note)); err != nil {
 			return chosen, fmt.Errorf("recorded on the board; do not record it again, but %w", err)
 		}
 	}
@@ -575,16 +579,25 @@ func overlordAway(stateDir string) error {
 	return nil
 }
 
-// logAFKAnswer logs an answer the CFO gave a goblin while AFK mode is on as a
-// decision made under its authority, with the question and the answer as its
-// evidence. It logs nothing while AFK mode is off.
-func logAFKAnswer(stateDir, id, task, question, answer string) error {
+// logAFKAnswer logs the CFO's choice chosen, given a goblin's question q as
+// answer, while AFK mode is on, as a decision made under its authority, with
+// the question and the answer as its evidence. An answer to a goblin's page
+// also carries the page, its question, its choices, or chosen as the one
+// choice of a page that declared none, and the CFO's choice, so the Overlord
+// is asked it once AFK mode turns off. It logs nothing while AFK mode is off.
+func logAFKAnswer(stateDir string, q Question, chosen, answer string) error {
 	switched, err := afk.Read(stateDir)
 	if err != nil || !switched.On {
 		return err
 	}
-	evidence := bounded("asked: "+question+" answered: "+answer, 6000)
-	if err := sendPipeRequest(stateDir, runPipeRequest{Kind: "afk-log", AFK: &afk.Entry{Kind: afk.KindAnswer, What: id, Task: task, Evidence: evidence}}); err != nil {
+	entry := afk.Entry{Kind: afk.KindAnswer, What: q.ID, Task: q.Task, Evidence: bounded("asked: "+q.Text+" answered: "+answer, 6000)}
+	if link := wake.Page(q.Text); link != "" {
+		entry.Link, entry.Question, entry.Options, entry.Recommendation, entry.Answer = link, bounded(q.Text, 4000), q.Options, q.Recommended, chosen
+		if len(entry.Options) == 0 {
+			entry.Options = []string{chosen}
+		}
+	}
+	if err := sendPipeRequest(stateDir, runPipeRequest{Kind: "afk-log", AFK: &entry}); err != nil {
 		return fmt.Errorf("AFK mode's log did not take the decision: %w", err)
 	}
 	return nil
@@ -595,7 +608,12 @@ func logAFKAnswer(stateDir, id, task, question, answer string) error {
 // what it waited for; a later wait is its own request.
 func (c *CFOConnection) recordAnswer(identity string, q Question, id, chosen, answer, in string) error {
 	var unrecorded []error
-	if err := sendPipeRequest(c.State, runPipeRequest{Kind: "answer", Answer: &cfoAnswer{QuestionID: id, Option: chosen, Answer: answer, In: in, At: time.Now().UTC()}}); err != nil {
+	// A goblin's page that declares no choices takes the CFO's own words.
+	option := chosen
+	if !slices.Contains(q.Options, chosen) {
+		option = ""
+	}
+	if err := sendPipeRequest(c.State, runPipeRequest{Kind: "answer", Answer: &cfoAnswer{QuestionID: id, Option: option, Answer: answer, In: in, At: time.Now().UTC()}}); err != nil {
 		unrecorded = append(unrecorded, fmt.Errorf("the board could not record it: %w", err))
 	}
 	if q.Task == "" {
@@ -670,6 +688,20 @@ func pickChoice(choices []string, option string) (string, error) {
 		return "", fmt.Errorf("%q is not one of the choices: %s", option, strings.Join(choices, " | "))
 	}
 	return chosen, nil
+}
+
+// pickAnswer is the CFO's answer to question: one of its choices, matched as
+// pickChoice matches it, or, for a goblin's Scrawl page that declares no
+// choices, the CFO's own words.
+func pickAnswer(question string, choices []string, option string) (string, error) {
+	if len(choices) > 0 || wake.Page(question) == "" {
+		return pickChoice(choices, option)
+	}
+	written := strings.TrimSpace(option)
+	if len(written) > 500 {
+		return "", errors.New("the page declares no choices, so answer it in your own words, in at most 500 characters")
+	}
+	return written, nil
 }
 
 // readQuestion finds a question the supervisor holds or has yet to ingest,
@@ -813,6 +845,9 @@ func (s *Store) applyCFOAnswer(a cfoAnswer) error {
 	q, at := &s.db.Questions[i], a.At
 	q.Status, q.Message, q.AnswerID = "succeeded", "Answered by the CFO.", ""
 	q.Answer, q.AnswerKind = a.Answer, "option"
+	if a.Option == "" {
+		q.AnswerKind = "other"
+	}
 	q.AnsweredOption, q.AnsweredBy, q.AnsweredAt, q.AnsweredAway = a.Option, "cfo", &at, a.Away
 	if a.In != "" {
 		q.Message, q.AnsweredBy, q.AnsweredIn = "You answered in "+a.In+"; the CFO recorded it.", "overlord", a.In

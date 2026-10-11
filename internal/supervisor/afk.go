@@ -423,7 +423,7 @@ func (s *Service) switchAFKAs(from, asked string, on bool) error {
 		// What the board's view kept of the stretch before goes with its
 		// report.
 		s.reads.forget(afkLogKind+current.Session, filepath.Join(stateDir, "afk.audit"))
-		if err := s.afkNotice(switchedSays(from, asked, "on") + ": he is away until he turns it off, and nothing prompts him meanwhile. Decide everything its authority covers yourself and log each decision. Ask him nothing and hold nothing for him: what only he can do gets a backlog row and a cfo afk log --kind left line, and the work goes around it. Its terms stand above this queue."); err != nil {
+		if err := s.afkNotice(switchedSays(from, asked, "on") + ": he is away until he turns it off, and nothing prompts him meanwhile. Decide everything its authority covers yourself and log each decision. Ask him nothing and hold nothing for him: what only he can do gets a backlog row and a cfo afk log --kind left line, and the work goes around it. A goblin's Scrawl page reaches you as its question: read the page and answer it with cfo answer. Its terms stand above this queue."); err != nil {
 			return err
 		}
 		return kept
@@ -472,8 +472,10 @@ func (s *Service) keepAFKDisk() error {
 // CFO did not strike or settle, to him in the Command Center as the CFO's own
 // question,
 // with why it is his, what is wrong, what was tried and his choices: what is
-// his reaches him there, never as a list in the CFO's chat. It says what it
-// asked, or what it could not, for the CFO's notice.
+// his reaches him there, never as a list in the CFO's chat. Each goblin's page
+// the CFO answered in his place, and did not strike, is asked the same way,
+// with the CFO's answer checked. It says what it asked, or what it could
+// not, for the CFO's notice.
 func (s *Service) askLeftForHim(session string, now time.Time) string {
 	stateDir := s.Store.Home.State
 	entries, _, err := afk.Entries(stateDir, session)
@@ -481,24 +483,32 @@ func (s *Service) askLeftForHim(session string, now time.Time) string {
 		return "The lines left for him could not be read, so none was asked in the Command Center (" + err.Error() + "): ask each with cfo question. "
 	}
 	var asked, failed []string
-	for _, left := range afk.Decisions(entries) {
-		if left.Kind != afk.KindLeft || left.Struck != "" || left.Settled != "" || len(left.Options) == 0 {
+	for _, decision := range afk.Decisions(entries) {
+		var q Question
+		switch {
+		case decision.Struck != "":
+			continue
+		case decision.Kind == afk.KindLeft && decision.Settled == "" && len(decision.Options) > 0:
+			q = Question{ID: afk.LeftQuestionID(decision), Text: leftQuestion(decision)}
+		case afk.OnPage(decision):
+			q = Question{ID: afk.PageQuestionID(decision), Text: pageQuestion(decision)}
+		default:
 			continue
 		}
 		_, identity, err := readPrimary(stateDir)
 		if err == nil {
-			q := Question{ID: afk.LeftQuestionID(left), Identity: identity, Text: leftQuestion(left), Options: slices.Clone(left.Options), Recommended: left.Recommendation, Decided: left.Answer, CreatedAt: now}
+			q.Identity, q.Options, q.Recommended, q.Decided, q.CreatedAt = identity, slices.Clone(decision.Options), decision.Recommendation, decision.Answer, now
 			err = s.Store.acceptQuestion(q)
 			if err == nil {
 				asked = append(asked, q.ID)
 				continue
 			}
 		}
-		failed = append(failed, strconv.Quote(left.What)+" ("+err.Error()+")")
+		failed = append(failed, strconv.Quote(decision.What)+" ("+err.Error()+")")
 	}
 	says := ""
 	if len(asked) > 0 {
-		says += "What the stretch left for him is in the Command Center as your questions " + strings.Join(asked, ", ") + ". "
+		says += "What the stretch left for him, and each goblin's page you answered in his place, is in the Command Center as your questions " + strings.Join(asked, ", ") + ". "
 	}
 	if len(failed) > 0 {
 		says += "These lines left for him could not be asked in the Command Center: " + strings.Join(failed, ", ") + ". Ask each with cfo question. "
@@ -509,18 +519,22 @@ func (s *Service) askLeftForHim(session string, now time.Time) string {
 // leftForHim is each line a stretch's decisions left for the Overlord and the
 // CFO did not strike, as an item for him: the question it is asked as in the
 // Command Center when the stretch ends, or what became of a line the CFO
-// settled, which is never asked.
+// settled, which is never asked. Each goblin's page the CFO answered in his
+// place is such an item too, with its goblin.
 func leftForHim(decisions []afk.Entry) []afk.Held {
 	var held []afk.Held
 	for _, left := range decisions {
-		if left.Kind != afk.KindLeft || left.Struck != "" {
-			continue
+		switch {
+		case left.Struck != "":
+		case afk.OnPage(left):
+			held = append(held, afk.Held{Item: "question:" + afk.PageQuestionID(left), Task: left.Task, What: left.Question, At: left.At, Waiting: true, Now: pendingSays(left.Answer), Recommendation: left.Recommendation})
+		case left.Kind == afk.KindLeft:
+			one := afk.Held{Item: "question:" + afk.LeftQuestionID(left), What: left.What, At: left.At, Waiting: true, Now: pendingSays(left.Answer), Recommendation: left.Recommendation, Settled: left.Settled}
+			if left.Settled != "" {
+				one.Waiting, one.Now = false, bounded("settled by the CFO: "+left.Settled, 500)
+			}
+			held = append(held, one)
 		}
-		one := afk.Held{Item: "question:" + afk.LeftQuestionID(left), What: left.What, At: left.At, Waiting: true, Now: pendingSays(left.Answer), Recommendation: left.Recommendation, Settled: left.Settled}
-		if left.Settled != "" {
-			one.Waiting, one.Now = false, bounded("settled by the CFO: "+left.Settled, 500)
-		}
-		held = append(held, one)
 	}
 	return held
 }
@@ -544,6 +558,18 @@ func leftQuestion(left afk.Entry) string {
 		why = "\n- Evidence: "
 	}
 	return bounded(left.What+why+left.Evidence+"\n- Found: "+left.Diagnosis+"\n- Tried: "+left.Tried, 4000)
+}
+
+// pageQuestion is a goblin's page the CFO answered in the Overlord's place as
+// the Command Center asks him it once AFK mode is off: the goblin's question,
+// which ends with its page, who asked it, and what the CFO answered, with any
+// note it gave the goblin, as its evidence words it after the question.
+func pageQuestion(answer afk.Entry) string {
+	answered, found := strings.CutPrefix(answer.Evidence, "asked: "+answer.Question+" answered: ")
+	if !found {
+		answered = answer.Answer
+	}
+	return bounded(answer.Question+"\n- Asked by "+answer.Task+"\n- The CFO answered: "+answered, 4000)
 }
 
 // afkNotice tells the CFO of the Overlord's switch through its wake queue,

@@ -11,6 +11,7 @@ import (
 	"math"
 	"os"
 	"path/filepath"
+	"regexp"
 	"slices"
 	"strings"
 	"sync"
@@ -700,7 +701,20 @@ func ProseAsk(rec Record, id string) (string, bool) {
 	return strings.TrimSuffix(question, `"`), ok
 }
 
-func Page(question string) string { return "" }
+// pageAtEnd is the Scrawl page a decision's question carries at its end, as
+// cfo notify writes a goblin's page: "(page <link>)".
+var pageAtEnd = regexp.MustCompile(`\(page (\S+)\)$`)
+
+// Page is the link of the Scrawl page a decision's question carries at its
+// end, as cfo notify writes it, and empty for a question that carries none.
+// While AFK mode is on the CFO answers a goblin's page in the Overlord's
+// place, in its own words when the page declares no choices.
+func Page(question string) string {
+	if found := pageAtEnd.FindStringSubmatch(question); found != nil {
+		return found[1]
+	}
+	return ""
+}
 
 // Question is a blocked notify's question and the options it offered. A
 // failed notify is still a decision for the CFO, but it is not a question.
@@ -765,6 +779,10 @@ func renderDecision(w io.Writer, rec Record, verb, question string, options []st
 			who = "the CFO answered with cfo answer"
 		}
 		_, err := fmt.Fprintf(w, "       answered: %s: %s; the goblin has it, so ack it normally\n", who, terminalText(rec.Answered))
+		return err
+	}
+	if len(options) == 0 && Page(question) != "" {
+		_, err := fmt.Fprintf(w, "       options:  none declared on its page; answer in your own words with `cfo answer %d --option \"<your answer>\"`\n", rec.Seq)
 		return err
 	}
 	if len(options) == 0 {

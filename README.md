@@ -745,6 +745,8 @@ While it is on:
   One the CFO saw to while you were away, its backlog row done, its task finished or its own later decision, is settled with what became of it and never asked.
 - Any other decision you would have been asked, the CFO answers itself and acts on.
   When you turn AFK mode off, each waits in the Command Center with the CFO's answer checked and marked as the CFO's: keep it, or choose another and the CFO undoes or redoes what its answer started.
+- A goblin's Scrawl page that asks for your answer goes to the CFO, which reads it and answers it in your place, and never waits in your Command Center.
+  When you turn AFK mode off, each page the CFO answered waits there the same way, with the goblin's question, its page and the CFO's answer checked: keep it, or choose another and the CFO passes it to the goblin.
 - The board does not prompt you: the Command Center does not open by itself, and the board shows no alert and sends no Windows notification.
   Nothing is held for you, and a goblin blocked only on something of yours moves to its next piece of work.
   The CFO's bar says since when AFK is on, who turned it on and how much the CFO decided.
