@@ -23,6 +23,7 @@ import (
 	"github.com/fpresta0607/code-goblins/internal/digest"
 	"github.com/fpresta0607/code-goblins/internal/execx"
 	"github.com/fpresta0607/code-goblins/internal/fleet"
+	"github.com/fpresta0607/code-goblins/internal/fleettree"
 	"github.com/fpresta0607/code-goblins/internal/gatetest"
 	"github.com/fpresta0607/code-goblins/internal/harness"
 	"github.com/fpresta0607/code-goblins/internal/herdr"
@@ -127,7 +128,7 @@ commands:
   cfo answer <question-id|wake-seq> --option <choice> [--note "<text>"]   registered CFO answers a goblin's blocked question: delivered like cfo send (queued for a working goblin's next tool call counts as delivered), the notify retired, and the choice, who and when recorded for the board
   cfo answer <question-id> --option <choice> [--note "<text>"] --record-only [--in <where>]   registered CFO records on the board a choice already given another way, for a goblin's notify already acknowledged or answered, and sends nothing; --in names where the Overlord gave it, such as chat, which the CFO's own question needs, and the card reads as his answer there
   cfo review --id <stable-id> --title "<what to look at>" [--task <id>] [--image <path>]... [--lavish <url|html-file>] | --id <stable-id> --withdraw "<reason>" [--task <id>] | --clear <stable-id> --reason "<why>"   report an item that stays in the Command Center until the Overlord answers or clears it, or withdraw your own, or as the registered primary CFO clear any open item, audited; a Scrawl page named by its HTML file is polled by the supervisor, so the Overlord's feedback on it reaches the CFO as a review wake
-  cfo deliver --id <stable-id> --title "<what it is>" --file <path> [--url <link>] [--task <id>]   hand the Overlord a document as a Command Center item with Open and Download; the file is copied, a goblin's from its own folders, and the item leaves the queue when he opens or downloads it
+  cfo deliver --id <stable-id> --title "<what it is>" --file <path> [--download] [--task <id>]   hand the Overlord a file as a Scrawl page that shows it, presented in the Command Center; what he writes there reaches you as a review wake, and --download offers it to download, for a generated asset or a file he asked to keep
   cfo run-request --id <stable-id> --title "<why>" --shell powershell|pwsh|bash [--admin] [--cwd <dir>] --command-file <path>   registered CFO asks the Overlord to run a command with one click in the Command Center, where it runs in a terminal on its card that he types into; the file is read once and runs as a script file, and the exit code and the end of what its terminal showed come back as his answer; --admin runs it elevated after Windows asks him to confirm
   cfo run-request --withdraw <id> --reason "<why>"   registered CFO takes a run item nobody ran off the Command Center, audited in state/runs.audit; Run on it is refused from then on, and a replacement is a new item under a new ID
   cfo present --id <stable-id> --kind browser|review --url <safe-url> [--task <id> [--generation <spawn-gen>]] [--state active|ended] [--ttl 5m] [--watch "<what to watch>"]   report a successful presentation without opening a browser or waiting; omit task only from verified primary CFO context; only one with --watch, a goblin asking the Overlord to watch it, reaches his Command Center
@@ -164,6 +165,9 @@ type commandRuntime struct {
 	// processPlan reads what the fleet's process sweeps would end now, and
 	// ends nothing.
 	processPlan func(context.Context, home.Home) (processPlan, error)
+	// leftRunning reads what a task's goblin started that still runs, for
+	// its done or failed report to name; nil names nothing.
+	leftRunning func(home.Home, string) ([]fleettree.Placed, error)
 	speedHint     func(context.Context, string) string
 	quota         func(context.Context) (quota.Report, string)
 	// goblins is true when this binary runs under the name goblins, where no
@@ -400,6 +404,7 @@ func defaultCommandRuntime() commandRuntime {
 		taskLifecycle: defaultTaskLifecycle,
 		reap:          defaultReap,
 		processPlan:   defaultProcessPlan,
+		leftRunning:   defaultLeftRunning,
 		speedHint: func(ctx context.Context, name string) string {
 			return telemetry.SpeedHint(ctx, execx.OSRunner{}, name)
 		},

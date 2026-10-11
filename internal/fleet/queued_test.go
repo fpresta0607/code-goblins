@@ -276,3 +276,35 @@ func TestAQueuedBriefTellsTheGoblinToRunTheProjectsCheckBeforeEachPush(t *testin
 		}
 	}
 }
+
+// The Overlord on 2026-10-11 asked that what goblins start to run or check
+// tests finishes and is cleaned up, and that nothing is forgotten or runs in
+// loops. A brief written from a queued row says so in its Constraints, as a
+// brief cfo brief writes does.
+func TestAQueuedBriefSaysWhatItsGoblinStartsIsItsOwnToEnd(t *testing.T) {
+	// Arrange
+	h := home.Home{State: t.TempDir(), Data: t.TempDir()}
+	if err := os.WriteFile(filepath.Join(h.Data, "backlog.md"), []byte("## Queued\n- **nw-sync** - Say why a billing sync fails (repo: northwind)\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	queued, err := ReadQueuedTask(h, "nw-sync")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Act
+	if err := WriteQueuedBrief(h, queued); err != nil {
+		t.Fatal(err)
+	}
+
+	// Assert
+	body, err := os.ReadFile(filepath.Join(h.Data, "nw-sync", "brief.md"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	brief := strings.Join(strings.Fields(string(body)), " ")
+	constraints, verification := strings.Index(brief, "## Constraints"), strings.Index(brief, "## Verification")
+	if at := strings.Index(brief, BriefProcesses()); at < constraints || at > verification {
+		t.Errorf("the queued brief's Constraints do not say %q:\n%s", BriefProcesses(), brief)
+	}
+}

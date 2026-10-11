@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { reportToCfo } from "./api";
-import { Dictation, dictationKey, openMicrophone } from "./dictation";
-import { dictationStatus, modelName, recognizerFor } from "./dictationEngine";
+import { Dictation, dictationKey } from "./dictation";
+import { dictationStatus, modelName, openMicrophone, prepareDictation, recognizerFor } from "./dictationEngine";
 
 // A note about dictation stays this long over the terminal.
 const NOTE_MS = 6000;
@@ -23,8 +23,8 @@ const NO_NOTE: Note = { text: "", lasting: false };
 // Push-to-talk dictation for one terminal or message box. Its key handler
 // hands every key to key first: false means the terminal must not see the
 // key, true that it may, and null that the key is not dictation's. start and
-// stop listen for as long as a microphone button is held. What was heard is
-// typed with type.
+// stop listen for as long as a microphone button is held, from at, when it
+// went down. What was heard is typed with type.
 // level reads the microphone while listening, for the voice bubble's waveform.
 // instance is the board's token, which the supervisor's speech model is asked
 // with, and model is that model's name once the supervisor has said it.
@@ -43,6 +43,7 @@ export function useDictation(type: (text: string) => void, instance: string) {
   useEffect(() => {
     let named = true;
     void modelName().then((name) => { if (named) setModel(name); });
+    prepareDictation();
     return () => { named = false; };
   }, []);
   const dictation = useRef<Dictation | null>(null);
@@ -96,8 +97,8 @@ export function useDictation(type: (text: string) => void, instance: string) {
     };
   }, []);
   // start listens until stop, as holding the shortcut or a microphone button
-  // does.
-  const start = useCallback(() => {
+  // does, from at, the time of the event that pressed it.
+  const start = useCallback((at?: number) => {
     const heard = (text: string) => {
       typeText.current(followsDictation.current ? " " + text : text);
       followsDictation.current = true;
@@ -111,7 +112,7 @@ export function useDictation(type: (text: string) => void, instance: string) {
     // A set-up that failed was shown until now.
     setNote((prior) => prior.lasting && !following.current ? NO_NOTE : prior);
     dictation.current ??= new Dictation({ heard, listening: setListening, problem, failed }, () => recognizerFor(() => token.current), navigator.language || "en-US", openMicrophone);
-    dictation.current.start();
+    dictation.current.start(at);
   }, [follow]);
   const stop = useCallback(() => dictation.current?.stop(), []);
   const key = useCallback((event: KeyboardEvent): boolean | null => {
@@ -121,7 +122,7 @@ export function useDictation(type: (text: string) => void, instance: string) {
       return null;
     }
     if (meaning.swallow) event.preventDefault();
-    if (meaning.action === "start") start();
+    if (meaning.action === "start") start(event.timeStamp);
     if (meaning.action === "stop") stop();
     return !meaning.swallow;
   }, [start, stop]);

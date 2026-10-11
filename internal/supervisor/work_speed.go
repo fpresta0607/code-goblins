@@ -264,13 +264,8 @@ func (s *Service) workEvidence(meta state.TaskMeta, tree fleettree.Tree, isTreeR
 	}
 	missing = append(missing, tree.Unread...)
 	tree.Children = slices.DeleteFunc(slices.Clone(tree.Children), func(child fleettree.Node) bool { return child.Kind == fleettree.KindHelper })
-	for _, child := range tree.Children {
-		if child.Kind == fleettree.KindProcess && child.LastActivity.After(busy) {
-			busy = child.LastActivity
-		}
-	}
 	gate, _ = tree.Gate()
-	return screen, tree.ActivityAt(), busy, gate, missing
+	return screen, tree.ActivityAt(), tree.Busy(), gate, missing
 }
 
 // ownReport is the goblin's latest report in lines, from the generation

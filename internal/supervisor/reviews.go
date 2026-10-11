@@ -72,8 +72,8 @@ type Review struct {
 	// Link is the web link a goblin's wait gives as where the Overlord goes,
 	// the only link its card opens.
 	Link string `json:"link,omitempty"`
-	// Document is a delivered file, copied beside the item's images; an item
-	// with a document carries nothing else to look at.
+	// Document is a delivered file, copied beside the Scrawl page that shows
+	// it, which is the item's page.
 	Document *ReviewDocument `json:"document,omitempty"`
 	State    string          `json:"state"`
 	Answer   string          `json:"answer,omitempty"`
@@ -133,17 +133,21 @@ func validReview(r Review) error {
 		}
 	}
 	if r.Document != nil {
-		if len(r.ImageSums) > 0 || r.Lavish != "" {
-			return errors.New("a document item carries no images or Scrawl page")
+		if len(r.ImageSums) > 0 || r.Link != "" {
+			return errors.New("a delivered file carries no images or link beside its Scrawl page")
 		}
 		return validDocument(*r.Document)
 	}
 	return nil
 }
 
+// sameReview reports whether b publishes what a does. A delivered file's page
+// is made for it each time it is delivered, so its file names it.
 func sameReview(a, b Review) bool {
-	return a.Identity == b.Identity && a.Task == b.Task && a.Title == b.Title && a.Lavish == b.Lavish && a.LavishPage == b.LavishPage && a.Link == b.Link && slices.Equal(a.ImageSums, b.ImageSums) &&
-		(a.Document == nil) == (b.Document == nil) && (a.Document == nil || *a.Document == *b.Document)
+	if a.Document != nil || b.Document != nil {
+		return a.Identity == b.Identity && a.Task == b.Task && a.Title == b.Title && a.Document != nil && b.Document != nil && *a.Document == *b.Document
+	}
+	return a.Identity == b.Identity && a.Task == b.Task && a.Title == b.Title && a.Lavish == b.Lavish && a.LavishPage == b.LavishPage && a.Link == b.Link && slices.Equal(a.ImageSums, b.ImageSums)
 }
 
 // reviewImageDir holds one publication's copied images, named by position, or
@@ -189,7 +193,7 @@ func PublishReview(h home.Home, taskID, id, title, lavish, page string, images [
 		sums, err := stageReviewImages(h, taskID, images, dir)
 		r.ImageSums = sums
 		return len(images) > 0, err
-	})
+	}, nil)
 }
 
 // askCFOOnPage puts goblin taskID's item id, with its page, to the CFO as the
@@ -231,8 +235,10 @@ func askCFOOnPage(h home.Home, taskID, id, title, link, page string, images []st
 
 // publishItem records r for its reporter, proven the way reviewReporter does.
 // stage fills in what r copies into dir and says whether it copied anything;
-// the copies move beside the item's record only once the item is new.
-func publishItem(h home.Home, r Review, stage func(r *Review, dir string) (bool, error)) error {
+// the copies move beside the item's record only once the item is new. placed,
+// when set, runs once they are in their own folder, before the item is
+// recorded, such as to open the page they hold.
+func publishItem(h home.Home, r Review, stage func(r *Review, dir string) (bool, error), placed func(r *Review, dir string) error) error {
 	identity, release, err := reviewReporter(h, r.Task)
 	if err != nil {
 		return err
@@ -279,6 +285,14 @@ func publishItem(h home.Home, r Review, stage func(r *Review, dir string) (bool,
 	final := reviewImageDir(h.State, r)
 	if err := os.Rename(staged, final); err != nil {
 		return err
+	}
+	if placed != nil {
+		if err := placed(&r, final); err != nil {
+			return errors.Join(err, os.RemoveAll(final))
+		}
+		if err := validReview(r); err != nil {
+			return errors.Join(err, os.RemoveAll(final))
+		}
 	}
 	if err := recordReview(h.State, r); err != nil {
 		return errors.Join(err, os.RemoveAll(final))
@@ -861,8 +875,8 @@ func (s *Store) pruneReviews(now time.Time) error {
 	return err
 }
 
-// clearReview closes open item i, which the Overlord cleared at at, with how
-// he closed it when he opened or downloaded its document. A page's card shows
+// clearReview closes open item i, which the Overlord cleared at at, with
+// reason. A page's card shows
 // the question its goblin asked beside the page, so clearing it dismisses
 // that question in the same step, and the IDs of the questions dismissed come
 // back for the CFO to hear of. The caller holds the store lock.
@@ -973,11 +987,11 @@ func (s *Store) markReviewDelivered(id, answerID string) error {
 
 // reviewImage serves image n of a review at /api/reviews/<id>/images/<n>,
 // from the copy made when it was published and checked again on every
-// request.
+// request, and a review's page at /api/reviews/<id>/preview.
 func (h *HTTP) reviewImage(w http.ResponseWriter, r *http.Request) {
 	parts := strings.Split(strings.TrimPrefix(r.URL.Path, "/api/reviews/"), "/")
-	if len(parts) == 2 && parts[1] == documentFile {
-		h.reviewDocument(w, r, parts[0])
+	if len(parts) == 2 && parts[1] == "preview" {
+		h.reviewPreview(w, r, parts[0])
 		return
 	}
 	n, err := -1, error(nil)
@@ -1023,7 +1037,7 @@ func PublishWait(h home.Home, taskID string, seq int, why, lavish, page, link st
 			return publishVersion(h, wait)
 		}
 	}
-	return publishItem(h, wait, func(*Review, string) (bool, error) { return false, nil })
+	return publishItem(h, wait, func(*Review, string) (bool, error) { return false, nil }, nil)
 }
 
 // publishVersion records the next version of its reporter's open item r,
@@ -1055,9 +1069,9 @@ func publishVersion(h home.Home, r Review) error {
 // its task is gone, since a finished or cleaned-up goblin never acts on the
 // answer. A task is gone once its task record is. A goblin's page or images
 // stay while it keeps working, asks or waits, or has not reported yet, because
-// it still wants the Overlord's look. A delivered document is never retired:
-// its copy outlives the goblin, and it leaves the queue only once the Overlord
-// opens, downloads or clears it.
+// it still wants the Overlord's look. A delivered file is never retired: its
+// copy outlives the goblin, and it leaves the queue only once the Overlord
+// answers on its page or clears it.
 func (s *Store) retireItems() error {
 	for _, r := range s.Snapshot().Reviews {
 		if r.State != "open" || r.Task == "" || r.Document != nil {

@@ -115,7 +115,7 @@ func identify(handle syscall.Handle, pid int, start time.Time) (Identity, error)
 		if err != nil {
 			return parameters, fmt.Errorf("%w: %v", ErrCommandLineUnreadable, err)
 		}
-		if identity.Arguments, err = splitCommandLine(line); err != nil {
+		if identity.Arguments, err = SplitCommandLine(line); err != nil {
 			return parameters, err
 		}
 		if identity.Directory, err = read(paramsOffsetCurrentDirectory); err != nil {

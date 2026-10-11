@@ -177,12 +177,17 @@ func (r *Reader) Read(ctx context.Context, goblin Goblin) (Tree, error) {
 			tree.Unread = append(tree.Unread, "listening ports: "+err.Error())
 		}
 		tree.Children = mergeShells(append(tree.Children, jobs...))
-		// A detached job is shown beside the others and is none of them: it
-		// is no shell's, and no part of what the monitor judges the goblin's
-		// progress by.
+		// A detached job is shown beside the others and is no shell's. A run
+		// or a script at work in one is the goblin's work, as a test suite a
+		// script started in the background is. A server or a browser left
+		// detached serves or draws whatever the goblin does, so its processor
+		// use says nothing of the goblin's work.
 		left, _ := r.jobNodes(harnessProcesses{jobs: r.detachedJobs(meta.ID, processes, harness)}, nil, nil, now)
 		for _, node := range left {
-			node.Detached, node.cpu, node.process = true, 0, ""
+			node.Detached = true
+			if node.Group == GroupDevServer || node.Group == GroupBrowser {
+				node.cpu, node.process, node.outsideWork = 0, "", true
+			}
 			tree.Memory += node.Memory
 			tree.Children = append(tree.Children, node)
 		}
@@ -362,23 +367,10 @@ func (r *Reader) jobNodes(harness harnessProcesses, shellCommands map[string]str
 	facts := jobFacts{commands: map[int]string{}}
 	listens, err := listeners()
 	facts.listens = listens
-	commandLine := r.CommandLine
-	if commandLine == nil {
-		commandLine = proc.CommandLine
-	}
-	if r.commands == nil {
-		r.commands, r.readings = map[processKey]string{}, map[processKey]cpuReading{}
-	}
 	var nodes []Node
 	for _, job := range harness.jobs {
 		for _, member := range job.members {
-			key := processKey{member.PID, member.Created}
-			command, ok := r.commands[key]
-			if !ok {
-				command, _ = commandLine(member.PID)
-				r.commands[key] = command
-			}
-			facts.commands[member.PID] = command
+			facts.commands[member.PID] = r.command(member)
 		}
 		group, label, detail := classify(job, facts)
 		key := processKey{job.root.PID, job.root.Created}
@@ -408,6 +400,12 @@ func (r *Reader) jobNodes(harness harnessProcesses, shellCommands map[string]str
 			state = Working
 		}
 		node := Node{ID: fmt.Sprintf("process:%d:%d", job.root.PID, job.root.Created), Kind: KindProcess, Group: group, Label: label, Detail: detail, Task: commandTask(facts.commands[job.root.PID]), State: state, Started: job.root.Started, LastActivity: reading.busy, Memory: job.memory(), SourceUpdatedAt: now, cpu: cpu, process: job.name()}
+		// A machine service a goblin started works for every goblin, as the
+		// no-mistakes daemon runs every gate's agents: it is shown at work,
+		// and its processor use is no goblin's work.
+		if job.isService(facts) {
+			node.cpu, node.process, node.outsideWork = 0, "", true
+		}
 		if shell := shellOf(job, facts.commands[job.root.PID], shellCommands, children); shell != "" {
 			node.Parent = shell
 		}
@@ -416,14 +414,35 @@ func (r *Reader) jobNodes(harness harnessProcesses, shellCommands map[string]str
 	return nodes, err
 }
 
+// command is a process's command line, read once in its life.
+func (r *Reader) command(process Process) string {
+	if r.commands == nil {
+		r.commands, r.readings = map[processKey]string{}, map[processKey]cpuReading{}
+	}
+	key := processKey{process.PID, process.Created}
+	command, isRead := r.commands[key]
+	if !isRead {
+		commandLine := r.CommandLine
+		if commandLine == nil {
+			commandLine = proc.CommandLine
+		}
+		command, _ = commandLine(process.PID)
+		r.commands[key] = command
+	}
+	return command
+}
+
 // ownerReads bounds how many processes of one detached tree are asked whose
-// they are before the tree is taken for nobody's.
+// they are at one read; the tree's other processes are asked at the next.
 const ownerReads = 8
 
 // detachedJobs are the jobs of task that reach no harness: each a process
-// whose parent has exited, with everything under it, that carries the mark
-// of task's terminal. A Git Bash tool carries no mark of its own, so a tree
-// is its first process's by the first mark found in it, top down.
+// whose parent has exited, that started after the harness, with everything
+// under it, that is task's by one of its processes. A tree is the task's by the first answer its processes
+// give, top down. A Git Bash tool carries no mark of its own, and a script
+// can unset the mark for what it starts, so a tree whose processes have
+// said nothing yet is asked again as processes join it, each process once
+// in its life, since what makes it a task's never changes.
 func (r *Reader) detachedJobs(task string, processes []Process, harness harnessProcesses) []job {
 	if r.Owner == nil {
 		return nil
@@ -441,12 +460,28 @@ func (r *Reader) detachedJobs(task string, processes []Process, harness harnessP
 		byPID[process.PID] = process
 		children[process.ParentPID] = append(children[process.ParentPID], process)
 	}
+	// The processes above the harness are its terminal: the host that runs
+	// it works in the task's folders and has no parent once the spawn that
+	// started it has returned, and it is never a job of the goblin's.
+	for current := harness.top; current.PID != 0; {
+		parent, isRunning := byPID[current.ParentPID]
+		if !isRunning || parent.PID == current.PID || parent.Started.After(current.Started) {
+			break
+		}
+		under[parent.PID] = true
+		current = parent
+	}
 	var jobs []job
 	for _, process := range processes {
 		if process.PID == 0 || under[process.PID] {
 			continue
 		}
 		if parent, isRunning := byPID[process.ParentPID]; isRunning && parent.PID != process.PID && !process.Started.Before(parent.Started) {
+			continue
+		}
+		// A tree that began before the harness was not started by it,
+		// whatever its newest processes do, so nothing of it is asked.
+		if process.Started.Before(harness.top.Started) {
 			continue
 		}
 		members := []Process{process}
@@ -459,13 +494,22 @@ func (r *Reader) detachedJobs(task string, processes []Process, harness harnessP
 				}
 			}
 		}
-		key := processKey{process.PID, process.Created}
-		owner, isKnown := r.owners[key]
-		if !isKnown {
-			for index := 0; index < len(members) && index < ownerReads && owner == ""; index++ {
-				owner = r.Owner(members[index].PID)
+		owner, asks := "", 0
+		for _, member := range members {
+			key := processKey{member.PID, member.Created}
+			answer, isAsked := r.owners[key]
+			if !isAsked {
+				if asks == ownerReads {
+					break
+				}
+				asks++
+				answer = r.Owner(member.PID)
+				r.owners[key] = answer
 			}
-			r.owners[key] = owner
+			if answer != "" {
+				owner = answer
+				break
+			}
 		}
 		if owner == task {
 			jobs = append(jobs, job{root: process, members: members})

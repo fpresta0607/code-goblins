@@ -97,7 +97,9 @@ type Node struct {
 	Memory uint64 `json:"memory,omitempty"`
 	// Detached says the job's processes reach the goblin's harness through
 	// no parent any more: a server, a watcher or a browser bridge left by a
-	// command that has returned. It is the goblin's by its terminal's mark.
+	// command that has returned, or a run a script started in the
+	// background. It is the goblin's by its terminal's mark or by the task's
+	// folders one of its processes works in or runs from.
 	Detached bool `json:"detached,omitempty"`
 	// SourceUpdatedAt is when the record this node was read from last
 	// changed, and FetchedAt when it was read.
@@ -105,9 +107,13 @@ type Node struct {
 	FetchedAt       time.Time `json:"fetched_at"`
 
 	// cpu is the processor time a job's processes have used, which the
-	// monitor judges progress by; process names it the way a wake does.
-	cpu     time.Duration
-	process string
+	// monitor judges progress by; process names it the way a wake does. Both
+	// are empty, and outsideWork set, for a job whose processor use is no
+	// work of the goblin's: a machine service, and a server or a browser
+	// left detached.
+	cpu         time.Duration
+	process     string
+	outsideWork bool
 	// gate is a gate run's step at work or parked, which the supervisor
 	// judges the goblin's wait on it by.
 	gate GateStep
@@ -134,16 +140,22 @@ type Tree struct {
 }
 
 // Working says a child of the goblin is working: the goblin counts as
-// working while any child does. A detached job is no such child: nothing
-// the goblin does waits on it, and a leftover using the processor must not
-// hide a goblin that has stalled.
+// working while any child does. A job whose processor use is no work of the
+// goblin's is no such child: a server or a browser it left detached, which
+// must not hide a goblin that has stalled, and a machine service.
 func (t Tree) Working() bool {
 	for _, child := range t.Children {
-		if child.State == Working && !child.Detached {
+		if child.State == Working && child.isWork() {
 			return true
 		}
 	}
 	return false
+}
+
+// isWork says the child's activity is the goblin's work: everything its
+// harness records, and every job of its processes whose processor use is.
+func (n Node) isWork() bool {
+	return !n.outsideWork
 }
 
 // Gate is the goblin's gate run at a step it runs or is parked at, and ok is
@@ -169,6 +181,18 @@ func (t Tree) ActivityAt() time.Time {
 		}
 	}
 	return latest
+}
+
+// Busy is the latest moment a job of the goblin's own processes started or
+// used the processor, of the jobs whose processor use is its work.
+func (t Tree) Busy() time.Time {
+	var busy time.Time
+	for _, child := range t.Children {
+		if child.Kind == KindProcess && child.isWork() && child.LastActivity.After(busy) {
+			busy = child.LastActivity
+		}
+	}
+	return busy
 }
 
 // Jobs names the goblin's running jobs of processes the way a wake names

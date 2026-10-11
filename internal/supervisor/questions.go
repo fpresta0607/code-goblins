@@ -251,35 +251,46 @@ func (s *Service) answerGoblin(ctx context.Context, a Action) (Evaluation, error
 	return result, nil
 }
 
-// changeAnswer delivers the Overlord's change to the answer the CFO gave a
-// goblin's question. Under the question's answer lock it checks again that
-// the goblin has reported nothing since, so it has not acted on the CFO's
-// answer, then tells the goblin his answer replaces it.
+// changeAnswer delivers his change of an answer to whoever acts on it: the
+// goblin that asked, or the CFO for its own question and for a goblin that
+// restarted, ended or cannot be reached. It runs only once every earlier
+// answer to the question has been handed over (nextQueued), so whoever acts
+// on it has them in the order he gave them.
 func (s *Service) changeAnswer(ctx context.Context, a Action) (Evaluation, error) {
 	if s.Options.CFO == nil {
 		return Evaluation{}, fmt.Errorf("%w: message transport is unavailable", ErrRejected)
 	}
-	i := slices.IndexFunc(s.Store.Snapshot().Questions, func(q Question) bool {
-		return q.ID == a.QuestionID && q.Identity == a.Generation && q.ChangeID == a.ID && q.AnsweredBy == "cfo" && q.Task != ""
-	})
+	i := slices.IndexFunc(s.Store.Snapshot().Questions, func(q Question) bool { return q.ID == a.QuestionID })
 	if i < 0 {
-		return Evaluation{}, fmt.Errorf("%w: user question context changed", ErrRejected)
+		return Evaluation{}, fmt.Errorf("%w: the question is no longer on the board", ErrRejected)
 	}
 	q := s.Store.Snapshot().Questions[i]
+	change := fmt.Sprintf("Question: %s Was: %s. Now: %s. Act on the new answer: undo or redo what the first answer started.", q.Text, a.Replaces, a.Text)
+	if a.AnswerKind == "other" {
+		change = fmt.Sprintf("Question: %s Was: %s. Now, in his own words: %s. Act on the new answer: undo or redo what the first answer started.", q.Text, a.Replaces, a.Text)
+	}
+	if q.Task == "" {
+		return s.sendToCFO(ctx, fmt.Sprintf("The Overlord changed his answer to your question %s on the board. %s", q.ID, change))
+	}
 	unlock, err := answerLock(s.Store.Home.State, q.Seq)
 	if err != nil {
-		return Evaluation{}, fmt.Errorf("%w: the CFO is answering this question with cfo answer (%v); nothing was sent", ErrRejected, err)
+		return Evaluation{}, fmt.Errorf("%w: the CFO is answering this question with cfo answer (%v); nothing was sent", ErrDeferred, err)
 	}
 	defer unlock()
-	if err := goblinStillOnIt(s.Store.Home.State, q); err != nil {
-		return Evaluation{}, fmt.Errorf("%w: %v; nothing was sent", ErrRejected, err)
+	if isAsker(s.Store.Home.State, q) {
+		result, err := s.deliverAnswer(ctx, q, "The Overlord changed the answer to your question on the board. "+change)
+		if !errors.Is(err, ErrRejected) {
+			return result, err
+		}
 	}
-	replaced := "the CFO's answer"
-	if cfo := cmp.Or(q.AnsweredOption, q.Answer); cfo != "" {
-		replaced += " (" + cfo + ")"
-	}
-	text := fmt.Sprintf("The Overlord changed the answer to your question on the board. Question: %s %s: %s This replaces %s: act on this one.", q.Text, answerLabel(a), a.Text, replaced)
-	return s.deliverAnswer(ctx, q, text)
+	return s.sendToCFO(ctx, fmt.Sprintf("The Overlord changed the answer to %s's question %s on the board. %s restarted, ended or cannot be reached, so act on it yourself. %s", q.Task, q.ID, q.Task, change))
+}
+
+// isAsker reports whether goblin question q's task still runs the session
+// that asked it.
+func isAsker(stateDir string, q Question) bool {
+	meta, err := state.ReadTaskMeta(stateDir, q.Task)
+	return err == nil && goblinIdentity(meta) == q.Identity
 }
 
 // answerToCFO is the Overlord's answer a to the CFO's own question q, as the
@@ -324,24 +335,6 @@ func (s *Service) deliverAnswer(ctx context.Context, q Question, text string) (E
 		result, err = s.behindGoblinsTurn(q.Task, sent, text, "Submitted to the goblin while it was working; it takes the answer at its next tool call, or as its current turn ends."), nil
 	}
 	return result, err
-}
-
-// goblinStillOnIt refuses a change to the CFO's answer to q once the goblin
-// that asked is gone, or has reported since the CFO answered: it may have
-// acted on that answer.
-func goblinStillOnIt(stateDir string, q Question) error {
-	meta, err := state.ReadTaskMeta(stateDir, q.Task)
-	if err != nil || goblinIdentity(meta) != q.Identity {
-		return errors.New("the goblin's task restarted or ended, so the CFO's answer stands")
-	}
-	lines, err := state.TailStatus(stateDir, q.Task, 200)
-	if err != nil {
-		return fmt.Errorf("the goblin's status cannot be read (%v), so the CFO's answer stands", err)
-	}
-	if _, reportedAt, _ := taskSessionSummary(lines, spawnTime(meta.SpawnGen)); q.AnsweredAt == nil || reportedAt.After(*q.AnsweredAt) {
-		return errors.New(q.Task + " reported since the CFO answered, so it may have acted on that answer; the CFO's answer stands")
-	}
-	return nil
 }
 
 // answersInbox is where cfo answer once spooled its answers. They now reach
@@ -1218,31 +1211,47 @@ func (s *Store) questionAnswer(a Action) error {
 	return errors.New("this user question is unavailable")
 }
 
-// questionChange admits the Overlord changing the answer the CFO gave a
-// goblin's question to his own: while the goblin that asked is still the one
-// running and has reported nothing since, with no change already on its way,
-// and only to another of its choices or a written answer.
-func (s *Store) questionChange(a Action) error {
+// questionChange admits his change of an answered question's answer, at any
+// time and whoever gave it, to another of its choices or a written answer. It
+// returns the answer the change replaces, as the board shows it now, and
+// whether the change is that answer already, which sends nothing.
+func (s *Store) questionChange(a Action) (string, bool, error) {
 	i := slices.IndexFunc(s.db.Questions, func(q Question) bool { return q.ID == a.QuestionID && q.Identity == a.Generation })
 	if i < 0 {
-		return errors.New("this question is no longer on the board; refresh the board")
+		return "", false, errors.New("this question is no longer on the board; refresh the board")
 	}
 	q := s.db.Questions[i]
-	if q.Task == "" || q.Status != "succeeded" || q.AnsweredBy != "cfo" || q.AnswerID != "" {
-		return errors.New("only an answer the CFO gave to a goblin's question can change")
-	}
-	if q.ChangeID != "" && slices.ContainsFunc(s.db.Actions, func(c Action) bool { return c.ID == q.ChangeID && c.Status != "failed" }) {
-		return errors.New("your change to this answer is already on its way")
-	}
 	switch {
+	case !isAnswered(q):
+		return "", false, errors.New("this question has no answer yet; answer it instead")
 	case a.AnswerKind != "option" && a.AnswerKind != "other":
-		return errors.New("answer kind must be option or other")
+		return "", false, errors.New("answer kind must be option or other")
 	case a.AnswerKind == "option" && !slices.Contains(q.Options, a.Text):
-		return errors.New("select one of its choices")
-	case a.AnswerKind == "option" && a.Text == q.AnsweredOption:
-		return errors.New("that is already the CFO's answer")
+		return "", false, errors.New("select one of its choices")
 	}
-	return goblinStillOnIt(s.Home.State, q)
+	standing := cmp.Or(q.AnsweredOption, q.Answer)
+	if q.AnswerKind == "other" {
+		standing = q.Answer
+	}
+	if (a.AnswerKind == "other") == (q.AnswerKind == "other") && a.Text == standing {
+		return "", true, nil
+	}
+	// The CFO's ack closes a goblin's question without the board learning
+	// which choice it gave.
+	return cmp.Or(standing, "the CFO's answer"), false, nil
+}
+
+// isAnswered reports whether q has an answer: one the CFO gave or recorded,
+// or one he gave on the board, on its way or delivered. An answer that failed
+// to arrive is none.
+func isAnswered(q Question) bool {
+	switch q.Status {
+	case "succeeded":
+		return q.AnsweredBy != "" || q.AnswerID != ""
+	case "queued", "running", "uncertain":
+		return q.AnswerID != ""
+	}
+	return false
 }
 
 // clearQuestion closes question i, which the Overlord cleared from the

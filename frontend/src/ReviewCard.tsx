@@ -10,16 +10,17 @@ import { inlineElements, leadAndRest, messageElements } from "./messageText";
 import { copyValues } from "./CopyValue";
 import type { Draft } from "./QuestionCard";
 import { ClickFeedback, useClickFeedback } from "./click-feedback";
+import { goblinName } from "./task-words";
 
 export const reviewImages = (review: Review) => Array.from({ length: review.image_count }, (_, n) => "/api/reviews/" + encodeURIComponent(review.id) + "/images/" + n);
 
-// One review item: what to look at and who asks, its images and its page,
-// then Clear to close it. A page the supervisor watches is answered on the
-// page itself, so its preview is the one way in and the card has no text box;
-// a goblin waiting on the Overlord is a status with no text box that says
-// what it waits on and opens it (its page, question, file or link) from its
-// one action button, with Dismiss beside it, and shows no page preview, which
-// would say its words and open its page a second time; anything else takes a
+// One review item, saying each thing once: who asks by the goblin's name and
+// title, what to look at, its images and its page, then Clear to close it. A
+// page the supervisor watches shows itself, live and scaled down, and is
+// answered on the page, so the card has one button that opens it, no text box
+// and no line that explains. A goblin waiting on the Overlord is a status with
+// no text box that opens what it waits on (its page, question, file or link)
+// from its one action button, with Dismiss beside it. Anything else takes a
 // written answer that goes to the asker once.
 export function ReviewCard({ review, snapshot, connected, draft, onDraft, onSend, onClear, onOpen, onImage, pager }: {
   review: Review; snapshot: Snapshot; connected: boolean; draft: Draft;
@@ -31,7 +32,7 @@ export function ReviewCard({ review, snapshot, connected, draft, onDraft, onSend
   const outcome = draft.submission ? snapshot.actions.find((action) => action.id === draft.submission?.id) || draft.receipt : undefined;
   const pending = review.state === "open" && !outcome;
   const task = snapshot.tasks.find((candidate) => candidate.id === review.task);
-  const asker = review.task ? task?.title || review.task : "The CFO";
+  const asker = review.task ? task ? goblinName(task) : review.task : "The CFO";
   const images = reviewImages(review);
   const mark = outcome ? deliveryMark(outcome) : undefined;
   const item: Item = { kind: "review", key: "review:" + review.id, review };
@@ -41,7 +42,6 @@ export function ReviewCard({ review, snapshot, connected, draft, onDraft, onSend
   const target = status ? waitTarget(review, snapshot) : null;
   // The goblin's question this page carries, which the card shows as its own.
   const asked = review.question ? (snapshot.questions || []).find((question) => question.id === review.question) : undefined;
-  const closedAt = review.window_closed_at ? new Date(review.window_closed_at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) : "";
   // The goblin's own words, formatted: its lead line heads the card, and the
   // details, a table of values to enter, or a closing line follow it. Words
   // that open with a table have no lead line and are all body.
@@ -51,16 +51,11 @@ export function ReviewCard({ review, snapshot, connected, draft, onDraft, onSend
     {asked || !lead ? <div className="question-body" id={"review-" + review.id} tabIndex={-1}>{messageElements(asked ? asked.text : rest, copyValues)}</div>
       : <h3 id={"review-" + review.id} tabIndex={-1}>{inlineElements(lead, copyValues)}</h3>}
     {!asked && lead && rest && <div className="question-body">{messageElements(rest, copyValues)}</div>}
-    {target && !review.watched && <p className="wait-target">{target.says}</p>}
-    {review.lavish && !status && <a className="page-preview" href={review.lavish} target="_blank" rel="noreferrer" aria-label={"Open review: " + reviewLine(review)}>
-      <span className="page-shot" aria-hidden="true"><Icon name="comment" /><strong>Scrawl page</strong></span>
-      <span className="open-overlay"><Icon name="external" />Open review</span>
-    </a>}
-    {review.lavish && pending && review.watched && <p className="review-status">{review.revising_since
-      ? <><Icon name="check" />Revision received: the next version replaces this page.</>
-      : closedAt
-        ? <><Icon name="refresh" />Its window closed at {closedAt}. Reopen it to answer. Nothing you send there is lost.</>
-        : <><Icon name="clock" />Waiting for your answer. Reply in the page's conversation box. Your answer closes this card.</>}</p>}
+    {/* The page itself, live and scaled down, from its own file: a preview
+        to look at, never a review window of its own. */}
+    {review.lavish && review.watched && <div className="page-preview" aria-hidden="true">
+      <iframe src={"/api/reviews/" + encodeURIComponent(review.id) + "/preview"} title="" tabIndex={-1} sandbox="allow-scripts" scrolling="no" loading="lazy" />
+    </div>}
     {images.length > 0 && <div className="question-thumbs" aria-label="Images to review">
       {images.map((src, index) => <button type="button" key={src} aria-label={"View image " + (index + 1) + " of " + images.length + " full size"} onClick={() => onImage(index)}>
         {missing.has(src) ? <span className="image-missing"><Icon name="images" /></span> : <img src={src} alt="" onError={() => setMissing((prior) => new Set([...prior, src]))} />}<span>{index + 1}</span>
@@ -76,6 +71,7 @@ export function ReviewCard({ review, snapshot, connected, draft, onDraft, onSend
       {pending && status && <button type="button" className={target ? "status-dismiss" : "primary status-dismiss"} disabled={!connected || draft.sending} onClick={onClear}><Icon name="check" />Dismiss</button>}
       {pending && target?.kind === "item" && <button type="button" className="primary wait-open" onClick={() => onOpen(target.key)}><Icon name="next" />{target.label}</button>}
       {pending && target?.kind === "page" && <a className="primary button-link wait-open" href={target.url} target="_blank" rel="noreferrer"><Icon name="external" />{target.label}</a>}
+      {review.lavish && !status && <a className="primary button-link open-page" href={review.lavish} target="_blank" rel="noreferrer" aria-label={"Open review: " + reviewLine(review)}><Icon name="external" />Open review</a>}
       {answersHere && <button className="primary send-decision" type="submit" disabled={!connected || !draft.written.trim() || draft.sending}><Icon name={draft.sending ? "clock" : "send"} />{draft.sending ? "Sending" : draft.error ? "Retry" : "Send answer"}</button>}
     </div>
   </form>;

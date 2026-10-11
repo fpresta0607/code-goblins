@@ -1,7 +1,8 @@
 import { request } from "./api";
-import { speechRecognition, type Recognizer } from "./dictation";
+import { speechRecognition, type Capture, type Recognizer } from "./dictation";
 import { DictationSetUp, downsample, localRecognizer, Pieces, type Recording, type Sound } from "./localDictation";
 import { object, string } from "./types";
+import { voiceLevel } from "./voice";
 
 // Which recognizer dictation runs on in this page. The board's own is the
 // default: it records in the page and has the supervisor on this machine
@@ -15,84 +16,185 @@ const RATE = 16000;
 const CAPTURE = "/assets/dictation-capture.js";
 const BROWSER_KEY = "cfo-dictation-browser-v1";
 
-// The page's one audio context for dictation, with the capture worklet
-// loaded into it. It is made as the keys are pressed, while the microphone
-// opens, and kept for the next dictation: a worklet loaded only once the
-// microphone was open lost a dictation's first second.
-let capturing: Promise<AudioContext> | null = null;
+// The page's one recorder for dictation: an audio context with the capture
+// worklet loaded into it, the worklet's node, and the analyser the bubble's
+// bars read. It is made once, while the page is idle after a terminal or a
+// message box first shows, or else at the first press, and kept: a worklet
+// loaded only once the microphone was open lost a dictation's first second,
+// and a context made at the press held the page still for 0.1 to 0.2 s on
+// this PC, while the bubble waited to show that it listened.
+interface Recorder { context: AudioContext; node: AudioWorkletNode; analyser: AnalyserNode }
+let recorder: Promise<Recorder> | null = null;
+// What the worklet hands over goes to the recordings in the order they
+// began, each until the null that ends it.
+const takers: ((samples: Float32Array | null) => void)[] = [];
 let recordings = 0;
 
-// The context runs from each key press and is suspended once it has gone
-// this long with no recording, so a dictation that follows another soon
-// finds it running. Suspended at every release, it took a busy PC half a
-// second or more to resume at the next press, in which the bubble said it
-// listened and nothing was recorded, so a short dictation was told as
-// nothing heard.
-const REST_MS = 30_000;
-let resting: ReturnType<typeof setTimeout> | undefined;
-
-function rest(context: AudioContext): void {
-  clearTimeout(resting);
-  resting = setTimeout(() => { if (recordings === 0) void context.suspend(); }, REST_MS);
-}
-
-function captureContext(): Promise<AudioContext> {
-  if (!capturing) {
+function recorderFor(): Promise<Recorder> {
+  if (!recorder) {
     const context = new AudioContext();
-    const loaded = context.audioWorklet.addModule(CAPTURE).then(() => context);
-    loaded.catch(() => { capturing = null; void context.close(); });
-    capturing = loaded;
+    const made = context.audioWorklet.addModule(CAPTURE).then(() => {
+      const node = new AudioWorkletNode(context, "dictation-capture", { numberOfOutputs: 0 });
+      node.port.onmessage = (event: MessageEvent<Float32Array | null>) => {
+        takers[0]?.(event.data);
+        if (!event.data) takers.shift();
+      };
+      const analyser = context.createAnalyser();
+      analyser.fftSize = 512;
+      return { context, node, analyser };
+    });
+    made.catch(() => { recorder = null; void context.close(); });
+    recorder = made;
   }
-  return capturing;
+  return recorder;
 }
 
-// record captures a microphone track's samples as they arrive, through the
-// capture worklet, and hands on each piece of what is said at the model's
-// rate as soon as it ends in a pause. It has begun once its first samples
-// arrive, which a context only just made or resumed takes a while to hand
-// over, though it says at once that it runs. stop asks the worklet for what
-// it still holds and returns what followed the last piece. Nothing but the
-// browser is needed, in a tab or in the desktop app.
-export function record(track: MediaStreamTrack, piece: (sound: Sound) => void): Recording {
+// prepareDictation makes the recorder while the page is idle, before a press
+// needs it, and leaves it suspended until then.
+export function prepareDictation(): void {
+  if (recorder) return;
+  requestIdleCallback(() => {
+    void recorderFor().then(rest, () => undefined);
+  }, { timeout: 5000 });
+}
+
+// The microphone opens at the first press and stays open while the board has
+// the focus, so every later press records from the moment the keys go down,
+// which the worklet's last second still holds. It closes when the window
+// loses the focus or the page is hidden, and once IDLE_MS pass with no
+// dictation; the next press opens it again, and what is said while it opens
+// is not heard. Held open before any press, it would show a microphone in use
+// whenever the board had the focus (the CFO's decision 1000850, 2026-10-11).
+const IDLE_MS = 30 * 60_000;
+interface Microphone { stream: MediaStream; source: MediaStreamAudioSourceNode | null; analyser: AnalyserNode | null }
+let microphone: Promise<Microphone> | null = null;
+let idle: ReturnType<typeof setTimeout> | undefined;
+let watching = false;
+
+// rest suspends the recorder while no microphone is open and nothing records.
+function rest(): void {
+  if (recordings === 0 && !microphone) void recorder?.then(({ context }) => context.suspend(), () => undefined);
+}
+
+function shut({ stream, source }: Microphone): void {
+  source?.disconnect();
+  for (const track of stream.getTracks()) track.stop();
+  rest();
+}
+
+function closeMicrophone(): void {
+  clearTimeout(idle);
+  const closing = microphone;
+  microphone = null;
+  void closing?.then(shut, () => undefined);
+}
+
+function watchFocus(): void {
+  if (watching) return;
+  watching = true;
+  window.addEventListener("blur", closeMicrophone);
+  document.addEventListener("visibilitychange", () => { if (document.hidden) closeMicrophone(); });
+}
+
+// openMicrophone is a hold's use of the page's microphone, opening it at the
+// first press. The recorder is made alongside, after the microphone is asked
+// for, and woken from its rest once the microphone is open, whose source holds
+// what it hears meanwhile. Woken at the press too, it slowed the microphone
+// itself: after the window took the focus again the first sound kept came a
+// median 49 ms after the press in the desktop window and 239 ms in Chromium,
+// against 5 ms and 155 ms this way (2026-10-11). Closing a hold's capture
+// leaves the microphone open for the next press, until IDLE_MS pass. A page
+// with no microphone to ask for, as one reached over plain HTTP, refuses as a
+// blocked one does, never in the middle of the press.
+export async function openMicrophone(): Promise<Capture> {
+  clearTimeout(idle);
+  if (!microphone) {
+    watchFocus();
+    const asked = navigator.mediaDevices.getUserMedia({ audio: true });
+    // A recorder that cannot be made fails the recording, which tells the CFO.
+    const made = recorderFor().catch(() => null);
+    const opening = asked.then(async (stream) => {
+      const parts = await made;
+      if (!parts) return { stream, source: null, analyser: null };
+      const source = parts.context.createMediaStreamSource(stream);
+      source.connect(parts.node);
+      source.connect(parts.analyser);
+      void parts.context.resume();
+      return { stream, source, analyser: parts.analyser };
+    });
+    microphone = opening;
+    // One closed while it opened is let go at once, and one refused is asked
+    // for again at the next press.
+    opening.then((opened) => { if (microphone !== opening) shut(opened); }, () => {
+      if (microphone !== opening) return;
+      microphone = null;
+      rest();
+    });
+  }
+  return microphone.then(({ stream, analyser }) => {
+    const samples = new Uint8Array(analyser?.fftSize ?? 0);
+    return {
+      track: stream.getAudioTracks()[0],
+      level: () => {
+        if (!analyser) return 0;
+        analyser.getByteTimeDomainData(samples);
+        return voiceLevel(samples);
+      },
+      close: () => {
+        clearTimeout(idle);
+        idle = setTimeout(closeMicrophone, IDLE_MS);
+      },
+    };
+  });
+}
+
+// record hands on what the page's microphone hears from since, the moment the
+// keys went down, through the capture worklet: what the worklet still keeps
+// from the press, then the samples as they arrive, each piece of what is said
+// at the model's rate as soon as it ends in a pause. It has begun once its
+// first samples arrive, which a microphone only just opened takes a while to
+// hand over. stop asks the worklet for what it still holds and returns what
+// followed the last piece. Nothing but the browser is needed, in a tab or in
+// the desktop app.
+export function record(piece: (sound: Sound) => void, since: number): Recording {
   let stopped = false;
   let flushed = () => {};
   let arrived = () => {};
   const first = new Promise<void>((resolve) => { arrived = resolve; });
-  const capture = captureContext().then((context) => {
-    recordings++;
+  const capture = recorderFor().then(({ context, node }) => {
     void context.resume();
     const pieces = new Pieces(context.sampleRate, (sound) => { if (!stopped) piece(downsample(sound, RATE)); });
-    const node = new AudioWorkletNode(context, "dictation-capture", { numberOfOutputs: 0 });
-    node.port.onmessage = (event: MessageEvent<Float32Array | null>) => {
-      if (!event.data) { flushed(); return; }
+    takers.push((samples) => {
+      if (!samples) { flushed(); return; }
       arrived();
-      if (!stopped) pieces.push(event.data);
-    };
-    const source = context.createMediaStreamSource(new MediaStream([track]));
-    source.connect(node);
-    return { context, pieces, node, source };
+      if (!stopped) pieces.push(samples);
+    });
+    // The press, as a frame of the context's clock.
+    node.port.postMessage({ from: Math.round((context.currentTime - (performance.now() - since) / 1000) * context.sampleRate) });
+    return { node, pieces };
   });
   capture.catch(() => undefined);
+  recordings++;
   const end = () => {
     stopped = true;
-    void capture.then(({ context, node, source }) => {
-      source.disconnect();
-      node.port.close();
-      if (--recordings === 0) rest(context);
-    }, () => undefined);
+    recordings--;
+    rest();
   };
   return {
     began: capture.then(() => first),
     stop: async () => {
       try {
-        const { pieces, node } = await capture;
+        const { node, pieces } = await capture;
         await new Promise<void>((resolve) => { flushed = resolve; node.port.postMessage("flush"); });
         return downsample(pieces.rest(), RATE);
       } finally {
         end();
       }
     },
-    cancel: end,
+    cancel: () => {
+      end();
+      void capture.then(({ node }) => node.port.postMessage("flush"), () => undefined);
+    },
   };
 }
 
@@ -142,13 +244,10 @@ export function setUsesBrowser(on: boolean): void {
   } catch { /* the choice lasts until the page is closed */ }
 }
 
-// recognizerFor is the recognizer the next dictation runs on. The board's
-// own loads its capture worklet and has its context running at once, while
-// the microphone opens.
+// recognizerFor is the recognizer the next dictation runs on.
 export function recognizerFor(instance: () => string): new () => Recognizer {
   const browser = usesBrowser() && speechRecognition();
   if (browser) return browser;
-  void captureContext().then((context) => { void context.resume(); rest(context); }, () => undefined);
   return localRecognizer(record, recogniseWith(instance), warmWith(instance));
 }
 

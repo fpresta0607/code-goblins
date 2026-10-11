@@ -466,6 +466,74 @@ func TestEvidenceOfWorkKeepsALongToolCallFromStalling(t *testing.T) {
 	}
 }
 
+// On 2026-10-11 the CFO drew two progress_stalled wakes on a goblin whose
+// whole test suite was at work: a test binary under the goblin's own
+// launcher had used 916 seconds of processor time. Git Bash had cut the suite
+// off from the harness, its first processes were Git Bash's own, which carry
+// no mark, and the goblin's script had unset the mark for the rest, so only
+// the launcher, which runs from the task's own scratch folder, says whose the
+// suite is. The suite's processor time is the goblin's progress.
+func TestADetachedSuiteUnderTheGoblinsLauncherKeepsItFromStalling(t *testing.T) {
+	// Arrange
+	now := time.Date(2026, 10, 11, 2, 28, 0, 0, time.UTC)
+	goblin := newToolCallGoblin(t, now)
+	launched := now.Add(-time.Hour)
+	testCPU := time.Duration(0)
+	minute := 0
+	reader := goblin.service.Options.Tree
+	reader.Processes = func() ([]fleettree.Process, error) {
+		processes := []fleettree.Process{
+			{PID: 100, ParentPID: 1, Exe: "claude.exe", Created: 1, Started: launched},
+			// The background shell the harness still holds, idle.
+			{PID: 102, ParentPID: 100, Exe: "bash.exe", Created: 2, Started: launched.Add(20 * time.Minute)},
+			// The suite, cut off from it: its script's shells first.
+			{PID: 200, ParentPID: 901, Exe: "bash.exe", Created: 20, Started: now},
+			{PID: 201, ParentPID: 200, Exe: "bash.exe", Created: 21, Started: now},
+		}
+		if minute >= 1 {
+			processes = append(processes,
+				fleettree.Process{PID: 202, ParentPID: 201, Exe: "go.exe", Created: 22, Started: now.Add(time.Minute)},
+				fleettree.Process{PID: 203, ParentPID: 202, Exe: "slow-task.exe", Created: 23, Started: now.Add(time.Minute)},
+				fleettree.Process{PID: 204, ParentPID: 203, Exe: "branchsync.test.exe", Created: 24, Started: now.Add(time.Minute), CPU: testCPU},
+			)
+		}
+		return processes, nil
+	}
+	reader.CommandLine = func(pid int) (string, error) {
+		return map[int]string{
+			102: `bash -c "source snapshot.sh && eval 'bash tools/whole_suite.sh &'"`,
+			200: `"C:\Program Files\Git\usr\bin\bash.exe" /c/scratch/slow-task/tools/whole_suite.sh`,
+			201: `"C:\Program Files\Git\usr\bin\bash.exe" /c/scratch/slow-task/tools/gotest.sh`,
+			202: `"C:\Program Files\Go\bin\go.exe" test -exec C:\scratch\slow-task\tools\launcher\slow-task.exe -p 1 ./internal/branchsync`,
+			203: `C:\scratch\slow-task\tools\launcher\slow-task.exe C:\Temp\cgfm\go-build1\b001\branchsync.test.exe`,
+			204: `C:\Temp\cgfm\go-build1\b001\branchsync.test.exe -test.timeout=1h`,
+		}[pid], nil
+	}
+	reader.Owner = func(pid int) string { return map[int]string{203: "slow-task"}[pid] }
+
+	// Act: 45 readings a minute apart, the test binary using the processor
+	// from the second on, the screen and the transcript still.
+	for ; minute <= 45; minute++ {
+		at := now.Add(time.Duration(minute) * time.Minute)
+		if minute >= 1 {
+			testCPU += 20 * time.Second
+		}
+		goblin.read(t, at)
+	}
+
+	// Assert
+	if got := progressWakeCount(t, goblin.service); got != 0 {
+		t.Fatalf("a suite at work under the goblin's launcher drew %d progress_stalled wakes, want none", got)
+	}
+	watched, err := readFleetWakes(goblin.home.State)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if progress := watched.Progress["slow-task"]; progress.Source != "its own processes" || !progress.At.Equal(now.Add(45*time.Minute)) {
+		t.Fatalf("progress = %+v, want its own processes at the last reading", progress)
+	}
+}
+
 // readingMemory reads free memory as *free gigabytes, with commit to spare.
 func readingMemory(free *float64) *Dispatch {
 	return &Dispatch{

@@ -12,6 +12,7 @@ import (
 
 	"github.com/fpresta0607/code-goblins/internal/auth"
 	"github.com/fpresta0607/code-goblins/internal/execx"
+	"github.com/fpresta0607/code-goblins/internal/fleet"
 	"github.com/fpresta0607/code-goblins/internal/state"
 )
 
@@ -476,5 +477,30 @@ func TestBriefScaffoldTellsTheGoblinToRunTheProjectsCheckBeforeEachPush(t *testi
 	}
 	if verification, constraints := strings.Index(brief, "## Verification"), strings.Index(brief, "## Constraints"); verification < constraints {
 		t.Errorf("the scaffold puts Verification at %d and Constraints at %d, want Verification after the sections its author fills in", verification, constraints)
+	}
+}
+
+// Every brief says in its Constraints what the Overlord asked on
+// 2026-10-11: browsers headless and terminals hidden in tests, every start
+// tracked and ended by its pid, and no retry without a cap.
+func TestBriefScaffoldSaysWhatItsGoblinStartsIsItsOwnToEnd(t *testing.T) {
+	// Arrange
+	t.Setenv("CFO_HOME", t.TempDir())
+	var stdout, stderr bytes.Buffer
+
+	// Act
+	if exit := runBrief([]string{"t1", "--project", "projects/demo"}, &stdout, &stderr, commandRuntime{}); exit != 0 {
+		t.Fatalf("runBrief exit=%d stderr=%s", exit, stderr.String())
+	}
+
+	// Assert
+	body, err := os.ReadFile(strings.TrimSpace(stdout.String()))
+	if err != nil {
+		t.Fatal(err)
+	}
+	brief := strings.Join(strings.Fields(string(body)), " ")
+	constraints, verification := strings.Index(brief, "## Constraints"), strings.Index(brief, "## Verification")
+	if at := strings.Index(brief, fleet.BriefProcesses()); at < constraints || at > verification {
+		t.Errorf("the scaffold's Constraints do not say %q:\n%s", fleet.BriefProcesses(), brief)
 	}
 }

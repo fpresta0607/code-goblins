@@ -107,7 +107,7 @@ func Arguments(pid int) ([]string, error) {
 	if err != nil {
 		return nil, err
 	}
-	return splitCommandLine(line)
+	return SplitCommandLine(line)
 }
 
 // Parameters returns the directory pid is running in and the arguments it was
@@ -164,7 +164,7 @@ func readParameters(pid int, withEnvironment bool) (string, []string, []string, 
 		if argumentsErr != nil {
 			argumentsErr = fmt.Errorf("%w: %v", ErrCommandLineUnreadable, argumentsErr)
 		} else {
-			arguments, argumentsErr = splitCommandLine(line)
+			arguments, argumentsErr = SplitCommandLine(line)
 		}
 		if withEnvironment {
 			environment = environmentOf(handle, pid, parameters, snapshot)
@@ -230,8 +230,9 @@ func environmentOf(handle syscall.Handle, pid int, parameters uintptr, snapshot 
 	return values
 }
 
-// splitCommandLine splits a command line by Windows' own CommandLineToArgvW.
-func splitCommandLine(line string) ([]string, error) {
+// SplitCommandLine splits a command line into its arguments by Windows' own
+// CommandLineToArgvW.
+func SplitCommandLine(line string) ([]string, error) {
 	pointer, err := syscall.UTF16PtrFromString(line)
 	if err != nil {
 		return nil, fmt.Errorf("%w: %v", ErrCommandLineUnreadable, err)

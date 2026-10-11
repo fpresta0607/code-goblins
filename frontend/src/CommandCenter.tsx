@@ -1,6 +1,6 @@
 import { useEffect, useLayoutEffect, useRef, useState, type MouseEvent, type ReactNode } from "react";
 import { message, request } from "./api";
-import { parseAction, string, type BoardActivity, type Question, type Review, type Run, type Snapshot } from "./types";
+import { object, parseAction, string, type BoardActivity, type Question, type Review, type Run, type Snapshot } from "./types";
 import { deliveryMark, runMark, submissionFor } from "./feedback";
 import { Avatar } from "./Avatar";
 import { Icon } from "./Icon";
@@ -20,15 +20,17 @@ import { ImageGallery } from "./ImageGallery";
 import { Disclosure } from "./Disclosure";
 import { countedTitle } from "./arrivals";
 import { DoneCard } from "./DoneCard";
-import { DocumentCard } from "./DocumentCard";
 import { AnswerMark } from "./AnswerMark";
 import { ChangeCard } from "./ChangeCard";
 import "./lantern.css";
+import { goblinName } from "./task-words";
 
 // A sent item's check shows this long before the next item.
 const DONE_MS = 750;
 // "You're all done" shows this long before the Command Center closes.
 const ALL_DONE_MS = 1600;
+// A change a dropped connection kept from the supervisor goes again this soon.
+const RESEND_MS = 1000;
 
 // A focus opens its item; one without a key opens the first item waiting on
 // the Overlord, or the list when nothing waits. One with keys, as Go through
@@ -73,8 +75,11 @@ export function CommandCenter({ snapshot, connected, presentations, focus, onUns
   const [sent, setSent] = useState<Set<string>>(new Set());
   const [leaving, setLeaving] = useState("");
   const [allDone, setAllDone] = useState(false);
-  // The question whose CFO answer he opened from History to change.
+  // The answered question he opened from History, to see or change its answer.
   const [changing, setChanging] = useState("");
+  // The changes being sent now, by draft key, so a second press in the same
+  // frame sends nothing more.
+  const sendingChanges = useRef(new Set<string>());
   // The items a focus with keys named, the only ones the stack steps through,
   // in its order, until the Command Center closes.
   const [scope, setScope] = useState<string[] | null>(null);
@@ -88,15 +93,9 @@ export function CommandCenter({ snapshot, connected, presentations, focus, onUns
   const outcome = draft?.submission ? snapshot.actions.find((action) => action.id === draft.submission?.id) || draft.receipt : undefined;
   const mark = outcome ? deliveryMark(outcome, item?.kind === "question" ? item.question.task : undefined) : undefined;
   const sending = draft ? sendState(draft, snapshot.actions) : undefined;
-  // A change to the CFO's answer keeps its own draft, apart from the
-  // question's, and is done once it is sent.
+  // A change of an answer keeps its own draft, apart from the question's.
   const changeKey = (question: Question) => "change:" + question.id;
   const changeDraft = (question: Question) => drafts[changeKey(question)] || EMPTY_DRAFT;
-  const isChanged = (question: Question) => {
-    const submission = drafts[changeKey(question)]?.submission;
-    const change = submission ? snapshot.actions.find((action) => action.id === submission.id) || drafts[changeKey(question)]?.receipt : undefined;
-    return change?.status === "succeeded" || !!change?.awaiting;
-  };
   // What the Overlord sent from this card shows as done the moment he sends
   // it; trouble keeps the card itself on screen with what went wrong. An item
   // he answered elsewhere, such as on its page, finishes the same way,
@@ -160,13 +159,6 @@ export function CommandCenter({ snapshot, connected, presentations, focus, onUns
   // answered or cleared elsewhere turns into its settled card instead of vanishing.
   if (item && !kept.has(item.key)) setKept(new Set([...kept, item.key]));
   const showing = !!item || !!changeQuestion;
-  // A change made from History shows its check, then the Command Center closes.
-  const isChangeDone = !!changeQuestion && isChanged(changeQuestion);
-  useEffect(() => {
-    if (!isChangeDone) return;
-    const timer = setTimeout(() => setChanging(""), ALL_DONE_MS);
-    return () => clearTimeout(timer);
-  }, [isChangeDone]);
   const shownKey = item ? item.key + ":" + publishedAt(item) : "";
   useEffect(() => {
     if (!done || sent.has(done)) return;
@@ -251,18 +243,52 @@ export function CommandCenter({ snapshot, connected, presentations, focus, onUns
   // published its item for the same release again: retryItem is that item,
   // which the press shows and starts at once.
   const retryItem = (target: Run) => target.state === "failed" ? (snapshot.runs || []).find((other) => other.id !== target.id && other.state === "ready" && other.update?.to === target.update?.to) : undefined;
-  // A document leaves the queue once he opens or downloads it, and says so.
-  const clear = (target: Review, how?: "Opened" | "Downloaded") => void post("review:" + target.id, { kind: "review_clear", review_id: target.id, generation: target.identity, ...(how ? { text: how } : {}) });
+  const clear = (target: Review) => void post("review:" + target.id, { kind: "review_clear", review_id: target.id, generation: target.identity });
   const dismiss = (target: Question) => void post("question:" + target.id, { kind: "question_clear", question_id: target.id, generation: target.identity });
+  // His change of an answer shows as the answer on its card the moment he
+  // makes it. It goes under one request ID until the supervisor has it, so a
+  // double press, a second tab or a resend after a dropped connection sends
+  // it once. A refusal puts the answer back as it stood and says why beside
+  // the button.
+  const sendChange = async (key: string, payload: Record<string, unknown>) => {
+    if (sendingChanges.current.has(key)) return;
+    sendingChanges.current.add(key);
+    const draft = drafts[key] || EMPTY_DRAFT;
+    const submission = submissionFor(JSON.stringify(payload), draft.submission, () => crypto.randomUUID());
+    update(key, { submission, sending: true, error: "", unsent: false, sentAt: submission === draft.submission ? draft.sentAt : new Date().toISOString() });
+    try {
+      const receipt = parseAction(await request("/api/actions", undefined, { method: "POST", headers: { "Content-Type": "application/json", "X-CFO-Token": snapshot.instance }, body: JSON.stringify({ id: submission.id, ...payload }) }));
+      update(key, { receipt, sending: false });
+    } catch (error: unknown) {
+      const isRefused = error instanceof Error && error.cause !== undefined;
+      update(key, isRefused ? { selection: "", written: "", submission: null, receipt: undefined, sending: false, error: message(error) } : { sending: false, unsent: true });
+    } finally {
+      sendingChanges.current.delete(key);
+    }
+  };
   const change = (target: Question) => {
     const draft = changeDraft(target);
     const payload = questionAnswer(target, draft.selection, draft.written);
-    if (payload) void post(changeKey(target), { ...payload, kind: "answer_change" });
+    if (payload) void sendChange(changeKey(target), { ...payload, kind: "answer_change" });
   };
+  // Each change a dropped connection kept back, as its draft key and payload.
+  const keptBack = Object.entries(drafts).flatMap(([key, draft]) => key.startsWith("change:") && draft.unsent && draft.submission ? [[key, draft.submission.payload]] : []);
+  const resend = useRef(sendChange);
+  useLayoutEffect(() => { resend.current = sendChange; });
+  const keptBackKey = JSON.stringify(keptBack);
+  useEffect(() => {
+    const waiting: string[][] = JSON.parse(keptBackKey);
+    if (!connected || !waiting.length) return;
+    const timer = setTimeout(() => { for (const [key, payload] of waiting) void resend.current(key, object(JSON.parse(payload))); }, RESEND_MS);
+    return () => clearTimeout(timer);
+  }, [connected, keptBackKey]);
   const taskOf = (candidate: Item) => candidate.kind === "question" ? candidate.question.task : candidate.kind === "review" ? candidate.review.task : candidate.kind === "credential" ? candidate.request.task : candidate.run.task;
   // An Update item is Code Goblins' own, not the CFO's or a goblin's.
   const release = (candidate: Item) => candidate.kind === "run" ? candidate.run.update : null;
-  const askerOf = (candidate: Item) => release(candidate) ? "Code Goblins" : taskOf(candidate) ? snapshot.tasks.find((task) => task.id === taskOf(candidate))?.title || taskOf(candidate) : "The CFO";
+  const askerOf = (candidate: Item) => {
+    const goblin = snapshot.tasks.find((task) => task.id === taskOf(candidate));
+    return release(candidate) ? "Code Goblins" : taskOf(candidate) ? goblin ? goblinName(goblin) : taskOf(candidate) : "The CFO";
+  };
   const textOf = (candidate: Item) => candidate.kind === "question" ? plainMessage(candidate.question.text) : candidate.kind === "review" ? reviewLine(candidate.review) : candidate.kind === "credential" ? credentialAsk(candidate.request) : candidate.run.update ? "Update to " + candidate.run.update.to + " from " + candidate.run.update.from : candidate.run.title;
   const created = (candidate: Item) => candidate.kind === "question" ? candidate.question.created_at : candidate.kind === "review" ? candidate.review.created_at : candidate.kind === "credential" ? candidate.request.created_at : candidate.run.created_at;
   const iconOf = (candidate: Item) => candidate.kind === "question" ? candidate.question.image_count ? "images" : "question" : candidate.kind === "review" ? candidate.review.document ? "file" : candidate.review.image_count ? "images" : "comment" : candidate.kind === "credential" ? "key" : candidate.run.update ? "download" : "play";
@@ -270,7 +296,10 @@ export function CommandCenter({ snapshot, connected, presentations, focus, onUns
   const images = !item || item.kind === "run" || item.kind === "credential" ? [] : item.kind === "question"
     ? questionChoices(item.question).filter((choice) => choice.image).map((choice) => ({ src: choice.image, value: choice.value, text: choice.text }))
     : reviewImages(item.review).map((src, n) => ({ src, value: "Image " + (n + 1), text: "Image " + (n + 1) }));
-  const presenter = (event: BoardActivity) => event.cfo_identity ? "The CFO" : snapshot.tasks.find((task) => task.id === event.task_id)?.title || event.task_id;
+  const presenter = (event: BoardActivity) => {
+    const goblin = snapshot.tasks.find((task) => task.id === event.task_id);
+    return event.cfo_identity ? "The CFO" : goblin ? goblinName(goblin) : event.task_id;
+  };
   const settled = settledItems(snapshot).slice(0, 20);
   // Reset before committing this render, including IDs absent between publications.
   // Registration changes identity but keeps created_at, so unfinished answers survive.
@@ -314,7 +343,7 @@ export function CommandCenter({ snapshot, connected, presentations, focus, onUns
               {who ? <AnswerMark who={who} /> : <span className={"delivery " + mark.tone}><Icon name={mark.icon} /></span>}
               <span className="inbox-text"><strong>{askerOf(candidate)}</strong><span className="inbox-summary">{textOf(candidate)}</span><small>{settledLabel(candidate, snapshot.actions)}</small>{reason && <small className="answer-reason">{reason}</small>}</span>
               <time>{age(closedAt(candidate))}</time>
-              {candidate.kind === "question" && canChange(candidate.question, snapshot) && <button className="icon-button raised" aria-label={"Change the CFO's answer to " + askerOf(candidate)} data-tip="Change the CFO's answer" onClick={() => { setInbox(false); setChanging(candidate.question.id); }}><Icon name="edit" /></button>}
+              {candidate.kind === "question" && canChange(candidate.question) && <button className="icon-button raised" aria-label={"Change the answer to " + askerOf(candidate) + ": " + textOf(candidate)} data-tip="Change answer" onClick={() => { setInbox(false); setChanging(candidate.question.id); }}><Icon name="edit" /></button>}
             </li>;
           })}</ul>
         </Disclosure>}
@@ -336,10 +365,8 @@ export function CommandCenter({ snapshot, connected, presentations, focus, onUns
         {scope && <p className="from-afk">From your AFK stretch</p>}
         {changeQuestion
           ? <div className="card-stage">
-            {isChangeDone
-              ? <DoneCard key={"changed:" + changeQuestion.id} heading="Changed to your answer" label={(snapshot.tasks.find((task) => task.id === changeQuestion.task)?.title || changeQuestion.task) + " is told the answer is yours: " + changeQuestion.answer} />
-              : <ChangeCard key={"change:" + changeQuestion.id} question={changeQuestion} snapshot={snapshot} connected={connected} draft={changeDraft(changeQuestion)}
-                onDraft={(changes) => update(changeKey(changeQuestion), changes)} onChange={() => change(changeQuestion)} onClose={() => setChanging("")} />}
+            <ChangeCard key={"change:" + changeQuestion.id} question={changeQuestion} snapshot={snapshot} connected={connected} draft={changeDraft(changeQuestion)}
+              onDraft={(changes) => update(changeKey(changeQuestion), changes)} onChange={() => change(changeQuestion)} onClose={() => setChanging("")} />
           </div>
         : !item ? null
         : gallery !== null && images.length > 0
@@ -372,8 +399,6 @@ export function CommandCenter({ snapshot, connected, presentations, focus, onUns
               ? <UpdateCard key={shownKey} run={item.run} offer={item.run.update} connected={connected} sending={!!drafts[item.key]?.sending} error={drafts[item.key]?.error || ""} onRun={() => run(item.run)} onRetry={retryItem(item.run) ? () => { const again = retryItem(item.run); if (again) { show("run:" + again.id); run(again); } } : undefined} pager={pager} />
               : item.kind === "run"
               ? <RunCard key={shownKey} run={item.run} goblin={item.run.task ? snapshot.tasks.find((task) => task.id === item.run.task) : undefined} connected={connected} instance={snapshot.instance} sending={!!drafts[item.key]?.sending} error={drafts[item.key]?.error || ""} onRun={() => run(item.run)} pager={pager} />
-              : item.review.document
-              ? <DocumentCard key={shownKey} review={item.review} document={item.review.document} snapshot={snapshot} connected={connected} draft={drafts[item.key] || EMPTY_DRAFT} onOpened={(how) => clear(item.review, how)} onClear={() => clear(item.review)} pager={pager} />
               : <ReviewCard key={shownKey} review={item.review} snapshot={snapshot} connected={connected} draft={drafts[item.key] || EMPTY_DRAFT}
                 onDraft={(changes) => update(item.key, changes)} onSend={() => send(item)} onClear={() => clear(item.review)} onOpen={show} onImage={setGallery} pager={pager} />}
           </div>}

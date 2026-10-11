@@ -400,6 +400,11 @@ button:disabled, textarea:disabled { cursor: default; opacity: .55; }
 .question-choice.chosen { cursor: default; }
 .choice-mark { display: grid; place-items: center; width: 24px; height: 24px; flex: none; color: var(--mint); }
 .answered-by { color: var(--muted); font-size: .9375rem; }
+.answered-by .answer-mark, .answered-by .answer-mark .goblin-avatar { width: 30px; height: 30px; }
+.answered-by .answer-mark .away-badge { width: 16px; height: 16px; right: -5px; bottom: -5px; }
+.answered-by .answer-mark .away-badge .icon { width: 11px; height: 11px; }
+.answered-by .answer-mark.you .icon { width: 17px; height: 17px; }
+.change-warning { margin: 0; color: var(--muted); font-size: .9375rem; font-weight: 600; }
 .question-choice input { accent-color: var(--mint); min-height: 24px; width: 24px; height: 24px; margin: 0; flex: none; }
 .question-option { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 12px; font-size: 1.125rem; font-weight: 550; min-width: 0; overflow-wrap: anywhere; }
 .question-option small { flex-basis: 100%; color: #b3c0c7; font-size: 1rem; font-weight: 400; }
@@ -638,25 +643,28 @@ button.line-number { min-height: 32px; display: flex; align-items: flex-start; j
 .toasts { position: fixed; right: 20px; bottom: 20px; z-index: 40; display: flex; flex-direction: column; gap: 18px; width: min(480px, calc(100vw - 40px)); }
 .toasts > .toast { position: relative; }
 .toasts > .toast:hover, .toasts > .toast:focus-within { z-index: 1; }
-/* Alerts are goblins' dialogue boxes in the workshop's own
-   lantern-and-leather palette: the speaker's portrait and a stepped pixel
-   frame with a hard shadow. Lantern means it
+/* Alerts are goblins' dialogue boxes, the lantern box, in SIQstack's own
+   look: the speaker's portrait and a stepped pixel frame with a hard shadow,
+   on SIQstack's dark card with a mint edge. Lantern, SIQstack's mint, means it
    needs the Overlord and nothing else, so only then is the action filled.
    A box steps up once as it arrives and is still after that. The stepped
    fills and frames are drawn behind each box, portrait and button, never
    clipping them, so focus rings and tooltips show in full. */
 /* The goblin palette, shared by the dialogue boxes, the voice dock and
-   everything that waits for the Overlord (lantern.css). */
-:root { --hide: #241C15; --soot: #0D0A07; --lantern: #F2B447; --moss: #86B36B; --bone: #EFE6D2; --edge: #5C4631; --bone-dim: #C4B79F; --pixel-corners: polygon(0 4px, 2px 4px, 2px 2px, 4px 2px, 4px 0, calc(100% - 4px) 0, calc(100% - 4px) 2px, calc(100% - 2px) 2px, calc(100% - 2px) 4px, 100% 4px, 100% calc(100% - 4px), calc(100% - 2px) calc(100% - 4px), calc(100% - 2px) calc(100% - 2px), calc(100% - 4px) calc(100% - 2px), calc(100% - 4px) 100%, 4px 100%, 4px calc(100% - 2px), 2px calc(100% - 2px), 2px calc(100% - 4px), 0 calc(100% - 4px)); }
+   everything that waits for the Overlord (lantern.css), in SIQstack's colors
+   from its Code Goblins page: its card, its mint, its text and the board's
+   mint edge. The Overlord, 2026-10-11: "keep lantern styling but be siqstack
+   styled". */
+:root { --hide: #0c1219; --soot: #03050a; --lantern: #65efcd; --moss: #86B36B; --bone: #edf4f3; --edge: #2f7d66; --bone-dim: #a3b3c2; --lantern-fill: linear-gradient(110deg, #00e59b, #63f3d0); --lantern-shade: #00a874; --lantern-light: #b9f4df; --lantern-hover: #89f9dc; --pixel-corners: polygon(0 4px, 2px 4px, 2px 2px, 4px 2px, 4px 0, calc(100% - 4px) 0, calc(100% - 4px) 2px, calc(100% - 2px) 2px, calc(100% - 2px) 4px, 100% 4px, 100% calc(100% - 4px), calc(100% - 2px) calc(100% - 4px), calc(100% - 2px) calc(100% - 2px), calc(100% - 4px) calc(100% - 2px), calc(100% - 4px) 100%, 4px 100%, 4px calc(100% - 2px), 2px calc(100% - 2px), 2px calc(100% - 4px), 0 calc(100% - 4px)); }
 .dialogue { position: relative; display: grid; justify-items: start; min-width: 0; container-type: inline-size; filter: drop-shadow(1px 0 0 var(--glass-border-hover)) drop-shadow(-1px 0 0 var(--glass-border-hover)) drop-shadow(0 1px 0 var(--glass-border-hover)) drop-shadow(0 -1px 0 var(--glass-border-hover)) drop-shadow(3px 3px 0 var(--soot)) drop-shadow(0 0 12px rgba(0, 229, 155, 0.18)); transform-origin: bottom left; animation: dialogue-in .18s steps(3, end) both; }
 .dialogue-box, .dialogue-portrait, .pixel-button, .dialogue .pixel-icon, .voice-card .pixel-icon { position: relative; isolation: isolate; }
 .dialogue-box::before, .dialogue-portrait::before, .pixel-button::before, .dialogue .pixel-icon::before, .voice-card .pixel-icon::before { content: ""; position: absolute; inset: 0; z-index: -1; clip-path: var(--pixel-corners); }
 .dialogue-box { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; gap: 12px 16px; width: 100%; padding: 14px 16px 14px 14px; color: var(--bone); }
 .dialogue-box::before, .dialogue-portrait::before { border: 2px solid var(--soot); background: var(--hide); box-shadow: inset 0 0 0 2px var(--edge); }
 .dialogue-portrait { display: grid; place-items: center; width: 64px; height: 64px; min-height: 64px; padding: 0; border: 0; background: transparent; }
-.dialogue-portrait::before { background: #1a140f; }
+.dialogue-portrait::before { background: #070b10; }
 button.dialogue-portrait:hover { background: transparent; transform: none; }
-button.dialogue-portrait:hover::before { background: #2e241b; }
+button.dialogue-portrait:hover::before { background: #12202a; }
 .dialogue-portrait .goblin-avatar { width: 56px; height: 56px; }
 /* The speaker's name on a tab over the box, in lantern, as the CFO's bar
    wears it while something waits on the Overlord. */
@@ -665,16 +673,16 @@ button.dialogue-portrait:hover::before { background: #2e241b; }
    same stepped frame, drawn behind it so its tip shows in full. */
 .dialogue-who { display: flex; align-items: center; gap: 10px; }
 .dialogue .mark { position: relative; isolation: isolate; width: 40px; height: 40px; border: 0; border-radius: 0; background: transparent; box-shadow: none; }
-.dialogue .mark::before { content: ""; position: absolute; inset: 0; z-index: -1; clip-path: var(--pixel-corners); border: 2px solid var(--soot); background: #1a140f; box-shadow: inset 0 0 0 2px var(--edge); }
+.dialogue .mark::before { content: ""; position: absolute; inset: 0; z-index: -1; clip-path: var(--pixel-corners); border: 2px solid var(--soot); background: #070b10; box-shadow: inset 0 0 0 2px var(--edge); }
 .dialogue .mark svg, .dialogue .mark .icon { width: 22px; height: 22px; }
 .dialogue-text { min-width: 0; font-size: 1rem; line-height: 1.5; }
 .dialogue-text p { margin: 0; overflow-wrap: anywhere; }
 .dialogue-actions { display: flex; flex-wrap: wrap; justify-content: flex-end; align-items: center; gap: 8px; }
 .pixel-button { display: inline-flex; align-items: center; gap: 8px; min-height: 40px; padding: 6px 14px; border: 0; border-radius: 0; background: transparent; color: var(--soot); font: 400 1rem/1.2 var(--font-display); }
-.pixel-button::before { background: var(--lantern); box-shadow: inset -2px -2px 0 #b8832a, inset 2px 2px 0 #ffd98a; }
+.pixel-button::before { background: var(--lantern-fill); box-shadow: inset -2px -2px 0 var(--lantern-shade), inset 2px 2px 0 var(--lantern-light); }
 .pixel-button:hover { background: transparent; transform: none; }
-.pixel-button:hover::before { background: #f7c565; }
-.pixel-button:active::before { box-shadow: inset 2px 2px 0 #b8832a, inset -2px -2px 0 #ffd98a; }
+.pixel-button:hover::before { background: var(--lantern-hover); }
+.pixel-button:active::before { box-shadow: inset 2px 2px 0 var(--lantern-shade), inset -2px -2px 0 var(--lantern-light); }
 .pixel-button.outline { color: var(--bone); }
 .pixel-button.outline::before { background: transparent; box-shadow: inset 0 0 0 2px var(--bone); }
 .pixel-button.outline:hover::before { background: #ffffff12; }
@@ -873,7 +881,7 @@ p.panel-goblin-task { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-o
 .voice-bubble { position: relative; display: inline-flex; align-items: center; justify-content: center; gap: 8px; min-width: 64px; height: 40px; padding: 0 16px; border: 0; border-radius: 0; background: transparent; color: var(--bone); box-shadow: none; transition: min-width .16s steps(3, end); }
 .voice-bubble::before { background: var(--hide); box-shadow: inset 0 0 0 2px var(--bone); }
 .voice-bubble:hover { background: transparent; transform: none; }
-.voice-bubble:hover::before { background: #2e241b; }
+.voice-bubble:hover::before { background: #12202a; }
 .voice-bubble .icon { width: 22px; height: 22px; }
 .voice-bubble.recording { min-width: 112px; }
 .voice-bubble.recording::before { box-shadow: inset 0 0 0 2px var(--moss); }
@@ -963,36 +971,21 @@ p.panel-goblin-task { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-o
 .question-card h3, .run-card h3 { margin: 0; font-size: 1.375rem; line-height: 1.3; }
 .question-thumbs { display: flex; gap: 10px; overflow-x: auto; padding-bottom: 4px; }
 /* A review page's preview is the one way into it: the whole tile opens it. */
-.page-preview { position: relative; display: grid; place-items: center; min-height: 150px; padding: 18px; border: 1px solid var(--glass-border); border-radius: var(--radius); background: var(--glass-bg-hover); color: inherit; text-decoration: none; overflow: hidden; }
-.page-preview:hover, .page-preview:focus-visible { border-color: var(--accent-green); }
-.page-shot { display: grid; justify-items: center; gap: 6px; max-width: 46ch; text-align: center; color: #c4d4df; overflow-wrap: anywhere; }
-.page-shot .icon { width: 28px; height: 28px; color: var(--mint); }
-.page-shot strong { color: #eef3f1; font-size: 1.0625rem; }
-.page-shot span { color: var(--muted); font-size: .9375rem; }
-.open-overlay { position: absolute; right: 14px; bottom: 14px; display: inline-flex; align-items: center; gap: 8px; padding: 8px 16px; border-radius: 999px; background: var(--accent-green); color: #03130c; font-weight: 800; }
-.open-overlay .icon { width: 18px; height: 18px; }
+.page-preview { position: relative; height: 340px; overflow: hidden; border: 1px solid var(--glass-border); border-radius: var(--radius); background: var(--body-bg); }
+.page-preview iframe { position: absolute; top: 0; left: 0; width: 166.667%; height: 166.667%; border: 0; transform: scale(.6); transform-origin: 0 0; pointer-events: none; background: var(--body-bg); }
 .review-status { display: flex; align-items: center; gap: 8px; margin: 0; color: var(--muted); }
 .review-status .icon { flex: none; }
 .open-inline { justify-self: start; }
-/* A delivered document: its file type as an icon, its name and facts. */
-.doc-row { display: flex; align-items: center; gap: 14px; padding: 14px; border: 1px solid var(--glass-border); border-radius: var(--radius); background: var(--field-bg); min-width: 0; }
-.file-icon { position: relative; flex: none; display: grid; place-items: center; width: 52px; height: 60px; color: var(--mint); }
-.file-icon .icon { width: 52px; height: 60px; }
-.file-icon b { position: absolute; bottom: 10px; padding: 0 4px; border-radius: 4px; background: var(--mint); color: #04110c; font-size: .75rem; font-weight: 800; }
-.doc-copy { display: grid; gap: 4px; min-width: 0; overflow-wrap: anywhere; }
-.doc-copy span { color: var(--muted); }
-.download-link { display: inline-flex; align-items: center; gap: 8px; min-height: 44px; padding: 0 20px 0 16px; border: 1px solid var(--accent-green); border-radius: 999px; font-weight: 800; text-decoration: none; }
-.download-link .icon { width: 18px; height: 18px; }
 .question-thumbs button, .gallery-strip button { position: relative; flex: none; width: 112px; height: 76px; padding: 0; overflow: hidden; border: 1px solid var(--glass-border); border-radius: var(--radius); background: var(--field-bg); }
 .question-thumbs img, .gallery-strip img { width: 100%; height: 100%; object-fit: cover; display: block; }
 .question-thumbs span, .gallery-strip span { position: absolute; left: 6px; bottom: 6px; max-width: calc(100% - 12px); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; padding: 0 8px; border-radius: 999px; background: rgba(3, 5, 10, 0.8); font-weight: 800; }
 .gallery-strip button[aria-pressed="true"] { border-color: var(--accent-green); box-shadow: 0 0 0 2px var(--accent-green); }
 .question-outcome { display: flex; align-items: center; gap: 8px; margin: 0; font-weight: 800; }
 .card-actions { display: flex; align-items: center; justify-content: flex-end; gap: 10px; flex-wrap: wrap; }
-.send-decision, .status-dismiss, .wait-open { display: inline-flex; align-items: center; gap: 8px; padding-inline: 22px; white-space: nowrap; }
-.send-decision .icon, .status-dismiss .icon, .wait-open .icon { width: 20px; height: 20px; }
+.send-decision, .status-dismiss, .wait-open, .open-page { display: inline-flex; align-items: center; gap: 8px; padding-inline: 22px; white-space: nowrap; }
+.send-decision .icon, .status-dismiss .icon, .wait-open .icon, .open-page .icon { width: 20px; height: 20px; }
 /* A wait that opens a page does it with a link drawn as the primary button. */
-a.wait-open { min-height: 44px; border: 1px solid var(--accent-green); border-radius: 999px; text-decoration: none; }
+a.wait-open, a.open-page { min-height: 44px; border: 1px solid var(--accent-green); border-radius: 999px; text-decoration: none; }
 .question-card .wait-target { margin: 0; color: #c4d4df; }
 /* Back, the card's place and Next lead a card's action row; its answer keeps
    the right edge. */

@@ -10,8 +10,12 @@ import { messageElements } from "./messageText";
 import { copyValues } from "./CopyValue";
 import { personaFor } from "./workflow";
 import { ClickFeedback, useClickFeedback } from "./click-feedback";
+import { goblinName } from "./task-words";
 
-export interface Draft { selection: string; written: string; submission: Submission | null; sending: boolean; error: string; receipt?: Action }
+// sentAt is when he sent the draft's change of an answer, and unsent says a
+// dropped connection kept the supervisor from taking it, so it goes again
+// under the same request ID.
+export interface Draft { selection: string; written: string; submission: Submission | null; sending: boolean; error: string; receipt?: Action; sentAt?: string; unsent?: boolean }
 export const EMPTY_DRAFT: Draft = { selection: "", written: "", submission: null, sending: false, error: "" };
 
 // One question: who asks and how long they have waited, the choices with the
@@ -33,7 +37,7 @@ export function QuestionCard({ question, snapshot, connected, draft, review, onD
   const chosen = chosenOption(question);
   const displayed = questionSelection(question, draft, outcome);
   const task = snapshot.tasks.find((candidate) => candidate.id === question.task);
-  const asker = question.task ? task?.title || question.task : "The CFO";
+  const asker = question.task ? task ? goblinName(task) : question.task : "The CFO";
   const payload = questionAnswer(question, displayed.selection, displayed.written);
   const keeps = pending && !!question.decided && displayed.selection === "option:" + question.decided;
   const choices = questionChoices(question);

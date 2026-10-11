@@ -268,3 +268,37 @@ func TestWhatAnEndedTerminalLeftIsWhatNothingElseRuns(t *testing.T) {
 		})
 	}
 }
+
+// A detached tree's processes reach no harness, and Git Bash's own tools
+// carry no mark, nor does what a script starts after it unset the mark: on
+// 2026-10-11 a goblin's whole test suite was such a tree. The rule a
+// teardown proves a task's own by still places it: its launcher runs from
+// the task's scratch folder, and go test was told to run that launcher.
+func TestOwnerOfPlacesAProcessByItsMarkOrItsTasksFolders(t *testing.T) {
+	scratch := filepath.Join(t.TempDir(), "scratch", "cg-suite")
+	worktree := filepath.Join(t.TempDir(), "worktrees", "repo", "cg-suite")
+	launcher := filepath.Join(scratch, "tools", "launcher", "cg-suite.exe")
+	places := map[string][]string{"cg-suite": {worktree, scratch}, "cg-other": {filepath.Join(t.TempDir(), "worktrees", "repo", "cg-other")}}
+	proofs := func(terminal string) []string { return map[string][]string{"cg-other": {"proof"}}[terminal] }
+	for _, test := range []struct {
+		name    string
+		process Process
+		want    string
+	}{
+		{"marked by a terminal of the home", Process{Name: "node.exe", Mark: Mark{Terminal: "cg-other", ProofSum: "proof"}}, "cg-other"},
+		{"its mark wins over the folder it works in", Process{Name: "node.exe", Directory: worktree, Mark: Mark{Terminal: "cg-other", ProofSum: "proof"}}, "cg-other"},
+		{"marked with a proof no host gave", Process{Name: "node.exe", Mark: Mark{Terminal: "cg-other", ProofSum: "forged"}}, ""},
+		{"a gate agent's mark names whoever started the daemon", Process{Name: "claude.exe", Mark: Mark{Terminal: "cg-other", ProofSum: "proof"}, IsGateAgent: true}, ""},
+		{"the launcher, run from the task's scratch folder", Process{Name: "cg-suite.exe", Arguments: []string{launcher, `C:\Temp\go-build1\b001\branchsync.test.exe`}}, "cg-suite"},
+		{"go test, told to run the launcher", Process{Name: "go.exe", Arguments: []string{`C:\Program Files\Go\bin\go.exe`, "test", "-exec", launcher, "./internal/branchsync"}}, "cg-suite"},
+		{"at work in the task's worktree", Process{Name: "node.exe", Directory: filepath.Join(worktree, "frontend")}, "cg-suite"},
+		{"a Git Bash shell, which names its script by a POSIX path", Process{Name: "bash.exe", Arguments: []string{`C:\Program Files\Git\usr\bin\bash.exe`, "/c/scratch/cg-suite/tools/gotest.sh"}}, ""},
+		{"a program of nobody's", Process{Name: "explorer.exe", Directory: `C:\Windows`, Arguments: []string{`C:\Windows\explorer.exe`}}, ""},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			if got := ownerOf(test.process, proofs, places); got != test.want {
+				t.Errorf("ownerOf = %q, want %q", got, test.want)
+			}
+		})
+	}
+}
