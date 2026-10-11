@@ -166,7 +166,7 @@ type commandRuntime struct {
 	// ends nothing.
 	processPlan func(context.Context, home.Home) (processPlan, error)
 	// leftRunning reads what a task's goblin started that still runs, for
-	// its done or failed report to name.
+	// its done or failed report to name; nil names nothing.
 	leftRunning func(home.Home, string) ([]fleettree.Placed, error)
 	speedHint     func(context.Context, string) string
 	quota         func(context.Context) (quota.Report, string)

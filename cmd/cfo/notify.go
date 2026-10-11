@@ -239,7 +239,7 @@ func runNotify(args []string, stdout, stderr io.Writer, runtime commandRuntime) 
 	// A done or failed report names what the goblin left running, so the
 	// CFO reads it where it learns the goblin finished, and the goblin is
 	// told to end what it no longer needs.
-	if verb == "done" || verb == "failed" {
+	if (verb == "done" || verb == "failed") && runtime.leftRunning != nil {
 		switch left, err := runtime.leftRunning(h, id); {
 		case err != nil:
 			line += " (what it left running could not be read: " + state.NormalizeStatusDetail(err.Error()) + ")"
