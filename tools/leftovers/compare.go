@@ -121,7 +121,8 @@ func compare(before, after Snapshot, kept []string, rules []rule) ([]difference,
 }
 
 // keptFolder is what the uninstall named as kept that a difference left
-// behind or changed is: a file under a kept folder, a PATH entry naming one, a
+// behind or changed is: a file under a kept folder, a folder that holds one,
+// as npm's folder of a scope holds a kept tool, a PATH entry naming one, a
 // program running from one, as a kept tool's daemon does, or a scheduled task
 // the uninstall named. What the person chose to keep may differ from before,
 // but nothing is ever taken from under it.
@@ -131,7 +132,15 @@ func keptFolder(d difference, kept []string) (string, bool) {
 	}
 	path := d.Identity
 	switch d.Kind {
-	case kindFile, kindProcess:
+	case kindFile:
+		if d.After == "folder" {
+			for _, folder := range kept {
+				if filepath.IsAbs(folder) && within(folder, path) {
+					return folder, true
+				}
+			}
+		}
+	case kindProcess:
 	case kindPathEntry:
 		_, path, _ = strings.Cut(path, " ")
 	case kindTask:

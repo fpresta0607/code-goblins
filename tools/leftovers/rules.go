@@ -20,7 +20,20 @@ func noise() []rule {
 	keys := func(path, why string) rule {
 		return rule{kind: kindRegistryKey, pattern: regexp.MustCompile(`(?i)^` + regexp.QuoteMeta(path) + `(\\|$)`), why: why}
 	}
+	// Windows provisions its own packaged apps, such as Feedback Hub,
+	// Narrator and WSL, for a profile by itself, at times of its own, so one
+	// can come during a run. Microsoft's own packages carry its publisher's
+	// id, 8wekyb3d8bbwe, in their names.
+	const packaged = "Windows' own packaged apps, such as Feedback Hub and WSL, which Windows provisions for a profile by itself"
 	return []rule{
+		{kind: kindFile, pattern: regexp.MustCompile(`(?i)_8wekyb3d8bbwe`), why: packaged},
+		{kind: kindRegistryKey, pattern: regexp.MustCompile(`(?i)_8wekyb3d8bbwe`), why: packaged},
+		files(filepath.Join(local, "Microsoft", "WindowsApps"), "the commands of "+packaged+", such as wsl.exe"),
+		keys(`HKCU\Software\Classes\Extensions\ContractId`, "where Windows registers what its packaged apps add to it"),
+		{kind: kindRegistryKey, pattern: regexp.MustCompile(`(?i)^HKCU\\Software\\Classes\\AppX[0-9a-z]{32}(\\|$)`), why: "the file types of " + packaged + ", each named AppX and a hash"},
+		{kind: kindRegistryKey, pattern: regexp.MustCompile(`(?i)\\Notifications\\BackgroundCapability\\S-1-15-2-`), why: "what an app container may do in the background, which only Windows' packaged apps are"},
+		{kind: kindRegistryKey, pattern: regexp.MustCompile(`(?i)^HKCU\\Software\\Classes\\(\.fh|feedback-hub|insiderhub|windows-feedback)(\\|$)`), why: "the file type and links of Feedback Hub, one of " + packaged},
+		{kind: kindRegistryKey, pattern: regexp.MustCompile(`(?i)^HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\App Paths\\(wsl|bash|wslconfig)\.exe(\\|$)`), why: "the commands of WSL, one of " + packaged},
 		files(filepath.Join(local, "Temp"), "the temp folder, which the runner's steps and the programs they start write to, where anything of Code Goblins' names it"),
 		files(filepath.Join(local, "Microsoft", "Windows", "PowerShell"), "PowerShell's module and startup caches"),
 		files(filepath.Join(local, "Microsoft", "Windows", "INetCache"), "Windows' internet cache"),

@@ -59,6 +59,21 @@ func TestCompareNamesWhatTheUninstallLeftTookOrChanged(t *testing.T) {
 			wantPassed: 2,
 		},
 		{
+			name:       "a folder that holds a kept tool, as npm's folder of a scope does",
+			before:     map[string]map[string]string{kindFile: {`C:\npm\node_modules`: "folder"}},
+			after:      map[string]map[string]string{kindFile: {`C:\npm\node_modules`: "folder", `C:\npm\node_modules\@openai`: "folder", `C:\npm\node_modules\@openai\codex`: "folder"}},
+			kept:       []string{`C:\npm\node_modules\@openai\codex`},
+			wantPassed: 2,
+		},
+		{
+			name:       "a folder beside a kept tool",
+			before:     map[string]map[string]string{kindFile: {`C:\npm\node_modules`: "folder"}},
+			after:      map[string]map[string]string{kindFile: {`C:\npm\node_modules`: "folder", `C:\npm\node_modules\@openai`: "folder", `C:\npm\node_modules\@openai\codex`: "folder", `C:\npm\node_modules\@openai\codex-left`: "folder"}},
+			kept:       []string{`C:\npm\node_modules\@openai\codex`},
+			want:       []string{`left file C:\npm\node_modules\@openai\codex-left folder`},
+			wantPassed: 2,
+		},
+		{
 			name:       "a PATH entry naming a kept tool's folder",
 			before:     map[string]map[string]string{kindPathEntry: {}},
 			after:      map[string]map[string]string{kindPathEntry: {`user C:\Users\a\.local\bin`: ""}},
@@ -210,6 +225,46 @@ func TestNoiseNeverPassesOverCodeGoblins(t *testing.T) {
 		remaining, _ := compare(snapshotOf(nil), snapshotOf(map[string]map[string]string{leftover.Kind: {leftover.Identity: ""}}), nil, rules)
 		if len(remaining) != 1 {
 			t.Errorf("the noise rules passed over %s", leftover)
+		}
+	}
+}
+
+// What Windows provisions for its own packaged apps during a run, as it did
+// on a clean runner, is passed over, every part of it.
+func TestNoisePassesOverWhatWindowsProvisionsForItsPackagedApps(t *testing.T) {
+	// Arrange
+	t.Setenv("LOCALAPPDATA", `C:\Users\a\AppData\Local`)
+	provisioned := []difference{
+		{Change: changeLeft, Kind: kindFile, Identity: `C:\Users\a\AppData\Local\Microsoft\WindowsApps\wsl.exe`},
+		{Change: changeLeft, Kind: kindFile, Identity: `C:\Users\a\AppData\Local\Microsoft\WindowsApps\MicrosoftCorporationII.WindowsSubsystemForLinux_8wekyb3d8bbwe\bash.exe`},
+		{Change: changeLeft, Kind: kindRegistryKey, Identity: `HKCU\Software\Classes\.fh\OpenWithProgids`},
+		{Change: changeLeft, Kind: kindRegistryKey, Identity: `HKCU\Software\Classes\feedback-hub`},
+		{Change: changeLeft, Kind: kindRegistryKey, Identity: `HKCU\Software\Classes\AppXm4fjth7rfv9b2vppk3w1gcpsf4gy9r3n\Shell\open\command`},
+		{Change: changeLeft, Kind: kindRegistryKey, Identity: `HKCU\Software\Classes\Extensions\ContractId\Windows.ShareTarget\PackageId`},
+		{Change: changeLeft, Kind: kindRegistryKey, Identity: `HKCU\Software\Microsoft\Windows\CurrentVersion\App Paths\wsl.exe`},
+		{Change: changeLeft, Kind: kindRegistryKey, Identity: `HKCU\Software\Microsoft\Windows\CurrentVersion\AppHost\IndexedDB\Microsoft.WindowsFeedbackHub_8wekyb3d8bbwe`},
+		{Change: changeLeft, Kind: kindRegistryKey, Identity: `HKCU\Software\Microsoft\Windows\CurrentVersion\Authentication\LogonUI\Notifications\BackgroundCapability\S-1-15-2-577703620-721806600\App.AppXa2g9313bzvs2knz17p3sr2k6j7ftv102.mca`},
+		{Change: changeLeft, Kind: kindRegistryKey, Identity: `HKCU\Software\Microsoft\Windows\CurrentVersion\PushNotifications\Backup\MicrosoftCorporationII.WindowsSubsystemForLinux_8wekyb3d8bbwe!wsl`},
+	}
+	near := []difference{
+		{Change: changeLeft, Kind: kindFile, Identity: `C:\Users\a\AppData\Local\Microsoft\WindowsApps\goblins.exe`},
+		{Change: changeLeft, Kind: kindRegistryKey, Identity: `HKCU\Software\Classes\AppXCodeGoblins`},
+		{Change: changeLeft, Kind: kindRegistryKey, Identity: `HKCU\Software\Classes\AppX0123`},
+		{Change: changeLeft, Kind: kindRegistryKey, Identity: `HKCU\Software\Classes\.fhx`},
+	}
+
+	// Act
+	rules := noise()
+
+	// Assert
+	for _, difference := range provisioned {
+		if remaining, _ := compare(snapshotOf(nil), snapshotOf(map[string]map[string]string{difference.Kind: {difference.Identity: ""}}), nil, rules); len(remaining) != 0 {
+			t.Errorf("the noise rules named %s", difference)
+		}
+	}
+	for _, difference := range near {
+		if remaining, _ := compare(snapshotOf(nil), snapshotOf(map[string]map[string]string{difference.Kind: {difference.Identity: ""}}), nil, rules); len(remaining) != 1 {
+			t.Errorf("the noise rules passed over %s", difference)
 		}
 	}
 }
