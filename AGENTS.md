@@ -440,6 +440,8 @@ Its dashboard is the top-level window of that process made with Electron's windo
 Docker Desktop makes that window hidden and shows it once it has drawn it, 200 ms later on 2026-10-11, so cfo closes it before it ever shows, or as soon as it finds it if it has shown, and says which, with the pid.
 The process's other windows, which keep it in the tray and carry no title, are never asked, no other process's window is, and no process is ended.
 It looks for at most 30 seconds after the engine answers.
+Docker Desktop then writes `Failed to open UI ... Object has been destroyed` to its Electron log and sends that error to its own error reporting, which its analytics setting allows.
+Its code registers the window and its cleanup before a close can reach it, so its tray still opens a new dashboard when asked.
 With the setting turned off the window process starts with no `--name=dashboard`, and cfo closes nothing.
 
 While compose up builds and starts the stack, the start holds the floor itself, as cg-services-pd-build's watch beside it did on 2026-10-11.
