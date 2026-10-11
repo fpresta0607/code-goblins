@@ -14,7 +14,6 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
-	"time"
 
 	"github.com/fpresta0607/code-goblins/internal/execx"
 	"github.com/fpresta0607/code-goblins/internal/fsx"
@@ -28,14 +27,13 @@ type Git interface {
 	// and returns its path.
 	Acquire(ctx context.Context, project, path, ref string) (string, error)
 	WorktreeTop(ctx context.Context, dir string) (string, error)
-	// Return removes a worktree and prunes its administrative entry. The
+	// Return removes a clean worktree and git's record of it. The
 	// uncommitted-work check comes first and a refused Return must change
 	// nothing at all, so the operator it tells to commit still has a worktree
-	// that builds and tests. Only once removal is going to proceed are the
-	// shared directory links provisioned into the worktree unlinked, still
-	// before git runs: Git for Windows follows a junction during recursive
-	// deletion and would otherwise delete the primary checkout's files
-	// through it.
+	// that builds and tests. The files go through fsx.RemoveAll, which
+	// removes a link as a link, never through git, which deletes through a
+	// junction, and the .git link goes last, so a removal that stops leaves
+	// a worktree git still knows.
 	Return(ctx context.Context, project, worktree string) error
 	// EnsureSeeded makes an unborn or empty primary project a real repository
 	// with one commit on its default branch pushed to origin, so a worktree
@@ -63,7 +61,6 @@ type Service struct {
 	// manifests live under projects/<name>/worktree.json. Provisioning reads
 	// it; acquisition and return do not.
 	DataDir string
-	Sleep   func(context.Context, time.Duration) error
 }
 
 // Worktree is an acquired isolated checkout.
@@ -149,9 +146,8 @@ func (s Service) acquire(ctx context.Context, project, name, ref string) (Worktr
 	return Worktree{Path: path}, nil
 }
 
-// Return releases an acquired worktree: its shared links are unlinked, the
-// worktree is removed, and its administrative entry is pruned. It never
-// deletes a directory itself.
+// Return releases an acquired worktree: its files are removed and git's
+// record of it is pruned; see RunnerGit.Remove.
 func (s Service) Return(ctx context.Context, project, worktree string) error {
 	git, err := s.git()
 	if err != nil {
@@ -191,7 +187,7 @@ func (s Service) git() (Git, error) {
 	if s.Commands == nil {
 		return nil, errors.New("worktree: Git or command runner is required")
 	}
-	return RunnerGit{Commands: s.Commands, Sleep: s.Sleep}, nil
+	return RunnerGit{Commands: s.Commands}, nil
 }
 
 func readableDir(path string) error {

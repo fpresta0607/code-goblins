@@ -258,10 +258,10 @@ func publishItem(h home.Home, r Review, stage func(r *Review, dir string) (bool,
 		return err
 	}
 	staged := filepath.Join(h.State, "reviews", ".staged")
-	if err := os.RemoveAll(staged); err != nil {
+	if err := fsx.RemoveAll(staged); err != nil {
 		return err
 	}
-	defer os.RemoveAll(staged)
+	defer fsx.RemoveAll(staged)
 	copied, err := stage(&r, staged)
 	if err != nil {
 		return err
@@ -288,14 +288,14 @@ func publishItem(h home.Home, r Review, stage func(r *Review, dir string) (bool,
 	}
 	if placed != nil {
 		if err := placed(&r, final); err != nil {
-			return errors.Join(err, os.RemoveAll(final))
+			return errors.Join(err, fsx.RemoveAll(final))
 		}
 		if err := validReview(r); err != nil {
-			return errors.Join(err, os.RemoveAll(final))
+			return errors.Join(err, fsx.RemoveAll(final))
 		}
 	}
 	if err := recordReview(h.State, r); err != nil {
-		return errors.Join(err, os.RemoveAll(final))
+		return errors.Join(err, fsx.RemoveAll(final))
 	}
 	return nil
 }
@@ -673,7 +673,7 @@ func (s *Store) acceptReview(r Review) error {
 		if i >= 0 {
 			// A publication that raced one already recorded leaves nothing.
 			if dir := reviewImageDir(s.Home.State, r); dir != reviewImageDir(s.Home.State, s.db.Reviews[i]) {
-				if err := os.RemoveAll(dir); err != nil {
+				if err := fsx.RemoveAll(dir); err != nil {
 					return err
 				}
 			}
@@ -689,7 +689,7 @@ func (s *Store) acceptReview(r Review) error {
 			if closed < 0 {
 				return ErrDeferred
 			}
-			if err := os.RemoveAll(reviewImageDir(s.Home.State, s.db.Reviews[closed])); err != nil {
+			if err := fsx.RemoveAll(reviewImageDir(s.Home.State, s.db.Reviews[closed])); err != nil {
 				return err
 			}
 			s.db.Reviews = slices.Delete(s.db.Reviews, closed, closed+1)
@@ -870,7 +870,7 @@ func (s *Store) pruneReviews(now time.Time) error {
 	// unreferenced files, never a listed item without its images.
 	var err error
 	for _, r := range removed {
-		err = errors.Join(err, os.RemoveAll(reviewImageDir(s.Home.State, r)))
+		err = errors.Join(err, fsx.RemoveAll(reviewImageDir(s.Home.State, r)))
 	}
 	return err
 }

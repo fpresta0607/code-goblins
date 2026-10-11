@@ -6,23 +6,15 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"regexp"
 	"strings"
-	"time"
 
 	"github.com/fpresta0607/code-goblins/internal/execx"
 	"github.com/fpresta0607/code-goblins/internal/fsx"
 )
 
-const defaultReturnRetries = 3
-
-var indexLockCollision = regexp.MustCompile(`Unable to create ['"].*index\.lock['"]: File exists`)
-
 // RunnerGit implements Git through the injected CFO subprocess runner.
 type RunnerGit struct {
 	Commands execx.Runner
-	Retries  int
-	Sleep    func(context.Context, time.Duration) error
 }
 
 // Acquire creates a detached worktree at path, outside the project, based on
@@ -56,9 +48,9 @@ func (g RunnerGit) Acquire(ctx context.Context, project, path, ref string) (stri
 	return path, nil
 }
 
-// longPaths lets git create and remove the files of a worktree whose path
-// passes Windows' 260-character limit, as a worktree under the home with a
-// node_modules can, whether or not the machine turned core.longpaths on.
+// longPaths lets git write the files of a worktree whose path passes
+// Windows' 260-character limit, as a worktree under the home can, whether or
+// not the machine turned core.longpaths on.
 const longPaths = "core.longpaths=true"
 
 // WorktreeTop reports dir's Git worktree root.
@@ -200,20 +192,12 @@ func repoName(project string) string {
 	return name
 }
 
-// Return removes one worktree and prunes its administrative entry, leaving no
-// `git worktree list` residue. The worktree's own `git status --porcelain`
-// must be empty first: ignored provisioned artifacts (node_modules, .venv,
-// shared config) never show, but any uncommitted goblin work does, and Return
-// refuses rather than destroy it. A refusal changes nothing at all, so the
-// operator it tells to commit still has a worktree that builds and tests.
-// Only once the removal is certain to run are the shared links provisioned
-// into the worktree unlinked, still before any git removal: Git for Windows
-// does not treat a junction as a link during recursive deletion, and removing
-// a worktree that still holds one deletes the primary checkout's files
-// through it. `git worktree remove --force` then runs - force because the
-// ignored artifacts keep the directory non-empty, which plain remove refuses;
-// it retries only the narrow transient index-lock collision and never touches
-// the lock or worktree directory directly.
+// Return removes one clean worktree and git's record of it; see Remove. The
+// worktree's own `git status --porcelain` must be empty first: ignored
+// provisioned artifacts (node_modules, .venv, shared config) never show, but
+// any uncommitted goblin work does, and Return refuses rather than destroy
+// it. A refusal changes nothing at all, so the operator it tells to commit
+// still has a worktree that builds and tests.
 func (g RunnerGit) Return(ctx context.Context, project, worktree string) error {
 	status, err := g.command(ctx, worktree, "git", "status", "--porcelain")
 	if err != nil {
@@ -225,24 +209,43 @@ func (g RunnerGit) Return(ctx context.Context, project, worktree string) error {
 	if dirty := strings.TrimSpace(string(status.Stdout)); dirty != "" {
 		return fmt.Errorf("worktree: %q has uncommitted work; refusing to remove it:\n%s", worktree, dirty)
 	}
-	if err := removeSharedLinks(worktree, project); err != nil {
-		return fmt.Errorf("worktree: unlink shared directories in %q: %w", worktree, err)
+	return g.Remove(ctx, project, worktree)
+}
+
+// Remove removes a worktree of project, whatever it holds, and git's record
+// of it, leaving no `git worktree list` residue. It removes the files itself,
+// through fsx.RemoveAll, which removes a link as a link. `git worktree
+// remove` does not: Git for Windows takes a junction for a folder, so it
+// deletes whatever a junction out of the worktree points at, a store pnpm
+// shares between every project or the primary checkout, and it stopped with
+// "Directory not empty" at a junction in node_modules\.pnpm its own deletion
+// had left dangling, after deleting the .git link and its record of the
+// worktree.
+//
+// The .git link goes last. A removal that stops before it, as one does at a
+// file a running program holds, puts back the tracked files it took, so the
+// worktree is again the clean one git knows, and removing it again finishes
+// it. Then .git and the folder go, and `git worktree prune` drops git's
+// record of a worktree whose folder is gone.
+func (g RunnerGit) Remove(ctx context.Context, project, worktree string) error {
+	entries, err := os.ReadDir(worktree)
+	if err != nil && !errors.Is(err, os.ErrNotExist) {
+		return fmt.Errorf("worktree: read %q: %w", worktree, err)
 	}
-	for attempt := 0; ; attempt++ {
-		result, err := g.command(ctx, project, "git", "-c", longPaths, "worktree", "remove", "--force", worktree)
-		if err != nil {
-			return fmt.Errorf("worktree: remove %q: %w", worktree, err)
+	for _, entry := range entries {
+		if strings.EqualFold(entry.Name(), ".git") {
+			continue
 		}
-		if result.ExitCode == 0 {
-			break
+		if err := fsx.RemoveAll(filepath.Join(worktree, entry.Name())); err != nil {
+			failure := fmt.Errorf("worktree: remove the files of %q: %w", worktree, err)
+			if err := g.restore(ctx, worktree); err != nil {
+				return errors.Join(failure, err)
+			}
+			return fmt.Errorf("%w; its tracked files are back and git still knows it, so removing it again finishes it", failure)
 		}
-		failure := commandFailure("git worktree remove", result)
-		if !indexLockCollision.Match(combinedOutput(result)) || attempt >= g.retryCount() {
-			return failure
-		}
-		if err := g.sleep(ctx, time.Second); err != nil {
-			return fmt.Errorf("worktree: wait to retry remove: %w", err)
-		}
+	}
+	if err := fsx.RemoveAll(worktree); err != nil {
+		return fmt.Errorf("worktree: remove %q: %w", worktree, err)
 	}
 	if _, err := g.required(ctx, project, "git", "worktree", "prune"); err != nil {
 		return fmt.Errorf("worktree: prune administrative entries: %w", err)
@@ -250,57 +253,22 @@ func (g RunnerGit) Return(ctx context.Context, project, worktree string) error {
 	return nil
 }
 
-// removeSharedLinks deletes every root-level link inside worktree whose target
-// lives inside project. Junctions created by provisioning qualify; so does any
-// link an agent made pointing back into the primary checkout. os.Remove on a
-// junction removes the junction itself, never the target. A worktree that is
-// already gone has no links to remove. Detection goes through os.Readlink
-// rather than ModeSymlink because Windows junctions are mount-point reparse
-// points: Go resolves their target with Readlink but does not report them as
-// symlinks in Lstat.
-func removeSharedLinks(worktree, project string) error {
-	entries, err := os.ReadDir(worktree)
-	if errors.Is(err, os.ErrNotExist) {
-		return nil
+// restore puts back, from the index, the tracked files a removal that
+// stopped took. checkout-index writes only a file that is missing and exits 1
+// for each one still there, so the worktree's status, not that exit code,
+// says whether the worktree is whole again.
+func (g RunnerGit) restore(ctx context.Context, worktree string) error {
+	if _, err := g.command(ctx, worktree, "git", "-c", longPaths, "checkout-index", "--all", "--quiet"); err != nil {
+		return fmt.Errorf("worktree: put back the tracked files of %q: %w", worktree, err)
 	}
+	status, err := g.required(ctx, worktree, "git", "status", "--porcelain")
 	if err != nil {
-		return err
+		return fmt.Errorf("worktree: read %q after putting its tracked files back: %w", worktree, err)
 	}
-	for _, entry := range entries {
-		path := filepath.Join(worktree, entry.Name())
-		target, err := os.Readlink(path)
-		if err != nil {
-			continue
-		}
-		if !filepath.IsAbs(target) {
-			target = filepath.Join(worktree, target)
-		}
-		inside, err := pathWithin(project, target)
-		if err != nil {
-			return err
-		}
-		if !inside {
-			continue
-		}
-		if err := os.Remove(path); err != nil {
-			return fmt.Errorf("remove shared link %q: %w", path, err)
-		}
+	if dirty := strings.TrimSpace(string(status.Stdout)); dirty != "" {
+		return fmt.Errorf("worktree: %q is not whole again after its removal stopped:\n%s", worktree, dirty)
 	}
 	return nil
-}
-
-// pathWithin reports whether target is path itself or lives under it, after
-// cleaning both. It is a pure path computation: the strings are compared
-// case-insensitively because these repos live on case-insensitive Windows
-// volumes.
-func pathWithin(path, target string) (bool, error) {
-	cleanPath := filepath.Clean(path)
-	cleanTarget := filepath.Clean(target)
-	rel, err := filepath.Rel(cleanPath, cleanTarget)
-	if err != nil {
-		return false, fmt.Errorf("relate %q to %q: %w", cleanTarget, cleanPath, err)
-	}
-	return rel == "." || (rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator))), nil
 }
 
 // ExcludeMarker is the comment line ensureExcluded writes above each pattern
@@ -413,30 +381,6 @@ func (g RunnerGit) command(ctx context.Context, dir, name string, args ...string
 		return execx.Result{}, errors.New("worktree: command runner is required")
 	}
 	return g.Commands.Run(ctx, execx.Request{Dir: dir, Name: name, Args: args})
-}
-
-func (g RunnerGit) retryCount() int {
-	if g.Retries > 0 {
-		return g.Retries
-	}
-	if g.Retries < 0 {
-		return 0
-	}
-	return defaultReturnRetries
-}
-
-func (g RunnerGit) sleep(ctx context.Context, duration time.Duration) error {
-	if g.Sleep != nil {
-		return g.Sleep(ctx, duration)
-	}
-	timer := time.NewTimer(duration)
-	defer timer.Stop()
-	select {
-	case <-ctx.Done():
-		return ctx.Err()
-	case <-timer.C:
-		return nil
-	}
 }
 
 func commandFailure(command string, result execx.Result) error {

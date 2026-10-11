@@ -10,6 +10,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/fpresta0607/code-goblins/internal/fsx"
 	"github.com/fpresta0607/code-goblins/internal/home"
 )
 
@@ -182,7 +183,7 @@ func (cfg Config) removeTempLeak(path string, processes []string, liveTmp func()
 		record.Kept = append(record.Kept, Item{Kind: "temp", Path: path, Detail: "it is /tmp for every shell of the Git Bash in " + temp.Runtime + ", so it stays until no running Git Bash has it"})
 		return
 	}
-	if err := os.RemoveAll(path); err != nil {
+	if err := fsx.RemoveAll(path); err != nil {
 		record.Kept = append(record.Kept, Item{Kind: "temp", Path: path, Detail: "something still holds it open: " + err.Error()})
 		return
 	}

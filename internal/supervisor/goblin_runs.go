@@ -153,11 +153,11 @@ func (s *Store) admitRun(r Run) error {
 		return err
 	}
 	if err := fsx.AtomicWriteFile(filepath.Join(dir, name), script); err != nil {
-		return errors.Join(err, os.RemoveAll(dir))
+		return errors.Join(err, fsx.RemoveAll(dir))
 	}
 	r.ScriptSum = runDigest(script)
 	if err := s.acceptRun(r); err != nil {
-		return errors.Join(err, os.RemoveAll(dir))
+		return errors.Join(err, fsx.RemoveAll(dir))
 	}
 	return nil
 }

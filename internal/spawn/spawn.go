@@ -303,7 +303,7 @@ func (s Service) Spawn(ctx context.Context, req Request) (result Result, err err
 			if err == nil {
 				return
 			}
-			if removeErr := os.RemoveAll(taskTmp); removeErr != nil {
+			if removeErr := fsx.RemoveAll(taskTmp); removeErr != nil {
 				err = errors.Join(err, fmt.Errorf("spawn: remove task temporary directory: %w", removeErr))
 			}
 		}()
@@ -741,7 +741,7 @@ func (s Service) worktreeGit() (worktree.Git, error) {
 	if s.Worktrees.Commands == nil {
 		return nil, errors.New("spawn: worktree Git dependency is required")
 	}
-	return worktree.RunnerGit{Commands: s.Worktrees.Commands, Sleep: s.Worktrees.Sleep}, nil
+	return worktree.RunnerGit{Commands: s.Worktrees.Commands}, nil
 }
 
 // partialResult is the task's identity before its harness starts: its
@@ -803,7 +803,7 @@ func (s Service) teardownLaunch(ctx context.Context, nativeHost host.Record, pro
 	// "conflicts case-insensitively with retained task temporary directory".
 	// It also holds the rendered credential script, so removing it here is the
 	// credential scrub for a launch that never became a task.
-	if err := os.RemoveAll(filepath.Join(s.StateDir, "tasktmp", id)); err != nil {
+	if err := fsx.RemoveAll(filepath.Join(s.StateDir, "tasktmp", id)); err != nil {
 		errs = errors.Join(errs, fmt.Errorf("spawn: remove task temporary directory: %w", err))
 	}
 	if err := os.Remove(filepath.Join(s.StateDir, id+".meta")); err != nil && !errors.Is(err, os.ErrNotExist) {
