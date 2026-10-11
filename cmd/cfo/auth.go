@@ -32,6 +32,8 @@ const authUsage = `usage: cfo auth <project> [--check|--fix] [--env]
        cfo auth copy <NAME> --to <project> [--from <project>]   (copy a stored value into a project scope; the source is left in place)
        cfo auth grant <task-id> <service> [<service>...]   give a running task the credentials of more of its project's services, by name
        cfo auth grant <task-id> --mcp <server> [<server>...]   give a running task MCP servers whose entry in the project's .mcp.json holds a value, by name
+       cfo auth revoke <task-id> <service> [<service>...]   take services out of a task's record, so no later terminal of it carries them
+       cfo auth revoke <task-id> --mcp <server> [<server>...]   take MCP servers out of a task's record, so no later terminal of it is given them
        cfo auth refresh <task-id>   regenerate a task's auth.ps1 for the services it carries
 
 Credentials are namespaced on (project, NAME). Omitting --project stores or
@@ -40,12 +42,17 @@ namespacing already lives.
 
 A task's terminal carries the credentials of the services its brief names
 under Authentication, by their names in the project's manifest, and of no
-other. cfo auth grant adds one to a running task, and only the CFO runs it.
+other. cfo auth grant adds one to a running task, and cfo auth revoke takes
+one back from every later terminal of it and from its auth.ps1. A terminal
+running then keeps what it already holds of the service until it ends, and
+cfo switch <task-id> --restart starts one without it. Only the CFO runs
+either.
 
 An MCP server whose entry in the project's .mcp.json holds a value, in its
 env map or in a header, reaches a task the same way: its brief names the
 server on an mcp: line under Authentication, or cfo auth grant --mcp adds it,
-and the task is given it at its next terminal.
+and the task is given it at its next terminal. cfo auth revoke --mcp takes it
+back the same way: the harness running then keeps it until it ends.
 
 Storing or copying into a project scope also regenerates auth.ps1 for every
 live task of that project, each for the services it carries, and sends it a
@@ -69,6 +76,8 @@ func runAuth(args []string, stdout, stderr io.Writer, runtime commandRuntime) in
 		return runAuthCopy(args[1:], stdout, stderr, runtime)
 	case "grant":
 		return runAuthGrant(args[1:], stdout, stderr, runtime)
+	case "revoke":
+		return runAuthRevoke(args[1:], stdout, stderr, runtime)
 	case "refresh":
 		return runAuthRefresh(args[1:], stdout, stderr, runtime)
 	case "-h", "--help", "help":
@@ -729,6 +738,68 @@ func runAuthGrant(args []string, stdout, stderr io.Writer, runtime commandRuntim
 	}
 	fmt.Fprintf(stdout, "%s has no running terminal that took the notice. Its next terminal starts with them\n", id)
 	return 0
+}
+
+// runAuthRevoke takes services a task carries out of its record, so no later
+// terminal of the task carries them, and rewrites its credential script
+// without them. A terminal running now keeps what it already holds of them,
+// which only its end takes back, so the command says so and names the
+// restart. It is the CFO's act, refused in a goblin's terminal and in a gate
+// agent's, as a grant is.
+//
+// With --mcp the names are MCP servers the task's record names. A harness
+// reads its servers when it starts, so the one running now keeps them until
+// it ends.
+func runAuthRevoke(args []string, stdout, stderr io.Writer, runtime commandRuntime) int {
+	isMCP := len(args) > 1 && args[1] == "--mcp"
+	if isMCP {
+		args = slices.Delete(slices.Clone(args), 1, 2)
+	}
+	if len(args) < 2 || slices.ContainsFunc(args, func(arg string) bool { return strings.HasPrefix(arg, "-") }) {
+		fmt.Fprint(stderr, authUsage)
+		return 2
+	}
+	if os.Getenv(harness.RoleVariable) == harness.RoleGoblin || os.Getenv(gateAgentVariable) != "" {
+		fmt.Fprintln(stderr, "cfo auth revoke: revoking a service is the CFO's act, never a goblin's or a gate agent's. Say in a report which service your task no longer needs, and the CFO revokes it")
+		return 2
+	}
+	if runtime.resolveHome == nil || runtime.authRefresher == nil {
+		fmt.Fprintln(stderr, "cfo auth revoke: command runtime is incomplete")
+		return 1
+	}
+	h, err := runtime.resolveHome()
+	if err != nil {
+		fmt.Fprintln(stderr, err)
+		return 1
+	}
+	id, names := args[0], args[1:]
+	if isMCP {
+		named, err := runtime.authRefresher(h).RevokeMCP(id, names)
+		if err != nil {
+			fmt.Fprintf(stderr, "cfo auth revoke: %v\n", err)
+			return 1
+		}
+		fmt.Fprintf(stdout, "revoked the MCP servers %s from %s. Its record names %s\n", strings.Join(names, ", "), id, namesOrNone(named))
+		fmt.Fprintf(stdout, "A harness reads its MCP servers when it starts, so the one %s is running now keeps them until it ends. Its next terminal is not given them: `cfo switch %s --restart` starts one now\n", id, id)
+		return 0
+	}
+	item, carried, err := runtime.authRefresher(h).Revoke(context.Background(), id, names)
+	if err != nil {
+		fmt.Fprintf(stderr, "cfo auth revoke: %v\n", err)
+		return 1
+	}
+	fmt.Fprintf(stdout, "revoked %s from %s. Its record names %s\n", strings.Join(names, ", "), id, namesOrNone(carried))
+	fmt.Fprintf(stdout, "rewrote %s without them (%d vars)\n", item.Path, item.Vars)
+	fmt.Fprintf(stdout, "A terminal of %s running now keeps what it already holds of them, the values it started with and any it loaded from that script, until it ends. Its next terminal carries none of them: `cfo switch %s --restart` starts one now\n", id, id)
+	return 0
+}
+
+// namesOrNone joins names for a line, or says none.
+func namesOrNone(names []string) string {
+	if len(names) == 0 {
+		return "none"
+	}
+	return strings.Join(names, ", ")
 }
 
 func runAuthRefresh(args []string, stdout, stderr io.Writer, runtime commandRuntime) int {

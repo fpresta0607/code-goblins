@@ -567,6 +567,166 @@ func TestAGrantRefusesAServiceTheManifestDoesNotDeclare(t *testing.T) {
 	}
 }
 
+// A grant made for one step of a task is taken back with one command: the
+// task's record no longer names the service, and its credential script, which
+// a running terminal loads, no longer holds its names.
+func TestARevokeTakesOneServiceOutAndNothingElse(t *testing.T) {
+	// Arrange
+	f := newFixture(t)
+	store := giveStandInCredentials(t, f)
+	meta := recordedTask(t, f, "names-two", true, "database", "payments")
+	bystander := recordedTask(t, f, "bystander", true, "database", "payments")
+	refresher := AuthRefresher{StateDir: f.stateDir, DataDir: f.dataDir, Store: store, Panes: stubPanes{live: map[string]bool{"names-two": true}}}
+	if _, err := refresher.RefreshTask(context.Background(), meta.ID); err != nil {
+		t.Fatal(err)
+	}
+	if got := scriptNames(t, filepath.Join(meta.TaskTmp, state.AuthScriptName)); !slices.Equal(got, []string{standInDatabase, standInPayments}) {
+		t.Fatalf("the premise is a script that sets both services' names, and it sets %v", got)
+	}
+
+	// Act
+	script, carried, err := refresher.Revoke(context.Background(), meta.ID, []string{"payments"})
+
+	// Assert
+	if err != nil {
+		t.Fatalf("Revoke: %v", err)
+	}
+	after, err := state.ReadTaskMeta(f.stateDir, meta.ID)
+	if err != nil || !after.HasCredentials || !slices.Equal(after.Credentials, []string{"database"}) {
+		t.Errorf("after the revoke the record names %v, %v, want database alone", after.Credentials, err)
+	}
+	if got := scriptNames(t, filepath.Join(meta.TaskTmp, state.AuthScriptName)); !slices.Equal(got, []string{standInDatabase}) {
+		t.Errorf("the task's script sets %v, want only the name database declares", got)
+	}
+	if !slices.Equal(carried, []string{"database"}) || script.Path != filepath.Join(meta.TaskTmp, state.AuthScriptName) {
+		t.Errorf("the revoke reports %v and the script %q, want the task's services after it and the script it rewrote", carried, script.Path)
+	}
+	log, err := state.TailStatus(f.stateDir, meta.ID, 10)
+	if err != nil || !slices.ContainsFunc(log, func(line string) bool {
+		return strings.Contains(line, "credentials: the CFO revoked payments, so the task's later terminals carry database")
+	}) {
+		t.Errorf("status log = %q, %v, want the revoke recorded by service name", log, err)
+	}
+	holdsNoStandInValue(t, "the task's record or status log", taskRecords(t, f, meta.ID))
+	untouched, err := state.ReadTaskMeta(f.stateDir, bystander.ID)
+	if err != nil || !slices.Equal(untouched.Credentials, []string{"database", "payments"}) {
+		t.Errorf("another task of the project now names %v, %v, want it left as it was", untouched.Credentials, err)
+	}
+	if _, err := os.Stat(filepath.Join(bystander.TaskTmp, state.AuthScriptName)); !errors.Is(err, os.ErrNotExist) {
+		t.Errorf("another task's script was written by the revoke: %v", err)
+	}
+}
+
+// A task an older build spawned carries the manifest's default services, and
+// a revoke takes one of those, after which its record names what it carries.
+func TestARevokeFromATaskAnOlderBuildSpawnedTakesFromTheDefaultServices(t *testing.T) {
+	// Arrange
+	f := newFixture(t)
+	store := giveStandInCredentials(t, f)
+	meta := recordedTask(t, f, "older-build", false)
+	refresher := AuthRefresher{StateDir: f.stateDir, DataDir: f.dataDir, Store: store}
+
+	// Act
+	_, carried, err := refresher.Revoke(context.Background(), meta.ID, []string{"source"})
+
+	// Assert
+	if err != nil {
+		t.Fatalf("Revoke: %v", err)
+	}
+	after, err := state.ReadTaskMeta(f.stateDir, meta.ID)
+	if err != nil || !after.HasCredentials || len(after.Credentials) != 0 || len(carried) != 0 {
+		t.Errorf("after the revoke the record names %v (recorded %v) and the revoke reports %v, %v, want it to say none", after.Credentials, after.HasCredentials, carried, err)
+	}
+	if got := scriptNames(t, filepath.Join(meta.TaskTmp, state.AuthScriptName)); len(got) != 0 {
+		t.Errorf("the task's script sets %v, want none", got)
+	}
+}
+
+// Revoking what a task does not hold says so and changes nothing: not its
+// record, not its status log and not its credential script. A name shaped
+// like a credential value is counted and never repeated.
+func TestARevokeOfWhatTheTaskDoesNotHoldChangesNothing(t *testing.T) {
+	valueShaped := "sk_live_" + strings.Repeat("a1B2", 8)
+	cases := []struct {
+		name     string
+		services []string
+		servers  []string
+		want     []string
+	}{
+		{"a service the manifest declares that the task does not carry", []string{"payments"}, nil, []string{"does not carry payments", "It carries database"}},
+		{"a service the manifest does not declare", []string{"billing"}, nil, []string{"does not carry billing", "It carries database"}},
+		{"one it carries beside one it does not", []string{"database", "payments"}, nil, []string{"does not carry payments", "nothing was revoked"}},
+		{"a name shaped like a credential value", []string{valueShaped}, nil, []string{"1 shaped like a credential value"}},
+		{"an MCP server its record does not name", nil, []string{"literal-header"}, []string{"literal-header", "It names literal-env"}},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			// Arrange
+			f := newFixture(t)
+			store := giveStandInCredentials(t, f)
+			meta := recordedTask(t, f, "names-one", true, "database")
+			if err := state.WriteTaskMCPServers(f.stateDir, meta.ID, []string{"literal-env"}); err != nil {
+				t.Fatal(err)
+			}
+			script := filepath.Join(meta.TaskTmp, state.AuthScriptName)
+			writeFile(t, script, "$env:STANDIN_DATABASE_URL = 'stand-in-database'\n")
+			refresher := AuthRefresher{StateDir: f.stateDir, DataDir: f.dataDir, Store: store}
+
+			// Act
+			var err error
+			if tc.servers != nil {
+				_, err = refresher.RevokeMCP(meta.ID, tc.servers)
+			} else {
+				_, _, err = refresher.Revoke(context.Background(), meta.ID, tc.services)
+			}
+
+			// Assert
+			if err == nil {
+				t.Fatal("the revoke succeeded, want it refused")
+			}
+			for _, want := range append(tc.want, "nothing was revoked") {
+				if !strings.Contains(err.Error(), want) {
+					t.Errorf("revoke = %v, want %q", err, want)
+				}
+			}
+			if strings.Contains(err.Error(), valueShaped) {
+				t.Error("the refusal repeats a name shaped like a credential value")
+			}
+			after, readErr := state.ReadTaskMeta(f.stateDir, meta.ID)
+			if readErr != nil || !slices.Equal(after.Credentials, []string{"database"}) || !slices.Equal(after.MCPServers, []string{"literal-env"}) {
+				t.Errorf("after the refusal the record names %v and the MCP servers %v, %v, want it unchanged", after.Credentials, after.MCPServers, readErr)
+			}
+			if log, _ := state.TailStatus(f.stateDir, meta.ID, 10); len(log) != 0 {
+				t.Errorf("status log = %q, want nothing recorded for a revoke that changed nothing", log)
+			}
+			if got := scriptNames(t, script); !slices.Equal(got, []string{standInDatabase}) {
+				t.Errorf("the task's script sets %v, want it as it was", got)
+			}
+		})
+	}
+}
+
+func TestARevokeOfATaskThatIsNotRunningIsRefused(t *testing.T) {
+	// Arrange
+	f := newFixture(t)
+	store := giveStandInCredentials(t, f)
+	refresher := AuthRefresher{StateDir: f.stateDir, DataDir: f.dataDir, Store: store}
+
+	// Act
+	_, _, err := refresher.Revoke(context.Background(), "ghost-1", []string{"database"})
+	_, mcpErr := refresher.RevokeMCP("ghost-1", []string{"literal-env"})
+
+	// Assert
+	for _, err := range []error{err, mcpErr} {
+		if err == nil || !strings.Contains(err.Error(), "ghost-1 is not a running task") {
+			t.Errorf("revoke = %v, want it refused naming the task", err)
+		}
+	}
+	if _, statErr := os.Stat(state.TaskMetaPath(f.stateDir, "ghost-1")); !errors.Is(statErr, os.ErrNotExist) {
+		t.Errorf("the refused revoke wrote a record: %v", statErr)
+	}
+}
+
 // standInMCP is a project's MCP configuration under made-up names and values:
 // two servers whose entry holds a value, in a command server's env map and in
 // a header, one that only refers to a variable, and one that holds nothing.
@@ -797,6 +957,61 @@ func TestARelaunchGivesATaskAnMCPServerGrantedSinceItsSpawn(t *testing.T) {
 		t.Errorf("status log = %q, %v, want a record of the grant", log, err)
 	}
 	holdsNoStandInMCPValue(t, "the relaunch's output", result.Output)
+	holdsNoStandInMCPValue(t, "the task's record, status log or instruction", taskRecords(t, f.fixture, f.meta.ID))
+}
+
+// A service and an MCP server revoked from a running task stay with the
+// terminal that runs, which nothing can take them back out of, and reach no
+// later one: the relaunch's harness starts with none of the service's values
+// and is not handed the server's entry.
+func TestARelaunchCarriesNothingOfAServiceOrServerRevokedSinceItsSpawn(t *testing.T) {
+	// Arrange
+	f := newSwitchFixture(t, harness.Control{StopCommand: "/exit"})
+	store := giveStandInCredentials(t, f.fixture)
+	writeFile(t, filepath.Join(f.project, ".mcp.json"), standInMCP)
+	if err := state.WriteTaskCredentials(f.stateDir, f.meta.ID, []string{"database", "payments"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := state.WriteTaskMCPServers(f.stateDir, f.meta.ID, []string{"literal-env"}); err != nil {
+		t.Fatal(err)
+	}
+	refresher := AuthRefresher{StateDir: f.stateDir, DataDir: f.dataDir, Store: store}
+
+	// Act
+	_, carried, revokeErr := refresher.Revoke(context.Background(), f.meta.ID, []string{"payments"})
+	recordedServers, revokeMCPErr := refresher.RevokeMCP(f.meta.ID, []string{"literal-env"})
+	result, err := f.service.Switch(context.Background(), SwitchRequest{ID: f.meta.ID, Model: "gpt-9"})
+
+	// Assert
+	if revokeErr != nil || !slices.Equal(carried, []string{"database"}) {
+		t.Fatalf("Revoke = %v, %v, want the record to name database alone", carried, revokeErr)
+	}
+	if revokeMCPErr != nil || len(recordedServers) != 0 {
+		t.Fatalf("RevokeMCP = %v, %v, want the record to name no MCP server", recordedServers, revokeMCPErr)
+	}
+	if err != nil {
+		t.Fatalf("Switch: %v", err)
+	}
+	if got := carriedBy(named(f.events(t), "env")[0]); !slices.Equal(got, []string{standInDatabase}) {
+		t.Errorf("the relaunched terminal carries %v, want only %s", got, standInDatabase)
+	}
+	servers, text := mcpServersOf(t, filepath.Join(f.meta.TaskTmp, "mcp.json"))
+	if want := []string{"by-reference", "plain"}; !slices.Equal(servers, want) {
+		t.Errorf("after the relaunch the task's servers = %v, want %v", servers, want)
+	}
+	holdsNoStandInMCPValue(t, "the relaunched task's MCP configuration", text)
+	after, err := state.ReadTaskMeta(f.stateDir, f.meta.ID)
+	if err != nil || !slices.Equal(after.Credentials, []string{"database"}) || len(after.MCPServers) != 0 {
+		t.Errorf("after the relaunch the record names %v and the MCP servers %v, %v, want database alone and no server", after.Credentials, after.MCPServers, err)
+	}
+	log, err := state.TailStatus(f.stateDir, f.meta.ID, 10)
+	if err != nil || !slices.ContainsFunc(log, func(line string) bool {
+		return strings.Contains(line, "credentials: the CFO revoked the MCP servers literal-env")
+	}) {
+		t.Errorf("status log = %q, %v, want a record of the revoke", log, err)
+	}
+	holdsNoStandInValue(t, "the relaunch's output", result.Output)
+	holdsNoStandInValue(t, "the task's record, status log or instruction", taskRecords(t, f.fixture, f.meta.ID))
 	holdsNoStandInMCPValue(t, "the task's record, status log or instruction", taskRecords(t, f.fixture, f.meta.ID))
 }
 
