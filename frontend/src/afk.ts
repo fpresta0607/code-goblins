@@ -12,8 +12,11 @@ export interface AfkDecision {
   at: string; kind: string; what: string; link: string; evidence: string; outcome: string; task: string;
   // diagnosis and tried are what a line left for him found wrong and what the
   // CFO already tried, and struck the CFO's reason for striking a line it
-  // logged by mistake, empty for a line it stands by.
-  diagnosis: string; tried: string; struck: string;
+  // logged by mistake, empty for a line it stands by. noted is what the CFO
+  // wrote of a merge in lines of its own, which the report folds into it, and
+  // asked the Command Center item of a line it left for him about a merge
+  // that did not land.
+  diagnosis: string; tried: string; struck: string; noted: string; asked: string;
 }
 // AfkSection is one heading of the report with the decisions under it.
 export interface AfkSection {
@@ -73,7 +76,7 @@ export function parseAfkReport(value: unknown): AfkReport | null {
         title: string(s.title),
         entries: array(s.entries).map((value) => {
           const e = object(value);
-          return { at: string(e.at), kind: string(e.kind), what: string(e.what), link: string(e.link), evidence: string(e.evidence), outcome: string(e.outcome), task: string(e.task), diagnosis: string(e.diagnosis), tried: string(e.tried), struck: string(e.struck) };
+          return { at: string(e.at), kind: string(e.kind), what: string(e.what), link: string(e.link), evidence: string(e.evidence), outcome: string(e.outcome), task: string(e.task), diagnosis: string(e.diagnosis), tried: string(e.tried), struck: string(e.struck), noted: string(e.noted), asked: string(e.asked) };
         }),
       };
     }),
@@ -291,28 +294,49 @@ export const safeLink = (url: string): string => /^https:\/\/[^\s]+$/i.test(url)
 // its link is named the way a person would say it. An answer is logged under
 // its question's id, which tells a reader nothing, so its goblin names it and
 // the question and the answer, which are its evidence, follow as two
-// sentences. A merge word with no outcome says so, since a word given is not
-// a merge made. A line left for him adds what was found wrong and what was
-// tried, and a struck line leads with why the CFO struck it; a strike of an
-// earlier stretch's line carries only that reason.
-export function decisionSays(entry: AfkDecision): { text: string; href: string; outcome: string; basis: string } {
+// sentences. A merge that did not land says what the CFO did about it in a
+// sentence of its own, happened, and what became of it before its evidence,
+// since a word given is not a merge made. A line left for him adds what was
+// found wrong and what was tried, and a struck line leads with why the CFO
+// struck it; a strike of an earlier stretch's line carries only that reason.
+export function decisionSays(entry: AfkDecision): { text: string; href: string; outcome: string; happened: string; basis: string } {
   const answered = entry.kind === "answer" && entry.task !== "";
   const what = safeLink(entry.what) && /\/pull\/\d+/.test(entry.what) ? pullRequestLabel(entry.what) : entry.what;
+  const isNotLanded = notLanded(entry);
   return {
     text: answered ? entry.task : (entry.task ? entry.task + ": " : "") + what,
     href: safeLink(entry.link) || safeLink(entry.what),
-    outcome: entry.kind === "merge" && !entry.outcome ? "no outcome was recorded" : entry.outcome,
+    outcome: isNotLanded ? "" : entry.outcome,
+    happened: isNotLanded ? didSays(entry) : "",
     // The log words an answer as "asked: ... answered: ...".
-    basis: answered ? entry.evidence.replace(/^asked: /, "Asked: ").replace(" answered: ", " Answered: ") : basisOf(entry),
+    basis: answered ? entry.evidence.replace(/^asked: /, "Asked: ").replace(" answered: ", " Answered: ") : isNotLanded ? notLandedSays(entry.outcome) + " Evidence: " + entry.evidence : basisOf(entry),
   };
 }
 
-// basisOf is what a decision stood on, as sentences: why it was struck, its
-// evidence, and for a line left for him what was found and tried.
+// notLanded says whether a decision is a merge that did not land, which still
+// needs him. A line the CFO struck needs nobody.
+export const notLanded = (entry: AfkDecision): boolean => !entry.struck && entry.kind === "merge" && entry.outcome !== "merged";
+
+// didSays is what the CFO did about a merge that did not land: what it wrote
+// of it, or that it logged nothing. One it left for him says so beside the
+// question he is asked, and a line the CFO wrote that names no merge is its
+// own and says nothing more.
+const didSays = (entry: AfkDecision): string => entry.noted ? "The CFO: " + entry.noted : entry.asked || entry.link && entry.link !== entry.what ? "" : "The CFO logged nothing about it.";
+
+// notLandedSays is what became of a merge that did not land, in one sentence:
+// how it ended, as the log holds it, or that no merge was recorded.
+function notLandedSays(outcome: string): string {
+  const said = outcome.trim().replace(/\.$/, "");
+  return said ? said.charAt(0).toUpperCase() + said.slice(1) + "." : "No merge was recorded.";
+}
+
+// basisOf is what a decision stood on, as sentences: why it was struck, what
+// the CFO wrote of a merge, its evidence, and for a line left for him what was
+// found and tried.
 function basisOf(entry: AfkDecision): string {
   const sentence = (label: string, text: string) => text ? label + ": " + text.replace(/\.$/, "") + "." : "";
   if (entry.kind === "strike") return sentence("Struck", entry.struck);
-  if (!entry.struck && !entry.diagnosis && !entry.tried) return "Evidence: " + entry.evidence;
+  if (!entry.struck && !entry.diagnosis && !entry.tried) return [sentence("The CFO", entry.noted), "Evidence: " + entry.evidence].filter(Boolean).join(" ");
   return [sentence("Struck", entry.struck), sentence("Evidence", entry.evidence), sentence("Found", entry.diagnosis), sentence("Tried", entry.tried)].filter(Boolean).join(" ");
 }
 

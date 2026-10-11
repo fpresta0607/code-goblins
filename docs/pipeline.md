@@ -264,7 +264,7 @@ So CI is the check of the level a change requires, and nothing reaches main that
 With no `--level` the step runs `fast`, which is what the gate runs.
 Running the required level here as well ran the slowest packages twice, once on this machine and once in CI: from 2026-10-05 to 2026-10-07 every such local run took a median of 33 minutes, where CI tested every package in 11.
 A level asked for runs instead, such as `affected` to reproduce what CI found; a run at a level narrower than the change requires exits 0 when its checks pass, and its last line and its report name the level the change requires, which CI's run checks.
-In a slow package, run the tests a change touched by name (`go test ./internal/supervisor -run 'TestName' -count=1`) rather than the whole package, which takes 15 minutes or more here.
+Before a push, `cfo gate prepush` runs more than the fast level and picks the tests of a slow package itself, so nobody runs tests by a name they guessed ([Before a push](#before-a-push)).
 The plan prints why each package is in it (`changed`, `imports <package>`, or a contract's reason with the file that changed) and every test run the level left to a broader one, with why.
 It then lists the changed files that are outside the Go checks, under the policy's reason for each, and the changed files the policy does not account for, so what the step does not check is read from its output and not assumed:
 
@@ -352,6 +352,7 @@ A report is written whole or not at all, and the board reads them: a live task's
 ### Taking turns
 
 Every `go vet` and `go test` command waits for a turn at every level: the shared capacity limits concurrent commands, every goblin's and every gate's alike, in the order they asked.
+Any other command stands in the same line behind `cfo gate turn`, described under [Any command in the line](#any-command-in-the-line).
 Each command releases its turn when execution ends and joins the common line again before its next command.
 The default remains one, which keeps heavy commands from competing for the same machine's resources.
 Production admission always uses the operating system's user cache folder under `cfo/verify/slots`, regardless of report or process environment redirects.
@@ -372,6 +373,7 @@ cfo gate test: waiting for its turn (3m0s so far): the turn is held by code-gobl
 A gate shows a step's output only once the step has ended, so `cfo gate turns` prints the line from outside while the wait lasts: each run that holds a turn, the runs that wait in the order they asked, and the memory when the machine is short of it.
 Under a run that holds a turn, `cfo gate turns` prints what the run says it is doing, which the run renews every five seconds while its tests run: how many packages are done, which tests are running and for how long, and the last line of its output.
 A new gate run names the task registered for its source worktree, including the owner of an extra worktree, in its turn and report.
+Its turn names the task's goblin with it, as `Zora (cg-example)`, when the task's record names one, and its report keeps the id.
 The run's recorded repository and branch select that worktree; the shared process's task variable is not used.
 If the run or owner cannot be verified, the task stays unnamed and the log explains why.
 
@@ -392,6 +394,214 @@ A live or unverifiable process retains custody past its budget until its executi
 Unreadable or incomplete custody records retain their place regardless of age; the line command reports the uncertainty instead of reporting an empty line.
 A cancelled waiter removes only its own exact record, and a release cannot remove a later lease from the same process.
 A store failure prevents commands from starting.
+
+### Any command in the line
+
+`cfo gate turn` puts any command in that same line, so one heavy run goes at a time on the machine whoever started it: another repository's test command under its gate, a goblin's own suite, or a run one of the Overlord's sessions starts.
+`cfo gate test`, `cfo gate prepush` and `cfo gate turn` wait through the same admission code in the same store, so a run of any of them waits for a run of the others.
+
+```text
+cfo gate turn [--as <name>] -- <program> [<argument>...]
+```
+
+Everything before `--` is `cfo`'s, and everything after it is the command's, its own flags and a `--` of its own included.
+`cfo` starts `<program>` as a process with exactly those arguments, unparsed and with no shell of its own in front, so a command that needs a shell names one: `cfo gate turn -- cmd.exe /c "npm test && npm run lint"`.
+`--as <name>` names the run to whoever reads the line.
+A caller such as a gate knows its repository, branch and run, which the command and the folder do not say, so it should give them: `--as "PrecisionDocs feat/x, run 01M4FG7F"`.
+A run is named `<name>: <command>` with `--as` and `<command> in <folder>` without it.
+`cfo` adds `, task <Goblin> (<id>)` when the run is a fleet task's: a goblin's own run by its terminal, and a gate's run by the task registered for the run's source worktree, as for `cfo gate test`.
+
+**What it waits for.**
+It waits while another run holds the turn, and at the head of the line while free physical memory or free commit is under the floor.
+It sets no limit of its own on either wait.
+Where `cfo gate test` refuses a run after an hour of memory under the floor, `cfo gate turn` waits for as long as memory is short, and the limits that end a run are its command's own and its caller's.
+The wait counts in the wrapper's wall time, so a caller that budgets its test command should start the budget at `took its turn`, or allow for the wait.
+
+**What it prints.**
+Every line of its own goes to standard error and starts with `cfo gate turn: `.
+With the turn free and memory above the floor it writes no line at all.
+As it starts to wait, whenever its place in line changes and once a minute, it says which run holds the turn and for how long, or what memory the machine is short of, and where it stands:
+
+```text
+cfo gate turn: waiting for its turn (3m0s so far): the turn is held by PrecisionDocs feat/x, run 01M4FG7F: cmd.exe /c npm test, task Zora (cg-example) (pid 4242), for 12m0s; 1 run is ahead of this one in line
+cfo gate turn: waiting for its turn (40s so far): 3.1 GB of memory is available and the floor is 4.0 GB; this run is next in line
+```
+
+Once, when it takes a turn it waited a second or more for:
+
+```text
+cfo gate turn: took its turn after 3m0s
+```
+
+Then comes the command's own output, and nothing of `cfo`'s after it.
+A gate shows a step's output only once the step has ended, so while a run waits the line is read from outside with `cfo gate turns`.
+
+**What it leaves untouched.**
+
+- Standard output. `cfo` writes nothing to it, and the command inherits the handle.
+- Standard error. The command inherits the handle, after the lines above.
+- Standard input, the working folder and the environment. All inherited, with one variable added, `CFO_VERIFY_TURN`, described below.
+- The exit code. It is the command's own, whatever it is.
+- The command's limits. `cfo` adds no timeout and raises none.
+
+**When no command runs.**
+
+| Exit code | Last line on standard error | What happened |
+| --- | --- | --- |
+| 125 | `cfo gate turn: this run takes no turn: <reason>` | The command was never started. The line's store or the machine's memory could not be read, the wait was interrupted, or the arguments named no command, which also prints the usage. |
+| 126 | `cfo gate turn: the command did not start: <error>` | A turn was taken and given back, and `<program>` could not be started. |
+
+Neither is a test result, so a caller reads 125 as "the machine gave this run no turn" and never asks an agent to repair tests that did not run.
+A command that itself exits 125 or 126 is told apart by the last line, which then is not `cfo gate turn`'s.
+
+**The turn.**
+The turn is held from before the command starts until it has ended, and is given back whatever its exit code.
+A wrapper that is ended leaves a turn the next run takes at once, since the holder is recorded by process id and start time, so no lock a dead run left ever stops the machine's tests.
+A command that outlives a wrapper ended by force then runs outside any turn, as the checks of a `cfo gate test` ended by force do, so whoever ends a wrapper ends its command with it, as a gate's job object does.
+On Ctrl+C or Ctrl+Break while it waits, `cfo` leaves the line and exits 125.
+While the command runs, `cfo` keeps the turn through the signal and exits with the command's code: the command shares the console, receives the same signal and answers for itself.
+
+**A command that takes turns itself.**
+This repository's test command is `cfo gate test`, which takes a turn for each of its checks, and behind the wrapper it would wait for the turn its own wrapper holds, for good.
+So the wrapper gives its command `CFO_VERIFY_TURN`, which names the turn it holds: the slot, the holder's process id and the moment it was taken.
+A `cfo gate test`, a `cfo gate prepush` or a nested `cfo gate turn` that finds it, with that turn still held by that same live process, runs inside it: it takes no turn, waits for none, and says what it is doing beside the holder's turn.
+Any other value, such as one a process kept from a run that has ended, is ignored, and the run joins the line as every run does.
+
+**Not in the wrapper.**
+It has no budget and no timeout, no disk floor, which `cfo gate test` keeps for itself, and no report file, since its caller keeps the log.
+
+**A gate behind it.**
+A gate puts every run's test command behind the line, with no repository naming it, by starting the command behind four words: `cfo gate turn --`, then exactly the program and arguments it starts today.
+On this machine that is `cfo gate turn -- cmd.exe /c <command string>`, started as an argument list with no shell in front, with `--as` before the `--` when the gate names its run.
+The words go in front of the whole command as a list and are never joined to the command string, where `a && b` would put only `a` behind the turn.
+This is the contract the no-mistakes fork's wrapper setting is built against.
+The setting goes on only once the installed `cfo` has `cfo gate turn`: an older `cfo` refuses `gate turn` with exit 2, which a gate reads as a failed test command.
+The fork's side, as task cg-gate-fork-minutes agreed it and is building it, is a setting in the machine's `~/.no-mistakes/config.yaml`:
+
+```yaml
+test_command_wrapper:
+  command: ["C:\\dev\\code-goblins\\bin\\cfo.exe", "gate", "turn", "--as", "{repo} {branch}, run {run_short}", "--"]
+  refusal_prefix: "cfo gate turn: "
+```
+
+The fork fills `{repo}`, `{branch}` and `{run_short}` once, then starts nine arguments with no shell in front:
+
+```text
+C:\dev\code-goblins\bin\cfo.exe  gate  turn  --as  "PrecisionDocs feat/x, run 01M4FG7F"  --  C:\WINDOWS\system32\cmd.exe  /c  <the command string, as one argument>
+```
+
+The full path to `cfo.exe` keeps the gate daemon's `PATH` from choosing which `cfo` runs.
+It stands every run's `commands.test` behind the line, each machine-local additional test check, and the re-run of `commands.test` on the base commit, and not prepare, lint, format or a repository gate.
+An exit of 125 or 126 whose last line that is not empty starts with `refusal_prefix`, or a wrapper that cannot be started at all, parks the test step with one `test-command-no-turn` finding: no fix agent is asked, fix runs the test command again, and approve goes on without the baseline.
+So this repository's own `cfo gate test` runs behind `cfo gate turn` under a gate, inside the turn its wrapper holds.
+
+## Before a push
+
+`cfo gate prepush` is what a goblin runs before each push, so that CI is not the first to run a test the change broke.
+From 2026-09-05 to 2026-10-10, 164 tests failed on pull request runs of the `go` workflow.
+Of them 52 percent were in a test file the pull request had changed and 23 percent in another file of a package it had changed.
+Another 23 percent were in a package it had not touched: most of those are tests that fail by chance, and the rest are guards that read the whole tree.
+Those guards failed eight pull requests in all, counting the ones in a package the pull request had changed.
+Until then every brief said to run the touched tests by name and let CI run the rest, so a goblin guessed which tests its change could break, and each wrong guess cost a red run, a second push and about 20 minutes.
+
+The pick is the gate step's plan and more, in the order a failure is likeliest and cheapest to find:
+
+1. The imports of every package the change reaches and of its tests, by `go list -test`, which builds nothing, takes seconds and is where an import cycle shows.
+2. The guards: the tests the policy names under `guards` in `config/verify.json`. They read the whole tree, as the two that read every command `main.go` dispatches do, so a change anywhere can fail them, and they run whatever changed. A new whole-tree guard is named there. A test of the policy fails a guard whose test is gone, since it would run nothing and pass.
+3. The changed packages that are quick to test, and the packages a contract names for a changed file, each whole.
+4. For a change under `frontend`, the type check, the lint, the unit tests and the browser specs the change touched or names.
+5. The changed packages the policy lists as slow, without their slowest tests. They come after the board's checks because a busy machine can spend the whole limit in them: on 2026-10-10 the replays of two pull requests were ended by the limit inside the quick tests of `cmd/cfo` and `internal/supervisor`.
+6. `go vet` of every package the change reaches, which is where a test of an importer that no longer builds shows. It comes after the changed packages because each of those is built and vetted by its own tests. As the first check it took 7 minutes of one replay on a busy machine to report an import cycle that `go list` reports in 14 seconds, and another replay was ended by its limit in the seventh of its 22 checks.
+7. The packages that import a changed one, nearest first.
+
+A browser spec is picked when it changed, when it opens a fixture page that changed, when it imports a changed file beside the specs, or when it shares a word of its name with a changed source, as `run-terminal.spec.ts` does with `RunCard.tsx`.
+Most specs open the whole board, so what a spec imports does not say what it covers, and its name is what there is to go by.
+Where `frontend/node_modules` is missing the run starts none of the board's checks and says so, because npm can exit 0 where it found no program to run.
+
+A package the policy lists as slow runs without its slowest tests.
+The run reads this machine's own record of the shortest time each test has passed in, under `cfo\verify\times` in the user's cache folder, and leaves out, with `go test -skip`, the tests the record has at 2 seconds or longer.
+The record keeps a test's fastest pass because a test left out is not run and so is never timed again: in two hours of replays on a busy machine 13 tests of `internal/supervisor` and 3 of `cmd/cfo` passed in over 2 seconds that had passed in under 2 before, and a record of the latest time would have left each of them out from then on.
+A test that grows slower keeps its old time and keeps running, which costs time and loses nothing.
+On 2026-10-07 and 2026-10-08 the tests under 2 seconds were 81 to 88 percent of the tests of `cmd/cfo` and `internal/supervisor` and 9 to 28 percent of their time.
+A test in a test file the change touched always runs, slow or not.
+A slow test in the test file named for a changed source, as `spawn_test.go` is for `spawn.go`, runs when the record has it under 15 seconds.
+From 2026-09-05 to 2026-10-10 sixteen slow tests failed a pull request from a test file it had not touched, in a package it had changed.
+Five of them, in four pull requests, were in the test file named for a source the pull request changed, and each took under 15 seconds here.
+Two were the tests of PR 613 that the pick would otherwise have left to CI.
+The slower tests beside a changed source stay left to CI: counting them all as touched ran 37 slow tests, seven minutes of the limit, for a change to one file of `cmd/cfo`.
+A slow package this machine has not timed runs whole when it changed, which is what times it, and is left to CI when it only imports the change.
+Every `cfo gate prepush` run and every `cfo gate test` run adds what it timed to the record.
+
+The run fits the machine.
+It waits for the machine's turn in the line `cfo gate test` runs wait in, so the two never run together, and it tests one package at a time.
+It starts a check only while free memory and commit are over the 4 GB floor, and none after its time limit, which is 15 minutes of running unless `--limit` says otherwise.
+Beside a working fleet free memory dips under the floor for seconds at a time, so a run waits for the floor, says once what it waits for, and leaves the rest to CI only when the limit passes first or memory cannot be read.
+A run that gave up at the first low reading ran 9 of its 42 checks on 2026-10-10 and left the two changed slow packages to CI.
+A check still running at the limit is ended, which is no failure.
+Whatever it did not run it names under `left to CI`, each with why: the slow tests by number and time, the other browser specs, the board's build, and the checks the limit or the memory cut.
+CI is the check of those: a pull request's own run starts every job the change can alter, and the merge train's run that lands it starts them all.
+That is one more reason the guards run here whatever changed: a pull request's own run starts no job for a package its change does not reach, so a guard in such a package would first fail in the merge train.
+
+It prints the pick before it runs anything, and `--plan` prints it with each check's command and runs nothing.
+This is the pick for a change to three files of `internal/supervisor`:
+
+```text
+cfo gate prepush: 3 files changed since 3301d7c9, which picks 10 checks to run within 15m0s
+1. imports of 5 packages and their tests (an import cycle fails every test of its package)
+2. guard tests of the root package (its tests read every link of the contract, the workflows and the shipped skills)
+3. guard tests of cmd/cfo (they read every command main.go dispatches)
+   - TestEveryCommandSaysWhetherItActsAsTheCFO
+   - TestEveryCommandIsAControlOrStaysAtNormalOnPurpose
+4. guard tests of internal/gatetest (they read every tracked file against this policy)
+   - TestTheRepositoryPolicyAccountsForEveryTrackedFile
+   - TestTheRepositoryPolicyNamesOnlyFieldsAndPackagesThatExist
+5. tests of internal/execx (the read and process-start guards scan every Go file: internal/supervisor/error_wakes.go and 2 more)
+6. tests of internal/fsx (the read and process-start guards scan every Go file: internal/supervisor/error_wakes.go and 2 more)
+7. tests of internal/supervisor but for 179 slower ones (changed)
+8. go vet of 5 packages (they build against what changed)
+9. tests of internal/digest (imports internal/supervisor)
+10. tests of cmd/cfo but for 152 slower ones (imports internal/supervisor)
+left to CI:
+- 179 tests of internal/supervisor (they take 2s or longer each here, 29m2s in all, and are in files the change did not touch)
+- 152 tests of cmd/cfo (they take 2s or longer each here, 1h10m23s in all)
+policy: config/verify.json version 1 at 3301d7c9
+```
+
+The first check that fails ends the run with exit 1, and its last line names the check and the tests:
+
+```text
+cfo gate prepush: failed at check 7 of 10, tests of internal/supervisor but for 179 slower ones: TestOverlapReadThatKeepsFailingWakesTheCFOOnTheThirdPassInARow failed. CI would fail on it too, so fix it before you push.
+```
+
+A test that fails runs once more by itself before it fails the push.
+A test that waits on a real terminal can miss its own deadline while another run holds this machine's processors, which the change did not cause and CI would not see, so a test that passes by itself is named as that and the run goes on.
+That second run has five minutes of its own, past the limit when the limit ended the check, so whether a test failed never depends on where the limit fell.
+In a replay on a busy machine four tests that wait for a terminal's host failed beside the one test the change had broken, the limit ended the check, and without a second run all five were named as failures CI would repeat.
+A test whose second run does not end in its five minutes fails the push, in a line that says it failed and never passed.
+
+A run in which nothing failed exits 0 and says how many of the picked checks ran.
+A pick that holds nothing this machine can run, such as a change to the board where the board is not installed, exits 0 and says that no check ran here and how many it left to CI.
+A run the machine gave no turn says that nothing ran and exits 1.
+
+`cfo verify <task>` runs this as the project's fast tier, by `verification.fast` in `data/projects/code-goblins/project.json`, so a goblin and the CFO run the same check by the same command.
+A tier that fails prints its failed check's last line and the file that holds the rest.
+
+### What the replay showed
+
+From 2026-10-08 to 2026-10-10, 18 pull request runs failed CI.
+Each was replayed on 2026-10-10: the pull request's head as it was pushed, in a clone of its own with this policy on its base, on this machine beside the working fleet.
+The command fails before the push on 10 of the 18, each on the test or check CI failed on: nine by a run of the whole command, and one by a run of the browser check its pick holds.
+They are a new command that said nothing of whose it is, two links the contract did not carry, an import cycle in a test, a count a test held, a rule that held a wake back, one of the five tests of PR 613, a unit test of the board, and two pushes of one pull request whose browser specs expected the old sentence.
+The quickest took 9 seconds and the slowest 16 minutes, its 15 minutes and a failed test's second run.
+The most memory a run and everything it started held at once was 2.2 GB where it ran browser specs, 0.9 GB where it reached the board's type check, and 0.6 GB for the Go checks alone.
+
+A pass here does not say everything CI will, and the other 8 show how:
+
+- Four fail on CI's runner and pass on this machine: a runner with no graphics adapter, a runner whose temporary folder has a short spelling, a time measured against a machine that runs few processes, and a hover that moved a terminal in CI's browser and not in this one.
+- One broke only against a main that had moved. CI tests the pull request merged into main, and this runs the branch as it is.
+- One is a browser spec the change neither touched nor names, which the pick leaves to CI with the other specs.
+- One is a step of the install workflow, which runs the installer on a clean runner.
+- One failed by chance in CI.
 
 ## Reading speed evidence
 

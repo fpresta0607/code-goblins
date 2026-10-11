@@ -187,3 +187,32 @@ func TestAReaderReadsNoLogAsNoLines(t *testing.T) {
 		t.Errorf("afkView again = %+v, %v, want nothing decided or held", again, againErr)
 	}
 }
+
+// The CFO's bar counts a merge once: a line the CFO wrote for a landing is
+// with the merge it names, as the report has it, not a decision of its own.
+func TestTheBarCountsALineTheCFOWroteForALandingWithTheMergeItNames(t *testing.T) {
+	// Arrange
+	store, h := testStore(t)
+	s := &Service{Store: store}
+	now := time.Now().UTC()
+	if _, _, err := afk.TurnOn(h.State, "his board", nil, now); err != nil {
+		t.Fatal(err)
+	}
+	train, rider := "https://github.com/o/r/pull/900", "https://github.com/o/r/pull/11"
+	for i, entry := range []afk.Entry{
+		{Kind: afk.KindMerge, What: rider, Link: rider, Evidence: "merge train r-20261010-120000: CI passed on " + train + " at abcdef1, built on main at 1234567", Outcome: afk.OutcomeMerged},
+		{Kind: afk.KindMerge, What: "PR 11 landed on merge train 900", Link: train, Evidence: "One CI run, all checks passed."},
+	} {
+		if _, err := afk.Log(h.State, entry, now.Add(time.Duration(i+1)*time.Second)); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	// Act
+	view, err := s.afkView(store.Snapshot())
+
+	// Assert
+	if err != nil || view.Decided != 1 {
+		t.Fatalf("afkView = %+v, %v, want the one merge decided", view, err)
+	}
+}
