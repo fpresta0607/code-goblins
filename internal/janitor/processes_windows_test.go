@@ -23,8 +23,9 @@ import (
 )
 
 // The fixtures below run as separate processes: a terminal's host, the
-// program in it, and what that program leaves behind, each reporting the
-// processes it started to the file CFO_JANITOR_PIDS names, one line each.
+// program in it, and what that program leaves behind. The program reports
+// itself and the processes it started to the file CFO_JANITOR_PIDS names,
+// one line each.
 const (
 	janitorHostState = "CFO_JANITOR_HOST_STATE"
 	janitorPIDs      = "CFO_JANITOR_PIDS"
@@ -61,7 +62,7 @@ func TestJanitorTerminalFixture(t *testing.T) {
 		}
 		return left.Process.Pid
 	}
-	lines := "server " + strconv.Itoa(leave(os.Args[0])) + "\nchrome " + strconv.Itoa(leave(os.Getenv(janitorChrome))) + "\n"
+	lines := "goblin " + strconv.Itoa(os.Getpid()) + "\nserver " + strconv.Itoa(leave(os.Args[0])) + "\nchrome " + strconv.Itoa(leave(os.Getenv(janitorChrome))) + "\n"
 	if err := os.WriteFile(pids, []byte(lines), 0o600); err != nil {
 		t.Fatal(err)
 	}
@@ -116,7 +117,7 @@ func TestTheSweepEndsAGoneTerminalsStandInAndLeavesAStandInForHisChrome(t *testi
 		<-ended
 	})
 	started := map[string]int{}
-	for deadline := time.Now().Add(30 * time.Second); len(started) < 2; time.Sleep(50 * time.Millisecond) {
+	for deadline := time.Now().Add(30 * time.Second); len(started) < 3; time.Sleep(50 * time.Millisecond) {
 		if data, err := os.ReadFile(pids); err == nil {
 			for _, line := range strings.Split(strings.TrimSpace(string(data)), "\n") {
 				if name, value, ok := strings.Cut(line, " "); ok {
@@ -125,7 +126,7 @@ func TestTheSweepEndsAGoneTerminalsStandInAndLeavesAStandInForHisChrome(t *testi
 			}
 		}
 		if time.Now().After(deadline) {
-			t.Fatalf("the terminal fixture reported %v, want its server and the browser", started)
+			t.Fatalf("the terminal fixture reported %v, want itself, its server and the browser", started)
 		}
 	}
 	held := map[string]windows.Handle{}
@@ -159,7 +160,7 @@ func TestTheSweepEndsAGoneTerminalsStandInAndLeavesAStandInForHisChrome(t *testi
 		for _, entry := range []struct {
 			name string
 			pid  int
-		}{{"terminal host", terminalPID}, {"server it left", started["server"]}, {"stand-in for his Chrome", started["chrome"]}} {
+		}{{"terminal host", terminalPID}, {"goblin in it", started["goblin"]}, {"server it left", started["server"]}, {"stand-in for his Chrome", started["chrome"]}} {
 			state := "ended"
 			if index := slices.IndexFunc(running, func(process fleettree.Process) bool { return process.PID == entry.pid }); index >= 0 {
 				state = fmt.Sprintf("running, %.1f MB", float64(running[index].Memory)/(1<<20))
@@ -185,6 +186,13 @@ func TestTheSweepEndsAGoneTerminalsStandInAndLeavesAStandInForHisChrome(t *testi
 		t.Fatal(err)
 	}
 	<-ended
+	// Windows ends what the host's job holds once the host has ended, so the
+	// goblin can still be ending when the host's end is seen. A sweep that
+	// read it then would end it as what its gone terminal left, as in CI on
+	// 2026-10-11, so the sweep waits for the goblin's end too.
+	if event, _ := windows.WaitForSingleObject(held["goblin"], 30000); event != windows.WAIT_OBJECT_0 {
+		t.Fatalf("the goblin, pid %d, still runs 30 s after its terminal's host ended", started["goblin"])
+	}
 	var record Record
 	cfg.sweepProcesses(ctx, &record)
 
