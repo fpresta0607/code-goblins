@@ -156,6 +156,26 @@
         return
     }
 
+    # The uninstall leaves the tools this install fetches, unless the person
+    # chooses to remove them, and removes them only by this install's record
+    # of what it fetched, never by a guess. So the places the tools keep
+    # their own files are read before anything is installed, and a place
+    # that was not there before the first install is the install's.
+    $toolPlaces = @(
+        (Join-Path $env:USERPROFILE ".claude"), (Join-Path $env:USERPROFILE ".claude.json"),
+        (Join-Path $env:USERPROFILE ".codex"), (Join-Path $env:USERPROFILE ".pi"),
+        (Join-Path $env:USERPROFILE ".agents"), (Join-Path $env:USERPROFILE ".no-mistakes"),
+        (Join-Path $env:USERPROFILE ".local"), (Join-Path $env:USERPROFILE ".cache\claude"),
+        (Join-Path $env:LOCALAPPDATA "no-mistakes")
+    )
+    if ($env:APPDATA) {
+        $toolPlaces += Join-Path $env:APPDATA "npm"
+    }
+    $placesBefore = @($toolPlaces | Where-Object { Test-Path -LiteralPath $_ })
+    $fetchedTools = New-Object System.Collections.Generic.List[object]
+    $addedPath = New-Object System.Collections.Generic.List[string]
+    $addedSkills = New-Object System.Collections.Generic.List[string]
+
     # -NoStartAtLogin keeps Windows from starting Code Goblins at login, and
     # -StartAtLogin turns that back on; with neither the home keeps the choice
     # it holds, on where it holds none. -DevDrive answers the setup's offer of
@@ -461,6 +481,7 @@
             if ($entries -contains $Folder) {
                 return $false
             }
+            $addedPath.Add($Folder)
             $values["Path"] = ($entries + $Folder) -join ';'
             [IO.File]::WriteAllText($env:CFO_USER_ENV_FILE, (ConvertTo-Json -InputObject $values))
             return $true
@@ -470,6 +491,7 @@
         if (@($userPath -split ';') -contains $Folder) {
             return $false
         }
+        $addedPath.Add($Folder)
         $kind = if ($null -ne $environment.GetValue("Path", $null)) { $environment.GetValueKind("Path") } else { "ExpandString" }
         Set-ItemProperty -LiteralPath "HKCU:\Environment" -Name Path -Value ((@($userPath -split ';' | Where-Object { $_ -ne "" }) + $Folder) -join ';') -Type $kind
         # WM_SETTINGCHANGE makes Explorer, and every window it opens after
@@ -731,6 +753,19 @@ public static extern IntPtr SendMessageTimeout(IntPtr hWnd, uint Msg, UIntPtr wP
                 $installedAny = $true
             }
             Write-Detail ("ok       {0,-20} installed" -f $tool.Name)
+            # The package a person's own installer removes it by: the winget
+            # id, or the npm package without its pinned version.
+            $package = ""
+            if ($tool.Kind -eq "winget") {
+                $package = [regex]::Match($tool.Cmd, '--id (\S+)').Groups[1].Value
+            }
+            elseif ($tool.Kind -eq "npm") {
+                $package = [regex]::Match($tool.Cmd, 'install -g (\S+)@[^@\s]+$').Groups[1].Value
+            }
+            elseif ($tool.Kind -eq "npm-file") {
+                $package = $tool.Name
+            }
+            $fetchedTools.Add([ordered]@{ name = $tool.Name; kind = $tool.Kind; package = $package })
         }
         catch {
             Write-Detail ("WARN     {0,-20} install failed: {1}" -f $tool.Name, $_.Exception.Message)
@@ -775,6 +810,14 @@ public static extern IntPtr SendMessageTimeout(IntPtr hWnd, uint Msg, UIntPtr wP
     Write-Detail ""
     $sharedNpmCache = $env:npm_config_cache
     $freshNpmCache = ""
+    # Where the skills CLI may put each skill, read before it runs, so the
+    # record names only the folders this install added.
+    $skillFolders = foreach ($skill in @("gh-axi", "chrome-devtools-axi", "no-mistakes")) {
+        foreach ($folder in @(".claude\skills", ".codex\skills", ".pi\agent\skills", ".agents\skills")) {
+            Join-Path $env:USERPROFILE "$folder\$skill"
+        }
+    }
+    $skillsBefore = @($skillFolders | Where-Object { Test-Path -LiteralPath $_ })
     foreach ($skill in @("gh-axi", "chrome-devtools-axi", "no-mistakes")) {
         if (-not (Get-Command npx.cmd -ErrorAction SilentlyContinue)) {
             Write-Detail ("PREREQ   {0,-20} skill needs Node.js: winget install OpenJS.NodeJS.LTS" -f $skill)
@@ -808,6 +851,45 @@ public static extern IntPtr SendMessageTimeout(IntPtr hWnd, uint Msg, UIntPtr wP
     if ($freshNpmCache) {
         $env:npm_config_cache = $sharedNpmCache
         Remove-Temporary $freshNpmCache
+    }
+    foreach ($folder in $skillFolders) {
+        if ((Test-Path -LiteralPath $folder) -and -not ($skillsBefore -contains $folder)) {
+            $addedSkills.Add($folder)
+        }
+    }
+
+    # The record of what this install fetched, which the uninstall reads to
+    # leave or remove exactly that: it adds to what an earlier install
+    # recorded, and a place an earlier install found missing stays its own.
+    $fetchedFile = Join-Path $InstallDir "state\fetched.json"
+    $record = [ordered]@{ tools = @(); skills = @(); path = @(); places = @() }
+    if (Test-Path -LiteralPath $fetchedFile) {
+        try {
+            $earlier = Get-Content -Raw -LiteralPath $fetchedFile | ConvertFrom-Json
+            $record.tools = @($earlier.tools | Where-Object { $_ })
+            $record.skills = @($earlier.skills | Where-Object { $_ })
+            $record.path = @($earlier.path | Where-Object { $_ })
+            $record.places = @($earlier.places | Where-Object { $_ })
+        }
+        catch {
+            Write-Detail "WARN     the record of what an earlier install fetched could not be read, so it starts again: $($_.Exception.Message)"
+        }
+    }
+    foreach ($tool in $fetchedTools) {
+        if (-not @($record.tools | Where-Object { $_.name -eq $tool.name })) {
+            $record.tools += [pscustomobject]$tool
+        }
+    }
+    $record.skills = @(@($record.skills) + @($addedSkills) | Select-Object -Unique)
+    $record.path = @(@($record.path) + @($addedPath) | Select-Object -Unique)
+    $madePlaces = @($toolPlaces | Where-Object { (Test-Path -LiteralPath $_) -and -not ($placesBefore -contains $_) })
+    $record.places = @(@($record.places) + $madePlaces | Select-Object -Unique)
+    try {
+        [IO.File]::WriteAllText($fetchedFile, (ConvertTo-Json -InputObject $record -Depth 4))
+        Write-Detail ("ok       {0,-20} {1}" -f "record", "what the install fetched, in $fetchedFile")
+    }
+    catch {
+        Write-Detail "WARN     the record of what the install fetched could not be written, so the uninstall leaves those tools as they are: $($_.Exception.Message)"
     }
     # The board's native lifecycle hooks, for each harness installed here.
     foreach ($harness in @("claude", "codex", "pi")) {

@@ -53,6 +53,17 @@ const (
 	GroupHome
 )
 
+// groupNames are the groups by name, as a plan for a program names them.
+var groupNames = []string{"running", "work", "fleet data", "checkouts", "dev drive", "credentials", "harnesses", "shortcuts", "folders", "tools", "home"}
+
+// MarshalText names the group.
+func (g Group) MarshalText() ([]byte, error) {
+	if int(g) < 0 || int(g) >= len(groupNames) {
+		return nil, fmt.Errorf("uninstall: no group %d", int(g))
+	}
+	return []byte(groupNames[g]), nil
+}
+
 // Item is one thing the uninstall does.
 type Item struct {
 	Action Action `json:"action"`
@@ -152,7 +163,15 @@ type Progress func(group Group, done []Item, left []Left, finished bool)
 func (p Plan) Run(ctx context.Context, progress Progress) Outcome {
 	var outcome Outcome
 	for _, f := range p.finders {
-		items := p.itemsOf(f.group)
+		// Each group is found again as it starts, since a group before it
+		// can leave it more to do: an edit of a settings file leaves its
+		// backup, and removing a skill leaves the folder it was in empty.
+		found, err := f.find(ctx)
+		if err != nil {
+			outcome.Left = append(outcome.Left, Left{Item: Item{Group: f.group, What: "what the uninstall reads of " + groupNames[f.group]}, Why: "it could not be read: " + reason(err)})
+			continue
+		}
+		items := acting(found)
 		if len(items) == 0 {
 			continue
 		}
@@ -177,11 +196,11 @@ func (p Plan) Run(ctx context.Context, progress Progress) Outcome {
 	return outcome
 }
 
-// itemsOf is the plan's things in group that the run acts on.
-func (p Plan) itemsOf(group Group) []Item {
+// acting are the things a run acts on: all but those it leaves.
+func acting(found []Item) []Item {
 	var items []Item
-	for _, item := range p.Items {
-		if item.Group == group && item.Action != Leave {
+	for _, item := range found {
+		if item.Action != Leave {
 			items = append(items, item)
 		}
 	}

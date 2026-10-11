@@ -150,9 +150,11 @@ func (m Machine) unlandedIn(ctx context.Context, w goblinWorktree) (unlanded, er
 			i++
 		}
 	}
+	// The goblin's own branch is no other branch: --exclude names it as
+	// --branches does, without refs/heads/.
 	u.notOwn = []string{"--not", "--remotes", "--tags"}
 	if u.branch != "" {
-		u.notOwn = append(u.notOwn, "--exclude=refs/heads/"+u.branch)
+		u.notOwn = append(u.notOwn, "--exclude="+u.branch)
 	}
 	u.notOwn = append(u.notOwn, "--branches")
 	count, err := m.git(ctx, w.Path, append([]string{"rev-list", "--count", "HEAD"}, u.notOwn...)...)

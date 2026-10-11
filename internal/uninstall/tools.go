@@ -27,9 +27,9 @@ type Fetched struct {
 	Skills []string `json:"skills"`
 	// Path are the entries the install added to the user's PATH.
 	Path []string `json:"path"`
-	// Folders are the tools' own folders in the profile, such as ~\.claude,
-	// that were not there before the first install.
-	Folders []string `json:"folders"`
+	// Places are the tools' own folders and files in the profile, such as
+	// ~\.claude, that were not there before the first install.
+	Places []string `json:"places"`
 }
 
 // FetchedTool is one tool the install fetched.
@@ -97,9 +97,9 @@ func (m Machine) tools(ctx context.Context, choices Choices) ([]Item, error) {
 			items = append(items, Item{Action: action, Group: GroupTools, What: "the skill " + filepath.Base(skill), Where: skill, do: func(context.Context) error { return fsx.RemoveAll(skill) }})
 		}
 	}
-	for _, folder := range fetched.Folders {
-		if isThere, _ := there(folder); isThere {
-			items = append(items, Item{Action: action, Group: GroupTools, What: "a folder of the tools' own, " + filepath.Base(folder), Where: folder, Bytes: sizeOf(folder), do: func(context.Context) error { return fsx.RemoveAll(folder) }})
+	for _, place := range fetched.Places {
+		if isThere, _ := there(place); isThere {
+			items = append(items, Item{Action: action, Group: GroupTools, What: "a place of the tools' own, " + filepath.Base(place), Where: place, Bytes: sizeOf(place), do: func(context.Context) error { return fsx.RemoveAll(place) }})
 		}
 	}
 	if m.Install.Env != nil {

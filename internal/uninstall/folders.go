@@ -28,8 +28,11 @@ func (m Machine) folders(context.Context) ([]Item, error) {
 			items = append(items, removal(GroupFolders, n.what, n.path))
 		}
 	}
+	items = append(items, m.tidied()...)
 	for _, aside := range Asides(m.Home.Root) {
-		items = append(items, removal(GroupFolders, "a copy of the uninstall an earlier run left", aside))
+		if !strings.EqualFold(aside, m.Aside) {
+			items = append(items, removal(GroupFolders, "a copy of the uninstall an earlier run left", aside))
+		}
 	}
 	// What the install, the setup and the window put in the temp folder
 	// under names of their own: the install's downloads and builds, the

@@ -31,8 +31,9 @@ type Machine struct {
 	Install install.Service
 	// Commands runs git, schtasks and the other programs the uninstall asks.
 	Commands execx.Runner
-	// Self is this program's own path, which the uninstall leaves for last.
-	Self string
+	// Self is this program's own path, which the uninstall leaves for last,
+	// and Aside the folder this run moved it to, which goes once it ends.
+	Self, Aside string
 	// Admin runs a script as administrator, which asks Windows once, and
 	// returns the Where of each thing the script found still there.
 	Admin func(context.Context, string) ([]string, error)

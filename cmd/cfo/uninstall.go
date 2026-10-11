@@ -89,8 +89,8 @@ func runUninstall(args []string, stdin io.Reader, stdout, stderr io.Writer) int 
 			fmt.Fprintln(stdout, "Nothing was changed.")
 			return 1
 		}
+		fmt.Fprintln(stdout)
 	}
-	fmt.Fprintln(stdout)
 	outcome := plan.Run(ctx, func(group uninstall.Group, done []uninstall.Item, left []uninstall.Left, finished bool) {
 		if !finished {
 			return
@@ -112,7 +112,9 @@ func runUninstall(args []string, stdin io.Reader, stdout, stderr io.Writer) int 
 		}
 	}
 	// The last read back is a plan made again from what the machine holds
-	// now: anything of Code Goblins' it still finds is named.
+	// now: anything of Code Goblins' it still finds is named, but for this
+	// program, which goes once it ends.
+	machine.Aside = plan.Aside()
 	again, err := uninstall.NewPlan(ctx, machine, choices)
 	if err != nil {
 		fmt.Fprintln(stdout, "The check that nothing is left could not run: "+err.Error()+".")

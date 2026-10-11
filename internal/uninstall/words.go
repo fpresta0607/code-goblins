@@ -65,7 +65,7 @@ func (p Plan) WriteSummary(out io.Writer) {
 		if n := len(p.itemsWhere(Remove, inGroup(GroupCredentials))); n > 0 {
 			line(capital(plural(n, "saved credential")), "in Windows Credential Manager")
 		}
-		if len(p.itemsWhere(Remove, inGroup(GroupShortcuts))) > 0 || len(p.itemsWhere(Remove, func(item Item) bool { return item.Group == GroupHome && item.Where != p.Home })) > 0 {
+		if len(p.itemsWhere(Remove, inGroup(GroupShortcuts))) > 0 || len(p.itemsWhere(Remove, func(item Item) bool { return item.What == "its entry in Installed apps" })) > 0 {
 			line("Shortcuts and startup", "Start menu, desktop, start at login, Installed apps")
 		}
 		if len(p.itemsWhere(Remove, func(item Item) bool { return item.Group == GroupHarnesses && !isRecord(item) })) > 0 {
@@ -214,7 +214,7 @@ func runningWords(items []Item) string {
 func toolWords(items []Item) string {
 	var names []string
 	for _, item := range items {
-		if !strings.HasPrefix(item.What, "the skill ") && !strings.HasPrefix(item.What, "its PATH entry") && !strings.HasPrefix(item.What, "a folder of the tools") && !slices.Contains(names, item.What) {
+		if !strings.HasPrefix(item.What, "the skill ") && !strings.HasPrefix(item.What, "its PATH entry") && !strings.HasPrefix(item.What, "a place of the tools") && !slices.Contains(names, item.What) {
 			names = append(names, item.What)
 		}
 	}

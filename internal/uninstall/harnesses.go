@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io/fs"
 	"os"
 	"path/filepath"
@@ -41,7 +42,6 @@ func (m Machine) harnesses(ctx context.Context) ([]Item, error) {
 			return nil
 		}})
 	}
-	var made []string
 	for _, harness := range []string{"claude", "codex", "pi"} {
 		dir, ok := m.Install.HarnessDirs[harness]
 		if !ok {
@@ -55,29 +55,11 @@ func (m Machine) harnesses(ctx context.Context) ([]Item, error) {
 				return err
 			}})
 		}
-		made = append(made, filepath.Join(dir, "settings.json"), filepath.Join(dir, "hooks.json"))
 	}
 	if skills, err := m.skills(); err != nil {
 		return nil, err
 	} else {
 		items = append(items, skills...)
-	}
-	made = unique(append(made, m.Install.UserSettings))
-	for _, backup := range install.SettingsBackups(made...) {
-		items = append(items, removal(GroupHarnesses, "a backup it kept of a settings file", backup))
-	}
-	// A settings or hooks file left holding nothing once the install's own
-	// entries are out is the install's, as is a folder it made that holds
-	// nothing now.
-	for _, file := range made {
-		if install.EmptyJSON(file) {
-			items = append(items, removal(GroupHarnesses, "an empty settings file it left", file))
-		}
-	}
-	for _, folder := range m.madeFolders() {
-		if entries, err := os.ReadDir(folder); err == nil && len(entries) == 0 {
-			items = append(items, removal(GroupHarnesses, "an empty folder it made", folder))
-		}
 	}
 	records, err := m.conversations()
 	if err != nil {
@@ -115,8 +97,71 @@ func (m Machine) skills() ([]Item, error) {
 	return items, nil
 }
 
+// settingsFiles are the harnesses' settings and hooks files an install
+// writes into.
+func (m Machine) settingsFiles() []string {
+	files := []string{m.Install.UserSettings}
+	for _, harness := range []string{"claude", "codex"} {
+		if dir, ok := m.Install.HarnessDirs[harness]; ok {
+			files = append(files, filepath.Join(dir, "settings.json"), filepath.Join(dir, "hooks.json"))
+		}
+	}
+	return unique(files)
+}
+
+// tidied are what the install's own edits leave in the harnesses' folders
+// once its entries are out: the backups it kept of their files, a settings
+// or hooks file left holding nothing, and a folder it made that holds
+// nothing, or nothing but other such folders, now.
+func (m Machine) tidied() []Item {
+	var items []Item
+	files := m.settingsFiles()
+	for _, backup := range install.SettingsBackups(files...) {
+		items = append(items, removal(GroupFolders, "a backup it kept of a settings file", backup))
+	}
+	for _, file := range files {
+		if install.EmptyJSON(file) {
+			items = append(items, removal(GroupFolders, "an empty settings file it left", file))
+		}
+	}
+	made := m.madeFolders()
+	for _, folder := range made {
+		if emptyBut(folder, made) {
+			items = append(items, Item{Action: Remove, Group: GroupFolders, What: "an empty folder it made", Where: folder, do: func(context.Context) error {
+				for _, inner := range made {
+					if inner != folder && within(inner, folder) {
+						removeIfEmpty(inner)
+					}
+				}
+				if !removeIfEmpty(folder) {
+					return fmt.Errorf("%s is not empty", folder)
+				}
+				return nil
+			}})
+		}
+	}
+	return items
+}
+
+// emptyBut reports whether folder holds nothing but folders of made that are
+// empty in the same way.
+func emptyBut(folder string, made []string) bool {
+	entries, err := os.ReadDir(folder)
+	if err != nil {
+		return false
+	}
+	for _, entry := range entries {
+		inner := filepath.Join(folder, entry.Name())
+		if !entry.IsDir() || !slices.ContainsFunc(made, func(path string) bool { return strings.EqualFold(path, inner) }) || !emptyBut(inner, made) {
+			return false
+		}
+	}
+	return true
+}
+
 // madeFolders are the folders an install makes in the harnesses' own
-// folders when they are missing, which go once nothing is left in them.
+// folders when they are missing, which go once nothing is left in them,
+// the inner ones first.
 func (m Machine) madeFolders() []string {
 	folders := []string{filepath.Join(m.Profile, ".agents", "skills"), filepath.Join(m.Profile, ".agents")}
 	if dir, ok := m.Install.HarnessDirs["claude"]; ok {
