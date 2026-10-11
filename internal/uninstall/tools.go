@@ -6,6 +6,9 @@ import (
 	"errors"
 	"fmt"
 	"io/fs"
+	"maps"
+	"os"
+	"path"
 	"path/filepath"
 	"slices"
 	"strings"
@@ -90,11 +93,19 @@ func (m Machine) tools(ctx context.Context, choices Choices) ([]Item, error) {
 		if (tool.Kind == "npm" || tool.Kind == "npm-file") && npmRoot == "" {
 			npmRoot = m.npmRoot(ctx)
 		}
-		where, isThere, remove := m.toolPlace(tool, npmRoot)
+		where, others, isThere, remove, err := m.toolPlace(tool, npmRoot)
+		if err != nil {
+			return nil, err
+		}
 		if !isThere {
 			continue
 		}
 		items = append(items, Item{Action: action, Group: GroupTools, What: toolName(tool.Name), Where: where, do: remove})
+		// The rest of the tool goes with its removal, and each is named, so
+		// what is left or removed is all there is of it.
+		for _, other := range others {
+			items = append(items, Item{Action: action, Group: GroupTools, What: toolName(tool.Name), Where: other})
+		}
 		if tool.Kind == "release" {
 			tasks, err := m.daemonTasks(ctx, tool.Name)
 			if err != nil {
@@ -133,9 +144,11 @@ func (m Machine) tools(ctx context.Context, choices Choices) ([]Item, error) {
 	return items, nil
 }
 
-// toolPlace is where a fetched tool is, whether it is still there, and how
-// it is removed: by the installer that put it there where there is one.
-func (m Machine) toolPlace(tool FetchedTool, npmRoot string) (string, bool, func(context.Context) error) {
+// toolPlace is where a fetched tool is, the other paths of its own that are
+// there, such as the commands npm made for it, whether it is still there,
+// and how it is removed: by the installer that put it there where there is
+// one.
+func (m Machine) toolPlace(tool FetchedTool, npmRoot string) (string, []string, bool, func(context.Context) error, error) {
 	run := func(name string, args ...string) func(context.Context) error {
 		return func(ctx context.Context) error {
 			result, err := m.Commands.Run(ctx, execx.Request{Name: name, Args: args})
@@ -152,16 +165,43 @@ func (m Machine) toolPlace(tool FetchedTool, npmRoot string) (string, bool, func
 	case "npm", "npm-file":
 		where := filepath.Join(npmRoot, filepath.FromSlash(tool.Package))
 		isThere, _ := there(where)
-		return where, isThere, run("npm.cmd", "uninstall", "--global", tool.Package)
+		commands, err := npmCommands(where, npmRoot)
+		if err != nil {
+			return "", nil, false, nil, err
+		}
+		uninstall := run("npm.cmd", "uninstall", "--global", tool.Package)
+		return where, commands, isThere, func(ctx context.Context) error {
+			if err := uninstall(ctx); err != nil {
+				return err
+			}
+			// A command npm did not take with the package runs nothing now.
+			for _, command := range commands {
+				if err := os.Remove(command); err != nil && !errors.Is(err, fs.ErrNotExist) {
+					return err
+				}
+			}
+			// npm leaves a scope's folder, such as @openai, once its last
+			// package has gone.
+			if scope := filepath.Dir(where); !strings.EqualFold(scope, filepath.Clean(npmRoot)) {
+				removeIfEmpty(scope)
+			}
+			return nil
+		}, nil
 	case "winget":
-		return tool.Package, true, run("winget", "uninstall", "--exact", "--id", tool.Package, "--silent", "--accept-source-agreements", "--disable-interactivity")
+		return tool.Package, nil, true, run("winget", "uninstall", "--exact", "--id", tool.Package, "--silent", "--accept-source-agreements", "--disable-interactivity"), nil
 	case "powershell":
 		// Claude Code's own installer keeps its program and versions here.
 		program := filepath.Join(m.Profile, ".local", "bin", "claude.exe")
 		isThere, _ := there(program)
-		return program, isThere, func(context.Context) error {
-			for _, path := range []string{program, filepath.Join(m.Profile, ".local", "share", "claude"), filepath.Join(m.Profile, ".local", "state", "claude"), filepath.Join(m.Profile, ".cache", "claude")} {
-				if err := fsx.RemoveAll(path); err != nil {
+		var others []string
+		for _, place := range []string{filepath.Join(m.Profile, ".local", "share", "claude"), filepath.Join(m.Profile, ".local", "state", "claude"), filepath.Join(m.Profile, ".cache", "claude")} {
+			if isOther, _ := there(place); isOther {
+				others = append(others, place)
+			}
+		}
+		return program, others, isThere, func(context.Context) error {
+			for _, place := range append([]string{program}, others...) {
+				if err := fsx.RemoveAll(place); err != nil {
 					return err
 				}
 			}
@@ -170,18 +210,61 @@ func (m Machine) toolPlace(tool FetchedTool, npmRoot string) (string, bool, func
 			}
 			removeIfEmpty(filepath.Join(m.Profile, ".cache"))
 			return nil
-		}
+		}, nil
 	case "release":
 		folder := filepath.Join(m.LocalAppData, tool.Name)
 		program := filepath.Join(folder, tool.Name+".exe")
 		isThere, _ := there(program)
-		return folder, isThere, func(ctx context.Context) error {
+		return folder, nil, isThere, func(ctx context.Context) error {
 			// Its daemon holds the program, so it stops first.
 			_ = run(program, "daemon", "stop")(ctx)
 			return fsx.RemoveAll(folder)
+		}, nil
+	}
+	return tool.Name, nil, false, nil, nil
+}
+
+// npmCommands are the commands npm made for the package at where, in the
+// folder above npm's root, such as codex, codex.cmd and codex.ps1, that are
+// there. npm names them by the package's bin: each name it gives, or the
+// package's own name, without its scope, for a bin of one program.
+func npmCommands(where, npmRoot string) ([]string, error) {
+	data, err := fsx.ReadFile(filepath.Join(where, "package.json"))
+	if errors.Is(err, fs.ErrNotExist) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	var manifest struct {
+		Name string          `json:"name"`
+		Bin  json.RawMessage `json:"bin"`
+	}
+	if err := json.Unmarshal(data, &manifest); err != nil {
+		return nil, fmt.Errorf("uninstall: read which commands npm made for %s: %w", where, err)
+	}
+	var names []string
+	var one string
+	var many map[string]string
+	switch {
+	case len(manifest.Bin) == 0:
+	case json.Unmarshal(manifest.Bin, &one) == nil:
+		names = []string{path.Base(manifest.Name)}
+	case json.Unmarshal(manifest.Bin, &many) == nil:
+		names = slices.Sorted(maps.Keys(many))
+	default:
+		return nil, fmt.Errorf("uninstall: read which commands npm made for %s: its bin is neither a name nor a list of them", where)
+	}
+	var commands []string
+	for _, name := range names {
+		for _, suffix := range []string{"", ".cmd", ".ps1"} {
+			command := filepath.Join(filepath.Dir(npmRoot), name+suffix)
+			if isThere, _ := there(command); isThere {
+				commands = append(commands, command)
+			}
 		}
 	}
-	return tool.Name, false, nil
+	return commands, nil
 }
 
 // daemonTasks are the scheduled tasks a fetched tool's daemon registers for

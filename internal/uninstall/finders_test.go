@@ -301,6 +301,102 @@ func TestToolsTheInstallFetchedAreLeftUnlessThePersonChoseToRemoveThem(t *testin
 	}
 }
 
+// The commands npm made for a tool, in the folder above its packages, are the
+// tool's too, so the plan names each with it, whatever way the package names
+// them, and names no command of another's.
+func TestTheCommandsNpmMadeForAToolAreNamedWithIt(t *testing.T) {
+	cases := []struct {
+		name     string
+		manifest string
+		want     []string
+	}{
+		{name: "a bin of named programs", manifest: `{"name":"@openai/codex","bin":{"codex":"bin/codex.js","codex-tui":"bin/tui.js"}}`, want: []string{"codex", "codex.cmd", "codex.ps1", "codex-tui", "codex-tui.cmd", "codex-tui.ps1"}},
+		{name: "a bin of one program, named for the package without its scope", manifest: `{"name":"@openai/codex","bin":"bin/codex.js"}`, want: []string{"codex", "codex.cmd", "codex.ps1"}},
+		{name: "no bin", manifest: `{"name":"@openai/codex"}`},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			// Arrange
+			m := testMachine(t)
+			prefix := filepath.Join(m.AppData, "npm")
+			write(t, filepath.Join(prefix, "node_modules", "@openai", "codex", "package.json"), tc.manifest)
+			for _, name := range []string{"codex", "codex.cmd", "codex.ps1", "codex-tui", "codex-tui.cmd", "codex-tui.ps1", "other.cmd"} {
+				write(t, filepath.Join(prefix, name), "x")
+			}
+			fetched, _ := json.Marshal(Fetched{Tools: []FetchedTool{{Name: "codex", Kind: "npm", Package: "@openai/codex"}}})
+			write(t, filepath.Join(m.Home.State, FetchedFile), string(fetched))
+
+			// Act
+			items, err := m.tools(context.Background(), Choices{})
+
+			// Assert
+			if err != nil {
+				t.Fatal(err)
+			}
+			var got []string
+			for _, item := range items[1:] {
+				if item.Action != Leave || item.What != "Codex" {
+					t.Errorf("named %s %s for a command of Codex", item.Action, item.What)
+				}
+				got = append(got, filepath.Base(item.Where))
+			}
+			if items[0].Where != filepath.Join(prefix, "node_modules", "@openai", "codex") || strings.Join(got, " ") != strings.Join(tc.want, " ") {
+				t.Errorf("named %s and the commands %v, want the package and %v", items[0].Where, got, tc.want)
+			}
+		})
+	}
+}
+
+// npmUninstall is npm uninstalling a package as npm does on Windows: the
+// package goes, while its scope's folder stays, and here its commands stay
+// too, as they would were npm to miss them.
+type npmUninstall struct{ root string }
+
+func (n npmUninstall) Run(_ context.Context, request execx.Request) (execx.Result, error) {
+	if request.Name == "npm.cmd" && len(request.Args) == 3 && request.Args[0] == "uninstall" {
+		return execx.Result{}, os.RemoveAll(filepath.Join(n.root, filepath.FromSlash(request.Args[2])))
+	}
+	return execx.Result{ExitCode: 1}, nil
+}
+
+// Once npm has removed a tool, nothing of it stays: no command it made and
+// no scope folder it emptied, while npm's own folder of packages does.
+func TestRemovingAnNpmToolLeavesNoCommandAndNoEmptyScope(t *testing.T) {
+	// Arrange
+	m := testMachine(t)
+	prefix := filepath.Join(m.AppData, "npm")
+	root := filepath.Join(prefix, "node_modules")
+	m.Commands = npmUninstall{root: root}
+	write(t, filepath.Join(root, "@openai", "codex", "package.json"), `{"name":"@openai/codex","bin":{"codex":"bin/codex.js"}}`)
+	write(t, filepath.Join(root, "lavish-axi", "package.json"), `{"name":"lavish-axi","bin":"dist/cli.mjs"}`)
+	for _, name := range []string{"codex", "codex.cmd", "codex.ps1", "lavish-axi.cmd"} {
+		write(t, filepath.Join(prefix, name), "x")
+	}
+	fetched, _ := json.Marshal(Fetched{Tools: []FetchedTool{{Name: "codex", Kind: "npm", Package: "@openai/codex"}, {Name: "lavish-axi", Kind: "npm", Package: "lavish-axi"}}})
+	write(t, filepath.Join(m.Home.State, FetchedFile), string(fetched))
+	items, err := m.tools(context.Background(), Choices{RemoveTools: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Act
+	doAll(t, items)
+	again, againErr := m.tools(context.Background(), Choices{RemoveTools: true})
+
+	// Assert
+	if againErr != nil || len(again) != 0 {
+		t.Errorf("read back\n%s\n%v, want nothing of the tools", whats(again), againErr)
+	}
+	for _, gone := range []string{"codex", "codex.cmd", "codex.ps1", "lavish-axi.cmd", filepath.Join("node_modules", "@openai")} {
+		if _, err := os.Stat(filepath.Join(prefix, gone)); !os.IsNotExist(err) {
+			t.Errorf("%s is still there: %v", gone, err)
+		}
+	}
+	if _, err := os.Stat(root); err != nil {
+		t.Errorf("npm's own folder of packages went: %v", err)
+	}
+}
+
 // No word the uninstall says has a semicolon or a dash between its clauses.
 func TestTheWordsHaveNoSemicolonAndNoDash(t *testing.T) {
 	// Arrange
