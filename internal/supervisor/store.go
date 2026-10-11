@@ -680,14 +680,13 @@ func (s *Store) queue(a Action) (Action, error) {
 // queueItemAction admits the Overlord answering or clearing one Command
 // Center item: an open review, or a question that closed without an answer
 // or still waits on him, which the clear dismisses. A pending question whose
-// answer is on its way cannot be cleared. A clear carries text only to say the Overlord opened or downloaded
-// the item's document. An answer and a clear close their item here, under the
+// answer is on its way cannot be cleared, and a clear carries no text. An
+// answer and a clear close their item here, under the
 // store lock, so every board shows it closed at once; the action that runs
 // later only delivers the answer or tells the asker of the clear.
 func (s *Store) queueItemAction(a Action) (Action, error) {
 	answer := a.Kind == "review_answer"
-	opened := a.Kind == "review_clear" && (a.Text == "Opened" || a.Text == "Downloaded")
-	if a.Generation == "" || answer && strings.TrimSpace(a.Text) == "" || !answer && !opened && a.Text != "" || a.TaskID != "" || a.File != "" || a.Head != "" || a.Revision != "" || a.DiffID != "" || a.Line != 0 || a.EndLine != 0 || a.Side != "" || a.Session != "" || a.EventID != "" || (a.Kind == "question_clear") != (a.QuestionID != "") || (a.Kind == "review_answer" || a.Kind == "review_clear") != (a.ReviewID != "") || (a.Kind == "run" || a.Kind == "run_stop") != (a.RunID != "") {
+	if a.Generation == "" || answer && strings.TrimSpace(a.Text) == "" || !answer && a.Text != "" || a.TaskID != "" || a.File != "" || a.Head != "" || a.Revision != "" || a.DiffID != "" || a.Line != 0 || a.EndLine != 0 || a.Side != "" || a.Session != "" || a.EventID != "" || (a.Kind == "question_clear") != (a.QuestionID != "") || (a.Kind == "review_answer" || a.Kind == "review_clear") != (a.ReviewID != "") || (a.Kind == "run" || a.Kind == "run_stop") != (a.RunID != "") {
 		return Action{}, errors.New("an item action names only its item, that item's identity and, for an answer, its text")
 	}
 	review := -1

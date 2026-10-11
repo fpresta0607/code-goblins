@@ -655,7 +655,7 @@ A pick or a note you send just before **Send & End** is part of that one answer,
 </p>
 
 Other items, a plain link included, are answered in writing with **Send answer**, and any item but a wait closes with **Clear**.
-A document the CFO or a goblin delivers with `cfo deliver` shows its file type, name and size with **Download**, and **Open** when the browser can show it or it has a link; opening or downloading it moves it to History.
+A file the CFO or a goblin hands you with `cfo deliver` opens as a Scrawl page that shows it: a picture inline, a PDF page by page and plain text as text, under the title it was given. What you write there goes back to whoever delivered it. The page offers **Download** only for a generated asset or a file you asked to keep.
 Each item that needs you has one signal on the visible board: **Open Command Center** and its count.
 An item shows no toast and opens no dialog by itself.
 Only an open Command Center item that asks you something alerts you: a question the CFO asks you, a goblin's wait or page addressed to you, a command to run, a credential request or a new release.
@@ -880,7 +880,7 @@ cfo answer <question-id|wake-seq> --option <choice> [--note "<text>"]
 cfo answer <question-id> --option <choice> [--note "<text>"] --record-only [--in <where>]
 cfo review --id <stable-id> --title "<what to look at>" [--task <id>] [--image <path>]... [--lavish <url|html-file>]
 cfo review --clear <stable-id> --reason "<why>"
-cfo deliver --id <stable-id> --title "<what it is>" --file <path> [--url <link>] [--task <id>]
+cfo deliver --id <stable-id> --title "<what it is>" --file <path> [--download] [--task <id>]
 cfo run-request --id <stable-id> --title "<why>" --shell powershell|pwsh|bash [--admin] [--cwd <dir>] --command-file <path>
 cfo run-request --withdraw <id> --reason "<why>"
 ```

@@ -744,9 +744,9 @@ func TestAGoblinsOwnItemClosesOnceItsTaskFinishesOrIsGone(t *testing.T) {
 	}
 }
 
-// A goblin's delivered document outlives the goblin: it stays open after its
-// task reports done and after its task record is gone, until the Overlord
-// opens, downloads or clears it.
+// A goblin's delivered file outlives the goblin: it stays open after its task
+// reports done and after its task record is gone, until the Overlord answers
+// on its page or clears it.
 func TestAGoblinsDeliveredDocumentStaysOpenAfterItsTaskFinishesOrIsGone(t *testing.T) {
 	store, h := testStore(t)
 	item := openReview("task-1-report", "task-1")

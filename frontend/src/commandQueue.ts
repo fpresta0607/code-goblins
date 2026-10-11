@@ -1,5 +1,5 @@
 import type { IconName } from "./Icon.tsx";
-import { object, string, type Action, type BoardActivity, type CredentialRequest, type Question, type Review, type ReviewDocument, type Run, type Snapshot } from "./types.ts";
+import { object, string, type Action, type BoardActivity, type CredentialRequest, type Question, type Review, type Run, type Snapshot } from "./types.ts";
 import { deliveryMark, runMark, type Submission } from "./feedback.ts";
 import { credentialSettled } from "./credentials.ts";
 import { plainMessage } from "./messageText.ts";
@@ -146,7 +146,7 @@ export function sendState(draft: SentDraft, actions: Action[]): SendState | unde
   const cleared = sent.kind === "review_clear" || sent.kind === "question_clear";
   return {
     failed: outcome ? deliveryMark(outcome).trouble : !!draft.error,
-    heading: cleared ? string(sent.text) || (sent.kind === "question_clear" ? "Dismissed" : "Cleared")
+    heading: cleared ? sent.kind === "question_clear" ? "Dismissed" : "Cleared"
       : outcome?.status === "queued" ? "Queued"
       : draft.sending && !outcome || outcome?.status === "running" && !outcome.awaiting ? "Sending" : "Sent",
     cleared,
@@ -185,15 +185,6 @@ export function questionPage(presentations: BoardActivity[], question: Question)
   return [...presentations].reverse().find((event) => event.kind === "review" && (question.task
     ? event.task_id === question.task && event.generation === question.generation
     : !!event.cfo_identity && event.cfo_identity === question.identity));
-}
-
-// A document's facts on one line: its type from the file name, its size and
-// who sent it, such as "PDF · 2.4 MB · from the CFO".
-export function documentFacts(document: ReviewDocument, sender: string): string {
-  const dot = document.name.lastIndexOf(".");
-  const extension = dot > 0 ? document.name.slice(dot + 1).toUpperCase() : "";
-  const size = document.size >= 1 << 20 ? (document.size / (1 << 20)).toFixed(1) + " MB" : document.size >= 1 << 10 ? Math.round(document.size / (1 << 10)) + " KB" : document.size + " B";
-  return [extension || "File", size, "from " + sender].join(" · ");
 }
 
 export function settledItems(snapshot: Snapshot): Item[] {
