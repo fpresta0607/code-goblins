@@ -224,3 +224,51 @@ func TestReadCountsNoMachineServiceAsTheGoblinsWork(t *testing.T) {
 		t.Errorf("the goblin reads as working (%t, busy at %s) by the daemon's agent", tree.Working(), tree.Busy())
 	}
 }
+
+// A goblin's terminal is the host that runs its harness, which has no parent
+// once the spawn that started it has returned, and which works in the task's
+// folders. It is the terminal, never a job of the goblin's: its processor
+// time draws the goblin's screen.
+func TestReadKeepsTheGoblinsOwnTerminalOutOfItsJobs(t *testing.T) {
+	// Arrange
+	launched := at.Add(-time.Hour)
+	hostCPU := time.Minute
+	processes := func() []Process {
+		return []Process{
+			{PID: 50, ParentPID: 990, Exe: "cfo.exe", Created: 1, Started: launched.Add(-time.Second), CPU: hostCPU, Memory: 30 * megabyte},
+			{PID: 51, ParentPID: 50, Exe: "OpenConsole.exe", Created: 2, Started: launched.Add(-time.Second), CPU: hostCPU, Memory: 10 * megabyte},
+			{PID: 100, ParentPID: 50, Exe: "claude.exe", Created: 3, Started: launched, Memory: 500 * megabyte},
+		}
+	}
+	now := at
+	reader := Reader{
+		Home:        t.TempDir(),
+		Processes:   func() ([]Process, error) { return processes(), nil },
+		Listeners:   func() (map[int][]int, error) { return nil, nil },
+		CommandLine: func(pid int) (string, error) { return map[int]string{50: `cfo.exe host --id tree --dir C:\worktrees\repo\tree`}[pid], nil },
+		// The host is the task's by the worktree it is told to work in.
+		Owner: func(pid int) string { return map[int]string{50: "tree"}[pid] },
+		Now:   func() time.Time { return now },
+	}
+	goblin := Goblin{Meta: state.TaskMeta{ID: "tree", Harness: "codex"}, HarnessPID: 100}
+
+	// Act: two reads a minute apart, the host drawing the screen between them.
+	if _, err := reader.Read(context.Background(), goblin); err != nil {
+		t.Fatal(err)
+	}
+	now, hostCPU = at.Add(time.Minute), hostCPU+30*time.Second
+	tree, err := reader.Read(context.Background(), goblin)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Assert
+	for _, child := range tree.Children {
+		if child.Kind == KindProcess {
+			t.Errorf("the goblin's tree holds %+v, want no job: the host is its terminal", child)
+		}
+	}
+	if tree.Working() || tree.Memory != 500*megabyte {
+		t.Errorf("the goblin reads as working = %t with %d MB, want idle with its harness's 500 MB", tree.Working(), tree.Memory/megabyte)
+	}
+}
