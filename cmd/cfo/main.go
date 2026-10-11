@@ -17,6 +17,7 @@ import (
 
 	"github.com/fpresta0607/code-goblins/internal/afk"
 	"github.com/fpresta0607/code-goblins/internal/auth"
+	"github.com/fpresta0607/code-goblins/internal/defender"
 	"github.com/fpresta0607/code-goblins/internal/devdrive"
 	"github.com/fpresta0607/code-goblins/internal/digest"
 	"github.com/fpresta0607/code-goblins/internal/execx"
@@ -68,6 +69,7 @@ commands:
   uninstall the same as install --uninstall
   home      migrate [--apply --plan <digest>] [--memory-from <dir>]: lay out a home whose data predates the layout; without --apply a dry run that lists every file it would move, create or change, proves none is dropped and prints the plan digest --apply --plan makes; move [--to <dir>] [--apply --plan <digest>]: move an older build's home, such as a checkout, to the per-user home, with the same dry run, digest and read-back
   dev-drive say whether the home's worktrees, scratch and package caches are on a Dev Drive, a drive Windows 11 formats for developer work that Defender scans in performance mode (not an exclusion), whether this machine has or can have one, and why not; setup: ask for the next step, which the board puts in the Command Center as one item to run; move --to <folder>: put new goblins' worktrees, scratch and caches in <folder> on a trusted Dev Drive, keeping every started goblin's folders where they are
+  defender  [--since <time|day|length>] [--json]: list what Microsoft Defender recorded under the fleet's folders since then, its detections and the samples it sent to Microsoft, each file with the task and test that made it; it only reads Defender's own records
   doctor    check the tools cfo needs (git, gh, claude, herdr, codex, pi, tasks-axi, quota-axi, no-mistakes, gh-axi, chrome-devtools-axi) and each harness's version beside its newest; --fix installs the newest Codex and pi once each starts to its composer in a terminal of its own, while nothing runs from its install
   pipeline  config-drift | config-apply | migrate <id> | run <id> [--branch <b>] --intent-file <file> | respond <id> [--branch <b> | --run <run>] --action <fix|approve> [--findings <ids>] [--instructions <text>] | recover <id> [--branch <b> | --run <run>]; --branch or --run acts in whichever of the task's worktrees, an extra one included, has that branch checked out
   drain     print or acknowledge the wake queue and recovery episode
@@ -88,6 +90,7 @@ commands:
   cfo hygiene <task-id>
   cfo gate tests-kept   run from a no-mistakes repository gate: exits 1 when the gate's own fix commits deleted or skipped a test, so the run parks for an ask-user decision
   cfo gate test [--level fast|affected|full] [--plan]   this repository's gate test step: go vet and go test on the packages the branch changed, the packages that import them and the packages config/verify.json names for a changed file their tests read, without the fleet's home; it lists the changed files no Go check reads, and a changed file the policy does not account for requires every package; CI runs every package; --level fast leaves the slow packages' tests and the importers' to affected, full tests every package, --plan prints the plan and runs nothing; each run leaves a report and prints its path; above fast its tests wait for the run's turn on the machine, one run at a time
+  cfo gate prepush [--plan] [--limit <duration>]   what a goblin runs before it pushes: picks what the branch's change can break and runs it one check at a time, stopping with one plain line at the first failure: go vet of the packages the change reaches, the tests that read the whole tree, the changed packages and the packages that import them, nearest first, and for a change under frontend the type check, the lint, the unit tests and the browser specs the change touched or names. A slow package runs without the tests this machine timed at 2 seconds or longer, unless the change touched their file. It takes its turn on the machine, starts no check under the memory floor or after its time limit, 15 minutes unless --limit says otherwise, and names what it left to CI. --plan prints the pick and runs nothing
   cfo gate turns        show which cfo gate test runs hold the machine's turns, for how long and under what budget, how far their tests are, and which wait
   cfo deploy <task-id> [--target <name>]
   cfo evidence <task-id>
@@ -214,6 +217,9 @@ type commandRuntime struct {
 	// readDevDrive reads what this machine says about Dev Drives, for cfo
 	// dev-drive and cfo doctor.
 	readDevDrive func(context.Context) (devdrive.Machine, error)
+	// readDefender reads what Microsoft Defender recorded since a time, for
+	// cfo defender.
+	readDefender func(context.Context, time.Time) (defender.Report, error)
 	// repoActivity reads what GitHub says is happening in the repository a
 	// checkout's origin names, for cfo tickets.
 	repoActivity func(ctx context.Context, checkout string, now time.Time) (tickets.Activity, error)
@@ -255,6 +261,13 @@ type commandRuntime struct {
 	gateBudget    func(gatetest.Level) time.Duration
 	gateRun       func(command []string, dir string, env []string, stdout, stderr io.Writer) (int, error)
 	gateProgress  time.Duration
+	// pushRun runs one check of cfo gate prepush in dir and returns its exit
+	// code, ending the check when its context ends. pushMemoryPoll is how
+	// often a run that waits for the memory floor reads memory again, and
+	// pushAgain how long the second run of a failed test may take.
+	pushRun        func(ctx context.Context, command []string, dir string, env []string, stdout, stderr io.Writer) (int, error)
+	pushMemoryPoll time.Duration
+	pushAgain      time.Duration
 	// trainEvery is how often cfo pr train looks at its train's CI. Zero, in
 	// every runtime but a test's, is the trainEvery constant.
 	trainEvery time.Duration
@@ -385,6 +398,9 @@ func defaultCommandRuntime() commandRuntime {
 		quota:        quota.Reader{Commands: execx.OSRunner{}}.Read,
 		projectsRoot: install.MachineProjectsRoot,
 		readDevDrive: func(ctx context.Context) (devdrive.Machine, error) { return devdrive.Read(ctx, execx.OSRunner{}) },
+		readDefender: func(ctx context.Context, since time.Time) (defender.Report, error) {
+			return defender.Read(ctx, execx.OSRunner{}, since)
+		},
 		goblins:      invokedAsGoblins(),
 		startServe:   startDetachedServe,
 		openURL:      openInBrowser,
@@ -421,6 +437,9 @@ func defaultCommandRuntime() commandRuntime {
 		gateBudget:      gateBudget,
 		gateRun:         runGateCommand,
 		gateProgress:    5 * time.Second,
+		pushRun:         runPushCommand,
+		pushMemoryPoll:  2 * time.Second,
+		pushAgain:       5 * time.Minute,
 	}
 }
 
@@ -510,6 +529,8 @@ func runWithRuntime(args []string, stdout, stderr io.Writer, runtime commandRunt
 		return runDictation(args[1:], stdout, stderr, runtime)
 	case "dev-drive":
 		return runDevDrive(args[1:], stdout, stderr, runtime)
+	case "defender":
+		return runDefender(args[1:], stdout, stderr, runtime)
 	case "allowance-floor":
 		return runAllowanceFloor(args[1:], stdout, stderr, runtime)
 	case "home":

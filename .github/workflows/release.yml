@@ -269,6 +269,46 @@ jobs:
           $pin = @{ Repository = $env:GITHUB_REPOSITORY; Tag = $env:GITHUB_REF_NAME; Destination = 'release/install.ps1' }
           if ($env:SIGNED -eq 'true') { $pin.Publisher = $env:SIGNING_PUBLISHER }
           ./tools/pin-installer.ps1 @pin
+      # The install script is signed as the programs are, with the release's
+      # own certificate, once it is pinned, since pinning rewrites it. An
+      # unsigned script that downloads and runs programs is one Microsoft
+      # Defender sends to Microsoft from every PC that meets it. The one-line
+      # install runs the script as text, where the signature is a block of
+      # comment lines at its end and changes nothing it does.
+      - name: Sign the installer
+        if: steps.signing.outputs.signed == 'true'
+        uses: azure/artifact-signing-action@v2
+        with:
+          endpoint: ${{ vars.SIGNING_ENDPOINT }}
+          signing-account-name: ${{ vars.SIGNING_ACCOUNT }}
+          certificate-profile-name: ${{ vars.SIGNING_PROFILE }}
+          files: |
+            ${{ github.workspace }}\release\install.ps1
+          file-digest: SHA256
+          timestamp-rfc3161: http://timestamp.acs.microsoft.com
+          timestamp-digest: SHA256
+          description: Code Goblins
+          description-url: https://github.com/${{ github.repository }}
+      # The script must carry a valid, timestamped signature from the expected
+      # publisher, and still be plain ASCII that parses, or the release stops:
+      # a release download carries no charset, which Windows PowerShell reads
+      # as Latin-1.
+      - name: Verify the installer's signature
+        if: steps.signing.outputs.signed == 'true'
+        shell: pwsh
+        env:
+          SIGNING_PUBLISHER: ${{ vars.SIGNING_PUBLISHER }}
+        run: |
+          $script = 'release/install.ps1'
+          $signature = Get-AuthenticodeSignature -FilePath $script
+          if ($signature.Status -ne 'Valid') { throw "$script is not validly signed: $($signature.Status) $($signature.StatusMessage)" }
+          if ($signature.SignerCertificate.GetNameInfo('SimpleName', $false) -ne $env:SIGNING_PUBLISHER) { throw "$script is signed by '$($signature.SignerCertificate.Subject)', not '$env:SIGNING_PUBLISHER'" }
+          if (-not $signature.TimeStamperCertificate) { throw "$script carries no timestamp, so its signature would lapse with the certificate" }
+          $text = [IO.File]::ReadAllText((Resolve-Path $script).Path)
+          if ($text -match '[^\x00-\x7F]') { throw "$script has a character outside ASCII once it is signed" }
+          $problems = $null
+          [void][System.Management.Automation.Language.Parser]::ParseInput($text, [ref]$null, [ref]$problems)
+          if ($problems) { throw "$script no longer parses once it is signed: $($problems[0].Message)" }
       # The notes open with what a person must know before trusting the
       # files: whether they are signed and by whom, and their sums.
       - name: Write the release notes
@@ -280,6 +320,7 @@ jobs:
           $notes = @()
           if ($env:SIGNED -eq 'true') {
             $notes += "The programs of this release are code-signed by **$env:SIGNING_PUBLISHER**, and the install refuses a download that is not."
+            $notes += "Its install script, ``install.ps1``, is signed by the same publisher."
           }
           else {
             $notes += "**This release is unsigned.** Code Goblins has no code-signing identity yet, so Windows knows these programs only as from an unknown publisher: a file saved with a browser gets SmartScreen's ""Windows protected your PC"", where **More info** and then **Run anyway** starts it, and Smart App Control, where it is on, blocks it."
