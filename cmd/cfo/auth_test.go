@@ -527,7 +527,7 @@ func TestAuthGrantAndRevokeAreRefusedInAGoblinsOrAGateAgentsTerminal(t *testing.
 // no later terminal carries it, and its credential script is rewritten
 // without it. The terminal running now keeps what it already holds, which
 // the output says along with the restart that ends it, and it is told nothing
-// to load, since loading a script sets variables and never unsets one. It
+// to load, since loading the script takes no service's variable away. It
 // names services and a path, never a value.
 func TestAuthRevokeTakesAServiceOutOfARunningTasksRecord(t *testing.T) {
 	// Arrange
@@ -668,7 +668,7 @@ func TestAuthRevokeMCPTakesAServerOutOfARunningTasksRecord(t *testing.T) {
 	}
 	var sent []string
 	runtime := refreshTestRuntime(t, stateDir, cmdPanes{live: map[string]bool{"pane-live": true}}, &sent)
-	if code, _, stderr := runCLIWithRuntime(t, runtime, "grant", "live-1", "--mcp", "literal-env"); code != 0 {
+	if code, _, stderr := runCLIWithRuntime(t, runtime, "grant", "live-1", "--mcp", "literal-env", "plain"); code != 0 {
 		t.Fatalf("cfo auth grant --mcp = %d: %s", code, stderr)
 	}
 
@@ -680,10 +680,10 @@ func TestAuthRevokeMCPTakesAServerOutOfARunningTasksRecord(t *testing.T) {
 		t.Fatalf("cfo auth revoke --mcp = %d: %s", code, stderr)
 	}
 	after, err := state.ReadTaskMeta(stateDir, "live-1")
-	if err != nil || len(after.MCPServers) != 0 || strings.Join(after.Credentials, ",") != "stored" {
-		t.Errorf("after the revoke the record names the MCP servers %v and the services %v, %v, want no server and nothing else changed", after.MCPServers, after.Credentials, err)
+	if err != nil || strings.Join(after.MCPServers, ",") != "plain" || strings.Join(after.Credentials, ",") != "stored" {
+		t.Errorf("after the revoke the record names the MCP servers %v and the services %v, %v, want plain alone and nothing else changed", after.MCPServers, after.Credentials, err)
 	}
-	for _, want := range []string{"revoked the MCP servers literal-env from live-1. Its record names none", "running now keeps", "`cfo switch live-1 --restart`"} {
+	for _, want := range []string{"revoked the MCP servers literal-env from live-1. Its record names plain", "running now keeps", "`cfo switch live-1 --restart`"} {
 		if !strings.Contains(stdout, want) {
 			t.Errorf("stdout = %q, want %q", stdout, want)
 		}
@@ -798,5 +798,41 @@ func TestAuthGrantMCPNamesAServerInARunningTasksRecord(t *testing.T) {
 		if strings.Contains(text, "stand-in-mcp-env-value") {
 			t.Errorf("the grant's words hold a value of the server's entry: %q", text)
 		}
+	}
+}
+
+// A credential pasted where a task id goes passes as an id, since an id may
+// hold letters, digits and underscores. The commands that name a task's
+// services refuse it without repeating it, as they refuse a service name
+// shaped like a value.
+func TestAuthTaskCommandsNeverRepeatATaskIDShapedLikeACredentialValue(t *testing.T) {
+	valueShaped := "sk_live_" + strings.Repeat("a1B2", 8)
+	for _, args := range [][]string{
+		{"grant", valueShaped, "stored"},
+		{"grant", valueShaped, "--mcp", "literal-env"},
+		{"revoke", valueShaped, "stored"},
+		{"revoke", valueShaped, "--mcp", "literal-env"},
+		{"refresh", valueShaped},
+	} {
+		t.Run(strings.TrimSpace(args[0]+" "+strings.Join(args[2:], " ")), func(t *testing.T) {
+			// Arrange
+			t.Setenv(harness.RoleVariable, "")
+			t.Setenv(gateAgentVariable, "")
+			useFileStore(t)
+			stateDir := filepath.Join(t.TempDir(), "state")
+			var sent []string
+			runtime := refreshTestRuntime(t, stateDir, cmdPanes{live: map[string]bool{}}, &sent)
+
+			// Act
+			code, stdout, stderr := runCLIWithRuntime(t, runtime, args...)
+
+			// Assert
+			if code != 2 || !strings.Contains(stderr, "the task id looks like a credential value") {
+				t.Errorf("exit = %d, stderr = %q, want it refused as shaped like a value", code, stderr)
+			}
+			if strings.Contains(stdout+stderr, valueShaped) {
+				t.Error("the refusal repeats a task id shaped like a credential value")
+			}
+		})
 	}
 }

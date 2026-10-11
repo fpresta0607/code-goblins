@@ -71,7 +71,8 @@ type TaskMeta struct {
 	Parent string
 	// Credentials names the services of the project's auth manifest whose
 	// credentials the task's terminal carries: what its spawn gave it, plus
-	// what cfo auth grant added since. Every later terminal of the task, a
+	// what cfo auth grant added since and less what cfo auth revoke took
+	// out. Every later terminal of the task, a
 	// resume's or a switch's, carries the same ones. It holds names, never a
 	// value.
 	Credentials []string
@@ -82,7 +83,8 @@ type TaskMeta struct {
 	HasCredentials bool
 	// MCPServers names the MCP servers of the project's .mcp.json the task
 	// is given although their entry holds a value: the ones its brief named,
-	// plus what cfo auth grant added since. A record that names none is a
+	// plus what cfo auth grant added since and less what cfo auth revoke took
+	// out. A record that names none is a
 	// task given none of those, which is also every task an older build
 	// spawned. It holds names, never a value.
 	MCPServers []string

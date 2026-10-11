@@ -702,6 +702,9 @@ func runAuthGrant(args []string, stdout, stderr io.Writer, runtime commandRuntim
 		fmt.Fprint(stderr, authUsage)
 		return 2
 	}
+	if isValueShapedTaskID("grant", args[0], stderr) {
+		return 2
+	}
 	if os.Getenv(harness.RoleVariable) == harness.RoleGoblin || os.Getenv(gateAgentVariable) != "" {
 		fmt.Fprintln(stderr, "cfo auth grant: granting a service is the CFO's act, never a goblin's or a gate agent's. Say which service your task needs and why in a blocked report, and the CFO grants it")
 		return 2
@@ -759,6 +762,9 @@ func runAuthRevoke(args []string, stdout, stderr io.Writer, runtime commandRunti
 		fmt.Fprint(stderr, authUsage)
 		return 2
 	}
+	if isValueShapedTaskID("revoke", args[0], stderr) {
+		return 2
+	}
 	if os.Getenv(harness.RoleVariable) == harness.RoleGoblin || os.Getenv(gateAgentVariable) != "" {
 		fmt.Fprintln(stderr, "cfo auth revoke: revoking a service is the CFO's act, never a goblin's or a gate agent's. Say in a report which service your task no longer needs, and the CFO revokes it")
 		return 2
@@ -780,7 +786,7 @@ func runAuthRevoke(args []string, stdout, stderr io.Writer, runtime commandRunti
 			return 1
 		}
 		fmt.Fprintf(stdout, "revoked the MCP servers %s from %s. Its record names %s\n", strings.Join(names, ", "), id, namesOrNone(named))
-		fmt.Fprintf(stdout, "A harness reads its MCP servers when it starts, so the one %s is running now keeps them until it ends. Its next terminal is not given them: `cfo switch %s --restart` starts one now\n", id, id)
+		fmt.Fprintf(stdout, "A harness reads its MCP servers when it starts, so the one %s is running now keeps them until it ends. Its next terminal is given none of them whose entry in the project's .mcp.json holds a value: `cfo switch %s --restart` starts one now\n", id, id)
 		return 0
 	}
 	item, carried, err := runtime.authRefresher(h).Revoke(context.Background(), id, names)
@@ -789,9 +795,20 @@ func runAuthRevoke(args []string, stdout, stderr io.Writer, runtime commandRunti
 		return 1
 	}
 	fmt.Fprintf(stdout, "revoked %s from %s. Its record names %s\n", strings.Join(names, ", "), id, namesOrNone(carried))
-	fmt.Fprintf(stdout, "rewrote %s without them (%d vars)\n", item.Path, item.Vars)
-	fmt.Fprintf(stdout, "A terminal of %s running now keeps what it already holds of them, the values it started with and any it loaded from that script, until it ends. Its next terminal carries none of them: `cfo switch %s --restart` starts one now\n", id, id)
+	fmt.Fprintf(stdout, "wrote %s for the services its record names (%d vars)\n", item.Path, item.Vars)
+	fmt.Fprintf(stdout, "A terminal of %s running now keeps what it already holds of them, the values it started with and any it loaded from that script, until it ends. Its next terminal carries only the services its record names: `cfo switch %s --restart` starts one now\n", id, id)
 	return 0
+}
+
+// isValueShapedTaskID reports, without repeating it, a task id shaped like a
+// credential value, which a command that names a task's services must never
+// echo back in a refusal.
+func isValueShapedTaskID(command, id string, stderr io.Writer) bool {
+	shape := auth.SecretShape(id)
+	if shape != "" {
+		fmt.Fprintf(stderr, "cfo auth %s: the task id looks like a credential value, not a task id: %s\n", command, shape)
+	}
+	return shape != ""
 }
 
 // namesOrNone joins names for a line, or says none.
@@ -805,6 +822,9 @@ func namesOrNone(names []string) string {
 func runAuthRefresh(args []string, stdout, stderr io.Writer, runtime commandRuntime) int {
 	if len(args) != 1 || strings.HasPrefix(args[0], "-") {
 		fmt.Fprint(stderr, authUsage)
+		return 2
+	}
+	if isValueShapedTaskID("refresh", args[0], stderr) {
 		return 2
 	}
 	if runtime.resolveHome == nil || runtime.authRefresher == nil {
