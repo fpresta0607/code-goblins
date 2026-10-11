@@ -165,7 +165,7 @@
         (Join-Path $env:USERPROFILE ".claude"), (Join-Path $env:USERPROFILE ".claude.json"),
         (Join-Path $env:USERPROFILE ".codex"), (Join-Path $env:USERPROFILE ".pi"),
         (Join-Path $env:USERPROFILE ".agents"), (Join-Path $env:USERPROFILE ".no-mistakes"),
-        (Join-Path $env:USERPROFILE ".local"), (Join-Path $env:USERPROFILE ".cache\claude"),
+        (Join-Path $env:USERPROFILE ".local"), (Join-Path $env:USERPROFILE ".cache"),
         (Join-Path $env:LOCALAPPDATA "no-mistakes")
     )
     if ($env:APPDATA) {
@@ -858,39 +858,6 @@ public static extern IntPtr SendMessageTimeout(IntPtr hWnd, uint Msg, UIntPtr wP
         }
     }
 
-    # The record of what this install fetched, which the uninstall reads to
-    # leave or remove exactly that: it adds to what an earlier install
-    # recorded, and a place an earlier install found missing stays its own.
-    $fetchedFile = Join-Path $InstallDir "state\fetched.json"
-    $record = [ordered]@{ tools = @(); skills = @(); path = @(); places = @() }
-    if (Test-Path -LiteralPath $fetchedFile) {
-        try {
-            $earlier = Get-Content -Raw -LiteralPath $fetchedFile | ConvertFrom-Json
-            $record.tools = @($earlier.tools | Where-Object { $_ })
-            $record.skills = @($earlier.skills | Where-Object { $_ })
-            $record.path = @($earlier.path | Where-Object { $_ })
-            $record.places = @($earlier.places | Where-Object { $_ })
-        }
-        catch {
-            Write-Detail "WARN     the record of what an earlier install fetched could not be read, so it starts again: $($_.Exception.Message)"
-        }
-    }
-    foreach ($tool in $fetchedTools) {
-        if (-not @($record.tools | Where-Object { $_.name -eq $tool.name })) {
-            $record.tools += [pscustomobject]$tool
-        }
-    }
-    $record.skills = @(@($record.skills) + @($addedSkills) | Select-Object -Unique)
-    $record.path = @(@($record.path) + @($addedPath) | Select-Object -Unique)
-    $madePlaces = @($toolPlaces | Where-Object { (Test-Path -LiteralPath $_) -and -not ($placesBefore -contains $_) })
-    $record.places = @(@($record.places) + $madePlaces | Select-Object -Unique)
-    try {
-        [IO.File]::WriteAllText($fetchedFile, (ConvertTo-Json -InputObject $record -Depth 4))
-        Write-Detail ("ok       {0,-20} {1}" -f "record", "what the install fetched, in $fetchedFile")
-    }
-    catch {
-        Write-Detail "WARN     the record of what the install fetched could not be written, so the uninstall leaves those tools as they are: $($_.Exception.Message)"
-    }
     # The board's native lifecycle hooks, for each harness installed here.
     foreach ($harness in @("claude", "codex", "pi")) {
         if (-not (Get-Command $harness -ErrorAction SilentlyContinue)) {
@@ -977,6 +944,41 @@ public static extern IntPtr SendMessageTimeout(IntPtr hWnd, uint Msg, UIntPtr wP
     Write-Detail ""
     Write-Detail "Verifying the toolchain ..."
     $doctorExit = Invoke-Logged $dest @("doctor")
+
+    # The record of what this install fetched, written once everything it
+    # runs has run, the hooks and doctor included, which the uninstall reads to
+    # leave or remove exactly that: it adds to what an earlier install
+    # recorded, and a place an earlier install found missing stays its own.
+    $fetchedFile = Join-Path $InstallDir "state\fetched.json"
+    $record = [ordered]@{ tools = @(); skills = @(); path = @(); places = @() }
+    if (Test-Path -LiteralPath $fetchedFile) {
+        try {
+            $earlier = Get-Content -Raw -LiteralPath $fetchedFile | ConvertFrom-Json
+            $record.tools = @($earlier.tools | Where-Object { $_ })
+            $record.skills = @($earlier.skills | Where-Object { $_ })
+            $record.path = @($earlier.path | Where-Object { $_ })
+            $record.places = @($earlier.places | Where-Object { $_ })
+        }
+        catch {
+            Write-Detail "WARN     the record of what an earlier install fetched could not be read, so it starts again: $($_.Exception.Message)"
+        }
+    }
+    foreach ($tool in $fetchedTools) {
+        if (-not @($record.tools | Where-Object { $_.name -eq $tool.name })) {
+            $record.tools += [pscustomobject]$tool
+        }
+    }
+    $record.skills = @(@($record.skills) + @($addedSkills) | Select-Object -Unique)
+    $record.path = @(@($record.path) + @($addedPath) | Select-Object -Unique)
+    $madePlaces = @($toolPlaces | Where-Object { (Test-Path -LiteralPath $_) -and -not ($placesBefore -contains $_) })
+    $record.places = @(@($record.places) + $madePlaces | Select-Object -Unique)
+    try {
+        [IO.File]::WriteAllText($fetchedFile, (ConvertTo-Json -InputObject $record -Depth 4))
+        Write-Detail ("ok       {0,-20} {1}" -f "record", "what the install fetched, in $fetchedFile")
+    }
+    catch {
+        Write-Detail "WARN     the record of what the install fetched could not be written, so the uninstall leaves those tools as they are: $($_.Exception.Message)"
+    }
 
     # A tool that could not be installed leaves out only what needs it, so the
     # install goes on and names it in one line; the log says why.

@@ -85,12 +85,28 @@ func (m Machine) tools(ctx context.Context, choices Choices) ([]Item, error) {
 		action = Remove
 	}
 	var items []Item
+	npmRoot := ""
 	for _, tool := range fetched.Tools {
-		where, isThere, remove := m.toolPlace(tool)
+		if (tool.Kind == "npm" || tool.Kind == "npm-file") && npmRoot == "" {
+			npmRoot = m.npmRoot(ctx)
+		}
+		where, isThere, remove := m.toolPlace(tool, npmRoot)
 		if !isThere {
 			continue
 		}
 		items = append(items, Item{Action: action, Group: GroupTools, What: toolName(tool.Name), Where: where, do: remove})
+		if tool.Kind == "release" {
+			tasks, err := m.daemonTasks(ctx, tool.Name)
+			if err != nil {
+				return nil, err
+			}
+			for _, task := range tasks {
+				items = append(items, Item{Action: action, Group: GroupTools, What: tool.Name + "'s startup task", Where: task, do: func(ctx context.Context) error {
+					_, err := m.Commands.Run(ctx, execx.Request{Name: "schtasks", Args: []string{"/delete", "/tn", task, "/f"}})
+					return err
+				}})
+			}
+		}
 	}
 	for _, skill := range fetched.Skills {
 		if isThere, _ := there(skill); isThere {
@@ -119,7 +135,7 @@ func (m Machine) tools(ctx context.Context, choices Choices) ([]Item, error) {
 
 // toolPlace is where a fetched tool is, whether it is still there, and how
 // it is removed: by the installer that put it there where there is one.
-func (m Machine) toolPlace(tool FetchedTool) (string, bool, func(context.Context) error) {
+func (m Machine) toolPlace(tool FetchedTool, npmRoot string) (string, bool, func(context.Context) error) {
 	run := func(name string, args ...string) func(context.Context) error {
 		return func(ctx context.Context) error {
 			result, err := m.Commands.Run(ctx, execx.Request{Name: name, Args: args})
@@ -134,7 +150,7 @@ func (m Machine) toolPlace(tool FetchedTool) (string, bool, func(context.Context
 	}
 	switch tool.Kind {
 	case "npm", "npm-file":
-		where := filepath.Join(m.AppData, "npm", "node_modules", filepath.FromSlash(tool.Package))
+		where := filepath.Join(npmRoot, filepath.FromSlash(tool.Package))
 		isThere, _ := there(where)
 		return where, isThere, run("npm.cmd", "uninstall", "--global", tool.Package)
 	case "winget":
@@ -166,6 +182,34 @@ func (m Machine) toolPlace(tool FetchedTool) (string, bool, func(context.Context
 		}
 	}
 	return tool.Name, false, nil
+}
+
+// daemonTasks are the scheduled tasks a fetched tool's daemon registers for
+// itself, such as \no-mistakes-daemon-<id>, which go with the tool.
+func (m Machine) daemonTasks(ctx context.Context, tool string) ([]string, error) {
+	result, err := m.Commands.Run(ctx, execx.Request{Name: "schtasks", Args: []string{"/query", "/fo", "csv", "/nh"}})
+	if err != nil {
+		return nil, err
+	}
+	var tasks []string
+	for _, line := range strings.Split(string(result.Stdout), "\n") {
+		name, _, _ := strings.Cut(strings.TrimSpace(line), ",")
+		name = strings.Trim(name, `"`)
+		if strings.HasPrefix(strings.ToLower(name), `\`+strings.ToLower(tool)+"-daemon-") && !slices.Contains(tasks, name) {
+			tasks = append(tasks, name)
+		}
+	}
+	return tasks, nil
+}
+
+// npmRoot is the folder npm keeps its global packages in, as npm itself
+// says, which is %APPDATA%\npm\node_modules unless npm was told another.
+func (m Machine) npmRoot(ctx context.Context) string {
+	result, err := m.Commands.Run(ctx, execx.Request{Name: "npm.cmd", Args: []string{"root", "--global"}})
+	if root := strings.TrimSpace(string(result.Stdout)); err == nil && result.ExitCode == 0 && root != "" && filepath.IsAbs(root) {
+		return root
+	}
+	return filepath.Join(m.AppData, "npm", "node_modules")
 }
 
 // unpath takes entry off the user's PATH.

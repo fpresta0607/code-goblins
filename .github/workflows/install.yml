@@ -155,7 +155,10 @@ jobs:
           git -C $seed push -q $origin main
           $project = Join-Path $env:USERPROFILE "source\demo"
           git clone -q $origin $project
-          & "$env:RUNNER_TEMP\leftovers.exe" snapshot "$env:RUNNER_TEMP\leftovers-before.json" --content (Join-Path $project ".git")
+          # npm keeps the tools it installs globally where it is told,
+          # outside the profile on a runner, so the snapshots read it too.
+          $npmPrefix = (npm prefix --global) | Select-Object -Last 1
+          & "$env:RUNNER_TEMP\leftovers.exe" snapshot "$env:RUNNER_TEMP\leftovers-before.json" --content (Join-Path $project ".git") --also $npmPrefix
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
       - name: Install with the one-line command
         if: ${{ matrix.via == 'one-line' }}
@@ -305,7 +308,7 @@ jobs:
         shell: powershell
         run: |
           .\tests\uninstall\one_goblin_session.ps1 -Project (Join-Path $env:USERPROFILE "source\demo")
-          & "$env:RUNNER_TEMP\leftovers.exe" snapshot "$env:RUNNER_TEMP\leftovers-in-use.json" --content (Join-Path $env:USERPROFILE "source\demo\.git")
+          & "$env:RUNNER_TEMP\leftovers.exe" snapshot "$env:RUNNER_TEMP\leftovers-in-use.json" --content (Join-Path $env:USERPROFILE "source\demo\.git") --also ((npm.cmd prefix --global) | Select-Object -Last 1)
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
       - name: Uninstall and compare the profile with the one before the install
         shell: powershell
@@ -379,7 +382,10 @@ jobs:
           git -C $seed push -q $origin main
           $project = Join-Path $env:USERPROFILE "source\demo"
           git clone -q $origin $project
-          & "$env:RUNNER_TEMP\leftovers.exe" snapshot "$env:RUNNER_TEMP\leftovers-before.json" --content (Join-Path $project ".git")
+          # npm keeps the tools it installs globally where it is told,
+          # outside the profile on a runner, so the snapshots read it too.
+          $npmPrefix = (npm prefix --global) | Select-Object -Last 1
+          & "$env:RUNNER_TEMP\leftovers.exe" snapshot "$env:RUNNER_TEMP\leftovers-before.json" --content (Join-Path $project ".git") --also $npmPrefix
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
       - name: Install from the clone
         run: |
@@ -440,7 +446,7 @@ jobs:
         shell: powershell
         run: |
           .\tests\uninstall\one_goblin_session.ps1 -Project (Join-Path $env:USERPROFILE "source\demo")
-          & "$env:RUNNER_TEMP\leftovers.exe" snapshot "$env:RUNNER_TEMP\leftovers-in-use.json" --content (Join-Path $env:USERPROFILE "source\demo\.git")
+          & "$env:RUNNER_TEMP\leftovers.exe" snapshot "$env:RUNNER_TEMP\leftovers-in-use.json" --content (Join-Path $env:USERPROFILE "source\demo\.git") --also ((npm.cmd prefix --global) | Select-Object -Last 1)
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
       - name: Uninstall and compare the profile with the one before the install
         shell: powershell

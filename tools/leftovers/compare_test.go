@@ -66,6 +66,20 @@ func TestCompareNamesWhatTheUninstallLeftTookOrChanged(t *testing.T) {
 			wantPassed: 1,
 		},
 		{
+			name:       "a kept tool's daemon running from its kept folder, and its task the plan named",
+			before:     map[string]map[string]string{kindProcess: {}, kindTask: {}},
+			after:      map[string]map[string]string{kindProcess: {`C:\Users\a\AppData\Local\no-mistakes\no-mistakes.exe`: ""}, kindTask: {`\no-mistakes-daemon-db03`: ""}},
+			kept:       []string{`C:\Users\a\AppData\Local\no-mistakes`, `\no-mistakes-daemon-db03`},
+			wantPassed: 2,
+		},
+		{
+			name:   "a task the plan did not name",
+			before: map[string]map[string]string{kindTask: {}},
+			after:  map[string]map[string]string{kindTask: {`\no-mistakes-daemon-db03`: ""}},
+			kept:   []string{`C:\Users\a\AppData\Local\no-mistakes`},
+			want:   []string{`left scheduled task \no-mistakes-daemon-db03`},
+		},
+		{
 			name:   "a folder beside a kept one that only starts with its name",
 			before: map[string]map[string]string{kindFile: {}},
 			after:  map[string]map[string]string{kindFile: {`C:\Users\a\kept-more`: "folder"}},

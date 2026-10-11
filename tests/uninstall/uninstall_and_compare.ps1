@@ -23,16 +23,23 @@ Set-Location $env:RUNNER_TEMP
 $env:Path = [Environment]::GetEnvironmentVariable("Path", "Machine") + ";" + [Environment]::GetEnvironmentVariable("Path", "User")
 $env:CFO_HOME = [Environment]::GetEnvironmentVariable("CFO_HOME", "User")
 
+$choices = @()
+if ($RemoveAll) { $choices = @("--remove-work", "--remove-tools") }
+# npm keeps the tools it installs globally where it is told, outside the
+# profile on a runner, so the snapshots read that folder too.
+$npmPrefix = (& { $ErrorActionPreference = "Continue"; & npm.cmd prefix --global }) | Select-Object -Last 1
+$snapshot = @("--content", (Join-Path $Project ".git"), "--also", $npmPrefix)
+
 # The plan first, which takes nothing away: no thing there before it may be
 # gone after it. The board, which runs on meanwhile, keeps writing its own
 # state, so what was added or changed proves nothing here.
-& $Leftovers snapshot (Join-Path $env:RUNNER_TEMP "leftovers-before-plan.json") --content (Join-Path $Project ".git") | Out-Null
-$planText = & { $ErrorActionPreference = "Continue"; & $goblins uninstall --dry-run --json }
+& $Leftovers snapshot (Join-Path $env:RUNNER_TEMP "leftovers-before-plan.json") @snapshot | Out-Null
+$planText = & { $ErrorActionPreference = "Continue"; & $goblins uninstall --dry-run --json @choices }
 if ($LASTEXITCODE -ne 0) { throw "goblins uninstall --dry-run exited with code $LASTEXITCODE" }
 $planFile = Join-Path $env:RUNNER_TEMP "leftovers-plan.json"
 [IO.File]::WriteAllText($planFile, ($planText -join "`n"))
-& $goblins uninstall --dry-run | Write-Host
-& $Leftovers snapshot (Join-Path $env:RUNNER_TEMP "leftovers-after-plan.json") --content (Join-Path $Project ".git") | Out-Null
+& $goblins uninstall --dry-run @choices | Write-Host
+& $Leftovers snapshot (Join-Path $env:RUNNER_TEMP "leftovers-after-plan.json") @snapshot | Out-Null
 & $Leftovers compare (Join-Path $env:RUNNER_TEMP "leftovers-before-plan.json") (Join-Path $env:RUNNER_TEMP "leftovers-after-plan.json") --report (Join-Path $env:RUNNER_TEMP "leftovers-plan-report.json") | Out-Null
 $taken = @((Get-Content -Raw -LiteralPath (Join-Path $env:RUNNER_TEMP "leftovers-plan-report.json") | ConvertFrom-Json).remaining | Where-Object { $_.change -eq "gone" -and $_.kind -ne "process" -and -not $_.identity.StartsWith($cfoHome, [StringComparison]::OrdinalIgnoreCase) })
 if ($taken.Count -gt 0) { throw "the dry run took away: $(($taken | ForEach-Object { "$($_.kind) $($_.identity)" }) -join '; ')" }
@@ -42,8 +49,7 @@ if (-not @($plan.items | Where-Object { $_.action -eq "stop" -and $_.what -eq "d
     throw "the plan stops no goblin terminal, so the uninstall met no running goblin: $($plan.items.what -join '; ')"
 }
 
-$arguments = @("uninstall", "--yes")
-if ($RemoveAll) { $arguments += @("--remove-work", "--remove-tools") }
+$arguments = @("uninstall", "--yes") + $choices
 if ($FromInstalledApps) {
     $entry = Get-ItemProperty -LiteralPath "HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall\CodeGoblins"
     if (-not $entry.QuietUninstallString -or -not $entry.UninstallString) { throw "the install made no entry in Installed apps" }
@@ -83,7 +89,7 @@ while (@(Get-ChildItem -LiteralPath $env:LOCALAPPDATA -Filter ".CodeGoblins-unin
 
 # Then everything else: the profile as it was before the install, apart
 # from what the plan named as kept.
-& $Leftovers snapshot (Join-Path $env:RUNNER_TEMP "leftovers-after.json") --content (Join-Path $Project ".git")
+& $Leftovers snapshot (Join-Path $env:RUNNER_TEMP "leftovers-after.json") @snapshot
 if ($LASTEXITCODE -ne 0) { throw "the snapshot after the uninstall failed" }
 $compare = @("compare", (Join-Path $env:RUNNER_TEMP "leftovers-before.json"), (Join-Path $env:RUNNER_TEMP "leftovers-after.json"), "--report", (Join-Path $env:RUNNER_TEMP "leftovers-report.json"))
 foreach ($path in $kept) { $compare += @("--kept", $path) }

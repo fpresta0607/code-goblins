@@ -293,8 +293,8 @@ func TestToolsTheInstallFetchedAreLeftUnlessThePersonChoseToRemoveThem(t *testin
 	if got := whats(removed); got != "remove Codex\nremove the skill gh-axi" {
 		t.Errorf("with the choice the plan has\n%s", got)
 	}
-	if len(runner.asked) != 1 || strings.Join(runner.asked[0], " ") != "npm.cmd uninstall --global @openai/codex" {
-		t.Errorf("ran %v, want npm's own uninstall of the package", runner.asked)
+	if len(runner.asked) == 0 || strings.Join(runner.asked[len(runner.asked)-1], " ") != "npm.cmd uninstall --global @openai/codex" {
+		t.Errorf("ran %v, want npm's own uninstall of the package last", runner.asked)
 	}
 	if _, err := os.Stat(skill); !os.IsNotExist(err) {
 		t.Errorf("the skill is still there: %v", err)

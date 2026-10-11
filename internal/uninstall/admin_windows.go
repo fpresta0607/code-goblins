@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"syscall"
@@ -77,17 +78,22 @@ func RunAsAdministrator(ctx context.Context, script string) ([]string, error) {
 // for a minute and ends.
 func RemoveOnceEnded(folder string) error {
 	quoted := `"` + folder + `"`
+	shell := filepath.Join(os.Getenv("SystemRoot"), "System32", "cmd.exe")
 	loop := "for /l %i in (1,1,60) do (rd /s /q " + quoted + " 2>nul & if not exist " + quoted + " exit /b 0 & ping -n 2 127.0.0.1 >nul)"
-	cmd := execx.Command(filepath.Join(os.Getenv("SystemRoot"), "System32", "cmd.exe"), "/d", "/c", loop)
-	cmd.Dir = filepath.Dir(folder)
-	// It outlives this process, so it starts in a group and, where the job
-	// it is in allows, outside that job.
-	cmd.SysProcAttr.CreationFlags |= syscall.CREATE_NEW_PROCESS_GROUP | createBreakawayFromJob
-	if err := cmd.Start(); err != nil {
-		cmd = execx.Command(filepath.Join(os.Getenv("SystemRoot"), "System32", "cmd.exe"), "/d", "/c", loop)
+	start := func(flags uint32) (*exec.Cmd, error) {
+		cmd := execx.Command(shell)
+		// cmd.exe reads its command line as it is, not as Go would quote its
+		// arguments, so the line is given whole.
+		cmd.SysProcAttr.CmdLine = `"` + shell + `" /d /c ` + loop
 		cmd.Dir = filepath.Dir(folder)
-		cmd.SysProcAttr.CreationFlags |= syscall.CREATE_NEW_PROCESS_GROUP
-		if err := cmd.Start(); err != nil {
+		cmd.SysProcAttr.CreationFlags |= flags
+		return cmd, cmd.Start()
+	}
+	// It outlives this process, so it starts in a group of its own and,
+	// where the job it is in allows, outside that job.
+	cmd, err := start(syscall.CREATE_NEW_PROCESS_GROUP | createBreakawayFromJob)
+	if err != nil {
+		if cmd, err = start(syscall.CREATE_NEW_PROCESS_GROUP); err != nil {
 			return fmt.Errorf("start the removal of %s: %w", folder, err)
 		}
 	}
