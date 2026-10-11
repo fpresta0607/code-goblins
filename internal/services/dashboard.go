@@ -61,8 +61,9 @@ type dashboardLook struct {
 // engine start that began at began starts it, and only that window.
 //
 // Docker Desktop 4.86 opens its dashboard on every start while its setting
-// "Open the Docker Dashboard when Docker Desktop starts" is on, and it is on
-// unless someone turned it off: docker desktop start runs Docker Desktop's
+// "Open the Docker Dashboard when Docker Desktop starts" is on, and the
+// Overlord's settings leave it at its default, which opened the dashboard on
+// every start on record: docker desktop start runs Docker Desktop's
 // launcher, which starts its backend, which starts the window process with
 // --name=dashboard, which shows the dashboard once it has drawn it. Neither
 // docker desktop start, the launcher nor the window process takes any other
