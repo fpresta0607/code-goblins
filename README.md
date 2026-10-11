@@ -497,6 +497,7 @@ A live goblin with no real progress for 20 minutes says for how long on its card
 After 20 minutes with no new commit, push, gate-step change, changed status report, new output on the goblin's screen, transcript write or processor use by its own processes, the supervisor raises one `progress_stalled` check wake to the CFO.
 Any of them resets it, and intentional pauses do not raise it.
 A goblin inside one long tool call whose child uses the processor, or whose screen fills with output, is working, and the clock a harness redraws by itself on its screen is not output.
+So is a goblin whose test run, started by a script in the background, runs cut off from its harness, as everything Git Bash starts in the background is: such a run is the goblin's by its terminal's mark or by the task's folders it works in or runs a program from, while a server, a browser or a machine service it left running never counts as its work.
 A goblin waiting on its no-mistakes run is working while the run's step runs within the time nine in ten rounds of that step have taken on this machine, and a run stuck past that, or parked on an answer, raises one `gate_stuck` or `gate_parked` wake naming the run and the step instead.
 Progress probes run together under one 10-second deadline, so stalled probes do not accumulate delays between memory readings.
 A goblin whose latest report is a wait on its own helper takes the helper's progress as its own, on its card and in this check, and draws no wake while the helper is watched, since the helper's own check reports its stall.
