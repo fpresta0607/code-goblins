@@ -71,7 +71,7 @@ export function MessageBox({ snapshot, task }: { snapshot: Snapshot; task: Task 
     if (event.button !== 0) return;
     event.preventDefault();
     event.currentTarget.setPointerCapture(event.pointerId);
-    dictation.start();
+    dictation.start(event.timeStamp);
   };
   return <section className="message-box" aria-label={"Messages to " + name}>
     {sent.length + kept.length > 0 && <ol className="message-list">
@@ -97,7 +97,7 @@ export function MessageBox({ snapshot, task }: { snapshot: Snapshot; task: Task 
       <button type="button" className={"voice-bubble" + (dictation.listening ? " recording" : "")} aria-label={dictation.listening ? "Listening" : "Hold to dictate"}
         data-tip={dictation.listening ? "Release to add what you said" : "Hold to dictate"}
         onPointerDown={hold} onPointerUp={dictation.stop} onPointerCancel={dictation.stop}
-        onKeyDown={(event) => { if (event.key === " " || event.key === "Enter") { event.preventDefault(); dictation.start(); } }}
+        onKeyDown={(event) => { if (event.key === " " || event.key === "Enter") { event.preventDefault(); dictation.start(event.timeStamp); } }}
         onKeyUp={(event) => { if (event.key === " " || event.key === "Enter") dictation.stop(); }}>
         {dictation.listening ? <VoiceBars level={dictation.level} /> : <Icon name="mic" />}
       </button>
