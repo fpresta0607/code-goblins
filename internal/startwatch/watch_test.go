@@ -65,9 +65,11 @@ func TestAWindowAGoblinsProcessShowsIsToldOnce(t *testing.T) {
 
 // A command one owner starts again and again is a loop: told once, when the
 // tenth new process of it within two minutes is seen. A carrier, a process
-// its harness started itself and a machine service are no loop: Git Bash
-// forks a copy of a script's shell for each pipeline, a poll waits with
-// sleep, and a goblin's own turns start the same hook again and again.
+// its harness started itself, a machine service and what a test run or a
+// build starts are no loop: Git Bash forks a copy of a script's shell for
+// each pipeline, a poll waits with sleep, a goblin's own turns start the
+// same hook again and again, and on 2026-10-11 a git-heavy suite started
+// the same git commands dozens of times within its own time limit.
 func TestACommandStartedAgainAndAgainIsALoopToldOnce(t *testing.T) {
 	// Arrange
 	var watch Watch
@@ -85,7 +87,9 @@ func TestACommandStartedAgainAndAgainIsALoopToldOnce(t *testing.T) {
 		hook.ByHarness = true
 		agent := started("cg-a", pid+5, "claude.exe", "claude.exe -p")
 		agent.Service = true
-		processes := []Process{server, shell, wait, hook, agent}
+		git := started("cg-a", pid+6, "git.exe", "git rev-parse HEAD")
+		git.InRun = true
+		processes := []Process{server, shell, wait, hook, agent, git}
 		if reading%2 == 0 {
 			processes = append(processes, other)
 		}

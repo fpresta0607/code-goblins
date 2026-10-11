@@ -50,21 +50,21 @@ func TestPlacedPlacesWhatEachOwnerStarted(t *testing.T) {
 		t.Fatal(err)
 	}
 	type standing struct {
-		owner                         string
-		isDetached, isService, isTurn bool
+		owner                                string
+		isDetached, isService, isTurn, isRun bool
 	}
 	got := map[int]standing{}
 	for _, process := range placed {
-		got[process.PID] = standing{process.Owner, process.Detached, process.Service, process.ByHarness}
+		got[process.PID] = standing{process.Owner, process.Detached, process.Service, process.ByHarness, process.InRun}
 		if process.Command != commands[process.PID] {
 			t.Errorf("process %d runs %q, want %q", process.PID, process.Command, commands[process.PID])
 		}
 	}
 	want := map[int]standing{
-		102: {"tree", false, false, true}, 103: {"tree", false, false, false}, 104: {"tree", false, false, false},
-		105: {"tree", false, false, true}, 106: {"tree", false, false, false}, 107: {"tree", false, false, true},
-		400: {"tree", true, true, false}, 401: {"tree", true, true, false},
-		601: {"cfo", false, false, true},
+		102: {"tree", false, false, true, true}, 103: {"tree", false, false, false, true}, 104: {"tree", false, false, false, true},
+		105: {"tree", false, false, true, false}, 106: {"tree", false, false, false, false}, 107: {"tree", false, false, true, false},
+		400: {"tree", true, true, false, false}, 401: {"tree", true, true, false, false},
+		601: {"cfo", false, false, true, false},
 	}
 	if !maps.Equal(got, want) {
 		t.Errorf("placed = %v, want %v", got, want)

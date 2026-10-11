@@ -437,8 +437,8 @@ func (r *Reader) command(process Process) string {
 const ownerReads = 8
 
 // detachedJobs are the jobs of task that reach no harness: each a process
-// whose parent has exited, with everything under it, that is task's by one
-// of its processes. A tree is the task's by the first answer its processes
+// whose parent has exited, that started after the harness, with everything
+// under it, that is task's by one of its processes. A tree is the task's by the first answer its processes
 // give, top down. A Git Bash tool carries no mark of its own, and a script
 // can unset the mark for what it starts, so a tree whose processes have
 // said nothing yet is asked again as processes join it, each process once
@@ -477,6 +477,11 @@ func (r *Reader) detachedJobs(task string, processes []Process, harness harnessP
 			continue
 		}
 		if parent, isRunning := byPID[process.ParentPID]; isRunning && parent.PID != process.PID && !process.Started.Before(parent.Started) {
+			continue
+		}
+		// A tree that began before the harness was not started by it,
+		// whatever its newest processes do, so nothing of it is asked.
+		if process.Started.Before(harness.top.Started) {
 			continue
 		}
 		members := []Process{process}

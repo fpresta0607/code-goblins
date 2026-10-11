@@ -272,3 +272,42 @@ func TestReadKeepsTheGoblinsOwnTerminalOutOfItsJobs(t *testing.T) {
 		t.Errorf("the goblin reads as working = %t with %d MB, want idle with its harness's 500 MB", tree.Working(), tree.Memory/megabyte)
 	}
 }
+
+// A tree that began before the goblin's harness was not started by it,
+// whatever its newest processes do: the Overlord's own browser, whose
+// renderers come and go, here with one opened on a page in the goblin's
+// worktree. None of it is asked whose it is: on 2026-10-11 such trees cost
+// a reading every few seconds dozens of reads of other programs' memory.
+func TestReadAsksNothingOfATreeOlderThanTheGoblinsHarness(t *testing.T) {
+	// Arrange
+	launched := at.Add(-time.Hour)
+	processes := append(goblinProcesses(launched, 0),
+		Process{PID: 700, ParentPID: 990, Exe: "msedge.exe", Created: 70, Started: launched.Add(-24 * time.Hour)},
+		Process{PID: 701, ParentPID: 700, Exe: "msedge.exe", Created: 71, Started: at.Add(-time.Minute)},
+	)
+	asked := map[int]int{}
+	reader := Reader{
+		Home:        t.TempDir(),
+		Processes:   func() ([]Process, error) { return processes, nil },
+		Listeners:   func() (map[int][]int, error) { return nil, nil },
+		CommandLine: func(pid int) (string, error) { return goblinCommands[pid], nil },
+		Owner:       func(pid int) string { asked[pid]++; return map[int]string{701: "tree"}[pid] },
+		Now:         func() time.Time { return at },
+	}
+
+	// Act
+	tree, err := reader.Read(context.Background(), Goblin{Meta: state.TaskMeta{ID: "tree", Harness: "codex"}, HarnessPID: 100})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Assert
+	for _, node := range tree.Children {
+		if node.Detached {
+			t.Errorf("the goblin's tree holds %+v, a tree that began before its harness", node)
+		}
+	}
+	if asked[700] != 0 || asked[701] != 0 {
+		t.Errorf("asked whose the older tree's processes are %v, want never", asked)
+	}
+}

@@ -23,15 +23,20 @@ import (
 // a third of a percent of one processor.
 const startWatchEvery = 5 * time.Second
 
+// startWatchOwnersEvery is how often the start watch reads again whose
+// starts it watches and which goblins rest after their report. Reading every
+// task's records took 90 ms on 2026-10-11, too much for every reading, and
+// a goblin starts, pauses or comes to rest far less often.
+const startWatchOwnersEvery = 30 * time.Second
+
 // keepStartWatch watches what the fleet starts on its own loop, away from
 // the supervisor's (startwatch). It ends nothing.
 func (s *Service) keepStartWatch(ctx context.Context) {
-	watch := &startwatch.Watch{}
-	consoles := map[startedProcess]bool{}
+	watching := &startWatching{}
 	ticker := time.NewTicker(startWatchEvery)
 	defer ticker.Stop()
 	for {
-		if err := s.watchStarts(watch, consoles, time.Now().UTC()); err != nil {
+		if err := s.watchStarts(watching, time.Now().UTC()); err != nil {
 			s.mu.Lock()
 			if s.fleetErr == nil || !strings.Contains(s.fleetErr.Error(), err.Error()) {
 				s.fleetErr = errors.Join(s.fleetErr, err)
@@ -46,6 +51,19 @@ func (s *Service) keepStartWatch(ctx context.Context) {
 	}
 }
 
+// startWatching is what the start watch keeps between its readings: the
+// watch, whether each process's console shows, which is asked once in its
+// life, and the owners it watches with their generations and which of them
+// rest after their report, as last read at ownersAt.
+type startWatching struct {
+	watch       startwatch.Watch
+	consoles    map[startedProcess]bool
+	owners      []fleettree.Goblin
+	generations map[string]string
+	resting     map[string]startwatch.Rest
+	ownersAt    time.Time
+}
+
 // startedProcess is one process by its id and its creation.
 type startedProcess struct {
 	pid     int
@@ -54,12 +72,24 @@ type startedProcess struct {
 
 // watchStarts takes one reading of what each goblin whose terminal runs, and
 // the CFO's terminal, have started, and wakes the CFO once for each thing
-// the watch finds. consoles keeps whether each process's console shows,
-// which is asked once in its life.
-func (s *Service) watchStarts(watch *startwatch.Watch, consoles map[startedProcess]bool, now time.Time) error {
+// the watch finds.
+func (s *Service) watchStarts(watching *startWatching, now time.Time) error {
 	stateDir := s.Store.Home.State
-	owners, generations := startWatchOwners(stateDir)
-	placed, err := s.Options.Tree.Placed(owners)
+	if watching.consoles == nil {
+		watching.consoles = map[startedProcess]bool{}
+	}
+	if watching.ownersAt.IsZero() || now.Sub(watching.ownersAt) >= startWatchOwnersEvery || now.Before(watching.ownersAt) {
+		watching.owners, watching.generations = startWatchOwners(stateDir)
+		watching.resting = map[string]startwatch.Rest{}
+		for _, owner := range watching.owners {
+			if rest, isResting := s.resting(owner.Meta); isResting {
+				watching.resting[owner.Meta.ID] = rest
+			}
+		}
+		watching.ownersAt = now
+	}
+	consoles := watching.consoles
+	placed, err := s.Options.Tree.Placed(watching.owners)
 	if err != nil {
 		return fmt.Errorf("start watch: read the fleet's processes: %w", err)
 	}
@@ -74,7 +104,7 @@ func (s *Service) watchStarts(watch *startwatch.Watch, consoles map[startedProce
 	if err != nil {
 		return fmt.Errorf("start watch: list the desktop's windows: %w", err)
 	}
-	reading := startwatch.Reading{At: now, Generations: generations, Resting: map[string]startwatch.Rest{}, CFO: NativeCFOTerminal}
+	reading := startwatch.Reading{At: now, Generations: watching.generations, Resting: watching.resting, CFO: NativeCFOTerminal}
 	running := map[startedProcess]bool{}
 	for _, process := range placed {
 		key := startedProcess{process.PID, process.Created}
@@ -104,13 +134,8 @@ func (s *Service) watchStarts(watch *startwatch.Watch, consoles map[startedProce
 			delete(consoles, key)
 		}
 	}
-	for _, owner := range owners {
-		if rest, isResting := s.resting(owner.Meta); isResting {
-			reading.Resting[owner.Meta.ID] = rest
-		}
-	}
 	var problems error
-	for _, finding := range watch.Read(reading) {
+	for _, finding := range watching.watch.Read(reading) {
 		if _, isNew, err := wake.AppendFirst(stateDir, finding.Identity, "check", finding.Owner, finding.Detail); err != nil || !isNew {
 			problems = errors.Join(problems, err)
 			continue

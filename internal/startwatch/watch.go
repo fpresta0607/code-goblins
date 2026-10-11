@@ -142,11 +142,13 @@ func (w *Watch) Read(reading Reading) []Finding {
 
 // isStart says a new process is one its owner started, as a loop counts
 // starts: not a carrier, not a machine service, which works for every
-// goblin, and not one the harness started itself, which is a turn of its
-// goblin's, a tool call or a hook, and never a loop of processes.
+// goblin, not one the harness started itself, which is a turn of its
+// goblin's, a tool call or a hook, and not one a test run or a build
+// started, which starts the same tools again and again within its own time
+// limit.
 func isStart(process Process) bool {
 	name := strings.TrimSuffix(strings.ToLower(filepath.Base(process.Exe)), ".exe")
-	return process.Command != "" && !process.Service && !process.ByHarness && !slices.Contains(carriers, name)
+	return process.Command != "" && !process.Service && !process.ByHarness && !process.InRun && !slices.Contains(carriers, name)
 }
 
 // loopKey is the owner, its generation and the command line, the last as

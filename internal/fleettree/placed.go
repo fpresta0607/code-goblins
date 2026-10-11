@@ -18,6 +18,9 @@ type Placed struct {
 	// ByHarness says the harness started it itself: a tool call's shell, or
 	// a hook.
 	ByHarness bool
+	// InRun says its job is a test run or a build, which starts the same
+	// tools again and again by design, within its own time limit.
+	InRun bool
 }
 
 // Placed reads the machine once and places every process each of owners
@@ -58,8 +61,11 @@ func (r *Reader) Placed(owners []Goblin) ([]Placed, error) {
 					facts.commands[member.PID] = r.command(member)
 				}
 				isService := job.isService(facts)
+				// What it listens on says nothing of a test run or a build.
+				group, _, _ := classify(job, facts)
+				isRun := group == GroupTest || group == GroupBuild
 				for _, member := range job.members {
-					placed = append(placed, Placed{Process: member, Owner: owner.Meta.ID, Command: facts.commands[member.PID], Detached: detached, Service: isService, ByHarness: !detached && member.ParentPID == harness.harness.PID})
+					placed = append(placed, Placed{Process: member, Owner: owner.Meta.ID, Command: facts.commands[member.PID], Detached: detached, Service: isService, ByHarness: !detached && member.ParentPID == harness.harness.PID, InRun: isRun})
 				}
 			}
 		}

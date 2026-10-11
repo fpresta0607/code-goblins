@@ -13,7 +13,6 @@ import (
 	"github.com/fpresta0607/code-goblins/internal/home"
 	"github.com/fpresta0607/code-goblins/internal/host"
 	"github.com/fpresta0607/code-goblins/internal/monitor"
-	"github.com/fpresta0607/code-goblins/internal/startwatch"
 	"github.com/fpresta0607/code-goblins/internal/wake"
 )
 
@@ -27,8 +26,7 @@ type startWatchFleet struct {
 	processes []fleettree.Process
 	commands  map[int]string
 	windows   map[int]bool
-	watch     *startwatch.Watch
-	consoles  map[startedProcess]bool
+	watching  *startWatching
 }
 
 func newStartWatchFleet(t *testing.T) *startWatchFleet {
@@ -54,8 +52,7 @@ func newStartWatchFleet(t *testing.T) *startWatchFleet {
 		},
 		commands: map[int]string{102: `bash -c "eval 'bash tools/run.sh'"`, 500: `"C:\Program Files\Microsoft\Edge\Application\msedge.exe"`},
 		windows:  map[int]bool{500: true, 510: true},
-		watch:    &startwatch.Watch{},
-		consoles: map[startedProcess]bool{},
+		watching: &startWatching{},
 	}
 	service.Options.Tree = &fleettree.Reader{
 		Processes:   func() ([]fleettree.Process, error) { return fleet.processes, nil },
@@ -75,7 +72,7 @@ func (f *startWatchFleet) start(pid int, exe, command string, at time.Time) {
 
 func (f *startWatchFleet) read(t *testing.T, at time.Time) {
 	t.Helper()
-	if err := f.service.watchStarts(f.watch, f.consoles, at); err != nil {
+	if err := f.service.watchStarts(f.watching, at); err != nil {
 		t.Fatal(err)
 	}
 }
@@ -106,7 +103,7 @@ func TestAWindowOfAGoblinsProcessWakesTheCFOOnce(t *testing.T) {
 	// Act: two readings, then one by a supervisor that restarted.
 	fleet.read(t, now)
 	fleet.read(t, now.Add(5*time.Second))
-	fleet.watch, fleet.consoles = &startwatch.Watch{}, map[startedProcess]bool{}
+	fleet.watching = &startWatching{}
 	fleet.read(t, now.Add(10*time.Second))
 
 	// Assert
