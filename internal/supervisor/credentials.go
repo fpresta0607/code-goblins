@@ -156,6 +156,8 @@ func CredentialRequestProblem(r CredentialRequest) error {
 	switch {
 	case r.Task != "" && state.ValidTaskID(r.Task) != nil:
 		return errors.New("a credential request's task is not a task ID")
+	case auth.SecretShape(r.Task) != "":
+		return errors.New("a credential request's task looks like a credential value, not a task ID")
 	case !auth.ValidProjectName(r.Project):
 		return errors.New("a credential request needs a project scope")
 	case r.Repository != "" && (!filepath.IsAbs(r.Repository) || filepath.Clean(r.Repository) != r.Repository || len(r.Repository) > 1024 || strings.ContainsFunc(r.Repository, unicode.IsControl) || auth.ProjectName(r.Repository) != r.Project):

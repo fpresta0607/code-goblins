@@ -473,43 +473,232 @@ func TestAuthGrantRefusesWhatItCannotGrant(t *testing.T) {
 }
 
 // A goblin that needs a service says so in a blocked report. It never grants
-// itself one, and neither does a gate agent.
-func TestAuthGrantIsRefusedInAGoblinsOrAGateAgentsTerminal(t *testing.T) {
+// itself one or revokes one, and neither does a gate agent.
+func TestAuthGrantAndRevokeAreRefusedInAGoblinsOrAGateAgentsTerminal(t *testing.T) {
+	commands := []struct {
+		args []string
+		want string
+	}{
+		{[]string{"grant", "live-1", "extra"}, "blocked report"},
+		{[]string{"grant", "live-1", "--mcp", "literal-env"}, "blocked report"},
+		{[]string{"revoke", "live-1", "stored"}, "the CFO revokes it"},
+		{[]string{"revoke", "live-1", "--mcp", "granted-server"}, "the CFO revokes it"},
+	}
 	for _, variable := range []string{harness.RoleVariable, gateAgentVariable} {
-		t.Run(variable, func(t *testing.T) {
-			// Arrange
-			t.Setenv(harness.RoleVariable, "")
-			t.Setenv(gateAgentVariable, "")
-			value := "1"
-			if variable == harness.RoleVariable {
-				value = harness.RoleGoblin
-			}
-			t.Setenv(variable, value)
-			useFileStore(t)
-			root := t.TempDir()
-			stateDir := filepath.Join(root, "state")
-			project := filepath.Join(root, "precisiondocs")
-			declareCmdStored(t, stateDir, project, "FLY_API_TOKEN")
-			writeCmdTaskMeta(t, stateDir, "live-1", project, "pane-live", true)
-			var sent []string
-			runtime := refreshTestRuntime(t, stateDir, cmdPanes{live: map[string]bool{"pane-live": true}}, &sent)
+		for _, command := range commands {
+			t.Run(variable+" "+strings.Join(command.args, " "), func(t *testing.T) {
+				// Arrange
+				t.Setenv(harness.RoleVariable, "")
+				t.Setenv(gateAgentVariable, "")
+				value := "1"
+				if variable == harness.RoleVariable {
+					value = harness.RoleGoblin
+				}
+				t.Setenv(variable, value)
+				useFileStore(t)
+				root := t.TempDir()
+				stateDir := filepath.Join(root, "state")
+				project := filepath.Join(root, "precisiondocs")
+				declareCmdStored(t, stateDir, project, "FLY_API_TOKEN")
+				writeCmdTaskMeta(t, stateDir, "live-1", project, "pane-live", true)
+				if err := state.WriteTaskMCPServers(stateDir, "live-1", []string{"granted-server"}); err != nil {
+					t.Fatal(err)
+				}
+				var sent []string
+				runtime := refreshTestRuntime(t, stateDir, cmdPanes{live: map[string]bool{"pane-live": true}}, &sent)
 
+				// Act
+				code, _, stderr := runCLIWithRuntime(t, runtime, command.args...)
+
+				// Assert
+				if code != 2 || !strings.Contains(stderr, "the CFO's act") || !strings.Contains(stderr, command.want) {
+					t.Errorf("exit = %d, stderr = %q, want it refused, naming whose act it is and %q", code, stderr, command.want)
+				}
+				after, err := state.ReadTaskMeta(stateDir, "live-1")
+				if err != nil || strings.Join(after.Credentials, ",") != "stored" || strings.Join(after.MCPServers, ",") != "granted-server" {
+					t.Errorf("the record names %v and the MCP servers %v, %v, want it unchanged", after.Credentials, after.MCPServers, err)
+				}
+			})
+		}
+	}
+}
+
+// Revoking a service is one command: the task's record no longer names it, so
+// no later terminal carries it, and its credential script is rewritten
+// without it. The terminal running now keeps what it already holds, which
+// the output says along with the restart that ends it, and it is told nothing
+// to load, since loading the script takes no service's variable away. It
+// names services and a path, never a value.
+func TestAuthRevokeTakesAServiceOutOfARunningTasksRecord(t *testing.T) {
+	// Arrange
+	t.Setenv(harness.RoleVariable, "")
+	t.Setenv(gateAgentVariable, "")
+	useFileStore(t)
+	root := t.TempDir()
+	stateDir := filepath.Join(root, "state")
+	project := filepath.Join(root, "precisiondocs")
+	declareCmdStored(t, stateDir, project, "FLY_API_TOKEN")
+	live := writeCmdTaskMeta(t, stateDir, "live-1", project, "pane-live", true)
+	other := writeCmdTaskMeta(t, stateDir, "other-1", project, "pane-other", true)
+	var sent []string
+	runtime := refreshTestRuntime(t, stateDir, cmdPanes{live: map[string]bool{"pane-live": true, "pane-other": true}}, &sent)
+	for name, value := range map[string]string{"FLY_API_TOKEN": "stand-in-fly", "EXTRA_STANDIN_KEY": "stand-in-extra"} {
+		if code, _, stderr := runCLI(t, "store", "--project", "precisiondocs", name, value); code != 0 {
+			t.Fatalf("cfo auth store = %d: %s", code, stderr)
+		}
+	}
+	if code, _, stderr := runCLIWithRuntime(t, runtime, "grant", "live-1", "extra"); code != 0 {
+		t.Fatalf("cfo auth grant = %d: %s", code, stderr)
+	}
+	script := filepath.Join(live.TaskTmp, "auth.ps1")
+	if !scriptSets(t, script, "EXTRA_STANDIN_KEY") {
+		t.Fatal("the premise is a script the grant gave EXTRA_STANDIN_KEY")
+	}
+	sent = nil
+
+	// Act
+	code, stdout, stderr := runCLIWithRuntime(t, runtime, "revoke", "live-1", "extra")
+
+	// Assert
+	if code != 0 {
+		t.Fatalf("cfo auth revoke = %d: %s", code, stderr)
+	}
+	after, err := state.ReadTaskMeta(stateDir, "live-1")
+	if err != nil || strings.Join(after.Credentials, ",") != "stored" {
+		t.Errorf("after the revoke the record names %v, %v, want stored alone", after.Credentials, err)
+	}
+	if scriptSets(t, script, "EXTRA_STANDIN_KEY") || !scriptSets(t, script, "FLY_API_TOKEN") {
+		t.Error("the task's script still sets the revoked service's name, or lost the name of the one it keeps")
+	}
+	for _, want := range []string{"revoked extra from live-1. Its record names stored", "running now keeps", "until it ends", "`cfo switch live-1 --restart`"} {
+		if !strings.Contains(stdout, want) {
+			t.Errorf("stdout = %q, want %q", stdout, want)
+		}
+	}
+	if len(sent) != 0 {
+		t.Errorf("notices = %v, want none: loading the script takes nothing back", sent)
+	}
+	log, err := state.TailStatus(stateDir, "live-1", 10)
+	if err != nil || !strings.Contains(strings.Join(log, "\n"), "credentials: the CFO revoked extra") {
+		t.Errorf("status log = %q, %v, want a record of the revoke", log, err)
+	}
+	untouched, err := state.ReadTaskMeta(stateDir, "other-1")
+	if err != nil || strings.Join(untouched.Credentials, ",") != "stored" {
+		t.Errorf("another task of the project names %v, %v, want it as it was", untouched.Credentials, err)
+	}
+	if _, err := os.Stat(filepath.Join(other.TaskTmp, "auth.ps1")); !os.IsNotExist(err) {
+		t.Errorf("another task's script was written by the revoke: %v", err)
+	}
+	for _, text := range append([]string{stdout, stderr, strings.Join(log, "\n")}, sent...) {
+		if strings.Contains(text, "stand-in-fly") || strings.Contains(text, "stand-in-extra") {
+			t.Errorf("the revoke's words hold a credential value: %q", text)
+		}
+	}
+}
+
+// Revoking what the task does not hold says so and changes nothing, and a
+// command missing its names is a usage error.
+func TestAuthRevokeRefusesWhatTheTaskDoesNotHold(t *testing.T) {
+	// Arrange
+	t.Setenv(harness.RoleVariable, "")
+	t.Setenv(gateAgentVariable, "")
+	useFileStore(t)
+	root := t.TempDir()
+	stateDir := filepath.Join(root, "state")
+	project := filepath.Join(root, "precisiondocs")
+	declareCmdStored(t, stateDir, project, "FLY_API_TOKEN")
+	live := writeCmdTaskMeta(t, stateDir, "live-1", project, "pane-live", true)
+	var sent []string
+	runtime := refreshTestRuntime(t, stateDir, cmdPanes{live: map[string]bool{"pane-live": true}}, &sent)
+	cases := []struct {
+		name string
+		args []string
+		code int
+		want string
+	}{
+		{"a service the manifest declares that the task does not carry", []string{"revoke", "live-1", "extra"}, 1, "live-1 does not carry extra, so nothing was revoked. It carries stored"},
+		{"a service the manifest does not declare", []string{"revoke", "live-1", "billing"}, 1, "live-1 does not carry billing, so nothing was revoked"},
+		{"an MCP server its record does not name", []string{"revoke", "live-1", "--mcp", "literal-env"}, 1, "live-1's record names no MCP server literal-env, so nothing was revoked. It names none"},
+		{"a task that is not running", []string{"revoke", "ghost-1", "stored"}, 1, "not a running task"},
+		{"no service named", []string{"revoke", "live-1"}, 2, "usage"},
+		{"no MCP server named", []string{"revoke", "live-1", "--mcp"}, 2, "usage"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
 			// Act
-			code, _, stderr := runCLIWithRuntime(t, runtime, "grant", "live-1", "extra")
-			mcpCode, _, mcpStderr := runCLIWithRuntime(t, runtime, "grant", "live-1", "--mcp", "literal-env")
+			code, stdout, stderr := runCLIWithRuntime(t, runtime, tc.args...)
 
 			// Assert
-			if code != 2 || !strings.Contains(stderr, "the CFO's act") || !strings.Contains(stderr, "blocked report") {
-				t.Errorf("exit = %d, stderr = %q, want it refused, naming whose act it is and how to ask", code, stderr)
-			}
-			if mcpCode != 2 || !strings.Contains(mcpStderr, "the CFO's act") {
-				t.Errorf("an MCP server: exit = %d, stderr = %q, want it refused the same way", mcpCode, mcpStderr)
+			if code != tc.code || !strings.Contains(stderr, tc.want) || stdout != "" {
+				t.Errorf("exit = %d, stdout = %q, stderr = %q, want exit %d naming %q and nothing done", code, stdout, stderr, tc.code, tc.want)
 			}
 			after, err := state.ReadTaskMeta(stateDir, "live-1")
 			if err != nil || strings.Join(after.Credentials, ",") != "stored" || len(after.MCPServers) != 0 {
 				t.Errorf("the record names %v and the MCP servers %v, %v, want it unchanged", after.Credentials, after.MCPServers, err)
 			}
+			if _, err := os.Stat(filepath.Join(live.TaskTmp, "auth.ps1")); !os.IsNotExist(err) {
+				t.Errorf("the refused revoke wrote the task's script: %v", err)
+			}
+			if log, _ := state.TailStatus(stateDir, "live-1", 10); len(log) != 0 || len(sent) != 0 {
+				t.Errorf("status log = %q, notices = %v, want nothing recorded or sent", log, sent)
+			}
 		})
+	}
+}
+
+// Revoking an MCP server is the same command with --mcp: the task's record no
+// longer names the server, so its next terminal is not given it. A harness
+// reads its servers when it starts, so the one running now keeps it, and the
+// output names the restart that ends it.
+func TestAuthRevokeMCPTakesAServerOutOfARunningTasksRecord(t *testing.T) {
+	// Arrange
+	t.Setenv(harness.RoleVariable, "")
+	t.Setenv(gateAgentVariable, "")
+	useFileStore(t)
+	root := t.TempDir()
+	stateDir := filepath.Join(root, "state")
+	project := filepath.Join(root, "precisiondocs")
+	declareCmdStored(t, stateDir, project, "FLY_API_TOKEN")
+	writeCmdTaskMeta(t, stateDir, "live-1", project, "pane-live", true)
+	if err := os.MkdirAll(project, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(project, ".mcp.json"), []byte(standInCmdMCP), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	var sent []string
+	runtime := refreshTestRuntime(t, stateDir, cmdPanes{live: map[string]bool{"pane-live": true}}, &sent)
+	if code, _, stderr := runCLIWithRuntime(t, runtime, "grant", "live-1", "--mcp", "literal-env", "plain"); code != 0 {
+		t.Fatalf("cfo auth grant --mcp = %d: %s", code, stderr)
+	}
+
+	// Act
+	code, stdout, stderr := runCLIWithRuntime(t, runtime, "revoke", "live-1", "--mcp", "literal-env")
+
+	// Assert
+	if code != 0 {
+		t.Fatalf("cfo auth revoke --mcp = %d: %s", code, stderr)
+	}
+	after, err := state.ReadTaskMeta(stateDir, "live-1")
+	if err != nil || strings.Join(after.MCPServers, ",") != "plain" || strings.Join(after.Credentials, ",") != "stored" {
+		t.Errorf("after the revoke the record names the MCP servers %v and the services %v, %v, want plain alone and nothing else changed", after.MCPServers, after.Credentials, err)
+	}
+	for _, want := range []string{"revoked the MCP servers literal-env from live-1. Its record names plain", "running now keeps", "`cfo switch live-1 --restart`"} {
+		if !strings.Contains(stdout, want) {
+			t.Errorf("stdout = %q, want %q", stdout, want)
+		}
+	}
+	log, err := state.TailStatus(stateDir, "live-1", 10)
+	if err != nil || !strings.Contains(strings.Join(log, "\n"), "credentials: the CFO revoked the MCP servers literal-env") {
+		t.Errorf("status log = %q, %v, want a record of the revoke", log, err)
+	}
+	if len(sent) != 0 {
+		t.Errorf("notices = %v, want none: a running harness drops no MCP server", sent)
+	}
+	for _, text := range []string{stdout, stderr, strings.Join(log, "\n")} {
+		if strings.Contains(text, "stand-in-mcp-env-value") {
+			t.Errorf("the revoke's words hold a value of the server's entry: %q", text)
+		}
 	}
 }
 
@@ -609,5 +798,41 @@ func TestAuthGrantMCPNamesAServerInARunningTasksRecord(t *testing.T) {
 		if strings.Contains(text, "stand-in-mcp-env-value") {
 			t.Errorf("the grant's words hold a value of the server's entry: %q", text)
 		}
+	}
+}
+
+// A credential pasted where a task id goes passes as an id, since an id may
+// hold letters, digits and underscores. The commands that name a task's
+// services refuse it without repeating it, as they refuse a service name
+// shaped like a value.
+func TestAuthTaskCommandsNeverRepeatATaskIDShapedLikeACredentialValue(t *testing.T) {
+	valueShaped := "sk_live_" + strings.Repeat("a1B2", 8)
+	for _, args := range [][]string{
+		{"grant", valueShaped, "stored"},
+		{"grant", valueShaped, "--mcp", "literal-env"},
+		{"revoke", valueShaped, "stored"},
+		{"revoke", valueShaped, "--mcp", "literal-env"},
+		{"refresh", valueShaped},
+	} {
+		t.Run(strings.TrimSpace(args[0]+" "+strings.Join(args[2:], " ")), func(t *testing.T) {
+			// Arrange
+			t.Setenv(harness.RoleVariable, "")
+			t.Setenv(gateAgentVariable, "")
+			useFileStore(t)
+			stateDir := filepath.Join(t.TempDir(), "state")
+			var sent []string
+			runtime := refreshTestRuntime(t, stateDir, cmdPanes{live: map[string]bool{}}, &sent)
+
+			// Act
+			code, stdout, stderr := runCLIWithRuntime(t, runtime, args...)
+
+			// Assert
+			if code != 2 || !strings.Contains(stderr, "the task id looks like a credential value") {
+				t.Errorf("exit = %d, stderr = %q, want it refused as shaped like a value", code, stderr)
+			}
+			if strings.Contains(stdout+stderr, valueShaped) {
+				t.Error("the refusal repeats a task id shaped like a credential value")
+			}
+		})
 	}
 }
